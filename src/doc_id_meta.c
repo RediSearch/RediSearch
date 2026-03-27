@@ -339,15 +339,17 @@ static DocIdEntry *findEntry(struct DocIdMeta *docIdMeta, uint64_t specId) {
 }
 
 // Create a new entry in the DocIdMeta hashmap.
-// specName/specNameLen must be valid (an owned copy is made).
+// specName must be valid (an owned copy is made).
 // Returns the newly created entry.
 static DocIdEntry *createEntry(struct DocIdMeta *docIdMeta,
                                uint64_t specId,
-                               const char *specName, size_t specNameLen) {
+                               const HiddenString *specName) {
+  size_t specNameLen;
+  const char *name = HiddenString_GetUnsafe(specName, &specNameLen);
   DocIdEntry *entry = rm_malloc(sizeof(DocIdEntry));
   entry->specId = specId;
   entry->docId = DOCID_META_INVALID;
-  entry->specName = rm_strndup(specName, specNameLen);
+  entry->specName = rm_strndup(name, specNameLen);
   entry->specNameLen = specNameLen;
   dictAdd(docIdMeta->entries, entry, entry);
   return entry;
@@ -356,7 +358,7 @@ static DocIdEntry *createEntry(struct DocIdMeta *docIdMeta,
 // Internal function that works with RedisModuleKey
 static int DocIdMeta_SetInternal(RedisModuleKey *key, uint64_t specId,
                                   uint64_t docId,
-                                  const char *specName, size_t specNameLen) {
+                                  const HiddenString *specName) {
   RS_ASSERT(docId != DOCID_META_INVALID);
   uint64_t meta = 0;
   struct DocIdMeta *docIdMeta = NULL;
@@ -382,7 +384,7 @@ static int DocIdMeta_SetInternal(RedisModuleKey *key, uint64_t specId,
   // Try to find existing entry first, otherwise create a new one
   DocIdEntry *entry = findEntry(docIdMeta, specId);
   if (!entry) {
-    entry = createEntry(docIdMeta, specId, specName, specNameLen);
+    entry = createEntry(docIdMeta, specId, specName);
   }
   entry->docId = docId;
   return REDISMODULE_OK;
@@ -426,15 +428,15 @@ static int DocIdMeta_SoftDeleteInternal(RedisModuleKey *key, uint64_t specId) {
 }
 
 // Set docId using key name and spec incarnation ID.
-// specName/specNameLen identify the index name (stored for O(1) lookup in specDict_g).
+// specName identifies the index name (stored for O(1) lookup in specDict_g).
 int DocIdMeta_Set(RedisModuleCtx *ctx, RedisModuleString *keyName,
                   uint64_t specId, uint64_t docId,
-                  const char *specName, size_t specNameLen) {
+                  const HiddenString *specName) {
   RedisModuleKey *key = RedisModule_OpenKey(ctx, keyName, REDISMODULE_READ | REDISMODULE_WRITE);
   if (!key) {
     return REDISMODULE_ERR;
   }
-  int result = DocIdMeta_SetInternal(key, specId, docId, specName, specNameLen);
+  int result = DocIdMeta_SetInternal(key, specId, docId, specName);
   RedisModule_CloseKey(key);
   return result;
 }

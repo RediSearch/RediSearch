@@ -10,6 +10,7 @@
 
 #include <stdbool.h>
 #include "redismodule.h"
+#include "obfuscation/hidden.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -25,12 +26,11 @@ void DocIdMeta_Init(RedisModuleCtx *ctx);
  * @param specId The unique incarnation ID of the index spec
  * @param docId The docId to set
  * @param specName The index spec name (stored for O(1) lookup in specDict_g)
- * @param specNameLen Length of specName
  * @return REDISMODULE_OK if the docId was set, REDISMODULE_ERR otherwise
 */
 int DocIdMeta_Set(RedisModuleCtx *ctx, RedisModuleString *keyName,
                   uint64_t specId, uint64_t docId,
-                  const char *specName, size_t specNameLen);
+                  const HiddenString *specName);
 
 /*
  * Get the docId for the given key and index spec.

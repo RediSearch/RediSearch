@@ -14,6 +14,7 @@
 #include "spec.h"
 #include "common.h"
 #include "index_utils.h"
+#include "obfuscation/hidden.h"
 
 
 class DocIdMetaTest : public ::testing::Test {
@@ -93,6 +94,11 @@ protected:
     createdSpecs.push_back(ism);
   }
 
+  // Helper: create a HiddenString from a const char*
+  static HiddenString *makeHiddenString(const char *name) {
+    return NewHiddenString(name, strlen(name), false);
+  }
+
   RedisModuleCtx *ctx;
   RedisModuleString *testKeyName;
   RedisModuleIO *rdbIO;
@@ -111,14 +117,17 @@ protected:
 
 TEST_F(DocIdMetaTest, TestSetAndGetDocId) {
   uint64_t docId = 12345;
+  HiddenString *hs = makeHiddenString(SPEC1_NAME);
 
-  int result = DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, docId, SPEC1_NAME, strlen(SPEC1_NAME));
+  int result = DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, docId, hs);
   EXPECT_EQ(result, REDISMODULE_OK);
 
   uint64_t retrievedDocId;
   result = DocIdMeta_Get(ctx, testKeyName, SPEC1_ID, &retrievedDocId);
   EXPECT_EQ(result, REDISMODULE_OK);
   EXPECT_EQ(retrievedDocId, docId);
+
+  HiddenString_Free(hs, false);
 }
 
 TEST_F(DocIdMetaTest, TestGetNonExistentDocId) {
@@ -132,10 +141,13 @@ TEST_F(DocIdMetaTest, TestSetMultipleDocIds) {
   uint64_t docId1 = 111;
   uint64_t docId2 = 222;
   uint64_t docId3 = 333;
+  HiddenString *hs1 = makeHiddenString(SPEC1_NAME);
+  HiddenString *hs2 = makeHiddenString(SPEC2_NAME);
+  HiddenString *hs3 = makeHiddenString(SPEC3_NAME);
 
-  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, docId1, SPEC1_NAME, strlen(SPEC1_NAME)), REDISMODULE_OK);
-  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC2_ID, docId2, SPEC2_NAME, strlen(SPEC2_NAME)), REDISMODULE_OK);
-  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC3_ID, docId3, SPEC3_NAME, strlen(SPEC3_NAME)), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, docId1, hs1), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC2_ID, docId2, hs2), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC3_ID, docId3, hs3), REDISMODULE_OK);
 
   uint64_t retrieved;
   EXPECT_EQ(DocIdMeta_Get(ctx, testKeyName, SPEC1_ID, &retrieved), REDISMODULE_OK);
@@ -149,30 +161,38 @@ TEST_F(DocIdMetaTest, TestSetMultipleDocIds) {
 
   // Test that unset specs return error
   EXPECT_EQ(DocIdMeta_Get(ctx, testKeyName, 999, &retrieved), REDISMODULE_ERR);
+
+  HiddenString_Free(hs1, false);
+  HiddenString_Free(hs2, false);
+  HiddenString_Free(hs3, false);
 }
 
 TEST_F(DocIdMetaTest, TestOverwriteDocId) {
   uint64_t originalDocId = 111;
   uint64_t newDocId = 222;
+  HiddenString *hs = makeHiddenString(SPEC1_NAME);
 
   // Set original value
-  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, originalDocId, SPEC1_NAME, strlen(SPEC1_NAME)), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, originalDocId, hs), REDISMODULE_OK);
 
   uint64_t retrieved;
   EXPECT_EQ(DocIdMeta_Get(ctx, testKeyName, SPEC1_ID, &retrieved), REDISMODULE_OK);
   EXPECT_EQ(retrieved, originalDocId);
 
   // Overwrite with new value
-  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, newDocId, SPEC1_NAME, strlen(SPEC1_NAME)), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, newDocId, hs), REDISMODULE_OK);
   EXPECT_EQ(DocIdMeta_Get(ctx, testKeyName, SPEC1_ID, &retrieved), REDISMODULE_OK);
   EXPECT_EQ(retrieved, newDocId);
+
+  HiddenString_Free(hs, false);
 }
 
 TEST_F(DocIdMetaTest, TestSoftDeleteDocId) {
   uint64_t docId = 555;
+  HiddenString *hs = makeHiddenString(SPEC1_NAME);
 
   // Set a value first
-  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, docId, SPEC1_NAME, strlen(SPEC1_NAME)), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, docId, hs), REDISMODULE_OK);
 
   uint64_t retrieved;
   EXPECT_EQ(DocIdMeta_Get(ctx, testKeyName, SPEC1_ID, &retrieved), REDISMODULE_OK);
@@ -185,6 +205,8 @@ TEST_F(DocIdMetaTest, TestSoftDeleteDocId) {
   // Should now return error when trying to get
   result = DocIdMeta_Get(ctx, testKeyName, SPEC1_ID, &retrieved);
   EXPECT_EQ(result, REDISMODULE_ERR);
+
+  HiddenString_Free(hs, false);
 }
 
 TEST_F(DocIdMetaTest, TestSoftDeleteNonExistentDocId) {
@@ -199,6 +221,7 @@ TEST_F(DocIdMetaTest, TestMultipleKeys) {
   RedisModuleString *keyName2 = RedisModule_CreateString(ctx, "testkey2", 8);
   RedisModuleString *fieldName = RedisModule_CreateString(ctx, "field", 5);
   RedisModuleString *fieldValue = RedisModule_CreateString(ctx, "value", 5);
+  HiddenString *hs = makeHiddenString(SPEC1_NAME);
 
   // Create the keys in the database with actual values
   RedisModuleKey *key1 = RedisModule_OpenKey(ctx, keyName1, REDISMODULE_WRITE);
@@ -216,8 +239,8 @@ TEST_F(DocIdMetaTest, TestMultipleKeys) {
   uint64_t docId2 = 222;
 
   // Set different values for the same spec on different keys
-  EXPECT_EQ(DocIdMeta_Set(ctx, keyName1, SPEC1_ID, docId1, SPEC1_NAME, strlen(SPEC1_NAME)), REDISMODULE_OK);
-  EXPECT_EQ(DocIdMeta_Set(ctx, keyName2, SPEC1_ID, docId2, SPEC1_NAME, strlen(SPEC1_NAME)), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, keyName1, SPEC1_ID, docId1, hs), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, keyName2, SPEC1_ID, docId2, hs), REDISMODULE_OK);
 
   // Verify they're independent
   uint64_t retrieved;
@@ -227,6 +250,7 @@ TEST_F(DocIdMetaTest, TestMultipleKeys) {
   EXPECT_EQ(DocIdMeta_Get(ctx, keyName2, SPEC1_ID, &retrieved), REDISMODULE_OK);
   EXPECT_EQ(retrieved, docId2);
 
+  HiddenString_Free(hs, false);
   RedisModule_FreeString(ctx, keyName1);
   RedisModule_FreeString(ctx, keyName2);
 }
@@ -234,7 +258,9 @@ TEST_F(DocIdMetaTest, TestMultipleKeys) {
 TEST_F(DocIdMetaTest, TestEdgeCases) {
   // Test with docId = 1 (minimum valid docId since 0 is DOCID_META_INVALID)
   uint64_t minValidDocId = 1;
-  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, minValidDocId, SPEC1_NAME, strlen(SPEC1_NAME)), REDISMODULE_OK);
+  HiddenString *hs1 = makeHiddenString(SPEC1_NAME);
+  HiddenString *hs2 = makeHiddenString(SPEC2_NAME);
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, minValidDocId, hs1), REDISMODULE_OK);
 
   uint64_t retrieved;
   EXPECT_EQ(DocIdMeta_Get(ctx, testKeyName, SPEC1_ID, &retrieved), REDISMODULE_OK);
@@ -242,9 +268,12 @@ TEST_F(DocIdMetaTest, TestEdgeCases) {
 
   // Test with maximum uint64_t value
   uint64_t maxDocId = UINT64_MAX;
-  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC2_ID, maxDocId, SPEC2_NAME, strlen(SPEC2_NAME)), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC2_ID, maxDocId, hs2), REDISMODULE_OK);
   EXPECT_EQ(DocIdMeta_Get(ctx, testKeyName, SPEC2_ID, &retrieved), REDISMODULE_OK);
   EXPECT_EQ(retrieved, maxDocId);
+
+  HiddenString_Free(hs1, false);
+  HiddenString_Free(hs2, false);
 }
 
 TEST_F(DocIdMetaTest, TestSoftDeleteAndReget) {
@@ -254,13 +283,16 @@ TEST_F(DocIdMetaTest, TestSoftDeleteAndReget) {
 
   // Set a valid docId and then soft-delete it to test soft-deletion behavior
   uint64_t validDocId = 42;
-  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, validDocId, SPEC1_NAME, strlen(SPEC1_NAME)), REDISMODULE_OK);
+  HiddenString *hs = makeHiddenString(SPEC1_NAME);
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, validDocId, hs), REDISMODULE_OK);
   EXPECT_EQ(DocIdMeta_Get(ctx, testKeyName, SPEC1_ID, &retrieved), REDISMODULE_OK);
   EXPECT_EQ(retrieved, validDocId);
 
   // Soft-delete it and verify it's gone (should return ERR like uninitialized)
   EXPECT_EQ(DocIdMeta_SoftDelete(ctx, testKeyName, SPEC1_ID), REDISMODULE_OK);
   EXPECT_EQ(DocIdMeta_Get(ctx, testKeyName, SPEC1_ID, &retrieved), REDISMODULE_ERR);
+
+  HiddenString_Free(hs, false);
 }
 
 // Simple test to check if basic setup works
@@ -281,10 +313,17 @@ TEST_F(DocIdMetaTest, TestBasicRdbSaveLoad) {
   uint64_t docId1 = 12345;
   uint64_t docId2 = 67890;
   uint64_t docId3 = 11111;
+  HiddenString *hs1 = makeHiddenString(SPEC1_NAME);
+  HiddenString *hs2 = makeHiddenString(SPEC2_NAME);
+  HiddenString *hs3 = makeHiddenString(SPEC3_NAME);
 
-  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, docId1, SPEC1_NAME, strlen(SPEC1_NAME)), REDISMODULE_OK);
-  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC2_ID, docId2, SPEC2_NAME, strlen(SPEC2_NAME)), REDISMODULE_OK);
-  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC3_ID, docId3, SPEC3_NAME, strlen(SPEC3_NAME)), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, docId1, hs1), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC2_ID, docId2, hs2), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC3_ID, docId3, hs3), REDISMODULE_OK);
+
+  HiddenString_Free(hs1, false);
+  HiddenString_Free(hs2, false);
+  HiddenString_Free(hs3, false);
 
   // Get the metadata for RDB save
   RedisModuleKey *testKey = RedisModule_OpenKey(ctx, testKeyName, REDISMODULE_READ);
@@ -367,7 +406,9 @@ TEST_F(DocIdMetaTest, TestMultipleSpecsRdbSaveLoad) {
 
   // Set all the docIds
   for (const auto& spec : specs) {
-    EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, spec.specId, spec.docId, spec.specName, strlen(spec.specName)), REDISMODULE_OK);
+    HiddenString *hs = makeHiddenString(spec.specName);
+    EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, spec.specId, spec.docId, hs), REDISMODULE_OK);
+    HiddenString_Free(hs, false);
   }
 
   // Get the metadata for RDB save
@@ -424,9 +465,14 @@ TEST_F(DocIdMetaTest, TestMaxValueRdbSaveLoad) {
   // Test with maximum uint64_t values
   uint64_t maxDocId = UINT64_MAX;
   uint64_t minValidDocId = 1;
+  HiddenString *hs1 = makeHiddenString(SPEC1_NAME);
+  HiddenString *hs2 = makeHiddenString(SPEC2_NAME);
 
-  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, maxDocId, SPEC1_NAME, strlen(SPEC1_NAME)), REDISMODULE_OK);
-  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC2_ID, minValidDocId, SPEC2_NAME, strlen(SPEC2_NAME)), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, maxDocId, hs1), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC2_ID, minValidDocId, hs2), REDISMODULE_OK);
+
+  HiddenString_Free(hs1, false);
+  HiddenString_Free(hs2, false);
 
   // Get the metadata for RDB save
   RedisModuleKey *testKey = RedisModule_OpenKey(ctx, testKeyName, REDISMODULE_READ);
@@ -477,8 +523,10 @@ TEST_F(DocIdMetaTest, TestSingleElementRdbSaveLoad) {
 
   // Test with just one spec
   uint64_t singleDocId = 99999;
+  HiddenString *hs = makeHiddenString(SPEC1_NAME);
 
-  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, singleDocId, SPEC1_NAME, strlen(SPEC1_NAME)), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, singleDocId, hs), REDISMODULE_OK);
+  HiddenString_Free(hs, false);
 
   // Get the metadata for RDB save
   RedisModuleKey *testKey = RedisModule_OpenKey(ctx, testKeyName, REDISMODULE_READ);
@@ -534,11 +582,18 @@ TEST_F(DocIdMetaTest, TestRdbLoadSkipsRemovedSpecEntries) {
   addTestSpec("spec1", SPEC1_ID);
   addTestSpec("spec2", SPEC2_ID);
   addTestSpec("spec3", SPEC3_ID);
+  HiddenString *hs1 = makeHiddenString(SPEC1_NAME);
+  HiddenString *hs2 = makeHiddenString(SPEC2_NAME);
+  HiddenString *hs3 = makeHiddenString(SPEC3_NAME);
 
   // Set up docId metadata for 3 specs on a key
-  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, 1001, SPEC1_NAME, strlen(SPEC1_NAME)), REDISMODULE_OK);
-  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC2_ID, 2002, SPEC2_NAME, strlen(SPEC2_NAME)), REDISMODULE_OK);
-  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC3_ID, 3003, SPEC3_NAME, strlen(SPEC3_NAME)), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, 1001, hs1), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC2_ID, 2002, hs2), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC3_ID, 3003, hs3), REDISMODULE_OK);
+
+  HiddenString_Free(hs1, false);
+  HiddenString_Free(hs2, false);
+  HiddenString_Free(hs3, false);
 
   // Get the metadata and save to RDB (all 3 specs are still live)
   RedisModuleKey *testKey = RedisModule_OpenKey(ctx, testKeyName, REDISMODULE_READ);
@@ -589,11 +644,18 @@ TEST_F(DocIdMetaTest, TestRdbSaveSkipsRemovedSpecEntries) {
   // Create only SPEC1 and SPEC3 in specDict_g (SPEC2 is "dropped")
   addTestSpec("spec1", SPEC1_ID);
   addTestSpec("spec3", SPEC3_ID);
+  HiddenString *hs1 = makeHiddenString(SPEC1_NAME);
+  HiddenString *hs2 = makeHiddenString(SPEC2_NAME);
+  HiddenString *hs3 = makeHiddenString(SPEC3_NAME);
 
   // Set up docId metadata for 3 specs on a key
-  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, 1001, SPEC1_NAME, strlen(SPEC1_NAME)), REDISMODULE_OK);
-  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC2_ID, 2002, SPEC2_NAME, strlen(SPEC2_NAME)), REDISMODULE_OK);
-  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC3_ID, 3003, SPEC3_NAME, strlen(SPEC3_NAME)), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, 1001, hs1), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC2_ID, 2002, hs2), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC3_ID, 3003, hs3), REDISMODULE_OK);
+
+  HiddenString_Free(hs1, false);
+  HiddenString_Free(hs2, false);
+  HiddenString_Free(hs3, false);
 
   // Get the metadata and save to RDB — should skip SPEC2_ID (not in specDict_g)
   RedisModuleKey *testKey = RedisModule_OpenKey(ctx, testKeyName, REDISMODULE_READ);
@@ -638,9 +700,11 @@ TEST_F(DocIdMetaTest, TestRdbSaveSkipsRemovedSpecEntries) {
 
 TEST_F(DocIdMetaTest, TestRdbSaveAllRemoved_SavesNothing) {
   // No specs in specDict_g — all entries are considered stale
+  HiddenString *hs = makeHiddenString(SPEC1_NAME);
 
   // Set up docId metadata for a single spec
-  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, 1001, SPEC1_NAME, strlen(SPEC1_NAME)), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, 1001, hs), REDISMODULE_OK);
+  HiddenString_Free(hs, false);
 
   // Get the metadata and save to RDB — all entries are stale, should save nothing
   RedisModuleKey *testKey = RedisModule_OpenKey(ctx, testKeyName, REDISMODULE_READ);
@@ -662,11 +726,18 @@ TEST_F(DocIdMetaTest, TestRdbSaveSkipsSoftDeletedEntries) {
   addTestSpec("spec1", SPEC1_ID);
   addTestSpec("spec2", SPEC2_ID);
   addTestSpec("spec3", SPEC3_ID);
+  HiddenString *hs1 = makeHiddenString(SPEC1_NAME);
+  HiddenString *hs2 = makeHiddenString(SPEC2_NAME);
+  HiddenString *hs3 = makeHiddenString(SPEC3_NAME);
 
   // Set up docId metadata for 3 specs
-  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, 1001, SPEC1_NAME, strlen(SPEC1_NAME)), REDISMODULE_OK);
-  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC2_ID, 2002, SPEC2_NAME, strlen(SPEC2_NAME)), REDISMODULE_OK);
-  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC3_ID, 3003, SPEC3_NAME, strlen(SPEC3_NAME)), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, 1001, hs1), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC2_ID, 2002, hs2), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC3_ID, 3003, hs3), REDISMODULE_OK);
+
+  HiddenString_Free(hs1, false);
+  HiddenString_Free(hs2, false);
+  HiddenString_Free(hs3, false);
 
   // Soft-delete SPEC2's entry (invalidates docId but keeps entry in hashmap)
   EXPECT_EQ(DocIdMeta_SoftDelete(ctx, testKeyName, SPEC2_ID), REDISMODULE_OK);
@@ -735,10 +806,15 @@ TEST_F(DocIdMetaTest, TestUnlinkWithEmptyMeta) {
 TEST_F(DocIdMetaTest, TestUnlinkInvalidatesEntries) {
   // Don't add specs to specDict_g - this tests entry invalidation without triggering
   // IndexSpec_DeleteDocById (which requires disk-based indexes)
+  HiddenString *hs1 = makeHiddenString(SPEC1_NAME);
+  HiddenString *hs2 = makeHiddenString(SPEC2_NAME);
 
   // Set up docId metadata for 2 specs
-  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, 1001, SPEC1_NAME, strlen(SPEC1_NAME)), REDISMODULE_OK);
-  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC2_ID, 2002, SPEC2_NAME, strlen(SPEC2_NAME)), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, 1001, hs1), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC2_ID, 2002, hs2), REDISMODULE_OK);
+
+  HiddenString_Free(hs1, false);
+  HiddenString_Free(hs2, false);
 
   // Verify entries exist
   uint64_t retrieved;
@@ -765,10 +841,15 @@ TEST_F(DocIdMetaTest, TestUnlinkInvalidatesEntries) {
 
 TEST_F(DocIdMetaTest, TestUnlinkSkipsSoftDeletedEntries) {
   // Don't add specs to specDict_g
+  HiddenString *hs1 = makeHiddenString(SPEC1_NAME);
+  HiddenString *hs2 = makeHiddenString(SPEC2_NAME);
 
   // Set up docId metadata for 2 specs
-  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, 1001, SPEC1_NAME, strlen(SPEC1_NAME)), REDISMODULE_OK);
-  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC2_ID, 2002, SPEC2_NAME, strlen(SPEC2_NAME)), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, 1001, hs1), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC2_ID, 2002, hs2), REDISMODULE_OK);
+
+  HiddenString_Free(hs1, false);
+  HiddenString_Free(hs2, false);
 
   // Soft-delete SPEC1's entry
   EXPECT_EQ(DocIdMeta_SoftDelete(ctx, testKeyName, SPEC1_ID), REDISMODULE_OK);

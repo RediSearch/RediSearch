@@ -231,9 +231,7 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
       if (!failure) {
         cur->doc->docId = docId;
         // Store docId in key metadata for fast lookup
-        size_t specNameLen;
-        const char *specName = HiddenString_GetUnsafe(spec->specName, &specNameLen);
-        int rc = DocIdMeta_Set(ctx->redisCtx, cur->doc->docKey, spec->specId, docId, specName, specNameLen);
+        int rc = DocIdMeta_Set(ctx->redisCtx, cur->doc->docKey, spec->specId, docId, spec->specName);
         failure = rc != REDISMODULE_OK;
         RS_ASSERT(!failure); // In Debug raise
 
