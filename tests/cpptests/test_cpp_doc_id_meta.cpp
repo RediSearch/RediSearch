@@ -168,7 +168,7 @@ TEST_F(DocIdMetaTest, TestOverwriteDocId) {
   EXPECT_EQ(retrieved, newDocId);
 }
 
-TEST_F(DocIdMetaTest, TestDeleteDocId) {
+TEST_F(DocIdMetaTest, TestSoftDeleteDocId) {
   uint64_t docId = 555;
 
   // Set a value first
@@ -178,8 +178,8 @@ TEST_F(DocIdMetaTest, TestDeleteDocId) {
   EXPECT_EQ(DocIdMeta_Get(ctx, testKeyName, SPEC1_ID, &retrieved), REDISMODULE_OK);
   EXPECT_EQ(retrieved, docId);
 
-  // Delete the value
-  int result = DocIdMeta_Delete(ctx, testKeyName, SPEC1_ID);
+  // Soft-delete the value (invalidates but keeps entry for reuse)
+  int result = DocIdMeta_SoftDelete(ctx, testKeyName, SPEC1_ID);
   EXPECT_EQ(result, REDISMODULE_OK);
 
   // Should now return error when trying to get
@@ -187,9 +187,9 @@ TEST_F(DocIdMetaTest, TestDeleteDocId) {
   EXPECT_EQ(result, REDISMODULE_ERR);
 }
 
-TEST_F(DocIdMetaTest, TestDeleteNonExistentDocId) {
-  // Try to delete a docId that doesn't exist
-  int result = DocIdMeta_Delete(ctx, testKeyName, 999);
+TEST_F(DocIdMetaTest, TestSoftDeleteNonExistentDocId) {
+  // Try to soft-delete a docId that doesn't exist
+  int result = DocIdMeta_SoftDelete(ctx, testKeyName, 999);
   EXPECT_EQ(result, REDISMODULE_ERR);
 }
 
@@ -247,19 +247,19 @@ TEST_F(DocIdMetaTest, TestEdgeCases) {
   EXPECT_EQ(retrieved, maxDocId);
 }
 
-TEST_F(DocIdMetaTest, TestDeleteAndReget) {
+TEST_F(DocIdMetaTest, TestSoftDeleteAndReget) {
   // Test that getting from an unset spec returns ERR
   uint64_t retrieved;
   EXPECT_EQ(DocIdMeta_Get(ctx, testKeyName, SPEC1_ID, &retrieved), REDISMODULE_ERR);
 
-  // Set a valid docId and then delete it to test deletion behavior
+  // Set a valid docId and then soft-delete it to test soft-deletion behavior
   uint64_t validDocId = 42;
   EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, validDocId, SPEC1_NAME, strlen(SPEC1_NAME)), REDISMODULE_OK);
   EXPECT_EQ(DocIdMeta_Get(ctx, testKeyName, SPEC1_ID, &retrieved), REDISMODULE_OK);
   EXPECT_EQ(retrieved, validDocId);
 
-  // Delete it and verify it's gone (should return ERR like uninitialized)
-  EXPECT_EQ(DocIdMeta_Delete(ctx, testKeyName, SPEC1_ID), REDISMODULE_OK);
+  // Soft-delete it and verify it's gone (should return ERR like uninitialized)
+  EXPECT_EQ(DocIdMeta_SoftDelete(ctx, testKeyName, SPEC1_ID), REDISMODULE_OK);
   EXPECT_EQ(DocIdMeta_Get(ctx, testKeyName, SPEC1_ID, &retrieved), REDISMODULE_ERR);
 }
 
@@ -655,4 +655,62 @@ TEST_F(DocIdMetaTest, TestRdbSaveAllRemoved_SavesNothing) {
   // The RDB buffer should have nothing to load (save returned early after
   // finding 0 valid entries). Since nothing was written, we can't call
   // docIdMetaRDBLoad — just verify no crash.
+}
+
+TEST_F(DocIdMetaTest, TestRdbSaveSkipsSoftDeletedEntries) {
+  // Create all 3 specs in specDict_g
+  addTestSpec("spec1", SPEC1_ID);
+  addTestSpec("spec2", SPEC2_ID);
+  addTestSpec("spec3", SPEC3_ID);
+
+  // Set up docId metadata for 3 specs
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, 1001, SPEC1_NAME, strlen(SPEC1_NAME)), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC2_ID, 2002, SPEC2_NAME, strlen(SPEC2_NAME)), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC3_ID, 3003, SPEC3_NAME, strlen(SPEC3_NAME)), REDISMODULE_OK);
+
+  // Soft-delete SPEC2's entry (invalidates docId but keeps entry in hashmap)
+  EXPECT_EQ(DocIdMeta_SoftDelete(ctx, testKeyName, SPEC2_ID), REDISMODULE_OK);
+
+  // Verify SPEC2 is no longer retrievable
+  uint64_t retrieved;
+  EXPECT_EQ(DocIdMeta_Get(ctx, testKeyName, SPEC2_ID, &retrieved), REDISMODULE_ERR);
+
+  // Get the metadata and save to RDB — should skip SPEC2 (soft-deleted)
+  RedisModuleKey *testKey = RedisModule_OpenKey(ctx, testKeyName, REDISMODULE_READ);
+  uint64_t meta = 0;
+  EXPECT_EQ(RedisModule_GetKeyMeta(DocIdMeta_GetClassId(), testKey, &meta), REDISMODULE_OK);
+  EXPECT_NE(meta, 0);
+  RedisModule_CloseKey(testKey);
+
+  docIdMetaRDBSave(rdbIO, nullptr, &meta);
+  EXPECT_EQ(RMCK_IsIOError(rdbIO), 0);
+
+  // Load from RDB — should only have SPEC1 and SPEC3
+  rdbIO->read_pos = 0;
+  uint64_t loadedMeta = 0;
+  int result = docIdMetaRDBLoad(rdbIO, &loadedMeta, 1);
+  EXPECT_EQ(result, REDISMODULE_OK);
+  EXPECT_NE(loadedMeta, 0);
+
+  // Create a new key and attach the loaded metadata
+  RedisModuleString *newKeyName = RedisModule_CreateString(ctx, "softdelkey", 10);
+  RedisModuleKey *newKey = RedisModule_OpenKey(ctx, newKeyName, REDISMODULE_WRITE);
+  RedisModuleString *fieldName = RedisModule_CreateString(ctx, "field", 5);
+  RedisModuleString *fieldValue = RedisModule_CreateString(ctx, "value", 5);
+  RedisModule_HashSet(newKey, REDISMODULE_HASH_NONE, fieldName, fieldValue, NULL);
+  RedisModule_FreeString(ctx, fieldName);
+  RedisModule_FreeString(ctx, fieldValue);
+  EXPECT_EQ(RedisModule_SetKeyMeta(DocIdMeta_GetClassId(), newKey, loadedMeta), REDISMODULE_OK);
+  RedisModule_CloseKey(newKey);
+
+  // SPEC1 and SPEC3 should be present, SPEC2 should be gone (was soft-deleted)
+  EXPECT_EQ(DocIdMeta_Get(ctx, newKeyName, SPEC1_ID, &retrieved), REDISMODULE_OK);
+  EXPECT_EQ(retrieved, 1001);
+
+  EXPECT_EQ(DocIdMeta_Get(ctx, newKeyName, SPEC2_ID, &retrieved), REDISMODULE_ERR);
+
+  EXPECT_EQ(DocIdMeta_Get(ctx, newKeyName, SPEC3_ID, &retrieved), REDISMODULE_OK);
+  EXPECT_EQ(retrieved, 3003);
+
+  RedisModule_FreeString(ctx, newKeyName);
 }

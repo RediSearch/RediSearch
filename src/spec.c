@@ -4218,7 +4218,7 @@ void Indexes_ReplaceMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStri
         uint64_t docId;
         if (DocIdMeta_Get(ctx, to_key, spec->specId, &docId) == REDISMODULE_OK) {
           IndexSpec_DeleteDocById(spec, (t_docId)docId);
-          DocIdMeta_Delete(ctx, to_key, spec->specId);
+          DocIdMeta_SoftDelete(ctx, to_key, spec->specId);
         }
       } else {
         // For RAM case, look up by old key name and delete

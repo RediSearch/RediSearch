@@ -44,14 +44,17 @@ int DocIdMeta_Get(RedisModuleCtx *ctx, RedisModuleString *keyName,
                   uint64_t specId, uint64_t *docId);
 
 /*
- * Delete the docId for the given key and index spec.
+ * Soft-delete the docId for the given key and index spec.
+ * This invalidates the docId by setting it to DOCID_META_INVALID, but keeps
+ * the entry in the hashmap. This allows efficient reuse if the same key is
+ * re-indexed to the same spec (DocIdMeta_Set will reuse the existing entry).
  * @param ctx The Redis module context
- * @param keyName The key name to delete the docId for
+ * @param keyName The key name to soft-delete the docId for
  * @param specId The unique incarnation ID of the index spec
- * @return REDISMODULE_OK if the docId was found and deleted, REDISMODULE_ERR otherwise
+ * @return REDISMODULE_OK if the docId was found and invalidated, REDISMODULE_ERR otherwise
 */
-int DocIdMeta_Delete(RedisModuleCtx *ctx, RedisModuleString *keyName,
-                     uint64_t specId);
+int DocIdMeta_SoftDelete(RedisModuleCtx *ctx, RedisModuleString *keyName,
+                         uint64_t specId);
 
 // Subscribe to persistence events to disable RDB save/load during BGSAVE/AOF rewrite.
 void DocIdMeta_SubscribePersistenceEvent(RedisModuleCtx *ctx);
