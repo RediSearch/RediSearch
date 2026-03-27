@@ -230,8 +230,6 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
 
       if (!failure) {
         cur->doc->docId = docId;
-        spec->stats.scoring.totalDocsLen += cur->fwIdx->totalFreq;
-        ++spec->stats.scoring.numDocuments;
         // Store docId in key metadata for fast lookup
         size_t specNameLen;
         const char *specName = HiddenString_GetUnsafe(spec->specName, &specNameLen);
@@ -242,6 +240,9 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
         if (failure) {
           uint32_t docLen = 0;
           SearchDisk_DeleteDocumentById(spec->diskSpec, docId, &docLen);
+        } else {
+          spec->stats.scoring.totalDocsLen += cur->fwIdx->totalFreq;
+          ++spec->stats.scoring.numDocuments;
         }
       }
 
