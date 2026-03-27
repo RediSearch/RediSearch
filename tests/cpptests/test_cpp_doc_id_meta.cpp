@@ -70,6 +70,8 @@ protected:
       RedisModule_FreeThreadSafeContext(ctx);
       ctx = NULL;
     }
+
+    RMCK_Shutdown();
   }
 
   // Helper: creates a spec in specDict_g with the given name and specId.
