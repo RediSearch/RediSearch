@@ -11,7 +11,7 @@ use crate::util::expect_value;
 use ffi::RedisModuleString;
 use libc::{c_char, size_t};
 use std::ffi::c_double;
-use value::RsValue;
+use value::Value;
 
 /// Gets the numeric value from an [`RsValue`].
 ///
@@ -23,11 +23,11 @@ use value::RsValue;
 ///
 /// 1. `value` must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RSValue_Number_Get(value: *const RsValue) -> c_double {
+pub unsafe extern "C" fn RSValue_Number_Get(value: *const Value) -> c_double {
     // Safety: ensured by caller (1.)
     let value = unsafe { expect_value(value) };
 
-    if let RsValue::Number(number) = value {
+    if let Value::Number(number) = value {
         *number
     } else {
         panic!("Expected a number value")
@@ -44,11 +44,11 @@ pub unsafe extern "C" fn RSValue_Number_Get(value: *const RsValue) -> c_double {
 ///
 /// 1. `value` must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RSValue_Trio_GetLeft(value: *const RsValue) -> *const RsValue {
+pub unsafe extern "C" fn RSValue_Trio_GetLeft(value: *const Value) -> *const Value {
     // Safety: ensured by caller (1.)
     let value = unsafe { expect_value(value) };
 
-    if let RsValue::Trio(trio) = value {
+    if let Value::Trio(trio) = value {
         trio.left().as_ptr()
     } else {
         panic!("Expected a trio value")
@@ -65,11 +65,11 @@ pub unsafe extern "C" fn RSValue_Trio_GetLeft(value: *const RsValue) -> *const R
 ///
 /// 1. `value` must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RSValue_Trio_GetMiddle(value: *const RsValue) -> *const RsValue {
+pub unsafe extern "C" fn RSValue_Trio_GetMiddle(value: *const Value) -> *const Value {
     // Safety: ensured by caller (1.)
     let value = unsafe { expect_value(value) };
 
-    if let RsValue::Trio(trio) = value {
+    if let Value::Trio(trio) = value {
         trio.middle().as_ptr()
     } else {
         panic!("Expected a trio value")
@@ -86,11 +86,11 @@ pub unsafe extern "C" fn RSValue_Trio_GetMiddle(value: *const RsValue) -> *const
 ///
 /// 1. `value` must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RSValue_Trio_GetRight(value: *const RsValue) -> *const RsValue {
+pub unsafe extern "C" fn RSValue_Trio_GetRight(value: *const Value) -> *const Value {
     // Safety: ensured by caller (1.)
     let value = unsafe { expect_value(value) };
 
-    if let RsValue::Trio(trio) = value {
+    if let Value::Trio(trio) = value {
         trio.right().as_ptr()
     } else {
         panic!("Expected a trio value")
@@ -114,13 +114,13 @@ pub unsafe extern "C" fn RSValue_Trio_GetRight(value: *const RsValue) -> *const 
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RSValue_String_Get(
-    value: *const RsValue,
+    value: *const Value,
     lenp: *mut u32,
 ) -> *const c_char {
     // Safety: ensured by caller (1.)
     let value = unsafe { expect_value(value) };
 
-    let RsValue::String(str) = value else {
+    let Value::String(str) = value else {
         panic!("Expected 'String' type");
     };
 
@@ -147,12 +147,12 @@ pub unsafe extern "C" fn RSValue_String_Get(
 /// 1. `value` must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RSValue_RedisString_Get(
-    value: *const RsValue,
+    value: *const Value,
 ) -> *const RedisModuleString {
     // Safety: ensured by caller (1.)
     let value = unsafe { expect_value(value) };
 
-    let RsValue::RedisString(str) = value else {
+    let Value::RedisString(str) = value else {
         panic!("Expected 'RedisString' type")
     };
 
@@ -176,7 +176,7 @@ pub unsafe extern "C" fn RSValue_RedisString_Get(
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RSValue_StringPtrLen(
-    value: *const RsValue,
+    value: *const Value,
     len_ptr: *mut size_t,
 ) -> *const c_char {
     // Safety: ensured by caller (1.)
@@ -185,11 +185,11 @@ pub unsafe extern "C" fn RSValue_StringPtrLen(
     let value = value.fully_dereferenced_ref_and_trio();
 
     let (ptr, len) = match value {
-        RsValue::String(str) => {
+        Value::String(str) => {
             let (ptr, len) = str.as_ptr_len();
             (ptr, len as usize)
         }
-        RsValue::RedisString(str) => str.as_ptr_len(),
+        Value::RedisString(str) => str.as_ptr_len(),
         _ => return std::ptr::null(),
     };
 

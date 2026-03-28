@@ -9,7 +9,7 @@
 
 use ffi::sds;
 use std::io::Write;
-use value::RsValue;
+use value::Value;
 use value::sds_writer::SdsWriter;
 
 /// Writes the debug representation of an [`RsValue`] into an SDS string.
@@ -25,7 +25,7 @@ use value::sds_writer::SdsWriter;
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RSValue_DumpSds(value: *const RsValue, sds: sds, obfuscate: bool) -> sds {
+pub unsafe extern "C" fn RSValue_DumpSds(value: *const Value, sds: sds, obfuscate: bool) -> sds {
     // SAFETY: `sds` is a valid SDS string, guaranteed by the caller.
     let mut writer = unsafe { SdsWriter::new(sds) };
 

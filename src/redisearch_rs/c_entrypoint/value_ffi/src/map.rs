@@ -10,13 +10,13 @@
 use crate::util::expect_value;
 use libc::size_t;
 use std::mem::MaybeUninit;
-use value::{Map, RsValue, SharedRsValue};
+use value::{Map, SharedValue, Value};
 
 /// Opaque map structure used during map construction.
 /// Holds uninitialized entries that are populated via [`RSValue_MapBuilderSetEntry`]
 /// before being finalized into an [`RsValue::Map`] via [`RSValue_NewMapFromBuilder`].
-pub struct RSValueMapBuilder {
-    entries: Box<[MaybeUninit<(*mut RsValue, *mut RsValue)>]>,
+pub struct ValueMapBuilder {
+    entries: Box<[MaybeUninit<(*mut Value, *mut Value)>]>,
 }
 
 /// Allocates a new, uninitialized [`RSValueMapBuilder`] with space for `len` entries.
@@ -29,10 +29,10 @@ pub struct RSValueMapBuilder {
 /// 1. All entries must be initialized via [`RSValue_MapBuilderSetEntry`] before
 ///    passing the map to [`RSValue_NewMapFromBuilder`].
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RSValue_NewMapBuilder(len: u32) -> *mut RSValueMapBuilder {
+pub unsafe extern "C" fn RSValue_NewMapBuilder(len: u32) -> *mut ValueMapBuilder {
     let entries = vec![MaybeUninit::uninit(); len as usize];
 
-    Box::into_raw(Box::new(RSValueMapBuilder {
+    Box::into_raw(Box::new(ValueMapBuilder {
         entries: entries.into(),
     }))
 }
@@ -52,10 +52,10 @@ pub unsafe extern "C" fn RSValue_NewMapBuilder(len: u32) -> *mut RSValueMapBuild
 /// Panics if `index` is greater than or equal to the map length.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RSValue_MapBuilderSetEntry(
-    map: *mut RSValueMapBuilder,
+    map: *mut ValueMapBuilder,
     index: size_t,
-    key: *mut RsValue,
-    value: *mut RsValue,
+    key: *mut Value,
+    value: *mut Value,
 ) {
     // Safety: ensured by caller (1.)
     let map = unsafe { map.as_mut().expect("map should not be null") };
@@ -75,7 +75,7 @@ pub unsafe extern "C" fn RSValue_MapBuilderSetEntry(
 ///    [`RSValue_NewMapBuilder`].
 /// 2. All entries in the map must have been initialized via [`RSValue_MapBuilderSetEntry`].
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RSValue_NewMapFromBuilder(map: *mut RSValueMapBuilder) -> *mut RsValue {
+pub unsafe extern "C" fn RSValue_NewMapFromBuilder(map: *mut ValueMapBuilder) -> *mut Value {
     // Safety: ensured by caller (1.)
     let map = unsafe { Box::from_raw(map) };
 
@@ -86,15 +86,15 @@ pub unsafe extern "C" fn RSValue_NewMapFromBuilder(map: *mut RSValueMapBuilder) 
             // Safety: ensured by caller (2.)
             let (key, value) = unsafe { entry.assume_init() };
             // Safety: ensured by caller (2.)
-            let key = unsafe { SharedRsValue::from_raw(key) };
+            let key = unsafe { SharedValue::from_raw(key) };
             // Safety: ensured by caller (2.)
-            let value = unsafe { SharedRsValue::from_raw(value) };
+            let value = unsafe { SharedValue::from_raw(value) };
             (key, value)
         })
         .collect();
 
-    let value = RsValue::Map(Map::new(map));
-    let shared = SharedRsValue::new(value);
+    let value = Value::Map(Map::new(map));
+    let shared = SharedValue::new(value);
     shared.into_raw().cast_mut()
 }
 
@@ -108,11 +108,11 @@ pub unsafe extern "C" fn RSValue_NewMapFromBuilder(map: *mut RSValueMapBuilder) 
 ///
 /// Panics if `map` is not a map value.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RSValue_Map_Len(map: *const RsValue) -> u32 {
+pub unsafe extern "C" fn RSValue_Map_Len(map: *const Value) -> u32 {
     // Safety: ensured by caller (1.)
     let map = unsafe { expect_value(map) };
 
-    if let RsValue::Map(map) = map {
+    if let Value::Map(map) = map {
         map.len_u32()
     } else {
         // Compatibility: C does an RS_ASSERT on incorrect type
@@ -137,15 +137,15 @@ pub unsafe extern "C" fn RSValue_Map_Len(map: *const RsValue) -> u32 {
 /// - Panics if `index` is greater or equal to the map length.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RSValue_Map_GetEntry(
-    map: *const RsValue,
+    map: *const Value,
     index: u32,
-    key: *mut *mut RsValue,
-    value: *mut *mut RsValue,
+    key: *mut *mut Value,
+    value: *mut *mut Value,
 ) {
     // Safety: ensured by caller (1.)
     let map = unsafe { expect_value(map) };
 
-    if let RsValue::Map(map) = map {
+    if let Value::Map(map) = map {
         // Compatibility: C does an RS_ASSERT on index out of bounds
         let (shared_key, shared_value) = &map[index as usize];
         // Safety: ensured by caller (2.)
@@ -179,8 +179,8 @@ mod test {
 
             assert_eq!(RSValue_Map_Len(map), 2);
 
-            let mut key: *mut RsValue = std::ptr::null_mut();
-            let mut value: *mut RsValue = std::ptr::null_mut();
+            let mut key: *mut Value = std::ptr::null_mut();
+            let mut value: *mut Value = std::ptr::null_mut();
 
             RSValue_Map_GetEntry(map, 0, &mut key as *mut _, &mut value as *mut _);
             let key_num = RSValue_Number_Get(key);

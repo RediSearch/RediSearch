@@ -56,4 +56,4 @@ include = []
 exclude = ["RSSortingVector"]
 
 [export.rename]
-"RsValue" = "RSValue"
+"Value" = "RSValue"

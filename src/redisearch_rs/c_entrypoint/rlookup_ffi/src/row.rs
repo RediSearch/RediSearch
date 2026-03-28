@@ -17,7 +17,7 @@ use std::{
     slice,
 };
 use value::comparison::compare_with_query_error_to_int;
-use value::{RsValue, SharedRsValue};
+use value::{SharedValue, Value};
 
 const SORTASCMAP_MAXFIELDS: usize = 8;
 
@@ -40,7 +40,7 @@ pub extern "C" fn RLookupRow_New() -> OpaqueRLookupRow {
 pub unsafe extern "C" fn RLookup_WriteKey(
     key: *const RLookupKey,
     row: Option<NonNull<OpaqueRLookupRow>>,
-    value: Option<NonNull<RsValue>>,
+    value: Option<NonNull<Value>>,
 ) {
     // Safety: ensured by caller (1.)
     let key = unsafe { key.as_ref() }.expect("Key must not be null");
@@ -53,7 +53,7 @@ pub unsafe extern "C" fn RLookup_WriteKey(
     // this method does not take ownership of `value` so we must take care not to drop it at the end of the scope
     // (therefore the `ManuallyDrop`). Instead we explicitly clone the value before inserting it below.
     // Safety: ensured by caller (3.)
-    let value = ManuallyDrop::new(unsafe { SharedRsValue::from_raw(value) });
+    let value = ManuallyDrop::new(unsafe { SharedValue::from_raw(value) });
 
     row.write_key(key, ManuallyDrop::into_inner(value.clone()));
 }
@@ -71,7 +71,7 @@ pub unsafe extern "C" fn RLookup_WriteKey(
 pub unsafe extern "C" fn RLookup_WriteOwnKey(
     key: *const RLookupKey,
     row: Option<NonNull<OpaqueRLookupRow>>,
-    value: Option<NonNull<RsValue>>,
+    value: Option<NonNull<Value>>,
 ) {
     // Safety: ensured by caller (1.)
     let key = unsafe { key.as_ref() }.expect("`key` must not be null");
@@ -82,7 +82,7 @@ pub unsafe extern "C" fn RLookup_WriteOwnKey(
     let value = value.expect("value must not be null").as_ptr().cast_const();
 
     // Safety: ensured by caller (3.)
-    let value = unsafe { SharedRsValue::from_raw(value) };
+    let value = unsafe { SharedValue::from_raw(value) };
 
     row.write_key(key, value);
 }
@@ -177,7 +177,7 @@ pub unsafe extern "C" fn RLookupRow_WriteByName<'a>(
     name: *const c_char,
     name_len: size_t,
     row: Option<NonNull<OpaqueRLookupRow>>,
-    value: Option<NonNull<RsValue>>,
+    value: Option<NonNull<Value>>,
 ) {
     // Safety: ensured by caller (1.)
     let lookup = unsafe { lookup.expect("lookup must not be null").as_mut() };
@@ -197,7 +197,7 @@ pub unsafe extern "C" fn RLookupRow_WriteByName<'a>(
     let value = value.expect("value must not be null").as_ptr().cast_const();
 
     // Safety: ensured by caller (5.)
-    let value = unsafe { SharedRsValue::from_raw(value) };
+    let value = unsafe { SharedValue::from_raw(value) };
 
     // In order to increase the refcount, we first clone `value` (which increases the refcount)
     // and move the clone into the function.
@@ -235,7 +235,7 @@ pub unsafe extern "C" fn RLookupRow_WriteByNameOwned<'a>(
     name: *const c_char,
     name_len: size_t,
     row: Option<NonNull<OpaqueRLookupRow>>,
-    value: Option<NonNull<RsValue>>,
+    value: Option<NonNull<Value>>,
 ) {
     // Safety: ensured by caller (1.)
     let lookup = unsafe { lookup.expect("lookup must not be null").as_mut() };
@@ -255,7 +255,7 @@ pub unsafe extern "C" fn RLookupRow_WriteByNameOwned<'a>(
     let value = value.expect("value must not be null").as_ptr().cast_const();
 
     // Safety: ensured by caller (5.)
-    let value = unsafe { SharedRsValue::from_raw(value) };
+    let value = unsafe { SharedValue::from_raw(value) };
 
     // 'value' is moved directly into the function without affecting its refcount.
     row.write_key_by_name(lookup, name, value);
@@ -333,7 +333,7 @@ pub unsafe extern "C-unwind" fn RLookupRow_WriteFieldsFrom<'a>(
 pub unsafe extern "C" fn RLookupRow_Get(
     key: *const RLookupKey,
     row: *const OpaqueRLookupRow,
-) -> Option<NonNull<RsValue>> {
+) -> Option<NonNull<Value>> {
     // Safety: ensured by caller (1.)
     let key = unsafe { &*key };
 
@@ -354,7 +354,7 @@ pub unsafe extern "C" fn RLookupRow_Get(
 pub struct RSSortingVectorSlice {
     /// Pointer to the array of [`SharedRsValue`] values.
     /// When `len == 0` this is a dangling pointer — **not** null. Callers must check `len`.
-    pub values: *const *const RsValue,
+    pub values: *const *const Value,
     /// Number of elements in the array. Zero means no sorting vector is set.
     pub len: size_t,
 }

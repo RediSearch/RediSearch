@@ -10,9 +10,9 @@
 pub use crate::{
     collection::{Array, Map},
     redis_string::RedisString,
-    rs_string::RsString,
-    shared::SharedRsValue,
-    trio::RsValueTrio,
+    shared::SharedValue,
+    string::String,
+    trio::Trio,
 };
 use std::fmt::Debug;
 
@@ -22,15 +22,15 @@ pub mod debug;
 pub mod hash;
 mod pool;
 pub mod redis_string;
-pub mod rs_string;
 pub mod sds_writer;
 pub mod shared;
+pub mod string;
 pub mod trio;
 pub mod util;
 
 /// An actual [`RsValue`] object
 #[derive(Debug)]
-pub enum RsValue {
+pub enum Value {
     /// Undefined, not holding a value.
     Undefined,
     /// Null value
@@ -38,64 +38,64 @@ pub enum RsValue {
     /// Numeric value
     Number(f64),
     /// String
-    String(RsString),
+    String(String),
     /// String value backed by a Redis string
     RedisString(RedisString),
     /// Array value
     Array(Array),
     /// Reference value
-    Ref(SharedRsValue),
+    Ref(SharedValue),
     /// Trio value
-    Trio(RsValueTrio),
+    Trio(Trio),
     /// Map value
     Map(Map),
 }
 
-impl RsValue {
+impl Value {
     pub fn new_string(str: Vec<u8>) -> Self {
-        Self::String(RsString::from_vec(str))
+        Self::String(String::from_vec(str))
     }
 
     pub fn fully_dereferenced_ref(&self) -> &Self {
         match self {
-            RsValue::Ref(ref_value) => ref_value.fully_dereferenced_ref(),
+            Value::Ref(ref_value) => ref_value.fully_dereferenced_ref(),
             _ => self,
         }
     }
 
     pub fn fully_dereferenced_ref_and_trio(&self) -> &Self {
         match self {
-            RsValue::Ref(ref_value) => ref_value.fully_dereferenced_ref_and_trio(),
-            RsValue::Trio(trio) => trio.left().fully_dereferenced_ref_and_trio(),
+            Value::Ref(ref_value) => ref_value.fully_dereferenced_ref_and_trio(),
+            Value::Trio(trio) => trio.left().fully_dereferenced_ref_and_trio(),
             _ => self,
         }
     }
 
     pub const fn variant_name(&self) -> &'static str {
         match self {
-            RsValue::Undefined => "Undefined",
-            RsValue::Null => "Null",
-            RsValue::Number(_) => "Number",
-            RsValue::String(_) => "String",
-            RsValue::RedisString(_) => "RedisString",
-            RsValue::Array(_) => "Array",
-            RsValue::Ref(_) => "Ref",
-            RsValue::Trio(_) => "Trio",
-            RsValue::Map(_) => "Map",
+            Value::Undefined => "Undefined",
+            Value::Null => "Null",
+            Value::Number(_) => "Number",
+            Value::String(_) => "String",
+            Value::RedisString(_) => "RedisString",
+            Value::Array(_) => "Array",
+            Value::Ref(_) => "Ref",
+            Value::Trio(_) => "Trio",
+            Value::Map(_) => "Map",
         }
     }
 
     /// Returns the string bytes of the value, if it is a string type.
     pub fn as_str_bytes(&self) -> Option<&[u8]> {
         match self {
-            RsValue::String(str) => Some(str.as_bytes()),
-            RsValue::RedisString(str) => Some(str.as_bytes()),
+            Value::String(str) => Some(str.as_bytes()),
+            Value::RedisString(str) => Some(str.as_bytes()),
             _ => None,
         }
     }
 
     pub const fn as_num(&self) -> Option<f64> {
-        if let RsValue::Number(num) = self {
+        if let Value::Number(num) = self {
             Some(*num)
         } else {
             None

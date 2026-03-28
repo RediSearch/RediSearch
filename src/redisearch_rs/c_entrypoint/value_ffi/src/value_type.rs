@@ -8,14 +8,14 @@
 */
 
 use crate::util::expect_value;
-use value::RsValue;
+use value::Value;
 
 /// Enumeration of the types an [`RsValue`] can be of.
 ///
 /// cbindgen:prefix-with-name
 #[repr(C)]
 #[derive(Debug)]
-pub enum RsValueType {
+pub enum ValueType {
     Undef = 0,
     Number = 1,
     String = 2,
@@ -33,22 +33,22 @@ pub enum RsValueType {
 ///
 /// 1. `value` must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
 #[unsafe(no_mangle)]
-pub const unsafe extern "C" fn RSValue_Type(value: *const RsValue) -> RsValueType {
+pub const unsafe extern "C" fn RSValue_Type(value: *const Value) -> ValueType {
     // Safety: ensured by caller (1.)
     let value = unsafe { expect_value(value) };
 
-    use RsValueType::*;
+    use ValueType::*;
 
     match value {
-        RsValue::Undefined => Undef,
-        RsValue::Null => Null,
-        RsValue::Number(_) => Number,
-        RsValue::String(_) => String,
-        RsValue::RedisString(_) => RedisString,
-        RsValue::Array(_) => Array,
-        RsValue::Ref(_) => Reference,
-        RsValue::Trio(_) => Trio,
-        RsValue::Map(_) => Map,
+        Value::Undefined => Undef,
+        Value::Null => Null,
+        Value::Number(_) => Number,
+        Value::String(_) => String,
+        Value::RedisString(_) => RedisString,
+        Value::Array(_) => Array,
+        Value::Ref(_) => Reference,
+        Value::Trio(_) => Trio,
+        Value::Map(_) => Map,
     }
 }
 
@@ -58,13 +58,13 @@ pub const unsafe extern "C" fn RSValue_Type(value: *const RsValue) -> RsValueTyp
 ///
 /// 1. If `value` is non-null, it must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
 #[unsafe(no_mangle)]
-pub const unsafe extern "C" fn RSValue_IsReference(value: *const RsValue) -> bool {
+pub const unsafe extern "C" fn RSValue_IsReference(value: *const Value) -> bool {
     // Safety: ensured by caller (1.)
     let Some(value) = (unsafe { value.as_ref() }) else {
         return false;
     };
 
-    matches!(value, RsValue::Ref(_))
+    matches!(value, Value::Ref(_))
 }
 
 /// Returns whether the given [`RsValue`] is a number type, or `false` if `value` is NULL.
@@ -73,13 +73,13 @@ pub const unsafe extern "C" fn RSValue_IsReference(value: *const RsValue) -> boo
 ///
 /// 1. If `value` is non-null, it must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
 #[unsafe(no_mangle)]
-pub const unsafe extern "C" fn RSValue_IsNumber(value: *const RsValue) -> bool {
+pub const unsafe extern "C" fn RSValue_IsNumber(value: *const Value) -> bool {
     // Safety: ensured by caller (1.)
     let Some(value) = (unsafe { value.as_ref() }) else {
         return false;
     };
 
-    matches!(value, RsValue::Number(_))
+    matches!(value, Value::Number(_))
 }
 
 /// Returns whether the given [`RsValue`] is a string type (any string variant), or `false` if `value` is NULL.
@@ -88,13 +88,13 @@ pub const unsafe extern "C" fn RSValue_IsNumber(value: *const RsValue) -> bool {
 ///
 /// 1. If `value` is non-null, it must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
 #[unsafe(no_mangle)]
-pub const unsafe extern "C" fn RSValue_IsString(value: *const RsValue) -> bool {
+pub const unsafe extern "C" fn RSValue_IsString(value: *const Value) -> bool {
     // Safety: ensured by caller (1.)
     let Some(value) = (unsafe { value.as_ref() }) else {
         return false;
     };
 
-    matches!(value, RsValue::String(_) | RsValue::RedisString(_))
+    matches!(value, Value::String(_) | Value::RedisString(_))
 }
 
 /// Returns whether the given [`RsValue`] is an array type, or `false` if `value` is NULL.
@@ -103,13 +103,13 @@ pub const unsafe extern "C" fn RSValue_IsString(value: *const RsValue) -> bool {
 ///
 /// 1. If `value` is non-null, it must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
 #[unsafe(no_mangle)]
-pub const unsafe extern "C" fn RSValue_IsArray(value: *const RsValue) -> bool {
+pub const unsafe extern "C" fn RSValue_IsArray(value: *const Value) -> bool {
     // Safety: ensured by caller (1.)
     let Some(value) = (unsafe { value.as_ref() }) else {
         return false;
     };
 
-    matches!(value, RsValue::Array(_))
+    matches!(value, Value::Array(_))
 }
 
 /// Returns whether the given [`RsValue`] is a trio type, or `false` if `value` is NULL.
@@ -118,13 +118,13 @@ pub const unsafe extern "C" fn RSValue_IsArray(value: *const RsValue) -> bool {
 ///
 /// 1. If `value` is non-null, it must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
 #[unsafe(no_mangle)]
-pub const unsafe extern "C" fn RSValue_IsTrio(value: *const RsValue) -> bool {
+pub const unsafe extern "C" fn RSValue_IsTrio(value: *const Value) -> bool {
     // Safety: ensured by caller (1.)
     let Some(value) = (unsafe { value.as_ref() }) else {
         return false;
     };
 
-    matches!(value, RsValue::Trio(_))
+    matches!(value, Value::Trio(_))
 }
 
 /// Returns whether the given [`RsValue`] is a null pointer, a null type, or a reference to a null type.
@@ -133,7 +133,7 @@ pub const unsafe extern "C" fn RSValue_IsTrio(value: *const RsValue) -> bool {
 ///
 /// 1. If `value` is non-null, it must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RSValue_IsNull(value: *const RsValue) -> bool {
+pub unsafe extern "C" fn RSValue_IsNull(value: *const Value) -> bool {
     // Safety: ensured by caller (1.)
     let Some(value) = (unsafe { value.as_ref() }) else {
         return true;
@@ -142,5 +142,5 @@ pub unsafe extern "C" fn RSValue_IsNull(value: *const RsValue) -> bool {
     // C implementation does a recursive check on reference types.
     let value = value.fully_dereferenced_ref();
 
-    matches!(value, RsValue::Null)
+    matches!(value, Value::Null)
 }
