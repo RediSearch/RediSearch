@@ -10,7 +10,7 @@
 use std::{mem::MaybeUninit, ptr};
 
 use crate::util::expect_value;
-use value::{Array, RsValue, shared::SharedRsValue};
+use value::{Array, SharedValue, Value};
 
 /// Allocates an array of null pointers with space for `len` [`RsValue`] pointers.
 ///
@@ -21,14 +21,14 @@ use value::{Array, RsValue, shared::SharedRsValue};
 ///
 /// 1. The caller must eventually pass the returned pointer to [`RSValue_NewArrayFromBuilder`].
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RSValue_NewArrayBuilder(len: u32) -> *mut *mut RsValue {
+pub unsafe extern "C" fn RSValue_NewArrayBuilder(len: u32) -> *mut *mut Value {
     let array = Box::new_zeroed_slice(len as usize);
 
     // Safety: we zero-initialized the slice above. It is therefore correctly initialized with
     // null pointers are required.
-    let array = unsafe { Box::<[MaybeUninit<*mut RsValue>]>::assume_init(array) };
+    let array = unsafe { Box::<[MaybeUninit<*mut Value>]>::assume_init(array) };
 
-    Box::into_raw(array).cast::<*mut RsValue>()
+    Box::into_raw(array).cast::<*mut Value>()
 }
 
 /// Creates a heap-allocated array [`RsValue`] from existing values.
@@ -43,21 +43,21 @@ pub unsafe extern "C" fn RSValue_NewArrayBuilder(len: u32) -> *mut *mut RsValue 
 /// 2. All `len` entries in `values` must have been filled with valid [`RsValue`] pointers.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RSValue_NewArrayFromBuilder(
-    values: *mut *mut RsValue,
+    values: *mut *mut Value,
     len: u32,
-) -> *mut RsValue {
+) -> *mut Value {
     // Safety: ensured by caller (1.)
-    let array: Box<[*mut RsValue]> =
+    let array: Box<[*mut Value]> =
         unsafe { Box::from_raw(ptr::slice_from_raw_parts_mut(values, len as usize)) };
 
     let array = array
         .into_iter()
         // Safety: ensured by caller (2.)
-        .map(|val| unsafe { SharedRsValue::from_raw(val) })
+        .map(|val| unsafe { SharedValue::from_raw(val) })
         .collect();
 
-    let value = RsValue::Array(Array::new(array));
-    let shared = SharedRsValue::new(value);
+    let value = Value::Array(Array::new(array));
+    let shared = SharedValue::new(value);
     shared.into_raw().cast_mut()
 }
 
@@ -69,11 +69,11 @@ pub unsafe extern "C" fn RSValue_NewArrayFromBuilder(
 ///
 /// 1. `value` must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RSValue_ArrayLen(value: *const RsValue) -> u32 {
+pub unsafe extern "C" fn RSValue_ArrayLen(value: *const Value) -> u32 {
     // Safety: ensured by caller (1.)
     let value = unsafe { expect_value(value) };
 
-    if let RsValue::Array(array) = value {
+    if let Value::Array(array) = value {
         array.len_u32()
     } else {
         // Compatibility: C returns 0 on non array types.
@@ -94,11 +94,11 @@ pub unsafe extern "C" fn RSValue_ArrayLen(value: *const RsValue) -> u32 {
 ///
 /// Panics if `index` greater than or equal to the array length.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RSValue_ArrayItem(value: *const RsValue, index: u32) -> *mut RsValue {
+pub unsafe extern "C" fn RSValue_ArrayItem(value: *const Value, index: u32) -> *mut Value {
     // Safety: ensured by caller (1.)
     let value = unsafe { expect_value(value) };
 
-    if let RsValue::Array(array) = value {
+    if let Value::Array(array) = value {
         // Compatibility: C does an RS_ASSERT on index out of bounds
         let shared = &array[index as usize];
         shared.as_ptr().cast_mut()

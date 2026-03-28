@@ -9,32 +9,31 @@
 
 use std::fmt;
 
-use crate::shared::SharedRsValue;
+use crate::shared::SharedValue;
 
-/// A container for the [`RsValue::Trio`](crate::RsValue::Trio)
-/// variant.
+/// A container for the [`Value::Trio`](crate::Value::Trio) variant.
 #[derive(Clone)]
-pub struct RsValueTrio(Box<RsValueTrioData>);
+pub struct Trio(Box<(SharedValue, SharedValue, SharedValue)>);
 
-impl RsValueTrio {
-    pub fn new(left: SharedRsValue, middle: SharedRsValue, right: SharedRsValue) -> Self {
-        Self(Box::new(RsValueTrioData(left, middle, right)))
+impl Trio {
+    pub fn new(left: SharedValue, middle: SharedValue, right: SharedValue) -> Self {
+        Self(Box::new((left, middle, right)))
     }
 
-    pub fn left(&self) -> &SharedRsValue {
+    pub fn left(&self) -> &SharedValue {
         &self.0.0
     }
 
-    pub fn middle(&self) -> &SharedRsValue {
+    pub fn middle(&self) -> &SharedValue {
         &self.0.1
     }
 
-    pub fn right(&self) -> &SharedRsValue {
+    pub fn right(&self) -> &SharedValue {
         &self.0.2
     }
 }
 
-impl fmt::Debug for RsValueTrio {
+impl fmt::Debug for Trio {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_tuple("RsValueTrio")
             .field(&self.0.0)
@@ -43,7 +42,3 @@ impl fmt::Debug for RsValueTrio {
             .finish()
     }
 }
-
-/// Tuple struct holding 3 [`SharedRsValue`] items.
-#[derive(Clone)]
-struct RsValueTrioData(SharedRsValue, SharedRsValue, SharedRsValue);

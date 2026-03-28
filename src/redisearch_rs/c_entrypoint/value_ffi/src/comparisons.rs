@@ -10,7 +10,7 @@
 use crate::util::expect_value;
 use query_error::{QueryError, QueryErrorCode};
 use std::{cmp::Ordering, ffi::c_int};
-use value::RsValue;
+use value::Value;
 use value::comparison::{CompareError, compare};
 
 /// Compare two [`RsValue`]s, returning `-1` if `v1 < v2`, `0` if `v1 == v2`,
@@ -28,8 +28,8 @@ use value::comparison::{CompareError, compare};
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RSValue_Cmp(
-    v1: *const RsValue,
-    v2: *const RsValue,
+    v1: *const Value,
+    v2: *const Value,
     status: *mut QueryError,
 ) -> c_int {
     // SAFETY: ensured by caller (1.)
@@ -39,7 +39,7 @@ pub unsafe extern "C" fn RSValue_Cmp(
 
     // This is a performance optimization to check for string comparisons early
     // as that is used most often in searches and aggregates.
-    if let (RsValue::String(s1), RsValue::String(s2)) = (v1, v2) {
+    if let (Value::String(s1), Value::String(s2)) = (v1, v2) {
         return match s1.as_bytes().cmp(s2.as_bytes()) {
             Ordering::Less => -1,
             Ordering::Equal => 0,
@@ -78,8 +78,8 @@ pub unsafe extern "C" fn RSValue_Cmp(
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RSValue_Equal(
-    v1: *const RsValue,
-    v2: *const RsValue,
+    v1: *const Value,
+    v2: *const Value,
     _status: *mut QueryError,
 ) -> bool {
     // SAFETY: ensured by caller (1.)
@@ -113,16 +113,16 @@ pub unsafe extern "C" fn RSValue_Equal(
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RSValue_BoolTest(value: *const RsValue) -> bool {
+pub unsafe extern "C" fn RSValue_BoolTest(value: *const Value) -> bool {
     // SAFETY: ensured by caller (1.)
     let value = unsafe { expect_value(value) };
     let value = value.fully_dereferenced_ref();
 
     match value {
-        RsValue::Number(num) => *num != 0.0,
-        RsValue::Array(arr) => !arr.is_empty(),
-        RsValue::String(string) => !string.as_bytes().is_empty(),
-        RsValue::RedisString(string) => !string.as_bytes().is_empty(),
+        Value::Number(num) => *num != 0.0,
+        Value::Array(arr) => !arr.is_empty(),
+        Value::String(string) => !string.as_bytes().is_empty(),
+        Value::RedisString(string) => !string.as_bytes().is_empty(),
         _ => false,
     }
 }

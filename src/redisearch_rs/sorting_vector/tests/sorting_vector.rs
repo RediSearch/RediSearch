@@ -14,7 +14,7 @@ redis_mock::mock_or_stub_missing_redis_c_symbols!();
 
 use sorting_vector::{IndexOutOfBounds, RSSortingVector};
 use value::shared::{SHARED_VALUE_CONTENT_SIZE, SHARED_VALUE_SIZE};
-use value::{RsValue, SharedRsValue};
+use value::{SharedValue, Value};
 
 #[test]
 #[cfg_attr(miri, ignore = "Calls FFI function `RSValue_NullStatic`")]
@@ -42,7 +42,7 @@ fn build_vector() -> Result<RSSortingVector, IndexOutOfBounds> {
 fn insert() -> Result<(), IndexOutOfBounds> {
     let vector: &mut RSSortingVector = &mut build_vector()?;
 
-    assert!(matches!(*vector[0], RsValue::Number(42.0)));
+    assert!(matches!(*vector[0], Value::Number(42.0)));
     assert_eq!(vector[1].as_str_bytes(), Some("abcdefg".as_bytes()));
     assert_eq!(vector[2].as_str_bytes(), Some("hello world".as_bytes())); // we normalize --> lowercase
     assert!(vector[3].is_null_static());
@@ -66,26 +66,20 @@ fn out_of_bounds() -> Result<(), IndexOutOfBounds> {
 fn override_value() -> Result<(), IndexOutOfBounds> {
     let src = build_vector()?;
     let mut dst: RSSortingVector = RSSortingVector::new(1);
-    assert!(SharedRsValue::ptr_eq(
-        &dst[0],
-        &SharedRsValue::null_static()
-    ));
+    assert!(SharedValue::ptr_eq(&dst[0], &SharedValue::null_static()));
 
     for (idx, val) in src.iter().enumerate() {
         dst.try_insert_val(0, val.clone())?;
-        assert!(SharedRsValue::ptr_eq(&dst[0], &src[idx]));
+        assert!(SharedValue::ptr_eq(&dst[0], &src[idx]));
     }
 
     // the following is only possible in Rust API
     let mut dupl = src.clone();
     for val in dupl.iter_mut() {
-        *val = SharedRsValue::new_num(42.0)
+        *val = SharedValue::new_num(42.0)
     }
 
-    assert!(SharedRsValue::ptr_eq(
-        &dst[0],
-        &SharedRsValue::null_static()
-    ));
+    assert!(SharedValue::ptr_eq(&dst[0], &SharedValue::null_static()));
     Ok(())
 }
 

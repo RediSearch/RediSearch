@@ -14,7 +14,7 @@ use std::{
 };
 
 use icu_casemap::CaseMapper;
-use value::SharedRsValue;
+use value::SharedValue;
 use value::shared::{SHARED_VALUE_CONTENT_SIZE, SHARED_VALUE_SIZE};
 
 /// IndexOutOfBounds error can be returned by [`RSSortingVector::try_insert_num`] and the other `try_insert_*` methods.
@@ -41,44 +41,44 @@ impl std::error::Error for IndexOutOfBounds {}
 /// are not added at all to the sorting vector, i.e. the sorting vector does not contain null values for non-sortable fields.
 #[derive(Debug, Clone)]
 pub struct RSSortingVector {
-    values: Box<[SharedRsValue]>,
+    values: Box<[SharedValue]>,
 }
 
 impl RSSortingVector {
     /// Creates a new [`RSSortingVector`] with the given length.
     pub fn new(len: usize) -> Self {
         Self {
-            values: vec![SharedRsValue::null_static(); len].into_boxed_slice(),
+            values: vec![SharedValue::null_static(); len].into_boxed_slice(),
         }
     }
 
     /// Returns an immutable reference to the value at index `index`,
     /// or `None` if the index is out-of-bounds for this sorting vector.
-    pub fn get(&self, index: usize) -> Option<&SharedRsValue> {
+    pub fn get(&self, index: usize) -> Option<&SharedValue> {
         self.values.get(index)
     }
 
     /// Returns an iterator over the values in the sorting vector.
-    pub fn iter(&self) -> Iter<'_, SharedRsValue> {
+    pub fn iter(&self) -> Iter<'_, SharedValue> {
         self.values.iter()
     }
 
     /// Returns a mutable iterator over the values in the sorting vector.
-    pub fn iter_mut(&mut self) -> IterMut<'_, SharedRsValue> {
+    pub fn iter_mut(&mut self) -> IterMut<'_, SharedValue> {
         self.values.iter_mut()
     }
 
     /// Set a number (double) at the given index
     pub fn try_insert_num(&mut self, idx: usize, num: f64) -> Result<(), IndexOutOfBounds> {
         let spot = self.values.get_mut(idx).ok_or(IndexOutOfBounds(()))?;
-        *spot = SharedRsValue::new_num(num);
+        *spot = SharedValue::new_num(num);
         Ok(())
     }
 
     /// Set a string at the given index.
     pub fn try_insert_string(&mut self, idx: usize, str: Vec<u8>) -> Result<(), IndexOutOfBounds> {
         let spot = self.values.get_mut(idx).ok_or(IndexOutOfBounds(()))?;
-        *spot = SharedRsValue::new_string(str);
+        *spot = SharedValue::new_string(str);
         Ok(())
     }
 
@@ -99,7 +99,7 @@ impl RSSortingVector {
     pub fn try_insert_val(
         &mut self,
         idx: usize,
-        value: SharedRsValue,
+        value: SharedValue,
     ) -> Result<(), IndexOutOfBounds> {
         let spot = self.values.get_mut(idx).ok_or(IndexOutOfBounds(()))?;
         *spot = value;
@@ -109,7 +109,7 @@ impl RSSortingVector {
     /// Set a null value at the given index
     pub fn try_insert_null(&mut self, idx: usize) -> Result<(), IndexOutOfBounds> {
         let spot = self.values.get_mut(idx).ok_or(IndexOutOfBounds(()))?;
-        *spot = SharedRsValue::null_static();
+        *spot = SharedValue::null_static();
         Ok(())
     }
 
@@ -149,8 +149,8 @@ impl RSSortingVector {
     }
 }
 
-impl FromIterator<SharedRsValue> for RSSortingVector {
-    fn from_iter<T: IntoIterator<Item = SharedRsValue>>(iter: T) -> Self {
+impl FromIterator<SharedValue> for RSSortingVector {
+    fn from_iter<T: IntoIterator<Item = SharedValue>>(iter: T) -> Self {
         Self {
             values: iter.into_iter().collect(),
         }
@@ -159,8 +159,8 @@ impl FromIterator<SharedRsValue> for RSSortingVector {
 
 // Consuming iterator: yields owned T by consuming the vector.
 impl IntoIterator for RSSortingVector {
-    type Item = SharedRsValue;
-    type IntoIter = std::vec::IntoIter<SharedRsValue>;
+    type Item = SharedValue;
+    type IntoIter = std::vec::IntoIter<SharedValue>;
     fn into_iter(self) -> Self::IntoIter {
         // this does not use a new allocation
         Vec::from(self.values).into_iter()
@@ -170,9 +170,9 @@ impl IntoIterator for RSSortingVector {
 // implementing Index opens the usage of the bracket operators `[]` to access elements in the sorting vector.
 impl<I> Index<I> for RSSortingVector
 where
-    I: std::slice::SliceIndex<[SharedRsValue]>,
+    I: std::slice::SliceIndex<[SharedValue]>,
 {
-    type Output = <[SharedRsValue] as std::ops::Index<I>>::Output;
+    type Output = <[SharedValue] as std::ops::Index<I>>::Output;
 
     fn index(&self, index: I) -> &Self::Output {
         self.values.index(index)
@@ -182,7 +182,7 @@ where
 // implementing IndexMut opens the usage of the bracket operators `[]` to mutate elements in the sorting vector.
 impl<I> IndexMut<I> for RSSortingVector
 where
-    I: std::slice::SliceIndex<[SharedRsValue]>,
+    I: std::slice::SliceIndex<[SharedValue]>,
 {
     fn index_mut(&mut self, index: I) -> &mut Self::Output {
         self.values.index_mut(index)

@@ -10,7 +10,7 @@
 use crate::util::expect_value;
 use libc::size_t;
 use std::ffi::{c_char, c_double};
-use value::RsValue;
+use value::Value;
 use value::util::{num_to_str, str_to_float};
 
 /// Convert the [`RsValue`] to a number. Returns `true` when this value is a number
@@ -25,7 +25,7 @@ use value::util::{num_to_str, str_to_float};
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RSValue_ToNumber(value: *const RsValue, d: *mut c_double) -> bool {
+pub unsafe extern "C" fn RSValue_ToNumber(value: *const Value, d: *mut c_double) -> bool {
     // Safety: ensured by caller (2.)
     let d = unsafe { d.as_mut().expect("d is null") };
 
@@ -37,9 +37,9 @@ pub unsafe extern "C" fn RSValue_ToNumber(value: *const RsValue, d: *mut c_doubl
     let value = value.fully_dereferenced_ref_and_trio();
 
     let Some(num) = (match value {
-        RsValue::Number(n) => Some(*n),
-        RsValue::String(string) => str_to_float(string.as_bytes()),
-        RsValue::RedisString(string) => str_to_float(string.as_bytes()),
+        Value::Number(n) => Some(*n),
+        Value::String(string) => str_to_float(string.as_bytes()),
+        Value::RedisString(string) => str_to_float(string.as_bytes()),
         _ => None,
     }) else {
         return false;
@@ -64,7 +64,7 @@ pub unsafe extern "C" fn RSValue_ToNumber(value: *const RsValue, d: *mut c_doubl
 /// Panics if `value` is not an [`RsValue::Number`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RSValue_NumToString(
-    value: *const RsValue,
+    value: *const Value,
     buf: *mut c_char,
     buflen: size_t,
 ) -> size_t {
@@ -76,7 +76,7 @@ pub unsafe extern "C" fn RSValue_NumToString(
     let buf = unsafe { std::slice::from_raw_parts_mut(buf.cast::<u8>(), buflen) };
     let buf = buf.first_chunk_mut().unwrap();
 
-    let RsValue::Number(num) = value else {
+    let Value::Number(num) = value else {
         panic!("Expected number")
     };
 

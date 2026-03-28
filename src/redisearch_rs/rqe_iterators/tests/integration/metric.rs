@@ -57,10 +57,10 @@ mod not_miri {
     use rqe_iterators::{RQEIterator, SkipToOutcome, metric::MetricSortedById};
     use rstest_reuse::apply;
     use std::mem::ManuallyDrop;
-    use value::SharedRsValue;
+    use value::SharedValue;
 
     fn num_val(value: *mut ffi::RSValue) -> f64 {
-        let shared_value = unsafe { SharedRsValue::from_raw(value.cast_const().cast()) };
+        let shared_value = unsafe { SharedValue::from_raw(value.cast_const().cast()) };
         let shared_value = ManuallyDrop::new(shared_value);
         shared_value.as_num().unwrap()
     }

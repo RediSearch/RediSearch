@@ -15,4 +15,4 @@ parse_deps = true
 include = []
 
 [export.rename]
-"RsValue" = "RSValue"
+"Value" = "RSValue"

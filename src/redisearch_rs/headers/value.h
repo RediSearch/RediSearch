@@ -27,16 +27,16 @@ typedef enum RSValueType {
 } RSValueType;
 
 /**
+ * An actual [`RsValue`] object
+ */
+typedef struct RSValue RSValue;
+
+/**
  * Opaque map structure used during map construction.
  * Holds uninitialized entries that are populated via [`RSValue_MapBuilderSetEntry`]
  * before being finalized into an [`RsValue::Map`] via [`RSValue_NewMapFromBuilder`].
  */
 typedef struct RSValueMapBuilder RSValueMapBuilder;
-
-/**
- * An actual [`RsValue`] object
- */
-typedef struct RSValue RSValue;
 
 #ifdef __cplusplus
 extern "C" {

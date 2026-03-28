@@ -8,7 +8,7 @@
 */
 
 use crate::util::{expect_shared_value, expect_value};
-use value::{RsValue, SharedRsValue};
+use value::{SharedValue, Value};
 
 /// Decrement the reference count of the provided [`RsValue`] object. If this was
 /// the last available reference, it frees the data.
@@ -18,9 +18,9 @@ use value::{RsValue, SharedRsValue};
 /// 1. `value` must point to a valid **owned** [`RsValue`] obtained from an
 ///    `RSValue_*` function (it will be consumed).
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RSValue_DecrRef(value: *const RsValue) {
+pub unsafe extern "C" fn RSValue_DecrRef(value: *const Value) {
     // SAFETY: ensured by caller (1.)
-    let _ = unsafe { SharedRsValue::from_raw(value) };
+    let _ = unsafe { SharedValue::from_raw(value) };
 }
 
 /// Follows [`RsValue::Ref`] indirections and returns a pointer to the
@@ -33,7 +33,7 @@ pub unsafe extern "C" fn RSValue_DecrRef(value: *const RsValue) {
 ///
 /// 1. `value` must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RSValue_Dereference(value: *const RsValue) -> *mut RsValue {
+pub unsafe extern "C" fn RSValue_Dereference(value: *const Value) -> *mut Value {
     // SAFETY: ensured by caller (1.)
     let value = unsafe { expect_value(value) };
 
@@ -49,7 +49,7 @@ pub unsafe extern "C" fn RSValue_Dereference(value: *const RsValue) -> *mut RsVa
 ///
 /// 1. `value` must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RSValue_DereferenceRefAndTrio(value: *const RsValue) -> *mut RsValue {
+pub unsafe extern "C" fn RSValue_DereferenceRefAndTrio(value: *const Value) -> *mut Value {
     // SAFETY: ensured by caller (1.)
     let value = unsafe { expect_value(value) };
 
@@ -68,12 +68,12 @@ pub unsafe extern "C" fn RSValue_DereferenceRefAndTrio(value: *const RsValue) ->
 ///
 /// 1. `value` must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RSValue_Clear(value: *const RsValue) {
+pub unsafe extern "C" fn RSValue_Clear(value: *const Value) {
     // SAFETY: ensured by caller (1.)
     let mut shared_value = unsafe { expect_shared_value(value) };
 
     // Panics if more than 1 reference exists.
-    shared_value.set_value(RsValue::Undefined);
+    shared_value.set_value(Value::Undefined);
 }
 
 /// Increments the reference count of `value` and returns a new owned pointer
@@ -86,11 +86,11 @@ pub unsafe extern "C" fn RSValue_Clear(value: *const RsValue) {
 ///
 /// 1. `value` must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RSValue_IncrRef(value: *const RsValue) -> *mut RsValue {
+pub unsafe extern "C" fn RSValue_IncrRef(value: *const Value) -> *mut Value {
     // SAFETY: ensured by caller (1.)
     let shared_value = unsafe { expect_shared_value(value) };
 
-    SharedRsValue::clone(&shared_value).into_raw().cast_mut()
+    SharedValue::clone(&shared_value).into_raw().cast_mut()
 }
 
 /// Replaces the content of `dst` with an [`RsValue::Ref`] pointing to `src`.
@@ -105,14 +105,14 @@ pub unsafe extern "C" fn RSValue_IncrRef(value: *const RsValue) -> *mut RsValue 
 ///
 /// 1. `dst` and `src` must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RSValue_MakeReference(dst: *const RsValue, src: *const RsValue) {
+pub unsafe extern "C" fn RSValue_MakeReference(dst: *const Value, src: *const Value) {
     // SAFETY: ensured by caller (1.)
     let mut shared_dst = unsafe { expect_shared_value(dst) };
 
     // SAFETY: ensured by caller (1.)
     let shared_src = unsafe { expect_shared_value(src) };
 
-    let new_value = RsValue::Ref(SharedRsValue::clone(&shared_src));
+    let new_value = Value::Ref(SharedValue::clone(&shared_src));
 
     // Panics if more than 1 reference exists.
     shared_dst.set_value(new_value);
@@ -133,14 +133,14 @@ pub unsafe extern "C" fn RSValue_MakeReference(dst: *const RsValue, src: *const 
 /// 2. `src` must point to a valid **owned** [`RsValue`] obtained from an
 ///    `RSValue_*` function. Ownership is transferred to `dst`.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RSValue_MakeOwnReference(dst: *const RsValue, src: *const RsValue) {
+pub unsafe extern "C" fn RSValue_MakeOwnReference(dst: *const Value, src: *const Value) {
     // SAFETY: ensured by caller (1.)
     let mut shared_dst = unsafe { expect_shared_value(dst) };
 
     // SAFETY: ensured by caller (2.)
-    let shared_src = unsafe { SharedRsValue::from_raw(src) };
+    let shared_src = unsafe { SharedValue::from_raw(src) };
 
-    let new_value = RsValue::Ref(shared_src);
+    let new_value = Value::Ref(shared_src);
 
     // Panics if more than 1 reference exists.
     shared_dst.set_value(new_value);
@@ -158,18 +158,18 @@ pub unsafe extern "C" fn RSValue_MakeOwnReference(dst: *const RsValue, src: *con
 ///    `RSValue_*` function (it will be consumed).
 /// 3. `src` must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RSValue_Replace(dstpp: *mut *mut RsValue, src: *const RsValue) {
+pub unsafe extern "C" fn RSValue_Replace(dstpp: *mut *mut Value, src: *const Value) {
     // SAFETY: ensured by caller (1.)
     let dst = unsafe { *dstpp };
 
     // SAFETY: ensured by caller (3.)
     let shared_src = unsafe { expect_shared_value(src) };
 
-    let clone = SharedRsValue::clone(&shared_src);
+    let clone = SharedValue::clone(&shared_src);
 
     // SAFETY: ensured by caller (2.). Reconstructing the `SharedRsValue`
     // will decrement its refcount (and potentially free it).
-    let _ = unsafe { SharedRsValue::from_raw(dst) };
+    let _ = unsafe { SharedValue::from_raw(dst) };
 
     // SAFETY: ensured by caller (1.) — `dstpp` is valid and writable.
     unsafe {
@@ -183,9 +183,9 @@ pub unsafe extern "C" fn RSValue_Replace(dstpp: *mut *mut RsValue, src: *const R
 ///
 /// 1. `value` must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RSValue_Refcount(value: *const RsValue) -> u16 {
+pub unsafe extern "C" fn RSValue_Refcount(value: *const Value) -> u16 {
     // SAFETY: ensured by caller (1.)
     let shared_value = unsafe { expect_shared_value(value) };
 
-    SharedRsValue::refcount(&shared_value) as u16
+    SharedValue::refcount(&shared_value) as u16
 }

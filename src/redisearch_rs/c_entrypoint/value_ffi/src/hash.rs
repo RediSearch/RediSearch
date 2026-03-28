@@ -10,7 +10,7 @@
 use crate::util::expect_value;
 use fnv::Fnv64;
 use std::hash::Hasher;
-use value::RsValue;
+use value::Value;
 
 /// Computes a 64-bit FNV-1a hash of an [`RsValue`], using `hval` as the initial offset basis.
 ///
@@ -20,7 +20,7 @@ use value::RsValue;
 ///
 /// 1. `value` must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RSValue_Hash(value: *const RsValue, hval: u64) -> u64 {
+pub unsafe extern "C" fn RSValue_Hash(value: *const Value, hval: u64) -> u64 {
     // Safety: ensured by caller (1.)
     let value = unsafe { expect_value(value) };
 

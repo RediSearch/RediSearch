@@ -42,4 +42,4 @@ exclude = ["FieldSpec", "IndexSpec", "Option_Cow_CStr", "SchemaRule"]
 "RLookupKeyFlag" = "RLookup_F"
 "RLookupKeyHeader" = "RLookupKey"
 "RLookupOption" = "RLookup_Opt"
-"RsValue" = "RSValue"
+"Value" = "RSValue"
