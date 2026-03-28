@@ -9,10 +9,10 @@
 
 use std::ops::{Deref, DerefMut};
 
-use crate::SharedRsValue;
+use crate::SharedValue;
 
-pub type Array = Collection<SharedRsValue>;
-pub type Map = Collection<(SharedRsValue, SharedRsValue)>;
+pub type Array = Collection<SharedValue>;
+pub type Map = Collection<(SharedValue, SharedValue)>;
 
 /// A wrapper around a box slice which limits its `len` to `u32::MAX`
 /// for compatibility with existing C code.

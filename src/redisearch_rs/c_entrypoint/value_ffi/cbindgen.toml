@@ -9,6 +9,6 @@ parse_deps = true
 include = ["c_ffi_utils", "value"]
 
 [export.rename]
-"RsValue" = "RSValue"
-"RsValueType" = "RSValueType"
-"RsValueMap" = "RSValueMap"
+"Value" = "RSValue"
+"ValueType" = "RSValueType"
+"ValueMapBuilder" = "RSValueMapBuilder"

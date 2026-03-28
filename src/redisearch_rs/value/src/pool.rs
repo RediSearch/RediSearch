@@ -11,7 +11,7 @@ use std::cell::RefCell;
 
 use triomphe::UniqueArc;
 
-use crate::RsValue;
+use crate::Value;
 
 /// Maximum number of `UniqueArc<RsValue>` allocations to keep in the thread-local pool.
 /// Matches the C `mempool_t` capacity used for RSValue recycling.
@@ -36,14 +36,14 @@ const MAX_POOL_SIZE: usize = 1000;
 /// Arcs stored in the pool always have `strong_count == 1` (the pool itself is
 /// the sole owner). No other thread can hold a reference to a pooled Arc, so
 /// `Arc::get_mut` on a pooled entry is guaranteed to succeed.
-struct Pool(Vec<UniqueArc<RsValue>>);
+struct Pool(Vec<UniqueArc<Value>>);
 
 thread_local! {
     static POOL: RefCell<Pool> = const { RefCell::new(Pool(Vec::new())) };
 }
 
 /// Get a recycled `UniqueArc<RsValue>` with the given value, or allocate a new one.
-pub(crate) fn pool_get(value: RsValue) -> UniqueArc<RsValue> {
+pub(crate) fn pool_get(value: Value) -> UniqueArc<Value> {
     // Use `try_with` to be thread-local destruction safe in the rare case
     // that `pool_get` is called during thread-local destruction.
     if let Ok(Some(mut arc)) = POOL.try_with(|pool| pool.borrow_mut().0.pop()) {
@@ -59,9 +59,9 @@ pub(crate) fn pool_get(value: RsValue) -> UniqueArc<RsValue> {
 /// # Panics
 ///
 /// Panics if `strong_count > 1` (i.e. the caller is not the sole owner).
-pub(crate) fn pool_release(mut arc: UniqueArc<RsValue>) {
+pub(crate) fn pool_release(mut arc: UniqueArc<Value>) {
     // Clear the value to release any owned resources (strings, arrays, etc.)
-    *arc = RsValue::Undefined;
+    *arc = Value::Undefined;
 
     // This function is called from `SharedRsValue::drop`. During thread shutdown,
     // thread-local destruction order is unspecified, so the `POOL` TLS may already
