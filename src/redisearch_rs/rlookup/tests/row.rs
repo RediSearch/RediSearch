@@ -279,14 +279,8 @@ fn get_item_dynamic_values_success() {
 
     let key1 = create_test_key(0, 0, RLookupKeyFlags::empty());
     let key2 = create_test_key(1, 0, RLookupKeyFlags::empty());
-    row.write_key(
-        &key1,
-        SharedValue::new_string(b"dynamic_value_1".to_vec()),
-    );
-    row.write_key(
-        &key2,
-        SharedValue::new_string(b"dynamic_value_2".to_vec()),
-    );
+    row.write_key(&key1, SharedValue::new_string(b"dynamic_value_1".to_vec()));
+    row.write_key(&key2, SharedValue::new_string(b"dynamic_value_2".to_vec()));
 
     let result = row.get(&key2);
     assert!(result.is_some());

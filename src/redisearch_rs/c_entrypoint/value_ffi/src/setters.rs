@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use crate::RSValue;
 use crate::util::expect_shared_value;
 use std::ffi::{c_char, c_double};
 use value::{String, Value};
@@ -24,7 +25,7 @@ use value::{String, Value};
 /// 1. `value` must point to a valid **owned** [`RsValue`] obtained from an
 ///    `RSValue_*` function returning an owned [`RsValue`] object.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RSValue_SetNumber(value: *mut Value, n: c_double) {
+pub unsafe extern "C" fn RSValue_SetNumber(value: *mut RSValue, n: c_double) {
     // Safety: ensured by caller (1.)
     let mut shared_value = unsafe { expect_shared_value(value) };
 
@@ -45,7 +46,7 @@ pub unsafe extern "C" fn RSValue_SetNumber(value: *mut Value, n: c_double) {
 /// 1. `value` must point to a valid **owned** [`RsValue`] obtained from an
 ///    `RSValue_*` function returning an owned [`RsValue`] object.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RSValue_SetNull(value: *mut Value) {
+pub unsafe extern "C" fn RSValue_SetNull(value: *mut RSValue) {
     // Safety: ensured by caller (1.)
     let mut shared_value = unsafe { expect_shared_value(value) };
 
@@ -76,7 +77,7 @@ pub unsafe extern "C" fn RSValue_SetNull(value: *mut Value) {
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RSValue_SetString(value: *mut Value, str: *mut c_char, len: u32) {
+pub unsafe extern "C" fn RSValue_SetString(value: *mut RSValue, str: *mut c_char, len: u32) {
     // Safety: ensured by caller (1.)
     let mut shared_value = unsafe { expect_shared_value(value) };
 
@@ -110,7 +111,7 @@ pub unsafe extern "C" fn RSValue_SetString(value: *mut Value, str: *mut c_char, 
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RSValue_SetConstString(value: *mut Value, str: *const c_char, len: u32) {
+pub unsafe extern "C" fn RSValue_SetConstString(value: *mut RSValue, str: *const c_char, len: u32) {
     // Safety: ensured by caller (1.)
     let mut shared_value = unsafe { expect_shared_value(value) };
 

@@ -27,7 +27,7 @@ typedef enum RSValueType {
 } RSValueType;
 
 /**
- * An actual [`RsValue`] object
+ * The C version of a [`SharedValue`](value::SharedValue)
  */
 typedef struct RSValue RSValue;
 
