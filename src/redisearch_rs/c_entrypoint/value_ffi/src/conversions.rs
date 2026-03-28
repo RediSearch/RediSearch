@@ -7,7 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use crate::util::expect_value;
+use crate::RSValue;
+use crate::util::{expect_value, try_value};
 use libc::size_t;
 use std::ffi::{c_char, c_double};
 use value::Value;
@@ -25,12 +26,12 @@ use value::util::{num_to_str, str_to_float};
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RSValue_ToNumber(value: *const Value, d: *mut c_double) -> bool {
+pub unsafe extern "C" fn RSValue_ToNumber(value: *const RSValue, d: *mut c_double) -> bool {
     // Safety: ensured by caller (2.)
     let d = unsafe { d.as_mut().expect("d is null") };
 
     // Safety: ensured by caller (1.)
-    let Some(value) = (unsafe { value.as_ref() }) else {
+    let Some(value) = (unsafe { try_value(value) }) else {
         return false;
     };
 
@@ -64,7 +65,7 @@ pub unsafe extern "C" fn RSValue_ToNumber(value: *const Value, d: *mut c_double)
 /// Panics if `value` is not an [`RsValue::Number`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RSValue_NumToString(
-    value: *const Value,
+    value: *const RSValue,
     buf: *mut c_char,
     buflen: size_t,
 ) -> size_t {

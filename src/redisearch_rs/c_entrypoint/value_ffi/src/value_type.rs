@@ -7,7 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use crate::util::expect_value;
+use crate::RSValue;
+use crate::util::{expect_value, try_value};
 use value::Value;
 
 /// Enumeration of the types an [`RsValue`] can be of.
@@ -15,7 +16,7 @@ use value::Value;
 /// cbindgen:prefix-with-name
 #[repr(C)]
 #[derive(Debug)]
-pub enum ValueType {
+pub enum RSValueType {
     Undef = 0,
     Number = 1,
     String = 2,
@@ -33,11 +34,11 @@ pub enum ValueType {
 ///
 /// 1. `value` must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
 #[unsafe(no_mangle)]
-pub const unsafe extern "C" fn RSValue_Type(value: *const Value) -> ValueType {
+pub const unsafe extern "C" fn RSValue_Type(value: *const RSValue) -> RSValueType {
     // Safety: ensured by caller (1.)
     let value = unsafe { expect_value(value) };
 
-    use ValueType::*;
+    use RSValueType::*;
 
     match value {
         Value::Undefined => Undef,
@@ -58,9 +59,9 @@ pub const unsafe extern "C" fn RSValue_Type(value: *const Value) -> ValueType {
 ///
 /// 1. If `value` is non-null, it must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
 #[unsafe(no_mangle)]
-pub const unsafe extern "C" fn RSValue_IsReference(value: *const Value) -> bool {
+pub const unsafe extern "C" fn RSValue_IsReference(value: *const RSValue) -> bool {
     // Safety: ensured by caller (1.)
-    let Some(value) = (unsafe { value.as_ref() }) else {
+    let Some(value) = (unsafe { try_value(value) }) else {
         return false;
     };
 
@@ -73,9 +74,9 @@ pub const unsafe extern "C" fn RSValue_IsReference(value: *const Value) -> bool 
 ///
 /// 1. If `value` is non-null, it must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
 #[unsafe(no_mangle)]
-pub const unsafe extern "C" fn RSValue_IsNumber(value: *const Value) -> bool {
+pub const unsafe extern "C" fn RSValue_IsNumber(value: *const RSValue) -> bool {
     // Safety: ensured by caller (1.)
-    let Some(value) = (unsafe { value.as_ref() }) else {
+    let Some(value) = (unsafe { try_value(value) }) else {
         return false;
     };
 
@@ -88,9 +89,9 @@ pub const unsafe extern "C" fn RSValue_IsNumber(value: *const Value) -> bool {
 ///
 /// 1. If `value` is non-null, it must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
 #[unsafe(no_mangle)]
-pub const unsafe extern "C" fn RSValue_IsString(value: *const Value) -> bool {
+pub const unsafe extern "C" fn RSValue_IsString(value: *const RSValue) -> bool {
     // Safety: ensured by caller (1.)
-    let Some(value) = (unsafe { value.as_ref() }) else {
+    let Some(value) = (unsafe { try_value(value) }) else {
         return false;
     };
 
@@ -103,9 +104,9 @@ pub const unsafe extern "C" fn RSValue_IsString(value: *const Value) -> bool {
 ///
 /// 1. If `value` is non-null, it must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
 #[unsafe(no_mangle)]
-pub const unsafe extern "C" fn RSValue_IsArray(value: *const Value) -> bool {
+pub const unsafe extern "C" fn RSValue_IsArray(value: *const RSValue) -> bool {
     // Safety: ensured by caller (1.)
-    let Some(value) = (unsafe { value.as_ref() }) else {
+    let Some(value) = (unsafe { try_value(value) }) else {
         return false;
     };
 
@@ -118,9 +119,9 @@ pub const unsafe extern "C" fn RSValue_IsArray(value: *const Value) -> bool {
 ///
 /// 1. If `value` is non-null, it must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
 #[unsafe(no_mangle)]
-pub const unsafe extern "C" fn RSValue_IsTrio(value: *const Value) -> bool {
+pub const unsafe extern "C" fn RSValue_IsTrio(value: *const RSValue) -> bool {
     // Safety: ensured by caller (1.)
-    let Some(value) = (unsafe { value.as_ref() }) else {
+    let Some(value) = (unsafe { try_value(value) }) else {
         return false;
     };
 
@@ -133,9 +134,9 @@ pub const unsafe extern "C" fn RSValue_IsTrio(value: *const Value) -> bool {
 ///
 /// 1. If `value` is non-null, it must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RSValue_IsNull(value: *const Value) -> bool {
+pub unsafe extern "C" fn RSValue_IsNull(value: *const RSValue) -> bool {
     // Safety: ensured by caller (1.)
-    let Some(value) = (unsafe { value.as_ref() }) else {
+    let Some(value) = (unsafe { try_value(value) }) else {
         return true;
     };
 

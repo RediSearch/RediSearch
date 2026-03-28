@@ -68,12 +68,10 @@ mod not_miri {
     use inverted_index::RSResultKind;
     use rqe_iterators::{RQEIterator, SkipToOutcome, metric::MetricSortedById};
     use rstest_reuse::apply;
-    use std::mem::ManuallyDrop;
-    use value::SharedValue;
+    use value_ffi::util::as_shared_value;
 
     fn num_val(value: *mut ffi::RSValue) -> f64 {
-        let shared_value = unsafe { SharedValue::from_raw(value.cast_const().cast()) };
-        let shared_value = ManuallyDrop::new(shared_value);
+        let shared_value = unsafe { as_shared_value(value.cast_const().cast()) };
         shared_value.as_num().unwrap()
     }
 
