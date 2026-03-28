@@ -15,7 +15,9 @@ use std::{
     panic,
     ptr::NonNull,
 };
-use value::{SharedValue, Value};
+use value::SharedValue;
+use value_ffi::RSValue;
+use value_ffi::util::{as_rs_value, into_shared_value};
 
 pub const RS_SORTABLES_MAX: usize = 1024;
 
@@ -34,11 +36,11 @@ pub const RS_SORTABLES_MAX: usize = 1024;
 pub unsafe extern "C" fn RSSortingVector_Get(
     vec: *const RSSortingVector,
     idx: size_t,
-) -> *mut Value {
+) -> *mut RSValue {
     // Safety: The caller must ensure that the pointer is valid (1.)
     let vec = unsafe { vec.as_ref().expect("vec must not be null") };
 
-    vec[idx].as_ptr().cast_mut()
+    as_rs_value(&vec[idx]).cast_mut()
 }
 
 /// Returns the length of the sorting vector.
@@ -179,15 +181,15 @@ pub unsafe extern "C" fn RSSortingVector_PutStrNormalize(
 pub unsafe extern "C" fn RSSortingVector_PutRSVal(
     vec: Option<NonNull<RSSortingVector>>,
     idx: size_t,
-    val: Option<NonNull<Value>>,
+    val: Option<NonNull<RSValue>>,
 ) {
     // Safety: The caller must ensure that the pointer is valid (1.)
     let vec = unsafe { vec.expect("vec must not be null").as_mut() };
 
-    let value = val.expect("value must not be null").as_ptr().cast_const();
+    let value = val.expect("value must not be null").as_ptr();
 
     // Safety: The caller must ensure that the pointer is valid (2.)
-    let val = unsafe { SharedValue::from_raw(value) };
+    let val = unsafe { into_shared_value(value) };
 
     vec.try_insert_val(idx, val).unwrap_or_else(|_| {
         panic!("Index out of bounds: {} >= {}", idx, vec.len());

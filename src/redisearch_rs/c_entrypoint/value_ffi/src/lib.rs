@@ -7,6 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use std::marker::PhantomData;
+
 pub mod array;
 pub mod comparisons;
 pub mod constructors;
@@ -19,3 +21,8 @@ pub mod setters;
 pub mod shared;
 pub mod util;
 pub mod value_type;
+
+/// The C version of a [`SharedValue`](value::SharedValue)
+pub struct RSValue {
+    _marker: PhantomData<value::Value>,
+}

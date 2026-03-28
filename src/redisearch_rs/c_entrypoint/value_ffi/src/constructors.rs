@@ -7,7 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use crate::util::expect_shared_value;
+use crate::RSValue;
+use crate::util::{expect_shared_value, into_rs_value, into_shared_value};
 use ffi::RedisModuleString;
 use libc::size_t;
 use std::ffi::{c_char, c_double};
@@ -21,8 +22,8 @@ use value::{RedisString, SharedValue, String, Trio, Value};
 /// passed to [`RSValue_DecrRef`](crate::shared::RSValue_DecrRef). Ownership may be
 /// transferred through other `RSValue_` functions before that happens.
 #[unsafe(no_mangle)]
-pub extern "C" fn RSValue_NewUndefined() -> *mut Value {
-    SharedValue::new(Value::Undefined).into_raw().cast_mut()
+pub extern "C" fn RSValue_NewUndefined() -> *mut RSValue {
+    into_rs_value(SharedValue::new(Value::Undefined)).cast_mut()
 }
 
 /// Creates and returns a new **owned** [`RsValue::Null`].
@@ -31,8 +32,8 @@ pub extern "C" fn RSValue_NewUndefined() -> *mut Value {
 /// passed to [`RSValue_DecrRef`](crate::shared::RSValue_DecrRef). Ownership may be
 /// transferred through other `RSValue_` functions before that happens.
 #[unsafe(no_mangle)]
-pub extern "C" fn RSValue_NewNull() -> *mut Value {
-    SharedValue::new(Value::Null).into_raw().cast_mut()
+pub extern "C" fn RSValue_NewNull() -> *mut RSValue {
+    into_rs_value(SharedValue::new(Value::Null)).cast_mut()
 }
 
 /// Creates and returns a new **owned** [`RsValue::Number`]
@@ -42,8 +43,8 @@ pub extern "C" fn RSValue_NewNull() -> *mut Value {
 /// passed to [`RSValue_DecrRef`](crate::shared::RSValue_DecrRef). Ownership may be
 /// transferred through other `RSValue_` functions before that happens.
 #[unsafe(no_mangle)]
-pub extern "C" fn RSValue_NewNumber(value: c_double) -> *mut Value {
-    SharedValue::new(Value::Number(value)).into_raw().cast_mut()
+pub extern "C" fn RSValue_NewNumber(value: c_double) -> *mut RSValue {
+    into_rs_value(SharedValue::new(Value::Number(value))).cast_mut()
 }
 
 /// Creates and returns a new **owned** [`RsValue::Trio`] from three [`RsValue`]s.
@@ -60,24 +61,24 @@ pub extern "C" fn RSValue_NewNumber(value: c_double) -> *mut Value {
 ///    `RSValue_*` function returning an owned [`RsValue`] object.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RSValue_NewTrio(
-    left: *mut Value,
-    middle: *mut Value,
-    right: *mut Value,
-) -> *mut Value {
+    left: *mut RSValue,
+    middle: *mut RSValue,
+    right: *mut RSValue,
+) -> *mut RSValue {
     // Safety: ensured by caller (1.)
-    let shared_left = unsafe { SharedValue::from_raw(left) };
+    let shared_left = unsafe { into_shared_value(left) };
     // Safety: ensured by caller (1.)
-    let shared_middle = unsafe { SharedValue::from_raw(middle) };
+    let shared_middle = unsafe { into_shared_value(middle) };
     // Safety: ensured by caller (1.)
-    let shared_right = unsafe { SharedValue::from_raw(right) };
+    let shared_right = unsafe { into_shared_value(right) };
 
-    SharedValue::new(Value::Trio(Trio::new(
+    let shared = SharedValue::new(Value::Trio(Trio::new(
         shared_left,
         shared_middle,
         shared_right,
-    )))
-    .into_raw()
-    .cast_mut()
+    )));
+
+    into_rs_value(shared).cast_mut()
 }
 
 /// Creates and returns a new **owned** [`RsValue::String`],
@@ -98,13 +99,13 @@ pub unsafe extern "C" fn RSValue_NewTrio(
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RSValue_NewString(str: *mut c_char, len: u32) -> *mut Value {
+pub unsafe extern "C" fn RSValue_NewString(str: *mut c_char, len: u32) -> *mut RSValue {
     // Safety: ensured by caller (1., 2., 3., 4.)
     let string = unsafe { String::rm_alloc_string(str, len) };
 
     let value = Value::String(string);
     let shared_value = SharedValue::new(value);
-    shared_value.into_raw().cast_mut()
+    into_rs_value(shared_value).cast_mut()
 }
 
 /// Creates and returns a new **owned** [`RsValue::String`],
@@ -124,13 +125,13 @@ pub unsafe extern "C" fn RSValue_NewString(str: *mut c_char, len: u32) -> *mut V
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RSValue_NewBorrowedString(str: *const c_char, len: u32) -> *mut Value {
+pub unsafe extern "C" fn RSValue_NewBorrowedString(str: *const c_char, len: u32) -> *mut RSValue {
     // Safety: ensured by caller (1., 2., 3., 4.)
     let string = unsafe { String::borrowed_string(str, len) };
 
     let value = Value::String(string);
     let shared_value = SharedValue::new(value);
-    shared_value.into_raw().cast_mut()
+    into_rs_value(shared_value).cast_mut()
 }
 
 /// Creates and returns a new **owned** [`RsValue::String`],
@@ -148,13 +149,13 @@ pub unsafe extern "C" fn RSValue_NewBorrowedString(str: *const c_char, len: u32)
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RSValue_NewRedisString(str: *mut RedisModuleString) -> *mut Value {
+pub unsafe extern "C" fn RSValue_NewRedisString(str: *mut RedisModuleString) -> *mut RSValue {
     // Safety: ensured by caller (1., 2.)
     let redis_string = unsafe { RedisString::from_raw(str) };
 
     let value = Value::RedisString(redis_string);
     let shared_value = SharedValue::new(value);
-    shared_value.into_raw().cast_mut()
+    into_rs_value(shared_value).cast_mut()
 }
 
 /// Creates and returns a new **owned** [`RsValue::String`],
@@ -173,14 +174,14 @@ pub unsafe extern "C" fn RSValue_NewRedisString(str: *mut RedisModuleString) -> 
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RSValue_NewCopiedString(str: *const c_char, len: u32) -> *mut Value {
+pub unsafe extern "C" fn RSValue_NewCopiedString(str: *const c_char, len: u32) -> *mut RSValue {
     // Safety: ensured by caller (1., 2.)
     let slice = unsafe { std::slice::from_raw_parts(str.cast::<u8>(), len as usize) };
 
     let string = String::from_vec(slice.to_vec());
     let value = Value::String(string);
     let shared_value = SharedValue::new(value);
-    shared_value.into_raw().cast_mut()
+    into_rs_value(shared_value).cast_mut()
 }
 
 /// Creates and returns a new **owned** [`RsValue::Number`] by parsing the given
@@ -200,7 +201,10 @@ pub unsafe extern "C" fn RSValue_NewCopiedString(str: *const c_char, len: u32) -
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RSValue_NewParsedNumber(value: *const c_char, len: size_t) -> *mut Value {
+pub unsafe extern "C" fn RSValue_NewParsedNumber(
+    value: *const c_char,
+    len: size_t,
+) -> *mut RSValue {
     // Safety: ensured by caller (1., 2.)
     let slice = unsafe { std::slice::from_raw_parts(value.cast::<u8>(), len) };
 
@@ -208,9 +212,9 @@ pub unsafe extern "C" fn RSValue_NewParsedNumber(value: *const c_char, len: size
         return std::ptr::null_mut();
     };
 
-    SharedValue::new(Value::Number(number))
-        .into_raw()
-        .cast_mut()
+    let shared = SharedValue::new(Value::Number(number));
+
+    into_rs_value(shared).cast_mut()
 }
 
 /// Creates and returns a new **owned** [`RsValue::Number`] from an `i64`.
@@ -222,10 +226,10 @@ pub unsafe extern "C" fn RSValue_NewParsedNumber(value: *const c_char, len: size
 /// passed to [`RSValue_DecrRef`](crate::shared::RSValue_DecrRef). Ownership may be
 /// transferred through other `RSValue_` functions before that happens.
 #[unsafe(no_mangle)]
-pub extern "C" fn RSValue_NewNumberFromInt64(number: i64) -> *mut Value {
-    SharedValue::new(Value::Number(number as f64))
-        .into_raw()
-        .cast_mut()
+pub extern "C" fn RSValue_NewNumberFromInt64(number: i64) -> *mut RSValue {
+    let shared = SharedValue::new(Value::Number(number as f64));
+
+    into_rs_value(shared).cast_mut()
 }
 
 /// Creates and returns a new **owned** [`RsValue::Ref`] that points to `src`.
@@ -240,12 +244,14 @@ pub extern "C" fn RSValue_NewNumberFromInt64(number: i64) -> *mut Value {
 ///
 /// 1. `src` must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RSValue_NewReference(src: *const Value) -> *mut Value {
+pub unsafe extern "C" fn RSValue_NewReference(src: *const RSValue) -> *mut RSValue {
     // SAFETY: ensured by caller (1.)
     let shared_src = unsafe { expect_shared_value(src) };
 
     let ref_value = Value::Ref(shared_src.deref().clone());
-    SharedValue::new(ref_value).into_raw().cast_mut()
+    let shared = SharedValue::new(ref_value);
+
+    into_rs_value(shared).cast_mut()
 }
 
 /// Returns a pointer to the static [`RsValue::Null`] sentinel.
@@ -259,6 +265,6 @@ pub unsafe extern "C" fn RSValue_NewReference(src: *const Value) -> *mut Value {
 ///
 /// The returned pointer must not be mutated.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RSValue_NullStatic() -> *mut Value {
-    SharedValue::null_static().into_raw().cast_mut()
+pub unsafe extern "C" fn RSValue_NullStatic() -> *mut RSValue {
+    into_rs_value(SharedValue::null_static()).cast_mut()
 }

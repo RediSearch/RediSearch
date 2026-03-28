@@ -130,11 +130,6 @@ typedef struct RLookup RLookup;
 typedef struct RSSortingVector RSSortingVector;
 
 /**
- * An actual [`RsValue`] object
- */
-typedef struct RSValue RSValue;
-
-/**
  * A type with size `N`.
  */
 typedef uint8_t Size_40[40];
@@ -597,7 +592,7 @@ struct RLookupRow RLookupRow_New(void);
  */
 void RLookup_WriteKey(const struct RLookupKey *key,
                       struct RLookupRow *row,
-                      struct RSValue *value);
+                      RSValue *value);
 
 /**
  * Writes a key to the row without incrementing the value reference count, thus taking ownership of the value.
@@ -612,7 +607,7 @@ void RLookup_WriteKey(const struct RLookupKey *key,
  */
 void RLookup_WriteOwnKey(const struct RLookupKey *key,
                          struct RLookupRow *row,
-                         struct RSValue *value);
+                         RSValue *value);
 
 /**
  * Wipes a RLookupRow by decrementing all values and resetting the row.
@@ -682,7 +677,7 @@ void RLookupRow_WriteByName(struct RLookup *lookup,
                             const char *name,
                             size_t name_len,
                             struct RLookupRow *row,
-                            struct RSValue *value);
+                            RSValue *value);
 
 /**
  * Write a value by-name to the lookup table. This is useful for 'dynamic' keys
@@ -712,7 +707,7 @@ void RLookupRow_WriteByNameOwned(struct RLookup *lookup,
                                  const char *name,
                                  size_t name_len,
                                  struct RLookupRow *row,
-                                 struct RSValue *value);
+                                 RSValue *value);
 
 /**
  * Write fields from a source row into this row.
@@ -757,7 +752,7 @@ void RLookupRow_WriteFieldsFrom(const struct RLookupRow *src_row,
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-struct RSValue *RLookupRow_Get(const struct RLookupKey *key, const struct RLookupRow *row);
+RSValue *RLookupRow_Get(const struct RLookupKey *key, const struct RLookupRow *row);
 
 /**
  * Returns the sorting vector for the row, or null if none exists.

@@ -13,6 +13,3 @@ typedef struct RSSortingVector RSSortingVector;
 [parse]
 parse_deps = true
 include = []
-
-[export.rename]
-"Value" = "RSValue"

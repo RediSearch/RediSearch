@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use crate::RSValue;
 use crate::util::expect_value;
 use query_error::{QueryError, QueryErrorCode};
 use std::{cmp::Ordering, ffi::c_int};
@@ -28,8 +29,8 @@ use value::comparison::{CompareError, compare};
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RSValue_Cmp(
-    v1: *const Value,
-    v2: *const Value,
+    v1: *const RSValue,
+    v2: *const RSValue,
     status: *mut QueryError,
 ) -> c_int {
     // SAFETY: ensured by caller (1.)
@@ -78,8 +79,8 @@ pub unsafe extern "C" fn RSValue_Cmp(
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RSValue_Equal(
-    v1: *const Value,
-    v2: *const Value,
+    v1: *const RSValue,
+    v2: *const RSValue,
     _status: *mut QueryError,
 ) -> bool {
     // SAFETY: ensured by caller (1.)
@@ -113,7 +114,7 @@ pub unsafe extern "C" fn RSValue_Equal(
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RSValue_BoolTest(value: *const Value) -> bool {
+pub unsafe extern "C" fn RSValue_BoolTest(value: *const RSValue) -> bool {
     // SAFETY: ensured by caller (1.)
     let value = unsafe { expect_value(value) };
     let value = value.fully_dereferenced_ref();
