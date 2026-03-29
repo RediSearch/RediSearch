@@ -1848,7 +1848,14 @@ static int QueryNode_CheckIsValid(QueryNode *n, IndexSpec *spec, RSSearchOptions
 // Checks whether query nodes are valid
 // Currently Phrase nodes are checked whether slop/inorder are allowed
 int QAST_CheckIsValid(QueryAST *q, IndexSpec *spec, RSSearchOptions *opts, QueryError *status) {
-  if (!q || !q->root ||
+  if (!q || !q->root) {
+    return REDISMODULE_OK;
+  }
+
+  // Always validate disk indexes (for unsupported query types like prefix/fuzzy/wildcard/lexrange)
+  // For non-disk indexes, skip validation if there's no TEXT/TAG field that doesn't index empty
+  // and no JSON spec with undefined order
+  if (!SearchDisk_IsEnabledForValidation() &&
       !(spec->flags & Index_HasNonEmpty) &&
       (!isSpecJson(spec) || !(spec->flags & Index_HasUndefinedOrder))
   ) {
