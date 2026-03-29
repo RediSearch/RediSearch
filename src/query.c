@@ -1727,6 +1727,18 @@ static inline bool QueryNode_ValidateToken(QueryNode *n, IndexSpec *spec, RSSear
   return true;
 }
 
+// Helper function to validate that trie-based query types are not used on disk indexes.
+// Returns REDISMODULE_ERR if the query type is not supported on disk indexes, REDISMODULE_OK otherwise.
+static int QueryNode_ValidateNotDiskUnsupported(const char *queryTypeName,
+  QueryError *status) {
+  if (SearchDisk_IsEnabledForValidation()) {
+    QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_FLEX_UNSUPPORTED_QUERY,
+      "%s queries are not supported on Flex indexes", queryTypeName);
+    return REDISMODULE_ERR;
+  }
+  return REDISMODULE_OK;
+}
+
 static int QueryNode_CheckIsValid(QueryNode *n, IndexSpec *spec, RSSearchOptions *opts,
   QueryError *status, QAST_ValidationFlags validationFlags) {
   // Check if this is the main vector node in a hybrid vector subquery
@@ -1765,6 +1777,21 @@ static int QueryNode_CheckIsValid(QueryNode *n, IndexSpec *spec, RSSearchOptions
         const FieldSpec *fs = n->tag.fs;
         if (fs && FieldSpec_IndexesEmpty(fs)) {
           opts->flags |= QueryNode_IndexesEmpty;
+        }
+        // Block multi-term TAG queries in disk mode (MVP1 limitation)
+        // These query types require TrieMap iteration which doesn't work with disk storage
+        for (size_t ii = 0; ii < QueryNode_NumChildren(n); ++ii) {
+          QueryNode *child = n->children[ii];
+          if (child->type == QN_PREFIX) {
+            res = QueryNode_ValidateNotDiskUnsupported("TAG prefix/suffix/infix", status);
+          } else if (child->type == QN_WILDCARD_QUERY) {
+            res = QueryNode_ValidateNotDiskUnsupported("TAG wildcard", status);
+          } else if (child->type == QN_LEXRANGE) {
+            res = QueryNode_ValidateNotDiskUnsupported("TAG lexrange", status);
+          }
+          if (res == REDISMODULE_ERR) {
+            return res;
+          }
         }
       }
       break;
