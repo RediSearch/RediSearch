@@ -1730,7 +1730,7 @@ static inline bool QueryNode_ValidateToken(QueryNode *n, IndexSpec *spec, RSSear
 // Helper function to validate that trie-based query types are not used on disk indexes.
 // Returns REDISMODULE_ERR if the query type is not supported on disk indexes, REDISMODULE_OK otherwise.
 static int QueryNode_ValidateNotDiskUnsupported(const char *queryTypeName,
-  IndexSpec *spec, QueryError *status) {
+  QueryError *status) {
   if (SearchDisk_IsEnabledForValidation()) {
     QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_FLEX_UNSUPPORTED_QUERY,
       "%s queries are not supported on Flex indexes", queryTypeName);
@@ -1805,16 +1805,16 @@ static int QueryNode_CheckIsValid(QueryNode *n, IndexSpec *spec, RSSearchOptions
       }
       break;
     case QN_PREFIX:
-      res = QueryNode_ValidateNotDiskUnsupported("Prefix", spec, status);
+      res = QueryNode_ValidateNotDiskUnsupported("Prefix", status);
       break;
     case QN_WILDCARD_QUERY:
-      res = QueryNode_ValidateNotDiskUnsupported("Wildcard pattern", spec, status);
+      res = QueryNode_ValidateNotDiskUnsupported("Wildcard pattern", status);
       break;
     case QN_FUZZY:
-      res = QueryNode_ValidateNotDiskUnsupported("Fuzzy", spec, status);
+      res = QueryNode_ValidateNotDiskUnsupported("Fuzzy", status);
       break;
     case QN_LEXRANGE:
-      res = QueryNode_ValidateNotDiskUnsupported("Lexrange", spec, status);
+      res = QueryNode_ValidateNotDiskUnsupported("Lexrange", status);
       break;
     case QN_NOT:
     case QN_OPTIONAL:
