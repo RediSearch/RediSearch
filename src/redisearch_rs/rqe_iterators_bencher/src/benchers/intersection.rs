@@ -34,12 +34,27 @@ use crate::ffi::{self, InvertedIndex as CInvertedIndex};
 #[derive(Default)]
 pub struct Bencher;
 
-/// Number of child iterators for intersection benchmarks.
+/// Number of children values to sweep in parametric benchmarks.
+const NUM_CHILDREN_CASES: &[usize] = &[2, 5, 10, 20];
+
+/// Overlap percentage scenarios for parametric benchmarks.
+///
+/// Each entry is `(label, pct)` where `pct`% of `CHILD_SIZE` IDs are common to all children.
+const OVERLAP_CASES: &[(&str, u8)] = &[
+    ("1pct", 1),
+    ("5pct", 5),
+    ("10pct", 10),
+    ("20pct", 20),
+    ("50pct", 50),
+    ("80pct", 80),
+];
+
+/// Number of child iterators for slop/order benchmarks.
 const NUM_CHILDREN: usize = 5;
 /// Size of each child iterator's ID list.
 const CHILD_SIZE: u64 = 100_000;
-/// Step size for skip_to benchmarks.
-const STEP: u64 = 100;
+/// Step size for skip_to benchmarks
+const STEP: u64 = 10;
 
 /// Number of documents for slop/order benchmarks.
 const NUM_DOCS: u64 = 100_000;
@@ -60,27 +75,33 @@ const FLAGS: IndexFlags = IndexFlags_Index_StoreFreqs
     | IndexFlags_Index_StoreFieldFlags
     | IndexFlags_Index_StoreByteOffsets;
 
-/// Generate IDs for high overlap scenario (dense intersection results).
-/// Each child contains IDs 1..CHILD_SIZE, so all documents appear in all children.
-fn high_overlap_ids() -> Vec<Vec<u64>> {
-    (0..NUM_CHILDREN)
-        .map(|_| (1..=CHILD_SIZE).collect())
-        .collect()
-}
-
-/// Generate IDs for low overlap scenario (sparse intersection results).
-/// Children have staggered starting points, reducing intersection size.
-fn low_overlap_ids() -> Vec<Vec<u64>> {
-    (0..NUM_CHILDREN)
+/// Generate IDs with exact overlap control.
+///
+/// Each of the `num_children` children contains exactly `CHILD_SIZE` IDs:
+/// - IDs `1..=common_count` appear in **all** children (the intersection result set).
+/// - Each child then gets `CHILD_SIZE - common_count` IDs that are unique to it.
+///
+/// `overlap_pct` controls what fraction of `CHILD_SIZE` ends up in the intersection;
+/// e.g. `overlap_pct=20` ⇒ ~20 000 common IDs out of 100 000 per child.
+fn parametric_ids(num_children: usize, overlap_pct: u8) -> Vec<Vec<u64>> {
+    let common_count = CHILD_SIZE * overlap_pct as u64 / 100;
+    let unique_per_child = CHILD_SIZE - common_count;
+    (0..num_children)
         .map(|i| {
-            let offset = (i as u64) * (CHILD_SIZE / 10);
-            (1..=CHILD_SIZE).map(|x| x + offset).collect()
+            // Unique block for child i starts right after all previous children's unique blocks.
+            let unique_start = common_count + 1 + i as u64 * unique_per_child;
+            let mut ids: Vec<u64> = (1..=common_count).collect();
+            ids.extend(unique_start..unique_start + unique_per_child);
+            // ids is already sorted: common range then unique range (non-overlapping)
+            ids
         })
         .collect()
 }
 
 /// Generate IDs for varying sizes scenario (realistic workload).
+///
 /// First child is smallest (drives the intersection), others are progressively larger.
+/// All children share IDs 1..=smallest_size so the intersection equals the smallest child.
 fn varying_size_ids() -> Vec<Vec<u64>> {
     (0..NUM_CHILDREN)
         .map(|i| {
@@ -156,6 +177,19 @@ impl Bencher {
     const MEASUREMENT_TIME: Duration = Duration::from_millis(3000);
     const WARMUP_TIME: Duration = Duration::from_millis(200);
 
+    pub fn bench(&self, c: &mut Criterion) {
+        self.read_parametric(c);
+        self.read_varying_sizes(c);
+        self.skip_to_parametric(c);
+        self.read_slop0_all_pass(c);
+        self.read_slop100_all_pass(c);
+        self.read_in_order_all_pass(c);
+        self.read_in_order_slop100_all_pass(c);
+        self.read_in_order_all_fail(c);
+    }
+
+    // ── Helpers ──────────────────────────────────────────────────────────────
+
     fn benchmark_group<'a>(
         &self,
         c: &'a mut Criterion,
@@ -167,95 +201,30 @@ impl Bencher {
         group
     }
 
-    pub fn bench(&self, c: &mut Criterion) {
-        self.read_high_overlap(c);
-        self.read_low_overlap(c);
-        self.read_varying_sizes(c);
-        self.skip_to_high_overlap(c);
-        self.skip_to_low_overlap(c);
-        self.read_slop0_all_pass(c);
-        self.read_slop100_all_pass(c);
-        self.read_in_order_all_pass(c);
-        self.read_in_order_slop100_all_pass(c);
-        self.read_in_order_all_fail(c);
-    }
-
-    fn read_high_overlap(&self, c: &mut Criterion) {
-        let mut group = self.benchmark_group(c, "Iterator - Intersection - Read High Overlap");
-        self.bench_read(&mut group, high_overlap_ids);
-        group.finish();
-    }
-
-    fn read_low_overlap(&self, c: &mut Criterion) {
-        let mut group = self.benchmark_group(c, "Iterator - Intersection - Read Low Overlap");
-        self.bench_read(&mut group, low_overlap_ids);
-        group.finish();
-    }
-
-    fn read_varying_sizes(&self, c: &mut Criterion) {
-        let mut group = self.benchmark_group(c, "Iterator - Intersection - Read Varying Sizes");
-        self.bench_read(&mut group, varying_size_ids);
-        group.finish();
-    }
-
-    fn skip_to_high_overlap(&self, c: &mut Criterion) {
-        let mut group = self.benchmark_group(c, "Iterator - Intersection - SkipTo High Overlap");
-        self.bench_skip_to(&mut group, high_overlap_ids);
-        group.finish();
-    }
-
-    fn skip_to_low_overlap(&self, c: &mut Criterion) {
-        let mut group = self.benchmark_group(c, "Iterator - Intersection - SkipTo Low Overlap");
-        self.bench_skip_to(&mut group, low_overlap_ids);
-        group.finish();
-    }
-
-    /// max_slop=0, in_order=false, adjacent in-order positions → all docs pass.
-    fn read_slop0_all_pass(&self, c: &mut Criterion) {
-        let mut group = self.benchmark_group(c, "Iterator - Intersection - Read Slop=0 All Pass");
-        self.bench_read_slop(&mut group, Some(0), false, 1, 2);
-        group.finish();
-    }
-
-    /// max_slop=100, in_order=false, positions with span=48 (first@1, second@50) → all docs pass.
-    ///
-    /// Represents a realistic wide-window phrase query. Comparable to `read_slop0_all_pass`
-    /// to show how slop value affects proximity-check overhead.
-    fn read_slop100_all_pass(&self, c: &mut Criterion) {
-        let mut group = self.benchmark_group(c, "Iterator - Intersection - Read Slop=100 All Pass");
-        self.bench_read_slop(&mut group, Some(100), false, 1, 50);
-        group.finish();
-    }
-
-    /// max_slop=None, in_order=true, adjacent in-order positions (first@1, second@2) → all docs pass.
-    ///
-    /// No slop constraint; isolates the cost of pure ordering checks.
-    fn read_in_order_all_pass(&self, c: &mut Criterion) {
-        let mut group = self.benchmark_group(c, "Iterator - Intersection - Read In-Order All Pass");
-        self.bench_read_slop(&mut group, None, true, 1, 2);
-        group.finish();
-    }
-
-    /// max_slop=100, in_order=true, positions first@1, second@50 (span=48) → all docs pass.
-    ///
-    /// Combines a wide slop window with ordering constraint; both checks run but all pass.
-    fn read_in_order_slop100_all_pass(&self, c: &mut Criterion) {
-        let mut group = self.benchmark_group(
-            c,
-            "Iterator - Intersection - Read In-Order Slop=100 All Pass",
-        );
-        self.bench_read_slop(&mut group, Some(100), true, 1, 50);
-        group.finish();
-    }
-
-    /// max_slop=0, in_order=true, adjacent reverse positions → all docs fail.
-    ///
-    /// The iterator must scan the full corpus without yielding any result,
-    /// representing the worst-case cost of the proximity-check rejection path.
-    fn read_in_order_all_fail(&self, c: &mut Criterion) {
-        let mut group = self.benchmark_group(c, "Iterator - Intersection - Read In-Order All Fail");
-        self.bench_read_slop(&mut group, Some(0), true, 2, 1);
-        group.finish();
+    /// Sweep `NUM_CHILDREN_CASES` × `OVERLAP_CASES`, building a fresh `Intersection` from
+    /// `IdListSorted` children for each sample, then driving it with `routine`.
+    fn bench_parametric<M, F>(&self, group: &mut BenchmarkGroup<'_, M>, routine: F)
+    where
+        M: Measurement,
+        F: Fn(&mut Intersection<'static, IdListSorted<'static>>) + Copy,
+    {
+        for &num_children in NUM_CHILDREN_CASES {
+            for &(label, pct) in OVERLAP_CASES {
+                group.bench_function(format!("Rust/n={num_children}/{label}"), |b| {
+                    b.iter_batched_ref(
+                        || {
+                            Intersection::new(
+                                ids_to_rust_children(parametric_ids(num_children, pct)),
+                                WEIGHT,
+                                PRIORITIZE_UNION_CHILDREN,
+                            )
+                        },
+                        routine,
+                        criterion::BatchSize::SmallInput,
+                    );
+                });
+            }
+        }
     }
 
     fn bench_read<M, F>(&self, group: &mut BenchmarkGroup<'_, M>, make_ids: F)
@@ -274,30 +243,6 @@ impl Bencher {
                 },
                 |it| {
                     while let Ok(Some(current)) = it.read() {
-                        black_box(current);
-                    }
-                },
-                criterion::BatchSize::SmallInput,
-            );
-        });
-    }
-
-    fn bench_skip_to<M, F>(&self, group: &mut BenchmarkGroup<'_, M>, make_ids: F)
-    where
-        M: Measurement,
-        F: Fn() -> Vec<Vec<u64>>,
-    {
-        group.bench_function("Rust", |b| {
-            b.iter_batched_ref(
-                || {
-                    Intersection::new(
-                        ids_to_rust_children(make_ids()),
-                        WEIGHT,
-                        PRIORITIZE_UNION_CHILDREN,
-                    )
-                },
-                |it| {
-                    while let Ok(Some(current)) = it.skip_to(it.last_doc_id() + STEP) {
                         black_box(current);
                     }
                 },
@@ -380,5 +325,83 @@ impl Bencher {
                 criterion::BatchSize::SmallInput,
             );
         });
+    }
+
+    // ── Benchmarks ───────────────────────────────────────────────────────────
+
+    /// Parametric Read benchmark sweeping `num_children` × overlap percentage.
+    fn read_parametric(&self, c: &mut Criterion) {
+        let mut group = self.benchmark_group(c, "Iterator - Intersection - Read");
+        self.bench_parametric(&mut group, |it| {
+            while let Ok(Some(current)) = it.read() {
+                black_box(current);
+            }
+        });
+        group.finish();
+    }
+
+    fn read_varying_sizes(&self, c: &mut Criterion) {
+        let mut group = self.benchmark_group(c, "Iterator - Intersection - Read Varying Sizes");
+        self.bench_read(&mut group, varying_size_ids);
+        group.finish();
+    }
+
+    /// Parametric SkipTo benchmark sweeping `num_children` × overlap percentage.
+    fn skip_to_parametric(&self, c: &mut Criterion) {
+        let mut group = self.benchmark_group(c, "Iterator - Intersection - SkipTo");
+        self.bench_parametric(&mut group, |it| {
+            while let Ok(Some(current)) = it.skip_to(it.last_doc_id() + STEP) {
+                black_box(current);
+            }
+        });
+        group.finish();
+    }
+
+    /// max_slop=0, in_order=false, adjacent in-order positions → all docs pass.
+    fn read_slop0_all_pass(&self, c: &mut Criterion) {
+        let mut group = self.benchmark_group(c, "Iterator - Intersection - Read Slop=0 All Pass");
+        self.bench_read_slop(&mut group, Some(0), false, 1, 2);
+        group.finish();
+    }
+
+    /// max_slop=100, in_order=false, positions with span=48 (first@1, second@50) → all docs pass.
+    ///
+    /// Represents a realistic wide-window phrase query. Comparable to `read_slop0_all_pass`
+    /// to show how slop value affects proximity-check overhead.
+    fn read_slop100_all_pass(&self, c: &mut Criterion) {
+        let mut group = self.benchmark_group(c, "Iterator - Intersection - Read Slop=100 All Pass");
+        self.bench_read_slop(&mut group, Some(100), false, 1, 50);
+        group.finish();
+    }
+
+    /// max_slop=None, in_order=true, adjacent in-order positions (first@1, second@2) → all docs pass.
+    ///
+    /// No slop constraint; isolates the cost of pure ordering checks.
+    fn read_in_order_all_pass(&self, c: &mut Criterion) {
+        let mut group = self.benchmark_group(c, "Iterator - Intersection - Read In-Order All Pass");
+        self.bench_read_slop(&mut group, None, true, 1, 2);
+        group.finish();
+    }
+
+    /// max_slop=100, in_order=true, positions first@1, second@50 (span=48) → all docs pass.
+    ///
+    /// Combines a wide slop window with ordering constraint; both checks run but all pass.
+    fn read_in_order_slop100_all_pass(&self, c: &mut Criterion) {
+        let mut group = self.benchmark_group(
+            c,
+            "Iterator - Intersection - Read In-Order Slop=100 All Pass",
+        );
+        self.bench_read_slop(&mut group, Some(100), true, 1, 50);
+        group.finish();
+    }
+
+    /// max_slop=0, in_order=true, adjacent reverse positions → all docs fail.
+    ///
+    /// The iterator must scan the full corpus without yielding any result,
+    /// representing the worst-case cost of the proximity-check rejection path.
+    fn read_in_order_all_fail(&self, c: &mut Criterion) {
+        let mut group = self.benchmark_group(c, "Iterator - Intersection - Read In-Order All Fail");
+        self.bench_read_slop(&mut group, Some(0), true, 2, 1);
+        group.finish();
     }
 }

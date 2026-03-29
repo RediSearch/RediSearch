@@ -28,8 +28,10 @@ use crate::RsValue;
 /// # Cloning and dropping
 ///
 /// [`Clone`] increments the [`Arc`] reference count (or cheaply copies the
-/// pointer for static values). [`Drop`] decrements it and frees the allocation
-/// when the count reaches zero.
+/// pointer for static values). [`Drop`] decrements it and, when the last
+/// reference is dropped, recycles the allocation into a thread-local pool
+/// (see [`crate::pool`]) instead of deallocating. If the pool is full, the
+/// allocation is deallocated normally.
 #[expect(rustdoc::private_intra_doc_links)]
 pub struct SharedRsValue {
     ptr: *const RsValue,
@@ -49,9 +51,11 @@ impl SharedRsValue {
     }
 
     /// Creates a new heap-allocated [`SharedRsValue`] backed by an [`Arc`].
+    ///
+    /// Uses a thread-local pool to recycle allocations when available.
     pub fn new(value: RsValue) -> Self {
         Self {
-            ptr: Arc::into_raw(Arc::new(value)),
+            ptr: Arc::into_raw(crate::pool::pool_get(value)),
         }
     }
 
@@ -159,8 +163,25 @@ impl Drop for SharedRsValue {
     fn drop(&mut self) {
         if !self.is_null_static() {
             // SAFETY: `self.ptr` was obtained from `Arc::into_raw` and is not static (checked above).
-            // Reconstructing and dropping the `Arc` decrements the reference count.
-            unsafe { drop(Arc::from_raw(self.ptr)) };
+            // Reconstructing the `Arc` decrements the reference count.
+            let arc = unsafe { Arc::from_raw(self.ptr) };
+            if Arc::strong_count(&arc) == 1 {
+                // Last reference — recycle the allocation instead of deallocating.
+                //
+                // No TOCTOU race: if `strong_count` returns 1, this `SharedRsValue`
+                // is the sole owner. No other thread holds a reference it could
+                // clone from, so the count cannot increase between this read and
+                // the `Arc::get_mut` call inside `pool_release`.
+                crate::pool::pool_release(arc);
+            } else {
+                // Other references exist — just decrement the refcount.
+                //
+                // In the concurrent drop case where two threads both read a count
+                // > 1, both take this branch. Arc's internal atomics handle this
+                // correctly — the last `drop` deallocates. We miss the pool
+                // optimization, but there is no unsoundness.
+                drop(arc);
+            }
         }
     }
 }

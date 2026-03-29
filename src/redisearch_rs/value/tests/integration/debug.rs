@@ -28,13 +28,13 @@ fn debug_undefined() {
 }
 
 #[test]
-#[cfg_attr(miri, ignore = "miri does not support FFI functions")]
+#[cfg_attr(miri, ignore = "Calls FFI function `snprintf`")]
 fn debug_number() {
     assert_eq!(debug(&RsValue::Number(42.0)), "42");
 }
 
 #[test]
-#[cfg_attr(miri, ignore = "miri does not support FFI functions")]
+#[cfg_attr(miri, ignore = "Calls FFI function `Obfuscate_Number`")]
 fn debug_number_obfuscated() {
     assert_eq!(debug_obfuscated(&RsValue::Number(42.0)), "Number");
 }
@@ -48,7 +48,7 @@ fn debug_string() {
 }
 
 #[test]
-#[cfg_attr(miri, ignore = "miri does not support FFI functions")]
+#[cfg_attr(miri, ignore = "Calls FFI function `Obfuscate_Text`")]
 fn debug_string_obfuscated() {
     assert_eq!(
         debug_obfuscated(&RsValue::String(RsString::from_vec(b"Hello".to_vec()))),
