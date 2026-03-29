@@ -15,7 +15,7 @@ jobs:
           uses: actions/github-script@v7
           with:
             script: |
-              # This is a work-around until https://github.com/CodelyTV/pr-size-labeler/pull/97 is merged.
+              // This is a work-around until https://github.com/CodelyTV/pr-size-labeler/pull/97 is merged.
               const { data: labels } = await github.rest.issues.listLabelsOnIssue({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
