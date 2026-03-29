@@ -122,7 +122,7 @@ jobs:
 
       - name: Upload artifacts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: ci-reports-${{ steps.date.outputs.date }}
           path: merge-to-queue_${{ steps.date.outputs.date }}/
