@@ -10,6 +10,7 @@
 use super::VarintEncode;
 
 #[derive(Debug)]
+#[cheadergen::config(rename = "VarintVectorWriter")]
 /// A structure to encode multiple integers into a single byte buffer,
 /// trying to minimize the size of the encoded data.
 ///

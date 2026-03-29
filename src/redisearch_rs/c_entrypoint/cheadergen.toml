@@ -1,0 +1,16 @@
+pragma_once = true
+
+[c]
+cpp_compat = true
+
+[package.buffer]
+types = "skip"
+
+[package.ffi]
+types = "skip"
+
+[header.value_ffi]
+includes = ["redismodule.h", "query_error.h"]
+
+[header.varint_ffi]
+includes = ["buffer.h", "redisearch.h"]

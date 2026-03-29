@@ -21,6 +21,7 @@ use rqe_iterators::{SEARCH_ENTERPRISE_ITERATORS, SearchEnterpriseIterators};
     improper_ctypes_definitions,
     reason = "This function is intended to be called from other Rust code having the same version of the `SearchEnterpriseIterators` trait, and is not intended to be called from C code directly."
 )]
+#[cheadergen::config(skip)]
 pub unsafe extern "C" fn redisearch_init_iterators(iters: *mut dyn SearchEnterpriseIterators) {
     // Safety: See safety comment 1 and 2
     let boxed = unsafe { Box::from_raw(iters) };
@@ -40,6 +41,7 @@ pub unsafe extern "C" fn redisearch_init_iterators(iters: *mut dyn SearchEnterpr
     improper_ctypes_definitions,
     reason = "This function is intended to be called from other Rust code having the same version of the `SearchEnterpriseIterators` trait, and is not intended to be called from C code directly."
 )]
+#[cheadergen::config(skip)]
 pub unsafe extern "C" fn redisearch_get_iterators() -> *const dyn SearchEnterpriseIterators {
     SEARCH_ENTERPRISE_ITERATORS.get().map(|b| b.as_ref()).unwrap_or_else(|| {
         panic!("SEARCH_ENTERPRISE_ITERATORS is not initialized. Please ensure that `redisearch_init_iterators` is called before invoking this function.")

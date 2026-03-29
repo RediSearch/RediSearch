@@ -20,6 +20,7 @@ test = false
 bench = false
 
 [dependencies]
+cheadergen.workspace = true
 ffi.workspace = true
 libc.workspace = true
 field.workspace = true

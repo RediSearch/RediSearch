@@ -15,4 +15,3 @@ packed = "PACKED"
 [export.rename]
 "RsValue" = "RSValue"
 "RsValueType" = "RSValueType"
-"RsValueMap" = "RSValueMap"

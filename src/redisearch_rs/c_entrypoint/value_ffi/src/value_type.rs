@@ -14,6 +14,7 @@ use value::RsValue;
 ///
 /// cbindgen:prefix-with-name
 #[repr(C)]
+#[cheadergen::config(rename = "RSValueType")]
 #[derive(Debug)]
 pub enum RsValueType {
     Undef = 0,

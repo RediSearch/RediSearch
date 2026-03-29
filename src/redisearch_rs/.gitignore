@@ -15,3 +15,6 @@
 **/proptest-regressions/**
 # `insta` pending snapshots
 **/*.pending-snap
+
+# Temporary
+new_headers/
