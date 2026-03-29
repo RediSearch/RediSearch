@@ -178,26 +178,64 @@ impl DocIdMinHeap {
 
     /// Sifts an element down the tree to restore heap property.
     ///
-    /// Used after removing the root or replacing it.
+    /// Uses the "hole" technique: saves the element being sifted, moves children
+    /// up one at a time (1 write per level instead of 3 for a swap), and writes
+    /// the saved element once at the final position.
+    ///
+    /// Also uses unchecked indexing in the inner loop since all indices are
+    /// validated against `self.data.len()` before access.
     fn sift_down(&mut self, mut idx: usize) {
+        let len = self.data.len();
+        if len <= 1 {
+            return;
+        }
+
+        // Save the element we're sifting down
+        let element = self.data[idx];
+
         loop {
             let left = 2 * idx + 1;
-            let right = 2 * idx + 2;
-            let mut smallest = idx;
-
-            if left < self.data.len() && self.data[left].0 < self.data[smallest].0 {
-                smallest = left;
-            }
-            if right < self.data.len() && self.data[right].0 < self.data[smallest].0 {
-                smallest = right;
-            }
-
-            if smallest == idx {
+            if left >= len {
                 break;
             }
 
-            self.data.swap(idx, smallest);
+            let right = left + 1;
+
+            // Find the smaller child.
+            // SAFETY: `left < len` is checked above. `right` is only used if `right < len`.
+            let smallest = if right < len {
+                unsafe {
+                    if self.data.get_unchecked(right).0 < self.data.get_unchecked(left).0 {
+                        right
+                    } else {
+                        left
+                    }
+                }
+            } else {
+                left
+            };
+
+            // SAFETY: `smallest` is either `left` or `right`, both validated < len.
+            let smallest_val = unsafe { *self.data.get_unchecked(smallest) };
+
+            if element.0 <= smallest_val.0 {
+                break;
+            }
+
+            // Move the smaller child up into the hole (1 write instead of 3 for swap).
+            // SAFETY: `idx < len` (invariant: starts at a valid index, only moves to
+            // `smallest` which was validated < len).
+            unsafe {
+                *self.data.get_unchecked_mut(idx) = smallest_val;
+            }
             idx = smallest;
+        }
+
+        // Place the saved element in its final position.
+        // SAFETY: `idx` is always a valid index (initialized from parameter, only updated
+        // to `smallest` which is validated < len).
+        unsafe {
+            *self.data.get_unchecked_mut(idx) = element;
         }
     }
 }

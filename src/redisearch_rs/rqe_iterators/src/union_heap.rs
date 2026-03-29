@@ -124,8 +124,10 @@ where
 
     /// Builds the result from children at the heap root whose `last_doc_id` equals `min_id`.
     ///
-    /// Iterates inline over the heap structure to push results directly,
-    /// avoiding intermediate buffer allocation.
+    /// Uses DFS traversal over the heap structure, exploiting the heap property
+    /// to prune subtrees: if a node's doc_id > min_id, all its descendants also
+    /// have doc_id >= that value, so the entire subtree can be skipped. This is
+    /// critical for the disjoint case where only 1 of N children matches.
     fn build_aggregate_result(&mut self, min_id: t_docId) {
         self.last_doc_id = min_id;
 

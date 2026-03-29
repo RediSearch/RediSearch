@@ -21,7 +21,7 @@
 //! - **High overlap**: All children sample from the same range, creating natural
 //!   overlap through random collision.
 //! - **Low overlap**: Children sample from staggered ranges with partial overlap.
-//! - **Disjoint**: Each child samples from a completely separate range.
+//! - **Disjoint Sequential**: Each child samples from a completely separate range.
 
 use std::{hint::black_box, time::Duration};
 
@@ -30,7 +30,10 @@ use criterion::{
     measurement::{Measurement, WallTime},
 };
 use rand::{Rng, SeedableRng, rngs::StdRng};
-use rqe_iterators::{RQEIterator, UnionFullFlat, UnionQuickFlat, id_list::IdListSorted};
+use rqe_iterators::{
+    RQEIterator, UnionFullFlat, UnionFullHeap, UnionQuickFlat, UnionQuickHeap,
+    id_list::IdListSorted,
+};
 
 use crate::ffi::{self, IteratorStatus_ITERATOR_OK};
 
@@ -74,9 +77,13 @@ enum Overlap {
     /// Child `i` samples from `[i * stride, i * stride + id_range_max]`
     /// where `stride = id_range_max / (2 * num_children)`.
     Low,
-    /// Each child samples from a completely separate range.
+    /// Each child samples from a completely separate, sequential range.
     /// Child `i` samples from `[i * id_range_max + 1, (i + 1) * id_range_max]`.
-    Disjoint,
+    DisjointSequential,
+    /// Children have disjoint doc IDs but interleaved across the ID space.
+    /// Child `i` gets IDs `i+1, num_children+i+1, 2*num_children+i+1, ...`
+    /// This forces the heap root to change on every read.
+    DisjointInterleaved,
 }
 
 impl DataGenParams {
@@ -104,14 +111,25 @@ impl DataGenParams {
         }
     }
 
-    /// Create params for disjoint scenario.
-    const fn disjoint(num_children: usize) -> Self {
+    /// Create params for disjoint sequential scenario.
+    const fn disjoint_sequential(num_children: usize) -> Self {
         Self {
             num_children,
             ids_per_child: IDS_PER_CHILD,
             // Each child gets its own range of this size
             id_range_max: IDS_PER_CHILD * 2,
-            overlap: Overlap::Disjoint,
+            overlap: Overlap::DisjointSequential,
+            seed: RNG_SEED,
+        }
+    }
+
+    /// Create params for disjoint interleaved scenario.
+    const fn disjoint_interleaved(num_children: usize) -> Self {
+        Self {
+            num_children,
+            ids_per_child: IDS_PER_CHILD,
+            id_range_max: IDS_PER_CHILD * 2,
+            overlap: Overlap::DisjointInterleaved,
             seed: RNG_SEED,
         }
     }
@@ -149,13 +167,27 @@ fn generate_ids(params: DataGenParams) -> Vec<Vec<u64>> {
                     let end = start + params.id_range_max - 1;
                     (start, end)
                 }
-                Overlap::Disjoint => {
-                    // Completely separate ranges for each child
+                Overlap::DisjointSequential => {
+                    // Completely separate sequential ranges for each child
                     let start = (child_idx as u64) * params.id_range_max + 1;
                     let end = start + params.id_range_max - 1;
                     (start, end)
                 }
+                Overlap::DisjointInterleaved => {
+                    // Handled separately below — use dummy range
+                    (0, 0)
+                }
             };
+
+            if matches!(params.overlap, Overlap::DisjointInterleaved) {
+                // Deterministic interleaved IDs: child i gets IDs i+1, n+i+1, 2n+i+1, ...
+                // where n = num_children. Each child gets exactly ids_per_child IDs.
+                let n = params.num_children as u64;
+                let ids: Vec<u64> = (0..params.ids_per_child)
+                    .map(|k| k * n + (child_idx as u64) + 1)
+                    .collect();
+                return ids;
+            }
 
             // Generate random IDs within the range
             let mut ids: Vec<u64> = (0..params.ids_per_child)
@@ -213,12 +245,20 @@ fn low_overlap_ids_many() -> Vec<Vec<u64>> {
     generate_ids(DataGenParams::low_overlap(NUM_CHILDREN_MANY))
 }
 
-fn disjoint_ids() -> Vec<Vec<u64>> {
-    generate_ids(DataGenParams::disjoint(NUM_CHILDREN_FEW))
+fn disjoint_sequential_ids() -> Vec<Vec<u64>> {
+    generate_ids(DataGenParams::disjoint_sequential(NUM_CHILDREN_FEW))
 }
 
-fn disjoint_ids_many() -> Vec<Vec<u64>> {
-    generate_ids(DataGenParams::disjoint(NUM_CHILDREN_MANY))
+fn disjoint_sequential_ids_many() -> Vec<Vec<u64>> {
+    generate_ids(DataGenParams::disjoint_sequential(NUM_CHILDREN_MANY))
+}
+
+fn disjoint_interleaved_ids() -> Vec<Vec<u64>> {
+    generate_ids(DataGenParams::disjoint_interleaved(NUM_CHILDREN_FEW))
+}
+
+fn disjoint_interleaved_ids_many() -> Vec<Vec<u64>> {
+    generate_ids(DataGenParams::disjoint_interleaved(NUM_CHILDREN_MANY))
 }
 
 fn varying_size_ids() -> Vec<Vec<u64>> {
@@ -249,19 +289,23 @@ impl Bencher {
         // Read benchmarks
         self.read_high_overlap_few(c);
         self.read_low_overlap_few(c);
-        self.read_disjoint_few(c);
+        self.read_disjoint_sequential_few(c);
         self.read_varying_sizes(c);
         self.read_high_overlap_many(c);
         self.read_low_overlap_many(c);
-        self.read_disjoint_many(c);
+        self.read_disjoint_sequential_many(c);
+        self.read_disjoint_interleaved_few(c);
+        self.read_disjoint_interleaved_many(c);
 
         // SkipTo benchmarks
         self.skip_to_high_overlap_few(c);
         self.skip_to_low_overlap_few(c);
-        self.skip_to_disjoint_few(c);
+        self.skip_to_disjoint_sequential_few(c);
         self.skip_to_high_overlap_many(c);
         self.skip_to_low_overlap_many(c);
-        self.skip_to_disjoint_many(c);
+        self.skip_to_disjoint_sequential_many(c);
+        self.skip_to_disjoint_interleaved_few(c);
+        self.skip_to_disjoint_interleaved_many(c);
     }
 
     // Read benchmarks - 5 children
@@ -278,9 +322,10 @@ impl Bencher {
         group.finish();
     }
 
-    fn read_disjoint_few(&self, c: &mut Criterion) {
-        let mut group = self.benchmark_group(c, "Iterator - Union - Read Disjoint 5 Children");
-        self.bench_read(&mut group, disjoint_ids);
+    fn read_disjoint_sequential_few(&self, c: &mut Criterion) {
+        let mut group =
+            self.benchmark_group(c, "Iterator - Union - Read Disjoint Sequential 5 Children");
+        self.bench_read(&mut group, disjoint_sequential_ids);
         group.finish();
     }
 
@@ -304,9 +349,24 @@ impl Bencher {
         group.finish();
     }
 
-    fn read_disjoint_many(&self, c: &mut Criterion) {
-        let mut group = self.benchmark_group(c, "Iterator - Union - Read Disjoint 50 Children");
-        self.bench_read(&mut group, disjoint_ids_many);
+    fn read_disjoint_sequential_many(&self, c: &mut Criterion) {
+        let mut group =
+            self.benchmark_group(c, "Iterator - Union - Read Disjoint Sequential 50 Children");
+        self.bench_read(&mut group, disjoint_sequential_ids_many);
+        group.finish();
+    }
+
+    fn read_disjoint_interleaved_few(&self, c: &mut Criterion) {
+        let mut group =
+            self.benchmark_group(c, "Iterator - Union - Read Disjoint Interleaved 5 Children");
+        self.bench_read(&mut group, disjoint_interleaved_ids);
+        group.finish();
+    }
+
+    fn read_disjoint_interleaved_many(&self, c: &mut Criterion) {
+        let mut group =
+            self.benchmark_group(c, "Iterator - Union - Read Disjoint Interleaved 50 Children");
+        self.bench_read(&mut group, disjoint_interleaved_ids_many);
         group.finish();
     }
 
@@ -325,9 +385,10 @@ impl Bencher {
         group.finish();
     }
 
-    fn skip_to_disjoint_few(&self, c: &mut Criterion) {
-        let mut group = self.benchmark_group(c, "Iterator - Union - SkipTo Disjoint 5 Children");
-        self.bench_skip_to(&mut group, disjoint_ids);
+    fn skip_to_disjoint_sequential_few(&self, c: &mut Criterion) {
+        let mut group =
+            self.benchmark_group(c, "Iterator - Union - SkipTo Disjoint Sequential 5 Children");
+        self.bench_skip_to(&mut group, disjoint_sequential_ids);
         group.finish();
     }
 
@@ -347,14 +408,29 @@ impl Bencher {
         group.finish();
     }
 
-    fn skip_to_disjoint_many(&self, c: &mut Criterion) {
-        let mut group = self.benchmark_group(c, "Iterator - Union - SkipTo Disjoint 50 Children");
-        self.bench_skip_to(&mut group, disjoint_ids_many);
+    fn skip_to_disjoint_sequential_many(&self, c: &mut Criterion) {
+        let mut group =
+            self.benchmark_group(c, "Iterator - Union - SkipTo Disjoint Sequential 50 Children");
+        self.bench_skip_to(&mut group, disjoint_sequential_ids_many);
+        group.finish();
+    }
+
+    fn skip_to_disjoint_interleaved_few(&self, c: &mut Criterion) {
+        let mut group =
+            self.benchmark_group(c, "Iterator - Union - SkipTo Disjoint Interleaved 5 Children");
+        self.bench_skip_to(&mut group, disjoint_interleaved_ids);
+        group.finish();
+    }
+
+    fn skip_to_disjoint_interleaved_many(&self, c: &mut Criterion) {
+        let mut group =
+            self.benchmark_group(c, "Iterator - Union - SkipTo Disjoint Interleaved 50 Children");
+        self.bench_skip_to(&mut group, disjoint_interleaved_ids_many);
         group.finish();
     }
 
     /// Benchmark Union iterator read() operation.
-    /// Compares C Flat, C Heap, and Rust Flat variants (both Full and Quick modes).
+    /// Compares C Flat, C Heap, and Rust Flat/Heap variants (both Full and Quick modes).
     fn bench_read<M, F>(&self, group: &mut BenchmarkGroup<'_, M>, make_ids: F)
     where
         M: Measurement,
@@ -441,10 +517,36 @@ impl Bencher {
                 criterion::BatchSize::SmallInput,
             );
         });
+
+        // Rust Heap Full variant (aggregates all matching children)
+        group.bench_function("Heap Full/Rust", |b| {
+            b.iter_batched_ref(
+                || UnionFullHeap::new(ids_to_rust_children(make_ids())),
+                |it| {
+                    while let Ok(Some(current)) = it.read() {
+                        black_box(current);
+                    }
+                },
+                criterion::BatchSize::SmallInput,
+            );
+        });
+
+        // Rust Heap Quick variant (returns after first match)
+        group.bench_function("Heap Quick/Rust", |b| {
+            b.iter_batched_ref(
+                || UnionQuickHeap::new(ids_to_rust_children(make_ids())),
+                |it| {
+                    while let Ok(Some(current)) = it.read() {
+                        black_box(current);
+                    }
+                },
+                criterion::BatchSize::SmallInput,
+            );
+        });
     }
 
     /// Benchmark Union iterator skip_to() operation.
-    /// Compares C Flat, C Heap, and Rust Flat variants (both Full and Quick modes).
+    /// Compares C Flat, C Heap, and Rust Flat/Heap variants (both Full and Quick modes).
     fn bench_skip_to<M, F>(&self, group: &mut BenchmarkGroup<'_, M>, make_ids: F)
     where
         M: Measurement,
@@ -523,6 +625,32 @@ impl Bencher {
         group.bench_function("Flat Quick/Rust", |b| {
             b.iter_batched_ref(
                 || UnionQuickFlat::new(ids_to_rust_children(make_ids())),
+                |it| {
+                    while let Ok(Some(outcome)) = it.skip_to(it.last_doc_id() + STEP) {
+                        black_box(outcome);
+                    }
+                },
+                criterion::BatchSize::SmallInput,
+            );
+        });
+
+        // Rust Heap Full variant (aggregates all matching children)
+        group.bench_function("Heap Full/Rust", |b| {
+            b.iter_batched_ref(
+                || UnionFullHeap::new(ids_to_rust_children(make_ids())),
+                |it| {
+                    while let Ok(Some(outcome)) = it.skip_to(it.last_doc_id() + STEP) {
+                        black_box(outcome);
+                    }
+                },
+                criterion::BatchSize::SmallInput,
+            );
+        });
+
+        // Rust Heap Quick variant (returns after first match)
+        group.bench_function("Heap Quick/Rust", |b| {
+            b.iter_batched_ref(
+                || UnionQuickHeap::new(ids_to_rust_children(make_ids())),
                 |it| {
                     while let Ok(Some(outcome)) = it.skip_to(it.last_doc_id() + STEP) {
                         black_box(outcome);
