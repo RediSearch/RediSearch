@@ -129,7 +129,7 @@ jobs:
 
       - name: checkout (node20)
         if: needs.get-config.outputs.node20_supported == 'true'
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           submodules: recursive
           ref: ${{ env.REF }}
