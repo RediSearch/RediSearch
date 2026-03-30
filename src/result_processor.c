@@ -1710,8 +1710,8 @@ static void RPSafeDepleter_Free(ResultProcessor *base) {
  * Get the depletion time for RPSafeDepleter.
  * This is the time spent in the background thread depleting upstream results.
  */
-rs_wall_clock_ns_t RPSafeDepleter_GetDepletionTime(ResultProcessor *base) {
-  RPSafeDepleter *self = (RPSafeDepleter *)base;
+rs_wall_clock_ns_t RPSafeDepleter_GetDepletionTime(const ResultProcessor *base) {
+  const RPSafeDepleter *self = (const RPSafeDepleter *)base;
   return self->depletionTime;
 }
 
@@ -2748,9 +2748,6 @@ static void RPDepleter_Free(ResultProcessor *base) {
   rm_free(self);
 }
 
-/**
- * Constructs a new depleter processor that runs in the current thread.
- */
 ResultProcessor *RPDepleter_New() {
   RPDepleter *ret = rm_calloc(1, sizeof(*ret));
   ret->results = array_new(SearchResult*, 0);
@@ -2761,10 +2758,6 @@ ResultProcessor *RPDepleter_New() {
   return &ret->base;
 }
 
-/**
- * Consumes and buffers all upstream results without yielding any to the caller.
- * @param base The depleter processor (must be RP_DEPLETER type)
- */
 void RPDepleter_StartDepletion(ResultProcessor *base) {
   RPDepleter *self = (RPDepleter *)base;
 
@@ -2775,26 +2768,16 @@ void RPDepleter_StartDepletion(ResultProcessor *base) {
   self->base.Next = RPDepleter_Next_Yield;
 }
 
-/**
- * Get the depletion time for RPDepleter.
- */
-rs_wall_clock_ns_t RPDepleter_GetDepletionTime(ResultProcessor *base) {
-  RPDepleter *self = (RPDepleter *)base;
+rs_wall_clock_ns_t RPDepleter_GetDepletionTime(const ResultProcessor *base) {
+  const RPDepleter *self = (const RPDepleter *)base;
   return self->depletionTime;
 }
 
-/**
- * Triggers depletion for all depleters in the array.
- * Stops on first error and returns the error code.
- * @param depleters Array of depleter processors (must be RP_DEPLETER type)
- * @return RS_RESULT_OK if all depleters completed successfully,
- *         or the error code from the first depleter that failed
- */
 int RPDepleter_DepleteAll(arrayof(ResultProcessor*) depleters) {
   for (size_t i = 0; i < array_len(depleters); i++) {
     RS_ASSERT(depleters[i]->type == RP_DEPLETER);
     RPDepleter_StartDepletion(depleters[i]);
-    RPDepleter *depleter = (RPDepleter *)depleters[i];
+    const RPDepleter *depleter = (const RPDepleter *)depleters[i];
     if (depleter->last_rc != RS_RESULT_EOF) {
       return depleter->last_rc;
     }
