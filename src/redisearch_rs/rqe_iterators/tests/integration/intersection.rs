@@ -74,7 +74,7 @@ const RESULT_SET_CASES: &[&[t_docId]] = &[
 // =============================================================================
 
 #[test]
-#[cfg_attr(miri, ignore)]
+#[cfg_attr(miri, ignore = "Calls ffi::ResultMetrics_Reset_func")]
 fn read_all_combinations() {
     for &num_children in NUM_CHILDREN_CASES {
         for &result_set in RESULT_SET_CASES {
@@ -93,7 +93,7 @@ fn read_test_case(num_children: usize, result_set: &[t_docId]) {
         .min()
         .unwrap_or(0);
 
-    let mut ii = Intersection::new(children);
+    let mut ii = Intersection::new(children, 1.0, false);
 
     // Verify children are sorted by estimated count (optimization check)
     // Note: We can't directly access internal children after construction,
@@ -147,7 +147,7 @@ fn read_test_case(num_children: usize, result_set: &[t_docId]) {
 // =============================================================================
 
 #[test]
-#[cfg(not(miri))] // Takes too long with Miri
+#[cfg_attr(miri, ignore = "Takes too long with Miri")]
 fn skip_to_all_combinations() {
     for &num_children in NUM_CHILDREN_CASES {
         for &result_set in RESULT_SET_CASES {
@@ -156,10 +156,9 @@ fn skip_to_all_combinations() {
     }
 }
 
-#[cfg(not(miri))]
 fn skip_to_test_case(num_children: usize, result_set: &[t_docId]) {
     let children = create_children(num_children, result_set);
-    let mut ii = Intersection::new(children);
+    let mut ii = Intersection::new(children, 1.0, false);
 
     // Test skipping to any id between 1 and the last id
     let mut i: t_docId = 1;
@@ -278,7 +277,7 @@ fn skip_to_test_case(num_children: usize, result_set: &[t_docId]) {
 // =============================================================================
 
 #[test]
-#[cfg_attr(miri, ignore)]
+#[cfg_attr(miri, ignore = "Calls ffi::ResultMetrics_Reset_func")]
 fn rewind_all_combinations() {
     for &num_children in NUM_CHILDREN_CASES {
         for &result_set in RESULT_SET_CASES {
@@ -289,7 +288,7 @@ fn rewind_all_combinations() {
 
 fn rewind_test_case(num_children: usize, result_set: &[t_docId]) {
     let children = create_children(num_children, result_set);
-    let mut ii = Intersection::new(children);
+    let mut ii = Intersection::new(children, 1.0, false);
 
     for i in 0..5 {
         for j in 0..=i {
@@ -338,7 +337,7 @@ fn empty_result_set() {
     let child1 = IdListSorted::new(vec![1, 2, 3]);
     let child2 = IdListSorted::new(vec![4, 5, 6]);
 
-    let mut ii = Intersection::new(vec![child1, child2]);
+    let mut ii = Intersection::new(vec![child1, child2], 1.0, false);
 
     // Should immediately return EOF since there's no intersection
     assert!(matches!(ii.read(), Ok(None)));
@@ -346,13 +345,13 @@ fn empty_result_set() {
 }
 
 #[test]
-#[cfg_attr(miri, ignore)]
+#[cfg_attr(miri, ignore = "Calls ffi::ResultMetrics_Reset_func")]
 fn single_element_result_set() {
     let child1 = IdListSorted::new(vec![1, 5, 10]);
     let child2 = IdListSorted::new(vec![5, 15, 20]);
     let child3 = IdListSorted::new(vec![3, 5, 25]);
 
-    let mut ii = Intersection::new(vec![child1, child2, child3]);
+    let mut ii = Intersection::new(vec![child1, child2, child3], 1.0, false);
 
     // Only doc 5 is common to all
     let result = ii.read().expect("read failed");
@@ -365,12 +364,12 @@ fn single_element_result_set() {
 }
 
 #[test]
-#[cfg_attr(miri, ignore)]
+#[cfg_attr(miri, ignore = "Calls ffi::ResultMetrics_Reset_func")]
 fn skip_to_exact_match() {
     let child1 = IdListSorted::new(vec![10, 20, 30, 40, 50]);
     let child2 = IdListSorted::new(vec![10, 20, 30, 40, 50]);
 
-    let mut ii = Intersection::new(vec![child1, child2]);
+    let mut ii = Intersection::new(vec![child1, child2], 1.0, false);
 
     // Skip to exact match
     let outcome = ii.skip_to(30).expect("skip_to failed");
@@ -384,12 +383,12 @@ fn skip_to_exact_match() {
 }
 
 #[test]
-#[cfg_attr(miri, ignore)]
+#[cfg_attr(miri, ignore = "Calls ffi::ResultMetrics_Reset_func")]
 fn skip_to_not_found() {
     let child1 = IdListSorted::new(vec![10, 20, 30, 40, 50]);
     let child2 = IdListSorted::new(vec![10, 20, 30, 40, 50]);
 
-    let mut ii = Intersection::new(vec![child1, child2]);
+    let mut ii = Intersection::new(vec![child1, child2], 1.0, false);
 
     // Skip to non-existing ID, should land on next existing
     let outcome = ii.skip_to(25).expect("skip_to failed");
@@ -411,7 +410,7 @@ fn skip_to_not_found() {
 #[test]
 fn no_children() {
     let children: Vec<IdListSorted<'static>> = vec![];
-    let mut ii = Intersection::new(children);
+    let mut ii = Intersection::new(children, 1.0, false);
 
     // Should immediately return EOF
     assert!(matches!(ii.read(), Ok(None)));
@@ -428,11 +427,11 @@ fn no_children() {
 /// Test intersection with a single child - should behave like the child itself
 /// C-Code: Equivalent to C++ TestIntersectionWithSingleChild (without wildcard removal)
 #[test]
-#[cfg_attr(miri, ignore)]
+#[cfg_attr(miri, ignore = "Calls ffi::ResultMetrics_Reset_func")]
 fn single_child() {
     let doc_ids = vec![10, 20, 30, 40, 50];
     let child = IdListSorted::new(doc_ids.clone());
-    let mut ii = Intersection::new(vec![child]);
+    let mut ii = Intersection::new(vec![child], 1.0, false);
 
     // Should read all documents from the single child
     for &expected_id in &doc_ids {
@@ -454,12 +453,12 @@ fn single_child() {
 
 /// Test that skip_to past EOF stays at EOF
 #[test]
-#[cfg_attr(miri, ignore)]
+#[cfg_attr(miri, ignore = "Calls ffi::ResultMetrics_Reset_func")]
 fn skip_to_past_eof() {
     let child1 = IdListSorted::new(vec![10, 20, 30]);
     let child2 = IdListSorted::new(vec![10, 20, 30]);
 
-    let mut ii = Intersection::new(vec![child1, child2]);
+    let mut ii = Intersection::new(vec![child1, child2], 1.0, false);
 
     // Skip past the last document
     assert!(matches!(ii.skip_to(100), Ok(None)));
@@ -479,13 +478,13 @@ fn skip_to_past_eof() {
 
 /// Test sequential skip_to through all documents
 #[test]
-#[cfg_attr(miri, ignore)]
+#[cfg_attr(miri, ignore = "Calls ffi::ResultMetrics_Reset_func")]
 fn skip_to_sequential() {
     let doc_ids = vec![10, 20, 30, 40, 50];
     let child1 = IdListSorted::new(doc_ids.clone());
     let child2 = IdListSorted::new(doc_ids.clone());
 
-    let mut ii = Intersection::new(vec![child1, child2]);
+    let mut ii = Intersection::new(vec![child1, child2], 1.0, false);
 
     // Skip to each document in sequence
     for &id in &doc_ids {
@@ -506,13 +505,13 @@ fn skip_to_sequential() {
 
 /// Test interleaved read and skip_to
 #[test]
-#[cfg_attr(miri, ignore)]
+#[cfg_attr(miri, ignore = "Calls ffi::ResultMetrics_Reset_func")]
 fn interleaved_read_and_skip_to() {
     let doc_ids = vec![10, 20, 30, 40, 50, 60, 70, 80, 90, 100];
     let child1 = IdListSorted::new(doc_ids.clone());
     let child2 = IdListSorted::new(doc_ids.clone());
 
-    let mut ii = Intersection::new(vec![child1, child2]);
+    let mut ii = Intersection::new(vec![child1, child2], 1.0, false);
 
     // Read first document
     let result = ii.read().expect("read failed").unwrap();
@@ -545,7 +544,7 @@ fn interleaved_read_and_skip_to() {
 
 /// Test many children (stress test)
 #[test]
-#[cfg_attr(miri, ignore)]
+#[cfg_attr(miri, ignore = "Calls ffi::ResultMetrics_Reset_func")]
 fn many_children() {
     let doc_ids = vec![100, 200, 300, 400, 500];
     let num_children = 50;
@@ -560,7 +559,7 @@ fn many_children() {
         })
         .collect();
 
-    let mut ii = Intersection::new(children);
+    let mut ii = Intersection::new(children, 1.0, false);
 
     // Should find all common documents
     for &expected_id in &doc_ids {
@@ -588,7 +587,7 @@ fn many_children() {
 /// Test: All children return VALIDATE_OK
 /// C-Code: Equivalent to C++ TEST_F(IntersectionIteratorRevalidateTest, RevalidateOK)
 #[test]
-#[cfg_attr(miri, ignore)]
+#[cfg_attr(miri, ignore = "Calls ffi::ResultMetrics_Reset_func")]
 fn revalidate_ok() {
     // Create mock children with const generic arrays
     let child0: Mock<'static, 10> = Mock::new([10, 15, 20, 25, 30, 35, 40, 45, 50, 55]);
@@ -610,7 +609,7 @@ fn revalidate_ok() {
     let children: Vec<Box<dyn RQEIterator<'static> + 'static>> =
         vec![Box::new(child0), Box::new(child1), Box::new(child2)];
 
-    let mut ii = Intersection::new(children);
+    let mut ii = Intersection::new(children, 1.0, false);
 
     // Read a few documents first
     let result = ii.read().expect("read failed").unwrap();
@@ -631,7 +630,7 @@ fn revalidate_ok() {
 /// Test: One child returns VALIDATE_ABORTED
 /// C-Code: Equivalent to C++ TEST_F(IntersectionIteratorRevalidateTest, RevalidateAborted)
 #[test]
-#[cfg_attr(miri, ignore)]
+#[cfg_attr(miri, ignore = "Calls ffi::ResultMetrics_Reset_func")]
 fn revalidate_aborted() {
     let child0: Mock<'static, 10> = Mock::new([10, 15, 20, 25, 30, 35, 40, 45, 50, 55]);
     let child1: Mock<'static, 11> = Mock::new([5, 10, 18, 20, 28, 30, 38, 40, 48, 50, 60]);
@@ -651,7 +650,7 @@ fn revalidate_aborted() {
     let children: Vec<Box<dyn RQEIterator<'static> + 'static>> =
         vec![Box::new(child0), Box::new(child1), Box::new(child2)];
 
-    let mut ii = Intersection::new(children);
+    let mut ii = Intersection::new(children, 1.0, false);
 
     // Read a document first
     let result = ii.read().expect("read failed").unwrap();
@@ -665,7 +664,7 @@ fn revalidate_aborted() {
 /// Test: All children return VALIDATE_MOVED
 /// C-Code: Equivalent to C++ TEST_F(IntersectionIteratorRevalidateTest, RevalidateMoved)
 #[test]
-#[cfg_attr(miri, ignore)]
+#[cfg_attr(miri, ignore = "Calls ffi::ResultMetrics_Reset_func")]
 fn revalidate_moved() {
     let child0: Mock<'static, 10> = Mock::new([10, 15, 20, 25, 30, 35, 40, 45, 50, 55]);
     let child1: Mock<'static, 11> = Mock::new([5, 10, 18, 20, 28, 30, 38, 40, 48, 50, 60]);
@@ -685,7 +684,7 @@ fn revalidate_moved() {
     let children: Vec<Box<dyn RQEIterator<'static> + 'static>> =
         vec![Box::new(child0), Box::new(child1), Box::new(child2)];
 
-    let mut ii = Intersection::new(children);
+    let mut ii = Intersection::new(children, 1.0, false);
 
     // Read first document
     let result = ii.read().expect("read failed").unwrap();
@@ -710,7 +709,7 @@ fn revalidate_moved() {
 /// Test: Mix of OK and MOVED results
 /// C-Code: Equivalent to C++ TEST_F(IntersectionIteratorRevalidateTest, RevalidateMixedResults)
 #[test]
-#[cfg_attr(miri, ignore)]
+#[cfg_attr(miri, ignore = "Calls ffi::ResultMetrics_Reset_func")]
 fn revalidate_mixed_results() {
     let child0: Mock<'static, 10> = Mock::new([10, 15, 20, 25, 30, 35, 40, 45, 50, 55]);
     let child1: Mock<'static, 11> = Mock::new([5, 10, 18, 20, 28, 30, 38, 40, 48, 50, 60]);
@@ -730,7 +729,7 @@ fn revalidate_mixed_results() {
     let children: Vec<Box<dyn RQEIterator<'static> + 'static>> =
         vec![Box::new(child0), Box::new(child1), Box::new(child2)];
 
-    let mut ii = Intersection::new(children);
+    let mut ii = Intersection::new(children, 1.0, false);
 
     // Read first document
     let result = ii.read().expect("read failed").unwrap();
@@ -745,7 +744,7 @@ fn revalidate_mixed_results() {
 /// Test: Revalidate after EOF - should return OK even if children moved
 /// C-Code: Equivalent to C++ TEST_F(IntersectionIteratorRevalidateTest, RevalidateAfterEOF)
 #[test]
-#[cfg_attr(miri, ignore)]
+#[cfg_attr(miri, ignore = "Calls ffi::ResultMetrics_Reset_func")]
 fn revalidate_after_eof() {
     // Pre-set children to return MOVE on revalidate
     let child0: Mock<'static, 10> = Mock::new([10, 15, 20, 25, 30, 35, 40, 45, 50, 55]);
@@ -765,7 +764,7 @@ fn revalidate_after_eof() {
     let children: Vec<Box<dyn RQEIterator<'static> + 'static>> =
         vec![Box::new(child0), Box::new(child1), Box::new(child2)];
 
-    let mut ii = Intersection::new(children);
+    let mut ii = Intersection::new(children, 1.0, false);
 
     // Advance to EOF
     while ii.read().expect("read failed").is_some() {}
@@ -791,7 +790,7 @@ fn revalidate_after_eof() {
 /// this by using a child that has only 2 elements - after reading doc 10, there's only
 /// one element left (20), so when Move is called during revalidate, it reaches EOF.
 #[test]
-#[cfg_attr(miri, ignore)]
+#[cfg_attr(miri, ignore = "Calls ffi::ResultMetrics_Reset_func")]
 fn revalidate_some_children_moved_to_eof() {
     // Child 0 and 2 have normal data, child 1 is small (only 2 elements: [10, 20])
     // When we read doc 10 and then call Move, child 1 moves to 20 and the next Move
@@ -815,7 +814,7 @@ fn revalidate_some_children_moved_to_eof() {
     let children: Vec<Box<dyn RQEIterator<'static> + 'static>> =
         vec![Box::new(child0), Box::new(child1), Box::new(child2)];
 
-    let mut ii = Intersection::new(children);
+    let mut ii = Intersection::new(children, 1.0, false);
 
     // Read first document
     let result = ii.read().expect("read failed").unwrap();
@@ -844,12 +843,12 @@ fn revalidate_some_children_moved_to_eof() {
 
 /// Test: current() returns correct state after various operations
 #[test]
-#[cfg_attr(miri, ignore)]
+#[cfg_attr(miri, ignore = "Calls ffi::ResultMetrics_Reset_func")]
 fn current_after_operations() {
     let child1 = IdListSorted::new(vec![10, 20, 30, 40, 50]);
     let child2 = IdListSorted::new(vec![10, 20, 30, 40, 50]);
 
-    let mut ii = Intersection::new(vec![child1, child2]);
+    let mut ii = Intersection::new(vec![child1, child2], 1.0, false);
 
     // Before any read, current() returns Some (the result buffer exists),
     // but last_doc_id is 0 since we haven't read anything yet
@@ -900,13 +899,13 @@ fn current_after_operations() {
 
 /// Test: Large gaps between document IDs
 #[test]
-#[cfg_attr(miri, ignore)]
+#[cfg_attr(miri, ignore = "Calls ffi::ResultMetrics_Reset_func")]
 fn large_doc_id_gaps() {
     let sparse_ids = vec![1, 1_000_000, 2_000_000, 10_000_000];
     let child1 = IdListSorted::new(sparse_ids.clone());
     let child2 = IdListSorted::new(sparse_ids.clone());
 
-    let mut ii = Intersection::new(vec![child1, child2]);
+    let mut ii = Intersection::new(vec![child1, child2], 1.0, false);
 
     // Read all documents
     for &expected_id in &sparse_ids {
@@ -937,14 +936,14 @@ fn large_doc_id_gaps() {
 
 /// Test: Children with overlapping unique IDs don't cause issues
 #[test]
-#[cfg_attr(miri, ignore)]
+#[cfg_attr(miri, ignore = "Calls ffi::ResultMetrics_Reset_func")]
 fn overlapping_children_ids() {
     // Create children with significant overlap but different unique IDs
     let child1 = IdListSorted::new(vec![1, 2, 3, 5, 10, 15, 20, 25, 30]);
     let child2 = IdListSorted::new(vec![2, 3, 5, 7, 10, 12, 15, 20, 30, 35]);
     let child3 = IdListSorted::new(vec![3, 5, 8, 10, 15, 18, 20, 30, 40]);
 
-    let mut ii = Intersection::new(vec![child1, child2, child3]);
+    let mut ii = Intersection::new(vec![child1, child2, child3], 1.0, false);
 
     // Common to all: 3, 5, 10, 15, 20, 30
     let expected = vec![3, 5, 10, 15, 20, 30];
@@ -961,7 +960,7 @@ fn overlapping_children_ids() {
 
 /// Test: Revalidate immediately after construction (without reading first)
 #[test]
-#[cfg_attr(miri, ignore)]
+#[cfg_attr(miri, ignore = "Calls ffi::ResultMetrics_Reset_func")]
 fn revalidate_before_read() {
     let child0: Mock<'static, 10> = Mock::new([10, 15, 20, 25, 30, 35, 40, 45, 50, 55]);
     let child1: Mock<'static, 11> = Mock::new([5, 10, 18, 20, 28, 30, 38, 40, 48, 50, 60]);
@@ -981,7 +980,7 @@ fn revalidate_before_read() {
     let children: Vec<Box<dyn RQEIterator<'static> + 'static>> =
         vec![Box::new(child0), Box::new(child1), Box::new(child2)];
 
-    let mut ii = Intersection::new(children);
+    let mut ii = Intersection::new(children, 1.0, false);
 
     // Revalidate before any read
     let status = ii.revalidate().expect("revalidate failed");
@@ -997,7 +996,7 @@ fn revalidate_before_read() {
 
 /// Test: Revalidate with Move before first read
 #[test]
-#[cfg_attr(miri, ignore)]
+#[cfg_attr(miri, ignore = "Calls ffi::ResultMetrics_Reset_func")]
 fn revalidate_move_before_read() {
     let child0: Mock<'static, 10> = Mock::new([10, 15, 20, 25, 30, 35, 40, 45, 50, 55]);
     let child1: Mock<'static, 11> = Mock::new([5, 10, 18, 20, 28, 30, 38, 40, 48, 50, 60]);
@@ -1017,7 +1016,7 @@ fn revalidate_move_before_read() {
     let children: Vec<Box<dyn RQEIterator<'static> + 'static>> =
         vec![Box::new(child0), Box::new(child1), Box::new(child2)];
 
-    let mut ii = Intersection::new(children);
+    let mut ii = Intersection::new(children, 1.0, false);
 
     // Revalidate before any read - children will move
     let status = ii.revalidate().expect("revalidate failed");
@@ -1043,7 +1042,7 @@ fn num_estimated_is_minimum() {
     let child2 = IdListSorted::new(vec![1, 2, 3]); // 3 elements (smallest)
     let child3 = IdListSorted::new(vec![1, 2, 3, 4, 5, 6, 7]); // 7 elements
 
-    let ii = Intersection::new(vec![child1, child2, child3]);
+    let ii = Intersection::new(vec![child1, child2, child3], 1.0, false);
 
     // num_estimated should be the minimum (3)
     assert_eq!(
@@ -1065,7 +1064,8 @@ fn num_estimated_is_minimum_in_order() {
     let child2 = IdListSorted::new(vec![1, 2, 3]); // 3 elements — minimum
     let child3 = IdListSorted::new(vec![1, 2, 3, 4]); // 4 elements
 
-    let ii = Intersection::new_with_slop_order(vec![child1, child2, child3], None, true);
+    let ii =
+        Intersection::new_with_slop_order(vec![child1, child2, child3], 1.0, false, None, true);
 
     assert_eq!(
         ii.num_estimated(),
@@ -1077,7 +1077,7 @@ fn num_estimated_is_minimum_in_order() {
 /// Test: Children are processed in order of estimated count (smallest first)
 /// We can infer this indirectly by checking behavior with asymmetric children
 #[test]
-#[cfg_attr(miri, ignore)]
+#[cfg_attr(miri, ignore = "Calls ffi::ResultMetrics_Reset_func")]
 fn children_sorted_by_estimated() {
     // Create children where the smallest (by count) would lead to fastest termination
     // Large child: has docs 1-1000
@@ -1092,7 +1092,7 @@ fn children_sorted_by_estimated() {
     let child2 = IdListSorted::new(small_child);
     let child3 = IdListSorted::new(medium_child);
 
-    let mut ii = Intersection::new(vec![child1, child2, child3]);
+    let mut ii = Intersection::new(vec![child1, child2, child3], 1.0, false);
 
     // The only common document is 500
     let result = ii.read().expect("read failed");
@@ -1117,7 +1117,7 @@ fn children_sorted_by_estimated() {
 ///
 /// The expected result is `RQEValidateStatus::Moved { current: None }`
 #[test]
-#[cfg_attr(miri, ignore)]
+#[cfg_attr(miri, ignore = "Calls ffi::ResultMetrics_Reset_func")]
 fn revalidate_moved_skip_to_returns_none() {
     // Set up children where:
     // - They share doc 10 (will read this first)
@@ -1150,7 +1150,7 @@ fn revalidate_moved_skip_to_returns_none() {
     let children: Vec<Box<dyn RQEIterator<'static> + 'static>> =
         vec![Box::new(child0), Box::new(child1), Box::new(child2)];
 
-    let mut ii = Intersection::new(children);
+    let mut ii = Intersection::new(children, 1.0, false);
 
     // Read first document (10 is common to all)
     let result = ii.read().expect("read failed").unwrap();
@@ -1208,7 +1208,13 @@ mod slop_and_order {
     ) -> Intersection<'static, Box<dyn RQEIterator<'static> + 'static>> {
         let foo: Mock<'static, 4> = Mock::new_with_positions([1, 2, 3, 4], [1, 1, 2, 1]);
         let bar: Mock<'static, 3> = Mock::new_with_positions([1, 3, 4], [2, 1, 3]);
-        Intersection::new_with_slop_order(vec![Box::new(foo), Box::new(bar)], max_slop, in_order)
+        Intersection::new_with_slop_order(
+            vec![Box::new(foo), Box::new(bar)],
+            1.0,
+            false,
+            max_slop,
+            in_order,
+        )
     }
 
     /// max_slop=0, in_order=false: only documents where foo and bar appear adjacent
@@ -1378,6 +1384,8 @@ mod slop_and_order {
                 Box::new(foo) as Box<dyn RQEIterator<'static> + 'static>,
                 Box::new(bar),
             ],
+            1.0,
+            false,
             None,
             true,
         );

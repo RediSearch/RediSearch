@@ -81,7 +81,7 @@ fn read(#[case] case: &[u64]) {
 }
 
 #[apply(id_cases)]
-#[cfg(not(miri))] // Take too long with Miri, causing CI to timeout
+#[cfg_attr(miri, ignore = "Takes too long with Miri, causing CI to timeout")]
 fn skip_to(#[case] case: &[u64]) {
     let mut it = IdListSorted::new(case.to_vec());
 
