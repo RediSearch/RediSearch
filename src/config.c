@@ -2126,6 +2126,7 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
   RedisModule_Log(ctx, "notice",
     "search-workers default: %zu (min of MAX_WORKER_THREADS=%d and CPU cores)",
     defaultWorkers, MAX_WORKER_THREADS);
+  RSGlobalConfig.numWorkerThreads = defaultWorkers;
   RM_TRY(
     RedisModule_RegisterNumericConfig(
       ctx, "search-workers", (long long)defaultWorkers,
