@@ -1898,6 +1898,11 @@ void iteratorsConfig_init(IteratorsConfig *config) {
 
 
 size_t GetDefaultWorkerThreads(void) {
+  const char *env_val = getenv("REDISEARCH_DEFAULT_WORKERS");
+  if (env_val) {
+    long val = strtol(env_val, NULL, 10);
+    if (val >= 0 && val <= MAX_WORKER_THREADS) return (size_t)val;
+  }
   long nprocs = sysconf(_SC_NPROCESSORS_ONLN);
   size_t result;
   if (nprocs <= 0) {

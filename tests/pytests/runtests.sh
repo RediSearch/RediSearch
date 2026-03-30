@@ -518,7 +518,8 @@ fi
 
 E=0
 
-MODARGS="${MODARGS}; WORKERS 0;" # disable worker threads by default for test stability (first, so per-test moduleArgs can override)
+export REDISEARCH_DEFAULT_WORKERS=0 # override default worker threads for test stability
+
 MODARGS="${MODARGS}; TIMEOUT 0;" # disable query timeout by default
 MODARGS="${MODARGS}; DEFAULT_DIALECT 2;" # set default dialect to 2
 
