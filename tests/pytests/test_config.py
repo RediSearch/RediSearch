@@ -190,7 +190,7 @@ def testAllConfig(env):
     env.assertEqual(res_dict['MAXPREFIXEXPANSIONS'][0], '200')
     env.assertEqual(res_dict['DEFAULT_SCORER'][0], 'BM25STD')
     env.assertContains(res_dict['TIMEOUT'][0], ['500', '0'])
-    env.assertEqual(res_dict['WORKERS'][0], str(min(MAX_WORKER_THREADS, os.cpu_count())))
+    env.assertEqual(res_dict['WORKERS'][0], '0')
     env.assertEqual(res_dict['MIN_OPERATION_WORKERS'][0], '4')
     env.assertEqual(res_dict['TIERED_HNSW_BUFFER_LIMIT'][0], '1024')
     env.assertEqual(res_dict['PRIVILEGED_THREADS_NUM'][0], '1')

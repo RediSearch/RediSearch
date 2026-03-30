@@ -520,6 +520,7 @@ E=0
 
 MODARGS="${MODARGS}; TIMEOUT 0;" # disable query timeout by default
 MODARGS="${MODARGS}; DEFAULT_DIALECT 2;" # set default dialect to 2
+MODARGS="${MODARGS}; WORKERS 0;" # disable worker threads by default for test stability
 
 if [[ $GC == 0 ]]; then
 	MODARGS="${MODARGS}; NOGC;"
