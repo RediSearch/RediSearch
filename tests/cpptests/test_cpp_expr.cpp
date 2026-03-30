@@ -950,4 +950,116 @@ TEST_F(ExprTest, testOrExpressionWithMissingFields) {
   RLookup_Cleanup(&lk);
 }
 
+// Test that evalPredicate returns EXPR_EVAL_ERR when getPredicateBoolean encounters
+// a type mismatch error (e.g., comparing a number to a non-convertible string).
+TEST_F(ExprTest, testPredicateTypeMismatchReturnsError) {
+  // Setup: create a lookup with a string field that cannot be converted to a number
+  RLookup lk = {0};
+  RLookup_Init(&lk, NULL);
+  auto *kstr = RLookup_GetKey_Write(&lk, "str", RLOOKUP_F_NOFLAGS);
+  auto *knum = RLookup_GetKey_Write(&lk, "num", RLOOKUP_F_NOFLAGS);
+  ASSERT_NE(kstr, nullptr);
+  ASSERT_NE(knum, nullptr);
+
+  RLookupRow row = {0};
+  // "hello" cannot be converted to a number
+  RLookup_WriteOwnKey(kstr, &row, RSValue_NewString(strdup("hello"), 5));
+  RLookup_WriteOwnKey(knum, &row, RSValue_NewNumber(5));
+
+  // Test: comparing @num > @str should fail because "hello" can't be converted to a number
+  // In EVAL_MODE_QUERY, this should return EXPR_EVAL_ERR
+  {
+    TEvalCtx ctx("@num > @str");
+    ASSERT_TRUE(ctx) << ctx.error();
+    ctx.lookup = &lk;
+    ctx.srcrow = &row;
+    ctx.err = &ctx.status_s;
+    ctx.mode = EVAL_MODE_QUERY;  // Query mode: errors should propagate
+
+    ASSERT_EQ(EXPR_EVAL_OK, ctx.bindLookupKeys());
+    int rc = ctx.eval();
+    ASSERT_EQ(EXPR_EVAL_ERR, rc) << "Type mismatch in comparison should return EXPR_EVAL_ERR";
+    ASSERT_TRUE(QueryError_HasError(&ctx.status_s)) << "QueryError should be set";
+  }
+
+  // Test: comparing @str < @num should also fail
+  {
+    TEvalCtx ctx("@str < @num");
+    ASSERT_TRUE(ctx) << ctx.error();
+    ctx.lookup = &lk;
+    ctx.srcrow = &row;
+    ctx.err = &ctx.status_s;
+    ctx.mode = EVAL_MODE_QUERY;
+
+    ASSERT_EQ(EXPR_EVAL_OK, ctx.bindLookupKeys());
+    int rc = ctx.eval();
+    ASSERT_EQ(EXPR_EVAL_ERR, rc) << "Type mismatch in comparison should return EXPR_EVAL_ERR";
+    ASSERT_TRUE(QueryError_HasError(&ctx.status_s)) << "QueryError should be set";
+  }
+
+  // Test: comparing with literal number: 5 > @str
+  {
+    TEvalCtx ctx("5 > @str");
+    ASSERT_TRUE(ctx) << ctx.error();
+    ctx.lookup = &lk;
+    ctx.srcrow = &row;
+    ctx.err = &ctx.status_s;
+    ctx.mode = EVAL_MODE_QUERY;
+
+    ASSERT_EQ(EXPR_EVAL_OK, ctx.bindLookupKeys());
+    int rc = ctx.eval();
+    ASSERT_EQ(EXPR_EVAL_ERR, rc) << "Type mismatch with literal should return EXPR_EVAL_ERR";
+    ASSERT_TRUE(QueryError_HasError(&ctx.status_s)) << "QueryError should be set";
+  }
+
+  // Test: comparison operators >=, <= should also return errors on type mismatch.
+  // Note: == and != use RSValue_Equal which doesn't propagate errors (it passes NULL
+  // for qerr), so they don't trigger EXPR_EVAL_ERR on type mismatch.
+  {
+    TEvalCtx ctx("@num >= @str");
+    ASSERT_TRUE(ctx) << ctx.error();
+    ctx.lookup = &lk;
+    ctx.srcrow = &row;
+    ctx.err = &ctx.status_s;
+    ctx.mode = EVAL_MODE_QUERY;
+
+    ASSERT_EQ(EXPR_EVAL_OK, ctx.bindLookupKeys());
+    int rc = ctx.eval();
+    ASSERT_EQ(EXPR_EVAL_ERR, rc) << ">= with type mismatch should return EXPR_EVAL_ERR";
+  }
+
+  {
+    TEvalCtx ctx("@num <= @str");
+    ASSERT_TRUE(ctx) << ctx.error();
+    ctx.lookup = &lk;
+    ctx.srcrow = &row;
+    ctx.err = &ctx.status_s;
+    ctx.mode = EVAL_MODE_QUERY;
+
+    ASSERT_EQ(EXPR_EVAL_OK, ctx.bindLookupKeys());
+    int rc = ctx.eval();
+    ASSERT_EQ(EXPR_EVAL_ERR, rc) << "<= with type mismatch should return EXPR_EVAL_ERR";
+  }
+
+  // Test: EVAL_MODE_INDEX should also return EXPR_EVAL_ERR on type mismatch.
+  // We test a representative subset since the error handling path in evalPredicate
+  // is identical for all comparison operators regardless of mode.
+  {
+    TEvalCtx ctx("@num > @str");
+    ASSERT_TRUE(ctx) << ctx.error();
+    ctx.lookup = &lk;
+    ctx.srcrow = &row;
+    ctx.err = &ctx.status_s;
+    ctx.mode = EVAL_MODE_INDEX;
+
+    ASSERT_EQ(EXPR_EVAL_OK, ctx.bindLookupKeys());
+    int rc = ctx.eval();
+    ASSERT_EQ(EXPR_EVAL_ERR, rc) << "EVAL_MODE_INDEX: type mismatch should return EXPR_EVAL_ERR";
+    ASSERT_TRUE(QueryError_HasError(&ctx.status_s)) << "EVAL_MODE_INDEX: QueryError should be set";
+  }
+
+  RLookupRow_Cleanup(&row);
+  RLookup_Cleanup(&lk);
+}
+
 #undef ASSERT_EXPR_EVAL_NUMBER
