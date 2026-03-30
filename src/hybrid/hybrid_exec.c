@@ -633,9 +633,7 @@ int HybridRequest_StartCursors(StrongRef hybrid_ref, RedisModuleCtx *replyCtx, Q
     // Check if we timed out before creating cursors
     if (HybridRequest_TimedOut(req)) {
       HybridRequest_UnlockCursors(req);
-      if (depleters) {
-        array_free(depleters);
-      }
+      array_free(depleters);
       QueryError_SetError(status, QUERY_ERROR_CODE_TIMED_OUT, NULL);
       return REDISMODULE_ERR;
     }
