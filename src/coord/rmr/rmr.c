@@ -89,7 +89,7 @@ typedef struct MRCtx {
    * a connection dropped between the pre-check and the send loop).
    * When set, fanoutCallback discards all incoming replies and unblocks
    * the client with an error once every in-flight reply has been drained. */
-  bool partialFanout;
+  bool incompleteFanout;
 
   /* State tracking for partial timeout support */
   _Atomic(bool) timedOut;
@@ -249,11 +249,11 @@ static int unblockHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
 static void fanoutCallback(redisAsyncContext *c, void *r, void *privdata) {
   MRCtx *ctx = privdata;
 
-  // Check if timed out or partial fanout - discard reply.
+  // Check if timed out or incomplete fanout - discard reply.
   // Timeout checks are relevant only for Coordinator FT.SEARCH fanouts.
-  // Partial fanout means not all shards were reached during the fanout send loop.
+  // Incomplete fanout means not all shards were reached during the fanout send loop.
   bool timedOut = MRCtx_IsTimedOut(ctx);
-  if (timedOut || ctx->partialFanout) {
+  if (timedOut || ctx->incompleteFanout) {
     if (r) {
       MRReply_Free(r);
     }
@@ -271,7 +271,7 @@ static void fanoutCallback(redisAsyncContext *c, void *r, void *privdata) {
 
   // If we've received the last reply - unblock the client
   if (ctx->numReplied + ctx->numErrored == ctx->numExpected) {
-    if (!timedOut && !ctx->partialFanout && ctx->fn) {
+    if (!timedOut && !ctx->incompleteFanout && ctx->fn) {
       ctx->fn(ctx, ctx->numReplied, ctx->replies);
     } else {
       RedisModuleBlockedClient *bc = ctx->bc;
@@ -302,8 +302,8 @@ static void uvFanoutRequest(void *p) {
     RedisModule_UnblockClient(bc, mrctx);
   } else if (mrctx->numExpected != (int)ioRuntime->topo->numShards) {
     // Some commands were sent but not all shards were reached.
-    // Mark as partial so fanoutCallback drains replies and returns an error.
-    mrctx->partialFanout = true;
+    // Mark as incomplete so fanoutCallback drains replies and returns an error.
+    mrctx->incompleteFanout = true;
   }
 }
 
