@@ -963,8 +963,8 @@ TEST_F(ExprTest, testPredicateTypeMismatchReturnsError) {
 
   RLookupRow row = {0};
   // "hello" cannot be converted to a number
-  RLookup_WriteOwnKey(kstr, &row, RSValue_NewString(strdup("hello"), 5));
-  RLookup_WriteOwnKey(knum, &row, RSValue_NewNumber(5));
+  RLookup_WriteOwnKey(kstr, &row, RS_StringVal(strdup("hello"), 5));
+  RLookup_WriteOwnKey(knum, &row, RS_NumVal(5));
 
   // Test: comparing @num > @str should fail because "hello" can't be converted to a number
   // In EVAL_MODE_QUERY, this should return EXPR_EVAL_ERR
