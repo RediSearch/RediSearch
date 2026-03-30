@@ -202,15 +202,13 @@ impl DocIdMinHeap {
             let right = left + 1;
 
             // Find the smaller child.
-            // SAFETY: `left < len` is checked above. `right` is only used if `right < len`.
             let smallest = if right < len {
-                unsafe {
-                    if self.data.get_unchecked(right).0 < self.data.get_unchecked(left).0 {
-                        right
-                    } else {
-                        left
-                    }
-                }
+                // SAFETY: `right < len` is checked by the enclosing `if`.
+                let right_val = unsafe { self.data.get_unchecked(right).0 };
+                // SAFETY: `left < len` is checked at the top of the loop (`left < len`),
+                // and `left < right < len`.
+                let left_val = unsafe { self.data.get_unchecked(left).0 };
+                if right_val < left_val { right } else { left }
             } else {
                 left
             };

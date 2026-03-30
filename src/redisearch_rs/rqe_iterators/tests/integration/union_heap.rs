@@ -16,9 +16,7 @@
 
 use crate::utils::{Mock, MockData, MockRevalidateResult, MockVec};
 use ffi::t_docId;
-use rqe_iterators::{
-    RQEIterator, RQEValidateStatus, SkipToOutcome, UnionFullHeap, UnionQuickHeap,
-};
+use rqe_iterators::{RQEIterator, RQEValidateStatus, SkipToOutcome, UnionFullHeap, UnionQuickHeap};
 use rstest_reuse::{apply, template};
 
 /// Test cases for union heap tests: (num_children, base_result_set).
@@ -731,7 +729,6 @@ fn revalidate_all_children_abort() {
         "Union should be at EOF after all children abort"
     );
 }
-
 
 #[test]
 #[cfg_attr(miri, ignore)]

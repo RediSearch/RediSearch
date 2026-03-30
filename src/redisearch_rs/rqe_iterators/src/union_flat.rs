@@ -79,10 +79,7 @@ where
     /// minimum doc_id in a single pass.
     ///
     /// Returns the minimum doc_id among active children, or `t_docId::MAX` if all are exhausted.
-    fn advance_and_find_min(
-        &mut self,
-        current_id: t_docId,
-    ) -> Result<t_docId, RQEIteratorError> {
+    fn advance_and_find_min(&mut self, current_id: t_docId) -> Result<t_docId, RQEIteratorError> {
         let mut min_id: t_docId = t_docId::MAX;
         let mut i = 0;
 

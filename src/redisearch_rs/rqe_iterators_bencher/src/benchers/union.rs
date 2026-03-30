@@ -364,8 +364,10 @@ impl Bencher {
     }
 
     fn read_disjoint_interleaved_many(&self, c: &mut Criterion) {
-        let mut group =
-            self.benchmark_group(c, "Iterator - Union - Read Disjoint Interleaved 50 Children");
+        let mut group = self.benchmark_group(
+            c,
+            "Iterator - Union - Read Disjoint Interleaved 50 Children",
+        );
         self.bench_read(&mut group, disjoint_interleaved_ids_many);
         group.finish();
     }
@@ -386,8 +388,10 @@ impl Bencher {
     }
 
     fn skip_to_disjoint_sequential_few(&self, c: &mut Criterion) {
-        let mut group =
-            self.benchmark_group(c, "Iterator - Union - SkipTo Disjoint Sequential 5 Children");
+        let mut group = self.benchmark_group(
+            c,
+            "Iterator - Union - SkipTo Disjoint Sequential 5 Children",
+        );
         self.bench_skip_to(&mut group, disjoint_sequential_ids);
         group.finish();
     }
@@ -409,22 +413,28 @@ impl Bencher {
     }
 
     fn skip_to_disjoint_sequential_many(&self, c: &mut Criterion) {
-        let mut group =
-            self.benchmark_group(c, "Iterator - Union - SkipTo Disjoint Sequential 50 Children");
+        let mut group = self.benchmark_group(
+            c,
+            "Iterator - Union - SkipTo Disjoint Sequential 50 Children",
+        );
         self.bench_skip_to(&mut group, disjoint_sequential_ids_many);
         group.finish();
     }
 
     fn skip_to_disjoint_interleaved_few(&self, c: &mut Criterion) {
-        let mut group =
-            self.benchmark_group(c, "Iterator - Union - SkipTo Disjoint Interleaved 5 Children");
+        let mut group = self.benchmark_group(
+            c,
+            "Iterator - Union - SkipTo Disjoint Interleaved 5 Children",
+        );
         self.bench_skip_to(&mut group, disjoint_interleaved_ids);
         group.finish();
     }
 
     fn skip_to_disjoint_interleaved_many(&self, c: &mut Criterion) {
-        let mut group =
-            self.benchmark_group(c, "Iterator - Union - SkipTo Disjoint Interleaved 50 Children");
+        let mut group = self.benchmark_group(
+            c,
+            "Iterator - Union - SkipTo Disjoint Interleaved 50 Children",
+        );
         self.bench_skip_to(&mut group, disjoint_interleaved_ids_many);
         group.finish();
     }
