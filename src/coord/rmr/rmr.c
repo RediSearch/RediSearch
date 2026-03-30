@@ -18,6 +18,7 @@
 #include "resp3.h"
 #include "coord/config.h"
 #include "rs_wall_clock.h"
+#include "coord/hybrid/hybrid_cursor_mappings.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -85,10 +86,10 @@ typedef struct MRCtx {
    */
   MRReduceFunc fn;
 
-  /* Set to true if the fanout could not reach all shards (TOCTOU gap:
-   * a connection dropped between the pre-check and the send loop).
-   * When set, fanoutCallback discards all incoming replies and unblocks
-   * the client with an error once every in-flight reply has been drained. */
+  /* Set to true if the fanout could not reach all shards (e.g. a connection
+   * dropped during the send loop). When set, fanoutCallback discards all
+   * incoming replies and unblocks the client with an error once every
+   * in-flight reply has been drained. */
   bool incompleteFanout;
 
   /* State tracking for partial timeout support */
@@ -729,7 +730,12 @@ void iterStartCb(void *p) {
   for (size_t i = 0; i < it->len; i++) {
     if (MRCluster_SendCommand(io_runtime_ctx, &it->cbxs[i].cmd,
                               mrIteratorRedisCB, &it->cbxs[i]) == REDIS_ERR) {
-      MRIteratorCallback_Done(&it->cbxs[i], 1);
+      // Send failed - invoke user callback directly with a synthetic error.
+      // This is safe: we're on the IO thread, cbxs[i] is initialized, and no async
+      // operation is pending. The callback will call MRIteratorCallback_Done to
+      // decrement counters and signal CVs, preventing hangs. Callback frees the reply.
+      MRReply *err = MRReply_CreateError("Could not send query to cluster");
+      it->ctx.cb(&it->cbxs[i], err);
     }
   }
 
@@ -799,6 +805,33 @@ void iterCursorMappingCb(void *p) {
   //Clean up the StrongRef and allocated memory
   StrongRef_Release(mappingsRef);
   rm_free(data);
+}
+
+// Fire-and-forget callback for cursor deletion - just free the reply
+static void cursorDeleteCb(struct redisAsyncContext *c, void *r, void *privdata) {
+  (void)c; (void)privdata;
+  if (r) MRReply_Free(r);
+}
+
+// Send _FT.CURSOR DEL commands for each cursor in the mappings. Fire-and-forget.
+void MR_CursorDelete(CursorMappings *mappings, const char *indexName) {
+  if (!mappings || !indexName || array_len(mappings->mappings) == 0) return;
+
+  IORuntimeCtx *ctx = MRCluster_GetIORuntimeCtx(cluster_g, MRCluster_AssignRoundRobinIORuntimeIdx(cluster_g));
+
+  for (size_t i = 0; i < array_len(mappings->mappings); i++) {
+    CursorMapping *m = &mappings->mappings[i];
+    if (m->cursorId == 0) continue;
+
+    char buf[24];
+    snprintf(buf, sizeof(buf), "%lld", m->cursorId);
+    MRCommand cmd = MR_NewCommand(4, "_FT.CURSOR", "DEL", indexName, buf);
+    cmd.targetShard = rm_strdup(m->targetShard);
+    cmd.targetShardIdx = m->targetShardIdx;
+
+    MRCluster_SendCommand(ctx, &cmd, cursorDeleteCb, NULL);
+    MRCommand_Free(&cmd);
+  }
 }
 
 // This function already runs in one of the IO threads. We need to make sure that the adequate RuntimeCtx is used. This info can be found in the MRIterator ctx
