@@ -96,7 +96,7 @@ def _test_barrier_waits_for_delayed_shard(protocol):
     accurate total_results.
     """
     # WORKERS must be set to use PAUSE_BEFORE_RP_N
-    env = Env(moduleArgs='DEFAULT_DIALECT 2 WORKERS 1', protocol=protocol)
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 WORKERS 1 TIMEOUT 0', protocol=protocol, noDefaultModuleArgs=True)
     num_docs = 3000 * env.shardsCount
     setup_index_with_data(env, num_docs)
 
@@ -320,7 +320,7 @@ def _test_barrier_all_shards_delayed_then_resume(protocol):
     This verifies the barrier correctly accumulates results when all
     shards respond at roughly the same time.
     """
-    env = Env(moduleArgs='DEFAULT_DIALECT 2 WORKERS 1', protocol=protocol)
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 WORKERS 1 TIMEOUT 0', protocol=protocol, noDefaultModuleArgs=True)
     num_docs = 100 * env.shardsCount
     setup_index_with_data(env, num_docs)
 
