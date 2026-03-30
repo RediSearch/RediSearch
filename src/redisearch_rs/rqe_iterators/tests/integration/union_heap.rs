@@ -19,8 +19,8 @@ mod common {
     union_common_tests!(UnionFullHeap, UnionQuickHeap);
 }
 
-use crate::utils::{Mock, MockRevalidateResult, create_mock_2};
-use rqe_iterators::{RQEIterator, UnionFullHeap, UnionQuickHeap};
+use crate::utils::create_mock_2;
+use rqe_iterators::{RQEIterator, UnionQuickHeap};
 
 // =============================================================================
 // Implementation-specific tests (read_count assertions differ between Flat and Heap)
@@ -83,75 +83,4 @@ fn reuse_results_optimization_quick_mode() {
     );
 }
 
-// =============================================================================
-// Regression test: rebuild_heap must keep children at exactly last_doc_id
-// See PR #8827 review — the original `>` condition in rebuild_heap permanently
-// excluded children positioned at self.last_doc_id, silently losing their
-// remaining documents after revalidation.
-// =============================================================================
 
-#[test]
-#[cfg_attr(miri, ignore)] // Calls RSYieldableMetric_Concat FFI in push_borrowed
-fn rebuild_heap_keeps_children_at_current_position() {
-    // Regression test for PR #8827: rebuild_heap must use >= (not >) when
-    // filtering children, otherwise children at exactly self.last_doc_id
-    // are permanently excluded and their remaining documents are lost.
-    //
-    // Setup:
-    //   child0: [10, 20, 30]  — will report Moved on revalidate (triggers rebuild_heap)
-    //   child1: [10, 25, 35]  — reports Ok on revalidate, stays at doc 10
-    //
-    // After Full-mode read() of doc 10:
-    //   self.last_doc_id = 10
-    //   Both children are still at doc 10 (not yet advanced — that happens
-    //   on the NEXT read() call in advance_matching_children).
-    //
-    // revalidate() → child0 reports Moved (advances to doc 20) → any_change = true
-    //              → child1 reports Ok (stays at doc 10)
-    //              → rebuild_heap() is called
-    //
-    // In rebuild_heap, child1 has last_doc_id() == 10 == self.last_doc_id:
-    //   With the bug (>):  10 > 10 is false → child1 excluded → docs 25, 35 lost
-    //   With the fix (>=): 10 >= 10 is true → child1 kept → all docs accessible
-    let child0: Mock<'static, 3> = Mock::new([10, 20, 30]);
-    let child1: Mock<'static, 3> = Mock::new([10, 25, 35]);
-
-    let mut data0 = child0.data();
-    let mut data1 = child1.data();
-
-    data0.set_revalidate_result(MockRevalidateResult::Ok);
-    data1.set_revalidate_result(MockRevalidateResult::Ok);
-
-    let children: Vec<Box<dyn RQEIterator<'static>>> = vec![Box::new(child0), Box::new(child1)];
-    let mut union = UnionFullHeap::new(children);
-
-    // Read first doc — both children are at doc 10, union emits 10
-    let result = union.read().expect("read failed").unwrap();
-    assert_eq!(result.doc_id, 10);
-
-    // Now trigger rebuild_heap: child0 reports Moved, child1 stays Ok at doc 10
-    data0.set_revalidate_result(MockRevalidateResult::Move);
-
-    let _status = union.revalidate().expect("revalidate failed");
-
-    // Collect ALL remaining documents after revalidation
-    let mut remaining = Vec::new();
-    while let Some(result) = union.read().expect("read failed") {
-        remaining.push(result.doc_id);
-    }
-
-    // With the fix: child1 (at doc 10) is kept in the heap.
-    // Expected remaining: [20, 25, 30, 35] (from both children)
-    //
-    // With the bug: child1 is excluded, only child0's docs remain.
-    // Buggy remaining: [30] (only child0, which was moved to 20 during
-    // revalidation and then advanced to 30 on the next read)
-    assert!(
-        remaining.contains(&25),
-        "Doc 25 from child1 should not be lost after rebuild_heap. Got: {remaining:?}"
-    );
-    assert!(
-        remaining.contains(&35),
-        "Doc 35 from child1 should not be lost after rebuild_heap. Got: {remaining:?}"
-    );
-}

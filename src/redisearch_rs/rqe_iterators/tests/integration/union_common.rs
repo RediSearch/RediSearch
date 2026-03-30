@@ -849,6 +849,46 @@ macro_rules! union_common_tests {
             ));
             assert_eq!(quick_iter.last_doc_id(), 20);
         }
+    
+
+        #[test]
+        #[cfg_attr(miri, ignore)] // Calls RSYieldableMetric_Concat FFI in push_borrowed
+        fn revalidate_keeps_children_at_current_position() {
+            let child0: Mock<'static, 3> = Mock::new([10, 20, 30]);
+            let child1: Mock<'static, 3> = Mock::new([10, 25, 35]);
+
+            let mut data0 = child0.data();
+            let mut data1 = child1.data();
+
+            data0.set_revalidate_result(MockRevalidateResult::Ok);
+            data1.set_revalidate_result(MockRevalidateResult::Ok);
+
+            let children: Vec<Box<dyn RQEIterator<'static>>> =
+                vec![Box::new(child0), Box::new(child1)];
+            let mut union = $UnionFull::new(children);
+
+            let result = union.read().expect("read failed").unwrap();
+            assert_eq!(result.doc_id, 10);
+
+            data0.set_revalidate_result(MockRevalidateResult::Move);
+
+            let _status = union.revalidate().expect("revalidate failed");
+
+            let mut remaining = Vec::new();
+            while let Some(result) = union.read().expect("read failed") {
+                remaining.push(result.doc_id);
+            }
+
+            assert!(
+                remaining.contains(&25),
+                "Doc 25 from child1 should not be lost after revalidation. Got: {remaining:?}"
+            );
+            assert!(
+                remaining.contains(&35),
+                "Doc 35 from child1 should not be lost after revalidation. Got: {remaining:?}"
+            );
+        }
+
         // =============================================================================
         // skip_to edge cases (behavioral only, no read_count assertions)
         // =============================================================================
