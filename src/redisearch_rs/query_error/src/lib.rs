@@ -104,7 +104,7 @@ pub enum QueryErrorCode {
     FlexSearchLoadUnsupported,
     FlexUnsupportedArgument,
     SafeDepleterFailure,
-    FlexUnsupportedQuery,  
+    FlexUnsupportedQuery,
 }
 
 impl Debug for QueryErrorCode {
@@ -496,6 +496,7 @@ impl QueryErrorCode {
                 prefix: c"SEARCH_FLEX_UNSUPPORTED_QUERY ",
                 default_msg: c"Unsupported query type for Flex indexes",
                 default_full_msg: c"SEARCH_FLEX_UNSUPPORTED_QUERY Unsupported query type for Flex indexes",
+            }
         }
     }
 }
