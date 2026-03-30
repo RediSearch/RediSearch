@@ -2762,7 +2762,7 @@ ResultProcessor *RPDepleter_New() {
 }
 
 /**
- * Starts depletion for the depleter without consuming any results.
+ * Consumes and buffers all upstream results without yielding any to the caller.
  * @param base The depleter processor (must be RP_DEPLETER type)
  */
 void RPDepleter_StartDepletion(ResultProcessor *base) {

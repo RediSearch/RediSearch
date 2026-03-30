@@ -617,7 +617,8 @@ int HybridRequest_StartCursors(StrongRef hybrid_ref, RedisModuleCtx *replyCtx, Q
       QueryError_SetError(&req->tailPipelineError, QUERY_ERROR_CODE_GENERIC, "No subqueries in hybrid request");
       return REDISMODULE_ERR;
     }
-    // helper array to collect depleters so in async we can deplete them all at once before returning the cursors
+    // helper array to collect depleters so we can deplete them all at once
+    // before returning the cursors
     arrayof(ResultProcessor*) depleters = array_new(ResultProcessor *, req->nrequests);
 
     // Pause before store cursors (hybrid cursors only)
@@ -647,7 +648,12 @@ int HybridRequest_StartCursors(StrongRef hybrid_ref, RedisModuleCtx *replyCtx, Q
       if (IsProfile(req) && depleter->type == RP_PROFILE) {
         depleter = depleter->upstream;
       }
-      RS_ASSERT(depleter->type == expectedDepleterType);
+      if (depleter->type != expectedDepleterType) {
+        QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_GENERIC,
+          "Unexpected depleter type: expected %s, got %s",
+          RPTypeToString(expectedDepleterType), RPTypeToString(depleter->type));
+        break;
+      }
       array_ensure_append_1(depleters, depleter);
       Cursor *cursor = Cursors_Reserve(getCursorList(false), areq->sctx->spec->own_ref, areq->cursorConfig.maxIdle, status);
       if (!cursor) {
