@@ -849,7 +849,6 @@ macro_rules! union_common_tests {
             ));
             assert_eq!(quick_iter.last_doc_id(), 20);
         }
-    
 
         #[test]
         #[cfg_attr(miri, ignore)] // Calls RSYieldableMetric_Concat FFI in push_borrowed

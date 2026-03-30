@@ -82,5 +82,3 @@ fn reuse_results_optimization_quick_mode() {
         "child1 already at EOF, no additional read"
     );
 }
-
-
