@@ -9,7 +9,6 @@
 
 //! Benchmark union iterator.
 //!
-<<<<<<< Updated upstream
 //! Compares C and Rust implementations of the union iterator
 //! using SortedIdList as child iterators.
 //!
@@ -23,12 +22,6 @@
 //!   overlap through random collision.
 //! - **Low overlap**: Children sample from staggered ranges with partial overlap.
 //! - **Disjoint Sequential**: Each child samples from a completely separate range.
-=======
-//! Benchmarks the Rust implementation of the union iterator
-//! using IdListSorted as child iterators.
-//!
-//! TODO: Add C comparison benchmarks once the Rust implementation is complete.
->>>>>>> Stashed changes
 
 use std::{hint::black_box, time::Duration};
 
@@ -36,7 +29,6 @@ use criterion::{
     BenchmarkGroup, Criterion,
     measurement::{Measurement, WallTime},
 };
-<<<<<<< Updated upstream
 use rand::{Rng, SeedableRng, rngs::StdRng};
 use rqe_iterators::{
     RQEIterator, UnionFullFlat, UnionFullHeap, UnionQuickFlat, UnionQuickHeap,
@@ -44,9 +36,6 @@ use rqe_iterators::{
 };
 
 use crate::ffi::{self, IteratorStatus_ITERATOR_OK};
-=======
-use rqe_iterators::{RQEIterator, Union, id_list::IdListSorted};
->>>>>>> Stashed changes
 
 #[derive(Default)]
 pub struct Bencher;
@@ -256,7 +245,6 @@ fn low_overlap_ids_many() -> Vec<Vec<u64>> {
     generate_ids(DataGenParams::low_overlap(NUM_CHILDREN_MANY))
 }
 
-<<<<<<< Updated upstream
 fn disjoint_sequential_ids() -> Vec<Vec<u64>> {
     generate_ids(DataGenParams::disjoint_sequential(NUM_CHILDREN_FEW))
 }
@@ -277,8 +265,6 @@ fn varying_size_ids() -> Vec<Vec<u64>> {
     generate_varying_size_ids(DataGenParams::varying_sizes())
 }
 
-=======
->>>>>>> Stashed changes
 /// Convert ID vectors to Rust IdListSorted iterators.
 fn ids_to_rust_children(ids: Vec<Vec<u64>>) -> Vec<IdListSorted<'static>> {
     ids.into_iter().map(IdListSorted::new).collect()
@@ -460,7 +446,6 @@ impl Bencher {
         M: Measurement,
         F: Fn() -> Vec<Vec<u64>>,
     {
-<<<<<<< Updated upstream
         // C Flat Full implementation benchmark (aggregates all matching children)
         group.bench_function("Flat Full/C", |b| {
             b.iter_batched_ref(
@@ -477,10 +462,6 @@ impl Bencher {
 
         // C Flat Quick implementation benchmark (returns after first match)
         group.bench_function("Flat Quick/C", |b| {
-=======
-        // Rust implementation benchmark
-        group.bench_function("Rust", |b| {
->>>>>>> Stashed changes
             b.iter_batched_ref(
                 || ffi::QueryIterator::new_union(&make_ids(), 1.0, false, true),
                 |it| {
@@ -581,7 +562,6 @@ impl Bencher {
         M: Measurement,
         F: Fn() -> Vec<Vec<u64>>,
     {
-<<<<<<< Updated upstream
         // C Flat Full implementation benchmark (aggregates all matching children)
         group.bench_function("Flat Full/C", |b| {
             b.iter_batched_ref(
@@ -598,10 +578,6 @@ impl Bencher {
 
         // C Flat Quick implementation benchmark (returns after first match)
         group.bench_function("Flat Quick/C", |b| {
-=======
-        // Rust implementation benchmark
-        group.bench_function("Rust", |b| {
->>>>>>> Stashed changes
             b.iter_batched_ref(
                 || ffi::QueryIterator::new_union(&make_ids(), 1.0, false, true),
                 |it| {
