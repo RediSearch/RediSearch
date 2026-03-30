@@ -400,6 +400,60 @@ where
             Ok(Some(SkipToOutcome::NotFound(&mut self.result)))
         }
     }
+
+    /// Full mode read — advances matching children and finds minimum.
+    fn read_full(&mut self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
+        if self.last_doc_id == 0 {
+            self.initialize_children()?;
+        } else {
+            self.advance_matching_children(self.last_doc_id)?;
+        }
+
+        let Some(min_id) = self.find_min_doc_id() else {
+            self.is_eof = true;
+            return Ok(None);
+        };
+
+        self.build_aggregate_result(min_id);
+        Ok(Some(&mut self.result))
+    }
+
+    /// Quick mode read — delegates to `skip_to(last_doc_id + 1)`.
+    ///
+    /// This matches the C implementation's `UI_Read_Quick_Heap` pattern.
+    fn read_quick(&mut self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
+        let next_id = self.last_doc_id.saturating_add(1);
+        match self.skip_to_quick(next_id)? {
+            Some(SkipToOutcome::Found(r)) | Some(SkipToOutcome::NotFound(r)) => Ok(Some(r)),
+            None => Ok(None),
+        }
+    }
+
+    /// Quick mode skip_to — advances children and returns first exact match.
+    /// Tracks minimum doc_id among non-matches for NotFound case.
+    fn skip_to_quick(
+        &mut self,
+        doc_id: t_docId,
+    ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
+        if let Some(exact_match_idx) = self.advance_children_to_target(doc_id)? {
+            self.quick_set_from_child(exact_match_idx);
+            return Ok(Some(SkipToOutcome::Found(&mut self.result)));
+        }
+
+        // Check if we have any children left
+        let Some((min_id, min_idx)) = self.heap.peek() else {
+            self.is_eof = true;
+            return Ok(None);
+        };
+
+        self.quick_set_from_child(min_idx);
+
+        if min_id == doc_id {
+            Ok(Some(SkipToOutcome::Found(&mut self.result)))
+        } else {
+            Ok(Some(SkipToOutcome::NotFound(&mut self.result)))
+        }
+    }
 }
 
 // ============================================================================
@@ -420,30 +474,11 @@ where
             return Ok(None);
         }
 
-        // Quick mode optimization: delegate to skip_to(last_doc_id + 1)
-        // This matches the C implementation's UI_Read_Quick_Heap pattern.
         if QUICK_EXIT {
-            let next_id = self.last_doc_id.saturating_add(1);
-            return match self.skip_to(next_id)? {
-                Some(SkipToOutcome::Found(r)) | Some(SkipToOutcome::NotFound(r)) => Ok(Some(r)),
-                None => Ok(None),
-            };
-        }
-
-        // Full mode: advance matching children and find minimum
-        if self.last_doc_id == 0 {
-            self.initialize_children()?;
+            self.read_quick()
         } else {
-            self.advance_matching_children(self.last_doc_id)?;
+            self.read_full()
         }
-
-        let Some(min_id) = self.find_min_doc_id() else {
-            self.is_eof = true;
-            return Ok(None);
-        };
-
-        self.build_aggregate_result(min_id);
-        Ok(Some(&mut self.result))
     }
 
     fn skip_to(
@@ -456,28 +491,10 @@ where
 
         debug_assert!(self.last_doc_id < doc_id);
 
-        if !QUICK_EXIT {
-            return self.skip_to_full(doc_id);
-        }
-
-        // QUICK_EXIT mode: advance children and return first exact match.
-        if let Some(exact_match_idx) = self.advance_children_to_target(doc_id)? {
-            self.quick_set_from_child(exact_match_idx);
-            return Ok(Some(SkipToOutcome::Found(&mut self.result)));
-        }
-
-        // Check if we have any children left
-        let Some((min_id, min_idx)) = self.heap.peek() else {
-            self.is_eof = true;
-            return Ok(None);
-        };
-
-        self.quick_set_from_child(min_idx);
-
-        if min_id == doc_id {
-            Ok(Some(SkipToOutcome::Found(&mut self.result)))
+        if QUICK_EXIT {
+            self.skip_to_quick(doc_id)
         } else {
-            Ok(Some(SkipToOutcome::NotFound(&mut self.result)))
+            self.skip_to_full(doc_id)
         }
     }
 
