@@ -217,7 +217,7 @@ def test_vamana_debug_info_vs_info():
 
 @skip(cluster=True)
 def test_memory_info():
-    env = Env(moduleArgs='DEFAULT_DIALECT 2 WORKERS 4 _FREE_RESOURCE_ON_THREAD FALSE')
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 WORKERS 4 _FREE_RESOURCE_ON_THREAD FALSE TIMEOUT 0', noDefaultModuleArgs=True)
     dimension = 2
     data_type = random.choice(VECSIM_SVS_DATA_TYPES)
     env.debugPrint(f"data_type for test {env.testName}: {data_type}", force=True)
@@ -293,7 +293,7 @@ Distance verification is skipped since some compression types would require larg
 and vector dimension to get an exact match, making the test prohibitively slow.
 '''
 def queries_sanity(test_name, compression_type, data_type, metric, workers):
-    env = Env(moduleArgs=f'DEFAULT_DIALECT 2 WORKERS {workers}')
+    env = Env(moduleArgs=f'DEFAULT_DIALECT 2 WORKERS {workers} TIMEOUT 0', noDefaultModuleArgs=True)
     # Sanity check that the test parameters match the test name
     env.debugPrint(f"test name: {test_name}, compression_type: {compression_type}, data_type: {data_type}, metric: {metric}", force=True)
     dim = 28
@@ -386,13 +386,13 @@ def test_empty_index():
     empty_index(env)
 
 def test_empty_index_async():
-    env = Env(moduleArgs='DEFAULT_DIALECT 2 WORKERS 4')
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 WORKERS 4 TIMEOUT 0', noDefaultModuleArgs=True)
     empty_index(env)
 
 def change_threads(initial_workers, final_workers):
     if CLUSTER:
         raise SkipTest()
-    env = Env(moduleArgs=f'DEFAULT_DIALECT 2 WORKERS {initial_workers}')
+    env = Env(moduleArgs=f'DEFAULT_DIALECT 2 WORKERS {initial_workers} TIMEOUT 0', noDefaultModuleArgs=True)
     message_prefix = f"initial_workers: {initial_workers}, final_workers: {final_workers}"
     env.assertEqual(int(env.execute_command(config_cmd(), 'GET', 'WORKERS')[0][1]), initial_workers, message=message_prefix)
     training_threshold = DEFAULT_BLOCK_SIZE
@@ -485,7 +485,7 @@ def test_drop_index_memory():
 
 @skip(cluster=True)
 def test_drop_index_during_query():
-    env = Env(moduleArgs='DEFAULT_DIALECT 2 WORKERS 1')
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 WORKERS 1 TIMEOUT 0', noDefaultModuleArgs=True)
     dim = 2
     data_type = 'FLOAT32'
     training_threshold = DEFAULT_BLOCK_SIZE
@@ -622,12 +622,12 @@ def gc_test_common(env, num_workers):
 def test_gc():
     num_workers = 2
     env = Env(moduleArgs=f'DEFAULT_DIALECT 2 FORK_GC_RUN_INTERVAL 1000000 FORK_GC_CLEAN_THRESHOLD 0 WORKERS {num_workers}'
-                         f' _FREE_RESOURCE_ON_THREAD FALSE')
+                         f' _FREE_RESOURCE_ON_THREAD FALSE TIMEOUT 0', noDefaultModuleArgs=True)
     gc_test_common(env, num_workers)
 
 @skip(cluster=True)
 def test_gc_no_workers():
     num_workers = 0
     env = Env(moduleArgs=f'DEFAULT_DIALECT 2 FORK_GC_RUN_INTERVAL 1000000 FORK_GC_CLEAN_THRESHOLD 0 WORKERS {num_workers}'
-                         f' _FREE_RESOURCE_ON_THREAD FALSE')
+                         f' _FREE_RESOURCE_ON_THREAD FALSE TIMEOUT 0', noDefaultModuleArgs=True)
     gc_test_common(env, num_workers)
