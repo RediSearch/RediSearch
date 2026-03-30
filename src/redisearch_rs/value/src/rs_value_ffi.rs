@@ -167,7 +167,7 @@ impl RSValueFFI {
         unsafe { ffi::RSValue_Type(self.0.as_ptr()) }
     }
 
-    pub fn is_null(&self) -> bool {
+    pub fn is_null_static(&self) -> bool {
         // Safety: RSValue_NullStatic returns an immutable global ptr
         self.0.as_ptr() == unsafe { ffi::RSValue_NullStatic() }
     }
