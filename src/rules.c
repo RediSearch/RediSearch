@@ -526,12 +526,12 @@ bool SchemaRule_ShouldIndex(struct IndexSpec *sp, RedisModuleString *keyname, Do
   bool ret = true;
   SchemaRule *rule = sp->rule;
   if (rule->filter_exp) {
-    EvalCtx *r = EvalCtx_Create();
+    EvalCtx *r = EvalCtx_Create(EVAL_MODE_INDEX);
 
     RLookup_LoadRuleFields(RSDummyContext, &r->lk, &r->row, sp, keyCstr);
 
     ret = SchemaRule_FilterPasses(r, rule->filter_exp);
-    QueryError_ClearError(r->ee.err);
+    QueryError_ClearError(&r->status);
     EvalCtx_Destroy(r);
   }
 
