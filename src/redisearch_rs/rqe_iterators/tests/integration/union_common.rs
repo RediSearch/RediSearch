@@ -24,7 +24,6 @@ macro_rules! union_common_tests {
             Mock, MockRevalidateResult, create_mock_1, create_mock_2, create_mock_3,
             create_union_children,
         };
-        use ffi::t_docId;
         use rqe_iterators::{RQEIterator, RQEValidateStatus, SkipToOutcome};
 
         type Union<I> = $UnionFull<'static, I>;
