@@ -159,6 +159,7 @@ impl QueryIterator {
         })
     }
 
+<<<<<<< Updated upstream
     /// Creates a new union iterator from child ID list iterators.
     ///
     /// # Arguments
@@ -225,6 +226,8 @@ impl QueryIterator {
         })
     }
 
+=======
+>>>>>>> Stashed changes
     #[inline(always)]
     pub fn num_estimated(&self) -> usize {
         unsafe { (*self.0).NumEstimated.unwrap()(self.0) }
