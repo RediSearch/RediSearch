@@ -1518,3 +1518,114 @@ class TestShardTimeout:
         env.expect(debug_cmd(), 'WORKERS', 'drain').ok()
 
         env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy).ok()
+
+
+    def _test_remaining_timeout_exhausted_before_shard_execution_debug_impl(self, query_cmd, verify_return_result):
+        """
+        Test that FT.DEBUG commands with pre-execution timeout (via _COORD_DISPATCH_TIME)
+        correctly handle timeout in the debug command path (DEBUG_execCommandCommon).
+
+        EXEC_DEBUG does NOT include EXEC_WITH_PROFILE, so:
+        - 'fail' policy → timeout error
+        - 'return-strict' policy → empty results with timeout warning
+        """
+        env = self.env
+        timeout_ms = '50'
+        dispatch_time_ns = '100000000'  # 100ms in nanoseconds (> 50ms timeout)
+
+        _, slots_data = get_shard_slot_ranges(env)[0]
+        env.cmd('DEBUG', 'MARK-INTERNAL-CLIENT')
+
+        # Build the debug command: query args + timeout/slots/dispatch + debug params.
+        # We need at least 1 debug param for AREQ_Debug_New to succeed.
+        # Use TIMEOUT_AFTER_N 100 as a dummy (never reached since we time out before execution).
+        debug_params = ['TIMEOUT_AFTER_N', '100']
+        base_query_args = list(query_cmd) + [
+            'TIMEOUT', timeout_ms,
+            '_SLOTS_INFO', slots_data,
+            '_COORD_DISPATCH_TIME', dispatch_time_ns,
+        ]
+        full_args = [debug_cmd()] + parseDebugQueryCommandArgs(base_query_args, debug_params)
+
+        for on_timeout_policy in ['return-strict', 'fail']:
+            env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, on_timeout_policy)
+            try:
+                if on_timeout_policy == 'fail':
+                    env.expect(*full_args).error().contains(TIMEOUT_ERROR)
+                else:
+                    verify_return_result(env, full_args)
+            finally:
+                env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'return')
+
+    def test_remaining_timeout_exhausted_before_shard_execution_debug_search(self):
+        def verify_return(env, args):
+            res = env.cmd(*args)
+            env.assertEqual(res['total_results'], 0,
+                            message=f"Expected 0 search results under return-strict, got: {res}")
+            assert_timeout_warning(env, res, message="_FT.DEBUG _FT.SEARCH return-strict")
+        self._test_remaining_timeout_exhausted_before_shard_execution_debug_impl(
+            ['_FT.SEARCH', 'idx', '*'],
+            verify_return_result=verify_return,
+        )
+
+    def test_remaining_timeout_exhausted_before_shard_execution_debug_aggregate(self):
+        def verify_return(env, args):
+            res = env.cmd(*args)
+            env.assertEqual(len(res['results']), 0,
+                            message=f"Expected 0 aggregate results under return-strict, got: {res}")
+            assert_timeout_warning(env, res, message="_FT.DEBUG _FT.AGGREGATE return-strict")
+        self._test_remaining_timeout_exhausted_before_shard_execution_debug_impl(
+            ['_FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@name'],
+            verify_return_result=verify_return,
+        )
+
+
+
+class TestShardTimeoutResp2:
+    """Tests for shard timeout behavior with RESP2 protocol.
+
+    Covers the RESP2 branch in sendChunk_ReplyOnly_EmptyResults, where timeout warnings
+    are tracked in ProfileWarnings and global stats but not emitted in the reply
+    (consistent with RESP2 not having a warnings array).
+    """
+    def __init__(self):
+        skipTest(cluster=True)
+
+        self.env = Env(protocol=2, moduleArgs='WORKERS 1 TIMEOUT 0')
+
+        conn = getConnectionByEnv(self.env)
+        self.env.expect('FT.CREATE', 'idx', 'PREFIX', '1', 'doc', 'SCHEMA', 'name', 'TEXT').ok()
+        for i in range(10):
+            conn.execute_command('HSET', f'doc{i}', 'name', f'hello{i}')
+
+    def test_remaining_timeout_exhausted_before_shard_execution_resp2(self):
+        """Test RESP2 pre-execution timeout with return-strict and fail policies."""
+        env = self.env
+        timeout_ms = '50'
+        dispatch_time_ns = '100000000'  # 100ms > 50ms timeout
+
+        _, slots_data = get_shard_slot_ranges(env)[0]
+        env.cmd('DEBUG', 'MARK-INTERNAL-CLIENT')
+
+        for cmd_type, query_args in [
+            ('search', ['_FT.SEARCH', 'idx', '*']),
+            ('aggregate', ['_FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@name']),
+        ]:
+            full_args = list(query_args) + [
+                'TIMEOUT', timeout_ms,
+                '_SLOTS_INFO', slots_data,
+                '_COORD_DISPATCH_TIME', dispatch_time_ns,
+            ]
+
+            for on_timeout_policy in ['return-strict', 'fail']:
+                env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, on_timeout_policy)
+                try:
+                    if on_timeout_policy == 'fail':
+                        env.expect(*full_args).error().contains(TIMEOUT_ERROR)
+                    else:
+                        # RESP2 returns a list where first element is total_results (0)
+                        res = env.cmd(*full_args)
+                        env.assertEqual(res[0], 0,
+                                        message=f"Expected 0 total results in RESP2 {cmd_type}, got: {res}")
+                finally:
+                    env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'return')

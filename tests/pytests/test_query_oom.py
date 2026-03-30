@@ -92,6 +92,10 @@ def test_oom_verbosity_standalone():
     env.assertEqual(res['Results']['warning'][0], COORD_OOM_WARNING)
     res = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*')
     env.assertEqual(res['Results']['warning'][0], COORD_OOM_WARNING)
+    # Check profile hybrid returns COORD_OOM_WARNING with correct profile structure
+    res = env.cmd('FT.PROFILE', 'idx', 'HYBRID', 'QUERY', 'SEARCH', '*', 'VSIM', '@embedding', '$BLOB', 'PARAMS', '2', 'BLOB', '1')
+    env.assertEqual(res['Results']['warnings'][0], COORD_OOM_WARNING)
+    env.assertContains('Profile', res)
 
 
 class testOomClusterBehavior:
