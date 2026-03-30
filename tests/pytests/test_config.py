@@ -3,10 +3,6 @@ import os
 from RLTest import Env
 from includes import *
 from common import *
-
-# Must match MAX_WORKER_THREADS in src/config.h
-MAX_WORKER_THREADS = 16
-
 not_modifiable = 'SEARCH_OPTION_BAD Not modifiable at runtime'
 default_module_list = [['name', 'vectorset', 'ver', 1, 'path', '', 'args', []]]
 
