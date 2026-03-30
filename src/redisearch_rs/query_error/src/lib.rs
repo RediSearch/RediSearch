@@ -103,6 +103,7 @@ pub enum QueryErrorCode {
     FlexSearchNocontentOrReturn0Required,
     FlexSearchLoadUnsupported,
     FlexUnsupportedArgument,
+    SafeDepleterFailure,
 }
 
 impl Debug for QueryErrorCode {
@@ -484,6 +485,11 @@ impl QueryErrorCode {
                 prefix: c"SEARCH_FLEX_UNSUPPORTED_ARGUMENT ",
                 default_msg: c"Unsupported argument for Redis Flex",
                 default_full_msg: c"SEARCH_FLEX_UNSUPPORTED_ARGUMENT Unsupported argument for Redis Flex",
+            },
+            Self::SafeDepleterFailure => ErrorCodeStrings {
+                prefix: c"SEARCH_SAFE_DEPLETER_FAILURE ",
+                default_msg: c"Failed to acquire index lock for background depletion",
+                default_full_msg: c"SEARCH_SAFE_DEPLETER_FAILURE Failed to acquire index lock for background depletion",
             },
         }
     }
