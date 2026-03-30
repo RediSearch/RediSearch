@@ -91,7 +91,7 @@ where
     fn rebuild_heap(&mut self) {
         self.heap.clear();
         for (idx, child) in self.children.iter().enumerate() {
-            if !child.at_eof() && child.last_doc_id() > self.last_doc_id {
+            if !child.at_eof() && child.last_doc_id() >= self.last_doc_id {
                 self.heap.push(child.last_doc_id(), idx);
             }
         }
