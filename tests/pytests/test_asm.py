@@ -952,6 +952,82 @@ def test_migrate_no_indexes():
 # Constant value for _COORD_DISPATCH_TIME argument in internal commands
 ASM_COORD_DISPATCH_TIME = '1000000'  # 1ms in nanoseconds
 
+
+def _get_shard_slots_data(shard):
+    """Return (slots_set, slots_data) for the given shard connection.
+
+    Inspects ``CLUSTER NODES`` to find the "myself" entry, builds the full set
+    of hash slots owned by that shard, and returns both the set and the encoded
+    ``slots_data`` string expected by ``_SLOTS_INFO``.
+    """
+    shard_node = None
+    for line in shard.execute_command("cluster", "nodes").splitlines():
+        node = ClusterNode.from_str(line)
+        if "myself" in node.flags:
+            shard_node = node
+            break
+
+    slots = set()
+    for sr in shard_node.slots:
+        slots.update(range(sr.start, sr.end + 1))
+
+    return slots, generate_slots(slots)
+
+
+def _update_docs_removing_word(shard, n_docs, slots):
+    """Overwrite every doc whose slot is owned by *shard*, replacing its
+    description so that it no longer contains the word "shoes".
+
+    Keys that have already migrated away are silently skipped.
+    """
+    for i in range(n_docs):
+        slot = i % 2**14
+        if slot in slots:
+            try:
+                shard.execute_command('HSET', f'doc:{i}:{{{slot}}}',
+                                      'description', f'basketball sneakers product {i}')
+            except Exception:
+                pass  # Key may have migrated away
+
+
+def _write_memory_pressure_docs(shard, start, count, slots):
+    """Write *count* new documents (keys ``newdoc:<i>``) whose slots fall in
+    *slots*, using repetitive text to force memory reuse over previously freed
+    inverted-index blocks.
+
+    Keys whose slot is not owned by *shard* are skipped.
+    """
+    for i in range(start, start + count):
+        slot = i % 2**14
+        if slot in slots:
+            vector = np.array([float(i), float(i % 10)], dtype=np.float32)
+            try:
+                shard.execute_command('HSET', f'newdoc:{i}:{{{slot}}}',
+                                      'description', f'basketball sneakers product {i} ' * 10,
+                                      'embedding', vector.tobytes())
+            except Exception:
+                pass
+
+
+def _drain_cursor(shard, cursor_id, index):
+    """Read all pages of a cursor and return the list of ``__key`` values.
+
+    Repeatedly calls ``_FT.CURSOR READ`` until the server returns cursor id 0,
+    collecting every ``__key`` value found in each page.
+    """
+    keys = []
+    current_cursor = cursor_id
+    while current_cursor != 0:
+        cursor_response = shard.execute_command('_FT.CURSOR', 'READ', index, current_cursor)
+        results_array = cursor_response[0]
+        current_cursor = cursor_response[1]
+        for result in results_array[1:]:  # Skip the count at index 0
+            result_dict = dict(zip(result[::2], result[1::2]))
+            key = result_dict.get('__key')
+            if key is not None:
+                keys.append(key)
+    return keys
+
 @skip(cluster=False, min_shards=2)
 def test_hybrid_cursor_after_add_shard_migration():
     """FT.HYBRID cursors access freed memory when slots are migrated to a new shard.
@@ -1001,19 +1077,7 @@ def test_hybrid_cursor_after_add_shard_migration():
     shard1 = env.getConnection(1)
 
     # Get shard1's slot ranges for _SLOTS_INFO
-    shard1_node = None
-    for line in shard1.execute_command("cluster", "nodes").splitlines():
-        node = ClusterNode.from_str(line)
-        if "myself" in node.flags:
-            shard1_node = node
-            break
-
-    # Build the full set of slots owned by shard1
-    shard1_slots = set()
-    for sr in shard1_node.slots:
-        shard1_slots.update(range(sr.start, sr.end + 1))
-
-    slots_data = generate_slots(shard1_slots)
+    shard1_slots, slots_data = _get_shard_slots_data(shard1)
 
     # Step 1: Create hybrid cursor on shard1. With WORKERS=0, the iterators
     # are not consumed — the cursor is paused before reading any results.
@@ -1052,14 +1116,7 @@ def test_hybrid_cursor_after_add_shard_migration():
     # This causes the "shoes" inverted index to have 0 entries after GC, so GC
     # will free ALL its blocks — not just the ones for migrated docs.
     env.debugPrint("Updating remaining docs on shard1 to remove 'shoes' from text")
-    for i in range(n_docs):
-        slot = i % 2**14
-        if slot in shard1_slots:
-            try:
-                shard1.execute_command('HSET', f'doc:{i}:{{{slot}}}',
-                                     'description', f'basketball sneakers product {i}')
-            except Exception:
-                pass  # Key may have migrated away
+    _update_docs_removing_word(shard1, n_docs, shard1_slots)
 
     # Step 4: Wait for trimming, then force GC to free the now-empty "shoes" inverted index
     env.debugPrint("Running GC to free empty 'shoes' inverted index blocks")
@@ -1075,34 +1132,14 @@ def test_hybrid_cursor_after_add_shard_migration():
     # Step 5: Write new documents with different text to force memory reuse
     # over the freed "shoes" inverted index blocks.
     env.debugPrint("Writing new documents to force memory reuse")
-    for i in range(n_docs, n_docs + 500):
-        slot = i % 2**14
-        if slot in shard1_slots:
-            vector = np.array([float(i), float(i % 10)], dtype=np.float32)
-            try:
-                shard1.execute_command('HSET', f'newdoc:{i}:{{{slot}}}',
-                                     'description', f'basketball sneakers product {i} ' * 10,
-                                     'embedding', vector.tobytes())
-            except Exception:
-                pass
+    _write_memory_pressure_docs(shard1, n_docs, 500, shard1_slots)
 
     # Step 6: Read ALL results from the cursor on shard1.
     # On unfixed code: the "shoes" inverted index has been freed, so the
     # iterator reads invalid memory and returns 0 results.
     # On fixed code: results were buffered before the cursor was paused,
     # so cursor READ serves from the buffer regardless of index state.
-    all_results = []
-    current_cursor = search_cursor
-    while current_cursor != 0:
-        cursor_response = shard1.execute_command('_FT.CURSOR', 'READ', 'idx', current_cursor)
-        results_array = cursor_response[0]
-        current_cursor = cursor_response[1]
-        batch_results = results_array[1:]  # Skip the count at index 0
-        for result in batch_results:
-            result_dict = dict(zip(result[::2], result[1::2]))
-            key = result_dict.get('__key')
-            if key is not None:
-                all_results.append(key)
+    all_results = _drain_cursor(shard1, search_cursor, 'idx')
 
     env.debugPrint(f"Cursor returned {len(all_results)} results after add-shard migration")
 
