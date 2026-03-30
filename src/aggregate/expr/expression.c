@@ -263,6 +263,7 @@ static int evalPredicate(ExprEval *eval, const RSPredicate *pred, RSValue *resul
     rc = EXPR_EVAL_OK;
   } else {
     result->t = RSValue_Undef;
+    rc = EXPR_EVAL_ERR;
   }
 
 cleanup:
