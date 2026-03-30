@@ -27,7 +27,7 @@ use rqe_iterators::{RQEIterator, UnionQuickFlat};
 // =============================================================================
 
 #[test]
-#[cfg_attr(miri, ignore)] // Calls RSYieldableMetric_Concat FFI in push_borrowed
+#[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
 fn reuse_results_optimization_quick_mode() {
     let (children, data) = create_mock_2([3], [2]);
     let mut union = UnionQuickFlat::new(children);

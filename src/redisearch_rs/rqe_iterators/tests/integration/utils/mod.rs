@@ -8,76 +8,67 @@
 */
 
 mod mock_iterator;
+mod wildcard_helper;
 pub(crate) use mock_iterator::{Mock, MockData, MockIteratorError, MockRevalidateResult, MockVec};
 
 use ffi::t_docId;
 use rqe_iterators::RQEIterator;
+use std::collections::BTreeSet;
 
+/// Create a single [`Mock`] child and return it as a boxed trait object
+/// together with a handle to its [`MockData`].
 pub(crate) fn create_mock_1<const N: usize>(
-    ids: [t_docId; N],
+    doc_ids: [t_docId; N],
 ) -> (Box<dyn RQEIterator<'static>>, MockData) {
-    let c = Mock::<N>::new(ids);
-    let d = c.data();
-    (Box::new(c), d)
+    let mock = Mock::new(doc_ids);
+    let data = mock.data();
+    (Box::new(mock), data)
 }
 
-pub(crate) fn create_mock_2<const N1: usize, const N2: usize>(
-    ids1: [t_docId; N1],
-    ids2: [t_docId; N2],
-) -> (Vec<Box<dyn RQEIterator<'static>>>, Vec<MockData>) {
-    let c1 = Mock::<N1>::new(ids1);
-    let c2 = Mock::<N2>::new(ids2);
-    let d1 = c1.data();
-    let d2 = c2.data();
-    (vec![Box::new(c1), Box::new(c2)], vec![d1, d2])
+/// Create two [`Mock`] children and return them as a `Vec` of boxed trait
+/// objects together with a two-element array of [`MockData`] handles.
+pub(crate) fn create_mock_2<const A: usize, const B: usize>(
+    a: [t_docId; A],
+    b: [t_docId; B],
+) -> (Vec<Box<dyn RQEIterator<'static>>>, [MockData; 2]) {
+    let m1 = Mock::new(a);
+    let m2 = Mock::new(b);
+    let data = [m1.data(), m2.data()];
+    let children: Vec<Box<dyn RQEIterator<'static>>> = vec![Box::new(m1), Box::new(m2)];
+    (children, data)
 }
 
-pub(crate) fn create_mock_3<const N1: usize, const N2: usize, const N3: usize>(
-    ids1: [t_docId; N1],
-    ids2: [t_docId; N2],
-    ids3: [t_docId; N3],
-) -> (Vec<Box<dyn RQEIterator<'static>>>, Vec<MockData>) {
-    let c1 = Mock::<N1>::new(ids1);
-    let c2 = Mock::<N2>::new(ids2);
-    let c3 = Mock::<N3>::new(ids3);
-    let d1 = c1.data();
-    let d2 = c2.data();
-    let d3 = c3.data();
-    (
-        vec![Box::new(c1), Box::new(c2), Box::new(c3)],
-        vec![d1, d2, d3],
-    )
+/// Create three [`Mock`] children and return them as a `Vec` of boxed trait
+/// objects together with a three-element array of [`MockData`] handles.
+pub(crate) fn create_mock_3<const A: usize, const B: usize, const C: usize>(
+    a: [t_docId; A],
+    b: [t_docId; B],
+    c: [t_docId; C],
+) -> (Vec<Box<dyn RQEIterator<'static>>>, [MockData; 3]) {
+    let m1 = Mock::new(a);
+    let m2 = Mock::new(b);
+    let m3 = Mock::new(c);
+    let data = [m1.data(), m2.data(), m3.data()];
+    let children: Vec<Box<dyn RQEIterator<'static>>> =
+        vec![Box::new(m1), Box::new(m2), Box::new(m3)];
+    (children, data)
 }
 
+/// Create `num_children` [`MockVec`] children whose document-id lists are
+/// produced by multiplying each element in `base_result_set` by the child
+/// index (1-based).  Returns the children and the sorted, deduplicated
+/// expected output.
 pub(crate) fn create_union_children(
     num_children: usize,
-    base_result_set: &[t_docId],
+    base_result_set: &[u64],
 ) -> (Vec<Box<dyn RQEIterator<'static>>>, Vec<t_docId>) {
-    let mut children: Vec<Box<dyn RQEIterator<'static>>> = Vec::with_capacity(num_children);
-    let mut all_ids = Vec::new();
-    let mut next_unique_id: t_docId = 10000;
-
-    for i in 0..num_children {
-        let mut child_ids = Vec::new();
-
-        for (j, &id) in base_result_set.iter().enumerate() {
-            if j % num_children == i || j % 2 == 0 {
-                child_ids.push(id);
-            }
-        }
-
-        for _ in 0..50 {
-            child_ids.push(next_unique_id);
-            next_unique_id += 1;
-        }
-
-        child_ids.sort();
-        child_ids.dedup();
-        all_ids.extend(child_ids.iter().copied());
-        children.push(MockVec::new_boxed(child_ids));
-    }
-
-    all_ids.sort();
-    all_ids.dedup();
-    (children, all_ids)
+    let mut expected = BTreeSet::new();
+    let children: Vec<Box<dyn RQEIterator<'static>>> = (1..=num_children)
+        .map(|i| {
+            let doc_ids: Vec<t_docId> = base_result_set.iter().map(|&x| x * i as u64).collect();
+            expected.extend(doc_ids.iter().copied());
+            MockVec::new_boxed(doc_ids)
+        })
+        .collect();
+    (children, expected.into_iter().collect())
 }

@@ -154,7 +154,8 @@ jobs:
                   "x86_64": {
                       'container': 'ubuntu:jammy',
                       'setup_script': 'apt update && apt install -y git',
-                      'name': 'Ubuntu Jammy x86_64'
+                      'name': 'Ubuntu Jammy x86_64',
+                      'enable_lto': '0' #  We need a new SVS binary from Intel for this.
                   },
                   "aarch64": {
                       'container': 'ubuntu:jammy',
@@ -167,48 +168,56 @@ jobs:
                   "x86_64": {
                       'container': 'ubuntu:focal',
                       'setup_script': 'apt update && apt install -y git',
-                      'name': 'Ubuntu Focal x86_64'
+                      'name': 'Ubuntu Focal x86_64',
+                      'enable_lto': '0' #  We need a new SVS binary from Intel for this.
                   },
                   "aarch64": {
                       'container': 'ubuntu:focal',
                       'setup_script': 'apt update && apt install -y git',
-                      'name': 'Ubuntu Focal ARM64'
+                      'name': 'Ubuntu Focal ARM64',
+                      'enable_lto': '1'
                   }
               },
               "rockylinux:8": {
                   "x86_64": {
                       'container': 'rockylinux:8',
                       'setup_script': 'dnf update -y && dnf install -y git',
-                      'name': 'Rocky Linux 8 x86_64'
+                      'name': 'Rocky Linux 8 x86_64',
+                      'enable_lto': '0' #  Shipped glibc is too old.
                   },
                   "aarch64": {
                       'container': 'rockylinux:8',
                       'setup_script': 'dnf update -y && dnf install -y git',
-                      'name': 'Rocky Linux 8 ARM64'
+                      'name': 'Rocky Linux 8 ARM64',
+                      'enable_lto': '0' #  Shipped glibc is too old.
                   }
               },
               "rockylinux:9": {
                   "x86_64": {
                       'container': 'rockylinux:9',
                       'setup_script': 'dnf update -y && dnf install -y git',
-                      'name': 'Rocky Linux 9 x86_64'
+                      'name': 'Rocky Linux 9 x86_64',
+                      'enable_lto': '0' #  We need a new SVS binary from Intel for this.
                   },
                   "aarch64": {
                       'container': 'rockylinux:9',
                       'setup_script': 'dnf update -y && dnf install -y git',
-                      'name': 'Rocky Linux 9 ARM64'
+                      'name': 'Rocky Linux 9 ARM64',
+                      'enable_lto': '1'
                   }
               },
               "amazonlinux:2": {
                   "x86_64": {
                       'container': 'amazonlinux:2',
                       'setup_script': 'yum install -y tar gzip git',
-                      'name': 'Amazon Linux 2 x86_64'
+                      'name': 'Amazon Linux 2 x86_64',
+                      'enable_lto': '0' #  Shipped glibc is too old.
                   },
                   "aarch64": {
                       'container': 'amazonlinux:2',
                       'setup_script': 'yum install -y tar gzip git',
-                      'name': 'Amazon Linux 2 ARM64'
+                      'name': 'Amazon Linux 2 ARM64',
+                      'enable_lto': '0' #  Shipped glibc is too old.
                   }
               },
               "alpine:3.22": {
@@ -231,60 +240,70 @@ jobs:
                   "x86_64": {
                       'container': 'gcc:11-bullseye',
                       'setup_script': 'apt update && apt install -y git',
-                      'name': 'Debian Bullseye x86_64'
+                      'name': 'Debian Bullseye x86_64',
+                      'enable_lto': '0' #  We need a new SVS binary from Intel for this.
                   },
                   "aarch64": {
                       'container': 'gcc:11-bullseye',
                       'setup_script': 'apt update && apt install -y git',
-                      'name': 'Debian Bullseye ARM64'
+                      'name': 'Debian Bullseye ARM64',
+                      'enable_lto': '1'
                   }
               },
               "debian:bookworm": {
                   "x86_64": {
                       'container': 'gcc:12-bookworm',
                       'setup_script': 'apt update && apt install -y git',
-                      'name': 'Debian Bookworm x86_64'
+                      'name': 'Debian Bookworm x86_64',
+                      'enable_lto': '0' #  We need a new SVS binary from Intel for this.
                   },
                   "aarch64": {
                       'container': 'gcc:12-bookworm',
                       'setup_script': 'apt update && apt install -y git',
-                      'name': 'Debian Bookworm ARM64'
+                      'name': 'Debian Bookworm ARM64',
+                      'enable_lto': '1'
                   }
               },
               "amazonlinux:2023": {
                   "x86_64": {
                       'container': 'amazonlinux:2023',
                       'setup_script': 'dnf install -y tar gzip git',
-                      'name': 'Amazon Linux 2023 x86_64'
+                      'name': 'Amazon Linux 2023 x86_64',
+                      'enable_lto': '0' #  We need a new SVS binary from Intel for this.
                   },
                   "aarch64": {
                       'container': 'amazonlinux:2023',
                       'setup_script': 'dnf install -y tar gzip git',
-                      'name': 'Amazon Linux 2023 ARM64'
+                      'name': 'Amazon Linux 2023 ARM64',
+                      'enable_lto': '1'
                   }
               },
               "mariner:2": {
                   "x86_64": {
                       'container': 'mcr.microsoft.com/cbl-mariner/base/core:2.0',
                       'setup_script': 'tdnf install -y --noplugins --skipsignature tar gzip git ca-certificates',
-                      'name': 'Mariner 2 x86_64'
+                      'name': 'Mariner 2 x86_64',
+                      'enable_lto': '0' #  We need a new SVS binary from Intel for this.
                   },
                   "aarch64": {
                       'container': 'mcr.microsoft.com/cbl-mariner/base/core:2.0',
                       'setup_script': 'tdnf install -y --noplugins --skipsignature tar gzip git ca-certificates',
-                      'name': 'Mariner 2 ARM64'
+                      'name': 'Mariner 2 ARM64',
+                      'enable_lto': '1'
                   }
               },
               "azurelinux:3": {
                   "x86_64": {
                       'container': 'mcr.microsoft.com/azurelinux/base/core:3.0',
                       'setup_script': 'tdnf install -y --noplugins tar git ca-certificates',
-                      'name': 'Azure Linux 3 x86_64'
+                      'name': 'Azure Linux 3 x86_64',
+                      'enable_lto': '0' #  We need a new SVS binary from Intel for this.
                   },
                   "aarch64": {
                       'container': 'mcr.microsoft.com/azurelinux/base/core:3.0',
                       'setup_script': 'tdnf install -y --noplugins tar git ca-certificates',
-                      'name': 'Azure Linux 3 ARM64'
+                      'name': 'Azure Linux 3 ARM64',
+                      'enable_lto': '1'
                   }
               }
           }

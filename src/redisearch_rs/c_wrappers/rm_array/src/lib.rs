@@ -7,6 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+//! Safe wrapper around arrays allocated with [`ffi::RedisModule_Alloc`].
+
 use std::ffi::c_void;
 use std::fmt;
 use std::mem::ManuallyDrop;

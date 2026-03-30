@@ -144,6 +144,13 @@ pub trait RQEIterator<'index> {
     fn is_wildcard(&self) -> bool {
         false
     }
+
+    /// Returns `Some(&self)` if this iterator is a [`c2rust::CRQEIterator`], `None` otherwise.
+    ///
+    /// Used by [`Intersection`] to compute sort weights without requiring `'static`.
+    fn as_c_iterator(&self) -> Option<&c2rust::CRQEIterator> {
+        None
+    }
 }
 
 // Implement RQEIterator for any Box<I> where I: RQEIterator + ?Sized.
@@ -187,6 +194,10 @@ impl<'index, I: RQEIterator<'index> + ?Sized> RQEIterator<'index> for Box<I> {
 
     fn is_wildcard(&self) -> bool {
         (**self).is_wildcard()
+    }
+
+    fn as_c_iterator(&self) -> Option<&c2rust::CRQEIterator> {
+        (**self).as_c_iterator()
     }
 }
 

@@ -32,6 +32,7 @@ use rstest_reuse::template;
 ])]
 fn id_cases(#[case] case: &[u64]) {}
 
+mod c2rust;
 mod empty;
 mod id_list;
 mod intersection;

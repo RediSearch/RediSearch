@@ -7,8 +7,10 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use crate::bindings::FieldSpec;
-use crate::bindings::RmArray;
+//! Safe wrapper around [`ffi::IndexSpecCache`].
+
+use field_spec::FieldSpec;
+use rm_array::RmArray;
 use std::ffi::CStr;
 use std::fmt;
 use std::ptr;
@@ -79,7 +81,7 @@ impl IndexSpecCache {
 
     /// # Safety
     ///
-    /// The caller must ensure the following invariants are upheld for the *entire lifetime* of this [`crate::RLookup`]:
+    /// The caller must ensure the following invariants are upheld for the *entire lifetime* of this type:
     /// 1. The `spcache` pointer MUST point to a valid [`ffi::IndexSpecCache`].
     /// 2. The [`ffi::IndexSpecCache`] being pointed MUST NOT get mutated.
     pub unsafe fn from_raw(ptr: NonNull<ffi::IndexSpecCache>) -> Self {

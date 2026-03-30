@@ -159,6 +159,8 @@ install_llvm
 
 echo ""
 echo ">>> Verifying..."
+# Calling 'clang --version' verifies that the installed clang binary can actually run.
+# It catches issues like the system libstdc++ or glibc lacking symbol versions that clang needs.
 if command -v "clang-${LLVM_VER}" &>/dev/null; then
     "clang-${LLVM_VER}" --version
 elif command -v clang &>/dev/null; then
