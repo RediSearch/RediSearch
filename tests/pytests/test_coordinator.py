@@ -326,15 +326,7 @@ def _set_one_shard_unreachable(env: Env):
     )
 
 
-def _get_cursor_stats_via_conn(conn, idx: str = 'idx'):
-    """Get cursor stats from a connection using _FT.INFO (internal, shard-local)."""
-    info = conn.execute_command('_FT.INFO', idx)
-    info_dict = to_dict(info)
-    cursor_stats = to_dict(info_dict.get('cursor_stats', {}))
-    return cursor_stats.get('index_total', 0)
-
-
-def _test_all_queries_fail_on_unreachable_shard(env: Env, scenario: str, reachable_shard_conn=None):
+def _test_all_queries_fail_on_unreachable_shard(env: Env, scenario: str):
     """Test that FT.SEARCH, FT.AGGREGATE, and FT.HYBRID all return an error."""
     # FT.SEARCH returns an error (does not hang)
     with TimeLimit(5, f'FT.SEARCH hung ({scenario})'):
@@ -353,23 +345,12 @@ def _test_all_queries_fail_on_unreachable_shard(env: Env, scenario: str, reachab
         env.expect('FT.AGGREGATE', 'idx', '*', 'WITHCURSOR').error().contains('Could not send query to cluster')
 
     # FT.HYBRID returns an error (does not hang)
-    # Also verify cursors are cleaned up on the reachable shard
-    if reachable_shard_conn is not None:
-        cursors_before = _get_cursor_stats_via_conn(reachable_shard_conn)
-
     with TimeLimit(5, f'FT.HYBRID hung ({scenario})'):
         env.expect('FT.HYBRID', 'idx',
                    'SEARCH', '*',
                    'VSIM', '@v', '$BLOB',
                    'PARAMS', '2', 'BLOB', 'abcdefgh'
         ).error().contains('Could not send query to cluster')
-
-    # Verify cursors on the reachable shard were cleaned up
-    if reachable_shard_conn is not None:
-        # Give some time for async cleanup
-        with TimeLimit(2, f'Cursors not cleaned up on reachable shard'):
-            while _get_cursor_stats_via_conn(reachable_shard_conn) != cursors_before:
-                time.sleep(0.05)
 
 
 @skip(cluster=False, min_shards=2)
@@ -416,11 +397,45 @@ def test_queries_fail_on_one_shard_unreachable(env: Env):
     for i in range(10):
         conn.execute_command('HSET', f'doc{i}', 't', f'hello{i}', 'v', 'abcdefgh')
 
+    # Pause topology refresh so our invalid topology stays in effect
+    env.expect(debug_cmd(), 'PAUSE_TOPOLOGY_UPDATER').ok()
+    # Set validation timeout to 1ms so we don't wait for unreachable shards
+    env.expect(config_cmd(), 'SET', 'TOPOLOGY_VALIDATION_TIMEOUT', '1').ok()
+
+    _set_one_shard_unreachable(env)
+    _test_all_queries_fail_on_unreachable_shard(env, 'one shard unreachable')
+
+
+def _get_shard_cursor_count(conn, idx='idx'):
+    """Get cursor count from a shard using _FT.INFO (internal, shard-local command)."""
+    info = conn.execute_command('_FT.INFO', idx)
+    info_dict = to_dict(info)
+    cursor_stats = to_dict(info_dict.get('cursor_stats', {}))
+    return cursor_stats.get('global_total', 0)
+
+
+@skip(cluster=False, min_shards=2)
+def test_hybrid_cursor_cleanup_on_partial_failure(env: Env):
+    """Test that FT.HYBRID cleans up cursors on reachable shards when one shard is unreachable.
+
+    When FT.HYBRID's mapping phase succeeds on some shards but fails on others (e.g., unreachable),
+    the coordinator must send _FT.CURSOR DEL commands to clean up cursors on the successful shards.
+    """
+    # Create an index with vector field for FT.HYBRID
+    env.expect('FT.CREATE', 'idx', 'SCHEMA',
+               't', 'TEXT',
+               'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2',
+               'DISTANCE_METRIC', 'L2').ok()
+    conn = getConnectionByEnv(env)
+    for i in range(10):
+        conn.execute_command('HSET', f'doc{i}', 't', f'hello{i}', 'v', 'abcdefgh')
+
     # Get a direct connection to shard 1 before modifying topology
-    # (env.getConnection() won't work after we break the coordinator's topology view)
     shard1_conn = env.getConnection(shardId=1)
-    # Mark as internal client so we can use _FT.INFO (shard-local) instead of FT.INFO (cluster-wide)
     shard1_conn.execute_command('DEBUG', 'MARK-INTERNAL-CLIENT')
+
+    # Record cursor count before breaking topology
+    cursors_before = _get_shard_cursor_count(shard1_conn)
 
     # Pause topology refresh so our invalid topology stays in effect
     env.expect(debug_cmd(), 'PAUSE_TOPOLOGY_UPDATER').ok()
@@ -428,6 +443,18 @@ def test_queries_fail_on_one_shard_unreachable(env: Env):
     env.expect(config_cmd(), 'SET', 'TOPOLOGY_VALIDATION_TIMEOUT', '1').ok()
 
     _set_one_shard_unreachable(env)
-    # Shard 1 is reachable, shard 2 is unreachable (per _set_one_shard_unreachable)
-    # Pass the direct connection to verify cursor cleanup on the reachable shard
-    _test_all_queries_fail_on_unreachable_shard(env, 'one shard unreachable', reachable_shard_conn=shard1_conn)
+
+    # Run FT.HYBRID - it will create cursors on shard 1 (reachable) during mapping phase,
+    # but fail overall because shard 2 is unreachable. The fix should send DEL commands.
+    with TimeLimit(5, 'FT.HYBRID hung'):
+        env.expect('FT.HYBRID', 'idx',
+                   'SEARCH', '*',
+                   'VSIM', '@v', '$BLOB',
+                   'PARAMS', '2', 'BLOB', 'abcdefgh'
+        ).error().contains('Could not send query to cluster')
+
+    # Verify cursors on the reachable shard were cleaned up (cursor count returns to original)
+    wait_for_condition(
+        lambda: (_get_shard_cursor_count(shard1_conn) == cursors_before, {}),
+        'Cursors were not cleaned up on reachable shard after FT.HYBRID failure'
+    )
