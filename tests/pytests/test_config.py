@@ -1,6 +1,11 @@
+import os
+
 from RLTest import Env
 from includes import *
 from common import *
+
+# Must match MAX_WORKER_THREADS in src/config.h
+MAX_WORKER_THREADS = 16
 
 not_modifiable = 'SEARCH_OPTION_BAD Not modifiable at runtime'
 default_module_list = [['name', 'vectorset', 'ver', 1, 'path', '', 'args', []]]
@@ -185,7 +190,7 @@ def testAllConfig(env):
     env.assertEqual(res_dict['MAXPREFIXEXPANSIONS'][0], '200')
     env.assertEqual(res_dict['DEFAULT_SCORER'][0], 'BM25STD')
     env.assertContains(res_dict['TIMEOUT'][0], ['500', '0'])
-    env.assertEqual(res_dict['WORKERS'][0], '0')
+    env.assertEqual(res_dict['WORKERS'][0], str(min(MAX_WORKER_THREADS, os.cpu_count())))
     env.assertEqual(res_dict['MIN_OPERATION_WORKERS'][0], '4')
     env.assertEqual(res_dict['TIERED_HNSW_BUFFER_LIMIT'][0], '1024')
     env.assertEqual(res_dict['PRIVILEGED_THREADS_NUM'][0], '1')
@@ -344,7 +349,7 @@ def testImmutable(env):
 
 ############################ TEST DEPRECATED MT CONFIGS ############################
 
-workers_default = 0
+workers_default = min(MAX_WORKER_THREADS, os.cpu_count())
 min_operation_workers_default = 4
 
 @skip(cluster=True)
@@ -562,7 +567,7 @@ numericConfigs = [
     ('search-timeout', 'TIMEOUT', 500, 1, LLONG_MAX, False, False),
     ('search-union-iterator-heap', 'UNION_ITERATOR_HEAP', 20, 1, LLONG_MAX, False, False),
     ('search-vss-max-resize', 'VSS_MAX_RESIZE', 0, 0, UINT32_MAX, False, False),
-    ('search-workers', 'WORKERS', 0, 0, 16, False, False),
+    ('search-workers', 'WORKERS', min(MAX_WORKER_THREADS, os.cpu_count()), 0, 16, False, False),
     ('search-workers-priority-bias-threshold', 'WORKERS_PRIORITY_BIAS_THRESHOLD', 1, 0, LLONG_MAX, True, False),
     ('search-_bg-index-mem-pct-thr', '_BG_INDEX_MEM_PCT_THR', 100, 0, 100, False, False),
     ('search-bm25std-tanh-factor', 'BM25STD_TANH_FACTOR', 4, 1, 10000, False, False),

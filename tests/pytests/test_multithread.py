@@ -418,8 +418,8 @@ def test_switch_loader_modes():
 
 @skip(cluster=False)
 def test_change_num_connections():
-    env = initEnv('SEARCH_IO_THREADS 20')
-    # Validate the default values
+    env = initEnv('WORKERS 0 SEARCH_IO_THREADS 20')
+    # Validate the values (WORKERS explicitly set to 0)
     env.expect(config_cmd(), 'GET', 'WORKERS').equal([['WORKERS', '0']])
     env.expect(config_cmd(), 'GET', 'CONN_PER_SHARD').equal([['CONN_PER_SHARD', '0']])
 
@@ -448,7 +448,7 @@ def test_change_num_connections():
             [ANY] * conns # The connections states
         ] * env.shardsCount
 
-    # By default, the number of connections is 1 (WORKERS=0, so connPerShard=0+1=1, conn_pool_size=ceil(1/20)=1)
+    # With WORKERS explicitly set to 0, the number of connections is 1 (connPerShard=0+1=1, conn_pool_size=ceil(1/20)=1)
     env.expect(debug_cmd(), 'SHARD_CONNECTION_STATES').equal(expected(compute_total_number_of_connections(1)))
 
     # Increase the number of worker threads to 6
