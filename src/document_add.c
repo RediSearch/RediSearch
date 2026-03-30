@@ -181,6 +181,7 @@ int RS_AddDocument(RedisSearchCtx *sctx, RedisModuleString *name, const AddDocum
     HiddenString_Free(expr, false);
     if (rc == REDISMODULE_OK) {
       if (res == 0) {
+        QueryError_ClearError(status);
         QueryError_SetCode(status, QUERY_EDOCNOTADDED);
         goto done;
       }

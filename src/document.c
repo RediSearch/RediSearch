@@ -894,7 +894,8 @@ int Document_EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key, const 
     goto CleanUp;
   }
 
-  ExprEval evaluator = {.err = status, .lookup = &lookup_s, .res = NULL, .srcrow = &row, .root = e};
+  // In query mode missing properties are errors, as expected for `FT.ADD`.
+  ExprEval evaluator = {.err = status, .mode = EVAL_MODE_QUERY, .lookup = &lookup_s, .res = NULL, .srcrow = &row, .root = e};
   RSValue rv = RSVALUE_STATIC;
   if (ExprEval_Eval(&evaluator, &rv) != EXPR_EVAL_OK) {
     goto CleanUp;
