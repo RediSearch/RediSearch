@@ -209,18 +209,46 @@ where
         Ok(())
     }
 
-    /// Advances all lagging children to the target doc_id using heap operations.
+    /// Advances all lagging children in the heap to at least `doc_id`.
     ///
-    /// In QUICK_EXIT mode, returns `Some(child_idx)` immediately when an exact match
-    /// is found (child landed exactly on doc_id). Otherwise returns `None`.
+    /// Shared by both quick and full skip_to modes. Does not return early on
+    /// exact matches — callers layer their own early-return or aggregation logic
+    /// on top.
+    fn skip_lagging_children(&mut self, doc_id: t_docId) -> Result<(), RQEIteratorError> {
+        while let Some((child_doc_id, idx)) = self.heap.peek() {
+            if child_doc_id >= doc_id {
+                break;
+            }
+
+            let child = &mut self.children[idx];
+            match child.skip_to(doc_id)? {
+                Some(SkipToOutcome::Found(r)) => {
+                    self.heap.replace_root(r.doc_id, idx);
+                }
+                Some(SkipToOutcome::NotFound(r)) => {
+                    self.heap.replace_root(r.doc_id, idx);
+                }
+                None => {
+                    self.heap.pop();
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Quick-mode helper: advances all children to the target doc_id,
+    /// returning `Some(child_idx)` immediately when an exact match is found.
     ///
-    /// This is the core skip logic shared by both quick and full modes.
+    /// On first call (heap empty), initialises the heap by skipping every child.
+    /// On subsequent calls, delegates to [`Self::skip_lagging_children`] and then
+    /// checks the heap root for an exact match.
     fn advance_children_to_target(
         &mut self,
         doc_id: t_docId,
     ) -> Result<Option<usize>, RQEIteratorError> {
-        // If heap is empty (first operation before any read), initialize by skipping all children
         if self.heap.is_empty() && self.last_doc_id == 0 {
+            // Initialisation: skip every child to the target, tracking the
+            // first one that lands exactly on `doc_id` for an early return.
             let mut first_exact_match: Option<usize> = None;
 
             for (idx, child) in self.children.iter_mut().enumerate() {
@@ -230,54 +258,28 @@ where
                 match child.skip_to(doc_id)? {
                     Some(SkipToOutcome::Found(r)) => {
                         self.heap.push(r.doc_id, idx);
-                        // In QUICK_EXIT mode, track first exact match for early return
-                        if QUICK_EXIT && first_exact_match.is_none() {
+                        if first_exact_match.is_none() {
                             first_exact_match = Some(idx);
                         }
                     }
                     Some(SkipToOutcome::NotFound(r)) => {
                         self.heap.push(r.doc_id, idx);
                     }
-                    None => {
-                        // Child is EOF, don't add to heap
-                    }
+                    None => {}
                 }
             }
-
-            // In QUICK_EXIT mode, return early with the exact match child index
-            if QUICK_EXIT {
-                return Ok(first_exact_match);
-            }
-        } else {
-            // Skip lagging children using heap operations.
-            // While heap root is behind target, skip that child and update its heap position.
-            while let Some((child_doc_id, idx)) = self.heap.peek() {
-                if child_doc_id >= doc_id {
-                    break;
-                }
-
-                let child = &mut self.children[idx];
-                match child.skip_to(doc_id)? {
-                    Some(SkipToOutcome::Found(r)) => {
-                        // Use replace_root: single sift-down instead of pop+push
-                        self.heap.replace_root(r.doc_id, idx);
-                        // In QUICK_EXIT mode, return early with exact match
-                        if QUICK_EXIT {
-                            return Ok(Some(idx));
-                        }
-                    }
-                    Some(SkipToOutcome::NotFound(r)) => {
-                        // Use replace_root: single sift-down instead of pop+push
-                        self.heap.replace_root(r.doc_id, idx);
-                    }
-                    None => {
-                        // Child is EOF, remove from heap
-                        self.heap.pop();
-                    }
-                }
-            }
+            return Ok(first_exact_match);
         }
 
+        // Steady-state: advance lagging children, then check for exact match.
+        self.skip_lagging_children(doc_id)?;
+
+        // Check if the heap root landed exactly on the target.
+        if let Some((root_doc_id, idx)) = self.heap.peek() {
+            if root_doc_id == doc_id {
+                return Ok(Some(idx));
+            }
+        }
         Ok(None)
     }
 
@@ -313,71 +315,30 @@ where
 
     /// Full mode skip_to — advances lagging children and aggregates all matches.
     ///
-    /// Optimization: During initialization (first skip_to when the heap is empty),
-    /// children that land exactly on `doc_id` are collected into the aggregate
-    /// immediately. If the heap minimum equals `doc_id`, the aggregate is already
-    /// built and the DFS traversal is skipped entirely.
+    /// On the first call (heap empty), initialises the heap by skipping every
+    /// child to the target.  On subsequent calls, delegates to
+    /// [`Self::skip_lagging_children`].  In both cases, the aggregate result is
+    /// built via [`Self::build_aggregate_result`]'s DFS over the heap.
     fn skip_to_full(
         &mut self,
         doc_id: t_docId,
     ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
-        let mut found_prebuilt = false;
-
         if self.heap.is_empty() && self.last_doc_id == 0 {
-            // Initialization: skip all children to target, pre-collect exact matches.
-            // Reset aggregate before collecting Found children.
-            if let Some(agg) = self.result.as_aggregate_mut() {
-                agg.reset();
-            }
-
-            let mut any_found = false;
+            // Initialisation: skip every child to the target and build the heap.
             for (idx, child) in self.children.iter_mut().enumerate() {
                 if child.at_eof() {
                     continue;
                 }
                 match child.skip_to(doc_id)? {
-                    Some(SkipToOutcome::Found(r)) => {
-                        self.heap.push(r.doc_id, idx);
-                        any_found = true;
-                    }
-                    Some(SkipToOutcome::NotFound(r)) => {
+                    Some(SkipToOutcome::Found(r) | SkipToOutcome::NotFound(r)) => {
                         self.heap.push(r.doc_id, idx);
                     }
                     None => {}
                 }
             }
-
-            // If any children landed exactly on doc_id, add them to the aggregate
-            // now. This avoids a redundant DFS when the minimum is doc_id.
-            if any_found {
-                self.result.doc_id = doc_id;
-                for idx in 0..self.children.len() {
-                    if self.children[idx].last_doc_id() == doc_id {
-                        self.add_child_to_result(idx);
-                    }
-                }
-                found_prebuilt = true;
-            }
         } else {
-            // Steady-state: advance lagging children via heap replace_root.
-            while let Some((child_doc_id, idx)) = self.heap.peek() {
-                if child_doc_id >= doc_id {
-                    break;
-                }
-
-                let child = &mut self.children[idx];
-                match child.skip_to(doc_id)? {
-                    Some(SkipToOutcome::Found(r)) => {
-                        self.heap.replace_root(r.doc_id, idx);
-                    }
-                    Some(SkipToOutcome::NotFound(r)) => {
-                        self.heap.replace_root(r.doc_id, idx);
-                    }
-                    None => {
-                        self.heap.pop();
-                    }
-                }
-            }
+            // Steady-state: advance lagging children.
+            self.skip_lagging_children(doc_id)?;
         }
 
         // Check if any children left
@@ -386,13 +347,8 @@ where
             return Ok(None);
         };
 
-        if found_prebuilt && min_id == doc_id {
-            // Aggregate was already built during initialization — skip DFS.
-            self.last_doc_id = doc_id;
-        } else {
-            // Build aggregate via DFS over the heap.
-            self.build_aggregate_result(min_id);
-        }
+        // Build aggregate via DFS over the heap.
+        self.build_aggregate_result(min_id);
 
         if min_id == doc_id {
             Ok(Some(SkipToOutcome::Found(&mut self.result)))

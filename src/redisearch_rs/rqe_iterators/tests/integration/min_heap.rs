@@ -134,4 +134,3 @@ fn test_data_access() {
     // Root should have minimum doc_id
     assert_eq!(data[0].0, 5);
 }
-
