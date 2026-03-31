@@ -41,53 +41,16 @@ RedisModuleKeyMetaClassId DocIdMeta_GetClassId() {
   return docIdKeyMetaClassId;
 }
 
-// Entry in the hashmap: maps specId to docId.
-// The specId is a unique incarnation ID for the IndexSpec, so that if an index
-// is dropped and recreated with the same name, the old entries won't collide
-// with the new index.
-// The spec is looked up via specIdDict_g (keyed by specId) rather than by name.
-typedef struct DocIdEntry {
-  uint64_t specId;      // Unique incarnation ID of the spec
-  uint64_t docId;
-} DocIdEntry;
-
 #define DOCID_META_VERSION 0
 #define KEY_OPEN_META_SET_FLAGS (REDISMODULE_READ | REDISMODULE_WRITE | REDISMODULE_OPEN_KEY_NOEFFECTS)
 #define KEY_OPEN_META_GET_FLAGS (REDISMODULE_READ | REDISMODULE_OPEN_KEY_NOEFFECTS)
 
-// DocIdMeta uses a hashmap keyed by specId
+// DocIdMeta uses a hashmap keyed by specId (uint64_t cast to void*),
+// with docId stored directly as the dict value (uint64_t cast to void*).
+// This avoids per-entry heap allocations.
 struct DocIdMeta {
   uint16_t version;  // Version of the DocIdMeta format, must be DOCID_META_VERSION
-  dict *entries;     // dict of specId -> DocIdEntry*
-};
-
-// Dict type callbacks for DocIdMeta entries
-static uint64_t docIdEntryHash(const void *key) {
-  const DocIdEntry *entry = key;
-  // Use specId directly as hash (it's already unique)
-  return entry->specId;
-}
-
-static int docIdEntryCompare(void *privdata, const void *key1, const void *key2) {
-  DICT_NOTUSED(privdata);
-  const DocIdEntry *e1 = key1;
-  const DocIdEntry *e2 = key2;
-  return e1->specId == e2->specId;  // Return 1 if equal
-}
-
-static void docIdEntryFree(void *privdata, void *val) {
-  DICT_NOTUSED(privdata);
-  DocIdEntry *entry = val;
-  rm_free(entry);
-}
-
-static dictType docIdMetaDictType = {
-  .hashFunction = docIdEntryHash,
-  .keyDup = NULL,
-  .valDup = NULL,
-  .keyCompare = docIdEntryCompare,
-  .keyDestructor = NULL,
-  .valDestructor = docIdEntryFree,
+  dict *entries;     // dict of specId (void*) -> docId (void*), using dictTypeUint64
 };
 
 static int docIdMetaCopy(RedisModuleKeyOptCtx *ctx, uint64_t *meta) {
@@ -97,6 +60,12 @@ static int docIdMetaCopy(RedisModuleKeyOptCtx *ctx, uint64_t *meta) {
   // or the new key will get reindexed in KeySpaceNotification
   return 0;
 }
+
+// Helper macros for casting between uint64_t and void* for dict keys/values.
+#define SPECID_TO_KEY(specId) ((void*)(uintptr_t)(specId))
+#define KEY_TO_SPECID(key)    ((uint64_t)(uintptr_t)(key))
+#define DOCID_TO_VAL(docId)   ((void*)(uintptr_t)(docId))
+#define VAL_TO_DOCID(val)     ((uint64_t)(uintptr_t)(val))
 
 /* Free callback - called when metadata needs to be freed */
 static void docIdMetaFree(const char *keyname, uint64_t meta) {
@@ -132,20 +101,21 @@ void docIdMetaUnlink(RedisModuleKeyOptCtx *ctx, uint64_t *meta) {
   dictIterator *iter = dictGetIterator(docIdMeta->entries);
   dictEntry *de;
   while ((de = dictNext(iter))) {
-    DocIdEntry *entry = dictGetVal(de);
-    if (entry->docId == DOCID_META_INVALID) continue;  // Already soft-deleted
+    uint64_t docId = VAL_TO_DOCID(dictGetVal(de));
+    if (docId == DOCID_META_INVALID) continue;  // Already soft-deleted
 
     // Find the IndexSpec by specId in the global dict (O(1) lookup).
-    IndexSpec *spec = findSpecBySpecId(entry->specId);
+    uint64_t specId = KEY_TO_SPECID(dictGetKey(de));
+    IndexSpec *spec = findSpecBySpecId(specId);
     if (spec) {
       // Delete the document from this index by its docId
-      IndexSpec_DeleteDocById(spec, (t_docId)entry->docId);
+      IndexSpec_DeleteDocById(spec, (t_docId)docId);
     }
     // Spec may have been dropped already, but we still invalidate the entry
     // since the key is being deleted
 
     // Invalidate the entry so it won't be used again
-    entry->docId = DOCID_META_INVALID;
+    dictSetVal(docIdMeta->entries, de, DOCID_TO_VAL(DOCID_META_INVALID));
   }
   dictReleaseIterator(iter);
 }
@@ -159,7 +129,7 @@ int docIdMetaRDBLoad(RedisModuleIO *rdb, uint64_t *meta, int encver) {
   }
 
   struct DocIdMeta *docIdMeta = rm_malloc(sizeof(struct DocIdMeta));
-  docIdMeta->entries = dictCreate(&docIdMetaDictType, NULL);
+  docIdMeta->entries = dictCreate(&dictTypeUint64, NULL);
 
   uint16_t version;
   size_t numEntries;
@@ -182,12 +152,7 @@ int docIdMetaRDBLoad(RedisModuleIO *rdb, uint64_t *meta, int encver) {
       continue;
     }
 
-    // Create entry
-    DocIdEntry *entry = rm_malloc(sizeof(DocIdEntry));
-    entry->specId = specId;
-    entry->docId = docId;
-
-    dictAdd(docIdMeta->entries, entry, entry);
+    dictAdd(docIdMeta->entries, SPECID_TO_KEY(specId), DOCID_TO_VAL(docId));
   }
 
   *meta = (uint64_t)docIdMeta;
@@ -224,9 +189,9 @@ void docIdMetaRDBSave(RedisModuleIO *rdb, void *value, uint64_t *meta) {
     dictIterator *iter = dictGetIterator(docIdMeta->entries);
     dictEntry *de;
     while ((de = dictNext(iter))) {
-      DocIdEntry *entry = dictGetVal(de);
-      if (entry->docId != DOCID_META_INVALID &&
-          findSpecBySpecId(entry->specId)) {
+      uint64_t docId = VAL_TO_DOCID(dictGetVal(de));
+      uint64_t specId = KEY_TO_SPECID(dictGetKey(de));
+      if (docId != DOCID_META_INVALID && findSpecBySpecId(specId)) {
         validEntries++;
       }
     }
@@ -246,13 +211,13 @@ void docIdMetaRDBSave(RedisModuleIO *rdb, void *value, uint64_t *meta) {
   dictIterator *iter = dictGetIterator(docIdMeta->entries);
   dictEntry *de;
   while ((de = dictNext(iter))) {
-    DocIdEntry *entry = dictGetVal(de);
-    if (entry->docId == DOCID_META_INVALID ||
-        !findSpecBySpecId(entry->specId)) {
+    uint64_t docId = VAL_TO_DOCID(dictGetVal(de));
+    uint64_t specId = KEY_TO_SPECID(dictGetKey(de));
+    if (docId == DOCID_META_INVALID || !findSpecBySpecId(specId)) {
       continue;
     }
-    RedisModule_SaveUnsigned(rdb, entry->specId);
-    RedisModule_SaveUnsigned(rdb, entry->docId);
+    RedisModule_SaveUnsigned(rdb, specId);
+    RedisModule_SaveUnsigned(rdb, docId);
   }
   dictReleaseIterator(iter);
 }
@@ -304,32 +269,6 @@ void DocIdMeta_SubscribePersistenceEvent(RedisModuleCtx *ctx) {
   RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_Persistence, DocIdMeta_PersistenceEvent);
 }
 
-// Find an existing entry in the DocIdMeta hashmap by specId.
-// Returns the entry if found, or NULL otherwise.
-static DocIdEntry *findEntry(struct DocIdMeta *docIdMeta, uint64_t specId) {
-  DocIdEntry lookupKey = {.specId = specId, .docId = 0};
-  return dictFetchValue(docIdMeta->entries, &lookupKey);
-}
-
-// Find or create an entry in the DocIdMeta hashmap by specId.
-// Single dict lookup: returns existing entry, or allocates and inserts a new one.
-static DocIdEntry *findOrCreateEntry(struct DocIdMeta *docIdMeta, uint64_t specId) {
-  DocIdEntry lookupKey = {.specId = specId, .docId = 0};
-  dictEntry *existing;
-  dictEntry *de = dictAddRaw(docIdMeta->entries, &lookupKey, &existing);
-  if (de) {
-    // New entry — allocate and set as both key and value
-    DocIdEntry *entry = rm_malloc(sizeof(DocIdEntry));
-    entry->specId = specId;
-    entry->docId = DOCID_META_INVALID;
-    dictSetKey(docIdMeta->entries, de, entry); // Reset the key to point to the allocated entry (instead of lookupKey on stack)
-    dictSetVal(docIdMeta->entries, de, entry);
-    return entry;
-  }
-  // Existing entry
-  return dictGetVal(existing);
-}
-
 // Internal function that works with RedisModuleKey
 static int DocIdMeta_SetInternal(RedisModuleKey *key, uint64_t specId,
                                   uint64_t docId) {
@@ -341,7 +280,7 @@ static int DocIdMeta_SetInternal(RedisModuleKey *key, uint64_t specId,
     // Create new DocIdMeta
     docIdMeta = rm_malloc(sizeof(struct DocIdMeta));
     docIdMeta->version = DOCID_META_VERSION;
-    docIdMeta->entries = dictCreate(&docIdMetaDictType, NULL);
+    docIdMeta->entries = dictCreate(&dictTypeUint64, NULL);
 
     int result = RedisModule_SetKeyMeta(docIdKeyMetaClassId, key, (uint64_t)docIdMeta);
     if (result != REDISMODULE_OK) {
@@ -354,10 +293,8 @@ static int DocIdMeta_SetInternal(RedisModuleKey *key, uint64_t specId,
     docIdMeta = (struct DocIdMeta *)meta;
   }
 
-  // At this point, docIdMeta is a valid, initialized pointer
-  // Find existing entry or create a new one (single dict lookup)
-  DocIdEntry *entry = findOrCreateEntry(docIdMeta, specId);
-  entry->docId = docId;
+  // Set the docId for this specId (dictReplace handles both insert and update)
+  dictReplace(docIdMeta->entries, SPECID_TO_KEY(specId), DOCID_TO_VAL(docId));
   return REDISMODULE_OK;
 }
 
@@ -372,11 +309,15 @@ static int DocIdMeta_GetInternal(RedisModuleKey *key, uint64_t specId,
   }
   struct DocIdMeta *docIdMeta = (struct DocIdMeta *)meta;
   RS_LOG_ASSERT(docIdMeta->version == DOCID_META_VERSION, "DocIdMeta: unexpected version in Get");
-  DocIdEntry *entry = findEntry(docIdMeta, specId);
-  if (!entry || entry->docId == DOCID_META_INVALID) {
+  dictEntry *de = dictFind(docIdMeta->entries, SPECID_TO_KEY(specId));
+  if (!de) {
     return REDISMODULE_ERR;
   }
-  *docId = entry->docId;
+  uint64_t storedDocId = VAL_TO_DOCID(dictGetVal(de));
+  if (storedDocId == DOCID_META_INVALID) {
+    return REDISMODULE_ERR;
+  }
+  *docId = storedDocId;
   return REDISMODULE_OK;
 }
 
@@ -390,11 +331,11 @@ static int DocIdMeta_SoftDeleteInternal(RedisModuleKey *key, uint64_t specId) {
     return REDISMODULE_ERR;
   }
   struct DocIdMeta *docIdMeta = (struct DocIdMeta *)meta;
-  DocIdEntry *entry = findEntry(docIdMeta, specId);
-  if (!entry) {
+  dictEntry *de = dictFind(docIdMeta->entries, SPECID_TO_KEY(specId));
+  if (!de) {
     return REDISMODULE_ERR;
   }
-  entry->docId = DOCID_META_INVALID;
+  dictSetVal(docIdMeta->entries, de, DOCID_TO_VAL(DOCID_META_INVALID));
   return REDISMODULE_OK;
 }
 
