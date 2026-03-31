@@ -15,4 +15,5 @@ pub mod metric;
 pub mod not;
 pub mod optional;
 pub mod union;
+pub mod union_sweep;
 pub mod wildcard;
