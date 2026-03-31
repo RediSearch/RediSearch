@@ -674,37 +674,29 @@ int HybridRequest_StartCursors(StrongRef hybrid_ref, RedisModuleCtx *replyCtx, Q
       return REDISMODULE_ERR;
     }
 
+    int rc;
     if (backgroundDepletion) {
-      int rc = RPSafeDepleter_DepleteAll(depleters, status);
-      array_free(depleters);
-      if (rc != RS_RESULT_OK) {
-        array_free_ex(req->cursors, Cursor_Free(*(Cursor**)ptr));
-        req->cursors = NULL;
-        HybridRequest_UnlockCursors(req);
-        if (rc == RS_RESULT_ERROR) {
-          // Error was already set by RPSafeDepleter_DepleteAll
-          RS_ASSERT(QueryError_HasError(status));
-        } else {
-          QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_GENERIC, "Failed to deplete set of results, rc=%d", rc);
-        }
-        return REDISMODULE_ERR;
-      }
+      rc = RPSafeDepleter_DepleteAll(depleters, status);
     } else {
       // Foreground depletion for WORKERS == 0
       // Trigger synchronous depletion to read and buffer all results while the spec lock is held.
-      int rc = RPDepleter_DepleteAll(depleters);
-      array_free(depleters);
-      if (rc != RS_RESULT_OK) {
-        array_free_ex(req->cursors, Cursor_Free(*(Cursor**)ptr));
-        req->cursors = NULL;
-        HybridRequest_UnlockCursors(req);
+      rc = RPDepleter_DepleteAll(depleters);
+    }
+
+    array_free(depleters);
+
+    if (rc != RS_RESULT_OK) {
+      array_free_ex(req->cursors, Cursor_Free(*(Cursor**)ptr));
+      req->cursors = NULL;
+      HybridRequest_UnlockCursors(req);
+      if (!QueryError_HasError(status)) {
         if (rc == RS_RESULT_TIMEDOUT) {
           QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_TIMED_OUT, "Depleting timed out");
         } else {
           QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_GENERIC, "Failed to deplete set of results, rc=%d", rc);
         }
-        return REDISMODULE_ERR;
       }
+      return REDISMODULE_ERR;
     }
 
     HybridRequest_UnlockCursors(req);

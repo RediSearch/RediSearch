@@ -1,6 +1,7 @@
 from common import *
 from dataclasses import dataclass
 from redis import Redis
+import redis
 import random
 import re
 import numpy as np
@@ -10,6 +11,10 @@ import os
 import signal
 import psutil
 import subprocess
+
+# Total number of hash slots in a Redis Cluster (CRC16(key) % 16384).
+# This is a fixed, protocol-level constant defined by the Redis Cluster specification.
+CLUSTER_SLOTS = 2**14
 
 # Random words for generating more diverse text content
 RANDOM_WORDS = [
@@ -177,7 +182,7 @@ class SlotRange:
     @staticmethod
     def from_str(s: str):
         start, end = map(int, s.split("-"))
-        assert 0 <= start <= end < 2**14
+        assert 0 <= start <= end < CLUSTER_SLOTS
         return SlotRange(start, end)
 
 @dataclass
@@ -375,7 +380,7 @@ def create_and_populate_index(env: Env, index_name: str, n_docs: int):
             text_content = f"document {i} content {' '.join(random_words)} data"
             tag_value = "even" if i % 2 == 0 else "odd"
             # force each document to a different slot
-            con.execute_command('HSET', f'doc-{i}:{{{i % 2**14}}}',
+            con.execute_command('HSET', f'doc-{i}:{{{i % CLUSTER_SLOTS}}}',
                               'n', i,
                               'text', text_content,
                               'tag', tag_value,
@@ -437,7 +442,7 @@ def wait_for_migration_complete(env, dest_shard, source_shard, timeout=200, quer
 cluster_node_timeout = 60_000 # in milliseconds (1 minute)
 
 def import_slot_range_sanity_test(env: Env, query_type: str = 'FT.SEARCH'):
-    n_docs = 5 * 2**14
+    n_docs = 5 * CLUSTER_SLOTS
     create_and_populate_index(env, 'idx', n_docs)
 
     shard1, shard2 = env.getConnection(1), env.getConnection(2)
@@ -479,7 +484,7 @@ def parallel_update_worker(env, n_docs, stop_event):
             # Update some unrelated fields that are not part of the query
             # We'll add a new field 'update_counter' and 'timestamp' that won't affect search results
             doc_id = random.randint(0, n_docs - 1)
-            key = f'doc-{doc_id}:{{{doc_id % 2**14}}}'
+            key = f'doc-{doc_id}:{{{doc_id % CLUSTER_SLOTS}}}'
 
             # Update fields that are not queried in the test
             con.execute_command('HSET', key,
@@ -497,7 +502,7 @@ def parallel_update_worker(env, n_docs, stop_event):
             time.sleep(0.1)
 
 def import_slot_range_test(env: Env, query_type: str = 'FT.SEARCH', parallel_updates: bool = False):
-    n_docs = 5 * 2**14
+    n_docs = 5 * CLUSTER_SLOTS
     create_and_populate_index(env, 'idx', n_docs)
 
     if query_type == 'FT.SEARCH':
@@ -586,9 +591,7 @@ def test_ft_aggregate_withcursor_import_slot_range_BG():
     env = Env(clusterNodeTimeout=cluster_node_timeout, moduleArgs='WORKERS 2')
     import_slot_range_test(env, 'FT.AGGREGATE.WITHCURSOR')
 
-#TODO: Enable once MOD-13110 is fixed
-#@skip(cluster=False, min_shards=2)
-@skip
+@skip(cluster=False, min_shards=2)
 def test_ft_hybrid_import_slot_range():
     env = Env(clusterNodeTimeout=cluster_node_timeout)
     import_slot_range_test(env, 'FT.HYBRID')
@@ -629,9 +632,7 @@ def test_ft_aggregate_withcursor_import_slot_range_parallel_updates_BG():
     env = Env(clusterNodeTimeout=cluster_node_timeout, moduleArgs='WORKERS 2')
     import_slot_range_test(env, 'FT.AGGREGATE.WITHCURSOR', parallel_updates=True)
 
-#TODO: Enable once MOD-13110 is fixed
-#@skip(cluster=False, min_shards=2)
-@skip
+@skip(cluster=False, min_shards=2)
 def test_ft_hybrid_import_slot_range_parallel_updates():
     env = Env(clusterNodeTimeout=cluster_node_timeout)
     import_slot_range_test(env, 'FT.HYBRID', parallel_updates=True)
@@ -683,7 +684,7 @@ def test_ft_hybrid_import_slot_range_sanity_BG():
 
 def add_shard_and_migrate_test(env: Env, query_type: str = 'FT.SEARCH'):
     initial_shards_count = env.shardsCount
-    n_docs = 5 * 2**14
+    n_docs = 5 * CLUSTER_SLOTS
     create_and_populate_index(env, 'idx', n_docs)
 
     shard1 = env.getConnection(1)
@@ -756,9 +757,7 @@ def test_add_shard_and_migrate_aggregate_withcursor_BG():
     env = Env(clusterNodeTimeout=cluster_node_timeout, moduleArgs='WORKERS 2')
     add_shard_and_migrate_test(env, 'FT.AGGREGATE.WITHCURSOR')
 
-#TODO: Enable once MOD-13110 is fixed
-#@skip(cluster=False, min_shards=2)
-@skip
+@skip(cluster=False, min_shards=2)
 def test_add_shard_and_migrate_hybrid():
     env = Env(clusterNodeTimeout=cluster_node_timeout)
     add_shard_and_migrate_test(env, 'FT.HYBRID')
@@ -796,11 +795,11 @@ def info_modules_to_dict(conn):
 def _test_ft_cursors_trimmed_profile_warning(env: Env):
     run_command_on_all_shards(env, 'CONFIG', 'SET', 'search-_max-trim-delay-ms', 2500)
 
-    n_docs = 2**14
+    n_docs = CLUSTER_SLOTS
     create_and_populate_index(env, 'idx', n_docs)
 
     shard1, shard2 = env.getConnection(1), env.getConnection(2)
-    query = ('_FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '@n:[1 999999]', 'LOAD', 1, 'n', 'WITHCURSOR', '_SLOTS_INFO', generate_slots(range(int(2**14/env.shardsCount) + 1, 2 * int(2**14/env.shardsCount) + 2)))
+    query = ('_FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '@n:[1 999999]', 'LOAD', 1, 'n', 'WITHCURSOR', '_SLOTS_INFO', generate_slots(range(int(CLUSTER_SLOTS/env.shardsCount) + 1, 2 * int(CLUSTER_SLOTS/env.shardsCount) + 2)))
     shard2.execute_command('DEBUG', 'MARK-INTERNAL-CLIENT')
     _, cursor_id = shard2.execute_command(*query)
     wait_for_migration_complete(env, shard1, shard2)
@@ -811,7 +810,7 @@ def _test_ft_cursors_trimmed_profile_warning(env: Env):
 def _test_ft_cursors_trimmed(env: Env, protocol: int):
     for shard in env.getOSSMasterNodesConnectionList():
         shard.execute_command('CONFIG', 'SET', 'search-_max-trim-delay-ms', 2500)
-    n_docs = 2**14
+    n_docs = CLUSTER_SLOTS
     create_and_populate_index(env, 'idx', n_docs)
 
     shard1, shard2 = env.getConnection(1), env.getConnection(2)
@@ -932,10 +931,10 @@ def test_migrate_no_indexes():
         shard.execute_command('CONFIG', 'SET', 'search-_min-trim-delay-ms', 1000000)
 
     # Add documents without creating any index
-    n_docs = 5 * 2**14
+    n_docs = 5 * CLUSTER_SLOTS
     with env.getClusterConnectionIfNeeded() as con:
         for i in range(n_docs):
-            con.execute_command('HSET', f'doc-{i}:{{{i % 2**14}}}',
+            con.execute_command('HSET', f'doc-{i}:{{{i % CLUSTER_SLOTS}}}',
                               'n', i,
                               'text', f'document {i} content data',
                               'tag', 'even' if i % 2 == 0 else 'odd')
@@ -981,13 +980,15 @@ def _update_docs_removing_word(shard, n_docs, slots):
     Keys that have already migrated away are silently skipped.
     """
     for i in range(n_docs):
-        slot = i % 2**14
+        slot = i % CLUSTER_SLOTS
         if slot in slots:
             try:
                 shard.execute_command('HSET', f'doc:{i}:{{{slot}}}',
                                       'description', f'basketball sneakers product {i}')
-            except Exception:
-                pass  # Key may have migrated away
+            except redis.exceptions.ResponseError as e:
+                if not (isinstance(e, (redis.exceptions.MovedError, redis.exceptions.AskError)) or
+                        str(e).startswith(('MOVED', 'ASK'))):
+                    raise
 
 
 def _write_memory_pressure_docs(shard, start, count, slots):
@@ -998,15 +999,17 @@ def _write_memory_pressure_docs(shard, start, count, slots):
     Keys whose slot is not owned by *shard* are skipped.
     """
     for i in range(start, start + count):
-        slot = i % 2**14
+        slot = i % CLUSTER_SLOTS
         if slot in slots:
             vector = np.array([float(i), float(i % 10)], dtype=np.float32)
             try:
                 shard.execute_command('HSET', f'newdoc:{i}:{{{slot}}}',
                                       'description', f'basketball sneakers product {i} ' * 10,
                                       'embedding', vector.tobytes())
-            except Exception:
-                pass
+            except redis.exceptions.ResponseError as e:
+                if not (isinstance(e, (redis.exceptions.MovedError, redis.exceptions.AskError)) or
+                        str(e).startswith(('MOVED', 'ASK'))):
+                    raise
 
 
 def _drain_cursor(shard, cursor_id, index):
@@ -1070,14 +1073,14 @@ def test_hybrid_cursor_after_add_shard_migration():
     with env.getClusterConnectionIfNeeded() as con:
         for i in range(n_docs):
             vector = np.array([float(i), float(i % 10)], dtype=np.float32)
-            con.execute_command('HSET', f'doc:{i}:{{{i % 2**14}}}',
+            con.execute_command('HSET', f'doc:{i}:{{{i % CLUSTER_SLOTS}}}',
                               'description', f'running shoes item {i}',
                               'embedding', vector.tobytes())
 
     shard1 = env.getConnection(1)
 
     # Get shard1's slot ranges for _SLOTS_INFO
-    shard1_slots, slots_data = _get_shard_slots_data(shard1)
+    _, slots_data = _get_shard_slots_data(shard1)
 
     # Step 1: Create hybrid cursor on shard1. With WORKERS=0, the iterators
     # are not consumed — the cursor is paused before reading any results.
@@ -1116,7 +1119,8 @@ def test_hybrid_cursor_after_add_shard_migration():
     # This causes the "shoes" inverted index to have 0 entries after GC, so GC
     # will free ALL its blocks — not just the ones for migrated docs.
     env.debugPrint("Updating remaining docs on shard1 to remove 'shoes' from text")
-    _update_docs_removing_word(shard1, n_docs, shard1_slots)
+    current_shard1_slots, _ = _get_shard_slots_data(shard1)
+    _update_docs_removing_word(shard1, n_docs, current_shard1_slots)
 
     # Step 4: Wait for trimming, then force GC to free the now-empty "shoes" inverted index
     env.debugPrint("Running GC to free empty 'shoes' inverted index blocks")
@@ -1132,7 +1136,7 @@ def test_hybrid_cursor_after_add_shard_migration():
     # Step 5: Write new documents with different text to force memory reuse
     # over the freed "shoes" inverted index blocks.
     env.debugPrint("Writing new documents to force memory reuse")
-    _write_memory_pressure_docs(shard1, n_docs, 500, shard1_slots)
+    _write_memory_pressure_docs(shard1, n_docs, 500, current_shard1_slots)
 
     # Step 6: Read ALL results from the cursor on shard1.
     # On unfixed code: the "shoes" inverted index has been freed, so the
