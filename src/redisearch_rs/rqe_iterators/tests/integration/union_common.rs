@@ -1083,12 +1083,11 @@ macro_rules! union_common_tests {
                 "expected Found(200) (hit #4)"
             );
 
-            let result = union.skip_to(1000).expect("skip_to failed").unwrap();
+            let result = union.skip_to(900).expect("skip_to failed").unwrap();
             assert!(
-                matches!(result, SkipToOutcome::Found(r) if r.doc_id == 1000),
-                "expected Found(1000) — all children converge"
+                matches!(result, SkipToOutcome::NotFound(r) if r.doc_id == 1000),
+                "expected NotFound(1000) — all children converge"
             );
-
             assert!(union.read().expect("read failed").is_none());
             assert!(union.at_eof());
         }
