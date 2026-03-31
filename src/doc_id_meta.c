@@ -20,9 +20,18 @@
 static RedisModuleKeyMetaClassId docIdKeyMetaClassId;
 
 // When true, RDB save/load callbacks become no-ops.
-// Set during persistence events (BGSAVE/BGREWRITEAOF) to avoid
-// saving/loading DocIdMeta data while persistence is in progress.
+// Controlled via DocIdMeta_SetPersistenceInProgress, called from notifications.c
+// during persistence events (BGSAVE/BGREWRITEAOF) to avoid saving/loading
+// DocIdMeta data while persistence is in progress.
 static bool PersistenceInProgress = false;
+
+void DocIdMeta_SetPersistenceInProgress(bool inProgress) {
+  const char *message = inProgress ?
+                          "DocIdMeta: disabling RDB callbacks during persistence" :
+                          "DocIdMeta: re-enabling RDB callbacks after persistence";
+  RedisModule_Log(RSDummyContext, "verbose", "%s", message);
+  PersistenceInProgress = inProgress;
+}
 
 // Helper macros for casting between uint64_t and void* for dict keys/values.
 #define SPECID_TO_KEY(specId) ((void*)(uintptr_t)(specId))
@@ -221,31 +230,6 @@ void DocIdMeta_Init(RedisModuleCtx *ctx) {
   RS_LOG_ASSERT_ALWAYS(docIdKeyMetaClassId >= 0, "Failed to create DocIdMeta class");
 }
 
-
-// We need to listen to the persistence event to skip the RDB loading/saving while RDB is used for replication/key transfer.
-// For now, RDB save/load is intended to serialize/deserialize in swap IN/OUT ops.
-static void DocIdMeta_PersistenceEvent(RedisModuleCtx *ctx, RedisModuleEvent eid,
-                                        uint64_t subevent, void *data) {
-  REDISMODULE_NOT_USED(eid);
-  REDISMODULE_NOT_USED(data);
-
-  switch (subevent) {
-  case REDISMODULE_SUBEVENT_PERSISTENCE_RDB_START:
-  case REDISMODULE_SUBEVENT_PERSISTENCE_SYNC_RDB_START:
-    RedisModule_Log(ctx, "notice", "DocIdMeta: Persistence started, disabling RDB save/load");
-    PersistenceInProgress = true;
-    break;
-  case REDISMODULE_SUBEVENT_PERSISTENCE_ENDED:
-  case REDISMODULE_SUBEVENT_PERSISTENCE_FAILED:
-    RedisModule_Log(ctx, "notice", "DocIdMeta: Persistence ended, re-enabling RDB save/load");
-    PersistenceInProgress = false;
-    break;
-  }
-}
-
-void DocIdMeta_SubscribePersistenceEvent(RedisModuleCtx *ctx) {
-  RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_Persistence, DocIdMeta_PersistenceEvent);
-}
 
 // Internal function that works with RedisModuleKey
 static int DocIdMeta_SetInternal(RedisModuleKey *key, uint64_t specId,

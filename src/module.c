@@ -4612,7 +4612,6 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   if (SearchDisk_IsEnabled()) {
     DocIdMeta_Init(ctx);
-    DocIdMeta_SubscribePersistenceEvent(ctx);
   }
 
   // Check if we are actually in cluster mode

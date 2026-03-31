@@ -20,6 +20,7 @@
 #include "src/coord/rmr/redis_cluster.h"
 #include "cursor.h"
 #include "search_disk.h"
+#include "doc_id_meta.h"
 
 #define JSON_LEN 5 // length of string "json."
 RedisModuleString *global_RenameFromKey = NULL;
@@ -612,6 +613,27 @@ void Initialize_KeyspaceNotifications() {
   }
 }
 
+// Persistence event handler.
+// Called on BGSAVE/AOF rewrite start and end.
+static void PersistenceEvent(RedisModuleCtx *ctx, RedisModuleEvent eid,
+                             uint64_t subevent, void *data) {
+  REDISMODULE_NOT_USED(eid);
+  REDISMODULE_NOT_USED(data);
+
+  switch (subevent) {
+  case REDISMODULE_SUBEVENT_PERSISTENCE_RDB_START:
+  case REDISMODULE_SUBEVENT_PERSISTENCE_SYNC_RDB_START:
+    RedisModule_Log(ctx, "notice", "Persistence started");
+    DocIdMeta_SetPersistenceInProgress(true);
+    break;
+  case REDISMODULE_SUBEVENT_PERSISTENCE_ENDED:
+  case REDISMODULE_SUBEVENT_PERSISTENCE_FAILED:
+    RedisModule_Log(ctx, "notice", "Persistence ended");
+    DocIdMeta_SetPersistenceInProgress(false);
+    break;
+  }
+}
+
 void Initialize_ServerEventNotifications(RedisModuleCtx *ctx) {
   // RedisModule_SubscribeToServerEvent should exist since redis 6.0
   // We can assume it is always present
@@ -645,6 +667,9 @@ void Initialize_ServerEventNotifications(RedisModuleCtx *ctx) {
   if (SearchDisk_IsEnabled()) {
     RedisModule_Log(ctx, "notice", "Subscribe to Server ready event");
     RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_ServerReady, ServerReadyEvent);
+
+    RedisModule_Log(ctx, "notice", "Subscribe to persistence events");
+    RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_Persistence, PersistenceEvent);
   }
 }
 
