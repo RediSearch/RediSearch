@@ -1898,6 +1898,7 @@ void iteratorsConfig_init(IteratorsConfig *config) {
 
 
 size_t GetDefaultWorkerThreads(void) {
+  if (IsEnterprise()) return 0;  // Keep default 0 for Redis Enterprise
   long nprocs = sysconf(_SC_NPROCESSORS_ONLN);
   size_t result;
   if (nprocs <= 0) {
