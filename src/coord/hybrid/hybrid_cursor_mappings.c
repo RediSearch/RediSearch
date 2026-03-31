@@ -260,7 +260,19 @@ bool ProcessHybridCursorMappings(const MRCommand *cmd,
     ctx->mutex = rm_malloc(sizeof(pthread_mutex_t));
     ctx->completionCond = rm_malloc(sizeof(pthread_cond_t));
     pthread_mutex_init(ctx->mutex, NULL);
+#if defined(__APPLE__) && defined(__MACH__)
+    // macOS: uses pthread_cond_timedwait_relative_np (no clock attribute needed)
     pthread_cond_init(ctx->completionCond, NULL);
+#else
+    // Linux/FreeBSD: initialize with CLOCK_MONOTONIC for use with pthread_cond_timedwait
+    // condTimedWait() computes absolute times in CLOCK_MONOTONIC, so the condvar
+    // must be configured to use the same clock.
+    pthread_condattr_t cond_attr;
+    pthread_condattr_init(&cond_attr);
+    pthread_condattr_setclock(&cond_attr, CLOCK_MONOTONIC);
+    pthread_cond_init(ctx->completionCond, &cond_attr);
+    pthread_condattr_destroy(&cond_attr);
+#endif
 
     // Setup callback context
     // shardBarrier.numShards is initialized to 0 and will be set atomically by
