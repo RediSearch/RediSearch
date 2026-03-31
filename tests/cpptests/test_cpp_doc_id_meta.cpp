@@ -93,7 +93,7 @@ protected:
   // Helper: create a Redis hash key with a dummy field/value.
   // Returns the RedisModuleString key name (caller must free).
   RedisModuleString *createHashKey(const char *name) {
-    RedisModuleString *keyName = RedisModule_CreateString(ctx, name, strlen(name));
+    RedisModuleString *keyName = RedisModule_CreateStringPrintf(ctx, "%s", name);
     RedisModuleKey *key = RedisModule_OpenKey(ctx, keyName, REDISMODULE_WRITE);
     RedisModuleString *fieldName = RedisModule_CreateString(ctx, "field", 5);
     RedisModuleString *fieldValue = RedisModule_CreateString(ctx, "value", 5);
