@@ -8,9 +8,21 @@
 */
 
 use rqe_iterators::{
-    RQEIterator, RQEValidateStatus,
+    IteratorType, RQEIterator, RQEValidateStatus,
     metric::{MetricSortedById, MetricSortedByScore},
 };
+
+#[test]
+fn type_sorted_by_id() {
+    let it = MetricSortedById::new(vec![1, 3, 5], vec![0.1, 0.3, 0.5]);
+    assert_eq!(it.type_(), IteratorType::MetricSortedById);
+}
+
+#[test]
+fn type_sorted_by_score() {
+    let it = MetricSortedByScore::new(vec![1, 3, 5], vec![0.1, 0.3, 0.5]);
+    assert_eq!(it.type_(), IteratorType::MetricSortedByScore);
+}
 
 #[test]
 #[should_panic(expected = "assertion failed: ids.len() == metric_data.len()")]

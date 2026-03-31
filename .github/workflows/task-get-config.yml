@@ -197,7 +197,7 @@ jobs:
                       'container': 'rockylinux:9',
                       'setup_script': 'dnf update -y && dnf install -y git',
                       'name': 'Rocky Linux 9 x86_64',
-                      'enable_lto': '0' #  We need a new SVS binary from Intel for this.
+                      'enable_lto': '1'
                   },
                   "aarch64": {
                       'container': 'rockylinux:9',

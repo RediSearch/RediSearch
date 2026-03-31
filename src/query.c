@@ -1819,15 +1819,23 @@ static int QueryNode_CheckIsValid(QueryNode *n, IndexSpec *spec, RSSearchOptions
         res = REDISMODULE_ERR;
       }
       break;
+    case QN_PREFIX:
+      res = validateQueryNotDisk("Prefix", status);
+      break;
+    case QN_WILDCARD_QUERY:
+      res = validateQueryNotDisk("Wildcard pattern", status);
+      break;
+    case QN_FUZZY:
+      res = validateQueryNotDisk("Fuzzy", status);
+      break;
+    case QN_LEXRANGE:
+      res = validateQueryNotDisk("Lexrange", status);
+      break;
     case QN_NOT:
     case QN_OPTIONAL:
     case QN_GEO:
-    case QN_PREFIX:
     case QN_IDS:
     case QN_WILDCARD:
-    case QN_WILDCARD_QUERY:
-    case QN_FUZZY:
-    case QN_LEXRANGE:
     case QN_GEOMETRY:
       break;
     case QN_MAX:

@@ -54,7 +54,9 @@ pub enum IteratorType {
     MetricSortedByScore = 17,
     Profile = 18,
     Optimus = 19,
-    Max = 20,
+    /// Used only in tests.
+    Mock = 20,
+    Max = 21,
 }
 
 impl IteratorType {
@@ -81,6 +83,7 @@ impl IteratorType {
             Self::MetricSortedByScore => "METRIC_SORTED_BY_SCORE",
             Self::Profile => "PROFILE",
             Self::Optimus => "OPTIMUS",
+            Self::Mock => "MOCK",
             Self::Max => "MAX",
         }
     }
@@ -117,7 +120,8 @@ impl TryFrom<u32> for IteratorType {
             17 => Ok(Self::MetricSortedByScore),
             18 => Ok(Self::Profile),
             19 => Ok(Self::Optimus),
-            20 => Ok(Self::Max),
+            20 => Ok(Self::Mock),
+            21 => Ok(Self::Max),
             other => Err(other),
         }
     }

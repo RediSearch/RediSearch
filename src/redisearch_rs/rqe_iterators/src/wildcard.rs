@@ -99,8 +99,9 @@ impl<'index> RQEIterator<'index> for Wildcard<'index> {
         Ok(RQEValidateStatus::Ok)
     }
 
-    fn is_wildcard(&self) -> bool {
-        true
+    #[inline(always)]
+    fn type_(&self) -> IteratorType {
+        IteratorType::Wildcard
     }
 }
 
@@ -175,8 +176,8 @@ impl<'index> RQEIterator<'index> for EmptyWildcard {
     }
 
     #[inline(always)]
-    fn is_wildcard(&self) -> bool {
-        true
+    fn type_(&self) -> IteratorType {
+        IteratorType::Empty
     }
 }
 
@@ -390,10 +391,9 @@ impl<'index> RQEIterator<'index> for DiskWildcardIterator<'index> {
         self.0.at_eof()
     }
 
-    fn is_wildcard(&self) -> bool {
-        // strictly speaking this is a wildcard iterator but the current reducers code from other
-        // iterators do not account for it.
-        false
+    #[inline(always)]
+    fn type_(&self) -> IteratorType {
+        self.0.type_()
     }
 }
 

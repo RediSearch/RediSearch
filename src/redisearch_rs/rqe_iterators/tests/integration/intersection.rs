@@ -11,7 +11,7 @@
 
 use ffi::t_docId;
 use rqe_iterators::{
-    RQEIterator, RQEValidateStatus, SkipToOutcome, id_list::IdListSorted,
+    IteratorType, RQEIterator, RQEValidateStatus, SkipToOutcome, id_list::IdListSorted,
     intersection::Intersection,
 };
 
@@ -52,6 +52,16 @@ fn create_children(num_children: usize, result_set: &[t_docId]) -> Vec<IdListSor
 // =============================================================================
 // C-Code: Test parameters - matching C++ INSTANTIATE_TEST_SUITE_P
 // =============================================================================
+
+#[test]
+fn type_() {
+    let children = vec![
+        IdListSorted::new(vec![1, 2, 3]),
+        IdListSorted::new(vec![2, 3, 4]),
+    ];
+    let it = Intersection::new(children, 1.0, false);
+    assert_eq!(it.type_(), IteratorType::Intersect);
+}
 
 /// Number of child iterators to test with
 const NUM_CHILDREN_CASES: &[usize] = &[2, 5, 25];
