@@ -3835,6 +3835,36 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
   return REDISMODULE_OK;
 }
 
+// Shared helper: update stats and clean up auxiliary indexes after a document deletion.
+// Caller must hold the spec write lock.
+static void indexSpec_OnDocDeleted(IndexSpec *spec, t_docId docId, uint32_t docLen) {
+  // Update the stats
+  RS_LOG_ASSERT(spec->stats.scoring.totalDocsLen >= docLen, "totalDocsLen is smaller than docLen");
+  spec->stats.scoring.totalDocsLen -= docLen;
+  RS_LOG_ASSERT(spec->stats.scoring.numDocuments > 0, "numDocuments cannot be negative");
+  spec->stats.scoring.numDocuments--;
+
+  // Increment the index's garbage collector's scanning frequency after document deletions
+  if (spec->gc) {
+    GCContext_OnDelete(spec->gc);
+  }
+
+  // VecSim fields clear deleted data on the fly
+  if (spec->flags & Index_HasVecSim) {
+    for (int i = 0; i < spec->numFields; ++i) {
+      if (spec->fields[i].types == INDEXFLD_T_VECTOR) {
+        VecSimIndex *vecsim = openVectorIndex(NULL, spec->fields + i, DONT_CREATE_INDEX);
+        if(!vecsim) continue;
+        VecSimIndex_DeleteVector(vecsim, docId);
+      }
+    }
+  }
+
+  if (spec->flags & Index_HasGeometry) {
+    GeometryIndex_RemoveId(spec, docId);
+  }
+}
+
 void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key) {
   t_docId id = 0;
   uint32_t docLen = 0;
@@ -3867,32 +3897,7 @@ void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModul
     DMD_Return(md);
   }
 
-  // Update the stats
-  RS_LOG_ASSERT(spec->stats.scoring.totalDocsLen >= docLen, "totalDocsLen is smaller than docLen");
-  spec->stats.scoring.totalDocsLen -= docLen;
-  RS_LOG_ASSERT(spec->stats.scoring.numDocuments > 0, "numDocuments cannot be negative");
-  spec->stats.scoring.numDocuments--;
-
-  // Increment the index's garbage collector's scanning frequency after document deletions
-  if (spec->gc) {
-    GCContext_OnDelete(spec->gc);
-  }
-
-  // VecSim fields clear deleted data on the fly
-  if (spec->flags & Index_HasVecSim) {
-    for (int i = 0; i < spec->numFields; ++i) {
-      if (spec->fields[i].types == INDEXFLD_T_VECTOR) {
-        // ctx is NULL because we don't create the index here
-        VecSimIndex *vecsim = openVectorIndex(NULL, spec->fields + i, DONT_CREATE_INDEX);
-        if(!vecsim) continue;
-        VecSimIndex_DeleteVector(vecsim, id);
-      }
-    }
-  }
-
-  if (spec->flags & Index_HasGeometry) {
-    GeometryIndex_RemoveId(spec, id);
-  }
+  indexSpec_OnDocDeleted(spec, id, docLen);
 }
 
 int IndexSpec_DeleteDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key) {
@@ -3923,31 +3928,7 @@ void IndexSpec_DeleteDocById(IndexSpec *spec, t_docId docId) {
     return;
   }
 
-  // Update the stats
-  RS_LOG_ASSERT(spec->stats.scoring.totalDocsLen >= docLen, "totalDocsLen is smaller than docLen");
-  spec->stats.scoring.totalDocsLen -= docLen;
-  RS_LOG_ASSERT(spec->stats.scoring.numDocuments > 0, "numDocuments cannot be negative");
-  spec->stats.scoring.numDocuments--;
-
-  // Increment the index's garbage collector's scanning frequency after document deletions
-  if (spec->gc) {
-    GCContext_OnDelete(spec->gc);
-  }
-
-  // VecSim fields clear deleted data on the fly
-  if (spec->flags & Index_HasVecSim) {
-    for (int i = 0; i < spec->numFields; ++i) {
-      if (spec->fields[i].types == INDEXFLD_T_VECTOR) {
-        VecSimIndex *vecsim = openVectorIndex(NULL, spec->fields + i, DONT_CREATE_INDEX);
-        if(!vecsim) continue;
-        VecSimIndex_DeleteVector(vecsim, docId);
-      }
-    }
-  }
-
-  if (spec->flags & Index_HasGeometry) {
-    GeometryIndex_RemoveId(spec, docId);
-  }
+  indexSpec_OnDocDeleted(spec, docId, docLen);
 
   IndexSpec_DecrActiveWrites(spec);
   pthread_rwlock_unlock(&spec->rwlock);
