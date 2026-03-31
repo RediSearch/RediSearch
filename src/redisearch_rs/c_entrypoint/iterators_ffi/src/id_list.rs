@@ -9,7 +9,6 @@
 
 use ffi::{QueryIterator, t_docId};
 use inverted_index::RSIndexResult;
-use rqe_iterator_type::IteratorType;
 use rqe_iterators::interop::RQEIteratorWrapper;
 use rqe_iterators::{id_list::IdList, utils::OwnedSlice};
 
@@ -73,12 +72,8 @@ unsafe fn new_id_list_iterator<const SORTED: bool>(
         OwnedSlice::default()
     };
 
-    RQEIteratorWrapper::boxed_new(
-        if SORTED {
-            IteratorType::IdListSorted
-        } else {
-            IteratorType::IdListUnsorted
-        },
-        IdList::<SORTED>::with_result(ids_list, RSIndexResult::build_virt().weight(weight).build()),
-    )
+    RQEIteratorWrapper::boxed_new(IdList::<SORTED>::with_result(
+        ids_list,
+        RSIndexResult::build_virt().weight(weight).build(),
+    ))
 }
