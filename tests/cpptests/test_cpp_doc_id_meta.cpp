@@ -90,6 +90,74 @@ protected:
     createdSpecs.push_back(ism);
   }
 
+  // Helper: create a Redis hash key with a dummy field/value.
+  // Returns the RedisModuleString key name (caller must free).
+  RedisModuleString *createHashKey(const char *name) {
+    RedisModuleString *keyName = RedisModule_CreateString(ctx, name, strlen(name));
+    RedisModuleKey *key = RedisModule_OpenKey(ctx, keyName, REDISMODULE_WRITE);
+    RedisModuleString *fieldName = RedisModule_CreateString(ctx, "field", 5);
+    RedisModuleString *fieldValue = RedisModule_CreateString(ctx, "value", 5);
+    RedisModule_HashSet(key, REDISMODULE_HASH_NONE, fieldName, fieldValue, NULL);
+    RedisModule_FreeString(ctx, fieldName);
+    RedisModule_FreeString(ctx, fieldValue);
+    RedisModule_CloseKey(key);
+    return keyName;
+  }
+
+  // Helper: get the raw metadata uint64 for a key.
+  uint64_t getKeyMeta(RedisModuleString *keyName) {
+    RedisModuleKey *key = RedisModule_OpenKey(ctx, keyName, REDISMODULE_READ);
+    uint64_t meta = 0;
+    EXPECT_EQ(RedisModule_GetKeyMeta(DocIdMeta_GetClassId(), key, &meta), REDISMODULE_OK);
+    EXPECT_NE(meta, 0);
+    RedisModule_CloseKey(key);
+    return meta;
+  }
+
+  // Helper: RDB save. Writes meta to rdbIO buffer.
+  void rdbSave(uint64_t meta) {
+    docIdMetaRDBSave(rdbIO, nullptr, &meta);
+    EXPECT_EQ(RMCK_IsIOError(rdbIO), 0);
+  }
+
+  // Helper: RDB load from the current rdbIO buffer. Returns the loaded metadata.
+  uint64_t rdbLoad() {
+    rdbIO->read_pos = 0;
+    uint64_t loadedMeta = 0;
+    int result = docIdMetaRDBLoad(rdbIO, &loadedMeta, 1);
+    EXPECT_EQ(result, REDISMODULE_OK);
+    EXPECT_EQ(RMCK_IsIOError(rdbIO), 0);
+    EXPECT_NE(loadedMeta, 0);
+    return loadedMeta;
+  }
+
+  // Helper: RDB save, reset, load. Returns the loaded metadata.
+  uint64_t rdbSaveAndLoad(uint64_t meta) {
+    rdbSave(meta);
+    return rdbLoad();
+  }
+
+  // Helper: create a new hash key and attach metadata to it. Returns the key name.
+  RedisModuleString *createKeyWithMeta(const char *name, uint64_t meta) {
+    RedisModuleString *keyName = createHashKey(name);
+    RedisModuleKey *key = RedisModule_OpenKey(ctx, keyName, REDISMODULE_WRITE);
+    EXPECT_EQ(RedisModule_SetKeyMeta(DocIdMeta_GetClassId(), key, meta), REDISMODULE_OK);
+    RedisModule_CloseKey(key);
+    return keyName;
+  }
+
+  // Helper: verify a docId can be retrieved for a spec on a key.
+  void verifyDocId(RedisModuleString *keyName, uint64_t specId, uint64_t expectedDocId) {
+    uint64_t retrieved;
+    EXPECT_EQ(DocIdMeta_Get(ctx, keyName, specId, &retrieved), REDISMODULE_OK);
+    EXPECT_EQ(retrieved, expectedDocId);
+  }
+
+  // Helper: verify a docId is missing for a spec on a key.
+  void verifyDocIdMissing(RedisModuleString *keyName, uint64_t specId) {
+    uint64_t retrieved;
+    EXPECT_EQ(DocIdMeta_Get(ctx, keyName, specId, &retrieved), REDISMODULE_ERR);
+  }
 
   RedisModuleCtx *ctx;
   RedisModuleString *testKeyName;
@@ -100,11 +168,6 @@ protected:
   static constexpr uint64_t SPEC1_ID = 1;
   static constexpr uint64_t SPEC2_ID = 2;
   static constexpr uint64_t SPEC3_ID = 3;
-
-  // Spec names matching the IDs (used in addTestSpec and DocIdMeta_Set)
-  static constexpr const char *SPEC1_NAME = "spec1";
-  static constexpr const char *SPEC2_NAME = "spec2";
-  static constexpr const char *SPEC3_NAME = "spec3";
 };
 
 TEST_F(DocIdMetaTest, TestSetAndGetDocId) {
@@ -193,36 +256,16 @@ TEST_F(DocIdMetaTest, TestSoftDeleteNonExistentDocId) {
 
 TEST_F(DocIdMetaTest, TestMultipleKeys) {
   // Test that different keys maintain separate docId maps
-  RedisModuleString *keyName1 = RedisModule_CreateString(ctx, "testkey1", 8);
-  RedisModuleString *keyName2 = RedisModule_CreateString(ctx, "testkey2", 8);
-  RedisModuleString *fieldName = RedisModule_CreateString(ctx, "field", 5);
-  RedisModuleString *fieldValue = RedisModule_CreateString(ctx, "value", 5);
-  // Create the keys in the database with actual values
-  RedisModuleKey *key1 = RedisModule_OpenKey(ctx, keyName1, REDISMODULE_WRITE);
-  RedisModule_HashSet(key1, REDISMODULE_HASH_NONE, fieldName, fieldValue, NULL);
-  RedisModule_CloseKey(key1);
-
-  RedisModuleKey *key2 = RedisModule_OpenKey(ctx, keyName2, REDISMODULE_WRITE);
-  RedisModule_HashSet(key2, REDISMODULE_HASH_NONE, fieldName, fieldValue, NULL);
-  RedisModule_CloseKey(key2);
-
-  RedisModule_FreeString(ctx, fieldName);
-  RedisModule_FreeString(ctx, fieldValue);
-
-  uint64_t docId1 = 111;
-  uint64_t docId2 = 222;
+  RedisModuleString *keyName1 = createHashKey("testkey1");
+  RedisModuleString *keyName2 = createHashKey("testkey2");
 
   // Set different values for the same spec on different keys
-  EXPECT_EQ(DocIdMeta_Set(ctx, keyName1, SPEC1_ID, docId1), REDISMODULE_OK);
-  EXPECT_EQ(DocIdMeta_Set(ctx, keyName2, SPEC1_ID, docId2), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, keyName1, SPEC1_ID, 111), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, keyName2, SPEC1_ID, 222), REDISMODULE_OK);
 
   // Verify they're independent
-  uint64_t retrieved;
-  EXPECT_EQ(DocIdMeta_Get(ctx, keyName1, SPEC1_ID, &retrieved), REDISMODULE_OK);
-  EXPECT_EQ(retrieved, docId1);
-
-  EXPECT_EQ(DocIdMeta_Get(ctx, keyName2, SPEC1_ID, &retrieved), REDISMODULE_OK);
-  EXPECT_EQ(retrieved, docId2);
+  verifyDocId(keyName1, SPEC1_ID, 111);
+  verifyDocId(keyName2, SPEC1_ID, 222);
 
   RedisModule_FreeString(ctx, keyName1);
   RedisModule_FreeString(ctx, keyName2);
@@ -275,58 +318,20 @@ TEST_F(DocIdMetaTest, TestBasicRdbSaveLoad) {
   addTestSpec("spec3", SPEC3_ID);
 
   // Set up some docId metadata
-  uint64_t docId1 = 12345;
-  uint64_t docId2 = 67890;
-  uint64_t docId3 = 11111;
-  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, docId1), REDISMODULE_OK);
-  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC2_ID, docId2), REDISMODULE_OK);
-  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC3_ID, docId3), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, 12345), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC2_ID, 67890), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC3_ID, 11111), REDISMODULE_OK);
 
-  // Get the metadata for RDB save
-  RedisModuleKey *testKey = RedisModule_OpenKey(ctx, testKeyName, REDISMODULE_READ);
-  uint64_t meta = 0;
-  EXPECT_EQ(RedisModule_GetKeyMeta(DocIdMeta_GetClassId(), testKey, &meta), REDISMODULE_OK);
-  EXPECT_NE(meta, 0);
-  RedisModule_CloseKey(testKey);
-
-  // Call the RDB save function through test wrapper
-  docIdMetaRDBSave(rdbIO, nullptr, &meta);
-  EXPECT_EQ(RMCK_IsIOError(rdbIO), 0);
-
-  // Reset read position
-  rdbIO->read_pos = 0;
-
-  // Call the RDB load function through test wrapper
-  uint64_t loadedMeta = 0;
-  int result = docIdMetaRDBLoad(rdbIO, &loadedMeta, 1);
-  EXPECT_EQ(result, REDISMODULE_OK);
-  EXPECT_EQ(RMCK_IsIOError(rdbIO), 0);
-  EXPECT_NE(loadedMeta, 0);
-
-  // Create a new key with actual value and set the loaded metadata
-  RedisModuleString *newKeyName = RedisModule_CreateString(ctx, "newkey", 6);
-  RedisModuleKey *newKey = RedisModule_OpenKey(ctx, newKeyName, REDISMODULE_WRITE);
-  RedisModuleString *fieldName = RedisModule_CreateString(ctx, "field", 5);
-  RedisModuleString *fieldValue = RedisModule_CreateString(ctx, "value", 5);
-  RedisModule_HashSet(newKey, REDISMODULE_HASH_NONE, fieldName, fieldValue, NULL);
-  RedisModule_FreeString(ctx, fieldName);
-  RedisModule_FreeString(ctx, fieldValue);
-  EXPECT_EQ(RedisModule_SetKeyMeta(DocIdMeta_GetClassId(), newKey, loadedMeta), REDISMODULE_OK);
-  RedisModule_CloseKey(newKey);
+  // RDB round-trip
+  uint64_t meta = getKeyMeta(testKeyName);
+  uint64_t loadedMeta = rdbSaveAndLoad(meta);
+  RedisModuleString *newKeyName = createKeyWithMeta("newkey", loadedMeta);
 
   // Verify loaded data
-  uint64_t retrieved;
-  EXPECT_EQ(DocIdMeta_Get(ctx, newKeyName, SPEC1_ID, &retrieved), REDISMODULE_OK);
-  EXPECT_EQ(retrieved, docId1);
-
-  EXPECT_EQ(DocIdMeta_Get(ctx, newKeyName, SPEC2_ID, &retrieved), REDISMODULE_OK);
-  EXPECT_EQ(retrieved, docId2);
-
-  EXPECT_EQ(DocIdMeta_Get(ctx, newKeyName, SPEC3_ID, &retrieved), REDISMODULE_OK);
-  EXPECT_EQ(retrieved, docId3);
-
-  // Verify nonexistent specs return error
-  EXPECT_EQ(DocIdMeta_Get(ctx, newKeyName, 999, &retrieved), REDISMODULE_ERR);
+  verifyDocId(newKeyName, SPEC1_ID, 12345);
+  verifyDocId(newKeyName, SPEC2_ID, 67890);
+  verifyDocId(newKeyName, SPEC3_ID, 11111);
+  verifyDocIdMissing(newKeyName, 999);
 
   RedisModule_FreeString(ctx, newKeyName);
 }
@@ -355,166 +360,57 @@ TEST_F(DocIdMetaTest, TestMultipleSpecsRdbSaveLoad) {
   // Test with multiple specs: (specId, docId)
   struct SpecEntry { uint64_t specId; uint64_t docId; };
   std::vector<SpecEntry> specs = {
-    {SPEC1_ID, 1001},
-    {SPEC2_ID, 2002},
-    {SPEC3_ID, 3003},
-    {4, 4004},
+    {SPEC1_ID, 1001}, {SPEC2_ID, 2002}, {SPEC3_ID, 3003}, {4, 4004},
   };
 
-  // Set all the docIds
   for (const auto& spec : specs) {
     EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, spec.specId, spec.docId), REDISMODULE_OK);
   }
 
-  // Get the metadata for RDB save
-  RedisModuleKey *testKey = RedisModule_OpenKey(ctx, testKeyName, REDISMODULE_READ);
-  uint64_t meta = 0;
-  EXPECT_EQ(RedisModule_GetKeyMeta(DocIdMeta_GetClassId(), testKey, &meta), REDISMODULE_OK);
-  EXPECT_NE(meta, 0);
-  RedisModule_CloseKey(testKey);
+  // RDB round-trip
+  uint64_t meta = getKeyMeta(testKeyName);
+  uint64_t loadedMeta = rdbSaveAndLoad(meta);
+  RedisModuleString *newKeyName = createKeyWithMeta("largekey", loadedMeta);
 
-  // Save to RDB
-  docIdMetaRDBSave(rdbIO, nullptr, &meta);
-  EXPECT_EQ(RMCK_IsIOError(rdbIO), 0);
-
-  // Reset read position
-  rdbIO->read_pos = 0;
-
-  // Load from RDB
-  uint64_t loadedMeta = 0;
-  int result = docIdMetaRDBLoad(rdbIO, &loadedMeta, 1);
-  EXPECT_EQ(result, REDISMODULE_OK);
-  EXPECT_EQ(RMCK_IsIOError(rdbIO), 0);
-  EXPECT_NE(loadedMeta, 0);
-
-  // Create a new key with actual value and set the loaded metadata
-  RedisModuleString *newKeyName = RedisModule_CreateString(ctx, "largekey", 8);
-  RedisModuleKey *newKey = RedisModule_OpenKey(ctx, newKeyName, REDISMODULE_WRITE);
-  RedisModuleString *fieldName = RedisModule_CreateString(ctx, "field", 5);
-  RedisModuleString *fieldValue = RedisModule_CreateString(ctx, "value", 5);
-  RedisModule_HashSet(newKey, REDISMODULE_HASH_NONE, fieldName, fieldValue, NULL);
-  RedisModule_FreeString(ctx, fieldName);
-  RedisModule_FreeString(ctx, fieldValue);
-  EXPECT_EQ(RedisModule_SetKeyMeta(DocIdMeta_GetClassId(), newKey, loadedMeta), REDISMODULE_OK);
-  RedisModule_CloseKey(newKey);
-
-  // Verify all loaded data
   for (const auto& spec : specs) {
-    uint64_t retrieved;
-    EXPECT_EQ(DocIdMeta_Get(ctx, newKeyName, spec.specId, &retrieved), REDISMODULE_OK);
-    EXPECT_EQ(retrieved, spec.docId);
+    verifyDocId(newKeyName, spec.specId, spec.docId);
   }
-
-  // Verify nonexistent specs return error
-  uint64_t retrieved;
-  EXPECT_EQ(DocIdMeta_Get(ctx, newKeyName, 999, &retrieved), REDISMODULE_ERR);
+  verifyDocIdMissing(newKeyName, 999);
 
   RedisModule_FreeString(ctx, newKeyName);
 }
 
 TEST_F(DocIdMetaTest, TestMaxValueRdbSaveLoad) {
-  // Create specs in specDict_g
   addTestSpec("spec1", SPEC1_ID);
   addTestSpec("spec2", SPEC2_ID);
 
-  // Test with maximum uint64_t values
-  uint64_t maxDocId = UINT64_MAX;
-  uint64_t minValidDocId = 1;
-  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, maxDocId), REDISMODULE_OK);
-  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC2_ID, minValidDocId), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, UINT64_MAX), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC2_ID, 1), REDISMODULE_OK);
 
-  // Get the metadata for RDB save
-  RedisModuleKey *testKey = RedisModule_OpenKey(ctx, testKeyName, REDISMODULE_READ);
-  uint64_t meta = 0;
-  EXPECT_EQ(RedisModule_GetKeyMeta(DocIdMeta_GetClassId(), testKey, &meta), REDISMODULE_OK);
-  EXPECT_NE(meta, 0);
-  RedisModule_CloseKey(testKey);
+  // RDB round-trip
+  uint64_t meta = getKeyMeta(testKeyName);
+  uint64_t loadedMeta = rdbSaveAndLoad(meta);
+  RedisModuleString *newKeyName = createKeyWithMeta("maxkey", loadedMeta);
 
-  // Save to RDB
-  docIdMetaRDBSave(rdbIO, nullptr, &meta);
-  EXPECT_EQ(RMCK_IsIOError(rdbIO), 0);
-
-  // Reset read position
-  rdbIO->read_pos = 0;
-
-  // Load from RDB
-  uint64_t loadedMeta = 0;
-  int result = docIdMetaRDBLoad(rdbIO, &loadedMeta, 1);
-  EXPECT_EQ(result, REDISMODULE_OK);
-  EXPECT_EQ(RMCK_IsIOError(rdbIO), 0);
-  EXPECT_NE(loadedMeta, 0);
-
-  // Create a new key with actual value and set the loaded metadata
-  RedisModuleString *newKeyName = RedisModule_CreateString(ctx, "maxkey", 6);
-  RedisModuleKey *newKey = RedisModule_OpenKey(ctx, newKeyName, REDISMODULE_WRITE);
-  RedisModuleString *fieldName = RedisModule_CreateString(ctx, "field", 5);
-  RedisModuleString *fieldValue = RedisModule_CreateString(ctx, "value", 5);
-  RedisModule_HashSet(newKey, REDISMODULE_HASH_NONE, fieldName, fieldValue, NULL);
-  RedisModule_FreeString(ctx, fieldName);
-  RedisModule_FreeString(ctx, fieldValue);
-  EXPECT_EQ(RedisModule_SetKeyMeta(DocIdMeta_GetClassId(), newKey, loadedMeta), REDISMODULE_OK);
-  RedisModule_CloseKey(newKey);
-
-  // Verify loaded data
-  uint64_t retrieved;
-  EXPECT_EQ(DocIdMeta_Get(ctx, newKeyName, SPEC1_ID, &retrieved), REDISMODULE_OK);
-  EXPECT_EQ(retrieved, maxDocId);
-
-  EXPECT_EQ(DocIdMeta_Get(ctx, newKeyName, SPEC2_ID, &retrieved), REDISMODULE_OK);
-  EXPECT_EQ(retrieved, minValidDocId);
+  verifyDocId(newKeyName, SPEC1_ID, UINT64_MAX);
+  verifyDocId(newKeyName, SPEC2_ID, 1);
 
   RedisModule_FreeString(ctx, newKeyName);
 }
 
 TEST_F(DocIdMetaTest, TestSingleElementRdbSaveLoad) {
-  // Create spec in specDict_g
   addTestSpec("spec1", SPEC1_ID);
 
-  // Test with just one spec
-  uint64_t singleDocId = 99999;
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, 99999), REDISMODULE_OK);
 
-  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, singleDocId), REDISMODULE_OK);
+  // RDB round-trip
+  uint64_t meta = getKeyMeta(testKeyName);
+  uint64_t loadedMeta = rdbSaveAndLoad(meta);
+  RedisModuleString *newKeyName = createKeyWithMeta("singlekey", loadedMeta);
 
-  // Get the metadata for RDB save
-  RedisModuleKey *testKey = RedisModule_OpenKey(ctx, testKeyName, REDISMODULE_READ);
-  uint64_t meta = 0;
-  EXPECT_EQ(RedisModule_GetKeyMeta(DocIdMeta_GetClassId(), testKey, &meta), REDISMODULE_OK);
-  EXPECT_NE(meta, 0);
-  RedisModule_CloseKey(testKey);
-
-  // Save to RDB
-  docIdMetaRDBSave(rdbIO, nullptr, &meta);
-  EXPECT_EQ(RMCK_IsIOError(rdbIO), 0);
-
-  // Reset read position
-  rdbIO->read_pos = 0;
-
-  // Load from RDB
-  uint64_t loadedMeta = 0;
-  int result = docIdMetaRDBLoad(rdbIO, &loadedMeta, 1);
-  EXPECT_EQ(result, REDISMODULE_OK);
-  EXPECT_EQ(RMCK_IsIOError(rdbIO), 0);
-  EXPECT_NE(loadedMeta, 0);
-
-  // Create a new key with actual value and set the loaded metadata
-  RedisModuleString *newKeyName = RedisModule_CreateString(ctx, "singlekey", 9);
-  RedisModuleKey *newKey = RedisModule_OpenKey(ctx, newKeyName, REDISMODULE_WRITE);
-  RedisModuleString *fieldName = RedisModule_CreateString(ctx, "field", 5);
-  RedisModuleString *fieldValue = RedisModule_CreateString(ctx, "value", 5);
-  RedisModule_HashSet(newKey, REDISMODULE_HASH_NONE, fieldName, fieldValue, NULL);
-  RedisModule_FreeString(ctx, fieldName);
-  RedisModule_FreeString(ctx, fieldValue);
-  EXPECT_EQ(RedisModule_SetKeyMeta(DocIdMeta_GetClassId(), newKey, loadedMeta), REDISMODULE_OK);
-  RedisModule_CloseKey(newKey);
-
-  // Verify loaded data
-  uint64_t retrieved;
-  EXPECT_EQ(DocIdMeta_Get(ctx, newKeyName, SPEC1_ID, &retrieved), REDISMODULE_OK);
-  EXPECT_EQ(retrieved, singleDocId);
-
-  // Verify other specs are not set
-  EXPECT_EQ(DocIdMeta_Get(ctx, newKeyName, SPEC2_ID, &retrieved), REDISMODULE_ERR);
-  EXPECT_EQ(DocIdMeta_Get(ctx, newKeyName, SPEC3_ID, &retrieved), REDISMODULE_ERR);
+  verifyDocId(newKeyName, SPEC1_ID, 99999);
+  verifyDocIdMissing(newKeyName, SPEC2_ID);
+  verifyDocIdMissing(newKeyName, SPEC3_ID);
 
   RedisModule_FreeString(ctx, newKeyName);
 }
@@ -525,57 +421,28 @@ TEST_F(DocIdMetaTest, TestSingleElementRdbSaveLoad) {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 TEST_F(DocIdMetaTest, TestRdbLoadSkipsRemovedSpecEntries) {
-  // Create all 3 specs in specDict_g
   addTestSpec("spec1", SPEC1_ID);
   addTestSpec("spec2", SPEC2_ID);
   addTestSpec("spec3", SPEC3_ID);
 
-  // Set up docId metadata for 3 specs on a key
   EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, 1001), REDISMODULE_OK);
   EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC2_ID, 2002), REDISMODULE_OK);
   EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC3_ID, 3003), REDISMODULE_OK);
 
-  // Get the metadata and save to RDB (all 3 specs are still live)
-  RedisModuleKey *testKey = RedisModule_OpenKey(ctx, testKeyName, REDISMODULE_READ);
-  uint64_t meta = 0;
-  EXPECT_EQ(RedisModule_GetKeyMeta(DocIdMeta_GetClassId(), testKey, &meta), REDISMODULE_OK);
-  EXPECT_NE(meta, 0);
-  RedisModule_CloseKey(testKey);
+  // Save to RDB while all 3 specs are live
+  rdbSave(getKeyMeta(testKeyName));
 
-  docIdMetaRDBSave(rdbIO, nullptr, &meta);
-  EXPECT_EQ(RMCK_IsIOError(rdbIO), 0);
-
-  // Now remove SPEC2 from specDict_g (simulates index drop)
+  // Remove SPEC2 from specDict_g (simulates index drop)
   freeSpec(createdSpecs[1]);
   createdSpecs.erase(createdSpecs.begin() + 1);
 
-  // Load from RDB — SPEC2_ID entry should be skipped since it's not in specDict_g
-  rdbIO->read_pos = 0;
-  uint64_t loadedMeta = 0;
-  int result = docIdMetaRDBLoad(rdbIO, &loadedMeta, 1);
-  EXPECT_EQ(result, REDISMODULE_OK);
-  EXPECT_NE(loadedMeta, 0);
+  // Load from RDB — SPEC2_ID entry should be skipped
+  uint64_t loadedMeta = rdbLoad();
+  RedisModuleString *newKeyName = createKeyWithMeta("stalekey", loadedMeta);
 
-  // Create a new key and attach the loaded metadata
-  RedisModuleString *newKeyName = RedisModule_CreateString(ctx, "stalekey", 8);
-  RedisModuleKey *newKey = RedisModule_OpenKey(ctx, newKeyName, REDISMODULE_WRITE);
-  RedisModuleString *fieldName = RedisModule_CreateString(ctx, "field", 5);
-  RedisModuleString *fieldValue = RedisModule_CreateString(ctx, "value", 5);
-  RedisModule_HashSet(newKey, REDISMODULE_HASH_NONE, fieldName, fieldValue, NULL);
-  RedisModule_FreeString(ctx, fieldName);
-  RedisModule_FreeString(ctx, fieldValue);
-  EXPECT_EQ(RedisModule_SetKeyMeta(DocIdMeta_GetClassId(), newKey, loadedMeta), REDISMODULE_OK);
-  RedisModule_CloseKey(newKey);
-
-  // SPEC1 and SPEC3 should be present, SPEC2 should be gone
-  uint64_t retrieved;
-  EXPECT_EQ(DocIdMeta_Get(ctx, newKeyName, SPEC1_ID, &retrieved), REDISMODULE_OK);
-  EXPECT_EQ(retrieved, 1001);
-
-  EXPECT_EQ(DocIdMeta_Get(ctx, newKeyName, SPEC2_ID, &retrieved), REDISMODULE_ERR);
-
-  EXPECT_EQ(DocIdMeta_Get(ctx, newKeyName, SPEC3_ID, &retrieved), REDISMODULE_OK);
-  EXPECT_EQ(retrieved, 3003);
+  verifyDocId(newKeyName, SPEC1_ID, 1001);
+  verifyDocIdMissing(newKeyName, SPEC2_ID);
+  verifyDocId(newKeyName, SPEC3_ID, 3003);
 
   RedisModule_FreeString(ctx, newKeyName);
 }
@@ -585,127 +452,50 @@ TEST_F(DocIdMetaTest, TestRdbSaveSkipsRemovedSpecEntries) {
   addTestSpec("spec1", SPEC1_ID);
   addTestSpec("spec3", SPEC3_ID);
 
-  // Set up docId metadata for 3 specs on a key
   EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, 1001), REDISMODULE_OK);
   EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC2_ID, 2002), REDISMODULE_OK);
   EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC3_ID, 3003), REDISMODULE_OK);
 
-  // Get the metadata and save to RDB — should skip SPEC2_ID (not in specIdDict_g)
-  RedisModuleKey *testKey = RedisModule_OpenKey(ctx, testKeyName, REDISMODULE_READ);
-  uint64_t meta = 0;
-  EXPECT_EQ(RedisModule_GetKeyMeta(DocIdMeta_GetClassId(), testKey, &meta), REDISMODULE_OK);
-  EXPECT_NE(meta, 0);
-  RedisModule_CloseKey(testKey);
+  // RDB round-trip — should skip SPEC2_ID (not in specIdDict_g)
+  uint64_t loadedMeta = rdbSaveAndLoad(getKeyMeta(testKeyName));
+  RedisModuleString *newKeyName = createKeyWithMeta("savekey", loadedMeta);
 
-  docIdMetaRDBSave(rdbIO, nullptr, &meta);
-  EXPECT_EQ(RMCK_IsIOError(rdbIO), 0);
-
-  // Load from RDB — should only have SPEC1 and SPEC3
-  rdbIO->read_pos = 0;
-  uint64_t loadedMeta = 0;
-  int result = docIdMetaRDBLoad(rdbIO, &loadedMeta, 1);
-  EXPECT_EQ(result, REDISMODULE_OK);
-  EXPECT_NE(loadedMeta, 0);
-
-  // Create a new key and attach the loaded metadata
-  RedisModuleString *newKeyName = RedisModule_CreateString(ctx, "savekey", 7);
-  RedisModuleKey *newKey = RedisModule_OpenKey(ctx, newKeyName, REDISMODULE_WRITE);
-  RedisModuleString *fieldName = RedisModule_CreateString(ctx, "field", 5);
-  RedisModuleString *fieldValue = RedisModule_CreateString(ctx, "value", 5);
-  RedisModule_HashSet(newKey, REDISMODULE_HASH_NONE, fieldName, fieldValue, NULL);
-  RedisModule_FreeString(ctx, fieldName);
-  RedisModule_FreeString(ctx, fieldValue);
-  EXPECT_EQ(RedisModule_SetKeyMeta(DocIdMeta_GetClassId(), newKey, loadedMeta), REDISMODULE_OK);
-  RedisModule_CloseKey(newKey);
-
-  // SPEC1 and SPEC3 should be present, SPEC2 should be gone
-  uint64_t retrieved;
-  EXPECT_EQ(DocIdMeta_Get(ctx, newKeyName, SPEC1_ID, &retrieved), REDISMODULE_OK);
-  EXPECT_EQ(retrieved, 1001);
-
-  EXPECT_EQ(DocIdMeta_Get(ctx, newKeyName, SPEC2_ID, &retrieved), REDISMODULE_ERR);
-
-  EXPECT_EQ(DocIdMeta_Get(ctx, newKeyName, SPEC3_ID, &retrieved), REDISMODULE_OK);
-  EXPECT_EQ(retrieved, 3003);
+  verifyDocId(newKeyName, SPEC1_ID, 1001);
+  verifyDocIdMissing(newKeyName, SPEC2_ID);
+  verifyDocId(newKeyName, SPEC3_ID, 3003);
 
   RedisModule_FreeString(ctx, newKeyName);
 }
 
 TEST_F(DocIdMetaTest, TestRdbSaveAllRemoved_SavesNothing) {
   // No specs in specIdDict_g — all entries are considered stale
-
-  // Set up docId metadata for a single spec
   EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, 1001), REDISMODULE_OK);
 
-  // Get the metadata and save to RDB — all entries are stale, should save nothing
-  RedisModuleKey *testKey = RedisModule_OpenKey(ctx, testKeyName, REDISMODULE_READ);
-  uint64_t meta = 0;
-  EXPECT_EQ(RedisModule_GetKeyMeta(DocIdMeta_GetClassId(), testKey, &meta), REDISMODULE_OK);
-  EXPECT_NE(meta, 0);
-  RedisModule_CloseKey(testKey);
-
-  docIdMetaRDBSave(rdbIO, nullptr, &meta);
-  EXPECT_EQ(RMCK_IsIOError(rdbIO), 0);
-
-  // The RDB buffer should have nothing to load (save returned early after
-  // finding 0 valid entries). Since nothing was written, we can't call
-  // docIdMetaRDBLoad — just verify no crash.
+  // Save to RDB — all entries are stale, should save nothing
+  rdbSave(getKeyMeta(testKeyName));
+  // Nothing was written, so we can't call rdbLoad — just verify no crash.
 }
 
 TEST_F(DocIdMetaTest, TestRdbSaveSkipsSoftDeletedEntries) {
-  // Create all 3 specs in specDict_g
   addTestSpec("spec1", SPEC1_ID);
   addTestSpec("spec2", SPEC2_ID);
   addTestSpec("spec3", SPEC3_ID);
 
-  // Set up docId metadata for 3 specs
   EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, 1001), REDISMODULE_OK);
   EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC2_ID, 2002), REDISMODULE_OK);
   EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC3_ID, 3003), REDISMODULE_OK);
 
-  // Soft-delete SPEC2's entry (invalidates docId but keeps entry in hashmap)
+  // Soft-delete SPEC2's entry
   EXPECT_EQ(DocIdMeta_SoftDelete(ctx, testKeyName, SPEC2_ID), REDISMODULE_OK);
+  verifyDocIdMissing(testKeyName, SPEC2_ID);
 
-  // Verify SPEC2 is no longer retrievable
-  uint64_t retrieved;
-  EXPECT_EQ(DocIdMeta_Get(ctx, testKeyName, SPEC2_ID, &retrieved), REDISMODULE_ERR);
+  // RDB round-trip — should skip SPEC2 (soft-deleted)
+  uint64_t loadedMeta = rdbSaveAndLoad(getKeyMeta(testKeyName));
+  RedisModuleString *newKeyName = createKeyWithMeta("softdelkey", loadedMeta);
 
-  // Get the metadata and save to RDB — should skip SPEC2 (soft-deleted)
-  RedisModuleKey *testKey = RedisModule_OpenKey(ctx, testKeyName, REDISMODULE_READ);
-  uint64_t meta = 0;
-  EXPECT_EQ(RedisModule_GetKeyMeta(DocIdMeta_GetClassId(), testKey, &meta), REDISMODULE_OK);
-  EXPECT_NE(meta, 0);
-  RedisModule_CloseKey(testKey);
-
-  docIdMetaRDBSave(rdbIO, nullptr, &meta);
-  EXPECT_EQ(RMCK_IsIOError(rdbIO), 0);
-
-  // Load from RDB — should only have SPEC1 and SPEC3
-  rdbIO->read_pos = 0;
-  uint64_t loadedMeta = 0;
-  int result = docIdMetaRDBLoad(rdbIO, &loadedMeta, 1);
-  EXPECT_EQ(result, REDISMODULE_OK);
-  EXPECT_NE(loadedMeta, 0);
-
-  // Create a new key and attach the loaded metadata
-  RedisModuleString *newKeyName = RedisModule_CreateString(ctx, "softdelkey", 10);
-  RedisModuleKey *newKey = RedisModule_OpenKey(ctx, newKeyName, REDISMODULE_WRITE);
-  RedisModuleString *fieldName = RedisModule_CreateString(ctx, "field", 5);
-  RedisModuleString *fieldValue = RedisModule_CreateString(ctx, "value", 5);
-  RedisModule_HashSet(newKey, REDISMODULE_HASH_NONE, fieldName, fieldValue, NULL);
-  RedisModule_FreeString(ctx, fieldName);
-  RedisModule_FreeString(ctx, fieldValue);
-  EXPECT_EQ(RedisModule_SetKeyMeta(DocIdMeta_GetClassId(), newKey, loadedMeta), REDISMODULE_OK);
-  RedisModule_CloseKey(newKey);
-
-  // SPEC1 and SPEC3 should be present, SPEC2 should be gone (was soft-deleted)
-  EXPECT_EQ(DocIdMeta_Get(ctx, newKeyName, SPEC1_ID, &retrieved), REDISMODULE_OK);
-  EXPECT_EQ(retrieved, 1001);
-
-  EXPECT_EQ(DocIdMeta_Get(ctx, newKeyName, SPEC2_ID, &retrieved), REDISMODULE_ERR);
-
-  EXPECT_EQ(DocIdMeta_Get(ctx, newKeyName, SPEC3_ID, &retrieved), REDISMODULE_OK);
-  EXPECT_EQ(retrieved, 3003);
+  verifyDocId(newKeyName, SPEC1_ID, 1001);
+  verifyDocIdMissing(newKeyName, SPEC2_ID);
+  verifyDocId(newKeyName, SPEC3_ID, 3003);
 
   RedisModule_FreeString(ctx, newKeyName);
 }
@@ -730,62 +520,36 @@ TEST_F(DocIdMetaTest, TestUnlinkWithEmptyMeta) {
 TEST_F(DocIdMetaTest, TestUnlinkInvalidatesEntries) {
   // Don't add specs to specIdDict_g - this tests entry invalidation without triggering
   // IndexSpec_DeleteDocById (which requires disk-based indexes)
-
-  // Set up docId metadata for 2 specs
   EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, 1001), REDISMODULE_OK);
   EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC2_ID, 2002), REDISMODULE_OK);
 
-  // Verify entries exist
-  uint64_t retrieved;
-  EXPECT_EQ(DocIdMeta_Get(ctx, testKeyName, SPEC1_ID, &retrieved), REDISMODULE_OK);
-  EXPECT_EQ(retrieved, 1001);
-  EXPECT_EQ(DocIdMeta_Get(ctx, testKeyName, SPEC2_ID, &retrieved), REDISMODULE_OK);
-  EXPECT_EQ(retrieved, 2002);
-
-  // Get the metadata pointer
-  RedisModuleKey *testKey = RedisModule_OpenKey(ctx, testKeyName, REDISMODULE_READ);
-  uint64_t meta = 0;
-  EXPECT_EQ(RedisModule_GetKeyMeta(DocIdMeta_GetClassId(), testKey, &meta), REDISMODULE_OK);
-  EXPECT_NE(meta, 0);
-  RedisModule_CloseKey(testKey);
+  verifyDocId(testKeyName, SPEC1_ID, 1001);
+  verifyDocId(testKeyName, SPEC2_ID, 2002);
 
   // Call unlink - specs don't exist in specIdDict_g, so IndexSpec_DeleteDocById is skipped
   // but entries should still be invalidated
+  uint64_t meta = getKeyMeta(testKeyName);
   docIdMetaUnlink(nullptr, &meta);
 
-  // Verify entries are now invalid (Get should return ERR)
-  EXPECT_EQ(DocIdMeta_Get(ctx, testKeyName, SPEC1_ID, &retrieved), REDISMODULE_ERR);
-  EXPECT_EQ(DocIdMeta_Get(ctx, testKeyName, SPEC2_ID, &retrieved), REDISMODULE_ERR);
+  verifyDocIdMissing(testKeyName, SPEC1_ID);
+  verifyDocIdMissing(testKeyName, SPEC2_ID);
 }
 
 TEST_F(DocIdMetaTest, TestUnlinkSkipsSoftDeletedEntries) {
   // Don't add specs to specIdDict_g
-
-  // Set up docId metadata for 2 specs
   EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, 1001), REDISMODULE_OK);
   EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC2_ID, 2002), REDISMODULE_OK);
 
   // Soft-delete SPEC1's entry
   EXPECT_EQ(DocIdMeta_SoftDelete(ctx, testKeyName, SPEC1_ID), REDISMODULE_OK);
-
-  // Verify SPEC1 is already invalid, SPEC2 still valid
-  uint64_t retrieved;
-  EXPECT_EQ(DocIdMeta_Get(ctx, testKeyName, SPEC1_ID, &retrieved), REDISMODULE_ERR);
-  EXPECT_EQ(DocIdMeta_Get(ctx, testKeyName, SPEC2_ID, &retrieved), REDISMODULE_OK);
-  EXPECT_EQ(retrieved, 2002);
-
-  // Get the metadata pointer
-  RedisModuleKey *testKey = RedisModule_OpenKey(ctx, testKeyName, REDISMODULE_READ);
-  uint64_t meta = 0;
-  EXPECT_EQ(RedisModule_GetKeyMeta(DocIdMeta_GetClassId(), testKey, &meta), REDISMODULE_OK);
-  EXPECT_NE(meta, 0);
-  RedisModule_CloseKey(testKey);
+  verifyDocIdMissing(testKeyName, SPEC1_ID);
+  verifyDocId(testKeyName, SPEC2_ID, 2002);
 
   // Call unlink - should skip SPEC1 (already soft-deleted) and process SPEC2
-  // The test verifies unlink doesn't crash when encountering soft-deleted entries
+  uint64_t meta = getKeyMeta(testKeyName);
   docIdMetaUnlink(nullptr, &meta);
 
   // Both entries should now be invalid
-  EXPECT_EQ(DocIdMeta_Get(ctx, testKeyName, SPEC1_ID, &retrieved), REDISMODULE_ERR);
-  EXPECT_EQ(DocIdMeta_Get(ctx, testKeyName, SPEC2_ID, &retrieved), REDISMODULE_ERR);
+  verifyDocIdMissing(testKeyName, SPEC1_ID);
+  verifyDocIdMissing(testKeyName, SPEC2_ID);
 }
