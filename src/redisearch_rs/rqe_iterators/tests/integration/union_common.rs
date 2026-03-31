@@ -1049,6 +1049,50 @@ macro_rules! union_common_tests {
             assert!(union.at_eof());
         }
 
+        #[test]
+        #[cfg_attr(miri, ignore)] // Calls RSYieldableMetric_Concat FFI in push_borrowed
+        fn quick_exit_early_match_in_skip_to() {
+            let (children, _data) = create_mock_3([1, 30, 200, 1000], [2, 10, 300, 1000], [3, 20, 100, 1000]);
+            let mut union = $UnionQuick::new(children);
+
+            let result = union
+                .read()
+                .expect("read failed")
+                .expect("should have result");
+            assert_eq!(result.doc_id, 1);
+
+            let result = union.skip_to(10).expect("skip_to failed").unwrap();
+            assert!(
+                matches!(result, SkipToOutcome::Found(r) if r.doc_id == 10),
+                "expected Found(10) (hit #1)"
+            );
+            let result = union.skip_to(20).expect("skip_to failed").unwrap();
+            assert!(
+                matches!(result, SkipToOutcome::Found(r) if r.doc_id == 20),
+                "expected Found(20) (hit #2)"
+            );
+            let result = union.skip_to(100).expect("skip_to failed").unwrap();
+            assert!(
+                matches!(result, SkipToOutcome::Found(r) if r.doc_id == 100),
+                "expected Found(100) (hit #3)"
+            );
+
+            let result = union.skip_to(200).expect("skip_to failed").unwrap();
+            assert!(
+                matches!(result, SkipToOutcome::Found(r) if r.doc_id == 200),
+                "expected Found(200) (hit #4)"
+            );
+
+            let result = union.skip_to(1000).expect("skip_to failed").unwrap();
+            assert!(
+                matches!(result, SkipToOutcome::Found(r) if r.doc_id == 1000),
+                "expected Found(1000) — all children converge"
+            );
+
+            assert!(union.read().expect("read failed").is_none());
+            assert!(union.at_eof());
+        }
+
         // =============================================================================
         // Current tests
         // =============================================================================
