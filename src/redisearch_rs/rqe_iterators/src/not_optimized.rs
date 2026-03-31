@@ -110,10 +110,11 @@ where
         Ok(true)
     }
 
-    /// Check whether the child iterator does **not** contain a document
-    /// with the given `doc_id`.
+    /// Check whether the child iterator is positionally past `doc_id`
+    /// (already advanced beyond it) or fully exhausted, meaning `doc_id`
+    /// cannot be in the child without performing additional reads.
     #[inline(always)]
-    fn child_does_not_have(&self, doc_id: t_docId) -> bool {
+    fn child_is_ahead_or_depleted(&self, doc_id: t_docId) -> bool {
         doc_id < self.child.last_doc_id()
             || (self.child.at_eof() && doc_id > self.child.last_doc_id())
     }
@@ -140,7 +141,7 @@ where
         loop {
             let wcii_last = self.wcii.last_doc_id();
 
-            if self.child_does_not_have(wcii_last) {
+            if self.child_is_ahead_or_depleted(wcii_last) {
                 // Case 1: The wildcard document is not in the child.
                 self.result.doc_id = wcii_last;
                 return Ok(true);
@@ -203,7 +204,7 @@ where
 
         let wcii_last = self.wcii.last_doc_id();
 
-        if self.child_does_not_have(wcii_last) {
+        if self.child_is_ahead_or_depleted(wcii_last) {
             // Case 1: Wildcard document is not in the child.
             self.result.doc_id = wcii_last;
         } else if wcii_last == self.child.last_doc_id() {
