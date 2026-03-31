@@ -46,7 +46,7 @@ pub struct NotOptimized<'index, W, I> {
     child: MaybeEmpty<I>,
     /// The maximum document ID (used as upper bound guard).
     max_doc_id: t_docId,
-    /// Sticky EOF flag, set on timeout or when iteration completes.
+    /// Sticky EOF flag, set when iteration completes.
     forced_eof: bool,
     /// A reusable result object to avoid allocations on each [`read`](RQEIterator::read) call.
     result: RSIndexResult<'index>,
@@ -86,17 +86,14 @@ where
         }
     }
 
-    /// Wrapper around [`TimeoutContext::check_timeout`] that sets `forced_eof`
-    /// on timeout.
+    /// Wrapper around [`TimeoutContext::check_timeout`].
     #[inline(always)]
     fn check_timeout(&mut self) -> Result<(), RQEIteratorError> {
-        let Some(result) = self.timeout_ctx.as_mut().map(|ctx| ctx.check_timeout()) else {
-            return Ok(());
-        };
-        if matches!(result, Err(RQEIteratorError::TimedOut)) {
-            self.forced_eof = true;
+        if let Some(ctx) = self.timeout_ctx.as_mut() {
+            ctx.check_timeout()
+        } else {
+            Ok(())
         }
-        result
     }
 
     /// Advance the wildcard iterator and set [`forced_eof`](Self::forced_eof)
