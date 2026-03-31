@@ -33,16 +33,12 @@ use crate::{RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
 /// - `QUICK_EXIT`: If `true`, returns immediately after finding any matching child.
 ///   If `false`, aggregates results from all children with the minimum doc_id.
 pub struct UnionHeap<'index, I, const QUICK_EXIT: bool> {
-    /// Child iterators.
     children: Vec<I>,
-    /// Sum of all children's estimated counts (upper bound).
     num_estimated: usize,
-    /// Whether the iterator has reached EOF (all children exhausted).
     is_eof: bool,
-    /// Aggregate result combining children's results, reused to avoid allocations.
+    /// Reused across calls to avoid allocations.
     result: RSIndexResult<'index>,
-    /// Custom min-heap of (doc_id, child_index) for O(log n) min-finding.
-    /// Provides efficient `replace_root` and `for_each_root` operations.
+    /// Min-heap of `(doc_id, child_index)`.
     heap: DocIdMinHeap,
 }
 
@@ -88,36 +84,26 @@ where
     }
 
     /// Advances children at the heap root whose `last_doc_id` equals `current_id`.
-    /// Uses O(k log n) heap operations where k = number of matching children.
-    ///
-    /// Uses `replace_root` for O(log n) in-place replacement instead of pop+push.
     fn advance_matching_children(&mut self, current_id: t_docId) -> Result<(), RQEIteratorError> {
-        // Process all entries at the root with the current minimum doc_id
         while let Some((doc_id, idx)) = self.heap.peek() {
             if doc_id != current_id {
                 break;
             }
 
-            // Advance this child
             let child = &mut self.children[idx];
-            // Read returns Some if there's a new document, None if EOF
             if child.read()?.is_some() {
-                // Use replace_root for O(log n) in-place replacement
                 self.heap.replace_root(child.last_doc_id(), idx);
             } else {
-                // Child is EOF - pop it from heap
                 self.heap.pop();
             }
         }
         Ok(())
     }
 
-    /// Builds the result from children at the heap root whose `last_doc_id` equals `min_id`.
+    /// Aggregates results from all children whose `last_doc_id` equals `min_id`.
     ///
-    /// Uses DFS traversal over the heap structure, exploiting the heap property
-    /// to prune subtrees: if a node's doc_id > min_id, all its descendants also
-    /// have doc_id >= that value, so the entire subtree can be skipped. This is
-    /// critical for the disjoint case where only 1 of N children matches.
+    /// Uses DFS over the heap array, pruning subtrees where `doc_id > min_id`
+    /// (heap property guarantees all descendants are also `>= doc_id`).
     fn build_aggregate_result(&mut self, min_id: t_docId) {
         self.result.doc_id = min_id;
 
@@ -125,8 +111,7 @@ where
             agg.reset();
         }
 
-        // Inline heap traversal to avoid borrow conflicts with closure-based API.
-        // We access heap.data() directly so we can also access children and result.
+        // Access heap.data() directly to avoid borrow conflicts with children and result.
         let heap_data = self.heap.data();
         if heap_data.is_empty() {
             return;
@@ -134,7 +119,6 @@ where
 
         let root_doc_id = heap_data[0].0;
 
-        // Use fixed-size stack for DFS traversal (64 levels supports 2^64 elements)
         let mut stack = [0usize; 64];
         let mut stack_len = 1;
         stack[0] = 0;
@@ -149,11 +133,9 @@ where
 
             let (doc_id, child_idx) = heap_data[heap_idx];
             if doc_id != root_doc_id {
-                // Heap property: children have >= doc_id, skip subtree
                 continue;
             }
 
-            // Push result directly from child
             if let Some(child_result) = self.children[child_idx].current() {
                 let child_ptr: *const RSIndexResult<'index> = child_result;
                 // SAFETY: We need a raw pointer to decouple the borrow of the child's
@@ -165,7 +147,6 @@ where
                 self.result.push_borrowed(child_ref);
             }
 
-            // Push heap children onto stack (right first so left is processed first)
             let left_heap_idx = 2 * heap_idx + 1;
             let right_heap_idx = 2 * heap_idx + 2;
 
@@ -184,13 +165,10 @@ where
     fn initialize_children(&mut self) -> Result<(), RQEIteratorError> {
         for (idx, child) in self.children.iter_mut().enumerate() {
             if child.last_doc_id() == 0 && !child.at_eof() {
-                // Read returns Some if successful
                 if child.read()?.is_some() {
-                    // Add to heap - child has a valid document position
                     self.heap.push(child.last_doc_id(), idx);
                 }
             } else if child.last_doc_id() > 0 {
-                // Child was already initialized (e.g., after rewind scenario)
                 self.heap.push(child.last_doc_id(), idx);
             }
         }
@@ -199,12 +177,8 @@ where
 
     /// Advances all lagging children in the heap to at least `doc_id`.
     ///
-    /// While the heap root is behind `doc_id`, pops it, skips the corresponding
-    /// child, and either re-inserts at the new position or removes it on EOF.
-    ///
-    /// In `QUICK_EXIT` mode, returns `Some(child_idx)` as soon as a child lands
-    /// exactly on `doc_id`, leaving remaining lagging children for the next call.
-    /// In full mode, always advances all lagging children and returns `None`.
+    /// In `QUICK_EXIT` mode, returns `Some(child_idx)` on an exact match,
+    /// leaving remaining lagging children for the next call.
     fn advance_lagging_children(
         &mut self,
         doc_id: t_docId,
@@ -233,14 +207,10 @@ where
         Ok(None)
     }
 
-    /// Ensures all children are positioned at or beyond `doc_id`.
+    /// Ensures all children are at or beyond `doc_id`.
     ///
-    /// On the first call (heap empty), initialises the heap by skipping every
-    /// child to the target.  On subsequent calls, delegates to
-    /// [`Self::advance_lagging_children`].
-    ///
-    /// Returns `Some(child_idx)` if `QUICK_EXIT` mode found an exact match
-    /// during advancement (see [`Self::advance_lagging_children`]).
+    /// On the first call (heap empty), initializes the heap by skipping every
+    /// child to the target. Otherwise delegates to [`Self::advance_lagging_children`].
     fn advance_to(&mut self, doc_id: t_docId) -> Result<Option<usize>, RQEIteratorError> {
         if self.heap.is_empty() && self.last_doc_id() == 0 {
             for (idx, child) in self.children.iter_mut().enumerate() {
@@ -345,8 +315,7 @@ where
 
         let early_match = self.advance_to(doc_id)?;
 
-        // In quick mode, advance_lagging_children may have already found an exact
-        // match — use it directly without peeking the heap again.
+        // Early match found during advancement — skip the heap peek.
         if QUICK_EXIT && let Some(child_idx) = early_match {
             self.quick_set_from_child(child_idx);
             return Ok(Some(SkipToOutcome::Found(&mut self.result)));
@@ -377,7 +346,6 @@ where
             agg.reset();
         }
         self.children.iter_mut().for_each(|c| c.rewind());
-        // Clear heap - it will be rebuilt on next read
         self.heap.clear();
     }
 
@@ -397,7 +365,6 @@ where
     }
 
     fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        // Already at EOF - nothing to do
         if self.is_eof {
             return Ok(RQEValidateStatus::Ok);
         }
@@ -405,16 +372,13 @@ where
         let original_last_doc_id = self.last_doc_id();
         let mut any_change = false;
 
-        // Revalidate ALL children and remove aborted ones via swap_remove.
-        // We use index-based iteration because we need to remove elements while iterating.
+        // Index-based iteration: swap_remove may reorder elements.
         let mut i = 0;
         while i < self.children.len() {
             match self.children[i].revalidate()? {
                 RQEValidateStatus::Aborted => {
-                    // Remove aborted child using swap_remove for O(1) removal.
                     self.children.swap_remove(i);
                     any_change = true;
-                    // Don't increment i - the swapped element needs to be checked
                 }
                 RQEValidateStatus::Moved { .. } => {
                     any_change = true;
@@ -426,18 +390,15 @@ where
             }
         }
 
-        // If all children aborted, we abort too (union of nothing is nothing)
         if self.children.is_empty() {
             self.is_eof = true;
             return Ok(RQEValidateStatus::Aborted);
         }
 
-        // Early return if nothing changed
         if !any_change {
             return Ok(RQEValidateStatus::Ok);
         }
 
-        // Rebuild the heap since children may have moved arbitrarily
         self.rebuild_heap();
 
         if self.heap.is_empty() {
