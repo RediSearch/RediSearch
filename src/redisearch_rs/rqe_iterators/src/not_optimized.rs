@@ -204,38 +204,23 @@ where
 
         let wcii_last = self.wcii.last_doc_id();
 
-        if self.child_is_ahead_or_depleted(wcii_last) {
-            // Case 1: Wildcard document is not in the child.
-            self.result.doc_id = wcii_last;
-        } else if wcii_last == self.child.last_doc_id() {
-            // Case 2: Both at same position. The target (or closest doc)
-            // is in child, so find the next valid result.
+        // If child is behind wcii, advance it to catch up.
+        if !self.child.at_eof() && self.child.last_doc_id() < wcii_last {
+            self.child.skip_to(wcii_last)?;
+        }
+
+        // If child landed at the same position, the document is in the
+        // child. Advance to find the next valid NOT result.
+        if self.child.last_doc_id() == wcii_last {
             if self.read_inner()? {
                 return Ok(Some(SkipToOutcome::NotFound(&mut self.result)));
             } else {
                 return Ok(None);
             }
-        } else {
-            // Case 3: Wildcard is ahead of child.
-            // Check if child also has the document at wcii's position.
-            let child_outcome = self.child.skip_to(wcii_last)?;
-            match child_outcome {
-                Some(SkipToOutcome::Found(_)) => {
-                    // Child has this document, find next valid result.
-                    if self.read_inner()? {
-                        return Ok(Some(SkipToOutcome::NotFound(&mut self.result)));
-                    } else {
-                        return Ok(None);
-                    }
-                }
-                None | Some(SkipToOutcome::NotFound(_)) => {
-                    // Child doesn't have this document, it's a valid result.
-                    self.result.doc_id = wcii_last;
-                }
-            }
         }
 
-        // Determine Found vs NotFound based on whether we're at the exact target.
+        // Child is ahead or depleted: wcii_last is a valid result.
+        self.result.doc_id = wcii_last;
         if self.result.doc_id == doc_id {
             Ok(Some(SkipToOutcome::Found(&mut self.result)))
         } else {
