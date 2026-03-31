@@ -109,11 +109,13 @@ static inline int cmp_strings(const char *s1, const char *s2, size_t l1, size_t 
   }
 }
 
+void RSValue_ClearInner(RSValue *v);
+
 static inline int cmp_numbers(const RSValue *v1, const RSValue *v2) {
   return v1->_numval > v2->_numval ? 1 : (v1->_numval < v2->_numval ? -1 : 0);
 }
 
-// Trio getters (needed by RSValue_Clear)
+// Trio getters (needed by RSValue_ClearInner)
 RSValue *RSValue_Trio_GetLeft(const RSValue *v) {
   RS_ASSERT(v && v->_t == RSValueType_Trio);
   return v->_trioval.vals[0];
@@ -143,7 +145,8 @@ RSValue *RSValue_DereferenceRefAndTrio(const RSValue *v) {
 
 void RSValue_MakeReference(RSValue *dst, RSValue *src) {
   RS_LOG_ASSERT(src, "RSvalue is missing");
-  RSValue_Clear(dst);
+  RS_LOG_ASSERT_ALWAYS(__atomic_load_n(&dst->_refcount, __ATOMIC_ACQUIRE) == 1, "RSValue_MakeReference called on dst with refcount != 1");
+  RSValue_ClearInner(dst);
   dst->_t = RSValueType_Reference;
   dst->_ref = RSValue_IncrRef(src);
 }
@@ -165,16 +168,19 @@ void RSValue_Replace(RSValue **destpp, RSValue *src) {
 
 void RSValue_SetNull(RSValue *v) {
   RS_ASSERT(v);
-  RSValue_Clear(v);
+  RS_LOG_ASSERT_ALWAYS(__atomic_load_n(&v->_refcount, __ATOMIC_ACQUIRE) == 1, "RSValue_SetNull called with refcount != 1");
+  RSValue_ClearInner(v);
   v->_t = RSValueType_Null;
 }
 
 inline void RSValue_SetNumber(RSValue *v, double n) {
+  RS_LOG_ASSERT_ALWAYS(__atomic_load_n(&v->_refcount, __ATOMIC_ACQUIRE) == 1, "RSValue_SetNumber called with refcount != 1");
   v->_t = RSValueType_Number;
   v->_numval = n;
 }
 
 inline void RSValue_SetString(RSValue *v, char *str, uint32_t len) {
+  RS_LOG_ASSERT_ALWAYS(__atomic_load_n(&v->_refcount, __ATOMIC_ACQUIRE) == 1, "RSValue_SetString called with refcount != 1");
   v->_t = RSValueType_String;
   v->_strval.len = len;
   v->_strval.str = str;
@@ -183,6 +189,7 @@ inline void RSValue_SetString(RSValue *v, char *str, uint32_t len) {
 
 
 inline void RSValue_SetConstString(RSValue *v, const char *str, uint32_t len) {
+  RS_LOG_ASSERT_ALWAYS(__atomic_load_n(&v->_refcount, __ATOMIC_ACQUIRE) == 1, "RSValue_SetConstString called with refcount != 1");
   v->_t = RSValueType_String;
   v->_strval.len = len;
   v->_strval.str = (char *)str;
@@ -419,8 +426,13 @@ void RSValue_MapBuilderSetEntry(RSValueMapBuilder *map, size_t i, RSValue *key, 
   map->entries[i].value = value;
 }
 
-// Reference getters/setters
 void RSValue_Clear(RSValue *v) {
+    RS_LOG_ASSERT_ALWAYS(__atomic_load_n(&v->_refcount, __ATOMIC_ACQUIRE) == 1, "RSValue_Clear called with refcount != 1");
+    RSValue_ClearInner(v);
+}
+
+// Reference getters/setters
+void RSValue_ClearInner(RSValue *v) {
   switch (v->_t) {
     case RSValueType_String:
       // free strings by allocation strategy
@@ -475,8 +487,9 @@ RSValue* RSValue_IncrRef(RSValue* v) {
 }
 
 void RSValue_DecrRef(RSValue* v) {
-  if (__atomic_sub_fetch(&(v)->_refcount, 1, __ATOMIC_RELAXED) == 0) {
-    RSValue_Clear(v);
+  if (__atomic_sub_fetch(&(v)->_refcount, 1, __ATOMIC_RELEASE) == 0) {
+    __atomic_thread_fence(__ATOMIC_ACQUIRE);
+    RSValue_ClearInner(v);
     if (v->_allocated) {
       mempool_release(getPool(), v);
     }
@@ -700,7 +713,10 @@ int RSValue_Cmp(const RSValue *v1, const RSValue *v2, QueryError *qerr) {
   // if, however, error handling is not available, fallback to string comparison
   do {
     if (v1->_t == RSValueType_Number) {
-      RSValue v2n;
+      RSValue v2n = (RSValue){
+          ._refcount = 1,
+          ._allocated = 0,
+      };
       if (!convert_to_number(v2, &v2n, qerr)) {
         // if it is possible to indicate an error, return
         if (qerr) return 0;
@@ -709,7 +725,10 @@ int RSValue_Cmp(const RSValue *v1, const RSValue *v2, QueryError *qerr) {
       }
       return cmp_numbers(v1, &v2n);
     } else if (v2->_t == RSValueType_Number) {
-      RSValue v1n;
+      RSValue v1n = (RSValue){
+          ._refcount = 1,
+          ._allocated = 0,
+      };
       if (!convert_to_number(v1, &v1n, qerr)) {
         // if it is possible to indicate an error, return
         if (qerr) return 0;
@@ -743,7 +762,10 @@ bool RSValue_Equal(const RSValue *v1, const RSValue *v2, QueryError *qerr) {
   }
 
   // if either of the arguments is a number, convert the other one to a number
-  RSValue vn;
+  RSValue vn = (RSValue){
+      ._refcount = 1,
+      ._allocated = 0,
+  };
   if (v1->_t == RSValueType_Number) {
     if (!convert_to_number(v2, &vn, NULL)) return false;
     return cmp_numbers(v1, &vn) == 0;
