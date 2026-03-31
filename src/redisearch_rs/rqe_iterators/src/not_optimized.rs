@@ -187,8 +187,7 @@ where
         }
 
         // Skip wcii to docId.
-        let wcii_outcome = self.wcii.skip_to(doc_id)?;
-        if wcii_outcome.is_none() {
+        if self.wcii.skip_to(doc_id)?.is_none() {
             self.forced_eof = true;
             return Ok(None);
         }
