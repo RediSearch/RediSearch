@@ -4174,6 +4174,7 @@ void Indexes_ReplaceMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStri
   const char *from_str = RedisModule_StringPtrLen(from_key, &from_len);
   const char *to_str = RedisModule_StringPtrLen(to_key, &to_len);
 
+  // Handle specs that match the old key (whether they match the new key or not)
   for (size_t i = 0; i < array_len(from_specs->specsOps); ++i) {
     SpecOpCtx *specOp = from_specs->specsOps + i;
     IndexSpec *spec = specOp->spec;
@@ -4183,8 +4184,11 @@ void Indexes_ReplaceMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStri
     }
     dictEntry *entry = dictFind(to_specs->specs, spec->specName);
     if (entry) {
+      // The document should be indexed by the new key as well, so we need to update the key name in the index.
       RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, spec);
       RedisSearchCtx_LockSpecWrite(&sctx);
+
+      // Perform the rename
       if (SearchDisk_IsEnabled()) {
         uint64_t docId;
         // After RENAME, the metadata lives on to_key (rename callback keeps it).
@@ -4195,11 +4199,13 @@ void Indexes_ReplaceMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStri
       } else {
         DocTable_Replace(&spec->docs, from_str, from_len, to_str, to_len);
       }
+
       RedisSearchCtx_UnlockSpec(&sctx);
       size_t index = entry->v.u64;
       dictDelete(to_specs->specs, spec->specName);
       array_del_fast(to_specs->specsOps, index);
     } else {
+      // The document should not be indexed by the new key, so we need to delete the old document from the index.
       if (SearchDisk_IsEnabled()) {
         // After RENAME, from_key no longer exists. The metadata is on to_key.
         // Look up the docId from to_key's metadata and delete by id.
@@ -4215,7 +4221,7 @@ void Indexes_ReplaceMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStri
     }
   }
 
-  // add to a different index
+  // Handle specs that didn't match the old key but match the new key
   for (size_t i = 0; i < array_len(to_specs->specsOps); ++i) {
     SpecOpCtx *specOp = to_specs->specsOps + i;
     if (specOp->op == SpecOp_Del) {

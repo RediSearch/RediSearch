@@ -170,7 +170,7 @@ dictType dictTypeHeapRedisStrings = {
 
 // Hash function for uint64_t keys stored directly as void* (cast).
 // Identity hash — sufficient for sequential integer keys.
-uint64_t uint64HashFunction(const void *key) {
+static uint64_t uint64HashFunction(const void *key) {
   return (uint64_t)(uintptr_t)key;
 }
 

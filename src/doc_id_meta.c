@@ -243,6 +243,7 @@ static int DocIdMeta_SetInternal(RedisModuleKey *key, uint64_t specId,
 
     int result = RedisModule_SetKeyMeta(docIdKeyMetaClassId, key, (uint64_t)d);
     if (result != REDISMODULE_OK) {
+      RedisModule_Log(RSDummyContext, "warning", "DocIdMeta: failed to set metadata for key during DocIdMeta_SetInternal");
       dictRelease(d);
       return result;
     }
