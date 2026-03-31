@@ -201,7 +201,14 @@ where
     ///
     /// While the heap root is behind `doc_id`, pops it, skips the corresponding
     /// child, and either re-inserts at the new position or removes it on EOF.
-    fn skip_lagging_children(&mut self, doc_id: t_docId) -> Result<(), RQEIteratorError> {
+    ///
+    /// In `QUICK_EXIT` mode, returns `Some(child_idx)` as soon as a child lands
+    /// exactly on `doc_id`, leaving remaining lagging children for the next call.
+    /// In full mode, always advances all lagging children and returns `None`.
+    fn advance_lagging_children(
+        &mut self,
+        doc_id: t_docId,
+    ) -> Result<Option<usize>, RQEIteratorError> {
         while let Some((child_doc_id, idx)) = self.heap.peek() {
             if child_doc_id >= doc_id {
                 break;
@@ -209,7 +216,13 @@ where
 
             let child = &mut self.children[idx];
             match child.skip_to(doc_id)? {
-                Some(SkipToOutcome::Found(r) | SkipToOutcome::NotFound(r)) => {
+                Some(SkipToOutcome::Found(r)) => {
+                    self.heap.replace_root(r.doc_id, idx);
+                    if QUICK_EXIT {
+                        return Ok(Some(idx));
+                    }
+                }
+                Some(SkipToOutcome::NotFound(r)) => {
                     self.heap.replace_root(r.doc_id, idx);
                 }
                 None => {
@@ -217,15 +230,18 @@ where
                 }
             }
         }
-        Ok(())
+        Ok(None)
     }
 
     /// Ensures all children are positioned at or beyond `doc_id`.
     ///
     /// On the first call (heap empty), initialises the heap by skipping every
     /// child to the target.  On subsequent calls, delegates to
-    /// [`Self::skip_lagging_children`].
-    fn ensure_children_at_target(&mut self, doc_id: t_docId) -> Result<(), RQEIteratorError> {
+    /// [`Self::advance_lagging_children`].
+    ///
+    /// Returns `Some(child_idx)` if `QUICK_EXIT` mode found an exact match
+    /// during advancement (see [`Self::advance_lagging_children`]).
+    fn advance_to(&mut self, doc_id: t_docId) -> Result<Option<usize>, RQEIteratorError> {
         if self.heap.is_empty() && self.last_doc_id() == 0 {
             for (idx, child) in self.children.iter_mut().enumerate() {
                 if child.at_eof() {
@@ -238,10 +254,10 @@ where
                     None => {}
                 }
             }
+            Ok(None)
         } else {
-            self.skip_lagging_children(doc_id)?;
+            self.advance_lagging_children(doc_id)
         }
-        Ok(())
     }
 
     /// Full mode read — advances matching children and finds minimum.
@@ -327,7 +343,14 @@ where
 
         debug_assert!(self.last_doc_id() < doc_id);
 
-        self.ensure_children_at_target(doc_id)?;
+        let early_match = self.advance_to(doc_id)?;
+
+        // In quick mode, advance_lagging_children may have already found an exact
+        // match — use it directly without peeking the heap again.
+        if QUICK_EXIT && let Some(child_idx) = early_match {
+            self.quick_set_from_child(child_idx);
+            return Ok(Some(SkipToOutcome::Found(&mut self.result)));
+        }
 
         let Some((min_id, min_idx)) = self.heap.peek() else {
             self.is_eof = true;
