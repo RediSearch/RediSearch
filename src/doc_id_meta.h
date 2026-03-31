@@ -10,7 +10,6 @@
 
 #include <stdbool.h>
 #include "redismodule.h"
-#include "obfuscation/hidden.h"
 
 #ifdef __cplusplus
 extern "C" {

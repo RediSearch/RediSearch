@@ -1293,6 +1293,8 @@ static int applyGlobalFilters(RSSearchOptions *opts, QueryAST *ast, const RedisS
       filterOpts.docIds = rm_malloc(sizeof(t_docId) * opts->ninkeys);
       for (size_t ii = 0; ii < opts->ninkeys; ++ii) {
         uint64_t docId = 0;
+        // TODO: inkeys are extracted from RedisModuleString* in the command arguments, we should consider
+        // changing the search options to also use RedisModuleString* to avoid this extra conversion
         RedisModuleString* keyName = RedisModule_CreateString(
             sctx->redisCtx, opts->inkeys[ii], sdslen(opts->inkeys[ii]));
         if (DocIdMeta_Get(sctx->redisCtx, keyName, sctx->spec->specId, &docId) == REDISMODULE_OK) {

@@ -322,6 +322,7 @@ static DocIdEntry *findOrCreateEntry(struct DocIdMeta *docIdMeta, uint64_t specI
     DocIdEntry *entry = rm_malloc(sizeof(DocIdEntry));
     entry->specId = specId;
     entry->docId = DOCID_META_INVALID;
+    dictSetKey(docIdMeta->entries, de, entry); // Reset the key to point to the allocated entry (instead of lookupKey on stack)
     dictSetVal(docIdMeta->entries, de, entry);
     return entry;
   }
