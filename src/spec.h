@@ -125,7 +125,9 @@ struct IndexesScanner;
 #define MAX_DIALECT_VERSION 4 // MAX_DIALECT_VERSION may not exceed MIN_DIALECT_VERSION + 7.
 
 extern dict *specDict_g;
+extern dict *specIdDict_g;  // Maps specId (uint64_t) → RefManager* (same as specDict_g values)
 #define dictGetRef(he) ((StrongRef){dictGetVal(he)})
+#define dictFetchRef(dict, key) ((StrongRef){dictFetchValue((dict), (key))})
 
 // Accessors for the global monotonically increasing spec ID counter.
 uint64_t GetNextSpecId();

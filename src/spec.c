@@ -59,6 +59,7 @@ const char *(*IndexAlias_GetUserTableName)(RedisModuleCtx *, const char *) = NUL
 RedisModuleType *IndexSpecType;
 
 dict *specDict_g = NULL;
+dict *specIdDict_g = NULL;
 IndexesScanner *global_spec_scanner = NULL;
 size_t pending_global_indexing_ops = 0;
 dict *legacySpecDict;
@@ -578,9 +579,16 @@ IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, in
     return NULL;
   }
 
-  // Add the spec to the global spec dictionary
+  // Add the spec to the global spec dictionaries (by name and by specId)
   if (dictAdd(specDict_g, name, spec_ref.rm) != DICT_OK) {
     RedisModule_Log(ctx, "warning", "Failed adding index to global dictionary");
+    StrongRef_Release(spec_ref);
+    RS_ABORT("dictAdd shouldn't fail here - index shouldn't exists in the dictionary");
+    return NULL;
+  }
+  if(dictAdd(specIdDict_g, (void*)(uintptr_t)sp->specId, spec_ref.rm) != DICT_OK) {
+    dictDelete(specDict_g, name);
+    RedisModule_Log(ctx, "warning", "Failed adding index to global spec ID dictionary");
     StrongRef_Release(spec_ref);
     RS_ABORT("dictAdd shouldn't fail here - index shouldn't exists in the dictionary");
     return NULL;
@@ -1928,6 +1936,7 @@ void IndexSpec_AddTerm(IndexSpec *sp, const char *term, size_t len) {
 void Spec_AddToDict(RefManager *rm) {
   IndexSpec* spec = ((IndexSpec*)__RefManager_Get_Object(rm));
   dictAdd(specDict_g, (void*)spec->specName, (void *)rm);
+  dictAdd(specIdDict_g, (void*)(uintptr_t)spec->specId, (void *)rm);
 }
 
 static void IndexSpecCache_Free(IndexSpecCache *c) {
@@ -2130,8 +2139,9 @@ void IndexSpec_Free(IndexSpec *spec) {
 // This function consumes the Strong reference it gets
 void IndexSpec_RemoveFromGlobals(StrongRef spec_ref, bool removeActive) {
   IndexSpec *spec = StrongRef_Get(spec_ref);
-  // Remove spec from global index list
+  // Remove spec from global index lists (by name and by specId)
   dictDelete(specDict_g, (void*)spec->specName);
+  dictDelete(specIdDict_g, (void*)(uintptr_t)spec->specId);
 
   if (!spec->isDuplicate) {
     // Remove spec from global aliases list
@@ -3237,8 +3247,9 @@ void Indexes_UpgradeLegacyIndexes() {
     // Init the index error
     sp->stats.indexError = IndexError_Init();
 
-    // put the new index in the specDict_g with weak and strong references
+    // put the new index in the global spec dictionaries (by name and by specId)
     dictAdd(specDict_g, (void*)sp->specName, spec_ref.rm);
+    dictAdd(specIdDict_g, (void*)(uintptr_t)sp->specId, spec_ref.rm);
   }
   dictReleaseIterator(iter);
 }
@@ -3486,6 +3497,7 @@ static int IndexSpec_StoreAfterRdbLoad(IndexSpec *sp) {
   } else {
     IndexSpec_StartGC(spec_ref, sp, sp->diskSpec ? GCPolicy_Disk : GCPolicy_Fork);
     dictAdd(specDict_g, (void*)sp->specName, spec_ref.rm);
+    dictAdd(specIdDict_g, (void*)(uintptr_t)sp->specId, spec_ref.rm);
 
     for (int i = 0; i < sp->numFields; i++) {
       FieldsGlobalStats_UpdateStats(sp->fields + i, 1);
@@ -3983,6 +3995,9 @@ static void onFlush(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent
 void Indexes_Init(RedisModuleCtx *ctx) {
   if (!specDict_g) {
     specDict_g = dictCreate(&dictTypeHeapHiddenStrings, NULL);
+  }
+  if (!specIdDict_g) {
+    specIdDict_g = dictCreate(&dictTypeUint64, NULL);
   }
   RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_FlushDB, onFlush);
   SchemaPrefixes_Create();

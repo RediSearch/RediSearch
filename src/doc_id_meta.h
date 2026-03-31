@@ -25,12 +25,10 @@ void DocIdMeta_Init(RedisModuleCtx *ctx);
  * @param keyName The key name to set the docId for
  * @param specId The unique incarnation ID of the index spec
  * @param docId The docId to set
- * @param specName The index spec name (stored for O(1) lookup in specDict_g)
  * @return REDISMODULE_OK if the docId was set, REDISMODULE_ERR otherwise
 */
 int DocIdMeta_Set(RedisModuleCtx *ctx, RedisModuleString *keyName,
-                  uint64_t specId, uint64_t docId,
-                  const HiddenString *specName);
+                  uint64_t specId, uint64_t docId);
 
 /*
  * Get the docId for the given key and index spec.

@@ -168,6 +168,23 @@ dictType dictTypeHeapRedisStrings = {
   .valDestructor = NULL,
 };
 
+// Hash function for uint64_t keys stored directly as void* (cast).
+// Identity hash — sufficient for sequential integer keys.
+uint64_t uint64HashFunction(const void *key) {
+  return (uint64_t)(uintptr_t)key;
+}
+
+// Dict type for uint64_t keys stored as void* (no dup/free needed).
+// Keys are compared by pointer equality (default when keyCompare is NULL).
+dictType dictTypeUint64 = {
+  .hashFunction = uint64HashFunction,
+  .keyDup = NULL,
+  .valDup = NULL,
+  .keyCompare = NULL,
+  .keyDestructor = NULL,
+  .valDestructor = NULL,
+};
+
 /* Using dictEnableResize() / dictDisableResize() we make possible to
  * enable/disable resizing of the hash table as needed. This is very important
  * for Redis, as we use copy-on-write and don't want to move too much memory

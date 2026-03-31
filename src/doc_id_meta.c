@@ -28,19 +28,13 @@ static bool PersistenceInProgress = false;
 // SpecId lookup in global spec dictionary
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-// Find an IndexSpec in specDict_g by spec name + specId.
-// Uses O(1) dict lookup by name, then verifies the specId matches
-// (guards against index drop + recreate with the same name).
-// Returns the IndexSpec pointer if found and specId matches, or NULL otherwise.
-static IndexSpec *findSpecByNameAndId(const char *name, size_t nameLen, uint64_t specId) {
-  if (!specDict_g) return NULL;
-  HiddenString *hidden = NewHiddenString(name, nameLen, false);
-  RefManager *rm = dictFetchValue(specDict_g, hidden);
-  HiddenString_Free(hidden, false);
-  if (!rm) return NULL;
-  IndexSpec *spec = StrongRef_Get((StrongRef){rm});
-  if (spec && spec->specId == specId) return spec;
-  return NULL;
+// Find an IndexSpec in specIdDict_g by specId.
+// Uses O(1) dict lookup by specId (unique incarnation ID).
+// Returns the IndexSpec pointer if found, or NULL otherwise.
+static IndexSpec *findSpecBySpecId(uint64_t specId) {
+  if (!specIdDict_g) return NULL;
+  StrongRef global_ref = dictFetchRef(specIdDict_g, (void*)(uintptr_t)specId);
+  return StrongRef_Get(global_ref);
 }
 
 RedisModuleKeyMetaClassId DocIdMeta_GetClassId() {
@@ -51,12 +45,10 @@ RedisModuleKeyMetaClassId DocIdMeta_GetClassId() {
 // The specId is a unique incarnation ID for the IndexSpec, so that if an index
 // is dropped and recreated with the same name, the old entries won't collide
 // with the new index.
-// The specName is stored to allow O(1) lookup in specDict_g (which is keyed by name).
+// The spec is looked up via specIdDict_g (keyed by specId) rather than by name.
 typedef struct DocIdEntry {
   uint64_t specId;      // Unique incarnation ID of the spec
   uint64_t docId;
-  char *specName;       // Owned copy of the spec name (for O(1) lookup in specDict_g)
-  size_t specNameLen;
 } DocIdEntry;
 
 #define DOCID_META_VERSION 0
@@ -86,7 +78,6 @@ static int docIdEntryCompare(void *privdata, const void *key1, const void *key2)
 static void docIdEntryFree(void *privdata, void *val) {
   DICT_NOTUSED(privdata);
   DocIdEntry *entry = val;
-  rm_free(entry->specName);
   rm_free(entry);
 }
 
@@ -144,8 +135,8 @@ void docIdMetaUnlink(RedisModuleKeyOptCtx *ctx, uint64_t *meta) {
     DocIdEntry *entry = dictGetVal(de);
     if (entry->docId == DOCID_META_INVALID) continue;  // Already soft-deleted
 
-    // Find the IndexSpec by name + specId in the global dict (O(1) lookup).
-    IndexSpec *spec = findSpecByNameAndId(entry->specName, entry->specNameLen, entry->specId);
+    // Find the IndexSpec by specId in the global dict (O(1) lookup).
+    IndexSpec *spec = findSpecBySpecId(entry->specId);
     if (spec) {
       // Delete the document from this index by its docId
       IndexSpec_DeleteDocById(spec, (t_docId)entry->docId);
@@ -172,7 +163,6 @@ int docIdMetaRDBLoad(RedisModuleIO *rdb, uint64_t *meta, int encver) {
 
   uint16_t version;
   size_t numEntries;
-  char *specName = NULL;
 
   // Load and validate the version
   version = LoadUnsigned_IOError(rdb, goto cleanup);
@@ -182,17 +172,13 @@ int docIdMetaRDBLoad(RedisModuleIO *rdb, uint64_t *meta, int encver) {
   // Load the number of entries
   numEntries = LoadUnsigned_IOError(rdb, goto cleanup);
 
-  // Load each entry (specName + specId + docId), skipping entries whose spec no longer exists.
+  // Load each entry (specId + docId), skipping entries whose spec no longer exists.
   for (size_t i = 0; i < numEntries; i++) {
-    size_t specNameLen = 0;
-    specName = LoadStringBuffer_IOError(rdb, &specNameLen, goto cleanup);
     uint64_t specId = LoadUnsigned_IOError(rdb, goto cleanup);
     uint64_t docId = LoadUnsigned_IOError(rdb, goto cleanup);
 
-    // Skip entries belonging to indexes that are no longer in specDict_g (O(1) lookup).
-    if (!findSpecByNameAndId(specName, specNameLen, specId)) {
-      RedisModule_Free(specName);
-      specName = NULL;
+    // Skip entries belonging to indexes that are no longer in specIdDict_g (O(1) lookup).
+    if (!findSpecBySpecId(specId)) {
       continue;
     }
 
@@ -200,11 +186,6 @@ int docIdMetaRDBLoad(RedisModuleIO *rdb, uint64_t *meta, int encver) {
     DocIdEntry *entry = rm_malloc(sizeof(DocIdEntry));
     entry->specId = specId;
     entry->docId = docId;
-    // Take ownership of the name string (convert from RedisModule_Alloc to rm_alloc)
-    entry->specNameLen = specNameLen;
-    entry->specName = rm_strndup(specName, specNameLen);
-    RedisModule_Free(specName);
-    specName = NULL;
 
     dictAdd(docIdMeta->entries, entry, entry);
   }
@@ -213,10 +194,6 @@ int docIdMetaRDBLoad(RedisModuleIO *rdb, uint64_t *meta, int encver) {
   return REDISMODULE_OK;
 
 cleanup:
-  // Free specName if it was allocated before the IO error
-  if (specName) {
-    RedisModule_Free(specName);
-  }
   if (docIdMeta) {
     if (docIdMeta->entries) {
       dictRelease(docIdMeta->entries);
@@ -249,7 +226,7 @@ void docIdMetaRDBSave(RedisModuleIO *rdb, void *value, uint64_t *meta) {
     while ((de = dictNext(iter))) {
       DocIdEntry *entry = dictGetVal(de);
       if (entry->docId != DOCID_META_INVALID &&
-          findSpecByNameAndId(entry->specName, entry->specNameLen, entry->specId)) {
+          findSpecBySpecId(entry->specId)) {
         validEntries++;
       }
     }
@@ -271,10 +248,9 @@ void docIdMetaRDBSave(RedisModuleIO *rdb, void *value, uint64_t *meta) {
   while ((de = dictNext(iter))) {
     DocIdEntry *entry = dictGetVal(de);
     if (entry->docId == DOCID_META_INVALID ||
-        !findSpecByNameAndId(entry->specName, entry->specNameLen, entry->specId)) {
+        !findSpecBySpecId(entry->specId)) {
       continue;
     }
-    RedisModule_SaveStringBuffer(rdb, entry->specName, entry->specNameLen);
     RedisModule_SaveUnsigned(rdb, entry->specId);
     RedisModule_SaveUnsigned(rdb, entry->docId);
   }
@@ -332,35 +308,23 @@ void DocIdMeta_SubscribePersistenceEvent(RedisModuleCtx *ctx) {
 // Returns the entry if found, or NULL otherwise.
 static DocIdEntry *findEntry(struct DocIdMeta *docIdMeta, uint64_t specId) {
   // Create a temporary entry for lookup
-  DocIdEntry lookupKey = {.specId = specId, .docId = 0, .specName = NULL, .specNameLen = 0};
-  dictEntry *de = dictFind(docIdMeta->entries, &lookupKey);
-  if (de) {
-    return dictGetVal(de);
-  }
-  return NULL;
+  DocIdEntry lookupKey = {.specId = specId, .docId = 0};
+  return dictFetchValue(docIdMeta->entries, &lookupKey);
 }
 
 // Create a new entry in the DocIdMeta hashmap.
-// specName must be valid (an owned copy is made).
 // Returns the newly created entry.
-static DocIdEntry *createEntry(struct DocIdMeta *docIdMeta,
-                               uint64_t specId,
-                               const HiddenString *specName) {
-  size_t specNameLen;
-  const char *name = HiddenString_GetUnsafe(specName, &specNameLen);
+static DocIdEntry *createEntry(struct DocIdMeta *docIdMeta, uint64_t specId) {
   DocIdEntry *entry = rm_malloc(sizeof(DocIdEntry));
   entry->specId = specId;
   entry->docId = DOCID_META_INVALID;
-  entry->specName = rm_strndup(name, specNameLen);
-  entry->specNameLen = specNameLen;
   dictAdd(docIdMeta->entries, entry, entry);
   return entry;
 }
 
 // Internal function that works with RedisModuleKey
 static int DocIdMeta_SetInternal(RedisModuleKey *key, uint64_t specId,
-                                  uint64_t docId,
-                                  const HiddenString *specName) {
+                                  uint64_t docId) {
   RS_ASSERT(docId != DOCID_META_INVALID);
   uint64_t meta = 0;
   struct DocIdMeta *docIdMeta = NULL;
@@ -386,7 +350,7 @@ static int DocIdMeta_SetInternal(RedisModuleKey *key, uint64_t specId,
   // Try to find existing entry first, otherwise create a new one
   DocIdEntry *entry = findEntry(docIdMeta, specId);
   if (!entry) {
-    entry = createEntry(docIdMeta, specId, specName);
+    entry = createEntry(docIdMeta, specId);
   }
   entry->docId = docId;
   return REDISMODULE_OK;
@@ -430,15 +394,13 @@ static int DocIdMeta_SoftDeleteInternal(RedisModuleKey *key, uint64_t specId) {
 }
 
 // Set docId using key name and spec incarnation ID.
-// specName identifies the index name (stored for O(1) lookup in specDict_g).
 int DocIdMeta_Set(RedisModuleCtx *ctx, RedisModuleString *keyName,
-                  uint64_t specId, uint64_t docId,
-                  const HiddenString *specName) {
+                  uint64_t specId, uint64_t docId) {
   RedisModuleKey *key = RedisModule_OpenKey(ctx, keyName, KEY_OPEN_META_SET_FLAGS);
   if (!key) {
     return REDISMODULE_ERR;
   }
-  int result = DocIdMeta_SetInternal(key, specId, docId, specName);
+  int result = DocIdMeta_SetInternal(key, specId, docId);
   RedisModule_CloseKey(key);
   return result;
 }
