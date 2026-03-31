@@ -756,7 +756,7 @@ end:
   return REDISMODULE_OK;
 }
 
-static t_docId getDocIdFromKey(RedisModuleCtx *ctx, IndexSpec *spec, RedisModuleString *key) {
+static t_docId getDocIdFromKey(RedisModuleCtx *ctx, const IndexSpec *spec, RedisModuleString *key) {
   if (!SearchDisk_IsEnabled()) {
     return DocTable_GetIdR(&spec->docs, key);
   } else {

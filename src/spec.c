@@ -2126,7 +2126,7 @@ void IndexSpec_Free(IndexSpec *spec) {
 void IndexSpec_RemoveFromGlobals(StrongRef spec_ref, bool removeActive) {
   IndexSpec *spec = StrongRef_Get(spec_ref);
   // Remove spec from global index lists (by name and by specId)
-  dictDelete(specDict_g, (void*)spec->specName);
+  dictDelete(specDict_g, spec->specName);
   dictDelete(specIdDict_g, (void*)(uintptr_t)spec->specId);
 
   if (!spec->isDuplicate) {
@@ -3877,7 +3877,7 @@ void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModul
       // Nothing to delete
       return;
     }
-    id = (t_docId)docId;
+    id = docId;
 
     // Delete the document by docId
     if (!SearchDisk_DeleteDocumentById(spec->diskSpec, id, &docLen)) {
@@ -4175,7 +4175,7 @@ void Indexes_ReplaceMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStri
         // After RENAME, the metadata lives on to_key (rename callback keeps it).
         if (DocIdMeta_Get(ctx, to_key, spec->specId, &docId) == REDISMODULE_OK) {
           // Update the key name in the disk doc table
-          SearchDisk_ReplaceKey(spec->diskSpec, (t_docId)docId, to_str, to_len);
+          SearchDisk_ReplaceKey(spec->diskSpec, docId, to_str, to_len);
         }
       } else {
         DocTable_Replace(&spec->docs, from_str, from_len, to_str, to_len);

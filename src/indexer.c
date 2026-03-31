@@ -215,7 +215,7 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
       // if it existed.
       t_docId docId = SearchDisk_PutDocument(spec->diskSpec, key, len,
         cur->doc->score, cur->docFlags, cur->fwIdx->maxTermFreq,
-        cur->fwIdx->totalFreq, &oldLen, cur->doc->docExpirationTime, (t_docId)oldDocId);
+        cur->fwIdx->totalFreq, &oldLen, cur->doc->docExpirationTime, oldDocId);
 
       bool failure = docId == 0;
 

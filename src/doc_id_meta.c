@@ -93,6 +93,7 @@ static int docIdMetaMove(RedisModuleKeyOptCtx *ctx, uint64_t *meta) {
  * This fires before the keyspace notification, which is why we handle
  * deletion here rather than in the notification handler. */
 void docIdMetaUnlink(RedisModuleKeyOptCtx *ctx, uint64_t *meta) {
+  REDISMODULE_NOT_USED(ctx);
   if (*meta == 0) return;
 
   dict *specIdToDocId = (dict *)*meta;
@@ -109,7 +110,7 @@ void docIdMetaUnlink(RedisModuleKeyOptCtx *ctx, uint64_t *meta) {
     IndexSpec *spec = findSpecBySpecId(specId);
     if (spec) {
       // Delete the document from this index by its docId
-      IndexSpec_DeleteDocById(spec, (t_docId)docId);
+      IndexSpec_DeleteDocById(spec, docId);
     }
     // Spec may have been dropped already, but we still invalidate the entry
     // since the key is being deleted

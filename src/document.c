@@ -894,7 +894,7 @@ int Document_EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key, const 
   ExprEval evaluator = {0};
 
   RedisSearchCtx_LockSpecRead(sctx);
-  dmd = (RSDocumentMetadata *)DocTable_BorrowByKeyR(&sctx->spec->docs, key);
+  dmd = DocTable_BorrowByKeyR(&sctx->spec->docs, key);
   if (!dmd) {
     // We don't know the document...
     QueryError_SetError(status, QUERY_ERROR_CODE_NO_DOC, "");

@@ -20,7 +20,7 @@ class DocIdMetaTest : public ::testing::Test {
 protected:
   void SetUp() override {
     // Get context - MyEnvironment already initialized redismock
-    ctx = RedisModule_GetThreadSafeContext(NULL);
+    ctx = RedisModule_GetThreadSafeContext(nullptr);
     RMCK::flushdb(ctx);
 
     // Initialize spec dictionary (creates specDict_g)
@@ -35,7 +35,7 @@ protected:
     RedisModuleKey *key = RedisModule_OpenKey(ctx, testKeyName, REDISMODULE_WRITE);
     RedisModuleString *fieldName = RedisModule_CreateString(ctx, "field", 5);
     RedisModuleString *fieldValue = RedisModule_CreateString(ctx, "value", 5);
-    RedisModule_HashSet(key, REDISMODULE_HASH_NONE, fieldName, fieldValue, NULL);
+    RedisModule_HashSet(key, REDISMODULE_HASH_NONE, fieldName, fieldValue, nullptr);
     RedisModule_FreeString(ctx, fieldName);
     RedisModule_FreeString(ctx, fieldValue);
     RedisModule_CloseKey(key);
@@ -64,7 +64,7 @@ protected:
     }
     if (ctx) {
       RedisModule_FreeThreadSafeContext(ctx);
-      ctx = NULL;
+      ctx = nullptr;
     }
   }
 
@@ -97,7 +97,7 @@ protected:
     RedisModuleKey *key = RedisModule_OpenKey(ctx, keyName, REDISMODULE_WRITE);
     RedisModuleString *fieldName = RedisModule_CreateString(ctx, "field", 5);
     RedisModuleString *fieldValue = RedisModule_CreateString(ctx, "value", 5);
-    RedisModule_HashSet(key, REDISMODULE_HASH_NONE, fieldName, fieldValue, NULL);
+    RedisModule_HashSet(key, REDISMODULE_HASH_NONE, fieldName, fieldValue, nullptr);
     RedisModule_FreeString(ctx, fieldName);
     RedisModule_FreeString(ctx, fieldValue);
     RedisModule_CloseKey(key);
