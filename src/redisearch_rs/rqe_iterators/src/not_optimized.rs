@@ -15,8 +15,8 @@ use ffi::{RS_FIELDMASK_ALL, t_docId};
 use inverted_index::RSIndexResult;
 
 use crate::{
-    RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome, WildcardIterator,
-    maybe_empty::MaybeEmpty, util::TimeoutContext,
+    IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
+    WildcardIterator, maybe_empty::MaybeEmpty, utils::TimeoutContext,
 };
 
 /// Check the clock every this many loop iterations to amortize syscall cost.
@@ -310,5 +310,10 @@ where
         } else {
             Ok(RQEValidateStatus::Ok)
         }
+    }
+
+    #[inline(always)]
+    fn type_(&self) -> IteratorType {
+        IteratorType::NotOptimized
     }
 }
