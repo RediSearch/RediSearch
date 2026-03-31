@@ -331,9 +331,7 @@ char *getRedisConfigValue(RedisModuleCtx *ctx, const char* confName);
 #define DEFAULT_QUERY_TIMEOUT_MS 500
 #define DEFAULT_UNION_ITERATOR_HEAP 20
 #define DEFAULT_VSS_MAX_RESIZE 0
-// Compile-time default for RS_DEFAULT_CONFIG struct initializer only.
-// The actual runtime default is computed by GetDefaultWorkerThreads().
-#define DEFAULT_WORKER_THREADS 0
+
 #define MIN_WORKER_THREADS_FLEX 1
 #define DEFAULT_WORKER_THREADS_FLEX MIN_WORKER_THREADS_FLEX
 #define MAX_DOC_TABLE_SIZE 100000000
@@ -370,7 +368,7 @@ char *getRedisConfigValue(RedisModuleCtx *ctx, const char* confName);
     .cursorReadSize = 1000,                                                    \
     .cursorMaxIdle = DEFAULT_MAX_CURSOR_IDLE,                                  \
     .maxDocTableSize = DEFAULT_DOC_TABLE_SIZE,                                 \
-    .numWorkerThreads = DEFAULT_WORKER_THREADS,                                \
+    .numWorkerThreads = 0, /* overwritten at runtime by GetDefaultWorkerThreads() */ \
     .minOperationWorkers = MIN_OPERATION_WORKERS,                              \
     .tieredVecSimIndexBufferLimit = DEFAULT_BLOCK_SIZE,                        \
     .highPriorityBiasNum = DEFAULT_HIGH_PRIORITY_BIAS_THRESHOLD,               \
