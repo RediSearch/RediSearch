@@ -10,10 +10,22 @@
 use crate::id_cases;
 use inverted_index::RSResultKind;
 use rqe_iterators::{
-    RQEIterator, RQEValidateStatus, SkipToOutcome,
+    IteratorType, RQEIterator, RQEValidateStatus, SkipToOutcome,
     id_list::{IdListSorted, IdListUnsorted},
 };
 use rstest_reuse::apply;
+
+#[test]
+fn type_sorted() {
+    let it = IdListSorted::new(vec![1, 2, 3]);
+    assert_eq!(it.type_(), IteratorType::IdListSorted);
+}
+
+#[test]
+fn type_unsorted() {
+    let it = IdListUnsorted::new(vec![3, 1, 2]);
+    assert_eq!(it.type_(), IteratorType::IdListUnsorted);
+}
 
 #[test]
 fn empty_initialization_works() {

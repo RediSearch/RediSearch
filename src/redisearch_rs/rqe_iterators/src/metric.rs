@@ -10,7 +10,7 @@
 //! Supporting types for [`Metric`].
 
 use crate::{
-    RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome, id_list::IdList,
+    IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome, id_list::IdList,
     utils::OwnedSlice,
 };
 use ffi::{RLookupKey, RLookupKeyHandle, t_docId};
@@ -183,5 +183,14 @@ impl<'index, const SORTED_BY_ID: bool> RQEIterator<'index> for Metric<'index, SO
     #[inline(always)]
     fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         self.base.revalidate()
+    }
+
+    #[inline(always)]
+    fn type_(&self) -> IteratorType {
+        if SORTED_BY_ID {
+            IteratorType::MetricSortedById
+        } else {
+            IteratorType::MetricSortedByScore
+        }
     }
 }

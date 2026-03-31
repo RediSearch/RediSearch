@@ -310,6 +310,11 @@ impl<'index> RQEIterator<'index> for CRQEIterator {
         }
     }
 
+    #[inline(always)]
+    fn type_(&self) -> IteratorType {
+        self.type_
+    }
+
     fn is_wildcard(&self) -> bool {
         matches!(
             self.type_,

@@ -13,8 +13,9 @@ use field::{FieldExpirationPredicate, FieldFilterContext, FieldMaskOrIndex};
 use inverted_index::{
     IndexReader, RSIndexResult, doc_ids_only::DocIdsOnly, raw_doc_ids_only::RawDocIdsOnly, t_docId,
 };
-use rqe_iterators::interop::RQEIteratorWrapper;
-use rqe_iterators::{FieldExpirationChecker, inverted_index::Missing};
+use rqe_iterators::{
+    FieldExpirationChecker, IteratorType, interop::RQEIteratorWrapper, inverted_index::Missing,
+};
 
 /// Wrapper around different II missing iterator encoding types to avoid generics in FFI code.
 ///
@@ -102,6 +103,11 @@ impl<'index> rqe_iterators::RQEIterator<'index> for MissingIterator<'index> {
         &mut self,
     ) -> Result<rqe_iterators::RQEValidateStatus<'_, 'index>, rqe_iterators::RQEIteratorError> {
         dispatch!(self, revalidate)
+    }
+
+    #[inline(always)]
+    fn type_(&self) -> IteratorType {
+        IteratorType::InvIdxMissing
     }
 }
 

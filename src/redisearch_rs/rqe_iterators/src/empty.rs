@@ -12,7 +12,7 @@
 use ffi::t_docId;
 use inverted_index::RSIndexResult;
 
-use crate::{RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
+use crate::{IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
 
 /// An iterator that yields no results.
 ///
@@ -60,5 +60,10 @@ impl<'index> RQEIterator<'index> for Empty {
     #[inline(always)]
     fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         Ok(RQEValidateStatus::Ok)
+    }
+
+    #[inline(always)]
+    fn type_(&self) -> IteratorType {
+        IteratorType::Empty
     }
 }

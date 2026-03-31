@@ -12,7 +12,7 @@
 use ffi::{IndexFlags_Index_DocIdsOnly, RS_FIELDMASK_ALL, t_docId};
 use inverted_index::{RSIndexResult, doc_ids_only::DocIdsOnly};
 use query_term::RSQueryTerm;
-use rqe_iterators::{NoOpChecker, RQEIterator, inverted_index::Tag};
+use rqe_iterators::{IteratorType, NoOpChecker, RQEIterator, inverted_index::Tag};
 use rqe_iterators_test_utils::MockContext;
 
 use crate::inverted_index::utils::BaseTest;
@@ -61,6 +61,13 @@ impl TagBaseTest {
             )
         }
     }
+}
+
+#[test]
+fn tag_type() {
+    let test = TagBaseTest::new(10);
+    let it = test.create_iterator();
+    assert_eq!(it.type_(), IteratorType::InvIdxTag);
 }
 
 #[test]

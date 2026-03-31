@@ -137,6 +137,9 @@ pub trait RQEIterator<'index> {
     /// when [`read`](Self::read) would return `Ok(None)`.
     fn at_eof(&self) -> bool;
 
+    /// Returns the [`IteratorType`] of this iterator.
+    fn type_(&self) -> IteratorType;
+
     /// Returns `true` if this iterator matches all documents.
     fn is_wildcard(&self) -> bool {
         false
@@ -187,6 +190,11 @@ impl<'index, I: RQEIterator<'index> + ?Sized> RQEIterator<'index> for Box<I> {
 
     fn at_eof(&self) -> bool {
         (**self).at_eof()
+    }
+
+    #[inline(always)]
+    fn type_(&self) -> IteratorType {
+        (**self).type_()
     }
 
     fn is_wildcard(&self) -> bool {

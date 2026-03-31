@@ -99,6 +99,11 @@ impl<'index> RQEIterator<'index> for Wildcard<'index> {
         Ok(RQEValidateStatus::Ok)
     }
 
+    #[inline(always)]
+    fn type_(&self) -> IteratorType {
+        IteratorType::Wildcard
+    }
+
     fn is_wildcard(&self) -> bool {
         true
     }
@@ -172,6 +177,11 @@ impl<'index> RQEIterator<'index> for EmptyWildcard {
     #[inline(always)]
     fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         self.0.revalidate()
+    }
+
+    #[inline(always)]
+    fn type_(&self) -> IteratorType {
+        IteratorType::Empty
     }
 
     #[inline(always)]
@@ -388,6 +398,11 @@ impl<'index> RQEIterator<'index> for DiskWildcardIterator<'index> {
 
     fn at_eof(&self) -> bool {
         self.0.at_eof()
+    }
+
+    #[inline(always)]
+    fn type_(&self) -> IteratorType {
+        self.0.type_()
     }
 
     fn is_wildcard(&self) -> bool {
