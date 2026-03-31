@@ -58,7 +58,6 @@ int MRCluster_FanoutCommand(IORuntimeCtx *ioRuntime,
     // Update dispatch time for this command
     MRCommand_SetDispatchTime(cmd);
   }
-
   int ret = 0;
   for (size_t i = 0; i < topo->numShards; i++) {
     MRConn *conn = MRConn_Get(&ioRuntime->conn_mgr, topo->shards[i].node.id);

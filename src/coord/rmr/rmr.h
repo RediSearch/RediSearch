@@ -34,7 +34,7 @@ void iterCursorMappingCb(void *p);
 // Forward declaration to avoid circular includes
 typedef struct CursorMappings CursorMappings;
 
-// Send _FT.CURSOR DEL commands for each cursor in the mappings. Fire-and-forget.
+// Send _FT.CURSOR DEL commands for each cursor in the mappings.
 void MR_CursorDelete(CursorMappings *mappings, const char *indexName);
 
 /* Prototype for all reduce functions */
