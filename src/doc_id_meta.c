@@ -112,7 +112,7 @@ void docIdMetaUnlink(RedisModuleKeyOptCtx *ctx, uint64_t *meta) {
 }
 
 int docIdMetaRDBLoad(RedisModuleIO *rdb, uint64_t *meta, int encver) {
-  RS_LOG_ASSERT(encver == DOCID_META_VERSION, "DocIdMeta: unexpected encver in RDB load");
+  RS_LOG_ASSERT(encver == 1, "DocIdMeta: unexpected encver in RDB load");
 
   if (PersistenceInProgress) {
     *meta = 0;
@@ -339,7 +339,7 @@ int DocIdMeta_Get(RedisModuleCtx *ctx, RedisModuleString *keyName,
 // Invalidates the docId but keeps the entry for efficient reuse on re-indexing.
 int DocIdMeta_SoftDelete(RedisModuleCtx *ctx, RedisModuleString *keyName,
                          uint64_t specId) {
-  RedisModuleKey *key = RedisModule_OpenKey(ctx, keyName, REDISMODULE_READ | REDISMODULE_WRITE);
+  RedisModuleKey *key = RedisModule_OpenKey(ctx, keyName, KEY_OPEN_META_SET_FLAGS);
   if (!key) {
     return REDISMODULE_ERR;
   }

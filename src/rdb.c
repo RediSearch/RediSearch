@@ -14,7 +14,6 @@ dict *specDict_g_bkup;
 dict *specIdDict_g_bkup;
 TrieMap *ScemaPrefixes_g_bkup;
 AliasTable *AliasTable_g_bkup;
-uint64_t nextSpecId_g_bkup;
 
 void Backup_Globals() {
   specDict_g_bkup = specDict_g;
@@ -28,9 +27,6 @@ void Backup_Globals() {
 
   AliasTable_g_bkup = AliasTable_g;
   IndexAlias_InitGlobal();
-
-  nextSpecId_g_bkup = GetNextSpecId();
-  SetNextSpecId(1);
 }
 
 void Restore_Globals(RedisModuleCtx *ctx) {
@@ -50,8 +46,6 @@ void Restore_Globals(RedisModuleCtx *ctx) {
   IndexAlias_DestroyGlobal(&AliasTable_g);
   AliasTable_g = AliasTable_g_bkup;
   AliasTable_g_bkup = NULL;
-
-  SetNextSpecId(nextSpecId_g_bkup);
 }
 
 
@@ -82,5 +76,4 @@ void Discard_Globals_Backup(RedisModuleCtx *ctx) {
   specIdDict_g_bkup = NULL;
   ScemaPrefixes_g_bkup = NULL;
   AliasTable_g_bkup = NULL;
-  nextSpecId_g_bkup = 0;
 }

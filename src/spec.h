@@ -129,12 +129,6 @@ extern dict *specIdDict_g;  // Maps specId (uint64_t) → RefManager* (same as s
 #define dictGetRef(he) ((StrongRef){dictGetVal(he)})
 #define dictFetchRef(dict, key) ((StrongRef){dictFetchValue((dict), (key))})
 
-// Accessors for the global monotonically increasing spec ID counter.
-uint64_t GetNextSpecId();
-void SetNextSpecId(uint64_t id);
-// Updates nextSpecId_g to max(nextSpecId_g, id + 1) - used during RDB load
-void UpdateNextSpecIdIfNeeded(uint64_t id);
-
 typedef enum {
     DEBUG_INDEX_SCANNER_CODE_NEW,
     DEBUG_INDEX_SCANNER_CODE_RUNNING,
@@ -235,8 +229,7 @@ typedef uint16_t FieldSpecDedupeArray[SPEC_MAX_FIELDS];
   (Index_StoreFreqs | Index_StoreFieldFlags | Index_StoreTermOffsets | Index_StoreNumeric | \
    Index_WideSchema)
 
-#define INDEX_CURRENT_VERSION 27
-#define INDEX_SPEC_ID_VERSION 27
+#define INDEX_CURRENT_VERSION 26
 #define INDEX_DISK_VERSION 26
 #define INDEX_VECSIM_SVS_VAMANA_VERSION 25
 #define INDEX_INDEXALL_VERSION 24

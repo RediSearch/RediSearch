@@ -73,20 +73,6 @@ uint16_t pendingIndexDropCount_g = 0;
 // dropped and recreated with the same name, the new incarnation has a different ID.
 static uint64_t nextSpecId_g = 1;
 
-uint64_t GetNextSpecId() {
-  return nextSpecId_g;
-}
-
-void SetNextSpecId(uint64_t id) {
-  nextSpecId_g = id;
-}
-
-void UpdateNextSpecIdIfNeeded(uint64_t id) {
-  if (id >= nextSpecId_g) {
-    nextSpecId_g = id + 1;
-  }
-}
-
 Version redisVersion;
 Version rlecVersion;
 bool isEnterprise = false;
@@ -2345,13 +2331,10 @@ static void initializeIndexSpec(IndexSpec *sp, const HiddenString *name, IndexFl
   sp->fields = rm_calloc(numFields, sizeof(FieldSpec));
   sp->specName = name;
   sp->obfuscatedName = IndexSpec_FormatObfuscatedName(name);
-  // Assign a default specId from the global counter. For new indexes this is
-  // the final value. During RDB load of encver >= INDEX_SPEC_ID_VERSION, this
-  // will be overwritten by the persisted specId, and UpdateNextSpecIdIfNeeded
-  // ensures nextSpecId_g is updated to be greater than all loaded specIds.
-  // For older RDB versions (encver < INDEX_SPEC_ID_VERSION), no specId is
-  // persisted, so this assignment produces fresh sequential IDs and
-  // nextSpecId_g naturally ends up correct after all specs are loaded.
+  // Assign a unique specId from the global counter. This ensures that even if
+  // an index is dropped and recreated with the same name, the new incarnation
+  // has a different ID. The specId is not persisted — on RDB load, each spec
+  // gets a fresh sequential ID.
   sp->specId = nextSpecId_g++;
   sp->docs = DocTable_New(INITIAL_DOC_TABLE_SIZE);
   sp->suffix = NULL;
@@ -3324,8 +3307,6 @@ void IndexSpec_RdbSave(RedisModuleIO *rdb, IndexSpec *sp, int contextFlags) {
     }
   }
 
-  // Save the spec incarnation ID
-  RedisModule_SaveUnsigned(rdb, sp->specId);
 }
 
 IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryError *status) {
@@ -3447,12 +3428,6 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryE
     if (SearchDisk_IndexSpecRdbLoad(rdb, sp->diskSpec) != REDISMODULE_OK) {
       goto cleanup;
     }
-  }
-
-  // Load the spec incarnation ID and update the global counter
-  if (encver >= INDEX_SPEC_ID_VERSION) {
-    sp->specId = LoadUnsigned_IOError(rdb, goto cleanup);
-    UpdateNextSpecIdIfNeeded(sp->specId);
   }
 
   return sp;
@@ -4373,9 +4348,6 @@ void Indexes_StartRDBLoadingEvent(RedisModuleCtx* ctx) {
   } else {
     legacySpecDict = dictCreate(&dictTypeHeapHiddenStrings, NULL);
   }
-  // Reset the global spec ID counter; it will be updated as spec IDs are
-  // loaded from individual specs via UpdateNextSpecIdIfNeeded.
-  nextSpecId_g = 1;
   g_isLoading = true;
 }
 
