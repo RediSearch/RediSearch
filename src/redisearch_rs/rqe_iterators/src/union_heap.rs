@@ -180,10 +180,7 @@ where
     /// In `QUICK_EXIT` mode, returns the child index on an exact match,
     /// leaving remaining lagging children for the next call.
     /// Returns `usize::MAX` if no exact match was found.
-    fn advance_lagging_children(
-        &mut self,
-        doc_id: t_docId,
-    ) -> Result<usize, RQEIteratorError> {
+    fn advance_lagging_children(&mut self, doc_id: t_docId) -> Result<usize, RQEIteratorError> {
         while let Some((child_doc_id, idx)) = self.heap.peek() {
             if child_doc_id >= doc_id {
                 break;
