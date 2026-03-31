@@ -91,14 +91,7 @@ unsafe fn new_metric_iterator<const SORTED_BY_ID: bool>(
         (ids_list, metrics_list)
     };
 
-    RQEIteratorWrapper::boxed_new(
-        if SORTED_BY_ID {
-            IteratorType::MetricSortedById
-        } else {
-            IteratorType::MetricSortedByScore
-        },
-        Metric::<SORTED_BY_ID>::new(ids_list, metrics_list),
-    )
+    RQEIteratorWrapper::boxed_new(Metric::<SORTED_BY_ID>::new(ids_list, metrics_list))
 }
 
 /// Sets the [`RLookupKeyHandle`] for this metric iterator.

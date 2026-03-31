@@ -15,7 +15,7 @@ use ffi::{
 };
 use inverted_index::RSIndexResult;
 
-use crate::{IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
+use crate::{RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
 
 #[repr(C)]
 /// A wrapper around a Rust iterator—i.e. an implementer of the [`RQEIterator`] trait.
@@ -41,10 +41,10 @@ where
     /// Create a new C-compatible wrapper around a Rust iterator.
     ///
     /// The wrapper is placed on the heap.
-    pub fn boxed_new(type_: IteratorType, inner: I) -> *mut QueryIterator {
+    pub fn boxed_new(inner: I) -> *mut QueryIterator {
         let mut wrapper = Box::new(Self {
             header: QueryIterator {
-                type_,
+                type_: inner.type_(),
                 atEOF: inner.at_eof(),
                 lastDocId: inner.last_doc_id(),
                 current: std::ptr::null_mut(),

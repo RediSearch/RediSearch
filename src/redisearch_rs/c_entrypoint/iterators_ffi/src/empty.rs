@@ -8,12 +8,11 @@
 */
 
 use ffi::QueryIterator;
-use rqe_iterator_type::IteratorType;
 use rqe_iterators::Empty;
 use rqe_iterators::interop::RQEIteratorWrapper;
 
 #[unsafe(no_mangle)]
 /// Creates a new empty iterator.
 pub extern "C" fn NewEmptyIterator() -> *mut QueryIterator {
-    RQEIteratorWrapper::boxed_new(IteratorType::Empty, Empty)
+    RQEIteratorWrapper::boxed_new(Empty)
 }
