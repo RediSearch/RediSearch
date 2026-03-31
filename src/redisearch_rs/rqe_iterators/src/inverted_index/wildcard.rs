@@ -16,8 +16,7 @@ use inverted_index::{
 
 use crate::{
     IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
-    expiration_checker::NoOpChecker,
-    profile::{Profilable, Profile},
+    expiration_checker::NoOpChecker, profile::Profile,
 };
 
 use super::core::InvIndIterator;
@@ -169,22 +168,20 @@ where
     fn type_(&self) -> IteratorType {
         IteratorType::InvIdxWildcard
     }
-}
 
-impl<'index, E> Profilable<'index> for Wildcard<'index, E>
-where
-    E: DecodedBy + OpaqueEncoding<Storage = inverted_index::InvertedIndex<E>>,
-    <E as DecodedBy>::Decoder: DocIdsDecoder,
-{
     type ProfileChildren = Self;
     type IntoProfiled = Profile<'index, Self::ProfileChildren>;
 
-    fn is_leaf() -> bool {
+    fn is_leaf(&self) -> bool {
         true
     }
 
     fn profile_children(self) -> Self {
         self
+    }
+
+    fn profile_children_boxed(self: Box<Self>) -> Box<dyn RQEIterator<'index> + 'index> {
+        Box::new((*self).profile_children())
     }
 
     fn into_profiled(self) -> Self::IntoProfiled {

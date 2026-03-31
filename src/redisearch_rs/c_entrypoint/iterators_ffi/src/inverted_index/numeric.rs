@@ -13,7 +13,7 @@ use field::{FieldFilterContext, FieldMaskOrIndex};
 use inverted_index::{FilterGeoReader, FilterNumericReader, IndexReader, NumericFilter};
 use numeric_range_tree::{NumericIndex, NumericIndexReader, NumericRange, NumericRangeTree};
 use rqe_iterators::{
-    FieldExpirationChecker, IteratorType, Profilable, RQEIterator, interop::RQEIteratorWrapper,
+    FieldExpirationChecker, IteratorType, RQEIterator, interop::RQEIteratorWrapper,
     inverted_index::Numeric, profile::Profile,
 };
 
@@ -165,6 +165,29 @@ impl<'index> rqe_iterators::RQEIterator<'index> for NumericIterator<'index> {
     fn type_(&self) -> IteratorType {
         IteratorType::InvIdxNumeric
     }
+
+    type ProfileChildren = Self;
+    type IntoProfiled = Profile<'index, Self::ProfileChildren>;
+
+    fn is_leaf(&self) -> bool {
+        true
+    }
+
+    fn profile_children(self) -> Self {
+        self
+    }
+
+    fn profile_children_boxed(self: Box<Self>) -> Box<dyn RQEIterator<'index> + 'index> {
+        Box::new((*self).profile_children())
+    }
+
+    fn into_profiled(self) -> Self::IntoProfiled {
+        Profile::new(self.profile_children())
+    }
+
+    fn into_profiled_boxed(self: Box<Self>) -> Box<dyn RQEIterator<'index> + 'index> {
+        Box::new((*self).into_profiled())
+    }
 }
 
 #[unsafe(no_mangle)]
@@ -310,27 +333,6 @@ pub unsafe extern "C" fn NewInvIndIterator_NumericQuery(
     };
 
     RQEIteratorWrapper::boxed_new(iterator)
-}
-
-impl<'index> Profilable<'index> for NumericIterator<'index> {
-    type ProfileChildren = Self;
-    type IntoProfiled = Profile<'index, Self::ProfileChildren>;
-
-    fn is_leaf() -> bool {
-        true
-    }
-
-    fn profile_children(self) -> Self {
-        self
-    }
-
-    fn into_profiled(self) -> Self::IntoProfiled {
-        Profile::new(self.profile_children())
-    }
-
-    fn into_profiled_boxed(self: Box<Self>) -> Box<dyn RQEIterator<'index> + 'index> {
-        Box::new((*self).into_profiled())
-    }
 }
 
 /// Gets the numeric filter from a numeric inverted index iterator.

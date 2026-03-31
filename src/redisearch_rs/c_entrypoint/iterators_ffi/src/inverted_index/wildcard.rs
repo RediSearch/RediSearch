@@ -13,7 +13,7 @@ use inverted_index::{
     RSIndexResult, doc_ids_only::DocIdsOnly, raw_doc_ids_only::RawDocIdsOnly, t_docId,
 };
 use rqe_iterators::{
-    IteratorType, Profilable, RQEIterator, interop::RQEIteratorWrapper, inverted_index::Wildcard,
+    IteratorType, RQEIterator, interop::RQEIteratorWrapper, inverted_index::Wildcard,
     profile::Profile,
 };
 
@@ -113,6 +113,29 @@ impl<'index> rqe_iterators::RQEIterator<'index> for WildcardIterator<'index> {
     fn type_(&self) -> IteratorType {
         IteratorType::InvIdxWildcard
     }
+
+    type ProfileChildren = Self;
+    type IntoProfiled = Profile<'index, Self::ProfileChildren>;
+
+    fn is_leaf(&self) -> bool {
+        true
+    }
+
+    fn profile_children(self) -> Self {
+        self
+    }
+
+    fn profile_children_boxed(self: Box<Self>) -> Box<dyn RQEIterator<'index> + 'index> {
+        Box::new((*self).profile_children())
+    }
+
+    fn into_profiled(self) -> Self::IntoProfiled {
+        Profile::new(self.profile_children())
+    }
+
+    fn into_profiled_boxed(self: Box<Self>) -> Box<dyn RQEIterator<'index> + 'index> {
+        Box::new((*self).into_profiled())
+    }
 }
 
 /// Creates a new wildcard inverted index iterator for querying all existing documents.
@@ -171,25 +194,4 @@ pub unsafe extern "C" fn NewInvIndIterator_WildcardQuery(
     };
 
     RQEIteratorWrapper::boxed_new(iterator)
-}
-
-impl<'index> Profilable<'index> for WildcardIterator<'index> {
-    type ProfileChildren = Self;
-    type IntoProfiled = Profile<'index, Self::ProfileChildren>;
-
-    fn is_leaf() -> bool {
-        true
-    }
-
-    fn profile_children(self) -> Self {
-        self
-    }
-
-    fn into_profiled(self) -> Self::IntoProfiled {
-        Profile::new(self.profile_children())
-    }
-
-    fn into_profiled_boxed(self: Box<Self>) -> Box<dyn RQEIterator<'index> + 'index> {
-        Box::new((*self).into_profiled())
-    }
 }

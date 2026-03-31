@@ -16,9 +16,7 @@ use inverted_index::RSIndexResult;
 
 use crate::{
     IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
-    maybe_empty::MaybeEmpty,
-    profile::{Profilable, Profile},
-    util::TimeoutContext,
+    maybe_empty::MaybeEmpty, profile::Profile, util::TimeoutContext,
 };
 
 /// An iterator that negates the results of its child iterator.
@@ -126,7 +124,7 @@ where
 
 impl<'index, I> RQEIterator<'index> for Not<'index, I>
 where
-    I: RQEIterator<'index>,
+    I: RQEIterator<'index> + 'index,
 {
     #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
@@ -273,27 +271,26 @@ where
     fn type_(&self) -> IteratorType {
         IteratorType::Not
     }
-}
 
-impl<'index, I> Profilable<'index> for Not<'index, I>
-where
-    I: Profilable<'index> + 'index,
-{
     type ProfileChildren = Not<'index, I::IntoProfiled>;
     type IntoProfiled = Profile<'index, Self::ProfileChildren>;
 
-    fn is_leaf() -> bool {
+    fn is_leaf(&self) -> bool {
         false
     }
 
     fn profile_children(self) -> Self::ProfileChildren {
         Not {
-            child: self.child.map(Profilable::into_profiled),
+            child: self.child.map(RQEIterator::into_profiled),
             max_doc_id: self.max_doc_id,
             forced_eof: self.forced_eof,
             result: self.result,
             timeout_ctx: self.timeout_ctx,
         }
+    }
+
+    fn profile_children_boxed(self: Box<Self>) -> Box<dyn RQEIterator<'index> + 'index> {
+        Box::new((*self).profile_children())
     }
 
     fn into_profiled(self) -> Self::IntoProfiled {

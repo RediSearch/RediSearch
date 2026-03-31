@@ -13,8 +13,7 @@ use ffi::t_docId;
 use inverted_index::RSIndexResult;
 
 use crate::{
-    IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
-    profile::{Profilable, Profile},
+    IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome, profile::Profile,
 };
 
 /// Yields documents appearing in ANY child iterator using a flat array scan.
@@ -50,7 +49,7 @@ pub struct UnionFlat<'index, I, const QUICK_EXIT: bool> {
 
 impl<'index, I, const QUICK_EXIT: bool> UnionFlat<'index, I, QUICK_EXIT>
 where
-    I: RQEIterator<'index>,
+    I: RQEIterator<'index> + 'index,
 {
     /// Creates a new flat union iterator. If `children` is empty, returns an
     /// iterator immediately at EOF.
@@ -390,7 +389,7 @@ where
 
 impl<'index, I, const QUICK_EXIT: bool> RQEIterator<'index> for UnionFlat<'index, I, QUICK_EXIT>
 where
-    I: RQEIterator<'index>,
+    I: RQEIterator<'index> + 'index,
 {
     #[inline]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
@@ -543,16 +542,11 @@ where
     fn type_(&self) -> IteratorType {
         IteratorType::Union
     }
-}
 
-impl<'index, I, const QUICK_EXIT: bool> Profilable<'index> for UnionFlat<'index, I, QUICK_EXIT>
-where
-    I: Profilable<'index> + 'index,
-{
     type ProfileChildren = UnionFlat<'index, I::IntoProfiled, QUICK_EXIT>;
     type IntoProfiled = Profile<'index, Self::ProfileChildren>;
 
-    fn is_leaf() -> bool {
+    fn is_leaf(&self) -> bool {
         false
     }
 
@@ -565,9 +559,13 @@ where
             children: self
                 .children
                 .into_iter()
-                .map(Profilable::into_profiled)
+                .map(RQEIterator::into_profiled)
                 .collect(),
         }
+    }
+
+    fn profile_children_boxed(self: Box<Self>) -> Box<dyn RQEIterator<'index> + 'index> {
+        Box::new((*self).profile_children())
     }
 
     fn into_profiled(self) -> Self::IntoProfiled {

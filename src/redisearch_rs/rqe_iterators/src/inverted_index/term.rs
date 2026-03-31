@@ -15,8 +15,7 @@ use query_term::RSQueryTerm;
 
 use crate::{
     IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
-    expiration_checker::ExpirationChecker,
-    profile::{Profilable, Profile},
+    expiration_checker::ExpirationChecker, profile::Profile,
 };
 
 use super::core::InvIndIterator;
@@ -37,8 +36,8 @@ pub struct Term<'index, R, E = crate::expiration_checker::NoOpChecker> {
 
 impl<'index, R, E> Term<'index, R, E>
 where
-    R: TermReader<'index>,
-    E: ExpirationChecker,
+    R: TermReader<'index> + 'index,
+    E: ExpirationChecker + 'index,
 {
     /// Create an iterator returning results from a term inverted index.
     ///
@@ -161,8 +160,8 @@ impl<'index, Enc: inverted_index::DecodedBy, E>
 
 impl<'index, R, E> RQEIterator<'index> for Term<'index, R, E>
 where
-    R: TermReader<'index>,
-    E: ExpirationChecker,
+    R: TermReader<'index> + 'index,
+    E: ExpirationChecker + 'index,
 {
     #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
@@ -215,22 +214,20 @@ where
     fn type_(&self) -> IteratorType {
         IteratorType::InvIdxTerm
     }
-}
 
-impl<'index, R, E> Profilable<'index> for Term<'index, R, E>
-where
-    R: TermReader<'index> + 'index,
-    E: ExpirationChecker + 'index,
-{
     type ProfileChildren = Self;
     type IntoProfiled = Profile<'index, Self::ProfileChildren>;
 
-    fn is_leaf() -> bool {
+    fn is_leaf(&self) -> bool {
         true
     }
 
     fn profile_children(self) -> Self {
         self
+    }
+
+    fn profile_children_boxed(self: Box<Self>) -> Box<dyn RQEIterator<'index> + 'index> {
+        Box::new((*self).profile_children())
     }
 
     fn into_profiled(self) -> Self::IntoProfiled {

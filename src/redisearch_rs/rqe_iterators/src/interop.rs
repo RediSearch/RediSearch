@@ -15,7 +15,7 @@ use ffi::{
 };
 use inverted_index::RSIndexResult;
 
-use crate::{Profilable, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
+use crate::{RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
 
 #[repr(C)]
 /// A wrapper around a Rust iterator—i.e. an implementer of the [`RQEIterator`] trait.
@@ -72,13 +72,13 @@ where
 
 impl<'index, I> RQEIteratorWrapper<I>
 where
-    I: RQEIterator<'index> + Profilable<'index> + 'index,
+    I: RQEIterator<'index> + 'index,
 {
     /// Create a new C-compatible wrapper around a Rust iterator.
     ///
     /// The wrapper is placed on the heap.
     pub fn boxed_new(inner: I) -> *mut QueryIterator {
-        let profile_children = if I::is_leaf() {
+        let profile_children = if inner.is_leaf() {
             None
         } else {
             Some(rust_profile_children::<I> as unsafe extern "C" fn(_) -> _)
@@ -242,17 +242,18 @@ extern "C" fn num_estimated<'index, I: RQEIterator<'index> + 'index>(
 /// `ProfileChildren` callback for composite Rust iterators wrapped in
 /// [`RQEIteratorWrapper`].
 ///
-/// Only set on non-leaf iterators ([`is_leaf`](Profilable::is_leaf) returns `false`).
-/// Consumes the wrapper, calls [`Profilable::profile_children`] on the inner
+/// Only set on non-leaf iterators ([`is_leaf`](RQEIterator::is_leaf) returns `false`).
+/// Consumes the wrapper, calls [`RQEIterator::profile_children`] on the inner
 /// iterator, and re-wraps the result via `boxed_new_inner` with
 /// `ProfileChildren` set to `None` — this breaks what would otherwise be
 /// infinite monomorphization ([`boxed_new`](RQEIteratorWrapper::boxed_new) requires
-/// `I::ProfileChildren: Profilable`, which would recurse). The `None` is safe
+/// `I::ProfileChildren: RQEIterator`, which would recurse). The `None` is safe
 /// because profiling is a one-shot pass.
-extern "C" fn rust_profile_children<
-    'index,
-    I: RQEIterator<'index> + Profilable<'index> + 'index,
->(
+///
+/// When `I` is `Box<dyn RQEIterator>`, [`profile_children`](RQEIterator::profile_children)
+/// vtable-dispatches to the concrete type's implementation via
+/// [`profile_children_boxed`](RQEIterator::profile_children_boxed).
+extern "C" fn rust_profile_children<'index, I: RQEIterator<'index> + 'index>(
     base: *mut QueryIterator,
 ) -> *mut QueryIterator {
     debug_assert!(!base.is_null());

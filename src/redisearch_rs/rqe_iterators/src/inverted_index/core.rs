@@ -48,8 +48,8 @@ pub struct InvIndIterator<'index, R, E = NoOpChecker> {
 
 impl<'index, R, E> InvIndIterator<'index, R, E>
 where
-    R: IndexReader<'index>,
-    E: ExpirationChecker,
+    R: IndexReader<'index> + 'index,
+    E: ExpirationChecker + 'index,
 {
     /// Creates a new inverted index iterator with the given expiration checker.
     pub fn new(reader: R, result: RSIndexResult<'static>, expiration_checker: E) -> Self {
@@ -243,8 +243,8 @@ where
 
 impl<'index, R, E> RQEIterator<'index> for InvIndIterator<'index, R, E>
 where
-    R: IndexReader<'index>,
-    E: ExpirationChecker,
+    R: IndexReader<'index> + 'index,
+    E: ExpirationChecker + 'index,
 {
     #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
@@ -317,5 +317,28 @@ where
         unimplemented!(
             "InvIndIterator::type_() should not be called directly; use the specific iterator type"
         )
+    }
+
+    type ProfileChildren = Self;
+    type IntoProfiled = crate::profile::Profile<'index, Self::ProfileChildren>;
+
+    fn is_leaf(&self) -> bool {
+        true
+    }
+
+    fn profile_children(self) -> Self {
+        self
+    }
+
+    fn profile_children_boxed(self: Box<Self>) -> Box<dyn RQEIterator<'index> + 'index> {
+        Box::new((*self).profile_children())
+    }
+
+    fn into_profiled(self) -> Self::IntoProfiled {
+        crate::profile::Profile::new(self.profile_children())
+    }
+
+    fn into_profiled_boxed(self: Box<Self>) -> Box<dyn RQEIterator<'index> + 'index> {
+        Box::new((*self).into_profiled())
     }
 }

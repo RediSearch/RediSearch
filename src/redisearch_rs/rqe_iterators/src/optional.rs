@@ -14,8 +14,7 @@ use inverted_index::RSIndexResult;
 use std::cmp;
 
 use crate::{
-    IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
-    profile::{Profilable, Profile},
+    IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome, profile::Profile,
 };
 
 /// An iterator that emits a sequence of results with no gaps, up to a given document id.
@@ -101,7 +100,7 @@ where
 
 impl<'index, I> RQEIterator<'index> for Optional<'index, I>
 where
-    I: RQEIterator<'index>,
+    I: RQEIterator<'index> + 'index,
 {
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         if let Some(child) = self.child.as_mut()
@@ -243,16 +242,11 @@ where
     fn type_(&self) -> IteratorType {
         IteratorType::Optional
     }
-}
 
-impl<'index, I> Profilable<'index> for Optional<'index, I>
-where
-    I: Profilable<'index> + 'index,
-{
     type ProfileChildren = Optional<'index, I::IntoProfiled>;
     type IntoProfiled = Profile<'index, Self::ProfileChildren>;
 
-    fn is_leaf() -> bool {
+    fn is_leaf(&self) -> bool {
         false
     }
 
@@ -261,8 +255,12 @@ where
             max_doc_id: self.max_doc_id,
             weight: self.weight,
             result: self.result,
-            child: self.child.map(Profilable::into_profiled),
+            child: self.child.map(RQEIterator::into_profiled),
         }
+    }
+
+    fn profile_children_boxed(self: Box<Self>) -> Box<dyn RQEIterator<'index> + 'index> {
+        Box::new((*self).profile_children())
     }
 
     fn into_profiled(self) -> Self::IntoProfiled {

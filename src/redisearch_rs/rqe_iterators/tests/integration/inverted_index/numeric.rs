@@ -59,8 +59,8 @@ where
 #[allow(dead_code)]
 impl<'index, R, E> NumericBuilder<'index, R, E>
 where
-    R: NumericReader<'index>,
-    E: rqe_iterators::ExpirationChecker,
+    R: NumericReader<'index> + 'index,
+    E: rqe_iterators::ExpirationChecker + 'index,
 {
     /// Set the numeric range tree.
     fn range_tree(mut self, range_tree: NonNull<numeric_range_tree::NumericRangeTree>) -> Self {

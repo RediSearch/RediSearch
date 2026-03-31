@@ -15,9 +15,7 @@
 
 use crate::{
     IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
-    c2rust::CRQEIterator,
-    interop::RQEIteratorWrapper,
-    profile::{Profilable, Profile},
+    c2rust::CRQEIterator, interop::RQEIteratorWrapper, profile::Profile,
 };
 
 use ffi::t_docId;
@@ -397,7 +395,7 @@ where
 
 impl<'index, I> RQEIterator<'index> for Intersection<'index, I>
 where
-    I: RQEIterator<'index>,
+    I: RQEIterator<'index> + 'index,
 {
     #[inline]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
@@ -552,16 +550,11 @@ where
     fn type_(&self) -> IteratorType {
         IteratorType::Intersect
     }
-}
 
-impl<'index, I> Profilable<'index> for Intersection<'index, I>
-where
-    I: Profilable<'index> + 'index,
-{
     type ProfileChildren = Intersection<'index, I::IntoProfiled>;
     type IntoProfiled = Profile<'index, Self::ProfileChildren>;
 
-    fn is_leaf() -> bool {
+    fn is_leaf(&self) -> bool {
         false
     }
 
@@ -570,7 +563,7 @@ where
             children: self
                 .children
                 .into_iter()
-                .map(Profilable::into_profiled)
+                .map(RQEIterator::into_profiled)
                 .collect(),
             last_doc_id: self.last_doc_id,
             num_expected: self.num_expected,
@@ -579,6 +572,10 @@ where
             in_order: self.in_order,
             result: self.result,
         }
+    }
+
+    fn profile_children_boxed(self: Box<Self>) -> Box<dyn RQEIterator<'index> + 'index> {
+        Box::new((*self).profile_children())
     }
 
     fn into_profiled(self) -> Self::IntoProfiled {

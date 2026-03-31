@@ -974,6 +974,33 @@ mod optional_iterator_non_sequential_reads {
         fn type_(&self) -> IteratorType {
             IteratorType::Mock
         }
+
+        type ProfileChildren = Self;
+        type IntoProfiled = rqe_iterators::profile::Profile<'index, Self>;
+
+        fn is_leaf(&self) -> bool {
+            true
+        }
+
+        fn profile_children(self) -> Self {
+            self
+        }
+
+        fn profile_children_boxed(
+            self: Box<Self>,
+        ) -> Box<dyn rqe_iterators::RQEIterator<'index> + 'index> {
+            Box::new((*self).profile_children())
+        }
+
+        fn into_profiled(self) -> Self::IntoProfiled {
+            rqe_iterators::profile::Profile::new(self)
+        }
+
+        fn into_profiled_boxed(
+            self: Box<Self>,
+        ) -> Box<dyn rqe_iterators::RQEIterator<'index> + 'index> {
+            Box::new((*self).into_profiled())
+        }
     }
 
     fn assert_numeric_read<'index>(

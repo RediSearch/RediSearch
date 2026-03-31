@@ -87,7 +87,7 @@ impl<I> Default for MaybeEmptyOption<I> {
 
 impl<'index, I> RQEIterator<'index> for MaybeEmpty<I>
 where
-    I: RQEIterator<'index>,
+    I: RQEIterator<'index> + 'index,
 {
     #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
@@ -162,5 +162,28 @@ where
             MaybeEmptyOption::None(empty) => empty.type_(),
             MaybeEmptyOption::Some(it) => it.type_(),
         }
+    }
+
+    type ProfileChildren = Self;
+    type IntoProfiled = crate::profile::Profile<'index, Self::ProfileChildren>;
+
+    fn is_leaf(&self) -> bool {
+        true
+    }
+
+    fn profile_children(self) -> Self {
+        self
+    }
+
+    fn profile_children_boxed(self: Box<Self>) -> Box<dyn RQEIterator<'index> + 'index> {
+        Box::new((*self).profile_children())
+    }
+
+    fn into_profiled(self) -> Self::IntoProfiled {
+        crate::profile::Profile::new(self.profile_children())
+    }
+
+    fn into_profiled_boxed(self: Box<Self>) -> Box<dyn RQEIterator<'index> + 'index> {
+        Box::new((*self).into_profiled())
     }
 }

@@ -615,8 +615,8 @@ uint64_t ProfileIterator_GetWallTimeNs(const QueryIterator *it);
 /**
  * Profile-wrap a single child iterator.
  *
- * Wraps the child as a [`CRQEIterator`], calls [`into_profiled`](Profilable::into_profiled)
- * (which recursively profiles all descendants via the [`Profilable`] trait),
+ * Wraps the child as a [`CRQEIterator`], calls [`into_profiled`](RQEIterator::into_profiled)
+ * (which recursively profiles all descendants via the [`RQEIterator`] trait),
  * then boxes the result back as a `QueryIterator*`.
  *
  * This is intended to be called from C `ProfileChildren` implementations.
@@ -632,8 +632,8 @@ QueryIterator *ProfileChild(QueryIterator *child);
  * Add profile iterators to all nodes in the iterator tree.
  *
  * Wraps each iterator as a [`CRQEIterator`], calls
- * [`into_profiled`](Profilable::into_profiled) (which recursively profiles
- * all children via the [`Profilable`] trait), then boxes the result back
+ * [`into_profiled`](RQEIterator::into_profiled) (which recursively profiles
+ * all children via the [`RQEIterator`] trait), then boxes the result back
  * as a `QueryIterator*`.
  *
  * # Safety

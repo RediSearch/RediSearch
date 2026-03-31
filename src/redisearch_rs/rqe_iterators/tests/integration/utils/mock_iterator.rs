@@ -11,10 +11,7 @@ use std::{cell::RefCell, rc::Rc, time::Duration};
 
 use ffi::{RS_FIELDMASK_ALL, t_docId};
 use inverted_index::{RSIndexResult, RSOffsetSlice};
-use rqe_iterators::{
-    IteratorType, RQEIterator, WildcardIterator,
-    profile::{Profilable, Profile},
-};
+use rqe_iterators::{IteratorType, RQEIterator, WildcardIterator, profile::Profile};
 
 /// Test iterator used in unit tests that expect an [`RQEIterator`]
 /// child which produces a fixed sequence of document identifiers.
@@ -437,15 +434,11 @@ impl<'index, const N: usize> RQEIterator<'index> for Mock<'index, N> {
     fn type_(&self) -> IteratorType {
         IteratorType::Mock
     }
-}
 
-impl<'index, const N: usize> WildcardIterator<'index> for Mock<'index, N> {}
-
-impl<'index, const N: usize> Profilable<'index> for Mock<'index, N> {
     type ProfileChildren = Self;
-    type IntoProfiled = Profile<'index, Self::ProfileChildren>;
+    type IntoProfiled = Profile<'index, Self>;
 
-    fn is_leaf() -> bool {
+    fn is_leaf(&self) -> bool {
         true
     }
 
@@ -453,14 +446,20 @@ impl<'index, const N: usize> Profilable<'index> for Mock<'index, N> {
         self
     }
 
+    fn profile_children_boxed(self: Box<Self>) -> Box<dyn RQEIterator<'index> + 'index> {
+        Box::new((*self).profile_children())
+    }
+
     fn into_profiled(self) -> Self::IntoProfiled {
-        Profile::new(self.profile_children())
+        Profile::new(self)
     }
 
     fn into_profiled_boxed(self: Box<Self>) -> Box<dyn RQEIterator<'index> + 'index> {
         Box::new((*self).into_profiled())
     }
 }
+
+impl<'index, const N: usize> WildcardIterator<'index> for Mock<'index, N> {}
 
 /// Dynamic-size variant of [`Mock`] that uses a [`Vec`] instead of a fixed array.
 ///
@@ -618,5 +617,30 @@ impl<'index> RQEIterator<'index> for MockVec<'index> {
     #[inline(always)]
     fn type_(&self) -> IteratorType {
         IteratorType::Mock
+    }
+
+    type ProfileChildren = Self;
+    type IntoProfiled = rqe_iterators::profile::Profile<'index, Self>;
+
+    fn is_leaf(&self) -> bool {
+        true
+    }
+
+    fn profile_children(self) -> Self {
+        self
+    }
+
+    fn profile_children_boxed(self: Box<Self>) -> Box<dyn RQEIterator<'index> + 'index> {
+        Box::new((*self).profile_children())
+    }
+
+    fn into_profiled(self) -> Self::IntoProfiled {
+        rqe_iterators::profile::Profile::new(self)
+    }
+
+    fn into_profiled_boxed(
+        self: Box<Self>,
+    ) -> Box<dyn rqe_iterators::RQEIterator<'index> + 'index> {
+        Box::new((*self).into_profiled())
     }
 }

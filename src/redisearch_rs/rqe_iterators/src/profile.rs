@@ -83,61 +83,7 @@ impl<'index, I: RQEIterator<'index>> Profile<'index, I> {
     }
 }
 
-/// Trait for iterators whose subtree can be wrapped with [`Profile`] instrumentation.
-///
-/// Composite iterators override [`profile_children`](Profilable::profile_children)
-/// to recurse into their children first; leaf iterators return `self` unchanged.
-pub trait Profilable<'index>: RQEIterator<'index> {
-    /// The type of `Self` after [`profile_children`](Profilable::profile_children):
-    /// all children wrapped with [`Profile`], but `self` left unwrapped.
-    ///
-    /// For leaf iterators this is `Self` (no children to transform).
-    /// For composites the child type parameter changes, e.g.
-    /// [`Not`](crate::not::Not)`<I>` → [`Not`](crate::not::Not)`<I::IntoProfiled>` (each child wrapped with [`Profile`]).
-    type ProfileChildren: RQEIterator<'index>
-    where
-        Self: Sized;
-
-    /// The type of `Self` after [`into_profiled`](Profilable::into_profiled):
-    /// all children wrapped with [`Profile`] **and** `self` wrapped too.
-    ///
-    /// For most types this is `Profile<'index, Self::ProfileChildren>`.
-    /// [`CRQEIterator`](crate::c2rust::CRQEIterator) returns [`CRQEIterator`](crate::c2rust::CRQEIterator)
-    /// (type-erased, the [`Profile`] layer is hidden behind the pointer).
-    type IntoProfiled: RQEIterator<'index>
-    where
-        Self: Sized;
-
-    /// Leaf iterators have no children to profile.
-    ///
-    /// When `true`, [`RQEIteratorWrapper::boxed_new`](crate::interop::RQEIteratorWrapper::boxed_new)
-    /// sets the C vtable `ProfileChildren` callback to `NULL`, so the
-    /// wrapper is never consumed and reallocated during profiling. This
-    /// keeps interior pointers (held by C code) valid.
-    fn is_leaf() -> bool
-    where
-        Self: Sized;
-
-    /// Wrap all children with [`Profile`] iterators, without wrapping `self`.
-    ///
-    /// Leaf iterators return `self` unchanged. Composite iterators call
-    /// [`into_profiled`](Profilable::into_profiled) on each child.
-    fn profile_children(self) -> Self::ProfileChildren
-    where
-        Self: Sized;
-
-    /// Wrap the entire subtree — children first, then `self` — with [`Profile`].
-    fn into_profiled(self) -> Self::IntoProfiled
-    where
-        Self: Sized;
-
-    /// Dyn-compatible version of [`into_profiled`](Profilable::into_profiled).
-    ///
-    /// Concrete types delegate to `(*self).into_profiled()`.
-    fn into_profiled_boxed(self: Box<Self>) -> Box<dyn RQEIterator<'index> + 'index>;
-}
-
-impl<'index, I: RQEIterator<'index>> RQEIterator<'index> for Profile<'index, I> {
+impl<'index, I: RQEIterator<'index> + 'index> RQEIterator<'index> for Profile<'index, I> {
     #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         self.child.current()
@@ -194,45 +140,23 @@ impl<'index, I: RQEIterator<'index>> RQEIterator<'index> for Profile<'index, I> 
     fn type_(&self) -> IteratorType {
         IteratorType::Profile
     }
-}
 
-impl<'index, P: Profilable<'index> + 'index> Profilable<'index> for Box<P>
-where
-    Box<P::ProfileChildren>: RQEIterator<'index>,
-{
-    type ProfileChildren = Box<P::ProfileChildren>;
-    type IntoProfiled = Profile<'index, Self::ProfileChildren>;
-
-    fn is_leaf() -> bool {
-        P::is_leaf()
-    }
-
-    fn profile_children(self) -> Self::ProfileChildren {
-        Box::new((*self).profile_children())
-    }
-
-    fn into_profiled(self) -> Self::IntoProfiled {
-        Profile::new(self.profile_children())
-    }
-
-    fn into_profiled_boxed(self: Box<Self>) -> Box<dyn RQEIterator<'index> + 'index> {
-        Box::new((*self).into_profiled())
-    }
-}
-
-/// No-op: a [`Profile`] wrapper is the outermost layer added by
-/// [`into_profiled`](Profilable::into_profiled) — its child is already
-/// profiled, so there is nothing left to recurse into.
-impl<'index, P: Profilable<'index> + 'index> Profilable<'index> for Profile<'index, P> {
+    /// No-op: a [`Profile`] wrapper is the outermost layer added by
+    /// [`into_profiled`](RQEIterator::into_profiled) — its child is already
+    /// profiled, so there is nothing left to recurse into.
     type ProfileChildren = Self;
     type IntoProfiled = Self;
 
-    fn is_leaf() -> bool {
+    fn is_leaf(&self) -> bool {
         true
     }
 
     fn profile_children(self) -> Self::ProfileChildren {
         self
+    }
+
+    fn profile_children_boxed(self: Box<Self>) -> Box<dyn RQEIterator<'index> + 'index> {
+        Box::new((*self).profile_children())
     }
 
     fn into_profiled(self) -> Self {
@@ -241,33 +165,5 @@ impl<'index, P: Profilable<'index> + 'index> Profilable<'index> for Profile<'ind
 
     fn into_profiled_boxed(self: Box<Self>) -> Box<dyn RQEIterator<'index> + 'index> {
         self
-    }
-}
-
-/// Leaf impl for type-erased iterators (used by wildcard FFI).
-///
-/// Because we cannot reach the inner iterator's [`Profilable`] impl
-/// through the trait object, this is a no-op leaf implementation.
-/// This is fine in practice: only leaf iterators are boxed as
-/// `dyn RQEIterator` today (wildcard FFI). If a composite were ever
-/// boxed this way, its children would silently not be profiled.
-impl<'index> Profilable<'index> for Box<dyn RQEIterator<'index> + 'index> {
-    type ProfileChildren = Self;
-    type IntoProfiled = Profile<'index, Self>;
-
-    fn is_leaf() -> bool {
-        true
-    }
-
-    fn profile_children(self) -> Self {
-        self
-    }
-
-    fn into_profiled(self) -> Self::IntoProfiled {
-        Profile::new(self.profile_children())
-    }
-
-    fn into_profiled_boxed(self: Box<Self>) -> Box<dyn RQEIterator<'index> + 'index> {
-        Box::new((*self).into_profiled())
     }
 }

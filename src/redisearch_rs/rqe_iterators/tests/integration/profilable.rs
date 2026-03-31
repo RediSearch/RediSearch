@@ -13,7 +13,6 @@ use rqe_iterators::{
     Intersection, RQEIterator, Wildcard,
     not::Not,
     optional::Optional,
-    profile::Profilable,
     union::{Union, UnionQuickFlat},
 };
 

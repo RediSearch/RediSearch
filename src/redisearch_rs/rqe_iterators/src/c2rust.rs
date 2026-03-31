@@ -24,7 +24,6 @@ use std::{
 
 use crate::{
     RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome, interop::RQEIteratorWrapper,
-    profile::Profilable,
 };
 
 /// A Rust shim over a query iterator that satisfies the C iterator API.
@@ -321,19 +320,12 @@ impl<'index> RQEIterator<'index> for CRQEIterator {
     fn as_c_iterator(&self) -> Option<&CRQEIterator> {
         Some(self)
     }
-}
 
-/// Convenience wrapper around [`Profilable::into_profiled`] for [`CRQEIterator`].
-pub fn into_profiled(child: CRQEIterator) -> CRQEIterator {
-    child.into_profiled()
-}
-
-impl<'index> Profilable<'index> for CRQEIterator {
     type ProfileChildren = Self;
     type IntoProfiled = Self;
 
-    fn is_leaf() -> bool {
-        true
+    fn is_leaf(&self) -> bool {
+        self.ProfileChildren.is_none()
     }
 
     fn into_profiled(self) -> Self::IntoProfiled {
@@ -373,7 +365,16 @@ impl<'index> Profilable<'index> for CRQEIterator {
         }
     }
 
+    fn profile_children_boxed(self: Box<Self>) -> Box<dyn RQEIterator<'index> + 'index> {
+        Box::new((*self).profile_children())
+    }
+
     fn into_profiled_boxed(self: Box<Self>) -> Box<dyn RQEIterator<'index> + 'index> {
         Box::new((*self).into_profiled())
     }
+}
+
+/// Convenience wrapper around [`RQEIterator::into_profiled`] for [`CRQEIterator`].
+pub fn into_profiled(child: CRQEIterator) -> CRQEIterator {
+    child.into_profiled()
 }

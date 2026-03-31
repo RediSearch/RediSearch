@@ -16,7 +16,7 @@ use numeric_range_tree::NumericRangeTree;
 use crate::{
     IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
     expiration_checker::{ExpirationChecker, NoOpChecker},
-    profile::{Profilable, Profile},
+    profile::Profile,
 };
 
 use super::core::InvIndIterator;
@@ -53,8 +53,8 @@ struct RangeTreeInfo {
 
 impl<'index, R, E> Numeric<'index, R, E>
 where
-    R: NumericReader<'index>,
-    E: ExpirationChecker,
+    R: NumericReader<'index> + 'index,
+    E: ExpirationChecker + 'index,
 {
     /// Create an iterator returning results from a numeric inverted index.
     ///
@@ -138,8 +138,8 @@ where
 
 impl<'index, R, E> RQEIterator<'index> for Numeric<'index, R, E>
 where
-    R: NumericReader<'index>,
-    E: ExpirationChecker,
+    R: NumericReader<'index> + 'index,
+    E: ExpirationChecker + 'index,
 {
     #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
@@ -192,22 +192,20 @@ where
     fn type_(&self) -> IteratorType {
         IteratorType::InvIdxNumeric
     }
-}
 
-impl<'index, R, E> Profilable<'index> for Numeric<'index, R, E>
-where
-    R: NumericReader<'index> + 'index,
-    E: ExpirationChecker + 'index,
-{
     type ProfileChildren = Self;
     type IntoProfiled = Profile<'index, Self::ProfileChildren>;
 
-    fn is_leaf() -> bool {
+    fn is_leaf(&self) -> bool {
         true
     }
 
     fn profile_children(self) -> Self {
         self
+    }
+
+    fn profile_children_boxed(self: Box<Self>) -> Box<dyn RQEIterator<'index> + 'index> {
+        Box::new((*self).profile_children())
     }
 
     fn into_profiled(self) -> Self::IntoProfiled {

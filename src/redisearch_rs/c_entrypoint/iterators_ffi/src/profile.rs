@@ -10,9 +10,10 @@
 use ffi::QueryIterator;
 use rqe_iterator_type::IteratorType;
 use rqe_iterators::{
+    RQEIterator,
     c2rust::CRQEIterator,
     interop::RQEIteratorWrapper,
-    profile::{Profilable, Profile, ProfileCounters},
+    profile::{Profile, ProfileCounters},
 };
 use std::ptr::NonNull;
 
@@ -105,8 +106,8 @@ pub unsafe extern "C" fn ProfileIterator_GetWallTimeNs(it: *const QueryIterator)
 
 /// Profile-wrap a single child iterator.
 ///
-/// Wraps the child as a [`CRQEIterator`], calls [`into_profiled`](Profilable::into_profiled)
-/// (which recursively profiles all descendants via the [`Profilable`] trait),
+/// Wraps the child as a [`CRQEIterator`], calls [`into_profiled`](RQEIterator::into_profiled)
+/// (which recursively profiles all descendants via the [`RQEIterator`] trait),
 /// then boxes the result back as a `QueryIterator*`.
 ///
 /// This is intended to be called from C `ProfileChildren` implementations.
@@ -130,8 +131,8 @@ pub unsafe extern "C" fn ProfileChild(child: *mut QueryIterator) -> *mut QueryIt
 /// Add profile iterators to all nodes in the iterator tree.
 ///
 /// Wraps each iterator as a [`CRQEIterator`], calls
-/// [`into_profiled`](Profilable::into_profiled) (which recursively profiles
-/// all children via the [`Profilable`] trait), then boxes the result back
+/// [`into_profiled`](RQEIterator::into_profiled) (which recursively profiles
+/// all children via the [`RQEIterator`] trait), then boxes the result back
 /// as a `QueryIterator*`.
 ///
 /// # Safety
