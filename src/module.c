@@ -3859,23 +3859,15 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     RedisModule_Log(ctx, "warning", "Redis version does not support ACL API necessary for index protection");
   }
 
-  // read commands
-  if (clusterConfig.type == ClusterType_RedisLabs) {
-    RM_TRY(RMCreateSearchCommand(ctx, "FT.AGGREGATE",
-           SafeCmd(DistAggregateCommand), "readonly", 0, 1, -2, "read", false))
-  } else {
-    RM_TRY(RMCreateSearchCommand(ctx, "FT.AGGREGATE",
-           SafeCmd(DistAggregateCommand), "readonly", 0, 0, -1, "read", false))
-  }
-  RM_TRY(RMCreateSearchCommand(ctx, "FT.INFO", SafeCmd(InfoCommandHandler), "readonly", 0, 0, -1, "", false))
-  RM_TRY(RMCreateSearchCommand(ctx, "FT.SEARCH", SafeCmd(DistSearchCommand), "readonly", 0, 0, -1, "read", false))
-  RM_TRY(RMCreateSearchCommand(ctx, "FT.PROFILE", SafeCmd(ProfileCommandHandler), "readonly", 0, 0, -1, "read", false))
-  if (clusterConfig.type == ClusterType_RedisLabs) {
-    RM_TRY(RMCreateSearchCommand(ctx, "FT.CURSOR", SafeCmd(CursorCommand), "readonly", 3, 1, -3, "read", false))
-  } else {
-    RM_TRY(RMCreateSearchCommand(ctx, "FT.CURSOR", SafeCmd(CursorCommand), "readonly", 0, 0, -1, "read", false))
-  }
-  RM_TRY(RMCreateSearchCommand(ctx, "FT.SPELLCHECK", SafeCmd(SpellCheckCommandHandler), "readonly", 0, 0, -1, "", false))
+  // Coordinator commands don't operate on Redis keys.
+  // The enterprise proxy gets any special routing metadata from pack/ramp-enterprise.yml.
+  RM_TRY(RMCreateSearchCommand(ctx, "FT.AGGREGATE",
+         SafeCmd(DistAggregateCommand), "readonly", 0, 0, 0, "read", false))
+  RM_TRY(RMCreateSearchCommand(ctx, "FT.INFO", SafeCmd(InfoCommandHandler), "readonly", 0, 0, 0, "", false))
+  RM_TRY(RMCreateSearchCommand(ctx, "FT.SEARCH", SafeCmd(DistSearchCommand), "readonly", 0, 0, 0, "read", false))
+  RM_TRY(RMCreateSearchCommand(ctx, "FT.PROFILE", SafeCmd(ProfileCommandHandler), "readonly", 0, 0, 0, "read", false))
+  RM_TRY(RMCreateSearchCommand(ctx, "FT.CURSOR", SafeCmd(CursorCommand), "readonly", 0, 0, 0, "read", false))
+  RM_TRY(RMCreateSearchCommand(ctx, "FT.SPELLCHECK", SafeCmd(SpellCheckCommandHandler), "readonly", 0, 0, 0, "", false))
   // Assumes "_FT.DEBUG" is registered (from `RediSearch_InitModuleInternal`)
   RM_TRY(RegisterCoordDebugCommands(RedisModule_GetCommand(ctx, "_FT.DEBUG")));
 
@@ -3887,48 +3879,48 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     }
     RedisModule_Log(ctx, "notice", "Register write commands");
     // write commands (on enterprise we do not define them, the dmc take care of them)
-    RM_TRY(RMCreateSearchCommand(ctx, "FT.CREATE", SafeCmd(FanoutCommandHandlerIndexless), "write deny-oom", 0, 0, -1, "", false))
-    RM_TRY(RMCreateSearchCommand(ctx, "FT._CREATEIFNX", SafeCmd(FanoutCommandHandlerIndexless), "write deny-oom", 0, 0, -1, "", false))
-    RM_TRY(RMCreateSearchCommand(ctx, "FT.ALTER", SafeCmd(FanoutCommandHandlerWithIndexAtFirstArg), "write deny-oom", 0, 0, -1, "", false))
-    RM_TRY(RMCreateSearchCommand(ctx, "FT._ALTERIFNX", SafeCmd(FanoutCommandHandlerWithIndexAtFirstArg), "write deny-oom", 0, 0, -1, "", false))
-    RM_TRY(RMCreateSearchCommand(ctx, "FT.DROPINDEX", SafeCmd(FanoutCommandHandlerWithIndexAtFirstArg), "write",0, 0, -1, "write slow dangerous", false))
+    RM_TRY(RMCreateSearchCommand(ctx, "FT.CREATE", SafeCmd(FanoutCommandHandlerIndexless), "write deny-oom", 0, 0, 0, "", false))
+    RM_TRY(RMCreateSearchCommand(ctx, "FT._CREATEIFNX", SafeCmd(FanoutCommandHandlerIndexless), "write deny-oom", 0, 0, 0, "", false))
+    RM_TRY(RMCreateSearchCommand(ctx, "FT.ALTER", SafeCmd(FanoutCommandHandlerWithIndexAtFirstArg), "write deny-oom", 0, 0, 0, "", false))
+    RM_TRY(RMCreateSearchCommand(ctx, "FT._ALTERIFNX", SafeCmd(FanoutCommandHandlerWithIndexAtFirstArg), "write deny-oom", 0, 0, 0, "", false))
+    RM_TRY(RMCreateSearchCommand(ctx, "FT.DROPINDEX", SafeCmd(FanoutCommandHandlerWithIndexAtFirstArg), "write",0, 0, 0, "write slow dangerous", false))
     // TODO: Either make ALL replication commands internal (such that no need for ACL check), or add ACL check.
-    RM_TRY(RMCreateSearchCommand(ctx, "FT._DROPINDEXIFX", SafeCmd(FanoutCommandHandlerIndexless), "write",0, 0, -1, "write slow dangerous", false))
+    RM_TRY(RMCreateSearchCommand(ctx, "FT._DROPINDEXIFX", SafeCmd(FanoutCommandHandlerIndexless), "write",0, 0, 0, "write slow dangerous", false))
     // search write slow dangerous
-    RM_TRY(RMCreateSearchCommand(ctx, "FT.DICTADD", SafeCmd(FanoutCommandHandlerIndexless), "write deny-oom", 0, 0, -1, "", false))
-    RM_TRY(RMCreateSearchCommand(ctx, "FT.DICTDEL", SafeCmd(FanoutCommandHandlerIndexless), "write", 0, 0, -1, "", false))
-    RM_TRY(RMCreateSearchCommand(ctx, "FT.ALIASADD", SafeCmd(FanoutCommandHandlerWithIndexAtSecondArg), "write deny-oom", 0, 0, -1, "", false))
-    RM_TRY(RMCreateSearchCommand(ctx, "FT._ALIASADDIFNX", SafeCmd(FanoutCommandHandlerIndexless), "write deny-oom", 0, 0, -1, "", false))
-    RM_TRY(RMCreateSearchCommand(ctx, "FT.ALIASDEL", SafeCmd(FanoutCommandHandlerIndexless), "write", 0, 0, -1, "", false))
-    RM_TRY(RMCreateSearchCommand(ctx, "FT._ALIASDELIFX", SafeCmd(FanoutCommandHandlerIndexless), "write", 0, 0, -1, "", false))
-    RM_TRY(RMCreateSearchCommand(ctx, "FT.ALIASUPDATE", SafeCmd(FanoutCommandHandlerWithIndexAtSecondArg), "write deny-oom", 0, 0, -1, "", false))
-    RM_TRY(RMCreateSearchCommand(ctx, "FT.SYNUPDATE", SafeCmd(FanoutCommandHandlerWithIndexAtFirstArg),"write deny-oom", 0, 0, -1, "", false))
+    RM_TRY(RMCreateSearchCommand(ctx, "FT.DICTADD", SafeCmd(FanoutCommandHandlerIndexless), "write deny-oom", 0, 0, 0, "", false))
+    RM_TRY(RMCreateSearchCommand(ctx, "FT.DICTDEL", SafeCmd(FanoutCommandHandlerIndexless), "write", 0, 0, 0, "", false))
+    RM_TRY(RMCreateSearchCommand(ctx, "FT.ALIASADD", SafeCmd(FanoutCommandHandlerWithIndexAtSecondArg), "write deny-oom", 0, 0, 0, "", false))
+    RM_TRY(RMCreateSearchCommand(ctx, "FT._ALIASADDIFNX", SafeCmd(FanoutCommandHandlerIndexless), "write deny-oom", 0, 0, 0, "", false))
+    RM_TRY(RMCreateSearchCommand(ctx, "FT.ALIASDEL", SafeCmd(FanoutCommandHandlerIndexless), "write", 0, 0, 0, "", false))
+    RM_TRY(RMCreateSearchCommand(ctx, "FT._ALIASDELIFX", SafeCmd(FanoutCommandHandlerIndexless), "write", 0, 0, 0, "", false))
+    RM_TRY(RMCreateSearchCommand(ctx, "FT.ALIASUPDATE", SafeCmd(FanoutCommandHandlerWithIndexAtSecondArg), "write deny-oom", 0, 0, 0, "", false))
+    RM_TRY(RMCreateSearchCommand(ctx, "FT.SYNUPDATE", SafeCmd(FanoutCommandHandlerWithIndexAtFirstArg),"write deny-oom", 0, 0, 0, "", false))
 
     // Deprecated OSS commands
-    RM_TRY(RMCreateSearchCommand(ctx, "FT.GET", SafeCmd(SingleShardCommandHandlerWithIndexAtFirstArg), "readonly", 0, 0, -1, "read", false))
-    RM_TRY(RMCreateSearchCommand(ctx, "FT.ADD", SafeCmd(SingleShardCommandHandlerWithIndexAtFirstArg), "write deny-oom", 0, 0, -1, "write", false))
-    RM_TRY(RMCreateSearchCommand(ctx, "FT.DEL", SafeCmd(SingleShardCommandHandlerWithIndexAtFirstArg), "write", 0, 0, -1, "write", false))
-    RM_TRY(RMCreateSearchCommand(ctx, "FT.DROP", SafeCmd(FanoutCommandHandlerWithIndexAtFirstArg), "write", 0, 0, -1, "write slow dangerous", false))
-    RM_TRY(RMCreateSearchCommand(ctx, "FT._DROPIFX", SafeCmd(FanoutCommandHandlerIndexless), "write", 0, 0, -1, "write", false))
+    RM_TRY(RMCreateSearchCommand(ctx, "FT.GET", SafeCmd(SingleShardCommandHandlerWithIndexAtFirstArg), "readonly", 0, 0, 0, "read", false))
+    RM_TRY(RMCreateSearchCommand(ctx, "FT.ADD", SafeCmd(SingleShardCommandHandlerWithIndexAtFirstArg), "write deny-oom", 0, 0, 0, "write", false))
+    RM_TRY(RMCreateSearchCommand(ctx, "FT.DEL", SafeCmd(SingleShardCommandHandlerWithIndexAtFirstArg), "write", 0, 0, 0, "write", false))
+    RM_TRY(RMCreateSearchCommand(ctx, "FT.DROP", SafeCmd(FanoutCommandHandlerWithIndexAtFirstArg), "write", 0, 0, 0, "write slow dangerous", false))
+    RM_TRY(RMCreateSearchCommand(ctx, "FT._DROPIFX", SafeCmd(FanoutCommandHandlerIndexless), "write", 0, 0, 0, "write", false))
 #endif
 
   // cluster set commands. We filter from the proxy, but do not mark them as internal.
   RM_TRY(RMCreateSearchCommand(ctx, REDISEARCH_MODULE_NAME".CLUSTERSET",
          SafeCmd(SetClusterCommand),
          IsEnterprise() ? "readonly allow-loading deny-script " CMD_PROXY_FILTERED : "readonly allow-loading deny-script",
-         0, 0, -1, "", false))
+         0, 0, 0, "", false))
   RM_TRY(RMCreateSearchCommand(ctx, REDISEARCH_MODULE_NAME".CLUSTERREFRESH",
          SafeCmd(RefreshClusterCommand),
          IsEnterprise() ? "readonly deny-script " CMD_PROXY_FILTERED : "readonly deny-script",
-         0, 0, -1, "", false))
+         0, 0, 0, "", false))
   RM_TRY(RMCreateSearchCommand(ctx, REDISEARCH_MODULE_NAME".CLUSTERINFO",
          SafeCmd(ClusterInfoCommand),
          IsEnterprise() ? "readonly allow-loading deny-script " CMD_PROXY_FILTERED : "readonly allow-loading deny-script",
-         0, 0, -1, "", false))
+         0, 0, 0, "", false))
 
   // Deprecated commands. Grouped here for easy tracking
-  RM_TRY(RMCreateSearchCommand(ctx, "FT.MGET", SafeCmd(MGetCommandHandler), "readonly", 0, 0, -1, "read", false))
-  RM_TRY(RMCreateSearchCommand(ctx, "FT.TAGVALS", SafeCmd(TagValsCommandHandler), "readonly", 0, 0, -1, "read slow dangerous", false))
+  RM_TRY(RMCreateSearchCommand(ctx, "FT.MGET", SafeCmd(MGetCommandHandler), "readonly", 0, 0, 0, "read", false))
+  RM_TRY(RMCreateSearchCommand(ctx, "FT.TAGVALS", SafeCmd(TagValsCommandHandler), "readonly", 0, 0, 0, "read slow dangerous", false))
 
   return REDISMODULE_OK;
 }

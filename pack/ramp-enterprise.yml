@@ -56,6 +56,12 @@ exclude_commands:
     - search.CLUSTERREFRESH
     - search.CLUSTERINFO
 overide_command:
-    - {"command_arity": -1, "command_name": "FT.AGGREGATE", "first_key": 0, "flags": ["readonly" ], "last_key": 1, "step": -2}
-    - {"command_arity": -1, "command_name": "FT.CURSOR", "first_key": 3, "flags": ["readonly"], "last_key": 1, "step": -3}
-    - {"command_arity": -1, "command_name": "FT.SEARCH", "first_key": 0, "flags": ["readonly"], "last_key": 0, "step": -1}
+    # The step field is used to encode the proxy's request/reply policy:
+    # -1 : requesting::random_shard
+    # -2 : requesting::random_shard, replying::retrieve_cursor
+    # -3 : requesting::by_cursor, replying::retrieve_cursor
+    # Keep these policies in the pack metadata so older Redis versions don't see
+    # negative key-step values through the module command registration itself.
+    - {"command_arity": -1, "command_name": "FT.AGGREGATE", "first_key": 0, "flags": ["module", "readonly"], "last_key": 1, "step": -2}
+    - {"command_arity": -2, "command_name": "FT.CURSOR", "first_key": 3, "flags": ["module", "readonly"], "last_key": 1, "step": -3}
+    - {"command_arity": -1, "command_name": "FT.SEARCH", "first_key": 0, "flags": ["module", "readonly"], "last_key": 0, "step": -1}
