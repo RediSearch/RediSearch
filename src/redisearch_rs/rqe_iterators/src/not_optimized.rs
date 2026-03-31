@@ -99,6 +99,20 @@ where
         result
     }
 
+    /// Advance the wildcard iterator and set [`forced_eof`](Self::forced_eof)
+    /// if it is exhausted.
+    ///
+    /// Returns `Ok(true)` if the wildcard iterator produced a new document,
+    /// `Ok(false)` if it reached EOF.
+    #[inline(always)]
+    fn advance_wcii_or_eof(&mut self) -> Result<bool, RQEIteratorError> {
+        if self.wcii.read()?.is_none() {
+            self.forced_eof = true;
+            return Ok(false);
+        }
+        Ok(true)
+    }
+
     /// Check whether the child iterator does **not** contain a document
     /// with the given `doc_id`.
     #[inline(always)]
@@ -122,8 +136,7 @@ where
         // We check the return value (not `at_eof`) because iterators
         // may report `at_eof() == true` immediately after returning the last
         // element, while the returned value is still valid.
-        if self.wcii.read()?.is_none() {
-            self.forced_eof = true;
+        if !self.advance_wcii_or_eof()? {
             return Ok(false);
         }
 
@@ -137,8 +150,7 @@ where
             } else if wcii_last == self.child.last_doc_id() {
                 // Case 2: Both iterators at the same position, advance both.
                 self.child.read()?;
-                if self.wcii.read()?.is_none() {
-                    self.forced_eof = true;
+                if !self.advance_wcii_or_eof()? {
                     return Ok(false);
                 }
             } else {
