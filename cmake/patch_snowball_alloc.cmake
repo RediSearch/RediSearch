@@ -5,6 +5,8 @@
 #   - Replaces standard allocator calls with rm_* equivalents
 #   - Fixes relative include paths for build-tree files
 #
+# This script is intended to be run on the snowball C stemmer source files.
+#
 # Usage:
 #   cmake -DINPUT=<src> -DOUTPUT=<dst> -P cmake/patch_snowball_alloc.cmake
 

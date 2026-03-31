@@ -23,6 +23,7 @@ Building and testing RediSearch requires the following dependencies:
 - `cmake >= 3.25.1`
 - `boost == 1.88.0` (optional — CMake will fetch it automatically, but with a build time penalty)
 - `build-essential` (on Debian/Ubuntu) or equivalent build tools on other systems
+- `perl` - for the snowball stemmer
 - `python3` and `python3-pip` (for running tests)
 - `openssl-devel` / `libssl-dev` (for secure connections)
 

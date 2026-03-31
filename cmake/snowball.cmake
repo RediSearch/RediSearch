@@ -44,10 +44,6 @@ set_target_properties(snowball_compiler PROPERTIES
 # Stage 2: Parse modules.txt and generate C stemmers
 # =============================================================================
 
-# Map encoding names to charset file prefixes (empty = no charset file needed)
-set(_SNOWBALL_CHARSET_ISO_8859_2 "${SNOWBALL_SRC}/charsets/ISO-8859-2.sbl")
-set(_SNOWBALL_CHARSET_KOI8_R "${SNOWBALL_SRC}/charsets/KOI8-R.sbl")
-
 set(SNOWBALL_STEMMER_SOURCES "")
 set(SNOWBALL_STEMMER_HEADERS "")
 
@@ -61,47 +57,28 @@ foreach(_line IN LISTS _MODULES_LINES)
     # Parse: algorithm  encodings  aliases [parent_algorithm]
     string(REGEX MATCH "^([^ \t]+)[ \t]+([^ \t]+)" _ "${_line}")
     set(_alg "${CMAKE_MATCH_1}")
-    set(_enc_list "${CMAKE_MATCH_2}")
 
-    string(REPLACE "," ";" _encodings "${_enc_list}")
-    foreach(_enc IN LISTS _encodings)
-        set(_stem_base "stem_${_enc}_${_alg}")
-        set(_stem_c "${SNOWBALL_BUILD}/src_c/${_stem_base}.c")
-        set(_stem_h "${SNOWBALL_BUILD}/src_c/${_stem_base}.h")
+    set(_stem_base "stem_UTF_8_${_alg}")
+    set(_stem_c "${SNOWBALL_BUILD}/src_c/${_stem_base}.c")
+    set(_stem_h "${SNOWBALL_BUILD}/src_c/${_stem_base}.h")
 
-        # Build the compiler argument list
-        set(_args "")
-        if(DEFINED _SNOWBALL_CHARSET_${_enc})
-            list(APPEND _args "${_SNOWBALL_CHARSET_${_enc}}")
-        endif()
-        list(APPEND _args "${SNOWBALL_SRC}/algorithms/${_alg}.sbl")
-        list(APPEND _args -o "${SNOWBALL_BUILD}/src_c/${_stem_base}")
-        list(APPEND _args -eprefix "${_alg}_${_enc}_")
-        list(APPEND _args -r runtime)
-        if(_enc STREQUAL "UTF_8")
-            list(APPEND _args -u)
-        endif()
+    add_custom_command(
+        OUTPUT "${_stem_c}" "${_stem_h}"
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${SNOWBALL_BUILD}/src_c"
+        COMMAND $<TARGET_FILE:snowball_compiler>
+            "${SNOWBALL_SRC}/algorithms/${_alg}.sbl"
+            -o "${SNOWBALL_BUILD}/src_c/${_stem_base}"
+            -eprefix "${_alg}_UTF_8_"
+            -r runtime
+            -u
+        DEPENDS snowball_compiler
+                "${SNOWBALL_SRC}/algorithms/${_alg}.sbl"
+        COMMENT "Generating snowball stemmer: ${_stem_base}"
+        VERBATIM
+    )
 
-        # Collect charset dependencies
-        set(_charset_dep "")
-        if(DEFINED _SNOWBALL_CHARSET_${_enc})
-            set(_charset_dep "${_SNOWBALL_CHARSET_${_enc}}")
-        endif()
-
-        add_custom_command(
-            OUTPUT "${_stem_c}" "${_stem_h}"
-            COMMAND ${CMAKE_COMMAND} -E make_directory "${SNOWBALL_BUILD}/src_c"
-            COMMAND $<TARGET_FILE:snowball_compiler> ${_args}
-            DEPENDS snowball_compiler
-                    "${SNOWBALL_SRC}/algorithms/${_alg}.sbl"
-                    ${_charset_dep}
-            COMMENT "Generating snowball stemmer: ${_stem_base}"
-            VERBATIM
-        )
-
-        list(APPEND SNOWBALL_STEMMER_SOURCES "${_stem_c}")
-        list(APPEND SNOWBALL_STEMMER_HEADERS "${_stem_h}")
-    endforeach()
+    list(APPEND SNOWBALL_STEMMER_SOURCES "${_stem_c}")
+    list(APPEND SNOWBALL_STEMMER_HEADERS "${_stem_h}")
 endforeach()
 
 # =============================================================================
@@ -120,6 +97,7 @@ add_custom_command(
         src_c
         "${SNOWBALL_SRC}/libstemmer/modules.txt"
         "${SNOWBALL_MKINC}"
+        utf8
     DEPENDS "${SNOWBALL_SRC}/libstemmer/mkmodules.pl"
             "${SNOWBALL_SRC}/libstemmer/modules.txt"
     COMMENT "Generating snowball module registry (modules.h)"
