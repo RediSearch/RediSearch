@@ -727,6 +727,8 @@ void iterStartCb(void *p) {
   MRCommand_SetSlotInfo(cmd, shards[0].slotRanges);
 
   // This implies that every connection to each shard will work inside a single IO thread
+  // Take an extra reference to prevent the iterator from being freed mid-loop.
+  MRIterator_IncreaseRefCount(it);
   for (size_t i = 0; i < it->len; i++) {
     if (MRCluster_SendCommand(io_runtime_ctx, &it->cbxs[i].cmd,
                               mrIteratorRedisCB, &it->cbxs[i]) == REDIS_ERR) {
@@ -738,6 +740,8 @@ void iterStartCb(void *p) {
       it->ctx.cb(&it->cbxs[i], err);
     }
   }
+  // Release the extra reference we took at the start of the loop.
+  MRIterator_Release(it);
 
   // Clean up the data structure
   rm_free(data);
