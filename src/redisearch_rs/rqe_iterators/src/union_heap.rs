@@ -177,12 +177,13 @@ where
 
     /// Advances all lagging children in the heap to at least `doc_id`.
     ///
-    /// In `QUICK_EXIT` mode, returns `Some(child_idx)` on an exact match,
+    /// In `QUICK_EXIT` mode, returns the child index on an exact match,
     /// leaving remaining lagging children for the next call.
+    /// Returns `usize::MAX` if no exact match was found.
     fn advance_lagging_children(
         &mut self,
         doc_id: t_docId,
-    ) -> Result<Option<usize>, RQEIteratorError> {
+    ) -> Result<usize, RQEIteratorError> {
         while let Some((child_doc_id, idx)) = self.heap.peek() {
             if child_doc_id >= doc_id {
                 break;
@@ -193,7 +194,7 @@ where
                 Some(SkipToOutcome::Found(r)) => {
                     self.heap.replace_root(r.doc_id, idx);
                     if QUICK_EXIT {
-                        return Ok(Some(idx));
+                        return Ok(idx);
                     }
                 }
                 Some(SkipToOutcome::NotFound(r)) => {
@@ -204,14 +205,15 @@ where
                 }
             }
         }
-        Ok(None)
+        Ok(usize::MAX)
     }
 
     /// Ensures all children are at or beyond `doc_id`.
     ///
     /// On the first call (heap empty), initializes the heap by skipping every
     /// child to the target. Otherwise delegates to [`Self::advance_lagging_children`].
-    fn advance_to(&mut self, doc_id: t_docId) -> Result<Option<usize>, RQEIteratorError> {
+    /// Returns a child index on early match, or `usize::MAX` if none.
+    fn advance_to(&mut self, doc_id: t_docId) -> Result<usize, RQEIteratorError> {
         if self.heap.is_empty() && self.last_doc_id() == 0 {
             for (idx, child) in self.children.iter_mut().enumerate() {
                 if child.at_eof() {
@@ -224,7 +226,7 @@ where
                     None => {}
                 }
             }
-            Ok(None)
+            Ok(usize::MAX)
         } else {
             self.advance_lagging_children(doc_id)
         }
@@ -316,8 +318,8 @@ where
         let early_match = self.advance_to(doc_id)?;
 
         // Early match found during advancement — skip the heap peek.
-        if QUICK_EXIT && let Some(child_idx) = early_match {
-            self.quick_set_from_child(child_idx);
+        if QUICK_EXIT && early_match != usize::MAX {
+            self.quick_set_from_child(early_match);
             return Ok(Some(SkipToOutcome::Found(&mut self.result)));
         }
 
