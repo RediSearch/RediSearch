@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "rtree.hpp"
+#include "search_ctx.h"
 
 #include <string>     // std::string, std::char_traits
 #include <sstream>    // std::stringstream

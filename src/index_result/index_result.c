@@ -11,36 +11,6 @@
 #include "rmalloc.h"
 #include <math.h>
 #include <sys/param.h>
-#include "util/arr.h"
-#include "value.h"
-
-void RSYieldableMetric_Concat(RSYieldableMetric **parent, RSYieldableMetric *child) {
-  if (child) {
-    // Passing ownership over the RSValues in the child metrics, but not on the array itself
-    *parent = array_ensure_append_n(*parent, child, array_len(child));
-    array_clear(child);
-  }
-}
-
-/* Free the metrics */
-void ResultMetrics_Free(RSYieldableMetric *metrics) {
-  // array_free_ex is NULL safe
-  array_free_ex(metrics, RSValue_DecrRef(((RSYieldableMetric *)ptr)->value));
-}
-
-void ResultMetrics_Reset_func(RSIndexResult *r) {
-  ResultMetrics_Reset(r);
-}
-
-RSYieldableMetric* RSYieldableMetrics_Clone(RSYieldableMetric *src) {
-   // Create a copy of the array and increase the refcount for each element's value
-    RSYieldableMetric* ret = NULL;
-    ret = array_ensure_append_n(ret, src, array_len(src));
-    for (size_t i = 0; i < array_len(ret); i++)
-      RSValue_IncrRef(ret[i].value);
-
-    return ret;
-}
 
 int RSIndexResult_HasOffsets(const RSIndexResult *res) {
   switch (res->data.tag) {
@@ -167,9 +137,4 @@ size_t IndexResult_GetMatchedTerms(const RSIndexResult *r, RSQueryTerm **arr, si
   size_t arrlen = 0;
   result_GetMatchedTerms(r, arr, cap, &arrlen);
   return arrlen;
-}
-
-void ResetAndPushMetricData(RSIndexResult *result, double val, RLookupKey *key) {
-    ResultMetrics_Reset(result);
-    ResultMetrics_Add(result, key, RSValue_NewNumber(val));
 }

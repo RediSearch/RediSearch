@@ -549,9 +549,9 @@ static int rpMetricsNext(ResultProcessor *base, SearchResult *res) {
     return rc;
   }
 
-  arrayof(RSYieldableMetric) arr = SearchResult_GetIndexResult(res)->metrics;
-  for (size_t i = 0; i < array_len(arr); i++) {
-    RLookup_WriteKey(arr[i].key, SearchResult_GetRowDataMut(res), arr[i].value);
+  RSYieldableMetricSlice slice = MetricsVec_AsSlice(&SearchResult_GetIndexResult(res)->metrics);
+  for (size_t i = 0; i < slice.len; i++) {
+    RLookup_WriteOwnKey(slice.data[i].key, SearchResult_GetRowDataMut(res), RSValue_NewNumber(slice.data[i].value));
   }
 
   return rc;

@@ -170,7 +170,7 @@ impl<'index> RSAggregateResult<'index> {
     /// # Safety
     /// The given `child` has to stay valid for the lifetime of this aggregate result. Else reading
     /// the child with [`Self::get()`] will cause undefined behavior.
-    pub fn push_borrowed(&mut self, child: &'index RSIndexResult) {
+    pub fn push_borrowed(&mut self, child: &'index RSIndexResult<'index>) {
         match self {
             RSAggregateResult::Borrowed {
                 records, kind_mask, ..

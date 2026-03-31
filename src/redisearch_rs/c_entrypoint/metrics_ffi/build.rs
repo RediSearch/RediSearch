@@ -7,10 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-pub(crate) mod c_mocks;
+use build_utils::run_cbindgen;
 
-mod codec;
-mod controlled_cursor;
-mod index;
-mod index_result;
-mod metrics;
+fn main() {
+    run_cbindgen("../../headers/metrics.h").unwrap();
+}

@@ -10,6 +10,8 @@
 #pragma once
 
 #include "search_disk_api.h"
+#include "spec.h"
+#include "document.h"
 #include "iterators/iterator_api.h"
 #include "redismodule.h"
 
