@@ -3,6 +3,7 @@ Related do
 
 One Pager: Enhanced FT.AGGREGATE with Whole Document Fetching, In-Group Sorting, Limiting, and Deduplication Control (Raymond James)
 
+
 Document status
 
 WIP
@@ -33,7 +34,7 @@ Example 1: Key + Score + Full Payload
 6.3 Coordinator Merge
 6.4 Tie-Breaking
 6.5 SORTBY / LIMIT Combinations
-7. Optimization: Deferred Keyspace Access
+7. Future Optimization: Deferred Keyspace Access
 7.1 Detection
 7.2 Constraint
 7.3 The Tradeoff
@@ -44,7 +45,8 @@ Example 1: Key + Score + Full Payload
 9.2 Implementation Gaps for DEDUP
 Deep Equality for Maps
 JSON * and the Trio Representation
-Shard → Coordinator Serialization
+❗ Serialization - Critical
+10. Coordinator-Side Entry Decomposition
 Open Questions
 1. Motivation
 Within a GROUPBY, users need to collect per-document data from each group - not just aggregated scalars.
@@ -83,6 +85,22 @@ All other reducers (COUNT, SUM, MIN, MAX, AVG, STDDEV, QUANTILE, COUNT_DISTINCT,
 
 Per-document extraction is single-field only, and sorting is limited to top-1 (FIRST_VALUE).
 
+Note: JSON document comparisons in TOLIST are string-based. Structurally equivalent documents with different key ordering are treated as distinct:
+
+
+
+127.0.0.1:6379> FT.AGGREGATE idx:relationships * LOAD 1 $ GROUPBY 1 @opportunityId REDUCE TOLIST 1 $
+1# attributes => (empty array)
+2# format => STRING
+3# results =>
+   1) 1# extra_attributes =>
+         1# "opportunityId" => "662080659"
+         2# "__generated_aliastolist$" =>
+            1) "{\"relationshipId\":232773244,\"relationshipName\":\"401K SEP\",\"opportunity\":{\"id\":662080659,\"subType\":\"ADD_TOD\",\"target\":\"False\",\"hasComments\":\"False\",\"read\":\"True\",\"bestByDate\":\"2027-07-04\"}}"
+            2) "{\"relationshipName\":\"401K SEP\",\"relationshipId\":232773244,\"opportunity\":{\"id\":662080659,\"subType\":\"ADD_TOD\",\"target\":\"False\",\"hasComments\":\"False\",\"read\":\"True\",\"bestByDate\":\"2027-07-04\"}}"
+      2# values => (empty array)
+4# total_results => (integer) 1
+5# warning => (empty array)
 3. Syntax
 
 
@@ -121,7 +139,7 @@ DEDUP
 
 No
 
-Enable deduplication. When present, entries with identical projected fields are removed, keeping only the best representative per sort key. By default, duplicates are retained.
+Enable deduplication. When present, entries with identical projected fields are removed, keeping only the best representative according to the sort keys. By default, duplicates are retained.
 
 LIMIT <offset> <count>
 
@@ -237,14 +255,14 @@ Coordinator Finalize: for each surviving entry, build a flat KV array from field
 The coordinator runs the same heap pipeline. The difference is the input: instead of raw documents, each Add() receives entries from a shard's COLLECT output (the alias column contains an array of KV entries). The coordinator unwraps these entries and inserts them into its own bounded heap.
 
 6.4 Tie-Breaking
-TBD - needs decision on shard-side and coordinator-side tie-breaking strategy.
+Tie-breaking reuses the FT.AGGREGATE approach: internal document ID as the final comparator on both shard and coordinator. Since the coordinator does not populate document IDs (they remain 0), coordinator-side ties are effectively arbitrary. Users requiring deterministic tie-breaking can append @__key as the least-significant sort key to break ties by document key name.
 
 6.5 SORTBY / LIMIT Combinations
-SORTBY present → bounded heap (LIMIT explicit or default), sorted output.
+SORTBY present → bounded heap (LIMIT explicit or 10 DEFAULT_LIMIT), sorted output.
 
 SORTBY absent → growing array, insertion order (capped if LIMIT present, unbounded otherwise).
 
-7. Optimization: Deferred Keyspace Access
+7. Future Optimization: Deferred Keyspace Access
 When COLLECT has * in FIELDS, it needs to load the full document for each matching row. This is expensive if done eagerly for every document (most of which may not survive the heap).
 
 7.1 Detection
@@ -253,9 +271,9 @@ At reducer creation time, a single flag check on the source lookup determines th
 
 
 bool loadAllActive = (options->srclookup->_options & RLOOKUP_OPT_ALLLOADED) != 0;
-Flag set — An upstream LOAD * step already loads all document fields into every source row. COLLECT iterates them during Add(). No optimization possible (data is already loaded).
+Flag set - An upstream LOAD * step already loads all document fields into every source row. COLLECT iterates them during Add(). No optimization possible (data is already loaded).
 
-Flag not set — COLLECT is the sole * consumer. Optimization is possible.
+Flag not set - COLLECT is the sole * consumer. Optimization is possible.
 
 7.2 Constraint
 This check is stable because the pipeline enforces that LOAD steps can only appear before any GROUPBY/APPLY/FILTER. No step after the GROUPBY can set RLOOKUP_OPT_ALLLOADED on the root lookup. If a future change relaxes this ordering constraint, the optimization check must be revisited.
@@ -292,7 +310,7 @@ After all groups have accumulated (Accum phase drains upstream), collect all win
 
 Risk: Document may have expired between Accum and the batch load phase.
 
-Each COLLECT's Finalize() resolves * from the shared map — no I/O during yield.
+Each COLLECT's Finalize() resolves * from the shared map - no I/O during yield.
 
 image-20260324-143234.png
 Note: A finer-grained optimization is possible - differentiating between sort key fields (needed during Add() for heap ordering) and other projected fields (only needed at output time). Sort keys that are already available (e.g., from the sorting vector or schema) wouldn't need deferred loading at all, and only the remaining projected fields would be deferred. However, this requires more complicated tracking of key usage - for example, knowing whether the Grouper is the sole consumer of a key or whether other pipeline steps also depend on it. Left out for now in favor of the simpler all-or-nothing * deferral.
@@ -317,21 +335,21 @@ When absent, all entries are retained (including duplicates). When present, entr
 dedup_and_insert(heap, entry):
     // 1. Would this entry make it into the heap?
     if heap.full AND compare(entry, heap_worst()) <= 0:
-        return  // worse than worst — skip dedup scan entirely
+        return  // worse than worst - skip dedup scan entirely
     // 2. Scan heap for duplicates (projected fields only)
     for i in 1..heap.count:
         existing = heap.data[i]
         if NOT deep_equal(entry.projected, existing.projected):
-            continue  // different projected fields — not a duplicate
-        // Duplicate found — keep the one with the better sort key
+            continue  // different projected fields - not a duplicate
+        // Duplicate found - keep the one with the better sort key
         if compare_sort_keys(entry, existing) > 0:
-            // New entry has better sort key — replace existing
+            // New entry has better sort key - replace existing
             heap_replace(heap, i, entry)
-        // Otherwise existing is better or equal — skip new entry
+        // Otherwise existing is better or equal - skip new entry
         return
-    // 3. No duplicate — normal insert
+    // 3. No duplicate - normal insert
     if heap.full AND compare(entry, heap_worst()) <= 0:
-        return  // worse than worst — discard
+        return  // worse than worst - discard
     heap_insert_or_exchange(heap, entry)
 Optimization: If @__key is one of the projected fields, dedup can be skipped entirely - documents with distinct keys are inherently unique.
 
@@ -344,14 +362,81 @@ RSValue_CmpNC returns 0 (equal) for any pair of maps regardless of content - a s
 JSON * and the Trio Representation
 LOAD * on JSON stores the root as an RSValue_Trio with three slots: left (scalar/string for sorting), middle (serialized JSON string), and right (expanded RSValue_Map). The generic comparison path follows left - string comparison - which is unreliable since key ordering in JSON objects is not guaranteed. COLLECT must unwrap to right and compare using the new map equality. This is scoped to the COLLECT/dedup path; global Trio behavior stays unchanged.
 
-Shard → Coordinator Serialization
-The default reply path for a Trio sends middle (the serialized JSON string) over the wire. When the coordinator deserializes that via MRReply_ToValue, it gets a plain RSValue string - the expanded map is lost. For coordinator-side dedup to work on structured data, COLLECT's shard Finalize must serialize the * column using the expanded form (right), so MRReply_ToValue reconstructs it as an RSValue_Map (RESP3) or a flat key-value array (RESP2). This is a COLLECT-specific serialization choice, not a change to global Trio reply behavior.
+❗ Serialization - Critical
+T. e default reply path for a Trio sends middle (the serialized JSON string) over the wire. When the coordinator deserializes that via MRReply_ToValue, it gets a plain RSValue string - the expanded map is lost. This applies to any JSON-path field (*, $.opportunity, etc.), not just *.
 
-Optimization: If @__key is one of the projected fields, dedup can be skipped entirely — documents with distinct keys are inherently unique.
+For coordinator-side dedup and entry decomposition (Section 10), COLLECT's shard Finalize must serialize JSON-path fields using the expanded form (right). However, the user-facing output still needs the serialized JSON string. Alternatives:
+
+ Send both representations on the wire (expanded for dedup, serialized string for output).
+
+ Get an API from the JSON module that provides key-value data along with ordering information, so the coordinator can reconstruct the serialized JSON from the expanded map while preserving original key order.
+
+ Have a JSON parser on the coordinator that can compare JSON values structurally, avoiding the need for the expanded form entirely - dedup compares JSON strings via parsed equality rather than RSValue map equality.
+
+Optimization: If @__key is one of the projected fields, dedup can be skipped entirely - documents with distinct keys are inherently unique.
+
+⚖️ Decision: deduplication of JSON values will be based on string comparison rather than deep structural equality. On the technical side, this simplifies implementation since we can leverage the existing RSValue_Cmp infrastructure.
+
+10. Coordinator-Side Entry Decomposition
+On the shard, COLLECT's Add() is called once per document. Each field (projected or sort key) is a separate slot in the source RLookupRow, accessible via RLookupRow_Get().
+
+On the coordinator, the grouper calls Add() once per shard-group row. That row has one slot per reducer alias - so the COLLECT alias (e.g., __collect_1) holds the entire COLLECT output as a single RSValue: an array of KV maps, one map per collected document. The individual document fields (@__key, @sweetness, etc.) are nested inside each map, not as separate RLookupRow slots.
+
+Example. Given REDUCE COLLECT ... FIELDS 1 @sweetness SORTBY 2 @__score DESC LIMIT 0 2 AS top_fruits, the coordinator's RLookupRow for a shard-group row looks like:
+
+Slot
+
+Value
+
+color
+
+RSValue("yellow")
+
+__collect_1
+
+RSValue(Array[ Map{sweetness: "6", __score: "0.95"}, Map{sweetness: "5", __score: "0.82"} ])
+
+The shard-side Add() extracts fields from RLookupRow slots. The coordinator cannot — the individual fields are nested inside maps, not available as separate slots. Both sides need the same heap-insertion logic (including dedup), so the shared core is factored to operate at the RSValue array level rather than the RLookupRow level. Each side fills the arrays differently, then delegates to the same core.
+
+10.1 Shared Core at RSValue Array Level
+The shared heap logic operates on raw RSValue arrays, not RLookupRow:
+
+    // Shared core — used by both shard and coordinator
+    int collect_heap_insert(CollectCtx *ctx,
+                            RSValue **projected,   // array of num_fields values
+                            RSValue **sort_keys,   // array of num_sort_keys values
+                            ...);
+
+The only difference between shard and coordinator is how they fill the projected[] and sort_keys[] arrays before calling the shared core.
+
+10.2 Function Pointer Strategy
+At reducer creation time, the Add function pointer is set based on context (following the existing FIRST_VALUE pattern from first_value.c):
+
+    rbase->Add = is_coordinator ? collectAdd_coordinator : collectAdd_shard;
+
+Shard Add — extracts from RLookupRow slots:
+
+    collectAdd_shard(reducer, instance, srcrow):
+        for each field:
+            projected[i] = RLookupRow_Get(field_keys[i], srcrow)
+        for each sort key:
+            sort_keys[i] = RLookupRow_Get(sort_key_keys[i], srcrow)
+        collect_heap_insert(instance, projected, sort_keys)
+
+Coordinator Add — reads the alias slot, iterates maps, extracts directly:
+
+    collectAdd_coordinator(reducer, instance, srcrow):
+        RSValue *arr = RLookupRow_Get(alias_key, srcrow)
+        for each map in arr:
+            RSValue_Map_GetByKeys(map, wanted_names, ..., out_values)
+            collect_heap_insert(instance, out_values, out_values + num_fields)
+
+10.3 Benefits
+- Full code reuse where it matters (dedup + heap logic in collect_heap_insert).
+- Zero overhead on the coordinator path — no inner RLookup, no RLookupRow, no atomic ref-count churn.
+- Single-pass extraction from the map (cache-friendly, no linked-list walks).
+- No branch inside Add() — the function pointer is the branch, resolved once at creation.
+- The grouper's invokeReducers loop is unaware — it calls reducer->Add(reducer, instance, srcrow) as always.
 
 Open Questions
-LIMIT default value: When LIMIT is absent (with SORTBY present), what is the default?
-
-Tie-breaking: Strategy for shard-side (doc ID? arbitrary?) and coordinator-side.
-
 Null & missing field handling: How should NULL/missing sort keys affect ordering? How should NULL projected fields appear in the output?
