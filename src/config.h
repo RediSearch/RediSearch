@@ -357,7 +357,6 @@ char *getRedisConfigValue(RedisModuleCtx *ctx, const char* confName);
     .indexerYieldEveryOpsWhileLoading = DEFAULT_INDEXER_YIELD_EVERY_OPS,       \
     .monitorExpiration = true,                                                 \
     .bgIndexingSleepDurationMicroseconds = DEFAULT_BG_INDEX_SLEEP_DURATION_US, \
-    .monitorExpiration = true,                                                 \
     .infoEmitOnZeroIndexes = false,                                            \
   }
 
