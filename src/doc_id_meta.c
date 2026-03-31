@@ -307,19 +307,26 @@ void DocIdMeta_SubscribePersistenceEvent(RedisModuleCtx *ctx) {
 // Find an existing entry in the DocIdMeta hashmap by specId.
 // Returns the entry if found, or NULL otherwise.
 static DocIdEntry *findEntry(struct DocIdMeta *docIdMeta, uint64_t specId) {
-  // Create a temporary entry for lookup
   DocIdEntry lookupKey = {.specId = specId, .docId = 0};
   return dictFetchValue(docIdMeta->entries, &lookupKey);
 }
 
-// Create a new entry in the DocIdMeta hashmap.
-// Returns the newly created entry.
-static DocIdEntry *createEntry(struct DocIdMeta *docIdMeta, uint64_t specId) {
-  DocIdEntry *entry = rm_malloc(sizeof(DocIdEntry));
-  entry->specId = specId;
-  entry->docId = DOCID_META_INVALID;
-  dictAdd(docIdMeta->entries, entry, entry);
-  return entry;
+// Find or create an entry in the DocIdMeta hashmap by specId.
+// Single dict lookup: returns existing entry, or allocates and inserts a new one.
+static DocIdEntry *findOrCreateEntry(struct DocIdMeta *docIdMeta, uint64_t specId) {
+  DocIdEntry lookupKey = {.specId = specId, .docId = 0};
+  dictEntry *existing;
+  dictEntry *de = dictAddRaw(docIdMeta->entries, &lookupKey, &existing);
+  if (de) {
+    // New entry — allocate and set as both key and value
+    DocIdEntry *entry = rm_malloc(sizeof(DocIdEntry));
+    entry->specId = specId;
+    entry->docId = DOCID_META_INVALID;
+    dictSetVal(docIdMeta->entries, de, entry);
+    return entry;
+  }
+  // Existing entry
+  return dictGetVal(existing);
 }
 
 // Internal function that works with RedisModuleKey
@@ -347,11 +354,8 @@ static int DocIdMeta_SetInternal(RedisModuleKey *key, uint64_t specId,
   }
 
   // At this point, docIdMeta is a valid, initialized pointer
-  // Try to find existing entry first, otherwise create a new one
-  DocIdEntry *entry = findEntry(docIdMeta, specId);
-  if (!entry) {
-    entry = createEntry(docIdMeta, specId);
-  }
+  // Find existing entry or create a new one (single dict lookup)
+  DocIdEntry *entry = findOrCreateEntry(docIdMeta, specId);
   entry->docId = docId;
   return REDISMODULE_OK;
 }
