@@ -70,7 +70,7 @@ static IteratorStatus HR_ReadInBatch(HybridIterator *hr, RSIndexResult *out) {
 
 static void insertResultToHeap_Metric(HybridIterator *hr, RSIndexResult *child_res, RSIndexResult **vec_res, double *upper_bound) {
 
-  RSYieldableMetric_Concat(&(*vec_res)->metrics, child_res->metrics); // Pass child metrics, if there are any
+  RSYieldableMetric_Concat(&(*vec_res)->metrics, &child_res->metrics); // Pass child metrics, if there are any
   ResultMetrics_Add(*vec_res, hr->ownKey, RSValue_NewNumber(IndexResult_NumValue(*vec_res)));
 
   if (hr->topResults->count < hr->query.k) {
@@ -80,8 +80,7 @@ static void insertResultToHeap_Metric(HybridIterator *hr, RSIndexResult *child_r
   } else {
     // Replace the worst result and reuse its memory.
     *vec_res = mmh_exchange_max(hr->topResults, *vec_res);
-    ResultMetrics_Free((*vec_res)->metrics); // Reuse
-    (*vec_res)->metrics = NULL;
+    ResultMetrics_Reset(*vec_res); // Reuse
   }
   // Set new upper bound.
   RSIndexResult *worst = mmh_peek_max(hr->topResults);
@@ -170,13 +169,7 @@ static inline void updateResultScore(RSIndexResult *res, double score, RLookupKe
   }
 
   // Update metrics array entry for downstream $score access.
-  for (size_t i = 0; i < array_len(res->metrics); i++) {
-    if (res->metrics[i].key == scoreKey) {
-      RSValue_DecrRef(res->metrics[i].value);
-      res->metrics[i].value = RSValue_NewNumber(score);
-      break;
-    }
-  }
+  MetricsVec_UpdateValue(&res->metrics, scoreKey, RSValue_NewNumber(score));
 }
 
 // Cleanup helper for computeDistances_Disk - centralizes resource cleanup.

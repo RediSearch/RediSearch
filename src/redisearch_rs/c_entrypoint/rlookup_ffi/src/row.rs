@@ -36,7 +36,7 @@ pub extern "C" fn RLookupRow_New() -> OpaqueRLookupRow {
 pub unsafe extern "C" fn RLookup_WriteKey(
     key: *const RLookupKey,
     row: Option<NonNull<OpaqueRLookupRow>>,
-    value: Option<NonNull<RsValue>>,
+    value: *const RsValue,
 ) {
     // Safety: ensured by caller (1.)
     let key = unsafe { key.as_ref() }.expect("Key must not be null");
@@ -44,10 +44,11 @@ pub unsafe extern "C" fn RLookup_WriteKey(
     // Safety: ensured by caller (2.)
     let row = unsafe { RLookupRow::from_opaque_non_null(row.expect("`row` must not be null")) };
 
-    let value = value.expect("value must not be null").as_ptr().cast_const();
+    assert!(!value.is_null(), "value must not be null");
 
-    // this method does not take ownership of `value` so we must take care not to drop it at the end of the scope
-    // (therefore the `ManuallyDrop`). Instead we explicitly clone the value before inserting it below.
+    // This method does not take ownership of `value` so we must take care not to drop it at the
+    // end of the scope (therefore the `ManuallyDrop`). Instead we explicitly clone the value
+    // before inserting it below.
     // Safety: ensured by caller (3.)
     let value = ManuallyDrop::new(unsafe { SharedRsValue::from_raw(value) });
 

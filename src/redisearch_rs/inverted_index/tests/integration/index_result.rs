@@ -9,7 +9,7 @@
 
 use ffi::RS_FIELDMASK_ALL;
 use inverted_index::{
-    RSAggregateResult, RSIndexResult, RSOffsetSlice, RSResultKind, RSResultKindMask,
+    MetricsVec, RSAggregateResult, RSIndexResult, RSOffsetSlice, RSResultKind, RSResultKindMask,
 };
 use query_term::RSQueryTerm;
 
@@ -94,7 +94,7 @@ fn pushing_to_index_result() {
     assert_eq!(ir.freq, 0);
     assert_eq!(ir.field_mask, 0);
 
-    ir.push_borrowed(&result_virt);
+    ir.push_borrowed(&result_virt, MetricsVec::new());
     assert_eq!(ir.doc_id, 2, "should inherit doc id of the child");
     assert_eq!(ir.kind(), RSResultKind::Union);
     assert_eq!(ir.weight, 1.0);
@@ -111,7 +111,7 @@ fn pushing_to_index_result() {
         )
     );
 
-    ir.push_borrowed(&result_with_frequency);
+    ir.push_borrowed(&result_with_frequency, MetricsVec::new());
     assert_eq!(ir.doc_id, 2);
     assert_eq!(ir.kind(), RSResultKind::Union);
     assert_eq!(ir.weight, 1.0);
@@ -127,7 +127,7 @@ fn to_owned_an_aggregate_index_result() {
         .weight(3.0)
         .build();
 
-    ir.push_borrowed(&num_rec);
+    ir.push_borrowed(&num_rec, MetricsVec::new());
 
     let mut ir_copy = ir.to_owned();
 

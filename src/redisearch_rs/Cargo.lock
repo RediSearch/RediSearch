@@ -1034,17 +1034,22 @@ dependencies = [
 name = "inverted_index"
 version = "0.0.1"
 dependencies = [
+ "build_utils",
  "enumflags2",
  "ffi",
  "field",
+ "inverted_index",
  "pretty_assertions",
  "proptest",
  "qint",
  "query_term",
+ "redis_mock",
  "redis_reply",
+ "redisearch_rs",
  "serde",
  "smallvec",
  "thin_vec",
+ "value",
  "varint",
  "workspace_hack",
 ]
@@ -1272,6 +1277,18 @@ name = "memchr"
 version = "2.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f8ca58f447f06ed17d5fc4043ce1b10dd205e060fb3ce5b979b8ed8e59ff3f79"
+
+[[package]]
+name = "metrics_ffi"
+version = "0.0.1"
+dependencies = [
+ "build_utils",
+ "cbindgen",
+ "ffi",
+ "inverted_index",
+ "value",
+ "workspace_hack",
+]
 
 [[package]]
 name = "minimal-lexical"
@@ -1837,6 +1854,7 @@ dependencies = [
  "idf_ffi",
  "inverted_index_ffi",
  "iterators_ffi",
+ "metrics_ffi",
  "module_init_ffi",
  "numeric_range_tree_ffi",
  "query_error_ffi",

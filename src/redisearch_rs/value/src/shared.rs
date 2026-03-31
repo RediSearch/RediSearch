@@ -44,6 +44,7 @@ const _: () = assert!(SHARED_VALUE_CONTENT_SIZE == 32);
 /// (see [`crate::pool`]) instead of deallocating. If the pool is full, the
 /// allocation is deallocated normally.
 #[expect(rustdoc::private_intra_doc_links)]
+#[repr(transparent)]
 pub struct SharedRsValue {
     ptr: *const RsValue,
 }

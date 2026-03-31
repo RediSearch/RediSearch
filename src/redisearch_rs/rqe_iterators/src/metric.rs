@@ -66,14 +66,20 @@ fn set_result_metrics(result: &mut RSIndexResult, val: f64, key: *mut RLookupKey
     if let Some(num) = result.as_numeric_mut() {
         *num = val;
     } else {
-        // Safety: we created a metric result, which is numeric, in the constructor
         panic!("Result is not numeric");
     }
 
-    // SAFETY: `result` is a valid, mutable reference to an `RSIndexResult`
-    // and `key` is either null or a valid pointer to an `RLookupKey`
-    // (both upheld by the callers in `read` and `skip_to`).
-    unsafe { ffi::ResetAndPushMetricData(result as *mut _ as *mut ffi::RSIndexResult, val, key) };
+    let metrics = result.metrics_mut();
+    metrics.reset();
+    // SAFETY: `key` is either null or a valid `RLookupKey` pointer that
+    // outlives this result (upheld by callers in `read` and `skip_to`).
+    let key = if key.is_null() {
+        None
+    } else {
+        // SAFETY: `key` is non-null and valid per the check above and caller contract.
+        Some(unsafe { &*key })
+    };
+    metrics.push(key, value::SharedRsValue::new_num(val));
 }
 
 impl<'index, const SORTED_BY_ID: bool> Metric<'index, SORTED_BY_ID> {

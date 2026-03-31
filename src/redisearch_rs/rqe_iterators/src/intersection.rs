@@ -19,7 +19,7 @@ use crate::{
 };
 
 use ffi::t_docId;
-use inverted_index::{RSIndexResult, ResultMetrics_Reset_func};
+use inverted_index::RSIndexResult;
 
 /// Returns the sort weight for a child iterator, used by [`Intersection`] to order its children
 /// before query execution. A lower value causes the child to act as the pivot, minimising
@@ -368,8 +368,7 @@ where
         // Reset all per-document accumulating fields before building the new aggregate.
         self.result.freq = 0;
         self.result.field_mask = 0;
-        // SAFETY: `self.result` is a valid, initialized `RSIndexResult`.
-        unsafe { ResultMetrics_Reset_func(&mut self.result) };
+        self.result.metrics.reset();
         if let Some(agg) = self.result.as_aggregate_mut() {
             agg.reset();
         }
@@ -377,6 +376,7 @@ where
 
         for child in &mut self.children {
             if let Some(child_result) = child.current() {
+                let child_metrics = std::mem::take(&mut child_result.metrics);
                 let child_ptr: *const RSIndexResult<'index> = child_result;
                 // SAFETY:
                 // - `child_ptr` was derived from a valid `&mut RSIndexResult`, so it
@@ -387,7 +387,7 @@ where
                 //   index-backed results; children are owned by `self` and outlive
                 //   this call.
                 let child_ref = unsafe { &*child_ptr };
-                self.result.push_borrowed(child_ref);
+                self.result.push_borrowed(child_ref, child_metrics);
             }
         }
     }

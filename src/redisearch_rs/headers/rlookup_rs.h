@@ -597,7 +597,7 @@ struct RLookupRow RLookupRow_New(void);
  */
 void RLookup_WriteKey(const struct RLookupKey *key,
                       struct RLookupRow *row,
-                      struct RSValue *value);
+                      const struct RSValue *value);
 
 /**
  * Writes a key to the row without incrementing the value reference count, thus taking ownership of the value.

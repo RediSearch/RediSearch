@@ -28,9 +28,9 @@ pub use gc::{GcApplyInfo, GcScanDelta};
 
 // Re-export result types.
 pub use index_result::{
-    RSAggregateResult, RSAggregateResultIter, RSIndexResult, RSOffsetSlice, RSOffsetVector,
-    RSQueryTerm, RSResultData, RSResultKind, RSResultKindMask, RSTermRecord,
-    ResultMetrics_Reset_func,
+    MetricEntry, MetricsSlice, MetricsVec, RSAggregateResult, RSAggregateResultIter, RSIndexResult,
+    RSOffsetSlice, RSOffsetVector, RSQueryTerm, RSResultData, RSResultKind, RSResultKindMask,
+    RSTermRecord,
 };
 
 // Re-export reader types.

@@ -8,6 +8,7 @@
 */
 #include "query_iterator.hpp"
 #include "doc_table.h"
+#include "search_ctx.h"
 #include "util/timeout.h"
 
 #include <iterator>   // ranges::distance

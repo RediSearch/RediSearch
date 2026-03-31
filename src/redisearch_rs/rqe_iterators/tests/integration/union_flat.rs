@@ -109,7 +109,6 @@ fn create_union_children(
 // =============================================================================
 
 #[apply(union_cases)]
-#[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
 fn read(#[case] num_children: usize, #[case] base_result_set: &[u64]) {
     let (children, expected) = create_union_children(num_children, base_result_set);
 
@@ -155,7 +154,6 @@ fn read(#[case] num_children: usize, #[case] base_result_set: &[u64]) {
 // =============================================================================
 
 #[apply(union_cases)]
-#[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
 fn skip_to(#[case] num_children: usize, #[case] base_result_set: &[u64]) {
     let (children, expected) = create_union_children(num_children, base_result_set);
     let mut union_iter = Union::new(children);
@@ -188,7 +186,6 @@ fn skip_to(#[case] num_children: usize, #[case] base_result_set: &[u64]) {
 }
 
 #[test]
-#[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
 fn skip_to_edge_cases() {
     // Quick mode - child already at target doc_id
     {
@@ -259,7 +256,6 @@ fn skip_to_edge_cases() {
 // =============================================================================
 
 #[apply(union_cases)]
-#[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
 fn rewind(#[case] num_children: usize, #[case] base_result_set: &[u64]) {
     let (children, expected) = create_union_children(num_children, base_result_set);
     let mut union_iter = Union::new(children);
@@ -307,7 +303,6 @@ fn edge_case_no_children() {
 }
 
 #[test]
-#[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
 fn edge_case_single_child() {
     let (child, child_data) = create_mock_1([10, 20, 30, 40, 50]);
     let mut union_iter = Union::new(vec![child]);
@@ -325,7 +320,6 @@ fn edge_case_single_child() {
 }
 
 #[test]
-#[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
 fn edge_case_disjoint_children() {
     let (children, data) = create_mock_3([1, 2, 3], [10, 20, 30], [100, 200, 300]);
 
@@ -347,7 +341,6 @@ fn edge_case_disjoint_children() {
 }
 
 #[test]
-#[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
 fn edge_case_overlapping_children() {
     let (children, data) = create_mock_3(
         [1, 2, 5, 10, 15, 20],
@@ -372,7 +365,6 @@ fn edge_case_overlapping_children() {
 }
 
 #[test]
-#[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
 fn edge_case_skip_to_exact_match() {
     let (children, _) = create_mock_2([10, 20, 30, 40, 50], [15, 25, 35, 45, 55]);
     let mut union_iter = Union::new(children);
@@ -388,7 +380,6 @@ fn edge_case_skip_to_exact_match() {
 }
 
 #[test]
-#[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
 fn edge_case_skip_to_not_found() {
     let (children, _) = create_mock_2([10, 20, 30, 40, 50], [15, 25, 35, 45, 55]);
     let mut union_iter = Union::new(children);
@@ -404,7 +395,6 @@ fn edge_case_skip_to_not_found() {
 }
 
 #[test]
-#[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
 fn edge_case_skip_to_past_eof() {
     let (children, _) = create_mock_2([10, 20, 30], [15, 25, 35]);
     let mut union_iter = Union::new(children);
@@ -420,7 +410,6 @@ fn edge_case_skip_to_past_eof() {
 }
 
 #[test]
-#[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
 fn edge_case_interleaved_read_and_skip_to() {
     let (children, _) = create_mock_2(
         [10, 20, 30, 40, 50, 60, 70, 80],
@@ -456,7 +445,6 @@ fn edge_case_num_estimated_is_sum() {
 }
 
 #[test]
-#[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
 fn edge_case_empty_children_mixed_with_non_empty() {
     let empty_child: Mock<'static, 0> = Mock::new([]);
     let child1: Mock<'static, 3> = Mock::new([10, 20, 30]);
@@ -477,7 +465,6 @@ fn edge_case_empty_children_mixed_with_non_empty() {
 }
 
 #[test]
-#[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
 fn edge_case_all_children_empty() {
     let empty1: Mock<'static, 0> = Mock::new([]);
     let empty2: Mock<'static, 0> = Mock::new([]);
@@ -492,7 +479,6 @@ fn edge_case_all_children_empty() {
 }
 
 #[test]
-#[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
 fn edge_case_skip_to_child_already_past_target() {
     let (children, data) = create_mock_2([10, 50, 100], [20, 60, 110]);
     let mut union_iter = Union::new(children);
@@ -509,7 +495,6 @@ fn edge_case_skip_to_child_already_past_target() {
 }
 
 #[test]
-#[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
 fn edge_case_skip_to_exhausts_some_children() {
     let (children, _data) = create_mock_2([10, 20, 30], [15, 25, 100]);
     let mut union_iter = Union::new(children);
@@ -523,7 +508,6 @@ fn edge_case_skip_to_exhausts_some_children() {
 }
 
 #[test]
-#[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
 fn edge_case_skip_to_exhausts_all_children() {
     let (children, _data) = create_mock_2([10, 20, 30], [15, 25, 35]);
     let mut union_iter = Union::new(children);
@@ -534,7 +518,6 @@ fn edge_case_skip_to_exhausts_all_children() {
 }
 
 #[test]
-#[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
 fn edge_case_initialize_with_empty_children() {
     let empty1: Mock<'static, 0> = Mock::new([]);
     let child1: Mock<'static, 2> = Mock::new([10, 20]);
@@ -562,7 +545,6 @@ fn edge_case_initialize_with_empty_children() {
 }
 
 #[test]
-#[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
 fn edge_case_misbehaving_child_returns_none_during_init() {
     let mock1: Mock<'static, 3> = Mock::new([10, 30, 50]);
     let mock2: Mock<'static, 3> = Mock::new([20, 40, 60]);
@@ -593,7 +575,6 @@ fn edge_case_misbehaving_child_returns_none_during_init() {
 // =============================================================================
 
 #[test]
-#[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
 fn revalidate_ok() {
     let child0: Mock<'static, 5> = Mock::new([10, 20, 30, 40, 50]);
     let child1: Mock<'static, 5> = Mock::new([15, 25, 35, 45, 55]);
@@ -623,7 +604,6 @@ fn revalidate_ok() {
 }
 
 #[test]
-#[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
 fn revalidate_moved() {
     let child0: Mock<'static, 5> = Mock::new([10, 20, 30, 40, 50]);
     let child1: Mock<'static, 5> = Mock::new([15, 25, 35, 45, 55]);
@@ -652,7 +632,6 @@ fn revalidate_moved() {
 }
 
 #[test]
-#[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
 fn revalidate_after_eof() {
     let child0: Mock<'static, 2> = Mock::new([10, 20]);
     let child1: Mock<'static, 2> = Mock::new([15, 25]);
@@ -678,7 +657,6 @@ fn revalidate_after_eof() {
 }
 
 #[test]
-#[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
 fn revalidate_single_child_aborts() {
     let child0: Mock<'static, 5> = Mock::new([10, 20, 30, 40, 50]);
     let child1: Mock<'static, 5> = Mock::new([15, 25, 35, 45, 55]);
@@ -711,7 +689,6 @@ fn revalidate_single_child_aborts() {
 }
 
 #[test]
-#[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
 fn revalidate_all_children_abort() {
     let child0: Mock<'static, 5> = Mock::new([10, 20, 30, 40, 50]);
     let child1: Mock<'static, 5> = Mock::new([15, 25, 35, 45, 55]);
@@ -743,7 +720,6 @@ fn revalidate_all_children_abort() {
 }
 
 #[test]
-#[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
 fn revalidate_child_moves_to_eof() {
     let child0: Mock<'static, 2> = Mock::new([10, 20]);
     let child1: Mock<'static, 5> = Mock::new([15, 25, 35, 45, 55]);
@@ -776,7 +752,6 @@ fn revalidate_child_moves_to_eof() {
 }
 
 #[test]
-#[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
 fn revalidate_mixed_ok_moved_abort() {
     let child0: Mock<'static, 5> = Mock::new([10, 20, 30, 40, 50]);
     let child1: Mock<'static, 5> = Mock::new([15, 25, 35, 45, 55]);
@@ -809,7 +784,6 @@ fn revalidate_mixed_ok_moved_abort() {
 }
 
 #[test]
-#[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
 fn revalidate_all_children_move_to_eof() {
     let child0: Mock<'static, 2> = Mock::new([10, 20]);
     let child1: Mock<'static, 2> = Mock::new([15, 25]);
@@ -834,7 +808,6 @@ fn revalidate_all_children_move_to_eof() {
 }
 
 #[test]
-#[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
 fn revalidate_updates_to_new_minimum() {
     let child0: Mock<'static, 5> = Mock::new([10, 20, 30, 40, 50]);
     let child1: Mock<'static, 5> = Mock::new([5, 25, 35, 45, 55]);
@@ -864,7 +837,6 @@ fn revalidate_updates_to_new_minimum() {
 }
 
 #[test]
-#[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
 fn revalidate_when_already_at_eof() {
     let mock1: Mock<'static, 2> = Mock::new([10, 20]);
     let mock2: Mock<'static, 2> = Mock::new([10, 30]);
@@ -888,7 +860,6 @@ fn revalidate_when_already_at_eof() {
 }
 
 #[test]
-#[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
 fn revalidate_with_children_at_eof() {
     // Test 1: Child moves to EOF during revalidate
     {
@@ -943,7 +914,6 @@ fn revalidate_with_children_at_eof() {
 }
 
 #[test]
-#[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
 fn revalidate_quick_triggers_quick_exit() {
     let mock1: Mock<'static, 3> = Mock::new([10, 30, 50]);
     let mock2: Mock<'static, 3> = Mock::new([20, 40, 60]);
@@ -978,7 +948,6 @@ fn revalidate_quick_triggers_quick_exit() {
 // =============================================================================
 
 #[test]
-#[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
 fn current_after_operations() {
     let (children, _) = create_mock_2([10, 20, 30, 40, 50], [15, 25, 35, 45, 55]);
     let mut union_iter = Union::new(children);
@@ -1010,7 +979,6 @@ fn current_after_operations() {
 // =============================================================================
 
 #[test]
-#[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
 fn mode_quick_variant_produces_same_doc_ids() {
     let (full_children, _) = create_mock_2([10, 20, 30, 40, 50], [15, 25, 35, 45, 55]);
     let mut full_iter = UnionFullFlat::new(full_children);
@@ -1030,7 +998,6 @@ fn mode_quick_variant_produces_same_doc_ids() {
 }
 
 #[test]
-#[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
 fn mode_full_aggregates_all_matching_children() {
     let (children, _) = create_mock_3([10, 20, 30], [10, 25, 35], [10, 28, 38]);
     let mut full_iter = UnionFullFlat::new(children);
@@ -1047,7 +1014,6 @@ fn mode_full_aggregates_all_matching_children() {
 }
 
 #[test]
-#[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
 fn mode_quick_takes_first_matching_child_only() {
     let (children, _) = create_mock_3([10, 20, 30], [10, 25, 35], [10, 28, 38]);
     let mut quick_iter = UnionQuickFlat::new(children);
@@ -1064,7 +1030,6 @@ fn mode_quick_takes_first_matching_child_only() {
 }
 
 #[test]
-#[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
 fn mode_full_aggregates_correct_number_of_children() {
     let (children, _) = create_mock_3([10, 20, 30], [10, 25], [10, 30]);
     let mut full_iter = UnionFullFlat::new(children);
@@ -1103,7 +1068,6 @@ fn mode_full_aggregates_correct_number_of_children() {
 }
 
 #[test]
-#[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
 fn mode_quick_always_has_one_child() {
     let (children, _) = create_mock_3([10, 20, 30], [10, 25], [10, 30]);
     let mut quick_iter = UnionQuickFlat::new(children);
@@ -1118,7 +1082,6 @@ fn mode_quick_always_has_one_child() {
 }
 
 #[test]
-#[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
 fn mode_quick_vs_full_with_skip_to() {
     let (full_children, _) = create_mock_3([10, 30, 50], [20, 40, 50], [25, 45, 50]);
     let mut full_iter = UnionFullFlat::new(full_children);
@@ -1152,7 +1115,6 @@ fn mode_quick_vs_full_with_skip_to() {
 // =============================================================================
 
 #[test]
-#[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
 fn reuse_results_optimization_quick_mode() {
     let (children, data) = create_mock_2([3], [2]);
     let mut union = UnionQuickFlat::new(children);
@@ -1204,7 +1166,6 @@ fn reuse_results_optimization_quick_mode() {
 }
 
 #[test]
-#[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
 fn reuse_results_optimization_full_mode() {
     let (children, data) = create_mock_3([1, 3, 5], [2, 3, 6], [3, 4, 7]);
     let mut union = UnionFullFlat::new(children);
