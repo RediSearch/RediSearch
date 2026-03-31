@@ -404,6 +404,14 @@ def testDeprecatedMTConfig_off_with_non_0():
     env.expect(config_cmd(), 'get', 'MIN_OPERATION_WORKERS').equal([['MIN_OPERATION_WORKERS', str(min_operation_workers_default)]])
 
 @skip(cluster=True)
+def testExplicitWorkersOverridesDefault(env):
+    """Verify that explicitly setting WORKERS overrides the dynamic default."""
+    explicit_workers = 3
+    env = Env(moduleArgs=f'WORKERS {explicit_workers} TIMEOUT 0 DEFAULT_DIALECT 2', noDefaultModuleArgs=True)
+    env.assertTrue(env.isUp())
+    env.expect(config_cmd(), 'get', 'WORKERS').equal([['WORKERS', str(explicit_workers)]])
+
+@skip(cluster=True)
 def testDeprecatedMTConfig_ignore_full():
     # Check deprecated configs are ignored when new configs are set
     env = Env(moduleArgs='WORKER_THREADS 3 MT_MODE MT_MODE_FULL WORKERS 5 MIN_OPERATION_WORKERS 6 TIMEOUT 0 DEFAULT_DIALECT 2', noDefaultModuleArgs=True)

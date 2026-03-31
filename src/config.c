@@ -1900,13 +1900,13 @@ void iteratorsConfig_init(IteratorsConfig *config) {
 size_t GetDefaultWorkerThreads(void) {
   if (IsEnterprise()) return 0;  // Keep default 0 for Redis Enterprise
   long nprocs = sysconf(_SC_NPROCESSORS_ONLN);
-  size_t result;
   if (nprocs <= 0) {
-    result = MAX_WORKER_THREADS;
-  } else {
-    result = MIN(MAX_WORKER_THREADS, (size_t)nprocs);
+    RedisModule_Log(RSDummyContext, "warning",
+      "sysconf(_SC_NPROCESSORS_ONLN) failed or returned %ld, falling back to MAX_WORKER_THREADS (%d)",
+      nprocs, MAX_WORKER_THREADS);
+    return MAX_WORKER_THREADS;
   }
-  return result;
+  return MIN(MAX_WORKER_THREADS, (size_t)nprocs);
 }
 
 int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
