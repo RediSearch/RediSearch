@@ -1729,7 +1729,7 @@ static inline bool QueryNode_ValidateToken(QueryNode *n, IndexSpec *spec, RSSear
 
 // Helper function to validate that trie-based query types are not used on disk indexes.
 // Returns REDISMODULE_ERR if the query type is not supported on disk indexes, REDISMODULE_OK otherwise.
-static int QueryNode_ValidateNotDiskUnsupported(const char *queryTypeName,
+static int validateQueryNotDisk(const char *queryTypeName,
   QueryError *status) {
   if (SearchDisk_IsEnabledForValidation()) {
     QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_FLEX_UNSUPPORTED_QUERY,
@@ -1783,11 +1783,11 @@ static int QueryNode_CheckIsValid(QueryNode *n, IndexSpec *spec, RSSearchOptions
         for (size_t ii = 0; ii < QueryNode_NumChildren(n); ++ii) {
           QueryNode *child = n->children[ii];
           if (child->type == QN_PREFIX) {
-            res = QueryNode_ValidateNotDiskUnsupported("TAG prefix/suffix/infix", status);
+            res = validateQueryNotDisk("TAG prefix/suffix/infix", status);
           } else if (child->type == QN_WILDCARD_QUERY) {
-            res = QueryNode_ValidateNotDiskUnsupported("TAG wildcard", status);
+            res = validateQueryNotDisk("TAG wildcard", status);
           } else if (child->type == QN_LEXRANGE) {
-            res = QueryNode_ValidateNotDiskUnsupported("TAG lexrange", status);
+            res = validateQueryNotDisk("TAG lexrange", status);
           }
           if (res == REDISMODULE_ERR) {
             return res;
