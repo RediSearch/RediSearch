@@ -14,7 +14,7 @@ use inverted_index::{NumericReader, RSIndexResult};
 use numeric_range_tree::NumericRangeTree;
 
 use crate::{
-    RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
+    IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
     expiration_checker::{ExpirationChecker, NoOpChecker},
 };
 
@@ -185,5 +185,10 @@ where
         }
 
         self.it.revalidate()
+    }
+
+    #[inline(always)]
+    fn type_(&self) -> IteratorType {
+        IteratorType::InvIdxNumeric
     }
 }

@@ -11,7 +11,7 @@ use std::{cell::RefCell, rc::Rc, time::Duration};
 
 use ffi::{RS_FIELDMASK_ALL, t_docId};
 use inverted_index::{RSIndexResult, RSOffsetSlice};
-use rqe_iterators::{RQEIterator, WildcardIterator};
+use rqe_iterators::{IteratorType, RQEIterator, WildcardIterator};
 
 /// Test iterator used in unit tests that expect an [`RQEIterator`]
 /// child which produces a fixed sequence of document identifiers.
@@ -429,6 +429,11 @@ impl<'index, const N: usize> RQEIterator<'index> for Mock<'index, N> {
     fn at_eof(&self) -> bool {
         self.next_index >= N
     }
+
+    #[inline(always)]
+    fn type_(&self) -> IteratorType {
+        IteratorType::Mock
+    }
 }
 
 impl<'index, const N: usize> WildcardIterator<'index> for Mock<'index, N> {}
@@ -584,5 +589,10 @@ impl<'index> RQEIterator<'index> for MockVec<'index> {
 
     fn at_eof(&self) -> bool {
         self.next_index >= self.doc_ids.len()
+    }
+
+    #[inline(always)]
+    fn type_(&self) -> IteratorType {
+        IteratorType::Mock
     }
 }

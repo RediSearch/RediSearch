@@ -15,7 +15,9 @@
 
 use crate::utils::{Mock, MockData, MockRevalidateResult, MockVec};
 use ffi::t_docId;
-use rqe_iterators::{RQEIterator, RQEValidateStatus, SkipToOutcome, UnionFullFlat, UnionQuickFlat};
+use rqe_iterators::{
+    IteratorType, RQEIterator, RQEValidateStatus, SkipToOutcome, UnionFullFlat, UnionQuickFlat,
+};
 use rstest_reuse::{apply, template};
 
 /// Test cases for union tests: (num_children, base_result_set).
@@ -102,6 +104,24 @@ fn create_union_children(
     all_ids.sort();
     all_ids.dedup();
     (children, all_ids)
+}
+
+// =============================================================================
+// Type tests
+// =============================================================================
+
+#[test]
+fn type_full_flat() {
+    let children: Vec<Box<dyn RQEIterator<'static>>> = vec![MockVec::new_boxed(vec![1, 2, 3])];
+    let it = UnionFullFlat::new(children);
+    assert_eq!(it.type_(), IteratorType::Union);
+}
+
+#[test]
+fn type_quick_flat() {
+    let children: Vec<Box<dyn RQEIterator<'static>>> = vec![MockVec::new_boxed(vec![1, 2, 3])];
+    let it = UnionQuickFlat::new(children);
+    assert_eq!(it.type_(), IteratorType::Union);
 }
 
 // =============================================================================

@@ -9,9 +9,16 @@
 
 use std::time::Duration;
 
-use rqe_iterators::{RQEIterator, Wildcard, profile::Profile};
+use rqe_iterators::{IteratorType, RQEIterator, Wildcard, profile::Profile};
 
 use crate::utils::{Mock, MockIteratorError};
+
+#[test]
+fn type_() {
+    let child = Wildcard::new(10, 1.0);
+    let it = Profile::new(child);
+    assert_eq!(it.type_(), IteratorType::Profile);
+}
 
 #[test]
 fn initial_state() {

@@ -15,7 +15,7 @@ use inverted_index::{
 };
 
 use crate::{
-    RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
+    IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
     expiration_checker::NoOpChecker,
 };
 
@@ -164,7 +164,8 @@ where
         self.it.revalidate()
     }
 
-    fn is_wildcard(&self) -> bool {
-        true
+    #[inline(always)]
+    fn type_(&self) -> IteratorType {
+        IteratorType::InvIdxWildcard
     }
 }
