@@ -103,10 +103,6 @@ impl<'index> RQEIterator<'index> for Wildcard<'index> {
     fn type_(&self) -> IteratorType {
         IteratorType::Wildcard
     }
-
-    fn is_wildcard(&self) -> bool {
-        true
-    }
 }
 
 /// A marker trait for iterators that match all documents.
@@ -182,11 +178,6 @@ impl<'index> RQEIterator<'index> for EmptyWildcard {
     #[inline(always)]
     fn type_(&self) -> IteratorType {
         IteratorType::Empty
-    }
-
-    #[inline(always)]
-    fn is_wildcard(&self) -> bool {
-        true
     }
 }
 
@@ -403,12 +394,6 @@ impl<'index> RQEIterator<'index> for DiskWildcardIterator<'index> {
     #[inline(always)]
     fn type_(&self) -> IteratorType {
         self.0.type_()
-    }
-
-    fn is_wildcard(&self) -> bool {
-        // strictly speaking this is a wildcard iterator but the current reducers code from other
-        // iterators do not account for it.
-        false
     }
 }
 

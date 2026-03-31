@@ -107,11 +107,6 @@ impl<'index> rqe_iterators::RQEIterator<'index> for WildcardIterator<'index> {
     }
 
     #[inline(always)]
-    fn is_wildcard(&self) -> bool {
-        true
-    }
-
-    #[inline(always)]
     fn type_(&self) -> IteratorType {
         IteratorType::InvIdxWildcard
     }

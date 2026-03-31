@@ -140,8 +140,4 @@ impl<'index, I: RQEIterator<'index>> RQEIterator<'index> for Profile<'index, I> 
     fn type_(&self) -> IteratorType {
         IteratorType::Profile
     }
-
-    fn is_wildcard(&self) -> bool {
-        self.child.is_wildcard()
-    }
 }

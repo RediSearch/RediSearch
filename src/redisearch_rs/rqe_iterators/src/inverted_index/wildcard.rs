@@ -168,8 +168,4 @@ where
     fn type_(&self) -> IteratorType {
         IteratorType::InvIdxWildcard
     }
-
-    fn is_wildcard(&self) -> bool {
-        true
-    }
 }

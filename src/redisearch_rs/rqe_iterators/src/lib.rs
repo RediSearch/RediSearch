@@ -140,11 +140,6 @@ pub trait RQEIterator<'index> {
     /// Returns the [`IteratorType`] of this iterator.
     fn type_(&self) -> IteratorType;
 
-    /// Returns `true` if this iterator matches all documents.
-    fn is_wildcard(&self) -> bool {
-        false
-    }
-
     /// Returns `Some(&self)` if this iterator is a [`c2rust::CRQEIterator`], `None` otherwise.
     ///
     /// Used by [`Intersection`] to compute sort weights without requiring `'static`.
@@ -195,10 +190,6 @@ impl<'index, I: RQEIterator<'index> + ?Sized> RQEIterator<'index> for Box<I> {
     #[inline(always)]
     fn type_(&self) -> IteratorType {
         (**self).type_()
-    }
-
-    fn is_wildcard(&self) -> bool {
-        (**self).is_wildcard()
     }
 
     fn as_c_iterator(&self) -> Option<&c2rust::CRQEIterator> {
