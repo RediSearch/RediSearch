@@ -4375,7 +4375,7 @@ void Indexes_StartRDBLoadingEvent(RedisModuleCtx* ctx) {
   }
   // Reset the global spec ID counter; it will be updated as spec IDs are
   // loaded from individual specs via UpdateNextSpecIdIfNeeded.
-  nextSpecId_g = 0;
+  nextSpecId_g = 1;
   g_isLoading = true;
 }
 
