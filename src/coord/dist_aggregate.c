@@ -419,7 +419,14 @@ static void DistAggregateCleanups(RedisModuleCtx *ctx, struct ConcurrentCmdCtx *
                           StrongRef *strong_ref, specialCaseCtx *knnCtx, AREQ *r, RedisModule_Reply *reply, QueryError *status) {
   RS_ASSERT(QueryError_HasError(status));
   QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(status), 1, COORD_ERR_WARN);
-  AREQ_ReplyOrStoreError(r, ctx, status);
+
+  if (!r) {
+    // Currently only possible in _FT.DEBUG path
+    CoordRequestCtx *reqCtx = RedisModule_BlockClientGetPrivateData(ConcurrentCmdCtx_GetBlockedClient(cmdCtx));
+    CoordRequestCtx_ReplyOrStoreError(reqCtx, ctx, status);
+  } else {
+    AREQ_ReplyOrStoreError(r, ctx, status);
+  }
 
   WeakRef_Release(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
   if (sp) {
