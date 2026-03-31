@@ -887,6 +887,47 @@ macro_rules! union_common_tests {
             );
         }
 
+        /// After `read()` returns doc_id 10, revalidate all children with `Ok`.
+        /// Because the minimum hasn't moved, the union should return `Ok`.
+        #[test]
+        #[cfg_attr(miri, ignore)] // Calls RSYieldableMetric_Concat FFI in push_borrowed
+        fn revalidate_minimum_unchanged_returns_ok() {
+            let child0: Mock<'static, 3> = Mock::new([10, 30, 50]);
+            let child1: Mock<'static, 3> = Mock::new([10, 40, 60]);
+
+            child0
+                .data()
+                .set_revalidate_result(MockRevalidateResult::Ok);
+            child1
+                .data()
+                .set_revalidate_result(MockRevalidateResult::Ok);
+
+            let children: Vec<Box<dyn RQEIterator<'static>>> =
+                vec![Box::new(child0), Box::new(child1)];
+
+            let mut union = $UnionFull::new(children);
+
+            // Both children share doc_id 10.
+            let result = union.read().expect("read failed").unwrap();
+            assert_eq!(result.doc_id, 10);
+
+            // Revalidate — nothing moved, nothing aborted.
+            let status = union.revalidate().expect("revalidate failed");
+            assert!(
+                matches!(status, RQEValidateStatus::Ok),
+                "Expected Ok when minimum doc_id is unchanged, got {:?}",
+                status
+            );
+
+            // Union should still be able to continue reading.
+            let result = union.read().expect("read failed").unwrap();
+            assert!(
+                result.doc_id > 10,
+                "Expected next doc_id > 10, got {}",
+                result.doc_id
+            );
+        }
+
         // =============================================================================
         // skip_to edge cases (behavioral only, no read_count assertions)
         // =============================================================================
@@ -948,6 +989,64 @@ macro_rules! union_common_tests {
                 assert!(matches!(outcome, Some(SkipToOutcome::Found(_))));
                 assert_eq!(full_iter.last_doc_id(), 100);
             }
+        }
+
+        /// Two children both start at doc_id 10. After the first `read()`,
+        /// the union advances matching children. One of them has only a single
+        /// document, so `read()` returns `None` (EOF) during that advancement.
+        /// The union should still continue with the remaining child.
+        #[test]
+        #[cfg_attr(miri, ignore)] // Calls RSYieldableMetric_Concat FFI in push_borrowed
+        fn child_hits_eof_during_advance_matching_children() {
+            // child0 has only doc 10, child1 has doc 10 then more.
+            let child0: Mock<'static, 1> = Mock::new([10]);
+            let child1: Mock<'static, 3> = Mock::new([10, 20, 30]);
+
+            let children: Vec<Box<dyn RQEIterator<'static>>> =
+                vec![Box::new(child0), Box::new(child1)];
+
+            let mut union = $UnionFull::new(children);
+
+            // First read should return 10 (both children match).
+            let result = union.read().expect("read failed").unwrap();
+            assert_eq!(result.doc_id, 10);
+
+            // During the first read, child0 is advanced and hits EOF.
+            // The union should still return the remaining docs from child1.
+            let result = union.read().expect("read failed").unwrap();
+            assert_eq!(result.doc_id, 20);
+
+            let result = union.read().expect("read failed").unwrap();
+            assert_eq!(result.doc_id, 30);
+
+            assert!(union.read().expect("read failed").is_none());
+            assert!(union.at_eof());
+        }
+
+        /// Same as above but in Quick mode — only one matching child is consumed,
+        /// so the EOF child should be silently dropped.
+        #[test]
+        #[cfg_attr(miri, ignore)] // Calls RSYieldableMetric_Concat FFI in push_borrowed
+        fn child_hits_eof_during_advance_matching_children_quick() {
+            let child0: Mock<'static, 1> = Mock::new([10]);
+            let child1: Mock<'static, 3> = Mock::new([10, 20, 30]);
+
+            let children: Vec<Box<dyn RQEIterator<'static>>> =
+                vec![Box::new(child0), Box::new(child1)];
+
+            let mut union = $UnionQuick::new(children);
+
+            let result = union.read().expect("read failed").unwrap();
+            assert_eq!(result.doc_id, 10);
+
+            let result = union.read().expect("read failed").unwrap();
+            assert_eq!(result.doc_id, 20);
+
+            let result = union.read().expect("read failed").unwrap();
+            assert_eq!(result.doc_id, 30);
+
+            assert!(union.read().expect("read failed").is_none());
+            assert!(union.at_eof());
         }
 
         // =============================================================================
