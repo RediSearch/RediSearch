@@ -756,6 +756,18 @@ end:
   return REDISMODULE_OK;
 }
 
+static t_docId getDocIdFromKey(RedisModuleCtx *ctx, IndexSpec *spec, RedisModuleString *key) {
+  if (!SearchDisk_IsEnabled()) {
+    return DocTable_GetIdR(&spec->docs, key);
+  } else {
+    uint64_t metaDocId;
+    if (DocIdMeta_Get(ctx, key, spec->specId, &metaDocId) == REDISMODULE_OK) {
+      return metaDocId;
+    }
+    return 0;
+  }
+}
+
 DEBUG_COMMAND(IdToDocId) {
   long long id;
   const RSDocumentMetadata *doc;
@@ -791,20 +803,10 @@ DEBUG_COMMAND(DocIdToId) {
     return RedisModule_WrongArity(ctx);
   }
   GET_SEARCH_CTX(argv[2])
-  t_docId docId = 0;
-  if (SearchDisk_IsEnabled()) {
-    uint64_t metaDocId;
-    if (DocIdMeta_Get(ctx, argv[3], sctx->spec->specId, &metaDocId) == REDISMODULE_OK) {
-      docId = metaDocId;
-    }
-  } else {
-    size_t kn;
-    const char *ks = RedisModule_StringPtrLen(argv[3], &kn);
-    docId = DocTable_GetId(&sctx->spec->docs, ks, kn);
-  }
-  RedisModule_ReplyWithLongLong(sctx->redisCtx, docId);
+  t_docId docId = getDocIdFromKey(sctx->redisCtx, sctx->spec, argv[3]);
   SearchCtx_Free(sctx);
-  return REDISMODULE_OK;
+
+  return RedisModule_ReplyWithLongLong(ctx, docId);
 }
 
 DEBUG_COMMAND(DumpPhoneticHash) {
@@ -1554,6 +1556,9 @@ DEBUG_COMMAND(dumpHNSWData) {
   if (argc < 4 || argc > 5) { // it should be 4 or 5 (allowing specifying a certain doc)
     return RedisModule_WrongArity(ctx);
   }
+  if (SearchDisk_IsEnabled()) {
+    return RedisModule_ReplyWithError(ctx, "Command not supported in disk mode");
+  }
   GET_SEARCH_CTX(argv[2])
 
   fs = getFieldByNameAndType(sctx->spec, argv[3], INDEXFLD_T_VECTOR);
@@ -1582,23 +1587,11 @@ DEBUG_COMMAND(dumpHNSWData) {
   }
 
   if (argc == 5) {  // we want the neighbors of a specific vector only
-	  t_docId doc_id = 0;
-	  if (SearchDisk_IsEnabled()) {
-		  uint64_t meta_doc_id;
-		  if (DocIdMeta_Get(ctx, argv[4], sctx->spec->specId, &meta_doc_id) != REDISMODULE_OK) {
-			  RedisModule_ReplyWithError(ctx, "The given key does not exist in index");
-			  goto cleanup;
-		  }
-		  doc_id = meta_doc_id;
-	  } else {
-		  size_t key_len;
-		  const char *key_name = RedisModule_StringPtrLen(argv[4], &key_len);
-		  doc_id = DocTable_GetId(&sctx->spec->docs, key_name, key_len);
-		  if (doc_id == 0) {
-			  RedisModule_ReplyWithError(ctx, "The given key does not exist in index");
-			  goto cleanup;
-		  }
-	  }
+	  t_docId doc_id = getDocIdFromKey(ctx, sctx->spec, argv[4]);
+    if (doc_id == 0) {
+      RedisModule_ReplyWithError(ctx, "The given key does not exist in index");
+      goto cleanup;
+    }
 	  replyDumpHNSW(ctx, vecsimIndex, doc_id);
 	  goto cleanup;
   }
