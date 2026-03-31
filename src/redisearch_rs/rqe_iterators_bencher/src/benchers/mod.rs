@@ -17,4 +17,5 @@ pub mod not_optimized;
 pub mod optional;
 pub mod optional_optimized;
 pub mod union;
+pub mod union_sweep;
 pub mod wildcard;
