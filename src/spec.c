@@ -3578,10 +3578,6 @@ void Indexes_Init(RedisModuleCtx *ctx) {
   SchemaPrefixes_Create();
 }
 
-size_t Indexes_Count() {
-  return dictSize(specDict_g);
-}
-
 SpecOpIndexingCtx *Indexes_FindMatchingSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key,
                                                    DocumentType type, bool runFilters,
                                                    RedisModuleString *keyToReadData) {
