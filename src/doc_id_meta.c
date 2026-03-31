@@ -204,7 +204,7 @@ void DocIdMeta_Init(RedisModuleCtx *ctx) {
   RedisModuleKeyMetaClassConfig docIdKeyMetaClassIdConfig = {
     .version = REDISMODULE_KEY_META_VERSION,
     .reset_value = 0,
-    .flags = REDISMODULE_META_ALLOW_IGNORE,
+    .flags = 1 << REDISMODULE_META_ALLOW_IGNORE,
     .copy = (RedisModuleKeyMetaCopyFunc)docIdMetaCopy,
     .rename = NULL, // If NULL, meta is kept during rename
     .move = (RedisModuleKeyMetaMoveFunc)docIdMetaMove,
