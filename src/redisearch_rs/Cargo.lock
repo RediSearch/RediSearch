@@ -1034,22 +1034,17 @@ dependencies = [
 name = "inverted_index"
 version = "0.0.1"
 dependencies = [
- "build_utils",
  "enumflags2",
  "ffi",
  "field",
- "inverted_index",
  "pretty_assertions",
  "proptest",
  "qint",
  "query_term",
- "redis_mock",
  "redis_reply",
- "redisearch_rs",
  "serde",
  "smallvec",
  "thin_vec",
- "value",
  "varint",
  "workspace_hack",
 ]
@@ -1286,7 +1281,6 @@ dependencies = [
  "cbindgen",
  "ffi",
  "inverted_index",
- "value",
  "workspace_hack",
 ]
 

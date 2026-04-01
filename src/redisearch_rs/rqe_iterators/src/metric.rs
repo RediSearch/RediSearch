@@ -79,7 +79,7 @@ fn set_result_metrics(result: &mut RSIndexResult, val: f64, key: *mut RLookupKey
         // SAFETY: `key` is non-null and valid per the check above and caller contract.
         Some(unsafe { &*key })
     };
-    metrics.push(key, value::SharedRsValue::new_num(val));
+    metrics.push(key, val);
 }
 
 impl<'index, const SORTED_BY_ID: bool> Metric<'index, SORTED_BY_ID> {

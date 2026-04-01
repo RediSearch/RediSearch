@@ -74,7 +74,7 @@ mod metrics_tests {
             let metrics = res.metrics_ref();
             let entry = metrics.get(0).expect("should have one entry");
             assert!(entry.key().is_none());
-            assert_eq!(entry.value().as_num().unwrap(), metric_data[j]);
+            assert_eq!(entry.value(), metric_data[j]);
             assert_eq!(it.last_doc_id(), expected_id);
         }
 
@@ -101,7 +101,7 @@ mod metrics_tests {
         let metrics = first_doc.metrics_ref();
         let entry = metrics.get(0).expect("should have one entry");
         assert!(entry.key().is_none());
-        assert_eq!(entry.value().as_num().unwrap(), metric_data[0]);
+        assert_eq!(entry.value(), metric_data[0]);
         assert_eq!(it.last_doc_id(), first_id);
         assert_eq!(it.current().unwrap().doc_id, first_id);
         assert_eq!(it.at_eof(), Some(&first_id) == case.last());
@@ -134,7 +134,7 @@ mod metrics_tests {
                 let metrics = res.metrics_ref();
                 let entry = metrics.get(0).expect("should have one entry");
                 assert!(entry.key().is_none());
-                assert_eq!(entry.value().as_num().unwrap(), metric_data[j]);
+                assert_eq!(entry.value(), metric_data[j]);
                 // Should land on next existing id
                 assert_eq!(it.at_eof(), Some(&id) == case.last());
                 assert_eq!(it.last_doc_id(), id);
@@ -153,7 +153,7 @@ mod metrics_tests {
             let metrics = res.metrics_ref();
             let entry = metrics.get(0).expect("should have one entry");
             assert!(entry.key().is_none());
-            assert_eq!(entry.value().as_num().unwrap(), metric_data[j]);
+            assert_eq!(entry.value(), metric_data[j]);
             assert_eq!(it.at_eof(), Some(&id) == case.last());
             assert_eq!(it.last_doc_id(), id);
             assert_eq!(it.current().unwrap().doc_id, id);
@@ -234,7 +234,7 @@ mod metrics_tests {
             let metrics = res.metrics_ref();
             let entry = metrics.get(0).expect("should have one entry");
             assert!(entry.key().is_none());
-            assert_eq!(entry.value().as_num().unwrap(), metric_data[j]);
+            assert_eq!(entry.value(), metric_data[j]);
             assert_eq!(it.last_doc_id(), id);
             it.rewind();
             assert_eq!(it.last_doc_id(), 0);
@@ -250,7 +250,7 @@ mod metrics_tests {
             let metrics = res.metrics_ref();
             let entry = metrics.get(0).expect("should have one entry");
             assert!(entry.key().is_none());
-            assert_eq!(entry.value().as_num().unwrap(), metric_data[j]);
+            assert_eq!(entry.value(), metric_data[j]);
             assert_eq!(it.last_doc_id(), id);
         }
 

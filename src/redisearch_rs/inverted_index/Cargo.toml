@@ -11,7 +11,6 @@ ffi.workspace = true
 field.workspace = true
 query_term.workspace = true
 thin_vec.workspace = true
-value.workspace = true
 qint.workspace = true
 redis_reply.workspace = true
 smallvec = { workspace = true, features = ["serde", "union"] }
@@ -19,17 +18,9 @@ varint.workspace = true
 serde.workspace = true
 workspace_hack.workspace = true
 
-[build-dependencies]
-build_utils = { path = "../build_utils" }
-
 [dev-dependencies]
 pretty_assertions.workspace = true
 proptest = { workspace = true, features = ["std"] }
-redis_mock.workspace = true
-# Provides mock C symbols (RSDummyContext, RedisModule_Free, etc.) needed
-# by the `value` crate when linking test binaries.
-redisearch_rs = { path = "../c_entrypoint/redisearch_rs", features = ["mock_allocator"] }
-inverted_index = { path = ".", features = ["test_utils"] }
 
 [features]
 test_utils = []

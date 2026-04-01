@@ -6,7 +6,6 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdlib.h>
-#include "value.h"
 typedef struct RLookupKey RLookupKey;
 typedef struct RSIndexResult RSIndexResult;
 
@@ -23,26 +22,7 @@ typedef struct MetricsVec {
 
 
 /**
- * A reference-counted, shared pointer to an [`RsValue`].
- *
- * Internally, this is a raw pointer to an [`RsValue`] that is either:
- * - **Static**: points to the global [`NULL_VALUE`] sentinel, requiring no
- *   reference counting.
- * - **Heap-allocated**: backed by an [`Arc<RsValue>`](Arc), with manual
- *   reference counting managed through raw pointer conversions.
- *
- * # Cloning and dropping
- *
- * [`Clone`] increments the [`Arc`] reference count (or cheaply copies the
- * pointer for static values). [`Drop`] decrements it and, when the last
- * reference is dropped, recycles the allocation into a thread-local pool
- * (see [`crate::pool`]) instead of deallocating. If the pool is full, the
- * allocation is deallocated normally.
- */
-typedef const RSValue *SharedRsValue;
-
-/**
- * A single metric: a borrowed key and an owned, reference-counted value.
+ * A single metric: a borrowed key and a numeric value.
  */
 typedef struct RSYieldableMetric {
   /**
@@ -51,10 +31,9 @@ typedef struct RSYieldableMetric {
    */
   const RLookupKey *key;
   /**
-   * Owned, reference-counted value.  Cloning a [`MetricEntry`]
-   * increments the refcount; dropping it decrements.
+   * The metric value (e.g. vector distance, score).
    */
-  SharedRsValue value;
+  double value;
 } RSYieldableMetric;
 
 /**
@@ -93,22 +72,16 @@ void RSYieldableMetric_Concat(MetricsVec *parent, MetricsVec *child);
 /**
  * Appends a single metric to the result's metrics collection.
  *
- * Takes ownership of `val` (the caller must not call `RSValue_DecrRef` on
- * it afterward).
- *
  * # Safety
  *
  * 1. `r` must point to a valid `RSIndexResult` and cannot be null.
  * 2. `key` must be a valid `*const RLookupKey` that outlives the result
  *    (or null).
- * 3. `val` must be a valid `*const RsValue` with an owned refcount (e.g.
- *    from `RSValue_NewNumber`).
  */
-void ResultMetrics_Add(RSIndexResult *r, const RLookupKey *key, const RSValue *val);
+void ResultMetrics_Add(RSIndexResult *r, const RLookupKey *key, double val);
 
 /**
- * Clears all entries from the result's metrics collection, decrementing
- * the refcount of each value.
+ * Clears all entries from the result's metrics collection.
  *
  * # Safety
  *
@@ -152,19 +125,14 @@ struct RSYieldableMetricSlice MetricsVec_AsSlice(const MetricsVec *metrics);
 
 /**
  * Finds the first metric whose key matches `key` (pointer equality) and
- * replaces its value with `new_value`, decrementing the old value's
- * refcount.
- *
- * Takes ownership of `new_value`. If the key is not found, `new_value`
- * is dropped (its refcount is decremented).
+ * replaces its value.
  *
  * # Safety
  *
  * 1. `metrics` must point to a valid `MetricsVec` (e.g. `&result.metrics`).
  * 2. `key` must point to a valid `RLookupKey`. Compared by pointer identity.
- * 3. `new_value` must be a valid `*const RsValue` with an owned refcount.
  */
-void MetricsVec_UpdateValue(MetricsVec *metrics, const RLookupKey *key, const RSValue *new_value);
+void MetricsVec_UpdateValue(MetricsVec *metrics, const RLookupKey *key, double new_value);
 
 #ifdef __cplusplus
 }  // extern "C"

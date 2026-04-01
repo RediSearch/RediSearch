@@ -10,7 +10,7 @@
 //! Yieldable metrics attached to query results.
 //!
 //! A [`MetricsVec`] holds a dynamic array of [`MetricEntry`] values, each
-//! pairing a borrowed [`RLookupKey`] with an owned [`SharedRsValue`].
+//! pairing a borrowed [`RLookupKey`] with a numeric value.
 //!
 //! Backed by [`ThinVec`] (pointer-sized, no-alloc on construction),
 //! `MetricsVec` is `repr(transparent)` and can be embedded directly in
@@ -18,24 +18,22 @@
 
 use ffi::RLookupKey;
 use thin_vec::ThinVec;
-use value::{RsValue, SharedRsValue};
 
-/// A single metric: a borrowed key and an owned, reference-counted value.
+/// A single metric: a borrowed key and a numeric value.
 #[repr(C)]
-#[derive(Clone)]
+#[derive(Clone, Copy, Debug)]
 pub struct MetricEntry<'a> {
     /// Borrowed reference to the lookup key that identifies this metric.
     /// `None` when the metric has no associated key.
     key: Option<&'a RLookupKey>,
 
-    /// Owned, reference-counted value.  Cloning a [`MetricEntry`]
-    /// increments the refcount; dropping it decrements.
-    value: SharedRsValue,
+    /// The metric value (e.g. vector distance, score).
+    value: f64,
 }
 
 impl<'a> MetricEntry<'a> {
     /// Creates a new metric entry.
-    pub const fn new(key: Option<&'a RLookupKey>, value: SharedRsValue) -> Self {
+    pub const fn new(key: Option<&'a RLookupKey>, value: f64) -> Self {
         Self { key, value }
     }
 
@@ -44,19 +42,13 @@ impl<'a> MetricEntry<'a> {
         self.key
     }
 
-    /// Returns a reference to the owned value.
-    pub const fn value(&self) -> &SharedRsValue {
-        &self.value
+    /// Returns the metric value.
+    pub const fn value(&self) -> f64 {
+        self.value
     }
 
-    /// Returns the raw value pointer (for passing to C).
-    pub const fn value_ptr(&self) -> *const RsValue {
-        self.value.as_ptr()
-    }
-
-    /// Replaces the value, dropping (and decrementing the refcount of) the
-    /// previous one.
-    pub fn set_value(&mut self, new_value: SharedRsValue) {
+    /// Replaces the value.
+    pub const fn set_value(&mut self, new_value: f64) {
         self.value = new_value;
     }
 }
@@ -66,7 +58,7 @@ impl PartialEq for MetricEntry<'_> {
         std::ptr::eq(
             self.key.map_or(std::ptr::null(), |k| k as *const _),
             other.key.map_or(std::ptr::null(), |k| k as *const _),
-        ) && SharedRsValue::ptr_eq(&self.value, &other.value)
+        ) && self.value == other.value
     }
 }
 
@@ -107,19 +99,16 @@ impl<'a> MetricsVec<'a> {
     }
 
     /// Appends a metric entry.
-    pub fn push(&mut self, key: Option<&'a RLookupKey>, value: SharedRsValue) {
+    pub fn push(&mut self, key: Option<&'a RLookupKey>, value: f64) {
         self.inner.push(MetricEntry::new(key, value));
     }
 
     /// Moves all entries from `other` into `self`, leaving `other` empty.
-    ///
-    /// Ownership of each [`SharedRsValue`] transfers to `self`; no
-    /// reference counts are changed.
     pub fn concat(&mut self, other: &mut Self) {
         self.inner.append(&mut other.inner);
     }
 
-    /// Drops all entries, decrementing the refcount of each value.
+    /// Drops all entries.
     pub fn reset(&mut self) {
         self.inner.clear();
     }

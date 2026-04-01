@@ -14,7 +14,6 @@
 
 use ffi::RLookupKey;
 use inverted_index::{MetricsSlice, MetricsVec, RSIndexResult};
-use value::{RsValue, SharedRsValue};
 
 /// Moves all metrics from `child` into `parent`, leaving `child` empty.
 ///
@@ -43,28 +42,21 @@ pub unsafe extern "C" fn RSYieldableMetric_Concat<'a>(
 
 /// Appends a single metric to the result's metrics collection.
 ///
-/// Takes ownership of `val` (the caller must not call `RSValue_DecrRef` on
-/// it afterward).
-///
 /// # Safety
 ///
 /// 1. `r` must point to a valid `RSIndexResult` and cannot be null.
 /// 2. `key` must be a valid `*const RLookupKey` that outlives the result
 ///    (or null).
-/// 3. `val` must be a valid `*const RsValue` with an owned refcount (e.g.
-///    from `RSValue_NewNumber`).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn ResultMetrics_Add(
     r: *mut RSIndexResult<'_>,
     key: *const RLookupKey,
-    val: *const RsValue,
+    val: f64,
 ) {
     debug_assert!(!r.is_null(), "result must not be null");
 
     // SAFETY: caller guarantees validity (1).
     let result = unsafe { &mut *r };
-    // SAFETY: caller transfers ownership of `val` (3).
-    let value = unsafe { SharedRsValue::from_raw(val) };
     // SAFETY: caller guarantees `key` validity (2).
     let key = if key.is_null() {
         None
@@ -72,11 +64,10 @@ pub unsafe extern "C" fn ResultMetrics_Add(
         // SAFETY: `key` is non-null (checked above) and valid per caller guarantee (2).
         Some(unsafe { &*key })
     };
-    result.metrics_mut().push(key, value);
+    result.metrics_mut().push(key, val);
 }
 
-/// Clears all entries from the result's metrics collection, decrementing
-/// the refcount of each value.
+/// Clears all entries from the result's metrics collection.
 ///
 /// # Safety
 ///
@@ -117,7 +108,7 @@ pub unsafe extern "C" fn ResetAndPushMetricData(
         // SAFETY: `key` is non-null (checked above) and valid per caller guarantee (2).
         Some(unsafe { &*key })
     };
-    metrics.push(key, SharedRsValue::new_num(val));
+    metrics.push(key, val);
 }
 
 /// Resets aggregate-specific fields on an `RSIndexResult`: doc_id, freq,
@@ -138,7 +129,6 @@ pub unsafe extern "C" fn IndexResult_ResetAggregate(r: *mut RSIndexResult<'_>) {
     if let Some(agg) = result.as_aggregate_mut() {
         agg.reset();
     }
-    // Clear the metrics (drops entries, reuses allocation).
     result.metrics.reset();
 }
 
@@ -160,22 +150,17 @@ pub unsafe extern "C" fn MetricsVec_AsSlice(metrics: *const MetricsVec) -> Metri
 }
 
 /// Finds the first metric whose key matches `key` (pointer equality) and
-/// replaces its value with `new_value`, decrementing the old value's
-/// refcount.
-///
-/// Takes ownership of `new_value`. If the key is not found, `new_value`
-/// is dropped (its refcount is decremented).
+/// replaces its value.
 ///
 /// # Safety
 ///
 /// 1. `metrics` must point to a valid `MetricsVec` (e.g. `&result.metrics`).
 /// 2. `key` must point to a valid `RLookupKey`. Compared by pointer identity.
-/// 3. `new_value` must be a valid `*const RsValue` with an owned refcount.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn MetricsVec_UpdateValue(
     metrics: *mut MetricsVec,
     key: *const RLookupKey,
-    new_value: *const RsValue,
+    new_value: f64,
 ) {
     debug_assert!(!metrics.is_null(), "metrics must not be null");
     debug_assert!(!key.is_null(), "key must not be null");
@@ -184,10 +169,7 @@ pub unsafe extern "C" fn MetricsVec_UpdateValue(
     let vec = unsafe { &mut *metrics };
     // SAFETY: caller guarantees `key` is valid and non-null (2); checked by debug_assert above.
     let key = unsafe { &*key };
-    // SAFETY: caller transfers ownership of `new_value` (3).
-    let value = unsafe { SharedRsValue::from_raw(new_value) };
     if let Some(entry) = vec.find_by_key_mut(key) {
-        entry.set_value(value);
+        entry.set_value(new_value);
     }
-    // If key not found, `value` drops here — refcount is decremented.
 }

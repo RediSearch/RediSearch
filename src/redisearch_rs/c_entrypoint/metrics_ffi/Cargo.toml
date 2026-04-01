@@ -16,7 +16,6 @@ build_utils = { path = "../../build_utils" }
 [dependencies]
 ffi.workspace = true
 inverted_index.workspace = true
-value.workspace = true
 workspace_hack.workspace = true
 
 [lints]

@@ -550,7 +550,7 @@ static int rpMetricsNext(ResultProcessor *base, SearchResult *res) {
 
   RSYieldableMetricSlice slice = MetricsVec_AsSlice(&SearchResult_GetIndexResult(res)->metrics);
   for (size_t i = 0; i < slice.len; i++) {
-    RLookup_WriteKey(slice.data[i].key, SearchResult_GetRowDataMut(res), slice.data[i].value);
+    RLookup_WriteOwnKey(slice.data[i].key, SearchResult_GetRowDataMut(res), RSValue_NewNumber(slice.data[i].value));
   }
 
   return rc;
