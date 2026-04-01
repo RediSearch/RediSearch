@@ -35,6 +35,7 @@
 #include "cursor.h"
 #include "debug_commands.h"
 #include "spell_check.h"
+#include "query_param.h"
 #include "dictionary.h"
 #include "suggest.h"
 #include "numeric_index.h"
@@ -343,9 +344,26 @@ int SpellCheckCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   bool fullScoreInfo = false;
   SpellCheckCtx scCtx;
 
+  // Parse PARAMS if present
+  int paramsArgIndex = RMUtil_ArgExists("PARAMS", argv, argc, argvOffset);
+  if (paramsArgIndex > 0) {
+    ArgsCursor ac;
+    ArgsCursor_InitRString(&ac, argv + paramsArgIndex + 1, argc - paramsArgIndex - 1);
+    if (parseParams(&opts.params, &ac, &status) != REDISMODULE_OK) {
+      RedisModule_ReplyWithError(ctx, QueryError_GetUserError(&status));
+      goto end;
+    }
+  }
+
   int rc = QAST_Parse(&qast, sctx, &opts, rawQuery, len, dialect, &status);
 
   if (rc != REDISMODULE_OK) {
+    RedisModule_ReplyWithError(ctx, QueryError_GetUserError(&status));
+    goto end;
+  }
+
+  // Evaluate parameters in the parsed query AST
+  if (QAST_EvalParams(&qast, &opts, dialect, &status) != REDISMODULE_OK) {
     RedisModule_ReplyWithError(ctx, QueryError_GetUserError(&status));
     goto end;
   }
@@ -401,6 +419,9 @@ int SpellCheckCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
 end:
   QueryError_ClearError(&status);
+  if (opts.params) {
+    Param_DictFree(opts.params);
+  }
   if (includeDict != NULL) {
     array_free(includeDict);
   }
