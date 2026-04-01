@@ -123,7 +123,7 @@ int func_to_number(ExprEval *ctx, RSValue **argv, size_t argc, RSValue *result) 
     size_t sz = 0;
     const char *p = RSValue_StringPtrLen(argv[0], &sz);
     QueryError_SetWithUserDataFmt(ctx->err, QUERY_ERROR_CODE_PARSE_ARGS,
-                                  "to_number: cannot convert string", " '%s'", p);
+                                  "to_number: cannot convert string", " '%.*s'", (int)sz, p);
     return EXPR_EVAL_ERR;
   }
 
@@ -266,13 +266,13 @@ error:
   return EXPR_EVAL_ERR;
 }
 
-static char *str_trim(char *s, size_t sl, const char *cset, size_t *outlen) {
+static char *str_trim(char *s, size_t sl, const char *cset, size_t csetlen, size_t *outlen) {
   char *start, *end, *sp, *ep;
 
   sp = start = s;
   ep = end = s + sl - 1;
-  while (sp <= end && strchr(cset, *sp)) sp++;
-  while (ep > sp && strchr(cset, *ep)) ep--;
+  while (sp <= end && memchr(cset, *sp, csetlen)) sp++;
+  while (ep > sp && memchr(cset, *ep, csetlen)) ep--;
   *outlen = (sp > ep) ? 0 : ((ep - sp) + 1);
 
   return sp;
@@ -280,14 +280,16 @@ static char *str_trim(char *s, size_t sl, const char *cset, size_t *outlen) {
 static int stringfunc_split(ExprEval *ctx, RSValue **argv, size_t argc, RSValue *result) {
   VALIDATE_ARG_ISSTRING("split", argv, 0);
   const char *sep = ",";
+  size_t seplen = 1;
   const char *strp = " ";
+  size_t strplen = 1;
   if (argc >= 2) {
     VALIDATE_ARG_ISSTRING("split", argv, 1);
-    sep = RSValue_StringPtrLen(argv[1], NULL);
+    sep = RSValue_StringPtrLen(argv[1], &seplen);
   }
   if (argc == 3) {
     VALIDATE_ARG_ISSTRING("split", argv, 2);
-    strp = RSValue_StringPtrLen(argv[2], NULL);
+    strp = RSValue_StringPtrLen(argv[2], &strplen);
   }
 
   size_t len;
@@ -300,13 +302,20 @@ static int stringfunc_split(ExprEval *ctx, RSValue **argv, size_t argc, RSValue 
   // extract at most 1024 values
   RSValue *tmp[1024];
   while (l < 1024 && tok < ep) {
-    next = strpbrk(tok, sep);
+    // Find the next occurrence of any separator character within bounds
+    next = NULL;
+    for (char *p = tok; p < ep; p++) {
+      if (memchr(sep, *p, seplen)) {
+        next = p;
+        break;
+      }
+    }
     size_t sl = next ? (next - tok) : ep - tok;
 
     if (sl > 0) {
       size_t outlen;
       // trim the strip set
-      char *s = str_trim(tok, sl, strp, &outlen);
+      char *s = str_trim(tok, sl, strp, strplen, &outlen);
       if (outlen) {
         RS_ASSERT(outlen <= UINT32_MAX);
         tmp[l++] = RSValue_NewCopiedString(s, outlen);
@@ -352,10 +361,11 @@ static int stringfunc_startswith(ExprEval *ctx, RSValue **argv, size_t argc, RSV
   RSValue *str = RSValue_Dereference(argv[0]);
   RSValue *pref = RSValue_Dereference(argv[1]);
 
-  const char *p_str = RSValue_StringPtrLen(str, NULL);
+  size_t str_len;
+  const char *p_str = RSValue_StringPtrLen(str, &str_len);
   size_t n;
   const char *p_pref = RSValue_StringPtrLen(pref, &n);
-  RSValue_SetNumber(result, strncmp(p_pref, p_str, n) == 0);
+  RSValue_SetNumber(result, str_len >= n && memcmp(p_pref, p_str, n) == 0);
   return EXPR_EVAL_OK;
 }
 

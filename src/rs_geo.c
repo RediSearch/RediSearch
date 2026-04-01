@@ -116,7 +116,8 @@ int parseGeo(const char *c, size_t len, double *lon, double *lat, QueryError *st
     return REDISMODULE_ERR;
   }
   char str[len + 1];
-  memcpy(str, c, len + 1);
+  memcpy(str, c, len);
+  str[len] = '\0';
   char *pos = strpbrk(str, " ,");
   if (!pos) {
     QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Invalid geo string");
