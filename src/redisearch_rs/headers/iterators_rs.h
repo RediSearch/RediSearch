@@ -126,8 +126,7 @@ size_t GetIntersectionIteratorNumChildren(const QueryIterator *header);
  * Returns a non-owning raw pointer to the child at `idx`.
  *
  * The returned pointer is valid as long as the intersection iterator is alive and no
- * structural modifications are made (e.g. via [`AddIntersectionIteratorChild`] or
- * [`ForEachIntersectionChildMut`]).
+ * structural modifications are made (e.g. via [`AddIntersectionIteratorChild`]).
  *
  * # Safety
  *
@@ -152,27 +151,6 @@ const QueryIterator *GetIntersectionIteratorChild(const QueryIterator *header, s
  * 2. `child` must be a valid non-null pointer to a `QueryIterator`, not aliased.
  */
 void AddIntersectionIteratorChild(QueryIterator *header, QueryIterator *child);
-
-/**
- * Apply `callback` to each child iterator slot, passing a mutable `QueryIterator**`.
- *
- * This is designed for use with `Profile_AddIters`, which replaces each child with a
- * profile-wrapping iterator in place. The callback receives a pointer to the raw pointer
- * stored inside each [`CRQEIterator`] child, allowing it to update (replace) that pointer.
- *
- * This is safe because [`CRQEIterator`] is `#[repr(transparent)]` over
- * `NonNull<QueryIterator>`, which has the same memory layout as `*mut QueryIterator`.
- * The callback's in-place mutation of the slot directly updates the `CRQEIterator`'s
- * internal pointer, so the intersection will subsequently own (and free) the new iterator.
- *
- * # Safety
- *
- * 1. `header` must be a valid non-null pointer created via [`NewIntersectionIterator`].
- * 2. `callback` must be a valid function pointer.
- * 3. The callback must replace `*slot` with a valid non-null `QueryIterator*` that takes
- *    ownership of the original iterator (i.e. `NewProfileIterator` semantics).
- */
-void ForEachIntersectionChildMut(QueryIterator *header, void (*callback)(QueryIterator**));
 
 /**
  * Gets the flags of the underlying IndexReader from an inverted index iterator.
