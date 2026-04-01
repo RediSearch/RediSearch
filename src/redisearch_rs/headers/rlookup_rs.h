@@ -120,18 +120,6 @@ typedef struct IndexSpecCache IndexSpecCache;
 typedef struct RLookup RLookup;
 
 /**
- * [`RSSortingVector`] acts as a cache for sortable fields in a document.
- *
- * It has a constant length, determined upfront on creation. It can't be resized.
- * The [`RSSortingVector`] may contain values of different types, such as numbers, strings, or references to other values.
- * This depends on the fields in the source document.
- *
- * The fields in the sorting vector occur in the same order as they appeared in the document. Fields that are not sortable,
- * are not added at all to the sorting vector, i.e. the sorting vector does not contain null values for non-sortable fields.
- */
-typedef struct RSSortingVector RSSortingVector;
-
-/**
  * A type with size `N`.
  */
 typedef uint8_t Size_40[40];
@@ -765,7 +753,7 @@ RSValue *RLookupRow_Get(const struct RLookupKey *key, const struct RLookupRow *r
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-const struct RSSortingVector *RLookupRow_GetSortingVector(const struct RLookupRow *row);
+const RSSortingVector *RLookupRow_GetSortingVector(const struct RLookupRow *row);
 
 /**
  * Sets the sorting vector for the row.
@@ -778,7 +766,7 @@ const struct RSSortingVector *RLookupRow_GetSortingVector(const struct RLookupRo
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 void RLookupRow_SetSortingVector(struct RLookupRow *row,
-                                 const struct RSSortingVector *sv);
+                                 const RSSortingVector *sv);
 
 #ifdef __cplusplus
 }  // extern "C"

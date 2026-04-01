@@ -9,8 +9,31 @@
 // Forward declaration of RSValue, which is only used as ptr in the sorting_vector module
 typedef struct RSValue RSValue;
 
-// Forward declaration of SortingVector, which is only used as ptr in the sorting_vector module
-typedef struct RSSortingVector RSSortingVector;
+/**
+ * `RSSortingVector` acts as a cache for sortable fields in a document.
+ *
+ * The struct is `#[repr(C)]` in Rust. `values` is an array of `len` RSValue
+ * pointers. Simple getters (length, element access) can read the fields
+ * directly without crossing the FFI boundary.
+ */
+typedef struct RSSortingVector {
+    size_t len;
+    RSValue **values;
+} RSSortingVector;
+
+/**
+ * Returns the element at `idx`. No bounds check.
+ */
+static inline RSValue *RSSortingVector_Get(const RSSortingVector *sv, size_t idx) {
+    return sv->values[idx];
+}
+
+/**
+ * Returns the number of elements.
+ */
+static inline size_t RSSortingVector_Length(const RSSortingVector *sv) {
+    return sv->len;
+}
 
 
 #define RS_SORTABLES_MAX 1024
@@ -18,33 +41,6 @@ typedef struct RSSortingVector RSSortingVector;
 #ifdef __cplusplus
 extern "C" {
 #endif // __cplusplus
-
-/**
- * Gets a RSValue from the sorting vector at the given index.
- *
- * # Panics
- *
- * Panics if the `idx` is out of bounds for the vector.
- *
- * # Safety
- *
- * 1. `vec` must be a [valid], non-null pointer to an [`RSSortingVector`] created by [`RSSortingVector_New`].
- *
- * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
- */
-RSValue *RSSortingVector_Get(const RSSortingVector *vec,
-                             size_t idx);
-
-/**
- * Returns the length of the sorting vector.
- *
- * # Safety
- *
- * 1. `vec` must be a [valid], non-null pointer to an [`RSSortingVector`] created by [`RSSortingVector_New`].
- *
- * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
- */
-size_t RSSortingVector_Length(const RSSortingVector *vec);
 
 /**
  * Returns the memory size of the sorting vector.
