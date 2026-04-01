@@ -38,45 +38,89 @@ impl std::error::Error for IndexOutOfBounds {}
 ///
 /// The fields in the sorting vector occur in the same order as they appeared in the document. Fields that are not sortable,
 /// are not added at all to the sorting vector, i.e. the sorting vector does not contain null values for non-sortable fields.
-#[derive(Debug, Clone)]
+///
+/// The struct uses `#[repr(C)]` to allow C code to directly access `len` and `values` without FFI
+/// function calls. This is critical for performance in the sort comparison hot path.
+#[repr(C)]
 pub struct RSSortingVector {
-    values: Box<[RSValueFFI]>,
+    /// Number of elements in the values array.
+    pub len: usize,
+    /// Pointer to a heap-allocated array of [`RSValueFFI`] elements.
+    ///
+    /// # Invariant
+    ///
+    /// When `len > 0`, `values` is a valid, non-null pointer to an allocation of exactly `len`
+    /// elements produced by `Vec::into_raw_parts`. When `len == 0`, `values` may be dangling
+    /// (from `Vec::new()`).
+    pub values: *mut RSValueFFI,
 }
+
+// SAFETY: The raw pointer `values` is an owned heap allocation that is never shared.
+// RSSortingVector has exclusive ownership of the allocation, similar to `Box<[RSValueFFI]>`.
+unsafe impl Send for RSSortingVector {}
+
+// SAFETY: RSSortingVector does not provide interior mutability through shared references.
+// All mutation requires `&mut self`.
+unsafe impl Sync for RSSortingVector {}
 
 impl RSSortingVector {
     /// Creates a new [`RSSortingVector`] with the given length.
     pub fn new(len: usize) -> Self {
-        Self {
-            values: vec![RSValueFFI::null_static(); len].into_boxed_slice(),
+        let vec = vec![RSValueFFI::null_static(); len];
+        let (values, actual_len, _cap) = vec.into_raw_parts();
+        debug_assert_eq!(actual_len, len);
+        Self { len, values }
+    }
+
+    /// Returns a shared slice over the values.
+    #[inline]
+    fn as_slice(&self) -> &[RSValueFFI] {
+        if self.len == 0 {
+            &[]
+        } else {
+            // SAFETY: `values` points to a valid allocation of `len` elements (struct invariant).
+            unsafe { std::slice::from_raw_parts(self.values, self.len) }
+        }
+    }
+
+    /// Returns a mutable slice over the values.
+    #[inline]
+    fn as_slice_mut(&mut self) -> &mut [RSValueFFI] {
+        if self.len == 0 {
+            &mut []
+        } else {
+            // SAFETY: `values` points to a valid allocation of `len` elements (struct invariant),
+            // and we have exclusive access via `&mut self`.
+            unsafe { std::slice::from_raw_parts_mut(self.values, self.len) }
         }
     }
 
     /// Returns an immutable reference to the value at index `index`,
     /// or `None` if the index is out-of-bounds for this sorting vector.
     pub fn get(&self, index: usize) -> Option<&RSValueFFI> {
-        self.values.get(index)
+        self.as_slice().get(index)
     }
 
     /// Returns an iterator over the values in the sorting vector.
     pub fn iter(&self) -> Iter<'_, RSValueFFI> {
-        self.values.iter()
+        self.as_slice().iter()
     }
 
     /// Returns a mutable iterator over the values in the sorting vector.
     pub fn iter_mut(&mut self) -> IterMut<'_, RSValueFFI> {
-        self.values.iter_mut()
+        self.as_slice_mut().iter_mut()
     }
 
     /// Set a number (double) at the given index
     pub fn try_insert_num(&mut self, idx: usize, num: f64) -> Result<(), IndexOutOfBounds> {
-        let spot = self.values.get_mut(idx).ok_or(IndexOutOfBounds(()))?;
+        let spot = self.as_slice_mut().get_mut(idx).ok_or(IndexOutOfBounds(()))?;
         *spot = RSValueFFI::new_num(num);
         Ok(())
     }
 
     /// Set a string at the given index.
     pub fn try_insert_string(&mut self, idx: usize, str: Vec<u8>) -> Result<(), IndexOutOfBounds> {
-        let spot = self.values.get_mut(idx).ok_or(IndexOutOfBounds(()))?;
+        let spot = self.as_slice_mut().get_mut(idx).ok_or(IndexOutOfBounds(()))?;
         *spot = RSValueFFI::new_string(str);
         Ok(())
     }
@@ -100,26 +144,26 @@ impl RSSortingVector {
         idx: usize,
         value: RSValueFFI,
     ) -> Result<(), IndexOutOfBounds> {
-        let spot = self.values.get_mut(idx).ok_or(IndexOutOfBounds(()))?;
+        let spot = self.as_slice_mut().get_mut(idx).ok_or(IndexOutOfBounds(()))?;
         *spot = value;
         Ok(())
     }
 
     /// Set a null value at the given index
     pub fn try_insert_null(&mut self, idx: usize) -> Result<(), IndexOutOfBounds> {
-        let spot = self.values.get_mut(idx).ok_or(IndexOutOfBounds(()))?;
+        let spot = self.as_slice_mut().get_mut(idx).ok_or(IndexOutOfBounds(()))?;
         *spot = RSValueFFI::null_static();
         Ok(())
     }
 
     /// Get the len of the sorting vector.
     pub fn len(&self) -> usize {
-        self.values.len()
+        self.len
     }
 
     /// check if the sorting vector is empty.
     pub fn is_empty(&self) -> bool {
-        self.values.is_empty()
+        self.len == 0
     }
 
     /// approximate the memory size of the sorting vector.
@@ -127,10 +171,11 @@ impl RSSortingVector {
     /// The implementation by-passes references in the middle of the chain, so it only counts the size of the final value,
     /// as in C.
     pub fn get_memory_size(&self) -> usize {
-        let mut sz = self.values.len() * size_of::<RSValueFFI>();
+        let slice = self.as_slice();
+        let mut sz = slice.len() * size_of::<RSValueFFI>();
 
-        for idx in 0..self.values.len() {
-            if self.values[idx].is_null() {
+        for idx in 0..slice.len() {
+            if slice[idx].is_null() {
                 continue;
             }
 
@@ -138,7 +183,7 @@ impl RSSortingVector {
 
             // the original behavior would by-pass references in the middle of the chain
             // fixup in: MOD-10347
-            let value = self.values[idx].deep_deref();
+            let value = slice[idx].deep_deref();
 
             if value.get_type() == ffi::RSValueType_RSValueType_String {
                 sz += value.as_str_bytes().unwrap().len();
@@ -148,11 +193,40 @@ impl RSSortingVector {
     }
 }
 
+impl Clone for RSSortingVector {
+    fn clone(&self) -> Self {
+        // Clone each element (incrementing refcounts) and collect into a new Vec.
+        let cloned: Vec<RSValueFFI> = self.as_slice().iter().cloned().collect();
+        let (values, len, _cap) = cloned.into_raw_parts();
+        Self { len, values }
+    }
+}
+
+impl fmt::Debug for RSSortingVector {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("RSSortingVector")
+            .field("len", &self.len)
+            .field("values", &self.as_slice())
+            .finish()
+    }
+}
+
+impl Drop for RSSortingVector {
+    fn drop(&mut self) {
+        if self.len > 0 {
+            // SAFETY: `values` was allocated by `Vec::into_raw_parts` with exactly `len` elements
+            // and capacity equal to `len`. Reconstructing the Vec and dropping it frees the
+            // allocation and drops each `RSValueFFI` (decrementing refcounts).
+            let _ = unsafe { Vec::from_raw_parts(self.values, self.len, self.len) };
+        }
+    }
+}
+
 impl FromIterator<RSValueFFI> for RSSortingVector {
     fn from_iter<T: IntoIterator<Item = RSValueFFI>>(iter: T) -> Self {
-        Self {
-            values: iter.into_iter().collect(),
-        }
+        let vec: Vec<RSValueFFI> = iter.into_iter().collect();
+        let (values, len, _cap) = vec.into_raw_parts();
+        Self { len, values }
     }
 }
 
@@ -161,8 +235,18 @@ impl IntoIterator for RSSortingVector {
     type Item = RSValueFFI;
     type IntoIter = std::vec::IntoIter<RSValueFFI>;
     fn into_iter(self) -> Self::IntoIter {
-        // this does not use a new allocation
-        Vec::from(self.values).into_iter()
+        let len = self.len;
+        let values = self.values;
+        // Prevent Drop from running (which would free the same allocation).
+        std::mem::forget(self);
+
+        if len == 0 {
+            return Vec::new().into_iter();
+        }
+
+        // SAFETY: `values` was produced by `Vec::into_raw_parts` with capacity == len.
+        let vec = unsafe { Vec::from_raw_parts(values, len, len) };
+        vec.into_iter()
     }
 }
 
@@ -174,7 +258,7 @@ where
     type Output = <[RSValueFFI] as std::ops::Index<I>>::Output;
 
     fn index(&self, index: I) -> &Self::Output {
-        self.values.index(index)
+        self.as_slice().index(index)
     }
 }
 
@@ -184,6 +268,6 @@ where
     I: std::slice::SliceIndex<[RSValueFFI]>,
 {
     fn index_mut(&mut self, index: I) -> &mut Self::Output {
-        self.values.index_mut(index)
+        self.as_slice_mut().index_mut(index)
     }
 }

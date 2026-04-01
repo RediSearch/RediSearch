@@ -19,42 +19,9 @@ use value::RSValueFFI;
 
 pub const RS_SORTABLES_MAX: usize = 1024;
 
-/// Gets a RSValue from the sorting vector at the given index.
-///
-/// # Panics
-///
-/// Panics if the `idx` is out of bounds for the vector.
-///
-/// # Safety
-///
-/// 1. `vec` must be a [valid], non-null pointer to an [`RSSortingVector`] created by [`RSSortingVector_New`].
-///
-/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn RSSortingVector_Get(
-    vec: *const RSSortingVector,
-    idx: size_t,
-) -> *mut ffi::RSValue {
-    // Safety: The caller must ensure that the pointer is valid (1.)
-    let vec = unsafe { vec.as_ref().expect("vec must not be null") };
-
-    vec[idx].as_ptr()
-}
-
-/// Returns the length of the sorting vector.
-///
-/// # Safety
-///
-/// 1. `vec` must be a [valid], non-null pointer to an [`RSSortingVector`] created by [`RSSortingVector_New`].
-///
-/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn RSSortingVector_Length(vec: *const RSSortingVector) -> size_t {
-    // Safety: The caller must ensure that the pointer is valid (1.)
-    let vec = unsafe { vec.as_ref().expect("vec must not be null") };
-
-    vec.len() as size_t
-}
+// NOTE: RSSortingVector_Get and RSSortingVector_Length are now inline C functions
+// defined in the generated header (cbindgen.toml `after_includes`). They read
+// the `#[repr(C)]` struct fields directly, avoiding FFI function-call overhead.
 
 /// Returns the memory size of the sorting vector.
 ///
