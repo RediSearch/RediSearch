@@ -9,6 +9,7 @@
 
 use serde::{Deserialize, Serialize};
 use std::{
+    io::Cursor,
     marker::PhantomData,
     sync::atomic::{self, AtomicU32, AtomicUsize},
 };
@@ -16,11 +17,11 @@ use thin_vec::ThinVec;
 
 use super::unique_id::IndexUniqueId;
 use crate::{
-    BlockCapacity, Encoder, IdDelta, RSIndexResult,
+    BlockCapacity, Decoder, Encoder, IdDelta, RSIndexResult,
     controlled_cursor::ControlledCursor,
     debug::{BlockSummary, Summary},
 };
-use ffi::{IndexFlags, IndexFlags_Index_HasMultiValue, t_docId};
+use ffi::{IndexFlags, IndexFlags_Index_HasMultiValue, t_docId, t_fieldMask};
 
 /// An inverted index is a data structure that maps terms to their occurrences in documents. It is
 /// used to efficiently search for documents that contain specific terms.
@@ -402,5 +403,85 @@ impl<E: Encoder> InvertedIndex<E> {
     /// revalidation.
     pub const fn unique_id(&self) -> IndexUniqueId {
         self.unique_id
+    }
+}
+
+impl<E> InvertedIndex<E>
+where
+    E: Encoder + Decoder,
+{
+    /// Count distinct encoded document IDs for which `doc_exists` is true.
+    ///
+    /// Used for BM25/TF‑IDF document frequency while stale internal IDs may still be present
+    /// in the posting list (pre‑GC). Every encoded row attributes to its `doc_id`; multi‑value
+    /// rows share the same ID and are counted once.
+    pub fn count_live_unique_docs(
+        &self,
+        doc_exists: &mut impl FnMut(t_docId) -> bool,
+    ) -> std::io::Result<u32> {
+        self.count_live_unique_docs_impl(None, doc_exists)
+    }
+
+    /// Like [`Self::count_live_unique_docs`], but only counts a document when at least one of its
+    /// encoded rows matches `query_mask` against the row's `field_mask`.
+    pub fn count_live_unique_docs_for_query_mask(
+        &self,
+        query_mask: t_fieldMask,
+        doc_exists: &mut impl FnMut(t_docId) -> bool,
+    ) -> std::io::Result<u32> {
+        self.count_live_unique_docs_impl(Some(query_mask), doc_exists)
+    }
+
+    fn count_live_unique_docs_impl(
+        &self,
+        query_mask: Option<t_fieldMask>,
+        doc_exists: &mut impl FnMut(t_docId) -> bool,
+    ) -> std::io::Result<u32> {
+        let mut live: u32 = 0;
+        let mut last_read: Option<t_docId> = None;
+        let mut run_doc: Option<t_docId> = None;
+        let mut run_matches = false;
+        let mut result = E::base_result();
+
+        for block in &self.blocks {
+            let mut cursor = Cursor::new(block.buffer.as_slice());
+            while (cursor.position() as usize) < block.buffer.len() {
+                let base = E::base_id(block, last_read.unwrap_or(block.first_doc_id));
+                E::decode(&mut cursor, base, &mut result)?;
+
+                if last_read.is_none_or(|id| id != result.doc_id) {
+                    if let Some(d) = run_doc.take() {
+                        if run_matches && doc_exists(d) {
+                            live = live.saturating_add(1);
+                        }
+                    }
+                    run_doc = Some(result.doc_id);
+                    run_matches = match query_mask {
+                        None => true,
+                        Some(m) => (result.field_mask & m) > 0,
+                    };
+                } else if let Some(m) = query_mask {
+                    run_matches |= (result.field_mask & m) > 0;
+                }
+
+                last_read = Some(result.doc_id);
+            }
+        }
+
+        if let Some(d) = run_doc {
+            if run_matches && doc_exists(d) {
+                live = live.saturating_add(1);
+            }
+        }
+
+        Ok(live)
+    }
+
+    /// Number of live distinct documents for IDF when the index is not wrapped (e.g. freqs‑only).
+    pub fn count_live_unique_docs_for_idf_scoring(
+        &self,
+        doc_exists: &mut impl FnMut(t_docId) -> bool,
+    ) -> std::io::Result<u32> {
+        self.count_live_unique_docs(doc_exists)
     }
 }

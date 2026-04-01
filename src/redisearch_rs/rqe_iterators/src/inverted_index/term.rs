@@ -10,7 +10,7 @@
 use std::ptr::NonNull;
 
 use ffi::{RS_FIELDMASK_ALL, RedisSearchCtx, t_docId};
-use inverted_index::{RSIndexResult, RSOffsetSlice, TermReader};
+use inverted_index::{IdfTermDocs, RSIndexResult, RSOffsetSlice, TermReader};
 use query_term::RSQueryTerm;
 
 use crate::{
@@ -36,7 +36,7 @@ pub struct Term<'index, R, E = crate::expiration_checker::NoOpChecker> {
 
 impl<'index, R, E> Term<'index, R, E>
 where
-    R: TermReader<'index>,
+    R: TermReader<'index> + IdfTermDocs<'index>,
     E: ExpirationChecker,
 {
     /// Create an iterator returning results from a term inverted index.
@@ -71,7 +71,9 @@ where
         // SAFETY: 2. guarantee spec is valid.
         let spec = unsafe { &*context_ref.spec };
         let total_docs = spec.stats.scoring.numDocuments;
-        let term_docs = reader.unique_docs() as usize;
+        let term_docs = reader
+            .idf_term_docs(spec)
+            .unwrap_or_else(|_| reader.unique_docs() as u32) as usize;
         term.set_idf(idf::calculate_idf(total_docs, term_docs));
         term.set_bm25_idf(idf::calculate_idf_bm25(total_docs, term_docs));
 
@@ -160,7 +162,7 @@ impl<'index, Enc: inverted_index::DecodedBy, E>
 
 impl<'index, R, E> RQEIterator<'index> for Term<'index, R, E>
 where
-    R: TermReader<'index>,
+    R: TermReader<'index> + IdfTermDocs<'index>,
     E: ExpirationChecker,
 {
     #[inline(always)]

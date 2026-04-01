@@ -30,6 +30,11 @@ impl<'index, IR: IndexReader<'index>> FilterMaskReader<IR> {
     pub const fn new(mask: t_fieldMask, inner: IR) -> Self {
         Self { mask, inner }
     }
+
+    /// Field mask used to filter records (same as the query field mask for this reader).
+    pub const fn filter_mask(&self) -> t_fieldMask {
+        self.mask
+    }
 }
 
 impl<'index, IR: IndexReader<'index>> IndexReader<'index> for FilterMaskReader<IR> {

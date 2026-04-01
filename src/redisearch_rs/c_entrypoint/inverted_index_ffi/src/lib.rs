@@ -310,6 +310,78 @@ pub unsafe extern "C" fn InvertedIndex_NumDocs(ii: *const InvertedIndex) -> u32 
     ii_dispatch!(ii, unique_docs)
 }
 
+/// Distinct live documents in this posting list for IDF/BM25 on RAM indexes (fork‑GC may leave
+/// stale internal ids in the encoded `unique_docs` counter).
+///
+/// Field‑mask encodings respect `query_mask`; doc‑ids‑only style encodings count live rows without
+/// per‑row field data (same as a full posting scan + [`DocTable_Exists`]).
+///
+/// # Safety
+///
+/// `ii` and `spec` must be valid, non-null pointers. `spec.docs` must be a valid `DocTable`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn InvertedIndex_CountLiveUniqueDocsForIdf(
+    ii: *const InvertedIndex,
+    spec: *const ffi::IndexSpec,
+    query_mask: t_fieldMask,
+) -> u32 {
+    debug_assert!(!ii.is_null(), "ii must not be null");
+    debug_assert!(!spec.is_null(), "spec must not be null");
+
+    let ii = unsafe { &*ii };
+    let spec = unsafe { &*spec };
+    let mut doc_exists = |id: t_docId| unsafe { DocTable_Exists(&spec.docs, id) };
+
+    let counted = match ii {
+        InvertedIndex::Full(i) => {
+            i.inner()
+                .count_live_unique_docs_for_query_mask(query_mask, &mut doc_exists)
+        }
+        InvertedIndex::FullWide(i) => {
+            i.inner()
+                .count_live_unique_docs_for_query_mask(query_mask, &mut doc_exists)
+        }
+        InvertedIndex::FreqsFields(i) => {
+            i.inner()
+                .count_live_unique_docs_for_query_mask(query_mask, &mut doc_exists)
+        }
+        InvertedIndex::FreqsFieldsWide(i) => {
+            i.inner()
+                .count_live_unique_docs_for_query_mask(query_mask, &mut doc_exists)
+        }
+        InvertedIndex::FieldsOnly(i) => {
+            i.inner()
+                .count_live_unique_docs_for_query_mask(query_mask, &mut doc_exists)
+        }
+        InvertedIndex::FieldsOnlyWide(i) => {
+            i.inner()
+                .count_live_unique_docs_for_query_mask(query_mask, &mut doc_exists)
+        }
+        InvertedIndex::FieldsOffsets(i) => {
+            i.inner()
+                .count_live_unique_docs_for_query_mask(query_mask, &mut doc_exists)
+        }
+        InvertedIndex::FieldsOffsetsWide(i) => {
+            i.inner()
+                .count_live_unique_docs_for_query_mask(query_mask, &mut doc_exists)
+        }
+        InvertedIndex::FreqsOnly(i) => i.count_live_unique_docs(&mut doc_exists),
+        InvertedIndex::OffsetsOnly(i) => i.count_live_unique_docs(&mut doc_exists),
+        InvertedIndex::FreqsOffsets(i) => i.count_live_unique_docs(&mut doc_exists),
+        InvertedIndex::DocIdsOnly(i) => i.count_live_unique_docs(&mut doc_exists),
+        InvertedIndex::RawDocIdsOnly(i) => i.count_live_unique_docs(&mut doc_exists),
+        InvertedIndex::Numeric(i) => i.inner().count_live_unique_docs(&mut doc_exists),
+        InvertedIndex::NumericFloatCompression(i) => {
+            i.inner().count_live_unique_docs(&mut doc_exists)
+        }
+    };
+
+    match counted {
+        Ok(n) => n,
+        Err(_) => ii_dispatch!(ii, unique_docs),
+    }
+}
+
 /// Get a summary of the inverted index for debugging purposes.
 ///
 /// # Safety

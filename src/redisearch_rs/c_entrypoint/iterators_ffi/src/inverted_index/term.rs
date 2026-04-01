@@ -11,7 +11,8 @@ use std::ptr::NonNull;
 
 use field::{FieldExpirationPredicate, FieldFilterContext, FieldMaskOrIndex};
 use inverted_index::{
-    FilterMaskReader, IndexReader, IndexReaderCore, RSIndexResult, RSQueryTerm, TermReader,
+    FilterMaskReader, IdfTermDocs, IndexReader, IndexReaderCore, RSIndexResult, RSQueryTerm,
+    TermReader,
     doc_ids_only::DocIdsOnly, fields_offsets, fields_only, freqs_fields, freqs_offsets, freqs_only,
     full, offsets_only, raw_doc_ids_only::RawDocIdsOnly, t_docId,
 };
@@ -118,6 +119,12 @@ impl<'index> TermReader<'index> for TermIndexReader<'index> {
         opaque: &inverted_index::opaque::InvertedIndex,
     ) -> bool {
         term_ir_dispatch!(self, points_to_the_same_opaque_index, opaque)
+    }
+}
+
+impl<'index> IdfTermDocs<'index> for TermIndexReader<'index> {
+    fn idf_term_docs(&self, spec: &ffi::IndexSpec) -> std::io::Result<u32> {
+        term_ir_dispatch!(self, idf_term_docs, spec)
     }
 }
 

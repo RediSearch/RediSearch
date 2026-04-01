@@ -34,7 +34,10 @@ pub use index_result::{
 };
 
 // Re-export reader types.
-pub use reader::{IndexReader, IndexReaderCore, NumericFilter, NumericReader, TermReader};
+pub use reader::{
+    IdfTermDocs, IndexReader, IndexReaderCore, NumericFilter, NumericReader, TermReader,
+    use_live_df_for_idf,
+};
 
 // Re-export filter types.
 pub use reader::{FilterGeoReader, FilterMaskReader, FilterNumericReader, ReadFilter};

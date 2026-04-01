@@ -11,8 +11,8 @@ use std::ptr::NonNull;
 
 use ffi::{RS_FIELDMASK_ALL, RedisSearchCtx, TagIndex, t_docId};
 use inverted_index::{
-    DecodedBy, DocIdsDecoder, IndexReader, IndexReaderCore, RSIndexResult, RSOffsetSlice,
-    opaque::OpaqueEncoding,
+    DecodedBy, Decoder, DocIdsDecoder, IdfTermDocs, IndexReader, IndexReaderCore, RSIndexResult,
+    RSOffsetSlice, TermDecoder, opaque::OpaqueEncoding,
 };
 use query_term::RSQueryTerm;
 
@@ -44,7 +44,7 @@ pub struct Tag<'index, E, C = crate::expiration_checker::NoOpChecker> {
 
 impl<'index, E, C> Tag<'index, E, C>
 where
-    E: DecodedBy + OpaqueEncoding<Storage = inverted_index::InvertedIndex<E>>,
+    E: DecodedBy<Decoder = E> + Decoder + TermDecoder + OpaqueEncoding<Storage = inverted_index::InvertedIndex<E>>,
     <E as DecodedBy>::Decoder: DocIdsDecoder,
     C: ExpirationChecker,
 {
@@ -82,7 +82,9 @@ where
         // SAFETY: 2. guarantees spec is valid.
         let spec = unsafe { &*context_ref.spec };
         let total_docs = spec.stats.scoring.numDocuments;
-        let term_docs = reader.unique_docs() as usize;
+        let term_docs = reader
+            .idf_term_docs(spec)
+            .unwrap_or_else(|_| reader.unique_docs() as u32) as usize;
         term.set_idf(idf::calculate_idf(total_docs, term_docs));
         term.set_bm25_idf(idf::calculate_idf_bm25(total_docs, term_docs));
 
@@ -175,7 +177,7 @@ where
 
 impl<'index, E, C> RQEIterator<'index> for Tag<'index, E, C>
 where
-    E: DecodedBy + OpaqueEncoding<Storage = inverted_index::InvertedIndex<E>>,
+    E: DecodedBy<Decoder = E> + Decoder + TermDecoder + OpaqueEncoding<Storage = inverted_index::InvertedIndex<E>>,
     <E as DecodedBy>::Decoder: DocIdsDecoder,
     C: ExpirationChecker,
 {

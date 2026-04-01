@@ -8,7 +8,8 @@
 */
 
 use crate::{
-    DecodedBy, Encoder, GcApplyInfo, GcScanDelta, IndexBlock, InvertedIndex, RSIndexResult,
+    DecodedBy, Decoder, Encoder, GcApplyInfo, GcScanDelta, IndexBlock, InvertedIndex,
+    RSIndexResult,
     debug::{BlockSummary, Summary},
     reader::IndexReaderCore,
 };
@@ -121,6 +122,16 @@ impl<E: Encoder> EntriesTrackingIndex<E> {
     /// Get a mutable reference to the inner inverted index.
     pub const fn inner_mut(&mut self) -> &mut InvertedIndex<E> {
         &mut self.index
+    }
+}
+
+impl<E: Encoder + Decoder> EntriesTrackingIndex<E> {
+    /// Count live distinct documents for BM25/TF‑IDF (numeric index storage).
+    pub fn count_live_unique_docs_for_idf_scoring(
+        &self,
+        doc_exists: &mut impl FnMut(t_docId) -> bool,
+    ) -> std::io::Result<u32> {
+        self.index.count_live_unique_docs(doc_exists)
     }
 }
 

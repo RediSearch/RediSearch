@@ -10,6 +10,7 @@
 mod core;
 mod field_mask;
 mod geo;
+mod idf_term_docs;
 mod numeric;
 
 use crate::RSIndexResult;
@@ -18,6 +19,7 @@ use ffi::{IndexFlags, t_docId, t_fieldMask};
 pub use self::core::*;
 pub use field_mask::FilterMaskReader;
 pub use geo::FilterGeoReader;
+pub use idf_term_docs::{IdfTermDocs, use_live_df_for_idf};
 pub use numeric::{FilterNumericReader, NumericFilter};
 
 /// A reader is something which knows how to read / decode the records from an [`InvertedIndex`](crate::InvertedIndex).
