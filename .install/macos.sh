@@ -14,6 +14,7 @@ brew update
 brew install coreutils
 brew install make
 brew install openssl
+brew install perl
 brew install wget
 "$(dirname "$0")/install_llvm.sh"
 
