@@ -9,8 +9,13 @@
 // Forward declaration of RSValue, which is only used as ptr in the sorting_vector module
 typedef struct RSValue RSValue;
 
-// Forward declaration of SortingVector, which is only used as ptr in the sorting_vector module
-typedef struct RSSortingVector RSSortingVector;
+// RSSortingVector is repr(C) in Rust with fields:
+//   values: *mut *mut ffi::RSValue  (== RSValue**)
+//   len: usize                      (== size_t)
+typedef struct RSSortingVector {
+  RSValue **values;
+  size_t len;
+} RSSortingVector;
 
 
 #define RS_SORTABLES_MAX 1024
@@ -18,33 +23,6 @@ typedef struct RSSortingVector RSSortingVector;
 #ifdef __cplusplus
 extern "C" {
 #endif // __cplusplus
-
-/**
- * Gets a RSValue from the sorting vector at the given index.
- *
- * # Panics
- *
- * Panics if the `idx` is out of bounds for the vector.
- *
- * # Safety
- *
- * 1. `vec` must be a [valid], non-null pointer to an [`RSSortingVector`] created by [`RSSortingVector_New`].
- *
- * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
- */
-RSValue *RSSortingVector_Get(const RSSortingVector *vec,
-                             size_t idx);
-
-/**
- * Returns the length of the sorting vector.
- *
- * # Safety
- *
- * 1. `vec` must be a [valid], non-null pointer to an [`RSSortingVector`] created by [`RSSortingVector_New`].
- *
- * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
- */
-size_t RSSortingVector_Length(const RSSortingVector *vec);
 
 /**
  * Returns the memory size of the sorting vector.
@@ -170,3 +148,19 @@ void RSSortingVector_Free(RSSortingVector *vec);
 #ifdef __cplusplus
 }  // extern "C"
 #endif  // __cplusplus
+
+/**
+ * Returns the length of the sorting vector.
+ */
+static inline size_t RSSortingVector_Length(const RSSortingVector *v) {
+  return v->len;
+}
+
+/**
+ * Gets a RSValue from the sorting vector at the given index.
+ *
+ * The caller must ensure that `idx < RSSortingVector_Length(v)`.
+ */
+static inline RSValue *RSSortingVector_Get(const RSSortingVector *v, size_t idx) {
+  return v->values[idx];
+}

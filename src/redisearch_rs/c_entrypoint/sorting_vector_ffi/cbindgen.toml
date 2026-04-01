@@ -6,10 +6,36 @@ after_includes = """
 // Forward declaration of RSValue, which is only used as ptr in the sorting_vector module
 typedef struct RSValue RSValue;
 
-// Forward declaration of SortingVector, which is only used as ptr in the sorting_vector module
-typedef struct RSSortingVector RSSortingVector;
+// RSSortingVector is repr(C) in Rust with fields:
+//   values: *mut *mut ffi::RSValue  (== RSValue**)
+//   len: usize                      (== size_t)
+typedef struct RSSortingVector {
+  RSValue **values;
+  size_t len;
+} RSSortingVector;
+"""
+
+trailer = """
+/**
+ * Returns the length of the sorting vector.
+ */
+static inline size_t RSSortingVector_Length(const RSSortingVector *v) {
+  return v->len;
+}
+
+/**
+ * Gets a RSValue from the sorting vector at the given index.
+ *
+ * The caller must ensure that `idx < RSSortingVector_Length(v)`.
+ */
+static inline RSValue *RSSortingVector_Get(const RSSortingVector *v, size_t idx) {
+  return v->values[idx];
+}
 """
 
 [parse]
 parse_deps = true
 include = []
+
+[export]
+exclude = ["RSSortingVector"]
