@@ -6,7 +6,7 @@ description: |
 inputs:
   ref:
     description: "Redis git ref to checkout"
-    required: true
+    default: unstable
   node20_supported:
     description: "Whether node20 is supported on this platform"
     required: true
