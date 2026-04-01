@@ -14,6 +14,11 @@ use std::{
 };
 
 use icu_casemap::CaseMapper;
+use icu_casemap::CaseMapperBorrowed;
+
+thread_local! {
+    static CASE_MAPPER: CaseMapperBorrowed<'static> = const { CaseMapper::new() };
+}
 use value::RSValueFFI;
 
 /// IndexOutOfBounds error can be returned by [`RSSortingVector::try_insert_num`] and the other `try_insert_*` methods.
@@ -87,9 +92,7 @@ impl RSSortingVector {
         idx: usize,
         str: impl AsRef<str>,
     ) -> Result<(), IndexOutOfBounds> {
-        let casemapper = CaseMapper::new();
-
-        let normalized = casemapper.fold_string(str.as_ref()).into_owned();
+        let normalized = CASE_MAPPER.with(|cm| cm.fold_string(str.as_ref()).into_owned());
 
         self.try_insert_string(idx, normalized.into_bytes())
     }
