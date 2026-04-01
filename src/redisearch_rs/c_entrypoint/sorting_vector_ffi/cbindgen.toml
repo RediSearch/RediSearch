@@ -6,10 +6,58 @@ after_includes = """
 // Forward declaration of RSValue, which is only used as ptr in the sorting_vector module
 typedef struct RSValue RSValue;
 
-// Forward declaration of SortingVector, which is only used as ptr in the sorting_vector module
-typedef struct RSSortingVector RSSortingVector;
+// RSSortingVector is repr(C) in Rust with fields:
+//   values: *mut *mut ffi::RSValue  (== RSValue**)
+//   len: usize                      (== size_t)
+typedef struct RSSortingVector {
+  RSValue **values;
+  size_t len;
+} RSSortingVector;
+"""
+
+trailer = """
+#ifdef __cplusplus
+extern \"C\" {
+#endif // __cplusplus
+
+/**
+ * Returns an empty RSSortingVector with no allocation.
+ *
+ * The `values` pointer is set to a dangling (non-null, aligned) address.
+ * C code must use this instead of zero-initializing the struct, because
+ * the Rust side requires `values` to be non-null at all times.
+ */
+static inline RSSortingVector RSSortingVector_Empty(void) {
+  RSSortingVector v;
+  v.values = (RSValue **)RS_SORTING_VECTOR_EMPTY_PTR;
+  v.len = 0;
+  return v;
+}
+
+/**
+ * Returns the length of the sorting vector.
+ */
+static inline size_t RSSortingVector_Length(const RSSortingVector *v) {
+  return v->len;
+}
+
+/**
+ * Gets a RSValue from the sorting vector at the given index.
+ *
+ * The caller must ensure that `idx < RSSortingVector_Length(v)`.
+ */
+static inline RSValue *RSSortingVector_Get(const RSSortingVector *v, size_t idx) {
+  return v->values[idx];
+}
+
+#ifdef __cplusplus
+}  // extern \"C\"
+#endif // __cplusplus
 """
 
 [parse]
 parse_deps = true
 include = []
+
+[export]
+exclude = ["RSSortingVector"]

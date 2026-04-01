@@ -1335,7 +1335,7 @@ static void replyDocFlags(const char *name, const RSDocumentMetadata *dmd, Redis
 
 static void replySortVector(const char *name, const RSDocumentMetadata *dmd,
                             RedisSearchCtx *sctx, bool obfuscate, RedisModule_Reply *reply) {
-  RSSortingVector *sv = dmd->sortVector;
+  const RSSortingVector *sv = &dmd->sortVector;
   RedisModule_ReplyKV_Array(reply, name);
   for (size_t ii = 0; ii < RSSortingVector_Length(sv); ++ii) {
     if (!RSSortingVector_Get(sv, ii)) {
@@ -1402,7 +1402,7 @@ DEBUG_COMMAND(DocInfo) {
     RedisModule_ReplyKV_LongLong(reply, "num_tokens", dmd->docLen);
     RedisModule_ReplyKV_LongLong(reply, "max_freq", dmd->maxTermFreq);
     RedisModule_ReplyKV_LongLong(reply, "refcount", dmd->ref_count - 1); // TODO: should include the refcount of the command call?
-    if (dmd->sortVector) {
+    if (dmd->sortVector.len) {
       replySortVector("sortables", dmd, sctx, obfuscate, reply);
     }
   RedisModule_Reply_MapEnd(reply);
