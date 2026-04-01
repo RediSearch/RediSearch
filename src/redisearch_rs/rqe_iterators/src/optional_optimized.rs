@@ -19,7 +19,7 @@ use inverted_index::RSIndexResult;
 
 use crate::{
     RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome, maybe_empty::MaybeEmpty,
-    wildcard::WildcardIterator,
+    optional::OptionalIterator, wildcard::WildcardIterator,
 };
 
 /// An iterator that emits results for all document IDs present in the index,
@@ -85,6 +85,24 @@ where
             last_doc_id: 0,
             at_eof: false,
         }
+    }
+}
+
+impl<'index, W> OptionalIterator<'index>
+    for OptionalOptimized<'index, W, Box<dyn RQEIterator<'index> + 'index>>
+where
+    W: WildcardIterator<'index>,
+{
+    fn child(&self) -> Option<&(dyn RQEIterator<'index> + 'index)> {
+        OptionalOptimized::child(self).map(|c| c.as_ref())
+    }
+
+    fn take_child(&mut self) -> Option<Box<dyn RQEIterator<'index> + 'index>> {
+        self.child.take_iterator()
+    }
+
+    fn set_child(&mut self, child: Box<dyn RQEIterator<'index> + 'index>) {
+        self.child = MaybeEmpty::new(child);
     }
 }
 

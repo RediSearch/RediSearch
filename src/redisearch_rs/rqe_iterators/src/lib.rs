@@ -28,6 +28,7 @@ pub mod not_optimized;
 pub mod not_reducer;
 pub mod optional;
 pub mod optional_optimized;
+pub mod optional_reducer;
 pub mod profile;
 pub mod union;
 mod union_flat;
@@ -42,6 +43,7 @@ pub use intersection::Intersection;
 pub use inverted_index::{Missing, Numeric, Tag, Term};
 pub use metric::Metric;
 pub use not::NotIterator;
+pub use optional::OptionalIterator;
 pub use rqe_iterator_type::IteratorType;
 pub use union::{
     Union, UnionFlat, UnionFullFlat, UnionFullHeap, UnionHeap, UnionQuickFlat, UnionQuickHeap,
