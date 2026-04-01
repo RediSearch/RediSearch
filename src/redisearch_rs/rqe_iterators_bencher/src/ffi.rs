@@ -113,6 +113,12 @@ impl QueryIterator {
         })
     }
 
+    /// Create a non-optimized wildcard iterator over the `[0, max_doc_id]` range.
+    #[inline(always)]
+    pub fn new_wildcard_non_optimized(max_doc_id: t_docId, weight: f64) -> Self {
+        Self(iterators_ffi::wildcard::NewWildcardIterator_NonOptimized(max_doc_id, weight))
+    }
+
     /// Create a C `OptionalOptimized` iterator.
     ///
     /// `qctx` must point to a `QueryEvalCtx` whose `sctx.spec.rule.index_all`
