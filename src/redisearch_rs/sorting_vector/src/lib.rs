@@ -14,6 +14,7 @@ use std::{
 };
 
 use icu_casemap::CaseMapper;
+use thin_vec::SmallThinVec;
 use value::RSValueFFI;
 
 /// IndexOutOfBounds error can be returned by [`RSSortingVector::try_insert_num`] and the other `try_insert_*` methods.
@@ -39,16 +40,46 @@ impl std::error::Error for IndexOutOfBounds {}
 /// The fields in the sorting vector occur in the same order as they appeared in the document. Fields that are not sortable,
 /// are not added at all to the sorting vector, i.e. the sorting vector does not contain null values for non-sortable fields.
 #[derive(Debug, Clone)]
+#[repr(transparent)]
 pub struct RSSortingVector {
-    values: Box<[RSValueFFI]>,
+    values: SmallThinVec<RSValueFFI>,
 }
 
+const _: () = {
+    assert!(size_of::<RSSortingVector>() == size_of::<*mut ()>());
+    assert!(align_of::<RSSortingVector>() == align_of::<*mut ()>());
+};
+
 impl RSSortingVector {
+    /// Consumes the vector and returns its raw pointer representation.
+    ///
+    /// The caller is responsible for eventually calling [`from_raw`](Self::from_raw)
+    /// to reconstruct and drop the vector, otherwise the memory will leak.
+    pub fn into_raw(self) -> *mut Self {
+        // SAFETY: `RSSortingVector` is `#[repr(transparent)]` over `SmallThinVec`,
+        // which is pointer-sized. The transmute reinterprets the inner pointer value
+        // as a `*mut RSSortingVector`.
+        unsafe { std::mem::transmute(self) }
+    }
+
+    /// Reconstructs an [`RSSortingVector`] from a raw pointer previously created by
+    /// [`into_raw`](Self::into_raw).
+    ///
+    /// # Safety
+    ///
+    /// - `ptr` must have been created by [`into_raw`](Self::into_raw).
+    /// - `ptr` must not have been passed to `from_raw` before (no double-free).
+    pub unsafe fn from_raw(ptr: std::ptr::NonNull<Self>) -> Self {
+        // SAFETY: inverse of `into_raw`. The pointer value is reinterpreted back
+        // as the `SmallThinVec`'s inner `NonNull<Header<u16>>`.
+        unsafe { std::mem::transmute(ptr) }
+    }
+
     /// Creates a new [`RSSortingVector`] with the given length.
     pub fn new(len: usize) -> Self {
-        Self {
-            values: vec![RSValueFFI::null_static(); len].into_boxed_slice(),
-        }
+        let mut values = SmallThinVec::with_capacity(len);
+        values.resize(len, RSValueFFI::null_static());
+        Self { values }
     }
 
     /// Returns an immutable reference to the value at index `index`,
@@ -159,10 +190,9 @@ impl FromIterator<RSValueFFI> for RSSortingVector {
 // Consuming iterator: yields owned T by consuming the vector.
 impl IntoIterator for RSSortingVector {
     type Item = RSValueFFI;
-    type IntoIter = std::vec::IntoIter<RSValueFFI>;
+    type IntoIter = thin_vec::IntoIter<RSValueFFI, u16>;
     fn into_iter(self) -> Self::IntoIter {
-        // this does not use a new allocation
-        Vec::from(self.values).into_iter()
+        self.values.into_iter()
     }
 }
 
