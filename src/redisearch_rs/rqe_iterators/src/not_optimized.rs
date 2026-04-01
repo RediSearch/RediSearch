@@ -152,10 +152,8 @@ where
                     return Ok(false);
                 }
             } else {
-                // Case 3: Child is behind, advance it until it catches up.
-                while !self.child.at_eof() && self.child.last_doc_id() < wcii_last {
-                    self.child.read()?;
-                }
+                // Case 3: Child is behind, skip it forward to catch up.
+                self.child.skip_to(wcii_last)?;
             }
             self.check_timeout()?;
         }
