@@ -23,7 +23,7 @@ use std::ops::Index;
 /// Stores `(doc_id, child_index)` pairs ordered by `doc_id` (minimum at root).
 /// Provides efficient operations for the union iterator pattern:
 /// - O(log n) in-place root replacement via [`Self::replace_root`]
-/// - Direct access to heap data via [`Self::data`] for manual traversal
+/// - Direct access to heap data via [`Self::index`] for manual traversal
 ///
 /// # Example
 ///
@@ -38,7 +38,7 @@ use std::ops::Index;
 /// assert_eq!(heap.peek(), Some((5, 1)));
 ///
 /// // Access heap data directly for traversal
-/// let root_doc_id = heap.data()[0].0;
+/// let root_doc_id = heap[0].0;
 /// ```
 
 #[derive(Debug, Clone, Default)]
