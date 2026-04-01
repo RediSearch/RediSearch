@@ -40,6 +40,15 @@ set_target_properties(snowball_compiler PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${SNOWBALL_BUILD}/bin"
 )
 
+# The upstream snowball compiler leaves small allocations unreleased (e.g. driver read_options).
+# When SAN=address, the host tool is linked with ASan; disable LeakSanitizer for stemmer emission only.
+if(SAN STREQUAL "address")
+    set(SNOWBALL_COMPILER_CMD
+        ${CMAKE_COMMAND} -E env "ASAN_OPTIONS=detect_leaks=0" $<TARGET_FILE:snowball_compiler>)
+else()
+    set(SNOWBALL_COMPILER_CMD $<TARGET_FILE:snowball_compiler>)
+endif()
+
 # =============================================================================
 # Stage 2: Parse modules.txt and generate C stemmers
 # =============================================================================
@@ -65,7 +74,7 @@ foreach(_line IN LISTS _MODULES_LINES)
     add_custom_command(
         OUTPUT "${_stem_c}" "${_stem_h}"
         COMMAND ${CMAKE_COMMAND} -E make_directory "${SNOWBALL_BUILD}/src_c"
-        COMMAND $<TARGET_FILE:snowball_compiler>
+        COMMAND ${SNOWBALL_COMPILER_CMD}
             "${SNOWBALL_SRC}/algorithms/${_alg}.sbl"
             -o "${SNOWBALL_BUILD}/src_c/${_stem_base}"
             -eprefix "${_alg}_UTF_8_"
