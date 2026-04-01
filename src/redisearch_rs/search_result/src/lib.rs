@@ -28,7 +28,6 @@ pub type SearchResultFlags = enumflags2::BitFlags<SearchResultFlag>;
 /// SearchResult - the object all the processing chain is working on.
 /// It holds the [`RSIndexResult`] which is what the index scan brought - scores, vectors, flags, etc,
 /// and a list of fields loaded by the chain
-#[derive(Debug)]
 #[repr(C)]
 pub struct SearchResult<'index> {
     _doc_id: ffi::t_docId,

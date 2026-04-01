@@ -13,6 +13,13 @@ use std::{ffi::c_char, mem::ManuallyDrop, ptr::NonNull, slice};
 
 pub struct RSValueFFIRef<'a>(ManuallyDrop<RSValueFFI>, PhantomData<&'a ffi::RSValue>);
 
+impl<'a> RSValueFFIRef<'a> {
+    /// DO NOT USE
+    pub unsafe fn from_raw(val: RSValueFFI) -> Self {
+        Self(ManuallyDrop::new(val), PhantomData)
+    }
+}
+
 impl Deref for RSValueFFIRef<'_> {
     type Target = RSValueFFI;
 

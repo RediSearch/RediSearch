@@ -1847,7 +1847,6 @@ dependencies = [
  "rlookup_ffi",
  "search_result_ffi",
  "slots_tracker_ffi",
- "sorting_vector_ffi",
  "syn 2.0.117",
  "toml",
  "triemap_ffi",

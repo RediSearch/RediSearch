@@ -10,9 +10,12 @@
 use crate::{
     RLookup, RLookupKey, RLookupKeyFlag, RLookupKeyFlags, SchemaRule, lookup::TRANSIENT_FLAGS,
 };
-use sorting_vector::RSSortingVector;
-use std::{borrow::Cow, ffi::CStr};
-use value::RSValueFFI;
+use std::{
+    borrow::Cow,
+    ffi::CStr,
+    ptr::{self, NonNull},
+};
+use value::{RSValueFFI, RSValueFFIRef};
 
 /// Tests if the given [`RLookupKey`] is a special key (lang, score, or payload field)
 /// with respect to this schema rule.
@@ -22,12 +25,11 @@ fn is_special_key(rule: &SchemaRule, key: &RLookupKey) -> bool {
         .any(|f| f == Some(key.name().as_ref()))
 }
 
-/// Row data for a lookup key. This abstracts the question of if the data comes from a borrowed [RSSortingVector]
+/// Row data for a lookup key. This abstracts the question of if the data comes from a borrowed [ffi::RSSortingVector]
 /// or from dynamic values stored in the row during processing.
-#[derive(Debug)]
 pub struct RLookupRow<'a> {
     /// Sorting vector attached to document
-    sorting_vector: Option<&'a RSSortingVector>,
+    sorting_vector: Option<&'a ffi::RSSortingVector>,
 
     /// Dynamic values obtained from prior processing
     dyn_values: Vec<Option<RSValueFFI>>,
@@ -178,12 +180,12 @@ impl<'a> RLookupRow<'a> {
     }
 
     /// Readonly access to [`RLookupRow::sorting_vector`], it may be `None` if no sorting vector was set.
-    pub const fn sorting_vector(&self) -> Option<&RSSortingVector> {
+    pub const fn sorting_vector(&self) -> Option<&ffi::RSSortingVector> {
         self.sorting_vector
     }
 
     /// Borrow a sorting vector for the row.
-    pub const fn set_sorting_vector(&mut self, sv: Option<&'a RSSortingVector>) {
+    pub const fn set_sorting_vector(&mut self, sv: Option<&'a ffi::RSSortingVector>) {
         self.sorting_vector = sv;
     }
 
@@ -197,10 +199,10 @@ impl<'a> RLookupRow<'a> {
     /// The function first checks for dynamic values, and if not found, it checks the sorting vector
     /// if the `SvSrc` flag is set in the key.
     /// If the item is not found in either location, it returns `None`.
-    pub fn get(&self, key: &RLookupKey) -> Option<&RSValueFFI> {
+    pub fn get(&self, key: &RLookupKey) -> Option<RSValueFFIRef<'_>> {
         // Check dynamic values first
         if let Some(Some(val)) = self.dyn_values().get(key.dstidx as usize) {
-            return Some(val);
+            return Some(unsafe { RSValueFFIRef::from_raw(val.clone()) });
         }
 
         // If not found in dynamic values, check the sorting vector if the SvSrc flag is set
@@ -209,8 +211,16 @@ impl<'a> RLookupRow<'a> {
             // Filter it out so callers see `None` for absent fields, mirroring the C
             // guard in `RLookupRow_Get`:
             //   `if (ret != NULL && ret == RSValue_NullStatic()) ret = NULL;`
-            self.sorting_vector()?
-                .get(key.svidx as usize)
+            let v = unsafe {
+                ffi::RSSortingVector_Get(ptr::from_ref(self.sorting_vector()?), key.svidx as usize)
+            };
+
+            NonNull::new(v)
+                .map(|v| {
+                    let v = unsafe { RSValueFFI::from_raw(v) };
+                    let v = unsafe { RSValueFFIRef::from_raw(v) };
+                    v
+                })
                 .filter(|v| !v.is_null_static())
         } else {
             None

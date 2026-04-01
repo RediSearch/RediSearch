@@ -16,6 +16,82 @@
 #include "buffer.h"
 #include "sortable.h"
 
+RSSortingVector *RSSortingVector_New(size_t len) {
+    if (len > RS_SORTABLES_MAX) {
+        return NULL;
+    }
+    RSSortingVector *ret = rm_malloc(sizeof(RSSortingVector) + (len * sizeof(RSValue*)));
+    ret->len = len;
+    // set all values to NIL
+    for (int i = 0; i < len; i++) {
+        ret->values[i] = RSValue_NullStatic();
+    }
+    return ret;
+}
+
+void RSSortingVector_Free(RSSortingVector *vec) {
+    for (size_t i = 0; i < vec->len; i++) {
+        RSValue_DecrRef(vec->values[i]);
+    }
+    rm_free(vec);
+}
+
+inline RSValue *RSSortingVector_Get(const RSSortingVector *vec, size_t idx) {
+    return vec->len > idx ? vec->values[idx] : NULL;
+}
+
+#define RSPUT_SANITY_CHECK \
+if (idx >= vec->len) {\
+  return;\
+}\
+if (vec->values[idx]) {\
+  RSValue_DecrRef(vec->values[idx]);\
+}
+
+void RSSortingVector_PutNum(RSSortingVector *vec, size_t idx, double num) {
+    RSPUT_SANITY_CHECK
+    vec->values[idx] = RSValue_NewNumber(num);
+}
+
+void RSSortingVector_PutStr(RSSortingVector *vec, size_t idx, const char *str) {
+    RSPUT_SANITY_CHECK
+    vec->values[idx] = RSValue_NewCopiedString(str, strlen(str));
+}
+
+void RSSortingVector_PutStrNormalize(RSSortingVector *vec, size_t idx, const char *str) {
+    RSPUT_SANITY_CHECK
+    char* normalized = normalizeStr(str);
+    vec->values[idx] = RSValue_NewString(normalized, strlen(normalized));
+}
+
+void RSSortingVector_PutRSVal(RSSortingVector *vec, size_t idx, RSValue *val) {
+    RSPUT_SANITY_CHECK
+    vec->values[idx] = val;
+}
+
+void RSSortingVector_PutNull(RSSortingVector *vec, size_t idx) {
+    RSPUT_SANITY_CHECK
+    vec->values[idx] = RSValue_NullStatic();
+}
+
+size_t RSSortingVector_GetMemorySize(const RSSortingVector *vec) {
+    if (!vec) return 0;
+
+    size_t sum = vec->len * sizeof(RSValue *);
+    for (int i = 0; i < vec->len; i++) {
+        if (!vec->values[i] || vec->values[i] == RSValue_NullStatic()) continue;
+        sum += RSValueSize;
+
+        RSValue *val = RSValue_Dereference(vec->values[i]);
+        if (RSValue_IsString(val)) {
+            size_t sz;
+            RSValue_StringPtrLen(val, &sz);
+            sum += sz;
+        }
+    }
+    return sum;
+}
+
 /* Normalize sorting string for storage. This folds everything to unicode equivalent strings. The
  * allocated return string needs to be freed later */
 char *normalizeStr(const char *str) {
