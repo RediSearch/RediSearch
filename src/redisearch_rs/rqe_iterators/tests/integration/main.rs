@@ -42,6 +42,7 @@ mod metric;
 mod not;
 mod optional;
 mod optional_optimized;
+mod optional_reducer;
 mod profile;
 mod union_flat;
 mod wildcard;
