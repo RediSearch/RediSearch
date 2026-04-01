@@ -47,11 +47,10 @@ impl RsString {
     /// # Panic
     ///
     /// Panics when the size is larger than `u32::MAX`.
-    pub fn from_vec(mut vec: Vec<u8>) -> Self {
+    pub fn from_vec(vec: Vec<u8>) -> Self {
         let len = vec.len();
         assert!(len <= u32::MAX as usize);
 
-        vec.push(b'\0');
         let ptr = Box::into_raw(vec.into_boxed_slice());
 
         Self {
@@ -123,7 +122,7 @@ impl Drop for RsString {
             RsStringKind::RustGlobalAlloc => {
                 let slice = std::ptr::slice_from_raw_parts_mut(
                     self.ptr.cast_mut().cast::<u8>(),
-                    (self.len as usize) + 1,
+                    self.len as usize,
                 );
                 // Safety: Boxed slice was created in `Self::from_vec` which has `len + 1` bytes.
                 drop(unsafe { Box::from_raw(slice) });
