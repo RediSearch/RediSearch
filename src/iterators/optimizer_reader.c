@@ -54,7 +54,7 @@ static ValidateStatus OPT_Validate(QueryIterator *self) {
 static QueryIterator *OPT_ProfileChildren(QueryIterator *base) {
   OptimizerIterator *oi = (OptimizerIterator *)base;
   if (oi->child) {
-    oi->child = ProfileChild(oi->child);
+    oi->child = IntoProfiled(oi->child);
   }
   return base;
 }

@@ -13,9 +13,7 @@ use ffi::{RS_FIELDMASK_ALL, t_docId};
 use inverted_index::RSIndexResult;
 use std::cmp;
 
-use crate::{
-    IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome, profile::Profile,
-};
+use crate::{IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
 
 /// An iterator that emits a sequence of results with no gaps, up to a given document id.
 /// Results are pulled from an underlying [`RQEIterator`] instance. If there is no entry
@@ -242,32 +240,17 @@ where
     fn type_(&self) -> IteratorType {
         IteratorType::Optional
     }
+}
 
-    type ProfileChildren = Optional<'index, I::IntoProfiled>;
-    type IntoProfiled = Profile<'index, Self::ProfileChildren>;
-
-    fn is_leaf(&self) -> bool {
-        false
-    }
-
-    fn profile_children(self) -> Self::ProfileChildren {
+impl<'index> crate::interop::ProfileChildren<'index>
+    for Optional<'index, crate::c2rust::CRQEIterator>
+{
+    fn profile_children(self) -> Self {
         Optional {
             max_doc_id: self.max_doc_id,
             weight: self.weight,
             result: self.result,
-            child: self.child.map(RQEIterator::into_profiled),
+            child: self.child.map(crate::c2rust::CRQEIterator::into_profiled),
         }
-    }
-
-    fn profile_children_boxed(self: Box<Self>) -> Box<dyn RQEIterator<'index> + 'index> {
-        Box::new((*self).profile_children())
-    }
-
-    fn into_profiled(self) -> Self::IntoProfiled {
-        Profile::new(self.profile_children())
-    }
-
-    fn into_profiled_boxed(self: Box<Self>) -> Box<dyn RQEIterator<'index> + 'index> {
-        Box::new((*self).into_profiled())
     }
 }

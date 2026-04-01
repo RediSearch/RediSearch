@@ -11,7 +11,7 @@
 
 use crate::{
     IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome, id_list::IdList,
-    profile::Profile, utils::OwnedSlice,
+    utils::OwnedSlice,
 };
 use ffi::{RLookupKey, RLookupKeyHandle, t_docId};
 use inverted_index::RSIndexResult;
@@ -192,28 +192,5 @@ impl<'index, const SORTED_BY_ID: bool> RQEIterator<'index> for Metric<'index, SO
         } else {
             IteratorType::MetricSortedByScore
         }
-    }
-
-    type ProfileChildren = Self;
-    type IntoProfiled = Profile<'index, Self::ProfileChildren>;
-
-    fn is_leaf(&self) -> bool {
-        true
-    }
-
-    fn profile_children(self) -> Self {
-        self
-    }
-
-    fn profile_children_boxed(self: Box<Self>) -> Box<dyn RQEIterator<'index> + 'index> {
-        Box::new((*self).profile_children())
-    }
-
-    fn into_profiled(self) -> Self::IntoProfiled {
-        Profile::new(self.profile_children())
-    }
-
-    fn into_profiled_boxed(self: Box<Self>) -> Box<dyn RQEIterator<'index> + 'index> {
-        Box::new((*self).into_profiled())
     }
 }

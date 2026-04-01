@@ -613,28 +613,26 @@ const struct ProfileCounters *ProfileIterator_GetCounters(const QueryIterator *i
 uint64_t ProfileIterator_GetWallTimeNs(const QueryIterator *it);
 
 /**
- * Profile-wrap a single child iterator.
+ * Profile-wrap an iterator and its entire subtree.
  *
- * Wraps the child as a [`CRQEIterator`], calls [`into_profiled`](RQEIterator::into_profiled)
- * (which recursively profiles all descendants via the [`RQEIterator`] trait),
- * then boxes the result back as a `QueryIterator*`.
- *
- * This is intended to be called from C `ProfileChildren` implementations.
+ * Wraps the iterator as a [`CRQEIterator`], calls
+ * [`into_profiled`](crate::c2rust::CRQEIterator::into_profiled)
+ * (which recursively profiles all descendants), then returns the result
+ * as a `QueryIterator*`.
  *
  * # Safety
  *
- * 1. `child` must be a valid non-null pointer to an implementation of the C query iterator API.
- * 2. `child` must not be aliased.
+ * 1. `iter` must be a valid non-null pointer to an implementation of the C query iterator API.
+ * 2. `iter` must not be aliased.
  */
-QueryIterator *ProfileChild(QueryIterator *child);
+QueryIterator *IntoProfiled(QueryIterator *iter);
 
 /**
  * Add profile iterators to all nodes in the iterator tree.
  *
- * Wraps each iterator as a [`CRQEIterator`], calls
- * [`into_profiled`](RQEIterator::into_profiled) (which recursively profiles
- * all children via the [`RQEIterator`] trait), then boxes the result back
- * as a `QueryIterator*`.
+ * Wraps the root as a [`CRQEIterator`], calls
+ * [`into_profiled`](CRQEIterator::into_profiled) (which recursively profiles
+ * all descendants), then writes the result back as a `QueryIterator*`.
  *
  * # Safety
  *

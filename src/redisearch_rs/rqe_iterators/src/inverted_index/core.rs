@@ -318,27 +318,4 @@ where
             "InvIndIterator::type_() should not be called directly; use the specific iterator type"
         )
     }
-
-    type ProfileChildren = Self;
-    type IntoProfiled = crate::profile::Profile<'index, Self::ProfileChildren>;
-
-    fn is_leaf(&self) -> bool {
-        true
-    }
-
-    fn profile_children(self) -> Self {
-        self
-    }
-
-    fn profile_children_boxed(self: Box<Self>) -> Box<dyn RQEIterator<'index> + 'index> {
-        Box::new((*self).profile_children())
-    }
-
-    fn into_profiled(self) -> Self::IntoProfiled {
-        crate::profile::Profile::new(self.profile_children())
-    }
-
-    fn into_profiled_boxed(self: Box<Self>) -> Box<dyn RQEIterator<'index> + 'index> {
-        Box::new((*self).into_profiled())
-    }
 }

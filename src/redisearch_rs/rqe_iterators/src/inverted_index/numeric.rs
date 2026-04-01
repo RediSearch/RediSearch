@@ -16,7 +16,6 @@ use numeric_range_tree::NumericRangeTree;
 use crate::{
     IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
     expiration_checker::{ExpirationChecker, NoOpChecker},
-    profile::Profile,
 };
 
 use super::core::InvIndIterator;
@@ -191,28 +190,5 @@ where
     #[inline(always)]
     fn type_(&self) -> IteratorType {
         IteratorType::InvIdxNumeric
-    }
-
-    type ProfileChildren = Self;
-    type IntoProfiled = Profile<'index, Self::ProfileChildren>;
-
-    fn is_leaf(&self) -> bool {
-        true
-    }
-
-    fn profile_children(self) -> Self {
-        self
-    }
-
-    fn profile_children_boxed(self: Box<Self>) -> Box<dyn RQEIterator<'index> + 'index> {
-        Box::new((*self).profile_children())
-    }
-
-    fn into_profiled(self) -> Self::IntoProfiled {
-        Profile::new(self.profile_children())
-    }
-
-    fn into_profiled_boxed(self: Box<Self>) -> Box<dyn RQEIterator<'index> + 'index> {
-        Box::new((*self).into_profiled())
     }
 }

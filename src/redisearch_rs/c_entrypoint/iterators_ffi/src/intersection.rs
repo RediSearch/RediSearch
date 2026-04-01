@@ -80,7 +80,7 @@ pub unsafe extern "C" fn NewIntersectionIterator(
         max_slop,
         in_order,
     );
-    let wrapper = RQEIteratorWrapper::boxed_new(intersection);
+    let wrapper = RQEIteratorWrapper::boxed_new_compound(intersection);
 
     // Free the `its` array (iterators are now owned by the intersection).
     // SAFETY: `its` is a valid Redis-allocated pointer per the function's safety contract.

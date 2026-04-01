@@ -88,7 +88,7 @@ typedef struct QueryIterator {
   void (*Rewind)(struct QueryIterator *self);
 
   /* Recursively wrap every child iterator with a Profile layer.
-   * Composite iterators call ProfileChild() on each child and return `self`.
+   * Composite iterators call IntoProfiled() on each child and return `self`.
    * Leaf iterators leave this as NULL (no children to profile). */
   QueryIterator* (*ProfileChildren)(struct QueryIterator *self);
 } QueryIterator;

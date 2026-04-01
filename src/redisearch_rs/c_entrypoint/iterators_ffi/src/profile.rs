@@ -10,7 +10,6 @@
 use ffi::QueryIterator;
 use rqe_iterator_type::IteratorType;
 use rqe_iterators::{
-    RQEIterator,
     c2rust::CRQEIterator,
     interop::RQEIteratorWrapper,
     profile::{Profile, ProfileCounters},
@@ -104,36 +103,32 @@ pub unsafe extern "C" fn ProfileIterator_GetWallTimeNs(it: *const QueryIterator)
     wrapper.inner.wall_time_ns()
 }
 
-/// Profile-wrap a single child iterator.
+/// Profile-wrap an iterator and its entire subtree.
 ///
-/// Wraps the child as a [`CRQEIterator`], calls [`into_profiled`](RQEIterator::into_profiled)
-/// (which recursively profiles all descendants via the [`RQEIterator`] trait),
-/// then boxes the result back as a `QueryIterator*`.
-///
-/// This is intended to be called from C `ProfileChildren` implementations.
+/// Wraps the iterator as a [`CRQEIterator`], calls
+/// [`into_profiled`](crate::c2rust::CRQEIterator::into_profiled)
+/// (which recursively profiles all descendants), then returns the result
+/// as a `QueryIterator*`.
 ///
 /// # Safety
 ///
-/// 1. `child` must be a valid non-null pointer to an implementation of the C query iterator API.
-/// 2. `child` must not be aliased.
+/// 1. `iter` must be a valid non-null pointer to an implementation of the C query iterator API.
+/// 2. `iter` must not be aliased.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn ProfileChild(child: *mut QueryIterator) -> *mut QueryIterator {
-    debug_assert!(!child.is_null(), "child must not be null");
+pub unsafe extern "C" fn IntoProfiled(iter: *mut QueryIterator) -> *mut QueryIterator {
+    debug_assert!(!iter.is_null(), "iter must not be null");
     // SAFETY: guaranteed by 1.
-    let child = unsafe { NonNull::new_unchecked(child) };
+    let iter = unsafe { NonNull::new_unchecked(iter) };
     // SAFETY: guaranteed by 1 + 2.
-    let child = unsafe { CRQEIterator::new(child) };
-    rqe_iterators::c2rust::into_profiled(child)
-        .into_raw()
-        .as_ptr()
+    let iter = unsafe { CRQEIterator::new(iter) };
+    iter.into_profiled().into_raw().as_ptr()
 }
 
 /// Add profile iterators to all nodes in the iterator tree.
 ///
-/// Wraps each iterator as a [`CRQEIterator`], calls
-/// [`into_profiled`](RQEIterator::into_profiled) (which recursively profiles
-/// all children via the [`RQEIterator`] trait), then boxes the result back
-/// as a `QueryIterator*`.
+/// Wraps the root as a [`CRQEIterator`], calls
+/// [`into_profiled`](CRQEIterator::into_profiled) (which recursively profiles
+/// all descendants), then writes the result back as a `QueryIterator*`.
 ///
 /// # Safety
 ///

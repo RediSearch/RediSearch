@@ -130,7 +130,7 @@ static IteratorStatus OI_Read_Optimized(QueryIterator *base) {
 static QueryIterator *OI_ProfileChildren(QueryIterator *base) {
   OptionalOptimizedIterator *oi = (OptionalOptimizedIterator *)base;
   if (oi->child) {
-    oi->child = ProfileChild(oi->child);
+    oi->child = IntoProfiled(oi->child);
   }
   return base;
 }

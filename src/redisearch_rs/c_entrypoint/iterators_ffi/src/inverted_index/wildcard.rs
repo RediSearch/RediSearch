@@ -12,10 +12,7 @@ use std::{fmt::Debug, ptr::NonNull};
 use inverted_index::{
     RSIndexResult, doc_ids_only::DocIdsOnly, raw_doc_ids_only::RawDocIdsOnly, t_docId,
 };
-use rqe_iterators::{
-    IteratorType, RQEIterator, interop::RQEIteratorWrapper, inverted_index::Wildcard,
-    profile::Profile,
-};
+use rqe_iterators::{IteratorType, interop::RQEIteratorWrapper, inverted_index::Wildcard};
 
 /// Wrapper around different II wildcard iterator encoding types to avoid generics in FFI code.
 ///
@@ -112,29 +109,6 @@ impl<'index> rqe_iterators::RQEIterator<'index> for WildcardIterator<'index> {
     #[inline(always)]
     fn type_(&self) -> IteratorType {
         IteratorType::InvIdxWildcard
-    }
-
-    type ProfileChildren = Self;
-    type IntoProfiled = Profile<'index, Self::ProfileChildren>;
-
-    fn is_leaf(&self) -> bool {
-        true
-    }
-
-    fn profile_children(self) -> Self {
-        self
-    }
-
-    fn profile_children_boxed(self: Box<Self>) -> Box<dyn RQEIterator<'index> + 'index> {
-        Box::new((*self).profile_children())
-    }
-
-    fn into_profiled(self) -> Self::IntoProfiled {
-        Profile::new(self.profile_children())
-    }
-
-    fn into_profiled_boxed(self: Box<Self>) -> Box<dyn RQEIterator<'index> + 'index> {
-        Box::new((*self).into_profiled())
     }
 }
 

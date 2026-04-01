@@ -320,34 +320,15 @@ impl<'index> RQEIterator<'index> for CRQEIterator {
     fn as_c_iterator(&self) -> Option<&CRQEIterator> {
         Some(self)
     }
+}
 
-    type ProfileChildren = Self;
-    type IntoProfiled = Self;
-
-    fn is_leaf(&self) -> bool {
-        self.ProfileChildren.is_none()
-    }
-
-    fn into_profiled(self) -> Self::IntoProfiled {
-        let profiled = self.profile_children();
-        let profile_wrapper = crate::profile::Profile::new(profiled);
-        let ptr = RQEIteratorWrapper::boxed_new(profile_wrapper);
-        // SAFETY: `boxed_new` uses `Box::into_raw`, which is guaranteed non-null.
-        let ptr = unsafe { NonNull::new_unchecked(ptr) };
-        // SAFETY:
-        // 1. `ptr` is valid — `boxed_new` returns a `Box::into_raw` pointer.
-        // 2. Ownership transferred — no other handle exists.
-        // 3. `boxed_new` populates all required callbacks (Read, Free, Rewind, etc.).
-        // 4. Callbacks are implemented by `RQEIteratorWrapper` and are safe to call.
-        unsafe { CRQEIterator::new(ptr) }
-    }
-
+impl CRQEIterator {
     /// Profile the subtree rooted at this iterator — wrapping every
     /// child node — **without** wrapping `self`.
     ///
     /// Delegates to the `ProfileChildren` virtual function if set.
     /// Leaf iterators leave `ProfileChildren` as `NULL` and are returned unchanged.
-    fn profile_children(self) -> Self {
+    pub fn profile_children(self) -> Self {
         if let Some(callback) = self.ProfileChildren {
             let ptr = self.into_raw().as_ptr();
             // SAFETY: `into_raw()` consumed `self`, so no other reference exists.
@@ -365,16 +346,18 @@ impl<'index> RQEIterator<'index> for CRQEIterator {
         }
     }
 
-    fn profile_children_boxed(self: Box<Self>) -> Box<dyn RQEIterator<'index> + 'index> {
-        Box::new((*self).profile_children())
+    /// Profile the entire subtree and wrap `self` in a [`Profile`](crate::profile::Profile) node.
+    pub fn into_profiled(self) -> Self {
+        let profiled = self.profile_children();
+        let profile_wrapper = crate::profile::Profile::new(profiled);
+        let ptr = RQEIteratorWrapper::boxed_new(profile_wrapper);
+        // SAFETY: `boxed_new` uses `Box::into_raw`, which is guaranteed non-null.
+        let ptr = unsafe { NonNull::new_unchecked(ptr) };
+        // SAFETY:
+        // 1. `ptr` is valid — `boxed_new` returns a `Box::into_raw` pointer.
+        // 2. Ownership transferred — no other handle exists.
+        // 3. `boxed_new` populates all required callbacks (Read, Free, Rewind, etc.).
+        // 4. Callbacks are implemented by `RQEIteratorWrapper` and are safe to call.
+        unsafe { CRQEIterator::new(ptr) }
     }
-
-    fn into_profiled_boxed(self: Box<Self>) -> Box<dyn RQEIterator<'index> + 'index> {
-        Box::new((*self).into_profiled())
-    }
-}
-
-/// Convenience wrapper around [`RQEIterator::into_profiled`] for [`CRQEIterator`].
-pub fn into_profiled(child: CRQEIterator) -> CRQEIterator {
-    child.into_profiled()
 }

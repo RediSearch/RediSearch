@@ -146,85 +146,12 @@ pub trait RQEIterator<'index> {
     fn as_c_iterator(&self) -> Option<&c2rust::CRQEIterator> {
         None
     }
-
-    /**************** Profile wrapping ****************/
-
-    /// The type of `Self` after [`profile_children`](Self::profile_children):
-    /// all children wrapped with [`Profile`](profile::Profile), but `self` left unwrapped.
-    ///
-    /// For leaf iterators this is `Self` (no children to transform).
-    /// For composites the child type parameter changes, e.g.
-    /// [`Not`](crate::not::Not)`<I>` → [`Not`](crate::not::Not)`<I::IntoProfiled>`
-    /// (each child wrapped with [`Profile`](profile::Profile)).
-    ///
-    /// Together with [`IntoProfiled`](Self::IntoProfiled), this type preserves
-    /// the concrete iterator layout across profiling. When a composite like
-    /// `Intersection<CRQEIterator>` profiles its children, each child's
-    /// [`IntoProfiled`](Self::IntoProfiled) is [`CRQEIterator`](c2rust::CRQEIterator),
-    /// so the result is `Intersection<CRQEIterator>` — the same layout the C
-    /// FFI accessors (e.g. `GetIntersectionIteratorChild`) expect.
-    /// If children were type-erased to `Box<dyn RQEIterator>` instead, the
-    /// resulting `Intersection<Box<dyn RQEIterator>>` would have a different
-    /// memory layout, and C code casting through
-    /// [`RQEIteratorWrapper`](crate::interop::RQEIteratorWrapper) would
-    /// read garbage.
-    type ProfileChildren: RQEIterator<'index>
-    where
-        Self: Sized;
-
-    /// The type of `Self` after [`into_profiled`](Self::into_profiled):
-    /// all children wrapped with [`Profile`](profile::Profile) **and** `self` wrapped too.
-    ///
-    /// For most Rust types this is `Profile<'index, Self::ProfileChildren>`.
-    /// For [`CRQEIterator`](c2rust::CRQEIterator) it is `Self` — the
-    /// [`Profile`](profile::Profile) layer is hidden behind the opaque
-    /// [`QueryIterator`](ffi::QueryIterator) pointer. This is what makes
-    /// [`ProfileChildren`](Self::ProfileChildren) work: when a composite
-    /// profiles its children via [`into_profiled`](Self::into_profiled),
-    /// it gets back the **same child type**, preserving the struct layout
-    /// that C FFI accessors depend on.
-    type IntoProfiled: RQEIterator<'index>
-    where
-        Self: Sized;
-
-    /// Returns `true` for leaf iterators (no children to profile).
-    ///
-    /// When `true`, [`RQEIteratorWrapper::boxed_new`](crate::interop::RQEIteratorWrapper::boxed_new)
-    /// sets the C vtable `ProfileChildren` callback to `NULL`, so the
-    /// wrapper is never consumed and reallocated during profiling. This
-    /// keeps interior pointers (held by C code) valid.
-    fn is_leaf(&self) -> bool;
-
-    /// Wrap all children with [`Profile`](profile::Profile) iterators, without wrapping `self`.
-    ///
-    /// Leaf iterators return `self` unchanged. Composite iterators call
-    /// [`into_profiled`](Self::into_profiled) on each child.
-    fn profile_children(self) -> Self::ProfileChildren
-    where
-        Self: Sized;
-
-    /// Dyn-compatible version of [`profile_children`](Self::profile_children).
-    ///
-    /// Concrete types delegate to `(*self).profile_children()`.
-    fn profile_children_boxed(self: Box<Self>) -> Box<dyn RQEIterator<'index> + 'index>;
-
-    /// Wrap the entire subtree — children first, then `self` — with [`Profile`](profile::Profile).
-    fn into_profiled(self) -> Self::IntoProfiled
-    where
-        Self: Sized;
-
-    /// Dyn-compatible version of [`into_profiled`](Self::into_profiled).
-    ///
-    /// Concrete types delegate to `(*self).into_profiled()`.
-    fn into_profiled_boxed(self: Box<Self>) -> Box<dyn RQEIterator<'index> + 'index>;
 }
 
 /// Blanket [`RQEIterator`] impl for `Box<I>` where `I` is a concrete iterator type.
 ///
-/// All core methods delegate to the inner iterator. The profile associated
-/// types are forwarded through the box: [`ProfileChildren`](RQEIterator::ProfileChildren)
-/// is `Box<I::ProfileChildren>` and [`IntoProfiled`](RQEIterator::IntoProfiled)
-/// is [`Profile`](profile::Profile)`<Box<I::ProfileChildren>>`.
+/// All core methods delegate to the inner iterator. Profiling methods
+/// unwrap the box and delegate to `I`'s implementation.
 impl<'index, I: RQEIterator<'index> + 'index> RQEIterator<'index> for Box<I> {
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         (**self).current()
@@ -268,29 +195,6 @@ impl<'index, I: RQEIterator<'index> + 'index> RQEIterator<'index> for Box<I> {
 
     fn as_c_iterator(&self) -> Option<&c2rust::CRQEIterator> {
         (**self).as_c_iterator()
-    }
-
-    type ProfileChildren = Box<I::ProfileChildren>;
-    type IntoProfiled = profile::Profile<'index, Self::ProfileChildren>;
-
-    fn is_leaf(&self) -> bool {
-        (**self).is_leaf()
-    }
-
-    fn profile_children(self) -> Self::ProfileChildren {
-        Box::new((*self).profile_children())
-    }
-
-    fn profile_children_boxed(self: Box<Self>) -> Box<dyn RQEIterator<'index> + 'index> {
-        Box::new((*self).profile_children())
-    }
-
-    fn into_profiled(self) -> Self::IntoProfiled {
-        profile::Profile::new(self.profile_children())
-    }
-
-    fn into_profiled_boxed(self: Box<Self>) -> Box<dyn RQEIterator<'index> + 'index> {
-        Box::new((*self).into_profiled())
     }
 }
 
@@ -341,29 +245,6 @@ impl<'index> RQEIterator<'index> for Box<dyn RQEIterator<'index> + 'index> {
 
     fn as_c_iterator(&self) -> Option<&c2rust::CRQEIterator> {
         (**self).as_c_iterator()
-    }
-
-    type ProfileChildren = Self;
-    type IntoProfiled = Self;
-
-    fn is_leaf(&self) -> bool {
-        (**self).is_leaf()
-    }
-
-    fn profile_children(self) -> Self {
-        <dyn RQEIterator>::profile_children_boxed(self)
-    }
-
-    fn profile_children_boxed(self: Box<Self>) -> Box<dyn RQEIterator<'index> + 'index> {
-        (*self).profile_children()
-    }
-
-    fn into_profiled(self) -> Self::IntoProfiled {
-        <dyn RQEIterator>::into_profiled_boxed(self)
-    }
-
-    fn into_profiled_boxed(self: Box<Self>) -> Box<dyn RQEIterator<'index> + 'index> {
-        (*self).into_profiled()
     }
 }
 

@@ -588,7 +588,7 @@ static ValidateStatus HR_Revalidate(QueryIterator *ctx) {
 static QueryIterator *HR_ProfileChildren(QueryIterator *base) {
   HybridIterator *hi = (HybridIterator *)base;
   if (hi->child) {
-    hi->child = ProfileChild(hi->child);
+    hi->child = IntoProfiled(hi->child);
   }
   return base;
 }

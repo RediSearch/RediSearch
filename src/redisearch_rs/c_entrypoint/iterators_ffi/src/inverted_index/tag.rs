@@ -15,8 +15,7 @@ use inverted_index::{
     raw_doc_ids_only::RawDocIdsOnly, t_docId,
 };
 use rqe_iterators::{
-    FieldExpirationChecker, IteratorType, RQEIterator, interop::RQEIteratorWrapper,
-    inverted_index::Tag, profile::Profile,
+    FieldExpirationChecker, IteratorType, interop::RQEIteratorWrapper, inverted_index::Tag,
 };
 
 /// Wrapper around different tag iterator encoding types to avoid generics in FFI code.
@@ -111,29 +110,6 @@ impl<'index> rqe_iterators::RQEIterator<'index> for TagIterator<'index> {
     #[inline(always)]
     fn type_(&self) -> IteratorType {
         IteratorType::InvIdxTag
-    }
-
-    type ProfileChildren = Self;
-    type IntoProfiled = Profile<'index, Self::ProfileChildren>;
-
-    fn is_leaf(&self) -> bool {
-        true
-    }
-
-    fn profile_children(self) -> Self {
-        self
-    }
-
-    fn profile_children_boxed(self: Box<Self>) -> Box<dyn RQEIterator<'index> + 'index> {
-        Box::new((*self).profile_children())
-    }
-
-    fn into_profiled(self) -> Self::IntoProfiled {
-        Profile::new(self.profile_children())
-    }
-
-    fn into_profiled_boxed(self: Box<Self>) -> Box<dyn RQEIterator<'index> + 'index> {
-        Box::new((*self).into_profiled())
     }
 }
 

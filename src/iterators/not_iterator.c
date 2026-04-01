@@ -162,7 +162,7 @@ static IteratorStatus NI_SkipTo_Optimized(QueryIterator *base, t_docId docId) {
 static QueryIterator *NI_ProfileChildren(QueryIterator *base) {
   NotIteratorOptimized *ni = (NotIteratorOptimized *)base;
   if (ni->child) {
-    ni->child = ProfileChild(ni->child);
+    ni->child = IntoProfiled(ni->child);
   }
   return base;
 }

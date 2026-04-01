@@ -434,7 +434,7 @@ static QueryIterator *UI_ProfileChildren(QueryIterator *base) {
   UnionIterator *ui = (UnionIterator *)base;
   for (uint32_t i = 0; i < ui->num_orig; i++) {
     if (ui->its_orig[i]) {
-      ui->its_orig[i] = ProfileChild(ui->its_orig[i]);
+      ui->its_orig[i] = IntoProfiled(ui->its_orig[i]);
     }
   }
   UI_SyncIterList(ui);

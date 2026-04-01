@@ -140,30 +140,4 @@ impl<'index, I: RQEIterator<'index> + 'index> RQEIterator<'index> for Profile<'i
     fn type_(&self) -> IteratorType {
         IteratorType::Profile
     }
-
-    /// No-op: a [`Profile`] wrapper is the outermost layer added by
-    /// [`into_profiled`](RQEIterator::into_profiled) — its child is already
-    /// profiled, so there is nothing left to recurse into.
-    type ProfileChildren = Self;
-    type IntoProfiled = Self;
-
-    fn is_leaf(&self) -> bool {
-        true
-    }
-
-    fn profile_children(self) -> Self::ProfileChildren {
-        self
-    }
-
-    fn profile_children_boxed(self: Box<Self>) -> Box<dyn RQEIterator<'index> + 'index> {
-        Box::new((*self).profile_children())
-    }
-
-    fn into_profiled(self) -> Self {
-        self
-    }
-
-    fn into_profiled_boxed(self: Box<Self>) -> Box<dyn RQEIterator<'index> + 'index> {
-        self
-    }
 }

@@ -18,7 +18,7 @@ use inverted_index::{DocIdsDecoder, RSIndexResult, opaque};
 
 use crate::{
     Empty, RQEIterator, RQEIteratorError, RQEValidateStatus, SEARCH_ENTERPRISE_ITERATORS,
-    SkipToOutcome, profile::Profile,
+    SkipToOutcome,
 };
 
 /// An iterator that yields all ids within a given range, from 1 to max id (inclusive) in an index.
@@ -103,29 +103,6 @@ impl<'index> RQEIterator<'index> for Wildcard<'index> {
     fn type_(&self) -> IteratorType {
         IteratorType::Wildcard
     }
-
-    type ProfileChildren = Self;
-    type IntoProfiled = Profile<'index, Self::ProfileChildren>;
-
-    fn is_leaf(&self) -> bool {
-        true
-    }
-
-    fn profile_children(self) -> Self {
-        self
-    }
-
-    fn profile_children_boxed(self: Box<Self>) -> Box<dyn RQEIterator<'index> + 'index> {
-        Box::new((*self).profile_children())
-    }
-
-    fn into_profiled(self) -> Self::IntoProfiled {
-        Profile::new(self.profile_children())
-    }
-
-    fn into_profiled_boxed(self: Box<Self>) -> Box<dyn RQEIterator<'index> + 'index> {
-        Box::new((*self).into_profiled())
-    }
 }
 
 /// A marker trait for iterators that match all documents.
@@ -143,7 +120,7 @@ where
 {
 }
 
-/// A [`Profile`] wrapper preserves the wildcard property of its child.
+/// A [`Profile`](crate::profile::Profile) wrapper preserves the wildcard property of its child.
 impl<'index, I: WildcardIterator<'index> + 'index> WildcardIterator<'index>
     for crate::profile::Profile<'index, I>
 {
@@ -188,29 +165,6 @@ impl<'index> RQEIterator<'index> for Box<dyn WildcardIterator<'index> + 'index> 
     #[inline(always)]
     fn type_(&self) -> IteratorType {
         (**self).type_()
-    }
-
-    type ProfileChildren = Self;
-    type IntoProfiled = crate::profile::Profile<'index, Self>;
-
-    fn is_leaf(&self) -> bool {
-        true
-    }
-
-    fn profile_children(self) -> Self {
-        self
-    }
-
-    fn profile_children_boxed(self: Box<Self>) -> Box<dyn RQEIterator<'index> + 'index> {
-        Box::new((*self).profile_children())
-    }
-
-    fn into_profiled(self) -> Self::IntoProfiled {
-        crate::profile::Profile::new(self.profile_children())
-    }
-
-    fn into_profiled_boxed(self: Box<Self>) -> Box<dyn RQEIterator<'index> + 'index> {
-        Box::new((*self).into_profiled())
     }
 }
 
@@ -266,29 +220,6 @@ impl<'index> RQEIterator<'index> for EmptyWildcard {
     #[inline(always)]
     fn type_(&self) -> IteratorType {
         IteratorType::Empty
-    }
-
-    type ProfileChildren = Self;
-    type IntoProfiled = crate::profile::Profile<'index, Self::ProfileChildren>;
-
-    fn is_leaf(&self) -> bool {
-        true
-    }
-
-    fn profile_children(self) -> Self {
-        self
-    }
-
-    fn profile_children_boxed(self: Box<Self>) -> Box<dyn RQEIterator<'index> + 'index> {
-        Box::new((*self).profile_children())
-    }
-
-    fn into_profiled(self) -> Self::IntoProfiled {
-        crate::profile::Profile::new(self.profile_children())
-    }
-
-    fn into_profiled_boxed(self: Box<Self>) -> Box<dyn RQEIterator<'index> + 'index> {
-        Box::new((*self).into_profiled())
     }
 }
 
@@ -498,29 +429,6 @@ impl<'index> RQEIterator<'index> for DiskWildcardIterator<'index> {
     #[inline(always)]
     fn type_(&self) -> IteratorType {
         self.0.type_()
-    }
-
-    type ProfileChildren = Self;
-    type IntoProfiled = crate::profile::Profile<'index, Self::ProfileChildren>;
-
-    fn is_leaf(&self) -> bool {
-        true
-    }
-
-    fn profile_children(self) -> Self {
-        self
-    }
-
-    fn profile_children_boxed(self: Box<Self>) -> Box<dyn RQEIterator<'index> + 'index> {
-        Box::new((*self).profile_children())
-    }
-
-    fn into_profiled(self) -> Self::IntoProfiled {
-        crate::profile::Profile::new(self.profile_children())
-    }
-
-    fn into_profiled_boxed(self: Box<Self>) -> Box<dyn RQEIterator<'index> + 'index> {
-        Box::new((*self).into_profiled())
     }
 }
 

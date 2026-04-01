@@ -25,7 +25,8 @@ use crate::{RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
 ///
 /// # Invariants
 ///
-/// 1. It is always safe to cast a raw [`QueryIterator`] pointer returned by [`RQEIteratorWrapper::boxed_new`]
+/// 1. It is always safe to cast a raw [`QueryIterator`] pointer returned by
+///    [`RQEIteratorWrapper::boxed_new`] or [`RQEIteratorWrapper::boxed_new_compound`]
 ///    to an [`RQEIteratorWrapper`] pointer when invoking one of the callbacks stored in the header.
 pub struct RQEIteratorWrapper<E> {
     // The iterator header.
@@ -43,6 +44,11 @@ where
         inner: I,
         profile_children: Option<unsafe extern "C" fn(*mut QueryIterator) -> *mut QueryIterator>,
     ) -> *mut QueryIterator {
+        debug_assert!(if !inner.type_().is_leaf() {
+            profile_children.is_some()
+        } else {
+            true
+        });
         let mut wrapper = Box::new(Self {
             header: QueryIterator {
                 type_: inner.type_(),
@@ -76,13 +82,65 @@ where
 {
     /// Create a new C-compatible wrapper around a Rust iterator.
     ///
-    /// The wrapper is placed on the heap.
+    /// The wrapper is placed on the heap. The `ProfileChildren` C callback is
+    /// set to `None` — use [`boxed_new_compound`](Self::boxed_new_compound) for
+    /// compound iterators that need the callback.
     pub fn boxed_new(inner: I) -> *mut QueryIterator {
-        let profile_children = if inner.is_leaf() {
-            None
-        } else {
-            Some(rust_profile_children::<I> as unsafe extern "C" fn(_) -> _)
-        };
+        Self::boxed_new_inner(inner, None)
+    }
+}
+
+/// Profiling support for Rust compound iterators exposed to C via [`RQEIteratorWrapper`].
+///
+/// # Why this exists
+///
+/// C code accesses compound iterator internals (children, structure) via type-specific
+/// casts like `RQEIteratorWrapper::<Intersection<CRQEIterator>>::ref_from_header_ptr`.
+/// This is used by the query optimizer, profile printing, and iterator mutation code.
+///
+/// For these casts to remain valid after profiling, the wrapper's type parameter must
+/// stay the same. For example, `Intersection<CRQEIterator>` must remain
+/// `Intersection<CRQEIterator>` after its children are profiled — not become
+/// `Intersection<Box<dyn RQEIterator>>`.
+///
+/// This trait provides that guarantee: [`profile_children`](Self::profile_children)
+/// returns `Self`, so the type is preserved through profiling. Each child is profiled
+/// via [`CRQEIterator::into_profiled`](crate::c2rust::CRQEIterator::into_profiled),
+/// which returns `CRQEIterator` — preserving the child type parameter too.
+///
+/// # How profiling flows
+///
+/// 1. C calls `Profile_AddIters` → [`CRQEIterator::into_profiled`](crate::c2rust::CRQEIterator::into_profiled)
+/// 2. `into_profiled` calls [`CRQEIterator::profile_children`](crate::c2rust::CRQEIterator::profile_children),
+///    which invokes the C vtable `ProfileChildren` callback
+/// 3. For Rust compound iterators, that callback is [`rust_profile_children`],
+///    which calls this trait's [`profile_children`](Self::profile_children)
+/// 4. The implementation profiles each child via `CRQEIterator::into_profiled`
+///    (preserving `CRQEIterator`) and returns the same compound type
+/// 5. The result is re-wrapped in [`RQEIteratorWrapper`] with the same type parameter
+///
+/// This trait will be removed when the C code that accesses iterator internals
+/// (profile printing, optimizer, mutation) is ported to Rust.
+pub trait ProfileChildren<'index>: RQEIterator<'index> + Sized + 'index {
+    /// Profile all children, preserving the concrete iterator type.
+    fn profile_children(self) -> Self;
+}
+
+impl<'index, I> RQEIteratorWrapper<I>
+where
+    I: ProfileChildren<'index>,
+{
+    /// Create a new C-compatible wrapper around a compound Rust iterator.
+    ///
+    /// Sets the `ProfileChildren` C callback to [`rust_profile_children`],
+    /// which calls [`ProfileChildren::profile_children`]
+    /// to preserve the concrete type through profiling.
+    pub fn boxed_new_compound(inner: I) -> *mut QueryIterator {
+        debug_assert!(
+            !inner.type_().is_leaf(),
+            "boxed_new_compound should only be used for compound iterators"
+        );
+        let profile_children = Some(rust_profile_children::<I> as unsafe extern "C" fn(_) -> _);
         Self::boxed_new_inner(inner, profile_children)
     }
 }
@@ -95,7 +153,8 @@ where
     ///
     /// # Safety
     ///
-    /// 1. The caller must ensure that the provided header was produced via [`RQEIteratorWrapper::boxed_new`].
+    /// 1. The caller must ensure that the provided header was produced via
+    ///    [`RQEIteratorWrapper::boxed_new`] or [`RQEIteratorWrapper::boxed_new_compound`].
     /// 2. The caller must ensure that the provided header matches the expected Rust iterator type.
     /// 3. The caller must ensure that it has a unique handle over the provided header.
     pub const unsafe fn mut_ref_from_header_ptr(
@@ -118,7 +177,8 @@ where
     ///
     /// # Safety
     ///
-    /// 1. The caller must ensure that the provided header was produced via [`RQEIteratorWrapper::boxed_new`].
+    /// 1. The caller must ensure that the provided header was produced via
+    ///    [`RQEIteratorWrapper::boxed_new`] or [`RQEIteratorWrapper::boxed_new_compound`].
     /// 2. The caller must ensure that the provided header matches the expected Rust iterator type.
     pub const unsafe fn ref_from_header_ptr(
         base: *const QueryIterator,
@@ -242,27 +302,20 @@ extern "C" fn num_estimated<'index, I: RQEIterator<'index> + 'index>(
 /// `ProfileChildren` callback for composite Rust iterators wrapped in
 /// [`RQEIteratorWrapper`].
 ///
-/// Only set on non-leaf iterators ([`is_leaf`](RQEIterator::is_leaf) returns `false`).
-/// Consumes the wrapper, calls [`RQEIterator::profile_children`] on the inner
-/// iterator, and re-wraps the result via `boxed_new_inner` with
-/// `ProfileChildren` set to `None` — this breaks what would otherwise be
-/// infinite monomorphization ([`boxed_new`](RQEIteratorWrapper::boxed_new) requires
-/// `I::ProfileChildren: RQEIterator`, which would recurse). The `None` is safe
-/// because profiling is a one-shot pass.
-///
-/// When `I` is `Box<dyn RQEIterator>`, [`profile_children`](RQEIterator::profile_children)
-/// vtable-dispatches to the concrete type's implementation via
-/// [`profile_children_boxed`](RQEIterator::profile_children_boxed).
-extern "C" fn rust_profile_children<'index, I: RQEIterator<'index> + 'index>(
+/// Only set on non-leaf iterators via [`boxed_new_compound`](RQEIteratorWrapper::boxed_new_compound).
+/// Consumes the wrapper, calls [`ProfileChildren::profile_children`]
+/// on the inner iterator, and re-wraps the result via `boxed_new_inner` with
+/// `ProfileChildren` set to `None` — profiling is a one-shot pass.
+extern "C" fn rust_profile_children<'index, I: ProfileChildren<'index>>(
     base: *mut QueryIterator,
 ) -> *mut QueryIterator {
     debug_assert!(!base.is_null());
     debug_assert!(base.is_aligned());
     // SAFETY: Callbacks are guaranteed to get a header pointer created by
-    // `RQEIteratorWrapper::boxed_new`, which uses `Box::into_raw`.
+    // `RQEIteratorWrapper::boxed_new_compound`, which uses `Box::into_raw`.
     let it = unsafe { Box::from_raw(base as *mut RQEIteratorWrapper<I>) };
     let profiled = it.inner.profile_children();
-    // `None`: see doc comment above.
+    // `None`: profiling is a one-shot pass — the result doesn't need a callback.
     RQEIteratorWrapper::boxed_new_inner(profiled, None)
 }
 
@@ -270,8 +323,8 @@ extern "C" fn free_iterator<'index, I: RQEIterator<'index> + 'index>(base: *mut 
     if !base.is_null() {
         debug_assert!(base.is_aligned());
         // SAFETY: Callbacks are guaranteed to get a header pointer created by
-        //  [`RQEIteratorWrapper::new`], which (internally) uses `Box::into_raw` to
-        //  return a raw header pointer.
+        //  `RQEIteratorWrapper::boxed_new` or `boxed_new_compound`,
+        //  which (internally) use `Box::into_raw` to return a raw header pointer.
         let _ = unsafe { Box::from_raw(base as *mut RQEIteratorWrapper<I>) };
     }
 }
