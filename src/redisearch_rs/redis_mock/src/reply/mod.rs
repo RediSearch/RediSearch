@@ -21,6 +21,7 @@ pub use capture::capture_replies;
 pub use value::ReplyValue;
 
 #[cfg(test)]
+#[expect(clippy::approx_constant)] // 3.14 is an arbitrary test value, not an approximation of PI
 mod tests {
     use std::ffi::c_longlong;
 

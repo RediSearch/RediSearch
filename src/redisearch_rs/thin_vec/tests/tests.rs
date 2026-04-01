@@ -639,6 +639,7 @@ fn test_slice_out_of_bounds_2() {
 
 #[test]
 #[should_panic]
+#[expect(clippy::reversed_empty_ranges)]
 fn test_slice_out_of_bounds_3() {
     let x: SmallThinVec<i32> = small_thin_vec![1, 2, 3, 4, 5];
     let _ = &x[!0..4];
@@ -653,6 +654,7 @@ fn test_slice_out_of_bounds_4() {
 
 #[test]
 #[should_panic]
+#[expect(clippy::reversed_empty_ranges)]
 fn test_slice_out_of_bounds_5() {
     let x: SmallThinVec<i32> = small_thin_vec![1, 2, 3, 4, 5];
     let _ = &x[3..2];
@@ -802,6 +804,7 @@ fn test_reserve_exact() {
 #[test]
 fn test_set_len() {
     let mut vec: SmallThinVec<u32> = small_thin_vec![];
+    // SAFETY: Setting length to 0 on an empty vec is a no-op.
     unsafe {
         vec.set_len(0); // at one point this caused a crash
     }
@@ -813,6 +816,7 @@ fn test_set_len() {
 #[should_panic(expected = "invalid set_len(1) on empty ThinVec")]
 fn test_set_len_invalid() {
     let mut vec: SmallThinVec<u32> = small_thin_vec![];
+    // SAFETY: Intentionally invalid — this test verifies the debug assertion fires.
     unsafe {
         vec.set_len(1);
     }

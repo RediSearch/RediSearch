@@ -324,8 +324,8 @@ fn buffer_from_array<const N: usize>(a: [u8; N]) -> Buffer {
 /// Mock implementation of Buffer_Grow for tests
 #[allow(non_snake_case)]
 #[unsafe(no_mangle)]
-pub extern "C" fn Buffer_Grow(buffer: *mut ffi::Buffer, extra_len: usize) -> usize {
-    // Safety: buffer is a valid pointer to a Buffer.
+pub unsafe extern "C" fn Buffer_Grow(buffer: *mut ffi::Buffer, extra_len: usize) -> usize {
+    // SAFETY: buffer is a valid pointer to a Buffer, guaranteed by the caller.
     let buffer = unsafe { &mut *buffer };
     let old_capacity = buffer.cap;
 
@@ -344,12 +344,12 @@ pub extern "C" fn Buffer_Grow(buffer: *mut ffi::Buffer, extra_len: usize) -> usi
 /// Mock implementation of BufferFree for tests
 #[allow(non_snake_case)]
 #[unsafe(no_mangle)]
-pub extern "C" fn Buffer_Free(buffer: *mut ffi::Buffer) -> usize {
+pub unsafe extern "C" fn Buffer_Free(buffer: *mut ffi::Buffer) -> usize {
     if buffer.is_null() {
         return 0;
     }
 
-    // Safety: buffer is a valid pointer to a Buffer.
+    // SAFETY: buffer is a valid pointer to a Buffer, guaranteed by the caller.
     let buffer = unsafe { &mut *buffer };
 
     let layout = Layout::array::<c_char>(buffer.cap).unwrap();
