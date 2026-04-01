@@ -60,9 +60,15 @@ struct RSValue {
     // reference to another value
     struct RSValue *_ref;
   };
+  uint32_t __padding1;
   RSValueType _t : 7;
   uint8_t _allocated : 1;
+  uint8_t __padding2;
+  uint16_t __padding3;
+  uint32_t __padding4;
+  uint16_t __padding5;
   uint16_t _refcount;
+  uint32_t __padding6;
 };
 #pragma pack()
 
