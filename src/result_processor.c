@@ -2108,10 +2108,11 @@ static inline bool RPHybridMerger_Error(const RPHybridMerger *self) {
   const char *keyPtr = dmd ? dmd->keyPtr : NULL;
   // Coordinator case - no dmd - use docKey in rlookup
   const bool fallbackToLookup = !keyPtr && self->docKey;
+  size_t keyLen = 0;
   if (fallbackToLookup) {
     RSValue *docKeyValue = RLookupRow_Get(self->docKey, SearchResult_GetRowData(r));
     if (docKeyValue != NULL) {
-      keyPtr = RSValue_StringPtrLen(docKeyValue, NULL);
+      keyPtr = RSValue_StringPtrLen(docKeyValue, &keyLen);
     }
   }
   if (!keyPtr) {

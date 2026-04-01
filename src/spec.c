@@ -3995,13 +3995,14 @@ SpecOpIndexingCtx *Indexes_FindMatchingSchemaRules(RedisModuleCtx *ctx, RedisMod
 #if defined(_DEBUG) && 0
   RLookupKey *k = RLookup_GetKey_LoadEx(&r->lk, UNDERSCORE_KEY, strlen(UNDERSCORE_KEY), UNDERSCORE_KEY, RLOOKUP_F_NOFLAGS);
   RSValue *v = RLookup_GetItem(k, &r->row);
-  const char *x = RSValue_StringPtrLen(v, NULL);
-  RedisModule_Log(RSDummyContext, "notice", "Indexes_FindMatchingSchemaRules: x=%s", x);
+  size_t xlen;
+  const char *x = RSValue_StringPtrLen(v, &xlen);
+  RedisModule_Log(RSDummyContext, "notice", "Indexes_FindMatchingSchemaRules: x=%.*s", (int)xlen, x);
   const char *f = "name";
   k = RLookup_GetKey_ReadEx(&r->lk, f, strlen(f), RLOOKUP_F_NOFLAGS);
   if (k) {
     v = RLookup_GetItem(k, &r->row);
-    x = RSValue_StringPtrLen(v, NULL);
+    x = RSValue_StringPtrLen(v, &xlen);
   }
 #endif  // _DEBUG
 

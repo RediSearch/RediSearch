@@ -29,6 +29,7 @@ static int timeFormat(ExprEval *ctx, RSValue **argv, size_t argc, RSValue *resul
 
   if (argc == 2) {
     VALIDATE_ARG_TYPE("time", argv, 1, RSValueType_String);
+    // The returned `fmt` string is nul-terminated so is safe to use in `strftime`.
     fmt = RSValue_StringPtrLen(argv[1], NULL);
   }
   // Get the format
@@ -277,8 +278,10 @@ static int parseTime(ExprEval *ctx, RSValue **argv, size_t argc, RSValue *result
   VALIDATE_ARG_ISSTRING("parsetime", argv, 0);
   VALIDATE_ARG_ISSTRING("parsetime", argv, 1);
 
-  val = RSValue_StringPtrLen(argv[0], NULL);
-  fmt = RSValue_StringPtrLen(argv[1], NULL);
+  size_t vallen, fmtlen;
+  // TODO: copy string over to nul-terminated string before passing to `strptime`.
+  val = RSValue_StringPtrLen(argv[0], &vallen);
+  fmt = RSValue_StringPtrLen(argv[1], &fmtlen);
 
   rc = strptime(val, fmt, &tm);
   if (rc == NULL) {
