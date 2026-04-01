@@ -89,14 +89,19 @@ static void reeval_key(RedisModule_Reply *reply, const RSValue *key) {
         // tell it's a double and not just a numeric string value
         rskey = RedisModule_CreateStringPrintf(outctx, "#%.17g", RSValue_Number_Get(key));
         break;
-      case RSValueType_String:
+      case RSValueType_String: {
         // Serialize string - by prepending "$" to it
-        rskey = RedisModule_CreateStringPrintf(outctx, "$%s", RSValue_String_Get(key, NULL));
+        uint32_t len;
+        const char *str = RSValue_String_Get(key, &len);
+        rskey = RedisModule_CreateStringPrintf(outctx, "$%.*s", (int)len, str);
         break;
-      case RSValueType_RedisString:
-        rskey = RedisModule_CreateStringPrintf(outctx, "$%s",
-          RedisModule_StringPtrLen(RSValue_RedisString_Get(key), NULL));
+      }
+      case RSValueType_RedisString: {
+        size_t len;
+        const char *str = RedisModule_StringPtrLen(RSValue_RedisString_Get(key), &len);
+        rskey = RedisModule_CreateStringPrintf(outctx, "$%.*s", (int)len, str);
         break;
+      }
       case RSValueType_Null:
       case RSValueType_Undef:
       case RSValueType_Array:
