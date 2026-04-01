@@ -21,10 +21,10 @@
 macro_rules! union_common_tests {
     ($UnionFull:ident, $UnionQuick:ident) => {
         use crate::utils::{
-            Mock, MockRevalidateResult, create_mock_1, create_mock_2, create_mock_3,
+            Mock, MockRevalidateResult, MockVec, create_mock_1, create_mock_2, create_mock_3,
             create_union_children,
         };
-        use rqe_iterators::{RQEIterator, RQEValidateStatus, SkipToOutcome};
+        use rqe_iterators::{IteratorType, RQEIterator, RQEValidateStatus, SkipToOutcome};
 
         type Union<I> = $UnionFull<'static, I>;
 
@@ -1337,5 +1337,24 @@ macro_rules! union_common_tests {
                 "child2 at doc 3 - reused (no read needed)"
             );
         }
+
+        // =============================================================================
+        // Type tests
+        // =============================================================================
+
+        #[test]
+        fn type_full() {
+            let children: Vec<Box<dyn RQEIterator<'static>>> = vec![MockVec::new_boxed(vec![1, 2, 3])];
+            let it = $UnionFull::new(children);
+            assert_eq!(it.type_(), IteratorType::Union);
+        }
+
+        #[test]
+        fn type_quick() {
+            let children: Vec<Box<dyn RQEIterator<'static>>> = vec![MockVec::new_boxed(vec![1, 2, 3])];
+            let it = $UnionQuick::new(children);
+            assert_eq!(it.type_(), IteratorType::Union);
+        }
+
     };
 }
