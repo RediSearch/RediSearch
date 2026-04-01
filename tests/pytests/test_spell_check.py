@@ -199,8 +199,7 @@ def testSpellCheckWithParams(env:Env):
     compare_lists(env, res1, res2)
 
     # Missing PARAMS: $a in dialect 3 without PARAMS should error, not crash
-    env.expect('ft.spellcheck', 'idx', '$a', 'DIALECT', '3').error()
-    env.expect('PING').equal(True)
+    env.expect('ft.spellcheck', 'idx', '$a', 'DIALECT', '3').error().contains('Parameter not found `a`')
 
     # Fuzzy params
     res1 = env.cmd('ft.spellcheck', 'idx', '%hell%', 'DIALECT', '2')
