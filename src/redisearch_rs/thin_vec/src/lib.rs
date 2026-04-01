@@ -2145,13 +2145,13 @@ mod tests {
     #[test]
     fn test_data_ptr_alignment() {
         let v = ThinVec::<u16>::new();
-        assert!(v.data_raw() as usize % 2 == 0);
+        assert!((v.data_raw() as usize).is_multiple_of(2));
 
         let v = ThinVec::<u32>::new();
-        assert!(v.data_raw() as usize % 4 == 0);
+        assert!((v.data_raw() as usize).is_multiple_of(4));
 
         let v = ThinVec::<u64>::new();
-        assert!(v.data_raw() as usize % 8 == 0);
+        assert!((v.data_raw() as usize).is_multiple_of(8));
     }
 
     #[test]
@@ -2212,7 +2212,7 @@ mod tests {
         struct Align16(#[allow(dead_code)] u8);
 
         let v = ThinVec::<Align16>::new();
-        assert!(v.data_raw() as usize % 16 == 0);
+        assert!((v.data_raw() as usize).is_multiple_of(16));
     }
 
     #[test]

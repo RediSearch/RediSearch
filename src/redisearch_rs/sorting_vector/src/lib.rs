@@ -74,7 +74,7 @@ impl RSSortingVector {
 
     /// Returns a shared slice over the values.
     #[inline]
-    fn as_slice(&self) -> &[RSValueFFI] {
+    const fn as_slice(&self) -> &[RSValueFFI] {
         if self.len == 0 {
             &[]
         } else {
@@ -85,7 +85,7 @@ impl RSSortingVector {
 
     /// Returns a mutable slice over the values.
     #[inline]
-    fn as_slice_mut(&mut self) -> &mut [RSValueFFI] {
+    const fn as_slice_mut(&mut self) -> &mut [RSValueFFI] {
         if self.len == 0 {
             &mut []
         } else {
@@ -113,14 +113,20 @@ impl RSSortingVector {
 
     /// Set a number (double) at the given index
     pub fn try_insert_num(&mut self, idx: usize, num: f64) -> Result<(), IndexOutOfBounds> {
-        let spot = self.as_slice_mut().get_mut(idx).ok_or(IndexOutOfBounds(()))?;
+        let spot = self
+            .as_slice_mut()
+            .get_mut(idx)
+            .ok_or(IndexOutOfBounds(()))?;
         *spot = RSValueFFI::new_num(num);
         Ok(())
     }
 
     /// Set a string at the given index.
     pub fn try_insert_string(&mut self, idx: usize, str: Vec<u8>) -> Result<(), IndexOutOfBounds> {
-        let spot = self.as_slice_mut().get_mut(idx).ok_or(IndexOutOfBounds(()))?;
+        let spot = self
+            .as_slice_mut()
+            .get_mut(idx)
+            .ok_or(IndexOutOfBounds(()))?;
         *spot = RSValueFFI::new_string(str);
         Ok(())
     }
@@ -144,25 +150,31 @@ impl RSSortingVector {
         idx: usize,
         value: RSValueFFI,
     ) -> Result<(), IndexOutOfBounds> {
-        let spot = self.as_slice_mut().get_mut(idx).ok_or(IndexOutOfBounds(()))?;
+        let spot = self
+            .as_slice_mut()
+            .get_mut(idx)
+            .ok_or(IndexOutOfBounds(()))?;
         *spot = value;
         Ok(())
     }
 
     /// Set a null value at the given index
     pub fn try_insert_null(&mut self, idx: usize) -> Result<(), IndexOutOfBounds> {
-        let spot = self.as_slice_mut().get_mut(idx).ok_or(IndexOutOfBounds(()))?;
+        let spot = self
+            .as_slice_mut()
+            .get_mut(idx)
+            .ok_or(IndexOutOfBounds(()))?;
         *spot = RSValueFFI::null_static();
         Ok(())
     }
 
     /// Get the len of the sorting vector.
-    pub fn len(&self) -> usize {
+    pub const fn len(&self) -> usize {
         self.len
     }
 
     /// check if the sorting vector is empty.
-    pub fn is_empty(&self) -> bool {
+    pub const fn is_empty(&self) -> bool {
         self.len == 0
     }
 
@@ -172,10 +184,10 @@ impl RSSortingVector {
     /// as in C.
     pub fn get_memory_size(&self) -> usize {
         let slice = self.as_slice();
-        let mut sz = slice.len() * size_of::<RSValueFFI>();
+        let mut sz = size_of_val(slice);
 
-        for idx in 0..slice.len() {
-            if slice[idx].is_null() {
+        for item in slice {
+            if item.is_null() {
                 continue;
             }
 
@@ -183,7 +195,7 @@ impl RSSortingVector {
 
             // the original behavior would by-pass references in the middle of the chain
             // fixup in: MOD-10347
-            let value = slice[idx].deep_deref();
+            let value = item.deep_deref();
 
             if value.get_type() == ffi::RSValueType_RSValueType_String {
                 sz += value.as_str_bytes().unwrap().len();
@@ -196,7 +208,7 @@ impl RSSortingVector {
 impl Clone for RSSortingVector {
     fn clone(&self) -> Self {
         // Clone each element (incrementing refcounts) and collect into a new Vec.
-        let cloned: Vec<RSValueFFI> = self.as_slice().iter().cloned().collect();
+        let cloned: Vec<RSValueFFI> = self.as_slice().to_vec();
         let (values, len, _cap) = cloned.into_raw_parts();
         Self { len, values }
     }
