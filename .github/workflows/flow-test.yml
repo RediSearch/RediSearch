@@ -16,9 +16,9 @@ on:
         type: string
         default: '{"test": "QUICK=1", "coverage": "QUICK=1", "sanitize": "QUICK=1"}'
       redis-ref:
-        description: 'Redis version to use (e.g. "7.2.3", "unstable"). Defaults to "unstable"'
+        description: 'Redis version to use (e.g. "7.2.3", "unstable")'
         type: string
-        default: unstable
+        required: true
       rejson-branch:
         type: string
         default: master

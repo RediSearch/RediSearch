@@ -5,8 +5,8 @@ description: |
 
 inputs:
   ref:
-    description: 'Redis version to use (e.g. "7.2.3", "unstable"). Defaults to "unstable"'
-    default: unstable
+    description: "Redis git ref to checkout"
+    required: true
   node20_supported:
     description: "Whether node20 is supported on this platform"
     required: true
