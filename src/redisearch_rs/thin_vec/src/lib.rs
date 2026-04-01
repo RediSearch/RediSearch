@@ -88,7 +88,7 @@ use std::convert::TryFrom;
 use std::hash::*;
 use std::iter::FromIterator;
 use std::marker::PhantomData;
-use std::ops::{Deref, DerefMut};
+use std::ops::{Bound, Deref, DerefMut, RangeBounds};
 use std::ptr::NonNull;
 use std::{boxed::Box, vec::Vec};
 use std::{fmt, mem, ptr, slice};
@@ -1337,11 +1337,206 @@ impl<T, S: VecCapacity> ThinVec<T, S> {
         }
     }
 
+    /// Creates a draining iterator that removes the specified range in the
+    /// vector and yields the removed items.
+    ///
+    /// When the iterator is dropped, all elements in the range that were not
+    /// consumed are dropped, and the remaining elements from the tail are
+    /// moved to fill the gap.
+    ///
+    /// If the iterator is not dropped (e.g. via [`mem::forget`]), the
+    /// drained elements remain accessible but the vector length will have
+    /// already been truncated to `start`. The tail elements will NOT be
+    /// moved back — the caller is responsible for avoiding a leak.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the starting point is greater than the end point or if
+    /// the end point is greater than the length of the vector.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use thin_vec::thin_vec;
+    ///
+    /// let mut v = thin_vec![1, 2, 3];
+    /// let drained: Vec<_> = v.drain(1..).collect();
+    /// assert_eq!(v, [1]);
+    /// assert_eq!(drained, [2, 3]);
+    /// ```
+    pub fn drain<R>(&mut self, range: R) -> Drain<'_, T, S>
+    where
+        R: RangeBounds<usize>,
+    {
+        let len = self.len();
+        let start = match range.start_bound() {
+            Bound::Included(&n) => n,
+            Bound::Excluded(&n) => n.checked_add(1).expect("drain range start overflow"),
+            Bound::Unbounded => 0,
+        };
+        let end = match range.end_bound() {
+            Bound::Included(&n) => n.checked_add(1).expect("drain range end overflow"),
+            Bound::Excluded(&n) => n,
+            Bound::Unbounded => len,
+        };
+        assert!(start <= end, "drain range start ({start}) > end ({end})");
+        assert!(end <= len, "drain range end ({end}) > length ({len})");
+
+        // SAFETY:
+        // - We set the length to `start`, which is <= the old length, so
+        //   all elements before `start` are still initialized.
+        // - The elements in `start..end` will be yielded by the `Drain`
+        //   iterator and dropped/read from there.
+        // - The `Drain::drop` implementation will copy the tail elements
+        //   (`end..old_len`) back to `start` and restore the length.
+        unsafe {
+            self.set_len(start);
+        }
+
+        // SAFETY: `start <= old len <= capacity`, so `add(start)` stays within the allocation.
+        let ptr = unsafe { self.data_raw().add(start) };
+        // SAFETY: `ptr..ptr+len` covers initialized elements we logically removed by
+        // truncating len to `start`.
+        let iter = unsafe { slice::from_raw_parts(ptr, end - start) }.iter();
+
+        Drain {
+            iter,
+            vec: NonNull::from(self),
+            end,
+            tail: len - end,
+        }
+    }
+
+    /// Moves all the elements of `other` into `self`, leaving `other` empty.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the new capacity exceeds `isize::MAX` bytes.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use thin_vec::thin_vec;
+    ///
+    /// let mut a = thin_vec![1, 2, 3];
+    /// let mut b = thin_vec![4, 5, 6];
+    /// a.append(&mut b);
+    /// assert_eq!(a, [1, 2, 3, 4, 5, 6]);
+    /// assert_eq!(b, []);
+    /// ```
+    pub fn append(&mut self, other: &mut ThinVec<T, S>) {
+        self.extend(other.drain(..))
+    }
+
     #[inline]
     fn is_singleton(&self) -> bool {
         self.ptr.as_ptr() as *const Header<S> == S::EMPTY_HEADER
     }
 }
+
+/// A draining iterator for [`ThinVec<T, S>`].
+///
+/// Created by [`ThinVec::drain`]. Yields owned `T` values from the
+/// drained range. When dropped, any remaining elements in the range are
+/// dropped and the tail of the vector is moved back into place.
+pub struct Drain<'a, T, S: VecCapacity = u64> {
+    /// Iterator over the slice of elements being drained.
+    /// Items are moved out via [`ptr::read`].
+    iter: slice::Iter<'a, T>,
+    /// Pointer back to the originating vector. Used in [`Drop`] to
+    /// copy the tail back and restore the length.
+    vec: NonNull<ThinVec<T, S>>,
+    /// One-past-the-end index of the drained range in the original vector.
+    end: usize,
+    /// Number of elements after the drained range (`old_len - end`).
+    tail: usize,
+}
+
+impl<T, S: VecCapacity> Iterator for Drain<'_, T, S> {
+    type Item = T;
+
+    fn next(&mut self) -> Option<T> {
+        self.iter.next().map(|x| {
+            // SAFETY:
+            // - `x` points to a valid, initialized `T` inside the drained region.
+            // - The vector's length has already been truncated to `start`, so the
+            //   vector won't access or drop this element.
+            // - Each element is read exactly once because `Iter` advances forward.
+            unsafe { ptr::read(x) }
+        })
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.iter.size_hint()
+    }
+}
+
+impl<T, S: VecCapacity> DoubleEndedIterator for Drain<'_, T, S> {
+    fn next_back(&mut self) -> Option<T> {
+        self.iter.next_back().map(|x| {
+            // SAFETY: same reasoning as `next` — each element is read exactly once.
+            unsafe { ptr::read(x) }
+        })
+    }
+}
+
+impl<T, S: VecCapacity> ExactSizeIterator for Drain<'_, T, S> {}
+impl<T, S: VecCapacity> core::iter::FusedIterator for Drain<'_, T, S> {}
+
+impl<T, S: VecCapacity> Drop for Drain<'_, T, S> {
+    fn drop(&mut self) {
+        // Drop any remaining elements that weren't consumed by the iterator.
+        for _ in self.by_ref() {}
+
+        // SAFETY:
+        // - `self.vec` was created from a valid `&mut ThinVec` and no other
+        //   references to the vector exist (the borrow is held by `Drain`).
+        let vec = unsafe { self.vec.as_mut() };
+
+        if !vec.is_singleton() {
+            let old_len = vec.len();
+            // SAFETY: `self.end <= original capacity`, so `add(self.end)` is within the allocation.
+            let src = unsafe { vec.data_raw().add(self.end) };
+            // SAFETY: `old_len <= self.end <= capacity`, so `add(old_len)` is within the allocation.
+            let dst = unsafe { vec.data_raw().add(old_len) };
+            // SAFETY: src and dst are within bounds, `self.tail` elements exist at src,
+            // and `ptr::copy` handles overlap.
+            unsafe { ptr::copy(src, dst, self.tail) };
+            // SAFETY: `old_len + self.tail == start + tail` == total surviving elements,
+            // all initialized.
+            unsafe { vec.set_len_non_singleton(old_len + self.tail) };
+        }
+    }
+}
+
+impl<T: fmt::Debug, S: VecCapacity> fmt::Debug for Drain<'_, T, S> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_tuple("Drain").field(&self.iter.as_slice()).finish()
+    }
+}
+
+impl<'a, T, S: VecCapacity> Drain<'a, T, S> {
+    /// Returns the remaining items of this iterator as a slice.
+    #[must_use]
+    pub fn as_slice(&self) -> &[T] {
+        self.iter.as_slice()
+    }
+}
+
+impl<T, S: VecCapacity> AsRef<[T]> for Drain<'_, T, S> {
+    fn as_ref(&self) -> &[T] {
+        self.as_slice()
+    }
+}
+
+// SAFETY:
+// `Drain` yields owned `T` values and holds a `NonNull<ThinVec<T, S>>`.
+// It is `Send` when `T` is `Send` for the same reasons as `std::vec::Drain`.
+unsafe impl<T: Send, S: VecCapacity> Send for Drain<'_, T, S> {}
+
+// SAFETY:
+// `Drain` only provides `&T` via `as_slice`. It is `Sync` when `T` is `Sync`.
+unsafe impl<T: Sync, S: VecCapacity> Sync for Drain<'_, T, S> {}
 
 impl<T: Clone, S: VecCapacity> ThinVec<T, S> {
     /// Resizes the `Vec` in-place so that `len()` is equal to `new_len`.
@@ -2145,13 +2340,13 @@ mod tests {
     #[test]
     fn test_data_ptr_alignment() {
         let v = ThinVec::<u16>::new();
-        assert!(v.data_raw() as usize % 2 == 0);
+        assert!((v.data_raw() as usize).is_multiple_of(2));
 
         let v = ThinVec::<u32>::new();
-        assert!(v.data_raw() as usize % 4 == 0);
+        assert!((v.data_raw() as usize).is_multiple_of(4));
 
         let v = ThinVec::<u64>::new();
-        assert!(v.data_raw() as usize % 8 == 0);
+        assert!((v.data_raw() as usize).is_multiple_of(8));
     }
 
     #[test]
@@ -2209,10 +2404,10 @@ mod tests {
     #[test]
     fn test_overaligned_type() {
         #[repr(align(16))]
-        struct Align16(#[allow(dead_code)] u8);
+        struct Align16(#[expect(dead_code)] u8);
 
         let v = ThinVec::<Align16>::new();
-        assert!(v.data_raw() as usize % 16 == 0);
+        assert!((v.data_raw() as usize).is_multiple_of(16));
     }
 
     #[test]
