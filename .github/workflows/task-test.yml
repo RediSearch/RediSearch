@@ -18,8 +18,10 @@ on:
       coverage:
         type: boolean
         default: false
-      get-redis:
+      redis-ref:
+        description: 'Redis version to use (e.g. "7.2.3", "unstable")'
         type: string
+        required: true
       test-config:
         description: 'Test configuration environment variable (e.g. "CONFIG=tls" or "QUICK=1")'
         required: true
@@ -130,7 +132,7 @@ jobs:
 
   common-flow:
     needs: [get-config, build-image, start-runner]
-    name: Test ${{ needs.get-config.outputs.name }}, Redis ${{ inputs.get-redis || 'unstable' }}
+    name: Test ${{ needs.get-config.outputs.name }}, Redis ${{ inputs.redis-ref || 'unstable' }}
     # Run if get-config succeeded and at least one test type is enabled
     if: |
       !cancelled() &&
@@ -333,7 +335,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: redis/redis
-          ref: ${{ inputs.get-redis }}
+          ref: ${{ inputs.redis-ref }}
           path: redis
       - name: Get Redis (node20 not supported)
         if: ${{ steps.node20.outputs.supported == 'false' }}
@@ -346,8 +348,8 @@ jobs:
           cd $DEST_DIR
 
           # Checkout the REF
-          git fetch origin ${{ inputs.get-redis }}
-          git checkout ${{ inputs.get-redis }}
+          git fetch origin ${{ inputs.redis-ref }}
+          git checkout ${{ inputs.redis-ref }}
 
       - name: Build Redis
         working-directory: redis
@@ -364,12 +366,12 @@ jobs:
           | # Invalid characters include: Double quote ", Colon :, Less than <, Greater than >, Vertical bar |, Asterisk *, Question mark ?
           echo "name=$(echo "${{ format('{0}', inputs.san == 'address' && 'sanitizer' || '') }} \
                              ${{ format('{0}', inputs.coverage && 'coverage test' || '') }} \
-                             ${{ needs.get-config.outputs.container || needs.get-config.outputs.env }} ${{ runner.arch }} - Redis ${{ inputs.get-redis || 'unstable' }}" | \
+                             ${{ needs.get-config.outputs.container || needs.get-config.outputs.env }} ${{ runner.arch }} - Redis ${{ inputs.redis-ref || 'unstable' }}" | \
                        sed -e 's/[":\/\\<>\|*?]/_/g' -e 's/__*/_/g' -e 's/^_//' -e 's/_$//')" >> $GITHUB_OUTPUT
       - name: Build
         env:
           SAN: ${{ inputs.san }}
-          REDIS_VER: ${{ inputs.get-redis }}
+          REDIS_VER: ${{ inputs.redis-ref }}
           ENABLE_ASSERT: 1
         run: make build TESTS=1
       - name: Check disk space after build
