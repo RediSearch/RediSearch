@@ -10,7 +10,7 @@
 use rqe_iterators::util::DocIdMinHeap;
 
 /// Covers: `new`, `default`, `with_capacity`, `push`, `peek`, `len`,
-/// `is_empty`, `clear`, and `data()`.
+/// `is_empty`, `clear`, and `[]`.
 #[test]
 fn construction_and_basic_ops() {
     // new() / default() both start empty.
@@ -35,10 +35,9 @@ fn construction_and_basic_ops() {
     heap.push(3, 3);
     assert_eq!(heap.peek(), Some((3, 3)), "peek must return minimum");
 
-    // data() — root element is the minimum.
-    let data = heap.data();
-    assert_eq!(data.len(), 4);
-    assert_eq!(data[0].0, 3);
+    // [] — root element is the minimum.
+    assert_eq!(heap.len(), 4);
+    assert_eq!(heap[0].0, 3);
 
     // clear()
     heap.clear();

@@ -85,7 +85,11 @@ where
 
     /// Advances children at the heap root whose `last_doc_id` equals `current_id`.
     fn advance_matching_children(&mut self, current_id: t_docId) -> Result<(), RQEIteratorError> {
-        while let Some((doc_id, idx)) = self.heap.peek() {
+        if self.heap.is_empty() {
+            return Ok(());
+        }
+        loop {
+            let (doc_id, idx) = self.heap[0];
             if doc_id != current_id {
                 break;
             }
@@ -95,6 +99,9 @@ where
                 self.heap.replace_root(child.last_doc_id(), idx);
             } else {
                 self.heap.pop();
+                if self.heap.is_empty() {
+                    return Ok(());
+                }
             }
         }
         Ok(())
@@ -111,13 +118,9 @@ where
             agg.reset();
         }
 
-        // Access heap.data() directly to avoid borrow conflicts with children and result.
-        let heap_data = self.heap.data();
-        if heap_data.is_empty() {
+        if self.heap.is_empty() {
             return;
         }
-
-        let root_doc_id = heap_data[0].0;
 
         let mut stack = [0usize; 64];
         let mut stack_len = 1;
@@ -127,12 +130,12 @@ where
             stack_len -= 1;
             let heap_idx = stack[stack_len];
 
-            if heap_idx >= heap_data.len() {
+            if heap_idx >= self.heap.len() {
                 continue;
             }
 
-            let (doc_id, child_idx) = heap_data[heap_idx];
-            if doc_id != root_doc_id {
+            let (doc_id, child_idx) = self.heap[heap_idx];
+            if doc_id != min_id {
                 continue;
             }
 
@@ -150,12 +153,12 @@ where
             let left_heap_idx = 2 * heap_idx + 1;
             let right_heap_idx = 2 * heap_idx + 2;
 
-            if right_heap_idx < heap_data.len() && stack_len < 64 {
-                stack[stack_len] = right_heap_idx;
+            if left_heap_idx < self.heap.len() && stack_len < 64 {
+                stack[stack_len] = left_heap_idx;
                 stack_len += 1;
             }
-            if left_heap_idx < heap_data.len() && stack_len < 64 {
-                stack[stack_len] = left_heap_idx;
+            if right_heap_idx < self.heap.len() && stack_len < 64 {
+                stack[stack_len] = right_heap_idx;
                 stack_len += 1;
             }
         }
@@ -181,7 +184,11 @@ where
     /// leaving remaining lagging children for the next call.
     /// Returns `usize::MAX` if no exact match was found.
     fn advance_lagging_children(&mut self, doc_id: t_docId) -> Result<usize, RQEIteratorError> {
-        while let Some((child_doc_id, idx)) = self.heap.peek() {
+        if self.heap.is_empty() {
+            return Ok(usize::MAX);
+        }
+        loop {
+            let (child_doc_id, idx) = self.heap[0];
             if child_doc_id >= doc_id {
                 break;
             }
@@ -199,6 +206,9 @@ where
                 }
                 None => {
                     self.heap.pop();
+                    if self.heap.is_empty() {
+                        break;
+                    }
                 }
             }
         }
@@ -400,12 +410,11 @@ where
 
         self.rebuild_heap();
 
-        if self.heap.is_empty() {
+        let Some((min_doc_id, min_idx)) = self.heap.peek() else {
             self.is_eof = true;
             return Ok(RQEValidateStatus::Moved { current: None });
-        }
+        };
 
-        let (min_doc_id, min_idx) = self.heap.peek().unwrap();
         if QUICK_EXIT {
             self.quick_set_from_child(min_idx);
         } else {

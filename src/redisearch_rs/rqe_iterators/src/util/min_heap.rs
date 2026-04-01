@@ -14,11 +14,9 @@
 //! efficient operations that Rust's [`std::collections::BinaryHeap`] lacks:
 //!
 //! - [`DocIdMinHeap::replace_root`]: O(log n) in-place root replacement with single sift-down
-//! - [`DocIdMinHeap::data`]: Direct access to heap data for manual traversal
-//!
-//! See `UNION_ITERATOR_DESIGN.md` for detailed design rationale.
-
+//! - [`DocIdMinHeap::index<usize>`]: Direct access to heap data for manual traversal
 use ffi::t_docId;
+use std::ops::Index;
 
 /// A specialized min-heap for the union iterator.
 ///
@@ -42,15 +40,19 @@ use ffi::t_docId;
 /// // Access heap data directly for traversal
 /// let root_doc_id = heap.data()[0].0;
 /// ```
-#[derive(Debug, Clone)]
+
+#[derive(Debug, Clone, Default)]
 pub struct DocIdMinHeap {
     /// Backing storage: Vec of (doc_id, child_index) pairs.
     data: Vec<(t_docId, usize)>,
 }
 
-impl Default for DocIdMinHeap {
-    fn default() -> Self {
-        Self::new()
+/// Direct access to heap data for manual traversal.
+impl Index<usize> for DocIdMinHeap {
+    type Output = (t_docId, usize);
+
+    fn index(&self, index: usize) -> &Self::Output {
+        &self.data[index]
     }
 }
 
@@ -93,19 +95,6 @@ impl DocIdMinHeap {
     #[inline]
     pub fn peek(&self) -> Option<(t_docId, usize)> {
         self.data.first().copied()
-    }
-
-    /// Returns a reference to the underlying heap data.
-    ///
-    /// This allows callers to iterate over the heap structure directly,
-    /// which is useful when the caller needs to access other data during
-    /// iteration (avoiding borrow checker conflicts with closure-based APIs).
-    ///
-    /// The data is stored as `(doc_id, child_index)` tuples in heap order
-    /// (smallest doc_id at index 0). Children of index `i` are at `2*i+1` and `2*i+2`.
-    #[inline]
-    pub fn data(&self) -> &[(t_docId, usize)] {
-        &self.data
     }
 
     /// Pushes an entry onto the heap.
