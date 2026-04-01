@@ -11,12 +11,17 @@ use ffi::RSValue;
 use libc::size_t;
 use rlookup::{OpaqueRLookupRow, RLookup, RLookupKey, RLookupRow};
 use std::{
-    ffi::{CStr, c_char},
+    ffi::{CStr, c_char, c_int, c_void},
     mem::{self, ManuallyDrop},
     ptr::{self, NonNull},
     slice,
 };
 use value::RSValueFFI;
+
+// C-implemented value comparison — the value layer hasn't been fully ported to Rust yet.
+unsafe extern "C" {
+    fn RSValue_Cmp(v1: *const RSValue, v2: *const RSValue, qerr: *mut c_void) -> c_int;
+}
 
 /// Returns a newly created [`RLookupRow`].
 #[unsafe(no_mangle)]
@@ -372,4 +377,76 @@ pub unsafe extern "C" fn RLookupRow_SetSortingVector(
     let sv = unsafe { sv.as_ref() };
 
     row.set_sorting_vector(sv);
+}
+
+/// Maximum number of sort fields, mirroring `SORTASCMAP_MAXFIELDS` in C.
+const SORTASCMAP_MAXFIELDS: usize = 8;
+
+/// Compare two [`RLookupRow`]s by a set of sort keys.
+///
+/// Returns `-1` if `row1 < row2`, `0` if all keys are equal (caller should
+/// use docId tiebreak), or `1` if `row1 > row2`.
+///
+/// This batches all per-key lookups and value comparisons into a single FFI
+/// call, avoiding repeated FFI boundary crossings in the hot sort path.
+///
+/// # Safety
+///
+/// 1. `keys` must be a [valid] pointer to an array of at least `nkeys` [valid]
+///    pointers to [`RLookupKey`]s.
+/// 2. `nkeys` must not exceed `SORTASCMAP_MAXFIELDS` (8).
+/// 3. `row1` must be a [valid], non-null pointer to an [`RLookupRow`].
+/// 4. `row2` must be a [valid], non-null pointer to an [`RLookupRow`].
+/// 5. `qerr`, when non-null, must be a [valid], writable pointer to a
+///    `QueryError`.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RLookupRow_CmpByFields(
+    keys: *const *const RLookupKey,
+    nkeys: usize,
+    row1: *const OpaqueRLookupRow,
+    row2: *const OpaqueRLookupRow,
+    ascend_map: u64,
+    qerr: *mut c_void,
+) -> c_int {
+    // Safety: ensured by caller (3.)
+    let row1 = unsafe { RLookupRow::from_opaque_ptr(row1).unwrap() };
+
+    // Safety: ensured by caller (4.)
+    let row2 = unsafe { RLookupRow::from_opaque_ptr(row2).unwrap() };
+
+    let nkeys = nkeys.min(SORTASCMAP_MAXFIELDS);
+
+    // Safety: ensured by caller (1.)
+    let keys = unsafe { slice::from_raw_parts(keys, nkeys) };
+
+    for (i, &key_ptr) in keys.iter().enumerate() {
+        // Safety: ensured by caller (1.) — each element is a valid RLookupKey pointer
+        let key = unsafe { key_ptr.as_ref().unwrap() };
+
+        let v1 = row1.get(key);
+        let v2 = row2.get(key);
+
+        let ascending = (ascend_map & (1u64 << i)) != 0;
+
+        match (v1, v2) {
+            // If at least one has no sort key, it gets high value regardless of asc/desc
+            (Some(_), None) => return 1,
+            (None, Some(_)) => return -1,
+            (None, None) => continue,
+            (Some(v1), Some(v2)) => {
+                // Safety: RSValueFFI holds valid RSValue pointers, and qerr is
+                // either null or valid per caller (5.)
+                let rc = unsafe { RSValue_Cmp(v1.as_ptr(), v2.as_ptr(), qerr) };
+
+                if rc != 0 {
+                    return if ascending { -rc } else { rc };
+                }
+            }
+        }
+    }
+
+    // All keys equal — caller handles docId tiebreak
+    0
 }

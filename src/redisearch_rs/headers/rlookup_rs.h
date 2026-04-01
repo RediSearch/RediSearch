@@ -780,6 +780,34 @@ const struct RSSortingVector *RLookupRow_GetSortingVector(const struct RLookupRo
 void RLookupRow_SetSortingVector(struct RLookupRow *row,
                                  const struct RSSortingVector *sv);
 
+/**
+ * Compare two [`RLookupRow`]s by a set of sort keys.
+ *
+ * Returns `-1` if `row1 < row2`, `0` if all keys are equal (caller should
+ * use docId tiebreak), or `1` if `row1 > row2`.
+ *
+ * This batches all per-key lookups and value comparisons into a single FFI
+ * call, avoiding repeated FFI boundary crossings in the hot sort path.
+ *
+ * # Safety
+ *
+ * 1. `keys` must be a [valid] pointer to an array of at least `nkeys` [valid]
+ *    pointers to [`RLookupKey`]s.
+ * 2. `nkeys` must not exceed `SORTASCMAP_MAXFIELDS` (8).
+ * 3. `row1` must be a [valid], non-null pointer to an [`RLookupRow`].
+ * 4. `row2` must be a [valid], non-null pointer to an [`RLookupRow`].
+ * 5. `qerr`, when non-null, must be a [valid], writable pointer to a
+ *    `QueryError`.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+int RLookupRow_CmpByFields(const struct RLookupKey *const *keys,
+                           uintptr_t nkeys,
+                           const struct RLookupRow *row1,
+                           const struct RLookupRow *row2,
+                           uint64_t ascend_map,
+                           void *qerr);
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif  // __cplusplus
