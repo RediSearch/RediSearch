@@ -11,7 +11,7 @@
 
 use ffi::{IndexFlags_Index_DocIdsOnly, RS_FIELDMASK_ALL, t_docId};
 use inverted_index::{RSIndexResult, doc_ids_only::DocIdsOnly};
-use rqe_iterators::{NoOpChecker, RQEIterator, inverted_index::Missing};
+use rqe_iterators::{IteratorType, NoOpChecker, RQEIterator, inverted_index::Missing};
 use rqe_iterators_test_utils::MockContext;
 
 use crate::inverted_index::utils::BaseTest;
@@ -46,6 +46,13 @@ impl MissingBaseTest {
         // that outlives the returned iterator. field_index is 0 (unused with NoOpChecker).
         unsafe { Missing::new(reader, self.test.mock_ctx.sctx(), 0, NoOpChecker) }
     }
+}
+
+#[test]
+fn missing_type() {
+    let test = MissingBaseTest::new(10);
+    let it = test.create_iterator();
+    assert_eq!(it.type_(), IteratorType::InvIdxMissing);
 }
 
 #[test]

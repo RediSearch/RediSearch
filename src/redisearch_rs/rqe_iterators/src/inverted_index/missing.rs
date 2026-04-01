@@ -14,7 +14,10 @@ use inverted_index::{
     DecodedBy, DocIdsDecoder, IndexReaderCore, RSIndexResult, opaque::OpaqueEncoding,
 };
 
-use crate::{ExpirationChecker, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
+use crate::{
+    ExpirationChecker, IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus,
+    SkipToOutcome,
+};
 
 use super::InvIndIterator;
 
@@ -179,5 +182,10 @@ where
         }
 
         self.it.revalidate()
+    }
+
+    #[inline(always)]
+    fn type_(&self) -> IteratorType {
+        IteratorType::InvIdxMissing
     }
 }

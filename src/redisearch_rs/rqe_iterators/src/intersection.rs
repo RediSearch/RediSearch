@@ -14,8 +14,8 @@
 //! - `in_order`: Require terms to appear in order
 
 use crate::{
-    RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome, c2rust::CRQEIterator,
-    interop::RQEIteratorWrapper,
+    IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
+    c2rust::CRQEIterator, interop::RQEIteratorWrapper,
 };
 
 use ffi::t_docId;
@@ -544,5 +544,10 @@ where
             }),
             None => Ok(RQEValidateStatus::Moved { current: None }),
         }
+    }
+
+    #[inline(always)]
+    fn type_(&self) -> IteratorType {
+        IteratorType::Intersect
     }
 }

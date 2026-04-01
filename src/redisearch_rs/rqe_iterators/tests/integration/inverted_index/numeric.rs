@@ -14,7 +14,8 @@ use inverted_index::{
     FilterNumericReader, IndexReader, InvertedIndex, NumericFilter, NumericReader, RSIndexResult,
 };
 use rqe_iterators::{
-    NoOpChecker, RQEIterator, RQEValidateStatus, SkipToOutcome, inverted_index::Numeric,
+    IteratorType, NoOpChecker, RQEIterator, RQEValidateStatus, SkipToOutcome,
+    inverted_index::Numeric,
 };
 
 use crate::inverted_index::utils::BaseTest;
@@ -146,6 +147,13 @@ impl NumericBaseTest {
             .range_tree(self.test.mock_ctx.numeric_range_tree())
             .build()
     }
+}
+
+#[test]
+fn numeric_type() {
+    let test = NumericBaseTest::new(10);
+    let it = test.create_iterator();
+    assert_eq!(it.type_(), IteratorType::InvIdxNumeric);
 }
 
 #[test]

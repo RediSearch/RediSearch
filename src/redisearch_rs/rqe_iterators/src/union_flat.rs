@@ -12,7 +12,7 @@
 use ffi::t_docId;
 use inverted_index::RSIndexResult;
 
-use crate::{RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
+use crate::{IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
 
 /// Yields documents appearing in ANY child iterator using a flat array scan.
 ///
@@ -523,5 +523,10 @@ where
         } else {
             Ok(RQEValidateStatus::Ok)
         }
+    }
+
+    #[inline(always)]
+    fn type_(&self) -> IteratorType {
+        IteratorType::Union
     }
 }
