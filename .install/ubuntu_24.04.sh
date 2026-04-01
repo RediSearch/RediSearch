@@ -4,15 +4,15 @@ export DEBIAN_FRONTEND=noninteractive
 MODE=$1 # whether to install using sudo or not
 source "$(dirname "${BASH_SOURCE[0]}")/apt_get_cmd.sh"
 
-apt_get_cmd update -qq
-apt_get_cmd install -yqq git wget build-essential lcov openssl libssl-dev \
+apt_get_cmd "$MODE" update -qq
+apt_get_cmd "$MODE" install -yqq git wget build-essential lcov openssl libssl-dev \
     unzip rsync clang curl libclang-dev gdb
 
 # We need Python headers to build psutil@5.x.y from
 # source, since it only started providing wheels for aarch64
 # in version 6.w.z.
 if [ "$(uname -m)" = "aarch64" ]; then
-    apt_get_cmd install -y python3-dev
+    apt_get_cmd "$MODE" install -y python3-dev
 fi
 
 # Need clang for LTO

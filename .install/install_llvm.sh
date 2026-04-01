@@ -121,8 +121,8 @@ install_llvm() {
     ubuntu|debian)
         echo ">>> Using apt.llvm.org"
         source "$(dirname "${BASH_SOURCE[0]}")/apt_get_cmd.sh"
-        apt_get_cmd update -qq
-        apt_get_cmd install -y --no-install-recommends \
+        apt_get_cmd "$MODE" update -qq
+        apt_get_cmd "$MODE" install -y --no-install-recommends \
             lsb-release wget software-properties-common gnupg ca-certificates
         wget -qO /tmp/llvm.sh https://apt.llvm.org/llvm.sh
         chmod +x /tmp/llvm.sh

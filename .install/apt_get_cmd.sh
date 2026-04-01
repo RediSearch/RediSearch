@@ -5,11 +5,13 @@
 # unattended-upgrades services that grab the dpkg lock.  The timeout
 # lets apt-get wait instead of failing immediately.
 #
-# Usage: source this file from any Debian/Ubuntu install script.
-#   MODE must be set before sourcing (empty string or "sudo").
+# Usage: source this file, then call:
+#   apt_get_cmd <mode> <apt-get-args...>
+# where <mode> is a privilege-escalation prefix ("sudo" or "").
 
 APT_GET_LOCK_TIMEOUT_SECONDS="${APT_GET_LOCK_TIMEOUT_SECONDS:-600}"
 
 apt_get_cmd() {
-    $MODE apt-get -o DPkg::Lock::Timeout="$APT_GET_LOCK_TIMEOUT_SECONDS" "$@"
+    local mode="$1"; shift
+    $mode apt-get -o DPkg::Lock::Timeout="$APT_GET_LOCK_TIMEOUT_SECONDS" "$@"
 }
