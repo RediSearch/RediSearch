@@ -203,7 +203,7 @@ pub unsafe extern "C" fn NumericInvIndIterator_GetProfileRangeMax(
 /// 2. `tree` and `filter` must remain valid for the lifetime of all returned iterators.
 /// 3. `field_ctx.field` must be a field index (not a field mask).
 /// 4. `config` must be a valid non-NULL pointer to an [`ffi::IteratorsConfig`].
-unsafe fn create_numeric_iterator_c<'index>(
+pub unsafe fn create_numeric_iterator_c<'index>(
     sctx: NonNull<ffi::RedisSearchCtx>,
     tree: &'index NumericRangeTree,
     filter: &'index NumericFilter,

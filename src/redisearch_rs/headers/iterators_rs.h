@@ -163,6 +163,29 @@ void AddIntersectionIteratorChild(QueryIterator *header, QueryIterator *child);
 IndexFlags InvIndIterator_GetReaderFlags(const QueryIterator *it);
 
 /**
+ * Creates an iterator over all geo-encoded index entries within the radius specified by `gf`.
+ *
+ * Geo fields are stored as sorted numeric geohash values. A radius query maps to up to 9
+ * contiguous geohash ranges (the cell containing the centre point and its 8 neighbours).
+ * Each range is queried via the numeric range tree; per-record distance filtering is applied
+ * by `FilterGeoReader` in the `inverted_index` crate.
+ *
+ * # Safety
+ *
+ * 1. `ctx` must be a valid non-NULL pointer to a `RedisSearchCtx`, remaining valid for the
+ *    lifetime of all returned iterators.
+ * 2. `ctx.spec` must be a valid non-NULL pointer to an `IndexSpec`.
+ * 3. `gf` must be a valid non-NULL pointer to a `GeoFilter`.
+ *    - `gf.fieldSpec` must be a valid non-NULL pointer to a `FieldSpec`.
+ *    - `gf.numericFilters` must be NULL on entry; it is populated by this function and
+ *      freed by `GeoFilter_Free`.
+ * 4. `config` must be a valid non-NULL pointer to an `IteratorsConfig`.
+ */
+QueryIterator *NewGeoRangeIterator(const RedisSearchCtx *ctx,
+                                   GeoFilter *gf,
+                                   const IteratorsConfig *config);
+
+/**
  * Creates a new missing-field inverted index iterator.
  *
  * # Parameters

@@ -19,7 +19,8 @@ mod wildcard;
 pub use core::InvIndIterator;
 pub use missing::Missing;
 pub use numeric::{
-    Numeric, NumericIteratorVariant, new_numeric_filter_iterator, open_numeric_or_geo_index,
+    Numeric, NumericIteratorVariant, build_geo_numeric_filters, extract_geo_unit_factor,
+    open_numeric_or_geo_index,
 };
 pub use tag::Tag;
 pub use term::Term;

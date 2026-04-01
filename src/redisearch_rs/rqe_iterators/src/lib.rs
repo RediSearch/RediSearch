@@ -44,7 +44,8 @@ pub use expiration_checker::{ExpirationChecker, FieldExpirationChecker, NoOpChec
 pub use id_list::IdList;
 pub use intersection::{Intersection, NewIntersectionIterator, new_intersection_iterator};
 pub use inverted_index::{
-    Missing, Numeric, NumericIteratorVariant, Tag, Term, open_numeric_or_geo_index,
+    Missing, Numeric, NumericIteratorVariant, Tag, Term, build_geo_numeric_filters,
+    extract_geo_unit_factor, open_numeric_or_geo_index,
 };
 pub use not::NotIterator;
 pub use optional::OptionalIterator;
