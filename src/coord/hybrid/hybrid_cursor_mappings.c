@@ -329,7 +329,7 @@ bool ProcessHybridCursorMappings(const MRCommand *cmd,
             break;
         }
     }
-    pthread_mutex_unlock(ctx->mutex);
+    pthread_mutex_unlock(ctx->mutex); //NOSONAR
 
     if (timedOut) {
         QueryError_SetCode(status, QUERY_ERROR_CODE_TIMED_OUT);

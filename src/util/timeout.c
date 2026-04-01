@@ -17,6 +17,11 @@
 // Linux/FreeBSD: converts to CLOCK_MONOTONIC for pthread_cond_timedwait
 bool condTimedWait(pthread_cond_t *cond, pthread_mutex_t *lock,
                    const struct timespec *abstimeMono) {
+  if (!abstimeMono) {
+    pthread_cond_wait(cond, lock);
+    return false;
+  }
+
   // Calculate remaining time from CLOCK_MONOTONIC_RAW
   struct timespec nowRaw, remaining;
   clock_gettime(CLOCK_MONOTONIC_RAW, &nowRaw);
