@@ -16,3 +16,4 @@ mod comparison;
 mod debug;
 mod hash;
 mod rs_string;
+mod shared;

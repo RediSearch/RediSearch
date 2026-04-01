@@ -64,6 +64,8 @@ src/redisearch_rs/            # Rust codebase
 ├── c_entrypoint/             # FFI layer (C bindings for Rust types and functions)
 │   └── *_ffi/                # Per-module FFI crates
 │   └── redisearch_rs/        # Entrypoint for Rust-native functionality used by the C codebase
+├── c_wrappers/               # Idiomatic Rust APIs on top of C types
+│   └── buffer, c_trie, ...   # Per-type wrapper crates
 └── Cargo.toml                # Workspace root
 ```
 

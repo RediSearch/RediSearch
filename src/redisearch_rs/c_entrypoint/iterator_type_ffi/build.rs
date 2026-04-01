@@ -6,3 +6,9 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
+
+use build_utils::run_cbindgen;
+
+fn main() {
+    run_cbindgen("../../headers/iterator_type.h").unwrap();
+}

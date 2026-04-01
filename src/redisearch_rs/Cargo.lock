@@ -642,6 +642,7 @@ dependencies = [
  "document",
  "enumflags2",
  "query_term",
+ "rqe_iterator_type",
  "workspace_hack",
 ]
 
@@ -662,6 +663,20 @@ name = "field"
 version = "0.0.1"
 dependencies = [
  "ffi",
+ "workspace_hack",
+]
+
+[[package]]
+name = "field_spec"
+version = "0.0.1"
+dependencies = [
+ "enumflags2",
+ "ffi",
+ "field_spec",
+ "hidden_string",
+ "pretty_assertions",
+ "redis_mock",
+ "redisearch_rs",
  "workspace_hack",
 ]
 
@@ -812,6 +827,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2304e00983f87ffb38b55b444b5e3b60a884b5d30c0fca7d82fe33449bbe55ea"
 
 [[package]]
+name = "hidden_string"
+version = "0.0.1"
+dependencies = [
+ "ffi",
+ "pretty_assertions",
+ "redis_mock",
+ "redisearch_rs",
+ "workspace_hack",
+]
+
+[[package]]
 name = "http"
 version = "1.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -957,6 +983,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "index_spec"
+version = "0.0.1"
+dependencies = [
+ "ffi",
+ "field_spec",
+ "pretty_assertions",
+ "redis_mock",
+ "redisearch_rs",
+ "schema_rule",
+ "workspace_hack",
+]
+
+[[package]]
+name = "index_spec_cache"
+version = "0.0.1"
+dependencies = [
+ "ffi",
+ "field_spec",
+ "rm_array",
+ "workspace_hack",
+]
+
+[[package]]
 name = "indexmap"
 version = "2.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1035,6 +1084,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a6cb138bb79a146c1bd460005623e142ef0181e3d0219cb493e02f7d08a35695"
 
 [[package]]
+name = "iterator_type_ffi"
+version = "0.0.1"
+dependencies = [
+ "build_utils",
+ "cbindgen",
+ "rqe_iterator_type",
+ "workspace_hack",
+]
+
+[[package]]
 name = "iterators_ffi"
 version = "0.0.1"
 dependencies = [
@@ -1046,6 +1105,7 @@ dependencies = [
  "inverted_index_ffi",
  "libc",
  "numeric_range_tree",
+ "rqe_iterator_type",
  "rqe_iterators",
  "workspace_hack",
 ]
@@ -1884,6 +1944,9 @@ dependencies = [
  "document",
  "enumflags2",
  "ffi",
+ "field_spec",
+ "index_spec",
+ "index_spec_cache",
  "libc",
  "pin-project",
  "pretty_assertions",
@@ -1892,6 +1955,7 @@ dependencies = [
  "redis_mock",
  "redisearch_rs",
  "rlookup",
+ "schema_rule",
  "sorting_vector",
  "strum",
  "thiserror",
@@ -1918,6 +1982,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "rm_array"
+version = "0.0.1"
+dependencies = [
+ "ffi",
+ "workspace_hack",
+]
+
+[[package]]
 name = "rmp"
 version = "0.8.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1934,6 +2006,13 @@ checksum = "72f81bee8c8ef9b577d1681a70ebbc962c232461e397b22c208c43c04b67a155"
 dependencies = [
  "rmp",
  "serde",
+]
+
+[[package]]
+name = "rqe_iterator_type"
+version = "0.0.1"
+dependencies = [
+ "workspace_hack",
 ]
 
 [[package]]
@@ -1955,11 +2034,13 @@ dependencies = [
  "query_term_ffi",
  "redis_mock",
  "redisearch_rs",
+ "rqe_iterator_type",
  "rqe_iterators",
  "rqe_iterators_test_utils",
  "rstest",
  "rstest_reuse",
  "thiserror",
+ "tracing",
  "trie_rs",
  "types_ffi",
  "value",
@@ -2143,6 +2224,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "93fc1dc3aaa9bfed95e02e6eadabb4baf7e3078b0bd1b4d7b6b0b68378900502"
 dependencies = [
  "winapi-util",
+]
+
+[[package]]
+name = "schema_rule"
+version = "0.0.1"
+dependencies = [
+ "ffi",
+ "pretty_assertions",
+ "redis_mock",
+ "redisearch_rs",
+ "workspace_hack",
 ]
 
 [[package]]
@@ -2644,6 +2736,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "triomphe"
+version = "0.1.15"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dd69c5aa8f924c7519d6372789a74eac5b94fb0f8fcf0d4a97eb0bfc3e785f39"
+dependencies = [
+ "serde",
+ "stable_deref_trait",
+]
+
+[[package]]
 name = "types_ffi"
 version = "0.0.1"
 dependencies = [
@@ -2766,6 +2868,7 @@ dependencies = [
  "redis_mock",
  "redisearch_rs",
  "thiserror",
+ "triomphe",
  "workspace_hack",
 ]
 
@@ -3227,6 +3330,7 @@ dependencies = [
  "serde",
  "serde_core",
  "serde_json",
+ "stable_deref_trait",
  "syn 1.0.109",
  "syn 2.0.117",
  "thiserror",

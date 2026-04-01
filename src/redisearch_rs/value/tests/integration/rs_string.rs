@@ -36,7 +36,10 @@ fn from_vec_as_bytes() {
 }
 
 #[test]
-#[cfg_attr(miri, ignore = "miri does not support FFI functions")]
+#[cfg_attr(
+    miri,
+    ignore = "extern static `RedisModule_Free` is not supported by Miri"
+)]
 fn rm_alloc_string_as_ptr_len() {
     let (ptr, len) = rm_alloc_string("redis");
     let s = unsafe { RsString::rm_alloc_string(ptr, len) };
@@ -47,7 +50,10 @@ fn rm_alloc_string_as_ptr_len() {
 }
 
 #[test]
-#[cfg_attr(miri, ignore = "miri does not support FFI functions")]
+#[cfg_attr(
+    miri,
+    ignore = "extern static `RedisModule_Free` is not supported by Miri"
+)]
 fn rm_alloc_string_as_bytes() {
     let (ptr, len) = rm_alloc_string("redis");
     let s = unsafe { RsString::rm_alloc_string(ptr, len) };

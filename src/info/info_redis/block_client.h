@@ -20,10 +20,21 @@ struct Cursor;
 
 typedef RedisModuleCmdFunc BlockedClientTimeoutCB;
 typedef RedisModuleCmdFunc BlockedClientReplyCB;
+typedef void (*BlockedClientFreePrivDataCB) (void *privdata);
 
-RedisModuleBlockedClient* BlockQueryClientWithTimeout(RedisModuleCtx *ctx, StrongRef spec, struct AREQ* req,
-                                                      int timeoutMS, BlockedClientReplyCB replyCallback,
-                                                      BlockedClientTimeoutCB timeoutCallback);
+/**
+ * Context for blocking client
+ */
+typedef struct BlockClientCtx{
+  void *privdata;
+  BlockedClientReplyCB replyCallback;
+  BlockedClientTimeoutCB timeoutCallback;
+  BlockedClientFreePrivDataCB freePrivData;
+  rs_wall_clock_ms_t timeoutMS;
+  QueryAST *ast;
+} BlockClientCtx;
+
+RedisModuleBlockedClient* BlockQueryClientWithTimeout(RedisModuleCtx *ctx, StrongRef spec, BlockClientCtx *blockClientCtx);
 RedisModuleBlockedClient* BlockCursorClient(RedisModuleCtx *ctx, Cursor* cursor, size_t count, int timeoutMS);
 
 #ifdef __cplusplus

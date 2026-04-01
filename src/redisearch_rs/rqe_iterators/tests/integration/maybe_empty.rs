@@ -8,7 +8,8 @@
 */
 
 use rqe_iterators::{
-    RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome, maybe_empty::MaybeEmpty,
+    IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
+    maybe_empty::MaybeEmpty,
 };
 
 #[derive(Default)]
@@ -53,6 +54,23 @@ impl<'index> RQEIterator<'index> for Infinite<'index> {
     fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         Ok(RQEValidateStatus::Ok)
     }
+
+    #[inline(always)]
+    fn type_(&self) -> IteratorType {
+        IteratorType::Mock
+    }
+}
+
+#[test]
+fn type_empty() {
+    let it = MaybeEmpty::<Infinite>::new_empty();
+    assert_eq!(it.type_(), IteratorType::Empty);
+}
+
+#[test]
+fn type_not_empty() {
+    let it = MaybeEmpty::new(Infinite::default());
+    assert_eq!(it.type_(), IteratorType::Mock);
 }
 
 #[test]

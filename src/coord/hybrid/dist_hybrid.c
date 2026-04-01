@@ -874,7 +874,7 @@ int DistHybridTimeoutFailClient(RedisModuleCtx *ctx, RedisModuleString **argv, i
   CoordRequestCtx *CoordReqCtx = RedisModule_GetBlockedClientPrivateData(ctx);
   if (!CoordReqCtx) {
     // This shouldn't happen but handle gracefully
-    return RedisModule_ReplyWithError(ctx, "ERR timeout with no context");
+    return RedisModule_ReplyWithError(ctx, "Internal error: timeout with no context");
   }
 
   RS_ASSERT(CoordReqCtx->type == COMMAND_HYBRID);
@@ -905,7 +905,7 @@ int DistHybridReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int a
   CoordRequestCtx *CoordReqCtx = RedisModule_GetBlockedClientPrivateData(ctx);
   if (!CoordReqCtx) {
     RedisModule_Log(ctx, "warning", "DistHybridReplyCallback: no context");
-    return RedisModule_ReplyWithError(ctx, "ERR Internal error: no request context");
+    return RedisModule_ReplyWithError(ctx, "Internal error: no request context");
   }
 
   RS_ASSERT(CoordReqCtx->type == COMMAND_HYBRID);
@@ -920,7 +920,7 @@ int DistHybridReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int a
     }
     // This should not happen, but handle gracefully
     RedisModule_Log(ctx, "warning", "DistHybridReplyCallback: no hybrid request and no preRequestError");
-    return RedisModule_ReplyWithError(ctx, "ERR Internal error: no hybrid request and no preRequestError");
+    return RedisModule_ReplyWithError(ctx, "Internal error: no hybrid request and no preRequestError");
   }
 
   // Check if results were stored (background thread completed successfully)
@@ -930,7 +930,7 @@ int DistHybridReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int a
       QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&hreq->storedReplyState.err), 1, COORD_ERR_WARN);
       QueryError_ReplyAndClear(ctx, &hreq->storedReplyState.err);
     } else {
-      RedisModule_ReplyWithError(ctx, "ERR Internal error: no results stored");
+      RedisModule_ReplyWithError(ctx, "Internal error: no results stored");
     }
     return REDISMODULE_OK;
   }

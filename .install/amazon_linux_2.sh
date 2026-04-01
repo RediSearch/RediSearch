@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 ARCH=$(uname -m)
 MODE=$1 # whether to install using sudo or not
-set -e
+set -eo pipefail
 export DEBIAN_FRONTEND=noninteractive
 
 $MODE yum update -y

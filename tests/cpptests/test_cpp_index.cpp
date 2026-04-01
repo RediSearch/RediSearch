@@ -18,7 +18,6 @@ extern "C" {
 #include "src/spec.h"
 #include "src/tokenize.h"
 #include "varint.h"
-#include "src/iterators/inverted_index_iterator.h"
 #include "src/iterators/hybrid_reader.h"
 #include "iterators_rs.h"
 #include "src/iterators/union_iterator.h"

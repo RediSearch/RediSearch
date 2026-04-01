@@ -2,7 +2,6 @@
 set -eo pipefail
 
 export DEBIAN_FRONTEND=noninteractive
-APT_GET_LOCK_TIMEOUT_SECONDS="${APT_GET_LOCK_TIMEOUT_SECONDS:-600}"
 
 # =============================================================================
 # install_llvm.sh — Install LLVM across all CI platforms
@@ -121,8 +120,9 @@ install_llvm() {
     # ----- Debian / Ubuntu (apt.llvm.org) ------------------------------------
     ubuntu|debian)
         echo ">>> Using apt.llvm.org"
-        $MODE apt-get -o DPkg::Lock::Timeout="$APT_GET_LOCK_TIMEOUT_SECONDS" update -qq
-        $MODE apt-get -o DPkg::Lock::Timeout="$APT_GET_LOCK_TIMEOUT_SECONDS" install -y --no-install-recommends \
+        source "$(dirname "${BASH_SOURCE[0]}")/apt_get_cmd.sh"
+        apt_get_cmd "$MODE" update -qq
+        apt_get_cmd "$MODE" install -y --no-install-recommends \
             lsb-release wget software-properties-common gnupg ca-certificates
         wget -qO /tmp/llvm.sh https://apt.llvm.org/llvm.sh
         chmod +x /tmp/llvm.sh
@@ -159,6 +159,8 @@ install_llvm
 
 echo ""
 echo ">>> Verifying..."
+# Calling 'clang --version' verifies that the installed clang binary can actually run.
+# It catches issues like the system libstdc++ or glibc lacking symbol versions that clang needs.
 if command -v "clang-${LLVM_VER}" &>/dev/null; then
     "clang-${LLVM_VER}" --version
 elif command -v clang &>/dev/null; then

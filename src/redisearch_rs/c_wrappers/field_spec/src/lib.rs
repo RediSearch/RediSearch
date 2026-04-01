@@ -7,13 +7,15 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use crate::bindings::HiddenStringRef;
+//! Safe wrapper around [`ffi::FieldSpec`].
+
 use enumflags2::BitFlags;
 use enumflags2::bitflags;
-#[cfg(test)]
+use hidden_string::HiddenStringRef;
+#[cfg(feature = "unittest")]
 use std::ffi::CStr;
 use std::fmt;
-#[cfg(test)]
+#[cfg(feature = "unittest")]
 use std::mem::MaybeUninit;
 
 // TODO [MOD-10333] remove once FieldSpec is ported to Rust
@@ -67,7 +69,7 @@ impl FieldSpec {
     }
 
     /// Get a reference to the underlying non-null pointer.
-    #[cfg(test)]
+    #[cfg(feature = "unittest")]
     pub const fn to_raw(&self) -> *const ffi::FieldSpec {
         std::ptr::from_ref(&self.0)
     }
@@ -100,12 +102,12 @@ impl fmt::Debug for FieldSpec {
     }
 }
 
-#[cfg(test)]
+#[cfg(feature = "unittest")]
 pub struct FieldSpecBuilder {
     result: ffi::FieldSpec,
 }
 
-#[cfg(test)]
+#[cfg(feature = "unittest")]
 impl FieldSpecBuilder {
     pub fn new(field_path: &CStr) -> Self {
         let mut result = unsafe { MaybeUninit::<ffi::FieldSpec>::zeroed().assume_init() };
@@ -140,32 +142,5 @@ impl FieldSpecBuilder {
 
     pub fn finish(self) -> ffi::FieldSpec {
         self.result
-    }
-}
-
-#[cfg(test)]
-mod test {
-    use super::*;
-
-    use std::ptr;
-
-    use pretty_assertions::assert_eq;
-
-    #[test]
-    #[cfg_attr(miri, ignore = "miri does not support FFI functions")]
-    fn field_name_and_path() {
-        let name = c"name";
-        let path = c"path";
-        let fs = FieldSpecBuilder::new(path).with_field_name(name).finish();
-
-        let sut = unsafe { FieldSpec::from_raw(ptr::from_ref(&fs)) };
-
-        assert_eq!(sut.field_name().into_secret_value(), name);
-        assert_eq!(sut.field_path().into_secret_value(), path);
-
-        unsafe {
-            ffi::HiddenString_Free(fs.fieldName, true);
-            ffi::HiddenString_Free(fs.fieldPath, true);
-        }
     }
 }

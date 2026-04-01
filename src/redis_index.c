@@ -10,7 +10,6 @@
 #include "doc_table.h"
 #include "redismodule.h"
 #include "inverted_index.h"
-#include "iterators/inverted_index_iterator.h"
 #include "iterators_rs.h"
 #include "rmutil/strings.h"
 #include "rmutil/util.h"
@@ -96,6 +95,25 @@ void RedisSearchCtx_LockSpecRead(RedisSearchCtx *ctx) {
     RS_ASSERT_ALWAYS(dictPauseRehashing(ctx->spec->docs.ttl));
   }
   ctx->flags = RS_CTX_READONLY;
+}
+
+int RedisSearchCtx_TryLockSpecRead(RedisSearchCtx *ctx) {
+  RS_ASSERT(ctx->flags == RS_CTX_UNSET);
+  int rc = pthread_rwlock_tryrdlock(&ctx->spec->rwlock);
+  if (rc != 0) {
+    // Lock is busy (EBUSY) or other error
+    return REDISMODULE_ERR;
+  }
+  // pause rehashing while we're using the dict for reads only
+  // Assert that the pause value before we pause is valid.
+  RS_ASSERT_ALWAYS(dictPauseRehashing(ctx->spec->keysDict));
+  // Also pause rehashing on the TTL table if it exists, to avoid concurrent
+  // rehash steps from multiple query threads corrupting the dict during reads.
+  if (ctx->spec->docs.ttl) {
+    RS_ASSERT_ALWAYS(dictPauseRehashing(ctx->spec->docs.ttl));
+  }
+  ctx->flags = RS_CTX_READONLY;
+  return REDISMODULE_OK;
 }
 
 void RedisSearchCtx_LockSpecWrite(RedisSearchCtx *ctx) {

@@ -642,10 +642,8 @@ void IndexSpec_Free(IndexSpec *spec);
 void IndexSpec_AddTerm(IndexSpec *sp, const char *term, size_t len);
 
 IndexSpec *NewIndexSpec(const HiddenString *name);
-int IndexSpec_AddField(IndexSpec *sp, FieldSpec *fs);
 IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryError *status);
 void IndexSpec_RdbSave(RedisModuleIO *rdb, IndexSpec *sp, int contextFlags);
-void IndexSpec_Digest(RedisModuleDigest *digest, void *value);
 int IndexSpec_RegisterType(RedisModuleCtx *ctx);
 // int IndexSpec_UpdateWithHash(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key);
 void IndexSpec_ClearAliases(StrongRef ref);
@@ -725,7 +723,7 @@ void Indexes_Init(RedisModuleCtx *ctx);
  * Free all indexes.
  * @param deleteDiskData - delete the disk data
 */
-void Indexes_Free(dict *d, bool deleteDiskData);
+void Indexes_Free(RedisModuleCtx *ctx, dict *d, bool deleteDiskData);
 size_t Indexes_Count();
 void Indexes_Propagate(RedisModuleCtx *ctx);
 void Indexes_UpdateMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key, DocumentType type,
@@ -758,7 +756,7 @@ StrongRef IndexSpecRef_Promote(WeakRef ref);
 void IndexSpecRef_Release(StrongRef ref);
 
 // This function is called in case the server starts RDB loading.
-void Indexes_StartRDBLoadingEvent();
+void Indexes_StartRDBLoadingEvent(RedisModuleCtx *ctx);
 
 // This function is called in case the server ends RDB loading.
 void Indexes_EndRDBLoadingEvent(RedisModuleCtx *ctx);

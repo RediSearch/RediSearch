@@ -59,9 +59,28 @@ static void rqAsyncCb(uv_async_t *async) {
 
 extern RedisModuleCtx *RSDummyContext;
 
+// Log which nodes in the topology are not connected.
+static void LogDisconnectedNodes(IORuntimeCtx *io_runtime_ctx) {
+  const MRClusterTopology *topo = io_runtime_ctx->topo;
+  if (!topo) return;
+  for (size_t i = 0; i < topo->numShards; i++) {
+    MRClusterNode *node = &topo->shards[i].node;
+    MRConn *conn = MRConn_Get(&io_runtime_ctx->conn_mgr, node->id);
+    if (!conn) {
+      const char *state = MRConnManager_GetNodeState(&io_runtime_ctx->conn_mgr, node->id);
+      RedisModule_Log(RSDummyContext, "warning",
+                      "IORuntime ID %zu: Node %s (%s:%d) not connected (state: %s)",
+                      io_runtime_ctx->queue->id,
+                      node->id, node->endpoint.host, node->endpoint.port,
+                      state ? state : "unknown");
+    }
+  }
+}
+
 static void topologyFailureCB(uv_timer_t *timer) {
   IORuntimeCtx *io_runtime_ctx = (IORuntimeCtx *)timer->data;
   RedisModule_Log(RSDummyContext, "warning", "IORuntime ID %zu: Topology validation failed: not all nodes connected", io_runtime_ctx->queue->id);
+  LogDisconnectedNodes(io_runtime_ctx);
   uv_timer_stop(&io_runtime_ctx->uv_runtime.topologyValidationTimer); // stop the validation timer
   // Mark the event loop thread as ready. This will allow any pending requests to be processed
   // (and fail, but it will unblock clients)

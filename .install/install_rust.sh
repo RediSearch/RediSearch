@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+set -eo pipefail
 processor=$(uname -m)
 OS_TYPE=$(uname -s)
 

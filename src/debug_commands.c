@@ -33,7 +33,6 @@
 #include "reply_macros.h"
 #include "obfuscation/obfuscation_api.h"
 #include "info/info_command.h"
-#include "iterators/inverted_index_iterator.h"
 #include "search_disk.h"
 #include "ext/debug_scorers.h"
 #include "query_error.h"
@@ -234,6 +233,35 @@ void SyncPoint_Wait(const char *name) {
     usleep(1000);  // Spin-wait with 1ms sleep (matches existing pattern)
   }
   atomic_fetch_sub(&sp->waiting, 1);  // Decrement waiting counter
+}
+
+// Global hybrid store cursors debug context (for HREQ cursor storage only)
+static HybridStoreCursorsDebugCtx globalHybridStoreCursorsDebugCtx = {0};
+
+bool HybridStoreCursorsDebugCtx_IsPauseBeforeEnabled(void) {
+  return atomic_load(&globalHybridStoreCursorsDebugCtx.pauseBeforeEnabled);
+}
+
+void HybridStoreCursorsDebugCtx_SetPauseBeforeEnabled(bool enabled) {
+  atomic_store(&globalHybridStoreCursorsDebugCtx.pauseBeforeEnabled, enabled);
+  atomic_store(&globalHybridStoreCursorsDebugCtx.pause, false);
+}
+
+bool HybridStoreCursorsDebugCtx_IsPauseAfterEnabled(void) {
+  return atomic_load(&globalHybridStoreCursorsDebugCtx.pauseAfterEnabled);
+}
+
+void HybridStoreCursorsDebugCtx_SetPauseAfterEnabled(bool enabled) {
+  atomic_store(&globalHybridStoreCursorsDebugCtx.pauseAfterEnabled, enabled);
+  atomic_store(&globalHybridStoreCursorsDebugCtx.pause, false);
+}
+
+bool HybridStoreCursorsDebugCtx_IsPaused(void) {
+  return atomic_load(&globalHybridStoreCursorsDebugCtx.pause);
+}
+
+void HybridStoreCursorsDebugCtx_SetPause(bool pause) {
+  atomic_store(&globalHybridStoreCursorsDebugCtx.pause, pause);
 }
 #endif
 
@@ -2288,6 +2316,86 @@ DEBUG_COMMAND(setStoreResultsResume) {
 
   return RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
+
+/**
+ * FT.DEBUG QUERY_CONTROLLER SET_PAUSE_BEFORE_HYBRID_STORE_CURSORS <true/false>
+ */
+DEBUG_COMMAND(setPauseBeforeHybridStoreCursors) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc != 3) {
+    return RedisModule_WrongArity(ctx);
+  }
+  const char *op = RedisModule_StringPtrLen(argv[2], NULL);
+
+  if (!strcasecmp(op, "true")) {
+    HybridStoreCursorsDebugCtx_SetPauseBeforeEnabled(true);
+  } else if (!strcasecmp(op, "false")) {
+    HybridStoreCursorsDebugCtx_SetPauseBeforeEnabled(false);
+  } else {
+    return RedisModule_ReplyWithError(ctx, "Invalid argument");
+  }
+
+  return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
+
+/**
+ * FT.DEBUG QUERY_CONTROLLER SET_PAUSE_AFTER_HYBRID_STORE_CURSORS <true/false>
+ */
+DEBUG_COMMAND(setPauseAfterHybridStoreCursors) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc != 3) {
+    return RedisModule_WrongArity(ctx);
+  }
+  const char *op = RedisModule_StringPtrLen(argv[2], NULL);
+
+  if (!strcasecmp(op, "true")) {
+    HybridStoreCursorsDebugCtx_SetPauseAfterEnabled(true);
+  } else if (!strcasecmp(op, "false")) {
+    HybridStoreCursorsDebugCtx_SetPauseAfterEnabled(false);
+  } else {
+    return RedisModule_ReplyWithError(ctx, "Invalid argument");
+  }
+
+  return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
+
+/**
+ * FT.DEBUG QUERY_CONTROLLER GET_IS_HYBRID_STORE_CURSORS_PAUSED
+ */
+DEBUG_COMMAND(getIsHybridStoreCursorsPaused) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc != 2) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  return RedisModule_ReplyWithBool(ctx, HybridStoreCursorsDebugCtx_IsPaused());
+}
+
+/**
+ * FT.DEBUG QUERY_CONTROLLER SET_HYBRID_STORE_CURSORS_RESUME
+ */
+DEBUG_COMMAND(setHybridStoreCursorsResume) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc != 2) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  if (!HybridStoreCursorsDebugCtx_IsPaused()) {
+    return RedisModule_ReplyWithError(ctx, "Hybrid store cursors is not paused");
+  }
+
+  HybridStoreCursorsDebugCtx_SetPause(false);
+
+  return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
 #endif
 
 /**
@@ -2434,6 +2542,18 @@ DEBUG_COMMAND(queryController) {
   }
   if (!strcmp("SET_STORE_RESULTS_RESUME", op)) {
     return setStoreResultsResume(ctx, argv + 1, argc - 1);
+  }
+  if (!strcmp("SET_PAUSE_BEFORE_HYBRID_STORE_CURSORS", op)) {
+    return setPauseBeforeHybridStoreCursors(ctx, argv + 1, argc - 1);
+  }
+  if (!strcmp("SET_PAUSE_AFTER_HYBRID_STORE_CURSORS", op)) {
+    return setPauseAfterHybridStoreCursors(ctx, argv + 1, argc - 1);
+  }
+  if (!strcmp("GET_IS_HYBRID_STORE_CURSORS_PAUSED", op)) {
+    return getIsHybridStoreCursorsPaused(ctx, argv + 1, argc - 1);
+  }
+  if (!strcmp("SET_HYBRID_STORE_CURSORS_RESUME", op)) {
+    return setHybridStoreCursorsResume(ctx, argv + 1, argc - 1);
   }
 #endif
   return RedisModule_ReplyWithError(ctx, "Invalid command for 'QUERY_CONTROLLER'");

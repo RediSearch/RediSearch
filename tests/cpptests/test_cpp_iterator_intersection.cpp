@@ -12,7 +12,6 @@
 #include "index_utils.h"
 
 #include "src/iterators/intersection_iterator.h"
-#include "src/iterators/inverted_index_iterator.h"
 #include "inverted_index.h"
 #include "iterators_rs.h"
 #include "src/forward_index.h"
@@ -57,26 +56,28 @@ protected:
 };
 
 TEST_P(IntersectionIteratorCommonTest, Read) {
-  IntersectionIterator *ii = (IntersectionIterator *)ii_base;
   IteratorStatus rc;
 
   // Verify that the child iterators are sorted correctly by the estimated number of results
-  for (uint32_t i = 1; i < ii->num_its; i++) {
-    auto prev_est = ii->its[i - 1]->NumEstimated(ii->its[i - 1]);
-    auto cur_est = ii->its[i]->NumEstimated(ii->its[i]);
+  size_t num_its = GetIntersectionIteratorNumChildren(ii_base);
+  for (size_t i = 1; i < num_its; i++) {
+    const QueryIterator *prev = GetIntersectionIteratorChild(ii_base, i - 1);
+    const QueryIterator *cur = GetIntersectionIteratorChild(ii_base, i);
+    auto prev_est = prev->NumEstimated(prev);
+    auto cur_est = cur->NumEstimated(cur);
     EXPECT_LE(prev_est, cur_est) << "Child iterators are not sorted by estimated results";
   }
 
   // Test reading until EOF
   size_t i = 0;
   while ((rc = ii_base->Read(ii_base)) == ITERATOR_OK) {
-    ASSERT_EQ(ii->base.current->docId, resultSet[i]);
-    ASSERT_EQ(ii->base.lastDocId, resultSet[i]);
-    ASSERT_FALSE(ii->base.atEOF);
+    ASSERT_EQ(ii_base->current->docId, resultSet[i]);
+    ASSERT_EQ(ii_base->lastDocId, resultSet[i]);
+    ASSERT_FALSE(ii_base->atEOF);
     i++;
   }
   ASSERT_EQ(rc, ITERATOR_EOF);
-  ASSERT_TRUE(ii->base.atEOF);
+  ASSERT_TRUE(ii_base->atEOF);
   ASSERT_EQ(ii_base->Read(ii_base), ITERATOR_EOF); // Reading after EOF should return EOF
   ASSERT_EQ(i, resultSet.size()) << "Expected to read " << resultSet.size() << " documents";
 
@@ -88,7 +89,6 @@ TEST_P(IntersectionIteratorCommonTest, Read) {
 }
 
 TEST_P(IntersectionIteratorCommonTest, SkipTo) {
-  IntersectionIterator *ii = (IntersectionIterator *)ii_base;
   IteratorStatus rc;
   // Test skipping to any id between 1 and the last id
   t_docId i = 1;
@@ -97,55 +97,53 @@ TEST_P(IntersectionIteratorCommonTest, SkipTo) {
       ii_base->Rewind(ii_base);
       rc = ii_base->SkipTo(ii_base, i);
       ASSERT_EQ(rc, ITERATOR_NOTFOUND);
-      ASSERT_EQ(ii->base.lastDocId, id);
-      ASSERT_EQ(ii->base.current->docId, id);
+      ASSERT_EQ(ii_base->lastDocId, id);
+      ASSERT_EQ(ii_base->current->docId, id);
       i++;
     }
     ii_base->Rewind(ii_base);
     rc = ii_base->SkipTo(ii_base, id);
     ASSERT_EQ(rc, ITERATOR_OK);
-    ASSERT_EQ(ii->base.lastDocId, id);
-    ASSERT_EQ(ii->base.current->docId, id);
+    ASSERT_EQ(ii_base->lastDocId, id);
+    ASSERT_EQ(ii_base->current->docId, id);
     i++;
   }
   // Test reading after skipping to the last id
   ASSERT_EQ(ii_base->Read(ii_base), ITERATOR_EOF);
   ASSERT_EQ(ii_base->SkipTo(ii_base, ii_base->lastDocId + 1), ITERATOR_EOF);
-  ASSERT_TRUE(ii->base.atEOF);
+  ASSERT_TRUE(ii_base->atEOF);
 
   ii_base->Rewind(ii_base);
-  ASSERT_EQ(ii->base.lastDocId, 0);
-  ASSERT_FALSE(ii->base.atEOF);
+  ASSERT_EQ(ii_base->lastDocId, 0);
+  ASSERT_FALSE(ii_base->atEOF);
   // Test skipping to all ids that exist
   for (t_docId id : resultSet) {
     rc = ii_base->SkipTo(ii_base, id);
     ASSERT_EQ(rc, ITERATOR_OK);
-    ASSERT_EQ(ii->base.lastDocId, id);
-    ASSERT_EQ(ii->base.current->docId, id);
+    ASSERT_EQ(ii_base->lastDocId, id);
+    ASSERT_EQ(ii_base->current->docId, id);
   }
 
   // Test skipping to an id that exceeds the last id
   ii_base->Rewind(ii_base);
-  ASSERT_EQ(ii->base.lastDocId, 0);
-  ASSERT_FALSE(ii->base.atEOF);
+  ASSERT_EQ(ii_base->lastDocId, 0);
+  ASSERT_FALSE(ii_base->atEOF);
   rc = ii_base->SkipTo(ii_base, resultSet.back() + 1);
   ASSERT_EQ(rc, ITERATOR_EOF);
-  ASSERT_EQ(ii->base.lastDocId, 0); // we just rewound
-  ASSERT_TRUE(ii->base.atEOF);
+  ASSERT_EQ(ii_base->lastDocId, 0); // we just rewound
+  ASSERT_TRUE(ii_base->atEOF);
 }
 
 TEST_P(IntersectionIteratorCommonTest, Rewind) {
-  IntersectionIterator *ii = (IntersectionIterator *)ii_base;
-  IteratorStatus rc;
   for (int i = 0; i < 5; i++) {
     for (int j = 0; j <= i; j++) {
       ASSERT_EQ(ii_base->Read(ii_base), ITERATOR_OK);
-      ASSERT_EQ(ii->base.current->docId, resultSet[j]);
-      ASSERT_EQ(ii->base.lastDocId, resultSet[j]);
+      ASSERT_EQ(ii_base->current->docId, resultSet[j]);
+      ASSERT_EQ(ii_base->lastDocId, resultSet[j]);
     }
     ii_base->Rewind(ii_base);
-    ASSERT_EQ(ii->base.lastDocId, 0);
-    ASSERT_FALSE(ii->base.atEOF);
+    ASSERT_EQ(ii_base->lastDocId, 0);
+    ASSERT_FALSE(ii_base->atEOF);
   }
 }
 
@@ -443,8 +441,7 @@ TEST_F(IntersectionIteratorReducerTest, TestIntersectionRemovesWildcardChildren)
 
   // Should remove wildcard iterators and keep only the other iterators
   ASSERT_EQ(ii_base->type, INTERSECT_ITERATOR);
-  IntersectionIterator *ii = (IntersectionIterator *)ii_base;
-  ASSERT_EQ(ii->num_its, 2);
+  ASSERT_EQ(GetIntersectionIteratorNumChildren(ii_base), (size_t)2);
 
   ii_base->Free(ii_base);
   InvertedIndex_Free(idx);

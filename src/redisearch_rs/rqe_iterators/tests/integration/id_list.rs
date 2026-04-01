@@ -10,10 +10,22 @@
 use crate::id_cases;
 use inverted_index::RSResultKind;
 use rqe_iterators::{
-    RQEIterator, RQEValidateStatus, SkipToOutcome,
+    IteratorType, RQEIterator, RQEValidateStatus, SkipToOutcome,
     id_list::{IdListSorted, IdListUnsorted},
 };
 use rstest_reuse::apply;
+
+#[test]
+fn type_sorted() {
+    let it = IdListSorted::new(vec![1, 2, 3]);
+    assert_eq!(it.type_(), IteratorType::IdListSorted);
+}
+
+#[test]
+fn type_unsorted() {
+    let it = IdListUnsorted::new(vec![3, 1, 2]);
+    assert_eq!(it.type_(), IteratorType::IdListUnsorted);
+}
 
 #[test]
 fn empty_initialization_works() {
@@ -81,7 +93,7 @@ fn read(#[case] case: &[u64]) {
 }
 
 #[apply(id_cases)]
-#[cfg(not(miri))] // Take too long with Miri, causing CI to timeout
+#[cfg_attr(miri, ignore = "Takes too long with Miri, causing CI to timeout")]
 fn skip_to(#[case] case: &[u64]) {
     let mut it = IdListSorted::new(case.to_vec());
 
