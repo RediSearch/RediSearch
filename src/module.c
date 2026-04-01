@@ -355,9 +355,7 @@ int SpellCheckCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     }
   }
 
-  int rc = QAST_Parse(&qast, sctx, &opts, rawQuery, len, dialect, &status);
-
-  if (rc != REDISMODULE_OK) {
+  if (QAST_Parse(&qast, sctx, &opts, rawQuery, len, dialect, &status) != REDISMODULE_OK) {
     RedisModule_ReplyWithError(ctx, QueryError_GetUserError(&status));
     goto end;
   }
