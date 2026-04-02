@@ -41,6 +41,7 @@ extern RedisModuleCtx *RSDummyContext;
 static void *allocDocumentContext(void) {
   // See if there's one in the pool?
   RSAddDocumentCtx *aCtx = rm_calloc(1, sizeof(*aCtx));
+  aCtx->sv = RSSortingVector_Empty();
   return aCtx;
 }
 
