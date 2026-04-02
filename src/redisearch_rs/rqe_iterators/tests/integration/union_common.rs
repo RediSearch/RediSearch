@@ -928,6 +928,52 @@ macro_rules! union_common_tests {
             );
         }
 
+        #[test]
+        #[cfg_attr(miri, ignore)] // Calls RSYieldableMetric_Concat FFI in push_borrowed
+        fn revalidate_child_behind_union_position_is_kept() {
+            let child0: Mock<'static, 3> = Mock::new([5, 100, 300]);
+            let child1: Mock<'static, 3> = Mock::new([10, 50, 200]);
+
+            let mut data1 = child1.data();
+
+            let children: Vec<Box<dyn RQEIterator<'static>>> =
+                vec![Box::new(child0), Box::new(child1)];
+
+            let mut union = $UnionQuick::new(children);
+
+            let r = union.read().expect("read failed").unwrap();
+            assert_eq!(r.doc_id, 5);
+
+            // skip_to(100): in heap quick mode, advance_lagging_children finds
+            // child0 at the root (doc 5 < 100), skips child0 to 100 → Found.
+            // QUICK_EXIT returns immediately — child1 stays at doc 10.
+            let outcome = union.skip_to(100).expect("skip_to failed");
+            assert!(matches!(outcome, Some(SkipToOutcome::Found(_))));
+            assert_eq!(union.last_doc_id(), 100);
+
+            // State: union at 100.  child0 at 100.  child1 at 10 (never advanced).
+            // Trigger Move on child1: mock advances to doc_ids[next_index] = 50.
+            //   child1.last_doc_id() = 50  <  100 = union.last_doc_id()
+            data1.set_revalidate_result(MockRevalidateResult::Move);
+
+            let status = union.revalidate().expect("revalidate failed");
+            assert!(
+                matches!(status, RQEValidateStatus::Moved { current: Some(_) }),
+                "Expected Moved with a current result, got {status:?}",
+            );
+            assert_eq!(union.last_doc_id(), 50, "union should move to child1 (50)");
+
+            let r = union.read().expect("read failed").unwrap();
+            assert_eq!(r.doc_id, 100);
+            let r = union.read().expect("read failed").unwrap();
+            assert_eq!(r.doc_id, 200, "child1's doc 200 must not be lost");
+            let r = union.read().expect("read failed").unwrap();
+            assert_eq!(r.doc_id, 300);
+            assert!(union.read().expect("read failed").is_none());
+            assert!(union.at_eof());
+        }
+
+
         // =============================================================================
         // skip_to edge cases (behavioral only, no read_count assertions)
         // =============================================================================

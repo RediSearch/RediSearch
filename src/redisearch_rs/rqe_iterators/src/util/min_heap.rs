@@ -97,6 +97,20 @@ impl DocIdMinHeap {
         self.data.first().copied()
     }
 
+    /// Returns a reference to the underlying heap data.
+    ///
+    /// Borrowing the slice once allows the caller to iterate over the heap
+    /// structure without per-access bounds checks through the [`Index`] trait,
+    /// which is measurably faster for bulk traversals such as the DFS in
+    /// [`crate::UnionHeap::build_aggregate_result`].
+    ///
+    /// The data is stored as `(doc_id, child_index)` tuples in heap order
+    /// (smallest doc_id at index 0). Children of index `i` are at `2*i+1` and `2*i+2`.
+    #[inline]
+    pub fn data(&self) -> &[(t_docId, usize)] {
+        &self.data
+    }
+
     /// Pushes an entry onto the heap.
     ///
     /// # Complexity

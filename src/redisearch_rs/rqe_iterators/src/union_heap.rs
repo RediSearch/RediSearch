@@ -77,7 +77,7 @@ where
     fn rebuild_heap(&mut self) {
         self.heap.clear();
         for (idx, child) in self.children.iter().enumerate() {
-            if !child.at_eof() && child.last_doc_id() >= self.last_doc_id() {
+            if !child.at_eof() {
                 self.heap.push(child.last_doc_id(), idx);
             }
         }
@@ -118,10 +118,13 @@ where
             agg.reset();
         }
 
-        if self.heap.is_empty() {
+        // Borrow the heap data slice once so the compiler can hoist bounds
+        // checks out of the loop.
+        let heap_data = self.heap.data();
+        if heap_data.is_empty() {
             return;
         }
-
+        // A 64-element stack is sufficient for a binary heap of up to 2^64 elements.
         let mut stack = [0usize; 64];
         let mut stack_len = 1;
         stack[0] = 0;
@@ -130,11 +133,11 @@ where
             stack_len -= 1;
             let heap_idx = stack[stack_len];
 
-            if heap_idx >= self.heap.len() {
+            if heap_idx >= heap_data.len() {
                 continue;
             }
 
-            let (doc_id, child_idx) = self.heap[heap_idx];
+            let (doc_id, child_idx) = heap_data[heap_idx];
             if doc_id != min_id {
                 continue;
             }
@@ -149,15 +152,15 @@ where
                 let child_ref = unsafe { &*child_ptr };
                 self.result.push_borrowed(child_ref);
             }
-
+            // both children of heap_idx are >= doc_id due to heap property
             let left_heap_idx = 2 * heap_idx + 1;
             let right_heap_idx = 2 * heap_idx + 2;
 
-            if left_heap_idx < self.heap.len() && stack_len < 64 {
+            if left_heap_idx < heap_data.len() && stack_len < 64 {
                 stack[stack_len] = left_heap_idx;
                 stack_len += 1;
             }
-            if right_heap_idx < self.heap.len() && stack_len < 64 {
+            if right_heap_idx < heap_data.len() && stack_len < 64 {
                 stack[stack_len] = right_heap_idx;
                 stack_len += 1;
             }
