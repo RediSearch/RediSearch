@@ -10,6 +10,7 @@
 use std::{
     fmt,
     ops::{Index, IndexMut},
+    ptr::NonNull,
     slice::{Iter, IterMut},
 };
 
@@ -59,11 +60,15 @@ pub struct RSSortingVector {
 impl RSSortingVector {
     /// Creates an empty [`RSSortingVector`] with no allocation.
     ///
-    /// The returned vector has a null `values` pointer and zero length.
+    /// The returned vector has a dangling `values` pointer and zero length.
     /// This is the canonical "no sorting vector" sentinel for inline storage.
+    ///
+    /// Using a dangling (non-null, aligned) pointer instead of null allows
+    /// [`as_slice`](Self::as_slice) and [`Drop`] to skip null checks — `slice::from_raw_parts`
+    /// and `Vec::from_raw_parts` both accept a dangling pointer when the length is zero.
     pub const fn empty() -> Self {
         Self {
-            values: std::ptr::null_mut(),
+            values: NonNull::dangling().as_ptr(),
             len: 0,
         }
     }
@@ -83,24 +88,14 @@ impl RSSortingVector {
     }
 
     /// Returns the values as a slice.
-    ///
-    /// Returns an empty slice if the vector is empty or has been cleared.
     pub const fn as_slice(&self) -> &[RSValueFFI] {
-        if self.values.is_null() {
-            return &[];
-        }
-        // SAFETY: `values` and `len` were constructed from a valid `Vec<RSValueFFI>`.
-        // The pointer is valid for `len` elements as long as `self` is alive.
+        // SAFETY: `values` is either dangling (len==0) or from a valid `Vec` (len>0).
+        // Both satisfy `from_raw_parts` preconditions (non-null, aligned pointer).
         unsafe { std::slice::from_raw_parts(self.values, self.len) }
     }
 
     /// Returns the values as a mutable slice.
-    ///
-    /// Returns an empty slice if the vector is empty or has been cleared.
     const fn as_mut_slice(&mut self) -> &mut [RSValueFFI] {
-        if self.values.is_null() {
-            return &mut [];
-        }
         // SAFETY: Same as `as_slice`, plus we have exclusive access via `&mut self`.
         unsafe { std::slice::from_raw_parts_mut(self.values, self.len) }
     }
@@ -194,7 +189,7 @@ impl RSSortingVector {
     /// Each [`RSValueFFI`] element is dropped (decrementing its refcount) and the
     /// heap buffer is freed. Calling `clear` on an already-cleared vector is a no-op.
     pub fn clear(&mut self) {
-        if !self.values.is_null() {
+        if self.len != 0 {
             // SAFETY: `values` and `len` came from a `Vec<RSValueFFI>` via `into_boxed_slice`,
             // so capacity == len. Reconstructing the Vec lets it drop each `RSValueFFI`
             // (decrementing refcounts) and deallocate the buffer.
@@ -202,7 +197,7 @@ impl RSSortingVector {
                 let _ = Vec::from_raw_parts(self.values, self.len, self.len);
             }
         }
-        self.values = std::ptr::null_mut();
+        self.values = NonNull::dangling().as_ptr();
         self.len = 0;
     }
 
@@ -235,12 +230,9 @@ impl RSSortingVector {
 
 impl Drop for RSSortingVector {
     fn drop(&mut self) {
-        if self.values.is_null() {
-            return;
-        }
-        // SAFETY: `values` and `len` came from a `Vec<RSValueFFI>` via `into_boxed_slice`,
-        // so capacity == len. Reconstructing the Vec lets it drop each `RSValueFFI`
-        // (decrementing refcounts) and deallocate the buffer.
+        // SAFETY: When len==0 this reconstructs an empty Vec from a dangling pointer — valid
+        // and drops as a no-op. When len>0, values came from a Vec via into_boxed_slice
+        // with capacity==len, so this reconstructs the original Vec for deallocation.
         unsafe {
             let _ = Vec::from_raw_parts(self.values, self.len, self.len);
         };
@@ -274,11 +266,7 @@ impl IntoIterator for RSSortingVector {
     type Item = RSValueFFI;
     type IntoIter = std::vec::IntoIter<RSValueFFI>;
     fn into_iter(self) -> Self::IntoIter {
-        if self.values.is_null() {
-            std::mem::forget(self);
-            return Vec::new().into_iter();
-        }
-        // SAFETY: `values` and `len` came from a `Vec<RSValueFFI>` with capacity == len.
+        // SAFETY: Same as `Drop` — valid for both dangling (len==0) and allocated (len>0).
         let v = unsafe { Vec::from_raw_parts(self.values, self.len, self.len) };
         // Prevent `Drop` from double-freeing the buffer.
         std::mem::forget(self);

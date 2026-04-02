@@ -279,7 +279,7 @@ RSDocumentMetadata *DocTable_Put(DocTable *t, const char *s, size_t n, double sc
   dmd->flags = flags;
   dmd->maxTermFreq = 1;
   dmd->id = docId;
-  dmd->sortVector = (RSSortingVector){0};
+  dmd->sortVector = RSSortingVector_Empty();
   dmd->type = type;
 
   if (hasPayload(flags)) {
@@ -330,7 +330,7 @@ void DMD_Free(const RSDocumentMetadata *cmd) {
     md->flags &= ~Document_HasPayload;
     md->payload = NULL;
   }
-  if (md->sortVector.values) {
+  if (md->sortVector.len) {
     RSSortingVector_ClearAndDeAlloc(&md->sortVector);
     md->flags &= ~Document_HasSortVector;
   }
@@ -387,7 +387,7 @@ RSDocumentMetadata *DocTable_Pop(DocTable *t, const char *s, size_t n) {
       t->memsize -= sizeof(RSDocumentMetadata);
       t->memsize -= md->payload->len + sizeof(RSPayload);
     }
-    if (md->sortVector.values) {
+    if (md->sortVector.len) {
       t->sortablesSize -= RSSortingVector_GetMemorySize(&md->sortVector);
     }
 
@@ -485,7 +485,7 @@ void DocTable_LegacyRdbLoad(DocTable *t, RedisModuleIO *rdb, int encver) {
         RedisModule_Free(RedisModule_LoadStringBuffer(rdb, NULL));  // throw this string to garbage
       }
     }
-    dmd->sortVector = (RSSortingVector){0};
+    dmd->sortVector = RSSortingVector_Empty();
     if (dmd->flags & Document_HasSortVector) {
       dmd->sortVector = SortingVector_RdbLoad(rdb);
       t->sortablesSize += RSSortingVector_GetMemorySize(&dmd->sortVector);

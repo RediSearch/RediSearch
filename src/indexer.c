@@ -239,9 +239,9 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
       md->docLen = cur->fwIdx->totalFreq;
       spec->stats.scoring.totalDocsLen += md->docLen;
 
-      if (cur->sv.values) {
+      if (cur->sv.len) {
         DocTable_SetSortingVector(&spec->docs, md, cur->sv);
-        cur->sv = (RSSortingVector){0};
+        cur->sv = RSSortingVector_Empty();
       }
 
       if (cur->byteOffsets) {

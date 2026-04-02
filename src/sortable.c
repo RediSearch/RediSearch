@@ -51,7 +51,7 @@ RSSortingVector SortingVector_RdbLoad(RedisModuleIO *rdb) {
 
   int len = (int)RedisModule_LoadUnsigned(rdb);
   if (len > RS_SORTABLES_MAX || len <= 0) {
-    return (RSSortingVector){0};
+    return RSSortingVector_Empty();
   }
   RSSortingVector vec = RSSortingVector_New(len);
   for (int i = 0; i < len; i++) {

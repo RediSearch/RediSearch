@@ -193,6 +193,16 @@ pub extern "C" fn RSSortingVector_New(len: size_t) -> RSSortingVector {
     RSSortingVector::new(len)
 }
 
+/// Returns an empty [`RSSortingVector`] with no allocation.
+///
+/// The returned vector has a properly aligned dangling `values` pointer and zero length.
+/// C code must use this (or [`RSSortingVector_ClearAndDeAlloc`]) instead of zero-initializing
+/// the struct, because Rust requires `values` to be non-null and aligned at all times.
+#[unsafe(no_mangle)]
+pub extern "C" fn RSSortingVector_Empty() -> RSSortingVector {
+    RSSortingVector::empty()
+}
+
 /// Deallocates the inner values buffer of an [`RSSortingVector`] and zeros the struct.
 ///
 /// Each [`RSValueFFI`] element is dropped (decrementing its refcount) and the heap buffer is freed.
