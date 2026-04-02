@@ -97,6 +97,7 @@ typedef enum {
 #define hasExpirationTimeInformation(x) (x & Document_HasExpiration)
 
 struct RSFulltextIndexedTerms;
+struct RSIndexedTagField;
 
 /* RSDocumentMetadata describes metadata stored about a document in the index (not the document
  * itself).
@@ -140,6 +141,9 @@ typedef struct RSDocumentMetadata_s {
   /* Last fulltext term set indexed for this document (RAM keysDict indexes). Used on replace/delete
    * to keep per-term live document counts aligned for BM25 IDF. Not persisted in RDB. */
   struct RSFulltextIndexedTerms *fulltextIndexedTerms;
+
+  /* Per-tag-field snapshot of indexed tag strings (RAM keysDict). Same purpose as fulltext. */
+  struct RSIndexedTagField *indexedTagFields;
 
 } RSDocumentMetadata;
 

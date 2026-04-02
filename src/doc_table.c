@@ -8,6 +8,7 @@
 */
 #include "doc_table.h"
 #include "fulltext_indexed_terms.h"
+#include "tag_index_snapshot.h"
 #include <sys/param.h>
 #include <string.h>
 #include <stdio.h>
@@ -286,12 +287,10 @@ RSDocumentMetadata *DocTable_Put(DocTable *t, const char *s, size_t n, double sc
   if (payload && payloadSize) {
     dmd = rm_calloc(1, sizeof(*dmd));
     flags |= Document_HasPayload;
-    t->memsize += sizeof(RSDocumentMetadata);
   } else {
-    size_t leanSize = sizeof(*dmd) - sizeof(RSPayload *);
-    dmd = rm_calloc(1, leanSize);
-    t->memsize += leanSize;
+    dmd = rm_calloc(1, sizeof(*dmd));
   }
+  t->memsize += sizeof(RSDocumentMetadata);
 
   sds keyPtr = sdsnewlen(s, n);
   dmd->keyPtr = keyPtr;
@@ -347,6 +346,10 @@ void DMD_Free(const RSDocumentMetadata *cmd) {
   if (md->fulltextIndexedTerms) {
     RSFulltextIndexedTerms_Free(md->fulltextIndexedTerms);
     md->fulltextIndexedTerms = NULL;
+  }
+  if (md->indexedTagFields) {
+    RSIndexedTagField_FreeList(md->indexedTagFields);
+    md->indexedTagFields = NULL;
   }
   if (hasPayload(md->flags)) {
     rm_free(md->payload->data);
@@ -406,10 +409,8 @@ RSDocumentMetadata *DocTable_Pop(DocTable *t, const char *s, size_t n) {
     md->flags |= Document_Deleted;
 
     t->memsize -= sdsAllocSize(md->keyPtr);
-    if (!hasPayload(md->flags)) {
-      t->memsize -= sizeof(RSDocumentMetadata) - sizeof(RSPayload *);
-    } else {
-      t->memsize -= sizeof(RSDocumentMetadata);
+    t->memsize -= sizeof(RSDocumentMetadata);
+    if (hasPayload(md->flags)) {
       t->memsize -= md->payload->len + sizeof(RSPayload);
     }
     if (md->sortVector) {

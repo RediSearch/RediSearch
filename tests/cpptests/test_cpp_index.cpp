@@ -174,14 +174,16 @@ TEST_P(IndexFlagsTest, testRWFlags) {
 
   // Details of the memory occupied by InvertedIndex in bytes (64-bit system):
   // LowMemoryThinVec<IndexBlock, u32> blocks    8
-  // u32 n_uniqe_blocks                          4
+  // u32 n_unique_docs                           4
+  // u32 n_live_unique_docs                      4
   // flags IndexFlags                            4
   // u32 gc_marker                               4
+  // IndexUniqueId                               4
   // ---------------------------------------------
-  // Total                                      20
-  // After padding                              24
+  // Total                                      28
+  // After padding                              32
 
-  size_t exp_idx_no_block_memsize = 24;
+  size_t exp_idx_no_block_memsize = 32;
 
   if (useFieldMask) {
     exp_idx_no_block_memsize += t_fiedlMask_memsize;
@@ -1238,11 +1240,11 @@ TEST_F(IndexTest, testIndexFlags) {
   size_t index_memsize;
   InvertedIndex *w = NewInvertedIndex(IndexFlags(flags), &index_memsize);
   // The memory occupied by a empty inverted index
-  // created with INDEX_DEFAULT_FLAGS is 40 bytes,
+  // created with INDEX_DEFAULT_FLAGS is 48 bytes,
   // which is the sum of the following (See NewInvertedIndex()):
-  // sizeof InvertedIndex                 24
+  // sizeof InvertedIndex (padded core)    32
   // storing fieldmask on idx             16
-  ASSERT_EQ(40, index_memsize);
+  ASSERT_EQ(48, index_memsize);
   ASSERT_TRUE(InvertedIndex_Flags(w) == flags);
   size_t sz = InvertedIndex_WriteForwardIndexEntry(w, &h);
   ASSERT_EQ(73, sz);
@@ -1250,7 +1252,7 @@ TEST_F(IndexTest, testIndexFlags) {
 
   flags &= ~Index_StoreTermOffsets;
   w = NewInvertedIndex(IndexFlags(flags), &index_memsize);
-  ASSERT_EQ(40, index_memsize);
+  ASSERT_EQ(48, index_memsize);
   ASSERT_TRUE(!(InvertedIndex_Flags(w) & Index_StoreTermOffsets));
   size_t sz2 = InvertedIndex_WriteForwardIndexEntry(w, &h);
   ASSERT_EQ(sz2, 60);
@@ -1258,7 +1260,7 @@ TEST_F(IndexTest, testIndexFlags) {
 
   flags = INDEX_DEFAULT_FLAGS | Index_WideSchema;
   w = NewInvertedIndex(IndexFlags(flags), &index_memsize);
-  ASSERT_EQ(40, index_memsize);
+  ASSERT_EQ(48, index_memsize);
   ASSERT_TRUE((InvertedIndex_Flags(w) & Index_WideSchema));
   h.fieldMask = 0xffffffffffff;
   ASSERT_EQ(77, InvertedIndex_WriteForwardIndexEntry(w, &h));
@@ -1267,10 +1269,10 @@ TEST_F(IndexTest, testIndexFlags) {
   flags &= Index_StoreFreqs;
   w = NewInvertedIndex(IndexFlags(flags), &index_memsize);
   // The memory occupied by a empty inverted index with
-  // Index_StoreFieldFlags == 0 is 24 bytes
+  // Index_StoreFieldFlags == 0 is 32 bytes
   // which is the sum of the following (See NewInvertedIndex()):
-  // sizeof InvertedIndex                 24
-  ASSERT_EQ(24, index_memsize);
+  // sizeof InvertedIndex (padded core)   32
+  ASSERT_EQ(32, index_memsize);
   ASSERT_TRUE(!(InvertedIndex_Flags(w) & Index_StoreTermOffsets));
   ASSERT_TRUE(!(InvertedIndex_Flags(w) & Index_StoreFieldFlags));
   sz = InvertedIndex_WriteForwardIndexEntry(w, &h);
@@ -1279,7 +1281,7 @@ TEST_F(IndexTest, testIndexFlags) {
 
   flags |= Index_StoreFieldFlags | Index_WideSchema;
   w = NewInvertedIndex(IndexFlags(flags), &index_memsize);
-  ASSERT_EQ(40, index_memsize);
+  ASSERT_EQ(48, index_memsize);
   ASSERT_TRUE((InvertedIndex_Flags(w) & Index_WideSchema));
   ASSERT_TRUE((InvertedIndex_Flags(w) & Index_StoreFieldFlags));
   h.fieldMask = 0xffffffffffff;
@@ -1299,8 +1301,13 @@ TEST_F(IndexTest, testDocTable) {
   // N is set to 100 and the max cap of the doc table is 10 so we surely will
   // get overflow and check that everything works correctly
   int N = 100;
+  size_t expected_mem_after_puts = doc_table_size;
   for (int i = 0; i < N; i++) {
     size_t nkey = snprintf(buf, sizeof(buf), "doc_%d", i);
+    sds tmp_key = sdsnewlen(buf, nkey);
+    size_t key_alloc = sdsAllocSize(tmp_key);
+    sdsfree(tmp_key);
+    expected_mem_after_puts += sizeof(RSDocumentMetadata) + key_alloc + sizeof(RSPayload) + nkey;
     RSDocumentMetadata *dmd = DocTable_Put(&dt, buf, nkey, (double)i, Document_DefaultFlags, buf, strlen(buf), DocumentType_Hash);
     t_docId nd = dmd->id;
     DMD_Return(dmd);
@@ -1310,9 +1317,7 @@ TEST_F(IndexTest, testDocTable) {
 
   ASSERT_EQ(N + 1, dt.size);
   ASSERT_EQ(N, dt.maxDocId);
-#ifdef __x86_64__
-  ASSERT_EQ(9380 + doc_table_size, (int)dt.memsize);
-#endif
+  ASSERT_EQ(expected_mem_after_puts, dt.memsize);
   for (int i = 0; i < N; i++) {
     snprintf(buf, sizeof(buf), "doc_%d", i);
     const sds key = DocTable_GetKey(&dt, i + 1, NULL);
@@ -1348,7 +1353,12 @@ TEST_F(IndexTest, testDocTable) {
   RSDocumentMetadata *dmd = DocTable_Put(&dt, "Hello", 5, 1.0, Document_DefaultFlags, NULL, 0, DocumentType_Hash);
   t_docId strDocId = dmd->id;
   ASSERT_TRUE(0 != strDocId);
-  ASSERT_EQ(63 + doc_table_size, (int)dt.memsize);
+  {
+    sds hello_sds = sdsnewlen("Hello", 5);
+    size_t mem_hello = sizeof(RSDocumentMetadata) + sdsAllocSize(hello_sds);
+    sdsfree(hello_sds);
+    ASSERT_EQ(doc_table_size + mem_hello, dt.memsize);
+  }
 
   // Test that binary keys also work here
   static const char binBuf[] = {"Hello\x00World"};
@@ -1357,7 +1367,15 @@ TEST_F(IndexTest, testDocTable) {
   DMD_Return(dmd);
   dmd = DocTable_Put(&dt, binBuf, binBufLen, 1.0, Document_DefaultFlags, NULL, 0, DocumentType_Hash);
   ASSERT_TRUE(dmd);
-  ASSERT_EQ(132 + doc_table_size, (int)dt.memsize);
+  {
+    sds hello_sds = sdsnewlen("Hello", 5);
+    sds bin_sds = sdsnewlen(binBuf, binBufLen);
+    size_t mem_both = sizeof(RSDocumentMetadata) + sdsAllocSize(hello_sds) + sizeof(RSDocumentMetadata) +
+                      sdsAllocSize(bin_sds);
+    sdsfree(hello_sds);
+    sdsfree(bin_sds);
+    ASSERT_EQ(doc_table_size + mem_both, dt.memsize);
+  }
   ASSERT_NE(dmd->id, strDocId);
   ASSERT_EQ(dmd->id, DocIdMap_Get(&dt.dim, binBuf, binBufLen));
   ASSERT_EQ(strDocId, DocIdMap_Get(&dt.dim, "Hello", 5));

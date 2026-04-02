@@ -26,6 +26,7 @@
 #include "search_ctx.h"
 #include "doc_table.h"
 #include "fulltext_indexed_terms.h"
+#include "tag_index_snapshot.h"
 
 extern RedisModuleCtx *RSDummyContext;
 
@@ -169,6 +170,7 @@ static RSDocumentMetadata *makeDocumentId(RedisSearchCtx *sctx, RSAddDocumentCtx
 
       if (!spec->diskSpec && spec->keysDict) {
         RSFulltextIndexedTerms_DecrementLive(sctx, dmd->fulltextIndexedTerms);
+        RSIndexedTagFields_DecrementLive(sctx, dmd->indexedTagFields);
       }
 
       DMD_Return(dmd);
@@ -446,6 +448,9 @@ static void Indexer_Process(RSAddDocumentCtx *aCtx) {
 
   if (!(aCtx->stateFlags & ACTX_F_OTHERINDEXED)) {
     indexBulkFields(aCtx, &ctx);
+    if (!ctx.spec->diskSpec && ctx.spec->keysDict && (aCtx->stateFlags & ACTX_F_ERRORED) == 0) {
+      RSIndexedTagFields_SnapshotBulk(aCtx, ctx.spec);
+    }
   }
 }
 

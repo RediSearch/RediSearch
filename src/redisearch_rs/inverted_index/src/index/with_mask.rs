@@ -8,12 +8,12 @@
 */
 
 use crate::{
-    DecodedBy, Decoder, Encoder, FilterMaskReader, GcApplyInfo, GcScanDelta, IndexBlock,
+    DecodedBy, Encoder, FilterMaskReader, GcApplyInfo, GcScanDelta, IndexBlock,
     InvertedIndex, RSIndexResult,
     debug::{BlockSummary, Summary},
     reader::IndexReaderCore,
 };
-use ffi::{IndexFlags, IndexFlags_Index_StoreFieldFlags, RS_FIELDMASK_ALL, t_docId, t_fieldMask};
+use ffi::{IndexFlags, IndexFlags_Index_StoreFieldFlags, t_docId, t_fieldMask};
 
 /// A wrapper around the inverted index which tracks the fields for all the records in the index
 /// using a mask. This makes is easy to know if the index has any records for a specific field.
@@ -125,17 +125,6 @@ impl<E: Encoder> FieldMaskTrackingIndex<E> {
     #[cfg(feature = "test_utils")]
     pub const fn inner_mut(&mut self) -> &mut InvertedIndex<E> {
         &mut self.index
-    }
-}
-
-impl<E: Encoder + Decoder> FieldMaskTrackingIndex<E> {
-    /// Count live distinct documents for BM25/TF‑IDF using every field (C/tag paths).
-    pub fn count_live_unique_docs_for_idf_scoring(
-        &self,
-        doc_exists: &mut impl FnMut(t_docId) -> bool,
-    ) -> std::io::Result<u32> {
-        self.index
-            .count_live_unique_docs_for_query_mask(RS_FIELDMASK_ALL, doc_exists)
     }
 }
 

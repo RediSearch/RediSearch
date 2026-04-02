@@ -494,12 +494,4 @@ where
 
         Ok(live)
     }
-
-    /// Number of live distinct documents for IDF when the index is not wrapped (e.g. freqs‑only).
-    pub fn count_live_unique_docs_for_idf_scoring(
-        &self,
-        doc_exists: &mut impl FnMut(t_docId) -> bool,
-    ) -> std::io::Result<u32> {
-        self.count_live_unique_docs(doc_exists)
-    }
 }

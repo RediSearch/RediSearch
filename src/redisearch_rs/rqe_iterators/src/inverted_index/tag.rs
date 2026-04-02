@@ -9,10 +9,10 @@
 
 use std::ptr::NonNull;
 
-use ffi::{DocTable_Exists, RS_FIELDMASK_ALL, RedisSearchCtx, TagIndex, t_docId};
+use ffi::{RS_FIELDMASK_ALL, RedisSearchCtx, TagIndex, t_docId};
 use inverted_index::{
-    DecodedBy, Decoder, DocIdsDecoder, IndexReader, IndexReaderCore, RSIndexResult, RSOffsetSlice,
-    TermDecoder, opaque::OpaqueEncoding, use_live_df_for_idf,
+    DecodedBy, Decoder, DocIdsDecoder, IdfTermDocs, IndexReader, IndexReaderCore, RSIndexResult,
+    RSOffsetSlice, TermDecoder, opaque::OpaqueEncoding,
 };
 use query_term::RSQueryTerm;
 
@@ -85,16 +85,9 @@ where
         // SAFETY: 2. guarantees spec is valid.
         let spec = unsafe { &*context_ref.spec };
         let total_docs = spec.stats.scoring.numDocuments;
-        // Tag posting lists are not wired into the fulltext live-DF counters; scan postings on RAM.
-        let term_docs = if use_live_df_for_idf(spec) {
-            let mut doc_exists = |id: t_docId| unsafe { DocTable_Exists(&spec.docs, id) };
-            reader
-                .internal_index()
-                .count_live_unique_docs(&mut doc_exists)
-                .unwrap_or(reader.unique_docs() as u32) as usize
-        } else {
-            reader.unique_docs() as usize
-        };
+        let term_docs = reader
+            .idf_term_docs(spec)
+            .unwrap_or_else(|_| reader.unique_docs() as u32) as usize;
         term.set_idf(idf::calculate_idf(total_docs, term_docs));
         term.set_bm25_idf(idf::calculate_idf_bm25(total_docs, term_docs));
 

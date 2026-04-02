@@ -23,7 +23,12 @@ struct RedisSearchCtx;
 typedef struct RSFulltextIndexedTerms RSFulltextIndexedTerms;
 
 void RSFulltextIndexedTerms_Free(RSFulltextIndexedTerms *terms);
+const char *RSFulltextIndexedTerms_PackedData(const RSFulltextIndexedTerms *terms);
+size_t RSFulltextIndexedTerms_PackedSize(const RSFulltextIndexedTerms *terms);
 RSFulltextIndexedTerms *RSFulltextIndexedTerms_CreateFromForwardIndex(struct ForwardIndex *fw);
+/// Pack unique tag strings (order-stable dedup) using the same layout as fulltext term blobs.
+RSFulltextIndexedTerms *RSFulltextIndexedTerms_CreateFromDedupedTagStrings(const char **strings,
+                                                                             size_t n);
 void RSFulltextIndexedTerms_DecrementLive(struct RedisSearchCtx *sctx, RSFulltextIndexedTerms *terms);
 void DMD_SetFulltextIndexedTerms(RSDocumentMetadata *dmd, RSFulltextIndexedTerms *terms);
 

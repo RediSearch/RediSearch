@@ -63,6 +63,14 @@ void RSFulltextIndexedTerms_Free(RSFulltextIndexedTerms *terms) {
   rm_free(terms);
 }
 
+const char *RSFulltextIndexedTerms_PackedData(const RSFulltextIndexedTerms *terms) {
+  return terms ? terms->buf : NULL;
+}
+
+size_t RSFulltextIndexedTerms_PackedSize(const RSFulltextIndexedTerms *terms) {
+  return terms ? terms->buflen : 0;
+}
+
 RSFulltextIndexedTerms *RSFulltextIndexedTerms_CreateFromForwardIndex(ForwardIndex *fw) {
   if (fw == NULL) {
     return NULL;
@@ -98,6 +106,84 @@ RSFulltextIndexedTerms *RSFulltextIndexedTerms_CreateFromForwardIndex(ForwardInd
     return NULL;
   }
   memcpy(t->buf + count_offs, &count, sizeof(count));
+  return t;
+}
+
+static size_t tag_deduped_packed_size(const char **strings, size_t n, uint32_t *out_count) {
+  uint32_t count = 0;
+  size_t bytes = sizeof(uint32_t);
+  for (size_t i = 0; i < n; i++) {
+    const char *si = strings[i];
+    if (!si) {
+      continue;
+    }
+    size_t len_i = strlen(si);
+    int is_dup = 0;
+    for (size_t j = 0; j < i; j++) {
+      const char *sj = strings[j];
+      if (!sj) {
+        continue;
+      }
+      size_t len_j = strlen(sj);
+      if (len_i == len_j && memcmp(si, sj, len_i) == 0) {
+        is_dup = 1;
+        break;
+      }
+    }
+    if (is_dup) {
+      continue;
+    }
+    count++;
+    bytes += sizeof(uint32_t) + len_i;
+  }
+  *out_count = count;
+  return bytes;
+}
+
+RSFulltextIndexedTerms *RSFulltextIndexedTerms_CreateFromDedupedTagStrings(const char **strings,
+                                                                           size_t n) {
+  if (!strings || n == 0) {
+    return NULL;
+  }
+  uint32_t count = 0;
+  size_t sz = tag_deduped_packed_size(strings, n, &count);
+  if (count == 0) {
+    return NULL;
+  }
+  RSFulltextIndexedTerms *t = rm_calloc(1, sizeof(*t));
+  t->buflen = sz;
+  t->buf = rm_malloc(sz);
+  char *w = t->buf;
+  memcpy(w, &count, sizeof(count));
+  w += sizeof(count);
+
+  for (size_t i = 0; i < n; i++) {
+    const char *si = strings[i];
+    if (!si) {
+      continue;
+    }
+    size_t len_i = strlen(si);
+    int is_dup = 0;
+    for (size_t j = 0; j < i; j++) {
+      const char *sj = strings[j];
+      if (!sj) {
+        continue;
+      }
+      size_t len_j = strlen(sj);
+      if (len_i == len_j && memcmp(si, sj, len_i) == 0) {
+        is_dup = 1;
+        break;
+      }
+    }
+    if (is_dup) {
+      continue;
+    }
+    uint32_t len32 = (uint32_t)len_i;
+    memcpy(w, &len32, sizeof(len32));
+    w += sizeof(len32);
+    memcpy(w, si, len_i);
+    w += len_i;
+  }
   return t;
 }
 

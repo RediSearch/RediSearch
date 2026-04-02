@@ -240,21 +240,6 @@ uint32_t InvertedIndex_NumDocs(const InvertedIndex *ii);
 void InvertedIndex_DecrementLiveUniqueDocs(InvertedIndex *ii, uint32_t delta);
 
 /**
- * Distinct live documents in this posting list for IDF/BM25 on RAM indexes (fork‑GC may leave
- * stale internal ids in the encoded `unique_docs` counter).
- *
- * Field‑mask encodings respect `query_mask`; doc‑ids‑only style encodings count live rows without
- * per‑row field data (same as a full posting scan + [`DocTable_Exists`]).
- *
- * # Safety
- *
- * `ii` and `spec` must be valid, non-null pointers. `spec.docs` must be a valid `DocTable`.
- */
-uint32_t InvertedIndex_CountLiveUniqueDocsForIdf(const InvertedIndex *ii,
-                                                 const IndexSpec *spec,
-                                                 t_fieldMask query_mask);
-
-/**
  * Get a summary of the inverted index for debugging purposes.
  *
  * # Safety

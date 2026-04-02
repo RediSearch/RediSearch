@@ -11,8 +11,8 @@ use std::{hint::black_box, marker::PhantomData};
 
 use criterion::{BenchmarkGroup, Criterion, measurement::Measurement};
 use inverted_index::{
-    DecodedBy, Encoder, HasInnerIndex, InvertedIndex, RSIndexResult, RSOffsetSlice, TermDecoder,
-    opaque::OpaqueEncoding,
+    DecodedBy, Decoder, Encoder, HasInnerIndex, InvertedIndex, RSIndexResult, RSOffsetSlice,
+    TermDecoder, opaque::OpaqueEncoding,
 };
 use query_term::RSQueryTerm;
 use rqe_iterators::{NoOpChecker, RQEIterator, SkipToOutcome, inverted_index::Term};
@@ -35,8 +35,7 @@ pub struct TermBencher<E> {
 
 impl<E> TermBencher<E>
 where
-    E: Encoder + DecodedBy + OpaqueEncoding,
-    E::Decoder: TermDecoder,
+    E: Encoder + Decoder + DecodedBy<Decoder = E> + OpaqueEncoding + TermDecoder,
     E::Storage: HasInnerIndex<E>,
 {
     pub fn new(decoder_name: &str, ii_flags: u32) -> Self {
