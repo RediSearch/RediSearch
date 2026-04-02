@@ -649,6 +649,21 @@ uint64_t ProfileIterator_GetWallTimeNs(const QueryIterator *it);
 QueryIterator *IntoProfiled(QueryIterator *iter);
 
 /**
+ * Add profile iterators to all nodes in the iterator tree.
+ *
+ * Wraps the root as a [`CRQEIterator`], calls
+ * [`CRQEIterator::into_profiled`](rqe_iterators::c2rust::CRQEIterator::into_profiled)
+ * (which recursively profiles
+ * all descendants), then writes the result back as a `QueryIterator*`.
+ *
+ * # Safety
+ *
+ * 1. `root` must be a valid non-null pointer to a `*mut QueryIterator`.
+ * 2. `*root` must be null or a valid non-null, non-aliased pointer to a `QueryIterator`.
+ */
+void Profile_AddIters(QueryIterator **root);
+
+/**
  * Creates a new non-optimized wildcard iterator over the `[0, max_id]` document id range.
  */
 QueryIterator *NewWildcardIterator_NonOptimized(t_docId max_id, double weight);

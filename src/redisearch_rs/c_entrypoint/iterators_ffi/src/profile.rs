@@ -123,3 +123,29 @@ pub unsafe extern "C" fn IntoProfiled(iter: *mut QueryIterator) -> *mut QueryIte
     let iter = unsafe { CRQEIterator::new(iter) };
     iter.into_profiled().into_raw().as_ptr()
 }
+
+/// Add profile iterators to all nodes in the iterator tree.
+///
+/// Wraps the root as a [`CRQEIterator`], calls
+/// [`CRQEIterator::into_profiled`](rqe_iterators::c2rust::CRQEIterator::into_profiled)
+/// (which recursively profiles
+/// all descendants), then writes the result back as a `QueryIterator*`.
+///
+/// # Safety
+///
+/// 1. `root` must be a valid non-null pointer to a `*mut QueryIterator`.
+/// 2. `*root` must be null or a valid non-null, non-aliased pointer to a `QueryIterator`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn Profile_AddIters(root: *mut *mut QueryIterator) {
+    debug_assert!(!root.is_null());
+    // SAFETY: guaranteed by 1.
+    let it = unsafe { *root };
+    let Some(it) = NonNull::new(it) else {
+        return;
+    };
+    // SAFETY: guaranteed by 2 — *root is a valid, non-aliased QueryIterator.
+    let iter = unsafe { CRQEIterator::new(it) };
+    let profiled = iter.into_profiled();
+    // SAFETY: guaranteed by 1 — root is a valid pointer we can write through.
+    unsafe { *root = profiled.into_raw().as_ptr() };
+}
