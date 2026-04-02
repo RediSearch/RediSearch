@@ -190,7 +190,7 @@ int DocTable_SetPayload(DocTable *t, RSDocumentMetadata *dmd, const char *data, 
   return 1;
 }
 
-/* Set the sorting vector for a document. If the vector is NULL we mark the doc as not having a
+/* Set the sorting vector for a document. If the vector is empty we mark the doc as not having a
  * vector. Returns 1 on success, 0 if the document does not exist. No further validation is done
  */
 int DocTable_SetSortingVector(DocTable *t, RSDocumentMetadata *dmd, RSSortingVector v) {
@@ -198,7 +198,7 @@ int DocTable_SetSortingVector(DocTable *t, RSDocumentMetadata *dmd, RSSortingVec
     return 0;
   }
 
-  RS_LOG_ASSERT(v.values, "Sorting vector does not exist");  // tested in doAssignIds()
+  RS_LOG_ASSERT(v.len, "Sorting vector does not exist");  // tested in doAssignIds()
 
   /* Set the new vector and the flags accordingly */
   dmd->sortVector = v;
