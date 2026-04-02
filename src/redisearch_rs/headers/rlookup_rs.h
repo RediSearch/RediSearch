@@ -595,6 +595,8 @@ struct RLookupIterator RLookup_Iter(const struct RLookup *lookup);
  */
 struct RLookupIteratorMut RLookup_IterMut(struct RLookup *lookup);
 
+extern int RSValue_Cmp(const RSValue *v1, const RSValue *v2, QueryError *status);
+
 /**
  * Returns a newly created [`RLookupRow`].
  */
@@ -801,6 +803,28 @@ struct RSSortingVectorSlice RLookupRow_GetSortingVector(const struct RLookupRow 
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 void RLookupRow_SetSortingVector(struct RLookupRow *row, const RSSortingVector *sv);
+
+/**
+ * Compares two rows by the given sort keys, returning a negative, zero, or positive value.
+ *
+ * The comparison loop runs entirely in Rust, avoiding per-key FFI crossings for value lookups.
+ * Per-row invariants (dyn_values slice, sorting vector slice) are loaded once and reused
+ * across all keys.
+ *
+ * Returns 0 when all fields are equal. The caller is responsible for the docid tiebreak.
+ *
+ * # Safety
+ *
+ * 1. `keys` must point to an array of at least `nkeys` valid, non-null `RLookupKey` pointers.
+ * 2. `row1` and `row2` must be valid, non-null pointers to `OpaqueRLookupRow`.
+ * 3. `qerr`, when non-null, must be a valid, writable pointer to a `QueryError`.
+ */
+int RLookupRow_CmpByFields(const struct RLookupKey *const *keys,
+                           size_t nkeys,
+                           const struct RLookupRow *row1,
+                           const struct RLookupRow *row2,
+                           uint64_t ascend_map,
+                           QueryError *qerr);
 
 #ifdef __cplusplus
 }  // extern "C"

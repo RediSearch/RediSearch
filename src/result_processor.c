@@ -720,39 +720,32 @@ static inline int cmpByScore(const void *e1, const void *e2, const void *udata) 
   return SearchResult_GetDocId(h1) > SearchResult_GetDocId(h2) ? -1 : 1;
 }
 
-/* Compare results for the heap by sorting key */
+/* Compare results for the heap by sorting key.
+ *
+ * The field comparison loop lives in Rust (RLookupRow_CmpByFields) to avoid
+ * per-key FFI crossings for RLookupRow_Get. This wrapper handles the qerr
+ * setup and docid tiebreak. */
 static int cmpByFields(const void *e1, const void *e2, const void *udata) {
   const RPSorter *self = udata;
   const SearchResult *h1 = e1, *h2 = e2;
-  int ascending = 0;
 
   QueryError *qerr = NULL;
   if (self && self->base.parent && self->base.parent->err) {
     qerr = self->base.parent->err;
   }
 
-  for (size_t i = 0; i < self->fieldcmp.nkeys && i < SORTASCMAP_MAXFIELDS; i++) {
-    const RSValue *v1 = RLookupRow_Get(self->fieldcmp.keys[i], SearchResult_GetRowData(h1));
-    const RSValue *v2 = RLookupRow_Get(self->fieldcmp.keys[i], SearchResult_GetRowData(h2));
-    // take the ascending bit for this property from the ascending bitmap
-    ascending = SORTASCMAP_GETASC(self->fieldcmp.ascendMap, i);
-    if (!v1 || !v2) {
-      // If at least one of these has no sort key, it gets high value regardless of asc/desc
-      if (v1) {
-        return 1;
-      } else if (v2) {
-        return -1;
-      } else {
-        // Both have no sort key, so they are equal. Continue to next sort key
-        continue;
-      }
-    }
+  int rc = RLookupRow_CmpByFields(
+      self->fieldcmp.keys, self->fieldcmp.nkeys,
+      SearchResult_GetRowData(h1), SearchResult_GetRowData(h2),
+      self->fieldcmp.ascendMap, qerr);
+  if (rc != 0) return rc;
 
-    int rc = RSValue_Cmp(v1, v2, qerr);
-    if (rc != 0) return ascending ? -rc : rc;
-  }
-
-  int rc = SearchResult_GetDocId(h1) < SearchResult_GetDocId(h2) ? -1 : 1;
+  // Tiebreak by docid — ascending uses the last key's flag,
+  // matching the original C loop where `ascending` retains its last value.
+  int ascending = self->fieldcmp.nkeys > 0
+      ? SORTASCMAP_GETASC(self->fieldcmp.ascendMap, self->fieldcmp.nkeys - 1)
+      : 0;
+  rc = SearchResult_GetDocId(h1) < SearchResult_GetDocId(h2) ? -1 : 1;
   return ascending ? -rc : rc;
 }
 
