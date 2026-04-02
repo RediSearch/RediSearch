@@ -48,26 +48,6 @@ impl QueryIterator {
         Self(unsafe { iterators_ffi::id_list::NewSortedIdListIterator(ids_ptr, num, 1.0) })
     }
 
-    /// Create a non-optimized NOT iterator with the given child and max_doc_id.
-    /// This creates a minimal QueryEvalCtx to ensure the C code creates a non-optimized version.
-    #[inline(always)]
-    pub fn new_not_non_optimized(child: Self, max_doc_id: u64, weight: f64) -> Self {
-        // Create a minimal QueryEvalCtx that will NOT trigger optimization
-        // The C code checks: optimized = q && q->sctx && q->sctx->spec && q->sctx->spec->rule && q->sctx->spec->rule->index_all
-        // By zeroing everything, we ensure spec->rule is NULL, so optimized = false
-        let query_eval_ctx = new_redis_search_ctx(max_doc_id);
-        let timeout = ffi::timespec {
-            tv_sec: 0,
-            tv_nsec: 0,
-        };
-
-        let it =
-            unsafe { ffi::NewNotIterator(child.0, max_doc_id, weight, timeout, query_eval_ctx) };
-
-        free_redis_search_ctx(query_eval_ctx);
-        Self(it)
-    }
-
     /// Give up ownership of the raw pointer without calling `Free`.
     ///
     /// Used when passing the iterator to a C function that takes ownership
@@ -270,66 +250,6 @@ impl QueryIterator {
         let current = unsafe { (*self.0).current };
         unsafe { current.cast::<RSIndexResult>().as_ref() }
     }
-}
-
-fn new_redis_search_ctx(max_id: u64) -> *mut ffi::QueryEvalCtx {
-    let query_eval_ctx = unsafe {
-        RedisModule_Alloc.unwrap()(std::mem::size_of::<ffi::QueryEvalCtx>())
-            as *mut ffi::QueryEvalCtx
-    };
-    unsafe {
-        (*query_eval_ctx) = std::mem::zeroed();
-    }
-    let doc_table = unsafe {
-        RedisModule_Alloc.unwrap()(std::mem::size_of::<ffi::DocTable>()) as *mut ffi::DocTable
-    };
-    unsafe {
-        (*doc_table) = std::mem::zeroed();
-    }
-    let search_ctx = unsafe {
-        RedisModule_Alloc.unwrap()(std::mem::size_of::<ffi::RedisSearchCtx>())
-            as *mut ffi::RedisSearchCtx
-    };
-    unsafe {
-        (*search_ctx) = std::mem::zeroed();
-    }
-    let spec = unsafe {
-        RedisModule_Alloc.unwrap()(std::mem::size_of::<ffi::IndexSpec>()) as *mut ffi::IndexSpec
-    };
-    unsafe {
-        (*spec) = std::mem::zeroed();
-    }
-    unsafe {
-        (*doc_table).maxSize = max_id;
-    }
-    unsafe {
-        (*doc_table).maxDocId = max_id;
-    }
-    unsafe {
-        (*search_ctx).spec = spec;
-    }
-    unsafe {
-        (*query_eval_ctx).docTable = doc_table;
-    }
-    unsafe {
-        (*query_eval_ctx).sctx = search_ctx;
-    }
-    query_eval_ctx
-}
-
-fn free_redis_search_ctx(ctx: *mut ffi::QueryEvalCtx) {
-    unsafe {
-        RedisModule_Free.unwrap()((*(*ctx).sctx).spec as *mut c_void);
-    };
-    unsafe {
-        RedisModule_Free.unwrap()((*ctx).sctx as *mut c_void);
-    };
-    unsafe {
-        RedisModule_Free.unwrap()((*ctx).docTable as *mut c_void);
-    };
-    unsafe {
-        RedisModule_Free.unwrap()(ctx as *mut c_void);
-    };
 }
 
 /// Create a minimal zeroed `RedisSearchCtx` with a valid `IndexSpec`.
