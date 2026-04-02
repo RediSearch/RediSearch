@@ -2293,6 +2293,7 @@ dependencies = [
  "redis_mock",
  "redisearch_rs",
  "sorting_vector",
+ "thin_vec",
  "value",
  "workspace_hack",
 ]

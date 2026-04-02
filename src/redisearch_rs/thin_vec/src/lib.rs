@@ -1341,6 +1341,88 @@ impl<T, S: VecCapacity> ThinVec<T, S> {
     fn is_singleton(&self) -> bool {
         self.ptr.as_ptr() as *const Header<S> == S::EMPTY_HEADER
     }
+
+    /// Returns the raw header pointer without consuming the `ThinVec`.
+    pub const fn as_header_ptr(&self) -> NonNull<Header<S>> {
+        self.ptr
+    }
+
+    /// Consumes the `ThinVec` and returns the raw header pointer.
+    ///
+    /// The caller is responsible for eventually calling [`ThinVec::from_raw`] to free the memory.
+    pub const fn into_raw(self) -> NonNull<Header<S>> {
+        let ptr = self.ptr;
+        mem::forget(self);
+        ptr
+    }
+
+    /// Reconstructs a `ThinVec` from a raw header pointer previously obtained via [`ThinVec::into_raw`].
+    ///
+    /// # Safety
+    ///
+    /// - `ptr` must have been obtained from [`ThinVec::into_raw`] and must not have been freed.
+    /// - The `ThinVec` must have been created with the same `T` and `S` type parameters.
+    pub const unsafe fn from_raw(ptr: NonNull<Header<S>>) -> Self {
+        Self {
+            ptr,
+            _phantom: PhantomData,
+        }
+    }
+
+    /// Borrows the data behind a raw header pointer as a shared slice, without taking ownership.
+    ///
+    /// # Safety
+    ///
+    /// - `ptr` must have been obtained from [`ThinVec::into_raw`] and must not have been freed.
+    /// - The `ThinVec` must have been created with the same `T` and `S` type parameters.
+    /// - The returned slice must not outlive the allocation.
+    /// - No mutable references to the data may exist for the duration of the returned borrow.
+    pub unsafe fn borrow_from_raw<'a>(ptr: *const Header<S>) -> &'a [T] {
+        // SAFETY: The caller guarantees the pointer is valid and was produced by into_raw.
+        let header = unsafe { &*ptr };
+        let len = header.len().to_usize();
+        let data = Self::data_raw_from_header(ptr, header.capacity());
+        // SAFETY: The caller guarantees the data is valid and properly initialized up to len.
+        unsafe { slice::from_raw_parts(data, len) }
+    }
+
+    /// Borrows the data behind a raw header pointer as a mutable slice, without taking ownership.
+    ///
+    /// # Safety
+    ///
+    /// - `ptr` must have been obtained from [`ThinVec::into_raw`] and must not have been freed.
+    /// - The `ThinVec` must have been created with the same `T` and `S` type parameters.
+    /// - The returned slice must not outlive the allocation.
+    /// - No other references (shared or mutable) to the data may exist for the duration of the
+    ///   returned borrow.
+    pub unsafe fn borrow_mut_from_raw<'a>(ptr: *mut Header<S>) -> &'a mut [T] {
+        // SAFETY: The caller guarantees the pointer is valid and was produced by into_raw.
+        let header = unsafe { &*ptr };
+        let len = header.len().to_usize();
+        let data = Self::data_raw_from_header(ptr as *const Header<S>, header.capacity());
+        // SAFETY: The caller guarantees the data is valid, properly initialized, and exclusively
+        // borrowed.
+        unsafe { slice::from_raw_parts_mut(data, len) }
+    }
+
+    /// Computes the data pointer from a header pointer and capacity.
+    ///
+    /// This is the static counterpart of [`ThinVec::data_raw`], used by the `borrow_*_from_raw`
+    /// methods that don't have a `&self`.
+    fn data_raw_from_header(header_ptr: *const Header<S>, cap: S) -> *mut T {
+        let header_field_padding = header_field_padding::<T, S>();
+        let singleton_header_is_aligned =
+            mem::align_of::<Header<S>>() >= mem::align_of::<T>() && header_field_padding == 0;
+
+        if !singleton_header_is_aligned && cap == S::ZERO {
+            NonNull::dangling().as_ptr()
+        } else {
+            let header_size = mem::size_of::<Header<S>>();
+            let ptr = header_ptr as *mut u8;
+            // SAFETY: Same reasoning as in data_raw — the offset is within the allocation.
+            unsafe { ptr.add(header_size + header_field_padding) as *mut T }
+        }
+    }
 }
 
 impl<T: Clone, S: VecCapacity> ThinVec<T, S> {
@@ -2260,5 +2342,97 @@ mod tests {
         v64.push(1);
         v64.push(2);
         assert_eq!(v64.len(), 2);
+    }
+
+    #[test]
+    fn test_into_raw_from_raw_roundtrip() {
+        let mut v: SmallThinVec<i32> = SmallThinVec::new();
+        v.push(10);
+        v.push(20);
+        v.push(30);
+
+        let ptr = v.into_raw();
+
+        // SAFETY: ptr was just obtained from into_raw.
+        let recovered = unsafe { SmallThinVec::<i32>::from_raw(ptr) };
+        assert_eq!(recovered.len(), 3);
+        assert_eq!(&*recovered, &[10, 20, 30]);
+        // recovered is dropped here, freeing the allocation
+    }
+
+    #[test]
+    fn test_into_raw_empty() {
+        let v: SmallThinVec<i32> = SmallThinVec::new();
+        let ptr = v.into_raw();
+
+        // SAFETY: ptr was just obtained from into_raw.
+        let recovered = unsafe { SmallThinVec::<i32>::from_raw(ptr) };
+        assert_eq!(recovered.len(), 0);
+        assert!(recovered.is_empty());
+    }
+
+    #[test]
+    fn test_borrow_from_raw() {
+        let mut v: SmallThinVec<i32> = SmallThinVec::new();
+        v.push(100);
+        v.push(200);
+
+        let ptr = v.into_raw();
+
+        // SAFETY: ptr was just obtained from into_raw, and we don't hold mutable references.
+        let slice = unsafe { SmallThinVec::<i32>::borrow_from_raw(ptr.as_ptr()) };
+        assert_eq!(slice, &[100, 200]);
+
+        // SAFETY: ptr was obtained from into_raw and is still valid.
+        let recovered = unsafe { SmallThinVec::<i32>::from_raw(ptr) };
+        drop(recovered);
+    }
+
+    #[test]
+    fn test_borrow_mut_from_raw() {
+        let mut v: SmallThinVec<i32> = SmallThinVec::new();
+        v.push(1);
+        v.push(2);
+
+        let ptr = v.into_raw();
+
+        // SAFETY: ptr was just obtained from into_raw, and we have exclusive access.
+        let slice = unsafe { SmallThinVec::<i32>::borrow_mut_from_raw(ptr.as_ptr()) };
+        slice[0] = 42;
+        slice[1] = 99;
+
+        // SAFETY: ptr was obtained from into_raw and is still valid.
+        let recovered = unsafe { SmallThinVec::<i32>::from_raw(ptr) };
+        assert_eq!(&*recovered, &[42, 99]);
+    }
+
+    #[test]
+    fn test_borrow_from_raw_empty() {
+        let v: SmallThinVec<i32> = SmallThinVec::new();
+        let ptr = v.into_raw();
+
+        // SAFETY: ptr was just obtained from into_raw.
+        let slice = unsafe { SmallThinVec::<i32>::borrow_from_raw(ptr.as_ptr()) };
+        assert!(slice.is_empty());
+
+        // SAFETY: ptr was obtained from into_raw and is still valid.
+        let recovered = unsafe { SmallThinVec::<i32>::from_raw(ptr) };
+        drop(recovered);
+    }
+
+    #[test]
+    fn test_as_header_ptr() {
+        let mut v: SmallThinVec<i32> = SmallThinVec::new();
+        v.push(5);
+        v.push(10);
+
+        let ptr = v.as_header_ptr();
+
+        // SAFETY: ptr comes from a live ThinVec, and we only hold shared references.
+        let slice = unsafe { SmallThinVec::<i32>::borrow_from_raw(ptr.as_ptr()) };
+        assert_eq!(slice, &[5, 10]);
+
+        // v is still alive and valid
+        assert_eq!(v.len(), 2);
     }
 }

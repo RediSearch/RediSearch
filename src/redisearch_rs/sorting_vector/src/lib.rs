@@ -10,10 +10,12 @@
 use std::{
     fmt,
     ops::{Index, IndexMut},
+    ptr::NonNull,
     slice::{Iter, IterMut},
 };
 
 use icu_casemap::CaseMapper;
+use thin_vec::{SmallThinVec, VecCapacity, header::Header};
 use value::RSValueFFI;
 
 /// IndexOutOfBounds error can be returned by [`RSSortingVector::try_insert_num`] and the other `try_insert_*` methods.
@@ -38,17 +40,23 @@ impl std::error::Error for IndexOutOfBounds {}
 ///
 /// The fields in the sorting vector occur in the same order as they appeared in the document. Fields that are not sortable,
 /// are not added at all to the sorting vector, i.e. the sorting vector does not contain null values for non-sortable fields.
+///
+/// # Memory layout
+///
+/// `RSSortingVector` is backed by a [`SmallThinVec`] which stores `{len(u16), cap(u16), [RSValueFFI; N]}`
+/// in a single heap allocation behind one pointer. When exposed to C via FFI, the raw header pointer
+/// is passed directly — no outer `Box` wrapper — giving one allocation and one dereference.
 #[derive(Debug, Clone)]
 pub struct RSSortingVector {
-    values: Box<[RSValueFFI]>,
+    values: SmallThinVec<RSValueFFI>,
 }
 
 impl RSSortingVector {
     /// Creates a new [`RSSortingVector`] with the given length.
     pub fn new(len: usize) -> Self {
-        Self {
-            values: vec![RSValueFFI::null_static(); len].into_boxed_slice(),
-        }
+        let mut values = SmallThinVec::new();
+        values.resize(len, RSValueFFI::null_static());
+        Self { values }
     }
 
     /// Returns an immutable reference to the value at index `index`,
@@ -127,10 +135,18 @@ impl RSSortingVector {
     /// The implementation by-passes references in the middle of the chain, so it only counts the size of the final value,
     /// as in C.
     pub fn get_memory_size(&self) -> usize {
-        let mut sz = self.values.len() * size_of::<RSValueFFI>();
+        Self::compute_memory_size(&self.values)
+    }
 
-        for idx in 0..self.values.len() {
-            if self.values[idx].is_null() {
+    /// Compute the memory size of a slice of [`RSValueFFI`] values.
+    ///
+    /// This is a static version of [`RSSortingVector::get_memory_size`] that can be used with
+    /// borrowed slices from raw pointers.
+    pub fn compute_memory_size(values: &[RSValueFFI]) -> usize {
+        let mut sz = std::mem::size_of_val(values);
+
+        for value in values {
+            if value.is_null() {
                 continue;
             }
 
@@ -138,13 +154,95 @@ impl RSSortingVector {
 
             // the original behavior would by-pass references in the middle of the chain
             // fixup in: MOD-10347
-            let value = self.values[idx].deep_deref();
+            let value = value.deep_deref();
 
             if value.get_type() == ffi::RSValueType_RSValueType_String {
                 sz += value.as_str_bytes().unwrap().len();
             }
         }
         sz
+    }
+
+    /// Returns the raw header pointer of the backing [`SmallThinVec`] without consuming the
+    /// `RSSortingVector`. This is useful for storing the pointer in contexts where the sorting
+    /// vector is borrowed (e.g., `RLookupRow`).
+    pub const fn as_raw_ptr(&self) -> *const Header<u16> {
+        self.values.as_header_ptr().as_ptr()
+    }
+
+    /// Consumes the `RSSortingVector` and returns a raw pointer to the backing [`SmallThinVec`]
+    /// header allocation.
+    ///
+    /// The caller is responsible for eventually calling [`RSSortingVector::from_raw_ptr`] to free
+    /// the memory.
+    pub fn into_raw_ptr(self) -> NonNull<Header<u16>> {
+        self.values.into_raw()
+    }
+
+    /// Reconstructs an `RSSortingVector` from a raw header pointer previously obtained via
+    /// [`RSSortingVector::into_raw_ptr`].
+    ///
+    /// # Safety
+    ///
+    /// - `ptr` must have been obtained from [`RSSortingVector::into_raw_ptr`] and must not have
+    ///   been freed.
+    pub const unsafe fn from_raw_ptr(ptr: NonNull<Header<u16>>) -> Self {
+        Self {
+            // SAFETY: The caller guarantees the pointer was obtained from into_raw_ptr.
+            values: unsafe { SmallThinVec::from_raw(ptr) },
+        }
+    }
+
+    /// Borrows the data behind a raw header pointer as a shared slice, without taking ownership.
+    ///
+    /// # Safety
+    ///
+    /// - `ptr` must have been obtained from [`RSSortingVector::into_raw_ptr`] and must not have
+    ///   been freed.
+    /// - The returned slice must not outlive the allocation.
+    /// - No mutable references to the data may exist for the duration of the returned borrow.
+    pub unsafe fn borrow_values_from_raw<'a>(ptr: *const Header<u16>) -> &'a [RSValueFFI] {
+        // SAFETY: The caller guarantees the pointer is valid and was produced by into_raw_ptr.
+        unsafe { SmallThinVec::<RSValueFFI>::borrow_from_raw(ptr) }
+    }
+
+    /// Borrows the data behind a raw header pointer as a mutable slice, without taking ownership.
+    ///
+    /// # Safety
+    ///
+    /// - `ptr` must have been obtained from [`RSSortingVector::into_raw_ptr`] and must not have
+    ///   been freed.
+    /// - The returned slice must not outlive the allocation.
+    /// - No other references to the data may exist for the duration of the returned borrow.
+    pub unsafe fn borrow_values_mut_from_raw<'a>(ptr: *mut Header<u16>) -> &'a mut [RSValueFFI] {
+        // SAFETY: The caller guarantees the pointer is valid and exclusively borrowed.
+        unsafe { SmallThinVec::<RSValueFFI>::borrow_mut_from_raw(ptr) }
+    }
+
+    /// Borrows values from an opaque raw pointer (as used by C FFI).
+    ///
+    /// This is a convenience wrapper around [`Self::borrow_values_from_raw`] that casts from the
+    /// opaque `*const ()` type used in `RLookupRow` to the concrete header pointer type.
+    ///
+    /// # Safety
+    ///
+    /// Same requirements as [`Self::borrow_values_from_raw`].
+    pub unsafe fn borrow_values_from_opaque_ptr<'a>(ptr: *const ()) -> &'a [RSValueFFI] {
+        // SAFETY: The caller guarantees the pointer is a valid header pointer.
+        unsafe { Self::borrow_values_from_raw(ptr as *const Header<u16>) }
+    }
+
+    /// Returns the length stored in the header at the given opaque raw pointer, without borrowing
+    /// the data slice.
+    ///
+    /// # Safety
+    ///
+    /// - `ptr` must have been obtained from [`RSSortingVector::into_raw_ptr`] (or
+    ///   [`RSSortingVector::as_raw_ptr`]) and must not have been freed.
+    pub unsafe fn len_from_opaque_ptr(ptr: *const ()) -> usize {
+        // SAFETY: The caller guarantees the pointer is a valid header pointer.
+        let header = unsafe { &*(ptr as *const Header<u16>) };
+        header.len().to_usize()
     }
 }
 
@@ -159,10 +257,9 @@ impl FromIterator<RSValueFFI> for RSSortingVector {
 // Consuming iterator: yields owned T by consuming the vector.
 impl IntoIterator for RSSortingVector {
     type Item = RSValueFFI;
-    type IntoIter = std::vec::IntoIter<RSValueFFI>;
+    type IntoIter = thin_vec::IntoIter<RSValueFFI, u16>;
     fn into_iter(self) -> Self::IntoIter {
-        // this does not use a new allocation
-        Vec::from(self.values).into_iter()
+        self.values.into_iter()
     }
 }
 

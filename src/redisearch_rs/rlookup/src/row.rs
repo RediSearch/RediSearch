@@ -7,19 +7,26 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use std::marker::PhantomData;
+use std::{borrow::Cow, ffi::CStr};
+
 use crate::{
     RLookup, RLookupKey, RLookupKeyFlag, RLookupKeyFlags, SchemaRule, lookup::TRANSIENT_FLAGS,
 };
 use sorting_vector::RSSortingVector;
-use std::{borrow::Cow, ffi::CStr};
 use value::RSValueFFI;
 
-/// Row data for a lookup key. This abstracts the question of if the data comes from a borrowed [RSSortingVector]
-/// or from dynamic values stored in the row during processing.
+/// Row data for a lookup key. This abstracts the question of if the data comes from a borrowed
+/// sorting vector or from dynamic values stored in the row during processing.
+///
+/// The sorting vector is stored as an opaque raw pointer to the `SmallThinVec` header
+/// allocation. This allows the same pointer to round-trip through C FFI without requiring a
+/// Rust `RSSortingVector` struct to exist in memory.
 #[derive(Debug)]
 pub struct RLookupRow<'a> {
-    /// Sorting vector attached to document
-    sorting_vector: Option<&'a RSSortingVector>,
+    /// Raw pointer to the sorting vector's ThinVec header allocation.
+    /// Null if no sorting vector is set. Use [`RLookupRow::sorting_values`] to access the data.
+    sorting_vector_ptr: *const (),
 
     /// Dynamic values obtained from prior processing
     dyn_values: Vec<Option<RSValueFFI>>,
@@ -27,6 +34,10 @@ pub struct RLookupRow<'a> {
     /// The number of values in [`RLookupRow::dyn_values`] that are `is_some()`. Note that this
     /// is not the length of [`RLookupRow::dyn_values`]
     num_dyn_values: u32,
+
+    /// Ties the lifetime `'a` to this struct so the borrow checker ensures the sorting vector
+    /// (set via [`RLookupRow::set_sorting_vector`]) outlives this row.
+    _phantom: PhantomData<&'a ()>,
 }
 
 impl<'a> Default for RLookupRow<'a> {
@@ -37,12 +48,13 @@ impl<'a> Default for RLookupRow<'a> {
 
 impl<'a> RLookupRow<'a> {
     /// Creates a new `RLookupRow` with an empty [`RLookupRow::dyn_values`] vector and
-    /// a [`RLookupRow::sorting_vector`] of the given length.
+    /// no sorting vector.
     pub const fn new() -> Self {
         Self {
-            sorting_vector: None,
+            sorting_vector_ptr: std::ptr::null(),
             dyn_values: vec![],
             num_dyn_values: 0,
+            _phantom: PhantomData,
         }
     }
 
@@ -169,14 +181,38 @@ impl<'a> RLookupRow<'a> {
         self.dyn_values.resize(capacity, None);
     }
 
-    /// Readonly access to [`RLookupRow::sorting_vector`], it may be `None` if no sorting vector was set.
-    pub const fn sorting_vector(&self) -> Option<&RSSortingVector> {
-        self.sorting_vector
+    /// Returns the sorting vector values as a slice, or `None` if no sorting vector was set.
+    pub fn sorting_values(&self) -> Option<&[RSValueFFI]> {
+        if self.sorting_vector_ptr.is_null() {
+            return None;
+        }
+        // SAFETY: The pointer was set via `set_sorting_vector` or `set_sorting_vector_raw`,
+        // both of which guarantee the pointer is valid for the lifetime `'a`.
+        Some(unsafe { RSSortingVector::borrow_values_from_opaque_ptr(self.sorting_vector_ptr) })
     }
 
-    /// Borrow a sorting vector for the row.
-    pub const fn set_sorting_vector(&mut self, sv: Option<&'a RSSortingVector>) {
-        self.sorting_vector = sv;
+    /// Returns the raw sorting vector pointer for FFI round-tripping.
+    /// Returns null if no sorting vector is set.
+    pub const fn sorting_vector_ptr(&self) -> *const () {
+        self.sorting_vector_ptr
+    }
+
+    /// Set the sorting vector from a Rust-owned reference.
+    ///
+    /// The lifetime `'a` ensures the sorting vector outlives this row.
+    pub fn set_sorting_vector(&mut self, sv: Option<&'a RSSortingVector>) {
+        self.sorting_vector_ptr = sv.map_or(std::ptr::null(), |sv| sv.as_raw_ptr() as *const ());
+    }
+
+    /// Set the sorting vector from a raw opaque pointer (for FFI use).
+    ///
+    /// # Safety
+    ///
+    /// - `ptr` must have been obtained from [`RSSortingVector::into_raw_ptr`] or
+    ///   [`RSSortingVector::as_raw_ptr`] and must not have been freed.
+    /// - The allocation must remain valid for the lifetime `'a`.
+    pub const unsafe fn set_sorting_vector_raw(&mut self, ptr: *const ()) {
+        self.sorting_vector_ptr = ptr;
     }
 
     /// The number of values in [`RLookupRow::dyn_values`] that are `is_some()`. Note that this
@@ -207,7 +243,7 @@ impl<'a> RLookupRow<'a> {
             // Filter it out so callers see `None` for absent fields, mirroring the C
             // guard in `RLookupRow_Get`:
             //   `if (ret != NULL && ret == RSValue_NullStatic()) ret = NULL;`
-            self.sorting_vector()?
+            self.sorting_values()?
                 .get(key.svidx as usize)
                 .filter(|v| v.get_type() != ffi::RSValueType_RSValueType_Null)
         } else {
@@ -261,7 +297,7 @@ impl<'a> RLookupRow<'a> {
             *value = None;
             self.num_dyn_values -= 1;
         }
-        self.sorting_vector = None;
+        self.sorting_vector_ptr = std::ptr::null();
     }
 
     /// Resets the row, clearing the dynamic values. This effectively wipes the row and deallocates the memory used for dynamic values.

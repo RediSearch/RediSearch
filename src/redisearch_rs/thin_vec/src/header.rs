@@ -16,7 +16,7 @@ impl<S: VecCapacity> Header<S> {
     }
 
     #[inline]
-    pub(crate) const fn len(&self) -> S {
+    pub const fn len(&self) -> S {
         self.len
     }
 

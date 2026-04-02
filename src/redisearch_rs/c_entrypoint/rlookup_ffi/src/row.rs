@@ -13,7 +13,7 @@ use rlookup::{OpaqueRLookupRow, RLookup, RLookupKey, RLookupRow};
 use std::{
     ffi::{CStr, c_char},
     mem::{self, ManuallyDrop},
-    ptr::{self, NonNull},
+    ptr::NonNull,
     slice,
 };
 use value::RSValueFFI;
@@ -347,9 +347,7 @@ pub unsafe extern "C" fn RLookupRow_GetSortingVector(
     // Safety: ensured by caller (1.)
     let row = unsafe { RLookupRow::from_opaque_ptr(row).unwrap() };
 
-    row.sorting_vector()
-        .map(ptr::from_ref)
-        .unwrap_or(std::ptr::null())
+    row.sorting_vector_ptr() as *const sorting_vector::RSSortingVector
 }
 
 /// Sets the sorting vector for the row.
@@ -357,7 +355,9 @@ pub unsafe extern "C" fn RLookupRow_GetSortingVector(
 /// # Safety
 ///
 /// 1. `row` must be a [valid], non-null pointer to an [`RLookupRow`].
-/// 2. `sv` must be either null or a [valid], non-null pointer to an [`sorting_vector::RSSortingVector`].
+/// 2. `sv` must be either null or a [valid] pointer to an [`sorting_vector::RSSortingVector`]
+///    created by `RSSortingVector_New`. The allocation must remain valid for the lifetime of
+///    the row.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
@@ -368,8 +368,7 @@ pub unsafe extern "C" fn RLookupRow_SetSortingVector(
     // Safety: ensured by caller (1.)
     let row = unsafe { RLookupRow::from_opaque_non_null(row.expect("`row` must not be null")) };
 
-    // Safety: ensured by caller (2.)
-    let sv = unsafe { sv.as_ref() };
-
-    row.set_sorting_vector(sv);
+    // Safety: ensured by caller (2.) — the pointer is either null or a valid ThinVec header
+    // pointer from RSSortingVector_New.
+    unsafe { row.set_sorting_vector_raw(sv as *const ()) };
 }

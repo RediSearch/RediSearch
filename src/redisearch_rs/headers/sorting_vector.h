@@ -148,6 +148,9 @@ void RSSortingVector_PutNull(RSSortingVector *vec,
 /**
  * Creates a new `RSSortingVector` with the given length.
  *
+ * Returns a raw pointer to the backing `SmallThinVec` header allocation. This is a single
+ * heap allocation containing `{len, cap, [RSValueFFI; len]}`.
+ *
  * # Panics
  *
  * Panics if `len` is greater than [`RS_SORTABLES_MAX`].

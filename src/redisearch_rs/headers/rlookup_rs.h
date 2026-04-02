@@ -128,6 +128,12 @@ typedef struct RLookup RLookup;
  *
  * The fields in the sorting vector occur in the same order as they appeared in the document. Fields that are not sortable,
  * are not added at all to the sorting vector, i.e. the sorting vector does not contain null values for non-sortable fields.
+ *
+ * # Memory layout
+ *
+ * `RSSortingVector` is backed by a [`SmallThinVec`] which stores `{len(u16), cap(u16), [RSValueFFI; N]}`
+ * in a single heap allocation behind one pointer. When exposed to C via FFI, the raw header pointer
+ * is passed directly — no outer `Box` wrapper — giving one allocation and one dereference.
  */
 typedef struct RSSortingVector RSSortingVector;
 
@@ -773,12 +779,13 @@ const struct RSSortingVector *RLookupRow_GetSortingVector(const struct RLookupRo
  * # Safety
  *
  * 1. `row` must be a [valid], non-null pointer to an [`RLookupRow`].
- * 2. `sv` must be either null or a [valid], non-null pointer to an [`sorting_vector::RSSortingVector`].
+ * 2. `sv` must be either null or a [valid] pointer to an [`sorting_vector::RSSortingVector`]
+ *    created by `RSSortingVector_New`. The allocation must remain valid for the lifetime of
+ *    the row.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-void RLookupRow_SetSortingVector(struct RLookupRow *row,
-                                 const struct RSSortingVector *sv);
+void RLookupRow_SetSortingVector(struct RLookupRow *row, const struct RSSortingVector *sv);
 
 #ifdef __cplusplus
 }  // extern "C"
