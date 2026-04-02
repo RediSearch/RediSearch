@@ -11,7 +11,7 @@ use crate::{
     RLookup, RLookupKey, RLookupKeyFlag, RLookupKeyFlags, SchemaRule, lookup::TRANSIENT_FLAGS,
 };
 use std::{borrow::Cow, ffi::CStr, marker::PhantomData, ptr::NonNull};
-use thin_vec::MediumThinVec;
+use thin_vec::ThinVec;
 use value::RSValueFFI;
 
 /// Tests if the given [`RLookupKey`] is a special key (lang, score, or payload field)
@@ -35,7 +35,7 @@ pub struct RLookupRow<'a> {
     sorting_vector: NonNull<RSValueFFI>,
 
     /// Dynamic values obtained from prior processing
-    dyn_values: MediumThinVec<Option<RSValueFFI>>,
+    dyn_values: ThinVec<Option<RSValueFFI>>,
 
     /// Length of the sorting vector slice. Zero means no sorting vector is set.
     sorting_vector_len: u16,
@@ -61,7 +61,7 @@ impl<'a> RLookupRow<'a> {
         Self {
             sorting_vector: NonNull::dangling(),
             sorting_vector_len: 0,
-            dyn_values: MediumThinVec::new(),
+            dyn_values: ThinVec::new(),
             num_dyn_values: 0,
             _lifetime: PhantomData,
         }
@@ -300,7 +300,7 @@ impl<'a> RLookupRow<'a> {
     /// It does not affect the sorting vector.
     pub fn reset_dyn_values(&mut self) {
         self.num_dyn_values = 0;
-        self.dyn_values = MediumThinVec::new();
+        self.dyn_values = ThinVec::new();
     }
 
     /// Write fields from a source row into this row.
