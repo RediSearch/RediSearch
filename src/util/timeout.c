@@ -23,9 +23,10 @@ bool condTimedWait(pthread_cond_t *cond, pthread_mutex_t *lock,
   }
 
   // Calculate remaining time from CLOCK_MONOTONIC_RAW
-  struct timespec nowRaw, remaining;
+  struct timespec nowRaw;
+  struct timespec remaining;
   clock_gettime(CLOCK_MONOTONIC_RAW, &nowRaw);
-  rs_timerremaining((struct timespec *)abstimeMono, &nowRaw, &remaining);
+  rs_timerremaining(abstimeMono, &nowRaw, &remaining);
   // Check if already past deadline
   if (remaining.tv_sec == 0 && remaining.tv_nsec == 0) {
     return true;  // timed out
@@ -34,7 +35,8 @@ bool condTimedWait(pthread_cond_t *cond, pthread_mutex_t *lock,
   return pthread_cond_timedwait_relative_np(cond, lock, &remaining) == ETIMEDOUT;
 #else
   // Convert to CLOCK_MONOTONIC absolute time for the condition variable
-  struct timespec nowMono, absMono;
+  struct timespec nowMono;
+  struct timespec absMono;
   clock_gettime(CLOCK_MONOTONIC, &nowMono);
   rs_timeradd(&nowMono, &remaining, &absMono);
   return pthread_cond_timedwait(cond, lock, &absMono) == ETIMEDOUT;

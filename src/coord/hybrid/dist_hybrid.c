@@ -686,7 +686,7 @@ static void FreeCursorMappings(void *mappings) {
   rm_free(mappings);
 }
 
-static int HybridRequest_executePlan(HybridRequest *hreq, struct ConcurrentCmdCtx *cmdCtx,
+static int HybridRequest_executePlan(HybridRequest *hreq,
                         RedisModule_Reply *reply, QueryError *status) {
 
     // Get RPNet structures from query context
@@ -860,15 +860,12 @@ void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     // Store coordinator start time for dispatch time tracking
     hreq->profileClocks.coordStartTime = ConcurrentCmdCtx_GetCoordStartTime(cmdCtx);
 
-    // Get numShards captured from main thread for thread-safe access
-    size_t numShards = ConcurrentCmdCtx_GetNumShards(cmdCtx);
-
     if (HybridRequest_prepareForExecution(hreq, ctx, argv, argc, sp, &status) != REDISMODULE_OK) {
       DistHybridCleanups(ctx, cmdCtx, sp, &strong_ref, hreq, reply, &status);
       return;
     }
 
-    if (HybridRequest_executePlan(hreq, cmdCtx, reply, &status) != REDISMODULE_OK) {
+    if (HybridRequest_executePlan(hreq, reply, &status) != REDISMODULE_OK) {
         DistHybridCleanups(ctx, cmdCtx, sp, &strong_ref, hreq, reply, &status);
         return;
     }

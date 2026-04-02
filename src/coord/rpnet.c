@@ -200,8 +200,8 @@ int getNextReply(RPNet *nc) {
     size_t numShards;
     while ((numShards = atomic_load(&nc->shardResponseBarrier->base.numShards)) == 0 ||
            atomic_load(&nc->shardResponseBarrier->base.numResponded) < numShards) {
-      // Check for timeout to avoid blocking indefinitely
-      if (nc->areq && nc->areq->sctx && TimedOut(&nc->areq->sctx->time.timeout)) {
+      // Check for timeout to avoid blocking indefinitely (respecting skipTimeoutChecks flag)
+      if (nc->areq && nc->areq->sctx && !nc->areq->sctx->time.skipTimeoutChecks && TimedOut(&nc->areq->sctx->time.timeout)) {
         break;
       }
       // Get next reply with timeout (uses CLOCK_MONOTONIC_RAW based timeout)

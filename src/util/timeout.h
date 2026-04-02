@@ -43,7 +43,7 @@ static inline int rs_timer_ge(const struct timespec *a, const struct timespec *b
   return a->tv_sec >= b->tv_sec;
 }
 
-static inline void rs_timeradd(struct timespec *a, struct timespec *b, struct timespec *result) {
+static inline void rs_timeradd(const struct timespec *a, const struct timespec *b, struct timespec *result) {
   result->tv_sec = a->tv_sec + b->tv_sec;
   result->tv_nsec = a->tv_nsec + b->tv_nsec;
   if (result->tv_nsec >= 1000000000) {
@@ -52,7 +52,7 @@ static inline void rs_timeradd(struct timespec *a, struct timespec *b, struct ti
   }
 }
 
-static inline void rs_timersub(struct timespec *a, struct timespec *b, struct timespec *result) {
+static inline void rs_timersub(const struct timespec *a, const struct timespec *b, struct timespec *result) {
   result->tv_sec = a->tv_sec - b->tv_sec;
   result->tv_nsec = a->tv_nsec - b->tv_nsec;
   if (result->tv_nsec < 0) {
@@ -61,7 +61,7 @@ static inline void rs_timersub(struct timespec *a, struct timespec *b, struct ti
   }
 }
 
-static inline void rs_timerremaining(struct timespec *a, struct timespec *b, struct timespec *result) {
+static inline void rs_timerremaining(const struct timespec *a, const struct timespec *b, struct timespec *result) {
   rs_timersub(a, b, result);
   // If we ended up with a negative result, set to 0
   if (result->tv_sec < 0) {
@@ -70,7 +70,7 @@ static inline void rs_timerremaining(struct timespec *a, struct timespec *b, str
   }
 }
 
-static inline double rs_timer_ms(struct timespec *a){
+static inline double rs_timer_ms(const struct timespec *a){
   return a->tv_sec * 1000 + (double)a->tv_nsec / 1000000.0;
 }
 
