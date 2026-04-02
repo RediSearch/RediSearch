@@ -46,13 +46,14 @@ impl std::error::Error for IndexOutOfBounds {}
 /// simple read operations (length, element access) without FFI call overhead.
 #[repr(C)]
 pub struct RSSortingVector {
-    /// Pointer to an array of [`RSValueFFI`] values.
+    /// Pointer to an array of [`RSValueFFI`] values. Always non-null:
+    /// either dangling (when `len == 0`) or pointing to a valid heap allocation.
     ///
     /// In C this field is `RSValue **values`. The layout is identical because
-    /// [`RSValueFFI`] is `#[repr(transparent)]` over `NonNull<ffi::RSValue>`,
-    /// which has the same size and alignment as `*mut ffi::RSValue`
+    /// both [`NonNull<RSValueFFI>`] and [`RSValueFFI`] are `#[repr(transparent)]`
+    /// wrappers, so this has the same size and alignment as `*mut *mut ffi::RSValue`
     /// (verified by const assertions in `rs_value_ffi.rs`).
-    values: *mut RSValueFFI,
+    values: NonNull<RSValueFFI>,
     /// Number of elements in the array.
     len: usize,
 }
@@ -68,7 +69,7 @@ impl RSSortingVector {
     /// and `Vec::from_raw_parts` both accept a dangling pointer when the length is zero.
     pub const fn empty() -> Self {
         Self {
-            values: NonNull::dangling().as_ptr(),
+            values: NonNull::dangling(),
             len: 0,
         }
     }
@@ -81,23 +82,24 @@ impl RSSortingVector {
     /// Constructs from a `Vec`, taking ownership of its buffer.
     fn from_vec(v: Vec<RSValueFFI>) -> Self {
         let mut boxed = v.into_boxed_slice();
-        let ptr = boxed.as_mut_ptr();
+        // SAFETY: `Box::as_mut_ptr` on a non-ZST boxed slice always returns a non-null pointer.
+        let values = unsafe { NonNull::new_unchecked(boxed.as_mut_ptr()) };
         let len = boxed.len();
         std::mem::forget(boxed);
-        Self { values: ptr, len }
+        Self { values, len }
     }
 
     /// Returns the values as a slice.
     pub const fn as_slice(&self) -> &[RSValueFFI] {
         // SAFETY: `values` is either dangling (len==0) or from a valid `Vec` (len>0).
-        // Both satisfy `from_raw_parts` preconditions (non-null, aligned pointer).
-        unsafe { std::slice::from_raw_parts(self.values, self.len) }
+        // Both satisfy the preconditions (non-null, aligned pointer).
+        unsafe { NonNull::slice_from_raw_parts(self.values, self.len).as_ref() }
     }
 
     /// Returns the values as a mutable slice.
     const fn as_mut_slice(&mut self) -> &mut [RSValueFFI] {
         // SAFETY: Same as `as_slice`, plus we have exclusive access via `&mut self`.
-        unsafe { std::slice::from_raw_parts_mut(self.values, self.len) }
+        unsafe { NonNull::slice_from_raw_parts(self.values, self.len).as_mut() }
     }
 
     /// Returns an immutable reference to the value at index `index`,
@@ -194,10 +196,10 @@ impl RSSortingVector {
             // so capacity == len. Reconstructing the Vec lets it drop each `RSValueFFI`
             // (decrementing refcounts) and deallocate the buffer.
             unsafe {
-                let _ = Vec::from_raw_parts(self.values, self.len, self.len);
+                let _ = Vec::from_raw_parts(self.values.as_ptr(), self.len, self.len);
             }
         }
-        self.values = NonNull::dangling().as_ptr();
+        self.values = NonNull::dangling();
         self.len = 0;
     }
 
@@ -234,7 +236,7 @@ impl Drop for RSSortingVector {
         // and drops as a no-op. When len>0, values came from a Vec via into_boxed_slice
         // with capacity==len, so this reconstructs the original Vec for deallocation.
         unsafe {
-            let _ = Vec::from_raw_parts(self.values, self.len, self.len);
+            let _ = Vec::from_raw_parts(self.values.as_ptr(), self.len, self.len);
         };
     }
 }
@@ -267,7 +269,7 @@ impl IntoIterator for RSSortingVector {
     type IntoIter = std::vec::IntoIter<RSValueFFI>;
     fn into_iter(self) -> Self::IntoIter {
         // SAFETY: Same as `Drop` — valid for both dangling (len==0) and allocated (len>0).
-        let v = unsafe { Vec::from_raw_parts(self.values, self.len, self.len) };
+        let v = unsafe { Vec::from_raw_parts(self.values.as_ptr(), self.len, self.len) };
         // Prevent `Drop` from double-freeing the buffer.
         std::mem::forget(self);
         v.into_iter()
