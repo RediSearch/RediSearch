@@ -171,18 +171,13 @@ typedef struct RLookupKey {
 } RLookupKey;
 
 /**
- * A type with size `N`.
- */
-typedef uint8_t Size_48[48];
-
-/**
  * An opaque lookup row which can be passed by value to C.
  *
  * The size and alignment of this struct must match the Rust `RLookupRow`
  * structure exactly.
  */
 typedef struct ALIGNED(8) RLookupRow {
-  Size_48 _0;
+  Size_40 _0;
 } RLookupRow;
 
 /**

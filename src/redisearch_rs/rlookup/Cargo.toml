@@ -44,7 +44,7 @@ value = { workspace = true }
 # Crate required to invoke C symbols
 field_spec = { workspace = true, features = ["unittest"] }
 rlookup = { path = ".", features = ["unittest"] }
-redisearch_rs = { path = "../c_entrypoint/redisearch_rs" }
+redisearch_rs = { path = "../c_entrypoint/redisearch_rs", features = ["mock_allocator"] }
 redis_mock.workspace = true
 
 [build-dependencies]
