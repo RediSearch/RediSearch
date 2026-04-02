@@ -361,3 +361,18 @@ where
         NotOptimized::take_child(self)
     }
 }
+
+impl<'index> crate::interop::ProfileChildren<'index>
+    for NotOptimized<'index, crate::c2rust::CRQEIterator, crate::c2rust::CRQEIterator>
+{
+    fn profile_children(self) -> Self {
+        NotOptimized {
+            wcii: self.wcii.into_profiled(),
+            child: self.child.map(crate::c2rust::CRQEIterator::into_profiled),
+            max_doc_id: self.max_doc_id,
+            forced_eof: self.forced_eof,
+            result: self.result,
+            timeout_ctx: self.timeout_ctx,
+        }
+    }
+}

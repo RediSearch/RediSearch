@@ -440,3 +440,21 @@ where
         IteratorType::Union
     }
 }
+
+impl<'index, const QUICK_EXIT: bool> crate::interop::ProfileChildren<'index>
+    for UnionHeap<'index, crate::c2rust::CRQEIterator, QUICK_EXIT>
+{
+    fn profile_children(self) -> Self {
+        UnionHeap {
+            children: self
+                .children
+                .into_iter()
+                .map(crate::c2rust::CRQEIterator::into_profiled)
+                .collect(),
+            num_estimated: self.num_estimated,
+            is_eof: self.is_eof,
+            result: self.result,
+            heap: self.heap,
+        }
+    }
+}

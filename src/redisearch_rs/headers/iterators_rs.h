@@ -634,6 +634,21 @@ const struct ProfileCounters *ProfileIterator_GetCounters(const QueryIterator *i
 uint64_t ProfileIterator_GetWallTimeNs(const QueryIterator *it);
 
 /**
+ * Profile-wrap an iterator and its entire subtree.
+ *
+ * Wraps the iterator as a [`CRQEIterator`], calls
+ * [`CRQEIterator::into_profiled`](rqe_iterators::c2rust::CRQEIterator::into_profiled)
+ * (which recursively profiles all descendants), then returns the result
+ * as a `QueryIterator*`.
+ *
+ * # Safety
+ *
+ * 1. `iter` must be a valid non-null pointer to an implementation of the C query iterator API.
+ * 2. `iter` must not be aliased.
+ */
+QueryIterator *IntoProfiled(QueryIterator *iter);
+
+/**
  * Creates a new non-optimized wildcard iterator over the `[0, max_id]` document id range.
  */
 QueryIterator *NewWildcardIterator_NonOptimized(t_docId max_id, double weight);
