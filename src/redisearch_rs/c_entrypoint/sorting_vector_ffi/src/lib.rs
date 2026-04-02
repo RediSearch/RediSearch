@@ -18,6 +18,11 @@ use value::RSValueFFI;
 
 pub const RS_SORTABLES_MAX: usize = 1024;
 
+/// The dangling pointer value used by [`RSSortingVector::empty()`].
+/// Must equal `align_of::<RSValueFFI>()` (verified by the assertion below).
+pub const RS_SORTING_VECTOR_EMPTY_PTR: usize = 8;
+const _: () = assert!(RS_SORTING_VECTOR_EMPTY_PTR == std::mem::align_of::<RSValueFFI>());
+
 /// Returns the memory size of the sorting vector.
 ///
 /// # Safety
@@ -191,16 +196,6 @@ pub extern "C" fn RSSortingVector_New(len: size_t) -> RSSortingVector {
     );
 
     RSSortingVector::new(len)
-}
-
-/// Returns an empty [`RSSortingVector`] with no allocation.
-///
-/// The returned vector has a properly aligned dangling `values` pointer and zero length.
-/// C code must use this (or [`RSSortingVector_ClearAndDeAlloc`]) instead of zero-initializing
-/// the struct, because Rust requires `values` to be non-null and aligned at all times.
-#[unsafe(no_mangle)]
-pub extern "C" fn RSSortingVector_Empty() -> RSSortingVector {
-    RSSortingVector::empty()
 }
 
 /// Deallocates the inner values buffer of an [`RSSortingVector`] and zeros the struct.

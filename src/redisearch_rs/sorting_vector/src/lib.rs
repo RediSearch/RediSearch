@@ -191,13 +191,9 @@ impl RSSortingVector {
     /// Each [`RSValueFFI`] element is dropped (decrementing its refcount) and the
     /// heap buffer is freed. Calling `clear` on an already-cleared vector is a no-op.
     pub fn clear(&mut self) {
-        if self.len != 0 {
-            // SAFETY: `values` and `len` came from a `Vec<RSValueFFI>` via `into_boxed_slice`,
-            // so capacity == len. Reconstructing the Vec lets it drop each `RSValueFFI`
-            // (decrementing refcounts) and deallocate the buffer.
-            unsafe {
-                let _ = Vec::from_raw_parts(self.values.as_ptr(), self.len, self.len);
-            }
+        // SAFETY: Same as `Drop` — valid for both dangling (len==0) and allocated (len>0).
+        unsafe {
+            let _ = Vec::from_raw_parts(self.values.as_ptr(), self.len, self.len);
         }
         self.values = NonNull::dangling();
         self.len = 0;

@@ -16,6 +16,24 @@ typedef struct RSSortingVector {
 """
 
 trailer = """
+#ifdef __cplusplus
+extern \"C\" {
+#endif // __cplusplus
+
+/**
+ * Returns an empty RSSortingVector with no allocation.
+ *
+ * The `values` pointer is set to a dangling (non-null, aligned) address.
+ * C code must use this instead of zero-initializing the struct, because
+ * the Rust side requires `values` to be non-null at all times.
+ */
+static inline RSSortingVector RSSortingVector_Empty(void) {
+  RSSortingVector v;
+  v.values = (RSValue **)RS_SORTING_VECTOR_EMPTY_PTR;
+  v.len = 0;
+  return v;
+}
+
 /**
  * Returns the length of the sorting vector.
  */
@@ -31,6 +49,10 @@ static inline size_t RSSortingVector_Length(const RSSortingVector *v) {
 static inline RSValue *RSSortingVector_Get(const RSSortingVector *v, size_t idx) {
   return v->values[idx];
 }
+
+#ifdef __cplusplus
+}  // extern \"C\"
+#endif // __cplusplus
 """
 
 [parse]

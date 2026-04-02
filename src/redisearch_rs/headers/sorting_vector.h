@@ -20,6 +20,12 @@ typedef struct RSSortingVector {
 
 #define RS_SORTABLES_MAX 1024
 
+/**
+ * The dangling pointer value used by [`RSSortingVector::empty()`].
+ * Must equal `align_of::<RSValueFFI>()` (verified by the assertion below).
+ */
+#define RS_SORTING_VECTOR_EMPTY_PTR 8
+
 #ifdef __cplusplus
 extern "C" {
 #endif // __cplusplus
@@ -133,15 +139,6 @@ void RSSortingVector_PutNull(RSSortingVector *vec,
 RSSortingVector RSSortingVector_New(size_t len);
 
 /**
- * Returns an empty [`RSSortingVector`] with no allocation.
- *
- * The returned vector has a properly aligned dangling `values` pointer and zero length.
- * C code must use this (or [`RSSortingVector_ClearAndDeAlloc`]) instead of zero-initializing
- * the struct, because Rust requires `values` to be non-null and aligned at all times.
- */
-RSSortingVector RSSortingVector_Empty(void);
-
-/**
  * Deallocates the inner values buffer of an [`RSSortingVector`] and zeros the struct.
  *
  * Each [`RSValueFFI`] element is dropped (decrementing its refcount) and the heap buffer is freed.
@@ -160,6 +157,24 @@ void RSSortingVector_ClearAndDeAlloc(RSSortingVector *vec);
 }  // extern "C"
 #endif  // __cplusplus
 
+#ifdef __cplusplus
+extern "C" {
+#endif // __cplusplus
+
+/**
+ * Returns an empty RSSortingVector with no allocation.
+ *
+ * The `values` pointer is set to a dangling (non-null, aligned) address.
+ * C code must use this instead of zero-initializing the struct, because
+ * the Rust side requires `values` to be non-null at all times.
+ */
+static inline RSSortingVector RSSortingVector_Empty(void) {
+  RSSortingVector v;
+  v.values = (RSValue **)RS_SORTING_VECTOR_EMPTY_PTR;
+  v.len = 0;
+  return v;
+}
+
 /**
  * Returns the length of the sorting vector.
  */
@@ -175,3 +190,7 @@ static inline size_t RSSortingVector_Length(const RSSortingVector *v) {
 static inline RSValue *RSSortingVector_Get(const RSSortingVector *v, size_t idx) {
   return v->values[idx];
 }
+
+#ifdef __cplusplus
+}  // extern "C"
+#endif // __cplusplus
