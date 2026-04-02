@@ -366,15 +366,10 @@ pub unsafe extern "C" fn RLookupRow_GetSortingVector(
     // Safety: ensured by caller (1.)
     let row = unsafe { RLookupRow::from_opaque_ptr(row).unwrap() };
 
-    match row.sorting_vector() {
-        Some(slice) => RSSortingVectorSlice {
-            values: slice.as_ptr(),
-            len: slice.len(),
-        },
-        None => RSSortingVectorSlice {
-            values: std::ptr::null(),
-            len: 0,
-        },
+    let slice = row.sorting_vector();
+    RSSortingVectorSlice {
+        values: slice.as_ptr(),
+        len: slice.len(),
     }
 }
 
