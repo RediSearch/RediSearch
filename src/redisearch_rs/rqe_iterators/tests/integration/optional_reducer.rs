@@ -13,50 +13,15 @@ use inverted_index::RSResultKind;
 use rqe_iterators::{
     RQEIterator,
     empty::Empty,
-    optional_reducer::{OptionalReduction, new_optional_iterator},
+    optional_reducer::{NewOptionalIterator, new_optional_iterator},
     wildcard::Wildcard,
 };
+use rqe_iterators_test_utils::MockContext;
+
+use crate::utils::Mock;
 
 mod optional_reducer_tests {
     use super::*;
-
-    /// Build the minimum valid FFI context required to exercise the fallback
-    /// path through [`new_wildcard_iterator`]: `diskSpec` and `rule` are null,
-    /// so a plain [`Wildcard`] is returned for the given `max_doc_id`.
-    ///
-    /// The structs are heap-allocated so their addresses remain stable for the
-    /// duration of the call and the required pointer-chain is well-defined.
-    ///
-    /// # Safety
-    ///
-    /// All pointers in the returned [`ffi::QueryEvalCtx`] are valid for the
-    /// lifetime of the returned boxes and must not outlive them.
-    unsafe fn build_fallback_query(
-        max_doc_id: ffi::t_docId,
-    ) -> (
-        Box<ffi::DocTable>,
-        Box<ffi::IndexSpec>,
-        Box<ffi::RedisSearchCtx>,
-        Box<ffi::QueryEvalCtx>,
-    ) {
-        // SAFETY: All four types are `repr(C)` C structs whose fields are
-        // either pointers (nullable) or arithmetic types.  Zero-initialising
-        // them produces null pointers and zero numeric values, which is the
-        // intended state for the fallback path (diskSpec=null, rule=null).
-        let mut doc_table: Box<ffi::DocTable> = Box::new(unsafe { std::mem::zeroed() });
-        doc_table.maxDocId = max_doc_id;
-
-        let spec: Box<ffi::IndexSpec> = Box::new(unsafe { std::mem::zeroed() });
-
-        let mut sctx: Box<ffi::RedisSearchCtx> = Box::new(unsafe { std::mem::zeroed() });
-        sctx.spec = &raw const *spec as *mut _;
-
-        let mut query: Box<ffi::QueryEvalCtx> = Box::new(unsafe { std::mem::zeroed() });
-        query.sctx = &raw mut *sctx;
-        query.docTable = &raw mut *doc_table;
-
-        (doc_table, spec, sctx, query)
-    }
 
     /// Shortcircuit 1: when the child iterator is at EOF, the factory drops it
     /// and returns a wildcard that covers the full document range.
@@ -64,19 +29,17 @@ mod optional_reducer_tests {
     fn shortcircuit_1_empty_child_returns_wildcard_fallback() {
         const MAX_DOC_ID: ffi::t_docId = 10;
 
-        // SAFETY:
-        // - `build_fallback_query` produces a valid QueryEvalCtx whose
-        //   pointer-chain satisfies the preconditions of `new_optional_iterator`.
-        // - diskSpec=null and rule=null, so `new_wildcard_iterator` takes the
-        //   fallback path and never invokes any C code beyond pointer reads.
-        // - The returned boxes outlive the `new_optional_iterator` call.
-        let result = unsafe {
-            let (_doc_table, _spec, _sctx, mut query_box) = build_fallback_query(MAX_DOC_ID);
-            let query = NonNull::new(&raw mut *query_box).unwrap();
-            new_optional_iterator(Empty, 1.0, query, MAX_DOC_ID)
-        };
+        let ctx = MockContext::new(MAX_DOC_ID, 0);
 
-        let OptionalReduction::WildcardFallback(wc) = result else {
+        // SAFETY:
+        // - `ctx` provides a valid `QueryEvalCtx` whose pointer-chain satisfies
+        //   the preconditions of `new_optional_iterator`.
+        // - `spec.diskSpec` is null and `spec.rule.index_all` is false, so
+        //   `new_wildcard_iterator` takes the fallback path.
+        // - `ctx` outlives the `new_optional_iterator` call.
+        let result = unsafe { new_optional_iterator(Empty, 1.0, ctx.qctx(), MAX_DOC_ID) };
+
+        let NewOptionalIterator::WildcardFallback(mut wc) = result else {
             panic!("expected WildcardFallback, got a different variant");
         };
 
@@ -116,7 +79,7 @@ mod optional_reducer_tests {
         let result =
             unsafe { new_optional_iterator(child, NEW_WEIGHT, NonNull::dangling(), MAX_DOC_ID) };
 
-        let OptionalReduction::WildcardPassthrough(mut child) = result else {
+        let NewOptionalIterator::WildcardPassthrough(mut child) = result else {
             panic!("expected WildcardPassthrough, got a different variant");
         };
 
@@ -187,5 +150,56 @@ mod optional_reducer_tests {
         assert_eq!(current.doc_id, 1, "read position must not change");
         // Results from an InvIdxWildcard passthrough are virtual (RSResultData_Virtual in C++).
         assert_eq!(current.kind(), RSResultKind::Virtual);
+    }
+
+    /// Regular case — non-optimized index: child is a plain [`Mock`] iterator
+    /// (not empty, not a wildcard) and `rule.index_all` is false, so the factory
+    /// wraps it in a plain [`Optional`].
+    #[test]
+    fn regular_non_optimized_child_wrapped_in_optional() {
+        const MAX_DOC_ID: ffi::t_docId = 100;
+        const WEIGHT: f64 = 2.0;
+        const DOCS: [ffi::t_docId; 3] = [10, 20, 30];
+
+        let ctx = MockContext::new(MAX_DOC_ID, 0);
+        let child = Mock::new(DOCS);
+
+        // SAFETY: `ctx` provides a valid `QueryEvalCtx`; `rule.index_all` is
+        // false by default and `diskSpec` is null, so the regular `Optional`
+        // path is taken.
+        let result = unsafe { new_optional_iterator(child, WEIGHT, ctx.qctx(), MAX_DOC_ID) };
+
+        assert!(
+            matches!(result, NewOptionalIterator::Optional(_)),
+            "expected Optional, got a different variant"
+        );
+    }
+
+    /// Regular case — optimized index: child is a plain [`Mock`] iterator and
+    /// `rule.index_all` is true, so the factory wraps it in an
+    /// [`OptionalOptimized`] backed by an empty wildcard (because
+    /// `existingDocs` is null in the [`MockContext`]).
+    #[test]
+    fn regular_optimized_child_wrapped_in_optional_optimized() {
+        const MAX_DOC_ID: ffi::t_docId = 100;
+        const WEIGHT: f64 = 2.0;
+        const DOCS: [ffi::t_docId; 3] = [10, 20, 30];
+
+        let ctx = MockContext::new(MAX_DOC_ID, 0);
+        // SAFETY: no iterator from `ctx` is alive at this point.
+        unsafe { ctx.set_index_all(true) };
+
+        let child = Mock::new(DOCS);
+
+        // SAFETY: `ctx` provides a valid `QueryEvalCtx`; `rule.index_all` is
+        // true and `diskSpec` is null, so `new_wildcard_iterator_optimized` is
+        // called. `existingDocs` is null, so an `EmptyWildcard` is used as the
+        // wildcard side of the `OptionalOptimized`.
+        let result = unsafe { new_optional_iterator(child, WEIGHT, ctx.qctx(), MAX_DOC_ID) };
+
+        assert!(
+            matches!(result, NewOptionalIterator::OptionalOptimized(_)),
+            "expected OptionalOptimized, got a different variant"
+        );
     }
 }

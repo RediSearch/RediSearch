@@ -12,17 +12,17 @@
 
 use std::ptr::NonNull;
 
-use ffi::{t_docId, IteratorType};
+use ffi::{IteratorType, t_docId};
 
 use crate::{
+    RQEIterator,
     optional::Optional,
     optional_optimized::OptionalOptimized,
-    wildcard::{new_wildcard_iterator, WildcardIterator},
-    RQEIterator,
+    wildcard::{WildcardIterator, new_wildcard_iterator},
 };
 
 /// The outcome of [`new_optional_iterator`].
-pub enum OptionalReduction<'index, I: RQEIterator<'index> + 'index> {
+pub enum NewOptionalIterator<'index, I: RQEIterator<'index> + 'index> {
     /// Shortcircuit 1: child was structurally empty ([`crate::Empty`] or `EMPTY_ITERATOR`) — a wildcard is returned instead.
     ///
     /// All results will be virtual hits.
@@ -35,35 +35,29 @@ pub enum OptionalReduction<'index, I: RQEIterator<'index> + 'index> {
     WildcardPassthrough(I),
 
     /// Regular case, non-optimized index: wrap child in a plain [`Optional`].
-    Plain(Optional<'index, I>),
+    Optional(Optional<'index, I>),
 
-    /// Regular case, optimized index (`spec.diskSpec` non-null or
-    /// `spec.rule.index_all` set): wrap child in an [`OptionalOptimized`].
-    Optimized(OptionalOptimized<'index, Box<dyn WildcardIterator<'index> + 'index>, I>),
+    /// Regular case, optimized index (`spec.rule.index_all` set): wrap child in an [`OptionalOptimized`].
+    OptionalOptimized(OptionalOptimized<'index, Box<dyn WildcardIterator<'index> + 'index>, I>),
 }
 
 /// Create an optional iterator over `child`, applying shortcircuit reductions
 /// where possible.
 ///
-/// The caller is responsible for intercepting null and structurally-empty children
-/// (null C pointers, `EMPTY_ITERATOR`-typed C iterators, or [`crate::Empty`] Rust
-/// iterators) **before** calling this function, so that `child.is_empty()`
-/// reliably signals the empty case.
-///
 /// # Safety
 ///
-/// 1. `query` must be a valid non-null pointer to a [`ffi::QueryEvalCtx`] such that:
-///    - `query.sctx` is a non-null pointer to a valid [`ffi::RedisSearchCtx`].
-///    - `query.sctx.spec` is a non-null pointer to a valid [`ffi::IndexSpec`].
-///    - `query.sctx.spec.rule`, when non-null, points to a valid [`ffi::SchemaRule`].
-///    - `query.docTable` is a non-null pointer to a valid [`ffi::DocTable`].
-///    - All preconditions of [`new_wildcard_iterator`] are satisfied.
+/// 1. `query` must be a valid non-null pointer to a [`ffi::QueryEvalCtx`].
+/// 2. `query.sctx` is a non-null pointer to a valid [`ffi::RedisSearchCtx`].
+/// 3. `query.sctx.spec` is a non-null pointer to a valid [`ffi::IndexSpec`].
+/// 4. `query.sctx.spec.rule`, when non-null, points to a valid [`ffi::SchemaRule`].
+/// 5. `query.docTable` is a non-null pointer to a valid [`ffi::DocTable`].
+/// 6. All preconditions of [`new_wildcard_iterator`] are satisfied.
 pub unsafe fn new_optional_iterator<'index, I>(
     mut child: I,
     weight: f64,
     query: NonNull<ffi::QueryEvalCtx>,
     max_doc_id: t_docId,
-) -> OptionalReduction<'index, I>
+) -> NewOptionalIterator<'index, I>
 where
     I: RQEIterator<'index> + 'index,
 {
@@ -71,39 +65,42 @@ where
         // Shortcircuit 1: child is structurally empty — drop it and return a wildcard.
         IteratorType::Empty => {
             drop(child);
-            // SAFETY: caller guarantees all preconditions of `new_wildcard_iterator` (1).
+            // SAFETY: 6.
             let wc = unsafe { new_wildcard_iterator(query, 0.0) };
-            OptionalReduction::WildcardFallback(wc)
+            NewOptionalIterator::WildcardFallback(wc)
         }
         // Shortcircuit 2: child is already a wildcard — apply weight and pass through.
         IteratorType::Wildcard | IteratorType::InvIdxWildcard => {
             if let Some(current) = child.current() {
                 current.weight = weight;
             }
-            OptionalReduction::WildcardPassthrough(child)
+            NewOptionalIterator::WildcardPassthrough(child)
         }
         // Regular case: inspect the query context to pick the right variant.
         _ => {
-            // SAFETY: 1.
+            // SAFETY: 1, 2.
             let query_ref = unsafe { query.as_ref() };
-            // SAFETY: 1.
+            // SAFETY: 2.
             let sctx = unsafe { &*query_ref.sctx };
-            // SAFETY: 1.
+            // SAFETY: 3.
             let spec = unsafe { &*sctx.spec };
-            let optimized = NonNull::new(spec.rule)
-                // SAFETY: `spec.rule` is non-null (guaranteed by `NonNull::new` above) and
-                // points to a valid `SchemaRule` (1).
+            let index_all = NonNull::new(spec.rule)
+                // SAFETY: 4.
                 .map(|r| unsafe { r.as_ref() }.index_all)
                 .unwrap_or(false);
 
-            if optimized {
-                // SAFETY: 1.
+            if index_all {
+                debug_assert!(
+                    spec.diskSpec.is_null(),
+                    "diskSpec should be null when index_all is true"
+                );
+                // SAFETY: 6.
                 let wcii = unsafe { new_wildcard_iterator(query, 0.0) };
-                OptionalReduction::Optimized(OptionalOptimized::new(
+                NewOptionalIterator::OptionalOptimized(OptionalOptimized::new(
                     wcii, child, max_doc_id, weight,
                 ))
             } else {
-                OptionalReduction::Plain(Optional::new(max_doc_id, weight, child))
+                NewOptionalIterator::Optional(Optional::new(max_doc_id, weight, child))
             }
         }
     }

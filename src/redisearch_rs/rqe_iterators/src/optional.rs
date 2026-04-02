@@ -37,9 +37,7 @@ pub trait OptionalIterator<'index>: RQEIterator<'index> {
     ///
     /// Panics for iterator variants that do not support an absent child
     /// (e.g. [`crate::optional_optimized::OptionalOptimized`]).
-    fn unset_child(&mut self) {
-        panic!("`unset_child` is not supported for this optional iterator variant");
-    }
+    fn unset_child(&mut self);
 }
 
 impl<'index> OptionalIterator<'index> for Optional<'index, Box<dyn RQEIterator<'index> + 'index>> {

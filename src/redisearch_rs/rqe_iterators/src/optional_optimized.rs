@@ -104,6 +104,10 @@ where
     fn set_child(&mut self, child: Box<dyn RQEIterator<'index> + 'index>) {
         self.child = MaybeEmpty::new(child);
     }
+
+    fn unset_child(&mut self) {
+        panic!("`unset_child` is not supported for this optional iterator variant");
+    }
 }
 
 impl<'index, W, I> RQEIterator<'index> for OptionalOptimized<'index, W, I>
