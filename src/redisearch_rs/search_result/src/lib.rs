@@ -11,8 +11,7 @@ pub mod bindings;
 
 use enumflags2::{BitFlags, bitflags};
 use inverted_index::RSIndexResult;
-use rlookup::RLookupRow;
-use std::ptr::NonNull;
+use std::ptr::{self, NonNull};
 
 use crate::bindings::DocumentMetadata;
 
@@ -53,7 +52,7 @@ pub struct SearchResult<'index> {
     _index_result: Option<&'index RSIndexResult<'index>>,
 
     // Row data. Use RLookup_* functions to access
-    _row_data: RLookupRow<'index>,
+    _row_data: ffi::RLookupRow,
 
     _flags: SearchResultFlags,
 }
@@ -62,7 +61,10 @@ impl Drop for SearchResult<'_> {
     fn drop(&mut self) {
         self.clear();
 
-        self._row_data.reset_dyn_values();
+        // Safety: we own (and therefore correctly initialized) the row data struct and have mutable access to it.
+        unsafe {
+            ffi::RLookupRow_Reset(ptr::from_mut(&mut self._row_data));
+        }
     }
 }
 
@@ -80,7 +82,11 @@ impl<'index> SearchResult<'index> {
             _score_explain: None,
             _document_metadata: None,
             _index_result: None,
-            _row_data: RLookupRow::new(),
+            _row_data: ffi::RLookupRow {
+                sv: ptr::null(),
+                dyn_: ptr::null_mut(),
+                ndyn: 0,
+            },
             _flags: SearchResultFlags::from_bits_truncate_c(0, BitFlags::CONST_TOKEN),
         }
     }
@@ -101,7 +107,10 @@ impl<'index> SearchResult<'index> {
 
         self._flags = SearchResultFlags::empty();
 
-        self._row_data.wipe();
+        // Safety: we own (and therefore correctly initialized) the row data struct and have mutable access to it.
+        unsafe {
+            ffi::RLookupRow_Wipe(ptr::from_mut(&mut self._row_data));
+        }
 
         // explicitly drop the DMD here to make clear we maintain the
         // same "drop order" as the old C implementation had.
@@ -180,12 +189,12 @@ impl<'index> SearchResult<'index> {
     }
 
     /// Returns an immutable reference to the [`RLookupRow`][ffi::RLookupRow] of this search result.
-    pub const fn row_data(&self) -> &RLookupRow<'index> {
+    pub const fn row_data(&self) -> &ffi::RLookupRow {
         &self._row_data
     }
 
     /// Returns a mutable reference to the [`RLookupRow`][ffi::RLookupRow] of this search result.
-    pub const fn row_data_mut(&mut self) -> &mut RLookupRow<'index> {
+    pub const fn row_data_mut(&mut self) -> &mut ffi::RLookupRow {
         &mut self._row_data
     }
 

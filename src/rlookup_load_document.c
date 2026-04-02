@@ -15,13 +15,6 @@
 #include "value.h"
 #include "util/arr.h"
 
-typedef enum {
-  RLOOKUP_C_STR = 0,
-  RLOOKUP_C_INT = 1,
-  RLOOKUP_C_DBL = 2,
-  RLOOKUP_C_BOOL = 3
-} RLookupCoerceType;
-
 static RSValue *hvalToValue(const RedisModuleString *src, RLookupCoerceType type) {
   if (type == RLOOKUP_C_BOOL || type == RLOOKUP_C_INT) {
     long long ll;
@@ -206,22 +199,6 @@ done:
   return rc;
 }
 
-/**
- * Find a key in the lookup table by name. Returns NULL if not found.
- */
-static RLookupKey *RLookup_FindKey(RLookup *lookup, const char *name, size_t name_len) {
-  RLookupIteratorMut iter = RLookup_IterMut(lookup);
-  RLookupKey* key;
-
-  while (RLookupIteratorMut_Next(&iter, &key)) {
-    // match `name` to the name of the key
-    if (RLookupKey_GetNameLen(key) == name_len && !strncmp(RLookupKey_GetName(key), name, name_len)) {
-      return key;
-    }
-  }
-  return NULL;
-}
-
 typedef struct {
   RLookup *it;
   RLookupRow *dst;
@@ -352,5 +329,37 @@ int RLookup_LoadDocumentIndividual(RLookup *it, RLookupRow *dst, RLookupLoadOpti
 
   rv = loadIndividualKeys(it, dst, options);
 
+  return rv;
+}
+
+int RLookup_LoadRuleFields(RedisSearchCtx *sctx, RLookup *it, RLookupRow *dst, IndexSpec *spec, const char *keyptr, QueryError *status) {
+  SchemaRule *rule = spec->rule;
+
+  // create rlookupkeys
+  int nkeys = array_len(rule->filter_fields);
+  RLookupKey **keys = rm_malloc(nkeys * sizeof(*keys));
+  for (int i = 0; i < nkeys; ++i) {
+    int idx = rule->filter_fields_index[i];
+    if (idx == -1) {
+      keys[i] = createNewKey(it, rule->filter_fields[i], strlen(rule->filter_fields[i]), RLOOKUP_F_NOFLAGS);
+      continue;
+    }
+    FieldSpec *fs = spec->fields + idx;
+    size_t length = 0;
+    const char *name = HiddenString_GetUnsafe(fs->fieldName, &length);
+    keys[i] = createNewKey(it, name, length, RLOOKUP_F_NOFLAGS);
+    RLookupKey_SetPath(keys[i], HiddenString_GetUnsafe(fs->fieldPath, NULL));
+  }
+
+  // load
+  RLookupLoadOptions opt = {.keys = (const RLookupKey **)keys,
+                            .nkeys = nkeys,
+                            .sctx = sctx,
+                            .keyPtr = keyptr,
+                            .type = rule->type,
+                            .status = status,
+                            .forceLoad = 1 };
+  int rv = loadIndividualKeys(it, dst, &opt);
+  rm_free(keys);
   return rv;
 }
