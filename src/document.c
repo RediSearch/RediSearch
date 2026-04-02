@@ -151,11 +151,11 @@ static int AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp) {
     aCtx->stateFlags &= ~ACTX_F_OTHERINDEXED;
   }
 
-  if ((aCtx->stateFlags & ACTX_F_SORTABLES) && aCtx->sv == NULL) {
+  if ((aCtx->stateFlags & ACTX_F_SORTABLES) && aCtx->sv.values == NULL) {
     aCtx->sv = RSSortingVector_New(sp->numSortableFields);
   }
 
-  int empty = (aCtx->sv == NULL) && !hasTextFields && !hasOtherFields;
+  int empty = (aCtx->sv.values == NULL) && !hasTextFields && !hasOtherFields;
   if (empty) {
     aCtx->stateFlags |= ACTX_F_EMPTY;
   }
@@ -328,9 +328,8 @@ void AddDocumentCtx_Free(RSAddDocumentCtx *aCtx) {
     Document_Free(aCtx->doc);
   }
 
-  if (aCtx->sv) {
-    RSSortingVector_Free(aCtx->sv);
-    aCtx->sv = NULL;
+  if (aCtx->sv.values) {
+    RSSortingVector_ClearAndDeAlloc(&aCtx->sv);
   }
 
   if (aCtx->byteOffsets) {
@@ -398,12 +397,12 @@ FIELD_PREPROCESSOR(fulltextPreprocessor) {
     if (field->unionType != FLD_VAR_T_ARRAY) {
       bool is_normalized = (fs->options & FieldSpec_UNF) != 0;
       if (is_normalized) {
-          RSSortingVector_PutStr(aCtx->sv, fs->sortIdx, c);
+          RSSortingVector_PutStr(&aCtx->sv, fs->sortIdx, c);
       } else {
-          RSSortingVector_PutStrNormalize(aCtx->sv, fs->sortIdx, c);
+          RSSortingVector_PutStrNormalize(&aCtx->sv, fs->sortIdx, c);
       }
     } else if (field->multisv) {
-      RSSortingVector_PutRSVal(aCtx->sv, fs->sortIdx, field->multisv);
+      RSSortingVector_PutRSVal(&aCtx->sv, fs->sortIdx, field->multisv);
       field->multisv = NULL;
     }
   }
@@ -515,9 +514,9 @@ FIELD_PREPROCESSOR(numericPreprocessor) {
   // If this is a sortable numeric value - copy the value to the sorting vector
   if (FieldSpec_IsSortable(fs)) {
     if (field->unionType != FLD_VAR_T_ARRAY) {
-      RSSortingVector_PutNum(aCtx->sv, fs->sortIdx, fdata->numeric);
+      RSSortingVector_PutNum(&aCtx->sv, fs->sortIdx, fdata->numeric);
     } else if (field->multisv) {
-      RSSortingVector_PutRSVal(aCtx->sv, fs->sortIdx, field->multisv);
+      RSSortingVector_PutRSVal(&aCtx->sv, fs->sortIdx, field->multisv);
       field->multisv = NULL;
     }
   }
@@ -666,7 +665,7 @@ FIELD_PREPROCESSOR(geoPreprocessor) {
       }
       fdata->numeric = geohash;
       if (FieldSpec_IsSortable(fs)) {
-        RSSortingVector_PutNum(aCtx->sv, fs->sortIdx, fdata->numeric);
+        RSSortingVector_PutNum(&aCtx->sv, fs->sortIdx, fdata->numeric);
       }
       return REDISMODULE_OK;
     case FLD_VAR_T_CSTR:
@@ -727,12 +726,12 @@ FIELD_PREPROCESSOR(geoPreprocessor) {
     if (field->unionType != FLD_VAR_T_ARRAY) {
       bool is_normalized = (fs->options & FieldSpec_UNF) != 0;
       if (is_normalized) {
-          RSSortingVector_PutStr(aCtx->sv, fs->sortIdx, str);
+          RSSortingVector_PutStr(&aCtx->sv, fs->sortIdx, str);
       } else {
-          RSSortingVector_PutStrNormalize(aCtx->sv, fs->sortIdx, str);
+          RSSortingVector_PutStrNormalize(&aCtx->sv, fs->sortIdx, str);
       }
     } else if (field->multisv) {
-      RSSortingVector_PutRSVal(aCtx->sv, fs->sortIdx, field->multisv);
+      RSSortingVector_PutRSVal(&aCtx->sv, fs->sortIdx, field->multisv);
       field->multisv = NULL;
     }
   }
@@ -747,12 +746,12 @@ FIELD_PREPROCESSOR(tagPreprocessor) {
         const char *str = DocumentField_GetValueCStr(field, &fl);
         bool is_normalized = (fs->options & FieldSpec_UNF) != 0;
         if (is_normalized) {
-            RSSortingVector_PutStr(aCtx->sv, fs->sortIdx, str);
+            RSSortingVector_PutStr(&aCtx->sv, fs->sortIdx, str);
         } else {
-            RSSortingVector_PutStrNormalize(aCtx->sv, fs->sortIdx, str);
+            RSSortingVector_PutStrNormalize(&aCtx->sv, fs->sortIdx, str);
         }
       } else if (field->multisv) {
-        RSSortingVector_PutRSVal(aCtx->sv, fs->sortIdx, field->multisv);
+        RSSortingVector_PutRSVal(&aCtx->sv, fs->sortIdx, field->multisv);
         field->multisv = NULL;
       }
     }
@@ -982,7 +981,7 @@ static void AddDocumentCtx_UpdateNoIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx 
       int idx = fs->sortIdx;
       if (idx < 0) continue;
 
-      if (!md->sortVector) {
+      if (!md->sortVector.values) {
         md->sortVector = RSSortingVector_New(sctx->spec->numSortableFields);
       }
 
@@ -995,9 +994,9 @@ static void AddDocumentCtx_UpdateNoIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx 
           const char* str = RedisModule_StringPtrLen(f->text, NULL);
           bool is_normalized = (fs->options & FieldSpec_UNF) != 0;
           if (is_normalized) {
-              RSSortingVector_PutStr(md->sortVector, idx, str);
+              RSSortingVector_PutStr(&md->sortVector, idx, str);
           } else {
-              RSSortingVector_PutStrNormalize(md->sortVector, idx, str);
+              RSSortingVector_PutStrNormalize(&md->sortVector, idx, str);
           }
 
           break;
@@ -1007,7 +1006,7 @@ static void AddDocumentCtx_UpdateNoIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx 
           if (RedisModule_StringToDouble(f->text, &numval) == REDISMODULE_ERR) {
             BAIL("Could not parse numeric index value");
           }
-          RSSortingVector_PutNum(md->sortVector, idx, numval);
+          RSSortingVector_PutNum(&md->sortVector, idx, numval);
           break;
         }
         default:

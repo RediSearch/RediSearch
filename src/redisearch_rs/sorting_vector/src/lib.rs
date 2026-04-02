@@ -57,6 +57,17 @@ pub struct RSSortingVector {
 }
 
 impl RSSortingVector {
+    /// Creates an empty [`RSSortingVector`] with no allocation.
+    ///
+    /// The returned vector has a null `values` pointer and zero length.
+    /// This is the canonical "no sorting vector" sentinel for inline storage.
+    pub const fn empty() -> Self {
+        Self {
+            values: std::ptr::null_mut(),
+            len: 0,
+        }
+    }
+
     /// Creates a new [`RSSortingVector`] with the given length.
     pub fn new(len: usize) -> Self {
         Self::from_vec(vec![RSValueFFI::null_static(); len])
@@ -72,8 +83,10 @@ impl RSSortingVector {
     }
 
     /// Returns the values as a slice.
-    const fn as_slice(&self) -> &[RSValueFFI] {
-        if self.len == 0 {
+    ///
+    /// Returns an empty slice if the vector is empty or has been cleared.
+    pub const fn as_slice(&self) -> &[RSValueFFI] {
+        if self.values.is_null() {
             return &[];
         }
         // SAFETY: `values` and `len` were constructed from a valid `Vec<RSValueFFI>`.
@@ -82,8 +95,10 @@ impl RSSortingVector {
     }
 
     /// Returns the values as a mutable slice.
+    ///
+    /// Returns an empty slice if the vector is empty or has been cleared.
     const fn as_mut_slice(&mut self) -> &mut [RSValueFFI] {
-        if self.len == 0 {
+        if self.values.is_null() {
             return &mut [];
         }
         // SAFETY: Same as `as_slice`, plus we have exclusive access via `&mut self`.
@@ -173,6 +188,24 @@ impl RSSortingVector {
         self.len == 0
     }
 
+    /// Deallocates the inner values buffer and zeros the struct.
+    ///
+    /// After calling this, the vector is in the same state as [`RSSortingVector::empty()`].
+    /// Each [`RSValueFFI`] element is dropped (decrementing its refcount) and the
+    /// heap buffer is freed. Calling `clear` on an already-cleared vector is a no-op.
+    pub fn clear(&mut self) {
+        if !self.values.is_null() {
+            // SAFETY: `values` and `len` came from a `Vec<RSValueFFI>` via `into_boxed_slice`,
+            // so capacity == len. Reconstructing the Vec lets it drop each `RSValueFFI`
+            // (decrementing refcounts) and deallocate the buffer.
+            unsafe {
+                let _ = Vec::from_raw_parts(self.values, self.len, self.len);
+            }
+        }
+        self.values = std::ptr::null_mut();
+        self.len = 0;
+    }
+
     /// approximate the memory size of the sorting vector.
     ///
     /// The implementation by-passes references in the middle of the chain, so it only counts the size of the final value,
@@ -202,6 +235,9 @@ impl RSSortingVector {
 
 impl Drop for RSSortingVector {
     fn drop(&mut self) {
+        if self.values.is_null() {
+            return;
+        }
         // SAFETY: `values` and `len` came from a `Vec<RSValueFFI>` via `into_boxed_slice`,
         // so capacity == len. Reconstructing the Vec lets it drop each `RSValueFFI`
         // (decrementing refcounts) and deallocate the buffer.
@@ -238,6 +274,10 @@ impl IntoIterator for RSSortingVector {
     type Item = RSValueFFI;
     type IntoIter = std::vec::IntoIter<RSValueFFI>;
     fn into_iter(self) -> Self::IntoIter {
+        if self.values.is_null() {
+            std::mem::forget(self);
+            return Vec::new().into_iter();
+        }
         // SAFETY: `values` and `len` came from a `Vec<RSValueFFI>` with capacity == len.
         let v = unsafe { Vec::from_raw_parts(self.values, self.len, self.len) };
         // Prevent `Drop` from double-freeing the buffer.

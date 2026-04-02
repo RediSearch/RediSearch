@@ -13,7 +13,7 @@ use rlookup::{OpaqueRLookupRow, RLookup, RLookupKey, RLookupRow};
 use std::{
     ffi::{CStr, c_char},
     mem::{self, ManuallyDrop},
-    ptr::{self, NonNull},
+    ptr::NonNull,
     slice,
 };
 use value::RSValueFFI;
@@ -336,7 +336,21 @@ pub unsafe extern "C" fn RLookupRow_Get(
     })
 }
 
-/// Returns the sorting vector for the row, or null if none exists.
+/// A read-only view of a sorting vector's values, returned by value to C.
+///
+/// Layout-compatible with [`sorting_vector::RSSortingVector`] but uses `*const` values
+/// since this is a borrowed, non-owning view.
+#[repr(C)]
+pub struct RSSortingVectorSlice {
+    /// Pointer to the array of [`RSValueFFI`] values, or null if no sorting vector.
+    pub values: *const RSValueFFI,
+    /// Number of elements in the array.
+    pub len: size_t,
+}
+
+/// Returns a borrowed view of the sorting vector for the row.
+///
+/// If the row has no sorting vector, returns a slice with `values == NULL` and `len == 0`.
 ///
 /// # Safety
 ///
@@ -346,13 +360,20 @@ pub unsafe extern "C" fn RLookupRow_Get(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RLookupRow_GetSortingVector(
     row: *const OpaqueRLookupRow,
-) -> *const sorting_vector::RSSortingVector {
+) -> RSSortingVectorSlice {
     // Safety: ensured by caller (1.)
     let row = unsafe { RLookupRow::from_opaque_ptr(row).unwrap() };
 
-    row.sorting_vector()
-        .map(ptr::from_ref)
-        .unwrap_or(std::ptr::null())
+    match row.sorting_vector() {
+        Some(slice) => RSSortingVectorSlice {
+            values: slice.as_ptr(),
+            len: slice.len(),
+        },
+        None => RSSortingVectorSlice {
+            values: std::ptr::null(),
+            len: 0,
+        },
+    }
 }
 
 /// Sets the sorting vector for the row.
@@ -360,7 +381,8 @@ pub unsafe extern "C" fn RLookupRow_GetSortingVector(
 /// # Safety
 ///
 /// 1. `row` must be a [valid], non-null pointer to an [`RLookupRow`].
-/// 2. `sv` must be either null or a [valid], non-null pointer to an [`sorting_vector::RSSortingVector`].
+/// 2. `sv` must be either null or a [valid] pointer to an [`sorting_vector::RSSortingVector`].
+///    The pointed-to vector must remain valid for the lifetime of the row.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
@@ -372,7 +394,7 @@ pub unsafe extern "C" fn RLookupRow_SetSortingVector(
     let row = unsafe { RLookupRow::from_opaque_non_null(row.expect("`row` must not be null")) };
 
     // Safety: ensured by caller (2.)
-    let sv = unsafe { sv.as_ref() };
+    let sv_slice = unsafe { sv.as_ref() }.map(|sv| sv.as_slice());
 
-    row.set_sorting_vector(sv);
+    row.set_sorting_vector(sv_slice);
 }

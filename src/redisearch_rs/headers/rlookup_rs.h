@@ -171,13 +171,18 @@ typedef struct RLookupKey {
 } RLookupKey;
 
 /**
+ * A type with size `N`.
+ */
+typedef uint8_t Size_48[48];
+
+/**
  * An opaque lookup row which can be passed by value to C.
  *
  * The size and alignment of this struct must match the Rust `RLookupRow`
  * structure exactly.
  */
 typedef struct ALIGNED(8) RLookupRow {
-  Size_40 _0;
+  Size_48 _0;
 } RLookupRow;
 
 /**
@@ -193,6 +198,33 @@ typedef struct RLookupIterator {
 typedef struct RLookupIteratorMut {
   struct RLookupKey *current;
 } RLookupIteratorMut;
+
+/**
+ * [RSValueFFI] is a wrapper around the C struct `RSValue` implement as new-type over a [std::ptr::NonNull<ffi::RSValue>].
+ *
+ * It implements the [`Clone`] and [`Drop`] traits to manage the reference counting of the underlying C struct.
+ *
+ * Safety:
+ * 1. The pointer must be a valid pointer to an `RSValue` created by the C side.
+ */
+typedef RSValue *RSValueFFI;
+
+/**
+ * A read-only view of a sorting vector's values, returned by value to C.
+ *
+ * Layout-compatible with [`sorting_vector::RSSortingVector`] but uses `*const` values
+ * since this is a borrowed, non-owning view.
+ */
+typedef struct RSSortingVectorSlice {
+  /**
+   * Pointer to the array of [`RSValueFFI`] values, or null if no sorting vector.
+   */
+  const RSValueFFI *values;
+  /**
+   * Number of elements in the array.
+   */
+  size_t len;
+} RSSortingVectorSlice;
 
 #ifdef __cplusplus
 extern "C" {
@@ -743,7 +775,9 @@ void RLookupRow_WriteFieldsFrom(const struct RLookupRow *src_row,
 RSValue *RLookupRow_Get(const struct RLookupKey *key, const struct RLookupRow *row);
 
 /**
- * Returns the sorting vector for the row, or null if none exists.
+ * Returns a borrowed view of the sorting vector for the row.
+ *
+ * If the row has no sorting vector, returns a slice with `values == NULL` and `len == 0`.
  *
  * # Safety
  *
@@ -751,7 +785,7 @@ RSValue *RLookupRow_Get(const struct RLookupKey *key, const struct RLookupRow *r
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-const RSSortingVector *RLookupRow_GetSortingVector(const struct RLookupRow *row);
+struct RSSortingVectorSlice RLookupRow_GetSortingVector(const struct RLookupRow *row);
 
 /**
  * Sets the sorting vector for the row.
@@ -759,12 +793,12 @@ const RSSortingVector *RLookupRow_GetSortingVector(const struct RLookupRow *row)
  * # Safety
  *
  * 1. `row` must be a [valid], non-null pointer to an [`RLookupRow`].
- * 2. `sv` must be either null or a [valid], non-null pointer to an [`sorting_vector::RSSortingVector`].
+ * 2. `sv` must be either null or a [valid] pointer to an [`sorting_vector::RSSortingVector`].
+ *    The pointed-to vector must remain valid for the lifetime of the row.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-void RLookupRow_SetSortingVector(struct RLookupRow *row,
-                                 const RSSortingVector *sv);
+void RLookupRow_SetSortingVector(struct RLookupRow *row, const RSSortingVector *sv);
 
 #ifdef __cplusplus
 }  // extern "C"

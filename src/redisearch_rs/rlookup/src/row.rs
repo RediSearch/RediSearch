@@ -10,7 +10,6 @@
 use crate::{
     RLookup, RLookupKey, RLookupKeyFlag, RLookupKeyFlags, SchemaRule, lookup::TRANSIENT_FLAGS,
 };
-use sorting_vector::RSSortingVector;
 use std::{borrow::Cow, ffi::CStr};
 use value::RSValueFFI;
 
@@ -22,12 +21,12 @@ fn is_special_key(rule: &SchemaRule, key: &RLookupKey) -> bool {
         .any(|f| f == Some(key.name().as_ref()))
 }
 
-/// Row data for a lookup key. This abstracts the question of if the data comes from a borrowed [RSSortingVector]
+/// Row data for a lookup key. This abstracts the question of if the data comes from a borrowed sorting vector slice
 /// or from dynamic values stored in the row during processing.
 #[derive(Debug)]
 pub struct RLookupRow<'a> {
-    /// Sorting vector attached to document
-    sorting_vector: Option<&'a RSSortingVector>,
+    /// Sorting vector values attached to document, borrowed as a slice.
+    sorting_vector: Option<&'a [RSValueFFI]>,
 
     /// Dynamic values obtained from prior processing
     dyn_values: Vec<Option<RSValueFFI>>,
@@ -178,12 +177,12 @@ impl<'a> RLookupRow<'a> {
     }
 
     /// Readonly access to [`RLookupRow::sorting_vector`], it may be `None` if no sorting vector was set.
-    pub const fn sorting_vector(&self) -> Option<&RSSortingVector> {
+    pub const fn sorting_vector(&self) -> Option<&[RSValueFFI]> {
         self.sorting_vector
     }
 
-    /// Borrow a sorting vector for the row.
-    pub const fn set_sorting_vector(&mut self, sv: Option<&'a RSSortingVector>) {
+    /// Borrow a sorting vector slice for the row.
+    pub const fn set_sorting_vector(&mut self, sv: Option<&'a [RSValueFFI]>) {
         self.sorting_vector = sv;
     }
 
@@ -364,7 +363,7 @@ pub mod opaque {
     /// The size and alignment of this struct must match the Rust `RLookupRow`
     /// structure exactly.
     #[repr(C, align(8))]
-    pub struct OpaqueRLookupRow(Size<40>);
+    pub struct OpaqueRLookupRow(Size<48>);
 
     c_ffi_utils::opaque!(RLookupRow<'_>, OpaqueRLookupRow);
 }
