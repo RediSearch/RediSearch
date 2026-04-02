@@ -53,7 +53,7 @@ impl QueryIterator {
     /// Used when passing the iterator to a C function that takes ownership
     /// (e.g. `NewIntersectionIterator`), so that the C side is responsible for freeing it.
     #[inline(always)]
-    pub fn into_raw(self) -> *mut ffi::QueryIterator {
+    pub const fn into_raw(self) -> *mut ffi::QueryIterator {
         self.0
     }
 
