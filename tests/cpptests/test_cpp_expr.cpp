@@ -706,7 +706,7 @@ TEST_F(ExprTest, testAndExpressionWithMissingFields) {
   ASSERT_NE(kd2, nullptr);
 
   // Create a row with only d2=1 (d1 is not written, so it's missing)
-  RLookupRow row = {0};
+  RLookupRow row = RLookupRow_New();
   RSValue *v2 = RSValue_NewNumber(1);
   RLookup_WriteOwnKey(kd2, &row, v2);
 
@@ -798,7 +798,7 @@ TEST_F(ExprTest, testAndExpressionWithMissingFields) {
     auto *kd2_empty = RLookup_GetKey_Write(&lk_empty, "d2", RLOOKUP_F_NOFLAGS);
     ASSERT_NE(kd1_empty, nullptr);
     ASSERT_NE(kd2_empty, nullptr);
-    RLookupRow row_empty = {0};
+    RLookupRow row_empty = RLookupRow_New();
 
     TEvalCtx ctx("@d1==0 && @d2==0");
     ASSERT_TRUE(ctx) << ctx.error();
@@ -827,7 +827,7 @@ TEST_F(ExprTest, testAndExpressionWithMissingFields) {
     ASSERT_NE(kd1_full, nullptr);
     ASSERT_NE(kd2_full, nullptr);
 
-    RLookupRow row_full = {0};
+    RLookupRow row_full = RLookupRow_New();
     RSValue *v1_full = RSValue_NewNumber(5);
     RSValue *v2_full = RSValue_NewNumber(5);
     RLookup_WriteOwnKey(kd1_full, &row_full, v1_full);
@@ -866,7 +866,7 @@ TEST_F(ExprTest, testOrExpressionWithMissingFields) {
   ASSERT_NE(kd2, nullptr);
 
   // Create a row with only d2=1 (d1 is not written, so it's missing)
-  RLookupRow row = {0};
+  RLookupRow row = RLookupRow_New();
   RSValue *v2 = RSValue_NewNumber(1);
   RLookup_WriteOwnKey(kd2, &row, v2);
 
@@ -958,7 +958,7 @@ TEST_F(ExprTest, testOrExpressionWithMissingFields) {
     auto *kd2_empty = RLookup_GetKey_Write(&lk_empty, "d2", RLOOKUP_F_NOFLAGS);
     ASSERT_NE(kd1_empty, nullptr);
     ASSERT_NE(kd2_empty, nullptr);
-    RLookupRow row_empty = {0};
+    RLookupRow row_empty = RLookupRow_New();
 
     TEvalCtx ctx("@d1==1 || @d2==1");
     ASSERT_TRUE(ctx) << ctx.error();

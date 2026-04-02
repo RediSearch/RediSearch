@@ -11,6 +11,7 @@ use crate::{
     RLookup, RLookupKey, RLookupKeyFlag, RLookupKeyFlags, SchemaRule, lookup::TRANSIENT_FLAGS,
 };
 use std::{borrow::Cow, ffi::CStr, marker::PhantomData, ptr::NonNull};
+use thin_vec::MediumThinVec;
 use value::RSValueFFI;
 
 /// Tests if the given [`RLookupKey`] is a special key (lang, score, or payload field)
@@ -34,7 +35,7 @@ pub struct RLookupRow<'a> {
     sorting_vector: NonNull<RSValueFFI>,
 
     /// Dynamic values obtained from prior processing
-    dyn_values: Vec<Option<RSValueFFI>>,
+    dyn_values: MediumThinVec<Option<RSValueFFI>>,
 
     /// Length of the sorting vector slice. Zero means no sorting vector is set.
     sorting_vector_len: u16,
@@ -60,14 +61,14 @@ impl<'a> RLookupRow<'a> {
         Self {
             sorting_vector: NonNull::dangling(),
             sorting_vector_len: 0,
-            dyn_values: vec![],
+            dyn_values: MediumThinVec::new(),
             num_dyn_values: 0,
             _lifetime: PhantomData,
         }
     }
 
     /// Returns the length of [`RLookupRow::dyn_values`].
-    pub const fn len(&self) -> usize {
+    pub fn len(&self) -> usize {
         self.dyn_values.len()
     }
 
@@ -171,7 +172,7 @@ impl<'a> RLookupRow<'a> {
     }
 
     /// Returns true if the [`RLookupRow::dyn_values`] vector is empty.
-    pub const fn is_empty(&self) -> bool {
+    pub fn is_empty(&self) -> bool {
         self.dyn_values.is_empty()
     }
 
@@ -299,7 +300,7 @@ impl<'a> RLookupRow<'a> {
     /// It does not affect the sorting vector.
     pub fn reset_dyn_values(&mut self) {
         self.num_dyn_values = 0;
-        self.dyn_values = vec![];
+        self.dyn_values = MediumThinVec::new();
     }
 
     /// Write fields from a source row into this row.
@@ -392,7 +393,7 @@ pub mod opaque {
     /// The size and alignment of this struct must match the Rust `RLookupRow`
     /// structure exactly.
     #[repr(C, align(8))]
-    pub struct OpaqueRLookupRow(Size<40>);
+    pub struct OpaqueRLookupRow(Size<24>);
 
     c_ffi_utils::opaque!(RLookupRow<'_>, OpaqueRLookupRow);
 }
