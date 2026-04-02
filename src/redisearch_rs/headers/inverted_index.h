@@ -230,6 +230,16 @@ IndexFlags InvertedIndex_Flags(const InvertedIndex *ii);
 uint32_t InvertedIndex_NumDocs(const InvertedIndex *ii);
 
 /**
+ * Decrement the maintained live document count for IDF/BM25 after a document stops indexing this
+ * term (replace/delete) while stale postings may remain until fork GC.
+ *
+ * # Safety
+ *
+ * `ii` must be a valid, non-null pointer to an `InvertedIndex`.
+ */
+void InvertedIndex_DecrementLiveUniqueDocs(InvertedIndex *ii, uint32_t delta);
+
+/**
  * Distinct live documents in this posting list for IDF/BM25 on RAM indexes (fork‑GC may leave
  * stale internal ids in the encoded `unique_docs` counter).
  *

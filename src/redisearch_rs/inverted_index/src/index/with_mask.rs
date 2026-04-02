@@ -66,6 +66,16 @@ impl<E: Encoder> FieldMaskTrackingIndex<E> {
         self.index.unique_docs()
     }
 
+    /// Live distinct documents for IDF (see [`InvertedIndex::live_unique_docs`]).
+    pub const fn live_unique_docs(&self) -> u32 {
+        self.index.live_unique_docs()
+    }
+
+    /// Decrement live doc count for this term (replace/delete path).
+    pub fn decrement_live_unique_docs(&mut self, delta: u32) {
+        self.index.decrement_live_unique_docs(delta);
+    }
+
     /// Returns the flags of this index.
     pub const fn flags(&self) -> IndexFlags {
         self.index.flags()

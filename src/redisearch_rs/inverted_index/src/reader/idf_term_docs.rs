@@ -7,22 +7,20 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! Live document frequency for IDF when RAM inverted lists still hold stale internal doc ids.
+//! Document frequency for IDF when RAM inverted lists may still hold stale internal doc ids.
 
 use super::{FilterMaskReader, IndexReader, IndexReaderCore, TermReader};
-use crate::{
-    DecodedBy, Decoder, Encoder, HasInnerIndex, TermDecoder,
-    opaque::OpaqueEncoding,
-};
-use ffi::{DocTable_Exists, IndexSpec, t_docId};
+use crate::{DecodedBy, Decoder, Encoder, HasInnerIndex, TermDecoder, opaque::OpaqueEncoding};
+use ffi::{DocTable_Exists, IndexSpec, RS_FIELDMASK_ALL, t_docId};
 
-/// [`IndexSpec`] gates for using a posting scan + [`DocTable_Exists`] as term document frequency.
+/// [`IndexSpec`] gates for using live DF maintenance (not disk / legacy key layout).
 #[inline]
 pub fn use_live_df_for_idf(spec: &IndexSpec) -> bool {
     spec.diskSpec.is_null() && !spec.keysDict.is_null()
 }
 
-/// Term DF for IDF/BM25: live count in production RAM indexes, encoded [`unique_docs`](TermReader::unique_docs) otherwise.
+/// Term DF for IDF/BM25: maintained live count on RAM indexes when unfiltered; partial field masks
+/// still use a posting scan.
 pub trait IdfTermDocs<'index>: TermReader<'index> {
     /// Number of documents that should feed IDF for this reader and index spec.
     ///
@@ -39,9 +37,7 @@ where
         if !use_live_df_for_idf(spec) {
             return Ok(self.ii.unique_docs());
         }
-        let mut doc_exists =
-            |id: t_docId| unsafe { DocTable_Exists(&spec.docs, id) };
-        self.ii.count_live_unique_docs(&mut doc_exists)
+        Ok(self.ii.live_unique_docs())
     }
 }
 
@@ -54,9 +50,12 @@ where
         if !use_live_df_for_idf(spec) {
             return Ok(IndexReader::unique_docs(self) as u32);
         }
-        let mut doc_exists =
-            |id: t_docId| unsafe { DocTable_Exists(&spec.docs, id) };
-        self.internal_index()
-            .count_live_unique_docs_for_query_mask(self.filter_mask(), &mut doc_exists)
+        if self.filter_mask() != RS_FIELDMASK_ALL {
+            let mut doc_exists = |id: t_docId| unsafe { DocTable_Exists(&spec.docs, id) };
+            return self
+                .internal_index()
+                .count_live_unique_docs_for_query_mask(self.filter_mask(), &mut doc_exists);
+        }
+        Ok(self.internal_index().live_unique_docs())
     }
 }

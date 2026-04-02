@@ -96,6 +96,8 @@ typedef enum {
 #define hasPayload(x) (x & Document_HasPayload)
 #define hasExpirationTimeInformation(x) (x & Document_HasExpiration)
 
+struct RSFulltextIndexedTerms;
+
 /* RSDocumentMetadata describes metadata stored about a document in the index (not the document
  * itself).
  *
@@ -134,6 +136,10 @@ typedef struct RSDocumentMetadata_s {
 
   /* Optional user payload */
   RSPayload *payload;
+
+  /* Last fulltext term set indexed for this document (RAM keysDict indexes). Used on replace/delete
+   * to keep per-term live document counts aligned for BM25 IDF. Not persisted in RDB. */
+  struct RSFulltextIndexedTerms *fulltextIndexedTerms;
 
 } RSDocumentMetadata;
 

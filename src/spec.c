@@ -48,6 +48,8 @@
 #include "util/redis_mem_info.h"
 #include "search_disk.h"
 #include "search_disk_utils.h"
+#include "fulltext_indexed_terms.h"
+#include "search_ctx.h"
 
 #define INITIAL_DOC_TABLE_SIZE 1000
 
@@ -3836,6 +3838,11 @@ void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModul
 
     id = md->id;
     docLen = md->docLen;
+
+    if (!spec->diskSpec && spec->keysDict) {
+      RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, spec);
+      RSFulltextIndexedTerms_DecrementLive(&sctx, md->fulltextIndexedTerms);
+    }
 
     DMD_Return(md);
   }

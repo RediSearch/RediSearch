@@ -23,6 +23,9 @@
 #include "search_disk.h"
 #include "info/global_stats.h"
 #include "gc.h"
+#include "search_ctx.h"
+#include "doc_table.h"
+#include "fulltext_indexed_terms.h"
 
 extern RedisModuleCtx *RSDummyContext;
 
@@ -135,8 +138,8 @@ static void writeCurEntries(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
 }
 
 /** Assigns a document ID to a single document. Handles only RAM index */
-static RSDocumentMetadata *makeDocumentId(RedisModuleCtx *ctx, RSAddDocumentCtx *aCtx, IndexSpec *spec,
-                                          int replace, bool *updated) {
+static RSDocumentMetadata *makeDocumentId(RedisSearchCtx *sctx, RSAddDocumentCtx *aCtx,
+                                          IndexSpec *spec, int replace, bool *updated) {
   DocTable *table = &spec->docs;
   Document *doc = aCtx->doc;
   if (replace) {
@@ -162,6 +165,10 @@ static RSDocumentMetadata *makeDocumentId(RedisModuleCtx *ctx, RSAddDocumentCtx 
       }
       if (spec->flags & Index_HasGeometry) {
         GeometryIndex_RemoveId(spec, dmd->id);
+      }
+
+      if (!spec->diskSpec && spec->keysDict) {
+        RSFulltextIndexedTerms_DecrementLive(sctx, dmd->fulltextIndexedTerms);
       }
 
       DMD_Return(dmd);
@@ -228,7 +235,7 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
       }
     } else {
       RS_LOG_ASSERT(!cur->doc->docId, "docId must be 0");
-      RSDocumentMetadata *md = makeDocumentId(ctx->redisCtx, cur, spec,
+      RSDocumentMetadata *md = makeDocumentId(ctx, cur, spec,
                                               cur->options & DOCUMENT_ADD_REPLACE, &updated);
       if (!md) {
         cur->stateFlags |= ACTX_F_ERRORED;
@@ -427,6 +434,14 @@ static void Indexer_Process(RSAddDocumentCtx *aCtx) {
   // Handle FULLTEXT indexes
   if ((aCtx->fwIdx && (aCtx->stateFlags & ACTX_F_ERRORED) == 0)) {
     writeCurEntries(aCtx, &ctx);
+    if (!ctx.spec->diskSpec && ctx.spec->keysDict && aCtx->doc->docId) {
+      RSDocumentMetadata *md = DocTable_BorrowMutable(&ctx.spec->docs, aCtx->doc->docId);
+      if (md) {
+        RSFulltextIndexedTerms *terms = RSFulltextIndexedTerms_CreateFromForwardIndex(aCtx->fwIdx);
+        DMD_SetFulltextIndexedTerms(md, terms);
+        DMD_Return(md);
+      }
+    }
   }
 
   if (!(aCtx->stateFlags & ACTX_F_OTHERINDEXED)) {

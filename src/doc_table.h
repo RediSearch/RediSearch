@@ -95,6 +95,9 @@ DocTable NewDocTable(size_t cap, size_t max_size);
  * If docId is not inside the table, we return NULL */
 const RSDocumentMetadata *DocTable_Borrow(const DocTable *t, t_docId docId);
 
+/** Borrow a live document row for in-place metadata updates (e.g. fulltext term snapshot). */
+RSDocumentMetadata *DocTable_BorrowMutable(DocTable *t, t_docId docId);
+
 const RSDocumentMetadata *DocTable_BorrowByKeyR(const DocTable *r, RedisModuleString *s);
 
 /* Put a new document into the table, assign it an incremental id and store the metadata in the

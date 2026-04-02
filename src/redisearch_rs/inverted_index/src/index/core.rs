@@ -37,6 +37,10 @@ pub struct InvertedIndex<E> {
     /// number of unique documents that have been indexed.
     pub(crate) n_unique_docs: u32,
 
+    /// Distinct **live** document ids for this term’s posting list (doc table), maintained on the
+    /// indexing path. May be below [`Self::n_unique_docs`] while stale internal ids remain until GC.
+    pub(crate) n_live_unique_docs: u32,
+
     /// The flags of this index. This is used to determine the type of index and how it should be
     /// handled.
     pub(crate) flags: IndexFlags,
@@ -174,6 +178,7 @@ impl<E: Encoder> InvertedIndex<E> {
         Self {
             blocks: Default::default(),
             n_unique_docs: 0,
+            n_live_unique_docs: 0,
             flags,
             gc_marker: AtomicU32::new(0),
             unique_id: IndexUniqueId::next(),
@@ -203,6 +208,7 @@ impl<E: Encoder> InvertedIndex<E> {
         Self {
             blocks,
             n_unique_docs,
+            n_live_unique_docs: n_unique_docs,
             flags,
             gc_marker: AtomicU32::new(0),
             unique_id: IndexUniqueId::next(),
@@ -284,6 +290,7 @@ impl<E: Encoder> InvertedIndex<E> {
 
         if !same_doc {
             self.n_unique_docs += 1;
+            self.n_live_unique_docs += 1;
         } else {
             self.flags |= IndexFlags_Index_HasMultiValue;
         }
@@ -346,6 +353,17 @@ impl<E: Encoder> InvertedIndex<E> {
     /// Returns the number of unique documents in the index.
     pub const fn unique_docs(&self) -> u32 {
         self.n_unique_docs
+    }
+
+    /// Live distinct documents (see [`Self::n_live_unique_docs`]).
+    pub const fn live_unique_docs(&self) -> u32 {
+        self.n_live_unique_docs
+    }
+
+    /// Decrement the live document count when a document no longer indexes this term (replace /
+    /// delete) while postings for its old internal id may still exist until GC.
+    pub fn decrement_live_unique_docs(&mut self, delta: u32) {
+        self.n_live_unique_docs = self.n_live_unique_docs.saturating_sub(delta);
     }
 
     /// Returns the flags of this index.

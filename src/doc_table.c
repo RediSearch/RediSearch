@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "doc_table.h"
+#include "fulltext_indexed_terms.h"
 #include <sys/param.h>
 #include <string.h>
 #include <stdio.h>
@@ -85,6 +86,14 @@ static RSDocumentMetadata *DocTable_DmdUnchain(DocTable *t, t_docId docId) {
 }
 
 const RSDocumentMetadata *DocTable_Borrow(const DocTable *t, t_docId docId) {
+  RSDocumentMetadata *dmd = DocTable_GetOwn(t, docId);
+  if (dmd) {
+    DMD_Incref(dmd);
+  }
+  return dmd;
+}
+
+RSDocumentMetadata *DocTable_BorrowMutable(DocTable *t, t_docId docId) {
   RSDocumentMetadata *dmd = DocTable_GetOwn(t, docId);
   if (dmd) {
     DMD_Incref(dmd);
@@ -335,6 +344,10 @@ sds DocTable_GetKey(const DocTable *t, t_docId docId, size_t *lenp) {
 
 void DMD_Free(const RSDocumentMetadata *cmd) {
   RSDocumentMetadata * md = (RSDocumentMetadata *)cmd;
+  if (md->fulltextIndexedTerms) {
+    RSFulltextIndexedTerms_Free(md->fulltextIndexedTerms);
+    md->fulltextIndexedTerms = NULL;
+  }
   if (hasPayload(md->flags)) {
     rm_free(md->payload->data);
     rm_free(md->payload);
