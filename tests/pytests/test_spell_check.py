@@ -177,7 +177,7 @@ def testSpellCheckIssue437(env):
                'EXCLUDE', 'slang', 'TERMS',
                'INCLUDE', 'slang').equal([['TERM', 'tooni', [['0', 'toonie']]]])
 
-def testSpellCheckWithParams(env:Env):
+def test_spell_check_with_params(env:Env):
     """Test FT.SPELLCHECK with PARAMS support (MOD-10596).
     Covers parameterized queries in dialect 2 and 3, missing params error,
     and fuzzy params."""
@@ -200,6 +200,9 @@ def testSpellCheckWithParams(env:Env):
 
     # Missing PARAMS: $a in dialect 3 without PARAMS should error, not crash
     env.expect('ft.spellcheck', 'idx', '$a', 'DIALECT', '3').error().contains('Parameter not found `a`')
+
+    # Cover the PARAMS parsing error path
+    env.expect('ft.spellcheck', 'idx', '$a', 'PARAMS', '3', 'a', 'b', 'c', 'DIALECT', '2').error().contains('Parameters must be specified in PARAM VALUE pairs')
 
     # Fuzzy params
     res1 = env.cmd('ft.spellcheck', 'idx', '%hell%', 'DIALECT', '2')
