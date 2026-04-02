@@ -60,7 +60,7 @@ static void AREQ_DecrRefWrapper(void *privdata) {
  */
 static const RSValue *getReplyKey(const RLookupKey *kk, const SearchResult *r) {
   RSSortingVectorSlice sv = RLookupRow_GetSortingVector(SearchResult_GetRowData(r));
-  if ((RLookupKey_GetFlags(kk) & RLOOKUP_F_SVSRC) && (sv.values && sv.len > RLookupKey_GetSvIdx(kk))) {
+  if ((RLookupKey_GetFlags(kk) & RLOOKUP_F_SVSRC) && (sv.len > RLookupKey_GetSvIdx(kk))) {
     return sv.values[RLookupKey_GetSvIdx(kk)];
   } else {
     return RLookupRow_Get(kk, SearchResult_GetRowData(r));

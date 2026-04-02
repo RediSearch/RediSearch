@@ -342,15 +342,17 @@ pub unsafe extern "C" fn RLookupRow_Get(
 /// since this is a borrowed, non-owning view.
 #[repr(C)]
 pub struct RSSortingVectorSlice {
-    /// Pointer to the array of [`RSValueFFI`] values, or null if no sorting vector.
+    /// Pointer to the array of [`RSValueFFI`] values.
+    /// When `len == 0` this is a dangling pointer — **not** null. Callers must check `len`.
     pub values: *const RSValueFFI,
-    /// Number of elements in the array.
+    /// Number of elements in the array. Zero means no sorting vector is set.
     pub len: size_t,
 }
 
 /// Returns a borrowed view of the sorting vector for the row.
 ///
-/// If the row has no sorting vector, returns a slice with `values == NULL` and `len == 0`.
+/// If the row has no sorting vector, returns a slice with `len == 0` and a dangling `values`
+/// pointer. Callers must check `len`, not `values`, to detect the empty case.
 ///
 /// # Safety
 ///
