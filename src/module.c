@@ -344,17 +344,6 @@ int SpellCheckCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   bool fullScoreInfo = false;
   SpellCheckCtx scCtx;
 
-  // Parse PARAMS if present
-  int paramsArgIndex = RMUtil_ArgExists("PARAMS", argv, argc, argvOffset);
-  if (paramsArgIndex > 0) {
-    ArgsCursor ac;
-    ArgsCursor_InitRString(&ac, argv + paramsArgIndex + 1, argc - paramsArgIndex - 1);
-    if (parseParams(&opts.params, &ac, &status) != REDISMODULE_OK) {
-      RedisModule_ReplyWithError(ctx, QueryError_GetUserError(&status));
-      goto end;
-    }
-  }
-
   if (QAST_Parse(&qast, sctx, &opts, rawQuery, len, dialect, &status) != REDISMODULE_OK) {
     RedisModule_ReplyWithError(ctx, QueryError_GetUserError(&status));
     goto end;
@@ -417,9 +406,6 @@ int SpellCheckCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
 end:
   QueryError_ClearError(&status);
-  if (opts.params) {
-    Param_DictFree(opts.params);
-  }
   if (includeDict != NULL) {
     array_free(includeDict);
   }
