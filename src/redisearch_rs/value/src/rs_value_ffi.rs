@@ -76,6 +76,10 @@ impl RSValueFFI {
         self.0.as_ptr()
     }
 
+    pub const fn as_non_null(&self) -> NonNull<ffi::RSValue> {
+        self.0
+    }
+
     pub fn ptr_eq(this: &Self, other: &Self) -> bool {
         this.0 == other.0
     }

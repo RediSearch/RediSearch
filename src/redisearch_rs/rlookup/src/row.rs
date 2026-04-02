@@ -202,7 +202,8 @@ impl<'a> RLookupRow<'a> {
     pub fn get(&self, key: &RLookupKey) -> Option<RSValueFFIRef<'_>> {
         // Check dynamic values first
         if let Some(Some(val)) = self.dyn_values().get(key.dstidx as usize) {
-            return Some(unsafe { RSValueFFIRef::from_raw(val.clone()) });
+            let val = unsafe { RSValueFFI::from_raw(val.as_non_null()) };
+            return Some(unsafe { RSValueFFIRef::from_raw(val) });
         }
 
         // If not found in dynamic values, check the sorting vector if the SvSrc flag is set
