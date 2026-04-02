@@ -406,6 +406,80 @@ pub unsafe extern "C" fn RLookupRow_SetSortingVector(
     row.set_sorting_vector(sv_slice);
 }
 
+// RSValue C struct layout constants (pack(4)):
+//   offset 0:  union { f64 _numval; struct { *char str; u32 len:29, stype:3 } _strval; ... }
+//   offset 12: u8 bits [_t:7, _allocated:1]
+//   offset 14: u16 _refcount
+const RSVALUE_TYPE_OFFSET: usize = 12;
+const RSVALUE_TYPE_NUMBER: u8 = 1; // RSValueType_Number
+const RSVALUE_TYPE_STRING: u8 = 2; // RSValueType_String
+const RSVALUE_STR_LEN_OFFSET: usize = 8; // char* is at 0, len:29+stype:3 at 8
+
+/// Compare two RSValue string payloads directly.
+///
+/// Kept as a separate non-inlined function so its `memcmp` call gets its own
+/// register allocation, avoiding register shuffling in the caller's loop.
+#[inline(never)]
+unsafe fn cmp_rsvalue_strings(v1: *const u8, v2: *const u8) -> c_int {
+    // SAFETY: char* at offset 0, len (29 bits) at offset 8 in the string sub-struct.
+    let ptr1 = unsafe { (v1 as *const *const u8).read_unaligned() };
+    let len1 =
+        (unsafe { (v1.add(RSVALUE_STR_LEN_OFFSET) as *const u32).read_unaligned() } & 0x1FFF_FFFF)
+            as usize;
+    let ptr2 = unsafe { (v2 as *const *const u8).read_unaligned() };
+    let len2 =
+        (unsafe { (v2.add(RSVALUE_STR_LEN_OFFSET) as *const u32).read_unaligned() } & 0x1FFF_FFFF)
+            as usize;
+    let s1 = unsafe { slice::from_raw_parts(ptr1, len1) };
+    let s2 = unsafe { slice::from_raw_parts(ptr2, len2) };
+    match s1.cmp(s2) {
+        std::cmp::Ordering::Less => -1,
+        std::cmp::Ordering::Equal => 0,
+        std::cmp::Ordering::Greater => 1,
+    }
+}
+
+/// Fast-path comparison of two RSValue pointers by reading the C struct layout directly.
+/// For same-type numbers and strings, this avoids the `RSValue_Cmp` → `RSValue_CmpNC` →
+/// `cmp_strings` call chain. Falls back to `RSValue_Cmp` for all other cases.
+#[inline(always)]
+unsafe fn fast_cmp(
+    v1: *const ffi::RSValue,
+    v2: *const ffi::RSValue,
+    qerr: *mut ffi::QueryError,
+) -> c_int {
+    let v1 = v1 as *const u8;
+    let v2 = v2 as *const u8;
+
+    // SAFETY: RSValue is at least 16 bytes; reading byte at offset 12 is in bounds.
+    let t1 = unsafe { v1.add(RSVALUE_TYPE_OFFSET).read() } & 0x7F;
+    let t2 = unsafe { v2.add(RSVALUE_TYPE_OFFSET).read() } & 0x7F;
+
+    if t1 == t2 {
+        match t1 {
+            RSVALUE_TYPE_NUMBER => {
+                // SAFETY: f64 at offset 0 in the RSValue union.
+                let n1 = unsafe { (v1 as *const f64).read_unaligned() };
+                let n2 = unsafe { (v2 as *const f64).read_unaligned() };
+                if n1 < n2 {
+                    return -1;
+                }
+                if n1 > n2 {
+                    return 1;
+                }
+                return 0;
+            }
+            RSVALUE_TYPE_STRING => {
+                return unsafe { cmp_rsvalue_strings(v1, v2) };
+            }
+            _ => {}
+        }
+    }
+
+    // Fallback: mismatched types, arrays, references, trios, etc.
+    unsafe { RSValue_Cmp(v1 as *const ffi::RSValue, v2 as *const ffi::RSValue, qerr) }
+}
+
 /// Look up a value for `key` in the pre-loaded slices, inlining the logic of
 /// [`RLookupRow::get`] to avoid redundant per-row loads in a loop.
 #[inline(always)]
@@ -471,7 +545,7 @@ pub unsafe extern "C" fn RLookupRow_CmpByFields(
         match (v1, v2) {
             (Some(v1), Some(v2)) => {
                 // SAFETY: RSValueFFI contains a valid pointer; qerr ensured by caller (3.)
-                let rc = unsafe { RSValue_Cmp(v1.as_ptr(), v2.as_ptr(), qerr) };
+                let rc = unsafe { fast_cmp(v1.as_ptr(), v2.as_ptr(), qerr) };
                 if rc != 0 {
                     return if ascending { -rc } else { rc };
                 }
