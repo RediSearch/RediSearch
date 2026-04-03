@@ -11,6 +11,7 @@
 #include <stdio.h>
 #include "rmalloc.h"
 #include "rmutil/rm_assert.h"
+#include "likely.h"
 
 static void freeCommon(BlkAlloc *blocks, BlkAllocCleaner cleaner, void *arg, size_t elemSize,
                        int reuse) {
@@ -88,7 +89,7 @@ void *BlkAlloc_Alloc(BlkAlloc *blocks, size_t elemSize, size_t blockSize) {
   if (!blocks->root) {
     blocks->root = blocks->last = getNewBlock(blocks, blockSize);
 
-  } else if (blocks->last->numUsed + elemSize > blockSize) {
+  } else if (unlikely(blocks->last->numUsed + elemSize > blockSize)) {
     // Allocate a new element
     BlkAllocBlock *newBlock = getNewBlock(blocks, blockSize);
     blocks->last->next = newBlock;
