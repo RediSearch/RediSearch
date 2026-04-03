@@ -53,6 +53,7 @@ impl Clone for RSValueFFI {
 
 // Drop is used to decrement the reference count of the underlying C struct when the RSValueFFI is dropped.
 impl Drop for RSValueFFI {
+    #[inline]
     fn drop(&mut self) {
         // Safety: We assume a valid ptr is given by the C side, and we are decrementing the reference count.
         unsafe { ffi::RSValue_DecrRef(self.0.as_ptr()) };
