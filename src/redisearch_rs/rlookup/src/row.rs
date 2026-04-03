@@ -288,6 +288,7 @@ impl<'a> RLookupRow<'a> {
     /// This does not free all the memory consumed by the row, but simply resets
     /// the row data (preserving any caches) so that it may be refilled.
     /// Also clears the sorting vector.
+    #[inline]
     pub fn wipe(&mut self) {
         let mut remaining = self.num_dyn_values;
         for value in self.dyn_values.iter_mut() {
