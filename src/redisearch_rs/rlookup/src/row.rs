@@ -289,15 +289,17 @@ impl<'a> RLookupRow<'a> {
     /// the row data (preserving any caches) so that it may be refilled.
     /// Also clears the sorting vector.
     pub fn wipe(&mut self) {
+        let mut remaining = self.num_dyn_values;
         for value in self.dyn_values.iter_mut() {
-            if self.num_dyn_values == 0 {
+            if remaining == 0 {
                 break;
             }
             if value.is_some() {
                 *value = None;
-                self.num_dyn_values -= 1;
+                remaining -= 1;
             }
         }
+        self.num_dyn_values = 0;
         self.sorting_vector = NonNull::dangling();
         self.sorting_vector_len = 0;
     }
