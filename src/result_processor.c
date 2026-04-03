@@ -734,19 +734,9 @@ static int cmpByFields(const void *e1, const void *e2, const void *udata) {
     qerr = self->base.parent->err;
   }
 
-  int rc = RLookupRow_CmpByFields(
+  return SearchResult_CmpByFields(
       self->fieldcmp.keys, self->fieldcmp.nkeys,
-      SearchResult_GetRowData(h1), SearchResult_GetRowData(h2),
-      self->fieldcmp.ascendMap, qerr);
-  if (rc != 0) return rc;
-
-  // Tiebreak by docid — ascending uses the last key's flag,
-  // matching the original C loop where `ascending` retains its last value.
-  int ascending = self->fieldcmp.nkeys > 0
-      ? SORTASCMAP_GETASC(self->fieldcmp.ascendMap, self->fieldcmp.nkeys - 1)
-      : 0;
-  rc = SearchResult_GetDocId(h1) < SearchResult_GetDocId(h2) ? -1 : 1;
-  return ascending ? -rc : rc;
+      h1, h2, self->fieldcmp.ascendMap, qerr);
 }
 
 static void srDtor(void *p) {

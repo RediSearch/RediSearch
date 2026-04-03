@@ -17,6 +17,9 @@ typedef uint32_t RLookupOptions;
 // Forward declaration of RSValue, which is only used as ptr in the sorting_vector module
 typedef struct RSValue RSValue;
 
+// Forward declaration of SearchResult, defined in search_result_rs.h
+typedef struct SearchResult SearchResult;
+
 // Required to ensure that the alignment declared by cbindgen is respected on
 // the C/C++ side.
 #define ALIGNED(n) __attribute__((aligned(n)))
@@ -805,26 +808,27 @@ struct RSSortingVectorSlice RLookupRow_GetSortingVector(const struct RLookupRow 
 void RLookupRow_SetSortingVector(struct RLookupRow *row, const RSSortingVector *sv);
 
 /**
- * Compares two rows by the given sort keys, returning a negative, zero, or positive value.
+ * Compares two search results by the given sort keys, returning a negative, zero, or positive
+ * value.
  *
  * The comparison loop runs entirely in Rust, avoiding per-key FFI crossings for value lookups.
  * Per-row invariants (dyn_values slice, sorting vector slice) are loaded once and reused
  * across all keys.
  *
- * Returns 0 when all fields are equal. The caller is responsible for the docid tiebreak.
+ * When all fields are equal, breaks the tie by document ID using the last key's ascending flag.
  *
  * # Safety
  *
  * 1. `keys` must point to an array of at least `nkeys` valid, non-null `RLookupKey` pointers.
- * 2. `row1` and `row2` must be valid, non-null pointers to `OpaqueRLookupRow`.
+ * 2. `h1` and `h2` must be valid, non-null pointers to a `SearchResult`.
  * 3. `qerr`, when non-null, must be a valid, writable pointer to a `QueryError`.
  */
-int RLookupRow_CmpByFields(const struct RLookupKey *const *keys,
-                           size_t nkeys,
-                           const struct RLookupRow *row1,
-                           const struct RLookupRow *row2,
-                           uint64_t ascend_map,
-                           QueryError *qerr);
+int SearchResult_CmpByFields(const struct RLookupKey *const *keys,
+                             size_t nkeys,
+                             const SearchResult *h1,
+                             const SearchResult *h2,
+                             uint64_t ascend_map,
+                             QueryError *qerr);
 
 #ifdef __cplusplus
 }  // extern "C"
