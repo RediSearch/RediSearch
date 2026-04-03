@@ -143,7 +143,6 @@ jobs:
                       'setup_script': 'echo "HOME=/home/ubuntu" >> $GITHUB_ENV',
                       'name': 'Intel x86_64',
                       'env': '',
-                      'container': '',
                       'ec2_image_id': 'ami-09fabd03bb09b3704',
                       'ec2_instance_type': 'c7i.xlarge',
                       'enable_lto': '0' # Platform is not used to produce artifacts.
