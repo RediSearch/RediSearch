@@ -518,15 +518,15 @@ QueryIterator *NewUnionIterator(QueryIterator **its, int num, bool quickExit,
   // 2. minUnionIterHeap - choose whether to use a flat array or a heap for tracking the children, according to the number of children
   // Each implementation if fine-tuned for the best performance in its scenario, and relies on the current state
   // of the iterator and how it was left by previous API calls, so we can't change implementation mid-execution.
-  if (type == QN_NUMERIC && num > config->minUnionIterHeap) {
-    ret->Read = quickExit ? UI_Read_Quick_Heap : UI_Read_Full_Heap;
-    ret->SkipTo = quickExit ? UI_Skip_Quick_Heap : UI_Skip_Full_Heap;
-    ui->heap_min_id = rm_malloc(heap_sizeof(num));
-    heap_init(ui->heap_min_id, cmpLastDocId, NULL, num);
-  } else {
+  // if (type == QN_NUMERIC && num > config->minUnionIterHeap) {
+  //   ret->Read = quickExit ? UI_Read_Quick_Heap : UI_Read_Full_Heap;
+  //   ret->SkipTo = quickExit ? UI_Skip_Quick_Heap : UI_Skip_Full_Heap;
+  //   ui->heap_min_id = rm_malloc(heap_sizeof(num));
+  //   heap_init(ui->heap_min_id, cmpLastDocId, NULL, num);
+  // } else {
     ret->Read = quickExit ? UI_Read_Quick_Flat : UI_Read_Full_Flat;
     ret->SkipTo = quickExit ? UI_Skip_Quick_Flat : UI_Skip_Full_Flat;
-  }
+  // }
 
   UI_SyncIterList(ui);
   return ret;
