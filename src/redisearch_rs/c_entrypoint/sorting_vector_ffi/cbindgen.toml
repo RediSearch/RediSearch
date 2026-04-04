@@ -6,9 +6,9 @@ after_includes = """
 // Forward declaration of RSValue, which is only used as ptr in the sorting_vector module
 typedef struct RSValue RSValue;
 
-// RSSortingVector is repr(transparent) in Rust over a MediumThinVec<RSValueFFI>.
+// RSSortingVector is repr(transparent) in Rust over a ThinVec<RSValueFFI>.
 // On the stack it is a single pointer to a heap header:
-//   Header<u32> { len: u32, cap: u32 }  (8 bytes, no padding for pointer-aligned T)
+//   Header<u64> { len: u64, cap: u64 }  (16 bytes, no padding for pointer-aligned T)
 // followed immediately by the data array:
 //   RSValue* values[len]
 //
@@ -38,23 +38,23 @@ static inline RSSortingVector RSSortingVector_Empty(void) {
 /**
  * Returns the length of the sorting vector.
  *
- * Reads the `len` field (u32) from the ThinVec heap header.
+ * Reads the `len` field (u64) from the ThinVec heap header.
  */
 static inline size_t RSSortingVector_Length(const RSSortingVector *v) {
-  // Header<u32> layout: { len: u32, cap: u32 }
+  // Header<u64> layout: { len: u64, cap: u64 }
   // len is at offset 0.
-  return *(const uint32_t *)v->header;
+  return *(const uint64_t *)v->header;
 }
 
 /**
  * Gets a RSValue from the sorting vector at the given index.
  *
  * The caller must ensure that `idx < RSSortingVector_Length(v)`.
- * Data starts immediately after the 8-byte Header<u32>.
+ * Data starts immediately after the 16-byte Header<u64>.
  */
 static inline RSValue *RSSortingVector_Get(const RSSortingVector *v, size_t idx) {
-  // Data starts at offset 8 (sizeof(Header<u32>), no padding for pointer-aligned T).
-  RSValue **data = (RSValue **)((const char *)v->header + 8);
+  // Data starts at offset 8 (sizeof(Header<u64>), no padding for pointer-aligned T).
+  RSValue **data = (RSValue **)((const char *)v->header + 16);
   return data[idx];
 }
 

@@ -14,7 +14,7 @@ use std::{
 };
 
 use icu_casemap::CaseMapper;
-use thin_vec::MediumThinVec;
+use thin_vec::ThinVec;
 use value::RSValueFFI;
 
 /// IndexOutOfBounds error can be returned by [`RSSortingVector::try_insert_num`] and the other `try_insert_*` methods.
@@ -42,19 +42,19 @@ impl std::error::Error for IndexOutOfBounds {}
 ///
 /// # Layout
 ///
-/// This struct is `#[repr(transparent)]` over [`MediumThinVec<RSValueFFI>`], which is
+/// This struct is `#[repr(transparent)]` over [`ThinVec<RSValueFFI>`], which is
 /// pointer-sized (8 bytes). The length is stored in the heap header alongside the data.
 ///
-/// The `MediumThinVec` (i.e. `ThinVec<T, u32>`) heap layout is:
+/// The `ThinVec<T, u64>` heap layout is:
 /// ```text
-///   Header { len: u32, cap: u32 }  (8 bytes, no padding for pointer-aligned T)
+///   Header { len: u64, cap: u64 }  (16 bytes, no padding for pointer-aligned T)
 ///   data: [RSValueFFI; len]
 /// ```
 ///
 /// An empty vector points to a static sentinel header (not null), so no allocation is needed.
 #[repr(transparent)]
 pub struct RSSortingVector {
-    inner: MediumThinVec<RSValueFFI>,
+    inner: ThinVec<RSValueFFI>,
 }
 
 impl RSSortingVector {
@@ -65,13 +65,13 @@ impl RSSortingVector {
     /// [`RSDocumentMetadata`].
     pub const fn empty() -> Self {
         Self {
-            inner: MediumThinVec::new(),
+            inner: ThinVec::new(),
         }
     }
 
     /// Creates a new [`RSSortingVector`] with the given length.
     pub fn new(len: usize) -> Self {
-        let mut inner = MediumThinVec::new();
+        let mut inner = ThinVec::new();
         inner.resize(len, RSValueFFI::null_static());
         Self { inner }
     }
@@ -240,7 +240,7 @@ impl FromIterator<RSValueFFI> for RSSortingVector {
 // Consuming iterator: yields owned T by consuming the vector.
 impl IntoIterator for RSSortingVector {
     type Item = RSValueFFI;
-    type IntoIter = thin_vec::IntoIter<RSValueFFI, u32>;
+    type IntoIter = thin_vec::IntoIter<RSValueFFI>;
     fn into_iter(self) -> Self::IntoIter {
         self.inner.into_iter()
     }
