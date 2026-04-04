@@ -10,7 +10,7 @@
 use crate::{
     RLookup, RLookupKey, RLookupKeyFlag, RLookupKeyFlags, SchemaRule, lookup::TRANSIENT_FLAGS,
 };
-use std::{borrow::Cow, ffi::CStr, marker::PhantomData, ptr::NonNull};
+use std::{borrow::Cow, ffi::CStr};
 use thin_vec::ThinVec;
 use value::RSValueFFI;
 
@@ -25,27 +25,20 @@ fn is_special_key(rule: &SchemaRule, key: &RLookupKey) -> bool {
 /// Row data for a lookup key. This abstracts the question of if the data comes from a borrowed sorting vector slice
 /// or from dynamic values stored in the row during processing.
 ///
-/// The sorting vector is stored as a thin [`NonNull`] pointer + `u16` length instead of a fat
-/// `&[RSValueFFI]` slice reference, saving 8 bytes (40 vs 48). This is safe because the sorting
-/// vector length is bounded by `RS_SORTABLES_MAX` (1024), which fits in `u16`.
+/// The sorting vector is stored as an [`RSSortingVectorRef`] — a pointer-sized borrowed
+/// view that defers the ThinVec header dereference until [`sorting_vector()`](Self::sorting_vector)
+/// is called. This keeps [`set_sorting_vector`](Self::set_sorting_vector) a single pointer store.
 #[derive(Debug)]
 pub struct RLookupRow<'a> {
-    /// Pointer to borrowed sorting vector values. Dangling when `sorting_vector_len == 0`
-    /// (no sorting vector set), valid heap pointer otherwise.
-    sorting_vector: NonNull<RSValueFFI>,
+    /// Borrowed reference to the sorting vector. Defers heap access until read.
+    sorting_vector: sorting_vector::RSSortingVectorRef<'a>,
 
     /// Dynamic values obtained from prior processing
     dyn_values: ThinVec<Option<RSValueFFI>>,
 
-    /// Length of the sorting vector slice. Zero means no sorting vector is set.
-    sorting_vector_len: u16,
-
     /// The number of values in [`RLookupRow::dyn_values`] that are `is_some()`. Note that this
     /// is not the length of [`RLookupRow::dyn_values`]
     num_dyn_values: u32,
-
-    /// Ties the lifetime `'a` to the borrowed sorting vector data.
-    _lifetime: PhantomData<&'a [RSValueFFI]>,
 }
 
 impl<'a> Default for RLookupRow<'a> {
@@ -59,11 +52,9 @@ impl<'a> RLookupRow<'a> {
     /// a [`RLookupRow::sorting_vector`] of the given length.
     pub const fn new() -> Self {
         Self {
-            sorting_vector: NonNull::dangling(),
-            sorting_vector_len: 0,
+            sorting_vector: sorting_vector::RSSortingVectorRef::empty(),
             dyn_values: ThinVec::new(),
             num_dyn_values: 0,
-            _lifetime: PhantomData,
         }
     }
 
@@ -191,28 +182,20 @@ impl<'a> RLookupRow<'a> {
         self.dyn_values.resize(capacity, None);
     }
 
-    /// Readonly access to the sorting vector, returns `None` if no sorting vector was set.
+    /// Readonly access to the sorting vector values as a slice.
     #[inline]
-    pub const fn sorting_vector(&self) -> &'a [RSValueFFI] {
-        // SAFETY: `sorting_vector` and `sorting_vector_len` were set from a valid `&'a [RSValueFFI]`
-        // in `set_sorting_vector`. The data remains valid for lifetime `'a`.
-        unsafe {
-            NonNull::slice_from_raw_parts(self.sorting_vector, self.sorting_vector_len as usize)
-                .as_ref()
-        }
+    pub fn sorting_vector(&self) -> &'a [RSValueFFI] {
+        self.sorting_vector.as_slice()
     }
 
-    /// Borrow a sorting vector slice for the row.
-    pub const fn set_sorting_vector(&mut self, sv: Option<&'a [RSValueFFI]>) {
+    /// Borrow a sorting vector for the row.
+    pub fn set_sorting_vector(&mut self, sv: Option<&'a sorting_vector::RSSortingVector>) {
         match sv {
-            Some(slice) if !slice.is_empty() => {
-                // SAFETY: slice references are always non-null.
-                self.sorting_vector = unsafe { NonNull::new_unchecked(slice.as_ptr().cast_mut()) };
-                self.sorting_vector_len = slice.len() as u16;
+            Some(sv) => {
+                self.sorting_vector = sorting_vector::RSSortingVectorRef::from_ref(sv);
             }
-            _ => {
-                self.sorting_vector = NonNull::dangling();
-                self.sorting_vector_len = 0;
+            None => {
+                self.sorting_vector = sorting_vector::RSSortingVectorRef::empty();
             }
         }
     }
@@ -301,8 +284,7 @@ impl<'a> RLookupRow<'a> {
             }
         }
         self.num_dyn_values = 0;
-        self.sorting_vector = NonNull::dangling();
-        self.sorting_vector_len = 0;
+        self.sorting_vector = sorting_vector::RSSortingVectorRef::empty();
     }
 
     /// Resets the row, clearing the dynamic values. This effectively wipes the row and deallocates the memory used for dynamic values.
