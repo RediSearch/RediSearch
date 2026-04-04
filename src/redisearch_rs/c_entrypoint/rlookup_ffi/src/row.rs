@@ -397,9 +397,9 @@ pub unsafe extern "C" fn RLookupRow_SetSortingVector(
     let row = unsafe { RLookupRow::from_opaque_non_null(row.expect("`row` must not be null")) };
 
     // Safety: ensured by caller (2.)
-    let sv_slice = unsafe { sv.as_ref() }.map(|sv| sv.as_slice());
+    let sv_ref = unsafe { sv.as_ref() };
 
-    row.set_sorting_vector(sv_slice);
+    row.set_sorting_vector(sv_ref);
 }
 
 /// Look up a value for `key` in the pre-loaded slices, inlining the logic of
