@@ -812,8 +812,8 @@ void RLookupRow_SetSortingVector(struct RLookupRow *row, const RSSortingVector *
  * value.
  *
  * The comparison loop runs entirely in Rust, avoiding per-key FFI crossings for value lookups.
- * Per-row invariants (dyn_values slice, sorting vector slice) are loaded once and reused
- * across all keys.
+ * Row fields are accessed directly per-key (like the original C implementation) to minimize
+ * stack usage and register pressure.
  *
  * When all fields are equal, breaks the tie by document ID using the last key's ascending flag.
  *
