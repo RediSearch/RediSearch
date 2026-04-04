@@ -2215,7 +2215,7 @@ mod tests {
     #[test]
     fn test_overaligned_type() {
         #[repr(align(16))]
-        struct Align16(#[allow(dead_code)] u8);
+        struct Align16(#[expect(dead_code)] u8);
 
         let v = ThinVec::<Align16>::new();
         assert!(v.data_raw() as usize % 16 == 0);
