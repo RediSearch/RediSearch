@@ -77,11 +77,13 @@ impl RSSortingVector {
     }
 
     /// Returns the values as a slice.
+    #[inline]
     pub fn as_slice(&self) -> &[RSValueFFI] {
         &self.inner
     }
 
     /// Returns the values as a mutable slice.
+    #[inline]
     fn as_mut_slice(&mut self) -> &mut [RSValueFFI] {
         &mut self.inner
     }
@@ -160,11 +162,13 @@ impl RSSortingVector {
     }
 
     /// Get the len of the sorting vector.
+    #[inline]
     pub fn len(&self) -> usize {
         self.inner.len()
     }
 
     /// check if the sorting vector is empty.
+    #[inline]
     pub fn is_empty(&self) -> bool {
         self.inner.is_empty()
     }
