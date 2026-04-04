@@ -20,19 +20,19 @@ use value::RSValueFFI;
 pub const RS_SORTABLES_MAX: usize = 1024;
 
 // Verify that the ThinVec<RSValueFFI, u32> heap header has no padding before data,
-// so the C inline helpers can use a fixed offset of `sizeof(Header<u32>)` = 8 bytes.
-const _: () = assert!(thin_vec::layout::header_field_padding::<RSValueFFI, u32>() == 0);
+// so the C inline helpers can use a fixed offset of `sizeof(Header<u64>)` = 8 bytes.
+const _: () = assert!(thin_vec::layout::header_field_padding::<RSValueFFI, u64>() == 0);
 
-// Verify that RSSortingVector is pointer-sized (repr(transparent) over MediumThinVec).
+// Verify that RSSortingVector is pointer-sized (repr(transparent) over ThinVec).
 const _: () = assert!(std::mem::size_of::<RSSortingVector>() == std::mem::size_of::<usize>());
 
-/// Returns the pointer value of the empty [`MediumThinVec`] sentinel header.
+/// Returns the pointer value of the empty [`ThinVec`] sentinel header.
 ///
 /// C code uses this to initialize empty `RSSortingVector` values and to check
 /// whether a sorting vector is empty.
 #[unsafe(no_mangle)]
 pub extern "C" fn RSSortingVector_EmptySentinel() -> *const std::ffi::c_void {
-    <u32 as VecCapacity>::EMPTY_HEADER as *const Header<u32> as *const std::ffi::c_void
+    <u64 as VecCapacity>::EMPTY_HEADER as *const Header<u64> as *const std::ffi::c_void
 }
 
 /// Returns the memory size of the sorting vector.
