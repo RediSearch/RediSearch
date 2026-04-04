@@ -82,6 +82,7 @@ struct MockUpstream : public ResultProcessor {
         size_t entryIndex = depletionCount + i;
 
         documentMetadata[entryIndex] = static_cast<RSDocumentMetadata*>(rm_calloc(1, sizeof(RSDocumentMetadata)));
+        documentMetadata[entryIndex]->sortVector = RSSortingVector_Empty();
         DMD_Incref(documentMetadata[entryIndex]);
 
         std::string str = "doc" + std::to_string(docIds[i]);

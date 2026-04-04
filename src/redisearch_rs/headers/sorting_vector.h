@@ -9,26 +9,31 @@
 // Forward declaration of RSValue, which is only used as ptr in the sorting_vector module
 typedef struct RSValue RSValue;
 
-// RSSortingVector is repr(C) in Rust with fields:
-//   values: *mut *mut ffi::RSValue  (== RSValue**)
-//   len: usize                      (== size_t)
+// RSSortingVector is repr(transparent) in Rust over a MediumThinVec<RSValueFFI>.
+// On the stack it is a single pointer to a heap header:
+//   Header<u32> { len: u32, cap: u32 }  (8 bytes, no padding for pointer-aligned T)
+// followed immediately by the data array:
+//   RSValue* values[len]
+//
+// An empty RSSortingVector points to a static sentinel header (not null).
 typedef struct RSSortingVector {
-  RSValue **values;
-  size_t len;
+  void *header;
 } RSSortingVector;
 
 
 #define RS_SORTABLES_MAX 1024
 
-/**
- * The dangling pointer value used by [`RSSortingVector::empty()`].
- * Must equal `align_of::<RSValueFFI>()` (verified by the assertion below).
- */
-#define RS_SORTING_VECTOR_EMPTY_PTR 8
-
 #ifdef __cplusplus
 extern "C" {
 #endif // __cplusplus
+
+/**
+ * Returns the pointer value of the empty [`MediumThinVec`] sentinel header.
+ *
+ * C code uses this to initialize empty `RSSortingVector` values and to check
+ * whether a sorting vector is empty.
+ */
+const void *RSSortingVector_EmptySentinel(void);
 
 /**
  * Returns the memory size of the sorting vector.
@@ -164,31 +169,36 @@ extern "C" {
 /**
  * Returns an empty RSSortingVector with no allocation.
  *
- * The `values` pointer is set to a dangling (non-null, aligned) address.
- * C code must use this instead of zero-initializing the struct, because
- * the Rust side requires `values` to be non-null at all times.
+ * The pointer is set to the static empty sentinel header.
+ * C code must use this instead of zero-initializing the struct.
  */
 static inline RSSortingVector RSSortingVector_Empty(void) {
   RSSortingVector v;
-  v.values = (RSValue **)RS_SORTING_VECTOR_EMPTY_PTR;
-  v.len = 0;
+  v.header = (void *)RSSortingVector_EmptySentinel();
   return v;
 }
 
 /**
  * Returns the length of the sorting vector.
+ *
+ * Reads the `len` field (u32) from the ThinVec heap header.
  */
 static inline size_t RSSortingVector_Length(const RSSortingVector *v) {
-  return v->len;
+  // Header<u32> layout: { len: u32, cap: u32 }
+  // len is at offset 0.
+  return *(const uint32_t *)v->header;
 }
 
 /**
  * Gets a RSValue from the sorting vector at the given index.
  *
  * The caller must ensure that `idx < RSSortingVector_Length(v)`.
+ * Data starts immediately after the 8-byte Header<u32>.
  */
 static inline RSValue *RSSortingVector_Get(const RSSortingVector *v, size_t idx) {
-  return v->values[idx];
+  // Data starts at offset 8 (sizeof(Header<u32>), no padding for pointer-aligned T).
+  RSValue **data = (RSValue **)((const char *)v->header + 8);
+  return data[idx];
 }
 
 #ifdef __cplusplus

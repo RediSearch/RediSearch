@@ -152,11 +152,11 @@ static int AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp) {
     aCtx->stateFlags &= ~ACTX_F_OTHERINDEXED;
   }
 
-  if ((aCtx->stateFlags & ACTX_F_SORTABLES) && aCtx->sv.len == 0) {
+  if ((aCtx->stateFlags & ACTX_F_SORTABLES) && RSSortingVector_Length(&aCtx->sv) == 0) {
     aCtx->sv = RSSortingVector_New(sp->numSortableFields);
   }
 
-  int empty = (aCtx->sv.len == 0) && !hasTextFields && !hasOtherFields;
+  int empty = (RSSortingVector_Length(&aCtx->sv) == 0) && !hasTextFields && !hasOtherFields;
   if (empty) {
     aCtx->stateFlags |= ACTX_F_EMPTY;
   }
@@ -329,7 +329,7 @@ void AddDocumentCtx_Free(RSAddDocumentCtx *aCtx) {
     Document_Free(aCtx->doc);
   }
 
-  if (aCtx->sv.len) {
+  if (RSSortingVector_Length(&aCtx->sv)) {
     RSSortingVector_ClearAndDeAlloc(&aCtx->sv);
   }
 
@@ -982,7 +982,7 @@ static void AddDocumentCtx_UpdateNoIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx 
       int idx = fs->sortIdx;
       if (idx < 0) continue;
 
-      if (!md->sortVector.len) {
+      if (!RSSortingVector_Length(&md->sortVector)) {
         md->sortVector = RSSortingVector_New(sctx->spec->numSortableFields);
       }
 
