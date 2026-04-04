@@ -1977,7 +1977,6 @@ dependencies = [
  "redisearch_rs",
  "rlookup",
  "rlookup_ffi",
- "search_result",
  "sorting_vector",
  "value",
  "workspace_hack",

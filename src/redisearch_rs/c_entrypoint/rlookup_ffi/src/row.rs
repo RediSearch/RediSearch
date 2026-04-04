@@ -7,22 +7,15 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use ffi::RSValue;
 use libc::size_t;
 use rlookup::{OpaqueRLookupRow, RLookup, RLookupKey, RLookupRow};
 use std::{
-    ffi::{CStr, c_char, c_int},
+    ffi::{CStr, c_char},
     mem::{self, ManuallyDrop},
     ptr::NonNull,
     slice,
 };
 use value::RSValueFFI;
-
-unsafe extern "C" {
-    fn RSValue_Cmp(v1: *const RSValue, v2: *const RSValue, status: *mut ffi::QueryError) -> c_int;
-}
-
-const SORTASCMAP_MAXFIELDS: usize = 8;
 
 /// Returns a newly created [`RLookupRow`].
 #[unsafe(no_mangle)]
@@ -329,7 +322,7 @@ pub unsafe extern "C-unwind" fn RLookupRow_WriteFieldsFrom<'a>(
 pub unsafe extern "C" fn RLookupRow_Get(
     key: *const RLookupKey,
     row: *const OpaqueRLookupRow,
-) -> Option<NonNull<RSValue>> {
+) -> Option<NonNull<ffi::RSValue>> {
     // Safety: ensured by caller (1.)
     let key = unsafe { &*key };
 
@@ -402,90 +395,3 @@ pub unsafe extern "C" fn RLookupRow_SetSortingVector(
     row.set_sorting_vector(sv_slice);
 }
 
-/// Look up a value for `key` in the pre-loaded slices, inlining the logic of
-/// [`RLookupRow::get`] to avoid redundant per-row loads in a loop.
-#[inline(always)]
-fn get_from_slices<'a>(
-    key: &RLookupKey,
-    dyn_values: &'a [Option<RSValueFFI>],
-    sorting_vector: &'a [RSValueFFI],
-) -> Option<&'a RSValueFFI> {
-    if let Some(Some(val)) = dyn_values.get(key.dstidx as usize) {
-        return Some(val);
-    }
-    if key.flags.contains(rlookup::RLookupKeyFlag::SvSrc) {
-        sorting_vector
-            .get(key.svidx as usize)
-            .filter(|v| !v.is_null_static())
-    } else {
-        None
-    }
-}
-
-/// Compares two search results by the given sort keys, returning a negative, zero, or positive
-/// value.
-///
-/// The comparison loop runs entirely in Rust, avoiding per-key FFI crossings for value lookups.
-/// Per-row invariants (dyn_values slice, sorting vector slice) are loaded once and reused
-/// across all keys.
-///
-/// When all fields are equal, breaks the tie by document ID using the last key's ascending flag.
-///
-/// # Safety
-///
-/// 1. `keys` must point to an array of at least `nkeys` valid, non-null `RLookupKey` pointers.
-/// 2. `h1` and `h2` must be valid, non-null pointers to a `SearchResult`.
-/// 3. `qerr`, when non-null, must be a valid, writable pointer to a `QueryError`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn SearchResult_CmpByFields(
-    keys: *const *const RLookupKey,
-    nkeys: size_t,
-    h1: *const search_result::SearchResult<'_>,
-    h2: *const search_result::SearchResult<'_>,
-    ascend_map: u64,
-    qerr: *mut ffi::QueryError,
-) -> c_int {
-    let nkeys = nkeys.min(SORTASCMAP_MAXFIELDS);
-    // SAFETY: ensured by caller (1.)
-    let keys = unsafe { slice::from_raw_parts(keys, nkeys) };
-    // SAFETY: ensured by caller (2.)
-    let h1 = unsafe { &*h1 };
-    // SAFETY: ensured by caller (2.)
-    let h2 = unsafe { &*h2 };
-
-    let row1 = h1.row_data();
-    let row2 = h2.row_data();
-
-    // Hoist per-row loads out of the loop — these are identical across all keys.
-    let dyn1 = row1.dyn_values();
-    let dyn2 = row2.dyn_values();
-    let sv1 = row1.sorting_vector();
-    let sv2 = row2.sorting_vector();
-
-    for (i, &key_ptr) in keys.iter().enumerate() {
-        // SAFETY: ensured by caller (1.)
-        let key = unsafe { &*key_ptr };
-        let v1 = get_from_slices(key, dyn1, sv1);
-        let v2 = get_from_slices(key, dyn2, sv2);
-        let ascending = (ascend_map & (1u64 << i)) != 0;
-
-        match (v1, v2) {
-            (Some(v1), Some(v2)) => {
-                // SAFETY: RSValueFFI contains a valid pointer; qerr ensured by caller (3.)
-                let rc = unsafe { RSValue_Cmp(v1.as_ptr(), v2.as_ptr(), qerr) };
-                if rc != 0 {
-                    return if ascending { -rc } else { rc };
-                }
-            }
-            (Some(_), None) => return 1,
-            (None, Some(_)) => return -1,
-            (None, None) => continue,
-        }
-    }
-
-    // Tiebreak by docid — ascending uses the last key's flag,
-    // matching the original C loop where `ascending` retains its last value.
-    let ascending = nkeys > 0 && (ascend_map & (1u64 << (nkeys - 1))) != 0;
-    let rc: c_int = if h1.doc_id() < h2.doc_id() { -1 } else { 1 };
-    if ascending { -rc } else { rc }
-}

@@ -720,23 +720,103 @@ static inline int cmpByScore(const void *e1, const void *e2, const void *udata) 
   return SearchResult_GetDocId(h1) > SearchResult_GetDocId(h2) ? -1 : 1;
 }
 
+/* Access RLookupRow internals directly for the comparison loop.
+ *
+ * RLookupRow is repr(C) with the following layout:
+ *   - sorting_vector: RSValue* (ptr to borrowed sorting vector values, dangling when len==0)
+ *   - dyn_values: ThinVec<Option<RSValueFFI>> (ptr to heap header: { u64 len, u64 cap, RSValue* data[] })
+ *   - sorting_vector_len: u16
+ *   - (padding: u16)
+ *   - num_dyn_values: u32
+ *
+ * This avoids Rust FFI calls (which go through GOT on x86_64) in the hot comparison loop.
+ */
+typedef struct {
+  uint64_t len;
+  uint64_t cap;
+  RSValue *data[];
+} ThinVecHeader;
+
+typedef struct {
+  RSValue **sorting_vector;
+  ThinVecHeader *dyn_values;
+  uint16_t sorting_vector_len;
+  uint16_t _pad;
+  uint32_t num_dyn_values;
+} RLookupRowRepr;
+
+_Static_assert(sizeof(RLookupRowRepr) == sizeof(RLookupRow),
+    "RLookupRowRepr layout must match Rust RLookupRow");
+
+/* Look up a value for `key` in the pre-loaded row fields.
+ * Returns NULL if no value is found. */
+static inline RSValue *getValueForKey(const RLookupKey *key,
+                                      const ThinVecHeader *dyn,
+                                      RSValue **sv, uint16_t sv_len,
+                                      RSValue *null_sentinel) {
+  uint16_t dstidx = key->dstidx;
+  if (dstidx < dyn->len) {
+    RSValue *v = dyn->data[dstidx];
+    if (v) return v;
+  }
+  if ((key->flags & RLOOKUP_F_SVSRC) && key->svidx < sv_len) {
+    RSValue *v = sv[key->svidx];
+    if (v && v != null_sentinel) return v;
+  }
+  return NULL;
+}
+
 /* Compare results for the heap by sorting key.
  *
- * The field comparison loop lives in Rust (RLookupRow_CmpByFields) to avoid
- * per-key FFI crossings for RLookupRow_Get. This wrapper handles the qerr
- * setup and docid tiebreak. */
+ * Operates directly on the repr(C) RLookupRow layout to avoid FFI overhead.
+ * When all fields are equal, breaks the tie by document ID. */
 static int cmpByFields(const void *e1, const void *e2, const void *udata) {
   const RPSorter *self = udata;
   const SearchResult *h1 = e1, *h2 = e2;
+  size_t nkeys = self->fieldcmp.nkeys;
 
   QueryError *qerr = NULL;
   if (self && self->base.parent && self->base.parent->err) {
     qerr = self->base.parent->err;
   }
 
-  return SearchResult_CmpByFields(
-      self->fieldcmp.keys, self->fieldcmp.nkeys,
-      h1, h2, self->fieldcmp.ascendMap, qerr);
+  if (nkeys > SORTASCMAP_MAXFIELDS) nkeys = SORTASCMAP_MAXFIELDS;
+
+  int ascending = 0;
+  if (nkeys > 0) {
+    const RLookupRowRepr *row1 = (const RLookupRowRepr *)SearchResult_GetRowData(h1);
+    const RLookupRowRepr *row2 = (const RLookupRowRepr *)SearchResult_GetRowData(h2);
+
+    /* Hoist per-row loads out of the loop. */
+    const ThinVecHeader *dyn1 = row1->dyn_values;
+    const ThinVecHeader *dyn2 = row2->dyn_values;
+    RSValue **sv1 = row1->sorting_vector;
+    RSValue **sv2 = row2->sorting_vector;
+    uint16_t sv1_len = row1->sorting_vector_len;
+    uint16_t sv2_len = row2->sorting_vector_len;
+    RSValue *null_sentinel = RSValue_NullStatic();
+
+    for (size_t i = 0; i < nkeys; i++) {
+      const RLookupKey *key = self->fieldcmp.keys[i];
+      RSValue *v1 = getValueForKey(key, dyn1, sv1, sv1_len, null_sentinel);
+      RSValue *v2 = getValueForKey(key, dyn2, sv2, sv2_len, null_sentinel);
+      ascending = SORTASCMAP_GETASC(self->fieldcmp.ascendMap, i);
+
+      if (v1 && v2) {
+        int rc = RSValue_Cmp(v1, v2, qerr);
+        if (rc != 0) return ascending ? -rc : rc;
+      } else if (v1) {
+        return 1;
+      } else if (v2) {
+        return -1;
+      }
+    }
+  }
+
+  /* Tiebreak by docid — ascending uses the last key's flag. */
+  ascending = nkeys > 0 ? SORTASCMAP_GETASC(self->fieldcmp.ascendMap, nkeys - 1) : 0;
+  int rc = SearchResult_GetDocId(h1) < SearchResult_GetDocId(h2) ? -1 : 1;
+  return ascending ? -rc : rc;
 }
 
 static void srDtor(void *p) {

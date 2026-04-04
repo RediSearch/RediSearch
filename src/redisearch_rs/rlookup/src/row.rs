@@ -29,6 +29,7 @@ fn is_special_key(rule: &SchemaRule, key: &RLookupKey) -> bool {
 /// `&[RSValueFFI]` slice reference, saving 8 bytes (40 vs 48). This is safe because the sorting
 /// vector length is bounded by `RS_SORTABLES_MAX` (1024), which fits in `u16`.
 #[derive(Debug)]
+#[repr(C)]
 pub struct RLookupRow<'a> {
     /// Pointer to borrowed sorting vector values. Dangling when `sorting_vector_len == 0`
     /// (no sorting vector set), valid heap pointer otherwise.
@@ -288,7 +289,6 @@ impl<'a> RLookupRow<'a> {
     /// This does not free all the memory consumed by the row, but simply resets
     /// the row data (preserving any caches) so that it may be refilled.
     /// Also clears the sorting vector.
-    #[inline]
     pub fn wipe(&mut self) {
         let mut remaining = self.num_dyn_values;
         for value in self.dyn_values.iter_mut() {

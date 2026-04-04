@@ -15,8 +15,6 @@ typedef uint32_t RLookupOptions;
 // Forward declaration of RSValue, which is only used as ptr in the sorting_vector module
 typedef struct RSValue RSValue;
 
-// Forward declaration of SearchResult, defined in search_result_rs.h
-typedef struct SearchResult SearchResult;
 
 // Required to ensure that the alignment declared by cbindgen is respected on
 // the C/C++ side.
@@ -36,7 +34,7 @@ prefix_with_name = true
 
 [export]
 include = ["RLookupKeyFlag", "RLookupOption"]
-exclude = ["FieldSpec", "IndexSpec", "Option_Cow_CStr", "SchemaRule", "RSSortingVector", "SearchResult"]
+exclude = ["FieldSpec", "IndexSpec", "Option_Cow_CStr", "SchemaRule", "RSSortingVector"]
 
 [export.rename]
 "OpaqueRLookup" = "RLookup"
