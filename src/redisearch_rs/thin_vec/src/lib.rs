@@ -97,7 +97,7 @@ use layout::*;
 
 mod capacity;
 pub mod header;
-pub(crate) mod layout;
+pub mod layout;
 
 pub use capacity::VecCapacity;
 pub use header::Header;

@@ -10,11 +10,11 @@
 use std::{
     fmt,
     ops::{Index, IndexMut},
-    ptr::NonNull,
     slice::{Iter, IterMut},
 };
 
 use icu_casemap::CaseMapper;
+use thin_vec::MediumThinVec;
 use value::RSValueFFI;
 
 /// IndexOutOfBounds error can be returned by [`RSSortingVector::try_insert_num`] and the other `try_insert_*` methods.
@@ -42,64 +42,48 @@ impl std::error::Error for IndexOutOfBounds {}
 ///
 /// # Layout
 ///
-/// This struct is `#[repr(C)]` so that C code can directly access its fields for
-/// simple read operations (length, element access) without FFI call overhead.
-#[repr(C)]
+/// This struct is `#[repr(transparent)]` over [`MediumThinVec<RSValueFFI>`], which is
+/// pointer-sized (8 bytes). The length is stored in the heap header alongside the data.
+///
+/// The `MediumThinVec` (i.e. `ThinVec<T, u32>`) heap layout is:
+/// ```text
+///   Header { len: u32, cap: u32 }  (8 bytes, no padding for pointer-aligned T)
+///   data: [RSValueFFI; len]
+/// ```
+///
+/// An empty vector points to a static sentinel header (not null), so no allocation is needed.
+#[repr(transparent)]
 pub struct RSSortingVector {
-    /// Pointer to an array of [`RSValueFFI`] values. Always non-null:
-    /// either dangling (when `len == 0`) or pointing to a valid heap allocation.
-    ///
-    /// In C this field is `RSValue **values`. The layout is identical because
-    /// both [`NonNull<RSValueFFI>`] and [`RSValueFFI`] are `#[repr(transparent)]`
-    /// wrappers, so this has the same size and alignment as `*mut *mut ffi::RSValue`
-    /// (verified by const assertions in `rs_value_ffi.rs`).
-    values: NonNull<RSValueFFI>,
-    /// Number of elements in the array.
-    len: usize,
+    inner: MediumThinVec<RSValueFFI>,
 }
 
 impl RSSortingVector {
     /// Creates an empty [`RSSortingVector`] with no allocation.
     ///
-    /// The returned vector has a dangling `values` pointer and zero length.
-    /// This is the canonical "no sorting vector" sentinel for inline storage.
-    ///
-    /// Using a dangling (non-null, aligned) pointer instead of null allows
-    /// [`as_slice`](Self::as_slice) and [`Drop`] to skip null checks — `slice::from_raw_parts`
-    /// and `Vec::from_raw_parts` both accept a dangling pointer when the length is zero.
+    /// The returned vector points to a static sentinel header with `len == 0` and `cap == 0`.
+    /// This is the canonical "no sorting vector" sentinel for inline storage in
+    /// [`RSDocumentMetadata`].
     pub const fn empty() -> Self {
         Self {
-            values: NonNull::dangling(),
-            len: 0,
+            inner: MediumThinVec::new(),
         }
     }
 
     /// Creates a new [`RSSortingVector`] with the given length.
     pub fn new(len: usize) -> Self {
-        Self::from_vec(vec![RSValueFFI::null_static(); len])
-    }
-
-    /// Constructs from a `Vec`, taking ownership of its buffer.
-    fn from_vec(v: Vec<RSValueFFI>) -> Self {
-        let mut boxed = v.into_boxed_slice();
-        // SAFETY: `Box::as_mut_ptr` on a non-ZST boxed slice always returns a non-null pointer.
-        let values = unsafe { NonNull::new_unchecked(boxed.as_mut_ptr()) };
-        let len = boxed.len();
-        std::mem::forget(boxed);
-        Self { values, len }
+        let mut inner = MediumThinVec::new();
+        inner.resize(len, RSValueFFI::null_static());
+        Self { inner }
     }
 
     /// Returns the values as a slice.
-    pub const fn as_slice(&self) -> &[RSValueFFI] {
-        // SAFETY: `values` is either dangling (len==0) or from a valid `Vec` (len>0).
-        // Both satisfy the preconditions (non-null, aligned pointer).
-        unsafe { NonNull::slice_from_raw_parts(self.values, self.len).as_ref() }
+    pub fn as_slice(&self) -> &[RSValueFFI] {
+        &self.inner
     }
 
     /// Returns the values as a mutable slice.
-    const fn as_mut_slice(&mut self) -> &mut [RSValueFFI] {
-        // SAFETY: Same as `as_slice`, plus we have exclusive access via `&mut self`.
-        unsafe { NonNull::slice_from_raw_parts(self.values, self.len).as_mut() }
+    fn as_mut_slice(&mut self) -> &mut [RSValueFFI] {
+        &mut self.inner
     }
 
     /// Returns an immutable reference to the value at index `index`,
@@ -176,13 +160,13 @@ impl RSSortingVector {
     }
 
     /// Get the len of the sorting vector.
-    pub const fn len(&self) -> usize {
-        self.len
+    pub fn len(&self) -> usize {
+        self.inner.len()
     }
 
     /// check if the sorting vector is empty.
-    pub const fn is_empty(&self) -> bool {
-        self.len == 0
+    pub fn is_empty(&self) -> bool {
+        self.inner.is_empty()
     }
 
     /// Deallocates the inner values buffer and zeros the struct.
@@ -191,12 +175,9 @@ impl RSSortingVector {
     /// Each [`RSValueFFI`] element is dropped (decrementing its refcount) and the
     /// heap buffer is freed. Calling `clear` on an already-cleared vector is a no-op.
     pub fn clear(&mut self) {
-        // SAFETY: Same as `Drop` — valid for both dangling (len==0) and allocated (len>0).
-        unsafe {
-            let _ = Vec::from_raw_parts(self.values.as_ptr(), self.len, self.len);
-        }
-        self.values = NonNull::dangling();
-        self.len = 0;
+        self.inner.clear();
+        // Shrink to free the allocation, returning to the singleton empty state.
+        self.inner.shrink_to_fit();
     }
 
     /// approximate the memory size of the sorting vector.
@@ -226,21 +207,12 @@ impl RSSortingVector {
     }
 }
 
-impl Drop for RSSortingVector {
-    fn drop(&mut self) {
-        // SAFETY: When len==0 this reconstructs an empty Vec from a dangling pointer — valid
-        // and drops as a no-op. When len>0, values came from a Vec via into_boxed_slice
-        // with capacity==len, so this reconstructs the original Vec for deallocation.
-        unsafe {
-            let _ = Vec::from_raw_parts(self.values.as_ptr(), self.len, self.len);
-        };
-    }
-}
-
 impl Clone for RSSortingVector {
     fn clone(&self) -> Self {
         // `to_vec()` calls `RSValueFFI::clone` on each element, incrementing refcounts.
-        Self::from_vec(self.as_slice().to_vec())
+        Self {
+            inner: self.inner.clone(),
+        }
     }
 }
 
@@ -248,27 +220,25 @@ impl fmt::Debug for RSSortingVector {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("RSSortingVector")
             .field("values", &self.as_slice())
-            .field("len", &self.len)
+            .field("len", &self.len())
             .finish()
     }
 }
 
 impl FromIterator<RSValueFFI> for RSSortingVector {
     fn from_iter<T: IntoIterator<Item = RSValueFFI>>(iter: T) -> Self {
-        Self::from_vec(iter.into_iter().collect())
+        Self {
+            inner: iter.into_iter().collect(),
+        }
     }
 }
 
 // Consuming iterator: yields owned T by consuming the vector.
 impl IntoIterator for RSSortingVector {
     type Item = RSValueFFI;
-    type IntoIter = std::vec::IntoIter<RSValueFFI>;
+    type IntoIter = thin_vec::IntoIter<RSValueFFI, u32>;
     fn into_iter(self) -> Self::IntoIter {
-        // SAFETY: Same as `Drop` — valid for both dangling (len==0) and allocated (len>0).
-        let v = unsafe { Vec::from_raw_parts(self.values.as_ptr(), self.len, self.len) };
-        // Prevent `Drop` from double-freeing the buffer.
-        std::mem::forget(self);
-        v.into_iter()
+        self.inner.into_iter()
     }
 }
 

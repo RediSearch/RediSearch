@@ -330,7 +330,7 @@ void DMD_Free(const RSDocumentMetadata *cmd) {
     md->flags &= ~Document_HasPayload;
     md->payload = NULL;
   }
-  if (md->sortVector.len) {
+  if (RSSortingVector_Length(&md->sortVector)) {
     RSSortingVector_ClearAndDeAlloc(&md->sortVector);
     md->flags &= ~Document_HasSortVector;
   }
@@ -387,7 +387,7 @@ RSDocumentMetadata *DocTable_Pop(DocTable *t, const char *s, size_t n) {
       t->memsize -= sizeof(RSDocumentMetadata);
       t->memsize -= md->payload->len + sizeof(RSPayload);
     }
-    if (md->sortVector.len) {
+    if (RSSortingVector_Length(&md->sortVector)) {
       t->sortablesSize -= RSSortingVector_GetMemorySize(&md->sortVector);
     }
 
