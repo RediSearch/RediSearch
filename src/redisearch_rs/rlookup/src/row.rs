@@ -210,6 +210,7 @@ impl<'a> RLookupRow<'a> {
     /// The function first checks for dynamic values, and if not found, it checks the sorting vector
     /// if the `SvSrc` flag is set in the key.
     /// If the item is not found in either location, it returns `None`.
+    #[inline]
     pub fn get(&self, key: &RLookupKey) -> Option<&RSValueFFI> {
         // Check dynamic values first
         if let Some(Some(val)) = self.dyn_values().get(key.dstidx as usize) {

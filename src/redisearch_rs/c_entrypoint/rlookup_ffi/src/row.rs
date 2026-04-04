@@ -402,32 +402,12 @@ pub unsafe extern "C" fn RLookupRow_SetSortingVector(
     row.set_sorting_vector(sv_ref);
 }
 
-/// Look up a value for `key` in the pre-loaded slices, inlining the logic of
-/// [`RLookupRow::get`] to avoid redundant per-row loads in a loop.
-#[inline(always)]
-fn get_from_slices<'a>(
-    key: &RLookupKey,
-    dyn_values: &'a [Option<RSValueFFI>],
-    sorting_vector: &'a [RSValueFFI],
-) -> Option<&'a RSValueFFI> {
-    if let Some(Some(val)) = dyn_values.get(key.dstidx as usize) {
-        return Some(val);
-    }
-    if key.flags.contains(rlookup::RLookupKeyFlag::SvSrc) {
-        sorting_vector
-            .get(key.svidx as usize)
-            .filter(|v| !v.is_null_static())
-    } else {
-        None
-    }
-}
-
 /// Compares two search results by the given sort keys, returning a negative, zero, or positive
 /// value.
 ///
 /// The comparison loop runs entirely in Rust, avoiding per-key FFI crossings for value lookups.
-/// Per-row invariants (dyn_values slice, sorting vector slice) are loaded once and reused
-/// across all keys.
+/// Row fields are accessed directly per-key (like the original C implementation) to minimize
+/// stack usage and register pressure.
 ///
 /// When all fields are equal, breaks the tie by document ID using the last key's ascending flag.
 ///
@@ -456,17 +436,11 @@ pub unsafe extern "C" fn SearchResult_CmpByFields(
     let row1 = h1.row_data();
     let row2 = h2.row_data();
 
-    // Hoist per-row loads out of the loop — these are identical across all keys.
-    let dyn1 = row1.dyn_values();
-    let dyn2 = row2.dyn_values();
-    let sv1 = row1.sorting_vector();
-    let sv2 = row2.sorting_vector();
-
     for (i, &key_ptr) in keys.iter().enumerate() {
         // SAFETY: ensured by caller (1.)
         let key = unsafe { &*key_ptr };
-        let v1 = get_from_slices(key, dyn1, sv1);
-        let v2 = get_from_slices(key, dyn2, sv2);
+        let v1 = row1.get(key);
+        let v2 = row2.get(key);
         let ascending = (ascend_map & (1u64 << i)) != 0;
 
         match (v1, v2) {
