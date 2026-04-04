@@ -442,6 +442,7 @@ impl<T, S: VecCapacity> ThinVec<T, S> {
     /// let a: ThinVec<i32> = thin_vec![1, 2, 3];
     /// assert_eq!(a.len(), 3);
     /// ```
+    #[inline]
     pub fn len(&self) -> usize {
         self.header_ref().len().to_usize()
     }
@@ -459,6 +460,7 @@ impl<T, S: VecCapacity> ThinVec<T, S> {
     /// v.push(1);
     /// assert!(!v.is_empty());
     /// ```
+    #[inline]
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
@@ -1043,6 +1045,7 @@ impl<T, S: VecCapacity> ThinVec<T, S> {
     /// let buffer: ThinVec<u8> = thin_vec![1, 2, 3, 5, 8];
     /// io::sink().write(buffer.as_slice()).unwrap();
     /// ```
+    #[inline]
     pub fn as_slice(&self) -> &[T] {
         // SAFETY:
         // - The pointer is valid and aligned for a vector of `self.len()`
@@ -1067,6 +1070,7 @@ impl<T, S: VecCapacity> ThinVec<T, S> {
     /// let mut buffer = vec![0; 3];
     /// io::repeat(0b101).read_exact(buffer.as_mut_slice()).unwrap();
     /// ```
+    #[inline]
     pub fn as_mut_slice(&mut self) -> &mut [T] {
         // SAFETY:
         // - The pointer is valid and aligned for a vector of `self.len()`
@@ -1505,12 +1509,14 @@ impl<T, S: VecCapacity> Drop for ThinVec<T, S> {
 impl<T, S: VecCapacity> Deref for ThinVec<T, S> {
     type Target = [T];
 
+    #[inline]
     fn deref(&self) -> &[T] {
         self.as_slice()
     }
 }
 
 impl<T, S: VecCapacity> DerefMut for ThinVec<T, S> {
+    #[inline]
     fn deref_mut(&mut self) -> &mut [T] {
         self.as_mut_slice()
     }
