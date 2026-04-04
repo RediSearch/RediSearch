@@ -25,7 +25,7 @@ fn is_special_key(rule: &SchemaRule, key: &RLookupKey) -> bool {
 /// Row data for a lookup key. This abstracts the question of if the data comes from a borrowed sorting vector slice
 /// or from dynamic values stored in the row during processing.
 ///
-/// The sorting vector is stored as an [`RSSortingVectorRef`] — a pointer-sized borrowed
+/// The sorting vector is stored as an [`RSSortingVectorRef`](sorting_vector::RSSortingVectorRef) — a pointer-sized borrowed
 /// view that defers the ThinVec header dereference until [`sorting_vector()`](Self::sorting_vector)
 /// is called. This keeps [`set_sorting_vector`](Self::set_sorting_vector) a single pointer store.
 #[derive(Debug)]
@@ -189,7 +189,7 @@ impl<'a> RLookupRow<'a> {
     }
 
     /// Borrow a sorting vector for the row.
-    pub fn set_sorting_vector(&mut self, sv: Option<&'a sorting_vector::RSSortingVector>) {
+    pub const fn set_sorting_vector(&mut self, sv: Option<&'a sorting_vector::RSSortingVector>) {
         match sv {
             Some(sv) => {
                 self.sorting_vector = sorting_vector::RSSortingVectorRef::from_ref(sv);

@@ -62,7 +62,7 @@ impl RSSortingVector {
     ///
     /// The returned vector points to a static sentinel header with `len == 0` and `cap == 0`.
     /// This is the canonical "no sorting vector" sentinel for inline storage in
-    /// [`RSDocumentMetadata`].
+    /// `RSDocumentMetadata`.
     pub const fn empty() -> Self {
         Self {
             inner: ThinVec::new(),
@@ -214,11 +214,11 @@ impl RSSortingVector {
 /// A borrowed, non-owning view of an [`RSSortingVector`].
 ///
 /// Stores a bitwise copy of the [`RSSortingVector`]'s `ThinVec` pointer inside
-/// [`ManuallyDrop`] so the destructor never runs. The lifetime `'a` guarantees
+/// [`ManuallyDrop`](std::mem::ManuallyDrop) so the destructor never runs. The lifetime `'a` guarantees
 /// the originating [`RSSortingVector`] (and its heap data) outlives this reference.
 ///
 /// This type is pointer-sized (8 bytes), making it cheap to store inline in
-/// [`RLookupRow`] without eagerly dereferencing the ThinVec header.
+/// `RLookupRow` without eagerly dereferencing the ThinVec header.
 #[derive(Debug)]
 pub struct RSSortingVectorRef<'a> {
     inner: std::mem::ManuallyDrop<RSSortingVector>,
@@ -237,7 +237,7 @@ impl<'a> RSSortingVectorRef<'a> {
     /// Creates a borrowed reference from an [`RSSortingVector`].
     ///
     /// The lifetime `'a` on the reference guarantees the data outlives this view.
-    pub fn from_ref(sv: &'a RSSortingVector) -> Self {
+    pub const fn from_ref(sv: &'a RSSortingVector) -> Self {
         // SAFETY: We bitwise-copy the ThinVec pointer. ManuallyDrop prevents the
         // destructor from running, so no double-free.
         let copy = unsafe { std::ptr::read(sv) };
@@ -254,6 +254,9 @@ impl<'a> RSSortingVectorRef<'a> {
         // original RSSortingVector which is valid for lifetime 'a.
         // We reconstruct the slice with the correct lifetime via raw parts.
         let slice = self.inner.as_slice();
+        // SAFETY: The inner ThinVec pointer refers to data owned by the
+        // original RSSortingVector which is valid for lifetime 'a.
+        // We reconstruct the slice with the correct lifetime via raw parts.
         unsafe { std::slice::from_raw_parts(slice.as_ptr(), slice.len()) }
     }
 }

@@ -28,7 +28,7 @@ extern "C" {
 #endif // __cplusplus
 
 /**
- * Returns the pointer value of the empty [`ThinVec`] sentinel header.
+ * Returns the pointer value of the empty `ThinVec` sentinel header.
  *
  * C code uses this to initialize empty `RSSortingVector` values and to check
  * whether a sorting vector is empty.

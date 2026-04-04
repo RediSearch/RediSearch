@@ -26,11 +26,15 @@ const _: () = assert!(thin_vec::layout::header_field_padding::<RSValueFFI, u64>(
 // Verify that RSSortingVector is pointer-sized (repr(transparent) over ThinVec).
 const _: () = assert!(std::mem::size_of::<RSSortingVector>() == std::mem::size_of::<usize>());
 
-/// Returns the pointer value of the empty [`ThinVec`] sentinel header.
+/// Returns the pointer value of the empty `ThinVec` sentinel header.
 ///
 /// C code uses this to initialize empty `RSSortingVector` values and to check
 /// whether a sorting vector is empty.
 #[unsafe(no_mangle)]
+#[expect(
+    clippy::missing_const_for_fn,
+    reason = "extern \"C\" functions cannot be const"
+)]
 pub extern "C" fn RSSortingVector_EmptySentinel() -> *const std::ffi::c_void {
     <u64 as VecCapacity>::EMPTY_HEADER as *const Header<u64> as *const std::ffi::c_void
 }
