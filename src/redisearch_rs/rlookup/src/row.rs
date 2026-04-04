@@ -10,8 +10,7 @@
 use crate::{
     RLookup, RLookupKey, RLookupKeyFlag, RLookupKeyFlags, SchemaRule, lookup::TRANSIENT_FLAGS,
 };
-use std::{borrow::Cow, ffi::CStr, marker::PhantomData, ptr::NonNull};
-use thin_vec::ThinVec;
+use std::{borrow::Cow, ffi::CStr, marker::PhantomData, ptr, ptr::NonNull};
 use value::RSValueFFI;
 
 /// Tests if the given [`RLookupKey`] is a special key (lang, score, or payload field)
@@ -22,31 +21,49 @@ fn is_special_key(rule: &SchemaRule, key: &RLookupKey) -> bool {
         .any(|f| f == Some(key.name().as_ref()))
 }
 
-/// Row data for a lookup key. This abstracts the question of if the data comes from a borrowed sorting vector slice
-/// or from dynamic values stored in the row during processing.
+/// Row data for a lookup key. This abstracts the question of if the data comes from a borrowed
+/// sorting vector slice or from dynamic values stored in the row during processing.
 ///
 /// The sorting vector is stored as a thin [`NonNull`] pointer + `u16` length instead of a fat
 /// `&[RSValueFFI]` slice reference, saving 8 bytes (40 vs 48). This is safe because the sorting
 /// vector length is bounded by `RS_SORTABLES_MAX` (1024), which fits in `u16`.
-#[derive(Debug)]
+///
+/// Dynamic values are stored as raw `Vec` parts (pointer + capacity) to avoid the extra pointer
+/// indirection of `ThinVec`. The invariant is `len == capacity` — empty slots hold `None` rather
+/// than being absent. We reconstitute a `Vec` only when we need to grow or deallocate.
 #[repr(C)]
 pub struct RLookupRow<'a> {
     /// Pointer to borrowed sorting vector values. Dangling when `sorting_vector_len == 0`
     /// (no sorting vector set), valid heap pointer otherwise.
     sorting_vector: NonNull<RSValueFFI>,
 
-    /// Dynamic values obtained from prior processing
-    dyn_values: ThinVec<Option<RSValueFFI>>,
+    /// Pointer to the heap-allocated dynamic values array. Null when `dyn_values_cap == 0`.
+    /// The array has exactly `dyn_values_cap` elements, each being `Option<RSValueFFI>`.
+    dyn_values_ptr: *mut Option<RSValueFFI>,
 
     /// Length of the sorting vector slice. Zero means no sorting vector is set.
     sorting_vector_len: u16,
 
-    /// The number of values in [`RLookupRow::dyn_values`] that are `is_some()`. Note that this
-    /// is not the length of [`RLookupRow::dyn_values`]
+    /// Capacity (and length) of the dynamic values array. Fits in `u16` because
+    /// `RLookupKey::dstidx` is `u16`.
+    dyn_values_cap: u16,
+
+    /// The number of values in the dynamic values array that are `Some`. Note that this
+    /// is not the length of the array.
     num_dyn_values: u32,
 
     /// Ties the lifetime `'a` to the borrowed sorting vector data.
     _lifetime: PhantomData<&'a [RSValueFFI]>,
+}
+
+impl std::fmt::Debug for RLookupRow<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RLookupRow")
+            .field("dyn_values", &self.dyn_values())
+            .field("sorting_vector_len", &self.sorting_vector_len)
+            .field("num_dyn_values", &self.num_dyn_values)
+            .finish()
+    }
 }
 
 impl<'a> Default for RLookupRow<'a> {
@@ -56,21 +73,43 @@ impl<'a> Default for RLookupRow<'a> {
 }
 
 impl<'a> RLookupRow<'a> {
-    /// Creates a new `RLookupRow` with an empty [`RLookupRow::dyn_values`] vector and
-    /// a [`RLookupRow::sorting_vector`] of the given length.
+    /// Reconstitute the dynamic values as a `Vec`, leaving `self` with a null pointer and zero cap.
+    fn take_dyn_vec(&mut self) -> Vec<Option<RSValueFFI>> {
+        if self.dyn_values_ptr.is_null() {
+            Vec::new()
+        } else {
+            let cap = self.dyn_values_cap as usize;
+            // SAFETY: `dyn_values_ptr` was produced by `Vec::into_raw_parts` with len == cap.
+            let vec = unsafe { Vec::from_raw_parts(self.dyn_values_ptr, cap, cap) };
+            self.dyn_values_ptr = ptr::null_mut();
+            self.dyn_values_cap = 0;
+            vec
+        }
+    }
+
+    /// Store a `Vec` back into the raw parts fields, consuming it.
+    fn put_dyn_vec(&mut self, vec: Vec<Option<RSValueFFI>>) {
+        let (ptr, len, _cap) = vec.into_raw_parts();
+        self.dyn_values_ptr = ptr;
+        self.dyn_values_cap = len as u16;
+    }
+
+    /// Creates a new `RLookupRow` with an empty dynamic values array and
+    /// no sorting vector.
     pub const fn new() -> Self {
         Self {
             sorting_vector: NonNull::dangling(),
+            dyn_values_ptr: ptr::null_mut(),
             sorting_vector_len: 0,
-            dyn_values: ThinVec::new(),
+            dyn_values_cap: 0,
             num_dyn_values: 0,
             _lifetime: PhantomData,
         }
     }
 
-    /// Returns the length of [`RLookupRow::dyn_values`].
-    pub fn len(&self) -> usize {
-        self.dyn_values.len()
+    /// Returns the length of the dynamic values array.
+    pub const fn len(&self) -> usize {
+        self.dyn_values_cap as usize
     }
 
     /// Returns the number of visible fields in this [`RLookupRow`].
@@ -172,24 +211,30 @@ impl<'a> RLookupRow<'a> {
         num_fields
     }
 
-    /// Returns true if the [`RLookupRow::dyn_values`] vector is empty.
-    pub fn is_empty(&self) -> bool {
-        self.dyn_values.is_empty()
+    /// Returns true if the dynamic values array is empty.
+    pub const fn is_empty(&self) -> bool {
+        self.dyn_values_cap == 0
     }
 
-    /// Readonly access to the [`RLookupRow::dyn_values`] vector that has been generated by prior processing.
+    /// Readonly access to the dynamic values array that has been generated by prior processing.
     ///
-    /// The function [`RLookupRow::write_key`] can be used to write values to this vector.
+    /// The function [`RLookupRow::write_key`] can be used to write values to this array.
     #[inline]
     pub fn dyn_values(&self) -> &[Option<RSValueFFI>] {
-        &self.dyn_values
+        if self.dyn_values_ptr.is_null() {
+            &[]
+        } else {
+            // SAFETY: when `dyn_values_ptr` is non-null, it points to a valid allocation of
+            // `dyn_values_cap` elements, all properly initialized.
+            unsafe { std::slice::from_raw_parts(self.dyn_values_ptr, self.dyn_values_cap as usize) }
+        }
     }
 
-    /// Sets the capacity of the [`RLookupRow::dyn_values`] vector to the given capacity.
-    /// It fills up the vector with None values to the given capacity.
-    /// This is useful to preallocate memory for the row if you know the number of values that will be written to it.
-    pub fn set_dyn_capacity(&mut self, capacity: usize) {
-        self.dyn_values.resize(capacity, None);
+    /// Grows the dynamic values array to the given capacity, filling new slots with `None`.
+    fn set_dyn_capacity(&mut self, capacity: usize) {
+        let mut vec = self.take_dyn_vec();
+        vec.resize(capacity, None);
+        self.put_dyn_vec(vec);
     }
 
     /// Readonly access to the sorting vector, returns `None` if no sorting vector was set.
@@ -252,11 +297,13 @@ impl<'a> RLookupRow<'a> {
     /// refer to a read-only (SVSRC) key.
     pub fn write_key(&mut self, key: &RLookupKey, val: RSValueFFI) -> Option<RSValueFFI> {
         let idx = key.dstidx;
-        if self.dyn_values.len() <= idx as usize {
+        if (self.dyn_values_cap as usize) <= idx as usize {
             self.set_dyn_capacity((idx + 1) as usize);
         }
 
-        let prev = self.dyn_values[idx as usize].replace(val);
+        // SAFETY: `set_dyn_capacity` ensures the array has at least `idx + 1` elements.
+        let slot = unsafe { &mut *self.dyn_values_ptr.add(idx as usize) };
+        let prev = slot.replace(val);
 
         if prev.is_none() {
             self.num_dyn_values += 1;
@@ -291,13 +338,19 @@ impl<'a> RLookupRow<'a> {
     /// Also clears the sorting vector.
     pub fn wipe(&mut self) {
         let mut remaining = self.num_dyn_values;
-        for value in self.dyn_values.iter_mut() {
-            if remaining == 0 {
-                break;
-            }
-            if value.is_some() {
-                *value = None;
-                remaining -= 1;
+        if remaining > 0 && !self.dyn_values_ptr.is_null() {
+            // SAFETY: `dyn_values_ptr` is valid for `dyn_values_cap` elements.
+            let slice = unsafe {
+                std::slice::from_raw_parts_mut(self.dyn_values_ptr, self.dyn_values_cap as usize)
+            };
+            for value in slice.iter_mut() {
+                if remaining == 0 {
+                    break;
+                }
+                if value.is_some() {
+                    *value = None;
+                    remaining -= 1;
+                }
             }
         }
         self.num_dyn_values = 0;
@@ -310,7 +363,8 @@ impl<'a> RLookupRow<'a> {
     /// It does not affect the sorting vector.
     pub fn reset_dyn_values(&mut self) {
         self.num_dyn_values = 0;
-        self.dyn_values = ThinVec::new();
+        // Reconstitute the Vec so it properly drops elements and deallocates.
+        drop(self.take_dyn_vec());
     }
 
     /// Write fields from a source row into this row.
@@ -385,7 +439,7 @@ impl<'a> RLookupRow<'a> {
     #[track_caller]
     #[cfg(any(debug_assertions, test))]
     pub fn assert_valid(&self, ctx: &str) {
-        for val in self.dyn_values.iter().flatten() {
+        for val in self.dyn_values().iter().flatten() {
             assert!(
                 val.refcount() >= 1,
                 "{ctx} - RSValue refcount must not be zero"

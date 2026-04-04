@@ -17,7 +17,6 @@ libc.workspace = true
 pin-project.workspace = true
 schema_rule.workspace = true
 strum.workspace = true
-thin_vec.workspace = true
 value = { workspace = true, features = ["c_ffi_impl"] }
 thiserror.workspace = true
 redis_mock.workspace = true

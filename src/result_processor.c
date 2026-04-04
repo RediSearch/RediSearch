@@ -732,16 +732,10 @@ static inline int cmpByScore(const void *e1, const void *e2, const void *udata) 
  * This avoids Rust FFI calls (which go through GOT on x86_64) in the hot comparison loop.
  */
 typedef struct {
-  uint64_t len;
-  uint64_t cap;
-  RSValue *data[];
-} ThinVecHeader;
-
-typedef struct {
   RSValue **sorting_vector;
-  ThinVecHeader *dyn_values;
+  RSValue **dyn_values_ptr;
   uint16_t sorting_vector_len;
-  uint16_t _pad;
+  uint16_t dyn_values_cap;
   uint32_t num_dyn_values;
 } RLookupRowRepr;
 
@@ -751,12 +745,12 @@ _Static_assert(sizeof(RLookupRowRepr) == sizeof(RLookupRow),
 /* Look up a value for `key` in the pre-loaded row fields.
  * Returns NULL if no value is found. */
 static inline RSValue *getValueForKey(const RLookupKey *key,
-                                      const ThinVecHeader *dyn,
+                                      RSValue **dyn_values, uint16_t dyn_cap,
                                       RSValue **sv, uint16_t sv_len,
                                       RSValue *null_sentinel) {
   uint16_t dstidx = key->dstidx;
-  if (dstidx < dyn->len) {
-    RSValue *v = dyn->data[dstidx];
+  if (dstidx < dyn_cap) {
+    RSValue *v = dyn_values[dstidx];
     if (v) return v;
   }
   if ((key->flags & RLOOKUP_F_SVSRC) && key->svidx < sv_len) {
@@ -788,8 +782,10 @@ static int cmpByFields(const void *e1, const void *e2, const void *udata) {
     const RLookupRowRepr *row2 = (const RLookupRowRepr *)SearchResult_GetRowData(h2);
 
     /* Hoist per-row loads out of the loop. */
-    const ThinVecHeader *dyn1 = row1->dyn_values;
-    const ThinVecHeader *dyn2 = row2->dyn_values;
+    RSValue **dyn1 = row1->dyn_values_ptr;
+    RSValue **dyn2 = row2->dyn_values_ptr;
+    uint16_t dyn1_cap = row1->dyn_values_cap;
+    uint16_t dyn2_cap = row2->dyn_values_cap;
     RSValue **sv1 = row1->sorting_vector;
     RSValue **sv2 = row2->sorting_vector;
     uint16_t sv1_len = row1->sorting_vector_len;
@@ -798,8 +794,8 @@ static int cmpByFields(const void *e1, const void *e2, const void *udata) {
 
     for (size_t i = 0; i < nkeys; i++) {
       const RLookupKey *key = self->fieldcmp.keys[i];
-      RSValue *v1 = getValueForKey(key, dyn1, sv1, sv1_len, null_sentinel);
-      RSValue *v2 = getValueForKey(key, dyn2, sv2, sv2_len, null_sentinel);
+      RSValue *v1 = getValueForKey(key, dyn1, dyn1_cap, sv1, sv1_len, null_sentinel);
+      RSValue *v2 = getValueForKey(key, dyn2, dyn2_cap, sv2, sv2_len, null_sentinel);
       ascending = SORTASCMAP_GETASC(self->fieldcmp.ascendMap, i);
 
       if (v1 && v2) {

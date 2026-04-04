@@ -1958,7 +1958,6 @@ dependencies = [
  "schema_rule",
  "sorting_vector",
  "strum",
- "thin_vec",
  "thiserror",
  "value",
  "workspace_hack",
