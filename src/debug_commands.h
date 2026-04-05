@@ -111,6 +111,11 @@ void DebugPause_SetPauseAfterEnabled(DebugPausePoint p, bool enabled);
 bool DebugPause_IsPaused(DebugPausePoint p);
 void DebugPause_SetPause(DebugPausePoint p, bool pause);
 
+// Generic debug pause for hybrid paths — shared by shard and coordinator.
+// Parameterized by DebugPausePoint so each path has its own isolated slot.
+struct HybridRequest;
+void debugPauseHybridGeneric(struct HybridRequest *hreq, DebugPausePoint p, bool before);
+
 // ============================================================================
 // Named Sync Points for deterministic concurrency testing
 // ============================================================================

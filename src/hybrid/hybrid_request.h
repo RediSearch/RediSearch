@@ -244,13 +244,6 @@ inline AGGPlan *HybridRequest_TailAGGPlan(HybridRequest *hreq) {
   return &hreq->tailPipeline->ap;
 }
 
-#ifdef ENABLE_ASSERT
-#include "debug_commands.h"
-// Generic debug pause for hybrid paths — shared by shard and coordinator.
-// Parameterized by DebugPausePoint so each path has its own isolated slot.
-void debugPauseHybridGeneric(HybridRequest *hreq, DebugPausePoint p, bool before);
-#endif
-
 #ifdef __cplusplus
 }
 #endif
