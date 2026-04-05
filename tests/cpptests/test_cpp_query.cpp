@@ -8,13 +8,13 @@
 */
 
 
-#include "src/query_parser/tokenizer.h"
-#include "src/param.h"
-#include "src/util/references.h"
+#include "query_parser/tokenizer.h"
+#include "param.h"
+#include "util/references.h"
 #ifdef __cplusplus
 extern "C" {
 #endif
-#include "src/vector_index.h"
+#include "vector_index.h"
 #ifdef __cplusplus
 }
 #endif

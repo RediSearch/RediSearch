@@ -7,10 +7,10 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-#include "src/trie/trie.h"
-#include "src/trie/trie_type.h"
-#include "src/trie/levenshtein.h"
-#include "src/trie/rune_util.h"
+#include "trie/trie.h"
+#include "trie/trie_type.h"
+#include "trie/levenshtein.h"
+#include "trie/rune_util.h"
 #include "libnu/libnu.h"
 #include "rmutil/alloc.h"
 #include "test_util.h"
