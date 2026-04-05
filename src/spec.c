@@ -1792,6 +1792,11 @@ StrongRef IndexSpec_Parse(RedisModuleCtx *ctx, const HiddenString *name, const c
     QueryError_SetError(status, QUERY_ERROR_CODE_FLEX_UNSUPPORTED_FT_CREATE_ARGUMENT, "Only HASH is supported as index data type for Flex indexes");
     goto failure;
   }
+  if ((spec->flags & Index_WideSchema) && !(spec->flags & Index_StoreFieldFlags)) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_INVAL,
+                        SPEC_SCHEMA_EXPANDABLE_STR " cannot be used with " SPEC_NOFIELDS_STR);
+    goto failure;
+  }
 
   if (timeout != -1) {
     // When disk validation is active, argopts is set to flex_argopts, which does not include SPEC_TEMPORARY_STR
@@ -3287,6 +3292,14 @@ void IndexSpec_RdbSave(RedisModuleIO *rdb, IndexSpec *sp, int contextFlags) {
   }
 }
 
+static void IndexSpec_NormalizeStorageFlagsOnLoad(IndexFlags *flags) {
+  if ((*flags & Index_WideSchema) && !(*flags & Index_StoreFieldFlags)) {
+    *flags &= ~Index_WideSchema;
+    RedisModule_Log(RSDummyContext, "warning", "Ignoring %s because %s is set",
+                    SPEC_SCHEMA_EXPANDABLE_STR, SPEC_NOFIELDS_STR);
+  }
+}
+
 IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryError *status) {
   char *rawName = NULL;
   size_t len = 0;
@@ -3312,6 +3325,7 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryE
   if (encver < INDEX_MIN_NOFREQ_VERSION) {
     flags |= Index_StoreFreqs;
   }
+  IndexSpec_NormalizeStorageFlagsOnLoad(&flags);
   numFields = LoadUnsigned_IOError(rdb, goto cleanup);
 
   initializeIndexSpec(sp, specName, flags, numFields);
@@ -3490,6 +3504,7 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   if (encver < INDEX_MIN_NOFREQ_VERSION) {
     sp->flags |= Index_StoreFreqs;
   }
+  IndexSpec_NormalizeStorageFlagsOnLoad(&sp->flags);
 
   sp->numFields = RedisModule_LoadUnsigned(rdb);
   sp->fields = rm_calloc(sp->numFields, sizeof(FieldSpec));
