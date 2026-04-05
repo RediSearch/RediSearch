@@ -324,41 +324,31 @@ static bool serializeAndReplyResults_hybrid(HybridRequest *hreq, RedisModule_Rep
 }
 
 #ifdef ENABLE_ASSERT
-// Helper function to pause before/after store results for hybrid (for testing timeout during store)
-static inline void debugPauseStoreResultsHybrid(HybridRequest *hreq, bool before) {
-  // Only pause if we are using reply callback (otherwise we don't store results)
-  if (!hreq->useReplyCallback) {
-    return;
-  }
-  bool enabled = before ? StoreResultsDebugCtx_IsPauseBeforeEnabled()
-                        : StoreResultsDebugCtx_IsPauseAfterEnabled();
+// Helper: generic debug pause for hybrid paths
+static inline void debugPauseHybridGeneric(HybridRequest *hreq, DebugPausePoint p, bool before) {
+  bool enabled = before ? DebugPause_IsPauseBeforeEnabled(p)
+                        : DebugPause_IsPauseAfterEnabled(p);
   if (enabled) {
-    StoreResultsDebugCtx_SetPause(true);
-    while (StoreResultsDebugCtx_IsPaused()) {
-      // Check if timed out - break to avoid deadlock with timeout callback
+    DebugPause_SetPause(p, true);
+    while (DebugPause_IsPaused(p)) {
       if (HybridRequest_TimedOut(hreq)) {
-        StoreResultsDebugCtx_SetPause(false);
-        break;
-      }
-      usleep(1000);  // Spin-wait with 1ms sleep
-    }
-  }
-}
-
-// Helper function to pause before/after hybrid cursor storage ONLY (separate command)
-static inline void debugPauseHybridStoreCursors(HybridRequest *hreq, bool before) {
-  bool enabled = before ? HybridStoreCursorsDebugCtx_IsPauseBeforeEnabled()
-                        : HybridStoreCursorsDebugCtx_IsPauseAfterEnabled();
-  if (enabled) {
-    HybridStoreCursorsDebugCtx_SetPause(true);
-    while (HybridStoreCursorsDebugCtx_IsPaused()) {
-      if (HybridRequest_TimedOut(hreq)) {
-        HybridStoreCursorsDebugCtx_SetPause(false);
+        DebugPause_SetPause(p, false);
         break;
       }
       usleep(1000);
     }
   }
+}
+
+// Pause before/after HREQ_StoreResults (shard hybrid store results)
+static inline void debugPauseStoreResultsHybrid(HybridRequest *hreq, bool before) {
+  if (!hreq->useReplyCallback) return;
+  debugPauseHybridGeneric(hreq, PAUSE_POINT_SHARD_HYBRID_STORE_RESULTS, before);
+}
+
+// Pause before/after hybrid cursor storage
+static inline void debugPauseHybridStoreCursors(HybridRequest *hreq, bool before) {
+  debugPauseHybridGeneric(hreq, PAUSE_POINT_SHARD_HYBRID_STORE_CURSORS, before);
 }
 #else
 static inline void debugPauseStoreResultsHybrid(HybridRequest *hreq, bool before) {

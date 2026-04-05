@@ -24,6 +24,7 @@
 #include "shard_window_ratio.h"
 #include "config.h"
 #include "coord/coord_request_ctx.h"
+#include "debug_commands.h"
 
 // We mainly need the resp protocol to be three in order to easily extract the "score" key from the response
 #define HYBRID_RESP_PROTOCOL_VERSION 3
@@ -693,6 +694,31 @@ static void FreeCursorMappings(void *mappings) {
   rm_free(mappings);
 }
 
+#ifdef ENABLE_ASSERT
+// Coordinator-specific debug pause for sendChunk_hybrid (separate from shard pause points
+// so coordinator and shard don't interfere when sharing a process).
+static inline void debugPauseCoordHybridSendChunk(HybridRequest *hreq, bool before) {
+  DebugPausePoint p = PAUSE_POINT_COORD_HYBRID_SEND_CHUNK;
+  bool enabled = before ? DebugPause_IsPauseBeforeEnabled(p)
+                        : DebugPause_IsPauseAfterEnabled(p);
+  if (enabled) {
+    DebugPause_SetPause(p, true);
+    while (DebugPause_IsPaused(p)) {
+      if (HybridRequest_TimedOut(hreq)) {
+        DebugPause_SetPause(p, false);
+        break;
+      }
+      usleep(1000);  // Spin-wait with 1ms sleep
+    }
+  }
+}
+#else
+static inline void debugPauseCoordHybridSendChunk(HybridRequest *hreq, bool before) {
+  UNUSED(hreq);
+  UNUSED(before);
+}
+#endif
+
 static int HybridRequest_executePlan(HybridRequest *hreq, struct ConcurrentCmdCtx *cmdCtx,
                         RedisModule_Reply *reply, QueryError *status) {
 
@@ -755,7 +781,9 @@ static int HybridRequest_executePlan(HybridRequest *hreq, struct ConcurrentCmdCt
             .lastLookup = AGPLN_GetLookup(plan, NULL, AGPLN_GETLOOKUP_LAST),
             .lastAstp = AGPLN_GetArrangeStep(plan)
         };
+        debugPauseCoordHybridSendChunk(hreq, true);  // pause before
         sendChunk_hybrid(hreq, reply, UINT64_MAX, cv);
+        debugPauseCoordHybridSendChunk(hreq, false); // pause after
         HybridRequest_DecrRef(hreq);
     }
     return REDISMODULE_OK;

@@ -350,14 +350,15 @@ static void startPipeline(AREQ *req, ResultProcessor *rp, SearchResult ***result
 #ifdef ENABLE_ASSERT
 // Helper function to pause before/after store results (for testing timeout during store)
 static inline void debugPauseStoreResults(AREQ *req, bool before) {
-  bool enabled = before ? StoreResultsDebugCtx_IsPauseBeforeEnabled()
-                        : StoreResultsDebugCtx_IsPauseAfterEnabled();
+  DebugPausePoint p = PAUSE_POINT_SHARD_STORE_RESULTS;
+  bool enabled = before ? DebugPause_IsPauseBeforeEnabled(p)
+                        : DebugPause_IsPauseAfterEnabled(p);
   if (enabled) {
-    StoreResultsDebugCtx_SetPause(true);
-    while (StoreResultsDebugCtx_IsPaused()) {
+    DebugPause_SetPause(p, true);
+    while (DebugPause_IsPaused(p)) {
       // Check if timed out - break to avoid deadlock with timeout callback
       if (AREQ_TimedOut(req)) {
-        StoreResultsDebugCtx_SetPause(false);
+        DebugPause_SetPause(p, false);
         break;
       }
       usleep(1000);  // Spin-wait with 1ms sleep

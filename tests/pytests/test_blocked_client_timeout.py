@@ -540,7 +540,9 @@ class TestCoordinatorTimeout:
         """Test timeout occurring before coordinator stores results (reply_callback path).
 
         This tests the FAIL timeout policy when timeout occurs just before the
-        background thread stores results for the reply_callback to serialize.
+        coordinator sends results via sendChunk_hybrid.
+        Uses COORD_HYBRID_SEND_CHUNK pause point (separate from shard pause points)
+        to avoid pausing shard workers that share the same process.
         """
         env = self.env
 
@@ -552,8 +554,8 @@ class TestCoordinatorTimeout:
         prev_on_timeout_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
         env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'fail').ok()
 
-        # Enable pause before store results
-        setPauseBeforeStoreResults(env, True)
+        # Enable pause before coordinator sendChunk_hybrid (coordinator-specific)
+        setPauseBefore(env, 'COORD_HYBRID_SEND_CHUNK', True)
 
         t_query = threading.Thread(
             target=run_cmd_expect_timeout,
@@ -564,10 +566,10 @@ class TestCoordinatorTimeout:
 
         blocked_client_id = wait_for_blocked_query_client(env, cmd_name)
 
-        # Wait for the query to be paused before storing results
+        # Wait for the query to be paused before sending chunk
         wait_for_condition(
-            lambda: (getIsStoreResultsPaused(env) == 1, {'paused': getIsStoreResultsPaused(env)}),
-            'Timeout while waiting for query to pause before store results'
+            lambda: (getIsPaused(env, 'COORD_HYBRID_SEND_CHUNK') == 1, {'paused': getIsPaused(env, 'COORD_HYBRID_SEND_CHUNK')}),
+            'Timeout while waiting for coordinator to pause before store results'
         )
 
         # Unblock the client to simulate timeout
@@ -579,14 +581,16 @@ class TestCoordinatorTimeout:
         env.assertFalse(t_query.is_alive(), message="Query thread should have finished")
 
         # Cleanup
-        resetStoreResultsDebug(env)
+        resetPausePointDebug(env, 'COORD_HYBRID_SEND_CHUNK')
         env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy).ok()
 
     def _test_fail_timeout_after_coord_store_impl(self, query_args):
         """Test timeout occurring after coordinator stores results but before reply_callback.
 
         This tests the FAIL timeout policy when timeout occurs just after the
-        background thread stores results, but before the reply_callback is triggered.
+        coordinator sends results via sendChunk_hybrid, but before the reply_callback is triggered.
+        Uses COORD_HYBRID_SEND_CHUNK pause point (separate from shard pause points)
+        to avoid pausing shard workers that share the same process.
         """
         env = self.env
 
@@ -598,8 +602,8 @@ class TestCoordinatorTimeout:
         prev_on_timeout_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
         env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'fail').ok()
 
-        # Enable pause after store results
-        setPauseAfterStoreResults(env, True)
+        # Enable pause after coordinator sendChunk_hybrid (coordinator-specific)
+        setPauseAfter(env, 'COORD_HYBRID_SEND_CHUNK', True)
 
         t_query = threading.Thread(
             target=run_cmd_expect_timeout,
@@ -610,10 +614,10 @@ class TestCoordinatorTimeout:
 
         blocked_client_id = wait_for_blocked_query_client(env, cmd_name)
 
-        # Wait for the query to be paused after storing results
+        # Wait for the query to be paused after sending chunk
         wait_for_condition(
-            lambda: (getIsStoreResultsPaused(env) == 1, {'paused': getIsStoreResultsPaused(env)}),
-            'Timeout while waiting for query to pause after store results'
+            lambda: (getIsPaused(env, 'COORD_HYBRID_SEND_CHUNK') == 1, {'paused': getIsPaused(env, 'COORD_HYBRID_SEND_CHUNK')}),
+            'Timeout while waiting for coordinator to pause after store results'
         )
 
         # Unblock the client to simulate timeout
@@ -625,7 +629,7 @@ class TestCoordinatorTimeout:
         env.assertFalse(t_query.is_alive(), message="Query thread should have finished")
 
         # Cleanup
-        resetStoreResultsDebug(env)
+        resetPausePointDebug(env, 'COORD_HYBRID_SEND_CHUNK')
         env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy).ok()
 
     def test_fail_timeout_before_coord_store_hybrid(self):
@@ -662,9 +666,9 @@ class TestCoordinatorTimeout:
 
         # Enable pause before/after hybrid cursor storage on ALL shards
         if before:
-            setPauseBeforeHybridStoreCursors(env, True)
+            setPauseBefore(env, 'SHARD_HYBRID_STORE_CURSORS', True)
         else:
-            setPauseAfterHybridStoreCursors(env, True)
+            setPauseAfter(env, 'SHARD_HYBRID_STORE_CURSORS', True)
 
         query_args = [
             'FT.HYBRID', 'hybrid_idx',
@@ -684,7 +688,7 @@ class TestCoordinatorTimeout:
 
         # Wait for shard to be paused during store cursors
         wait_for_condition(
-            lambda: (getIsHybridStoreCursorsPaused(env) == 1, {'paused': getIsHybridStoreCursorsPaused(env)}),
+            lambda: (getIsPaused(env, 'SHARD_HYBRID_STORE_CURSORS') == 1, {'paused': getIsPaused(env, 'SHARD_HYBRID_STORE_CURSORS')}),
             'Timeout while waiting for shard to pause during store cursors'
         )
 
@@ -697,7 +701,7 @@ class TestCoordinatorTimeout:
         env.assertFalse(t_query.is_alive(), message="Query thread should have finished")
 
         # Cleanup - reset hybrid store cursors debug
-        resetHybridStoreCursorsDebug(env)
+        resetPausePointDebug(env, 'SHARD_HYBRID_STORE_CURSORS')
         env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy).ok()
 
     def test_fail_timeout_before_shard_store_cursors_hybrid(self):
@@ -1187,7 +1191,7 @@ class TestShardTimeout:
         env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'fail').ok()
 
         # Enable pause before store results
-        setPauseBeforeStoreResults(env, True)
+        setPauseBefore(env, 'SHARD_STORE_RESULTS', True)
 
         t_query = threading.Thread(
             target=run_cmd_expect_timeout,
@@ -1200,7 +1204,7 @@ class TestShardTimeout:
 
         # Wait for the query to be paused before storing results
         wait_for_condition(
-            lambda: (getIsStoreResultsPaused(env) == 1, {'paused': getIsStoreResultsPaused(env)}),
+            lambda: (getIsPaused(env, 'SHARD_STORE_RESULTS') == 1, {'paused': getIsPaused(env, 'SHARD_STORE_RESULTS')}),
             'Timeout while waiting for query to pause before store results'
         )
 
@@ -1213,7 +1217,7 @@ class TestShardTimeout:
         env.assertFalse(t_query.is_alive(), message="Query thread should have finished")
 
         # Cleanup
-        resetStoreResultsDebug(env)
+        resetPausePointDebug(env, 'SHARD_STORE_RESULTS')
         env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy).ok()
 
     def _test_fail_timeout_after_store_impl(self, query_args):
@@ -1229,7 +1233,7 @@ class TestShardTimeout:
         env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'fail').ok()
 
         # Enable pause after store results
-        setPauseAfterStoreResults(env, True)
+        setPauseAfter(env, 'SHARD_STORE_RESULTS', True)
 
         t_query = threading.Thread(
             target=run_cmd_expect_timeout,
@@ -1242,7 +1246,7 @@ class TestShardTimeout:
 
         # Wait for the query to be paused after storing results
         wait_for_condition(
-            lambda: (getIsStoreResultsPaused(env) == 1, {'paused': getIsStoreResultsPaused(env)}),
+            lambda: (getIsPaused(env, 'SHARD_STORE_RESULTS') == 1, {'paused': getIsPaused(env, 'SHARD_STORE_RESULTS')}),
             'Timeout while waiting for query to pause after store results'
         )
 
@@ -1255,7 +1259,7 @@ class TestShardTimeout:
         env.assertFalse(t_query.is_alive(), message="Query thread should have finished")
 
         # Cleanup
-        resetStoreResultsDebug(env)
+        resetPausePointDebug(env, 'SHARD_STORE_RESULTS')
         env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy).ok()
 
     def test_fail_timeout_before_store_search(self):

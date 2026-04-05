@@ -1012,48 +1012,38 @@ def resetCoordReduceDebug(env):
     except Exception:
         pass  # Ignore error if coordinator is not paused
 
-# Store Results Pause helpers (only available when built with ENABLE_ASSERT)
-def setPauseBeforeStoreResults(env, enabled):
-    """Enable/disable pausing before AREQ_StoreResults/HREQ_StoreResults."""
-    env.expect(debug_cmd(), 'QUERY_CONTROLLER', 'SET_PAUSE_BEFORE_STORE_RESULTS', 'true' if enabled else 'false').ok()
+# ============================================================================
+# Unified Debug Pause Point helpers (only available when built with ENABLE_ASSERT)
+#
+# Pause point names:
+#   SHARD_STORE_RESULTS         - shard: AREQ_StoreResults (search/agg)
+#   SHARD_HYBRID_STORE_RESULTS  - shard: HREQ_StoreResults (hybrid)
+#   SHARD_HYBRID_STORE_CURSORS  - shard: hybrid cursor storage
+#   COORD_HYBRID_SEND_CHUNK     - coordinator: sendChunk_hybrid
+# ============================================================================
 
-def setPauseAfterStoreResults(env, enabled):
-    """Enable/disable pausing after AREQ_StoreResults/HREQ_StoreResults."""
-    env.expect(debug_cmd(), 'QUERY_CONTROLLER', 'SET_PAUSE_AFTER_STORE_RESULTS', 'true' if enabled else 'false').ok()
+def setPauseBefore(env, point, enabled):
+    """Enable/disable pausing before a specific pause point."""
+    env.expect(debug_cmd(), 'QUERY_CONTROLLER', 'SET_PAUSE_BEFORE', point, 'true' if enabled else 'false').ok()
 
-def getIsStoreResultsPaused(env):
-    """Check if the query is currently paused during store results."""
-    return env.cmd(debug_cmd(), 'QUERY_CONTROLLER', 'GET_IS_STORE_RESULTS_PAUSED')
+def setPauseAfter(env, point, enabled):
+    """Enable/disable pausing after a specific pause point."""
+    env.expect(debug_cmd(), 'QUERY_CONTROLLER', 'SET_PAUSE_AFTER', point, 'true' if enabled else 'false').ok()
 
-def resetStoreResultsDebug(env):
-    """Reset the store results debug context (disable pauses and resume)."""
-    setPauseBeforeStoreResults(env, False)
-    setPauseAfterStoreResults(env, False)
+def getIsPaused(env, point):
+    """Check if a specific pause point is currently paused."""
+    return env.cmd(debug_cmd(), 'QUERY_CONTROLLER', 'GET_IS_PAUSED', point)
+
+def resumePausePoint(env, point):
+    """Resume a specific pause point."""
+    env.expect(debug_cmd(), 'QUERY_CONTROLLER', 'RESUME', point).ok()
+
+def resetPausePointDebug(env, point):
+    """Reset a pause point (disable pauses and resume)."""
+    setPauseBefore(env, point, False)
+    setPauseAfter(env, point, False)
     try:
-        env.cmd(debug_cmd(), 'QUERY_CONTROLLER', 'SET_STORE_RESULTS_RESUME')
-    except Exception:
-        pass  # Ignore error if not paused
-
-# Hybrid Store Cursors Pause helpers (only available when built with ENABLE_ASSERT)
-# These are separate from Store Results and only affect cursor storage in HybridRequest_StartCursors
-def setPauseBeforeHybridStoreCursors(env, enabled):
-    """Enable/disable pausing before hybrid cursor storage (HybridRequest_StartCursors)."""
-    env.expect(debug_cmd(), 'QUERY_CONTROLLER', 'SET_PAUSE_BEFORE_HYBRID_STORE_CURSORS', 'true' if enabled else 'false').ok()
-
-def setPauseAfterHybridStoreCursors(env, enabled):
-    """Enable/disable pausing after hybrid cursor storage (HybridRequest_StartCursors)."""
-    env.expect(debug_cmd(), 'QUERY_CONTROLLER', 'SET_PAUSE_AFTER_HYBRID_STORE_CURSORS', 'true' if enabled else 'false').ok()
-
-def getIsHybridStoreCursorsPaused(env):
-    """Check if the hybrid is currently paused during cursor storage."""
-    return env.cmd(debug_cmd(), 'QUERY_CONTROLLER', 'GET_IS_HYBRID_STORE_CURSORS_PAUSED')
-
-def resetHybridStoreCursorsDebug(env):
-    """Reset the hybrid store cursors debug context (disable pauses and resume)."""
-    setPauseBeforeHybridStoreCursors(env, False)
-    setPauseAfterHybridStoreCursors(env, False)
-    try:
-        env.cmd(debug_cmd(), 'QUERY_CONTROLLER', 'SET_HYBRID_STORE_CURSORS_RESUME')
+        env.cmd(debug_cmd(), 'QUERY_CONTROLLER', 'RESUME', point)
     except Exception:
         pass  # Ignore error if not paused
 

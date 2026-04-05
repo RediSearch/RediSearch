@@ -77,21 +77,39 @@ void CoordReduceDebugCtx_SetPauseBeforeN(int n);
 void CoordReduceDebugCtx_IncrementReduceCount(void);
 int CoordReduceDebugCtx_GetReduceCount(void);
 
-// Struct used for debugging store results (pause before/after AREQ_StoreResults and HREQ_StoreResults)
-// Only available in debug builds to avoid affecting release performance
-typedef struct StoreResultsDebugCtx {
-  atomic_bool pauseBeforeEnabled;   // Whether pause before StoreResults is enabled
-  atomic_bool pauseAfterEnabled;    // Whether pause after StoreResults is enabled
-  atomic_bool pause;                // Atomic bool to wait for the resume command
-} StoreResultsDebugCtx;
+// ============================================================================
+// Unified Debug Pause Points
+// ============================================================================
+//
+// Each pause point is a separate slot in a global array, indexed by enum.
+// This keeps the coordinator and shard (which share a process) from
+// interfering with each other's pauses, while avoiding code duplication.
+//
+// Dimensions:
+//   Query type:  SEARCH/AGG  vs  HYBRID
+//   What:        SHARD results  |  SHARD cursors (HYBRID) |  COORD results
 
-// StoreResultsDebugCtx API function declarations
-bool StoreResultsDebugCtx_IsPauseBeforeEnabled(void);
-void StoreResultsDebugCtx_SetPauseBeforeEnabled(bool enabled);
-bool StoreResultsDebugCtx_IsPauseAfterEnabled(void);
-void StoreResultsDebugCtx_SetPauseAfterEnabled(bool enabled);
-bool StoreResultsDebugCtx_IsPaused(void);
-void StoreResultsDebugCtx_SetPause(bool pause);
+typedef enum {
+  PAUSE_POINT_SHARD_STORE_RESULTS,          // shard: AREQ_StoreResults (search/agg)
+  PAUSE_POINT_SHARD_HYBRID_STORE_RESULTS,   // shard: HREQ_StoreResults (hybrid)
+  PAUSE_POINT_SHARD_HYBRID_STORE_CURSORS,   // shard: hybrid cursor storage
+  PAUSE_POINT_COORD_HYBRID_SEND_CHUNK,      // coordinator: sendChunk_hybrid
+  PAUSE_POINT_COUNT
+} DebugPausePoint;
+
+typedef struct DebugPauseCtx {
+  atomic_bool pauseBeforeEnabled;
+  atomic_bool pauseAfterEnabled;
+  atomic_bool pause;
+} DebugPauseCtx;
+
+// Unified DebugPauseCtx API — all take a DebugPausePoint to select the slot
+bool DebugPause_IsPauseBeforeEnabled(DebugPausePoint p);
+void DebugPause_SetPauseBeforeEnabled(DebugPausePoint p, bool enabled);
+bool DebugPause_IsPauseAfterEnabled(DebugPausePoint p);
+void DebugPause_SetPauseAfterEnabled(DebugPausePoint p, bool enabled);
+bool DebugPause_IsPaused(DebugPausePoint p);
+void DebugPause_SetPause(DebugPausePoint p, bool pause);
 
 // ============================================================================
 // Named Sync Points for deterministic concurrency testing
@@ -118,22 +136,6 @@ void SyncPoint_ClearAll(void);
 // Called from code paths to potentially wait at a sync point
 // If the named point is armed, blocks until signaled
 void SyncPoint_Wait(const char *name);
-
-// Struct used for debugging hybrid cursor storage ONLY (pause before/after cursor creation)
-// Separate from StoreResultsDebugCtx to allow independent control
-typedef struct HybridStoreCursorsDebugCtx {
-  atomic_bool pauseBeforeEnabled;   // Whether pause before cursor storage is enabled
-  atomic_bool pauseAfterEnabled;    // Whether pause after cursor storage is enabled
-  atomic_bool pause;                // Atomic bool to wait for the resume command
-} HybridStoreCursorsDebugCtx;
-
-// HybridStoreCursorsDebugCtx API function declarations
-bool HybridStoreCursorsDebugCtx_IsPauseBeforeEnabled(void);
-void HybridStoreCursorsDebugCtx_SetPauseBeforeEnabled(bool enabled);
-bool HybridStoreCursorsDebugCtx_IsPauseAfterEnabled(void);
-void HybridStoreCursorsDebugCtx_SetPauseAfterEnabled(bool enabled);
-bool HybridStoreCursorsDebugCtx_IsPaused(void);
-void HybridStoreCursorsDebugCtx_SetPause(bool pause);
 
 #endif  // ENABLE_ASSERT
 

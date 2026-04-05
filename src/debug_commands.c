@@ -90,33 +90,33 @@ int CoordReduceDebugCtx_GetReduceCount(void) {
   return atomic_load(&globalCoordReduceDebugCtx.reduceCount);
 }
 
-// Global store results debug context
-static StoreResultsDebugCtx globalStoreResultsDebugCtx = {0};
+// Unified debug pause contexts — one per DebugPausePoint enum value
+static DebugPauseCtx debugPauseContexts[PAUSE_POINT_COUNT] = {{0}};
 
-bool StoreResultsDebugCtx_IsPauseBeforeEnabled(void) {
-  return atomic_load(&globalStoreResultsDebugCtx.pauseBeforeEnabled);
+bool DebugPause_IsPauseBeforeEnabled(DebugPausePoint p) {
+  return atomic_load(&debugPauseContexts[p].pauseBeforeEnabled);
 }
 
-void StoreResultsDebugCtx_SetPauseBeforeEnabled(bool enabled) {
-  atomic_store(&globalStoreResultsDebugCtx.pauseBeforeEnabled, enabled);
-  atomic_store(&globalStoreResultsDebugCtx.pause, false);
+void DebugPause_SetPauseBeforeEnabled(DebugPausePoint p, bool enabled) {
+  atomic_store(&debugPauseContexts[p].pauseBeforeEnabled, enabled);
+  atomic_store(&debugPauseContexts[p].pause, false);
 }
 
-bool StoreResultsDebugCtx_IsPauseAfterEnabled(void) {
-  return atomic_load(&globalStoreResultsDebugCtx.pauseAfterEnabled);
+bool DebugPause_IsPauseAfterEnabled(DebugPausePoint p) {
+  return atomic_load(&debugPauseContexts[p].pauseAfterEnabled);
 }
 
-void StoreResultsDebugCtx_SetPauseAfterEnabled(bool enabled) {
-  atomic_store(&globalStoreResultsDebugCtx.pauseAfterEnabled, enabled);
-  atomic_store(&globalStoreResultsDebugCtx.pause, false);
+void DebugPause_SetPauseAfterEnabled(DebugPausePoint p, bool enabled) {
+  atomic_store(&debugPauseContexts[p].pauseAfterEnabled, enabled);
+  atomic_store(&debugPauseContexts[p].pause, false);
 }
 
-bool StoreResultsDebugCtx_IsPaused(void) {
-  return atomic_load(&globalStoreResultsDebugCtx.pause);
+bool DebugPause_IsPaused(DebugPausePoint p) {
+  return atomic_load(&debugPauseContexts[p].pause);
 }
 
-void StoreResultsDebugCtx_SetPause(bool pause) {
-  atomic_store(&globalStoreResultsDebugCtx.pause, pause);
+void DebugPause_SetPause(DebugPausePoint p, bool pause) {
+  atomic_store(&debugPauseContexts[p].pause, pause);
 }
 
 // ============================================================================
@@ -235,33 +235,14 @@ void SyncPoint_Wait(const char *name) {
   atomic_fetch_sub(&sp->waiting, 1);  // Decrement waiting counter
 }
 
-// Global hybrid store cursors debug context (for HREQ cursor storage only)
-static HybridStoreCursorsDebugCtx globalHybridStoreCursorsDebugCtx = {0};
-
-bool HybridStoreCursorsDebugCtx_IsPauseBeforeEnabled(void) {
-  return atomic_load(&globalHybridStoreCursorsDebugCtx.pauseBeforeEnabled);
-}
-
-void HybridStoreCursorsDebugCtx_SetPauseBeforeEnabled(bool enabled) {
-  atomic_store(&globalHybridStoreCursorsDebugCtx.pauseBeforeEnabled, enabled);
-  atomic_store(&globalHybridStoreCursorsDebugCtx.pause, false);
-}
-
-bool HybridStoreCursorsDebugCtx_IsPauseAfterEnabled(void) {
-  return atomic_load(&globalHybridStoreCursorsDebugCtx.pauseAfterEnabled);
-}
-
-void HybridStoreCursorsDebugCtx_SetPauseAfterEnabled(bool enabled) {
-  atomic_store(&globalHybridStoreCursorsDebugCtx.pauseAfterEnabled, enabled);
-  atomic_store(&globalHybridStoreCursorsDebugCtx.pause, false);
-}
-
-bool HybridStoreCursorsDebugCtx_IsPaused(void) {
-  return atomic_load(&globalHybridStoreCursorsDebugCtx.pause);
-}
-
-void HybridStoreCursorsDebugCtx_SetPause(bool pause) {
-  atomic_store(&globalHybridStoreCursorsDebugCtx.pause, pause);
+// Helper: resolve pause point name string to enum value.
+// Returns -1 if the name is not recognized.
+static int DebugPause_PointFromName(const char *name) {
+  if (!strcasecmp(name, "SHARD_STORE_RESULTS"))         return PAUSE_POINT_SHARD_STORE_RESULTS;
+  if (!strcasecmp(name, "SHARD_HYBRID_STORE_RESULTS"))  return PAUSE_POINT_SHARD_HYBRID_STORE_RESULTS;
+  if (!strcasecmp(name, "SHARD_HYBRID_STORE_CURSORS"))  return PAUSE_POINT_SHARD_HYBRID_STORE_CURSORS;
+  if (!strcasecmp(name, "COORD_HYBRID_SEND_CHUNK"))     return PAUSE_POINT_COORD_HYBRID_SEND_CHUNK;
+  return -1;
 }
 #endif
 
@@ -2236,164 +2217,97 @@ DEBUG_COMMAND(getCoordReduceCount) {
 }
 
 /**
- * FT.DEBUG QUERY_CONTROLLER SET_PAUSE_BEFORE_STORE_RESULTS <true/false>
- * Enable/disable pausing before AREQ_StoreResults/HREQ_StoreResults.
+ * FT.DEBUG QUERY_CONTROLLER SET_PAUSE_BEFORE <point_name> <true/false>
+ * Enable/disable pausing before a specific pause point.
+ * point_name: SHARD_STORE_RESULTS | SHARD_HYBRID_STORE_RESULTS |
+ *             SHARD_HYBRID_STORE_CURSORS | COORD_HYBRID_SEND_CHUNK
  */
-DEBUG_COMMAND(setPauseBeforeStoreResults) {
+DEBUG_COMMAND(setPauseBefore) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc != 4) {
+    return RedisModule_WrongArity(ctx);
+  }
+  const char *pointName = RedisModule_StringPtrLen(argv[2], NULL);
+  int point = DebugPause_PointFromName(pointName);
+  if (point < 0) {
+    return RedisModule_ReplyWithError(ctx, "Unknown pause point");
+  }
+  const char *val = RedisModule_StringPtrLen(argv[3], NULL);
+  if (!strcasecmp(val, "true")) {
+    DebugPause_SetPauseBeforeEnabled(point, true);
+  } else if (!strcasecmp(val, "false")) {
+    DebugPause_SetPauseBeforeEnabled(point, false);
+  } else {
+    return RedisModule_ReplyWithError(ctx, "Invalid argument — expected true/false");
+  }
+  return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
+
+/**
+ * FT.DEBUG QUERY_CONTROLLER SET_PAUSE_AFTER <point_name> <true/false>
+ */
+DEBUG_COMMAND(setPauseAfter) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc != 4) {
+    return RedisModule_WrongArity(ctx);
+  }
+  const char *pointName = RedisModule_StringPtrLen(argv[2], NULL);
+  int point = DebugPause_PointFromName(pointName);
+  if (point < 0) {
+    return RedisModule_ReplyWithError(ctx, "Unknown pause point");
+  }
+  const char *val = RedisModule_StringPtrLen(argv[3], NULL);
+  if (!strcasecmp(val, "true")) {
+    DebugPause_SetPauseAfterEnabled(point, true);
+  } else if (!strcasecmp(val, "false")) {
+    DebugPause_SetPauseAfterEnabled(point, false);
+  } else {
+    return RedisModule_ReplyWithError(ctx, "Invalid argument — expected true/false");
+  }
+  return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
+
+/**
+ * FT.DEBUG QUERY_CONTROLLER GET_IS_PAUSED <point_name>
+ */
+DEBUG_COMMAND(getIsPaused) {
   if (!debugCommandsEnabled(ctx)) {
     return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
   }
   if (argc != 3) {
     return RedisModule_WrongArity(ctx);
   }
-  const char *op = RedisModule_StringPtrLen(argv[2], NULL);
-
-  if (!strcasecmp(op, "true")) {
-    StoreResultsDebugCtx_SetPauseBeforeEnabled(true);
-  } else if (!strcasecmp(op, "false")) {
-    StoreResultsDebugCtx_SetPauseBeforeEnabled(false);
-  } else {
-    return RedisModule_ReplyWithError(ctx, "Invalid argument for 'SET_PAUSE_BEFORE_STORE_RESULTS'");
+  const char *pointName = RedisModule_StringPtrLen(argv[2], NULL);
+  int point = DebugPause_PointFromName(pointName);
+  if (point < 0) {
+    return RedisModule_ReplyWithError(ctx, "Unknown pause point");
   }
-
-  return RedisModule_ReplyWithSimpleString(ctx, "OK");
+  return RedisModule_ReplyWithLongLong(ctx, DebugPause_IsPaused(point));
 }
 
 /**
- * FT.DEBUG QUERY_CONTROLLER SET_PAUSE_AFTER_STORE_RESULTS <true/false>
- * Enable/disable pausing after AREQ_StoreResults/HREQ_StoreResults.
+ * FT.DEBUG QUERY_CONTROLLER RESUME <point_name>
  */
-DEBUG_COMMAND(setPauseAfterStoreResults) {
+DEBUG_COMMAND(resumePausePoint) {
   if (!debugCommandsEnabled(ctx)) {
     return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
   }
   if (argc != 3) {
     return RedisModule_WrongArity(ctx);
   }
-  const char *op = RedisModule_StringPtrLen(argv[2], NULL);
-
-  if (!strcasecmp(op, "true")) {
-    StoreResultsDebugCtx_SetPauseAfterEnabled(true);
-  } else if (!strcasecmp(op, "false")) {
-    StoreResultsDebugCtx_SetPauseAfterEnabled(false);
-  } else {
-    return RedisModule_ReplyWithError(ctx, "Invalid argument for 'SET_PAUSE_AFTER_STORE_RESULTS'");
+  const char *pointName = RedisModule_StringPtrLen(argv[2], NULL);
+  int point = DebugPause_PointFromName(pointName);
+  if (point < 0) {
+    return RedisModule_ReplyWithError(ctx, "Unknown pause point");
   }
-
-  return RedisModule_ReplyWithSimpleString(ctx, "OK");
-}
-
-/**
- * FT.DEBUG QUERY_CONTROLLER GET_IS_STORE_RESULTS_PAUSED
- */
-DEBUG_COMMAND(getIsStoreResultsPaused) {
-  if (!debugCommandsEnabled(ctx)) {
-    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  if (!DebugPause_IsPaused(point)) {
+    return RedisModule_ReplyWithError(ctx, "Pause point is not paused");
   }
-  if (argc != 2) {
-    return RedisModule_WrongArity(ctx);
-  }
-
-  return RedisModule_ReplyWithBool(ctx, StoreResultsDebugCtx_IsPaused());
-}
-
-/**
- * FT.DEBUG QUERY_CONTROLLER SET_STORE_RESULTS_RESUME
- */
-DEBUG_COMMAND(setStoreResultsResume) {
-  if (!debugCommandsEnabled(ctx)) {
-    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
-  }
-  if (argc != 2) {
-    return RedisModule_WrongArity(ctx);
-  }
-
-  if (!StoreResultsDebugCtx_IsPaused()) {
-    return RedisModule_ReplyWithError(ctx, "Store results is not paused");
-  }
-
-  StoreResultsDebugCtx_SetPause(false);
-
-  return RedisModule_ReplyWithSimpleString(ctx, "OK");
-}
-
-/**
- * FT.DEBUG QUERY_CONTROLLER SET_PAUSE_BEFORE_HYBRID_STORE_CURSORS <true/false>
- */
-DEBUG_COMMAND(setPauseBeforeHybridStoreCursors) {
-  if (!debugCommandsEnabled(ctx)) {
-    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
-  }
-  if (argc != 3) {
-    return RedisModule_WrongArity(ctx);
-  }
-  const char *op = RedisModule_StringPtrLen(argv[2], NULL);
-
-  if (!strcasecmp(op, "true")) {
-    HybridStoreCursorsDebugCtx_SetPauseBeforeEnabled(true);
-  } else if (!strcasecmp(op, "false")) {
-    HybridStoreCursorsDebugCtx_SetPauseBeforeEnabled(false);
-  } else {
-    return RedisModule_ReplyWithError(ctx, "Invalid argument");
-  }
-
-  return RedisModule_ReplyWithSimpleString(ctx, "OK");
-}
-
-/**
- * FT.DEBUG QUERY_CONTROLLER SET_PAUSE_AFTER_HYBRID_STORE_CURSORS <true/false>
- */
-DEBUG_COMMAND(setPauseAfterHybridStoreCursors) {
-  if (!debugCommandsEnabled(ctx)) {
-    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
-  }
-  if (argc != 3) {
-    return RedisModule_WrongArity(ctx);
-  }
-  const char *op = RedisModule_StringPtrLen(argv[2], NULL);
-
-  if (!strcasecmp(op, "true")) {
-    HybridStoreCursorsDebugCtx_SetPauseAfterEnabled(true);
-  } else if (!strcasecmp(op, "false")) {
-    HybridStoreCursorsDebugCtx_SetPauseAfterEnabled(false);
-  } else {
-    return RedisModule_ReplyWithError(ctx, "Invalid argument");
-  }
-
-  return RedisModule_ReplyWithSimpleString(ctx, "OK");
-}
-
-/**
- * FT.DEBUG QUERY_CONTROLLER GET_IS_HYBRID_STORE_CURSORS_PAUSED
- */
-DEBUG_COMMAND(getIsHybridStoreCursorsPaused) {
-  if (!debugCommandsEnabled(ctx)) {
-    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
-  }
-  if (argc != 2) {
-    return RedisModule_WrongArity(ctx);
-  }
-
-  return RedisModule_ReplyWithBool(ctx, HybridStoreCursorsDebugCtx_IsPaused());
-}
-
-/**
- * FT.DEBUG QUERY_CONTROLLER SET_HYBRID_STORE_CURSORS_RESUME
- */
-DEBUG_COMMAND(setHybridStoreCursorsResume) {
-  if (!debugCommandsEnabled(ctx)) {
-    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
-  }
-  if (argc != 2) {
-    return RedisModule_WrongArity(ctx);
-  }
-
-  if (!HybridStoreCursorsDebugCtx_IsPaused()) {
-    return RedisModule_ReplyWithError(ctx, "Hybrid store cursors is not paused");
-  }
-
-  HybridStoreCursorsDebugCtx_SetPause(false);
-
+  DebugPause_SetPause(point, false);
   return RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
 #endif
@@ -2530,30 +2444,18 @@ DEBUG_COMMAND(queryController) {
   if (!strcmp("GET_COORD_REDUCE_COUNT", op)) {
     return getCoordReduceCount(ctx, argv + 1, argc - 1);
   }
-  // Store results pause commands
-  if (!strcmp("SET_PAUSE_BEFORE_STORE_RESULTS", op)) {
-    return setPauseBeforeStoreResults(ctx, argv + 1, argc - 1);
+  // Unified pause point commands
+  if (!strcmp("SET_PAUSE_BEFORE", op)) {
+    return setPauseBefore(ctx, argv + 1, argc - 1);
   }
-  if (!strcmp("SET_PAUSE_AFTER_STORE_RESULTS", op)) {
-    return setPauseAfterStoreResults(ctx, argv + 1, argc - 1);
+  if (!strcmp("SET_PAUSE_AFTER", op)) {
+    return setPauseAfter(ctx, argv + 1, argc - 1);
   }
-  if (!strcmp("GET_IS_STORE_RESULTS_PAUSED", op)) {
-    return getIsStoreResultsPaused(ctx, argv + 1, argc - 1);
+  if (!strcmp("GET_IS_PAUSED", op)) {
+    return getIsPaused(ctx, argv + 1, argc - 1);
   }
-  if (!strcmp("SET_STORE_RESULTS_RESUME", op)) {
-    return setStoreResultsResume(ctx, argv + 1, argc - 1);
-  }
-  if (!strcmp("SET_PAUSE_BEFORE_HYBRID_STORE_CURSORS", op)) {
-    return setPauseBeforeHybridStoreCursors(ctx, argv + 1, argc - 1);
-  }
-  if (!strcmp("SET_PAUSE_AFTER_HYBRID_STORE_CURSORS", op)) {
-    return setPauseAfterHybridStoreCursors(ctx, argv + 1, argc - 1);
-  }
-  if (!strcmp("GET_IS_HYBRID_STORE_CURSORS_PAUSED", op)) {
-    return getIsHybridStoreCursorsPaused(ctx, argv + 1, argc - 1);
-  }
-  if (!strcmp("SET_HYBRID_STORE_CURSORS_RESUME", op)) {
-    return setHybridStoreCursorsResume(ctx, argv + 1, argc - 1);
+  if (!strcmp("RESUME", op)) {
+    return resumePausePoint(ctx, argv + 1, argc - 1);
   }
 #endif
   return RedisModule_ReplyWithError(ctx, "Invalid command for 'QUERY_CONTROLLER'");
