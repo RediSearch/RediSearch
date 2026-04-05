@@ -4,12 +4,12 @@
     "allow": [
       "Bash(./build.sh:*)",
       "Bash(brew ls)",
+      "Bash(brew search:*)",
       "Bash(cargo +nightly miri test:*)",
       "Bash(cargo bench:*)",
       "Bash(cargo build:*)",
       "Bash(cargo check:*)",
       "Bash(cargo clean:*)",
-      "Bash(brew search:*)",
       "Bash(cargo clippy:*)",
       "Bash(cargo doc:*)",
       "Bash(cargo fmt:*)",
