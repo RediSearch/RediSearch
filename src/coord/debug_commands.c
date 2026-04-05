@@ -10,7 +10,7 @@
 #include "coord/rmr/rq.h"
 #include "commands.h"
 #include "coord/rmr/io_runtime_ctx.h"
-#include "src/debug_commands.h"
+#include "debug_commands.h"
 #include "debug_command_names.h"
 #include "coord/rmr/redis_cluster.h"
 #include "module.h"
