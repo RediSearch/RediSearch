@@ -1,4 +1,5 @@
 #include "hybrid/hybrid_request.h"
+#include "debug_commands.h"
 #include "pipeline/pipeline.h"
 #include "pipeline/pipeline_construction.h"
 #include "rlookup.h"
