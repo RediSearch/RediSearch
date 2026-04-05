@@ -105,6 +105,10 @@ jobs:
               "macos-14": {
                   "aarch64": {
                       'env': 'macos-14',
+                      # Apple's ld (through Xcode 16.2) has an ARM64 linker bug that misaligns
+                      # symbols, causing "not 8-byte aligned" LDR/STR errors. Install LLVM's
+                      # lld linker as a workaround (used via RUSTFLAGS in build.sh).
+                      'setup_script': 'brew install llvm@17',
                       'name': 'macOS 14 ARM64'
                   }
               },
