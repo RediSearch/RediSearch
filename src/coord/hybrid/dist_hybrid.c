@@ -698,19 +698,7 @@ static void FreeCursorMappings(void *mappings) {
 // Coordinator-specific debug pause for sendChunk_hybrid (separate from shard pause points
 // so coordinator and shard don't interfere when sharing a process).
 static inline void debugPauseCoordHybridSendChunk(HybridRequest *hreq, bool before) {
-  DebugPausePoint p = PAUSE_POINT_COORD_HYBRID_SEND_CHUNK;
-  bool enabled = before ? DebugPause_IsPauseBeforeEnabled(p)
-                        : DebugPause_IsPauseAfterEnabled(p);
-  if (enabled) {
-    DebugPause_SetPause(p, true);
-    while (DebugPause_IsPaused(p)) {
-      if (HybridRequest_TimedOut(hreq)) {
-        DebugPause_SetPause(p, false);
-        break;
-      }
-      usleep(1000);  // Spin-wait with 1ms sleep
-    }
-  }
+  debugPauseHybridGeneric(hreq, PAUSE_POINT_COORD_HYBRID_SEND_CHUNK, before);
 }
 #else
 static inline void debugPauseCoordHybridSendChunk(HybridRequest *hreq, bool before) {

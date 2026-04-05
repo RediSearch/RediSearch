@@ -252,6 +252,23 @@ void HybridRequest_SetTimedOut(HybridRequest *req) {
   atomic_store_explicit(&req->syncCtx.timedOut, true, memory_order_release);
 }
 
+#ifdef ENABLE_ASSERT
+void debugPauseHybridGeneric(HybridRequest *hreq, DebugPausePoint p, bool before) {
+  bool enabled = before ? DebugPause_IsPauseBeforeEnabled(p)
+                        : DebugPause_IsPauseAfterEnabled(p);
+  if (enabled) {
+    DebugPause_SetPause(p, true);
+    while (DebugPause_IsPaused(p)) {
+      if (HybridRequest_TimedOut(hreq)) {
+        DebugPause_SetPause(p, false);
+        break;
+      }
+      usleep(1000);
+    }
+  }
+}
+#endif
+
 void HybridRequest_InitArgsCursor(HybridRequest *req, ArgsCursor *ac, RedisModuleString **argv, int argc) {
   // skip command and index name
   const int step = argc > 2 ? 2 : argc;

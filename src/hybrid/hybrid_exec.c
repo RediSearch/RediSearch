@@ -324,22 +324,6 @@ static bool serializeAndReplyResults_hybrid(HybridRequest *hreq, RedisModule_Rep
 }
 
 #ifdef ENABLE_ASSERT
-// Helper: generic debug pause for hybrid paths
-static inline void debugPauseHybridGeneric(HybridRequest *hreq, DebugPausePoint p, bool before) {
-  bool enabled = before ? DebugPause_IsPauseBeforeEnabled(p)
-                        : DebugPause_IsPauseAfterEnabled(p);
-  if (enabled) {
-    DebugPause_SetPause(p, true);
-    while (DebugPause_IsPaused(p)) {
-      if (HybridRequest_TimedOut(hreq)) {
-        DebugPause_SetPause(p, false);
-        break;
-      }
-      usleep(1000);
-    }
-  }
-}
-
 // Pause before/after HREQ_StoreResults (shard hybrid store results)
 static inline void debugPauseStoreResultsHybrid(HybridRequest *hreq, bool before) {
   if (!hreq->useReplyCallback) return;
