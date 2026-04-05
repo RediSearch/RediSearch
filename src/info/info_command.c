@@ -256,38 +256,43 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
   t_docId maxDocId = sp->diskSpec ? SearchDisk_GetMaxDocId(sp->diskSpec) : sp->docs.maxDocId;
   REPLY_KVINT("max_doc_id", maxDocId);
   REPLY_KVINT("num_terms", sp->stats.scoring.numTerms);
-  // NOTE: The following fields are not supported for disk indexes and will report
-  // incorrect values (typically 0).
-  // See MOD-13832 for tracking.
-  REPLY_KVINT("num_records", sp->stats.numRecords);
-  REPLY_KVNUM("inverted_sz_mb", sp->stats.invertedSize / (float)0x100000);
-  size_t vector_indexes_size = IndexSpec_VectorIndexesSize(specForOpeningIndexes);
-  REPLY_KVNUM("vector_index_sz_mb", vector_indexes_size / (float)0x100000);
-  REPLY_KVINT("total_inverted_index_blocks", TotalIIBlocks());
 
-  REPLY_KVNUM("offset_vectors_sz_mb", sp->stats.offsetVecsSize / (float)0x100000);
-
-  REPLY_KVNUM("doc_table_size_mb", sp->docs.memsize / (float)0x100000);
-  REPLY_KVNUM("sortable_values_size_mb", sp->docs.sortablesSize / (float)0x100000);
-
-  size_t dt_tm_size = TrieMap_MemUsage(sp->docs.dim.tm);
-  REPLY_KVNUM("key_table_size_mb", dt_tm_size / (float)0x100000);
-  size_t tags_overhead = IndexSpec_collect_tags_overhead(sp);
-  REPLY_KVNUM("tag_overhead_sz_mb", tags_overhead / (float)0x100000);
+  const bool isDisk = SearchDisk_IsEnabledForValidation();
+  size_t num_records = isDisk ? 0 : sp->stats.numRecords;
+  size_t inverted_size = isDisk ? 0 : sp->stats.invertedSize;
+  size_t vector_indexes_size = isDisk ? 0 : IndexSpec_VectorIndexesSize(specForOpeningIndexes);
+  size_t total_ii_blocks = isDisk ? 0 : TotalIIBlocks();
+  size_t offset_vecs_size = isDisk ? 0 : sp->stats.offsetVecsSize;
+  size_t doc_table_size = isDisk ? 0 : sp->docs.memsize;
+  size_t sortables_size = isDisk ? 0 : sp->docs.sortablesSize;
+  size_t dt_tm_size = isDisk ? 0 : TrieMap_MemUsage(sp->docs.dim.tm);
+  size_t tags_overhead = isDisk ? 0 : IndexSpec_collect_tags_overhead(sp);
   size_t text_overhead = IndexSpec_collect_text_overhead(sp);
-  REPLY_KVNUM("text_overhead_sz_mb", text_overhead / (float)0x100000);
   size_t total_memory = IndexSpec_TotalMemUsage(specForOpeningIndexes, dt_tm_size,
     tags_overhead, text_overhead, vector_indexes_size);
+  size_t geoshapes_size = isDisk ? 0 : geom_idx_sz;
+  size_t offset_vec_records = isDisk ? 0 : sp->stats.offsetVecRecords;
+
+  REPLY_KVINT("num_records", num_records);
+  REPLY_KVNUM("inverted_sz_mb", inverted_size / (float)0x100000);
+  REPLY_KVNUM("vector_index_sz_mb", vector_indexes_size / (float)0x100000);
+  REPLY_KVINT("total_inverted_index_blocks", total_ii_blocks);
+  REPLY_KVNUM("offset_vectors_sz_mb", offset_vecs_size / (float)0x100000);
+  REPLY_KVNUM("doc_table_size_mb", doc_table_size / (float)0x100000);
+  REPLY_KVNUM("sortable_values_size_mb", sortables_size / (float)0x100000);
+  REPLY_KVNUM("key_table_size_mb", dt_tm_size / (float)0x100000);
+  REPLY_KVNUM("tag_overhead_sz_mb", tags_overhead / (float)0x100000);
+  REPLY_KVNUM("text_overhead_sz_mb", text_overhead / (float)0x100000);
   REPLY_KVNUM("total_index_memory_sz_mb", total_memory / (float)0x100000);
-  REPLY_KVNUM("geoshapes_sz_mb", geom_idx_sz / (float)0x100000);
+  REPLY_KVNUM("geoshapes_sz_mb", geoshapes_size / (float)0x100000);
   REPLY_KVNUM("records_per_doc_avg",
-              (float)sp->stats.numRecords / (float)sp->stats.scoring.numDocuments);
+              (float)num_records / (float)sp->stats.scoring.numDocuments);
   REPLY_KVNUM("bytes_per_record_avg",
-              (float)sp->stats.invertedSize / (float)sp->stats.numRecords);
+              (float)inverted_size / (float)num_records);
   REPLY_KVNUM("offsets_per_term_avg",
-              (float)sp->stats.offsetVecRecords / (float)sp->stats.numRecords);
+              (float)offset_vec_records / (float)num_records);
   REPLY_KVNUM("offset_bits_per_record_avg",
-              8.0F * (float)sp->stats.offsetVecsSize / (float)sp->stats.offsetVecRecords);
+              8.0F * (float)offset_vecs_size / (float)offset_vec_records);
   // TODO: remove this once "hash_indexing_failures" is deprecated
   // Legacy for not breaking changes
   REPLY_KVINT("hash_indexing_failures", sp->stats.indexError.error_count);
