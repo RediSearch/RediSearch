@@ -102,6 +102,12 @@ jobs:
 
           # Platform configurations
           platform_configs = {
+              "macos-14": {
+                  "aarch64": {
+                      'env': 'macos-14',
+                      'name': 'macOS 14 ARM64'
+                  }
+              },
               "macos-15": {
                   "aarch64": {
                       'env': 'macos-15',

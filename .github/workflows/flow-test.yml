@@ -51,6 +51,7 @@ on:
           - azurelinux:3
           - alpine:3.22
           - alpine:3.23
+          - macos-14
           - macos-15
           - macos-26
           - intel
