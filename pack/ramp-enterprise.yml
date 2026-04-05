@@ -56,12 +56,15 @@ exclude_commands:
     - search.CLUSTERREFRESH
     - search.CLUSTERINFO
 overide_command:
-    # The step field is used to encode the proxy's request/reply policy:
+    # The step field in modules is used to encodes the custom policy's requesting/replying policy:
     # -1 : requesting::random_shard
     # -2 : requesting::random_shard, replying::retrieve_cursor
     # -3 : requesting::by_cursor, replying::retrieve_cursor
-    # Keep these policies in the pack metadata so older Redis versions don't see
-    # negative key-step values through the module command registration itself.
+    # We only specify a custom policy if the command could cause a bottleneck and should be spread across the cluster
+    # If a routing policy is not specified the proxy default routing logic will be used
+    # Command Arity: required by the proxy in order to validate commands before sending them to the module
+    # It is mandatory because during the parsing of the module.json file
+    # it is used in a python script as a direct key and get with default value is not used
     - {"command_arity": -1, "command_name": "FT.AGGREGATE", "first_key": 0, "flags": ["module", "readonly"], "last_key": 1, "step": -2}
     - {"command_arity": -2, "command_name": "FT.CURSOR", "first_key": 3, "flags": ["module", "readonly"], "last_key": 1, "step": -3}
     - {"command_arity": -1, "command_name": "FT.SEARCH", "first_key": 0, "flags": ["module", "readonly"], "last_key": 0, "step": -1}
