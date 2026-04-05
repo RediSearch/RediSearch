@@ -183,13 +183,13 @@ jobs:
                       'container': 'rockylinux:8',
                       'setup_script': 'dnf update -y && dnf install -y git',
                       'name': 'Rocky Linux 8 x86_64',
-                      'enable_lto': '0' #  Shipped glibc is too old.
+                      'enable_lto': '0' # Shipped glibc (2.28) is too old for clang 21 tarball (requires 2.34).
                   },
                   "aarch64": {
                       'container': 'rockylinux:8',
                       'setup_script': 'dnf update -y && dnf install -y git',
                       'name': 'Rocky Linux 8 ARM64',
-                      'enable_lto': '0' #  Shipped glibc is too old.
+                      'enable_lto': '0' # Shipped glibc (2.28) is too old for clang 21 tarball (requires 2.34).
                   }
               },
               "rockylinux:9": {
@@ -211,13 +211,13 @@ jobs:
                       'container': 'amazonlinux:2',
                       'setup_script': 'yum install -y tar gzip git',
                       'name': 'Amazon Linux 2 x86_64',
-                      'enable_lto': '0' #  Shipped glibc is too old.
+                      'enable_lto': '0' # Shipped glibc (2.26) is too old for clang 21 tarball (requires 2.34).
                   },
                   "aarch64": {
                       'container': 'amazonlinux:2',
                       'setup_script': 'yum install -y tar gzip git',
                       'name': 'Amazon Linux 2 ARM64',
-                      'enable_lto': '0' #  Shipped glibc is too old.
+                      'enable_lto': '0' # Shipped glibc (2.26) is too old for clang 21 tarball (requires 2.34).
                   }
               },
               "alpine:3.22": {
@@ -227,13 +227,13 @@ jobs:
                       'container': 'alpine:3.22',
                       'setup_script': 'apk add bash git',
                       'post_setup_script': 'echo RUST_DYN_CRT=1 >> $GITHUB_ENV; sed -i "/^ID=/s/alpine/NotpineForGHA/" /etc/os-release; apk add nodejs --update-cache; mkdir -p /opt/bin; ln -s /usr/bin/node /opt/bin/node',
-                      'name': 'Alpine 3 x86_64'
+                      'name': 'Alpine 3.22 x86_64'
                   },
                   "aarch64": {
                       'container': 'alpine:3.22',
                       'setup_script': 'apk add bash gcompat libstdc++ libgcc git',
                       'post_setup_script': 'echo RUST_DYN_CRT=1 >> $GITHUB_ENV; sed -i "/^ID=/s/alpine/NotpineForGHA/" /etc/os-release; apk add nodejs --update-cache; mkdir -p /opt/bin; ln -s /usr/bin/node /opt/bin/node',
-                      'name': 'Alpine 3 ARM64'
+                      'name': 'Alpine 3.22 ARM64'
                   }
               },
               "debian:bullseye": {

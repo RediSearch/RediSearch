@@ -16,7 +16,7 @@ use inverted_index::RSIndexResult;
 
 use crate::{
     IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
-    maybe_empty::MaybeEmpty, util::TimeoutContext,
+    maybe_empty::MaybeEmpty, utils::TimeoutContext,
 };
 
 /// An iterator that negates the results of its child iterator.
