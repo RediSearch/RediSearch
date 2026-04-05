@@ -213,6 +213,10 @@ jobs:
         if: needs.get-config.outputs.node20_supported == 'true'
         run: ${SCCACHE_PATH:-sccache} --show-stats
 
+      - name: Validate glibc version
+        if: runner.os == 'Linux'
+        uses: ./.github/actions/validate-glibc-version
+
       # Upload
       - name: Configure AWS Credentials
         uses: ./.github/actions/configure-aws-credentials
