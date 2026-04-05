@@ -1,0 +1,33 @@
+name: Validate glibc version
+description: |
+  Checks that the built binary doesn't require a newer glibc than the platform provides.
+  Skips gracefully on non-glibc platforms (e.g. musl/Alpine).
+
+runs:
+  using: composite
+  steps:
+    - shell: bash -l -eo pipefail {0}
+      run: |
+        BINARY=$(find bin/ -name 'redisearch.so' | head -1)
+        if [ -z "$BINARY" ]; then
+          echo "::error::redisearch.so not found"
+          exit 1
+        fi
+
+        # All GLIBC versions the binary requires (deduplicated)
+        binary_versions=$(nm -D "$BINARY" | grep -oE 'GLIBC_[0-9.]+' | sed 's/GLIBC_//' | sort -Vu)
+
+        # Max GLIBC version available on this platform
+        platform_max=$(ldd --version 2>&1 | grep -oE '[0-9]+\.[0-9]+' | head -1)
+        if [ -z "$platform_max" ]; then
+          echo ">>> Skipping: could not determine glibc version (musl?)"
+          exit 0
+        fi
+
+        binary_max=$(echo "$binary_versions" | tail -1)
+        # sort -V -C exits non-zero if not in sorted order (i.e., binary_max > platform_max)
+        if ! printf '%s\n%s\n' "$binary_max" "$platform_max" | sort -V -C; then
+          echo "::error::Binary requires GLIBC_$binary_max but platform only has GLIBC_$platform_max"
+          exit 1
+        fi
+        echo ">>> glibc OK: binary requires GLIBC_$binary_max, platform has GLIBC_$platform_max"
