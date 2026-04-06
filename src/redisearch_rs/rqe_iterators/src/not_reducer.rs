@@ -57,6 +57,9 @@ where
             // SAFETY: Caller guarantees the preconditions of `new_wildcard_iterator`.
             let mut wc = unsafe { new_wildcard_iterator(query, weight) };
             if let Some(result) = wc.current() {
+                // Documents returned by this wildcard are included purely
+                // by negation (NOT nothing = everything), not because any
+                // term matched, so the term frequency is zero.
                 result.freq = 0;
             }
             NotReduction::ReducedWildcard(wc)
