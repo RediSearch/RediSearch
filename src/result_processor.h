@@ -239,7 +239,7 @@ ResultProcessor *RPHighlighter_New(RSLanguage language, const FieldList *fields,
  *******************************************************************************************************************/
 ResultProcessor *RPProfile_New(ResultProcessor *rp, QueryProcessingCtx *qctx);
 
-rs_wall_clock_ns_t RPProfile_GetClock(ResultProcessor *rp);
+rs_wall_clock_ns_t RPProfile_GetTime(ResultProcessor *rp);
 uint64_t RPProfile_GetCount(ResultProcessor *rp);
 void RPProfile_IncrementCount(ResultProcessor *rp);
 
@@ -290,12 +290,38 @@ ResultProcessor *RPSafeDepleter_New(StrongRef sync_ref, RedisSearchCtx *depletin
 * @param rp The RPSafeDepleter result processor
 * @return Time in nanoseconds spent depleting
 */
-rs_wall_clock_ns_t RPSafeDepleter_GetDepletionTime(ResultProcessor *rp);
+rs_wall_clock_ns_t RPSafeDepleter_GetDepletionTime(const ResultProcessor *rp);
 
 /**
 * Constructs a new depleter processor that runs in the current thread.
 */
 ResultProcessor *RPDepleter_New();
+
+
+/**
+* Consumes and buffers all upstream results without yielding any to the caller.
+* This is used for foreground depletion in WORKERS == 0 mode to pre-fill
+* the buffer while the spec lock is held.
+* @param base The depleter processor (must be RP_DEPLETER type)
+*/
+void RPDepleter_StartDepletion(ResultProcessor *depleter);
+
+/**
+* Get the depletion time for RPDepleter.
+* This is the time spent depleting upstream results synchronously.
+* @param depleter The depleter processor (must be RP_DEPLETER type)
+* @return The depletion time in nanoseconds
+*/
+rs_wall_clock_ns_t RPDepleter_GetDepletionTime(const ResultProcessor *depleter);
+
+/**
+ * Triggers depletion for all depleters in the array.
+ * Stops on first error and returns the error code.
+ * @param depleters Array of depleter processors (must be RP_DEPLETER type)
+ * @return RS_RESULT_OK if all depleters completed successfully,
+ *         or the error code from the first depleter that failed
+ */
+int RPDepleter_DepleteAll(arrayof(ResultProcessor*) depleters);
 
 /**
 * Starts the depletion for all the safe depleters in the array, waits until all finished depleting, and returns.
