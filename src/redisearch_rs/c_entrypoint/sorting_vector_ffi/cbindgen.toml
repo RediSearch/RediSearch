@@ -7,10 +7,9 @@ after_includes = """
 typedef struct RSValue RSValue;
 
 // RSSortingVector is repr(transparent) in Rust over a ThinVec<RSValueFFI>.
-// On the stack it is a single pointer to a heap header:
-//   Header<u64> { len: u64, cap: u64 }  (16 bytes, no padding for pointer-aligned T)
-// followed immediately by the data array:
-//   RSValue* values[len]
+// On the stack it is a single pointer to a heap allocation with this layout:
+//   Header<u64> { len: u64, cap: u64 }  (16 bytes, no trailing padding)
+//   RSValue* values[len] (the data array)
 //
 // An empty RSSortingVector points to a static sentinel header (not null).
 typedef struct RSSortingVector {
@@ -24,24 +23,11 @@ extern \"C\" {
 #endif // __cplusplus
 
 /**
- * Returns an empty RSSortingVector with no allocation.
- *
- * The pointer is set to the static empty sentinel header.
- * C code must use this instead of zero-initializing the struct.
- */
-static inline RSSortingVector RSSortingVector_Empty(void) {
-  RSSortingVector v;
-  v.header = (void *)RSSortingVector_EmptySentinel();
-  return v;
-}
-
-/**
  * Returns the length of the sorting vector.
  *
  * Reads the `len` field (u64) from the ThinVec heap header.
  */
 static inline size_t RSSortingVector_Length(const RSSortingVector *v) {
-  // Header<u64> layout: { len: u64, cap: u64 }
   // len is at offset 0.
   return *(const uint64_t *)v->header;
 }
@@ -53,7 +39,6 @@ static inline size_t RSSortingVector_Length(const RSSortingVector *v) {
  * Data starts immediately after the 16-byte Header<u64>.
  */
 static inline RSValue *RSSortingVector_Get(const RSSortingVector *v, size_t idx) {
-  // Data starts at offset 8 (sizeof(Header<u64>), no padding for pointer-aligned T).
   RSValue **data = (RSValue **)((const char *)v->header + 16);
   return data[idx];
 }

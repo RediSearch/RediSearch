@@ -451,9 +451,13 @@ pub unsafe extern "C" fn SearchResult_CmpByFields(
                     return if ascending { -rc } else { rc };
                 }
             }
+            // If at least one of these has no sort key, it gets high value regardless of asc/desc
             (Some(_), None) => return 1,
             (None, Some(_)) => return -1,
-            (None, None) => continue,
+            (None, None) => {
+                // Both have no sort key, so they are equal. Continue to next sort key
+                continue;
+            }
         }
     }
 

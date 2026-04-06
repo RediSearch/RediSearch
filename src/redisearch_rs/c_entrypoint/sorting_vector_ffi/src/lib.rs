@@ -14,29 +14,27 @@ use std::{
     ffi::{CStr, c_char},
     ptr::NonNull,
 };
-use thin_vec::{Header, VecCapacity};
 use value::RSValueFFI;
 
 pub const RS_SORTABLES_MAX: usize = 1024;
 
 // Verify that the ThinVec<RSValueFFI, u32> heap header has no padding before data,
-// so the C inline helpers can use a fixed offset of `sizeof(Header<u64>)` = 8 bytes.
+// so the C inline helpers can use a fixed offset of `sizeof(Header<u64>)` = 16 bytes.
 const _: () = assert!(thin_vec::layout::header_field_padding::<RSValueFFI, u64>() == 0);
 
 // Verify that RSSortingVector is pointer-sized (repr(transparent) over ThinVec).
 const _: () = assert!(std::mem::size_of::<RSSortingVector>() == std::mem::size_of::<usize>());
 
-/// Returns the pointer value of the empty `ThinVec` sentinel header.
+/// Initializes an empty `RSSortingVector`.
 ///
-/// C code uses this to initialize empty `RSSortingVector` values and to check
-/// whether a sorting vector is empty.
+/// No heap allocation is performed.
 #[unsafe(no_mangle)]
 #[expect(
     clippy::missing_const_for_fn,
     reason = "extern \"C\" functions cannot be const"
 )]
-pub extern "C" fn RSSortingVector_EmptySentinel() -> *const std::ffi::c_void {
-    <u64 as VecCapacity>::EMPTY_HEADER as *const Header<u64> as *const std::ffi::c_void
+pub extern "C" fn RSSortingVector_Empty() -> RSSortingVector {
+    RSSortingVector::empty()
 }
 
 /// Returns the memory size of the sorting vector.

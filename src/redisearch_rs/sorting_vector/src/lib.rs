@@ -254,9 +254,6 @@ impl<'a> RSSortingVectorRef<'a> {
     /// Returns the sorting vector data as a slice.
     #[inline]
     pub fn as_slice(&self) -> &'a [RSValueFFI] {
-        // SAFETY: The inner ThinVec pointer refers to data owned by the
-        // original RSSortingVector which is valid for lifetime 'a.
-        // We reconstruct the slice with the correct lifetime via raw parts.
         let slice = self.inner.as_slice();
         // SAFETY: The inner ThinVec pointer refers to data owned by the
         // original RSSortingVector which is valid for lifetime 'a.
