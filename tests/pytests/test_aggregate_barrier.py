@@ -218,7 +218,7 @@ def _test_barrier_waits_for_delayed_unbalanced_shard(protocol):
 
         # The query should still be in progress (coordinator barrier waiting for shard 1)
         env.assertEqual(len(query_result), 0,
-                        message="Query should still be waiting for slow shard")
+                        message="Query should still be waiting for blocked shard")
 
         # Release shard 1
         shard_conn.execute_command(debug_cmd(), 'SYNC_POINT', 'SIGNAL', sync_point)
