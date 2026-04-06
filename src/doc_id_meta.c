@@ -52,6 +52,13 @@ static inline IndexSpec *findSpecBySpecId(uint64_t specId) {
   return StrongRef_Get(global_ref);
 }
 
+// Check whether specIdDict_g still contains this specId.
+// Uses O(1) dict lookup by specId (unique incarnation ID).
+// Returns true if the spec is still registered, false otherwise.
+static inline bool isSpecValid(uint64_t specId) {
+  return dictFetchValue(specIdDict_g, SPECID_TO_KEY(specId)) != NULL;
+}
+
 // DocIdMeta V1: a dict of specId (void*) -> docId (void*), using dictTypeUint64.
 // The meta value stored on a key is a `dict*` cast to `uint64_t` directly (no wrapper struct).
 #define DOCID_META_VERSION 1
@@ -114,6 +121,7 @@ static int docIdMetaRDBLoad(RedisModuleIO *rdb, uint64_t *meta, int encver) {
   RS_LOG_ASSERT(encver == 1, "DocIdMeta: unexpected encver in RDB load");
 
   if (PersistenceInProgress) {
+    // Skip actual loading during persistence events. We don't store this metadata in the RDB/AOF files.
     *meta = 0;
     return REDISMODULE_OK;
   }
@@ -130,7 +138,7 @@ static int docIdMetaRDBLoad(RedisModuleIO *rdb, uint64_t *meta, int encver) {
     uint64_t docId = LoadUnsigned_IOError(rdb, goto cleanup);
 
     // Skip entries belonging to indexes that are no longer in specIdDict_g (O(1) lookup).
-    if (!findSpecBySpecId(specId)) {
+    if (!isSpecValid(specId)) {
       continue;
     }
 
@@ -152,6 +160,7 @@ static void docIdMetaRDBSave(RedisModuleIO *rdb, void *value, uint64_t *meta) {
   REDISMODULE_NOT_USED(value);
 
   if (PersistenceInProgress) {
+    // Skip saving during persistence events. We don't want to save this metadata to an RDB/AOF file
     return;
   }
 
@@ -170,7 +179,7 @@ static void docIdMetaRDBSave(RedisModuleIO *rdb, void *value, uint64_t *meta) {
     while ((de = dictNext(iter))) {
       uint64_t docId = VAL_TO_DOCID(dictGetVal(de));
       uint64_t specId = KEY_TO_SPECID(dictGetKey(de));
-      if (docId != DOCID_META_INVALID && findSpecBySpecId(specId)) {
+      if (docId != DOCID_META_INVALID && isSpecValid(specId)) {
         validEntries++;
       }
     }
@@ -190,7 +199,7 @@ static void docIdMetaRDBSave(RedisModuleIO *rdb, void *value, uint64_t *meta) {
   while ((de = dictNext(iter))) {
     uint64_t docId = VAL_TO_DOCID(dictGetVal(de));
     uint64_t specId = KEY_TO_SPECID(dictGetKey(de));
-    if (docId == DOCID_META_INVALID || !findSpecBySpecId(specId)) {
+    if (docId == DOCID_META_INVALID || !isSpecValid(specId)) {
       continue;
     }
     RedisModule_SaveUnsigned(rdb, specId);
