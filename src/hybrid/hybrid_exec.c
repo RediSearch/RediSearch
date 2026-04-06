@@ -485,8 +485,8 @@ int HybridRequest_StartCursors(StrongRef hybrid_ref, RedisModuleCtx *replyCtx, Q
         } else {
           QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_GENERIC, "Failed to deplete set of results, rc=%d", rc);
         }
-        return REDISMODULE_ERR;
       }
+      return REDISMODULE_ERR;
     }
     replyWithCursors(replyCtx, cursors);
     array_free(cursors);
