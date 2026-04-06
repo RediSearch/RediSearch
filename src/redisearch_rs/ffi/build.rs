@@ -70,6 +70,8 @@ fn main() {
         src.join("geo_index.h"),
         src.join("rs_geo.h"),
         deps.join("geohash").join("geohash.h"),
+        src.join("geometry").join("geometry_api.h"),
+        src.join("geometry_index.h"),
         src.join("index_result").join("index_result.h"),
         src.join("json.h"),
         src.join("obfuscation").join("hidden.h"),
@@ -91,12 +93,16 @@ fn main() {
         src.join("stopwords.h"),
         src.join("numeric_filter.h"),
         src.join("tag_index.h"),
+        src.join("suffix.h"),
+        src.join("trie").join("rune_util.h"),
         src.join("trie").join("trie.h"),
         src.join("trie").join("trie_type.h"),
         src.join("ttl_table").join("ttl_table.h"),
         src.join("util").join("arr").join("arr.h"),
         src.join("util").join("dict").join("dict.h"),
         src.join("util").join("references.h"),
+        src.join("util").join("strconv.h"),
+        src.join("wildcard").join("wildcard.h"),
     ];
 
     let mut bindings = bindgen::Builder::default();
