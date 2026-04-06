@@ -77,6 +77,7 @@ pub enum QueryErrorCode {
     FlexUnsupportedFTCreateArgument,
     DiskCreation,
     FlexSkipInitialScanMissingArgument,
+    SafeDepleterFailure,
 }
 
 impl Debug for QueryErrorCode {
@@ -165,6 +166,7 @@ impl QueryErrorCode {
             Self::FlexSkipInitialScanMissingArgument => {
                 c"Flex index requires SKIPINITIALSCAN argument"
             }
+            Self::SafeDepleterFailure => c"Failed to acquire index lock for background depletion",
         }
     }
 }
