@@ -237,7 +237,7 @@ TEST_F(DocIdMetaTest, TestOverwriteDocId) {
   EXPECT_EQ(retrieved, newDocId);
 }
 
-TEST_F(DocIdMetaTest, TestSoftDeleteDocId) {
+TEST_F(DocIdMetaTest, TestDeleteDocId) {
   uint64_t docId = 555;
 
   // Set a value first
@@ -247,8 +247,7 @@ TEST_F(DocIdMetaTest, TestSoftDeleteDocId) {
   EXPECT_EQ(DocIdMeta_Get(ctx, testKeyName, SPEC1_ID, &retrieved), REDISMODULE_OK);
   EXPECT_EQ(retrieved, docId);
 
-  // Soft-delete the value (invalidates but keeps entry for reuse)
-  int result = DocIdMeta_SoftDelete(ctx, testKeyName, SPEC1_ID);
+  int result = DocIdMeta_Delete(ctx, testKeyName, SPEC1_ID);
   EXPECT_EQ(result, REDISMODULE_OK);
 
   // Should now return error when trying to get
@@ -256,10 +255,26 @@ TEST_F(DocIdMetaTest, TestSoftDeleteDocId) {
   EXPECT_EQ(result, REDISMODULE_ERR);
 }
 
-TEST_F(DocIdMetaTest, TestSoftDeleteNonExistentDocId) {
-  // Try to soft-delete a docId that doesn't exist
-  int result = DocIdMeta_SoftDelete(ctx, testKeyName, 999);
+TEST_F(DocIdMetaTest, TestDeleteNonExistentDocId) {
+  int result = DocIdMeta_Delete(ctx, testKeyName, 999);
   EXPECT_EQ(result, REDISMODULE_ERR);
+}
+
+TEST_F(DocIdMetaTest, TestDeleteOnlyRemovesRequestedSpec) {
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, 1001), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC2_ID, 2002), REDISMODULE_OK);
+
+  EXPECT_EQ(DocIdMeta_Delete(ctx, testKeyName, SPEC1_ID), REDISMODULE_OK);
+  verifyDocIdMissing(testKeyName, SPEC1_ID);
+  verifyDocId(testKeyName, SPEC2_ID, 2002);
+}
+
+TEST_F(DocIdMetaTest, TestSetAfterDeleteRecreatesEntry) {
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, 1001), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Delete(ctx, testKeyName, SPEC1_ID), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, 3003), REDISMODULE_OK);
+
+  verifyDocId(testKeyName, SPEC1_ID, 3003);
 }
 
 TEST_F(DocIdMetaTest, TestMultipleKeys) {
@@ -295,19 +310,18 @@ TEST_F(DocIdMetaTest, TestEdgeCases) {
   EXPECT_EQ(retrieved, maxDocId);
 }
 
-TEST_F(DocIdMetaTest, TestSoftDeleteAndReget) {
+TEST_F(DocIdMetaTest, TestDeleteAndReget) {
   // Test that getting from an unset spec returns ERR
   uint64_t retrieved;
   EXPECT_EQ(DocIdMeta_Get(ctx, testKeyName, SPEC1_ID, &retrieved), REDISMODULE_ERR);
 
-  // Set a valid docId and then soft-delete it to test soft-deletion behavior
+  // Set a valid docId and then delete it to test missing-entry behavior
   uint64_t validDocId = 42;
   EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, validDocId), REDISMODULE_OK);
   EXPECT_EQ(DocIdMeta_Get(ctx, testKeyName, SPEC1_ID, &retrieved), REDISMODULE_OK);
   EXPECT_EQ(retrieved, validDocId);
 
-  // Soft-delete it and verify it's gone (should return ERR like uninitialized)
-  EXPECT_EQ(DocIdMeta_SoftDelete(ctx, testKeyName, SPEC1_ID), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Delete(ctx, testKeyName, SPEC1_ID), REDISMODULE_OK);
   EXPECT_EQ(DocIdMeta_Get(ctx, testKeyName, SPEC1_ID, &retrieved), REDISMODULE_ERR);
 }
 
@@ -484,7 +498,7 @@ TEST_F(DocIdMetaTest, TestRdbSaveAllRemoved_SavesNothing) {
   // Nothing was written, so we can't call rdbLoad — just verify no crash.
 }
 
-TEST_F(DocIdMetaTest, TestRdbSaveSkipsSoftDeletedEntries) {
+TEST_F(DocIdMetaTest, TestRdbSaveSkipsDeletedEntries) {
   addTestSpec("spec1", SPEC1_ID);
   addTestSpec("spec2", SPEC2_ID);
   addTestSpec("spec3", SPEC3_ID);
@@ -493,13 +507,12 @@ TEST_F(DocIdMetaTest, TestRdbSaveSkipsSoftDeletedEntries) {
   EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC2_ID, 2002), REDISMODULE_OK);
   EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC3_ID, 3003), REDISMODULE_OK);
 
-  // Soft-delete SPEC2's entry
-  EXPECT_EQ(DocIdMeta_SoftDelete(ctx, testKeyName, SPEC2_ID), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Delete(ctx, testKeyName, SPEC2_ID), REDISMODULE_OK);
   verifyDocIdMissing(testKeyName, SPEC2_ID);
 
-  // RDB round-trip — should skip SPEC2 (soft-deleted)
+  // RDB round-trip — should skip SPEC2 (deleted)
   uint64_t loadedMeta = rdbSaveAndLoad(getKeyMeta(testKeyName));
-  RedisModuleString *newKeyName = createKeyWithMeta("softdelkey", loadedMeta);
+  RedisModuleString *newKeyName = createKeyWithMeta("deletedkey", loadedMeta);
 
   verifyDocId(newKeyName, SPEC1_ID, 1001);
   verifyDocIdMissing(newKeyName, SPEC2_ID);
@@ -543,17 +556,17 @@ TEST_F(DocIdMetaTest, TestUnlinkInvalidatesEntries) {
   verifyDocIdMissing(testKeyName, SPEC2_ID);
 }
 
-TEST_F(DocIdMetaTest, TestUnlinkSkipsSoftDeletedEntries) {
+TEST_F(DocIdMetaTest, TestUnlinkSkipsDeletedEntries) {
   // Don't add specs to specIdDict_g
   EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, 1001), REDISMODULE_OK);
   EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC2_ID, 2002), REDISMODULE_OK);
 
-  // Soft-delete SPEC1's entry
-  EXPECT_EQ(DocIdMeta_SoftDelete(ctx, testKeyName, SPEC1_ID), REDISMODULE_OK);
+  // Delete SPEC1's entry
+  EXPECT_EQ(DocIdMeta_Delete(ctx, testKeyName, SPEC1_ID), REDISMODULE_OK);
   verifyDocIdMissing(testKeyName, SPEC1_ID);
   verifyDocId(testKeyName, SPEC2_ID, 2002);
 
-  // Call unlink - should skip SPEC1 (already soft-deleted) and process SPEC2
+  // Call unlink - should skip SPEC1 (already deleted) and process SPEC2
   uint64_t meta = getKeyMeta(testKeyName);
   RMCK_KeyMetaUnlink(getDocIdMetaClassId(), &meta);
 

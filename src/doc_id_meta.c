@@ -13,6 +13,7 @@
 #include "util/dict.h"
 #include "rdb.h"
 #include <stdbool.h>
+#include <assert.h>
 
 #define DOCID_META_INVALID 0
 #define DOCID_META_CLASS_NAME "D-ID"
@@ -57,14 +58,6 @@ static inline IndexSpec *findSpecBySpecId(uint64_t specId) {
 #define KEY_OPEN_META_SET_FLAGS (REDISMODULE_READ | REDISMODULE_WRITE | REDISMODULE_OPEN_KEY_NOEFFECTS)
 #define KEY_OPEN_META_GET_FLAGS (REDISMODULE_READ | REDISMODULE_OPEN_KEY_NOEFFECTS)
 
-static int docIdMetaCopy(RedisModuleKeyOptCtx *ctx, uint64_t *meta) {
-  REDISMODULE_NOT_USED(ctx);
-  REDISMODULE_NOT_USED(meta);
-  // We do not want to copy the meta, as the docID will not have meaning in the destination DB,
-  // or the new key will get reindexed in KeySpaceNotification
-  return 0;
-}
-
 /* Free callback - called when metadata needs to be freed */
 static void docIdMetaFree(const char *keyname, uint64_t meta) {
   REDISMODULE_NOT_USED(keyname);
@@ -76,7 +69,8 @@ static void docIdMetaFree(const char *keyname, uint64_t meta) {
 static int docIdMetaMove(RedisModuleKeyOptCtx *ctx, uint64_t *meta) {
   REDISMODULE_NOT_USED(ctx);
   REDISMODULE_NOT_USED(meta);
-  // We do not want to move the meta, as the docID will not have meaning in the destination DB
+  // We do not want to move the meta, as the docID will not have meaning in the destination DB.
+  // Returning 0 tells redis to drop the meta and not move it with the key - see the docs for more info.
   return 0;
 }
 
@@ -210,7 +204,7 @@ void DocIdMeta_Init(RedisModuleCtx *ctx) {
     .version = REDISMODULE_KEY_META_VERSION,
     .reset_value = 0,
     .flags = 1 << REDISMODULE_META_ALLOW_IGNORE,
-    .copy = (RedisModuleKeyMetaCopyFunc)docIdMetaCopy,
+    .copy = NULL, // If NULL, meta is not copied during copy operations
     .rename = NULL, // If NULL, meta is kept during rename
     .move = (RedisModuleKeyMetaMoveFunc)docIdMetaMove,
     .unlink = (RedisModuleKeyMetaUnlinkFunc)docIdMetaUnlink,
@@ -274,8 +268,7 @@ static int DocIdMeta_GetInternal(RedisModuleKey *key, uint64_t specId,
   return REDISMODULE_OK;
 }
 
-// Soft-delete: invalidate the docId but keep the entry for potential reuse.
-static int DocIdMeta_SoftDeleteInternal(RedisModuleKey *key, uint64_t specId) {
+static int DocIdMeta_DeleteInternal(RedisModuleKey *key, uint64_t specId) {
   uint64_t meta = 0;
   if (RedisModule_GetKeyMeta(docIdKeyMetaClassId, key, &meta) != REDISMODULE_OK) {
     return REDISMODULE_ERR;
@@ -284,12 +277,9 @@ static int DocIdMeta_SoftDeleteInternal(RedisModuleKey *key, uint64_t specId) {
     return REDISMODULE_ERR;
   }
   dict *specIdToDocId = (dict *)meta;
-  dictEntry *de = dictFind(specIdToDocId, SPECID_TO_KEY(specId));
-  if (!de) {
-    return REDISMODULE_ERR;
-  }
-  dictSetVal(specIdToDocId, de, DOCID_TO_VAL(DOCID_META_INVALID));
-  return REDISMODULE_OK;
+  static_assert(DICT_OK == REDISMODULE_OK);
+  static_assert(DICT_ERR == REDISMODULE_ERR);
+  return dictDelete(specIdToDocId, SPECID_TO_KEY(specId));
 }
 
 // Set docId using key name and spec incarnation ID.
@@ -316,15 +306,12 @@ int DocIdMeta_Get(RedisModuleCtx *ctx, RedisModuleString *keyName,
   return result;
 }
 
-// Soft-delete docId using key name and spec incarnation ID.
-// Invalidates the docId but keeps the entry for efficient reuse on re-indexing.
-int DocIdMeta_SoftDelete(RedisModuleCtx *ctx, RedisModuleString *keyName,
-                         uint64_t specId) {
+int DocIdMeta_Delete(RedisModuleCtx *ctx, RedisModuleString *keyName, uint64_t specId) {
   RedisModuleKey *key = RedisModule_OpenKey(ctx, keyName, KEY_OPEN_META_SET_FLAGS);
   if (!key) {
     return REDISMODULE_ERR;
   }
-  int result = DocIdMeta_SoftDeleteInternal(key, specId);
+  int result = DocIdMeta_DeleteInternal(key, specId);
   RedisModule_CloseKey(key);
   return result;
 }
