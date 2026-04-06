@@ -48,6 +48,9 @@ bool MR_CurrentTopologyExists();
 /* Get the current cluster topology connectivity status */
 int MR_CheckTopologyConnections(bool mastersOnly);
 
+/* Log all master nodes that are not in the Connected state */
+void MR_LogDisconnectedNodes();
+
 void MR_ReplyClusterInfo(RedisModuleCtx *ctx, MRClusterTopology *topo);
 
 void MR_GetConnectionPoolState(RedisModuleCtx *ctx);
