@@ -181,12 +181,15 @@ where
     }
 
     #[inline(always)]
-    fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
+    fn revalidate(
+        &mut self,
+        ctx: NonNull<ffi::RedisSearchCtx>,
+    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         if self.should_abort() {
             return Ok(RQEValidateStatus::Aborted);
         }
 
-        self.it.revalidate()
+        self.it.revalidate(ctx)
     }
 
     #[inline(always)]
@@ -503,11 +506,14 @@ impl<'index> RQEIterator<'index> for NumericIteratorVariant<'index> {
     }
 
     #[inline(always)]
-    fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
+    fn revalidate(
+        &mut self,
+        ctx: NonNull<ffi::RedisSearchCtx>,
+    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         match self {
-            Self::Unfiltered(iter) => iter.revalidate(),
-            Self::Filtered(iter) => iter.revalidate(),
-            Self::Geo(iter) => iter.revalidate(),
+            Self::Unfiltered(iter) => iter.revalidate(ctx),
+            Self::Filtered(iter) => iter.revalidate(ctx),
+            Self::Geo(iter) => iter.revalidate(ctx),
         }
     }
 

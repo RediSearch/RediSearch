@@ -7,6 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use std::ptr::NonNull;
+
 use ffi::{
     IteratorStatus, IteratorStatus_ITERATOR_EOF, IteratorStatus_ITERATOR_NOTFOUND,
     IteratorStatus_ITERATOR_OK, IteratorStatus_ITERATOR_TIMEOUT, QueryIterator, ValidateStatus,
@@ -279,12 +281,17 @@ extern "C" fn skip_to<'index, I: RQEIterator<'index> + 'index>(
 
 extern "C" fn revalidate<'index, I: RQEIterator<'index> + 'index>(
     base: *mut QueryIterator,
+    sctx: *mut ffi::RedisSearchCtx,
 ) -> ValidateStatus {
     debug_assert!(!base.is_null());
     debug_assert!(base.is_aligned());
+    debug_assert!(!sctx.is_null());
     // SAFETY: Guaranteed by invariant 1. in [`RQEIteratorWrapper`].
     let wrapper = unsafe { RQEIteratorWrapper::<I>::mut_ref_from_header_ptr(base) };
-    match wrapper.inner.revalidate() {
+    // SAFETY: The caller guarantees `sctx` is a valid non-null pointer to a `RedisSearchCtx`
+    // while the read lock is held.
+    let ctx = unsafe { NonNull::new_unchecked(sctx) };
+    match wrapper.inner.revalidate(ctx) {
         Ok(RQEValidateStatus::Ok) => ValidateStatus_VALIDATE_OK,
         Ok(RQEValidateStatus::Moved { current }) => {
             if let Some(result) = current {

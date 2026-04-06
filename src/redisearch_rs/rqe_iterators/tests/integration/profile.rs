@@ -153,6 +153,8 @@ fn profile_rewind() {
 
 #[test]
 fn profile_revalidate() {
+    let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+    let ctx = mock_ctx.sctx();
     let child = Wildcard::new(10, 1.0);
     let mut profile = Profile::new(child);
 
@@ -160,7 +162,7 @@ fn profile_revalidate() {
     let _ = profile.read(); // doc 2
 
     // Revalidate (Wildcard returns OK)
-    let status = profile.revalidate();
+    let status = profile.revalidate(ctx);
     assert!(status.is_ok());
 
     // Verify delegation still works

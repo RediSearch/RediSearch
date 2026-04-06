@@ -117,10 +117,13 @@ where
     }
 
     #[inline(always)]
-    fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
+    fn revalidate(
+        &mut self,
+        ctx: std::ptr::NonNull<ffi::RedisSearchCtx>,
+    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         match &mut self.0 {
-            MaybeEmptyOption::None(empty) => empty.revalidate(),
-            MaybeEmptyOption::Some(it) => it.revalidate(),
+            MaybeEmptyOption::None(empty) => empty.revalidate(ctx),
+            MaybeEmptyOption::Some(it) => it.revalidate(ctx),
         }
     }
 

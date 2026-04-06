@@ -7,8 +7,9 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use ffi::t_docId;
-use std::sync::OnceLock;
+use std::{ptr::NonNull, sync::OnceLock};
+
+use ffi::{RedisSearchCtx, t_docId};
 use thiserror::Error;
 
 use ::inverted_index::{RSIndexResult, t_fieldMask};
@@ -134,7 +135,14 @@ pub trait RQEIterator<'index> {
     /// Called when the iterator is being revalidated after a concurrent index change.
     ///
     /// The iterator should check if it is still valid.
-    fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError>;
+    ///
+    /// `ctx` must point to a valid [`RedisSearchCtx`] whose `spec` is a
+    /// non-null pointer to a valid [`IndexSpec`](ffi::IndexSpec) for the duration of the call.
+    /// The caller guarantees this while the spec read lock is held.
+    fn revalidate(
+        &mut self,
+        ctx: NonNull<RedisSearchCtx>,
+    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError>;
 
     /// Rewind the iterator to the beginning and reset its properties.
     fn rewind(&mut self);
@@ -194,8 +202,11 @@ impl<'index, I: RQEIterator<'index> + 'index> RQEIterator<'index> for Box<I> {
         (**self).skip_to(doc_id)
     }
 
-    fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        (**self).revalidate()
+    fn revalidate(
+        &mut self,
+        ctx: NonNull<RedisSearchCtx>,
+    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
+        (**self).revalidate(ctx)
     }
 
     fn rewind(&mut self) {
@@ -248,8 +259,11 @@ impl<'index> RQEIterator<'index> for Box<dyn RQEIterator<'index> + 'index> {
         (**self).skip_to(doc_id)
     }
 
-    fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        (**self).revalidate()
+    fn revalidate(
+        &mut self,
+        ctx: NonNull<RedisSearchCtx>,
+    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
+        (**self).revalidate(ctx)
     }
 
     fn rewind(&mut self) {

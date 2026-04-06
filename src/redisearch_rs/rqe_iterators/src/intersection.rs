@@ -515,13 +515,16 @@ where
         self.is_eof
     }
 
-    fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
+    fn revalidate(
+        &mut self,
+        ctx: std::ptr::NonNull<ffi::RedisSearchCtx>,
+    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         let mut any_child_moved = false;
         let mut max_child_doc_id: t_docId = 0;
         let mut moved_to_eof = false;
 
         for child in &mut self.children {
-            match child.revalidate()? {
+            match child.revalidate(ctx)? {
                 RQEValidateStatus::Aborted => return Ok(RQEValidateStatus::Aborted),
                 RQEValidateStatus::Moved { current } => {
                     any_child_moved = true;

@@ -177,15 +177,16 @@ mod not_miri {
     fn tag_revalidate_after_index_disappears() {
         let test = TagRevalidateTest::new(10);
         let mut it = test.create_iterator();
+        let sctx = test.test.context.sctx;
 
         // Verify the iterator works normally and read at least one document
         assert_eq!(
-            it.revalidate().expect("revalidate failed"),
+            it.revalidate(sctx).expect("revalidate failed"),
             RQEValidateStatus::Ok
         );
         assert!(it.read().expect("failed to read").is_some());
         assert_eq!(
-            it.revalidate().expect("revalidate failed"),
+            it.revalidate(sctx).expect("revalidate failed"),
             RQEValidateStatus::Ok
         );
 
@@ -217,7 +218,7 @@ mod not_miri {
         // Revalidate should return Aborted because the tag II no longer
         // points to the same index the reader was created from.
         assert_eq!(
-            it.revalidate().expect("revalidate failed"),
+            it.revalidate(sctx).expect("revalidate failed"),
             RQEValidateStatus::Aborted
         );
 
@@ -246,8 +247,9 @@ mod not_miri {
 
         // Read at least one document so the iterator has a position.
         assert!(it.read().expect("failed to read").is_some());
+        let sctx = test.test.context.sctx;
         assert_eq!(
-            it.revalidate().expect("revalidate failed"),
+            it.revalidate(sctx).expect("revalidate failed"),
             RQEValidateStatus::Ok
         );
 
@@ -267,7 +269,7 @@ mod not_miri {
 
         // `should_abort` sees the tag value is missing and returns true.
         assert_eq!(
-            it.revalidate().expect("revalidate failed"),
+            it.revalidate(sctx).expect("revalidate failed"),
             RQEValidateStatus::Aborted
         );
 

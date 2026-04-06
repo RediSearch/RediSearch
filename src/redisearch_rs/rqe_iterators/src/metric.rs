@@ -185,8 +185,11 @@ impl<'index, const SORTED_BY_ID: bool> RQEIterator<'index> for Metric<'index, SO
     }
 
     #[inline(always)]
-    fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        self.base.revalidate()
+    fn revalidate(
+        &mut self,
+        ctx: std::ptr::NonNull<ffi::RedisSearchCtx>,
+    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
+        self.base.revalidate(ctx)
     }
 
     #[inline(always)]

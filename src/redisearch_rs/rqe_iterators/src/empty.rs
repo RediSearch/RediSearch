@@ -58,7 +58,10 @@ impl<'index> RQEIterator<'index> for Empty {
     }
 
     #[inline(always)]
-    fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
+    fn revalidate(
+        &mut self,
+        _ctx: std::ptr::NonNull<ffi::RedisSearchCtx>,
+    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         Ok(RQEValidateStatus::Ok)
     }
 

@@ -259,14 +259,19 @@ impl<'index> RQEIterator<'index> for CRQEIterator {
         unsafe { callback(self.header.as_ptr()) };
     }
 
-    fn revalidate(&mut self) -> Result<crate::RQEValidateStatus<'_, 'index>, RQEIteratorError> {
+    fn revalidate(
+        &mut self,
+        ctx: NonNull<ffi::RedisSearchCtx>,
+    ) -> Result<crate::RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         // SAFETY: Safe thanks to invariant 3. of [`CRQEIterator::header`].
         let callback = unsafe { self.Revalidate.unwrap_unchecked() };
         // SAFETY:
         // - We have a unique handle over this iterator.
         // - The C code must guarantee, by constructor, that callbacks
         //   can be called on types that implement its C iterator API.
-        let status = unsafe { callback(self.header.as_ptr()) };
+        // - `ctx` is a valid `RedisSearchCtx` pointer, guaranteed by the
+        //   `revalidate` trait method contract.
+        let status = unsafe { callback(self.header.as_ptr(), ctx.as_ptr()) };
         #[expect(non_upper_case_globals)]
         let status = match status {
             ValidateStatus_VALIDATE_ABORTED => RQEValidateStatus::Aborted,

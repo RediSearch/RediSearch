@@ -166,8 +166,11 @@ impl<'index, I: RQEIterator<'index>> RQEIterator<'index> for UnionOpaque<'index,
     }
 
     #[inline(always)]
-    fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        delegate_variant_ref_mut!(self, revalidate)
+    fn revalidate(
+        &mut self,
+        ctx: std::ptr::NonNull<ffi::RedisSearchCtx>,
+    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
+        delegate_variant_ref_mut!(self, revalidate, ctx)
     }
 
     #[inline(always)]
