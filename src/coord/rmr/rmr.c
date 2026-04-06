@@ -200,6 +200,24 @@ int MR_CheckTopologyConnections(bool mastersOnly) {
   return MRCluster_CheckConnections(cluster_g, mastersOnly);
 }
 
+void MR_LogDisconnectedNodes() {
+  MRCluster *cl = cluster_g;
+  if (!cl || !cl->topo) return;
+  for (size_t i = 0; i < cl->topo->numShards; i++) {
+    MRClusterShard *sh = &cl->topo->shards[i];
+    for (size_t j = 0; j < sh->numNodes; j++) {
+      if (!(sh->nodes[j].flags & MRNode_Master)) continue;
+      const char *state = MRConnManager_GetNodeState(&cl->mgr, sh->nodes[j].id);
+      if (!state || strcmp(state, "Connected") != 0) {
+        RedisModule_Log(RSDummyContext, "warning",
+                        "Node %s (%s:%d) is not connected (state: %s)",
+                        sh->nodes[j].id, sh->nodes[j].endpoint.host,
+                        sh->nodes[j].endpoint.port, state ? state : "unknown");
+      }
+    }
+  }
+}
+
 bool MR_CurrentTopologyExists() {
   return cluster_g->topo != NULL;
 }
