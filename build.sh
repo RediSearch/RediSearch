@@ -605,11 +605,14 @@ prepare_cmake_arguments() {
   if [[ "$OS_NAME" == "macos" ]]; then
     APPLE_CLANG_MAJOR=$(cc --version 2>/dev/null | head -1 | grep -oE 'version [0-9]+' | grep -oE '[0-9]+')
     if [[ -n "$APPLE_CLANG_MAJOR" && "$APPLE_CLANG_MAJOR" -lt 17 ]]; then
-      if command -v /opt/homebrew/opt/llvm@17/bin/ld64.lld &>/dev/null; then
-        echo "Apple clang $APPLE_CLANG_MAJOR < 17: using LLVM's ld64.lld to work around ARM64 alignment bug"
-        RUSTFLAGS="${RUSTFLAGS:+${RUSTFLAGS} }-C link-arg=-fuse-ld=/opt/homebrew/opt/llvm@17/bin/ld64.lld"
+      # Use the project's LLVM (installed by .install/install_llvm.sh)
+      source "$(dirname "${BASH_SOURCE[0]}")/.install/LLVM_VERSION.sh"
+      local lld_path="$(brew --prefix)/opt/llvm@${LLVM_VERSION}/bin/ld64.lld"
+      if [[ -x "$lld_path" ]]; then
+        echo "Apple clang $APPLE_CLANG_MAJOR < 17: using LLVM ${LLVM_VERSION}'s ld64.lld to work around ARM64 alignment bug"
+        RUSTFLAGS="${RUSTFLAGS:+${RUSTFLAGS} }-C link-arg=-fuse-ld=${lld_path}"
       else
-        echo "WARNING: Apple clang $APPLE_CLANG_MAJOR has a known ARM64 linker bug but ld64.lld is not installed"
+        echo "WARNING: Apple clang $APPLE_CLANG_MAJOR has a known ARM64 linker bug but ld64.lld is not installed at ${lld_path}"
       fi
     fi
   fi
