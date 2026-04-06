@@ -57,20 +57,6 @@ int DocIdMeta_SoftDelete(RedisModuleCtx *ctx, RedisModuleString *keyName,
 // become no-ops. Called from notifications.c during persistence events.
 void DocIdMeta_SetPersistenceInProgress(bool inProgress);
 
-// Functions exposed to ease unit testing
-int docIdMetaRDBLoad(RedisModuleIO *rdb, uint64_t *meta, int encver);
-void docIdMetaRDBSave(RedisModuleIO *rdb, void *value, uint64_t *meta);
-RedisModuleKeyMetaClassId DocIdMeta_GetClassId();
-
-/*
- * Unlink callback - called when a key is being deleted from the DB.
- * Iterates through all entries and calls IndexSpec_DeleteDocById for each
- * valid entry (skipping soft-deleted entries and entries whose spec no longer exists).
- * After processing, marks all entries as invalid.
- * Exposed for unit testing.
- */
-void docIdMetaUnlink(RedisModuleKeyOptCtx *ctx, uint64_t *meta);
-
 #ifdef __cplusplus
 }
 #endif

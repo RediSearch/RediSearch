@@ -208,7 +208,6 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
  *  GROUP C: Has deletion branch to skip for SearchDisk
  ********************************************************/
     case change_cmd:
-      // TODO: hash/json
       kp = RedisModule_OpenKey(ctx, key, REDISMODULE_READ);
       kType = DocumentType_Unsupported;
       if (kp) {

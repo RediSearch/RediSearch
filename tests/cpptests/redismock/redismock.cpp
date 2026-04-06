@@ -42,6 +42,7 @@ static std::mutex RMCK_GlobalLock;
 static std::map<std::string, std::map<RedisModuleKeyMetaClassId, uint64_t>> keyMetaStorage;
 static RedisModuleKeyMetaClassId nextClassId = 1;
 static std::map<RedisModuleKeyMetaClassId, RedisModuleKeyMetaClassConfig> classConfigs;
+static std::map<std::string, RedisModuleKeyMetaClassId> classNames;
 
 std::string HashValue::Key::makeKey() const {
   if (flags & REDISMODULE_HASH_CFIELDS) {
@@ -1443,8 +1444,11 @@ static RedisModuleKeyMetaClassId RMCK_CreateKeyMetaClass(RedisModuleCtx *ctx,
                                                          const char *name,
                                                          int encver,
                                                          RedisModuleKeyMetaClassConfig *config) {
+  REDISMODULE_NOT_USED(ctx);
+  REDISMODULE_NOT_USED(encver);
   RedisModuleKeyMetaClassId classId = nextClassId++;
   classConfigs[classId] = *config;
+  classNames[name] = classId;
   return classId;
 }
 
@@ -1496,12 +1500,50 @@ static void RMCK_ClearKeyMeta() {
 
   keyMetaStorage.clear();
   classConfigs.clear();
+  classNames.clear();
   nextClassId = 1;
 }
 
 // External interface for clearing KeyMeta storage
 void RMCK_ClearKeyMetaStorage() {
   RMCK_ClearKeyMeta();
+}
+
+RedisModuleKeyMetaClassId RMCK_GetKeyMetaClassByName(const char *name) {
+  auto it = classNames.find(name);
+  return it == classNames.end() ? -1 : it->second;
+}
+
+int RMCK_KeyMetaRdbLoad(RedisModuleKeyMetaClassId classId, RedisModuleIO *io,
+                        uint64_t *meta, int encver) {
+  auto it = classConfigs.find(classId);
+  if (it == classConfigs.end() || !it->second.rdb_load) {
+    if (meta) {
+      *meta = 0;
+    }
+    return REDISMODULE_ERR;
+  }
+  return it->second.rdb_load(io, meta, encver);
+}
+
+void RMCK_KeyMetaRdbSave(RedisModuleKeyMetaClassId classId, RedisModuleIO *io,
+                         uint64_t *meta) {
+  auto it = classConfigs.find(classId);
+  if (it == classConfigs.end() || !it->second.rdb_save) {
+    if (io) {
+      io->error_flag = true;
+    }
+    return;
+  }
+  it->second.rdb_save(io, nullptr, meta);
+}
+
+void RMCK_KeyMetaUnlink(RedisModuleKeyMetaClassId classId, uint64_t *meta) {
+  auto it = classConfigs.find(classId);
+  if (it == classConfigs.end() || !it->second.unlink) {
+    return;
+  }
+  it->second.unlink(nullptr, meta);
 }
 
 static void registerApis() {

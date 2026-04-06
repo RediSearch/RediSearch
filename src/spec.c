@@ -572,7 +572,7 @@ IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, in
     RS_ABORT("dictAdd shouldn't fail here - index shouldn't exists in the dictionary");
     return NULL;
   }
-  if(dictAdd(specIdDict_g, (void*)(uintptr_t)sp->specId, spec_ref.rm) != DICT_OK) {
+  if (dictAdd(specIdDict_g, (void*)(uintptr_t)sp->specId, spec_ref.rm) != DICT_OK) {
     dictDelete(specDict_g, name);
     RedisModule_Log(ctx, "warning", "Failed adding index to global spec ID dictionary");
     StrongRef_Release(spec_ref);

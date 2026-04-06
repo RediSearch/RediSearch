@@ -174,7 +174,7 @@ static uint64_t uint64HashFunction(const void *key) {
   return (uintptr_t)key;
 }
 
-// Dict type for uint64_t keys stored as void* (no dup/free needed).
+// Dict type for uint64_t keys (and values) stored as void* (no dup/free needed).
 // Keys are compared by pointer equality (default when keyCompare is NULL).
 dictType dictTypeUint64 = {
   .hashFunction = uint64HashFunction,

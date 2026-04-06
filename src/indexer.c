@@ -208,6 +208,7 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
       }
 
       // Get old docId from key metadata (if document already exists)
+      // TODO: Consider calling this from SearchDisk_PutDocument
       uint64_t oldDocId = 0;
       DocIdMeta_Get(ctx->redisCtx, cur->doc->docKey, spec->specId, &oldDocId);
 
@@ -233,7 +234,6 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
         // Store docId in key metadata for fast lookup
         int rc = DocIdMeta_Set(ctx->redisCtx, cur->doc->docKey, spec->specId, docId);
         failure = rc != REDISMODULE_OK;
-        RS_ASSERT(!failure); // In Debug raise
 
         if (failure) {
           uint32_t docLen = 0;

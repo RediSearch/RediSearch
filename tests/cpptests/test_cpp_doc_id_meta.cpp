@@ -18,6 +18,14 @@
 
 class DocIdMetaTest : public ::testing::Test {
 protected:
+  static constexpr const char *DOC_ID_META_CLASS_NAME = "D-ID";
+
+  RedisModuleKeyMetaClassId getDocIdMetaClassId() {
+    RedisModuleKeyMetaClassId classId = RMCK_GetKeyMetaClassByName(DOC_ID_META_CLASS_NAME);
+    EXPECT_GE(classId, 0);
+    return classId;
+  }
+
   void SetUp() override {
     // Get context - MyEnvironment already initialized redismock
     ctx = RedisModule_GetThreadSafeContext(nullptr);
@@ -108,7 +116,7 @@ protected:
   uint64_t getKeyMeta(RedisModuleString *keyName) {
     RedisModuleKey *key = RedisModule_OpenKey(ctx, keyName, REDISMODULE_READ);
     uint64_t meta = 0;
-    EXPECT_EQ(RedisModule_GetKeyMeta(DocIdMeta_GetClassId(), key, &meta), REDISMODULE_OK);
+    EXPECT_EQ(RedisModule_GetKeyMeta(getDocIdMetaClassId(), key, &meta), REDISMODULE_OK);
     EXPECT_NE(meta, 0);
     RedisModule_CloseKey(key);
     return meta;
@@ -116,7 +124,7 @@ protected:
 
   // Helper: RDB save. Writes meta to rdbIO buffer.
   void rdbSave(uint64_t meta) {
-    docIdMetaRDBSave(rdbIO, nullptr, &meta);
+    RMCK_KeyMetaRdbSave(getDocIdMetaClassId(), rdbIO, &meta);
     EXPECT_EQ(RMCK_IsIOError(rdbIO), 0);
   }
 
@@ -124,7 +132,7 @@ protected:
   uint64_t rdbLoad() {
     rdbIO->read_pos = 0;
     uint64_t loadedMeta = 0;
-    int result = docIdMetaRDBLoad(rdbIO, &loadedMeta, 1);
+    int result = RMCK_KeyMetaRdbLoad(getDocIdMetaClassId(), rdbIO, &loadedMeta, 1);
     EXPECT_EQ(result, REDISMODULE_OK);
     EXPECT_EQ(RMCK_IsIOError(rdbIO), 0);
     EXPECT_NE(loadedMeta, 0);
@@ -141,7 +149,7 @@ protected:
   RedisModuleString *createKeyWithMeta(const char *name, uint64_t meta) {
     RedisModuleString *keyName = createHashKey(name);
     RedisModuleKey *key = RedisModule_OpenKey(ctx, keyName, REDISMODULE_WRITE);
-    EXPECT_EQ(RedisModule_SetKeyMeta(DocIdMeta_GetClassId(), key, meta), REDISMODULE_OK);
+    EXPECT_EQ(RedisModule_SetKeyMeta(getDocIdMetaClassId(), key, meta), REDISMODULE_OK);
     RedisModule_CloseKey(key);
     return keyName;
   }
@@ -341,7 +349,7 @@ TEST_F(DocIdMetaTest, TestEmptyMetaRdbSaveLoad) {
   uint64_t meta = 0;
 
   // Call RDB save with empty meta (should return early without writing anything)
-  docIdMetaRDBSave(rdbIO, nullptr, &meta);
+  RMCK_KeyMetaRdbSave(getDocIdMetaClassId(), rdbIO, &meta);
   EXPECT_EQ(RMCK_IsIOError(rdbIO), 0);
 
   // Since nothing was saved, we can't test loading empty meta directly
@@ -512,7 +520,7 @@ TEST_F(DocIdMetaTest, TestRdbSaveSkipsSoftDeletedEntries) {
 TEST_F(DocIdMetaTest, TestUnlinkWithEmptyMeta) {
   // Test that unlink handles empty/zero meta gracefully
   uint64_t meta = 0;
-  docIdMetaUnlink(nullptr, &meta);
+  RMCK_KeyMetaUnlink(getDocIdMetaClassId(), &meta);
   // Should not crash, just return early
   EXPECT_EQ(meta, 0);
 }
@@ -529,7 +537,7 @@ TEST_F(DocIdMetaTest, TestUnlinkInvalidatesEntries) {
   // Call unlink - specs don't exist in specIdDict_g, so IndexSpec_DeleteDocById is skipped
   // but entries should still be invalidated
   uint64_t meta = getKeyMeta(testKeyName);
-  docIdMetaUnlink(nullptr, &meta);
+  RMCK_KeyMetaUnlink(getDocIdMetaClassId(), &meta);
 
   verifyDocIdMissing(testKeyName, SPEC1_ID);
   verifyDocIdMissing(testKeyName, SPEC2_ID);
@@ -547,7 +555,7 @@ TEST_F(DocIdMetaTest, TestUnlinkSkipsSoftDeletedEntries) {
 
   // Call unlink - should skip SPEC1 (already soft-deleted) and process SPEC2
   uint64_t meta = getKeyMeta(testKeyName);
-  docIdMetaUnlink(nullptr, &meta);
+  RMCK_KeyMetaUnlink(getDocIdMetaClassId(), &meta);
 
   // Both entries should now be invalid
   verifyDocIdMissing(testKeyName, SPEC1_ID);

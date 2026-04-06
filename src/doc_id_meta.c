@@ -46,14 +46,9 @@ void DocIdMeta_SetPersistenceInProgress(bool inProgress) {
 // Find an IndexSpec in specIdDict_g by specId.
 // Uses O(1) dict lookup by specId (unique incarnation ID).
 // Returns the IndexSpec pointer if found, or NULL otherwise.
-static IndexSpec *findSpecBySpecId(uint64_t specId) {
-  if (!specIdDict_g) return NULL;
+static inline IndexSpec *findSpecBySpecId(uint64_t specId) {
   StrongRef global_ref = dictFetchRef(specIdDict_g, SPECID_TO_KEY(specId));
   return StrongRef_Get(global_ref);
-}
-
-RedisModuleKeyMetaClassId DocIdMeta_GetClassId() {
-  return docIdKeyMetaClassId;
 }
 
 // DocIdMeta V1: a dict of specId (void*) -> docId (void*), using dictTypeUint64.
@@ -92,7 +87,7 @@ static int docIdMetaMove(RedisModuleKeyOptCtx *ctx, uint64_t *meta) {
  *
  * This fires before the keyspace notification, which is why we handle
  * deletion here rather than in the notification handler. */
-void docIdMetaUnlink(RedisModuleKeyOptCtx *ctx, uint64_t *meta) {
+static void docIdMetaUnlink(RedisModuleKeyOptCtx *ctx, uint64_t *meta) {
   REDISMODULE_NOT_USED(ctx);
   if (*meta == 0) return;
 
@@ -121,7 +116,7 @@ void docIdMetaUnlink(RedisModuleKeyOptCtx *ctx, uint64_t *meta) {
   dictReleaseIterator(iter);
 }
 
-int docIdMetaRDBLoad(RedisModuleIO *rdb, uint64_t *meta, int encver) {
+static int docIdMetaRDBLoad(RedisModuleIO *rdb, uint64_t *meta, int encver) {
   RS_LOG_ASSERT(encver == 1, "DocIdMeta: unexpected encver in RDB load");
 
   if (PersistenceInProgress) {
@@ -159,7 +154,7 @@ cleanup:
   return REDISMODULE_ERR;
 }
 
-void docIdMetaRDBSave(RedisModuleIO *rdb, void *value, uint64_t *meta) {
+static void docIdMetaRDBSave(RedisModuleIO *rdb, void *value, uint64_t *meta) {
   REDISMODULE_NOT_USED(value);
 
   if (PersistenceInProgress) {
