@@ -10,6 +10,7 @@
 use crate::{
     RLookup, RLookupKey, RLookupKeyFlag, RLookupKeyFlags, SchemaRule, lookup::TRANSIENT_FLAGS,
 };
+use sorting_vector::{RSSortingVector, RSSortingVectorRef};
 use std::{borrow::Cow, ffi::CStr};
 use thin_vec::ThinVec;
 use value::RSValueFFI;
@@ -24,14 +25,10 @@ fn is_special_key(rule: &SchemaRule, key: &RLookupKey) -> bool {
 
 /// Row data for a lookup key. This abstracts the question of if the data comes from a borrowed sorting vector slice
 /// or from dynamic values stored in the row during processing.
-///
-/// The sorting vector is stored as an [`RSSortingVectorRef`](sorting_vector::RSSortingVectorRef) — a pointer-sized borrowed
-/// view that defers the ThinVec header dereference until [`sorting_vector()`](Self::sorting_vector)
-/// is called. This keeps [`set_sorting_vector`](Self::set_sorting_vector) a single pointer store.
 #[derive(Debug)]
 pub struct RLookupRow<'a> {
-    /// Borrowed reference to the sorting vector. Defers heap access until read.
-    sorting_vector: sorting_vector::RSSortingVectorRef<'a>,
+    /// A reference to the sorting vector.
+    sorting_vector: RSSortingVectorRef<'a>,
 
     /// Dynamic values obtained from prior processing
     dyn_values: ThinVec<Option<RSValueFFI>>,
@@ -50,15 +47,17 @@ impl<'a> Default for RLookupRow<'a> {
 impl<'a> RLookupRow<'a> {
     /// Creates a new `RLookupRow` with an empty [`RLookupRow::dyn_values`] vector and
     /// a [`RLookupRow::sorting_vector`] of the given length.
+    #[inline]
     pub const fn new() -> Self {
         Self {
-            sorting_vector: sorting_vector::RSSortingVectorRef::empty(),
+            sorting_vector: RSSortingVectorRef::empty(),
             dyn_values: ThinVec::new(),
             num_dyn_values: 0,
         }
     }
 
     /// Returns the length of [`RLookupRow::dyn_values`].
+    #[inline]
     pub fn len(&self) -> usize {
         self.dyn_values.len()
     }
@@ -163,6 +162,7 @@ impl<'a> RLookupRow<'a> {
     }
 
     /// Returns true if the [`RLookupRow::dyn_values`] vector is empty.
+    #[inline]
     pub fn is_empty(&self) -> bool {
         self.dyn_values.is_empty()
     }
@@ -189,19 +189,24 @@ impl<'a> RLookupRow<'a> {
     }
 
     /// Borrow a sorting vector for the row.
-    pub const fn set_sorting_vector(&mut self, sv: Option<&'a sorting_vector::RSSortingVector>) {
+    pub const fn set_sorting_vector(&mut self, sv: Option<&'a RSSortingVector>) {
+        // We use [`RSSortingVectorRef`], a pointer-sized borrowed view, to avoid
+        // dereferencing the `ThinVec` header here. This is a performance optimization
+        // for hot paths where this function is called frequently and the sorting vector
+        // being set may not need to be dereferenced later on.
         match sv {
             Some(sv) => {
-                self.sorting_vector = sorting_vector::RSSortingVectorRef::from_ref(sv);
+                self.sorting_vector = RSSortingVectorRef::from_ref(sv);
             }
             None => {
-                self.sorting_vector = sorting_vector::RSSortingVectorRef::empty();
+                self.sorting_vector = RSSortingVectorRef::empty();
             }
         }
     }
 
     /// The number of values in [`RLookupRow::dyn_values`] that are `is_some()`. Note that this
     /// is not the length of [`RLookupRow::dyn_values`]
+    #[inline]
     pub const fn num_dyn_values(&self) -> u32 {
         self.num_dyn_values
     }
@@ -285,7 +290,7 @@ impl<'a> RLookupRow<'a> {
             }
         }
         self.num_dyn_values = 0;
-        self.sorting_vector = sorting_vector::RSSortingVectorRef::empty();
+        self.sorting_vector = RSSortingVectorRef::empty();
     }
 
     /// Resets the row, clearing the dynamic values. This effectively wipes the row and deallocates the memory used for dynamic values.

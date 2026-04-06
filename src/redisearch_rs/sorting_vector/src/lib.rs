@@ -63,6 +63,7 @@ impl RSSortingVector {
     /// The returned vector points to a static sentinel header with `len == 0` and `cap == 0`.
     /// This is the canonical "no sorting vector" sentinel for inline storage in
     /// `RSDocumentMetadata`.
+    #[inline]
     pub const fn empty() -> Self {
         Self {
             inner: ThinVec::new(),
@@ -90,6 +91,7 @@ impl RSSortingVector {
 
     /// Returns an immutable reference to the value at index `index`,
     /// or `None` if the index is out-of-bounds for this sorting vector.
+    #[inline]
     pub fn get(&self, index: usize) -> Option<&RSValueFFI> {
         self.as_slice().get(index)
     }
@@ -227,6 +229,7 @@ pub struct RSSortingVectorRef<'a> {
 
 impl<'a> RSSortingVectorRef<'a> {
     /// Creates an empty reference (no sorting vector).
+    #[inline]
     pub const fn empty() -> Self {
         Self {
             inner: std::mem::ManuallyDrop::new(RSSortingVector::empty()),
@@ -237,6 +240,7 @@ impl<'a> RSSortingVectorRef<'a> {
     /// Creates a borrowed reference from an [`RSSortingVector`].
     ///
     /// The lifetime `'a` on the reference guarantees the data outlives this view.
+    #[inline]
     pub const fn from_ref(sv: &'a RSSortingVector) -> Self {
         // SAFETY: We bitwise-copy the ThinVec pointer. ManuallyDrop prevents the
         // destructor from running, so no double-free.
@@ -263,7 +267,6 @@ impl<'a> RSSortingVectorRef<'a> {
 
 impl Clone for RSSortingVector {
     fn clone(&self) -> Self {
-        // `to_vec()` calls `RSValueFFI::clone` on each element, incrementing refcounts.
         Self {
             inner: self.inner.clone(),
         }
