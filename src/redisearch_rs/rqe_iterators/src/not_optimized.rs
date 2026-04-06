@@ -152,8 +152,19 @@ where
                     return Ok(false);
                 }
             } else {
-                // Case 3: Child is behind, skip it forward to catch up.
-                self.child.skip_to(wcii_last)?;
+                // Case 3: Child is behind, read it forward to catch up.
+                //
+                // We use a read loop rather than `skip_to` because the
+                // child almost always needs only a single read to reach
+                // or pass `wcii_last`. The only scenario where the child
+                // lags behind is when GC has removed a doc ID from the
+                // wildcard inverted index but not yet from the child's
+                // index — and even then the gap is typically tiny.
+                // `read` is cheaper than `skip_to`, so the loop is
+                // faster in the common case.
+                while !self.child.at_eof() && self.child.last_doc_id() < wcii_last {
+                    self.child.read()?;
+                }
             }
             self.check_timeout()?;
         }
