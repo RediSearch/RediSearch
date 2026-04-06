@@ -82,10 +82,11 @@ impl<'index> RQEIterator<'index> for NotIteratorEnum<'index> {
     #[inline(always)]
     fn revalidate(
         &mut self,
+        ctx: std::ptr::NonNull<ffi::RedisSearchCtx>,
     ) -> Result<rqe_iterators::RQEValidateStatus<'_, 'index>, rqe_iterators::RQEIteratorError> {
         match self {
-            Self::Not(it) => it.revalidate(),
-            Self::NotOptimized(it) => it.revalidate(),
+            Self::Not(it) => it.revalidate(ctx),
+            Self::NotOptimized(it) => it.revalidate(ctx),
         }
     }
 

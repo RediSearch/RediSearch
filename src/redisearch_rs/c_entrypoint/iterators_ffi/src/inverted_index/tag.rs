@@ -103,8 +103,9 @@ impl<'index> rqe_iterators::RQEIterator<'index> for TagIterator<'index> {
     #[inline(always)]
     fn revalidate(
         &mut self,
+        ctx: std::ptr::NonNull<ffi::RedisSearchCtx>,
     ) -> Result<rqe_iterators::RQEValidateStatus<'_, 'index>, rqe_iterators::RQEIteratorError> {
-        tag_it_dispatch!(self, revalidate)
+        tag_it_dispatch!(self, revalidate, ctx)
     }
 
     #[inline(always)]

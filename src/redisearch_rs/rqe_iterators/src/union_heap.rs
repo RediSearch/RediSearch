@@ -418,7 +418,10 @@ where
         self.is_eof
     }
 
-    fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
+    fn revalidate(
+        &mut self,
+        ctx: std::ptr::NonNull<ffi::RedisSearchCtx>,
+    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         if self.is_eof {
             return Ok(RQEValidateStatus::Ok);
         }
@@ -429,7 +432,7 @@ where
         // Index-based iteration: swap_remove may reorder elements.
         let mut i = 0;
         while i < self.children.len() {
-            match self.children[i].revalidate()? {
+            match self.children[i].revalidate(ctx)? {
                 RQEValidateStatus::Aborted => {
                     self.children.swap_remove(i);
                     any_change = true;

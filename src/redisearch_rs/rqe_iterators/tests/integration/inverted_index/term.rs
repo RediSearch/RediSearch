@@ -354,15 +354,16 @@ mod not_miri {
     fn term_revalidate_after_index_disappears() {
         let test = TermRevalidateTest::new(10);
         let mut it = test.create_iterator();
+        let sctx = test.test.context.sctx;
 
         // First, verify the iterator works normally and read at least one document
         assert_eq!(
-            it.revalidate().expect("revalidate failed"),
+            it.revalidate(sctx).expect("revalidate failed"),
             RQEValidateStatus::Ok
         );
         assert!(it.read().expect("failed to read").is_some());
         assert_eq!(
-            it.revalidate().expect("revalidate failed"),
+            it.revalidate(sctx).expect("revalidate failed"),
             RQEValidateStatus::Ok
         );
 
@@ -379,7 +380,7 @@ mod not_miri {
         it.swap_index(&mut dummy_ref);
 
         assert_eq!(
-            it.revalidate().expect("revalidate failed"),
+            it.revalidate(sctx).expect("revalidate failed"),
             RQEValidateStatus::Aborted
         );
 
@@ -424,7 +425,8 @@ mod not_miri {
         // keysDict. The term is not there so Redis_OpenInvertedIndex returns
         // null, triggering the abort path.
         assert_eq!(
-            it.revalidate().expect("revalidate failed"),
+            it.revalidate(test.test.context.sctx)
+                .expect("revalidate failed"),
             RQEValidateStatus::Aborted
         );
     }

@@ -77,6 +77,7 @@ impl RQEIterator<'static> for FieldMaskMock {
 
     fn revalidate(
         &mut self,
+        _ctx: std::ptr::NonNull<ffi::RedisSearchCtx>,
     ) -> Result<rqe_iterators::RQEValidateStatus<'_, 'static>, RQEIteratorError> {
         Ok(rqe_iterators::RQEValidateStatus::Ok)
     }

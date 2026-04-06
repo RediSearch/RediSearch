@@ -266,15 +266,18 @@ where
     }
 
     #[inline(always)]
-    fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
+    fn revalidate(
+        &mut self,
+        ctx: std::ptr::NonNull<ffi::RedisSearchCtx>,
+    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         // 1. Revalidate the wildcard iterator first.
-        let wcii_status = self.wcii.revalidate()?;
+        let wcii_status = self.wcii.revalidate(ctx)?;
         if matches!(wcii_status, RQEValidateStatus::Aborted) {
             return Ok(RQEValidateStatus::Aborted);
         }
 
         // 2. Revalidate the child iterator.
-        if matches!(self.child.revalidate()?, RQEValidateStatus::Aborted) {
+        if matches!(self.child.revalidate(ctx)?, RQEValidateStatus::Aborted) {
             // When child is aborted, NOT becomes "NOT nothing" = everything
             // from the wildcard iterator.
             self.child = MaybeEmpty::new_empty();

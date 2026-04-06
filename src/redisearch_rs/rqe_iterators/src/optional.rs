@@ -225,14 +225,17 @@ where
         Ok(Some(SkipToOutcome::Found(&mut self.result)))
     }
 
-    fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
+    fn revalidate(
+        &mut self,
+        ctx: std::ptr::NonNull<ffi::RedisSearchCtx>,
+    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         let Some(ref mut child) = self.child else {
             return Ok(RQEValidateStatus::Ok);
         };
         let last_child_doc_id = child.last_doc_id();
 
         // Revalidate the child iterator
-        match child.revalidate()? {
+        match child.revalidate(ctx)? {
             // Abort: Handle child validation results (but continue processing)
             status @ (RQEValidateStatus::Aborted | RQEValidateStatus::Moved { .. }) => {
                 if matches!(status, RQEValidateStatus::Aborted) {

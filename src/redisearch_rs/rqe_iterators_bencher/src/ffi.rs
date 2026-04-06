@@ -169,8 +169,8 @@ impl QueryIterator {
     }
 
     #[inline(always)]
-    pub fn revalidate(&self) -> ValidateStatus {
-        unsafe { (*self.0).Revalidate.unwrap()(self.0) }
+    pub fn revalidate(&self, sctx: *mut ffi::RedisSearchCtx) -> ValidateStatus {
+        unsafe { (*self.0).Revalidate.unwrap()(self.0, sctx) }
     }
 
     #[inline(always)]

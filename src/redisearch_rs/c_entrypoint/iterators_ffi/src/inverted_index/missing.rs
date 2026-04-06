@@ -45,7 +45,7 @@ impl MissingIterator<'_> {
         }
     }
 
-    pub(super) fn field_name(&self) -> (*const std::ffi::c_char, usize) {
+    pub(super) const fn field_name(&self) -> (*const std::ffi::c_char, usize) {
         match self {
             MissingIterator::Encoded(m) => m.field_name(),
             MissingIterator::Raw(m) => m.field_name(),
@@ -108,8 +108,9 @@ impl<'index> rqe_iterators::RQEIterator<'index> for MissingIterator<'index> {
     #[inline(always)]
     fn revalidate(
         &mut self,
+        ctx: std::ptr::NonNull<ffi::RedisSearchCtx>,
     ) -> Result<rqe_iterators::RQEValidateStatus<'_, 'index>, rqe_iterators::RQEIteratorError> {
-        dispatch!(self, revalidate)
+        dispatch!(self, revalidate, ctx)
     }
 
     #[inline(always)]

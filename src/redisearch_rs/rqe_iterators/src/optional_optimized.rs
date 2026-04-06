@@ -243,7 +243,10 @@ where
         }
     }
 
-    fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
+    fn revalidate(
+        &mut self,
+        ctx: std::ptr::NonNull<ffi::RedisSearchCtx>,
+    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         // Simple enum to avoid holding a borrow through the match.
         enum ValidateOutcome {
             Ok,
@@ -251,7 +254,7 @@ where
         }
 
         // Step 1: Revalidate wcii. If it aborts or is at EOF, we can return immediately.
-        let wcii_outcome = match self.wcii.revalidate()? {
+        let wcii_outcome = match self.wcii.revalidate(ctx)? {
             RQEValidateStatus::Ok => ValidateOutcome::Ok,
             RQEValidateStatus::Moved { current: Some(_) } => ValidateOutcome::Moved,
             RQEValidateStatus::Moved { current: None } => {
@@ -269,7 +272,7 @@ where
 
         // Step 2: Revalidate child. If it aborts, replace with an empty iterator.
         // Abort is treated as Moved: child's state changed, so we must re-evaluate.
-        let child_outcome = match self.child.revalidate()? {
+        let child_outcome = match self.child.revalidate(ctx)? {
             RQEValidateStatus::Ok => ValidateOutcome::Ok,
             RQEValidateStatus::Moved { .. } => ValidateOutcome::Moved,
             RQEValidateStatus::Aborted => {

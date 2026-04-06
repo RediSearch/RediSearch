@@ -227,9 +227,12 @@ where
     }
 
     #[inline(always)]
-    fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
+    fn revalidate(
+        &mut self,
+        ctx: std::ptr::NonNull<ffi::RedisSearchCtx>,
+    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         // Get child status
-        match self.child.revalidate()? {
+        match self.child.revalidate(ctx)? {
             RQEValidateStatus::Aborted => {
                 self.child = MaybeEmpty::new_empty();
                 Ok(RQEValidateStatus::Ok)

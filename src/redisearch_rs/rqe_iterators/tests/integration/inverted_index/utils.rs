@@ -497,12 +497,12 @@ impl RevalidateTest {
         I: for<'iterator> RQEIterator<'index>,
     {
         assert_eq!(
-            it.revalidate().expect("revalidate failed"),
+            it.revalidate(self.context.sctx).expect("revalidate failed"),
             RQEValidateStatus::Ok
         );
         assert!(matches!(it.read(), Ok(Some(_))));
         assert_eq!(
-            it.revalidate().expect("revalidate failed"),
+            it.revalidate(self.context.sctx).expect("revalidate failed"),
             RQEValidateStatus::Ok
         );
     }
@@ -516,7 +516,7 @@ impl RevalidateTest {
         while let Some(_record) = it.read().expect("failed to read") {}
         assert!(it.at_eof());
         assert_eq!(
-            it.revalidate().expect("revalidate failed"),
+            it.revalidate(self.context.sctx).expect("revalidate failed"),
             RQEValidateStatus::Ok
         );
     }
@@ -573,7 +573,7 @@ impl RevalidateTest {
         I: for<'iterator> RQEIterator<'index>,
     {
         assert_eq!(
-            it.revalidate().expect("revalidate failed"),
+            it.revalidate(self.context.sctx).expect("revalidate failed"),
             RQEValidateStatus::Ok
         );
 
@@ -601,14 +601,14 @@ impl RevalidateTest {
 
         // Nothing changed in the index so revalidate does nothing
         assert_eq!(
-            it.revalidate().expect("revalidate failed"),
+            it.revalidate(self.context.sctx).expect("revalidate failed"),
             RQEValidateStatus::Ok
         );
 
         // Remove an element before the current iteration position.
         self.remove_document(ii, self.doc_ids[0]);
         assert_eq!(
-            it.revalidate().expect("revalidate failed"),
+            it.revalidate(self.context.sctx).expect("revalidate failed"),
             RQEValidateStatus::Ok
         );
         assert_eq!(it.last_doc_id(), self.doc_ids[2]);
@@ -617,7 +617,7 @@ impl RevalidateTest {
         // Remove an element after the current iteration position.
         self.remove_document(ii, self.doc_ids[4]);
         assert_eq!(
-            it.revalidate().expect("revalidate failed"),
+            it.revalidate(self.context.sctx).expect("revalidate failed"),
             RQEValidateStatus::Ok
         );
         assert_eq!(it.last_doc_id(), self.doc_ids[2]);
@@ -626,7 +626,7 @@ impl RevalidateTest {
         // Remove the element at the current position of the iterator.
         // When validating we won't be able to skip to this element, so we should get RQEValidateStatus::Moved.
         self.remove_document(ii, self.doc_ids[2]);
-        let res = it.revalidate().expect("revalidate failed");
+        let res = it.revalidate(self.context.sctx).expect("revalidate failed");
         let current_doc = match res {
             RQEValidateStatus::Moved {
                 current: Some(current),
@@ -660,7 +660,7 @@ impl RevalidateTest {
 
         self.remove_document(ii, last_doc_id);
         // revalidate should return Moved without current doc and be at EOF.
-        let res = it.revalidate().expect("revalidate failed");
+        let res = it.revalidate(self.context.sctx).expect("revalidate failed");
         assert!(matches!(res, RQEValidateStatus::Moved { current: None }));
         assert!(it.at_eof());
     }
