@@ -8,7 +8,7 @@
 */
 #include "conn.h"
 #include "reply.h"
-#include "src/coord/config.h"
+#include "coord/config.h"
 #include "module.h"
 #include "hiredis/adapters/libuv.h"
 

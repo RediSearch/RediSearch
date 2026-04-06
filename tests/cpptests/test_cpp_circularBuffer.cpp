@@ -8,7 +8,7 @@
 */
 
 #include "gtest/gtest.h"
-#include "src/util/circular_buffer.h"
+#include "util/circular_buffer.h"
 
 #include <thread>
 

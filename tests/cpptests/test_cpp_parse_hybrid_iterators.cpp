@@ -11,12 +11,12 @@
 #include "redismock/redismock.h"
 #include "redismock/util.h"
 #include "common.h"
-#include "src/hybrid/hybrid_request.h"
-#include "src/hybrid/parse_hybrid.h"
-#include "src/hybrid/hybrid_scoring.h"
+#include "hybrid/hybrid_request.h"
+#include "hybrid/parse_hybrid.h"
+#include "hybrid/hybrid_scoring.h"
 #include "iterators/hybrid_reader.h"
-#include "src/spec.h"
-#include "src/search_ctx.h"
+#include "spec.h"
+#include "search_ctx.h"
 #include "aggregate/aggregate.h"
 
 // Macro for BLOB data that all tests using $BLOB should use
