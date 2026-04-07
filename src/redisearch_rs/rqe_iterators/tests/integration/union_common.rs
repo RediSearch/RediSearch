@@ -1696,6 +1696,7 @@ macro_rules! union_common_tests {
 
         /// After reading to EOF, `num_children_active` should be 0.
         #[test]
+        #[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
         fn num_children_active_after_eof() {
             let (children, _data) = create_mock_2([1], [2]);
             let mut union = Union::new(children);
@@ -1712,6 +1713,7 @@ macro_rules! union_common_tests {
 
         /// After rewind, `num_children_active` should be restored to the total.
         #[test]
+        #[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
         fn num_children_active_after_rewind() {
             let (children, _data) = create_mock_2([1, 3], [2, 4]);
             let mut union = Union::new(children);

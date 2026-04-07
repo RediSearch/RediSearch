@@ -184,6 +184,15 @@ where
         self.children.len()
     }
 
+    /// Returns the number of currently active (non-exhausted, non-trimmed) children.
+    pub const fn num_children_active(&self) -> usize {
+        if self.is_eof {
+            0
+        } else {
+            self.cursor - self.trim_start + 1
+        }
+    }
+
     /// Returns a shared reference to the child at `idx` (across all children).
     /// Returns `None` if the index is out of range.
     pub fn child_at(&self, idx: usize) -> Option<&I> {
