@@ -48,9 +48,9 @@ pub struct OptionalOptimized<'index, W, I> {
     weight: f64,
     /// Tracks the doc ID of the last result yielded.
     ///
-    /// `None` in the initial state and after [`rewind`](RQEIterator::rewind),
-    /// which is treated as virtual.
-    last_doc_id: Option<t_docId>,
+    /// `0` in the initial state and after [`rewind`](RQEIterator::rewind),
+    /// which is treated as virtual. Doc IDs start from 1, so 0 is a safe sentinel.
+    last_doc_id: t_docId,
     /// Whether the iterator has reached EOF.
     at_eof: bool,
 }
@@ -82,7 +82,7 @@ where
                 .build(),
             max_doc_id,
             weight,
-            last_doc_id: None,
+            last_doc_id: 0,
             at_eof: false,
         }
     }
@@ -93,9 +93,10 @@ where
     W: WildcardIterator<'index>,
     I: RQEIterator<'index>,
 {
+    #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
-        if let Some(last) = self.last_doc_id
-            && self.child.last_doc_id() == last
+        if self.last_doc_id != 0
+            && self.child.last_doc_id() == self.last_doc_id
             && let Some(result) = self.child.current()
         {
             return Some(result);
@@ -125,12 +126,11 @@ where
         }
 
         // Advance child to catch up with wcii.
-        // The index may not be up to date, so loop until child reaches or passes wcii.
-        while wcii_doc_id > self.child.last_doc_id() && !self.child.at_eof() {
-            let _ = self.child.read()?;
+        if wcii_doc_id > self.child.last_doc_id() {
+            let _ = self.child.skip_to(wcii_doc_id)?;
         }
 
-        self.last_doc_id = Some(wcii_doc_id);
+        self.last_doc_id = wcii_doc_id;
         // Keep at_eof consistent so callers see true immediately after the last result.
         self.at_eof = wcii_doc_id >= self.max_doc_id;
 
@@ -154,7 +154,7 @@ where
         &mut self,
         doc_id: t_docId,
     ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
-        debug_assert!(doc_id > self.last_doc_id.unwrap_or(0));
+        debug_assert!(doc_id > self.last_doc_id);
 
         if doc_id > self.max_doc_id || self.at_eof {
             self.at_eof = true;
@@ -183,7 +183,7 @@ where
             let _ = self.child.skip_to(effective_id)?;
         }
 
-        self.last_doc_id = Some(effective_id);
+        self.last_doc_id = effective_id;
         // Keep at_eof consistent so callers see true immediately after the last result.
         self.at_eof = effective_id >= self.max_doc_id;
 
@@ -216,36 +216,33 @@ where
         enum ValidateOutcome {
             Ok,
             Moved,
-            Aborted,
         }
 
-        // Step 1: Revalidate wcii. If it aborts, the whole iterator must abort.
+        // Step 1: Revalidate wcii. If it aborts or is at EOF, we can return immediately.
         let wcii_outcome = match self.wcii.revalidate()? {
             RQEValidateStatus::Ok => ValidateOutcome::Ok,
-            RQEValidateStatus::Moved { .. } => ValidateOutcome::Moved,
-            RQEValidateStatus::Aborted => ValidateOutcome::Aborted,
+            RQEValidateStatus::Moved { current: Some(_) } => ValidateOutcome::Moved,
+            RQEValidateStatus::Moved { current: None } => {
+                self.at_eof = true;
+                return Ok(RQEValidateStatus::Moved { current: None });
+            }
+            RQEValidateStatus::Aborted => return Ok(RQEValidateStatus::Aborted),
         };
-        // `wcii` may still have documents beyond `max_doc_id`, so we must also
-        // check the `max_doc_id` constraint — not just wcii's own EOF state.
-        self.at_eof = self.wcii.at_eof() || self.last_doc_id >= Some(self.max_doc_id);
-
-        if matches!(wcii_outcome, ValidateOutcome::Aborted) {
-            return Ok(RQEValidateStatus::Aborted);
-        }
+        self.at_eof = self.wcii.at_eof();
 
         // `last_doc_id` is `None` in the initial/rewound state, which is always
         // virtual.
-        let current_was_virtual = self
-            .last_doc_id
-            .is_none_or(|last| self.child.last_doc_id() != last);
+        let current_was_virtual =
+            self.last_doc_id == 0 || self.child.last_doc_id() != self.last_doc_id;
 
         // Step 2: Revalidate child. If it aborts, replace with an empty iterator.
+        // Abort is treated as Moved: child's state changed, so we must re-evaluate.
         let child_outcome = match self.child.revalidate()? {
             RQEValidateStatus::Ok => ValidateOutcome::Ok,
             RQEValidateStatus::Moved { .. } => ValidateOutcome::Moved,
             RQEValidateStatus::Aborted => {
                 let _ = self.child.take_iterator(); // replace with Empty
-                ValidateOutcome::Aborted
+                ValidateOutcome::Moved
             }
         };
 
@@ -262,7 +259,7 @@ where
                 Ok(RQEValidateStatus::Moved { current })
             }
             ValidateOutcome::Moved => {
-                // wcii moved to a new position; update child accordingly.
+                // wcii moved to a new valid position; update child accordingly.
                 let wcii_doc_id = self.wcii.last_doc_id();
 
                 // wcii may have moved past max_doc_id.
@@ -275,7 +272,7 @@ where
                     let _ = self.child.skip_to(wcii_doc_id)?;
                 }
 
-                self.last_doc_id = Some(wcii_doc_id);
+                self.last_doc_id = wcii_doc_id;
                 // Keep at_eof consistent so callers see true immediately after the last result.
                 self.at_eof |= wcii_doc_id >= self.max_doc_id;
 
@@ -298,13 +295,12 @@ where
                     })
                 }
             }
-            ValidateOutcome::Aborted => unreachable!("already handled above"),
         }
     }
 
     #[inline(always)]
     fn rewind(&mut self) {
-        self.last_doc_id = None;
+        self.last_doc_id = 0;
         self.at_eof = false;
         self.virt.doc_id = 0;
         self.wcii.rewind();
@@ -318,7 +314,7 @@ where
 
     #[inline(always)]
     fn last_doc_id(&self) -> t_docId {
-        self.last_doc_id.unwrap_or(0)
+        self.last_doc_id
     }
 
     #[inline(always)]

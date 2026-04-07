@@ -811,6 +811,37 @@ mod optional_optimized_iterator_revalidate_tests {
         assert!(it.at_eof());
     }
 
+    /// Regression test: when `wcii` moves to its own EOF during `revalidate`
+    /// (i.e. `wcii.revalidate()` returns `Moved { current: None }`), the
+    /// optional iterator must propagate `Moved { current: None }` immediately,
+    /// without reading the stale `last_doc_id` from `wcii`.
+    ///
+    /// Before the fix, the `Moved` branch called `wcii.last_doc_id()` — which
+    /// still held the previous position — and resolved a result there instead
+    /// of propagating the EOF signal.
+    #[test]
+    fn test_revalidate_wcii_moved_to_eof() {
+        // wcii has a single document (5). After reading it, wcii is at its own EOF.
+        // Mock::revalidate with Move returns Moved { current: None } when at EOF.
+        let wcii = utils::Mock::new([5u64]);
+        let mut wcii_data = wcii.data();
+        let child = utils::Mock::new([5u64]);
+        let mut it = OptionalOptimized::new(wcii, child, MAX_DOC_ID, WEIGHT);
+
+        // Consume the only document; wcii's last_doc_id is now 5 (stale after EOF).
+        let r = it.read().expect("read").expect("result");
+        assert_eq!(r.doc_id, 5);
+
+        // wcii is at EOF; Move revalidation returns Moved { current: None }.
+        wcii_data.set_revalidate_result(utils::MockRevalidateResult::Move);
+        match it.revalidate().expect("revalidate") {
+            RQEValidateStatus::Moved { current: None } => {}
+            other => panic!("expected Moved{{None}}, got {other:?}"),
+        }
+        assert!(it.at_eof(), "iterator must be at EOF");
+        assert_eq!(wcii_data.revalidate_count(), 1);
+    }
+
     /// C-Code: Ported from `RevalidateChildAborted_WildcardMoved` in
     /// `tests/cpptests/test_cpp_iterator_optional.cpp`.
     ///
