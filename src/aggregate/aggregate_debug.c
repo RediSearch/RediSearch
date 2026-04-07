@@ -149,6 +149,7 @@ int parseAndCompileDebug(AREQ_Debug *debug_req, QueryError *status) {
                             "to avoid infinite loop (RESP2 only)");
             debug_req->r.reqConfig.queryTimeoutMS = COORDINATOR_FORCED_TIMEOUT;
             SearchCtx_UpdateTime(debug_req->r.sctx, debug_req->r.reqConfig.queryTimeoutMS);
+            AREQ_SetSkipTimeoutChecks(&debug_req->r, false);
           }
       }
     } else {  // INTERNAL_ONLY was not provided, or we are not in a cluster coordinator
@@ -156,7 +157,15 @@ int parseAndCompileDebug(AREQ_Debug *debug_req, QueryError *status) {
       // Note, this will add a result processor as the downstream of the last result processor
       // (rpidnext for SA, or RPNext for cluster)
       // Take this into account when adding more debug types that are modifying the rp pipeline.
+
+      // If the timeout policy is not RETURN (FAIL/RETURN-STRICT) we do not support debug timeout
+      if (debug_req->r.reqConfig.timeoutPolicy != TimeoutPolicy_Return) {
+        QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "TIMEOUT_AFTER_N for Coordinator is only supported with ON_TIMEOUT RETURN");
+        return REDISMODULE_ERR;
+      }
+
       PipelineAddTimeoutAfterCount(AREQ_QueryProcessingCtx(&debug_req->r), AREQ_SearchCtx(&debug_req->r), results_count);
+      AREQ_SetSkipTimeoutChecks(&debug_req->r, false);
     }
     return REDISMODULE_OK;
   }

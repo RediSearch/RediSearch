@@ -319,6 +319,12 @@ int parseProfileArgs(RedisModuleString **argv, int argc, AREQ *r) {
   return profileArgs;
 }
 
+static bool shouldCheckInPipelineTimeoutCoord(AREQ *req) {
+  // We should check for timeout in pipeline if policy is return and timeout > 0
+  return req->reqConfig.queryTimeoutMS > 0 &&
+         (req->reqConfig.timeoutPolicy == TimeoutPolicy_Return);
+}
+
 static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                          IndexSpec *sp, specialCaseCtx **knnCtx_ptr, QueryError *status) {
   AREQ_QueryProcessingCtx(r)->err = status;
@@ -395,6 +401,8 @@ static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString *
   SearchCtx_UpdateTime(r->sctx, r->reqConfig.queryTimeoutMS);
   // r->sctx->expanded should be received from shards
 
+  AREQ_SetSkipTimeoutChecks(r, !shouldCheckInPipelineTimeoutCoord(r));
+
   return REDISMODULE_OK;
 }
 
@@ -417,17 +425,28 @@ static int executePlan(AREQ *r, struct ConcurrentCmdCtx *cmdCtx, RedisModule_Rep
 
 static void DistAggregateCleanups(RedisModuleCtx *ctx, struct ConcurrentCmdCtx *cmdCtx, IndexSpec *sp,
                           StrongRef *strong_ref, specialCaseCtx *knnCtx, AREQ *r, RedisModule_Reply *reply, QueryError *status) {
+
+  CoordRequestCtx *reqCtx = RedisModule_BlockClientGetPrivateData(ConcurrentCmdCtx_GetBlockedClient(cmdCtx));
+
+  // If timeout already occurred, the timeout callback already replied - don't reply again
+  if (CoordRequestCtx_TimedOut(reqCtx)) {
+    if (QueryError_HasError(status)) {
+      QueryError_ClearError(status);
+    }
+    goto cleanup;
+  }
+
   RS_ASSERT(QueryError_HasError(status));
   QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(status), 1, COORD_ERR_WARN);
 
   if (!r) {
     // Currently only possible in _FT.DEBUG path
-    CoordRequestCtx *reqCtx = RedisModule_BlockClientGetPrivateData(ConcurrentCmdCtx_GetBlockedClient(cmdCtx));
     CoordRequestCtx_ReplyOrStoreError(reqCtx, ctx, status);
   } else {
     AREQ_ReplyOrStoreError(r, ctx, status);
   }
 
+cleanup:
   WeakRef_Release(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
   if (sp) {
     IndexSpecRef_Release(*strong_ref);
@@ -444,12 +463,24 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   CoordRequestCtx *reqCtx = RedisModule_BlockClientGetPrivateData(ConcurrentCmdCtx_GetBlockedClient(cmdCtx));
   if(CoordRequestCtx_TimedOut(reqCtx)) {
     // Query timed out before request creation
+    WeakRef_Release(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
     return;
   }
 
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
 
+  // Lock before creating request to prevent race with timeout callback
   CoordRequestCtx_LockSetRequest(reqCtx);
+
+  // Check if already timed out
+  if (CoordRequestCtx_TimedOut(reqCtx)) {
+    // Timeout callback will handle reply - just unlock and cleanup
+    CoordRequestCtx_UnlockSetRequest(reqCtx);
+    WeakRef_Release(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
+    RedisModule_EndReply(reply);
+    return;
+  }
+
   // CMD, index, expr, args...
   AREQ *r = AREQ_New();
   CoordRequestCtx_SetRequest(reqCtx, r);
@@ -573,6 +604,7 @@ void DEBUG_RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, in
   CoordRequestCtx *reqCtx = RedisModule_BlockClientGetPrivateData(ConcurrentCmdCtx_GetBlockedClient(cmdCtx));
   if(CoordRequestCtx_TimedOut(reqCtx)) {
     // Query timed out before request creation
+    WeakRef_Release(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
     return;
   }
 
@@ -590,7 +622,18 @@ void DEBUG_RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, in
   // when AREQ_Free is called
   QueryError status = QueryError_Default();
 
+  // Lock before creating request to prevent race with timeout callback
   CoordRequestCtx_LockSetRequest(reqCtx);
+
+  // Check if already timed out
+  if (CoordRequestCtx_TimedOut(reqCtx)) {
+    // Timeout callback will handle reply - just unlock and cleanup
+    CoordRequestCtx_UnlockSetRequest(reqCtx);
+    WeakRef_Release(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
+    RedisModule_EndReply(reply);
+    return;
+  }
+
   AREQ_Debug *debug_req = AREQ_Debug_New(argv, argc, &status);
   if (!debug_req) {
     CoordRequestCtx_UnlockSetRequest(reqCtx);

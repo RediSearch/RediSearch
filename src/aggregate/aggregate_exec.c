@@ -398,6 +398,7 @@ static void AREQ_StoreResults(AREQ *req, SearchResult **results, int rc, cachedV
   // which will go out of scope. QueryError contains heap-allocated strings.
   QueryError_ClearError(&req->storedReplyState.err);
   QueryError_CloneFrom(qctx->err, &req->storedReplyState.err);
+  QueryError_ClearError(qctx->err);
 }
 
 static int populateReplyWithResults(RedisModule_Reply *reply,
@@ -430,7 +431,8 @@ long calc_results_len(AREQ *req, size_t limit) {
 static void finishSendChunk(AREQ *req, SearchResult **results, SearchResult *r, bool cursor_done) {
   if (results) {
     destroyResults(results);
-  } else {
+  } else if (r) {
+    // r can be NULL in the reply_callback path when AREQ_StoreResults is called
     SearchResult_Destroy(r);
   }
 
@@ -636,7 +638,7 @@ static void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
 
     ChunkSerializeState state = {
       .results = NULL,
-      .r = &r,
+      .r = NULL,
       .nelem = 0,
       .resultsLen = REDISMODULE_POSTPONED_ARRAY_LEN,
       .cursor_done = false
@@ -649,8 +651,13 @@ static void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
       debugPauseStoreResults(req, true);  // pause before
       AREQ_StoreResults(req, state.results, rc, cv, limit);
       debugPauseStoreResults(req, false); // pause after
+
+      // Destroy unused SearchResult
+      SearchResult_Destroy(&r);
       return;
     }
+
+    state.r = &r;
 
     rc = serializeAndReplyResults_Resp2(req, reply, rp, qctx, rc, limit, &cv, &state);
 
@@ -832,7 +839,7 @@ static void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
 
     ChunkSerializeState state = {
       .results = NULL,
-      .r = &r,
+      .r = NULL,
       .nelem = 0,              // Unused in RESP3
       .resultsLen = 0,         // Unused in RESP3
     };
@@ -844,8 +851,13 @@ static void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
       debugPauseStoreResults(req, true);  // pause before
       AREQ_StoreResults(req, state.results, rc, cv, limit);
       debugPauseStoreResults(req, false); // pause after
+
+      // Destroy unused SearchResult
+      SearchResult_Destroy(&r);
       return;
     }
+
+    state.r = &r;
 
     rc = serializeAndReplyResults_Resp3(req, reply, rp, qctx, rc, &cv, &state);
 
@@ -1399,13 +1411,10 @@ void AREQ_ReplyWithStoredResults(RedisModuleCtx *ctx, AREQ *req) {
   // This is the end of the request lifecycle, so no need to restore.
   qctx->err = &stored->err;
 
-  // Create a stack-allocated SearchResult for finishSendChunk cleanup
-  SearchResult r = SearchResult_New();
-
   // Build ChunkSerializeState from stored results
   ChunkSerializeState state = {
     .results = stored->results,
-    .r = &r,
+    .r = NULL,
     .nelem = 0,
     .resultsLen = REDISMODULE_POSTPONED_ARRAY_LEN,
     .cursor_done = false
@@ -1428,7 +1437,7 @@ void AREQ_ReplyWithStoredResults(RedisModuleCtx *ctx, AREQ *req) {
   stored->hasStoredResults = false;
 
   // finishSendChunk handles cleanup and stats, and sets QEXEC_S_ITERDONE if cursor is done
-  finishSendChunk(req, state.results, &r, state.cursor_done);
+  finishSendChunk(req, state.results, NULL, state.cursor_done);
 
   // Handle cursor lifecycle now that QEXEC_S_ITERDONE has been set by finishSendChunk.
   // runCursor stored the cursor handle here instead of pausing/freeing it immediately,
