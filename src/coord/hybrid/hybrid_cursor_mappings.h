@@ -47,9 +47,10 @@ typedef struct QueryError QueryError;
  * @param vsimMappings Empty array to populate with vector similarity cursor mappings
  * @param status QueryError pointer to store warning/error information
  * @param oomPolicy OOM policy to determine error handling behavior
+ * @param timeoutPolicy Timeout policy to determine timeout error handling behavior
  * @return true if processing completed (even with warnings), false on fatal errors; status will contain error/warning information
  */
-bool ProcessHybridCursorMappings(const MRCommand *cmd,int numShards, StrongRef searchMappings, StrongRef vsimMappings, QueryError *status, RSOomPolicy oomPolicy);
+bool ProcessHybridCursorMappings(const MRCommand *cmd,int numShards, StrongRef searchMappings, StrongRef vsimMappings, QueryError *status, RSOomPolicy oomPolicy, RSTimeoutPolicy timeoutPolicy);
 
 /**
  * Release resources associated with a cursor mapping
