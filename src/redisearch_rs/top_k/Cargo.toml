@@ -1,0 +1,13 @@
+[package]
+name = "top_k"
+version.workspace = true
+edition.workspace = true
+license-file.workspace = true
+publish.workspace = true
+
+[lib]
+bench = false
+
+[dependencies]
+ffi.workspace = true
+workspace_hack.workspace = true
