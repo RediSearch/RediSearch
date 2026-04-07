@@ -12,7 +12,7 @@
 use ffi::t_docId;
 use rqe_iterators::{
     IteratorType, RQEIterator, RQEValidateStatus, SkipToOutcome, id_list::IdListSorted,
-    intersection::Intersection,
+    intersection::Intersection, profile::Profile,
 };
 
 use crate::utils::{Mock, MockRevalidateResult};
@@ -1406,6 +1406,44 @@ mod slop_and_order {
     }
 }
 
+/// Same as [`sort_weight_nested_intersection_sorts_first`] but the inner `Intersection` is wrapped
+/// in a [`Profile`].
+///
+/// [`Profile`] forwards [`RQEIterator::intersection_sort_weight`] to its child, so the
+/// reduced `1/num_children` weight is preserved even through the wrapper.
+#[test]
+fn sort_weight_profile_wrapped_nested_intersection_sorts_first() {
+    let docs: Vec<t_docId> = (1..=10).collect();
+
+    // Inner intersection: 5 children, num_estimated = 10 → sort key 10 * (1/5) = 2.0.
+    // Wrapped in Profile → intersection_sort_weight forwards to child, so sort key is still 2.0.
+    let inner_children_count = 5;
+    let inner_children: Vec<Box<dyn RQEIterator<'static> + 'static>> = (0..inner_children_count)
+        .map(|_| {
+            Box::new(IdListSorted::new(docs.clone())) as Box<dyn RQEIterator<'static> + 'static>
+        })
+        .collect();
+    let inner = Profile::new(Intersection::new(inner_children, 1.0, false));
+
+    // Plain child: num_estimated = 10 → sort key 10 * 1.0 = 10.0.
+    let plain = IdListSorted::new(docs);
+
+    // Pass plain first — the Profile-wrapped inner intersection sorts to index 0
+    // because its sort weight (0.2) is lower than the plain child's (1.0).
+    let outer = Intersection::new(
+        vec![
+            Box::new(plain) as Box<dyn RQEIterator<'static> + 'static>,
+            Box::new(inner),
+        ],
+        1.0,
+        false,
+    );
+    assert!(
+        outer.child_at(0).intersection_sort_weight(false) < 1.0,
+        "Profile-wrapped Intersection (sort key 2.0) must sort before plain child (sort key 10.0)"
+    );
+}
+
 /// A nested `Intersection` child (sort key `num_estimated * 1/num_children`) must sort before a
 /// plain child with equal `num_estimated` (sort key `num_estimated * 1.0`).
 #[test]
@@ -1434,7 +1472,7 @@ fn sort_weight_nested_intersection_sorts_first() {
         false,
     );
     assert!(
-        outer.child_at(0).children_count() == inner_children_count,
+        outer.child_at(0).intersection_sort_weight(false) < 1.0,
         "nested Intersection (sort key 2.0) must sort before plain child (sort key 10.0)"
     );
 }

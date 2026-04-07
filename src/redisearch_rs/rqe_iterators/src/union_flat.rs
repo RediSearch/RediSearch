@@ -521,8 +521,12 @@ where
         IteratorType::Union
     }
 
-    fn children_count(&self) -> usize {
-        self.children.len()
+    fn intersection_sort_weight(&self, prioritize_union_children: bool) -> f64 {
+        if prioritize_union_children {
+            self.children.len().max(1) as f64
+        } else {
+            1.0
+        }
     }
 }
 

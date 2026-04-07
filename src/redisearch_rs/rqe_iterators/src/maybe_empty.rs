@@ -164,10 +164,12 @@ where
         }
     }
 
-    fn children_count(&self) -> usize {
+    fn intersection_sort_weight(&self, prioritize_union_children: bool) -> f64 {
         match &self.0 {
-            MaybeEmptyOption::None(empty) => empty.children_count(),
-            MaybeEmptyOption::Some(it) => it.children_count(),
+            MaybeEmptyOption::None(empty) => {
+                empty.intersection_sort_weight(prioritize_union_children)
+            }
+            MaybeEmptyOption::Some(it) => it.intersection_sort_weight(prioritize_union_children),
         }
     }
 }

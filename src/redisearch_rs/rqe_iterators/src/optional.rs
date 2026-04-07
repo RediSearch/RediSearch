@@ -242,10 +242,8 @@ where
         IteratorType::Optional
     }
 
-    fn children_count(&self) -> usize {
-        // Optional is not an intersection/union: it emits virtual results for every document,
-        // so it is never selective and should not influence sort weights in parent intersections.
-        0
+    fn intersection_sort_weight(&self, _prioritize_union_children: bool) -> f64 {
+        1.0
     }
 }
 

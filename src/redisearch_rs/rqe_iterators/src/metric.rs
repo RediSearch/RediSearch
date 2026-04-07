@@ -194,8 +194,7 @@ impl<'index, const SORTED_BY_ID: bool> RQEIterator<'index> for Metric<'index, SO
         }
     }
 
-    fn children_count(&self) -> usize {
-        // Metric is a leaf iterator (a scored id-list), not a composite.
-        0
+    fn intersection_sort_weight(&self, _prioritize_union_children: bool) -> f64 {
+        1.0
     }
 }

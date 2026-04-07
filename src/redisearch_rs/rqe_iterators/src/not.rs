@@ -257,10 +257,8 @@ where
         IteratorType::Not
     }
 
-    fn children_count(&self) -> usize {
-        // Not is not an intersection/union: it yields the complement of its child, so its
-        // selectivity is the inverse of the child's and should not influence sort weights.
-        0
+    fn intersection_sort_weight(&self, _prioritize_union_children: bool) -> f64 {
+        1.0
     }
 }
 

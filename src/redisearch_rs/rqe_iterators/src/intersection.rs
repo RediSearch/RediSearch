@@ -18,32 +18,6 @@ use crate::{IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, Skip
 use ffi::t_docId;
 use inverted_index::{RSIndexResult, ResultMetrics_Reset_func};
 
-/// Returns the sort weight for a child iterator, used by [`Intersection`] to order its children
-/// before query execution. A lower value causes the child to act as the pivot, minimising
-/// `SkipTo` calls. The final sort key is `num_estimated * sort_weight`.
-///
-/// Heuristics:
-/// - Intersection: `1.0 / num_children`.
-/// - Union: `num_children` when `prioritize_union_children`, else `1.0`.
-/// - Everything else: `1.0`.
-fn sort_weight<'index, I: RQEIterator<'index>>(iter: &I, prioritize_union_children: bool) -> f64 {
-    match iter.type_() {
-        IteratorType::Intersect => {
-            let children_count = iter.children_count();
-            if children_count == 0 {
-                1.0
-            } else {
-                1.0 / children_count as f64
-            }
-        }
-        IteratorType::Union if prioritize_union_children => {
-            let children_count = iter.children_count();
-            children_count.max(1) as f64
-        }
-        _ => 1.0,
-    }
-}
-
 /// Yields documents appearing in ALL child iterators using a merge (AND) algorithm.
 ///
 /// Children are sorted by estimated result count (smallest first) to minimize iterations,
@@ -122,8 +96,10 @@ where
             children,
             weight,
             |a, b| {
-                let wa = a.num_estimated() as f64 * sort_weight(a, prioritize_union_children);
-                let wb = b.num_estimated() as f64 * sort_weight(b, prioritize_union_children);
+                let wa = a.num_estimated() as f64
+                    * a.intersection_sort_weight(prioritize_union_children);
+                let wb = b.num_estimated() as f64
+                    * b.intersection_sort_weight(prioritize_union_children);
                 wa.total_cmp(&wb)
             },
             max_slop,
@@ -506,8 +482,8 @@ where
         IteratorType::Intersect
     }
 
-    fn children_count(&self) -> usize {
-        self.children.len()
+    fn intersection_sort_weight(&self, _prioritize_union_children: bool) -> f64 {
+        1.0 / self.children.len().max(1) as f64
     }
 }
 

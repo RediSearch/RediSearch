@@ -111,8 +111,8 @@ impl<'index> rqe_iterators::RQEIterator<'index> for WildcardIterator<'index> {
         IteratorType::InvIdxWildcard
     }
 
-    fn children_count(&self) -> usize {
-        0
+    fn intersection_sort_weight(&self, _prioritize_union_children: bool) -> f64 {
+        1.0
     }
 }
 

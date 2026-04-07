@@ -60,8 +60,8 @@ impl<'index> RQEIterator<'index> for Infinite<'index> {
         IteratorType::Mock
     }
 
-    fn children_count(&self) -> usize {
-        0
+    fn intersection_sort_weight(&self, _prioritize_union_children: bool) -> f64 {
+        1.0
     }
 }
 
