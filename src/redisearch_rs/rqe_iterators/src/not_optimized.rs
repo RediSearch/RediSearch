@@ -16,7 +16,7 @@ use inverted_index::RSIndexResult;
 
 use crate::{
     IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
-    WildcardIterator, maybe_empty::MaybeEmpty, utils::TimeoutContext,
+    WildcardIterator, maybe_empty::MaybeEmpty, not::NotIterator, utils::TimeoutContext,
 };
 
 /// Check the clock every this many loop iterations to amortize syscall cost.
@@ -108,6 +108,21 @@ where
             return Ok(false);
         }
         Ok(true)
+    }
+
+    /// Get a shared reference to the _child_ iterator.
+    pub const fn child(&self) -> Option<&I> {
+        self.child.as_ref()
+    }
+
+    /// Set the child of this iterator.
+    pub fn set_child(&mut self, new_child: I) {
+        self.child = MaybeEmpty::new(new_child);
+    }
+
+    /// Take the child if it exists.
+    pub fn take_child(&mut self) -> Option<I> {
+        self.child.take_iterator()
     }
 
     /// Check whether the child iterator is positionally past `doc_id`
@@ -326,5 +341,23 @@ where
     #[inline(always)]
     fn type_(&self) -> IteratorType {
         IteratorType::NotOptimized
+    }
+}
+
+impl<'index, W> NotIterator<'index>
+    for NotOptimized<'index, W, Box<dyn RQEIterator<'index> + 'index>>
+where
+    W: crate::WildcardIterator<'index>,
+{
+    fn child(&self) -> Option<&dyn RQEIterator<'index>> {
+        NotOptimized::child(self).map(|c| &**c as &dyn RQEIterator<'index>)
+    }
+
+    fn set_child(&mut self, child: Box<dyn RQEIterator<'index> + 'index>) {
+        NotOptimized::set_child(self, child);
+    }
+
+    fn take_child(&mut self) -> Option<Box<dyn RQEIterator<'index> + 'index>> {
+        NotOptimized::take_child(self)
     }
 }
