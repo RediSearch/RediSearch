@@ -77,6 +77,8 @@ typedef struct {
 
 typedef struct {
   const sds *keys;
+  // Pre-resolved document IDs (for SearchDisk, resolved on main thread)
+  t_docId *docIds;
   size_t len;
 } QueryIdFilterNode;
 
