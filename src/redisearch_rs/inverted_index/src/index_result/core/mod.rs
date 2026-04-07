@@ -620,6 +620,13 @@ impl<'index> RSIndexResult<'index> {
     ///
     /// Returns `true` when `self` is not an aggregate, has ≤ 1 child, or ≤ 1
     /// child has meaningful offsets.
+    ///
+    /// # Preconditions
+    ///
+    /// At least one of `max_slop` or `in_order` must impose a constraint:
+    /// `max_slop.is_some() || in_order` must hold.  If neither is set, the result
+    /// is trivially `true` for every input and the call is pointless; callers are
+    /// expected to short-circuit that case before invoking this function.
     pub fn is_within_range(&self, max_slop: Option<u32>, in_order: bool) -> bool {
         proximity::is_within_range(self, max_slop, in_order)
     }

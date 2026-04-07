@@ -252,6 +252,13 @@ fn array_max(arr: &[u32]) -> (u32, usize) {
 /// Returns `true` when `ir` is not an aggregate, has ≤ 1 child, or ≤ 1 child
 /// has meaningful offsets — all degenerate cases where the constraint is
 /// trivially satisfied.
+///
+/// # Preconditions
+///
+/// At least one of `max_slop` or `in_order` must impose a constraint:
+/// `max_slop.is_some() || in_order` must hold.  If neither is set, the result
+/// is trivially `true` for every input and the call is pointless; callers are
+/// expected to short-circuit that case before invoking this function.
 pub(super) fn is_within_range<'a>(
     ir: &'a RSIndexResult<'_>,
     max_slop: Option<u32>,
