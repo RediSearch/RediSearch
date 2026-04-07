@@ -37,6 +37,7 @@ struct CollectReducer {
 #include "result_processor.h"
 #include "redismock/redismock.h"
 
+#include <climits>
 #include <initializer_list>
 #include <string>
 #include <vector>
@@ -352,4 +353,30 @@ TEST_F(CollectParserTest, LimitNonNumericOffset) {
   registerKeys({"x"});
   expectError({"FIELDS", "1", "@x", "LIMIT", "abc", "10"},
       "LIMIT offset must be a non-negative integer");
+}
+
+TEST_F(CollectParserTest, FieldsZeroCountRequiresAtLeastOne) {
+  // ArgParser enforces min FIELDS args before handleCollect runs; count 0 is rejected there.
+  expectError({"FIELDS", "0"}, "Invalid argument count");
+}
+
+TEST_F(CollectParserTest, SortByOnlyDirectionsNoFields) {
+  registerKeys({"x"});
+  expectError({"FIELDS", "1", "@x", "SORTBY", "1", "ASC"},
+      "SORTBY requires at least one sort field");
+}
+
+TEST_F(CollectParserTest, LimitCountExceedsAggregateMax) {
+  registerKeys({"x"});
+  std::string count =
+      std::to_string(static_cast<unsigned long long>(MAX_AGGREGATE_REQUEST_RESULTS) + 1ULL);
+  expectError({"FIELDS", "1", "@x", "LIMIT", "0", count.c_str()},
+      "LIMIT count exceeds maximum of");
+}
+
+TEST_F(CollectParserTest, LimitOffsetPlusCountOverflow) {
+  registerKeys({"x"});
+  std::string offset = std::to_string(static_cast<unsigned long long>(LLONG_MAX));
+  expectError({"FIELDS", "1", "@x", "LIMIT", offset.c_str(), "1"},
+      "LIMIT offset + count overflow");
 }
