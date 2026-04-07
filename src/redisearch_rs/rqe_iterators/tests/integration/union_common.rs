@@ -1676,5 +1676,57 @@ macro_rules! union_common_tests {
             assert_eq!(docs, [5, 6, 3, 4]);
         }
 
+        // =============================================================================
+        // num_children_total / num_children_active
+        // =============================================================================
+
+        /// Before any read, all children should be active.
+        #[test]
+        fn num_children_active_before_first_read() {
+            let (children, _data) = create_mock_2([1, 3, 5], [2, 4, 6]);
+            let union = Union::new(children);
+
+            assert_eq!(union.num_children_total(), 2);
+            assert_eq!(
+                union.num_children_active(),
+                2,
+                "all children should be active before any read"
+            );
+        }
+
+        /// After reading to EOF, `num_children_active` should be 0.
+        #[test]
+        fn num_children_active_after_eof() {
+            let (children, _data) = create_mock_2([1], [2]);
+            let mut union = Union::new(children);
+
+            while union.read().expect("read failed").is_some() {}
+
+            assert!(union.at_eof());
+            assert_eq!(
+                union.num_children_active(),
+                0,
+                "no children should be active after EOF"
+            );
+        }
+
+        /// After rewind, `num_children_active` should be restored to the total.
+        #[test]
+        fn num_children_active_after_rewind() {
+            let (children, _data) = create_mock_2([1, 3], [2, 4]);
+            let mut union = Union::new(children);
+
+            // Read to EOF.
+            while union.read().expect("read failed").is_some() {}
+            assert_eq!(union.num_children_active(), 0);
+
+            union.rewind();
+            assert_eq!(
+                union.num_children_active(),
+                2,
+                "all children should be active after rewind"
+            );
+        }
+
     };
 }
