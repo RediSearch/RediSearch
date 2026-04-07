@@ -277,6 +277,8 @@ Also ensure you have `memtier_benchmark` installed. See installation instruction
 
 Install necessary python packages:
 
+NOTE: You will need to have your python virtual env activated. See steps for 'Python Tests'.
+
 ```sh
 pip3 install -r ./tests/benchmarks/requirements.txt
 ```
@@ -291,13 +293,31 @@ redisbench-admin run-local \
     --required-module search \
     --allowed-setups oss-standalone \
     --allowed-envs oss-standalone \
-    --skip-redis-spin True \
     --test tests/benchmarks/<benchmark>.yml
 ```
 
 Replace `<benchmark>` in the `--test` argument with the desired benchmark file. Look in `tests/benchmarks` for all available benchmarks.
 
-Use `--skip-redis-spin True` to skip spinning up a Redis instance.
+#### Profiling benchmarks with Samply
+
+Install samply as per the instructions on https://github.com/mstange/samply
+
+In one termimal panel run:
+
+```sh
+samply record redis-server --module-path $(find $(pwd)/bin -name "redisearch.so" | head -1)
+```
+
+In the other terminal panel run:
+
+```sh
+redisbench-admin run-local \
+    --skip-redis-spin True \
+    --required-module search \
+    --allowed-setups oss-standalone \
+    --allowed-envs oss-standalone \
+    --test tests/benchmarks/<benchmark>.yml
+```
 
 ## Supported Platforms
 
