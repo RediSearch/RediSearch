@@ -9,7 +9,7 @@
 #include "redismodule.h"
 #include "circular_buffer.h"
 #include "rmalloc.h"
-#include "src/util/likely.h"
+#include "util/likely.h"
 #include "rmutil/rm_assert.h"
 
 #include <stdatomic.h>

@@ -17,7 +17,10 @@ use field_spec::{FieldSpec, FieldSpecBuilder};
 use pretty_assertions::assert_eq;
 
 #[test]
-#[cfg_attr(miri, ignore = "miri does not support FFI functions")]
+#[cfg_attr(
+    miri,
+    ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
+)]
 fn field_name_and_path() {
     let name = c"name";
     let path = c"path";

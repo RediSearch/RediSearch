@@ -15,8 +15,8 @@ use ffi::{RS_FIELDMASK_ALL, t_docId};
 use inverted_index::RSIndexResult;
 
 use crate::{
-    RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome, maybe_empty::MaybeEmpty,
-    util::TimeoutContext,
+    IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
+    maybe_empty::MaybeEmpty, utils::TimeoutContext,
 };
 
 /// An iterator that negates the results of its child iterator.
@@ -265,5 +265,10 @@ where
                 Ok(RQEValidateStatus::Ok)
             }
         }
+    }
+
+    #[inline(always)]
+    fn type_(&self) -> IteratorType {
+        IteratorType::Not
     }
 }

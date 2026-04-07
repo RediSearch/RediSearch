@@ -37,6 +37,16 @@ pub unsafe extern "C" fn RSValue_Cmp(
     // SAFETY: ensured by caller (1.)
     let v2 = unsafe { expect_value(v2) };
 
+    // This is a performance optimization to check for string comparisons early
+    // as that is used most often in searches and aggregates.
+    if let (RsValue::String(s1), RsValue::String(s2)) = (v1, v2) {
+        return match s1.as_bytes().cmp(s2.as_bytes()) {
+            Ordering::Less => -1,
+            Ordering::Equal => 0,
+            Ordering::Greater => 1,
+        };
+    }
+
     match compare(v1, v2, status.is_null()) {
         Ok(Ordering::Less) => -1,
         Ok(Ordering::Equal) => 0,

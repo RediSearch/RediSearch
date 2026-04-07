@@ -28,8 +28,10 @@ use crate::RsValue;
 /// # Cloning and dropping
 ///
 /// [`Clone`] increments the [`Arc`] reference count (or cheaply copies the
-/// pointer for static values). [`Drop`] decrements it and frees the allocation
-/// when the count reaches zero.
+/// pointer for static values). [`Drop`] decrements it and, when the last
+/// reference is dropped, recycles the allocation into a thread-local pool
+/// (see [`crate::pool`]) instead of deallocating. If the pool is full, the
+/// allocation is deallocated normally.
 #[expect(rustdoc::private_intra_doc_links)]
 pub struct SharedRsValue {
     ptr: *const RsValue,
@@ -49,9 +51,11 @@ impl SharedRsValue {
     }
 
     /// Creates a new heap-allocated [`SharedRsValue`] backed by an [`Arc`].
+    ///
+    /// Uses a thread-local pool to recycle allocations when available.
     pub fn new(value: RsValue) -> Self {
         Self {
-            ptr: Arc::into_raw(Arc::new(value)),
+            ptr: Arc::into_raw(crate::pool::pool_get(value).shareable()),
         }
     }
 
@@ -79,7 +83,7 @@ impl SharedRsValue {
 
     /// Returns `true` if this value points to the static [`NULL_VALUE`]
     /// rather than a heap-allocated [`Arc`].
-    fn is_null_static(&self) -> bool {
+    pub fn is_null_static(&self) -> bool {
         ptr::eq(self.ptr, &NULL_VALUE)
     }
 
@@ -159,8 +163,15 @@ impl Drop for SharedRsValue {
     fn drop(&mut self) {
         if !self.is_null_static() {
             // SAFETY: `self.ptr` was obtained from `Arc::into_raw` and is not static (checked above).
-            // Reconstructing and dropping the `Arc` decrements the reference count.
-            unsafe { drop(Arc::from_raw(self.ptr)) };
+            // Reconstructing the `Arc` decrements the reference count.
+            let arc = unsafe { Arc::from_raw(self.ptr) };
+
+            // Convert this Arc into a UniqueArc if the Arc has exactly one strong reference,
+            // otherwise None is returned and the Arc is dropped reducing its reference count.
+            if let Some(unique_arc) = Arc::into_unique(arc) {
+                // Release the UniqueArc to the pool to be recycled.
+                crate::pool::pool_release(unique_arc);
+            }
         }
     }
 }

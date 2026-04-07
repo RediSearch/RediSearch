@@ -30,7 +30,7 @@ pub unsafe extern "C" fn NewProfileIterator(child: *mut QueryIterator) -> *mut Q
     let child = unsafe { NonNull::new_unchecked(child) };
     // SAFETY: thanks to 1 + 2
     let child = unsafe { CRQEIterator::new(child) };
-    RQEIteratorWrapper::boxed_new(IteratorType::Profile, Profile::new(child))
+    RQEIteratorWrapper::boxed_new(Profile::new(child))
 }
 
 /// Get the child iterator from a profile iterator.

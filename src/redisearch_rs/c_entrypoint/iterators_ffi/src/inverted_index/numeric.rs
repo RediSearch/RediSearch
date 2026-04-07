@@ -12,9 +12,9 @@ use std::ptr::NonNull;
 use field::{FieldFilterContext, FieldMaskOrIndex};
 use inverted_index::{FilterGeoReader, FilterNumericReader, IndexReader, NumericFilter};
 use numeric_range_tree::{NumericIndex, NumericIndexReader, NumericRange, NumericRangeTree};
-use rqe_iterator_type::IteratorType;
-use rqe_iterators::interop::RQEIteratorWrapper;
-use rqe_iterators::{FieldExpirationChecker, inverted_index::Numeric};
+use rqe_iterators::{
+    FieldExpirationChecker, IteratorType, interop::RQEIteratorWrapper, inverted_index::Numeric,
+};
 
 /// Enum holding either a numeric or geo iterator variant.
 /// This allows all iterator types to share the same iterator wrapper structure.
@@ -158,6 +158,11 @@ impl<'index> rqe_iterators::RQEIterator<'index> for NumericIterator<'index> {
             IteratorVariant::NumericFiltered(iter) => iter.at_eof(),
             IteratorVariant::Geo(iter) => iter.at_eof(),
         }
+    }
+
+    #[inline(always)]
+    fn type_(&self) -> IteratorType {
+        IteratorType::InvIdxNumeric
     }
 }
 
@@ -303,7 +308,7 @@ pub unsafe extern "C" fn NewInvIndIterator_NumericQuery(
         }
     };
 
-    RQEIteratorWrapper::boxed_new(rqe_iterator_type::IteratorType::InvIdxNumeric, iterator)
+    RQEIteratorWrapper::boxed_new(iterator)
 }
 
 /// Gets the numeric filter from a numeric inverted index iterator.

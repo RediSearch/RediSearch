@@ -14,9 +14,9 @@
 #include <random>
 #include <vector>
 
-#include "src/redisearch.h"
-#include "src/iterators/iterator_api.h"
-#include "src/iterators/not_iterator.h"
+#include "redisearch.h"
+#include "iterators/iterator_api.h"
+#include "iterators/not_iterator.h"
 
 template <bool optimized>
 class BM_NotIterator : public benchmark::Fixture {

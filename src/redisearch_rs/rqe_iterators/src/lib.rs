@@ -31,8 +31,6 @@ mod union_flat;
 pub mod utils;
 pub mod wildcard;
 
-pub mod util;
-
 pub use empty::Empty;
 pub use expiration_checker::{ExpirationChecker, FieldExpirationChecker, NoOpChecker};
 pub use id_list::IdList;
@@ -137,10 +135,8 @@ pub trait RQEIterator<'index> {
     /// when [`read`](Self::read) would return `Ok(None)`.
     fn at_eof(&self) -> bool;
 
-    /// Returns `true` if this iterator matches all documents.
-    fn is_wildcard(&self) -> bool {
-        false
-    }
+    /// Returns the [`IteratorType`] of this iterator.
+    fn type_(&self) -> IteratorType;
 
     /// Returns `Some(&self)` if this iterator is a [`c2rust::CRQEIterator`], `None` otherwise.
     ///
@@ -189,8 +185,9 @@ impl<'index, I: RQEIterator<'index> + ?Sized> RQEIterator<'index> for Box<I> {
         (**self).at_eof()
     }
 
-    fn is_wildcard(&self) -> bool {
-        (**self).is_wildcard()
+    #[inline(always)]
+    fn type_(&self) -> IteratorType {
+        (**self).type_()
     }
 
     fn as_c_iterator(&self) -> Option<&c2rust::CRQEIterator> {

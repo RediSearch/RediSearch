@@ -11,11 +11,18 @@ use std::time::Duration;
 
 use ffi::t_docId;
 use rqe_iterators::{
-    RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome, id_list::IdListSorted,
-    not::Not,
+    IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
+    id_list::IdListSorted, not::Not,
 };
 
 use crate::utils::{Mock, MockIteratorError, MockRevalidateResult};
+
+#[test]
+fn type_() {
+    let child = IdListSorted::new(vec![2, 4, 6]);
+    let it = Not::new(child, 10, 1.0, Duration::ZERO, true);
+    assert_eq!(it.type_(), IteratorType::Not);
+}
 
 // Basic iterator invariants before any read.
 #[test]
