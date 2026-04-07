@@ -191,6 +191,37 @@ TEST_F(CollectParserTest, SortByDefaultsToAscending) {
   cr->base.Free(&cr->base);
 }
 
+TEST_F(CollectParserTest, SortByConsecutiveFieldsDefaultAsc) {
+  registerKeys({"a", "b", "c"});
+  CollectReducer *cr = parseCollectOk({
+      "FIELDS", "1", "@a",
+      "SORTBY", "3", "@a", "@b", "@c",
+  });
+  ASSERT_NE(cr, nullptr);
+  EXPECT_EQ(cr->num_sort_keys, 3);
+  EXPECT_TRUE(SORTASCMAP_GETASC(cr->sortAscMap, 0));
+  EXPECT_TRUE(SORTASCMAP_GETASC(cr->sortAscMap, 1));
+  EXPECT_TRUE(SORTASCMAP_GETASC(cr->sortAscMap, 2));
+  cr->base.Free(&cr->base);
+}
+
+TEST_F(CollectParserTest, SortByMixedConsecutiveFieldsAndDirections) {
+  registerKeys({"a", "b", "c", "d", "e", "f"});
+  CollectReducer *cr = parseCollectOk({
+      "FIELDS", "1", "@a",
+      "SORTBY", "8", "@a", "@b", "@c", "ASC", "@d", "DESC", "@e", "@f",
+  });
+  ASSERT_NE(cr, nullptr);
+  EXPECT_EQ(cr->num_sort_keys, 6);
+  EXPECT_TRUE(SORTASCMAP_GETASC(cr->sortAscMap, 0));
+  EXPECT_TRUE(SORTASCMAP_GETASC(cr->sortAscMap, 1));
+  EXPECT_TRUE(SORTASCMAP_GETASC(cr->sortAscMap, 2));
+  EXPECT_FALSE(SORTASCMAP_GETASC(cr->sortAscMap, 3));
+  EXPECT_TRUE(SORTASCMAP_GETASC(cr->sortAscMap, 4));
+  EXPECT_TRUE(SORTASCMAP_GETASC(cr->sortAscMap, 5));
+  cr->base.Free(&cr->base);
+}
+
 TEST_F(CollectParserTest, SortByMaxFields) {
   registerKeys({"x", "a", "b", "c", "d", "e", "f", "g", "h"});
   CollectReducer *cr = parseCollectOk({
@@ -199,6 +230,9 @@ TEST_F(CollectParserTest, SortByMaxFields) {
   });
   ASSERT_NE(cr, nullptr);
   EXPECT_EQ(cr->num_sort_keys, 8);
+  for (int i = 0; i < 8; i++) {
+    EXPECT_TRUE(SORTASCMAP_GETASC(cr->sortAscMap, i)) << "sort key " << i;
+  }
   cr->base.Free(&cr->base);
 }
 
