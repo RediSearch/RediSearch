@@ -247,8 +247,6 @@ bool ProcessHybridCursorMappings(const MRCommand *cmd, int numShards, StrongRef 
         for (size_t i = 0; i < array_len(ctx->errors); i++) {
             if (QueryError_GetCode(&ctx->errors[i]) == QUERY_ERROR_CODE_OUT_OF_MEMORY && oomPolicy == OomPolicy_Return ) {
                 QueryError_SetQueryOOMWarning(status);
-            } else if (QueryError_GetCode(&ctx->errors[i]) == QUERY_ERROR_CODE_TIMED_OUT && timeoutPolicy != TimeoutPolicy_Fail) {
-                QueryError_SetCode(status, QUERY_ERROR_CODE_TIMED_OUT);
             } else {
                 QueryError_SetWithoutUserDataFmt(status, QueryError_GetCode(&ctx->errors[i]), "Failed to process shard responses, first error: %s, total error count: %zu",
                     QueryError_GetUserError(&ctx->errors[i]), array_len(ctx->errors));
