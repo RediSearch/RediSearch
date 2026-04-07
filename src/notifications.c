@@ -150,7 +150,7 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
   switch (redisCommand) {
 
 /********************************************************
- *  GROUP A: Normal operation (no special SearchDisk handling)
+ *  GROUP A: Normal operation (same handling in RAM and SearchDisk)
  ********************************************************/
     case loaded_cmd:
       // on loaded event the key is stack allocated so to use it to load the
@@ -176,8 +176,6 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
 
     case expire_cmd:
     case persist_cmd:
-    case hexpire_cmd:
-    case hpersist_cmd:
     case restore_cmd:
     case copy_to_cmd:
       Indexes_UpdateMatchingWithSchemaRules(ctx, key, getDocTypeFromString(key), hashFields);
@@ -197,15 +195,25 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
  ********************************************************/
     case del_cmd:
     case set_cmd:
-      if (SearchDisk_IsEnabled()) {
-        // Deletion handled by keyMetaOnUnlink callback
-        break;
+      // Deletion handled by keyMetaOnUnlink callback
+      if (!SearchDisk_IsEnabled()) {
+        Indexes_DeleteMatchingWithSchemaRules(ctx, key, getDocTypeFromString(key), hashFields);
       }
-      Indexes_DeleteMatchingWithSchemaRules(ctx, key, getDocTypeFromString(key), hashFields);
       break;
 
 /********************************************************
- *  GROUP C: Has deletion branch to skip for SearchDisk
+ *  GROUP C: Ignore in SearchDisk (field-TTL metadata only)
+ ********************************************************/
+    case hexpire_cmd:
+    case hpersist_cmd:
+      // We do not support field-TTL metadata changes in the disk flow.
+      if (!SearchDisk_IsEnabled()) {
+        Indexes_UpdateMatchingWithSchemaRules(ctx, key, getDocTypeFromString(key), hashFields);
+      }
+      break;
+
+/********************************************************
+ *  GROUP D: Has deletion branch to skip for SearchDisk
  ********************************************************/
     case change_cmd:
       kp = RedisModule_OpenKey(ctx, key, REDISMODULE_READ);
@@ -229,7 +237,7 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
       break;
 
 /********************************************************
- *  GROUP D: Never received with SearchDisk (not subscribed)
+ *  GROUP E: Never received with SearchDisk (not subscribed)
  ********************************************************/
     case trimmed_cmd:
     case key_trimmed_cmd:
