@@ -390,8 +390,8 @@ TEST_F(CollectParserTest, LimitCountExceedsAggregateMax) {
 
 TEST_F(CollectParserTest, LimitOffsetPlusCountOverflow) {
   registerKeys({"x"});
-  std::string offset = std::to_string(static_cast<unsigned long long>(LLONG_MAX));
-  expectError({"FIELDS", "1", "@x", "LIMIT", offset.c_str(), "1"},
+  std::string offset = std::to_string(static_cast<unsigned long long>(LLONG_MAX) - 1);
+  expectError({"FIELDS", "1", "@x", "LIMIT", offset.c_str(), "2"},
       "Invalid LIMIT offset + count value");
 }
 
