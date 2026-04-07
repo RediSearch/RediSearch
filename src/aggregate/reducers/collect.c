@@ -128,7 +128,7 @@ static void handleCollectSortBy(ArgParser *parser, const void *value, void *user
       return;
     }
 
-    if (s[0] == '@' || s[0] == '$') {
+    if (s[0] == '@') {
       if (cr->num_sort_keys >= COLLECT_MAX_SORT_KEYS) {
         QueryError_SetWithoutUserDataFmt(opts->status, QUERY_ERROR_CODE_LIMIT,
           "SORTBY exceeds maximum of %d fields", COLLECT_MAX_SORT_KEYS);
@@ -150,8 +150,7 @@ static void handleCollectSortBy(ArgParser *parser, const void *value, void *user
       }
     } else {
       QueryError_SetWithUserDataFmt(opts->status, QUERY_ERROR_CODE_PARSE_ARGS,
-        "Bad arguments for SORTBY",
-        ": Expected `@field`, `" SORT_DIR_ASC "`, or `" SORT_DIR_DESC "`, got `%s`", s);
+        "MISSING ASC or DESC after sort field", " (%s)", s);
       return;
     }
   }

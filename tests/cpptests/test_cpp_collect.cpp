@@ -177,7 +177,7 @@ TEST_F(CollectParserTest, JsonPathField) {
   QueryError_ClearError(&status);
 }
 
-TEST_F(CollectParserTest, SortByJsonPath) {
+TEST_F(CollectParserTest, SortByJsonPathRejected) {
   registerKeys({"$..price"});
   QueryError status = QueryError_Default();
   std::vector<const char *> args = {
@@ -185,8 +185,9 @@ TEST_F(CollectParserTest, SortByJsonPath) {
     "SORTBY", "1", "$..price"
   };
   Reducer *r = parseCollect(args, &status);
-  ASSERT_NE(r, nullptr) << QueryError_GetUserError(&status);
-  r->Free(r);
+  ASSERT_EQ(r, nullptr);
+  EXPECT_STREQ(QueryError_GetUserError(&status),
+    "MISSING ASC or DESC after sort field");
   QueryError_ClearError(&status);
 }
 
@@ -272,7 +273,8 @@ TEST_F(CollectParserTest, SortByFieldWithoutAtPrefix) {
   };
   Reducer *r = parseCollect(args, &status);
   ASSERT_EQ(r, nullptr);
-  EXPECT_STREQ(QueryError_GetUserError(&status), "Bad arguments for SORTBY");
+  EXPECT_STREQ(QueryError_GetUserError(&status),
+    "MISSING ASC or DESC after sort field");
   QueryError_ClearError(&status);
 }
 
@@ -334,7 +336,8 @@ TEST_F(CollectParserTest, SortByInvalidTokenBetweenFields) {
   };
   Reducer *r = parseCollect(args, &status);
   ASSERT_EQ(r, nullptr);
-  EXPECT_STREQ(QueryError_GetUserError(&status), "Bad arguments for SORTBY");
+  EXPECT_STREQ(QueryError_GetUserError(&status),
+    "MISSING ASC or DESC after sort field");
   QueryError_ClearError(&status);
 }
 
