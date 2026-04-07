@@ -118,12 +118,14 @@ where
             agg.reset();
         }
 
+        if self.heap.is_empty() {
+            return;
+        }
+        
         // Borrow the heap data slice once so the compiler can hoist bounds
         // checks out of the loop.
         let heap_data = self.heap.data();
-        if heap_data.is_empty() {
-            return;
-        }
+        
         // A 64-element stack is sufficient for a binary heap of up to 2^64 elements.
         let mut stack = [0usize; 64];
         let mut stack_len = 1;
