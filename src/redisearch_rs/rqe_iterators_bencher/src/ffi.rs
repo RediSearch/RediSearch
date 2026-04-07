@@ -198,7 +198,7 @@ impl QueryIterator {
                 num_children as i32,
                 quick_exit,
                 weight,
-                ffi::QueryNodeType_QN_UNION,
+                ffi::QueryNodeType::Union,
                 std::ptr::null(), // q_str
                 &config,
             )
