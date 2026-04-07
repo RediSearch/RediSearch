@@ -1397,10 +1397,10 @@ DEBUG_COMMAND(DocInfo) {
     if (DocIdMeta_Get(ctx, argv[3], sctx->spec->specId, &docId) == REDISMODULE_OK) {
       RSDocumentMetadata *dmd_disk = rm_calloc(1, sizeof(RSDocumentMetadata));
       dmd_disk->ref_count = 1;
-      if (SearchDisk_GetDocumentMetadata(sctx->spec->diskSpec, docId, dmd_disk, &sctx->time.current)) {
+      if (SearchDisk_GetDocumentMetadata(sctx->spec->diskSpec, docId, dmd_disk, NULL)) {
         dmd = dmd_disk;
       } else {
-        rm_free(dmd_disk);
+        DMD_Return(dmd_disk);
       }
     }
   } else {

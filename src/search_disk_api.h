@@ -280,10 +280,10 @@ typedef struct DocTableDiskAPI {
    * @param docId Document ID
    * @param dmd Pointer to the document metadata structure to populate
    * @param allocate_key Callback to allocate memory for the key
-   * @param expiration_point Current time for expiration check.
+   * @param expiration_point Current time for expiration check, or NULL to skip expiration check.
    * @return true if found and not expired, false if not found, expired, or on error
    */
-  bool (*getDocumentMetadata)(RedisSearchDiskIndexSpec* handle, t_docId docId, RSDocumentMetadata* dmd, AllocateKeyCallback allocate_key, t_expirationTimePoint expiration_point);
+  bool (*getDocumentMetadata)(RedisSearchDiskIndexSpec* handle, t_docId docId, RSDocumentMetadata* dmd, AllocateKeyCallback allocate_key, const t_expirationTimePoint* expiration_point);
 
   /**
    * @brief Gets the maximum document ID assigned in the index
