@@ -9,6 +9,8 @@ runs:
     - name: Validate glibc version
       shell: bash -l -eo pipefail {0}
       run: |
+        # Validate glibc version
+
         # Skip musl-based systems (e.g. Alpine) — no glibc to validate
         if ldd --version 2>&1 | grep -qi musl; then
           echo ">>> Skipping: musl-based system (no glibc)"
