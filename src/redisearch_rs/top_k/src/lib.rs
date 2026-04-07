@@ -8,7 +8,27 @@
 */
 
 //! A fixed-capacity heap that retains the top-k scored documents.
+//! Generic top-k iterator shared by the vector (hybrid) and numeric (optimizer)
+//! query iterators.
+//!
+//! # Architecture
+//!
+//! The core abstraction is [`TopKIterator<S>`], a state machine that drives
+//! top-k collection in three modes:
+//!
+//! - **Unfiltered** — no child filter; stream results directly from the source's batch.
+//!   for each document.
+//!
+//! The score-producing logic is abstracted behind the [`ScoreSource`] / [`ScoreBatch`]
+//! traits.
 
 pub mod heap;
+pub mod iterator;
+pub mod traits;
+
+#[cfg(feature = "test-utils")]
+pub mod mock;
 
 pub use heap::{ScoredResult, TopKHeap};
+pub use iterator::{TopKIterator, TopKMetrics, TopKMode};
+pub use traits::{ScoreBatch, ScoreSource};
