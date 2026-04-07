@@ -261,7 +261,8 @@ def _test_barrier_waits_for_delayed_unbalanced_shard(protocol):
         env.assertEqual(len(query_result), 1,
                         message="Query should have completed")
         env.assertTrue(isinstance(query_result[0], redis.exceptions.ResponseError))
-        err_msg = "ShardResponseBarrier: Timeout while waiting for first responses from all shards"
+        # Timeout in Coord AGG is managed by blocked client mechanism, so the error message is different
+        err_msg = "SEARCH_TIMEOUT Timeout limit was reached"
         env.assertContains(err_msg, str(query_result[0]))
 
         # Release shard 1's worker thread
