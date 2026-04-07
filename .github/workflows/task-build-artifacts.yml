@@ -214,7 +214,7 @@ jobs:
         run: ${SCCACHE_PATH:-sccache} --show-stats
 
       - name: Validate glibc version
-        if: runner.os == 'Linux'
+        if: runner.os == 'Linux' && inputs.platform != 'ubuntu:focal'
         uses: ./.github/actions/validate-glibc-version
 
       # Upload
