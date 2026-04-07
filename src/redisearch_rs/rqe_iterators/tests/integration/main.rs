@@ -41,6 +41,7 @@ mod maybe_empty;
 mod metric;
 mod min_heap;
 mod not;
+mod not_optimized;
 mod optional;
 mod profile;
 #[macro_use]

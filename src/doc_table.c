@@ -94,22 +94,22 @@ const RSDocumentMetadata *DocTable_Borrow(const DocTable *t, t_docId docId) {
 
 bool DocTable_Exists(const DocTable *t, t_docId docId) {
   if (!docId || docId > t->maxDocId) {
-    return 0;
+    return false;
   }
   uint32_t ix = DocTable_GetBucket(t, docId);
   if (ix >= t->cap) {
-    return 0;
+    return false;
   }
   const DMDChain *chain = t->buckets + ix;
   if (chain == NULL) {
-    return 0;
+    return false;
   }
   for (const RSDocumentMetadata *md = chain->root; md != NULL; md = md->nextInChain) {
     if (md->id == docId) {
       return !(md->flags & Document_Deleted);
     }
   }
-  return 0;
+  return false;
 }
 
 const RSDocumentMetadata *DocTable_BorrowByKeyR(const DocTable *t, RedisModuleString *s) {

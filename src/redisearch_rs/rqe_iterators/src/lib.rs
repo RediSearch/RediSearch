@@ -24,6 +24,7 @@ pub mod inverted_index;
 pub mod maybe_empty;
 pub mod metric;
 pub mod not;
+pub mod not_optimized;
 pub mod optional;
 pub mod profile;
 pub mod union;

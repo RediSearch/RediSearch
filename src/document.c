@@ -33,6 +33,7 @@
 #include "search_disk.h"
 #include "info/global_stats.h"
 #include "sorting_vector.h"
+#include "doc_id_meta.h"
 
 // Memory pool for RSAddDocumentContext contexts
 static mempool_t *actxPool_g = NULL;
@@ -881,7 +882,7 @@ cleanup:
  * Returns  REDISMODULE_ERR on failure, OK otherwise*/
 int Document_EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key, const HiddenString *expr,
                             int *result, QueryError *status) {
-
+  RS_ASSERT(!SearchDisk_IsEnabled());
   int rc = REDISMODULE_ERR;
   RSExpr *e = NULL;
   const RSDocumentMetadata *dmd = 0;
@@ -938,6 +939,7 @@ done:
 }
 
 static void AddDocumentCtx_UpdateNoIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
+  RS_ASSERT(!SearchDisk_IsEnabled());
 #define BAIL(s)                                            \
   do {                                                     \
     QueryError_SetError(&aCtx->status, QUERY_ERROR_CODE_GENERIC, s); \
@@ -955,7 +957,6 @@ static void AddDocumentCtx_UpdateNoIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx 
   if (!md) {
     BAIL("Couldn't load document metadata");
   }
-
   // Update the score
   md->score = doc->score;
   // Set the payload if needed
