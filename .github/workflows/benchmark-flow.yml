@@ -75,7 +75,7 @@ jobs:
               exit 0
             fi
             echo "Selected $(echo ${effective_files} | wc -w | tr -d ' ') benchmark(s)"
-            echo "effective_glob=${effective_files}" >> "$GITHUB_OUTPUT"
+            echo "effective_glob=${BENCHMARK_FILTER}" >> "$GITHUB_OUTPUT"
           else
             echo "No filter applied, using glob: ${BENCHMARK_GLOB}"
             echo "effective_glob=${BENCHMARK_GLOB}" >> "$GITHUB_OUTPUT"
