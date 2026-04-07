@@ -14,16 +14,15 @@
 //! efficient operations that Rust's [`std::collections::BinaryHeap`] lacks:
 //!
 //! - [`DocIdMinHeap::replace_root`]: O(log n) in-place root replacement with single sift-down
-//! - [`DocIdMinHeap::index<usize>`]: Direct access to heap data for manual traversal
+//! - [`DocIdMinHeap::as_slice`]: Direct access to heap data for manual traversal
 use ffi::t_docId;
-use std::ops::Index;
 
 /// A specialized min-heap for the union iterator.
 ///
 /// Stores `(doc_id, child_index)` pairs ordered by `doc_id` (minimum at root).
 /// Provides efficient operations for the union iterator pattern:
 /// - O(log n) in-place root replacement via [`Self::replace_root`]
-/// - Direct access to heap data via [`Self::index`] for manual traversal
+/// - Direct access to heap data via [`Self::as_slice`] for manual traversal
 ///
 /// # Example
 ///
@@ -38,22 +37,14 @@ use std::ops::Index;
 /// assert_eq!(heap.peek(), Some((5, 1)));
 ///
 /// // Access heap data directly for traversal
-/// let root_doc_id = heap[0].0;
+/// let data = heap.as_slice();
+/// let root_doc_id = data[0].0;
 /// ```
 
 #[derive(Debug, Clone, Default)]
 pub struct DocIdMinHeap {
     /// Backing storage: Vec of (doc_id, child_index) pairs.
     data: Vec<(t_docId, usize)>,
-}
-
-/// Direct access to heap data for manual traversal.
-impl Index<usize> for DocIdMinHeap {
-    type Output = (t_docId, usize);
-
-    fn index(&self, index: usize) -> &Self::Output {
-        &self.data[index]
-    }
 }
 
 impl DocIdMinHeap {
@@ -97,17 +88,18 @@ impl DocIdMinHeap {
         self.data.first().copied()
     }
 
-    /// Returns a reference to the underlying heap data.
+    /// Returns the heap entries as an immutable slice.
     ///
-    /// Borrowing the slice once allows the caller to iterate over the heap
-    /// structure without per-access bounds checks through the [`Index`] trait,
-    /// which is measurably faster for bulk traversals such as the DFS in
-    /// [`crate::UnionHeap::build_aggregate_result`].
+    /// In hot loops, borrow the slice once and use it for **both** indexing and
+    /// length checks. This lets the compiler prove the slice is invariant across
+    /// iterations and elide per-access bounds checks — going through
+    /// [`Self::len()`] for the bound and the slice for the access defeats this
+    /// because the optimizer cannot prove they refer to the same allocation.
     ///
     /// The data is stored as `(doc_id, child_index)` tuples in heap order
     /// (smallest doc_id at index 0). Children of index `i` are at `2*i+1` and `2*i+2`.
     #[inline]
-    pub fn data(&self) -> &[(t_docId, usize)] {
+    pub fn as_slice(&self) -> &[(t_docId, usize)] {
         &self.data
     }
 

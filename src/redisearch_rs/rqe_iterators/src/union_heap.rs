@@ -89,7 +89,7 @@ where
             return Ok(());
         }
         loop {
-            let (doc_id, idx) = self.heap[0];
+            let (doc_id, idx) = self.heap.peek().unwrap();
             if doc_id != current_id {
                 break;
             }
@@ -118,13 +118,13 @@ where
             agg.reset();
         }
 
-        if self.heap.is_empty() {
-            return;
-        }
-
         // Borrow the heap data slice once so the compiler can hoist bounds
         // checks out of the loop.
-        let heap_data = self.heap.data();
+        let heap_data = self.heap.as_slice();
+
+        if heap_data.is_empty() {
+            return;
+        }
 
         // A 64-element stack is sufficient for a binary heap of up to 2^64 elements.
         let mut stack = [0usize; 64];
@@ -193,7 +193,7 @@ where
             return Ok(usize::MAX);
         }
         loop {
-            let (child_doc_id, idx) = self.heap[0];
+            let (child_doc_id, idx) = self.heap.peek().unwrap();
             if child_doc_id >= doc_id {
                 break;
             }

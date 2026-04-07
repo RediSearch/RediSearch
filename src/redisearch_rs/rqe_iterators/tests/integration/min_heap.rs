@@ -37,7 +37,7 @@ fn construction_and_basic_ops() {
 
     // [] — root element is the minimum.
     assert_eq!(heap.len(), 4);
-    assert_eq!(heap[0].0, 3);
+    assert_eq!(heap.as_slice()[0].0, 3);
 
     // clear()
     heap.clear();
