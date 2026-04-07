@@ -1,0 +1,185 @@
+name: Bump Version
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to set (format: MAJOR.MINOR.PATCH, e.g., 8.4.8)'
+        required: true
+        type: string
+      dry_run:
+        description: 'Dry run (do not push changes)'
+        required: false
+        type: boolean
+        default: false
+  workflow_call:
+    inputs:
+      version:
+        description: 'Version to set (format: MAJOR.MINOR.PATCH, e.g., 8.4.8)'
+        required: true
+        type: string
+      dry_run:
+        description: 'Dry run (do not push changes)'
+        required: false
+        type: boolean
+        default: false
+
+concurrency:
+  group: bump-version
+  cancel-in-progress: false
+
+
+jobs:
+  validate-and-check:
+    runs-on: ubuntu-latest
+    outputs:
+      release_branch: ${{ steps.derive-branch.outputs.release_branch }}
+    steps:
+      - name: Validate version format and derive release branch
+        id: derive-branch
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Invalid version format: $VERSION. Expected format: MAJOR.MINOR.PATCH"
+            exit 1
+          fi
+          echo "Version format validated: $VERSION"
+          RELEASE_BRANCH=$(echo "$VERSION" | cut -d. -f1,2)
+          echo "Derived release branch: $RELEASE_BRANCH"
+          echo "release_branch=$RELEASE_BRANCH" >> $GITHUB_OUTPUT
+
+  bump-version:
+    needs: validate-and-check
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout release branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.validate-and-check.outputs.release_branch }}
+          path: release-branch
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Check if tag already exists
+        working-directory: release-branch
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          if git ls-remote --exit-code origin "refs/tags/v$VERSION" >/dev/null 2>&1; then
+            echo "::error::Tag v$VERSION already exists on remote"
+            exit 1
+          fi
+          echo "Tag v$VERSION does not exist, proceeding..."
+
+      - name: Configure Git
+        working-directory: release-branch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Set version
+        shell: python
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          import os
+          import re
+          import sys
+          from pathlib import Path
+
+          version = os.environ['VERSION']
+          major, minor, patch = version.split('.')
+          version_file = Path('release-branch/src/version.h')
+
+          if not version_file.exists():
+              print(f"::error::Version file not found: {version_file}")
+              sys.exit(1)
+
+          content = version_file.read_text()
+          for component, value in [('MAJOR', major), ('MINOR', minor), ('PATCH', patch)]:
+              pattern = rf'(#define REDISEARCH_VERSION_{component})\s+\d+'
+              match = re.search(pattern, content)
+              if match:
+                  print(f"Current {component}: {match.group(0).split()[-1]}")
+              content = re.sub(pattern, rf'\1 {value}', content)
+
+          version_file.write_text(content)
+          print(f"Updated to version {major}.{minor}.{patch}")
+
+      - name: Commit version bump
+        working-directory: release-branch
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          git add src/version.h
+          git commit -m "bump version v$VERSION"
+
+      - name: Create tag
+        working-directory: release-branch
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          git tag "v$VERSION"
+          echo "Created tag v$VERSION"
+
+      - name: Push changes
+        if: ${{ !inputs.dry_run }}
+        working-directory: release-branch
+        env:
+          VERSION: ${{ inputs.version }}
+          RELEASE_BRANCH: ${{ needs.validate-and-check.outputs.release_branch }}
+        run: |
+          echo "Pushing commit to branch $RELEASE_BRANCH..."
+          git push origin "$RELEASE_BRANCH"
+          echo "Pushing tag v$VERSION..."
+          git push origin "v$VERSION"
+
+      - name: Verify push
+        if: ${{ !inputs.dry_run }}
+        working-directory: release-branch
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          if ! git ls-remote --exit-code origin "refs/tags/v$VERSION" >/dev/null 2>&1; then
+            echo "::error::Tag v$VERSION was not found on remote after push"
+            exit 1
+          fi
+          echo "✓ Tag v$VERSION successfully pushed to remote"
+
+      - name: Dry run summary
+        if: ${{ inputs.dry_run }}
+        env:
+          VERSION: ${{ inputs.version }}
+          RELEASE_BRANCH: ${{ needs.validate-and-check.outputs.release_branch }}
+        run: |
+          echo "## 🏃 Dry Run Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Version:** v$VERSION" >> $GITHUB_STEP_SUMMARY
+          echo "**Branch:** $RELEASE_BRANCH" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "✓ Version file updated (not pushed)" >> $GITHUB_STEP_SUMMARY
+          echo "✓ Commit created (not pushed)" >> $GITHUB_STEP_SUMMARY
+          echo "✓ Tag created (not pushed)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "> **Note:** This was a dry run. No changes were pushed to the repository." >> $GITHUB_STEP_SUMMARY
+
+      - name: Summary
+        if: ${{ !inputs.dry_run }}
+        env:
+          VERSION: ${{ inputs.version }}
+          RELEASE_BRANCH: ${{ needs.validate-and-check.outputs.release_branch }}
+        run: |
+          echo "## ✅ Version Bump Complete" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Version:** v$VERSION" >> $GITHUB_STEP_SUMMARY
+          echo "**Branch:** $RELEASE_BRANCH" >> $GITHUB_STEP_SUMMARY
+          echo "**Tag:** https://github.com/${{ github.repository }}/releases/tag/v$VERSION" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "✓ Version file updated" >> $GITHUB_STEP_SUMMARY
+          echo "✓ Changes committed and pushed" >> $GITHUB_STEP_SUMMARY
+          echo "✓ Tag v$VERSION created and pushed" >> $GITHUB_STEP_SUMMARY
+
+
