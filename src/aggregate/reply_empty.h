@@ -14,7 +14,6 @@
 
 #include "redismodule.h"
 #include "query_error.h"
-#include "../profile/options.h"
 
 // Coordinator empty reply for FT.SEARCH commands.
 // Handles both RESP2 and RESP3 with proper search result formatting.
@@ -28,9 +27,9 @@ int coord_aggregate_query_reply_empty(RedisModuleCtx *ctx, RedisModuleString **a
 // Empty reply for hybrid queries.
 // Uses RESP3 map structure with proper hybrid result formatting.
 // Works for both coordinator and single-shard hybrid queries.
-// When profileOptions indicates profiling is active, wraps reply with profile structure.
+// When isProfile is true, wraps reply with profile structure.
 int common_hybrid_query_reply_empty(RedisModuleCtx *ctx, QueryErrorCode errCode, bool internal,
-                                    ProfileOptions profileOptions);
+                                    bool isProfile);
 
 // Single-shard empty reply for SEARCH and AGGREGATE commands.
 // Handles both RESP2 and RESP3 with command-appropriate formatting.

@@ -17,7 +17,6 @@
 #include "rmutil/util.h"
 #include "reply_empty.h"
 #include "info/global_stats.h"
-#include "../profile/options.h"
 #include "../profile/profile.h"
 
 // Helper function that performs minimal parsing of query arguments to support sendChunk output
@@ -109,11 +108,9 @@ int coord_aggregate_query_reply_empty(RedisModuleCtx *ctx, RedisModuleString **a
 
 // Empty reply for hybrid queries. Currently used during OOM conditions and pre-execution timeouts.
 // Creates QueryError with OOM/timeout warning and uses sendChunk_ReplyOnly_HybridEmptyResults.
-// When profileOptions indicates profiling is active, wraps the reply with profile structure.
+// When isProfile is true, wraps the reply with profile structure.
 int common_hybrid_query_reply_empty(RedisModuleCtx *ctx, QueryErrorCode errCode, bool internal,
-                                    ProfileOptions profileOptions) {
-    const bool isProfile = profileOptions & EXEC_WITH_PROFILE;
-
+                                    bool isProfile) {
     QueryError status = QueryError_Default();
     QueryError_SetError(&status, errCode, NULL);
     QueryError_SetCode(&status, errCode);
