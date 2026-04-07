@@ -38,6 +38,7 @@ members = [
     "tracing_redismodule",
     "trie_bencher",
     "top_k",
+    "top_k_bencher",
     "trie_rs",
     "ttl_table",
     "value",
