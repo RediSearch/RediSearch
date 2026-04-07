@@ -16,7 +16,7 @@ use inverted_index::RSIndexResult;
 
 use crate::{
     IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
-    maybe_empty::MaybeEmpty, util::TimeoutContext,
+    maybe_empty::MaybeEmpty, utils::TimeoutContext,
 };
 
 /// An iterator that negates the results of its child iterator.
@@ -270,5 +270,35 @@ where
     #[inline(always)]
     fn type_(&self) -> IteratorType {
         IteratorType::Not
+    }
+}
+
+/// Trait for NOT iterators ([`Not`] and [`crate::not_optimized::NotOptimized`]).
+pub trait NotIterator<'index>: RQEIterator<'index> {
+    // Those methods are used by profile.c to wrap the child iterator.
+    // They can be removed once this code is ported to Rust.
+    /// Get a shared reference to the child iterator, or `None` if unset.
+    fn child(&self) -> Option<&dyn RQEIterator<'index>>;
+
+    /// Replace the child iterator.
+    fn set_child(&mut self, child: Box<dyn RQEIterator<'index> + 'index>);
+
+    /// Take ownership of the child iterator, leaving it unset.
+    fn take_child(&mut self) -> Option<Box<dyn RQEIterator<'index> + 'index>>;
+}
+
+impl<'index> NotIterator<'index> for Not<'index, Box<dyn RQEIterator<'index> + 'index>> {
+    fn child(&self) -> Option<&dyn RQEIterator<'index>> {
+        self.child
+            .as_ref()
+            .map(|c| &**c as &dyn RQEIterator<'index>)
+    }
+
+    fn set_child(&mut self, child: Box<dyn RQEIterator<'index> + 'index>) {
+        self.child = MaybeEmpty::new(child);
+    }
+
+    fn take_child(&mut self) -> Option<Box<dyn RQEIterator<'index> + 'index>> {
+        self.child.take_iterator()
     }
 }

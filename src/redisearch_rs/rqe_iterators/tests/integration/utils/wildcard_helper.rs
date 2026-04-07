@@ -21,7 +21,6 @@ pub(crate) struct WildcardHelper {
 
 impl WildcardHelper {
     /// Create a new helper populated with the given `doc_ids`.
-    #[expect(unused)] // not used yet
     pub(crate) fn new(doc_ids: &[t_docId]) -> Self {
         let mut ii = InvertedIndex::<DocIdsOnly>::new(IndexFlags_Index_DocIdsOnly);
         for &doc_id in doc_ids {
@@ -34,7 +33,6 @@ impl WildcardHelper {
 
     /// Create a [`Wildcard`](rqe_iterators::inverted_index::Wildcard)
     /// iterator from the underlying inverted index.
-    #[expect(unused)] // not used yet
     pub(crate) fn create_wildcard(
         &self,
     ) -> rqe_iterators::inverted_index::Wildcard<'_, DocIdsOnly> {

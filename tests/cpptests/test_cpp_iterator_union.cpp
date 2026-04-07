@@ -10,7 +10,7 @@
 #include "iterator_util.h"
 #include "index_utils.h"
 
-#include "src/iterators/union_iterator.h"
+#include "iterators/union_iterator.h"
 #include "iterators_rs.h"
 #include "inverted_index.h"
 

@@ -13,7 +13,7 @@
 #include <vector>
 
 #include "rmalloc.h"
-#include "src/slot_ranges.h"
+#include "slot_ranges.h"
 #include "redismock/redismock.h"
 #include "redismock/internal.h"
 

@@ -10,12 +10,12 @@
 #include "test_util.h"
 #include "time_sample.h"
 
-#include "src/buffer/buffer.h"
+#include "buffer/buffer.h"
 #include "inverted_index.h"
-#include "src/index_result.h"
-#include "src/query_parser/tokenizer.h"
-#include "src/spec.h"
-#include "src/tokenize.h"
+#include "index_result.h"
+#include "query_parser/tokenizer.h"
+#include "spec.h"
+#include "tokenize.h"
 #include "varint.h"
 
 #include "rmutil/alloc.h"

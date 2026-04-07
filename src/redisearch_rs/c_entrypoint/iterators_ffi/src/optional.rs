@@ -33,7 +33,7 @@ pub unsafe extern "C" fn NewOptionalNonOptimizedIterator(
     );
     // SAFETY: thanks to 1 + 2
     let child = unsafe { CRQEIterator::new(child) };
-    RQEIteratorWrapper::boxed_new(IteratorType::Optional, Optional::new(max_id, weight, child))
+    RQEIteratorWrapper::boxed_new(Optional::new(max_id, weight, child))
 }
 
 #[unsafe(no_mangle)]

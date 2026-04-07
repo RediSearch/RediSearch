@@ -40,6 +40,8 @@ mod inverted_index;
 mod maybe_empty;
 mod metric;
 mod not;
+mod not_optimized;
+mod not_reducer;
 mod optional;
 mod profile;
 mod union_flat;

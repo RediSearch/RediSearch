@@ -167,5 +167,5 @@ pub unsafe extern "C" fn NewInvIndIterator_WildcardQuery(
         ),
     };
 
-    RQEIteratorWrapper::boxed_new(rqe_iterator_type::IteratorType::InvIdxWildcard, iterator)
+    RQEIteratorWrapper::boxed_new(iterator)
 }

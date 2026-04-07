@@ -21,6 +21,7 @@ members = [
     "redis_reply",
     "result_processor",
     "rlookup",
+    "query_node_type",
     "rqe_iterator_type",
     "rqe_iterators",
     "rqe_iterators_bencher",
@@ -111,6 +112,7 @@ redisearch_rs = { path = "./c_entrypoint/redisearch_rs" }
 result_processor = { path = "./result_processor" }
 rlookup = { path = "./rlookup" }
 rm_array = { path = "./c_wrappers/rm_array" }
+query_node_type = { path = "./query_node_type" }
 rqe_iterator_type = { path = "./rqe_iterator_type" }
 rqe_iterators = { path = "./rqe_iterators" }
 rqe_iterators_test_utils = { path = "./rqe_iterators_test_utils" }

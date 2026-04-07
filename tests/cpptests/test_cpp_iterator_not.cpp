@@ -16,7 +16,7 @@
 #include <random>
 #include <vector>
 
-#include "src/iterators/not_iterator.h"
+#include "iterators/not_iterator.h"
 #include "iterators_rs.h"
 #include "inverted_index.h"
 #include "index_utils.h"

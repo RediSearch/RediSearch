@@ -241,5 +241,5 @@ pub unsafe extern "C" fn NewInvIndIterator_TermQuery(
     // own safety contract (valid reader, valid sctx, valid term).
     let iterator = unsafe { Term::new(reader, sctx, term, weight, expiration_checker) };
 
-    RQEIteratorWrapper::boxed_new(rqe_iterator_type::IteratorType::InvIdxTerm, iterator)
+    RQEIteratorWrapper::boxed_new(iterator)
 }
