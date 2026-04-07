@@ -714,6 +714,21 @@ impl TestContext {
         tree.node_mut(index).range_mut().unwrap().entries_mut()
     }
 
+    /// Set [`SchemaRule::index_all`](ffi::SchemaRule::index_all).
+    ///
+    /// # Safety
+    ///
+    /// Must not be called while any iterator created from this context is
+    /// still alive, as it mutates the spec's rule through a raw pointer.
+    pub unsafe fn set_index_all(&self, value: bool) {
+        // SAFETY: Caller guarantees no iterators from this context are alive,
+        // so the write does not race. The spec and rule pointers are valid
+        // because they were created during TestContext construction.
+        unsafe {
+            (*(*self.spec.as_ptr()).rule).index_all = value;
+        }
+    }
+
     /// Initialize the TTL table if not already initialized.
     fn verify_ttl_init(&mut self) {
         // SAFETY: self.spec is a valid pointer created via IndexSpec_ParseC.
