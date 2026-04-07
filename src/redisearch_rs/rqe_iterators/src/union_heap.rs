@@ -81,6 +81,26 @@ where
         }
     }
 
+    /// Returns the total number of children (including exhausted ones).
+    pub const fn num_children_total(&self) -> usize {
+        self.children.len()
+    }
+
+    /// Returns the number of currently active (non-exhausted) children.
+    pub const fn num_children_active(&self) -> usize {
+        self.children.num_active()
+    }
+
+    /// Returns a shared reference to the child at `idx`.
+    pub fn child_at(&self, idx: usize) -> &I {
+        self.children.get(idx)
+    }
+
+    /// Returns a mutable iterator over all children (including exhausted ones).
+    pub fn children_mut(&mut self) -> impl Iterator<Item = &mut I> {
+        self.children.iter_all_mut()
+    }
+
     /// Consumes the iterator and returns a [`super::UnionTrimmed`] over the same children.
     pub fn into_trimmed(self, limit: usize, asc: bool) -> super::UnionTrimmed<'index, I> {
         super::UnionTrimmed::new(self.children.into_inner(), limit, asc)

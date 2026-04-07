@@ -20,7 +20,6 @@ extern "C" {
 #include "varint.h"
 #include "iterators/hybrid_reader.h"
 #include "iterators_rs.h"
-#include "iterators/union_iterator.h"
 #include "iterators/intersection_iterator.h"
 #include "util/arr.h"
 #include "util/references.h"

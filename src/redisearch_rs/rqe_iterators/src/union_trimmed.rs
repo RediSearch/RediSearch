@@ -179,6 +179,11 @@ where
         self.children.len()
     }
 
+    /// Returns the number of currently active (non-exhausted, non-trimmed) children.
+    pub const fn num_children_active(&self) -> usize {
+        self.children.num_active()
+    }
+
     /// Returns a shared reference to the child at `idx` (across all children).
     pub fn child_at(&self, idx: usize) -> &I {
         self.children.get(idx)

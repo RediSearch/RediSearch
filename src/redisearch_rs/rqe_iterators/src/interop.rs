@@ -40,7 +40,7 @@ where
     I: RQEIterator<'index> + 'index,
 {
     /// Heap-allocate a wrapper with the given `ProfileChildren` callback.
-    fn boxed_new_inner(
+    pub fn boxed_new_inner(
         inner: I,
         profile_children: Option<unsafe extern "C" fn(*mut QueryIterator) -> *mut QueryIterator>,
     ) -> *mut QueryIterator {

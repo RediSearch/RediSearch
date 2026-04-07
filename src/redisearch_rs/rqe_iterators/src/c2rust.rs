@@ -342,9 +342,14 @@ impl<'index> RQEIterator<'index> for CRQEIterator {
             }
             IteratorType::Union if prioritize_union_children => {
                 let ptr = std::ptr::from_ref(self.as_ref());
-                // SAFETY: `type_` guarantees `ptr` points to a `UnionIterator` whose first field
-                // is the `QueryIterator` base — the cast is valid by C struct layout.
-                let n = unsafe { (*ptr.cast::<ffi::UnionIterator>()).num as usize };
+                #[expect(improper_ctypes)]
+                unsafe extern "C" {
+                    fn GetUnionIteratorNumActiveChildren(it: *const ffi::QueryIterator) -> usize;
+                }
+                // SAFETY: `type_` guarantees `ptr` was produced by `NewUnionIterator`
+                // (the sole constructor for union iterators), so
+                // `GetUnionIteratorNumActiveChildren` can safely recover the Rust wrapper.
+                let n = unsafe { GetUnionIteratorNumActiveChildren(ptr) };
                 n.max(1) as f64
             }
             IteratorType::InvIdxNumeric => 1.0,

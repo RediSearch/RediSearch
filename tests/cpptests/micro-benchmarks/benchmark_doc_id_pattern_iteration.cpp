@@ -14,7 +14,7 @@
 #include "redisearch.h"
 #include "iterators/iterator_api.h"
 #include "iterators/intersection_iterator.h"
-#include "iterators/union_iterator.h"
+#include "iterators_rs.h"
 #include "iterators/idlist_iterator.h"
 
 #include <random>
