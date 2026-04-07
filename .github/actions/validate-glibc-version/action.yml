@@ -12,8 +12,11 @@ runs:
       run: |
         # Validate glibc version
 
+        # Capture ldd output once (|| true guards against set -e)
+        ldd_output=$(ldd --version 2>&1 || true)
+
         # Skip musl-based systems (e.g. Alpine) — no glibc to validate
-        if ldd --version 2>&1 | grep -qi musl; then
+        if grep -qi musl <<< "$ldd_output"; then
           echo ">>> Skipping: musl-based system (no glibc)"
           exit 0
         fi
@@ -28,7 +31,7 @@ runs:
         binary_versions=$(nm -D "$BINARY" | grep -oE 'GLIBC_[0-9.]+' | sed 's/GLIBC_//' | sort -Vu)
 
         # Max GLIBC version available on this platform
-        platform_max=$(ldd --version 2>&1 | grep -oE '[0-9]+\.[0-9]+' | head -1)
+        platform_max=$(grep -oE '[0-9]+\.[0-9]+' <<< "$ldd_output" | head -1)
         if [ -z "$platform_max" ]; then
           echo "::error::Could not determine glibc version"
           exit 1
