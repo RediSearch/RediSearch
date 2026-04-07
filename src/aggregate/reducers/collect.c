@@ -128,30 +128,26 @@ static void handleCollectSortBy(ArgParser *parser, const void *value, void *user
       return;
     }
 
-    if (s[0] == '@') {
-      if (cr->num_sort_keys >= COLLECT_MAX_SORT_KEYS) {
-        QueryError_SetWithoutUserDataFmt(opts->status, QUERY_ERROR_CODE_LIMIT,
-          "SORTBY exceeds maximum of %d fields", COLLECT_MAX_SORT_KEYS);
-        return;
-      }
-      if (!ReducerOpts_GetKey(&key_opts, &cr->sort_keys[cr->num_sort_keys])) {
-        return;
-      }
-      cr->num_sort_keys++;
-    } else if (strcasecmp(s, SORT_DIR_ASC) == 0) {
-      ac->offset++;
-      if (cr->num_sort_keys > 0) {
-        SORTASCMAP_SETASC(cr->sortAscMap, cr->num_sort_keys - 1);
-      }
-    } else if (strcasecmp(s, SORT_DIR_DESC) == 0) {
-      ac->offset++;
-      if (cr->num_sort_keys > 0) {
-        SORTASCMAP_SETDESC(cr->sortAscMap, cr->num_sort_keys - 1);
-      }
-    } else {
+    if (s[0] != '@') {
       QueryError_SetWithUserDataFmt(opts->status, QUERY_ERROR_CODE_PARSE_ARGS,
         "MISSING ASC or DESC after sort field", " (%s)", s);
       return;
+    }
+
+    if (cr->num_sort_keys >= COLLECT_MAX_SORT_KEYS) {
+      QueryError_SetWithoutUserDataFmt(opts->status, QUERY_ERROR_CODE_LIMIT,
+        "SORTBY exceeds maximum of %d fields", COLLECT_MAX_SORT_KEYS);
+      return;
+    }
+    if (!ReducerOpts_GetKey(&key_opts, &cr->sort_keys[cr->num_sort_keys])) {
+      return;
+    }
+    cr->num_sort_keys++;
+
+    if (AC_AdvanceIfMatch(ac, SORT_DIR_ASC)) {
+      // ASC is the default; nothing to do.
+    } else if (AC_AdvanceIfMatch(ac, SORT_DIR_DESC)) {
+      SORTASCMAP_SETDESC(cr->sortAscMap, cr->num_sort_keys - 1);
     }
   }
 

@@ -363,7 +363,19 @@ TEST_F(CollectParserTest, FieldsZeroCountRequiresAtLeastOne) {
 TEST_F(CollectParserTest, SortByOnlyDirectionsNoFields) {
   registerKeys({"x"});
   expectError({"FIELDS", "1", "@x", "SORTBY", "1", "ASC"},
-      "SORTBY requires at least one sort field");
+      "MISSING ASC or DESC after sort field");
+}
+
+TEST_F(CollectParserTest, SortByDescBeforeFirstSortField) {
+  registerKeys({"x", "price"});
+  expectError({"FIELDS", "1", "@x", "SORTBY", "2", "DESC", "@price"},
+      "MISSING ASC or DESC after sort field");
+}
+
+TEST_F(CollectParserTest, SortByDuplicateAscAfterField) {
+  registerKeys({"x", "price"});
+  expectError({"FIELDS", "1", "@x", "SORTBY", "3", "@price", "ASC", "ASC"},
+      "MISSING ASC or DESC after sort field");
 }
 
 TEST_F(CollectParserTest, LimitCountExceedsAggregateMax) {
