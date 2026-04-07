@@ -227,6 +227,6 @@ pub extern "C" fn RSSortingVector_New(len: size_t) -> RSSortingVector {
 pub unsafe extern "C" fn RSSortingVector_ClearAndDeAlloc(vec: Option<NonNull<RSSortingVector>>) {
     if let Some(mut vec) = vec {
         // Safety: The caller must ensure that the pointer is valid (1.)
-        unsafe { vec.as_mut() }.clear();
+        unsafe { vec.as_mut() }.reset();
     }
 }

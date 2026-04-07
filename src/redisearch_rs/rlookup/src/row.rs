@@ -285,7 +285,7 @@ impl<'a> RLookupRow<'a> {
                 break;
             }
             if value.is_some() {
-                *value = None;
+                drop(value.take());
                 remaining -= 1;
             }
         }

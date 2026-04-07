@@ -14,7 +14,7 @@ use std::{ffi::c_char, mem::ManuallyDrop, ptr, ptr::NonNull, slice};
 unsafe extern "C" {
     /// The global null sentinel RSValue, defined in `value.c`.
     /// Used for direct pointer comparison instead of calling `RSValue_NullStatic()`.
-    safe static RS_NULL: ffi::RSValue;
+    static RS_NULL: ffi::RSValue;
 }
 
 pub struct RSValueFFIRef<'a>(ManuallyDrop<RSValueFFI>, PhantomData<&'a ffi::RSValue>);

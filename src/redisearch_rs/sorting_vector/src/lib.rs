@@ -179,8 +179,8 @@ impl RSSortingVector {
     ///
     /// After calling this, the vector is in the same state as [`RSSortingVector::empty()`].
     /// Each [`RSValueFFI`] element is dropped (decrementing its refcount) and the
-    /// heap buffer is freed. Calling `clear` on an already-cleared vector is a no-op.
-    pub fn clear(&mut self) {
+    /// heap buffer is freed. Calling `reset` on an already-reset vector is a no-op.
+    pub fn reset(&mut self) {
         self.inner.clear();
         // Shrink to free the allocation, returning to the singleton empty state.
         self.inner.shrink_to_fit();
