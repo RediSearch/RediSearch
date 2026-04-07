@@ -2,6 +2,7 @@ name: Validate glibc version
 description: |
   Checks that the built binary doesn't require a newer glibc than the platform provides.
   Skips gracefully on non-glibc platforms (e.g. musl/Alpine).
+  The action fails for unknown reasons on ubuntu:focal.
 
 runs:
   using: composite
