@@ -32,8 +32,6 @@ mod union_heap;
 pub mod utils;
 pub mod wildcard;
 
-pub mod util;
-
 pub use empty::Empty;
 pub use expiration_checker::{ExpirationChecker, FieldExpirationChecker, NoOpChecker};
 pub use id_list::IdList;

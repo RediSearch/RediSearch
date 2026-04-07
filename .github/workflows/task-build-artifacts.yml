@@ -190,7 +190,7 @@ jobs:
       - name: install build artifacts req
         uses: ./.github/actions/retry-command
         with:
-          command: uv pip install -q -r .install/build_package_requirments.txt
+          command: uv pip install -q -r .install/build_package_requirements.txt
 
       # Get Redis
       - name: Get Redis

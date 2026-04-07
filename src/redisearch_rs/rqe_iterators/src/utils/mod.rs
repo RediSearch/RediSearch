@@ -10,6 +10,10 @@
 //! [`RQEIterator`](crate::RQEIterator) utilities
 
 mod owned_slice;
+mod timeout;
+mod min_heap;
 
 #[doc(inline)]
 pub use self::owned_slice::OwnedSlice;
+pub use timeout::TimeoutContext;
+pub use min_heap::DocIdMinHeap;
