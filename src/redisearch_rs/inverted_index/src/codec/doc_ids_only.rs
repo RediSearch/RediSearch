@@ -48,7 +48,7 @@ impl Decoder for DocIdsOnly {
     }
 
     fn base_result<'index>() -> RSIndexResult<'index> {
-        RSIndexResult::term()
+        RSIndexResult::build_term().build()
     }
 }
 

@@ -56,6 +56,11 @@ fn benchmark_not_iterator(c: &mut Criterion) {
     bencher.bench(c);
 }
 
+fn benchmark_union(c: &mut Criterion) {
+    let bencher = benchers::union::Bencher::default();
+    bencher.bench(c);
+}
+
 fn benchmark_inverted_index_numeric(c: &mut Criterion) {
     let bencher = benchers::inverted_index::NumericBencher::default();
     bencher.bench(c);
@@ -63,6 +68,16 @@ fn benchmark_inverted_index_numeric(c: &mut Criterion) {
 
 fn benchmark_inverted_index_wildcard(c: &mut Criterion) {
     let bencher = benchers::inverted_index::WildcardBencher::default();
+    bencher.bench(c);
+}
+
+fn benchmark_inverted_index_missing(c: &mut Criterion) {
+    let bencher = benchers::inverted_index::MissingBencher::default();
+    bencher.bench(c);
+}
+
+fn benchmark_inverted_index_tag(c: &mut Criterion) {
+    let bencher = benchers::inverted_index::TagBencher::default();
     bencher.bench(c);
 }
 
@@ -151,8 +166,11 @@ criterion_group!(
     benchmark_wildcard,
     benchmark_intersection,
     benchmark_optional,
+    benchmark_union,
     benchmark_inverted_index_numeric,
     benchmark_inverted_index_wildcard,
+    benchmark_inverted_index_missing,
+    benchmark_inverted_index_tag,
     benchmark_inverted_index_term,
 );
 

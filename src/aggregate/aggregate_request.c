@@ -9,6 +9,7 @@
 #include "aggregate.h"
 #include "reducer.h"
 
+#include <cursor.h>
 #include <query.h>
 #include <extension.h>
 #include <result_processor.h>
@@ -27,6 +28,8 @@
 #include "slots_tracker.h"
 #include "asm_state_machine.h"
 #include "coord/rmr/command.h"
+#include "search_disk.h"
+#include "search_disk_utils.h"
 
 extern RSConfig RSGlobalConfig;
 
@@ -303,6 +306,8 @@ static int handleCommonArgs(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryEr
       *papCtx->reqflags |= QEXEC_F_NO_SORT;
     } else {
       // Handle SORTBY (also covers SORTBY 0 MAX n)
+      // Note: SORTBY validation for disk indexes is deferred to after query parsing
+      // to allow SORTBY *only* on vector distance fields (done in AREQ_Compile)
       REQFLAGS_AddFlags(papCtx->reqflags, QEXEC_F_HAS_SORTBY);
       PLN_ArrangeStep *arng = AGPLN_GetArrangeStep(papCtx->plan);
       bool existingSort = (arng != NULL);
@@ -567,7 +572,7 @@ static int parseQueryLegacyArgs(ArgsCursor *ac, RSSearchOptions *options, bool *
 }
 
 static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts,
-                          QueryAST *ast, AggregatePlan *plan, QueryError *status) {
+                          QueryAST *ast, AggregatePlan *plan, bool isDiskIndex, QueryError *status) {
   // Parse query-specific arguments..
   const char *languageStr = NULL;
   ArgsCursor returnFields = {0};
@@ -621,6 +626,9 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
         QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "SUMMARIZE is not supported on FT.AGGREGATE");
         return REDISMODULE_ERR;
       }
+      if (!SearchDisk_MarkUnsupportedArgumentIfDiskEnabled("SUMMARIZE", status)) {
+        return REDISMODULE_ERR;
+      }
       if (ParseSummarize(ac, &req->outFields) == REDISMODULE_ERR) {
         QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Bad arguments for SUMMARIZE");
         return REDISMODULE_ERR;
@@ -630,6 +638,9 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
     } else if (AC_AdvanceIfMatch(ac, "HIGHLIGHT")) {
       if(!ensureSimpleMode(req)) {
         QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "HIGHLIGHT is not supported on FT.AGGREGATE");
+        return REDISMODULE_ERR;
+      }
+      if (!SearchDisk_MarkUnsupportedArgumentIfDiskEnabled("HIGHLIGHT", status)) {
         return REDISMODULE_ERR;
       }
 
@@ -683,6 +694,19 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
       } else {
         break;
       }
+    }
+  }
+
+  // Block SLOP and INORDER for disk indexes
+  // slop defaults to -1, so any other value means it was explicitly set
+  if (isDiskIndex && searchOpts->slop != -1) {
+    if (!SearchDisk_MarkUnsupportedArgumentIfDiskEnabled("SLOP", status)) {
+      return REDISMODULE_ERR;
+    }
+  }
+  if (isDiskIndex && (searchOpts->flags & Search_InOrder)) {
+    if (!SearchDisk_MarkUnsupportedArgumentIfDiskEnabled("INORDER", status)) {
+      return REDISMODULE_ERR;
     }
   }
 
@@ -749,6 +773,14 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
     }
     FieldList_RestrictReturn(&req->outFields);
   }
+
+  // Currently we don't support loading fields from disk indexes
+  // We require the NOCONTENT flag to be set or a RETURN 0 clause to be specified
+  if (isDiskIndex && !(req->reqflags & QEXEC_F_SEND_NOFIELDS)) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_FLEX_SEARCH_NOCONTENT_OR_RETURN0_REQUIRED, NULL);
+    return REDISMODULE_ERR;
+  }
+
   return REDISMODULE_OK;
 }
 
@@ -979,8 +1011,12 @@ error:
   return REDISMODULE_ERR;
 }
 
-static int handleLoad(AGGPlan *plan, uint32_t *reqflags, ArgsCursor *ac, QueryError *status) {
+static int handleLoad(AGGPlan *plan, uint32_t *reqflags, ArgsCursor *ac, bool isDiskIndex, QueryError *status) {
   ArgsCursor loadfields = {0};
+  if (isDiskIndex) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_FLEX_SEARCH_LOAD_UNSUPPORTED, NULL);
+    return REDISMODULE_ERR;
+  }
   int rc = AC_GetVarArgs(ac, &loadfields);
   if (rc == AC_ERR_PARSE) {
     // Didn't get a number, but we might have gotten a '*'
@@ -1037,6 +1073,7 @@ AREQ *AREQ_New(void) {
   req->keySpaceVersion = INVALID_KEYSPACE_VERSION;
   req->querySlots = NULL;
   RequestSyncCtx_Init(&req->syncCtx);
+  req->storedReplyState.err = QueryError_Default();
   return req;
 }
 
@@ -1048,21 +1085,9 @@ void AREQ_SetTimedOut(AREQ *req) {
   atomic_store_explicit(&req->syncCtx.timedOut, true, memory_order_release);
 }
 
-bool AREQ_TryClaimReply(AREQ *req) {
-  uint8_t expected = ReplyState_NotReplied;
-  return atomic_compare_exchange_strong_explicit(&req->syncCtx.replyState, &expected,
-      ReplyState_Replying, memory_order_acq_rel, memory_order_acquire);
-}
 
-void AREQ_MarkReplied(AREQ *req) {
-  atomic_store_explicit(&req->syncCtx.replyState, ReplyState_Replied, memory_order_release);
-}
 
-uint8_t AREQ_GetReplyState(AREQ *req) {
-  return atomic_load_explicit(&req->syncCtx.replyState, memory_order_acquire);
-}
-
-int parseAggPlan(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryError *status) {
+int parseAggPlan(ParseAggPlanContext *papCtx, ArgsCursor *ac, bool isDiskIndex, QueryError *status) {
   while (!AC_IsAtEnd(ac)) {
     int rv = handleCommonArgs(papCtx, ac, status);
     if (rv == ARG_HANDLED) {
@@ -1084,7 +1109,7 @@ int parseAggPlan(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryError *status
         return REDISMODULE_ERR;
       }
     } else if (AC_AdvanceIfMatch(ac, "LOAD")) {
-      if (handleLoad(papCtx->plan, papCtx->reqflags, ac, status) != REDISMODULE_OK) {
+      if (handleLoad(papCtx->plan, papCtx->reqflags, ac, isDiskIndex, status) != REDISMODULE_OK) {
         return REDISMODULE_ERR;
       }
     } else if (AC_AdvanceIfMatch(ac, "FILTER")) {
@@ -1125,7 +1150,7 @@ static bool shouldCheckInPipelineTimeout(AREQ *req) {
 
 }
 
-int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *status) {
+int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, bool isDiskIndex, QueryError *status) {
   req->args = rm_malloc(sizeof(*req->args) * argc);
   req->nargs = argc;
   // Copy the arguments into an owned array of sds strings
@@ -1148,7 +1173,7 @@ int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *stat
   initializeAREQ(req);
   RSSearchOptions *searchOpts = &req->searchopts;
   ParseAggPlanContext papCtx;
-  if (parseQueryArgs(&ac, req, searchOpts, &req->ast, AREQ_AGGPlan(req), status) != REDISMODULE_OK) {
+  if (parseQueryArgs(&ac, req, searchOpts, &req->ast, AREQ_AGGPlan(req), isDiskIndex, status) != REDISMODULE_OK) {
     goto error;
   }
 
@@ -1168,7 +1193,7 @@ int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *stat
     .keySpaceVersion = &req->keySpaceVersion,
     .coordDispatchTime = &req->profileClocks.coordDispatchTime,
   };
-  if (parseAggPlan(&papCtx, &ac, status) != REDISMODULE_OK) {
+  if (parseAggPlan(&papCtx, &ac, isDiskIndex, status) != REDISMODULE_OK) {
     goto error;
   }
 
@@ -1401,6 +1426,25 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
     opts->scorerName = RSGlobalConfig.defaultScorer;
   }
 
+  // Block scorers that use slop for disk indexes
+  if (SearchDisk_IsEnabledForValidation()) {
+    if (strcasecmp(opts->scorerName, TFIDF_SCORER_NAME) == 0) {
+      if (!SearchDisk_MarkUnsupportedArgumentIfDiskEnabled("TFIDF scorer", status)) {
+        return REDISMODULE_ERR;
+      }
+    }
+    if (strcasecmp(opts->scorerName, TFIDF_DOCNORM_SCORER_NAME) == 0) {
+      if (!SearchDisk_MarkUnsupportedArgumentIfDiskEnabled("TFIDF.DOCNORM scorer", status)) {
+        return REDISMODULE_ERR;
+      }
+    }
+    if (strcasecmp(opts->scorerName, BM25_SCORER_NAME) == 0) {
+      if (!SearchDisk_MarkUnsupportedArgumentIfDiskEnabled("BM25 scorer", status)) {
+        return REDISMODULE_ERR;
+      }
+    }
+  }
+
   bool resp3 = req->protocol == 3;
   if (SetValueFormat(resp3, isSpecJson(index), &req->reqflags, status) != REDISMODULE_OK) {
     return REDISMODULE_ERR;
@@ -1470,8 +1514,34 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
   return REDISMODULE_OK;
 }
 
+void ChunkReplyState_Destroy(ChunkReplyState *state) {
+  // Free any stored results that weren't consumed
+  // (e.g., if timeout occurred before reply_callback ran)
+  if (state->results) {
+    for (size_t i = 0; i < array_len(state->results); i++) {
+      SearchResult_Destroy(state->results[i]);
+      rm_free(state->results[i]);
+    }
+    array_free(state->results);
+    state->results = NULL;
+  }
+
+  // Timeout edge case: cursor wasn't handled by reply_callback.
+  // See ChunkReplyState ownership model in aggregate.h for full explanation.
+  // We must clear execState before Cursor_Free to prevent the AREQ_DecrRef loop.
+  if (state->cursor) {
+    state->cursor->execState = NULL;
+    Cursor_Free(state->cursor);
+    state->cursor = NULL;
+  }
+
+  // Clear stored error state
+  QueryError_ClearError(&state->err);
+}
 
 static void AREQ_Free(AREQ *req) {
+  ChunkReplyState_Destroy(&req->storedReplyState);
+
   // Check if rootiter exists but pipeline was never built (no result processors)
   // In this case, we need to free the rootiter manually since no RPQueryIterator
   // was created to take ownership of it.

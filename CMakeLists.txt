@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.13)
+cmake_minimum_required(VERSION 3.15)
 
 include(CheckCCompilerFlag)
 
@@ -28,21 +28,21 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 function(setup_cc_options)
     message("# CMAKE_C_COMPILER_ID: " ${CMAKE_C_COMPILER_ID})
 
-    # Common compiler flags
-    set(CMAKE_C_FLAGS "-fPIC -g -pthread -fno-strict-aliasing -Wno-unused-function -Wno-unused-variable -Wno-sign-compare -fcommon -funsigned-char" PARENT_SCOPE)
-    set(CMAKE_CXX_FLAGS "-fPIC -g -pthread -fno-strict-aliasing -Wno-unused-function -Wno-unused-variable -Wno-sign-compare" PARENT_SCOPE)
+    # Common compiler flags — append to any user/cache-provided flags
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fPIC -g -pthread -fno-strict-aliasing -Wno-unused-function -Wno-unused-variable -Wno-sign-compare -fcommon -funsigned-char" PARENT_SCOPE)
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fPIC -g -pthread -fno-strict-aliasing -Wno-unused-function -Wno-unused-variable -Wno-sign-compare" PARENT_SCOPE)
     set(CMAKE_CXX_STANDARD 20)
-    # Release/Debug/Profile specific flags
+
+    # Config-specific flags only — CMake appends these to CMAKE_C/CXX_FLAGS automatically
     if(CMAKE_BUILD_TYPE STREQUAL "Debug")
-        set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS} -O0 -fno-omit-frame-pointer -ggdb" PARENT_SCOPE)
-        set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS} -O0 -fno-omit-frame-pointer -ggdb" PARENT_SCOPE)
+        set(CMAKE_C_FLAGS_DEBUG "-O0 -fno-omit-frame-pointer -ggdb" PARENT_SCOPE)
+        set(CMAKE_CXX_FLAGS_DEBUG "-O0 -fno-omit-frame-pointer -ggdb" PARENT_SCOPE)
     elseif(PROFILE)
-        set(CMAKE_C_FLAGS_RELWITHDEBINFO "${CMAKE_C_FLAGS} -O2 -fno-omit-frame-pointer" PARENT_SCOPE)
-        set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "${CMAKE_CXX_FLAGS} -O2 -fno-omit-frame-pointer" PARENT_SCOPE)
+        set(CMAKE_C_FLAGS_RELWITHDEBINFO "-O2 -fno-omit-frame-pointer" PARENT_SCOPE)
+        set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "-O2 -fno-omit-frame-pointer" PARENT_SCOPE)
     else()
-        # Default to Release flags
-        set(CMAKE_C_FLAGS_RELWITHDEBINFO "${CMAKE_C_FLAGS} -O3" PARENT_SCOPE)
-        set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "${CMAKE_CXX_FLAGS} -O3" PARENT_SCOPE)
+        set(CMAKE_C_FLAGS_RELWITHDEBINFO "-O3" PARENT_SCOPE)
+        set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "-O3" PARENT_SCOPE)
     endif()
 endfunction()
 

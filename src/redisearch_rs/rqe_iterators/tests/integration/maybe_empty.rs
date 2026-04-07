@@ -8,7 +8,8 @@
 */
 
 use rqe_iterators::{
-    RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome, maybe_empty::MaybeEmpty,
+    IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
+    maybe_empty::MaybeEmpty,
 };
 
 #[derive(Default)]
@@ -53,6 +54,23 @@ impl<'index> RQEIterator<'index> for Infinite<'index> {
     fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         Ok(RQEValidateStatus::Ok)
     }
+
+    #[inline(always)]
+    fn type_(&self) -> IteratorType {
+        IteratorType::Mock
+    }
+}
+
+#[test]
+fn type_empty() {
+    let it = MaybeEmpty::<Infinite>::new_empty();
+    assert_eq!(it.type_(), IteratorType::Empty);
+}
+
+#[test]
+fn type_not_empty() {
+    let it = MaybeEmpty::new(Infinite::default());
+    assert_eq!(it.type_(), IteratorType::Mock);
 }
 
 #[test]
@@ -120,7 +138,9 @@ fn skip_to_not_empty() {
         assert_eq!(
             outcome,
             Some(SkipToOutcome::Found(
-                &mut inverted_index::RSIndexResult::virt().doc_id(id)
+                &mut inverted_index::RSIndexResult::build_virt()
+                    .doc_id(id)
+                    .build()
             ))
         );
         assert_eq!(it.last_doc_id(), id);

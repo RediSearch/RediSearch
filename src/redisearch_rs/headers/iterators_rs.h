@@ -8,7 +8,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include "iterators/iterator_api.h"
-#include "iterators/inverted_index_iterator.h"
+#include "tag_index.h"
 #include "numeric_range_tree.h"
 #include "query.h"
 
@@ -95,37 +95,136 @@ QueryIterator *NewSortedIdListIterator(t_docId *ids, uint64_t num, double weight
 QueryIterator *NewUnsortedIdListIterator(t_docId *ids, uint64_t num, double weight);
 
 /**
+ * Create a new intersection iterator.
+ *
+ * Takes ownership of both the `its` array and all child iterators it contains.
+ * Delegates reduction to the C `IntersectionIteratorReducer` before constructing the iterator.
+ *
+ * # Safety
+ *
+ * 1. `its` must be a valid non-null pointer to an array of `num` `QueryIterator*` values,
+ *    allocated with the Redis allocator (`rm_malloc`). Ownership is transferred to this function.
+ * 2. Every non-null pointer in `its` must be a valid `QueryIterator` whose callbacks are set.
+ * 3. Null entries in `its` are treated as empty iterators.
+ */
+QueryIterator *NewIntersectionIterator(QueryIterator **its,
+                                       size_t num,
+                                       int32_t max_slop,
+                                       bool in_order,
+                                       double weight);
+
+/**
+ * Returns the number of child iterators held by the intersection iterator.
+ *
+ * # Safety
+ *
+ * 1. `header` must be a valid non-null pointer created via [`NewIntersectionIterator`].
+ */
+size_t GetIntersectionIteratorNumChildren(const QueryIterator *header);
+
+/**
+ * Returns a non-owning raw pointer to the child at `idx`.
+ *
+ * The returned pointer is valid as long as the intersection iterator is alive and no
+ * structural modifications are made (e.g. via [`AddIntersectionIteratorChild`] or
+ * [`ForEachIntersectionChildMut`]).
+ *
+ * # Safety
+ *
+ * 1. `header` must be a valid non-null pointer created via [`NewIntersectionIterator`].
+ * 2. `idx` must be less than [`GetIntersectionIteratorNumChildren`]`(header)`.
+ */
+const QueryIterator *GetIntersectionIteratorChild(const QueryIterator *header, size_t idx);
+
+/**
+ * Append a new child iterator to the intersection.
+ *
+ * Transfers ownership of `child` to the intersection. Updates the estimated result count
+ * if the new child has a lower estimate than the current minimum.
+ *
+ * # Note
+ *
+ * Unlike the constructor, this method does **not** re-sort the child list after insertion.
+ *
+ * # Safety
+ *
+ * 1. `header` must be a valid non-null pointer created via [`NewIntersectionIterator`].
+ * 2. `child` must be a valid non-null pointer to a `QueryIterator`, not aliased.
+ */
+void AddIntersectionIteratorChild(QueryIterator *header, QueryIterator *child);
+
+/**
+ * Apply `callback` to each child iterator slot, passing a mutable `QueryIterator**`.
+ *
+ * This is designed for use with `Profile_AddIters`, which replaces each child with a
+ * profile-wrapping iterator in place. The callback receives a pointer to the raw pointer
+ * stored inside each [`CRQEIterator`] child, allowing it to update (replace) that pointer.
+ *
+ * This is safe because [`CRQEIterator`] is `#[repr(transparent)]` over
+ * `NonNull<QueryIterator>`, which has the same memory layout as `*mut QueryIterator`.
+ * The callback's in-place mutation of the slot directly updates the `CRQEIterator`'s
+ * internal pointer, so the intersection will subsequently own (and free) the new iterator.
+ *
+ * # Safety
+ *
+ * 1. `header` must be a valid non-null pointer created via [`NewIntersectionIterator`].
+ * 2. `callback` must be a valid function pointer.
+ * 3. The callback must replace `*slot` with a valid non-null `QueryIterator*` that takes
+ *    ownership of the original iterator (i.e. `NewProfileIterator` semantics).
+ */
+void ForEachIntersectionChildMut(QueryIterator *header, void (*callback)(QueryIterator**));
+
+/**
  * Gets the flags of the underlying IndexReader from an inverted index iterator.
  *
  * # Safety
  *
  * 1. `it` must be a valid non-NULL pointer to a `QueryIterator`.
- * 2. If `it` iterator type is IteratorType_INV_IDX_NUMERIC_ITERATOR, it has been created using `NewInvIndIterator_NumericQuery`.
- * 3. If `it` iterator type is IteratorType_INV_IDX_TERM_ITERATOR, it has been created using `NewInvIndIterator_TermQuery`.
- * 4. If `it` has a different iterator type (other than INV_IDX_WILDCARD_ITERATOR and INV_IDX_TERM_ITERATOR), its `reader`
- *    field must be a valid non-NULL pointer to an `IndexReader`.
+ * 2. If `it` iterator type is [`IteratorType::InvIdxNumeric`], it has been created using `NewInvIndIterator_NumericQuery`.
+ * 3. If `it` iterator type is [`IteratorType::InvIdxTerm`], it has been created using `NewInvIndIterator_TermQuery`.
+ * 4. If `it` iterator type is [`IteratorType::InvIdxMissing`], it has been created using `NewInvIndIterator_MissingQuery`.
+ * 5. If `it` iterator type is [`IteratorType::InvIdxTag`], it has been created using `NewInvIndIterator_TagQuery`.
+ *
+ * # Panics
+ *
+ * Panics if the iterator type is not one of the supported inverted index
+ * iterator types.
  *
  * # Returns
  *
  * The flags of the `IndexReader`.
  */
-IndexFlags InvIndIterator_GetReaderFlags(const InvIndIterator *it);
+IndexFlags InvIndIterator_GetReaderFlags(const QueryIterator *it);
 
 /**
- * Swap the inverted index of an inverted index iterator. This is only used by C tests
- * to trigger revalidation on the iterator's underlying reader.
+ * Creates a new missing-field inverted index iterator.
+ *
+ * # Parameters
+ *
+ * * `idx` - Pointer to the missing-field inverted index (DocIdsOnly or RawDocIdsOnly encoded).
+ * * `sctx` - Pointer to the Redis search context.
+ * * `field_index` - The index of the field in `spec.fields` whose missing documents are tracked.
+ *
+ * # Returns
+ *
+ * A pointer to a `QueryIterator` that can be used from C code.
  *
  * # Safety
  *
- * 1. `it` must be a valid non-NULL pointer to an `InvIndIterator`.
- * 2. If `it` iterator type is `IteratorType_INV_IDX_WILDCARD_ITERATOR`, it has been created
- *    using `NewInvIndIterator_WildcardQuery`.
- * 3. If `it` is a C iterator, its `reader` field must be a valid non-NULL
- *    pointer to an `IndexReader`.
- * 4. `ii` must be a valid non-NULL pointer to an `InvertedIndex` whose type matches the
- *    iterator's underlying index type.
+ * The following invariants must be upheld when calling this function:
+ *
+ * 1. `idx` must be a valid pointer to an `InvertedIndex` and cannot be NULL.
+ * 2. `idx` must remain valid between `revalidate()` calls, since the revalidation
+ *    mechanism detects when the index has been replaced via `spec.missingFieldDict`
+ *    lookup.
+ * 3. `sctx` must be a valid pointer to a `RedisSearchCtx` and cannot be NULL.
+ * 4. `sctx` and `sctx.spec` must remain valid for the lifetime of the returned iterator.
+ * 5. `field_index` must be a valid index into `sctx.spec.fields`.
+ * 6. `sctx.spec.missingFieldDict` must be a non-null, valid dict pointer.
  */
-void InvIndIterator_Rs_SwapIndex(InvIndIterator *it, const InvertedIndex *ii);
+QueryIterator *NewInvIndIterator_MissingQuery(const InvertedIndex *idx,
+                                              const RedisSearchCtx *sctx,
+                                              t_fieldIndex field_index);
 
 /**
  * Creates a new numeric inverted index iterator for querying numeric fields.
@@ -174,13 +273,13 @@ QueryIterator *NewInvIndIterator_NumericQuery(const InvertedIndexNumeric *idx,
  *
  * # Safety
  *
- * 1. `it` must be a valid pointer to a `NumericInvIndIterator` created by `NewInvIndIterator_NumericQuery`.
+ * 1. `it` must be a valid pointer to a `QueryIterator` created by `NewInvIndIterator_NumericQuery`.
  *
  * # Returns
  *
  * A pointer to the numeric filter, or NULL if no filter was provided when creating the iterator.
  */
-const NumericFilter *NumericInvIndIterator_GetNumericFilter(const NumericInvIndIterator *it);
+const NumericFilter *NumericInvIndIterator_GetNumericFilter(const QueryIterator *it);
 
 /**
  * Gets the minimum range value for profiling a numeric iterator.
@@ -193,7 +292,7 @@ const NumericFilter *NumericInvIndIterator_GetNumericFilter(const NumericInvIndI
  *
  * The minimum range value from the filter, or negative infinity if no filter was provided.
  */
-double NumericInvIndIterator_GetProfileRangeMin(const NumericInvIndIterator *it);
+double NumericInvIndIterator_GetProfileRangeMin(const QueryIterator *it);
 
 /**
  * Gets the maximum range value for profiling a numeric iterator.
@@ -206,7 +305,7 @@ double NumericInvIndIterator_GetProfileRangeMin(const NumericInvIndIterator *it)
  *
  * The maximum range value from the filter, or positive infinity if no filter was provided.
  */
-double NumericInvIndIterator_GetProfileRangeMax(const NumericInvIndIterator *it);
+double NumericInvIndIterator_GetProfileRangeMax(const QueryIterator *it);
 
 /**
  * Creates numeric range iterators for all ranges in the tree matching the filter.
@@ -236,6 +335,48 @@ struct NumericRangeIteratorsResult CreateNumericRangeIterators(const NumericRang
                                                                const RedisSearchCtx *sctx,
                                                                const NumericFilter *f,
                                                                const FieldFilterContext *field_ctx);
+
+/**
+ * Creates a new tag inverted index iterator.
+ *
+ * # Parameters
+ *
+ * * `idx` - Pointer to the tag's inverted index ([`DocIdsOnly`] or [`RawDocIdsOnly`] encoded).
+ * * `tag_idx` - Pointer to the [`TagIndex`](ffi::TagIndex) containing the `TrieMap` of tag values.
+ * * `sctx` - Pointer to the Redis search context.
+ * * `field_mask_or_index` - Field mask or field index to filter on.
+ * * `term` - Pointer to the query term representing the tag value. Ownership is
+ *   transferred to the iterator.
+ * * `weight` - Weight to apply to the term results.
+ *
+ * # Returns
+ *
+ * A pointer to a heap-allocated [`QueryIterator`](ffi::QueryIterator) that can be used from C
+ * code. The caller is responsible for freeing the iterator by calling its `Free` callback
+ * (i.e. `it->Free(it)`).
+ *
+ * # Safety
+ *
+ * The following invariants must be upheld when calling this function:
+ *
+ * 1. `idx` must be a valid pointer to a [`DocIdsOnly`] or [`RawDocIdsOnly`]
+ *    [`InvertedIndex`](ffi::InvertedIndex) and cannot be NULL.
+ * 2. `idx` must remain valid between [`revalidate()`](rqe_iterators::RQEIterator::revalidate) calls, since the revalidation
+ *    mechanism detects when the index has been replaced via [`TagIndex`](ffi::TagIndex) `TrieMap` lookup.
+ * 3. `tag_idx` must be a valid pointer to a [`TagIndex`](ffi::TagIndex) and cannot be NULL.
+ * 4. `tag_idx` and `tag_idx.values` must remain valid for the lifetime of the returned
+ *    iterator.
+ * 5. `sctx` must be a valid pointer to a [`RedisSearchCtx`](ffi::RedisSearchCtx) and cannot be NULL.
+ * 6. `sctx` and `sctx.spec` must remain valid for the lifetime of the returned iterator.
+ * 7. `term` must be a valid pointer to a heap-allocated [`RSQueryTerm`] (e.g. created by
+ *    `NewQueryTerm`) and cannot be NULL. Ownership is transferred to the iterator.
+ */
+QueryIterator *NewInvIndIterator_TagQuery(const InvertedIndex *idx,
+                                          const TagIndex *tag_idx,
+                                          const RedisSearchCtx *sctx,
+                                          FieldMaskOrIndex field_mask_or_index,
+                                          RSQueryTerm *term,
+                                          double weight);
 
 /**
  * Creates a new term inverted index iterator for querying term fields.

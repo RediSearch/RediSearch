@@ -8,6 +8,7 @@
 */
 
 use rqe_iterators::{
+    IteratorType,
     empty::Empty,
     {RQEIterator, RQEValidateStatus},
 };
@@ -54,6 +55,12 @@ fn rewind() {
 
     assert!(matches!(it.read(), Ok(None)));
     assert!(it.at_eof());
+}
+
+#[test]
+fn type_() {
+    let it = Empty::default();
+    assert_eq!(it.type_(), IteratorType::Empty);
 }
 
 #[test]

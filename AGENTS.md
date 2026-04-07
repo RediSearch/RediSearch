@@ -64,6 +64,8 @@ src/redisearch_rs/            # Rust codebase
 ├── c_entrypoint/             # FFI layer (C bindings for Rust types and functions)
 │   └── *_ffi/                # Per-module FFI crates
 │   └── redisearch_rs/        # Entrypoint for Rust-native functionality used by the C codebase
+├── c_wrappers/               # Idiomatic Rust APIs on top of C types
+│   └── buffer, c_trie, ...   # Per-type wrapper crates
 └── Cargo.toml                # Workspace root
 ```
 
@@ -84,6 +86,7 @@ Follow [/rust-docs-guidelines](.skills/rust-docs-guidelines/SKILL.md) when writi
 Invoke [/port-c-module](.skills/port-c-module/SKILL.md) to plan the porting of a C module.
 Invoke [/write-rust-tests](.skills/write-rust-tests/SKILL.md) to add tests to Rust code.
 Invoke [/verify](.skills/verify/SKILL.md) to verify the correctness of your work before wrapping up.
+Invoke [/jj-fix-conflicts](.skills/jj-fix-conflicts/SKILL.md) to resolve conflicts in a jj changes.
 
 ## License Header (Required)
 ```

@@ -27,6 +27,7 @@
 #include "rpnet.h"
 #include "coord/dist_utils.h"
 #include "info/global_stats.h"
+#include "search_disk.h"
 
 static const RLookupKey *keyForField(RPNet *nc, const char *s) {
   RLOOKUP_FOREACH(kk, nc->lookup, {
@@ -338,7 +339,7 @@ static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString *
     }
   }
 
-  rc = AREQ_Compile(r, argv + ac.offset, argc - ac.offset, status);
+  rc = AREQ_Compile(r, argv + ac.offset, argc - ac.offset, SearchDisk_IsEnabledForValidation(), status);
   if (rc != REDISMODULE_OK) return REDISMODULE_ERR;
 
   r->profile = printAggProfile;

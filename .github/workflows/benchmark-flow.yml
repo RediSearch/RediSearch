@@ -19,6 +19,9 @@ on:
       benchmark_glob:
         type: string
         default: "*.yml"
+      benchmark_filter:
+        type: string
+        default: ""
       triggering_env:
         type: string
         default: "circleci" # TODO: change to "github-actions" when ready on grafana
@@ -37,7 +40,7 @@ on:
 
 jobs:
   benchmark-steps:
-    name: "Benchmark ${{ inputs.allowed_setups }} (${{ inputs.benchmark_runner_group_member_id }}/${{ inputs.benchmark_runner_group_total }}) filter=${{ inputs.benchmark_glob }} "
+    name: "Benchmark ${{ inputs.allowed_setups }} (${{ inputs.benchmark_runner_group_member_id }}/${{ inputs.benchmark_runner_group_total }}) filter=${{ inputs.benchmark_glob }}${{ inputs.benchmark_filter && format(' narrowed={0}', inputs.benchmark_filter) || '' }}"
     runs-on: ubuntu-24.04  # We need the os to be a match to the base image used in the benchmarks.
     defaults:
       run:
@@ -47,30 +50,69 @@ jobs:
         uses: actions/checkout@v4
         with:
           submodules: recursive
+      - name: Compute effective benchmark filter
+        id: benchmark-filter
+        working-directory: tests/benchmarks
+        env:
+          BENCHMARK_GLOB: ${{ inputs.benchmark_glob }}
+          BENCHMARK_FILTER: ${{ inputs.benchmark_filter }}
+        run: |
+          if [ -n "${BENCHMARK_FILTER}" ]; then
+            effective_files=""
+            for f in ${BENCHMARK_GLOB}; do
+              [ -f "$f" ] || continue
+              if [[ "$f" == ${BENCHMARK_FILTER} ]]; then
+                effective_files="${effective_files:+${effective_files} }$f"
+              fi
+            done
+            if [ -z "$effective_files" ]; then
+              echo "::notice::No benchmarks match both '${BENCHMARK_GLOB}' and '${BENCHMARK_FILTER}'. Skipping."
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            echo "effective_glob=${effective_files}" >> "$GITHUB_OUTPUT"
+          else
+            echo "effective_glob=${BENCHMARK_GLOB}" >> "$GITHUB_OUTPUT"
+          fi
+          echo "skip=false" >> "$GITHUB_OUTPUT"
       - name: Setup specific
+        if: steps.benchmark-filter.outputs.skip != 'true'
         working-directory: .install
         run: ./install_script.sh sudo
       - name: Setup tests dependencies
+        if: steps.benchmark-filter.outputs.skip != 'true'
         run: .install/test_deps/common_installations.sh sudo
       - name: Install Boost
+        if: steps.benchmark-filter.outputs.skip != 'true'
         working-directory: .install
         run: ./install_boost.sh
 
+      - name: Setup sccache
+        if: steps.benchmark-filter.outputs.skip != 'true'
+        uses: ./.github/actions/setup-sccache
       - name: Build RediSearch
+        if: steps.benchmark-filter.outputs.skip != 'true'
         run: make build ${{ inputs.profile_env == 1 && 'PROFILE' || ''}}
+      - name: Show sccache stats
+        if: steps.benchmark-filter.outputs.skip != 'true'
+        run: ${SCCACHE_PATH:-sccache} --show-stats
       - name: Install Python dependencies
+        if: steps.benchmark-filter.outputs.skip != 'true'
         run: |
           pip3 install --upgrade pip
           python3 -m pip install -r tests/benchmarks/requirements.txt
       - name: install terraform
+        if: steps.benchmark-filter.outputs.skip != 'true'
         uses: hashicorp/setup-terraform@v2
         with:
           terraform_version: 1.11.1
           terraform_wrapper: false
       - name: Prepare ReJSON Module
+        if: steps.benchmark-filter.outputs.skip != 'true'
         run: REJSON_BRANCH=${{ inputs.rejson_branch }} ./tests/deps/setup_rejson.sh
 
       - name: Run CI benchmarks on aws for envs ${{ inputs.allowed_envs }}
+        if: steps.benchmark-filter.outputs.skip != 'true'
         timeout-minutes: 360 # timeout for the step
         working-directory: tests/benchmarks
         env:
@@ -84,7 +126,7 @@ jobs:
           EC2_PRIVATE_PEM: ${{ secrets.PERFORMANCE_EC2_PRIVATE_PEM }}
           # Inputs
           PROFILE: ${{ inputs.profile_env }}
-          BENCHMARK_GLOB: ${{ inputs.benchmark_glob }}
+          BENCHMARK_GLOB: ${{ steps.benchmark-filter.outputs.effective_glob }}
           BENCHMARK_RUNNER_GROUP_M_ID: ${{ inputs.benchmark_runner_group_member_id }}
           BENCHMARK_RUNNER_GROUP_TOTAL: ${{ inputs.benchmark_runner_group_total }}
           SEARCH_MEMORY_ENABLED: 1
@@ -108,7 +150,7 @@ jobs:
               --redistimeseries_pass '${{ secrets.PERFORMANCE_RTS_AUTH }}'
               --collect_search_memory True
       - name: Generate Pull Request Performance info
-        if: github.event.number
+        if: github.event.number && steps.benchmark-filter.outputs.skip != 'true'
         env:
           PERFORMANCE_GH_TOKEN: ${{ secrets.PERFORMANCE_GH_TOKEN }}
           PERFORMANCE_WH_TOKEN: ${{ secrets.PERFORMANCE_WH_TOKEN }}
@@ -121,3 +163,4 @@ jobs:
               --redistimeseries_host ${{ secrets.PERFORMANCE_RTS_HOST }}
               --redistimeseries_port ${{ secrets.PERFORMANCE_RTS_PORT }}
               --redistimeseries_pass '${{ secrets.PERFORMANCE_RTS_AUTH }}'
+              --last_n_baseline 20

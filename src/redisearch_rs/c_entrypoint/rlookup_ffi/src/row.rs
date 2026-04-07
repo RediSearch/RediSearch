@@ -147,6 +147,8 @@ pub unsafe extern "C-unwind" fn RLookupRow_MoveFieldsFrom(
 /// for which it is not necessary to use the boilerplate of getting an explicit
 /// key.
 ///
+/// Ownership of `name` remains with the caller, this function will make a copy if required.
+///
 /// Like [`RLookupRow_WriteByNameOwned`], but increases the refcount.
 ///
 /// # Safety
@@ -200,6 +202,8 @@ pub unsafe extern "C" fn RLookupRow_WriteByName<'a>(
 /// Write a value by-name to the lookup table. This is useful for 'dynamic' keys
 /// for which it is not necessary to use the boilerplate of getting an explicit
 /// key.
+///
+/// Ownership of `name` remains with the caller, this function will make a copy if required.
 ///
 /// Like [`RLookupRow_WriteByName`], but does not affect the refcount.
 ///
@@ -321,12 +325,15 @@ pub unsafe extern "C" fn RLookupRow_Get(
     row: *const OpaqueRLookupRow,
 ) -> Option<NonNull<RSValue>> {
     // Safety: ensured by caller (1.)
-    let key = unsafe { key.as_ref().unwrap() };
+    let key = unsafe { &*key };
 
     // Safety: ensured by caller (2.)
-    let row = unsafe { RLookupRow::from_opaque_ptr(row).unwrap() };
+    let row = unsafe { RLookupRow::from_opaque_ptr_unchecked(row) };
 
-    row.get(key).map(|x| NonNull::new(x.as_ptr()).unwrap())
+    row.get(key).map(|x| {
+        // Safety: `RsValueFFI` contains a `NonNull` pointer.
+        unsafe { NonNull::new_unchecked(x.as_ptr()) }
+    })
 }
 
 /// Returns the sorting vector for the row, or null if none exists.

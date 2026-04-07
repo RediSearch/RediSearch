@@ -15,8 +15,8 @@ use ffi::{RS_FIELDMASK_ALL, t_docId};
 use inverted_index::RSIndexResult;
 
 use crate::{
-    RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome, maybe_empty::MaybeEmpty,
-    util::TimeoutContext,
+    IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
+    maybe_empty::MaybeEmpty, utils::TimeoutContext,
 };
 
 /// An iterator that negates the results of its child iterator.
@@ -56,9 +56,10 @@ where
             child: MaybeEmpty::new(child),
             max_doc_id,
             forced_eof: false,
-            result: RSIndexResult::virt()
+            result: RSIndexResult::build_virt()
                 .weight(weight)
-                .field_mask(RS_FIELDMASK_ALL),
+                .field_mask(RS_FIELDMASK_ALL)
+                .build(),
             // The `limit` of 5_000 determines the granularity of the timeout check.
             // Each time [`TimeoutContext::check_timeout`] is called (during `read` / `skip_to`),
             // the internal counter goes up. When it reaches this `limit` of 5_000 it will
@@ -264,5 +265,10 @@ where
                 Ok(RQEValidateStatus::Ok)
             }
         }
+    }
+
+    #[inline(always)]
+    fn type_(&self) -> IteratorType {
+        IteratorType::Not
     }
 }

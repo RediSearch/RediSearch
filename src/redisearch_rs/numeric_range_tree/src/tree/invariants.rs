@@ -15,7 +15,7 @@
 
 use inverted_index::{IndexReader, NumericFilter, RSIndexResult};
 
-use super::{AddResult, NumericRangeTree, TreeStats, TrimEmptyLeavesResult, apply_signed_delta};
+use super::{AddResult, CheckedCount, NumericRangeTree, TreeStats, TrimEmptyLeavesResult};
 use crate::NumericRange;
 use crate::NumericRangeNode;
 use crate::arena::NodeIndex;
@@ -46,7 +46,9 @@ impl NumericRangeTree {
         result: &AddResult,
     ) {
         assert_eq!(
-            apply_signed_delta(before.num_ranges, result.num_ranges_delta as i64),
+            before
+                .num_ranges
+                .apply_delta(result.num_ranges_delta as i64),
             self.stats.num_ranges,
             "num_ranges mismatch: before={}, delta={}, after={}",
             before.num_ranges,
@@ -54,7 +56,9 @@ impl NumericRangeTree {
             self.stats.num_ranges,
         );
         assert_eq!(
-            apply_signed_delta(before.num_leaves, result.num_leaves_delta as i64),
+            before
+                .num_leaves
+                .apply_delta(result.num_leaves_delta as i64),
             self.stats.num_leaves,
             "num_leaves mismatch: before={}, delta={}, after={}",
             before.num_leaves,
@@ -62,7 +66,7 @@ impl NumericRangeTree {
             self.stats.num_leaves,
         );
         assert_eq!(
-            apply_signed_delta(before.inverted_indexes_size, result.size_delta),
+            before.inverted_indexes_size.apply_delta(result.size_delta),
             self.stats.inverted_indexes_size,
             "inverted_indexes_size mismatch: before={}, delta={}, after={}",
             before.inverted_indexes_size,
@@ -83,8 +87,9 @@ impl NumericRangeTree {
         );
 
         // num_records cross-check
-        let expected_total_records =
-            apply_signed_delta(total_records_before, result.num_records_delta as i64);
+        let expected_total_records = CheckedCount::new(total_records_before)
+            .apply_delta(result.num_records_delta as i64)
+            .get();
         let actual_total_records = self.total_records();
         assert_eq!(
             expected_total_records, actual_total_records,
@@ -105,7 +110,9 @@ impl NumericRangeTree {
         result: &TrimEmptyLeavesResult,
     ) {
         assert_eq!(
-            apply_signed_delta(before.num_ranges, result.num_ranges_delta as i64),
+            before
+                .num_ranges
+                .apply_delta(result.num_ranges_delta as i64),
             self.stats.num_ranges,
             "num_ranges mismatch: before={}, delta={}, after={}",
             before.num_ranges,
@@ -113,7 +120,9 @@ impl NumericRangeTree {
             self.stats.num_ranges,
         );
         assert_eq!(
-            apply_signed_delta(before.num_leaves, result.num_leaves_delta as i64),
+            before
+                .num_leaves
+                .apply_delta(result.num_leaves_delta as i64),
             self.stats.num_leaves,
             "num_leaves mismatch: before={}, delta={}, after={}",
             before.num_leaves,
@@ -121,7 +130,7 @@ impl NumericRangeTree {
             self.stats.num_leaves,
         );
         assert_eq!(
-            apply_signed_delta(before.inverted_indexes_size, result.size_delta),
+            before.inverted_indexes_size.apply_delta(result.size_delta),
             self.stats.inverted_indexes_size,
             "inverted_indexes_size mismatch: before={}, delta={}, after={}",
             before.inverted_indexes_size,
@@ -147,23 +156,33 @@ impl NumericRangeTree {
     /// This is the ground-truth calculation used by [`check_memoized_stats`](Self::check_memoized_stats)
     /// to validate the incrementally maintained `self.stats`.
     fn compute_stats(&self) -> TreeStats {
-        let mut stats = TreeStats::default();
+        let mut num_ranges: usize = 0;
+        let mut num_leaves: usize = 0;
+        let mut num_entries: usize = 0;
+        let mut inverted_indexes_size: usize = 0;
+        let mut empty_leaves: usize = 0;
         for (_, node) in self.nodes.iter() {
             if node.is_leaf() {
-                stats.num_leaves += 1;
+                num_leaves += 1;
             }
             if let Some(range) = node.range() {
-                stats.num_ranges += 1;
-                stats.inverted_indexes_size += range.memory_usage();
+                num_ranges += 1;
+                inverted_indexes_size += range.memory_usage();
                 if node.is_leaf() {
-                    stats.num_entries += range.num_entries();
+                    num_entries += range.num_entries();
                     if range.num_docs() == 0 {
-                        stats.empty_leaves += 1;
+                        empty_leaves += 1;
                     }
                 }
             }
         }
-        stats
+        TreeStats {
+            num_ranges: CheckedCount::new(num_ranges),
+            num_leaves: CheckedCount::new(num_leaves),
+            num_entries: CheckedCount::new(num_entries),
+            inverted_indexes_size: CheckedCount::new(inverted_indexes_size),
+            empty_leaves: CheckedCount::new(empty_leaves),
+        }
     }
 
     /// Assert that every field in `self.stats` matches the ground-truth
@@ -265,7 +284,7 @@ impl NumericRangeTree {
                         docs += range.num_docs() as usize;
                     } else {
                         let mut reader = range.reader();
-                        let mut result = RSIndexResult::numeric(0.0);
+                        let mut result = RSIndexResult::build_numeric(0.0).build();
                         while reader.next_record(&mut result).unwrap_or(false) {
                             // SAFETY: The entries in a NumericRange always contain
                             // numeric data—they are created via `RSIndexResult::numeric`.

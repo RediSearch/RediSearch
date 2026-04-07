@@ -10,9 +10,8 @@
 #include "iterator_util.h"
 #include "index_utils.h"
 
-#include "src/iterators/union_iterator.h"
+#include "iterators/union_iterator.h"
 #include "iterators_rs.h"
-#include "src/iterators/inverted_index_iterator.h"
 #include "inverted_index.h"
 
 class UnionIteratorCommonTest : public ::testing::TestWithParam<std::tuple<unsigned, bool, std::vector<t_docId>>> {

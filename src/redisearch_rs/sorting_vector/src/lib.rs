@@ -130,7 +130,7 @@ impl RSSortingVector {
         let mut sz = self.values.len() * size_of::<RSValueFFI>();
 
         for idx in 0..self.values.len() {
-            if self.values[idx].is_null() {
+            if self.values[idx].is_null_static() {
                 continue;
             }
 

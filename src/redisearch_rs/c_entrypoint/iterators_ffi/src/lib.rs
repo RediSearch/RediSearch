@@ -11,9 +11,11 @@ mod timespec;
 
 pub mod empty;
 pub mod id_list;
+pub mod intersection;
 pub mod inverted_index;
 pub mod metric;
 pub mod not;
 pub mod optional;
 pub mod profile;
+pub mod search_enterprise_api;
 pub mod wildcard;

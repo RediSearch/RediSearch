@@ -8,11 +8,10 @@
 */
 #include "profile.h"
 #include "iterators/iterator_api.h"
-#include "iterators/inverted_index_iterator.h"
 #include "iterators/not_iterator.h"
 #include "iterators/optional_iterator.h"
-#include "iterators/union_iterator.h"
 #include "iterators/intersection_iterator.h"
+#include "iterators/union_iterator.h"
 #include "iterators/hybrid_reader.h"
 #include "iterators/optimizer_reader.h"
 #include "iterators_rs.h"
@@ -31,8 +30,7 @@ void printIteratorProfile(RedisModule_Reply *reply, const QueryIterator *root, c
                           double cpuTime, int depth, int limited, PrintProfileConfig *config);
 
 void printInvIdxIt(RedisModule_Reply *reply, const QueryIterator *root, const ProfileCounters *counters, double cpuTime, PrintProfileConfig *config) {
-  const InvIndIterator *it = (const InvIndIterator *)root;
-  IndexFlags readerFlags = InvIndIterator_GetReaderFlags(it);
+  IndexFlags readerFlags = InvIndIterator_GetReaderFlags(root);
 
   RedisModule_Reply_Map(reply);
   if (readerFlags == Index_DocIdsOnly) {
@@ -44,19 +42,18 @@ void printInvIdxIt(RedisModule_Reply *reply, const QueryIterator *root, const Pr
       RedisModule_ReplyKV_StringBuffer(reply, "Term", term_str, term_len);
     }
   } else if (readerFlags & Index_StoreNumeric) {
-    const NumericInvIndIterator *numIt = (const NumericInvIndIterator *)it;
-    const NumericFilter *flt = NumericInvIndIterator_GetNumericFilter(numIt);
+    const NumericFilter *flt = NumericInvIndIterator_GetNumericFilter(root);
     if (!flt || flt->geoFilter == NULL) {
       printProfileType("NUMERIC");
       RedisModule_Reply_SimpleString(reply, "Term");
-      RedisModule_Reply_SimpleStringf(reply, "%g - %g", NumericInvIndIterator_GetProfileRangeMin(numIt), NumericInvIndIterator_GetProfileRangeMax(numIt));
+      RedisModule_Reply_SimpleStringf(reply, "%g - %g", NumericInvIndIterator_GetProfileRangeMin(root), NumericInvIndIterator_GetProfileRangeMax(root));
     } else {
       printProfileType("GEO");
       RedisModule_Reply_SimpleString(reply, "Term");
       double se[2];
       double nw[2];
-      decodeGeo(NumericInvIndIterator_GetProfileRangeMin(numIt), se);
-      decodeGeo(NumericInvIndIterator_GetProfileRangeMax(numIt), nw);
+      decodeGeo(NumericInvIndIterator_GetProfileRangeMin(root), se);
+      decodeGeo(NumericInvIndIterator_GetProfileRangeMax(root), nw);
       RedisModule_Reply_SimpleStringf(reply, "%g,%g - %g,%g", se[0], se[1], nw[0], nw[1]);
     }
   } else {
@@ -130,13 +127,7 @@ static double _recursiveProfilePrint(RedisModule_Reply *reply, ResultProcessor *
 
     return upstreamTime;
   }
-  double totalRPTime = rs_wall_clock_convert_ns_to_ms_d(RPProfile_GetClock(rp));
-
-  // For RP_SAFE_DEPLETER, use depletion time as the total time instead of
-  // RPProfile time because the actual work happens in the background thread
-  if (rp->upstream && rp->upstream->type == RP_SAFE_DEPLETER) {
-    totalRPTime = rs_wall_clock_convert_ns_to_ms_d(RPSafeDepleter_GetDepletionTime(rp->upstream));
-  }
+  double totalRPTime = rs_wall_clock_convert_ns_to_ms_d(RPProfile_GetTime(rp));
 
   if (printProfileClock) {
     double deltaTime = totalRPTime - upstreamTime;
@@ -407,10 +398,7 @@ void Profile_AddIters(QueryIterator **root) {
       break;
     }
     case INTERSECT_ITERATOR: {
-      IntersectionIterator *ii = (IntersectionIterator *)(*root);
-      for (int i = 0; i < ii->num_its; i++) {
-        Profile_AddIters(&(ii->its[i]));
-      }
+      ForEachIntersectionChildMut(*root, Profile_AddIters);
       break;
     }
     case WILDCARD_ITERATOR:
@@ -499,8 +487,6 @@ PRINT_PROFILE_FUNC(printUnionIt) {
 }
 
 PRINT_PROFILE_FUNC(printIntersectIt) {
-  const IntersectionIterator *ii = (const IntersectionIterator *)root;
-
   RedisModule_Reply_Map(reply);
 
   printProfileType("INTERSECT");
@@ -511,9 +497,11 @@ PRINT_PROFILE_FUNC(printIntersectIt) {
 
   printProfileCounters(counters);
 
+  size_t num_children = GetIntersectionIteratorNumChildren(root);
   RedisModule_ReplyKV_Array(reply, "Child iterators");
-    for (int i = 0; i < ii->num_its; i++) {
-      printIteratorProfile(reply, ii->its[i], 0, 0, depth + 1, limited, config);
+    for (size_t i = 0; i < num_children; i++) {
+      printIteratorProfile(reply, GetIntersectionIteratorChild(root, i),
+                           0, 0, depth + 1, limited, config);
     }
   RedisModule_Reply_ArrayEnd(reply);
 

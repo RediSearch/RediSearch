@@ -292,6 +292,10 @@ def getWorkersThpoolStats(env):
 def getWorkersThpoolNumThreads(env):
     return env.cmd(debug_cmd(), "WORKERS", "n_threads")
 
+def set_workers(env, workers):
+    """Set the worker thread count and verify that the change took effect."""
+    verify_command_OK_on_all_shards(env, config_cmd(), 'SET', 'WORKERS', workers)
+    env.assertEqual(getWorkersThpoolNumThreadsFromAllShards(env), [workers] * env.shardsCount)
 
 def getWorkersThpoolStatsFromShard(shard_conn):
     return to_dict(shard_conn.execute_command(debug_cmd(), "WORKERS", "stats"))
@@ -301,6 +305,9 @@ def getCoordThpoolStats(env):
 
 def getWorkersThpoolStatsFromAllShards(env):
     return [getWorkersThpoolStatsFromShard(shard_conn) for shard_conn in env.getOSSMasterNodesConnectionList()]
+
+def getWorkersThpoolNumThreadsFromAllShards(env):
+    return [shard_conn.execute_command(debug_cmd(), "WORKERS", "n_threads") for shard_conn in env.getOSSMasterNodesConnectionList()]
 
 def skipOnExistingEnv(env):
     if 'existing' in env.env:
@@ -1004,6 +1011,51 @@ def resetCoordReduceDebug(env):
         env.cmd(debug_cmd(), 'QUERY_CONTROLLER', 'SET_COORD_REDUCE_RESUME')
     except Exception:
         pass  # Ignore error if coordinator is not paused
+
+# Store Results Pause helpers (only available when built with ENABLE_ASSERT)
+def setPauseBeforeStoreResults(env, enabled):
+    """Enable/disable pausing before AREQ_StoreResults/HREQ_StoreResults."""
+    env.expect(debug_cmd(), 'QUERY_CONTROLLER', 'SET_PAUSE_BEFORE_STORE_RESULTS', 'true' if enabled else 'false').ok()
+
+def setPauseAfterStoreResults(env, enabled):
+    """Enable/disable pausing after AREQ_StoreResults/HREQ_StoreResults."""
+    env.expect(debug_cmd(), 'QUERY_CONTROLLER', 'SET_PAUSE_AFTER_STORE_RESULTS', 'true' if enabled else 'false').ok()
+
+def getIsStoreResultsPaused(env):
+    """Check if the query is currently paused during store results."""
+    return env.cmd(debug_cmd(), 'QUERY_CONTROLLER', 'GET_IS_STORE_RESULTS_PAUSED')
+
+def resetStoreResultsDebug(env):
+    """Reset the store results debug context (disable pauses and resume)."""
+    setPauseBeforeStoreResults(env, False)
+    setPauseAfterStoreResults(env, False)
+    try:
+        env.cmd(debug_cmd(), 'QUERY_CONTROLLER', 'SET_STORE_RESULTS_RESUME')
+    except Exception:
+        pass  # Ignore error if not paused
+
+# Hybrid Store Cursors Pause helpers (only available when built with ENABLE_ASSERT)
+# These are separate from Store Results and only affect cursor storage in HybridRequest_StartCursors
+def setPauseBeforeHybridStoreCursors(env, enabled):
+    """Enable/disable pausing before hybrid cursor storage (HybridRequest_StartCursors)."""
+    env.expect(debug_cmd(), 'QUERY_CONTROLLER', 'SET_PAUSE_BEFORE_HYBRID_STORE_CURSORS', 'true' if enabled else 'false').ok()
+
+def setPauseAfterHybridStoreCursors(env, enabled):
+    """Enable/disable pausing after hybrid cursor storage (HybridRequest_StartCursors)."""
+    env.expect(debug_cmd(), 'QUERY_CONTROLLER', 'SET_PAUSE_AFTER_HYBRID_STORE_CURSORS', 'true' if enabled else 'false').ok()
+
+def getIsHybridStoreCursorsPaused(env):
+    """Check if the hybrid is currently paused during cursor storage."""
+    return env.cmd(debug_cmd(), 'QUERY_CONTROLLER', 'GET_IS_HYBRID_STORE_CURSORS_PAUSED')
+
+def resetHybridStoreCursorsDebug(env):
+    """Reset the hybrid store cursors debug context (disable pauses and resume)."""
+    setPauseBeforeHybridStoreCursors(env, False)
+    setPauseAfterHybridStoreCursors(env, False)
+    try:
+        env.cmd(debug_cmd(), 'QUERY_CONTROLLER', 'SET_HYBRID_STORE_CURSORS_RESUME')
+    except Exception:
+        pass  # Ignore error if not paused
 
 def isEnableAssertEnabled(env):
     """

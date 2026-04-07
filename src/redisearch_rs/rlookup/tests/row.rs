@@ -23,7 +23,10 @@ use std::{
 use value::RSValueFFI;
 
 #[test]
-#[cfg_attr(miri, ignore = "miri does not support FFI functions")]
+#[cfg_attr(
+    miri,
+    ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
+)]
 fn insert_without_gap() {
     let mut row: RLookupRow = RLookupRow::new();
     assert!(row.is_empty());
@@ -51,7 +54,10 @@ fn insert_without_gap() {
 }
 
 #[test]
-#[cfg_attr(miri, ignore = "miri does not support FFI functions")]
+#[cfg_attr(
+    miri,
+    ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
+)]
 fn insert_with_gap() {
     let mut row: RLookupRow = RLookupRow::new();
     assert!(row.is_empty());
@@ -70,7 +76,10 @@ fn insert_with_gap() {
 }
 
 #[test]
-#[cfg_attr(miri, ignore = "miri does not support FFI functions")]
+#[cfg_attr(
+    miri,
+    ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
+)]
 fn insert_non_owned() {
     let mut row: RLookupRow = RLookupRow::new();
     assert!(row.is_empty());
@@ -93,7 +102,10 @@ fn insert_non_owned() {
 }
 
 #[test]
-#[cfg_attr(miri, ignore = "miri does not support FFI functions")]
+#[cfg_attr(
+    miri,
+    ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
+)]
 fn insert_overwrite() {
     let mut row: RLookupRow = RLookupRow::new();
     assert!(row.is_empty());
@@ -163,7 +175,10 @@ impl<'a> DerefMut for WriteKeyMock<'a> {
 }
 
 #[test]
-#[cfg_attr(miri, ignore = "miri does not support FFI functions")]
+#[cfg_attr(
+    miri,
+    ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
+)]
 fn wipe() {
     let mut row = WriteKeyMock::new();
 
@@ -184,6 +199,7 @@ fn wipe() {
     assert_eq!(row.num_dyn_values(), 0);
     assert_eq!(row.len(), 10);
     assert!(row.dyn_values().iter().all(|v| v.is_none()));
+    assert!(row.sorting_vector().is_none());
 
     // create the same 10 entries in the row
     for i in 0..10 {
@@ -202,7 +218,10 @@ fn wipe() {
 }
 
 #[test]
-#[cfg_attr(miri, ignore = "miri does not support FFI functions")]
+#[cfg_attr(
+    miri,
+    ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
+)]
 fn reset() {
     let mut row = WriteKeyMock::new();
 
@@ -241,7 +260,10 @@ fn reset() {
 }
 
 #[test]
-#[cfg_attr(miri, ignore = "miri does not support FFI functions")]
+#[cfg_attr(
+    miri,
+    ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
+)]
 fn get_item_dynamic_values_success() {
     // Test case 1: Successfully retrieve item from dynamic values
     let mut row = RLookupRow::new();
@@ -267,7 +289,10 @@ fn get_item_dynamic_values_success() {
 }
 
 #[test]
-#[cfg_attr(miri, ignore = "miri does not support FFI functions")]
+#[cfg_attr(
+    miri,
+    ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
+)]
 fn get_item_static_values_success() {
     // Test case 2: Successfully retrieve item from sorting vector
     let sv_value1 = RSValueFFI::new_string(b"static_value_1".to_vec());
@@ -290,7 +315,10 @@ fn get_item_static_values_success() {
 }
 
 #[test]
-#[cfg_attr(miri, ignore = "miri does not support FFI functions")]
+#[cfg_attr(
+    miri,
+    ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
+)]
 fn get_item_missing_svsrc_flag() {
     // Test case 3: SvSrc flag missing, should return None
     let sv_value = RSValueFFI::new_string(b"static_value".to_vec());
@@ -306,7 +334,10 @@ fn get_item_missing_svsrc_flag() {
 }
 
 #[test]
-#[cfg_attr(miri, ignore = "miri does not support FFI functions")]
+#[cfg_attr(
+    miri,
+    ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
+)]
 fn get_item_dynamic_out_of_bounds() {
     // Test case 4: Dynamic values index out of bounds
     let mut row: RLookupRow<'_> = RLookupRow::new();
@@ -320,7 +351,10 @@ fn get_item_dynamic_out_of_bounds() {
 }
 
 #[test]
-#[cfg_attr(miri, ignore = "miri does not support FFI functions")]
+#[cfg_attr(
+    miri,
+    ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
+)]
 fn get_item_static_out_of_bounds() {
     // Test case 5: Sorting vector index out of bounds
     let sv_value = RSValueFFI::new_string(b"static_value".to_vec());
@@ -351,7 +385,10 @@ fn get_item_no_sorting_vector() {
 }
 
 #[test]
-#[cfg_attr(miri, ignore = "miri does not support FFI functions")]
+#[cfg_attr(
+    miri,
+    ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
+)]
 fn get_item_empty_dynamic_valid_static() {
     // Test case 7: Empty dynamic values but valid sorting vector access
     let sv_value = RSValueFFI::new_string(b"static_value".to_vec());
@@ -374,7 +411,10 @@ fn get_item_empty_dynamic_valid_static() {
 }
 
 #[test]
-#[cfg_attr(miri, ignore = "miri does not support FFI functions")]
+#[cfg_attr(
+    miri,
+    ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
+)]
 fn get_item_dynamic_none_value() {
     // Test case 8: Dynamic value slot contains None
     let mut row = RLookupRow::new();
@@ -390,7 +430,10 @@ fn get_item_dynamic_none_value() {
 }
 
 #[test]
-#[cfg_attr(miri, ignore = "miri does not support FFI functions")]
+#[cfg_attr(
+    miri,
+    ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
+)]
 fn get_item_priority_dynamic_over_static() {
     // Test case 9: Dynamic values take priority over sorting vector
     let sv = RSSortingVector::from_iter([RSValueFFI::new_string(b"static_value".to_vec())]);
@@ -415,7 +458,10 @@ fn get_item_priority_dynamic_over_static() {
 }
 
 #[test]
-#[cfg_attr(miri, ignore = "miri does not support FFI functions")]
+#[cfg_attr(
+    miri,
+    ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
+)]
 fn write_key_by_name_new_key() {
     // Test case: name is not yet part of the lookup and gets created
     let mut lookup = RLookup::new();
@@ -444,7 +490,10 @@ fn write_key_by_name_new_key() {
 }
 
 #[test]
-#[cfg_attr(miri, ignore = "miri does not support FFI functions")]
+#[cfg_attr(
+    miri,
+    ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
+)]
 fn write_key_by_name_existing_key_overwrite() {
     // Test case: name is part of the lookup and its value gets overwritten
     let mut lookup = RLookup::new();
@@ -479,7 +528,10 @@ fn write_key_by_name_existing_key_overwrite() {
 }
 
 #[test]
-#[cfg_attr(miri, ignore = "miri does not support FFI functions")]
+#[cfg_attr(
+    miri,
+    ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
+)]
 fn write_multiple_different_keys() {
     // Test case: writing multiple different keys
     let mut lookup = RLookup::new();
@@ -530,7 +582,10 @@ fn create_test_key(dstidx: u16, svidx: u16, flags: RLookupKeyFlags) -> RLookupKe
 }
 
 #[test]
-#[cfg_attr(miri, ignore = "miri does not support FFI functions")]
+#[cfg_attr(
+    miri,
+    ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
+)]
 fn write_fields_basic() {
     // Tests basic field writing between lookup rows
     let mut src_lookup = RLookup::new();
@@ -619,7 +674,10 @@ fn write_fields_empty_source() {
 }
 
 #[test]
-#[cfg_attr(miri, ignore = "miri does not support FFI functions")]
+#[cfg_attr(
+    miri,
+    ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
+)]
 fn write_fields_different_mapping() {
     // Tests field writing between schemas with different internal indices
     let mut src_lookup = RLookup::new();
@@ -674,7 +732,10 @@ fn write_fields_different_mapping() {
 }
 
 #[test]
-#[cfg_attr(miri, ignore = "miri does not support FFI functions")]
+#[cfg_attr(
+    miri,
+    ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
+)]
 fn write_fields_multiple_sources_no_overlap() {
     // Tests copy_fields_from with distinct field sets from each source
     let mut src1_lookup = RLookup::new();
@@ -733,7 +794,10 @@ fn write_fields_multiple_sources_no_overlap() {
 }
 
 #[test]
-#[cfg_attr(miri, ignore = "miri does not support FFI functions")]
+#[cfg_attr(
+    miri,
+    ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
+)]
 fn write_fields_multiple_sources_partial_overlap() {
     // Tests copy_fields_from with overlapping field names (last write wins)
     let mut src1_lookup = RLookup::new();
@@ -807,7 +871,10 @@ fn write_fields_multiple_sources_partial_overlap() {
 }
 
 #[test]
-#[cfg_attr(miri, ignore = "miri does not support FFI functions")]
+#[cfg_attr(
+    miri,
+    ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
+)]
 fn write_fields_multiple_sources_full_overlap() {
     // Tests copy_fields_from with identical field sets (last write wins)
     let mut src1_lookup = RLookup::new();
@@ -868,7 +935,10 @@ fn write_fields_multiple_sources_full_overlap() {
 
 #[test]
 #[should_panic(expected = "all source keys must exist in destination")]
-#[cfg_attr(miri, ignore = "miri does not support FFI functions")]
+#[cfg_attr(
+    miri,
+    ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
+)]
 fn write_fields_key_missing_in_dst_should_panic() {
     // Tests basic field writing between lookup rows
     let mut src_lookup = RLookup::new();
@@ -898,7 +968,10 @@ fn write_fields_key_missing_in_dst_should_panic() {
 }
 
 #[test]
-#[cfg_attr(miri, ignore = "miri does not support FFI functions")]
+#[cfg_attr(
+    miri,
+    ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
+)]
 fn write_fields_key_missing_in_dst_should_create() {
     // Tests basic field writing between lookup rows
     let mut src_lookup = RLookup::new();

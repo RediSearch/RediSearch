@@ -35,7 +35,7 @@ pub(crate) const unsafe fn expect_value<'a>(value: *const RsValue) -> &'a RsValu
 /// the underlying `RsValue`.
 ///
 /// Checks for null in debug mode, directly casts to a
-/// ManuallyDrop<SharedRsValue> in release mode.
+/// [`ManuallyDrop<SharedRsValue>`] in release mode.
 ///
 /// # Safety
 ///

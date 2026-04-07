@@ -17,10 +17,6 @@ typedef uint32_t RLookupOptions;
 // Forward declaration of RSValue, which is only used as ptr in the sorting_vector module
 typedef struct RSValue RSValue;
 
-// Forward declarations of iterator types
-typedef struct RLookupIterator RLookupIterator;
-typedef struct RLookupIteratorMut RLookupIteratorMut;
-
 // Required to ensure that the alignment declared by cbindgen is respected on
 // the C/C++ side.
 #define ALIGNED(n) __attribute__((aligned(n)))
@@ -114,8 +110,6 @@ enum RLookup_Opt
 typedef uint32_t RLookup_Opt;
 #endif // __cplusplus
 
-typedef struct IndexSpecCache IndexSpecCache;
-
 /**
  * An append-only list of [`RLookupKey`]s.
  *
@@ -134,6 +128,21 @@ typedef struct RLookup RLookup;
  * are not added at all to the sorting vector, i.e. the sorting vector does not contain null values for non-sortable fields.
  */
 typedef struct RSSortingVector RSSortingVector;
+
+/**
+ * A type with size `N`.
+ */
+typedef uint8_t Size_40[40];
+
+/**
+ * An opaque lookup which can be passed by value to C.
+ *
+ * The size and alignment of this struct must match the Rust `RLookup`
+ * structure exactly.
+ */
+typedef struct ALIGNED(8) RLookup {
+  Size_40 _0;
+} RLookup;
 
 typedef struct RLookupKey {
   /**
@@ -174,21 +183,6 @@ typedef struct RLookupKey {
 } RLookupKey;
 
 /**
- * A type with size `N`.
- */
-typedef uint8_t Size_40[40];
-
-/**
- * An opaque lookup which can be passed by value to C.
- *
- * The size and alignment of this struct must match the Rust `RLookup`
- * structure exactly.
- */
-typedef struct ALIGNED(8) RLookup {
-  Size_40 _0;
-} RLookup;
-
-/**
  * An opaque lookup row which can be passed by value to C.
  *
  * The size and alignment of this struct must match the Rust `RLookupRow`
@@ -198,78 +192,23 @@ typedef struct ALIGNED(8) RLookupRow {
   Size_40 _0;
 } RLookupRow;
 
+/**
+ * An iterator over the keys in an `RLookup`, returning immutable pointers.
+ */
+typedef struct RLookupIterator {
+  const struct RLookupKey *current;
+} RLookupIterator;
+
+/**
+ * An iterator over the keys in an `RLookup`, returning mutable pointers.
+ */
+typedef struct RLookupIteratorMut {
+  struct RLookupKey *current;
+} RLookupIteratorMut;
+
 #ifdef __cplusplus
 extern "C" {
 #endif // __cplusplus
-
-/**
- * Get the flags (indicating the type and other attributes) for a `RLookupKey`.
- *
- * # Safety
- *
- * 1. `key` must be a [valid], non-null pointer to an [`RLookupKey`].
- *
- * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
- */
-uint32_t RLookupKey_GetFlags(const struct RLookupKey *key);
-
-/**
- * Get the index into the array where the value resides.
- *
- * # Safety
- *
- * 1. `key` must be a [valid], non-null pointer to an [`RLookupKey`].
- *
- * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
- */
-uint16_t RLookupKey_GetDstIdx(const struct RLookupKey *key);
-
-/**
- * Get the index within the sort vector where the value is located.
- *
- * If the source of this value points to a sort vector, then this is the
- * index within the sort vector that the value is located.
- *
- * # Safety
- *
- * 1. `key` must be a [valid], non-null pointer to an [`RLookupKey`].
- *
- * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
- */
-uint16_t RLookupKey_GetSvIdx(const struct RLookupKey *key);
-
-/**
- * Get the name of the field.
- *
- * # Safety
- *
- * 1. `key` must be a [valid], non-null pointer to an [`RLookupKey`].
- *
- * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
- */
-const char *RLookupKey_GetName(const struct RLookupKey *key);
-
-/**
- * Get the length of the name field in bytes.
- *
- * # Safety
- *
- * 1. `key` must be a [valid], non-null pointer to an [`RLookupKey`].
- *
- * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
- */
-size_t RLookupKey_GetNameLen(const struct RLookupKey *key);
-
-/**
- * Get the path of the field.
- *
- * # Safety
- *
- * 1. `key` must be a [valid], non-null pointer to an [`RLookupKey`].
- *
- * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
- */
-const char *RLookupKey_GetPath(const struct RLookupKey *key);
 
 /**
  * Add all non-overridden keys from `src` to `dest`.
@@ -333,6 +272,8 @@ void RLookup_EnableOptions(struct RLookup *lookup, uint32_t options);
  *     1. The entire memory range of this cstr must be contained within a single allocation!
  *     2. `name` must be non-null even for a zero-length cstr.
  * 4. The nul terminator must be within `isize::MAX` from `name`
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 const FieldSpec *RLookup_FindFieldInSpecCache(const struct RLookup *lookup, const char *name);
 
@@ -551,7 +492,7 @@ struct RLookup RLookup_New(void);
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 void RLookup_SetCache(struct RLookup *lookup,
-                      struct IndexSpecCache *spcache);
+                      IndexSpecCache *spcache);
 
 /**
  * Returns `true` if this `RLookup` has an associated [`IndexSpecCache`].
@@ -616,7 +557,7 @@ int32_t RLookup_LoadRuleFields(RedisSearchCtx *search_ctx,
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-RLookupIterator RLookup_Iter(const struct RLookup *lookup);
+struct RLookupIterator RLookup_Iter(const struct RLookup *lookup);
 
 /**
  * Return an iterator over an [`RLookup`]'s key list with editing operations.
@@ -631,7 +572,7 @@ RLookupIterator RLookup_Iter(const struct RLookup *lookup);
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-RLookupIteratorMut RLookup_IterMut(struct RLookup *lookup);
+struct RLookupIteratorMut RLookup_IterMut(struct RLookup *lookup);
 
 /**
  * Returns a newly created [`RLookupRow`].
@@ -713,6 +654,8 @@ void RLookupRow_MoveFieldsFrom(const struct RLookup *lookup,
  * for which it is not necessary to use the boilerplate of getting an explicit
  * key.
  *
+ * Ownership of `name` remains with the caller, this function will make a copy if required.
+ *
  * Like [`RLookupRow_WriteByNameOwned`], but increases the refcount.
  *
  * # Safety
@@ -740,6 +683,8 @@ void RLookupRow_WriteByName(struct RLookup *lookup,
  * Write a value by-name to the lookup table. This is useful for 'dynamic' keys
  * for which it is not necessary to use the boilerplate of getting an explicit
  * key.
+ *
+ * Ownership of `name` remains with the caller, this function will make a copy if required.
  *
  * Like [`RLookupRow_WriteByName`], but does not affect the refcount.
  *

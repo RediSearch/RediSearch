@@ -100,6 +100,11 @@ pub enum QueryErrorCode {
     GeoCoordinatesInvalid,
     JsonTypeBad,
     ClusterNoResponses,
+    FlexSearchNocontentOrReturn0Required,
+    FlexSearchLoadUnsupported,
+    FlexUnsupportedArgument,
+    SafeDepleterFailure,
+    FlexUnsupportedQuery,
 }
 
 impl Debug for QueryErrorCode {
@@ -467,6 +472,31 @@ impl QueryErrorCode {
                 default_msg: c"no responses received",
                 default_full_msg: c"SEARCH_CLUSTER_NO_RESPONSES no responses received",
             },
+            Self::FlexSearchNocontentOrReturn0Required => ErrorCodeStrings {
+                prefix: c"SEARCH_FLEX_SEARCH_NOCONTENT_OR_RETURN_0_REQUIRED ",
+                default_msg: c"NOCONTENT or RETURN 0 must be provided in Redis Flex",
+                default_full_msg: c"SEARCH_FLEX_SEARCH_NOCONTENT_OR_RETURN_0_REQUIRED NOCONTENT or RETURN 0 must be provided in Redis Flex",
+            },
+            Self::FlexSearchLoadUnsupported => ErrorCodeStrings {
+                prefix: c"SEARCH_FLEX_SEARCH_LOAD_UNSUPPORTED ",
+                default_msg: c"LOAD is not supported in Redis Flex",
+                default_full_msg: c"SEARCH_FLEX_SEARCH_LOAD_UNSUPPORTED LOAD is not supported in Redis Flex",
+            },
+            Self::FlexUnsupportedArgument => ErrorCodeStrings {
+                prefix: c"SEARCH_FLEX_UNSUPPORTED_ARGUMENT ",
+                default_msg: c"Unsupported argument for Redis Flex",
+                default_full_msg: c"SEARCH_FLEX_UNSUPPORTED_ARGUMENT Unsupported argument for Redis Flex",
+            },
+            Self::SafeDepleterFailure => ErrorCodeStrings {
+                prefix: c"SEARCH_SAFE_DEPLETER_FAILURE ",
+                default_msg: c"Failed to acquire index lock for background depletion",
+                default_full_msg: c"SEARCH_SAFE_DEPLETER_FAILURE Failed to acquire index lock for background depletion",
+            },
+            Self::FlexUnsupportedQuery => ErrorCodeStrings {
+                prefix: c"SEARCH_FLEX_UNSUPPORTED_QUERY ",
+                default_msg: c"Unsupported query type for Flex indexes",
+                default_full_msg: c"SEARCH_FLEX_UNSUPPORTED_QUERY Unsupported query type for Flex indexes",
+            }
         }
     }
 }

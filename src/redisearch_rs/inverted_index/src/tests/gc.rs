@@ -165,7 +165,7 @@ fn index_block_repair_delta_too_big() {
         }
 
         fn base_result<'index>() -> RSIndexResult<'index> {
-            RSIndexResult::default()
+            RSIndexResult::build_virt().build()
         }
     }
 
@@ -174,19 +174,19 @@ fn index_block_repair_delta_too_big() {
     SmallDeltaDummy::encode(
         &mut writer,
         U5Delta(0),
-        &RSIndexResult::default().doc_id(10),
+        &RSIndexResult::build_virt().doc_id(10).build(),
     )
     .unwrap();
     SmallDeltaDummy::encode(
         &mut writer,
         U5Delta(31),
-        &RSIndexResult::default().doc_id(41),
+        &RSIndexResult::build_virt().doc_id(41).build(),
     )
     .unwrap();
     SmallDeltaDummy::encode(
         &mut writer,
         U5Delta(1),
-        &RSIndexResult::default().doc_id(42),
+        &RSIndexResult::build_virt().doc_id(42).build(),
     )
     .unwrap();
 
@@ -219,7 +219,7 @@ fn index_block_repair_delta_too_big() {
                         SmallDeltaDummy::encode(
                             &mut writer,
                             U5Delta(0),
-                            &RSIndexResult::default().doc_id(10),
+                            &RSIndexResult::build_virt().doc_id(10).build(),
                         )
                         .unwrap();
 
@@ -235,7 +235,7 @@ fn index_block_repair_delta_too_big() {
                         SmallDeltaDummy::encode(
                             &mut writer,
                             U5Delta(0),
-                            &RSIndexResult::default().doc_id(42),
+                            &RSIndexResult::build_virt().doc_id(42).build(),
                         )
                         .unwrap();
 
@@ -708,17 +708,25 @@ fn ii_apply_gc_entries_tracking_index() {
         }
 
         fn base_result<'index>() -> RSIndexResult<'index> {
-            RSIndexResult::default()
+            RSIndexResult::build_virt().build()
         }
     }
 
     // Create entries tracking index with two duplicate records
     let mut ii = EntriesTrackingIndex::<AllowDupsDummy>::new(IndexFlags_Index_DocIdsOnly);
 
-    let _ = ii.add_record(&RSIndexResult::default().doc_id(10)).unwrap();
-    let _ = ii.add_record(&RSIndexResult::default().doc_id(10)).unwrap();
-    let _ = ii.add_record(&RSIndexResult::default().doc_id(15)).unwrap();
-    let _ = ii.add_record(&RSIndexResult::default().doc_id(15)).unwrap();
+    let _ = ii
+        .add_record(&RSIndexResult::build_virt().doc_id(10).build())
+        .unwrap();
+    let _ = ii
+        .add_record(&RSIndexResult::build_virt().doc_id(10).build())
+        .unwrap();
+    let _ = ii
+        .add_record(&RSIndexResult::build_virt().doc_id(15).build())
+        .unwrap();
+    let _ = ii
+        .add_record(&RSIndexResult::build_virt().doc_id(15).build())
+        .unwrap();
 
     assert_eq!(ii.number_of_entries(), 4);
     assert_eq!(ii.unique_docs(), 2);
@@ -778,8 +786,7 @@ fn ii_apply_gc_entries_tracking_index() {
         }
     );
 }
-// the memory hack below raises error in miri
-#[cfg(not(miri))]
+#[cfg_attr(miri, ignore = "the memory hack below raises error in miri")]
 #[test]
 fn test_refresh_buffer_pointers_after_reallocation() {
     use crate::IndexReader as _;
@@ -787,8 +794,10 @@ fn test_refresh_buffer_pointers_after_reallocation() {
     let mut ii = InvertedIndex::<Dummy>::new(IndexFlags_Index_DocIdsOnly);
 
     // Add initial records
-    ii.add_record(&RSIndexResult::default().doc_id(10)).unwrap();
-    ii.add_record(&RSIndexResult::default().doc_id(11)).unwrap();
+    ii.add_record(&RSIndexResult::build_virt().doc_id(10).build())
+        .unwrap();
+    ii.add_record(&RSIndexResult::build_virt().doc_id(11).build())
+        .unwrap();
 
     // SAFETY: We need to bypass Rust's borrowing rules to simulate the real-world
     // scenario where buffer reallocation happens while a reader is active.
@@ -799,7 +808,7 @@ fn test_refresh_buffer_pointers_after_reallocation() {
     let ii_ptr = &mut ii as *mut InvertedIndex<Dummy>;
 
     let mut reader: crate::IndexReaderCore<'_, Dummy> = ii.reader();
-    let mut result = RSIndexResult::default();
+    let mut result = RSIndexResult::build_virt().build();
 
     // Read first record
     assert!(reader.next_record(&mut result).unwrap());
@@ -810,7 +819,7 @@ fn test_refresh_buffer_pointers_after_reallocation() {
     unsafe {
         for i in 12..1000 {
             (*ii_ptr)
-                .add_record(&RSIndexResult::default().doc_id(i))
+                .add_record(&RSIndexResult::build_virt().doc_id(i).build())
                 .unwrap();
         }
     }

@@ -10,10 +10,11 @@
 //   this shim.
 use ffi::{
     IteratorStatus_ITERATOR_EOF, IteratorStatus_ITERATOR_NOTFOUND, IteratorStatus_ITERATOR_OK,
-    IteratorStatus_ITERATOR_TIMEOUT, IteratorType_INV_IDX_WILDCARD_ITERATOR,
-    IteratorType_WILDCARD_ITERATOR, QueryIterator, ValidateStatus_VALIDATE_ABORTED,
+    IteratorStatus_ITERATOR_TIMEOUT, QueryIterator, ValidateStatus_VALIDATE_ABORTED,
     ValidateStatus_VALIDATE_MOVED, ValidateStatus_VALIDATE_OK, t_docId,
 };
+
+use crate::IteratorType;
 use inverted_index::RSIndexResult;
 use std::{
     mem::ManuallyDrop,
@@ -309,11 +310,12 @@ impl<'index> RQEIterator<'index> for CRQEIterator {
         }
     }
 
-    #[expect(non_upper_case_globals)]
-    fn is_wildcard(&self) -> bool {
-        matches!(
-            self.type_,
-            IteratorType_WILDCARD_ITERATOR | IteratorType_INV_IDX_WILDCARD_ITERATOR
-        )
+    #[inline(always)]
+    fn type_(&self) -> IteratorType {
+        self.type_
+    }
+
+    fn as_c_iterator(&self) -> Option<&CRQEIterator> {
+        Some(self)
     }
 }

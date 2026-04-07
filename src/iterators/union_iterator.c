@@ -485,7 +485,7 @@ static ValidateStatus UI_Revalidate(QueryIterator *base) {
 }
 
 QueryIterator *NewUnionIterator(QueryIterator **its, int num, bool quickExit,
-                                double weight, QueryNodeType type, const char *q_str, IteratorsConfig *config) {
+                                double weight, QueryNodeType type, const char *q_str, const IteratorsConfig *config) {
 
   QueryIterator* ret = UnionIteratorReducer(its, &num, quickExit);
   if (ret != NULL) {

@@ -13,7 +13,7 @@ use ffi::{RS_FIELDMASK_ALL, t_docId};
 use inverted_index::RSIndexResult;
 use std::cmp;
 
-use crate::{RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
+use crate::{IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
 
 /// An iterator that emits a sequence of results with no gaps, up to a given document id.
 /// Results are pulled from an underlying [`RQEIterator`] instance. If there is no entry
@@ -60,13 +60,14 @@ where
     ///   child [`RQEIterator`]. When the child is exhausted, the iterator
     ///   yields virtual [`RSIndexResult`] values without weight until `max_id` is reached.
     /// * `child` [`RQEIterator`] used and wrapped around by this [`Optional`] iterator
-    pub const fn new(max_id: t_docId, weight: f64, child: I) -> Self {
+    pub fn new(max_id: t_docId, weight: f64, child: I) -> Self {
         Self {
             max_doc_id: max_id,
             weight,
-            result: RSIndexResult::virt()
+            result: RSIndexResult::build_virt()
                 .frequency(1)
-                .field_mask(RS_FIELDMASK_ALL),
+                .field_mask(RS_FIELDMASK_ALL)
+                .build(),
             child: Some(child),
         }
     }
@@ -233,5 +234,10 @@ where
     #[inline(always)]
     fn at_eof(&self) -> bool {
         self.result.doc_id >= self.max_doc_id
+    }
+
+    #[inline(always)]
+    fn type_(&self) -> IteratorType {
+        IteratorType::Optional
     }
 }

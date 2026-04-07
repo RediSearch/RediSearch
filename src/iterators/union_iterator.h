@@ -48,7 +48,7 @@ typedef struct {
  * @param config - pointer to a valid configuration struct for construction decisions
  */
 QueryIterator *NewUnionIterator(QueryIterator **its, int num, bool quickExit, double weight,
-                                QueryNodeType type, const char *q_str, IteratorsConfig *config);
+                                QueryNodeType type, const char *q_str, const IteratorsConfig *config);
 
 // Sync state according to `its_orig` and `num_orig` (exposed for profile iterator injection)
 void UI_SyncIterList(UnionIterator *ui);

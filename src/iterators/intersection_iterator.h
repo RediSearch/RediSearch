@@ -5,7 +5,7 @@
  * Licensed under your choice of the Redis Source Available License 2.0
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
-*/
+ */
 
 #pragma once
 
@@ -13,31 +13,25 @@
 extern "C" {
 #endif
 
+#include <stddef.h>
 #include "iterator_api.h"
 
-typedef struct IntersectionIterator {
-  QueryIterator base;
-
-  // The iterators to intersect
-  QueryIterator **its;
-  uint32_t num_its;
-
-  int max_slop;
-  bool in_order;
-
-  size_t num_expected;
-} IntersectionIterator;
-
 /**
- * Create a new intersection iterator.
- * @param its The iterators to intersect. Taking ownership of the iterators.
- * @param num The number of iterators.
- * @param max_slop The maximum slop allowed for the intersection. Negative value for no slop validation.
- * @param in_order Whether the intersection should be in order.
- * @param weight The weight of the intersection.
- * @return A new intersection iterator, or an empty iterator if any of the iterators are NULL.
+ * Reduce the raw child list before building an intersection iterator.
+ *
+ * Rules applied in order:
+ *  1. Wildcard iterators are removed; if ALL children were wildcards, the last one is returned.
+ *  2. If any child is NULL or EMPTY_ITERATOR, all others are freed and that iterator
+ *     (or a fresh empty iterator for a NULL slot) is returned.
+ *  3. If exactly one non-wildcard child remains, it is returned directly.
+ *  4. Otherwise NULL is returned and *num is updated to the compacted count —
+ *     the caller should build a real intersection from `its[0..*num]`
+ *     (wildcards beyond that index are already freed).
+ *
+ * When non-NULL is returned, `its` has already been freed.
+ * When NULL is returned, `its` is still valid and owned by the caller.
  */
-QueryIterator *NewIntersectionIterator(QueryIterator **its, size_t num, int max_slop, bool in_order, double weight);
+QueryIterator *IntersectionIteratorReducer(QueryIterator **its, size_t *num);
 
 #ifdef __cplusplus
 }

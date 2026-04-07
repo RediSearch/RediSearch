@@ -1,19 +1,20 @@
 #!/usr/bin/env bash
+set -eo pipefail
 version=3.25.1
-processor=$(uname -m)
 OS_TYPE=$(uname -s)
-OS_NAME=$(grep '^NAME=' /etc/os-release | sed 's/"//g')
-OS_NAME=${OS_NAME#"NAME="}
 MODE=$1 # whether to install using sudo or not
 
 if [[ $OS_TYPE = 'Darwin' ]]
 then
     brew install cmake
 else
+    OS_NAME=$(grep '^NAME=' /etc/os-release | sed 's/"//g')
+    OS_NAME=${OS_NAME#"NAME="}
     if [[ $OS_NAME == 'Alpine Linux' ]]
     then
         $MODE apk add --no-cache cmake
     else
+        processor=$(uname -m)
         if [[ $processor = 'x86_64' ]]
         then
             filename=cmake-${version}-linux-x86_64.sh

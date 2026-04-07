@@ -14,7 +14,7 @@ use inverted_index::{NumericReader, RSIndexResult};
 use numeric_range_tree::NumericRangeTree;
 
 use crate::{
-    RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
+    IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
     expiration_checker::{ExpirationChecker, NoOpChecker},
 };
 
@@ -80,7 +80,7 @@ where
         range_min: Option<f64>,
         range_max: Option<f64>,
     ) -> Self {
-        let result = RSIndexResult::numeric(0.0);
+        let result = RSIndexResult::build_numeric(0.0).build();
 
         let range_tree_info = range_tree.map(|tree| {
             let revision_id = tree.revision_id();
@@ -185,5 +185,10 @@ where
         }
 
         self.it.revalidate()
+    }
+
+    #[inline(always)]
+    fn type_(&self) -> IteratorType {
+        IteratorType::InvIdxNumeric
     }
 }

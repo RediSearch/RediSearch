@@ -14,6 +14,14 @@ use sorting_vector::RSSortingVector;
 use std::{borrow::Cow, ffi::CStr};
 use value::RSValueFFI;
 
+/// Tests if the given [`RLookupKey`] is a special key (lang, score, or payload field)
+/// with respect to this schema rule.
+fn is_special_key(rule: &SchemaRule, key: &RLookupKey) -> bool {
+    [rule.lang_field(), rule.score_field(), rule.payload_field()]
+        .into_iter()
+        .any(|f| f == Some(key.name().as_ref()))
+}
+
 /// Row data for a lookup key. This abstracts the question of if the data comes from a borrowed [RSSortingVector]
 /// or from dynamic values stored in the row during processing.
 #[derive(Debug)]
@@ -128,7 +136,7 @@ impl<'a> RLookupRow<'a> {
                 key.flags.contains(required_flags) && !key.flags.intersects(excluded_flags);
             let key_has_associated_value = self.get(key).is_some();
             // Is this key a "special key" according to the schema? If so, we skip it
-            let key_allowed_by_rule = !rule.is_some_and(|rule| rule.is_special_key(key));
+            let key_allowed_by_rule = !rule.is_some_and(|rule| is_special_key(rule, key));
 
             let will_count = will_increment_idx
                 && key_matches_flag_requirements
@@ -191,19 +199,19 @@ impl<'a> RLookupRow<'a> {
     /// If the item is not found in either location, it returns `None`.
     pub fn get(&self, key: &RLookupKey) -> Option<&RSValueFFI> {
         // Check dynamic values first
-        if self.len() > key.dstidx as usize
-            && let Some(val) = self
-                .dyn_values()
-                .get(key.dstidx as usize)
-                .expect("value is not in dynamic values even though dstidx is in bounds")
-                .as_ref()
-        {
+        if let Some(Some(val)) = self.dyn_values().get(key.dstidx as usize) {
             return Some(val);
         }
 
         // If not found in dynamic values, check the sorting vector if the SvSrc flag is set
         if key.flags.contains(RLookupKeyFlag::SvSrc) {
-            self.sorting_vector()?.get(key.svidx as usize)
+            // Sorting vector slots that were never written hold the null sentinel.
+            // Filter it out so callers see `None` for absent fields, mirroring the C
+            // guard in `RLookupRow_Get`:
+            //   `if (ret != NULL && ret == RSValue_NullStatic()) ret = NULL;`
+            self.sorting_vector()?
+                .get(key.svidx as usize)
+                .filter(|v| !v.is_null_static())
         } else {
             None
         }
@@ -240,7 +248,7 @@ impl<'a> RLookupRow<'a> {
             cursor.into_current().expect("the cursor returned by `Keys::find_by_name` must have a current key. This is a bug!")
         } else {
             rlookup
-                .get_key_write(name, RLookupKeyFlags::empty())
+                .get_key_write(name.into_owned(), RLookupKeyFlags::empty())
                 .expect("`RLookup::get_key_write` must never return None for non-existent keys. This is a bug!")
         };
         self.write_key(key, val);
@@ -249,11 +257,13 @@ impl<'a> RLookupRow<'a> {
     /// Wipes the row, retaining its memory but decrementing the ref count of any included instance of `T`.
     /// This does not free all the memory consumed by the row, but simply resets
     /// the row data (preserving any caches) so that it may be refilled.
+    /// Also clears the sorting vector.
     pub fn wipe(&mut self) {
         for value in self.dyn_values.iter_mut().filter(|v| v.is_some()) {
             *value = None;
             self.num_dyn_values -= 1;
         }
+        self.sorting_vector = None;
     }
 
     /// Resets the row, clearing the dynamic values. This effectively wipes the row and deallocates the memory used for dynamic values.
@@ -398,7 +408,10 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(miri, ignore = "miri does not support FFI functions")]
+    #[cfg_attr(
+        miri,
+        ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
+    )]
     fn get_length_without_flags() {
         let mut rlookup = RLookup::new();
         let mut row = RLookupRow::new();
@@ -434,7 +447,10 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(miri, ignore = "miri does not support FFI functions")]
+    #[cfg_attr(
+        miri,
+        ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
+    )]
     fn get_length_required_flags() {
         let mut rlookup = RLookup::new();
         let mut row = RLookupRow::new();
@@ -457,7 +473,10 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(miri, ignore = "miri does not support FFI functions")]
+    #[cfg_attr(
+        miri,
+        ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
+    )]
     fn get_length_excluded_flags() {
         let mut rlookup = RLookup::new();
         let mut row = RLookupRow::new();
@@ -481,7 +500,10 @@ mod tests {
 
     // historically this mix caused no items to be counted
     #[test]
-    #[cfg_attr(miri, ignore = "miri does not support FFI functions")]
+    #[cfg_attr(
+        miri,
+        ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
+    )]
     fn get_length_required_and_excluded_flags_same() {
         let mut rlookup = RLookup::new();
         let mut row = RLookupRow::new();
@@ -505,7 +527,10 @@ mod tests {
 
     // Without a rule we expect no filtering for special purpose keys like score, lang or payload
     #[test]
-    #[cfg_attr(miri, ignore = "miri does not support FFI functions")]
+    #[cfg_attr(
+        miri,
+        ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
+    )]
     fn get_length_without_rule() {
         let mut rlookup = RLookup::new();
         let mut row = RLookupRow::new();
@@ -526,7 +551,10 @@ mod tests {
 
     // The rule is used to filter special purpose keys like score, lang or payload
     #[test]
-    #[cfg_attr(miri, ignore = "miri does not support FFI functions")]
+    #[cfg_attr(
+        miri,
+        ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
+    )]
     fn get_length_with_rule() {
         let mut rlookup = RLookup::new();
         let mut row = RLookupRow::new();

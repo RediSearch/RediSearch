@@ -41,6 +41,12 @@ add_subdirectory(${root}/deps/libuv ${CMAKE_CURRENT_BINARY_DIR}/libuv)
 option(VECSIM_BUILD_TESTS "Build vecsim tests" OFF)
 add_subdirectory(${root}/deps/VectorSimilarity ${CMAKE_CURRENT_BINARY_DIR}/VectorSimilarity)
 
+# Workaround: fmt 11.2.0 is missing <cstdlib> include, which is needed for clang 21+ on macOS
+# This was fixed in fmt 12.0.0, but that requires patching several levels upstream.
+if(TARGET fmt)
+    target_compile_options(fmt PRIVATE "-include" "cstdlib")
+endif()
+
 #----------------------------------------------------------------------------------------------
 # Add subdirectories for src/ components
 add_subdirectory(geometry)
@@ -69,6 +75,7 @@ file(GLOB SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/hybrid/*.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/hybrid/parse/*.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/ext/*.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/fork_gc/*.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/hll/*.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/query_parser/v1/*.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/query_parser/v2/*.c"

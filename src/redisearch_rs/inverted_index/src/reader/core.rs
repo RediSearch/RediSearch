@@ -12,7 +12,7 @@ use std::{io::Cursor, sync::atomic};
 use super::{IndexReader, NumericReader, TermReader};
 use crate::{
     DecodedBy, Decoder, Encoder, HasInnerIndex, InvertedIndex, NumericDecoder, RSIndexResult,
-    TermDecoder, opaque::OpaqueEncoding,
+    TermDecoder, index::unique_id::IndexUniqueId, opaque::OpaqueEncoding,
 };
 use ffi::{IndexFlags, IndexFlags_Index_HasMultiValue, t_docId};
 
@@ -37,6 +37,11 @@ pub struct IndexReaderCore<'index, E> {
     /// detect if the index has been modified since the last read, in which case the reader
     /// should be reset.
     pub(crate) gc_marker: u32,
+
+    /// The unique ID of the inverted index when this reader was created. Used together with
+    /// pointer comparison in [`Self::points_to_ii`] to detect the ABA problem: if the original
+    /// index is freed and a new one is allocated at the same address, the unique IDs will differ.
+    ii_unique_id: IndexUniqueId,
 }
 
 // Automatically implemented if the IndexReaderCore uses a NumericDecoder.
@@ -197,18 +202,22 @@ impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReaderCore<'index, E> {
             current_block_idx: 0,
             last_doc_id,
             gc_marker: ii.gc_marker.load(atomic::Ordering::Relaxed),
+            ii_unique_id: ii.unique_id(),
         }
     }
 
-    /// Check if this reader is reading from the given index by comparing their pointers.
+    /// Check if this reader is reading from the given index by comparing both their pointers and
+    /// unique IDs. The dual check prevents the ABA problem: if the original index is freed and a
+    /// new one is allocated at the same address, the unique IDs will differ.
     pub fn points_to_ii(&self, index: &InvertedIndex<E>) -> bool {
-        std::ptr::eq(self.ii, index)
+        std::ptr::eq(self.ii, index) && self.ii_unique_id == index.unique_id()
     }
 
     /// Swap the inverted index of the reader with the supplied index. This is only used by the C
     /// tests to trigger a revalidation.
     pub const fn swap_index(&mut self, index: &mut &'index InvertedIndex<E>) {
         std::mem::swap(&mut self.ii, index);
+        self.ii_unique_id = self.ii.unique_id();
     }
 
     /// Get the internal index of the reader. This is only used by some C tests.
