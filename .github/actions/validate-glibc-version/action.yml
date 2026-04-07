@@ -6,7 +6,8 @@ description: |
 runs:
   using: composite
   steps:
-    - shell: bash -l -eo pipefail {0}
+    - name: Validate glibc version
+      shell: bash -l -eo pipefail {0}
       run: |
         BINARY=$(find bin/ -name 'redisearch.so' | head -1)
         if [ -z "$BINARY" ]; then
