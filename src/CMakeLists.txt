@@ -100,6 +100,9 @@ file(GLOB SOURCES
 # Create the rscore object library
 add_library(rscore OBJECT ${SOURCES})
 add_dependencies(rscore generate_command_info)
+if(MAX_WORKER_THREADS)
+    target_compile_definitions(rscore PRIVATE MAX_WORKER_THREADS=${MAX_WORKER_THREADS})
+endif()
 
 # Collect all object files
 set(FINAL_OBJECTS
