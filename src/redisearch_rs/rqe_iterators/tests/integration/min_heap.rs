@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use rqe_iterators::util::DocIdMinHeap;
+use rqe_iterators::utils::DocIdMinHeap;
 
 /// Covers: `new`, `default`, `with_capacity`, `push`, `peek`, `len`,
 /// `is_empty`, `clear`, and `[]`.
