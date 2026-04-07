@@ -12,7 +12,7 @@
 use ffi::t_docId;
 use inverted_index::RSIndexResult;
 
-use crate::util::DocIdMinHeap;
+use crate::utils::DocIdMinHeap;
 use crate::{IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
 
 /// Yields documents appearing in ANY child iterator using a binary heap.
@@ -121,11 +121,11 @@ where
         if self.heap.is_empty() {
             return;
         }
-        
+
         // Borrow the heap data slice once so the compiler can hoist bounds
         // checks out of the loop.
         let heap_data = self.heap.data();
-        
+
         // A 64-element stack is sufficient for a binary heap of up to 2^64 elements.
         let mut stack = [0usize; 64];
         let mut stack_len = 1;
