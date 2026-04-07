@@ -59,14 +59,10 @@ jobs:
         run: |
           if [ -n "${BENCHMARK_FILTER}" ]; then
             effective_files=""
-            echo "Filtering benchmarks: glob='${BENCHMARK_GLOB}' filter='${BENCHMARK_FILTER}'"
             for f in ${BENCHMARK_GLOB}; do
               [ -f "$f" ] || continue
               if [[ "$f" == ${BENCHMARK_FILTER} ]]; then
                 effective_files="${effective_files:+${effective_files} }$f"
-                echo "  + $f"
-              else
-                echo "  - $f (excluded)"
               fi
             done
             if [ -z "$effective_files" ]; then
@@ -74,10 +70,8 @@ jobs:
               echo "skip=true" >> "$GITHUB_OUTPUT"
               exit 0
             fi
-            echo "Selected $(echo ${effective_files} | wc -w | tr -d ' ') benchmark(s)"
             echo "effective_glob=${effective_files}" >> "$GITHUB_OUTPUT"
           else
-            echo "No filter applied, using glob: ${BENCHMARK_GLOB}"
             echo "effective_glob=${BENCHMARK_GLOB}" >> "$GITHUB_OUTPUT"
           fi
           echo "skip=false" >> "$GITHUB_OUTPUT"
