@@ -330,7 +330,7 @@ TEST_F(CollectParserTest, FieldsExceedsMax) {
     field_strs[i] = "@f" + std::to_string(i);
     args.push_back(field_strs[i].c_str());
   }
-  expectError(std::move(args), "FIELDS count exceeds maximum of 1024");
+  expectError(std::move(args), "Invalid argument count");
 }
 
 TEST_F(CollectParserTest, SortByInvalidTokenBetweenFields) {

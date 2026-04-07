@@ -72,17 +72,6 @@ static void handleCollectFields(ArgParser *parser, const void *value, void *user
   ArgsCursor *ac = (ArgsCursor *)value;
 
   int count = AC_NumRemaining(ac);
-  if (count < 1) {
-    QueryError_SetError(opts->status, QUERY_ERROR_CODE_PARSE_ARGS,
-      "FIELDS requires at least 1 field");
-    return;
-  }
-  if (count > SPEC_MAX_FIELDS) {
-    QueryError_SetWithoutUserDataFmt(opts->status, QUERY_ERROR_CODE_LIMIT,
-      "FIELDS count exceeds maximum of %d", SPEC_MAX_FIELDS);
-    return;
-  }
-
   ReducerOptions sub_opts = *opts;
   sub_opts.args = ac;
   sub_opts.name = "FIELDS";
@@ -182,7 +171,7 @@ static void handleCollectLimit(ArgParser *parser, const void *value, void *user_
   }
   if (offset > LLONG_MAX - count) {
     QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS,
-      "LIMIT offset + count overflow");
+      "Invalid LIMIT offset + count value");
     return;
   }
 
@@ -194,6 +183,13 @@ static void handleCollectLimit(ArgParser *parser, const void *value, void *user_
 // --- Factory function ---
 
 Reducer *RDCRCollect_New(const ReducerOptions *options) {
+  if (!RSGlobalConfig.enableUnstableFeatures) {
+    QueryError_SetError(options->status, QUERY_ERROR_CODE_INVAL,
+      "`COLLECT` is unavailable when `ENABLE_UNSTABLE_FEATURES` is off. "
+      "Enable it with `FT.CONFIG SET ENABLE_UNSTABLE_FEATURES true`");
+    return NULL;
+  }
+
   CollectReducer *cr = rm_calloc(1, sizeof(*cr));
   cr->sortAscMap = SORTASCMAP_INIT;
   CollectParseCtx pctx = {.cr = cr, .options = options};
@@ -210,7 +206,7 @@ Reducer *RDCRCollect_New(const ReducerOptions *options) {
   ArgsCursor subArgs = {0};
 
   ArgParser_AddSubArgsV(parser, "FIELDS", "Projected fields",
-    &subArgs, 1, -1,
+    &subArgs, 1, SPEC_MAX_FIELDS,
     ARG_OPT_REQUIRED,
     ARG_OPT_CALLBACK, handleCollectFields, &pctx,
     ARG_OPT_END);
