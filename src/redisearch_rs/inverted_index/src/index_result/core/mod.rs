@@ -352,6 +352,25 @@ impl<'index> RSIndexResult<'index> {
         RSIndexResultBuilder::union(cap)
     }
 
+    /// Reset an aggregate result for reuse, clearing children, frequency,
+    /// field mask, and metrics.
+    pub fn reset_aggregate(&mut self) {
+        self.doc_id = 0;
+        self.freq = 0;
+        self.field_mask = 0;
+        if let Some(agg) = self.as_aggregate_mut() {
+            agg.reset();
+        }
+        if !self.metrics.is_null() {
+            // SAFETY: The null check above guarantees non-null. The pointer is valid
+            // because it was returned by `RSYieldableMetric_Concat` (or equivalent
+            // allocator) and has not been freed — this is the only free before we
+            // set the pointer to null.
+            unsafe { ResultMetrics_Free(self.metrics) };
+            self.metrics = std::ptr::null_mut();
+        }
+    }
+
     /// Create a builder for a hybrid metric index result
     pub fn build_hybrid_metric() -> RSIndexResultBuilder<'index> {
         RSIndexResultBuilder::hybrid_metric()

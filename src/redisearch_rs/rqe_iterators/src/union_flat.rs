@@ -124,9 +124,7 @@ where
     /// Builds the result from active children whose `last_doc_id` equals `min_id`.
     /// Only used in Full mode - aggregates ALL matching children.
     fn build_aggregate_result(&mut self, min_id: t_docId) {
-        if let Some(agg) = self.result.as_aggregate_mut() {
-            agg.reset();
-        }
+        self.result.reset_aggregate();
         self.result.doc_id = min_id;
 
         for child in &mut self.children[..self.num_active] {
@@ -218,9 +216,7 @@ where
         let mut i = 0;
 
         // Reset aggregate before potentially adding children during the loop
-        if let Some(agg) = self.result.as_aggregate_mut() {
-            agg.reset();
-        }
+        self.result.reset_aggregate();
 
         while i < self.num_active {
             let child = &mut self.children[i];
@@ -344,11 +340,9 @@ where
     /// Used in Quick mode where we only need one matching child.
     fn quick_set_from_child(&mut self, child_idx: usize) {
         let child = &mut self.children[child_idx];
-        self.result.doc_id = child.last_doc_id();
 
-        if let Some(agg) = self.result.as_aggregate_mut() {
-            agg.reset();
-        }
+        self.result.reset_aggregate();
+        self.result.doc_id = child.last_doc_id();
 
         self.add_child_to_result(child_idx);
     }
@@ -417,9 +411,7 @@ where
         // Reset num_active to include all children again
         self.num_active = self.children.len();
         self.is_eof = self.children.is_empty();
-        if let Some(agg) = self.result.as_aggregate_mut() {
-            agg.reset();
-        }
+        self.result.reset_aggregate();
         self.children.iter_mut().for_each(|c| c.rewind());
     }
 

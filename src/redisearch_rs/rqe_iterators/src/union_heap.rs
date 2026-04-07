@@ -112,11 +112,8 @@ where
     /// Uses DFS over the heap array, pruning subtrees where `doc_id > min_id`
     /// (heap property guarantees all descendants are also `>= doc_id`).
     fn build_aggregate_result(&mut self, min_id: t_docId) {
+        self.result.reset_aggregate();
         self.result.doc_id = min_id;
-
-        if let Some(agg) = self.result.as_aggregate_mut() {
-            agg.reset();
-        }
 
         // Borrow the heap data slice once so the compiler can hoist bounds
         // checks out of the loop.
@@ -273,11 +270,9 @@ where
     /// Sets the union result directly from the child at `child_idx`.
     fn quick_set_from_child(&mut self, child_idx: usize) {
         let child = &mut self.children[child_idx];
-        self.result.doc_id = child.last_doc_id();
 
-        if let Some(agg) = self.result.as_aggregate_mut() {
-            agg.reset();
-        }
+        self.result.reset_aggregate();
+        self.result.doc_id = child.last_doc_id();
 
         if let Some(child_result) = child.current() {
             let child_ptr: *const RSIndexResult<'index> = child_result;
@@ -356,9 +351,7 @@ where
     fn rewind(&mut self) {
         self.result.doc_id = 0;
         self.is_eof = self.children.is_empty();
-        if let Some(agg) = self.result.as_aggregate_mut() {
-            agg.reset();
-        }
+        self.result.reset_aggregate();
         self.children.iter_mut().for_each(|c| c.rewind());
         self.heap.clear();
     }
