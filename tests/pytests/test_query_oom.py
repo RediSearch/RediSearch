@@ -97,6 +97,22 @@ def test_oom_verbosity_standalone():
     env.assertEqual(res['Results']['warnings'][0], COORD_OOM_WARNING)
     env.assertContains('Profile', res)
 
+@skip(cluster=False)
+def test_oom_verbosity_cluster_hybrid_profile():
+    env = Env(shardsCount=3, protocol=3)
+
+    allShards_change_oom_policy(env, 'return')
+    _common_hybrid_cluster_test_scenario(env)
+    allShards_change_maxmemory_low(env)
+
+    query_vector = np.array([1.2, 0.2]).astype(np.float32).tobytes()
+    res = env.cmd('FT.PROFILE', 'idx', 'HYBRID', 'QUERY', 'SEARCH', '*', 'VSIM', '@embedding',
+                  '$BLOB', 'COMBINE', 'RRF', '2', 'WINDOW', '1000', 'PARAMS', '2', 'BLOB',
+                  query_vector)
+    env.assertEqual(res['Results']['warnings'][0], COORD_OOM_WARNING)
+    env.assertContains('Profile', res)
+
+
 class testOomClusterBehavior:
     def __init__(self):
         skipTest(cluster=False)
