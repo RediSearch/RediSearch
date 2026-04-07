@@ -6,35 +6,58 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#include "redismodule.h"
-#include "redisearch.h"
-#include "search_ctx.h"
-#include "aggregate.h"
-#include "aggregate_exec_common.h"
-#include "cursor.h"
-#include "rmutil/util.h"
-#include "util/timeout.h"
+#include <stdbool.h>                                 // for bool, false, true
+#include <stdint.h>                                  // for uint32_t, ...
+#include <string.h>                                  // for NULL, memset
+#include <strings.h>                                 // for size_t, strcasecmp
+#include <sys/param.h>                               // for MIN
+
+#include "redismodule.h"                             // for REDISMODULE_OK
+#include "redisearch.h"                              // for RSDocumentMetadata
+#include "search_ctx.h"                              // for RedisSearchCtx
+#include "aggregate.h"                               // for AREQ, ...
+#include "aggregate_exec_common.h"                   // for hasTimeoutError
+#include "cursor.h"                                  // for Cursor, Cursor_Free
+#include "util/timeout.h"                            // for TimedOut_WithStatus
 #include "util/workers.h"
-#include "score_explain.h"
-#include "profile/profile.h"
+#include "score_explain.h"                           // for SEReply
+#include "profile/profile.h"                         // for ProfileWarnings_Add
 #include "query_optimizer.h"
-#include "resp3.h"
-#include "query_error.h"
+#include "resp3.h"                                   // for is_resp3
+#include "query_error.h"                             // for QueryError, ...
 #include "info/global_stats.h"
-#include "aggregate_debug.h"
-#include "debug_commands.h"
-#include "info/info_redis/block_client.h"
-#include "info/info_redis/types/blocked_queries.h"
+#include "aggregate_debug.h"                         // for AREQ_Debug, ...
+#include "info/info_redis/block_client.h"            // for BlockClientCtx
+#include "info/info_redis/types/blocked_queries.h"   // for BlockedQueryNode
 #include "info/info_redis/threads/current_thread.h"
-#include "pipeline/pipeline.h"
-#include "util/units.h"
-#include "hybrid/hybrid_request.h"
-#include "module.h"
-#include "result_processor.h"
-#include "profile/options.h"
+#include "pipeline/pipeline.h"                       // for Pipeline
+#include "hybrid/hybrid_request.h"                   // for HybridRequest
+#include "module.h"                                  // for GetNumShards_UnSafe
+#include "result_processor.h"                        // for QueryProcessingCtx
+#include "profile/options.h"                         // for ProfileOptions
 #include "reply_empty.h"
 #include "search_disk.h"
 #include "search_disk_utils.h"
+#include "VecSim/vec_sim_common.h"                   // for UNUSED
+#include "aggregate/aggregate_plan.h"
+#include "config.h"                                  // for RequestConfig
+#include "doc_table.h"                               // for DMD_KeyPtrLen
+#include "query.h"                                   // for MetricRequest
+#include "reply.h"
+#include "rlookup.h"                                 // for RLookupKey_GetFlags
+#include "rlookup_rs.h"                              // for RLookupRow_Get
+#include "rmalloc.h"                                 // for rm_free, rm_new
+#include "rmutil/rm_assert.h"                        // for RS_LOG_ASSERT
+#include "rs_wall_clock.h"
+#include "rules.h"                                   // for SchemaRule
+#include "search_options.h"                          // for FieldList, ...
+#include "search_result.h"
+#include "search_result_rs.h"                        // for SearchResult
+#include "spec.h"                                    // for IndexSpec, ...
+#include "thpool/thpool.h"
+#include "util/arr/arr.h"                            // for array_len, ...
+#include "util/references.h"                         // for StrongRef_Get
+#include "value/value.h"                             // for RSValue_IsTrio
 
 // Multi threading data structure for background query execution.
 // This context is created on the main thread and passed to the background worker.

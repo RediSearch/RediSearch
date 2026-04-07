@@ -8,12 +8,15 @@
 */
 #pragma once
 
-#include "index_error.h"
-#include "reply.h"
-#include "coord/rmr/reply.h"
-#include "field_spec.h"
-#include "vector_index_stats.h"
-#include "spec.h"
+#include <stdbool.h>             // for bool
+#include <stddef.h>              // for size_t
+
+#include "index_error.h"         // for IndexError
+#include "reply.h"               // for RedisModule_Reply
+#include "coord/rmr/reply.h"     // for MRReply
+#include "field_spec.h"          // for FieldSpec, FieldType
+#include "vector_index_stats.h"  // for VectorIndexStats
+#include "spec.h"                // for IndexSpec
 #include "redis_index.h"
 #include "vector_index.h"
 #include "obfuscation/hidden.h"

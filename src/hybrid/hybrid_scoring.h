@@ -1,6 +1,9 @@
 #ifndef __HYBRID_SCORING_H__
 #define __HYBRID_SCORING_H__
 
+#include <stdbool.h>  // for bool
+#include <stddef.h>   // for size_t
+
 #include "redisearch.h"
 
 #ifdef __cplusplus

@@ -7,36 +7,63 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-#include "commands.h"
+#include <stdint.h>                                    // for uint64_t
+#include <stdio.h>                                     // for snprintf
+#include <string.h>                                    // for NULL, strlen
+#include <strings.h>                                   // for strcasecmp
+
 #include "debug_commands.h"
 #include "coord/debug_command_names.h"
 #include "VecSim/vec_sim_debug.h"
-#include "inverted_index.h"
+#include "inverted_index.h"                            // for NewIndexReader
 #include "redis_index.h"
-#include "redisearch_rs/headers/numeric_range_tree.h"
-#include "tag_index.h"
+#include "redisearch_rs/headers/numeric_range_tree.h"  // for NumericRangeTree
+#include "tag_index.h"                                 // for TagIndex, ...
 #include "numeric_index.h"
-#include "redisearch_rs/headers/iterators_rs.h"
-#include "geometry/geometry_api.h"
-#include "geometry_index.h"
+#include "geometry/geometry_api.h"                     // for GeometryApi_Get
+#include "geometry_index.h"                            // for OpenGeometryIndex
 #include "phonetic_manager.h"
-#include "gc.h"
+#include "gc.h"                                        // for GCContext, ...
 #include "module.h"
-#include "suffix.h"
 #include "triemap.h"
 #include "util/workers.h"
-#include "cursor.h"
-#include "module.h"
+#include "cursor.h"                                    // for CursorList_Empty
 #include "aggregate/aggregate_debug.h"
 #include "hybrid/hybrid_debug.h"
 #include "reply.h"
-#include "reply_macros.h"
-#include "obfuscation/obfuscation_api.h"
 #include "info/info_command.h"
 #include "search_disk.h"
 #include "ext/debug_scorers.h"
 #include "query_error.h"
-#include "doc_id_meta.h"
+#include "doc_id_meta.h"                               // for DocIdMeta_Get
+#include "VecSim/info_iterator.h"                      // for VecSim_InfoField
+#include "VecSim/vec_sim.h"
+#include "VecSim/vec_sim_common.h"
+#include "concurrent_ctx.h"
+#include "config.h"                                    // for RSConfig, ...
+#include "doc_table.h"                                 // for DMD_Return
+#include "field_spec.h"                                // for FieldSpec, ...
+#include "geometry/geometry_types.h"                   // for GeometryApi
+#include "iterators/iterator_api.h"                    // for QueryIterator
+#include "profile/profile.h"                           // for ResultProcessor
+#include "redisearch.h"
+#include "rmalloc.h"                                   // for rm_free, ...
+#include "rmutil/args.h"
+#include "rmutil/rm_assert.h"                          // for RS_ASSERT
+#include "rules.h"                                     // for SchemaPrefixes_g
+#include "search_ctx.h"                                // for RedisSearchCtx
+#include "sorting_vector.h"
+#include "spec.h"                                      // for IndexSpec, ...
+#include "thpool/thpool.h"                             // for thpool_stats
+#include "trie/rune_util.h"                            // for runesToStr, rune
+#include "trie/trie.h"                                 // for TrieIterator_Free
+#include "trie/trie_type.h"                            // for Trie, ...
+#include "types_rs.h"                                  // for RSIndexResult
+#include "util/dict/dict.h"                            // for dictSize
+#include "util/references.h"                           // for StrongRef_Get
+#include "util/strconv.h"                              // for STR_EQCASE
+#include "util/timeout.h"                              // for TimedOut_WithCtx
+#include "vector_index.h"                              // for openVectorIndex
 
 DebugCTX globalDebugCtx = {0};
 

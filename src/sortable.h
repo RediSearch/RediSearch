@@ -9,7 +9,8 @@
 #pragma once
 
 #include "value.h"
-#include "sorting_vector.h"
+#include "sorting_vector.h"  // for RSSortingVector
+#include "redismodule.h"     // for RedisModuleIO
 
 #ifdef __cplusplus
 extern "C" {

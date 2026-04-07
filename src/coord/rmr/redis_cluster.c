@@ -6,13 +6,21 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#include "../config.h"
-#include "cluster.h"
-#include "redismodule.h"
-#include "rmr.h"
-#include "module.h"
-#include "util/strconv.h"
-#include "slot_ranges.h"
+#include <stdbool.h>               // for bool, false, true
+#include <stddef.h>                // for size_t, NULL
+#include <stdint.h>                // for int32_t
+
+#include "../config.h"             // for ClusterType_RedisOSS, ...
+#include "redismodule.h"           // for RedisModuleCallReply, ...
+#include "rmr.h"                   // for MR_SetLocalNodeId, MR_UpdateTopology
+#include "module.h"                // for RS_AutoMemory
+#include "util/strconv.h"          // for STR_EQ
+#include "slot_ranges.h"           // for SlotRangeArray_SizeOf
+#include "rmalloc.h"               // for rm_free, rm_calloc, rm_strndup
+#include "rmr/cluster_topology.h"  // for MRClusterTopology, MRClusterShard
+#include "rmr/endpoint.h"          // for MREndpoint
+#include "rmr/node.h"              // for MRClusterNode
+#include "rmutil/rm_assert.h"      // for RS_ASSERT
 
 #ifndef ENABLE_ASSERT
 #define ASSERT_KEY(reply, idx, expected)

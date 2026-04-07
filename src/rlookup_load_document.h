@@ -8,7 +8,13 @@
 */
 #ifndef RLOOKUP_LOAD_DOCUMENT_H
 #define RLOOKUP_LOAD_DOCUMENT_H
+#include <stdbool.h>      // for bool
+#include <stddef.h>       // for size_t
+
 #include "rlookup.h"
+#include "document_rs.h"  // for DocumentType
+#include "redisearch.h"   // for RSDocumentMetadata
+#include "rlookup_rs.h"   // for RLookup, RLookupRow, RLookupKey
 
 #ifdef __cplusplus
 extern "C" {

@@ -9,10 +9,15 @@
 #ifndef __TRIE_TYPE_H__
 #define __TRIE_TYPE_H__
 
-#include "redismodule.h"
+#include <stdbool.h>         // for bool
+#include <stddef.h>          // for size_t
 
-#include "trie.h"
+#include "redismodule.h"     // for RedisModuleIO, RedisModuleCtx, ...
+#include "trie.h"            // for TrieFreeCallback, TrieSortMode, ...
 #include "levenshtein.h"
+#include "redisearch.h"      // for RSPayload
+#include "rmutil/vector.h"   // for Vector
+#include "trie/rune_util.h"  // for rune
 
 #ifdef __cplusplus
 extern "C" {

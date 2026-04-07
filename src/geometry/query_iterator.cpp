@@ -7,10 +7,15 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "query_iterator.hpp"
+
+#include <memory>                                     // for allocator_traits
+
 #include "doc_table.h"
 #include "util/timeout.h"
-
-#include <iterator>   // ranges::distance
+#include "geometry/allocator/tracking_allocator.hpp"  // for TrackingAllocator
+#include "iterator_type.h"
+#include "iterators/iterator_api.h"                   // for QueryIterator
+#include "spec.h"                                     // for IndexSpec
 
 namespace RediSearch {
 namespace GeoShape {

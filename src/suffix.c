@@ -7,13 +7,16 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "suffix.h"
-#include "rmutil/rm_assert.h"
-#include "config.h"
-#include "util/strconv.h"
-#include "wildcard.h"
 
-#include <string.h>
-#include <strings.h>
+#include <string.h>             // for size_t, NULL, strlen
+#include <time.h>               // for timespec
+
+#include "rmutil/rm_assert.h"   // for RS_LOG_ASSERT
+#include "util/strconv.h"       // for STR_EQ
+#include "redisearch.h"         // for REDISEARCH_UNINITIALIZED, REDISEARCH_ERR
+#include "redismodule.h"        // for REDISMODULE_OK, REDISMODULE_ERR
+#include "rmalloc.h"            // for rm_free, rm_calloc, rm_strndup
+#include "wildcard/wildcard.h"  // for Wildcard_MatchChar, FULL_MATCH
 
 #define Suffix_GetData(node) node ? node->payload ? \
                              (suffixData *)node->payload->data : NULL : NULL

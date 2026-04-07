@@ -7,7 +7,13 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "rs_geo.h"
-#include "fast_float/fast_float_strtod.h"
+
+#include <stdint.h>                        // for uint64_t
+#include <string.h>                        // for NULL, memcpy, strpbrk, size_t
+
+#include "fast_float/fast_float_strtod.h"  // for fast_float_strtod
+#include "geohash/geohash_helper.h"        // for GeoHashRadius, ...
+#include "redismodule.h"                   // for REDISMODULE_ERR, ...
 
 int encodeGeo(double lon, double lat, double *bits) {
   GeoHashBits hash;

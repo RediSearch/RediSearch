@@ -7,12 +7,16 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-#include "libnu/libnu.h"
-#include "rune_util.h"
-#include "rmalloc.h"
+#include <stdlib.h>         // for size_t, NULL
+#include <string.h>         // for strlen
+#include <sys/types.h>      // for ssize_t
 
-#include <stdlib.h>
-#include <string.h>
+#include "rune_util.h"
+#include "rmalloc.h"        // for rm_calloc, rm_malloc, rm_free
+#include "libnu/casemap.h"  // for nu_tolower, nu_casemap_read, nu_tofold
+#include "libnu/extra.h"    // for nu_readstr, nu_strtransformnlen, nu_writestr
+#include "libnu/strings.h"  // for nu_strlen, nu_bytelen
+#include "libnu/utf8.h"     // for nu_utf8_read, nu_utf8_write
 
 static uint32_t __fold(uint32_t runelike) {
   uint32_t lowered = 0;

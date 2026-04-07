@@ -7,12 +7,25 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-#include <stdatomic.h>
+#include <stdatomic.h>                      // for atomic_load, atomic_init
+#include <string.h>                         // for NULL, size_t, strcmp
+
 #include "rpnet.h"
-#include "rmr/reply.h"
-#include "rmr/rmr.h"
-#include "hiredis/sds.h"
-#include "coord/dist_utils.h"
+#include "rmr/reply.h"                      // for MRReply_ArrayElement, ...
+#include "rmr/rmr.h"                        // for MRIterator_GetCtx, ...
+#include "coord/dist_utils.h"               // for netCursorCallback
+#include "config.h"                         // for RequestConfig, ...
+#include "hybrid/hybrid_cursor_mappings.h"  // for CursorMappings
+#include "module.h"                         // for processResultFormat, ...
+#include "query_error.h"
+#include "redismodule.h"                    // for RedisModule_Log, ...
+#include "result_processor.h"               // for QueryProcessingCtx, ...
+#include "rmalloc.h"                        // for rm_free, rm_calloc, ...
+#include "rmutil/rm_assert.h"               // for RS_ASSERT, RS_LOG_ASSERT
+#include "search_ctx.h"                     // for RedisSearchCtx, SearchTime
+#include "search_result.h"                  // for SearchResult_GetRowDataMut
+#include "util/timeout.h"                   // for TimedOut
+#include "value/value.h"                    // for RSValue_NewNumber, ...
 
 
 #define CURSOR_EOF 0

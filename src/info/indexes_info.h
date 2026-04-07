@@ -7,9 +7,10 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #pragma once
-#include <stddef.h>
-#include "gc.h"
-#include "rs_wall_clock.h"
+#include <stddef.h>         // for size_t
+
+#include "gc.h"             // for InfoGCStats
+#include "rs_wall_clock.h"  // for rs_wall_clock_ns_t
 #include "search_disk_api.h"
 
 #ifdef __cplusplus

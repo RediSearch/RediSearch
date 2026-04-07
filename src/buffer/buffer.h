@@ -9,11 +9,12 @@
 #ifndef __BUFFER_H__
 #define __BUFFER_H__
 
-#include <stdio.h>
+#include <stdio.h>       // for size_t
 #include <stdlib.h>
-#include <string.h>
-#include <stdint.h>
+#include <string.h>      // for memcpy
+#include <stdint.h>      // for uint16_t, uint32_t, uint8_t
 #include <arpa/inet.h>
+#include <netinet/in.h>  // for htonl, htons, ntohl, ntohs
 
 #define BUFFER_READ 0
 #define BUFFER_WRITE 1

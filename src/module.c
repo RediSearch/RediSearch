@@ -8,68 +8,64 @@
 */
 #define REDISMODULE_MAIN
 
-#include <stdio.h>
-#include <string.h>
-#include <sys/param.h>
-#include <time.h>
+#include <stdio.h>                                   // for NULL, size_t
+#include <string.h>                                  // for strlen, memcpy
+#include <sys/param.h>                               // for MAX, MIN
+#include <errno.h>                                   // for errno
+#include <math.h>                                    // for HUGE_VAL
+#include <pthread.h>                                 // for pthread_mutex_t
+#include <stddef.h>                                  // for ptrdiff_t
+#include <stdlib.h>                                  // for getenv
+#include <strings.h>                                 // for strcasecmp, ...
 
-#include "commands.h"
-#include "command_info/command_info.h"
+#include "commands.h"                                // for RS_CURSOR_CMD
+#include "command_info/command_info.h"               // for SetFtAliasaddInfo
 #include "document.h"
-#include "tag_index.h"
-#include "doc_id_meta.h"
-#include "query.h"
-#include "redis_index.h"
-#include "redismodule.h"
+#include "tag_index.h"                               // for TagIndex_Open
+#include "doc_id_meta.h"                             // for DocIdMeta_Init
+#include "query.h"                                   // for QAST_Destroy
+#include "redis_index.h"                             // for Redis_DeleteKeyC
+#include "redismodule.h"                             // for RedisModuleString
 #include "rmutil/strings.h"
-#include "rmutil/util.h"
-#include "rmutil/args.h"
+#include "rmutil/util.h"                             // for RMUtil_ArgExists
+#include "rmutil/args.h"                             // for AC_ARGTYPE_BOOLFLAG
 #include "spec.h"
-#include "util/logging.h"
 #include "util/workers.h"
-#include "util/references.h"
-#include "util/mempool.h"
-#include "config.h"
-#include "aggregate/aggregate.h"
-#include "rmalloc.h"
-#include "cursor.h"
+#include "util/references.h"                         // for StrongRef_Get
+#include "config.h"                                  // for RSConfig, ...
+#include "aggregate/aggregate.h"                     // for RSCursorDelCommand
+#include "rmalloc.h"                                 // for rm_free, rm_malloc
 #include "debug_commands.h"
-#include "spell_check.h"
-#include "dictionary.h"
-#include "suggest.h"
-#include "numeric_index.h"
-#include "redisearch_api.h"
-#include "alias.h"
+#include "spell_check.h"                             // for SpellCheck_Reply
+#include "dictionary.h"                              // for DictAddCommand
+#include "suggest.h"                                 // for RSSuggestAddCommand
+#include "redisearch_api.h"                          // for RediSearch_Init
+#include "alias.h"                                   // for IndexAlias_Add
 #include "module.h"
 #include "rwlock.h"
-#include "info/info_command.h"
-#include "rejson_api.h"
-#include "geometry/geometry_api.h"
+#include "info/info_command.h"                       // for IndexInfoCommand
 #include "reply.h"
-#include "resp3.h"
-#include "query_error.h"
-#include "coord/rmr/rmr.h"
-#include "shard_window_ratio.h"
-
-#include "hiredis/async.h"
-#include "coord/rmr/reply.h"
+#include "resp3.h"                                   // for is_resp3
+#include "query_error.h"                             // for QueryError_Strerror
+#include "coord/rmr/rmr.h"                           // for MRCtx_GetStatus
+#include "shard_window_ratio.h"                      // for calculateEffectiveK
+#include "coord/rmr/reply.h"                         // for MRReply_Type
 #include "coord/rmr/redis_cluster.h"
 #include "coord/rmr/redise.h"
-#include "coord/config.h"
+#include "coord/config.h"                            // for clusterConfig
 #include "coord/debug_commands.h"
 #include "uv.h"
 #include "profile/profile.h"
-#include "profile/options.h"
-#include "coord/dist_profile.h"
+#include "profile/options.h"                         // for EXEC_NO_FLAGS
+#include "coord/dist_profile.h"                      // for PrintShardProfile
 #include "coord/cluster_spell_check.h"
-#include "coord/info_command.h"
+#include "coord/info_command.h"                      // for InfoReplyReducer
 #include "info/global_stats.h"
-#include "util/units.h"
-#include "fast_float/fast_float_strtod.h"
+#include "fast_float/fast_float_strtod.h"            // for fast_float_strtod
 #include "aggregate/aggregate_debug.h"
 #include "info/info_redis/threads/current_thread.h"
 #include "info/info_redis/threads/main_thread.h"
-#include "legacy_types.h"
+#include "legacy_types.h"                            // for RegisterLegacyTypes
 #include "search_disk.h"
 #include "search_disk_utils.h"
 #include "rs_wall_clock.h"
@@ -79,9 +75,49 @@
 #include "util/redis_mem_info.h"
 #include "notifications.h"
 #include "aggregate/reply_empty.h"
-#include "module_init.h"
+#include "module_init.h"                             // for RustPanicHook_Init
 #include "asm_state_machine.h"
-#include "config.h"
+#include "VecSim/vec_sim_common.h"                   // for UNUSED
+#include "aggregate/functions/function.h"
+#include "concurrent_ctx.h"
+#include "doc_table.h"                               // for DocTable_GetIdR
+#include "extension.h"                               // for Extensions_Free
+#include "field_spec.h"                              // for FieldSpec, FIELD_IS
+#include "gc.h"
+#include "hiredis/alloc.h"
+#include "info/index_error.h"
+#include "obfuscation/hidden.h"                      // for HiddenString_Free
+#include "obfuscation/hidden_unicode.h"              // for HiddenUnicodeString
+#include "param.h"                                   // for Param_DictFree
+#include "query_internal.h"                          // for QueryNode_Free
+#include "query_node.h"                              // for QueryNode, ...
+#include "query_node_type.h"                         // for QN_VECTOR
+#include "query_param.h"                             // for parseParams
+#include "redisearch.h"                              // for RSDocumentMetadata
+#include "rmr/cluster_topology.h"                    // for MRClusterShard
+#include "rmr/command.h"
+#include "rmr/node.h"                                // for MRClusterNode
+#include "rmutil/rm_assert.h"                        // for RS_ASSERT, ...
+#include "rules.h"
+#include "search_ctx.h"                              // for RedisSearchCtx
+#include "search_options.h"                          // for RSSearchOptions
+#include "slot_ranges.h"
+#include "special_case_ctx.h"                        // for specialCaseCtx
+#include "stopwords.h"
+#include "synonym_map.h"                             // for TermData, ...
+#include "trie/trie_type.h"                          // for TrieType_Register
+#include "triemap.h"                                 // for NewTrieMap, ...
+#include "util/arr/arr.h"                            // for array_len, ...
+#include "util/dict/dict.h"                          // for dict, ...
+#include "util/heap.h"                               // for heap_count, ...
+#include "util/khash.h"                              // for khash_t
+#include "util/mempool/mempool.h"                    // for mempool_free_global
+#include "util/strconv.h"                            // for STR_EQCASE
+#include "vector_index.h"                            // for KNNVectorQuery
+#include "version.h"
+
+struct ConcurrentCmdCtx;
+struct MRCtx;
 #ifdef ENABLE_ASSERT
 #include <unistd.h>  // for usleep in coordinator reduce pause
 #endif
@@ -2028,6 +2064,7 @@ typedef struct {
 } searchResult;
 
 struct searchReducerCtx; // Predecleration
+
 typedef void (*processReplyCB)(MRReply *arr, struct searchReducerCtx *rCtx, RedisModuleCtx *ctx);
 typedef void (*postProcessReplyCB)( struct searchReducerCtx *rCtx);
 

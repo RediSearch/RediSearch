@@ -8,9 +8,19 @@
 */
 #pragma once
 
+#include <assert.h>                   // for static_assert
+#include <stdbool.h>                  // for bool
+#include <stddef.h>                   // for size_t
+#include <stdint.h>                   // for uint8_t
+
 #include "value.h"
 #include "util/timeout.h"
-#include "iterators/iterator_api.h"
+#include "iterators/iterator_api.h"   // for QueryIterator
+#include "iterators/hybrid_reader.h"  // for HybridIterator
+#include "reply.h"                    // for RedisModule_ReplyKV_SimpleString
+#include "rmutil/rm_assert.h"         // for RS_ASSERT
+#include "rs_wall_clock.h"            // for rs_wall_clock_ns_t, rs_wall_clock
+#include "vector_index.h"             // for VecSimSearchMode_ToString
 
 // Forward declarations
 typedef struct ResultProcessor ResultProcessor;

@@ -9,8 +9,12 @@
 
 #pragma once
 
-#include "aggregate/aggregate_plan.h"
-#include "aggregate/aggregate.h"
+#include "aggregate/aggregate_plan.h"  // for AGGPlan, PLN_BaseStep, ...
+#include "aggregate/aggregate.h"       // for AREQ
+#include "query_error.h"               // for QueryError
+#include "rlookup_rs.h"                // for RLookup
+#include "util/arr/arr.h"              // for arrayof
+#include "util/block_alloc.h"          // for BlkAlloc
 
 #ifdef __cplusplus
 extern "C" {

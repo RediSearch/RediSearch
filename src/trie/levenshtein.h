@@ -9,11 +9,12 @@
 #ifndef __LEVENSHTEIN_H__
 #define __LEVENSHTEIN_H__
 
-#include <stdlib.h>
+#include <stdlib.h>          // for size_t
 
-#include "sparse_vector.h"
-#include "rmutil/vector.h"
-#include "trie.h"
+#include "sparse_vector.h"   // for sparseVector
+#include "rmutil/vector.h"   // for Vector
+#include "trie.h"            // for FilterCode
+#include "trie/rune_util.h"  // for rune
 
 /*
 * SparseAutomaton is a C implementation of a levenshtein automaton using

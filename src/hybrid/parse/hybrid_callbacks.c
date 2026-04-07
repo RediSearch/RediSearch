@@ -7,18 +7,38 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "hybrid_callbacks.h"
-#include "config.h"
-#include "param.h"
-#include "util/arr.h"
-#include "result_processor.h"
-#include <string.h>
-#include <limits.h>
-#include "util/misc.h"
+
+#include <string.h>                             // for strlen, size_t, NULL
+#include <limits.h>                             // for LLONG_MAX
+#include <stdbool.h>                            // for true, false, bool
+#include <stdint.h>                             // for uint64_t, uint32_t
+#include <stdlib.h>                             // for strtoll
+#include <strings.h>                            // for strcasecmp
+
+#include "config.h"                             // for RSConfig, RSGlobalConfig
+#include "param.h"                              // for Param_DictAdd, ...
+#include "result_processor.h"                   // for SORTASCMAP_INIT, ...
+#include "util/misc.h"                          // for ExtractKeyName
 #include "slot_ranges.h"
-#include "slots_tracker.h"
-#include "hybrid/vector_query_utils.h"
-#include "vector_index.h"
-#include "rmalloc.h"
+#include "slots_tracker.h"                      // for OptionSlotTrackerVersion
+#include "hybrid/vector_query_utils.h"          // for ParsedVectorData
+#include "vector_index.h"                       // for VECSIM_BATCH_SIZE
+#include "rmalloc.h"                            // for rm_strdup, rm_calloc
+#include "VecSim/vec_sim_common.h"              // for VECSIM_POLICY_ADHOC_BF
+#include "aggregate/aggregate.h"                // for CursorConfig, ...
+#include "aggregate/aggregate_plan.h"           // for PLN_ArrangeStep, ...
+#include "hiredis/sds.h"                        // for sdsnewlen, sds
+#include "hybrid/parse/hybrid_optional_args.h"  // for HybridParseContext
+#include "obfuscation/hidden.h"                 // for HiddenString_Free
+#include "query_error.h"                        // for QueryError_SetError
+#include "query_node.h"                         // for QueryAttribute
+#include "redismodule.h"                        // for REDISMODULE_OK, ...
+#include "rlookup_rs.h"                         // for RLookupKey
+#include "rmutil/args.h"                        // for ArgsCursor, AC_GetString
+#include "search_options.h"                     // for RSSearchOptions
+#include "util/arr/arr.h"                       // for array_free, ...
+#include "util/dict/dict.h"                     // for DICT_ERR, dict
+#include "util/references.h"                    // for StrongRef_New, ...
 
 // Helper function to append a sort entry - extracted from original code
 static void appendSortEntry(PLN_ArrangeStep *arng, const char *field, bool ascending) {

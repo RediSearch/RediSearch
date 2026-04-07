@@ -9,11 +9,11 @@
 
 #pragma once
 
-#include "redismodule.h"
-#include "rmr/endpoint.h"
-#include "../../src/config.h"
+#include <string.h>            // for size_t
 
-#include <string.h>
+#include "redismodule.h"       // for RedisModuleCtx, RedisModuleString
+#include "rmr/endpoint.h"
+#include "../../src/config.h"  // for RSConfigOptions
 
 typedef enum { ClusterType_RedisOSS = 0, ClusterType_RedisLabs = 1 } MRClusterType;
 

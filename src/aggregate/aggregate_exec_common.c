@@ -7,10 +7,12 @@
  * GNU Affero General Public License v3 (AGPLv3).
  */
  #include "aggregate_exec_common.h"
- #include "util/timeout.h"
- #include "info/global_stats.h"
- #include "rmalloc.h"
- #include "util/array.h"
+
+#include <stddef.h>        // for size_t
+
+#include "util/timeout.h"  // for TimedOut, TIMED_OUT
+#include "rmalloc.h"       // for rm_free
+#include "util/arr/arr.h"  // for array_free, array_len, array_append, ...
 
  bool hasTimeoutError(QueryError *err) {
    return QueryError_GetCode(err) == QUERY_ERROR_CODE_TIMED_OUT;

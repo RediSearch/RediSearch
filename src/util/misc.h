@@ -9,8 +9,11 @@
 #ifndef RS_MISC_H
 #define RS_MISC_H
 
-#include "redismodule.h"
-#include "query_error.h"
+#include <stdbool.h>      // for bool
+#include <stddef.h>       // for size_t
+
+#include "redismodule.h"  // for RedisModuleIO, RedisModuleString
+#include "query_error.h"  // for QueryError
 
 /**
  * This handler crashes

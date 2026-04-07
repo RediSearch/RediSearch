@@ -6,15 +6,12 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#include <stdio.h>
-#include <stdlib.h>
-#include <assert.h>
-#include <stdint.h>
-#include <stdbool.h>
+#include <stdlib.h>            // for NULL, size_t
+#include <stdbool.h>           // for bool
 
 #include "minmax_heap.h"
-#include "rmutil/rm_assert.h"
-#include "rmalloc.h"
+#include "rmutil/rm_assert.h"  // for RS_ASSERT
+#include "rmalloc.h"           // for rm_calloc, rm_free, rm_realloc
 
 /*
  * `is_min` returns true if the index is a min node, false otherwise.

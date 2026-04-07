@@ -9,7 +9,7 @@
 
 #pragma once
 #include <stdint.h>
-#include <stddef.h>
+#include <stddef.h>  // for size_t
 
 #ifdef __cplusplus
 extern "C" {

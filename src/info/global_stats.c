@@ -7,11 +7,12 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "global_stats.h"
-#include "aggregate/aggregate.h"
-#include "util/units.h"
-#include "rs_wall_clock.h"
+
+#include "aggregate/aggregate.h"    // for QEXEC_F_INTERNAL, ...
+#include "rs_wall_clock.h"          // for rs_wall_clock_convert_ns_to_ms
 #include "util/workers.h"
 #include "concurrent_ctx.h"
+#include "VecSim/vec_sim_common.h"  // for VecSimParams, AlgoParams, ...
 
 #define INCR_BY(x,y) __atomic_add_fetch(&(x), (y), __ATOMIC_RELAXED)
 #define DECR_BY(x,y) __atomic_sub_fetch(&(x), (y), __ATOMIC_RELAXED)

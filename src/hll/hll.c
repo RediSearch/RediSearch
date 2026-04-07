@@ -6,16 +6,13 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#include <stdlib.h>
-#include <math.h>
-#include <string.h>
+#include <math.h>      // for log
+#include <string.h>    // for memcpy, memset
+#include <stdio.h>     // for NULL
 
-#include <stdio.h>
-
-#include "util/fnv.h"
+#include "util/fnv.h"  // for rs_fnv_32a_buf
 #include "hll.h"
-
-#include "rmalloc.h"
+#include "rmalloc.h"   // for rm_calloc, rm_free
 
 #define INVALID_CACHE_CARDINALITY SIZE_MAX
 

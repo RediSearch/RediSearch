@@ -7,9 +7,13 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-#include <rmutil/rm_assert.h>
-#include "rmalloc.h"
-#include "query_error.h"
+#include <rmutil/rm_assert.h>  // for RS_LOG_ASSERT
+#include <stdarg.h>            // for va_end, va_list, va_start
+#include <string.h>            // for NULL, strlen, size_t
+
+#include "rmalloc.h"           // for rm_free, rm_vasprintf, rm_asprintf
+#include "query_error.h"       // for QueryError_HasError, QueryError_SetError
+#include "rmutil/args.h"       // for AC_GetString, ArgsCursor, AC_F_NOADVANCE
 
 /**
  * Set the error code using a custom-formatted string

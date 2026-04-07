@@ -6,12 +6,32 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#include "document.h"
-#include "stemmer.h"
-#include "rmalloc.h"
-#include "module.h"
-#include "rmutil/rm_assert.h"
-#include "obfuscation/obfuscation_api.h"
+#include <stdbool.h>             // for false, bool, true
+#include <stdint.h>              // for uint32_t, int64_t
+#include <string.h>              // for NULL, strlen, memcpy
+#include <strings.h>             // for size_t, strncasecmp
+#include <time.h>                // for timespec
+
+#include "document.h"            // for Document, DocumentField, ...
+#include "rmalloc.h"             // for rm_free, rm_calloc, rm_strndup, ...
+#include "module.h"              // for RSDummyContext
+#include "rmutil/rm_assert.h"    // for RS_LOG_ASSERT, RS_ASSERT
+#include "config.h"              // for RSConfig, RSGlobalConfig
+#include "document_rs.h"         // for DocumentType
+#include "field_spec.h"          // for FieldSpec, FieldSpec_AddError, ...
+#include "json.h"                // for japi, JSON_LoadDocumentField
+#include "language.h"            // for DEFAULT_LANGUAGE, RSLanguage
+#include "obfuscation/hidden.h"  // for HiddenString_Duplicate, ...
+#include "query_error.h"         // for QueryError_SetWithUserDataFmt, ...
+#include "redisearch.h"          // for t_expirationTimePoint, ...
+#include "redismodule.h"         // for RedisModuleString, ...
+#include "rejson_api.h"          // for RedisJSONAPI, JSONResultsIterator
+#include "rules.h"               // for SchemaRule, SchemaRule_HashLang, ...
+#include "search_ctx.h"          // for RedisSearchCtx, ...
+#include "spec.h"                // for IndexSpec, isCrdt, DEFAULT_SCORE
+#include "ttl_table.h"           // for FieldExpiration
+#include "util/arr/arr.h"        // for array_len, array_append, array_hdr_t
+#include "value/value.h"         // for RSValue_DecrRef
 
 #define MILLISECOND_IN_ONE_SECOND 1000
 #define NANOSECOND_IN_ONE_MILLISECOND 1000000

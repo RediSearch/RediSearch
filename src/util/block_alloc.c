@@ -7,10 +7,9 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "block_alloc.h"
-#include <assert.h>
-#include <stdio.h>
-#include "rmalloc.h"
-#include "rmutil/rm_assert.h"
+
+#include "rmalloc.h"           // for rm_free, rm_malloc
+#include "rmutil/rm_assert.h"  // for RS_ASSERT
 
 static void freeCommon(BlkAlloc *blocks, BlkAllocCleaner cleaner, void *arg, size_t elemSize,
                        int reuse) {

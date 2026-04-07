@@ -8,12 +8,16 @@
 */
 #pragma once
 
+#include <string.h>        // for strpbrk, size_t, NULL
+
 #include "util/arr.h"
-#include "redismodule.h"
+#include "redismodule.h"   // for RedisModuleCtx, RedisModuleString
 #include "value.h"
+#include "util/arr/arr.h"  // for arrayof
+#include "value/value.h"   // for RSValue
 
 #ifndef __cplusplus
-#include <stdbool.h>
+#include <stdbool.h>       // for bool
 #endif
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

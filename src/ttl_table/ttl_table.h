@@ -9,10 +9,16 @@
 
 #ifndef TTL_TABLE_H
 #define TTL_TABLE_H
-#include "redisearch.h"
-#include "util/dict/dict.h"
-#include "stdbool.h"
+#include <stdint.h>          // for uint32_t
+
+#include "redisearch.h"      // for t_docId, t_fieldIndex, ...
+#include "util/dict/dict.h"  // for dict
+#include "stdbool.h"         // for bool
 #include "util/arr.h"
+#include "types_rs.h"        // for FieldExpirationPredicate
+#include "util/arr/arr.h"    // for arrayof
+
+struct timespec;
 
 #ifdef __cplusplus
 extern "C" {

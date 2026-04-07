@@ -7,16 +7,20 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "doc_table.h"
-#include <sys/param.h>
-#include <string.h>
-#include <stdio.h>
-#include "redismodule.h"
-#include "util/fnv.h"
-#include "triemap.h"
-#include "sortable.h"
-#include "rmalloc.h"
-#include "spec.h"
-#include "config.h"
+
+#include <sys/param.h>       // for MIN, MAX
+#include <string.h>          // for memcpy, memset
+
+#include "redismodule.h"     // for RedisModule_LoadUnsigned, RedisModule_Free
+#include "triemap.h"         // for NewTrieMap, TrieMap_Add, TrieMap_Delete
+#include "sortable.h"        // for SortingVector_RdbLoad
+#include "rmalloc.h"         // for rm_free, rm_calloc, rm_malloc, rm_realloc
+#include "spec.h"            // for INDEX_MIN_COMPACTED_DOCTABLE_VERSION
+#include "config.h"          // for RSConfig, RSGlobalConfig
+#include "buffer.h"          // for Buffer_Wrap, Buffer
+#include "util/dict/dict.h"  // for dictEntry, dictGetIterator, dictGetKey
+
+struct timespec;
 
 /* Creates a new DocTable with a given capacity */
 DocTable NewDocTable(size_t cap, size_t max_size) {

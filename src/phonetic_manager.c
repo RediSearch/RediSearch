@@ -7,11 +7,11 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "phonetic_manager.h"
-#include "phonetics/double_metaphone.h"
-#include <string.h>
-#include <stdlib.h>
-#include "rmalloc.h"
-#include "rmutil/rm_assert.h"
+
+#include <string.h>                      // for memcpy, memmove, strlen
+
+#include "phonetics/double_metaphone.h"  // for DoubleMetaphone
+#include "rmalloc.h"                     // for rm_free, rm_realloc, rm_strndup
 
 #define MAX_STACK_ALLOC_TERM_SIZE 128
 

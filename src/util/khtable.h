@@ -10,8 +10,8 @@
 #define KHTABLE_H
 
 #include <stdlib.h>
-#include <stdint.h>
-#include <stdio.h>
+#include <stdint.h>  // for uint32_t
+#include <stdio.h>   // for size_t, FILE
 
 // KHTable - Minimalistic hash table without deletion support
 // This uses a block allocator for its entries, so it's quite fast!

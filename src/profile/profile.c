@@ -7,18 +7,30 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "profile.h"
-#include "iterators/iterator_api.h"
-#include "iterators/not_iterator.h"
-#include "iterators/optional_iterator.h"
-#include "iterators/intersection_iterator.h"
-#include "iterators/union_iterator.h"
-#include "iterators/hybrid_reader.h"
-#include "iterators/optimizer_reader.h"
-#include "iterators_rs.h"
-#include "reply_macros.h"
-#include "util/units.h"
-#include "coord/rmr/rmr.h"
-#include "hybrid/hybrid_request.h"
+
+#include "iterators/iterator_api.h"       // for QueryIterator
+#include "iterators/not_iterator.h"       // for GetNotIteratorChild, ...
+#include "iterators/optional_iterator.h"  // for GetOptionalIteratorChild
+#include "iterators/union_iterator.h"     // for UnionIterator, UI_SyncIterList
+#include "iterators/hybrid_reader.h"      // for HybridIterator
+#include "iterators/optimizer_reader.h"   // for OptimizerIterator
+#include "iterators_rs.h"                 // for ProfileCounters, GetMetricType
+#include "coord/rmr/rmr.h"                // for MR_GetLocalNodeId, ...
+#include "hybrid/hybrid_request.h"        // for HybridRequest
+#include "aggregate/aggregate.h"          // for AREQ, AREQ_RequestFlags
+#include "aggregate/expr/expression.h"    // for RPEvaluator_Reply
+#include "config.h"                       // for RequestConfig, IteratorsConfig
+#include "iterator_type.h"                // for HYBRID_ITERATOR, ...
+#include "pipeline/pipeline.h"            // for Pipeline
+#include "query.h"                        // for QueryAST
+#include "query_error.h"                  // for QueryWarning_Strwarning
+#include "query_node_type.h"              // for QN_UNION, QN_FUZZY, QN_GEO
+#include "query_term.h"                   // for QueryTerm_GetStrAndLen, ...
+#include "result_processor.h"             // for ResultProcessor, ...
+#include "rmalloc.h"                      // for rm_free
+#include "rs_geo.h"                       // for decodeGeo
+#include "spec.h"                         // for IndexFlags, Index_DocIdsOnly
+#include "types_rs.h"                     // for IndexResult_QueryTermRef
 
 typedef struct {
     IteratorsConfig *iteratorsConfig;

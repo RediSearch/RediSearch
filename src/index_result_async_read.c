@@ -8,9 +8,12 @@
  */
 
 #include "index_result_async_read.h"
-#include "search_disk.h"
-#include "rmalloc.h"
-#include "util/dllist.h"
+
+#include "search_disk.h"       // for SearchDisk_AddAsyncRead, ...
+#include "rmalloc.h"           // for rm_free
+#include "util/dllist.h"       // for dllist_delete, dllist_init, ...
+#include "doc_table.h"         // for DMD_Return
+#include "rmutil/rm_assert.h"  // for RS_ASSERT
 
 void IndexResultAsyncRead_Init(IndexResultAsyncReadState *state, uint16_t poolSize) {
   // Initialize all fields to safe defaults

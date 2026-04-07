@@ -11,7 +11,9 @@
 
 /* Mempool - an uber simple, thread-unsafe, memory pool */
 #include <stdint.h>
-#include <stdlib.h>
+#include <stdlib.h>  // for size_t
+
+struct mempool_t;
 
 #ifdef __cplusplus
 extern "C" {

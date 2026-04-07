@@ -9,12 +9,21 @@
 #ifndef SRC_REDISEARCH_API_H_
 #define SRC_REDISEARCH_API_H_
 
-#include "redismodule.h"
 #include <limits.h>
+#include <math.h>                // for NAN
+#include <stddef.h>              // for size_t, NULL
+#include <stdint.h>              // for SIZE_MAX, uint32_t, uint64_t
+
+#include "redismodule.h"         // for RedisModuleCtx, REDISMODULE_ERR, ...
 #include "fork_gc.h"
-#include "rules.h"
-#include "info/indexes_info.h"
-#include "obfuscation/hidden.h"
+#include "rules.h"               // for SchemaRuleArgs
+#include "info/indexes_info.h"   // for TotalIndexesInfo
+#include "obfuscation/hidden.h"  // for HiddenString
+#include "gc.h"                  // for InfoGCStats
+#include "query_node.h"          // for RSQueryNode
+#include "util/references.h"     // for RefManager
+
+struct RSIdxOptions;
 
 #ifdef __cplusplus
 extern "C" {

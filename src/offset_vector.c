@@ -6,14 +6,17 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#include <pthread.h>
+#include <pthread.h>               // for pthread_getspecific, ...
+#include <stddef.h>                // for size_t, NULL
+#include <stdint.h>                // for uint32_t
 
-#include "redisearch.h"
-#include "types_rs.h"
-#include "varint.h"
-#include "rmalloc.h"
-#include "util/mempool.h"
-#include <sys/param.h>
+#include "redisearch.h"            // for RSOffsetIterator, RS_OFFSETVECTOR_EOF
+#include "types_rs.h"              // for AggregateResult_NumChildren, ...
+#include "varint.h"                // for ReadVarint
+#include "rmalloc.h"               // for rm_free, rm_calloc, rm_malloc
+#include "buffer.h"                // for Buffer, NewBufferReader, BufferReader
+#include "query_term.h"            // for RSQueryTerm
+#include "util/mempool/mempool.h"  // for mempool_get, mempool_new, ...
 
 /* We have two types of offset vector iterators - for terms and for aggregates. For terms we simply
  * yield the encoded offsets one by one. For aggregates, we merge them on the fly in order.

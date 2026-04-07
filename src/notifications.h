@@ -8,7 +8,9 @@
 */
 #pragma once
 
-#include "redismodule.h"
+#include <stdint.h>       // for uint64_t
+
+#include "redismodule.h"  // for RedisModuleCtx, RedisModuleEvent, ...
 
 #ifdef __cplusplus
 extern "C" {

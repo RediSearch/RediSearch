@@ -7,33 +7,41 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-#include "redismodule.h"
+#include <ctype.h>                         // for tolower
+#include <dlfcn.h>                         // for dladdr, Dl_info
+#include <features.h>                      // for __USE_GNU
+#include <limits.h>                        // for LONG_MAX
+#include <stdbool.h>                       // for false, true
+#include <string.h>                        // for NULL, strlen
 
-#include "module.h"
-#include "config.h"
-#include "redisearch_api.h"
-#include <assert.h>
-#include <ctype.h>
-#include <dlfcn.h>
-#include "concurrent_ctx.h"
-#include "cursor.h"
-#include "extension.h"
-#include "alias.h"
-#include "notifications.h"
-#include "aggregate/aggregate.h"
-#include "ext/default.h"
-#include "rwlock.h"
-#include "json.h"
-#include "VecSim/vec_sim.h"
-#include "util/workers.h"
-#include "util/array.h"
-#include "cursor.h"
-#include "fork_gc.h"
-#include "info/info_command.h"
-#include "profile/profile.h"
-#include "info/info_redis/info_redis.h"
-#include "util/logging.h"
-#include "asm_state_machine.h"
+#include "redismodule.h"                   // for RedisModule_Log, ...
+#include "module.h"                        // for RSDummyContext, depleterPool
+#include "config.h"                        // for RSGlobalConfig, RSConfig
+#include "redisearch_api.h"                // for REDISEARCH_INIT_LIBRARY
+#include "cursor.h"                        // for CursorList_Init, ...
+#include "extension.h"                     // for Extension_Load, ...
+#include "alias.h"                         // for IndexAlias_InitGlobal
+#include "notifications.h"                 // for Initialize_CommandFilter
+#include "ext/default.h"                   // for DefaultExtensionInit
+#include "rwlock.h"                        // for RediSearch_LockInit
+#include "json.h"                          // for GetJSONAPIs
+#include "VecSim/vec_sim.h"                // for VecSim_SetLogCallbackFunction
+#include "util/workers.h"                  // for workersThreadPool_CreatePool
+#include "info/info_redis/info_redis.h"    // for RS_moduleInfoFunc
+#include "util/logging.h"                  // for LogCallback
+#include "asm_state_machine.h"             // for ASM_StateMachine_Init
+#include "VecSim/vec_sim_common.h"         // for VecSimMemoryFunctions, ...
+#include "aggregate/functions/function.h"  // for RegisterAllFunctions
+#include "gc.h"                            // for GC_ThreadPoolStart
+#include "hiredis/sds.h"                   // for sdsfree, sds
+#include "redisearch.h"                    // for REDISEARCH_ERR
+#include "rmalloc.h"                       // for rm_free, rm_calloc, rm_malloc
+#include "rmutil/rm_assert.h"              // for RS_ASSERT
+#include "spec.h"                          // for CleanPool_ThreadPoolStart
+#include "thpool/thpool.h"                 // for redisearch_thpool_create
+#include "util/timeout.h"                  // for TimedOut_WithCtx
+#include "vector_index.h"                  // for VecSimLogCallback
+#include "version.h"                       // for REDISEARCH_VERSION_MAJOR
 
 #define DEPLETER_POOL_SIZE 4
 

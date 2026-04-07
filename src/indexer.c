@@ -7,27 +7,44 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "indexer.h"
-#include "forward_index.h"
-#include "numeric_index.h"
-#include "inverted_index.h"
-#include "geo_index.h"
-#include "vector_index.h"
-#include "redis_index.h"
-#include "suffix.h"
-#include "config.h"
-#include "rmutil/rm_assert.h"
-#include "phonetic_manager.h"
-#include "obfuscation/obfuscation_api.h"
-#include "redismodule.h"
-#include "debug_commands.h"
-#include "search_disk.h"
-#include "info/global_stats.h"
-#include "gc.h"
-#include "doc_id_meta.h"
+
+#include "forward_index.h"      // for ForwardIndexEntry, ...
+#include "inverted_index.h"     // for InvertedIndex_WriteEntryGeneric, ...
+#include "vector_index.h"       // for openVectorIndex
+#include "redis_index.h"        // for Redis_OpenInvertedIndex, ...
+#include "suffix.h"             // for addSuffixTrie
+#include "config.h"             // for RSConfig, RSGlobalConfig
+#include "rmutil/rm_assert.h"   // for RS_LOG_ASSERT, RS_ASSERT
+#include "phonetic_manager.h"   // for PHONETIC_PREFIX
+#include "redismodule.h"        // for RedisModuleCtx, RedisModule_StringPtrLen
+#include "debug_commands.h"     // for GetIndexerSleepBeforeYieldMicros, ...
+#include "search_disk.h"        // for SearchDisk_DeleteDocumentById, ...
+#include "info/global_stats.h"  // for FieldsGlobalStats_UpdateFieldDocsIndexed
+#include "gc.h"                 // for GCContext_OnUpdate, GCContext_OnWrite
+#include "doc_id_meta.h"        // for DocIdMeta_Get, DocIdMeta_Set
+#include "VecSim/vec_sim.h"     // for VecSimIndex_DeleteVector, VecSimIndex
+#include "byte_offsets.h"       // for ByteOffsetWriter_Move
+#include "doc_table.h"          // for DMD_Return, DocTable_PopR, DocTable_Put
+#include "geometry_index.h"     // for GeometryIndex_RemoveId
+#include "info/index_error.h"   // for IndexError_AddQueryError
+#include "redisearch.h"         // for RSDocumentMetadata, ...
+#include "rules.h"              // for SchemaRule
+#include "sorting_vector.h"     // for RSSortingVector_Empty, ...
+#include "spec.h"               // for IndexSpec, IndexStats, ScoringIndexStats
+#include "stemmer.h"            // for STEM_PREFIX
+#include "synonym_map.h"        // for SYNONYM_PREFIX_CHAR
+#include "ttl_table.h"          // for FieldExpiration
+#include "types_rs.h"           // for RSResultData_Virtual, RSIndexResult
+#include "util/block_alloc.h"   // for BlkAlloc_Alloc
+#include "util/dict/dict.h"     // for dictAdd, dictNext, dictRelease, dict
+#include "util/khtable.h"       // for KHTableEntry
+#include "varint.h"             // for VVW_GetByteLength, VVW_GetCount
 
 extern RedisModuleCtx *RSDummyContext;
 
-#include <unistd.h>
+#include <unistd.h>             // for size_t, usleep
+#include <stdint.h>             // for uint32_t, uint64_t
+#include <string.h>             // for NULL, strlen, memcmp
 
 static void writeIndexEntry(IndexSpec *spec, InvertedIndex *idx, ForwardIndexEntry *entry) {
   size_t sz = InvertedIndex_WriteForwardIndexEntry(idx, entry);

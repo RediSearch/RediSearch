@@ -9,12 +9,14 @@
 #ifndef RS_CONCERRNT_CTX_
 #define RS_CONCERRNT_CTX_
 
+#include <string.h>           // for size_t, memset
+#include <stdbool.h>          // for bool
+
 #include "redisearch.h"
-#include "redismodule.h"
-#include "thpool/thpool.h"
-#include "util/references.h"
-#include "rs_wall_clock.h"
-#include <string.h>
+#include "redismodule.h"      // for RedisModuleCtx, RedisModuleCmdFunc, ...
+#include "thpool/thpool.h"    // for thpool_stats
+#include "util/references.h"  // for WeakRef
+#include "rs_wall_clock.h"    // for rs_wall_clock_ns_t, rs_wall_clock_ms_t
 
 #ifdef __cplusplus
 extern "C" {
@@ -41,6 +43,7 @@ size_t ConcurrentSearchPool_WorkingThreadCount();
 size_t ConcurrentSearchPool_HighPriorityPendingJobsCount();
 
 struct ConcurrentCmdCtx;
+
 typedef void (*ConcurrentCmdHandler)(RedisModuleCtx *, RedisModuleString **, int,
                                      struct ConcurrentCmdCtx *);
 

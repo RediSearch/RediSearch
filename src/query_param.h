@@ -8,9 +8,17 @@
 */
 #pragma once
 
-#include "geo_index.h"
-#include "query_parser/tokenizer.h"
-#include "param.h"
+#include <stdbool.h>                 // for bool
+#include <stddef.h>                  // for size_t, NULL
+
+#include "geo_index.h"               // for GeoFilter
+#include "query_parser/tokenizer.h"  // for QueryToken
+#include "param.h"                   // for Param
+#include "query_error.h"             // for QueryError
+#include "rmutil/args.h"             // for ArgsCursor
+#include "types_rs.h"                // for NumericFilter
+#include "util/arr/arr.h"            // for array_len
+#include "util/dict/dict.h"          // for dict
 
 struct QueryParseCtx;
 

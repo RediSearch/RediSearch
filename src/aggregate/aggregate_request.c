@@ -6,31 +6,65 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#include "aggregate.h"
-#include "reducer.h"
+#include <cursor.h>                          // for Cursor_Free, Cursor
+#include <query.h>                           // for QueryAST, ...
+#include <result_processor.h>                // for SORTASCMAP_MAXFIELDS
+#include <stdatomic.h>                       // for atomic_load_explicit
+#include <stdbool.h>                         // for bool, false, true
+#include <stdint.h>                          // for uint32_t, uint64_t
+#include <stdlib.h>                          // for strtol
+#include <string.h>                          // for NULL, strcmp, strlen
+#include <strings.h>                         // for strcasecmp, size_t
+#include <sys/param.h>                       // for MAX
 
-#include <cursor.h>
-#include <query.h>
-#include <extension.h>
-#include <result_processor.h>
-#include <util/arr.h>
-#include <rmutil/util.h>
-#include "ext/default.h"
+#include "aggregate.h"                       // for AREQ, ParseAggPlanContext
+#include "ext/default.h"                     // for BM25_SCORER_NAME, ...
 #include "extension.h"
-#include "profile/profile.h"
-#include "config.h"
-#include "util/timeout.h"
-#include "query_optimizer.h"
-#include "resp3.h"
-#include "obfuscation/hidden.h"
-#include "hybrid/vector_query_utils.h"
-#include "vector_index.h"
-#include "slots_tracker.h"
+#include "profile/profile.h"                 // for ProfileClocks, ...
+#include "config.h"                          // for RequestConfig, RSConfig
+#include "query_optimizer.h"                 // for QOptimizer_Free, ...
+#include "obfuscation/hidden.h"              // for HiddenString_Free, ...
+#include "hybrid/vector_query_utils.h"       // for ParsedVectorData, ...
+#include "vector_index.h"                    // for VectorQuery, ...
+#include "slots_tracker.h"                   // for OptionSlotTrackerVersion
 #include "asm_state_machine.h"
-#include "coord/rmr/command.h"
-#include "search_disk.h"
+#include "coord/rmr/command.h"               // for COORD_DISPATCH_TIME_STR
+#include "search_disk.h"                     // for SearchDisk_IsEnabled
 #include "search_disk_utils.h"
-#include "doc_id_meta.h"
+#include "doc_id_meta.h"                     // for DocIdMeta_Get
+#include "aggregate/aggregate_plan.h"        // for PLN_GroupStep, ...
+#include "aggregate/expr/expression.h"       // for ExprAST_Free
+#include "field_spec.h"                      // for FIELD_IS, FieldSpec, ...
+#include "geo_index.h"                       // for LegacyGeoFilter, ...
+#include "hiredis/sds.h"                     // for sds, sdscat, sdsfree
+#include "iterators/iterator_api.h"          // for QueryIterator
+#include "language.h"                        // for RSLanguage_Find, ...
+#include "numeric_filter.h"                  // for LegacyNumericFilter, ...
+#include "param.h"                           // for Param_DictFree, Param
+#include "pipeline/pipeline.h"               // for Pipeline_Clean, ...
+#include "pipeline/pipeline_construction.h"
+#include "query_error.h"                     // for QueryError_SetError, ...
+#include "query_internal.h"                  // for QueryNode_SetParam, ...
+#include "query_node.h"                      // for QueryNode, ...
+#include "query_node_type.h"                 // for QN_VECTOR
+#include "query_param.h"                     // for parseParams
+#include "query_parser/tokenizer.h"          // for QT_PARAM_VEC, QueryToken
+#include "redisearch.h"                      // for t_docId, isSpecJson, ...
+#include "redismodule.h"                     // for REDISMODULE_ERR, ...
+#include "rlookup_rs.h"                      // for RLookup_Cleanup, RLookup
+#include "rmalloc.h"                         // for rm_free, rm_calloc, ...
+#include "rmutil/args.h"                     // for AC_AdvanceIfMatch, ...
+#include "rmutil/rm_assert.h"                // for RS_ASSERT, RS_LOG_ASSERT
+#include "rules.h"                           // for SchemaRule
+#include "search_ctx.h"                      // for RedisSearchCtx, ...
+#include "search_options.h"                  // for RSSearchOptions, ...
+#include "search_result_rs.h"                // for SearchResult_Destroy
+#include "slot_ranges.h"                     // for SLOTS_STR, ...
+#include "spec.h"                            // for IndexSpec, ...
+#include "stopwords.h"                       // for StopWordList_Ref, ...
+#include "types_rs.h"                        // for NumericFilter
+#include "util/arr/arr.h"                    // for array_len, array_free
+#include "util/references.h"                 // for StrongRef_Get, ...
 
 extern RSConfig RSGlobalConfig;
 

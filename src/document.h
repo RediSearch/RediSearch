@@ -9,15 +9,27 @@
 #ifndef __RS_DOCUMENT_H__
 #define __RS_DOCUMENT_H__
 #include <pthread.h>
-#include "redismodule.h"
-#include "search_ctx.h"
-#include "redisearch.h"
-#include "tokenize.h"
+#include <stddef.h>              // for size_t
+#include <stdint.h>              // for uint32_t, uint8_t
+
+#include "redismodule.h"         // for RedisModuleString, RedisModuleCtx
+#include "search_ctx.h"          // for RedisSearchCtx
+#include "redisearch.h"          // for RSDocumentFlags, t_docId, ...
+#include "tokenize.h"            // for RSTokenizer
 #include "concurrent_ctx.h"
-#include "byte_offsets.h"
+#include "byte_offsets.h"        // for ByteOffsetWriter, RSByteOffsets
 #include "rmutil/args.h"
-#include "query_error.h"
+#include "query_error.h"         // for QueryError
 #include "json.h"
+#include "document_rs.h"         // for DocumentType
+#include "field_spec.h"          // for FieldSpec, FieldType
+#include "language.h"            // for RSLanguage
+#include "obfuscation/hidden.h"  // for HiddenString
+#include "sorting_vector.h"      // for RSSortingVector
+#include "spec.h"                // for IndexSpec
+#include "ttl_table.h"           // for FieldExpiration
+#include "util/arr/arr.h"        // for arrayof
+#include "value/value.h"         // for RSValue
 
 #ifdef __cplusplus
 extern "C" {

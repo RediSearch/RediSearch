@@ -7,12 +7,12 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "index_result.h"
-#include "types_rs.h"
-#include "rmalloc.h"
-#include <math.h>
-#include <sys/param.h>
-#include "util/arr.h"
-#include "value.h"
+
+#include <math.h>       // for sqrt
+#include <sys/param.h>  // for MIN
+#include <stdint.h>     // for uint32_t, uint8_t
+
+#include "types_rs.h"   // for AggregateResult_GetUnchecked, RSIndexResult
 
 void RSYieldableMetric_Concat(RSYieldableMetric **parent, RSYieldableMetric *child) {
   if (child) {

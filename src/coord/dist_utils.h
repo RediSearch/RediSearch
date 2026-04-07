@@ -9,7 +9,8 @@
 
 #pragma once
 
-#include "../coord/rmr/rmr.h"
+#include "../coord/rmr/rmr.h"  // for MRIteratorCallbackCtx
+#include "rmr/reply.h"         // for MRReply
 
 #define CURSOR_EOF 0
 

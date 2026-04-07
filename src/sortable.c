@@ -6,15 +6,15 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
  */
-#include <stdlib.h>
-#include <stdio.h>
-#include "rmutil/rm_assert.h"
-#include "libnu/libnu.h"
-#include "rmutil/util.h"
-#include "rmutil/strings.h"
-#include "rmalloc.h"
-#include "buffer.h"
+#include <stdio.h>          // for size_t
+#include <stdint.h>         // for uint32_t
+#include <string.h>         // for strlen
+
+#include "rmalloc.h"        // for rm_calloc
 #include "sortable.h"
+#include "libnu/casemap.h"  // for nu_tofold, nu_casemap_read
+#include "libnu/utf8.h"     // for nu_utf8_write, nu_utf8_read
+#include "value/value.h"    // for RSValueType, RSValueType_Null, ...
 
 /* Normalize sorting string for storage. This folds everything to unicode equivalent strings. The
  * allocated return string needs to be freed later */

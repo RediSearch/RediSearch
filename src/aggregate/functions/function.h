@@ -13,6 +13,11 @@
 #include <util/block_alloc.h>
 #include <result_processor.h>
 #include <query_error.h>
+#include <stddef.h>       // for size_t
+#include <stdint.h>       // for uint16_t, uint8_t
+
+#include "rlookup_rs.h"   // for RSValue
+#include "value/value.h"  // for RSValueType
 #ifdef __cplusplus
 extern "C" {
 #endif

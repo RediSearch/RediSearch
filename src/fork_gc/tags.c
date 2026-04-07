@@ -7,12 +7,25 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-#include "pipe.h"
-#include "redis_index.h"
-#include "tag_index.h"
-#include "suffix.h"
-#include "rmutil/rm_assert.h"
-#include "obfuscation/hidden.h"
+#include <stdint.h>              // for uint64_t
+#include <string.h>              // for NULL, size_t, strlen
+
+#include "pipe.h"                // for CTX_II_GC_Callback, FGC_sendBuffer
+#include "redis_index.h"         // for DONT_CREATE_INDEX
+#include "tag_index.h"           // for TagIndex, TagIndex_Open, ...
+#include "suffix.h"              // for deleteSuffixTrieMap
+#include "rmutil/rm_assert.h"    // for RS_LOG_ASSERT_FMT, RS_ASSERT, ...
+#include "obfuscation/hidden.h"  // for HiddenString_GetUnsafe
+#include "field_spec.h"          // for FieldSpec, INDEXFLD_T_TAG
+#include "fork_gc.h"             // for ForkGC
+#include "inverted_index.h"      // for II_GCScanStats, InvertedIndex, ...
+#include "redismodule.h"         // for REDISMODULE_OK
+#include "rmalloc.h"             // for rm_free
+#include "search_ctx.h"          // for RedisSearchCtx, ...
+#include "spec.h"                // for IndexSpecRef_Promote, ...
+#include "triemap.h"             // for TrieMapIterator_Next, TrieMap_Delete
+#include "util/arr/arr.h"        // for array_len, array_free, arrayof
+#include "util/references.h"     // for StrongRef_Get, StrongRef
 
 typedef struct {
   const char *field;

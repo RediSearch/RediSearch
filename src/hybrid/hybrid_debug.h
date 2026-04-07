@@ -9,7 +9,7 @@
 
 #pragma once
 
-#include "redismodule.h"
+#include "redismodule.h"  // for RedisModuleCtx, RedisModuleString
 #include "hybrid_request.h"
 #include "query_error.h"
 

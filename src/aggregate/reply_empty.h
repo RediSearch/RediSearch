@@ -12,8 +12,10 @@
 
 #pragma once
 
-#include "redismodule.h"
-#include "query_error.h"
+#include <stdbool.h>      // for bool
+
+#include "redismodule.h"  // for RedisModuleCtx, RedisModuleString
+#include "query_error.h"  // for QueryErrorCode
 
 // Coordinator empty reply for FT.SEARCH commands.
 // Handles both RESP2 and RESP3 with proper search result formatting.

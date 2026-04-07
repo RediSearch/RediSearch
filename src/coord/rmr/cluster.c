@@ -7,11 +7,18 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "cluster.h"
-#include "rmutil/rm_assert.h"
-#include "rmalloc.h"
 
-#include <stdlib.h>
-#include "rq.h"
+#include <stdlib.h>                // for size_t, NULL
+#include <stdint.h>                // for uint32_t
+
+#include "rmutil/rm_assert.h"      // for RS_ASSERT, RS_LOG_ASSERT
+#include "rmalloc.h"               // for rm_free, rm_malloc, rm_new
+#include "hiredis/read.h"          // for REDIS_ERR
+#include "rmr/cluster_topology.h"  // for MRClusterShard, MRClusterTopology
+#include "rmr/command.h"           // for MRCommand, MRCommand_SetDispatchTime
+#include "rmr/conn.h"              // for MRConn_Get, MRConn_SendCommand
+#include "rmr/io_runtime_ctx.h"    // for IORuntimeCtx, IORuntimeCtx_Create
+#include "rmr/node.h"              // for MRClusterNode
 
 /* Initialize the MapReduce engine with a node provider */
 MRCluster *MR_NewCluster(MRClusterTopology *initialTopology, size_t conn_pool_size, size_t num_io_threads) {

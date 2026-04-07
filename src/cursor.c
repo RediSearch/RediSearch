@@ -7,10 +7,13 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "cursor.h"
-#include "resp3.h"
-#include <time.h>
-#include "rmutil/rm_assert.h"
-#include <err.h>
+
+#include <time.h>              // for NULL, clock_gettime, timespec, ...
+#include <stdlib.h>            // for lrand48, srand48
+
+#include "rmutil/rm_assert.h"  // for RS_LOG_ASSERT
+#include "config.h"            // for RSConfig, RSGlobalConfig
+#include "rmalloc.h"           // for rm_calloc, rm_free
 
 #define Cursor_IsIdle(cur) ((cur)->pos != -1)
 

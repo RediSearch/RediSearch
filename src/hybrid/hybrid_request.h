@@ -1,10 +1,24 @@
 #pragma once
 
-#include "aggregate/aggregate.h"
-#include "pipeline/pipeline.h"
+#include <pthread.h>                   // for pthread_mutex_lock, ...
+#include <stdbool.h>                   // for bool
+#include <stddef.h>                    // for size_t
+
+#include "aggregate/aggregate.h"       // for AREQ, AREQ_SetSkipTimeoutChecks
+#include "pipeline/pipeline.h"         // for HybridPipelineParams, Pipeline
 #include "hybrid/hybrid_scoring.h"
-#include "util/references.h"
-#include "redismodule.h"
+#include "util/references.h"           // for StrongRef, WeakRef
+#include "redismodule.h"               // for RedisModuleBlockedClient, ...
+#include "aggregate/aggregate_plan.h"  // for AGGPlan
+#include "config.h"                    // for RequestConfig
+#include "hiredis/sds.h"               // for sds
+#include "profile/profile.h"           // for ProfileClocks, ProfilePrinterCtx
+#include "query_error.h"               // for QueryError
+#include "result_processor.h"          // for RPStatus
+#include "rlookup_rs.h"                // for RLookupKey, RLookup
+#include "rmutil/args.h"               // for ArgsCursor
+#include "search_ctx.h"                // for RedisSearchCtx, SearchTime
+#include "util/arr/arr.h"              // for arrayof
 
 #ifdef __cplusplus
 extern "C" {

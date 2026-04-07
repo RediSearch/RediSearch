@@ -8,9 +8,21 @@
 */
 
 #include "dist_utils.h"
-#include "util/misc.h"
-#include "util/strconv.h"
-#include "rpnet.h"
+
+#include <stdbool.h>           // for bool, true, false
+#include <stdio.h>             // for snprintf
+#include <string.h>            // for NULL, strcmp, strlen, size_t
+
+#include "util/misc.h"         // for GetRedisErrorCodeLength
+#include "util/strconv.h"      // for STR_EQ
+#include "rpnet.h"             // for ShardResponseBarrier
+#include "hiredis/read.h"      // for REDIS_ERR
+#include "module.h"            // for RSDummyContext
+#include "query_error.h"       // for QueryWarning_Strwarning, ...
+#include "redismodule.h"       // for RedisModule_Log
+#include "rmr/command.h"       // for MRCommand, MR_NewCommand, ...
+#include "rmr/rmr.h"           // for MRIteratorCallback_Done, ...
+#include "rmutil/rm_assert.h"  // for RS_ASSERT, RS_LOG_ASSERT
 
 static bool getCursorCommand(long long cursorId, MRCommand *cmd, MRIteratorCtx *ctx, bool shardTimedOut);
 

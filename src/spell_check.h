@@ -10,9 +10,14 @@
 #ifndef SRC_SPELL_CHECK_H_
 #define SRC_SPELL_CHECK_H_
 
-#include "search_ctx.h"
-#include "query.h"
-#include "reply.h"
+#include <stdbool.h>         // for bool
+#include <stddef.h>          // for size_t
+#include <stdint.h>          // for uint64_t
+
+#include "search_ctx.h"      // for RedisSearchCtx
+#include "query.h"           // for QueryAST
+#include "reply.h"           // for RedisModule_Reply
+#include "trie/trie_type.h"  // for Trie
 
 #define SPELL_CHECK_TERM_CONST "TERM"
 

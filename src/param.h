@@ -9,10 +9,11 @@
 
 #pragma once
 
-#include "query_error.h"
-#include "util/dict.h"
+#include <stddef.h>          // for size_t
 
-#include <stddef.h>
+#include "query_error.h"     // for QueryError
+#include "util/dict.h"
+#include "util/dict/dict.h"  // for dict
 
 #ifdef __cplusplus
 extern "C" {

@@ -7,15 +7,19 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "disk_gc.h"
-#include "config.h"
-#include "spec.h"
-#include "search_disk.h"
-#include "module.h"
-#include "redismodule.h"
-#include "rmalloc.h"
+
+#include <stdatomic.h>          // for atomic_fetch_add, atomic_fetch_sub
+#include <time.h>               // for size_t, timespec
+#include <stdbool.h>            // for true, bool, false
+
+#include "config.h"             // for GCConfig, GCSettings, RSConfig, ...
+#include "spec.h"               // for IndexSpecRef_Release, IndexSpec, ...
+#include "search_disk.h"        // for SearchDisk_RunGC
+#include "redismodule.h"        // for RedisModuleInfoCtx
+#include "rmalloc.h"            // for rm_calloc, rm_free
 #include "info/global_stats.h"
-#include <stdatomic.h>
-#include <time.h>
+#include "reply.h"              // for RedisModule_Reply
+#include "rmutil/rm_assert.h"   // for RS_LOG_ASSERT
 
 static bool periodicCb(void *privdata, bool force) {
   DiskGC *gc = privdata;

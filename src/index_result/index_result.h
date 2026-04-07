@@ -9,11 +9,20 @@
 #ifndef __INDEX_RESULT_H__
 #define __INDEX_RESULT_H__
 
+#include <stddef.h>        // for size_t, NULL
+
 #include "varint.h"
 #include "rmalloc.h"
 #include "util/arr.h"
 #include "value.h"
 #include "rlookup.h"
+#include "query_term.h"    // for RSQueryTerm
+#include "redisearch.h"    // for RSYieldableMetric
+#include "rlookup_rs.h"    // for RLookupKey, RSValue
+#include "types_rs.h"      // for RSIndexResult, IndexResult_AggregateReset
+#include "util/arr/arr.h"  // for array_clear, array_ensure_append_1, ...
+#include "value/value.h"   // for RSValue_DecrRef
+
 #define DEFAULT_RECORDLIST_SIZE 4
 
 #ifdef __cplusplus

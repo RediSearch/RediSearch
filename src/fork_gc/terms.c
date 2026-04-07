@@ -7,13 +7,25 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-#include "pipe.h"
-#include "triemap.h"
-#include "redis_index.h"
-#include "suffix.h"
-#include "rmutil/rm_assert.h"
-#include "obfuscation/obfuscation_api.h"
-#include "obfuscation/hidden.h"
+#include <bits/types/struct_iovec.h>      // for iovec
+#include <stddef.h>                       // for NULL, size_t
+
+#include "pipe.h"                         // for pipe_read_cb, pipe_write_cb
+#include "redis_index.h"                  // for Redis_OpenInvertedIndex
+#include "suffix.h"                       // for deleteSuffixTrie
+#include "obfuscation/obfuscation_api.h"  // for Obfuscate_Text
+#include "config.h"                       // for RSConfig, RSGlobalConfig
+#include "fork_gc.h"                      // for ForkGC
+#include "inverted_index.h"               // for II_GCScanStats, ...
+#include "redismodule.h"                  // for REDISMODULE_OK, ...
+#include "rmalloc.h"                      // for rm_free
+#include "search_ctx.h"                   // for RedisSearchCtx, ...
+#include "spec.h"                         // for IndexSpec, ...
+#include "trie/rune_util.h"               // for runesToStr, rune
+#include "trie/trie.h"                    // for TrieIterator_Free, ...
+#include "trie/trie_type.h"               // for Trie_Delete, Trie_Iterate
+#include "util/dict/dict.h"               // for DICT_OK, dictDelete
+#include "util/references.h"              // for StrongRef_Get, StrongRef
 
 void FGC_childCollectTerms(ForkGC *gc, RedisSearchCtx *sctx) {
   TrieIterator *iter = Trie_Iterate(sctx->spec->terms, "", 0, 0, 1);

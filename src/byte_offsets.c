@@ -7,7 +7,9 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "byte_offsets.h"
-#include <arpa/inet.h>
+
+#include "redismodule.h"  // for REDISMODULE_ERR, REDISMODULE_OK
+#include "rmalloc.h"      // for rm_free, rm_calloc, rm_malloc, rm_realloc
 
 RSByteOffsets *NewByteOffsets() {
   RSByteOffsets *ret = rm_calloc(1, sizeof(*ret));

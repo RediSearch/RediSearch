@@ -6,34 +6,42 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#include <string.h>
-#include <inttypes.h>
+#include <string.h>                                    // for NULL, size_t
+#include <inttypes.h>                                  // for uint16_t, ...
+#include <stdbool.h>                                   // for bool, true, false
 
 #include "document.h"
 #include "rlookup_load_document.h"
 #include "forward_index.h"
-#include "numeric_filter.h"
 #include "numeric_index.h"
-#include "redisearch_rs/headers/numeric_range_tree.h"
-#include "rmutil/strings.h"
-#include "rmutil/util.h"
-#include "util/mempool.h"
-#include "spec.h"
-#include "tokenize.h"
-#include "util/logging.h"
-#include "rmalloc.h"
-#include "indexer.h"
-#include "tag_index.h"
-#include "geometry/geometry_api.h"
-#include "aggregate/expr/expression.h"
-#include "rmutil/rm_assert.h"
-#include "redis_index.h"
-#include "fast_float/fast_float_strtod.h"
-#include "obfuscation/obfuscation_api.h"
-#include "search_disk.h"
+#include "redisearch_rs/headers/numeric_range_tree.h"  // for AddResult, ...
+#include "spec.h"                                      // for IndexSpec, ...
+#include "tokenize.h"                                  // for Token, ...
+#include "rmalloc.h"                                   // for rm_free, ...
+#include "indexer.h"                                   // for FieldIndexerData
+#include "tag_index.h"                                 // for TagIndex, ...
+#include "geometry/geometry_api.h"                     // for GeometryApi_Get
+#include "aggregate/expr/expression.h"                 // for ExprAST_Free
+#include "rmutil/rm_assert.h"                          // for RS_ABORT_ALWAYS
+#include "redis_index.h"                               // for CREATE_INDEX
+#include "fast_float/fast_float_strtod.h"              // for fast_float_strtod
 #include "info/global_stats.h"
 #include "sorting_vector.h"
-#include "doc_id_meta.h"
+#include "VecSim/vec_sim.h"
+#include "config.h"                                    // for RSConfig, ...
+#include "doc_table.h"                                 // for DMD_Return
+#include "geo_index.h"                                 // for calcGeoHash
+#include "geometry/geometry_types.h"
+#include "geometry_index.h"                            // for OpenGeometryIndex
+#include "info/index_error.h"
+#include "rlookup_rs.h"                                // for RLookupRow_New
+#include "rs_geo.h"                                    // for parseGeo
+#include "rules.h"                                     // for SchemaRule
+#include "synonym_map.h"
+#include "triemap.h"                                   // for NewTrieMap
+#include "util/mempool/mempool.h"                      // for mempool_release
+#include "varint.h"                                    // for VVW_Write
+#include "vector_index.h"                              // for openVectorIndex
 
 // Memory pool for RSAddDocumentContext contexts
 static mempool_t *actxPool_g = NULL;

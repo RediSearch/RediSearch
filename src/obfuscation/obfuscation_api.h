@@ -10,8 +10,13 @@
 
 #ifndef OBFUSCATION_API_H
 #define OBFUSCATION_API_H
-#include "redisearch.h"
-#include "util/hash/hash.h"
+#include <stddef.h>          // for size_t
+#include <stdint.h>          // for uint16_t
+
+#include "redisearch.h"      // for MAX_UNIQUE_ID_TEXT_LENGTH_UPPER_BOUND
+#include "util/hash/hash.h"  // for SHA1_TEXT_MAX_LENGTH, Sha1
+
+struct timespec;
 
 // Length definitions of the required buffer sizes for obfuscation
 #define MAX_OBFUSCATED_INDEX_NAME 6/*strlen("Index@")*/ + SHA1_TEXT_MAX_LENGTH + 1/*null terminator*/
@@ -59,6 +64,7 @@ const char *Obfuscate_Geo(uint16_t longitude, uint16_t latitude);
 const char *Obfuscate_GeoShape();
 
 struct RSQueryNode;
+
 // Obfuscate a query node based on its type
 // the returned pointer needs to be freed using rm_free
 const char *Obfuscate_QueryNode(struct RSQueryNode *node);

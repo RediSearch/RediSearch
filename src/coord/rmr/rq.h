@@ -10,8 +10,10 @@
 #pragma once
 
 #include <stdlib.h>
-#include <stddef.h>
-#include <uv.h>
+#include <stddef.h>   // for size_t
+#include <uv.h>       // for uv_async_t
+
+#include "uv/unix.h"  // for uv_mutex_t
 
 typedef void (*MRQueueCallback)(void *);
 

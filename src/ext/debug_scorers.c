@@ -23,10 +23,14 @@
  ******************************************************************************************/
 
 #include "debug_scorers.h"
-#include "redisearch.h"
-#include "types_rs.h"
-#include "score_explain.h"
-#include "extension.h"
+
+#include <stddef.h>         // for NULL
+
+#include "redisearch.h"     // for ScoringFunctionArgs, REDISEARCH_OK, ...
+#include "types_rs.h"       // for RSIndexResult, AggregateRecordsSlice, ...
+#include "score_explain.h"  // for RSScoreExplain, EXPLAIN
+#include "extension.h"      // for Ext_RegisterScoringFunction
+#include "query_term.h"     // for QueryTerm_GetBM25_IDF, QueryTerm_GetIDF
 
 /* Recursively sum IDF values from all terms in the result */
 static double sumIdfRecursive(const RSIndexResult *r) {

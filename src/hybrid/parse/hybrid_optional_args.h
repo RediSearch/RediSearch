@@ -8,12 +8,22 @@
 */
 #pragma once
 
-#include "aggregate/aggregate_plan.h"
-#include "query_error.h"
-#include "hybrid//hybrid_scoring.h"
+#include <stdbool.h>                   // for bool
+#include <stddef.h>                    // for size_t
+#include <stdint.h>                    // for uint32_t
+
+#include "aggregate/aggregate_plan.h"  // for AGGPlan
+#include "query_error.h"               // for QueryError
+#include "hybrid//hybrid_scoring.h"    // for HybridScoringContext
 #include "util/arg_parser.h"
-#include "aggregate/aggregate.h"
-#include "rs_wall_clock.h"
+#include "aggregate/aggregate.h"       // for CursorConfig, QEFlags
+#include "rs_wall_clock.h"             // for rs_wall_clock_ns_t
+#include "config.h"                    // for RequestConfig
+#include "hiredis/sds.h"               // for sds
+#include "redismodule.h"               // for RedisModuleSlotRangeArray
+#include "rmutil/args.h"               // for ArgsCursor
+#include "search_options.h"            // for RSSearchOptions
+#include "util/arr/arr.h"              // for arrayof
 
 #ifdef __cplusplus
 extern "C" {

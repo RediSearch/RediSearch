@@ -8,6 +8,8 @@
 */
 #include "arr.h"
 
+#include <string.h>  // for memcpy
+
 // define a function to be used from Rust
 uint32_t array_len_func(array_t arr) {
   return array_len(arr);

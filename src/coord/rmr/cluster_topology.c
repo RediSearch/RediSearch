@@ -8,10 +8,14 @@
 */
 
 #include "cluster_topology.h"
-#include "endpoint.h"
-#include "rmalloc.h"
-#include "slot_ranges.h"
-#include "rmutil/rm_assert.h"
+
+#include <stddef.h>            // for NULL
+
+#include "endpoint.h"          // for MREndpoint_Copy, MREndpoint_Free, ...
+#include "rmalloc.h"           // for rm_free, rm_calloc, rm_strdup, rm_new
+#include "slot_ranges.h"       // for SlotRangeArray_Clone
+#include "rmutil/rm_assert.h"  // for RS_LOG_ASSERT
+#include "rmr/node.h"          // for MRClusterNode
 
 MRClusterShard MR_NewClusterShard(MRClusterNode *node, RedisModuleSlotRangeArray *slotRanges) {
   MRClusterShard ret = (MRClusterShard){

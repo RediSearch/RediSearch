@@ -7,9 +7,18 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+#include <math.h>                       // for round, NAN
+#include <stddef.h>                     // for size_t
+
 #include "function.h"
-#include "aggregate/expr/expression.h"
-#include "rs_geo.h"
+#include "aggregate/expr/expression.h"  // for ExprEval, EXPR_EVAL_OK
+#include "rs_geo.h"                     // for decodeGeo, parseGeo
+#include "geohash/geohash_helper.h"     // for geohashGetDistance
+#include "query_error.h"                // for QueryError
+#include "redisearch.h"                 // for REDISEARCH_ERR
+#include "redismodule.h"                // for REDISMODULE_OK, REDISMODULE_ERR
+#include "rlookup_rs.h"                 // for RSValue
+#include "value/value.h"                // for RSValue_ToNumber, ...
 
 // parse "x,y"
 static int parseField(RSValue *argv, double *geo, QueryError *status) {

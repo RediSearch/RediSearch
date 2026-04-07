@@ -7,23 +7,30 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "config.h"
-#include "thpool/thpool.h"
-#include "err.h"
-#include "rmutil/util.h"
-#include "rmutil/strings.h"
-#include "rmutil/args.h"
-#include <string.h>
-#include <stdlib.h>
-#include <limits.h>
-#include "rmalloc.h"
-#include "rules.h"
-#include "spec.h"
-#include "extension.h"
-#include "util/dict.h"
-#include "resp3.h"
-#include "util/workers.h"
-#include "module.h"
-#include "search_disk.h"
+
+#include <string.h>              // for strlen, memcpy, strcmp
+#include <stdlib.h>              // for NULL, size_t
+#include <limits.h>              // for LLONG_MAX
+#include <strings.h>             // for strcasecmp
+#include <sys/param.h>           // for MIN
+
+#include "thpool/thpool.h"       // for DEFAULT_HIGH_PRIORITY_BIAS_THRESHOLD
+#include "rmutil/args.h"         // for AC_GetSize, AC_GetUnsigned, ...
+#include "rmalloc.h"             // for rm_strdup, rm_free, rm_asprintf, ...
+#include "rules.h"               // for SchemaRuleArgs, RULE_TYPE_HASH
+#include "spec.h"                // for IndexSpec, IndexSpec_AcquireWriteLock
+#include "extension.h"           // for Extensions_GetScoringFunction, ...
+#include "util/workers.h"        // for workersThreadPool_SetNumWorkers
+#include "module.h"              // for RM_TRY, RSDummyContext, IsEnterprise
+#include "search_disk.h"         // for SearchDisk_IsEnabledForValidation
+#include "doc_table.h"           // for DocTable_ClearExpirationData
+#include "ext/default.h"         // for DEFAULT_SCORER_NAME
+#include "obfuscation/hidden.h"  // for HiddenString_Free, NewHiddenString
+#include "rmutil/rm_assert.h"    // for RS_ASSERT, RS_LOG_ASSERT
+#include "util/config_macros.h"  // for CONFIG_SETTER, CONFIG_GETTER, ...
+#include "util/dict/dict.h"      // for dictAdd, dictEntry, dictFetchValue
+#include "util/references.h"     // for StrongRef_Get, StrongRef
+#include "util/strconv.h"        // for STR_EQCASE
 
 #define __STRINGIFY(x) #x
 #define STRINGIFY(x) __STRINGIFY(x)

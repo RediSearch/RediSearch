@@ -7,13 +7,21 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "rlookup_load_document.h"
-#include "json.h"
-#include "module.h"
-#include "document.h"
-#include "rmutil/rm_assert.h"
-#include "doc_types.h"
-#include "value.h"
-#include "util/arr.h"
+
+#include <string.h>            // for NULL, strlen, strcmp, size_t, strncmp
+
+#include "json.h"              // for JSON_ROOT, jsonIterToValue
+#include "document.h"          // for DOCUMENT_OPEN_KEY_QUERY_FLAGS, ...
+#include "rmutil/rm_assert.h"  // for RS_LOG_ASSERT
+#include "doc_types.h"         // for japi, RSDummyContext
+#include "hiredis/sds.h"       // for sdslen
+#include "query_error.h"       // for QueryError_SetCode, ...
+#include "redismodule.h"       // for REDISMODULE_ERR, REDISMODULE_OK, ...
+#include "rejson_api.h"        // for RedisJSONAPI, JSONResultsIterator, ...
+#include "rlookup.h"           // for RLookupKey_GetFlags, RLookupKey_GetPath
+#include "rmalloc.h"           // for rm_strdup
+#include "search_ctx.h"        // for RedisSearchCtx
+#include "value/value.h"       // for RSValue_NewNumber, ...
 
 typedef enum {
   RLOOKUP_C_STR = 0,

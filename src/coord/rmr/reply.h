@@ -9,11 +9,10 @@
 
 #pragma once
 
+#include <stdlib.h>  // for size_t
+
 #include "resp3.h"
-
 #include "redismodule.h"
-
-#include <stdlib.h>
 
 #define MR_REPLY_STRING 1
 #define MR_REPLY_ARRAY 2
@@ -33,6 +32,7 @@
 #define MR_REPLY_VERB 14
 
 struct redisReply;
+
 typedef struct redisReply MRReply;
 
 void MRReply_Free(MRReply *reply);

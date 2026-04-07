@@ -7,9 +7,12 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "rwlock.h"
-#include "rmalloc.h"
-#include "util/arr_rm_alloc.h"
-#include "rmutil/rm_assert.h"
+
+#include <stddef.h>            // for NULL, size_t
+
+#include "rmalloc.h"           // for rm_free, rm_malloc
+#include "rmutil/rm_assert.h"  // for RS_ASSERT
+#include "util/arr/arr.h"      // for array_free, array_len, array_append
 
 pthread_mutex_t rwLockMutex;
 pthread_rwlock_t RWLock = PTHREAD_RWLOCK_INITIALIZER;

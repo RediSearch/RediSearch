@@ -8,7 +8,12 @@
  */
 
 #include "coord_request_ctx.h"
-#include "rmalloc.h"
+
+#include <stdatomic.h>         // for atomic_store_explicit, ...
+#include <stddef.h>            // for NULL
+
+#include "rmalloc.h"           // for rm_calloc, rm_free
+#include "rmutil/rm_assert.h"  // for RS_ASSERT
 
 CoordRequestCtx *CoordRequestCtx_New(CommandType type) {
   CoordRequestCtx *ctx = rm_calloc(1, sizeof(CoordRequestCtx));

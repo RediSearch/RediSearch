@@ -7,11 +7,17 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "hybrid/parse/hybrid_optional_args.h"
-#include "hybrid/parse/hybrid_callbacks.h"
-#include "config.h"
-#include "util/arg_parser.h"
-#include "coord/rmr/command.h"
-#include <string.h>
+
+#include <string.h>                          // for NULL
+#include <assert.h>                          // for static_assert
+
+#include "hybrid/parse/hybrid_callbacks.h"   // for handleApply, handleCombine
+#include "config.h"                          // for RequestConfig, RSConfig
+#include "util/arg_parser.h"                 // for ARG_OPT_END, ...
+#include "coord/rmr/command.h"               // for COORD_DISPATCH_TIME_STR
+#include "pipeline/pipeline_construction.h"  // for hasQuerySortby
+#include "slot_ranges.h"                     // for SLOTS_STR
+#include "spec.h"                            // for MAX_DIALECT_VERSION, ...
 
 /**
  * Applies optimization to skip collecting rich results when they are not needed.

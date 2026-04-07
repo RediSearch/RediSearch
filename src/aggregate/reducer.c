@@ -7,7 +7,13 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "reducer.h"
-#include "util/misc.h"
+
+#include <assert.h>        // for static_assert
+#include <strings.h>       // for size_t, strcasecmp
+
+#include "util/misc.h"     // for ExtractKeyName
+#include "rlookup.h"       // for RLookupKey_GetFlags
+#include "util/arr/arr.h"  // for array_ensure_append_1
 
 typedef struct {
   const char *name;

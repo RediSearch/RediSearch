@@ -1,5 +1,10 @@
 #pragma once
+#include <stdbool.h>                   // for bool
+#include <stdint.h>                    // for uint32_t
+
 #include "aggregate/aggregate.h"
+#include "aggregate/aggregate_plan.h"  // for AGGPlan
+#include "pipeline/pipeline.h"         // for Pipeline, ...
 
 #ifdef __cplusplus
 extern "C" {

@@ -10,12 +10,15 @@
 #ifndef SRC_GC_H_
 #define SRC_GC_H_
 
-#include "reply.h"
+#include <time.h>             // for size_t, timespec
+#include <stdbool.h>          // for bool
+#include <stdint.h>           // for uint32_t
+#include <sys/types.h>        // for ssize_t
 
-#include "redismodule.h"
+#include "reply.h"            // for RedisModule_Reply
+#include "redismodule.h"      // for RedisModuleBlockedClient, ...
 #include "util/dllist.h"
-#include "util/references.h"
-#include <time.h>
+#include "util/references.h"  // for StrongRef
 
 #ifdef __cplusplus
 extern "C" {

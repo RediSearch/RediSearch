@@ -7,9 +7,17 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "expression.h"
-#include "result_processor.h"
-#include "rlookup.h"
-#include "profile/profile.h"
+
+#include <math.h>              // for fmod, pow
+#include <string.h>            // for size_t, NULL, memcpy
+#include <sys/param.h>         // for MAX
+
+#include "result_processor.h"  // for RS_RESULT_OK, RPTypeToString, ...
+#include "rlookup.h"           // for RLookupKey_GetName
+#include "profile/profile.h"   // for ResultProcessor
+#include "rmalloc.h"           // for rm_calloc, rm_free
+#include "search_result.h"     // for SearchResult_GetRowData, ...
+#include "value/value.h"       // for RSValue_DecrRef, RSValue_BoolTest, ...
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 

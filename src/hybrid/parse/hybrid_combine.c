@@ -6,11 +6,18 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#include "hybrid_callbacks.h"
-#include "hybrid/hybrid_scoring.h"
-#include "query_error.h"
-#include "util/arg_parser.h"
-#include <string.h>
+#include <limits.h>                             // for LLONG_MAX
+#include <stdbool.h>                            // for false, bool, true
+#include <strings.h>                            // for strcasecmp, size_t
+
+#include "hybrid_callbacks.h"                   // for handleCombine
+#include "hybrid/hybrid_scoring.h"              // for HybridLinearContext
+#include "query_error.h"                        // for QueryError_SetError
+#include "util/arg_parser.h"                    // for ArgParser_Free, ...
+#include "hybrid/parse/hybrid_optional_args.h"  // for HybridParseContext
+#include "rmalloc.h"                            // for rm_calloc
+#include "rmutil/args.h"                        // for ArgsCursor, AC_Strerror
+#include "search_options.h"                     // for RSSearchOptions
 
 #define HYBRID_DEFAULT_ALPHA 0.3
 #define HYBRID_DEFAULT_BETA 0.7

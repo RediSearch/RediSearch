@@ -7,17 +7,25 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-#include "aggregate/aggregate.h"
-#include "aggregate/aggregate_plan.h"
-#include "pipeline/pipeline_construction.h"
-#include "aggregate/reducer.h"
-#include "util/arr.h"
-#include "dist_plan.h"
+#include <string.h>                     // for NULL, memcpy
+#include <strings.h>                    // for size_t, strcasecmp
+#include <vector>                       // for vector
+#include <string>                       // for operator+, allocator, ...
+#include <algorithm>                    // for max
 
-#include <vector>
-#include <string>
-#include <sstream>
-#include <algorithm>
+#include "aggregate/aggregate.h"        // for AREQ_AGGPlan, AREQ_BuildPipeline
+#include "aggregate/aggregate_plan.h"   // for PLN_GroupStep, PLN_BaseStep
+#include "dist_plan.h"
+#include "aggregate/expr/expression.h"  // for ExprAST_Free, ...
+#include "obfuscation/hidden.h"         // for HiddenString_Free, ...
+#include "redismodule.h"                // for REDISMODULE_ERR, REDISMODULE_OK
+#include "rlookup.h"                    // for RLookupKey_GetName, ...
+#include "rmalloc.h"                    // for rm_free, rm_calloc, rm_strndup
+#include "rmutil/args.h"                // for ArgsCursor, AC_GetStringNC
+#include "rmutil/rm_assert.h"           // for RS_ASSERT
+#include "spec.h"                       // for SPEC_AS_STR
+#include "util/dllist.h"                // for DLLIST_ITEM, DLLIST_node, DLLIST
+#include "util/references.h"            // for StrongRef_Clone
 
 static char *getLastAlias(const PLN_GroupStep *gstp) {
   return gstp->reducers[array_len(gstp->reducers) - 1].alias;

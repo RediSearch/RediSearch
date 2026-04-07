@@ -7,9 +7,20 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-#include "pipe.h"
-#include "rmutil/rm_assert.h"
-#include "obfuscation/hidden.h"
+#include <bits/types/struct_iovec.h>  // for iovec
+#include <stdbool.h>                  // for false
+#include <stddef.h>                   // for NULL, size_t
+
+#include "pipe.h"                     // for pipe_read_cb, pipe_write_cb
+#include "obfuscation/hidden.h"       // for HiddenString_Free, ...
+#include "fork_gc.h"                  // for ForkGC
+#include "inverted_index.h"           // for II_GCScanStats, ...
+#include "redismodule.h"              // for REDISMODULE_OK
+#include "rmalloc.h"                  // for rm_free
+#include "search_ctx.h"               // for RedisSearchCtx, ...
+#include "spec.h"                     // for IndexSpec, IndexSpecRef_Promote
+#include "util/dict/dict.h"           // for dictDelete, dictEntry, ...
+#include "util/references.h"          // for StrongRef_Get, StrongRef
 
 void FGC_childCollectMissingDocs(ForkGC *gc, RedisSearchCtx *sctx) {
   IndexSpec *spec = sctx->spec;

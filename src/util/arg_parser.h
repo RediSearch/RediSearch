@@ -9,11 +9,16 @@
 
 #pragma once
 
-#include "rmutil/args.h"
+#include <stdint.h>        // for uint16_t
+#include <stdbool.h>       // for bool
+#include <stddef.h>        // for size_t
+
+#include "rmutil/args.h"   // for ArgsCursor
 #include "redismodule.h"
-#include <stdint.h>
-#include <stdbool.h>
-#include "util/arr/arr.h"
+#include "util/arr/arr.h"  // for arrayof
+
+struct ArgParseResult;
+struct ArgParser;
 
 #ifdef __cplusplus
 extern "C" {

@@ -9,12 +9,19 @@
 #ifndef SRC_FIELD_SPEC_H_
 #define SRC_FIELD_SPEC_H_
 
-#include "redisearch.h"
+#include <stdbool.h>                  // for bool, false, true
+#include <stddef.h>                   // for size_t
+#include <stdint.h>                   // for int16_t
+
+#include "redisearch.h"               // for t_fieldId, t_fieldIndex
 #include "value.h"
-#include "VecSim/vec_sim.h"
-#include "geometry/geometry_types.h"
-#include "info/index_error.h"
-#include "obfuscation/hidden.h"
+#include "VecSim/vec_sim.h"           // for VecSimIndex
+#include "geometry/geometry_types.h"  // for GEOMETRY_COORDS, GeometryIndex
+#include "info/index_error.h"         // for ConstErrorMessage, IndexError
+#include "obfuscation/hidden.h"       // for HiddenString
+#include "VecSim/vec_sim_common.h"    // for VecSimDiskContext, VecSimParams
+#include "query_error.h"              // for QueryError_GetDisplayableError
+#include "redismodule.h"              // for RedisModuleString
 
 struct TagIndex;
 struct NumericRangeTree;

@@ -8,9 +8,11 @@
 */
 
 #include "vector_query_utils.h"
-#include "rmalloc.h"
-#include "../util/arr.h"
-#include "../vector_index.h"
+
+#include "rmalloc.h"          // for rm_free
+#include "../vector_index.h"  // for VectorQuery_Free
+#include "query_node.h"       // for QueryAttribute
+#include "util/arr/arr.h"     // for array_free_ex
 
 void ParsedVectorData_Free(ParsedVectorData *pvd) {
   if (!pvd) return;

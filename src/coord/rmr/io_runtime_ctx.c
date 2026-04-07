@@ -8,15 +8,25 @@
 */
 
 #if defined(__linux__)
-#include <sys/prctl.h>
+#include <sys/prctl.h>             // for prctl, PR_SET_NAME
 #endif
+#include <rmutil/rm_assert.h>      // for RS_ASSERT
+#include <stdint.h>                // for uint32_t
+#include <stdio.h>                 // for NULL, size_t, snprintf
+
 #include "io_runtime_ctx.h"
-#include "rmalloc.h"
-#include "conn.h"
-#include "cluster.h"
-#include <rmutil/rm_assert.h>  // Include the assertion header
-#include "../config.h"
-#include "info/global_stats.h"
+#include "rmalloc.h"               // for rm_free, rm_malloc, rm_new
+#include "conn.h"                  // for MRConn_Get, MRConnManager, ...
+#include "../config.h"             // for SearchClusterConfig, clusterConfig
+#include "info/global_stats.h"     // for GlobalStats_UpdateUvRunningQueries
+#include "hiredis/read.h"          // for REDIS_OK, REDIS_ERR
+#include "redismodule.h"           // for RedisModule_Log, REDISMODULE_NOT_USED
+#include "rmr/cluster_topology.h"  // for MRClusterTopology_Free, ...
+#include "rmr/endpoint.h"          // for MREndpoint
+#include "rmr/node.h"              // for MRClusterNode
+#include "rmr/rq.h"                // for queueItem, MRWorkQueue, RQ_Done
+#include "util/dict/dict.h"        // for dictGetIterator, dictGetKey, dictNext
+#include "uv.h"                    // for uv_close, uv_async_send, uv_run
 
 // Atomically exchange the pending topology with a new topology.
 // Returns the old pending topology (or NULL if there was no pending topology).

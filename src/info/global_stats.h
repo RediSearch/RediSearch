@@ -8,8 +8,14 @@
 */
 #pragma once
 
-#include "spec.h"
-#include "rs_wall_clock.h"
+#include <stdbool.h>        // for bool, true
+#include <stddef.h>         // for size_t
+#include <stdint.h>         // for int64_t, uint32_t, uint_least8_t
+
+#include "spec.h"           // for MIN_DIALECT_VERSION
+#include "rs_wall_clock.h"  // for rs_wall_clock_ns_t
+#include "field_spec.h"     // for FieldType, FieldSpec
+#include "query_error.h"    // for QueryErrorCode, QueryWarningCode
 
 #ifdef __cplusplus
 extern "C" {

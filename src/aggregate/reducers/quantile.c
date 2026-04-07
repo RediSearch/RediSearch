@@ -6,8 +6,16 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#include <aggregate/reducer.h>
-#include "util/quantile.h"
+#include <aggregate/reducer.h>  // for Reducer, ReducerOptions, ...
+#include <stddef.h>             // for NULL
+#include <stdint.h>             // for uint32_t
+
+#include "util/quantile.h"      // for QS_Insert, NewQuantileStream, QS_Free
+#include "query_error.h"        // for QueryError_SetError, QERR_MKBADARGS_AC
+#include "rlookup_rs.h"         // for RLookupRow_Get, RSValue, RLookupRow
+#include "rmalloc.h"            // for rm_calloc, rm_free
+#include "rmutil/args.h"        // for AC_GetDouble, AC_GetUnsigned, AC_OK
+#include "value/value.h"        // for RSValue_ToNumber, RSValue_ArrayItem
 
 typedef struct {
   Reducer base;

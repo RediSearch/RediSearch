@@ -8,7 +8,16 @@
 */
 
 #include "union_iterator.h"
-#include "iterators_rs.h"
+
+#include <string.h>                     // for size_t, NULL, memcpy
+
+#include "iterators_rs.h"               // for IsWildcardIterator, ...
+#include "index_result/index_result.h"  // for IndexResult_ResetAggregate
+#include "iterator_type.h"              // for EMPTY_ITERATOR, UNION_ITERATOR
+#include "redisearch.h"                 // for t_docId, DOCID_MAX
+#include "rmalloc.h"                    // for rm_free, rm_malloc, rm_calloc
+#include "rmutil/rm_assert.h"           // for RS_ASSERT, RS_LOG_ASSERT
+#include "types_rs.h"                   // for AggregateResult_AddChild, ...
 
 static inline int cmpLastDocId(const void *e1, const void *e2, const void *udata) {
   const QueryIterator *it1 = e1, *it2 = e2;

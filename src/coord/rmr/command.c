@@ -7,20 +7,17 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-#include "common.h"
+#include <string.h>             // for memcpy, memmove, memset, strchr, strlen
+#include <stdarg.h>             // for va_arg, va_end, va_list, va_start
+#include <stdio.h>              // for size_t, NULL, snprintf
+
 #include "command.h"
-#include "rmalloc.h"
-#include "resp3.h"
-#include "slot_ranges.h"
-#include "rs_wall_clock.h"
-#include "info/global_stats.h"
-
-#include "version.h"
-
-#include <stdlib.h>
-#include <string.h>
-#include <stdarg.h>
-#include <stdio.h>
+#include "rmalloc.h"            // for rm_free, rm_malloc, rm_realloc, ...
+#include "resp3.h"              // for is_resp3
+#include "slot_ranges.h"        // for SLOTS_STR, SlotRangeArray_SizeOf, ...
+#include "rs_wall_clock.h"      // for rs_wall_clock_now_ns, rs_wall_clock_ns_t
+#include "info/global_stats.h"  // for TotalGlobalStats_AddCoordDispatchTime
+#include "rmutil/rm_assert.h"   // for RS_ASSERT, RS_LOG_ASSERT, ...
 
 #define shift_right(arr, len, start, by) \
   memmove((arr) + (start) + (by), (arr) + (start), ((len) - (start)) * sizeof(*(arr)));

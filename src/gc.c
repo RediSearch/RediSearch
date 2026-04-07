@@ -6,21 +6,19 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#include <pthread.h>
-#include <assert.h>
-#include <unistd.h>
+#include <stdlib.h>            // for rand
 
 #include "gc.h"
-#include "fork_gc.h"
-#include "disk_gc.h"
-#include "config.h"
-#include "redismodule.h"
-#include "rmalloc.h"
-#include "module.h"
-#include "spec.h"
-#include "thpool/thpool.h"
-#include "rmutil/rm_assert.h"
-#include "util/logging.h"
+#include "fork_gc.h"           // for FGC_Create
+#include "disk_gc.h"           // for DiskGC_Create
+#include "config.h"            // for GCPolicy_Disk, GCPolicy_Fork
+#include "redismodule.h"       // for RedisModuleBlockedClient, RedisModule_Log
+#include "rmalloc.h"           // for rm_free, rm_calloc, rm_new
+#include "module.h"            // for RSDummyContext
+#include "thpool/thpool.h"     // for redisearch_thpool_add_work, ...
+#include "rmutil/rm_assert.h"  // for RS_LOG_ASSERT, RS_LOG_ASSERT_FMT
+#include "util/logging.h"      // for LogCallback
+#include "redisearch.h"        // for RS_IsMock
 
 static redisearch_thpool_t *gcThreadpool_g = NULL;
 

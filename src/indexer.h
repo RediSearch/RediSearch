@@ -9,10 +9,19 @@
 #ifndef INDEXER_H
 #define INDEXER_H
 
-#include "document.h"
+#include <stdbool.h>                  // for bool
+#include <stddef.h>                   // for size_t
+
+#include "document.h"                 // for RSAddDocumentCtx, DocumentField
 #include "concurrent_ctx.h"
 #include "util/arr.h"
 #include "geometry_index.h"
+#include "field_spec.h"               // for FieldSpec
+#include "geometry/geometry_types.h"  // for GEOMETRY_FORMAT
+#include "query_error.h"              // for QueryError
+#include "redismodule.h"              // for RedisModuleCtx
+#include "search_ctx.h"               // for RedisSearchCtx
+#include "util/arr/arr.h"             // for arrayof
 
 extern bool g_isLoading;
 

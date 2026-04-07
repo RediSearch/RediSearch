@@ -7,9 +7,11 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "buffer.h"
+
+#include <sys/param.h>
+
 #include "rmalloc.h"
 #include "rmutil/rm_assert.h"
-#include <sys/param.h>
 
 size_t Buffer_Grow(Buffer *buf, size_t extraLen) {
   size_t originalCap = buf->cap;

@@ -6,11 +6,13 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#include "rmutil/util.h"
-#include "rmutil/strings.h"
-#include "rmutil/args.h"
-#include "util/array.h"
-#include "search_options.h"
+#include <stddef.h>          // for size_t, NULL
+
+#include "rmutil/args.h"     // for AC_AdvanceIfMatch, AC_GetStringNC, ...
+#include "util/array.h"      // for Array, Array_Free, Array_Init, Array_Write
+#include "search_options.h"  // for ReturnedField, HighlightSettings, ...
+#include "redismodule.h"     // for REDISMODULE_ERR, REDISMODULE_OK
+#include "rmalloc.h"         // for rm_strdup, rm_free
 
 /**
  * HIGHLIGHT [FIELDS {num} {field}…] [TAGS {open} {close}]

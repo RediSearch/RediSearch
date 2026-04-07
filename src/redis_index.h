@@ -9,12 +9,18 @@
 #ifndef __REDIS_INDEX__
 #define __REDIS_INDEX__
 
+#include <stdbool.h>                 // for bool, false, true
+#include <stddef.h>                  // for size_t
+
 #include "document.h"
-#include "inverted_index.h"
-#include "search_ctx.h"
+#include "inverted_index.h"          // for InvertedIndex
+#include "search_ctx.h"              // for RedisSearchCtx
 #include "concurrent_ctx.h"
 #include "spec.h"
-#include "iterators/iterator_api.h"
+#include "iterators/iterator_api.h"  // for QueryIterator
+#include "doc_table.h"               // for DocTable
+#include "redisearch.h"              // for RSToken, t_fieldMask
+#include "redismodule.h"             // for RedisModuleCtx, RedisModuleString
 
 #ifdef __cplusplus
 extern "C" {

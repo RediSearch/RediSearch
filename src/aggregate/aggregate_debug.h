@@ -8,8 +8,9 @@
 */
 #pragma once
 
-#include "query_error.h"
-#include "aggregate.h"
+#include "query_error.h"  // for QueryError
+#include "aggregate.h"    // for AREQ
+#include "redismodule.h"  // for RedisModuleString, RedisModuleCtx
 
 /*
  * Debugging Mechanism for Query Execution

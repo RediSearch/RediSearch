@@ -6,8 +6,8 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#include <stdio.h>
-#include <rmutil/rm_assert.h>
+#include <rmutil/rm_assert.h>  // for RS_ABORT
+
 #include "wildcard.h"
 
 match_t Wildcard_MatchChar(const char *pattern, size_t p_len, const char *str, size_t str_len) {

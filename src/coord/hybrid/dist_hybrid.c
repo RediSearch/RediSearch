@@ -8,22 +8,52 @@
 */
 
 #include "dist_hybrid.h"
-#include "hybrid/hybrid_request.h"
-#include "hybrid/hybrid_exec.h"
+
+#include <stdbool.h>                     // for bool, false, true
+#include <stdint.h>                      // for UINT64_MAX, uint32_t
+#include <string.h>                      // for strlen, NULL, strcmp
+#include <strings.h>                     // for size_t, strncasecmp
+#include <sys/param.h>                   // for MIN
+
+#include "hybrid/hybrid_request.h"       // for HybridRequest, ...
+#include "hybrid/hybrid_exec.h"          // for HREQ_ReplyOrStoreError, ...
 #include "hybrid/dist_hybrid_plan.h"
-#include "hybrid/parse_hybrid.h"
-#include "dist_plan.h"
-#include "rmr/rmr.h"
-#include "rmutil/util.h"
-#include "commands.h"
-#include "rpnet.h"
-#include "hybrid_cursor_mappings.h"
+#include "hybrid/parse_hybrid.h"         // for ParseHybridCommandCtx, ...
+#include "dist_plan.h"                   // for AGGPLN_Distribute
+#include "rmutil/util.h"                 // for RMUtil_ArgIndex
+#include "rpnet.h"                       // for RPNet, rpnetNext_EOF, ...
+#include "hybrid_cursor_mappings.h"      // for CursorMappings, QueryError
 #include "info/global_stats.h"
-#include "profile/profile.h"
-#include "dist_profile.h"
-#include "shard_window_ratio.h"
-#include "config.h"
-#include "coord/coord_request_ctx.h"
+#include "profile/profile.h"             // for ResultProcessor, ProfileClocks
+#include "dist_profile.h"                // for ParseProfile
+#include "shard_window_ratio.h"          // for calculateEffectiveK, ...
+#include "config.h"                      // for RequestConfig, ...
+#include "coord/coord_request_ctx.h"     // for CoordRequestCtx_TimedOut
+#include "VecSim/vec_sim_common.h"       // for UNUSED
+#include "aggregate/aggregate.h"         // for AREQ, AREQ_QueryProcessingCtx
+#include "aggregate/aggregate_plan.h"    // for AGPLN_GetArrangeStep, ...
+#include "concurrent_ctx.h"              // for ConcurrentCmdCtx_GetWeakRef
+#include "hybrid/hybrid_scoring.h"       // for HybridScoringContext, ...
+#include "obfuscation/hidden_unicode.h"  // for HiddenUnicodeString_GetUnsafe
+#include "pipeline/pipeline.h"           // for HybridPipelineParams, Pipeline
+#include "query.h"                       // for QueryAST
+#include "query_error.h"                 // for QueryError_GetCode, ...
+#include "query_node.h"                  // for QueryNode, QueryVectorNode
+#include "query_node_type.h"             // for QN_VECTOR
+#include "reply.h"                       // for RedisModule_Reply, ...
+#include "result_processor.h"            // for QueryProcessingCtx, ...
+#include "rlookup_rs.h"                  // for RLookup
+#include "rmalloc.h"                     // for rm_calloc, rm_free, rm_asprintf
+#include "rmr/reply.h"                   // for MRReply, MRReply_ArrayElement
+#include "rmutil/args.h"                 // for ArgsCursor_InitRString, ...
+#include "rmutil/rm_assert.h"            // for RS_ASSERT, RS_LOG_ASSERT
+#include "rs_wall_clock.h"               // for rs_wall_clock_diff_ns, ...
+#include "rules.h"                       // for SchemaRule
+#include "search_ctx.h"                  // for SearchCtx_UpdateTime, ...
+#include "search_result_rs.h"            // for SearchResult
+#include "util/references.h"             // for StrongRef_Release, ...
+
+struct ConcurrentCmdCtx;
 
 // We mainly need the resp protocol to be three in order to easily extract the "score" key from the response
 #define HYBRID_RESP_PROTOCOL_VERSION 3

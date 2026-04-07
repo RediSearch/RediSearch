@@ -16,8 +16,10 @@
 #ifndef SRC_CLUSTER_SPELL_CHECK_H_
 #define SRC_CLUSTER_SPELL_CHECK_H_
 
-#include "rmr/reply.h"
+#include "rmr/reply.h"  // for MRReply
 #include "rmr/rmr.h"
+
+struct MRCtx;
 
 int spellCheckReducer_resp2(struct MRCtx *mc, int count, MRReply **replies);
 int spellCheckReducer_resp3(struct MRCtx* mc, int count, MRReply** replies);

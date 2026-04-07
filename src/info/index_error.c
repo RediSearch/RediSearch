@@ -7,13 +7,16 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "index_error.h"
-#include "rmalloc.h"
-#include "reply_macros.h"
-#include "util/timeout.h"
-#include "util/strconv.h"
-#include "rmutil/rm_assert.h"
-#include "obfuscation/obfuscation_api.h"
-#include "query_error.h"
+
+#include <string.h>                       // for strlen
+
+#include "rmalloc.h"                      // for rm_strdup, rm_free
+#include "reply_macros.h"                 // for REPLY_KVSTR_SAFE, ...
+#include "util/timeout.h"                 // for rs_timer_ge
+#include "util/strconv.h"                 // for STR_EQ
+#include "rmutil/rm_assert.h"             // for RS_ASSERT
+#include "obfuscation/obfuscation_api.h"  // for Obfuscate_KeyWithTime, ...
+#include "rmr/reply.h"                    // for MRReply_Integer, ...
 
 extern RedisModuleCtx *RSDummyContext;
 

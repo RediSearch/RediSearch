@@ -7,19 +7,29 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "conn.h"
-#include "reply.h"
-#include "coord/config.h"
-#include "module.h"
-#include "hiredis/adapters/libuv.h"
 
-#include <uv.h>
-#include <signal.h>
-#include <sys/param.h>
-#include <stdio.h>
-#include <assert.h>
+#include <uv.h>                      // for uv_is_active, uv_loop_t, ...
+#include <stdio.h>                   // for NULL, size_t
+#include <openssl/ssl3.h>            // for SSL_CTX_free, ...
+#include <openssl/types.h>           // for SSL_CTX, SSL
+#include <stdbool.h>                 // for true, false, bool
+#include <stdint.h>                  // for uint64_t
+#include <stdlib.h>                  // for abort
+#include <string.h>                  // for strcmp, memcpy, strlen
 
-#include <openssl/ssl.h>
-#include <openssl/err.h>
+#include "reply.h"                   // for MRReply_Free, MRReply_String
+#include "module.h"                  // for RSDummyContext, IsEnterprise
+#include "hiredis/adapters/libuv.h"  // for redisLibuvAttach
+#include "config.h"                  // for getRedisConfigValue
+#include "hiredis/hiredis.h"         // for redisContext, ...
+#include "hiredis/hiredis_ssl.h"     // for redisInitiateSSL, ...
+#include "hiredis/read.h"            // for REDIS_ERR, REDIS_OK, ...
+#include "hiredis/sds.h"             // for sdslen
+#include "rmalloc.h"                 // for rm_free, rm_malloc, rm_calloc
+#include "rmr/command.h"             // for MRCommand
+#include "rmr/endpoint.h"            // for MREndpoint, MREndpoint_Copy, ...
+#include "rmutil/rm_assert.h"        // for RS_ASSERT
+#include "util/arr/arr.h"            // for array_len, arrayof, array_append
 
 typedef struct MRConn{
   MREndpoint ep;

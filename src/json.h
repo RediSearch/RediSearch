@@ -8,9 +8,14 @@
 */
 #pragma once
 
-#include "rejson_api.h"
-#include "redismodule.h"
-#include "field_spec.h"
+#include <stddef.h>              // for size_t
+
+#include "rejson_api.h"          // for JSONResultsIterator, RedisJSON, ...
+#include "redismodule.h"         // for RedisModuleCtx, RedisModuleString
+#include "field_spec.h"          // for FieldSpec, FieldType
+#include "obfuscation/hidden.h"  // for HiddenString
+#include "query_error.h"         // for QueryError
+#include "value/value.h"         // for RSValue
 
 #ifdef __cplusplus
 extern "C" {

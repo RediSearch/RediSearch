@@ -7,20 +7,24 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "tag_index.h"
-#include "suffix.h"
-#include "rmalloc.h"
-#include "rmutil/vector.h"
-#include "inverted_index.h"
-#include "redis_index.h"
-#include "rmutil/util.h"
-#include "triemap.h"
-#include "util/misc.h"
-#include "util/arr.h"
-#include "rmutil/rm_assert.h"
-#include "resp3.h"
+
+#include <ctype.h>                               // for isspace
+#include <string.h>                              // for strlen, NULL
+#include <sys/param.h>                           // for MIN
+#include <sys/types.h>                           // for size_t, uint
+
+#include "suffix.h"                              // for addSuffixTrieMap
+#include "rmalloc.h"                             // for rm_free, rm_strdup
+#include "inverted_index.h"                      // for InvertedIndex, ...
+#include "redis_index.h"                         // for CREATE_INDEX
+#include "triemap.h"                             // for TrieMap_Add, ...
+#include "rmutil/rm_assert.h"                    // for RS_ASSERT, RS_ABORT
 #include "redisearch_rs/headers/iterators_rs.h"
 #include "search_disk.h"
-#include "spec.h"
+#include "spec.h"                                // for IndexStats, ...
+#include "query_term.h"                          // for NewQueryTerm, ...
+#include "types_rs.h"                            // for FieldMaskOrIndex_Index
+#include "util/strconv.h"                        // for unicode_tolower
 
 extern RedisModuleCtx *RSDummyContext;
 

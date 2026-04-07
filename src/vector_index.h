@@ -7,11 +7,20 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #pragma once
-#include "VecSim/vec_sim.h"
-#include "iterators/iterator_api.h"
-#include "query_node.h"
-#include "query_ctx.h"
-#include "field_spec.h"
+#include <stdbool.h>                 // for bool
+#include <stddef.h>                  // for size_t
+
+#include "VecSim/vec_sim.h"          // for VecSimIndex
+#include "iterators/iterator_api.h"  // for QueryIterator
+#include "query_node.h"              // for QueryNode
+#include "query_ctx.h"               // for QueryEvalCtx
+#include "field_spec.h"              // for FieldSpec
+#include "VecSim/query_results.h"    // for VecSimQueryReply_Order, ...
+#include "VecSim/vec_sim_common.h"   // for VecSimParams, VecSimMetric, ...
+#include "query_error.h"             // for QueryError
+#include "redismodule.h"             // for RedisModuleIO, RedisModuleCtx
+#include "util/dict/dict.h"          // for dict
+#include "util/references.h"         // for StrongRef, WeakRef
 
 #define VECSIM_TYPE_BFLOAT16 "BFLOAT16"
 #define VECSIM_TYPE_FLOAT16 "FLOAT16"

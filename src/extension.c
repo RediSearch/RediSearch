@@ -6,16 +6,22 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#include <dlfcn.h>
-#include <stdio.h>
+#include <dlfcn.h>                      // for dlerror, dlopen, dlsym, ...
+#include <stdio.h>                      // for NULL, size_t
+#include <err.h>                        // for FMT_ERR
+#include <string.h>                     // for strlen
+
 #include "extension.h"
-#include "redisearch.h"
-#include "rmalloc.h"
-#include "redismodule.h"
-#include "index_result.h"
-#include "triemap.h"
-#include "query.h"
-#include <err.h>
+#include "redisearch.h"                 // for RSQueryExpanderCtx, ...
+#include "rmalloc.h"                    // for rm_free, rm_new
+#include "redismodule.h"                // for REDISMODULE_ERR, REDISMODULE_OK
+#include "triemap.h"                    // for TrieMap_Find, NewTrieMap, ...
+#include "query.h"                      // for QueryAST
+#include "index_result/index_result.h"  // for IndexResult_MinOffsetDelta
+#include "query_internal.h"             // for NewTokenNodeExpanded, ...
+#include "query_node.h"                 // for QueryNode_AddChild, QueryNode
+#include "query_node_type.h"            // for QN_UNION
+#include "query_term.h"                 // for RSTokenFlags
 
 /* The registry for query expanders. Initialized by Extensions_Init() */
 static TrieMap *queryExpanders_g = NULL;

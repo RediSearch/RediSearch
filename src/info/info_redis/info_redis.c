@@ -7,18 +7,30 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "info_redis.h"
+
+#include <stdbool.h>                                 // for true
+#include <stdio.h>                                   // for snprintf, NULL
+
 #include "module.h"
 #include "version.h"
-#include "info/global_stats.h"
-#include "cursor.h"
-#include "info/indexes_info.h"
-#include "util/units.h"
+#include "info/global_stats.h"                       // for GlobalStats, ...
+#include "cursor.h"                                  // for CursorsInfoStats
+#include "info/indexes_info.h"                       // for TotalIndexesInfo
+#include "util/units.h"                              // for MEMORY_MB, ...
 #include "module_init.h"
-#include "info/info_redis/types/blocked_queries.h"
+#include "info/info_redis/types/blocked_queries.h"   // for BlockedQueries
 #include "info/info_redis/threads/current_thread.h"
 #include "info/info_redis/threads/main_thread.h"
 #include "search_disk.h"
 #include "spec.h"
+#include "config.h"                                  // for RSConfig, ...
+#include "field_spec.h"                              // for INDEXFLD_T_FULLTEXT
+#include "gc.h"                                      // for InfoGCStats
+#include "info/info_redis/types/spec_info.h"         // for SpecInfo
+#include "rmutil/rm_assert.h"                        // for RS_ASSERT
+#include "rs_wall_clock.h"
+#include "util/dllist.h"                             // for DLLIST_FOREACH
+#include "util/references.h"                         // for StrongRef_Get
 
 /* ========================== PROTOTYPES ============================ */
 // Fields statistics

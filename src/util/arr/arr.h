@@ -30,12 +30,13 @@
  *  */
 #include <stdlib.h>
 #include <string.h>
-#include <sys/param.h>
+#include <sys/param.h>         // for MAX
 #include <stdarg.h>
-#include <stdint.h>
-#include <stdio.h>
-#include "rmalloc.h"
-#include "rmutil/rm_assert.h"
+#include <stdint.h>            // for uint32_t, uint16_t, uint64_t
+#include <stdio.h>             // for size_t
+
+#include "rmalloc.h"           // for rm_free, rm_malloc, rm_realloc
+#include "rmutil/rm_assert.h"  // for RS_LOG_ASSERT, RS_ASSERT
 
 #ifdef __cplusplus
 extern "C" {

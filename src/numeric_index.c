@@ -14,15 +14,15 @@
 // - Index opening/creation helpers
 
 #include "numeric_index.h"
-#include "redis_index.h"
-#include "iterators/union_iterator.h"
+
+#include <stdio.h>                               // for NULL, size_t
+
+#include "redis_index.h"                         // for DONT_CREATE_INDEX
+#include "iterators/union_iterator.h"            // for NewUnionIterator
 #include "redisearch_rs/headers/iterators_rs.h"
-#include "sys/param.h"
-#include "rmutil/util.h"
-#include "util/arr.h"
-#include <math.h>
-#include "redismodule.h"
-#include "util/misc.h"
+#include "query_node_type.h"                     // for QN_GEO, QN_NUMERIC
+#include "rmalloc.h"                             // for rm_free
+#include "rmutil/rm_assert.h"                    // for RS_ASSERT
 
 /* Create a union iterator from the numeric filter, over all the sub-ranges in the tree that fit
  * the filter */

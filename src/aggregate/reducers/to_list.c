@@ -6,7 +6,14 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#include <aggregate/reducer.h>
+#include <aggregate/reducer.h>  // for Reducer, Reducer_GenericFree, ...
+#include <stddef.h>             // for NULL, size_t
+#include <stdint.h>             // for uint32_t, uint64_t
+
+#include "rlookup_rs.h"         // for RSValue, RLookupRow_Get, RLookupRow
+#include "rmalloc.h"            // for rm_calloc, rm_free
+#include "util/dict/dict.h"     // for dict, dictAdd, dictCreate, dictEntry
+#include "value/value.h"        // for RSValue_IncrRef, RSValue_ArrayItem
 
 static uint64_t hashFunction_RSValue(const void *key) {
   return RSValue_Hash(key, 0);

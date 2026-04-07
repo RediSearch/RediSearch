@@ -1,22 +1,25 @@
 #include "hybrid/hybrid_request.h"
-#include "pipeline/pipeline.h"
+
+#include <stdatomic.h>                       // for atomic_load_explicit
+#include <stdint.h>                          // for uint32_t
+#include <string.h>                          // for NULL, size_t, memset
+
+#include "pipeline/pipeline.h"               // for Pipeline, ...
 #include "pipeline/pipeline_construction.h"
-#include "rlookup.h"
-#include "rlookup.h"
-#include "hybrid/hybrid_scoring.h"
-#include "hybrid/hybrid_lookup_context.h"
-#include "hybrid/hybrid_lookup_context.h"
-#include "document.h"
-#include "aggregate/aggregate_plan.h"
-#include "aggregate/aggregate.h"
-#include "rmutil/args.h"
-#include "util/workers.h"
-#include "cursor.h"
-#include "info/info_redis/block_client.h"
-#include "query_error.h"
-#include "spec.h"
-#include "module.h"
-#include "profile/profile.h"
+#include "hybrid/hybrid_lookup_context.h"    // for HybridLookupContext_New
+#include "document.h"                        // for UNDERSCORE_KEY, ...
+#include "aggregate/aggregate_plan.h"        // for AGPLN_GetLookup, ...
+#include "aggregate/aggregate.h"             // for AREQ, AREQ_New, ...
+#include "rmutil/args.h"                     // for ArgsCursor_InitSDS, ...
+#include "query_error.h"                     // for QueryError_ClearError
+#include "spec.h"                            // for IndexSpec_GetSpecCache
+#include "module.h"                          // for ScheduleContextCleanup
+#include "profile/profile.h"                 // for ResultProcessor, ...
+#include "obfuscation/hidden.h"              // for HiddenString_GetUnsafe
+#include "query.h"                           // for QAST_Iterate
+#include "rmalloc.h"                         // for rm_calloc, rm_free
+#include "rmutil/rm_assert.h"                // for RS_ASSERT
+#include "rs_wall_clock.h"                   // for rs_wall_clock_init, ...
 
 #ifdef __cplusplus
 extern "C" {

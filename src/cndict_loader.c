@@ -6,15 +6,18 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#include "buffer.h"
+#include <stdint.h>            // for uint32_t, uint16_t
+#include <netinet/in.h>        // for htonl, htons
+#include <stdio.h>             // for printf, size_t, NULL
+#include <stdlib.h>            // for abort
+#include <string.h>            // for strlen
 
+#include "buffer.h"            // for BufferReader, Buffer, Buffer_Read, ...
 #include "cndict_loader.h"
-#include "miniz/miniz.h"
-#include "rmalloc.h"
-#include "rmutil/rm_assert.h"
-
-#include <arpa/inet.h>  // htonl, etc.
-#include <stdint.h>
+#include "miniz/miniz.h"       // for mz_error, mz_uncompress, MZ_OK, mz_ulong
+#include "rmalloc.h"           // for rm_strdup, rm_free, rm_malloc
+#include "rmutil/rm_assert.h"  // for RS_LOG_ASSERT
+#include "friso/friso_API.h"   // for array_list_add, ...
 
 extern const char ChineseDict[];
 extern const size_t ChineseDictCompressedLength;

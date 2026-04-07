@@ -7,8 +7,18 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "aggregate_debug.h"
-#include "module.h"
-#include "result_processor.h"
+
+#include <stdbool.h>              // for bool, false, true
+#include <stddef.h>               // for NULL
+#include <strings.h>              // for strncasecmp, size_t
+
+#include "module.h"               // for GetNumShards_UnSafe, RSDummyContext
+#include "result_processor.h"     // for PipelineAddCrash, ...
+#include "aggregate/aggregate.h"  // for AREQ, AREQ_QueryProcessingCtx, ...
+#include "config.h"               // for RequestConfig, TimeoutPolicy_Fail
+#include "rmalloc.h"              // for rm_realloc
+#include "rmutil/args.h"          // for AC_ARGTYPE_BOOLFLAG, ...
+#include "search_ctx.h"           // for SearchCtx_UpdateTime
 
 /*  Using INTERNAL_ONLY with TIMEOUT_AFTER_N where N == 0 may result in an infinite loop in the
    coordinator. Since shard replies are always empty, the coordinator might get stuck indefinitely

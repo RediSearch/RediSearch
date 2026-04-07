@@ -6,11 +6,16 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#include "aggregate/reducer.h"
-#include "util/block_alloc.h"
-#include "util/khash.h"
-#include "util/fnv.h"
-#include "hll/hll.h"
+#include <stdint.h>             // for uint32_t, uint64_t, uint8_t
+#include <string.h>             // for memcpy, NULL, size_t
+
+#include "aggregate/reducer.h"  // for Reducer, ReducerOpts_GetKey, ...
+#include "util/block_alloc.h"   // for BlkAlloc_Alloc, BlkAlloc
+#include "util/khash.h"         // for KHASH_SET_INIT_INT64, kh_destroy, kh_end
+#include "hll/hll.h"            // for HLL, hll_count, hll_destroy, ...
+#include "rlookup_rs.h"         // for RLookupRow_Get, RSValue, RLookupRow
+#include "rmalloc.h"            // for rm_calloc, rm_free, rm_malloc
+#include "value/value.h"        // for RSValue_NewNumber, RSValue_Hash, ...
 
 #define HLL_PRECISION_BITS 8
 #define INSTANCE_BLOCK_NUM 1024

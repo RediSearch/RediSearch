@@ -9,10 +9,12 @@
 #pragma once
 
 #include <pthread.h>
+#include <stdint.h>           // for uint64_t
+#include <time.h>             // for size_t, time_t
 
-#include "util/dllist.h"
-#include "util/references.h"
-#include "query.h"
+#include "util/dllist.h"      // for DLLIST, DLLIST_node
+#include "util/references.h"  // for StrongRef, WeakRef
+#include "query.h"            // for QueryAST
 
 #ifdef __cplusplus
 extern "C" {

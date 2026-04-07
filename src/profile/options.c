@@ -1,4 +1,5 @@
 #include "profile/options.h"
+
 #include "aggregate/aggregate.h"
 
 bool ApplyProfileFlags(QEFlags *flags, ProfileOptions profileOptions) {

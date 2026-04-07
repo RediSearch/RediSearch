@@ -8,7 +8,10 @@
 */
 
 #include "hash.h"
-#include <boost/uuid/detail/sha1.hpp>
+
+#include <boost/uuid/detail/sha1.hpp>  // for sha1
+#include <stdint.h>                    // for uint32_t
+#include <stdio.h>                     // for sprintf
 
 void Sha1_Compute(const char *value, size_t len, Sha1* output) {
   boost::uuids::detail::sha1 sha1;

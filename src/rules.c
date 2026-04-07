@@ -7,13 +7,25 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "rules.h"
-#include "rlookup_load_document.h"
-#include "aggregate/expr/expression.h"
-#include "aggregate/expr/exprast.h"
-#include "document.h"
-#include "json.h"
-#include "rdb.h"
-#include "fast_float/fast_float_strtod.h"
+
+#include <stdint.h>                        // for uint64_t
+#include <string.h>                        // for NULL, strlen, memset, strncmp
+#include <strings.h>                       // for size_t, strcasecmp
+
+#include "aggregate/expr/expression.h"     // for EvalCtx, EvalCtx_Create
+#include "aggregate/expr/exprast.h"        // for RSExpr_GetProperties
+#include "document.h"                      // for UNDERSCORE_PAYLOAD
+#include "json.h"                          // for japi
+#include "rdb.h"                           // for LoadUnsigned_IOError, ...
+#include "fast_float/fast_float_strtod.h"  // for fast_float_strtod
+#include "field_spec.h"                    // for FieldSpec
+#include "rlookup_rs.h"                    // for RLookup_LoadRuleFields
+#include "rmalloc.h"                       // for rm_free, rm_calloc, rm_strdup
+#include "rmutil/rm_assert.h"              // for RSDummyContext, RS_ASSERT
+#include "search_ctx.h"                    // for RedisSearchCtx
+#include "spec.h"                          // for IndexSpec, legacySpecRules
+#include "util/dict/dict.h"                // for dictEmpty, dictEntry, ...
+#include "value/value.h"                   // for RSValue_BoolTest
 
 TrieMap *SchemaPrefixes_g = NULL;
 

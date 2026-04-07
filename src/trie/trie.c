@@ -6,17 +6,22 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#include <sys/param.h>
+#include <sys/param.h>          // for MAX, MIN
+#include <limits.h>             // for INT_MIN
+#include <stdlib.h>             // for qsort, rand
+#include <string.h>             // for memcpy, memmove
+#include <time.h>               // for timespec
+
 #include "trie.h"
-#include "util/bsearch.h"
-#include "sparse_vector.h"
-#include "redisearch.h"
-#include "rmutil/rm_assert.h"
-#include "util/arr.h"
-#include "config.h"
-#include "util/timeout.h"
-#include "wildcard.h"
-#include "trie/levenshtein.h"
+#include "util/bsearch.h"       // for rsb_eq, rsb_gt, rsb_lt
+#include "redisearch.h"         // for RSPayload, REDISEARCH_UNINITIALIZED
+#include "util/timeout.h"       // for TimedOut_WithCounter
+#include "trie/levenshtein.h"   // for DFAFilter_Free
+#include "redismodule.h"        // for REDISMODULE_ERR
+#include "rmalloc.h"            // for rm_free, rm_calloc, rm_realloc, ...
+#include "trie/rune_util.h"     // for rune, runenchr
+#include "util/arr/arr.h"       // for array_len, array_free, array_trimm_len
+#include "wildcard/wildcard.h"  // for Wildcard_MatchRune, FULL_MATCH, NO_MATCH
 
 typedef struct {
   rune * buf;

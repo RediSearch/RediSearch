@@ -7,17 +7,21 @@
  * GNU Affero General Public License v3 (AGPLv3).
  */
 
-#include "rmutil/rm_assert.h"
-#include "util/minmax.h"
-#include "util/block_alloc.h"
+#include <ctype.h>                      // for tolower, toupper
+#include <stdint.h>                     // for UINT32_MAX
+#include <string.h>                     // for size_t, memcpy, strchr, NULL
+#include <sys/param.h>                  // for MIN
+
+#include "rmutil/rm_assert.h"           // for RS_ASSERT
 #include "aggregate/expr/expression.h"
-#include "util/arr.h"
-#include "function.h"
-#include "rmalloc.h"
-
-#include "value.h"
-
-#include <ctype.h>
+#include "rmalloc.h"                    // for rm_free, rm_malloc, rm_realloc
+#include "index_result/index_result.h"  // for IndexResult_GetMatchedTerms
+#include "query_error.h"                // for QueryError_SetError, ...
+#include "query_term.h"                 // for QueryTerm_GetStrAndLen, ...
+#include "rlookup_rs.h"                 // for RSValue
+#include "search_result.h"              // for SearchResult_GetIndexResult
+#include "search_result_rs.h"           // for SearchResult
+#include "value/value.h"                // for RSValue_StringPtrLen, ...
 
 #define STRING_BLOCK_SIZE 512
 #define FMT_OUT_STR_MIN_PREALLOC 8

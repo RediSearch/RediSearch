@@ -7,13 +7,21 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "cluster_spell_check.h"
-#include "redismodule.h"
-#include "spell_check.h"
-#include "util/arr.h"
-#include "query_error.h"
 
-#include <stdbool.h>
-#include <stddef.h>
+#include <stdbool.h>       // for false, true, bool
+#include <stddef.h>        // for NULL
+#include <stdint.h>        // for uint64_t
+#include <string.h>        // for strcmp, strlen
+
+#include "redismodule.h"   // for REDISMODULE_OK, RedisModule_ReplyWithError
+#include "spell_check.h"   // for RS_SuggestionsAdd, RS_SuggestionsCreate
+#include "query_error.h"   // for QueryError_SetWithoutUserDataFmt, ...
+#include "reply.h"         // for RedisModule_Reply, RedisModule_EndReply
+#include "rmalloc.h"       // for rm_free, rm_malloc, rm_strdup
+#include "rmr/rmr.h"       // for MRCtx_GetRedisCtx
+#include "util/arr/arr.h"  // for array_len, array_append, array_free_ex
+
+struct MRCtx;
 
 typedef struct {
   char* term;

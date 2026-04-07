@@ -9,7 +9,10 @@
 #ifndef EXPRAST_H
 #define EXPRAST_H
 
-#include "expression.h"
+#include <stddef.h>                        // for size_t
+
+#include "expression.h"                    // for RSExpr, RSArgList, ...
+#include "aggregate/functions/function.h"  // for RSFunctionInfo
 #ifdef __cplusplus
 extern "C" {
 #endif

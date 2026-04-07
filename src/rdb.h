@@ -7,7 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #pragma once
-#include "redismodule.h"
+#include "redismodule.h"       // for RedisModuleCtx, RedisModule_Assert
+#include "rmutil/rm_assert.h"  // for RS_ASSERT
 
 void Backup_Globals();
 void Restore_Globals(RedisModuleCtx *ctx);

@@ -9,28 +9,38 @@
 #ifndef __SPEC_H__
 #define __SPEC_H__
 
-#include <stdlib.h>
+#include <stdlib.h>                 // for size_t
 #include <string.h>
+#include <pthread.h>                // for pthread_rwlock_t
+#include <stdbool.h>                // for bool
+#include <stdint.h>                 // for uint32_t, int16_t, uint16_t, ...
 
-#include "redismodule.h"
-#include "config.h"
-#include "doc_table.h"
-#include "trie/trie_type.h"
+#include "redismodule.h"            // for RedisModuleCtx, RedisModuleString
+#include "config.h"                 // for GCPolicy
+#include "doc_table.h"              // for DocTable
+#include "trie/trie_type.h"         // for Trie
 #include "sortable.h"
-#include "stopwords.h"
-#include "gc.h"
-#include "synonym_map.h"
-#include "query_error.h"
-#include "field_spec.h"
+#include "stopwords.h"              // for StopWordList
+#include "gc.h"                     // for GCContext
+#include "synonym_map.h"            // for SynonymMap
+#include "query_error.h"            // for QueryError
+#include "field_spec.h"             // for FieldSpec, FieldType
 #include "util/dict.h"
-#include "util/references.h"
-#include "redisearch_api.h"
-#include "rules.h"
-#include <pthread.h>
-#include "info/index_error.h"
-#include "obfuscation/hidden.h"
+#include "util/references.h"        // for StrongRef, WeakRef, RefManager
+#include "redisearch_api.h"         // for RSGetValueCallback
+#include "rules.h"                  // for SchemaRuleArgs
+#include "info/index_error.h"       // for IndexError
+#include "obfuscation/hidden.h"     // for HiddenString
 #include "search_disk_api.h"
-#include "rs_wall_clock.h"
+#include "rs_wall_clock.h"          // for rs_wall_clock_ns_t
+#include "VecSim/vec_sim_common.h"  // for VecSimParams
+#include "document_rs.h"            // for DocumentType
+#include "hiredis/sds.h"            // for sds
+#include "redisearch.h"             // for t_fieldMask, t_fieldIndex, ...
+#include "reply.h"                  // for RedisModule_Reply
+#include "rmutil/args.h"            // for AC_ARGTYPE_STRING, ...
+#include "util/arr/arr.h"           // for arrayof
+#include "util/dict/dict.h"         // for dict, dictGetVal, dictFetchValue
 
 #ifdef __cplusplus
 extern "C" {

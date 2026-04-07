@@ -6,11 +6,11 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#include <pthread.h>
-#include <stdlib.h>
-#include <stdbool.h>
-#include <errno.h>
-#include <time.h>
+#include <pthread.h>       // for pthread_mutex_unlock, pthread_mutex_lock
+#include <stdlib.h>        // for NULL, size_t
+#include <stdbool.h>       // for true, bool, false
+#include <errno.h>         // for ETIMEDOUT
+#include <time.h>          // for clock_gettime, timespec, CLOCK_MONOTONIC
 
 typedef struct chanItem {
   void *ptr;
@@ -27,9 +27,10 @@ struct MRChannel {
 };
 
 #include "chan.h"
-#include "rmalloc.h"
-#include "search_ctx.h"
-#include "util/timeout.h"
+#include "rmalloc.h"       // for rm_free, rm_malloc
+#include "util/timeout.h"  // for rs_timeradd, rs_timerremaining
+
+struct timespec;
 
 // Note: pthread_condattr_setclock only supports CLOCK_MONOTONIC (not CLOCK_MONOTONIC_RAW)
 // The timeout parameter (abstimeMono) is in CLOCK_MONOTONIC_RAW, so we convert it

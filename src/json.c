@@ -8,11 +8,23 @@
 */
 
 #include "json.h"
-#include "document.h"
-#include "rmutil/rm_assert.h"
-#include "vector_index.h"
 
-#include <string.h>
+#include <string.h>                 // for size_t, NULL, strlen, strcmp
+#include <assert.h>                 // for static_assert
+#include <stdbool.h>                // for bool
+#include <stdint.h>                 // for uint32_t, uint16_t, int8_t, uint8_t
+#include <stdio.h>                  // for snprintf
+
+#include "document.h"               // for DocumentField, ...
+#include "rmutil/rm_assert.h"       // for RSDummyContext, RS_ABORT, ...
+#include "vector_index.h"           // for VecSimType_sizeof
+#include "VecSim/vec_sim_common.h"  // for VecSimParams, AlgoParams, BFParams
+#include "rlookup_rs.h"             // for RSValue
+#include "rmalloc.h"                // for rm_strndup, rm_free, rm_malloc
+#include "search_ctx.h"             // for APIVERSION_RETURN_MULTI_CMP_FIRST
+#include "util/arr/arr.h"           // for array_free, array_ensure_append_1
+
+struct RedisModuleCtx;
 
 // REJSON APIs
 RedisJSONAPI *japi = NULL;

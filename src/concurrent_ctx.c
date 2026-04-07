@@ -7,12 +7,14 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "concurrent_ctx.h"
-#include "thpool/thpool.h"
-#include <util/arr.h>
-#include "rmutil/rm_assert.h"
-#include "module.h"
-#include "util/logging.h"
-#include "coord/config.h"
+
+#include "thpool/thpool.h"     // for redisearch_thpool_t, ...
+#include "rmutil/rm_assert.h"  // for RS_ASSERT, RS_LOG_ASSERT
+#include "module.h"            // for RS_AutoMemory
+#include "util/logging.h"      // for LogCallback
+#include "coord/config.h"      // for SearchClusterConfig, clusterConfig
+#include "rmalloc.h"           // for rm_free, rm_calloc, rm_malloc
+#include "util/arr/arr.h"      // for array_len, array_free, array_append
 
 static arrayof(redisearch_thpool_t *) threadpools_g = NULL;
 

@@ -8,12 +8,19 @@
 */
 
 #include "geo_index.h"
-#include "rmutil/util.h"
-#include "rmalloc.h"
-#include "rmutil/rm_assert.h"
-#include "query_node.h"
-#include "query_param.h"
-#include "iterators/union_iterator.h"
+
+#include <string.h>                    // for NULL, memcpy, strcpy, strlen
+#include <strings.h>                   // for strcasecmp, size_t
+
+#include "rmalloc.h"                   // for rm_calloc, rm_free, rm_malloc
+#include "rmutil/rm_assert.h"          // for RS_ABORT
+#include "iterators/union_iterator.h"  // for NewUnionIterator
+#include "geohash/geohash.h"           // for GeoHashRange, GEO_LAT_MAX, ...
+#include "numeric_filter.h"            // for NewNumericFilter, ...
+#include "numeric_index.h"             // for NewNumericFilterIterator
+#include "query_node_type.h"           // for QN_GEO
+#include "redismodule.h"               // for REDISMODULE_ERR, REDISMODULE_OK
+#include "rs_geo.h"                    // for GEO_RANGE_COUNT, calcRanges
 
 static double extractUnitFactor(GeoDistance unit);
 

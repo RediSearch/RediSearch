@@ -9,7 +9,7 @@
 #pragma once
 
 #include "hybrid_optional_args.h"
-#include "util/arg_parser.h"
+#include "util/arg_parser.h"  // for ArgParser
 
 #ifdef __cplusplus
 extern "C" {

@@ -7,9 +7,9 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "param.h"
-#include "rmalloc.h"
 
-#include <assert.h>
+#include "rmalloc.h"      // for rm_free
+#include "redismodule.h"  // for RedisModuleString, RedisModule_FreeString
 
 void Param_FreeInternal(Param *param) {
   if (param->name) {

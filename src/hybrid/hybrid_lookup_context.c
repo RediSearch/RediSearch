@@ -1,7 +1,11 @@
 #include "hybrid_lookup_context.h"
-#include "aggregate/aggregate_plan.h"
-#include "util/arr.h"
-#include "aggregate/aggregate.h"
+
+#include <stddef.h>                    // for size_t, NULL
+
+#include "aggregate/aggregate_plan.h"  // for AGPLN_GetLookup, ...
+#include "aggregate/aggregate.h"       // for AREQ_AGGPlan, AREQ
+#include "rmalloc.h"                   // for rm_calloc, rm_free
+#include "rmutil/rm_assert.h"          // for RS_ASSERT
 
 #ifdef __cplusplus
 extern "C" {
