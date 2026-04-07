@@ -22,15 +22,15 @@ typedef struct {
 
   int num_fields;
   const RLookupKey **field_keys;
-  int wildcard_idx;  // index of '*' in field_keys, or -1 if absent
+  bool has_wildcard;
 
   int num_sort_keys;
   const RLookupKey **sort_keys;
   uint64_t sortAscMap;
 
   bool has_limit;
-  long long limit_offset;
-  long long limit_count;
+  uint64_t limit_offset;
+  uint64_t limit_count;
 } CollectReducer;
 
 typedef struct {
@@ -87,23 +87,23 @@ static void handleCollectFields(ArgParser *parser, const void *value, void *user
   sub_opts.args = ac;
   sub_opts.name = "FIELDS";
 
-  cr->num_fields = count;
   cr->field_keys = rm_calloc(count, sizeof(const RLookupKey *));
+  int field_idx = 0;
 
   for (int i = 0; i < count; i++) {
     if (strcmp(AC_StringArg(ac, ac->offset), "*") == 0) {
-      if (cr->wildcard_idx >= 0) {
+      if (cr->has_wildcard) {
         QueryError_SetError(opts->status, QUERY_ERROR_CODE_PARSE_ARGS,
           "Wildcard `*` can only appear once in FIELDS");
         return;
       }
-      cr->wildcard_idx = i;
-      cr->field_keys[i] = NULL;
+      cr->has_wildcard = true;
       ac->offset++;
-    } else if (!ReducerOpts_GetKey(&sub_opts, &cr->field_keys[i])) {
+    } else if (!ReducerOpts_GetKey(&sub_opts, &cr->field_keys[field_idx++])) {
       return;
     }
   }
+  cr->num_fields = field_idx;
 }
 
 static void handleCollectSortBy(ArgParser *parser, const void *value, void *user_data) {
@@ -169,29 +169,18 @@ static void handleCollectLimit(ArgParser *parser, const void *value, void *user_
   QueryError *status = pctx->options->status;
   ArgsCursor *ac = (ArgsCursor *)value;
 
-  long long offset = 0, count = 0;
-  if (AC_GetLongLong(ac, &offset, 0) != AC_OK) {
+  uint64_t offset = 0, count = 0;
+  if (AC_GetU64(ac, &offset, AC_F_GE0) != AC_OK) {
     QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS,
-      "LIMIT offset must be an integer");
+      "LIMIT offset must be a non-negative integer");
     return;
   }
-  if (AC_GetLongLong(ac, &count, 0) != AC_OK) {
+  if (AC_GetU64(ac, &count, AC_F_GE0) != AC_OK) {
     QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS,
-      "LIMIT count must be an integer");
+      "LIMIT count must be a non-negative integer");
     return;
   }
-
-  if (offset < 0) {
-    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS,
-      "LIMIT offset must be non-negative");
-    return;
-  }
-  if (count < 0) {
-    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS,
-      "LIMIT count must be non-negative");
-    return;
-  }
-  if (count > (long long)MAX_AGGREGATE_REQUEST_RESULTS) {
+  if (count > MAX_AGGREGATE_REQUEST_RESULTS) {
     QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_LIMIT,
       "LIMIT count exceeds maximum of %llu", MAX_AGGREGATE_REQUEST_RESULTS);
     return;
@@ -211,7 +200,6 @@ static void handleCollectLimit(ArgParser *parser, const void *value, void *user_
 
 Reducer *RDCRCollect_New(const ReducerOptions *options) {
   CollectReducer *cr = rm_calloc(1, sizeof(*cr));
-  cr->wildcard_idx = -1;
   cr->sortAscMap = SORTASCMAP_INIT;
   CollectParseCtx pctx = {.cr = cr, .options = options};
 

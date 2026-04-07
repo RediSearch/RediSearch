@@ -17,7 +17,6 @@
 #include <vector>
 #include <string>
 #include <initializer_list>
-#include <limits.h>
 
 class CollectParserTest : public ::testing::Test {
 protected:
@@ -349,7 +348,7 @@ TEST_F(CollectParserTest, LimitNegativeOffset) {
   Reducer *r = parseCollect(args, &status);
   ASSERT_EQ(r, nullptr);
   EXPECT_STREQ(QueryError_GetUserError(&status),
-    "LIMIT offset must be non-negative");
+    "LIMIT offset must be a non-negative integer");
   QueryError_ClearError(&status);
 }
 
@@ -363,7 +362,7 @@ TEST_F(CollectParserTest, LimitNegativeCount) {
   Reducer *r = parseCollect(args, &status);
   ASSERT_EQ(r, nullptr);
   EXPECT_STREQ(QueryError_GetUserError(&status),
-    "LIMIT count must be non-negative");
+    "LIMIT count must be a non-negative integer");
   QueryError_ClearError(&status);
 }
 
@@ -377,6 +376,6 @@ TEST_F(CollectParserTest, LimitNonNumericOffset) {
   Reducer *r = parseCollect(args, &status);
   ASSERT_EQ(r, nullptr);
   EXPECT_STREQ(QueryError_GetUserError(&status),
-    "LIMIT offset must be an integer");
+    "LIMIT offset must be a non-negative integer");
   QueryError_ClearError(&status);
 }
