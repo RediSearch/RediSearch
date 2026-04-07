@@ -178,6 +178,11 @@ if(HAS_SOMETIMES_UNINITIALIZED)
     add_compile_options($<$<COMPILE_LANGUAGE:C>:-Werror=sometimes-uninitialized>)
 endif()
 
+check_c_compiler_flag("-Werror=implicit-function-declaration" HAS_IMPLICIT_FUNCTION_DECLARATION)
+if(HAS_IMPLICIT_FUNCTION_DECLARATION)
+    add_compile_options($<$<COMPILE_LANGUAGE:C>:-Werror=implicit-function-declaration>)
+endif()
+
 add_compile_definitions(
     "REDISEARCH_MODULE_NAME=\"${MODULE_NAME}\""
     "GIT_VERSPEC=\"${GIT_VERSPEC}\""

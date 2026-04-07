@@ -17,7 +17,7 @@
 #include "dictionary.h"
 #include "slot_ranges.h"
 #include "asm_state_machine.h"
-#include "src/coord/rmr/redis_cluster.h"
+#include "coord/rmr/redis_cluster.h"
 #include "cursor.h"
 #include "search_disk.h"
 

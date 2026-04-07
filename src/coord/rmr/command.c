@@ -13,7 +13,7 @@
 #include "resp3.h"
 #include "slot_ranges.h"
 #include "rs_wall_clock.h"
-#include "src/info/global_stats.h"
+#include "info/global_stats.h"
 
 #include "version.h"
 

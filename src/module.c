@@ -1253,7 +1253,7 @@ static void GetRedisVersion(RedisModuleCtx *ctx) {
   rlecVersion.minorVersion = -1;
   rlecVersion.patchVersion = -1;
   rlecVersion.buildVersion = -1;
-  char *enterpriseStr = strstr(replyStr, "rlec_version:");
+  const char *enterpriseStr = strstr(replyStr, "rlec_version:");
   // Enterprise Redis has the rlec_version field in INFO output, OSS Redis does not.
   // The field may have a version string (e.g., "7.4.0-1") or just "-" if not configured.
   isEnterprise = (enterpriseStr != NULL);
