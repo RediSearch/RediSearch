@@ -89,14 +89,14 @@ where
             return Ok(());
         }
         loop {
-            let (doc_id, idx) = self.heap.peek().unwrap();
-            if doc_id != current_id {
+            let root = self.heap.peek().unwrap();
+            if root.doc_id != current_id {
                 break;
             }
 
-            let child = &mut self.children[idx];
+            let child = &mut self.children[root.child_idx];
             if child.read()?.is_some() {
-                self.heap.replace_root(child.last_doc_id(), idx);
+                self.heap.replace_root(child.last_doc_id(), root.child_idx);
             } else {
                 self.heap.pop();
                 if self.heap.is_empty() {
@@ -139,12 +139,12 @@ where
                 continue;
             }
 
-            let (doc_id, child_idx) = heap_data[heap_idx];
-            if doc_id != min_id {
+            let entry = heap_data[heap_idx];
+            if entry.doc_id != min_id {
                 continue;
             }
 
-            if let Some(child_result) = self.children[child_idx].current() {
+            if let Some(child_result) = self.children[entry.child_idx].current() {
                 let child_ptr: *const RSIndexResult<'index> = child_result;
                 // SAFETY: We need a raw pointer to decouple the borrow of the child's
                 // result from `&mut self.result`. This is sound because:
@@ -193,21 +193,21 @@ where
             return Ok(usize::MAX);
         }
         loop {
-            let (child_doc_id, idx) = self.heap.peek().unwrap();
-            if child_doc_id >= doc_id {
+            let root = self.heap.peek().unwrap();
+            if root.doc_id >= doc_id {
                 break;
             }
 
-            let child = &mut self.children[idx];
+            let child = &mut self.children[root.child_idx];
             match child.skip_to(doc_id)? {
                 Some(SkipToOutcome::Found(r)) => {
-                    self.heap.replace_root(r.doc_id, idx);
+                    self.heap.replace_root(r.doc_id, root.child_idx);
                     if QUICK_EXIT {
-                        return Ok(idx);
+                        return Ok(root.child_idx);
                     }
                 }
                 Some(SkipToOutcome::NotFound(r)) => {
-                    self.heap.replace_root(r.doc_id, idx);
+                    self.heap.replace_root(r.doc_id, root.child_idx);
                 }
                 None => {
                     self.heap.pop();
@@ -252,12 +252,12 @@ where
             self.advance_matching_children(self.last_doc_id())?;
         }
 
-        let Some((min_id, _)) = self.heap.peek() else {
+        let Some(min) = self.heap.peek() else {
             self.is_eof = true;
             return Ok(None);
         };
 
-        self.build_aggregate_result(min_id);
+        self.build_aggregate_result(min.doc_id);
         Ok(Some(&mut self.result))
     }
 
@@ -335,18 +335,18 @@ where
             return Ok(Some(SkipToOutcome::Found(&mut self.result)));
         }
 
-        let Some((min_id, min_idx)) = self.heap.peek() else {
+        let Some(min) = self.heap.peek() else {
             self.is_eof = true;
             return Ok(None);
         };
 
         if QUICK_EXIT {
-            self.quick_set_from_child(min_idx);
+            self.quick_set_from_child(min.child_idx);
         } else {
-            self.build_aggregate_result(min_id);
+            self.build_aggregate_result(min.doc_id);
         }
 
-        if min_id == doc_id {
+        if min.doc_id == doc_id {
             Ok(Some(SkipToOutcome::Found(&mut self.result)))
         } else {
             Ok(Some(SkipToOutcome::NotFound(&mut self.result)))
@@ -415,15 +415,15 @@ where
 
         self.rebuild_heap();
 
-        let Some((min_doc_id, min_idx)) = self.heap.peek() else {
+        let Some(min) = self.heap.peek() else {
             self.is_eof = true;
             return Ok(RQEValidateStatus::Moved { current: None });
         };
 
         if QUICK_EXIT {
-            self.quick_set_from_child(min_idx);
+            self.quick_set_from_child(min.child_idx);
         } else {
-            self.build_aggregate_result(min_doc_id);
+            self.build_aggregate_result(min.doc_id);
         }
 
         if self.last_doc_id() != original_last_doc_id {

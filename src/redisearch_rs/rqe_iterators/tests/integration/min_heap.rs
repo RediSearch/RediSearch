@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use rqe_iterators::utils::DocIdMinHeap;
+use rqe_iterators::utils::{DocIdMinHeap, HeapEntry};
 
 /// Covers: `new`, `default`, `with_capacity`, `push`, `peek`, `len`,
 /// `is_empty`, `clear`, and `[]`.
@@ -26,18 +26,31 @@ fn construction_and_basic_ops() {
     // push / peek / len / is_empty
     let mut heap = heap_new;
     heap.push(10, 0);
-    assert_eq!(heap.peek(), Some((10, 0)));
+    assert_eq!(
+        heap.peek(),
+        Some(HeapEntry {
+            doc_id: 10,
+            child_idx: 0
+        })
+    );
     assert_eq!(heap.len(), 1);
     assert!(!heap.is_empty());
 
     heap.push(5, 1);
     heap.push(15, 2);
     heap.push(3, 3);
-    assert_eq!(heap.peek(), Some((3, 3)), "peek must return minimum");
+    assert_eq!(
+        heap.peek(),
+        Some(HeapEntry {
+            doc_id: 3,
+            child_idx: 3
+        }),
+        "peek must return minimum"
+    );
 
     // [] — root element is the minimum.
     assert_eq!(heap.len(), 4);
-    assert_eq!(heap.as_slice()[0].0, 3);
+    assert_eq!(heap.as_slice()[0].doc_id, 3);
 
     // clear()
     heap.clear();
@@ -59,25 +72,55 @@ fn pop_all_variants() {
     for &(doc, idx) in &[(10, 0), (5, 1), (15, 2)] {
         heap.push(doc, idx);
     }
-    assert_eq!(heap.pop(), Some((5, 1)));
-    assert_eq!(heap.pop(), Some((10, 0)));
-    assert_eq!(heap.pop(), Some((15, 2)));
+    assert_eq!(
+        heap.pop(),
+        Some(HeapEntry {
+            doc_id: 5,
+            child_idx: 1
+        })
+    );
+    assert_eq!(
+        heap.pop(),
+        Some(HeapEntry {
+            doc_id: 10,
+            child_idx: 0
+        })
+    );
+    assert_eq!(
+        heap.pop(),
+        Some(HeapEntry {
+            doc_id: 15,
+            child_idx: 2
+        })
+    );
     assert_eq!(heap.pop(), None);
 
     // Single-element pop (exercises `last_idx == 0` branch).
     heap.push(42, 7);
-    assert_eq!(heap.pop(), Some((42, 7)));
+    assert_eq!(
+        heap.pop(),
+        Some(HeapEntry {
+            doc_id: 42,
+            child_idx: 7
+        })
+    );
     assert!(heap.is_empty());
 
     // Duplicate doc_ids — only the minimum should be distinct.
     for &(doc, idx) in &[(10, 0), (10, 1), (10, 2), (5, 3), (10, 4)] {
         heap.push(doc, idx);
     }
-    assert_eq!(heap.pop(), Some((5, 3)));
+    assert_eq!(
+        heap.pop(),
+        Some(HeapEntry {
+            doc_id: 5,
+            child_idx: 3
+        })
+    );
     let mut remaining_indices = Vec::new();
-    while let Some((doc, idx)) = heap.pop() {
-        assert_eq!(doc, 10);
-        remaining_indices.push(idx);
+    while let Some(entry) = heap.pop() {
+        assert_eq!(entry.doc_id, 10);
+        remaining_indices.push(entry.child_idx);
     }
     remaining_indices.sort();
     assert_eq!(remaining_indices, vec![0, 1, 2, 4]);
@@ -93,7 +136,13 @@ fn replace_root() {
     // Single-element: sift_down len=1 early return.
     heap.push(100, 0);
     heap.replace_root(50, 1);
-    assert_eq!(heap.peek(), Some((50, 1)));
+    assert_eq!(
+        heap.peek(),
+        Some(HeapEntry {
+            doc_id: 50,
+            child_idx: 1
+        })
+    );
     assert_eq!(heap.len(), 1);
     heap.clear();
 
@@ -104,20 +153,38 @@ fn replace_root() {
 
     // Smaller value — new root stays on top.
     heap.replace_root(2, 10);
-    assert_eq!(heap.peek(), Some((2, 10)));
+    assert_eq!(
+        heap.peek(),
+        Some(HeapEntry {
+            doc_id: 2,
+            child_idx: 10
+        })
+    );
 
     // Larger value — sifts past all existing children.
     heap.replace_root(99, 11);
-    assert_eq!(heap.peek(), Some((10, 1)));
+    assert_eq!(
+        heap.peek(),
+        Some(HeapEntry {
+            doc_id: 10,
+            child_idx: 1
+        })
+    );
 
     // Mid-range value — lands between existing children.
     heap.replace_root(15, 12);
-    assert_eq!(heap.peek(), Some((15, 12)));
+    assert_eq!(
+        heap.peek(),
+        Some(HeapEntry {
+            doc_id: 15,
+            child_idx: 12
+        })
+    );
 
     // Drain and verify sorted order.
     let mut extracted = Vec::new();
-    while let Some((doc, _)) = heap.pop() {
-        extracted.push(doc);
+    while let Some(entry) = heap.pop() {
+        extracted.push(entry.doc_id);
     }
     assert!(
         extracted.is_sorted(),
@@ -136,8 +203,8 @@ fn sorted_extraction_stress() {
     assert_eq!(heap.len(), 100);
 
     let mut extracted = Vec::new();
-    while let Some((doc_id, _)) = heap.pop() {
-        extracted.push(doc_id);
+    while let Some(entry) = heap.pop() {
+        extracted.push(entry.doc_id);
     }
     assert!(extracted.is_sorted(), "expected sorted extraction");
     assert_eq!(extracted.len(), 100);
