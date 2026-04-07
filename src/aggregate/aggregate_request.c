@@ -1426,24 +1426,7 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
     opts->scorerName = RSGlobalConfig.defaultScorer;
   }
 
-  // Block scorers that use slop for disk indexes
-  if (SearchDisk_IsEnabledForValidation()) {
-    if (strcasecmp(opts->scorerName, TFIDF_SCORER_NAME) == 0) {
-      if (!SearchDisk_MarkUnsupportedArgumentIfDiskEnabled("TFIDF scorer", status)) {
-        return REDISMODULE_ERR;
-      }
-    }
-    if (strcasecmp(opts->scorerName, TFIDF_DOCNORM_SCORER_NAME) == 0) {
-      if (!SearchDisk_MarkUnsupportedArgumentIfDiskEnabled("TFIDF.DOCNORM scorer", status)) {
-        return REDISMODULE_ERR;
-      }
-    }
-    if (strcasecmp(opts->scorerName, BM25_SCORER_NAME) == 0) {
-      if (!SearchDisk_MarkUnsupportedArgumentIfDiskEnabled("BM25 scorer", status)) {
-        return REDISMODULE_ERR;
-      }
-    }
-  }
+
 
   bool resp3 = req->protocol == 3;
   if (SetValueFormat(resp3, isSpecJson(index), &req->reqflags, status) != REDISMODULE_OK) {
