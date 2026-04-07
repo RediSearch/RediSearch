@@ -47,11 +47,13 @@ protected:
   RLookup lk;
 
   void SetUp() override {
+    RSGlobalConfig.enableUnstableFeatures = true;
     lk = RLookup_New();
   }
 
   void TearDown() override {
     RLookup_Cleanup(&lk);
+    RSGlobalConfig.enableUnstableFeatures = false;
   }
 
   void registerKeys(std::initializer_list<const char *> names) {
@@ -390,5 +392,12 @@ TEST_F(CollectParserTest, LimitOffsetPlusCountOverflow) {
   registerKeys({"x"});
   std::string offset = std::to_string(static_cast<unsigned long long>(LLONG_MAX));
   expectError({"FIELDS", "1", "@x", "LIMIT", offset.c_str(), "1"},
-      "LIMIT offset + count overflow");
+      "Invalid LIMIT offset + count value");
+}
+
+TEST_F(CollectParserTest, RejectsWhenUnstableFeaturesDisabled) {
+  RSGlobalConfig.enableUnstableFeatures = false;
+  registerKeys({"price"});
+  expectError({"FIELDS", "1", "@price"},
+      "`COLLECT` is unavailable when `ENABLE_UNSTABLE_FEATURES` is off");
 }
