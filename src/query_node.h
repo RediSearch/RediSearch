@@ -10,6 +10,7 @@
 #pragma once
 
 #include <stdlib.h>
+#include "redisearch_rs/headers/query_node_type.h"
 #include "redisearch.h"
 #include "query_error.h"
 #include "param.h"
@@ -22,62 +23,6 @@ struct numericFilter;
 struct geoFilter;
 struct idFilter;
 
-/* The types of query nodes */
-typedef enum {
-  /* Phrase (AND) node, exact or not */
-  QN_PHRASE = 1,
-  /* Union (OR) Node */
-  QN_UNION,
-  /* Single token node */
-  QN_TOKEN,
-  /* Numeric filter node */
-  QN_NUMERIC,
-
-  /* NOT operator node */
-  QN_NOT,
-
-  /* OPTIONAL (should match) node */
-  QN_OPTIONAL,
-
-  /* Geo filter node (lon,lat geo coordinates)*/
-  QN_GEO,
-
-  /* Geometric shape filter node (line, polygon, etc.)*/
-  QN_GEOMETRY,
-
-  /* Prefix selection node */
-  QN_PREFIX,
-
-  /* Id Filter node */
-  QN_IDS,
-
-  /* Wildcard node, used only in conjunction with negative root node to allow negative queries */
-  QN_WILDCARD,
-
-  /* Tag node, a list of tags for a specific tag field */
-  QN_TAG,
-
-  /* Fuzzy term - expand with levenshtein distance */
-  QN_FUZZY,
-
-  /* Lexical range */
-  QN_LEXRANGE,
-
-  /* Vector */
-  QN_VECTOR,
-
-  /* Wildcard */
-  QN_WILDCARD_QUERY,
-
-  /* Null term - take no action */
-  QN_NULL,
-
-  /* Missing query */
-  QN_MISSING,
-
-  /* Max value, should be last */
-  QN_MAX
-} QueryNodeType;
 
 /* A phrase node represents a list of nodes with intersection between them, or a phrase in the case
  * of several token nodes. */

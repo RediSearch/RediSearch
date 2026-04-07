@@ -641,6 +641,7 @@ dependencies = [
  "cc",
  "document",
  "enumflags2",
+ "query_node_type",
  "query_term",
  "rqe_iterator_type",
  "workspace_hack",
@@ -1631,6 +1632,23 @@ dependencies = [
  "cbindgen",
  "query_error",
  "strum",
+ "workspace_hack",
+]
+
+[[package]]
+name = "query_node_type"
+version = "0.0.1"
+dependencies = [
+ "workspace_hack",
+]
+
+[[package]]
+name = "query_node_type_ffi"
+version = "0.0.1"
+dependencies = [
+ "build_utils",
+ "cbindgen",
+ "query_node_type",
  "workspace_hack",
 ]
 
