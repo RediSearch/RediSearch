@@ -17,7 +17,6 @@
 #include "rmutil/util.h"
 #include "reply_empty.h"
 #include "info/global_stats.h"
-#include "../profile/profile.h"
 
 // Helper function that performs minimal parsing of query arguments to support sendChunk output
 static int shallow_parse_query_args(RedisModuleString **argv, int argc, AREQ *req) {
@@ -123,16 +122,14 @@ int common_hybrid_query_reply_empty(RedisModuleCtx *ctx, QueryErrorCode errCode,
     if (internal) {
         RedisModule_Reply _coordInfoReply = RedisModule_NewReply(ctx), *coordInfoReply = &_coordInfoReply;
 
+        RedisModule_Reply_Map(coordInfoReply); // outer/root {}
+
         if (isProfile) {
             // Profile wrapping: open an outer map, then nest "Results" and "Profile"
             // inside it, consistent with search/aggregate profile reply structure.
-            RedisModule_Reply_Map(coordInfoReply); // outer {}
             Profile_PrepareMapForReply(coordInfoReply); // opens "Results" map
         }
 
-        if (!isProfile) {
-            RedisModule_Reply_Map(coordInfoReply); // root {}
-        }
         RedisModule_ReplyKV_LongLong(coordInfoReply, "SEARCH", 0);
         RedisModule_ReplyKV_LongLong(coordInfoReply, "VSIM", 0);
         RedisModule_ReplyKV_Array(coordInfoReply,"warnings"); // warnings []
