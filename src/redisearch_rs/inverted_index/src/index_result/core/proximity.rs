@@ -387,4 +387,114 @@ mod tests {
         let mut iters = [static_term_iter(&EMPTY), static_term_iter(&B)];
         assert!(!within_range_unordered(&mut iters, 100));
     }
+
+    // ── OffsetIter::Merge ─────────────────────────────────────────────────────
+
+    fn make_merge(children: Vec<OffsetIter<'static>>) -> OffsetIter<'static> {
+        let mut children = children;
+        let positions: Vec<Option<u32>> = children.iter_mut().map(|c| c.next_offset()).collect();
+        OffsetIter::Merge {
+            children,
+            positions,
+        }
+    }
+
+    #[test]
+    fn merge_two_children_yields_sorted_order() {
+        // child0: deltas [2,3,4] → positions [2, 5, 9]
+        // child1: deltas [1,3,3] → positions [1, 4, 7]
+        // expected k-way merge:           1, 2, 4, 5, 7, 9
+        static C0: [u8; 3] = [2, 3, 4];
+        static C1: [u8; 3] = [1, 3, 3];
+        let mut merge = make_merge(vec![static_term_iter(&C0), static_term_iter(&C1)]);
+
+        assert_eq!(merge.next_offset(), Some(1));
+        assert_eq!(merge.next_offset(), Some(2));
+        assert_eq!(merge.next_offset(), Some(4));
+        assert_eq!(merge.next_offset(), Some(5));
+        assert_eq!(merge.next_offset(), Some(7));
+        assert_eq!(merge.next_offset(), Some(9));
+        assert_eq!(merge.next_offset(), None);
+    }
+
+    #[test]
+    fn merge_one_child_exhausts_early() {
+        // child0 ends after position 3; child1 still has positions [6, 10]
+        static C0: [u8; 1] = [3];
+        static C1: [u8; 2] = [6, 4]; // deltas → positions 6, 10
+        let mut merge = make_merge(vec![static_term_iter(&C0), static_term_iter(&C1)]);
+
+        assert_eq!(merge.next_offset(), Some(3));
+        assert_eq!(merge.next_offset(), Some(6));
+        assert_eq!(merge.next_offset(), Some(10));
+        assert_eq!(merge.next_offset(), None);
+    }
+
+    #[test]
+    fn merge_three_children_yields_sorted_order() {
+        // child0: deltas [5]     → positions [5]
+        // child1: deltas [2, 6]  → positions [2, 8]
+        // child2: deltas [1, 3]  → positions [1, 4]
+        // expected merge: 1, 2, 4, 5, 8
+        static C0: [u8; 1] = [5];
+        static C1: [u8; 2] = [2, 6];
+        static C2: [u8; 2] = [1, 3];
+        let mut merge = make_merge(vec![
+            static_term_iter(&C0),
+            static_term_iter(&C1),
+            static_term_iter(&C2),
+        ]);
+
+        assert_eq!(merge.next_offset(), Some(1));
+        assert_eq!(merge.next_offset(), Some(2));
+        assert_eq!(merge.next_offset(), Some(4));
+        assert_eq!(merge.next_offset(), Some(5));
+        assert_eq!(merge.next_offset(), Some(8));
+        assert_eq!(merge.next_offset(), None);
+    }
+
+    #[test]
+    fn merge_all_children_empty_returns_none() {
+        static EMPTY: [u8; 0] = [];
+        let mut merge = make_merge(vec![static_term_iter(&EMPTY), static_term_iter(&EMPTY)]);
+        assert_eq!(merge.next_offset(), None);
+    }
+
+    // ── iterate_offsets: single-child shortcut ────────────────────────────────
+
+    #[test]
+    fn single_child_union_delegates_to_child_iter() {
+        use crate::{RSAggregateResult, RSIndexResult, RSOffsetSlice, RSResultData};
+        use std::ptr;
+
+        // delta bytes [2, 3, 5] → cumulative positions [2, 5, 10]
+        static OFFSETS: [u8; 3] = [2, 3, 5];
+
+        let term = RSIndexResult::build_term()
+            .borrowed_record(None, RSOffsetSlice::from_slice(&OFFSETS))
+            .build();
+
+        let mut agg = RSAggregateResult::owned_with_capacity(1);
+        agg.push_boxed(Box::new(term));
+
+        // Construct the Union directly; `data` is private to `core` but
+        // visible here since this test module is nested within `core`.
+        let union_ir = RSIndexResult {
+            doc_id: 0,
+            dmd: ptr::null(),
+            field_mask: 0,
+            freq: 0,
+            data: RSResultData::Union(agg),
+            metrics: ptr::null_mut(),
+            weight: 0.0,
+        };
+
+        // With n == 1, iterate_offsets delegates directly to the child,
+        // so positions must match OFFSETS decoded as varint deltas.
+        let mut it = iterate_offsets(&union_ir);
+        assert_eq!(it.next_offset(), Some(2));
+        assert_eq!(it.next_offset(), Some(5));
+        assert_eq!(it.next_offset(), Some(10));
+        assert_eq!(it.next_offset(), None);
+    }
 }
