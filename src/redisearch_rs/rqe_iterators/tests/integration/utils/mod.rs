@@ -11,11 +11,12 @@ mod mock_iterator;
 mod wildcard_helper;
 pub(crate) use mock_iterator::{Mock, MockData, MockIteratorError, MockRevalidateResult, MockVec};
 
+pub(crate) use wildcard_helper::WildcardHelper;
+
 use ffi::t_docId;
 use rqe_iterators::RQEIterator;
 use std::collections::BTreeSet;
 
-pub(crate) use wildcard_helper::WildcardHelper;
 
 /// Create a single [`Mock`] child and return it as a boxed trait object
 /// together with a handle to its [`MockData`].
