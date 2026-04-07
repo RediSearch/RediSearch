@@ -873,6 +873,13 @@ impl Default for GlobalGuard {
                 }
 
                 unsafe {
+                    // specIdDict_g is allocated when calling Indexes_Init()
+                    if !ffi::specIdDict_g.is_null() {
+                        ffi::RS_dictRelease(ffi::specIdDict_g);
+                    }
+                }
+
+                unsafe {
                     // SchemaPrefixes_g is allocated when calling Indexes_Init()
                     if !ffi::SchemaPrefixes_g.is_null() {
                         ffi::SchemaPrefixes_Free(ffi::SchemaPrefixes_g);

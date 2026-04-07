@@ -17,7 +17,7 @@
 #include "command_info/command_info.h"
 #include "document.h"
 #include "tag_index.h"
-#include "triemap.h"
+#include "doc_id_meta.h"
 #include "query.h"
 #include "redis_index.h"
 #include "redismodule.h"
@@ -231,6 +231,7 @@ bool debugCommandsEnabled(RedisModuleCtx *ctx) {
  * be an array the same size of the ids list
  */
 int GetDocumentsCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  RS_ASSERT(!SearchDisk_IsEnabled());
   if (argc < 3) {
     return RedisModule_WrongArity(ctx);
   }
@@ -246,7 +247,6 @@ int GetDocumentsCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
   const DocTable *dt = &sctx->spec->docs;
   RedisModule_ReplyWithArray(ctx, argc - 2);
   for (size_t i = 2; i < argc; i++) {
-
     if (DocTable_GetIdR(dt, argv[i]) == 0) {
       // Document does not exist in index; even though it exists in keyspace
       RedisModule_ReplyWithNull(ctx);
@@ -270,6 +270,7 @@ int GetDocumentsCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
  * If referred docs are missing or not HASH keys, we simply reply with Null
  */
 int GetSingleDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  RS_ASSERT(!SearchDisk_IsEnabled());
   if (argc != 3) {
     return RedisModule_WrongArity(ctx);
   }
@@ -286,7 +287,6 @@ int GetSingleDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   }
 
   CurrentThread_SetIndexSpec(sctx->spec->own_ref);
-
   if (DocTable_GetIdR(&sctx->spec->docs, argv[2]) == 0) {
     RedisModule_ReplyWithNull(ctx);
   } else {
@@ -4607,6 +4607,10 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
       !(RedisModule_GetContextFlags(ctx) & REDISMODULE_CTX_FLAGS_SERVER_STARTUP)) {
     RedisModule_Log(ctx, "error", "Cannot load module with disk indexes after server startup");
     return REDISMODULE_ERR;
+  }
+
+  if (SearchDisk_IsEnabled()) {
+    DocIdMeta_Init(ctx);
   }
 
   // Check if we are actually in cluster mode
