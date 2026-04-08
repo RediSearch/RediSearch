@@ -6,39 +6,38 @@ RQ_CAPACITY = 50  # CONN_PER_SHARD=1 and SEARCH_IO_THREADS=1 => 1 * PENDING_FACT
 SHARD_COUNT = 3
 WORKER_COUNT = 3
 DOC_COUNT = 240
-SEARCH_BURST = 100
-AGGREGATE_BURST = 150
 
+# FT.SEARCH query and expected result
+search = ['FT.SEARCH', 'idx', 'searchable', 'LIMIT', 0, 3,
+          'SORTBY', 'price', 'DESC', 'NOCONTENT']
+expected_search_res = [240, 'doc:239', 'doc:238', 'doc:237']
+
+# FT.AGGREGATE query and expected result
+aggregate = ['FT.AGGREGATE', 'idx', '*', 'GROUPBY', '1', '@category',
+             'REDUCE', 'COUNT', '0', 'AS', 'count',
+             'SORTBY', 2, '@count', 'ASC']
+expected_aggregate_res = [
+                            3,
+                            ['category', 'books', 'count', '80'],
+                            ['category', 'food', 'count', '80'],
+                            ['category', 'electronics', 'count', '80']
+                        ]
 
 def _build_mixed_burst_commands():
-    search = ['FT.SEARCH', 'idx', 'searchable', 'LIMIT', '0', '10']
-    aggregate = ['FT.AGGREGATE', 'idx', '*', 'GROUPBY', '1', '@category',
-                 'REDUCE', 'COUNT', '0', 'AS', 'count']
-    commands = []
-    remaining_searches = SEARCH_BURST
-    remaining_aggregates = AGGREGATE_BURST
-
     # Intentionally build a 3:1 FT.SEARCH-to-FT.AGGREGATE prefix so the burst
     # stays mixed while still driving the coordinator into the saturation region,
     # then continue draining the aggregate-heavy tail.
-    while remaining_searches > 0 or remaining_aggregates > 0:
-        for _ in range(3):
-            if remaining_searches == 0:
-                break
-            commands.append(search)
-            remaining_searches -= 1
-
-        if remaining_aggregates > 0:
-            commands.append(aggregate)
-            remaining_aggregates -= 1
-
-    return commands
+    return ([search] * 3 + [aggregate]) * 30 + [aggregate] * 120
 
 
 def _run_burst_command(env, command, exceptions, completed, lock):
     try:
         conn = getConnectionByEnv(env)
-        conn.execute_command(*command)
+        res = conn.execute_command(*command)
+        if command[0] == 'FT.SEARCH':
+            env.assertEqual(res, expected_search_res)
+        elif command[0] == 'FT.AGGREGATE':
+            env.assertEqual(res, expected_aggregate_res)
     except Exception as exc:
         with lock:
             exceptions.append(f'{command}: {exc}')
@@ -209,9 +208,13 @@ def test_search_and_aggregate_burst():
         for thread in threads:
             thread.join(timeout=1)
 
-    env.assertEqual(exceptions, [], message=f'Background burst queries failed: {exceptions}')
+    # Verify all burst queries completed successfully
+    env.assertEqual(exceptions, [],
+                    message=f'Background burst queries failed: {exceptions}')
 
+    # Verify Redis remains responsive after the burst
     ping_result = env.cmd('PING')
     env.assertTrue(ping_result in ['PONG', True],
                    message='Coordinator should remain responsive after burst')
-    env.expect('FT.SEARCH', 'idx', '*', 'LIMIT', '0', '0').equal([DOC_COUNT])
+    env.expect(*search).equal(expected_search_res)
+    env.expect(*aggregate).equal(expected_aggregate_res)

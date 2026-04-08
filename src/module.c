@@ -3436,7 +3436,7 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies, b
   rCtx->postProcess(rCtx);
 
 cleanup:
-  if (!fromTimeout && !MRCtx_IsTimedOut(mc)) {
+  if (bc && !fromTimeout && !MRCtx_IsTimedOut(mc)) {
     // Timeout callback should not call unblockClient
     RedisModule_BlockedClientMeasureTimeEnd(bc);
     RedisModule_UnblockClient(bc, mc);

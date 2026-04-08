@@ -2194,7 +2194,10 @@ DEBUG_COMMAND(getIsRPPaused) {
 /**
  * FT.DEBUG QUERY_CONTROLLER SET_PAUSE_BEFORE_REDUCE <N>
  * COORD_REDUCE_NO_PAUSE (0): no pause
- * COORD_REDUCE_PAUSE_BEFORE_REDUCER_INIT (-2): pause after claiming reducing but before reducer context init
+ * COORD_REDUCE_PAUSE_BEFORE_REDUCER_INIT (-2): pause after acquiring the
+ *         REDUCING state but before reducer context setup (used to test the
+ *         edge case where the background reducer starts, but a timeout fires
+ *         before it can finish setting up req->rctx)
  * COORD_REDUCE_PAUSE_AFTER_LAST_RESULT (-1): pause after the last result is reduced
  * N>0: pause before the Nth result is reduced (1-based)
  */
