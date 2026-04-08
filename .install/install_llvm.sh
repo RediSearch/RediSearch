@@ -132,8 +132,6 @@ install_llvm() {
             # apt.llvm.org may not support this distro version yet; fall back to tarball.
             echo ">>> apt.llvm.org failed — falling back to official tarball"
             rm -f /tmp/llvm.sh
-            # The tarball's lld is dynamically linked against libxml2.
-            apt_get_cmd "$MODE" install -y --no-install-recommends libxml2
             install_from_tarball
         fi
         ;;
