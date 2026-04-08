@@ -50,6 +50,7 @@ on:
           - mariner:2
           - azurelinux:3
           - alpine:3.22
+          - alpine:3.23
           - macos-15
           - macos-26
           - intel

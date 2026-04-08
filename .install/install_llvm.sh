@@ -135,10 +135,22 @@ install_llvm() {
         echo ">>> Alpine Linux — trying apk packages"
         # Alpine 3.23+ has llvm21 in main; 3.22 only has llvm20.
         # Official tarballs are glibc-based and won't work here.
-        if $MODE apk add --no-cache "llvm${LLVM_VER}" "clang${LLVM_VER}" "lld${LLVM_VER}" 2>/dev/null; then
+        if $MODE apk add --no-cache "llvm${LLVM_VER}" "clang${LLVM_VER}" "clang${LLVM_VER}-libclang" "lld${LLVM_VER}" 2>/dev/null; then
             echo ">>> Installed llvm${LLVM_VER} from Alpine repos"
+            # Create unversioned symlinks so bindgen/clang-sys can find llvm-config and clang.
+            for tool in llvm-config clang clang++ lld ld.lld; do
+                if [ -f "/usr/bin/${tool}-${LLVM_VER}" ] && [ ! -e "/usr/bin/${tool}" ]; then
+                    $MODE ln -s "${tool}-${LLVM_VER}" "/usr/bin/${tool}"
+                fi
+            done
         elif $MODE apk add --no-cache llvm clang lld; then
             echo ">>> Installed default llvm/clang (may not be version ${LLVM_VER})"
+            # Install matching libclang for bindgen — package name is version-specific.
+            local default_ver
+            default_ver=$(clang --version 2>/dev/null | head -1 | grep -oE '[0-9]+\.' | head -1 | tr -d '.')
+            if [ -n "$default_ver" ]; then
+                $MODE apk add --no-cache "clang${default_ver}-libclang" 2>/dev/null || true
+            fi
         else
             echo "ERROR: No LLVM package available. Upgrade to Alpine 3.23+ or use edge."
             return 1
