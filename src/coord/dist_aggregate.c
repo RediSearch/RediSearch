@@ -437,7 +437,6 @@ static void DistAggregateCleanups(RedisModuleCtx *ctx, struct ConcurrentCmdCtx *
   }
 
   RS_ASSERT(QueryError_HasError(status));
-  QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(status), 1, COORD_ERR_WARN);
 
   if (!r) {
     // Currently only possible in _FT.DEBUG path

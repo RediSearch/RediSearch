@@ -1080,6 +1080,7 @@ void AREQ_ReplyOrStoreError(AREQ *req, RedisModuleCtx *ctx, QueryError *status) 
     // Clear the original to avoid leaking heap-allocated strings.
     QueryError_ClearError(status);
   } else {
+    QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(status), 1, !IsInternal(req));
     QueryError_ReplyAndClear(ctx, status);
   }
 }

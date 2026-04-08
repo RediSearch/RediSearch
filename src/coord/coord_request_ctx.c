@@ -9,6 +9,7 @@
 
 #include "coord_request_ctx.h"
 #include "rmalloc.h"
+#include "info/global_stats.h"
 
 CoordRequestCtx *CoordRequestCtx_New(CommandType type) {
   CoordRequestCtx *ctx = rm_calloc(1, sizeof(CoordRequestCtx));
@@ -104,6 +105,7 @@ void CoordRequestCtx_ReplyOrStoreError(CoordRequestCtx *req, RedisModuleCtx *ctx
     // Clear the original to avoid leaking heap-allocated strings.
     QueryError_ClearError(status);
   } else {
+    QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(status), 1, COORD_ERR_WARN);
     QueryError_ReplyAndClear(ctx, status);
   }
 }
