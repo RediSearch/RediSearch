@@ -244,7 +244,7 @@ jobs:
                       'setup_script': 'apk add bash git',
                       'post_setup_script': 'echo RUST_DYN_CRT=1 >> $GITHUB_ENV; sed -i "/^ID=/s/alpine/NotpineForGHA/" /etc/os-release; apk add nodejs --update-cache; mkdir -p /opt/bin; ln -s /usr/bin/node /opt/bin/node',
                       'name': 'Alpine 3.23 x86_64',
-                      'enable_lto': '0'
+                      'enable_lto': '1'
                   },
                   "aarch64": {
                       'container': 'alpine:3.23',
