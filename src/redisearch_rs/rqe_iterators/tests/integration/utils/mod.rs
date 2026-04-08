@@ -108,6 +108,15 @@ impl RQEIterator<'static> for FieldMaskMock {
 use ffi::t_docId;
 use std::collections::BTreeSet;
 
+/// Drain all documents from an iterator and return their doc_ids.
+pub(crate) fn drain_doc_ids<'index, I: RQEIterator<'index>>(it: &mut I) -> Vec<t_docId> {
+    let mut docs = Vec::new();
+    while let Some(r) = it.read().unwrap() {
+        docs.push(r.doc_id);
+    }
+    docs
+}
+
 /// Create a single [`Mock`] child and return it as a boxed trait object
 /// together with a handle to its [`MockData`].
 pub(crate) fn create_mock_1<const N: usize>(

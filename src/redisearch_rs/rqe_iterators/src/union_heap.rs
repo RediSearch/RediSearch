@@ -72,6 +72,11 @@ where
         }
     }
 
+    /// Consumes the iterator and returns a [`super::UnionTrimmed`] over the same children.
+    pub fn into_trimmed(self, limit: usize, asc: bool) -> super::UnionTrimmed<'index, I> {
+        super::UnionTrimmed::new(self.children, limit, asc)
+    }
+
     /// Rebuilds the heap from scratch based on current child positions.
     /// Used after revalidation when children may have moved arbitrarily.
     fn rebuild_heap(&mut self) {

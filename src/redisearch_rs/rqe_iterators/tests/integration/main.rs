@@ -32,6 +32,7 @@ use rstest_reuse::template;
 ])]
 fn id_cases(#[case] case: &[u64]) {}
 
+mod active_children;
 mod c2rust;
 mod empty;
 mod id_list;
@@ -53,4 +54,5 @@ mod union_common;
 mod union_flat;
 mod union_heap;
 mod union_reducer;
+mod union_trimmed;
 mod wildcard;

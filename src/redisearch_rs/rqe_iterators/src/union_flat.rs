@@ -75,6 +75,11 @@ where
         }
     }
 
+    /// Consumes the iterator and returns a [`super::UnionTrimmed`] over the same children.
+    pub fn into_trimmed(self, limit: usize, asc: bool) -> super::UnionTrimmed<'index, I> {
+        super::UnionTrimmed::new(self.children, limit, asc)
+    }
+
     /// Advances all active children whose `last_doc_id` equals `current_id` and finds the
     /// minimum doc_id in a single pass.
     ///
