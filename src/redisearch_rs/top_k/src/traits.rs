@@ -16,6 +16,8 @@ use rqe_core::DocId;
 use rqe_iterator_type::IteratorType;
 use rqe_iterators::RQEIteratorError;
 
+use crate::ScoredResult;
+
 /// A cursor over a single score-ordered batch of `(doc_id, score)` pairs.
 ///
 /// Batches are produced by [`ScoreSource::next_batch`] and consumed by the
@@ -116,6 +118,61 @@ pub trait ScoreSource {
     ///
     /// Used in Adhoc-BF mode where the child iterator drives traversal.
     fn lookup_score(&mut self, doc_id: DocId) -> Option<f64>;
+
+    /// Called at the start of an adhoc scan, before any
+    /// [`lookup_score`](Self::lookup_score) call in that scan.
+    ///
+    /// Implementations may acquire scan-scoped resources here (locks,
+    /// preprocessed query contexts). The default is a no-op, so sources that
+    /// have no scan-scoped state are unaffected.
+    ///
+    /// Brackets the scan with [`end_adhoc`](Self::end_adhoc): each
+    /// [`begin_adhoc`](Self::begin_adhoc) is followed by one
+    /// [`end_adhoc`](Self::end_adhoc), which the iterator guarantees runs on
+    /// every exit path out of the scan loop, including error paths.
+    /// Implementations should rely on this pairing rather than on how many
+    /// scans the iterator performs.
+    fn begin_adhoc(&mut self) {}
+
+    /// Called by [`TopKIterator`] after the last
+    /// [`lookup_score`](Self::lookup_score) call in an adhoc scan — including
+    /// on error paths out of the scan loop.
+    ///
+    /// Implementations must release everything they acquired in
+    /// [`begin_adhoc`](Self::begin_adhoc). The default is a no-op.
+    ///
+    /// Must be idempotent: calling it more than once, or without a preceding
+    /// [`begin_adhoc`](Self::begin_adhoc), must be safe and have no effect
+    /// beyond the first release.
+    ///
+    /// [`TopKIterator`]: crate::TopKIterator
+    fn end_adhoc(&mut self) {}
+
+    /// Whether [`rerank`](Self::rerank) should run after an adhoc scan
+    /// completes. The default is `false`, so sources with no rerank step pay
+    /// nothing — [`TopKIterator`] skips draining and rebuilding the heap.
+    ///
+    /// [`TopKIterator`]: crate::TopKIterator
+    fn should_rerank(&self) -> bool {
+        false
+    }
+
+    /// Recompute the scores of the collected top-k results in place.
+    ///
+    /// [`TopKIterator`] calls this once, only when
+    /// [`should_rerank`](Self::should_rerank) returns `true` and the heap is
+    /// non-empty, after the adhoc scan finishes and before
+    /// [`end_adhoc`](Self::end_adhoc) releases the scan resources. It is never
+    /// called on a timed-out or otherwise aborted scan.
+    ///
+    /// The iterator rebuilds heap order from the updated scores afterward, so
+    /// an implementation may overwrite scores freely without preserving the
+    /// prior ordering. An implementation must leave the original score in place
+    /// for any entry it cannot rescore; the default no-op is therefore always
+    /// safe.
+    ///
+    /// [`TopKIterator`]: crate::TopKIterator
+    fn rerank(&mut self, _results: &mut [ScoredResult]) {}
 
     /// Return an upper-bound estimate for the number of documents this source
     /// can produce.

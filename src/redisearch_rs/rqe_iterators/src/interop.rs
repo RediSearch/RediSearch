@@ -46,7 +46,7 @@ where
         inner: I,
         profile_children: Option<unsafe extern "C" fn(*mut QueryIterator) -> *mut QueryIterator>,
     ) -> *mut QueryIterator {
-        let mut wrapper = Box::new(Self {
+        let wrapper = Box::new(Self {
             header: QueryIterator {
                 type_: inner.type_(),
                 atEOF: inner.at_eof(),
@@ -63,14 +63,22 @@ where
             },
             inner,
         });
-        if let Some(current) = wrapper
-            .inner
-            .current()
-            .map(|c| c as *mut RSIndexResult as *mut ffi::RSIndexResult)
-        {
-            wrapper.header.current = current;
+        // Reassert unique ownership of the allocation *before* deriving the
+        // interior `current` pointer. `Box::into_raw` retags the whole box as
+        // `Unique`, which would pop any borrow taken from `inner` beforehand.
+        let raw = Box::into_raw(wrapper);
+        // SAFETY: `raw` was just produced by `Box::into_raw`, so it is non-null,
+        // properly aligned, uniquely owned, and outlives this access.
+        let current = unsafe { (*raw).inner.current() }
+            .map(|c| c as *mut RSIndexResult as *mut ffi::RSIndexResult);
+        if let Some(current) = current {
+            // SAFETY: `raw` is still the unique handle to the allocation, so
+            // writing through it does not alias any other reference.
+            unsafe {
+                (*raw).header.current = current;
+            }
         }
-        Box::into_raw(wrapper) as *mut QueryIterator
+        raw as *mut QueryIterator
     }
 }
 
