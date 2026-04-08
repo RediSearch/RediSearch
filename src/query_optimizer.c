@@ -48,7 +48,7 @@ void trimUnionIterator(QueryIterator *iter, size_t offset, size_t limit, bool as
         curTotal += it->NumEstimated(it);
         if (curTotal > limit) {
           ui->num = i + 1;
-          memset(ui->its + ui->num, 0, ui->num_orig - ui->num);
+          memset(ui->its + ui->num, 0, (ui->num_orig - ui->num) * sizeof(*ui->its));
           break;
         }
       }
@@ -58,8 +58,8 @@ void trimUnionIterator(QueryIterator *iter, size_t offset, size_t limit, bool as
         curTotal += it->NumEstimated(it);
         if (curTotal > limit) {
           ui->num -= i;
-          memmove(ui->its, ui->its + i, ui->num);
-          memset(ui->its + ui->num, 0, ui->num_orig - ui->num);
+          memmove(ui->its, ui->its + i, ui->num * sizeof(*ui->its));
+          memset(ui->its + ui->num, 0, (ui->num_orig - ui->num) * sizeof(*ui->its));
           break;
         }
       }
