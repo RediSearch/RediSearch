@@ -234,14 +234,7 @@ void HybridKnnCommandModifier(MRCommand *cmd, size_t numShards, void *privateDat
         return;
     }
     size_t effectiveK = calculateEffectiveK(knnCtx->originalK, knnCtx->shardWindowRatio, numShards);
-    if (effectiveK == knnCtx->originalK) {
-        return;
-    }
-
-    // Replace the K value argument in the command
-    char effectiveK_str[32];
-    int len = snprintf(effectiveK_str, sizeof(effectiveK_str), "%zu", effectiveK);
-    MRCommand_ReplaceArg(cmd, knnCtx->kArgIndex, effectiveK_str, len);
+    modifyVsimKNN(cmd, knnCtx->kArgIndex, effectiveK, knnCtx->originalK);
 }
 
 bool ProcessHybridCursorMappings(const MRCommand *cmd,
