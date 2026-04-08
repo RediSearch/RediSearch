@@ -183,33 +183,55 @@ static int rpnetNext_Start(ResultProcessor *rp, SearchResult *r) {
   return rpnetNext(rp, r);
 }
 
-// Build the distributed MR command for FT.AGGREGATE
-// If knnCtx is provided with valid ratio, outputs VectorQuery and query arg index for command modifier
-static void buildMRCommand(RedisModuleString **argv, int argc, ProfileOptions profileOptions,
-                           AREQDIST_UpstreamInfo *us, MRCommand *xcmd, IndexSpec *sp, specialCaseCtx *knnCtx,
-                           VectorQuery **outKnnVq, size_t *outQueryArgIndex) {
-  // Initialize output parameters
+// Helper to calculate the number of profile arguments
+static inline int getProfileArgs(ProfileOptions profileOptions) {
+  int profileArgs = 0;
+  if (profileOptions != EXEC_NO_FLAGS) {
+    profileArgs += 2; // SEARCH/AGGREGATE + QUERY
+    if (profileOptions & EXEC_WITH_PROFILE_LIMITED) {
+      profileArgs++;
+    }
+  }
+  return profileArgs;
+}
+
+// Extract KNN context for SHARD_K_RATIO optimization if applicable
+// Outputs VectorQuery and query arg index for command modifier
+static void extractKnnOptimizationContext(specialCaseCtx *knnCtx, ProfileOptions profileOptions,
+                                          VectorQuery **outKnnVq, size_t *outQueryArgIndex) {
   if (outKnnVq) *outKnnVq = NULL;
   if (outQueryArgIndex) *outQueryArgIndex = 0;
 
+  const KNNVectorQuery *knn_query = &knnCtx->knn.queryNode->vn.vq->knn;
+  double ratio = knn_query->shardWindowRatio;
+
+  if (ratio < MAX_SHARD_WINDOW_RATIO) {
+    int profileArgs = getProfileArgs(profileOptions);
+    // Store the VectorQuery and query arg index for the command modifier
+    if (outKnnVq) *outKnnVq = knnCtx->knn.queryNode->vn.vq;
+    if (outQueryArgIndex) *outQueryArgIndex = 2 + profileArgs;  // Query is at index 2 + profileArgs
+  }
+}
+
+// Build the distributed MR command for FT.AGGREGATE
+static void buildMRCommand(RedisModuleString **argv, int argc, ProfileOptions profileOptions,
+                           AREQDIST_UpstreamInfo *us, MRCommand *xcmd, IndexSpec *sp) {
   // We need to prepend the array with the command, index, and query that
   // we want to use.
   const char **tmparr = array_new(const char *, array_len(us->serialized));
 
   const char *index_name = RedisModule_StringPtrLen(argv[1], NULL);
 
-  int profileArgs = 0;
+  int profileArgs = getProfileArgs(profileOptions);
   if (profileOptions == EXEC_NO_FLAGS) {
     array_append(tmparr, RS_AGGREGATE_CMD);                         // Command
     array_append(tmparr, index_name);  // Index name
   } else {
-    profileArgs += 2; // SEARCH/AGGREGATE + QUERY
     array_append(tmparr, RS_PROFILE_CMD);
     array_append(tmparr, index_name);  // Index name
     array_append(tmparr, "AGGREGATE");
     if (profileOptions & EXEC_WITH_PROFILE_LIMITED) {
       array_append(tmparr, "LIMITED");
-      profileArgs++;
     }
     array_append(tmparr, "QUERY");
   }
@@ -286,20 +308,6 @@ static void buildMRCommand(RedisModuleString **argv, int argc, ProfileOptions pr
     // append params string including PARAMS keyword and nargs
     for (int i = 0; i < nargs + 2; ++i) {
       MRCommand_AppendRstr(xcmd, argv[loc + 3 + i + profileArgs]);
-    }
-  }
-
-  // KNN optimization is now handled by the command modifier callback in rpnetNext_Start
-  // Store the query arg index and VectorQuery in output parameters if KNN context is present
-  // The command modifier will use the actual numShards from the IO thread's topology
-  if (knnCtx) {
-    const KNNVectorQuery *knn_query = &knnCtx->knn.queryNode->vn.vq->knn;
-    double ratio = knn_query->shardWindowRatio;
-
-    if (ratio < MAX_SHARD_WINDOW_RATIO) {
-      // Store the VectorQuery and query arg index for the command modifier
-      if (outKnnVq) *outKnnVq = knnCtx->knn.queryNode->vn.vq;
-      if (outQueryArgIndex) *outQueryArgIndex = 2 + profileArgs;  // Query is at index 2 + profileArgs
     }
   }
 
@@ -483,7 +491,12 @@ static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString *
   MRCommand xcmd;
   VectorQuery *knnVq = NULL;
   size_t knnQueryArgIndex = 0;
-  buildMRCommand(argv, argc, profileOptions, &us, &xcmd, sp, knnCtx, &knnVq, &knnQueryArgIndex);
+  buildMRCommand(argv, argc, profileOptions, &us, &xcmd, sp);
+
+  if (knnCtx) {
+    extractKnnOptimizationContext(knnCtx, profileOptions, &knnVq, &knnQueryArgIndex);
+  }
+
   xcmd.protocol = is_resp3(ctx) ? 3 : 2;
   xcmd.forCursor = AREQ_RequestFlags(r) & QEXEC_F_IS_CURSOR;
   xcmd.forProfiling = IsProfile(r);
