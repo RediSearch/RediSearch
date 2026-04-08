@@ -3401,6 +3401,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "vector_score_source_bencher"
+version = "0.0.1"
+dependencies = [
+ "build_utils",
+ "cc",
+ "criterion",
+ "ffi",
+ "redis_mock",
+ "redisearch_rs",
+ "rqe_iterators",
+ "top_k",
+ "vector_score_source",
+ "workspace_hack",
+]
+
+[[package]]
 name = "version_check"
 version = "0.9.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
