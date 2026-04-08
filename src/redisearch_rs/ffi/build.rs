@@ -28,12 +28,58 @@ struct HeaderAllowlist {
 /// Bindgen inputs. Each entry both feeds clang and constrains which symbols
 /// bindgen emits. Sorted alphabetically by `path` for easy scanning.
 const HEADERS: &[HeaderAllowlist] = &[
+    // Top-k vector scoring (`vector_score_source`) drives a VecSim index
+    // directly: query replies and their iterators live here.
+    HeaderAllowlist {
+        path: "deps/VectorSimilarity/src/VecSim/query_results.h",
+        fns: &[
+            "VecSimBatchIterator_Free",
+            "VecSimBatchIterator_HasNext",
+            "VecSimBatchIterator_Next",
+            "VecSimQueryReply_Free",
+            "VecSimQueryReply_GetCode",
+            "VecSimQueryReply_GetIterator",
+            "VecSimQueryReply_IteratorFree",
+            "VecSimQueryReply_IteratorNext",
+            "VecSimQueryResult_GetId",
+            "VecSimQueryResult_GetScore",
+        ],
+        types: &[
+            "VecSimQueryReply",
+            "VecSimQueryReply_Code",
+            "VecSimQueryReply_Iterator",
+            "VecSimQueryReply_Order",
+        ],
+        vars: &[],
+    },
+    // Index handle + adhoc-BF / batch-iterator entry points used by
+    // `vector_score_source` for top-k hybrid queries.
+    HeaderAllowlist {
+        path: "deps/VectorSimilarity/src/VecSim/vec_sim.h",
+        fns: &[
+            "VecSimBatchIterator_New",
+            "VecSimIndex_AddVector",
+            "VecSimIndex_AdhocBfCtx_Free",
+            "VecSimIndex_AdhocBfCtx_GetDistanceFrom",
+            "VecSimIndex_AdhocBfCtx_New",
+            "VecSimIndex_Free",
+            "VecSimIndex_GetDistanceFrom_Unsafe",
+            "VecSimIndex_IndexSize",
+            "VecSimIndex_New",
+            "VecSimIndex_PreferAdHocSearch",
+            "VecSimIndex_TopKQuery",
+            "VecSimTieredIndex_AcquireSharedLocks",
+            "VecSimTieredIndex_ReleaseSharedLocks",
+        ],
+        types: &["VecSimBatchIterator", "VecSimIndex"],
+        vars: &[],
+    },
     // RSE: `ThrottleCB` and `VecSimParamsDisk` are consumed by the disk
     // vector-index API exposed through `src/search_disk_api.h`.
     HeaderAllowlist {
         path: "deps/VectorSimilarity/src/VecSim/vec_sim_common.h",
         fns: &[],
-        types: &["ThrottleCB", "VecSimParamsDisk"],
+        types: &["ThrottleCB", "VecSimParamsDisk", "VecSimQueryParams"],
         vars: &[],
     },
     HeaderAllowlist {

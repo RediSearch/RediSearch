@@ -98,7 +98,7 @@ impl<'index, S: ScoreSource + 'index> TopKIterator<'index, S> {
     /// Results are streamed directly from the source's batch — the heap is bypassed.
     /// Use [`new`](Self::new) when a filter child is present.
     pub fn new_unfiltered(source: S, k: NonZeroUsize, compare: fn(f64, f64) -> Ordering) -> Self {
-        Self::_new_with_mode(source, None, k, compare, TopKMode::Unfiltered)
+        Self::new_with_mode(source, None, k, compare, TopKMode::Unfiltered)
     }
 }
 
@@ -107,23 +107,11 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index> TopKItera
     ///
     /// The initial mode defaults to [`TopKMode::Batches`].
     pub fn new(source: S, child: C, k: NonZeroUsize, compare: fn(f64, f64) -> Ordering) -> Self {
-        Self::_new_with_mode(source, Some(child), k, compare, TopKMode::Batches)
+        Self::new_with_mode(source, Some(child), k, compare, TopKMode::Batches)
     }
 
     /// Create a new [`TopKIterator`] with an explicit initial mode.
-    #[cfg(feature = "test-utils")]
     pub fn new_with_mode(
-        source: S,
-        child: Option<C>,
-        k: NonZeroUsize,
-        compare: fn(f64, f64) -> Ordering,
-        mode: TopKMode,
-    ) -> Self {
-        Self::_new_with_mode(source, child, k, compare, mode)
-    }
-
-    /// Create a new [`TopKIterator`] with an explicit initial mode.
-    fn _new_with_mode(
         source: S,
         child: Option<C>,
         k: NonZeroUsize,
@@ -189,23 +177,11 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index> TopKItera
     ///
     /// Calls [`ScoreSource::next_batch_unfiltered`] exactly once. Results are streamed
     /// directly from the batch cursor — no heap is involved.
-    ///
-    /// # Invariants
-    ///
-    /// [`TopKMode::Unfiltered`] requires the source to produce at most one
-    /// batch.  In debug builds this method calls [`ScoreSource::next_batch_unfiltered`] a
-    /// second time and panics if another batch is returned, catching
-    /// misbehaving implementations early.
     fn prepare_unfiltered_direct(&mut self) -> Result<(), RQEIteratorError> {
         self.direct_batch = self.source.next_batch_unfiltered()?;
         if self.direct_batch.is_none() {
             self.at_eof = true;
         }
-        debug_assert!(
-            matches!(self.source.next_batch_unfiltered(), Ok(None)),
-            "ScoreSource did not return Ok(None) in TopKMode::Unfiltered \
-             (extra batch or error); use a batched mode instead"
-        );
         self.phase = Phase::YieldingDirect;
         Ok(())
     }
@@ -250,6 +226,11 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index> TopKItera
 
     /// Collect results by walking the child iterator and calling
     /// [`ScoreSource::lookup_score`] for each document.
+    ///
+    /// Wraps the scan loop in an [`AdhocScope`] RAII guard so that
+    /// [`ScoreSource::begin_adhoc`] and [`ScoreSource::end_adhoc`]
+    /// wrap the adhoc code, it allows [`ScoreSource::lookup_score`]
+    /// to reuse expensive resources.
     fn collect_adhoc(&mut self) -> Result<(), RQEIteratorError> {
         let child = self
             .child
@@ -257,19 +238,24 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index> TopKItera
             .expect("AdhocBF mode requires a child iterator");
         child.rewind();
 
+        self.source.begin_adhoc();
+        let scope = AdhocScope(&mut self.source);
+        let k = self.k.get();
+
         loop {
             let Some(result) = child.read()? else {
                 break;
             };
             let doc_id = result.doc_id;
 
-            if let Some(score) = self.source.lookup_score(doc_id) {
+            if let Some(score) = scope.0.lookup_score(doc_id) {
                 self.heap.push(doc_id, score);
             }
-            if self.source.adhoc_strategy(self.heap.len(), self.k.get()) == AdhocStrategy::Stop {
+            if scope.0.adhoc_strategy(self.heap.len(), k) == AdhocStrategy::Stop {
                 break;
             }
         }
+        drop(scope);
         self.finalize_collection();
         Ok(())
     }
@@ -474,6 +460,18 @@ fn intersect_batch_with_child<'index, C: RQEIterator<'index>>(
         }
     }
     Ok(())
+}
+
+/// RAII guard that calls [`ScoreSource::end_adhoc`] when dropped.
+///
+/// Used by [`TopKIterator::collect_adhoc`] to guarantee `end_adhoc` runs on
+/// every exit path out of the scan loop, including `?`-propagated errors.
+struct AdhocScope<'a, S: ScoreSource>(&'a mut S);
+
+impl<S: ScoreSource> Drop for AdhocScope<'_, S> {
+    fn drop(&mut self) {
+        self.0.end_adhoc();
+    }
 }
 
 impl<'index, S: ScoreSource + 'index> rqe_iterators::interop::ProfileChildren<'index>

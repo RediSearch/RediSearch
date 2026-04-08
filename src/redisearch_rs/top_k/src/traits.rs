@@ -132,6 +132,30 @@ pub trait ScoreSource {
     /// Used in Adhoc-BF mode where the child iterator drives traversal.
     fn lookup_score(&mut self, doc_id: t_docId) -> Option<f64>;
 
+    /// Called by [`TopKIterator`] exactly once, before the first
+    /// [`lookup_score`](Self::lookup_score) call in an adhoc scan.
+    ///
+    /// Implementations may acquire scan-scoped resources here (locks,
+    /// preprocessed query contexts). The default is a no-op, so sources that
+    /// have no scan-scoped state are unaffected.
+    ///
+    /// Pairs with [`end_adhoc`](Self::end_adhoc); the iterator guarantees
+    /// `end_adhoc` runs on every exit path out of the adhoc scan loop,
+    /// including error paths.
+    ///
+    /// [`TopKIterator`]: crate::TopKIterator
+    fn begin_adhoc(&mut self) {}
+
+    /// Called by [`TopKIterator`] exactly once, after the last
+    /// [`lookup_score`](Self::lookup_score) call in an adhoc scan — including
+    /// on error paths out of the scan loop.
+    ///
+    /// Implementations must release everything they acquired in
+    /// [`begin_adhoc`](Self::begin_adhoc). The default is a no-op.
+    ///
+    /// [`TopKIterator`]: crate::TopKIterator
+    fn end_adhoc(&mut self) {}
+
     /// Return an upper-bound estimate for the number of documents this source
     /// can produce.
     fn num_estimated(&self) -> usize;

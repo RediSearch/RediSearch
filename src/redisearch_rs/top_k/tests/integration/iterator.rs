@@ -15,9 +15,9 @@ use index_result::RSIndexResult;
 use index_spec::IndexSpecReadGuard;
 use rqe_iterator_type::IteratorType;
 use rqe_iterators::{
+    IdList, RQEIterator, RQEIteratorError,
     c2rust::CRQEIterator,
     interop::{ProfileChildren, RQEIteratorWrapper},
-    IdList, RQEIterator, RQEIteratorError,
 };
 use top_k::{
     BatchStrategy, ScoreSource, TopKIterator, TopKMode, mock::MockScoreBatch, mock::MockScoreSource,
