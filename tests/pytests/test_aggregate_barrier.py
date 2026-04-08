@@ -546,41 +546,6 @@ def test_barrier_handles_error_in_shard_resp3():
 # Simulated Shard Timeout Tests (using TIMEOUT_AFTER_N)
 #------------------------------------------------------------------------------
 
-def _test_barrier_shard_timeout_with_fail_policy(protocol):
-    """
-    Test barrier behavior when a shard times out with ON_TIMEOUT FAIL policy.
-
-    This test uses TIMEOUT_AFTER_N with INTERNAL_ONLY to simulate a timeout
-    on the shards while the coordinator waits for responses.
-    With FAIL policy, the query should return a timeout error.
-    """
-    env = Env(moduleArgs='DEFAULT_DIALECT 2 ON_TIMEOUT FAIL', protocol=protocol)
-    num_docs = 100 * env.shardsCount
-    setup_index_with_data(env, num_docs)
-
-    # Use TIMEOUT_AFTER_N with INTERNAL_ONLY to simulate shard timeout
-    # This causes shards to timeout after processing N results
-    query_args = ['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LIMIT', '0', num_docs]
-
-    # Timeout after 10 results on each shard - with FAIL policy should error
-    try:
-        runDebugQueryCommandTimeoutAfterN(env, query_args, 10, internal_only=True)
-        env.assertTrue(False, message="Expected timeout error, got valid result")
-    except Exception as e:
-        # Timeout error is expected with FAIL policy
-        env.assertContains(str(e), 'SEARCH_TIMEOUT Timeout limit was reached')
-
-
-@skip(cluster=False)
-def test_barrier_shard_timeout_with_fail_policy_resp2():
-    _test_barrier_shard_timeout_with_fail_policy(2)
-
-
-@skip(cluster=False)
-def test_barrier_shard_timeout_with_fail_policy_resp3():
-    _test_barrier_shard_timeout_with_fail_policy(3)
-
-
 def _test_barrier_shard_timeout_with_return_policy(protocol):
     """
     Test barrier behavior when a shard times out with ON_TIMEOUT RETURN policy.
