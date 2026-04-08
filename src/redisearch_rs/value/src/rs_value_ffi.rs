@@ -9,7 +9,13 @@
 
 use std::marker::PhantomData;
 use std::ops::Deref;
-use std::{ffi::c_char, mem::ManuallyDrop, ptr::NonNull, slice};
+use std::{ffi::c_char, mem::ManuallyDrop, ptr, ptr::NonNull, slice};
+
+unsafe extern "C" {
+    /// The global null sentinel RSValue, defined in `value.c`.
+    /// Used for direct pointer comparison instead of calling `RSValue_NullStatic()`.
+    static RS_NULL: ffi::RSValue;
+}
 
 pub struct RSValueFFIRef<'a>(ManuallyDrop<RSValueFFI>, PhantomData<&'a ffi::RSValue>);
 
@@ -47,6 +53,7 @@ impl Clone for RSValueFFI {
 
 // Drop is used to decrement the reference count of the underlying C struct when the RSValueFFI is dropped.
 impl Drop for RSValueFFI {
+    #[inline]
     fn drop(&mut self) {
         // Safety: We assume a valid ptr is given by the C side, and we are decrementing the reference count.
         unsafe { ffi::RSValue_DecrRef(self.0.as_ptr()) };
@@ -74,9 +81,8 @@ impl RSValueFFI {
     }
 
     pub fn null_static() -> Self {
-        // Safety: RSValue_NullStatic returns an immutable global ptr
-        let val = unsafe { ffi::RSValue_NullStatic() };
-        RSValueFFI(NonNull::new(val).expect("RSValue_NullStatic returned a null pointer"))
+        let val = ptr::addr_of!(RS_NULL).cast_mut();
+        RSValueFFI(NonNull::new(val).expect("RS_NULL address is null"))
     }
 
     pub fn new_num(num: f64) -> Self {
@@ -167,9 +173,9 @@ impl RSValueFFI {
         unsafe { ffi::RSValue_Type(self.0.as_ptr()) }
     }
 
+    #[inline(always)]
     pub fn is_null(&self) -> bool {
-        // Safety: RSValue_NullStatic returns an immutable global ptr
-        self.0.as_ptr() == unsafe { ffi::RSValue_NullStatic() }
+        self.0.as_ptr() == ptr::addr_of!(RS_NULL).cast_mut()
     }
 
     pub fn as_num(&self) -> Option<f64> {

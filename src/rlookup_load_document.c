@@ -333,7 +333,7 @@ int RLookup_LoadDocumentAll(RLookup *it, RLookupRow *dst, RLookupLoadOptions *op
     int rv = REDISMODULE_ERR;
     RS_LOG_ASSERT(options->dmd, "must have DocumentMetadata set");
 
-    RLookupRow_SetSortingVector(dst, options->dmd->sortVector);
+    RLookupRow_SetSortingVector(dst, &options->dmd->sortVector);
 
     if (options->dmd->type == DocumentType_Hash) {
       rv = RLookup_HGETALL(it, dst, options);
@@ -347,7 +347,7 @@ int RLookup_LoadDocumentAll(RLookup *it, RLookupRow *dst, RLookupLoadOptions *op
 int RLookup_LoadDocumentIndividual(RLookup *it, RLookupRow *dst, RLookupLoadOptions *options) {
   int rv = REDISMODULE_ERR;
   if (options->dmd) {
-    RLookupRow_SetSortingVector(dst, options->dmd->sortVector);
+    RLookupRow_SetSortingVector(dst, &options->dmd->sortVector);
   }
 
   rv = loadIndividualKeys(it, dst, options);

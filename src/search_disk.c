@@ -228,6 +228,7 @@ bool SearchDisk_AddAsyncRead(RedisSearchDiskAsyncReadPool pool, t_docId docId, u
 static RSDocumentMetadata* allocateDMD(const void* key_data, size_t key_len) {
     RSDocumentMetadata* dmd = (RSDocumentMetadata *)rm_calloc(1, sizeof(RSDocumentMetadata));
     if (dmd) {
+        dmd->sortVector = RSSortingVector_Empty();
         dmd->ref_count = 1;
         dmd->keyPtr = sdsnewlen(key_data, key_len);
     }
