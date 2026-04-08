@@ -16,14 +16,14 @@ use sorting_vector::{IndexOutOfBounds, RSSortingVector};
 use value::RSValueFFI;
 
 #[test]
-#[cfg_attr(miri, ignore = "miri does not support FFI functions")]
+#[cfg_attr(miri, ignore = "Calls FFI function `RSValue_NullStatic`")]
 fn creation() {
     let vector: RSSortingVector = RSSortingVector::new(10);
     assert_eq!(vector.len(), 10);
     assert_eq!(vector.iter().count(), 10);
 
     for value in vector {
-        assert!(value.is_null());
+        assert!(value.is_null_static());
     }
 }
 
@@ -37,7 +37,7 @@ fn build_vector() -> Result<RSSortingVector, IndexOutOfBounds> {
 }
 
 #[test]
-#[cfg_attr(miri, ignore = "miri does not support FFI functions")]
+#[cfg_attr(miri, ignore = "Calls FFI function `RSValue_NullStatic`")]
 fn insert() -> Result<(), IndexOutOfBounds> {
     let vector: &mut RSSortingVector = &mut build_vector()?;
 
@@ -46,13 +46,13 @@ fn insert() -> Result<(), IndexOutOfBounds> {
     assert_eq!(vector[1].as_str_bytes(), Some("abcdefg".as_bytes()));
     assert_eq!(vector[1].get_type(), ffi::RSValueType_RSValueType_String);
     assert_eq!(vector[2].as_str_bytes(), Some("hello world".as_bytes())); // we normalize --> lowercase
-    assert!(vector[3].is_null());
+    assert!(vector[3].is_null_static());
 
     Ok(())
 }
 
 #[test]
-#[cfg_attr(miri, ignore = "miri does not support FFI functions")]
+#[cfg_attr(miri, ignore = "Calls FFI function `RSValue_NullStatic`")]
 fn out_of_bounds() -> Result<(), IndexOutOfBounds> {
     let mut vector = build_vector()?;
 
@@ -63,7 +63,7 @@ fn out_of_bounds() -> Result<(), IndexOutOfBounds> {
 }
 
 #[test]
-#[cfg_attr(miri, ignore = "miri does not support FFI functions")]
+#[cfg_attr(miri, ignore = "Calls FFI function `RSValue_NullStatic`")]
 fn override_value() -> Result<(), IndexOutOfBounds> {
     let src = build_vector()?;
     let mut dst: RSSortingVector = RSSortingVector::new(1);
@@ -85,7 +85,7 @@ fn override_value() -> Result<(), IndexOutOfBounds> {
 }
 
 #[test]
-#[cfg_attr(miri, ignore = "miri does not support FFI functions")]
+#[cfg_attr(miri, ignore = "Calls FFI function `RSValue_NullStatic`")]
 fn memory_size() -> Result<(), IndexOutOfBounds> {
     let empty = RSSortingVector::new(0);
     let size = empty.get_memory_size();

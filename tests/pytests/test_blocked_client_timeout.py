@@ -493,14 +493,21 @@ class TestCoordinatorTimeout:
         run_command_on_all_shards(env, 'CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'fail')
 
 
-        for query_type in ['FT.SEARCH', 'FT.AGGREGATE']:
+        for query_type in ['FT.SEARCH', 'FT.AGGREGATE', 'FT.HYBRID']:
+
+            initial_jobs_done = getWorkersThpoolStats(env)['totalJobsDone']
 
             # Pause workers on coordinator
             env.expect(debug_cmd(), 'WORKERS', 'pause').ok()
 
+            query_args = [query_type, 'idx', '*']
+
+            if query_type == 'FT.HYBRID':
+                query_args = [query_type, 'hybrid_idx', 'SEARCH', '*', 'VSIM', '@embedding', '$BLOB', 'PARAMS', '2', 'BLOB', self.hybrid_query_vec]
+
             t_query = threading.Thread(
                 target=run_cmd_expect_timeout,
-                args=(env, [query_type, 'idx', '*']),
+                args=(env, query_args),
                 daemon=True
             )
             t_query.start()
@@ -517,7 +524,15 @@ class TestCoordinatorTimeout:
 
             # Resume worker threads on all shards
             env.expect(debug_cmd(), 'WORKERS', 'resume').ok()
-            env.expect(debug_cmd(), 'WORKERS', 'drain').ok()
+            if query_type != 'FT.HYBRID':
+                env.expect(debug_cmd(), 'WORKERS', 'drain').ok()
+            else:
+                # In hybrid, we can't drain because of depleters.
+                # Wait for totalJobsDone to increase.
+                wait_for_condition(
+                    lambda: (getWorkersThpoolStats(env)['totalJobsDone'] > initial_jobs_done, {'totalJobsDone': getWorkersThpoolStats(env)['totalJobsDone']}),
+                    'Timeout while waiting for worker to finish job'
+                )
 
         run_command_on_all_shards(env, 'CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy)
 
@@ -630,6 +645,68 @@ class TestCoordinatorTimeout:
             'VSIM', '@embedding', '$BLOB',
             'PARAMS', '2', 'BLOB', self.hybrid_query_vec
         ])
+
+    def _test_fail_timeout_shard_store_cursors_impl(self, before):
+        """Test timeout occurring before/after shard stores cursors for internal FT.HYBRID.
+
+        This tests the FAIL timeout policy when timeout occurs before or after
+        the shard stores the cursors list for the internal _FT.HYBRID command.
+        """
+        env = self.env
+
+        # Skip if ENABLE_ASSERT is not enabled
+        skipIfNoEnableAssert(env)
+
+        prev_on_timeout_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
+        env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'fail').ok()
+
+        # Enable pause before/after hybrid cursor storage on ALL shards
+        if before:
+            setPauseBeforeHybridStoreCursors(env, True)
+        else:
+            setPauseAfterHybridStoreCursors(env, True)
+
+        query_args = [
+            'FT.HYBRID', 'hybrid_idx',
+            'SEARCH', '*',
+            'VSIM', '@embedding', '$BLOB',
+            'PARAMS', '2', 'BLOB', self.hybrid_query_vec
+        ]
+
+        t_query = threading.Thread(
+            target=run_cmd_expect_timeout,
+            args=(env, query_args),
+            daemon=True
+        )
+        t_query.start()
+
+        blocked_client_id = wait_for_blocked_query_client(env, f'_FT.HYBRID', f'Client for query _FT.HYBRID not found')
+
+        # Wait for shard to be paused during store cursors
+        wait_for_condition(
+            lambda: (getIsHybridStoreCursorsPaused(env) == 1, {'paused': getIsHybridStoreCursorsPaused(env)}),
+            'Timeout while waiting for shard to pause during store cursors'
+        )
+
+        # Unblock the client to simulate timeout
+        env.expect('CLIENT', 'UNBLOCK', blocked_client_id, 'TIMEOUT').equal(1)
+
+        wait_for_client_unblocked(env, blocked_client_id)
+
+        t_query.join(timeout=10)
+        env.assertFalse(t_query.is_alive(), message="Query thread should have finished")
+
+        # Cleanup - reset hybrid store cursors debug
+        resetHybridStoreCursorsDebug(env)
+        env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy).ok()
+
+    def test_fail_timeout_before_shard_store_cursors_hybrid(self):
+        """Test timeout occurring before shard stores cursors for internal FT.HYBRID."""
+        self._test_fail_timeout_shard_store_cursors_impl(before=True)
+
+    def test_fail_timeout_after_shard_store_cursors_hybrid(self):
+        """Test timeout occurring after shard stores cursors for internal FT.HYBRID."""
+        self._test_fail_timeout_shard_store_cursors_impl(before=False)
 
 
 class TestCoordinatorReducePause:
@@ -956,11 +1033,32 @@ class TestShardTimeout:
         conn = getConnectionByEnv(self.env)
 
         # Create an index
-        self.env.expect('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT').ok()
+        self.env.expect('FT.CREATE', 'idx', 'PREFIX', '1', 'doc', 'SCHEMA', 'name', 'TEXT').ok()
 
-        # Insert documents
+        # Create an index with vector field for FT.HYBRID tests (different prefix)
+        self.env.expect(
+            'FT.CREATE', 'hybrid_idx', 'PREFIX', '1', 'hybrid_doc', 'SCHEMA',
+            'name', 'TEXT',
+            'embedding', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2'
+        ).ok()
+
+        # Insert documents for regular index
         for i in range(self.n_docs):
             conn.execute_command('HSET', f'doc{i}', 'name', f'hello{i}')
+
+        # Insert documents with vectors for hybrid index
+        for i in range(self.n_docs):
+            vec = np.array([float(i), float(i)], dtype=np.float32).tobytes()
+            conn.execute_command('HSET', f'hybrid_doc{i}', 'name', f'hello{i}', 'embedding', vec)
+
+        # Warmup hybrid query and store vector for tests
+        self.hybrid_query_vec = np.array([0.0, 0.0], dtype=np.float32).tobytes()
+        self.env.expect(
+            'FT.HYBRID', 'hybrid_idx',
+            'SEARCH', '*',
+            'VSIM', '@embedding', '$BLOB',
+            'PARAMS', '2', 'BLOB', self.hybrid_query_vec
+        ).noError()
 
     def test_shard_timeout_fail(self):
         """Test shard timeout with FAIL policy."""
@@ -970,16 +1068,22 @@ class TestShardTimeout:
         prev_on_timeout_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
         env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'fail').ok()
 
-        # Pause worker thread
+        for query_type in ['FT.SEARCH', 'FT.AGGREGATE', 'FT.HYBRID']:
 
-        for query_type in ['FT.SEARCH', 'FT.AGGREGATE']:
+            initial_jobs_done = getWorkersThpoolStats(env)['totalJobsDone']
 
+            # Pause worker thread
             env.expect(debug_cmd(), 'WORKERS', 'pause').ok()
+
+            query_args = [query_type, 'idx', '*']
+
+            if query_type == 'FT.HYBRID':
+                query_args = [query_type, 'hybrid_idx', 'SEARCH', '*', 'VSIM', '@embedding', '$BLOB', 'PARAMS', '2', 'BLOB', self.hybrid_query_vec]
 
             # Run a query that will be blocked
             t_query = threading.Thread(
                 target=run_cmd_expect_timeout,
-                args=(env, [query_type, 'idx', '*']),
+                args=(env, query_args),
                 daemon=True
             )
             t_query.start()
@@ -997,7 +1101,15 @@ class TestShardTimeout:
 
             # Resume worker thread
             env.expect(debug_cmd(), 'WORKERS', 'resume').ok()
-            env.expect(debug_cmd(), 'WORKERS', 'drain').ok()
+            if query_type != 'FT.HYBRID':
+                env.expect(debug_cmd(), 'WORKERS', 'drain').ok()
+            else:
+                # In hybrid, we can't drain because of depleters.
+                # Wait for totalJobsDone to increase.
+                wait_for_condition(
+                    lambda: (getWorkersThpoolStats(env)['totalJobsDone'] > initial_jobs_done, {'totalJobsDone': getWorkersThpoolStats(env)['totalJobsDone']}),
+                    'Timeout while waiting for worker to finish job'
+                )
 
         env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy).ok()
 
@@ -1161,6 +1273,24 @@ class TestShardTimeout:
     def test_fail_timeout_after_store_aggregate(self):
         """Test timeout occurring after storing results for FT.AGGREGATE in standalone."""
         self._test_fail_timeout_after_store_impl(['FT.AGGREGATE', 'idx', '*'])
+
+    def test_fail_timeout_before_store_hybrid(self):
+        """Test timeout occurring before storing results for FT.HYBRID in standalone."""
+        self._test_fail_timeout_before_store_impl([
+            'FT.HYBRID', 'hybrid_idx',
+            'SEARCH', '*',
+            'VSIM', '@embedding', '$BLOB',
+            'PARAMS', '2', 'BLOB', self.hybrid_query_vec
+        ])
+
+    def test_fail_timeout_after_store_hybrid(self):
+        """Test timeout occurring after storing results for FT.HYBRID in standalone."""
+        self._test_fail_timeout_after_store_impl([
+            'FT.HYBRID', 'hybrid_idx',
+            'SEARCH', '*',
+            'VSIM', '@embedding', '$BLOB',
+            'PARAMS', '2', 'BLOB', self.hybrid_query_vec
+        ])
 
     def test_no_timeout_cursor(self):
         """

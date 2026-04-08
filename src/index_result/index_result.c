@@ -11,7 +11,7 @@
 #include "rmalloc.h"
 #include <math.h>
 #include <sys/param.h>
-#include "src/util/arr.h"
+#include "util/arr.h"
 #include "value.h"
 
 void RSYieldableMetric_Concat(RSYieldableMetric **parent, RSYieldableMetric *child) {

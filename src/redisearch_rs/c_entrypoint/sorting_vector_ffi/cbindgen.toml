@@ -6,10 +6,51 @@ after_includes = """
 // Forward declaration of RSValue, which is only used as ptr in the sorting_vector module
 typedef struct RSValue RSValue;
 
-// Forward declaration of SortingVector, which is only used as ptr in the sorting_vector module
-typedef struct RSSortingVector RSSortingVector;
+// RSSortingVector is repr(transparent) in Rust over a ThinVec<RSValueFFI>.
+// On the stack it is a single pointer to a heap allocation with this layout:
+//   Header<u64> { len: u64, cap: u64 }  (16 bytes, no trailing padding)
+//   RSValue* values[len] (the data array)
+//
+// An empty RSSortingVector points to a static sentinel header (not null).
+typedef struct RSSortingVector {
+  void *header;
+} RSSortingVector;
+"""
+
+trailer = """
+#ifdef __cplusplus
+extern \"C\" {
+#endif // __cplusplus
+
+/**
+ * Returns the length of the sorting vector.
+ *
+ * Reads the `len` field (u64) from the ThinVec heap header.
+ */
+static inline size_t RSSortingVector_Length(const RSSortingVector *v) {
+  // len is at offset 0.
+  return *(const uint64_t *)v->header;
+}
+
+/**
+ * Gets a RSValue from the sorting vector at the given index.
+ *
+ * The caller must ensure that `idx < RSSortingVector_Length(v)`.
+ * Data starts immediately after the 16-byte Header<u64>.
+ */
+static inline RSValue *RSSortingVector_Get(const RSSortingVector *v, size_t idx) {
+  RSValue **data = (RSValue **)((const char *)v->header + 16);
+  return data[idx];
+}
+
+#ifdef __cplusplus
+}  // extern \"C\"
+#endif // __cplusplus
 """
 
 [parse]
 parse_deps = true
 include = []
+
+[export]
+exclude = ["RSSortingVector"]

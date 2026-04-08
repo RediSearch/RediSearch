@@ -18,8 +18,10 @@ on:
       coverage:
         type: boolean
         default: false
-      get-redis:
+      redis-ref:
+        description: 'Redis version to use (e.g. "7.2.3", "unstable")'
         type: string
+        required: true
       test-config:
         description: 'Test configuration environment variable (e.g. "CONFIG=tls" or "QUICK=1")'
         required: true
@@ -133,7 +135,7 @@ jobs:
 
   common-flow:
     needs: [get-config, build-image, start-runner]
-    name: Test ${{ needs.get-config.outputs.name }}, Redis ${{ inputs.get-redis || 'unstable' }}
+    name: Test ${{ needs.get-config.outputs.name }}, Redis ${{ inputs.redis-ref || 'unstable' }}
     # Run if get-config succeeded and at least one test type is enabled
     if: |
       !cancelled() &&
@@ -349,7 +351,7 @@ jobs:
       - name: Get Redis
         uses: ./.github/actions/get-redis
         with:
-          ref: ${{ inputs.get-redis }}
+          ref: ${{ inputs.redis-ref }}
           node20_supported: ${{ needs.get-config.outputs.node20_supported }}
 
       - name: Build Redis
@@ -368,7 +370,7 @@ jobs:
           COV_LABEL: ${{ inputs.coverage && 'coverage test' || '' }}
           PLATFORM: ${{ needs.get-config.outputs.container || needs.get-config.outputs.env }}
           ARCH: ${{ runner.arch }}
-          REDIS_VERSION: ${{ inputs.get-redis || 'unstable' }}
+          REDIS_VERSION: ${{ inputs.redis-ref || 'unstable' }}
         run:
           | # Invalid characters include: Double quote ", Colon :, Less than <, Greater than >, Vertical bar |, Asterisk *, Question mark ?
           UNIQUE_ID="$RANDOM$RANDOM"
@@ -379,7 +381,7 @@ jobs:
       - name: Build
         env:
           SAN: ${{ inputs.san }}
-          REDIS_VER: ${{ inputs.get-redis }}
+          REDIS_VER: ${{ inputs.redis-ref }}
           ENABLE_ASSERT: 1
         run: make build TESTS=1
       - name: Check disk space after build
@@ -515,13 +517,13 @@ jobs:
         # Upload artifacts only if node20 is supported and tests failed (including sanitizer failures)
         if: >
           needs.get-config.outputs.node20_supported == 'true' &&
-          failure() || (
+          (failure() || (
             (steps.rust_unit_tests_miri.outcome == 'failure') ||
             steps.rust_unit_tests.outcome == 'failure' ||
             steps.c_unit_tests.outcome == 'failure' ||
             steps.standalone_tests.outcome == 'failure' ||
             steps.coordinator_tests.outcome == 'failure'
-          )
+          ))
         uses: actions/upload-artifact@v4
         with:
           name: Test Logs ${{ steps.artifact-names.outputs.name }}
@@ -536,13 +538,13 @@ jobs:
       - name: Upload Artifacts (node20 not supported) (temporarily disabled)
         if: >
           needs.get-config.outputs.node20_supported != 'true' &&
-          failure() || (
+          (failure() || (
             (steps.rust_unit_tests_miri.outcome == 'failure') ||
             steps.rust_unit_tests.outcome == 'failure' ||
             steps.c_unit_tests.outcome == 'failure' ||
             steps.standalone_tests.outcome == 'failure' ||
             steps.coordinator_tests.outcome == 'failure'
-          )
+          ))
         run: echo "Currently not available..."
 
       - name: Fail flow if tests failed

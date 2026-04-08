@@ -291,8 +291,6 @@ int RSConfig_SetOption(RSConfig *config, RSConfigOptions *options, const char *n
 
 sds RSConfig_GetInfoString(const RSConfig *config);
 
-void RSConfig_AddToInfo(RedisModuleInfoCtx *ctx);
-
 void UpgradeDeprecatedMTConfigs();
 
 char *getRedisConfigValue(RedisModuleCtx *ctx, const char* confName);

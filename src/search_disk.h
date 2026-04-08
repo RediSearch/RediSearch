@@ -21,6 +21,9 @@ bool SearchDisk_HasAPI();
 __attribute__((weak))
  RedisSearchDiskAPI *SearchDisk_GetAPI();
 
+__attribute__((weak))
+void SearchDisk_SetAPI();
+
 extern RedisSearchDisk *disk_db;
 
 /**
@@ -76,12 +79,33 @@ RedisSearchDiskIndexSpec* SearchDisk_OpenIndex(RedisModuleCtx *ctx, const char *
 void SearchDisk_MarkIndexForDeletion(RedisSearchDiskIndexSpec *index);
 
 /**
+ * @brief Register an index's database with Redis BigModule APIs
+ *
+ * Must be called from the main thread with a valid RedisModuleCtx.
+ * Call this after SearchDisk_OpenIndex to register the database with Redis.
+ *
+ * @param ctx Redis module context (required, must be valid)
+ * @param index Pointer to the index to register
+ */
+void SearchDisk_RegisterIndex(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index);
+
+/**
+ * @brief Unregister an index's database from Redis BigModule APIs
+ *
+ * Must be called from the main thread with a valid RedisModuleCtx.
+ * Call this before SearchDisk_CloseIndex to unregister the database from Redis.
+ *
+ * @param ctx Redis module context (required, must be valid)
+ * @param index Pointer to the index to unregister
+ */
+void SearchDisk_UnregisterIndex(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index);
+
+/**
  * @brief Close an index, **Important** must be called once and only once for every index
  *
- * @param ctx Redis module context for BigModule APIs
  * @param index Pointer to the index to close
  */
-void SearchDisk_CloseIndex(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index);
+void SearchDisk_CloseIndex(RedisSearchDiskIndexSpec *index);
 
 /**
  * @brief Save the disk-related data of the index to the rdb file
@@ -161,15 +185,16 @@ bool SearchDisk_IndexTerm(RedisSearchDiskIndexSpec *index, const char *term, siz
 bool SearchDisk_IndexTags(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index, const char **values, size_t numValues, t_docId docId, t_fieldIndex fieldIndex);
 
 /**
- * @brief Delete a document by key, looking up its doc ID, removing it from the doc table and marking its ID as deleted
+ * @brief Delete a document by its doc ID directly, removing it from the doc table and marking its ID as deleted
+ *
+ * Used by the metadata unlink callback where the docId is already known.
  *
  * @param handle Handle to the document table
- * @param key Document key
- * @param keyLen Length of the document key
+ * @param docId Document ID to delete
  * @param oldLen Optional pointer to receive the old document length (can be NULL)
- * @param id Optional pointer to receive the deleted document ID (can be NULL)
+ * @return true if the document was found and deleted, false if not found
  */
-void SearchDisk_DeleteDocument(RedisSearchDiskIndexSpec *handle, const char *key, size_t keyLen, uint32_t *oldLen, t_docId *id);
+bool SearchDisk_DeleteDocumentById(RedisSearchDiskIndexSpec *handle, t_docId docId, uint32_t *oldLen);
 
 /**
  * @brief Run a GC compaction cycle on the disk index
@@ -243,9 +268,10 @@ QueryIterator* SearchDisk_NewWildcardIterator(RedisSearchDiskIndexSpec *index, d
  * @param totalFreq Total frequency of the document
  * @param oldLen Pointer to an integer to store the length of the deleted document
  * @param documentTtl Document expiration time (must be positive if Document_HasExpiration flag is set; must be 0 and is ignored if the flag is not set)
- * @return New document ID, or 0 on error or if the key already exists
+ * @param oldDocId Old document ID from DocIdMeta (0 if new document)
+ * @return New document ID, or 0 on error
  */
-t_docId SearchDisk_PutDocument(RedisSearchDiskIndexSpec *handle, const char *key, size_t keyLen, float score, uint32_t flags, uint32_t maxTermFreq, uint32_t totalFreq, uint32_t *oldLen, t_expirationTimePoint documentTtl);
+t_docId SearchDisk_PutDocument(RedisSearchDiskIndexSpec *handle, const char *key, size_t keyLen, float score, uint32_t flags, uint32_t maxTermFreq, uint32_t totalFreq, uint32_t *oldLen, t_expirationTimePoint documentTtl, t_docId oldDocId);
 
 /**
  * @brief Get document metadata by document ID
@@ -295,6 +321,21 @@ uint64_t SearchDisk_GetDeletedIdsCount(RedisSearchDiskIndexSpec *handle);
  * @return The number of IDs written to the buffer
  */
 size_t SearchDisk_GetDeletedIds(RedisSearchDiskIndexSpec *handle, t_docId *buffer, size_t buffer_size);
+
+/**
+ * @brief Replace the key name in document metadata for a given document ID
+ *
+ * Used when a Redis key is renamed - updates the document metadata to reflect
+ * the new key name while keeping the same document ID and all other metadata
+ * unchanged.
+ *
+ * @param handle Handle to the document table
+ * @param docId Document ID whose key should be replaced
+ * @param newKey New key name
+ * @param newKeyLen Length of the new key
+ * @return true if the document was found and updated, false if not found or on error
+ */
+bool SearchDisk_ReplaceKey(RedisSearchDiskIndexSpec *handle, t_docId docId, const char *newKey, size_t newKeyLen);
 
 // Async Read Pool API
 

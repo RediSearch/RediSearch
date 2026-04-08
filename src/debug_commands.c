@@ -33,10 +33,10 @@
 #include "reply_macros.h"
 #include "obfuscation/obfuscation_api.h"
 #include "info/info_command.h"
-#include "iterators/inverted_index_iterator.h"
 #include "search_disk.h"
 #include "ext/debug_scorers.h"
 #include "query_error.h"
+#include "doc_id_meta.h"
 
 DebugCTX globalDebugCtx = {0};
 
@@ -234,6 +234,35 @@ void SyncPoint_Wait(const char *name) {
     usleep(1000);  // Spin-wait with 1ms sleep (matches existing pattern)
   }
   atomic_fetch_sub(&sp->waiting, 1);  // Decrement waiting counter
+}
+
+// Global hybrid store cursors debug context (for HREQ cursor storage only)
+static HybridStoreCursorsDebugCtx globalHybridStoreCursorsDebugCtx = {0};
+
+bool HybridStoreCursorsDebugCtx_IsPauseBeforeEnabled(void) {
+  return atomic_load(&globalHybridStoreCursorsDebugCtx.pauseBeforeEnabled);
+}
+
+void HybridStoreCursorsDebugCtx_SetPauseBeforeEnabled(bool enabled) {
+  atomic_store(&globalHybridStoreCursorsDebugCtx.pauseBeforeEnabled, enabled);
+  atomic_store(&globalHybridStoreCursorsDebugCtx.pause, false);
+}
+
+bool HybridStoreCursorsDebugCtx_IsPauseAfterEnabled(void) {
+  return atomic_load(&globalHybridStoreCursorsDebugCtx.pauseAfterEnabled);
+}
+
+void HybridStoreCursorsDebugCtx_SetPauseAfterEnabled(bool enabled) {
+  atomic_store(&globalHybridStoreCursorsDebugCtx.pauseAfterEnabled, enabled);
+  atomic_store(&globalHybridStoreCursorsDebugCtx.pause, false);
+}
+
+bool HybridStoreCursorsDebugCtx_IsPaused(void) {
+  return atomic_load(&globalHybridStoreCursorsDebugCtx.pause);
+}
+
+void HybridStoreCursorsDebugCtx_SetPause(bool pause) {
+  atomic_store(&globalHybridStoreCursorsDebugCtx.pause, pause);
 }
 #endif
 
@@ -587,8 +616,8 @@ DEBUG_COMMAND(SpecInvertedIndexesInfo) {
   }
   GET_SEARCH_CTX(argv[2])
   START_POSTPONED_LEN_ARRAY(specInvertedIndexesInfo);
-	REPLY_WITH_LONG_LONG("inverted_indexes_dict_size", dictSize(sctx->spec->keysDict), ARRAY_LEN_VAR(specInvertedIndexesInfo));
-	REPLY_WITH_LONG_LONG("inverted_indexes_memory", sctx->spec->stats.invertedSize, ARRAY_LEN_VAR(specInvertedIndexesInfo));
+  REPLY_WITH_LONG_LONG("inverted_indexes_dict_size", dictSize(sctx->spec->keysDict), ARRAY_LEN_VAR(specInvertedIndexesInfo));
+  REPLY_WITH_LONG_LONG("inverted_indexes_memory", sctx->spec->stats.invertedSize, ARRAY_LEN_VAR(specInvertedIndexesInfo));
   END_POSTPONED_LEN_ARRAY(specInvertedIndexesInfo);
 
   SearchCtx_Free(sctx);
@@ -727,6 +756,18 @@ end:
   return REDISMODULE_OK;
 }
 
+static t_docId getDocIdFromKey(RedisModuleCtx *ctx, const IndexSpec *spec, RedisModuleString *key) {
+  if (!SearchDisk_IsEnabled()) {
+    return DocTable_GetIdR(&spec->docs, key);
+  } else {
+    uint64_t metaDocId;
+    if (DocIdMeta_Get(ctx, key, spec->specId, &metaDocId) == REDISMODULE_OK) {
+      return metaDocId;
+    }
+    return 0;
+  }
+}
+
 DEBUG_COMMAND(IdToDocId) {
   long long id;
   const RSDocumentMetadata *doc;
@@ -762,12 +803,10 @@ DEBUG_COMMAND(DocIdToId) {
     return RedisModule_WrongArity(ctx);
   }
   GET_SEARCH_CTX(argv[2])
-  size_t n;
-  const char *key = RedisModule_StringPtrLen(argv[3], &n);
-  t_docId id = DocTable_GetId(&sctx->spec->docs, key, n);
-  RedisModule_ReplyWithLongLong(sctx->redisCtx, id);
+  t_docId docId = getDocIdFromKey(sctx->redisCtx, sctx->spec, argv[3]);
   SearchCtx_Free(sctx);
-  return REDISMODULE_OK;
+
+  return RedisModule_ReplyWithLongLong(ctx, docId);
 }
 
 DEBUG_COMMAND(DumpPhoneticHash) {
@@ -1307,7 +1346,7 @@ static void replyDocFlags(const char *name, const RSDocumentMetadata *dmd, Redis
 
 static void replySortVector(const char *name, const RSDocumentMetadata *dmd,
                             RedisSearchCtx *sctx, bool obfuscate, RedisModule_Reply *reply) {
-  RSSortingVector *sv = dmd->sortVector;
+  const RSSortingVector *sv = &dmd->sortVector;
   RedisModule_ReplyKV_Array(reply, name);
   for (size_t ii = 0; ii < RSSortingVector_Length(sv); ++ii) {
     if (!RSSortingVector_Get(sv, ii)) {
@@ -1352,7 +1391,22 @@ DEBUG_COMMAND(DocInfo) {
   }
   GET_SEARCH_CTX(argv[2]);
 
-  const RSDocumentMetadata *dmd = DocTable_BorrowByKeyR(&sctx->spec->docs, argv[3]);
+  const RSDocumentMetadata *dmd = NULL;
+  if (SearchDisk_IsEnabled()) {
+    uint64_t docId;
+    if (DocIdMeta_Get(ctx, argv[3], sctx->spec->specId, &docId) == REDISMODULE_OK) {
+      RSDocumentMetadata *dmd_disk = rm_calloc(1, sizeof(RSDocumentMetadata));
+      dmd_disk->sortVector = RSSortingVector_Empty();
+      dmd_disk->ref_count = 1;
+      if (SearchDisk_GetDocumentMetadata(sctx->spec->diskSpec, docId, dmd_disk, NULL)) {
+        dmd = dmd_disk;
+      } else {
+        DMD_Return(dmd_disk);
+      }
+    }
+  } else {
+    dmd = DocTable_BorrowByKeyR(&sctx->spec->docs, argv[3]);
+  }
   if (!dmd) {
     SearchCtx_Free(sctx);
     return RedisModule_ReplyWithError(ctx, "Document not found in index");
@@ -1362,6 +1416,7 @@ DEBUG_COMMAND(DocInfo) {
   const bool reveal = !strcasecmp(obfuscateOrReveal, "REVEAL");
   const bool obfuscate = !strcasecmp(obfuscateOrReveal, "OBFUSCATE");
   if (!reveal && !obfuscate) {
+    DMD_Return(dmd);
     SearchCtx_Free(sctx);
     return RedisModule_ReplyWithError(ctx, "Invalid argument. Expected REVEAL or OBFUSCATE as the last argument");
   }
@@ -1374,7 +1429,7 @@ DEBUG_COMMAND(DocInfo) {
     RedisModule_ReplyKV_LongLong(reply, "num_tokens", dmd->docLen);
     RedisModule_ReplyKV_LongLong(reply, "max_freq", dmd->maxTermFreq);
     RedisModule_ReplyKV_LongLong(reply, "refcount", dmd->ref_count - 1); // TODO: should include the refcount of the command call?
-    if (dmd->sortVector) {
+    if (RSSortingVector_Length(&dmd->sortVector)) {
       replySortVector("sortables", dmd, sctx, obfuscate, reply);
     }
   RedisModule_Reply_MapEnd(reply);
@@ -1465,29 +1520,29 @@ DEBUG_COMMAND(DeleteCursors) {
 }
 
 void replyDumpHNSW(RedisModuleCtx *ctx, VecSimIndex *index, t_docId doc_id) {
-	int **neighbours_data = NULL;
-	VecSimDebugCommandCode res = VecSimDebug_GetElementNeighborsInHNSWGraph(index, doc_id, &neighbours_data);
-	RedisModule_Reply reply = RedisModule_NewReply(ctx);
-	if (res == VecSimDebugCommandCode_LabelNotExists){
-		RedisModule_Reply_Stringf(&reply, "Doc id %d doesn't contain the given field", doc_id);
-		RedisModule_EndReply(&reply);
-		return;
-	}
-	START_POSTPONED_LEN_ARRAY(response);
-	REPLY_WITH_LONG_LONG("Doc id", (long long)doc_id, ARRAY_LEN_VAR(response));
+  int **neighbours_data = NULL;
+  VecSimDebugCommandCode res = VecSimDebug_GetElementNeighborsInHNSWGraph(index, doc_id, &neighbours_data);
+  RedisModule_Reply reply = RedisModule_NewReply(ctx);
+  if (res == VecSimDebugCommandCode_LabelNotExists){
+    RedisModule_Reply_Stringf(&reply, "Doc id %d doesn't contain the given field", doc_id);
+    RedisModule_EndReply(&reply);
+    return;
+  }
+  START_POSTPONED_LEN_ARRAY(response);
+  REPLY_WITH_LONG_LONG("Doc id", (long long)doc_id, ARRAY_LEN_VAR(response));
 
-	size_t level = 0;
-	while (neighbours_data[level]) {
-		RedisModule_ReplyWithArray(ctx, neighbours_data[level][0] + 1);
-		RedisModule_Reply_Stringf(&reply, "Neighbors in level %d", level);
-		for (size_t i = 0; i < neighbours_data[level][0]; i++) {
-			RedisModule_ReplyWithLongLong(ctx, neighbours_data[level][i + 1]);
-		}
+  size_t level = 0;
+  while (neighbours_data[level]) {
+    RedisModule_ReplyWithArray(ctx, neighbours_data[level][0] + 1);
+    RedisModule_Reply_Stringf(&reply, "Neighbors in level %d", level);
+    for (size_t i = 0; i < neighbours_data[level][0]; i++) {
+      RedisModule_ReplyWithLongLong(ctx, neighbours_data[level][i + 1]);
+    }
     level++; ARRAY_LEN_VAR(response)++;
-	}
-	END_POSTPONED_LEN_ARRAY(response);
-	VecSimDebug_ReleaseElementNeighborsInHNSWGraph(neighbours_data);
-	RedisModule_EndReply(&reply);
+  }
+  END_POSTPONED_LEN_ARRAY(response);
+  VecSimDebug_ReleaseElementNeighborsInHNSWGraph(neighbours_data);
+  RedisModule_EndReply(&reply);
 }
 
 DEBUG_COMMAND(dumpHNSWData) {
@@ -1502,12 +1557,15 @@ DEBUG_COMMAND(dumpHNSWData) {
   if (argc < 4 || argc > 5) { // it should be 4 or 5 (allowing specifying a certain doc)
     return RedisModule_WrongArity(ctx);
   }
+  if (SearchDisk_IsEnabled()) {
+    return RedisModule_ReplyWithError(ctx, "Command not supported in disk mode");
+  }
   GET_SEARCH_CTX(argv[2])
 
   fs = getFieldByNameAndType(sctx->spec, argv[3], INDEXFLD_T_VECTOR);
   if (!fs) {
     RedisModule_ReplyWithError(ctx, "Vector index not found");
-	  goto cleanup;
+    goto cleanup;
   }
   // This call can't fail, since we already checked that the key exists
   // (or should exist, and this call will create it).
@@ -1521,24 +1579,22 @@ DEBUG_COMMAND(dumpHNSWData) {
 
   info = VecSimIndex_BasicInfo(vecsimIndex);
   if (info.algo != VecSimAlgo_HNSWLIB) {
-	  RedisModule_ReplyWithError(ctx, "Vector index is not an HNSW index");
-	  goto cleanup;
+    RedisModule_ReplyWithError(ctx, "Vector index is not an HNSW index");
+    goto cleanup;
   }
   if (info.isMulti) {
-	  RedisModule_ReplyWithError(ctx, "Command not supported for HNSW multi-value index");
-	  goto cleanup;
+    RedisModule_ReplyWithError(ctx, "Command not supported for HNSW multi-value index");
+    goto cleanup;
   }
 
   if (argc == 5) {  // we want the neighbors of a specific vector only
-	  size_t key_len;
-	  const char *key_name = RedisModule_StringPtrLen(argv[4], &key_len);
-	  t_docId doc_id = DocTable_GetId(&sctx->spec->docs, key_name, key_len);
-	  if (doc_id == 0) {
-		  RedisModule_ReplyWithError(ctx, "The given key does not exist in index");
-		  goto cleanup;
-	  }
-	  replyDumpHNSW(ctx, vecsimIndex, doc_id);
-	  goto cleanup;
+    t_docId doc_id = getDocIdFromKey(ctx, sctx->spec, argv[4]);
+    if (doc_id == 0) {
+      RedisModule_ReplyWithError(ctx, "The given key does not exist in index");
+      goto cleanup;
+    }
+    replyDumpHNSW(ctx, vecsimIndex, doc_id);
+    goto cleanup;
   }
   // Otherwise, dump neighbors for every document in the index.
   RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
@@ -2288,6 +2344,86 @@ DEBUG_COMMAND(setStoreResultsResume) {
 
   return RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
+
+/**
+ * FT.DEBUG QUERY_CONTROLLER SET_PAUSE_BEFORE_HYBRID_STORE_CURSORS <true/false>
+ */
+DEBUG_COMMAND(setPauseBeforeHybridStoreCursors) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc != 3) {
+    return RedisModule_WrongArity(ctx);
+  }
+  const char *op = RedisModule_StringPtrLen(argv[2], NULL);
+
+  if (!strcasecmp(op, "true")) {
+    HybridStoreCursorsDebugCtx_SetPauseBeforeEnabled(true);
+  } else if (!strcasecmp(op, "false")) {
+    HybridStoreCursorsDebugCtx_SetPauseBeforeEnabled(false);
+  } else {
+    return RedisModule_ReplyWithError(ctx, "Invalid argument");
+  }
+
+  return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
+
+/**
+ * FT.DEBUG QUERY_CONTROLLER SET_PAUSE_AFTER_HYBRID_STORE_CURSORS <true/false>
+ */
+DEBUG_COMMAND(setPauseAfterHybridStoreCursors) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc != 3) {
+    return RedisModule_WrongArity(ctx);
+  }
+  const char *op = RedisModule_StringPtrLen(argv[2], NULL);
+
+  if (!strcasecmp(op, "true")) {
+    HybridStoreCursorsDebugCtx_SetPauseAfterEnabled(true);
+  } else if (!strcasecmp(op, "false")) {
+    HybridStoreCursorsDebugCtx_SetPauseAfterEnabled(false);
+  } else {
+    return RedisModule_ReplyWithError(ctx, "Invalid argument");
+  }
+
+  return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
+
+/**
+ * FT.DEBUG QUERY_CONTROLLER GET_IS_HYBRID_STORE_CURSORS_PAUSED
+ */
+DEBUG_COMMAND(getIsHybridStoreCursorsPaused) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc != 2) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  return RedisModule_ReplyWithBool(ctx, HybridStoreCursorsDebugCtx_IsPaused());
+}
+
+/**
+ * FT.DEBUG QUERY_CONTROLLER SET_HYBRID_STORE_CURSORS_RESUME
+ */
+DEBUG_COMMAND(setHybridStoreCursorsResume) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc != 2) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  if (!HybridStoreCursorsDebugCtx_IsPaused()) {
+    return RedisModule_ReplyWithError(ctx, "Hybrid store cursors is not paused");
+  }
+
+  HybridStoreCursorsDebugCtx_SetPause(false);
+
+  return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
 #endif
 
 /**
@@ -2434,6 +2570,18 @@ DEBUG_COMMAND(queryController) {
   }
   if (!strcmp("SET_STORE_RESULTS_RESUME", op)) {
     return setStoreResultsResume(ctx, argv + 1, argc - 1);
+  }
+  if (!strcmp("SET_PAUSE_BEFORE_HYBRID_STORE_CURSORS", op)) {
+    return setPauseBeforeHybridStoreCursors(ctx, argv + 1, argc - 1);
+  }
+  if (!strcmp("SET_PAUSE_AFTER_HYBRID_STORE_CURSORS", op)) {
+    return setPauseAfterHybridStoreCursors(ctx, argv + 1, argc - 1);
+  }
+  if (!strcmp("GET_IS_HYBRID_STORE_CURSORS_PAUSED", op)) {
+    return getIsHybridStoreCursorsPaused(ctx, argv + 1, argc - 1);
+  }
+  if (!strcmp("SET_HYBRID_STORE_CURSORS_RESUME", op)) {
+    return setHybridStoreCursorsResume(ctx, argv + 1, argc - 1);
   }
 #endif
   return RedisModule_ReplyWithError(ctx, "Invalid command for 'QUERY_CONTROLLER'");

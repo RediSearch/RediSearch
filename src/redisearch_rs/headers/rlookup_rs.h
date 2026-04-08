@@ -17,6 +17,9 @@ typedef uint32_t RLookupOptions;
 // Forward declaration of RSValue, which is only used as ptr in the sorting_vector module
 typedef struct RSValue RSValue;
 
+// Forward declaration of SearchResult, defined in search_result_rs.h
+typedef struct SearchResult SearchResult;
+
 // Required to ensure that the alignment declared by cbindgen is respected on
 // the C/C++ side.
 #define ALIGNED(n) __attribute__((aligned(n)))
@@ -110,26 +113,12 @@ enum RLookup_Opt
 typedef uint32_t RLookup_Opt;
 #endif // __cplusplus
 
-typedef struct IndexSpecCache IndexSpecCache;
-
 /**
  * An append-only list of [`RLookupKey`]s.
  *
  * This type maintains a mapping from string names to [`RLookupKey`]s.
  */
 typedef struct RLookup RLookup;
-
-/**
- * [`RSSortingVector`] acts as a cache for sortable fields in a document.
- *
- * It has a constant length, determined upfront on creation. It can't be resized.
- * The [`RSSortingVector`] may contain values of different types, such as numbers, strings, or references to other values.
- * This depends on the fields in the source document.
- *
- * The fields in the sorting vector occur in the same order as they appeared in the document. Fields that are not sortable,
- * are not added at all to the sorting vector, i.e. the sorting vector does not contain null values for non-sortable fields.
- */
-typedef struct RSSortingVector RSSortingVector;
 
 /**
  * A type with size `N`.
@@ -185,13 +174,18 @@ typedef struct RLookupKey {
 } RLookupKey;
 
 /**
+ * A type with size `N`.
+ */
+typedef uint8_t Size_24[24];
+
+/**
  * An opaque lookup row which can be passed by value to C.
  *
  * The size and alignment of this struct must match the Rust `RLookupRow`
  * structure exactly.
  */
 typedef struct ALIGNED(8) RLookupRow {
-  Size_40 _0;
+  Size_24 _0;
 } RLookupRow;
 
 /**
@@ -207,6 +201,34 @@ typedef struct RLookupIterator {
 typedef struct RLookupIteratorMut {
   struct RLookupKey *current;
 } RLookupIteratorMut;
+
+/**
+ * [RSValueFFI] is a wrapper around the C struct `RSValue` implement as new-type over a [std::ptr::NonNull<ffi::RSValue>].
+ *
+ * It implements the [`Clone`] and [`Drop`] traits to manage the reference counting of the underlying C struct.
+ *
+ * Safety:
+ * 1. The pointer must be a valid pointer to an `RSValue` created by the C side.
+ */
+typedef RSValue *RSValueFFI;
+
+/**
+ * A read-only view of a sorting vector's values, returned by value to C.
+ *
+ * Layout-compatible with [`sorting_vector::RSSortingVector`] but uses `*const` values
+ * since this is a borrowed, non-owning view.
+ */
+typedef struct RSSortingVectorSlice {
+  /**
+   * Pointer to the array of [`RSValueFFI`] values.
+   * When `len == 0` this is a dangling pointer — **not** null. Callers must check `len`.
+   */
+  const RSValueFFI *values;
+  /**
+   * Number of elements in the array. Zero means no sorting vector is set.
+   */
+  size_t len;
+} RSSortingVectorSlice;
 
 #ifdef __cplusplus
 extern "C" {
@@ -494,7 +516,7 @@ struct RLookup RLookup_New(void);
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 void RLookup_SetCache(struct RLookup *lookup,
-                      struct IndexSpecCache *spcache);
+                      IndexSpecCache *spcache);
 
 /**
  * Returns `true` if this `RLookup` has an associated [`IndexSpecCache`].
@@ -575,6 +597,8 @@ struct RLookupIterator RLookup_Iter(const struct RLookup *lookup);
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 struct RLookupIteratorMut RLookup_IterMut(struct RLookup *lookup);
+
+extern int RSValue_Cmp(const RSValue *v1, const RSValue *v2, QueryError *status);
 
 /**
  * Returns a newly created [`RLookupRow`].
@@ -757,7 +781,10 @@ void RLookupRow_WriteFieldsFrom(const struct RLookupRow *src_row,
 RSValue *RLookupRow_Get(const struct RLookupKey *key, const struct RLookupRow *row);
 
 /**
- * Returns the sorting vector for the row, or null if none exists.
+ * Returns a borrowed view of the sorting vector for the row.
+ *
+ * If the row has no sorting vector, returns a slice with `len == 0` and a dangling `values`
+ * pointer. Callers must check `len`, not `values`, to detect the empty case.
  *
  * # Safety
  *
@@ -765,7 +792,7 @@ RSValue *RLookupRow_Get(const struct RLookupKey *key, const struct RLookupRow *r
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-const struct RSSortingVector *RLookupRow_GetSortingVector(const struct RLookupRow *row);
+struct RSSortingVectorSlice RLookupRow_GetSortingVector(const struct RLookupRow *row);
 
 /**
  * Sets the sorting vector for the row.
@@ -773,12 +800,35 @@ const struct RSSortingVector *RLookupRow_GetSortingVector(const struct RLookupRo
  * # Safety
  *
  * 1. `row` must be a [valid], non-null pointer to an [`RLookupRow`].
- * 2. `sv` must be either null or a [valid], non-null pointer to an [`sorting_vector::RSSortingVector`].
+ * 2. `sv` must be either null or a [valid] pointer to an [`sorting_vector::RSSortingVector`].
+ *    The pointed-to vector must remain valid for the lifetime of the row.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-void RLookupRow_SetSortingVector(struct RLookupRow *row,
-                                 const struct RSSortingVector *sv);
+void RLookupRow_SetSortingVector(struct RLookupRow *row, const RSSortingVector *sv);
+
+/**
+ * Compares two search results by the given sort keys, returning a negative, zero, or positive
+ * value.
+ *
+ * The comparison loop runs entirely in Rust, avoiding per-key FFI crossings for value lookups.
+ * Row fields are accessed directly per-key (like the original C implementation) to minimize
+ * stack usage and register pressure.
+ *
+ * When all fields are equal, breaks the tie by document ID using the last key's ascending flag.
+ *
+ * # Safety
+ *
+ * 1. `keys` must point to an array of at least `nkeys` valid, non-null `RLookupKey` pointers.
+ * 2. `h1` and `h2` must be valid, non-null pointers to a `SearchResult`.
+ * 3. `qerr`, when non-null, must be a valid, writable pointer to a `QueryError`.
+ */
+int SearchResult_CmpByFields(const struct RLookupKey *const *keys,
+                             size_t nkeys,
+                             const SearchResult *h1,
+                             const SearchResult *h2,
+                             uint64_t ascend_map,
+                             QueryError *qerr);
 
 #ifdef __cplusplus
 }  // extern "C"

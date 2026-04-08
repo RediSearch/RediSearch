@@ -13,7 +13,10 @@ use ffi::t_docId;
 use inverted_index::RSIndexResult;
 use std::cmp::Ordering;
 
-use crate::{RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome, utils::OwnedSlice};
+use crate::{
+    IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
+    utils::OwnedSlice,
+};
 
 /// An iterator that yields results according to a sorted list of unique IDs, specified on construction.
 pub type IdListSorted<'index> = IdList<'index, true>;
@@ -113,6 +116,10 @@ impl<'index, const SORTED: bool> IdList<'index, SORTED> {
         {
             // The iterator has been advanced past the end of the ID list.
             self.offset = len;
+            // Update result.doc_id to the last element in the list
+            if len > 0 {
+                self.result.doc_id = self.ids[len - 1];
+            }
             return None;
         }
 
@@ -225,10 +232,7 @@ impl<'index, const SORTED_BY_ID: bool> RQEIterator<'index> for IdList<'index, SO
 
     #[inline(always)]
     fn last_doc_id(&self) -> t_docId {
-        match self.offset {
-            0 => 0,
-            _ => self.ids[self.offset - 1],
-        }
+        self.result.doc_id
     }
 
     #[inline(always)]
@@ -239,5 +243,14 @@ impl<'index, const SORTED_BY_ID: bool> RQEIterator<'index> for IdList<'index, SO
     #[inline(always)]
     fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         Ok(RQEValidateStatus::Ok)
+    }
+
+    #[inline(always)]
+    fn type_(&self) -> IteratorType {
+        if SORTED_BY_ID {
+            IteratorType::IdListSorted
+        } else {
+            IteratorType::IdListUnsorted
+        }
     }
 }

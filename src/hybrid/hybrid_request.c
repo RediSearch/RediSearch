@@ -79,11 +79,18 @@ int HybridRequest_BuildDepletionPipeline(HybridRequest *req, const HybridPipelin
           RedisSearchCtx *depletingThread = AREQ_SearchCtx(areq); // when constructing the AREQ a new context should have been created
           ResultProcessor *depleter = RPSafeDepleter_New(StrongRef_Clone(sync_ref), depletingThread, nextThread);
           QITR_PushRP(qctx, depleter);
-          if (isProfile) {
-            // Wrap the depleter with a Profile RP to match the expected end processor type
-            ResultProcessor *profileRP = RPProfile_New(qctx->endProc, qctx);
-            QITR_PushRP(qctx, profileRP);
-          }
+        } else {
+          // Create a depleter processor for foreground depletion (WORKERS == 0)
+          // This depletes all results synchronously on the main thread while
+          // the spec lock is held, preventing crashes when the index is
+          // modified between cursor creation and first read.
+          ResultProcessor *depleter = RPDepleter_New();
+          QITR_PushRP(qctx, depleter);
+        }
+        if (isProfile) {
+          // Wrap the depleter with a Profile RP to match the expected end processor type
+          ResultProcessor *profileRP = RPProfile_New(qctx->endProc, qctx);
+          QITR_PushRP(qctx, profileRP);
         }
     }
     if (depleteInBackground) {
@@ -120,19 +127,21 @@ void HybridRequest_SynchronizeLookupKeys(HybridRequest *req) {
 int HybridRequest_BuildMergePipeline(HybridRequest *req, const RLookupKey *scoreKey, HybridPipelineParams *params) {
     // Array to collect upstream from each individual request pipeline
     arrayof(ResultProcessor*) upstreams = array_new(ResultProcessor *, req->nrequests);
-    const ResultProcessorType expected = IsProfile(req) ? RP_PROFILE : RP_SAFE_LOADER;
     for (size_t i = 0; i < req->nrequests; i++) {
         AREQ *areq = req->requests[i];
-        if (IsProfile(req) && areq->pipeline.qctx.endProc->type != expected) {
+        // In profile mode, the end processor must be RP_PROFILE (which wraps the depleter)
+        if (IsProfile(req) && areq->pipeline.qctx.endProc->type != RP_PROFILE) {
             QueryError_SetWithoutUserDataFmt(
                 &req->tailPipelineError,
                 QUERY_ERROR_CODE_GENERIC,
                 "Expected %s processor at end of pipeline, found %s",
-                RPTypeToString(expected),
+                RPTypeToString(RP_PROFILE),
                 RPTypeToString(areq->pipeline.qctx.endProc->type));
             array_free(upstreams);
             return REDISMODULE_ERR;
         }
+        // In non-profile mode, the end processor is either RP_SAFE_DEPLETER (background)
+        // or RP_DEPLETER (foreground). Both implement the same Next interface.
         array_ensure_append_1(upstreams, areq->pipeline.qctx.endProc);
     }
 
@@ -234,6 +243,7 @@ void HybridRequest_Init(HybridRequest *hybridReq, RedisSearchCtx *sctx, AREQ **r
 
     // Initialize timeout coordination fields
     RequestSyncCtx_Init(&hybridReq->syncCtx);
+    pthread_mutex_init(&hybridReq->cursorMutex, NULL);
     hybridReq->storedReplyState.err = QueryError_Default();
 }
 
@@ -278,6 +288,10 @@ void HybridRequest_InitArgsCursor(HybridRequest *req, ArgsCursor *ac, RedisModul
  */
 static void HybridRequest_Free(HybridRequest *req) {
     if (!req) return;
+
+    // Cursors should have been freed by the timeout callback or reply callback.
+    // If we reach here with cursors still set, it indicates a bug in the cleanup logic.
+    RS_ASSERT(req->cursors == NULL);
 
     // Free all individual AREQ requests and their pipelines
     for (size_t i = 0; i < req->nrequests; i++) {
@@ -328,6 +342,9 @@ static void HybridRequest_Free(HybridRequest *req) {
 
     // Clean up storedReplyState
     ChunkReplyState_Destroy(&req->storedReplyState);
+
+    // Destroy the cursor mutex
+    pthread_mutex_destroy(&req->cursorMutex);
 
     if (req->args) {
       for (size_t ii = 0; ii < req->nargs; ++ii) {
