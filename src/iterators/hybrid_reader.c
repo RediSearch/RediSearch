@@ -6,12 +6,24 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#include <math.h>
+#include <math.h>                       // for INFINITY, isnan
+#include <string.h>                     // for size_t, NULL, memcpy
+#include <sys/param.h>                  // for MIN
+
 #include "hybrid_reader.h"
-#include "VecSim/vec_sim.h"
-#include "VecSim/query_results.h"
-#include "iterators_rs.h"
-#include "query.h"
+#include "VecSim/vec_sim.h"             // for VecSimIndex_IndexSize, ...
+#include "VecSim/query_results.h"       // for VecSimQueryReply_Free, ...
+#include "iterators_rs.h"               // for IsWildcardIterator
+#include "query.h"                      // for RLookupKeyHandle
+#include "doc_table.h"
+#include "index_result/index_result.h"  // for ResultMetrics_Add, ...
+#include "iterator_type.h"              // for EMPTY_ITERATOR, HYBRID_ITERATOR
+#include "redisearch.h"                 // for RSYieldableMetric, ...
+#include "rmalloc.h"                    // for rm_free, rm_malloc, rm_new
+#include "rmutil/rm_assert.h"           // for RS_ASSERT
+#include "spec.h"                       // for IndexSpec
+#include "util/arr/arr.h"               // for array_len
+#include "value/value.h"                // for RSValue_NewNumber, ...
 
 #define VECTOR_SCORE(p) (p->data.tag == RSResultData_Metric ? IndexResult_NumValue(p) : IndexResult_NumValue(AggregateResult_GetUnchecked(IndexResult_AggregateRefUnchecked(p), 0)))
 

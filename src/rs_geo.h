@@ -8,8 +8,13 @@
 */
 #pragma once
 
+#include <stdbool.h>          // for bool
+#include <stddef.h>           // for size_t
+
 #include "geohash/geohash_helper.h"
 #include "geo_index.h"
+#include "geohash/geohash.h"  // for GeoHashRange
+#include "query_error.h"      // for QueryError
 
 #define GEO_RANGE_COUNT 9
 

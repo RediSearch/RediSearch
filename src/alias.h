@@ -10,7 +10,10 @@
 #define ALIAS_H
 
 #include "redismodule.h"
-#include "spec.h"
+#include "spec.h"                // for IndexSpec
+#include "obfuscation/hidden.h"  // for HiddenString
+#include "query_error.h"         // for QueryError
+#include "util/references.h"     // for StrongRef
 
 #ifdef __cplusplus
 extern "C" {

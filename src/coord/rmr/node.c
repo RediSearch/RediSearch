@@ -6,9 +6,10 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#include <string.h>
+#include <strings.h>       // for strcasecmp
 
 #include "node.h"
+#include "rmr/endpoint.h"  // for MREndpoint
 
 /* Return 1 both nodes have the same host */
 int MRNode_IsSameHost(MRClusterNode *n, MRClusterNode *other) {

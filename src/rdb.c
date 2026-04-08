@@ -6,9 +6,15 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#include "spec.h"
-#include "alias.h"
+#include <stdbool.h>         // for false
+#include <stddef.h>          // for NULL
+
+#include "spec.h"            // for specDict_g, specIdDict_g, Indexes_Free
+#include "alias.h"           // for AliasTable_g, IndexAlias_DestroyGlobal
 #include "rdb.h"
+#include "rules.h"           // for SchemaPrefixes_g, SchemaPrefixes_Free
+#include "triemap.h"         // for TrieMap
+#include "util/dict/dict.h"  // for dict, dictCreate, dictRelease, ...
 
 dict *specDict_g_bkup;
 dict *specIdDict_g_bkup;

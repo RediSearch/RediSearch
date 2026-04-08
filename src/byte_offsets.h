@@ -9,9 +9,14 @@
 #ifndef BYTE_OFFSETS_H
 #define BYTE_OFFSETS_H
 
+#include <stddef.h>    // for NULL, size_t
+#include <stdint.h>    // for uint32_t, uint16_t, uint8_t
+
 #include "redisearch.h"
-#include "varint.h"
+#include "varint.h"    // for NewVarintVectorWriter, VVW_Free, VVW_Write
 #include "rmalloc.h"
+#include "buffer.h"    // for Buffer, BufferReader
+#include "types_rs.h"  // for RSOffsetVector
 
 typedef struct __attribute__((packed)) RSByteOffsetMap {
   // ID this belongs to.

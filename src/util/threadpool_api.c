@@ -8,8 +8,12 @@
 */
 
 #include "threadpool_api.h"
-#include "rmalloc.h"
-#include "spec.h"
+
+#include "rmalloc.h"          // for rm_free, rm_new
+#include "spec.h"             // for IndexSpecRef_Promote, IndexSpecRef_Release
+#include "redismodule.h"      // for REDISMODULE_ERR, REDISMODULE_OK
+#include "thpool/thpool.h"    // for redisearch_thpool_work_t, ...
+#include "util/references.h"  // for WeakRef_Release, StrongRef_Get, ...
 
 static void ThreadPoolAPI_Execute(void *ctx) {
   ThreadPoolAPI_AsyncIndexJob *job = ctx;

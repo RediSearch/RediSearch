@@ -7,20 +7,35 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "vector_index.h"
-#include "VecSim/query_results.h"
-#include "iterators/hybrid_reader.h"
-#include "iterators_rs.h"
-#include "query_param.h"
-#include "rdb.h"
-#include "util/workers_pool.h"
-#include "util/threadpool_api.h"
-#include "redis_index.h"
-#include "search_disk.h"
 
-#include <string.h>
+#include <string.h>                   // for NULL, size_t
+#include <features.h>                 // for __GLIBC__
+#include <stdint.h>                   // for int32_t, int64_t, int8_t, uint8_t
+#include <stdio.h>                    // for snprintf
+#include <strings.h>                  // for strcasecmp
+
+#include "VecSim/query_results.h"     // for VecSimQueryReply_Free, ...
+#include "iterators/hybrid_reader.h"  // for NewHybridVectorIterator, ...
+#include "iterators_rs.h"             // for NewMetricIteratorSortedById
+#include "query_param.h"              // for QueryParam_Resolve
+#include "rdb.h"                      // for LoadUnsigned_IOError, ...
+#include "util/workers_pool.h"        // for _workers_thpool
+#include "util/threadpool_api.h"      // for ThreadPoolAPI_SubmitIndexJobs
+#include "redis_index.h"              // for DONT_CREATE_INDEX
+#include "search_disk.h"              // for SearchDisk_CreateVectorIndex
+#include "config.h"                   // for MAX_KNN_K, RSConfig, ...
+#include "param.h"                    // for Param_DictGet, Param
+#include "redisearch.h"               // for t_docId
+#include "rmalloc.h"                  // for rm_free, rm_malloc, rm_asprintf
+#include "rmutil/rm_assert.h"         // for RS_ASSERT, RSDummyContext, ...
+#include "search_ctx.h"               // for RedisSearchCtx, SearchTime, ...
+#include "search_options.h"           // for RSSearchOptions, ...
+#include "spec.h"                     // for IndexSpec, ...
+#include "types_rs.h"                 // for FieldMaskOrIndex_Index, ...
+#include "util/arr/arr.h"             // for array_len, array_free
+#include "util/timeout.h"             // for TimeoutCtx
 
 #if defined(__x86_64__) && defined(__GLIBC__)
-#include <cpuid.h>
 #define CPUID_AVAILABLE 1
 #endif
 

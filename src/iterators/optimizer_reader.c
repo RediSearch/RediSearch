@@ -7,7 +7,24 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "iterators/optimizer_reader.h"
-#include "iterators_rs.h"
+
+#include <math.h>              // for INFINITY
+#include <stdbool.h>           // for false
+#include <string.h>            // for NULL, strlen, size_t
+#include <sys/param.h>         // for MIN
+
+#include "iterators_rs.h"      // for NewEmptyIterator
+#include "doc_table.h"         // for DMD_Return, DocTable_Borrow, DocTable
+#include "field_spec.h"        // for FieldSpec, INDEXFLD_T_NUMERIC
+#include "iterator_api.h"      // for QueryIterator, ITERATOR_EOF, ...
+#include "iterator_type.h"     // for OPTIMUS_ITERATOR
+#include "numeric_filter.h"    // for NewNumericFilter, NumericFilter_Free
+#include "numeric_index.h"     // for NewNumericFilterIterator
+#include "redismodule.h"       // for RedisModule_Log
+#include "rmalloc.h"           // for rm_free, rm_malloc, rm_calloc
+#include "rmutil/rm_assert.h"  // for RSDummyContext, RS_LOG_ASSERT
+#include "search_ctx.h"        // for RedisSearchCtx
+#include "spec.h"              // for IndexSpec_GetFieldWithLength, IndexSpec
 
 int cmpAsc(const void *v1, const void *v2, const void *udata) {
   RSIndexResult *res1 = (RSIndexResult *)v1;

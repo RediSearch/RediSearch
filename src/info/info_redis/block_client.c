@@ -8,14 +8,14 @@
 */
 
 #include "redismodule.h"
-#include "spec.h"
-#include "util/references.h"
-#include "query.h"
-#include "aggregate/aggregate.h"
-#include "info/info_redis/types/blocked_queries.h"
+#include "util/references.h"                        // for StrongRef
+#include "aggregate/aggregate.h"                    // for AREQ
+#include "info/info_redis/types/blocked_queries.h"  // for BlockedQueryNode
 #include "threads/main_thread.h"
-#include "cursor.h"
+#include "cursor.h"                                 // for Cursor
 #include "info/info_redis/block_client.h"
+#include "rmalloc.h"                                // for rm_free
+#include "rmutil/rm_assert.h"                       // for RS_LOG_ASSERT
 
 static void FreeQueryNode(RedisModuleCtx* ctx, void *node) {
   BlockedQueryNode *queryNode = node;

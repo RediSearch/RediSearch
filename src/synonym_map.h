@@ -10,11 +10,15 @@
 #ifndef SRC_SYNONYM_MAP_H_
 #define SRC_SYNONYM_MAP_H_
 
+#include <stdbool.h>         // for bool
+#include <stddef.h>          // for size_t
+#include <stdint.h>          // for uint32_t
+
 #include "util/dict.h"
-#include "redismodule.h"
+#include "redismodule.h"     // for RedisModuleIO, RedisModuleString
 #include "util/arr.h"
 #include "util/strconv.h"
-#include <stdbool.h>
+#include "util/dict/dict.h"  // for dict
 
 #define SYNONYM_PREFIX_CHAR '~'
 

@@ -7,13 +7,10 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <strings.h>
-#include <string.h>
+#include <stdlib.h>   // for NULL, size_t
 
 #include "heap.h"
-#include "rmalloc.h"
+#include "rmalloc.h"  // for rm_free, rm_malloc, rm_realloc
 
 #define DEFAULT_CAPACITY 13
 

@@ -1,6 +1,9 @@
 #include "hybrid/hybrid_scoring.h"
-#include "rmutil/rm_assert.h"
-#include "rmalloc.h"
+
+#include <string.h>            // for size_t, memcpy, NULL
+
+#include "rmutil/rm_assert.h"  // for RS_ASSERT
+#include "rmalloc.h"           // for rm_calloc, rm_free
 
  /* Get scoring function based on scoring type */
  HybridScoringFunction GetScoringFunction(HybridScoringType scoringType) {

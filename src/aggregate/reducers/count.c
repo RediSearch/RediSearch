@@ -6,8 +6,15 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#include <aggregate/reducer.h>
-#include <util/block_alloc.h>
+#include <aggregate/reducer.h>  // for Reducer, ReducerOptions, ...
+#include <util/block_alloc.h>   // for BlkAlloc_Alloc
+#include <stddef.h>             // for NULL, size_t
+
+#include "query_error.h"        // for QueryError_SetError, ...
+#include "rlookup_rs.h"         // for RLookupRow, RSValue
+#include "rmalloc.h"            // for rm_calloc
+#include "rmutil/args.h"        // for ArgsCursor
+#include "value/value.h"        // for RSValue_NewNumber
 
 typedef struct {
   size_t count;

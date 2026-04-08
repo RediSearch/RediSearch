@@ -8,12 +8,16 @@
 */
 
 #include "doc_id_meta.h"
-#include "spec.h"
-#include "util/arr/arr.h"
-#include "util/dict.h"
-#include "rdb.h"
-#include <stdbool.h>
-#include <assert.h>
+
+#include <stdbool.h>           // for bool, false
+#include <assert.h>            // for static_assert
+#include <stddef.h>            // for NULL, size_t
+
+#include "spec.h"              // for IndexSpec_DeleteDocById, specIdDict_g
+#include "rdb.h"               // for LoadUnsigned_IOError
+#include "rmutil/rm_assert.h"  // for RSDummyContext, RS_ASSERT, RS_LOG_ASSERT
+#include "util/dict/dict.h"    // for dict, dictEntry, dictGetVal, ...
+#include "util/references.h"   // for StrongRef_Get, StrongRef
 
 #define DOCID_META_INVALID 0
 #define DOCID_META_CLASS_NAME "D-ID"

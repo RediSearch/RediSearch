@@ -7,9 +7,22 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "info_command.h"
-#include "resp3.h"
-#include "info/field_spec_info.h"
-#include "../src/reply_macros.h"
+
+#include <stdbool.h>               // for bool, false
+#include <string.h>                // for strcmp, size_t, NULL
+
+#include "info/field_spec_info.h"  // for AggregatedFieldSpecInfo, ...
+#include "../src/reply_macros.h"   // for REPLY_KVSTR_SAFE
+#include "info/index_error.h"      // for IndexError_Init, IndexError_Clear
+#include "query_error.h"           // for QueryError_HasError, QueryError
+#include "redismodule.h"           // for REDISMODULE_OK, RedisModuleCtx
+#include "reply.h"                 // for RedisModule_Reply_MapEnd, ...
+#include "rmalloc.h"               // for rm_calloc, rm_free
+#include "rmr/rmr.h"               // for MRCtx_GetRedisCtx
+#include "rmutil/rm_assert.h"      // for RS_ASSERT
+#include "util/arr/arr.h"          // for array_len, array_free, array_newlen
+
+struct MRCtx;
 
 // Type of field returned in INFO
 typedef enum {

@@ -13,12 +13,14 @@
 #ifndef FORK_GC_PIPE_H_
 #define FORK_GC_PIPE_H_
 
-#include "fork_gc.h"
-#include "search_ctx.h"
-#include "inverted_index.h"
-#include <stddef.h>
-#include <stdbool.h>
+#include <stddef.h>      // for size_t
+#include <stdbool.h>     // for bool
 #include <sys/uio.h>
+#include <stdint.h>      // for uint64_t
+
+#include "fork_gc.h"     // for ForkGC
+#include "search_ctx.h"  // for RedisSearchCtx
+#include "inverted_index.h"
 
 typedef enum {
   // Terms have been collected

@@ -10,6 +10,7 @@
 #define SRC_RWLOCK_H_
 
 #include <pthread.h>
+
 #include "redismodule.h"
 
 extern pthread_rwlock_t RWLock;

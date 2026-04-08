@@ -7,15 +7,13 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-#include "workers_pool.h"
 #include "workers.h"
-#include "redismodule.h"
-#include "config.h"
-#include "logging.h"
-#include "rmutil/rm_assert.h"
-#include "VecSim/vec_sim.h"
-
-#include <pthread.h>
+#include "redismodule.h"            // for RedisModule_Log, REDISMODULE_ERR
+#include "config.h"                 // for RSConfig, RSGlobalConfig
+#include "logging.h"                // for LogCallback
+#include "rmutil/rm_assert.h"       // for RSDummyContext, RS_ASSERT, ...
+#include "VecSim/vec_sim.h"         // for VecSim_SetWriteMode
+#include "VecSim/vec_sim_common.h"  // for VecSim_WriteAsync, ...
 
 //------------------------------------------------------------------------------
 // Thread pool

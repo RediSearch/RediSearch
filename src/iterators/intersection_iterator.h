@@ -14,6 +14,7 @@ extern "C" {
 #endif
 
 #include <stddef.h>
+
 #include "iterator_api.h"
 
 /**

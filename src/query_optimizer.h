@@ -9,8 +9,15 @@
 
 #pragma once
 
-#include "field_spec.h"
-#include "aggregate/aggregate.h"
+#include <stdbool.h>                 // for bool
+#include <stddef.h>                  // for size_t
+
+#include "field_spec.h"              // for FieldSpec
+#include "aggregate/aggregate.h"     // for AREQ
+#include "iterators/iterator_api.h"  // for QueryIterator
+#include "query_node.h"              // for QueryNode
+#include "search_ctx.h"              // for RedisSearchCtx
+#include "types_rs.h"                // for NumericFilter
 
 struct AREQ;
 

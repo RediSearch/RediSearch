@@ -8,8 +8,10 @@
 */
 
 #pragma once
+#include <stddef.h>      // for size_t
+
 #include "thpool/thpool.h"
-#include "references.h"
+#include "references.h"  // for WeakRef
 
 typedef void (*ThreadPoolAPI_CB)(void *);
 typedef struct ThreadPoolAPI_AsyncIndexJob {

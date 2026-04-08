@@ -11,4 +11,6 @@
 
 #include "src/debug_commands.h"
 
+#include "redismodule.h"  // for RedisModuleCommand
+
 int RegisterCoordDebugCommands(RedisModuleCommand *debugCommand);

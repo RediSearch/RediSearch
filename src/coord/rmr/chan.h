@@ -9,9 +9,11 @@
 
 #pragma once
 
-#include <stdlib.h>
-#include <stdbool.h>
+#include <stdlib.h>   // for size_t
+#include <stdbool.h>  // for bool
 #include <time.h>
+
+struct timespec;
 
 typedef struct MRChannel MRChannel;
 MRChannel *MR_NewChannel();

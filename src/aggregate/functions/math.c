@@ -6,9 +6,13 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
+#include <aggregate/expr/expression.h>  // for EXPR_EVAL_OK, ExprEval
+#include <math.h>                       // for NAN, ceil, exp, fabs, floor, log
+#include <stddef.h>                     // for size_t
+
 #include "function.h"
-#include <aggregate/expr/expression.h>
-#include <math.h>
+#include "rlookup_rs.h"                 // for RSValue
+#include "value/value.h"                // for RSValue_SetNumber, ...
 
 /* Template for single argument double to double math function */
 #define NUMERIC_SIMPLE_FUNCTION(f)                                                               \

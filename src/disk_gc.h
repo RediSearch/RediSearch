@@ -10,12 +10,15 @@
 #ifndef SRC_DISK_GC_H_
 #define SRC_DISK_GC_H_
 
+#include <stddef.h>           // for size_t
+
 #include "redismodule.h"
-#include "gc.h"
-#include "util/references.h"
+#include "gc.h"               // for GCCallbacks
+#include "util/references.h"  // for StrongRef, WeakRef
 
 #ifdef __cplusplus
 #include <atomic>
+
 #define RS_Atomic(T) std::atomic<T>
 extern "C" {
 #else

@@ -9,14 +9,16 @@
 #ifndef FRAGMENTER_H
 #define FRAGMENTER_H
 
-#include <stdlib.h>
-#include <stdint.h>
+#include <stdlib.h>        // for size_t, NULL
+#include <stdint.h>        // for uint32_t, uint16_t, uint8_t
 #include <sys/uio.h>
-#include "util/array.h"
-#include "stemmer.h"
-#include "redisearch.h"
-#include "stopwords.h"
-#include "byte_offsets.h"
+
+#include "util/array.h"    // for Array, Array_Init, ARRAY_GETARRAY_AS, ...
+#include "stemmer.h"       // for Stemmer
+#include "redisearch.h"    // for RSOffsetIterator
+#include "stopwords.h"     // for StopWordList
+#include "byte_offsets.h"  // for RSByteOffsetIterator
+#include "query_term.h"    // for RSQueryTerm
 
 /**
  *

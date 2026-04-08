@@ -7,9 +7,10 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "language.h"
-#include "rmutil/alloc.h"
-#include "util/strconv.h"
-#include <string.h>
+
+#include <strings.h>       // for strcasecmp
+
+#include "util/strconv.h"  // for STR_EQCASE
 
 typedef struct langPair_s
 {

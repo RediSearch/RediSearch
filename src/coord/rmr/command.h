@@ -9,12 +9,14 @@
 
 #pragma once
 
-#include "hiredis/sds.h"
-#include "redismodule.h"
-#include "rs_wall_clock.h"
-
 #include <assert.h>
-#include <stdbool.h>
+#include <stdbool.h>        // for bool
+#include <stddef.h>         // for size_t
+#include <stdint.h>         // for uint32_t, uint16_t
+
+#include "hiredis/sds.h"    // for sds
+#include "redismodule.h"    // for RedisModuleString, RedisModuleCtx, ...
+#include "rs_wall_clock.h"  // for rs_wall_clock_ns_t
 
 #ifdef __cplusplus
 extern "C" {

@@ -10,10 +10,16 @@
 #ifndef RS_INDEX_RESULT_ASYNC_READ_H_
 #define RS_INDEX_RESULT_ASYNC_READ_H_
 
-#include "redisearch.h"
-#include "search_disk_api.h"
-#include "util/dllist.h"
+#include <stdbool.h>          // for bool
+#include <stddef.h>           // for size_t
+#include <stdint.h>           // for uint16_t, uint32_t, uint64_t
+
+#include "redisearch.h"       // for t_expirationTimePoint
+#include "search_disk_api.h"  // for RedisSearchDiskAsyncReadPool, ...
+#include "util/dllist.h"      // for DLLIST
 #include "util/arr.h"
+#include "types_rs.h"         // for RSIndexResult
+#include "util/arr/arr.h"     // for arrayof
 
 #ifdef __cplusplus
 extern "C" {

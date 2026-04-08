@@ -9,10 +9,17 @@
 #ifndef RS_REDUCER_H_
 #define RS_REDUCER_H_
 
+#include <stdbool.h>           // for bool
+#include <stddef.h>            // for NULL, size_t
+#include <stdint.h>            // for uint32_t
+
 #include "redisearch.h"
 #include "result_processor.h"
-#include "util/block_alloc.h"
-#include "query_error.h"
+#include "util/block_alloc.h"  // for BlkAlloc_FreeAll, BlkAlloc
+#include "query_error.h"       // for QueryError
+#include "rlookup_rs.h"        // for RLookupKey, RLookup, RLookupRow, RSValue
+#include "rmalloc.h"           // for rm_strdup, rm_asprintf, rm_free
+#include "rmutil/args.h"       // for ArgsCursor
 
 #ifdef __cplusplus
 extern "C" {

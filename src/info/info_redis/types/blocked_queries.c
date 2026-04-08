@@ -7,9 +7,12 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "info/info_redis/types/blocked_queries.h"
-#include "rmutil/rm_assert.h"
-#include "redismodule.h"
-#include "rmutil/rm_assert.h"
+
+#include "rmutil/rm_assert.h"  // for RS_LOG_ASSERT_FMT
+#include "redismodule.h"       // for RedisModule_Log
+#include "config.h"            // for RSConfig, RSGlobalConfig
+#include "rmalloc.h"           // for rm_calloc, rm_free
+#include "spec.h"              // for IndexSpec_FormatName, IndexSpec
 
 BlockedQueries *BlockedQueries_Init() {
   BlockedQueries* blockedQueries = rm_calloc(1, sizeof(BlockedQueries));

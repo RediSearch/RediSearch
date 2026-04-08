@@ -7,11 +7,26 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "spell_check.h"
-#include "util/arr.h"
-#include "dictionary.h"
-#include "reply.h"
-#include "inverted_index.h"
-#include <stdbool.h>
+
+#include <stdbool.h>          // for bool, false, true
+#include <stdio.h>            // for NULL, size_t, snprintf
+#include <stdlib.h>           // for qsort
+
+#include "dictionary.h"       // for SpellCheck_OpenDict
+#include "reply.h"            // for RedisModule_Reply_Array, ...
+#include "inverted_index.h"   // for IndexReader_Free, IndexReader_Next, ...
+#include "doc_table.h"        // for DocTable
+#include "query_node.h"       // for QueryNode, QueryNode_ForEach, ...
+#include "query_node_type.h"  // for QN_TOKEN
+#include "redis_index.h"      // for Redis_OpenInvertedIndex
+#include "redisearch.h"       // for t_fieldMask
+#include "redismodule.h"      // for REDISMODULE_READ, ...
+#include "rmalloc.h"          // for rm_free, rm_calloc
+#include "spec.h"             // for IndexSpec
+#include "trie/rune_util.h"   // for runesToStr, rune
+#include "trie/trie.h"        // for TrieIterator_Free, TrieIterator_Next
+#include "types_rs.h"         // for IndexResult_Free, NewTokenRecord, ...
+#include "util/arr/arr.h"     // for array_len, array_append, array_free_ex
 
 /** Forward declaration **/
 static bool SpellCheck_IsTermExistsInTrie(Trie *t, const char *term, size_t len, double *outScore);

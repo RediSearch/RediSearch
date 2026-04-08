@@ -7,8 +7,11 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "array.h"
-#include "rmalloc.h"
-#include "util/minmax.h"
+
+#include <string.h>       // for memcpy
+
+#include "rmalloc.h"      // for rm_free, rm_malloc, rm_realloc
+#include "util/minmax.h"  // for Max
 
 static ArrayAllocProcs libcAllocProcs_g = {.Alloc = malloc, .Realloc = realloc, .Free = free};
 static ArrayAllocProcs rmAllocProcs_g = {

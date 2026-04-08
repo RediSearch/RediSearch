@@ -6,12 +6,19 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#include "redisearch.h"
-#include "module.h"
-#include "rmutil/util.h"
-#include "rmutil/args.h"
-#include "trie/trie_type.h"
-#include "query_error.h"
+#include <stdbool.h>         // for bool
+#include <stddef.h>          // for NULL
+#include <strings.h>         // for strcasecmp, size_t
+
+#include "redisearch.h"      // for RSPayload
+#include "rmutil/util.h"     // for RMUtil_ReplyWithErrorFmt
+#include "rmutil/args.h"     // for AC_ARGTYPE_BOOLFLAG, AC_Strerror, ...
+#include "trie/trie_type.h"  // for Trie, TrieSearchResult, TrieType, NewTrie
+#include "query_error.h"     // for QueryError_SetWithUserDataFmt, ...
+#include "redismodule.h"     // for RedisModuleString, REDISMODULE_OK, ...
+#include "rmutil/vector.h"   // for Vector_Size, Vector_Free, Vector_Get
+#include "trie/rune_util.h"  // for rune
+#include "trie/trie.h"       // for TRIE_MAX_PREFIX, Trie_Sort_Score
 
 extern bool isCrdt;
 

@@ -8,11 +8,12 @@
 */
 #pragma once
 
-#include <stdint.h>
+#include <stdint.h>       // for uint32_t
 #include <stddef.h>
+
 #include "endpoint.h"
-#include "node.h"
-#include "redismodule.h"
+#include "node.h"         // for MRClusterNode
+#include "redismodule.h"  // for RedisModuleSlotRangeArray
 
 #ifdef __cplusplus
 extern "C" {

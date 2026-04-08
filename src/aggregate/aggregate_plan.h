@@ -11,11 +11,21 @@
 #include <value.h>
 #include <rlookup.h>
 #include <search_options.h>
-#include <aggregate/expr/expression.h>
-#include <util/dllist.h>
-#include <obfuscation/hidden.h>
-#include <util/references.h>
+#include <aggregate/expr/expression.h>  // for RSExpr
+#include <util/dllist.h>                // for DLLIST_ITEM, DLLIST, DLLIST_node
+#include <obfuscation/hidden.h>         // for HiddenString
+#include <util/references.h>            // for StrongRef
 #include <util/arr.h>
+#include <stdbool.h>                    // for bool
+#include <stddef.h>                     // for size_t
+#include <stdint.h>                     // for uint64_t, uint32_t
+
+#include "query_error.h"                // for QueryError
+#include "rlookup_rs.h"                 // for RLookup, RLookupKey
+#include "rmutil/args.h"                // for ArgsCursor
+#include "util/arr/arr.h"               // for arrayof
+
+struct AGGPlan;
 
 #ifdef __cplusplus
 extern "C" {

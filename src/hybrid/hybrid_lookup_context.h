@@ -10,8 +10,11 @@
 #ifndef __HYBRID_LOOKUP_CONTEXT_H__
 #define __HYBRID_LOOKUP_CONTEXT_H__
 
+#include <stdbool.h>       // for bool
+
 #include "rlookup.h"
-#include "util/arr/arr.h"
+#include "util/arr/arr.h"  // for arrayof
+#include "rlookup_rs.h"    // for RLookup
 
 #ifdef __cplusplus
 extern "C" {

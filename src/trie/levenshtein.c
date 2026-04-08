@@ -6,13 +6,14 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#include <stdlib.h>
-#include <stdio.h>
-#include <sys/param.h>
-#include <string.h>
+#include <stdlib.h>              // for NULL, size_t
+#include <sys/param.h>           // for MIN
+
 #include "levenshtein.h"
-#include "rune_util.h"
-#include "rmalloc.h"
+#include "rune_util.h"           // for rune, runeFold, runeLower, ...
+#include "rmalloc.h"             // for rm_free, rm_calloc, rm_malloc, ...
+#include "trie/sparse_vector.h"  // for sparseVector, sparseVectorEntry, ...
+#include "trie/trie.h"           // for F_CONTINUE, FilterCode, F_STOP
 
 // NewSparseAutomaton creates a new automaton for the string s, with a given max
 // edit distance check

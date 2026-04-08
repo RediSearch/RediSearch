@@ -6,16 +6,15 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#include <stdint.h>
-#include <stdlib.h>
-#include <string.h>
-#include <math.h>
-#include <float.h>
-#include <stdio.h>
-#include "util/block_alloc.h"
+#include <stdlib.h>            // for qsort
+#include <string.h>            // for memcpy, memset
+#include <math.h>              // for floor, ceil, NAN
+#include <float.h>             // for DBL_MAX
+#include <stdio.h>             // for size_t, NULL
+
 #include "quantile.h"
-#include "rmalloc.h"
-#include "rmutil/rm_assert.h"
+#include "rmalloc.h"           // for rm_free, rm_calloc, rm_malloc
+#include "rmutil/rm_assert.h"  // for RS_ASSERT
 
 typedef struct Sample {
   // Variables are named per the paper

@@ -10,10 +10,14 @@
 #ifndef __HYBRID_SEARCH_RESULT_H__
 #define __HYBRID_SEARCH_RESULT_H__
 
+#include <stdbool.h>                // for bool
+#include <stddef.h>                 // for size_t
+
 #include "result_processor.h"
-#include "hybrid_scoring.h"
-#include "hybrid_lookup_context.h"
-#include "util/arr/arr.h"
+#include "hybrid_scoring.h"         // for HybridScoringContext
+#include "hybrid_lookup_context.h"  // for HybridLookupContext
+#include "util/arr/arr.h"           // for arrayof
+#include "search_result_rs.h"       // for SearchResult
 
 #ifdef __cplusplus
 extern "C" {

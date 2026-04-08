@@ -8,8 +8,20 @@
 */
 
 #include "not_iterator.h"
-#include "iterator_api.h"
-#include "iterators_rs.h"
+
+#include <stdbool.h>           // for false, true, bool
+#include <time.h>              // for NULL, timespec, size_t
+
+#include "iterator_api.h"      // for QueryIterator, ITERATOR_TIMEOUT, ...
+#include "iterators_rs.h"      // for NewEmptyIterator, ...
+#include "iterator_type.h"     // for NOT_ITERATOR_OPTIMIZED, EMPTY_ITERATOR
+#include "rmalloc.h"           // for rm_calloc, rm_free
+#include "rmutil/rm_assert.h"  // for RS_ASSERT
+#include "rules.h"             // for SchemaRule
+#include "search_ctx.h"        // for RedisSearchCtx, SearchTime
+#include "spec.h"              // for IndexSpec
+#include "types_rs.h"          // for RSIndexResult, NewVirtualResult, ...
+#include "util/timeout.h"      // for TimedOut_WithCtx_Gran, TimeoutCtx
 
 typedef struct {
   QueryIterator base;         // base index iterator

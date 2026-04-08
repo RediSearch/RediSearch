@@ -8,7 +8,8 @@
 */
 
 #pragma once
-#include "info/info_redis/types/spec_info.h"
+#include "info/info_redis/types/spec_info.h"  // for SpecInfo
+#include "util/references.h"                  // for StrongRef
 
 #ifdef __cplusplus
 extern "C" {

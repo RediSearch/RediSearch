@@ -9,11 +9,20 @@
 
 #pragma once
 
-#include "search_disk_api.h"
-#include "iterators/iterator_api.h"
-#include "redismodule.h"
+#include <stdbool.h>                 // for bool
+#include <stddef.h>                  // for size_t
+#include <stdint.h>                  // for uint32_t, uint64_t, uint16_t
 
-#include <stdbool.h>
+#include "search_disk_api.h"         // for RedisSearchDiskAsyncReadPool
+#include "iterators/iterator_api.h"  // for QueryIterator
+#include "redismodule.h"             // for RedisModuleCtx, RedisModuleIO
+#include "VecSim/vec_sim_common.h"   // for VecSimParamsDisk
+#include "document_rs.h"             // for DocumentType
+#include "redisearch.h"              // for t_docId, RSToken, ...
+#include "spec.h"                    // for RedisSearchDiskIndexSpec, IndexSpec
+#include "util/arr/arr.h"            // for arrayof
+
+struct timespec;
 
 __attribute__((weak))
 bool SearchDisk_HasAPI();

@@ -11,6 +11,7 @@
 
 #include <stdbool.h>
 #include <stddef.h>
+
 #include "field_spec.h"
 #include "query_error.h"
 #include "redismodule.h"

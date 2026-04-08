@@ -10,10 +10,12 @@
 #ifndef VECTOR_QUERY_UTILS_H
 #define VECTOR_QUERY_UTILS_H
 
-#include <stdbool.h>
+#include <stdbool.h>          // for bool
 #include <stddef.h>
-#include "../vector_index.h"
-#include "../query_node.h"
+#include <stdint.h>           // for uint32_t
+
+#include "../vector_index.h"  // for VectorQuery
+#include "../query_node.h"    // for QueryAttribute
 
 #ifdef __cplusplus
 extern "C" {

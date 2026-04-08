@@ -7,16 +7,20 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "field_spec.h"
-#include "indexer.h"
-#include "rmalloc.h"
-#include "rmutil/rm_assert.h"
-#include "vector_index.h"
-#include "geometry/geometry_api.h"
-#include "tag_index.h"
-#include "numeric_index.h"
+
+#include <sys/param.h>                    // for MAX
+
+#include "rmalloc.h"                      // for rm_free, rm_strdup
+#include "rmutil/rm_assert.h"             // for RS_ABORT_ALWAYS, RS_LOG_ASSERT
+#include "vector_index.h"                 // for VecSimParams_Cleanup
+#include "geometry/geometry_api.h"        // for GeometryApi_Get, GeometryApi
+#include "tag_index.h"                    // for TagIndex_Free
 #include "info/global_stats.h"
-#include "obfuscation/obfuscation_api.h"
-#include "search_disk.h"
+#include "obfuscation/obfuscation_api.h"  // for Obfuscate_Field, ...
+#include "search_disk.h"                  // for SearchDisk_FreeVectorIndex
+#include "numeric_range_tree.h"           // for NumericRangeTree_Free
+#include "reply.h"                        // for escapeSimpleString, ...
+#include "spec.h"                         // for SPEC_GEOMETRY_STR, ...
 
 void FieldSpec_Cleanup(FieldSpec* fs) {
   // if `AS` was not used, name and path are pointing at the same string

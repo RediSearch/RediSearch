@@ -10,7 +10,7 @@
 #pragma once
 
 #include "common.h"
-#include "endpoint.h"
+#include "endpoint.h"  // for MREndpoint
 
 typedef struct {
   MREndpoint endpoint;

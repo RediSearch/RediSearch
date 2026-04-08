@@ -9,13 +9,18 @@
 #define __RMR_REPLY_C__
 #include "reply.h"
 
-#include "redismodule.h"
-#include "hiredis/hiredis.h"
-#include "fast_float/fast_float_strtod.h"
+#include <string.h>                        // for strlen, strncmp
+#include <errno.h>                         // for errno, ERANGE
+#include <limits.h>                        // for LONG_MAX, LONG_MIN
+#include <stdbool.h>                       // for false
+#include <stdio.h>                         // for perror
+#include <strings.h>                       // for strncasecmp
 
-#include <string.h>
-#include <errno.h>
-#include <limits.h>
+#include "redismodule.h"                   // for REDISMODULE_OK, ...
+#include "hiredis/hiredis.h"               // for redisReply, freeReplyObject
+#include "fast_float/fast_float_strtod.h"  // for fast_float_strtod
+#include "rmalloc.h"                       // for rm_calloc, rm_strndup
+#include "rmutil/rm_assert.h"              // for RS_ASSERT
 
 
 int MRReply_StringEquals(MRReply *r, const char *s, int caseSensitive) {

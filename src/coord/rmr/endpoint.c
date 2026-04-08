@@ -6,11 +6,12 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#include <string.h>
-#include <stdlib.h>
+#include <string.h>        // for memset, strchr, strrchr
+#include <stdlib.h>        // for NULL, atoi, size_t
+
 #include "endpoint.h"
-#include "hiredis/hiredis.h"
-#include "rmalloc.h"
+#include "rmalloc.h"       // for rm_free, rm_strdup, rm_strndup
+#include "hiredis/read.h"  // for REDIS_ERR, REDIS_OK
 
 int MREndpoint_Parse(const char *addr, MREndpoint *ep) {
   // zero out the endpoint, assuming it's uninitialized. This is important for freeing it later.

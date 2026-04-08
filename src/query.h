@@ -9,19 +9,29 @@
 #ifndef __QUERY_H__
 #define __QUERY_H__
 
-#include <stdlib.h>
+#include <stdlib.h>                  // for size_t
+#include <stdbool.h>                 // for bool
+#include <stdint.h>                  // for uint32_t
 
-#include "query_node.h"
+#include "query_node.h"              // for QueryNode
 #include "query_parser/tokenizer.h"
 #include "redis_index.h"
 #include "redismodule.h"
-#include "spec.h"
-#include "redisearch.h"
-#include "hiredis/sds.h"
+#include "spec.h"                    // for IndexSpec
+#include "redisearch.h"              // for t_docId
+#include "hiredis/sds.h"             // for sds
 #include "concurrent_ctx.h"
-#include "search_options.h"
-#include "query_error.h"
-#include "query_internal.h"
+#include "search_options.h"          // for RSSearchOptions
+#include "query_error.h"             // for QueryError
+#include "query_internal.h"          // for QueryParseCtx
+#include "config.h"                  // for IteratorsConfig
+#include "geo_index.h"               // for GeoFilter
+#include "iterators/iterator_api.h"  // for QueryIterator
+#include "query_ctx.h"               // for QueryEvalCtx
+#include "rlookup_rs.h"              // for RLookupKey
+#include "search_ctx.h"              // for RedisSearchCtx
+#include "types_rs.h"                // for NumericFilter
+#include "util/dict/dict.h"          // for dict
 
 #ifdef __cplusplus
 extern "C" {

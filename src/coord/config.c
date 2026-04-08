@@ -8,16 +8,16 @@
 */
 
 #include "config.h"
-#include "util/config_macros.h"
-#include "rmr/rmr.h"
 
-#include "rmutil/util.h"
-#include "rmutil/strings.h"
-#include "hiredis/hiredis.h"
-#include "module.h"
+#include <string.h>              // for NULL, size_t, memmem, strlen
+#include <limits.h>              // for LLONG_MAX
+#include <stdint.h>              // for UINT32_MAX
 
-#include <string.h>
-#include <stdlib.h>
+#include "util/config_macros.h"  // for CONFIG_GETTER, CONFIG_SETTER, ...
+#include "rmr/rmr.h"             // for MR_UpdateConnPoolSize
+#include "module.h"              // for RM_TRY
+#include "hiredis/sds.h"         // for sdsfromlonglong, sdsnew
+#include "rmutil/args.h"         // for AC_GetSize, AC_Advance, AC_F_GE1
 
 extern RedisModuleCtx *RSDummyContext;
 

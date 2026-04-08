@@ -8,12 +8,19 @@
 */
 #pragma once
 
-#include "redismodule.h"
-#include "hiredis/sds.h"
-#include "query_error.h"
-#include "reply.h"
+#include <stdbool.h>                // for bool, false, true
+#include <stddef.h>                 // for size_t, NULL
+#include <stdint.h>                 // for uint32_t, uint8_t
+
+#include "redismodule.h"            // for RedisModuleString, RedisModuleCtx
+#include "hiredis/sds.h"            // for sds
+#include "query_error.h"            // for QueryError
+#include "reply.h"                  // for RedisModule_Reply
 #include "util/config_macros.h"
 #include "ext/default.h"
+#include "VecSim/vec_sim_common.h"  // for DEFAULT_BLOCK_SIZE
+#include "rmutil/args.h"            // for ArgsCursor
+#include "thpool/thpool.h"          // for DEFAULT_HIGH_PRIORITY_BIAS_THRESHOLD
 
 typedef enum {
   TimeoutPolicy_Return,       // Return what we have on timeout

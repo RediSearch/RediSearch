@@ -9,7 +9,9 @@
 #ifndef __REDISEARCH_EXTN_H__
 #define __REDISEARCH_EXTN_H__
 
-#include "redisearch.h"
+#include <stdbool.h>     // for bool
+
+#include "redisearch.h"  // for RSFreeFunction, RSScoringFunction, ...
 
 #ifdef __cplusplus
 extern "C" {

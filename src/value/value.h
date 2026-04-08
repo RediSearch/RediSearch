@@ -9,18 +9,20 @@
 #ifndef RS_VALUE_H_
 #define RS_VALUE_H_
 
-#include "redisearch.h"
-#include "rmalloc.h"
-#include "query_error.h"
-
-#include "util/fnv.h"
-
-#include "rmutil/rm_assert.h"
-
-#include <string.h>
+#include <string.h>       // for size_t
 #include <sys/param.h>
 #include <stdarg.h>
 #include <errno.h>
+#include <stdbool.h>      // for bool
+#include <stdint.h>       // for uint32_t, uint64_t, int64_t, uint16_t
+
+#include "redisearch.h"
+#include "rmalloc.h"
+#include "query_error.h"  // for QueryError
+#include "util/fnv.h"
+#include "rmutil/rm_assert.h"
+#include "hiredis/sds.h"  // for sds
+#include "redismodule.h"  // for RedisModuleString
 
 #ifdef __cplusplus
 extern "C" {

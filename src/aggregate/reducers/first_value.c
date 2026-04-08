@@ -6,7 +6,14 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#include <aggregate/reducer.h>
+#include <aggregate/reducer.h>  // for Reducer, ReducerOptions, ...
+#include <stddef.h>             // for NULL
+
+#include "rlookup_rs.h"         // for RLookupRow_Get, RSValue, RLookupKey
+#include "rmalloc.h"            // for rm_free, rm_calloc
+#include "rmutil/args.h"        // for AC_AdvanceIfMatch
+#include "util/block_alloc.h"   // for BlkAlloc_Alloc, BlkAlloc
+#include "value/value.h"        // for RSValue_IncrRef, RSValue_NullStatic
 
 typedef struct {
   const RLookupKey *retprop;   // The key to return

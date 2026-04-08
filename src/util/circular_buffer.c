@@ -6,13 +6,13 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#include "redismodule.h"
-#include "circular_buffer.h"
-#include "rmalloc.h"
-#include "util/likely.h"
-#include "rmutil/rm_assert.h"
+#include <stdatomic.h>         // for atomic_fetch_add, atomic_load, ...
+#include <string.h>            // for NULL, memcpy
 
-#include <stdatomic.h>
+#include "circular_buffer.h"
+#include "rmalloc.h"           // for rm_calloc, rm_free
+#include "util/likely.h"       // for unlikely
+#include "rmutil/rm_assert.h"  // for RS_ASSERT
 
 // Circular buffer structure.
 // The buffer is of fixed size.

@@ -9,7 +9,11 @@
 
 #pragma once
 
+#include <stdint.h>                // for uint32_t
+
 #include "cluster.h"
+#include "redismodule.h"           // for RedisModuleCtx, RedisModuleString
+#include "rmr/cluster_topology.h"  // for MRClusterTopology
 
 #ifdef __cplusplus
 extern "C" {

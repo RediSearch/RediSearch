@@ -6,21 +6,28 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#include "config.h"
+#include <stdbool.h>                  // for false, true, bool
+#include <stdlib.h>                   // for getenv
+#include <string.h>                   // for strcmp, NULL, strncmp
+#include <strings.h>                  // for strcasecmp, size_t
+
+#include "config.h"                   // for RSConfig, RSGlobalConfig, ...
 #include "notifications.h"
 #include "spec.h"
-#include "doc_types.h"
-#include "redismodule.h"
-#include "rdb.h"
-#include "module.h"
-#include "util/workers.h"
-#include "dictionary.h"
-#include "slot_ranges.h"
-#include "asm_state_machine.h"
+#include "doc_types.h"                // for getDocTypeFromString, getDocType
+#include "redismodule.h"              // for RedisModule_Log, RedisModuleCtx
+#include "rdb.h"                      // for Backup_Globals, ...
+#include "module.h"                   // for IsEnterprise, ...
+#include "util/workers.h"             // for workersThreadPool_OnEventEnd
+#include "dictionary.h"               // for Dictionary_Propagate, ...
+#include "asm_state_machine.h"        // for ASM_CanStartTrimming, ...
 #include "coord/rmr/redis_cluster.h"
-#include "cursor.h"
-#include "search_disk.h"
-#include "doc_id_meta.h"
+#include "cursor.h"                   // for CursorList_MarkASMInaccuracy
+#include "search_disk.h"              // for SearchDisk_IsEnabled, ...
+#include "doc_id_meta.h"              // for DocIdMeta_SetPersistenceInProgress
+#include "document_rs.h"              // for DocumentType_Unsupported, ...
+#include "rmalloc.h"                  // for rm_free, rm_calloc
+#include "rmutil/rm_assert.h"         // for RS_ASSERT, RS_ASSERT_ALWAYS
 
 #define JSON_LEN 5 // length of string "json."
 RedisModuleString *global_RenameFromKey = NULL;

@@ -11,7 +11,7 @@
 
 #include "redismodule.h"
 #include "redisearch.h"
-#include "reply.h"
+#include "reply.h"  // for RedisModule_Reply
 
 #ifdef __cplusplus
 extern "C" {

@@ -7,11 +7,23 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-#include "pipe.h"
-#include "redis_index.h"
-#include "numeric_index.h"
-#include "rmutil/rm_assert.h"
-#include "obfuscation/hidden.h"
+#include <stdint.h>              // for uint32_t, uint64_t, SIZE_MAX, uint8_t
+#include <string.h>              // for size_t, NULL, strlen
+
+#include "pipe.h"                // for FGC_recvFixed, FGC_sendFixed, ...
+#include "redis_index.h"         // for DONT_CREATE_INDEX
+#include "numeric_index.h"       // for openNumericOrGeoIndex
+#include "obfuscation/hidden.h"  // for HiddenString_GetUnsafe
+#include "field_spec.h"          // for FieldSpec, INDEXFLD_T_GEO, ...
+#include "fork_gc.h"             // for ForkGC, ForkGCStats
+#include "inverted_index.h"      // for II_GCScanStats
+#include "numeric_range_tree.h"  // for NumericGcNodeEntry, ApplyGcEntryResult
+#include "redismodule.h"         // for REDISMODULE_OK
+#include "rmalloc.h"             // for rm_free, rm_realloc
+#include "search_ctx.h"          // for RedisSearchCtx, ...
+#include "spec.h"                // for IndexSpecRef_Promote, ...
+#include "util/arr/arr.h"        // for array_free, array_len, arrayof
+#include "util/references.h"     // for StrongRef_Get, StrongRef
 
 void FGC_childCollectNumeric(ForkGC *gc, RedisSearchCtx *sctx) {
   arrayof(FieldSpec*) numericFields = getFieldsByType(sctx->spec, INDEXFLD_T_NUMERIC | INDEXFLD_T_GEO);

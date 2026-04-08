@@ -7,10 +7,19 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "indexes_info.h"
-#include "util/dict.h"
-#include "spec.h"
-#include "field_spec_info.h"
-#include <string.h>  // Add this for strerror
+
+#include <string.h>                   // for strerror
+#include <pthread.h>                  // for pthread_rwlock_rdlock, ...
+#include <stdbool.h>                  // for bool, false
+
+#include "spec.h"                     // for IndexSpec, ...
+#include "field_spec_info.h"          // for IndexSpec_GetVectorIndexesStats
+#include "info/vector_index_stats.h"  // for VectorIndexStats
+#include "obfuscation/hidden.h"       // for HiddenString_GetUnsafe
+#include "redismodule.h"              // for RedisModule_Log
+#include "rmutil/rm_assert.h"         // for RSDummyContext
+#include "util/dict/dict.h"           // for dictEntry, dictGetIterator, ...
+#include "util/references.h"          // for StrongRef_Get, StrongRef
 
 // Assuming the GIL is held by the caller
 TotalIndexesInfo IndexesInfo_TotalInfo() {

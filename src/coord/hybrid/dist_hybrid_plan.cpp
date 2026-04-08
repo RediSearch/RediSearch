@@ -8,8 +8,24 @@
 */
 
 #include "dist_hybrid_plan.h"
-#include "hybrid/hybrid_request.h"
-#include "hybrid/hybrid_lookup_context.h"
+
+#include <stddef.h>                    // for NULL, size_t
+#include <vector>                      // for vector
+
+#include "hybrid/hybrid_request.h"     // for HybridRequest, ...
+#include "aggregate/aggregate.h"       // for AREQ, AREQ_AGGPlan, ...
+#include "aggregate/aggregate_plan.h"  // for AGPLN_FindStep, AGPLN_GetLookup
+#include "dist_plan.h"                 // for PLN_DistributeStep
+#include "profile/profile.h"           // for ResultProcessor
+#include "redismodule.h"               // for REDISMODULE_OK, REDISMODULE_ERR
+#include "result_processor.h"          // for QueryProcessingCtx, ...
+#include "rlookup.h"                   // for RLookupKey_GetName, ...
+#include "rmalloc.h"                   // for rm_asprintf, rm_strndup
+#include "rmutil/rm_assert.h"          // for RS_ASSERT
+#include "search_ctx.h"                // for RedisSearchCtx
+#include "search_options.h"            // for RSSearchOptions
+#include "spec.h"                      // for IndexSpec_GetSpecCache
+#include "util/references.h"           // for StrongRef_Release, ...
 
 
 static void pushResultProcessor(QueryProcessingCtx *qctx, ResultProcessor *rp) {

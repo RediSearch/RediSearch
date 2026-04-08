@@ -9,12 +9,23 @@
 
 #pragma once
 
+#include <stdbool.h>              // for bool
+#include <stddef.h>               // for size_t
+#include <stdint.h>               // for uint16_t
+
 #include "module.h"
 #include "config.h"
 #include "result_processor.h"
-#include "rmr/rmr.h"
-#include "aggregate/aggregate.h"
+#include "rmr/rmr.h"              // for MRIterator
+#include "aggregate/aggregate.h"  // for AREQ
 #include "hybrid/hybrid_cursor_mappings.h"
+#include "profile/profile.h"      // for ResultProcessor
+#include "rlookup_rs.h"           // for RLookup
+#include "rmr/command.h"          // for MRCommand
+#include "rmr/reply.h"            // for MRReply
+#include "search_result_rs.h"     // for SearchResult
+#include "util/arr/arr.h"         // for arrayof
+#include "util/references.h"      // for StrongRef
 
 #ifdef __cplusplus
 extern "C" {

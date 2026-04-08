@@ -8,10 +8,15 @@
 */
 
 #include "ttl_table.h"
-#include "rmalloc.h"
-#include "util/minmax.h"
-#include "util/misc.h"
-#include "rmutil/rm_assert.h"
+
+#include <stdbool.h>           // for true, bool, false
+#include <stddef.h>            // for NULL
+#include <strings.h>           // for size_t, ffs, ffsll
+
+#include "rmalloc.h"           // for rm_free, rm_malloc
+#include "rmutil/rm_assert.h"  // for RS_ASSERT, RS_LOG_ASSERT
+
+struct timespec;
 
 typedef struct {
   t_expirationTimePoint documentExpirationPoint;

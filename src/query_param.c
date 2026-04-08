@@ -7,10 +7,18 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "query_param.h"
-#include "query_error.h"
-#include "geo_index.h"
-#include "numeric_filter.h"
-#include "query_internal.h"
+
+#include <assert.h>          // for assert
+#include <math.h>            // for INFINITY
+#include <string.h>          // for NULL, size_t, memcpy, strlen, memset
+
+#include "query_error.h"     // for QueryError_SetWithUserDataFmt, ...
+#include "geo_index.h"       // for GeoFilter, GeoDistance_Parse, ...
+#include "numeric_filter.h"  // for NewNumericFilter, NumericFilter_Free
+#include "query_internal.h"  // for QueryParseCtx
+#include "redismodule.h"     // for REDISMODULE_ERR, REDISMODULE_OK
+#include "rmalloc.h"         // for rm_calloc, rm_strndup, rm_free, rm_strdup
+#include "util/strconv.h"    // for ParseDouble, rm_normalize, ParseInteger
 
 QueryParam *NewQueryParam(QueryParamType type) {
   QueryParam *ret = rm_calloc(1, sizeof(*ret));

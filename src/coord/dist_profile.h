@@ -8,9 +8,13 @@
 */
 #pragma once
 
-#include "reply.h"
-#include "rmr/reply.h"
-#include "../profile/options.h"
+#include <stdbool.h>             // for bool
+
+#include "reply.h"               // for RedisModule_Reply
+#include "rmr/reply.h"           // for MRReply
+#include "../profile/options.h"  // for ProfileOptions
+#include "query_error.h"         // for QueryError
+#include "rmutil/args.h"         // for ArgsCursor
 
 typedef struct PrintShardProfile_ctx {
   MRReply **replies;

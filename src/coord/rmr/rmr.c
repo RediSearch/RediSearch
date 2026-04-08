@@ -7,37 +7,40 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "rmr.h"
-#include "reply.h"
-#include "reply_macros.h"
+
+#include <stdio.h>                                // for snprintf
+#include <unistd.h>                               // for size_t
+#include <pthread.h>                              // for pthread_mutex_lock
+#include <stddef.h>                               // for NULL
+#include <stdatomic.h>                            // for atomic_init, ...
+#include <stdbool.h>                              // for bool, true, false
+#include <stdint.h>                               // for int8_t
+
+#include "reply.h"                                // for MRReply, MRReply_Free
+#include "reply_macros.h"                         // for REPLY_KVSTR_SAFE
 #include "redismodule.h"
-#include "module.h"
+#include "module.h"                               // for RSDummyContext, ...
 #include "cluster.h"
-#include "chan.h"
-#include "rq.h"
-#include "rmutil/rm_assert.h"
-#include "resp3.h"
-#include "coord/config.h"
-#include "rs_wall_clock.h"
-
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <signal.h>
-#include <time.h>
-#include <string.h>
-#include <unistd.h>
-#include <pthread.h>
-#include <sys/param.h>
-#include <stddef.h>
-#include <stdatomic.h>
-#include <stdbool.h>
-
-#include "hiredis/hiredis.h"
-#include "hiredis/async.h"
-#include "io_runtime_ctx.h"
-
-#include "coord/hybrid/hybrid_cursor_mappings.h"
+#include "chan.h"                                 // for MR_NewChannel, ...
+#include "rq.h"                                   // for RQ_UpdateMaxPending
+#include "rmutil/rm_assert.h"                     // for RS_ASSERT, ...
+#include "coord/config.h"                         // for CLUSTER_TYPE_OSS
+#include "hiredis/hiredis.h"                      // for redisReply
+#include "hiredis/async.h"                        // for redisAsyncContext
+#include "io_runtime_ctx.h"                       // for IORuntimeCtx, ...
+#include "coord/hybrid/hybrid_cursor_mappings.h"  // for CursorMapping, ...
 #include "asm_state_machine.h"
+#include "VecSim/vec_sim_common.h"                // for UNUSED
+#include "hiredis/read.h"                         // for REDIS_ERR, REDIS_OK
+#include "rmalloc.h"                              // for rm_free, rm_calloc
+#include "rmr/command.h"                          // for MRCommand, ...
+#include "rmr/conn.h"
+#include "rmr/endpoint.h"                         // for MREndpoint
+#include "rmr/node.h"                             // for MRClusterNode
+#include "util/arr/arr.h"                         // for array_len
+#include "util/dict/dict.h"                       // for dict, dictCreate
+
+struct timespec;
 
 #define REFCOUNT_INCR_MSG(caller, refcount) \
   RS_DEBUG_LOG_FMT("%s: increased refCount to == %d", caller, refcount);

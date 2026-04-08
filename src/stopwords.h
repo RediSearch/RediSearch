@@ -9,10 +9,10 @@
 #ifndef __REDISEARCH_STOPWORDS_H___
 #define __REDISEARCH_STOPWORDS_H___
 
+#include <stdlib.h>
+
 #include "reply.h"
 #include "redismodule.h"
-
-#include <stdlib.h>
 
 #ifdef __cplusplus
 extern "C" {

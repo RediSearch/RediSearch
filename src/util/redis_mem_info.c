@@ -8,7 +8,10 @@
 */
 
 #include "redis_mem_info.h"
-#include "minmax.h"
+
+#include <stddef.h>  // for NULL, size_t
+
+#include "minmax.h"  // for MAX, MIN
 
 #define MIN_NOT_0(a,b) (((a)&&(b))?MIN((a),(b)):MAX((a),(b)))
 

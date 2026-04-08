@@ -7,7 +7,17 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-#include "pipe.h"
+#include <bits/types/struct_iovec.h>  // for iovec
+#include <stddef.h>                   // for NULL, size_t
+
+#include "pipe.h"                     // for pipe_read_cb, pipe_write_cb
+#include "fork_gc.h"                  // for ForkGC
+#include "inverted_index.h"           // for II_GCScanStats, ...
+#include "redismodule.h"              // for REDISMODULE_OK
+#include "rmalloc.h"                  // for rm_free
+#include "search_ctx.h"               // for RedisSearchCtx, ...
+#include "spec.h"                     // for IndexSpec, IndexSpecRef_Promote
+#include "util/references.h"          // for StrongRef_Get, StrongRef
 
 void FGC_childCollectExistingDocs(ForkGC *gc, RedisSearchCtx *sctx) {
   IndexSpec *spec = sctx->spec;

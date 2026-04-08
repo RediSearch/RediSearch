@@ -7,24 +7,35 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-#include <string.h>
-#include <stdbool.h>
-#include <stdio.h>
-#include <sys/param.h>
+#include <string.h>                       // for strlen, memcpy, strncmp
+#include <stdio.h>                        // for NULL, size_t
+#include <sys/param.h>                    // for MAX
+#include <math.h>                         // for tanh
+#include <stdint.h>                       // for uint32_t
 
-#include "redisearch.h"
-#include "spec.h"
-#include "types_rs.h"
-#include "query.h"
-#include "synonym_map.h"
-#include "snowball/include/libstemmer.h"
-#include "default.h"
-#include "tokenize.h"
-#include "rmutil/vector.h"
-#include "stemmer.h"
+#include "redisearch.h"                   // for ScoringFunctionArgs, ...
+#include "spec.h"                         // for IndexSpec, ...
+#include "types_rs.h"                     // for RSIndexResult, ...
+#include "synonym_map.h"                  // for TermData, ...
+#include "snowball/include/libstemmer.h"  // for sb_stemmer_delete, ...
+#include "default.h"                      // for BM25_SCORER_NAME, ...
+#include "tokenize.h"                     // for RSTokenizer, ...
+#include "rmutil/vector.h"                // for Vector, Vector_Free, NewVector
+#include "stemmer.h"                      // for STEM_PREFIX
 #include "phonetic_manager.h"
-#include "score_explain.h"
-#include "extension.h"
+#include "score_explain.h"                // for RSScoreExplain, EXPLAIN
+#include "ext/default.h"
+#include "field_spec.h"                   // for FieldSpec, FieldSpec_IsNoStem
+#include "language.h"                     // for RSLanguage_ToString, ...
+#include "query_error.h"                  // for QueryError_SetError, ...
+#include "query_internal.h"               // for NewUnionNode
+#include "query_node.h"                   // for QueryNodeOptions, QueryNode
+#include "query_node_type.h"              // for QN_UNION
+#include "query_term.h"                   // for QueryTerm_GetIDF, ...
+#include "redismodule.h"                  // for REDISMODULE_OK, ...
+#include "rmalloc.h"                      // for rm_calloc, rm_strndup, rm_free
+#include "search_ctx.h"                   // for RedisSearchCtx
+#include "util/arr/arr.h"                 // for array_len
 
 /******************************************************************************************
  *

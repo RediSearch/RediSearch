@@ -9,24 +9,35 @@
 
 #pragma once
 
-#include "redisearch.h"
+#include <stdbool.h>                       // for bool
+#include <stddef.h>                        // for size_t
+#include <stdint.h>                        // for uint32_t, uint64_t
+
+#include "redisearch.h"                    // for ScoringFunctionArgs
 #include "sortable.h"
 #include "value.h"
 #include "concurrent_ctx.h"
-#include "search_ctx.h"
-#include "iterators/iterator_api.h"
-#include "search_options.h"
+#include "search_ctx.h"                    // for RedisSearchCtx
+#include "iterators/iterator_api.h"        // for QueryIterator
+#include "search_options.h"                // for FieldList
 #include "rlookup.h"
-#include "extension.h"
+#include "extension.h"                     // for ExtScoringFunctionCtx
 #include "score_explain.h"
-#include "rs_wall_clock.h"
-#include "util/references.h"
-#include "hybrid/hybrid_scoring.h"
-#include "hybrid/hybrid_lookup_context.h"
-#include "vector_normalization.h"
+#include "rs_wall_clock.h"                 // for rs_wall_clock_ns_t, ...
+#include "util/references.h"               // for StrongRef
+#include "hybrid/hybrid_scoring.h"         // for HybridScoringContext
+#include "hybrid/hybrid_lookup_context.h"  // for HybridLookupContext
+#include "vector_normalization.h"          // for VectorNormFunction
 #include "result_processor_rs.h"
 #include "search_result.h"
 #include "slot_ranges.h"
+#include "config.h"                        // for RSTimeoutPolicy
+#include "language.h"                      // for RSLanguage
+#include "query_error.h"                   // for QueryError
+#include "redismodule.h"                   // for RedisModuleSlotRangeArray
+#include "rlookup_rs.h"                    // for RLookupKey, RLookup
+#include "search_result_rs.h"              // for SearchResult
+#include "util/arr/arr.h"                  // for arrayof
 
 #ifdef __cplusplus
 extern "C" {
@@ -222,6 +233,7 @@ ResultProcessor *RPPager_New(size_t offset, size_t limit);
  *
  *******************************************************************************************************************/
 struct AREQ;
+
 ResultProcessor *RPLoader_New(RedisSearchCtx *sctx, uint32_t reqflags, RLookup *lk, const RLookupKey **keys, size_t nkeys, bool forceLoad, uint32_t *outStateflags);
 
 void SetLoadersForBG(QueryProcessingCtx *qctx);

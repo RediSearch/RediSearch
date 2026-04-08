@@ -9,16 +9,26 @@
 #ifndef RS_MODULE_H_
 #define RS_MODULE_H_
 
-#include "redismodule.h"
 #include <query_node.h>
-#include <coord/rmr/reply.h>
+#include <coord/rmr/reply.h>         // for MRReply
 #include <util/heap.h>
+#include <features.h>                // for __STRING, __GLIBC__
+#include <stdbool.h>                 // for bool
+#include <stdint.h>                  // for uint32_t
+#include <sys/types.h>               // for size_t, uint
+
+#include "redismodule.h"             // for RedisModuleCtx, RedisModuleString
 #include "rmutil/rm_assert.h"
 #include "shard_window_ratio.h"
-#include "coord/special_case_ctx.h"
-#include "rs_wall_clock.h"
-#include "thpool/thpool.h"
-#include "profile/options.h"
+#include "coord/special_case_ctx.h"  // for specialCaseCtx
+#include "rs_wall_clock.h"           // for rs_wall_clock, rs_wall_clock_ns_t
+#include "thpool/thpool.h"           // for redisearch_thpool_t
+#include "profile/options.h"         // for ProfileOptions
+#include "aggregate/aggregate.h"     // for CommandType
+#include "query_error.h"             // for QueryError, QueryErrorCode
+#include "reply.h"                   // for RedisModule_Reply
+
+struct RedisSearchCtx;
 
 // Hack to support Alpine Linux 3 where __STRING is not defined
 #if !defined(__GLIBC__) && !defined(__STRING)

@@ -8,9 +8,21 @@
 */
 
 #include "search_disk.h"
-#include "config.h"
-#include "spec.h"
-#include "redismodule.h"
+
+#include <strings.h>           // for size_t, strcasecmp
+
+#include "config.h"            // for getRedisConfigValue, RSConfig, ...
+#include "spec.h"              // for RedisSearchDiskIndexSpec, IndexSpec
+#include "redismodule.h"       // for RedisModuleCtx, RedisModule_Log, ...
+#include "hiredis/sds.h"       // for sdsnewlen
+#include "query_term.h"        // for NewQueryTerm, QueryTerm_SetIDFs, ...
+#include "rmalloc.h"           // for rm_calloc, rm_free
+#include "rmutil/rm_assert.h"  // for RS_ASSERT, RSDummyContext
+#include "sorting_vector.h"    // for RSSortingVector_Empty
+#include "util/dict/dict.h"    // for dictEntry, dictGetIterator, dictIterator
+#include "util/references.h"   // for StrongRef_Get, StrongRef
+
+struct timespec;
 
 RedisSearchDiskAPI *disk = NULL;
 RedisSearchDisk *disk_db = NULL;

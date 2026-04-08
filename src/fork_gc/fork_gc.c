@@ -7,21 +7,33 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-#include "pipe.h"
-#include "time_sample.h"
-#include <stdlib.h>
-#include <unistd.h>
-#include <sys/wait.h>
-#include <sys/resource.h>
-#include <poll.h>
-#include "module.h"
-#include "rmutil/rm_assert.h"
-#include "resp3.h"
+#include <stdlib.h>               // for NULL, size_t, EXIT_SUCCESS
+#include <unistd.h>               // for close, usleep, getpid, pipe, sleep
+#include <sys/wait.h>             // for waitpid, WNOHANG, pid_t
+#include <sys/resource.h>         // for setpriority, PRIO_PROCESS
+#include <poll.h>                 // for pollfd, POLLIN
+#include <errno.h>                // for errno
+#include <stdatomic.h>            // for atomic_exchange
+#include <stdbool.h>              // for bool, true, false
+#include <stdint.h>               // for SIZE_MAX
+#include <time.h>                 // for timespec
+
+#include "pipe.h"                 // for FGC_COLLECTED, FGC_DONE, ...
+#include "time_sample.h"          // for TimeSampler_DurationMS, ...
+#include "module.h"               // for RSDummyContext
+#include "rmutil/rm_assert.h"     // for RS_LOG_ASSERT
 #include "info/global_stats.h"
-#include "info/info_redis/threads/current_thread.h"
-#include "obfuscation/obfuscation_api.h"
-#include "obfuscation/hidden.h"
-#include "util/redis_mem_info.h"
+#include "util/redis_mem_info.h"  // for RedisMemory_GetUsedMemoryRatioUnified
+#include "config.h"               // for RSConfig, RSGlobalConfig, GCConfig
+#include "fork_gc.h"              // for ForkGC, ForkGCStats, FGC_PAUSED_CHILD
+#include "gc.h"                   // for GCCallbacks, InfoGCStats
+#include "redismodule.h"          // for RedisModule_Log, ...
+#include "reply.h"                // for RedisModule_ReplyKV_Double, ...
+#include "rmalloc.h"              // for rm_calloc, rm_free
+#include "search_ctx.h"           // for RedisSearchCtx, SEARCH_CTX_STATIC
+#include "spec.h"                 // for IndexSpecRef_Release, ...
+#include "util/references.h"      // for StrongRef_Demote, StrongRef_Get
+#include "vector_index.h"         // for VecSim_CallTieredIndexesGC
 
 #define GC_WRITERFD 1
 #define GC_READERFD 0

@@ -8,7 +8,9 @@
 */
 #ifndef __RS_STEMMER_H__
 #define __RS_STEMMER_H__
-#include "language.h"
+#include <stddef.h>    // for size_t
+
+#include "language.h"  // for RSLanguage
 
 #ifdef __cplusplus
 extern "C" {

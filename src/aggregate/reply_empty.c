@@ -11,13 +11,20 @@
 // Currently used during OOM conditions to return empty results with proper formatting.
 // Handles different query types (SEARCH, AGGREGATE, HYBRID) and contexts (single-shard, coordinator).
 
-#include "../module.h"
-#include "../aggregate/aggregate.h"
+#include <stddef.h>                  // for NULL
+
+#include "../module.h"               // for searchRequestCtx, rscParseProfile
+#include "../aggregate/aggregate.h"  // for AREQ_QueryProcessingCtx, ...
 #include "../hybrid/hybrid_exec.h"
-#include "rmutil/util.h"
+#include "rmutil/util.h"             // for RMUtil_ArgExists, RMUtil_ArgIndex
 #include "reply_empty.h"
 #include "info/global_stats.h"
-#include "../profile/options.h"
+#include "../profile/options.h"      // for ApplyProfileOptions
+#include "profile/profile.h"         // for ProfileClocks
+#include "reply.h"                   // for RedisModule_EndReply, ...
+#include "result_processor.h"        // for QueryProcessingCtx
+#include "rmutil/args.h"             // for ArgsCursor_InitRString, ArgsCursor
+#include "rs_wall_clock.h"           // for rs_wall_clock_init
 
 // Helper function that performs minimal parsing of query arguments to support sendChunk output
 static int shallow_parse_query_args(RedisModuleString **argv, int argc, AREQ *req) {

@@ -6,50 +6,64 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#include <inttypes.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <sys/param.h>
+#include <inttypes.h>                     // for PRIu64, uint32_t, uint64_t
+#include <stdio.h>                        // for sprintf
+#include <stdlib.h>                       // for size_t, NULL, qsort
+#include <string.h>                       // for strlen, memset, memcpy, strcmp
+#include <assert.h>                       // for assert
+#include <ctype.h>                        // for ispunct, isspace, toupper
+#include <limits.h>                       // for CHAR_BIT
+#include <strings.h>                      // for strncasecmp, strcasecmp
 
-#include "geo_index.h"
+#include "geo_index.h"                    // for GeoFilter, ...
 #include "query.h"
-#include "config.h"
-#include "iterators/iterator_api.h"
-#include "query_error.h"
-#include "redis_index.h"
-#include "iterators_rs.h"
-#include "tokenize.h"
-#include "triemap.h"
-#include "util/logging.h"
-#include "extension.h"
-#include "ext/default.h"
-#include "hiredis/sds.h"
-#include "tag_index.h"
-#include "err.h"
-#include "concurrent_ctx.h"
-#include "numeric_index.h"
-#include "numeric_filter.h"
-#include "util/strconv.h"
-#include "util/arr.h"
-#include "rmutil/rm_assert.h"
-#include "module.h"
-#include "query_internal.h"
+#include "config.h"                       // for IteratorsConfig, ...
+#include "iterators/iterator_api.h"       // for QueryIterator
+#include "query_error.h"                  // for QueryError_SetWithUserDataFmt
+#include "redis_index.h"                  // for Redis_OpenReader, CREATE_INDEX
+#include "iterators_rs.h"                 // for NewEmptyIterator, ...
+#include "triemap.h"                      // for TrieMapIterator_Free, ...
+#include "extension.h"                    // for ExtQueryExpanderCtx, ...
+#include "ext/default.h"                  // for DEFAULT_EXPANDER_NAME
+#include "hiredis/sds.h"                  // for sdscatprintf, sdscat, sds
+#include "tag_index.h"                    // for TagIndex_OpenReader, TagIndex
+#include "numeric_index.h"                // for NewNumericFilterIterator
+#include "numeric_filter.h"               // for NumericFilter_Free
+#include "util/strconv.h"                 // for STR_EQCASE, ParseBoolean
+#include "rmutil/rm_assert.h"             // for RS_LOG_ASSERT, RS_ASSERT
+#include "query_internal.h"               // for QueryParseCtx, ...
 #include "aggregate/aggregate.h"
-#include "suffix.h"
-#include "wildcard.h"
-#include "geometry/geometry_api.h"
-#include "iterators/union_iterator.h"
-#include "iterators/intersection_iterator.h"
-#include "iterators/optional_iterator.h"
-#include "iterators/not_iterator.h"
-#include "iterators_rs.h"
-#include "iterators/hybrid_reader.h"
-#include "iterators/optimizer_reader.h"
-#include "search_disk.h"
-#include "shard_window_ratio.h"
-#include "idf.h"
-#include "doc_id_meta.h"
+#include "suffix.h"                       // for GetList_SuffixTrieMap, ...
+#include "geometry/geometry_api.h"        // for GeometryApi_Get, GeometryApi
+#include "iterators/union_iterator.h"     // for NewUnionIterator
+#include "iterators/optional_iterator.h"  // for NewOptionalIterator
+#include "iterators/not_iterator.h"       // for NewNotIterator
+#include "iterators/hybrid_reader.h"      // for HybridIterator
+#include "search_disk.h"                  // for SearchDisk_NewTermIterator
+#include "shard_window_ratio.h"           // for validateShardKRatio
+#include "idf.h"                          // for CalculateIDF, ...
+#include "VecSim/query_results.h"         // for BY_ID
+#include "VecSim/vec_sim_common.h"        // for VecSimRawParam
+#include "doc_table.h"                    // for DocTable_GetId, DocTable
+#include "field_spec.h"                   // for FieldSpec, ...
+#include "geometry/geometry_types.h"      // for QueryType, GeometryApi, ...
+#include "geometry_index.h"               // for GeometryQuery, ...
+#include "inverted_index.h"               // for InvertedIndex
+#include "iterator_type.h"                // for HYBRID_ITERATOR, ...
+#include "obfuscation/hidden.h"           // for HiddenString_GetUnsafe
+#include "param.h"                        // for Param, Param_FreeInternal
+#include "query_node_type.h"              // for QN_PREFIX, QN_TOKEN, ...
+#include "query_param.h"                  // for QueryParam, ...
+#include "query_parser/tokenizer.h"       // for QueryToken, QT_TERM, ...
+#include "query_term.h"                   // for RSTokenFlags
+#include "redismodule.h"                  // for REDISMODULE_OK, ...
+#include "rmalloc.h"                      // for rm_free, rm_malloc, rm_calloc
+#include "trie/rune_util.h"               // for strToLowerRunes, rune, ...
+#include "trie/trie.h"                    // for TrieNode_Get, TrieNode, ...
+#include "trie/trie_type.h"               // for Trie, Trie_Iterate
+#include "util/arr/arr.h"                 // for array_len, array_free, ...
+#include "vector_index.h"                 // for VectorQuery, VectorQueryParams
+#include "wildcard/wildcard.h"            // for Wildcard_RemoveEscape
 #ifndef STRINGIFY
 #define __STRINGIFY(x) #x
 #define STRINGIFY(x) __STRINGIFY(x)

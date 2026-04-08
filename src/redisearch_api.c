@@ -6,29 +6,56 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#include "spec.h"
-#include "field_spec.h"
-#include "document.h"
-#include "rmutil/rm_assert.h"
-#include "util/dict.h"
-#include "util/references.h"
-#include "query_node.h"
-#include "search_options.h"
-#include "query_internal.h"
-#include "numeric_filter.h"
-#include "suffix.h"
-#include "query.h"
-#include "indexer.h"
-#include "extension.h"
-#include "ext/default.h"
-#include <float.h>
-#include "rwlock.h"
-#include "fork_gc.h"
-#include "module.h"
-#include "cursor.h"
-#include "info/indexes_info.h"
-#include "doc_id_meta.h"
-#include "search_disk.h"
+#include <float.h>                   // for DBL_MAX
+#include <math.h>                    // for isnan
+#include <pthread.h>                 // for pthread_rwlock_unlock, ...
+#include <stdbool.h>                 // for true
+#include <stdint.h>                  // for uint32_t, uint64_t
+#include <stdio.h>                   // for sprintf
+#include <string.h>                  // for strlen, NULL, size_t
+
+#include "spec.h"                    // for IndexSpec, IndexSpec_GetFieldBit
+#include "field_spec.h"              // for FieldSpec, ...
+#include "document.h"                // for Document, Document_AddFieldC
+#include "rmutil/rm_assert.h"        // for RS_LOG_ASSERT, RS_ASSERT, ...
+#include "util/references.h"         // for __RefManager_Get_Object, RefManager
+#include "query_node.h"              // for QueryNode, RSQueryNode::(anonymous)
+#include "search_options.h"          // for RSSearchOptions_Init, ...
+#include "query_internal.h"          // for NewQueryNode, QueryNode_Free
+#include "numeric_filter.h"          // for NewNumericFilter
+#include "suffix.h"                  // for suffixTrie_freeCallback
+#include "query.h"                   // for QAST_Destroy, QAST_Expand, ...
+#include "extension.h"               // for ExtScoringFunctionCtx, ...
+#include "rwlock.h"                  // for RWLOCK_RELEASE, ...
+#include "module.h"                  // for RSDummyContext
+#include "info/indexes_info.h"       // for IndexesInfo_TotalInfo, ...
+#include "doc_id_meta.h"             // for DocIdMeta_Get
+#include "search_disk.h"             // for SearchDisk_IsEnabled
+#include "config.h"                  // for iteratorsConfig_init, RSConfig
+#include "doc_table.h"               // for DocTable, DMD_Return, ...
+#include "document_rs.h"             // for DocumentType_Hash
+#include "gc.h"                      // for InfoGCStats, GCContext_GetStats
+#include "geo_index.h"               // for GeoFilter, GeoDistance
+#include "geohash/geohash.h"         // for GEO_LAT_MAX, GEO_LAT_MIN, ...
+#include "hiredis/sds.h"             // for sdslen
+#include "info/index_error.h"        // for IndexError
+#include "iterators/iterator_api.h"  // for QueryIterator, ITERATOR_OK
+#include "language.h"                // for RSLanguage_Find, ...
+#include "obfuscation/hidden.h"      // for HiddenString_Clone, ...
+#include "query_error.h"             // for QueryError_ClearError, ...
+#include "query_node_type.h"         // for QN_LEXRANGE, QN_PREFIX, QN_TOKEN
+#include "redisearch.h"              // for RSDocumentMetadata, REDISEARCH_OK
+#include "redisearch_api.h"          // for RSIndexOptions, RSIdxInfo, ...
+#include "redismodule.h"             // for REDISMODULE_ERR, REDISMODULE_OK
+#include "rmalloc.h"                 // for rm_strdup, rm_free, rm_calloc
+#include "rules.h"                   // for SchemaRule, SchemaRule_Create
+#include "search_ctx.h"              // for SEARCH_CTX_STATIC, RedisSearchCtx
+#include "stopwords.h"               // for StopWordList_Contains, ...
+#include "trie/trie.h"               // for Trie_Sort_Lex
+#include "trie/trie_type.h"          // for NewTrie
+#include "triemap.h"                 // for TrieMap_MemUsage
+#include "types_rs.h"                // for RSIndexResult
+#include "util/dict/dict.h"          // for dictResumeRehashing, ...
 
 /**
  * Most of the spec interaction is done through the RefManager, which is wrapped by a strong or weak reference struct.

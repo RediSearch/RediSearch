@@ -1,6 +1,9 @@
 #pragma once
+#include <stdbool.h>              // for bool
+
 #include "pipeline/pipeline.h"
-#include "aggregate/aggregate.h"
+#include "aggregate/aggregate.h"  // for QEFlags
+#include "result_processor.h"     // for QueryProcessingCtx
 
 typedef enum {
   EXEC_NO_FLAGS = 0x00,

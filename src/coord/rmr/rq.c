@@ -8,12 +8,12 @@
 */
 #define RQ_C__
 
-#include <stdlib.h>
-#include <uv.h>
+#include <uv.h>                // for uv_mutex_unlock, uv_mutex_lock, ...
+
 #include "rq.h"
-#include "rmalloc.h"
-#include "rmutil/rm_assert.h"
-#include "rq.h"
+#include "rmalloc.h"           // for rm_free, rm_calloc, rm_new
+#include "rmutil/rm_assert.h"  // for RSDummyContext
+#include "redismodule.h"       // for RedisModule_Log
 
 void RQ_Push(MRWorkQueue *q, MRQueueCallback cb, void *privdata) {
   queueItem *item = rm_new(struct queueItem);

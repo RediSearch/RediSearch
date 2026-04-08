@@ -9,11 +9,17 @@
 
 #pragma once
 
-#include "rq.h"
-#include "conn.h"
-#include <uv.h>
+#include <uv.h>       // for uv_async_t, uv_loop_t, uv_timer_t
+#include <stdbool.h>  // for bool
+#include <stddef.h>   // for size_t
+
+#include "rq.h"       // for MRQueueCallback, MRWorkQueue
+#include "conn.h"     // for MRConnManager
 #include "util/arr.h"
 #include "cluster_topology.h"
+#include "uv/unix.h"  // for uv_cond_t, uv_mutex_t, uv_thread_t
+
+struct MRClusterTopology;
 
 #ifdef __cplusplus
 extern "C" {

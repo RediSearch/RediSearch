@@ -7,48 +7,70 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "spec.h"
-#include "rlookup_load_document.h"
 
-#include <math.h>
-#include <ctype.h>
+#include <assert.h>                                  // for static_assert
+#include <errno.h>                                   // for errno
+#include <features.h>                                // for __GLIBC__
+#include <sched.h>                                   // for sched_yield
+#include <stdio.h>                                   // for snprintf
+#include <string.h>                                  // for strlen, memset
+#include <strings.h>                                 // for strcasecmp
+#include <sys/param.h>                               // for MIN, MAX
+#include <unistd.h>                                  // for usleep, sleep
 
-#include "triemap.h"
-#include "util/logging.h"
+#include "triemap.h"                                 // for TrieMap_MemUsage
+#include "util/logging.h"                            // for LogCallback
 #include "util/misc.h"
-#include "rmutil/vector.h"
-#include "rmutil/util.h"
-#include "rmutil/rm_assert.h"
-#include "trie/trie_type.h"
-#include "rmalloc.h"
-#include "config.h"
-#include "cursor.h"
+#include "rmutil/util.h"                             // for RMUtilInfo_GetInt
+#include "rmutil/rm_assert.h"                        // for RS_ASSERT, ...
+#include "trie/trie_type.h"                          // for NewTrie, ...
+#include "rmalloc.h"                                 // for rm_free, rm_calloc
+#include "config.h"                                  // for RSConfig, ...
+#include "cursor.h"                                  // for CursorList_Empty
 #include "tag_index.h"
 #include "redis_index.h"
 #include "indexer.h"
 #include "suffix.h"
-#include "alias.h"
-#include "module.h"
-#include "aggregate/expr/expression.h"
-#include "rules.h"
-#include "dictionary.h"
-#include "doc_types.h"
-#include "doc_id_meta.h"
+#include "alias.h"                                   // for IndexAlias_Add
+#include "module.h"                                  // for IsMaster, ...
+#include "aggregate/expr/expression.h"               // for EvalCtx, ...
+#include "rules.h"                                   // for SchemaRuleArgs
+#include "dictionary.h"                              // for Dictionary_Clear
+#include "doc_types.h"                               // for RSDummyContext
+#include "doc_id_meta.h"                             // for DocIdMeta_Get
 #include "rdb.h"
-#include "commands.h"
-#include "obfuscation/obfuscation_api.h"
+#include "commands.h"                                // for RS_DROP_INDEX_CMD
+#include "obfuscation/obfuscation_api.h"             // for Obfuscate_Field
 #include "util/workers.h"
 #include "info/global_stats.h"
-#include "debug_commands.h"
+#include "debug_commands.h"                          // for DebugCTX, ...
 #include "info/info_redis/threads/current_thread.h"
-#include "obfuscation/obfuscation_api.h"
-#include "util/hash/hash.h"
-#include "reply_macros.h"
+#include "util/hash/hash.h"                          // for Sha1_Compute, Sha1
+#include "reply_macros.h"                            // for REPLY_SIMPLE_SAFE
 #include "notifications.h"
 #include "info/field_spec_info.h"
 #include "rs_wall_clock.h"
 #include "util/redis_mem_info.h"
 #include "search_disk.h"
 #include "search_disk_utils.h"
+#include "VecSim/vec_sim.h"
+#include "document.h"                                // for Document_Free
+#include "geometry/geometry_types.h"
+#include "geometry_index.h"
+#include "inverted_index.h"                          // for InvertedIndex_Free
+#include "json.h"                                    // for JSONParse_error
+#include "language.h"                                // for RSLanguage_ToString
+#include "numeric_index.h"
+#include "numeric_range_tree.h"
+#include "obfuscation/hidden_unicode.h"
+#include "rejson_api.h"                              // for RedisJSONAPI
+#include "rlookup_rs.h"                              // for RLookupRow_Reset
+#include "search_ctx.h"                              // for RedisSearchCtx
+#include "thpool/thpool.h"
+#include "trie/rune_util.h"                          // for runesToStr, rune
+#include "trie/trie.h"                               // for Trie_Sort_Lex
+#include "util/strconv.h"                            // for STR_EQCASE
+#include "vector_index.h"                            // for VecSimType_sizeof
 
 #define INITIAL_DOC_TABLE_SIZE 1000
 

@@ -11,6 +11,8 @@
 
 #include "redismodule.h"
 #include "rmr/rmr.h"
-#include "rmr/reply.h"
+#include "rmr/reply.h"  // for MRReply
+
+struct MRCtx;
 
 int InfoReplyReducer(struct MRCtx *mc, int count, MRReply **replies);

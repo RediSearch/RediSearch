@@ -10,13 +10,21 @@
 #ifndef __HYBRID_EXECUTION_H__
 #define __HYBRID_EXECUTION_H__
 
-#include "redismodule.h"
-#include "hybrid_request.h"
-#include "search_ctx.h"
-#include "aggregate/aggregate.h"
-#include "query_error.h"
+#include <stdbool.h>              // for bool
+#include <stddef.h>               // for size_t
+#include <stdint.h>               // for uint32_t
+
+#include "redismodule.h"          // for RedisModuleCtx, RedisModuleString
+#include "hybrid_request.h"       // for HybridRequest
+#include "search_ctx.h"           // for RedisSearchCtx
+#include "aggregate/aggregate.h"  // for cachedVars
+#include "query_error.h"          // for QueryError
 #include "cursor.h"
-#include "profile/options.h"
+#include "profile/options.h"      // for ProfileOptions
+#include "profile/profile.h"      // for ResultProcessor
+#include "reply.h"                // for RedisModule_Reply
+#include "search_result_rs.h"     // for SearchResult
+#include "util/arr/arr.h"         // for arrayof
 
 #ifdef __cplusplus
 extern "C" {

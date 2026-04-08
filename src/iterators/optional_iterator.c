@@ -8,9 +8,19 @@
 */
 
 #include "optional_iterator.h"
-#include "iterator_api.h"
-#include "types_rs.h"
-#include "iterators_rs.h"
+
+#include <stdbool.h>           // for false, true, bool
+#include <stddef.h>            // for NULL, size_t
+
+#include "iterator_api.h"      // for QueryIterator, IteratorStatus, ...
+#include "types_rs.h"          // for RSIndexResult, IndexResult_Free, ...
+#include "iterators_rs.h"      // for GetOptionalNonOptimizedIteratorChild
+#include "iterator_type.h"     // for OPTIONAL_OPTIMIZED_ITERATOR, ...
+#include "rmalloc.h"           // for rm_calloc, rm_free
+#include "rmutil/rm_assert.h"  // for RS_ASSERT
+#include "rules.h"             // for SchemaRule
+#include "search_ctx.h"        // for RedisSearchCtx
+#include "spec.h"              // for IndexSpec
 
 typedef struct {
   QueryIterator base;     // base index iterator

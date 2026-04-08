@@ -7,10 +7,16 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "aggregate_plan.h"
-#include "reducer.h"
-#include "expr/expression.h"
-#include <util/arr.h>
-#include <ctype.h>
+
+#include <stdio.h>               // for printf, NULL, size_t, snprintf
+#include <string.h>              // for memset
+
+#include "obfuscation/hidden.h"  // for HiddenString_GetUnsafe
+#include "result_processor.h"    // for SORTASCMAP_GETASC, SORTASCMAP_INIT
+#include "rlookup.h"             // for RLookupKey_GetFlags, RLookupKey_GetName
+#include "rmalloc.h"             // for rm_calloc, rm_free, rm_strdup, ...
+#include "rmutil/rm_assert.h"    // for RS_LOG_ASSERT, RS_ASSERT
+#include "util/dllist.h"         // for DLLIST_node, DLLIST_ITEM, DLLIST
 
 static const char *steptypeToString(PLN_StepType type) {
   switch (type) {

@@ -7,14 +7,16 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-#include "result_processor.h"
+#include <string.h>                        // for size_t, NULL
+#include <stdint.h>                        // for int8_t
+
 #include "hybrid_search_result.h"
-#include "rmutil/alloc.h"
-#include "query_error.h"
-#include "score_explain.h"
-#include "hybrid_scoring.h"
-#include <string.h>
-#include <assert.h>
+#include "hybrid_scoring.h"                // for GetScoringFunction, ...
+#include "hybrid/hybrid_lookup_context.h"  // for HybridLookupContext
+#include "rlookup_rs.h"                    // for RLookupRow_MoveFieldsFrom
+#include "rmalloc.h"                       // for rm_free, rm_calloc
+#include "rmutil/rm_assert.h"              // for RS_ASSERT
+#include "search_result.h"                 // for SearchResult_GetRowDataMut
 
 /**
  * Constructor for HybridSearchResult.

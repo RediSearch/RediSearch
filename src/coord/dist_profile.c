@@ -1,6 +1,8 @@
 #include "dist_profile.h"
-#include "rmutil/util.h"
-#include "../profile/profile.h"
+
+#include "../profile/profile.h"  // for PROFILE_SHARDS_STR, PROFILE_STR
+#include "profile/options.h"     // for EXEC_NO_FLAGS, EXEC_WITH_PROFILE
+#include "redismodule.h"         // for REDISMODULE_ERR, REDISMODULE_OK
 
 int ParseProfile(ArgsCursor *ac, QueryError *status, ProfileOptions *options) {
   // Profile args

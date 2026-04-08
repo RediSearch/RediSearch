@@ -7,9 +7,16 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "alias.h"
-#include "spec.h"
-#include "util/dict.h"
-#include "rmutil/rm_assert.h"
+
+#include <stdbool.h>           // for true
+#include <sys/types.h>         // for ssize_t
+
+#include "spec.h"              // for IndexSpec, IndexSpec_ClearAliases
+#include "rmutil/rm_assert.h"  // for RS_LOG_ASSERT
+#include "redismodule.h"       // for REDISMODULE_OK, REDISMODULE_ERR
+#include "rmalloc.h"           // for rm_calloc, rm_free
+#include "util/arr/arr.h"      // for array_len, array_free, array_hdr_t
+#include "util/dict/dict.h"    // for dictEntry, dictEntry::(anonymous), ...
 
 AliasTable *AliasTable_g = NULL;
 

@@ -8,9 +8,11 @@
 */
 
 #include "legacy_types.h"
-#include "util/misc.h"
-#include "rmutil/rm_assert.h"
-#include <stdbool.h>
+
+#include <stddef.h>            // for size_t, NULL
+
+#include "util/misc.h"         // for GenericAofRewrite_DisabledHandler
+#include "rmutil/rm_assert.h"  // for RS_ABORT, RS_ASSERT
 
 #define LEGACY_ENC_VER 1
 #define LEGACY_LEGACY_ENC_VER 0

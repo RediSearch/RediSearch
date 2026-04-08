@@ -8,35 +8,39 @@
 */
 
 #include "parse_hybrid.h"
-#include "query_optimizer.h"
 
-#include <string.h>
-#include <strings.h>
-#include <ctype.h>
+#include <string.h>                             // for NULL, strlen, size_t
+#include <strings.h>                            // for strcasecmp
+#include <stdint.h>                             // for uint32_t
 
-#include "aggregate/aggregate.h"
-#include "vector_query_utils.h"
-#include "vector_index.h"
-#include "query_error.h"
-#include "spec.h"
-#include "param.h"
-#include "rmalloc.h"
-#include "config.h"
-#include "shard_window_ratio.h"
-
-#include "rmutil/args.h"
-#include "rmutil/rm_assert.h"
-#include "util/references.h"
-#include "util/workers.h"
-#include "info/info_redis/threads/current_thread.h"
-#include "cursor.h"
-#include "info/info_redis/block_client.h"
+#include "aggregate/aggregate.h"                // for AREQ, AREQ_ApplyContext
+#include "vector_query_utils.h"                 // for ParsedVectorData, ...
+#include "vector_index.h"                       // for VectorQuery, ...
+#include "query_error.h"                        // for QueryError_SetError
+#include "spec.h"                               // for IndexSpec_IsCoherent
+#include "param.h"                              // for Param_DictFree, ...
+#include "rmalloc.h"                            // for rm_strndup, rm_calloc
+#include "config.h"                             // for RequestConfig, RSConfig
+#include "shard_window_ratio.h"                 // for validateShardKRatio
+#include "rmutil/args.h"                        // for AC_AdvanceIfMatch
+#include "rmutil/rm_assert.h"                   // for RS_ASSERT
 #include "hybrid/hybrid_request.h"
-#include "hybrid/parse/hybrid_optional_args.h"
+#include "hybrid/parse/hybrid_optional_args.h"  // for HybridParseContext
 #include "asm_state_machine.h"
-#include "hybrid/parse/hybrid_callbacks.h"
-#include "util/arg_parser.h"
-#include "rs_wall_clock.h"
+#include "hybrid/parse/hybrid_callbacks.h"      // for handleFilterBatchSize
+#include "util/arg_parser.h"                    // for ArgParser_AddStringV
+#include "VecSim/query_results.h"               // for BY_SCORE, BY_ID
+#include "VecSim/vec_sim_common.h"              // for VecSimRawParam
+#include "document.h"                           // for UNDERSCORE_KEY, ...
+#include "hiredis/sds.h"                        // for sds, sdsfree
+#include "hybrid/hybrid_scoring.h"              // for HybridScoringContext
+#include "query.h"                              // for QAST_EvalParams, ...
+#include "query_node.h"                         // for QueryAttribute, ...
+#include "result_processor.h"                   // for QueryProcessingCtx
+#include "rlookup_rs.h"                         // for RLookupKey
+#include "search_options.h"                     // for RSSearchOptions, ...
+#include "slot_ranges.h"                        // for SlotRangeArray_Clone
+#include "util/arr/arr.h"                       // for array_ensure_append_1
 
 // Helper function to set error message with proper plural vs singular form
 static void setExpectedArgumentsError(QueryError *status, unsigned int expected, int provided) {

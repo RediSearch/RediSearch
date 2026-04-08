@@ -6,23 +6,46 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#include "spec.h"
-#include "inverted_index.h"
+#include <stdbool.h>                                 // for bool, true, false
+#include <string.h>                                  // for NULL, strcmp
+#include <strings.h>                                 // for size_t, strcasecmp
+
+#include "spec.h"                                    // for IndexSpec, ...
+#include "inverted_index.h"                          // for TotalIIBlocks
 #include "vector_index.h"
-#include "cursor.h"
-#include "resp3.h"
-#include "geometry/geometry_api.h"
-#include "geometry_index.h"
-#include "redismodule.h"
+#include "cursor.h"                                  // for Cursors_RenderStats
+#include "geometry/geometry_api.h"                   // for GeometryApi_Get
+#include "geometry_index.h"                          // for OpenGeometryIndex
+#include "redismodule.h"                             // for RedisModuleString
 #include "module.h"
-#include "reply_macros.h"
-#include "info/global_stats.h"
-#include "util/units.h"
-#include "field_spec_info.h"
+#include "reply_macros.h"                            // for REPLY_KVINT, ...
+#include "info/global_stats.h"                       // for GET_DIALECT
+#include "field_spec_info.h"                         // for FieldSpecInfo_Clear
 #include "info/info_redis/threads/current_thread.h"
-#include "obfuscation/obfuscation_api.h"
-#include "query_error.h"
+#include "obfuscation/obfuscation_api.h"             // for Obfuscate_Text
+#include "query_error.h"                             // for QueryError_Strerror
 #include "search_disk.h"
+#include "VecSim/vec_sim_common.h"                   // for SVSParams, ...
+#include "doc_table.h"                               // for DocTable, DocIdMap
+#include "field_spec.h"                              // for FieldSpec, ...
+#include "gc.h"
+#include "geometry/geometry_types.h"                 // for GeometryApi, ...
+#include "info/index_error.h"                        // for IndexError_Reply
+#include "language.h"                                // for RSLanguage_ToString
+#include "obfuscation/hidden.h"
+#include "obfuscation/hidden_unicode.h"
+#include "redis_index.h"                             // for DONT_CREATE_INDEX
+#include "redisearch.h"                              // for t_docId
+#include "reply.h"
+#include "rmalloc.h"                                 // for rm_free, ...
+#include "rs_wall_clock.h"
+#include "rules.h"                                   // for SchemaRule, ...
+#include "search_ctx.h"                              // for RedisSearchCtx
+#include "stopwords.h"
+#include "triemap.h"                                 // for TrieMap_MemUsage
+#include "util/arr/arr.h"                            // for array_len
+#include "util/dict/dict.h"                          // for dictEntry, ...
+#include "util/references.h"                         // for StrongRef_Get
 
 static void renderIndexOptions(RedisModule_Reply *reply, const IndexSpec *sp) {
 

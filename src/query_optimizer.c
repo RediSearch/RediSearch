@@ -8,12 +8,28 @@
 */
 
 #include "query_optimizer.h"
-#include "iterators/optimizer_reader.h"
-#include "numeric_index.h"
-#include "ext/default.h"
-#include "iterators/union_iterator.h"
-#include "iterators/intersection_iterator.h"
-#include "iterators_rs.h"
+
+#include <string.h>                      // for strcmp, size_t, NULL, memset
+
+#include "iterators/optimizer_reader.h"  // for NewOptimizerIterator
+#include "numeric_index.h"               // for NewNumericFilterIterator
+#include "ext/default.h"                 // for BM25_SCORER_NAME, ...
+#include "iterators/union_iterator.h"    // for UnionIterator, UI_SyncIterList
+#include "iterators_rs.h"                // for AddIntersectionIteratorChild
+#include "aggregate/aggregate_plan.h"    // for PLN_ArrangeStep, ...
+#include "index_result/index_result.h"   // for IndexResult_ResetAggregate
+#include "iterator_type.h"               // for UNION_ITERATOR, ...
+#include "obfuscation/hidden.h"          // for HiddenString_CompareC
+#include "query.h"                       // for QueryAST
+#include "query_internal.h"              // for QueryNode_Free
+#include "query_node_type.h"             // for QN_NUMERIC, QN_VECTOR, ...
+#include "result_processor.h"            // for QueryProcessingCtx
+#include "rmalloc.h"                     // for rm_calloc, rm_free, rm_malloc
+#include "rmutil/rm_assert.h"            // for RS_LOG_ASSERT, RS_ABORT
+#include "search_options.h"              // for RSSearchOptions
+#include "spec.h"                        // for IndexSpec_GetFieldWithLength
+#include "util/arr/arr.h"                // for array_len, array_hdr_t, ...
+#include "vector_index.h"                // for VECSIM_QT_KNN, VectorQuery
 
 /********************* Horrific hacks moved from index.c *********************/
 

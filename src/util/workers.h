@@ -9,11 +9,12 @@
 
 #pragma once
 
-#include "redismodule.h"
-#include "thpool/thpool.h"
-#include <stdbool.h>
-#include <stddef.h>
+#include <stdbool.h>        // for bool
+#include <stddef.h>         // for size_t
 #include <assert.h>
+
+#include "redismodule.h"    // for RedisModuleCtx
+#include "thpool/thpool.h"  // for redisearch_thpool_proc, thpool_stats
 
 #ifdef __cplusplus
 extern "C" {

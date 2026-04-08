@@ -26,10 +26,12 @@
 ** input grammar file:
 */
 /************ Begin %include sections from the grammar ************************/
-#include "token.h"
-#include "expression.h"
-#include "exprast.h"
+#include "token.h"                         // for RSExprToken, RSExprParseCtx
+#include "expression.h"                    // for RSExpr_Free, RSArgList
+#include "exprast.h"                       // for RS_NewOp, RS_NewNumberLiteral
 #include "parser.h"
+#include "aggregate/functions/function.h"  // for RSFunctionInfo, ...
+#include "rmalloc.h"                       // for rm_asprintf, rm_free
 
 /**************** End of %include directives **********************************/
 /* These constants specify the various numeric values for terminal symbols.
@@ -359,9 +361,13 @@ struct yyParser {
 };
 typedef struct yyParser yyParser;
 
-#include <assert.h>
+#include <assert.h>                        // for assert
+#include <math.h>                          // for fmod, pow
+#include <stdbool.h>                       // for bool, false, true
+#include <string.h>                        // for strncmp
 #ifndef NDEBUG
-#include <stdio.h>
+#include <stdio.h>                         // for fprintf, NULL, FILE, size_t
+
 static FILE *yyTraceFILE = 0;
 static char *yyTracePrompt = 0;
 #endif /* NDEBUG */

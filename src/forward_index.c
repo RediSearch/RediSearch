@@ -7,12 +7,17 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "forward_index.h"
-#include "tokenize.h"
-#include "util/fnv.h"
-#include "util/logging.h"
-#include <stdio.h>
-#include <sys/param.h>
-#include "rmalloc.h"
+
+#include <stdio.h>         // for NULL, size_t
+#include <sys/param.h>     // for MAX
+#include <string.h>        // for strlen, memcmp, memcpy
+
+#include "tokenize.h"      // for Token, STEM_TOKEN_FACTOR, Token_CopyRaw
+#include "util/fnv.h"      // for rs_fnv_32a_buf
+#include "rmalloc.h"       // for rm_free, rm_calloc, rm_malloc
+#include "spec.h"          // for Index_StoreTermOffsets
+#include "types_rs.h"      // for RSIndexResult, RSOffsetVector, RSResultData
+#include "util/arr/arr.h"  // for array_len
 
 typedef struct {
   KHTableEntry khBase;

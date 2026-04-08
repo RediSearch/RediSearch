@@ -7,11 +7,13 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #pragma once
-#include <stddef.h>
-#include "redismodule.h"
-#include "reply.h"
-#include <time.h>
-#include "query_error.h"
+#include <stddef.h>           // for size_t
+#include <time.h>             // for timespec
+#include <stdbool.h>          // for bool, true, false
+
+#include "redismodule.h"      // for RedisModuleString
+#include "reply.h"            // for RedisModule_Reply
+#include "query_error.h"      // for QueryError_GetDisplayableError, QueryError
 
 #define WITH_INDEX_ERROR_TIME "_WITH_INDEX_ERROR_TIME"
 
@@ -85,7 +87,7 @@ void IndexError_Reply(const IndexError *error, RedisModule_Reply *reply, bool wi
 // This function should be called on shutdown.
 void IndexError_GlobalCleanup();
 
-#include "coord/rmr/reply.h"
+#include "coord/rmr/reply.h"  // for MRReply
 
 // Adds the error message of the other IndexError to the IndexError. The error_count is incremented and the last_error is set to the error_message.
 // This is used when merging errors from different shards in a cluster.

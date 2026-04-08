@@ -7,9 +7,10 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "khtable.h"
-#include <stdlib.h>
-#include <string.h>
-#include "rmalloc.h"
+
+#include <string.h>   // for memset
+
+#include "rmalloc.h"  // for rm_calloc, rm_free
 
 static uint32_t primes[] = {5ul,         11ul,        23ul,      47ul,       97ul,       199ul,
                             409ul,       823ul,       1741ul,    3469ul,     6949ul,     14033ul,

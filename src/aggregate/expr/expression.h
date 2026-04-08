@@ -9,10 +9,20 @@
 #ifndef RS_AGG_EXPRESSION_H_
 #define RS_AGG_EXPRESSION_H_
 
+#include <stdbool.h>                       // for bool
+#include <stddef.h>                        // for size_t
+
 #include "redisearch.h"
 #include "value.h"
-#include "aggregate/functions/function.h"
-#include "reply.h"
+#include "aggregate/functions/function.h"  // for RSFunction
+#include "reply.h"                         // for RedisModule_Reply
+#include "obfuscation/hidden.h"            // for HiddenString
+#include "query_error.h"                   // for QueryError
+#include "result_processor.h"              // for ResultProcessor
+#include "rlookup_rs.h"                    // for RLookup, RSValue, RLookupKey
+#include "rmutil/rm_assert.h"              // for RS_ABORT_ALWAYS
+#include "search_result_rs.h"              // for SearchResult
+#include "util/block_alloc.h"              // for BlkAlloc
 
 #ifdef __cplusplus
 extern "C" {
@@ -36,6 +46,7 @@ typedef enum {
 } RSExprType;
 
 struct RSExpr;
+
 typedef struct {
   unsigned char op;
   struct RSExpr *left;

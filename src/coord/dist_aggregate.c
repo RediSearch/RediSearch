@@ -6,28 +6,54 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#include <stdatomic.h>
-#include "result_processor.h"
-#include "rmr/rmr.h"
-#include "rmutil/util.h"
-#include "commands.h"
-#include "aggregate/aggregate.h"
-#include "dist_plan.h"
-#include "module.h"
-#include "profile/profile.h"
-#include "util/timeout.h"
-#include "resp3.h"
-#include "coord/config.h"
-#include "config.h"
-#include "dist_profile.h"
-#include "shard_window_ratio.h"
-#include "util/misc.h"
-#include "aggregate/aggregate_debug.h"
-#include "info/info_redis/threads/current_thread.h"
-#include "rpnet.h"
-#include "coord/dist_utils.h"
+#include <stdbool.h>                        // for false, true
+#include <stdint.h>                         // for uint32_t, UINT64_MAX
+#include <string.h>                         // for NULL, size_t, strcasestr
+
+#include "result_processor.h"               // for QueryProcessingCtx, ...
+#include "rmr/rmr.h"                        // for MRIterator_GetChannelSize
+#include "rmutil/util.h"                    // for RMUtil_ArgIndex
+#include "commands.h"                       // for RS_AGGREGATE_CMD, ...
+#include "aggregate/aggregate.h"            // for AREQ, ...
+#include "dist_plan.h"                      // for AREQDIST_UpstreamInfo
+#include "module.h"                         // for SpecialCaseCtx_Free, ...
+#include "profile/profile.h"                // for ResultProcessor, ...
+#include "resp3.h"                          // for is_resp3
+#include "config.h"                         // for RequestConfig, ...
+#include "dist_profile.h"                   // for ParseProfile, ...
+#include "shard_window_ratio.h"             // for calculateEffectiveK, ...
+#include "aggregate/aggregate_debug.h"      // for AREQ_Debug, AREQ_Debug_New
+#include "rpnet.h"                          // for RPNet, rpnetNext, ...
+#include "coord/dist_utils.h"               // for netCursorCallback
 #include "info/global_stats.h"
 #include "search_disk.h"
+#include "aggregate/aggregate_plan.h"       // for AGPLN_AddKNNArrangeStep
+#include "concurrent_ctx.h"                 // for ConcurrentCmdCtx_GetWeakRef
+#include "hybrid/hybrid_cursor_mappings.h"  // for QueryError
+#include "obfuscation/hidden_unicode.h"
+#include "profile/options.h"                // for ApplyProfileOptions, ...
+#include "query_error.h"                    // for QueryError_Default, ...
+#include "query_node.h"                     // for QueryNode, QueryVectorNode
+#include "redismodule.h"                    // for RedisModuleString, ...
+#include "reply.h"                          // for RedisModule_EndReply, ...
+#include "rlookup.h"                        // for RLookupKey_GetName, ...
+#include "rlookup_rs.h"                     // for RLookupKey
+#include "rmalloc.h"                        // for rm_asprintf, rm_free, rm_new
+#include "rmr/command.h"                    // for MRCommand_AppendRstr, ...
+#include "rmr/reply.h"                      // for MRReply, MRReply_Free
+#include "rmutil/args.h"                    // for AC_AdvanceBy, ArgsCursor
+#include "rmutil/rm_assert.h"               // for RS_ASSERT, RS_LOG_ASSERT
+#include "rs_wall_clock.h"                  // for rs_wall_clock_elapsed_ns
+#include "rules.h"                          // for SchemaRule
+#include "search_ctx.h"                     // for SEARCH_CTX_STATIC, ...
+#include "search_result_rs.h"               // for SearchResult
+#include "spec.h"                           // for IndexSpecRef_Release, ...
+#include "special_case_ctx.h"               // for specialCaseCtx, ...
+#include "util/arr/arr.h"                   // for array_append, array_hdr_t
+#include "util/references.h"                // for WeakRef_Release, ...
+#include "vector_index.h"                   // for KNNVectorQuery, VectorQuery
+
+struct ConcurrentCmdCtx;
 
 static const RLookupKey *keyForField(RPNet *nc, const char *s) {
   RLOOKUP_FOREACH(kk, nc->lookup, {

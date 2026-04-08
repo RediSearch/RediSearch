@@ -1,7 +1,19 @@
 #pragma once
 
-#include "aggregate/aggregate_plan.h"
-#include "query.h"
+#include <stddef.h>                    // for size_t
+#include <stdint.h>                    // for uint32_t
+
+#include "aggregate/aggregate_plan.h"  // for AGGPlan
+#include "query.h"                     // for QueryAST
+#include "config.h"                    // for RSTimeoutPolicy, RequestConfig
+#include "hybrid/hybrid_scoring.h"     // for HybridScoringContext
+#include "iterators/iterator_api.h"    // for QueryIterator
+#include "language.h"                  // for RSLanguage
+#include "query_error.h"               // for QueryError
+#include "redismodule.h"               // for RedisModuleSlotRangeArray
+#include "result_processor.h"          // for QueryProcessingCtx
+#include "search_ctx.h"                // for RedisSearchCtx
+#include "search_options.h"            // for FieldList
 
 #ifdef __cplusplus
 extern "C" {

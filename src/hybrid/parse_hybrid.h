@@ -11,16 +11,20 @@
 #define PARSE_HYBRID_H
 
 #include <stdint.h>
+#include <stdbool.h>                   // for bool
 
-#include "redismodule.h"
-
-#include "aggregate/aggregate.h"
-#include "pipeline/pipeline.h"
-#include "search_ctx.h"
+#include "redismodule.h"               // for RedisModuleCtx
+#include "aggregate/aggregate.h"       // for AREQ, CursorConfig
+#include "pipeline/pipeline.h"         // for HybridPipelineParams
+#include "search_ctx.h"                // for RedisSearchCtx
 #include "hybrid_request.h"
 #include "hybrid_scoring.h"
-#include "rs_wall_clock.h"
-#include "profile/options.h"
+#include "rs_wall_clock.h"             // for rs_wall_clock_ns_t
+#include "profile/options.h"           // for ProfileOptions
+#include "aggregate/aggregate_plan.h"  // for AGGPlan
+#include "config.h"                    // for RequestConfig
+#include "query_error.h"               // for QueryError
+#include "rmutil/args.h"               // for ArgsCursor
 
 #ifdef __cplusplus
 extern "C" {

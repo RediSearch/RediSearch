@@ -7,8 +7,12 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "logging.h"
-#include <stdarg.h>
-#include "module.h"
+
+#include <stdarg.h>       // for va_end, va_list, va_start
+#include <stdio.h>        // for vsnprintf
+
+#include "module.h"       // for RSDummyContext
+#include "redismodule.h"  // for RedisModule_Log
 
 #define LOG_MAX_LEN    1024 /* aligned with LOG_MAX_LEN in redis */
 

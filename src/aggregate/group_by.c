@@ -6,11 +6,19 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#include <redisearch.h>
-#include <result_processor.h>
-#include <util/block_alloc.h>
-#include <util/khash.h>
-#include "reducer.h"
+#include <result_processor.h>  // for ResultProcessor, QueryProcessingCtx
+#include <util/block_alloc.h>  // for BlkAlloc_Alloc, BlkAlloc_FreeAll, ...
+#include <util/khash.h>        // for kh_value, kh_end, khiter_t, kh_begin
+#include <stdint.h>            // for uint64_t, UINT32_MAX, uint32_t
+#include <string.h>            // for size_t, memcpy, memset, NULL
+
+#include "reducer.h"           // for Reducer
+#include "rlookup_rs.h"        // for RSValue, RLookupKey, RLookupRow_Get
+#include "rmalloc.h"           // for rm_free, rm_malloc, rm_calloc
+#include "search_result.h"     // for SearchResult_GetRowDataMut
+#include "search_result_rs.h"  // for SearchResult, SearchResult_Clear
+#include "util/arr/arr.h"      // for array_len, array_free, array_ensure_tail
+#include "value/value.h"       // for RSValue_Hash, RSValue_NullStatic, ...
 
 /**
  * A group represents the allocated context of all reducers in a group, and the

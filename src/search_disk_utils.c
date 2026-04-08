@@ -8,6 +8,7 @@
 */
 
 #include "search_disk_utils.h"
+
 #include "search_disk.h"
 
 bool SearchDisk_CheckLimitNumberOfIndexes(size_t nIndexes) {

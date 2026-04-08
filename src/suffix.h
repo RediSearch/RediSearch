@@ -12,9 +12,18 @@
 extern "C" {
 #endif
 
-#include "trie/trie_type.h"
-#include "triemap.h"
+#include <stdbool.h>         // for bool
+#include <stddef.h>          // for size_t
+#include <stdint.h>          // for uint32_t
+
+#include "trie/trie_type.h"  // for Trie
+#include "triemap.h"         // for TrieMap
 #include "util/arr.h"
+#include "trie/rune_util.h"  // for rune
+#include "trie/trie.h"       // for TrieNode, TrieSuffixCallback
+#include "util/arr/arr.h"    // for arrayof
+
+struct timespec;
 
 #define MIN_SUFFIX 2
 

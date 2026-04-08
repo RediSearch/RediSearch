@@ -8,12 +8,12 @@
 */
 
 #include "arg_parser.h"
-#include "rmalloc.h"
-#include <stdlib.h>
-#include <string.h>
-#include <stdio.h>
-#include <stdarg.h>
-#include <assert.h>
+
+#include <stdio.h>    // for NULL, size_t, snprintf
+#include <stdarg.h>   // for va_arg, va_list, va_end, va_start
+#include <strings.h>  // for strcasecmp
+
+#include "rmalloc.h"  // for rm_free, rm_strdup, rm_calloc, rm_malloc
 
 #define INITIAL_DEF_CAPACITY 16
 #define MAX_ERROR_MSG_LEN 512

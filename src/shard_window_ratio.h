@@ -8,16 +8,18 @@
 */
 #pragma once
 
-#include <stddef.h>
-#include <math.h>
-#include <stdbool.h>
+#include <stddef.h>             // for size_t
+#include <math.h>               // for ceil
+#include <stdbool.h>            // for bool
 #include <string.h>
+
 #include "redismodule.h"
-#include "coord/rmr/command.h"
+#include "coord/rmr/command.h"  // for MRCommand
 #include "coord/special_case_ctx.h"
-#include "config.h"
-#include "vector_index.h"
-#include "query_error.h"
+#include "config.h"             // for MAX_SHARD_WINDOW_RATIO
+#include "vector_index.h"       // for VectorQuery
+#include "query_error.h"        // for QueryError
+#include "rmutil/rm_assert.h"   // for RS_LOG_ASSERT, RS_LOG_ASSERT_FMT
 
 #ifdef __cplusplus
 extern "C" {

@@ -9,8 +9,9 @@
 
 #pragma once
 
-#include "iterator_api.h"
-#include "query_ctx.h"
+#include "iterator_api.h"  // for QueryIterator
+#include "query_ctx.h"     // for QueryEvalCtx
+#include "redisearch.h"    // for t_docId
 
 #ifdef __cplusplus
 extern "C" {

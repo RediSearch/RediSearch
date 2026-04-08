@@ -6,16 +6,14 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#include "coord/rmr/rmr.h"
-#include "coord/rmr/rq.h"
-#include "commands.h"
-#include "coord/rmr/io_runtime_ctx.h"
+#include <assert.h>                   // for static_assert
+#include <stddef.h>                   // for NULL
+
+#include "coord/rmr/rmr.h"            // for MR_Debug_ClearPendingTopo, ...
 #include "debug_commands.h"
-#include "debug_command_names.h"
-#include "coord/rmr/redis_cluster.h"
-#include "module.h"
-#include "src/config.h"
-#include <assert.h>
+#include "debug_command_names.h"      // for coordCommandsNames
+#include "coord/rmr/redis_cluster.h"  // for InitRedisTopologyUpdater, ...
+#include "module.h"                   // for debugCommandsEnabled, NODEBUG_ERR
 
 DEBUG_COMMAND(shardConnectionStates) {
   if (!debugCommandsEnabled(ctx)) {

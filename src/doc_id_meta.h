@@ -8,8 +8,10 @@
 */
 #pragma once
 
-#include <stdbool.h>
-#include "redismodule.h"
+#include <stdbool.h>      // for bool
+#include <stdint.h>       // for uint64_t
+
+#include "redismodule.h"  // for RedisModuleCtx, RedisModuleString
 
 #ifdef __cplusplus
 extern "C" {

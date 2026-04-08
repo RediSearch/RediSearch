@@ -8,10 +8,20 @@
 */
 #pragma once
 
-#include "iterator_api.h"
-#include "vector_index.h"
-#include "util/minmax_heap.h"
-#include "util/timeout.h"
+#include <stdbool.h>                // for bool
+#include <time.h>                   // for size_t, timespec
+
+#include "iterator_api.h"           // for QueryIterator
+#include "vector_index.h"           // for KNNVectorQuery, VecSimSearchMode
+#include "util/minmax_heap.h"       // for mm_heap_t
+#include "util/timeout.h"           // for TimeoutCtx
+#include "VecSim/query_results.h"   // for VecSimQueryReply, ...
+#include "VecSim/vec_sim.h"         // for VecSimIndex
+#include "VecSim/vec_sim_common.h"  // for VecSimMetric, VecSimQueryParams
+#include "query_error.h"            // for QueryError
+#include "rlookup_rs.h"             // for RLookupKey
+#include "search_ctx.h"             // for RedisSearchCtx
+#include "types_rs.h"               // for FieldFilterContext
 
 typedef struct {
   RedisSearchCtx *sctx;

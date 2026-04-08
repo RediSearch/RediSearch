@@ -7,11 +7,15 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "numeric_filter.h"
-#include "rmutil/strings.h"
-#include "rmutil/util.h"
-#include "rmutil/vector.h"
-#include "query_param.h"
-#include "fast_float/fast_float_strtod.h"
+
+#include <errno.h>                         // for errno
+#include <math.h>                          // for HUGE_VAL, INFINITY
+#include <string.h>                        // for NULL, strlen
+#include <strings.h>                       // for strcasecmp
+
+#include "fast_float/fast_float_strtod.h"  // for fast_float_strtod
+#include "redismodule.h"                   // for REDISMODULE_OK, ...
+#include "rmalloc.h"                       // for rm_free, rm_calloc, rm_malloc
 
 int parseDoubleRange(const char *s, bool *inclusive, double *target, int isMin,
                       int sign, QueryError *status) {

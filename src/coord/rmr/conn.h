@@ -13,13 +13,17 @@
 extern "C" {
 #endif
 
+#include <uv.h>              // for uv_loop_t
+#include <stddef.h>          // for size_t
+
 #include "hiredis/hiredis.h"
 #include "hiredis/hiredis_ssl.h"
-#include "hiredis/async.h"
-#include "endpoint.h"
-#include "command.h"
+#include "hiredis/async.h"   // for redisCallbackFn
+#include "endpoint.h"        // for MREndpoint
+#include "command.h"         // for MRCommand
 #include "util/dict.h"
-#include <uv.h>
+#include "redismodule.h"     // for RedisModuleCtx
+#include "util/dict/dict.h"  // for dict
 
 /*
  * The state of the connection.

@@ -6,13 +6,15 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#include <util/minmax.h>
-#include <util/array.h>
-#include <util/block_alloc.h>
 #include <aggregate/expr/expression.h>
-#include <ctype.h>
+#include <bits/types/struct_tm.h>       // for tm
+#include <math.h>                       // for floor, fmod
+#include <stdint.h>                     // for UINT32_MAX
+#include <time.h>                       // for gmtime_r, time_t, size_t, NULL
 
-#include "function.h"
+#include "rlookup_rs.h"                 // for RSValue
+#include "rmutil/rm_assert.h"           // for RS_ASSERT
+#include "value/value.h"                // for RSValue_MakeReference, ...
 
 #define ISOFMT "%FT%TZ"
 #define ISOFMT_LEN sizeof(ISOFMT) - 1

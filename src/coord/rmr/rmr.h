@@ -9,17 +9,23 @@
 
 #pragma once
 
-#include <stdbool.h>
+#include <stdbool.h>               // for bool
+#include <unistd.h>                // for size_t
+#include <pthread.h>               // for pthread_rwlock_t
 
-#include "reply.h"
+#include "reply.h"                 // for MRReply
 #include "cluster.h"
-#include "command.h"
-#include "util/references.h"
-#include <unistd.h>
-
+#include "command.h"               // for MRCommand
+#include "util/references.h"       // for StrongRef
+#include "hiredis/sds.h"           // for sds
+#include "query_error.h"           // for QueryError
+#include "redismodule.h"           // for RedisModuleCtx, ...
+#include "rmr/cluster_topology.h"  // for MRClusterTopology
 
 struct MRCtx;
 struct RedisModuleCtx;
+struct RedisModuleBlockedClient;
+struct timespec;
 
 // r/w lock protected wrapper for the local node ID string
 typedef struct {

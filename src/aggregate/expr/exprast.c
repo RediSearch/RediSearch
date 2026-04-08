@@ -7,8 +7,20 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "exprast.h"
-#include <ctype.h>
-#include "obfuscation/obfuscation_api.h"
+
+#include <ctype.h>                        // for ispunct, isspace
+#include <stdbool.h>                      // for bool
+#include <stdint.h>                       // for uint32_t
+
+#include "obfuscation/obfuscation_api.h"  // for Obfuscate_Text
+#include "aggregate/expr/expression.h"    // for RSExpr, RSExpr::(anonymous)
+#include "hiredis/sds.h"                  // for sdscat, sdscatfmt, sds, ...
+#include "obfuscation/hidden.h"           // for HiddenString_GetUnsafe, ...
+#include "query_error.h"                  // for QueryError_SetError, ...
+#include "rmalloc.h"                      // for rm_free, rm_malloc, rm_strdup
+#include "rmutil/rm_assert.h"             // for RS_LOG_ASSERT
+#include "util/arr/arr.h"                 // for array_append, array_hdr_t
+#include "value/value.h"                  // for RSValue_DecrRef, ...
 
 #define arglist_sizeof(l) (sizeof(RSArgList) + ((l) * sizeof(RSExpr *)))
 

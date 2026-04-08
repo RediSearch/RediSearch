@@ -9,16 +9,23 @@
 
 #pragma once
 
+#include <stdbool.h>                 // for bool
+#include <stddef.h>                  // for size_t
+
 #include "redisearch.h"
 #include "redismodule.h"
 #include "index_result.h"
-#include "iterators/iterator_api.h"
-#include "search_ctx.h"
-#include "query_error.h"
+#include "iterators/iterator_api.h"  // for QueryIterator
+#include "search_ctx.h"              // for RedisSearchCtx
+#include "query_error.h"             // for QueryError
 #include "rs_geo.h"
 #include "numeric_index.h"
 #include "query_node.h"
-#include "obfuscation/hidden.h"
+#include "obfuscation/hidden.h"      // for HiddenString
+#include "config.h"                  // for IteratorsConfig
+#include "field_spec.h"              // for FieldSpec
+#include "rmutil/args.h"             // for ArgsCursor
+#include "types_rs.h"                // for NumericFilter
 
 typedef enum {  // Placeholder for bad/invalid unit
   GEO_DISTANCE_INVALID = -1,

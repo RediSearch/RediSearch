@@ -13,11 +13,18 @@
 extern "C" {
 #endif
 
+#include <stddef.h>           // for size_t
+
 #include "hybrid/hybrid_request.h"
-#include "rmr/command.h"
+#include "rmr/command.h"      // for MRCommand
 #include "dist_plan.h"
-#include "profile/options.h"
-#include "vector_index.h"
+#include "profile/options.h"  // for ProfileOptions
+#include "vector_index.h"     // for VectorQuery
+#include "redismodule.h"      // for RedisModuleString, RedisModuleCtx
+#include "spec.h"             // for IndexSpec
+#include "util/arr/arr.h"     // for arrayof
+
+struct ConcurrentCmdCtx;
 
 void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                         struct ConcurrentCmdCtx *cmdCtx);

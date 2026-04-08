@@ -7,15 +7,11 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-#include "util/references.h"
-#include "main_thread.h"
-#include "rmalloc.h"
+#include <assert.h>   // for assert
+#include <pthread.h>  // for pthread_getspecific, pthread_key_create, ...
+#include <stddef.h>   // for NULL
 
-#ifdef __linux__
-#include <sys/syscall.h>
-#include <unistd.h>
-#endif
-#include "rmutil/rm_assert.h"
+#include "main_thread.h"
 
 // TLS key for the main thread
 static pthread_key_t blockedQueriesKey;

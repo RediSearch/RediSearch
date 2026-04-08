@@ -7,8 +7,10 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "heap_doubles.h"
-#include "rmalloc.h"
+
 #include <assert.h>
+
+#include "rmalloc.h"
 
 static inline int child_left(const int idx) {
   return idx * 2 + 1;

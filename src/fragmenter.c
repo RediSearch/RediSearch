@@ -7,13 +7,15 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "fragmenter.h"
-#include "toksep.h"
-#include "tokenize.h"
-#include "util/minmax.h"
-#include <ctype.h>
-#include <float.h>
-#include <sys/uio.h>
-#include "rmutil/rm_assert.h"
+
+#include <bits/types/struct_iovec.h>  // for iovec
+#include <string.h>                   // for strlen, strncmp, memcpy, memset
+
+#include "toksep.h"                   // for istoksep
+#include "tokenize.h"                 // for Token, RSTokenizer, ...
+#include "util/minmax.h"              // for Min, Max
+#include "rmutil/rm_assert.h"         // for RS_LOG_ASSERT
+#include "rmalloc.h"                  // for rm_malloc, rm_free
 
 // Estimated characters per token
 #define EST_CHARS_PER_TOK 6

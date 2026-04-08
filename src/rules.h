@@ -9,14 +9,22 @@
 
 #pragma once
 
-#include "query_error.h"
-#include "triemap.h"
+#include <stdbool.h>                     // for bool
+
+#include "query_error.h"                 // for QueryError
+#include "triemap.h"                     // for TrieMap
 #include "stemmer.h"
 #include "util/arr.h"
 #include "json.h"
 #include "redisearch.h"
-#include "util/references.h"
-#include "obfuscation/hidden_unicode.h"
+#include "util/references.h"             // for StrongRef
+#include "obfuscation/hidden_unicode.h"  // for HiddenUnicodeString
+#include "document_rs.h"                 // for DocumentType
+#include "language.h"                    // for RSLanguage
+#include "obfuscation/hidden.h"          // for HiddenString
+#include "redismodule.h"                 // for RedisModuleCtx, RedisModuleKey
+#include "rejson_api.h"                  // for RedisJSON
+#include "util/arr/arr.h"                // for arrayof
 
 #ifdef __cplusplus
 extern "C" {
@@ -91,6 +99,7 @@ int SchemaRule_RdbLoad(StrongRef spec_ref, RedisModuleIO *rdb, int encver, Query
 bool SchemaRule_ShouldIndex(struct IndexSpec *sp, RedisModuleString *keyname, DocumentType type);
 
 struct EvalCtx;
+
 /**
  * Evaluate the filter expression for a schema rule.
  * @param r The evaluation context (must be initialized with RLookup_LoadRuleFields)

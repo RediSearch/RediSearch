@@ -7,8 +7,13 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #pragma once
-#include "redismodule.h"
-#include "util/references.h"
+#include <stddef.h>           // for size_t
+
+#include "redismodule.h"      // for RedisModuleBlockedClient, ...
+#include "util/references.h"  // for StrongRef
+#include "cursor.h"           // for Cursor
+#include "query.h"            // for QueryAST
+#include "rs_wall_clock.h"    // for rs_wall_clock_ms_t
 
 #ifdef __cplusplus
 extern "C" {

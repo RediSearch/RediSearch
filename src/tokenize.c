@@ -6,16 +6,18 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#include "forward_index.h"
-#include "stopwords.h"
+#include <ctype.h>                 // for isblank, iscntrl
+#include <stdlib.h>                // for NULL, size_t
+#include <string.h>                // for memcpy
+
+#include "stopwords.h"             // for StopWordList, StopWordList_Contains
 #include "tokenize.h"
-#include "toksep.h"
-#include "rmalloc.h"
-#include "config.h"
-#include <ctype.h>
-#include <stdlib.h>
-#include <strings.h>
-#include "phonetic_manager.h"
+#include "toksep.h"                // for toksep
+#include "rmalloc.h"               // for rm_free, rm_calloc
+#include "config.h"                // for RSConfig, RSGlobalConfig, ...
+#include "phonetic_manager.h"      // for PhoneticManager_ExpandPhonetics
+#include "util/mempool/mempool.h"  // for mempool_get, mempool_release, ...
+#include "util/strconv.h"          // for unicode_tolower
 
 typedef struct {
   RSTokenizer base;

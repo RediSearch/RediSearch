@@ -9,14 +9,26 @@
 #ifndef RS_TAG_INDEX_H_
 #define RS_TAG_INDEX_H_
 
-#include "redismodule.h"
+#include <stdbool.h>                 // for bool
+#include <stddef.h>                  // for size_t
+#include <stdint.h>                  // for uint32_t
+
+#include "redismodule.h"             // for RedisModuleCtx
 #include "doc_table.h"
-#include "document.h"
+#include "document.h"                // for DocumentField
 #include "value.h"
 #include "geo_index.h"
 #include "vector_index.h"
-#include "indexer.h"
+#include "indexer.h"                 // for FieldIndexerData
 #include "search_disk_api.h"
+#include "field_spec.h"              // for FieldSpec
+#include "iterators/iterator_api.h"  // for QueryIterator
+#include "redisearch.h"              // for t_fieldIndex, t_docId
+#include "rmalloc.h"                 // for rm_free
+#include "search_ctx.h"              // for RedisSearchCtx
+#include "spec.h"                    // for RedisSearchDiskIndexSpec, ...
+#include "triemap.h"                 // for TrieMap
+#include "util/arr/arr.h"            // for array_free, array_foreach
 
 struct InvertedIndex;
 

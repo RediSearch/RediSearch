@@ -6,36 +6,51 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#include "aggregate/aggregate.h"
+#include <util/minmax_heap.h>             // for mm_heap_t, mmh_exchange_min
+#include <stdatomic.h>                    // for atomic_fetch_add, atomic_load
+#include <pthread.h>                      // for pthread_mutex_lock, ...
+#include <unistd.h>                       // for usleep
+#include <time.h>                         // for size_t, NULL, clock_gettime
+#include <stdlib.h>                       // for abort
+#include <string.h>                       // for strcmp, memcpy
+#include <sys/param.h>                    // for MAX, MIN
+
+#include "aggregate/aggregate.h"          // for AREQ_QueryProcessingCtx
 #include "result_processor.h"
-#include "query.h"
-#include "extension.h"
-#include <util/minmax_heap.h>
-#include "ext/default.h"
-#include "result_processor_rs.h"
-#include "rlookup.h"
-#include "rlookup_load_document.h"
-#include "rmutil/rm_assert.h"
-#include "util/timeout.h"
-#include "util/arr.h"
-#include "iterators_rs.h"
-#include "rs_wall_clock.h"
-#include <stdatomic.h>
-#include <pthread.h>
-#include <unistd.h>
-#include <time.h>
-#include "util/references.h"
-#include "hybrid/hybrid_scoring.h"
-#include "hybrid/hybrid_search_result.h"
-#include "config.h"
-#include "module.h"
-#include "search_disk.h"
-#include "debug_commands.h"
-#include "search_result.h"
-#include "redisearch.h"
-#include "asm_state_machine.h"
-#include "index_result.h"
-#include "index_result_async_read.h"
+#include "extension.h"                    // for ExtScoringFunctionCtx
+#include "result_processor_rs.h"          // for CrashInRust
+#include "rlookup.h"                      // for RLookupKey_GetPath
+#include "rlookup_load_document.h"        // for RLookupLoadOptions, ...
+#include "rmutil/rm_assert.h"             // for RS_ASSERT, RS_LOG_ASSERT
+#include "util/timeout.h"                 // for TimedOut_WithCounter, TimedOut
+#include "iterators_rs.h"                 // for NewEmptyIterator
+#include "rs_wall_clock.h"                // for rs_wall_clock_elapsed_ns
+#include "util/references.h"              // for StrongRef_Get, StrongRef
+#include "hybrid/hybrid_scoring.h"        // for HybridScoringContext, ...
+#include "hybrid/hybrid_search_result.h"  // for HybridSearchResult, ...
+#include "config.h"                       // for TimeoutPolicy_Return, ...
+#include "module.h"                       // for RSDummyContext, depleterPool
+#include "search_disk.h"                  // for SearchDisk_DocIdDeleted
+#include "debug_commands.h"               // for QueryDebugCtx_SetDebugRP
+#include "search_result.h"                // for SearchResult_GetScore, ...
+#include "redisearch.h"                   // for RSDocumentMetadata, ...
+#include "asm_state_machine.h"            // for key_space_version
+#include "index_result_async_read.h"      // for IndexResultAsyncReadState
+#include "doc_table.h"                    // for DMD_Return, DocTable_Borrow
+#include "document.h"                     // for UNDERSCORE_KEY
+#include "hiredis/sds.h"                  // for sdslen
+#include "profile/profile.h"              // for ResultProcessor
+#include "rmalloc.h"                      // for rm_free, rm_calloc, rm_malloc
+#include "score_explain.h"                // for RSScoreExplain, EXPLAIN
+#include "search_disk_api.h"              // for RedisSearchDiskAsyncReadPool
+#include "slot_ranges.h"                  // for SlotRangeArray_ContainsSlot
+#include "sorting_vector.h"               // for RSSortingVector_Empty
+#include "spec.h"                         // for IndexSpec, isTrimming
+#include "thpool/thpool.h"                // for redisearch_thpool_add_work
+#include "types_rs.h"                     // for RSIndexResult, ...
+#include "util/dict/dict.h"               // for stringsHashFunction, ...
+#include "util/dllist.h"                  // for dllist_append
+#include "value/value.h"                  // for RSValue_NewNumber, ...
 
 // Maximum number of concurrent async disk reads
 #define MAX_ONGOING_READ_SIZE 16

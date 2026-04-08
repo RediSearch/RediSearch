@@ -9,10 +9,14 @@
 
 #pragma once
 
-#include "hybrid/hybrid_request.h"
+#include "hybrid/hybrid_request.h"  // for HybridRequest
 #include "aggregate/aggregate_plan.h"
 #include "aggregate/aggregate.h"
 #include "dist_plan.h"
+#include "pipeline/pipeline.h"      // for HybridPipelineParams
+#include "query_error.h"            // for QueryError
+#include "rlookup_rs.h"             // for RLookup
+#include "util/arr/arr.h"           // for arrayof
 
 #ifdef __cplusplus
 extern "C" {

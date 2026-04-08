@@ -6,8 +6,15 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#include <aggregate/reducer.h>
-#include <float.h>
+#include <aggregate/reducer.h>  // for Reducer, ReducerOptions, ...
+#include <math.h>               // for INFINITY
+#include <stddef.h>             // for NULL
+#include <sys/param.h>          // for MAX, MIN
+
+#include "rlookup_rs.h"         // for RLookupRow_Get, RLookupRow, RSValue
+#include "rmalloc.h"            // for rm_calloc, rm_free
+#include "util/block_alloc.h"   // for BlkAlloc_Alloc
+#include "value/value.h"        // for RSValue_ToNumber, RSValue_NewNumber
 
 typedef struct {
   double val;

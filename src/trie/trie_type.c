@@ -7,21 +7,21 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-#include "libnu/libnu.h"
-#include "rmutil/strings.h"
-#include "rmutil/util.h"
-#include "util/heap.h"
-#include "util/misc.h"
-#include "rune_util.h"
-#include "trie_type.h"
-#include "rmalloc.h"
-#include "rdb.h"
+#include <math.h>              // for exp, logb, round, sqrt
+#include <sys/param.h>         // for MAX, MIN
+#include <string.h>            // for NULL, size_t, memcmp
+#include <limits.h>            // for INT_MAX
+#include <stdint.h>            // for uint64_t
+#include <stdlib.h>            // for rand
 
-#include <math.h>
-#include <sys/param.h>
-#include <time.h>
-#include <string.h>
-#include <limits.h>
+#include "util/heap.h"         // for heap_count, heap_offerx, heap_peek
+#include "util/misc.h"         // for GenericAofRewrite_DisabledHandler
+#include "rune_util.h"         // for rune, runeBufFill, runeBufFree, ...
+#include "trie_type.h"
+#include "rmalloc.h"           // for rm_free, rm_malloc
+#include "rdb.h"               // for LoadStringBuffer_IOError, ...
+#include "trie/levenshtein.h"  // for NewDFAFilter, StackPop, DFAFilter, ...
+#include "trie/trie.h"         // for TrieNode, TrieNode_Iterate, TrieIterator
 
 Trie *NewTrie(TrieFreeCallback freecb, TrieSortMode sortMode) {
   Trie *tree = rm_malloc(sizeof(Trie));

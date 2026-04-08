@@ -8,12 +8,16 @@
 */
 
 #include "hybrid_cursor_mappings.h"
-#include "redismodule.h"
-#include "rmalloc.h"
-#include "rmutil/rm_assert.h"
-#include "query_error.h"
-#include <string.h>
-#include "info/global_stats.h"
+
+#include <string.h>            // for NULL, strcmp, size_t
+#include <pthread.h>           // for pthread_mutex_lock, pthread_mutex_unlock
+
+#include "rmalloc.h"           // for rm_free, rm_malloc, rm_strdup
+#include "rmutil/rm_assert.h"  // for RS_ASSERT
+#include "query_error.h"       // for QueryError_SetWithoutUserDataFmt, ...
+#include "config.h"            // for OomPolicy_Return, RSOomPolicy
+#include "rmr/reply.h"         // for MRReply_ArrayElement, MRReply, ...
+#include "rmr/rmr.h"           // for MRIteratorCallback_Done, ...
 
 #define INTERNAL_HYBRID_RESP3_LENGTH 6
 #define INTERNAL_HYBRID_RESP2_LENGTH 6

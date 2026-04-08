@@ -8,12 +8,17 @@
 */
 #define __REDISEARCH_STOPORWORDS_C__
 #include "stopwords.h"
-#include "triemap.h"
-#include "rmalloc.h"
-#include "util/strconv.h"
-#include "rmutil/rm_assert.h"
-#include <ctype.h>
-#include "rdb.h"
+
+#include <stdbool.h>           // for bool, true
+#include <stdint.h>            // for uint64_t
+#include <string.h>            // for memcpy, strlen
+
+#include "triemap.h"           // for TrieMapIterator_Free, ...
+#include "rmalloc.h"           // for rm_free, rm_malloc, rm_strndup, rm_strdup
+#include "util/strconv.h"      // for unicode_tolower
+#include "rmutil/rm_assert.h"  // for RS_LOG_ASSERT
+#include "rdb.h"               // for LoadStringBuffer_IOError, ...
+#include "util/arr/arr.h"      // for array_free, array_len, ...
 
 #define MAX_STOPWORDLIST_SIZE 1024
 

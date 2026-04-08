@@ -6,16 +6,22 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#include <pthread.h>
+#include <pthread.h>                       // for pthread_getspecific, ...
+#include <errno.h>                         // for errno, ERANGE
+#include <math.h>                          // for HUGE_VAL
+#include <stdio.h>                         // for snprintf
+#include <sys/param.h>                     // for MIN
 
 #include "value.h"
-#include "rmalloc.h"
-#include "util/mempool.h"
-#include "module.h"
-#include "query_error.h"
-#include "rmutil/rm_assert.h"
-#include "fast_float/fast_float_strtod.h"
-#include "obfuscation/obfuscation_api.h"
+#include "rmalloc.h"                       // for rm_free, rm_malloc, rm_calloc
+#include "module.h"                        // for RSDummyContext
+#include "query_error.h"                   // for QueryError, ...
+#include "rmutil/rm_assert.h"              // for RS_ASSERT, RS_LOG_ASSERT
+#include "fast_float/fast_float_strtod.h"  // for fast_float_strtod
+#include "obfuscation/obfuscation_api.h"   // for Obfuscate_Text, ...
+#include "rlookup_rs.h"                    // for RSValue, RSValue_Cmp
+#include "util/fnv.h"                      // for fnv_64a_buf
+#include "util/mempool/mempool.h"          // for mempool_get, mempool_new
 
 ///////////////////////////////////////////////////////////////
 // Variant Values - will be used in documents as well

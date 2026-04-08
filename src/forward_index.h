@@ -8,15 +8,22 @@
 */
 #ifndef __FORWARD_INDEX_H__
 #define __FORWARD_INDEX_H__
-#include "redisearch.h"
-#include "util/block_alloc.h"
-#include "util/khtable.h"
+#include <stddef.h>                // for size_t
+#include <stdint.h>                // for uint32_t
+
+#include "redisearch.h"            // for t_fieldId, t_docId, t_fieldMask
+#include "util/block_alloc.h"      // for BlkAlloc
+#include "util/khtable.h"          // for KHTable, KHTableEntry
 #include "util/mempool.h"
 #include "triemap.h"
-#include "varint.h"
-#include "tokenize.h"
-#include "document.h"
-#include "inverted_index.h"
+#include "varint.h"                // for VarintVectorWriter
+#include "tokenize.h"              // for Token
+#include "document.h"              // for Document
+#include "inverted_index.h"        // for InvertedIndex
+#include "byte_offsets.h"          // for ByteOffsetWriter
+#include "stemmer.h"               // for Stemmer
+#include "synonym_map.h"           // for SynonymMap
+#include "util/mempool/mempool.h"  // for mempool_t
 
 #ifdef __cplusplus
 extern "C" {

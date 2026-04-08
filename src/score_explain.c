@@ -7,8 +7,12 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "score_explain.h"
-#include "rmalloc.h"
-#include "config.h"
+
+#include <stdarg.h>   // for va_end, va_list, va_start
+#include <stddef.h>   // for NULL
+
+#include "rmalloc.h"  // for rm_free, rm_vasprintf
+#include "config.h"   // for isFeatureSupported, NO_REPLY_DEPTH_LIMIT, ...
 
 static void recExplainReply(RedisModule_Reply *reply, const RSScoreExplain *scrExp, int depth) {
   int numChildren = scrExp->numChildren;

@@ -6,7 +6,16 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#include <aggregate/reducer.h>
+#include <aggregate/reducer.h>  // for Reducer, ReducerOptions, ...
+#include <stdint.h>             // for uint32_t
+#include <stdlib.h>             // for size_t, NULL, rand
+#include <sys/param.h>          // for MIN, MAX
+
+#include "query_error.h"        // for QueryError_SetError, QERR_MKBADARGS_AC
+#include "rlookup_rs.h"         // for RSValue, RLookupRow_Get, RLookupRow
+#include "rmalloc.h"            // for rm_free, rm_calloc
+#include "rmutil/args.h"        // for AC_GetUnsigned, AC_OK
+#include "value/value.h"        // for RSValue_IncrRef, RSValue_DecrRef, ...
 
 typedef struct {
   Reducer base;

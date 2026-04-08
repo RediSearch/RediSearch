@@ -8,15 +8,17 @@
 */
 #pragma once
 
+#include <stddef.h>            // for size_t
+
 #include "triemap.h"
 #include "hiredis/hiredis.h"
-#include "hiredis/async.h"
+#include "hiredis/async.h"     // for redisCallbackFn
 #include "conn.h"
 #include "endpoint.h"
-#include "command.h"
+#include "command.h"           // for MRCommand
 #include "node.h"
-#include "io_runtime_ctx.h"
-#include "cluster_topology.h"
+#include "io_runtime_ctx.h"    // for IORuntimeCtx
+#include "cluster_topology.h"  // for MRClusterTopology
 
 #ifdef __cplusplus
 extern "C" {

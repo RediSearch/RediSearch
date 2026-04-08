@@ -43,23 +43,25 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <stdint.h>
-#include <string.h>
-#include <stdarg.h>
-#include <limits.h>
-#include <sys/time.h>
+#include <stdio.h>               // for snprintf
+#include <stdlib.h>              // for random
+#include <stdint.h>              // for uint64_t, uint8_t, uintptr_t
+#include <string.h>              // for strlen, memcpy, memset, strcmp
+#include <limits.h>              // for LONG_MAX
+#include <sys/time.h>            // for gettimeofday, timeval
+#include <stdbool.h>             // for true
 
 #pragma GCC visibility push(default)
-#include "siphash.c.inc"
+#include "siphash.c.inc"         // IWYU pragma: keep
 #pragma GCC visibility pop
 
+#include <assert.h>              // for assert
+
 #include "dict.h"
-#include "redismodule.h"
-#include <assert.h>
-#include "rmalloc.h"
-#include "obfuscation/hidden.h"
+#include "redismodule.h"         // for RedisModuleString, ...
+#include "rmalloc.h"             // for rm_free, rm_malloc, rm_calloc, ...
+#include "obfuscation/hidden.h"  // for HiddenString, HiddenString_Compare
+#include "util/arr/arr.h"        // for array_free_ex, arrayof
 
 uint64_t stringsHashFunction(const void *key){
     return RS_dictGenHashFunction(key, strlen((char*)key));

@@ -10,13 +10,17 @@
 #ifndef __TOKENIZE_H__
 #define __TOKENIZE_H__
 
-#include "stemmer.h"
-#include "stopwords.h"
+#include <ctype.h>
+#include <stdlib.h>     // for size_t
+#include <strings.h>
+#include <stdbool.h>    // for bool
+#include <stdint.h>     // for uint32_t, uint16_t
+
+#include "stemmer.h"    // for Stemmer
+#include "stopwords.h"  // for StopWordList
 #include "redisearch.h"
 #include "varint.h"
-#include <ctype.h>
-#include <stdlib.h>
-#include <strings.h>
+#include "language.h"   // for RSLanguage
 
 #ifdef __cplusplus
 extern "C" {

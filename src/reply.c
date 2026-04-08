@@ -7,13 +7,14 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "reply.h"
-#include "resp3.h"
-#include "query_error.h"
-#include "value.h"
 
-#include "rmutil/rm_assert.h"
+#include <stdarg.h>            // for va_end, va_list, va_start
+#include <stdint.h>            // for uint32_t
 
-#include <math.h>
+#include "resp3.h"             // for is_resp3
+#include "query_error.h"       // for QueryError_GetUserError, QueryError
+#include "rmutil/rm_assert.h"  // for RS_LOG_ASSERT
+#include "rmalloc.h"           // for rm_free, rm_vasprintf, rm_malloc
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 

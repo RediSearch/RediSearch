@@ -11,19 +11,23 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdbool.h>                 // for bool
+
 #include "rmutil/vector.h"
 #include "redisearch.h"
 #include "index_result.h"
 #include "redismodule.h"
-#include "search_ctx.h"
+#include "search_ctx.h"              // for RedisSearchCtx
 #include "concurrent_ctx.h"
 #include "inverted_index.h"
 #include "numeric_filter.h"
-#include "config.h"
-#include "iterators/iterator_api.h"
-
+#include "config.h"                  // for IteratorsConfig
+#include "iterators/iterator_api.h"  // for QueryIterator
 // Include Rust-generated types for NumericRangeTree, NumericRange, NumericRangeNode, etc.
-#include "numeric_range_tree.h"
+#include "numeric_range_tree.h"      // for NumericRangeTree
+#include "field_spec.h"              // for FieldSpec, FieldType
+#include "spec.h"                    // for IndexSpec
+#include "types_rs.h"                // for FieldFilterContext, NumericFilter
 
 #ifdef __cplusplus
 extern "C" {

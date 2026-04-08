@@ -8,9 +8,14 @@
  */
 
 #pragma once
+#include <stdbool.h>           // for bool
+
 #include "redismodule.h"
-#include "query_error.h"
-#include "result_processor.h"
+#include "query_error.h"       // for QueryError, QueryErrorCode
+#include "result_processor.h"  // for ResultProcessor
+#include "config.h"            // for RSTimeoutPolicy, RSOomPolicy
+#include "reply.h"             // for RedisModule_Reply
+#include "search_result_rs.h"  // for SearchResult
 
 bool hasTimeoutError(QueryError *err);
 

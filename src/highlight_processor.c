@@ -6,13 +6,29 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#include "result_processor.h"
-#include "fragmenter.h"
-#include "rlookup.h"
-#include "value.h"
-#include "util/minmax.h"
-#include "toksep.h"
-#include <ctype.h>
+#include <ctype.h>                    // for isspace
+#include <bits/types/struct_iovec.h>  // for iovec
+#include <string.h>                   // for size_t, NULL, strlen
+
+#include "result_processor.h"         // for ResultProcessor, RS_RESULT_OK
+#include "fragmenter.h"               // for FragmentList_Free, ...
+#include "rlookup.h"                  // for RLookupKey_GetFlags, ...
+#include "util/minmax.h"              // for Min
+#include "toksep.h"                   // for istoksep
+#include "byte_offsets.h"             // for RSByteOffset_Iterate, ...
+#include "field_spec.h"               // for FieldSpec, FIELD_IS, ...
+#include "iterators/iterator_api.h"   // for QueryIterator, ITERATOR_OK, ...
+#include "language.h"                 // for RSLanguage, RS_LANG_CHINESE
+#include "redisearch.h"               // for RSDocumentMetadata, ...
+#include "redismodule.h"              // for REDISMODULE_OK
+#include "rlookup_rs.h"               // for RLookup, RSValue, RLookupRow_Get
+#include "rmalloc.h"                  // for rm_free, rm_calloc, rm_realloc
+#include "search_options.h"           // for ReturnedField, FieldList, ...
+#include "search_result.h"            // for SearchResult_GetRowDataMut, ...
+#include "search_result_rs.h"         // for SearchResult
+#include "types_rs.h"                 // for RSIndexResult
+#include "util/array.h"               // for Array, Array_Write, Array_Resize
+#include "value/value.h"              // for RSValue_NewString, ...
 
 typedef struct {
   ResultProcessor base;

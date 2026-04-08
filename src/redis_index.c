@@ -7,17 +7,26 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "redis_index.h"
-#include "doc_table.h"
-#include "redismodule.h"
-#include "inverted_index.h"
-#include "iterators_rs.h"
-#include "rmutil/strings.h"
-#include "rmutil/util.h"
-#include "util/logging.h"
-#include "util/misc.h"
-#include "tag_index.h"
-#include "rmalloc.h"
-#include <stdio.h>
+
+#include <stdio.h>               // for NULL, size_t
+#include <pthread.h>             // for pthread_rwlock_rdlock, ...
+#include <stdint.h>              // for int32_t, INT32_MAX
+#include <string.h>              // for memcpy, strcpy
+#include <time.h>                // for clock_gettime, CLOCK_REALTIME_COARSE
+
+#include "doc_table.h"           // for DocTable
+#include "redismodule.h"         // for RedisModuleString, RedisModuleCtx
+#include "inverted_index.h"      // for InvertedIndex, InvertedIndex_FieldMask
+#include "iterators_rs.h"        // for NewInvIndIterator_TermQuery
+#include "rmalloc.h"             // for rm_free, rm_calloc, rm_new
+#include "obfuscation/hidden.h"  // for HiddenString_GetUnsafe
+#include "query_term.h"          // for NewQueryTerm, RSQueryTerm
+#include "rmutil/rm_assert.h"    // for RS_ASSERT, RS_ASSERT_ALWAYS
+#include "spec.h"                // for IndexSpec, CharBuf, ...
+#include "types_rs.h"            // for FieldMaskOrIndex_Mask, FieldMaskOrIndex
+#include "util/dict/dict.h"      // for dictPauseRehashing, dictResumeRehashing
+#include "util/references.h"     // for StrongRef_Get, StrongRef
+#include "util/timeout.h"        // for rs_timeradd
 
 static inline void updateTime(SearchTime *searchTime, int32_t durationNS) {
   if (RS_IsMock) return;

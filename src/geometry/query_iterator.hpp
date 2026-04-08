@@ -8,12 +8,18 @@
 */
 #pragma once
 
-#include "../iterators/iterator_api.h"
-#include "allocator/tracking_allocator.hpp"
+#include <stdint.h>                          // for uint32_t
+#include <vector>                            // for vector
+#include <ranges>                            // for begin, end, ...
+#include <algorithm>                         // for sort
+#include <cstddef>                           // for size_t
+#include <functional>                        // for identity, less
 
-#include <vector>     // std::vector
-#include <ranges>     // ranges::input_range, ranges::begin, ranges::end
-#include <algorithm>  // ranges::sort
+#include "../iterators/iterator_api.h"       // for IteratorStatus, ...
+#include "allocator/tracking_allocator.hpp"  // for TrackingAllocator
+#include "redisearch.h"                      // for t_docId
+#include "search_ctx.h"                      // for RedisSearchCtx
+#include "types_rs.h"                        // for FieldFilterContext
 
 namespace RediSearch {
 namespace GeoShape {

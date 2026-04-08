@@ -8,12 +8,19 @@
 */
 
 #include "pipe.h"
-#include "module.h"
-#include "rmutil/rm_assert.h"
-#include <unistd.h>
-#include <poll.h>
-#include <errno.h>
-#include <string.h>
+
+#include <unistd.h>                   // for read, write
+#include <poll.h>                     // for poll, pollfd, POLLERR, POLLHUP
+#include <errno.h>                    // for errno, EINTR
+#include <string.h>                   // for strerror
+#include <bits/types/struct_iovec.h>  // for iovec
+#include <stdio.h>                    // for perror
+#include <sys/uio.h>                  // for ssize_t
+
+#include "rmutil/rm_assert.h"         // for RS_LOG_ASSERT
+#include "redismodule.h"              // for REDISMODULE_OK, REDISMODULE_ERR
+#include "rmalloc.h"                  // for rm_free, rm_malloc
+#include "spec.h"                     // for IndexSpec, IndexStats
 
 void *RECV_BUFFER_EMPTY = (void *)0x0deadbeef;
 

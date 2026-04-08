@@ -1,11 +1,40 @@
 #include "pipeline/pipeline_construction.h"
+
+#include <string.h>                     // for NULL, strlen, strcmp
+#include <strings.h>                    // for size_t, strcasecmp
+#include <sys/param.h>                  // for MIN
+
 #include "ext/default.h"
-#include "query_optimizer.h"
-#include "vector_normalization.h"
-#include "vector_index.h"
-#include "iterators/hybrid_reader.h"
-#include "iterators_rs.h"
-#include "util/misc.h"
+#include "query_optimizer.h"            // for QOptimizer, Q_OPT_NO_SORTER
+#include "vector_normalization.h"       // for getVectorNormalizationFunction
+#include "vector_index.h"               // for getVecSimMetricFromVectorField
+#include "util/misc.h"                  // for ExtractKeyName
+#include "VecSim/vec_sim_common.h"      // for VecSimMetric
+#include "aggregate/aggregate.h"        // for Grouper_Free, IsSearch, ...
+#include "aggregate/expr/expression.h"  // for ExprAST_GetLookupKeys, ...
+#include "aggregate/reducer.h"          // for RDCR_GetFactory, ...
+#include "config.h"                     // for RSConfig, RSGlobalConfig, ...
+#include "document.h"                   // for UNDERSCORE_SCORE
+#include "extension.h"                  // for Extensions_GetScoringFunction
+#include "field_spec.h"                 // for FIELD_IS, FieldSpec, ...
+#include "profile/profile.h"            // for ResultProcessor
+#include "query.h"                      // for MetricRequest, QueryAST, ...
+#include "query_error.h"                // for QueryError_SetWithUserDataFmt
+#include "redisearch.h"                 // for ScoringFunctionArgs, isSpecJson
+#include "redismodule.h"                // for REDISMODULE_ERR, REDISMODULE_OK
+#include "result_processor.h"           // for RPLoader_New, QueryProcessingCtx
+#include "result_processor_rs.h"        // for RPCounter_New
+#include "rlookup.h"                    // for RLookupKey_GetFlags
+#include "rlookup_rs.h"                 // for RLookupKey, RLookup, ...
+#include "rmalloc.h"                    // for rm_calloc, rm_malloc
+#include "rmutil/args.h"                // for AC_AdvanceIfMatch, AC_GetString
+#include "rmutil/rm_assert.h"           // for RS_LOG_ASSERT, RS_ABORT, ...
+#include "score_explain.h"              // for RSScoreExplain
+#include "search_ctx.h"                 // for RedisSearchCtx, ...
+#include "search_options.h"             // for ReturnedField, FieldList, ...
+#include "spec.h"                       // for IndexSpec_GetFieldWithLength
+#include "util/arr/arr.h"               // for array_len, array_free, ...
+#include "util/dllist.h"                // for DLLIST_node, DLLIST, DLLIST_ITEM
 
 #ifdef __cplusplus
 extern "C" {

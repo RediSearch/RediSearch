@@ -9,9 +9,11 @@
 
 #pragma once
 
-#include <stdint.h>
-#include <stdbool.h>
-#include "redismodule.h"
+#include <stdint.h>       // for uint16_t, uint32_t
+#include <stdbool.h>      // for bool
+#include <stddef.h>       // for size_t
+
+#include "redismodule.h"  // for RedisModuleSlotRangeArray
 
 #ifdef __cplusplus
 extern "C" {

@@ -6,12 +6,15 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#include "spec.h"
+#include <string.h>            // for NULL, size_t, strlen, memcpy, strcmp
+
+#include "spec.h"              // for INDEX_MIN_WITH_SYNONYMS_INT_GROUP_ID
 #include "synonym_map.h"
-#include "rmalloc.h"
-#include "util/fnv.h"
-#include "rmutil/rm_assert.h"
-#include "rdb.h"
+#include "rmalloc.h"           // for rm_free, rm_malloc, rm_strdup, ...
+#include "rmutil/rm_assert.h"  // for RS_LOG_ASSERT
+#include "rdb.h"               // for LoadUnsigned_IOError, ...
+#include "util/arr/arr.h"      // for array_len, array_free, array_append
+#include "util/strconv.h"      // for unicode_tolower
 
 #define INITIAL_CAPACITY 2
 #define SYNONYM_PREFIX "~%s"

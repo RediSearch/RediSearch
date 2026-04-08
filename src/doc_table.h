@@ -8,16 +8,25 @@
 */
 #ifndef __DOC_TABLE_H__
 #define __DOC_TABLE_H__
-#include <stdlib.h>
-#include <string.h>
-#include "redismodule.h"
-#include "triemap.h"
-#include "redisearch.h"
+#include <stdlib.h>            // for size_t, NULL
+#include <string.h>            // for strlen
+#include <stdbool.h>           // for bool, true
+#include <stdint.h>            // for uint16_t, uint32_t
+
+#include "redismodule.h"       // for RedisModuleString, ...
+#include "triemap.h"           // for TrieMap
+#include "redisearch.h"        // for RSDocumentMetadata, t_docId, t_fieldIndex
 #include "sortable.h"
-#include "byte_offsets.h"
-#include "hiredis/sds.h"
-#include "rmutil/rm_assert.h"
-#include "ttl_table.h"
+#include "byte_offsets.h"      // for RSByteOffsets
+#include "hiredis/sds.h"       // for sdslen, sds
+#include "rmutil/rm_assert.h"  // for RS_LOG_ASSERT
+#include "ttl_table.h"         // for TimeToLiveTable_VerifyDocAndField, ...
+#include "document_rs.h"       // for DocumentType
+#include "sorting_vector.h"    // for RSSortingVector
+#include "types_rs.h"          // for FieldExpirationPredicate
+#include "util/arr/arr.h"      // for arrayof
+
+struct timespec;
 
 #ifdef __cplusplus
 extern "C" {

@@ -8,8 +8,14 @@
 */
 #pragma once
 
-#include "geometry/geometry_types.h"
+#include <stdbool.h>                  // for bool
+#include <stddef.h>                   // for size_t
+
+#include "geometry/geometry_types.h"  // for GEOMETRY_FORMAT, GeometryIndex
 #include "search_ctx.h"
+#include "field_spec.h"               // for FieldSpec
+#include "redisearch.h"               // for t_docId
+#include "spec.h"                     // for IndexSpec
 
 typedef struct GeometryQuery {
     GEOMETRY_FORMAT format;

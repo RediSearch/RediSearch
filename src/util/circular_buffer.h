@@ -8,8 +8,9 @@
 */
 #pragma once
 
-#include <stdbool.h>
-#include <sys/types.h>
+#include <stdbool.h>    // for bool
+#include <sys/types.h>  // for uint, size_t
+#include <stdint.h>     // for uint64_t
 
 #ifdef __cplusplus
 extern "C" {

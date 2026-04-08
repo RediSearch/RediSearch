@@ -6,16 +6,20 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#include <errno.h>
+#include <errno.h>             // for errno
+#include <stdbool.h>           // for false
+#include <string.h>            // for NULL, size_t, strlen
+
 #include "dictionary.h"
-#include "redismodule.h"
-#include "rmalloc.h"
-#include "util/dict.h"
-#include "rdb.h"
-#include "resp3.h"
-#include "rmutil/rm_assert.h"
-#include "commands.h"
-#include "config.h"
+#include "redismodule.h"       // for RedisModuleString, RedisModuleCtx, ...
+#include "rmalloc.h"           // for rm_free, rm_malloc
+#include "rdb.h"               // for LoadStringBuffer_IOError, ...
+#include "rmutil/rm_assert.h"  // for RS_LOG_ASSERT, RS_ASSERT, ...
+#include "commands.h"          // for RS_DICT_ADD
+#include "config.h"            // for RSConfig, RSGlobalConfig
+#include "trie/rune_util.h"    // for runesToStr, rune
+#include "trie/trie.h"         // for TrieIterator_Free, TrieIterator_Next
+#include "util/dict/dict.h"    // for dictEntry, dictGetIterator, dictGetVal
 
 dict *spellCheckDicts = NULL;
 

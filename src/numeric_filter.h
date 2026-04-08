@@ -9,12 +9,16 @@
 
 #pragma once
 
+#include <stdbool.h>             // for bool
+
 #include "redisearch.h"
 #include "search_ctx.h"
-#include "rmutil/args.h"
-#include "query_error.h"
+#include "rmutil/args.h"         // for ArgsCursor
+#include "query_error.h"         // for QueryError
 #include "query_node.h"
-#include "obfuscation/hidden.h"
+#include "obfuscation/hidden.h"  // for HiddenString
+#include "field_spec.h"          // for FieldSpec
+#include "types_rs.h"            // for NumericFilter
 
 #ifdef __cplusplus
 extern "C" {

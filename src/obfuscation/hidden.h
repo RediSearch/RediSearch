@@ -10,7 +10,11 @@
 #ifndef HIDDEN_H
 #define HIDDEN_H
 #include <stdint.h>
+#include <stdbool.h>      // for bool
+#include <stddef.h>       // for size_t
+
 #include "reply.h"
+#include "redismodule.h"  // for RedisModuleCtx, RedisModuleIO, ...
 
 #ifdef __cplusplus
 extern "C" {

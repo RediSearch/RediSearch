@@ -8,13 +8,27 @@
  */
 
 #include "hybrid_debug.h"
-#include "hybrid_exec.h"
-#include "hybrid_request.h"
-#include "parse_hybrid.h"
-#include "result_processor.h"
-#include "rmutil/args.h"
-#include "rmalloc.h"
+
+#include <stdbool.h>                // for false, true
+#include <stddef.h>                 // for NULL
+#include <strings.h>                // for strncasecmp, size_t
+
+#include "hybrid_exec.h"            // for HybridRequest_Execute
+#include "hybrid_request.h"         // for HybridRequest, HybridRequest_DecrRef
+#include "parse_hybrid.h"           // for ParseHybridCommandCtx, ...
+#include "result_processor.h"       // for PipelineAddTimeoutAfterCount
+#include "rmutil/args.h"            // for AC_ARGTYPE_SUBARGS_N, ...
+#include "rmalloc.h"                // for rm_calloc, rm_free
 #include "search_disk_utils.h"
+#include "aggregate/aggregate.h"    // for AREQ_SearchCtx, AREQ, ...
+#include "config.h"                 // for RequestConfig
+#include "hybrid/hybrid_scoring.h"  // for HybridScoringContext_Free
+#include "pipeline/pipeline.h"      // for HybridPipelineParams, Pipeline
+#include "profile/options.h"        // for EXEC_NO_FLAGS
+#include "profile/profile.h"        // for ProfileClocks
+#include "query_error.h"            // for QueryError_SetError, ...
+#include "rmutil/rm_assert.h"       // for RS_ASSERT
+#include "search_ctx.h"             // for SearchCtx_UpdateTime, NewSearchCtxC
 
 // Debug parameters structure for hybrid queries
 typedef struct {

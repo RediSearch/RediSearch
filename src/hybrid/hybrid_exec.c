@@ -8,35 +8,47 @@
  */
 
 #include "hybrid_exec.h"
-#include "parse_hybrid.h"
-#include "hybrid_request.h"
-#include "aggregate/aggregate_exec_common.h"
-#include "debug_commands.h"
 
-#include "redismodule.h"
-#include "redisearch.h"
-#include "search_ctx.h"
-#include "aggregate/aggregate.h"
-#include "query_error.h"
+#include <time.h>                                    // for NULL, size_t
+#include <string.h>                                  // for memset
+
+#include "parse_hybrid.h"
+#include "hybrid_request.h"                          // for HybridRequest
+#include "aggregate/aggregate_exec_common.h"
+#include "redismodule.h"                             // for REDISMODULE_OK
+#include "redisearch.h"                              // for RSDocumentMetadata
+#include "search_ctx.h"                              // for RedisSearchCtx
+#include "aggregate/aggregate.h"                     // for AREQ, ...
+#include "query_error.h"                             // for QueryError, ...
 #include "spec.h"
-#include "rmalloc.h"
-#include "cursor.h"
-#include "score_explain.h"
-#include "util/timeout.h"
+#include "rmalloc.h"                                 // for rm_free, ...
+#include "cursor.h"                                  // for Cursor, Cursor_Free
+#include "score_explain.h"                           // for SEReply
 #include "util/workers.h"
 #include "info/global_stats.h"
-#include "info/info_redis/block_client.h"
+#include "info/info_redis/block_client.h"            // for BlockClientCtx
 #include "info/info_redis/threads/current_thread.h"
-#include "info/info_redis/types/blocked_queries.h"
+#include "info/info_redis/types/blocked_queries.h"   // for BlockedQueryNode
 #include "pipeline/pipeline.h"
-#include "util/units.h"
-#include "value.h"
-#include "module.h"
+#include "module.h"                                  // for QueryMemoryGuard
 #include "aggregate/reply_empty.h"
-#include "profile/profile.h"
+#include "profile/profile.h"                         // for ResultProcessor
 #include "search_disk_utils.h"
-
-#include <time.h>
+#include "VecSim/vec_sim_common.h"                   // for UNUSED
+#include "aggregate/aggregate_plan.h"
+#include "config.h"                                  // for RequestConfig
+#include "hybrid/hybrid_scoring.h"
+#include "result_processor.h"                        // for QueryProcessingCtx
+#include "rlookup.h"                                 // for RLookupKey_GetName
+#include "rlookup_rs.h"                              // for RLookupRow_Get
+#include "rmutil/args.h"                             // for ArgsCursor
+#include "rmutil/rm_assert.h"                        // for RS_ASSERT, ...
+#include "rs_wall_clock.h"
+#include "rules.h"                                   // for SchemaRule
+#include "search_result.h"
+#include "thpool/thpool.h"
+#include "util/references.h"                         // for StrongRef_Get
+#include "value/value.h"                             // for RSValue_IsTrio
 
 #define SEARCH_SUFFIX "(SEARCH)"
 #define VSIM_SUFFIX "(VSIM)"

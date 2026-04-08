@@ -8,11 +8,12 @@
 */
 #pragma once
 
-#include "redismodule.h"
-#include <stdbool.h>
-#include <stdatomic.h>
+#include <stdbool.h>           // for bool
+#include <stdatomic.h>         // for atomic_bool
 #include <stdint.h>
-#include "result_processor.h"
+
+#include "redismodule.h"       // for RedisModuleCtx, RedisModuleString, ...
+#include "result_processor.h"  // for ResultProcessor
 
 #define RS_DEBUG_FLAGS 0, 0, 0
 #define DEBUG_COMMAND(name) static int name(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)

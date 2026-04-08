@@ -7,8 +7,19 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "field_spec_info.h"
-#include "reply_macros.h"
-#include "coord/rmr/reply.h"
+
+#include <string.h>                   // for NULL, size_t, strcmp
+
+#include "reply_macros.h"             // for REPLY_KVSTR, REPLY_KVINT
+#include "coord/rmr/reply.h"          // for MRReply_MapElement, MRReply
+#include "VecSim/vec_sim.h"           // for VecSimIndex_StatsInfo, VecSimIndex
+#include "VecSim/vec_sim_common.h"    // for VecSimIndexStatsInfo
+#include "info/index_error.h"         // for IndexError_Init, IndexError_Reply
+#include "info/vector_index_stats.h"  // for VectorIndexStats, ...
+#include "redis_index.h"              // for DONT_CREATE_INDEX
+#include "rmalloc.h"                  // for rm_free
+#include "rmutil/rm_assert.h"         // for RS_ASSERT
+#include "vector_index.h"             // for openVectorIndex
 
 static FieldType getFieldType(const char *type){
     if (strcmp(type, "vector") == 0) {

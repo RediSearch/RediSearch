@@ -8,8 +8,10 @@
 */
 
 #pragma once
-#include "redismodule.h"
-#include "hiredis/sds.h"
+#include <stddef.h>       // for size_t
+
+#include "redismodule.h"  // for RedisModuleCtx, RedisModuleIO, ...
+#include "hiredis/sds.h"  // for sds
 
 #ifdef __cplusplus
 extern "C" {

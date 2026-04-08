@@ -7,12 +7,14 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "stemmer.h"
-#include <string.h>
-#include <stdio.h>
-#include <sys/param.h>
-#include "snowball/include/libstemmer.h"
-#include "rmalloc.h"
-#include "rmutil/rm_assert.h"
+
+#include <string.h>                       // for memcpy
+#include <stdio.h>                        // for NULL, size_t
+#include <strings.h>                      // for strncasecmp
+
+#include "snowball/include/libstemmer.h"  // for sb_stemmer_delete, ...
+#include "rmalloc.h"                      // for rm_free, rm_malloc, rm_realloc
+#include "rmutil/rm_assert.h"             // for RS_ASSERT
 
 struct sbStemmerCtx {
   struct sb_stemmer *sb;

@@ -10,7 +10,7 @@
 #define QUANTILE_H
 
 #include <stdlib.h>
-#include <stdio.h>
+#include <stdio.h>  // for size_t
 
 typedef struct QuantStream QuantStream;
 

@@ -6,14 +6,21 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#include "tokenize.h"
-#include "toksep.h"
-#include "config.h"
-#include "friso/friso.h"
-#include "cndict_loader.h"
-#include "util/minmax.h"
-#include "rmutil/rm_assert.h"
-#include "rmalloc.h"
+#include <stdint.h>            // for uint16_t, uint32_t
+#include <stdio.h>             // for fprintf, stderr
+#include <stdlib.h>            // for abort
+#include <string.h>            // for size_t, NULL, memcpy, strlen
+
+#include "tokenize.h"          // for Token, RSTokenizer, TokenizerCtx, ...
+#include "toksep.h"            // for istoksep
+#include "config.h"            // for RSConfig, RSGlobalConfig
+#include "friso/friso.h"       // for friso_token_entry, friso_dic_new, ...
+#include "cndict_loader.h"     // for ChineseDictConfigure, ChineseDictLoad
+#include "util/minmax.h"       // for Min
+#include "rmutil/rm_assert.h"  // for RS_LOG_ASSERT
+#include "rmalloc.h"           // for rm_calloc, rm_free
+#include "stemmer.h"           // for Stemmer
+#include "stopwords.h"         // for StopWordList_Contains, StopWordList
 
 static friso_config_t config_g;
 static friso_t friso_g;

@@ -11,10 +11,12 @@
 
 #include <stdlib.h>
 #include <string.h>
-#include <stdio.h>
-#include <stdbool.h>
-#include "rune_util.h"
-#include "redisearch.h"
+#include <stdio.h>       // for size_t
+#include <stdbool.h>     // for bool
+#include <stdint.h>      // for uint32_t, uint16_t, uint8_t
+
+#include "rune_util.h"   // for rune
+#include "redisearch.h"  // for RSPayload
 #ifdef __cplusplus
 extern "C" {
 #endif

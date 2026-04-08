@@ -8,11 +8,13 @@
 */
 
 #include "hidden.h"
-#include "rmalloc.h"
-#include "util/minmax.h"
-#include "redis_index.h"
-#include "query_node.h"
-#include "reply_macros.h"
+
+#include <string.h>       // for strncmp, strncpy, NULL
+#include <strings.h>      // for size_t, strncasecmp
+#include <sys/param.h>    // for MIN
+
+#include "rmalloc.h"      // for rm_free, rm_strndup, rm_malloc, rm_realloc
+#include "redis_index.h"  // for Redis_LegacyDeleteKey
 
 typedef struct {
   const char *user;

@@ -8,7 +8,12 @@
 */
 
 #include "intersection_iterator.h"
-#include "iterators_rs.h"
+
+#include <stdbool.h>        // for bool, false, true
+
+#include "iterators_rs.h"   // for NewEmptyIterator, IsWildcardIterator
+#include "iterator_type.h"  // for EMPTY_ITERATOR
+#include "rmalloc.h"        // for rm_free
 
 /**
  * Reduce the intersection iterator by applying these rules:

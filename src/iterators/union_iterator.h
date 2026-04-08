@@ -9,10 +9,14 @@
 
 #pragma once
 
-#include "iterator_api.h"
-#include "util/heap.h"
+#include <stdbool.h>          // for bool
+#include <stdint.h>           // for uint32_t
+
+#include "iterator_api.h"     // for QueryIterator
+#include "util/heap.h"        // for heap_t
 #include "query_node.h"
-#include "config.h"
+#include "config.h"           // for IteratorsConfig
+#include "query_node_type.h"  // for QueryNodeType
 
 #ifdef __cplusplus
 extern "C" {

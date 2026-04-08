@@ -9,9 +9,15 @@
 
 #pragma once
 
+#include <stdbool.h>          // for bool
+#include <stdint.h>           // for uint16_t
+
 #include "rmr/rmr.h"
-#include "util/references.h"
-#include "../../config.h"
+#include "util/references.h"  // for StrongRef
+#include "../../config.h"     // for RSOomPolicy
+#include "query_error.h"      // for QueryError
+#include "rmr/command.h"      // for MRCommand
+#include "util/arr/arr.h"     // for arrayof
 
 #ifdef __cplusplus
 extern "C" {

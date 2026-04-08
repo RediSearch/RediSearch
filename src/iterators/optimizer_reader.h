@@ -9,11 +9,15 @@
 
 #pragma once
 
-#include "query_optimizer.h"
-#include "iterators/iterator_api.h"
-#include "redisearch.h"
-#include "util/heap.h"
-#include "util/timeout.h"
+#include <stddef.h>                  // for size_t
+
+#include "query_optimizer.h"         // for QOptimizer
+#include "iterators/iterator_api.h"  // for QueryIterator
+#include "redisearch.h"              // for t_docId, t_fieldIndex
+#include "util/heap.h"               // for heap_t
+#include "util/timeout.h"            // for TimeoutCtx
+#include "config.h"                  // for IteratorsConfig
+#include "types_rs.h"                // for RSIndexResult
 
 // This enum should match the VecSearchMode enum in VecSim
 typedef int (*OptimizerCompareFunc)(const void *e1, const void *e2, const void *udata);

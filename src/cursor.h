@@ -9,12 +9,21 @@
 #ifndef CURSOR_H
 #define CURSOR_H
 
-#include <unistd.h>
-#include <pthread.h>
-#include "util/khash.h"
-#include "util/array.h"
+#include <unistd.h>               // for size_t
+#include <pthread.h>              // for pthread_mutex_t
+#include <stdbool.h>              // for bool
+#include <stddef.h>               // for NULL
+#include <stdint.h>               // for uint64_t, uint32_t
+
+#include "util/khash.h"           // for KHASH_MAP_INIT_INT64, khash_t
+#include "util/array.h"           // for Array
 #include "search_ctx.h"
-#include "aggregate/aggregate.h"
+#include "aggregate/aggregate.h"  // for AREQ
+#include "query_error.h"          // for QueryError
+#include "redismodule.h"          // for RedisModuleInfoCtx
+#include "reply.h"                // for RedisModule_Reply
+#include "spec.h"                 // for IndexSpec
+#include "util/references.h"      // for StrongRef, WeakRef
 
 #ifdef __cplusplus
 extern "C" {

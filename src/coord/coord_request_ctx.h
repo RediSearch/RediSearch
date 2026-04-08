@@ -9,11 +9,14 @@
 
 #pragma once
 
-#include "aggregate/aggregate.h"
-#include "hybrid/hybrid_request.h"
 #include <stdatomic.h>
-#include <pthread.h>
-#include "query_error.h"
+#include <pthread.h>                // for pthread_mutex_t
+#include <stdbool.h>                // for bool
+
+#include "aggregate/aggregate.h"    // for CommandType, AREQ
+#include "hybrid/hybrid_request.h"  // for HybridRequest
+#include "query_error.h"            // for QueryError
+#include "redismodule.h"            // for RedisModuleCtx
 
 #ifdef __cplusplus
 extern "C" {
