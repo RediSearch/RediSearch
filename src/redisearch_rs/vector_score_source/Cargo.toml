@@ -1,0 +1,16 @@
+[package]
+name = "vector_score_source"
+version.workspace = true
+edition.workspace = true
+license-file.workspace = true
+publish.workspace = true
+
+[build-dependencies]
+build_utils = { path = "../build_utils" }
+
+[dependencies]
+ffi.workspace = true
+inverted_index.workspace = true
+rqe_iterators.workspace = true
+top_k = { path = "../top_k" }
+workspace_hack.workspace = true

@@ -90,6 +90,18 @@ impl<'index> RSIndexResultBuilder<'index> {
         self
     }
 
+    /// Set the numeric value for `Metric` or `Numeric` result kinds.
+    ///
+    /// Panics (in debug) if called on a non-numeric builder variant.
+    pub fn num_value(mut self, value: f64) -> Self {
+        self.data = match self.data {
+            RSResultData::Metric(_) => RSResultData::Metric(value),
+            RSResultData::Numeric(_) => RSResultData::Numeric(value),
+            other => other,
+        };
+        self
+    }
+
     /// Create a builder for a virtual index result
     const fn virt() -> Self {
         Self {

@@ -37,6 +37,8 @@ members = [
     "trie_bencher",
     "top_k",
     "top_k_bencher",
+    "vector_score_source",
+    "vector_score_source_bencher",
     "trie_rs",
     "value",
     "varint",
@@ -127,6 +129,7 @@ slots_tracker = { path = "./slots_tracker" }
 sorting_vector = { path = "./sorting_vector" }
 thin_vec = { path = "./thin_vec" }
 top_k = { path = "./top_k" }
+vector_score_source = { path = "./vector_score_source" }
 tracing_redismodule = { path = "./tracing_redismodule" }
 trie_rs = { path = "./trie_rs" }
 value = { path = "./value" }
