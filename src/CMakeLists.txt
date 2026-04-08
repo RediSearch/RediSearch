@@ -37,6 +37,11 @@ set(LIBUV_BUILD_TESTS OFF CACHE BOOL "Build libuv tests" FORCE)
 set(LIBUV_BUILD_BENCH OFF CACHE BOOL "Build libuv benchmarks" FORCE)
 set(LIBUV_BUILD_SHARED OFF CACHE BOOL "Build shared libuv library" FORCE)
 add_subdirectory(${root}/deps/libuv ${CMAKE_CURRENT_BINARY_DIR}/libuv)
+# libuv has const-correctness issues that trigger -Werror=discarded-qualifiers on gcc 16+.
+# Mirror the gcc guard from the top-level CMakeLists.txt.
+if(HAS_DISCARDED_QUALIFIERS)
+    target_compile_options(uv_a PRIVATE $<$<COMPILE_LANGUAGE:C>:-Wno-error=discarded-qualifiers>)
+endif()
 
 option(VECSIM_BUILD_TESTS "Build vecsim tests" OFF)
 add_subdirectory(${root}/deps/VectorSimilarity ${CMAKE_CURRENT_BINARY_DIR}/VectorSimilarity)

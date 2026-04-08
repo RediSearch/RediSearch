@@ -38,6 +38,7 @@ on:
         type: choice
         options:
           - all
+          - ubuntu:resolute
           - ubuntu:noble
           - ubuntu:jammy
           - ubuntu:focal

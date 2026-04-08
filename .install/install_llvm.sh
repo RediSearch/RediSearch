@@ -117,7 +117,7 @@ install_llvm() {
 
     case "$distro" in
 
-    # ----- Debian / Ubuntu (apt.llvm.org) ------------------------------------
+    # ----- Debian / Ubuntu (apt.llvm.org, tarball fallback) -------------------
     ubuntu|debian)
         echo ">>> Using apt.llvm.org"
         source "$(dirname "${BASH_SOURCE[0]}")/apt_get_cmd.sh"
@@ -126,8 +126,14 @@ install_llvm() {
             lsb-release wget software-properties-common gnupg ca-certificates
         wget -qO /tmp/llvm.sh https://apt.llvm.org/llvm.sh
         chmod +x /tmp/llvm.sh
-        $MODE /tmp/llvm.sh "$LLVM_VER"
-        rm -f /tmp/llvm.sh
+        if $MODE /tmp/llvm.sh "$LLVM_VER"; then
+            rm -f /tmp/llvm.sh
+        else
+            # apt.llvm.org may not support this distro version yet; fall back to tarball.
+            echo ">>> apt.llvm.org failed — falling back to official tarball"
+            rm -f /tmp/llvm.sh
+            install_from_tarball
+        fi
         ;;
 
     # ----- Alpine Linux (apk) ------------------------------------------------
