@@ -12,8 +12,10 @@
 use ffi::t_docId;
 use inverted_index::RSIndexResult;
 
-use crate::utils::DocIdMinHeap;
-use crate::{IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
+use crate::{
+    IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
+    utils::{ActiveChildren, DocIdMinHeap},
+};
 
 /// Yields documents appearing in ANY child iterator using a binary heap.
 ///
@@ -33,7 +35,14 @@ use crate::{IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, Skip
 /// - `QUICK_EXIT`: If `true`, returns immediately after finding any matching child.
 ///   If `false`, aggregates results from all children with the minimum doc_id.
 pub struct UnionHeap<'index, I, const QUICK_EXIT: bool> {
-    children: Vec<I>,
+    /// Child iterators. The heap is the primary mechanism for tracking
+    /// which children are active; [`ActiveChildren`] provides stable
+    /// insertion-order indexing so heap entries can reference children by
+    /// index, and [`ActiveChildren::remove`] for permanently
+    /// dropping aborted children during revalidation. Permanent removal
+    /// is safe because profile display reads children dynamically (via
+    /// [`ActiveChildren`]) rather than from a cached snapshot.
+    children: ActiveChildren<I>,
     num_estimated: usize,
     is_eof: bool,
     /// Reused across calls to avoid allocations.
@@ -55,7 +64,7 @@ where
 
         if children.is_empty() {
             return Self {
-                children,
+                children: ActiveChildren::new(children),
                 num_estimated: 0,
                 is_eof: true,
                 result: RSIndexResult::build_union(0).build(),
@@ -64,7 +73,7 @@ where
         }
 
         Self {
-            children,
+            children: ActiveChildren::new(children),
             num_estimated,
             is_eof: false,
             result: RSIndexResult::build_union(num_children).build(),
@@ -74,16 +83,20 @@ where
 
     /// Consumes the iterator and returns a [`super::UnionTrimmed`] over the same children.
     pub fn into_trimmed(self, limit: usize, asc: bool) -> super::UnionTrimmed<'index, I> {
-        super::UnionTrimmed::new(self.children, limit, asc)
+        super::UnionTrimmed::new(self.children.into_inner(), limit, asc)
     }
 
     /// Rebuilds the heap from scratch based on current child positions.
     /// Used after revalidation when children may have moved arbitrarily.
     fn rebuild_heap(&mut self) {
         self.heap.clear();
-        for (idx, child) in self.children.iter().enumerate() {
+        self.children.activate_all();
+        for idx in 0..self.children.len() {
+            let child = self.children.get(idx);
             if !child.at_eof() {
                 self.heap.push(child.last_doc_id(), idx);
+            } else {
+                self.children.deactivate(idx);
             }
         }
     }
@@ -99,11 +112,13 @@ where
                 break;
             }
 
-            let child = &mut self.children[root.child_idx];
+            let child_idx = root.child_idx;
+            let child = self.children.get_mut(child_idx);
             if child.read()?.is_some() {
-                self.heap.replace_root(child.last_doc_id(), root.child_idx);
+                self.heap.replace_root(child.last_doc_id(), child_idx);
             } else {
                 self.heap.pop();
+                self.children.deactivate(child_idx);
                 if self.heap.is_empty() {
                     return Ok(());
                 }
@@ -146,11 +161,11 @@ where
                 continue;
             }
 
-            if let Some(child_result) = self.children[entry.child_idx].current() {
+            if let Some(child_result) = self.children.get_mut(entry.child_idx).current() {
                 let child_ptr: *const RSIndexResult<'index> = child_result;
                 // SAFETY: We need a raw pointer to decouple the borrow of the child's
                 // result from `&mut self.result`. This is sound because:
-                // 1. `self.children[i]` and `self.result` are disjoint fields — no aliasing.
+                // 1. The child (via `self.children`) and `self.result` are disjoint fields — no aliasing.
                 // 2. `push_borrowed` takes a shared reference, so no mutation through child_ref.
                 // 3. The child is owned by `self`, so the 'index data remains valid.
                 let child_ref = unsafe { &*child_ptr };
@@ -173,13 +188,18 @@ where
 
     /// Performs initial read on all children and builds the heap.
     fn initialize_children(&mut self) -> Result<(), RQEIteratorError> {
-        for (idx, child) in self.children.iter_mut().enumerate() {
+        for idx in 0..self.children.len() {
+            let child = self.children.get_mut(idx);
             if child.last_doc_id() == 0 && !child.at_eof() {
                 if child.read()?.is_some() {
                     self.heap.push(child.last_doc_id(), idx);
+                } else {
+                    self.children.deactivate(idx);
                 }
             } else if child.last_doc_id() > 0 {
                 self.heap.push(child.last_doc_id(), idx);
+            } else {
+                self.children.deactivate(idx);
             }
         }
         Ok(())
@@ -200,7 +220,7 @@ where
                 break;
             }
 
-            let child = &mut self.children[root.child_idx];
+            let child = self.children.get_mut(root.child_idx);
             match child.skip_to(doc_id)? {
                 Some(SkipToOutcome::Found(r)) => {
                     self.heap.replace_root(r.doc_id, root.child_idx);
@@ -212,7 +232,9 @@ where
                     self.heap.replace_root(r.doc_id, root.child_idx);
                 }
                 None => {
+                    let exhausted = root.child_idx;
                     self.heap.pop();
+                    self.children.deactivate(exhausted);
                     if self.heap.is_empty() {
                         break;
                     }
@@ -229,15 +251,19 @@ where
     /// Returns a child index on early match, or `usize::MAX` if none.
     fn advance_to(&mut self, doc_id: t_docId) -> Result<usize, RQEIteratorError> {
         if self.heap.is_empty() && self.last_doc_id() == 0 {
-            for (idx, child) in self.children.iter_mut().enumerate() {
+            for idx in 0..self.children.len() {
+                let child = self.children.get_mut(idx);
                 if child.at_eof() {
+                    self.children.deactivate(idx);
                     continue;
                 }
                 match child.skip_to(doc_id)? {
                     Some(SkipToOutcome::Found(r) | SkipToOutcome::NotFound(r)) => {
                         self.heap.push(r.doc_id, idx);
                     }
-                    None => {}
+                    None => {
+                        self.children.deactivate(idx);
+                    }
                 }
             }
             Ok(usize::MAX)
@@ -274,7 +300,7 @@ where
 
     /// Sets the union result directly from the child at `child_idx`.
     fn quick_set_from_child(&mut self, child_idx: usize) {
-        let child = &mut self.children[child_idx];
+        let child = self.children.get_mut(child_idx);
 
         self.result.reset_aggregate();
         self.result.doc_id = child.last_doc_id();
@@ -283,7 +309,7 @@ where
             let child_ptr: *const RSIndexResult<'index> = child_result;
             // SAFETY: We need a raw pointer to decouple the borrow of the child's
             // result from `&mut self.result`. This is sound because:
-            // 1. `self.children[i]` and `self.result` are disjoint fields — no aliasing.
+            // 1. The child (via `self.children`) and `self.result` are disjoint fields — no aliasing.
             // 2. `push_borrowed` takes a shared reference, so no mutation through child_ref.
             // 3. The child is owned by `self`, so the 'index data remains valid.
             let child_ref = unsafe { &*child_ptr };
@@ -354,9 +380,10 @@ where
     }
 
     fn rewind(&mut self) {
+        self.children.activate_all();
         self.is_eof = self.children.is_empty();
         self.result.reset_aggregate();
-        self.children.iter_mut().for_each(|c| c.rewind());
+        self.children.iter_all_mut().for_each(|c| c.rewind());
         self.heap.clear();
     }
 
@@ -383,12 +410,12 @@ where
         let original_last_doc_id = self.last_doc_id();
         let mut any_change = false;
 
-        // Index-based iteration: swap_remove may reorder elements.
+        // Index-based iteration: remove preserves element order.
         let mut i = 0;
         while i < self.children.len() {
-            match self.children[i].revalidate()? {
+            match self.children.get_mut(i).revalidate()? {
                 RQEValidateStatus::Aborted => {
-                    self.children.swap_remove(i);
+                    self.children.remove(i);
                     any_change = true;
                 }
                 RQEValidateStatus::Moved { .. } => {
@@ -450,12 +477,14 @@ impl<'index, const QUICK_EXIT: bool> crate::interop::ProfileChildren<'index>
     for UnionHeap<'index, crate::c2rust::CRQEIterator, QUICK_EXIT>
 {
     fn profile_children(self) -> Self {
+        let profiled: Vec<_> = self
+            .children
+            .into_inner()
+            .into_iter()
+            .map(crate::c2rust::CRQEIterator::into_profiled)
+            .collect();
         UnionHeap {
-            children: self
-                .children
-                .into_iter()
-                .map(crate::c2rust::CRQEIterator::into_profiled)
-                .collect(),
+            children: ActiveChildren::new(profiled),
             num_estimated: self.num_estimated,
             is_eof: self.is_eof,
             result: self.result,

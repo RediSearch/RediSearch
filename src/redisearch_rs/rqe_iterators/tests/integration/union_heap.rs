@@ -19,7 +19,7 @@ mod common {
     union_common_tests!(UnionFullHeap, UnionQuickHeap);
 }
 
-use crate::utils::{create_mock_2, create_mock_3};
+use crate::utils::{create_mock_2, create_mock_3, drain_doc_ids};
 use rqe_iterators::{RQEIterator, UnionFullHeap, UnionQuickHeap};
 
 // =============================================================================
@@ -40,12 +40,12 @@ fn reuse_results_optimization_quick_mode() {
     assert_eq!(
         data[0].read_count(),
         1,
-        "child0 should be read once for initial heap setup"
+        "child0 should be read once for initial setup"
     );
     assert_eq!(
         data[1].read_count(),
         1,
-        "child1 should be read once for initial heap setup"
+        "child1 should be read once for initial setup"
     );
 
     let result = union
@@ -96,11 +96,7 @@ fn into_trimmed_full_heap_yields_all_children() {
     let union = UnionFullHeap::new(children);
     let mut trimmed = union.into_trimmed(usize::MAX, true);
 
-    let mut docs = Vec::new();
-    while let Some(r) = trimmed.read().unwrap() {
-        docs.push(r.doc_id);
-    }
-    assert_eq!(docs, [5, 6, 3, 4, 1, 2]);
+    assert_eq!(drain_doc_ids(&mut trimmed), [5, 6, 3, 4, 1, 2]);
 }
 
 /// `into_trimmed` on a `UnionQuickHeap` applies trimming correctly.
@@ -114,10 +110,6 @@ fn into_trimmed_quick_heap_trims_desc() {
     let mut trimmed = union.into_trimmed(1, false);
 
     assert_eq!(trimmed.num_children_total(), 3, "all children stay alive");
-    let mut docs = Vec::new();
-    while let Some(r) = trimmed.read().unwrap() {
-        docs.push(r.doc_id);
-    }
     // Active window [1..3), reads in reverse: child[2] then child[1].
-    assert_eq!(docs, [5, 6, 3, 4]);
+    assert_eq!(drain_doc_ids(&mut trimmed), [5, 6, 3, 4]);
 }

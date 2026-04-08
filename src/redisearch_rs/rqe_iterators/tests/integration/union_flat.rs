@@ -19,7 +19,7 @@ mod common {
     union_common_tests!(UnionFullFlat, UnionQuickFlat);
 }
 
-use crate::utils::{create_mock_2, create_mock_3};
+use crate::utils::{FieldMaskMock, Mock, create_mock_2, create_mock_3, drain_doc_ids};
 use rqe_iterators::{RQEIterator, UnionFullFlat, UnionQuickFlat};
 
 // =============================================================================
@@ -40,12 +40,12 @@ fn reuse_results_optimization_quick_mode() {
     assert_eq!(
         data[0].read_count(),
         1,
-        "child0 should be read once for initial heap setup"
+        "child0 should be read once for initial setup"
     );
     assert_eq!(
         data[1].read_count(),
         1,
-        "child1 should be read once for initial heap setup"
+        "child1 should be read once for initial setup"
     );
 
     let result = union
@@ -79,6 +79,113 @@ fn reuse_results_optimization_quick_mode() {
 }
 
 // =============================================================================
+// Child ordering preservation tests
+// =============================================================================
+
+/// Verify that insertion order is preserved in the aggregate result after
+/// a child is exhausted.
+///
+/// Setup: A=[1], B=[5], C=[5] with distinct field masks.
+/// - Read doc 1: A matches and exhausts.
+///   - `swap_remove(0)` would swap A with C → active = [C, B]
+///   - `deactivate(0)` marks A inactive in-place → active iteration yields [B, C]
+/// - Read doc 5: B and C both match. The aggregate child order reveals
+///   the internal ordering.
+///   - With `swap_remove`: aggregate = [C, B] (masks 0x4, 0x2) — WRONG
+///   - With `deactivate`: aggregate = [B, C] (masks 0x2, 0x4) — correct
+#[test]
+#[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
+fn aggregate_preserves_insertion_order_after_child_exhaustion() {
+    let children: Vec<Box<dyn rqe_iterators::RQEIterator<'static>>> = vec![
+        Box::new(FieldMaskMock::new(vec![1], 0x1)), // A
+        Box::new(FieldMaskMock::new(vec![5], 0x2)), // B
+        Box::new(FieldMaskMock::new(vec![5], 0x4)), // C
+    ];
+    let mut union = UnionFullFlat::new(children);
+
+    // Doc 1: only A matches, then A exhausts.
+    let r = union.read().unwrap().unwrap();
+    assert_eq!(r.doc_id, 1);
+
+    // Doc 5: B and C both match. Check aggregate child order.
+    let r = union.read().unwrap().unwrap();
+    assert_eq!(r.doc_id, 5);
+    let agg = r.as_aggregate().unwrap();
+    assert_eq!(agg.len(), 2);
+    assert_eq!(
+        agg.get(0).unwrap().field_mask,
+        0x2,
+        "first aggregate child should be B (insertion order), not C (swap_remove order)"
+    );
+    assert_eq!(
+        agg.get(1).unwrap().field_mask,
+        0x4,
+        "second aggregate child should be C"
+    );
+}
+
+// =============================================================================
+// initialize_children deactivates empty children
+// =============================================================================
+
+/// When some children are empty, `initialize_children` (called on the first
+/// `read`) deactivates them and still yields the correct minimum from the
+/// remaining active children.
+#[test]
+#[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
+fn initialize_children_deactivates_empty_children() {
+    // A=[] (empty), B=[5], C=[] (empty), D=[3]
+    // After initialization: A and C are deactivated, min is 3 from D.
+    let children: Vec<Box<dyn RQEIterator<'static>>> = vec![
+        Box::new(Mock::new([] as [u64; 0])),
+        Box::new(Mock::new([5u64])),
+        Box::new(Mock::new([] as [u64; 0])),
+        Box::new(Mock::new([3u64])),
+    ];
+    let mut union = UnionFullFlat::new(children);
+
+    let r = union.read().unwrap().unwrap();
+    assert_eq!(r.doc_id, 3, "min should come from child D");
+    let r = union.read().unwrap().unwrap();
+    assert_eq!(r.doc_id, 5, "next should come from child B");
+    assert!(union.read().unwrap().is_none());
+}
+
+// =============================================================================
+// skip_to_full skips inactive (deactivated) children
+// =============================================================================
+
+/// After exhausting a child via `read`, a subsequent `skip_to` correctly
+/// skips over the deactivated child and finds the target among the remaining
+/// active children.
+#[test]
+#[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
+fn skip_to_full_skips_deactivated_children() {
+    // A=[1], B=[2, 10], C=[3, 20]
+    // Read doc 1 → A matches. Next read: A exhausted (deactivated), min=2.
+    // Read doc 2 → B matches. Now skip_to(20): loop encounters deactivated A,
+    // skips it, then advances B and C.
+    let (children, _data) = create_mock_3([1u64], [2, 10], [3, 20]);
+    let mut union = UnionFullFlat::new(children);
+
+    let r = union.read().unwrap().unwrap();
+    assert_eq!(r.doc_id, 1);
+    let r = union.read().unwrap().unwrap();
+    assert_eq!(r.doc_id, 2);
+    let r = union.read().unwrap().unwrap();
+    assert_eq!(r.doc_id, 3);
+
+    // Now A is deactivated. skip_to must skip the inactive child.
+    let outcome = union.skip_to(20).unwrap().unwrap();
+    match outcome {
+        rqe_iterators::SkipToOutcome::Found(r) => assert_eq!(r.doc_id, 20),
+        rqe_iterators::SkipToOutcome::NotFound(r) => {
+            panic!("expected Found(20), got NotFound({})", r.doc_id)
+        }
+    }
+}
+
+// =============================================================================
 // into_trimmed
 // =============================================================================
 
@@ -92,11 +199,7 @@ fn into_trimmed_full_flat_yields_all_children() {
     let mut trimmed = union.into_trimmed(usize::MAX, true);
 
     // UnionTrimmed drains children last-to-first.
-    let mut docs = Vec::new();
-    while let Some(r) = trimmed.read().unwrap() {
-        docs.push(r.doc_id);
-    }
-    assert_eq!(docs, [5, 6, 3, 4, 1, 2]);
+    assert_eq!(drain_doc_ids(&mut trimmed), [5, 6, 3, 4, 1, 2]);
 }
 
 /// `into_trimmed` on a `UnionQuickFlat` applies trimming correctly.
@@ -110,10 +213,6 @@ fn into_trimmed_quick_flat_trims_asc() {
     let mut trimmed = union.into_trimmed(1, true);
 
     assert_eq!(trimmed.num_children_total(), 3, "all children stay alive");
-    let mut docs = Vec::new();
-    while let Some(r) = trimmed.read().unwrap() {
-        docs.push(r.doc_id);
-    }
     // Active window [0..2), reads in reverse: child[1] then child[0].
-    assert_eq!(docs, [3, 4, 1, 2]);
+    assert_eq!(drain_doc_ids(&mut trimmed), [3, 4, 1, 2]);
 }
