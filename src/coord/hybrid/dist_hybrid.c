@@ -23,8 +23,6 @@
 #include "dist_profile.h"
 #include "shard_window_ratio.h"
 #include "config.h"
-#include "shard_window_ratio.h"
-#include "config.h"
 #include "coord/coord_request_ctx.h"
 
 // We mainly need the resp protocol to be three in order to easily extract the "score" key from the response
@@ -709,19 +707,18 @@ static int HybridRequest_executePlan(HybridRequest *hreq,
 
     // Create KNN context for SHARD_K_RATIO optimization if applicable
     HybridKnnContext *knnCtx = NULL;
-    HybridKnnContext knnCtxStorage;
     if (hreq->kArgIndex >= 0) {
         // Get the VectorQuery from the vector request's AST
         const AREQ *vectorRequest = hreq->requests[VECTOR_INDEX];
         const VectorQuery *vq = (vectorRequest->ast.root && vectorRequest->ast.root->type == QN_VECTOR)
                           ? vectorRequest->ast.root->vn.vq : NULL;
         if (vq && vq->type == VECSIM_QT_KNN) {
-            knnCtxStorage = (HybridKnnContext){
+            knnCtx = rm_calloc(1, sizeof(HybridKnnContext));
+            *knnCtx = (HybridKnnContext){
                 .originalK = vq->knn.k,
                 .shardWindowRatio = vq->knn.shardWindowRatio,
                 .kArgIndex = hreq->kArgIndex,
             };
-            knnCtx = &knnCtxStorage;
         }
     }
 

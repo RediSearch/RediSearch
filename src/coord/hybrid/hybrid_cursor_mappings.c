@@ -213,6 +213,9 @@ static void cleanupCtx(void *ptr) {
     StrongRef_Release(ctx->searchMappings);
     StrongRef_Release(ctx->vsimMappings);
     array_free_ex(ctx->errors, QueryError_ClearError((QueryError*)ptr));
+    if (ctx->knnCtx) {
+        rm_free(ctx->knnCtx);
+    }
     rm_free(ctx);
 }
 
