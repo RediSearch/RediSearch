@@ -45,6 +45,7 @@ members = [
     "top_k",
     "top_k_bencher",
     "vector_score_source",
+    "vector_score_source_bencher",
     "trie_rs",
     "ttl_table",
     "value",
