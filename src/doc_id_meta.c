@@ -99,7 +99,7 @@ static void docIdMetaUnlink(RedisModuleKeyOptCtx *ctx, uint64_t *meta) {
   dictEntry *de;
   while ((de = dictNext(iter))) {
     uint64_t docId = VAL_TO_DOCID(dictGetVal(de));
-    if (docId == DOCID_META_INVALID) continue;  // Already soft-deleted
+    if (docId == DOCID_META_INVALID) continue;
 
     // Find the IndexSpec by specId in the global dict (O(1) lookup).
     uint64_t specId = KEY_TO_SPECID(dictGetKey(de));
@@ -171,7 +171,7 @@ static void docIdMetaRDBSave(RedisModuleIO *rdb, void *value, uint64_t *meta) {
   dict *specIdToDocId = (dict *)*meta;
 
   // First pass: count valid entries.
-  // Skip entries that are soft-deleted (DOCID_META_INVALID) or whose spec no longer exists.
+  // Skip entries that are unlinked (DOCID_META_INVALID) or whose spec no longer exists.
   size_t validEntries = 0;
   if (dictSize(specIdToDocId) > 0) {
     dictIterator *iter = dictGetIterator(specIdToDocId);
@@ -193,7 +193,7 @@ static void docIdMetaRDBSave(RedisModuleIO *rdb, void *value, uint64_t *meta) {
     return;
   }
 
-  // Second pass: save only valid entries (not soft-deleted and spec still exists).
+  // Second pass: save only valid entries (not unlinked and spec still exists).
   dictIterator *iter = dictGetIterator(specIdToDocId);
   dictEntry *de;
   while ((de = dictNext(iter))) {
