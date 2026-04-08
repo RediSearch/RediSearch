@@ -551,6 +551,44 @@ def testAggregate(env):
             compare_optimized_to_not(env, ['ft.aggregate', 'idx', '*'], params, 'case 12')
         #input('stop')
 
+@skip(cluster=True)
+def testTrimUnionDesc(env):
+    """Cover the DESC branch of trimUnionIterator (query_optimizer.c lines 56-63).
+
+    The numeric tree needs >2 leaf nodes so that trimming is not skipped
+    (num_orig <= 2 early-return). With MINIMUM_RANGE_CARDINALITY=16 and
+    CARDINALITY_GROWTH_FACTOR=4, depth-1 nodes split at cardinality 64.
+    Using 500 unique values guarantees 4+ leaf nodes at depth 2.
+    """
+    conn = getConnectionByEnv(env)
+    env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC')
+
+    # 500 docs with unique n values 0..499 → many numeric tree leaf nodes.
+    for i in range(500):
+        conn.execute_command('hset', i, 'n', i)
+
+    limits = [[0, 2], [0, 10], [0, 100]]
+    ranges = [[-1, 500], [0, 499], [50, 450], [100, 300]]
+    params = ['limit', 0, 0]
+
+    for lim in limits:
+        params[1] = lim[0]
+        params[2] = lim[1]
+        for rng in ranges:
+            numRange = '@n:[%d %d]' % (rng[0], rng[1])
+
+            # DESC: exercises lines 56-63
+            compare_optimized_to_not(
+                env, ['ft.search', 'idx', numRange, 'SORTBY', 'n', 'DESC'],
+                params, 'DESC ' + numRange)
+
+            # ASC: exercises lines 47-52 (already covered elsewhere, but
+            # validates the same data set)
+            compare_optimized_to_not(
+                env, ['ft.search', 'idx', numRange, 'SORTBY', 'n', 'ASC'],
+                params, 'ASC ' + numRange)
+
+
 @skip()  # TODO: solve flakiness (MOD-5257)
 def testCoordinator(env):
     # separate test which only has queries with sortby since otherwise the coordinator has random results
