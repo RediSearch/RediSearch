@@ -15,6 +15,7 @@ on:
           - rockylinux:9
           - debian:bullseye
           - debian:bookworm
+          - debian:trixie
           - amazonlinux:2
           - amazonlinux:2023
           - mariner:2

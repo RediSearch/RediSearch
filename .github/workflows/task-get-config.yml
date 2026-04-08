@@ -296,6 +296,20 @@ jobs:
                       'enable_lto': '1'
                   }
               },
+              "debian:trixie": {
+                  "x86_64": {
+                      'container': 'gcc:14-trixie',
+                      'setup_script': 'apt update && apt install -y git',
+                      'name': 'Debian Trixie x86_64',
+                      'enable_lto': '0'
+                  },
+                  "aarch64": {
+                      'container': 'gcc:14-trixie',
+                      'setup_script': 'apt update && apt install -y git',
+                      'name': 'Debian Trixie ARM64',
+                      'enable_lto': '1'
+                  }
+              },
               "amazonlinux:2023": {
                   "x86_64": {
                       'container': 'amazonlinux:2023',
