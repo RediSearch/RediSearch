@@ -117,22 +117,30 @@ install_llvm() {
 
     case "$distro" in
 
-    # ----- Debian / Ubuntu (apt.llvm.org, tarball fallback) -------------------
+    # ----- Debian / Ubuntu (native apt → apt.llvm.org → tarball) --------------
     ubuntu|debian)
-        echo ">>> Using apt.llvm.org"
         source "$(dirname "${BASH_SOURCE[0]}")/apt_get_cmd.sh"
         apt_get_cmd "$MODE" update -qq
-        apt_get_cmd "$MODE" install -y --no-install-recommends \
-            lsb-release wget software-properties-common gnupg ca-certificates
-        wget -qO /tmp/llvm.sh https://apt.llvm.org/llvm.sh
-        chmod +x /tmp/llvm.sh
-        if $MODE /tmp/llvm.sh "$LLVM_VER"; then
-            rm -f /tmp/llvm.sh
+
+        # 1) Try native distro packages first (e.g. Ubuntu 26.04 ships clang-21).
+        if apt_get_cmd "$MODE" install -y --no-install-recommends \
+                "clang-${LLVM_VER}" "lld-${LLVM_VER}" "libclang-${LLVM_VER}-dev" 2>/dev/null; then
+            echo ">>> Installed clang-${LLVM_VER} from native apt repos"
         else
-            # apt.llvm.org may not support this distro version yet; fall back to tarball.
-            echo ">>> apt.llvm.org failed — falling back to official tarball"
-            rm -f /tmp/llvm.sh
-            install_from_tarball
+            # 2) Fall back to apt.llvm.org third-party repo.
+            echo ">>> Native packages not available — trying apt.llvm.org"
+            apt_get_cmd "$MODE" install -y --no-install-recommends \
+                lsb-release wget software-properties-common gnupg ca-certificates
+            wget -qO /tmp/llvm.sh https://apt.llvm.org/llvm.sh
+            chmod +x /tmp/llvm.sh
+            if $MODE /tmp/llvm.sh "$LLVM_VER"; then
+                rm -f /tmp/llvm.sh
+            else
+                # 3) Last resort: official pre-built tarball.
+                echo ">>> apt.llvm.org failed — falling back to official tarball"
+                rm -f /tmp/llvm.sh
+                install_from_tarball
+            fi
         fi
         ;;
 
