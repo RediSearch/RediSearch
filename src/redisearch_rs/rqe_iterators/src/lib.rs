@@ -24,10 +24,13 @@ pub mod inverted_index;
 pub mod maybe_empty;
 pub mod metric;
 pub mod not;
+pub mod not_optimized;
+pub mod not_reducer;
 pub mod optional;
 pub mod profile;
 pub mod union;
 mod union_flat;
+mod union_heap;
 pub mod utils;
 pub mod wildcard;
 
@@ -37,8 +40,11 @@ pub use id_list::IdList;
 pub use intersection::Intersection;
 pub use inverted_index::{Missing, Numeric, Tag, Term};
 pub use metric::Metric;
+pub use not::NotIterator;
 pub use rqe_iterator_type::IteratorType;
-pub use union::{Union, UnionFlat, UnionFullFlat, UnionQuickFlat};
+pub use union::{
+    Union, UnionFlat, UnionFullFlat, UnionFullHeap, UnionHeap, UnionQuickFlat, UnionQuickHeap,
+};
 pub use wildcard::{Wildcard, WildcardIterator};
 
 #[derive(Debug, PartialEq)]
