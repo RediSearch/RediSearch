@@ -125,7 +125,8 @@ static int MRCommand_appendVsimFilter(MRCommand *xcmd, RedisModuleString **argv,
  * @param argc - total argument count
  * @param vsimOffset - offset where VSIM keyword appears
  * @param kArgIndex - output parameter for the index of the K value argument in
- *        the built command (set to -1 if no KNN K argument found). Can be NULL.
+ *        the built command (set to -1 if no KNN K argument found).
+ *        Must not be NULL.
  */
 static void MRCommand_appendVsim(MRCommand *xcmd, RedisModuleString **argv,
                                  int argc, int vsimOffset, int *kArgIndex) {
@@ -223,13 +224,13 @@ static void MRCommand_appendVsim(MRCommand *xcmd, RedisModuleString **argv,
 // The function transforms FT.HYBRID index SEARCH query VSIM field vector
 // into _FT.HYBRID index SEARCH query VSIM field vector WITHCURSOR
 // _NUM_SSTRING _INDEX_PREFIXES ...
-// If outKArgIndex is not NULL, stores the index of the K value argument in the
-// MRCommand (for later modification by the command modifier callback in
-// SHARD_K_RATIO optimization).
+// stores the index of the K value argument in the MRCommand (for later
+// modification by the command modifier callback in SHARD_K_RATIO optimization).
 void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
                             ProfileOptions profileOptions,
                             MRCommand *xcmd, arrayof(char*) serialized,
                             IndexSpec *sp, int *outKArgIndex) {
+  RS_LOG_ASSERT(outKArgIndex, "outKArgIndex must not be NULL");
   int argOffset;
   const char *index_name = RedisModule_StringPtrLen(argv[1], NULL);
 

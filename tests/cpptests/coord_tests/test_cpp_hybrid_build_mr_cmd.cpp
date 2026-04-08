@@ -229,8 +229,7 @@ protected:
         // Create ArgvList from input
         RMCK::ArgvList args(ctx, argsWithNull.data(), inputArgs.size());
 
-        // Build MR command (pass NULL for VectorQuery - not testing
-        // SHARD_K_RATIO here)
+        // Build MR command
         MRCommand xcmd;
         int kArgIndex = -1;
         HybridRequest_buildMRCommand(args, args.size(), EXEC_NO_FLAGS, &xcmd,
@@ -275,8 +274,7 @@ protected:
       ASSERT_NE(sp->rule->prefixes, nullptr) << "IndexSpec rule should have prefixes";
       ASSERT_EQ(array_len(sp->rule->prefixes), 2) << "IndexSpec rule should have 2 prefixes";
 
-      // Build MR command (pass NULL for VectorQuery - not testing
-      // SHARD_K_RATIO here)
+      // Build MR command
       MRCommand xcmd;
       int kArgIndex = -1;
       HybridRequest_buildMRCommand(args, args.size(), EXEC_NO_FLAGS, &xcmd,
