@@ -12,6 +12,7 @@ on:
           - ubuntu:focal
           - rockylinux:8
           - rockylinux:9
+          - rockylinux:10
           - debian:bullseye
           - debian:bookworm
           - amazonlinux:2
