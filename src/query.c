@@ -1722,7 +1722,8 @@ static inline bool QueryNode_ValidateToken(QueryNode *n, IndexSpec *spec, RSSear
   return true;
 }
 
-// Returns REDISMODULE_ERR when a trie-based query type is not supported on disk indexes.
+// Helper function to validate that trie-based query types are not used on disk indexes.
+// Returns REDISMODULE_ERR if the query type is not supported on disk indexes, REDISMODULE_OK otherwise.
 static int validateQueryNotDisk(const char *queryTypeName, QueryError *status) {
   if (SearchDisk_IsEnabledForValidation()) {
     QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_FLEX_UNSUPPORTED_QUERY,
@@ -1770,6 +1771,20 @@ static int QueryNode_CheckIsValid(QueryNode *n, IndexSpec *spec, RSSearchOptions
         const FieldSpec *fs = n->tag.fs;
         if (fs && FieldSpec_IndexesEmpty(fs)) {
           opts->flags |= QueryNode_IndexesEmpty;
+        }
+        // Block multi-term TAG queries in disk mode.
+        for (size_t ii = 0; ii < QueryNode_NumChildren(n); ++ii) {
+          QueryNode *child = n->children[ii];
+          if (child->type == QN_PREFIX) {
+            res = validateQueryNotDisk("TAG prefix/suffix/infix", status);
+          } else if (child->type == QN_WILDCARD_QUERY) {
+            res = validateQueryNotDisk("TAG wildcard", status);
+          } else if (child->type == QN_LEXRANGE) {
+            res = validateQueryNotDisk("TAG lexrange", status);
+          }
+          if (res == REDISMODULE_ERR) {
+            return res;
+          }
         }
       }
       break;
