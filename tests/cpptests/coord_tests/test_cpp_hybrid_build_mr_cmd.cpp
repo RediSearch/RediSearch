@@ -173,7 +173,8 @@ protected:
             pthread_mutex_t *mutex;
             pthread_cond_t *completionCond;
             HybridKnnContext *knnCtx;  // Must be the last field, matching the real struct
-        } mockCtx = {};
+        };
+        MockCallbackContext mockCtx = {};
 
         if (!passNullKnnContext) {
             knnCtxValue.originalK = vq->knn.k;

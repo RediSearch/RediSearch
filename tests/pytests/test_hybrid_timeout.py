@@ -331,8 +331,8 @@ def _test_hybrid_barrier_waits_for_delayed_shard(protocol):
     # Verify query completed
     env.assertEqual(len(query_result), 1,
                     message="Query should have completed")
-    if isinstance(query_result[0], Exception):
-        env.assertTrue(False, message=f"Query failed with exception: {query_result[0]}")
+    env.assertFalse(isinstance(query_result[0], Exception),
+                    message=f"Query failed with exception: {query_result[0]}")
 
     # Verify we got 10 results (K=10, and SEARCH has no results)
     result, elapsed = query_result[0]
