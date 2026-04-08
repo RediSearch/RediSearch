@@ -44,6 +44,7 @@ members = [
     "trie_bencher",
     "top_k",
     "top_k_bencher",
+    "vector_score_source",
     "trie_rs",
     "ttl_table",
     "value",
@@ -145,6 +146,7 @@ thin_vec = { path = "./thin_vec" }
 top_k = { path = "./top_k" }
 tracing_assert = { path = "./tracing_assert" }
 vecsim = { path = "./c_wrappers/vecsim" }
+vector_score_source = { path = "./vector_score_source" }
 tracing_redismodule = { path = "./tracing_redismodule" }
 trie_rs = { path = "./trie_rs" }
 ttl_table = { path = "./ttl_table" }
