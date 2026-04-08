@@ -10,20 +10,29 @@
 //! A specialized min-heap for the union iterator.
 //!
 //! This module provides [`DocIdMinHeap`], a min-heap optimized for the union iterator
-//! pattern. It stores `(doc_id, child_index)` pairs ordered by `doc_id` and provides
+//! pattern. It stores [`HeapEntry`] values ordered by `doc_id` and provides
 //! efficient operations that Rust's [`std::collections::BinaryHeap`] lacks:
 //!
 //! - [`DocIdMinHeap::replace_root`]: O(log n) in-place root replacement with single sift-down
-//! - [`DocIdMinHeap::index<usize>`]: Direct access to heap data for manual traversal
+//! - [`DocIdMinHeap::as_slice`]: Direct access to heap data for manual traversal
 use ffi::t_docId;
-use std::ops::Index;
+
+/// An entry in the [`DocIdMinHeap`], pairing a document ID with the index of
+/// the child iterator that produced it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct HeapEntry {
+    /// The document ID at this position.
+    pub doc_id: t_docId,
+    /// Index into the parent union's `children` vector.
+    pub child_idx: usize,
+}
 
 /// A specialized min-heap for the union iterator.
 ///
-/// Stores `(doc_id, child_index)` pairs ordered by `doc_id` (minimum at root).
+/// Stores [`HeapEntry`] values ordered by `doc_id` (minimum at root).
 /// Provides efficient operations for the union iterator pattern:
 /// - O(log n) in-place root replacement via [`Self::replace_root`]
-/// - Direct access to heap data via [`Self::index`] for manual traversal
+/// - Direct access to heap data via [`Self::as_slice`] for manual traversal
 ///
 /// # Example
 ///
@@ -35,25 +44,16 @@ use std::ops::Index;
 /// heap.push(5, 1);   // doc_id=5, child_index=1
 /// heap.push(5, 2);   // doc_id=5, child_index=2
 ///
-/// assert_eq!(heap.peek(), Some((5, 1)));
+/// assert_eq!(heap.peek().unwrap().doc_id, 5);
 ///
 /// // Access heap data directly for traversal
-/// let root_doc_id = heap[0].0;
+/// let data = heap.as_slice();
+/// let root_doc_id = data[0].doc_id;
 /// ```
 
 #[derive(Debug, Clone, Default)]
 pub struct DocIdMinHeap {
-    /// Backing storage: Vec of (doc_id, child_index) pairs.
-    data: Vec<(t_docId, usize)>,
-}
-
-/// Direct access to heap data for manual traversal.
-impl Index<usize> for DocIdMinHeap {
-    type Output = (t_docId, usize);
-
-    fn index(&self, index: usize) -> &Self::Output {
-        &self.data[index]
-    }
+    data: Vec<HeapEntry>,
 }
 
 impl DocIdMinHeap {
@@ -93,21 +93,22 @@ impl DocIdMinHeap {
     ///
     /// Returns `None` if the heap is empty.
     #[inline]
-    pub fn peek(&self) -> Option<(t_docId, usize)> {
+    pub fn peek(&self) -> Option<HeapEntry> {
         self.data.first().copied()
     }
 
-    /// Returns a reference to the underlying heap data.
+    /// Returns the heap entries as an immutable slice.
     ///
-    /// Borrowing the slice once allows the caller to iterate over the heap
-    /// structure without per-access bounds checks through the [`Index`] trait,
-    /// which is measurably faster for bulk traversals such as the DFS in
-    /// [`crate::UnionHeap::build_aggregate_result`].
+    /// In hot loops, borrow the slice once and use it for **both** indexing and
+    /// length checks. This lets the compiler prove the slice is invariant across
+    /// iterations and elide per-access bounds checks — going through
+    /// [`Self::len()`] for the bound and the slice for the access defeats this
+    /// because the optimizer cannot prove they refer to the same allocation.
     ///
-    /// The data is stored as `(doc_id, child_index)` tuples in heap order
-    /// (smallest doc_id at index 0). Children of index `i` are at `2*i+1` and `2*i+2`.
+    /// The data is stored as [`HeapEntry`] values in heap order
+    /// (smallest `doc_id` at index 0). Children of index `i` are at `2*i+1` and `2*i+2`.
     #[inline]
-    pub fn data(&self) -> &[(t_docId, usize)] {
+    pub fn as_slice(&self) -> &[HeapEntry] {
         &self.data
     }
 
@@ -117,7 +118,7 @@ impl DocIdMinHeap {
     ///
     /// O(log n) - bubbles up to restore heap property.
     pub fn push(&mut self, doc_id: t_docId, child_idx: usize) {
-        self.data.push((doc_id, child_idx));
+        self.data.push(HeapEntry { doc_id, child_idx });
         self.sift_up(self.data.len() - 1);
     }
 
@@ -128,7 +129,7 @@ impl DocIdMinHeap {
     /// # Complexity
     ///
     /// O(log n) - sifts down to restore heap property.
-    pub fn pop(&mut self) -> Option<(t_docId, usize)> {
+    pub fn pop(&mut self) -> Option<HeapEntry> {
         if self.data.is_empty() {
             return None;
         }
@@ -161,7 +162,7 @@ impl DocIdMinHeap {
     /// O(log n) - single sift-down operation.
     pub fn replace_root(&mut self, doc_id: t_docId, child_idx: usize) {
         debug_assert!(!self.data.is_empty(), "cannot replace root of empty heap");
-        self.data[0] = (doc_id, child_idx);
+        self.data[0] = HeapEntry { doc_id, child_idx };
         self.sift_down(0);
     }
 
@@ -171,7 +172,7 @@ impl DocIdMinHeap {
     fn sift_up(&mut self, mut idx: usize) {
         while idx > 0 {
             let parent = (idx - 1) / 2;
-            if self.data[idx].0 >= self.data[parent].0 {
+            if self.data[idx].doc_id >= self.data[parent].doc_id {
                 break;
             }
             self.data.swap(idx, parent);
@@ -207,10 +208,10 @@ impl DocIdMinHeap {
             // Find the smaller child.
             let smallest = if right < len {
                 // SAFETY: `right < len` is checked by the enclosing `if`.
-                let right_val = unsafe { self.data.get_unchecked(right).0 };
+                let right_val = unsafe { self.data.get_unchecked(right).doc_id };
                 // SAFETY: `left < len` is checked at the top of the loop (`left < len`),
                 // and `left < right < len`.
-                let left_val = unsafe { self.data.get_unchecked(left).0 };
+                let left_val = unsafe { self.data.get_unchecked(left).doc_id };
                 if right_val < left_val { right } else { left }
             } else {
                 left
@@ -219,7 +220,7 @@ impl DocIdMinHeap {
             // SAFETY: `smallest` is either `left` or `right`, both validated < len.
             let smallest_val = unsafe { *self.data.get_unchecked(smallest) };
 
-            if element.0 <= smallest_val.0 {
+            if element.doc_id <= smallest_val.doc_id {
                 break;
             }
 
