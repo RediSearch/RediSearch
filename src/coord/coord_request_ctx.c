@@ -10,6 +10,7 @@
 #include "coord_request_ctx.h"
 #include "rmalloc.h"
 #include "info/global_stats.h"
+#include "cursor.h"
 
 CoordRequestCtx *CoordRequestCtx_New(CommandType type) {
   CoordRequestCtx *ctx = rm_calloc(1, sizeof(CoordRequestCtx));
@@ -30,7 +31,17 @@ void CoordRequestCtx_Free(CoordRequestCtx *ctx) {
   if (ctx->type == COMMAND_HYBRID) {
     if (ctx->hreq) HybridRequest_DecrRef(ctx->hreq);
   } else {
-    if (ctx->areq) AREQ_DecrRef(ctx->areq);
+    if (ctx->areq) {
+      // Timeout edge case for cursor queries with useReplyCallback:
+      // When timeout fires before reply_callback runs, but after the cursor was created and
+      // stored in areq->storedReplyState.cursor, the cursor needs to be freed manually.
+      if (ctx->areq->storedReplyState.cursor) {
+        Cursor *cursor = ctx->areq->storedReplyState.cursor;
+        ctx->areq->storedReplyState.cursor = NULL;
+        Cursor_Free(cursor);
+      }
+      AREQ_DecrRef(ctx->areq);
+    }
   }
 
   pthread_mutex_destroy(&ctx->setReqLock);
