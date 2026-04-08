@@ -20,6 +20,7 @@
 
 pub use crate::union_flat::UnionFlat;
 pub use crate::union_heap::UnionHeap;
+pub use crate::union_trimmed::UnionTrimmed;
 
 // ============================================================================
 // Type aliases for convenient access
