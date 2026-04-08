@@ -141,7 +141,7 @@ jobs:
                       'container': 'ubuntu:resolute',
                       'setup_script': 'apt update && apt install -y git',
                       'name': 'Ubuntu Resolute x86_64',
-                      'enable_lto': '0'
+                      'enable_lto': '1'
                   },
                   "aarch64": {
                       'container': 'ubuntu:resolute',
