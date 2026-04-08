@@ -151,6 +151,12 @@ impl<'index> IndexRef<'index> {
         unsafe { VecSimIndex_IndexSize(self.inner.as_ptr()) }
     }
 
+    /// Whether VecSim stores this index's vectors on disk.
+    pub fn is_disk(&self) -> bool {
+        // SAFETY: `self.inner` upholds its invariant.
+        unsafe { VecSimIndex_BasicInfo(self.inner.as_ptr()) }.isDisk
+    }
+
     /// VecSim heuristic: should adhoc-BF be preferred over batch iteration
     /// for the given filter-subset size and `k`?
     pub fn prefer_adhoc(&self, subset_size: usize, k: usize, initial_check: bool) -> bool {
