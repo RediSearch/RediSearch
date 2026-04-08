@@ -32,7 +32,6 @@ typedef struct {
     pthread_mutex_t *mutex;           // Mutex for array access and completion tracking
     pthread_cond_t *completionCond;   // Condition variable for completion signaling
     HybridKnnContext *knnCtx;         // KNN context for SHARD_K_RATIO optimization (may be NULL)
-    const struct timespec *timeout;   // Absolute timeout in CLOCK_MONOTONIC_RAW (may be NULL)
 } processCursorMappingCallbackContext;
 
 void CursorMapping_Release(CursorMapping *mapping) {
@@ -201,11 +200,11 @@ static void processCursorMappingCallback(MRIteratorCallbackCtx *ctx, MRReply *re
 
 // Cleanup callback context - used as privateDataDestructor for MRIterator
 // Takes void* to match MRIterator's destructor signature
-static void cleanupCtx(void *ptr) {
-    if (!ptr) {
+static void cleanupCtx(void *ctx_ptr) {
+    if (!ctx_ptr) {
         return;
     }
-    processCursorMappingCallbackContext *ctx = (processCursorMappingCallbackContext *)ptr;
+    processCursorMappingCallbackContext *ctx = (processCursorMappingCallbackContext *)ctx_ptr;
     pthread_mutex_destroy(ctx->mutex);
     pthread_cond_destroy(ctx->completionCond);
     rm_free(ctx->mutex);
@@ -290,7 +289,6 @@ bool ProcessHybridCursorMappings(const MRCommand *cmd,
         .mutex = ctx->mutex,
         .completionCond = ctx->completionCond,
         .knnCtx = knnCtx,  // Store KNN context for command modifier callback
-        .timeout = timeout,
     };
     // We must use atomic_init here (not rely on struct initialization)
     // because the coord thread may call atomic_load on numShards before
