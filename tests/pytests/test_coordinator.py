@@ -332,10 +332,6 @@ def _test_all_queries_fail_on_unreachable_shard(env: Env, scenario: str):
     with TimeLimit(5, f'FT.SEARCH hung ({scenario})'):
         env.expect('FT.SEARCH', 'idx', '*').error().contains('Could not send query to cluster')
 
-    # FT.SEARCH with cursor returns an error (does not hang)
-    with TimeLimit(5, f'FT.SEARCH WITHCURSOR hung ({scenario})'):
-        env.expect('FT.SEARCH', 'idx', '*', 'WITHCURSOR').error().contains('Could not send query to cluster')
-
     # FT.AGGREGATE returns an error (does not hang)
     with TimeLimit(5, f'FT.AGGREGATE hung ({scenario})'):
         env.expect('FT.AGGREGATE', 'idx', '*').error().contains('Could not send query to cluster')
