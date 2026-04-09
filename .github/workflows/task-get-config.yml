@@ -220,6 +220,20 @@ jobs:
                       'enable_lto': '1'
                   }
               },
+              "rockylinux:10": {
+                  "x86_64": {
+                      'container': 'rockylinux/rockylinux:10',
+                      'setup_script': 'dnf update -y && dnf install -y git',
+                      'name': 'Rocky Linux 10 x86_64',
+                      'enable_lto': '1'
+                  },
+                  "aarch64": {
+                      'container': 'rockylinux/rockylinux:10',
+                      'setup_script': 'dnf update -y && dnf install -y git',
+                      'name': 'Rocky Linux 10 ARM64',
+                      'enable_lto': '1'
+                  }
+              },
               "amazonlinux:2": {
                   "x86_64": {
                       'container': 'amazonlinux:2',
