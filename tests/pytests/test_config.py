@@ -354,7 +354,7 @@ min_operation_workers_default = 4
 @skip(cluster=True)
 def testDeprecatedMTConfig_full():
     workers = '3'
-    env = Env(moduleArgs=f'WORKER_THREADS {workers} MT_MODE MT_MODE_FULL')
+    env = Env(moduleArgs=f'WORKER_THREADS {workers} MT_MODE MT_MODE_FULL', noDefaultModuleArgs=True)
     # Check old config values
     env.expect(config_cmd(), 'get', 'WORKER_THREADS').equal([['WORKER_THREADS', workers]])
     env.expect(config_cmd(), 'get', 'MT_MODE').equal([['MT_MODE', 'MT_MODE_FULL']])
@@ -365,7 +365,7 @@ def testDeprecatedMTConfig_full():
 @skip(cluster=True)
 def testDeprecatedMTConfig_operations():
     workers = '3'
-    env = Env(moduleArgs=f'WORKER_THREADS {workers} MT_MODE MT_MODE_ONLY_ON_OPERATIONS')
+    env = Env(moduleArgs=f'WORKER_THREADS {workers} MT_MODE MT_MODE_ONLY_ON_OPERATIONS', noDefaultModuleArgs=True)
     # Check old config values
     env.expect(config_cmd(), 'get', 'WORKER_THREADS').equal([['WORKER_THREADS', workers]])
     env.expect(config_cmd(), 'get', 'MT_MODE').equal([['MT_MODE', 'MT_MODE_ONLY_ON_OPERATIONS']])
@@ -375,7 +375,7 @@ def testDeprecatedMTConfig_operations():
 
 @skip(cluster=True)
 def testDeprecatedMTConfig_off():
-    env = Env(moduleArgs='WORKER_THREADS 0 MT_MODE MT_MODE_OFF')
+    env = Env(moduleArgs='WORKER_THREADS 0 MT_MODE MT_MODE_OFF', noDefaultModuleArgs=True)
     # Check old config values
     env.expect(config_cmd(), 'get', 'WORKER_THREADS').equal([['WORKER_THREADS', '0']])
     env.expect(config_cmd(), 'get', 'MT_MODE').equal([['MT_MODE', 'MT_MODE_OFF']])
@@ -386,19 +386,19 @@ def testDeprecatedMTConfig_off():
 # Check invalid combination
 @skip(cluster=True)
 def testDeprecatedMTConfig_full_with_0():
-    env = Env(moduleArgs='MT_MODE MT_MODE_FULL WORKER_THREADS 0')
+    env = Env(moduleArgs='MT_MODE MT_MODE_FULL WORKER_THREADS 0', noDefaultModuleArgs=True)
     env.assertTrue(env.isUp())
     env.expect(config_cmd(), 'get', 'WORKERS').equal([['WORKERS', str(workers_default)]])
     env.expect(config_cmd(), 'get', 'MIN_OPERATION_WORKERS').equal([['MIN_OPERATION_WORKERS', str(min_operation_workers_default)]])
 @skip(cluster=True)
 def testDeprecatedMTConfig_operations_with_0():
-    env = Env(moduleArgs='MT_MODE MT_MODE_ONLY_ON_OPERATIONS WORKER_THREADS 0')
+    env = Env(moduleArgs='MT_MODE MT_MODE_ONLY_ON_OPERATIONS WORKER_THREADS 0', noDefaultModuleArgs=True)
     env.assertTrue(env.isUp())
     env.expect(config_cmd(), 'get', 'WORKERS').equal([['WORKERS', str(workers_default)]])
     env.expect(config_cmd(), 'get', 'MIN_OPERATION_WORKERS').equal([['MIN_OPERATION_WORKERS', str(min_operation_workers_default)]])
 @skip(cluster=True)
 def testDeprecatedMTConfig_off_with_non_0():
-    env = Env(moduleArgs='MT_MODE MT_MODE_OFF WORKER_THREADS 3')
+    env = Env(moduleArgs='MT_MODE MT_MODE_OFF WORKER_THREADS 3', noDefaultModuleArgs=True)
     env.assertTrue(env.isUp())
     env.expect(config_cmd(), 'get', 'WORKERS').equal([['WORKERS', str(workers_default)]])
     env.expect(config_cmd(), 'get', 'MIN_OPERATION_WORKERS').equal([['MIN_OPERATION_WORKERS', str(min_operation_workers_default)]])
