@@ -1894,6 +1894,7 @@ dependencies = [
  "rlookup",
  "sorting_vector",
  "strum",
+ "thin_vec",
  "thiserror",
  "value",
  "workspace_hack",
@@ -1912,6 +1913,7 @@ dependencies = [
  "redisearch_rs",
  "rlookup",
  "rlookup_ffi",
+ "search_result",
  "sorting_vector",
  "value",
  "workspace_hack",
@@ -2293,6 +2295,7 @@ dependencies = [
  "redis_mock",
  "redisearch_rs",
  "sorting_vector",
+ "thin_vec",
  "value",
  "workspace_hack",
 ]
@@ -2306,6 +2309,7 @@ dependencies = [
  "ffi",
  "libc",
  "sorting_vector",
+ "thin_vec",
  "value",
  "workspace_hack",
 ]

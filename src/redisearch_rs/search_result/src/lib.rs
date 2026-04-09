@@ -88,6 +88,7 @@ impl<'index> SearchResult<'index> {
 
     /// Clears the search result, removing all values from the [`RLookupRow`][ffi::RLookupRow].
     /// This has no effect on the allocated capacity of the lookup row.
+    #[inline]
     pub fn clear(&mut self) {
         self._score = 0.0;
 

@@ -184,7 +184,7 @@ fn wipe() {
     assert_eq!(row.num_dyn_values(), 0);
     assert_eq!(row.len(), 10);
     assert!(row.dyn_values().iter().all(|v| v.is_none()));
-    assert!(row.sorting_vector().is_none());
+    assert!(row.sorting_vector().is_empty());
 
     // create the same 10 entries in the row
     for i in 0..10 {

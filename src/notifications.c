@@ -20,6 +20,7 @@
 #include "src/coord/rmr/redis_cluster.h"
 #include "cursor.h"
 #include "search_disk.h"
+#include "doc_id_meta.h"
 
 #define JSON_LEN 5 // length of string "json."
 RedisModuleString *global_RenameFromKey = NULL;
@@ -147,6 +148,10 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
   }
 
   switch (redisCommand) {
+
+/********************************************************
+ *  GROUP A: Normal operation (same handling in RAM and SearchDisk)
+ ********************************************************/
     case loaded_cmd:
       // on loaded event the key is stack allocated so to use it to load the
       // document we must copy it
@@ -167,47 +172,13 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
       if (!IS_SST_RDB_IN_PROCESS(ctx)) {
         Indexes_UpdateMatchingWithSchemaRules(ctx, key, DocumentType_Hash, hashFields);
       }
-
       break;
 
-/********************************************************
- *              Handling Redis commands                 *
- ********************************************************/
     case expire_cmd:
     case persist_cmd:
-    case hexpire_cmd:
-    case hpersist_cmd:
     case restore_cmd:
     case copy_to_cmd:
       Indexes_UpdateMatchingWithSchemaRules(ctx, key, getDocTypeFromString(key), hashFields);
-      break;
-
-    case del_cmd:
-    case set_cmd:
-    case trimmed_cmd:
-    case key_trimmed_cmd:
-    case expired_cmd:
-    case evicted_cmd:
-      Indexes_DeleteMatchingWithSchemaRules(ctx, key, getDocTypeFromString(key), hashFields);
-      break;
-
-    case change_cmd:
-    // TODO: hash/json
-      kp = RedisModule_OpenKey(ctx, key, REDISMODULE_READ);
-      kType = DocumentType_Unsupported;
-      if (kp) {
-        kType = getDocType(kp);
-        RedisModule_CloseKey(kp);
-      }
-      if (kType == DocumentType_Unsupported) {
-        // in crdt empty key means that key was deleted
-        // TODO:FIX
-        Indexes_DeleteMatchingWithSchemaRules(ctx, key, kType, hashFields);
-      } else {
-        // todo: here we will open the key again, we can optimize it by
-        //       somehow passing the key pointer
-        Indexes_UpdateMatchingWithSchemaRules(ctx, key, kType, hashFields);
-      }
       break;
 
     case rename_from_cmd:
@@ -217,6 +188,63 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
 
     case rename_to_cmd:
       Indexes_ReplaceMatchingWithSchemaRules(ctx, global_RenameFromKey, key);
+      break;
+
+/********************************************************
+ *  GROUP B: Skip deletion for SearchDisk (Unlink handles it)
+ ********************************************************/
+    case del_cmd:
+    case set_cmd:
+      // Deletion handled by keyMetaOnUnlink callback
+      if (!SearchDisk_IsEnabled()) {
+        Indexes_DeleteMatchingWithSchemaRules(ctx, key, getDocTypeFromString(key), hashFields);
+      }
+      break;
+
+/********************************************************
+ *  GROUP C: Ignore in SearchDisk (field-TTL metadata only)
+ ********************************************************/
+    case hexpire_cmd:
+    case hpersist_cmd:
+      // We do not support field-TTL metadata changes in the disk flow.
+      if (!SearchDisk_IsEnabled()) {
+        Indexes_UpdateMatchingWithSchemaRules(ctx, key, getDocTypeFromString(key), hashFields);
+      }
+      break;
+
+/********************************************************
+ *  GROUP D: Has deletion branch to skip for SearchDisk
+ ********************************************************/
+    case change_cmd:
+      kp = RedisModule_OpenKey(ctx, key, REDISMODULE_READ);
+      kType = DocumentType_Unsupported;
+      if (kp) {
+        kType = getDocType(kp);
+        RedisModule_CloseKey(kp);
+      }
+      if (kType == DocumentType_Unsupported) {
+        // In CRDT, empty key means key was deleted
+        if (SearchDisk_IsEnabled()) {
+          // Deletion handled by keyMetaOnUnlink callback
+          break;
+        }
+        Indexes_DeleteMatchingWithSchemaRules(ctx, key, kType, hashFields);
+      } else {
+        // todo: here we will open the key again, we can optimize it by
+        //       somehow passing the key pointer
+        Indexes_UpdateMatchingWithSchemaRules(ctx, key, kType, hashFields);
+      }
+      break;
+
+/********************************************************
+ *  GROUP E: Never received with SearchDisk (not subscribed)
+ ********************************************************/
+    case trimmed_cmd:
+    case key_trimmed_cmd:
+    case expired_cmd:
+    case evicted_cmd:
+      RS_ASSERT(!SearchDisk_IsEnabled());
+      Indexes_DeleteMatchingWithSchemaRules(ctx, key, getDocTypeFromString(key), hashFields);
       break;
   }
 
@@ -576,13 +604,40 @@ void ConfigChangedCallback(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t e
 void Initialize_KeyspaceNotifications() {
   static bool RS_KeyspaceEvents_Initialized = false;
   if (!RS_KeyspaceEvents_Initialized) {
-    RedisModule_SubscribeToKeyspaceEvents(RSDummyContext,
-      REDISMODULE_NOTIFY_GENERIC | REDISMODULE_NOTIFY_HASH |
+    int notifyFlags = 0;
+    if (SearchDisk_IsEnabled()) {
+      // On Disk we do not listen to notifications that lead to deleting the keys as the unlink callback of DocIDMeta will handle it.
+      notifyFlags = REDISMODULE_NOTIFY_GENERIC | REDISMODULE_NOTIFY_HASH | REDISMODULE_NOTIFY_STRING |
+      REDISMODULE_NOTIFY_LOADED | REDISMODULE_NOTIFY_MODULE;
+    } else {
+      notifyFlags = REDISMODULE_NOTIFY_GENERIC | REDISMODULE_NOTIFY_HASH |
       REDISMODULE_NOTIFY_TRIMMED | REDISMODULE_NOTIFY_KEY_TRIMMED | REDISMODULE_NOTIFY_STRING |
       REDISMODULE_NOTIFY_EXPIRED | REDISMODULE_NOTIFY_EVICTED |
-      REDISMODULE_NOTIFY_LOADED | REDISMODULE_NOTIFY_MODULE,
-      HashNotificationCallback);
+      REDISMODULE_NOTIFY_LOADED | REDISMODULE_NOTIFY_MODULE;
+    }
+    RedisModule_SubscribeToKeyspaceEvents(RSDummyContext, notifyFlags, HashNotificationCallback);
     RS_KeyspaceEvents_Initialized = true;
+  }
+}
+
+// Persistence event handler.
+// Called on BGSAVE/AOF rewrite start and end.
+static void PersistenceEvent(RedisModuleCtx *ctx, RedisModuleEvent eid,
+                             uint64_t subevent, void *data) {
+  REDISMODULE_NOT_USED(eid);
+  REDISMODULE_NOT_USED(data);
+
+  switch (subevent) {
+  case REDISMODULE_SUBEVENT_PERSISTENCE_RDB_START:
+  case REDISMODULE_SUBEVENT_PERSISTENCE_SYNC_RDB_START:
+    RedisModule_Log(ctx, "notice", "Persistence started");
+    DocIdMeta_SetPersistenceInProgress(true);
+    break;
+  case REDISMODULE_SUBEVENT_PERSISTENCE_ENDED:
+  case REDISMODULE_SUBEVENT_PERSISTENCE_FAILED:
+    RedisModule_Log(ctx, "notice", "Persistence ended");
+    DocIdMeta_SetPersistenceInProgress(false);
+    break;
   }
 }
 
@@ -619,6 +674,9 @@ void Initialize_ServerEventNotifications(RedisModuleCtx *ctx) {
   if (SearchDisk_IsEnabled()) {
     RedisModule_Log(ctx, "notice", "Subscribe to Server ready event");
     RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_ServerReady, ServerReadyEvent);
+
+    RedisModule_Log(ctx, "notice", "Subscribe to persistence events");
+    RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_Persistence, PersistenceEvent);
   }
 }
 
