@@ -21,6 +21,7 @@
 #include "cursor.h"
 #include "search_disk.h"
 #include "doc_id_meta.h"
+#include "iterators_rs.h"
 
 #define JSON_LEN 5 // length of string "json."
 RedisModuleString *global_RenameFromKey = NULL;

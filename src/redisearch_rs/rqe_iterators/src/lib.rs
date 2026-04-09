@@ -152,10 +152,60 @@ pub trait RQEIterator<'index> {
     }
 }
 
-// Implement RQEIterator for any Box<I> where I: RQEIterator + ?Sized.
-// This covers Box<dyn RQEIterator> as well as Box<dyn SubTrait> for any
-// subtrait of RQEIterator, without requiring a separate delegation impl per subtrait.
-impl<'index, I: RQEIterator<'index> + ?Sized> RQEIterator<'index> for Box<I> {
+/// Blanket [`RQEIterator`] impl for `Box<I>` where `I` is a concrete iterator type.
+///
+/// All core methods delegate to the inner iterator.
+impl<'index, I: RQEIterator<'index> + 'index> RQEIterator<'index> for Box<I> {
+    fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
+        (**self).current()
+    }
+
+    fn read(&mut self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
+        (**self).read()
+    }
+
+    fn skip_to(
+        &mut self,
+        doc_id: t_docId,
+    ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
+        (**self).skip_to(doc_id)
+    }
+
+    fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
+        (**self).revalidate()
+    }
+
+    fn rewind(&mut self) {
+        (**self).rewind()
+    }
+
+    fn num_estimated(&self) -> usize {
+        (**self).num_estimated()
+    }
+
+    fn last_doc_id(&self) -> t_docId {
+        (**self).last_doc_id()
+    }
+
+    fn at_eof(&self) -> bool {
+        (**self).at_eof()
+    }
+
+    #[inline(always)]
+    fn type_(&self) -> IteratorType {
+        (**self).type_()
+    }
+
+    fn as_c_iterator(&self) -> Option<&c2rust::CRQEIterator> {
+        (**self).as_c_iterator()
+    }
+}
+
+/// [`RQEIterator`] impl for type-erased iterators.
+///
+/// All methods — including profiling — delegate through the vtable to the
+/// concrete type's implementation.
+impl<'index> RQEIterator<'index> for Box<dyn RQEIterator<'index> + 'index> {
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         (**self).current()
     }

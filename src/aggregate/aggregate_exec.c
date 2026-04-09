@@ -35,6 +35,7 @@
 #include "reply_empty.h"
 #include "search_disk.h"
 #include "search_disk_utils.h"
+#include "iterators_rs.h"
 
 // Multi threading data structure for background query execution.
 // This context is created on the main thread and passed to the background worker.
