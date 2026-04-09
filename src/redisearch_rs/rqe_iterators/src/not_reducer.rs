@@ -82,7 +82,7 @@ pub enum NewNotIterator<'index, I> {
     ReducedEmpty(Empty),
     /// Non-optimized path: sequential NOT iterator.
     Not(Not<'index, I>),
-    /// Optimized path (`index_all`): wildcard-backed NOT iterator.
+    /// Optimized path (`index_all` or disk index): wildcard-backed NOT iterator.
     NotOptimized(NotOptimized<'index, Box<dyn WildcardIterator<'index> + 'index>, I>),
 }
 
@@ -144,15 +144,19 @@ where
             unsafe { rule.as_ref() }.index_all
         })
         .unwrap_or(false);
+    let disk_index_available = !spec.diskSpec.is_null();
+    let optimized = index_all || disk_index_available;
 
-    if index_all {
-        debug_assert!(
-            spec.diskSpec.is_null(),
-            "diskSpec should be null when index_all is true"
-        );
-        // SAFETY: Caller guarantees `query.sctx` is a valid, non-null pointer (2)
-        // and all preconditions of `new_wildcard_iterator_optimized` hold (5).
-        let wcii = unsafe { new_wildcard_iterator_optimized(sctx, weight) };
+    if optimized {
+        let wcii = if disk_index_available {
+            // SAFETY: Caller guarantees all preconditions of
+            // `new_wildcard_iterator` hold (5).
+            unsafe { new_wildcard_iterator(query, weight) }
+        } else {
+            // SAFETY: Caller guarantees `query.sctx` is a valid, non-null pointer (2)
+            // and all preconditions of `new_wildcard_iterator_optimized` hold (5).
+            unsafe { new_wildcard_iterator_optimized(sctx, weight) }
+        };
         NewNotIterator::NotOptimized(NotOptimized::new(
             wcii,
             child,

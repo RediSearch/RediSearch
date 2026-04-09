@@ -218,12 +218,13 @@ QueryIterator *NewOptionalIterator(QueryIterator *it, QueryEvalCtx *q, t_docId m
     return ret;
   }
 
-  bool optimized = q->sctx->spec->rule && q->sctx->spec->rule->index_all;
+  const bool is_index_all = q->sctx->spec->rule && q->sctx->spec->rule->index_all;
+  const bool is_disk_index_available = q->sctx->spec->diskSpec;
+  const bool optimized = is_index_all || is_disk_index_available;
 
   if (optimized) {
-    RS_ASSERT(!q->sctx->spec->diskSpec)
     OptionalOptimizedIterator *oi = rm_calloc(1, sizeof(*oi));
-    oi->wcii = NewWildcardIterator_Optimized(q->sctx, 0);
+    oi->wcii = is_disk_index_available ? NewWildcardIterator(q, 0) : NewWildcardIterator_Optimized(q->sctx, 0);
     oi->child = it;
     oi->virt = NewVirtualResult(0, RS_FIELDMASK_ALL);
     oi->virt->freq = 1;
