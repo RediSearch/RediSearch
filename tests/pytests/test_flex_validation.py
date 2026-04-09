@@ -737,6 +737,71 @@ def test_flex_blocks_spellcheck_command(env):
 
 @skip(cluster=True)
 @with_simulate_in_flex(True)
+def test_flex_blocks_prefix_query(env):
+    """Test that prefix queries on TEXT fields are blocked in Flex mode"""
+    _create_flex_search_fixture(env)
+
+    # Prefix query using `*` suffix
+    env.expect('FT.SEARCH', 'idx', 'hel*', 'NOCONTENT') \
+        .error().contains('Prefix queries are not supported on Flex indexes')
+
+    # Prefix query scoped to a field
+    env.expect('FT.SEARCH', 'idx', '@t:hel*', 'NOCONTENT') \
+        .error().contains('Prefix queries are not supported on Flex indexes')
+
+
+@skip(cluster=True)
+@with_simulate_in_flex(True)
+def test_flex_blocks_wildcard_pattern_query(env):
+    """Test that wildcard-pattern queries on TEXT fields are blocked in Flex mode"""
+    _create_flex_search_fixture(env)
+
+    # Wildcard pattern query using w'...' syntax (dialect 2+)
+    env.expect('FT.SEARCH', 'idx', "w'hel*o'", 'NOCONTENT', 'DIALECT', '2') \
+        .error().contains('Wildcard pattern queries are not supported on Flex indexes')
+
+
+@skip(cluster=True)
+@with_simulate_in_flex(True)
+def test_flex_blocks_fuzzy_query(env):
+    """Test that fuzzy queries on TEXT fields are blocked in Flex mode"""
+    _create_flex_search_fixture(env)
+
+    # Single-level fuzzy
+    env.expect('FT.SEARCH', 'idx', '%hello%', 'NOCONTENT') \
+        .error().contains('Fuzzy queries are not supported on Flex indexes')
+
+    # Triple-level fuzzy
+    env.expect('FT.SEARCH', 'idx', '%%%hello%%%', 'NOCONTENT') \
+        .error().contains('Fuzzy queries are not supported on Flex indexes')
+
+def _create_flex_tag_fixture(env):
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA', 'tag', 'TAG').ok()
+    env.expect('HSET', 'doc:1', 'tag', 'hello').equal(1)
+
+
+@skip(cluster=True)
+@with_simulate_in_flex(True)
+def test_flex_blocks_tag_prefix_query(env):
+    """Test that prefix queries on TAG fields are blocked in Flex mode"""
+    _create_flex_tag_fixture(env)
+
+    env.expect('FT.SEARCH', 'idx', '@tag:{hel*}', 'NOCONTENT') \
+        .error().contains('TAG prefix/suffix/infix queries are not supported on Flex indexes')
+
+
+@skip(cluster=True)
+@with_simulate_in_flex(True)
+def test_flex_blocks_tag_wildcard_query(env):
+    """Test that wildcard pattern queries on TAG fields are blocked in Flex mode"""
+    _create_flex_tag_fixture(env)
+
+    env.expect('FT.SEARCH', 'idx', "@tag:{w'hel*o'}", 'NOCONTENT', 'DIALECT', '2') \
+        .error().contains('TAG wildcard queries are not supported on Flex indexes')
+
+
+@skip(cluster=True)
+@with_simulate_in_flex(True)
 def test_flex_blocks_synonym_commands(env):
     """Test that FT.SYNUPDATE, FT.SYNDUMP, and FT.SYNADD are blocked in Redis Flex"""
     _create_flex_search_fixture(env)
