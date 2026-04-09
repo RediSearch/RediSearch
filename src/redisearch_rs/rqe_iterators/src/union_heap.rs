@@ -349,7 +349,6 @@ where
     }
 
     fn rewind(&mut self) {
-        self.result.doc_id = 0;
         self.is_eof = self.children.is_empty();
         self.result.reset_aggregate();
         self.children.iter_mut().for_each(|c| c.rewind());

@@ -407,7 +407,6 @@ where
     }
 
     fn rewind(&mut self) {
-        self.result.doc_id = 0;
         // Reset num_active to include all children again
         self.num_active = self.children.len();
         self.is_eof = self.children.is_empty();
