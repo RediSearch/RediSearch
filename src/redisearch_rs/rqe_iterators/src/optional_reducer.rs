@@ -18,7 +18,7 @@ use crate::{
     RQEIterator,
     optional::Optional,
     optional_optimized::OptionalOptimized,
-    wildcard::{WildcardIterator, new_wildcard_iterator},
+    wildcard::{WildcardIterator, new_wildcard_iterator, new_wildcard_iterator_optimized},
 };
 
 /// The outcome of [`new_optional_iterator`].
@@ -31,7 +31,7 @@ pub enum NewOptionalIterator<'index, I: RQEIterator<'index> + 'index> {
     /// Shortcircuit 2: child was already a wildcard — it is returned as-is,
     /// with `weight` already applied to its current result.
     ///
-    /// All results will be real hits.
+    /// All results will be virtual hits.
     WildcardPassthrough(I),
 
     /// Regular case, non-optimized index: wrap child in a plain [`Optional`].
@@ -94,8 +94,10 @@ where
                     spec.diskSpec.is_null(),
                     "diskSpec should be null when index_all is true"
                 );
+                // SAFETY: Caller guarantees `query.sctx` is a valid, non-null pointer (2).
+                let sctx = NonNull::new(query_ref.sctx).expect("query.sctx is null");
                 // SAFETY: 6.
-                let wcii = unsafe { new_wildcard_iterator(query, 0.0) };
+                let wcii = unsafe { new_wildcard_iterator_optimized(sctx, 0.0) };
                 NewOptionalIterator::OptionalOptimized(OptionalOptimized::new(
                     wcii, child, max_doc_id, weight,
                 ))
