@@ -129,8 +129,15 @@ install_llvm() {
         else
             # 2) Fall back to apt.llvm.org third-party repo.
             echo ">>> Native packages not available — trying apt.llvm.org"
+            # software-properties-common was removed in Debian 13 (trixie).
+            # The llvm.sh script handles trixie without add-apt-repository,
+            # so we only install software-properties-common where available.
+            local spc_pkg=""
+            if apt-cache show software-properties-common &>/dev/null; then
+                spc_pkg="software-properties-common"
+            fi
             apt_get_cmd "$MODE" install -y --no-install-recommends \
-                lsb-release wget software-properties-common gnupg ca-certificates
+                lsb-release wget $spc_pkg gnupg ca-certificates
             wget -qO /tmp/llvm.sh https://apt.llvm.org/llvm.sh
             chmod +x /tmp/llvm.sh
             if $MODE /tmp/llvm.sh "$LLVM_VER"; then

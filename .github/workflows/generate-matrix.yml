@@ -72,6 +72,8 @@ jobs:
               ('debian:bullseye', 'aarch64'),
               ('debian:bookworm', 'x86_64'),
               ('debian:bookworm', 'aarch64'),
+              ('debian:trixie', 'x86_64'),
+              ('debian:trixie', 'aarch64'),
               ('mariner:2', 'x86_64'),
               ('azurelinux:3', 'x86_64'),
               ('azurelinux:3', 'aarch64'),
