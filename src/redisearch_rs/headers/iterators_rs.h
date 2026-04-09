@@ -484,48 +484,43 @@ RLookupKey **GetMetricOwnKeyRef(QueryIterator *header);
 enum MetricType GetMetricType(const QueryIterator *header);
 
 /**
- * Creates a new not iterator.
+ * Creates a NOT iterator, choosing between non-optimized and optimized based
+ * on the query evaluation context.
+ *
+ * If the child is trivially reducible (empty or wildcard), a simplified
+ * iterator is returned directly.
  *
  * # Safety
  *
- * 1. `child` must be a valid non-null pointer to an implementation of the C query iterator API.
- * 2. `child` must not be aliased.
+ * 1. `child` must be null or a valid pointer to a [`QueryIterator`].
+ *    A null `child` is treated as empty.
+ * 2. When non-null, `child` must not be aliased.
+ * 3. `q` must be a valid non-null pointer to a [`QueryEvalCtx`](ffi::QueryEvalCtx).
+ * 4. `q.sctx` must be a non-null pointer to a valid
+ *    [`RedisSearchCtx`](ffi::RedisSearchCtx).
+ * 5. `q.sctx.spec` must be a non-null pointer to a valid
+ *    [`IndexSpec`](ffi::IndexSpec).
+ * 6. `q.sctx.spec.rule`, when non-null, must point to a valid
+ *    [`SchemaRule`](ffi::SchemaRule).
+ * 7. When the optimized path is taken, the preconditions of
+ *    [`crate::wildcard::NewWildcardIterator_Optimized`] must hold.
  */
-QueryIterator *NewNotIteratorNonOptimized(QueryIterator *child,
-                                          t_docId max_doc_id,
-                                          double weight,
-                                          timespec timeout,
-                                          bool skip_timeout_checks);
+QueryIterator *NewNotIterator(QueryIterator *child,
+                              t_docId max_doc_id,
+                              double weight,
+                              timespec timeout,
+                              QueryEvalCtx *q);
 
 /**
- * Get the child pointer of the not (non-optimized) iterator or NULL
- * in case there is no child.
+ * Get the child pointer of a NOT iterator, or NULL if there is no child.
  *
  * # Safety
  *
- * 1. `header` must be a valid non-null pointer created via [`NewNotIteratorNonOptimized`].
+ * 1. `it` must be a valid non-null pointer to a non-reduced NOT iterator
+ *    created via [`NewNotIterator`]. Must not be called on a reduced
+ *    (wildcard/empty) iterator returned by [`NewNotIterator`].
  */
-const QueryIterator *GetNotIteratorNonOptimizedChild(const QueryIterator *header);
-
-/**
- * Take ownership over the child of the not (non-optimized) iterator.
- *
- * # Safety
- *
- * 1. `header` must be a valid non-null pointer created via [`NewNotIteratorNonOptimized`].
- */
-QueryIterator *TakeNotIteratorNonOptimizedChild(QueryIterator *header);
-
-/**
- * Set (or overwrite) the child iterator of the not (non-optimized) iterator.
- *
- * # Safety
- *
- * 1. `header` must be a valid non-null pointer created via [`NewNotIteratorNonOptimized`].
- * 2. `child` must be null or a valid non-null non-aliased pointer for a valid [`QueryIterator`] respecting the C API.
- */
-void SetNotIteratorNonOptimizedChild(QueryIterator *header,
-                                     QueryIterator *child);
+const QueryIterator *GetNotIteratorChild(const QueryIterator *it);
 
 /**
  * Create a new non-optimized optional iterator.

@@ -105,21 +105,6 @@ where
     pub const fn child(&self) -> Option<&I> {
         self.child.as_ref()
     }
-
-    /// Set the child of this [`Not`] iterator.
-    pub fn set_child(&mut self, new_child: I) {
-        self.child = MaybeEmpty::new(new_child);
-    }
-
-    /// Unset the child of this [`Not`] iterator (make it `None`).
-    pub fn unset_child(&mut self) {
-        self.child = MaybeEmpty::new_empty();
-    }
-
-    /// Take the child of this [`Not`] iterator if it exists.
-    pub fn take_child(&mut self) -> Option<I> {
-        self.child.take_iterator()
-    }
 }
 
 impl<'index, I> RQEIterator<'index> for Not<'index, I>
@@ -279,12 +264,6 @@ pub trait NotIterator<'index>: RQEIterator<'index> {
     // They can be removed once this code is ported to Rust.
     /// Get a shared reference to the child iterator, or `None` if unset.
     fn child(&self) -> Option<&dyn RQEIterator<'index>>;
-
-    /// Replace the child iterator.
-    fn set_child(&mut self, child: Box<dyn RQEIterator<'index> + 'index>);
-
-    /// Take ownership of the child iterator, leaving it unset.
-    fn take_child(&mut self) -> Option<Box<dyn RQEIterator<'index> + 'index>>;
 }
 
 impl<'index> NotIterator<'index> for Not<'index, Box<dyn RQEIterator<'index> + 'index>> {
@@ -292,14 +271,6 @@ impl<'index> NotIterator<'index> for Not<'index, Box<dyn RQEIterator<'index> + '
         self.child
             .as_ref()
             .map(|c| &**c as &dyn RQEIterator<'index>)
-    }
-
-    fn set_child(&mut self, child: Box<dyn RQEIterator<'index> + 'index>) {
-        self.child = MaybeEmpty::new(child);
-    }
-
-    fn take_child(&mut self) -> Option<Box<dyn RQEIterator<'index> + 'index>> {
-        self.child.take_iterator()
     }
 }
 
