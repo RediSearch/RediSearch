@@ -98,8 +98,10 @@ typedef struct BasicDiskAPI {
    * @param ctx Redis module context
    * @param disk Pointer to the disk context
    * @param percentage Percentage of available memory to request (0-100)
+   * @return The new buffer budget in bytes, or 0 on error. Use this value to update
+   *         existing indexes via updateWriteBufferSize.
    */
-  void (*updateBufferBudget)(RedisModuleCtx *ctx, RedisSearchDisk *disk, int percentage);
+  size_t (*updateBufferBudget)(RedisModuleCtx *ctx, RedisSearchDisk *disk, int percentage);
 } BasicDiskAPI;
 
 typedef struct IndexDiskAPI {
@@ -218,6 +220,18 @@ typedef struct IndexDiskAPI {
    * @param index Pointer to the disk index
    */
   void (*flush)(RedisSearchDiskIndexSpec *index);
+
+  /**
+   * @brief Update the write buffer size for this index's database
+   *
+   * Dynamically changes the write_buffer_size option for all column families
+   * in this index's database. Should be called after updateBufferBudget to
+   * propagate the new per-index buffer size (budget / divisor).
+   *
+   * @param index Pointer to the disk index
+   * @param new_budget New total buffer budget in bytes (will be divided internally)
+   */
+  void (*updateWriteBufferSize)(RedisSearchDiskIndexSpec *index, size_t new_budget);
 } IndexDiskAPI;
 
 typedef struct DocTableDiskAPI {

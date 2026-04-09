@@ -83,6 +83,9 @@ bool SearchDisk_IsInitialized() {
 // Callback for BigModuleRegister - returns total disk usage across all indexes
 static size_t getDiskUsageCallback(void) {
   size_t total = 0;
+  if (!specDict_g) {
+    return total;
+  }
   dictIterator *iter = dictGetIterator(specDict_g);
   dictEntry *entry = NULL;
 
@@ -349,5 +352,22 @@ void SearchDisk_Flush(RedisSearchDiskIndexSpec* index) {
 
 void SearchDisk_UpdateBufferBudget(RedisModuleCtx *ctx, int percentage) {
   RS_ASSERT(disk && disk_db);
-  disk->basic.updateBufferBudget(ctx, disk_db, percentage);
+
+  // Update the WriteBufferManager with the new budget and get the new budget value
+  size_t new_budget = disk->basic.updateBufferBudget(ctx, disk_db, percentage);
+  // Update write buffer size for all existing indexes
+  if (!specDict_g) {
+    return;
+  }
+  dictIterator *iter = dictGetIterator(specDict_g);
+  dictEntry *entry = NULL;
+
+  while ((entry = dictNext(iter))) {
+    StrongRef spec_ref = dictGetRef(entry);
+    IndexSpec *sp = StrongRef_Get(spec_ref);
+    if (sp && sp->diskSpec) {
+      disk->index.updateWriteBufferSize(sp->diskSpec, new_budget);
+    }
+  }
+  dictReleaseIterator(iter);
 }
