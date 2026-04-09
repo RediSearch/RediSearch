@@ -14,8 +14,8 @@
 //! - `in_order`: Require terms to appear in order
 
 use crate::{
-    RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome, c2rust::CRQEIterator,
-    interop::RQEIteratorWrapper,
+    IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
+    c2rust::CRQEIterator, interop::RQEIteratorWrapper,
 };
 
 use ffi::t_docId;
@@ -543,6 +543,31 @@ where
                 current: Some(&mut self.result),
             }),
             None => Ok(RQEValidateStatus::Moved { current: None }),
+        }
+    }
+
+    #[inline(always)]
+    fn type_(&self) -> IteratorType {
+        IteratorType::Intersect
+    }
+}
+
+impl<'index> crate::interop::ProfileChildren<'index>
+    for Intersection<'index, crate::c2rust::CRQEIterator>
+{
+    fn profile_children(self) -> Self {
+        Intersection {
+            children: self
+                .children
+                .into_iter()
+                .map(crate::c2rust::CRQEIterator::into_profiled)
+                .collect(),
+            last_doc_id: self.last_doc_id,
+            num_expected: self.num_expected,
+            is_eof: self.is_eof,
+            max_slop: self.max_slop,
+            in_order: self.in_order,
+            result: self.result,
         }
     }
 }

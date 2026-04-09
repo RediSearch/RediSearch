@@ -47,7 +47,7 @@ pub unsafe extern "C" fn NewNotIteratorNonOptimized(
 
     let rust_iterator = Not::new(child, max_doc_id, weight, rust_timeout, skip_timeout_checks);
 
-    RQEIteratorWrapper::boxed_new(IteratorType::Not, rust_iterator)
+    RQEIteratorWrapper::boxed_new_compound(rust_iterator)
 }
 
 #[unsafe(no_mangle)]

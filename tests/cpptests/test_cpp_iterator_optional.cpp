@@ -11,7 +11,7 @@
 #include <vector>
 #include "gtest/gtest.h"
 
-#include "src/iterators/optional_iterator.h"
+#include "iterators/optional_iterator.h"
 #include "iterators_rs.h"
 #include "iterator_util.h"
 #include "index_utils.h"

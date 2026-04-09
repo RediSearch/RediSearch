@@ -39,7 +39,11 @@ enum IteratorType
   IteratorType_MetricSortedByScore = 17,
   IteratorType_Profile = 18,
   IteratorType_Optimus = 19,
-  IteratorType_Max = 20,
+  /**
+   * Used only in tests.
+   */
+  IteratorType_Mock = 20,
+  IteratorType_Max = 21,
 };
 #ifndef __cplusplus
 typedef uint32_t IteratorType;

@@ -14,8 +14,9 @@ use inverted_index::{
     IndexReader, RSIndexResult, RSQueryTerm, doc_ids_only::DocIdsOnly,
     raw_doc_ids_only::RawDocIdsOnly, t_docId,
 };
-use rqe_iterators::interop::RQEIteratorWrapper;
-use rqe_iterators::{FieldExpirationChecker, inverted_index::Tag};
+use rqe_iterators::{
+    FieldExpirationChecker, IteratorType, interop::RQEIteratorWrapper, inverted_index::Tag,
+};
 
 /// Wrapper around different tag iterator encoding types to avoid generics in FFI code.
 ///
@@ -104,6 +105,11 @@ impl<'index> rqe_iterators::RQEIterator<'index> for TagIterator<'index> {
         &mut self,
     ) -> Result<rqe_iterators::RQEValidateStatus<'_, 'index>, rqe_iterators::RQEIteratorError> {
         tag_it_dispatch!(self, revalidate)
+    }
+
+    #[inline(always)]
+    fn type_(&self) -> IteratorType {
+        IteratorType::InvIdxTag
     }
 }
 
@@ -210,5 +216,5 @@ pub unsafe extern "C" fn NewInvIndIterator_TagQuery(
         ),
     };
 
-    RQEIteratorWrapper::boxed_new(rqe_iterator_type::IteratorType::InvIdxTag, iterator)
+    RQEIteratorWrapper::boxed_new(iterator)
 }

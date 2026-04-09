@@ -22,7 +22,9 @@ use std::{
     ptr::NonNull,
 };
 
-use crate::{RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
+use crate::{
+    RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome, interop::RQEIteratorWrapper,
+};
 
 /// A Rust shim over a query iterator that satisfies the C iterator API.
 ///
@@ -56,7 +58,7 @@ pub struct CRQEIterator {
     /// 2. [`Self::header`] is an owning pointer, in the same way `Box` owns the
     ///    allocated heap data.
     /// 3. All callbacks are defined (i.e. the function pointers are not NULL),
-    ///    with the exception of `SkipTo`, which is optional.
+    ///    with the exception of `SkipTo` and `ProfileChildren`, which are optional.
     /// 4. All callbacks can be safely called, when the right aliasing conditions are
     ///    in place
     header: NonNull<QueryIterator>,
@@ -133,7 +135,7 @@ impl CRQEIterator {
     /// 2. `header` is an owning pointer, in the same way `Box` owns the
     ///    allocated heap data.
     /// 3. All callbacks are defined (i.e. the function pointers are not NULL),
-    ///    with the exception of `SkipTo`, which is optional.
+    ///    with the exception of `SkipTo` and `ProfileChildren`, which are optional.
     /// 4. All callbacks can be safely called, when the right aliasing conditions are
     ///    in place
     pub unsafe fn new(header: NonNull<QueryIterator>) -> Self {
@@ -310,14 +312,66 @@ impl<'index> RQEIterator<'index> for CRQEIterator {
         }
     }
 
-    fn is_wildcard(&self) -> bool {
-        matches!(
-            self.type_,
-            IteratorType::Wildcard | IteratorType::InvIdxWildcard
-        )
+    #[inline(always)]
+    fn type_(&self) -> IteratorType {
+        self.type_
     }
 
     fn as_c_iterator(&self) -> Option<&CRQEIterator> {
         Some(self)
+    }
+}
+
+impl CRQEIterator {
+    /// Profile the subtree rooted at this iterator — wrapping every
+    /// child node — **without** wrapping `self`.
+    ///
+    /// Delegates to the `ProfileChildren` virtual function if set.
+    /// Leaf iterators leave `ProfileChildren` as `NULL` and are returned unchanged.
+    pub fn profile_children(self) -> Self {
+        if let Some(callback) = self.ProfileChildren {
+            let ptr = self.into_raw().as_ptr();
+            // SAFETY: `ptr` is valid and owning (`into_raw` consumed `self`),
+            // and no other references exist, satisfying the callback's contract.
+            // The callback is guaranteed to be valid by the C iterator API contract
+            // and returns a valid, owning `QueryIterator` pointer.
+            let ptr = unsafe { callback(ptr) };
+            debug_assert!(!ptr.is_null(), "ProfileChildren callback returned null");
+            // SAFETY: The callback returns a valid, non-null, owning pointer per
+            // the C iterator API contract. It satisfies all `CRQEIterator::new`
+            // preconditions (valid, owning, callbacks populated).
+            let ptr = unsafe { NonNull::new_unchecked(ptr) };
+            // SAFETY: `ptr` is a valid, owning, non-null pointer with all
+            // callbacks populated, as guaranteed by the C iterator API contract.
+            unsafe { CRQEIterator::new(ptr) }
+        } else {
+            // Leaf iterator — no children to recurse into.
+            self
+        }
+    }
+
+    /// Profile the entire subtree and wrap `self` in a [`Profile`](crate::profile::Profile) node.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `self` is already a [`Profile`](crate::profile::Profile) iterator,
+    /// which would indicate a double-profiling bug.
+    pub fn into_profiled(self) -> Self {
+        assert_ne!(
+            self.type_,
+            crate::IteratorType::Profile,
+            "Attempted to double-profile an iterator"
+        );
+        let profiled = self.profile_children();
+        let profile_wrapper = crate::profile::Profile::new(profiled);
+        let ptr = RQEIteratorWrapper::boxed_new(profile_wrapper);
+        // SAFETY: `boxed_new` uses `Box::into_raw`, which is guaranteed non-null.
+        let ptr = unsafe { NonNull::new_unchecked(ptr) };
+        // SAFETY:
+        // 1. `ptr` is valid — `boxed_new` returns a `Box::into_raw` pointer.
+        // 2. Ownership transferred — no other handle exists.
+        // 3. `boxed_new` populates all required callbacks (Read, Free, Rewind, etc.).
+        // 4. Callbacks are implemented by `RQEIteratorWrapper` and are safe to call.
+        unsafe { CRQEIterator::new(ptr) }
     }
 }

@@ -248,6 +248,7 @@ extern dictType dictTypeHeapStrings;
 extern dictType dictTypeHeapHiddenStrings;
 extern dictType dictTypeHeapRedisStrings;
 extern dictType dictTypeHeapStringsListVal;
+extern dictType dictTypeUint64;
 
 /* Dict type functions */
 uint64_t stringsHashFunction(const void *key);

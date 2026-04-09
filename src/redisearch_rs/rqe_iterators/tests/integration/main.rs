@@ -39,8 +39,15 @@ mod intersection;
 mod inverted_index;
 mod maybe_empty;
 mod metric;
+mod min_heap;
 mod not;
+mod not_optimized;
+mod not_reducer;
 mod optional;
+mod profilable;
 mod profile;
+#[macro_use]
+mod union_common;
 mod union_flat;
+mod union_heap;
 mod wildcard;

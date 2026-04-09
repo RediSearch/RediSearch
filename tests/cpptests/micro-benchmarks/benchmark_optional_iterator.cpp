@@ -15,8 +15,8 @@
 #include <random>
 #include <vector>
 
-#include "src/iterators/iterator_api.h"
-#include "src/iterators/optional_iterator.h"
+#include "iterators/iterator_api.h"
+#include "iterators/optional_iterator.h"
 
 class BM_OptionalIterator : public benchmark::Fixture {
 public:

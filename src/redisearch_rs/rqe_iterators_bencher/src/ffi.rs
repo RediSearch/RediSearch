@@ -13,10 +13,12 @@ pub use ffi::{
     IndexFlags_Index_StoreTermOffsets, IteratorStatus, IteratorStatus_ITERATOR_OK,
     RedisModule_Alloc, RedisModule_Free, ValidateStatus, t_docId,
 };
-use inverted_index::RSIndexResult;
-use inverted_index::RSQueryTerm;
+use inverted_index::{RSIndexResult, RSQueryTerm};
 use iterators_ffi::intersection::NewIntersectionIterator;
-use std::{ffi::c_void, ptr};
+use std::{
+    ffi::c_void,
+    ptr::{self, NonNull},
+};
 
 /// Simple wrapper around the C `QueryIterator` type.
 /// All methods are inlined to avoid the overhead when benchmarking.
@@ -48,32 +50,12 @@ impl QueryIterator {
         Self(unsafe { iterators_ffi::id_list::NewSortedIdListIterator(ids_ptr, num, 1.0) })
     }
 
-    /// Create a non-optimized NOT iterator with the given child and max_doc_id.
-    /// This creates a minimal QueryEvalCtx to ensure the C code creates a non-optimized version.
-    #[inline(always)]
-    pub fn new_not_non_optimized(child: Self, max_doc_id: u64, weight: f64) -> Self {
-        // Create a minimal QueryEvalCtx that will NOT trigger optimization
-        // The C code checks: optimized = q && q->sctx && q->sctx->spec && q->sctx->spec->rule && q->sctx->spec->rule->index_all
-        // By zeroing everything, we ensure spec->rule is NULL, so optimized = false
-        let query_eval_ctx = new_redis_search_ctx(max_doc_id);
-        let timeout = ffi::timespec {
-            tv_sec: 0,
-            tv_nsec: 0,
-        };
-
-        let it =
-            unsafe { ffi::NewNotIterator(child.0, max_doc_id, weight, timeout, query_eval_ctx) };
-
-        free_redis_search_ctx(query_eval_ctx);
-        Self(it)
-    }
-
     /// Give up ownership of the raw pointer without calling `Free`.
     ///
     /// Used when passing the iterator to a C function that takes ownership
     /// (e.g. `NewIntersectionIterator`), so that the C side is responsible for freeing it.
     #[inline(always)]
-    pub fn into_raw(self) -> *mut ffi::QueryIterator {
+    pub const fn into_raw(self) -> *mut ffi::QueryIterator {
         self.0
     }
 
@@ -108,6 +90,47 @@ impl QueryIterator {
                 field::FieldMaskOrIndex::Mask(ffi::RS_FIELDMASK_ALL),
                 term,
                 1.0,
+            )
+        })
+    }
+
+    /// Create an optimized wildcard iterator from a search context.
+    ///
+    /// # Safety
+    ///
+    /// `sctx` must satisfy the preconditions of `NewWildcardIterator_Optimized`:
+    /// valid `RedisSearchCtx` with `spec.rule.index_all == true` and a valid
+    /// `spec.existingDocs` inverted index.
+    #[inline(always)]
+    pub unsafe fn new_wildcard_optimized(sctx: NonNull<ffi::RedisSearchCtx>, weight: f64) -> Self {
+        // SAFETY: Caller guarantees the preconditions of `NewWildcardIterator_Optimized`.
+        Self(unsafe {
+            iterators_ffi::wildcard::NewWildcardIterator_Optimized(sctx.as_ptr(), weight)
+        })
+    }
+
+    /// Create an optimized NOT iterator with the given child and wildcard iterators.
+    /// Uses `_New_NotIterator_With_WildCardIterator` which is the C benchmark constructor.
+    #[inline(always)]
+    pub fn new_not_optimized(child: Self, wc: Self, max_doc_id: u64, weight: f64) -> Self {
+        let timeout = ffi::timespec {
+            tv_sec: 0,
+            tv_nsec: 0,
+        };
+        // REDISEARCH_UNINITIALIZED (-1 as u32) to skip timeout checks.
+        let timeout_counter = u32::MAX;
+
+        // SAFETY: `child.0` and `wc.0` are valid QueryIterator pointers created by
+        // the C API. Ownership of both is transferred to the new NOT iterator.
+        // `timeout` and `timeout_counter` are stack values with no pointer invariants.
+        Self(unsafe {
+            ffi::_New_NotIterator_With_WildCardIterator(
+                child.0,
+                wc.0,
+                max_doc_id,
+                weight,
+                timeout,
+                timeout_counter,
             )
         })
     }
@@ -218,7 +241,7 @@ impl QueryIterator {
                 num_children as i32,
                 quick_exit,
                 weight,
-                ffi::QueryNodeType_QN_UNION,
+                ffi::QueryNodeType::Union,
                 std::ptr::null(), // q_str
                 &config,
             )
@@ -270,66 +293,6 @@ impl QueryIterator {
         let current = unsafe { (*self.0).current };
         unsafe { current.cast::<RSIndexResult>().as_ref() }
     }
-}
-
-fn new_redis_search_ctx(max_id: u64) -> *mut ffi::QueryEvalCtx {
-    let query_eval_ctx = unsafe {
-        RedisModule_Alloc.unwrap()(std::mem::size_of::<ffi::QueryEvalCtx>())
-            as *mut ffi::QueryEvalCtx
-    };
-    unsafe {
-        (*query_eval_ctx) = std::mem::zeroed();
-    }
-    let doc_table = unsafe {
-        RedisModule_Alloc.unwrap()(std::mem::size_of::<ffi::DocTable>()) as *mut ffi::DocTable
-    };
-    unsafe {
-        (*doc_table) = std::mem::zeroed();
-    }
-    let search_ctx = unsafe {
-        RedisModule_Alloc.unwrap()(std::mem::size_of::<ffi::RedisSearchCtx>())
-            as *mut ffi::RedisSearchCtx
-    };
-    unsafe {
-        (*search_ctx) = std::mem::zeroed();
-    }
-    let spec = unsafe {
-        RedisModule_Alloc.unwrap()(std::mem::size_of::<ffi::IndexSpec>()) as *mut ffi::IndexSpec
-    };
-    unsafe {
-        (*spec) = std::mem::zeroed();
-    }
-    unsafe {
-        (*doc_table).maxSize = max_id;
-    }
-    unsafe {
-        (*doc_table).maxDocId = max_id;
-    }
-    unsafe {
-        (*search_ctx).spec = spec;
-    }
-    unsafe {
-        (*query_eval_ctx).docTable = doc_table;
-    }
-    unsafe {
-        (*query_eval_ctx).sctx = search_ctx;
-    }
-    query_eval_ctx
-}
-
-fn free_redis_search_ctx(ctx: *mut ffi::QueryEvalCtx) {
-    unsafe {
-        RedisModule_Free.unwrap()((*(*ctx).sctx).spec as *mut c_void);
-    };
-    unsafe {
-        RedisModule_Free.unwrap()((*ctx).sctx as *mut c_void);
-    };
-    unsafe {
-        RedisModule_Free.unwrap()((*ctx).docTable as *mut c_void);
-    };
-    unsafe {
-        RedisModule_Free.unwrap()(ctx as *mut c_void);
-    };
 }
 
 /// Create a minimal zeroed `RedisSearchCtx` with a valid `IndexSpec`.

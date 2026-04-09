@@ -8,6 +8,7 @@ publish.workspace = true
 [dependencies]
 ffi.workspace = true
 c_ffi_utils.workspace = true
+sorting_vector.workspace = true
 document.workspace = true
 enumflags2.workspace = true
 field_spec.workspace = true
@@ -16,8 +17,8 @@ index_spec_cache.workspace = true
 libc.workspace = true
 pin-project.workspace = true
 schema_rule.workspace = true
-sorting_vector.workspace = true
 strum.workspace = true
+thin_vec.workspace = true
 value = { workspace = true, features = ["c_ffi_impl"] }
 thiserror.workspace = true
 redis_mock.workspace = true
@@ -39,12 +40,13 @@ default-features = true
 [dev-dependencies]
 pretty_assertions.workspace = true
 proptest = { workspace = true, features = ["std"] }
+sorting_vector.workspace = true
 value = { workspace = true }
 
 # Crate required to invoke C symbols
 field_spec = { workspace = true, features = ["unittest"] }
 rlookup = { path = ".", features = ["unittest"] }
-redisearch_rs = { path = "../c_entrypoint/redisearch_rs" }
+redisearch_rs = { path = "../c_entrypoint/redisearch_rs", features = ["mock_allocator"] }
 redis_mock.workspace = true
 
 [build-dependencies]

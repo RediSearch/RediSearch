@@ -126,8 +126,7 @@ size_t GetIntersectionIteratorNumChildren(const QueryIterator *header);
  * Returns a non-owning raw pointer to the child at `idx`.
  *
  * The returned pointer is valid as long as the intersection iterator is alive and no
- * structural modifications are made (e.g. via [`AddIntersectionIteratorChild`] or
- * [`ForEachIntersectionChildMut`]).
+ * structural modifications are made (e.g. via [`AddIntersectionIteratorChild`]).
  *
  * # Safety
  *
@@ -152,27 +151,6 @@ const QueryIterator *GetIntersectionIteratorChild(const QueryIterator *header, s
  * 2. `child` must be a valid non-null pointer to a `QueryIterator`, not aliased.
  */
 void AddIntersectionIteratorChild(QueryIterator *header, QueryIterator *child);
-
-/**
- * Apply `callback` to each child iterator slot, passing a mutable `QueryIterator**`.
- *
- * This is designed for use with `Profile_AddIters`, which replaces each child with a
- * profile-wrapping iterator in place. The callback receives a pointer to the raw pointer
- * stored inside each [`CRQEIterator`] child, allowing it to update (replace) that pointer.
- *
- * This is safe because [`CRQEIterator`] is `#[repr(transparent)]` over
- * `NonNull<QueryIterator>`, which has the same memory layout as `*mut QueryIterator`.
- * The callback's in-place mutation of the slot directly updates the `CRQEIterator`'s
- * internal pointer, so the intersection will subsequently own (and free) the new iterator.
- *
- * # Safety
- *
- * 1. `header` must be a valid non-null pointer created via [`NewIntersectionIterator`].
- * 2. `callback` must be a valid function pointer.
- * 3. The callback must replace `*slot` with a valid non-null `QueryIterator*` that takes
- *    ownership of the original iterator (i.e. `NewProfileIterator` semantics).
- */
-void ForEachIntersectionChildMut(QueryIterator *header, void (*callback)(QueryIterator**));
 
 /**
  * Gets the flags of the underlying IndexReader from an inverted index iterator.
@@ -570,27 +548,6 @@ QueryIterator *NewOptionalNonOptimizedIterator(QueryIterator *child, t_docId max
 const QueryIterator *GetOptionalNonOptimizedIteratorChild(const QueryIterator *header);
 
 /**
- * Take ownership over the child of the optional (non-optimized) iterator,
- * or return NULL if there is no child.
- *
- * # Safety
- *
- * 1. `header` must be a valid non-null pointer created via [`NewOptionalNonOptimizedIterator`].
- */
-QueryIterator *TakeOptionalNonOptimizedIteratorChild(QueryIterator *header);
-
-/**
- * Set (or overwrite) the child iterator of the optional (non-optimized) iterator.
- *
- * # Safety
- *
- * 1. `header` must be a valid non-null pointer created via [`NewOptionalNonOptimizedIterator`].
- * 2. `child` must be null or a valid non-null non-aliased pointer for a valid [`QueryIterator`] respecting the C API.
- */
-void SetOptionalNonOptimizedIteratorChild(QueryIterator *header,
-                                          QueryIterator *child);
-
-/**
  * Create a new profile iterator.
  *
  * # Safety
@@ -632,6 +589,36 @@ const struct ProfileCounters *ProfileIterator_GetCounters(const QueryIterator *i
  * 1. `it` must be a valid non-null pointer created by [`NewProfileIterator`].
  */
 uint64_t ProfileIterator_GetWallTimeNs(const QueryIterator *it);
+
+/**
+ * Profile-wrap an iterator and its entire subtree.
+ *
+ * Wraps the iterator as a [`CRQEIterator`], calls
+ * [`CRQEIterator::into_profiled`](rqe_iterators::c2rust::CRQEIterator::into_profiled)
+ * (which recursively profiles all descendants), then returns the result
+ * as a `QueryIterator*`.
+ *
+ * # Safety
+ *
+ * 1. `iter` must be a valid non-null pointer to an implementation of the C query iterator API.
+ * 2. `iter` must not be aliased.
+ */
+QueryIterator *IntoProfiled(QueryIterator *iter);
+
+/**
+ * Add profile iterators to all nodes in the iterator tree.
+ *
+ * Wraps the root as a [`CRQEIterator`], calls
+ * [`CRQEIterator::into_profiled`](rqe_iterators::c2rust::CRQEIterator::into_profiled)
+ * (which recursively profiles
+ * all descendants), then writes the result back as a `QueryIterator*`.
+ *
+ * # Safety
+ *
+ * 1. `root` must be a valid non-null pointer to a `*mut QueryIterator`.
+ * 2. `*root` must be null or a valid non-null, non-aliased pointer to a `QueryIterator`.
+ */
+void Profile_AddIters(QueryIterator **root);
 
 /**
  * Creates a new non-optimized wildcard iterator over the `[0, max_id]` document id range.

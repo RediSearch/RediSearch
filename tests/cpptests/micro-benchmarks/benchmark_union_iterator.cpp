@@ -14,8 +14,8 @@
 #include <random>
 #include <vector>
 
-#include "src/iterators/iterator_api.h"
-#include "src/iterators/union_iterator.h"
+#include "iterators/iterator_api.h"
+#include "iterators/union_iterator.h"
 
 template <bool quickExit>
 class BM_UnionIterator : public benchmark::Fixture {
