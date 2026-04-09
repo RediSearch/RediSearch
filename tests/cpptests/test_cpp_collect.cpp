@@ -271,12 +271,12 @@ TEST_F(CollectParserTest, SortByJsonPathRejected) {
 }
 
 TEST_F(CollectParserTest, EmptyArgs) {
-  expectError({}, "Bad arguments for COLLECT");
+  expectError({}, "Bad arguments for COLLECT: FIELDS: Required argument missing");
 }
 
 TEST_F(CollectParserTest, MissingFieldsRequired) {
   registerKeys({"price"});
-  expectError({"SORTBY", "1", "@price"}, "Bad arguments for COLLECT");
+  expectError({"SORTBY", "1", "@price"}, "Bad arguments for COLLECT: FIELDS: Required argument missing");
 }
 
 TEST_F(CollectParserTest, FieldWithoutAtPrefix) {
@@ -299,7 +299,7 @@ TEST_F(CollectParserTest, DuplicateWildcard) {
 
 TEST_F(CollectParserTest, UnknownSubcommand) {
   registerKeys({"x"});
-  expectError({"FIELDS", "1", "@x", "FOO", "1", "2"}, "Bad arguments for COLLECT");
+  expectError({"FIELDS", "1", "@x", "FOO", "1", "2"}, "Bad arguments for COLLECT: FOO: Unknown argument");
 }
 
 TEST_F(CollectParserTest, SortByFieldWithoutAtPrefix) {
@@ -318,7 +318,7 @@ TEST_F(CollectParserTest, SortByExceedsMaxTokens) {
   registerKeys({"x", "a", "b", "c", "d", "e", "f", "g", "h", "i"});
   expectError({"FIELDS", "1", "@x", "SORTBY", "17", "@a", "ASC", "@b", "ASC", "@c", "ASC", "@d", "ASC",
                   "@e", "ASC", "@f", "ASC", "@g", "ASC", "@h", "ASC", "@i"},
-      "Bad arguments for COLLECT");
+      "Bad arguments for COLLECT: SORTBY: Invalid argument count");
 }
 
 TEST_F(CollectParserTest, FieldsExceedsMax) {
@@ -330,7 +330,7 @@ TEST_F(CollectParserTest, FieldsExceedsMax) {
     field_strs[i] = "@f" + std::to_string(i);
     args.push_back(field_strs[i].c_str());
   }
-  expectError(std::move(args), "Invalid argument count");
+  expectError(std::move(args), "Bad arguments for COLLECT: FIELDS: Invalid argument count");
 }
 
 TEST_F(CollectParserTest, SortByInvalidTokenBetweenFields) {
@@ -359,7 +359,7 @@ TEST_F(CollectParserTest, LimitNonNumericOffset) {
 
 TEST_F(CollectParserTest, FieldsZeroCountRequiresAtLeastOne) {
   // ArgParser enforces min FIELDS args before handleCollect runs; count 0 is rejected there.
-  expectError({"FIELDS", "0"}, "Invalid argument count");
+  expectError({"FIELDS", "0"}, "Bad arguments for COLLECT: FIELDS: Invalid argument count");
 }
 
 TEST_F(CollectParserTest, SortByOnlyDirectionsNoFields) {

@@ -186,7 +186,7 @@ Reducer *RDCRCollect_New(const ReducerOptions *options) {
   if (!RSGlobalConfig.enableUnstableFeatures) {
     QueryError_SetError(options->status, QUERY_ERROR_CODE_INVAL,
       "`COLLECT` is unavailable when `ENABLE_UNSTABLE_FEATURES` is off. "
-      "Enable it with `FT.CONFIG SET ENABLE_UNSTABLE_FEATURES true`");
+      "Enable it with `CONFIG SET search-enable-unstable-features yes`");
     return NULL;
   }
 
