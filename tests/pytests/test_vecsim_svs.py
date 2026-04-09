@@ -392,7 +392,7 @@ def test_empty_index_async():
 def change_threads(initial_workers, final_workers):
     if CLUSTER:
         raise SkipTest()
-    env = Env(moduleArgs=f'DEFAULT_DIALECT 2 WORKERS {initial_workers}', noDefaultModuleArgs=True)
+    env = Env(moduleArgs=f'DEFAULT_DIALECT 2 WORKERS {initial_workers}')
     message_prefix = f"initial_workers: {initial_workers}, final_workers: {final_workers}"
     env.assertEqual(int(env.execute_command(config_cmd(), 'GET', 'WORKERS')[0][1]), initial_workers, message=message_prefix)
     training_threshold = DEFAULT_BLOCK_SIZE
@@ -485,7 +485,7 @@ def test_drop_index_memory():
 
 @skip(cluster=True)
 def test_drop_index_during_query():
-    env = Env(moduleArgs='DEFAULT_DIALECT 2 WORKERS 1', noDefaultModuleArgs=True)
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 WORKERS 1')
     dim = 2
     data_type = 'FLOAT32'
     training_threshold = DEFAULT_BLOCK_SIZE
@@ -622,12 +622,12 @@ def gc_test_common(env, num_workers):
 def test_gc():
     num_workers = 2
     env = Env(moduleArgs=f'DEFAULT_DIALECT 2 FORK_GC_RUN_INTERVAL 1000000 FORK_GC_CLEAN_THRESHOLD 0 WORKERS {num_workers}'
-                         f' _FREE_RESOURCE_ON_THREAD FALSE', noDefaultModuleArgs=True)
+                         f' _FREE_RESOURCE_ON_THREAD FALSE')
     gc_test_common(env, num_workers)
 
 @skip(cluster=True)
 def test_gc_no_workers():
     num_workers = 0
     env = Env(moduleArgs=f'DEFAULT_DIALECT 2 FORK_GC_RUN_INTERVAL 1000000 FORK_GC_CLEAN_THRESHOLD 0 WORKERS {num_workers}'
-                         f' _FREE_RESOURCE_ON_THREAD FALSE', noDefaultModuleArgs=True)
+                         f' _FREE_RESOURCE_ON_THREAD FALSE')
     gc_test_common(env, num_workers)
