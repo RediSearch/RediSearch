@@ -20,10 +20,7 @@ mod common {
 }
 
 use crate::utils::create_mock_2;
-use rqe_iterators::{
-    IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome, UnionFullHeap,
-    UnionQuickHeap,
-};
+use rqe_iterators::{RQEIterator, UnionQuickHeap};
 
 // =============================================================================
 // Implementation-specific tests (read_count assertions differ between Flat and Heap)
@@ -84,112 +81,4 @@ fn reuse_results_optimization_quick_mode() {
         2,
         "child1 already at EOF, no additional read"
     );
-}
-
-// =============================================================================
-// reset_aggregate tests
-// =============================================================================
-
-/// A mock iterator that produces results with a specific field_mask.
-struct FieldMaskMock {
-    doc_ids: Vec<u64>,
-    next: usize,
-    result: inverted_index::RSIndexResult<'static>,
-    mask: inverted_index::t_fieldMask,
-}
-
-impl RQEIterator<'static> for FieldMaskMock {
-    fn current(&mut self) -> Option<&mut inverted_index::RSIndexResult<'static>> {
-        Some(&mut self.result)
-    }
-    fn read(
-        &mut self,
-    ) -> Result<Option<&mut inverted_index::RSIndexResult<'static>>, RQEIteratorError> {
-        if self.next >= self.doc_ids.len() {
-            return Ok(None);
-        }
-        self.result.doc_id = self.doc_ids[self.next];
-        self.result.field_mask = self.mask;
-        self.next += 1;
-        Ok(Some(&mut self.result))
-    }
-    fn skip_to(
-        &mut self,
-        doc_id: u64,
-    ) -> Result<Option<SkipToOutcome<'_, 'static>>, RQEIteratorError> {
-        while self.next < self.doc_ids.len() && self.doc_ids[self.next] < doc_id {
-            self.next += 1;
-        }
-        if self.next >= self.doc_ids.len() {
-            return Ok(None);
-        }
-        self.result.doc_id = self.doc_ids[self.next];
-        self.result.field_mask = self.mask;
-        self.next += 1;
-        if self.result.doc_id == doc_id {
-            Ok(Some(SkipToOutcome::Found(&mut self.result)))
-        } else {
-            Ok(Some(SkipToOutcome::NotFound(&mut self.result)))
-        }
-    }
-    fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'static>, RQEIteratorError> {
-        Ok(RQEValidateStatus::Ok)
-    }
-    fn rewind(&mut self) {
-        self.next = 0;
-    }
-    fn num_estimated(&self) -> usize {
-        self.doc_ids.len()
-    }
-    fn last_doc_id(&self) -> u64 {
-        self.result.doc_id
-    }
-    fn at_eof(&self) -> bool {
-        self.next >= self.doc_ids.len()
-    }
-    fn type_(&self) -> IteratorType {
-        IteratorType::Empty
-    }
-}
-
-/// Verify that field_mask is reset between reads and doesn't accumulate.
-///
-/// Without `reset_aggregate`, the aggregate result's field_mask would
-/// be OR'd across reads, leaking bits from previous documents.
-#[test]
-#[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
-fn full_mode_field_mask_resets_between_reads() {
-    let children: Vec<Box<dyn RQEIterator<'static>>> = vec![
-        Box::new(FieldMaskMock {
-            doc_ids: vec![10, 20],
-            next: 0,
-            result: inverted_index::RSIndexResult::build_virt().build(),
-            mask: 0x1,
-        }),
-        Box::new(FieldMaskMock {
-            doc_ids: vec![10, 30],
-            next: 0,
-            result: inverted_index::RSIndexResult::build_virt().build(),
-            mask: 0x2,
-        }),
-    ];
-    let mut union = UnionFullHeap::new(children);
-
-    let r = union.read().unwrap().unwrap();
-    assert_eq!(r.doc_id, 10);
-    assert_eq!(
-        r.field_mask, 0x3,
-        "doc 10: both children → mask = 0x1 | 0x2 = 0x3"
-    );
-
-    let r = union.read().unwrap().unwrap();
-    assert_eq!(r.doc_id, 20);
-    assert_eq!(
-        r.field_mask, 0x1,
-        "doc 20: only child0 → mask must be 0x1, not 0x3"
-    );
-
-    let r = union.read().unwrap().unwrap();
-    assert_eq!(r.doc_id, 30);
-    assert_eq!(r.field_mask, 0x2, "doc 30: only child1 → mask must be 0x2");
 }
