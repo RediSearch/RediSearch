@@ -952,9 +952,6 @@ def test_migrate_no_indexes():
     env.debugPrint(f"Migration time: {migration_time}")
     env.assertLess(migration_time, 300.0)
 
-# Constant value for _COORD_DISPATCH_TIME argument in internal commands
-ASM_COORD_DISPATCH_TIME = '1000000'  # 1ms in nanoseconds
-
 
 def _get_shard_slots_data(shard):
     """Return (slots_set, slots_data) for the given shard connection.
@@ -1095,8 +1092,7 @@ def test_hybrid_cursor_after_add_shard_migration():
         'VSIM', '@embedding', '$BLOB',
         'COMBINE', 'RRF', '2', 'WINDOW', '15',
         'WITHCURSOR', '_SLOTS_INFO', slots_data,
-        'PARAMS', '2', 'BLOB', query_vec.tobytes(),
-        '_COORD_DISPATCH_TIME', ASM_COORD_DISPATCH_TIME)
+        'PARAMS', '2', 'BLOB', query_vec.tobytes())
 
     # Parse cursor IDs from result
     if isinstance(result, list) and 'warnings' in result:
