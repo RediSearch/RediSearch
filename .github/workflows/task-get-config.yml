@@ -115,6 +115,10 @@ jobs:
                   }
               },
               "macos-15": {
+                  "x86_64": {
+                      'env': 'macos-15-intel',
+                      'name': 'macOS 15 x86_64'
+                  },
                   "aarch64": {
                       'env': 'macos-15',
                       'name': 'macOS 15 ARM64',
@@ -122,6 +126,10 @@ jobs:
                   }
               },
               "macos-26": {
+                  "x86_64": {
+                      'env': 'macos-26-intel',
+                      'name': 'macOS 26 x86_64'
+                  },
                   "aarch64": {
                       'env': 'macos-26',
                       'name': 'macOS 26 ARM64',
