@@ -15,6 +15,8 @@
 #include <limits.h>
 
 #define COLLECT_MAX_SORT_KEYS SORTASCMAP_MAXFIELDS
+#define COLLECT_MAX_SORT_TOKENS (COLLECT_MAX_SORT_KEYS * 2)  // each key may have a direction
+#define COLLECT_MAX_FIELD_ARGS  (SPEC_MAX_FIELDS + 1)
 #define SORT_DIR_ASC "ASC"
 #define SORT_DIR_DESC "DESC"
 
@@ -76,6 +78,7 @@ static void handleCollectFields(ArgParser *parser, const void *value, void *user
   sub_opts.args = ac;
   sub_opts.name = "FIELDS";
 
+  // ArgParser validates nargs is within [1, SPEC_MAX_FIELDS] before invoking this callback.
   RS_ASSERT(count >= 1 && count <= SPEC_MAX_FIELDS);
   cr->field_keys = array_new(const RLookupKey *, count);
 
@@ -123,7 +126,7 @@ static void handleCollectSortBy(ArgParser *parser, const void *value, void *user
 
     if (s[0] != '@') {
       QueryError_SetWithUserDataFmt(opts->status, QUERY_ERROR_CODE_PARSE_ARGS,
-        "MISSING ASC or DESC after sort field", " (%s)", s);
+        "Missing prefix: name requires '@' prefix", " (%s)", s);
       return;
     }
 
@@ -227,14 +230,14 @@ Reducer *RDCRCollect_New(const ReducerOptions *options) {
   ArgsCursor subArgs = {0};
 
   ArgParser_AddSubArgsV(parser, "FIELDS", "Projected fields",
-    &subArgs, 1, SPEC_MAX_FIELDS,
+    &subArgs, 1, COLLECT_MAX_FIELD_ARGS,
     ARG_OPT_REQUIRED,
     ARG_OPT_POSITION, 1,
     ARG_OPT_CALLBACK, handleCollectFields, &pctx,
     ARG_OPT_END);
 
   ArgParser_AddSubArgsV(parser, "SORTBY", "In-group sort keys",
-    &subArgs, 1, COLLECT_MAX_SORT_KEYS * 2,
+    &subArgs, 1, COLLECT_MAX_SORT_TOKENS,
     ARG_OPT_OPTIONAL,
     ARG_OPT_CALLBACK, handleCollectSortBy, &pctx,
     ARG_OPT_END);

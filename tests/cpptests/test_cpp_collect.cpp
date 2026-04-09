@@ -281,7 +281,7 @@ TEST_F(CollectParserTest, SortByJsonPathRejected) {
   registerKeys({"$..price"});
   expectError(
       {"FIELDS", "1", "$..price", "SORTBY", "1", "$..price"},
-      "MISSING ASC or DESC after sort field");
+      "Missing prefix: name requires '@' prefix");
 }
 
 TEST_F(CollectParserTest, EmptyArgs) {
@@ -344,7 +344,7 @@ TEST_F(CollectParserTest, SortByZeroCount) {
 TEST_F(CollectParserTest, SortByFieldWithoutAtPrefix) {
   registerKeys({"x"});
   expectError({"FIELDS", "1", "@x", "SORTBY", "1", "bad_field"},
-      "MISSING ASC or DESC after sort field");
+      "Missing prefix: name requires '@' prefix");
 }
 
 TEST_F(CollectParserTest, SortByTooManyFields) {
@@ -363,9 +363,9 @@ TEST_F(CollectParserTest, SortByExceedsMaxTokens) {
 TEST_F(CollectParserTest, FieldsExceedsMax) {
   std::vector<const char *> args;
   args.push_back("FIELDS");
-  args.push_back("1025");
-  std::vector<std::string> field_strs(1025);
-  for (int i = 0; i < 1025; i++) {
+  args.push_back("1026");
+  std::vector<std::string> field_strs(1026);
+  for (int i = 0; i < 1026; i++) {
     field_strs[i] = "@f" + std::to_string(i);
     args.push_back(field_strs[i].c_str());
   }
@@ -375,7 +375,7 @@ TEST_F(CollectParserTest, FieldsExceedsMax) {
 TEST_F(CollectParserTest, SortByInvalidTokenBetweenFields) {
   registerKeys({"x", "a", "b"});
   expectError({"FIELDS", "1", "@x", "SORTBY", "3", "@a", "INVALID", "@b"},
-      "MISSING ASC or DESC after sort field");
+      "Missing prefix: name requires '@' prefix");
 }
 
 TEST_F(CollectParserTest, LimitNegativeOffset) {
@@ -415,19 +415,19 @@ TEST_F(CollectParserTest, FieldsZeroCountRequiresAtLeastOne) {
 TEST_F(CollectParserTest, SortByOnlyDirectionsNoFields) {
   registerKeys({"x"});
   expectError({"FIELDS", "1", "@x", "SORTBY", "1", "ASC"},
-      "MISSING ASC or DESC after sort field");
+      "Missing prefix: name requires '@' prefix");
 }
 
 TEST_F(CollectParserTest, SortByDescBeforeFirstSortField) {
   registerKeys({"x", "price"});
   expectError({"FIELDS", "1", "@x", "SORTBY", "2", "DESC", "@price"},
-      "MISSING ASC or DESC after sort field");
+      "Missing prefix: name requires '@' prefix");
 }
 
 TEST_F(CollectParserTest, SortByDuplicateAscAfterField) {
   registerKeys({"x", "price"});
   expectError({"FIELDS", "1", "@x", "SORTBY", "3", "@price", "ASC", "ASC"},
-      "MISSING ASC or DESC after sort field");
+      "Missing prefix: name requires '@' prefix");
 }
 
 TEST_F(CollectParserTest, LimitCountExceedsAggregateMax) {
