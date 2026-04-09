@@ -8,6 +8,7 @@
 */
 
 use libc::size_t;
+use query_error::QueryError;
 use rlookup::{OpaqueRLookupRow, RLookup, RLookupKey, RLookupRow};
 use std::{
     ffi::{CStr, c_char, c_int},
@@ -15,8 +16,8 @@ use std::{
     ptr::NonNull,
     slice,
 };
+use value::comparison::compare_with_query_error_to_int;
 use value::{RsValue, SharedRsValue};
-use value_ffi::comparisons::RSValue_Cmp;
 
 const SORTASCMAP_MAXFIELDS: usize = 8;
 
@@ -429,7 +430,7 @@ pub unsafe extern "C" fn SearchResult_CmpByFields(
     h1: *const search_result::SearchResult<'_>,
     h2: *const search_result::SearchResult<'_>,
     ascend_map: u64,
-    qerr: *mut ffi::QueryError,
+    qerr: *mut QueryError,
 ) -> c_int {
     let nkeys = nkeys.min(SORTASCMAP_MAXFIELDS);
     // SAFETY: ensured by caller (1.)
@@ -438,6 +439,8 @@ pub unsafe extern "C" fn SearchResult_CmpByFields(
     let h1 = unsafe { &*h1 };
     // SAFETY: ensured by caller (2.)
     let h2 = unsafe { &*h2 };
+    // SAFETY: ensured by caller (3.)
+    let mut qerr = unsafe { qerr.as_mut() };
 
     let row1 = h1.row_data();
     let row2 = h2.row_data();
@@ -451,8 +454,7 @@ pub unsafe extern "C" fn SearchResult_CmpByFields(
 
         match (v1, v2) {
             (Some(v1), Some(v2)) => {
-                // SAFETY: `SharedRsValue` contains a valid pointer; qerr ensured by caller (3.)
-                let rc = unsafe { RSValue_Cmp(v1.as_ptr(), v2.as_ptr(), qerr.cast()) };
+                let rc = compare_with_query_error_to_int(v1, v2, qerr.as_deref_mut());
                 if rc != 0 {
                     return if ascending { -rc } else { rc };
                 }

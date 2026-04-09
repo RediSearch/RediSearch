@@ -1992,6 +1992,7 @@ dependencies = [
  "cbindgen",
  "ffi",
  "libc",
+ "query_error",
  "redis_mock",
  "redisearch_rs",
  "rlookup",
@@ -1999,7 +2000,6 @@ dependencies = [
  "search_result",
  "sorting_vector",
  "value",
- "value_ffi",
  "workspace_hack",
 ]
 
