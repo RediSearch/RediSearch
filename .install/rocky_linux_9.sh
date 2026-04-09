@@ -12,7 +12,7 @@ cp /opt/rh/gcc-toolset-14/enable /etc/profile.d/gcc-toolset-14.sh
 source /opt/rh/gcc-toolset-14/enable
 
 # install other stuff after installing gcc-toolset-14 to avoid dependencies conflicts
-$MODE dnf install -y openssl openssl-devel which rsync unzip curl gdb xz perl --nobest --skip-broken --allowerasing
+$MODE dnf install -y openssl openssl-devel which rsync unzip curl gdb xz --nobest --skip-broken --allowerasing
 
 # The LLVM tarball binaries need GLIBCXX_3.4.30+ but Rocky 9's system
 # libstdc++ (GCC 11) only provides up to GLIBCXX_3.4.29, and gcc-toolset-14

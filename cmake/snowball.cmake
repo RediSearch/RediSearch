@@ -13,8 +13,7 @@
 set(SNOWBALL_SRC "${root}/deps/snowball")
 set(SNOWBALL_BUILD "${CMAKE_CURRENT_BINARY_DIR}/snowball")
 set(SNOWBALL_PATCH_SCRIPT "${root}/cmake/patch_snowball_alloc.cmake")
-
-find_program(PERL_EXECUTABLE perl REQUIRED)
+set(SNOWBALL_MKMODULES_SCRIPT "${root}/cmake/generate_snowball_modules_h.cmake")
 
 # =============================================================================
 # Stage 1: Build the snowball compiler
@@ -91,23 +90,20 @@ foreach(_line IN LISTS _MODULES_LINES)
 endforeach()
 
 # =============================================================================
-# Stage 3: Generate module registry headers (modules.h) via mkmodules.pl
+# Stage 3: Generate module registry header (modules.h)
 # =============================================================================
 
 set(SNOWBALL_MODULES_H "${SNOWBALL_BUILD}/libstemmer/modules.h")
-set(SNOWBALL_MKINC "${SNOWBALL_BUILD}/mkinc.mak")
 
 add_custom_command(
-    OUTPUT "${SNOWBALL_MODULES_H}" "${SNOWBALL_MKINC}"
+    OUTPUT "${SNOWBALL_MODULES_H}"
     COMMAND ${CMAKE_COMMAND} -E make_directory "${SNOWBALL_BUILD}/libstemmer"
-    COMMAND ${PERL_EXECUTABLE}
-        "${SNOWBALL_SRC}/libstemmer/mkmodules.pl"
-        "${SNOWBALL_MODULES_H}"
-        src_c
-        "${SNOWBALL_SRC}/libstemmer/modules.txt"
-        "${SNOWBALL_MKINC}"
-        utf8
-    DEPENDS "${SNOWBALL_SRC}/libstemmer/mkmodules.pl"
+    COMMAND ${CMAKE_COMMAND}
+        "-DMODULES_TXT=${SNOWBALL_SRC}/libstemmer/modules.txt"
+        "-DOUTPUT=${SNOWBALL_MODULES_H}"
+        "-DC_SRC_DIR=src_c"
+        -P "${SNOWBALL_MKMODULES_SCRIPT}"
+    DEPENDS "${SNOWBALL_MKMODULES_SCRIPT}"
             "${SNOWBALL_SRC}/libstemmer/modules.txt"
     COMMENT "Generating snowball module registry (modules.h)"
     VERBATIM

@@ -5,7 +5,7 @@ MODE=$1 # whether to install using sudo or not
 set -eo pipefail
 export DEBIAN_FRONTEND=noninteractive
 $MODE tdnf install -q -y build-essential git wget ca-certificates tar unzip xz rsync \
-                         openssl-devel openssl which gzip gdb curl binutils perl
+                         openssl-devel openssl which gzip gdb curl binutils
 
 # The LLVM tarball binaries need GLIBCXX_3.4.30+ but Mariner 2's system
 # libstdc++ (GCC 11) only provides up to GLIBCXX_3.4.29. Install a newer

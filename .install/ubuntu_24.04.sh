@@ -6,7 +6,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/apt_get_cmd.sh"
 
 apt_get_cmd "$MODE" update -qq
 apt_get_cmd "$MODE" install -yqq git wget build-essential lcov openssl libssl-dev \
-    unzip rsync clang curl libclang-dev gdb perl
+    unzip rsync clang curl libclang-dev gdb
 
 # We need Python headers to build psutil@5.x.y from
 # source, since it only started providing wheels for aarch64

@@ -6,7 +6,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/apt_get_cmd.sh"
 
 apt_get_cmd "$MODE" update -qq
 apt_get_cmd "$MODE" install -yqq git wget build-essential lcov openssl libssl-dev \
-        rsync unzip curl gdb perl
+        rsync unzip curl gdb
 
 # Need clang for LTO
 source "$(dirname "${BASH_SOURCE[0]}")/install_llvm.sh" $MODE

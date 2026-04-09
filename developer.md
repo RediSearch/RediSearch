@@ -23,7 +23,6 @@ Building and testing RediSearch requires the following dependencies:
 - `cmake >= 3.25.1`
 - `boost == 1.88.0` (optional — CMake will fetch it automatically, but with a build time penalty)
 - `build-essential` (on Debian/Ubuntu) or equivalent build tools on other systems
-- `perl` - for the snowball stemmer
 - `python3` and `python3-pip` (for running tests)
 - `openssl-devel` / `libssl-dev` (for secure connections)
 
@@ -335,3 +334,30 @@ The following operating systems are supported and tested in CI:
 - Azure Linux 3: Default GCC is sufficient
 - macOS: Install llvm@21 via homebrew
 - Alpine Linux 3: Default GCC is sufficient
+
+## Updating Dependencies
+
+### Snowball Stemmer
+
+The snowball stemmer lives in `deps/snowball` as a git submodule. During the
+build, CMake compiles the snowball compiler, runs it on the `.sbl` algorithm
+files, and generates a C registry header (`modules.h`) that wires up every
+stemmer.
+
+The registry generation is handled by `cmake/generate_snowball_modules_h.cmake`,
+which parses `deps/snowball/libstemmer/modules.txt` and emits the include
+directives, encoding enum, module lookup table, and algorithm name list. It
+replaces the upstream `libstemmer/mkmodules.pl` Perl script and filters to
+UTF-8 encodings only.
+
+When pulling in a new snowball revision:
+
+1. Update the submodule: `git -C deps/snowball checkout <new-rev> && git add deps/snowball`
+2. Check whether `libstemmer/modules.txt` has changed (new languages, renamed
+   algorithms, new encodings). If the only changes are new algorithms with
+   `UTF_8` encoding, the CMake script picks them up automatically.
+3. If upstream added a new encoding beyond `UTF_8` that we need to support, or
+   changed the format of `modules.txt`, update
+   `cmake/generate_snowball_modules_h.cmake` to match.
+4. Build with `./build.sh FORCE` and verify the generated
+   `build/snowball/libstemmer/modules.h` looks correct.

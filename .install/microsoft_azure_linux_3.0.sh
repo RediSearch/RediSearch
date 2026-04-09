@@ -3,7 +3,7 @@ MODE=$1 # whether to install using sudo or not
 set -eo pipefail
 export DEBIAN_FRONTEND=noninteractive
 
-$MODE tdnf install -yq build-essential ca-certificates gdb git libxcrypt-devel openssl-devel rsync tar unzip wget which xz perl
+$MODE tdnf install -yq build-essential ca-certificates gdb git libxcrypt-devel openssl-devel rsync tar unzip wget which xz
 
 # Install LLVM for LTO
 source "$(dirname "${BASH_SOURCE[0]}")/install_llvm.sh" $MODE
