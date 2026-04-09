@@ -364,11 +364,6 @@ void SearchDisk_UpdateBufferBudget(RedisModuleCtx *ctx, int percentage) {
 
   // Update the WriteBufferManager with the new budget and get the new budget value
   size_t new_budget = disk->basic.updateBufferBudget(ctx, disk_db, percentage);
-  if (new_budget == 0) {
-    // Error occurred, logged by Rust side
-    return;
-  }
-
   // Update write buffer size for all existing indexes
   if (!specDict_g) {
     return;
