@@ -153,6 +153,12 @@ set(CMAKE_LINKER_FLAGS "${CMAKE_LINKER_FLAGS} ${CMAKE_LD_FLAGS}")
 set(CMAKE_C_FLAGS   "${CMAKE_C_FLAGS} -Wformat")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wformat")
 
+# Promote specific warnings to errors. These use add_compile_options() which
+# propagates to ALL subdirectories, including deps (libuv, VectorSimilarity, etc.).
+# Each flag is compiler-specific (gcc vs clang), so if a dep needs an override
+# (e.g. -Wno-error=X via target_compile_options), guard it with the same
+# compiler check or a $<C_COMPILER_ID:...> generator expression.
+
 # gcc
 check_c_compiler_flag("-Werror=discarded-qualifiers" HAS_DISCARDED_QUALIFIERS)
 if(HAS_DISCARDED_QUALIFIERS)
