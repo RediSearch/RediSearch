@@ -432,7 +432,7 @@ def testDeprecatedMTConfig_ignore_operations():
 @skip(cluster=True)
 def testDeprecatedMTConfig_address_combination_full():
     # Check allowed combination of deprecated and new configs
-    env = Env(moduleArgs='WORKER_THREADS 3 MT_MODE MT_MODE_FULL MIN_OPERATION_WORKERS 6')
+    env = Env(moduleArgs='WORKER_THREADS 3 MT_MODE MT_MODE_FULL MIN_OPERATION_WORKERS 6', noDefaultModuleArgs=True)
     env.expect(config_cmd(), 'get', 'WORKERS').equal([['WORKERS', '3']])
     env.expect(config_cmd(), 'get', 'MIN_OPERATION_WORKERS').equal([['MIN_OPERATION_WORKERS', '6']])
     env.expect(config_cmd(), 'get', 'MT_MODE').equal([['MT_MODE', 'MT_MODE_FULL']])
