@@ -12,21 +12,21 @@ default_module_list = [['name', 'vectorset', 'ver', 1, 'path', '', 'args', []]]
 def _test_config_str(arg_name, arg_value, ret_value=None):
     if ret_value == None:
         ret_value = arg_value
-    env = Env(moduleArgs=arg_name + ' ' + arg_value)
+    env = Env(moduleArgs=arg_name + ' ' + arg_value, noDefaultModuleArgs=True)
     if env.env == 'existing-env':
         env.skip()
     env.expect(config_cmd(), 'get', arg_name).equal([[arg_name, ret_value]])
     env.stop()
 
 def _test_config_num(arg_name, arg_value):
-    env = Env(moduleArgs=f'{arg_name} {arg_value}')
+    env = Env(moduleArgs=f'{arg_name} {arg_value}', noDefaultModuleArgs=True)
     if env.env == 'existing-env':
         env.skip()
     env.expect(config_cmd(), 'get', arg_name).equal([[arg_name, str(arg_value)]])
     env.stop()
 
 def _test_config_true_false(arg_name, res):
-    env = Env(moduleArgs=arg_name)
+    env = Env(moduleArgs=arg_name, noDefaultModuleArgs=True)
     if env.env == 'existing-env':
         env.skip()
     env.expect(config_cmd(), 'get', arg_name).equal([[arg_name, res]])
@@ -354,7 +354,7 @@ min_operation_workers_default = 4
 @skip(cluster=True)
 def testDeprecatedMTConfig_full():
     workers = '3'
-    env = Env(moduleArgs=f'WORKER_THREADS {workers} MT_MODE MT_MODE_FULL')
+    env = Env(moduleArgs=f'WORKER_THREADS {workers} MT_MODE MT_MODE_FULL', noDefaultModuleArgs=True)
     # Check old config values
     env.expect(config_cmd(), 'get', 'WORKER_THREADS').equal([['WORKER_THREADS', workers]])
     env.expect(config_cmd(), 'get', 'MT_MODE').equal([['MT_MODE', 'MT_MODE_FULL']])
@@ -365,7 +365,7 @@ def testDeprecatedMTConfig_full():
 @skip(cluster=True)
 def testDeprecatedMTConfig_operations():
     workers = '3'
-    env = Env(moduleArgs=f'WORKER_THREADS {workers} MT_MODE MT_MODE_ONLY_ON_OPERATIONS')
+    env = Env(moduleArgs=f'WORKER_THREADS {workers} MT_MODE MT_MODE_ONLY_ON_OPERATIONS', noDefaultModuleArgs=True)
     # Check old config values
     env.expect(config_cmd(), 'get', 'WORKER_THREADS').equal([['WORKER_THREADS', workers]])
     env.expect(config_cmd(), 'get', 'MT_MODE').equal([['MT_MODE', 'MT_MODE_ONLY_ON_OPERATIONS']])
@@ -375,7 +375,7 @@ def testDeprecatedMTConfig_operations():
 
 @skip(cluster=True)
 def testDeprecatedMTConfig_off():
-    env = Env(moduleArgs='WORKER_THREADS 0 MT_MODE MT_MODE_OFF')
+    env = Env(moduleArgs='WORKER_THREADS 0 MT_MODE MT_MODE_OFF', noDefaultModuleArgs=True)
     # Check old config values
     env.expect(config_cmd(), 'get', 'WORKER_THREADS').equal([['WORKER_THREADS', '0']])
     env.expect(config_cmd(), 'get', 'MT_MODE').equal([['MT_MODE', 'MT_MODE_OFF']])
@@ -386,19 +386,19 @@ def testDeprecatedMTConfig_off():
 # Check invalid combination
 @skip(cluster=True)
 def testDeprecatedMTConfig_full_with_0():
-    env = Env(moduleArgs='MT_MODE MT_MODE_FULL WORKER_THREADS 0')
+    env = Env(moduleArgs='MT_MODE MT_MODE_FULL WORKER_THREADS 0', noDefaultModuleArgs=True)
     env.assertTrue(env.isUp())
     env.expect(config_cmd(), 'get', 'WORKERS').equal([['WORKERS', str(workers_default)]])
     env.expect(config_cmd(), 'get', 'MIN_OPERATION_WORKERS').equal([['MIN_OPERATION_WORKERS', str(min_operation_workers_default)]])
 @skip(cluster=True)
 def testDeprecatedMTConfig_operations_with_0():
-    env = Env(moduleArgs='MT_MODE MT_MODE_ONLY_ON_OPERATIONS WORKER_THREADS 0')
+    env = Env(moduleArgs='MT_MODE MT_MODE_ONLY_ON_OPERATIONS WORKER_THREADS 0', noDefaultModuleArgs=True)
     env.assertTrue(env.isUp())
     env.expect(config_cmd(), 'get', 'WORKERS').equal([['WORKERS', str(workers_default)]])
     env.expect(config_cmd(), 'get', 'MIN_OPERATION_WORKERS').equal([['MIN_OPERATION_WORKERS', str(min_operation_workers_default)]])
 @skip(cluster=True)
 def testDeprecatedMTConfig_off_with_non_0():
-    env = Env(moduleArgs='MT_MODE MT_MODE_OFF WORKER_THREADS 3')
+    env = Env(moduleArgs='MT_MODE MT_MODE_OFF WORKER_THREADS 3', noDefaultModuleArgs=True)
     env.assertTrue(env.isUp())
     env.expect(config_cmd(), 'get', 'WORKERS').equal([['WORKERS', str(workers_default)]])
     env.expect(config_cmd(), 'get', 'MIN_OPERATION_WORKERS').equal([['MIN_OPERATION_WORKERS', str(min_operation_workers_default)]])
@@ -407,14 +407,14 @@ def testDeprecatedMTConfig_off_with_non_0():
 def testExplicitWorkersOverridesDefault(env):
     """Verify that explicitly setting WORKERS overrides the dynamic default."""
     explicit_workers = 3
-    env = Env(moduleArgs=f'WORKERS {explicit_workers}')
+    env = Env(moduleArgs=f'WORKERS {explicit_workers}', noDefaultModuleArgs=True)
     env.assertTrue(env.isUp())
     env.expect(config_cmd(), 'get', 'WORKERS').equal([['WORKERS', str(explicit_workers)]])
 
 @skip(cluster=True)
 def testDeprecatedMTConfig_ignore_full():
     # Check deprecated configs are ignored when new configs are set
-    env = Env(moduleArgs='WORKER_THREADS 3 MT_MODE MT_MODE_FULL WORKERS 5 MIN_OPERATION_WORKERS 6')
+    env = Env(moduleArgs='WORKER_THREADS 3 MT_MODE MT_MODE_FULL WORKERS 5 MIN_OPERATION_WORKERS 6', noDefaultModuleArgs=True)
     env.expect(config_cmd(), 'get', 'WORKERS').equal([['WORKERS', '5']])
     env.expect(config_cmd(), 'get', 'MIN_OPERATION_WORKERS').equal([['MIN_OPERATION_WORKERS', '6']])
     env.expect(config_cmd(), 'get', 'MT_MODE').equal([['MT_MODE', 'MT_MODE_FULL']])
@@ -423,7 +423,7 @@ def testDeprecatedMTConfig_ignore_full():
 @skip(cluster=True)
 def testDeprecatedMTConfig_ignore_operations():
     # Check deprecated configs are ignored when new configs are set
-    env = Env(moduleArgs='WORKER_THREADS 3 MT_MODE MT_MODE_ONLY_ON_OPERATIONS WORKERS 5 MIN_OPERATION_WORKERS 6')
+    env = Env(moduleArgs='WORKER_THREADS 3 MT_MODE MT_MODE_ONLY_ON_OPERATIONS WORKERS 5 MIN_OPERATION_WORKERS 6', noDefaultModuleArgs=True)
     env.expect(config_cmd(), 'get', 'WORKERS').equal([['WORKERS', '5']])
     env.expect(config_cmd(), 'get', 'MIN_OPERATION_WORKERS').equal([['MIN_OPERATION_WORKERS', '6']])
     env.expect(config_cmd(), 'get', 'MT_MODE').equal([['MT_MODE', 'MT_MODE_ONLY_ON_OPERATIONS']])
@@ -432,7 +432,7 @@ def testDeprecatedMTConfig_ignore_operations():
 @skip(cluster=True)
 def testDeprecatedMTConfig_address_combination_full():
     # Check allowed combination of deprecated and new configs
-    env = Env(moduleArgs='WORKER_THREADS 3 MT_MODE MT_MODE_FULL MIN_OPERATION_WORKERS 6')
+    env = Env(moduleArgs='WORKER_THREADS 3 MT_MODE MT_MODE_FULL MIN_OPERATION_WORKERS 6', noDefaultModuleArgs=True)
     env.expect(config_cmd(), 'get', 'WORKERS').equal([['WORKERS', '3']])
     env.expect(config_cmd(), 'get', 'MIN_OPERATION_WORKERS').equal([['MIN_OPERATION_WORKERS', '6']])
     env.expect(config_cmd(), 'get', 'MT_MODE').equal([['MT_MODE', 'MT_MODE_FULL']])
@@ -441,7 +441,7 @@ def testDeprecatedMTConfig_address_combination_full():
 @skip(cluster=True)
 def testDeprecatedMTConfig_address_combination_operations():
     # Check allowed combination of deprecated and new configs
-    env = Env(moduleArgs='WORKER_THREADS 3 MT_MODE MT_MODE_ONLY_ON_OPERATIONS WORKERS 5')
+    env = Env(moduleArgs='WORKER_THREADS 3 MT_MODE MT_MODE_ONLY_ON_OPERATIONS WORKERS 5', noDefaultModuleArgs=True)
     env.expect(config_cmd(), 'get', 'WORKERS').equal([['WORKERS', '5']])
     env.expect(config_cmd(), 'get', 'MIN_OPERATION_WORKERS').equal([['MIN_OPERATION_WORKERS', '3']])
     env.expect(config_cmd(), 'get', 'MT_MODE').equal([['MT_MODE', 'MT_MODE_ONLY_ON_OPERATIONS']])
@@ -481,7 +481,7 @@ def testInitConfigCoord():
     _test_config_num('CONN_PER_SHARD', 3)
 
     def _testOSSGlobalPasswordConfig():
-        env = Env(moduleArgs='OSS_GLOBAL_PASSWORD 123456')
+        env = Env(moduleArgs='OSS_GLOBAL_PASSWORD 123456', noDefaultModuleArgs=True)
         if env.env == 'existing-env':
             env.skip()
         env.expect(config_cmd(), 'get', 'OSS_GLOBAL_PASSWORD').equal([['OSS_GLOBAL_PASSWORD', 'Password: *******']])
@@ -591,7 +591,7 @@ numericConfigs = [
 
 @skip(redis_less_than='7.9.227')
 def testConfigAPIRunTimeNumericParams():
-    env = Env()
+    env = Env(noDefaultModuleArgs=True)
 
     def _testNumericConfig(env, configName, ftConfigName, default, min, max):
         # Check default value
@@ -664,7 +664,7 @@ def testConfigAPIRunTimeNumericParams():
 
 @skip(cluster=True, redis_less_than='7.9.227')
 def testModuleLoadexNumericParams():
-    env = Env()
+    env = Env(noDefaultModuleArgs=True)
 
     # stop the server and remove the rdb file
     rdbFilePath = _getRDBFilePath(env)
@@ -759,7 +759,7 @@ def testModuleLoadexNumericParams():
 # Skip on ASAN since RedisModule_Unload is not fully implemented (MOD-7161)
 @skip(redis_less_than='7.9.227', asan=True)
 def testConfigAPILoadTimeNumericParams():
-    env = Env(module='', moduleArgs='')
+    env = Env(noDefaultModuleArgs=True, module='', moduleArgs='')
     redisearch_module_path = os.getenv('MODULE')
     if (redisearch_module_path is None):
         env.debugPrint('MODULE environment variable is not set. Skipping test')
@@ -796,7 +796,7 @@ def testConfigFileNumericParams():
             f.write(f'{configName} {minValue}\n')
 
     # Start the server using the conf file and check each value
-    env = Env(redisConfigFile=redisConfigFile)
+    env = Env(noDefaultModuleArgs=True, redisConfigFile=redisConfigFile)
     for configName, argName, default, minValue, maxValue, immutable, clusterConfig in numericConfigs:
         # Skip cluster parameters
         if clusterConfig:
@@ -821,7 +821,7 @@ def testClusterConfigFileNumericParams():
             f.write(f'{configName} {minValue}\n')
 
     # Start the server using the conf file and check each value
-    env = Env(redisConfigFile=redisConfigFile)
+    env = Env(noDefaultModuleArgs=True, redisConfigFile=redisConfigFile)
     for configName, argName, default, minValue, maxValue, immutable, clusterConfig in numericConfigs:
         res = env.cmd('CONFIG', 'GET', configName)
         env.assertEqual(res, [configName, str(minValue)])
@@ -846,7 +846,7 @@ def testConfigFileAndArgsNumericParams():
     for configName, argName, default, minValue, maxValue, immutable, clusterConfig in numericConfigs:
         moduleArgs += f'{argName} {maxValue} '
 
-    env = Env(moduleArgs=moduleArgs, redisConfigFile=redisConfigFile)
+    env = Env(noDefaultModuleArgs=True, moduleArgs=moduleArgs, redisConfigFile=redisConfigFile)
     for configName, argName, default, minValue, maxValue, immutable, clusterConfig in numericConfigs:
         # Skip cluster parameters
         if clusterConfig:
@@ -859,7 +859,7 @@ def testConfigFileAndArgsNumericParams():
 
 @skip(cluster=True, redis_less_than='7.9.227')
 def testModuleLoadexNumericParamsLastWins():
-    env = Env(module='', moduleArgs='')
+    env = Env(noDefaultModuleArgs=True, module='', moduleArgs='')
     redisearch_module_path = os.getenv('MODULE')
     if (redisearch_module_path is None):
         env.debugPrint('MODULE environment variable is not set. Skipping test')
@@ -941,7 +941,7 @@ def testNumericArgDeprecationMessage():
         # Since the IO threads are not lazily started, we cannot set the max number of shards and all that to the max values
         moduleArgs += f'{argName} {maxValue} '
 
-    env = Env(moduleArgs=moduleArgs)
+    env = Env(noDefaultModuleArgs=True, moduleArgs=moduleArgs)
     logDir = env.cmd('config', 'get', 'dir')[1]
     logFileName = env.cmd('CONFIG', 'GET', 'logfile')[1]
     logFilePath = os.path.join(logDir, logFileName)
@@ -954,7 +954,7 @@ def testNumericArgDeprecationMessage():
 def testNumericFTConfigDeprecationMessage():
     '''Test deprecation message of FT.CONFIG using numeric parameters'''
     # create module arguments
-    env = Env()
+    env = Env(noDefaultModuleArgs=True)
 
     logDir = env.cmd('config', 'get', 'dir')[1]
     logFileName = env.cmd('CONFIG', 'GET', 'logfile')[1]
@@ -982,7 +982,7 @@ def testNumericFTConfigDeprecationMessage():
 ################################################################################
 @skip(redis_less_than='7.9.227')
 def testConfigAPIRunTimeEnumParams():
-    env = Env()
+    env = Env(noDefaultModuleArgs=True)
 
     # Test default value
     env.expect('CONFIG', 'GET', 'search-on-timeout')\
@@ -1024,7 +1024,7 @@ def testConfigAPIRunTimeEnumParams():
 
 @skip(cluster=True, redis_less_than='7.9.227')
 def testModuleLoadexEnumParams():
-    env = Env()
+    env = Env(noDefaultModuleArgs=True)
 
     # stop the server and remove the rdb file
     rdbFilePath = _getRDBFilePath(env)
@@ -1094,7 +1094,7 @@ def testConfigFileEnumParams():
         f.write(f'{configName} {testValue}\n')
 
     # Start the server using the conf file and check each value
-    env = Env(redisConfigFile=redisConfigFile)
+    env = Env(noDefaultModuleArgs=True, redisConfigFile=redisConfigFile)
     res = env.cmd('CONFIG', 'GET', configName)
     env.assertEqual(res, [configName, testValue])
     res = env.cmd(config_cmd(), 'GET', argName)
@@ -1119,7 +1119,7 @@ def testConfigFileAndArgsEnumParams():
 
     # Start the server using the conf file and check each value,
     # the conf file should take precedence
-    env = Env(moduleArgs=moduleArgs, redisConfigFile=redisConfigFile)
+    env = Env(noDefaultModuleArgs=True, moduleArgs=moduleArgs, redisConfigFile=redisConfigFile)
     res = env.cmd('CONFIG', 'GET', configName)
     env.assertEqual(res, [configName, testValue])
     res = env.cmd(config_cmd(), 'GET', argName)
@@ -1132,7 +1132,7 @@ def testEnumArgDeprecationMessage():
     argName = 'ON_TIMEOUT'
     moduleArgs = 'ON_TIMEOUT fail'
 
-    env = Env(moduleArgs=moduleArgs)
+    env = Env(noDefaultModuleArgs=True, moduleArgs=moduleArgs)
     logDir = env.cmd('config', 'get', 'dir')[1]
     logFileName = env.cmd('CONFIG', 'GET', 'logfile')[1]
     logFilePath = os.path.join(logDir, logFileName)
@@ -1144,7 +1144,7 @@ def testEnumArgDeprecationMessage():
 def testEnumFTConfigDeprecationMessage():
     '''Test deprecation message of FT.CONFIG using enum parameters'''
     # create module arguments
-    env = Env()
+    env = Env(noDefaultModuleArgs=True)
 
     logDir = env.cmd('config', 'get', 'dir')[1]
     logFileName = env.cmd('CONFIG', 'GET', 'logfile')[1]
@@ -1177,7 +1177,7 @@ stringConfigs = [
 
 @skip(redis_less_than='7.9.227')
 def testConfigAPIRunTimeStringParams():
-    env = Env()
+    env = Env(noDefaultModuleArgs=True)
 
     def _testImmutableStringConfig(env, configName, ftConfigName, ftDefault,
                                    testValue):
@@ -1200,7 +1200,7 @@ def testConfigAPIRunTimeStringParams():
 
 @skip(cluster=True, redis_less_than='7.9.227')
 def testModuleLoadexStringParams():
-    env = Env()
+    env = Env(noDefaultModuleArgs=True)
 
     # stop the server and remove the rdb file
     rdbFilePath = _getRDBFilePath(env)
@@ -1262,7 +1262,7 @@ def testConfigFileStringParams():
     redisConfigFile = '/tmp/testConfigFileStringParams.conf'
     with open(redisConfigFile, 'w') as f:
         pass  # Do nothing, just create the file
-    env = Env(redisConfigFile=redisConfigFile)
+    env = Env(noDefaultModuleArgs=True, redisConfigFile=redisConfigFile)
 
     # stop the server and remove the rdb file
     rdbFilePath = _getRDBFilePath(env)
@@ -1364,7 +1364,7 @@ def testStringArgDeprecationMessage():
         testValue = os.path.abspath(os.path.join(basedir, testValue))
         moduleArgs += f'{argName} {testValue} '
 
-    env = Env(moduleArgs=moduleArgs)
+    env = Env(noDefaultModuleArgs=True, moduleArgs=moduleArgs)
     env.assertTrue(env.isUp())
     logDir = env.cmd('config', 'get', 'dir')[1]
     logFileName = env.cmd('CONFIG', 'GET', 'logfile')[1]
@@ -1399,7 +1399,7 @@ configOnlyBooleanConfigs = [
 
 @skip(redis_less_than='7.9.227')
 def testConfigAPIRunTimeBooleanParams():
-    env = Env()
+    env = Env(noDefaultModuleArgs=True)
 
     def _testBooleanConfig(env, configName, ftConfigName, default):
         # Check default value
@@ -1445,7 +1445,7 @@ def testConfigAPIRunTimeBooleanParams():
 
 @skip(redis_less_than='7.9.227')
 def testConfigAPIConfigOnlyBooleanParams():
-    env = Env()
+    env = Env(noDefaultModuleArgs=True)
 
     if env.isCluster():
         conn = env.getOSSMasterNodesConnectionList()[0]
@@ -1468,7 +1468,7 @@ def testConfigAPIConfigOnlyBooleanParams():
 
 @skip(cluster=True, redis_less_than='7.9.227')
 def testModuleLoadexBooleanParams():
-    env = Env()
+    env = Env(noDefaultModuleArgs=True)
 
     # stop the server and remove the rdb file
     rdbFilePath = _getRDBFilePath(env)
@@ -1550,7 +1550,7 @@ def testModuleLoadexBooleanParams():
 def testModuleLoadexSearchPartialIndexedDocs():
     '''Test `search-partial-indexed-docs` because
     `PARTIAL_INDEXED_DOCS` is set using a number but it returns a boolean'''
-    env = Env()
+    env = Env(noDefaultModuleArgs=True)
 
     # stop the server and remove the rdb file
     rdbFilePath = _getRDBFilePath(env)
@@ -1619,7 +1619,7 @@ def testConfigFileBooleanParams():
             f.write(f'{configName} {configValue}\n')
 
     # Start the server using the conf file and check each value
-    env = Env(redisConfigFile=redisConfigFile)
+    env = Env(noDefaultModuleArgs=True, redisConfigFile=redisConfigFile)
     for configName, argName, defaultValue, immutable, isFlag in booleanConfigs:
         # the expected value is the opposite of the default value
         configValue = 'yes' if defaultValue == 'no' else 'no'
@@ -1656,7 +1656,7 @@ def testConfigFileAndArgsBooleanParams():
         else:
             moduleArgs += f'{argName} {ftDefaultValue} '
 
-    env = Env(moduleArgs=moduleArgs, redisConfigFile=redisConfigFile)
+    env = Env(noDefaultModuleArgs=True, moduleArgs=moduleArgs, redisConfigFile=redisConfigFile)
     for configName, argName, defaultValue, immutable, isFlag in booleanConfigs:
 
         # the expected value is the default value, taken from the config file
@@ -1685,7 +1685,7 @@ def testBooleanArgDeprecationMessage():
         else:
             moduleArgs += f'{argName} {ftDefaultValue} '
 
-    env = Env(moduleArgs=moduleArgs)
+    env = Env(noDefaultModuleArgs=True, moduleArgs=moduleArgs)
     logDir = env.cmd('config', 'get', 'dir')[1]
     logFileName = env.cmd('CONFIG', 'GET', 'logfile')[1]
     logFilePath = os.path.join(logDir, logFileName)
@@ -1707,7 +1707,7 @@ def testDeprecatedModuleArgsMessage():
     moduleArgs += ' FORK_GC_CLEAN_NUMERIC_EMPTY_NODES'
     moduleArgs += ' _FORK_GC_CLEAN_NUMERIC_EMPTY_NODES true'
 
-    env = Env(moduleArgs=moduleArgs)
+    env = Env(noDefaultModuleArgs=True, moduleArgs=moduleArgs)
     logDir = env.cmd('config', 'get', 'dir')[1]
     logFileName = env.cmd('CONFIG', 'GET', 'logfile')[1]
     logFilePath = os.path.join(logDir, logFileName)
@@ -1723,7 +1723,7 @@ def testDeprecatedModuleArgsMessage():
 def testBooleanFTConfigDeprecationMessage():
     '''Test deprecation message of FT.CONFIG using boolean parameters'''
     # create module arguments
-    env = Env()
+    env = Env(noDefaultModuleArgs=True)
 
     logDir = env.cmd('config', 'get', 'dir')[1]
     logFileName = env.cmd('CONFIG', 'GET', 'logfile')[1]
@@ -1749,7 +1749,7 @@ def testBooleanFTConfigDeprecationMessage():
 @skip(redis_less_than='7.9.227')
 def testDeprecatedConfigParamMessage():
     '''Test deprecation message of deprecated CONFIG parameters'''
-    env = Env()
+    env = Env(noDefaultModuleArgs=True)
 
     logDir = env.cmd('config', 'get', 'dir')[1]
     logFileName = env.cmd('CONFIG', 'GET', 'logfile')[1]
@@ -1844,7 +1844,7 @@ def checkConfigChange(env, configName, argName, newValue, baseConfigDict):
 
 def testConfigIndependence_default():
     """Test that changing one configuration value doesn't affect other configuration values"""
-    env = Env()
+    env = Env(noDefaultModuleArgs=True)
 
     defaultConfigDict = getConfigDict(env)
     for configName, argName, default, minValue, maxValue, immutable, clusterConfig in numericConfigs:
@@ -1883,7 +1883,7 @@ def testConfigIndependence_default():
 
 def testConfigIndependence_min_values():
     """Test that changing one configuration value doesn't affect other configuration values"""
-    env = Env()
+    env = Env(noDefaultModuleArgs=True)
     # set all numeric configs to min value
     for configName, argName, _, minValue, _, immutable, clusterConfig in numericConfigs:
         if immutable:
@@ -1930,7 +1930,7 @@ def testConfigIndependence_min_values():
 
 def testConfigIndependence_max_values():
     """Test that changing one configuration value doesn't affect other configuration values"""
-    env = Env()
+    env = Env(noDefaultModuleArgs=True)
     # set all numeric configs to max value
     for configName, argName, _, _, maxValue, immutable, clusterConfig in numericConfigs:
         if immutable:
