@@ -58,8 +58,7 @@ static void collectFree(Reducer *r) {
   CollectReducer *cr = (CollectReducer *)r;
   array_free(cr->field_keys);
   array_free(cr->sort_keys);
-  BlkAlloc_FreeAll(&r->alloc, NULL, 0, 0);
-  rm_free(cr);
+  Reducer_GenericFree(r);
 }
 
 // --- ArgParser callbacks ---
@@ -167,7 +166,8 @@ static void handleCollectLimit(ArgParser *parser, const void *value, void *user_
       "LIMIT offset must be a non-negative integer");
     return;
   }
-  if (AC_GetU64(ac, &count, AC_F_GE0) != AC_OK) {
+  // LIMIT count must be at least 1; use REDUCER COUNT to count results without collecting them.
+  if (AC_GetU64(ac, &count, AC_F_GE1) != AC_OK) {
     QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS,
       "LIMIT count must be a non-negative integer");
     return;
