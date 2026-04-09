@@ -51,6 +51,8 @@ jobs:
 
           # All available platform/architecture combinations
           all_combinations = [
+              ('ubuntu:resolute', 'x86_64'),
+              ('ubuntu:resolute', 'aarch64'),
               ('ubuntu:noble', 'x86_64'),
               ('ubuntu:noble', 'aarch64'),
               ('ubuntu:jammy', 'x86_64'),
