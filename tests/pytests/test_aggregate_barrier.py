@@ -189,7 +189,7 @@ def _test_barrier_waits_for_delayed_unbalanced_shard(protocol):
     Shard 2: 10000 docs (responds fast)
     Shard 1: 0 docs - delayed with DEBUG SLEEP (via env.getConnection(2))
     """
-    env = Env(moduleArgs='DEFAULT_DIALECT 2', protocol=protocol, shardsCount=3)
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 WORKERS 1', protocol=protocol, shardsCount=3)
     conn = getConnectionByEnv(env)
 
     # Create index
