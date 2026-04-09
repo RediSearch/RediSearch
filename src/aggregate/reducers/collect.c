@@ -64,6 +64,8 @@ static void collectFree(Reducer *r) {
 
 // --- ArgParser callbacks ---
 
+// Parses: FIELDS nargs <@field | *> [<@field | *> ...]
+//   nargs: 1..SPEC_MAX_FIELDS
 static void handleCollectFields(ArgParser *parser, const void *value, void *user_data) {
   CollectParseCtx *pctx = (CollectParseCtx *)user_data;
   CollectReducer *cr = pctx->cr;
@@ -96,6 +98,9 @@ static void handleCollectFields(ArgParser *parser, const void *value, void *user
   }
 }
 
+// Parses: SORTBY nargs <@field [ASC|DESC]> [<@field [ASC|DESC]> ...]
+//   nargs: 1..COLLECT_MAX_SORT_KEYS*2
+//   Direction defaults to ASC when omitted.
 static void handleCollectSortBy(ArgParser *parser, const void *value, void *user_data) {
   CollectParseCtx *pctx = (CollectParseCtx *)user_data;
   CollectReducer *cr = pctx->cr;
@@ -148,6 +153,8 @@ static void handleCollectSortBy(ArgParser *parser, const void *value, void *user
   }
 }
 
+// Parses: LIMIT <offset> <count>
+//   Both values must be non-negative integers <= MAX_AGGREGATE_REQUEST_RESULTS.
 static void handleCollectLimit(ArgParser *parser, const void *value, void *user_data) {
   CollectParseCtx *pctx = (CollectParseCtx *)user_data;
   CollectReducer *cr = pctx->cr;
