@@ -205,6 +205,14 @@ Reducer *RDCRCollect_New(const ReducerOptions *options) {
 
   CollectReducer *cr = rm_calloc(1, sizeof(*cr));
   cr->sortAscMap = SORTASCMAP_INIT;
+
+  Reducer *rbase = &cr->base;
+  rbase->NewInstance = collectNewInstance;
+  rbase->Add = collectAdd;
+  rbase->Finalize = collectFinalize;
+  rbase->FreeInstance = collectFreeInstance;
+  rbase->Free = collectFree;
+
   CollectParseCtx pctx = {.cr = cr, .options = options};
 
   ArgsCursor *ac = options->args;
@@ -212,7 +220,7 @@ Reducer *RDCRCollect_New(const ReducerOptions *options) {
   if (!parser) {
     QueryError_SetError(options->status, QUERY_ERROR_CODE_PARSE_ARGS,
       "Failed to create argument parser for COLLECT");
-    rm_free(cr);
+    rbase->Free(rbase);
     return NULL;
   }
 
@@ -240,7 +248,7 @@ Reducer *RDCRCollect_New(const ReducerOptions *options) {
 
   if (QueryError_HasError(options->status)) {
     ArgParser_Free(parser);
-    collectFree(&cr->base);
+    rbase->Free(rbase);
     return NULL;
   }
 
@@ -248,18 +256,11 @@ Reducer *RDCRCollect_New(const ReducerOptions *options) {
     QueryError_SetWithUserDataFmt(options->status, QUERY_ERROR_CODE_PARSE_ARGS,
       "Bad arguments for COLLECT", ": %s", ArgParser_GetErrorString(parser));
     ArgParser_Free(parser);
-    collectFree(&cr->base);
+    rbase->Free(rbase);
     return NULL;
   }
 
   ArgParser_Free(parser);
-
-  Reducer *rbase = &cr->base;
-  rbase->NewInstance = collectNewInstance;
-  rbase->Add = collectAdd;
-  rbase->Finalize = collectFinalize;
-  rbase->FreeInstance = collectFreeInstance;
-  rbase->Free = collectFree;
 
   return rbase;
 }
