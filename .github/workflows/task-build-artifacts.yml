@@ -72,7 +72,7 @@ jobs:
         && fromJSON(
           format('{{"image":"{0}","options":"--user root {1}"}}',
             needs.build-image.outputs.succeeded == 'true' && needs.build-image.outputs.image || needs.get-config.outputs.container,
-            needs.get-config.outputs.container == 'alpine:3.22' && '-v /opt:/opt:rw,rshared -v /opt:/__e/node20:ro,rshared -v /opt:/__e/node24:ro,rshared' || '')
+            startsWith(needs.get-config.outputs.container, 'alpine:') && '-v /opt:/opt:rw,rshared -v /opt:/__e/node20:ro,rshared -v /opt:/__e/node24:ro,rshared' || '')
         )
       || null }}
 
@@ -100,7 +100,7 @@ jobs:
     steps:
       # Setup
       - name: Install bash
-        if: needs.get-config.outputs.container == 'alpine:3.22'
+        if: startsWith(needs.get-config.outputs.container, 'alpine:')
         shell: sh -l -eo pipefail {0}
         run: ${{ format(env.SETUP_RETRY_LOOP, 'apk add bash') }}
       - name: Fix HOME Directory
@@ -190,7 +190,7 @@ jobs:
       - name: install build artifacts req
         uses: ./.github/actions/retry-command
         with:
-          command: uv pip install -q -r .install/build_package_requirments.txt
+          command: uv pip install -q -r .install/build_package_requirements.txt
 
       # Get Redis
       - name: Get Redis

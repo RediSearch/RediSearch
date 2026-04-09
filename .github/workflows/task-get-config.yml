@@ -136,6 +136,20 @@ jobs:
                       'name': 'Ubuntu Latest ARM64'
                   }
               },
+              "ubuntu:resolute": {
+                  "x86_64": {
+                      'container': 'ubuntu:resolute',
+                      'setup_script': 'apt update && apt install -y git',
+                      'name': 'Ubuntu Resolute x86_64',
+                      'enable_lto': '1'
+                  },
+                  "aarch64": {
+                      'container': 'ubuntu:resolute',
+                      'setup_script': 'apt update && apt install -y git',
+                      'name': 'Ubuntu Resolute ARM64',
+                      'enable_lto': '1'
+                  }
+              },
               "ubuntu:noble": {
                   "x86_64": {
                       'container': 'ubuntu:noble',
@@ -234,6 +248,24 @@ jobs:
                       'setup_script': 'apk add bash gcompat libstdc++ libgcc git',
                       'post_setup_script': 'echo RUST_DYN_CRT=1 >> $GITHUB_ENV; sed -i "/^ID=/s/alpine/NotpineForGHA/" /etc/os-release; apk add nodejs --update-cache; mkdir -p /opt/bin; ln -s /usr/bin/node /opt/bin/node',
                       'name': 'Alpine 3.22 ARM64'
+                  }
+              },
+              "alpine:3.23": {
+                # A workaround to get GitHub Actions to work on Alpine in 'post_setup_script'
+                # See https://github.com/actions/runner/issues/801#issuecomment-2976165281 for more details
+                  "x86_64": {
+                      'container': 'alpine:3.23',
+                      'setup_script': 'apk add bash git',
+                      'post_setup_script': 'echo RUST_DYN_CRT=1 >> $GITHUB_ENV; sed -i "/^ID=/s/alpine/NotpineForGHA/" /etc/os-release; apk add nodejs --update-cache; mkdir -p /opt/bin; ln -s /usr/bin/node /opt/bin/node',
+                      'name': 'Alpine 3.23 x86_64',
+                      'enable_lto': '1'
+                  },
+                  "aarch64": {
+                      'container': 'alpine:3.23',
+                      'setup_script': 'apk add bash gcompat libstdc++ libgcc git',
+                      'post_setup_script': 'echo RUST_DYN_CRT=1 >> $GITHUB_ENV; sed -i "/^ID=/s/alpine/NotpineForGHA/" /etc/os-release; apk add nodejs --update-cache; mkdir -p /opt/bin; ln -s /usr/bin/node /opt/bin/node',
+                      'name': 'Alpine 3.23 ARM64',
+                      'enable_lto': '1'
                   }
               },
               "debian:bullseye": {

@@ -641,6 +641,7 @@ dependencies = [
  "cc",
  "document",
  "enumflags2",
+ "query_node_type",
  "query_term",
  "rqe_iterator_type",
  "workspace_hack",
@@ -1635,6 +1636,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "query_node_type"
+version = "0.0.1"
+dependencies = [
+ "workspace_hack",
+]
+
+[[package]]
+name = "query_node_type_ffi"
+version = "0.0.1"
+dependencies = [
+ "build_utils",
+ "cbindgen",
+ "query_node_type",
+ "workspace_hack",
+]
+
+[[package]]
 name = "query_term"
 version = "0.0.1"
 dependencies = [
@@ -1958,6 +1976,7 @@ dependencies = [
  "schema_rule",
  "sorting_vector",
  "strum",
+ "thin_vec",
  "thiserror",
  "value",
  "workspace_hack",
@@ -1976,6 +1995,7 @@ dependencies = [
  "redisearch_rs",
  "rlookup",
  "rlookup_ffi",
+ "search_result",
  "sorting_vector",
  "value",
  "workspace_hack",
@@ -2385,6 +2405,7 @@ dependencies = [
  "redis_mock",
  "redisearch_rs",
  "sorting_vector",
+ "thin_vec",
  "value",
  "workspace_hack",
 ]
@@ -2398,6 +2419,7 @@ dependencies = [
  "ffi",
  "libc",
  "sorting_vector",
+ "thin_vec",
  "value",
  "workspace_hack",
 ]

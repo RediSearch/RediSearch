@@ -129,6 +129,11 @@ fn main() {
         // iterator_api.h. We blocklist the generated header so bindgen
         // doesn't re-parse it, and re-export the Rust type from lib.rs.
         .blocklist_file(".*/iterator_type.h")
+        // QueryNodeType is defined in Rust (query_node_type crate);
+        // cbindgen generates query_node_type.h which is included by
+        // query_node.h. We blocklist the generated header so bindgen
+        // doesn't re-parse it, and re-export the Rust type from lib.rs.
+        .blocklist_file(".*/query_node_type.h")
         .allowlist_file(".*/types_rs.h")
         .generate()
         .expect("Unable to generate bindings")

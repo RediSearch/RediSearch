@@ -78,7 +78,7 @@ option(USE_REDIS_ALLOCATOR "Use redis allocator" ON)
 option(BUILD_SEARCH_UNIT_TESTS "Build unit tests" OFF)
 option(VERBOSE_UTESTS "Enable verbose unit tests" OFF)
 option(ENABLE_ASSERT "Enable assertions" OFF)
-option(MAX_WORKER_THREADS "Override them maximum parallel worker threads allowed in thread-pool" "")
+set(MAX_WORKER_THREADS "" CACHE STRING "Override the maximum parallel worker threads allowed in thread-pool")
 option(BUILD_TESTING "Enable testing for cpu-features dep" OFF)
 
 
@@ -178,6 +178,11 @@ if(HAS_SOMETIMES_UNINITIALIZED)
     add_compile_options($<$<COMPILE_LANGUAGE:C>:-Werror=sometimes-uninitialized>)
 endif()
 
+check_c_compiler_flag("-Werror=implicit-function-declaration" HAS_IMPLICIT_FUNCTION_DECLARATION)
+if(HAS_IMPLICIT_FUNCTION_DECLARATION)
+    add_compile_options($<$<COMPILE_LANGUAGE:C>:-Werror=implicit-function-declaration>)
+endif()
+
 add_compile_definitions(
     "REDISEARCH_MODULE_NAME=\"${MODULE_NAME}\""
     "GIT_VERSPEC=\"${GIT_VERSPEC}\""
@@ -187,10 +192,6 @@ add_compile_definitions(
 
 if(BUILD_INTEL_SVS_OPT)
     add_compile_definitions("BUILD_INTEL_SVS_OPT=1")
-endif()
-
-if(MAX_WORKER_THREADS)
-    set_source_files_properties(src/config.c PROPERTIES COMPILE_DEFINITIONS MAX_WORKER_THREADS=${MAX_WORKER_THREADS})
 endif()
 
 if(USE_REDIS_ALLOCATOR)

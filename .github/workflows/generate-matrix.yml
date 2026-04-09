@@ -51,6 +51,8 @@ jobs:
 
           # All available platform/architecture combinations
           all_combinations = [
+              ('ubuntu:resolute', 'x86_64'),
+              ('ubuntu:resolute', 'aarch64'),
               ('ubuntu:noble', 'x86_64'),
               ('ubuntu:noble', 'aarch64'),
               ('ubuntu:jammy', 'x86_64'),
@@ -73,6 +75,8 @@ jobs:
               ('azurelinux:3', 'aarch64'),
               ('alpine:3.22', 'x86_64'),
               ('alpine:3.22', 'aarch64'),
+              ('alpine:3.23', 'x86_64'),
+              ('alpine:3.23', 'aarch64'),
               ('macos-15', 'aarch64'),
               ('macos-26', 'aarch64'),
               ('intel', 'x86_64'),  # Self-hosted EC2 runner

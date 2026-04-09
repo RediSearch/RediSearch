@@ -159,6 +159,14 @@ static IteratorStatus NI_SkipTo_Optimized(QueryIterator *base, t_docId docId) {
   return rc;
 }
 
+static QueryIterator *NI_ProfileChildren(QueryIterator *base) {
+  NotIteratorOptimized *ni = (NotIteratorOptimized *)base;
+  if (ni->child) {
+    ni->child = IntoProfiled(ni->child);
+  }
+  return base;
+}
+
 // Revalidate for NOT iterator - Optimized version.
 static ValidateStatus NI_Revalidate_Optimized(QueryIterator *base) {
   NotIteratorOptimized *ni = (NotIteratorOptimized *)base;
@@ -253,6 +261,7 @@ QueryIterator *NewNotIterator(QueryIterator *it, t_docId maxDocId, double weight
     ret->SkipTo = NI_SkipTo_Optimized;
     ret->Rewind = NI_Rewind;
     ret->Revalidate = NI_Revalidate_Optimized;
+    ret->ProfileChildren = NI_ProfileChildren;
   } else {
     ret = NewNotIteratorNonOptimized(it, maxDocId, weight, timeout, skipTimeoutChecks);
   }
@@ -280,6 +289,7 @@ QueryIterator *_New_NotIterator_With_WildCardIterator(QueryIterator *child, Quer
   ret->SkipTo = NI_SkipTo_Optimized;
   ret->Rewind = NI_Rewind;
   ret->Revalidate = NI_Revalidate_Optimized;
+  ret->ProfileChildren = NI_ProfileChildren;
 
   return ret;
 }

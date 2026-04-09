@@ -241,3 +241,16 @@ where
         IteratorType::Optional
     }
 }
+
+impl<'index> crate::interop::ProfileChildren<'index>
+    for Optional<'index, crate::c2rust::CRQEIterator>
+{
+    fn profile_children(self) -> Self {
+        Optional {
+            max_doc_id: self.max_doc_id,
+            weight: self.weight,
+            result: self.result,
+            child: self.child.map(crate::c2rust::CRQEIterator::into_profiled),
+        }
+    }
+}

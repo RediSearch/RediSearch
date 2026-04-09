@@ -78,12 +78,9 @@ where
     /// Advances all active children whose `last_doc_id` equals `current_id` and finds the
     /// minimum doc_id in a single pass.
     ///
-    /// Returns the minimum doc_id among active children, or None if all are exhausted.
-    fn advance_and_find_min(
-        &mut self,
-        current_id: t_docId,
-    ) -> Result<Option<t_docId>, RQEIteratorError> {
-        let mut min_id = t_docId::MAX;
+    /// Returns the minimum doc_id among active children, or `t_docId::MAX` if all are exhausted.
+    fn advance_and_find_min(&mut self, current_id: t_docId) -> Result<t_docId, RQEIteratorError> {
+        let mut min_id: t_docId = t_docId::MAX;
         let mut i = 0;
 
         while i < self.num_active {
@@ -111,11 +108,7 @@ where
             i += 1;
         }
 
-        if self.num_active == 0 {
-            Ok(None)
-        } else {
-            Ok(Some(min_id))
-        }
+        Ok(min_id)
     }
 
     /// Swap-removes an exhausted child at `idx` by swapping it with the last active child.
@@ -154,9 +147,9 @@ where
 
     /// Performs initial read on all children to position them at their first document.
     /// Removes any children that are immediately exhausted (empty iterators).
-    /// Returns the minimum doc_id among active children, or None if all are exhausted.
-    fn initialize_children(&mut self) -> Result<Option<t_docId>, RQEIteratorError> {
-        let mut min_id = t_docId::MAX;
+    /// Returns the minimum doc_id among active children, or `t_docId::MAX` if all are exhausted.
+    fn initialize_children(&mut self) -> Result<t_docId, RQEIteratorError> {
+        let mut min_id: t_docId = t_docId::MAX;
         let mut i = 0;
         while i < self.num_active {
             let child = &mut self.children[i];
@@ -182,11 +175,7 @@ where
             }
             i += 1;
         }
-        if self.num_active == 0 {
-            Ok(None)
-        } else {
-            Ok(Some(min_id))
-        }
+        Ok(min_id)
     }
 
     /// Full mode read - advances matching children and finds minimum in a single fused pass.
@@ -197,10 +186,10 @@ where
             self.advance_and_find_min(self.last_doc_id())?
         };
 
-        let Some(min_id) = min_id else {
+        if min_id == t_docId::MAX {
             self.is_eof = true;
             return Ok(None);
-        };
+        }
 
         self.build_aggregate_result(min_id);
         Ok(Some(&mut self.result))
@@ -495,7 +484,7 @@ where
         // Sync num_active and find minimum doc_id.
         // Use swap_remove_child to move EOF children out of the active region.
         self.num_active = self.children.len();
-        let mut min_doc_id = t_docId::MAX;
+        let mut min_doc_id: t_docId = t_docId::MAX;
         let mut min_child_idx: usize = 0;
         let mut i = 0;
         while i < self.num_active {
@@ -539,5 +528,23 @@ where
     #[inline(always)]
     fn type_(&self) -> IteratorType {
         IteratorType::Union
+    }
+}
+
+impl<'index, const QUICK_EXIT: bool> crate::interop::ProfileChildren<'index>
+    for UnionFlat<'index, crate::c2rust::CRQEIterator, QUICK_EXIT>
+{
+    fn profile_children(self) -> Self {
+        UnionFlat {
+            children: self
+                .children
+                .into_iter()
+                .map(crate::c2rust::CRQEIterator::into_profiled)
+                .collect(),
+            num_active: self.num_active,
+            num_estimated: self.num_estimated,
+            is_eof: self.is_eof,
+            result: self.result,
+        }
     }
 }
