@@ -182,7 +182,7 @@ static void handleCollectLimit(ArgParser *parser, const void *value, void *user_
       "LIMIT count exceeds maximum of %llu", MAX_AGGREGATE_REQUEST_RESULTS);
     return;
   }
-  if (offset <= LLONG_MAX - count) {
+  if (offset > LLONG_MAX - count) {
     QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS,
       "Invalid LIMIT offset + count value");
     return;
