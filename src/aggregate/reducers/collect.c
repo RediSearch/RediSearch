@@ -8,6 +8,7 @@
 */
 #include <aggregate/reducer.h>
 #include "util/arg_parser.h"
+#include "util/arr_rm_alloc.h"
 #include "spec.h"
 #include "config.h"
 #include <string.h>
@@ -20,12 +21,10 @@
 typedef struct {
   Reducer base;
 
-  int num_fields;
-  const RLookupKey **field_keys;
+  arrayof(const RLookupKey *) field_keys;
   bool has_wildcard;
 
-  int num_sort_keys;
-  const RLookupKey **sort_keys;
+  arrayof(const RLookupKey *) sort_keys;
   uint64_t sortAscMap;
 
   bool has_limit;
@@ -57,8 +56,8 @@ static void collectFreeInstance(Reducer *parent, void *p) {
 
 static void collectFree(Reducer *r) {
   CollectReducer *cr = (CollectReducer *)r;
-  rm_free(cr->field_keys);
-  rm_free(cr->sort_keys);
+  array_free(cr->field_keys);
+  array_free(cr->sort_keys);
   BlkAlloc_FreeAll(&r->alloc, NULL, 0, 0);
   rm_free(cr);
 }
@@ -77,8 +76,7 @@ static void handleCollectFields(ArgParser *parser, const void *value, void *user
   sub_opts.name = "FIELDS";
 
   RS_ASSERT(count >= 1 && count <= SPEC_MAX_FIELDS);
-  cr->field_keys = rm_calloc(count, sizeof(const RLookupKey *));
-  int field_idx = 0;
+  cr->field_keys = array_new(const RLookupKey *, count);
 
   for (int i = 0; i < count; i++) {
     if (AC_AdvanceIfMatch(ac, "*")) {
@@ -88,11 +86,14 @@ static void handleCollectFields(ArgParser *parser, const void *value, void *user
         return;
       }
       cr->has_wildcard = true;
-    } else if (!ReducerOpts_GetKey(&sub_opts, &cr->field_keys[field_idx++])) {
-      return;
+    } else {
+      const RLookupKey *key = NULL;
+      if (!ReducerOpts_GetKey(&sub_opts, &key)) {
+        return;
+      }
+      array_append(cr->field_keys, key);
     }
   }
-  cr->num_fields = field_idx;
 }
 
 static void handleCollectSortBy(ArgParser *parser, const void *value, void *user_data) {
@@ -101,9 +102,8 @@ static void handleCollectSortBy(ArgParser *parser, const void *value, void *user
   const ReducerOptions *opts = pctx->options;
   ArgsCursor *ac = (ArgsCursor *)value;
 
-  cr->sort_keys = rm_calloc(COLLECT_MAX_SORT_KEYS, sizeof(const RLookupKey *));
+  cr->sort_keys = array_new(const RLookupKey *, 4);
   cr->sortAscMap = SORTASCMAP_INIT;
-  cr->num_sort_keys = 0;
 
   ReducerOptions key_opts = *opts;
   key_opts.args = ac;
@@ -123,24 +123,25 @@ static void handleCollectSortBy(ArgParser *parser, const void *value, void *user
       return;
     }
 
-    if (cr->num_sort_keys >= COLLECT_MAX_SORT_KEYS) {
+    if (array_len(cr->sort_keys) >= COLLECT_MAX_SORT_KEYS) {
       QueryError_SetWithoutUserDataFmt(opts->status, QUERY_ERROR_CODE_LIMIT,
         "SORTBY exceeds maximum of %d fields", COLLECT_MAX_SORT_KEYS);
       return;
     }
-    if (!ReducerOpts_GetKey(&key_opts, &cr->sort_keys[cr->num_sort_keys])) {
+    const RLookupKey *key = NULL;
+    if (!ReducerOpts_GetKey(&key_opts, &key)) {
       return;
     }
-    cr->num_sort_keys++;
+    array_append(cr->sort_keys, key);
 
     if (AC_AdvanceIfMatch(ac, SORT_DIR_ASC)) {
       // ASC is the default; nothing to do.
     } else if (AC_AdvanceIfMatch(ac, SORT_DIR_DESC)) {
-      SORTASCMAP_SETDESC(cr->sortAscMap, cr->num_sort_keys - 1);
+      SORTASCMAP_SETDESC(cr->sortAscMap, array_len(cr->sort_keys) - 1);
     }
   }
 
-  if (cr->num_sort_keys == 0) {
+  if (array_len(cr->sort_keys) == 0) {
     QueryError_SetError(opts->status, QUERY_ERROR_CODE_PARSE_ARGS,
       "SORTBY requires at least one sort field");
     return;
@@ -174,7 +175,11 @@ static void handleCollectLimit(ArgParser *parser, const void *value, void *user_
       "LIMIT count exceeds maximum of %llu", MAX_AGGREGATE_REQUEST_RESULTS);
     return;
   }
-  ASSERT (offset > LLONG_MAX - count);
+  if (offset <= LLONG_MAX - count) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS,
+      "Invalid LIMIT offset + count value");
+    return;
+  }
 
   cr->has_limit = true;
   cr->limit_offset = offset;
