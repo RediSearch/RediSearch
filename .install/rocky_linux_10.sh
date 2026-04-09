@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 MODE=$1 # whether to install using sudo or not
 set -eo pipefail
-export DEBIAN_FRONTEND=noninteractive
 $MODE dnf update -y
 
 # Rocky 10 ships GCC 14 natively — no need for gcc-toolset
