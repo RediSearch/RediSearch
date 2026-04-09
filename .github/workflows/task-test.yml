@@ -384,6 +384,9 @@ jobs:
           REDIS_VER: ${{ inputs.redis-ref }}
           ENABLE_ASSERT: 1
         run: make build TESTS=1
+      - name: Validate glibc version
+        if: runner.os == 'Linux' && inputs.platform != 'ubuntu:focal'
+        uses: ./.github/actions/validate-glibc-version
       - name: Check disk space after build
         run: |
           echo "Disk space after build:"
