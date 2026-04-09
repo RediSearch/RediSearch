@@ -54,9 +54,9 @@ static int QueryReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int
  * RLookup registry. Returns NULL if there is no sorting key
  */
 static const RSValue *getReplyKey(const RLookupKey *kk, const SearchResult *r) {
-  const RSSortingVector* sv = RLookupRow_GetSortingVector(SearchResult_GetRowData(r));
-  if ((RLookupKey_GetFlags(kk) & RLOOKUP_F_SVSRC) && (sv && RSSortingVector_Length(sv) > RLookupKey_GetSvIdx(kk))) {
-    return RSSortingVector_Get(sv, RLookupKey_GetSvIdx(kk));
+  RSSortingVectorSlice sv = RLookupRow_GetSortingVector(SearchResult_GetRowData(r));
+  if ((RLookupKey_GetFlags(kk) & RLOOKUP_F_SVSRC) && (sv.len > RLookupKey_GetSvIdx(kk))) {
+    return sv.values[RLookupKey_GetSvIdx(kk)];
   } else {
     return RLookupRow_Get(kk, SearchResult_GetRowData(r));
   }

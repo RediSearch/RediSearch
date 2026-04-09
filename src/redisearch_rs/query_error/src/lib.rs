@@ -104,6 +104,7 @@ pub enum QueryErrorCode {
     FlexSearchLoadUnsupported,
     FlexUnsupportedArgument,
     FlexUnsupportedQuery,
+    SafeDepleterFailure,
 }
 
 impl Debug for QueryErrorCode {
@@ -490,6 +491,10 @@ impl QueryErrorCode {
                 prefix: c"SEARCH_FLEX_UNSUPPORTED_QUERY ",
                 default_msg: c"Unsupported query type for Flex indexes",
                 default_full_msg: c"SEARCH_FLEX_UNSUPPORTED_QUERY Unsupported query type for Flex indexes",
+            Self::SafeDepleterFailure => ErrorCodeStrings {
+                prefix: c"SEARCH_SAFE_DEPLETER_FAILURE ",
+                default_msg: c"Failed to acquire index lock for background depletion",
+                default_full_msg: c"SEARCH_SAFE_DEPLETER_FAILURE Failed to acquire index lock for background depletion",
             },
         }
     }

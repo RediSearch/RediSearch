@@ -38,6 +38,12 @@
 
 static std::mutex RMCK_GlobalLock;
 
+// KeyMeta mock storage
+static std::map<std::string, std::map<RedisModuleKeyMetaClassId, uint64_t>> keyMetaStorage;
+static RedisModuleKeyMetaClassId nextClassId = 1;
+static std::map<RedisModuleKeyMetaClassId, RedisModuleKeyMetaClassConfig> classConfigs;
+static std::map<std::string, RedisModuleKeyMetaClassId> classNames;
+
 std::string HashValue::Key::makeKey() const {
   if (flags & REDISMODULE_HASH_CFIELDS) {
     return std::string(cstr);
@@ -169,13 +175,9 @@ RedisModuleString **HashValue::kvarray(RedisModuleCtx *allocctx) const {
 RedisModuleKey *RMCK_OpenKey(RedisModuleCtx *ctx, RedisModuleString *s, int mode) {
   // Look up in db:
   Value *vv = ctx->db->get(s);
-  if (vv) {
-    return new RedisModuleKey(ctx, s, vv, mode);
-  } else if (mode & REDISMODULE_WRITE) {
-    return new RedisModuleKey(ctx, s, NULL, mode);
-  } else {
-    return NULL;
-  }
+  // Always return a valid key handle, matching real Redis behavior.
+  // For non-existent keys, ref (vv) will be NULL, and KeyType returns EMPTY.
+  return new RedisModuleKey(ctx, s, vv, mode);
 }
 
 int RMCK_DeleteKey(RedisModuleKey *k) {
@@ -1437,6 +1439,113 @@ static int RMCK_ScanKey(RedisModuleKey *key, RedisModuleScanCursor *cursor, Redi
   return cur->it != cur->end;
 }
 
+// KeyMeta mock implementations
+static RedisModuleKeyMetaClassId RMCK_CreateKeyMetaClass(RedisModuleCtx *ctx,
+                                                         const char *name,
+                                                         int encver,
+                                                         RedisModuleKeyMetaClassConfig *config) {
+  REDISMODULE_NOT_USED(ctx);
+  REDISMODULE_NOT_USED(encver);
+  RedisModuleKeyMetaClassId classId = nextClassId++;
+  classConfigs[classId] = *config;
+  classNames[name] = classId;
+  return classId;
+}
+
+static int RMCK_GetKeyMeta(RedisModuleKeyMetaClassId class_id,
+                          RedisModuleKey *key,
+                          uint64_t *meta) {
+  if (!key) {
+    *meta = 0;
+    return REDISMODULE_ERR;
+  }
+  auto keyIt = keyMetaStorage.find(key->key);
+  if (keyIt == keyMetaStorage.end()) {
+    *meta = 0;
+    return REDISMODULE_OK;
+  }
+
+  auto metaIt = keyIt->second.find(class_id);
+  if (metaIt == keyIt->second.end()) {
+    *meta = 0;
+    return REDISMODULE_OK;
+  }
+
+  *meta = metaIt->second;
+  return REDISMODULE_OK;
+}
+
+static int RMCK_SetKeyMeta(RedisModuleKeyMetaClassId class_id,
+                          RedisModuleKey *key,
+                          uint64_t meta) {
+  if (!key) {
+    return REDISMODULE_ERR;
+  }
+  keyMetaStorage[key->key][class_id] = meta;
+  return REDISMODULE_OK;
+}
+
+static void RMCK_ClearKeyMeta() {
+  // Clean up any allocated metadata using the free callback
+  for (auto& keyPair : keyMetaStorage) {
+    for (auto& metaPair : keyPair.second) {
+      if (metaPair.second != 0) {
+        auto configIt = classConfigs.find(metaPair.first);
+        if (configIt != classConfigs.end() && configIt->second.free) {
+          configIt->second.free("testkey", metaPair.second);
+        }
+      }
+    }
+  }
+
+  keyMetaStorage.clear();
+  classConfigs.clear();
+  classNames.clear();
+  nextClassId = 1;
+}
+
+// External interface for clearing KeyMeta storage
+void RMCK_ClearKeyMetaStorage() {
+  RMCK_ClearKeyMeta();
+}
+
+RedisModuleKeyMetaClassId RMCK_GetKeyMetaClassByName(const char *name) {
+  auto it = classNames.find(name);
+  return it == classNames.end() ? -1 : it->second;
+}
+
+int RMCK_KeyMetaRdbLoad(RedisModuleKeyMetaClassId classId, RedisModuleIO *io,
+                        uint64_t *meta, int encver) {
+  auto it = classConfigs.find(classId);
+  if (it == classConfigs.end() || !it->second.rdb_load) {
+    if (meta) {
+      *meta = 0;
+    }
+    return REDISMODULE_ERR;
+  }
+  return it->second.rdb_load(io, meta, encver);
+}
+
+void RMCK_KeyMetaRdbSave(RedisModuleKeyMetaClassId classId, RedisModuleIO *io,
+                         uint64_t *meta) {
+  auto it = classConfigs.find(classId);
+  if (it == classConfigs.end() || !it->second.rdb_save) {
+    if (io) {
+      io->error_flag = true;
+    }
+    return;
+  }
+  it->second.rdb_save(io, nullptr, meta);
+}
+
+void RMCK_KeyMetaUnlink(RedisModuleKeyMetaClassId classId, uint64_t *meta) {
+  auto it = classConfigs.find(classId);
+  if (it == classConfigs.end() || !it->second.unlink) {
+    return;
+  }
+  it->second.unlink(nullptr, meta);
+}
+
 static void registerApis() {
   REGISTER_API(GetApi);
   REGISTER_API(Alloc);
@@ -1558,6 +1667,12 @@ static void registerApis() {
   REGISTER_API(ClusterPropagateForSlotMigration);
   REGISTER_API(ClusterGetLocalSlotRanges);
   REGISTER_API(ClusterFreeSlotRanges);
+
+  // KeyMeta
+  REGISTER_API(CreateKeyMetaClass);
+  REGISTER_API(GetKeyMeta);
+  REGISTER_API(SetKeyMeta);
+  REGISTER_API(ClearKeyMeta);
 }
 
 static int RMCK_GetApi(const char *s, void *pp) {

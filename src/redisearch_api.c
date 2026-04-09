@@ -27,6 +27,8 @@
 #include "module.h"
 #include "cursor.h"
 #include "info/indexes_info.h"
+#include "doc_id_meta.h"
+#include "search_disk.h"
 
 /**
  * Most of the spec interaction is done through the RefManager, which is wrapped by a strong or weak reference struct.
@@ -261,6 +263,7 @@ void RediSearch_FreeDocument(RSDoc* doc) {
 }
 
 int RediSearch_DeleteDocument(RefManager* rm, const void* docKey, size_t len) {
+  RS_ASSERT(!SearchDisk_IsEnabled());
   RWLOCK_ACQUIRE_WRITE();
   IndexSpec* sp = __RefManager_Get_Object(rm);
   int rc = REDISMODULE_OK;
@@ -358,8 +361,14 @@ int RediSearch_IndexAddDocument(RefManager* rm, Document* d, int options, char**
   }
   aCtx->donecb = RediSearch_AddDocDone;
   aCtx->donecbData = &err;
-  RedisSearchCtx sctx = {.redisCtx = NULL, .spec = sp};
-  int exists = !!DocTable_GetIdR(&sp->docs, d->docKey);
+  RedisSearchCtx sctx = {.redisCtx = RSDummyContext, .spec = sp};
+  int exists;
+  if (SearchDisk_IsEnabled()) {
+    uint64_t existingDocId;
+    exists = (DocIdMeta_Get(RSDummyContext, d->docKey, sp->specId, &existingDocId) == REDISMODULE_OK);
+  } else {
+    exists = !!DocTable_GetIdR(&sp->docs, d->docKey);
+  }
   if (exists) {
     if (options & REDISEARCH_ADD_REPLACE) {
       options |= DOCUMENT_ADD_REPLACE;
@@ -679,6 +688,7 @@ end:
 }
 
 int RediSearch_DocumentExists(RefManager* rm, const void* docKey, size_t len) {
+  RS_ASSERT(!SearchDisk_IsEnabled());
   IndexSpec* sp = __RefManager_Get_Object(rm);
   return DocTable_GetId(&sp->docs, docKey, len) != 0;
 }
