@@ -229,6 +229,7 @@ Reducer *RDCRCollect_New(const ReducerOptions *options) {
   ArgParser_AddSubArgsV(parser, "FIELDS", "Projected fields",
     &subArgs, 1, SPEC_MAX_FIELDS,
     ARG_OPT_REQUIRED,
+    ARG_OPT_POSITION, 1,
     ARG_OPT_CALLBACK, handleCollectFields, &pctx,
     ARG_OPT_END);
 

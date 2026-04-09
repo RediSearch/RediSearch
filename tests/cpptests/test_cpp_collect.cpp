@@ -166,6 +166,22 @@ TEST_F(CollectParserTest, FieldsAndLimitWithoutSortBy) {
   cr->base.Free(&cr->base);
 }
 
+TEST_F(CollectParserTest, LimitBeforeSortByIsValid) {
+  registerKeys({"price"});
+  CollectReducer *cr = parseCollectOk({
+      "FIELDS", "1", "@price",
+      "LIMIT", "0", "10",
+      "SORTBY", "2", "@price", "ASC",
+  });
+  ASSERT_NE(cr, nullptr);
+  EXPECT_TRUE(cr->has_limit);
+  EXPECT_EQ(cr->limit_offset, 0u);
+  EXPECT_EQ(cr->limit_count, 10u);
+  EXPECT_EQ(array_len(cr->sort_keys), 1);
+  EXPECT_TRUE(SORTASCMAP_GETASC(cr->sortAscMap, 0));
+  cr->base.Free(&cr->base);
+}
+
 TEST_F(CollectParserTest, MultipleSortKeysWithDirections) {
   registerKeys({"a", "b", "c"});
   CollectReducer *cr = parseCollectOk({
@@ -269,12 +285,18 @@ TEST_F(CollectParserTest, SortByJsonPathRejected) {
 }
 
 TEST_F(CollectParserTest, EmptyArgs) {
-  expectError({}, "Bad arguments for COLLECT: FIELDS: Required argument missing");
+  expectError({}, "FIELDS: Required positional argument missing or out of order");
 }
 
 TEST_F(CollectParserTest, MissingFieldsRequired) {
   registerKeys({"price"});
-  expectError({"SORTBY", "1", "@price"}, "Bad arguments for COLLECT: FIELDS: Required argument missing");
+  expectError({"SORTBY", "1", "@price"}, "FIELDS: Required positional argument missing or out of order");
+}
+
+TEST_F(CollectParserTest, FieldsMustBeFirstParam) {
+  registerKeys({"price"});
+  expectError({"SORTBY", "1", "@price", "FIELDS", "1", "@price"},
+      "FIELDS: Required positional argument missing or out of order");
 }
 
 TEST_F(CollectParserTest, FieldWithoutAtPrefix) {
@@ -387,7 +409,6 @@ TEST_F(CollectParserTest, LimitNonNumericOffset) {
 }
 
 TEST_F(CollectParserTest, FieldsZeroCountRequiresAtLeastOne) {
-  // ArgParser enforces min FIELDS args before handleCollect runs; count 0 is rejected there.
   expectError({"FIELDS", "0"}, "Bad arguments for COLLECT: FIELDS: Invalid argument count");
 }
 
