@@ -246,7 +246,7 @@ def _test_barrier_waits_for_delayed_unbalanced_shard(protocol):
         shard_conn.execute_command(debug_cmd(), 'SYNC_POINT', 'ARM', sync_point)
 
         verify_command_OK_on_all_shards(env, 'CONFIG', 'SET', 'search-on-timeout', 'FAIL')
-        cmd = ['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LIMIT', 0, 2, 'TIMEOUT', 1]
+        cmd = ['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LIMIT', 0, 2, 'TIMEOUT', 500]
         query_result = []
         t_query = threading.Thread(
             target=_run_query_store_result,
