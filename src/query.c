@@ -1792,6 +1792,20 @@ static int QueryNode_CheckIsValid(QueryNode *n, IndexSpec *spec, RSSearchOptions
         if (fs && FieldSpec_IndexesEmpty(fs)) {
           opts->flags |= QueryNode_IndexesEmpty;
         }
+        // Block multi-term TAG queries in disk mode.
+        for (size_t ii = 0; ii < QueryNode_NumChildren(n); ++ii) {
+          QueryNode *child = n->children[ii];
+          if (child->type == QN_PREFIX) {
+            res = validateQueryNotDisk("TAG prefix/suffix/infix", status);
+          } else if (child->type == QN_WILDCARD_QUERY) {
+            res = validateQueryNotDisk("TAG wildcard", status);
+          } else if (child->type == QN_LEXRANGE) {
+            res = validateQueryNotDisk("TAG lexrange", status);
+          }
+          if (res == REDISMODULE_ERR) {
+            return res;
+          }
+        }
       }
       break;
     case QN_UNION:
