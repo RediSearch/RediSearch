@@ -440,7 +440,7 @@ int HybridRequest_StartCursors(StrongRef hybrid_ref, RedisModuleCtx *replyCtx, Q
         depleter = depleter->upstream;
       }
       if (depleter->type != expectedDepleterType) {
-        QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_GENERIC,
+        QueryError_SetWithoutUserDataFmt(status, QUERY_EGENERIC,
           "Unexpected depleter type: expected %s, got %s",
           RPTypeToString(expectedDepleterType), RPTypeToString(depleter->type));
         break;
