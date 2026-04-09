@@ -37,7 +37,6 @@ struct CollectReducer {
 #include "result_processor.h"
 #include "redismock/redismock.h"
 
-#include <climits>
 #include <initializer_list>
 #include <string>
 #include <vector>
@@ -302,6 +301,19 @@ TEST_F(CollectParserTest, UnknownSubcommand) {
   expectError({"FIELDS", "1", "@x", "FOO", "1", "2"}, "Bad arguments for COLLECT: FOO: Unknown argument");
 }
 
+TEST_F(CollectParserTest, SortByFieldNotInPipeline) {
+  registerKeys({"x"});
+  expectError(
+      {"FIELDS", "1", "@x", "SORTBY", "1", "@unknown"},
+      "Property not loaded nor in pipeline");
+}
+
+TEST_F(CollectParserTest, SortByZeroCount) {
+  registerKeys({"x"});
+  expectError({"FIELDS", "1", "@x", "SORTBY", "0"},
+      "Bad arguments for COLLECT: SORTBY: Invalid argument count");
+}
+
 TEST_F(CollectParserTest, SortByFieldWithoutAtPrefix) {
   registerKeys({"x"});
   expectError({"FIELDS", "1", "@x", "SORTBY", "1", "bad_field"},
@@ -388,11 +400,10 @@ TEST_F(CollectParserTest, LimitCountExceedsAggregateMax) {
       "LIMIT count exceeds maximum of");
 }
 
-TEST_F(CollectParserTest, LimitOffsetPlusCountOverflow) {
+TEST_F(CollectParserTest, LimitOffsetExceedsAggregateMax) {
   registerKeys({"x"});
-  std::string offset = std::to_string(static_cast<unsigned long long>(LLONG_MAX) - 1);
-  expectError({"FIELDS", "1", "@x", "LIMIT", offset.c_str(), "2"},
-      "Invalid LIMIT offset + count value");
+  expectError({"FIELDS", "1", "@x", "LIMIT", "9999999999", "10"},
+      "LIMIT offset exceeds maximum of");
 }
 
 TEST_F(CollectParserTest, RejectsWhenUnstableFeaturesDisabled) {

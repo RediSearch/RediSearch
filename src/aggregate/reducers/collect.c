@@ -76,18 +76,18 @@ static void handleCollectFields(ArgParser *parser, const void *value, void *user
   sub_opts.args = ac;
   sub_opts.name = "FIELDS";
 
+  RS_ASSERT(count >= 1 && count <= SPEC_MAX_FIELDS);
   cr->field_keys = rm_calloc(count, sizeof(const RLookupKey *));
   int field_idx = 0;
 
   for (int i = 0; i < count; i++) {
-    if (strcmp(AC_StringArg(ac, ac->offset), "*") == 0) {
+    if (AC_AdvanceIfMatch(ac, "*")) {
       if (cr->has_wildcard) {
         QueryError_SetError(opts->status, QUERY_ERROR_CODE_PARSE_ARGS,
           "Wildcard `*` can only appear once in FIELDS");
         return;
       }
       cr->has_wildcard = true;
-      ac->offset++;
     } else if (!ReducerOpts_GetKey(&sub_opts, &cr->field_keys[field_idx++])) {
       return;
     }
@@ -164,16 +164,17 @@ static void handleCollectLimit(ArgParser *parser, const void *value, void *user_
       "LIMIT count must be a non-negative integer");
     return;
   }
+  if (offset > MAX_AGGREGATE_REQUEST_RESULTS) {
+    QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_LIMIT,
+      "LIMIT offset exceeds maximum of %llu", MAX_AGGREGATE_REQUEST_RESULTS);
+    return;
+  }
   if (count > MAX_AGGREGATE_REQUEST_RESULTS) {
     QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_LIMIT,
       "LIMIT count exceeds maximum of %llu", MAX_AGGREGATE_REQUEST_RESULTS);
     return;
   }
-  if (offset > LLONG_MAX - count) {
-    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS,
-      "Invalid LIMIT offset + count value");
-    return;
-  }
+  ASSERT (offset > LLONG_MAX - count);
 
   cr->has_limit = true;
   cr->limit_offset = offset;
