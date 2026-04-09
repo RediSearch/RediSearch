@@ -365,7 +365,19 @@ TEST_F(CollectParserTest, LimitNegativeOffset) {
 TEST_F(CollectParserTest, LimitNegativeCount) {
   registerKeys({"x"});
   expectError({"FIELDS", "1", "@x", "LIMIT", "0", "-5"},
-      "LIMIT count must be a non-negative integer");
+      "LIMIT count must be a positive integer");
+}
+
+TEST_F(CollectParserTest, LimitZeroCountWithNonZeroOffset) {
+  registerKeys({"x"});
+  expectError({"FIELDS", "1", "@x", "LIMIT", "10", "0"},
+      "LIMIT count must be a positive integer");
+}
+
+TEST_F(CollectParserTest, LimitZeroCountWithZeroOffset) {
+  registerKeys({"x"});
+  expectError({"FIELDS", "1", "@x", "LIMIT", "0", "0"},
+      "LIMIT count must be a positive integer");
 }
 
 TEST_F(CollectParserTest, LimitNonNumericOffset) {

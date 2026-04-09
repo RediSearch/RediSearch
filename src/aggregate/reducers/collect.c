@@ -169,7 +169,7 @@ static void handleCollectLimit(ArgParser *parser, const void *value, void *user_
   // LIMIT count must be at least 1; use REDUCER COUNT to count results without collecting them.
   if (AC_GetU64(ac, &count, AC_F_GE1) != AC_OK) {
     QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS,
-      "LIMIT count must be a non-negative integer");
+      "LIMIT count must be a positive integer");
     return;
   }
   if (offset > MAX_AGGREGATE_REQUEST_RESULTS) {
