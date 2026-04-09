@@ -8,28 +8,7 @@
 */
 #include <aggregate/reducer.h>
 #include <util/block_alloc.h>
-
-typedef struct {
-  size_t count;
-} counterData;
-
-#define COUNTER_BLOCK_SIZE 32 * sizeof(counterData)
-
-static void *counterNewInstance(Reducer *r) {
-  counterData *dd = BlkAlloc_Alloc(&r->alloc, sizeof(counterData), COUNTER_BLOCK_SIZE);
-  dd->count = 0;
-  return dd;
-}
-
-static int counterAdd(Reducer *r, void *ctx, const RLookupRow *srcrow) {
-  ((counterData *)ctx)->count++;
-  return 1;
-}
-
-static RSValue *counterFinalize(Reducer *r, void *instance) {
-  counterData *dd = instance;
-  return RSValue_NewNumber(dd->count);
-}
+#include "reducers_rs.h"
 
 Reducer *RDCRCount_New(const ReducerOptions *options) {
   if (options->args->argc != 0) {
@@ -41,5 +20,6 @@ Reducer *RDCRCount_New(const ReducerOptions *options) {
   r->Finalize = counterFinalize;
   r->Free = Reducer_GenericFree;
   r->NewInstance = counterNewInstance;
+  r->FreeInstance = counterFreeInstance;
   return r;
 }

@@ -64,6 +64,7 @@ fn main() {
         src.join("redismodule.h"),
         deps.join("hiredis").join("sds.h"),
         deps.join("rmutil").join("vector.h"),
+        src.join("aggregate").join("reducer.h"),
         src.join("buffer/buffer.h"),
         src.join("config.h"),
         src.join("doc_table.h"),
