@@ -1742,6 +1742,17 @@ static inline bool QueryNode_ValidateToken(QueryNode *n, IndexSpec *spec, RSSear
   return true;
 }
 
+// Helper function to validate that trie-based query types are not used on disk indexes.
+// Returns REDISMODULE_ERR if the query type is not supported on disk indexes, REDISMODULE_OK otherwise.
+static int validateQueryNotDisk(const char *queryTypeName, QueryError *status) {
+  if (SearchDisk_IsEnabledForValidation()) {
+    QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_FLEX_UNSUPPORTED_QUERY,
+      "%s queries are not supported on Flex indexes", queryTypeName);
+    return REDISMODULE_ERR;
+  }
+  return REDISMODULE_OK;
+}
+
 static int QueryNode_CheckIsValid(QueryNode *n, IndexSpec *spec, RSSearchOptions *opts,
   QueryError *status, QAST_ValidationFlags validationFlags) {
   // Check if this is the main vector node in a hybrid vector subquery
@@ -1807,15 +1818,23 @@ static int QueryNode_CheckIsValid(QueryNode *n, IndexSpec *spec, RSSearchOptions
         res = REDISMODULE_ERR;
       }
       break;
+    case QN_PREFIX:
+      res = validateQueryNotDisk("Prefix", status);
+      break;
+    case QN_WILDCARD_QUERY:
+      res = validateQueryNotDisk("Wildcard pattern", status);
+      break;
+    case QN_FUZZY:
+      res = validateQueryNotDisk("Fuzzy", status);
+      break;
+    case QN_LEXRANGE:
+      res = validateQueryNotDisk("Lexrange", status);
+      break;
     case QN_NOT:
     case QN_OPTIONAL:
     case QN_GEO:
-    case QN_PREFIX:
     case QN_IDS:
     case QN_WILDCARD:
-    case QN_WILDCARD_QUERY:
-    case QN_FUZZY:
-    case QN_LEXRANGE:
     case QN_GEOMETRY:
       break;
   }
@@ -1834,7 +1853,14 @@ static int QueryNode_CheckIsValid(QueryNode *n, IndexSpec *spec, RSSearchOptions
 // Checks whether query nodes are valid
 // Currently Phrase nodes are checked whether slop/inorder are allowed
 int QAST_CheckIsValid(QueryAST *q, IndexSpec *spec, RSSearchOptions *opts, QueryError *status) {
-  if (!q || !q->root ||
+  if (!q || !q->root) {
+    return REDISMODULE_OK;
+  }
+
+  // Always validate disk indexes (for unsupported query types like prefix/fuzzy/wildcard/lexrange)
+  // For non-disk indexes, skip validation if there's no TEXT/TAG field that doesn't index empty
+  // and no JSON spec with undefined order
+  if (!SearchDisk_IsEnabledForValidation() &&
       !(spec->flags & Index_HasNonEmpty) &&
       (!isSpecJson(spec) || !(spec->flags & Index_HasUndefinedOrder))
   ) {

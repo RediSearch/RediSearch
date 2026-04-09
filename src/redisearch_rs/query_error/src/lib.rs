@@ -103,6 +103,7 @@ pub enum QueryErrorCode {
     FlexSearchNocontentOrReturn0Required,
     FlexSearchLoadUnsupported,
     FlexUnsupportedArgument,
+    FlexUnsupportedQuery,
     SafeDepleterFailure,
 }
 
@@ -485,6 +486,11 @@ impl QueryErrorCode {
                 prefix: c"SEARCH_FLEX_UNSUPPORTED_ARGUMENT ",
                 default_msg: c"Unsupported argument for Redis Flex",
                 default_full_msg: c"SEARCH_FLEX_UNSUPPORTED_ARGUMENT Unsupported argument for Redis Flex",
+            },
+            Self::FlexUnsupportedQuery => ErrorCodeStrings {
+                prefix: c"SEARCH_FLEX_UNSUPPORTED_QUERY ",
+                default_msg: c"Unsupported query type for Flex indexes",
+                default_full_msg: c"SEARCH_FLEX_UNSUPPORTED_QUERY Unsupported query type for Flex indexes",
             },
             Self::SafeDepleterFailure => ErrorCodeStrings {
                 prefix: c"SEARCH_SAFE_DEPLETER_FAILURE ",
