@@ -2365,7 +2365,7 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
   RM_TRY(
     RedisModule_RegisterNumericConfig(
       ctx, "search-disk-buffer-percentage", DEFAULT_DISK_BUFFER_PERCENTAGE,
-      REDISMODULE_CONFIG_UNPREFIXED, 0,
+      REDISMODULE_CONFIG_UNPREFIXED, 1,
       100, get_uint8_numeric_config, set_search_disk_buffer_percentage_config, NULL,
       (void *)&(RSGlobalConfig.diskBufferPercentage)
     )

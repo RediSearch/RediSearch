@@ -2008,13 +2008,17 @@ def test_flex_search_disk_buffer_percentage(env):
     env.expect('CONFIG', 'SET', 'search-disk-buffer-percentage', '50').ok()
     env.expect('CONFIG', 'GET', 'search-disk-buffer-percentage').equal(['search-disk-buffer-percentage', '50'])
 
-    # Boundary values
-    env.expect('CONFIG', 'SET', 'search-disk-buffer-percentage', '0').ok()
-    env.expect('CONFIG', 'GET', 'search-disk-buffer-percentage').equal(['search-disk-buffer-percentage', '0'])
+    # Boundary values - minimum is 1%
+    env.expect('CONFIG', 'SET', 'search-disk-buffer-percentage', '1').ok()
+    env.expect('CONFIG', 'GET', 'search-disk-buffer-percentage').equal(['search-disk-buffer-percentage', '1'])
 
     env.expect('CONFIG', 'SET', 'search-disk-buffer-percentage', '100').ok()
     env.expect('CONFIG', 'GET', 'search-disk-buffer-percentage').equal(['search-disk-buffer-percentage', '100'])
 
+    # Value 0 should be rejected (minimum is 1%)
+    env.expect('CONFIG', 'SET', 'search-disk-buffer-percentage', '0').error()\
+        .contains('argument must be between 1 and 100')
+
     # Values above 100 should be rejected
     env.expect('CONFIG', 'SET', 'search-disk-buffer-percentage', '101').error()\
-        .contains('argument must be between 0 and 100')
+        .contains('argument must be between 1 and 100')

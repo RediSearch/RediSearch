@@ -83,6 +83,9 @@ bool SearchDisk_IsInitialized() {
 // Callback for BigModuleRegister - returns total disk usage across all indexes
 static size_t getDiskUsageCallback(void) {
   size_t total = 0;
+  if (!specDict_g) {
+    return total;
+  }
   dictIterator *iter = dictGetIterator(specDict_g);
   dictEntry *entry = NULL;
 
@@ -367,6 +370,9 @@ void SearchDisk_UpdateBufferBudget(RedisModuleCtx *ctx, int percentage) {
   }
 
   // Update write buffer size for all existing indexes
+  if (!specDict_g) {
+    return;
+  }
   dictIterator *iter = dictGetIterator(specDict_g);
   dictEntry *entry = NULL;
 
