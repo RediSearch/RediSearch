@@ -717,7 +717,7 @@ int HybridRequest_StartCursors(StrongRef hybrid_ref, RedisModuleCtx *replyCtx, Q
 
     if (!req->useReplyCallback) {
       // If we are not using reply callback, we should reply with the cursors here
-      replyWithCursors(replyCtx, req->cursors);
+      replyWithCursors(replyCtx, req->cursors, req);
       array_free(req->cursors);
       req->cursors = NULL;
     } // else the reply callback will reply with the cursors and free the array
@@ -844,7 +844,7 @@ static int HybridQueryCursorReplyCallback(RedisModuleCtx *ctx, RedisModuleString
     return REDISMODULE_OK;
   }
 
-  replyWithCursors(ctx, req->cursors);
+  replyWithCursors(ctx, req->cursors, req);
   array_free(req->cursors);
   req->cursors = NULL;
   return REDISMODULE_OK;
