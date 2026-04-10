@@ -16,7 +16,7 @@ extern "C" {
  *
  * # Safety
  *
- * 1. `r` must point to a [valid] `ffi::Reducer`.
+ * 1. `r` must point to a [valid] `CounterReducer` masquerading as a `ffi::Reducer`.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
@@ -27,8 +27,8 @@ void *counterNewInstance(Reducer *r);
  *
  * # Safety
  *
- * 1. `r` must point to a [valid] `ffi::Reducer`.
- * 2. `ctx` mut point to a [valid] `Counter`.
+ * 1. `r` must point to a [valid] `CounterReducer` masquerading as a `ffi::Reducer`.
+ * 2. `ctx` mut point to a [valid] `CounterCtx` masquerading as a void pointer.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
@@ -39,8 +39,8 @@ void counterFreeInstance(Reducer *r, void *ctx);
  *
  * # Safety
  *
- * 1. `r` must point to a [valid] `ffi::Reducer`.
- * 2. `ctx` mut point to a [valid] `Counter`.
+ * 1. `r` must point to a [valid] `CounterReducer` masquerading as a `ffi::Reducer`.
+ * 2. `ctx` mut point to a [valid] `CounterCtx` masquerading as a void pointer.
  * 3. `srcrow` mut point to a [valid] `ffi::RLookupRow`.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
@@ -52,8 +52,8 @@ int counterAdd(Reducer *r, void *ctx, const RLookupRow *srcrow);
  *
  * # Safety
  *
- * 1. `r` must point to a [valid] `ffi::Reducer`.
- * 2. `ctx` mut point to a [valid] `Counter`.
+ * 1. `r` must point to a [valid] `CounterReducer` masquerading as a `ffi::Reducer`.
+ * 2. `ctx` mut point to a [valid] `CounterCtx` masquerading as a void pointer.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
@@ -75,7 +75,7 @@ Reducer *RDCRCount_New(const ReducerOptions *options);
  *
  * # Safety
  *
- * 1. `r` must point to a [valid] `ffi::Reducer`.
+ * 1. `r` must point to a [valid] `CounterReducer` masquerading as a `ffi::Reducer`.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */

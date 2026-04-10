@@ -1881,6 +1881,7 @@ dependencies = [
 name = "reducers"
 version = "0.0.1"
 dependencies = [
+ "bumpalo",
  "ffi",
  "query_error",
  "rlookup",

@@ -7,8 +7,10 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use query_error::QueryErrorCode;
-use reducers::{Reducer, ReducerOptions, count::Counter};
+use reducers::{
+    ReducerOptions,
+    count::{CounterCtx, CounterReducer},
+};
 use rlookup::RLookupRow;
 use std::{
     ffi::{c_int, c_void},
@@ -19,31 +21,32 @@ use std::{
 ///
 /// # Safety
 ///
-/// 1. `r` must point to a [valid] `ffi::Reducer`.
+/// 1. `r` must point to a [valid] `CounterReducer` masquerading as a `ffi::Reducer`.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn counterNewInstance(r: *mut ffi::Reducer) -> *mut c_void {
     // SAFETY: ensured by caller (1.)
-    let r = unsafe { Reducer::from_raw(r) };
+    let r = unsafe { r.cast::<CounterReducer>().as_mut().unwrap() };
 
-    Box::into_raw(Box::new(Counter::new(r))).cast()
+    let ctx: *mut CounterCtx = r.alloc_instance();
+    ctx.cast()
 }
 
 /// Frees a counter reducer instance
 ///
 /// # Safety
 ///
-/// 1. `r` must point to a [valid] `ffi::Reducer`.
-/// 2. `ctx` mut point to a [valid] `Counter`.
+/// 1. `r` must point to a [valid] `CounterReducer` masquerading as a `ffi::Reducer`.
+/// 2. `ctx` mut point to a [valid] `CounterCtx` masquerading as a void pointer.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn counterFreeInstance(r: *mut ffi::Reducer, ctx: *mut c_void) {
     // SAFETY: ensured by caller (1.)
-    let r = unsafe { Reducer::from_raw(r) };
+    let r = unsafe { r.cast::<CounterReducer>().as_mut().unwrap() };
     // SAFETY: ensured by caller (2.)
-    let counter = unsafe { Box::from_raw(ctx.cast::<Counter>()) };
+    let counter = unsafe { &mut *ctx.cast::<CounterCtx>() };
 
     counter.free(r);
 }
@@ -52,8 +55,8 @@ pub unsafe extern "C" fn counterFreeInstance(r: *mut ffi::Reducer, ctx: *mut c_v
 ///
 /// # Safety
 ///
-/// 1. `r` must point to a [valid] `ffi::Reducer`.
-/// 2. `ctx` mut point to a [valid] `Counter`.
+/// 1. `r` must point to a [valid] `CounterReducer` masquerading as a `ffi::Reducer`.
+/// 2. `ctx` mut point to a [valid] `CounterCtx` masquerading as a void pointer.
 /// 3. `srcrow` mut point to a [valid] `ffi::RLookupRow`.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
@@ -64,9 +67,9 @@ pub unsafe extern "C" fn counterAdd(
     srcrow: *const ffi::RLookupRow,
 ) -> c_int {
     // SAFETY: ensured by caller (1.)
-    let r = unsafe { Reducer::from_raw(r) };
+    let r = unsafe { r.cast::<CounterReducer>().as_mut().unwrap() };
     // SAFETY: ensured by caller (2.)
-    let count = unsafe { &mut *ctx.cast::<Counter>() };
+    let count = unsafe { &mut *ctx.cast::<CounterCtx>() };
     // SAFETY: ensured by caller (3.)
     let srcrow = unsafe { &*srcrow.cast::<RLookupRow>() };
 
@@ -79,8 +82,8 @@ pub unsafe extern "C" fn counterAdd(
 ///
 /// # Safety
 ///
-/// 1. `r` must point to a [valid] `ffi::Reducer`.
-/// 2. `ctx` mut point to a [valid] `Counter`.
+/// 1. `r` must point to a [valid] `CounterReducer` masquerading as a `ffi::Reducer`.
+/// 2. `ctx` mut point to a [valid] `CounterCtx` masquerading as a void pointer.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
@@ -89,9 +92,9 @@ pub unsafe extern "C" fn counterFinalize(
     ctx: *mut c_void,
 ) -> *mut ffi::RSValue {
     // SAFETY: ensured by caller (1.)
-    let r = unsafe { Reducer::from_raw(r) };
+    let r = unsafe { r.cast::<CounterReducer>().as_mut().unwrap() };
     // SAFETY: ensured by caller (2.)
-    let count = unsafe { &*ctx.cast::<Counter>() };
+    let count = unsafe { &*ctx.cast::<CounterCtx>() };
 
     count.finalize(r).into_raw()
 }
@@ -108,35 +111,30 @@ pub unsafe extern "C" fn RDCRCount_New(options: *const ffi::ReducerOptions) -> *
     // SAFETY: ensured by caller (1.)
     let options = unsafe { ReducerOptions::from_raw_mut(options.cast_mut()) };
 
-    if options.args().argc != 0 {
-        options.status().set_code_and_message(
-            QueryErrorCode::BadAttr,
-            Some(c"Count accepts 0 values only".into()),
-        );
+    if let Some(mut counter_reducer) = CounterReducer::new(options) {
+        counter_reducer
+            .reducer_mut()
+            .set_new_instance(counterNewInstance)
+            .set_free_instance(counterFreeInstance)
+            .set_add(counterAdd)
+            .set_finalize(counterFinalize)
+            .set_free(counterFree);
 
-        return ptr::null_mut();
+        Box::into_raw(Box::new(counter_reducer)).cast()
+    } else {
+        ptr::null_mut()
     }
-
-    let mut reducer = Reducer::new();
-    reducer
-        .set_new_instance(counterNewInstance)
-        .set_free_instance(counterFreeInstance)
-        .set_add(counterAdd)
-        .set_finalize(counterFinalize)
-        .set_free(counterFree);
-
-    Box::into_raw(Box::new(reducer)).cast()
 }
 
 /// Frees the provided counter reducer.
 ///
 /// # Safety
 ///
-/// 1. `r` must point to a [valid] `ffi::Reducer`.
+/// 1. `r` must point to a [valid] `CounterReducer` masquerading as a `ffi::Reducer`.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn counterFree(r: *mut ffi::Reducer) {
     // SAFETY: ensured by caller (1.)
-    let _ = unsafe { Box::from_raw(r) };
+    let _ = unsafe { Box::from_raw(r.cast::<CounterReducer>()) };
 }
