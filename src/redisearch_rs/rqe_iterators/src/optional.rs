@@ -100,6 +100,7 @@ impl<'index, I> RQEIterator<'index> for Optional<'index, I>
 where
     I: RQEIterator<'index>,
 {
+    #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         if let Some(child) = self.child.as_mut()
             && child.last_doc_id() == self.result.doc_id

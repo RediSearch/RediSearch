@@ -27,6 +27,7 @@ pub mod not;
 pub mod not_optimized;
 pub mod not_reducer;
 pub mod optional;
+pub mod optional_optimized;
 pub mod profile;
 pub mod union;
 mod union_flat;
