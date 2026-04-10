@@ -717,7 +717,7 @@ static int HybridRequest_executePlan(HybridRequest *hreq, struct ConcurrentCmdCt
 
     const RSOomPolicy oomPolicy = hreq->reqConfig.oomPolicy;
     if (!ProcessHybridCursorMappings(cmd, numShards, searchMappingsRef,
-            vsimMappingsRef, hreq->tailPipeline->qctx.err, oomPolicy, hreq)) {
+            vsimMappingsRef, hreq->tailPipeline->qctx.err, oomPolicy, hreq->errors)) {
         // Handle error
         StrongRef_Release(searchMappingsRef);
         StrongRef_Release(vsimMappingsRef);
