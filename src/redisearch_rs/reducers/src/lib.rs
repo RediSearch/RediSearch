@@ -9,5 +9,7 @@
 
 pub mod count;
 mod reducer;
+mod reducer_options;
 
 pub use reducer::Reducer;
+pub use reducer_options::ReducerOptions;

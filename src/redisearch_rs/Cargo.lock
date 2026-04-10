@@ -1882,6 +1882,7 @@ name = "reducers"
 version = "0.0.1"
 dependencies = [
  "ffi",
+ "query_error",
  "rlookup",
  "value",
  "workspace_hack",
@@ -1894,6 +1895,7 @@ dependencies = [
  "build_utils",
  "cbindgen",
  "ffi",
+ "query_error",
  "reducers",
  "rlookup",
  "value",

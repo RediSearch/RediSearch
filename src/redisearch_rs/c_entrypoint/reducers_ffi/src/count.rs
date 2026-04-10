@@ -7,9 +7,13 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use reducers::{Reducer, count::Counter};
+use query_error::QueryErrorCode;
+use reducers::{Reducer, ReducerOptions, count::Counter};
 use rlookup::RLookupRow;
-use std::ffi::{c_int, c_void};
+use std::{
+    ffi::{c_int, c_void},
+    ptr,
+};
 
 /// Creates a new counter reducer instance
 ///
@@ -90,4 +94,49 @@ pub unsafe extern "C" fn counterFinalize(
     let count = unsafe { &*ctx.cast::<Counter>() };
 
     count.finalize(r).into_raw()
+}
+
+/// Constructor for the counter reducer.
+///
+/// # Safety
+///
+/// 1. `options` must point to a [valid] `ffi::ReducerOptions`.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RDCRCount_New(options: *const ffi::ReducerOptions) -> *mut ffi::Reducer {
+    // SAFETY: ensured by caller (1.)
+    let options = unsafe { ReducerOptions::from_raw_mut(options.cast_mut()) };
+
+    if options.args().argc != 0 {
+        options.status().set_code_and_message(
+            QueryErrorCode::BadAttr,
+            Some(c"Count accepts 0 values only".into()),
+        );
+
+        return ptr::null_mut();
+    }
+
+    let mut reducer = Reducer::new();
+    reducer
+        .set_new_instance(counterNewInstance)
+        .set_free_instance(counterFreeInstance)
+        .set_add(counterAdd)
+        .set_finalize(counterFinalize)
+        .set_free(counterFree);
+
+    Box::into_raw(Box::new(reducer)).cast()
+}
+
+/// Frees the provided counter reducer.
+///
+/// # Safety
+///
+/// 1. `r` must point to a [valid] `ffi::Reducer`.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn counterFree(r: *mut ffi::Reducer) {
+    // SAFETY: ensured by caller (1.)
+    let _ = unsafe { Box::from_raw(r) };
 }

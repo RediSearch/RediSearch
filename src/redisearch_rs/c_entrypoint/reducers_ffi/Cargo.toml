@@ -20,6 +20,7 @@ build_utils = { path = "../../build_utils" }
 
 [dependencies]
 ffi.workspace = true
+query_error.workspace = true
 reducers.workspace = true
 rlookup.workspace = true
 value.workspace = true

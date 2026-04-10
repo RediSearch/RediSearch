@@ -59,6 +59,28 @@ int counterAdd(Reducer *r, void *ctx, const RLookupRow *srcrow);
  */
 RSValue *counterFinalize(Reducer *r, void *ctx);
 
+/**
+ * Constructor for the counter reducer.
+ *
+ * # Safety
+ *
+ * 1. `options` must point to a [valid] `ffi::ReducerOptions`.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+Reducer *RDCRCount_New(const ReducerOptions *options);
+
+/**
+ * Frees the provided counter reducer.
+ *
+ * # Safety
+ *
+ * 1. `r` must point to a [valid] `ffi::Reducer`.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+void counterFree(Reducer *r);
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif  // __cplusplus
