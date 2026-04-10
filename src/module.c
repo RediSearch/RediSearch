@@ -3386,7 +3386,9 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies, b
   if (!profile) {
     for (int i = 0; i < count; ++i) {
       rCtx->processReply(replies[i], rCtx, ctx);
-
+      if (!fromTimeout && MRCtx_IsTimedOut(mc)) {
+          goto cleanup;
+      }
     }
   } else {
     const bool resp3 = MRCtx_GetCommandProtocol(mc) == 3;
@@ -3404,7 +3406,9 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies, b
         mr_reply = MRReply_ArrayElement(replies[i], 0);
       }
       rCtx->processReply(mr_reply, rCtx, ctx);
-
+      if (!fromTimeout && MRCtx_IsTimedOut(mc)) {
+          goto cleanup;
+      }
     }
   }
 
