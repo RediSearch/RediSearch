@@ -1,0 +1,21 @@
+name: Test cargo-nextest cache on macOS
+
+on:
+  pull_request:
+
+jobs:
+  test-nextest-macos:
+    permissions:
+      contents: read
+      packages: write
+    uses: ./.github/workflows/task-test.yml
+    secrets: inherit
+    with:
+      platform: macos-15
+      architecture: aarch64
+      redis-ref: unstable
+      test-config: ''
+      coordinator: false
+      standalone: false
+      unit-tests: true
+      rejson: false

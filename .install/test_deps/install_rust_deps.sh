@@ -42,6 +42,8 @@ NEXTEST_ARGS=()
 if [[ "$OS_TYPE" = "Linux" ]] && [[ "$processor" =~ ^(x86_64|aarch64)$ ]]; then
     NEXTEST_ARGS+=(--target="${processor}-unknown-linux-musl")
 fi
+
+# TODO: check with force
 binstall "${NEXTEST_ARGS[@]}" cargo-nextest@0.9.130
 # Tool to aggressively unify the feature sets of our dependencies,
 # thus improving the cacheability of our builds
