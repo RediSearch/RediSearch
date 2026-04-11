@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 from common import *
 import random
+import time
 
 def test_1282(env):
   conn = getConnectionByEnv(env)
@@ -15,6 +16,23 @@ def test_1304(env):
   env.expect('FT.CREATE idx SCHEMA txt1 TEXT').equal('OK')
   env.expect('FT.EXPLAIN idx -20*').equal('PREFIX{-20*}\n')
   env.expect('FT.EXPLAIN idx -\\20*').equal('NOT{\n  PREFIX{20*}\n}\n')
+
+@skip(cluster=True)
+def test_persist_clears_document_expiration(env: Env):
+
+  env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 't', 'TEXT').ok()
+  env.expect('HSET', 'doc:1', 't', 'hello').equal(1)
+  env.expect('FT.SEARCH', 'idx', 'hello').equal([1, 'doc:1', ['t', 'hello']])
+
+  # Set expiration and then persist the document
+  env.expect('PEXPIRE', 'doc:1', '100').equal(1)
+  env.expect('PERSIST', 'doc:1').equal(1)
+
+  # Wait until after the original expiration deadline would have passed.
+  time.sleep(0.2)
+
+  env.expect('EXISTS', 'doc:1').equal(1)
+  env.expect('FT.SEARCH', 'idx', 'hello').equal([1, 'doc:1', ['t', 'hello']])
 
 @skip(cluster=True)
 def test_1414(env):
