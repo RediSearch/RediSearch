@@ -28,32 +28,45 @@ RedisModuleString *global_RenameFromKey = NULL;
 extern RedisModuleCtx *RSDummyContext;
 RedisModuleString **hashFields = NULL;
 
-typedef enum {
-  _null_cmd,
-  hset_cmd,
-  hmset_cmd,
-  hsetnx_cmd,
-  hincrby_cmd,
-  hincrbyfloat_cmd,
-  hdel_cmd,
-  del_cmd,
-  set_cmd,
-  rename_from_cmd,
-  rename_to_cmd,
-  trimmed_cmd,
-  key_trimmed_cmd,
-  restore_cmd,
-  expire_cmd,
-  persist_cmd,
-  expired_cmd,
-  hexpire_cmd,
-  hpersist_cmd,
-  hexpired_cmd,
-  evicted_cmd,
-  change_cmd,
-  loaded_cmd,
-  copy_to_cmd,
-} RedisCmd;
+// The list of events we handle in the notification callback.
+#define REDIS_NOTIFICATION_EVENT_LIST(X)  \
+  X(hset)                                 \
+  X(hmset)                                \
+  X(hsetnx)                               \
+  X(hincrby)                              \
+  X(hincrbyfloat)                         \
+  X(hdel)                                 \
+  X(del)                                  \
+  X(set)                                  \
+  X(rename_from)                          \
+  X(rename_to)                            \
+  X(trimmed)                              \
+  X(key_trimmed)                          \
+  X(restore)                              \
+  X(hexpire)                              \
+  X(hexpired)                             \
+  X(expire)                               \
+  X(expired)                              \
+  X(persist)                              \
+  X(hpersist)                             \
+  X(evicted)                              \
+  X(change)                               \
+  X(loaded)                               \
+  X(copy_to)
+
+// Define an enum value for each event.
+#define DECLARE_EVENT_ENUM(E) E##_cmd,
+enum RedisCmd {
+  _null_cmd = 0,
+  REDIS_NOTIFICATION_EVENT_LIST(DECLARE_EVENT_ENUM)
+};
+#undef DECLARE_EVENT_ENUM
+
+// Cache the event string pointer for future comparisons to avoid strcmp in hot paths.
+// Declare a static variable for each event to hold the cached pointer.
+#define DECLARE_REDIS_NOTIFICATION_EVENT_CACHE(E) static const char *E##_event = NULL;
+REDIS_NOTIFICATION_EVENT_LIST(DECLARE_REDIS_NOTIFICATION_EVENT_CACHE)
+#undef DECLARE_REDIS_NOTIFICATION_EVENT_CACHE
 
 static void freeHashFields() {
   if (hashFields != NULL) {
@@ -68,80 +81,29 @@ static void freeHashFields() {
 int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
                              RedisModuleString *key) {
 
-#define CHECK_CACHED_EVENT(E) \
-  if (event == E##_event) {   \
-    redisCommand = E##_cmd;   \
+#define CHECK_CACHED_EVENT(E)     \
+  else if (event == E##_event) {  \
+    redisCommand = E##_cmd;       \
   }
 
-#define CHECK_AND_CACHE_EVENT(E) \
-  if (!strcmp(event, #E)) {      \
-    redisCommand = E##_cmd;      \
-    E##_event = event;           \
+#define CHECK_AND_CACHE_EVENT(E)  \
+  else if (!strcmp(event, #E)) {  \
+    redisCommand = E##_cmd;       \
+    E##_event = event;            \
   }
 
-  int redisCommand = 0;
+  enum RedisCmd redisCommand;
   RedisModuleKey *kp;
   DocumentType kType;
 
-  static const char *hset_event = 0, *hmset_event = 0, *hsetnx_event = 0, *hincrby_event = 0,
-                    *hincrbyfloat_event = 0, *hdel_event = 0, *del_event = 0, *set_event = 0,
-                    *rename_from_event = 0, *rename_to_event = 0, *trimmed_event = 0, *key_trimmed_event = 0,
-                    *restore_event = 0, *expired_event = 0, *evicted_event = 0, *change_event = 0,
-                    *loaded_event = 0, *copy_to_event = 0, *hexpire_event = 0, *hexpired_event = 0,
-                    *expire_event = 0, *hpersist_event = 0, *persist_event = 0;
+  // Transform the event string into its corresponding enum value,
+  // while caching the event string pointer for future comparisons to avoid strcmp in hot paths.
+  // First "iterate" over the cached events, then fall back to strcmp and cache if found.
 
-  // clang-format off
-
-       CHECK_CACHED_EVENT(hset)
-  else CHECK_CACHED_EVENT(hmset)
-  else CHECK_CACHED_EVENT(hsetnx)
-  else CHECK_CACHED_EVENT(hincrby)
-  else CHECK_CACHED_EVENT(hincrbyfloat)
-  else CHECK_CACHED_EVENT(hdel)
-  else CHECK_CACHED_EVENT(del)
-  else CHECK_CACHED_EVENT(set)
-  else CHECK_CACHED_EVENT(rename_from)
-  else CHECK_CACHED_EVENT(rename_to)
-  else CHECK_CACHED_EVENT(trimmed)
-  else CHECK_CACHED_EVENT(key_trimmed)
-  else CHECK_CACHED_EVENT(restore)
-  else CHECK_CACHED_EVENT(hexpire)
-  else CHECK_CACHED_EVENT(hexpired)
-  else CHECK_CACHED_EVENT(expire)
-  else CHECK_CACHED_EVENT(expired)
-  else CHECK_CACHED_EVENT(persist)
-  else CHECK_CACHED_EVENT(hpersist)
-  else CHECK_CACHED_EVENT(evicted)
-  else CHECK_CACHED_EVENT(change)
-  else CHECK_CACHED_EVENT(loaded)
-  else CHECK_CACHED_EVENT(copy_to)
-
-  else {
-         CHECK_AND_CACHE_EVENT(hset)
-    else CHECK_AND_CACHE_EVENT(hmset)
-    else CHECK_AND_CACHE_EVENT(hsetnx)
-    else CHECK_AND_CACHE_EVENT(hincrby)
-    else CHECK_AND_CACHE_EVENT(hincrbyfloat)
-    else CHECK_AND_CACHE_EVENT(hdel)
-    else CHECK_AND_CACHE_EVENT(del)
-    else CHECK_AND_CACHE_EVENT(set)
-    else CHECK_AND_CACHE_EVENT(rename_from)
-    else CHECK_AND_CACHE_EVENT(rename_to)
-    else CHECK_AND_CACHE_EVENT(trimmed)
-    else CHECK_AND_CACHE_EVENT(key_trimmed)
-    else CHECK_AND_CACHE_EVENT(restore)
-    else CHECK_AND_CACHE_EVENT(hexpire)
-    else CHECK_AND_CACHE_EVENT(hexpired)
-    else CHECK_AND_CACHE_EVENT(expire)
-    else CHECK_AND_CACHE_EVENT(expired)
-    else CHECK_AND_CACHE_EVENT(persist)
-    else CHECK_AND_CACHE_EVENT(hpersist)
-    else CHECK_AND_CACHE_EVENT(evicted)
-    else CHECK_AND_CACHE_EVENT(change)
-    else CHECK_AND_CACHE_EVENT(loaded)
-    else CHECK_AND_CACHE_EVENT(copy_to)
-    else redisCommand = _null_cmd;
-  }
+  if (0) {} // dummy first statement to allow the else-if chain
+  REDIS_NOTIFICATION_EVENT_LIST(CHECK_CACHED_EVENT)
+  REDIS_NOTIFICATION_EVENT_LIST(CHECK_AND_CACHE_EVENT)
+  else redisCommand = _null_cmd;
 
   switch (redisCommand) {
 
