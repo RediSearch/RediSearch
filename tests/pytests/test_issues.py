@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 from common import *
 import random
-import time
 
 def test_1282(env):
   conn = getConnectionByEnv(env)
