@@ -18,8 +18,10 @@ def test_1304(env):
   env.expect('FT.EXPLAIN idx -\\20*').equal('NOT{\n  PREFIX{20*}\n}\n')
 
 @skip(cluster=True)
-def test_persist_clears_document_expiration(env: Env):
-
+def test_MOD_14800(env: Env):
+  # Verify that persisting a hash key or an indexed hash field clears the
+  # corresponding expiration metadata from the index, so the document remains
+  # searchable after the original expiration deadline would have passed.
   env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 't', 'TEXT').ok()
   env.expect('HSET', 'doc:1', 't', 'hello').equal(1)
   env.expect('FT.SEARCH', 'idx', 'hello').equal([1, 'doc:1', ['t', 'hello']])
@@ -32,6 +34,16 @@ def test_persist_clears_document_expiration(env: Env):
   time.sleep(0.2)
 
   env.expect('EXISTS', 'doc:1').equal(1)
+  env.expect('FT.SEARCH', 'idx', 'hello').equal([1, 'doc:1', ['t', 'hello']])
+
+  # Set field expiration and then persist the indexed field itself.
+  env.expect('HPEXPIRE', 'doc:1', '100', 'FIELDS', '1', 't').equal([1])
+  env.expect('HPERSIST', 'doc:1', 'FIELDS', '1', 't').equal([1])
+
+  # Wait until after the original expiration deadline would have passed.
+  time.sleep(0.2)
+
+  env.expect('HGET', 'doc:1', 't').equal('hello')
   env.expect('FT.SEARCH', 'idx', 'hello').equal([1, 'doc:1', ['t', 'hello']])
 
 @skip(cluster=True)
