@@ -3432,13 +3432,19 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies, b
     goto cleanup;
   }
 
-  // Post process before cleanup and, on the normal reply path, client unblock.
-  rCtx->postProcess(rCtx);
-
 cleanup:
   if (rCtx) {
-    rm_free(rCtx->cachedResult);
-    rCtx->cachedResult = NULL;
+    // Call postProcess even on early exits (e.g. timeouts) so that partially
+    // processed special cases like KNN can flush their internal queues into
+    // the final result heap.
+    if (rCtx->postProcess) {
+      rCtx->postProcess(rCtx);
+      rCtx->postProcess = NULL;
+    }
+    if (rCtx->cachedResult) {
+      rm_free(rCtx->cachedResult);
+      rCtx->cachedResult = NULL;
+    }
   }
 
   if (bc && !fromTimeout && !MRCtx_IsTimedOut(mc)) {
