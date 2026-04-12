@@ -3427,10 +3427,6 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies, b
   }
 #endif
 
-  if (rCtx->cachedResult) {
-    rm_free(rCtx->cachedResult);
-  }
-
   if (rCtx->errorOccurred && !rCtx->lastError) {
     QueryError_SetError(MRCtx_GetStatus(mc), QUERY_ERROR_CODE_GENERIC, "could not parse redisearch results");
     goto cleanup;
@@ -3440,6 +3436,11 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies, b
   rCtx->postProcess(rCtx);
 
 cleanup:
+  if (rCtx) {
+    rm_free(rCtx->cachedResult);
+    rCtx->cachedResult = NULL;
+  }
+
   if (bc && !fromTimeout && !MRCtx_IsTimedOut(mc)) {
     // Timeout callback should not call unblockClient
     RedisModule_BlockedClientMeasureTimeEnd(bc);
@@ -4168,6 +4169,9 @@ static void DistSearchMRCtxFreePrivData(struct MRCtx *mrctx) {
 
   searchReducerCtx *rctx = req->rctx;
   if (rctx) {
+    if (rctx->cachedResult) {
+      rm_free(rctx->cachedResult);
+    }
     if (rctx->pq) {
       heap_destroy(rctx->pq);
     }
