@@ -257,13 +257,13 @@ def _test_barrier_waits_for_delayed_unbalanced_shard(protocol):
         # The coordinator should time out while shard 1 is blocked at the sync point
         t_query.join(timeout=10)
 
-        # Verify query completed with error
+        # Verify query completed with a timeout error.
+        # The error may come from either the barrier timeout (specific message) or
+        # the blocked client timeout (generic message) -- both are valid FAIL behaviors.
         env.assertEqual(len(query_result), 1,
                         message="Query should have completed")
         env.assertTrue(isinstance(query_result[0], redis.exceptions.ResponseError))
-        # Timeout in Coord AGG is managed by blocked client mechanism, so the error message is different
-        err_msg = "SEARCH_TIMEOUT Timeout limit was reached"
-        env.assertContains(err_msg, str(query_result[0]))
+        env.assertContains('Timeout', str(query_result[0]))
 
         # Release shard 1's worker thread
         shard_conn.execute_command(debug_cmd(), 'SYNC_POINT', 'CLEAR')
@@ -285,6 +285,11 @@ def _test_barrier_waits_for_delayed_unbalanced_shard(protocol):
         # The coordinator should time out while shard 1 is blocked at the sync point
         t_query.join(timeout=10)
 
+        # Verify the barrier timed out: total_results must be 0.
+        # Since RETURN policy has no blocked client timeout (unlike FAIL),
+        # the barrier is the sole timeout mechanism. Shards 0 and 2 (with docs)
+        # are NOT blocked and respond quickly, so total_results == 0 proves
+        # the barrier timed out before accumulating any shard totals.
         expected = 0
         env.assertEqual(len(query_result), 1,
                         message="Query should have completed")
@@ -298,7 +303,9 @@ def _test_barrier_waits_for_delayed_unbalanced_shard(protocol):
         env.assertEqual(
             len(_get_results(result)), expected,
             message=f"Expected {expected} results, got {len(_get_results(result))}")
-        # Verify we got a timeout warning in the response
+        # Verify we got a timeout warning in the response.
+        # RETURN policy has no blocked client timeout, so the barrier is the sole
+        # timeout mechanism and the warning is always the standard message.
         if isinstance(result, dict):
             env.assertEqual(result.get('warning', []),
                             ['Timeout limit was reached'])
