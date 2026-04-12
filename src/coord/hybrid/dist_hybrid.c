@@ -24,6 +24,7 @@
 #include "shard_window_ratio.h"
 #include "config.h"
 #include "coord/coord_request_ctx.h"
+#include "debug_commands.h"
 
 // We mainly need the resp protocol to be three in order to easily extract the "score" key from the response
 #define HYBRID_RESP_PROTOCOL_VERSION 3
@@ -816,6 +817,10 @@ void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
         DistHybridCleanups(ctx, cmdCtx, NULL, NULL, NULL, reply, &status);
         return;
     }
+
+#ifdef ENABLE_ASSERT
+    SyncPoint_Wait(SYNC_POINT_BEFORE_DIST_HYBRID_PROMOTE);
+#endif
 
     // Check if the index still exists, and promote the ref accordingly
     StrongRef strong_ref = IndexSpecRef_Promote(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
