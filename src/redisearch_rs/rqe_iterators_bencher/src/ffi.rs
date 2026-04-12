@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use ffi::NewOptionalIterator;
 pub use ffi::{
     IndexFlags, IndexFlags_Index_DocIdsOnly, IndexFlags_Index_StoreByteOffsets,
     IndexFlags_Index_StoreFieldFlags, IndexFlags_Index_StoreFreqs, IndexFlags_Index_StoreNumeric,
@@ -15,10 +16,7 @@ pub use ffi::{
 };
 use inverted_index::{RSIndexResult, RSQueryTerm};
 use iterators_ffi::intersection::NewIntersectionIterator;
-use std::{
-    ffi::c_void,
-    ptr::{self, NonNull},
-};
+use std::{ffi::c_void, ptr};
 
 /// Simple wrapper around the C `QueryIterator` type.
 /// All methods are inlined to avoid the overhead when benchmarking.
@@ -94,45 +92,21 @@ impl QueryIterator {
         })
     }
 
-    /// Create an optimized wildcard iterator from a search context.
+    /// Create a C `OptionalOptimized` iterator.
     ///
-    /// # Safety
-    ///
-    /// `sctx` must satisfy the preconditions of `NewWildcardIterator_Optimized`:
-    /// valid `RedisSearchCtx` with `spec.rule.index_all == true` and a valid
-    /// `spec.existingDocs` inverted index.
+    /// `qctx` must point to a `QueryEvalCtx` whose `sctx.spec.rule.index_all`
+    /// is `true` and whose `sctx.spec.existingDocs` points to a valid
+    /// `DocIdsOnly` inverted index. The `qctx` (and the `existingDocs` it
+    /// transitively references) **must outlive the returned iterator**, because
+    /// the iterator's internal wildcard holds a raw pointer into `sctx`.
     #[inline(always)]
-    pub unsafe fn new_wildcard_optimized(sctx: NonNull<ffi::RedisSearchCtx>, weight: f64) -> Self {
-        // SAFETY: Caller guarantees the preconditions of `NewWildcardIterator_Optimized`.
-        Self(unsafe {
-            iterators_ffi::wildcard::NewWildcardIterator_Optimized(sctx.as_ptr(), weight)
-        })
-    }
-
-    /// Create an optimized NOT iterator with the given child and wildcard iterators.
-    /// Uses `_New_NotIterator_With_WildCardIterator` which is the C benchmark constructor.
-    #[inline(always)]
-    pub fn new_not_optimized(child: Self, wc: Self, max_doc_id: u64, weight: f64) -> Self {
-        let timeout = ffi::timespec {
-            tv_sec: 0,
-            tv_nsec: 0,
-        };
-        // REDISEARCH_UNINITIALIZED (-1 as u32) to skip timeout checks.
-        let timeout_counter = u32::MAX;
-
-        // SAFETY: `child.0` and `wc.0` are valid QueryIterator pointers created by
-        // the C API. Ownership of both is transferred to the new NOT iterator.
-        // `timeout` and `timeout_counter` are stack values with no pointer invariants.
-        Self(unsafe {
-            ffi::_New_NotIterator_With_WildCardIterator(
-                child.0,
-                wc.0,
-                max_doc_id,
-                weight,
-                timeout,
-                timeout_counter,
-            )
-        })
+    pub fn new_optional_optimized(
+        child: Self,
+        qctx: *mut ffi::QueryEvalCtx,
+        max_doc_id: t_docId,
+        weight: f64,
+    ) -> Self {
+        Self(unsafe { NewOptionalIterator(child.into_raw(), qctx, max_doc_id, weight) })
     }
 
     /// Creates a new intersection iterator from child ID list iterators.

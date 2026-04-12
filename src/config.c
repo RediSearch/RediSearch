@@ -15,6 +15,8 @@
 #include <string.h>
 #include <stdlib.h>
 #include <limits.h>
+#include <unistd.h>
+#include "util/minmax.h"
 #include "rmalloc.h"
 #include "rules.h"
 #include "spec.h"
@@ -1895,6 +1897,18 @@ void iteratorsConfig_init(IteratorsConfig *config) {
 }
 
 
+size_t GetDefaultWorkerThreads(void) {
+  if (IsEnterprise()) return 0;  // Keep default 0 for Redis Enterprise
+  long nprocs = sysconf(_SC_NPROCESSORS_ONLN);
+  if (nprocs <= 0) {
+    RedisModule_Log(RSDummyContext, "warning",
+      "sysconf(_SC_NPROCESSORS_ONLN) failed or returned %ld, falling back to MAX_WORKER_THREADS (%d)",
+      nprocs, MAX_WORKER_THREADS);
+    return MAX_WORKER_THREADS;
+  }
+  return MIN(MAX_WORKER_THREADS, (size_t)nprocs);
+}
+
 int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
   // Numeric parameters
   RM_TRY(
@@ -2109,9 +2123,14 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
     )
   )
 
+  size_t defaultWorkers = GetDefaultWorkerThreads();
+  RedisModule_Log(ctx, "notice",
+    "search-workers default: %zu (min of MAX_WORKER_THREADS=%d and CPU cores)",
+    defaultWorkers, MAX_WORKER_THREADS);
+  RSGlobalConfig.numWorkerThreads = defaultWorkers;
   RM_TRY(
     RedisModule_RegisterNumericConfig(
-      ctx, "search-workers", DEFAULT_WORKER_THREADS,
+      ctx, "search-workers", (long long)defaultWorkers,
       REDISMODULE_CONFIG_UNPREFIXED, 0,
       MAX_WORKER_THREADS, get_workers, set_workers, NULL,
       (void *)&RSGlobalConfig

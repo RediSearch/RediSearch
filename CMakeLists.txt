@@ -78,7 +78,7 @@ option(USE_REDIS_ALLOCATOR "Use redis allocator" ON)
 option(BUILD_SEARCH_UNIT_TESTS "Build unit tests" OFF)
 option(VERBOSE_UTESTS "Enable verbose unit tests" OFF)
 option(ENABLE_ASSERT "Enable assertions" OFF)
-option(MAX_WORKER_THREADS "Override them maximum parallel worker threads allowed in thread-pool" "")
+set(MAX_WORKER_THREADS "" CACHE STRING "Override the maximum parallel worker threads allowed in thread-pool")
 option(BUILD_TESTING "Enable testing for cpu-features dep" OFF)
 
 
@@ -153,6 +153,12 @@ set(CMAKE_LINKER_FLAGS "${CMAKE_LINKER_FLAGS} ${CMAKE_LD_FLAGS}")
 set(CMAKE_C_FLAGS   "${CMAKE_C_FLAGS} -Wformat")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wformat")
 
+# Promote specific warnings to errors. These use add_compile_options() which
+# propagates to ALL subdirectories, including deps (libuv, VectorSimilarity, etc.).
+# Each flag is compiler-specific (gcc vs clang), so if a dep needs an override
+# (e.g. -Wno-error=X via target_compile_options), guard it with the same
+# compiler check or a $<C_COMPILER_ID:...> generator expression.
+
 # gcc
 check_c_compiler_flag("-Werror=discarded-qualifiers" HAS_DISCARDED_QUALIFIERS)
 if(HAS_DISCARDED_QUALIFIERS)
@@ -192,10 +198,6 @@ add_compile_definitions(
 
 if(BUILD_INTEL_SVS_OPT)
     add_compile_definitions("BUILD_INTEL_SVS_OPT=1")
-endif()
-
-if(MAX_WORKER_THREADS)
-    set_source_files_properties(src/config.c PROPERTIES COMPILE_DEFINITIONS MAX_WORKER_THREADS=${MAX_WORKER_THREADS})
 endif()
 
 if(USE_REDIS_ALLOCATOR)

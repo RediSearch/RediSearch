@@ -25,6 +25,7 @@ macro_rules! union_common_tests {
             create_union_children,
         };
         use rqe_iterators::{IteratorType, RQEIterator, RQEValidateStatus, SkipToOutcome};
+        use crate::utils::FieldMaskMock;
 
         type Union<I> = $UnionFull<'static, I>;
 
@@ -1400,6 +1401,42 @@ macro_rules! union_common_tests {
             let children: Vec<Box<dyn RQEIterator<'static>>> = vec![MockVec::new_boxed(vec![1, 2, 3])];
             let it = $UnionQuick::new(children);
             assert_eq!(it.type_(), IteratorType::Union);
+        }
+
+        // =============================================================================
+        // reset_aggregate tests
+        // =============================================================================
+
+        /// Verify that field_mask is reset between reads and doesn't accumulate.
+        ///
+        /// Without `reset_aggregate`, the aggregate result's field_mask would
+        /// be OR'd across reads, leaking bits from previous documents.
+        #[test]
+        #[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
+        fn full_mode_field_mask_resets_between_reads() {
+            let children: Vec<Box<dyn RQEIterator<'static>>> = vec![
+                Box::new(FieldMaskMock::new(vec![10, 20], 0x1)),
+                Box::new(FieldMaskMock::new(vec![10, 30], 0x2)),
+            ];
+            let mut union = $UnionFull::new(children);
+
+            let r = union.read().unwrap().unwrap();
+            assert_eq!(r.doc_id, 10);
+            assert_eq!(
+                r.field_mask, 0x3,
+                "doc 10: both children → mask = 0x1 | 0x2 = 0x3"
+            );
+
+            let r = union.read().unwrap().unwrap();
+            assert_eq!(r.doc_id, 20);
+            assert_eq!(
+                r.field_mask, 0x1,
+                "doc 20: only child0 → mask must be 0x1, not 0x3"
+            );
+
+            let r = union.read().unwrap().unwrap();
+            assert_eq!(r.doc_id, 30);
+            assert_eq!(r.field_mask, 0x2, "doc 30: only child1 → mask must be 0x2");
         }
 
     };

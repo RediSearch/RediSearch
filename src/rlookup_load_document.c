@@ -354,3 +354,7 @@ int RLookup_LoadDocumentIndividual(RLookup *it, RLookupRow *dst, RLookupLoadOpti
 
   return rv;
 }
+
+size_t sdslen_rust(const sds s) {
+  return sdslen(s);
+}
