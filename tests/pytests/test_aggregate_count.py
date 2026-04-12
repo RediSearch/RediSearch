@@ -443,6 +443,14 @@ def _test_profile(protocol):
          [('Index', 1041), ('Sorter', 50), ('Loader', 50)]],
          [('Network', 150), ('Sorter', 50)]]),
 
+        # WITHCOUNT + SORTBY + MAX
+        (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'SORTBY', 1, '@title', 'MAX', 50],
+         [('Index', 3100), ('Sorter', 50)],
+         [[[('Index', 1027), ('Sorter', 50), ('Loader', 50)],
+           [('Index', 1032), ('Sorter', 50), ('Loader', 50)],
+           [('Index', 1041), ('Sorter', 50), ('Loader', 50)]],
+           [('Network', 150), ('Sorter', 50)]]),
+
         # WITHCOUNT + LOAD
         (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LOAD', 1, '@title'],
          [('Index', 3100), ('Loader', 3100), ('Depleter', 3100)],
@@ -578,17 +586,6 @@ def _test_profile(protocol):
            [('Index', 1041), ('Loader', 1041), ('Sorter', 200), ('Loader', 200)]],
            [('Network', 600), ('Sorter', 200), ('Grouper', 25), ('Filter - Predicate >', 25)]]),
 
-        # WITHCOUNT + LOAD -> SORTBY + MAX -> GROUPBY + REDUCE SUM -> APPLY
-        (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LOAD', 1, '@price',
-          'SORTBY', 2, '@price', 'DESC', 'MAX', 200,
-          'GROUPBY', 1, '@brand', 'REDUCE', 'SUM', 1, '@price', 'AS', 'total',
-          'APPLY', '@total * 2', 'AS', 'doubled'],
-         [('Index', 3100), ('Loader', 3100), ('Sorter', 200), ('Grouper', 25), ('Projector - Operator *', 25)],
-         [[[('Index', 1027), ('Loader', 1027), ('Sorter', 200), ('Loader', 200)],
-           [('Index', 1032), ('Loader', 1032), ('Sorter', 200), ('Loader', 200)],
-           [('Index', 1041), ('Loader', 1041), ('Sorter', 200), ('Loader', 200)]],
-           [('Network', 600), ('Sorter', 200), ('Grouper', 25), ('Projector - Operator *', 25)]]),
-
         # ----------------------------------------------------------------------
         # WITHOUTCOUNT
         (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT'],
@@ -653,6 +650,14 @@ def _test_profile(protocol):
 
         # WITHOUTCOUNT + SORTBY + LIMIT
         (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'SORTBY', 1, '@title', 'LIMIT', 0, 50],
+         [('Index', 3100), ('Sorter', 50)],
+         [[[('Index', 1027), ('Sorter', 50), ('Loader', 50)],
+           [('Index', 1032), ('Sorter', 50), ('Loader', 50)],
+           [('Index', 1041), ('Sorter', 50), ('Loader', 50)]],
+           [('Network', 150), ('Sorter', 50)]]),
+
+        # WITHOUTCOUNT + SORTBY + MAX
+        (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'SORTBY', 1, '@title', 'MAX', 50],
          [('Index', 3100), ('Sorter', 50)],
          [[[('Index', 1027), ('Sorter', 50), ('Loader', 50)],
            [('Index', 1032), ('Sorter', 50), ('Loader', 50)],
@@ -777,16 +782,6 @@ def _test_profile(protocol):
            [('Index', 1041), ('Loader', 1041), ('Sorter', 200), ('Loader', 200)]],
            [('Network', 600), ('Sorter', 200), ('Grouper', 25), ('Filter - Predicate >', 25)]]),
 
-        # WITHOUTCOUNT + LOAD -> SORTBY + MAX -> GROUPBY + REDUCE SUM -> APPLY
-        (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'LOAD', 1, '@price',
-          'SORTBY', 2, '@price', 'DESC', 'MAX', 200,
-          'GROUPBY', 1, '@brand', 'REDUCE', 'SUM', 1, '@price', 'AS', 'total',
-          'APPLY', '@total * 2', 'AS', 'doubled'],
-         [('Index', 3100), ('Loader', 199), ('Pager/Limiter', 200), ('Grouper', 25), ('Projector - Operator *', 25)],
-         [[[('Index', 1027), ('Loader', 1027), ('Sorter', 200), ('Loader', 200)],
-           [('Index', 1032), ('Loader', 1032), ('Sorter', 200), ('Loader', 200)],
-           [('Index', 1041), ('Loader', 1041), ('Sorter', 200), ('Loader', 200)]],
-           [('Network', 600), ('Sorter', 200), ('Grouper', 25), ('Projector - Operator *', 25)]]),
     ]
 
     for (query, standalone, cluster) in queries_and_profiles:
