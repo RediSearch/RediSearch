@@ -62,8 +62,8 @@ enum RedisCmd {
 };
 #undef DECLARE_EVENT_ENUM
 
-// Cache the event string pointer for future comparisons to avoid strcmp in hot paths.
 // Declare a static variable for each event to hold the cached pointer.
+// This caches the event string pointer for future comparisons to avoid strcmp in hot paths.
 #define DECLARE_REDIS_NOTIFICATION_EVENT_CACHE(E) static const char *E##_event = NULL;
 REDIS_NOTIFICATION_EVENT_LIST(DECLARE_REDIS_NOTIFICATION_EVENT_CACHE)
 #undef DECLARE_REDIS_NOTIFICATION_EVENT_CACHE
@@ -100,7 +100,7 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
   // while caching the event string pointer for future comparisons to avoid strcmp in hot paths.
   // First "iterate" over the cached events, then fall back to strcmp and cache if found.
 
-  if (0) {} // dummy first statement to allow the else-if chain
+  if (false) {} // dummy first statement to allow the else-if chain
   REDIS_NOTIFICATION_EVENT_LIST(CHECK_CACHED_EVENT)
   REDIS_NOTIFICATION_EVENT_LIST(CHECK_AND_CACHE_EVENT)
   else redisCommand = _null_cmd;
