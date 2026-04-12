@@ -539,6 +539,56 @@ def _test_profile(protocol):
            [('Index', 1041), ('Loader', 1041), ('Filter - Predicate <', 68), ('Depleter', 49), ('Pager/Limiter', 50)]],
            [('Network', 150), ('Depleter', 49), ('Pager/Limiter', 50)]]),
 
+        # WITHCOUNT + SORTBY -> GROUPBY
+        (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'SORTBY', 1, '@title',
+          'GROUPBY', 1, '@brand', 'REDUCE', 'COUNT', 0, 'AS', 'cnt'],
+         [('Index', 3100), ('Sorter', 10), ('Grouper', 7)],
+         [[[('Index', 1027), ('Sorter', 10), ('Loader', 10)],
+           [('Index', 1032), ('Sorter', 10), ('Loader', 10)],
+           [('Index', 1041), ('Sorter', 10), ('Loader', 10)]],
+           [('Network', 30), ('Sorter', 10), ('Grouper', 7)]]),
+
+        # WITHCOUNT + SORTBY + MAX -> GROUPBY
+        (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'SORTBY', 1, '@title', 'MAX', 50,
+          'GROUPBY', 1, '@brand', 'REDUCE', 'COUNT', 0, 'AS', 'cnt'],
+         [('Index', 3100), ('Sorter', 50), ('Grouper', 25)],
+         [[[('Index', 1027), ('Sorter', 50), ('Loader', 50)],
+           [('Index', 1032), ('Sorter', 50), ('Loader', 50)],
+           [('Index', 1041), ('Sorter', 50), ('Loader', 50)]],
+           [('Network', 150), ('Sorter', 50), ('Grouper', 25)]]),
+
+        # WITHCOUNT + SORTBY + MAX -> GROUPBY + REDUCE -> SORTBY -> LIMIT
+        (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'SORTBY', 2, '@price', 'DESC', 'MAX', 100,
+          'GROUPBY', 1, '@brand', 'REDUCE', 'COUNT', 0, 'AS', 'cnt',
+          'SORTBY', 2, '@cnt', 'DESC', 'LIMIT', 0, 10],
+         [('Index', 3100), ('Loader', 3100), ('Sorter', 100), ('Grouper', 25), ('Sorter', 10)],
+         [[[('Index', 1027), ('Loader', 1027), ('Sorter', 100), ('Loader', 100)],
+           [('Index', 1032), ('Loader', 1032), ('Sorter', 100), ('Loader', 100)],
+           [('Index', 1041), ('Loader', 1041), ('Sorter', 100), ('Loader', 100)]],
+           [('Network', 300), ('Sorter', 100), ('Grouper', 25), ('Sorter', 10)]]),
+
+        # WITHCOUNT + LOAD -> SORTBY + MAX -> GROUPBY + REDUCE -> FILTER
+        (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LOAD', 1, '@price',
+          'SORTBY', 2, '@price', 'DESC', 'MAX', 200,
+          'GROUPBY', 1, '@brand', 'REDUCE', 'COUNT', 0, 'AS', 'cnt',
+          'FILTER', '@cnt > 5'],
+         [('Index', 3100), ('Loader', 3100), ('Sorter', 200), ('Grouper', 25), ('Filter - Predicate >', 25)],
+         [[[('Index', 1027), ('Loader', 1027), ('Sorter', 200), ('Loader', 200)],
+           [('Index', 1032), ('Loader', 1032), ('Sorter', 200), ('Loader', 200)],
+           [('Index', 1041), ('Loader', 1041), ('Sorter', 200), ('Loader', 200)]],
+           [('Network', 600), ('Sorter', 200), ('Grouper', 25), ('Filter - Predicate >', 25)]]),
+
+        # WITHCOUNT + LOAD -> SORTBY + MAX -> GROUPBY + REDUCE SUM -> APPLY
+        (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LOAD', 1, '@price',
+          'SORTBY', 2, '@price', 'DESC', 'MAX', 200,
+          'GROUPBY', 1, '@brand', 'REDUCE', 'SUM', 1, '@price', 'AS', 'total',
+          'APPLY', '@total * 2', 'AS', 'doubled'],
+         [('Index', 3100), ('Loader', 3100), ('Sorter', 200), ('Grouper', 25), ('Projector - Operator *', 25)],
+         [[[('Index', 1027), ('Loader', 1027), ('Sorter', 200), ('Loader', 200)],
+           [('Index', 1032), ('Loader', 1032), ('Sorter', 200), ('Loader', 200)],
+           [('Index', 1041), ('Loader', 1041), ('Sorter', 200), ('Loader', 200)]],
+           [('Network', 600), ('Sorter', 200), ('Grouper', 25), ('Projector - Operator *', 25)]]),
+
         # ----------------------------------------------------------------------
         # WITHOUTCOUNT
         (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT'],
@@ -696,6 +746,47 @@ def _test_profile(protocol):
            [('Index', 49), ('Loader', 49), ('Filter - Predicate <', 49), ('Pager/Limiter', 50)],
            [('Index', 49), ('Loader', 49), ('Filter - Predicate <', 49), ('Pager/Limiter', 50)]],
            [('Network', 49), ('Pager/Limiter', 50)]]),
+
+        # WITHOUTCOUNT + SORTBY + MAX -> GROUPBY
+        (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'SORTBY', 1, '@title', 'MAX', 50,
+          'GROUPBY', 1, '@brand', 'REDUCE', 'COUNT', 0, 'AS', 'cnt'],
+         [('Index', 49), ('Pager/Limiter', 50), ('Grouper', 25)],
+         [[[('Index', 49), ('Pager/Limiter', 50)],
+           [('Index', 49), ('Pager/Limiter', 50)],
+           [('Index', 49), ('Pager/Limiter', 50)]],
+           [('Network', 150), ('Grouper', 25)]]),
+
+        # WITHOUTCOUNT + SORTBY + MAX -> GROUPBY + REDUCE -> SORTBY -> LIMIT
+        (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'SORTBY', 2, '@price', 'DESC', 'MAX', 100,
+          'GROUPBY', 1, '@brand', 'REDUCE', 'COUNT', 0, 'AS', 'cnt',
+          'SORTBY', 2, '@cnt', 'DESC', 'LIMIT', 0, 10],
+         [('Index', 3100), ('Loader', 3100), ('Sorter', 100), ('Grouper', 25), ('Sorter', 10)],
+         [[[('Index', 1027), ('Loader', 1027), ('Sorter', 100), ('Loader', 100)],
+           [('Index', 1032), ('Loader', 1032), ('Sorter', 100), ('Loader', 100)],
+           [('Index', 1041), ('Loader', 1041), ('Sorter', 100), ('Loader', 100)]],
+           [('Network', 300), ('Sorter', 100), ('Grouper', 25), ('Sorter', 10)]]),
+
+        # WITHOUTCOUNT + LOAD -> SORTBY + MAX -> GROUPBY + REDUCE -> FILTER
+        (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'LOAD', 1, '@price',
+          'SORTBY', 2, '@price', 'DESC', 'MAX', 200,
+          'GROUPBY', 1, '@brand', 'REDUCE', 'COUNT', 0, 'AS', 'cnt',
+          'FILTER', '@cnt > 5'],
+         [('Index', 3100), ('Loader', 199), ('Pager/Limiter', 200), ('Grouper', 25), ('Filter - Predicate >', 25)],
+         [[[('Index', 1027), ('Loader', 1027), ('Sorter', 200), ('Loader', 200)],
+           [('Index', 1032), ('Loader', 1032), ('Sorter', 200), ('Loader', 200)],
+           [('Index', 1041), ('Loader', 1041), ('Sorter', 200), ('Loader', 200)]],
+           [('Network', 600), ('Sorter', 200), ('Grouper', 25), ('Filter - Predicate >', 25)]]),
+
+        # WITHOUTCOUNT + LOAD -> SORTBY + MAX -> GROUPBY + REDUCE SUM -> APPLY
+        (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'LOAD', 1, '@price',
+          'SORTBY', 2, '@price', 'DESC', 'MAX', 200,
+          'GROUPBY', 1, '@brand', 'REDUCE', 'SUM', 1, '@price', 'AS', 'total',
+          'APPLY', '@total * 2', 'AS', 'doubled'],
+         [('Index', 3100), ('Loader', 199), ('Pager/Limiter', 200), ('Grouper', 25), ('Projector - Operator *', 25)],
+         [[[('Index', 1027), ('Loader', 1027), ('Sorter', 200), ('Loader', 200)],
+           [('Index', 1032), ('Loader', 1032), ('Sorter', 200), ('Loader', 200)],
+           [('Index', 1041), ('Loader', 1041), ('Sorter', 200), ('Loader', 200)]],
+           [('Network', 600), ('Sorter', 200), ('Grouper', 25), ('Projector - Operator *', 25)]]),
     ]
 
     for (query, standalone, cluster) in queries_and_profiles:
