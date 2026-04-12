@@ -35,7 +35,7 @@ void iterCursorMappingCb(void *p);
 typedef struct CursorMappings CursorMappings;
 
 // Send _FT.CURSOR DEL commands for each cursor in the mappings.
-void MR_CursorDelete(CursorMappings *mappings, const char *indexName);
+void MR_CursorMappingsDelete(CursorMappings *mappings, const char *indexName);
 
 /* Prototype for all reduce functions */
 typedef int (*MRReduceFunc)(struct MRCtx *ctx, int count, MRReply **replies);

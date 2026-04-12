@@ -33,7 +33,7 @@ void CursorMapping_Release(CursorMapping *mapping) {
 }
 
 void CursorMappings_DeleteAll(CursorMappings *mappings, const char *indexName) {
-  MR_CursorDelete(mappings, indexName);
+  MR_CursorMappingsDelete(mappings, indexName);
 }
 
 static void processHybridError(processCursorMappingCallbackContext *ctx, MRReply *rep) {

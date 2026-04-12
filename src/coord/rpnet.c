@@ -455,6 +455,15 @@ void rpnetFree(ResultProcessor *rp) {
   if (nc->it) {
     RS_DEBUG_LOG("rpnetFree: calling MRIterator_Release");
     MRIterator_Release(nc->it);
+  } else if (nc->mappings.rm) {
+    // Iterator was never started (e.g., query aborted before rpnetNext_StartWithMappings),
+    // but cursor mappings exist - we need to explicitly delete the remote cursors.
+    // When nc->it exists, MRIterator_Release handles sending _FT.CURSOR DEL commands.
+    CursorMappings *mappings = StrongRef_Get(nc->mappings);
+    if (mappings && array_len(mappings->mappings) > 0) {
+      const char *indexName = MRCommand_ArgStringPtrLen(&nc->cmd, 1, NULL);
+      CursorMappings_DeleteAll(mappings, indexName);
+    }
   }
 
   if (nc->shardsProfile) {
@@ -462,7 +471,7 @@ void rpnetFree(ResultProcessor *rp) {
     array_free(nc->shardsProfile);
   }
 
-  // NEW: Free cursor mappings
+  // Free cursor mappings (local memory only - remote cursors handled above)
   if (nc->mappings.rm) {
     StrongRef_Release(nc->mappings);
   }

@@ -845,7 +845,7 @@ static void cursorDeleteOnIOThread(void *p) {
 // This schedules the work onto the IO thread to ensure thread safety,
 // similar to how MRIterator_Release schedules iterManualNextCb.
 // The mappings are copied internally - caller retains ownership.
-void MR_CursorDelete(CursorMappings *mappings, const char *indexName) {
+void MR_CursorMappingsDelete(CursorMappings *mappings, const char *indexName) {
   if (!mappings || !indexName || array_len(mappings->mappings) == 0) {
     return;
   }
