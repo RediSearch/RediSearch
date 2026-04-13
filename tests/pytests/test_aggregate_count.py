@@ -828,6 +828,15 @@ def _test_profile(protocol):
            [('Index', 1041), ('Grouper', 25)]],
            [('Network', 75), ('Grouper', 25), ('Grouper', 1)]]),
 
+        # NOTE: The following WITHOUTCOUNT counterparts are intentionally
+        # missing because they currently fail with "Success (not an error)":
+        # - WITHOUTCOUNT + SORTBY -> GROUPBY (no MAX) — counterpart of
+        #   WITHCOUNT + SORTBY -> GROUPBY (no MAX)
+        # - WITHOUTCOUNT + GROUPBY -> SORTBY -> GROUPBY (mixed pipeline) —
+        #   counterpart of WITHCOUNT + GROUPBY -> SORTBY -> GROUPBY
+        # SORTBY without MAX combined with GROUPBY under WITHOUTCOUNT triggers
+        # a bug. The WITHCOUNT variants and SORTBY+MAX variants work correctly.
+
     ]
 
     for (query, standalone, cluster) in queries_and_profiles:
