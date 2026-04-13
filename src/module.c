@@ -4371,7 +4371,7 @@ int DistSearchCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   // NumShards is used as a hint for reply capacity - unsafe read is fine.
   struct MRCtx *mrctx = MR_CreateCtx(ctx, NULL, req, NumShards);
   // FT.SEARCH coordinator should validate connections before sending the command to the cluster
-  MRCtx_SetValidateConnections(mrctx, RSGlobalConfig.requestConfigParams.validateConnections);
+  MRCtx_SetValidateConnections(mrctx, true);
 
   // Block client - MRCtx is set as privdata so timeout callback can access it
   RedisModuleBlockedClient* bc = DistSearchBlockClientWithTimeout(ctx, queryTimeoutMS);
