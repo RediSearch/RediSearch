@@ -23,6 +23,7 @@
 #include "suffix.h"
 #include "triemap.h"
 #include "util/workers.h"
+#include "concurrent_ctx.h"
 #include "cursor.h"
 #include "module.h"
 #include "aggregate/aggregate_debug.h"
@@ -1626,7 +1627,7 @@ DEBUG_COMMAND(WorkerThreadsSwitch) {
 }
 
 /**
- * FT.DEBUG COORD_THREADS [PAUSE / RESUME ]
+ * FT.DEBUG COORD_THREADS [PAUSE / RESUME / STATS / IS_PAUSED]
  *
  */
 DEBUG_COMMAND(CoordThreadsSwitch) {
@@ -1649,6 +1650,13 @@ DEBUG_COMMAND(CoordThreadsSwitch) {
     }
   } else if (!strcasecmp(op, "is_paused")) {
     return RedisModule_ReplyWithLongLong(ctx, ConcurrentSearch_isPaused());
+  } else if (!strcasecmp(op, "stats")) {
+    thpool_stats stats = ConcurrentSearch_getStats();
+    START_POSTPONED_LEN_ARRAY(num_stats_fields);
+    REPLY_WITH_LONG_LONG("totalJobsDone", stats.total_jobs_done, ARRAY_LEN_VAR(num_stats_fields));
+    REPLY_WITH_LONG_LONG("totalPendingJobs", stats.total_pending_jobs, ARRAY_LEN_VAR(num_stats_fields));
+    END_POSTPONED_LEN_ARRAY(num_stats_fields);
+    return REDISMODULE_OK;
   } else {
     return RedisModule_ReplyWithError(ctx, "Invalid argument for 'COORD_THREADS' subcommand");
   }
