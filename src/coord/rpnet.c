@@ -176,7 +176,7 @@ static void shardResponseBarrier_PendingReplies_Free(RPNet *nc) {
 // Get absolute timeout for MRIterator_NextWithTimeout
 // Returns pointer to the CLOCK_MONOTONIC_RAW based timeout, or NULL if not available
 static struct timespec *getAbsTimeout(RPNet *nc) {
-  if (!nc->areq || !nc->areq->sctx) {
+  if (!nc->areq || !nc->areq->sctx || !AREQ_ShouldCheckTimeout(nc->areq)) {
     return NULL;
   }
   return (struct timespec *)&nc->areq->sctx->time.timeout;
@@ -277,10 +277,15 @@ int getNextReply(RPNet *nc) {
     size_t numShards;
     while ((numShards = atomic_load(&nc->shardResponseBarrier->numShards)) == 0 ||
            atomic_load(&nc->shardResponseBarrier->numResponded) < numShards) {
+
       // Check for timeout to avoid blocking indefinitely (respecting skipTimeoutChecks flag)
-      if (nc->areq && nc->areq->sctx && !nc->areq->sctx->time.skipTimeoutChecks && TimedOut(&nc->areq->sctx->time.timeout)) {
+      if (nc->areq && AREQ_ShouldCheckTimeout(nc->areq) && TimedOut(&nc->areq->sctx->time.timeout)) {
+        break;
+      // Check for blocked client timeout
+      } else if (nc->areq && AREQ_TimedOut(nc->areq)) {
         break;
       }
+
       // Get next reply with timeout (uses CLOCK_MONOTONIC_RAW based timeout)
       bool nextTimedOut = false;
       MRReply *reply = MRIterator_NextWithTimeout(nc->it, getAbsTimeout(nc), &nextTimedOut);

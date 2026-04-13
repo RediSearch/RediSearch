@@ -45,6 +45,7 @@ mod not_optimized;
 mod not_reducer;
 mod optional;
 mod optional_optimized;
+mod optional_reducer;
 mod profilable;
 mod profile;
 #[macro_use]
