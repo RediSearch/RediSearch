@@ -776,7 +776,7 @@ def _test_profile(protocol):
           'SORTBY', 2, '@price', 'DESC', 'MAX', 200,
           'GROUPBY', 1, '@brand', 'REDUCE', 'COUNT', 0, 'AS', 'cnt',
           'FILTER', '@cnt > 5'],
-         [('Index', 3100), ('Loader', 199), ('Pager/Limiter', 200), ('Grouper', 25), ('Filter - Predicate >', 25)],
+         [('Index', 199), ('Loader', 199), ('Pager/Limiter', 200), ('Grouper', 25), ('Filter - Predicate >', 25)],
          [[[('Index', 1027), ('Loader', 1027), ('Sorter', 200), ('Loader', 200)],
            [('Index', 1032), ('Loader', 1032), ('Sorter', 200), ('Loader', 200)],
            [('Index', 1041), ('Loader', 1041), ('Sorter', 200), ('Loader', 200)]],
