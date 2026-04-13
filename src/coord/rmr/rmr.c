@@ -727,20 +727,35 @@ void iterStartCb(void *p) {
   cmd->targetShardIdx = 0;
   MRCommand_SetSlotInfo(cmd, shards[0].slotRanges);
 
-  // This implies that every connection to each shard will work inside a single IO thread
   // Take an extra reference to prevent the iterator from being freed mid-loop.
   MRIterator_IncreaseRefCount(it);
+
+  // Pre-fanout connection validation - check ALL connections before sending ANY commands
+  bool allConnectionsValid = true;
   for (size_t i = 0; i < it->len; i++) {
-    if (MRCluster_SendCommand(io_runtime_ctx, &it->cbxs[i].cmd,
-                              mrIteratorRedisCB, &it->cbxs[i]) == REDIS_ERR) {
-      // Send failed - invoke user callback directly with a synthetic error.
-      // This is safe: we're on the IO thread, cbxs[i] is initialized, and no async
-      // operation is pending. The callback will call MRIteratorCallback_Done to
-      // decrement counters and signal CVs, preventing hangs. Callback frees the reply.
-      MRReply *err = MRReply_CreateError("Could not send query to cluster");
-      it->ctx.cb(&it->cbxs[i], err);
+    if (!MRConn_Get(&io_runtime_ctx->conn_mgr, it->cbxs[i].cmd.targetShard)) {
+      allConnectionsValid = false;
+      break;
     }
   }
+
+  if (!allConnectionsValid) {
+    // At least one connection is not established - fail all shards with error
+    for (size_t i = 0; i < it->len; i++) {
+      MRReply *err = MRReply_CreateError("Could not send query to cluster");
+      it->ctx.cb(&it->cbxs[i], err);
+      MRIteratorCallback_Done(&it->cbxs[i], 1);
+    }
+  } else {
+    // All connections valid - send commands to all shards
+    for (size_t i = 0; i < it->len; i++) {
+      if (MRCluster_SendCommand(io_runtime_ctx, &it->cbxs[i].cmd, mrIteratorRedisCB, &it->cbxs[i]) ==
+          REDIS_ERR) {
+        MRIteratorCallback_Done(&it->cbxs[i], 1);
+      }
+    }
+  }
+
   // Release the extra reference we took at the start of the loop.
   MRIterator_Release(it);
 
@@ -799,13 +814,37 @@ void iterCursorMappingCb(void *p) {
   cmd->targetShardIdx = vsimOrSearch->mappings[0].targetShardIdx;
   vsimOrSearch->mappings[0].targetShard = NULL; // transfer ownership
 
-  // Send commands to all shards
+  // Take an extra reference to prevent the iterator from being freed mid-loop.
+  MRIterator_IncreaseRefCount(it);
+
+  // Pre-fanout connection validation - check ALL connections before sending ANY commands
+  bool allConnectionsValid = true;
   for (size_t i = 0; i < it->len; i++) {
-    if (MRCluster_SendCommand(io_runtime_ctx, &it->cbxs[i].cmd,
-                              mrIteratorRedisCB, &it->cbxs[i]) == REDIS_ERR) {
-      MRIteratorCallback_Done(&it->cbxs[i], 1);
+    if (!MRConn_Get(&io_runtime_ctx->conn_mgr, it->cbxs[i].cmd.targetShard)) {
+      allConnectionsValid = false;
+      break;
     }
   }
+
+  if (!allConnectionsValid) {
+    // At least one connection is not established - fail all shards with error
+    for (size_t i = 0; i < it->len; i++) {
+      MRReply *err = MRReply_CreateError("Could not send query to cluster");
+      it->ctx.cb(&it->cbxs[i], err);
+      MRIteratorCallback_Done(&it->cbxs[i], 1);
+    }
+  } else {
+    // All connections valid - send commands to all shards
+    for (size_t i = 0; i < it->len; i++) {
+      if (MRCluster_SendCommand(io_runtime_ctx, &it->cbxs[i].cmd,
+                                mrIteratorRedisCB, &it->cbxs[i]) == REDIS_ERR) {
+        MRIteratorCallback_Done(&it->cbxs[i], 1);
+      }
+    }
+  }
+
+  // Release the extra reference we took at the start of the loop.
+  MRIterator_Release(it);
 
   //Clean up the StrongRef and allocated memory
   StrongRef_Release(mappingsRef);
