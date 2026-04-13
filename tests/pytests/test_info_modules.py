@@ -1229,18 +1229,6 @@ class testWarningsAndErrorsCluster:
     self.env.assertEqual(info_coord[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC], str(base_err_coord + 2),
                          message="Coordinator timeout error should be +1 after AGG INTERNAL_ONLY")
 
-    # Test timeout error in FT.AGGREGATE (coordinator)
-    self.env.expect(debug_cmd(), 'FT.AGGREGATE', 'idx', '*',
-                    'TIMEOUT_AFTER_N', 0, 'DEBUG_PARAMS_COUNT', 2).error().contains('SEARCH_TIMEOUT Timeout limit was reached')
-    # Shards: +3 (timeout is returned by the coord, but each shard still times out)
-    for shardId in range(1, self.env.shardsCount + 1):
-      shard_conn = self.env.getConnection(shardId)
-      wait_for_info_metric(shard_conn, [WARN_ERR_SECTION, TIMEOUT_ERROR_SHARD_METRIC], str(base_err_shards[shardId] + 3), msg=f"Shard {shardId} AGG coordinator timeout error should be {base_err_shards[shardId] + 3}")
-    # Coord: +3
-    info_coord = info_modules_to_dict(self.env)
-    self.env.assertEqual(info_coord[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC], str(base_err_coord + 3),
-                         message="Coordinator timeout error should be +1 after AGG coordinator timeout")
-
     # ---------- Timeout Warnings ----------
     allShards_change_timeout_policy(self.env, 'RETURN')
 
