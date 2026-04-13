@@ -42,18 +42,22 @@ typedef struct {
 // --- Stub vtable functions (to be implemented in later tasks) ---
 
 static void *collectNewInstance(Reducer *rbase) {
+  RS_ABORT_ALWAYS("COLLECT reducer is not yet implemented");
   return NULL;
 }
 
 static int collectAdd(Reducer *r, void *ctx, const RLookupRow *srcrow) {
+  RS_ABORT_ALWAYS("COLLECT reducer is not yet implemented");
   return 1;
 }
 
 static RSValue *collectFinalize(Reducer *parent, void *ctx) {
+  RS_ABORT_ALWAYS("COLLECT reducer is not yet implemented");
   return RSValue_NullStatic();
 }
 
 static void collectFreeInstance(Reducer *parent, void *p) {
+  RS_ABORT_ALWAYS("COLLECT reducer is not yet implemented");
 }
 
 static void collectFree(Reducer *r) {
@@ -66,7 +70,7 @@ static void collectFree(Reducer *r) {
 // --- ArgParser callbacks ---
 
 // Parses: FIELDS nargs <@field | *> [<@field | *> ...]
-//   nargs: 1..SPEC_MAX_FIELDS
+//   nargs: 1..COLLECT_MAX_FIELD_ARGS
 static void handleCollectFields(ArgParser *parser, const void *value, void *user_data) {
   CollectParseCtx *pctx = (CollectParseCtx *)user_data;
   CollectReducer *cr = pctx->cr;
@@ -78,8 +82,8 @@ static void handleCollectFields(ArgParser *parser, const void *value, void *user
   sub_opts.args = ac;
   sub_opts.name = "FIELDS";
 
-  // ArgParser validates nargs is within [1, SPEC_MAX_FIELDS] before invoking this callback.
-  RS_ASSERT(count >= 1 && count <= SPEC_MAX_FIELDS);
+  // ArgParser validates nargs is within [1, COLLECT_MAX_FIELD_ARGS] before invoking this callback.
+  RS_ASSERT(count >= 1 && count <= COLLECT_MAX_FIELD_ARGS);
   cr->field_keys = array_new(const RLookupKey *, count);
 
   for (int i = 0; i < count; i++) {
