@@ -104,6 +104,9 @@ bool MRCtx_TryClaimReducing(struct MRCtx *ctx);
 void MRCtx_SignalReducerComplete(struct MRCtx *ctx);
 void MRCtx_WaitForReducerComplete(struct MRCtx *ctx);
 
+void MRCtx_SetValidateConnections(struct MRCtx *ctx, bool validateConnections);
+bool MRCtx_GetValidateConnections(struct MRCtx *ctx);
+
 /* Free the MapReduce context */
 void MRCtx_Free(struct MRCtx *ctx);
 

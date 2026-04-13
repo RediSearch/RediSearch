@@ -74,6 +74,10 @@ typedef struct MRCtx {
   IORuntimeCtx *ioRuntime;
   QueryError status;
 
+  /* If true, the command should validate that all connections
+   are up before sending the command to the cluster */
+  bool validateConnections;
+
   /**
    * This is a reduce function inside the MRCtx.
    * if set when replies will arrive we will not
@@ -84,12 +88,6 @@ typedef struct MRCtx {
    * needs to unblock the client.
    */
   MRReduceFunc fn;
-
-  /* Set to true if the fanout could not reach all shards (e.g. a connection
-   * dropped during the send loop). When set, fanoutCallback discards all
-   * incoming replies and unblocks the client with an error once every
-   * in-flight reply has been drained. */
-  bool incompleteFanout;
 
   /* State tracking for partial timeout support */
   _Atomic(bool) timedOut;
@@ -207,6 +205,14 @@ bool MRCtx_TryClaimReducing(struct MRCtx *ctx) {
   return atomic_compare_exchange_strong(&ctx->reducing, &expected, true);
 }
 
+void MRCtx_SetValidateConnections(struct MRCtx *ctx, bool validateConnections) {
+  ctx->validateConnections = validateConnections;
+}
+
+bool MRCtx_GetValidateConnections(struct MRCtx *ctx) {
+  return ctx->validateConnections;
+}
+
 void MRCtx_SignalReducerComplete(struct MRCtx *ctx) {
   pthread_mutex_lock(&ctx->reducingLock);
   ctx->reducerDone = true;
@@ -253,7 +259,7 @@ static void fanoutCallback(redisAsyncContext *c, void *r, void *privdata) {
   // Timeout checks are relevant only for Coordinator FT.SEARCH fanouts.
   // Incomplete fanout means not all shards were reached during the fanout send loop.
   bool timedOut = MRCtx_IsTimedOut(ctx);
-  if (timedOut || ctx->incompleteFanout) {
+  if (timedOut) {
     if (r) {
       MRReply_Free(r);
     }
@@ -271,7 +277,7 @@ static void fanoutCallback(redisAsyncContext *c, void *r, void *privdata) {
 
   // If we've received the last reply - unblock the client
   if (ctx->numReplied + ctx->numErrored == ctx->numExpected) {
-    if (!timedOut && !ctx->incompleteFanout && ctx->fn) {
+    if (!timedOut && ctx->fn) {
       ctx->fn(ctx, ctx->numReplied, ctx->replies);
     } else {
       RedisModuleBlockedClient *bc = ctx->bc;
@@ -293,17 +299,13 @@ static void uvFanoutRequest(void *p) {
   MRCtx *mrctx = p;
   IORuntimeCtx *ioRuntime = mrctx->ioRuntime;
 
-  mrctx->numExpected = MRCluster_FanoutCommand(ioRuntime, &mrctx->cmd, fanoutCallback, mrctx);
+  mrctx->numExpected = MRCluster_FanoutCommand(ioRuntime, &mrctx->cmd, fanoutCallback, mrctx, mrctx->validateConnections);
 
   if (mrctx->numExpected == 0) {
     RedisModuleBlockedClient *bc = mrctx->bc;
     RS_ASSERT(bc);
     RedisModule_BlockedClientMeasureTimeEnd(bc);
     RedisModule_UnblockClient(bc, mrctx);
-  } else if (mrctx->numExpected != (int)ioRuntime->topo->numShards) {
-    // Some commands were sent but not all shards were reached.
-    // Mark as incomplete so fanoutCallback drains replies and returns an error.
-    mrctx->incompleteFanout = true;
   }
 }
 
