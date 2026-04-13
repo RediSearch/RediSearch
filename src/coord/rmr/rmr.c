@@ -741,11 +741,10 @@ void iterStartCb(void *p) {
   }
 
   if (!allConnectionsValid) {
-    // At least one connection is not established - fail all shards with error
+    // At least one connection is not established - fail all shards with error.
     for (size_t i = 0; i < it->len; i++) {
       MRReply *err = MRReply_CreateError("Could not send query to cluster");
       it->ctx.cb(&it->cbxs[i], err);
-      MRIteratorCallback_Done(&it->cbxs[i], 1);
     }
   } else {
     // All connections valid - send commands to all shards
@@ -829,11 +828,12 @@ void iterCursorMappingCb(void *p) {
   }
 
   if (!allConnectionsValid) {
-    // At least one connection is not established - fail all shards with error
+    // At least one connection is not established - fail all shards with error.
+    // The callback (e.g., netCursorCallback) is responsible for calling MRIteratorCallback_Done,
+    // so we must NOT call it here to avoid double-decrementing pending/inProcess counters.
     for (size_t i = 0; i < it->len; i++) {
       MRReply *err = MRReply_CreateError("Could not send query to cluster");
       it->ctx.cb(&it->cbxs[i], err);
-      MRIteratorCallback_Done(&it->cbxs[i], 1);
     }
   } else {
     // All connections valid - send commands to all shards
