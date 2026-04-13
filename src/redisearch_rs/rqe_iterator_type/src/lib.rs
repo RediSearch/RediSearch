@@ -54,10 +54,45 @@ pub enum IteratorType {
     MetricSortedByScore = 17,
     Profile = 18,
     Optimus = 19,
-    Max = 20,
+    /// Used only in tests.
+    Mock = 20,
+    Max = 21,
 }
 
 impl IteratorType {
+    /// Returns `true` for leaf iterators (no children to profile).
+    ///
+    /// Leaf iterators have no `ProfileChildren` callback in the C vtable.
+    /// Compound iterators have children that must be profiled recursively.
+    pub const fn is_leaf(self) -> bool {
+        match self {
+            Self::InvIdxNumeric
+            | Self::InvIdxTerm
+            | Self::InvIdxWildcard
+            | Self::InvIdxMissing
+            | Self::InvIdxTag
+            | Self::Wildcard
+            | Self::Empty
+            | Self::IdListSorted
+            | Self::IdListUnsorted
+            | Self::MetricSortedById
+            | Self::MetricSortedByScore
+            | Self::Profile
+            | Self::Mock => true,
+
+            Self::Hybrid
+            | Self::Union
+            | Self::Intersect
+            | Self::Not
+            | Self::NotOptimized
+            | Self::Optional
+            | Self::OptionalOptimized
+            | Self::Optimus => false,
+
+            Self::Max => unreachable!(),
+        }
+    }
+
     /// Returns the name of this iterator type as a static string.
     pub const fn as_str(self) -> &'static str {
         match self {
@@ -81,6 +116,7 @@ impl IteratorType {
             Self::MetricSortedByScore => "METRIC_SORTED_BY_SCORE",
             Self::Profile => "PROFILE",
             Self::Optimus => "OPTIMUS",
+            Self::Mock => "MOCK",
             Self::Max => "MAX",
         }
     }
@@ -117,7 +153,8 @@ impl TryFrom<u32> for IteratorType {
             17 => Ok(Self::MetricSortedByScore),
             18 => Ok(Self::Profile),
             19 => Ok(Self::Optimus),
-            20 => Ok(Self::Max),
+            20 => Ok(Self::Mock),
+            21 => Ok(Self::Max),
             other => Err(other),
         }
     }

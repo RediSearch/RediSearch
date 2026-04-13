@@ -13,7 +13,7 @@ use ffi::{RS_FIELDMASK_ALL, t_docId};
 use inverted_index::RSIndexResult;
 use std::cmp;
 
-use crate::{RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
+use crate::{IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
 
 /// An iterator that emits a sequence of results with no gaps, up to a given document id.
 /// Results are pulled from an underlying [`RQEIterator`] instance. If there is no entry
@@ -100,6 +100,7 @@ impl<'index, I> RQEIterator<'index> for Optional<'index, I>
 where
     I: RQEIterator<'index>,
 {
+    #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         if let Some(child) = self.child.as_mut()
             && child.last_doc_id() == self.result.doc_id
@@ -234,5 +235,23 @@ where
     #[inline(always)]
     fn at_eof(&self) -> bool {
         self.result.doc_id >= self.max_doc_id
+    }
+
+    #[inline(always)]
+    fn type_(&self) -> IteratorType {
+        IteratorType::Optional
+    }
+}
+
+impl<'index> crate::interop::ProfileChildren<'index>
+    for Optional<'index, crate::c2rust::CRQEIterator>
+{
+    fn profile_children(self) -> Self {
+        Optional {
+            max_doc_id: self.max_doc_id,
+            weight: self.weight,
+            result: self.result,
+            child: self.child.map(crate::c2rust::CRQEIterator::into_profiled),
+        }
     }
 }

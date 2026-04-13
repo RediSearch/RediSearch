@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use rqe_iterators::{RQEIterator, SkipToOutcome, wildcard::Wildcard};
+use rqe_iterators::{IteratorType, RQEIterator, SkipToOutcome, wildcard::Wildcard};
 
 /// Helper macro to assert skip_to result with expected doc_id
 /// This preserves the call site location in test failures
@@ -24,6 +24,12 @@ macro_rules! assert_skip_to_found {
             panic!("Expected Found outcome, got {:?}", outcome);
         }
     };
+}
+
+#[test]
+fn type_() {
+    let it = Wildcard::new(10, 1.0);
+    assert_eq!(it.type_(), IteratorType::Wildcard);
 }
 
 #[test]

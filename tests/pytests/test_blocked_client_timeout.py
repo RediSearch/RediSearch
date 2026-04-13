@@ -16,6 +16,42 @@ def assert_timeout_warning(env, res, message=''):
     env.assertTrue(warnings, message=message + " expected timeout warning")
     env.assertContains('Timeout', warnings[0], message=message + " expected timeout warning")
 
+def debug_print_hybrid_clients(env, label=""):
+    """Debug helper: Print clients with HYBRID commands from coordinator and all shards.
+
+    Filters and prints only clients whose last command contains 'HYBRID' (FT.HYBRID or _FT.HYBRID).
+    """
+    prefix = f"[{label}] " if label else ""
+
+    # Check coordinator
+    try:
+        conn = getConnectionByEnv(env)
+        output = conn.execute_command('CLIENT', 'LIST')
+        clients = parse_client_list(output)
+        hybrid_clients = [c for c in clients if 'HYBRID' in c.get('cmd', '').upper()]
+        if hybrid_clients:
+            env.debugPrint(f"{prefix}Coordinator HYBRID clients:", force=True)
+            for c in hybrid_clients:
+                env.debugPrint(f"  id={c.get('id')} cmd={c.get('cmd')} flags={c.get('flags')}", force=True)
+        else:
+            env.debugPrint(f"{prefix}Coordinator: No HYBRID clients found", force=True)
+    except Exception as e:
+        env.debugPrint(f"{prefix}Coordinator CLIENT LIST error: {e}", force=True)
+
+    # Check all shards
+    for shardId in range(1, env.shardsCount + 1):
+        try:
+            shard_conn = env.getConnection(shardId)
+            output = shard_conn.execute_command('CLIENT', 'LIST')
+            clients = parse_client_list(output)
+            hybrid_clients = [c for c in clients if 'HYBRID' in c.get('cmd', '').upper()]
+            if hybrid_clients:
+                env.debugPrint(f"{prefix}Shard {shardId} HYBRID clients:", force=True)
+                for c in hybrid_clients:
+                    env.debugPrint(f"  id={c.get('id')} cmd={c.get('cmd')} flags={c.get('flags')}", force=True)
+        except Exception as e:
+            env.debugPrint(f"{prefix}Shard {shardId} CLIENT LIST error: {e}", force=True)
+
 def pid_cmd(conn):
     """Get the process ID of a Redis connection."""
     return conn.execute_command('info', 'server')['process_id']
@@ -153,6 +189,10 @@ class TestCoordinatorTimeout:
             'PARAMS', '2', 'BLOB', query_vec
         ).noError()
         self.hybrid_query_vec = query_vec
+
+    def tearDown(self):
+        """Teardown: Print debug info about any remaining HYBRID clients."""
+        debug_print_hybrid_clients(self.env, "TestCoordinatorTimeout teardown")
 
     def _test_fail_timeout_impl(self, query_args):
         env = self.env

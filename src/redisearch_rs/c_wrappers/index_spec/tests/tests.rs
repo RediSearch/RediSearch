@@ -17,7 +17,10 @@ use index_spec::IndexSpec;
 use pretty_assertions::assert_eq;
 
 #[test]
-#[cfg_attr(miri, ignore = "miri does not support FFI functions")]
+#[cfg_attr(
+    miri,
+    ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
+)]
 fn field_specs() {
     let mut index_spec = unsafe { mem::zeroed::<ffi::IndexSpec>() };
     let fs0 = field_spec(c"aaa", c"bbb", 0);

@@ -60,10 +60,6 @@ int IndexResult_MinOffsetDelta(const RSIndexResult *r);
  * matching terms is returned */
 size_t IndexResult_GetMatchedTerms(const RSIndexResult *r, RSQueryTerm **arr, size_t cap);
 
-/* Return 1 if the the result is within a given slop range, inOrder determines whether the tokens
- * need to be ordered as in the query or not */
-int IndexResult_IsWithinRange(RSIndexResult *r, int maxSlop, int inOrder);
-
 /**
  * First clear the metric data stored in the provided result.
  * Then store the provided metric value in the now-empty array.

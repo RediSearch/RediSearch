@@ -33,7 +33,7 @@ pub unsafe extern "C" fn NewOptionalNonOptimizedIterator(
     );
     // SAFETY: thanks to 1 + 2
     let child = unsafe { CRQEIterator::new(child) };
-    RQEIteratorWrapper::boxed_new(IteratorType::Optional, Optional::new(max_id, weight, child))
+    RQEIteratorWrapper::boxed_new_compound(Optional::new(max_id, weight, child))
 }
 
 #[unsafe(no_mangle)]
@@ -61,64 +61,4 @@ pub unsafe extern "C" fn GetOptionalNonOptimizedIteratorChild(
         .child()
         .map(|p| p.as_ref() as *const _)
         .unwrap_or(std::ptr::null())
-}
-
-#[unsafe(no_mangle)]
-/// Take ownership over the child of the optional (non-optimized) iterator,
-/// or return NULL if there is no child.
-///
-/// # Safety
-///
-/// 1. `header` must be a valid non-null pointer created via [`NewOptionalNonOptimizedIterator`].
-pub unsafe extern "C" fn TakeOptionalNonOptimizedIteratorChild(
-    header: *mut QueryIterator,
-) -> *mut QueryIterator {
-    debug_assert!(!header.is_null());
-    debug_assert_eq!(
-        // SAFETY: Safe thanks to 1
-        unsafe { (*header).type_ },
-        IteratorType::Optional,
-        "Expected an optional (Non-Optimized) iterator"
-    );
-    // SAFETY: Safe thanks to 1
-    let wrapper =
-        unsafe { RQEIteratorWrapper::<Optional<CRQEIterator>>::mut_ref_from_header_ptr(header) };
-    wrapper
-        .inner
-        .take_child()
-        .map(|p| p.into_raw().as_ptr())
-        .unwrap_or(std::ptr::null_mut())
-}
-
-#[unsafe(no_mangle)]
-/// Set (or overwrite) the child iterator of the optional (non-optimized) iterator.
-///
-/// # Safety
-///
-/// 1. `header` must be a valid non-null pointer created via [`NewOptionalNonOptimizedIterator`].
-/// 2. `child` must be null or a valid non-null non-aliased pointer for a valid [`QueryIterator`] respecting the C API.
-pub unsafe extern "C" fn SetOptionalNonOptimizedIteratorChild(
-    header: *mut QueryIterator,
-    child: *mut QueryIterator,
-) {
-    debug_assert!(!header.is_null());
-    debug_assert_eq!(
-        // SAFETY: thanks to 1
-        unsafe { (*header).type_ },
-        IteratorType::Optional,
-        "Expected an optional(Non-Optimized) iterator"
-    );
-    // SAFETY: thanks to 1
-    let wrapper =
-        unsafe { RQEIteratorWrapper::<Optional<CRQEIterator>>::mut_ref_from_header_ptr(header) };
-
-    if child.is_null() {
-        wrapper.inner.unset_child();
-    } else {
-        let child = NonNull::new(child)
-            .expect("Trying to set a NULL child for a non-optimized optional iterator");
-        // SAFETY: thanks to 2 + null check above
-        let child = unsafe { CRQEIterator::new(child) };
-        wrapper.inner.set_child(child);
-    }
 }

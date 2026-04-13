@@ -27,6 +27,7 @@ pub mod collection;
 pub mod comparison;
 pub mod debug;
 pub mod hash;
+mod pool;
 pub mod redis_string;
 pub mod rs_string;
 pub mod sds_writer;

@@ -49,7 +49,7 @@ typedef uint64_t t_fieldMask;
 #define RS_FIELDMASK_ALL 0xFFFFFFFFFFFFFFFF
 #endif
 
-struct RSSortingVector;
+#include "sorting_vector.h"
 
 #define REDISEARCH_ERR 1
 #define REDISEARCH_OK 0
@@ -127,7 +127,7 @@ typedef struct RSDocumentMetadata_s {
 
   uint16_t ref_count;
 
-  struct RSSortingVector *sortVector;
+  struct RSSortingVector sortVector;
   /* Offsets of all terms in the document (in bytes). Used by highlighter */
   struct RSByteOffsets *byteOffsets;
   struct RSDocumentMetadata_s *nextInChain;

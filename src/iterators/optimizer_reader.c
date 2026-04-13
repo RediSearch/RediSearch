@@ -51,6 +51,14 @@ static ValidateStatus OPT_Validate(QueryIterator *self) {
   return VALIDATE_OK;
 }
 
+static QueryIterator *OPT_ProfileChildren(QueryIterator *base) {
+  OptimizerIterator *oi = (OptimizerIterator *)base;
+  if (oi->child) {
+    oi->child = IntoProfiled(oi->child);
+  }
+  return base;
+}
+
 static void OPT_Rewind(QueryIterator *self) {
   OptimizerIterator *optIt = (OptimizerIterator *)self;
   QOptimizer *qOpt = optIt->optim;
@@ -258,6 +266,7 @@ QueryIterator *NewOptimizerIterator(QOptimizer *qOpt, QueryIterator *root, Itera
   ri->Revalidate = OPT_Validate;
   ri->SkipTo = NULL;            // The iterator is always on top and and Read() is called
   ri->Read = OPT_Read;
+  ri->ProfileChildren = OPT_ProfileChildren;
   ri->current = NULL;
 
   return &oi->base;

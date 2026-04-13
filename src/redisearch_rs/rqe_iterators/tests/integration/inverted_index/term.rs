@@ -16,7 +16,7 @@ use ffi::{
 use field::FieldMaskOrIndex;
 use inverted_index::{FilterMaskReader, RSIndexResult, RSOffsetSlice, full::Full};
 use query_term::RSQueryTerm;
-use rqe_iterators::{NoOpChecker, RQEIterator, inverted_index::Term};
+use rqe_iterators::{IteratorType, NoOpChecker, RQEIterator, inverted_index::Term};
 
 use crate::inverted_index::utils::{BaseTest, RevalidateIndexType, RevalidateTest};
 
@@ -78,6 +78,13 @@ impl TermBaseTest {
             )
         }
     }
+}
+
+#[test]
+fn term_type() {
+    let test = TermBaseTest::new(10);
+    let it = test.create_iterator();
+    assert_eq!(it.type_(), IteratorType::InvIdxTerm);
 }
 
 #[test]

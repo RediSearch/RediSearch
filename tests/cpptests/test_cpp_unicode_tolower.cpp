@@ -8,7 +8,7 @@
 */
 
 #include "gtest/gtest.h"
-#include "src/util/strconv.h"
+#include "util/strconv.h"
 #include <string.h>
 
 class UnicodeToLowerTest : public ::testing::Test {};

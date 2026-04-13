@@ -11,10 +11,10 @@
 #include "iterator_util.h"
 #include "index_utils.h"
 
-#include "src/iterators/intersection_iterator.h"
+#include "iterators/intersection_iterator.h"
 #include "inverted_index.h"
 #include "iterators_rs.h"
-#include "src/forward_index.h"
+#include "forward_index.h"
 
 class IntersectionIteratorCommonTest : public ::testing::TestWithParam<std::tuple<unsigned, std::vector<t_docId>>> {
 protected:

@@ -8,13 +8,13 @@
 */
 
 
-#include "src/redisearch_api.h"
+#include "redisearch_api.h"
 #include "gtest/gtest.h"
 #include "common.h"
-#include "src/redis_index.h"
-#include "src/info/indexes_info.h"
-#include "src/config.h"
-#include "src/numeric_index.h"
+#include "redis_index.h"
+#include "info/indexes_info.h"
+#include "config.h"
+#include "numeric_index.h"
 #include "numeric_range_tree.h"
 
 #include <set>

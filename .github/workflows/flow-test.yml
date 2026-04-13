@@ -16,7 +16,9 @@ on:
         type: string
         default: '{"test": "QUICK=1", "coverage": "QUICK=1", "sanitize": "QUICK=1"}'
       redis-ref:
+        description: 'Redis version to use (e.g. "7.2.3", "unstable")'
         type: string
+        required: true
       rejson-branch:
         type: string
         default: master
@@ -36,18 +38,23 @@ on:
         type: choice
         options:
           - all
+          - ubuntu:resolute
           - ubuntu:noble
           - ubuntu:jammy
           - ubuntu:focal
           - rockylinux:8
           - rockylinux:9
+          - rockylinux:10
           - debian:bullseye
           - debian:bookworm
+          - debian:trixie
           - amazonlinux:2
           - amazonlinux:2023
           - mariner:2
           - azurelinux:3
           - alpine:3.22
+          - alpine:3.23
+          - macos-14
           - macos-15
           - macos-26
           - intel
@@ -68,6 +75,7 @@ on:
       redis-ref:
         description: 'Redis version to use (e.g. "7.2.3", "unstable"). Defaults to "unstable"'
         type: string
+        default: unstable
       rejson-branch:
         type: string
         default: master
@@ -123,7 +131,7 @@ jobs:
     with:
       platform: ${{ matrix.platform }}
       architecture: ${{ matrix.architecture }}
-      get-redis: ${{ inputs.redis-ref }}
+      redis-ref: ${{ inputs.redis-ref }}
       rejson: ${{ contains(inputs.options, 'rejson') || inputs.rejson == true }}
       rejson-branch: ${{ inputs.rejson-branch }}
       coordinator: ${{ (contains(inputs.options, 'coordinator') || inputs.cluster == true) && matrix.test-mode != 'standalone' }}

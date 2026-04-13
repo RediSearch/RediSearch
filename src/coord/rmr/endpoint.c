@@ -17,7 +17,7 @@ int MREndpoint_Parse(const char *addr, MREndpoint *ep) {
   memset(ep, 0, sizeof(*ep));
 
   // see if we have an auth password
-  char *at = strchr(addr, '@');
+  const char *at = strchr(addr, '@');
   if (at) {
     ep->password = rm_strndup(addr, at - addr);
     addr = at + 1;
@@ -29,7 +29,7 @@ int MREndpoint_Parse(const char *addr, MREndpoint *ep) {
       ++addr; // skip the ipv6 opener '['
   }
 
-  char *colon = strrchr(addr, ':'); // look for the last colon
+  const char *colon = strrchr(addr, ':'); // look for the last colon
   if (!colon) {
     MREndpoint_Free(ep);
     return REDIS_ERR;

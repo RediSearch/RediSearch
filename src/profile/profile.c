@@ -8,7 +8,6 @@
 */
 #include "profile.h"
 #include "iterators/iterator_api.h"
-#include "iterators/not_iterator.h"
 #include "iterators/optional_iterator.h"
 #include "iterators/intersection_iterator.h"
 #include "iterators/union_iterator.h"
@@ -127,13 +126,7 @@ static double _recursiveProfilePrint(RedisModule_Reply *reply, ResultProcessor *
 
     return upstreamTime;
   }
-  double totalRPTime = rs_wall_clock_convert_ns_to_ms_d(RPProfile_GetClock(rp));
-
-  // For RP_SAFE_DEPLETER, use depletion time as the total time instead of
-  // RPProfile time because the actual work happens in the background thread
-  if (rp->upstream && rp->upstream->type == RP_SAFE_DEPLETER) {
-    totalRPTime = rs_wall_clock_convert_ns_to_ms_d(RPSafeDepleter_GetDepletionTime(rp->upstream));
-  }
+  double totalRPTime = rs_wall_clock_convert_ns_to_ms_d(RPProfile_GetTime(rp));
 
   if (printProfileClock) {
     double deltaTime = totalRPTime - upstreamTime;
@@ -361,74 +354,6 @@ void Profile_PrintInFormat(RedisModule_Reply *reply,
 // Will be used as ProfilePrinterCtx*
 void Profile_PrintDefault(RedisModule_Reply *reply, void *ctx) {
   Profile_PrintInFormat(reply, Profile_Print, ctx, NULL, NULL);
-}
-
-/** Add Profile iterator before any iterator in the tree */
-void Profile_AddIters(QueryIterator **root) {
-  if (*root == NULL) return;
-
-  // Add profile iterator before child iterators
-  switch((*root)->type) {
-    case NOT_ITERATOR:
-    case NOT_ITERATOR_OPTIMIZED: {
-      QueryIterator *child = TakeNotIteratorChild(*root);
-      Profile_AddIters(&child);
-      SetNotIteratorChild(*root, child);
-      break;
-    }
-    case OPTIONAL_ITERATOR:
-    case OPTIONAL_OPTIMIZED_ITERATOR: {
-      QueryIterator *child = TakeOptionalIteratorChild(*root);
-      Profile_AddIters(&child);
-      SetOptionalIteratorChild(*root, child);
-      break;
-    }
-    case HYBRID_ITERATOR: {
-      QueryIterator *child = ((HybridIterator *)(*root))->child;
-      Profile_AddIters(&child);
-      ((HybridIterator *)(*root))->child = child;
-      break;
-    }
-    case OPTIMUS_ITERATOR: {
-      QueryIterator *child = ((OptimizerIterator *)(*root))->child;
-      Profile_AddIters(&child);
-      ((OptimizerIterator *)(*root))->child = child;
-      break;
-    }
-    case UNION_ITERATOR: {
-      UnionIterator *ui = (UnionIterator *)(*root);
-      for (int i = 0; i < ui->num_orig; i++) {
-        Profile_AddIters(&(ui->its_orig[i]));
-      }
-      UI_SyncIterList(ui);
-      break;
-    }
-    case INTERSECT_ITERATOR: {
-      ForEachIntersectionChildMut(*root, Profile_AddIters);
-      break;
-    }
-    case WILDCARD_ITERATOR:
-    case INV_IDX_NUMERIC_ITERATOR:
-    case INV_IDX_TERM_ITERATOR:
-    case INV_IDX_WILDCARD_ITERATOR:
-    case INV_IDX_MISSING_ITERATOR:
-    case INV_IDX_TAG_ITERATOR:
-    case EMPTY_ITERATOR:
-    case ID_LIST_SORTED_ITERATOR:
-    case ID_LIST_UNSORTED_ITERATOR:
-    case METRIC_SORTED_BY_ID_ITERATOR:
-    case METRIC_SORTED_BY_SCORE_ITERATOR:
-      break;
-    // LCOV_EXCL_START
-    case PROFILE_ITERATOR:
-    case MAX_ITERATOR:
-      RS_ABORT("Error");
-      break;
-    // LCOV_EXCL_STOP
-  }
-
-  // Create a profile iterator and update outparam pointer
-  *root = NewProfileIterator(*root);
 }
 
 #define PRINT_PROFILE_FUNC(name) static void name(RedisModule_Reply *reply,   \

@@ -2,7 +2,6 @@
 set -eo pipefail
 
 export DEBIAN_FRONTEND=noninteractive
-APT_GET_LOCK_TIMEOUT_SECONDS="${APT_GET_LOCK_TIMEOUT_SECONDS:-600}"
 
 # =============================================================================
 # install_llvm.sh — Install LLVM across all CI platforms
@@ -118,16 +117,38 @@ install_llvm() {
 
     case "$distro" in
 
-    # ----- Debian / Ubuntu (apt.llvm.org) ------------------------------------
+    # ----- Debian / Ubuntu (native apt → apt.llvm.org → tarball) --------------
     ubuntu|debian)
-        echo ">>> Using apt.llvm.org"
-        $MODE apt-get -o DPkg::Lock::Timeout="$APT_GET_LOCK_TIMEOUT_SECONDS" update -qq
-        $MODE apt-get -o DPkg::Lock::Timeout="$APT_GET_LOCK_TIMEOUT_SECONDS" install -y --no-install-recommends \
-            lsb-release wget software-properties-common gnupg ca-certificates
-        wget -qO /tmp/llvm.sh https://apt.llvm.org/llvm.sh
-        chmod +x /tmp/llvm.sh
-        $MODE /tmp/llvm.sh "$LLVM_VER"
-        rm -f /tmp/llvm.sh
+        source "$(dirname "${BASH_SOURCE[0]}")/apt_get_cmd.sh"
+        apt_get_cmd "$MODE" update -qq
+
+        # 1) Try native distro packages first (e.g. Ubuntu 26.04 ships clang-21).
+        if apt_get_cmd "$MODE" install -y --no-install-recommends \
+                "clang-${LLVM_VER}" "lld-${LLVM_VER}" "libclang-${LLVM_VER}-dev" 2>/dev/null; then
+            echo ">>> Installed clang-${LLVM_VER} from native apt repos"
+        else
+            # 2) Fall back to apt.llvm.org third-party repo.
+            echo ">>> Native packages not available — trying apt.llvm.org"
+            # software-properties-common was removed in Debian 13 (trixie).
+            # The llvm.sh script handles trixie without add-apt-repository,
+            # so we only install software-properties-common where available.
+            local spc_pkg=""
+            if apt-cache show software-properties-common &>/dev/null; then
+                spc_pkg="software-properties-common"
+            fi
+            apt_get_cmd "$MODE" install -y --no-install-recommends \
+                lsb-release wget $spc_pkg gnupg ca-certificates
+            wget -qO /tmp/llvm.sh https://apt.llvm.org/llvm.sh
+            chmod +x /tmp/llvm.sh
+            if $MODE /tmp/llvm.sh "$LLVM_VER"; then
+                rm -f /tmp/llvm.sh
+            else
+                # 3) Last resort: official pre-built tarball.
+                echo ">>> apt.llvm.org failed — falling back to official tarball"
+                rm -f /tmp/llvm.sh
+                install_from_tarball
+            fi
+        fi
         ;;
 
     # ----- Alpine Linux (apk) ------------------------------------------------
@@ -135,10 +156,22 @@ install_llvm() {
         echo ">>> Alpine Linux — trying apk packages"
         # Alpine 3.23+ has llvm21 in main; 3.22 only has llvm20.
         # Official tarballs are glibc-based and won't work here.
-        if $MODE apk add --no-cache "llvm${LLVM_VER}" "clang${LLVM_VER}" "lld${LLVM_VER}" 2>/dev/null; then
+        if $MODE apk add --no-cache "llvm${LLVM_VER}" "clang${LLVM_VER}" "clang${LLVM_VER}-libclang" "lld${LLVM_VER}" 2>/dev/null; then
             echo ">>> Installed llvm${LLVM_VER} from Alpine repos"
+            # Create unversioned symlinks so bindgen/clang-sys can find llvm-config and clang.
+            for tool in llvm-config clang clang++ lld ld.lld; do
+                if [ -f "/usr/bin/${tool}-${LLVM_VER}" ] && [ ! -e "/usr/bin/${tool}" ]; then
+                    $MODE ln -s "${tool}-${LLVM_VER}" "/usr/bin/${tool}"
+                fi
+            done
         elif $MODE apk add --no-cache llvm clang lld; then
             echo ">>> Installed default llvm/clang (may not be version ${LLVM_VER})"
+            # Install matching libclang for bindgen — package name is version-specific.
+            local default_ver
+            default_ver=$(clang --version 2>/dev/null | head -1 | grep -oE '[0-9]+\.' | head -1 | tr -d '.')
+            if [ -n "$default_ver" ]; then
+                $MODE apk add --no-cache "clang${default_ver}-libclang" 2>/dev/null || true
+            fi
         else
             echo "ERROR: No LLVM package available. Upgrade to Alpine 3.23+ or use edge."
             return 1

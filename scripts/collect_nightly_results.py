@@ -188,6 +188,7 @@ def simplify_job_name(job_name):
     Special cases (show only title):
     - "coverage / Test ubuntu-latest, Redis unstable" -> "coverage"
     - "sanitize / Test ubuntu-latest, Redis unstable" -> "sanitize"
+    - "test-macos-14 / build-macos-14 (macos-14) / ..." -> "macos-14"
     - "test-macos-15 / build-macos-15 (macos-15) / ..." -> "macos-15"
     - "test-macos-26 / build-macos-26 (macos-26) / ..." -> "macos-26"
     - "run-on-intel / Start self-hosted EC2 runner" -> "run-on-intel"

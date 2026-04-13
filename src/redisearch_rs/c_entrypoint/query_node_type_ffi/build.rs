@@ -7,5 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-mod timeout;
-pub use timeout::TimeoutContext;
+use build_utils::run_cbindgen;
+
+fn main() {
+    run_cbindgen("../../headers/query_node_type.h").unwrap();
+}

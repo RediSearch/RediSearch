@@ -99,8 +99,9 @@ impl<'index> RQEIterator<'index> for Wildcard<'index> {
         Ok(RQEValidateStatus::Ok)
     }
 
-    fn is_wildcard(&self) -> bool {
-        true
+    #[inline(always)]
+    fn type_(&self) -> IteratorType {
+        IteratorType::Wildcard
     }
 }
 
@@ -123,6 +124,59 @@ where
 impl<'index, I: WildcardIterator<'index>> WildcardIterator<'index>
     for crate::profile::Profile<'index, I>
 {
+}
+
+/// A [`CRQEIterator`](crate::c2rust::CRQEIterator) may wrap a wildcard iterator
+/// at runtime, but this cannot be verified statically.
+/// The caller is responsible for only using this impl when the underlying C
+/// iterator is actually a wildcard—mirroring the C code's use of an untyped
+/// `QueryIterator*` for the `wcii` field.
+impl<'index> WildcardIterator<'index> for crate::c2rust::CRQEIterator {}
+
+impl<'index> RQEIterator<'index> for Box<dyn WildcardIterator<'index> + 'index> {
+    fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
+        (**self).current()
+    }
+
+    fn read(&mut self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
+        (**self).read()
+    }
+
+    fn skip_to(
+        &mut self,
+        doc_id: t_docId,
+    ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
+        (**self).skip_to(doc_id)
+    }
+
+    fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
+        (**self).revalidate()
+    }
+
+    fn rewind(&mut self) {
+        (**self).rewind()
+    }
+
+    fn num_estimated(&self) -> usize {
+        (**self).num_estimated()
+    }
+
+    fn last_doc_id(&self) -> t_docId {
+        (**self).last_doc_id()
+    }
+
+    fn at_eof(&self) -> bool {
+        (**self).at_eof()
+    }
+
+    #[inline(always)]
+    fn type_(&self) -> IteratorType {
+        (**self).type_()
+    }
+
+    fn as_c_iterator(&self) -> Option<&crate::c2rust::CRQEIterator> {
+        (**self).as_c_iterator()
+    }
 }
 
 impl<'index> WildcardIterator<'index> for Box<dyn WildcardIterator<'index> + 'index> {}
@@ -175,17 +229,13 @@ impl<'index> RQEIterator<'index> for EmptyWildcard {
     }
 
     #[inline(always)]
-    fn is_wildcard(&self) -> bool {
-        true
+    fn type_(&self) -> IteratorType {
+        IteratorType::Empty
     }
 }
 
 /// [`EmptyWildcard`] matches all documents (vacuously, since the index is empty).
 impl<'index> WildcardIterator<'index> for EmptyWildcard {}
-
-// TODO: new_wildcard_iterator_optimized() and new_wildcard_iterator() have to return
-// the actual IteratorType value so the ffi code can properly wrap it into a RQEIteratorWrapper.
-// We can stop returning those once all the code using those have been ported to Rust.
 
 /// Create a [`WildcardIterator`] for an index whose spec has
 /// [`SchemaRule`](ffi::SchemaRule)`.index_all` set.
@@ -213,7 +263,7 @@ impl<'index> WildcardIterator<'index> for EmptyWildcard {}
 pub unsafe fn new_wildcard_iterator_optimized<'index>(
     sctx: NonNull<ffi::RedisSearchCtx>,
     weight: f64,
-) -> (Box<dyn WildcardIterator<'index> + 'index>, IteratorType) {
+) -> Box<dyn WildcardIterator<'index> + 'index> {
     // SAFETY: Caller guarantees `sctx` points to a valid `RedisSearchCtx` (1).
     let sctx_ref = unsafe { sctx.as_ref() };
     let spec = NonNull::new(sctx_ref.spec).expect("sctx.spec is null");
@@ -248,9 +298,9 @@ pub unsafe fn new_wildcard_iterator_optimized<'index>(
                 }
                 _ => panic!("spec.existingDocs has the wrong inverted index type: {ii_ref:?}"),
             };
-            (it, IteratorType::InvIdxWildcard)
+            it
         }
-        None => (Box::new(EmptyWildcard(Empty)), IteratorType::Empty),
+        None => Box::new(EmptyWildcard(Empty)),
     }
 }
 
@@ -288,7 +338,7 @@ pub unsafe fn new_wildcard_iterator_optimized<'index>(
 pub unsafe fn new_wildcard_iterator<'index>(
     query: NonNull<ffi::QueryEvalCtx>,
     weight: f64,
-) -> (Box<dyn WildcardIterator<'index> + 'index>, IteratorType) {
+) -> Box<dyn WildcardIterator<'index> + 'index> {
     // SAFETY: Caller guarantees `query` points to a valid `QueryEvalCtx` (1).
     let query = unsafe { query.as_ref() };
     let sctx = NonNull::new(query.sctx).expect("query.sctx is null");
@@ -309,13 +359,13 @@ pub unsafe fn new_wildcard_iterator<'index>(
         let disk_spec = unsafe { &*spec.diskSpec };
         match enterprise_iters_api.new_wildcard_on_disk(disk_spec, weight) {
             Ok(it) => {
-                return (Box::new(DiskWildcardIterator(it)), IteratorType::Wildcard);
+                return Box::new(DiskWildcardIterator(it));
             }
             Err(err) => {
                 tracing::warn!(
                     "Failed to create a disk wildcard iterator ({err}); falling back to empty iterator."
                 );
-                return (Box::new(EmptyWildcard(Empty)), IteratorType::Empty);
+                return Box::new(EmptyWildcard(Empty));
             }
         }
     }
@@ -338,10 +388,7 @@ pub unsafe fn new_wildcard_iterator<'index>(
         // SAFETY: Caller guarantees `query.docTable` is a valid, non-null
         // pointer (6).
         let doc_table = unsafe { &*query.docTable };
-        (
-            Box::new(Wildcard::new(doc_table.maxDocId, weight)),
-            IteratorType::Wildcard,
-        )
+        Box::new(Wildcard::new(doc_table.maxDocId, weight))
     }
 }
 
@@ -390,10 +437,9 @@ impl<'index> RQEIterator<'index> for DiskWildcardIterator<'index> {
         self.0.at_eof()
     }
 
-    fn is_wildcard(&self) -> bool {
-        // strictly speaking this is a wildcard iterator but the current reducers code from other
-        // iterators do not account for it.
-        false
+    #[inline(always)]
+    fn type_(&self) -> IteratorType {
+        self.0.type_()
     }
 }
 
