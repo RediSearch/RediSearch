@@ -828,14 +828,22 @@ def _test_profile(protocol):
            [('Index', 1041), ('Grouper', 25)]],
            [('Network', 75), ('Grouper', 25), ('Grouper', 1)]]),
 
-        # NOTE: The following WITHOUTCOUNT counterparts are intentionally
-        # missing because they currently fail with "Success (not an error)":
-        # - WITHOUTCOUNT + SORTBY -> GROUPBY (no MAX) — counterpart of
-        #   WITHCOUNT + SORTBY -> GROUPBY (no MAX)
-        # - WITHOUTCOUNT + GROUPBY -> SORTBY -> GROUPBY (mixed pipeline) —
-        #   counterpart of WITHCOUNT + GROUPBY -> SORTBY -> GROUPBY
-        # SORTBY without MAX combined with GROUPBY under WITHOUTCOUNT triggers
-        # a bug. The WITHCOUNT variants and SORTBY+MAX variants work correctly.
+        # MOD-14849: WITHOUTCOUNT + SORTBY (no MAX) + GROUPBY returns
+        # "Success (not an error)". Uncomment when MOD-14849 is fixed.
+        #
+        # # WITHOUTCOUNT + SORTBY -> GROUPBY
+        # (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'SORTBY', 1, '@title',
+        #   'GROUPBY', 1, '@brand', 'REDUCE', 'COUNT', 0, 'AS', 'cnt'],
+        #  [<TBD standalone profile>],
+        #  [<TBD cluster profile>]),
+        #
+        # # WITHOUTCOUNT + GROUPBY -> SORTBY -> GROUPBY (mixed pipeline)
+        # (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT',
+        #   'GROUPBY', 1, '@category', 'REDUCE', 'COUNT', 0, 'AS', 'cnt',
+        #   'SORTBY', 2, '@cnt', 'DESC',
+        #   'GROUPBY', 1, '@cnt', 'REDUCE', 'COUNT', 0, 'AS', 'num_categories'],
+        #  [<TBD standalone profile>],
+        #  [<TBD cluster profile>]),
 
     ]
 
