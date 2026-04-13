@@ -339,7 +339,9 @@ pub enum NewIntersectionIterator<I> {
 /// Reduce `children` before constructing an intersection.
 ///
 /// 0. No children → `Empty`.
-/// 1. Strip wildcards. If all were wildcards → `Single(last_wildcard)`.
+/// 1. Strip wildcards. If all were wildcards → `Single(last_wildcard)`. Any wildcard would be
+///    correct (they all match every document); we keep the last as a natural artifact of the
+///    iteration that overwrites `last_wildcard` on each new wildcard seen.
 /// 2. Any empty child → `Empty` (all others are dropped).
 /// 3. Exactly one non-wildcard child → `Single(child)`.
 /// 4. Two or more real children → `Proceed(children)`.
