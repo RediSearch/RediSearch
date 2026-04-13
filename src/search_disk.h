@@ -137,10 +137,10 @@ void SearchDisk_DeleteDocument(RedisSearchDiskIndexSpec *handle, const char *key
  *
  * Synchronously runs a full compaction on the inverted index column family,
  * removing entries for deleted documents. Applies the compaction delta to
- * update in-memory structures via FFI calls to the provided C IndexSpec.
+ * update in-memory structures via callbacks derived from the provided C IndexSpec.
  *
  * @param index Pointer to the disk index
- * @param c_index_spec Pointer to the C IndexSpec (for FFI callbacks to update memory structures)
+ * @param c_index_spec Pointer to the C IndexSpec used as private callback data
  * @return Number of deleted document IDs removed from the disk index
  */
 size_t SearchDisk_RunGC(RedisSearchDiskIndexSpec *index, IndexSpec *c_index_spec);

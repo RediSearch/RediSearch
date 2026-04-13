@@ -155,9 +155,57 @@ QueryIterator* SearchDisk_NewWildcardIterator(RedisSearchDiskIndexSpec *index, d
     return disk->index.newWildcardIterator(index, weight);
 }
 
+static void* Compaction_BeginUpdate(void *private_data) {
+    IndexSpec *sp = private_data;
+    if (!sp) {
+        return NULL;
+    }
+
+    IndexSpec_AcquireWriteLock(sp);
+    return sp;
+}
+
+static bool Compaction_DecrementTrieTermCount(void *update_ctx,
+                                              const char *term,
+                                              size_t term_len,
+                                              size_t doc_count_decrement) {
+    IndexSpec *sp = update_ctx;
+    if (!sp) {
+        return false;
+    }
+
+    return IndexSpec_DecrementTrieTermCount(sp, term, term_len, doc_count_decrement);
+}
+
+static void Compaction_DecrementNumTerms(void *update_ctx, uint64_t num_terms_removed) {
+    IndexSpec *sp = update_ctx;
+    if (!sp) {
+        return;
+    }
+
+    IndexSpec_DecrementNumTerms(sp, num_terms_removed);
+}
+
+static void Compaction_EndUpdate(void *update_ctx) {
+    IndexSpec *sp = update_ctx;
+    if (!sp) {
+        return;
+    }
+
+    IndexSpec_ReleaseWriteLock(sp);
+}
+
 size_t SearchDisk_RunGC(RedisSearchDiskIndexSpec *index, IndexSpec *spec) {
     RS_ASSERT(disk && index && spec);
-    return disk->index.runGC(index, spec);
+
+    SearchDiskCompactionCallbacks callbacks = {
+        .beginUpdate = Compaction_BeginUpdate,
+        .decrementTrieTermCount = Compaction_DecrementTrieTermCount,
+        .decrementNumTerms = Compaction_DecrementNumTerms,
+        .endUpdate = Compaction_EndUpdate,
+    };
+
+    return disk->index.runGC(index, &callbacks, spec);
 }
 
 t_docId SearchDisk_PutDocument(RedisSearchDiskIndexSpec *handle, const char *key, size_t keyLen, float score, uint32_t flags, uint32_t maxTermFreq, uint32_t docLen, uint32_t *oldLen, t_expirationTimePoint documentTtl) {
