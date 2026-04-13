@@ -3289,14 +3289,6 @@ void IndexSpec_RdbSave(RedisModuleIO *rdb, IndexSpec *sp, int contextFlags) {
   // RAM-based data-structures to the RDB. Both save and load paths go through
   // IndexSpecRdbState as the single source of truth for serialization format:
   //
-  // Save: IndexSpec::save_to_rdb() -> IndexSpecRdbState::from_doc_table() -> IndexSpecRdbState::save_to_rdb()
-  // Load: IndexSpecRdbState::load_from_rdb() -> IndexSpec::new_with_rdb_state()
-  //
-  // Data saved/loaded:
-  // - Scoring stats
-  // - Terms trie
-  // - Disk metadata: max_doc_id and deleted_ids
-  //
   // We assume symmetry w.r.t this context flag. I.e., If it is not set, we
   // assume it was not set in when the RDB will be loaded as well
   if (sp->diskSpec && storeDiskRdbData) {
