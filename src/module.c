@@ -3441,10 +3441,8 @@ cleanup:
       rCtx->postProcess(rCtx);
       rCtx->postProcess = NULL;
     }
-    if (rCtx->cachedResult) {
-      rm_free(rCtx->cachedResult);
-      rCtx->cachedResult = NULL;
-    }
+    rm_free(rCtx->cachedResult);
+    rCtx->cachedResult = NULL;
   }
 
   if (bc && !fromTimeout && !MRCtx_IsTimedOut(mc)) {
@@ -4175,9 +4173,6 @@ static void DistSearchMRCtxFreePrivData(struct MRCtx *mrctx) {
 
   searchReducerCtx *rctx = req->rctx;
   if (rctx) {
-    if (rctx->cachedResult) {
-      rm_free(rctx->cachedResult);
-    }
     if (rctx->pq) {
       heap_destroy(rctx->pq);
     }
