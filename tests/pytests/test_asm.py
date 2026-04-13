@@ -721,7 +721,6 @@ def add_shard_and_migrate_test(env: Env, query_type: str = 'FT.SEARCH'):
     new_shard = env.getConnection(shardId=initial_shards_count+1)
     # ...and migrate slots from shard 1 to the new shard
     wait_for_migration_complete(env, new_shard, shard1, query_during_migration={'query': query, 'shards': shards, 'expected': expected, 'query_type': query_type})
-
     # Expect new shard to have the index schema
     env.assertEqual(new_shard.execute_command('FT._LIST'), ['idx'])
 
