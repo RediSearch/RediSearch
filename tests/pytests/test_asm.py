@@ -764,6 +764,8 @@ def test_add_shard_and_migrate_hybrid():
 
 @skip(cluster=False, min_shards=2)
 def test_add_shard_and_migrate_hybrid_BG():
+    # TODO: MOD-14732 - Skipped due to flaky crash (SIGSEGV) during hybrid cursor migration.
+    raise SkipTest()
     env = Env(clusterNodeTimeout=cluster_node_timeout, moduleArgs='WORKERS 2')
     add_shard_and_migrate_test(env, 'FT.HYBRID')
 

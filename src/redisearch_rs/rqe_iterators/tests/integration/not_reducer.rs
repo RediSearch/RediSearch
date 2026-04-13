@@ -181,19 +181,10 @@ fn not_child_access() {
     let child = Mock::new([3, 6]);
     let result = call_new_not_iterator(child, 10, &ctx);
 
-    let NewNotIterator::Not(mut it) = result else {
+    let NewNotIterator::Not(it) = result else {
         panic!("Expected Not variant");
     };
     // child() should return Some.
-    assert!(it.child().is_some());
-
-    // take_child() should return Some and leave it unset.
-    let taken = it.take_child();
-    assert!(taken.is_some());
-    assert!(it.child().is_none());
-
-    // set_child() should re-set it.
-    it.set_child(taken.unwrap());
     assert!(it.child().is_some());
 }
 
@@ -206,17 +197,10 @@ fn not_child_access_optimized() {
     let child = Mock::new([3, 6]);
     let result = call_new_not_iterator(child, 10, &ctx);
 
-    let NewNotIterator::NotOptimized(mut it) = result else {
+    let NewNotIterator::NotOptimized(it) = result else {
         panic!("Expected NotOptimized variant");
     };
     assert_eq!(it.type_(), IteratorType::NotOptimized);
-    assert!(it.child().is_some());
-
-    let taken = it.take_child();
-    assert!(taken.is_some());
-    assert!(it.child().is_none());
-
-    it.set_child(taken.unwrap());
     assert!(it.child().is_some());
 }
 

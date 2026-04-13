@@ -35,6 +35,7 @@
 #include "reply_empty.h"
 #include "search_disk.h"
 #include "search_disk_utils.h"
+#include "iterators_rs.h"
 
 // Multi threading data structure for background query execution.
 // This context is created on the main thread and passed to the background worker.
@@ -398,6 +399,7 @@ static void AREQ_StoreResults(AREQ *req, SearchResult **results, int rc, cachedV
   // which will go out of scope. QueryError contains heap-allocated strings.
   QueryError_ClearError(&req->storedReplyState.err);
   QueryError_CloneFrom(qctx->err, &req->storedReplyState.err);
+  QueryError_ClearError(qctx->err);
 }
 
 static int populateReplyWithResults(RedisModule_Reply *reply,
@@ -430,7 +432,8 @@ long calc_results_len(AREQ *req, size_t limit) {
 static void finishSendChunk(AREQ *req, SearchResult **results, SearchResult *r, bool cursor_done) {
   if (results) {
     destroyResults(results);
-  } else {
+  } else if (r) {
+    // r can be NULL in the reply_callback path when AREQ_StoreResults is called
     SearchResult_Destroy(r);
   }
 
@@ -636,7 +639,7 @@ static void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
 
     ChunkSerializeState state = {
       .results = NULL,
-      .r = &r,
+      .r = NULL,
       .nelem = 0,
       .resultsLen = REDISMODULE_POSTPONED_ARRAY_LEN,
       .cursor_done = false
@@ -649,8 +652,13 @@ static void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
       debugPauseStoreResults(req, true);  // pause before
       AREQ_StoreResults(req, state.results, rc, cv, limit);
       debugPauseStoreResults(req, false); // pause after
+
+      // Destroy unused SearchResult
+      SearchResult_Destroy(&r);
       return;
     }
+
+    state.r = &r;
 
     rc = serializeAndReplyResults_Resp2(req, reply, rp, qctx, rc, limit, &cv, &state);
 
@@ -832,7 +840,7 @@ static void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
 
     ChunkSerializeState state = {
       .results = NULL,
-      .r = &r,
+      .r = NULL,
       .nelem = 0,              // Unused in RESP3
       .resultsLen = 0,         // Unused in RESP3
     };
@@ -844,8 +852,13 @@ static void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
       debugPauseStoreResults(req, true);  // pause before
       AREQ_StoreResults(req, state.results, rc, cv, limit);
       debugPauseStoreResults(req, false); // pause after
+
+      // Destroy unused SearchResult
+      SearchResult_Destroy(&r);
       return;
     }
+
+    state.r = &r;
 
     rc = serializeAndReplyResults_Resp3(req, reply, rp, qctx, rc, &cv, &state);
 
@@ -1058,7 +1071,7 @@ static void blockedClientReqCtx_destroy(blockedClientReqCtx *BCRctx) {
 // Helper for error handling in AREQ_Execute_Callback.
 // For FAIL policy (useReplyCallback=true): stores error for QueryReplyCallback to handle.
 // For RETURN policy: replies with error directly.
-static void AREQ_ReplyOrStoreError(AREQ *req, RedisModuleCtx *ctx, QueryError *status) {
+void AREQ_ReplyOrStoreError(AREQ *req, RedisModuleCtx *ctx, QueryError *status) {
   if (req->useReplyCallback) {
     // Clear destination before cloning to avoid leaking any existing error strings.
     // Deep copy since QueryError contains heap-allocated strings.
@@ -1068,6 +1081,7 @@ static void AREQ_ReplyOrStoreError(AREQ *req, RedisModuleCtx *ctx, QueryError *s
     // Clear the original to avoid leaking heap-allocated strings.
     QueryError_ClearError(status);
   } else {
+    QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(status), 1, !IsInternal(req));
     QueryError_ReplyAndClear(ctx, status);
   }
 }
@@ -1388,38 +1402,8 @@ static int QueryTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString **arg
   return REDISMODULE_OK;
 }
 
-// Reply callback for AREQ execution in Run in Threads mode (FAIL policy).
-// Called on the main thread when the background thread calls UnblockClient.
-// The background thread stored results in req->storedReplyState, which we use to build the reply.
-// Note: This callback is NOT called if timeout fired first (bc->client becomes NULL).
-// Reference counting: BlockedQueryNode holds a reference released via FreeQueryNode after this callback.
-static int QueryReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  UNUSED(argv);
-  UNUSED(argc);
-
-  BlockedQueryNode *node = RedisModule_GetBlockedClientPrivateData(ctx);
-  if (!node || !node->privdata) {
-    // Shouldn't happen, but handle gracefully
-    RedisModule_Log(ctx, "warning", "QueryReplyCallback: no node or privdata");
-    RedisModule_ReplyWithError(ctx, "Internal error: no request context");
-    return REDISMODULE_OK;
-  }
-
-  AREQ *req = (AREQ *)node->privdata;
-
-  // Check if results were stored (background thread completed successfully)
-  if (!req->storedReplyState.hasStoredResults) {
-    // Background thread didn't store results - some early error occurred.
-    // Use the stored error if available, otherwise generic error.
-    if (QueryError_HasError(&req->storedReplyState.err)) {
-      QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&req->storedReplyState.err), 1, !IsInternal(req));
-      QueryError_ReplyAndClear(ctx, &req->storedReplyState.err);
-    } else {
-      RedisModule_ReplyWithError(ctx, "Internal error: no results stored");
-    }
-    return REDISMODULE_OK;
-  }
-
+// Reply with stored results from Coord/Shard reply callback (called on main thread).
+void AREQ_ReplyWithStoredResults(RedisModuleCtx *ctx, AREQ *req) {
   // Use stored state directly - no need to recompute cv, it was stored by AREQ_StoreResults
   QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
   ResultProcessor *rp = qctx->endProc;
@@ -1429,13 +1413,10 @@ static int QueryReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int
   // This is the end of the request lifecycle, so no need to restore.
   qctx->err = &stored->err;
 
-  // Create a stack-allocated SearchResult for finishSendChunk cleanup
-  SearchResult r = SearchResult_New();
-
   // Build ChunkSerializeState from stored results
   ChunkSerializeState state = {
     .results = stored->results,
-    .r = &r,
+    .r = NULL,
     .nelem = 0,
     .resultsLen = REDISMODULE_POSTPONED_ARRAY_LEN,
     .cursor_done = false
@@ -1458,7 +1439,7 @@ static int QueryReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int
   stored->hasStoredResults = false;
 
   // finishSendChunk handles cleanup and stats, and sets QEXEC_S_ITERDONE if cursor is done
-  finishSendChunk(req, state.results, &r, state.cursor_done);
+  finishSendChunk(req, state.results, NULL, state.cursor_done);
 
   // Handle cursor lifecycle now that QEXEC_S_ITERDONE has been set by finishSendChunk.
   // runCursor stored the cursor handle here instead of pausing/freeing it immediately,
@@ -1471,6 +1452,41 @@ static int QueryReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int
     }
     stored->cursor = NULL;
   }
+}
+
+// Reply callback for AREQ execution in Run in Threads mode (FAIL policy).
+// Called on the main thread when the background thread calls UnblockClient.
+// The background thread stored results in req->storedReplyState, which we use to build the reply.
+// Note: This callback is NOT called if timeout fired first (bc->client becomes NULL).
+// Reference counting: BlockedQueryNode holds a reference released via FreeQueryNode after this callback.
+static int QueryReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  UNUSED(argv);
+  UNUSED(argc);
+
+  BlockedQueryNode *node = RedisModule_GetBlockedClientPrivateData(ctx);
+  if (!node || !node->privdata) {
+    // Shouldn't happen, but handle gracefully
+    RedisModule_Log(ctx, "warning", "QueryReplyCallback: no node or privdata");
+    RedisModule_ReplyWithError(ctx, "ERR Internal error: no request context");
+    return REDISMODULE_OK;
+  }
+
+  AREQ *req = (AREQ *)node->privdata;
+
+  // Check if results were stored (background thread completed successfully)
+  if (!req->storedReplyState.hasStoredResults) {
+    // Background thread didn't store results - some early error occurred.
+    // Use the stored error if available, otherwise generic error.
+    if (QueryError_HasError(&req->storedReplyState.err)) {
+      QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&req->storedReplyState.err), 1, !IsInternal(req));
+      QueryError_ReplyAndClear(ctx, &req->storedReplyState.err);
+    } else {
+      RedisModule_ReplyWithError(ctx, "ERR Internal error: no results stored");
+    }
+    return REDISMODULE_OK;
+  }
+
+  AREQ_ReplyWithStoredResults(ctx, req);
 
   // No AREQ_DecrRef here - BlockedQueryNode holds the reference, released via FreeQueryNode.
   return REDISMODULE_OK;

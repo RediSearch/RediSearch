@@ -1,6 +1,10 @@
+import os
+
 from RLTest import Env
 from includes import *
 from common import *
+# Must match MAX_WORKER_THREADS in src/config.h
+MAX_WORKER_THREADS = 16
 
 not_modifiable = 'SEARCH_OPTION_BAD Not modifiable at runtime'
 default_module_list = [['name', 'vectorset', 'ver', 1, 'path', '', 'args', []]]
@@ -344,13 +348,13 @@ def testImmutable(env):
 
 ############################ TEST DEPRECATED MT CONFIGS ############################
 
-workers_default = 0
+workers_default = min(MAX_WORKER_THREADS, os.cpu_count())
 min_operation_workers_default = 4
 
 @skip(cluster=True)
 def testDeprecatedMTConfig_full():
     workers = '3'
-    env = Env(moduleArgs=f'WORKER_THREADS {workers} MT_MODE MT_MODE_FULL')
+    env = Env(moduleArgs=f'WORKER_THREADS {workers} MT_MODE MT_MODE_FULL', noDefaultModuleArgs=True)
     # Check old config values
     env.expect(config_cmd(), 'get', 'WORKER_THREADS').equal([['WORKER_THREADS', workers]])
     env.expect(config_cmd(), 'get', 'MT_MODE').equal([['MT_MODE', 'MT_MODE_FULL']])
@@ -361,7 +365,7 @@ def testDeprecatedMTConfig_full():
 @skip(cluster=True)
 def testDeprecatedMTConfig_operations():
     workers = '3'
-    env = Env(moduleArgs=f'WORKER_THREADS {workers} MT_MODE MT_MODE_ONLY_ON_OPERATIONS')
+    env = Env(moduleArgs=f'WORKER_THREADS {workers} MT_MODE MT_MODE_ONLY_ON_OPERATIONS', noDefaultModuleArgs=True)
     # Check old config values
     env.expect(config_cmd(), 'get', 'WORKER_THREADS').equal([['WORKER_THREADS', workers]])
     env.expect(config_cmd(), 'get', 'MT_MODE').equal([['MT_MODE', 'MT_MODE_ONLY_ON_OPERATIONS']])
@@ -371,7 +375,7 @@ def testDeprecatedMTConfig_operations():
 
 @skip(cluster=True)
 def testDeprecatedMTConfig_off():
-    env = Env(moduleArgs='WORKER_THREADS 0 MT_MODE MT_MODE_OFF')
+    env = Env(moduleArgs='WORKER_THREADS 0 MT_MODE MT_MODE_OFF', noDefaultModuleArgs=True)
     # Check old config values
     env.expect(config_cmd(), 'get', 'WORKER_THREADS').equal([['WORKER_THREADS', '0']])
     env.expect(config_cmd(), 'get', 'MT_MODE').equal([['MT_MODE', 'MT_MODE_OFF']])
@@ -382,22 +386,30 @@ def testDeprecatedMTConfig_off():
 # Check invalid combination
 @skip(cluster=True)
 def testDeprecatedMTConfig_full_with_0():
-    env = Env(moduleArgs='MT_MODE MT_MODE_FULL WORKER_THREADS 0')
+    env = Env(moduleArgs='MT_MODE MT_MODE_FULL WORKER_THREADS 0', noDefaultModuleArgs=True)
     env.assertTrue(env.isUp())
     env.expect(config_cmd(), 'get', 'WORKERS').equal([['WORKERS', str(workers_default)]])
     env.expect(config_cmd(), 'get', 'MIN_OPERATION_WORKERS').equal([['MIN_OPERATION_WORKERS', str(min_operation_workers_default)]])
 @skip(cluster=True)
 def testDeprecatedMTConfig_operations_with_0():
-    env = Env(moduleArgs='MT_MODE MT_MODE_ONLY_ON_OPERATIONS WORKER_THREADS 0')
+    env = Env(moduleArgs='MT_MODE MT_MODE_ONLY_ON_OPERATIONS WORKER_THREADS 0', noDefaultModuleArgs=True)
     env.assertTrue(env.isUp())
     env.expect(config_cmd(), 'get', 'WORKERS').equal([['WORKERS', str(workers_default)]])
     env.expect(config_cmd(), 'get', 'MIN_OPERATION_WORKERS').equal([['MIN_OPERATION_WORKERS', str(min_operation_workers_default)]])
 @skip(cluster=True)
 def testDeprecatedMTConfig_off_with_non_0():
-    env = Env(moduleArgs='MT_MODE MT_MODE_OFF WORKER_THREADS 3')
+    env = Env(moduleArgs='MT_MODE MT_MODE_OFF WORKER_THREADS 3', noDefaultModuleArgs=True)
     env.assertTrue(env.isUp())
     env.expect(config_cmd(), 'get', 'WORKERS').equal([['WORKERS', str(workers_default)]])
     env.expect(config_cmd(), 'get', 'MIN_OPERATION_WORKERS').equal([['MIN_OPERATION_WORKERS', str(min_operation_workers_default)]])
+
+@skip(cluster=True)
+def testExplicitWorkersOverridesDefault(env):
+    """Verify that explicitly setting WORKERS overrides the dynamic default."""
+    explicit_workers = 3
+    env = Env(moduleArgs=f'WORKERS {explicit_workers}')
+    env.assertTrue(env.isUp())
+    env.expect(config_cmd(), 'get', 'WORKERS').equal([['WORKERS', str(explicit_workers)]])
 
 @skip(cluster=True)
 def testDeprecatedMTConfig_ignore_full():
@@ -420,7 +432,7 @@ def testDeprecatedMTConfig_ignore_operations():
 @skip(cluster=True)
 def testDeprecatedMTConfig_address_combination_full():
     # Check allowed combination of deprecated and new configs
-    env = Env(moduleArgs='WORKER_THREADS 3 MT_MODE MT_MODE_FULL MIN_OPERATION_WORKERS 6')
+    env = Env(moduleArgs='WORKER_THREADS 3 MT_MODE MT_MODE_FULL MIN_OPERATION_WORKERS 6', noDefaultModuleArgs=True)
     env.expect(config_cmd(), 'get', 'WORKERS').equal([['WORKERS', '3']])
     env.expect(config_cmd(), 'get', 'MIN_OPERATION_WORKERS').equal([['MIN_OPERATION_WORKERS', '6']])
     env.expect(config_cmd(), 'get', 'MT_MODE').equal([['MT_MODE', 'MT_MODE_FULL']])
@@ -562,7 +574,7 @@ numericConfigs = [
     ('search-timeout', 'TIMEOUT', 500, 1, LLONG_MAX, False, False),
     ('search-union-iterator-heap', 'UNION_ITERATOR_HEAP', 20, 1, LLONG_MAX, False, False),
     ('search-vss-max-resize', 'VSS_MAX_RESIZE', 0, 0, UINT32_MAX, False, False),
-    ('search-workers', 'WORKERS', 0, 0, 16, False, False),
+    ('search-workers', 'WORKERS', min(MAX_WORKER_THREADS, os.cpu_count()), 0, 16, False, False),
     ('search-workers-priority-bias-threshold', 'WORKERS_PRIORITY_BIAS_THRESHOLD', 1, 0, LLONG_MAX, True, False),
     ('search-_bg-index-mem-pct-thr', '_BG_INDEX_MEM_PCT_THR', 100, 0, 100, False, False),
     ('search-bm25std-tanh-factor', 'BM25STD_TANH_FACTOR', 4, 1, 10000, False, False),

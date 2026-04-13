@@ -60,6 +60,39 @@ pub enum IteratorType {
 }
 
 impl IteratorType {
+    /// Returns `true` for leaf iterators (no children to profile).
+    ///
+    /// Leaf iterators have no `ProfileChildren` callback in the C vtable.
+    /// Compound iterators have children that must be profiled recursively.
+    pub const fn is_leaf(self) -> bool {
+        match self {
+            Self::InvIdxNumeric
+            | Self::InvIdxTerm
+            | Self::InvIdxWildcard
+            | Self::InvIdxMissing
+            | Self::InvIdxTag
+            | Self::Wildcard
+            | Self::Empty
+            | Self::IdListSorted
+            | Self::IdListUnsorted
+            | Self::MetricSortedById
+            | Self::MetricSortedByScore
+            | Self::Profile
+            | Self::Mock => true,
+
+            Self::Hybrid
+            | Self::Union
+            | Self::Intersect
+            | Self::Not
+            | Self::NotOptimized
+            | Self::Optional
+            | Self::OptionalOptimized
+            | Self::Optimus => false,
+
+            Self::Max => unreachable!(),
+        }
+    }
+
     /// Returns the name of this iterator type as a static string.
     pub const fn as_str(self) -> &'static str {
         match self {

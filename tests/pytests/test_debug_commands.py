@@ -828,6 +828,32 @@ class TestQueryDebugCommands(object):
         # Restore the default policy
         env.expect(config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN').ok()
 
+    def CoordTimeoutPolicyConstraints(self):
+        """
+        Test TIMEOUT_AFTER_N policy constraints for coordinator-level queries:
+        - ON_TIMEOUT RETURN: always supported
+        - ON_TIMEOUT FAIL: not supported (coordinator only supports RETURN)
+        - ON_TIMEOUT RETURN-STRICT: not supported (coordinator only supports RETURN)
+        """
+        env = self.env
+
+        # Skip for non-cluster - these constraints only apply to coordinator queries
+        if not env.isCluster():
+            return
+
+        # Test ON_TIMEOUT FAIL (not supported for coordinator)
+        env.expect(config_cmd(), 'SET', 'ON_TIMEOUT', 'FAIL').ok()
+        with env.assertResponseError(contained="TIMEOUT_AFTER_N for Coordinator is only supported with ON_TIMEOUT RETURN"):
+            runDebugQueryCommandTimeoutAfterN(env, self.basic_query, 2)
+
+        # Test ON_TIMEOUT RETURN-STRICT (not supported for coordinator)
+        env.expect(config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN-STRICT').ok()
+        with env.assertResponseError(contained="TIMEOUT_AFTER_N for Coordinator is only supported with ON_TIMEOUT RETURN"):
+            runDebugQueryCommandTimeoutAfterN(env, self.basic_query, 2)
+
+        # Restore the default policy
+        env.expect(config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN').ok()
+
     def SearchDebug(self):
         self.setBasicDebugQuery("SEARCH")
         basic_debug_query = self.basic_debug_query
@@ -920,6 +946,7 @@ class TestQueryDebugCommands(object):
             self.verifyResultsResp3(res, 0, message="AggregateDebug: TIMEOUT_AFTER_N 0 INTERNAL_ONLY without WITHCURSOR in cluster:")
 
         self.TimeoutPolicyConstraints()
+        self.CoordTimeoutPolicyConstraints()
 
     def testAggregateDebug(self):
         self.AggregateDebug()

@@ -52,6 +52,11 @@ cd src/redisearch_rs && cargo license-fix # Add missing license headers
 - Pointer alignment: left (`int* p;`)
 - No trailing spaces
 
+## Build System
+
+- The top-level `CMakeLists.txt` promotes specific warnings to errors with compiler-specific flags (gcc vs clang) guarded by `check_c_compiler_flag()`. These propagate to all subdirectories including deps.
+- When overriding a compiler flag (e.g. `-Wno-error=X` for a dep), always use the same compiler guard as the original flag, or a `$<C_COMPILER_ID:...>` generator expression. Never add bare `-W*` flags without a compiler check.
+
 ## Project Structure
 
 ```
