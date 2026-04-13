@@ -13,7 +13,6 @@
 #include "rmutil/rm_assert.h"
 #include "query_error.h"
 #include <string.h>
-#include <stdatomic.h>
 #include "info/global_stats.h"
 
 #define INTERNAL_HYBRID_RESP3_LENGTH 6
@@ -27,14 +26,7 @@ typedef struct {
     pthread_mutex_t *mutex;           // Mutex for array access and completion tracking
     pthread_cond_t *completionCond;   // Condition variable for completion signaling
     int numShards;                    // Total number of expected shards
-    // Reference count for safe deallocation. Initialized to 1 (coordinator) + numShards (callbacks).
-    // The coordinator and each callback decrement this; the last one to decrement frees the context.
-    // This prevents a use-after-free where the coordinator frees the context while a callback is
-    // still executing after unlocking the mutex.
-    volatile int refcount;
 } processCursorMappingCallbackContext;
-
-static inline void decrRefCtx(processCursorMappingCallbackContext *ctx);
 
 void CursorMapping_Release(CursorMapping *mapping) {
   rm_free(mapping->targetShard);
@@ -171,7 +163,10 @@ static void processHybridResp3(processCursorMappingCallbackContext *ctx, MRReply
 static void processCursorMappingCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
     // TODO: add response validation (see netCursorCallback)
     // TODO implement error handling
-    processCursorMappingCallbackContext *cb_ctx = (processCursorMappingCallbackContext *)MRIteratorCallback_GetPrivateData(ctx);
+    RefManager *rm = (RefManager *)MRIteratorCallback_GetPrivateData(ctx);
+    WeakRef w_ref = {.rm = rm};
+    StrongRef s_ref = WeakRef_Promote(w_ref);
+    processCursorMappingCallbackContext *cb_ctx = StrongRef_Get(s_ref);
     RS_ASSERT(cb_ctx);
     MRCommand *cmd = MRIteratorCallback_GetCommand(ctx);
 
@@ -198,12 +193,13 @@ static void processCursorMappingCallback(MRIteratorCallbackCtx *ctx, MRReply *re
     MRIteratorCallback_Done(ctx, 0);
     MRReply_Free(rep);
 
-    // Decrement refcount after we are completely done with cb_ctx.
-    // The coordinator also holds a reference; the last one to decrement frees the context.
-    decrRefCtx(cb_ctx);
+    // Release the strong ref. If this is the last reference (coordinator already released),
+    // this will free the context. Otherwise, the coordinator's release will free it later.
+    StrongRef_Release(s_ref);
 }
 
-static inline void freeCtx(processCursorMappingCallbackContext *ctx) {
+static void freeCtx(void *p) {
+    processCursorMappingCallbackContext *ctx = p;
     pthread_mutex_destroy(ctx->mutex);
     pthread_cond_destroy(ctx->completionCond);
     rm_free(ctx->mutex);
@@ -212,13 +208,6 @@ static inline void freeCtx(processCursorMappingCallbackContext *ctx) {
     StrongRef_Release(ctx->vsimMappings);
     array_free_ex(ctx->errors, QueryError_ClearError((QueryError*)ptr));
     rm_free(ctx);
-}
-
-// Decrement the reference count. If this was the last reference, free the context.
-static inline void decrRefCtx(processCursorMappingCallbackContext *ctx) {
-    if (!__atomic_sub_fetch(&ctx->refcount, 1, __ATOMIC_ACQ_REL)) {
-        freeCtx(ctx);
-    }
 }
 
 bool ProcessHybridCursorMappings(const MRCommand *cmd, int numShards, StrongRef searchMappingsRef, StrongRef vsimMappingsRef, QueryError *status, const RSOomPolicy oomPolicy) {
@@ -236,8 +225,7 @@ bool ProcessHybridCursorMappings(const MRCommand *cmd, int numShards, StrongRef 
     pthread_cond_init(ctx->completionCond, NULL);
 
     // Setup callback context
-    // refcount = 1 (coordinator) + numShards (one per callback invocation).
-    *ctx = (processCursorMappingCallbackContext){
+    *ctx = (processCursorMappingCallbackContext) {
         .searchMappings = StrongRef_Clone(searchMappingsRef),
         .vsimMappings = StrongRef_Clone(vsimMappingsRef),
         .errors = array_new(QueryError, numShards),
@@ -245,16 +233,16 @@ bool ProcessHybridCursorMappings(const MRCommand *cmd, int numShards, StrongRef 
         .mutex = ctx->mutex,
         .completionCond = ctx->completionCond,
         .numShards = numShards,
-        .refcount = 1 + numShards,
     };
 
-    // Start iteration (ctx is cleaned up via refcount, no destructor needed)
-    MRIterator *it = MR_IterateWithPrivateData(cmd, processCursorMappingCallback, ctx, NULL, NULL, iterStartCb, NULL);
+    StrongRef ctx_ref = StrongRef_New(ctx, freeCtx);
+
+    // Start iteration — pass the raw RefManager pointer as privateData so callbacks
+    // can reconstruct a WeakRef and promote it (see processCursorMappingCallback).
+    MRIterator *it = MR_IterateWithPrivateData(cmd, processCursorMappingCallback, ctx_ref.rm, NULL, NULL, iterStartCb, NULL);
     if (!it) {
-        // No callbacks will fire, so drop the numShards references that were reserved for them.
-        __atomic_sub_fetch(&ctx->refcount, numShards, __ATOMIC_ACQ_REL);
         QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_GENERIC, "Failed to communicate with shards");
-        decrRefCtx(ctx);
+        StrongRef_Release(ctx_ref);
         return false;
     }
     // Wait for all callbacks to complete
@@ -280,7 +268,7 @@ bool ProcessHybridCursorMappings(const MRCommand *cmd, int numShards, StrongRef 
     // Release the coordinator's reference. If all callbacks have already finished,
     // this will free ctx. Otherwise the last callback to finish will free it.
     MRIterator_Release(it);
-    decrRefCtx(ctx);
+    StrongRef_Release(ctx_ref);
 
     return success;
 }
