@@ -115,16 +115,6 @@ where
         self.child.as_ref()
     }
 
-    /// Set the child of this iterator.
-    pub fn set_child(&mut self, new_child: I) {
-        self.child = MaybeEmpty::new(new_child);
-    }
-
-    /// Take the child if it exists.
-    pub fn take_child(&mut self) -> Option<I> {
-        self.child.take_iterator()
-    }
-
     /// Check whether the child iterator is positionally past `doc_id`
     /// (already advanced beyond it) or fully exhausted, meaning `doc_id`
     /// cannot be in the child without performing additional reads.
@@ -352,12 +342,19 @@ where
     fn child(&self) -> Option<&dyn RQEIterator<'index>> {
         NotOptimized::child(self).map(|c| &**c as &dyn RQEIterator<'index>)
     }
+}
 
-    fn set_child(&mut self, child: Box<dyn RQEIterator<'index> + 'index>) {
-        NotOptimized::set_child(self, child);
-    }
-
-    fn take_child(&mut self) -> Option<Box<dyn RQEIterator<'index> + 'index>> {
-        NotOptimized::take_child(self)
+impl<'index, W: crate::WildcardIterator<'index> + 'index> crate::interop::ProfileChildren<'index>
+    for NotOptimized<'index, W, crate::c2rust::CRQEIterator>
+{
+    fn profile_children(self) -> Self {
+        NotOptimized {
+            wcii: self.wcii,
+            child: self.child.map(crate::c2rust::CRQEIterator::into_profiled),
+            max_doc_id: self.max_doc_id,
+            forced_eof: self.forced_eof,
+            result: self.result,
+            timeout_ctx: self.timeout_ctx,
+        }
     }
 }

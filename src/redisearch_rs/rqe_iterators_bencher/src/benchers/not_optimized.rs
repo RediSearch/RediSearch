@@ -18,8 +18,6 @@ use rqe_iterators::{
 };
 use rqe_iterators_test_utils::TestContext;
 
-use crate::ffi::{IteratorStatus_ITERATOR_OK, QueryIterator};
-
 pub struct Bencher {
     context_all: TestContext,
     context_sparse: TestContext,
@@ -106,26 +104,6 @@ impl Bencher {
             );
         });
 
-        group.bench_function("C", |b| {
-            b.iter_batched_ref(
-                || {
-                    // SAFETY: context has index_all=true and existingDocs wired by TestContext::wildcard.
-                    let wc = unsafe {
-                        QueryIterator::new_wildcard_optimized(context.sctx, Self::WEIGHT)
-                    };
-                    let child = QueryIterator::new_empty();
-                    QueryIterator::new_not_optimized(child, wc, Self::MAX_DOC_ID, Self::WEIGHT)
-                },
-                |it| {
-                    while it.read() == IteratorStatus_ITERATOR_OK {
-                        black_box(it.current());
-                    }
-                    it.free();
-                },
-                criterion::BatchSize::SmallInput,
-            );
-        });
-
         group.finish();
     }
 
@@ -151,26 +129,6 @@ impl Bencher {
                     while let Ok(Some(current)) = it.read() {
                         black_box(current);
                     }
-                },
-                criterion::BatchSize::SmallInput,
-            );
-        });
-
-        group.bench_function("C", |b| {
-            b.iter_batched_ref(
-                || {
-                    // SAFETY: context has index_all=true and existingDocs wired by TestContext::wildcard.
-                    let wc = unsafe {
-                        QueryIterator::new_wildcard_optimized(context.sctx, Self::WEIGHT)
-                    };
-                    let child = QueryIterator::new_id_list(Self::dense_child());
-                    QueryIterator::new_not_optimized(child, wc, Self::MAX_DOC_ID, Self::WEIGHT)
-                },
-                |it| {
-                    while it.read() == IteratorStatus_ITERATOR_OK {
-                        black_box(it.current());
-                    }
-                    it.free();
                 },
                 criterion::BatchSize::SmallInput,
             );
@@ -206,26 +164,6 @@ impl Bencher {
             );
         });
 
-        group.bench_function("C", |b| {
-            b.iter_batched_ref(
-                || {
-                    // SAFETY: context has index_all=true and existingDocs wired by TestContext::wildcard.
-                    let wc = unsafe {
-                        QueryIterator::new_wildcard_optimized(context.sctx, Self::WEIGHT)
-                    };
-                    let child = QueryIterator::new_id_list(Self::sparse_child());
-                    QueryIterator::new_not_optimized(child, wc, Self::MAX_DOC_ID, Self::WEIGHT)
-                },
-                |it| {
-                    while it.read() == IteratorStatus_ITERATOR_OK {
-                        black_box(it.current());
-                    }
-                    it.free();
-                },
-                criterion::BatchSize::SmallInput,
-            );
-        });
-
         group.finish();
     }
 
@@ -246,28 +184,6 @@ impl Bencher {
                     {
                         black_box(current);
                     }
-                },
-                criterion::BatchSize::SmallInput,
-            );
-        });
-
-        group.bench_function("C", |b| {
-            b.iter_batched_ref(
-                || {
-                    // SAFETY: context has index_all=true and existingDocs wired by TestContext::wildcard.
-                    let wc = unsafe {
-                        QueryIterator::new_wildcard_optimized(context.sctx, Self::WEIGHT)
-                    };
-                    let child = QueryIterator::new_empty();
-                    QueryIterator::new_not_optimized(child, wc, Self::MAX_DOC_ID, Self::WEIGHT)
-                },
-                |it| {
-                    while it.skip_to(it.last_doc_id() + Self::SKIP_TO_STEP)
-                        == IteratorStatus_ITERATOR_OK
-                    {
-                        black_box(it.current());
-                    }
-                    it.free();
                 },
                 criterion::BatchSize::SmallInput,
             );
@@ -304,28 +220,6 @@ impl Bencher {
             );
         });
 
-        group.bench_function("C", |b| {
-            b.iter_batched_ref(
-                || {
-                    // SAFETY: context has index_all=true and existingDocs wired by TestContext::wildcard.
-                    let wc = unsafe {
-                        QueryIterator::new_wildcard_optimized(context.sctx, Self::WEIGHT)
-                    };
-                    let child = QueryIterator::new_id_list(Self::sparse_child());
-                    QueryIterator::new_not_optimized(child, wc, Self::MAX_DOC_ID, Self::WEIGHT)
-                },
-                |it| {
-                    while it.skip_to(it.last_doc_id() + Self::SKIP_TO_STEP)
-                        == IteratorStatus_ITERATOR_OK
-                    {
-                        black_box(it.current());
-                    }
-                    it.free();
-                },
-                criterion::BatchSize::SmallInput,
-            );
-        });
-
         group.finish();
     }
 
@@ -352,28 +246,6 @@ impl Bencher {
                     {
                         black_box(current);
                     }
-                },
-                criterion::BatchSize::SmallInput,
-            );
-        });
-
-        group.bench_function("C", |b| {
-            b.iter_batched_ref(
-                || {
-                    // SAFETY: context has index_all=true and existingDocs wired by TestContext::wildcard.
-                    let wc = unsafe {
-                        QueryIterator::new_wildcard_optimized(context.sctx, Self::WEIGHT)
-                    };
-                    let child = QueryIterator::new_id_list(Self::dense_child());
-                    QueryIterator::new_not_optimized(child, wc, Self::MAX_DOC_ID, Self::WEIGHT)
-                },
-                |it| {
-                    while it.skip_to(it.last_doc_id() + Self::SKIP_TO_STEP)
-                        == IteratorStatus_ITERATOR_OK
-                    {
-                        black_box(it.current());
-                    }
-                    it.free();
                 },
                 criterion::BatchSize::SmallInput,
             );

@@ -100,6 +100,7 @@ impl<'index, I> RQEIterator<'index> for Optional<'index, I>
 where
     I: RQEIterator<'index>,
 {
+    #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         if let Some(child) = self.child.as_mut()
             && child.last_doc_id() == self.result.doc_id
@@ -239,5 +240,18 @@ where
     #[inline(always)]
     fn type_(&self) -> IteratorType {
         IteratorType::Optional
+    }
+}
+
+impl<'index> crate::interop::ProfileChildren<'index>
+    for Optional<'index, crate::c2rust::CRQEIterator>
+{
+    fn profile_children(self) -> Self {
+        Optional {
+            max_doc_id: self.max_doc_id,
+            weight: self.weight,
+            result: self.result,
+            child: self.child.map(crate::c2rust::CRQEIterator::into_profiled),
+        }
     }
 }

@@ -1,5 +1,4 @@
 use core::mem::size_of;
-use core::usize;
 use std::format;
 use std::vec;
 use thin_vec::{
@@ -121,7 +120,7 @@ fn test_empty_singleton_torture() {
         assert_eq!(v.into_iter().count(), 0);
 
         let v = SmallThinVec::<i32>::new();
-        #[allow(clippy::never_loop)]
+        #[expect(clippy::never_loop)]
         for _ in v.into_iter() {
             unreachable!();
         }
@@ -496,6 +495,7 @@ fn zero_sized_values() {
     assert_eq!(v.iter_mut().count(), 4);
 
     for &mut () in &mut v {}
+    // SAFETY: 0 is always a valid length.
     unsafe {
         v.set_len(0);
     }
@@ -639,6 +639,7 @@ fn test_slice_out_of_bounds_2() {
 
 #[test]
 #[should_panic]
+#[expect(clippy::reversed_empty_ranges)]
 fn test_slice_out_of_bounds_3() {
     let x: SmallThinVec<i32> = small_thin_vec![1, 2, 3, 4, 5];
     let _ = &x[!0..4];
@@ -653,6 +654,7 @@ fn test_slice_out_of_bounds_4() {
 
 #[test]
 #[should_panic]
+#[expect(clippy::reversed_empty_ranges)]
 fn test_slice_out_of_bounds_5() {
     let x: SmallThinVec<i32> = small_thin_vec![1, 2, 3, 4, 5];
     let _ = &x[3..2];
@@ -802,6 +804,7 @@ fn test_reserve_exact() {
 #[test]
 fn test_set_len() {
     let mut vec: SmallThinVec<u32> = small_thin_vec![];
+    // SAFETY: 0 is always a valid length for an empty vec.
     unsafe {
         vec.set_len(0); // at one point this caused a crash
     }
@@ -813,6 +816,7 @@ fn test_set_len() {
 #[should_panic(expected = "invalid set_len(1) on empty ThinVec")]
 fn test_set_len_invalid() {
     let mut vec: SmallThinVec<u32> = small_thin_vec![];
+    // SAFETY: intentionally invalid — this test asserts the debug panic.
     unsafe {
         vec.set_len(1);
     }
@@ -1237,4 +1241,218 @@ fn test_mem_usage_different_sizes() {
     assert!(v8.mem_usage() <= v16.mem_usage());
     assert!(v16.mem_usage() <= v32.mem_usage());
     assert!(v32.mem_usage() <= v64.mem_usage());
+}
+
+// ============================================================================
+// drain tests
+// ============================================================================
+
+#[test]
+fn drain_full_range() {
+    let mut v: SmallThinVec<i32> = small_thin_vec![1, 2, 3, 4, 5];
+    let drained: Vec<_> = v.drain(..).collect();
+    assert_eq!(drained, [1, 2, 3, 4, 5]);
+    assert!(v.is_empty());
+}
+
+#[test]
+fn drain_partial_range_from_start() {
+    let mut v: SmallThinVec<i32> = small_thin_vec![1, 2, 3, 4, 5];
+    let drained: Vec<_> = v.drain(..3).collect();
+    assert_eq!(drained, [1, 2, 3]);
+    assert_eq!(v, [4, 5]);
+}
+
+#[test]
+fn drain_partial_range_from_end() {
+    let mut v: SmallThinVec<i32> = small_thin_vec![1, 2, 3, 4, 5];
+    let drained: Vec<_> = v.drain(2..).collect();
+    assert_eq!(drained, [3, 4, 5]);
+    assert_eq!(v, [1, 2]);
+}
+
+#[test]
+fn drain_middle_range() {
+    let mut v: SmallThinVec<i32> = small_thin_vec![1, 2, 3, 4, 5];
+    let drained: Vec<_> = v.drain(1..4).collect();
+    assert_eq!(drained, [2, 3, 4]);
+    assert_eq!(v, [1, 5]);
+}
+
+#[test]
+fn drain_inclusive_range() {
+    let mut v: SmallThinVec<i32> = small_thin_vec![1, 2, 3, 4, 5];
+    let drained: Vec<_> = v.drain(1..=3).collect();
+    assert_eq!(drained, [2, 3, 4]);
+    assert_eq!(v, [1, 5]);
+}
+
+#[test]
+fn drain_empty_range() {
+    let mut v: SmallThinVec<i32> = small_thin_vec![1, 2, 3];
+    let drained: Vec<_> = v.drain(1..1).collect();
+    assert!(drained.is_empty());
+    assert_eq!(v, [1, 2, 3]);
+}
+
+#[test]
+fn drain_empty_vec() {
+    let mut v: SmallThinVec<i32> = SmallThinVec::new();
+    let drained: Vec<_> = v.drain(..).collect();
+    assert!(drained.is_empty());
+    assert!(v.is_empty());
+}
+
+#[test]
+fn drain_drops_remaining_on_drop() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    static DROP_COUNT: AtomicUsize = AtomicUsize::new(0);
+
+    #[derive(Debug)]
+    struct DropCounter;
+    impl Drop for DropCounter {
+        fn drop(&mut self) {
+            DROP_COUNT.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+
+    DROP_COUNT.store(0, Ordering::Relaxed);
+    let mut v: SmallThinVec<DropCounter> = SmallThinVec::new();
+    v.push(DropCounter);
+    v.push(DropCounter);
+    v.push(DropCounter);
+
+    {
+        let mut drain = v.drain(..);
+        // Consume only the first element.
+        let _first = drain.next();
+        // Dropping the iterator should drop the remaining 2.
+    }
+    // 1 consumed (dropped when _first goes out of scope) + 2 dropped by Drain::drop
+    assert_eq!(DROP_COUNT.load(Ordering::Relaxed), 3);
+    assert!(v.is_empty());
+}
+
+#[test]
+fn drain_double_ended() {
+    let mut v: SmallThinVec<i32> = small_thin_vec![1, 2, 3, 4, 5];
+    let mut drain = v.drain(..);
+    assert_eq!(drain.next(), Some(1));
+    assert_eq!(drain.next_back(), Some(5));
+    assert_eq!(drain.next(), Some(2));
+    assert_eq!(drain.next_back(), Some(4));
+    assert_eq!(drain.next(), Some(3));
+    assert_eq!(drain.next(), None);
+}
+
+#[test]
+fn drain_exact_size() {
+    let mut v: SmallThinVec<i32> = small_thin_vec![10, 20, 30];
+    let drain = v.drain(..);
+    assert_eq!(drain.len(), 3);
+}
+
+#[test]
+#[should_panic(expected = "drain range start (3) > end (1)")]
+#[expect(clippy::reversed_empty_ranges)]
+fn drain_panics_start_greater_than_end() {
+    let mut v: SmallThinVec<i32> = small_thin_vec![1, 2, 3];
+    let _ = v.drain(3..1);
+}
+
+#[test]
+#[should_panic(expected = "drain range end (5) > length (3)")]
+fn drain_panics_end_greater_than_len() {
+    let mut v: SmallThinVec<i32> = small_thin_vec![1, 2, 3];
+    let _ = v.drain(..5);
+}
+
+#[test]
+fn drain_moves_tail_back_on_drop_panic() {
+    use std::panic;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    static DROP_COUNT: AtomicUsize = AtomicUsize::new(0);
+
+    #[derive(Debug)]
+    struct PanicOnDrop(bool);
+    impl Drop for PanicOnDrop {
+        fn drop(&mut self) {
+            DROP_COUNT.fetch_add(1, Ordering::Relaxed);
+            if self.0 {
+                self.0 = false; // prevent double-panic
+                panic!("intentional panic in drop");
+            }
+        }
+    }
+
+    DROP_COUNT.store(0, Ordering::Relaxed);
+    let mut v: SmallThinVec<PanicOnDrop> = SmallThinVec::new();
+    // Elements: [no-panic, PANIC, no-panic(tail)]
+    v.push(PanicOnDrop(false));
+    v.push(PanicOnDrop(true));
+    v.push(PanicOnDrop(false));
+
+    // Drain the first two elements. The iterator consumes element 0,
+    // then Drain::drop drops element 1 (which panics). The tail (element 2)
+    // must still be moved back so it isn't leaked.
+    let result = panic::catch_unwind(panic::AssertUnwindSafe(|| {
+        let mut drain = v.drain(0..2);
+        let _first = drain.next(); // consume element 0
+        // drop(drain) will try to drop element 1 -> panic
+    }));
+
+    assert!(result.is_err(), "expected a panic from Drop");
+    // Element 0 was consumed and dropped (1), element 1 panicked during drop (1),
+    // and the tail element 2 must still be alive inside the vec.
+    assert_eq!(v.len(), 1, "tail element must be preserved");
+
+    // Now drop v, which should drop the tail element.
+    drop(v);
+    assert_eq!(
+        DROP_COUNT.load(Ordering::Relaxed),
+        3,
+        "all elements must be dropped"
+    );
+}
+
+// ============================================================================
+// append tests
+// ============================================================================
+
+#[test]
+fn append_basic() {
+    let mut a: SmallThinVec<i32> = small_thin_vec![1, 2, 3];
+    let mut b: SmallThinVec<i32> = small_thin_vec![4, 5, 6];
+    a.append(&mut b);
+    assert_eq!(a, [1, 2, 3, 4, 5, 6]);
+    assert!(b.is_empty());
+}
+
+#[test]
+fn append_to_empty() {
+    let mut a: SmallThinVec<i32> = SmallThinVec::new();
+    let mut b: SmallThinVec<i32> = small_thin_vec![1, 2, 3];
+    a.append(&mut b);
+    assert_eq!(a, [1, 2, 3]);
+    assert!(b.is_empty());
+}
+
+#[test]
+fn append_empty_other() {
+    let mut a: SmallThinVec<i32> = small_thin_vec![1, 2, 3];
+    let mut b: SmallThinVec<i32> = SmallThinVec::new();
+    a.append(&mut b);
+    assert_eq!(a, [1, 2, 3]);
+    assert!(b.is_empty());
+}
+
+#[test]
+fn append_both_empty() {
+    let mut a: SmallThinVec<i32> = SmallThinVec::new();
+    let mut b: SmallThinVec<i32> = SmallThinVec::new();
+    a.append(&mut b);
+    assert!(a.is_empty());
+    assert!(b.is_empty());
 }

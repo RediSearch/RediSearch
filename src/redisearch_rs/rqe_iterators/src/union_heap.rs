@@ -112,11 +112,8 @@ where
     /// Uses DFS over the heap array, pruning subtrees where `doc_id > min_id`
     /// (heap property guarantees all descendants are also `>= doc_id`).
     fn build_aggregate_result(&mut self, min_id: t_docId) {
+        self.result.reset_aggregate();
         self.result.doc_id = min_id;
-
-        if let Some(agg) = self.result.as_aggregate_mut() {
-            agg.reset();
-        }
 
         // Borrow the heap data slice once so the compiler can hoist bounds
         // checks out of the loop.
@@ -273,11 +270,9 @@ where
     /// Sets the union result directly from the child at `child_idx`.
     fn quick_set_from_child(&mut self, child_idx: usize) {
         let child = &mut self.children[child_idx];
-        self.result.doc_id = child.last_doc_id();
 
-        if let Some(agg) = self.result.as_aggregate_mut() {
-            agg.reset();
-        }
+        self.result.reset_aggregate();
+        self.result.doc_id = child.last_doc_id();
 
         if let Some(child_result) = child.current() {
             let child_ptr: *const RSIndexResult<'index> = child_result;
@@ -354,11 +349,8 @@ where
     }
 
     fn rewind(&mut self) {
-        self.result.doc_id = 0;
         self.is_eof = self.children.is_empty();
-        if let Some(agg) = self.result.as_aggregate_mut() {
-            agg.reset();
-        }
+        self.result.reset_aggregate();
         self.children.iter_mut().for_each(|c| c.rewind());
         self.heap.clear();
     }
@@ -438,5 +430,23 @@ where
     #[inline(always)]
     fn type_(&self) -> IteratorType {
         IteratorType::Union
+    }
+}
+
+impl<'index, const QUICK_EXIT: bool> crate::interop::ProfileChildren<'index>
+    for UnionHeap<'index, crate::c2rust::CRQEIterator, QUICK_EXIT>
+{
+    fn profile_children(self) -> Self {
+        UnionHeap {
+            children: self
+                .children
+                .into_iter()
+                .map(crate::c2rust::CRQEIterator::into_profiled)
+                .collect(),
+            num_estimated: self.num_estimated,
+            is_eof: self.is_eof,
+            result: self.result,
+            heap: self.heap,
+        }
     }
 }
