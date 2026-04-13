@@ -207,6 +207,10 @@ def _test_withcount(protocol):
         (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'GROUPBY', 1, '@brand', 'SORTBY', 1, '@brand', 'LIMIT', 0, 11], 25, 11),
         (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'GROUPBY', 1, '@brand', 'SORTBY', 1, '@brand', 'LIMIT', 0, 50], 25, 25),
 
+        # WITHCOUNT + SORTBY + MAX -> GROUPBY (high-cardinality — fan-in reduction)
+        (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'SORTBY', 1, '@title', 'MAX', 50,
+          'GROUPBY', 1, '@price', 'REDUCE', 'COUNT', 0, 'AS', 'cnt'], 50, 50),
+
         # WITHCOUNT + ADDSCORES
         (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'ADDSCORES'], docs, docs),
 
@@ -564,6 +568,17 @@ def _test_profile(protocol):
            [('Index', 1032), ('Sorter', 50), ('Loader', 50)],
            [('Index', 1041), ('Sorter', 50), ('Loader', 50)]],
            [('Network', 150), ('Sorter', 50), ('Grouper', 25)]]),
+
+        # SORTBY+MAX before GROUPBY on high-cardinality field — demonstrates fan-in reduction.
+        # Without SORTBY+MAX, GROUPBY @price sends ~1000 groups per shard (Network ~3100).
+        # With SORTBY MAX 50, each shard sends only 50 sorted docs (Network 150) — a ~20x reduction.
+        (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'SORTBY', 1, '@title', 'MAX', 50,
+          'GROUPBY', 1, '@price', 'REDUCE', 'COUNT', 0, 'AS', 'cnt'],
+         [('Index', 3100), ('Sorter', 50), ('Loader', 50), ('Grouper', 50)],
+         [[[('Index', 1027), ('Sorter', 50), ('Loader', 50)],
+           [('Index', 1032), ('Sorter', 50), ('Loader', 50)],
+           [('Index', 1041), ('Sorter', 50), ('Loader', 50)]],
+           [('Network', 150), ('Sorter', 50), ('Grouper', 50)]]),
 
         # WITHCOUNT + SORTBY + MAX -> GROUPBY + REDUCE -> SORTBY -> LIMIT
         (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'SORTBY', 2, '@price', 'DESC', 'MAX', 100,
