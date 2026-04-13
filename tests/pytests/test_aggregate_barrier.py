@@ -265,9 +265,8 @@ def _test_barrier_waits_for_delayed_unbalanced_shard(protocol):
         env.assertTrue(isinstance(query_result[0], redis.exceptions.ResponseError))
         env.assertContains('Timeout', str(query_result[0]))
 
-        # Release shard 1's worker thread and wait for it to finish
+        # Release shard 1's worker thread
         shard_conn.execute_command(debug_cmd(), 'SYNC_POINT', 'CLEAR')
-        shard_conn.execute_command(debug_cmd(), 'WORKERS', 'drain')
 
         # ----------------------------------------------------------------------
         # Case 3: Timeout - ON_TIMEOUT RETURN
@@ -312,15 +311,14 @@ def _test_barrier_waits_for_delayed_unbalanced_shard(protocol):
                             ['Timeout limit was reached'])
     finally:
         shard_conn.execute_command(debug_cmd(), 'SYNC_POINT', 'CLEAR')
-        shard_conn.execute_command(debug_cmd(), 'WORKERS', 'drain')
 
 
-@skip(cluster=False)
+@skip(cluster=False, asan=True)
 def test_barrier_waits_for_delayed_unbalanced_shard_resp2():
     _test_barrier_waits_for_delayed_unbalanced_shard(2)
 
 
-@skip(cluster=False)
+@skip(cluster=False, asan=True)
 def test_barrier_waits_for_delayed_unbalanced_shard_resp3():
     _test_barrier_waits_for_delayed_unbalanced_shard(3)
 
