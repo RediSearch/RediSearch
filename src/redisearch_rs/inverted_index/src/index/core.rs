@@ -14,6 +14,7 @@ use std::{
 };
 use thin_vec::ThinVec;
 
+use super::unique_id::IndexUniqueId;
 use crate::{
     BlockCapacity, Encoder, IdDelta, RSIndexResult,
     controlled_cursor::ControlledCursor,
@@ -42,6 +43,12 @@ pub struct InvertedIndex<E> {
     /// A marker used by the garbage collector to determine if the index has been modified since
     /// the last GC pass. This is used to reset a reader if the index has been modified.
     pub(crate) gc_marker: AtomicU32,
+
+    /// A unique identifier for this index instance, assigned at construction time from a global
+    /// monotonic counter. Used together with pointer comparison to detect the ABA problem: when
+    /// an index is freed and a new one is allocated at the same address, the unique ID will
+    /// differ, allowing cursors to detect the replacement.
+    unique_id: IndexUniqueId,
 
     /// The encoder to use when adding new entries to the index
     pub(crate) _encoder: PhantomData<E>,
@@ -251,6 +258,7 @@ impl<E: Encoder> InvertedIndex<E> {
             n_unique_docs: 0,
             flags,
             gc_marker: AtomicU32::new(0),
+            unique_id: IndexUniqueId::next(),
             _encoder: Default::default(),
         }
     }
@@ -279,6 +287,7 @@ impl<E: Encoder> InvertedIndex<E> {
             n_unique_docs,
             flags,
             gc_marker: AtomicU32::new(0),
+            unique_id: IndexUniqueId::next(),
             _encoder: Default::default(),
         }
     }
@@ -491,5 +500,12 @@ impl<E: Encoder> InvertedIndex<E> {
     /// Increment the GC marker of this index. This is only used by the some C tests.
     pub fn gc_marker_inc(&self) {
         self.gc_marker.fetch_add(1, atomic::Ordering::Relaxed);
+    }
+
+    /// Returns the unique identifier for this index instance. This ID is assigned once at
+    /// construction time and never changes. Used to detect the ABA problem in cursor
+    /// revalidation.
+    pub const fn unique_id(&self) -> IndexUniqueId {
+        self.unique_id
     }
 }

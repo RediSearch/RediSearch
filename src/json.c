@@ -38,7 +38,7 @@ int GetJSONAPIs(RedisModuleCtx *ctx, int subscribeToModuleChange) {
     char ver[128];
     // Obtain the newest version of JSON API
     for (int i = RedisJSONAPI_LATEST_API_VER; i >= RedisJSONAPI_MIN_API_VER; --i) {
-      sprintf(ver, "RedisJSON_V%d", i);
+      snprintf(ver, sizeof(ver), "RedisJSON_V%d", i);
       japi = RedisModule_GetSharedAPI(ctx, ver);
       if (japi) {
         japi_ver = i;

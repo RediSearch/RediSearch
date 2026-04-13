@@ -15,7 +15,7 @@ use inverted_index::{Decoder, Encoder, RSIndexResult, freqs_only::FreqsOnly};
 fn encode_freqs_only(records: &[(u32, u32)]) -> Vec<u8> {
     let mut buf = Cursor::new(Vec::new());
     for &(delta, freq) in records {
-        let record = RSIndexResult::virt().frequency(freq);
+        let record = RSIndexResult::build_virt().frequency(freq).build();
         FreqsOnly::encode(&mut buf, delta, &record).expect("to encode");
     }
     buf.into_inner()
@@ -49,7 +49,10 @@ fn test_encode_freqs_only() {
 
     for (freq, delta, expected_encoding) in tests {
         let mut buf = Cursor::new(Vec::new());
-        let record = RSIndexResult::virt().doc_id(doc_id).frequency(freq);
+        let record = RSIndexResult::build_virt()
+            .doc_id(doc_id)
+            .frequency(freq)
+            .build();
 
         let bytes_written =
             FreqsOnly::encode(&mut buf, delta, &record).expect("to encode freqs only record");
@@ -75,7 +78,7 @@ fn test_encode_freqs_only_output_too_small() {
     let buf = [0u8; 1];
     let mut cursor = Cursor::new(buf);
 
-    let record = RSIndexResult::virt().doc_id(10).frequency(5);
+    let record = RSIndexResult::build_virt().doc_id(10).frequency(5).build();
     let res = FreqsOnly::encode(&mut cursor, 0, &record);
 
     assert!(res.is_err());
@@ -121,7 +124,7 @@ fn test_seek_freqs_only() {
         (5, 6),  // doc_id = 60
     ]);
     let mut cursor = Cursor::new(buf.as_ref());
-    let mut result = RSIndexResult::virt();
+    let mut result = RSIndexResult::build_virt().build();
 
     // Seek to 30 (skips first two records)
     let found = FreqsOnly::seek(&mut cursor, 10, 30, &mut result).expect("seek");

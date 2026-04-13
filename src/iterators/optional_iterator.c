@@ -127,6 +127,14 @@ static IteratorStatus OI_Read_Optimized(QueryIterator *base) {
   return ITERATOR_OK;
 }
 
+static QueryIterator *OI_ProfileChildren(QueryIterator *base) {
+  OptionalOptimizedIterator *oi = (OptionalOptimizedIterator *)base;
+  if (oi->child) {
+    oi->child = IntoProfiled(oi->child);
+  }
+  return base;
+}
+
 // Revalidate for OPTIONAL iterator - Optimized version.
 static ValidateStatus OI_Revalidate_Optimized(QueryIterator *base) {
   OptionalOptimizedIterator *oi = (OptionalOptimizedIterator *)base;
@@ -203,7 +211,7 @@ static QueryIterator* OptionalIteratorReducer(QueryIterator *it, QueryEvalCtx *q
 }
 
 // Create a new OPTIONAL iterator - Non-Optimized version.
-QueryIterator *NewOptionalIterator(QueryIterator *it, QueryEvalCtx *q, double weight) {
+QueryIterator *NewOptionalIterator(QueryIterator *it, QueryEvalCtx *q, t_docId maxDocId, double weight) {
   RS_ASSERT(q && q->sctx && q->sctx->spec && q->docTable);
   QueryIterator *ret = OptionalIteratorReducer(it, q, weight);
   if (ret != NULL) {
@@ -211,10 +219,9 @@ QueryIterator *NewOptionalIterator(QueryIterator *it, QueryEvalCtx *q, double we
   }
 
   bool optimized = q->sctx->spec->rule && q->sctx->spec->rule->index_all;
-  optimized |= q && q->sctx && q->sctx->spec && q->sctx->spec->diskSpec;
-  t_docId maxDocId = q->docTable->maxDocId;
 
   if (optimized) {
+    RS_ASSERT(!q->sctx->spec->diskSpec)
     OptionalOptimizedIterator *oi = rm_calloc(1, sizeof(*oi));
     oi->wcii = NewWildcardIterator_Optimized(q->sctx, 0);
     oi->child = it;
@@ -233,6 +240,7 @@ QueryIterator *NewOptionalIterator(QueryIterator *it, QueryEvalCtx *q, double we
     ret->Read = OI_Read_Optimized;
     ret->SkipTo = OI_SkipTo_Optimized;
     ret->Revalidate = OI_Revalidate_Optimized;
+    ret->ProfileChildren = OI_ProfileChildren;
   } else {
     ret = NewOptionalNonOptimizedIterator(it, maxDocId, weight);
   }
@@ -247,35 +255,6 @@ QueryIterator const* GetOptionalIteratorChild(const QueryIterator *base) {
     } else {
         return GetOptionalNonOptimizedIteratorChild(base);
     }
-}
-
-QueryIterator *TakeOptionalIteratorChild(QueryIterator *base) {
-    if (base->type == OPTIONAL_OPTIMIZED_ITERATOR) {
-        OptionalOptimizedIterator *it = (OptionalOptimizedIterator *)base;
-        QueryIterator* child = it->child;
-        it->child = NULL;
-        return child;
-    } else {
-        return TakeOptionalNonOptimizedIteratorChild(base);
-    }
-}
-
-void SetOptionalIteratorChild(QueryIterator *base, QueryIterator *newChild) {
-    if (base->type == OPTIONAL_OPTIMIZED_ITERATOR) {
-        OptionalOptimizedIterator *it = (OptionalOptimizedIterator *)base;
-        if (it->child) {
-            it->child->Free(it->child);
-        }
-        it->child = newChild;
-    } else {
-        SetOptionalNonOptimizedIteratorChild(base, newChild);
-    }
-}
-
-QueryIterator const* GetOptionalOptimizedIteratorWildcard(QueryIterator *base) {
-    RS_ASSERT (base->type == OPTIONAL_OPTIMIZED_ITERATOR);
-    OptionalOptimizedIterator const*it = (OptionalOptimizedIterator *)base;
-    return it->wcii;
 }
 
 void SetOptionalOptimizedIteratorWildcard(QueryIterator *base, QueryIterator *newWcii) {

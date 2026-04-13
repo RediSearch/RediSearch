@@ -11,7 +11,7 @@
 
 use ffi::{IndexFlags_Index_DocIdsOnly, RS_FIELDMASK_ALL, t_docId};
 use inverted_index::{RSIndexResult, doc_ids_only::DocIdsOnly};
-use rqe_iterators::{NoOpChecker, RQEIterator, inverted_index::Missing};
+use rqe_iterators::{IteratorType, NoOpChecker, RQEIterator, inverted_index::Missing};
 use rqe_iterators_test_utils::MockContext;
 
 use crate::inverted_index::utils::BaseTest;
@@ -22,11 +22,12 @@ struct MissingBaseTest {
 
 impl MissingBaseTest {
     fn expected_record(doc_id: t_docId) -> RSIndexResult<'static> {
-        RSIndexResult::virt()
+        RSIndexResult::build_virt()
             .doc_id(doc_id)
             .field_mask(RS_FIELDMASK_ALL)
             .frequency(1)
             .weight(0.0)
+            .build()
     }
 
     fn new(n_docs: u64) -> Self {
@@ -45,6 +46,13 @@ impl MissingBaseTest {
         // that outlives the returned iterator. field_index is 0 (unused with NoOpChecker).
         unsafe { Missing::new(reader, self.test.mock_ctx.sctx(), 0, NoOpChecker) }
     }
+}
+
+#[test]
+fn missing_type() {
+    let test = MissingBaseTest::new(10);
+    let it = test.create_iterator();
+    assert_eq!(it.type_(), IteratorType::InvIdxMissing);
 }
 
 #[test]
@@ -89,11 +97,12 @@ mod not_miri {
 
     impl MissingRevalidateTest {
         fn expected_record(doc_id: t_docId) -> RSIndexResult<'static> {
-            RSIndexResult::virt()
+            RSIndexResult::build_virt()
                 .doc_id(doc_id)
                 .field_mask(RS_FIELDMASK_ALL)
                 .frequency(1)
                 .weight(0.0)
+                .build()
         }
 
         fn new(n_docs: u64) -> Self {

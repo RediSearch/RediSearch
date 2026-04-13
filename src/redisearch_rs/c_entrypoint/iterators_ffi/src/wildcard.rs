@@ -9,11 +9,10 @@
 
 use std::ptr::NonNull;
 
-use ffi::{
-    IteratorType_INV_IDX_WILDCARD_ITERATOR, IteratorType_WILDCARD_ITERATOR, QueryIterator, t_docId,
-};
+use ffi::{QueryIterator, t_docId};
+use rqe_iterator_type::IteratorType;
+use rqe_iterators::interop::RQEIteratorWrapper;
 use rqe_iterators::{RQEIterator, Wildcard};
-use rqe_iterators_interop::RQEIteratorWrapper;
 
 /// Creates a new non-optimized wildcard iterator over the `[0, max_id]` document id range.
 #[unsafe(no_mangle)]
@@ -21,10 +20,7 @@ pub extern "C" fn NewWildcardIterator_NonOptimized(
     max_id: t_docId,
     weight: f64,
 ) -> *mut QueryIterator {
-    RQEIteratorWrapper::boxed_new(
-        IteratorType_WILDCARD_ITERATOR,
-        Wildcard::new(max_id, weight),
-    )
+    RQEIteratorWrapper::boxed_new(Wildcard::new(max_id, weight))
 }
 
 /// Returns `true` if `it` is a wildcard iterator (either optimized or non-optimized).
@@ -33,7 +29,6 @@ pub extern "C" fn NewWildcardIterator_NonOptimized(
 ///
 /// `it`, when non-null, must point to a valid [`QueryIterator`].
 #[unsafe(no_mangle)]
-#[expect(non_upper_case_globals)]
 pub const unsafe extern "C" fn IsWildcardIterator(it: *const QueryIterator) -> bool {
     // SAFETY: Caller guarantees `it`, when non-null, points to a valid `QueryIterator`.
     let Some(it) = (unsafe { it.as_ref() }) else {
@@ -41,7 +36,7 @@ pub const unsafe extern "C" fn IsWildcardIterator(it: *const QueryIterator) -> b
     };
     matches!(
         it.type_,
-        IteratorType_WILDCARD_ITERATOR | IteratorType_INV_IDX_WILDCARD_ITERATOR
+        IteratorType::Wildcard | IteratorType::InvIdxWildcard
     )
 }
 
@@ -69,10 +64,9 @@ pub unsafe extern "C" fn NewWildcardIterator_Optimized(
 ) -> *mut QueryIterator {
     let sctx = NonNull::new(sctx.cast_mut()).expect("sctx is null");
     // SAFETY: Caller guarantees all preconditions of `new_wildcard_iterator_optimized`.
-    let (it, iter_type) =
-        unsafe { rqe_iterators::wildcard::new_wildcard_iterator_optimized(sctx, weight) };
+    let it = unsafe { rqe_iterators::wildcard::new_wildcard_iterator_optimized(sctx, weight) };
     let it: Box<dyn RQEIterator + '_> = it;
-    RQEIteratorWrapper::boxed_new(iter_type, it)
+    RQEIteratorWrapper::boxed_new(it)
 }
 
 /// Creates a new wildcard iterator from a query evaluation context.
@@ -109,7 +103,7 @@ pub unsafe extern "C" fn NewWildcardIterator(
 ) -> *mut QueryIterator {
     let query = NonNull::new(q.cast_mut()).expect("q is null");
     // SAFETY: Caller guarantees all preconditions of `new_wildcard_iterator`.
-    let (it, iter_type) = unsafe { rqe_iterators::wildcard::new_wildcard_iterator(query, weight) };
+    let it = unsafe { rqe_iterators::wildcard::new_wildcard_iterator(query, weight) };
     let it: Box<dyn RQEIterator + '_> = it;
-    RQEIteratorWrapper::boxed_new(iter_type, it)
+    RQEIteratorWrapper::boxed_new(it)
 }

@@ -26,15 +26,21 @@ jobs:
     #   repo: redis/redis
 
   lint:
+    permissions:
+      contents: read
+      packages: write
     uses: ./.github/workflows/task-lint.yml
     secrets: inherit
 
   test-matrix:
     needs: [get-latest-redis-tag, lint]
+    permissions:
+      contents: read
+      packages: write
     uses: ./.github/workflows/flow-test.yml
     secrets: inherit
     with:
-      platform: 'ubuntu:noble,macos-15,macos-26,alpine:3.22,intel'  # on feature branches this should be 'all'
+      platform: 'ubuntu:noble,macos-26,alpine:3.23,intel'  # on feature branches this should be 'all'
       architecture: all
       redis-ref: ${{ needs.get-latest-redis-tag.outputs.tag }}
       job-test-config: '{"test": "", "coverage": "", "sanitize": ""}'

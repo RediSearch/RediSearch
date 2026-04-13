@@ -14,7 +14,10 @@ use inverted_index::{
     DecodedBy, DocIdsDecoder, IndexReaderCore, RSIndexResult, opaque::OpaqueEncoding,
 };
 
-use crate::{ExpirationChecker, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
+use crate::{
+    ExpirationChecker, IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus,
+    SkipToOutcome,
+};
 
 use super::InvIndIterator;
 
@@ -72,10 +75,11 @@ where
             !unsafe { context.as_ref() }.spec.is_null(),
             "pre-condition 2: context.spec must be non-null",
         );
-        let result = RSIndexResult::virt()
+        let result = RSIndexResult::build_virt()
             .weight(0.0)
             .field_mask(ffi::RS_FIELDMASK_ALL)
-            .frequency(1);
+            .frequency(1)
+            .build();
 
         Self {
             it: InvIndIterator::new(reader, result, expiration_checker),
@@ -124,13 +128,6 @@ where
     /// Get a reference to the underlying reader.
     pub const fn reader(&self) -> &IndexReaderCore<'index, E> {
         &self.it.reader
-    }
-
-    /// Get a mutable reference to the underlying reader.
-    ///
-    /// This is used by C tests to swap the index pointer for revalidation testing.
-    pub const fn reader_mut(&mut self) -> &mut IndexReaderCore<'index, E> {
-        &mut self.it.reader
     }
 }
 
@@ -185,5 +182,10 @@ where
         }
 
         self.it.revalidate()
+    }
+
+    #[inline(always)]
+    fn type_(&self) -> IteratorType {
+        IteratorType::InvIdxMissing
     }
 }

@@ -52,6 +52,11 @@ cd src/redisearch_rs && cargo license-fix # Add missing license headers
 - Pointer alignment: left (`int* p;`)
 - No trailing spaces
 
+## Build System
+
+- The top-level `CMakeLists.txt` promotes specific warnings to errors with compiler-specific flags (gcc vs clang) guarded by `check_c_compiler_flag()`. These propagate to all subdirectories including deps.
+- When overriding a compiler flag (e.g. `-Wno-error=X` for a dep), always use the same compiler guard as the original flag, or a `$<C_COMPILER_ID:...>` generator expression. Never add bare `-W*` flags without a compiler check.
+
 ## Project Structure
 
 ```
@@ -64,6 +69,8 @@ src/redisearch_rs/            # Rust codebase
 ├── c_entrypoint/             # FFI layer (C bindings for Rust types and functions)
 │   └── *_ffi/                # Per-module FFI crates
 │   └── redisearch_rs/        # Entrypoint for Rust-native functionality used by the C codebase
+├── c_wrappers/               # Idiomatic Rust APIs on top of C types
+│   └── buffer, c_trie, ...   # Per-type wrapper crates
 └── Cargo.toml                # Workspace root
 ```
 
@@ -84,6 +91,7 @@ Follow [/rust-docs-guidelines](.skills/rust-docs-guidelines/SKILL.md) when writi
 Invoke [/port-c-module](.skills/port-c-module/SKILL.md) to plan the porting of a C module.
 Invoke [/write-rust-tests](.skills/write-rust-tests/SKILL.md) to add tests to Rust code.
 Invoke [/verify](.skills/verify/SKILL.md) to verify the correctness of your work before wrapping up.
+Invoke [/jj-fix-conflicts](.skills/jj-fix-conflicts/SKILL.md) to resolve conflicts in a jj changes.
 
 ## License Header (Required)
 ```

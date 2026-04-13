@@ -104,7 +104,7 @@ impl TopKBenchmarkSetup {
             doc_table.insert(doc_id, DocMetadata { doc_len, doc_score });
             total_doc_len += doc_len as u64;
 
-            let record = RSIndexResult::virt().doc_id(doc_id).frequency(tf);
+            let record = RSIndexResult::build_virt().doc_id(doc_id).frequency(tf).build();
             index
                 .add_record_with_metadata(&record, doc_len, doc_score)
                 .expect("failed to add record");
@@ -168,7 +168,7 @@ pub fn query_top_k_baseline(
 ) -> Vec<(t_docId, f64)> {
     let mut heap: BinaryHeap<Reverse<HeapEntry>> = BinaryHeap::with_capacity(k);
     let mut reader = setup.index.reader();
-    let mut result = RSIndexResult::virt();
+    let mut result = RSIndexResult::build_virt().build();
 
     while reader.next_record(&mut result).unwrap_or(false) {
         let doc_meta = &setup.doc_table[&result.doc_id];
@@ -237,7 +237,7 @@ pub fn query_top_k_with_skipping_stats(
 ) -> (Vec<(t_docId, f64)>, SkipStats) {
     let mut heap: BinaryHeap<Reverse<HeapEntry>> = BinaryHeap::with_capacity(k);
     let mut reader = setup.index.reader();
-    let mut result = RSIndexResult::virt();
+    let mut result = RSIndexResult::build_virt().build();
     let mut min_score = 0.0;
 
     let total_blocks = setup.index.number_of_blocks();

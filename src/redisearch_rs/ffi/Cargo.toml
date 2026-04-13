@@ -31,5 +31,7 @@ workspace = true
 
 [dependencies]
 document.workspace = true
+query_node_type.workspace = true
 query_term.workspace = true
+rqe_iterator_type.workspace = true
 workspace_hack.workspace = true

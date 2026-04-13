@@ -15,7 +15,7 @@
 
 use std::time::{Duration, Instant};
 
-use crate::{RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
+use crate::{IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
 use ffi::t_docId;
 use inverted_index::RSIndexResult;
 
@@ -136,7 +136,8 @@ impl<'index, I: RQEIterator<'index>> RQEIterator<'index> for Profile<'index, I> 
         self.child.revalidate()
     }
 
-    fn is_wildcard(&self) -> bool {
-        self.child.is_wildcard()
+    #[inline(always)]
+    fn type_(&self) -> IteratorType {
+        IteratorType::Profile
     }
 }

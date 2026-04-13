@@ -13,6 +13,7 @@
 
 pub mod iter;
 mod node;
+pub mod opaque;
 mod trie;
 mod trie_count;
 mod utils;

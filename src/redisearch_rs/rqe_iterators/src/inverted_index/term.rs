@@ -14,7 +14,7 @@ use inverted_index::{RSIndexResult, RSOffsetSlice, TermReader, block_max_score::
 use query_term::RSQueryTerm;
 
 use crate::{
-    RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
+    IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
     expiration_checker::ExpirationChecker,
 };
 
@@ -75,9 +75,11 @@ where
         term.set_idf(idf::calculate_idf(total_docs, term_docs));
         term.set_bm25_idf(idf::calculate_idf_bm25(total_docs, term_docs));
 
-        let result =
-            RSIndexResult::with_term(Some(term), RSOffsetSlice::empty(), 0, RS_FIELDMASK_ALL, 1)
-                .weight(weight);
+        let result = RSIndexResult::build_term()
+            .borrowed_record(Some(term), RSOffsetSlice::empty())
+            .field_mask(RS_FIELDMASK_ALL)
+            .weight(weight)
+            .build();
         Self {
             it: InvIndIterator::new(reader, result, expiration_checker),
             context,
@@ -215,5 +217,10 @@ where
         scorer: &BlockScorer,
     ) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
         self.it.read_with_threshold(min_score, scorer)
+    }
+
+    #[inline(always)]
+    fn type_(&self) -> IteratorType {
+        IteratorType::InvIdxTerm
     }
 }

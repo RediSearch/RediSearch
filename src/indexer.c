@@ -22,6 +22,8 @@
 #include "debug_commands.h"
 #include "search_disk.h"
 #include "info/global_stats.h"
+#include "gc.h"
+#include "doc_id_meta.h"
 
 extern RedisModuleCtx *RSDummyContext;
 
@@ -135,7 +137,7 @@ static void writeCurEntries(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
 
 /** Assigns a document ID to a single document. Handles only RAM index */
 static RSDocumentMetadata *makeDocumentId(RedisModuleCtx *ctx, RSAddDocumentCtx *aCtx, IndexSpec *spec,
-                                          int replace, QueryError *status) {
+                                          int replace, bool *updated) {
   DocTable *table = &spec->docs;
   Document *doc = aCtx->doc;
   if (replace) {
@@ -146,9 +148,7 @@ static RSDocumentMetadata *makeDocumentId(RedisModuleCtx *ctx, RSAddDocumentCtx 
       --spec->stats.scoring.numDocuments;
       RS_LOG_ASSERT(spec->stats.scoring.totalDocsLen >= dmd->docLen, "totalDocsLen is smaller than dmd->docLen");
       spec->stats.scoring.totalDocsLen -= dmd->docLen;
-      if (spec->gc) {
-        GCContext_OnDelete(spec->gc);
-      }
+      *updated = true;
       if (spec->flags & Index_HasVecSim) {
         for (int i = 0; i < spec->numFields; ++i) {
           if (spec->fields[i].types == INDEXFLD_T_VECTOR) {
@@ -195,8 +195,9 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
     }
 
     RS_ASSERT(cur->doc);
-
-    if (spec->diskSpec) {
+    bool updated = false;
+    if (SearchDisk_IsEnabled()) {
+      RS_ASSERT(spec->diskSpec);
       size_t len;
       const char *key = RedisModule_StringPtrLen(cur->doc->docKey, &len);
       uint32_t oldLen = 0;
@@ -205,29 +206,53 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
       if (cur->doc->docExpirationTime.tv_sec || cur->doc->docExpirationTime.tv_nsec) {
         cur->docFlags |= Document_HasExpiration;
       }
+
+      // Get old docId from key metadata (if document already exists)
+      // TODO: Consider calling this from SearchDisk_PutDocument
+      uint64_t oldDocId = 0;
+      DocIdMeta_Get(ctx->redisCtx, cur->doc->docKey, spec->specId, &oldDocId);
+
       // Put the document and get a new doc-id, and remove the old id->dmd entry
       // if it existed.
       t_docId docId = SearchDisk_PutDocument(spec->diskSpec, key, len,
         cur->doc->score, cur->docFlags, cur->fwIdx->maxTermFreq,
-        cur->fwIdx->totalFreq, &oldLen, cur->doc->docExpirationTime);
+        cur->fwIdx->totalFreq, &oldLen, cur->doc->docExpirationTime, oldDocId);
+
+      bool failure = docId == 0;
+
       if (oldLen > 0) {
         // We deleted a document in the above call, update the stats accordingly
         RS_ASSERT(spec->stats.scoring.numDocuments > 0);
         spec->stats.scoring.numDocuments--;
         RS_ASSERT(spec->stats.scoring.totalDocsLen >= oldLen);
         spec->stats.scoring.totalDocsLen -= oldLen;
+        updated = docId != 0; // If docId is 0, the document was not added
       }
-      if (docId) {
+
+      if (!failure) {
         cur->doc->docId = docId;
-        spec->stats.scoring.totalDocsLen += cur->fwIdx->totalFreq;
-        ++spec->stats.scoring.numDocuments;
-      } else {
+        // Store docId in key metadata for fast lookup
+        int rc = DocIdMeta_Set(ctx->redisCtx, cur->doc->docKey, spec->specId, docId);
+        failure = rc != REDISMODULE_OK;
+
+        if (failure) {
+          uint32_t docLen = 0;
+          SearchDisk_DeleteDocumentById(spec->diskSpec, docId, &docLen);
+        } else {
+          spec->stats.scoring.totalDocsLen += cur->fwIdx->totalFreq;
+          ++spec->stats.scoring.numDocuments;
+        }
+      }
+
+      if (failure) {
         cur->stateFlags |= ACTX_F_ERRORED;
+        RS_LOG_ASSERT(false, "Unexpected: Failed to add document to disk index");
+        continue;
       }
     } else {
       RS_LOG_ASSERT(!cur->doc->docId, "docId must be 0");
       RSDocumentMetadata *md = makeDocumentId(ctx->redisCtx, cur, spec,
-                                              cur->options & DOCUMENT_ADD_REPLACE, &cur->status);
+                                              cur->options & DOCUMENT_ADD_REPLACE, &updated);
       if (!md) {
         cur->stateFlags |= ACTX_F_ERRORED;
         continue;
@@ -237,9 +262,9 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
       md->docLen = cur->fwIdx->totalFreq;
       spec->stats.scoring.totalDocsLen += md->docLen;
 
-      if (cur->sv) {
+      if (RSSortingVector_Length(&cur->sv)) {
         DocTable_SetSortingVector(&spec->docs, md, cur->sv);
-        cur->sv = NULL;
+        cur->sv = RSSortingVector_Empty();
       }
 
       if (cur->byteOffsets) {
@@ -254,6 +279,15 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
         DocTable_UpdateExpiration(&ctx->spec->docs, md, doc->docExpirationTime, doc->fieldExpirations);
       }
       DMD_Return(md);
+    }
+    if (updated) {
+      if (spec->gc) {
+        GCContext_OnUpdate(spec->gc);
+      }
+    } else {
+      if (spec->gc) {
+        GCContext_OnWrite(spec->gc);
+      }
     }
   }
 }

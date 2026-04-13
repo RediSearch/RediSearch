@@ -7,12 +7,14 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use ffi::{IteratorType_PROFILE_ITERATOR, QueryIterator};
-use rqe_iterators::profile::{Profile, ProfileCounters};
-use rqe_iterators_interop::RQEIteratorWrapper;
+use ffi::QueryIterator;
+use rqe_iterator_type::IteratorType;
+use rqe_iterators::{
+    c2rust::CRQEIterator,
+    interop::RQEIteratorWrapper,
+    profile::{Profile, ProfileCounters},
+};
 use std::ptr::NonNull;
-
-use rqe_iterators::c2rust::CRQEIterator;
 
 type ProfileIteratorImpl = Profile<'static, CRQEIterator>;
 
@@ -29,7 +31,7 @@ pub unsafe extern "C" fn NewProfileIterator(child: *mut QueryIterator) -> *mut Q
     let child = unsafe { NonNull::new_unchecked(child) };
     // SAFETY: thanks to 1 + 2
     let child = unsafe { CRQEIterator::new(child) };
-    RQEIteratorWrapper::boxed_new(IteratorType_PROFILE_ITERATOR, Profile::new(child))
+    RQEIteratorWrapper::boxed_new(Profile::new(child))
 }
 
 /// Get the child iterator from a profile iterator.
@@ -47,8 +49,8 @@ pub unsafe extern "C" fn ProfileIterator_GetChild(
     debug_assert!(!it.is_null());
     debug_assert_eq!(
         // SAFETY: guaranteed by 1.
-        unsafe { *it }.type_,
-        IteratorType_PROFILE_ITERATOR,
+        unsafe { (*it).type_ },
+        IteratorType::Profile,
         "Expected a profile iterator"
     );
     // SAFETY: guaranteed by 1.
@@ -72,8 +74,8 @@ pub unsafe extern "C" fn ProfileIterator_GetCounters(
     debug_assert!(!it.is_null());
     debug_assert_eq!(
         // SAFETY: guaranteed by 1.
-        unsafe { *it }.type_,
-        IteratorType_PROFILE_ITERATOR,
+        unsafe { (*it).type_ },
+        IteratorType::Profile,
         "Expected a profile iterator"
     );
     // SAFETY: guaranteed by 1.
@@ -92,11 +94,58 @@ pub unsafe extern "C" fn ProfileIterator_GetWallTimeNs(it: *const QueryIterator)
     debug_assert!(!it.is_null());
     debug_assert_eq!(
         // SAFETY: guaranteed by 1.
-        unsafe { *it }.type_,
-        IteratorType_PROFILE_ITERATOR,
+        unsafe { (*it).type_ },
+        IteratorType::Profile,
         "Expected a profile iterator"
     );
     // SAFETY: guaranteed by 1.
     let wrapper = unsafe { RQEIteratorWrapper::<ProfileIteratorImpl>::ref_from_header_ptr(it) };
     wrapper.inner.wall_time_ns()
+}
+
+/// Profile-wrap an iterator and its entire subtree.
+///
+/// Wraps the iterator as a [`CRQEIterator`], calls
+/// [`CRQEIterator::into_profiled`](rqe_iterators::c2rust::CRQEIterator::into_profiled)
+/// (which recursively profiles all descendants), then returns the result
+/// as a `QueryIterator*`.
+///
+/// # Safety
+///
+/// 1. `iter` must be a valid non-null pointer to an implementation of the C query iterator API.
+/// 2. `iter` must not be aliased.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn IntoProfiled(iter: *mut QueryIterator) -> *mut QueryIterator {
+    debug_assert!(!iter.is_null(), "iter must not be null");
+    // SAFETY: guaranteed by 1.
+    let iter = unsafe { NonNull::new_unchecked(iter) };
+    // SAFETY: guaranteed by 1 + 2.
+    let iter = unsafe { CRQEIterator::new(iter) };
+    iter.into_profiled().into_raw().as_ptr()
+}
+
+/// Add profile iterators to all nodes in the iterator tree.
+///
+/// Wraps the root as a [`CRQEIterator`], calls
+/// [`CRQEIterator::into_profiled`](rqe_iterators::c2rust::CRQEIterator::into_profiled)
+/// (which recursively profiles
+/// all descendants), then writes the result back as a `QueryIterator*`.
+///
+/// # Safety
+///
+/// 1. `root` must be a valid non-null pointer to a `*mut QueryIterator`.
+/// 2. `*root` must be null or a valid non-null, non-aliased pointer to a `QueryIterator`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn Profile_AddIters(root: *mut *mut QueryIterator) {
+    debug_assert!(!root.is_null());
+    // SAFETY: guaranteed by 1.
+    let it = unsafe { *root };
+    let Some(it) = NonNull::new(it) else {
+        return;
+    };
+    // SAFETY: guaranteed by 2 — *root is a valid, non-aliased QueryIterator.
+    let iter = unsafe { CRQEIterator::new(it) };
+    let profiled = iter.into_profiled();
+    // SAFETY: guaranteed by 1 — root is a valid pointer we can write through.
+    unsafe { *root = profiled.into_raw().as_ptr() };
 }

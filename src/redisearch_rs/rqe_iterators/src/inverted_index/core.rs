@@ -11,7 +11,7 @@ use ffi::t_docId;
 use inverted_index::{IndexReader, RSIndexResult, block_max_score::BlockScorer};
 
 use crate::{
-    RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
+    IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
     expiration_checker::{ExpirationChecker, NoOpChecker},
 };
 
@@ -335,5 +335,12 @@ where
         // Now read using the normal read implementation
         // Note: We use the read_impl function pointer to handle expiration/multi-value logic
         (self.read_impl)(self)
+    }
+
+    #[inline(always)]
+    fn type_(&self) -> IteratorType {
+        unimplemented!(
+            "InvIndIterator::type_() should not be called directly; use the specific iterator type"
+        )
     }
 }

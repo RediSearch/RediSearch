@@ -381,7 +381,10 @@ fn test_hyperloglog6_small_precision() {
     );
 }
 
-#[cfg(not(miri))]
+#[cfg_attr(
+    miri,
+    ignore = "insta calls `open` which is not available under Miri isolation"
+)]
 #[test]
 fn test_debug_repr() {
     let mut hll = HyperLogLog10::<u32, Murmur3Hasher>::default();
@@ -390,14 +393,14 @@ fn test_debug_repr() {
     }
     // Debug representation doesn't include registers,
     // but it tracks compile-time constants
-    insta::assert_debug_snapshot!(hll, @r###"
+    insta::assert_debug_snapshot!(hll, @"
     HyperLogLog {
         bits: 10,
         size: 1024,
         cached_cardinality: None,
         ..
     }
-    "###);
+    ");
 }
 
 #[test]

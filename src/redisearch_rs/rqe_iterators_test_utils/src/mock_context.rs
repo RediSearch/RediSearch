@@ -27,6 +27,7 @@ pub struct MockContext {
     sctx: *mut RedisSearchCtx,
     qctx: *mut QueryEvalCtx,
     numeric_range_tree: *mut NumericRangeTree,
+    tag_index: *mut ffi::TagIndex,
 }
 
 impl Drop for MockContext {
@@ -50,6 +51,10 @@ impl Drop for MockContext {
                 std::alloc::Layout::new::<QueryEvalCtx>(),
             );
             let _ = Box::from_raw(self.numeric_range_tree);
+            std::alloc::dealloc(
+                self.tag_index as *mut u8,
+                std::alloc::Layout::new::<ffi::TagIndex>(),
+            );
         }
     }
 }
@@ -67,6 +72,12 @@ impl MockContext {
         let sctx_ptr = Box::into_raw(Box::new(unsafe { std::mem::zeroed::<RedisSearchCtx>() }));
         let qctx_ptr = Box::into_raw(Box::new(unsafe { std::mem::zeroed::<QueryEvalCtx>() }));
         let numeric_range_tree_ptr = Box::into_raw(Box::new(NumericRangeTree::new(false)));
+        // SAFETY: TagIndex is a C struct where all-zeros is a valid representation.
+        let tag_index_ptr: *mut ffi::TagIndex = unsafe {
+            let ptr = std::alloc::alloc_zeroed(std::alloc::Layout::new::<ffi::TagIndex>());
+            assert!(!ptr.is_null(), "allocation failed");
+            ptr.cast()
+        };
 
         // Initialize all structs through raw pointers
         unsafe {
@@ -99,6 +110,7 @@ impl MockContext {
                 sctx: sctx_ptr,
                 qctx: qctx_ptr,
                 numeric_range_tree: numeric_range_tree_ptr,
+                tag_index: tag_index_ptr,
             }
         }
     }
@@ -110,5 +122,27 @@ impl MockContext {
     /// Get the search context from the TestContext.
     pub const fn sctx(&self) -> NonNull<ffi::RedisSearchCtx> {
         NonNull::new(self.sctx).expect("RedisSearchCtx should not be null")
+    }
+
+    /// Get the query evaluation context.
+    pub const fn qctx(&self) -> NonNull<ffi::QueryEvalCtx> {
+        NonNull::new(self.qctx).expect("QueryEvalCtx should not be null")
+    }
+
+    /// Set [`SchemaRule::index_all`]
+    ///
+    /// # Safety
+    ///
+    /// Must not be called while any iterator created from this context is
+    /// still alive, as it mutates the spec through a raw pointer.
+    pub unsafe fn set_index_all(&self, value: bool) {
+        // SAFETY: Caller guarantees no iterators from this context are alive,
+        // so the write does not race.
+        unsafe { (*self.rule).index_all = value };
+    }
+
+    /// Get a zeroed [`TagIndex`](ffi::TagIndex) pointer for basic (non-revalidation) tests.
+    pub const fn tag_index(&self) -> NonNull<ffi::TagIndex> {
+        NonNull::new(self.tag_index).expect("TagIndex should not be null")
     }
 }

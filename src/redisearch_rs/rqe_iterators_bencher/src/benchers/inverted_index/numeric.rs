@@ -30,11 +30,19 @@ pub struct NumericBencher {
 
 impl Default for NumericBencher {
     fn default() -> Self {
-        let dense_iter =
-            || (1..INDEX_SIZE).map(|doc_id| RSIndexResult::numeric(doc_id as f64).doc_id(doc_id));
+        let dense_iter = || {
+            (1..INDEX_SIZE).map(|doc_id| {
+                RSIndexResult::build_numeric(doc_id as f64)
+                    .doc_id(doc_id)
+                    .build()
+            })
+        };
         let sparse_iter = || {
-            (1..INDEX_SIZE)
-                .map(|doc_id| RSIndexResult::numeric(doc_id as f64).doc_id(doc_id * SPARSE_DELTA))
+            (1..INDEX_SIZE).map(|doc_id| {
+                RSIndexResult::build_numeric(doc_id as f64)
+                    .doc_id(doc_id * SPARSE_DELTA)
+                    .build()
+            })
         };
 
         // Create expired contexts and mark every other record as expired

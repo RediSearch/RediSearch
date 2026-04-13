@@ -8,13 +8,27 @@
 */
 
 
-#include "src/query_parser/tokenizer.h"
-#include "src/util/references.h"
+#include "query_parser/tokenizer.h"
+#include "param.h"
+#include "util/references.h"
+#ifdef __cplusplus
+extern "C" {
+#endif
+#include "vector_index.h"
+#ifdef __cplusplus
+}
+#endif
+#include "common.h"
 #include "query_test_utils.h"
+#include "iterators_rs.h"
 
 #include "gtest/gtest.h"
 
+#include <array>
 #include <stdio.h>
+
+extern "C" int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key,
+                                   DocumentType type);
 
 #define QUERY_PARSE_CTX(ctx, qt, opts) NewQueryParseCtx(&ctx, qt, strlen(qt), &opts);
 
@@ -93,6 +107,150 @@ TEST_F(QueryTest, testParser_delta) {
   assertValidQuery_v(2,"hello world&good");
 
   IndexSpec_RemoveFromGlobals(ref, false);
+}
+
+TEST_F(QueryTest, testDiskVectorQueryRestrictions) {
+  RedisModuleCtx *redisCtx = RedisModule_GetThreadSafeContext(nullptr);
+  const bool prevSimulateInFlex = RSGlobalConfig.simulateInFlex;
+  std::array<const char *, 13> args = {
+      "SCHEMA", "title",   "text", "vec_field", "vector",          "HNSW", "6",
+      "TYPE",   "FLOAT32", "DIM",  "4",         "DISTANCE_METRIC", "L2"};
+  QueryError err = QueryError_Default();
+  StrongRef ref = IndexSpec_ParseC(redisCtx, "idx", args.data(), args.size(), &err);
+  RedisSearchCtx ctx = SEARCH_CTX_STATIC(redisCtx, (IndexSpec *)StrongRef_Get(ref));
+  ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
+
+  ASSERT_TRUE(RMCK::hset(redisCtx, "doc:1", "title", "hello"));
+  ASSERT_TRUE(RMCK::hset(redisCtx, "doc:1", "vec_field", "abcdefghijklmnop", false));
+  ASSERT_EQ(IndexSpec_UpdateDoc(ctx.spec, redisCtx, RMCK::RString("doc:1"), DocumentType_Hash), REDISMODULE_OK);
+
+  ASSERT_NE(openVectorIndex(redisCtx, &ctx.spec->fields[1], DONT_CREATE_INDEX), nullptr);
+
+  RSGlobalConfig.simulateInFlex = true;
+  int version = 2;
+  const char *range_query = "@vec_field:[VECTOR_RANGE 0.01 $BLOB]";
+  const char *prefilter_knn_query = "@title:hello=>[KNN 2 @vec_field $BLOB]";
+  const char *prefilter_knn_query_missing_policy_with_attrs =
+      "@title:hello=>[KNN 2 @vec_field $BLOB]=>{$yield_distance_as:dist;}";
+  const char *prefilter_knn_query_with_attrs =
+      "@title:hello=>[KNN 2 @vec_field $BLOB]=>{$HYBRID_POLICY:BATCHES;}";
+
+  {
+    // Disk-backed specs reject VECTOR_RANGE during parsing.
+    QASTCXX ast;
+    ast.setContext(&ctx);
+    ASSERT_FALSE(ast.parse(range_query, version));
+    ASSERT_NE(ast.getError(), nullptr);
+    ASSERT_NE(strstr(ast.getError(), "vector range queries are currently not supported in Redis Flex"),
+              nullptr)
+        << ast.getError();
+  }
+
+  SearchOptionsCXX opts;
+  QueryAST ast = {0};
+  QueryError iterErr = QueryError_Default();
+  // Set up params for the pre-filtered KNN query.
+  opts.params = Param_DictCreate();
+  ASSERT_NE(opts.params, nullptr);
+  ASSERT_EQ(Param_DictAdd(opts.params, "BLOB", "abcdefghijklmnop", 16, &iterErr),
+            DICT_OK) << QueryError_GetUserError(&iterErr);
+
+  // Parse the pre-filtered KNN query without HYBRID_POLICY.
+  ASSERT_EQ(QAST_Parse(&ast, &ctx, &opts, prefilter_knn_query, strlen(prefilter_knn_query), version, &iterErr),
+            REDISMODULE_OK) << QueryError_GetUserError(&iterErr);
+  ASSERT_FALSE(QueryError_HasError(&iterErr)) << QueryError_GetUserError(&iterErr);
+
+  // Resolve params before iterator creation.
+  ASSERT_EQ(QAST_EvalParams(&ast, &opts, version, &iterErr),
+            REDISMODULE_OK) << QueryError_GetUserError(&iterErr);
+  ASSERT_FALSE(QueryError_HasError(&iterErr)) << QueryError_GetUserError(&iterErr);
+
+  // Disk-backed pre-filtered KNN requires explicit HYBRID_POLICY during iteration setup.
+  QueryIterator *it = QAST_Iterate(&ast, &opts, &ctx, 0, &iterErr);
+  ASSERT_NE(it, nullptr);
+  ASSERT_TRUE(QueryError_HasError(&iterErr));
+  ASSERT_NE(strstr(QueryError_GetUserError(&iterErr), "require explicit HYBRID_POLICY"), nullptr)
+      << QueryError_GetUserError(&iterErr);
+
+  it->Free(it);
+  QAST_Destroy(&ast);
+  Param_DictFree(opts.params);
+  QueryError_ClearError(&iterErr);
+
+  SearchOptionsCXX opts_missing_attrs;
+  QueryAST ast_missing_attrs = {0};
+  QueryError iterErrMissingAttrs = QueryError_Default();
+  // Set up params for query-attributes syntax without HYBRID_POLICY.
+  opts_missing_attrs.params = Param_DictCreate();
+  ASSERT_NE(opts_missing_attrs.params, nullptr);
+  ASSERT_EQ(Param_DictAdd(opts_missing_attrs.params, "BLOB", "abcdefghijklmnop", 16,
+                          &iterErrMissingAttrs),
+            DICT_OK)
+      << QueryError_GetUserError(&iterErrMissingAttrs);
+
+  // Parse query-attributes syntax without HYBRID_POLICY.
+  ASSERT_EQ(QAST_Parse(&ast_missing_attrs, &ctx, &opts_missing_attrs,
+                       prefilter_knn_query_missing_policy_with_attrs,
+                       strlen(prefilter_knn_query_missing_policy_with_attrs), version,
+                       &iterErrMissingAttrs),
+            REDISMODULE_OK)
+      << QueryError_GetUserError(&iterErrMissingAttrs);
+  ASSERT_FALSE(QueryError_HasError(&iterErrMissingAttrs))
+      << QueryError_GetUserError(&iterErrMissingAttrs);
+
+  // Resolve params before checking iterator creation failure.
+  ASSERT_EQ(QAST_EvalParams(&ast_missing_attrs, &opts_missing_attrs, version, &iterErrMissingAttrs), REDISMODULE_OK)
+      << QueryError_GetUserError(&iterErrMissingAttrs);
+  ASSERT_FALSE(QueryError_HasError(&iterErrMissingAttrs))
+      << QueryError_GetUserError(&iterErrMissingAttrs);
+
+  // Query attributes syntax without HYBRID_POLICY still raises the same error.
+  QueryIterator *it_missing_attrs =
+      QAST_Iterate(&ast_missing_attrs, &opts_missing_attrs, &ctx, 0, &iterErrMissingAttrs);
+  ASSERT_NE(it_missing_attrs, nullptr);
+  ASSERT_TRUE(QueryError_HasError(&iterErrMissingAttrs));
+  ASSERT_NE(strstr(QueryError_GetUserError(&iterErrMissingAttrs), "require explicit HYBRID_POLICY"), nullptr)
+      << QueryError_GetUserError(&iterErrMissingAttrs);
+
+  it_missing_attrs->Free(it_missing_attrs);
+  QAST_Destroy(&ast_missing_attrs);
+  Param_DictFree(opts_missing_attrs.params);
+  QueryError_ClearError(&iterErrMissingAttrs);
+
+  SearchOptionsCXX opts_attrs;
+  QueryAST ast_attrs = {0};
+  QueryError iterErrAttrs = QueryError_Default();
+  // Set up params for query-attributes syntax with HYBRID_POLICY.
+  opts_attrs.params = Param_DictCreate();
+  ASSERT_NE(opts_attrs.params, nullptr);
+  ASSERT_EQ(Param_DictAdd(opts_attrs.params, "BLOB", "abcdefghijklmnop", 16, &iterErrAttrs),
+            DICT_OK) << QueryError_GetUserError(&iterErrAttrs);
+
+  // Parse query-attributes syntax with explicit HYBRID_POLICY.
+  ASSERT_EQ(QAST_Parse(&ast_attrs, &ctx, &opts_attrs, prefilter_knn_query_with_attrs,
+                       strlen(prefilter_knn_query_with_attrs), version, &iterErrAttrs),
+            REDISMODULE_OK)
+      << QueryError_GetUserError(&iterErrAttrs);
+  ASSERT_FALSE(QueryError_HasError(&iterErrAttrs)) << QueryError_GetUserError(&iterErrAttrs);
+
+  // Resolve params before creating the iterator successfully.
+  ASSERT_EQ(QAST_EvalParams(&ast_attrs, &opts_attrs, version, &iterErrAttrs), REDISMODULE_OK)
+      << QueryError_GetUserError(&iterErrAttrs);
+  ASSERT_FALSE(QueryError_HasError(&iterErrAttrs)) << QueryError_GetUserError(&iterErrAttrs);
+
+  // Query attributes syntax also satisfies the explicit HYBRID_POLICY requirement.
+  QueryIterator *it_attrs = QAST_Iterate(&ast_attrs, &opts_attrs, &ctx, 0, &iterErrAttrs);
+  ASSERT_NE(it_attrs, nullptr);
+  ASSERT_FALSE(QueryError_HasError(&iterErrAttrs)) << QueryError_GetUserError(&iterErrAttrs);
+
+  it_attrs->Free(it_attrs);
+  QAST_Destroy(&ast_attrs);
+  Param_DictFree(opts_attrs.params);
+  QueryError_ClearError(&iterErrAttrs);
+
+  IndexSpec_RemoveFromGlobals(ref, false);
+  RSGlobalConfig.simulateInFlex = prevSimulateInFlex;
+  RedisModule_FreeThreadSafeContext(redisCtx);
 }
 
 TEST_F(QueryTest, testParser_v1) {

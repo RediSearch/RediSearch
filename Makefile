@@ -302,9 +302,12 @@ $(shell grep "EXCLUDE_RUST_BENCHING_CRATES_LINKING_C=" build.sh | cut -d'=' -f2 
 endef
 
 lint:
-	@echo "Running linters..."
+	@echo "Running linters for debug..."
 	@cd $(ROOT)/src/redisearch_rs && cargo clippy --workspace $(call get_rust_exclude_crates) -- -D warnings
-	@cd $(ROOT)/src/redisearch_rs && RUSTDOCFLAGS="-Dwarnings" cargo doc --workspace $(call get_rust_exclude_crates) --no-deps
+	@cd $(ROOT)/src/redisearch_rs && RUSTDOCFLAGS="-Dwarnings" cargo doc --workspace $(call get_rust_exclude_crates) --no-deps --document-private-items
+	@echo "Running linters for release..."
+	@cd $(ROOT)/src/redisearch_rs && cargo clippy --workspace $(call get_rust_exclude_crates) --release -- -D warnings
+	@cd $(ROOT)/src/redisearch_rs && RUSTDOCFLAGS="-Dwarnings" cargo doc --workspace $(call get_rust_exclude_crates) --no-deps --document-private-items --release
 
 fmt:
 ifeq ($(CHECK),1)
@@ -347,7 +350,7 @@ pack: build
 		$(ROOT)/sbin/pack.sh "$$MODULE_PATH"; \
 	else \
 		echo "RAMP not available, skipping RAMP package creation..."; \
-		echo "To install RAMP: pip install -r ./.install/build_package_requirments.txt"; \
+		echo "To install RAMP: pip install -r ./.install/build_package_requirements.txt"; \
 	fi
 
 upload-artifacts:

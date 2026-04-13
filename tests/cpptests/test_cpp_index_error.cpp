@@ -9,7 +9,7 @@
 
 #include "gtest/gtest.h"
 
-#include "src/info/index_error.h"
+#include "info/index_error.h"
 
 class IndexErrorTest : public ::testing::Test {};
 

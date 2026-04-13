@@ -16,23 +16,22 @@ use ffi::{
 use field::FieldMaskOrIndex;
 use inverted_index::{FilterMaskReader, RSIndexResult, RSOffsetSlice, full::Full};
 use query_term::RSQueryTerm;
-use rqe_iterators::{NoOpChecker, RQEIterator, inverted_index::Term};
+use rqe_iterators::{IteratorType, NoOpChecker, RQEIterator, inverted_index::Term};
 
 use crate::inverted_index::utils::{BaseTest, RevalidateIndexType, RevalidateTest};
 
 fn expected_record(
     doc_id: t_docId,
     field_mask: t_fieldMask,
-    term: Option<Box<query_term::RSQueryTerm>>,
+    term: Box<query_term::RSQueryTerm>,
     offsets: &'static [u8],
 ) -> RSIndexResult<'static> {
-    RSIndexResult::with_term(
-        term,
-        RSOffsetSlice::from_slice(offsets),
-        doc_id,
-        field_mask,
-        (doc_id / 2) as u32 + 1,
-    )
+    RSIndexResult::build_term()
+        .borrowed_record(Some(term), RSOffsetSlice::from_slice(offsets))
+        .doc_id(doc_id)
+        .field_mask(field_mask)
+        .frequency((doc_id / 2) as u32 + 1)
+        .build()
 }
 
 struct TermBaseTest {
@@ -56,7 +55,7 @@ impl TermBaseTest {
                     term.set_idf(5.0);
                     term.set_bm25_idf(10.0);
                     // Use doc_id as field_mask so we can test FilterMaskReader
-                    expected_record(doc_id, doc_id as t_fieldMask, Some(term), OFFSETS)
+                    expected_record(doc_id, doc_id as t_fieldMask, term, OFFSETS)
                 }),
                 n_docs,
             ),
@@ -79,6 +78,13 @@ impl TermBaseTest {
             )
         }
     }
+}
+
+#[test]
+fn term_type() {
+    let test = TermBaseTest::new(10);
+    let it = test.create_iterator();
+    assert_eq!(it.type_(), IteratorType::InvIdxTerm);
 }
 
 #[test]
@@ -159,7 +165,7 @@ mod not_miri {
                         // Use a field mask with all bits set so all docs match the filter
                         // and expiration is actually tested (not just field mask filtering).
                         // Use u32::MAX for non-wide tests to avoid overflow in the encoder.
-                        expected_record(doc_id, u32::MAX as t_fieldMask, Some(term), OFFSETS)
+                        expected_record(doc_id, u32::MAX as t_fieldMask, term, OFFSETS)
                     }),
                     n_docs,
                     multi,
@@ -301,7 +307,7 @@ mod not_miri {
                         term.set_idf(5.0);
                         term.set_bm25_idf(10.0);
                         // Use a field mask with all bits set so all docs match the filter.
-                        expected_record(doc_id, u32::MAX as t_fieldMask, Some(term), OFFSETS)
+                        expected_record(doc_id, u32::MAX as t_fieldMask, term, OFFSETS)
                     }),
                     n_docs,
                 ),

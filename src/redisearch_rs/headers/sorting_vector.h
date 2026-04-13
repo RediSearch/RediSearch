@@ -9,8 +9,15 @@
 // Forward declaration of RSValue, which is only used as ptr in the sorting_vector module
 typedef struct RSValue RSValue;
 
-// Forward declaration of SortingVector, which is only used as ptr in the sorting_vector module
-typedef struct RSSortingVector RSSortingVector;
+// RSSortingVector is repr(transparent) in Rust over a ThinVec<RSValueFFI>.
+// On the stack it is a single pointer to a heap allocation with this layout:
+//   Header<u64> { len: u64, cap: u64 }  (16 bytes, no trailing padding)
+//   RSValue* values[len] (the data array)
+//
+// An empty RSSortingVector points to a static sentinel header (not null).
+typedef struct RSSortingVector {
+  void *header;
+} RSSortingVector;
 
 
 #define RS_SORTABLES_MAX 1024
@@ -20,38 +27,18 @@ extern "C" {
 #endif // __cplusplus
 
 /**
- * Gets a RSValue from the sorting vector at the given index.
+ * Initializes an empty `RSSortingVector`.
  *
- * # Panics
- *
- * Panics if the `idx` is out of bounds for the vector.
- *
- * # Safety
- *
- * 1. `vec` must be a [valid], non-null pointer to an [`RSSortingVector`] created by [`RSSortingVector_New`].
- *
- * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ * No heap allocation is performed.
  */
-RSValue *RSSortingVector_Get(const RSSortingVector *vec,
-                             size_t idx);
-
-/**
- * Returns the length of the sorting vector.
- *
- * # Safety
- *
- * 1. `vec` must be a [valid], non-null pointer to an [`RSSortingVector`] created by [`RSSortingVector_New`].
- *
- * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
- */
-size_t RSSortingVector_Length(const RSSortingVector *vec);
+RSSortingVector RSSortingVector_Empty(void);
 
 /**
  * Returns the memory size of the sorting vector.
  *
  * # Safety
  *
- * 1. `vec` must be a [valid], non-null pointer to an [`RSSortingVector`] created by [`RSSortingVector_New`].
+ * 1. `vec` must be a [valid], non-null pointer to an [`RSSortingVector`] created by [`RSSortingVector_New`] or equivalent.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
@@ -66,7 +53,7 @@ size_t RSSortingVector_GetMemorySize(const RSSortingVector *vec);
  *
  * # Safety
  *
- * 1. `vec` must be a [valid], non-null pointer to an [`RSSortingVector`] created by [`RSSortingVector_New`].
+ * 1. `vec` must be a [valid], non-null pointer to an [`RSSortingVector`] created by [`RSSortingVector_New`] or equivalent.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
@@ -83,7 +70,7 @@ void RSSortingVector_PutNum(RSSortingVector *vec,
  *
  * # Safety
  *
- * 1. `vec` must be a [valid], non-null pointer to an [`RSSortingVector`] created by [`RSSortingVector_New`].
+ * 1. `vec` must be a [valid], non-null pointer to an [`RSSortingVector`] created by [`RSSortingVector_New`] or equivalent.
  * 2. `str` must be a [valid], non-null pointer to a C string (null-terminated).
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
@@ -102,7 +89,7 @@ void RSSortingVector_PutStr(RSSortingVector *vec,
  *
  * # Safety
  *
- * 1. `vec` must be a [valid], non-null pointer to an [`RSSortingVector`] created by [`RSSortingVector_New`].
+ * 1. `vec` must be a [valid], non-null pointer to an [`RSSortingVector`] created by [`RSSortingVector_New`] or equivalent.
  * 2. `str` must be a [valid], non-null pointer to a C string (null-terminated).
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
@@ -120,7 +107,7 @@ void RSSortingVector_PutStrNormalize(RSSortingVector *vec,
  *
  * # Safety
  *
- * 1. `vec` must be a [valid], non-null pointer to an [`RSSortingVector`] created by [`RSSortingVector_New`].
+ * 1. `vec` must be a [valid], non-null pointer to an [`RSSortingVector`] created by [`RSSortingVector_New`] or equivalent.
  * 2. `val` must be a [valid], non-null pointer must point to a `RSValue`.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
@@ -138,7 +125,7 @@ void RSSortingVector_PutRSVal(RSSortingVector *vec,
  *
  * # Safety
  *
- * 1. The pointer must be a [valid] pointer to an [`RSSortingVector`] created by [`RSSortingVector_New`].
+ * 1. The pointer must be a [valid] pointer to an [`RSSortingVector`] created by [`RSSortingVector_New`] or equivalent.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
@@ -146,27 +133,58 @@ void RSSortingVector_PutNull(RSSortingVector *vec,
                              size_t idx);
 
 /**
- * Creates a new `RSSortingVector` with the given length.
+ * Creates a new `RSSortingVector` with the given length, returned by value.
  *
  * # Panics
  *
  * Panics if `len` is greater than [`RS_SORTABLES_MAX`].
  */
-RSSortingVector *RSSortingVector_New(size_t len);
+RSSortingVector RSSortingVector_New(size_t len);
 
 /**
- * Reduces the refcount of every `RSValue` and frees the memory allocated for an `RSSortingVector`.
- * Called by the C code to deallocate the vector.
+ * Deallocates the inner values buffer of an [`RSSortingVector`] and zeros the struct.
+ *
+ * Each [`RSValueFFI`] element is dropped (decrementing its refcount) and the heap buffer is freed.
+ * After this call the pointed-to struct is in the same state as [`RSSortingVector::empty()`].
+ * Passing a null pointer is a no-op.
  *
  * # Safety
  *
- * 1. `vec` must be a [valid] pointer to an [`RSSortingVector`] created by [`RSSortingVector_New`].
- * 2. `vec` **must not** be used again after this function is called.
+ * 1. `vec` must be either null or a [valid] pointer to an [`RSSortingVector`].
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-void RSSortingVector_Free(RSSortingVector *vec);
+void RSSortingVector_ClearAndDeAlloc(RSSortingVector *vec);
 
 #ifdef __cplusplus
 }  // extern "C"
 #endif  // __cplusplus
+
+#ifdef __cplusplus
+extern "C" {
+#endif // __cplusplus
+
+/**
+ * Returns the length of the sorting vector.
+ *
+ * Reads the `len` field (u64) from the ThinVec heap header.
+ */
+static inline size_t RSSortingVector_Length(const RSSortingVector *v) {
+  // len is at offset 0.
+  return *(const uint64_t *)v->header;
+}
+
+/**
+ * Gets a RSValue from the sorting vector at the given index.
+ *
+ * The caller must ensure that `idx < RSSortingVector_Length(v)`.
+ * Data starts immediately after the 16-byte Header<u64>.
+ */
+static inline RSValue *RSSortingVector_Get(const RSSortingVector *v, size_t idx) {
+  RSValue **data = (RSValue **)((const char *)v->header + 16);
+  return data[idx];
+}
+
+#ifdef __cplusplus
+}  // extern "C"
+#endif // __cplusplus

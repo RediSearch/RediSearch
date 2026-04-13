@@ -38,7 +38,7 @@ class LinkChecker:
         user_agent = config.get('user_agent', 'Mozilla/5.0 (compatible; RediSearch-LinkChecker/1.0)')
         self.session.headers.update({'User-Agent': user_agent})
         self.checked_urls: Set[str] = set()
-        
+
     def find_markdown_files(self, directory: str) -> List[Path]:
         """Find all Markdown files in the directory, excluding certain subdirectories."""
         path = Path(directory)
@@ -51,7 +51,7 @@ class LinkChecker:
             md_files.append(md_file)
 
         return md_files
-    
+
     def extract_links(self, content: str, file_path: Path = None) -> List[Tuple[str, int, str]]:
         """Extract all links from Markdown content with line numbers and types."""
         links = []
@@ -204,9 +204,10 @@ class LinkChecker:
             response.raise_for_status()
 
             # If there's an anchor, verify it exists in the HTML
-            # GitHub line-number anchors (e.g., #L207, #L207-L226) are rendered
+            # Github doesn't render generated markdown anchors (e.g. readme) and
+            # line-number anchors (e.g., #L207, #L207-L226). Those are rendered
             # client-side via JavaScript and won't appear in static HTML.
-            if anchor and not re.match(r'^L\d+(-L\d+)?$', anchor):
+            if anchor and parsed.netloc != "github.com":
                 content_type = response.headers.get('content-type', '').lower()
                 if 'text/html' in content_type:
                     soup = BeautifulSoup(response.content, 'html.parser')
@@ -244,7 +245,7 @@ class LinkChecker:
                     return curl_result
             else:
                 return self._check_with_curl(url)
-    
+
     def check_links_in_file(self, file_path: Path) -> List[Tuple[str, int, bool, str, str]]:
         """Check all links in a single Markdown file."""
         try:
@@ -266,11 +267,11 @@ class LinkChecker:
                 time.sleep(self.delay)
 
         return results
-    
+
     def check_all_files(self, directory: str) -> bool:
         """Check all Markdown files in directory. Returns True if all links are valid."""
         md_files = self.find_markdown_files(directory)
-        
+
         if not md_files:
             print("No Markdown files found.")
             return True
@@ -278,22 +279,22 @@ class LinkChecker:
         print(f"Found {len(md_files)} Markdown files to check...")
         if self.exclude_dirs:
             print(f"Excluding directories: {', '.join(sorted(self.exclude_dirs))}")
-        
+
         all_valid = True
         total_links = 0
         failed_links = 0
-        
+
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
             future_to_file = {
-                executor.submit(self.check_links_in_file, file_path): file_path 
+                executor.submit(self.check_links_in_file, file_path): file_path
                 for file_path in md_files
             }
-            
+
             for future in as_completed(future_to_file):
                 file_path = future_to_file[future]
                 try:
                     results = future.result()
-                    
+
                     if results:
                         file_failures = []
                         file_successes = []
@@ -322,11 +323,11 @@ class LinkChecker:
                             if self.verbose:
                                 for url, line_num, message, type_icon in file_successes:
                                     print(f"  ✅ {type_icon} Line {line_num}: {url}")
-                                
+
                 except Exception as e:
                     print(f"Error checking {file_path}: {e}")
                     all_valid = False
-        
+
         successful_links = total_links - failed_links
         print(f"\n📊 Summary:")
         print(f"   Total links checked: {total_links}")
@@ -334,7 +335,7 @@ class LinkChecker:
         print(f"   Failed links: {failed_links}")
         if total_links > 0:
             print(f"   Success rate: {(successful_links / total_links * 100):.1f}%")
-        
+
         return all_valid
 
 

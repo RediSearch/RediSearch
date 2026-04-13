@@ -120,7 +120,7 @@ bool DocTable_Exists(const DocTable *t, t_docId docId);
 
 /* Set the sorting vector for a document. If the vector is NULL we mark the doc as not having a
  * vector. Returns 1 on success, 0 if the document does not exist. No further validation is done */
-int DocTable_SetSortingVector(DocTable *t, RSDocumentMetadata *dmd, RSSortingVector *v);
+int DocTable_SetSortingVector(DocTable *t, RSDocumentMetadata *dmd, RSSortingVector v);
 
 /* Set the offset vector for a document. This contains the byte offsets of each token found in
  * the document. This is used for highlighting
@@ -130,6 +130,11 @@ void DocTable_SetByteOffsets(RSDocumentMetadata *dmd, RSByteOffsets *offsets);
 void DocTable_UpdateExpiration(DocTable *t, RSDocumentMetadata* dmd, t_expirationTimePoint ttl, arrayof(FieldExpiration) allFieldSorted);
 
 bool DocTable_IsDocExpired(DocTable* t, const RSDocumentMetadata* dmd, struct timespec* expirationPoint);
+
+// Clear all expiration data from this doc table.
+// Clears Document_HasExpiration flags from all documents and destroys the TTL table.
+// Must be called with the index write lock held.
+void DocTable_ClearExpirationData(DocTable *t);
 
 // Will return true if the document passed the predicate
 // default predicate - one of the fields did not yet expire -> entry is still valid

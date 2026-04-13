@@ -706,7 +706,7 @@ TEST_F(ExprTest, testAndExpressionWithMissingFields) {
   ASSERT_NE(kd2, nullptr);
 
   // Create a row with only d2=1 (d1 is not written, so it's missing)
-  RLookupRow row = {0};
+  RLookupRow row = RLookupRow_New();
   RSValue *v2 = RSValue_NewNumber(1);
   RLookup_WriteOwnKey(kd2, &row, v2);
 
@@ -798,7 +798,7 @@ TEST_F(ExprTest, testAndExpressionWithMissingFields) {
     auto *kd2_empty = RLookup_GetKey_Write(&lk_empty, "d2", RLOOKUP_F_NOFLAGS);
     ASSERT_NE(kd1_empty, nullptr);
     ASSERT_NE(kd2_empty, nullptr);
-    RLookupRow row_empty = {0};
+    RLookupRow row_empty = RLookupRow_New();
 
     TEvalCtx ctx("@d1==0 && @d2==0");
     ASSERT_TRUE(ctx) << ctx.error();
@@ -827,7 +827,7 @@ TEST_F(ExprTest, testAndExpressionWithMissingFields) {
     ASSERT_NE(kd1_full, nullptr);
     ASSERT_NE(kd2_full, nullptr);
 
-    RLookupRow row_full = {0};
+    RLookupRow row_full = RLookupRow_New();
     RSValue *v1_full = RSValue_NewNumber(5);
     RSValue *v2_full = RSValue_NewNumber(5);
     RLookup_WriteOwnKey(kd1_full, &row_full, v1_full);
@@ -866,7 +866,7 @@ TEST_F(ExprTest, testOrExpressionWithMissingFields) {
   ASSERT_NE(kd2, nullptr);
 
   // Create a row with only d2=1 (d1 is not written, so it's missing)
-  RLookupRow row = {0};
+  RLookupRow row = RLookupRow_New();
   RSValue *v2 = RSValue_NewNumber(1);
   RLookup_WriteOwnKey(kd2, &row, v2);
 
@@ -958,7 +958,7 @@ TEST_F(ExprTest, testOrExpressionWithMissingFields) {
     auto *kd2_empty = RLookup_GetKey_Write(&lk_empty, "d2", RLOOKUP_F_NOFLAGS);
     ASSERT_NE(kd1_empty, nullptr);
     ASSERT_NE(kd2_empty, nullptr);
-    RLookupRow row_empty = {0};
+    RLookupRow row_empty = RLookupRow_New();
 
     TEvalCtx ctx("@d1==1 || @d2==1");
     ASSERT_TRUE(ctx) << ctx.error();
@@ -976,6 +976,117 @@ TEST_F(ExprTest, testOrExpressionWithMissingFields) {
     EXPECT_EQ(0, RSValue_Number_Get(res)) << "@d1==1 || @d2==1 should be false when both fields are missing";
 
     RLookup_Cleanup(&lk_empty);
+  }
+
+  RLookupRow_Reset(&row);
+  RLookup_Cleanup(&lk);
+}
+
+// Test that evalPredicate returns EXPR_EVAL_ERR when getPredicateBoolean encounters
+// a type mismatch error (e.g., comparing a number to a non-convertible string).
+TEST_F(ExprTest, testPredicateTypeMismatchReturnsError) {
+  // Setup: create a lookup with a string field that cannot be converted to a number
+  RLookup lk = RLookup_New();
+  auto *kstr = RLookup_GetKey_Write(&lk, "str", RLOOKUP_F_NOFLAGS);
+  auto *knum = RLookup_GetKey_Write(&lk, "num", RLOOKUP_F_NOFLAGS);
+  ASSERT_NE(kstr, nullptr);
+  ASSERT_NE(knum, nullptr);
+
+  RLookupRow row = RLookupRow_New();
+  // "hello" cannot be converted to a number
+  RLookup_WriteOwnKey(kstr, &row, RSValue_NewString(strdup("hello"), 5));
+  RLookup_WriteOwnKey(knum, &row, RSValue_NewNumber(5));
+
+  // Test: comparing @num > @str should fail because "hello" can't be converted to a number
+  // In EVAL_MODE_QUERY, this should return EXPR_EVAL_ERR
+  {
+    TEvalCtx ctx("@num > @str");
+    ASSERT_TRUE(ctx) << ctx.error();
+    ctx.lookup = &lk;
+    ctx.srcrow = &row;
+    ctx.err = &ctx.status_s;
+    ctx.mode = EVAL_MODE_QUERY;  // Query mode: errors should propagate
+
+    ASSERT_EQ(EXPR_EVAL_OK, ctx.bindLookupKeys());
+    int rc = ctx.eval();
+    ASSERT_EQ(EXPR_EVAL_ERR, rc) << "Type mismatch in comparison should return EXPR_EVAL_ERR";
+    ASSERT_TRUE(QueryError_HasError(&ctx.status_s)) << "QueryError should be set";
+  }
+
+  // Test: comparing @str < @num should also fail
+  {
+    TEvalCtx ctx("@str < @num");
+    ASSERT_TRUE(ctx) << ctx.error();
+    ctx.lookup = &lk;
+    ctx.srcrow = &row;
+    ctx.err = &ctx.status_s;
+    ctx.mode = EVAL_MODE_QUERY;
+
+    ASSERT_EQ(EXPR_EVAL_OK, ctx.bindLookupKeys());
+    int rc = ctx.eval();
+    ASSERT_EQ(EXPR_EVAL_ERR, rc) << "Type mismatch in comparison should return EXPR_EVAL_ERR";
+    ASSERT_TRUE(QueryError_HasError(&ctx.status_s)) << "QueryError should be set";
+  }
+
+  // Test: comparing with literal number: 5 > @str
+  {
+    TEvalCtx ctx("5 > @str");
+    ASSERT_TRUE(ctx) << ctx.error();
+    ctx.lookup = &lk;
+    ctx.srcrow = &row;
+    ctx.err = &ctx.status_s;
+    ctx.mode = EVAL_MODE_QUERY;
+
+    ASSERT_EQ(EXPR_EVAL_OK, ctx.bindLookupKeys());
+    int rc = ctx.eval();
+    ASSERT_EQ(EXPR_EVAL_ERR, rc) << "Type mismatch with literal should return EXPR_EVAL_ERR";
+    ASSERT_TRUE(QueryError_HasError(&ctx.status_s)) << "QueryError should be set";
+  }
+
+  // Test: comparison operators >=, <= should also return errors on type mismatch.
+  // Note: == and != use RSValue_Equal which doesn't propagate errors (it passes NULL
+  // for qerr), so they don't trigger EXPR_EVAL_ERR on type mismatch.
+  {
+    TEvalCtx ctx("@num >= @str");
+    ASSERT_TRUE(ctx) << ctx.error();
+    ctx.lookup = &lk;
+    ctx.srcrow = &row;
+    ctx.err = &ctx.status_s;
+    ctx.mode = EVAL_MODE_QUERY;
+
+    ASSERT_EQ(EXPR_EVAL_OK, ctx.bindLookupKeys());
+    int rc = ctx.eval();
+    ASSERT_EQ(EXPR_EVAL_ERR, rc) << ">= with type mismatch should return EXPR_EVAL_ERR";
+  }
+
+  {
+    TEvalCtx ctx("@num <= @str");
+    ASSERT_TRUE(ctx) << ctx.error();
+    ctx.lookup = &lk;
+    ctx.srcrow = &row;
+    ctx.err = &ctx.status_s;
+    ctx.mode = EVAL_MODE_QUERY;
+
+    ASSERT_EQ(EXPR_EVAL_OK, ctx.bindLookupKeys());
+    int rc = ctx.eval();
+    ASSERT_EQ(EXPR_EVAL_ERR, rc) << "<= with type mismatch should return EXPR_EVAL_ERR";
+  }
+
+  // Test: EVAL_MODE_INDEX should also return EXPR_EVAL_ERR on type mismatch.
+  // We test a representative subset since the error handling path in evalPredicate
+  // is identical for all comparison operators regardless of mode.
+  {
+    TEvalCtx ctx("@num > @str");
+    ASSERT_TRUE(ctx) << ctx.error();
+    ctx.lookup = &lk;
+    ctx.srcrow = &row;
+    ctx.err = &ctx.status_s;
+    ctx.mode = EVAL_MODE_INDEX;
+
+    ASSERT_EQ(EXPR_EVAL_OK, ctx.bindLookupKeys());
+    int rc = ctx.eval();
+    ASSERT_EQ(EXPR_EVAL_ERR, rc) << "EVAL_MODE_INDEX: type mismatch should return EXPR_EVAL_ERR";
+    ASSERT_TRUE(QueryError_HasError(&ctx.status_s)) << "EVAL_MODE_INDEX: QueryError should be set";
   }
 
   RLookupRow_Reset(&row);
