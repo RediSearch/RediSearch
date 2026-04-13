@@ -586,6 +586,27 @@ def _test_profile(protocol):
            [('Index', 1041), ('Loader', 1041), ('Sorter', 200), ('Loader', 200)]],
            [('Network', 600), ('Sorter', 200), ('Grouper', 25), ('Filter - Predicate >', 25)]]),
 
+        # WITHCOUNT + GROUPBY -> GROUPBY (re-grouping)
+        (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT',
+          'GROUPBY', 1, '@brand', 'REDUCE', 'COUNT', 0, 'AS', 'cnt',
+          'GROUPBY', 1, '@cnt', 'REDUCE', 'COUNT', 0, 'AS', 'num_brands'],
+         [('Index', 3100), ('Grouper', 25), ('Grouper', 1)],
+         [[[('Index', 1027), ('Grouper', 25)],
+           [('Index', 1032), ('Grouper', 25)],
+           [('Index', 1041), ('Grouper', 25)]],
+           [('Network', 75), ('Grouper', 25), ('Grouper', 1)]]),
+
+        # WITHCOUNT + GROUPBY -> SORTBY -> GROUPBY (mixed pipeline)
+        (['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT',
+          'GROUPBY', 1, '@brand', 'REDUCE', 'COUNT', 0, 'AS', 'cnt',
+          'SORTBY', 2, '@cnt', 'DESC',
+          'GROUPBY', 1, '@cnt', 'REDUCE', 'COUNT', 0, 'AS', 'num_brands'],
+         [('Index', 3100), ('Grouper', 25), ('Sorter', 10), ('Grouper', 1)],
+         [[[('Index', 1027), ('Grouper', 25)],
+           [('Index', 1032), ('Grouper', 25)],
+           [('Index', 1041), ('Grouper', 25)]],
+           [('Network', 75), ('Grouper', 25), ('Sorter', 10), ('Grouper', 1)]]),
+
         # ----------------------------------------------------------------------
         # WITHOUTCOUNT
         (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT'],
@@ -781,6 +802,16 @@ def _test_profile(protocol):
            [('Index', 1032), ('Loader', 1032), ('Sorter', 200), ('Loader', 200)],
            [('Index', 1041), ('Loader', 1041), ('Sorter', 200), ('Loader', 200)]],
            [('Network', 600), ('Sorter', 200), ('Grouper', 25), ('Filter - Predicate >', 25)]]),
+
+        # WITHOUTCOUNT + GROUPBY -> GROUPBY (re-grouping)
+        (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT',
+          'GROUPBY', 1, '@brand', 'REDUCE', 'COUNT', 0, 'AS', 'cnt',
+          'GROUPBY', 1, '@cnt', 'REDUCE', 'COUNT', 0, 'AS', 'num_brands'],
+         [('Index', 3100), ('Grouper', 25), ('Grouper', 1)],
+         [[[('Index', 1027), ('Grouper', 25)],
+           [('Index', 1032), ('Grouper', 25)],
+           [('Index', 1041), ('Grouper', 25)]],
+           [('Network', 75), ('Grouper', 25), ('Grouper', 1)]]),
 
     ]
 
