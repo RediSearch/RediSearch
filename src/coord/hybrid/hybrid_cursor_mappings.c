@@ -13,6 +13,7 @@
 #include "rmutil/rm_assert.h"
 #include "query_error.h"
 #include <string.h>
+#include <stdatomic.h>
 #include "info/global_stats.h"
 
 #define INTERNAL_HYBRID_RESP3_LENGTH 6
@@ -26,7 +27,14 @@ typedef struct {
     pthread_mutex_t *mutex;           // Mutex for array access and completion tracking
     pthread_cond_t *completionCond;   // Condition variable for completion signaling
     int numShards;                    // Total number of expected shards
+    // Reference count for safe deallocation. Initialized to 1 (coordinator) + numShards (callbacks).
+    // The coordinator and each callback decrement this; the last one to decrement frees the context.
+    // This prevents a use-after-free where the coordinator frees the context while a callback is
+    // still executing after unlocking the mutex.
+    volatile int refcount;
 } processCursorMappingCallbackContext;
+
+static inline void decrRefCtx(processCursorMappingCallbackContext *ctx);
 
 void CursorMapping_Release(CursorMapping *mapping) {
   rm_free(mapping->targetShard);
@@ -189,9 +197,13 @@ static void processCursorMappingCallback(MRIteratorCallbackCtx *ctx, MRReply *re
 
     MRIteratorCallback_Done(ctx, 0);
     MRReply_Free(rep);
+
+    // Decrement refcount after we are completely done with cb_ctx.
+    // The coordinator also holds a reference; the last one to decrement frees the context.
+    decrRefCtx(cb_ctx);
 }
 
-static inline void cleanupCtx(processCursorMappingCallbackContext *ctx) {
+static inline void freeCtx(processCursorMappingCallbackContext *ctx) {
     pthread_mutex_destroy(ctx->mutex);
     pthread_cond_destroy(ctx->completionCond);
     rm_free(ctx->mutex);
@@ -200,6 +212,13 @@ static inline void cleanupCtx(processCursorMappingCallbackContext *ctx) {
     StrongRef_Release(ctx->vsimMappings);
     array_free_ex(ctx->errors, QueryError_ClearError((QueryError*)ptr));
     rm_free(ctx);
+}
+
+// Decrement the reference count. If this was the last reference, free the context.
+static inline void decrRefCtx(processCursorMappingCallbackContext *ctx) {
+    if (!__atomic_sub_fetch(&ctx->refcount, 1, __ATOMIC_ACQ_REL)) {
+        freeCtx(ctx);
+    }
 }
 
 bool ProcessHybridCursorMappings(const MRCommand *cmd, int numShards, StrongRef searchMappingsRef, StrongRef vsimMappingsRef, QueryError *status, const RSOomPolicy oomPolicy) {
@@ -217,6 +236,7 @@ bool ProcessHybridCursorMappings(const MRCommand *cmd, int numShards, StrongRef 
     pthread_cond_init(ctx->completionCond, NULL);
 
     // Setup callback context
+    // refcount = 1 (coordinator) + numShards (one per callback invocation).
     *ctx = (processCursorMappingCallbackContext){
         .searchMappings = StrongRef_Clone(searchMappingsRef),
         .vsimMappings = StrongRef_Clone(vsimMappingsRef),
@@ -224,15 +244,17 @@ bool ProcessHybridCursorMappings(const MRCommand *cmd, int numShards, StrongRef 
         .responseCount = 0,
         .mutex = ctx->mutex,
         .completionCond = ctx->completionCond,
-        .numShards = numShards
+        .numShards = numShards,
+        .refcount = 1 + numShards,
     };
 
-    // Start iteration (ctx is cleaned up manually in cleanupCtx, no destructor needed)
+    // Start iteration (ctx is cleaned up via refcount, no destructor needed)
     MRIterator *it = MR_IterateWithPrivateData(cmd, processCursorMappingCallback, ctx, NULL, NULL, iterStartCb, NULL);
     if (!it) {
-        // Cleanup on error
+        // No callbacks will fire, so drop the numShards references that were reserved for them.
+        __atomic_sub_fetch(&ctx->refcount, numShards, __ATOMIC_ACQ_REL);
         QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_GENERIC, "Failed to communicate with shards");
-        cleanupCtx(ctx);
+        decrRefCtx(ctx);
         return false;
     }
     // Wait for all callbacks to complete
@@ -255,9 +277,10 @@ bool ProcessHybridCursorMappings(const MRCommand *cmd, int numShards, StrongRef 
             }
         }
     }
-    // Cleanup
+    // Release the coordinator's reference. If all callbacks have already finished,
+    // this will free ctx. Otherwise the last callback to finish will free it.
     MRIterator_Release(it);
-    cleanupCtx(ctx);
+    decrRefCtx(ctx);
 
     return success;
 }
