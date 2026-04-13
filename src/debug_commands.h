@@ -61,11 +61,17 @@ void QueryDebugCtx_SetDebugRP(ResultProcessor* debugRP);
 bool QueryDebugCtx_HasDebugRP(void);
 
 #ifdef ENABLE_ASSERT
+// Named sentinel values for the pauseBeforeN field of CoordReduceDebugCtx
+#define COORD_REDUCE_NO_PAUSE                0   // Disable pause (no pause point set)
+#define COORD_REDUCE_PAUSE_AFTER_LAST_RESULT (-1) // Pause after the last result is reduced
+#define COORD_REDUCE_PAUSE_BEFORE_REDUCER_INIT (-2) // Pause after claiming reducing but before reducer context init
+
 // Struct used for debugging coordinator reduction (pause mid-reduce)
 // Only available in debug builds to avoid affecting release performance
 typedef struct CoordReduceDebugCtx {
   atomic_bool pause;           // Atomic bool to wait for the resume command
-  atomic_int pauseBeforeN;     // N value: 0=no pause, -1=pause after last, N>0=pause before Nth result
+  atomic_int pauseBeforeN;     // COORD_REDUCE_NO_PAUSE, COORD_REDUCE_PAUSE_BEFORE_REDUCER_INIT,
+                               // COORD_REDUCE_PAUSE_AFTER_LAST_RESULT, or N>0 to pause before the Nth result
   atomic_int reduceCount;      // Counter of results reduced so far
 } CoordReduceDebugCtx;
 
