@@ -777,10 +777,10 @@ def _test_profile(protocol):
         (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'SORTBY', 1, '@title', 'MAX', 50,
           'GROUPBY', 1, '@brand', 'REDUCE', 'COUNT', 0, 'AS', 'cnt'],
          [('Index', 49), ('Pager/Limiter', 50), ('Grouper', 25)],
-         [[[('Index', 49), ('Pager/Limiter', 50)],
-           [('Index', 49), ('Pager/Limiter', 50)],
-           [('Index', 49), ('Pager/Limiter', 50)]],
-           [('Network', 150), ('Grouper', 25)]]),
+         [[[('Index', 1027), ('Sorter', 50), ('Loader', 50)],
+           [('Index', 1032), ('Sorter', 50), ('Loader', 50)],
+           [('Index', 1041), ('Sorter', 50), ('Loader', 50)]],
+           [('Network', 150), ('Sorter', 50), ('Grouper', 25)]]),
 
         # WITHOUTCOUNT + SORTBY + MAX -> GROUPBY + REDUCE -> SORTBY -> LIMIT
         (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'SORTBY', 2, '@price', 'DESC', 'MAX', 100,
