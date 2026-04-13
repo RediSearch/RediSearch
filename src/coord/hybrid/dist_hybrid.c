@@ -717,10 +717,7 @@ static int HybridRequest_executePlan(HybridRequest *hreq, struct ConcurrentCmdCt
 
     const RSOomPolicy oomPolicy = hreq->reqConfig.oomPolicy;
     if (!ProcessHybridCursorMappings(cmd, numShards, searchMappingsRef, vsimMappingsRef, hreq->tailPipeline->qctx.err, oomPolicy)) {
-        // Delete any cursors created on successful shards before releasing mappings
-        const char *indexName = MRCommand_ArgStringPtrLen(cmd, 1, NULL);
-        CursorMappings_DeleteAll(search, indexName);
-        CursorMappings_DeleteAll(vsim, indexName);
+        // Handle error
         StrongRef_Release(searchMappingsRef);
         StrongRef_Release(vsimMappingsRef);
         return REDISMODULE_ERR;

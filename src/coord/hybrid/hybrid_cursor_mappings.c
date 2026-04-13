@@ -32,10 +32,6 @@ void CursorMapping_Release(CursorMapping *mapping) {
   rm_free(mapping->targetShard);
 }
 
-void CursorMappings_DeleteAll(CursorMappings *mappings, const char *indexName) {
-  MR_CursorMappingsDelete(mappings, indexName);
-}
-
 static void processHybridError(processCursorMappingCallbackContext *ctx, MRReply *rep) {
     const char *errorMessage = MRReply_String(rep, NULL);
     QueryErrorCode errCode = QueryError_GetCodeFromMessage(errorMessage);

@@ -28,7 +28,7 @@ typedef struct {
   long long cursorId;
 } CursorMapping;
 
-typedef struct CursorMappings {
+typedef struct {
   MappingType type;
   arrayof(CursorMapping) mappings;
 } CursorMappings;
@@ -55,14 +55,6 @@ bool ProcessHybridCursorMappings(const MRCommand *cmd,int numShards, StrongRef s
  * Release resources associated with a cursor mapping
  */
 void CursorMapping_Release(CursorMapping *mapping);
-
-/**
- * Send FT.CURSOR DEL commands for all cursors in the mappings.
- * Used for cleanup when the mapping phase fails and cursors need to be deleted
- * on shards that successfully created them.
- * Does not wait for responses.
- */
-void CursorMappings_DeleteAll(CursorMappings *mappings, const char *indexName);
 
 #ifdef __cplusplus
 }
