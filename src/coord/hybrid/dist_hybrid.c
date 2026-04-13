@@ -777,8 +777,6 @@ static void DistHybridCleanups(RedisModuleCtx *ctx,
       goto cleanup;
     }
 
-    QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(status), 1, COORD_ERR_WARN);
-
     if (!hreq) {
       CoordRequestCtx_ReplyOrStoreError(reqCtx, ctx, status);
     } else {
