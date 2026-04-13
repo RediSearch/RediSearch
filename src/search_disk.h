@@ -210,18 +210,6 @@ QueryIterator* SearchDisk_NewTermIterator(RedisSearchDiskIndexSpec *index, RSTok
  */
 QueryIterator* SearchDisk_NewTagIterator(RedisSearchDiskIndexSpec *index, const RSToken *tok, t_fieldIndex fieldIndex, double weight);
 
-/**
- * @brief Create an IndexIterator for all the existing documents
- *
- * This function creates a full IndexIterator that wraps the disk API and can be used
- * in RediSearch query execution pipelines.
- *
- * @param index Pointer to the index
- * @param weight Weight for the term (used in scoring)
- * @return Pointer to the IndexIterator, or NULL on error
- */
-QueryIterator* SearchDisk_NewWildcardIterator(RedisSearchDiskIndexSpec *index, double weight);
-
 // DocTable API wrappers
 
 /**
