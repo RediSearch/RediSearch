@@ -733,7 +733,8 @@ void iterStartCb(void *p) {
   // Pre-fanout connection validation - check ALL connections before sending ANY commands
   bool allConnectionsValid = true;
   for (size_t i = 0; i < it->len; i++) {
-    if (!MRConn_Get(&io_runtime_ctx->conn_mgr, it->cbxs[i].cmd.targetShard)) {
+    MRConn *conn = MRConn_Get(&io_runtime_ctx->conn_mgr, it->cbxs[i].cmd.targetShard);
+    if (!conn || !MRConn_IsConnected(conn)) {
       allConnectionsValid = false;
       break;
     }
@@ -820,7 +821,8 @@ void iterCursorMappingCb(void *p) {
   // Pre-fanout connection validation - check ALL connections before sending ANY commands
   bool allConnectionsValid = true;
   for (size_t i = 0; i < it->len; i++) {
-    if (!MRConn_Get(&io_runtime_ctx->conn_mgr, it->cbxs[i].cmd.targetShard)) {
+    MRConn *conn = MRConn_Get(&io_runtime_ctx->conn_mgr, it->cbxs[i].cmd.targetShard);
+    if (!conn || !MRConn_IsConnected(conn)) {
       allConnectionsValid = false;
       break;
     }
