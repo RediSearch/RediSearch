@@ -79,17 +79,17 @@ where
 
     /// Returns the number of currently active (non-exhausted) children.
     pub const fn num_children_active(&self) -> usize {
-        self.children.num_active()
+        self.heap.len()
     }
 
     /// Returns a shared reference to the child at `idx`.
     pub fn child_at(&self, idx: usize) -> &I {
-        self.children.get(idx)
+        &self.children[idx]
     }
 
     /// Returns a mutable iterator over all children (including exhausted ones).
     pub fn children_mut(&mut self) -> impl Iterator<Item = &mut I> {
-        self.children.iter_all_mut()
+        self.children.iter_mut()
     }
 
     /// Consumes the iterator and returns a [`super::UnionTrimmed`] over the same children.
