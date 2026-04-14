@@ -44,6 +44,9 @@ jobs:
       - name: Generate filtered matrix
         id: generate-matrix
         shell: python
+        env:
+          INPUT_PLATFORM: ${{ inputs.platform }}
+          INPUT_ARCHITECTURE: ${{ inputs.architecture }}
         run: |
           import json
           import os
@@ -89,8 +92,8 @@ jobs:
               ('intel', 'x86_64'),  # Self-hosted EC2 runner
           ]
 
-          platform_filter = "${{ inputs.platform }}"
-          architecture_filter = "${{ inputs.architecture }}"
+          platform_filter = os.environ["INPUT_PLATFORM"]
+          architecture_filter = os.environ["INPUT_ARCHITECTURE"]
           include_coverage = "${{ inputs.include-coverage }}" == "true"
           include_sanitize = "${{ inputs.include-sanitize }}" == "true"
           separate_coordinator = "${{ inputs.separate-coordinator-job }}" == "true"

@@ -94,6 +94,8 @@ jobs:
       - name: Show sccache stats
         run: ${SCCACHE_PATH:-sccache} --show-stats
       - name: Collect results
+        env:
+          INPUT_ARCHITECTURE: ${{ inputs.architecture }}
         run: |
           # Determine OS name
           OS_NAME=$(uname | tr '[:upper:]' '[:lower:]')
@@ -152,7 +154,7 @@ jobs:
               --results-format google.benchmark \
               --benchmark-result-file "$file" \
               --triggering_env redisearch-micro-benchmarks \
-              --architecture ${{ inputs.architecture }}
+              --architecture $INPUT_ARCHITECTURE
           done
 
   stop-runner:
