@@ -360,4 +360,4 @@ When pulling in a new snowball revision:
    changed the format of `modules.txt`, update
    `cmake/generate_snowball_modules_h.cmake` to match.
 4. Build with `./build.sh FORCE` and verify the generated
-   `build/src/snowball/libstemmer/modules.h` looks correct.
+   `bin/<arch>/search-community/src/snowball/libstemmer/modules.h` looks correct.
