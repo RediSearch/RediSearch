@@ -254,7 +254,8 @@ void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
   MRCommand_appendVsim(xcmd, argv, argc, vsimOffset, &kArgIndex);
 
   // Calculate and apply effective K for KNN queries if SHARD_K_RATIO is set
-  // TODO: Potentially edit in IO thread where numShards is actually known
+  // TODO: Potentially edit in IO thread where numShards is actually known.
+  // Now we have a risk that by the time I/O thread sends the command, the number of shards changed, making the effective K inaccurate.
   if (vq && vq->type == VECSIM_QT_KNN) {
     double shardWindowRatio = vq->knn.shardWindowRatio;
     if (shardWindowRatio < MAX_SHARD_WINDOW_RATIO && numShards > 1) {
