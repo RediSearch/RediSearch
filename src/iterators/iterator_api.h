@@ -86,6 +86,11 @@ typedef struct QueryIterator {
 
   /* Rewind the iterator to the beginning and reset its state (including `atEOF` and `lastDocId`) */
   void (*Rewind)(struct QueryIterator *self);
+
+  /* Recursively wrap every child iterator with a Profile layer.
+   * Composite iterators call IntoProfiled() on each child and return `self`.
+   * Leaf iterators leave this as NULL (no children to profile). */
+  QueryIterator* (*ProfileChildren)(struct QueryIterator *self);
 } QueryIterator;
 
 static inline ValidateStatus Default_Revalidate(struct QueryIterator *base) {

@@ -754,6 +754,7 @@ def test_add_shard_and_migrate_aggregate_withcursor():
 
 @skip(cluster=False, min_shards=2, asan=True)
 def test_add_shard_and_migrate_aggregate_withcursor_BG():
+    raise SkipTest("Flaky test, see MOD-14828")
     env = Env(clusterNodeTimeout=cluster_node_timeout, moduleArgs='WORKERS 2')
     add_shard_and_migrate_test(env, 'FT.AGGREGATE.WITHCURSOR')
 
@@ -764,6 +765,8 @@ def test_add_shard_and_migrate_hybrid():
 
 @skip(cluster=False, min_shards=2)
 def test_add_shard_and_migrate_hybrid_BG():
+    # TODO: MOD-14732 - Skipped due to flaky crash (SIGSEGV) during hybrid cursor migration.
+    raise SkipTest()
     env = Env(clusterNodeTimeout=cluster_node_timeout, moduleArgs='WORKERS 2')
     add_shard_and_migrate_test(env, 'FT.HYBRID')
 

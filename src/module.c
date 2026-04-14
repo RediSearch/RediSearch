@@ -17,7 +17,7 @@
 #include "command_info/command_info.h"
 #include "document.h"
 #include "tag_index.h"
-#include "triemap.h"
+#include "doc_id_meta.h"
 #include "query.h"
 #include "redis_index.h"
 #include "redismodule.h"
@@ -231,6 +231,7 @@ bool debugCommandsEnabled(RedisModuleCtx *ctx) {
  * be an array the same size of the ids list
  */
 int GetDocumentsCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  RS_ASSERT(!SearchDisk_IsEnabled());
   if (argc < 3) {
     return RedisModule_WrongArity(ctx);
   }
@@ -246,7 +247,6 @@ int GetDocumentsCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
   const DocTable *dt = &sctx->spec->docs;
   RedisModule_ReplyWithArray(ctx, argc - 2);
   for (size_t i = 2; i < argc; i++) {
-
     if (DocTable_GetIdR(dt, argv[i]) == 0) {
       // Document does not exist in index; even though it exists in keyspace
       RedisModule_ReplyWithNull(ctx);
@@ -270,6 +270,7 @@ int GetDocumentsCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
  * If referred docs are missing or not HASH keys, we simply reply with Null
  */
 int GetSingleDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  RS_ASSERT(!SearchDisk_IsEnabled());
   if (argc != 3) {
     return RedisModule_WrongArity(ctx);
   }
@@ -286,7 +287,6 @@ int GetSingleDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   }
 
   CurrentThread_SetIndexSpec(sctx->spec->own_ref);
-
   if (DocTable_GetIdR(&sctx->spec->docs, argv[2]) == 0) {
     RedisModule_ReplyWithNull(ctx);
   } else {
@@ -3567,6 +3567,18 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
                          struct ConcurrentCmdCtx *cmdCtx);
 int RSAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
+int DistAggregateReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
+int DistAggregateTimeoutFailClient(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
+
+// Free privdata callback for distributed aggregate and hybrid query
+static void DistCoordReqFreePrivData(RedisModuleCtx *ctx, void *privdata) {
+  UNUSED(ctx);
+  CoordRequestCtx_Free((CoordRequestCtx *)privdata);
+}
+
+// Forward declaration for initQueryTimeout (defined later in file)
+static int initQueryTimeout(size_t *timeout, RedisModuleString **argv, int argc, QueryError *status);
+
 /** Debug */
 void DEBUG_RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                          struct ConcurrentCmdCtx *cmdCtx);
@@ -3639,11 +3651,31 @@ int DistAggregateCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int a
     return ReplyBlockDeny(ctx, argv[0]);
   }
 
+  // Early TIMEOUT argument parsing, required for block-client timeout.
+  size_t queryTimeoutMS;
+  QueryError status = QueryError_Default();
+  if (initQueryTimeout(&queryTimeoutMS, argv, argc, &status) != REDISMODULE_OK) {
+    QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&status), 1, COORD_ERR_WARN);
+    return QueryError_ReplyAndClear(ctx, &status);
+  }
+
+  CoordRequestCtx *reqCtx = CoordRequestCtx_New(COMMAND_AGGREGATE);
+
   ConcurrentSearchHandlerCtx handlerCtx;
   ConcurrentSearchHandlerCtx_Init(&handlerCtx);
 
   handlerCtx.coordStartTime = coordInitialTime;
   handlerCtx.spec_ref = StrongRef_Demote(spec_ref);
+
+  handlerCtx.bcCtx.privdata = reqCtx;
+  handlerCtx.bcCtx.free_privdata = DistCoordReqFreePrivData;
+
+  if (RSGlobalConfig.requestConfigParams.timeoutPolicy == TimeoutPolicy_Fail) {
+    handlerCtx.bcCtx.reply_callback = DistAggregateReplyCallback;
+    handlerCtx.bcCtx.timeout_callback = DistAggregateTimeoutFailClient;
+    handlerCtx.bcCtx.timeoutMS = queryTimeoutMS;
+    CoordRequestCtx_SetUseReplyCallback(reqCtx, true);
+  }
 
   return ConcurrentSearch_HandleRedisCommandEx(DIST_THREADPOOL, dist_callback, ctx, argv, argc,
                                                &handlerCtx);
@@ -3651,14 +3683,6 @@ int DistAggregateCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int a
 
 void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                       struct ConcurrentCmdCtx *cmdCtx);
-
-// Forward declaration for initQueryTimeout (defined later in file)
-static int initQueryTimeout(size_t *timeout, RedisModuleString **argv, int argc, QueryError *status);
-
-static void DistHybridFreePrivData(RedisModuleCtx *ctx, void *privdata) {
-  UNUSED(ctx);
-  CoordRequestCtx_Free((CoordRequestCtx *)privdata);
-}
 
 int DistHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   // Capture start time for coordinator dispatch time tracking
@@ -3728,7 +3752,7 @@ int DistHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   handlerCtx.numShards = NumShards;  // Capture NumShards from main thread for thread-safe access
 
   handlerCtx.bcCtx.privdata = reqCtx;
-  handlerCtx.bcCtx.free_privdata = DistHybridFreePrivData;
+  handlerCtx.bcCtx.free_privdata = DistCoordReqFreePrivData;
 
   if (RSGlobalConfig.requestConfigParams.timeoutPolicy == TimeoutPolicy_Fail) {
     handlerCtx.bcCtx.reply_callback = DistHybridReplyCallback;
@@ -4608,6 +4632,10 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
       !(RedisModule_GetContextFlags(ctx) & REDISMODULE_CTX_FLAGS_SERVER_STARTUP)) {
     RedisModule_Log(ctx, "error", "Cannot load module with disk indexes after server startup");
     return REDISMODULE_ERR;
+  }
+
+  if (SearchDisk_IsEnabled()) {
+    DocIdMeta_Init(ctx);
   }
 
   // Check if we are actually in cluster mode

@@ -105,21 +105,6 @@ where
     pub const fn child(&self) -> Option<&I> {
         self.child.as_ref()
     }
-
-    /// Set the child of this [`Not`] iterator.
-    pub fn set_child(&mut self, new_child: I) {
-        self.child = MaybeEmpty::new(new_child);
-    }
-
-    /// Unset the child of this [`Not`] iterator (make it `None`).
-    pub fn unset_child(&mut self) {
-        self.child = MaybeEmpty::new_empty();
-    }
-
-    /// Take the child of this [`Not`] iterator if it exists.
-    pub fn take_child(&mut self) -> Option<I> {
-        self.child.take_iterator()
-    }
 }
 
 impl<'index, I> RQEIterator<'index> for Not<'index, I>
@@ -270,5 +255,33 @@ where
     #[inline(always)]
     fn type_(&self) -> IteratorType {
         IteratorType::Not
+    }
+}
+
+/// Trait for NOT iterators ([`Not`] and [`crate::not_optimized::NotOptimized`]).
+pub trait NotIterator<'index>: RQEIterator<'index> {
+    // Those methods are used by profile.c to wrap the child iterator.
+    // They can be removed once this code is ported to Rust.
+    /// Get a shared reference to the child iterator, or `None` if unset.
+    fn child(&self) -> Option<&dyn RQEIterator<'index>>;
+}
+
+impl<'index> NotIterator<'index> for Not<'index, Box<dyn RQEIterator<'index> + 'index>> {
+    fn child(&self) -> Option<&dyn RQEIterator<'index>> {
+        self.child
+            .as_ref()
+            .map(|c| &**c as &dyn RQEIterator<'index>)
+    }
+}
+
+impl<'index> crate::interop::ProfileChildren<'index> for Not<'index, crate::c2rust::CRQEIterator> {
+    fn profile_children(self) -> Self {
+        Not {
+            child: self.child.map(crate::c2rust::CRQEIterator::into_profiled),
+            max_doc_id: self.max_doc_id,
+            forced_eof: self.forced_eof,
+            result: self.result,
+            timeout_ctx: self.timeout_ctx,
+        }
     }
 }

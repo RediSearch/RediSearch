@@ -7,14 +7,14 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use ffi::NewOptionalIterator;
 pub use ffi::{
     IndexFlags, IndexFlags_Index_DocIdsOnly, IndexFlags_Index_StoreByteOffsets,
     IndexFlags_Index_StoreFieldFlags, IndexFlags_Index_StoreFreqs, IndexFlags_Index_StoreNumeric,
     IndexFlags_Index_StoreTermOffsets, IteratorStatus, IteratorStatus_ITERATOR_OK,
     RedisModule_Alloc, RedisModule_Free, ValidateStatus, t_docId,
 };
-use inverted_index::RSIndexResult;
-use inverted_index::RSQueryTerm;
+use inverted_index::{RSIndexResult, RSQueryTerm};
 use iterators_ffi::intersection::NewIntersectionIterator;
 use std::{ffi::c_void, ptr};
 
@@ -90,6 +90,23 @@ impl QueryIterator {
                 1.0,
             )
         })
+    }
+
+    /// Create a C `OptionalOptimized` iterator.
+    ///
+    /// `qctx` must point to a `QueryEvalCtx` whose `sctx.spec.rule.index_all`
+    /// is `true` and whose `sctx.spec.existingDocs` points to a valid
+    /// `DocIdsOnly` inverted index. The `qctx` (and the `existingDocs` it
+    /// transitively references) **must outlive the returned iterator**, because
+    /// the iterator's internal wildcard holds a raw pointer into `sctx`.
+    #[inline(always)]
+    pub fn new_optional_optimized(
+        child: Self,
+        qctx: *mut ffi::QueryEvalCtx,
+        max_doc_id: t_docId,
+        weight: f64,
+    ) -> Self {
+        Self(unsafe { NewOptionalIterator(child.into_raw(), qctx, max_doc_id, weight) })
     }
 
     /// Creates a new intersection iterator from child ID list iterators.
@@ -198,7 +215,7 @@ impl QueryIterator {
                 num_children as i32,
                 quick_exit,
                 weight,
-                ffi::QueryNodeType_QN_UNION,
+                ffi::QueryNodeType::Union,
                 std::ptr::null(), // q_str
                 &config,
             )

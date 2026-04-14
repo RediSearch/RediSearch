@@ -402,6 +402,7 @@ void HREQ_ReplyOrStoreError(HybridRequest *hreq, RedisModuleCtx *ctx, QueryError
     // Clear the original to avoid leaking heap-allocated strings.
     QueryError_ClearError(status);
   } else {
+    QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(status), 1, !IsInternal(hreq));
     QueryError_ReplyAndClear(ctx, status);
   }
 }
@@ -780,7 +781,7 @@ static int HybridQueryTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString
   if (!node || !node->privdata) {
     // Shouldn't happen, but handle gracefully
     RedisModule_Log(ctx, "warning", "HybridQueryTimeoutFailCallback: no node or privdata");
-    QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, SHARD_ERR_WARN);
+    QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, COORD_ERR_WARN);
     RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT));
     return REDISMODULE_OK;
   }
@@ -804,7 +805,7 @@ static int HybridQueryTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString
   HybridRequest_UnlockCursors(hreq);
 
   // Reply with timeout error
-  QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, SHARD_ERR_WARN);
+  QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, !IsInternal(hreq->requests[0]));
   RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT));
 
   return REDISMODULE_OK;
