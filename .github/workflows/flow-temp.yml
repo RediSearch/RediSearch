@@ -9,16 +9,74 @@ name: temporary testing
 
 on:
   push:
-    branches-ignore: ['**'] # ignore all branches. Comment this line to run your workflow below on every push.
+    # branches-ignore: ['**'] # commented out to run on push for RED-193518 test
 
 jobs:
 
-  alpine-test:
+  test-s3-prefix-fix:
+    runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
     permissions:
+      id-token: write
       contents: read
-      packages: write
-    uses: ./.github/workflows/flow-test.yml
-    secrets: inherit
-    with:
-      platform: alpine:3.22
-      redis-ref: unstable
+    steps:
+      - name: Configure AWS Credentials Using Role
+        if: vars.USE_AWS_ROLE == 'true'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.ARTIFACT_UPLOAD_AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ vars.ARTIFACT_UPLOAD_AWS_REGION }}
+      - name: Configure AWS Credentials Using Keys
+        if: vars.USE_AWS_ROLE == 'false'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.ARTIFACT_UPLOAD_AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.ARTIFACT_UPLOAD_AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ vars.ARTIFACT_UPLOAD_AWS_REGION }}
+      - name: Get boto3
+        run: pip install boto3
+      - name: Test fixed list_snapshots_by_branch (RED-193518)
+        env:
+          SOURCE: "99.88"
+          EXPECTED_SHA: "945cd4f5c155e9b03bc55154003730c455a8e313"
+        shell: python
+        run: |
+          import boto3, os, re
+
+          bucket  = "redismodules"
+          oss_dir = "redisearch-oss"
+
+          expected_sha       = os.environ["EXPECTED_SHA"]
+          expected_short_sha = expected_sha[:7]
+          source             = os.environ["SOURCE"]
+
+          suffix_pattern = re.compile(
+              rf"(.+)\.{re.escape(source)}\.\d{{8}}\.\d{{6}}\.{re.escape(expected_short_sha)}\.zip$"
+          )
+
+          client = boto3.client("s3")
+
+          def list_files_by_branch(prefix):
+              paginator = client.get_paginator("list_objects_v2")
+              for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
+                  for obj in page.get("Contents", []):
+                      if suffix_pattern.search(obj["Key"]):
+                          yield obj["Key"]
+
+          # BROKEN (old) prefix
+          old_prefix = f"{oss_dir}/snapshots/{oss_dir}"
+          old_files  = list(list_files_by_branch(old_prefix))
+          print(f"\nOLD prefix: '{old_prefix}'")
+          print(f"  → found {len(old_files)} file(s): {old_files or 'NONE'}")
+
+          # FIXED (new) prefix
+          new_prefix = f"{oss_dir}/snapshots/"
+          new_files  = list(list_files_by_branch(new_prefix))
+          print(f"\nNEW prefix: '{new_prefix}'")
+          print(f"  → found {len(new_files)} file(s):")
+          for f in new_files:
+              print(f"    {f}")
+
+          print()
+          if not new_files:
+              raise Exception("FAIL: fixed prefix still finds nothing!")
+          print(f"PASS: fix works — {len(new_files)} artifact(s) found")
