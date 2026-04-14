@@ -7,12 +7,10 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use crate::RSValue;
-use crate::util::{expect_value, try_value};
 use libc::size_t;
 use std::ffi::{c_char, c_double};
-use value::Value;
 use value::util::{num_to_str, str_to_float};
+use value::{SharedValueRef, Value};
 
 /// Convert the [`RSValue`] to a number. Returns `true` when this value is a number
 /// or a numeric string that can be converted and writes the number to `d`. If
@@ -26,12 +24,12 @@ use value::util::{num_to_str, str_to_float};
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RSValue_ToNumber(value: *const RSValue, d: *mut c_double) -> bool {
+pub unsafe extern "C" fn RSValue_ToNumber(value: Option<SharedValueRef>, d: *mut c_double) -> bool {
     // Safety: ensured by caller (2.)
     let d = unsafe { d.as_mut().expect("d is null") };
 
     // Safety: ensured by caller (1.)
-    let Some(value) = (unsafe { try_value(value) }) else {
+    let Some(value) = value else {
         return false;
     };
 
@@ -65,19 +63,16 @@ pub unsafe extern "C" fn RSValue_ToNumber(value: *const RSValue, d: *mut c_doubl
 /// Panics if `value` is not a [`Value::Number`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RSValue_NumToString(
-    value: *const RSValue,
+    value: SharedValueRef,
     buf: *mut c_char,
     buflen: size_t,
 ) -> size_t {
-    // Safety: ensured by caller (1.)
-    let value = unsafe { expect_value(value) };
-
     debug_assert!(buflen >= 32);
     // Safety: ensured by caller (2.)
     let buf = unsafe { std::slice::from_raw_parts_mut(buf.cast::<u8>(), buflen) };
     let buf = buf.first_chunk_mut().unwrap();
 
-    let Value::Number(num) = value else {
+    let Value::Number(num) = &**value else {
         panic!("Expected number")
     };
 

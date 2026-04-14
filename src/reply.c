@@ -501,8 +501,8 @@ char *escapeSimpleString(const char *str) {
 }
 
 /* Based on the value type, serialize the RSValue into redis client response */
-int RedisModule_Reply_RSValue(RedisModule_Reply *reply, const RSValue *v, SendReplyFlags flags) {
-  v = RSValue_Dereference(v);
+int RedisModule_Reply_RSValue(RedisModule_Reply *reply, const RSValue *val, SendReplyFlags flags) {
+  const RSValue *v = RSValue_Dereference(val);
   uint32_t len = 0;
 
   switch (RSValue_Type(v)) {
@@ -562,7 +562,7 @@ int RedisModule_Reply_RSValue(RedisModule_Reply *reply, const RSValue *v, SendRe
       // If Map value is used, assume Map api exists (RedisModule_IsRESP3)
       RedisModule_Reply_Map(reply);
       for (uint32_t i = 0; i < RSValue_Map_Len(v); i++) {
-        RSValue *key, *val;
+        const RSValue *key, *val;
         RSValue_Map_GetEntry(v, i, &key, &val);
         RedisModule_Reply_RSValue(reply, key, flags);
         RedisModule_Reply_RSValue(reply, val, flags);

@@ -114,7 +114,7 @@ void RSSortingVector_PutStrNormalize(RSSortingVector *vec,
  */
 void RSSortingVector_PutRSVal(RSSortingVector *vec,
                               size_t idx,
-                              RSValue *val);
+                              RSValue * val);
 
 /**
  * Puts a null at the given index in the sorting vector.  If a out of bounds occurs it returns silently.

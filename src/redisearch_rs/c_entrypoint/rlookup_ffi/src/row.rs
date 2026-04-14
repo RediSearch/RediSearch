@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use ffi::RSValue;
 use libc::size_t;
 use query_error::QueryError;
 use rlookup::{OpaqueRLookupRow, RLookup, RLookupKey, RLookupRow};
@@ -16,10 +17,8 @@ use std::{
     ptr::NonNull,
     slice,
 };
-use value::comparison::compare_with_query_error_to_int;
-use value_ffi::{
-    RSValue,
-    util::{as_rs_value, as_shared_value, into_shared_value},
+use value::{
+    SharedValue, SharedValueRef, SharedValueRefMut, comparison::compare_with_query_error_to_int,
 };
 
 const SORTASCMAP_MAXFIELDS: usize = 8;
@@ -43,7 +42,7 @@ pub extern "C" fn RLookupRow_New() -> OpaqueRLookupRow {
 pub unsafe extern "C" fn RLookup_WriteKey(
     key: *const RLookupKey,
     row: Option<NonNull<OpaqueRLookupRow>>,
-    value: Option<NonNull<RSValue>>,
+    value: Option<SharedValueRef>,
 ) {
     // Safety: ensured by caller (1.)
     let key = unsafe { key.as_ref() }.expect("Key must not be null");
@@ -51,10 +50,7 @@ pub unsafe extern "C" fn RLookup_WriteKey(
     // Safety: ensured by caller (2.)
     let row = unsafe { RLookupRow::from_opaque_non_null(row.expect("`row` must not be null")) };
 
-    let value = value.expect("value must not be null").as_ptr().cast_const();
-
-    // Safety: ensured by caller (3.)
-    let value = unsafe { as_shared_value(value) };
+    let value = value.expect("value must not be null");
 
     row.write_key(key, ManuallyDrop::into_inner(value.clone()));
 }
@@ -72,7 +68,7 @@ pub unsafe extern "C" fn RLookup_WriteKey(
 pub unsafe extern "C" fn RLookup_WriteOwnKey(
     key: *const RLookupKey,
     row: Option<NonNull<OpaqueRLookupRow>>,
-    value: Option<NonNull<RSValue>>,
+    value: Option<SharedValue>,
 ) {
     // Safety: ensured by caller (1.)
     let key = unsafe { key.as_ref() }.expect("`key` must not be null");
@@ -80,10 +76,7 @@ pub unsafe extern "C" fn RLookup_WriteOwnKey(
     // Safety: ensured by caller (2.)
     let row = unsafe { RLookupRow::from_opaque_non_null(row.expect("`row` must not be null")) };
 
-    let value = value.expect("value must not be null").as_ptr();
-
-    // Safety: ensured by caller (3.)
-    let value = unsafe { into_shared_value(value) };
+    let value = value.expect("value must not be null");
 
     row.write_key(key, value);
 }
@@ -178,7 +171,7 @@ pub unsafe extern "C" fn RLookupRow_WriteByName<'a>(
     name: *const c_char,
     name_len: size_t,
     row: Option<NonNull<OpaqueRLookupRow>>,
-    value: Option<NonNull<RSValue>>,
+    value: Option<SharedValue>,
 ) {
     // Safety: ensured by caller (1.)
     let lookup = unsafe { lookup.expect("lookup must not be null").as_mut() };
@@ -195,10 +188,7 @@ pub unsafe extern "C" fn RLookupRow_WriteByName<'a>(
     // Safety: ensured by caller (4.)
     let row = unsafe { RLookupRow::from_opaque_non_null(row.expect("`row` must not be null")) };
 
-    let value = value.expect("value must not be null").as_ptr();
-
-    // Safety: ensured by caller (5.)
-    let value = unsafe { into_shared_value(value) };
+    let value = value.expect("value must not be null");
 
     // In order to increase the refcount, we first clone `value` (which increases the refcount)
     // and move the clone into the function.
@@ -236,7 +226,7 @@ pub unsafe extern "C" fn RLookupRow_WriteByNameOwned<'a>(
     name: *const c_char,
     name_len: size_t,
     row: Option<NonNull<OpaqueRLookupRow>>,
-    value: Option<NonNull<RSValue>>,
+    value: Option<SharedValue>,
 ) {
     // Safety: ensured by caller (1.)
     let lookup = unsafe { lookup.expect("lookup must not be null").as_mut() };
@@ -253,10 +243,7 @@ pub unsafe extern "C" fn RLookupRow_WriteByNameOwned<'a>(
     // Safety: ensured by caller (4.)
     let row = unsafe { RLookupRow::from_opaque_non_null(row.expect("`row` must not be null")) };
 
-    let value = value.expect("value must not be null").as_ptr();
-
-    // Safety: ensured by caller (5.)
-    let value = unsafe { into_shared_value(value) };
+    let value = value.expect("value must not be null");
 
     // 'value' is moved directly into the function without affecting its refcount.
     row.write_key_by_name(lookup, name, value);
@@ -334,17 +321,14 @@ pub unsafe extern "C-unwind" fn RLookupRow_WriteFieldsFrom<'a>(
 pub unsafe extern "C" fn RLookupRow_Get(
     key: *const RLookupKey,
     row: *const OpaqueRLookupRow,
-) -> Option<NonNull<RSValue>> {
+) -> Option<SharedValueRefMut> {
     // Safety: ensured by caller (1.)
     let key = unsafe { &*key };
 
     // Safety: ensured by caller (2.)
     let row = unsafe { RLookupRow::from_opaque_ptr_unchecked(row) };
 
-    row.get(key).map(|x| {
-        // Safety: `RSValue` is a valid pointer.
-        unsafe { NonNull::new_unchecked(as_rs_value(x).cast_mut()) }
-    })
+    row.get(key).map(|x| x.as_ref())
 }
 
 /// A read-only view of a sorting vector's values, returned by value to C.

@@ -133,7 +133,7 @@ int func_to_number(ExprEval *ctx, RSValue **argv, size_t argc, RSValue *result) 
 
 int func_to_str(ExprEval *ctx, RSValue **argv, size_t argc, RSValue *result) {
   // Dereference through References and Trios to get to the leaf value.
-  RSValue *v = RSValue_DereferenceRefAndTrio(argv[0]);
+  const RSValue *v = RSValue_DereferenceRefAndTrio(argv[0]);
 
   switch (RSValue_Type(v)) {
     case RSValueType_String:
@@ -227,7 +227,7 @@ static int stringfunc_format(ExprEval *ctx, RSValue **argv, size_t argc, RSValue
       goto error;
     }
 
-    RSValue *arg = RSValue_DereferenceRefAndTrio(argv[argix++]);
+    const RSValue *arg = RSValue_DereferenceRefAndTrio(argv[argix++]);
     if (type == 's') {
       if (arg == RSValue_NullStatic()) {
         // write null value
@@ -349,8 +349,8 @@ static int stringfunc_startswith(ExprEval *ctx, RSValue **argv, size_t argc, RSV
   VALIDATE_ARG_ISSTRING("startswith", argv, 0);
   VALIDATE_ARG_ISSTRING("startswith", argv, 1);
 
-  RSValue *str = RSValue_Dereference(argv[0]);
-  RSValue *pref = RSValue_Dereference(argv[1]);
+  const RSValue *str = RSValue_Dereference(argv[0]);
+  const RSValue *pref = RSValue_Dereference(argv[1]);
 
   const char *p_str = RSValue_StringPtrLen(str, NULL);
   size_t n;
@@ -363,8 +363,8 @@ static int stringfunc_contains(ExprEval *ctx, RSValue **argv, size_t argc, RSVal
   VALIDATE_ARG_ISSTRING("contains", argv, 0);
   VALIDATE_ARG_ISSTRING("contains", argv, 1);
 
-  RSValue *str = RSValue_Dereference(argv[0]);
-  RSValue *pref = RSValue_Dereference(argv[1]);
+  const RSValue *str = RSValue_Dereference(argv[0]);
+  const RSValue *pref = RSValue_Dereference(argv[1]);
 
   size_t p_str_size;
   char *p_str = (char *)RSValue_StringPtrLen(str, &p_str_size);
@@ -388,7 +388,7 @@ static int stringfunc_contains(ExprEval *ctx, RSValue **argv, size_t argc, RSVal
 static int stringfunc_strlen(ExprEval *ctx, RSValue **argv, size_t argc, RSValue *result) {
   VALIDATE_ARG_ISSTRING("strlen", argv, 0);
 
-  RSValue *str = RSValue_Dereference(argv[0]);
+  const RSValue *str = RSValue_Dereference(argv[0]);
 
   size_t n;
   const char *p_pref = (char *)RSValue_StringPtrLen(str, &n);

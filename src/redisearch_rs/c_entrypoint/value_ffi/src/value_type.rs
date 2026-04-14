@@ -7,9 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use crate::RSValue;
-use crate::util::{expect_value, try_value};
-use value::Value;
+use value::{SharedValueRef, Value};
 
 /// Enumeration of the types an [`RSValue`] can be of.
 ///
@@ -34,13 +32,10 @@ pub enum RSValueType {
 ///
 /// 1. `value` must point to a valid [`RSValue`].
 #[unsafe(no_mangle)]
-pub const unsafe extern "C" fn RSValue_Type(value: *const RSValue) -> RSValueType {
-    // Safety: ensured by caller (1.)
-    let value = unsafe { expect_value(value) };
-
+pub unsafe extern "C" fn RSValue_Type(value: SharedValueRef) -> RSValueType {
     use RSValueType::*;
 
-    match value {
+    match &**value {
         Value::Undefined => Undef,
         Value::Null => Null,
         Value::Number(_) => Number,
@@ -59,13 +54,13 @@ pub const unsafe extern "C" fn RSValue_Type(value: *const RSValue) -> RSValueTyp
 ///
 /// 1. If `value` is non-null, it must point to a valid [`RSValue`].
 #[unsafe(no_mangle)]
-pub const unsafe extern "C" fn RSValue_IsReference(value: *const RSValue) -> bool {
+pub unsafe extern "C" fn RSValue_IsReference(value: Option<SharedValueRef>) -> bool {
     // Safety: ensured by caller (1.)
-    let Some(value) = (unsafe { try_value(value) }) else {
+    let Some(value) = value else {
         return false;
     };
 
-    matches!(value, Value::Ref(_))
+    matches!(**value, Value::Ref(_))
 }
 
 /// Returns whether the given [`RSValue`] is a number type, or `false` if `value` is NULL.
@@ -74,13 +69,13 @@ pub const unsafe extern "C" fn RSValue_IsReference(value: *const RSValue) -> boo
 ///
 /// 1. If `value` is non-null, it must point to a valid [`RSValue`].
 #[unsafe(no_mangle)]
-pub const unsafe extern "C" fn RSValue_IsNumber(value: *const RSValue) -> bool {
+pub unsafe extern "C" fn RSValue_IsNumber(value: Option<SharedValueRef>) -> bool {
     // Safety: ensured by caller (1.)
-    let Some(value) = (unsafe { try_value(value) }) else {
+    let Some(value) = value else {
         return false;
     };
 
-    matches!(value, Value::Number(_))
+    matches!(&**value, Value::Number(_))
 }
 
 /// Returns whether the given [`RSValue`] is a string type (any string variant), or `false` if `value` is NULL.
@@ -89,13 +84,13 @@ pub const unsafe extern "C" fn RSValue_IsNumber(value: *const RSValue) -> bool {
 ///
 /// 1. If `value` is non-null, it must point to a valid [`RSValue`].
 #[unsafe(no_mangle)]
-pub const unsafe extern "C" fn RSValue_IsString(value: *const RSValue) -> bool {
+pub unsafe extern "C" fn RSValue_IsString(value: Option<SharedValueRef>) -> bool {
     // Safety: ensured by caller (1.)
-    let Some(value) = (unsafe { try_value(value) }) else {
+    let Some(value) = value else {
         return false;
     };
 
-    matches!(value, Value::String(_) | Value::RedisString(_))
+    matches!(&**value, Value::String(_) | Value::RedisString(_))
 }
 
 /// Returns whether the given [`RSValue`] is an array type, or `false` if `value` is NULL.
@@ -104,13 +99,13 @@ pub const unsafe extern "C" fn RSValue_IsString(value: *const RSValue) -> bool {
 ///
 /// 1. If `value` is non-null, it must point to a valid [`RSValue`].
 #[unsafe(no_mangle)]
-pub const unsafe extern "C" fn RSValue_IsArray(value: *const RSValue) -> bool {
+pub unsafe extern "C" fn RSValue_IsArray(value: Option<SharedValueRef>) -> bool {
     // Safety: ensured by caller (1.)
-    let Some(value) = (unsafe { try_value(value) }) else {
+    let Some(value) = value else {
         return false;
     };
 
-    matches!(value, Value::Array(_))
+    matches!(&**value, Value::Array(_))
 }
 
 /// Returns whether the given [`RSValue`] is a trio type, or `false` if `value` is NULL.
@@ -119,13 +114,13 @@ pub const unsafe extern "C" fn RSValue_IsArray(value: *const RSValue) -> bool {
 ///
 /// 1. If `value` is non-null, it must point to a valid [`RSValue`].
 #[unsafe(no_mangle)]
-pub const unsafe extern "C" fn RSValue_IsTrio(value: *const RSValue) -> bool {
+pub unsafe extern "C" fn RSValue_IsTrio(value: Option<SharedValueRef>) -> bool {
     // Safety: ensured by caller (1.)
-    let Some(value) = (unsafe { try_value(value) }) else {
+    let Some(value) = value else {
         return false;
     };
 
-    matches!(value, Value::Trio(_))
+    matches!(&**value, Value::Trio(_))
 }
 
 /// Returns whether the given [`RSValue`] is a null pointer, a null type, or a reference to a null type.
@@ -134,9 +129,9 @@ pub const unsafe extern "C" fn RSValue_IsTrio(value: *const RSValue) -> bool {
 ///
 /// 1. If `value` is non-null, it must point to a valid [`RSValue`].
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RSValue_IsNull(value: *const RSValue) -> bool {
+pub unsafe extern "C" fn RSValue_IsNull(value: Option<SharedValueRef>) -> bool {
     // Safety: ensured by caller (1.)
-    let Some(value) = (unsafe { try_value(value) }) else {
+    let Some(value) = value else {
         return true;
     };
 

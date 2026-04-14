@@ -606,7 +606,7 @@ struct RLookupRow RLookupRow_New(void);
  */
 void RLookup_WriteKey(const struct RLookupKey *key,
                       struct RLookupRow *row,
-                      RSValue *value);
+                      const RSValue * value);
 
 /**
  * Writes a key to the row without incrementing the value reference count, thus taking ownership of the value.
@@ -621,7 +621,7 @@ void RLookup_WriteKey(const struct RLookupKey *key,
  */
 void RLookup_WriteOwnKey(const struct RLookupKey *key,
                          struct RLookupRow *row,
-                         RSValue *value);
+                         RSValue * value);
 
 /**
  * Wipes a RLookupRow by decrementing all values and resetting the row.
@@ -691,7 +691,7 @@ void RLookupRow_WriteByName(struct RLookup *lookup,
                             const char *name,
                             size_t name_len,
                             struct RLookupRow *row,
-                            RSValue *value);
+                            RSValue * value);
 
 /**
  * Write a value by-name to the lookup table. This is useful for 'dynamic' keys
@@ -721,7 +721,7 @@ void RLookupRow_WriteByNameOwned(struct RLookup *lookup,
                                  const char *name,
                                  size_t name_len,
                                  struct RLookupRow *row,
-                                 RSValue *value);
+                                 RSValue * value);
 
 /**
  * Write fields from a source row into this row.
@@ -766,7 +766,7 @@ void RLookupRow_WriteFieldsFrom(const struct RLookupRow *src_row,
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-RSValue *RLookupRow_Get(const struct RLookupKey *key, const struct RLookupRow *row);
+RSValue * RLookupRow_Get(const struct RLookupKey *key, const struct RLookupRow *row);
 
 /**
  * Returns a borrowed view of the sorting vector for the row.

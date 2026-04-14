@@ -14,7 +14,7 @@
 // parse "x,y"
 static int parseField(RSValue *argv, double *geo, QueryError *status) {
   int rv = REDISMODULE_OK;
-  RSValue *val = RSValue_Dereference(argv);
+  const RSValue *val = RSValue_Dereference(argv);
 
   if (RSValue_IsString(val)) {
     size_t len;

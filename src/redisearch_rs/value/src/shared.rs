@@ -10,7 +10,7 @@
 use std::{
     mem::{self, ManuallyDrop},
     ops::Deref,
-    ptr,
+    ptr::{self, NonNull},
 };
 
 use triomphe::Arc;
@@ -43,8 +43,11 @@ const _: () = assert!(SHARED_VALUE_CONTENT_SIZE == 32);
 #[expect(rustdoc::private_intra_doc_links)]
 #[repr(transparent)]
 pub struct SharedValue {
-    ptr: *const Value,
+    ptr: NonNull<Value>,
 }
+
+pub type SharedValueRef = ManuallyDrop<SharedValue>;
+pub type SharedValueRefMut = ManuallyDrop<SharedValue>;
 
 /// Static [`Value::Null`] value, used by [`SharedValue::null_static`]
 /// to avoid heap allocation for null values.
@@ -55,7 +58,7 @@ impl SharedValue {
     #[expect(rustdoc::private_intra_doc_links)]
     pub fn null_static() -> Self {
         Self {
-            ptr: ptr::from_ref(&NULL_VALUE).cast(),
+            ptr: NonNull::from(&NULL_VALUE),
         }
     }
 
@@ -63,14 +66,16 @@ impl SharedValue {
     ///
     /// Uses a thread-local pool to recycle allocations when available.
     pub fn new(value: Value) -> Self {
+        let ptr = Arc::into_raw(crate::pool::pool_get(value).shareable());
         Self {
-            ptr: Arc::into_raw(crate::pool::pool_get(value).shareable()),
+            // SAFETY: `Arc::into_raw` always returns a non-null pointer.
+            ptr: unsafe { NonNull::new_unchecked(ptr.cast_mut()) },
         }
     }
 
     /// Convert a [`SharedValue`] into a raw `*const Value` pointer.
     pub const fn into_raw(self) -> *const Value {
-        let ptr = self.ptr;
+        let ptr = self.ptr.as_ptr();
         // The original [`SharedValue`] is forgotten to avoid decrementing it.
         mem::forget(self);
         ptr
@@ -78,7 +83,7 @@ impl SharedValue {
 
     /// Returns the underlying raw pointer without consuming `self`.
     pub const fn as_ptr(&self) -> *const Value {
-        self.ptr
+        self.ptr.as_ptr()
     }
 
     /// Convert a `*const Value` into a [`SharedValue`].
@@ -87,13 +92,21 @@ impl SharedValue {
     ///
     /// `ptr` must be a valid pointer obtained from [`SharedValue::into_raw`].
     pub const unsafe fn from_raw(ptr: *const Value) -> Self {
-        Self { ptr }
+        // SAFETY: `ptr` was obtained from [`SharedValue::into_raw`], which
+        // always returns a non-null pointer.
+        Self {
+            ptr: unsafe { NonNull::new_unchecked(ptr.cast_mut()) },
+        }
     }
 
     /// Returns `true` if this value points to the static [`NULL_VALUE`]
     /// rather than a heap-allocated [`Arc`].
     pub fn is_null_static(&self) -> bool {
-        ptr::eq(self.ptr, &NULL_VALUE)
+        ptr::eq(self.ptr.as_ptr(), &NULL_VALUE)
+    }
+
+    pub fn as_ref(&self) -> SharedValueRef {
+        ManuallyDrop::new(unsafe { SharedValue::from_raw(self.as_ptr()) })
     }
 
     /// Replaces the stored [`Value`] in place.
@@ -109,7 +122,7 @@ impl SharedValue {
         }
         // SAFETY: `this.ptr` was obtained from `Arc::into_raw` and is not static (checked above).
         // `ManuallyDrop` prevents the `Arc` from being dropped, preserving the original ownership.
-        let mut v = ManuallyDrop::new(unsafe { Arc::from_raw(self.ptr) });
+        let mut v = ManuallyDrop::new(unsafe { Arc::from_raw(self.ptr.as_ptr()) });
         let value = Arc::get_mut(&mut v).expect("Failed to get mutable reference to inner value");
         *value = new_value;
     }
@@ -127,7 +140,7 @@ impl SharedValue {
         } else {
             // SAFETY: `this.ptr` was obtained from `Arc::into_raw` and is not static (checked above).
             // `ManuallyDrop` prevents the `Arc` from being dropped, preserving the original ownership.
-            let v = ManuallyDrop::new(unsafe { Arc::from_raw(this.ptr) });
+            let v = ManuallyDrop::new(unsafe { Arc::from_raw(this.ptr.as_ptr()) });
             Arc::strong_count(&v)
         }
     }
@@ -148,7 +161,7 @@ impl Deref for SharedValue {
         // SAFETY: `self.ptr` is either `&NULL_VALUE` (static) or was obtained
         // from `Arc::into_raw` and the `Arc` is kept alive for the lifetime of
         // `self`. Both cases produce a valid pointer.
-        unsafe { &*self.ptr }
+        unsafe { self.ptr.as_ref() }
     }
 }
 
@@ -166,11 +179,13 @@ impl Clone for SharedValue {
             // SAFETY: `self.ptr` was obtained from `Arc::into_raw` and is not static (checked above).
             // The original `Arc` is reconstructed, cloned to increment the refcount,
             // then forgotten to avoid decrementing it.
-            let arc: Arc<Value> = unsafe { Arc::from_raw(self.ptr) };
+            let arc: Arc<Value> = unsafe { Arc::from_raw(self.ptr.as_ptr()) };
             let cloned = Arc::clone(&arc);
             mem::forget(arc);
+            let cloned_ptr = Arc::into_raw(cloned);
             Self {
-                ptr: Arc::into_raw(cloned),
+                // SAFETY: `Arc::into_raw` always returns a non-null pointer.
+                ptr: unsafe { NonNull::new_unchecked(cloned_ptr.cast_mut()) },
             }
         }
     }
@@ -181,7 +196,7 @@ impl Drop for SharedValue {
         if !self.is_null_static() {
             // SAFETY: `self.ptr` was obtained from `Arc::into_raw` and is not static (checked above).
             // Reconstructing the `Arc` decrements the reference count.
-            let arc = unsafe { Arc::from_raw(self.ptr) };
+            let arc = unsafe { Arc::from_raw(self.ptr.as_ptr()) };
 
             // Convert this Arc into a UniqueArc if the Arc has exactly one strong reference,
             // otherwise None is returned and the Arc is dropped reducing its reference count.

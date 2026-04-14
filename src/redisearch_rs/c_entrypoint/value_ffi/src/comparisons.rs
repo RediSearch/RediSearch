@@ -7,12 +7,10 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use crate::RSValue;
-use crate::util::expect_value;
 use query_error::QueryError;
 use std::ffi::c_int;
-use value::Value;
 use value::comparison::{compare_on_equality_only, compare_with_query_error_to_int};
+use value::{SharedValueRef, Value};
 
 /// Compare two [`RSValue`]s, returning `-1` if `v1 < v2`, `0` if `v1 == v2`,
 /// or `1` if `v1 > v2`.
@@ -29,19 +27,14 @@ use value::comparison::{compare_on_equality_only, compare_with_query_error_to_in
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RSValue_Cmp(
-    v1: *const RSValue,
-    v2: *const RSValue,
+    v1: SharedValueRef,
+    v2: SharedValueRef,
     status: *mut QueryError,
 ) -> c_int {
-    // SAFETY: ensured by caller (1.)
-    let v1 = unsafe { expect_value(v1) };
-    // SAFETY: ensured by caller (1.)
-    let v2 = unsafe { expect_value(v2) };
-
     // SAFETY: ensured by caller (2.)
     let qerr = unsafe { status.as_mut() };
 
-    compare_with_query_error_to_int(v1, v2, qerr)
+    compare_with_query_error_to_int(&v1, &v2, qerr)
 }
 
 /// Check whether two [`RSValue`]s are equal, returning `true` if they are and
@@ -54,16 +47,11 @@ pub unsafe extern "C" fn RSValue_Cmp(
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RSValue_Equal(
-    v1: *const RSValue,
-    v2: *const RSValue,
+    v1: SharedValueRef,
+    v2: SharedValueRef,
     _status: *mut QueryError,
 ) -> bool {
-    // SAFETY: ensured by caller (1.)
-    let v1 = unsafe { expect_value(v1) };
-    // SAFETY: ensured by caller (1.)
-    let v2 = unsafe { expect_value(v2) };
-
-    compare_on_equality_only(v1, v2)
+    compare_on_equality_only(&v1, &v2)
 }
 
 /// Test whether an [`RSValue`] is "truthy".
@@ -79,9 +67,7 @@ pub unsafe extern "C" fn RSValue_Equal(
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RSValue_BoolTest(value: *const RSValue) -> bool {
-    // SAFETY: ensured by caller (1.)
-    let value = unsafe { expect_value(value) };
+pub unsafe extern "C" fn RSValue_BoolTest(value: SharedValueRef) -> bool {
     let value = value.fully_dereferenced_ref();
 
     match value {

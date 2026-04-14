@@ -36,7 +36,8 @@ prefix_with_name = true
 
 [export]
 include = ["RLookupKeyFlag", "RLookupOption"]
-exclude = ["FieldSpec", "IndexSpec", "Option_Cow_CStr", "SchemaRule", "RSSortingVector", "SearchResult"]
+exclude = ["FieldSpec", "IndexSpec", "Option_Cow_CStr", "SchemaRule", "RSSortingVector", "SearchResult",
+           "SharedValue", "SharedValueRef", "SharedValueRefMut", "Option_SharedValue", "Option_SharedValueRef", "Option_SharedValueRefMut"]
 
 [export.rename]
 "OpaqueRLookup" = "RLookup"
@@ -45,3 +46,9 @@ exclude = ["FieldSpec", "IndexSpec", "Option_Cow_CStr", "SchemaRule", "RSSorting
 "RLookupKeyFlag" = "RLookup_F"
 "RLookupKeyHeader" = "RLookupKey"
 "RLookupOption" = "RLookup_Opt"
+"SharedValue" = "RSValue *"
+"SharedValueRef" = "const RSValue *"
+"SharedValueRefMut" = "RSValue *"
+"Option_SharedValue" = "RSValue *"
+"Option_SharedValueRef" = "const RSValue *"
+"Option_SharedValueRefMut" = "RSValue *"

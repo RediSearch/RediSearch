@@ -52,7 +52,7 @@ extern "C" {
  *
  * 1. The caller must eventually pass the returned pointer to [`RSValue_NewArrayFromBuilder`].
  */
-struct RSValue **RSValue_NewArrayBuilder(uint32_t len);
+RSValue * *RSValue_NewArrayBuilder(uint32_t len);
 
 /**
  * Creates a heap-allocated array [`RSValue`] from existing values.
@@ -66,7 +66,7 @@ struct RSValue **RSValue_NewArrayBuilder(uint32_t len);
  *    a capacity equal to `len`.
  * 2. All `len` entries in `values` must have been filled with valid [`RSValue`] pointers.
  */
-struct RSValue *RSValue_NewArrayFromBuilder(struct RSValue **values, uint32_t len);
+RSValue * RSValue_NewArrayFromBuilder(RSValue * *values, uint32_t len);
 
 /**
  * Returns the number of elements in an array [`RSValue`].
@@ -77,7 +77,7 @@ struct RSValue *RSValue_NewArrayFromBuilder(struct RSValue **values, uint32_t le
  *
  * 1. `value` must point to a valid [`RSValue`].
  */
-uint32_t RSValue_ArrayLen(const struct RSValue *value);
+uint32_t RSValue_ArrayLen(const RSValue * value);
 
 /**
  * Returns a pointer to the element at `index` in an array [`RSValue`].
@@ -93,7 +93,7 @@ uint32_t RSValue_ArrayLen(const struct RSValue *value);
  *
  * Panics if `index` greater than or equal to the array length.
  */
-struct RSValue *RSValue_ArrayItem(const struct RSValue *value, uint32_t index);
+const RSValue * RSValue_ArrayItem(const RSValue * value, uint32_t index);
 
 /**
  * Compare two [`RSValue`]s, returning `-1` if `v1 < v2`, `0` if `v1 == v2`,
@@ -110,7 +110,7 @@ struct RSValue *RSValue_ArrayItem(const struct RSValue *value, uint32_t index);
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-int RSValue_Cmp(const struct RSValue *v1, const struct RSValue *v2, QueryError *status);
+int RSValue_Cmp(const RSValue * v1, const RSValue * v2, QueryError *status);
 
 /**
  * Check whether two [`RSValue`]s are equal, returning `true` if they are and
@@ -122,7 +122,7 @@ int RSValue_Cmp(const struct RSValue *v1, const struct RSValue *v2, QueryError *
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-bool RSValue_Equal(const struct RSValue *v1, const struct RSValue *v2, QueryError *_status);
+bool RSValue_Equal(const RSValue * v1, const RSValue * v2, QueryError *_status);
 
 /**
  * Test whether an [`RSValue`] is "truthy".
@@ -138,7 +138,7 @@ bool RSValue_Equal(const struct RSValue *v1, const struct RSValue *v2, QueryErro
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-bool RSValue_BoolTest(const struct RSValue *value);
+bool RSValue_BoolTest(const RSValue * value);
 
 /**
  * Creates and returns a new [`RSValue`] of type [`Value::Undefined`].
@@ -147,7 +147,7 @@ bool RSValue_BoolTest(const struct RSValue *value);
  * passed to [`RSValue_DecrRef`](crate::shared::RSValue_DecrRef). Ownership may be
  * transferred through other `RSValue_` functions before that happens.
  */
-struct RSValue *RSValue_NewUndefined(void);
+RSValue * RSValue_NewUndefined(void);
 
 /**
  * Creates and returns a new [`RSValue`] of type [`Value::Null`].
@@ -156,7 +156,7 @@ struct RSValue *RSValue_NewUndefined(void);
  * passed to [`RSValue_DecrRef`](crate::shared::RSValue_DecrRef). Ownership may be
  * transferred through other `RSValue_` functions before that happens.
  */
-struct RSValue *RSValue_NewNull(void);
+RSValue * RSValue_NewNull(void);
 
 /**
  * Creates and returns a new [`RSValue`] of type [`Value::Number`]
@@ -166,7 +166,7 @@ struct RSValue *RSValue_NewNull(void);
  * passed to [`RSValue_DecrRef`](crate::shared::RSValue_DecrRef). Ownership may be
  * transferred through other `RSValue_` functions before that happens.
  */
-struct RSValue *RSValue_NewNumber(double value);
+RSValue * RSValue_NewNumber(double value);
 
 /**
  * Creates and returns a new [`RSValue`] of type [`Value::Trio`] from three [`RSValue`]s.
@@ -183,9 +183,7 @@ struct RSValue *RSValue_NewNumber(double value);
  * 2. All three arguments **must not** be used or freed after this call,
  *    as this function takes ownership.
  */
-struct RSValue *RSValue_NewTrio(struct RSValue *left,
-                                struct RSValue *middle,
-                                struct RSValue *right);
+RSValue * RSValue_NewTrio(RSValue * left, RSValue * middle, RSValue * right);
 
 /**
  * Creates and returns a new [`RSValue`] of type [`Value::String`],
@@ -206,7 +204,7 @@ struct RSValue *RSValue_NewTrio(struct RSValue *left,
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-struct RSValue *RSValue_NewString(char *str, uint32_t len);
+RSValue * RSValue_NewString(char *str, uint32_t len);
 
 /**
  * Creates and returns a new [`RSValue`] of type [`Value::String`],
@@ -226,7 +224,7 @@ struct RSValue *RSValue_NewString(char *str, uint32_t len);
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-struct RSValue *RSValue_NewBorrowedString(const char *str, uint32_t len);
+RSValue * RSValue_NewBorrowedString(const char *str, uint32_t len);
 
 /**
  * Creates and returns a new [`RSValue`] of type [`Value::String`],
@@ -244,7 +242,7 @@ struct RSValue *RSValue_NewBorrowedString(const char *str, uint32_t len);
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-struct RSValue *RSValue_NewRedisString(RedisModuleString *str);
+RSValue * RSValue_NewRedisString(RedisModuleString *str);
 
 /**
  * Creates and returns a new [`RSValue`] of type [`Value::String`],
@@ -263,7 +261,7 @@ struct RSValue *RSValue_NewRedisString(RedisModuleString *str);
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-struct RSValue *RSValue_NewCopiedString(const char *str, uint32_t len);
+RSValue * RSValue_NewCopiedString(const char *str, uint32_t len);
 
 /**
  * Creates and returns a new [`RSValue`] of type [`Value::Number`] by parsing the given
@@ -283,7 +281,7 @@ struct RSValue *RSValue_NewCopiedString(const char *str, uint32_t len);
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-struct RSValue *RSValue_NewParsedNumber(const char *value, size_t len);
+RSValue * RSValue_NewParsedNumber(const char *value, size_t len);
 
 /**
  * Creates and returns a new [`RSValue`] of type [`Value::Number`] from an `i64`.
@@ -295,7 +293,7 @@ struct RSValue *RSValue_NewParsedNumber(const char *value, size_t len);
  * passed to [`RSValue_DecrRef`](crate::shared::RSValue_DecrRef). Ownership may be
  * transferred through other `RSValue_` functions before that happens.
  */
-struct RSValue *RSValue_NewNumberFromInt64(int64_t number);
+RSValue * RSValue_NewNumberFromInt64(int64_t number);
 
 /**
  * Creates and returns a new [`RSValue`] of type [`Value::Ref`] that points to `src`.
@@ -310,7 +308,7 @@ struct RSValue *RSValue_NewNumberFromInt64(int64_t number);
  *
  * 1. `src` must point to a valid [`RSValue`].
  */
-struct RSValue *RSValue_NewReference(const struct RSValue *src);
+RSValue * RSValue_NewReference(const RSValue * src);
 
 /**
  * Returns a pointer to the static [`Value::Null`].
@@ -324,7 +322,7 @@ struct RSValue *RSValue_NewReference(const struct RSValue *src);
  *
  * The returned pointer must not be mutated.
  */
-struct RSValue *RSValue_NullStatic(void);
+RSValue * RSValue_NullStatic(void);
 
 /**
  * Convert the [`RSValue`] to a number. Returns `true` when this value is a number
@@ -339,7 +337,7 @@ struct RSValue *RSValue_NullStatic(void);
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-bool RSValue_ToNumber(const struct RSValue *value, double *d);
+bool RSValue_ToNumber(const RSValue * value, double *d);
 
 /**
  * Formats the numeric value of a [`Value::Number`] as a string into the
@@ -356,7 +354,7 @@ bool RSValue_ToNumber(const struct RSValue *value, double *d);
  *
  * Panics if `value` is not a [`Value::Number`].
  */
-size_t RSValue_NumToString(const struct RSValue *value, char *buf, size_t buflen);
+size_t RSValue_NumToString(const RSValue * value, char *buf, size_t buflen);
 
 /**
  * Writes the debug representation of an [`RSValue`] into an SDS string.
@@ -372,7 +370,7 @@ size_t RSValue_NumToString(const struct RSValue *value, char *buf, size_t buflen
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-sds RSValue_DumpSds(const struct RSValue *value, sds sds, bool obfuscate);
+sds RSValue_DumpSds(const RSValue * value, sds sds, bool obfuscate);
 
 /**
  * Gets the numeric value from an [`RSValue`].
@@ -385,7 +383,7 @@ sds RSValue_DumpSds(const struct RSValue *value, sds sds, bool obfuscate);
  *
  * 1. `value` must point to a valid [`RSValue`].
  */
-double RSValue_Number_Get(const struct RSValue *value);
+double RSValue_Number_Get(const RSValue * value);
 
 /**
  * Borrows an immutable reference to the left value of a trio.
@@ -398,7 +396,7 @@ double RSValue_Number_Get(const struct RSValue *value);
  *
  * 1. `value` must point to a valid [`RSValue`].
  */
-const struct RSValue *RSValue_Trio_GetLeft(const struct RSValue *value);
+const RSValue * RSValue_Trio_GetLeft(const RSValue * value);
 
 /**
  * Borrows an immutable reference to the middle value of a trio.
@@ -411,7 +409,7 @@ const struct RSValue *RSValue_Trio_GetLeft(const struct RSValue *value);
  *
  * 1. `value` must point to a valid [`RSValue`].
  */
-const struct RSValue *RSValue_Trio_GetMiddle(const struct RSValue *value);
+const RSValue * RSValue_Trio_GetMiddle(const RSValue * value);
 
 /**
  * Borrows an immutable reference to the right value of a trio.
@@ -424,7 +422,7 @@ const struct RSValue *RSValue_Trio_GetMiddle(const struct RSValue *value);
  *
  * 1. `value` must point to a valid [`RSValue`].
  */
-const struct RSValue *RSValue_Trio_GetRight(const struct RSValue *value);
+const RSValue * RSValue_Trio_GetRight(const RSValue * value);
 
 /**
  * Returns a pointer to the string data of an [`RSValue`] and optionally writes the string
@@ -443,7 +441,7 @@ const struct RSValue *RSValue_Trio_GetRight(const struct RSValue *value);
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-const char *RSValue_String_Get(const struct RSValue *value, uint32_t *lenp);
+const char *RSValue_String_Get(const RSValue * value, uint32_t *lenp);
 
 /**
  * Returns a read only reference to the underlying [`RedisModuleString`] of an [`RSValue`].
@@ -458,7 +456,7 @@ const char *RSValue_String_Get(const struct RSValue *value, uint32_t *lenp);
  *
  * 1. `value` must point to a valid [`RSValue`].
  */
-const RedisModuleString *RSValue_RedisString_Get(const struct RSValue *value);
+const RedisModuleString *RSValue_RedisString_Get(const RSValue * value);
 
 /**
  * Returns a pointer to the string data of an [`RSValue`] and optionally writes the string
@@ -477,7 +475,7 @@ const RedisModuleString *RSValue_RedisString_Get(const struct RSValue *value);
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-const char *RSValue_StringPtrLen(const struct RSValue *value, size_t *len_ptr);
+const char *RSValue_StringPtrLen(const RSValue * value, size_t *len_ptr);
 
 /**
  * Computes a 64-bit FNV-1a hash of an [`RSValue`], using `hval` as the initial offset basis.
@@ -488,7 +486,7 @@ const char *RSValue_StringPtrLen(const struct RSValue *value, size_t *len_ptr);
  *
  * 1. `value` must point to a valid [`RSValue`].
  */
-uint64_t RSValue_Hash(const struct RSValue *value, uint64_t hval);
+uint64_t RSValue_Hash(const RSValue * value, uint64_t hval);
 
 /**
  * Allocates a new, uninitialized [`RSValueMapBuilder`] with space for `len` entries.
@@ -520,8 +518,8 @@ struct RSValueMapBuilder *RSValue_NewMapBuilder(uint32_t len);
  */
 void RSValue_MapBuilderSetEntry(struct RSValueMapBuilder *map,
                                 size_t index,
-                                struct RSValue *key,
-                                struct RSValue *value);
+                                RSValue * key,
+                                RSValue * value);
 
 /**
  * Creates a heap-allocated map [`RSValue`] from an [`RSValueMapBuilder`].
@@ -535,7 +533,7 @@ void RSValue_MapBuilderSetEntry(struct RSValueMapBuilder *map,
  *    [`RSValue_NewMapBuilder`].
  * 2. All entries in the map must have been initialized via [`RSValue_MapBuilderSetEntry`].
  */
-struct RSValue *RSValue_NewMapFromBuilder(struct RSValueMapBuilder *map);
+RSValue * RSValue_NewMapFromBuilder(struct RSValueMapBuilder *map);
 
 /**
  * Returns the number of key-value pairs in a map [`RSValue`].
@@ -548,7 +546,7 @@ struct RSValue *RSValue_NewMapFromBuilder(struct RSValueMapBuilder *map);
  *
  * Panics if `map` is not a map value.
  */
-uint32_t RSValue_Map_Len(const struct RSValue *map);
+uint32_t RSValue_Map_Len(const RSValue * map);
 
 /**
  * Retrieves a key-value pair from a map [`RSValue`] at a specific index.
@@ -567,10 +565,10 @@ uint32_t RSValue_Map_Len(const struct RSValue *map);
  * - Panics if `map` is not a map value.
  * - Panics if `index` is greater or equal to the map length.
  */
-void RSValue_Map_GetEntry(const struct RSValue *map,
+void RSValue_Map_GetEntry(const RSValue * map,
                           uint32_t index,
-                          struct RSValue **key,
-                          struct RSValue **value);
+                          const RSValue * *key,
+                          const RSValue * *value);
 
 /**
  * Converts an [`RSValue`] to a number type in-place.
@@ -586,7 +584,7 @@ void RSValue_Map_GetEntry(const struct RSValue *map,
  * 1. `value` must point to a valid [`RSValue`].
  * 2. `value` **must not** be used or freed after this call, as this function takes ownership.
  */
-void RSValue_SetNumber(struct RSValue *value, double n);
+void RSValue_SetNumber(RSValue * shared_value, double n);
 
 /**
  * Converts an [`RSValue`] to null type in-place.
@@ -602,7 +600,7 @@ void RSValue_SetNumber(struct RSValue *value, double n);
  * 1. `value` must point to a valid [`RSValue`].
  * 2. `value` **must not** be used or freed after this call, as this function takes ownership.
  */
-void RSValue_SetNull(struct RSValue *value);
+void RSValue_SetNull(RSValue * shared_value);
 
 /**
  * Converts an [`RSValue`] to a string type in-place, taking ownership of the given
@@ -628,7 +626,7 @@ void RSValue_SetNull(struct RSValue *value);
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-void RSValue_SetString(struct RSValue *value, char *str, uint32_t len);
+void RSValue_SetString(RSValue * shared_value, char *str, uint32_t len);
 
 /**
  * Converts an [`RSValue`] to a string type in-place, borrowing the given string buffer
@@ -653,7 +651,7 @@ void RSValue_SetString(struct RSValue *value, char *str, uint32_t len);
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-void RSValue_SetConstString(struct RSValue *value, const char *str, uint32_t len);
+void RSValue_SetConstString(RSValue * shared_value, const char *str, uint32_t len);
 
 /**
  * Decrement the reference count of the provided [`RSValue`] object. If this was
@@ -664,7 +662,7 @@ void RSValue_SetConstString(struct RSValue *value, const char *str, uint32_t len
  * 1. `value` must point to a valid [`RSValue`].
  * 2. `value` **must not** be used or freed after this call, as this function takes ownership.
  */
-void RSValue_DecrRef(const struct RSValue *value);
+void RSValue_DecrRef(RSValue * _value);
 
 /**
  * Follows [`Value::Ref`] indirections and returns a pointer to the
@@ -677,7 +675,7 @@ void RSValue_DecrRef(const struct RSValue *value);
  *
  * 1. `value` must point to a valid [`RSValue`].
  */
-struct RSValue *RSValue_Dereference(const struct RSValue *value);
+const RSValue * RSValue_Dereference(const RSValue * value);
 
 /**
  * Like [`RSValue_Dereference`], but also follows [`Value::Trio`]
@@ -687,7 +685,7 @@ struct RSValue *RSValue_Dereference(const struct RSValue *value);
  *
  * 1. `value` must point to a valid [`RSValue`].
  */
-struct RSValue *RSValue_DereferenceRefAndTrio(const struct RSValue *value);
+const RSValue * RSValue_DereferenceRefAndTrio(const RSValue * value);
 
 /**
  * Resets `value` to [`Value::Undefined`], dropping whatever it previously held.
@@ -700,7 +698,7 @@ struct RSValue *RSValue_DereferenceRefAndTrio(const struct RSValue *value);
  *
  * 1. `value` must point to a valid [`RSValue`].
  */
-void RSValue_Clear(const struct RSValue *value);
+void RSValue_Clear(RSValue * shared_value);
 
 /**
  * Increments the reference count of `value` and returns a new owned pointer
@@ -713,7 +711,7 @@ void RSValue_Clear(const struct RSValue *value);
  *
  * 1. `value` must point to a valid [`RSValue`].
  */
-struct RSValue *RSValue_IncrRef(const struct RSValue *value);
+RSValue * RSValue_IncrRef(const RSValue * value);
 
 /**
  * Replaces the content of `dst` with an [`Value::Ref`] pointing to `src`.
@@ -728,7 +726,7 @@ struct RSValue *RSValue_IncrRef(const struct RSValue *value);
  *
  * 1. `dst` and `src` must point to a valid [`RSValue`].
  */
-void RSValue_MakeReference(const struct RSValue *dst, const struct RSValue *src);
+void RSValue_MakeReference(RSValue * dst, const RSValue * src);
 
 /**
  * Like [`RSValue_MakeReference`], but **takes ownership** of `src` instead of
@@ -745,7 +743,7 @@ void RSValue_MakeReference(const struct RSValue *dst, const struct RSValue *src)
  * 1. `dst` must point to a valid [`RSValue`].
  * 2. `src` must point to a valid [`RSValue`]. Ownership is transferred to `dst`.
  */
-void RSValue_MakeOwnReference(const struct RSValue *dst, const struct RSValue *src);
+void RSValue_MakeOwnReference(RSValue * dst, RSValue * src);
 
 /**
  * Replaces the pointer at `*dstpp` with a new clone of `src`.
@@ -759,7 +757,7 @@ void RSValue_MakeOwnReference(const struct RSValue *dst, const struct RSValue *s
  * 2. `*dstpp` must point to a valid [`RSValue`] (it will be consumed).
  * 3. `src` must point to a valid [`RSValue`].
  */
-void RSValue_Replace(struct RSValue **dstpp, const struct RSValue *src);
+void RSValue_Replace(RSValue * *dstpp, const RSValue * src);
 
 /**
  * Returns the current reference count of `value`.
@@ -768,7 +766,7 @@ void RSValue_Replace(struct RSValue **dstpp, const struct RSValue *src);
  *
  * 1. `value` must point to a valid [`RSValue`].
  */
-uint16_t RSValue_Refcount(const struct RSValue *value);
+uint16_t RSValue_Refcount(const RSValue * value);
 
 /**
  * Returns the type of the given [`RSValue`].
@@ -777,7 +775,7 @@ uint16_t RSValue_Refcount(const struct RSValue *value);
  *
  * 1. `value` must point to a valid [`RSValue`].
  */
-enum RSValueType RSValue_Type(const struct RSValue *value);
+enum RSValueType RSValue_Type(const RSValue * value);
 
 /**
  * Returns whether the given [`RSValue`] is a reference type, or `false` if `value` is NULL.
@@ -786,7 +784,7 @@ enum RSValueType RSValue_Type(const struct RSValue *value);
  *
  * 1. If `value` is non-null, it must point to a valid [`RSValue`].
  */
-bool RSValue_IsReference(const struct RSValue *value);
+bool RSValue_IsReference(const RSValue * value);
 
 /**
  * Returns whether the given [`RSValue`] is a number type, or `false` if `value` is NULL.
@@ -795,7 +793,7 @@ bool RSValue_IsReference(const struct RSValue *value);
  *
  * 1. If `value` is non-null, it must point to a valid [`RSValue`].
  */
-bool RSValue_IsNumber(const struct RSValue *value);
+bool RSValue_IsNumber(const RSValue * value);
 
 /**
  * Returns whether the given [`RSValue`] is a string type (any string variant), or `false` if `value` is NULL.
@@ -804,7 +802,7 @@ bool RSValue_IsNumber(const struct RSValue *value);
  *
  * 1. If `value` is non-null, it must point to a valid [`RSValue`].
  */
-bool RSValue_IsString(const struct RSValue *value);
+bool RSValue_IsString(const RSValue * value);
 
 /**
  * Returns whether the given [`RSValue`] is an array type, or `false` if `value` is NULL.
@@ -813,7 +811,7 @@ bool RSValue_IsString(const struct RSValue *value);
  *
  * 1. If `value` is non-null, it must point to a valid [`RSValue`].
  */
-bool RSValue_IsArray(const struct RSValue *value);
+bool RSValue_IsArray(const RSValue * value);
 
 /**
  * Returns whether the given [`RSValue`] is a trio type, or `false` if `value` is NULL.
@@ -822,7 +820,7 @@ bool RSValue_IsArray(const struct RSValue *value);
  *
  * 1. If `value` is non-null, it must point to a valid [`RSValue`].
  */
-bool RSValue_IsTrio(const struct RSValue *value);
+bool RSValue_IsTrio(const RSValue * value);
 
 /**
  * Returns whether the given [`RSValue`] is a null pointer, a null type, or a reference to a null type.
@@ -831,7 +829,7 @@ bool RSValue_IsTrio(const struct RSValue *value);
  *
  * 1. If `value` is non-null, it must point to a valid [`RSValue`].
  */
-bool RSValue_IsNull(const struct RSValue *value);
+bool RSValue_IsNull(const RSValue * value);
 
 #ifdef __cplusplus
 }  // extern "C"

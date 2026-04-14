@@ -7,10 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use crate::RSValue;
-use crate::util::expect_shared_value;
 use std::ffi::{c_char, c_double};
-use value::{String, Value};
+use value::{SharedValueRefMut, String, Value};
 
 /// Converts an [`RSValue`] to a number type in-place.
 ///
@@ -25,10 +23,7 @@ use value::{String, Value};
 /// 1. `value` must point to a valid [`RSValue`].
 /// 2. `value` **must not** be used or freed after this call, as this function takes ownership.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RSValue_SetNumber(value: *mut RSValue, n: c_double) {
-    // Safety: ensured by caller (1., 2.)
-    let mut shared_value = unsafe { expect_shared_value(value) };
-
+pub unsafe extern "C" fn RSValue_SetNumber(mut shared_value: SharedValueRefMut, n: c_double) {
     // Panics if more than 1 reference exists.
     shared_value.set_value(Value::Number(n));
 }
@@ -46,10 +41,7 @@ pub unsafe extern "C" fn RSValue_SetNumber(value: *mut RSValue, n: c_double) {
 /// 1. `value` must point to a valid [`RSValue`].
 /// 2. `value` **must not** be used or freed after this call, as this function takes ownership.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RSValue_SetNull(value: *mut RSValue) {
-    // Safety: ensured by caller (1., 2.)
-    let mut shared_value = unsafe { expect_shared_value(value) };
-
+pub unsafe extern "C" fn RSValue_SetNull(mut shared_value: SharedValueRefMut) {
     // Panics if more than 1 reference exists.
     shared_value.set_value(Value::Null);
 }
@@ -77,10 +69,11 @@ pub unsafe extern "C" fn RSValue_SetNull(value: *mut RSValue) {
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RSValue_SetString(value: *mut RSValue, str: *mut c_char, len: u32) {
-    // Safety: ensured by caller (1., 2.)
-    let mut shared_value = unsafe { expect_shared_value(value) };
-
+pub unsafe extern "C" fn RSValue_SetString(
+    mut shared_value: SharedValueRefMut,
+    str: *mut c_char,
+    len: u32,
+) {
     // Safety: ensured by caller (3., 4., 5., 6.)
     let string = unsafe { String::rm_alloc_string(str, len) };
     let value = Value::String(string);
@@ -111,10 +104,11 @@ pub unsafe extern "C" fn RSValue_SetString(value: *mut RSValue, str: *mut c_char
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RSValue_SetConstString(value: *mut RSValue, str: *const c_char, len: u32) {
-    // Safety: ensured by caller (1., 2.)
-    let mut shared_value = unsafe { expect_shared_value(value) };
-
+pub unsafe extern "C" fn RSValue_SetConstString(
+    mut shared_value: SharedValueRefMut,
+    str: *const c_char,
+    len: u32,
+) {
     // Safety: ensured by caller (3., 4., 5., 6.)
     let string = unsafe { String::borrowed_string(str, len) };
     let value = Value::String(string);

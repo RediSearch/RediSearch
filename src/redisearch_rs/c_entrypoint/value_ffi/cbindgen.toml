@@ -7,3 +7,15 @@ includes = ["redismodule.h", "query_error.h"]
 [parse]
 parse_deps = true
 include = ["c_ffi_utils", "value"]
+
+[export]
+include = ["RSValue"]
+exclude = ["SharedValue", "SharedValueRef", "SharedValueRefMut", "Option_SharedValue", "Option_SharedValueRef", "Option_SharedValueRefMut"]
+
+[export.rename]
+"SharedValue" = "RSValue *"
+"SharedValueRef" = "const RSValue *"
+"SharedValueRefMut" = "RSValue *"
+"Option_SharedValue" = "RSValue *"
+"Option_SharedValueRef" = "const RSValue *"
+"Option_SharedValueRefMut" = "RSValue *"

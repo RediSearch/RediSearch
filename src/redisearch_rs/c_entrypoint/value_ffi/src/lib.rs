@@ -19,7 +19,6 @@ pub mod hash;
 pub mod map;
 pub mod setters;
 pub mod shared;
-pub mod util;
 pub mod value_type;
 
 /// The C version of a [`SharedValue`](value::SharedValue)

@@ -48,7 +48,7 @@ static int tolistAdd(Reducer *rbase, void *ctx, const RLookupRow *srcrow) {
   } else {  // For array values we add each distinct element to the list
     uint32_t len = RSValue_ArrayLen(v);
     for (uint32_t i = 0; i < len; i++) {
-      dictAdd(values, RSValue_ArrayItem(v, i), NULL);
+      dictAdd(values, (void *)RSValue_ArrayItem(v, i), NULL);
     }
   }
   return 1;

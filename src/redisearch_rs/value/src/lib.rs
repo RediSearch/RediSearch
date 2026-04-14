@@ -10,7 +10,7 @@
 pub use crate::{
     collection::{Array, Map},
     redis_string::RedisString,
-    shared::SharedValue,
+    shared::{SharedValue, SharedValueRef, SharedValueRefMut},
     string::String,
     trio::Trio,
 };

@@ -7,10 +7,9 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use crate::{RSValue, util::try_value};
 use ffi::sds;
 use std::io::Write;
-use value::sds_writer::SdsWriter;
+use value::{SharedValueRef, sds_writer::SdsWriter};
 
 /// Writes the debug representation of an [`RSValue`] into an SDS string.
 ///
@@ -25,12 +24,16 @@ use value::sds_writer::SdsWriter;
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RSValue_DumpSds(value: *const RSValue, sds: sds, obfuscate: bool) -> sds {
+pub unsafe extern "C" fn RSValue_DumpSds(
+    value: Option<SharedValueRef>,
+    sds: sds,
+    obfuscate: bool,
+) -> sds {
     // SAFETY: `sds` is a valid SDS string, guaranteed by the caller.
     let mut writer = unsafe { SdsWriter::new(sds) };
 
     // SAFETY: If non-null, `value` points to a valid `RSValue`, guaranteed by the caller.
-    match unsafe { try_value(value) } {
+    match value {
         None => write!(writer, "nil").unwrap(),
         Some(value) => write!(writer, "{:?}", value.debug_formatter(obfuscate)).unwrap(),
     }

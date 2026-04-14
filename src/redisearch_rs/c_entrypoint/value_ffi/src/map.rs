@@ -7,17 +7,16 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use crate::util::{as_rs_value, expect_value, into_rs_value};
-use crate::{RSValue, util::into_shared_value};
+use crate::RSValue;
 use libc::size_t;
 use std::mem::MaybeUninit;
-use value::{Map, SharedValue, Value};
+use value::{Map, SharedValue, SharedValueRef, Value};
 
 /// Opaque map structure used during map construction.
 /// Holds uninitialized entries that are populated via [`RSValue_MapBuilderSetEntry`]
 /// before being finalized into an [`Value::Map`] via [`RSValue_NewMapFromBuilder`].
 pub struct RSValueMapBuilder {
-    entries: Box<[MaybeUninit<(*mut RSValue, *mut RSValue)>]>,
+    entries: Box<[MaybeUninit<(SharedValue, SharedValue)>]>,
 }
 
 /// Allocates a new, uninitialized [`RSValueMapBuilder`] with space for `len` entries.
@@ -31,7 +30,10 @@ pub struct RSValueMapBuilder {
 ///    passing the map to [`RSValue_NewMapFromBuilder`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RSValue_NewMapBuilder(len: u32) -> *mut RSValueMapBuilder {
-    let entries = vec![MaybeUninit::uninit(); len as usize];
+    let entries: Vec<MaybeUninit<(*mut RSValue, *mut RSValue)>> =
+        vec![MaybeUninit::uninit(); len as usize];
+    let entries: Vec<MaybeUninit<(SharedValue, SharedValue)>> =
+        unsafe { std::mem::transmute(entries) };
 
     Box::into_raw(Box::new(RSValueMapBuilder {
         entries: entries.into(),
@@ -55,8 +57,8 @@ pub unsafe extern "C" fn RSValue_NewMapBuilder(len: u32) -> *mut RSValueMapBuild
 pub unsafe extern "C" fn RSValue_MapBuilderSetEntry(
     map: *mut RSValueMapBuilder,
     index: size_t,
-    key: *mut RSValue,
-    value: *mut RSValue,
+    key: SharedValue,
+    value: SharedValue,
 ) {
     // Safety: ensured by caller (1.)
     let map = unsafe { map.as_mut().expect("map should not be null") };
@@ -76,7 +78,7 @@ pub unsafe extern "C" fn RSValue_MapBuilderSetEntry(
 ///    [`RSValue_NewMapBuilder`].
 /// 2. All entries in the map must have been initialized via [`RSValue_MapBuilderSetEntry`].
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RSValue_NewMapFromBuilder(map: *mut RSValueMapBuilder) -> *mut RSValue {
+pub unsafe extern "C" fn RSValue_NewMapFromBuilder(map: *mut RSValueMapBuilder) -> SharedValue {
     // Safety: ensured by caller (1.)
     let map = unsafe { Box::from_raw(map) };
 
@@ -85,18 +87,13 @@ pub unsafe extern "C" fn RSValue_NewMapFromBuilder(map: *mut RSValueMapBuilder) 
         .into_iter()
         .map(|entry| {
             // Safety: ensured by caller (2.)
-            let (key, value) = unsafe { entry.assume_init() };
-            // Safety: ensured by caller (2.)
-            let key = unsafe { into_shared_value(key) };
-            // Safety: ensured by caller (2.)
-            let value = unsafe { into_shared_value(value) };
-            (key, value)
+            unsafe { entry.assume_init() }
         })
         .collect();
 
     let value = Value::Map(Map::new(map));
     let shared = SharedValue::new(value);
-    into_rs_value(shared)
+    shared
 }
 
 /// Returns the number of key-value pairs in a map [`RSValue`].
@@ -109,11 +106,8 @@ pub unsafe extern "C" fn RSValue_NewMapFromBuilder(map: *mut RSValueMapBuilder) 
 ///
 /// Panics if `map` is not a map value.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RSValue_Map_Len(map: *const RSValue) -> u32 {
-    // Safety: ensured by caller (1.)
-    let map = unsafe { expect_value(map) };
-
-    if let Value::Map(map) = map {
+pub unsafe extern "C" fn RSValue_Map_Len(map: SharedValueRef) -> u32 {
+    if let Value::Map(map) = &**map {
         map.len_u32()
     } else {
         // Compatibility: C does an RS_ASSERT on incorrect type
@@ -138,21 +132,18 @@ pub unsafe extern "C" fn RSValue_Map_Len(map: *const RSValue) -> u32 {
 /// - Panics if `index` is greater or equal to the map length.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RSValue_Map_GetEntry(
-    map: *const RSValue,
+    map: SharedValueRef,
     index: u32,
-    key: *mut *mut RSValue,
-    value: *mut *mut RSValue,
+    key: *mut SharedValueRef,
+    value: *mut SharedValueRef,
 ) {
-    // Safety: ensured by caller (1.)
-    let map = unsafe { expect_value(map) };
-
-    if let Value::Map(map) = map {
+    if let Value::Map(map) = &**map {
         // Compatibility: C does an RS_ASSERT on index out of bounds
         let (shared_key, shared_value) = &map[index as usize];
         // Safety: ensured by caller (2.)
-        unsafe { key.write(as_rs_value(shared_key).cast_mut()) };
+        unsafe { key.write(shared_key.as_ref()) };
         // Safety: ensured by caller (2.)
-        unsafe { value.write(as_rs_value(shared_value).cast_mut()) };
+        unsafe { value.write(shared_value.as_ref()) };
     } else {
         panic!("Expected 'Map' type, got '{}'", map.variant_name())
     }
@@ -178,21 +169,21 @@ mod test {
 
             let map = RSValue_NewMapFromBuilder(map);
 
-            assert_eq!(RSValue_Map_Len(map), 2);
+            assert_eq!(RSValue_Map_Len(map.as_ref()), 2);
 
-            let mut key: *mut RSValue = std::ptr::null_mut();
-            let mut value: *mut RSValue = std::ptr::null_mut();
+            let mut key = MaybeUninit::<SharedValueRef>::uninit();
+            let mut value = MaybeUninit::<SharedValueRef>::uninit();
 
-            RSValue_Map_GetEntry(map, 0, &mut key as *mut _, &mut value as *mut _);
-            let key_num = RSValue_Number_Get(key);
+            RSValue_Map_GetEntry(map.as_ref(), 0, key.as_mut_ptr(), value.as_mut_ptr());
+            let key_num = RSValue_Number_Get(key.assume_init_read());
             assert_eq!(1.0, key_num);
-            let value_num = RSValue_Number_Get(value);
+            let value_num = RSValue_Number_Get(value.assume_init_read());
             assert_eq!(2.0, value_num);
 
-            RSValue_Map_GetEntry(map, 1, &mut key as *mut _, &mut value as *mut _);
-            let key_num = RSValue_Number_Get(key);
+            RSValue_Map_GetEntry(map.as_ref(), 1, key.as_mut_ptr(), value.as_mut_ptr());
+            let key_num = RSValue_Number_Get(key.assume_init_read());
             assert_eq!(3.0, key_num);
-            let value_num = RSValue_Number_Get(value);
+            let value_num = RSValue_Number_Get(value.assume_init_read());
             assert_eq!(4.0, value_num);
 
             RSValue_DecrRef(map);

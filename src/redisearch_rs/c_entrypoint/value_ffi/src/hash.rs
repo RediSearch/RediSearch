@@ -7,10 +7,9 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use crate::RSValue;
-use crate::util::expect_value;
 use fnv::Fnv64;
 use std::hash::Hasher;
+use value::SharedValueRef;
 
 /// Computes a 64-bit FNV-1a hash of an [`RSValue`], using `hval` as the initial offset basis.
 ///
@@ -20,11 +19,8 @@ use std::hash::Hasher;
 ///
 /// 1. `value` must point to a valid [`RSValue`].
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RSValue_Hash(value: *const RSValue, hval: u64) -> u64 {
-    // Safety: ensured by caller (1.)
-    let value = unsafe { expect_value(value) };
-
+pub unsafe extern "C" fn RSValue_Hash(value: SharedValueRef, hval: u64) -> u64 {
     let mut hasher = Fnv64::with_offset_basis(hval);
-    value::hash::hash_value(value, &mut hasher);
+    value::hash::hash_value(&value, &mut hasher);
     hasher.finish()
 }

@@ -19,7 +19,7 @@ extern "C" {
 
 #define VALIDATE_ARG__COMMON(fname, args, idx, verifier, varg)                                 \
   {                                                                                            \
-    RSValue *dref = RSValue_Dereference(args[idx]);                                            \
+    const RSValue *dref = RSValue_Dereference(args[idx]);                                            \
     if (!verifier(dref, varg)) {                                                               \
       RSValueType dref_ty = RSValue_Type(dref);                                                \
       QueryError_SetWithoutUserDataFmt(                                                        \

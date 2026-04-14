@@ -15,8 +15,6 @@ use std::{
     ptr::NonNull,
 };
 use value::SharedValue;
-use value_ffi::RSValue;
-use value_ffi::util::into_shared_value;
 
 pub const RS_SORTABLES_MAX: usize = 1024;
 
@@ -162,15 +160,12 @@ pub unsafe extern "C" fn RSSortingVector_PutStrNormalize(
 pub unsafe extern "C" fn RSSortingVector_PutRSVal(
     vec: Option<NonNull<RSSortingVector>>,
     idx: size_t,
-    val: Option<NonNull<RSValue>>,
+    val: Option<SharedValue>,
 ) {
     // Safety: The caller must ensure that the pointer is valid (1.)
     let vec = unsafe { vec.expect("vec must not be null").as_mut() };
 
-    let value = val.expect("value must not be null").as_ptr();
-
-    // Safety: The caller must ensure that the pointer is valid (2.)
-    let val = unsafe { into_shared_value(value) };
+    let val = val.expect("value must not be null");
 
     vec.try_insert_val(idx, val).unwrap_or_else(|_| {
         panic!("Index out of bounds: {} >= {}", idx, vec.len());
