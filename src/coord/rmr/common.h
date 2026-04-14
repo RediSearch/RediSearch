@@ -9,8 +9,6 @@
 
 #pragma once
 
-#include "util/stringify.h"
-
 #ifndef __ignore__
 #define __ignore__(X) \
     do { \
