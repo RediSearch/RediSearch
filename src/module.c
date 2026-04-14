@@ -297,9 +297,6 @@ int GetSingleDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   return REDISMODULE_OK;
 }
 
-#define __STRINGIFY(x) #x
-#define STRINGIFY(x) __STRINGIFY(x)
-
 int SpellCheckCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
 #define DICT_INITIAL_SIZE 5

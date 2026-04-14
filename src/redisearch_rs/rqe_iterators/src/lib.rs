@@ -33,6 +33,7 @@ pub mod profile;
 pub mod union;
 mod union_flat;
 mod union_heap;
+pub mod union_reducer;
 pub mod utils;
 pub mod wildcard;
 
@@ -153,6 +154,18 @@ pub trait RQEIterator<'index> {
     fn as_c_iterator(&self) -> Option<&c2rust::CRQEIterator> {
         None
     }
+
+    /// Returns the sort weight for this iterator when used as a child of an [`Intersection`].
+    ///
+    /// [`Intersection`] uses this to order its children before execution: a lower value makes
+    /// this iterator act as the pivot (minimising `SkipTo` calls). The final sort key is
+    /// `num_estimated * intersection_sort_weight(...)`.
+    ///
+    /// Implementers:
+    /// - [`Intersection`]: `1.0 / num_children` — fewer children means tighter selectivity.
+    /// - [`Union`]: `num_children` when `prioritize_union_children`, else `1.0`.
+    /// - Everything else: `1.0` — neutral, no influence.
+    fn intersection_sort_weight(&self, prioritize_union_children: bool) -> f64;
 }
 
 /// Blanket [`RQEIterator`] impl for `Box<I>` where `I` is a concrete iterator type.
@@ -201,6 +214,10 @@ impl<'index, I: RQEIterator<'index> + 'index> RQEIterator<'index> for Box<I> {
 
     fn as_c_iterator(&self) -> Option<&c2rust::CRQEIterator> {
         (**self).as_c_iterator()
+    }
+
+    fn intersection_sort_weight(&self, prioritize_union_children: bool) -> f64 {
+        (**self).intersection_sort_weight(prioritize_union_children)
     }
 }
 
@@ -251,6 +268,10 @@ impl<'index> RQEIterator<'index> for Box<dyn RQEIterator<'index> + 'index> {
 
     fn as_c_iterator(&self) -> Option<&c2rust::CRQEIterator> {
         (**self).as_c_iterator()
+    }
+
+    fn intersection_sort_weight(&self, prioritize_union_children: bool) -> f64 {
+        (**self).intersection_sort_weight(prioritize_union_children)
     }
 }
 

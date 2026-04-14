@@ -347,4 +347,8 @@ where
     fn type_(&self) -> ffi::IteratorType {
         ffi::IteratorType::OptionalOptimized
     }
+
+    fn intersection_sort_weight(&self, _prioritize_union_children: bool) -> f64 {
+        1.0
+    }
 }

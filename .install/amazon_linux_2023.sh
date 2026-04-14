@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 MODE=$1 # whether to install using sudo or not
 set -eo pipefail
-export DEBIAN_FRONTEND=noninteractive
 
 $MODE dnf update -y
 $MODE dnf install -y gcc gcc-c++ gdb gzip git libstdc++-static make openssl openssl-devel rsync tar unzip wget which xz
