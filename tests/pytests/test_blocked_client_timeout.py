@@ -1234,3 +1234,4 @@ class TestShardTimeout:
         env.expect(debug_cmd(), 'WORKERS', 'drain').ok()
 
         env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy).ok()
+
