@@ -296,7 +296,7 @@ def testProfileMissingFieldQuery(env):
   env.cmd(config_cmd(), 'SET', '_PRINT_PROFILE_CLOCK', 'true')
   actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', 'ismissing(@t)', 'nocontent')
   env.assertEqual(actual_res[0], [1, '2'])
-  env.assertEqual(actual_res[1][1][0][3], ['Type', 'MISSING', 'Field', 't', 'Time', ANY, 'Number of reading operations', 1, 'Estimated number of matches', 1])
+  env.assertEqual(actual_res[1][1][0][11], ['Type', 'MISSING', 'Field', 't', 'Time', ANY, 'Number of reading operations', 1, 'Estimated number of matches', 1])
 
 @skip(cluster=True)
 def testProfileVector(env):
