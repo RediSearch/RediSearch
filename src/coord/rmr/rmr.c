@@ -333,7 +333,7 @@ static void uvFanoutRequest(void *p) {
   MRCtx *mrctx = p;
   IORuntimeCtx *ioRuntime = mrctx->ioRuntime;
 
-  mrctx->numExpected = MRCluster_FanoutCommand(ioRuntime, &mrctx->cmd, fanoutCallback, mrctx, mrctx->validateConnections);
+  mrctx->numExpected = MRCluster_FanoutCommand(ioRuntime, &mrctx->cmd, fanoutCallback, mrctx, MRCtx_GetValidateConnections(mrctx));
 
   if (mrctx->numExpected == 0) {
     // No shard command was sent, so fanoutCallback() will never fire.
@@ -853,39 +853,13 @@ void iterCursorMappingCb(void *p) {
   cmd->targetShardIdx = vsimOrSearch->mappings[0].targetShardIdx;
   vsimOrSearch->mappings[0].targetShard = NULL; // transfer ownership
 
-  // Take an extra reference to prevent the iterator from being freed mid-loop.
-  MRIterator_IncreaseRefCount(it);
-
-  // Pre-fanout connection validation - check ALL connections before sending ANY commands
-  bool allConnectionsValid = true;
+  // Send commands to all shards
   for (size_t i = 0; i < it->len; i++) {
-    MRConn *conn = MRConn_Get(&io_runtime_ctx->conn_mgr, it->cbxs[i].cmd.targetShard);
-    if (!conn || !MRConn_IsConnected(conn)) {
-      allConnectionsValid = false;
-      break;
+    if (MRCluster_SendCommand(io_runtime_ctx, &it->cbxs[i].cmd,
+                              mrIteratorRedisCB, &it->cbxs[i]) == REDIS_ERR) {
+      MRIteratorCallback_Done(&it->cbxs[i], 1);
     }
   }
-
-  if (!allConnectionsValid) {
-    // At least one connection is not established - fail all shards with error.
-    // The callback (e.g., netCursorCallback) is responsible for calling MRIteratorCallback_Done,
-    // so we must NOT call it here to avoid double-decrementing pending/inProcess counters.
-    for (size_t i = 0; i < it->len; i++) {
-      MRReply *err = MRReply_CreateError("Could not send query to cluster");
-      it->ctx.cb(&it->cbxs[i], err);
-    }
-  } else {
-    // All connections valid - send commands to all shards
-    for (size_t i = 0; i < it->len; i++) {
-      if (MRCluster_SendCommand(io_runtime_ctx, &it->cbxs[i].cmd,
-                                mrIteratorRedisCB, &it->cbxs[i]) == REDIS_ERR) {
-        MRIteratorCallback_Done(&it->cbxs[i], 1);
-      }
-    }
-  }
-
-  // Release the extra reference we took at the start of the loop.
-  MRIterator_Release(it);
 
   //Clean up the StrongRef and allocated memory
   StrongRef_Release(mappingsRef);
