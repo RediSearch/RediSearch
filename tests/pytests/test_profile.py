@@ -37,7 +37,10 @@ def testProfileSearch(env):
   expected_res = ['Type', 'UNION', 'Query type', 'UNION', 'Number of reading operations', 2, 'Child iterators', [
                     ['Type', 'TEXT', 'Term', 'hello', 'Number of reading operations', 1, 'Estimated number of matches', 1],
                     ['Type', 'TEXT', 'Term', 'world', 'Number of reading operations', 1, 'Estimated number of matches', 1]]]
-  env.assertEqual(actual_res[1][1][0][3], expected_res)
+  actual_union = actual_res[1][1][0][3]
+  sort_profile_children(actual_union)
+  sort_profile_children(expected_res)
+  env.assertEqual(actual_union, expected_res)
 
   # test INTERSECT
   actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', 'hello world', 'nocontent')
@@ -207,9 +210,14 @@ def testProfileNumeric(env):
                     ['Type', 'NUMERIC', 'Term', '32.7 - 45.4', 'Number of reading operations', 1280, 'Estimated number of matches', 1280],
                     ['Type', 'NUMERIC', 'Term', '45.5 - 49.1', 'Number of reading operations', 370, 'Estimated number of matches', 370],
                     ['Type', 'NUMERIC', 'Term', '49.2 - 50', 'Number of reading operations', 90, 'Estimated number of matches', 90]]]]
+  sort_profile_children(expected_res)
   # [1] (Profile data) -> [1] (`Shards` value) -> [0] (single shard/standalone) -> [2:4] (Iterators profile - key+value)
+  def sort_and_return(x):
+    res = x[1][1][0][2:4]
+    sort_profile_children(res)
+    return res
   env.expect('ft.profile', 'idx', 'search', 'query', '@n:[0,100]', 'nocontent').apply(
-    lambda x: x[1][1][0][2:4]).equal(expected_res)
+    sort_and_return).equal(expected_res)
 
 @skip(cluster=True)
 def testProfileNegativeNumeric():
@@ -242,6 +250,9 @@ def testProfileNegativeNumeric():
       range_dict = {"min":float(res_range[0]), "max": float(res_range[1])}
       env.assertEqual(range_dict['max'], range_dict['min'] + child['Estimated number of matches'] - 1, message=f"{title}: range_max should equal range_min + (range_size - 1)")
       return range_dict
+
+    # Sort children by their min range value so assertions don't depend on iteration order
+    child_iter_list.sort(key=lambda c: float(c['Term'].split(" - ")[0]))
 
     # The first child iterator should contain the min val
     range_dict = extract_child_range(child_iter_list[0])
