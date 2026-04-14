@@ -68,9 +68,6 @@ int MRCluster_FanoutCommand(IORuntimeCtx *ioRuntime,
       if (!conn) {
         return 0;
       }
-      if (!MRConn_IsConnected(conn)) {
-        return 0;
-      }
     }
   }
 

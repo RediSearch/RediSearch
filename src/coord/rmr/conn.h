@@ -120,8 +120,6 @@ void MRConnManager_Free(MRConnManager *m);
 */
 void MRConnManager_Stop(MRConnManager *mgr);
 
-bool MRConn_IsConnected(MRConn *conn);
-
 #ifdef __cplusplus
 }
 #endif

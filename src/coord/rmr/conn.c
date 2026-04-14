@@ -849,7 +849,3 @@ static int MRConn_Connect(MRConn *conn) {
 
   return REDIS_OK;
 }
-
-bool MRConn_IsConnected(MRConn *conn) {
-  return conn->state == MRConn_Connected;
-}
