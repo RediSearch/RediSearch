@@ -770,7 +770,7 @@ void iterStartCb(void *p) {
   bool allConnectionsValid = true;
   for (size_t i = 0; i < it->len; i++) {
     MRConn *conn = MRConn_Get(&io_runtime_ctx->conn_mgr, it->cbxs[i].cmd.targetShard);
-    if (!conn || !MRConn_IsConnected(conn)) {
+    if (!conn) {
       allConnectionsValid = false;
       break;
     }
