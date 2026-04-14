@@ -201,6 +201,16 @@ def test_issue1932(env):
     env.expect('FT.AGGREGATE', 'idx', '*', 'LIMIT', '1000000', '100000000000000000', 'SORTBY', '1', '@t').error() \
       .contains('LIMIT exceeds maximum of 2147483648')
 
+@skip(cluster=True)
+def test_MOD_14655(env:Env):
+  env.expect('FT.CREATE', 'idx', 'NOFIELDS', 'MAXTEXTFIELDS', 'SCHEMA', 't', 'TEXT').error() \
+      .contains('MAXTEXTFIELDS cannot be used with NOFIELDS')
+
+  # Previously, if the index was created successfully, the following HSET will cause a crash.
+  with env.getClusterConnectionIfNeeded() as conn:
+    conn.execute_command('HSET', 'doc1', 't', 'hello world')
+
+
 def test_issue1988(env):
     conn = getConnectionByEnv(env)
     env.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT')
