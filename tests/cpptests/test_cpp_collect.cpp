@@ -10,27 +10,7 @@
 #include "gtest/gtest.h"
 
 #include "aggregate/reducer.h"
-#include "util/arr_rm_alloc.h"
-
-/*
- * Layout must match CollectReducer in src/aggregate/reducers/collect.c exactly
- * (member order and types). If you change the implementation struct, update this
- * copy or parser tests may read wrong memory / invoke undefined behavior.
- */
-struct CollectReducer {
-  Reducer base;
-
-  arrayof(const RLookupKey *) field_keys;
-  bool has_wildcard;
-
-  arrayof(const RLookupKey *) sort_keys;
-  uint64_t sortAscMap;
-
-  bool has_limit;
-  uint64_t limit_offset;
-  uint64_t limit_count;
-};
-
+#include "reducers_rs.h"
 #include "spec.h"
 #include "config.h"
 #include "result_processor.h"
@@ -78,16 +58,12 @@ protected:
     QueryError_ClearError(&status);
   }
 
-  CollectReducer *parseCollectOk(std::vector<const char *> args) {
+  Reducer *parseCollectOk(std::vector<const char *> args) {
     QueryError status = QueryError_Default();
     Reducer *r = parseCollect(args, &status);
     EXPECT_NE(r, nullptr) << QueryError_GetUserError(&status);
-    if (r == nullptr) {
-      QueryError_ClearError(&status);
-      return nullptr;
-    }
     QueryError_ClearError(&status);
-    return reinterpret_cast<CollectReducer *>(r);
+    return r;
   }
 };
 
@@ -95,184 +71,188 @@ protected:
 
 TEST_F(CollectParserTest, FieldsOnly) {
   registerKeys({"price", "name"});
-  CollectReducer *cr = parseCollectOk({"FIELDS", "2", "@price", "@name"});
-  ASSERT_NE(cr, nullptr);
-  EXPECT_EQ(array_len(cr->field_keys), 2);
-  EXPECT_FALSE(cr->has_wildcard);
-  EXPECT_EQ(array_len(cr->sort_keys), 0);
-  EXPECT_FALSE(cr->has_limit);
-  cr->base.Free(&cr->base);
+  Reducer *r = parseCollectOk({"FIELDS", "2", "@price", "@name"});
+  ASSERT_NE(r, nullptr);
+  EXPECT_EQ(CollectReducer_GetFieldKeysLen(r), 2u);
+  EXPECT_FALSE(CollectReducer_HasWildcard(r));
+  EXPECT_EQ(CollectReducer_GetSortKeysLen(r), 0u);
+  EXPECT_FALSE(CollectReducer_HasLimit(r));
+  r->Free(r);
 }
 
 TEST_F(CollectParserTest, FieldsWildcard) {
-  CollectReducer *cr = parseCollectOk({"FIELDS", "1", "*"});
-  ASSERT_NE(cr, nullptr);
-  EXPECT_EQ(array_len(cr->field_keys), 0);
-  EXPECT_TRUE(cr->has_wildcard);
-  EXPECT_EQ(array_len(cr->sort_keys), 0);
-  cr->base.Free(&cr->base);
+  Reducer *r = parseCollectOk({"FIELDS", "1", "*"});
+  ASSERT_NE(r, nullptr);
+  EXPECT_EQ(CollectReducer_GetFieldKeysLen(r), 0u);
+  EXPECT_TRUE(CollectReducer_HasWildcard(r));
+  EXPECT_EQ(CollectReducer_GetSortKeysLen(r), 0u);
+  r->Free(r);
 }
 
 TEST_F(CollectParserTest, WildcardAmongFields) {
   registerKeys({"price", "name"});
-  CollectReducer *cr = parseCollectOk({"FIELDS", "3", "@price", "*", "@name"});
-  ASSERT_NE(cr, nullptr);
-  EXPECT_EQ(array_len(cr->field_keys), 2);
-  EXPECT_TRUE(cr->has_wildcard);
-  cr->base.Free(&cr->base);
+  Reducer *r = parseCollectOk({"FIELDS", "3", "@price", "*", "@name"});
+  ASSERT_NE(r, nullptr);
+  EXPECT_EQ(CollectReducer_GetFieldKeysLen(r), 2u);
+  EXPECT_TRUE(CollectReducer_HasWildcard(r));
+  r->Free(r);
 }
 
 TEST_F(CollectParserTest, FieldsAndSortBy) {
   registerKeys({"price", "name"});
-  CollectReducer *cr = parseCollectOk({
+  Reducer *r = parseCollectOk({
       "FIELDS", "2", "@price", "@name",
       "SORTBY", "3", "@price", "DESC", "@name",
   });
-  ASSERT_NE(cr, nullptr);
-  EXPECT_EQ(array_len(cr->field_keys), 2);
-  EXPECT_EQ(array_len(cr->sort_keys), 2);
-  EXPECT_FALSE(SORTASCMAP_GETASC(cr->sortAscMap, 0));
-  EXPECT_TRUE(SORTASCMAP_GETASC(cr->sortAscMap, 1));
-  cr->base.Free(&cr->base);
+  ASSERT_NE(r, nullptr);
+  EXPECT_EQ(CollectReducer_GetFieldKeysLen(r), 2u);
+  EXPECT_EQ(CollectReducer_GetSortKeysLen(r), 2u);
+  EXPECT_FALSE(SORTASCMAP_GETASC(CollectReducer_GetSortAscMap(r), 0));
+  EXPECT_TRUE(SORTASCMAP_GETASC(CollectReducer_GetSortAscMap(r), 1));
+  r->Free(r);
 }
 
 TEST_F(CollectParserTest, FieldsSortByAndLimit) {
   registerKeys({"price"});
-  CollectReducer *cr = parseCollectOk({
+  Reducer *r = parseCollectOk({
       "FIELDS", "1", "@price",
       "SORTBY", "2", "@price", "ASC",
       "LIMIT", "0", "10",
   });
-  ASSERT_NE(cr, nullptr);
-  EXPECT_EQ(array_len(cr->sort_keys), 1);
-  EXPECT_TRUE(SORTASCMAP_GETASC(cr->sortAscMap, 0));
-  EXPECT_TRUE(cr->has_limit);
-  EXPECT_EQ(cr->limit_offset, 0u);
-  EXPECT_EQ(cr->limit_count, 10u);
-  cr->base.Free(&cr->base);
+  ASSERT_NE(r, nullptr);
+  EXPECT_EQ(CollectReducer_GetSortKeysLen(r), 1u);
+  EXPECT_TRUE(SORTASCMAP_GETASC(CollectReducer_GetSortAscMap(r), 0));
+  EXPECT_TRUE(CollectReducer_HasLimit(r));
+  EXPECT_EQ(CollectReducer_GetLimitOffset(r), 0u);
+  EXPECT_EQ(CollectReducer_GetLimitCount(r), 10u);
+  r->Free(r);
 }
 
 TEST_F(CollectParserTest, FieldsAndLimitWithoutSortBy) {
   registerKeys({"price"});
-  CollectReducer *cr = parseCollectOk({
+  Reducer *r = parseCollectOk({
       "FIELDS", "1", "@price",
       "LIMIT", "5", "100",
   });
-  ASSERT_NE(cr, nullptr);
-  EXPECT_EQ(array_len(cr->sort_keys), 0);
-  EXPECT_TRUE(cr->has_limit);
-  EXPECT_EQ(cr->limit_offset, 5u);
-  EXPECT_EQ(cr->limit_count, 100u);
-  cr->base.Free(&cr->base);
+  ASSERT_NE(r, nullptr);
+  EXPECT_EQ(CollectReducer_GetSortKeysLen(r), 0u);
+  EXPECT_TRUE(CollectReducer_HasLimit(r));
+  EXPECT_EQ(CollectReducer_GetLimitOffset(r), 5u);
+  EXPECT_EQ(CollectReducer_GetLimitCount(r), 100u);
+  r->Free(r);
 }
 
 TEST_F(CollectParserTest, LimitBeforeSortByIsValid) {
   registerKeys({"price"});
-  CollectReducer *cr = parseCollectOk({
+  Reducer *r = parseCollectOk({
       "FIELDS", "1", "@price",
       "LIMIT", "0", "10",
       "SORTBY", "2", "@price", "ASC",
   });
-  ASSERT_NE(cr, nullptr);
-  EXPECT_TRUE(cr->has_limit);
-  EXPECT_EQ(cr->limit_offset, 0u);
-  EXPECT_EQ(cr->limit_count, 10u);
-  EXPECT_EQ(array_len(cr->sort_keys), 1);
-  EXPECT_TRUE(SORTASCMAP_GETASC(cr->sortAscMap, 0));
-  cr->base.Free(&cr->base);
+  ASSERT_NE(r, nullptr);
+  EXPECT_TRUE(CollectReducer_HasLimit(r));
+  EXPECT_EQ(CollectReducer_GetLimitOffset(r), 0u);
+  EXPECT_EQ(CollectReducer_GetLimitCount(r), 10u);
+  EXPECT_EQ(CollectReducer_GetSortKeysLen(r), 1u);
+  EXPECT_TRUE(SORTASCMAP_GETASC(CollectReducer_GetSortAscMap(r), 0));
+  r->Free(r);
 }
 
 TEST_F(CollectParserTest, MultipleSortKeysWithDirections) {
   registerKeys({"a", "b", "c"});
-  CollectReducer *cr = parseCollectOk({
+  Reducer *r = parseCollectOk({
       "FIELDS", "3", "@a", "@b", "@c",
       "SORTBY", "5", "@a", "ASC", "@b", "DESC", "@c",
   });
-  ASSERT_NE(cr, nullptr);
-  EXPECT_EQ(array_len(cr->sort_keys), 3);
-  EXPECT_TRUE(SORTASCMAP_GETASC(cr->sortAscMap, 0));
-  EXPECT_FALSE(SORTASCMAP_GETASC(cr->sortAscMap, 1));
-  EXPECT_TRUE(SORTASCMAP_GETASC(cr->sortAscMap, 2));
-  cr->base.Free(&cr->base);
+  ASSERT_NE(r, nullptr);
+  EXPECT_EQ(CollectReducer_GetSortKeysLen(r), 3u);
+  uint64_t map = CollectReducer_GetSortAscMap(r);
+  EXPECT_TRUE(SORTASCMAP_GETASC(map, 0));
+  EXPECT_FALSE(SORTASCMAP_GETASC(map, 1));
+  EXPECT_TRUE(SORTASCMAP_GETASC(map, 2));
+  r->Free(r);
 }
 
 TEST_F(CollectParserTest, SortByDefaultsToAscending) {
   registerKeys({"price"});
-  CollectReducer *cr = parseCollectOk({
+  Reducer *r = parseCollectOk({
       "FIELDS", "1", "@price",
       "SORTBY", "1", "@price",
   });
-  ASSERT_NE(cr, nullptr);
-  EXPECT_EQ(array_len(cr->sort_keys), 1);
-  EXPECT_TRUE(SORTASCMAP_GETASC(cr->sortAscMap, 0));
-  cr->base.Free(&cr->base);
+  ASSERT_NE(r, nullptr);
+  EXPECT_EQ(CollectReducer_GetSortKeysLen(r), 1u);
+  EXPECT_TRUE(SORTASCMAP_GETASC(CollectReducer_GetSortAscMap(r), 0));
+  r->Free(r);
 }
 
 TEST_F(CollectParserTest, SortByConsecutiveFieldsDefaultAsc) {
   registerKeys({"a", "b", "c"});
-  CollectReducer *cr = parseCollectOk({
+  Reducer *r = parseCollectOk({
       "FIELDS", "1", "@a",
       "SORTBY", "3", "@a", "@b", "@c",
   });
-  ASSERT_NE(cr, nullptr);
-  EXPECT_EQ(array_len(cr->sort_keys), 3);
-  EXPECT_TRUE(SORTASCMAP_GETASC(cr->sortAscMap, 0));
-  EXPECT_TRUE(SORTASCMAP_GETASC(cr->sortAscMap, 1));
-  EXPECT_TRUE(SORTASCMAP_GETASC(cr->sortAscMap, 2));
-  cr->base.Free(&cr->base);
+  ASSERT_NE(r, nullptr);
+  EXPECT_EQ(CollectReducer_GetSortKeysLen(r), 3u);
+  uint64_t map = CollectReducer_GetSortAscMap(r);
+  EXPECT_TRUE(SORTASCMAP_GETASC(map, 0));
+  EXPECT_TRUE(SORTASCMAP_GETASC(map, 1));
+  EXPECT_TRUE(SORTASCMAP_GETASC(map, 2));
+  r->Free(r);
 }
 
 TEST_F(CollectParserTest, SortByMixedConsecutiveFieldsAndDirections) {
   registerKeys({"a", "b", "c", "d", "e", "f"});
-  CollectReducer *cr = parseCollectOk({
+  Reducer *r = parseCollectOk({
       "FIELDS", "1", "@a",
       "SORTBY", "8", "@a", "@b", "@c", "ASC", "@d", "DESC", "@e", "@f",
   });
-  ASSERT_NE(cr, nullptr);
-  EXPECT_EQ(array_len(cr->sort_keys), 6);
-  EXPECT_TRUE(SORTASCMAP_GETASC(cr->sortAscMap, 0));
-  EXPECT_TRUE(SORTASCMAP_GETASC(cr->sortAscMap, 1));
-  EXPECT_TRUE(SORTASCMAP_GETASC(cr->sortAscMap, 2));
-  EXPECT_FALSE(SORTASCMAP_GETASC(cr->sortAscMap, 3));
-  EXPECT_TRUE(SORTASCMAP_GETASC(cr->sortAscMap, 4));
-  EXPECT_TRUE(SORTASCMAP_GETASC(cr->sortAscMap, 5));
-  cr->base.Free(&cr->base);
+  ASSERT_NE(r, nullptr);
+  EXPECT_EQ(CollectReducer_GetSortKeysLen(r), 6u);
+  uint64_t map = CollectReducer_GetSortAscMap(r);
+  EXPECT_TRUE(SORTASCMAP_GETASC(map, 0));
+  EXPECT_TRUE(SORTASCMAP_GETASC(map, 1));
+  EXPECT_TRUE(SORTASCMAP_GETASC(map, 2));
+  EXPECT_FALSE(SORTASCMAP_GETASC(map, 3));
+  EXPECT_TRUE(SORTASCMAP_GETASC(map, 4));
+  EXPECT_TRUE(SORTASCMAP_GETASC(map, 5));
+  r->Free(r);
 }
 
 TEST_F(CollectParserTest, SortByMaxFields) {
   registerKeys({"x", "a", "b", "c", "d", "e", "f", "g", "h"});
-  CollectReducer *cr = parseCollectOk({
+  Reducer *r = parseCollectOk({
       "FIELDS", "1", "@x",
       "SORTBY", "8", "@a", "@b", "@c", "@d", "@e", "@f", "@g", "@h",
   });
-  ASSERT_NE(cr, nullptr);
-  EXPECT_EQ(array_len(cr->sort_keys), 8);
+  ASSERT_NE(r, nullptr);
+  EXPECT_EQ(CollectReducer_GetSortKeysLen(r), 8u);
+  uint64_t map = CollectReducer_GetSortAscMap(r);
   for (int i = 0; i < 8; i++) {
-    EXPECT_TRUE(SORTASCMAP_GETASC(cr->sortAscMap, i)) << "sort key " << i;
+    EXPECT_TRUE(SORTASCMAP_GETASC(map, i)) << "sort key " << i;
   }
-  cr->base.Free(&cr->base);
+  r->Free(r);
 }
 
 TEST_F(CollectParserTest, LimitZeroOffset) {
   registerKeys({"x"});
-  CollectReducer *cr = parseCollectOk({
+  Reducer *r = parseCollectOk({
       "FIELDS", "1", "@x",
       "LIMIT", "0", "50",
   });
-  ASSERT_NE(cr, nullptr);
-  EXPECT_TRUE(cr->has_limit);
-  EXPECT_EQ(cr->limit_offset, 0u);
-  EXPECT_EQ(cr->limit_count, 50u);
-  cr->base.Free(&cr->base);
+  ASSERT_NE(r, nullptr);
+  EXPECT_TRUE(CollectReducer_HasLimit(r));
+  EXPECT_EQ(CollectReducer_GetLimitOffset(r), 0u);
+  EXPECT_EQ(CollectReducer_GetLimitCount(r), 50u);
+  r->Free(r);
 }
 
 TEST_F(CollectParserTest, JsonPathField) {
   registerKeys({"$..price"});
-  CollectReducer *cr = parseCollectOk({"FIELDS", "1", "$..price"});
-  ASSERT_NE(cr, nullptr);
-  EXPECT_EQ(array_len(cr->field_keys), 1);
-  EXPECT_FALSE(cr->has_wildcard);
-  cr->base.Free(&cr->base);
+  Reducer *r = parseCollectOk({"FIELDS", "1", "$..price"});
+  ASSERT_NE(r, nullptr);
+  EXPECT_EQ(CollectReducer_GetFieldKeysLen(r), 1u);
+  EXPECT_FALSE(CollectReducer_HasWildcard(r));
+  r->Free(r);
 }
 
 // ====== Validation / error tests ======

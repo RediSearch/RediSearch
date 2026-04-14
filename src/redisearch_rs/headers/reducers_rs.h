@@ -12,7 +12,35 @@ extern "C" {
 #endif // __cplusplus
 
 /**
- * Creates a new counter reducer instance
+ * Creates a new [`CollectReducer`] from pre-parsed configuration and returns a
+ * pointer to its base [`ffi::Reducer`] with the vtable fully wired.
+ *
+ * The caller is responsible for eventually calling [`collectFree`] on the
+ * returned pointer.
+ *
+ * # Safety
+ *
+ * 1. If `field_keys_len > 0`, `field_keys` must point to an array of at least
+ *    `field_keys_len` [valid] `*const RLookupKey` pointers.
+ * 2. If `sort_keys_len > 0`, `sort_keys` must point to an array of at least
+ *    `sort_keys_len` [valid] `*const RLookupKey` pointers.
+ * 3. All [`RLookupKey`][ffi::RLookupKey] pointers must remain valid for the
+ *    lifetime of the returned reducer.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+Reducer *CollectReducer_Create(const RLookupKey *const *field_keys,
+                               uintptr_t field_keys_len,
+                               bool has_wildcard,
+                               const RLookupKey *const *sort_keys,
+                               uintptr_t sort_keys_len,
+                               uint64_t sort_asc_map,
+                               bool has_limit,
+                               uint64_t limit_offset,
+                               uint64_t limit_count);
+
+/**
+ * Creates a new per-group collect reducer instance.
  *
  * # Safety
  *
@@ -23,52 +51,139 @@ extern "C" {
 void *collectNewInstance(Reducer *r);
 
 /**
- * Frees a counter reducer instance
+ * Frees a per-group collect reducer instance.
  *
  * # Safety
  *
  * 1. `r` must point to a [valid] `CollectReducer` masquerading as a `ffi::Reducer`.
- * 2. `ctx` mut point to a [valid] `CollectCtx` masquerading as a void pointer.
+ * 2. `ctx` must point to a [valid] `CollectCtx` masquerading as a void pointer.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 void collectFreeInstance(Reducer *r, void *ctx);
 
 /**
- * Process the provided `RLookupRow` with the collect reducer instance.
+ * Processes the provided [`ffi::RLookupRow`] with the collect reducer
+ * instance.
  *
  * # Safety
  *
  * 1. `r` must point to a [valid] `CollectReducer` masquerading as a `ffi::Reducer`.
- * 2. `ctx` mut point to a [valid] `CollectCtx` masquerading as a void pointer.
- * 3. `srcrow` mut point to a [valid] `ffi::RLookupRow`.
+ * 2. `ctx` must point to a [valid] `CollectCtx` masquerading as a void pointer.
+ * 3. `srcrow` must point to a [valid] `ffi::RLookupRow`.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 int collectAdd(Reducer *r, void *ctx, const RLookupRow *srcrow);
 
 /**
- * Finalize the collect reducer instance result into an `RSValue`.
+ * Finalizes the collect reducer instance result into an `RSValue`.
  *
  * # Safety
  *
  * 1. `r` must point to a [valid] `CollectReducer` masquerading as a `ffi::Reducer`.
- * 2. `ctx` mut point to a [valid] `CollectCtx` masquerading as a void pointer.
+ * 2. `ctx` must point to a [valid] `CollectCtx` masquerading as a void pointer.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 RSValue *collectFinalize(Reducer *r, void *ctx);
 
 /**
- * Frees the provided counter reducer.
+ * Frees the provided collect reducer (the global struct, not a per-group
+ * instance).
  *
  * # Safety
  *
- * 1. `r` must point to a [valid] `CounterReducer` masquerading as a `ffi::Reducer`.
+ * 1. `r` must point to a [valid] `CollectReducer` masquerading as a `ffi::Reducer`,
+ *    originally created by [`CollectReducer_Create`].
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 void collectFree(Reducer *r);
+
+/**
+ * Returns the number of explicitly listed field keys (excludes the wildcard).
+ *
+ * # Safety
+ *
+ * 1. `r` must point to a [valid] `CollectReducer` masquerading as a
+ *    `ffi::Reducer`, originally created by [`CollectReducer_Create`].
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+uintptr_t CollectReducer_GetFieldKeysLen(const Reducer *r);
+
+/**
+ * Returns whether the wildcard `*` was specified in the FIELDS clause.
+ *
+ * # Safety
+ *
+ * 1. `r` must point to a [valid] `CollectReducer` masquerading as a
+ *    `ffi::Reducer`, originally created by [`CollectReducer_Create`].
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+bool CollectReducer_HasWildcard(const Reducer *r);
+
+/**
+ * Returns the number of sort keys.
+ *
+ * # Safety
+ *
+ * 1. `r` must point to a [valid] `CollectReducer` masquerading as a
+ *    `ffi::Reducer`, originally created by [`CollectReducer_Create`].
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+uintptr_t CollectReducer_GetSortKeysLen(const Reducer *r);
+
+/**
+ * Returns the ASC/DESC bitmask for sort keys.
+ *
+ * # Safety
+ *
+ * 1. `r` must point to a [valid] `CollectReducer` masquerading as a
+ *    `ffi::Reducer`, originally created by [`CollectReducer_Create`].
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+uint64_t CollectReducer_GetSortAscMap(const Reducer *r);
+
+/**
+ * Returns whether a LIMIT clause was specified.
+ *
+ * # Safety
+ *
+ * 1. `r` must point to a [valid] `CollectReducer` masquerading as a
+ *    `ffi::Reducer`, originally created by [`CollectReducer_Create`].
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+bool CollectReducer_HasLimit(const Reducer *r);
+
+/**
+ * Returns the LIMIT offset value.
+ *
+ * # Safety
+ *
+ * 1. `r` must point to a [valid] `CollectReducer` masquerading as a
+ *    `ffi::Reducer`, originally created by [`CollectReducer_Create`].
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+uint64_t CollectReducer_GetLimitOffset(const Reducer *r);
+
+/**
+ * Returns the LIMIT count value.
+ *
+ * # Safety
+ *
+ * 1. `r` must point to a [valid] `CollectReducer` masquerading as a
+ *    `ffi::Reducer`, originally created by [`CollectReducer_Create`].
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+uint64_t CollectReducer_GetLimitCount(const Reducer *r);
 
 #ifdef __cplusplus
 }  // extern "C"
