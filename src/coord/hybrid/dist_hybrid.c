@@ -714,7 +714,6 @@ static int HybridRequest_executePlan(HybridRequest *hreq, struct ConcurrentCmdCt
 
     // Get the command from the RPNet (it was set during prepareForExecution)
     MRCommand *cmd = &searchRPNet->cmd;
-    int numShards = ConcurrentCmdCtx_GetNumShards(cmdCtx);
     cmd->coordStartTime = hreq->profileClocks.coordStartTime;
 
     const RSOomPolicy oomPolicy = hreq->reqConfig.oomPolicy;
