@@ -14,15 +14,15 @@ use libc::{c_char, size_t};
 use std::ffi::c_double;
 use value::Value;
 
-/// Gets the numeric value from an [`RsValue`].
+/// Gets the numeric value from an [`RSValue`].
 ///
 /// # Panic
 ///
-/// Panics if the value is not an [`RsValue::Number`].
+/// Panics if the value is not a [`Value::Number`].
 ///
 /// # Safety
 ///
-/// 1. `value` must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
+/// 1. `value` must point to a valid [`RSValue`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RSValue_Number_Get(value: *const RSValue) -> c_double {
     // Safety: ensured by caller (1.)
@@ -39,11 +39,11 @@ pub unsafe extern "C" fn RSValue_Number_Get(value: *const RSValue) -> c_double {
 ///
 /// # Panic
 ///
-/// Panics if the value is not an [`RsValue::Trio`].
+/// Panics if the value is not a [`Value::Trio`].
 ///
 /// # Safety
 ///
-/// 1. `value` must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
+/// 1. `value` must point to a valid [`RSValue`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RSValue_Trio_GetLeft(value: *const RSValue) -> *const RSValue {
     // Safety: ensured by caller (1.)
@@ -60,11 +60,11 @@ pub unsafe extern "C" fn RSValue_Trio_GetLeft(value: *const RSValue) -> *const R
 ///
 /// # Panic
 ///
-/// Panics if the value is not an [`RsValue::Trio`].
+/// Panics if the value is not a [`Value::Trio`].
 ///
 /// # Safety
 ///
-/// 1. `value` must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
+/// 1. `value` must point to a valid [`RSValue`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RSValue_Trio_GetMiddle(value: *const RSValue) -> *const RSValue {
     // Safety: ensured by caller (1.)
@@ -81,11 +81,11 @@ pub unsafe extern "C" fn RSValue_Trio_GetMiddle(value: *const RSValue) -> *const
 ///
 /// # Panic
 ///
-/// Panics if the value is not an [`RsValue::Trio`].
+/// Panics if the value is not a [`Value::Trio`].
 ///
 /// # Safety
 ///
-/// 1. `value` must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
+/// 1. `value` must point to a valid [`RSValue`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RSValue_Trio_GetRight(value: *const RSValue) -> *const RSValue {
     // Safety: ensured by caller (1.)
@@ -98,18 +98,18 @@ pub unsafe extern "C" fn RSValue_Trio_GetRight(value: *const RSValue) -> *const 
     }
 }
 
-/// Returns a pointer to the string data of an [`RsValue`] and optionally writes the string
+/// Returns a pointer to the string data of an [`RSValue`] and optionally writes the string
 /// length to `lenp`, if `lenp` is a non-null pointer.
 ///
-/// The returned pointer borrows from the [`RsValue`] and must not outlive it.
+/// The returned pointer borrows from the [`RSValue`] and must not outlive it.
 ///
 /// # Panic
 ///
-/// Panics if the value is not an [`RsValue::String`].
+/// Panics if the value is not a [`Value::String`].
 ///
 /// # Safety
 ///
-/// 1. `value` must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
+/// 1. `value` must point to a valid [`RSValue`].
 /// 2. `lenp` must be either null or a [valid], non-null pointer to a `u32`.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
@@ -135,17 +135,17 @@ pub unsafe extern "C" fn RSValue_String_Get(
     ptr
 }
 
-/// Returns a read only reference to the underlying [`RedisModuleString`] of an [`RsValue`].
+/// Returns a read only reference to the underlying [`RedisModuleString`] of an [`RSValue`].
 ///
-/// The returned reference borrows from the [`RsValue`] and must not outlive it.
+/// The returned reference borrows from the [`RSValue`] and must not outlive it.
 ///
 /// # Panic
 ///
-/// Panics if the value is not an [`RsValue::RedisString`].
+/// Panics if the value is not a [`Value::RedisString`].
 ///
 /// # Safety
 ///
-/// 1. `value` must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
+/// 1. `value` must point to a valid [`RSValue`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RSValue_RedisString_Get(
     value: *const RSValue,
@@ -160,18 +160,18 @@ pub unsafe extern "C" fn RSValue_RedisString_Get(
     str.as_ptr()
 }
 
-/// Returns a pointer to the string data of an [`RsValue`] and optionally writes the string
+/// Returns a pointer to the string data of an [`RSValue`] and optionally writes the string
 /// length to `len_ptr`.
 ///
 /// Unlike [`RSValue_String_Get`], this function handles all string variants (including
 /// `RedisString`) and automatically dereferences `Ref` values and follows through the left
 /// element of `Trio` values. Returns null for non-string variants.
 ///
-/// The returned pointer borrows from the [`RsValue`] and must not outlive it.
+/// The returned pointer borrows from the [`RSValue`] and must not outlive it.
 ///
 /// # Safety
 ///
-/// 1. `value` must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
+/// 1. `value` must point to a valid [`RSValue`].
 /// 2. `len_ptr` must be either null or a [valid], non-null pointer to a `size_t`.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety

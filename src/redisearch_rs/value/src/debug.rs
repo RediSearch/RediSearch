@@ -7,9 +7,9 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! Debug formatting for [`RsValue`] with optional obfuscation.
+//! Debug formatting for [`Value`] with optional obfuscation.
 //!
-//! Provides [`DebugFormatter`], a wrapper that implements [`Debug`] for [`RsValue`],
+//! Provides [`DebugFormatter`], a wrapper that implements [`Debug`] for [`Value`],
 //! with support for obfuscating sensitive data via C-side obfuscation functions.
 
 use crate::Value;
@@ -20,7 +20,7 @@ use std::{
     str,
 };
 
-/// A wrapper around an [`RsValue`] reference that implements [`Debug`] with
+/// A wrapper around a [`Value`] reference that implements [`Debug`] with
 /// optional obfuscation of string and numeric values.
 ///
 /// When `obfuscate` is `true`, string and numeric values are replaced with

@@ -28,7 +28,7 @@ pub mod string;
 pub mod trio;
 pub mod util;
 
-/// An actual [`RsValue`] object
+/// An actual [`Value`] object
 #[derive(Debug)]
 pub enum Value {
     /// Undefined, not holding a value.

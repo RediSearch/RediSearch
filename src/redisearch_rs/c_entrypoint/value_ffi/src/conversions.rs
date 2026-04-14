@@ -14,13 +14,13 @@ use std::ffi::{c_char, c_double};
 use value::Value;
 use value::util::{num_to_str, str_to_float};
 
-/// Convert the [`RsValue`] to a number. Returns `true` when this value is a number
+/// Convert the [`RSValue`] to a number. Returns `true` when this value is a number
 /// or a numeric string that can be converted and writes the number to `d`. If
 /// the value cannot be converted `false` is returned and nothing is written to `d`.
 ///
 /// # Safety
 ///
-/// 1. `value` must be either null or point to a valid [`RsValue`] obtained from
+/// 1. `value` must be either null or point to a valid [`RSValue`] obtained from
 ///    an `RSValue_*` function.
 /// 2. `d` must be a [valid], non-null pointer to a `c_double`.
 ///
@@ -50,19 +50,19 @@ pub unsafe extern "C" fn RSValue_ToNumber(value: *const RSValue, d: *mut c_doubl
     true
 }
 
-/// Formats the numeric value of an [`RsValue::Number`] as a string into the
+/// Formats the numeric value of a [`Value::Number`] as a string into the
 /// caller-provided buffer and returns the number of bytes written.
 ///
 /// # Safety
 ///
-/// 1. `value` must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
+/// 1. `value` must point to a valid [`RSValue`].
 /// 2. `buf` must be a [valid] pointer to a writable buffer of at least 32 bytes.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 ///
 /// # Panic
 ///
-/// Panics if `value` is not an [`RsValue::Number`].
+/// Panics if `value` is not a [`Value::Number`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RSValue_NumToString(
     value: *const RSValue,

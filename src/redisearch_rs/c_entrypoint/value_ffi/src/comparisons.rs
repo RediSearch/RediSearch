@@ -14,7 +14,7 @@ use std::ffi::c_int;
 use value::Value;
 use value::comparison::{compare_on_equality_only, compare_with_query_error_to_int};
 
-/// Compare two [`RsValue`]s, returning `-1` if `v1 < v2`, `0` if `v1 == v2`,
+/// Compare two [`RSValue`]s, returning `-1` if `v1 < v2`, `0` if `v1 == v2`,
 /// or `1` if `v1 > v2`.
 ///
 /// When `status` is null, mixed number/string comparisons fall back to
@@ -23,7 +23,7 @@ use value::comparison::{compare_on_equality_only, compare_with_query_error_to_in
 ///
 /// # Safety
 ///
-/// 1. `v1` and `v2` must be [valid] pointers to [`RsValue`]s.
+/// 1. `v1` and `v2` must be [valid] pointers to [`RSValue`]s.
 /// 2. `status`, when non-null, must be a [valid], writable pointer to a [`QueryError`].
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
@@ -44,12 +44,12 @@ pub unsafe extern "C" fn RSValue_Cmp(
     compare_with_query_error_to_int(v1, v2, qerr)
 }
 
-/// Check whether two [`RsValue`]s are equal, returning `true` if they are and
+/// Check whether two [`RSValue`]s are equal, returning `true` if they are and
 /// `false` otherwise.
 ///
 /// # Safety
 ///
-/// 1. `v1` and `v2` must be [valid] pointers to [`RsValue`]s.
+/// 1. `v1` and `v2` must be [valid] pointers to [`RSValue`]s.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
@@ -66,16 +66,16 @@ pub unsafe extern "C" fn RSValue_Equal(
     compare_on_equality_only(v1, v2)
 }
 
-/// Test whether an [`RsValue`] is "truthy".
+/// Test whether an [`RSValue`] is "truthy".
 ///
 /// Returns `true` for non-zero numbers, non-empty strings, and non-empty arrays.
-/// All other variants (including [`RsValue::Null`] and [`RsValue::Map`])
+/// All other variants (including [`Value::Null`] and [`Value::Map`])
 /// evaluate to `false`. References are followed via
-/// [`RsValue::fully_dereferenced_ref`].
+/// [`Value::fully_dereferenced_ref`].
 ///
 /// # Safety
 ///
-/// 1. `value` must be a [valid] pointer to an [`RsValue`].
+/// 1. `value` must be a [valid] pointer to an [`RSValue`].
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]

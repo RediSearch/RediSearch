@@ -35,7 +35,7 @@ impl Trio {
 
 impl fmt::Debug for Trio {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_tuple("RsValueTrio")
+        f.debug_tuple("Trio")
             .field(&self.0.0)
             .field(&self.0.1)
             .field(&self.0.2)

@@ -36,7 +36,7 @@ pub extern "C" fn RLookupRow_New() -> OpaqueRLookupRow {
 ///
 /// 1. `key` must be a [valid], non-null pointer to an [`RLookupKey`].
 /// 2. `row` must be a [valid], non-null pointer to an [`RLookupRow`].
-/// 3. `value` must be a [valid], non-null pointer to an [`RsValue`].
+/// 3. `value` must be a [valid], non-null pointer to an [`RSValue`].
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
@@ -65,7 +65,7 @@ pub unsafe extern "C" fn RLookup_WriteKey(
 ///
 /// 1. `key` must be a [valid], non-null pointer to an [`RLookupKey`].
 /// 2. `row` must be a [valid], non-null pointer to an [`RLookupRow`].
-/// 3. `value` must be a [valid], non-null pointer to an [`RsValue`].
+/// 3. `value` must be a [valid], non-null pointer to an [`RSValue`].
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
@@ -169,7 +169,7 @@ pub unsafe extern "C-unwind" fn RLookupRow_MoveFieldsFrom(
 ///     2. The entire memory range of this cstr must be contained within a single allocation!
 ///     3. `name` must be non-null even for a zero-length cstr.
 /// 4. `row` must be a [valid], non-null pointer to an [`RLookupRow`].
-/// 5. `value` must be a [valid], non-null pointer to an [`RsValue`].
+/// 5. `value` must be a [valid], non-null pointer to an [`RSValue`].
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
@@ -227,7 +227,7 @@ pub unsafe extern "C" fn RLookupRow_WriteByName<'a>(
 ///     2. The entire memory range of this cstr must be contained within a single allocation!
 ///     3. `name` must be non-null even for a zero-length cstr.
 /// 4. `row` must be a [valid], non-null pointer to an [`RLookupRow`].
-/// 5. `value` must be a [valid], non-null pointer to an [`RsValue`].
+/// 5. `value` must be a [valid], non-null pointer to an [`RSValue`].
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
@@ -353,7 +353,7 @@ pub unsafe extern "C" fn RLookupRow_Get(
 /// since this is a borrowed, non-owning view.
 #[repr(C)]
 pub struct RSSortingVectorSlice {
-    /// Pointer to the array of [`SharedRsValue`] values.
+    /// Pointer to the array of [`RSValue`] values.
     /// When `len == 0` this is a dangling pointer — **not** null. Callers must check `len`.
     pub values: *const *const RSValue,
     /// Number of elements in the array. Zero means no sorting vector is set.
@@ -379,9 +379,9 @@ pub unsafe extern "C" fn RLookupRow_GetSortingVector(
 
     let slice = row.sorting_vector();
     RSSortingVectorSlice {
-        // Even though slice is a `&[SharedRsValue]`, a `SharedRsValue` is actually a
-        // `*const RsValue`. `SharedRsValue` is used within Rust code and
-        // `*const RsValue` is used to interface with C. We can safely cast here.
+        // Even though slice is a `&[SharedValue]`, a `SharedValue` is actually a
+        // `*const RSValue`. `SharedValue` is used within Rust code and
+        // `*const RSValue` is used to interface with C. We can safely cast here.
         values: slice.as_ptr().cast(),
         len: slice.len(),
     }

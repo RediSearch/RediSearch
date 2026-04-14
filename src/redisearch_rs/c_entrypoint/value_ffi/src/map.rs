@@ -15,7 +15,7 @@ use value::{Map, SharedValue, Value};
 
 /// Opaque map structure used during map construction.
 /// Holds uninitialized entries that are populated via [`RSValue_MapBuilderSetEntry`]
-/// before being finalized into an [`RsValue::Map`] via [`RSValue_NewMapFromBuilder`].
+/// before being finalized into an [`Value::Map`] via [`RSValue_NewMapFromBuilder`].
 pub struct RSValueMapBuilder {
     entries: Box<[MaybeUninit<(*mut RSValue, *mut RSValue)>]>,
 }
@@ -23,7 +23,7 @@ pub struct RSValueMapBuilder {
 /// Allocates a new, uninitialized [`RSValueMapBuilder`] with space for `len` entries.
 ///
 /// The map entries are uninitialized and must be set using [`RSValue_MapBuilderSetEntry`]
-/// before being finalized into an [`RsValue`] via [`RSValue_NewMapFromBuilder`].
+/// before being finalized into an [`RSValue`] via [`RSValue_NewMapFromBuilder`].
 ///
 /// # Safety
 ///
@@ -40,13 +40,13 @@ pub unsafe extern "C" fn RSValue_NewMapBuilder(len: u32) -> *mut RSValueMapBuild
 
 /// Sets a key-value pair at a specific index in the map.
 ///
-/// Takes ownership of both the `key` and `value` [`RsValue`] pointers.
+/// Takes ownership of both the `key` and `value` [`RSValue`] pointers.
 ///
 /// # Safety
 ///
 /// 1. `map` must be a valid pointer to an [`RSValueMapBuilder`] created by
 ///    [`RSValue_NewMapBuilder`].
-/// 2. `key` and `value` must be valid pointers to [`RsValue`]
+/// 2. `key` and `value` must be valid pointers to [`RSValue`]
 ///
 /// # Panics
 ///
@@ -65,7 +65,7 @@ pub unsafe extern "C" fn RSValue_MapBuilderSetEntry(
     map.entries[index] = MaybeUninit::new((key, value));
 }
 
-/// Creates a heap-allocated map [`RsValue`] from an [`RSValueMapBuilder`].
+/// Creates a heap-allocated map [`RSValue`] from an [`RSValueMapBuilder`].
 ///
 /// Takes ownership of the map structure and all its entries. The [`RSValueMapBuilder`]
 /// pointer is consumed and must not be used after this call.
@@ -99,11 +99,11 @@ pub unsafe extern "C" fn RSValue_NewMapFromBuilder(map: *mut RSValueMapBuilder) 
     into_rs_value(shared)
 }
 
-/// Returns the number of key-value pairs in a map [`RsValue`].
+/// Returns the number of key-value pairs in a map [`RSValue`].
 ///
 /// # Safety
 ///
-/// 1. `map` must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
+/// 1. `map` must point to a valid [`RSValue`].
 ///
 /// # Panics
 ///
@@ -121,16 +121,16 @@ pub unsafe extern "C" fn RSValue_Map_Len(map: *const RSValue) -> u32 {
     }
 }
 
-/// Retrieves a key-value pair from a map [`RsValue`] at a specific index.
+/// Retrieves a key-value pair from a map [`RSValue`] at a specific index.
 ///
 /// The returned key and value pointers are borrowed from the map and must
 /// not be freed by the caller.
 ///
 /// # Safety
 ///
-/// 1. `map` must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
+/// 1. `map` must point to a valid [`RSValue`].
 /// 2. `key` and `value` must be valid, non-null pointers to writable
-///    `*mut RsValue` locations.
+///    `*mut RSValue` locations.
 ///
 /// # Panics
 ///
