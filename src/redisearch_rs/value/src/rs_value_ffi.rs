@@ -8,6 +8,7 @@
 */
 
 use std::marker::PhantomData;
+use std::mem;
 use std::ops::Deref;
 use std::{ffi::c_char, mem::ManuallyDrop, ptr::NonNull, slice};
 
@@ -64,6 +65,12 @@ impl RSValueFFI {
     /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
     pub const unsafe fn from_raw(ptr: NonNull<ffi::RSValue>) -> Self {
         Self(ptr)
+    }
+
+    pub const fn into_raw(self) -> *mut ffi::RSValue {
+        let ptr = self.0.as_ptr();
+        mem::forget(self);
+        ptr
     }
 
     pub const fn as_ptr(&self) -> *mut ffi::RSValue {

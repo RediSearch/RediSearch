@@ -1,0 +1,17 @@
+[package]
+name = "reducers"
+version.workspace = true
+edition.workspace = true
+license-file.workspace = true
+publish.workspace = true
+
+[dependencies]
+bumpalo.workspace = true
+ffi.workspace = true
+query_error.workspace = true
+rlookup.workspace = true
+value = { workspace = true, features = ["c_ffi_impl"] }
+workspace_hack.workspace = true
+
+[lints]
+workspace = true
