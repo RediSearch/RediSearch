@@ -421,25 +421,18 @@ def change_threads(initial_workers, final_workers):
     env.execute_command(config_cmd(), 'SET', 'WORKERS', final_workers)
     env.assertEqual(int(env.execute_command(config_cmd(), 'GET', 'WORKERS')[0][1]), final_workers, message=message_prefix)
 
-    # TODO: new num_threads should be `final_workers` once VecSim gets notified of RediSearch thread pool changes
-    # last_reserved_num_threads should remain the same as we didn't do any operation
-    verify_num_threads(initial_workers, prev_last_reserved_num_threads, message=f"{message_prefix}, after changing workers to {final_workers}")
+    # VecSim is notified of worker count changes via VecSim_UpdateThreadPoolSize.
+    # NUM_THREADS (shared pool size) should now reflect the new worker count.
+    # last_reserved_num_threads should remain the same as we didn't do any operation.
+    verify_num_threads(final_workers, prev_last_reserved_num_threads, message=f"{message_prefix}, after changing workers to {final_workers}")
 
     # Add more vectors to trigger background indexing
     populate_with_vectors(env, dim=dim, num_docs=update_threshold, datatype='FLOAT32', initial_doc_id=training_threshold + 1)
     wait_for_background_indexing(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME, message=f"{message_prefix}, add more vectors to trigger update")
-    # Since VecSim doesn't get notified when RediSearch worker count changes, when RediSearch worker count changes
-    # svs index continues to request the original number of threads during operations
-    #
-    # The actual thread reservation will be limited by the current RediSearch worker count
-    # - If workers decreased: requested > actual_workers
-    # - If workers increased: requested < actual_workers
-    #
-    # TODO: Expected behavior after VecSim gets worker change notifications:
-    # - num_threads should reflect the current RediSearch worker count
-    # - last_reserved_num_threads should match the actual threads used in operations
-    expected_last_reserved_num_threads = min(final_workers, initial_workers)
-    verify_num_threads(initial_workers, expected_last_reserved_num_threads,
+    # After VecSim gets worker change notifications:
+    # - num_threads reflects the current RediSearch worker count (shared pool size)
+    # - last_reserved_num_threads matches the actual threads used in operations (up to final_workers)
+    verify_num_threads(final_workers, final_workers,
                     message=f"{message_prefix}, after changing workers to {final_workers} and triggering another update job")
 
 def test_change_threads_turn_on():
