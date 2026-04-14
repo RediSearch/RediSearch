@@ -55,6 +55,8 @@ endif()
 set(SNOWBALL_STEMMER_SOURCES "")
 set(SNOWBALL_STEMMER_HEADERS "")
 
+# --- 2a: Upstream snowball stemmers (from deps/snowball) ---
+
 file(STRINGS "${SNOWBALL_SRC}/libstemmer/modules.txt" _MODULES_LINES)
 foreach(_line IN LISTS _MODULES_LINES)
     string(STRIP "${_line}" _line)
@@ -89,22 +91,72 @@ foreach(_line IN LISTS _MODULES_LINES)
     list(APPEND SNOWBALL_STEMMER_HEADERS "${_stem_h}")
 endforeach()
 
+# --- 2b: Custom stemmers (from deps/stemmers) ---
+
+set(CUSTOM_STEMMERS_SRC "${root}/deps/stemmers")
+set(CUSTOM_STEMMERS_MODULES_TXT "${CUSTOM_STEMMERS_SRC}/modules.txt")
+
+if(EXISTS "${CUSTOM_STEMMERS_MODULES_TXT}")
+    file(STRINGS "${CUSTOM_STEMMERS_MODULES_TXT}" _CUSTOM_LINES)
+    foreach(_line IN LISTS _CUSTOM_LINES)
+        string(STRIP "${_line}" _line)
+        if(_line STREQUAL "" OR _line MATCHES "^#")
+            continue()
+        endif()
+
+        string(REGEX MATCH "^([^ \t]+)[ \t]+([^ \t]+)" _ "${_line}")
+        set(_alg "${CMAKE_MATCH_1}")
+
+        set(_stem_base "stem_UTF_8_${_alg}")
+        set(_stem_c "${SNOWBALL_BUILD}/src_c/${_stem_base}.c")
+        set(_stem_h "${SNOWBALL_BUILD}/src_c/${_stem_base}.h")
+
+        add_custom_command(
+            OUTPUT "${_stem_c}" "${_stem_h}"
+            COMMAND ${CMAKE_COMMAND} -E make_directory "${SNOWBALL_BUILD}/src_c"
+            COMMAND ${SNOWBALL_COMPILER_CMD}
+                "${CUSTOM_STEMMERS_SRC}/algorithms/${_alg}.sbl"
+                -o "${SNOWBALL_BUILD}/src_c/${_stem_base}"
+                -eprefix "${_alg}_UTF_8_"
+                -r runtime
+                -u
+            DEPENDS snowball_compiler
+                    "${CUSTOM_STEMMERS_SRC}/algorithms/${_alg}.sbl"
+            COMMENT "Generating custom stemmer: ${_stem_base}"
+            VERBATIM
+        )
+
+        list(APPEND SNOWBALL_STEMMER_SOURCES "${_stem_c}")
+        list(APPEND SNOWBALL_STEMMER_HEADERS "${_stem_h}")
+    endforeach()
+endif()
+
 # =============================================================================
 # Stage 3: Generate module registry header (modules.h)
 # =============================================================================
 
 set(SNOWBALL_MODULES_H "${SNOWBALL_BUILD}/libstemmer/modules.h")
 
+set(_MODULES_H_DEPENDS
+    "${SNOWBALL_MKMODULES_SCRIPT}"
+    "${SNOWBALL_SRC}/libstemmer/modules.txt"
+)
+set(_EXTRA_MODULES_TXT_ARG "")
+if(EXISTS "${CUSTOM_STEMMERS_MODULES_TXT}")
+    set(_EXTRA_MODULES_TXT_ARG "-DEXTRA_MODULES_TXT=${CUSTOM_STEMMERS_MODULES_TXT}")
+    list(APPEND _MODULES_H_DEPENDS "${CUSTOM_STEMMERS_MODULES_TXT}")
+endif()
+
 add_custom_command(
     OUTPUT "${SNOWBALL_MODULES_H}"
     COMMAND ${CMAKE_COMMAND} -E make_directory "${SNOWBALL_BUILD}/libstemmer"
     COMMAND ${CMAKE_COMMAND}
         "-DMODULES_TXT=${SNOWBALL_SRC}/libstemmer/modules.txt"
+        ${_EXTRA_MODULES_TXT_ARG}
         "-DOUTPUT=${SNOWBALL_MODULES_H}"
         "-DC_SRC_DIR=src_c"
         -P "${SNOWBALL_MKMODULES_SCRIPT}"
-    DEPENDS "${SNOWBALL_MKMODULES_SCRIPT}"
-            "${SNOWBALL_SRC}/libstemmer/modules.txt"
+    DEPENDS ${_MODULES_H_DEPENDS}
     COMMENT "Generating snowball module registry (modules.h)"
     VERBATIM
 )

@@ -544,12 +544,45 @@ def testJsonIndexLanguageField(env):
                       'SORTBY', 'word', 'DESC')
         env.assertEqual(res2, res1)
 
+def testMalayLanguage(env):
+    conn = getConnectionByEnv(env)
+
+    conn.execute_command('HSET', '{ms}:1', 'word', 'memakan')
+    conn.execute_command('HSET', '{ms}:2', 'word', 'makan')
+
+    env.cmd('FT.CREATE', 'idx_ms', 'ON', 'HASH', 'PREFIX', '1', '{ms}:',
+            'LANGUAGE', 'malay', 'SCHEMA', 'word', 'TEXT')
+    waitForIndex(env, 'idx_ms')
+
+    res = env.cmd('FT.SEARCH', 'idx_ms', 'memakan', 'SORTBY', 'word', 'ASC')
+    env.assertEqual(res[0], 2)
+
+    res = env.cmd('FT.SEARCH', 'idx_ms', 'makan', 'SORTBY', 'word', 'ASC')
+    env.assertEqual(res[0], 2)
+
+def testTagalogLanguage(env):
+    conn = getConnectionByEnv(env)
+
+    conn.execute_command('HSET', '{tl}:1', 'word', 'kumain')
+    conn.execute_command('HSET', '{tl}:2', 'word', 'kain')
+
+    env.cmd('FT.CREATE', 'idx_tl', 'ON', 'HASH', 'PREFIX', '1', '{tl}:',
+            'LANGUAGE', 'tagalog', 'SCHEMA', 'word', 'TEXT')
+    waitForIndex(env, 'idx_tl')
+
+    res = env.cmd('FT.SEARCH', 'idx_tl', 'kumain', 'SORTBY', 'word', 'ASC')
+    env.assertEqual(res[0], 2)
+
+    res = env.cmd('FT.SEARCH', 'idx_tl', 'kain', 'SORTBY', 'word', 'ASC')
+    env.assertEqual(res[0], 2)
+
 def testLanguageInfo(env):
     languages = ['arabic', 'armenian', 'basque', 'catalan', 'danish', 'dutch',
                  'finnish', 'french', 'german', 'greek', 'hindi', 'hungarian',
-                 'indonesian', 'irish', 'italian', 'lithuanian', 'nepali',
-                 'norwegian', 'portuguese', 'romanian', 'russian', 'serbian',
-                 'spanish', 'swedish', 'tamil', 'turkish', 'yiddish', 'chinese']
+                 'indonesian', 'irish', 'italian', 'lithuanian', 'malay',
+                 'nepali', 'norwegian', 'portuguese', 'romanian', 'russian',
+                 'serbian', 'spanish', 'swedish', 'tagalog', 'tamil',
+                 'turkish', 'yiddish', 'chinese']
     # 'english' is not printed in FT.INFO because it is the default language
     for language in languages:
         env.cmd('FT.CREATE', 'idx_' + language, 'LANGUAGE', language,

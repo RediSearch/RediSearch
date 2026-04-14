@@ -1,0 +1,6 @@
+# Custom stemmer modules not yet upstream in the snowball project.
+# Format matches deps/snowball/libstemmer/modules.txt:
+#   algorithm  encodings  aliases
+
+malaya          UTF_8                   malay,ms,msa,zlm
+tagalog         UTF_8                   tagalog,tl,tgl

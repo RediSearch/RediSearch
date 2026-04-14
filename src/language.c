@@ -46,6 +46,8 @@ langPair_t __langPairs[] = {
   { "tamil",      RS_LANG_TAMIL },
   { "turkish",    RS_LANG_TURKISH },
   { "yiddish",    RS_LANG_YIDDISH },
+  { "malay",      RS_LANG_MALAY },
+  { "tagalog",    RS_LANG_TAGALOG },
   { "chinese",    RS_LANG_CHINESE },
   { NULL,         RS_LANG_UNSUPPORTED }
 };
@@ -81,6 +83,8 @@ const char *RSLanguage_ToString(RSLanguage language) {
     case  RS_LANG_TAMIL:       ret = "tamil";      break;
     case  RS_LANG_TURKISH:     ret = "turkish";    break;
     case  RS_LANG_YIDDISH:     ret = "yiddish";    break;
+    case  RS_LANG_MALAY:       ret = "malay";      break;
+    case  RS_LANG_TAGALOG:     ret = "tagalog";    break;
     case  RS_LANG_CHINESE:     ret = "chinese";    break;
     case  RS_LANG_UNSUPPORTED:
     default: break;
