@@ -8,8 +8,6 @@
 */
 
 #pragma once
-#ifndef BUFFER_H_
-#define BUFFER_H_
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -192,4 +190,3 @@ size_t Buffer_Free(Buffer *buf);
 }
 #endif
 
-#endif // BUFFER_H_
