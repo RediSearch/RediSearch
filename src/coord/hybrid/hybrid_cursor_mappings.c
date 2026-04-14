@@ -163,10 +163,7 @@ static void processHybridResp3(processCursorMappingCallbackContext *ctx, MRReply
 static void processCursorMappingCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
     // TODO: add response validation (see netCursorCallback)
     // TODO implement error handling
-    RefManager *rm = (RefManager *)MRIteratorCallback_GetPrivateData(ctx);
-    WeakRef w_ref = {.rm = rm};
-    StrongRef s_ref = WeakRef_Promote(w_ref);
-    processCursorMappingCallbackContext *cb_ctx = StrongRef_Get(s_ref);
+    processCursorMappingCallbackContext *cb_ctx = (processCursorMappingCallbackContext *)MRIteratorCallback_GetPrivateData(ctx);
     RS_ASSERT(cb_ctx);
     MRCommand *cmd = MRIteratorCallback_GetCommand(ctx);
 
@@ -192,14 +189,25 @@ static void processCursorMappingCallback(MRIteratorCallbackCtx *ctx, MRReply *re
 
     MRIteratorCallback_Done(ctx, 0);
     MRReply_Free(rep);
-
-    // Release the strong ref. If this is the last reference (coordinator already released),
-    // this will free the context. Otherwise, the coordinator's release will free it later.
-    StrongRef_Release(s_ref);
 }
 
-static void freeCtx(void *p) {
-    processCursorMappingCallbackContext *ctx = p;
+// Init callback for the private data, called from iterStartCb on the IO thread
+// after the actual shard count is determined from the live topology but before
+// commands are dispatched. This synchronizes the expected response count with
+// the coordinator's wait loop, preventing a use-after-free when the topology
+// changes (e.g., during shard migration) between the coordinator reading
+// numShards and iterStartCb dispatching commands.
+static void processCursorMappingInit(void *privateData, MRIterator *it) {
+    processCursorMappingCallbackContext *ctx = (processCursorMappingCallbackContext *)privateData;
+    int actualNumShards = (int)MRIterator_GetNumShards(it);
+    pthread_mutex_lock(ctx->mutex);
+    ctx->numShards = actualNumShards;
+    // Signal in case the coordinator is already waiting with the stale numShards.
+    pthread_cond_signal(ctx->completionCond);
+    pthread_mutex_unlock(ctx->mutex);
+}
+
+static inline void cleanupCtx(processCursorMappingCallbackContext *ctx) {
     pthread_mutex_destroy(ctx->mutex);
     pthread_cond_destroy(ctx->completionCond);
     rm_free(ctx->mutex);
@@ -225,30 +233,33 @@ bool ProcessHybridCursorMappings(const MRCommand *cmd, int numShards, StrongRef 
     pthread_cond_init(ctx->completionCond, NULL);
 
     // Setup callback context
-    *ctx = (processCursorMappingCallbackContext) {
+    *ctx = (processCursorMappingCallbackContext){
         .searchMappings = StrongRef_Clone(searchMappingsRef),
         .vsimMappings = StrongRef_Clone(vsimMappingsRef),
         .errors = array_new(QueryError, numShards),
         .responseCount = 0,
         .mutex = ctx->mutex,
         .completionCond = ctx->completionCond,
-        .numShards = numShards,
+        .numShards = numShards
     };
 
-    StrongRef ctx_ref = StrongRef_New(ctx, freeCtx);
-
-    // Start iteration — pass the raw RefManager pointer as privateData so callbacks
-    // can reconstruct a WeakRef and promote it (see processCursorMappingCallback).
-    MRIterator *it = MR_IterateWithPrivateData(cmd, processCursorMappingCallback, ctx_ref.rm, NULL, NULL, iterStartCb, NULL);
+    // Start iteration (ctx is cleaned up manually in cleanupCtx, no destructor needed)
+    // processCursorMappingInit is called from iterStartCb to update ctx->numShards
+    // with the actual shard count from the live topology, preventing use-after-free
+    // when topology changes during shard migration.
+    MRIterator *it = MR_IterateWithPrivateData(cmd, processCursorMappingCallback, ctx, NULL, processCursorMappingInit, iterStartCb, NULL);
     if (!it) {
+        // Cleanup on error
         QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_GENERIC, "Failed to communicate with shards");
-        StrongRef_Release(ctx_ref);
+        cleanupCtx(ctx);
         return false;
     }
     // Wait for all callbacks to complete
     pthread_mutex_lock(ctx->mutex);
-    // initialize count with response counts in case some shards already sent a response
-    for (size_t count = ctx->responseCount; count < numShards; count = ctx->responseCount) {
+    // Wait until all responses arrive. Use ctx->numShards (not the local numShards)
+    // because the IO thread may have updated it via processCursorMappingInit when
+    // the live topology differs from what the coordinator originally read.
+    for (size_t count = ctx->responseCount; count < ctx->numShards; count = ctx->responseCount) {
         pthread_cond_wait(ctx->completionCond, ctx->mutex);
     }
     pthread_mutex_unlock(ctx->mutex);
@@ -265,10 +276,9 @@ bool ProcessHybridCursorMappings(const MRCommand *cmd, int numShards, StrongRef 
             }
         }
     }
-    // Release the coordinator's reference. If all callbacks have already finished,
-    // this will free ctx. Otherwise the last callback to finish will free it.
+    // Cleanup
     MRIterator_Release(it);
-    StrongRef_Release(ctx_ref);
+    cleanupCtx(ctx);
 
     return success;
 }
