@@ -6,8 +6,8 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#ifndef SRC_DICTIONARY_H_
-#define SRC_DICTIONARY_H_
+
+#pragma once
 
 #include "trie/trie_type.h"
 
@@ -29,5 +29,3 @@ int DictDumpCommand(RedisModuleCtx* ctx, RedisModuleString** argv, int argc);
 int DictDelCommand(RedisModuleCtx* ctx, RedisModuleString** argv, int argc);
 int DictAddCommand(RedisModuleCtx* ctx, RedisModuleString** argv, int argc);
 int DictRegister(RedisModuleCtx* ctx);
-
-#endif /* SRC_DICTIONARY_H_ */

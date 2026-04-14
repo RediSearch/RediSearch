@@ -4,8 +4,8 @@
  * the Server Side Public License v1 (SSPLv1).
  */
 
-#ifndef RS_STRCONV_H_
-#define RS_STRCONV_H_
+#pragma once
+
 #include <limits.h>
 #include <sys/errno.h>
 #include <math.h>
@@ -225,5 +225,3 @@ static char *rm_normalize(const char *s, size_t len) {
 
   return ret;
 }
-
-#endif

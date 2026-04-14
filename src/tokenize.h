@@ -7,8 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-#ifndef __TOKENIZE_H__
-#define __TOKENIZE_H__
+#pragma once
 
 #include "stemmer.h"
 #include "stopwords.h"
@@ -114,5 +113,4 @@ void Tokenizer_Release(RSTokenizer *t);
 
 #ifdef __cplusplus
 }
-#endif
 #endif

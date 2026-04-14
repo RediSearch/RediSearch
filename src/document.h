@@ -6,8 +6,9 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#ifndef __RS_DOCUMENT_H__
-#define __RS_DOCUMENT_H__
+
+#pragma once
+
 #include <pthread.h>
 #include "redismodule.h"
 #include "search_ctx.h"
@@ -382,5 +383,4 @@ void freeGlobalAddStrings();
 
 #ifdef __cplusplus
 }
-#endif
 #endif

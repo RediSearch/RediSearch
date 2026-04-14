@@ -6,8 +6,8 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#ifndef __REDISEARCH_EXTN_H__
-#define __REDISEARCH_EXTN_H__
+
+#pragma once
 
 #include "redisearch.h"
 
@@ -57,5 +57,4 @@ int Ext_RegisterScoringFunction(const char *alias, RSScoringFunction func, RSFre
 
 #ifdef __cplusplus
 }
-#endif
 #endif

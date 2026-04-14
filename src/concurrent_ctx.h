@@ -6,8 +6,8 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#ifndef RS_CONCERRNT_CTX_
-#define RS_CONCERRNT_CTX_
+
+#pragma once
 
 #include "redisearch.h"
 #include "redismodule.h"
@@ -116,4 +116,3 @@ thpool_stats ConcurrentSearch_getStats();
 #ifdef __cplusplus
 }
 #endif
-#endif // RS_CONCERRNT_CTX_

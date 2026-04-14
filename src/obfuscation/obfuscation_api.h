@@ -7,9 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+#pragma once
 
-#ifndef OBFUSCATION_API_H
-#define OBFUSCATION_API_H
 #include "redisearch.h"
 #include "util/hash/hash.h"
 
@@ -62,5 +61,3 @@ struct RSQueryNode;
 // Obfuscate a query node based on its type
 // the returned pointer needs to be freed using rm_free
 const char *Obfuscate_QueryNode(struct RSQueryNode *node);
-
-#endif //OBFUSCATION_API_H

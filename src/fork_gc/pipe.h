@@ -10,8 +10,7 @@
 // Internal header for fork GC pipe I/O utilities and shared declarations.
 // Not part of the public API — only included by src/fork_gc/*.c files.
 
-#ifndef FORK_GC_PIPE_H_
-#define FORK_GC_PIPE_H_
+#pragma once
 
 #include "fork_gc.h"
 #include "search_ctx.h"
@@ -104,5 +103,3 @@ FGCError FGC_parentHandleMissingDocs(ForkGC *gc);
 
 void FGC_childCollectExistingDocs(ForkGC *gc, RedisSearchCtx *sctx);
 FGCError FGC_parentHandleExistingDocs(ForkGC *gc);
-
-#endif /* FORK_GC_PIPE_H_ */

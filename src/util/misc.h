@@ -6,8 +6,8 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#ifndef RS_MISC_H
-#define RS_MISC_H
+
+#pragma once
 
 #include "redismodule.h"
 #include "query_error.h"
@@ -29,5 +29,3 @@ int GetRedisErrorCodeLength(const char* error);
  * @return The key name, or NULL if an error occurred
  */
 const char *ExtractKeyName(const char *s, size_t *len, QueryError *status, bool strictPrefix, const char *context);
-
-#endif

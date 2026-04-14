@@ -28,8 +28,8 @@
    * OF CONTRACT, TOR  WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#ifndef __MINUNIT_H__
-#define __MINUNIT_H__
+
+#pragma once
 
 #ifdef __cplusplus
 extern "C" {
@@ -348,5 +348,3 @@ static double mu_timer_cpu() {
 #ifdef __cplusplus
 }
 #endif
-
-#endif /* __MINUNIT_H__ */

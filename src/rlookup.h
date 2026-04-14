@@ -6,8 +6,9 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#ifndef RLOOKUP_H
-#define RLOOKUP_H
+
+#pragma once
+
 #include <stdint.h>
 #include <assert.h>
 
@@ -104,6 +105,4 @@ static inline uint32_t RLookupKey_GetFlags(const RLookupKey* key) {
 
 #ifdef __cplusplus
 }
-#endif
-
 #endif

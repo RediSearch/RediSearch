@@ -6,8 +6,8 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#ifndef __LEVENSHTEIN_H__
-#define __LEVENSHTEIN_H__
+
+#pragma once
 
 #include <stdlib.h>
 
@@ -104,5 +104,3 @@ void StackPop(void *ctx, int numLevels);
 /* Free the underlying data of the DFA Filter. Note that since DFAFilter is created on the stack, it
  * is not freed by itself. */
 void DFAFilter_Free(DFAFilter *fc);
-
-#endif

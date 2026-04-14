@@ -6,8 +6,11 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
+
+#pragma once
 #ifndef UTIL_ARR_H_
 #define UTIL_ARR_H_
+
 /* arr.h - simple, easy to use dynamic array with fat pointers,
  * to allow native access to members. It can accept pointers, struct literals and scalars.
  *
@@ -332,4 +335,5 @@ static inline void *array_trimm(array_t arr, uint32_t new_len) {
 #ifdef __cplusplus
 }
 #endif
-#endif
+
+#endif // UTIL_ARR_H_

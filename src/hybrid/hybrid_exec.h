@@ -7,8 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
  */
 
-#ifndef __HYBRID_EXECUTION_H__
-#define __HYBRID_EXECUTION_H__
+#pragma once
 
 #include "redismodule.h"
 #include "hybrid_request.h"
@@ -87,5 +86,3 @@ static inline uint32_t HREQ_RequestFlags(HybridRequest *hreq) {
 #ifdef __cplusplus
 }
 #endif
-
-#endif // __HYBRID_EXECUTION_H__

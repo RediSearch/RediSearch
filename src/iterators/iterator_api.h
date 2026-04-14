@@ -7,8 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-#ifndef __ITERATOR_API_H__
-#define __ITERATOR_API_H__
+#pragma once
 
 #include <stdint.h>
 #include "redisearch.h"
@@ -97,5 +96,3 @@ static inline ValidateStatus Default_Revalidate(struct QueryIterator *base) {
   // Default implementation does nothing.
   return VALIDATE_OK;
 }
-
-#endif

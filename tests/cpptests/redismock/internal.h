@@ -6,8 +6,8 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#ifndef REDISMOCK_INTERNAL_H
-#define REDISMOCK_INTERNAL_H
+
+#pragma once
 
 // This is to be included only by redismock.cpp
 #include "redismodule.h"
@@ -396,5 +396,3 @@ struct KeyspaceEventFunction {
   }
   static void notify(const char *action, int events, const char *key);
 };
-
-#endif

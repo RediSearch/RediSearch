@@ -6,8 +6,9 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#ifndef RLOOKUP_LOAD_DOCUMENT_H
-#define RLOOKUP_LOAD_DOCUMENT_H
+
+#pragma once
+
 #include "rlookup.h"
 #include "hiredis/sds.h"
 
@@ -62,6 +63,4 @@ size_t sdslen_rust(const sds s);
 
 #ifdef __cplusplus
 }
-#endif
-
 #endif

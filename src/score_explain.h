@@ -6,8 +6,8 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#ifndef RS_SCORE_EXPLAIN_H_
-#define RS_SCORE_EXPLAIN_H_
+
+#pragma once
 
 #include "redismodule.h"
 #include "redisearch.h"
@@ -45,4 +45,3 @@ void explain(RSScoreExplain *scrExp, char *fmt, ...);
 #ifdef __cplusplus
 }
 #endif
-#endif  // RS_SCORE_EXPLAIN_H_

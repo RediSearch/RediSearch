@@ -6,8 +6,8 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#ifndef RS_TAG_INDEX_H_
-#define RS_TAG_INDEX_H_
+
+#pragma once
 
 #include "redismodule.h"
 #include "doc_table.h"
@@ -182,5 +182,4 @@ size_t TagIndex_GetOverhead(const FieldSpec *fs);
 
 #ifdef __cplusplus
 }
-#endif
 #endif

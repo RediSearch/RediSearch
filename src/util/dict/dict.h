@@ -41,11 +41,12 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#pragma once
+#ifndef DICT_H_
+#define DICT_H_
+
 #include <stdint.h>
 #include <stddef.h>
-
-#ifndef __DICT_H
-#define __DICT_H
 
 #define DICT_OK 0
 #define DICT_ERR 1
@@ -267,5 +268,4 @@ void* stringsKeyDup(void *privdata, const void *key);
 void* hiddenNameKeyDup(void *privdata, const void *key);
 void* redisStringsKeyDup(void *privdata, const void *key);
 
-
-#endif /* __DICT_H */
+#endif // DICT_H_

@@ -6,8 +6,8 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#ifndef __TRIE_TYPE_H__
-#define __TRIE_TYPE_H__
+
+#pragma once
 
 #include "redismodule.h"
 
@@ -107,5 +107,4 @@ void TrieType_Free(void *value);
 
 #ifdef __cplusplus
 }
-#endif
 #endif

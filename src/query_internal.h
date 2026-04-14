@@ -6,8 +6,8 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#ifndef QUERY_INTERNAL_H
-#define QUERY_INTERNAL_H
+
+#pragma once
 
 #include <stdlib.h>
 #include <query_error.h>
@@ -89,6 +89,4 @@ void QueryNode_Free(QueryNode *n);
 
 #ifdef __cplusplus
 }
-#endif
-
 #endif

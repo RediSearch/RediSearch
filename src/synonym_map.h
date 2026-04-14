@@ -7,8 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-#ifndef SRC_SYNONYM_MAP_H_
-#define SRC_SYNONYM_MAP_H_
+#pragma once
 
 #include "util/dict.h"
 #include "redismodule.h"
@@ -116,5 +115,3 @@ void SynonymMap_RdbSave(RedisModuleIO* rdb, void* value);
  * Loading smap from an rdb
  */
 void* SynonymMap_RdbLoad(RedisModuleIO* rdb, int encver);
-
-#endif /* SRC_SYNONYM_MAP_H_ */

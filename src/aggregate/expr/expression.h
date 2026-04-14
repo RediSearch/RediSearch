@@ -6,8 +6,8 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#ifndef RS_AGG_EXPRESSION_H_
-#define RS_AGG_EXPRESSION_H_
+
+#pragma once
 
 #include "redisearch.h"
 #include "value.h"
@@ -228,5 +228,4 @@ void RPEvaluator_Reply(RedisModule_Reply *reply, const char *title, const Result
 
 #ifdef __cplusplus
 }
-#endif
 #endif

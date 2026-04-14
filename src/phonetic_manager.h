@@ -7,8 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-#ifndef SRC_PHONETIC_MANAGER_H_
-#define SRC_PHONETIC_MANAGER_H_
+#pragma once
 
 #include <stddef.h>
 
@@ -21,5 +20,3 @@ typedef struct {
 
 void PhoneticManager_ExpandPhonetics(PhoneticManagerCtx* ctx, const char* term, size_t len,
                                      char** primary, char** secondary);
-
-#endif /* SRC_PHONETIC_MANAGER_H_ */

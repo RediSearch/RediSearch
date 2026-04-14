@@ -6,8 +6,8 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#ifndef RS_QUERY_OPTIONS_H_
-#define RS_QUERY_OPTIONS_H_
+
+#pragma once
 
 #include <stopwords.h>
 #include <redisearch.h>
@@ -116,5 +116,3 @@ static inline void RSSearchOptions_Init(RSSearchOptions *options) {
   options->slop = -1;
   options->fieldmask = RS_FIELDMASK_ALL;
 }
-
-#endif

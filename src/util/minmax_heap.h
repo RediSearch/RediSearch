@@ -6,8 +6,8 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#ifndef MINMAX_HEAP_H_
-#define MINMAX_HEAP_H_
+
+#pragma once
 
 #include <stdlib.h>
 
@@ -45,5 +45,3 @@ void** mmh_get_data(mm_heap_t* h);
 // Call this after modifying elements obtained via mmh_get_data().
 // Time complexity: O(n)
 void mmh_heapify(mm_heap_t* h);
-
-#endif  // MINMAX_HEAP_H_

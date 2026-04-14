@@ -6,8 +6,8 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#ifndef DLLIST_H
-#define DLLIST_H
+
+#pragma once
 
 #include <stdlib.h>
 #include <stddef.h>
@@ -79,6 +79,4 @@ static inline DLLIST_node *dllist_pop_head(DLLIST *list) {
 
 #ifdef __cplusplus
 }
-#endif
-
 #endif

@@ -6,8 +6,9 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#ifndef HEAP_H
-#define HEAP_H
+
+#pragma once
+
 #include <stdlib.h>
 
 typedef struct heap_s heap_t;
@@ -141,5 +142,3 @@ typedef void (*HeapCallback)(void *dst, void *src);
  * @return
  */
 void heap_cb_root(const heap_t * hp, HeapCallback cb, void *ctx);
-
-#endif /* HEAP_H */

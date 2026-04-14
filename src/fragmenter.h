@@ -6,8 +6,8 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#ifndef FRAGMENTER_H
-#define FRAGMENTER_H
+
+#pragma once
 
 #include <stdlib.h>
 #include <stdint.h>
@@ -228,5 +228,3 @@ char *FragmentList_HighlightWholeDocS(const FragmentList *fragList, const Highli
 void FragmentList_HighlightFragments(FragmentList *fragList, const HighlightTags *tags,
                                      size_t contextSize, Array *iovBufList, size_t niovs,
                                      int order);
-
-#endif

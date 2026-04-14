@@ -6,8 +6,8 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#ifndef EXPRAST_H
-#define EXPRAST_H
+
+#pragma once
 
 #include "expression.h"
 #ifdef __cplusplus
@@ -32,5 +32,4 @@ void RSExpr_GetProperties(RSExpr *e, char ***props);
 
 #ifdef __cplusplus
 }
-#endif
 #endif

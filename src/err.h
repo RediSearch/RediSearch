@@ -6,8 +6,9 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#ifndef RS_ERR_H_
-#define RS_ERR_H_
+
+#pragma once
+
 #include <stdio.h>
 
 #define FMT_ERR(e, fmt, ...)          \
@@ -26,5 +27,3 @@
   if (e) {          \
     rm_free(e);     \
   }
-
-#endif

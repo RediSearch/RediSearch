@@ -6,8 +6,8 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#ifndef ARR_RM_ALLOC_H_
-#define ARR_RM_ALLOC_H_
+
+#pragma once
 
 /* A wrapper for arr.h that sets the allocation functions to those of the RedisModule_Alloc &
  * friends. This file should not be included alongside arr.h, and should not be included from .h
@@ -21,5 +21,3 @@
 #define array_free_fn rm_free
 
 #include "arr.h"
-
-#endif

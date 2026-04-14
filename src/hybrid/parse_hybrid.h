@@ -7,8 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-#ifndef PARSE_HYBRID_H
-#define PARSE_HYBRID_H
+#pragma once
 
 #include <stdint.h>
 
@@ -47,5 +46,3 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
 #ifdef __cplusplus
 }
 #endif
-
-#endif //PARSE_HYBRID_H

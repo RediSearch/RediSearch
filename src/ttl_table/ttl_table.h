@@ -7,8 +7,10 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-#ifndef TTL_TABLE_H
-#define TTL_TABLE_H
+#pragma once
+#ifndef TTL_TABLE_H_
+#define TTL_TABLE_H_
+
 #include "redisearch.h"
 #include "util/dict/dict.h"
 #include "stdbool.h"
@@ -41,4 +43,4 @@ bool TimeToLiveTable_VerifyDocAndWideFieldMask(TimeToLiveTable *table, t_docId d
 }
 #endif
 
-#endif //TTL_TABLE_H
+#endif // TTL_TABLE_H_

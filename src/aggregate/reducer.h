@@ -6,8 +6,8 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#ifndef RS_REDUCER_H_
-#define RS_REDUCER_H_
+
+#pragma once
 
 #include "redisearch.h"
 #include "result_processor.h"
@@ -176,5 +176,4 @@ ReducerFactory RDCR_GetFactory(const char *name);
 
 #ifdef __cplusplus
 }
-#endif
 #endif

@@ -6,8 +6,8 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#ifndef ARRAY_H
-#define ARRAY_H
+
+#pragma once
 
 #include <stdlib.h>
 #include <stdint.h>
@@ -74,4 +74,3 @@ void Array_ShrinkToSize(Array *array);
 #define ARRAY_GETARRAY_AS(arr, T) ((T)((arr)->data))
 #define ARRAY_ADD_AS(arr, T) Array_Add(arr, sizeof(T))
 #define ARRAY_GETITEM_AS(arr, ix, T) (ARRAY_GETARRAY_AS(arr, T) + ix)
-#endif

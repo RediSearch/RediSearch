@@ -6,8 +6,8 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#ifndef BLOCK_ALLOC_H
-#define BLOCK_ALLOC_H
+
+#pragma once
 
 #include <stdlib.h>
 
@@ -64,5 +64,4 @@ void BlkAlloc_Clear(BlkAlloc *alloc, BlkAllocCleaner cleaner, void *arg, size_t 
 
 #ifdef __cplusplus
 }
-#endif
 #endif

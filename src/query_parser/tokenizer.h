@@ -6,8 +6,8 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#ifndef __QUERY_TOKENIZER_H__
-#define __QUERY_TOKENIZER_H__
+
+#pragma once
 
 #include <stdlib.h>
 #include <stdbool.h>
@@ -61,5 +61,3 @@ typedef struct {
   QueryToken tok;
   const FieldSpec *fs;
 } FieldName;
-
-#endif

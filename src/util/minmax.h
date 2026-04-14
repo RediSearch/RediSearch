@@ -6,8 +6,8 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#ifndef MINMAX_H
-#define MINMAX_H
+
+#pragma once
 
 #define Min(a, b) (a) < (b) ? (a) : (b)
 #define Max(a, b) (a) > (b) ? (a) : (b)
@@ -16,6 +16,4 @@
 #endif
 #ifndef MAX
 #define MAX Max
-#endif
-
 #endif

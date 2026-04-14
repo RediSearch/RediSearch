@@ -7,8 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-#ifndef __HYBRID_SEARCH_RESULT_H__
-#define __HYBRID_SEARCH_RESULT_H__
+#pragma once
 
 #include "result_processor.h"
 #include "hybrid_scoring.h"
@@ -65,5 +64,3 @@ SearchResult* mergeSearchResults(HybridSearchResult *hybridResult, HybridScoring
 #ifdef __cplusplus
 }
 #endif
-
-#endif // __HYBRID_SEARCH_RESULT_H__

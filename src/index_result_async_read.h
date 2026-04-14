@@ -7,8 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
  */
 
-#ifndef RS_INDEX_RESULT_ASYNC_READ_H_
-#define RS_INDEX_RESULT_ASYNC_READ_H_
+#pragma once
 
 #include "redisearch.h"
 #include "search_disk_api.h"
@@ -151,6 +150,3 @@ bool IndexResultAsyncRead_IsIterationComplete(const IndexResultAsyncReadState *s
 #ifdef __cplusplus
 }
 #endif
-
-#endif  // RS_INDEX_RESULT_ASYNC_READ_H_
-

@@ -6,8 +6,8 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#ifndef AVZ_HLL_H
-#define AVZ_HLL_H
+
+#pragma once
 
 #include <sys/types.h>
 #include <stdint.h>
@@ -47,4 +47,3 @@ void hll_clear(struct HLL *hll);
 #ifdef __cplusplus
 }
 #endif
-#endif /* AVZ_HLL_H */

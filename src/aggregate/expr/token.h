@@ -6,8 +6,9 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#ifndef RS_AGGREGATE_TOKEN_H_
-#define RS_AGGREGATE_TOKEN_H_
+
+#pragma once
+
 #include <stdlib.h>
 #include "expression.h"
 /* A query-specific tokenizer, that reads symbols like quots, pipes, etc */
@@ -31,5 +32,3 @@ typedef struct {
   int pos;
   double numval;
 } RSExprToken;
-
-#endif

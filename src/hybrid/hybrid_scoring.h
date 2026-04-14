@@ -1,5 +1,4 @@
-#ifndef __HYBRID_SCORING_H__
-#define __HYBRID_SCORING_H__
+#pragma once
 
 #include "redisearch.h"
 
@@ -59,5 +58,3 @@ double HybridLinearScore(HybridScoringContext *scoringCtx, const double *scores,
 #ifdef __cplusplus
 }
 #endif
-
-#endif // __HYBRID_SCORING_H__

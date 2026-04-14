@@ -6,8 +6,8 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#ifndef BYTE_OFFSETS_H
-#define BYTE_OFFSETS_H
+
+#pragma once
 
 #include "redisearch.h"
 #include "varint.h"
@@ -98,5 +98,3 @@ int RSByteOffset_Iterate(const RSByteOffsets *offsets, uint32_t fieldId,
  * RSBYTEOFFSET_EOF then the iterator is at the end of the token stream.
  */
 uint32_t RSByteOffsetIterator_Next(RSByteOffsetIterator *iter);
-
-#endif

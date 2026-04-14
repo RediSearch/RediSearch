@@ -6,8 +6,8 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#ifndef SRC_REDISEARCH_API_H_
-#define SRC_REDISEARCH_API_H_
+
+#pragma once
 
 #include "redismodule.h"
 #include <limits.h>
@@ -489,4 +489,3 @@ int RediSearch_Init(RedisModuleCtx* ctx, int mode);
 #ifdef __cplusplus
 }
 #endif
-#endif /* SRC_REDISEARCH_API_H_ */

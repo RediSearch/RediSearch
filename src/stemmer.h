@@ -6,8 +6,9 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#ifndef __RS_STEMMER_H__
-#define __RS_STEMMER_H__
+
+#pragma once
+
 #include "language.h"
 
 #ifdef __cplusplus
@@ -45,5 +46,4 @@ Stemmer *__newSnowballStemmer(RSLanguage language);
 
 #ifdef __cplusplus
 }
-#endif
 #endif

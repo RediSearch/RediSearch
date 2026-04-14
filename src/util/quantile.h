@@ -6,8 +6,8 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#ifndef QUANTILE_H
-#define QUANTILE_H
+
+#pragma once
 
 #include <stdlib.h>
 #include <stdio.h>
@@ -19,5 +19,3 @@ void QS_Insert(QuantStream *qs, double val);
 double QS_Query(QuantStream *qs, double val);
 void QS_Free(QuantStream *qs);
 size_t QS_GetCount(const QuantStream *stream);
-
-#endif

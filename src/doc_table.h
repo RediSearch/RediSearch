@@ -6,8 +6,9 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#ifndef __DOC_TABLE_H__
-#define __DOC_TABLE_H__
+
+#pragma once
+
 #include <stdlib.h>
 #include <string.h>
 #include "redismodule.h"
@@ -216,5 +217,4 @@ t_docId DocTable_GetMaxDocId(const DocTable *t);
 
 #ifdef __cplusplus
 }
-#endif
 #endif

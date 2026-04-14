@@ -7,8 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-#ifndef SRC_GC_H_
-#define SRC_GC_H_
+#pragma once
 
 #include "reply.h"
 
@@ -80,4 +79,3 @@ void GC_ThreadPoolDestroy();
 #ifdef __cplusplus
 }
 #endif
-#endif /* SRC_GC_H_ */

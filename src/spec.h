@@ -6,8 +6,8 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#ifndef __SPEC_H__
-#define __SPEC_H__
+
+#pragma once
 
 #include <stdlib.h>
 #include <string.h>
@@ -816,5 +816,3 @@ void IndexSpec_DecrementNumTerms(IndexSpec* sp, uint64_t num_terms_removed);
 #ifdef __cplusplus
 }
 #endif
-
-#endif  // __SPEC_H__

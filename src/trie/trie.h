@@ -6,8 +6,8 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#ifndef __TRIE_H__
-#define __TRIE_H__
+
+#pragma once
 
 #include <stdlib.h>
 #include <string.h>
@@ -270,5 +270,4 @@ void TrieNode_IterateWildcard(TrieNode *n, const rune *str, int nstr,
 
 #ifdef __cplusplus
 }
-#endif
 #endif

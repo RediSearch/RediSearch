@@ -6,8 +6,8 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#ifndef SRC_FIELD_SPEC_H_
-#define SRC_FIELD_SPEC_H_
+
+#pragma once
 
 #include "redisearch.h"
 #include "value.h"
@@ -177,5 +177,3 @@ static inline void FieldSpec_AddQueryError(FieldSpec *fs, const QueryError *quer
 }
 
 size_t FieldSpec_GetIndexErrorCount(const FieldSpec *);
-
-#endif /* SRC_FIELD_SPEC_H_ */

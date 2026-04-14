@@ -6,8 +6,8 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#ifndef SRC_RWLOCK_H_
-#define SRC_RWLOCK_H_
+
+#pragma once
 
 #include <pthread.h>
 #include "redismodule.h"
@@ -26,5 +26,3 @@ void RediSearch_LockDestory();
 #define RWLOCK_ACQUIRE_READ() RediSearch_LockRead()
 #define RWLOCK_ACQUIRE_WRITE() RediSearch_LockWrite()
 #define RWLOCK_RELEASE() RediSearch_LockRelease()
-
-#endif /* SRC_RWLOCK_H_ */

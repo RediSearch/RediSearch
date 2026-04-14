@@ -6,8 +6,8 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#ifndef CURSOR_H
-#define CURSOR_H
+
+#pragma once
 
 #include <unistd.h>
 #include <pthread.h>
@@ -219,4 +219,3 @@ void Cursors_RenderStatsForInfo(CursorList *cl, CursorList *cl_coord, const Inde
 #ifdef __cplusplus
 }
 #endif
-#endif // CURSOR_H

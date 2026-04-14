@@ -7,4 +7,6 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+#pragma once
+
 extern struct redisearch_thpool_t* _workers_thpool;

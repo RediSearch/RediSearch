@@ -6,8 +6,8 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#ifndef KHTABLE_H
-#define KHTABLE_H
+
+#pragma once
 
 #include <stdlib.h>
 #include <stdint.h>
@@ -138,5 +138,3 @@ typedef struct {
 
 void KHTableIter_Init(KHTable *ht, KHTableIterator *iter);
 KHTableEntry *KHtableIter_Next(KHTableIterator *iter);
-
-#endif

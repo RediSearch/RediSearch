@@ -6,8 +6,10 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#ifndef __RS_MEMPOOL_H__
-#define __RS_MEMPOOL_H__
+
+#pragma once
+#ifndef RS_MEMPOOL_H_
+#define RS_MEMPOOL_H_
 
 /* Mempool - an uber simple, thread-unsafe, memory pool */
 #include <stdint.h>
@@ -52,4 +54,5 @@ void mempool_test_set_global(mempool_t **global_p, const mempool_options *option
 #ifdef __cplusplus
 }
 #endif
-#endif
+
+#endif // RS_MEMPOOL_H_

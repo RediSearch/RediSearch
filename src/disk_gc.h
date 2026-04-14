@@ -7,8 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-#ifndef SRC_DISK_GC_H_
-#define SRC_DISK_GC_H_
+#pragma once
 
 #include "redismodule.h"
 #include "gc.h"
@@ -41,5 +40,3 @@ DiskGC *DiskGC_Create(StrongRef spec_ref, GCCallbacks *callbacks);
 #ifdef __cplusplus
 }
 #endif
-
-#endif /* SRC_DISK_GC_H_ */

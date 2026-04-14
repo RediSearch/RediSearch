@@ -6,8 +6,9 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#ifndef REDISMOCK_H
-#define REDISMOCK_H
+
+#pragma once
+
 #include "redismodule.h"
 
 // Forward declarations for C++
@@ -76,5 +77,4 @@ int RMCK_StringToULongLong(const RedisModuleString *str, unsigned long long *ull
 
 #ifdef __cplusplus
 }
-#endif
 #endif

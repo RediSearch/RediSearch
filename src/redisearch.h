@@ -6,8 +6,8 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#ifndef REDISEARCH_H__
-#define REDISEARCH_H__
+
+#pragma once
 
 #include <stdint.h>
 #include <stdlib.h>
@@ -307,5 +307,4 @@ typedef struct RSExtensionCtx {
 typedef int (*RSExtensionInitFunc)(RSExtensionCtx *ctx);
 #ifdef __cplusplus
 }
-#endif
 #endif

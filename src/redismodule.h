@@ -1,5 +1,4 @@
-#ifndef REDISMODULE_H
-#define REDISMODULE_H
+#pragma once
 
 // clang-format off
 
@@ -2184,5 +2183,3 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
 #ifdef __cplusplus
 }
 #endif
-
-#endif /* REDISMODULE_H */

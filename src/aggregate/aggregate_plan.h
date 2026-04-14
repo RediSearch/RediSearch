@@ -6,8 +6,9 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#ifndef AGGREGATE_PLAN_H_
-#define AGGREGATE_PLAN_H_
+
+#pragma once
+
 #include <value.h>
 #include <rlookup.h>
 #include <search_options.h>
@@ -327,5 +328,4 @@ static inline int PLN_IsReduce(const PLN_BaseStep *pln) {
 
 #ifdef __cplusplus
 }
-#endif
 #endif

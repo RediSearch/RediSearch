@@ -6,8 +6,8 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#ifndef __RL_TIME_SAMPLE__
-#define __RL_TIME_SAMPLE__
+
+#pragma once
 
 #include <sys/time.h>
 #include <stdio.h>
@@ -56,5 +56,3 @@ static double TimeSampler_IterationSec(TimeSample *ts) {
 #define TIME_SAMPLE_RUN(blk) { TimeSample ts; TimeSampler_Start(&ts); { blk; } ; TimeSampler_End(&ts); printf("Execution time for " #blk ": %f seconds\n",  TimeSampler_DurationSec(&ts)); }
 
 #define TIME_SAMPLE_RUN_LOOP(N, blk) { TimeSample ts; TimeSampler_Start(&ts); for (int __ts_loop = 0; __ts_loop < N; __ts_loop++) { blk; } ; TimeSampler_End(&ts); printf("Execution time for " #blk ": %f seconds/iteration\n",  TimeSampler_IterationSec(&ts)); }
-
-#endif

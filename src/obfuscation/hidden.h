@@ -7,8 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-#ifndef HIDDEN_H
-#define HIDDEN_H
+#pragma once
+
 #include <stdint.h>
 #include "reply.h"
 
@@ -59,5 +59,3 @@ const char *HiddenString_GetUnsafe(const HiddenString* value, size_t* length);
 #ifdef __cplusplus
 }
 #endif
-
-#endif //HIDDEN_H

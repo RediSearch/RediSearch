@@ -6,8 +6,8 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#ifndef INDEXER_H
-#define INDEXER_H
+
+#pragma once
 
 #include "document.h"
 #include "concurrent_ctx.h"
@@ -86,5 +86,3 @@ int IndexerBulkAdd(RSAddDocumentCtx *cur, RedisSearchCtx *sctx,
  * @param flags The flags to pass to RedisModule_Yield
  */
 void IndexerYieldWhileLoading(RedisModuleCtx *ctx, unsigned int numOps, int flags);
-
-#endif

@@ -6,8 +6,8 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#ifndef __REDIS_INDEX__
-#define __REDIS_INDEX__
+
+#pragma once
 
 #include "document.h"
 #include "inverted_index.h"
@@ -45,6 +45,4 @@ RedisModuleString *Legacy_fmtRedisTermKey(const RedisSearchCtx *ctx, const char 
 
 #ifdef __cplusplus
 }
-#endif
-
 #endif

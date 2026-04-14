@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+#pragma once
 
 // use likely and unlikely to provide the compiler with branch prediction information
 // for example:

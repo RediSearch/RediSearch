@@ -6,10 +6,8 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#ifndef __MDMA_LOGGING__
-#define __MDMA_LOGGING__
+
+#pragma once
 
 // Write message to redis log in debug level
 void LogCallback(const char *level, const char *fmt, ...);
-
-#endif

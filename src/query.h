@@ -6,8 +6,8 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#ifndef __QUERY_H__
-#define __QUERY_H__
+
+#pragma once
 
 #include <stdlib.h>
 
@@ -169,5 +169,4 @@ QueryNode *RSQuery_ParseRaw_v2(QueryParseCtx *);
 
 #ifdef __cplusplus
 }
-#endif
 #endif

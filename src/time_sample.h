@@ -6,8 +6,8 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#ifndef __RL_TIME_SAMPLE__
-#define __RL_TIME_SAMPLE__
+
+#pragma once
 
 #include <sys/time.h>
 #include <stdio.h>
@@ -62,5 +62,3 @@ static double TimeSampler_IterationMS(TimeSample *ts) {
   return ((double)ts->durationNS / 1000000.0) /
          (double)(ts->num ? ts->num : 1.0);
 }
-
-#endif

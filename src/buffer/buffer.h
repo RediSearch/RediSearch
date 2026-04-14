@@ -6,8 +6,10 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#ifndef __BUFFER_H__
-#define __BUFFER_H__
+
+#pragma once
+#ifndef BUFFER_H_
+#define BUFFER_H_
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -189,4 +191,5 @@ size_t Buffer_Free(Buffer *buf);
 #ifdef __cplusplus
 }
 #endif
-#endif
+
+#endif // BUFFER_H_

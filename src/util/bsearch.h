@@ -6,8 +6,8 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#ifndef RSBSEARCH_H
-#define RSBSEARCH_H
+
+#pragma once
 
 #ifdef __cplusplus
 extern "C" {
@@ -134,5 +134,4 @@ static inline int rsb_eq(const void *arr, size_t narr, size_t elemsz, const void
 
 #ifdef __cplusplus
 }
-#endif
 #endif

@@ -7,8 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-#ifndef VECTOR_QUERY_UTILS_H
-#define VECTOR_QUERY_UTILS_H
+#pragma once
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -38,5 +37,3 @@ void ParsedVectorData_Free(ParsedVectorData *pvd);
 #ifdef __cplusplus
 }
 #endif
-
-#endif // VECTOR_QUERY_UTILS_H

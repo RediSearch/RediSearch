@@ -6,6 +6,9 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
+
+#pragma once
+
 /**
  * List of all the debug commands in the coordinator.
  * This list is on a separate file so we can include it in the src/debug_commands.c file,

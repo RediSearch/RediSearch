@@ -6,8 +6,8 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#ifndef __SPARSEVECTOR_H__
-#define __SPARSEVECTOR_H__
+
+#pragma once
 
 #include <stdlib.h>
 
@@ -37,4 +37,3 @@ void sparseVector_append(sparseVector **v, int index, int value);
 sparseVector *newSparseVector(int *values, int len);
 
 void sparseVector_free(sparseVector *v);
-#endif

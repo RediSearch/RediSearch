@@ -6,8 +6,8 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#ifndef __TESTUTIL_H__
-#define __TESTUTIL_H__
+
+#pragma once
 
 #include <assert.h>
 #include <stdio.h>
@@ -77,4 +77,3 @@ static int numAsserts = 0;
     printf("\n--------------------\n\n");       \
     return 0;                                   \
   }
-#endif

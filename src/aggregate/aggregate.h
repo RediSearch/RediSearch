@@ -6,8 +6,8 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#ifndef RS_AGGREGATE_H__
-#define RS_AGGREGATE_H__
+
+#pragma once
 
 #include "value.h"
 #include "query.h"
@@ -602,5 +602,4 @@ void AREQ_ReplyWithStoredResults(RedisModuleCtx *ctx, AREQ *req);
 #undef RS_Atomic
 
 }
-#endif
 #endif

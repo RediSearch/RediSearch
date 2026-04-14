@@ -7,8 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-#ifndef SRC_SPELL_CHECK_H_
-#define SRC_SPELL_CHECK_H_
+#pragma once
 
 #include "search_ctx.h"
 #include "query.h"
@@ -49,5 +48,3 @@ int RS_SuggestionCompare(const void *val1, const void *val2);
 void SpellCheck_SendReplyOnTerm(RedisModule_Reply *reply, char *term, size_t len, RS_Suggestions *s,
                                 uint64_t totalDocNumber);
 void SpellCheck_Reply(SpellCheckCtx *ctx, QueryAST *q);
-
-#endif /* SRC_SPELL_CHECK_H_ */

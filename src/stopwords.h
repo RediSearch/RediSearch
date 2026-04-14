@@ -6,8 +6,8 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#ifndef __REDISEARCH_STOPWORDS_H___
-#define __REDISEARCH_STOPWORDS_H___
+
+#pragma once
 
 #include "reply.h"
 #include "redismodule.h"
@@ -60,5 +60,4 @@ char **GetStopWordsList(struct StopWordList *sl, size_t *size);
 
 #ifdef __cplusplus
 }
-#endif
 #endif

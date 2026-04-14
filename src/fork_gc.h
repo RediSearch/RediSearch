@@ -7,8 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-#ifndef SRC_FORK_GC_H_
-#define SRC_FORK_GC_H_
+#pragma once
 
 #include "redismodule.h"
 #include "gc.h"
@@ -126,5 +125,3 @@ void FGC_Apply(ForkGC *gc);
 #ifdef __cplusplus
 }
 #endif
-
-#endif /* SRC_FORK_GC_H_ */

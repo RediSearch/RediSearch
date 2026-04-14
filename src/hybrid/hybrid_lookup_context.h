@@ -7,8 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
  */
 
-#ifndef __HYBRID_LOOKUP_CONTEXT_H__
-#define __HYBRID_LOOKUP_CONTEXT_H__
+#pragma once
 
 #include "rlookup.h"
 #include "util/arr/arr.h"
@@ -48,5 +47,3 @@ void HybridLookupContext_Free(HybridLookupContext *lookupCtx);
 #ifdef __cplusplus
 }
 #endif
-
-#endif // __HYBRID_LOOKUP_CONTEXT_H__

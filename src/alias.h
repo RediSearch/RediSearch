@@ -6,8 +6,8 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#ifndef ALIAS_H
-#define ALIAS_H
+
+#pragma once
 
 #include "redismodule.h"
 #include "spec.h"
@@ -39,5 +39,4 @@ StrongRef IndexAlias_Get(const HiddenString *alias);
 
 #ifdef __cplusplus
 }
-#endif
 #endif

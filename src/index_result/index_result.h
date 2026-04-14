@@ -6,8 +6,10 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#ifndef __INDEX_RESULT_H__
-#define __INDEX_RESULT_H__
+
+#pragma once
+#ifndef INDEX_RESULT_H_
+#define INDEX_RESULT_H_
 
 #include "varint.h"
 #include "rmalloc.h"
@@ -74,4 +76,5 @@ void ResetAndPushMetricData(RSIndexResult *result, double val, RLookupKey* key);
 #ifdef __cplusplus
 }
 #endif
-#endif
+
+#endif // INDEX_RESULT_H_

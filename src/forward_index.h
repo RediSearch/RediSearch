@@ -6,8 +6,9 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#ifndef __FORWARD_INDEX_H__
-#define __FORWARD_INDEX_H__
+
+#pragma once
+
 #include "redisearch.h"
 #include "util/block_alloc.h"
 #include "util/khtable.h"
@@ -93,5 +94,4 @@ size_t InvertedIndex_WriteForwardIndexEntry(InvertedIndex *idx, ForwardIndexEntr
 
 #ifdef __cplusplus
 }
-#endif
 #endif

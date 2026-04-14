@@ -6,8 +6,8 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#ifndef __NUMERIC_INDEX_H__
-#define __NUMERIC_INDEX_H__
+
+#pragma once
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -40,5 +40,4 @@ NumericRangeTree *openNumericOrGeoIndex(IndexSpec* spec, FieldSpec* fs, bool cre
 
 #ifdef __cplusplus
 }
-#endif
 #endif
