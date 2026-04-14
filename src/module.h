@@ -20,10 +20,7 @@
 #include "thpool/thpool.h"
 #include "profile/options.h"
 
-#ifndef STRINGIFY
-#define __STRINGIFY(x) #x
-#define STRINGIFY(x) __STRINGIFY(x)
-#endif
+#include "util/stringify.h"
 
 // Module-level dummy context for certain dummy RM_XXX operations
 extern RedisModuleCtx *RSDummyContext;

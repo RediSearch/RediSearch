@@ -9,13 +9,7 @@
 
 #pragma once
 
-#include "util/stringify.h"
-
-#ifndef __ignore__
-#define __ignore__(X) \
-    do { \
-        int rc = (X); \
-        if (rc == -1) \
-            ; \
-    } while(0)
-#endif
+// Two-level stringify: the indirection ensures macro arguments are expanded
+// before stringification. STRINGIFY(FOO) where FOO is 42 produces "42".
+#define STRINGIFY_IMPL(x) #x
+#define STRINGIFY(x) STRINGIFY_IMPL(x)
