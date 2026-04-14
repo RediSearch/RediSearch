@@ -655,7 +655,10 @@ def test_profile_standalone():
     for query, expected_shard_profile, _, expected_coordinator_profile, _, _ in query_and_profile:
         actual_res = env.execute_command(*query)
         _verify_profile_structure(env, env.protocol, actual_res)
-        env.assertEqual(actual_res[8][1], expected_shard_profile,
+        actual_shard = actual_res[8][1]
+        sort_profile_children(actual_shard)
+        sort_profile_children(expected_shard_profile)
+        env.assertEqual(actual_shard, expected_shard_profile,
                         message=f'query: {query}')
         env.assertEqual(actual_res[8][3], expected_coordinator_profile,
                         message=f'query: {query}')
