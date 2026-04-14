@@ -178,7 +178,14 @@ pub unsafe extern "C" fn NewUnionIterator(
     // SAFETY: its was allocated via rm_malloc per the function's safety contract (1).
     unsafe { free_iterators_array(its) };
 
-    build_union_from_children(children, quick_exit, min_union_iter_heap, type_, q_str, weight)
+    build_union_from_children(
+        children,
+        quick_exit,
+        min_union_iter_heap,
+        type_,
+        q_str,
+        weight,
+    )
 }
 
 // ============================================================================

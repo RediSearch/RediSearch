@@ -13,10 +13,12 @@ use ffi::{GeoFilter, RSGlobalConfig};
 use field::{FieldExpirationPredicate, FieldFilterContext, FieldMaskOrIndex};
 use query_node_type::QueryNodeType;
 use rqe_iterators::{
-    interop::RQEIteratorWrapper, new_geo_range_iterator, union_reducer::NewUnionIterator,
+    interop::RQEIteratorWrapper,
+    new_geo_range_iterator,
+    union_reducer::{NewUnionIterator, new_union_iterator},
 };
 
-use crate::inverted_index::numeric::into_crqe_children;
+use crate::inverted_index::numeric::{NumericIterator, into_crqe_from_numeric_iters};
 
 /// Creates an iterator over all geo-encoded index entries within the radius specified by `gf`.
 ///
@@ -57,38 +59,56 @@ pub unsafe extern "C" fn NewGeoRangeIterator(
     // SAFETY: 4. guarantees config is valid and non-null.
     let min_union_iter_heap = unsafe { (*config).minUnionIterHeap } as usize;
 
-    // We're opening the union to wrap children into RQEIteratorWrapper, for profiling support
-    // TODO: check if we can implement Profiled to NumericIteratorVariant and simplify this.
     // SAFETY: caller upholds requirements 1–3.
-    match unsafe { new_geo_range_iterator(sctx, geo, &field_ctx, min_union_iter_heap, compress) } {
-        None | Some(NewUnionIterator::ReducedEmpty(_)) => ptr::null_mut(),
-        Some(NewUnionIterator::ReducedSingle(v)) => RQEIteratorWrapper::boxed_new(v),
-        Some(NewUnionIterator::Flat(f)) => crate::union::build_union_from_children(
-            into_crqe_children(f.into_children()),
+    let Some(groups) = (unsafe { new_geo_range_iterator(sctx, geo, &field_ctx, compress) }) else {
+        return ptr::null_mut();
+    };
+
+    // C-Code: each NumericIterator must carry its NumericFilter so that
+    // `NumericInvIndIterator_GetNumericFilter` can hand it back to C profiling code, which uses
+    // the embedded `geo_filter` pointer to display the geo term as coordinates instead of raw
+    // geohash values. Once profiling is fully ported to Rust, this wrapper can be dropped and
+    // the variants can be used directly.
+    let numeric_iters: Vec<NumericIterator<'_>> = groups
+        .into_iter()
+        .flat_map(|(filter_nn, variants)| {
+            variants
+                .into_iter()
+                .map(move |v| NumericIterator::with_filter(filter_nn, v))
+        })
+        .collect();
+
+    // Wrap children into RQEIteratorWrapper so C profiling code can traverse the tree.
+    // TODO: simplify once profile.c is ported to Rust.
+    match new_union_iterator(numeric_iters, true, min_union_iter_heap) {
+        NewUnionIterator::ReducedEmpty(empty) => RQEIteratorWrapper::boxed_new(empty),
+        NewUnionIterator::ReducedSingle(v) => RQEIteratorWrapper::boxed_new(v),
+        NewUnionIterator::Flat(f) => crate::union::build_union_from_children(
+            into_crqe_from_numeric_iters(f.into_children()),
             false,
             min_union_iter_heap,
             QueryNodeType::Geo,
             ptr::null(),
             1.0,
         ),
-        Some(NewUnionIterator::FlatQuick(f)) => crate::union::build_union_from_children(
-            into_crqe_children(f.into_children()),
+        NewUnionIterator::FlatQuick(f) => crate::union::build_union_from_children(
+            into_crqe_from_numeric_iters(f.into_children()),
             true,
             min_union_iter_heap,
             QueryNodeType::Geo,
             ptr::null(),
             1.0,
         ),
-        Some(NewUnionIterator::Heap(h)) => crate::union::build_union_from_children(
-            into_crqe_children(h.into_children()),
+        NewUnionIterator::Heap(h) => crate::union::build_union_from_children(
+            into_crqe_from_numeric_iters(h.into_children()),
             false,
             min_union_iter_heap,
             QueryNodeType::Geo,
             ptr::null(),
             1.0,
         ),
-        Some(NewUnionIterator::HeapQuick(h)) => crate::union::build_union_from_children(
-            into_crqe_children(h.into_children()),
+        NewUnionIterator::HeapQuick(h) => crate::union::build_union_from_children(
+            into_crqe_from_numeric_iters(h.into_children()),
             true,
             min_union_iter_heap,
             QueryNodeType::Geo,

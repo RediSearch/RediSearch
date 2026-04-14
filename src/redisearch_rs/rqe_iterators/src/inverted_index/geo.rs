@@ -16,10 +16,7 @@ use ffi::{
 use field::FieldFilterContext;
 use inverted_index::NumericFilter;
 
-use crate::{
-    NumericIteratorVariant, open_numeric_or_geo_index,
-    union_reducer::{NewUnionIterator, new_union_iterator},
-};
+use crate::{NumericIteratorVariant, open_numeric_or_geo_index};
 
 /// Validates `gf`'s parameters, computes the geohash ranges covering the requested circle,
 /// allocates a per-range [`NumericFilter`] for each non-trivial range, stores all of them in
@@ -84,12 +81,13 @@ pub unsafe fn build_geo_numeric_filters<'index>(
     Some(filters)
 }
 
-/// Creates a union iterator over all geo-encoded index entries within the radius in `gf`.
+/// Creates per-range iterators for all geo-encoded index entries within the radius in `gf`.
 ///
 /// Geo fields are stored as sorted numeric geohash values. The radius maps to up to
 /// [`GEO_RANGE_COUNT`] contiguous geohash ranges; each range is queried via the numeric range
-/// tree. All matching [`NumericIteratorVariant`]s across all ranges are collected into a single
-/// flat union.
+/// tree. Returns one `(filter, variants)` pair per non-trivial range so that callers can
+/// associate each [`NumericIteratorVariant`] with its [`NumericFilter`] (needed by C profiling;
+/// see the `C-Code:` comment in `NewGeoRangeIterator`).
 ///
 /// Returns `None` if the parameters are invalid or the index hasn't been created yet.
 ///
@@ -106,9 +104,8 @@ pub unsafe fn new_geo_range_iterator<'index>(
     sctx: NonNull<ffi::RedisSearchCtx>,
     gf: &'index mut GeoFilter,
     field_ctx: &FieldFilterContext,
-    min_union_iter_heap: usize,
     numeric_compress: bool,
-) -> Option<NewUnionIterator<'index, NumericIteratorVariant<'index>>> {
+) -> Option<Vec<(NonNull<NumericFilter>, Vec<NumericIteratorVariant<'index>>)>> {
     // Read fieldSpec before the mutable borrow in build_geo_numeric_filters.
     // SAFETY: 2. guarantees gf.fieldSpec is valid and non-null.
     let fs = unsafe { &mut *(gf.fieldSpec as *mut ffi::FieldSpec) };
@@ -117,18 +114,27 @@ pub unsafe fn new_geo_range_iterator<'index>(
     let filters = unsafe { build_geo_numeric_filters(gf)? };
 
     // Open the numeric/geo index once for all ranges.
+    // SAFETY: 1. guarantees sctx is valid and non-null.
+    let sctx_ref = unsafe { sctx.as_ref() };
     // SAFETY: 1. guarantees sctx.spec is valid and non-null.
-    let spec = unsafe { &mut *sctx.as_ref().spec };
+    let spec = unsafe { &mut *sctx_ref.spec };
     // SAFETY: 1–2.
     let tree = unsafe { open_numeric_or_geo_index(spec, fs, false, numeric_compress)? };
 
-    let mut all_variants: Vec<NumericIteratorVariant<'index>> = Vec::new();
+    let mut groups: Vec<(NonNull<NumericFilter>, Vec<NumericIteratorVariant<'index>>)> = Vec::new();
     for filter in filters {
         // SAFETY: 1. and 4.
         let variants = unsafe { NumericIteratorVariant::from_tree(tree, sctx, filter, field_ctx) };
-        all_variants.extend(variants);
+        if !variants.is_empty() {
+            // SAFETY: filter is a shared reference stored inside gf, valid for 'index.
+            groups.push((NonNull::from(filter), variants));
+        }
     }
-    Some(new_union_iterator(all_variants, true, min_union_iter_heap))
+    if groups.is_empty() {
+        None
+    } else {
+        Some(groups)
+    }
 }
 
 /// Convert a [`GeoDistance`] unit to metres.

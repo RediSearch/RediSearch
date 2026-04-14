@@ -39,6 +39,17 @@ pub(super) struct NumericIterator<'index> {
 }
 
 impl<'index> NumericIterator<'index> {
+    /// Wrap a variant with a filter, for use by [`crate::inverted_index::geo`].
+    pub(super) const fn with_filter(
+        filter: NonNull<NumericFilter>,
+        iterator: NumericIteratorVariant<'index>,
+    ) -> Self {
+        Self {
+            filter: Some(filter),
+            iterator,
+        }
+    }
+
     /// Get the flags from the underlying reader.
     pub(super) fn flags(&self) -> ffi::IndexFlags {
         self.iterator.flags()
@@ -115,10 +126,10 @@ impl<'index> rqe_iterators::RQEIterator<'index> for NumericIterator<'index> {
     }
 }
 
-/// Wraps a `Vec<NumericIteratorVariant>` into a `Vec<CRQEIterator>` by boxing
-/// each variant in an [`RQEIteratorWrapper`].
-pub(super) fn into_crqe_children(variants: Vec<NumericIteratorVariant<'_>>) -> Vec<CRQEIterator> {
-    variants
+/// Wraps a `Vec<NumericIterator>` into a `Vec<CRQEIterator>` by boxing
+/// each iterator in an [`RQEIteratorWrapper`].
+pub(super) fn into_crqe_from_numeric_iters(iters: Vec<NumericIterator<'_>>) -> Vec<CRQEIterator> {
+    iters
         .into_iter()
         .map(|v| {
             let ptr = RQEIteratorWrapper::boxed_new(v);
@@ -308,7 +319,12 @@ pub unsafe extern "C" fn NewNumericFilterIterator(
     };
     match numeric_filter_union {
         None | Some(NewUnionIterator::ReducedEmpty(_)) => ptr::null_mut(),
-        Some(NewUnionIterator::ReducedSingle(v)) => RQEIteratorWrapper::boxed_new(v),
+        Some(NewUnionIterator::ReducedSingle(v)) => {
+            RQEIteratorWrapper::boxed_new(NumericIterator {
+                filter: Some(filter_nn),
+                iterator: v,
+            })
+        }
         Some(NewUnionIterator::Flat(f)) => crate::union::build_union_from_children(
             inject_filter(f.into_children()),
             false,
