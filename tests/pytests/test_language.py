@@ -23,7 +23,7 @@ def testHashIndexLanguage(env):
             'LANGUAGE', 'italian', 'SCHEMA', 'word', 'TEXT')
     # Wait for index to be created
     waitForIndex(env, 'idx_it')
-    
+
     # Search for "arancia/arance", without passing language argument, should use
     # the language by default: Italian
     # It should return 2 results using stemming in Italian
@@ -39,7 +39,7 @@ def testHashIndexLanguage(env):
     env.assertEqual(res, [1, '{word}:1', ['word', 'arancia']])
 
     # Search for English words using language English in an Italian index
-    # This returns invalid results because the stemmer used during data 
+    # This returns invalid results because the stemmer used during data
     # ingestion was Italian but the words are in English
     res = env.cmd('FT.SEARCH', 'idx_it', 'cherry', 'language', 'english',
                   'SORTBY', 'word', 'DESC')
@@ -55,7 +55,7 @@ def testHashIndexLanguage(env):
 
     res = env.cmd('FT.SEARCH', 'idx_it', 'oranges', 'language', 'english',
                   'SORTBY', 'word', 'DESC')
-    env.assertEqual(res, [2, '{word}:4', ['word', 'oranges'], 
+    env.assertEqual(res, [2, '{word}:4', ['word', 'oranges'],
                           '{word}:3', ['word', 'orange']])
 
     # Create index - language English per index (by default)
@@ -108,7 +108,7 @@ def testJsonIndexLanguage(env):
 
     # Search for "arancia/arance", should use the language by default: Italian
     # It should return 2 results using stemming in Italian
-    expected = [2, '{word}:1', ['word', 'arancia', '$', '{"word":"arancia"}'], 
+    expected = [2, '{word}:1', ['word', 'arancia', '$', '{"word":"arancia"}'],
                 '{word}:2', ['word', 'arance', '$', '{"word":"arance"}']]
     for word in ['arancia', 'arance']:
         res = env.cmd('FT.SEARCH', 'idx_it', word, 'SORTBY', 'word', 'DESC')
@@ -120,7 +120,7 @@ def testJsonIndexLanguage(env):
     env.assertEqual(res, [1, '{word}:1', ['$', '{"word":"arancia"}']])
 
     # Search for English words using language English in an Italian index
-    # This returns invalid results because the stemmer used during data 
+    # This returns invalid results because the stemmer used during data
     # ingestion was Italian but the words are in English
     expected = [1, '{word}:5', ['word', 'cherry', '$', '{"word":"cherry"}']]
     res = env.cmd('FT.SEARCH', 'idx_it', 'cherry', 'language', 'english',
@@ -137,7 +137,7 @@ def testJsonIndexLanguage(env):
                   'SORTBY', 'word', 'DESC')
     env.assertEqual(res, expected)
 
-    expected = [2, '{word}:4', ['word', 'oranges', '$', '{"word":"oranges"}'], 
+    expected = [2, '{word}:4', ['word', 'oranges', '$', '{"word":"oranges"}'],
                 '{word}:3', ['word', 'orange', '$', '{"word":"orange"}']]
     res = env.cmd('FT.SEARCH', 'idx_it', 'oranges', 'language', 'english',
                   'SORTBY', 'word', 'DESC')
@@ -175,7 +175,7 @@ def testJsonIndexLanguage(env):
 
 def testHashIndexLanguageField(env):
     conn = getConnectionByEnv(env)
-    
+
     # Create sample data in Italian
     conn.execute_command('HSET', '{word}:1', 'word', 'arancia',
                          '__lang', 'italian') # oranges
@@ -206,7 +206,7 @@ def testHashIndexLanguageField(env):
     # Wait for index to be created
     waitForIndex(env, 'idx_it')
 
-    # Search for "arancia/arance", without passing language argument, should use 
+    # Search for "arancia/arance", without passing language argument, should use
     # language Italian, because it is part of the index schema.
     # It should return 2 results using stemming in Italian
     expected = [2, '{word}:1', ['word', 'arancia'], '{word}:2', ['word', 'arance']]
@@ -231,14 +231,14 @@ def testHashIndexLanguageField(env):
                     'LANGUAGE', 'english')
         env.assertEqual(res, expected)
 
-    # Search for "cherry", without passing language argument should use the 
+    # Search for "cherry", without passing language argument should use the
     # default language of the index
     # It should return 1 result using invalid stemming in Italian
     res = env.cmd('FT.SEARCH', 'idx_it', 'cherry', 'SORTBY', 'word', 'ASC')
     expected = [1, '{word}:7', ['word', 'cherry']]
     env.assertEqual(res, expected)
 
-    # Search for "orange", without passing language argument should use the 
+    # Search for "orange", without passing language argument should use the
     # default language of the index: Italian
     # But in this case, the stemming in Italian, generates matching words
     # in English
@@ -247,7 +247,7 @@ def testHashIndexLanguageField(env):
     env.assertEqual(res, expected)
 
     # Search for "ciliegia", the document was created without __lang value
-    # but during the data ingestion the terms were created using the index 
+    # but during the data ingestion the terms were created using the index
     # language: Italian
     expected = [2, '{word}:3', ['word', 'ciliegia'], '{word}:4', ['word', 'ciliegie']]
     for word in ['ciliegia', 'ciliegie']:
@@ -306,8 +306,8 @@ def testHashIndexLanguageField(env):
         env.assertEqual(res, [3, '{word}:2', ['word', 'arance'],
                             '{word}:1', ['word', 'arancia'],
                             '{word}:10', ['word', 'fragola']])
-        
-        res = env.cmd('FT.SEARCH', idx, '@__lang:{Italian} arance', 
+
+        res = env.cmd('FT.SEARCH', idx, '@__lang:{Italian} arance',
                     'SORTBY', 'word', 'ASC')
         env.assertEqual(res, [2, '{word}:2', ['word', 'arance'],
                             '{word}:1', ['word', 'arancia']])
@@ -328,7 +328,7 @@ def testHashIndexLanguageField(env):
                             '{word}:4', ['word', 'ciliegie'],
                             '{word}:9', ['word', 'xaranja']])
         # TODO: Bug MOD-6886 - This is an equivalent query to the previous one,
-        # but it fails and returns some documents in English and Italian 
+        # but it fails and returns some documents in English and Italian
         # if RAW_DOCID_ENCODING is true
         raw_encoding = env.cmd(config_cmd(), 'GET', 'RAW_DOCID_ENCODING')
         if raw_encoding == 'false':
@@ -338,7 +338,7 @@ def testHashIndexLanguageField(env):
                 env.assertEqual(res2, res)
 
     ############################################################################
-    # Test that if no language field is defined by the index, if a hash has a 
+    # Test that if no language field is defined by the index, if a hash has a
     # __lang value it should be used as the document language
     ############################################################################
     # Create index - language per index: Italian, without language field
@@ -392,7 +392,7 @@ def testJsonIndexLanguageField(env):
     # Wait for index to be created
     waitForIndex(env, 'idx_it')
 
-    # Search for "arancia/arance", without passing language argument, should use 
+    # Search for "arancia/arance", without passing language argument, should use
     # language Italian, because it is part of the index schema.
     # It should return 2 results using stemming in Italian
     expected = [2, '{word}:1', '{word}:2']
@@ -418,7 +418,7 @@ def testJsonIndexLanguageField(env):
                     'LANGUAGE', 'english', 'NOCONTENT')
         env.assertEqual(res, expected)
 
-    # Search for "cherry", without passing language argument should use the 
+    # Search for "cherry", without passing language argument should use the
     # default language of the index
     # It should return 1 result using invalid stemming in Italian
     res = env.cmd('FT.SEARCH', 'idx_it', 'cherry', 'SORTBY', 'word', 'ASC',
@@ -426,7 +426,7 @@ def testJsonIndexLanguageField(env):
     expected = [1, '{word}:7']
     env.assertEqual(res, expected)
 
-    # Search for "orange", without passing language argument should use the 
+    # Search for "orange", without passing language argument should use the
     # default language of the index: Italian
     # But in this case, the stemming in Italian, generates matching words
     # in English
@@ -436,7 +436,7 @@ def testJsonIndexLanguageField(env):
     env.assertEqual(res, expected)
 
     # Search for "ciliegia", the document was created without __lang value
-    # but during the data ingestion the terms were created using the index 
+    # but during the data ingestion the terms were created using the index
     # language: Italian
     expected = [2, '{word}:3', '{word}:4']
     for word in ['ciliegia', 'ciliegie']:
@@ -500,7 +500,7 @@ def testJsonIndexLanguageField(env):
         res = env.cmd('FT.SEARCH', idx, '@__lang:{Italian}',
                     'SORTBY', 'word', 'NOCONTENT')
         env.assertEqual(res, [3, '{word}:2', '{word}:1', '{word}:10'])
-        
+
         res = env.cmd('FT.SEARCH', idx, '@__lang:{Italian} arance',
                     'SORTBY', 'word', 'ASC', 'NOCONTENT')
         env.assertEqual(res, [2, '{word}:2','{word}:1'])
@@ -516,7 +516,7 @@ def testJsonIndexLanguageField(env):
                     'SORTBY', 'word', 'NOCONTENT', 'DIALECT', 2)
         env.assertEqual(res, [3, '{word}:3', '{word}:4', '{word}:9'])
         # TODO: Bug MOD-6886 - This is an equivalent query to the previous one,
-        # but it fails and returns some documents in English and Italian 
+        # but it fails and returns some documents in English and Italian
         # if RAW_DOCID_ENCODING is true
         raw_encoding = env.cmd(config_cmd(), 'GET', 'RAW_DOCID_ENCODING')
         if raw_encoding == 'false':
@@ -526,7 +526,7 @@ def testJsonIndexLanguageField(env):
                 env.assertEqual(res2, res)
 
     ############################################################################
-    # Test that if no language field is defined by the index, if a hash has a 
+    # Test that if no language field is defined by the index, if a hash has a
     # __lang value it should be used as the document language
     ############################################################################
     # Create index - language per index: Italian, without language field
@@ -547,17 +547,17 @@ def testJsonIndexLanguageField(env):
 def testMalayLanguage(env):
     conn = getConnectionByEnv(env)
 
-    conn.execute_command('HSET', '{ms}:1', 'word', 'memakan')
-    conn.execute_command('HSET', '{ms}:2', 'word', 'makan')
+    conn.execute_command('HSET', '{ms}:1', 'word', 'berlari')
+    conn.execute_command('HSET', '{ms}:2', 'word', 'lari')
 
     env.cmd('FT.CREATE', 'idx_ms', 'ON', 'HASH', 'PREFIX', '1', '{ms}:',
             'LANGUAGE', 'malay', 'SCHEMA', 'word', 'TEXT')
     waitForIndex(env, 'idx_ms')
 
-    res = env.cmd('FT.SEARCH', 'idx_ms', 'memakan', 'SORTBY', 'word', 'ASC')
+    res = env.cmd('FT.SEARCH', 'idx_ms', 'berlari', 'SORTBY', 'word', 'ASC')
     env.assertEqual(res[0], 2)
 
-    res = env.cmd('FT.SEARCH', 'idx_ms', 'makan', 'SORTBY', 'word', 'ASC')
+    res = env.cmd('FT.SEARCH', 'idx_ms', 'lari', 'SORTBY', 'word', 'ASC')
     env.assertEqual(res[0], 2)
 
 def testTagalogLanguage(env):
