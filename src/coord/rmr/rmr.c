@@ -766,14 +766,11 @@ void iterStartCb(void *p) {
   cmd->targetShardIdx = 0;
   MRCommand_SetSlotInfo(cmd, shards[0].slotRanges);
 
-  // Take an extra reference to prevent the iterator from being freed mid-loop.
-  MRIterator_IncreaseRefCount(it);
-
   // Pre-fanout connection validation - check ALL connections before sending ANY commands
   bool allConnectionsValid = true;
   for (size_t i = 0; i < it->len; i++) {
     MRConn *conn = MRConn_Get(&io_runtime_ctx->conn_mgr, it->cbxs[i].cmd.targetShard);
-    if (!conn) {
+    if (!conn || !MRConn_IsConnected(conn)) {
       allConnectionsValid = false;
       break;
     }
@@ -794,9 +791,6 @@ void iterStartCb(void *p) {
       }
     }
   }
-
-  // Release the extra reference we took at the start of the loop.
-  MRIterator_Release(it);
 
   // Clean up the data structure
   rm_free(data);

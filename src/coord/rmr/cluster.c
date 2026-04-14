@@ -45,8 +45,8 @@ int MRCluster_SendCommand(IORuntimeCtx *ioRuntime,
   return MRConn_SendCommand(conn, cmd, fn, privdata);
 }
 
-/* Multiplex a non-sharding command to all coordinators, using a specific coordination strategy. The
- * return value is the number of nodes we managed to successfully send the command to
+/* Multiplex a non-sharding command to all coordinators, using a specific coordination strategy.  Returns the
+ * number of sent commands.
  * If validateConnections is true, the function will validate that all connections are up before sending the command */
 int MRCluster_FanoutCommand(IORuntimeCtx *ioRuntime,
                            MRCommand *cmd,
