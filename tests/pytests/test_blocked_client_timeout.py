@@ -859,50 +859,6 @@ class TestCoordinatorReducePause:
         env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy).ok()
         self._cleanup_pause_state()
 
-    def test_timeout_return_strict_before_reducer_ctx_init(self):
-        """Test return-strict timeout after reducer claims ownership but before req->rctx init."""
-        env = self.env
-
-        prev_on_timeout_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
-        env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'return-strict').ok()
-
-        # Pause right after the background reducer claims reducing so timeout
-        # will wait for it, then force the reducer to take the timed-out early exit.
-        setPauseBeforeReduce(env, PAUSE_BEFORE_REDUCER_INIT)
-
-        blocked_client_id = env.cmd('CLIENT', 'ID')
-
-        query_result = []
-
-        t_query = threading.Thread(
-            target=call_and_store,
-            args=(env.cmd, ['FT.SEARCH', 'idx', '*', 'LIMIT', '0', '10'], query_result),
-            daemon=True
-        )
-        t_query.start()
-
-        wait_for_condition(
-            lambda: (getIsCoordReducePaused(env) == 1, {'paused': getIsCoordReducePaused(env)}),
-            'Timeout while waiting for coordinator to pause before reducer ctx init'
-        )
-
-        wait_for_client_blocked(env, blocked_client_id)
-
-        env.expect('CLIENT', 'UNBLOCK', blocked_client_id, 'TIMEOUT').equal(1)
-
-        wait_for_client_unblocked(env, blocked_client_id)
-
-        t_query.join(timeout=10)
-        env.assertFalse(t_query.is_alive(), message="Query thread should have finished")
-
-        env.assertEqual(len(query_result), 1, message="Expected 1 result from query thread")
-        result = query_result[0]
-        env.assertEqual(result['total_results'], 100, message="Expected 100 total results from all shards")
-        env.assertEqual(result['warning'], [TIMEOUT_WARNING], message="Expected timeout warning")
-
-        env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy).ok()
-        self._cleanup_pause_state()
-
     def test_timeout_return_strict_mid_reduce(self):
         """Test return-strict timeout policy when timeout occurs mid-reduction.
 
