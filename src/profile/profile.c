@@ -34,7 +34,14 @@ void printInvIdxIt(RedisModule_Reply *reply, QueryIterator *root, ProfileCounter
   InvIndIterator *it = (InvIndIterator *)root;
 
   RedisModule_Reply_Map(reply);
-  if (IndexReader_Flags(it->reader) == Index_DocIdsOnly) {
+  if (it->isWildcard) {
+    printProfileType("WILDCARD");
+  } else if (it->filterCtx.predicate == FIELD_EXPIRATION_PREDICATE_MISSING) {
+    printProfileType("MISSING");
+    size_t fieldLen = 0;
+    const char *fieldName = HiddenString_GetUnsafe(it->sctx->spec->fields[it->filterCtx.field.index].fieldName, &fieldLen);
+    RedisModule_ReplyKV_StringBuffer(reply, "Field", fieldName, fieldLen);
+  } else if (IndexReader_Flags(it->reader) == Index_DocIdsOnly) {
     RSQueryTerm *term = IndexResult_QueryTermRef(root->current);
     if (term != NULL) {
       printProfileType("TAG");
