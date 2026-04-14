@@ -14,7 +14,11 @@ void printReadIt(RedisModule_Reply *reply, IndexIterator *root, size_t counter, 
 
   RedisModule_Reply_Map(reply);
 
-  if (ir->idx->flags == Index_DocIdsOnly) {
+  if (ir->idx->flags == Index_DocIdsOnly && ir->profileCtx.missing.isMissing) {
+    printProfileType("MISSING");
+    RedisModule_ReplyKV_SimpleString(reply, "Field",
+                                     ir->sp->fields[ir->profileCtx.missing.fieldIndex].name);
+  } else if (ir->idx->flags == Index_DocIdsOnly) {
     printProfileType("TAG");
     REPLY_KVSTR_SAFE("Term", ir->record->term.term->str);
   } else if (ir->idx->flags & Index_StoreNumeric) {
