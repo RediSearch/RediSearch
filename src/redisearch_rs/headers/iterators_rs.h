@@ -205,6 +205,17 @@ QueryIterator *NewInvIndIterator_MissingQuery(const InvertedIndex *idx,
                                               t_fieldIndex field_index);
 
 /**
+ * Gets the field name used by a missing-field inverted index iterator.
+ *
+ * # Safety
+ *
+ * 1. `it` must be a valid non-NULL pointer to a `QueryIterator`.
+ * 2. `it` must have type [`IteratorType::InvIdxMissing`].
+ * 3. `out_len` must be a valid writable pointer.
+ */
+const char *InvIndMissingIterator_GetFieldName(const QueryIterator *it, size_t *out_len);
+
+/**
  * Creates a new numeric inverted index iterator for querying numeric fields.
  *
  * # Parameters

@@ -44,6 +44,13 @@ impl MissingIterator<'_> {
             MissingIterator::Raw(m) => m.reader().flags(),
         }
     }
+
+    pub(super) fn field_name(&self) -> (*const std::ffi::c_char, usize) {
+        match self {
+            MissingIterator::Encoded(m) => m.field_name(),
+            MissingIterator::Raw(m) => m.field_name(),
+        }
+    }
 }
 
 /// Macro to dispatch RQEIterator methods across all [`MissingIterator`] variants.
@@ -183,4 +190,28 @@ pub unsafe extern "C" fn NewInvIndIterator_MissingQuery(
     };
 
     RQEIteratorWrapper::boxed_new(iterator)
+}
+
+/// Gets the field name used by a missing-field inverted index iterator.
+///
+/// # Safety
+///
+/// 1. `it` must be a valid non-NULL pointer to a `QueryIterator`.
+/// 2. `it` must have type [`IteratorType::InvIdxMissing`].
+/// 3. `out_len` must be a valid writable pointer.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn InvIndMissingIterator_GetFieldName(
+    it: *const ffi::QueryIterator,
+    out_len: *mut usize,
+) -> *const std::ffi::c_char {
+    debug_assert!(!it.is_null(), "it must not be null");
+    debug_assert!(!out_len.is_null(), "out_len must not be null");
+
+    // SAFETY: 1. and 2. guarantee the iterator is a valid missing iterator wrapper.
+    let wrapper =
+        unsafe { RQEIteratorWrapper::<MissingIterator<'static>>::ref_from_header_ptr(it.cast()) };
+    let (field_name, field_name_len) = wrapper.inner.field_name();
+    // SAFETY: 3. guarantees `out_len` is valid and writable.
+    unsafe { *out_len = field_name_len };
+    field_name
 }
