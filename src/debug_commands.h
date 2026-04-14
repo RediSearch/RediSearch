@@ -99,8 +99,9 @@ void StoreResultsDebugCtx_SetPause(bool pause);
 
 // Predefined sync point names for query execution
 // These correspond to specific locations in the query execution path
-#define SYNC_POINT_AFTER_ITERATOR_CREATE  "AfterIteratorCreate"
-#define SYNC_POINT_BEFORE_FIRST_READ      "BeforeFirstRead"
+#define SYNC_POINT_AFTER_ITERATOR_CREATE       "AfterIteratorCreate"
+#define SYNC_POINT_BEFORE_FIRST_READ           "BeforeFirstRead"
+#define SYNC_POINT_BEFORE_DIST_HYBRID_PROMOTE  "BeforeDistHybridPromote"
 
 // SyncPoint API function declarations
 // Arm a sync point - subsequent calls to SyncPoint_Wait will block
