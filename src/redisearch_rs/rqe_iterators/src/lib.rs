@@ -33,6 +33,7 @@ pub mod profile;
 pub mod union;
 mod union_flat;
 mod union_heap;
+pub mod union_reducer;
 pub mod utils;
 pub mod wildcard;
 
