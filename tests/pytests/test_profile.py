@@ -284,7 +284,7 @@ def testProfileMissingFieldQuery(env):
   conn.execute_command('hset', '1', 't', 'hello')
   conn.execute_command('hset', '2', 'other', 'value')
 
-  actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', 'ismissing(@t)', 'nocontent', 'DIALECT', 2)
+  actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', 'ismissing(@t)', 'nocontent')
   env.assertEqual(actual_res[0], [1, '2'])
   env.assertEqual(actual_res[1][1][0][3], ['Type', 'MISSING', 'Field', 't', 'Number of reading operations', 1, 'Estimated number of matches', 1])
 
@@ -292,6 +292,11 @@ def testProfileMissingFieldQuery(env):
   env.assertEqual(actual_res[0], [1, '1'])
   env.assertEqual(actual_res[1][1][0][3], ['Type', 'NOT', 'Number of reading operations', 1, 'Child iterator',
                                             ['Type', 'MISSING', 'Field', 't', 'Number of reading operations', 1, 'Estimated number of matches', 1]])
+
+  env.cmd(config_cmd(), 'SET', '_PRINT_PROFILE_CLOCK', 'true')
+  actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', 'ismissing(@t)', 'nocontent')
+  env.assertEqual(actual_res[0], [1, '2'])
+  env.assertEqual(actual_res[1][1][0][3], ['Type', 'MISSING', 'Field', 't', 'Time', ANY, 'Number of reading operations', 1, 'Estimated number of matches', 1])
 
 @skip(cluster=True)
 def testProfileVector(env):
