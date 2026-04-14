@@ -155,7 +155,7 @@ jobs:
           GH_TOKEN: ${{ secrets.CI_GH_P_TOKEN }}
         run: |
           gh pr ready "$BRANCH" -R "$GITHUB_REPOSITORY"
-          gh pr merge "$BRANCH" -R "$GITHUB_REPOSITORY" --auto
+          gh pr merge "$BRANCH" -R "$GITHUB_REPOSITORY" --auto --merge
 
   generate-matrix:
     uses: ./.github/workflows/generate-matrix.yml
