@@ -82,40 +82,47 @@ endforeach()
 
 # ── Generate modules.h ───────────────────────────────────────────────────────
 
-set(_o "")
-string(APPEND _o "/* ${OUTPUT}: List of stemming modules.\n")
-string(APPEND _o " *\n")
-string(APPEND _o " * This file is generated from modules.txt.\n")
-string(APPEND _o " * Do not edit manually.\n")
-string(APPEND _o " *\n")
-string(APPEND _o "${_comment_line}\n */\n\n")
+set(_o "
+/* ${OUTPUT}: List of stemming modules.
+ *
+ *
+ *
+ *
+${_comment_line}
+ */
+
+")
 
 foreach(_alg IN LISTS _algorithms)
     string(APPEND _o "#include \"../${C_SRC_DIR}/stem_UTF_8_${_alg}.h\"\n")
 endforeach()
 
-string(APPEND _o "\ntypedef enum {\n")
-string(APPEND _o "  ENC_UNKNOWN=0,\n")
-string(APPEND _o "  ENC_UTF_8\n")
-string(APPEND _o "} stemmer_encoding_t;\n")
+string(APPEND _o "
+typedef enum {
+  ENC_UNKNOWN=0,
+  ENC_UTF_8
+} stemmer_encoding_t;
 
-string(APPEND _o "\nstruct stemmer_encoding {\n")
-string(APPEND _o "  const char * name;\n")
-string(APPEND _o "  stemmer_encoding_t enc;\n")
-string(APPEND _o "};\n")
-string(APPEND _o "static const struct stemmer_encoding encodings[] = {\n")
-string(APPEND _o "  {\"UTF_8\", ENC_UTF_8},\n")
-string(APPEND _o "  {0,ENC_UNKNOWN}\n")
-string(APPEND _o "};\n")
+struct stemmer_encoding {
+  const char * name;
+  stemmer_encoding_t enc;
+};
 
-string(APPEND _o "\nstruct stemmer_modules {\n")
-string(APPEND _o "  const char * name;\n")
-string(APPEND _o "  stemmer_encoding_t enc;\n")
-string(APPEND _o "  struct SN_env * (*create)(void);\n")
-string(APPEND _o "  void (*close)(struct SN_env *);\n")
-string(APPEND _o "  int (*stem)(struct SN_env *);\n")
-string(APPEND _o "};\n")
-string(APPEND _o "static const struct stemmer_modules modules[] = {\n")
+static const struct stemmer_encoding encodings[] = {
+  {\"UTF_8\", ENC_UTF_8},
+  {0,ENC_UNKNOWN}
+};
+
+struct stemmer_modules {
+  const char * name;
+  stemmer_encoding_t enc;
+  struct SN_env * (*create)(void);
+  void (*close)(struct SN_env *);
+  int (*stem)(struct SN_env *);
+};
+
+static const struct stemmer_modules modules[] = {
+")
 
 foreach(_alias IN LISTS _aliases)
     set(_alg "${_ALIAS_ALG_${_alias}}")
