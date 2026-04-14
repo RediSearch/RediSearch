@@ -520,4 +520,3 @@ impl<'index> RQEIterator<'index> for NumericIteratorVariant<'index> {
         1.0
     }
 }
-

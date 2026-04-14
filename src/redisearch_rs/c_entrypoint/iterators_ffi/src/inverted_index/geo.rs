@@ -57,6 +57,8 @@ pub unsafe extern "C" fn NewGeoRangeIterator(
     // SAFETY: 4. guarantees config is valid and non-null.
     let min_union_iter_heap = unsafe { (*config).minUnionIterHeap } as usize;
 
+    // We're opening the union to wrap children into RQEIteratorWrapper, for profiling support
+    // TODO: check if we can implement Profiled to NumericIteratorVariant and simplify this.
     // SAFETY: caller upholds requirements 1–3.
     match unsafe { new_geo_range_iterator(sctx, geo, &field_ctx, min_union_iter_heap, compress) } {
         None | Some(NewUnionIterator::ReducedEmpty(_)) => ptr::null_mut(),
