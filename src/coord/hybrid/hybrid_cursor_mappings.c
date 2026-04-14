@@ -198,7 +198,7 @@ static void processCursorMappingInit(void *privateData, MRIterator *it) {
     pthread_mutex_lock(ctx->mutex);
     ctx->numShards = actualNumShards;
     ctx->errors = array_new(QueryError, actualNumShards);
-    // Signal in case the coordinator is already waiting with the stale numShards.
+    // Signal so the coordinator can re-check the wait condition.
     pthread_cond_signal(ctx->completionCond);
     pthread_mutex_unlock(ctx->mutex);
 }
@@ -236,7 +236,7 @@ bool ProcessHybridCursorMappings(const MRCommand *cmd, StrongRef searchMappingsR
         .responseCount = 0,
         .mutex = ctx->mutex,
         .completionCond = ctx->completionCond,
-        .numShards = 0
+        .numShards = 0,
       };
 
     // Start iteration (ctx is cleaned up manually in cleanupCtx, no destructor needed)
@@ -252,10 +252,8 @@ bool ProcessHybridCursorMappings(const MRCommand *cmd, StrongRef searchMappingsR
     }
     // Wait for all callbacks to complete
     pthread_mutex_lock(ctx->mutex);
-    // Wait until all responses arrive. Use ctx->numShards (not the local numShards)
-    // because the IO thread may have updated it via processCursorMappingInit when
-    // the live topology differs from what the coordinator originally read.
-    for (size_t count = ctx->responseCount; count < ctx->numShards; count = ctx->responseCount) {
+    // Wait until the IO thread has initialized numShards and all responses arrive.
+    while (ctx->numShards == 0 || ctx->responseCount < ctx->numShards) {
         pthread_cond_wait(ctx->completionCond, ctx->mutex);
     }
     pthread_mutex_unlock(ctx->mutex);
