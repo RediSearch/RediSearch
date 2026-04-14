@@ -254,6 +254,7 @@ void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
   MRCommand_appendVsim(xcmd, argv, argc, vsimOffset, &kArgIndex);
 
   // Calculate and apply effective K for KNN queries if SHARD_K_RATIO is set
+  // TODO: Potentially edit in IO thread where numShards is actually known
   if (vq && vq->type == VECSIM_QT_KNN) {
     double shardWindowRatio = vq->knn.shardWindowRatio;
     if (shardWindowRatio < MAX_SHARD_WINDOW_RATIO && numShards > 1) {
@@ -716,7 +717,7 @@ static int HybridRequest_executePlan(HybridRequest *hreq, struct ConcurrentCmdCt
     cmd->coordStartTime = hreq->profileClocks.coordStartTime;
 
     const RSOomPolicy oomPolicy = hreq->reqConfig.oomPolicy;
-    if (!ProcessHybridCursorMappings(cmd, numShards, searchMappingsRef, vsimMappingsRef, hreq->tailPipeline->qctx.err, oomPolicy)) {
+    if (!ProcessHybridCursorMappings(cmd, searchMappingsRef, vsimMappingsRef, hreq->tailPipeline->qctx.err, oomPolicy)) {
         // Handle error
         StrongRef_Release(searchMappingsRef);
         StrongRef_Release(vsimMappingsRef);
@@ -846,7 +847,7 @@ void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     // Store coordinator start time for dispatch time tracking
     hreq->profileClocks.coordStartTime = ConcurrentCmdCtx_GetCoordStartTime(cmdCtx);
 
-    // Get numShards captured from main thread for thread-safe access
+    // Get numShards captured from main thread for thread-safe access and to compute effective K
     size_t numShards = ConcurrentCmdCtx_GetNumShards(cmdCtx);
 
     if (HybridRequest_prepareForExecution(hreq, ctx, argv, argc, sp, numShards, &status) != REDISMODULE_OK) {

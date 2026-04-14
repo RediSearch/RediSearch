@@ -202,6 +202,7 @@ static void processCursorMappingInit(void *privateData, MRIterator *it) {
     int actualNumShards = (int)MRIterator_GetNumShards(it);
     pthread_mutex_lock(ctx->mutex);
     ctx->numShards = actualNumShards;
+    ctx->errors = array_new(QueryError, actualNumShards);
     // Signal in case the coordinator is already waiting with the stale numShards.
     pthread_cond_signal(ctx->completionCond);
     pthread_mutex_unlock(ctx->mutex);
@@ -218,7 +219,7 @@ static inline void cleanupCtx(processCursorMappingCallbackContext *ctx) {
     rm_free(ctx);
 }
 
-bool ProcessHybridCursorMappings(const MRCommand *cmd, int numShards, StrongRef searchMappingsRef, StrongRef vsimMappingsRef, QueryError *status, const RSOomPolicy oomPolicy) {
+bool ProcessHybridCursorMappings(const MRCommand *cmd, StrongRef searchMappingsRef, StrongRef vsimMappingsRef, QueryError *status, const RSOomPolicy oomPolicy) {
     CursorMappings *searchMappings = StrongRef_Get(searchMappingsRef);
     CursorMappings *vsimMappings = StrongRef_Get(vsimMappingsRef);
     RS_ASSERT(array_len(searchMappings->mappings) == 0 && array_len(vsimMappings->mappings) == 0);
@@ -233,15 +234,15 @@ bool ProcessHybridCursorMappings(const MRCommand *cmd, int numShards, StrongRef 
     pthread_cond_init(ctx->completionCond, NULL);
 
     // Setup callback context
-    *ctx = (processCursorMappingCallbackContext){
+    *ctx = (processCursorMappingCallbackContext) {
         .searchMappings = StrongRef_Clone(searchMappingsRef),
         .vsimMappings = StrongRef_Clone(vsimMappingsRef),
-        .errors = array_new(QueryError, numShards),
+        .errors = NULL,
         .responseCount = 0,
         .mutex = ctx->mutex,
         .completionCond = ctx->completionCond,
-        .numShards = numShards
-    };
+        .numShards = 0
+      };
 
     // Start iteration (ctx is cleaned up manually in cleanupCtx, no destructor needed)
     // processCursorMappingInit is called from iterStartCb to update ctx->numShards
