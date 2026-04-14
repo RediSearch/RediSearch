@@ -1329,17 +1329,17 @@ macro_rules! union_common_tests {
             assert_eq!(
                 data[0].read_count(),
                 1,
-                "child0 should be read once for initial setup"
+                "child0 should be read once for initial heap setup"
             );
             assert_eq!(
                 data[1].read_count(),
                 1,
-                "child1 should be read once for initial setup"
+                "child1 should be read once for initial heap setup"
             );
             assert_eq!(
                 data[2].read_count(),
                 1,
-                "child2 should be read once for initial setup"
+                "child2 should be read once for initial heap setup"
             );
 
             let result = union

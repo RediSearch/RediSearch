@@ -12,10 +12,7 @@
 use ffi::t_docId;
 use inverted_index::RSIndexResult;
 
-use crate::{
-    IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
-    utils::ActiveChildren,
-};
+use crate::{IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
 
 /// Yields documents appearing in ANY child iterator using a flat array scan.
 ///
@@ -35,13 +32,11 @@ use crate::{
 /// - `QUICK_EXIT`: If `true`, returns immediately after finding any matching child.
 ///   If `false`, aggregates results from all children with the minimum doc_id.
 pub struct UnionFlat<'index, I, const QUICK_EXIT: bool> {
-    /// Child iterators. Exhausted children are deactivated in O(1) rather
-    /// than removed, so that children stay in insertion order for profile
-    /// display and aggregate-result ordering. On rewind, all children are
-    /// reactivated. Aborted children are permanently removed during
-    /// revalidation — this is safe because profile display reads children
-    /// dynamically (via [`ActiveChildren`]) rather than from a cached snapshot.
-    children: ActiveChildren<I>,
+    /// Child iterators. Active children are in `children[..num_active]`,
+    /// exhausted children are moved to the end and not removed so we can rewind the iterator.
+    children: Vec<I>,
+    /// Number of active (non-EOF) children. Only `children[..num_active]` are scanned.
+    num_active: usize,
     /// Sum of all children's estimated counts (upper bound).
     num_estimated: usize,
     /// Whether the iterator has reached EOF (all children exhausted).
@@ -63,7 +58,8 @@ where
 
         if children.is_empty() {
             return Self {
-                children: ActiveChildren::new(children),
+                children,
+                num_active: 0,
                 num_estimated: 0,
                 is_eof: true,
                 result: RSIndexResult::build_union(0).build(),
@@ -71,7 +67,8 @@ where
         }
 
         Self {
-            children: ActiveChildren::new(children),
+            children,
+            num_active: num_children,
             num_estimated,
             is_eof: false,
             result: RSIndexResult::build_union(num_children).build(),
@@ -100,7 +97,7 @@ where
 
     /// Consumes the iterator and returns a [`super::UnionTrimmed`] over the same children.
     pub fn into_trimmed(self, limit: usize, asc: bool) -> super::UnionTrimmed<'index, I> {
-        super::UnionTrimmed::new(self.children.into_inner(), limit, asc)
+        super::UnionTrimmed::new(self.children, limit, asc)
     }
 
     /// Advances all active children whose `last_doc_id` equals `current_id` and finds the
@@ -111,21 +108,16 @@ where
         let mut min_id: t_docId = t_docId::MAX;
         let mut i = 0;
 
-        while i < self.children.len() {
-            if !self.children.is_active(i) {
-                i += 1;
-                continue;
-            }
-
-            let child = self.children.get_mut(i);
+        while i < self.num_active {
+            let child = &mut self.children[i];
 
             // Advance children that match the current doc_id
             if child.last_doc_id() == current_id {
                 let read_result = child.read()?;
                 // If read returned None, the child has no more documents
                 if read_result.is_none() {
-                    self.children.deactivate(i);
-                    i += 1;
+                    self.swap_remove_child(i);
+                    // Don't increment i - we need to check the swapped-in child
                     continue;
                 }
                 // Otherwise, child.last_doc_id() was updated by read()
@@ -133,7 +125,7 @@ where
             }
 
             // Track minimum doc_id (fused with advance loop)
-            let doc_id = self.children.get(i).last_doc_id();
+            let doc_id = child.last_doc_id();
             if doc_id < min_id {
                 min_id = doc_id;
             }
@@ -144,20 +136,30 @@ where
         Ok(min_id)
     }
 
+    /// Swap-removes an exhausted child at `idx` by swapping it with the last active child.
+    #[inline]
+    fn swap_remove_child(&mut self, idx: usize) {
+        debug_assert!(idx < self.num_active);
+        self.num_active -= 1;
+        if idx < self.num_active {
+            self.children.swap(idx, self.num_active);
+        }
+    }
+
     /// Builds the result from active children whose `last_doc_id` equals `min_id`.
     /// Only used in Full mode - aggregates ALL matching children.
     fn build_aggregate_result(&mut self, min_id: t_docId) {
         self.result.reset_aggregate();
         self.result.doc_id = min_id;
 
-        for (_, child) in self.children.iter_active_mut() {
+        for child in &mut self.children[..self.num_active] {
             if child.last_doc_id() == min_id
                 && let Some(child_result) = child.current()
             {
                 let child_ptr: *const RSIndexResult<'index> = child_result;
                 // SAFETY: We need a raw pointer to decouple the borrow of the child's
                 // result from `&mut self.result`. This is sound because:
-                // 1. The child (via `self.children`) and `self.result` are disjoint fields — no aliasing.
+                // 1. `self.children[i]` and `self.result` are disjoint fields — no aliasing.
                 // 2. `push_borrowed` takes a shared reference, so no mutation through child_ref.
                 // 3. The child is owned by `self`, so the 'index data remains valid.
                 let child_ref = unsafe { &*child_ptr };
@@ -167,37 +169,30 @@ where
     }
 
     /// Performs initial read on all children to position them at their first document.
-    /// Deactivates any children that are immediately exhausted (empty iterators).
+    /// Removes any children that are immediately exhausted (empty iterators).
     /// Returns the minimum doc_id among active children, or `t_docId::MAX` if all are exhausted.
     fn initialize_children(&mut self) -> Result<t_docId, RQEIteratorError> {
         let mut min_id: t_docId = t_docId::MAX;
         let mut i = 0;
-        while i < self.children.len() {
-            if !self.children.is_active(i) {
-                i += 1;
-                continue;
-            }
-
-            let child = self.children.get_mut(i);
+        while i < self.num_active {
+            let child = &mut self.children[i];
 
             // Handle children that haven't been read yet (last_doc_id == 0)
             if child.last_doc_id() == 0 {
                 // Check if already at EOF (e.g., empty iterator)
                 if child.at_eof() {
-                    self.children.deactivate(i);
-                    i += 1;
+                    self.swap_remove_child(i);
                     continue;
                 }
                 // Perform initial read, also sets child.last_doc_id()
                 let read_result = child.read()?;
                 if read_result.is_none() {
-                    self.children.deactivate(i);
-                    i += 1;
+                    self.swap_remove_child(i);
                     continue;
                 }
             }
             // Track minimum doc_id
-            let doc_id = self.children.get(i).last_doc_id();
+            let doc_id = child.last_doc_id();
             if doc_id < min_id {
                 min_id = doc_id;
             }
@@ -233,7 +228,7 @@ where
     }
 
     /// Full mode skip_to - scans all active children and aggregates all matches.
-    /// Removes exhausted children, preserving order.
+    /// Removes exhausted children via swap-remove.
     ///
     /// Optimization: When a child's `skip_to` returns `Found` (exact match) or when a child
     /// is already at the target doc_id, we add it to the result immediately during the loop.
@@ -248,13 +243,9 @@ where
         // Reset aggregate before potentially adding children during the loop
         self.result.reset_aggregate();
 
-        while i < self.children.len() {
-            if !self.children.is_active(i) {
-                i += 1;
-                continue;
-            }
+        while i < self.num_active {
+            let child = &mut self.children[i];
 
-            let child = self.children.get_mut(i);
             let child_last_id = child.last_doc_id();
 
             // Already at or past target doc_id
@@ -285,9 +276,8 @@ where
                     }
                 }
                 None => {
-                    // Child exhausted
-                    self.children.deactivate(i);
-                    i += 1;
+                    // Child exhausted - swap-remove and continue without incrementing i
+                    self.swap_remove_child(i);
                     continue;
                 }
             }
@@ -320,13 +310,9 @@ where
         let mut min_child_idx: usize = 0;
         let mut i = 0;
 
-        while i < self.children.len() {
-            if !self.children.is_active(i) {
-                i += 1;
-                continue;
-            }
+        while i < self.num_active {
+            let child = &mut self.children[i];
 
-            let child = self.children.get_mut(i);
             let child_last_id = child.last_doc_id();
 
             if child_last_id < doc_id {
@@ -346,9 +332,8 @@ where
                         }
                     }
                     None => {
-                        // Child reached EOF - deactivate
-                        self.children.deactivate(i);
-                        i += 1;
+                        // Child reached EOF - swap-remove
+                        self.swap_remove_child(i);
                         continue;
                     }
                 }
@@ -379,7 +364,7 @@ where
     /// Sets the union result from a single child: resets aggregate, sets doc_id, adds child.
     /// Used in Quick mode where we only need one matching child.
     fn quick_set_from_child(&mut self, child_idx: usize) {
-        let child = self.children.get_mut(child_idx);
+        let child = &mut self.children[child_idx];
 
         self.result.reset_aggregate();
         self.result.doc_id = child.last_doc_id();
@@ -390,12 +375,12 @@ where
     /// Adds a single child's current result to the aggregate.
     /// Assumes the aggregate has already been reset if needed.
     fn add_child_to_result(&mut self, child_idx: usize) {
-        let child = self.children.get_mut(child_idx);
+        let child = &mut self.children[child_idx];
         if let Some(child_result) = child.current() {
             let child_ptr: *const RSIndexResult<'index> = child_result;
             // SAFETY: We need a raw pointer to decouple the borrow of the child's
             // result from `&mut self.result`. This is sound because:
-            // 1. The child (via `self.children`) and `self.result` are disjoint fields — no aliasing.
+            // 1. `self.children[i]` and `self.result` are disjoint fields — no aliasing.
             // 2. `push_borrowed` takes a shared reference, so no mutation through child_ref.
             // 3. The child is owned by `self`, so the 'index data remains valid.
             let child_ref = unsafe { &*child_ptr };
@@ -447,10 +432,11 @@ where
     }
 
     fn rewind(&mut self) {
-        self.children.activate_all();
+        // Reset num_active to include all children again
+        self.num_active = self.children.len();
         self.is_eof = self.children.is_empty();
         self.result.reset_aggregate();
-        self.children.iter_all_mut().for_each(|c| c.rewind());
+        self.children.iter_mut().for_each(|c| c.rewind());
     }
 
     #[inline(always)]
@@ -477,17 +463,18 @@ where
         let original_last_doc_id = self.last_doc_id();
         let mut any_change = false;
 
-        // Revalidate ALL children (including inactive/exhausted ones) and remove aborted ones.
+        // Revalidate ALL children (including exhausted ones past num_active) and remove aborted ones.
         // Exhausted children must be revalidated because they may become active again after revalidation.
         // We use index-based iteration because we need to remove elements while iterating.
         let mut i = 0;
         while i < self.children.len() {
-            match self.children.get_mut(i).revalidate()? {
+            match self.children[i].revalidate()? {
                 RQEValidateStatus::Aborted => {
-                    // Permanently remove aborted child.
-                    self.children.remove(i);
+                    // Remove aborted child using swap_remove for O(1) removal.
+                    // Order doesn't matter for union iteration.
+                    self.children.swap_remove(i);
                     any_change = true;
-                    // Don't increment i - the shifted element needs to be checked
+                    // Don't increment i - the swapped element needs to be checked
                 }
                 RQEValidateStatus::Moved { .. } => {
                     any_change = true;
@@ -510,25 +497,29 @@ where
             return Ok(RQEValidateStatus::Ok);
         }
 
-        // Re-activate all children and then deactivate those at EOF.
-        self.children.activate_all();
+        // Sync num_active and find minimum doc_id.
+        // Use swap_remove_child to move EOF children out of the active region.
+        self.num_active = self.children.len();
         let mut min_doc_id: t_docId = t_docId::MAX;
         let mut min_child_idx: usize = 0;
-        for i in 0..self.children.len() {
-            let child = self.children.get(i);
+        let mut i = 0;
+        while i < self.num_active {
+            let child = &self.children[i];
             if child.at_eof() {
-                self.children.deactivate(i);
+                self.swap_remove_child(i);
+                // Don't increment i - check the swapped-in child
             } else {
                 let child_doc_id = child.last_doc_id();
                 if child_doc_id < min_doc_id {
                     min_doc_id = child_doc_id;
                     min_child_idx = i;
                 }
+                i += 1;
             }
         }
 
         // Check if all remaining children are at EOF
-        if self.children.num_active() == 0 {
+        if self.num_active == 0 {
             self.is_eof = true;
             return Ok(RQEValidateStatus::Moved { current: None });
         }
@@ -568,14 +559,13 @@ impl<'index, const QUICK_EXIT: bool> crate::interop::ProfileChildren<'index>
     for UnionFlat<'index, crate::c2rust::CRQEIterator, QUICK_EXIT>
 {
     fn profile_children(self) -> Self {
-        let profiled: Vec<_> = self
-            .children
-            .into_inner()
-            .into_iter()
-            .map(crate::c2rust::CRQEIterator::into_profiled)
-            .collect();
         UnionFlat {
-            children: ActiveChildren::new(profiled),
+            children: self
+                .children
+                .into_iter()
+                .map(crate::c2rust::CRQEIterator::into_profiled)
+                .collect(),
+            num_active: self.num_active,
             num_estimated: self.num_estimated,
             is_eof: self.is_eof,
             result: self.result,
