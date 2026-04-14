@@ -445,6 +445,58 @@ def unstable(f):
 def skipTest(**kwargs):
     skip(**kwargs)(lambda: None)()
 
+def skip_until(date_str, reason=None):
+    """
+    Decorator to skip a test until a specific date.
+    After the date passes, the test will run normally.
+
+    This is useful for temporarily skipping flaky tests while ensuring
+    they are not forgotten - the test will automatically start running
+    again after the specified date.
+
+    Args:
+        date_str: A date string in "YYYY-MM-DD" format (e.g., "2024-06-15")
+        reason: Optional reason for skipping the test
+
+    Usage:
+        @skip_until("2024-06-15", reason="Flaky test, investigating MOD-1234")
+        def testSomething(env):
+            ...
+    """
+    from datetime import datetime
+
+    def decorate(f):
+        @wraps(f)
+        def wrapper(*args, **kwargs):
+            skip_date = datetime.strptime(date_str, "%Y-%m-%d").date()
+            today = datetime.now().date()
+            if today < skip_date:
+                reason_msg = f" ({reason})" if reason else ""
+                print(f"Skipping {f.__name__} until {date_str}{reason_msg}")
+                raise SkipTest(f"Skipped until {date_str}{reason_msg}")
+            # Date has passed, run the test
+            return f(*args, **kwargs)
+        return wrapper
+    return decorate
+
+# Wraps the decorator `skip_until` for calling from within a test function
+def skipTestUntil(date_str, reason=None):
+    """
+    Skip the current test until a specific date.
+    Call this from within a test function.
+
+    Args:
+        date_str: A date string in "YYYY-MM-DD" format (e.g., "2024-06-15")
+        reason: Optional reason for skipping the test
+
+    Usage:
+        def testSomething(env):
+            if some_condition:
+                skipTestUntil("2024-06-15", reason="Flaky under certain conditions")
+            ...
+    """
+    skip_until(date_str, reason)(lambda: None)()
+
 def skip(cluster=None, macos=False, asan=False, msan=False, redis_less_than=None, redis_greater_equal=None, min_shards=None, arch=None, gc_no_fork=None, no_json=False):
     def decorate(f):
         def wrapper():
