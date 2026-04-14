@@ -26,6 +26,7 @@ typedef struct {
     pthread_mutex_t *mutex;           // Mutex for array access and completion tracking
     pthread_cond_t *completionCond;   // Condition variable for completion signaling
     int numShards;                    // Total number of expected shards
+    bool initialized;                 // Whether numShards has been set by the IO thread
 } processCursorMappingCallbackContext;
 
 void CursorMapping_Release(CursorMapping *mapping) {
@@ -197,6 +198,7 @@ static void processCursorMappingInit(void *privateData, MRIterator *it) {
     int actualNumShards = (int)MRIterator_GetNumShards(it);
     pthread_mutex_lock(ctx->mutex);
     ctx->numShards = actualNumShards;
+    ctx->initialized = true;
     ctx->errors = array_new(QueryError, actualNumShards);
     // Signal so the coordinator can re-check the wait condition.
     pthread_cond_signal(ctx->completionCond);
@@ -237,6 +239,7 @@ bool ProcessHybridCursorMappings(const MRCommand *cmd, StrongRef searchMappingsR
         .mutex = ctx->mutex,
         .completionCond = ctx->completionCond,
         .numShards = 0,
+        .initialized = false
       };
 
     // Start iteration (ctx is cleaned up manually in cleanupCtx, no destructor needed)
@@ -253,7 +256,7 @@ bool ProcessHybridCursorMappings(const MRCommand *cmd, StrongRef searchMappingsR
     // Wait for all callbacks to complete
     pthread_mutex_lock(ctx->mutex);
     // Wait until the IO thread has initialized numShards and all responses arrive.
-    while (ctx->numShards == 0 || ctx->responseCount < ctx->numShards) {
+    while (!ctx->initialized || ctx->responseCount < ctx->numShards) {
         pthread_cond_wait(ctx->completionCond, ctx->mutex);
     }
     pthread_mutex_unlock(ctx->mutex);
