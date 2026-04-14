@@ -137,7 +137,9 @@ where
         // SAFETY: the constructor guarantees `spec` is non-null and valid.
         let spec = unsafe { &*sctx.spec };
         // SAFETY: the constructor guarantees `field_index` indexes `spec.fields`.
-        let field = unsafe { &*spec.fields.add(self.field_index as usize) };
+        let field_ptr = unsafe { spec.fields.add(self.field_index as usize) };
+        // SAFETY: `field_ptr` was derived from a valid `spec.fields` base and an in-bounds index.
+        let field = unsafe { &*field_ptr };
         let mut len = 0;
         // SAFETY: `field.fieldName` belongs to the spec and remains valid while the spec lives.
         let name = unsafe { ffi::HiddenString_GetUnsafe(field.fieldName, &mut len) };
