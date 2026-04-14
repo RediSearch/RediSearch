@@ -376,7 +376,7 @@ impl<'a> RLookupRow<'a> {
         for val in self.dyn_values.iter().flatten() {
             assert!(
                 SharedValue::refcount(val) >= 1,
-                "{ctx} - RSValue refcount must not be zero"
+                "{ctx} - SharedValue refcount must not be zero"
             );
         }
     }

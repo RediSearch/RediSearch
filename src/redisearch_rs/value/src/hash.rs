@@ -11,7 +11,7 @@ use crate::Value;
 use fnv::Fnv64;
 use std::hash::Hasher;
 
-/// Hashes an [`RsValue`] into the given [`Fnv64`] hasher.
+/// Hashes a [`Value`] into the given [`Fnv64`] hasher.
 ///
 /// The `Undefined` and `Null` variants bypass normal `fnv` hashing by directly
 /// resetting the hasher state via [`Fnv64::with_offset_basis`].

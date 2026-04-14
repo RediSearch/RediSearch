@@ -210,7 +210,7 @@ typedef struct RLookupIteratorMut {
  */
 typedef struct RSSortingVectorSlice {
   /**
-   * Pointer to the array of [`SharedRsValue`] values.
+   * Pointer to the array of [`RSValue`] values.
    * When `len == 0` this is a dangling pointer — **not** null. Callers must check `len`.
    */
   const RSValue *const *values;
@@ -600,7 +600,7 @@ struct RLookupRow RLookupRow_New(void);
  *
  * 1. `key` must be a [valid], non-null pointer to an [`RLookupKey`].
  * 2. `row` must be a [valid], non-null pointer to an [`RLookupRow`].
- * 3. `value` must be a [valid], non-null pointer to an [`RsValue`].
+ * 3. `value` must be a [valid], non-null pointer to an [`RSValue`].
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
@@ -615,7 +615,7 @@ void RLookup_WriteKey(const struct RLookupKey *key,
  *
  * 1. `key` must be a [valid], non-null pointer to an [`RLookupKey`].
  * 2. `row` must be a [valid], non-null pointer to an [`RLookupRow`].
- * 3. `value` must be a [valid], non-null pointer to an [`RsValue`].
+ * 3. `value` must be a [valid], non-null pointer to an [`RSValue`].
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
@@ -683,7 +683,7 @@ void RLookupRow_MoveFieldsFrom(const struct RLookup *lookup,
  *     2. The entire memory range of this cstr must be contained within a single allocation!
  *     3. `name` must be non-null even for a zero-length cstr.
  * 4. `row` must be a [valid], non-null pointer to an [`RLookupRow`].
- * 5. `value` must be a [valid], non-null pointer to an [`RsValue`].
+ * 5. `value` must be a [valid], non-null pointer to an [`RSValue`].
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
@@ -713,7 +713,7 @@ void RLookupRow_WriteByName(struct RLookup *lookup,
  *     2. The entire memory range of this cstr must be contained within a single allocation!
  *     3. `name` must be non-null even for a zero-length cstr.
  * 4. `row` must be a [valid], non-null pointer to an [`RLookupRow`].
- * 5. `value` must be a [valid], non-null pointer to an [`RsValue`].
+ * 5. `value` must be a [valid], non-null pointer to an [`RSValue`].
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */

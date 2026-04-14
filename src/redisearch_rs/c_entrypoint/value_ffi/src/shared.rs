@@ -11,28 +11,32 @@ use crate::RSValue;
 use crate::util::{expect_shared_value, expect_value, into_rs_value, into_shared_value};
 use value::{SharedValue, Value};
 
-/// Decrement the reference count of the provided [`RsValue`] object. If this was
+/// Decrement the reference count of the provided [`RSValue`] object. If this was
 /// the last available reference, it frees the data.
 ///
 /// # Safety
 ///
-/// 1. `value` must point to a valid **owned** [`RsValue`] obtained from an
-///    `RSValue_*` function (it will be consumed).
+/// 1. `value` must be a [valid], non-null pointer to an [`RSValue`].
+/// 2. `value` **must not** be used or freed after this call, as this function takes ownership.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RSValue_DecrRef(value: *const RSValue) {
-    // SAFETY: ensured by caller (1.)
+    // SAFETY: ensured by caller (1., 2.)
     let _ = unsafe { into_shared_value(value.cast_mut()) };
 }
 
-/// Follows [`RsValue::Ref`] indirections and returns a pointer to the
-/// innermost non-[`Ref`](RsValue::Ref) [`RsValue`].
+/// Follows [`Value::Ref`] indirections and returns a pointer to the
+/// innermost non-[`Ref`](Value::Ref) [`Value`].
 ///
 /// The returned pointer borrows from the same allocation as `value`; no new
 /// ownership is created.
 ///
 /// # Safety
 ///
-/// 1. `value` must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
+/// 1. `value` must be a [valid], non-null pointer to an [`RSValue`].
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RSValue_Dereference(value: *const RSValue) -> *mut RSValue {
     // SAFETY: ensured by caller (1.)
@@ -43,12 +47,14 @@ pub unsafe extern "C" fn RSValue_Dereference(value: *const RSValue) -> *mut RSVa
     std::ptr::from_ref(value).cast_mut().cast()
 }
 
-/// Like [`RSValue_Dereference`], but also follows [`RsValue::Trio`]
+/// Like [`RSValue_Dereference`], but also follows [`Value::Trio`]
 /// indirections by recursing into the left element of each trio.
 ///
 /// # Safety
 ///
-/// 1. `value` must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
+/// 1. `value` must be a [valid], non-null pointer to an [`RSValue`].
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RSValue_DereferenceRefAndTrio(value: *const RSValue) -> *mut RSValue {
     // SAFETY: ensured by caller (1.)
@@ -59,15 +65,17 @@ pub unsafe extern "C" fn RSValue_DereferenceRefAndTrio(value: *const RSValue) ->
     std::ptr::from_ref(value).cast_mut().cast()
 }
 
-/// Resets `value` to [`RsValue::Undefined`], dropping whatever it previously held.
+/// Resets `value` to [`Value::Undefined`], dropping whatever it previously held.
 ///
 /// # Panic
 ///
-/// Panics if more than 1 reference exists to this [`RsValue`] object.
+/// Panics if more than 1 reference exists to this [`RSValue`] object.
 ///
 /// # Safety
 ///
-/// 1. `value` must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
+/// 1. `value` must be a [valid], non-null pointer to an [`RSValue`].
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RSValue_Clear(value: *const RSValue) {
     // SAFETY: ensured by caller (1.)
@@ -85,7 +93,9 @@ pub unsafe extern "C" fn RSValue_Clear(value: *const RSValue) {
 ///
 /// # Safety
 ///
-/// 1. `value` must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
+/// 1. `value` must be a [valid], non-null pointer to an [`RSValue`].
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RSValue_IncrRef(value: *const RSValue) -> *mut RSValue {
     // SAFETY: ensured by caller (1.)
@@ -94,17 +104,19 @@ pub unsafe extern "C" fn RSValue_IncrRef(value: *const RSValue) -> *mut RSValue 
     into_rs_value(SharedValue::clone(&shared_value))
 }
 
-/// Replaces the content of `dst` with an [`RsValue::Ref`] pointing to `src`.
+/// Replaces the content of `dst` with an [`Value::Ref`] pointing to `src`.
 ///
 /// `src`'s reference count is incremented; `dst`'s previous content is dropped.
 ///
 /// # Panic
 ///
-/// Panics if more than 1 reference exists to the `dst` [`RsValue`] object.
+/// Panics if more than 1 reference exists to the `dst` [`RSValue`] object.
 ///
 /// # Safety
 ///
-/// 1. `dst` and `src` must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
+/// 1. `dst` and `src` must be [valid], non-null pointers to [`RSValue`]s.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RSValue_MakeReference(dst: *const RSValue, src: *const RSValue) {
     // SAFETY: ensured by caller (1.)
@@ -126,13 +138,14 @@ pub unsafe extern "C" fn RSValue_MakeReference(dst: *const RSValue, src: *const 
 ///
 /// # Panic
 ///
-/// Panics if more than 1 reference exists to the `dst` [`RsValue`] object.
+/// Panics if more than 1 reference exists to the `dst` [`RSValue`] object.
 ///
 /// # Safety
 ///
-/// 1. `dst` must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
-/// 2. `src` must point to a valid **owned** [`RsValue`] obtained from an
-///    `RSValue_*` function. Ownership is transferred to `dst`.
+/// 1. `dst` must be a [valid], non-null pointer to an [`RSValue`].
+/// 2. `src` must be a [valid], non-null pointer to an [`RSValue`]. Ownership is transferred to `dst`.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RSValue_MakeOwnReference(dst: *const RSValue, src: *const RSValue) {
     // SAFETY: ensured by caller (1.)
@@ -154,10 +167,11 @@ pub unsafe extern "C" fn RSValue_MakeOwnReference(dst: *const RSValue, src: *con
 ///
 /// # Safety
 ///
-/// 1. `dstpp` must be a valid, non-null pointer to a `*mut RsValue`.
-/// 2. `*dstpp` must point to a valid **owned** [`RsValue`] obtained from an
-///    `RSValue_*` function (it will be consumed).
-/// 3. `src` must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
+/// 1. `dstpp` must be a [valid], non-null pointer to an `*mut RSValue`.
+/// 2. `*dstpp` must be a [valid], non-null pointer to an [`RSValue`] (it will be consumed).
+/// 3. `src` must be a [valid], non-null pointer to an [`RSValue`].
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RSValue_Replace(dstpp: *mut *mut RSValue, src: *const RSValue) {
     // SAFETY: ensured by caller (1.)
@@ -168,7 +182,7 @@ pub unsafe extern "C" fn RSValue_Replace(dstpp: *mut *mut RSValue, src: *const R
 
     let clone = SharedValue::clone(&shared_src);
 
-    // SAFETY: ensured by caller (2.). Reconstructing the `SharedRsValue`
+    // SAFETY: ensured by caller (2.). Reconstructing the `SharedRSValue`
     // will decrement its refcount (and potentially free it).
     let _ = unsafe { into_shared_value(dst) };
 
@@ -182,7 +196,9 @@ pub unsafe extern "C" fn RSValue_Replace(dstpp: *mut *mut RSValue, src: *const R
 ///
 /// # Safety
 ///
-/// 1. `value` must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
+/// 1. `value` must be a [valid], non-null pointer to an [`RSValue`].
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RSValue_Refcount(value: *const RSValue) -> u16 {
     // SAFETY: ensured by caller (1.)

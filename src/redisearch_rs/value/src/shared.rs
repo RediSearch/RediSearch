@@ -19,18 +19,18 @@ use crate::Value;
 
 /// The total heap allocation size of the `triomphe::Arc` inner struct.
 /// Since that struct is inaccessible/hidden, the size is calculated manually,
-/// which contains an `RsValue` and a `usize` atomic refcount.
+/// which contains a `Value` and a `usize` atomic refcount.
 pub const SHARED_VALUE_CONTENT_SIZE: usize = size_of::<Value>() + size_of::<usize>();
 
 // Ensure the size doesn't increase unexpectedly.
 const _: () = assert!(SHARED_VALUE_CONTENT_SIZE == 32);
 
-/// A reference-counted, shared pointer to an [`RsValue`].
+/// A reference-counted, shared pointer to a [`Value`].
 ///
-/// Internally, this is a raw pointer to an [`RsValue`] that is either:
+/// Internally, this is a raw pointer to a [`Value`] that is either:
 /// - **Static**: points to the global [`NULL_VALUE`] sentinel, requiring no
 ///   reference counting.
-/// - **Heap-allocated**: backed by an [`Arc<RsValue>`](Arc), with manual
+/// - **Heap-allocated**: backed by an [`Arc<Value>`](Arc), with manual
 ///   reference counting managed through raw pointer conversions.
 ///
 /// # Cloning and dropping
@@ -46,12 +46,12 @@ pub struct SharedValue {
     ptr: *const Value,
 }
 
-/// Static [`RsValue::Null`] value, used by [`SharedRsValue::null_static`]
+/// Static [`Value::Null`] value, used by [`SharedValue::null_static`]
 /// to avoid heap allocation for null values.
 static NULL_VALUE: Value = Value::Null;
 
 impl SharedValue {
-    /// Creates a [`SharedRsValue`] pointing to the static [`NULL_VALUE`].
+    /// Creates a [`SharedValue`] pointing to the static [`NULL_VALUE`].
     #[expect(rustdoc::private_intra_doc_links)]
     pub fn null_static() -> Self {
         Self {
@@ -59,7 +59,7 @@ impl SharedValue {
         }
     }
 
-    /// Creates a new heap-allocated [`SharedRsValue`] backed by an [`Arc`].
+    /// Creates a new heap-allocated [`SharedValue`] backed by an [`Arc`].
     ///
     /// Uses a thread-local pool to recycle allocations when available.
     pub fn new(value: Value) -> Self {
@@ -68,10 +68,10 @@ impl SharedValue {
         }
     }
 
-    /// Convert a [`SharedRsValue`] into a raw `*const RsValue` pointer.
+    /// Convert a [`SharedValue`] into a raw `*const Value` pointer.
     pub const fn into_raw(self) -> *const Value {
         let ptr = self.ptr;
-        // The original [`SharedRsValue`] is forgotten to avoid decrementing it.
+        // The original [`SharedValue`] is forgotten to avoid decrementing it.
         mem::forget(self);
         ptr
     }
@@ -81,11 +81,11 @@ impl SharedValue {
         self.ptr
     }
 
-    /// Convert a `*const RsValue` into a [`SharedRsValue`].
+    /// Convert a `*const Value` into a [`SharedValue`].
     ///
     /// # Safety
     ///
-    /// `ptr` must be a valid pointer obtained from [`SharedRsValue::into_raw`].
+    /// `ptr` must be a valid pointer obtained from [`SharedValue::into_raw`].
     pub const unsafe fn from_raw(ptr: *const Value) -> Self {
         Self { ptr }
     }
@@ -96,7 +96,7 @@ impl SharedValue {
         ptr::eq(self.ptr, &NULL_VALUE)
     }
 
-    /// Replaces the stored [`RsValue`] in place.
+    /// Replaces the stored [`Value`] in place.
     ///
     /// # Panics
     ///
@@ -114,13 +114,13 @@ impl SharedValue {
         *value = new_value;
     }
 
-    /// Returns true if the two [`SharedRsValue`]s point to the same allocation similar
+    /// Returns true if the two [`SharedValue`]s point to the same allocation similar
     /// to [`ptr::eq`].
     pub fn ptr_eq(this: &Self, other: &Self) -> bool {
         this.ptr == other.ptr
     }
 
-    /// Returns the reference count of this [`SharedRsValue`].
+    /// Returns the reference count of this [`SharedValue`].
     pub fn refcount(this: &Self) -> usize {
         if this.is_null_static() {
             1
@@ -194,11 +194,11 @@ impl Drop for SharedValue {
 }
 
 // SAFETY: The inner pointer is either the `&'static NULL_VALUE` (inherently
-// Send + Sync) or an `Arc<RsValue>` raw pointer, and `Arc<T>` is Send + Sync
-// when `T: Send + Sync`. `RsValue` satisfies both bounds.
+// Send + Sync) or an `Arc<Value>` raw pointer, and `Arc<T>` is Send + Sync
+// when `T: Send + Sync`. `Value` satisfies both bounds.
 unsafe impl Send for SharedValue {}
 
 // SAFETY: The inner pointer is either the `&'static NULL_VALUE` (inherently
-// Send + Sync) or an `Arc<RsValue>` raw pointer, and `Arc<T>` is Send + Sync
-// when `T: Send + Sync`. `RsValue` satisfies both bounds.
+// Send + Sync) or an `Arc<Value>` raw pointer, and `Arc<T>` is Send + Sync
+// when `T: Send + Sync`. `Value` satisfies both bounds.
 unsafe impl Sync for SharedValue {}

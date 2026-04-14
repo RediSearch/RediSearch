@@ -43,7 +43,7 @@ fn rm_alloc_cstring(s: &str) -> (*mut c_char, u32) {
     (ptr, len as u32)
 }
 
-/// Reclaim ownership of a raw [`RsValue`] pointer and drop it.
+/// Reclaim ownership of a raw [`RSValue`] pointer and drop it.
 ///
 /// # Safety
 ///

@@ -12,7 +12,7 @@ use ffi::sds;
 use std::io::Write;
 use value::sds_writer::SdsWriter;
 
-/// Writes the debug representation of an [`RsValue`] into an SDS string.
+/// Writes the debug representation of an [`RSValue`] into an SDS string.
 ///
 /// If `value` is null, writes `"nil"`. Otherwise, formats the value using
 /// [`DebugFormatter`](value::debug::DebugFormatter), optionally obfuscating
@@ -20,7 +20,7 @@ use value::sds_writer::SdsWriter;
 ///
 /// # Safety
 ///
-/// 1. If non-null, `value` must be a [valid] pointer to an [`RsValue`].
+/// 1. `value` must be a [valid] pointer to an [`RSValue`], or null.
 /// 2. `sds` must be a [valid], non-null SDS string allocated by the C SDS library.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
@@ -29,7 +29,7 @@ pub unsafe extern "C" fn RSValue_DumpSds(value: *const RSValue, sds: sds, obfusc
     // SAFETY: `sds` is a valid SDS string, guaranteed by the caller.
     let mut writer = unsafe { SdsWriter::new(sds) };
 
-    // SAFETY: If non-null, `value` points to a valid `RsValue`, guaranteed by the caller.
+    // SAFETY: If non-null, `value` points to a valid `RSValue`, guaranteed by the caller.
     match unsafe { try_value(value) } {
         None => write!(writer, "nil").unwrap(),
         Some(value) => write!(writer, "{:?}", value.debug_formatter(obfuscate)).unwrap(),

@@ -26,8 +26,7 @@ use value::{SharedValue, Value};
 ///
 /// # Safety
 ///
-/// 1. If non-null, `value` must point to a valid [`Value`] obtained from an
-///    `RSValue_*` function.
+/// 1. If non-null, `value` must point to a valid [`Value`].
 pub const unsafe fn try_value<'a>(value: *const RSValue) -> Option<&'a Value> {
     // SAFETY: ensured by caller (1.)
     unsafe { value.cast::<Value>().as_ref() }
@@ -41,8 +40,7 @@ pub const unsafe fn try_value<'a>(value: *const RSValue) -> Option<&'a Value> {
 ///
 /// # Safety
 ///
-/// 1. `value` must point to a valid [`RSValue`] obtained from an `RSValue_*`
-///    function.
+/// 1. `value` must point to a valid [`RSValue`].
 pub(crate) const unsafe fn expect_value<'a>(value: *const RSValue) -> &'a Value {
     // SAFETY: ensured by caller (1.)
     let value = unsafe { try_value(value) };
@@ -65,8 +63,7 @@ pub(crate) const unsafe fn expect_value<'a>(value: *const RSValue) -> &'a Value 
 ///
 /// # Safety
 ///
-/// 1. `value` must point to a valid [`RSValue`] obtained from an `RSValue_*`
-///    function.
+/// 1. `value` must point to a valid [`RSValue`].
 pub(crate) unsafe fn expect_shared_value(value: *const RSValue) -> ManuallyDrop<SharedValue> {
     if cfg!(debug_assertions) && value.is_null() {
         panic!("value must not be null");
@@ -100,9 +97,8 @@ pub const unsafe fn into_shared_value(value: *mut RSValue) -> SharedValue {
 ///
 /// # Safety
 ///
-/// 1. `value` must point to a valid [`RSValue`] obtained from an `RSValue_*`
-///    function and must remain live for as long as the returned borrow is
-///    used.
+/// 1. `value` must point to a valid [`RSValue`] and must remain live for as
+///    long as the returned borrow is used.
 pub const unsafe fn as_shared_value(value: *const RSValue) -> ManuallyDrop<SharedValue> {
     // SAFETY: ensured by caller (1.)
     let shared_value = unsafe { SharedValue::from_raw(value.cast()) };

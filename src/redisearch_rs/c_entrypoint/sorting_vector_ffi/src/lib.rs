@@ -20,7 +20,7 @@ use value_ffi::util::into_shared_value;
 
 pub const RS_SORTABLES_MAX: usize = 1024;
 
-// Verify that the ThinVec<SharedRsValue, u32> heap header has no padding before data,
+// Verify that the ThinVec<SharedValue, u32> heap header has no padding before data,
 // so the C inline helpers can use a fixed offset of `sizeof(Header<u64>)` = 16 bytes.
 const _: () = assert!(thin_vec::layout::header_field_padding::<SharedValue, u64>() == 0);
 
@@ -218,7 +218,7 @@ pub extern "C" fn RSSortingVector_New(len: size_t) -> RSSortingVector {
 
 /// Deallocates the inner values buffer of an [`RSSortingVector`] and zeros the struct.
 ///
-/// Each [`SharedRsValue`] element is dropped (decrementing its refcount) and the heap buffer is freed.
+/// Each [`RSValue`] element is dropped (decrementing its refcount) and the heap buffer is freed.
 /// After this call the pointed-to struct is in the same state as [`RSSortingVector::empty()`].
 /// Passing a null pointer is a no-op.
 ///
