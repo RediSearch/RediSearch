@@ -263,7 +263,7 @@ def _test_barrier_waits_for_delayed_unbalanced_shard(protocol):
         env.assertEqual(len(query_result), 1,
                         message="Query should have completed")
         env.assertTrue(isinstance(query_result[0], redis.exceptions.ResponseError))
-        env.assertContains('Timeout', str(query_result[0]))
+        env.assertContains('timeout', str(query_result[0]).lower())
 
         # Release shard 1's worker thread
         shard_conn.execute_command(debug_cmd(), 'SYNC_POINT', 'CLEAR')
