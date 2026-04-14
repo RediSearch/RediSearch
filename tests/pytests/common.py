@@ -978,11 +978,18 @@ def allShards_setPauseRPResume(env, start_shard=1):
     return results
 
 # Coordinator Reduce Pause helpers (only available when built with ENABLE_ASSERT)
+
+# Named constants for the N parameter of setPauseBeforeReduce
+NO_PAUSE = 0                    # Disable pause (no pause point set)
+PAUSE_AFTER_LAST_RESULT = -1    # Pause after the last result is reduced
+PAUSE_BEFORE_REDUCER_INIT = -2  # Pause after claiming reducing but before reducer context init
+
 def setPauseBeforeReduce(env, N):
     """
     Set the coordinator to pause before reducing the Nth result.
-    N=0: no pause
-    N=-1: pause after the last result is reduced
+    PAUSE_BEFORE_REDUCER_INIT (-2): pause after claiming reducing but before reducer context init
+    PAUSE_AFTER_LAST_RESULT (-1): pause after the last result is reduced
+    NO_PAUSE (0): no pause
     N>0: pause before the Nth result (1-based index)
     """
     env.expect(debug_cmd(), 'QUERY_CONTROLLER', 'SET_PAUSE_BEFORE_REDUCE', N).ok()
@@ -1005,7 +1012,7 @@ def resetCoordReduceDebug(env):
     Note: setCoordReduceResume will error if the coordinator is not currently paused,
     which is expected in cleanup scenarios where the coordinator already resumed.
     """
-    setPauseBeforeReduce(env, 0)
+    setPauseBeforeReduce(env, NO_PAUSE)
     try:
         # Use env.cmd here since we need to catch the exception
         env.cmd(debug_cmd(), 'QUERY_CONTROLLER', 'SET_COORD_REDUCE_RESUME')

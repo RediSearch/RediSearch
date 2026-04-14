@@ -53,6 +53,12 @@ QueryIterator *NewUnionIterator(QueryIterator **its, int num, bool quickExit, do
 // Sync state according to `its_orig` and `num_orig` (exposed for profile iterator injection)
 void UI_SyncIterList(UnionIterator *ui);
 
+// Accessor functions for UnionIterator fields (used by profile code to avoid direct struct access)
+QueryNodeType GetUnionIteratorQueryNodeType(const QueryIterator *base);
+const char *GetUnionIteratorQueryString(const QueryIterator *base);
+size_t GetUnionIteratorNumChildren(const QueryIterator *base);
+QueryIterator *GetUnionIteratorChild(const QueryIterator *base, size_t index);
+
 #ifdef __cplusplus
 }
 #endif
