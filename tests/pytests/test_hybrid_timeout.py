@@ -52,7 +52,7 @@ def test_hybrid_debug_with_no_index_error():
         .contains('SEARCH_INDEX_NOT_FOUND Index not found: nonexistent_idx')
 
 # Debug timeout tests using TIMEOUT_AFTER_N_* parameters
-#TODO: remove skip once FT.HYBRID for cluster is implemented
+#TODO: remove skip once _FT.DEBUG FT.HYBRID for cluster is implemented
 @skip(cluster=True)
 def test_debug_timeout_fail_search():
     """Test FAIL policy with search timeout using debug parameters"""
@@ -60,13 +60,15 @@ def test_debug_timeout_fail_search():
     setup_basic_index(env)
     env.expect('_FT.DEBUG', 'FT.HYBRID', 'idx', 'SEARCH', 'running', 'VSIM', '@embedding', '$BLOB', 'PARAMS', '2', 'BLOB', query_vector, 'TIMEOUT_AFTER_N_SEARCH', '1', 'DEBUG_PARAMS_COUNT', '2').error().contains('SEARCH_TIMEOUT Timeout limit was reached')
 
+#TODO: remove skip once _FT.DEBUG FT.HYBRID for cluster is implemented
+@skip(cluster=True)
 def test_debug_timeout_fail_vsim():
     """Test FAIL policy with vector similarity timeout using debug parameters"""
     env = Env(enableDebugCommand=True, moduleArgs='ON_TIMEOUT FAIL')
     setup_basic_index(env)
     env.expect('_FT.DEBUG', 'FT.HYBRID', 'idx', 'SEARCH', 'running', 'VSIM', '@embedding', '$BLOB', 'PARAMS', '2', 'BLOB', query_vector, 'TIMEOUT_AFTER_N_VSIM', '1', 'DEBUG_PARAMS_COUNT', '2').error().contains('SEARCH_TIMEOUT Timeout limit was reached')
 
-#TODO: remove skip once FT.HYBRID for cluster is implemented
+#TODO: remove skip once _FT.DEBUG FT.HYBRID for cluster is implemented
 @skip(cluster=True)
 def test_debug_timeout_fail_both():
     """Test FAIL policy with both components timeout using debug parameters"""
@@ -74,7 +76,7 @@ def test_debug_timeout_fail_both():
     setup_basic_index(env)
     env.expect('_FT.DEBUG', 'FT.HYBRID', 'idx', 'SEARCH', 'running', 'VSIM', '@embedding', '$BLOB', 'PARAMS', '2', 'BLOB', query_vector, 'TIMEOUT_AFTER_N_SEARCH', '1','TIMEOUT_AFTER_N_VSIM', '2', 'DEBUG_PARAMS_COUNT', '4').error().contains('SEARCH_TIMEOUT Timeout limit was reached')
 
-#TODO: remove skip once FT.HYBRID for cluster is implemented
+#TODO: remove skip once _FT.DEBUG FT.HYBRID for cluster is implemented
 @skip(cluster=True)
 def test_debug_timeout_fail_tail():
     """Test FAIL policy with tail timeout using debug parameters"""
@@ -82,10 +84,10 @@ def test_debug_timeout_fail_tail():
     setup_basic_index(env)
     env.expect('_FT.DEBUG', 'FT.HYBRID', 'idx', 'SEARCH', 'running', 'VSIM', '@embedding', '$BLOB', 'PARAMS', '2', 'BLOB', query_vector, 'TIMEOUT_AFTER_N_TAIL', '1', 'DEBUG_PARAMS_COUNT', '2').error().contains('SEARCH_TIMEOUT Timeout limit was reached')
 
-#TODO: remove skip once FT.HYBRID for cluster is implemented
+#TODO: remove skip once _FT.DEBUG FT.HYBRID for cluster is implemented
 @skip(cluster=True)
 def test_debug_timeout_return_tail():
-    """Test FAIL policy with tail timeout using debug parameters"""
+    """Test RETURN policy with tail timeout using debug parameters"""
     env = Env(enableDebugCommand=True, moduleArgs='ON_TIMEOUT RETURN')
     setup_basic_index(env)
     response = env.cmd('_FT.DEBUG', 'FT.HYBRID', 'idx', 'SEARCH', 'running', 'VSIM', '@embedding', '$BLOB', 'PARAMS', '2', 'BLOB', query_vector,
@@ -93,7 +95,7 @@ def test_debug_timeout_return_tail():
     env.assertEqual(['Timeout limit was reached (POST PROCESSING)'], get_warnings(response))
 
 
-#TODO: remove skip once FT.HYBRID for cluster is implemented
+#TODO: remove skip once _FT.DEBUG FT.HYBRID for cluster is implemented
 @skip(cluster=True)
 def test_debug_timeout_return_search():
     """Test RETURN policy with search timeout using debug parameters"""
@@ -103,7 +105,7 @@ def test_debug_timeout_return_search():
                        'TIMEOUT_AFTER_N_SEARCH', '1', 'DEBUG_PARAMS_COUNT', '2')
     env.assertEqual(['Timeout limit was reached (SEARCH)'], get_warnings(response))
 
-#TODO: remove skip once FT.HYBRID for cluster is implemented
+#TODO: remove skip once _FT.DEBUG FT.HYBRID for cluster is implemented
 @skip(cluster=True)
 def test_debug_timeout_return_vsim():
     """Test RETURN policy with vector similarity timeout using debug parameters"""
@@ -113,7 +115,7 @@ def test_debug_timeout_return_vsim():
                        'TIMEOUT_AFTER_N_VSIM', '1', 'DEBUG_PARAMS_COUNT', '2')
     env.assertEqual(['Timeout limit was reached (VSIM)'], get_warnings(response))
 
-#TODO: remove skip once FT.HYBRID for cluster is implemented
+#TODO: remove skip once _FT.DEBUG FT.HYBRID for cluster is implemented
 @skip(cluster=True)
 def test_debug_timeout_return_both():
     """Test RETURN policy with both components timeout using debug parameters"""
@@ -126,7 +128,7 @@ def test_debug_timeout_return_both():
     env.assertTrue('Timeout limit was reached (VSIM)' in get_warnings(response))
     # TODO: add test for tail timeout once MOD-11004 is merged
 
-#TODO: remove skip once FT.HYBRID for cluster is implemented
+#TODO: remove skip once _FT.DEBUG FT.HYBRID for cluster is implemented
 @skip(cluster=True)
 def test_debug_timeout_return_with_results():
     """Test RETURN policy returns partial results when components timeout"""
@@ -143,47 +145,64 @@ def test_debug_timeout_return_with_results():
     env.assertTrue(('doc:2' in results.keys()) ^ ('doc:4' in results.keys()))
 
 # Warning and error tests
-#TODO: remove skip once FT.HYBRID warning handling for cluster is stable
-@skip(cluster=True)
 def test_maxprefixexpansions_warning_search_only():
     """Test max prefix expansions warning when only SEARCH component is affected"""
     env = Env(enableDebugCommand=True)
     setup_basic_index(env)
     conn = env.getClusterConnectionIfNeeded()
-    conn.execute_command('HSET', 'doc:5', 'description', 'runo')
-    conn.execute_command(config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', '1')
+    # Use hash tags to ensure documents land on the same shard in cluster mode
+    # This ensures the shard has multiple terms starting with "run" to trigger
+    # the warning
+    conn.execute_command('HSET', '{tag}:run1', 'description', 'running')
+    conn.execute_command('HSET', '{tag}:run2', 'description', 'runo')
+    run_command_on_all_shards(env, f'{config_cmd()} SET MAXPREFIXEXPANSIONS 1')
 
     # Only SEARCH returns results, VSIM returns empty
-    response = env.cmd('FT.HYBRID', 'idx', 'SEARCH', 'run*', 'VSIM', \
-                       '@embedding', '$BLOB', 'RANGE', '2', 'RADIUS', '0.01', 'PARAMS', '2', 'BLOB', query_vector)
+    response = env.cmd(
+        'FT.HYBRID', 'idx',
+        'SEARCH', 'run*',
+        'VSIM', '@embedding', '$BLOB', 'RANGE', '2', 'RADIUS', '0.01',
+        'PARAMS', '2', 'BLOB', query_vector)
     env.assertTrue('Max prefix expansions limit was reached (SEARCH)' in get_warnings(response))
 
-@skip(cluster=True)
 def test_maxprefixexpansions_warning_vsim_only():
     """Test max prefix expansions warning when only VSIM component is affected"""
     env = Env(enableDebugCommand=True)
     setup_basic_index(env)
     conn = env.getClusterConnectionIfNeeded()
-    conn.execute_command('HSET', 'doc:5', 'description', 'runo')
-    conn.execute_command(config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', '1')
+    # Use hash tags to ensure documents land on the same shard in cluster mode
+    # This ensures the shard has multiple terms starting with "run" to trigger
+    # the warning
+    conn.execute_command('HSET', '{tag}:run1', 'description', 'running')
+    conn.execute_command('HSET', '{tag}:run2', 'description', 'runo')
+    run_command_on_all_shards(env, f'{config_cmd()} SET MAXPREFIXEXPANSIONS 1')
 
     # Only VSIM returns results, SEARCH returns empty
-    response = env.cmd('FT.HYBRID', 'idx', 'SEARCH', 'green', 'VSIM', \
-                       '@embedding', '$BLOB', 'FILTER', '@description:run*', 'PARAMS', '2', 'BLOB', query_vector)
+    response = env.cmd(
+        'FT.HYBRID', 'idx',
+        'SEARCH', 'green',
+        'VSIM', '@embedding', '$BLOB', 'FILTER', '@description:run*',
+        'PARAMS', '2', 'BLOB', query_vector)
     env.assertTrue('Max prefix expansions limit was reached (VSIM)' in get_warnings(response))
 
-@skip(cluster=True)
 def test_maxprefixexpansions_warning_both_components():
     """Test max prefix expansions warning when both SEARCH and VSIM components are affected"""
     env = Env(enableDebugCommand=True)
     setup_basic_index(env)
     conn = env.getClusterConnectionIfNeeded()
-    conn.execute_command('HSET', 'doc:5', 'description', 'runo')
-    conn.execute_command(config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', '1')
+    # Use hash tags to ensure documents land on the same shard in cluster mode
+    # This ensures the shard has multiple terms starting with "run" to trigger
+    # the warning
+    conn.execute_command('HSET', '{tag}:run1', 'description', 'running')
+    conn.execute_command('HSET', '{tag}:run2', 'description', 'runo')
+    run_command_on_all_shards(env, f'{config_cmd()} SET MAXPREFIXEXPANSIONS 1')
 
     # Both SEARCH and VSIM return results
-    response = env.cmd('FT.HYBRID', 'idx', 'SEARCH', 'run*', 'VSIM', \
-                       '@embedding', '$BLOB', 'FILTER', '@description:run*', 'PARAMS', '2', 'BLOB', query_vector)
+    response = env.cmd(
+        'FT.HYBRID', 'idx',
+        'SEARCH', 'run*',
+        'VSIM', '@embedding', '$BLOB', 'FILTER', '@description:run*',
+        'PARAMS', '2', 'BLOB', query_vector)
     warning = get_warnings(response)
     env.assertTrue('Max prefix expansions limit was reached (SEARCH)' in warning)
     env.assertTrue('Max prefix expansions limit was reached (VSIM)' in warning)
@@ -202,7 +221,7 @@ def test_tail_property_not_loaded_error_standalone():
 @skip(cluster=False)
 def test_tail_property_not_loaded_warning_coordinator():
     """Test warning when tail pipeline references property not loaded (coordinator mode)
-    
+
     Related: test_tail_property_not_loaded_error_standalone
     In coordinator mode, tail pipeline errors become warnings (protocol limitation).
     The error code also differs: VALUE_NOT_FOUND (coord) vs PROP_NOT_FOUND (standalone).
