@@ -216,6 +216,49 @@ TEST_F(RdbMockTest, testIndexSpecRdbSerialization) {
     }
 }
 
+TEST_F(RdbMockTest, testIndexSpecRdbLoadNormalizesInvalidStorageFlags) {
+
+    const char *args[] = {"NOFIELDS", "SCHEMA", "title", "TEXT"};
+    QueryError err = QueryError_Default();
+
+    StrongRef original_spec_ref = IndexSpec_ParseC(NULL, "test_rdb_invalid_idx", args, sizeof(args) / sizeof(const char *), &err);
+    ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
+
+    IndexSpec *spec = (IndexSpec *)StrongRef_Get(original_spec_ref);
+    ASSERT_TRUE(spec != nullptr);
+    std::unique_ptr<IndexSpec, std::function<void(IndexSpec *)>> specPtr(spec, [](IndexSpec *spec) {
+        StrongRef_Release(spec->own_ref);
+    });
+
+    // Make sure Index_StoreFieldFlags is not set, and turn on Index_WideSchema which is invalid without it, to simulate an invalid RDB state that we want to normalize on load
+    ASSERT_FALSE(spec->flags & Index_StoreFieldFlags) << "Original IndexSpec should not have storage flags set";
+    uint64_t flags = spec->flags;
+    flags |= Index_WideSchema;
+    spec->flags = (IndexFlags)flags;
+
+    RedisModuleIO *io = RMCK_CreateRdbIO();
+    std::unique_ptr<RedisModuleIO, std::function<void(RedisModuleIO *)>> ioPtr(io, [](RedisModuleIO *io) {
+        RMCK_FreeRdbIO(io);
+    });
+    ASSERT_TRUE(io != nullptr);
+
+    IndexSpec_RdbSave(io, spec, 0);
+    EXPECT_EQ(0, RMCK_IsIOError(io));
+
+    io->read_pos = 0;
+
+    QueryError status = QueryError_Default();
+    IndexSpec *loadedSpec = IndexSpec_RdbLoad(io, INDEX_CURRENT_VERSION, false, &status);
+    ASSERT_NE(nullptr, loadedSpec);
+    std::unique_ptr<IndexSpec, std::function<void(IndexSpec *)>> loadedSpecPtr(loadedSpec, [](IndexSpec *spec) {
+        StrongRef_Release(spec->own_ref);
+    });
+    // We expect no error, and the invalid storage flags to be normalized (i.e., Index_WideSchema should be turned off because Index_StoreFieldFlags is not set)
+    EXPECT_FALSE(QueryError_HasError(&status)) << QueryError_GetUserError(&status);
+    EXPECT_FALSE(loadedSpec->flags & Index_WideSchema);
+    EXPECT_FALSE(loadedSpec->flags & Index_StoreFieldFlags);
+}
+
 TEST_F(RdbMockTest, testDuplicateIndexRdbLoad) {
     // Create an index with a single text field
     const char *args[] = {"ON", "HASH", "SCHEMA", "title", "TEXT"};
