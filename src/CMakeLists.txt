@@ -63,7 +63,6 @@ add_subdirectory(buffer)
 add_subdirectory(iterators)
 add_subdirectory(wildcard)
 add_subdirectory(index_result)
-add_subdirectory(value)
 add_subdirectory(util/mempool)
 add_subdirectory(util/arr)
 add_subdirectory(util/dict)
@@ -122,7 +121,6 @@ set(FINAL_OBJECTS
     $<TARGET_OBJECTS:wildcard>
     $<TARGET_OBJECTS:index_result>
     $<TARGET_OBJECTS:mempool>
-    $<TARGET_OBJECTS:value>
     $<TARGET_OBJECTS:rscore>
     $<TARGET_OBJECTS:rmutil>
     $<TARGET_OBJECTS:friso>
