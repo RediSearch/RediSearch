@@ -117,7 +117,8 @@ jobs:
               "macos-15": {
                   "x86_64": {
                       'env': 'macos-15-intel',
-                      'name': 'macOS 15 x86_64'
+                      'name': 'macOS 15 x86_64',
+                      'enable_lto': '0' # Currently not possible on macOS.
                   },
                   "aarch64": {
                       'env': 'macos-15',
@@ -128,7 +129,8 @@ jobs:
               "macos-26": {
                   "x86_64": {
                       'env': 'macos-26-intel',
-                      'name': 'macOS 26 x86_64'
+                      'name': 'macOS 26 x86_64',
+                      'enable_lto': '0' # Currently not possible on macOS.
                   },
                   "aarch64": {
                       'env': 'macos-26',
@@ -143,19 +145,22 @@ jobs:
                       'env': '',
                       'container': '',
                       'ec2_image_id': 'ami-09fabd03bb09b3704',
-                      'ec2_instance_type': 'c7i.xlarge'
+                      'ec2_instance_type': 'c7i.xlarge',
+                      'enable_lto': '0' # Platform is not used to produce artifacts.
                   }
               },
               "ubuntu:latest": {
                   "x86_64": {
                       'container': 'ubuntu:latest',
                       'setup_script': 'apt update && apt install -y git',
-                      'name': 'Ubuntu Latest x86_64'
+                      'name': 'Ubuntu Latest x86_64',
+                      'enable_lto': '0' # Platform is not used to produce artifacts.
                   },
                   "aarch64": {
                       'container': 'ubuntu:latest',
                       'setup_script': 'apt update && apt install -y git',
-                      'name': 'Ubuntu Latest ARM64'
+                      'name': 'Ubuntu Latest ARM64',
+                      'enable_lto': '0' # Platform is not used to produce artifacts.
                   }
               },
               "ubuntu:resolute": {
