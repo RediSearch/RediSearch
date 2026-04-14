@@ -191,12 +191,7 @@ static void processCursorMappingCallback(MRIteratorCallbackCtx *ctx, MRReply *re
     MRReply_Free(rep);
 }
 
-// Init callback for the private data, called from iterStartCb on the IO thread
-// after the actual shard count is determined from the live topology but before
-// commands are dispatched. This synchronizes the expected response count with
-// the coordinator's wait loop, preventing a use-after-free when the topology
-// changes (e.g., during shard migration) between the coordinator reading
-// numShards and iterStartCb dispatching commands.
+// Init callback for the private data, so that numShards is set to the actual number of shards in the cluster, and the expected responses.
 static void processCursorMappingInit(void *privateData, MRIterator *it) {
     processCursorMappingCallbackContext *ctx = (processCursorMappingCallbackContext *)privateData;
     int actualNumShards = (int)MRIterator_GetNumShards(it);
