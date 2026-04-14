@@ -20,9 +20,9 @@
 #include "thpool/thpool.h"
 #include "profile/options.h"
 
-// Hack to support Alpine Linux 3 where __STRING is not defined
-#if !defined(__GLIBC__) && !defined(__STRING)
-#include <sys/cdefs.h>
+#ifndef STRINGIFY
+#define __STRINGIFY(x) #x
+#define STRINGIFY(x) __STRINGIFY(x)
 #endif
 
 // Module-level dummy context for certain dummy RM_XXX operations
@@ -77,10 +77,10 @@ do {                                            \
 #define CLUSTERDOWN_ERR "ERRCLUSTER Uninitialized cluster state, could not perform command"
 #define NODEBUG_ERR "Debug commands are disabled, please follow the redis configuration guide to enable them"
 
-#define RM_TRY(expr)                                                  \
-  if (expr == REDISMODULE_ERR) {                                      \
-    RedisModule_Log(ctx, "warning", "Could not run " __STRING(expr)); \
-    return REDISMODULE_ERR;                                           \
+#define RM_TRY(expr)                                                   \
+  if (expr == REDISMODULE_ERR) {                                       \
+    RedisModule_Log(ctx, "warning", "Could not run " STRINGIFY(expr)); \
+    return REDISMODULE_ERR;                                            \
   }
 
 #define IS_SST_RDB_IN_PROCESS(ctx) (RedisModule_GetContextFlags(ctx) & REDISMODULE_CTX_FLAGS_SST_RDB)
