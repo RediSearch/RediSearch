@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 MODE=$1 # whether to install using sudo or not
 set -eo pipefail
-export DEBIAN_FRONTEND=noninteractive
 $MODE dnf update -y
 
 $MODE dnf install -y gcc-toolset-14-gcc gcc-toolset-14-gcc-c++ make wget git --nobest --skip-broken --allowerasing
