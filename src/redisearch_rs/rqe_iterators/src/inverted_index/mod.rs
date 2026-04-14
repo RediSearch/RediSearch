@@ -10,6 +10,7 @@
 //! Supporting types for [`Missing`], [`Numeric`], [`Term`], and [`Wildcard`].
 
 mod core;
+mod geo;
 mod missing;
 mod numeric;
 mod tag;
@@ -17,11 +18,9 @@ mod term;
 mod wildcard;
 
 pub use core::InvIndIterator;
+pub use geo::{build_geo_numeric_filters, extract_geo_unit_factor, new_geo_range_iterator};
 pub use missing::Missing;
-pub use numeric::{
-    Numeric, NumericIteratorVariant, build_geo_numeric_filters, extract_geo_unit_factor,
-    open_numeric_or_geo_index,
-};
+pub use numeric::{Numeric, NumericIteratorVariant, open_numeric_or_geo_index};
 pub use tag::Tag;
 pub use term::Term;
 pub use wildcard::Wildcard;

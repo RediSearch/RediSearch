@@ -112,6 +112,21 @@ impl<'index> rqe_iterators::RQEIterator<'index> for NumericIterator<'index> {
     }
 }
 
+/// Wraps a `Vec<NumericIteratorVariant>` into a `Vec<CRQEIterator>` by boxing
+/// each variant in an [`RQEIteratorWrapper`].
+pub(super) fn into_crqe_children(variants: Vec<NumericIteratorVariant<'_>>) -> Vec<CRQEIterator> {
+    variants
+        .into_iter()
+        .map(|v| {
+            let ptr = RQEIteratorWrapper::boxed_new(v);
+            // SAFETY: `boxed_new` uses `Box::into_raw`, which is guaranteed non-null.
+            let ptr = unsafe { NonNull::new_unchecked(ptr) };
+            // SAFETY: `ptr` is a valid, uniquely-owned `QueryIterator`.
+            unsafe { CRQEIterator::new(ptr) }
+        })
+        .collect()
+}
+
 /// Gets the numeric filter from a numeric inverted index iterator.
 ///
 /// # Safety

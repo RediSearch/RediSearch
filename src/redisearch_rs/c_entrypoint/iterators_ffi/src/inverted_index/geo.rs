@@ -9,12 +9,14 @@
 
 use std::ptr::{self, NonNull};
 
-use ffi::{FieldSpec, GeoFilter, RSGlobalConfig};
+use ffi::{GeoFilter, RSGlobalConfig};
 use field::{FieldExpirationPredicate, FieldFilterContext, FieldMaskOrIndex};
 use query_node_type::QueryNodeType;
-use rqe_iterators::{build_geo_numeric_filters, c2rust::CRQEIterator, open_numeric_or_geo_index};
+use rqe_iterators::{
+    interop::RQEIteratorWrapper, new_geo_range_iterator, union_reducer::NewUnionIterator,
+};
 
-use super::numeric::create_numeric_iterator_c;
+use crate::inverted_index::numeric::into_crqe_children;
 
 /// Creates an iterator over all geo-encoded index entries within the radius specified by `gf`.
 ///
@@ -39,63 +41,57 @@ pub unsafe extern "C" fn NewGeoRangeIterator(
     gf: *mut GeoFilter,
     config: *const ffi::IteratorsConfig,
 ) -> *mut ffi::QueryIterator {
-    // SAFETY: 3. guarantees gf is non-null and writable; fieldSpec is valid and non-null.
+    // SAFETY: 3. guarantees gf is non-null and writable.
     let geo = unsafe { &mut *gf };
-    // Read fieldSpec and field index before the mutable borrow in build_geo_numeric_filters.
+    // Read field_index before the mutable borrow in new_geo_range_iterator.
     // SAFETY: 3. guarantees geo.fieldSpec is a valid non-null pointer.
-    let fs = unsafe { &mut *(geo.fieldSpec as *mut FieldSpec) };
-    let field_index = fs.index;
-
-    // SAFETY: 3.
-    let filters = match unsafe { build_geo_numeric_filters(geo) } {
-        Some(f) => f,
-        None => return ptr::null_mut(),
-    };
-
-    // Open the numeric/geo index once for all ranges.
-    // SAFETY: 1. guarantees ctx is valid and non-null.
-    let ctx_ref = unsafe { &*ctx };
-    // SAFETY: 2. guarantees ctx.spec is valid and non-null.
-    let spec = unsafe { &mut *ctx_ref.spec };
-    // SAFETY: RSGlobalConfig is initialised by the time any index is created.
-    let compress = unsafe { RSGlobalConfig.numericCompress };
-    // SAFETY: 1.–2. are forwarded from this function's safety contract.
-    let Some(tree) = (unsafe { open_numeric_or_geo_index(spec, fs, false, compress) }) else {
-        return ptr::null_mut();
-    };
-
+    let field_index = unsafe { (*geo.fieldSpec).index };
     let field_ctx = FieldFilterContext {
         field: FieldMaskOrIndex::Index(field_index),
         predicate: FieldExpirationPredicate::Default,
     };
     // SAFETY: 1. guarantees ctx is non-null.
     let sctx = unsafe { NonNull::new_unchecked(ctx as *mut ffi::RedisSearchCtx) };
-
+    // SAFETY: RSGlobalConfig is initialised by the time any index is created.
+    let compress = unsafe { RSGlobalConfig.numericCompress };
     // SAFETY: 4. guarantees config is valid and non-null.
     let min_union_iter_heap = unsafe { (*config).minUnionIterHeap } as usize;
 
-    let children: Vec<CRQEIterator> = filters
-        .iter()
-        .filter_map(|filter| {
-            // SAFETY: tree, sctx, filter, and field_ctx all satisfy create_numeric_iterator_c's contract.
-            let ptr = unsafe { create_numeric_iterator_c(sctx, tree, filter, config, &field_ctx) };
-            NonNull::new(ptr).map(|ptr| {
-                // SAFETY: ptr is a valid, uniquely-owned QueryIterator returned by create_numeric_iterator_c.
-                unsafe { CRQEIterator::new(ptr) }
-            })
-        })
-        .collect();
-
-    if children.is_empty() {
-        return ptr::null_mut();
+    // SAFETY: caller upholds requirements 1–3.
+    match unsafe { new_geo_range_iterator(sctx, geo, &field_ctx, min_union_iter_heap, compress) } {
+        None | Some(NewUnionIterator::ReducedEmpty(_)) => ptr::null_mut(),
+        Some(NewUnionIterator::ReducedSingle(v)) => RQEIteratorWrapper::boxed_new(v),
+        Some(NewUnionIterator::Flat(f)) => crate::union::build_union_from_children(
+            into_crqe_children(f.into_children()),
+            false,
+            min_union_iter_heap,
+            QueryNodeType::Geo,
+            ptr::null(),
+            1.0,
+        ),
+        Some(NewUnionIterator::FlatQuick(f)) => crate::union::build_union_from_children(
+            into_crqe_children(f.into_children()),
+            true,
+            min_union_iter_heap,
+            QueryNodeType::Geo,
+            ptr::null(),
+            1.0,
+        ),
+        Some(NewUnionIterator::Heap(h)) => crate::union::build_union_from_children(
+            into_crqe_children(h.into_children()),
+            false,
+            min_union_iter_heap,
+            QueryNodeType::Geo,
+            ptr::null(),
+            1.0,
+        ),
+        Some(NewUnionIterator::HeapQuick(h)) => crate::union::build_union_from_children(
+            into_crqe_children(h.into_children()),
+            true,
+            min_union_iter_heap,
+            QueryNodeType::Geo,
+            ptr::null(),
+            1.0,
+        ),
     }
-
-    crate::union::build_union_from_children(
-        children,
-        true,
-        min_union_iter_heap,
-        QueryNodeType::Geo,
-        ptr::null(),
-        1.0,
-    )
 }
