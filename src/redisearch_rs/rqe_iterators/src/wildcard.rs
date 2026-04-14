@@ -103,6 +103,10 @@ impl<'index> RQEIterator<'index> for Wildcard<'index> {
     fn type_(&self) -> IteratorType {
         IteratorType::Wildcard
     }
+
+    fn intersection_sort_weight(&self, _prioritize_union_children: bool) -> f64 {
+        1.0
+    }
 }
 
 /// A marker trait for iterators that match all documents.
@@ -177,6 +181,10 @@ impl<'index> RQEIterator<'index> for Box<dyn WildcardIterator<'index> + 'index> 
     fn as_c_iterator(&self) -> Option<&crate::c2rust::CRQEIterator> {
         (**self).as_c_iterator()
     }
+
+    fn intersection_sort_weight(&self, prioritize_union_children: bool) -> f64 {
+        (**self).intersection_sort_weight(prioritize_union_children)
+    }
 }
 
 impl<'index> WildcardIterator<'index> for Box<dyn WildcardIterator<'index> + 'index> {}
@@ -231,6 +239,10 @@ impl<'index> RQEIterator<'index> for EmptyWildcard {
     #[inline(always)]
     fn type_(&self) -> IteratorType {
         IteratorType::Empty
+    }
+
+    fn intersection_sort_weight(&self, _prioritize_union_children: bool) -> f64 {
+        1.0
     }
 }
 
@@ -440,6 +452,10 @@ impl<'index> RQEIterator<'index> for DiskWildcardIterator<'index> {
     #[inline(always)]
     fn type_(&self) -> IteratorType {
         self.0.type_()
+    }
+
+    fn intersection_sort_weight(&self, prioritize_union_children: bool) -> f64 {
+        self.0.intersection_sort_weight(prioritize_union_children)
     }
 }
 

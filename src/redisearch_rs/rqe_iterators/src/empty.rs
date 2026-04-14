@@ -66,4 +66,8 @@ impl<'index> RQEIterator<'index> for Empty {
     fn type_(&self) -> IteratorType {
         IteratorType::Empty
     }
+
+    fn intersection_sort_weight(&self, _prioritize_union_children: bool) -> f64 {
+        1.0
+    }
 }

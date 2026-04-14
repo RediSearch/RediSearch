@@ -109,6 +109,10 @@ impl<'index> rqe_iterators::RQEIterator<'index> for MissingIterator<'index> {
     fn type_(&self) -> IteratorType {
         IteratorType::InvIdxMissing
     }
+
+    fn intersection_sort_weight(&self, _prioritize_union_children: bool) -> f64 {
+        1.0
+    }
 }
 
 /// Creates a new missing-field inverted index iterator.
