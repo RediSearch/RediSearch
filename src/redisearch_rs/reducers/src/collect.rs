@@ -8,6 +8,7 @@
 */
 
 use bumpalo::Bump;
+use rlookup::{OpaqueRLookupRow, RLookupKey, RLookupRow};
 
 use crate::Reducer;
 use value::RSValueFFI;
@@ -51,10 +52,15 @@ pub struct CollectReducer {
 
 /// Per-group instance of the [`CollectReducer`].
 ///
-/// TODO: This is a placeholder. The actual per-group collection logic (field
-/// projection, sorting, limiting) will be implemented in a follow-up task.
+/// Each call to [`CollectCtx::add`] projects the configured field keys from
+/// the source row and stores the cloned values. [`CollectCtx::finalize`]
+/// serializes all collected rows as an array of maps.
+///
+/// Because `CollectCtx` is arena-allocated ([`Bump`] does not run destructors),
+/// [`CollectCtx::free`] must be called to release the heap-allocated `Vec`s
+/// and decrement `RSValueFFI` refcounts.
 pub struct CollectCtx {
-    _private: (),
+    rows: Vec<Vec<RSValueFFI>>,
 }
 
 impl CollectReducer {
@@ -139,24 +145,67 @@ impl CollectReducer {
 impl CollectCtx {
     /// Create a new per-group collect reducer instance.
     pub const fn new(_r: &CollectReducer) -> Self {
-        Self { _private: () }
+        Self { rows: Vec::new() }
     }
 
-    /// Process the provided [`ffi::RLookupRow`] with the collect reducer
-    /// instance.
+    /// Project field values from `srcrow` and store them for later
+    /// serialization in [`Self::finalize`].
     ///
-    /// TODO: Implement field projection and row collection.
-    pub fn add(&mut self, _r: &CollectReducer, _srcrow: *const ffi::RLookupRow) {
-        unimplemented!("COLLECT reducer add is not yet implemented");
+    /// For each configured field key the value is looked up in the source row
+    /// and cloned (incrementing its refcount). Missing values are stored as
+    /// [`RSValueFFI::null_static`].
+    pub fn add(&mut self, r: &CollectReducer, srcrow: *const ffi::RLookupRow) {
+        // SAFETY: `srcrow` is a valid pointer to a Rust `RLookupRow` passed
+        // through C as the layout-compatible `OpaqueRLookupRow`.
+        let row = unsafe {
+            RLookupRow::from_opaque_ptr_unchecked(srcrow.cast::<OpaqueRLookupRow>())
+        };
+
+        let mut values = Vec::with_capacity(r.field_keys.len());
+        for &key_ptr in &r.field_keys {
+            // SAFETY: `key_ptr` was created from a Rust `RLookupKey` by the
+            // `RLookup` infrastructure. The C type is a prefix view of the
+            // same allocation.
+            let key = unsafe { &*key_ptr.cast::<RLookupKey<'_>>() };
+            let value = row.get(key).cloned().unwrap_or_else(RSValueFFI::null_static);
+            values.push(value);
+        }
+        self.rows.push(values);
     }
 
-    /// Finalize the collect reducer instance result into an [`RSValueFFI`].
+    /// Serialize all collected rows as an array of maps.
     ///
-    /// TODO: Implement sorting, limiting, and result construction.
-    pub fn finalize(&self, _r: &CollectReducer) -> RSValueFFI {
-        unimplemented!("COLLECT reducer finalize is not yet implemented");
+    /// Each map contains `{field_name: value}` entries keyed by the
+    /// [`RLookupKey`] name. The outer array has one element per collected row.
+    pub fn finalize(&self, r: &CollectReducer) -> RSValueFFI {
+        let row_maps: Vec<RSValueFFI> = self
+            .rows
+            .iter()
+            .map(|row_values| {
+                let entries =
+                    row_values
+                        .iter()
+                        .zip(r.field_keys.iter())
+                        .map(|(val, &key_ptr)| {
+                            // SAFETY: `key_ptr` is a valid pointer to an `ffi::RLookupKey`.
+                            let key = unsafe { &*key_ptr };
+                            let name_bytes = unsafe {
+                                std::slice::from_raw_parts(key.name.cast::<u8>(), key.name_len)
+                            };
+                            let name_val = RSValueFFI::new_string(name_bytes.to_vec());
+                            (name_val, val.clone())
+                        });
+                RSValueFFI::new_map(entries)
+            })
+            .collect();
+        RSValueFFI::new_array(row_maps)
     }
 
-    /// Free the per-group collect reducer instance resources.
-    pub fn free(&mut self, _r: &CollectReducer) {}
+    /// Release heap-allocated storage and decrement `RSValueFFI` refcounts.
+    ///
+    /// Must be called before the arena drops this instance, since [`Bump`]
+    /// does not run destructors.
+    pub fn free(&mut self, _r: &CollectReducer) {
+        let _ = std::mem::take(&mut self.rows);
+    }
 }
