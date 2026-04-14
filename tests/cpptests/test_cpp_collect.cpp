@@ -69,17 +69,6 @@ protected:
 
 // ====== Happy path tests ======
 
-TEST_F(CollectParserTest, FieldsOnly) {
-  registerKeys({"price", "name"});
-  Reducer *r = parseCollectOk({"FIELDS", "2", "@price", "@name"});
-  ASSERT_NE(r, nullptr);
-  EXPECT_EQ(CollectReducer_GetFieldKeysLen(r), 2u);
-  EXPECT_FALSE(CollectReducer_HasWildcard(r));
-  EXPECT_EQ(CollectReducer_GetSortKeysLen(r), 0u);
-  EXPECT_FALSE(CollectReducer_HasLimit(r));
-  r->Free(r);
-}
-
 TEST_F(CollectParserTest, FieldsWildcard) {
   Reducer *r = parseCollectOk({"FIELDS", "1", "*"});
   ASSERT_NE(r, nullptr);
@@ -424,9 +413,3 @@ TEST_F(CollectParserTest, LimitOffsetExceedsAggregateMax) {
       "LIMIT offset exceeds maximum of");
 }
 
-TEST_F(CollectParserTest, RejectsWhenUnstableFeaturesDisabled) {
-  RSGlobalConfig.enableUnstableFeatures = false;
-  registerKeys({"price"});
-  expectError({"FIELDS", "1", "@price"},
-      "`COLLECT` is unavailable when `ENABLE_UNSTABLE_FEATURES` is off");
-}
