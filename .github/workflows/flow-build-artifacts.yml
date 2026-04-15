@@ -66,7 +66,7 @@ jobs:
         run: |
           # TAG=$(curl -sL --retry 5 https://api.github.com/repos/redis/redis/releases/latest | jq -er '.tag_name') && \
           # echo "tag=$TAG" >> $GITHUB_OUTPUT
-          echo "tag=unstable" >> $GITHUB_OUTPUT
+          echo "tag=8.6" >> $GITHUB_OUTPUT
       - name: Generate Beta Version unique identifier
         id: beta-version
         run: |
