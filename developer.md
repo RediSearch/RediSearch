@@ -265,22 +265,22 @@ To start the external redis-server instance:
 
 #### Full-Text Search Benchmark (FTSB)
 
-Ensure you have Full-Text Search Benchmark (FTSB) installed. See installation instructions here: https://github.com/RediSearch/ftsb
+Install Full-Text Search Benchmark (FTSB) as per the instructions on https://github.com/RediSearch/ftsb
 
 Make sure you have the `ftsb_redisearch` binary available in your `$PATH`.
 
 #### memtier_benchmark
 
-Also ensure you have `memtier_benchmark` installed. See installation instructions here: https://github.com/redis/memtier_benchmark
+Install `memtier_benchmark` as per the instructions on https://github.com/redis/memtier_benchmark
+
+Make sure you have the `memtier_benchmark` binary available in your `$PATH`.
 
 #### Python packages
 
 Install necessary python packages:
 
-NOTE: You will need to have your python virtual env activated. See steps for 'Python Tests'.
-
 ```sh
-pip3 install -r ./tests/benchmarks/requirements.txt
+uv pip install -r ./tests/benchmarks/requirements.txt
 ```
 
 ### Run benchmarks
@@ -288,7 +288,7 @@ pip3 install -r ./tests/benchmarks/requirements.txt
 To run a specific benchmark, use the following command:
 
 ```sh
-redisbench-admin run-local \
+uv redisbench-admin run-local \
     --module_path $(find $(pwd)/bin -name "redisearch.so" | head -1) \
     --required-module search \
     --allowed-setups oss-standalone \
@@ -300,18 +300,20 @@ Replace `<benchmark>` in the `--test` argument with the desired benchmark file. 
 
 #### Profiling benchmarks with Samply
 
-Install samply as per the instructions on https://github.com/mstange/samply
+Install `samply` as per the instructions on https://github.com/mstange/samply
 
-In one termimal panel run:
+Make sure you have the `samply` binary available in your `$PATH`.
+
+In one terminal panel run:
 
 ```sh
-samply record redis-server --module-path $(find $(pwd)/bin -name "redisearch.so" | head -1)
+samply record redis-server --loadmodule $(find $(pwd)/bin -name "redisearch.so" | head -1)
 ```
 
 In the other terminal panel run:
 
 ```sh
-redisbench-admin run-local \
+uv redisbench-admin run-local \
     --skip-redis-spin True \
     --required-module search \
     --allowed-setups oss-standalone \
