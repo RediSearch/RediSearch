@@ -165,7 +165,7 @@ pub unsafe extern "C" fn collectFinalize(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn collectFree(r: *mut ffi::Reducer) {
     // SAFETY: ensured by caller (1.)
-    let _ = unsafe { Box::from_raw(r.cast::<CollectReducer>()) };
+    drop(unsafe { Box::from_raw(r.cast::<CollectReducer>()) });
 }
 
 // --- Accessors for C++ parser tests (temporary) ---
@@ -177,108 +177,56 @@ pub unsafe extern "C" fn collectFree(r: *mut ffi::Reducer) {
 // TODO: migrate the C++ parser tests to Python flow tests
 // (`test_groupby_collect.py`), then delete `test_cpp_collect.cpp`, these
 // FFI accessors, and the corresponding methods in `reducers/src/collect.rs`.
+//
+// Safety: all functions below require `r` to point to a valid
+// `CollectReducer` masquerading as a `ffi::Reducer`, originally created by
+// `CollectReducer_Create`.
 
-/// Returns the number of explicitly listed field keys (excludes the wildcard).
-///
-/// # Safety
-///
-/// 1. `r` must point to a [valid] `CollectReducer` masquerading as a
-///    `ffi::Reducer`, originally created by [`CollectReducer_Create`].
-///
-/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn CollectReducer_GetFieldKeysLen(r: *const ffi::Reducer) -> usize {
-    // SAFETY: ensured by caller (1.)
+    // SAFETY: ensured by caller.
     let r = unsafe { r.cast::<CollectReducer>().as_ref().unwrap() };
     r.field_keys_len()
 }
 
-/// Returns whether the wildcard `*` was specified in the FIELDS clause.
-///
-/// # Safety
-///
-/// 1. `r` must point to a [valid] `CollectReducer` masquerading as a
-///    `ffi::Reducer`, originally created by [`CollectReducer_Create`].
-///
-/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn CollectReducer_HasWildcard(r: *const ffi::Reducer) -> bool {
-    // SAFETY: ensured by caller (1.)
+    // SAFETY: ensured by caller.
     let r = unsafe { r.cast::<CollectReducer>().as_ref().unwrap() };
     r.has_wildcard()
 }
 
-/// Returns the number of sort keys.
-///
-/// # Safety
-///
-/// 1. `r` must point to a [valid] `CollectReducer` masquerading as a
-///    `ffi::Reducer`, originally created by [`CollectReducer_Create`].
-///
-/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn CollectReducer_GetSortKeysLen(r: *const ffi::Reducer) -> usize {
-    // SAFETY: ensured by caller (1.)
+    // SAFETY: ensured by caller.
     let r = unsafe { r.cast::<CollectReducer>().as_ref().unwrap() };
     r.sort_keys_len()
 }
 
-/// Returns the ASC/DESC bitmask for sort keys.
-///
-/// # Safety
-///
-/// 1. `r` must point to a [valid] `CollectReducer` masquerading as a
-///    `ffi::Reducer`, originally created by [`CollectReducer_Create`].
-///
-/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn CollectReducer_GetSortAscMap(r: *const ffi::Reducer) -> u64 {
-    // SAFETY: ensured by caller (1.)
+    // SAFETY: ensured by caller.
     let r = unsafe { r.cast::<CollectReducer>().as_ref().unwrap() };
     r.sort_asc_map()
 }
 
-/// Returns whether a LIMIT clause was specified.
-///
-/// # Safety
-///
-/// 1. `r` must point to a [valid] `CollectReducer` masquerading as a
-///    `ffi::Reducer`, originally created by [`CollectReducer_Create`].
-///
-/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn CollectReducer_HasLimit(r: *const ffi::Reducer) -> bool {
-    // SAFETY: ensured by caller (1.)
+    // SAFETY: ensured by caller.
     let r = unsafe { r.cast::<CollectReducer>().as_ref().unwrap() };
     r.has_limit()
 }
 
-/// Returns the LIMIT offset value.
-///
-/// # Safety
-///
-/// 1. `r` must point to a [valid] `CollectReducer` masquerading as a
-///    `ffi::Reducer`, originally created by [`CollectReducer_Create`].
-///
-/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn CollectReducer_GetLimitOffset(r: *const ffi::Reducer) -> u64 {
-    // SAFETY: ensured by caller (1.)
+    // SAFETY: ensured by caller.
     let r = unsafe { r.cast::<CollectReducer>().as_ref().unwrap() };
     r.limit_offset()
 }
 
-/// Returns the LIMIT count value.
-///
-/// # Safety
-///
-/// 1. `r` must point to a [valid] `CollectReducer` masquerading as a
-///    `ffi::Reducer`, originally created by [`CollectReducer_Create`].
-///
-/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn CollectReducer_GetLimitCount(r: *const ffi::Reducer) -> u64 {
-    // SAFETY: ensured by caller (1.)
+    // SAFETY: ensured by caller.
     let r = unsafe { r.cast::<CollectReducer>().as_ref().unwrap() };
     r.limit_count()
 }

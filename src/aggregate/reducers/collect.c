@@ -240,6 +240,13 @@ Reducer *RDCRCollect_New(const ReducerOptions *options) {
 
   ArgParser_Free(parser);
 
+  if (data.has_wildcard) {
+    QueryError_SetError(options->status, QUERY_ERROR_CODE_PARSE_ARGS,
+      "COLLECT does not yet support wildcard `*` in FIELDS");
+    CollectParseData_Free(&data);
+    return NULL;
+  }
+
   // Hand off parsed configuration to Rust, which allocates the CollectReducer
   // and wires the vtable.
   Reducer *rbase = CollectReducer_Create(

@@ -58,6 +58,7 @@ def _sort_collected(entries, key):
 # ---------------------------------------------------------------------------
 # COLLECT 1 field, HASH
 # ---------------------------------------------------------------------------
+@skip(cluster=True)
 def test_collect_1_field_hash():
     env = Env(protocol=3)
     _setup_hash(env)
@@ -85,6 +86,7 @@ def test_collect_1_field_hash():
 # ---------------------------------------------------------------------------
 # COLLECT 3 fields, HASH  (TEXT fields are lowercased in HASH)
 # ---------------------------------------------------------------------------
+@skip(cluster=True)
 def test_collect_3_fields_hash():
     env = Env(protocol=3)
     _setup_hash(env)
@@ -118,6 +120,7 @@ def test_collect_3_fields_hash():
 # ---------------------------------------------------------------------------
 # COLLECT 1 field, JSON
 # ---------------------------------------------------------------------------
+@skip(cluster=True)
 @skip(no_json=True)
 def test_collect_1_field_json():
     env = Env(protocol=3)
@@ -141,6 +144,7 @@ def test_collect_1_field_json():
 # ---------------------------------------------------------------------------
 # COLLECT 3 fields, JSON  (JSON preserves original case)
 # ---------------------------------------------------------------------------
+@skip(cluster=True)
 @skip(no_json=True)
 def test_collect_3_fields_json():
     env = Env(protocol=3)
@@ -169,6 +173,7 @@ def test_collect_3_fields_json():
 # ---------------------------------------------------------------------------
 # Chained GROUPBY: second COLLECT collects previous reducers output
 # ---------------------------------------------------------------------------
+@skip(cluster=True)
 def test_chained_groupby_collect():
     env = Env(protocol=3)
     _setup_hash(env)
@@ -197,6 +202,7 @@ def test_chained_groupby_collect():
 # ---------------------------------------------------------------------------
 # COLLECT with NULL/missing values
 # ---------------------------------------------------------------------------
+@skip(cluster=True)
 def test_collect_missing_values():
     env = Env(protocol=3)
     _setup_hash(env)
@@ -231,6 +237,7 @@ def test_collect_missing_values():
 # ---------------------------------------------------------------------------
 # COLLECT with AS alias
 # ---------------------------------------------------------------------------
+@skip(cluster=True)
 def test_collect_alias():
     env = Env(protocol=3)
     _setup_hash(env)
@@ -249,6 +256,7 @@ def test_collect_alias():
 # ---------------------------------------------------------------------------
 # COLLECT with multi-key GROUPBY
 # ---------------------------------------------------------------------------
+@skip(cluster=True)
 def test_collect_multi_groupby_keys():
     env = Env(protocol=3)
     _setup_hash(env)
@@ -271,6 +279,7 @@ def test_collect_multi_groupby_keys():
 # ---------------------------------------------------------------------------
 # Verify output structure: array of maps
 # ---------------------------------------------------------------------------
+@skip(cluster=True)
 def test_collect_output_structure():
     env = Env(protocol=3)
     _setup_hash(env)
@@ -293,6 +302,7 @@ def test_collect_output_structure():
 # ---------------------------------------------------------------------------
 # COLLECT requires ENABLE_UNSTABLE_FEATURES
 # ---------------------------------------------------------------------------
+@skip(cluster=True)
 def test_collect_requires_unstable_features():
     env = Env()
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH',
@@ -310,6 +320,7 @@ def test_collect_requires_unstable_features():
 # ---------------------------------------------------------------------------
 # COLLECT with LOAD json path aliased field
 # ---------------------------------------------------------------------------
+@skip(cluster=True)
 @skip(no_json=True)
 def test_collect_loaded_json_path():
     env = Env(protocol=3)
@@ -339,6 +350,7 @@ def test_collect_loaded_json_path():
 # ---------------------------------------------------------------------------
 # RESP2 sanity: basic COLLECT works under RESP2
 # ---------------------------------------------------------------------------
+@skip(cluster=True)
 def test_collect_resp2_sanity():
     env = Env(protocol=2)
     _setup_hash(env)

@@ -101,88 +101,18 @@ RSValue *collectFinalize(Reducer *r, void *ctx);
  */
 void collectFree(Reducer *r);
 
-/**
- * Returns the number of explicitly listed field keys (excludes the wildcard).
- *
- * # Safety
- *
- * 1. `r` must point to a [valid] `CollectReducer` masquerading as a
- *    `ffi::Reducer`, originally created by [`CollectReducer_Create`].
- *
- * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
- */
 uintptr_t CollectReducer_GetFieldKeysLen(const Reducer *r);
 
-/**
- * Returns whether the wildcard `*` was specified in the FIELDS clause.
- *
- * # Safety
- *
- * 1. `r` must point to a [valid] `CollectReducer` masquerading as a
- *    `ffi::Reducer`, originally created by [`CollectReducer_Create`].
- *
- * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
- */
 bool CollectReducer_HasWildcard(const Reducer *r);
 
-/**
- * Returns the number of sort keys.
- *
- * # Safety
- *
- * 1. `r` must point to a [valid] `CollectReducer` masquerading as a
- *    `ffi::Reducer`, originally created by [`CollectReducer_Create`].
- *
- * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
- */
 uintptr_t CollectReducer_GetSortKeysLen(const Reducer *r);
 
-/**
- * Returns the ASC/DESC bitmask for sort keys.
- *
- * # Safety
- *
- * 1. `r` must point to a [valid] `CollectReducer` masquerading as a
- *    `ffi::Reducer`, originally created by [`CollectReducer_Create`].
- *
- * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
- */
 uint64_t CollectReducer_GetSortAscMap(const Reducer *r);
 
-/**
- * Returns whether a LIMIT clause was specified.
- *
- * # Safety
- *
- * 1. `r` must point to a [valid] `CollectReducer` masquerading as a
- *    `ffi::Reducer`, originally created by [`CollectReducer_Create`].
- *
- * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
- */
 bool CollectReducer_HasLimit(const Reducer *r);
 
-/**
- * Returns the LIMIT offset value.
- *
- * # Safety
- *
- * 1. `r` must point to a [valid] `CollectReducer` masquerading as a
- *    `ffi::Reducer`, originally created by [`CollectReducer_Create`].
- *
- * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
- */
 uint64_t CollectReducer_GetLimitOffset(const Reducer *r);
 
-/**
- * Returns the LIMIT count value.
- *
- * # Safety
- *
- * 1. `r` must point to a [valid] `CollectReducer` masquerading as a
- *    `ffi::Reducer`, originally created by [`CollectReducer_Create`].
- *
- * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
- */
 uint64_t CollectReducer_GetLimitCount(const Reducer *r);
 
 #ifdef __cplusplus

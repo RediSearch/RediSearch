@@ -205,6 +205,6 @@ impl CollectCtx {
     /// Must be called before the arena drops this instance, since [`Bump`]
     /// does not run destructors.
     pub fn free(&mut self, _r: &CollectReducer) {
-        let _ = std::mem::take(&mut self.rows);
+        drop(std::mem::take(&mut self.rows));
     }
 }

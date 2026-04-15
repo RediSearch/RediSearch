@@ -73,22 +73,15 @@ protected:
 
 // ====== Happy path tests ======
 
-TEST_F(CollectParserTest, FieldsWildcard) {
-  Reducer *r = parseCollectOk({"FIELDS", "1", "*"});
-  ASSERT_NE(r, nullptr);
-  EXPECT_EQ(CollectReducer_GetFieldKeysLen(r), 0u);
-  EXPECT_TRUE(CollectReducer_HasWildcard(r));
-  EXPECT_EQ(CollectReducer_GetSortKeysLen(r), 0u);
-  r->Free(r);
+TEST_F(CollectParserTest, WildcardOnlyRejected) {
+  expectError({"FIELDS", "1", "*"},
+      "COLLECT does not yet support wildcard `*` in FIELDS");
 }
 
-TEST_F(CollectParserTest, WildcardAmongFields) {
+TEST_F(CollectParserTest, WildcardAmongFieldsRejected) {
   registerKeys({"price", "name"});
-  Reducer *r = parseCollectOk({"FIELDS", "3", "@price", "*", "@name"});
-  ASSERT_NE(r, nullptr);
-  EXPECT_EQ(CollectReducer_GetFieldKeysLen(r), 2u);
-  EXPECT_TRUE(CollectReducer_HasWildcard(r));
-  r->Free(r);
+  expectError({"FIELDS", "3", "@price", "*", "@name"},
+      "COLLECT does not yet support wildcard `*` in FIELDS");
 }
 
 TEST_F(CollectParserTest, FieldsAndSortBy) {
