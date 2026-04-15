@@ -722,8 +722,6 @@ def test_profile_child_itrerators_array():
       },
     }
     if not env.isCluster():  # on cluster, lack of crash is enough
-        sort_profile_children(res)
-        sort_profile_children(exp)
         env.assertEqual(res, exp)
 
     # test INTERSECT

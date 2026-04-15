@@ -126,11 +126,7 @@ def testOptimizer(env):
     res = env.cmd('ft.profile', 'idx', 'search', 'query', 'foo @n:[10 20]', *params)
     env.assertEqual(res[0], [10, '10', '12', '14', '16', '18', '20', '110', '112', '114', '116'])
     actual_profiler = to_dict(res[1][1][0])
-    actual_iters = actual_profiler['Iterators profile']
-    expected_iters = profiler['Iterators profile']
-    sort_profile_children(actual_iters)
-    sort_profile_children(expected_iters)
-    env.assertEqual(actual_iters, expected_iters)
+    env.assertEqual(actual_profiler['Iterators profile'], profiler['Iterators profile'])
     env.assertEqual(actual_profiler['Result processors profile'], profiler['Result processors profile'])
 
     ### (3) TAG and range with sort ###

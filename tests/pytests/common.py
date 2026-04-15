@@ -489,35 +489,6 @@ def to_dict(res):
 def to_list(input_dict: dict):
     return [item for pair in input_dict.items() for item in pair]
 
-def sort_profile_children(profile):
-    """Recursively sort 'Child iterators' lists in profile output so that
-    assertions do not depend on union child ordering.
-
-    Works with both RESP2 (flat key-value lists) and RESP3 (dicts).
-    Children are sorted by their string representation to give a stable order.
-    """
-    if isinstance(profile, dict):
-        for key, val in profile.items():
-            if key == 'Child iterators' and isinstance(val, list):
-                for child in val:
-                    sort_profile_children(child)
-                val.sort(key=lambda c: str(c))
-            else:
-                sort_profile_children(val)
-    elif isinstance(profile, list):
-        # RESP2 flat key-value format: [..., 'Child iterators', [...], ...]
-        i = 0
-        while i < len(profile):
-            if profile[i] == 'Child iterators' and i + 1 < len(profile) and isinstance(profile[i + 1], list):
-                children = profile[i + 1]
-                for child in children:
-                    sort_profile_children(child)
-                children.sort(key=lambda c: str(c))
-                i += 2
-            else:
-                sort_profile_children(profile[i])
-                i += 1
-
 def get_redis_memory_in_mb(env):
     return float(env.cmd('info', 'memory')['used_memory'])/0x100000
 
