@@ -726,10 +726,6 @@ class TestCoordinatorReducePause:
         prev_on_timeout_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
         env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'fail')
 
-        # Capture baseline metrics
-        before_info = info_modules_to_dict(env)
-        base_err_coord = int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC])
-
         # Set pause after last result
         setPauseBeforeReduce(env, PAUSE_AFTER_LAST_RESULT)
 
@@ -924,10 +920,6 @@ class TestCoordinatorReducePause:
 
         prev_on_timeout_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
         env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'return-strict').ok()
-
-        # Capture baseline metrics
-        before_info = info_modules_to_dict(env)
-        base_warn_coord = int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_METRIC])
 
         setPauseBeforeReduce(env, PAUSE_AFTER_LAST_RESULT)
 
