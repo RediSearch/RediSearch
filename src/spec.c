@@ -1576,7 +1576,7 @@ StrongRef IndexSpec_Parse(const HiddenString *name, const char **argv, int argc,
     }
   }
   if ((spec->flags & Index_WideSchema) && !(spec->flags & Index_StoreFieldFlags)) {
-    QueryError_SetError(status, QUERY_ERROR_CODE_INVAL,
+    QueryError_SetError(status, QUERY_EINVAL,
                         SPEC_SCHEMA_EXPANDABLE_STR " cannot be used with " SPEC_NOFIELDS_STR);
     goto failure;
   }
