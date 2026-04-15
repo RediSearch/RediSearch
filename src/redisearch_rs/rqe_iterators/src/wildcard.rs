@@ -304,6 +304,40 @@ pub unsafe fn new_wildcard_iterator_optimized<'index>(
     }
 }
 
+/// Create a [`WildcardIterator`] backed by an on-disk index implementation.
+///
+/// This delegates to [`SEARCH_ENTERPRISE_ITERATORS`]'s
+/// [`new_wildcard_on_disk`](crate::SearchEnterpriseIterators::new_wildcard_on_disk)
+/// and wraps the resulting iterator in a [`DiskWildcardIterator`].
+///
+/// If the enterprise iterator cannot be created, this function logs a warning
+/// and falls back to an empty iterator.
+///
+/// # Safety
+///
+/// 1. `disk_spec` must reference a valid [`RedisSearchDiskIndexSpec`](ffi::RedisSearchDiskIndexSpec)
+///    that remains valid for `'index`.
+/// 2. [`SEARCH_ENTERPRISE_ITERATORS`] must be initialized before calling this function.
+pub unsafe fn new_wildcard_iterator_on_disk<'index>(
+    disk_spec: &'index ffi::RedisSearchDiskIndexSpec,
+    weight: f64,
+) -> Box<dyn WildcardIterator<'index> + 'index> {
+    // SAFETY: Caller guarantees `SEARCH_ENTERPRISE_ITERATORS` is
+    // initialized when `spec.diskSpec` is non-null (8).
+    let enterprise_iters_api = SEARCH_ENTERPRISE_ITERATORS
+        .get()
+        .expect("SEARCH_ENTERPRISE_ITERATORS not initialized");
+    match enterprise_iters_api.new_wildcard_on_disk(disk_spec, weight) {
+        Ok(it) => Box::new(DiskWildcardIterator(it)),
+        Err(err) => {
+            tracing::warn!(
+                "Failed to create a disk wildcard iterator ({err}); falling back to empty iterator."
+            );
+            Box::new(EmptyWildcard(Empty))
+        }
+    }
+}
+
 /// Create a [`WildcardIterator`] from a query evaluation context.
 ///
 /// There are three possible code paths:
@@ -348,26 +382,13 @@ pub unsafe fn new_wildcard_iterator<'index>(
     let spec = unsafe { &*sctx_ref.spec };
 
     if !spec.diskSpec.is_null() {
-        // SAFETY: Caller guarantees `SEARCH_ENTERPRISE_ITERATORS` is
-        // initialized when `spec.diskSpec` is non-null (8).
-        let enterprise_iters_api = SEARCH_ENTERPRISE_ITERATORS
-            .get()
-            .expect("SEARCH_ENTERPRISE_ITERATORS not initialized");
         // SAFETY: Caller guarantees `spec.diskSpec` is a valid, non-null
         // pointer to a `RedisSearchDiskIndexSpec` that remains valid for
         // `'index` (7).
         let disk_spec = unsafe { &*spec.diskSpec };
-        match enterprise_iters_api.new_wildcard_on_disk(disk_spec, weight) {
-            Ok(it) => {
-                return Box::new(DiskWildcardIterator(it));
-            }
-            Err(err) => {
-                tracing::warn!(
-                    "Failed to create a disk wildcard iterator ({err}); falling back to empty iterator."
-                );
-                return Box::new(EmptyWildcard(Empty));
-            }
-        }
+        // SAFETY: Caller guarantees all preconditions of
+        // `new_wildcard_iterator_on_disk` hold (7, 8).
+        return unsafe { new_wildcard_iterator_on_disk(disk_spec, weight) };
     }
 
     let index_all = NonNull::new(spec.rule)

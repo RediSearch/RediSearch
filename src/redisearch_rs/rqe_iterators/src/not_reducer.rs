@@ -18,7 +18,9 @@ use crate::{
     Empty, IteratorType, RQEIterator, WildcardIterator,
     not::Not,
     not_optimized::NotOptimized,
-    wildcard::{new_wildcard_iterator, new_wildcard_iterator_optimized},
+    wildcard::{
+        new_wildcard_iterator, new_wildcard_iterator_on_disk, new_wildcard_iterator_optimized,
+    },
 };
 
 /// The result of [`not_iterator_reducer`].
@@ -149,9 +151,11 @@ where
 
     if optimized {
         let wcii = if disk_index_available {
-            // SAFETY: Caller guarantees all preconditions of
-            // `new_wildcard_iterator` hold (5).
-            unsafe { new_wildcard_iterator(query, weight) }
+            // SAFETY: Caller guarantees `spec.diskSpec` is valid, non-null and
+            // remains valid for `'index` (5).
+            let disk_spec = unsafe { &*spec.diskSpec };
+            // SAFETY: Caller guarantees all preconditions of `new_wildcard_iterator_on_disk` hold (5).
+            unsafe { new_wildcard_iterator_on_disk(disk_spec, weight) }
         } else {
             // SAFETY: Caller guarantees `query.sctx` is a valid, non-null pointer (2)
             // and all preconditions of `new_wildcard_iterator_optimized` hold (5).
