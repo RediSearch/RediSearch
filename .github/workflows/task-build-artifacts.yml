@@ -154,15 +154,12 @@ jobs:
         with:
           command: uv pip install -q -r .install/build_package_requirements.txt
 
-      # Get Redis
-      - name: Get Redis
-        uses: ./.github/actions/get-redis
+      - name: Build Redis (cached)
+        uses: ./.github/actions/build-redis
         with:
           ref: ${{ inputs.redis-ref }}
-
-      - name: Build Redis
-        working-directory: redis
-        run: ${{ needs.get-config.outputs.install_mode }} make install
+          build_tls: 'false'
+          cache_platform_id: ${{ needs.get-config.outputs.container || needs.get-config.outputs.env }}
 
       # Build & Pack
       - name: Build and Pack RediSearch OSS
