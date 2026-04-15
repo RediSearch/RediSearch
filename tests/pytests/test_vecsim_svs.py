@@ -674,12 +674,12 @@ def test_resize_workers_during_pending_svs_jobs():
         query_threads.append(t)
         t.start()
 
-    # Wait until at least one worker is blocked at the sync point
+    # Wait until all workers are blocked at the sync point.
+    # Each blocked query is a job in progress, so numJobsInProgress == initial_workers
+    # means all workers are occupied and stuck.
     wait_for_condition(
-        lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', sync_point) == 1, {}),
-        'Timeout waiting for queries to reach sync point')
-    # Brief sleep to let remaining workers also reach the sync point
-    time.sleep(0.5)
+        lambda: (getWorkersThpoolStats(env)['numJobsInProgress'] == initial_workers, {}),
+        'Timeout waiting for all workers to reach sync point')
 
     # All workers are now blocked on queries. Add vectors — SVS update jobs
     # are created (beginScheduledJob snapshots pool=4) and queued behind the
