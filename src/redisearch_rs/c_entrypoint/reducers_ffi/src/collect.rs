@@ -168,11 +168,15 @@ pub unsafe extern "C" fn collectFree(r: *mut ffi::Reducer) {
     let _ = unsafe { Box::from_raw(r.cast::<CollectReducer>()) };
 }
 
-// --- Accessors for C/C++ tests ---
+// --- Accessors for C++ parser tests (temporary) ---
 //
-// These allow the C++ parser tests to inspect CollectReducer config without
-// duplicating the struct layout. Unused symbols are stripped by the linker
-// in release builds.
+// These exist solely so `test_cpp_collect.cpp` can inspect `CollectReducer`
+// configuration after parsing. The parsing logic lives in C, so we cannot
+// yet test it with Rust flow tests.
+//
+// TODO: migrate the C++ parser tests to Python flow tests
+// (`test_groupby_collect.py`), then delete `test_cpp_collect.cpp`, these
+// FFI accessors, and the corresponding methods in `reducers/src/collect.rs`.
 
 /// Returns the number of explicitly listed field keys (excludes the wildcard).
 ///

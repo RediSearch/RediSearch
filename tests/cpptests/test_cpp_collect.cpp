@@ -7,6 +7,10 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+// TODO: This file is temporary. Migrate these tests to Python flow tests
+// (`test_groupby_collect.py`) and delete this file along with the FFI
+// accessors in `reducers_ffi/src/collect.rs` and `reducers/src/collect.rs`.
+
 #include "gtest/gtest.h"
 
 #include "aggregate/reducer.h"

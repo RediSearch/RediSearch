@@ -100,9 +100,11 @@ impl CollectReducer {
     pub fn alloc_instance(&self) -> &mut CollectCtx {
         self.arena.alloc(CollectCtx::new(self))
     }
-}
 
-impl CollectReducer {
+    // The accessors below exist only for the C++ parser tests
+    // (`test_cpp_collect.cpp`) via `reducers_ffi`. Remove them once those
+    // tests are migrated to Python flow tests.
+
     /// Number of explicitly listed field keys (excludes the wildcard).
     pub fn field_keys_len(&self) -> usize {
         self.field_keys.len()
