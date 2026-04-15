@@ -766,15 +766,12 @@ void iterStartCb(void *p) {
   cmd->targetShardIdx = 0;
   MRCommand_SetSlotInfo(cmd, shards[0].slotRanges);
 
-  // Take an extra reference to prevent the iterator from being freed mid-loop.
-  // The last callback in the failure path releases the "writers" reference, and if
-  // the coordinator also releases its reference, the iterator would be freed while
-  // we're still in the loop.
-  MRIterator_IncreaseRefCount(it);
+  // Cache it->len since the iterator might be freed in a failure path while we're still in the loop (at the end of it).
+  size_t itLen = it->len;
 
   // Pre-fanout connection validation - check ALL connections before sending ANY commands
   bool allConnectionsValid = true;
-  for (size_t i = 0; i < it->len; i++) {
+  for (size_t i = 0; i < itLen; i++) {
     MRConn *conn = MRConn_Get(&io_runtime_ctx->conn_mgr, it->cbxs[i].cmd.targetShard);
     if (!conn) {
       allConnectionsValid = false;
@@ -784,22 +781,19 @@ void iterStartCb(void *p) {
 
   if (!allConnectionsValid) {
     // At least one connection is not established - fail all shards with error.
-    for (size_t i = 0; i < it->len; i++) {
+    for (size_t i = 0; i < itLen; i++) {
       MRReply *err = MRReply_CreateError("Could not send query to cluster");
       it->ctx.cb(&it->cbxs[i], err);
     }
   } else {
     // All connections valid - send commands to all shards
-    for (size_t i = 0; i < it->len; i++) {
+    for (size_t i = 0; i < itLen; i++) {
       if (MRCluster_SendCommand(io_runtime_ctx, &it->cbxs[i].cmd, mrIteratorRedisCB, &it->cbxs[i]) ==
           REDIS_ERR) {
         MRIteratorCallback_Done(&it->cbxs[i], 1);
       }
     }
   }
-
-  // Release the extra reference we took at the start.
-  MRIterator_Release(it);
 
   // Clean up the data structure
   rm_free(data);
@@ -856,8 +850,11 @@ void iterCursorMappingCb(void *p) {
   cmd->targetShardIdx = vsimOrSearch->mappings[0].targetShardIdx;
   vsimOrSearch->mappings[0].targetShard = NULL; // transfer ownership
 
+  // Cache it->len since the iterator might be freed in a failure path while we're still in the loop (at the end of it).
+  size_t itLen = it->len;
+
   // Send commands to all shards
-  for (size_t i = 0; i < it->len; i++) {
+  for (size_t i = 0; i < itLen; i++) {
     if (MRCluster_SendCommand(io_runtime_ctx, &it->cbxs[i].cmd,
                               mrIteratorRedisCB, &it->cbxs[i]) == REDIS_ERR) {
       MRIteratorCallback_Done(&it->cbxs[i], 1);
