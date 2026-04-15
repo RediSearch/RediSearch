@@ -219,9 +219,9 @@ TEST_F(RdbMockTest, testIndexSpecRdbSerialization) {
 TEST_F(RdbMockTest, testIndexSpecRdbLoadNormalizesInvalidStorageFlags) {
 
     const char *args[] = {"NOFIELDS", "SCHEMA", "title", "TEXT"};
-    QueryError err = QueryError_Default();
+    QueryError err = {QUERY_OK};
 
-    StrongRef original_spec_ref = IndexSpec_ParseC(NULL, "test_rdb_invalid_idx", args, sizeof(args) / sizeof(const char *), &err);
+    StrongRef original_spec_ref = IndexSpec_ParseC("test_rdb_invalid_idx", args, sizeof(args) / sizeof(const char *), &err);
     ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
 
     IndexSpec *spec = (IndexSpec *)StrongRef_Get(original_spec_ref);
@@ -242,13 +242,13 @@ TEST_F(RdbMockTest, testIndexSpecRdbLoadNormalizesInvalidStorageFlags) {
     });
     ASSERT_TRUE(io != nullptr);
 
-    IndexSpec_RdbSave(io, spec, 0);
+    IndexSpec_RdbSave(io, spec);
     EXPECT_EQ(0, RMCK_IsIOError(io));
 
     io->read_pos = 0;
 
     QueryError status = QueryError_Default();
-    IndexSpec *loadedSpec = IndexSpec_RdbLoad(io, INDEX_CURRENT_VERSION, false, &status);
+    IndexSpec *loadedSpec = IndexSpec_RdbLoad(io, INDEX_CURRENT_VERSION, &status);
     ASSERT_NE(nullptr, loadedSpec);
     std::unique_ptr<IndexSpec, std::function<void(IndexSpec *)>> loadedSpecPtr(loadedSpec, [](IndexSpec *spec) {
         StrongRef_Release(spec->own_ref);
