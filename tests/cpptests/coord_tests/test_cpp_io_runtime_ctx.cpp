@@ -190,7 +190,11 @@ TEST_F(IORuntimeCtxCommonTest, ScheduleTopology) {
   });
   ASSERT_TRUE(success) << "Timeout waiting for topology to be applied, lastAppliedCapShards=" << lastAppliedCapShards.load();
 
-  // We don't need to free newTopo here as it's handled by testTopoCallback
+  // Wait for the testCallback to complete before `counter` goes out of scope.
+  // Otherwise the event loop thread may write to a dangling stack address,
+  // corrupting the stack canary and triggering "stack smashing detected".
+  success = RS::WaitForCondition([&]() { return counter >= 1; });
+  ASSERT_TRUE(success) << "Timeout waiting for scheduled callback to complete";
 }
 
 TEST_F(IORuntimeCtxCommonTest, MultipleTopologyUpdates) {
@@ -212,6 +216,12 @@ TEST_F(IORuntimeCtxCommonTest, MultipleTopologyUpdates) {
     return lastAppliedCapShards.load(std::memory_order_acquire) == 4101;
   });
   ASSERT_TRUE(success) << "Timeout waiting for topology to be applied, lastAppliedCapShards=" << lastAppliedCapShards.load();
+
+  // Wait for the testCallbacks to complete before `counter` goes out of scope.
+  // Otherwise the event loop thread may write to a dangling stack address,
+  // corrupting the stack canary and triggering "stack smashing detected".
+  success = RS::WaitForCondition([&]() { return counter >= 2; });
+  ASSERT_TRUE(success) << "Timeout waiting for scheduled callbacks to complete";
 }
 
 TEST_F(IORuntimeCtxCommonTest, ClearPendingTopo) {
