@@ -455,11 +455,11 @@ def skip_until(date_str, reason=None):
     again after the specified date.
 
     Args:
-        date_str: A date string in "DD-MM-YYYY" format (e.g., "15-06-2024")
+        date_str: A date string in ISO format "YYYY-MM-DD" (e.g., "2024-06-15")
         reason: Optional reason for skipping the test
 
     Usage:
-        @skip_until("15-06-2024", reason="Flaky test, investigating MOD-1234")
+        @skip_until("2024-06-15", reason="Flaky test, investigating MOD-1234")
         def testSomething(env):
             ...
     """
@@ -468,7 +468,7 @@ def skip_until(date_str, reason=None):
     def decorate(f):
         @wraps(f)
         def wrapper(*args, **kwargs):
-            skip_date = datetime.strptime(date_str, "%d-%m-%Y").date()
+            skip_date = datetime.strptime(date_str, "%Y-%m-%d").date()
             today = datetime.now().date()
             if today < skip_date:
                 reason_msg = f" ({reason})" if reason else ""
@@ -486,13 +486,13 @@ def skipTestUntil(date_str, reason=None):
     Call this from within a test function.
 
     Args:
-        date_str: A date string in "DD-MM-YYYY" format (e.g., "15-06-2024")
+        date_str: A date string in ISO format "YYYY-MM-DD" (e.g., "2024-06-15")
         reason: Optional reason for skipping the test
 
     Usage:
         def testSomething(env):
             if some_condition:
-                skipTestUntil("15-06-2024", reason="Flaky under certain conditions")
+                skipTestUntil("2024-06-15", reason="Flaky under certain conditions")
             ...
     """
     skip_until(date_str, reason)(lambda: None)()
