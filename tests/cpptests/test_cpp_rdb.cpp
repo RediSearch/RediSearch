@@ -247,7 +247,7 @@ TEST_F(RdbMockTest, testIndexSpecRdbLoadNormalizesInvalidStorageFlags) {
 
     io->read_pos = 0;
 
-    QueryError status = QueryError_Default();
+    QueryError status = {QUERY_OK};
     IndexSpec *loadedSpec = IndexSpec_RdbLoad(io, INDEX_CURRENT_VERSION, &status);
     ASSERT_NE(nullptr, loadedSpec);
     std::unique_ptr<IndexSpec, std::function<void(IndexSpec *)>> loadedSpecPtr(loadedSpec, [](IndexSpec *spec) {
