@@ -593,3 +593,30 @@ def testMissingGC():
     # Reschedule the gc - add a job to the queue
     env.cmd(debug_cmd(), 'GC_CONTINUE_SCHEDULE', 'idx')
     env.expect(debug_cmd(), 'GC_WAIT_FOR_JOBS').equal('DONE')
+
+def testMissingWithParams():
+    """Tests that ismissing() works correctly in a parameterized query.
+    This exercises QueryNode_EvalParams traversal of QN_MISSING nodes."""
+
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    conn = getConnectionByEnv(env)
+
+    env.expect('FT.CREATE', 'idx', 'SCHEMA',
+               't', 'TEXT', 'INDEXMISSING').ok()
+    waitForIndex(env, 'idx')
+
+    conn.execute_command('HSET', 'has_t', 't', 'hello')
+    conn.execute_command('HSET', 'no_t', 'other', 'world')
+
+    # Parameterized query combined with ismissing - triggers
+    # QueryNode_EvalParams on a QN_MISSING node (withChildren=0 path)
+    res = env.cmd('FT.SEARCH', 'idx', '@t:$val | ismissing(@t)',
+                  'NOCONTENT', 'SORTBY', 't', 'ASC',
+                  'PARAMS', '2', 'val', 'hello')
+    env.assertEqual(res[0], 2)
+
+    # Parameterized query with only ismissing in an intersection
+    res = env.cmd('FT.SEARCH', 'idx', '@t:$val ismissing(@t)',
+                  'NOCONTENT',
+                  'PARAMS', '2', 'val', 'hello')
+    env.assertEqual(res[0], 0)
