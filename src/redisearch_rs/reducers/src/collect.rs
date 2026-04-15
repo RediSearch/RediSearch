@@ -32,22 +32,17 @@ pub struct CollectReducer {
     /// reducer is dropped.
     arena: Bump,
     /// Projected field keys. Empty when only a wildcard is used.
-    field_keys: Vec<*const ffi::RLookupKey>,
+    field_keys: Box<[*const ffi::RLookupKey]>,
     /// Whether the wildcard `*` was specified in the FIELDS clause.
     has_wildcard: bool,
     /// Sort keys for in-group ordering. Empty when SORTBY is omitted.
-    sort_keys: Vec<*const ffi::RLookupKey>,
+    sort_keys: Box<[*const ffi::RLookupKey]>,
     /// Bitmask where bit `i` is 0 for DESC and 1 for ASC (matching
     /// `SORTASCMAP_INIT`). Only meaningful for the first
     /// `sort_keys.len()` bits.
     sort_asc_map: u64,
-    /// Whether a LIMIT clause was specified.
-    has_limit: bool,
-    /// Number of rows to skip (only meaningful when `has_limit` is true).
-    limit_offset: u64,
-    /// Maximum number of rows to return (only meaningful when `has_limit` is
-    /// true).
-    limit_count: u64,
+    /// Optional LIMIT clause: `(offset, count)`.
+    limit: Option<(u64, u64)>,
 }
 
 /// Per-group instance of the [`CollectReducer`].
@@ -74,20 +69,16 @@ impl CollectReducer {
         has_wildcard: bool,
         sort_keys: Vec<*const ffi::RLookupKey>,
         sort_asc_map: u64,
-        has_limit: bool,
-        limit_offset: u64,
-        limit_count: u64,
+        limit: Option<(u64, u64)>,
     ) -> Self {
         Self {
             reducer: Reducer::new(),
             arena: Bump::new(),
-            field_keys,
+            field_keys: field_keys.into_boxed_slice(),
             has_wildcard,
-            sort_keys,
+            sort_keys: sort_keys.into_boxed_slice(),
             sort_asc_map,
-            has_limit,
-            limit_offset,
-            limit_count,
+            limit,
         }
     }
 
@@ -127,17 +118,23 @@ impl CollectReducer {
 
     /// Whether a LIMIT clause was specified.
     pub const fn has_limit(&self) -> bool {
-        self.has_limit
+        self.limit.is_some()
     }
 
-    /// The LIMIT offset value.
+    /// The LIMIT offset value (0 if no limit).
     pub const fn limit_offset(&self) -> u64 {
-        self.limit_offset
+        match self.limit {
+            Some((offset, _)) => offset,
+            None => 0,
+        }
     }
 
-    /// The LIMIT count value.
+    /// The LIMIT count value (0 if no limit).
     pub const fn limit_count(&self) -> u64 {
-        self.limit_count
+        match self.limit {
+            Some((_, count)) => count,
+            None => 0,
+        }
     }
 }
 

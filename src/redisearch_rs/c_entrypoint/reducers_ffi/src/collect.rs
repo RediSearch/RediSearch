@@ -52,14 +52,14 @@ pub unsafe extern "C" fn CollectReducer_Create(
         Vec::new()
     };
 
+    let limit = has_limit.then_some((limit_offset, limit_count));
+
     let mut cr = Box::new(CollectReducer::new(
         field_keys,
         has_wildcard,
         sort_keys,
         sort_asc_map,
-        has_limit,
-        limit_offset,
-        limit_count,
+        limit,
     ));
 
     cr.reducer_mut()
