@@ -271,10 +271,10 @@ MRReply *MRReply_Clone(MRReply *src) {
 }
 
 // Create a new error reply with the given message.
-MRReply *MRReply_CreateError(const char *msg) {
+MRReply *MRReply_CreateError(const char *msg, size_t len) {
   MRReply *reply = rm_calloc(1, sizeof(MRReply));
   reply->type = MR_REPLY_ERROR;
-  reply->len = strlen(msg);
+  reply->len = msg ? len : 0;
   reply->str = rm_strndup(msg, reply->len);
   return reply;
 }

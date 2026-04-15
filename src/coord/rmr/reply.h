@@ -78,4 +78,4 @@ MRReply *MRReply_Clone(MRReply *src);
 
 // Create a new error reply with the given message.
 // The caller is responsible for freeing the reply with MRReply_Free.
-MRReply *MRReply_CreateError(const char *msg);
+MRReply *MRReply_CreateError(const char *msg, size_t len);

@@ -46,6 +46,8 @@
 
 #define CEIL_DIV(a, b) ((a + b - 1) / b)
 
+#define CLUSTER_QUERY_ERROR "Could not send query to cluster"
+
 /* A cluster is a pool of IORuntimes. It is owned by the main thread and accessed in the coordinator threads */
 static MRCluster *cluster_g = NULL;
 
@@ -782,7 +784,7 @@ void iterStartCb(void *p) {
   if (!allConnectionsValid) {
     // At least one connection is not established - fail all shards with error.
     for (size_t i = 0; i < itLen; i++) {
-      MRReply *err = MRReply_CreateError("Could not send query to cluster");
+      MRReply *err = MRReply_CreateError(CLUSTER_QUERY_ERROR, strlen(CLUSTER_QUERY_ERROR));
       it->ctx.cb(&it->cbxs[i], err);
     }
   } else {
