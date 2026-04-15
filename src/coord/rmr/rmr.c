@@ -766,6 +766,12 @@ void iterStartCb(void *p) {
   cmd->targetShardIdx = 0;
   MRCommand_SetSlotInfo(cmd, shards[0].slotRanges);
 
+  // Take an extra reference to prevent the iterator from being freed mid-loop.
+  // The last callback in the failure path releases the "writers" reference, and if
+  // the coordinator also releases its reference, the iterator would be freed while
+  // we're still in the loop.
+  MRIterator_IncreaseRefCount(it);
+
   // Pre-fanout connection validation - check ALL connections before sending ANY commands
   bool allConnectionsValid = true;
   for (size_t i = 0; i < it->len; i++) {
@@ -791,6 +797,9 @@ void iterStartCb(void *p) {
       }
     }
   }
+
+  // Release the extra reference we took at the start.
+  MRIterator_Release(it);
 
   // Clean up the data structure
   rm_free(data);
