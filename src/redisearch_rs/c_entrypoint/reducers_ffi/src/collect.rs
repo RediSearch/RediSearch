@@ -178,54 +178,78 @@ pub unsafe extern "C" fn collectFree(r: *mut ffi::Reducer) {
 // (`test_groupby_collect.py`), then delete `test_cpp_collect.cpp`, these
 // FFI accessors, and the corresponding methods in `reducers/src/collect.rs`.
 //
-// Safety: all functions below require `r` to point to a valid
-// `CollectReducer` masquerading as a `ffi::Reducer`, originally created by
-// `CollectReducer_Create`.
-
+/// # Safety
+///
+/// `r` must point to a valid [`CollectReducer`] originally created by
+/// `CollectReducer_Create`.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn CollectReducer_GetFieldKeysLen(r: *const ffi::Reducer) -> usize {
+pub const unsafe extern "C" fn CollectReducer_GetFieldKeysLen(r: *const ffi::Reducer) -> usize {
     // SAFETY: ensured by caller.
     let r = unsafe { r.cast::<CollectReducer>().as_ref().unwrap() };
     r.field_keys_len()
 }
 
+/// # Safety
+///
+/// `r` must point to a valid [`CollectReducer`] originally created by
+/// `CollectReducer_Create`.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn CollectReducer_HasWildcard(r: *const ffi::Reducer) -> bool {
+pub const unsafe extern "C" fn CollectReducer_HasWildcard(r: *const ffi::Reducer) -> bool {
     // SAFETY: ensured by caller.
     let r = unsafe { r.cast::<CollectReducer>().as_ref().unwrap() };
     r.has_wildcard()
 }
 
+/// # Safety
+///
+/// `r` must point to a valid [`CollectReducer`] originally created by
+/// `CollectReducer_Create`.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn CollectReducer_GetSortKeysLen(r: *const ffi::Reducer) -> usize {
+pub const unsafe extern "C" fn CollectReducer_GetSortKeysLen(r: *const ffi::Reducer) -> usize {
     // SAFETY: ensured by caller.
     let r = unsafe { r.cast::<CollectReducer>().as_ref().unwrap() };
     r.sort_keys_len()
 }
 
+/// # Safety
+///
+/// `r` must point to a valid [`CollectReducer`] originally created by
+/// `CollectReducer_Create`.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn CollectReducer_GetSortAscMap(r: *const ffi::Reducer) -> u64 {
+pub const unsafe extern "C" fn CollectReducer_GetSortAscMap(r: *const ffi::Reducer) -> u64 {
     // SAFETY: ensured by caller.
     let r = unsafe { r.cast::<CollectReducer>().as_ref().unwrap() };
     r.sort_asc_map()
 }
 
+/// # Safety
+///
+/// `r` must point to a valid [`CollectReducer`] originally created by
+/// `CollectReducer_Create`.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn CollectReducer_HasLimit(r: *const ffi::Reducer) -> bool {
+pub const unsafe extern "C" fn CollectReducer_HasLimit(r: *const ffi::Reducer) -> bool {
     // SAFETY: ensured by caller.
     let r = unsafe { r.cast::<CollectReducer>().as_ref().unwrap() };
     r.has_limit()
 }
 
+/// # Safety
+///
+/// `r` must point to a valid [`CollectReducer`] originally created by
+/// `CollectReducer_Create`.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn CollectReducer_GetLimitOffset(r: *const ffi::Reducer) -> u64 {
+pub const unsafe extern "C" fn CollectReducer_GetLimitOffset(r: *const ffi::Reducer) -> u64 {
     // SAFETY: ensured by caller.
     let r = unsafe { r.cast::<CollectReducer>().as_ref().unwrap() };
     r.limit_offset()
 }
 
+/// # Safety
+///
+/// `r` must point to a valid [`CollectReducer`] originally created by
+/// `CollectReducer_Create`.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn CollectReducer_GetLimitCount(r: *const ffi::Reducer) -> u64 {
+pub const unsafe extern "C" fn CollectReducer_GetLimitCount(r: *const ffi::Reducer) -> u64 {
     // SAFETY: ensured by caller.
     let r = unsafe { r.cast::<CollectReducer>().as_ref().unwrap() };
     r.limit_count()

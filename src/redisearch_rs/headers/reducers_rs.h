@@ -101,18 +101,60 @@ RSValue *collectFinalize(Reducer *r, void *ctx);
  */
 void collectFree(Reducer *r);
 
+/**
+ * # Safety
+ *
+ * `r` must point to a valid [`CollectReducer`] originally created by
+ * `CollectReducer_Create`.
+ */
 uintptr_t CollectReducer_GetFieldKeysLen(const Reducer *r);
 
+/**
+ * # Safety
+ *
+ * `r` must point to a valid [`CollectReducer`] originally created by
+ * `CollectReducer_Create`.
+ */
 bool CollectReducer_HasWildcard(const Reducer *r);
 
+/**
+ * # Safety
+ *
+ * `r` must point to a valid [`CollectReducer`] originally created by
+ * `CollectReducer_Create`.
+ */
 uintptr_t CollectReducer_GetSortKeysLen(const Reducer *r);
 
+/**
+ * # Safety
+ *
+ * `r` must point to a valid [`CollectReducer`] originally created by
+ * `CollectReducer_Create`.
+ */
 uint64_t CollectReducer_GetSortAscMap(const Reducer *r);
 
+/**
+ * # Safety
+ *
+ * `r` must point to a valid [`CollectReducer`] originally created by
+ * `CollectReducer_Create`.
+ */
 bool CollectReducer_HasLimit(const Reducer *r);
 
+/**
+ * # Safety
+ *
+ * `r` must point to a valid [`CollectReducer`] originally created by
+ * `CollectReducer_Create`.
+ */
 uint64_t CollectReducer_GetLimitOffset(const Reducer *r);
 
+/**
+ * # Safety
+ *
+ * `r` must point to a valid [`CollectReducer`] originally created by
+ * `CollectReducer_Create`.
+ */
 uint64_t CollectReducer_GetLimitCount(const Reducer *r);
 
 #ifdef __cplusplus

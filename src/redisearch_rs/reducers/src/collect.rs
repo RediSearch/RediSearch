@@ -106,37 +106,37 @@ impl CollectReducer {
     // tests are migrated to Python flow tests.
 
     /// Number of explicitly listed field keys (excludes the wildcard).
-    pub fn field_keys_len(&self) -> usize {
+    pub const fn field_keys_len(&self) -> usize {
         self.field_keys.len()
     }
 
     /// Whether the wildcard `*` was specified in the FIELDS clause.
-    pub fn has_wildcard(&self) -> bool {
+    pub const fn has_wildcard(&self) -> bool {
         self.has_wildcard
     }
 
     /// Number of sort keys.
-    pub fn sort_keys_len(&self) -> usize {
+    pub const fn sort_keys_len(&self) -> usize {
         self.sort_keys.len()
     }
 
     /// The ASC/DESC bitmask for sort keys.
-    pub fn sort_asc_map(&self) -> u64 {
+    pub const fn sort_asc_map(&self) -> u64 {
         self.sort_asc_map
     }
 
     /// Whether a LIMIT clause was specified.
-    pub fn has_limit(&self) -> bool {
+    pub const fn has_limit(&self) -> bool {
         self.has_limit
     }
 
     /// The LIMIT offset value.
-    pub fn limit_offset(&self) -> u64 {
+    pub const fn limit_offset(&self) -> u64 {
         self.limit_offset
     }
 
     /// The LIMIT count value.
-    pub fn limit_count(&self) -> u64 {
+    pub const fn limit_count(&self) -> u64 {
         self.limit_count
     }
 }
@@ -156,9 +156,8 @@ impl CollectCtx {
     pub fn add(&mut self, r: &CollectReducer, srcrow: *const ffi::RLookupRow) {
         // SAFETY: `srcrow` is a valid pointer to a Rust `RLookupRow` passed
         // through C as the layout-compatible `OpaqueRLookupRow`.
-        let row = unsafe {
-            RLookupRow::from_opaque_ptr_unchecked(srcrow.cast::<OpaqueRLookupRow>())
-        };
+        let row =
+            unsafe { RLookupRow::from_opaque_ptr_unchecked(srcrow.cast::<OpaqueRLookupRow>()) };
 
         let mut values = Vec::with_capacity(r.field_keys.len());
         for &key_ptr in &r.field_keys {
@@ -166,7 +165,10 @@ impl CollectCtx {
             // `RLookup` infrastructure. The C type is a prefix view of the
             // same allocation.
             let key = unsafe { &*key_ptr.cast::<RLookupKey<'_>>() };
-            let value = row.get(key).cloned().unwrap_or_else(RSValueFFI::null_static);
+            let value = row
+                .get(key)
+                .cloned()
+                .unwrap_or_else(RSValueFFI::null_static);
             values.push(value);
         }
         self.rows.push(values);
@@ -181,19 +183,20 @@ impl CollectCtx {
             .rows
             .iter()
             .map(|row_values| {
-                let entries =
-                    row_values
-                        .iter()
-                        .zip(r.field_keys.iter())
-                        .map(|(val, &key_ptr)| {
-                            // SAFETY: `key_ptr` is a valid pointer to an `ffi::RLookupKey`.
-                            let key = unsafe { &*key_ptr };
-                            let name_bytes = unsafe {
-                                std::slice::from_raw_parts(key.name.cast::<u8>(), key.name_len)
-                            };
-                            let name_val = RSValueFFI::new_string(name_bytes.to_vec());
-                            (name_val, val.clone())
-                        });
+                let entries = row_values
+                    .iter()
+                    .zip(r.field_keys.iter())
+                    .map(|(val, &key_ptr)| {
+                        // SAFETY: `key_ptr` is a valid pointer to an `ffi::RLookupKey`.
+                        let key = unsafe { &*key_ptr };
+                        // SAFETY: `key.name` is a valid pointer to `key.name_len` bytes,
+                        // as guaranteed by the C `RLookupKey` invariant.
+                        let name_bytes = unsafe {
+                            std::slice::from_raw_parts(key.name.cast::<u8>(), key.name_len)
+                        };
+                        let name_val = RSValueFFI::new_string(name_bytes.to_vec());
+                        (name_val, val.clone())
+                    });
                 RSValueFFI::new_map(entries)
             })
             .collect();
