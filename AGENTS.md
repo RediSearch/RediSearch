@@ -237,6 +237,7 @@ Invoke [/rust-review](.skills/rust-review/SKILL.md) to review Rust code changes.
 ### General
 Invoke [/report-flaky-test](.skills/report-flaky-test/SKILL.md) to report a flaky CI test to Jira or update an existing flaky-test ticket.
 Invoke [/investigate-flaky-test](.skills/investigate-flaky-test/SKILL.md) to investigate a flaky-test report and propose an evidence-backed fix.
+Invoke [/check-flow-coverage](.skills/check-flow-coverage/SKILL.md) to check which source lines are not covered by Python flow tests.
 Invoke [/verify](.skills/verify/SKILL.md) to verify the correctness of your work before wrapping up.
 Invoke [/build](.skills/build/SKILL.md) to compile and verify the build.
 Invoke [/lint](.skills/lint/SKILL.md) to check code quality and formatting.
