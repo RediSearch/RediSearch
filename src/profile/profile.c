@@ -41,37 +41,48 @@ static void printInvIdxIteratorCounters(RedisModule_Reply *reply, const QueryIte
 
 void printInvIdxIt(RedisModule_Reply *reply, const QueryIterator *root, const ProfileCounters *counters, double cpuTime, PrintProfileConfig *config) {
   RedisModule_Reply_Map(reply);
-  if (root->type == INV_IDX_TAG_ITERATOR) {
-    RSQueryTerm *term = IndexResult_QueryTermRef(root->current);
-    if (term != NULL) {
-      printProfileType("TAG");
+
+  switch (root->type) {
+    case INV_IDX_TAG_ITERATOR: {
+      RSQueryTerm *term = IndexResult_QueryTermRef(root->current);
+      if (term != NULL) {
+        printProfileType("TAG");
+        size_t term_len = 0;
+        const char *term_str = QueryTerm_GetStrAndLen(term, &term_len);
+        RedisModule_ReplyKV_StringBuffer(reply, "Term", term_str, term_len);
+      }
+      break;
+    }
+
+    case INV_IDX_NUMERIC_ITERATOR: {
+      const NumericFilter *flt = NumericInvIndIterator_GetNumericFilter(root);
+      if (!flt || flt->geoFilter == NULL) {
+        printProfileType("NUMERIC");
+        RedisModule_Reply_SimpleString(reply, "Term");
+        RedisModule_Reply_SimpleStringf(reply, "%g - %g", NumericInvIndIterator_GetProfileRangeMin(root), NumericInvIndIterator_GetProfileRangeMax(root));
+      } else {
+        printProfileType("GEO");
+        RedisModule_Reply_SimpleString(reply, "Term");
+        double se[2];
+        double nw[2];
+        decodeGeo(NumericInvIndIterator_GetProfileRangeMin(root), se);
+        decodeGeo(NumericInvIndIterator_GetProfileRangeMax(root), nw);
+        RedisModule_Reply_SimpleStringf(reply, "%g,%g - %g,%g", se[0], se[1], nw[0], nw[1]);
+      }
+      break;
+    }
+
+    case INV_IDX_TERM_ITERATOR: {
+      printProfileType("TEXT");
+      RSQueryTerm *term = IndexResult_QueryTermRef(root->current);
       size_t term_len = 0;
       const char *term_str = QueryTerm_GetStrAndLen(term, &term_len);
       RedisModule_ReplyKV_StringBuffer(reply, "Term", term_str, term_len);
+      break;
     }
-  } else if (root->type == INV_IDX_NUMERIC_ITERATOR) {
-    const NumericFilter *flt = NumericInvIndIterator_GetNumericFilter(root);
-    if (!flt || flt->geoFilter == NULL) {
-      printProfileType("NUMERIC");
-      RedisModule_Reply_SimpleString(reply, "Term");
-      RedisModule_Reply_SimpleStringf(reply, "%g - %g", NumericInvIndIterator_GetProfileRangeMin(root), NumericInvIndIterator_GetProfileRangeMax(root));
-    } else {
-      printProfileType("GEO");
-      RedisModule_Reply_SimpleString(reply, "Term");
-      double se[2];
-      double nw[2];
-      decodeGeo(NumericInvIndIterator_GetProfileRangeMin(root), se);
-      decodeGeo(NumericInvIndIterator_GetProfileRangeMax(root), nw);
-      RedisModule_Reply_SimpleStringf(reply, "%g,%g - %g,%g", se[0], se[1], nw[0], nw[1]);
-    }
-  } else if (root->type == INV_IDX_TERM_ITERATOR) {
-    printProfileType("TEXT");
-    RSQueryTerm *term = IndexResult_QueryTermRef(root->current);
-    size_t term_len = 0;
-    const char *term_str = QueryTerm_GetStrAndLen(term, &term_len);
-    RedisModule_ReplyKV_StringBuffer(reply, "Term", term_str, term_len);
-  } else {
-    RS_ABORT("unsupported inverted index iterator type");
+
+    default:
+      RS_ABORT("unsupported inverted index iterator type");
   }
 
   printInvIdxIteratorCounters(reply, root, counters, cpuTime, config);
