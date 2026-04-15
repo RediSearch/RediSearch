@@ -26,6 +26,7 @@ typedef struct {
     pthread_mutex_t *mutex;           // Mutex for array access and completion tracking
     pthread_cond_t *completionCond;   // Condition variable for completion signaling
     int numShards;                    // Total number of expected shards
+    bool initialized;                 // Whether numShards has been set by the IO thread
 } processCursorMappingCallbackContext;
 
 void CursorMapping_Release(CursorMapping *mapping) {
@@ -191,6 +192,19 @@ static void processCursorMappingCallback(MRIteratorCallbackCtx *ctx, MRReply *re
     MRReply_Free(rep);
 }
 
+// Init callback for the private data, so that numShards is set to the actual number of shards in the cluster, and the expected responses.
+static void processCursorMappingInit(void *privateData, MRIterator *it) {
+    processCursorMappingCallbackContext *ctx = (processCursorMappingCallbackContext *)privateData;
+    int actualNumShards = (int)MRIterator_GetNumShards(it);
+    pthread_mutex_lock(ctx->mutex);
+    ctx->numShards = actualNumShards;
+    ctx->initialized = true;
+    ctx->errors = array_new(QueryError, actualNumShards);
+    // Signal so the coordinator can re-check the wait condition.
+    pthread_cond_signal(ctx->completionCond);
+    pthread_mutex_unlock(ctx->mutex);
+}
+
 static inline void cleanupCtx(processCursorMappingCallbackContext *ctx) {
     pthread_mutex_destroy(ctx->mutex);
     pthread_cond_destroy(ctx->completionCond);
@@ -202,7 +216,7 @@ static inline void cleanupCtx(processCursorMappingCallbackContext *ctx) {
     rm_free(ctx);
 }
 
-bool ProcessHybridCursorMappings(const MRCommand *cmd, int numShards, StrongRef searchMappingsRef, StrongRef vsimMappingsRef, QueryError *status, const RSOomPolicy oomPolicy, const RSTimeoutPolicy timeoutPolicy) {
+bool ProcessHybridCursorMappings(const MRCommand *cmd, StrongRef searchMappingsRef, StrongRef vsimMappingsRef, QueryError *status, const RSOomPolicy oomPolicy, const RSTimeoutPolicy timeoutPolicy) {
     CursorMappings *searchMappings = StrongRef_Get(searchMappingsRef);
     CursorMappings *vsimMappings = StrongRef_Get(vsimMappingsRef);
     RS_ASSERT(array_len(searchMappings->mappings) == 0 && array_len(vsimMappings->mappings) == 0);
@@ -217,18 +231,22 @@ bool ProcessHybridCursorMappings(const MRCommand *cmd, int numShards, StrongRef 
     pthread_cond_init(ctx->completionCond, NULL);
 
     // Setup callback context
-    *ctx = (processCursorMappingCallbackContext){
+    *ctx = (processCursorMappingCallbackContext) {
         .searchMappings = StrongRef_Clone(searchMappingsRef),
         .vsimMappings = StrongRef_Clone(vsimMappingsRef),
-        .errors = array_new(QueryError, numShards),
+        .errors = NULL,
         .responseCount = 0,
         .mutex = ctx->mutex,
         .completionCond = ctx->completionCond,
-        .numShards = numShards
-    };
+        .numShards = 0,
+        .initialized = false
+      };
 
     // Start iteration (ctx is cleaned up manually in cleanupCtx, no destructor needed)
-    MRIterator *it = MR_IterateWithPrivateData(cmd, processCursorMappingCallback, ctx, NULL, NULL, iterStartCb, NULL);
+    // processCursorMappingInit is called from iterStartCb to update ctx->numShards
+    // with the actual shard count from the live topology, preventing use-after-free
+    // when topology changes during shard migration.
+    MRIterator *it = MR_IterateWithPrivateData(cmd, processCursorMappingCallback, ctx, NULL, processCursorMappingInit, iterStartCb, NULL);
     if (!it) {
         // Cleanup on error
         QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_GENERIC, "Failed to communicate with shards");
@@ -237,8 +255,8 @@ bool ProcessHybridCursorMappings(const MRCommand *cmd, int numShards, StrongRef 
     }
     // Wait for all callbacks to complete
     pthread_mutex_lock(ctx->mutex);
-    // initialize count with response counts in case some shards already sent a response
-    for (size_t count = ctx->responseCount; count < numShards; count = ctx->responseCount) {
+    // Wait until the IO thread has initialized numShards and all responses arrive.
+    while (!ctx->initialized || ctx->responseCount < ctx->numShards) {
         pthread_cond_wait(ctx->completionCond, ctx->mutex);
     }
     pthread_mutex_unlock(ctx->mutex);

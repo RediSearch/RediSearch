@@ -3,7 +3,6 @@
 # Don't attempt to change the name of this file.
 MODE=$1 # whether to install using sudo or not
 set -eo pipefail
-export DEBIAN_FRONTEND=noninteractive
 $MODE tdnf install -q -y build-essential git wget ca-certificates tar unzip xz rsync \
                          openssl-devel openssl which gzip gdb curl binutils
 

@@ -214,4 +214,8 @@ where
     fn type_(&self) -> IteratorType {
         IteratorType::InvIdxTerm
     }
+
+    fn intersection_sort_weight(&self, _prioritize_union_children: bool) -> f64 {
+        1.0
+    }
 }

@@ -121,6 +121,10 @@ impl<'index> RQEIterator<'index> for NotIteratorEnum<'index> {
             Self::NotOptimized(it) => it.type_(),
         }
     }
+
+    fn intersection_sort_weight(&self, _prioritize_union_children: bool) -> f64 {
+        1.0
+    }
 }
 
 impl<'index> rqe_iterators::interop::ProfileChildren<'index> for NotIteratorEnum<'index> {

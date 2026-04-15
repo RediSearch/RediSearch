@@ -2,7 +2,6 @@
 ARCH=$(uname -m)
 MODE=$1 # whether to install using sudo or not
 set -eo pipefail
-export DEBIAN_FRONTEND=noninteractive
 
 $MODE yum update -y
 $MODE yum install -y which

@@ -42,7 +42,6 @@ typedef struct QueryError QueryError;
  * Handles shard errors by recording them in the status parameter while continuing to process all shards.
  * Returns true even if all shards fail with warnings (e.g., OOM), resulting in empty mapping arrays and allowing the caller to handle the warnings.
  * @param cmd The MRCommand to execute
- * @param numShards Expected number of shards (determines expected callbacks)
  * @param searchMappings Empty array to populate with search cursor mappings
  * @param vsimMappings Empty array to populate with vector similarity cursor mappings
  * @param status QueryError pointer to store warning/error information
@@ -50,7 +49,7 @@ typedef struct QueryError QueryError;
  * @param timeoutPolicy Timeout policy to determine timeout error handling behavior
  * @return true if processing completed (even with warnings), false on fatal errors; status will contain error/warning information
  */
-bool ProcessHybridCursorMappings(const MRCommand *cmd,int numShards, StrongRef searchMappings, StrongRef vsimMappings, QueryError *status, RSOomPolicy oomPolicy, RSTimeoutPolicy timeoutPolicy);
+bool ProcessHybridCursorMappings(const MRCommand *cmd, StrongRef searchMappings, StrongRef vsimMappings, QueryError *status, RSOomPolicy oomPolicy, RSTimeoutPolicy timeoutPolicy);
 
 /**
  * Release resources associated with a cursor mapping

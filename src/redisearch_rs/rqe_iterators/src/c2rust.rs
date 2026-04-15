@@ -15,15 +15,15 @@ use ffi::{
 };
 
 use crate::IteratorType;
+use crate::{
+    RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome, interop::RQEIteratorWrapper,
+    intersection::Intersection,
+};
 use inverted_index::RSIndexResult;
 use std::{
     mem::ManuallyDrop,
     ops::{Deref, DerefMut},
     ptr::NonNull,
-};
-
-use crate::{
-    RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome, interop::RQEIteratorWrapper,
 };
 
 /// A Rust shim over a query iterator that satisfies the C iterator API.
@@ -319,6 +319,56 @@ impl<'index> RQEIterator<'index> for CRQEIterator {
 
     fn as_c_iterator(&self) -> Option<&CRQEIterator> {
         Some(self)
+    }
+
+    fn intersection_sort_weight(&self, prioritize_union_children: bool) -> f64 {
+        match self.type_ {
+            IteratorType::Intersect => {
+                let ptr = std::ptr::from_ref(self.as_ref());
+                // SAFETY:
+                // - `type_ == INTERSECT_ITERATOR` guarantees `ptr` was produced by
+                //   `RQEIteratorWrapper::boxed_new` with `Intersection<CRQEIterator>` as the
+                //   inner type (`NewIntersectionIterator` is the sole constructor of a C
+                //   wrapped intersection).
+                // - `ref_from_header_ptr` uses the compiler-computed field offset for `inner`
+                //   rather than manual `size_of` arithmetic, making it immune to alignment
+                //   padding between `header` and `inner` in `RQEIteratorWrapper`.
+                let n = unsafe {
+                    RQEIteratorWrapper::<Intersection<'_, CRQEIterator>>::ref_from_header_ptr(ptr)
+                        .inner
+                        .num_children()
+                };
+                1.0 / n.max(1) as f64
+            }
+            IteratorType::Union if prioritize_union_children => {
+                let ptr = std::ptr::from_ref(self.as_ref());
+                // SAFETY: `type_` guarantees `ptr` points to a `UnionIterator` whose first field
+                // is the `QueryIterator` base — the cast is valid by C struct layout.
+                let n = unsafe { (*ptr.cast::<ffi::UnionIterator>()).num as usize };
+                n.max(1) as f64
+            }
+            IteratorType::InvIdxNumeric => 1.0,
+            IteratorType::InvIdxTerm => 1.0,
+            IteratorType::InvIdxWildcard => 1.0,
+            IteratorType::InvIdxMissing => 1.0,
+            IteratorType::InvIdxTag => 1.0,
+            IteratorType::Hybrid => 1.0,
+            IteratorType::Union => 1.0,
+            IteratorType::Not => 1.0,
+            IteratorType::NotOptimized => 1.0,
+            IteratorType::Optional => 1.0,
+            IteratorType::OptionalOptimized => 1.0,
+            IteratorType::Wildcard => 1.0,
+            IteratorType::Empty => 1.0,
+            IteratorType::IdListSorted => 1.0,
+            IteratorType::IdListUnsorted => 1.0,
+            IteratorType::MetricSortedById => 1.0,
+            IteratorType::MetricSortedByScore => 1.0,
+            IteratorType::Profile => 1.0,
+            IteratorType::Optimus => 1.0,
+            IteratorType::Mock => 1.0,
+            IteratorType::Max => 1.0,
+        }
     }
 }
 
