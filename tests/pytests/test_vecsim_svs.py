@@ -667,7 +667,7 @@ def test_resize_workers_during_pending_svs_jobs():
         conn = env.getConnection()
         results, errors = [], []
         t = threading.Thread(
-            target=lambda c, r, e: r.append(c.execute_command('FT.SEARCH', DEFAULT_INDEX_NAME, '*')),
+            target=lambda c, r, e: r.append(c.execute_command('FT.SEARCH', DEFAULT_INDEX_NAME, '*', 'NOCONTENT', 'LIMIT', '0', '0')),
             args=(conn, results, errors),
             daemon=True
         )
@@ -726,26 +726,20 @@ def test_multiple_svs_indexes_share_pool():
     training_threshold = DEFAULT_BLOCK_SIZE
     dim = 2
     idx1, idx2 = 'idx1', 'idx2'
-    field1, field2 = 'v1', 'v2'
+    field = DEFAULT_FIELD_NAME
 
-    # Create two SVS indexes on different fields
-    create_vector_index(env, dim, index_name=idx1, field_name=field1, alg='SVS-VAMANA')
-    create_vector_index(env, dim, index_name=idx2, field_name=field2, alg='SVS-VAMANA')
+    # Create two SVS indexes on the same field (both index the same docs)
+    create_vector_index(env, dim, index_name=idx1, field_name=field, alg='SVS-VAMANA')
+    create_vector_index(env, dim, index_name=idx2, field_name=field, alg='SVS-VAMANA')
 
-    # Populate both past training threshold (same hash docs, different fields)
-    conn = getConnectionByEnv(env)
-    p = conn.pipeline(transaction=False)
-    for i in range(training_threshold):
-        vec1 = create_random_np_array_typed(dim, 'FLOAT32')
-        vec2 = create_random_np_array_typed(dim, 'FLOAT32')
-        p.execute_command('HSET', f'doc{i+1}', field1, vec1.tobytes(), field2, vec2.tobytes())
-    p.execute()
+    # Populate past training threshold
+    populate_with_vectors(env, training_threshold, dim, field_name=field)
 
-    wait_for_background_indexing(env, idx1, field1, message="idx1 training")
-    wait_for_background_indexing(env, idx2, field2, message="idx2 training")
+    for idx in [idx1, idx2]:
+        wait_for_background_indexing(env, idx, field, message=f"{idx} training")
 
     # Both should report initial pool size
-    for idx, field in [(idx1, field1), (idx2, field2)]:
+    for idx in [idx1, idx2]:
         info = get_tiered_backend_debug_info(env, idx, field)
         env.assertEqual(info['NUM_THREADS'], initial_workers,
                         message=f"{idx} NUM_THREADS before resize")
@@ -754,32 +748,27 @@ def test_multiple_svs_indexes_share_pool():
     env.execute_command(config_cmd(), 'SET', 'WORKERS', final_workers)
 
     # Both should immediately see the new pool size
-    for idx, field in [(idx1, field1), (idx2, field2)]:
+    for idx in [idx1, idx2]:
         info = get_tiered_backend_debug_info(env, idx, field)
         env.assertEqual(info['NUM_THREADS'], final_workers,
                         message=f"{idx} NUM_THREADS after resize")
 
     # Trigger update jobs on both indexes
-    p = conn.pipeline(transaction=False)
-    for i in range(training_threshold):
-        vec1 = create_random_np_array_typed(dim, 'FLOAT32')
-        vec2 = create_random_np_array_typed(dim, 'FLOAT32')
-        p.execute_command('HSET', f'doc{training_threshold+i+1}',
-                          field1, vec1.tobytes(), field2, vec2.tobytes())
-    p.execute()
+    populate_with_vectors(env, training_threshold, dim, field_name=field,
+                          initial_doc_id=training_threshold + 1)
 
-    wait_for_background_indexing(env, idx1, field1, message="idx1 after resize")
-    wait_for_background_indexing(env, idx2, field2, message="idx2 after resize")
+    for idx in [idx1, idx2]:
+        wait_for_background_indexing(env, idx, field, message=f"{idx} after resize")
 
     # Both indexes should still report the resized pool
-    for idx, field in [(idx1, field1), (idx2, field2)]:
+    for idx in [idx1, idx2]:
         info = get_tiered_backend_debug_info(env, idx, field)
         env.assertEqual(info['NUM_THREADS'], final_workers,
                         message=f"{idx} NUM_THREADS after update")
 
     # Verify search works on both
     query = create_random_np_array_typed(dim, 'FLOAT32')
-    for idx, field in [(idx1, field1), (idx2, field2)]:
+    for idx in [idx1, idx2]:
         res = env.execute_command('FT.SEARCH', idx,
                                   f'*=>[KNN 10 @{field} $vec_param]',
                                   'PARAMS', 2, 'vec_param', query.tobytes(), 'NOCONTENT')
