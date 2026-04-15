@@ -20,7 +20,9 @@ from common import (
     waitForIndex,
     SkipTest,
     call_and_store,
-    getWorkersThpoolStats
+    getWorkersThpoolStats,
+    wait_for_condition,
+    require_enable_assert,
 )
 
 VECSIM_SVS_DATA_TYPES = ['FLOAT32', 'FLOAT16']
@@ -626,45 +628,83 @@ def test_gc_no_workers():
     gc_test_common(env, num_workers)
 
 @skip(cluster=True)
+@require_enable_assert
 def test_resize_workers_during_pending_svs_jobs():
-    """WORKERS resize while SVS update jobs are queued but not yet running.
-    Jobs were created expecting 4 reserve jobs; after resize only 2 workers
-    pick them up, and the SVS pool is size 2. The ControlBlock timeout
-    handles the 2 jobs that never get a worker."""
+    """WORKERS shrink while SVS update jobs are queued behind blocked queries.
+
+    Uses SYNC_POINT to block all worker threads on queries, then adds vectors
+    (SVS update jobs queue behind the blocked queries), then shrinks WORKERS
+    (allowed because the queue is RUNNING, not PAUSED). On signal, queries
+    release, workers resume, and the SVS jobs execute with the resized pool.
+    """
     initial_workers = 4
     final_workers = 2
     env = Env(moduleArgs=f'DEFAULT_DIALECT 2 WORKERS {initial_workers}')
     training_threshold = DEFAULT_BLOCK_SIZE
     dim = 2
+    sync_point = 'BeforeFirstRead'
 
-    # Train the index
-    set_up_database_with_vectors(env, dim, num_docs=training_threshold, alg='SVS-VAMANA')
+    # Train the index and add a text field for query blocking
+    env.expect('FT.CREATE', DEFAULT_INDEX_NAME, 'SCHEMA',
+               DEFAULT_FIELD_NAME, 'VECTOR', 'SVS-VAMANA', 4, 'TYPE', 'FLOAT32', 'DIM', dim,
+               't', 'TEXT').ok()
+    populate_with_vectors(env, dim=dim, num_docs=training_threshold, datatype='FLOAT32')
+    # Add a text value so FT.SEARCH t:hello has something to find
+    env.execute_command('HSET', 'doc1', 't', 'hello')
     wait_for_background_indexing(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME,
                                 message="training")
 
     backend_info = get_tiered_backend_debug_info(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME)
     env.assertEqual(backend_info['NUM_THREADS'], initial_workers, message="after training")
 
-    # Pause workers so SVS update jobs queue but don't execute
-    env.expect(debug_cmd(), 'WORKERS', 'PAUSE').ok()
+    # ARM the sync point — queries will block at BeforeFirstRead
+    env.expect(debug_cmd(), 'SYNC_POINT', 'CLEAR').ok()
+    env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', sync_point).ok()
 
-    # Add vectors to trigger scheduleSVSIndexUpdate — jobs are queued
+    # Fire initial_workers queries from separate connections to block all workers
+    query_threads = []
+    for i in range(initial_workers):
+        conn = env.getConnection()
+        results, errors = [], []
+        t = threading.Thread(
+            target=lambda c, r, e: r.append(c.execute_command('FT.SEARCH', DEFAULT_INDEX_NAME, '*')),
+            args=(conn, results, errors),
+            daemon=True
+        )
+        query_threads.append(t)
+        t.start()
+
+    # Wait until at least one worker is blocked at the sync point
+    wait_for_condition(
+        lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', sync_point) == 1, {}),
+        'Timeout waiting for queries to reach sync point')
+    # Brief sleep to let remaining workers also reach the sync point
+    time.sleep(0.5)
+
+    # All workers are now blocked on queries. Add vectors — SVS update jobs
+    # are created (beginScheduledJob snapshots pool=4) and queued behind the
+    # blocked queries.
     populate_with_vectors(env, dim=dim, num_docs=training_threshold,
                           datatype='FLOAT32', initial_doc_id=training_threshold + 1)
 
-    # Shrink workers while jobs are pending in the queue.
-    # VecSim_UpdateThreadPoolSize(2) resizes the SVS pool immediately.
+    # Shrink workers. Queue is RUNNING (not PAUSED), so this succeeds.
+    # VecSim_UpdateThreadPoolSize(2) is called — but since SVS scheduled jobs
+    # are pending (beginScheduledJob was called), the SVS pool shrink is DEFERRED
+    # until endScheduledJob fires.
     env.execute_command(config_cmd(), 'SET', 'WORKERS', final_workers)
 
-    # Resume and drain — jobs execute with the resized pool
-    env.expect(debug_cmd(), 'WORKERS', 'RESUME').ok()
-    env.expect(debug_cmd(), 'WORKERS', 'DRAIN').ok()
+    # Release all blocked queries
+    env.expect(debug_cmd(), 'SYNC_POINT', 'SIGNAL', sync_point).ok()
 
-    # Wait for background indexing to complete
+    # Wait for queries to finish
+    for t in query_threads:
+        t.join(timeout=30)
+
+    # Wait for SVS background indexing to complete
     wait_for_background_indexing(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME,
-                                message="after resize and drain")
+                                message="after resize and signal")
 
-    # Pool size should reflect the new worker count
+    # Pool size should reflect the new worker count (deferred resize applied)
     backend_info = get_tiered_backend_debug_info(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME)
     env.assertEqual(backend_info['NUM_THREADS'], final_workers,
                     message="NUM_THREADS should match final workers")
