@@ -1992,6 +1992,7 @@ dependencies = [
  "cbindgen",
  "ffi",
  "libc",
+ "query_error",
  "redis_mock",
  "redisearch_rs",
  "rlookup",

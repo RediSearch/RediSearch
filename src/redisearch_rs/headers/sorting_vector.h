@@ -9,7 +9,7 @@
 // Forward declaration of RSValue, which is only used as ptr in the sorting_vector module
 typedef struct RSValue RSValue;
 
-// RSSortingVector is repr(transparent) in Rust over a ThinVec<RSValueFFI>.
+// RSSortingVector is repr(transparent) in Rust over a ThinVec<RSValue>.
 // On the stack it is a single pointer to a heap allocation with this layout:
 //   Header<u64> { len: u64, cap: u64 }  (16 bytes, no trailing padding)
 //   RSValue* values[len] (the data array)
@@ -144,7 +144,7 @@ RSSortingVector RSSortingVector_New(size_t len);
 /**
  * Deallocates the inner values buffer of an [`RSSortingVector`] and zeros the struct.
  *
- * Each [`RSValueFFI`] element is dropped (decrementing its refcount) and the heap buffer is freed.
+ * Each [`SharedRsValue`] element is dropped (decrementing its refcount) and the heap buffer is freed.
  * After this call the pointed-to struct is in the same state as [`RSSortingVector::empty()`].
  * Passing a null pointer is a no-op.
  *
