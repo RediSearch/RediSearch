@@ -1673,8 +1673,7 @@ int QAST_Expand(QueryAST *q, const char *expander, RSSearchOptions *opts, RedisS
 int QAST_EvalParams(QueryAST *q, RSSearchOptions *opts, QueryError *status) {
   if (!q || !q->root || q->numParams == 0)
     return REDISMODULE_OK;
-  QueryNode_EvalParams(opts->params, q->root, status);
-  return REDISMODULE_OK;
+  return QueryNode_EvalParams(opts->params, q->root, status);
 }
 
 int QueryNode_EvalParams(dict *params, QueryNode *n, QueryError *status) {
