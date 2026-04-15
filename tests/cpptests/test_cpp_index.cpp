@@ -1125,7 +1125,7 @@ TEST_F(IndexTest, testIndexSpec) {
       "NOFIELDS", "MAXTEXTFIELDS", "SCHEMA", title, "TEXT",
   };
   QueryError_ClearError(&err);
-  ref = IndexSpec_ParseC(NULL, "idx", args_invalid, sizeof(args_invalid) / sizeof(args_invalid[0]), &err);
+  ref = IndexSpec_ParseC("idx", args_invalid, sizeof(args_invalid) / sizeof(args_invalid[0]), &err);
   ASSERT_TRUE(QueryError_HasError(&err));
   ASSERT_EQ(nullptr, StrongRef_Get(ref));
   ASSERT_NE(nullptr, strstr(QueryError_GetUserError(&err), "MAXTEXTFIELDS cannot be used with NOFIELDS"));
