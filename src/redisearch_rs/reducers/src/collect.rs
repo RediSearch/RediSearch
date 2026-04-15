@@ -8,7 +8,7 @@
 */
 
 use bumpalo::Bump;
-use rlookup::{OpaqueRLookupRow, RLookupKey, RLookupRow};
+use rlookup::{RLookupKey, RLookupRow};
 
 use crate::Reducer;
 use value::RSValueFFI;
@@ -25,18 +25,18 @@ use value::RSValueFFI;
 /// because it is downcast in C to `ffi::Reducer`, which reads vtable pointers
 /// directly.
 #[repr(C)]
-pub struct CollectReducer {
+pub struct CollectReducer<'a> {
     reducer: Reducer,
     /// Arena allocator for [`CollectCtx`] instances, matching the `BlkAlloc`
     /// pattern used by C reducers. All instances are freed at once when the
     /// reducer is dropped.
     arena: Bump,
     /// Projected field keys. Empty when only a wildcard is used.
-    field_keys: Box<[*const ffi::RLookupKey]>,
+    field_keys: Box<[&'a RLookupKey<'a>]>,
     /// Whether the wildcard `*` was specified in the FIELDS clause.
     has_wildcard: bool,
     /// Sort keys for in-group ordering. Empty when SORTBY is omitted.
-    sort_keys: Box<[*const ffi::RLookupKey]>,
+    sort_keys: Box<[&'a RLookupKey<'a>]>,
     /// Bitmask where bit `i` is 0 for DESC and 1 for ASC (matching
     /// `SORTASCMAP_INIT`). Only meaningful for the first
     /// `sort_keys.len()` bits.
@@ -58,25 +58,25 @@ pub struct CollectCtx {
     rows: Vec<Vec<RSValueFFI>>,
 }
 
-impl CollectReducer {
+impl<'a> CollectReducer<'a> {
     /// Create a new `CollectReducer` with the given pre-parsed configuration.
     ///
     /// The raw pointers in `field_keys` and `sort_keys` are stored but not
     /// dereferenced here; they are only dereferenced (unsafely) in
     /// [`CollectCtx::add`] and [`CollectCtx::finalize`].
     pub fn new(
-        field_keys: Vec<*const ffi::RLookupKey>,
+        field_keys: Box<[&'a RLookupKey<'a>]>,
         has_wildcard: bool,
-        sort_keys: Vec<*const ffi::RLookupKey>,
+        sort_keys: Box<[&'a RLookupKey<'a>]>,
         sort_asc_map: u64,
         limit: Option<(u64, u64)>,
     ) -> Self {
         Self {
             reducer: Reducer::new(),
             arena: Bump::new(),
-            field_keys: field_keys.into_boxed_slice(),
+            field_keys: field_keys,
             has_wildcard,
-            sort_keys: sort_keys.into_boxed_slice(),
+            sort_keys: sort_keys,
             sort_asc_map,
             limit,
         }
@@ -144,24 +144,15 @@ impl CollectCtx {
         Self { rows: Vec::new() }
     }
 
-    /// Project field values from `srcrow` and store them for later
+    /// Project field values from `row` and store them for later
     /// serialization in [`Self::finalize`].
     ///
-    /// For each configured field key the value is looked up in the source row
+    /// For each configured field key the value is looked up in the row
     /// and cloned (incrementing its refcount). Missing values are stored as
     /// [`RSValueFFI::null_static`].
-    pub fn add(&mut self, r: &CollectReducer, srcrow: *const ffi::RLookupRow) {
-        // SAFETY: `srcrow` is a valid pointer to a Rust `RLookupRow` passed
-        // through C as the layout-compatible `OpaqueRLookupRow`.
-        let row =
-            unsafe { RLookupRow::from_opaque_ptr_unchecked(srcrow.cast::<OpaqueRLookupRow>()) };
-
+    pub fn add(&mut self, r: &CollectReducer, row: &RLookupRow) {
         let mut values = Vec::with_capacity(r.field_keys.len());
-        for &key_ptr in &r.field_keys {
-            // SAFETY: `key_ptr` was created from a Rust `RLookupKey` by the
-            // `RLookup` infrastructure. The C type is a prefix view of the
-            // same allocation.
-            let key = unsafe { &*key_ptr.cast::<RLookupKey<'_>>() };
+        for key in &r.field_keys {
             let value = row
                 .get(key)
                 .cloned()
@@ -183,15 +174,8 @@ impl CollectCtx {
                 let entries = row_values
                     .iter()
                     .zip(r.field_keys.iter())
-                    .map(|(val, &key_ptr)| {
-                        // SAFETY: `key_ptr` is a valid pointer to an `ffi::RLookupKey`.
-                        let key = unsafe { &*key_ptr };
-                        // SAFETY: `key.name` is a valid pointer to `key.name_len` bytes,
-                        // as guaranteed by the C `RLookupKey` invariant.
-                        let name_bytes = unsafe {
-                            std::slice::from_raw_parts(key.name.cast::<u8>(), key.name_len)
-                        };
-                        let name_val = RSValueFFI::new_string(name_bytes.to_vec());
+                    .map(|(val, key)| {
+                        let name_val = RSValueFFI::new_string(key.name().to_bytes().to_vec());
                         (name_val, val.clone())
                     });
                 RSValueFFI::new_map(entries)

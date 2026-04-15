@@ -8,7 +8,11 @@
 */
 
 use reducers::collect::{CollectCtx, CollectReducer};
-use std::ffi::{c_int, c_void};
+use rlookup::{RLookupKey, RLookupRow};
+use std::{
+    ffi::{c_int, c_void},
+    slice,
+};
 
 /// Creates a new [`CollectReducer`] from pre-parsed configuration and returns a
 /// pointer to its base [`ffi::Reducer`] with the vtable fully wired.
@@ -38,18 +42,20 @@ pub unsafe extern "C" fn CollectReducer_Create(
     limit_offset: u64,
     limit_count: u64,
 ) -> *mut ffi::Reducer {
-    let field_keys = if !field_keys.is_null() && field_keys_len > 0 {
+    let field_keys: Box<[&RLookupKey]> = if !field_keys.is_null() && field_keys_len > 0 {
         // SAFETY: ensured by caller (1.)
-        unsafe { std::slice::from_raw_parts(field_keys, field_keys_len) }.to_vec()
+        Box::from(unsafe {
+            slice::from_raw_parts(field_keys.cast::<&RLookupKey>(), field_keys_len)
+        })
     } else {
-        Vec::new()
+        Box::new([])
     };
 
-    let sort_keys = if !sort_keys.is_null() && sort_keys_len > 0 {
+    let sort_keys: Box<[&RLookupKey]> = if !sort_keys.is_null() && sort_keys_len > 0 {
         // SAFETY: ensured by caller (2.)
-        unsafe { std::slice::from_raw_parts(sort_keys, sort_keys_len) }.to_vec()
+        Box::from(unsafe { slice::from_raw_parts(sort_keys.cast::<&RLookupKey>(), sort_keys_len) })
     } else {
-        Vec::new()
+        Box::new([])
     };
 
     let limit = has_limit.then_some((limit_offset, limit_count));
@@ -126,6 +132,8 @@ pub unsafe extern "C" fn collectAdd(
     let r = unsafe { r.cast::<CollectReducer>().as_mut().unwrap() };
     // SAFETY: ensured by caller (2.)
     let collect = unsafe { &mut *ctx.cast::<CollectCtx>() };
+    // SAFETY: ensured by caller (3.)
+    let srcrow = unsafe { &*srcrow.cast::<RLookupRow>() };
 
     collect.add(r, srcrow);
 
