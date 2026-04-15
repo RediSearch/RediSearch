@@ -804,3 +804,34 @@ INTERSECT {
     env.expect('FT.EXPLAIN', 'idx', '@text:foo bar @tag:{baz}', 'VERBATIM').equal(expected)
     env.expect('FT.EXPLAIN', 'idx', '(@text:foo bar) @tag:{baz}', 'VERBATIM').equal(expected)
     env.expect('FT.EXPLAIN', 'idx', '@tag:{baz} (@text:foo bar)', 'VERBATIM').equal(expected)
+
+def test_invalid_query_attributes():
+    """Test that invalid query attribute values produce proper errors."""
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+    waitForIndex(env, 'idx')
+
+    # Invalid $slop value (not a number)
+    env.expect('FT.SEARCH', 'idx', 'hello=>{$slop: abc}').error() \
+        .contains('Invalid value')
+
+    # Invalid $slop value (below minimum of -1)
+    env.expect('FT.SEARCH', 'idx', 'hello=>{$slop: -2}').error() \
+        .contains('Invalid value')
+
+    # Invalid $inorder value (not a boolean)
+    env.expect('FT.SEARCH', 'idx', 'hello=>{$inorder: abc}').error() \
+        .contains('Invalid value')
+
+    # Invalid $weight value (not a number)
+    env.expect('FT.SEARCH', 'idx', 'hello=>{$weight: abc}').error() \
+        .contains('Invalid value')
+
+    # Invalid $weight value (negative)
+    env.expect('FT.SEARCH', 'idx', 'hello=>{$weight: -1}').error() \
+        .contains('Invalid value')
+
+    # Unrecognized attribute name
+    env.expect('FT.SEARCH', 'idx', 'hello=>{$bogus: 42}').error() \
+        .contains('Invalid attribute')
