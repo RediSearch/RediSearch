@@ -157,10 +157,7 @@ QueryIterator* SearchDisk_NewWildcardIterator(RedisSearchDiskIndexSpec *index, d
 
 static void* Compaction_BeginUpdate(void *private_data) {
     IndexSpec *sp = private_data;
-    if (!sp) {
-        return NULL;
-    }
-
+    RS_ASSERT(sp);
     IndexSpec_AcquireWriteLock(sp);
     return sp;
 }
@@ -170,27 +167,21 @@ static bool Compaction_DecrementTrieTermCount(void *update_ctx,
                                               size_t term_len,
                                               size_t doc_count_decrement) {
     IndexSpec *sp = update_ctx;
-    if (!sp) {
-        return false;
-    }
+    RS_ASSERT(sp);
 
     return IndexSpec_DecrementTrieTermCount(sp, term, term_len, doc_count_decrement);
 }
 
 static void Compaction_DecrementNumTerms(void *update_ctx, uint64_t num_terms_removed) {
     IndexSpec *sp = update_ctx;
-    if (!sp) {
-        return;
-    }
+    RS_ASSERT(sp);
 
     IndexSpec_DecrementNumTerms(sp, num_terms_removed);
 }
 
 static void Compaction_EndUpdate(void *update_ctx) {
     IndexSpec *sp = update_ctx;
-    if (!sp) {
-        return;
-    }
+    RS_ASSERT(sp);
 
     IndexSpec_ReleaseWriteLock(sp);
 }
