@@ -49,11 +49,6 @@
 #include "shard_window_ratio.h"
 #include "idf.h"
 #include "doc_id_meta.h"
-#ifndef STRINGIFY
-#define __STRINGIFY(x) #x
-#define STRINGIFY(x) __STRINGIFY(x)
-#endif
-
 #define EFFECTIVE_FIELDMASK(q_, qn_) ((qn_)->opts.fieldMask & (q)->opts->fieldmask)
 
 static void QueryTokenNode_Free(QueryTokenNode *tn) {
