@@ -978,7 +978,7 @@ def isEnableAssertEnabled(env):
     Returns True if ENABLE_ASSERT commands are available, False otherwise.
     """
     try:
-        env.cmd(debug_cmd(), 'QUERY_CONTROLLER', 'GET_IS_COORD_REDUCE_PAUSED')
+        env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
         return True
     except Exception:
         return False
