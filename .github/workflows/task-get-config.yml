@@ -127,7 +127,7 @@ jobs:
               },
               "macos-26": {
                   "x86_64": {
-                      'env': 'macos-26-intel',
+                      'env': 'macos-26-large',
                       'name': 'macOS 26 x86_64'
                   },
                   "aarch64": {
