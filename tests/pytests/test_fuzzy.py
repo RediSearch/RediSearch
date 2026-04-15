@@ -93,6 +93,29 @@ def testFuzzyWithNumbersOnly(env):
         env.expect('ft.search', 'idx', '%%21345%%', 'DIALECT', dialect)\
             .equal([1, 'doc1', ['test', '12345']])
 
+def testFuzzyMaxPrefixExpansionsWarning():
+    """Verify that a fuzzy query triggers a max prefix expansions warning
+    when the number of fuzzy matches exceeds MAXPREFIXEXPANSIONS."""
+    env = Env(protocol=3)
+    conn = getConnectionByEnv(env)
+
+    conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT')
+
+    # Create terms that are all within Levenshtein distance 1 of "ab":
+    # aa, ab, ac, ..., az  (26 terms, all distance <= 1 from "ab")
+    for c in 'abcdefghijklmnopqrstuvwxyz':
+        conn.execute_command('HSET', f'doc_a{c}', 't', f'a{c}')
+
+    # Set max prefix expansions to 1 so the fuzzy expansion is sure to exceed it
+    run_command_on_all_shards(env, config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', '1')
+
+    # Fuzzy query: %ab% should try to expand to all terms within distance 1
+    res = env.cmd('FT.SEARCH', 'idx', '%ab%')
+    env.assertContains('Max prefix expansions limit was reached', res['warning'])
+
+    # Restore default
+    run_command_on_all_shards(env, config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', '200')
+
 @skip()
 def testTagFuzzy(env):
     # TODO: fuzzy on tag is broken?
