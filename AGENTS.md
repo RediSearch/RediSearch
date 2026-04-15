@@ -90,6 +90,7 @@ src/redisearch_rs/
 Follow [/rust-docs-guidelines](.skills/rust-docs-guidelines/SKILL.md) when writing documentation for Rust code.
 Invoke [/port-c-module](.skills/port-c-module/SKILL.md) to plan the porting of a C module.
 Invoke [/write-rust-tests](.skills/write-rust-tests/SKILL.md) to add tests to Rust code.
+Invoke [/check-flow-coverage](.skills/check-flow-coverage/SKILL.md) to check which source lines are not covered by Python flow tests.
 Invoke [/verify](.skills/verify/SKILL.md) to verify the correctness of your work before wrapping up.
 Invoke [/jj-fix-conflicts](.skills/jj-fix-conflicts/SKILL.md) to resolve conflicts in a jj changes.
 
