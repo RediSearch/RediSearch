@@ -320,6 +320,10 @@ jobs:
           # relative to the `$workspace` and defaults to "target" if not explicitly given.
           # default: ". -> target"
           workspaces: "src/redisearch_rs -> ../../bin/redisearch_rs"
+          # Save cache even when the job fails, so subsequent runs can reuse
+          # compiled artifacts. Without this, cache is never populated on
+          # platforms with high failure rates (e.g. macOS x86_64).
+          cache-on-failure: true
       - name: Setup Rust test dependencies
         if: needs.build-image.outputs.succeeded != 'true' # Only run if NOT using custom container
         run: .install/test_deps/install_rust_deps.sh ${{ needs.get-config.outputs.install_mode }}
