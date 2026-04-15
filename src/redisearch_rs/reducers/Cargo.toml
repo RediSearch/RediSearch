@@ -10,7 +10,7 @@ bumpalo.workspace = true
 ffi.workspace = true
 query_error.workspace = true
 rlookup.workspace = true
-value = { workspace = true, features = ["c_ffi_impl"] }
+value.workspace = true
 workspace_hack.workspace = true
 
 [lints]

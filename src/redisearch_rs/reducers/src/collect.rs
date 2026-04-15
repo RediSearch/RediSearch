@@ -11,7 +11,7 @@ use bumpalo::Bump;
 use rlookup::{RLookupKey, RLookupRow};
 
 use crate::Reducer;
-use value::RSValueFFI;
+use value::{Array, Map, RsValue, SharedRsValue};
 
 /// The COLLECT reducer aggregates rows within each group, with optional field
 /// projection, sorting, and limiting.
@@ -53,9 +53,9 @@ pub struct CollectReducer<'a> {
 ///
 /// Because `CollectCtx` is arena-allocated ([`Bump`] does not run destructors),
 /// [`CollectCtx::free`] must be called to release the heap-allocated `Vec`s
-/// and decrement `RSValueFFI` refcounts.
+/// and decrement `SharedRsValue` refcounts.
 pub struct CollectCtx {
-    rows: Vec<Vec<RSValueFFI>>,
+    rows: Vec<Vec<SharedRsValue>>,
 }
 
 impl<'a> CollectReducer<'a> {
@@ -149,14 +149,14 @@ impl CollectCtx {
     ///
     /// For each configured field key the value is looked up in the row
     /// and cloned (incrementing its refcount). Missing values are stored as
-    /// [`RSValueFFI::null_static`].
+    /// [`SharedRsValue::null_static`].
     pub fn add(&mut self, r: &CollectReducer, row: &RLookupRow) {
         let mut values = Vec::with_capacity(r.field_keys.len());
         for key in &r.field_keys {
             let value = row
                 .get(key)
                 .cloned()
-                .unwrap_or_else(RSValueFFI::null_static);
+                .unwrap_or_else(SharedRsValue::null_static);
             values.push(value);
         }
         self.rows.push(values);
@@ -166,25 +166,26 @@ impl CollectCtx {
     ///
     /// Each map contains `{field_name: value}` entries keyed by the
     /// [`RLookupKey`] name. The outer array has one element per collected row.
-    pub fn finalize(&self, r: &CollectReducer) -> RSValueFFI {
-        let row_maps: Vec<RSValueFFI> = self
+    pub fn finalize(&self, r: &CollectReducer) -> SharedRsValue {
+        let row_maps: Vec<SharedRsValue> = self
             .rows
             .iter()
             .map(|row_values| {
-                let entries = row_values
+                let entries: Box<[_]> = row_values
                     .iter()
                     .zip(r.field_keys.iter())
                     .map(|(val, key)| {
-                        let name_val = RSValueFFI::new_string(key.name().to_bytes().to_vec());
+                        let name_val = SharedRsValue::new_string(key.name().to_bytes().to_vec());
                         (name_val, val.clone())
-                    });
-                RSValueFFI::new_map(entries)
+                    })
+                    .collect();
+                SharedRsValue::new(RsValue::Map(Map::new(entries)))
             })
             .collect();
-        RSValueFFI::new_array(row_maps)
+        SharedRsValue::new(RsValue::Array(Array::new(row_maps.into_boxed_slice())))
     }
 
-    /// Release heap-allocated storage and decrement `RSValueFFI` refcounts.
+    /// Release heap-allocated storage and decrement `SharedRsValue` refcounts.
     ///
     /// Must be called before the arena drops this instance, since [`Bump`]
     /// does not run destructors.

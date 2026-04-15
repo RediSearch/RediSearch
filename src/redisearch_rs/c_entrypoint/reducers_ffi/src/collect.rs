@@ -158,7 +158,7 @@ pub unsafe extern "C" fn collectFinalize(
     // SAFETY: ensured by caller (2.)
     let collect = unsafe { &*ctx.cast::<CollectCtx>() };
 
-    collect.finalize(r).into_raw()
+    collect.finalize(r).into_raw() as *mut ffi::RSValue
 }
 
 /// Frees the provided collect reducer (the global struct, not a per-group
