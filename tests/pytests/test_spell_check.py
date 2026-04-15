@@ -199,7 +199,7 @@ def test_spell_check_with_params(env:Env):
     compare_lists(env, res1, res2)
 
     # Missing PARAMS: $a in dialect 3 without PARAMS should error, not crash
-    env.expect('ft.spellcheck', 'idx', '$a', 'DIALECT', '3').error().contains('Parameter not found `a`')
+    env.expect('ft.spellcheck', 'idx', '$a', 'DIALECT', '3').error().contains('No such parameter `a`')
 
     # Cover the PARAMS parsing error path
     env.expect('ft.spellcheck', 'idx', '$a', 'PARAMS', '3', 'a', 'b', 'c', 'DIALECT', '2').error().contains('Parameters must be specified in PARAM VALUE pairs')
