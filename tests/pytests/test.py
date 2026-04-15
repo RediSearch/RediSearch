@@ -4572,8 +4572,10 @@ def test_with_tls():
 
     common_with_auth(env)
 
-# TODO: enable macos+san once https://redislabs.atlassian.net/browse/RED-176581 is fixed
-@skip(cluster=False, macos=True, asan=True)
+# Skipped due to RED-176581: cluster fails to recover after `CONFIG SET tls-cluster no`
+# with dual TLS. The cluster bus connections get permanently stuck with "Connection refused".
+# Re-enable once RED-176581 is resolved.
+@skip()
 def test_with_tls_and_non_tls_ports():
     """Tests that the coordinator-shard connections are using the correct
     protocol (TLS vs. non-TLS) according to the redis `tls-cluster` configuration."""
