@@ -256,6 +256,10 @@ where
     fn type_(&self) -> IteratorType {
         IteratorType::Not
     }
+
+    fn intersection_sort_weight(&self, _prioritize_union_children: bool) -> f64 {
+        1.0
+    }
 }
 
 /// Trait for NOT iterators ([`Not`] and [`crate::not_optimized::NotOptimized`]).

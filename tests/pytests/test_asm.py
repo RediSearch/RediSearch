@@ -712,10 +712,10 @@ def add_shard_and_migrate_test(env: Env, query_type: str = 'FT.SEARCH'):
 
     # Add a new shard
     env.addShardToClusterIfExists()
+    time.sleep(5)
     new_shard = env.getConnection(shardId=initial_shards_count+1)
     # ...and migrate slots from shard 1 to the new shard
     wait_for_migration_complete(env, new_shard, shard1, query_during_migration={'query': query, 'shards': shards, 'expected': expected, 'query_type': query_type})
-
     # Expect new shard to have the index schema
     env.assertEqual(new_shard.execute_command('FT._LIST'), ['idx'])
 
@@ -754,7 +754,6 @@ def test_add_shard_and_migrate_aggregate_withcursor():
 
 @skip(cluster=False, min_shards=2, asan=True)
 def test_add_shard_and_migrate_aggregate_withcursor_BG():
-    raise SkipTest("Flaky test, see MOD-14828")
     env = Env(clusterNodeTimeout=cluster_node_timeout, moduleArgs='WORKERS 2')
     add_shard_and_migrate_test(env, 'FT.AGGREGATE.WITHCURSOR')
 
@@ -765,8 +764,6 @@ def test_add_shard_and_migrate_hybrid():
 
 @skip(cluster=False, min_shards=2)
 def test_add_shard_and_migrate_hybrid_BG():
-    # TODO: MOD-14732 - Skipped due to flaky crash (SIGSEGV) during hybrid cursor migration.
-    raise SkipTest()
     env = Env(clusterNodeTimeout=cluster_node_timeout, moduleArgs='WORKERS 2')
     add_shard_and_migrate_test(env, 'FT.HYBRID')
 
@@ -1107,6 +1104,7 @@ def test_hybrid_cursor_after_add_shard_migration():
     # Step 2: Add a new shard and migrate a middle slot range from shard1 to new shard
     initial_shards_count = env.shardsCount
     env.addShardToClusterIfExists()
+    time.sleep(5)
     new_shard = env.getConnection(shardId=initial_shards_count + 1)
 
     # Also set trim delays on the new shard

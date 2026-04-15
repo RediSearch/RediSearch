@@ -29,10 +29,11 @@ static const FuncEntry globalRegistry[] = {
   {"FIRST_VALUE", RDCRFirstValue_New},
   {"RANDOM_SAMPLE", RDCRRandomSample_New},
   {"HLL", RDCRHLL_New},
-  {"HLL_SUM", RDCRHLLSum_New}
+  {"HLL_SUM", RDCRHLLSum_New},
+  {"COLLECT", RDCRCollect_New}
 };
 
-#define REGISTRY_SIZE 14
+#define REGISTRY_SIZE 15
 static_assert(sizeof(globalRegistry) == sizeof(FuncEntry) * REGISTRY_SIZE);
 
 ReducerFactory RDCR_GetFactory(const char *name) {

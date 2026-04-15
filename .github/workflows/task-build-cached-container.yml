@@ -89,6 +89,8 @@ jobs:
           build-args: |
             BASE_IMAGE=${{ inputs.container }}
             SAN=${{ inputs.san }}
+          secrets: |
+            GITHUB_TOKEN=${{ github.token }}
           file: Dockerfile
           tags: ${{ steps.meta.outputs.image }}
           cache-to: type=registry,ref=${{ steps.meta.outputs.cache }},mode=max,compression=zstd

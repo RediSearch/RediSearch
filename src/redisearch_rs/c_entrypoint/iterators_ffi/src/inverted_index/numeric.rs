@@ -164,6 +164,10 @@ impl<'index> rqe_iterators::RQEIterator<'index> for NumericIterator<'index> {
     fn type_(&self) -> IteratorType {
         IteratorType::InvIdxNumeric
     }
+
+    fn intersection_sort_weight(&self, _prioritize_union_children: bool) -> f64 {
+        1.0
+    }
 }
 
 #[unsafe(no_mangle)]

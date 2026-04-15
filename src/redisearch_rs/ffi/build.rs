@@ -98,7 +98,6 @@ fn main() {
         src.join("util").join("arr").join("arr.h"),
         src.join("util").join("dict").join("dict.h"),
         src.join("util").join("references.h"),
-        src.join("value").join("value.h"),
     ];
 
     let mut bindings = bindgen::Builder::default();
