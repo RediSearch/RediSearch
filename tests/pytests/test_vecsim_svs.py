@@ -624,3 +624,123 @@ def test_gc_no_workers():
     env = Env(moduleArgs=f'DEFAULT_DIALECT 2 FORK_GC_RUN_INTERVAL 1000000 FORK_GC_CLEAN_THRESHOLD 0 WORKERS {num_workers}'
                          f' _FREE_RESOURCE_ON_THREAD FALSE')
     gc_test_common(env, num_workers)
+
+@skip(cluster=True)
+def test_resize_workers_during_pending_svs_jobs():
+    """WORKERS resize while SVS update jobs are queued but not yet running.
+    Jobs were created expecting 4 reserve jobs; after resize only 2 workers
+    pick them up, and the SVS pool is size 2. The ControlBlock timeout
+    handles the 2 jobs that never get a worker."""
+    initial_workers = 4
+    final_workers = 2
+    env = Env(moduleArgs=f'DEFAULT_DIALECT 2 WORKERS {initial_workers}')
+    training_threshold = DEFAULT_BLOCK_SIZE
+    dim = 2
+
+    # Train the index
+    set_up_database_with_vectors(env, dim, num_docs=training_threshold, alg='SVS-VAMANA')
+    wait_for_background_indexing(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME,
+                                message="training")
+
+    backend_info = get_tiered_backend_debug_info(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME)
+    env.assertEqual(backend_info['NUM_THREADS'], initial_workers, message="after training")
+
+    # Pause workers so SVS update jobs queue but don't execute
+    env.expect(debug_cmd(), 'WORKERS', 'PAUSE').ok()
+
+    # Add vectors to trigger scheduleSVSIndexUpdate — jobs are queued
+    populate_with_vectors(env, dim=dim, num_docs=training_threshold,
+                          datatype='FLOAT32', initial_doc_id=training_threshold + 1)
+
+    # Shrink workers while jobs are pending in the queue.
+    # VecSim_UpdateThreadPoolSize(2) resizes the SVS pool immediately.
+    env.execute_command(config_cmd(), 'SET', 'WORKERS', final_workers)
+
+    # Resume and drain — jobs execute with the resized pool
+    env.expect(debug_cmd(), 'WORKERS', 'RESUME').ok()
+    env.expect(debug_cmd(), 'WORKERS', 'DRAIN').ok()
+
+    # Wait for background indexing to complete
+    wait_for_background_indexing(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME,
+                                message="after resize and drain")
+
+    # Pool size should reflect the new worker count
+    backend_info = get_tiered_backend_debug_info(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME)
+    env.assertEqual(backend_info['NUM_THREADS'], final_workers,
+                    message="NUM_THREADS should match final workers")
+
+    # Verify search still works
+    query = create_random_np_array_typed(dim, 'FLOAT32')
+    res = env.execute_command('FT.SEARCH', DEFAULT_INDEX_NAME,
+                              f'*=>[KNN 10 @{DEFAULT_FIELD_NAME} $vec_param]',
+                              'PARAMS', 2, 'vec_param', query.tobytes(), 'NOCONTENT')
+    env.assertEqual(res[0], 10, message="KNN search should return results after resize")
+
+@skip(cluster=True)
+def test_multiple_svs_indexes_share_pool():
+    """Two SVS indexes share the same SVS thread pool. Both see the same
+    pool size and both complete operations after a WORKERS resize."""
+    initial_workers = 4
+    final_workers = 2
+    env = Env(moduleArgs=f'DEFAULT_DIALECT 2 WORKERS {initial_workers}')
+    training_threshold = DEFAULT_BLOCK_SIZE
+    dim = 2
+    idx1, idx2 = 'idx1', 'idx2'
+    field1, field2 = 'v1', 'v2'
+
+    # Create two SVS indexes on different fields
+    create_vector_index(env, dim, index_name=idx1, field_name=field1, alg='SVS-VAMANA')
+    create_vector_index(env, dim, index_name=idx2, field_name=field2, alg='SVS-VAMANA')
+
+    # Populate both past training threshold (same hash docs, different fields)
+    conn = getConnectionByEnv(env)
+    p = conn.pipeline(transaction=False)
+    for i in range(training_threshold):
+        vec1 = create_random_np_array_typed(dim, 'FLOAT32')
+        vec2 = create_random_np_array_typed(dim, 'FLOAT32')
+        p.execute_command('HSET', f'doc{i+1}', field1, vec1.tobytes(), field2, vec2.tobytes())
+    p.execute()
+
+    wait_for_background_indexing(env, idx1, field1, message="idx1 training")
+    wait_for_background_indexing(env, idx2, field2, message="idx2 training")
+
+    # Both should report initial pool size
+    for idx, field in [(idx1, field1), (idx2, field2)]:
+        info = get_tiered_backend_debug_info(env, idx, field)
+        env.assertEqual(info['NUM_THREADS'], initial_workers,
+                        message=f"{idx} NUM_THREADS before resize")
+
+    # Resize workers
+    env.execute_command(config_cmd(), 'SET', 'WORKERS', final_workers)
+
+    # Both should immediately see the new pool size
+    for idx, field in [(idx1, field1), (idx2, field2)]:
+        info = get_tiered_backend_debug_info(env, idx, field)
+        env.assertEqual(info['NUM_THREADS'], final_workers,
+                        message=f"{idx} NUM_THREADS after resize")
+
+    # Trigger update jobs on both indexes
+    p = conn.pipeline(transaction=False)
+    for i in range(training_threshold):
+        vec1 = create_random_np_array_typed(dim, 'FLOAT32')
+        vec2 = create_random_np_array_typed(dim, 'FLOAT32')
+        p.execute_command('HSET', f'doc{training_threshold+i+1}',
+                          field1, vec1.tobytes(), field2, vec2.tobytes())
+    p.execute()
+
+    wait_for_background_indexing(env, idx1, field1, message="idx1 after resize")
+    wait_for_background_indexing(env, idx2, field2, message="idx2 after resize")
+
+    # Both indexes should still report the resized pool
+    for idx, field in [(idx1, field1), (idx2, field2)]:
+        info = get_tiered_backend_debug_info(env, idx, field)
+        env.assertEqual(info['NUM_THREADS'], final_workers,
+                        message=f"{idx} NUM_THREADS after update")
+
+    # Verify search works on both
+    query = create_random_np_array_typed(dim, 'FLOAT32')
+    for idx, field in [(idx1, field1), (idx2, field2)]:
+        res = env.execute_command('FT.SEARCH', idx,
+                                  f'*=>[KNN 10 @{field} $vec_param]',
+                                  'PARAMS', 2, 'vec_param', query.tobytes(), 'NOCONTENT')
+        env.assertEqual(res[0], 10, message=f"{idx} KNN search should return results")
