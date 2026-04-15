@@ -310,9 +310,6 @@ def getWorkersThpoolStatsFromShard(shard_conn):
     return to_dict(shard_conn.execute_command(debug_cmd(), "WORKERS", "stats"))
 
 
-def getWorkersThpoolNumThreadsFromAllShards(env):
-    return [shard_conn.execute_command(debug_cmd(), "WORKERS", "n_threads") for shard_conn in env.getOSSMasterNodesConnectionList()]
-
 def skipOnExistingEnv(env):
     if 'existing' in env.env:
         env.skip()

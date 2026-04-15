@@ -3288,10 +3288,12 @@ cleanup:
   }
 
   RedisModule_BlockedClientMeasureTimeEnd(bc);
-  // Pass mc to unblock so DistSearchFreePrivData releases the MRCtx ref
-  // (which in turn frees req via DistSearchMRCtxFreePrivData).
-  RedisModule_UnblockClient(bc, mc);
+  // Reducer already replied — unblock with NULL to prevent
+  // DistSearchUnblockClient from double-replying.
+  RedisModule_UnblockClient(bc, NULL);
   RedisModule_FreeThreadSafeContext(ctx);
+  // Compensate for DistSearchFreePrivData not receiving mc.
+  MRCtx_DecrRef(mc);
   return res;
 }
 
