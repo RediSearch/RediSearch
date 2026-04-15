@@ -45,7 +45,7 @@ on:
         description: "Branch to use when building RedisJSON for tests"
       test-timeout:
         type: number
-        default: 50
+        default: 120
       fail-fast:
         type: boolean
         default: false
