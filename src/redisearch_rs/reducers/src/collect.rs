@@ -66,13 +66,10 @@ pub struct CollectCtx {
 impl CollectReducer {
     /// Create a new `CollectReducer` with the given pre-parsed configuration.
     ///
-    /// # Safety
-    ///
-    /// Every pointer in `field_keys` and `sort_keys` must remain [valid] for
-    /// the lifetime of this reducer (guaranteed by the `RLookup` infrastructure).
-    ///
-    /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
-    pub unsafe fn new(
+    /// The raw pointers in `field_keys` and `sort_keys` are stored but not
+    /// dereferenced here; they are only dereferenced (unsafely) in
+    /// [`CollectCtx::add`] and [`CollectCtx::finalize`].
+    pub fn new(
         field_keys: Vec<*const ffi::RLookupKey>,
         has_wildcard: bool,
         sort_keys: Vec<*const ffi::RLookupKey>,

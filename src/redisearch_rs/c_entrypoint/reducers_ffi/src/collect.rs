@@ -52,18 +52,15 @@ pub unsafe extern "C" fn CollectReducer_Create(
         Vec::new()
     };
 
-    // SAFETY: ensured by caller (3.)
-    let mut cr = Box::new(unsafe {
-        CollectReducer::new(
-            field_keys,
-            has_wildcard,
-            sort_keys,
-            sort_asc_map,
-            has_limit,
-            limit_offset,
-            limit_count,
-        )
-    });
+    let mut cr = Box::new(CollectReducer::new(
+        field_keys,
+        has_wildcard,
+        sort_keys,
+        sort_asc_map,
+        has_limit,
+        limit_offset,
+        limit_count,
+    ));
 
     cr.reducer_mut()
         .set_new_instance(collectNewInstance)
