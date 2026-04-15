@@ -74,9 +74,9 @@ impl<'a> CollectReducer<'a> {
         Self {
             reducer: Reducer::new(),
             arena: Bump::new(),
-            field_keys: field_keys,
+            field_keys,
             has_wildcard,
-            sort_keys: sort_keys,
+            sort_keys,
             sort_asc_map,
             limit,
         }
