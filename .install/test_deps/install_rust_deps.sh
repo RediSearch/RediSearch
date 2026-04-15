@@ -36,25 +36,6 @@ if [[ "$OS_TYPE" = "Linux" ]] && [[ "$processor" =~ ^(x86_64|aarch64)$ ]]; then
     PREFERRED_TARGET="${processor}-unknown-linux-musl"
 fi
 
-# Check if a cargo tool is already installed at the expected version.
-# Used to skip redundant binstall calls when ~/.cargo/bin/ is restored
-# from CI cache (Swatinem/rust-cache), saving ~18 min on macOS Intel.
-is_installed() {
-    local tool="$1" version="$2"
-    local bin="${tool##cargo-}" # e.g. cargo-nextest -> nextest
-    # Some tools use the full name (cargo-llvm-cov), others use the
-    # short name (nextest, hakari) for their --version output.
-    if command -v "cargo-$bin" &>/dev/null; then
-        local installed
-        installed=$("cargo-$bin" --version 2>/dev/null || true)
-        if [[ "$installed" == *"$version"* ]]; then
-            echo "$tool@$version is already installed, skipping" >&2
-            return 0
-        fi
-    fi
-    return 1
-}
-
 # Wrapper around `cargo binstall` that auto-confirms (-y) and respects
 # the lockfile (--locked).
 #
@@ -77,15 +58,6 @@ binstall() {
     if [[ "$1" == "--no-host-prebuilt" ]]; then
         allow_host_prebuilt=0
         shift
-    fi
-
-    # Skip installation if the tool is already present at the right version
-    # (e.g. restored from CI cache).
-    local spec="$1" # e.g. "cargo-nextest@0.9.130"
-    local tool="${spec%@*}"
-    local version="${spec#*@}"
-    if is_installed "$tool" "$version"; then
-        return 0
     fi
 
     if [[ -n "$PREFERRED_TARGET" ]]; then
