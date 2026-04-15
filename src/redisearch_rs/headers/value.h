@@ -11,11 +11,6 @@
 #include "query_error.h"
 
 /**
- * The total heap allocation size of an `RsValue` wrapped in a `triomphe::Arc`.
- */
-#define RSValueSize 32
-
-/**
  * Enumeration of the types an [`RsValue`] can be of.
  *
  */
