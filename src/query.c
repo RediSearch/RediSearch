@@ -1522,7 +1522,7 @@ static IndexIterator *Query_EvalMissingNode(QueryEvalCtx *q, QueryNode *qn) {
   }
 
   // Create a reader for the missing values InvertedIndex.
-  IndexReader *ir = NewMissingIndexReader(missingII, q->sctx->spec);
+  IndexReader *ir = NewMissingIndexReader(missingII, q->sctx->spec, fs->index);
 
   return NewReadIterator(ir);
 }
