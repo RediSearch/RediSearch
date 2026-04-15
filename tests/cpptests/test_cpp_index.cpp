@@ -1310,7 +1310,7 @@ TEST_F(IndexTest, testIndexSpec) {
   ref = IndexSpec_Parse("idx", args_invalid, sizeof(args_invalid) / sizeof(args_invalid[0]), &err);
   ASSERT_TRUE(QueryError_HasError(&err));
   ASSERT_EQ(nullptr, StrongRef_Get(ref));
-  ASSERT_NE(nullptr, strstr(QueryError_GetUserError(&err), "MAXTEXTFIELDS cannot be used with NOFIELDS"));
+  ASSERT_NE(nullptr, strstr(QueryError_GetError(&err), "MAXTEXTFIELDS cannot be used with NOFIELDS"));
 
   // User-reported bug
   const char *args3[] = {"SCHEMA", "ha", "NUMERIC", "hb", "TEXT", "WEIGHT", "1", "NOSTEM"};
