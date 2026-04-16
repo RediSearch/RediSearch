@@ -487,6 +487,24 @@ static bool handleSendChunkError(AREQ *req, RedisModule_Reply *reply,
   return false;
 }
 
+static int replyForPreExecutionTimeout(RedisModuleCtx *ctx, RedisModuleString **argv,
+                                       int argc, ProfileOptions profileOptions, QueryError *status) {
+  const bool isInternal = RedisModule_StringPtrLen(argv[0], NULL)[0] == '_';
+  const bool isProfile = profileOptions & EXEC_WITH_PROFILE;
+  const RSTimeoutPolicy timeoutPolicy = RSGlobalConfig.requestConfigParams.timeoutPolicy;
+  const bool shouldReplyWithError =
+      ShouldReplyWithTimeoutError(RS_RESULT_TIMEDOUT, timeoutPolicy, isProfile);
+
+  if (shouldReplyWithError) {
+    QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, !isInternal);
+    QueryError_SetCode(status, QUERY_ERROR_CODE_TIMED_OUT);
+    return QueryError_ReplyAndClear(ctx, status);
+  }
+
+  return single_shard_common_query_reply_empty(ctx, argv, argc, profileOptions,
+                                               QUERY_ERROR_CODE_TIMED_OUT);
+}
+
 /**
  * Sets up resultsLen, updates optimizer, and prepares reply arrays.
  * Returns the calculated resultsLen value.
@@ -613,9 +631,6 @@ static int serializeAndReplyResults_Resp2(AREQ *req, RedisModule_Reply *reply, R
 
 done_2:
     RedisModule_Reply_ArrayEnd(reply);    // </results>
-
-    // Assert that timeout only occurs when skipTimeoutChecks is false (if not in debug)
-    RS_ASSERT(!(rc == RS_RESULT_TIMEDOUT) || !req->skipTimeoutChecks || IsDebug(req));
 
     state->cursor_done = (rc != RS_RESULT_OK
                           && !(rc == RS_RESULT_TIMEDOUT
@@ -816,9 +831,6 @@ static int serializeAndReplyResults_Resp3(AREQ *req, RedisModule_Reply *reply, R
     }
 
 done_3:
-    // Assert that timeout only occurs when skipTimeoutChecks is false (if not in debug)
-    RS_ASSERT(!(rc == RS_RESULT_TIMEDOUT) || !req->skipTimeoutChecks || IsDebug(req));
-
     state->cursor_done = (rc != RS_RESULT_OK
                           && !(rc == RS_RESULT_TIMEDOUT
                                && req->reqConfig.timeoutPolicy == TimeoutPolicy_Return));
@@ -906,6 +918,7 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
 // Based on sendChunk_Resp2/3 patterns.
  void sendChunk_ReplyOnly_EmptyResults(RedisModuleCtx *ctx, AREQ *req) {
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
+  QueryError *err = AREQ_QueryProcessingCtx(req)->err;
 
   if (reply->resp3) {
 
@@ -939,7 +952,13 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
 
     // warning
     RedisModule_ReplyKV_Array(reply, "warning"); // >warnings
-    if (QueryError_HasQueryOOMWarning(AREQ_QueryProcessingCtx(req)->err)) {
+    if (QueryError_GetCode(err) == QUERY_ERROR_CODE_TIMED_OUT) {
+      QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_TIMED_OUT, 1, !IsInternal(req));
+      RedisModule_Reply_SimpleString(reply, QueryWarning_Strwarning(QUERY_WARNING_CODE_TIMED_OUT));
+      ProfileWarnings_Add(&req->profileCtx.warnings, PROFILE_WARNING_TYPE_TIMEOUT);
+    }
+
+    if (QueryError_HasQueryOOMWarning(err)) {
       QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_OUT_OF_MEMORY_SHARD, 1, !IsInternal(req));
       // Shards should use SHARD warning
       // SA and Coordinator should use COORD warning
@@ -991,7 +1010,12 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
 
     RedisModule_Reply_ArrayEnd(reply);
 
-    if (QueryError_HasQueryOOMWarning(AREQ_QueryProcessingCtx(req)->err)) {
+    if (QueryError_GetCode(err) == QUERY_ERROR_CODE_TIMED_OUT) {
+      QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_TIMED_OUT, 1, !IsInternal(req));
+      ProfileWarnings_Add(&AREQ_ProfilePrinterCtx(req)->warnings, PROFILE_WARNING_TYPE_TIMEOUT);
+    }
+
+    if (QueryError_HasQueryOOMWarning(err)) {
       QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_OUT_OF_MEMORY_SHARD, 1, !IsInternal(req));
       ProfileWarnings_Add(&AREQ_ProfilePrinterCtx(req)->warnings, PROFILE_WARNING_TYPE_QUERY_OOM);
     }
@@ -1592,6 +1616,10 @@ int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
   AREQ *r = AREQ_New();
 
   if (prepareRequest(&r, ctx, argv, argc, type, profileOptions, &status) != REDISMODULE_OK) {
+    RS_ASSERT(r == NULL);
+    if (QueryError_GetCode(&status) == QUERY_ERROR_CODE_TIMED_OUT) {
+      return replyForPreExecutionTimeout(ctx, argv, argc, profileOptions, &status);
+    }
     goto error;
   }
 
@@ -1953,6 +1981,10 @@ int DEBUG_execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int a
   // Parse the query, not including debug params
 
   if (prepareRequest(&r, ctx, argv, argc - debug_argv_count, type, profileOptions, &status) != REDISMODULE_OK) {
+    RS_ASSERT(r == NULL);
+    if (QueryError_GetCode(&status) == QUERY_ERROR_CODE_TIMED_OUT) {
+      return replyForPreExecutionTimeout(ctx, argv, argc - debug_argv_count, profileOptions, &status);
+    }
     goto error;
   }
 
