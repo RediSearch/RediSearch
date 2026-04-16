@@ -92,11 +92,11 @@ def testTagPrefixTooShort(env):
         waitForIndex(env, 'idx')
         # 2-char prefix works (meets default MINPREFIX=2)
         res = env.cmd('ft.search', 'idx', '@tags:{al*}', 'nocontent')
-        env.assertEqual(res[0], 1)
+        env.assertEqual(res, [1, 'doc1'])
 
         # 1-char prefix returns nothing (below MINPREFIX)
         res = env.cmd('ft.search', 'idx', '@tags:{a*}', 'nocontent')
-        env.assertEqual(res[0], 0)
+        env.assertEqual(res, [0])
 
 def testTagFieldCase(env):
     dialect = env.cmd(config_cmd(), 'GET', 'DEFAULT_DIALECT')[0][1]
@@ -1042,7 +1042,7 @@ def testTagWildcardWithSuffixTrieNoMatch():
     # Wildcard with a long fixed prefix that the suffix trie can process
     # but finds no matches — triggers the NULL return path
     res = env.cmd('FT.SEARCH', 'idx', "@tag:{w'xyznonexistent*'}", 'NOCONTENT')
-    env.assertEqual(res[0], 0)
+    env.assertEqual(res, [0])
 
 def testTagSuffixMaxExpansionsWithSuffixTrie():
     """Tag suffix query on WITHSUFFIXTRIE field hits max prefix expansion

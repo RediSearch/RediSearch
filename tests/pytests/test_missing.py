@@ -612,10 +612,10 @@ def testMissingWithParams():
     res = env.cmd('FT.SEARCH', 'idx', '@t:$val | ismissing(@t)',
                   'NOCONTENT', 'SORTBY', 't', 'ASC',
                   'PARAMS', '2', 'val', 'hello')
-    env.assertEqual(res[0], 2)
+    env.assertEqual(res, [2, 'has_t', 'no_t'])
 
     # Parameterized query with only ismissing in an intersection
     res = env.cmd('FT.SEARCH', 'idx', '@t:$val ismissing(@t)',
                   'NOCONTENT',
                   'PARAMS', '2', 'val', 'hello')
-    env.assertEqual(res[0], 0)
+    env.assertEqual(res, [0])

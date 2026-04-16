@@ -357,8 +357,8 @@ def test_dialect1_filter_on_nonexistent_field():
 
     # Numeric FILTER on field that doesn't exist in the schema → empty results (not an error)
     res = env.cmd('FT.SEARCH', 'idx', '*', 'FILTER', 'nonexistent', '0', '10', 'DIALECT', '1')
-    env.assertEqual(res[0], 0)
+    env.assertEqual(res, [0])
 
     # GEOFILTER on field that doesn't exist → empty results (not an error)
     res = env.cmd('FT.SEARCH', 'idx', '*', 'GEOFILTER', 'nonexistent', '0', '0', '100', 'km', 'DIALECT', '1')
-    env.assertEqual(res[0], 0)
+    env.assertEqual(res, [0])

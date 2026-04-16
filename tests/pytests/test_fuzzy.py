@@ -111,7 +111,7 @@ def testFuzzyManyExpansions(env):
     # We expect at least 9 results (>8 to trigger the capacity doubling).
     # The exact count may vary depending on what the trie iterator yields,
     # but all 10 terms are within distance 1 of "bat".
-    env.assertGreaterEqual(res[0], 9)
+    env.assertGreaterEqual(res[0], 9, message=res)
 
 def testFuzzyMaxPrefixExpansionsWarning():
     """Verify that a fuzzy query triggers a max prefix expansions warning
