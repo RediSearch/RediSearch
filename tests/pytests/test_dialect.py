@@ -347,3 +347,18 @@ def test_dialect_info():
 
   env.flush()
   check_info_module_results(env, [0,0,0,0])
+
+def test_dialect1_filter_on_nonexistent_field():
+    """FILTER on non-existent field in dialect 1 returns empty results (legacy behavior)."""
+    env = Env(moduleArgs='DEFAULT_DIALECT 1')
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'num', 'NUMERIC').ok()
+    conn.execute_command('HSET', 'doc1', 't', 'hello', 'num', '1')
+
+    # Numeric FILTER on field that doesn't exist in the schema → empty results (not an error)
+    res = env.cmd('FT.SEARCH', 'idx', '*', 'FILTER', 'nonexistent', '0', '10', 'DIALECT', '1')
+    env.assertEqual(res[0], 0)
+
+    # GEOFILTER on field that doesn't exist → empty results (not an error)
+    res = env.cmd('FT.SEARCH', 'idx', '*', 'GEOFILTER', 'nonexistent', '0', '0', '100', 'km', 'DIALECT', '1')
+    env.assertEqual(res[0], 0)
