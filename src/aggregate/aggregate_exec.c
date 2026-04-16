@@ -1120,6 +1120,13 @@ void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
     sctx->redisCtx = outctx;
   }
 
+#ifdef ENABLE_ASSERT
+  // Sync point (debug): pause before acquiring the spec read lock.
+  // Unlike BeforeFirstRead, this does NOT hold any lock, so the main thread
+  // can still acquire the spec write lock (e.g. for HSET / indexing).
+  SyncPoint_Wait(SYNC_POINT_BEFORE_SPEC_LOCK);
+#endif
+
   // lock spec
   RedisSearchCtx_LockSpecRead(sctx);
 

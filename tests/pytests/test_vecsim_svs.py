@@ -635,6 +635,10 @@ def test_resize_workers_during_pending_svs_jobs():
     (SVS update jobs queue behind the blocked queries), then shrinks WORKERS
     (allowed because the queue is RUNNING, not PAUSED). On signal, queries
     release, workers resume, and the SVS jobs execute with the resized pool.
+
+    Uses BeforeSpecLock (not BeforeFirstRead) so that blocked workers do NOT
+    hold the spec read lock — this allows the main thread to acquire the spec
+    write lock for HSET / indexing without deadlocking.
     """
     initial_workers = 4
     final_workers = 2
@@ -642,12 +646,11 @@ def test_resize_workers_during_pending_svs_jobs():
     skipIfNoEnableAssert(env)
     training_threshold = DEFAULT_BLOCK_SIZE
     dim = 2
-    sync_point = 'BeforeFirstRead'
+    sync_point = 'BeforeSpecLock'
 
     # Train the index and add a text field for query blocking
-    env.expect('FT.CREATE', DEFAULT_INDEX_NAME, 'SCHEMA',
-               DEFAULT_FIELD_NAME, 'VECTOR', 'SVS-VAMANA', 4, 'TYPE', 'FLOAT32', 'DIM', dim,
-               't', 'TEXT').ok()
+    create_vector_index(env, dim, alg='SVS-vamana', additional_schema_args=['t', 'TEXT'])
+
     populate_with_vectors(env, dim=dim, num_docs=training_threshold, datatype='FLOAT32')
     # Add a text value so FT.SEARCH t:hello has something to find
     env.execute_command('HSET', 'doc1', 't', 'hello')
@@ -657,7 +660,7 @@ def test_resize_workers_during_pending_svs_jobs():
     backend_info = get_tiered_backend_debug_info(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME)
     env.assertEqual(backend_info['NUM_THREADS'], initial_workers, message="after training")
 
-    # ARM the sync point — queries will block at BeforeFirstRead
+    # ARM the sync point — queries will block at BeforeSpecLock (no lock held)
     env.expect(debug_cmd(), 'SYNC_POINT', 'CLEAR').ok()
     env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', sync_point).ok()
 
@@ -681,9 +684,9 @@ def test_resize_workers_during_pending_svs_jobs():
         lambda: (getWorkersThpoolStats(env)['numJobsInProgress'] == initial_workers, {}),
         'Timeout waiting for all workers to reach sync point')
 
-    # All workers are now blocked on queries. Add vectors — SVS update jobs
-    # are created (beginScheduledJob snapshots pool=4) and queued behind the
-    # blocked queries.
+    # All workers are now blocked on queries (without holding spec lock).
+    # Add vectors — SVS update jobs are created (beginScheduledJob snapshots
+    # pool=4) and queued behind the blocked queries.
     populate_with_vectors(env, dim=dim, num_docs=training_threshold,
                           datatype='FLOAT32', initial_doc_id=training_threshold + 1)
 
