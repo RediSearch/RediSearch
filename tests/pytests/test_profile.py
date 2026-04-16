@@ -275,6 +275,36 @@ def testProfileTag(env):
   actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', '@t:{foo}', 'nocontent')
   env.assertEqual(actual_res[1][1][0][3], ['Type', 'TAG', 'Term', 'foo', 'Number of reading operations', 2, 'Estimated number of matches', 2])
 
+  # tag union profile (multi-value tag query creates a UNION with TAG query type)
+  actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', '@t:{foo|bar}', 'nocontent')
+  expected_res = ['Type', 'UNION', 'Query type', 'TAG', 'Number of reading operations', 2,
+                  'Child iterators', [
+                    ['Type', 'TAG', 'Term', 'foo', 'Number of reading operations', 2, 'Estimated number of matches', 2],
+                    ['Type', 'TAG', 'Term', 'bar', 'Number of reading operations', 1, 'Estimated number of matches', 1]]]
+  env.assertEqual(actual_res[1][1][0][3], expected_res)
+
+@skip(cluster=True)
+def testProfileGeo(env):
+  """GEO query profile: a large-radius GEO query creates a UNION with GEO query type."""
+  conn = getConnectionByEnv(env)
+  env.cmd(config_cmd(), 'SET', '_PRINT_PROFILE_CLOCK', 'false')
+
+  env.cmd('ft.create', 'idx', 'SCHEMA', 'g', 'GEO')
+  # Add enough geo points to force multiple numeric tree nodes, creating a UNION
+  for i in range(10000):
+    lon = (i % 360) - 180
+    lat = (i % 180) - 90
+    conn.execute_command('hset', i, 'g', f'{lon},{lat}')
+  waitForIndex(env, 'idx')
+
+  # geo profile - large radius GEO query creates a UNION with GEO query type
+  actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', '@g:[0 0 20000 km]', 'nocontent', 'limit', '0', '0')
+  profile_data = actual_res[1][1][0][3]
+  env.assertEqual(profile_data[0], 'Type', message=profile_data)
+  env.assertEqual(profile_data[1], 'UNION', message=profile_data)
+  env.assertEqual(profile_data[2], 'Query type', message=profile_data)
+  env.assertContains('GEO', profile_data[3])
+
 @skip(cluster=True)
 def testProfileMissingFieldQuery(env):
   conn = getConnectionByEnv(env)
