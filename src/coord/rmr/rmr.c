@@ -934,6 +934,7 @@ MRIterator *MR_IterateWithPrivateData(const MRCommand *cmd, MRIteratorCallback c
       .privateDataInit = cbPrivateDataInit,
     },
     .cbxs = rm_new(MRIteratorCallbackCtx),
+    .len = 1,
   };
   // Initialize the first command
   *ret->cbxs = (MRIteratorCallbackCtx){
