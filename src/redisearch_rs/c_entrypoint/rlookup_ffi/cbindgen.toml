@@ -45,3 +45,4 @@ exclude = ["FieldSpec", "IndexSpec", "Option_Cow_CStr", "SchemaRule", "RSSorting
 "RLookupKeyFlag" = "RLookup_F"
 "RLookupKeyHeader" = "RLookupKey"
 "RLookupOption" = "RLookup_Opt"
+"OpaqueQueryError" = "QueryError"
