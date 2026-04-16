@@ -227,14 +227,19 @@ QueryIterator *NewNotIterator(QueryIterator *it, t_docId maxDocId, double weight
     return ret;
   }
 
-  bool optimized = q && q->sctx && q->sctx->spec && q->sctx->spec->rule && q->sctx->spec->rule->index_all;
+  QueryIterator *optimizedWildcardIterator = NULL;
+  if (q && q->sctx && q->sctx->spec && q->sctx->spec->rule && q->sctx->spec->rule->index_all) {
+    optimizedWildcardIterator = NewWildcardIterator_Optimized(q->sctx, weight);
+  } else if (q && q->sctx && q->sctx->spec && q->sctx->spec->diskSpec) {
+    optimizedWildcardIterator = NewWildcardIterator(q, weight);
+  }
+  bool optimized = optimizedWildcardIterator != NULL;
   bool skipTimeoutChecks = (q && q->sctx) ? q->sctx->time.skipTimeoutChecks : false;
 
   if (optimized) {
-    RS_ASSERT(!q->sctx->spec->diskSpec)
     NotIteratorOptimized *ni = rm_calloc(1, sizeof(*ni));
     ret = &ni->base;
-    ni->wcii = NewWildcardIterator_Optimized(q->sctx, weight);
+    ni->wcii = optimizedWildcardIterator;
 
     ni->child = it;
     ni->maxDocId = maxDocId;          // Valid for the optimized case as well, since this is the maxDocId of the embedded wildcard iterator
