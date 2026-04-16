@@ -480,7 +480,7 @@
         "summary": "Specifies the name of the index. The index must be created using `FT.CREATE`."
       }
     ],
-    "since": "8.0.0",
+    "since": "8.6.0",
     "group": "search"
   },
   "FT.TAGVALS": {

@@ -1135,7 +1135,7 @@ int AliasListCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   CurrentThread_SetIndexSpec(sp->own_ref);
 
-  size_t count = array_len(sp->aliases);
+  size_t count = sp->aliases ? array_len(sp->aliases) : 0;
   RedisModule_ReplyWithSet(ctx, count);
   for (size_t i = 0; i < count; i++) {
     size_t len;
