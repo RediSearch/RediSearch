@@ -1005,3 +1005,91 @@ def testTagUNF():
     res = env.cmd('FT.AGGREGATE', 'idx_unf', '*', 'GROUPBY', '1', '@tag',
                   'REDUCE', 'COUNT', '0')
     env.assertEqual(res[0], 3)
+
+def testTagWildcardWithSuffixTrieNoMatch():
+    """Tag wildcard on WITHSUFFIXTRIE field with no matching terms returns
+    empty results (covers suffix trie NULL return path)."""
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    conn = getConnectionByEnv(env)
+
+    env.expect('FT.CREATE', 'idx', 'SCHEMA',
+               'tag', 'TAG', 'WITHSUFFIXTRIE').ok()
+
+    conn.execute_command('HSET', '{doc}:1', 'tag', 'apple')
+    conn.execute_command('HSET', '{doc}:2', 'tag', 'banana')
+    conn.execute_command('HSET', '{doc}:3', 'tag', 'cherry')
+
+    # Wildcard with a long fixed prefix that the suffix trie can process
+    # but finds no matches — triggers the NULL return path
+    res = env.cmd('FT.SEARCH', 'idx', "@tag:{w'xyznonexistent*'}", 'NOCONTENT')
+    env.assertEqual(res[0], 0)
+
+def testTagSuffixMaxExpansionsWithSuffixTrie():
+    """Tag suffix query on WITHSUFFIXTRIE field hits max prefix expansion
+    limit when there are more matching terms than allowed (covers the suffix
+    trie branch of Query_EvalTagPrefixNode)."""
+    env = Env(moduleArgs='DEFAULT_DIALECT 2', protocol=3)
+    conn = getConnectionByEnv(env)
+
+    env.expect('FT.CREATE', 'idx', 'SCHEMA',
+               'tag', 'TAG', 'WITHSUFFIXTRIE').ok()
+
+    # Create many distinct tag values sharing a common suffix
+    for i in range(20):
+        conn.execute_command('HSET', f'{{doc}}:{i}', 'tag', f'val{i}common')
+
+    # Set max expansions very low
+    run_command_on_all_shards(env, config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', '1')
+
+    # Suffix query (*common) uses the suffix trie path and should trigger
+    # max expansion warning
+    res = env.cmd('FT.SEARCH', 'idx', '@tag:{*common}', 'LIMIT', '0', '0')
+    env.assertContains('Max prefix expansions limit was reached', res['warning'])
+
+    # Restore default
+    run_command_on_all_shards(env, config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', '200')
+
+def testTagWildcardMaxExpansionsWithSuffixTrie():
+    """Tag wildcard on WITHSUFFIXTRIE field hits max prefix expansion limit."""
+    env = Env(moduleArgs='DEFAULT_DIALECT 2', protocol=3)
+    conn = getConnectionByEnv(env)
+
+    env.expect('FT.CREATE', 'idx', 'SCHEMA',
+               'tag', 'TAG', 'WITHSUFFIXTRIE').ok()
+
+    # Create many distinct tag values
+    for i in range(20):
+        conn.execute_command('HSET', f'{{doc}}:{i}', 'tag', f'val{i}end')
+
+    # Set max expansions very low
+    run_command_on_all_shards(env, config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', '1')
+
+    # Wildcard query that uses suffix trie and exceeds max expansions
+    res = env.cmd('FT.SEARCH', 'idx', "@tag:{w'val*end'}", 'LIMIT', '0', '0')
+    env.assertContains('Max prefix expansions limit was reached', res['warning'])
+
+    # Restore default
+    run_command_on_all_shards(env, config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', '200')
+
+def testTagWildcardMaxExpansionsBruteForce():
+    """Tag wildcard without suffix trie (brute-force) hits max prefix
+    expansion limit."""
+    env = Env(moduleArgs='DEFAULT_DIALECT 2', protocol=3)
+    conn = getConnectionByEnv(env)
+
+    # No WITHSUFFIXTRIE - forces brute-force wildcard path
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'tag', 'TAG').ok()
+
+    # Create many distinct tag values
+    for i in range(20):
+        conn.execute_command('HSET', f'{{doc}}:{i}', 'tag', f'val{i}end')
+
+    # Set max expansions very low
+    run_command_on_all_shards(env, config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', '1')
+
+    # Wildcard query through brute-force path
+    res = env.cmd('FT.SEARCH', 'idx', "@tag:{w'val*end'}", 'LIMIT', '0', '0')
+    env.assertContains('Max prefix expansions limit was reached', res['warning'])
+
+    # Restore default
+    run_command_on_all_shards(env, config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', '200')
