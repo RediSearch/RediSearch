@@ -40,7 +40,7 @@ def testExpireIndex(env):
         except Exception as e:
             env.assertEqual(str(e), 'Unknown index name')
 
-@skip(cluster=True, redis_less_than="7.2")
+@skip(cluster=True, redis_less_than="7.4")
 def test_MOD_14800_persist_clears_expiration_metadata(env: Env):
     # Regression for MOD-14800:
     # Verify that persisting a hash key or an indexed hash field clears the
