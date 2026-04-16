@@ -35,7 +35,8 @@ typedef struct BlockClientCtx{
 } BlockClientCtx;
 
 RedisModuleBlockedClient* BlockQueryClientWithTimeout(RedisModuleCtx *ctx, StrongRef spec, BlockClientCtx *blockClientCtx);
-RedisModuleBlockedClient* BlockCursorClient(RedisModuleCtx *ctx, Cursor* cursor, size_t count, int timeoutMS);
+RedisModuleBlockedClient* BlockCursorClient(RedisModuleCtx *ctx, Cursor* cursor, size_t count,
+                                            BlockClientCtx *blockClientCtx);
 
 #ifdef __cplusplus
 }

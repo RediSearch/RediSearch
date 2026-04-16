@@ -58,27 +58,31 @@ BlockedQueryNode* BlockedQueries_AddQuery(BlockedQueries* blockedQueries, Strong
   BlockedQueryNode* blockedQueryNode = rm_calloc(1, sizeof(BlockedQueryNode));
   blockedQueryNode->spec = StrongRef_Clone(spec);
   blockedQueryNode->start = time(NULL);
-  blockedQueryNode->query = QAST_DumpExplain(ast, StrongRef_Get(spec));
+  blockedQueryNode->query = ast ? QAST_DumpExplain(ast, StrongRef_Get(spec)) : NULL;
   blockedQueryNode->privdata = privdata;
   blockedQueryNode->freePrivData = freePrivData;
   dllist_prepend(&blockedQueries->queries, &blockedQueryNode->llnode);
   return blockedQueryNode;
 }
 
-BlockedCursorNode* BlockedQueries_AddCursor(BlockedQueries* blockedQueries, WeakRef spec, uint64_t cursorId, QueryAST* ast, size_t count) {
+BlockedCursorNode* BlockedQueries_AddCursor(BlockedQueries* blockedQueries, WeakRef spec, uint64_t cursorId,
+                                            QueryAST* ast, size_t count, void *privdata,
+                                            BlockedQueryNode_FreePrivData freePrivData) {
   BlockedCursorNode* blockedCursorNode = rm_calloc(1, sizeof(BlockedCursorNode));
   if (spec.rm) {
     // we don't want cursors to block index deletion, so we don't take a strong ref
     // not entirely sure we clean cursors on index drop, so better be safe than sorry
     blockedCursorNode->spec = WeakRef_Promote(spec);
     IndexSpec *sp = StrongRef_Get(blockedCursorNode->spec);
-    if (sp) {
+    if (sp && ast) {
       blockedCursorNode->query = QAST_DumpExplain(ast, sp);
     }
   }
   blockedCursorNode->cursorId = cursorId;
   blockedCursorNode->count = count;
   blockedCursorNode->start = time(NULL);
+  blockedCursorNode->privdata = privdata;
+  blockedCursorNode->freePrivData = freePrivData;
   dllist_prepend(&blockedQueries->cursors, &blockedCursorNode->llnode);
   return blockedCursorNode;
 }

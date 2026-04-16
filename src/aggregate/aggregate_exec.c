@@ -49,6 +49,8 @@ typedef struct {
 static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num);
 static int prepareExecutionPlan(AREQ *req, QueryError *status);
 static int QueryReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
+static int CursorReadReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
+static int CursorReadTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
 // Wrapper for AREQ_DecrRef to match BlockedClientFreePrivDataCB signature
 static void AREQ_DecrRefWrapper(void *privdata) {
@@ -1492,6 +1494,54 @@ static int QueryReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int
   return REDISMODULE_OK;
 }
 
+static int CursorReadReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  UNUSED(argv);
+  UNUSED(argc);
+
+  BlockedCursorNode *node = RedisModule_GetBlockedClientPrivateData(ctx);
+  if (!node || !node->privdata) {
+    RedisModule_Log(ctx, "warning", "CursorReadReplyCallback: no node or privdata");
+    RedisModule_ReplyWithError(ctx, "ERR Internal error: no request context");
+    return REDISMODULE_OK;
+  }
+
+  AREQ *req = (AREQ *)node->privdata;
+  if (!req->storedReplyState.hasStoredResults) {
+    if (QueryError_HasError(&req->storedReplyState.err)) {
+      QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&req->storedReplyState.err), 1,
+                                         !IsInternal(req));
+      QueryError_ReplyAndClear(ctx, &req->storedReplyState.err);
+    } else {
+      RedisModule_ReplyWithError(ctx, "ERR Internal error: no results stored");
+    }
+    return REDISMODULE_OK;
+  }
+
+  AREQ_ReplyWithStoredResults(ctx, req);
+  return REDISMODULE_OK;
+}
+
+static int CursorReadTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  UNUSED(argv);
+  UNUSED(argc);
+
+  BlockedCursorNode *node = RedisModule_GetBlockedClientPrivateData(ctx);
+  if (!node || !node->privdata) {
+    RedisModule_Log(ctx, "warning", "CursorReadTimeoutFailCallback: no node or privdata");
+    QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, true);
+    RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT));
+    return REDISMODULE_OK;
+  }
+
+  AREQ *req = (AREQ *)node->privdata;
+  AREQ_SetTimedOut(req);
+  Cursors_Purge(GetGlobalCursor(node->cursorId), node->cursorId);
+
+  QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, !IsInternal(req));
+  RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT));
+  return REDISMODULE_OK;
+}
+
 static int buildPipelineAndExecute(AREQ *r, RedisModuleCtx *ctx, QueryError *status) {
   RedisSearchCtx *sctx = AREQ_SearchCtx(r);
   if (RunInThread()) {
@@ -1705,7 +1755,23 @@ static QueryProcessingCtx *prepareForCursorRead(Cursor *cursor, bool *hasLoader,
   return qctx;
 }
 
-static void cursorRead(RedisModuleCtx *ctx, Cursor *cursor, size_t count, bool bg) {
+static bool shouldUseCursorReadReplyCallback(const Cursor *cursor) {
+  AREQ *req = cursor->execState;
+  return req &&
+         req->reqConfig.timeoutPolicy == TimeoutPolicy_Fail &&
+         req->reqConfig.queryTimeoutMS > 0;
+}
+
+static void cursorReadCleanupTimedOut(Cursor *cursor) {
+  AREQ *req = cursor->execState;
+  if (req && req->storedReplyState.cursor == cursor) {
+    req->storedReplyState.cursor = NULL;
+  }
+  Cursor_Free(cursor);
+}
+
+static void cursorRead(RedisModuleCtx *ctx, Cursor *cursor, size_t count, bool bg,
+                       bool useReplyCallback) {
 
   QueryError status = QueryError_Default();
 
@@ -1748,8 +1814,7 @@ static void cursorRead(RedisModuleCtx *ctx, Cursor *cursor, size_t count, bool b
   }
 
   if (req) {
-    // Cursor reads don't use reply_callback, so clear the flag.
-    req->useReplyCallback = false;
+    req->useReplyCallback = useReplyCallback;
     RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
     runCursor(reply, cursor, count);
     RedisModule_EndReply(reply);
@@ -1765,12 +1830,28 @@ typedef struct {
   RedisModuleBlockedClient *bc;
   Cursor *cursor;
   size_t count;
+  bool useReplyCallback;
 } CursorReadCtx;
 
 static void cursorRead_ctx(CursorReadCtx *cr_ctx) {
+  AREQ *req = cr_ctx->cursor->execState;
+  if (cr_ctx->useReplyCallback && req && AREQ_TimedOut(req)) {
+    cursorReadCleanupTimedOut(cr_ctx->cursor);
+    RedisModule_BlockedClientMeasureTimeEnd(cr_ctx->bc);
+    void *privdata = RedisModule_BlockClientGetPrivateData(cr_ctx->bc);
+    RedisModule_UnblockClient(cr_ctx->bc, privdata);
+    rm_free(cr_ctx);
+    return;
+  }
+
   RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(cr_ctx->bc);
-  cursorRead(ctx, cr_ctx->cursor, cr_ctx->count, true);
+  cursorRead(ctx, cr_ctx->cursor, cr_ctx->count, true, cr_ctx->useReplyCallback);
   RedisModule_FreeThreadSafeContext(ctx);
+
+  if (cr_ctx->useReplyCallback && req && AREQ_TimedOut(req)) {
+    cursorReadCleanupTimedOut(cr_ctx->cursor);
+  }
+
   RedisModule_BlockedClientMeasureTimeEnd(cr_ctx->bc);
   void *privdata = RedisModule_BlockClientGetPrivateData(cr_ctx->bc);
   RedisModule_UnblockClient(cr_ctx->bc, privdata);
@@ -1811,13 +1892,27 @@ int RSCursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 
   // We have to check that we are not blocked yet from elsewhere (e.g. coordinator)
   if (RunInThread() && !RedisModule_GetBlockedClientHandle(ctx)) {
+    BlockClientCtx blockClientCtx = {0};
+    bool useReplyCallback = shouldUseCursorReadReplyCallback(cursor);
+    if (useReplyCallback) {
+      AREQ *req = cursor->execState;
+      AREQ_IncrRef(req);
+      blockClientCtx.privdata = req;
+      blockClientCtx.replyCallback = CursorReadReplyCallback;
+      blockClientCtx.timeoutCallback = CursorReadTimeoutFailCallback;
+      blockClientCtx.freePrivData = AREQ_DecrRefWrapper;
+      blockClientCtx.timeoutMS = req->reqConfig.queryTimeoutMS;
+    }
+
     CursorReadCtx *cr_ctx = rm_new(CursorReadCtx);
-    cr_ctx->bc = BlockCursorClient(ctx, cursor, count, 0);
+    cr_ctx->bc = BlockCursorClient(ctx, cursor, count, &blockClientCtx);
     cr_ctx->cursor = cursor;
     cr_ctx->count = count;
-    workersThreadPool_AddWork((redisearch_thpool_proc)cursorRead_ctx, cr_ctx);
+    cr_ctx->useReplyCallback = useReplyCallback;
+    const int rc = workersThreadPool_AddWork((redisearch_thpool_proc)cursorRead_ctx, cr_ctx);
+    RS_ASSERT(rc == 0);
   } else {
-    cursorRead(ctx, cursor, count, false);
+    cursorRead(ctx, cursor, count, false, false);
   }
 
   return REDISMODULE_OK;
