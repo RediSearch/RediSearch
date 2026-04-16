@@ -1762,7 +1762,6 @@ StrongRef IndexSpec_Parse(RedisModuleCtx *ctx, const HiddenString *name, const c
   ArgsCursor rule_prefixes = {0};
   int rc = AC_OK;
   ACArgSpec *errarg = NULL;
-  bool invalid_flex_on_type = false;
   ACArgSpec flex_argopts[] = {
     {.name = "ON", .target = &rule_args.type, .len = &dummy2, .type = AC_ARGTYPE_STRING},
     {.name = "PREFIX", .target = &rule_prefixes, .type = AC_ARGTYPE_SUBARGS},
@@ -1795,16 +1794,11 @@ StrongRef IndexSpec_Parse(RedisModuleCtx *ctx, const HiddenString *name, const c
   };
   ACArgSpec *argopts = isSpecOnDiskForValidation(spec) ? flex_argopts : non_flex_argopts;
   rc = AC_ParseArgSpec(&ac, argopts, &errarg);
-  invalid_flex_on_type = isSpecOnDiskForValidation(spec) && rule_args.type && (strcasecmp(rule_args.type, RULE_TYPE_HASH) != 0);
   if (rc != AC_OK) {
     if (rc != AC_ERR_ENOENT) {
       QERR_MKBADARGS_AC(status, errarg->name, rc);
       goto failure;
     }
-  }
-  if (invalid_flex_on_type) {
-    QueryError_SetError(status, QUERY_ERROR_CODE_FLEX_UNSUPPORTED_FT_CREATE_ARGUMENT, "Only HASH is supported as index data type for Flex indexes");
-    goto failure;
   }
   if ((spec->flags & Index_WideSchema) && !(spec->flags & Index_StoreFieldFlags)) {
     QueryError_SetError(status, QUERY_ERROR_CODE_INVAL,
@@ -4134,10 +4128,6 @@ void Indexes_SpecOpsIndexingCtxFree(SpecOpIndexingCtx *specs) {
 
 void Indexes_UpdateMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key, DocumentType type,
                                            RedisModuleString **hashFields) {
-  if (type == DocumentType_Json && SearchDisk_IsEnabled()) {
-    return;
-  }
-
   if (type == DocumentType_Unsupported) {
     // COPY could overwrite a hash/json with other types so we must try and remove old doc.
     Indexes_DeleteMatchingWithSchemaRules(ctx, key, type, hashFields);

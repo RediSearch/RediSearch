@@ -174,10 +174,10 @@ def test_missing_skip_initial_scan(env):
 
 @skip(cluster=True)
 @with_simulate_in_flex(True)
-def test_invalid_on_json(env):
-    """Test that ON JSON fails when search-_simulate-in-flex is true"""
-    env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SKIPINITIALSCAN', 'SCHEMA', 'field', 'TEXT') \
-        .error().contains('Only HASH is supported as index data type for Flex indexes')
+def test_on_json_is_supported(env):
+    """Test that ON JSON is accepted when search-_simulate-in-flex is true"""
+    env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SKIPINITIALSCAN', 'SCHEMA',
+               '$.field', 'AS', 'field', 'TEXT').ok()
 
 
 @skip(cluster=True)
