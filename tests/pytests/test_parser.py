@@ -806,9 +806,8 @@ INTERSECT {
     env.expect('FT.EXPLAIN', 'idx', '@tag:{baz} (@text:foo bar)', 'VERBATIM').equal(expected)
 
 @skip(cluster=True)
-def test_invalid_query_attributes():
+def test_invalid_query_attributes(env):
     """Test that invalid query attribute values produce proper errors."""
-    env = Env(moduleArgs='DEFAULT_DIALECT 2')
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
 
     # Invalid $slop value (not a number)
@@ -836,9 +835,8 @@ def test_invalid_query_attributes():
         .contains('Invalid attribute')
 
 @skip(cluster=True)
-def test_explain_with_inkeys():
+def test_explain_with_inkeys(env):
     """FT.EXPLAIN with INKEYS renders IDS node in the explain output."""
-    env = Env(moduleArgs='DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
     conn.execute_command('HSET', 'doc1', 't', 'hello')
