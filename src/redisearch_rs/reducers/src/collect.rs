@@ -7,6 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use std::ops::Deref;
+
 use bumpalo::Bump;
 use rlookup::{RLookupKey, RLookupRow};
 
@@ -43,6 +45,11 @@ pub struct CollectReducer<'a> {
     sort_asc_map: u64,
     /// Optional LIMIT clause: `(offset, count)`.
     limit: Option<(u64, u64)>,
+    /// When `true`, this reducer runs on the coordinator and expects its
+    /// single field key to point at an already-finalized `Array<Map>` from a
+    /// shard COLLECT. The `add` method will unpack that array instead of
+    /// projecting individual fields.
+    is_coord: bool,
 }
 
 /// Per-group instance of the [`CollectReducer`].
@@ -55,7 +62,11 @@ pub struct CollectReducer<'a> {
 /// [`CollectCtx::free`] must be called to release the heap-allocated `Vec`s
 /// and decrement `SharedRsValue` refcounts.
 pub struct CollectCtx {
+    /// Rows collected in standalone (shard) mode: each inner `Vec` holds one
+    /// projected value per field key.
     rows: Vec<Vec<SharedRsValue>>,
+    /// Pre-collected maps from shard COLLECT output, used in coordinator mode.
+    pre_collected: Vec<SharedRsValue>,
 }
 
 impl<'a> CollectReducer<'a> {
@@ -70,6 +81,7 @@ impl<'a> CollectReducer<'a> {
         sort_keys: Box<[&'a RLookupKey<'a>]>,
         sort_asc_map: u64,
         limit: Option<(u64, u64)>,
+        is_coord: bool,
     ) -> Self {
         Self {
             reducer: Reducer::new(),
@@ -79,6 +91,7 @@ impl<'a> CollectReducer<'a> {
             sort_keys,
             sort_asc_map,
             limit,
+            is_coord,
         }
     }
 
@@ -141,16 +154,32 @@ impl<'a> CollectReducer<'a> {
 impl CollectCtx {
     /// Create a new per-group collect reducer instance.
     pub const fn new(_r: &CollectReducer) -> Self {
-        Self { rows: Vec::new() }
+        Self {
+            rows: Vec::new(),
+            pre_collected: Vec::new(),
+        }
     }
 
     /// Project field values from `row` and store them for later
     /// serialization in [`Self::finalize`].
     ///
-    /// For each configured field key the value is looked up in the row
+    /// In coordinator mode the single field key points at an
+    /// already-finalized `Array<Map>` from a shard COLLECT; we unpack
+    /// that array and store each map directly.
+    ///
+    /// In standalone mode each configured field key is looked up in the row
     /// and cloned (incrementing its refcount). Missing values are stored as
     /// [`SharedRsValue::null_static`].
     pub fn add(&mut self, r: &CollectReducer, row: &RLookupRow) {
+        if r.is_coord {
+            if let Some(shard_val) = row.get(&r.field_keys[0]) {
+                if let RsValue::Array(arr) = shard_val.deref() {
+                    self.pre_collected.extend(arr.iter().cloned());
+                }
+            }
+            return;
+        }
+
         let mut values = Vec::with_capacity(r.field_keys.len());
         for key in &r.field_keys {
             let value = row
@@ -164,9 +193,18 @@ impl CollectCtx {
 
     /// Serialize all collected rows as an array of maps.
     ///
-    /// Each map contains `{field_name: value}` entries keyed by the
-    /// [`RLookupKey`] name. The outer array has one element per collected row.
+    /// In coordinator mode the maps were already built by the shard; we
+    /// simply concatenate them into a single array.
+    ///
+    /// In standalone mode each map contains `{field_name: value}` entries
+    /// keyed by the [`RLookupKey`] name. The outer array has one element per
+    /// collected row.
     pub fn finalize(&self, r: &CollectReducer) -> SharedRsValue {
+        if r.is_coord {
+            let maps: Box<[SharedRsValue]> = self.pre_collected.iter().cloned().collect();
+            return SharedRsValue::new(RsValue::Array(Array::new(maps)));
+        }
+
         let row_maps: Vec<SharedRsValue> = self
             .rows
             .iter()
@@ -191,5 +229,6 @@ impl CollectCtx {
     /// does not run destructors.
     pub fn free(&mut self, _r: &CollectReducer) {
         drop(std::mem::take(&mut self.rows));
+        drop(std::mem::take(&mut self.pre_collected));
     }
 }

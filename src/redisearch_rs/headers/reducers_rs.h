@@ -37,7 +37,8 @@ Reducer *CollectReducer_Create(const RLookupKey *const *field_keys,
                                uint64_t sort_asc_map,
                                bool has_limit,
                                uint64_t limit_offset,
-                               uint64_t limit_count);
+                               uint64_t limit_count,
+                               bool is_coord);
 
 /**
  * Creates a new per-group collect reducer instance.

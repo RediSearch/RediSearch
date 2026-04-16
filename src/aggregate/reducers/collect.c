@@ -33,6 +33,8 @@ typedef struct {
   bool has_limit;
   uint64_t limit_offset;
   uint64_t limit_count;
+
+  bool is_coord;
 } CollectParseData;
 
 typedef struct {
@@ -222,6 +224,8 @@ Reducer *RDCRCollect_New(const ReducerOptions *options) {
     ARG_OPT_CALLBACK, handleCollectLimit, &pctx,
     ARG_OPT_END);
 
+  ArgParser_AddFlag(parser, "__COORD__", "Internal: coordinator mode", &data.is_coord);
+
   ArgParseResult result = ArgParser_Parse(parser);
 
   if (QueryError_HasError(options->status)) {
@@ -258,7 +262,8 @@ Reducer *RDCRCollect_New(const ReducerOptions *options) {
     data.sortAscMap,
     data.has_limit,
     data.limit_offset,
-    data.limit_count
+    data.limit_count,
+    data.is_coord
   );
 
   // Free the C arrays; Rust has copied the pointer values.
