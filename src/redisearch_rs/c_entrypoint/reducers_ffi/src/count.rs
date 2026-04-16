@@ -96,7 +96,11 @@ pub unsafe extern "C" fn counterFinalize(
     // SAFETY: ensured by caller (2.)
     let count = unsafe { &*ctx.cast::<CounterCtx>() };
 
-    count.finalize(r).into_raw()
+    count
+        .finalize(r)
+        .into_raw()
+        .cast::<ffi::RSValue>()
+        .cast_mut()
 }
 
 /// Constructor for the counter reducer.

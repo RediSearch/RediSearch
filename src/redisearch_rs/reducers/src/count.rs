@@ -12,7 +12,7 @@ use bumpalo::Bump;
 use crate::{Reducer, ReducerOptions};
 use query_error::QueryErrorCode;
 use rlookup::RLookupRow;
-use value::RSValueFFI;
+use value::SharedRsValue;
 
 /// A simple counter reducer.
 ///
@@ -72,9 +72,9 @@ impl CounterCtx {
         self.count += 1;
     }
 
-    /// Finalize the counter reducer instance result into an `RSValueFFI`.
-    pub fn finalize(&self, _r: &CounterReducer) -> RSValueFFI {
-        RSValueFFI::new_num(self.count as f64)
+    /// Finalize the counter reducer instance result into an `SharedRsValue`.
+    pub fn finalize(&self, _r: &CounterReducer) -> SharedRsValue {
+        SharedRsValue::new_num(self.count as f64)
     }
 
     /// Free the provided counter reducer instance.
