@@ -22,7 +22,7 @@ from common import (
     call_and_store,
     getWorkersThpoolStats,
     wait_for_condition,
-    require_enable_assert,
+    skipIfNoEnableAssert,
 )
 
 VECSIM_SVS_DATA_TYPES = ['FLOAT32', 'FLOAT16']
@@ -628,7 +628,6 @@ def test_gc_no_workers():
     gc_test_common(env, num_workers)
 
 @skip(cluster=True)
-@require_enable_assert
 def test_resize_workers_during_pending_svs_jobs():
     """WORKERS shrink while SVS update jobs are queued behind blocked queries.
 
@@ -640,6 +639,7 @@ def test_resize_workers_during_pending_svs_jobs():
     initial_workers = 4
     final_workers = 2
     env = Env(moduleArgs=f'DEFAULT_DIALECT 2 WORKERS {initial_workers}')
+    skipIfNoEnableAssert(env)
     training_threshold = DEFAULT_BLOCK_SIZE
     dim = 2
     sync_point = 'BeforeFirstRead'
