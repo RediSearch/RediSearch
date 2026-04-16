@@ -663,7 +663,7 @@ def test_resize_workers_during_pending_svs_jobs():
 
     # Fire initial_workers queries from separate connections to block all workers
     query_threads = []
-    for i in range(initial_workers):
+    for _ in range(initial_workers):
         conn = env.getConnection()
         results, errors = [], []
         t = threading.Thread(
