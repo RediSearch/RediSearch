@@ -20,7 +20,8 @@ from common import (
     waitForIndex,
     SkipTest,
     call_and_store,
-    getWorkersThpoolStats
+    getWorkersThpoolStats,
+    create_np_array_typed
 )
 
 VECSIM_SVS_DATA_TYPES = ['FLOAT32', 'FLOAT16']
@@ -631,3 +632,188 @@ def test_gc_no_workers():
     env = Env(moduleArgs=f'DEFAULT_DIALECT 2 FORK_GC_RUN_INTERVAL 1000000 FORK_GC_CLEAN_THRESHOLD 0 WORKERS {num_workers}'
                          f' _FREE_RESOURCE_ON_THREAD FALSE')
     gc_test_common(env, num_workers)
+
+
+@skip(cluster=True)
+def test_delete_during_background_indexing():
+    """
+    Test deletions during SVS background indexing (VectorSimilarity PR #903).
+
+    1. Insert vectors to trigger initial background training
+    2. Delete vectors added before training started AND vectors added after
+    3. Add another batch, delete during background update
+    4. Verify deleted docs never appear in query results
+    """
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 WORKERS 2')
+    conn = getConnectionByEnv(env)
+    dim = 32
+    data_type = 'FLOAT32'
+    training_threshold = DEFAULT_BLOCK_SIZE
+    k = 10
+    query = create_random_np_array_typed(dim, data_type)
+
+    # Track deleted doc IDs for verification
+    deleted_docs = set()
+
+    # Phase 1: Insert vectors to trigger initial training
+    create_vector_index(env, dim, index_name=DEFAULT_INDEX_NAME, datatype=data_type, alg='SVS-VAMANA')
+    populate_with_vectors(env, num_docs=training_threshold + 100, dim=dim, datatype=data_type)
+
+    # Add more vectors (these are added after training might have started)
+    populate_with_vectors(env, num_docs=50, dim=dim, datatype=data_type, initial_doc_id=training_threshold + 101)
+
+    # Delete vectors added BEFORE training started (from initial batch)
+    for i in range(10):
+        doc = f'{DEFAULT_DOC_NAME_PREFIX}{i + 1}'
+        conn.execute_command('DEL', doc)
+        deleted_docs.add(doc)
+
+    # Delete vectors added AFTER training started (from second batch)
+    for i in range(10):
+        doc = f'{DEFAULT_DOC_NAME_PREFIX}{training_threshold + 101 + i}'
+        conn.execute_command('DEL', doc)
+        deleted_docs.add(doc)
+
+    # Sanity: num_docs should reflect deletions
+    expected_after_phase1 = training_threshold + 100 + 50 - 20
+    env.assertEqual(index_info(env, DEFAULT_INDEX_NAME)['num_docs'], expected_after_phase1)
+
+    # Sanity query - verify deleted docs are NOT returned
+    res = env.execute_command('FT.SEARCH', DEFAULT_INDEX_NAME,
+                              f'*=>[KNN {k} @{DEFAULT_FIELD_NAME} $vec]',
+                              'PARAMS', 2, 'vec', query.tobytes(), 'NOCONTENT', 'DIALECT', 2)
+    env.assertEqual(res[0], k)
+    for doc in deleted_docs:
+        env.assertNotContains(doc, res)
+
+    wait_for_background_indexing(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME)
+
+    # Phase 2: Add another batch to trigger background update
+    populate_with_vectors(env, num_docs=training_threshold, dim=dim, datatype=data_type,
+                          initial_doc_id=training_threshold + 151)
+
+    # Delete more vectors during background update
+    for i in range(30):
+        doc = f'{DEFAULT_DOC_NAME_PREFIX}{training_threshold + 111 + i}'
+        conn.execute_command('DEL', doc)
+        deleted_docs.add(doc)
+
+    # Sanity: num_docs should reflect deletions
+    expected_after_phase2 = expected_after_phase1 + training_threshold - 30
+    env.assertEqual(index_info(env, DEFAULT_INDEX_NAME)['num_docs'], expected_after_phase2)
+
+    # Sanity query during update - verify deleted docs are NOT returned
+    res = env.execute_command('FT.SEARCH', DEFAULT_INDEX_NAME,
+                              f'*=>[KNN {k} @{DEFAULT_FIELD_NAME} $vec]',
+                              'PARAMS', 2, 'vec', query.tobytes(), 'NOCONTENT', 'DIALECT', 2)
+    env.assertEqual(res[0], k)
+    for doc in deleted_docs:
+        env.assertNotContains(doc, res)
+
+    wait_for_background_indexing(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME)
+
+    # Final validation
+    env.assertEqual(index_info(env, DEFAULT_INDEX_NAME)['num_docs'], expected_after_phase2)
+
+    # Final query - verify ALL deleted docs are still not returned
+    res = env.execute_command('FT.SEARCH', DEFAULT_INDEX_NAME,
+                              f'*=>[KNN {k} @{DEFAULT_FIELD_NAME} $vec]',
+                              'PARAMS', 2, 'vec', query.tobytes(), 'NOCONTENT', 'DIALECT', 2)
+    env.assertEqual(res[0], k)
+    for doc in deleted_docs:
+        env.assertNotContains(doc, res)
+
+
+@skip(cluster=True, no_json=True)
+def test_delete_during_background_indexing_multi_value():
+    """
+    Test deletions during SVS background indexing with multi-value JSON (VectorSimilarity PR #903).
+
+    Same logic as test_delete_during_background_indexing but with multi-value vectors.
+    """
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 WORKERS 2')
+    conn = getConnectionByEnv(env)
+    dim = 4
+    data_type = 'FLOAT32'
+    per_doc = 5
+    n_docs = 250  # 250 * 5 = 1250 vectors
+    k = 10
+    query = create_np_array_typed([0] * dim, data_type)
+
+    # Track deleted doc IDs for verification
+    deleted_docs = set()
+
+    # Create multi-value SVS index
+    env.expect('FT.CREATE', DEFAULT_INDEX_NAME, 'ON', 'JSON', 'SCHEMA',
+               '$.vecs[*]', 'AS', DEFAULT_FIELD_NAME, 'VECTOR', 'SVS-VAMANA', '6',
+               'TYPE', data_type, 'DIM', dim, 'DISTANCE_METRIC', 'L2').ok()
+
+    # Phase 1: Insert docs to trigger initial training
+    for i in range(n_docs):
+        conn.json().set(f'{DEFAULT_DOC_NAME_PREFIX}{i + 1}', '.', {'vecs': [[i / 8.0] * dim for _ in range(per_doc)]})
+
+    # Add more docs (these are added after training might have started)
+    for i in range(20):
+        conn.json().set(f'{DEFAULT_DOC_NAME_PREFIX}{n_docs + i + 1}', '.', {'vecs': [[(n_docs + i) / 8.0] * dim for _ in range(per_doc)]})
+
+    # Delete docs added BEFORE training started (doc1..doc5)
+    for i in range(5):
+        doc = f'{DEFAULT_DOC_NAME_PREFIX}{i + 1}'
+        conn.execute_command('DEL', doc)
+        deleted_docs.add(doc)
+
+    # Delete docs added AFTER training started (doc251..doc255)
+    for i in range(5):
+        doc = f'{DEFAULT_DOC_NAME_PREFIX}{n_docs + i + 1}'
+        conn.execute_command('DEL', doc)
+        deleted_docs.add(doc)
+
+    # Sanity: num_docs should reflect deletions (250 + 20 - 10 = 260)
+    expected_after_phase1 = n_docs + 20 - 10
+    env.assertEqual(index_info(env, DEFAULT_INDEX_NAME)['num_docs'], expected_after_phase1)
+
+    # Sanity query - verify deleted docs are NOT returned
+    res = conn.execute_command('FT.SEARCH', DEFAULT_INDEX_NAME,
+                               f'*=>[KNN {k} @{DEFAULT_FIELD_NAME} $vec]',
+                               'PARAMS', 2, 'vec', query.tobytes(), 'NOCONTENT', 'DIALECT', 2)
+    env.assertEqual(res[0], k)
+    for doc in deleted_docs:
+        env.assertNotContains(doc, res)
+
+    wait_for_background_indexing(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME)
+
+    # Phase 2: Add another batch, delete during background update
+    for i in range(100):
+        doc_id = n_docs + 20 + i + 1
+        conn.json().set(f'{DEFAULT_DOC_NAME_PREFIX}{doc_id}', '.', {'vecs': [[doc_id / 8.0] * dim for _ in range(per_doc)]})
+
+    # Delete more docs during background update
+    for i in range(15):
+        doc = f'{DEFAULT_DOC_NAME_PREFIX}{n_docs + 5 + i + 1}'
+        conn.execute_command('DEL', doc)
+        deleted_docs.add(doc)
+
+    # Sanity: num_docs should reflect deletions
+    expected_after_phase2 = expected_after_phase1 + 100 - 15
+    env.assertEqual(index_info(env, DEFAULT_INDEX_NAME)['num_docs'], expected_after_phase2)
+
+    # Sanity query during update - verify deleted docs are NOT returned
+    res = conn.execute_command('FT.SEARCH', DEFAULT_INDEX_NAME,
+                               f'*=>[KNN {k} @{DEFAULT_FIELD_NAME} $vec]',
+                               'PARAMS', 2, 'vec', query.tobytes(), 'NOCONTENT', 'DIALECT', 2)
+    env.assertEqual(res[0], k)
+    for doc in deleted_docs:
+        env.assertNotContains(doc, res)
+
+    wait_for_background_indexing(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME)
+
+    # Final validation
+    env.assertEqual(index_info(env, DEFAULT_INDEX_NAME)['num_docs'], expected_after_phase2)
+
+    # Final query - verify ALL deleted docs are still not returned
+    res = conn.execute_command('FT.SEARCH', DEFAULT_INDEX_NAME,
+                               f'*=>[KNN {k} @{DEFAULT_FIELD_NAME} $vec]',
+                               'PARAMS', 2, 'vec', query.tobytes(), 'NOCONTENT', 'DIALECT', 2)
+    env.assertEqual(res[0], k)
+    for doc in deleted_docs:
+        env.assertNotContains(doc, res)
