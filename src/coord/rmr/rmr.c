@@ -737,17 +737,21 @@ void iterStartCb(void *p) {
   MRClusterShard *shards = io_runtime_ctx->topo->shards;
   size_t numShards = io_runtime_ctx->topo->numShards;
 
-  // Pre-fanout connection validation - check ALL connections before sending ANY commands
-  bool allConnectionsValid = true;
+  // Pre-fanout connection validation - check ALL connections before any setup.
+  // If validation fails, we return early with a single error (it->len stays 1).
   for (size_t i = 0; i < numShards; i++) {
     MRConn *conn = MRConn_Get(&io_runtime_ctx->conn_mgr, shards[i].node.id);
     if (!conn) {
-      allConnectionsValid = false;
-      break;
+      // At least one connection is not established - fail with a single error.
+      // it->len/pending/inProcess remain at their initial value of 1.
+      MRReply *err = MRReply_CreateError(CLUSTER_QUERY_ERROR, sizeof(CLUSTER_QUERY_ERROR) - 1);
+      it->ctx.cb(&it->cbxs[0], err);
+      rm_free(data);
+      return;
     }
   }
 
-  // Common setup for both success and failure paths
+  // All connections valid - proceed with full setup
   it->len = numShards;
   it->ctx.pending = numShards;
   it->ctx.inProcess = numShards; // Initially all commands are in process
@@ -759,33 +763,20 @@ void iterStartCb(void *p) {
   }
 
   it->cbxs = rm_realloc(it->cbxs, numShards * sizeof(*it->cbxs));
-  for (size_t targetShardIdx = 1; targetShardIdx < numShards; targetShardIdx++) {
-    it->cbxs[targetShardIdx].it = it;
-    it->cbxs[targetShardIdx].privateData = privateData;
-  }
-
-  if (!allConnectionsValid) {
-    // At least one connection is not established - fail all shards with error.
-    for (size_t i = 0; i < numShards; i++) {
-      MRReply *err = MRReply_CreateError(CLUSTER_QUERY_ERROR, sizeof(CLUSTER_QUERY_ERROR) - 1);
-      it->ctx.cb(&it->cbxs[i], err);
-    }
-    rm_free(data);
-    return;
-  }
-
-  // All connections valid - proceed with command setup
   MRCommand *cmd = &it->cbxs->cmd;
 
   // Set the dispatch time value in the prepared placeholder
   MRCommand_SetDispatchTime(cmd);
 
   for (size_t targetShardIdx = 1; targetShardIdx < numShards; targetShardIdx++) {
+    it->cbxs[targetShardIdx].it = it;
     it->cbxs[targetShardIdx].cmd = MRCommand_Copy(cmd);
     // Set each command to target a different shard
     it->cbxs[targetShardIdx].cmd.targetShard = rm_strdup(shards[targetShardIdx].node.id);
     it->cbxs[targetShardIdx].cmd.targetShardIdx = targetShardIdx;
     MRCommand_SetSlotInfo(&it->cbxs[targetShardIdx].cmd, shards[targetShardIdx].slotRanges);
+
+    it->cbxs[targetShardIdx].privateData = MRIteratorCallback_GetPrivateData(&it->cbxs[0]);
   }
 
   // Set the first command to target the first shard (while not having copied it)
