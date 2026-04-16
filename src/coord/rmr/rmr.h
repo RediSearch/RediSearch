@@ -94,6 +94,9 @@ void MRCtx_SetReduceFunction(struct MRCtx *ctx, MRReduceFunc fn);
 /* Free the MapReduce context */
 void MRCtx_Free(struct MRCtx *ctx);
 
+void MRCtx_SetValidateConnections(struct MRCtx *ctx, bool validateConnections);
+bool MRCtx_GetValidateConnections(struct MRCtx *ctx);
+
 /* Create a new MapReduce context with a given private data. In a redis module
  * this should be the RedisModuleCtx */
 struct MRCtx *MR_CreateCtx(struct RedisModuleCtx *ctx, struct RedisModuleBlockedClient *bc, void *privdata, int replyCap);
