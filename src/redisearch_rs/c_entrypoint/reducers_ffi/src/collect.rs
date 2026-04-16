@@ -11,6 +11,7 @@ use reducers::collect::{CollectCtx, CollectReducer};
 use rlookup::{RLookupKey, RLookupRow};
 use std::{
     ffi::{c_int, c_void},
+    ptr::{self, NonNull},
     slice,
 };
 
@@ -86,12 +87,11 @@ pub unsafe extern "C" fn CollectReducer_Create(
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn collectNewInstance(r: *mut ffi::Reducer) -> *mut c_void {
+pub unsafe extern "C" fn collectNewInstance(r: Option<NonNull<ffi::Reducer>>) -> *mut c_void {
     // SAFETY: ensured by caller (1.)
-    let r = unsafe { r.cast::<CollectReducer>().as_mut().unwrap() };
+    let r = unsafe { r.unwrap().cast::<CollectReducer>().as_mut() };
 
-    let ctx: *mut CollectCtx = r.alloc_instance();
-    ctx.cast()
+    ptr::from_mut(r.alloc_instance()).cast::<c_void>()
 }
 
 /// Frees a per-group collect reducer instance.
@@ -103,11 +103,11 @@ pub unsafe extern "C" fn collectNewInstance(r: *mut ffi::Reducer) -> *mut c_void
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn collectFreeInstance(r: *mut ffi::Reducer, ctx: *mut c_void) {
+pub unsafe extern "C" fn collectFreeInstance(r: Option<NonNull<ffi::Reducer>>, ctx: *mut c_void) {
     // SAFETY: ensured by caller (1.)
-    let r = unsafe { r.cast::<CollectReducer>().as_mut().unwrap() };
+    let r = unsafe { r.unwrap().cast::<CollectReducer>().as_mut() };
     // SAFETY: ensured by caller (2.)
-    let collect = unsafe { &mut *ctx.cast::<CollectCtx>() };
+    let collect = unsafe { ctx.cast::<CollectCtx>().as_mut().unwrap() };
 
     collect.free(r);
 }
@@ -131,9 +131,9 @@ pub unsafe extern "C" fn collectAdd(
     // SAFETY: ensured by caller (1.)
     let r = unsafe { r.cast::<CollectReducer>().as_mut().unwrap() };
     // SAFETY: ensured by caller (2.)
-    let collect = unsafe { &mut *ctx.cast::<CollectCtx>() };
+    let collect = unsafe { ctx.cast::<CollectCtx>().as_mut().unwrap() };
     // SAFETY: ensured by caller (3.)
-    let srcrow = unsafe { &*srcrow.cast::<RLookupRow>() };
+    let srcrow = unsafe { srcrow.cast::<RLookupRow>().as_ref().unwrap() };
 
     collect.add(r, srcrow);
 
@@ -150,13 +150,13 @@ pub unsafe extern "C" fn collectAdd(
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn collectFinalize(
-    r: *mut ffi::Reducer,
+    r: Option<NonNull<ffi::Reducer>>,
     ctx: *mut c_void,
 ) -> *mut ffi::RSValue {
     // SAFETY: ensured by caller (1.)
-    let r = unsafe { r.cast::<CollectReducer>().as_mut().unwrap() };
+    let r = unsafe { r.unwrap().cast::<CollectReducer>().as_mut() };
     // SAFETY: ensured by caller (2.)
-    let collect = unsafe { &*ctx.cast::<CollectCtx>() };
+    let collect = unsafe { ctx.cast::<CollectCtx>().as_ref().unwrap() };
 
     collect.finalize(r).into_raw() as *mut ffi::RSValue
 }

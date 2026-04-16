@@ -28,14 +28,14 @@ impl ReducerOptions {
     }
 
     /// Get a reference to the `args` cursor.
-    pub fn args(&self) -> &ffi::ArgsCursor {
+    pub const fn args(&self) -> &ffi::ArgsCursor {
         // SAFETY: (1.) due to creation with `ReducerOptions::from_raw_mut`
-        unsafe { &*self.0.args }
+        unsafe { self.0.args.as_ref().unwrap() }
     }
 
     /// Get a mutable reference to the query error.
-    pub fn status(&mut self) -> &mut QueryError {
+    pub const fn status(&mut self) -> &mut QueryError {
         // SAFETY: (1.) due to creation with `ReducerOptions::from_raw_mut`
-        unsafe { &mut *self.0.status.cast::<QueryError>() }
+        unsafe { self.0.status.cast::<QueryError>().as_mut().unwrap() }
     }
 }
