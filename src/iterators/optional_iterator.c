@@ -218,12 +218,18 @@ QueryIterator *NewOptionalIterator(QueryIterator *it, QueryEvalCtx *q, t_docId m
     return ret;
   }
 
-  bool optimized = q->sctx->spec->rule && q->sctx->spec->rule->index_all;
+  QueryIterator *optimizedWildcardIterator = NULL;
+  if (q->sctx->spec->rule && q->sctx->spec->rule->index_all) {
+    // if index_all is enabled we can use the optimized wildcard iterator
+    optimizedWildcardIterator = NewWildcardIterator_Optimized(q->sctx, 0);
+  } else if (q->sctx->spec->diskSpec) {
+    // for disk spec using the regular wildcard iterator will use the optimized disk iterator
+    optimizedWildcardIterator = NewWildcardIterator(q, 0);
+  }
 
-  if (optimized) {
-    RS_ASSERT(!q->sctx->spec->diskSpec)
+  if (optimizedWildcardIterator) {
     OptionalOptimizedIterator *oi = rm_calloc(1, sizeof(*oi));
-    oi->wcii = NewWildcardIterator_Optimized(q->sctx, 0);
+    oi->wcii = optimizedWildcardIterator;
     oi->child = it;
     oi->virt = NewVirtualResult(0, RS_FIELDMASK_ALL);
     oi->virt->freq = 1;

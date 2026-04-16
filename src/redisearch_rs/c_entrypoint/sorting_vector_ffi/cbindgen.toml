@@ -6,7 +6,7 @@ after_includes = """
 // Forward declaration of RSValue, which is only used as ptr in the sorting_vector module
 typedef struct RSValue RSValue;
 
-// RSSortingVector is repr(transparent) in Rust over a ThinVec<RSValueFFI>.
+// RSSortingVector is repr(transparent) in Rust over a ThinVec<RSValue>.
 // On the stack it is a single pointer to a heap allocation with this layout:
 //   Header<u64> { len: u64, cap: u64 }  (16 bytes, no trailing padding)
 //   RSValue* values[len] (the data array)
@@ -54,3 +54,6 @@ include = []
 
 [export]
 exclude = ["RSSortingVector"]
+
+[export.rename]
+"RsValue" = "RSValue"

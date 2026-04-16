@@ -121,6 +121,11 @@ typedef uint32_t RLookup_Opt;
 typedef struct RLookup RLookup;
 
 /**
+ * An actual [`RsValue`] object
+ */
+typedef struct RSValue RSValue;
+
+/**
  * A type with size `N`.
  */
 typedef uint8_t Size_40[40];
@@ -203,16 +208,6 @@ typedef struct RLookupIteratorMut {
 } RLookupIteratorMut;
 
 /**
- * [RSValueFFI] is a wrapper around the C struct `RSValue` implement as new-type over a [std::ptr::NonNull<ffi::RSValue>].
- *
- * It implements the [`Clone`] and [`Drop`] traits to manage the reference counting of the underlying C struct.
- *
- * Safety:
- * 1. The pointer must be a valid pointer to an `RSValue` created by the C side.
- */
-typedef RSValue *RSValueFFI;
-
-/**
  * A read-only view of a sorting vector's values, returned by value to C.
  *
  * Layout-compatible with [`sorting_vector::RSSortingVector`] but uses `*const` values
@@ -220,10 +215,10 @@ typedef RSValue *RSValueFFI;
  */
 typedef struct RSSortingVectorSlice {
   /**
-   * Pointer to the array of [`RSValueFFI`] values.
+   * Pointer to the array of [`SharedRsValue`] values.
    * When `len == 0` this is a dangling pointer — **not** null. Callers must check `len`.
    */
-  const RSValueFFI *values;
+  const struct RSValue *const *values;
   /**
    * Number of elements in the array. Zero means no sorting vector is set.
    */
@@ -598,8 +593,6 @@ struct RLookupIterator RLookup_Iter(const struct RLookup *lookup);
  */
 struct RLookupIteratorMut RLookup_IterMut(struct RLookup *lookup);
 
-extern int RSValue_Cmp(const RSValue *v1, const RSValue *v2, QueryError *status);
-
 /**
  * Returns a newly created [`RLookupRow`].
  */
@@ -612,13 +605,13 @@ struct RLookupRow RLookupRow_New(void);
  *
  * 1. `key` must be a [valid], non-null pointer to an [`RLookupKey`].
  * 2. `row` must be a [valid], non-null pointer to an [`RLookupRow`].
- * 3. `value` must be a [valid], non-null pointer to an [`ffi::RSValue`].
+ * 3. `value` must be a [valid], non-null pointer to an [`RsValue`].
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 void RLookup_WriteKey(const struct RLookupKey *key,
                       struct RLookupRow *row,
-                      RSValue *value);
+                      struct RSValue *value);
 
 /**
  * Writes a key to the row without incrementing the value reference count, thus taking ownership of the value.
@@ -627,13 +620,13 @@ void RLookup_WriteKey(const struct RLookupKey *key,
  *
  * 1. `key` must be a [valid], non-null pointer to an [`RLookupKey`].
  * 2. `row` must be a [valid], non-null pointer to an [`RLookupRow`].
- * 3. `value` must be a [valid], non-null pointer to an [`ffi::RSValue`].
+ * 3. `value` must be a [valid], non-null pointer to an [`RsValue`].
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 void RLookup_WriteOwnKey(const struct RLookupKey *key,
                          struct RLookupRow *row,
-                         RSValue *value);
+                         struct RSValue *value);
 
 /**
  * Wipes a RLookupRow by decrementing all values and resetting the row.
@@ -695,7 +688,7 @@ void RLookupRow_MoveFieldsFrom(const struct RLookup *lookup,
  *     2. The entire memory range of this cstr must be contained within a single allocation!
  *     3. `name` must be non-null even for a zero-length cstr.
  * 4. `row` must be a [valid], non-null pointer to an [`RLookupRow`].
- * 5. `value` must be a [valid], non-null pointer to an [`ffi::RSValue`].
+ * 5. `value` must be a [valid], non-null pointer to an [`RsValue`].
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
@@ -703,7 +696,7 @@ void RLookupRow_WriteByName(struct RLookup *lookup,
                             const char *name,
                             size_t name_len,
                             struct RLookupRow *row,
-                            RSValue *value);
+                            struct RSValue *value);
 
 /**
  * Write a value by-name to the lookup table. This is useful for 'dynamic' keys
@@ -725,7 +718,7 @@ void RLookupRow_WriteByName(struct RLookup *lookup,
  *     2. The entire memory range of this cstr must be contained within a single allocation!
  *     3. `name` must be non-null even for a zero-length cstr.
  * 4. `row` must be a [valid], non-null pointer to an [`RLookupRow`].
- * 5. `value` must be a [valid], non-null pointer to an [`ffi::RSValue`].
+ * 5. `value` must be a [valid], non-null pointer to an [`RsValue`].
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
@@ -733,7 +726,7 @@ void RLookupRow_WriteByNameOwned(struct RLookup *lookup,
                                  const char *name,
                                  size_t name_len,
                                  struct RLookupRow *row,
-                                 RSValue *value);
+                                 struct RSValue *value);
 
 /**
  * Write fields from a source row into this row.
@@ -778,7 +771,7 @@ void RLookupRow_WriteFieldsFrom(const struct RLookupRow *src_row,
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-RSValue *RLookupRow_Get(const struct RLookupKey *key, const struct RLookupRow *row);
+struct RSValue *RLookupRow_Get(const struct RLookupKey *key, const struct RLookupRow *row);
 
 /**
  * Returns a borrowed view of the sorting vector for the row.
