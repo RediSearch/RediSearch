@@ -1461,6 +1461,31 @@ int IndexSpec_CreateTextId(IndexSpec *sp, t_fieldIndex index) {
 
 static IndexSpecCache *IndexSpec_BuildSpecCache(const IndexSpec *spec);
 
+static int validateDiskJsonSinglePath(const IndexSpec *sp, const FieldSpec *fs, QueryError *status) {
+  if (!isSpecOnDiskForValidation(sp) || !isSpecJson(sp)) {
+    return 1;
+  }
+
+  RedisModuleString *err_msg = NULL;
+  JSONPath jsonPath = pathParse(fs->fieldPath, &err_msg);
+  if (!jsonPath) {
+    if (err_msg) {
+      JSONParse_error(status, err_msg, fs->fieldPath, fs->fieldName, sp->specName);
+    }
+    return 0;
+  }
+
+  bool isSingle = japi->pathIsSingle(jsonPath);
+  japi->pathFree(jsonPath);
+  if (!isSingle) {
+    QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_INVAL,
+                                     "Disk JSON index supports only single-value JSONPath fields");
+    return 0;
+  }
+
+  return 1;
+}
+
 /**
  * Add fields to an existing (or newly created) index. If the addition fails,
  */
@@ -1508,6 +1533,9 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, StrongRef spec_ref, ArgsCu
     if (!fs) {
       QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_LIMIT, "Schema is currently limited", " to %d fields",
                              sp->numFields);
+      goto reset;
+    }
+    if (!validateDiskJsonSinglePath(sp, fs, status)) {
       goto reset;
     }
     if (!parseFieldSpec(ac, sp, spec_ref, fs, status)) {

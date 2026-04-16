@@ -51,7 +51,8 @@ int jsonIterToValue(RedisModuleCtx *ctx, JSONResultsIterator iter, unsigned int 
 
 /* Creates a Redis Module String from JSONType string, int, double, bool */
 int JSON_LoadDocumentField(JSONResultsIterator jsonIter, size_t len, FieldSpec *fs,
-                           struct DocumentField *df, RedisModuleCtx *ctx, QueryError *status);
+                           struct DocumentField *df, RedisModuleCtx *ctx, bool rejectMultiValue,
+                           QueryError *status);
 
 /* Checks if JSONType fits the FieldType */
 int FieldSpec_CheckJsonType(FieldType fieldType, JSONType type, QueryError *status);

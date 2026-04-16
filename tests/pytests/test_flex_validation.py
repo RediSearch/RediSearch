@@ -181,6 +181,41 @@ def test_on_json_is_supported(env):
 
 
 @skip(cluster=True)
+@with_simulate_in_flex(True)
+def test_disk_json_rejects_multi_value_jsonpath(env):
+    """Test that disk validation rejects non-single JSONPath fields"""
+    env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SKIPINITIALSCAN', 'SCHEMA',
+               '$.field[*]', 'AS', 'field', 'TEXT') \
+        .error().contains('Disk JSON index supports only single-value JSONPath fields')
+
+
+@skip(cluster=True)
+@with_simulate_in_flex(True)
+def test_disk_json_ingestion_rejects_array_payload_for_single_path_field(env):
+    """Valid disk JSON schema should be created, but array payload ingestion should fail."""
+
+    env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SKIPINITIALSCAN', 'PREFIX', '1', 'doc:',
+               'SCHEMA', '$.name', 'AS', 'name', 'TEXT').ok()
+
+    errs = index_errors(env, 'idx')
+    env.assertEqual(int(errs['indexing failures']), 0)
+
+    env.expect('JSON.SET', 'doc:1', '$', '{"name":["a","b"]}').ok()
+
+    errs = index_errors(env, 'idx')
+    env.assertEqual(int(errs['indexing failures']), 1)
+    env.assertContains('Disk JSON index does not support array values for this field type',
+                       errs['last indexing error'])
+
+    env.expect('FT.SEARCH', 'idx', '@name:a', 'NOCONTENT').equal([0])
+    env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT').equal([0])
+
+    # Valid scalar value should be indexed after the failed attempt.
+    env.expect('JSON.SET', 'doc:1', '$.name', '"alice"').ok()
+    env.expect('FT.SEARCH', 'idx', '@name:alice', 'NOCONTENT').equal([1, 'doc:1'])
+
+
+@skip(cluster=True)
 @with_simulate_in_flex(False)
 def test_default_on_hash(env):
     """Test that ON HASH fails when search-_simulate-in-flex is false"""
