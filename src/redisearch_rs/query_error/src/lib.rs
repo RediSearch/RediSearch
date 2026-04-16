@@ -100,7 +100,6 @@ pub enum QueryErrorCode {
     GeoCoordinatesInvalid,
     JsonTypeBad,
     ClusterNoResponses,
-    AliasLimitExceeded,
 }
 
 impl Debug for QueryErrorCode {
@@ -467,11 +466,6 @@ impl QueryErrorCode {
                 prefix: c"SEARCH_CLUSTER_NO_RESPONSES ",
                 default_msg: c"no responses received",
                 default_full_msg: c"SEARCH_CLUSTER_NO_RESPONSES no responses received",
-            },
-            Self::AliasLimitExceeded => ErrorCodeStrings {
-                prefix: c"SEARCH_ALIAS_LIMIT_EXCEEDED ",
-                default_msg: c"Maximum number of aliases per index exceeded",
-                default_full_msg: c"SEARCH_ALIAS_LIMIT_EXCEEDED Maximum number of aliases per index exceeded",
             },
         }
     }

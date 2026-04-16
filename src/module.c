@@ -1101,11 +1101,9 @@ static int AliasUpdateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int
   }
   int rc = 0;
   if (aliasAddCommon(ctx, argv, argc, &status, false) != REDISMODULE_OK) {
-    // Add back the previous index. This shouldn't fail - use INDEXALIAS_NO_LIMIT_CHECK
-    // to bypass the alias limit during rollback to ensure we restore the original state
     if (spOrig) {
       QueryError e2 = QueryError_Default();
-      IndexAlias_Add(alias, Orig_ref, INDEXALIAS_NO_LIMIT_CHECK, &e2);
+      IndexAlias_Add(alias, Orig_ref, 0, &e2);
       QueryError_ClearError(&e2);
     }
     rc = QueryError_ReplyAndClear(ctx, &status);
@@ -1118,8 +1116,9 @@ static int AliasUpdateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int
 }
 
 // FT.ALIASLIST <index>
-// Returns all aliases for the given index
-static int AliasListCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+// Returns all aliases for the given index.
+// Only accepts index names, not aliases (INDEXSPEC_LOAD_NOALIAS).
+int AliasListCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (argc != 2) {
     return RedisModule_WrongArity(ctx);
   }
@@ -1133,18 +1132,17 @@ static int AliasListCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int a
     return RedisModule_ReplyWithErrorFormat(ctx, "%s: %s", QueryError_Strerror(QUERY_ERROR_CODE_NO_INDEX), idx);
   }
 
-  if (!checkEnterpriseACL(ctx, sp)) {
-    return RedisModule_ReplyWithError(ctx, NOPERM_ERR);
-  }
+  CurrentThread_SetIndexSpec(sp->own_ref);
 
   size_t count = array_len(sp->aliases);
-  // Use Set for RESP3 consistency with the documentation and cluster-mode handler
   RedisModule_ReplyWithSet(ctx, count);
   for (size_t i = 0; i < count; i++) {
     size_t len;
     const char *alias = HiddenString_GetUnsafe(sp->aliases[i], &len);
     RedisModule_ReplyWithStringBuffer(ctx, alias, len);
   }
+
+  CurrentThread_ClearIndexSpec();
   return REDISMODULE_OK;
 }
 

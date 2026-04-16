@@ -557,8 +557,8 @@ int SetFtAliaslistInfo(RedisModuleCommand *cmd) {
       },
       {0}
     },
-    .arity = 2,
-    .since = "2.12.0",
+    .arity = -2,
+    .since = "8.0.0",
   };
   return RedisModule_SetCommandInfo(cmd, &info);
 }

@@ -28,13 +28,6 @@ extern AliasTable *AliasTable_g;
 // index spec. This is used for add and delete operations
 #define INDEXALIAS_NO_BACKREF 0x01
 
-// Skip the alias limit check. Used during RDB loading (to preserve
-// persisted data) and during error recovery/rollback operations
-#define INDEXALIAS_NO_LIMIT_CHECK 0x02
-
-// Hard limit on the number of aliases per index (security measure)
-#define MAX_ALIASES_PER_INDEX 1000
-
 AliasTable *AliasTable_New(void);
 
 void IndexAlias_InitGlobal(void);

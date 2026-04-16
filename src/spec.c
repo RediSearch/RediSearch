@@ -3311,8 +3311,7 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, QueryError *status)
     QueryError _status;
     char *s = LoadStringBuffer_IOError(rdb, NULL, goto cleanup);
     HiddenString* alias = NewHiddenString(s, strlen(s), false);
-    // Use INDEXALIAS_NO_LIMIT_CHECK to preserve all persisted aliases during RDB loading
-    int rc = IndexAlias_Add(alias, spec_ref, INDEXALIAS_NO_LIMIT_CHECK, &_status);
+    int rc = IndexAlias_Add(alias, spec_ref, 0, &_status);
     HiddenString_Free(alias, false);
     RedisModule_Free(s);
     if (rc != REDISMODULE_OK) {
@@ -3479,8 +3478,7 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
       size_t dummy;
       char *s = RedisModule_LoadStringBuffer(rdb, &dummy);
       HiddenString* alias = NewHiddenString(s, strlen(s), false);
-      // Use INDEXALIAS_NO_LIMIT_CHECK to preserve all persisted aliases during RDB loading
-      int rc = IndexAlias_Add(alias, spec_ref, INDEXALIAS_NO_LIMIT_CHECK, &status);
+      int rc = IndexAlias_Add(alias, spec_ref, 0, &status);
       HiddenString_Free(alias, false);
       RedisModule_Free(s);
       RS_ASSERT(rc == REDISMODULE_OK);

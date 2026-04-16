@@ -470,6 +470,19 @@
     "since": "1.0.0",
     "group": "search"
   },
+  "FT.ALIASLIST": {
+    "summary": "Lists all aliases for the index",
+    "complexity": "O(N) where N is the number of aliases",
+    "arguments": [
+      {
+        "name": "index",
+        "type": "string",
+        "summary": "Specifies the name of the index. The index must be created using `FT.CREATE`."
+      }
+    ],
+    "since": "8.0.0",
+    "group": "search"
+  },
   "FT.TAGVALS": {
     "summary": "Returns the distinct tags indexed in a Tag field",
     "complexity": "O(N)",
