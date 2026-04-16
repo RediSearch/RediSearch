@@ -178,6 +178,35 @@ macro_rules! union_common_tests {
             }
         }
 
+        #[test]
+        #[cfg_attr(miri, ignore)] // Calls RSYieldableMetric_Concat FFI in push_borrowed
+        fn rewind_restores_original_order_after_exhaustion() {
+            // Child 0: [1]         — exhausts first
+            // Child 1: [1, 5]      — exhausts second
+            // Child 2: [1, 5, 10]  — exhausts last
+            let (children, _data) = create_mock_3([1], [1, 5], [1, 5, 10]);
+            let mut union_iter = Union::new(children);
+
+            // Record the pointer (address) of each child before any reads.
+            let ptrs_before: Vec<*const dyn RQEIterator<'static>> = (0..3)
+                .map(|i| union_iter.child_at(i) as *const dyn RQEIterator<'static>)
+                .collect();
+
+            while union_iter.read().expect("read failed").is_some() {}
+            assert!(union_iter.at_eof());
+
+            // Rewind and verify child_at returns the same child objects.
+            union_iter.rewind();
+            for i in 0..3 {
+                let ptr_after =
+                    union_iter.child_at(i) as *const dyn RQEIterator<'static>;
+                assert!(
+                    std::ptr::addr_eq(ptrs_before[i], ptr_after),
+                    "child_at({i}) should return the same child after rewind"
+                );
+            }
+        }
+
         // =============================================================================
         // Edge case tests
         // =============================================================================

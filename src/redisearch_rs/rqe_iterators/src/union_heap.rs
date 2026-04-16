@@ -72,6 +72,11 @@ where
         }
     }
 
+    /// Returns a shared reference to the child originally at insertion index `idx`.
+    pub fn child_at(&self, idx: usize) -> &I {
+        &self.children[idx]
+    }
+
     /// Rebuilds the heap from scratch based on current child positions.
     /// Used after revalidation when children may have moved arbitrarily.
     fn rebuild_heap(&mut self) {
