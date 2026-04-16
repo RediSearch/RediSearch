@@ -10,15 +10,25 @@
 use reducers::collect::{CollectCtx, CollectReducer};
 use rlookup::{RLookupKey, RLookupRow};
 use std::{
-    ffi::{c_int, c_void},
+    ffi::{CStr, c_char, c_int, c_void},
     slice,
 };
 
-/// Creates a new [`CollectReducer`] from pre-parsed configuration and returns a
-/// pointer to its base [`ffi::Reducer`] with the vtable fully wired.
-///
-/// The caller is responsible for eventually calling [`collectFree`] on the
-/// returned pointer.
+/// Wire the vtable on a freshly constructed [`CollectReducer`] and return the
+/// raw pointer as `*mut ffi::Reducer`.
+fn wire_vtable(mut cr: Box<CollectReducer<'_>>) -> *mut ffi::Reducer {
+    cr.reducer_mut()
+        .set_new_instance(collectNewInstance)
+        .set_add(collectAdd)
+        .set_finalize(collectFinalize)
+        .set_free_instance(collectFreeInstance)
+        .set_free(collectFree);
+
+    Box::into_raw(cr).cast()
+}
+
+/// Creates a shard-mode [`CollectReducer`] from pre-resolved [`RLookupKey`]
+/// arrays and returns a pointer to its base [`ffi::Reducer`].
 ///
 /// # Safety
 ///
@@ -31,7 +41,7 @@ use std::{
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn CollectReducer_Create(
+pub unsafe extern "C" fn CollectReducer_CreateShard(
     field_keys: *const *const ffi::RLookupKey,
     field_keys_len: usize,
     has_wildcard: bool,
@@ -41,7 +51,6 @@ pub unsafe extern "C" fn CollectReducer_Create(
     has_limit: bool,
     limit_offset: u64,
     limit_count: u64,
-    is_coord: bool,
 ) -> *mut ffi::Reducer {
     let field_keys: Box<[&RLookupKey]> = if !field_keys.is_null() && field_keys_len > 0 {
         // SAFETY: ensured by caller (1.)
@@ -61,23 +70,79 @@ pub unsafe extern "C" fn CollectReducer_Create(
 
     let limit = has_limit.then_some((limit_offset, limit_count));
 
-    let mut cr = Box::new(CollectReducer::new(
+    let cr = Box::new(CollectReducer::new_shard(
         field_keys,
         has_wildcard,
         sort_keys,
         sort_asc_map,
         limit,
-        is_coord,
     ));
 
-    cr.reducer_mut()
-        .set_new_instance(collectNewInstance)
-        .set_add(collectAdd)
-        .set_finalize(collectFinalize)
-        .set_free_instance(collectFreeInstance)
-        .set_free(collectFree);
+    wire_vtable(cr)
+}
 
-    Box::into_raw(cr).cast()
+/// Creates a coordinator-mode [`CollectReducer`] from a resolved `source_key`
+/// and raw field/sort name strings, returning a pointer to its base
+/// [`ffi::Reducer`].
+///
+/// # Safety
+///
+/// 1. `source_key` must point to a [valid] `RLookupKey` that outlives the
+///    returned reducer.
+/// 2. If `field_names_len > 0`, `field_names` must point to an array of at
+///    least `field_names_len` [valid] null-terminated C strings.
+/// 3. If `sort_names_len > 0`, `sort_names` must point to an array of at
+///    least `sort_names_len` [valid] null-terminated C strings.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn CollectReducer_CreateCoord(
+    source_key: *const ffi::RLookupKey,
+    field_names: *const *const c_char,
+    field_names_len: usize,
+    sort_names: *const *const c_char,
+    sort_names_len: usize,
+    sort_asc_map: u64,
+    has_limit: bool,
+    limit_offset: u64,
+    limit_count: u64,
+) -> *mut ffi::Reducer {
+    // SAFETY: ensured by caller (1.)
+    let source_key: &RLookupKey = unsafe { &*source_key.cast::<RLookupKey>() };
+
+    let field_names: Box<[Box<[u8]>]> = if !field_names.is_null() && field_names_len > 0 {
+        // SAFETY: ensured by caller (2.)
+        let ptrs = unsafe { slice::from_raw_parts(field_names, field_names_len) };
+        ptrs.iter()
+            // SAFETY: each element is a valid null-terminated C string per caller (2.)
+            .map(|&p| unsafe { CStr::from_ptr(p) }.to_bytes().into())
+            .collect()
+    } else {
+        Box::new([])
+    };
+
+    let sort_key_names: Box<[Box<[u8]>]> = if !sort_names.is_null() && sort_names_len > 0 {
+        // SAFETY: ensured by caller (3.)
+        let ptrs = unsafe { slice::from_raw_parts(sort_names, sort_names_len) };
+        ptrs.iter()
+            // SAFETY: each element is a valid null-terminated C string per caller (3.)
+            .map(|&p| unsafe { CStr::from_ptr(p) }.to_bytes().into())
+            .collect()
+    } else {
+        Box::new([])
+    };
+
+    let limit = has_limit.then_some((limit_offset, limit_count));
+
+    let cr = Box::new(CollectReducer::new_coord(
+        source_key,
+        field_names,
+        sort_key_names,
+        sort_asc_map,
+        limit,
+    ));
+
+    wire_vtable(cr)
 }
 
 /// Creates a new per-group collect reducer instance.
@@ -169,7 +234,8 @@ pub unsafe extern "C" fn collectFinalize(
 /// # Safety
 ///
 /// 1. `r` must point to a [valid] `CollectReducer` masquerading as a `ffi::Reducer`,
-///    originally created by [`CollectReducer_Create`].
+///    originally created by [`CollectReducer_CreateShard`] or
+///    [`CollectReducer_CreateCoord`].
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
@@ -191,9 +257,9 @@ pub unsafe extern "C" fn collectFree(r: *mut ffi::Reducer) {
 /// # Safety
 ///
 /// `r` must point to a valid [`CollectReducer`] originally created by
-/// `CollectReducer_Create`.
+/// [`CollectReducer_CreateShard`].
 #[unsafe(no_mangle)]
-pub const unsafe extern "C" fn CollectReducer_GetFieldKeysLen(r: *const ffi::Reducer) -> usize {
+pub unsafe extern "C" fn CollectReducer_GetFieldKeysLen(r: *const ffi::Reducer) -> usize {
     // SAFETY: ensured by caller.
     let r = unsafe { r.cast::<CollectReducer>().as_ref().unwrap() };
     r.field_keys_len()
@@ -202,9 +268,9 @@ pub const unsafe extern "C" fn CollectReducer_GetFieldKeysLen(r: *const ffi::Red
 /// # Safety
 ///
 /// `r` must point to a valid [`CollectReducer`] originally created by
-/// `CollectReducer_Create`.
+/// [`CollectReducer_CreateShard`].
 #[unsafe(no_mangle)]
-pub const unsafe extern "C" fn CollectReducer_HasWildcard(r: *const ffi::Reducer) -> bool {
+pub unsafe extern "C" fn CollectReducer_HasWildcard(r: *const ffi::Reducer) -> bool {
     // SAFETY: ensured by caller.
     let r = unsafe { r.cast::<CollectReducer>().as_ref().unwrap() };
     r.has_wildcard()
@@ -213,9 +279,9 @@ pub const unsafe extern "C" fn CollectReducer_HasWildcard(r: *const ffi::Reducer
 /// # Safety
 ///
 /// `r` must point to a valid [`CollectReducer`] originally created by
-/// `CollectReducer_Create`.
+/// [`CollectReducer_CreateShard`].
 #[unsafe(no_mangle)]
-pub const unsafe extern "C" fn CollectReducer_GetSortKeysLen(r: *const ffi::Reducer) -> usize {
+pub unsafe extern "C" fn CollectReducer_GetSortKeysLen(r: *const ffi::Reducer) -> usize {
     // SAFETY: ensured by caller.
     let r = unsafe { r.cast::<CollectReducer>().as_ref().unwrap() };
     r.sort_keys_len()
@@ -224,7 +290,7 @@ pub const unsafe extern "C" fn CollectReducer_GetSortKeysLen(r: *const ffi::Redu
 /// # Safety
 ///
 /// `r` must point to a valid [`CollectReducer`] originally created by
-/// `CollectReducer_Create`.
+/// [`CollectReducer_CreateShard`].
 #[unsafe(no_mangle)]
 pub const unsafe extern "C" fn CollectReducer_GetSortAscMap(r: *const ffi::Reducer) -> u64 {
     // SAFETY: ensured by caller.
@@ -235,7 +301,7 @@ pub const unsafe extern "C" fn CollectReducer_GetSortAscMap(r: *const ffi::Reduc
 /// # Safety
 ///
 /// `r` must point to a valid [`CollectReducer`] originally created by
-/// `CollectReducer_Create`.
+/// [`CollectReducer_CreateShard`].
 #[unsafe(no_mangle)]
 pub const unsafe extern "C" fn CollectReducer_HasLimit(r: *const ffi::Reducer) -> bool {
     // SAFETY: ensured by caller.
@@ -246,7 +312,7 @@ pub const unsafe extern "C" fn CollectReducer_HasLimit(r: *const ffi::Reducer) -
 /// # Safety
 ///
 /// `r` must point to a valid [`CollectReducer`] originally created by
-/// `CollectReducer_Create`.
+/// [`CollectReducer_CreateShard`].
 #[unsafe(no_mangle)]
 pub const unsafe extern "C" fn CollectReducer_GetLimitOffset(r: *const ffi::Reducer) -> u64 {
     // SAFETY: ensured by caller.
@@ -257,7 +323,7 @@ pub const unsafe extern "C" fn CollectReducer_GetLimitOffset(r: *const ffi::Redu
 /// # Safety
 ///
 /// `r` must point to a valid [`CollectReducer`] originally created by
-/// `CollectReducer_Create`.
+/// [`CollectReducer_CreateShard`].
 #[unsafe(no_mangle)]
 pub const unsafe extern "C" fn CollectReducer_GetLimitCount(r: *const ffi::Reducer) -> u64 {
     // SAFETY: ensured by caller.

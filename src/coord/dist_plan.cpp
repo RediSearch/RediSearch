@@ -13,6 +13,7 @@
 #include "aggregate/reducer.h"
 #include "util/arr.h"
 #include "dist_plan.h"
+#include "dist_plan_utils.h"
 
 #include <vector>
 #include <string>
@@ -61,6 +62,7 @@ struct ReducerDistCtx {
     if (PLNGroupStep_AddReducer(gstp, name, cargs, status) != REDISMODULE_OK) {
       return false;
     }
+    array_tail(gstp->reducers).isCoordinator = (gstp == localGroup);
     if (alias) {
       *alias = getLastAlias(gstp);
     }
@@ -341,39 +343,27 @@ static int distributeCollect(ReducerDistCtx *rdctx, QueryError *status) {
   PLN_Reducer *src = rdctx->srcReducer;
   size_t argc = src->args.argc;
 
-  // PLNGroupStep_AddReducer calls AC_GetVarArgs which expects [nargs, arg1, ..., argN].
-  // src->args already has [arg1, ..., argN] (nargs was consumed during parsing),
-  // so we prepend the count.
-  size_t fwd_argc = argc + 1;
-  void **fwd_objs = (void **)BlkAlloc_Alloc(
-      rdctx->alloc, fwd_argc * sizeof(void *),
-      std::max(fwd_argc * sizeof(void *), size_t(64)));
+  // Shard: build args on stack, persist with copyArgs
+  char shardCountBuf[16];
+  void *shardObjs[argc + 1];
+  ArgsCursor shardArgs;
+  buildShardCollectArgs(&shardArgs, shardObjs, shardCountBuf, &src->args);
+  rdctx->copyArgs(&shardArgs);
 
-  char countBuf[16];
-  snprintf(countBuf, sizeof(countBuf), "%zu", argc);
-  char *countStr = (char *)BlkAlloc_Alloc(rdctx->alloc, strlen(countBuf) + 1, 64);
-  strcpy(countStr, countBuf);
-
-  fwd_objs[0] = countStr;
-  memcpy(fwd_objs + 1, src->args.objs, argc * sizeof(void *));
-
-  ArgsCursor fwdArgs = {0};
-  fwdArgs.objs = fwd_objs;
-  fwdArgs.argc = fwd_argc;
-  fwdArgs.offset = 0;
-  fwdArgs.type = AC_TYPE_CHAR;
-
-  // Shard: forward COLLECT with original args
   const char *alias;
-  ArgsCursor remoteArgs = fwdArgs;
-  if (!rdctx->add(rdctx->remoteGroup, "COLLECT", &alias, status, &remoteArgs)) {
+  if (!rdctx->add(rdctx->remoteGroup, "COLLECT", &alias, status, &shardArgs)) {
     return REDISMODULE_ERR;
   }
 
-  // Coord: COLLECT with FIELDS 1 @<shard_alias> __COORD__ -- the shard packs
-  // all fields into a single array-of-maps column under its alias.
-  // __COORD__ tells the coord COLLECT to unpack the shard arrays.
-  if (!rdctx->addLocal("COLLECT", status, "4", "FIELDS", "1", alias, "__COORD__", "AS", src->alias)) {
+  // Coord: build args on stack, persist with copyArgs.
+  // Layout: [nargs, original_args..., __SOURCE__, 1, shard_alias, AS, user_alias]
+  char coordCountBuf[16];
+  void *coordObjs[argc + 6];
+  ArgsCursor coordArgs;
+  buildCoordCollectArgs(&coordArgs, coordObjs, coordCountBuf, &src->args, alias, src->alias);
+  rdctx->copyArgs(&coordArgs);
+
+  if (!rdctx->add(rdctx->localGroup, "COLLECT", NULL, status, &coordArgs)) {
     return REDISMODULE_ERR;
   }
 

@@ -12,11 +12,8 @@ extern "C" {
 #endif // __cplusplus
 
 /**
- * Creates a new [`CollectReducer`] from pre-parsed configuration and returns a
- * pointer to its base [`ffi::Reducer`] with the vtable fully wired.
- *
- * The caller is responsible for eventually calling [`collectFree`] on the
- * returned pointer.
+ * Creates a shard-mode [`CollectReducer`] from pre-resolved [`RLookupKey`]
+ * arrays and returns a pointer to its base [`ffi::Reducer`].
  *
  * # Safety
  *
@@ -29,16 +26,41 @@ extern "C" {
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-Reducer *CollectReducer_Create(const RLookupKey *const *field_keys,
-                               uintptr_t field_keys_len,
-                               bool has_wildcard,
-                               const RLookupKey *const *sort_keys,
-                               uintptr_t sort_keys_len,
-                               uint64_t sort_asc_map,
-                               bool has_limit,
-                               uint64_t limit_offset,
-                               uint64_t limit_count,
-                               bool is_coord);
+Reducer *CollectReducer_CreateShard(const RLookupKey *const *field_keys,
+                                    uintptr_t field_keys_len,
+                                    bool has_wildcard,
+                                    const RLookupKey *const *sort_keys,
+                                    uintptr_t sort_keys_len,
+                                    uint64_t sort_asc_map,
+                                    bool has_limit,
+                                    uint64_t limit_offset,
+                                    uint64_t limit_count);
+
+/**
+ * Creates a coordinator-mode [`CollectReducer`] from a resolved `source_key`
+ * and raw field/sort name strings, returning a pointer to its base
+ * [`ffi::Reducer`].
+ *
+ * # Safety
+ *
+ * 1. `source_key` must point to a [valid] `RLookupKey` that outlives the
+ *    returned reducer.
+ * 2. If `field_names_len > 0`, `field_names` must point to an array of at
+ *    least `field_names_len` [valid] null-terminated C strings.
+ * 3. If `sort_names_len > 0`, `sort_names` must point to an array of at
+ *    least `sort_names_len` [valid] null-terminated C strings.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+Reducer *CollectReducer_CreateCoord(const RLookupKey *source_key,
+                                    const char *const *field_names,
+                                    uintptr_t field_names_len,
+                                    const char *const *sort_names,
+                                    uintptr_t sort_names_len,
+                                    uint64_t sort_asc_map,
+                                    bool has_limit,
+                                    uint64_t limit_offset,
+                                    uint64_t limit_count);
 
 /**
  * Creates a new per-group collect reducer instance.
@@ -96,7 +118,8 @@ RSValue *collectFinalize(Reducer *r, void *ctx);
  * # Safety
  *
  * 1. `r` must point to a [valid] `CollectReducer` masquerading as a `ffi::Reducer`,
- *    originally created by [`CollectReducer_Create`].
+ *    originally created by [`CollectReducer_CreateShard`] or
+ *    [`CollectReducer_CreateCoord`].
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
@@ -106,7 +129,7 @@ void collectFree(Reducer *r);
  * # Safety
  *
  * `r` must point to a valid [`CollectReducer`] originally created by
- * `CollectReducer_Create`.
+ * [`CollectReducer_CreateShard`].
  */
 uintptr_t CollectReducer_GetFieldKeysLen(const Reducer *r);
 
@@ -114,7 +137,7 @@ uintptr_t CollectReducer_GetFieldKeysLen(const Reducer *r);
  * # Safety
  *
  * `r` must point to a valid [`CollectReducer`] originally created by
- * `CollectReducer_Create`.
+ * [`CollectReducer_CreateShard`].
  */
 bool CollectReducer_HasWildcard(const Reducer *r);
 
@@ -122,7 +145,7 @@ bool CollectReducer_HasWildcard(const Reducer *r);
  * # Safety
  *
  * `r` must point to a valid [`CollectReducer`] originally created by
- * `CollectReducer_Create`.
+ * [`CollectReducer_CreateShard`].
  */
 uintptr_t CollectReducer_GetSortKeysLen(const Reducer *r);
 
@@ -130,7 +153,7 @@ uintptr_t CollectReducer_GetSortKeysLen(const Reducer *r);
  * # Safety
  *
  * `r` must point to a valid [`CollectReducer`] originally created by
- * `CollectReducer_Create`.
+ * [`CollectReducer_CreateShard`].
  */
 uint64_t CollectReducer_GetSortAscMap(const Reducer *r);
 
@@ -138,7 +161,7 @@ uint64_t CollectReducer_GetSortAscMap(const Reducer *r);
  * # Safety
  *
  * `r` must point to a valid [`CollectReducer`] originally created by
- * `CollectReducer_Create`.
+ * [`CollectReducer_CreateShard`].
  */
 bool CollectReducer_HasLimit(const Reducer *r);
 
@@ -146,7 +169,7 @@ bool CollectReducer_HasLimit(const Reducer *r);
  * # Safety
  *
  * `r` must point to a valid [`CollectReducer`] originally created by
- * `CollectReducer_Create`.
+ * [`CollectReducer_CreateShard`].
  */
 uint64_t CollectReducer_GetLimitOffset(const Reducer *r);
 
@@ -154,7 +177,7 @@ uint64_t CollectReducer_GetLimitOffset(const Reducer *r);
  * # Safety
  *
  * `r` must point to a valid [`CollectReducer`] originally created by
- * `CollectReducer_Create`.
+ * [`CollectReducer_CreateShard`].
  */
 uint64_t CollectReducer_GetLimitCount(const Reducer *r);
 

@@ -18,10 +18,11 @@ use value::{Array, Map, RsValue, SharedRsValue};
 /// The COLLECT reducer aggregates rows within each group, with optional field
 /// projection, sorting, and limiting.
 ///
-/// Configuration (field keys, sort keys, limits) is parsed in C and passed to
-/// Rust via [`CollectReducer::new`]. The [`RLookupKey`][ffi::RLookupKey]
-/// pointers are borrowed from the [`RLookup`][ffi::RLookup] infrastructure and
-/// outlive this reducer.
+/// Configuration is parsed in C and passed to Rust via
+/// [`CollectReducer::new_shard`] or [`CollectReducer::new_coord`], depending
+/// on whether the reducer runs on a shard or on the coordinator. The
+/// [`CollectMode`] enum encodes this distinction at the type level, avoiding
+/// runtime `is_internal` checks throughout `add` / `finalize`.
 ///
 /// This struct must be `#[repr(C)]` and its first field must be a [`Reducer`]
 /// because it is downcast in C to `ffi::Reducer`, which reads vtable pointers
@@ -33,23 +34,48 @@ pub struct CollectReducer<'a> {
     /// pattern used by C reducers. All instances are freed at once when the
     /// reducer is dropped.
     arena: Bump,
-    /// Projected field keys. Empty when only a wildcard is used.
-    field_keys: Box<[&'a RLookupKey<'a>]>,
-    /// Whether the wildcard `*` was specified in the FIELDS clause.
-    has_wildcard: bool,
-    /// Sort keys for in-group ordering. Empty when SORTBY is omitted.
-    sort_keys: Box<[&'a RLookupKey<'a>]>,
     /// Bitmask where bit `i` is 0 for DESC and 1 for ASC (matching
-    /// `SORTASCMAP_INIT`). Only meaningful for the first
-    /// `sort_keys.len()` bits.
+    /// `SORTASCMAP_INIT`). Only meaningful for the first N sort-key bits.
     sort_asc_map: u64,
     /// Optional LIMIT clause: `(offset, count)`.
     limit: Option<(u64, u64)>,
-    /// When `true`, this reducer runs on the coordinator and expects its
-    /// single field key to point at an already-finalized `Array<Map>` from a
-    /// shard COLLECT. The `add` method will unpack that array instead of
-    /// projecting individual fields.
-    is_coord: bool,
+    /// Shard-vs-coordinator configuration. Determines which data path
+    /// [`CollectCtx::add`] and [`CollectCtx::finalize`] take.
+    mode: CollectMode<'a>,
+}
+
+/// Shard-vs-coordinator configuration for a [`CollectReducer`].
+///
+/// In **shard** mode the reducer projects fields from each
+/// [`RLookupRow`] via resolved [`RLookupKey`] references.
+///
+/// In **coordinator** mode the reducer unpacks an already-finalized
+/// `Array<Map>` produced by a shard COLLECT. Field and sort key names
+/// are stored as raw byte slices because the corresponding
+/// [`RLookupKey`]s do not exist in the coordinator's lookup table.
+#[expect(dead_code, reason = "field_names / sort_key_names prepared for follow-up sorting/limiting work")]
+#[allow(rustdoc::private_intra_doc_links)]
+enum CollectMode<'a> {
+    Shard {
+        /// Projected field keys for O(1) [`RLookupRow`] access.
+        field_keys: Box<[&'a RLookupKey<'a>]>,
+        /// Pre-built string [`SharedRsValue`]s matching `field_keys`, used
+        /// as Map keys when constructing output maps. Cloning these is a
+        /// refcount bump, avoiding per-row string allocation.
+        field_names: Box<[SharedRsValue]>,
+        /// Whether the wildcard `*` was specified in the FIELDS clause.
+        has_wildcard: bool,
+        /// Sort keys for in-group ordering.
+        sort_keys: Box<[&'a RLookupKey<'a>]>,
+    },
+    Coord {
+        /// Lookup key pointing at the shard's pre-collected `Array<Map>` column.
+        source_key: &'a RLookupKey<'a>,
+        /// Raw field names for coordinator-side use in follow-up work.
+        field_names: Box<[Box<[u8]>]>,
+        /// Raw sort key names for `Map::get()` in follow-up sorting work.
+        sort_key_names: Box<[Box<[u8]>]>,
+    },
 }
 
 /// Per-group instance of the [`CollectReducer`].
@@ -70,28 +96,59 @@ pub struct CollectCtx {
 }
 
 impl<'a> CollectReducer<'a> {
-    /// Create a new `CollectReducer` with the given pre-parsed configuration.
+    /// Create a shard-mode `CollectReducer`.
     ///
-    /// The raw pointers in `field_keys` and `sort_keys` are stored but not
-    /// dereferenced here; they are only dereferenced (unsafely) in
-    /// [`CollectCtx::add`] and [`CollectCtx::finalize`].
-    pub fn new(
+    /// `field_keys` and `sort_keys` are resolved [`RLookupKey`] references
+    /// from the shard's lookup table. `field_names` are pre-built from
+    /// `field_keys[i].name()` for efficient Map key construction.
+    pub fn new_shard(
         field_keys: Box<[&'a RLookupKey<'a>]>,
         has_wildcard: bool,
         sort_keys: Box<[&'a RLookupKey<'a>]>,
         sort_asc_map: u64,
         limit: Option<(u64, u64)>,
-        is_coord: bool,
+    ) -> Self {
+        let field_names: Box<[SharedRsValue]> = field_keys
+            .iter()
+            .map(|key| SharedRsValue::new_string(key.name().to_bytes().to_vec()))
+            .collect();
+        Self {
+            reducer: Reducer::new(),
+            arena: Bump::new(),
+            sort_asc_map,
+            limit,
+            mode: CollectMode::Shard {
+                field_keys,
+                field_names,
+                has_wildcard,
+                sort_keys,
+            },
+        }
+    }
+
+    /// Create a coordinator-mode `CollectReducer`.
+    ///
+    /// `source_key` is the resolved lookup key that holds the shard's
+    /// pre-collected `Array<Map>` column. `field_names` and `sort_key_names`
+    /// are raw byte slices because the corresponding [`RLookupKey`]s do not
+    /// exist in the coordinator's lookup table.
+    pub fn new_coord(
+        source_key: &'a RLookupKey<'a>,
+        field_names: Box<[Box<[u8]>]>,
+        sort_key_names: Box<[Box<[u8]>]>,
+        sort_asc_map: u64,
+        limit: Option<(u64, u64)>,
     ) -> Self {
         Self {
             reducer: Reducer::new(),
             arena: Bump::new(),
-            field_keys,
-            has_wildcard,
-            sort_keys,
             sort_asc_map,
             limit,
-            is_coord,
+            mode: CollectMode::Coord {
+                source_key,
+                field_names,
+                sort_key_names,
+            },
         }
     }
 
@@ -106,22 +163,31 @@ impl<'a> CollectReducer<'a> {
     }
 
     // The accessors below exist only for the C++ parser tests
-    // (`test_cpp_collect.cpp`) via `reducers_ffi`. Remove them once those
-    // tests are migrated to Python flow tests.
+    // (`test_cpp_collect.cpp`) via `reducers_ffi`. They assume shard mode.
+    // Remove them once those tests are migrated to Python flow tests.
 
-    /// Number of explicitly listed field keys (excludes the wildcard).
-    pub const fn field_keys_len(&self) -> usize {
-        self.field_keys.len()
+    /// Number of explicitly listed field keys (shard mode only).
+    pub fn field_keys_len(&self) -> usize {
+        match &self.mode {
+            CollectMode::Shard { field_keys, .. } => field_keys.len(),
+            CollectMode::Coord { .. } => 0,
+        }
     }
 
-    /// Whether the wildcard `*` was specified in the FIELDS clause.
-    pub const fn has_wildcard(&self) -> bool {
-        self.has_wildcard
+    /// Whether the wildcard `*` was specified in the FIELDS clause (shard mode only).
+    pub fn has_wildcard(&self) -> bool {
+        match &self.mode {
+            CollectMode::Shard { has_wildcard, .. } => *has_wildcard,
+            CollectMode::Coord { .. } => false,
+        }
     }
 
-    /// Number of sort keys.
-    pub const fn sort_keys_len(&self) -> usize {
-        self.sort_keys.len()
+    /// Number of sort keys (shard mode only; coord sort keys are stored as raw names).
+    pub fn sort_keys_len(&self) -> usize {
+        match &self.mode {
+            CollectMode::Shard { sort_keys, .. } => sort_keys.len(),
+            CollectMode::Coord { sort_key_names, .. } => sort_key_names.len(),
+        }
     }
 
     /// The ASC/DESC bitmask for sort keys.
@@ -163,64 +229,72 @@ impl CollectCtx {
     /// Project field values from `row` and store them for later
     /// serialization in [`Self::finalize`].
     ///
-    /// In coordinator mode the single field key points at an
+    /// In [`CollectMode::Coord`] the source key points at an
     /// already-finalized `Array<Map>` from a shard COLLECT; we unpack
     /// that array and store each map directly.
     ///
-    /// In standalone mode each configured field key is looked up in the row
-    /// and cloned (incrementing its refcount). Missing values are stored as
-    /// [`SharedRsValue::null_static`].
+    /// In [`CollectMode::Shard`] each configured field key is looked up in
+    /// the row and cloned (incrementing its refcount). Missing values are
+    /// stored as [`SharedRsValue::null_static`].
+    #[allow(rustdoc::private_intra_doc_links)]
     pub fn add(&mut self, r: &CollectReducer, row: &RLookupRow) {
-        if r.is_coord {
-            if let Some(shard_val) = row.get(&r.field_keys[0]) {
-                if let RsValue::Array(arr) = shard_val.deref() {
-                    self.pre_collected.extend(arr.iter().cloned());
+        match &r.mode {
+            CollectMode::Coord { source_key, .. } => {
+                if let Some(shard_val) = row.get(source_key) {
+                    if let RsValue::Array(arr) = shard_val.deref() {
+                        self.pre_collected.extend(arr.iter().cloned());
+                    }
                 }
             }
-            return;
+            CollectMode::Shard { field_keys, .. } => {
+                let mut values = Vec::with_capacity(field_keys.len());
+                for key in field_keys.iter() {
+                    let value = row
+                        .get(key)
+                        .cloned()
+                        .unwrap_or_else(SharedRsValue::null_static);
+                    values.push(value);
+                }
+                self.rows.push(values);
+            }
         }
-
-        let mut values = Vec::with_capacity(r.field_keys.len());
-        for key in &r.field_keys {
-            let value = row
-                .get(key)
-                .cloned()
-                .unwrap_or_else(SharedRsValue::null_static);
-            values.push(value);
-        }
-        self.rows.push(values);
     }
 
     /// Serialize all collected rows as an array of maps.
     ///
-    /// In coordinator mode the maps were already built by the shard; we
-    /// simply concatenate them into a single array.
+    /// In [`CollectMode::Coord`] the maps were already built by the shard;
+    /// we simply concatenate them into a single array.
     ///
-    /// In standalone mode each map contains `{field_name: value}` entries
-    /// keyed by the [`RLookupKey`] name. The outer array has one element per
-    /// collected row.
+    /// In [`CollectMode::Shard`] each map contains `{field_name: value}`
+    /// entries keyed by the [`RLookupKey`] name. The outer array has one
+    /// element per collected row.
+    #[allow(rustdoc::private_intra_doc_links)]
     pub fn finalize(&self, r: &CollectReducer) -> SharedRsValue {
-        if r.is_coord {
-            let maps: Box<[SharedRsValue]> = self.pre_collected.iter().cloned().collect();
-            return SharedRsValue::new(RsValue::Array(Array::new(maps)));
-        }
-
-        let row_maps: Vec<SharedRsValue> = self
-            .rows
-            .iter()
-            .map(|row_values| {
-                let entries: Box<[_]> = row_values
+        match &r.mode {
+            CollectMode::Coord { .. } => {
+                let maps: Box<[SharedRsValue]> = self.pre_collected.iter().cloned().collect();
+                SharedRsValue::new(RsValue::Array(Array::new(maps)))
+            }
+            CollectMode::Shard { field_keys, .. } => {
+                let row_maps: Vec<SharedRsValue> = self
+                    .rows
                     .iter()
-                    .zip(r.field_keys.iter())
-                    .map(|(val, key)| {
-                        let name_val = SharedRsValue::new_string(key.name().to_bytes().to_vec());
-                        (name_val, val.clone())
+                    .map(|row_values| {
+                        let entries: Box<[_]> = row_values
+                            .iter()
+                            .zip(field_keys.iter())
+                            .map(|(val, key)| {
+                                let name_val =
+                                    SharedRsValue::new_string(key.name().to_bytes().to_vec());
+                                (name_val, val.clone())
+                            })
+                            .collect();
+                        SharedRsValue::new(RsValue::Map(Map::new(entries)))
                     })
                     .collect();
-                SharedRsValue::new(RsValue::Map(Map::new(entries)))
-            })
-            .collect();
-        SharedRsValue::new(RsValue::Array(Array::new(row_maps.into_boxed_slice())))
+                SharedRsValue::new(RsValue::Array(Array::new(row_maps.into_boxed_slice())))
+            }
+        }
     }
 
     /// Release heap-allocated storage and decrement `SharedRsValue` refcounts.

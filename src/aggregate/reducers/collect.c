@@ -22,19 +22,24 @@
 #define SORT_DIR_DESC "DESC"
 
 // Temporary storage for parsed COLLECT arguments. The data is handed off to
-// Rust via CollectReducer_Create once parsing succeeds.
+// Rust via CollectReducer_CreateShard or CollectReducer_CreateCoord once
+// parsing succeeds.
 typedef struct {
+  // Shard mode: resolved RLookupKey* arrays.
   arrayof(const RLookupKey *) field_keys;
+  arrayof(const RLookupKey *) sort_keys;
   bool has_wildcard;
 
-  arrayof(const RLookupKey *) sort_keys;
-  uint64_t sortAscMap;
+  // Coord mode: raw name strings (the @-prefix is stripped).
+  arrayof(const char *) field_names;
+  arrayof(const char *) sort_names;
+  const RLookupKey *source_key;
 
+  // Shared between both modes.
+  uint64_t sortAscMap;
   bool has_limit;
   uint64_t limit_offset;
   uint64_t limit_count;
-
-  bool is_coord;
 } CollectParseData;
 
 typedef struct {
@@ -45,12 +50,15 @@ typedef struct {
 static void CollectParseData_Free(CollectParseData *data) {
   array_free(data->field_keys);
   array_free(data->sort_keys);
+  array_free(data->field_names);
+  array_free(data->sort_names);
 }
 
 // --- ArgParser callbacks ---
 
 // Parses: FIELDS nargs <@field | *> [<@field | *> ...]
 //   nargs: 1..COLLECT_MAX_FIELD_ARGS
+//   Shard mode resolves RLookupKey*; coord mode stores raw name strings.
 static void handleCollectFields(ArgParser *parser, const void *value, void *user_data) {
   CollectParseCtx *pctx = (CollectParseCtx *)user_data;
   CollectParseData *data = pctx->data;
@@ -64,22 +72,39 @@ static void handleCollectFields(ArgParser *parser, const void *value, void *user
 
   // ArgParser validates nargs is within [1, COLLECT_MAX_FIELD_ARGS] before invoking this callback.
   RS_ASSERT(count >= 1 && count <= COLLECT_MAX_FIELD_ARGS);
-  data->field_keys = array_new(const RLookupKey *, count);
 
-  for (int i = 0; i < count; i++) {
-    if (AC_AdvanceIfMatch(ac, "*")) {
-      if (data->has_wildcard) {
+  if (opts->is_coordinator) {
+    data->field_names = array_new(const char *, count);
+    for (int i = 0; i < count; i++) {
+      const char *s;
+      size_t len;
+      if (AC_GetString(ac, &s, &len, 0) != AC_OK) {
         QueryError_SetError(opts->status, QUERY_ERROR_CODE_PARSE_ARGS,
-          "Wildcard `*` can only appear once in FIELDS");
+          "FIELDS: missing argument");
         return;
       }
-      data->has_wildcard = true;
-    } else {
-      const RLookupKey *key = NULL;
-      if (!ReducerOpts_GetKey(&sub_opts, &key)) {
-        return;
+      if (s[0] == '@') {
+        s++;
       }
-      array_append(data->field_keys, key);
+      array_append(data->field_names, s);
+    }
+  } else {
+    data->field_keys = array_new(const RLookupKey *, count);
+    for (int i = 0; i < count; i++) {
+      if (AC_AdvanceIfMatch(ac, "*")) {
+        if (data->has_wildcard) {
+          QueryError_SetError(opts->status, QUERY_ERROR_CODE_PARSE_ARGS,
+            "Wildcard `*` can only appear once in FIELDS");
+          return;
+        }
+        data->has_wildcard = true;
+      } else {
+        const RLookupKey *key = NULL;
+        if (!ReducerOpts_GetKey(&sub_opts, &key)) {
+          return;
+        }
+        array_append(data->field_keys, key);
+      }
     }
   }
 }
@@ -87,18 +112,26 @@ static void handleCollectFields(ArgParser *parser, const void *value, void *user
 // Parses: SORTBY nargs <@field [ASC|DESC]> [<@field [ASC|DESC]> ...]
 //   nargs: 1..COLLECT_MAX_SORT_KEYS*2
 //   Direction defaults to ASC when omitted.
+//   Shard mode resolves RLookupKey*; coord mode stores raw name strings.
 static void handleCollectSortBy(ArgParser *parser, const void *value, void *user_data) {
   CollectParseCtx *pctx = (CollectParseCtx *)user_data;
   CollectParseData *data = pctx->data;
   const ReducerOptions *opts = pctx->options;
   ArgsCursor *ac = (ArgsCursor *)value;
 
-  data->sort_keys = array_new(const RLookupKey *, 4);
   data->sortAscMap = SORTASCMAP_INIT;
+
+  if (opts->is_coordinator) {
+    data->sort_names = array_new(const char *, 4);
+  } else {
+    data->sort_keys = array_new(const RLookupKey *, 4);
+  }
 
   ReducerOptions key_opts = *opts;
   key_opts.args = ac;
   key_opts.name = "SORTBY";
+
+  size_t sort_count = 0;
 
   while (!AC_IsAtEnd(ac)) {
     const char *s = AC_StringArg(ac, ac->offset);
@@ -114,25 +147,41 @@ static void handleCollectSortBy(ArgParser *parser, const void *value, void *user
       return;
     }
 
-    if (array_len(data->sort_keys) >= COLLECT_MAX_SORT_KEYS) {
+    if (sort_count >= COLLECT_MAX_SORT_KEYS) {
       QueryError_SetWithoutUserDataFmt(opts->status, QUERY_ERROR_CODE_LIMIT,
         "SORTBY exceeds maximum of %d fields", COLLECT_MAX_SORT_KEYS);
       return;
     }
-    const RLookupKey *key = NULL;
-    if (!ReducerOpts_GetKey(&key_opts, &key)) {
-      return;
+
+    if (opts->is_coordinator) {
+      const char *name;
+      size_t len;
+      if (AC_GetString(ac, &name, &len, 0) != AC_OK) {
+        QueryError_SetError(opts->status, QUERY_ERROR_CODE_PARSE_ARGS,
+          "SORTBY: missing argument");
+        return;
+      }
+      if (name[0] == '@') {
+        name++;
+      }
+      array_append(data->sort_names, name);
+    } else {
+      const RLookupKey *key = NULL;
+      if (!ReducerOpts_GetKey(&key_opts, &key)) {
+        return;
+      }
+      array_append(data->sort_keys, key);
     }
-    array_append(data->sort_keys, key);
+    sort_count++;
 
     if (AC_AdvanceIfMatch(ac, SORT_DIR_ASC)) {
       // ASC is the default; nothing to do.
     } else if (AC_AdvanceIfMatch(ac, SORT_DIR_DESC)) {
-      SORTASCMAP_SETDESC(data->sortAscMap, array_len(data->sort_keys) - 1);
+      SORTASCMAP_SETDESC(data->sortAscMap, sort_count - 1);
     }
   }
 
-  if (array_len(data->sort_keys) == 0) {
+  if (sort_count == 0) {
     QueryError_SetError(opts->status, QUERY_ERROR_CODE_PARSE_ARGS,
       "SORTBY requires at least one sort field");
     return;
@@ -180,6 +229,26 @@ static void handleCollectLimit(ArgParser *parser, const void *value, void *user_
   data->limit_count = count;
 }
 
+// Parses: __SOURCE__ nargs @<shard_alias>
+//   nargs is always 1. The shard alias is resolved via ReducerOpts_GetKey.
+static void handleCollectSource(ArgParser *parser, const void *value, void *user_data) {
+  CollectParseCtx *pctx = (CollectParseCtx *)user_data;
+  const ReducerOptions *opts = pctx->options;
+  ArgsCursor *ac = (ArgsCursor *)value;
+
+  RS_LOG_ASSERT(opts->is_coordinator, "__SOURCE__ should only appear in coordinator requests");
+
+  ReducerOptions sub_opts = *opts;
+  sub_opts.args = ac;
+  sub_opts.name = "__SOURCE__";
+
+  const RLookupKey *key = NULL;
+  if (!ReducerOpts_GetKey(&sub_opts, &key)) {
+    return;
+  }
+  pctx->data->source_key = key;
+}
+
 // --- Factory function ---
 
 Reducer *RDCRCollect_New(const ReducerOptions *options) {
@@ -224,7 +293,11 @@ Reducer *RDCRCollect_New(const ReducerOptions *options) {
     ARG_OPT_CALLBACK, handleCollectLimit, &pctx,
     ARG_OPT_END);
 
-  ArgParser_AddFlag(parser, "__COORD__", "Internal: coordinator mode", &data.is_coord);
+  ArgParser_AddSubArgsV(parser, "__SOURCE__", "Internal: shard source column",
+    &subArgs, 1, 1,
+    ARG_OPT_OPTIONAL,
+    ARG_OPT_CALLBACK, handleCollectSource, &pctx,
+    ARG_OPT_END);
 
   ArgParseResult result = ArgParser_Parse(parser);
 
@@ -251,20 +324,22 @@ Reducer *RDCRCollect_New(const ReducerOptions *options) {
     return NULL;
   }
 
-  // Hand off parsed configuration to Rust, which allocates the CollectReducer
-  // and wires the vtable.
-  Reducer *rbase = CollectReducer_Create(
-    data.field_keys,
-    data.field_keys ? array_len(data.field_keys) : 0,
-    data.has_wildcard,
-    data.sort_keys,
-    data.sort_keys ? array_len(data.sort_keys) : 0,
-    data.sortAscMap,
-    data.has_limit,
-    data.limit_offset,
-    data.limit_count,
-    data.is_coord
-  );
+  Reducer *rbase;
+  if (options->is_coordinator) {
+    rbase = CollectReducer_CreateCoord(
+      data.source_key,
+      data.field_names, data.field_names ? array_len(data.field_names) : 0,
+      data.sort_names, data.sort_names ? array_len(data.sort_names) : 0,
+      data.sortAscMap,
+      data.has_limit, data.limit_offset, data.limit_count);
+  } else {
+    rbase = CollectReducer_CreateShard(
+      data.field_keys, data.field_keys ? array_len(data.field_keys) : 0,
+      data.has_wildcard,
+      data.sort_keys, data.sort_keys ? array_len(data.sort_keys) : 0,
+      data.sortAscMap,
+      data.has_limit, data.limit_offset, data.limit_count);
+  }
 
   // Free the C arrays; Rust has copied the pointer values.
   CollectParseData_Free(&data);
