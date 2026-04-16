@@ -14,6 +14,33 @@ use inverted_index::RSIndexResult;
 
 use crate::{IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
 
+/// A child iterator paired with its original insertion index.
+///
+/// Tracks where the child was in the original `children` vector so that
+/// we can restore the original order. 
+pub(crate) struct IndexedChild<I> {
+    /// Position of this child in the original `children` vector passed to
+    /// [`UnionFlat::new`].
+    pub(crate) original_index: usize,
+    /// The underlying child iterator.
+    pub(crate) inner: I,
+}
+
+impl<I> std::ops::Deref for IndexedChild<I> {
+    type Target = I;
+    #[inline(always)]
+    fn deref(&self) -> &I {
+        &self.inner
+    }
+}
+
+impl<I> std::ops::DerefMut for IndexedChild<I> {
+    #[inline(always)]
+    fn deref_mut(&mut self) -> &mut I {
+        &mut self.inner
+    }
+}
+
 /// Yields documents appearing in ANY child iterator using a flat array scan.
 ///
 /// Unlike [`crate::Intersection`] which requires documents to appear in ALL children,
@@ -34,7 +61,7 @@ use crate::{IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, Skip
 pub struct UnionFlat<'index, I, const QUICK_EXIT: bool> {
     /// Child iterators. Active children are in `children[..num_active]`,
     /// exhausted children are moved to the end and not removed so we can rewind the iterator.
-    children: Vec<I>,
+    children: Vec<IndexedChild<I>>,
     /// Number of active (non-EOF) children. Only `children[..num_active]` are scanned.
     num_active: usize,
     /// Sum of all children's estimated counts (upper bound).
@@ -55,6 +82,14 @@ where
     pub fn new(children: Vec<I>) -> Self {
         let num_estimated: usize = children.iter().map(|c| c.num_estimated()).sum();
         let num_children = children.len();
+        let children: Vec<IndexedChild<I>> = children
+            .into_iter()
+            .enumerate()
+            .map(|(i, inner)| IndexedChild {
+                original_index: i,
+                inner,
+            })
+            .collect();
 
         if children.is_empty() {
             return Self {
@@ -407,7 +442,10 @@ where
     }
 
     fn rewind(&mut self) {
-        // Reset num_active to include all children again
+        // Restore children to their original insertion order so that the
+        self.children
+            .sort_unstable_by_key(|c| c.original_index);
+
         self.num_active = self.children.len();
         self.is_eof = self.children.is_empty();
         self.result.reset_aggregate();
@@ -538,7 +576,10 @@ impl<'index, const QUICK_EXIT: bool> crate::interop::ProfileChildren<'index>
             children: self
                 .children
                 .into_iter()
-                .map(crate::c2rust::CRQEIterator::into_profiled)
+                .map(|c| IndexedChild {
+                    original_index: c.original_index,
+                    inner: c.inner.into_profiled(),
+                })
                 .collect(),
             num_active: self.num_active,
             num_estimated: self.num_estimated,
