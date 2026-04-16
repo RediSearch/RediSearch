@@ -42,6 +42,7 @@ pub mod context;
 pub use document::DocumentType;
 pub use query_node_type::QueryNodeType;
 pub use query_term::{RSQueryTerm, RSTokenFlags};
+pub use redis_module::*;
 pub use rqe_iterator_type::IteratorType;
 
 #[repr(C)]
