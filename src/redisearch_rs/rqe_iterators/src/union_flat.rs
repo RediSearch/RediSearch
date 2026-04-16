@@ -35,6 +35,11 @@ pub struct UnionFlat<'index, I, const QUICK_EXIT: bool> {
     /// Child iterators. Active children are in `children[..num_active]`,
     /// exhausted children are moved to the end and not removed so we can rewind the iterator.
     children: Vec<I>,
+    /// `original_indices[pos]` is the original insertion index of the child
+    /// currently at `children[pos]`. Swapped in lockstep with `children` so
+    /// that [`child_at`](Self::child_at) can recover insertion order for
+    /// profile display (matching the old C `its_orig[]` behaviour).
+    original_indices: Vec<usize>,
     /// Number of active (non-EOF) children. Only `children[..num_active]` are scanned.
     num_active: usize,
     /// Sum of all children's estimated counts (upper bound).
@@ -55,10 +60,12 @@ where
     pub fn new(children: Vec<I>) -> Self {
         let num_estimated: usize = children.iter().map(|c| c.num_estimated()).sum();
         let num_children = children.len();
+        let identity: Vec<usize> = (0..num_children).collect();
 
         if children.is_empty() {
             return Self {
                 children,
+                original_indices: identity,
                 num_active: 0,
                 num_estimated: 0,
                 is_eof: true,
@@ -68,6 +75,7 @@ where
 
         Self {
             children,
+            original_indices: identity,
             num_active: num_children,
             num_estimated,
             is_eof: false,
@@ -85,9 +93,15 @@ where
         self.num_active
     }
 
-    /// Returns a shared reference to the child at `idx`.
+    /// Returns a shared reference to the child originally at insertion index `idx`.
     pub fn child_at(&self, idx: usize) -> &I {
-        &self.children[idx]
+        // Scan to find which current position holds original index `idx`.
+        let pos = self
+            .original_indices
+            .iter()
+            .position(|&orig| orig == idx)
+            .expect("child_at: original index not found");
+        &self.children[pos]
     }
 
     /// Returns a mutable iterator over all children (including exhausted ones).
@@ -143,7 +157,14 @@ where
         self.num_active -= 1;
         if idx < self.num_active {
             self.children.swap(idx, self.num_active);
+            self.original_indices.swap(idx, self.num_active);
         }
+    }
+
+    /// Permanently removes a child (used during revalidation for aborted children).
+    fn permanently_remove_child(&mut self, idx: usize) {
+        self.children.swap_remove(idx);
+        self.original_indices.swap_remove(idx);
     }
 
     /// Builds the result from active children whose `last_doc_id` equals `min_id`.
@@ -472,7 +493,7 @@ where
                 RQEValidateStatus::Aborted => {
                     // Remove aborted child using swap_remove for O(1) removal.
                     // Order doesn't matter for union iteration.
-                    self.children.swap_remove(i);
+                    self.permanently_remove_child(i);
                     any_change = true;
                     // Don't increment i - the swapped element needs to be checked
                 }
@@ -565,6 +586,7 @@ impl<'index, const QUICK_EXIT: bool> crate::interop::ProfileChildren<'index>
                 .into_iter()
                 .map(crate::c2rust::CRQEIterator::into_profiled)
                 .collect(),
+            original_indices: self.original_indices,
             num_active: self.num_active,
             num_estimated: self.num_estimated,
             is_eof: self.is_eof,
