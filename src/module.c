@@ -1101,6 +1101,7 @@ static int AliasUpdateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int
   }
   int rc = 0;
   if (aliasAddCommon(ctx, argv, argc, &status, false) != REDISMODULE_OK) {
+    // Add back the previous index. This shouldn't fail
     if (spOrig) {
       QueryError e2 = QueryError_Default();
       IndexAlias_Add(alias, Orig_ref, 0, &e2);
