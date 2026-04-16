@@ -736,6 +736,18 @@ void iterStartCb(void *p) {
   IORuntimeCtx *io_runtime_ctx = it->ctx.ioRuntime;
   MRClusterShard *shards = io_runtime_ctx->topo->shards;
   size_t numShards = io_runtime_ctx->topo->numShards;
+
+  // Pre-fanout connection validation - check ALL connections before sending ANY commands
+  bool allConnectionsValid = true;
+  for (size_t i = 0; i < numShards; i++) {
+    MRConn *conn = MRConn_Get(&io_runtime_ctx->conn_mgr, shards[i].node.id);
+    if (!conn) {
+      allConnectionsValid = false;
+      break;
+    }
+  }
+
+  // Common setup for both success and failure paths
   it->len = numShards;
   it->ctx.pending = numShards;
   it->ctx.inProcess = numShards; // Initially all commands are in process
@@ -747,20 +759,33 @@ void iterStartCb(void *p) {
   }
 
   it->cbxs = rm_realloc(it->cbxs, numShards * sizeof(*it->cbxs));
+  for (size_t targetShardIdx = 1; targetShardIdx < numShards; targetShardIdx++) {
+    it->cbxs[targetShardIdx].it = it;
+    it->cbxs[targetShardIdx].privateData = privateData;
+  }
+
+  if (!allConnectionsValid) {
+    // At least one connection is not established - fail all shards with error.
+    for (size_t i = 0; i < numShards; i++) {
+      MRReply *err = MRReply_CreateError(CLUSTER_QUERY_ERROR, sizeof(CLUSTER_QUERY_ERROR) - 1);
+      it->ctx.cb(&it->cbxs[i], err);
+    }
+    rm_free(data);
+    return;
+  }
+
+  // All connections valid - proceed with command setup
   MRCommand *cmd = &it->cbxs->cmd;
 
   // Set the dispatch time value in the prepared placeholder
   MRCommand_SetDispatchTime(cmd);
 
   for (size_t targetShardIdx = 1; targetShardIdx < numShards; targetShardIdx++) {
-    it->cbxs[targetShardIdx].it = it;
     it->cbxs[targetShardIdx].cmd = MRCommand_Copy(cmd);
     // Set each command to target a different shard
     it->cbxs[targetShardIdx].cmd.targetShard = rm_strdup(shards[targetShardIdx].node.id);
     it->cbxs[targetShardIdx].cmd.targetShardIdx = targetShardIdx;
     MRCommand_SetSlotInfo(&it->cbxs[targetShardIdx].cmd, shards[targetShardIdx].slotRanges);
-
-    it->cbxs[targetShardIdx].privateData = MRIteratorCallback_GetPrivateData(&it->cbxs[0]);
   }
 
   // Set the first command to target the first shard (while not having copied it)
@@ -768,36 +793,14 @@ void iterStartCb(void *p) {
   cmd->targetShardIdx = 0;
   MRCommand_SetSlotInfo(cmd, shards[0].slotRanges);
 
-  // Cache it->len since the iterator might be freed in a failure path while we're still in the loop (at the end of it).
-  size_t itLen = it->len;
-
-  // Pre-fanout connection validation - check ALL connections before sending ANY commands
-  bool allConnectionsValid = true;
-  for (size_t i = 0; i < itLen; i++) {
-    MRConn *conn = MRConn_Get(&io_runtime_ctx->conn_mgr, it->cbxs[i].cmd.targetShard);
-    if (!conn) {
-      allConnectionsValid = false;
-      break;
+  // Send commands to all shards
+  for (size_t i = 0; i < numShards; i++) {
+    if (MRCluster_SendCommand(io_runtime_ctx, &it->cbxs[i].cmd, mrIteratorRedisCB, &it->cbxs[i]) ==
+        REDIS_ERR) {
+      MRIteratorCallback_Done(&it->cbxs[i], 1);
     }
   }
 
-  if (!allConnectionsValid) {
-    // At least one connection is not established - fail all shards with error.
-    for (size_t i = 0; i < itLen; i++) {
-      MRReply *err = MRReply_CreateError(CLUSTER_QUERY_ERROR, strlen(CLUSTER_QUERY_ERROR));
-      it->ctx.cb(&it->cbxs[i], err);
-    }
-  } else {
-    // All connections valid - send commands to all shards
-    for (size_t i = 0; i < itLen; i++) {
-      if (MRCluster_SendCommand(io_runtime_ctx, &it->cbxs[i].cmd, mrIteratorRedisCB, &it->cbxs[i]) ==
-          REDIS_ERR) {
-        MRIteratorCallback_Done(&it->cbxs[i], 1);
-      }
-    }
-  }
-
-  // Clean up the data structure
   rm_free(data);
 }
 
@@ -852,11 +855,8 @@ void iterCursorMappingCb(void *p) {
   cmd->targetShardIdx = vsimOrSearch->mappings[0].targetShardIdx;
   vsimOrSearch->mappings[0].targetShard = NULL; // transfer ownership
 
-  // Cache it->len since the iterator might be freed in a failure path while we're still in the loop (at the end of it).
-  size_t itLen = it->len;
-
   // Send commands to all shards
-  for (size_t i = 0; i < itLen; i++) {
+  for (size_t i = 0; i < numShardsWithMapping; i++) {
     if (MRCluster_SendCommand(io_runtime_ctx, &it->cbxs[i].cmd,
                               mrIteratorRedisCB, &it->cbxs[i]) == REDIS_ERR) {
       MRIteratorCallback_Done(&it->cbxs[i], 1);

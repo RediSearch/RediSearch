@@ -77,5 +77,5 @@ int RedisModule_ReplyKV_MRReply(RedisModule_Reply *reply, const char *key, MRRep
 MRReply *MRReply_Clone(MRReply *src);
 
 // Create a new error reply with the given message.
-// The caller is responsible for freeing the reply with MRReply_Free.
+// `msg` must be non-NULL and `len` must be greater than 0.
 MRReply *MRReply_CreateError(const char *msg, size_t len);
