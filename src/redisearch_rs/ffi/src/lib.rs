@@ -42,8 +42,10 @@ pub mod context;
 pub use document::DocumentType;
 pub use query_node_type::QueryNodeType;
 pub use query_term::{RSQueryTerm, RSTokenFlags};
-pub use redis_module::*;
 pub use rqe_iterator_type::IteratorType;
+
+/// Re-export the `redisearch.h` definitions
+pub use redis_module::raw::*;
 
 #[repr(C)]
 #[derive(Debug)]
