@@ -442,7 +442,7 @@ where
     }
 
     fn rewind(&mut self) {
-        // Restore children to their original insertion order so that the
+        // Restore children to their original insertion order.
         self.children
             .sort_unstable_by_key(|c| c.original_index);
 
