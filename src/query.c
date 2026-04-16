@@ -1111,11 +1111,6 @@ static QueryIterator *Query_EvalIdFilterNode(QueryEvalCtx *q, QueryIdFilterNode 
 static QueryIterator *Query_EvalUnionNode(QueryEvalCtx *q, QueryNode *qn) {
   RS_LOG_ASSERT(qn->type == QN_UNION, "query node type should be union")
 
-  // a union stage with one child is the same as the child, so we just return it
-  if (QueryNode_NumChildren(qn) == 1) {
-    return Query_EvalNode(q, qn->children[0]);
-  }
-
   // recursively eval the children
   QueryIterator **iters = rm_malloc(QueryNode_NumChildren(qn) * sizeof(QueryIterator *));
   for (size_t i = 0; i < QueryNode_NumChildren(qn); ++i) {
