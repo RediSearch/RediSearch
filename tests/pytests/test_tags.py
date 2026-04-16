@@ -85,8 +85,8 @@ def testTagPrefixTooShort(env):
         'ft.create', 'idx', 'ON', 'HASH',
         'schema', 'tags', 'tag', 'separator', ',').ok()
 
-    env.expect('ft.add', 'idx', 'doc1', 1.0, 'fields',
-               'tags', 'alpha,beta,gamma').ok()
+    conn = getConnectionByEnv(env)
+    conn.execute_command('HSET', 'doc1', 'tags', 'alpha,beta,gamma')
 
     for _ in env.reloadingIterator():
         waitForIndex(env, 'idx')
