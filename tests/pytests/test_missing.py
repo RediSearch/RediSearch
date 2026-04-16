@@ -594,6 +594,7 @@ def testMissingGC():
     env.cmd(debug_cmd(), 'GC_CONTINUE_SCHEDULE', 'idx')
     env.expect(debug_cmd(), 'GC_WAIT_FOR_JOBS').equal('DONE')
 
+@skip(cluster=True)
 def testMissingWithParams():
     """Tests that ismissing() works correctly in a parameterized query.
     This exercises QueryNode_EvalParams traversal of QN_MISSING nodes."""

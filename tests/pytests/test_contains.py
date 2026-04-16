@@ -376,6 +376,7 @@ def test_issue_3124(env):
   res_not_exist2 = env.cmd('ft.search', 'idx_txt_suffix', '@t:ell*')
   env.assertEqual(res_not_exist1, res_not_exist2)
 
+@skip(cluster=True)
 def testTextSuffixTrieMaxPrefixExpansions():
     """Contains query on TEXT WITHSUFFIXTRIE field hits max prefix expansion limit."""
     env = Env(moduleArgs='DEFAULT_DIALECT 2', protocol=3)

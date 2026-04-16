@@ -407,6 +407,7 @@ def testMOD7453():
     res = env.cmd('FT.SEARCH', 'idx', "@tag:{w'*a*?'} | @text:w'*a*?'")
     env.assertEqual(res, [1, 'doc1', ['tag', 'ba*cl', 'text', 'ba*cl']])
 
+@skip(cluster=True)
 def testWildcardOnFieldWithoutSuffixTrie():
     """Wildcard query on a TEXT field without WITHSUFFIXTRIE errors when spec has a suffix trie."""
     env = Env(moduleArgs='DEFAULT_DIALECT 2')

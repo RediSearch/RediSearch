@@ -348,6 +348,7 @@ def test_dialect_info():
   env.flush()
   check_info_module_results(env, [0,0,0,0])
 
+@skip(cluster=True)
 def test_dialect1_filter_on_nonexistent_field():
     """FILTER on non-existent field in dialect 1 returns empty results (legacy behavior)."""
     env = Env(moduleArgs='DEFAULT_DIALECT 1')

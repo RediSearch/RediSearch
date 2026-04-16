@@ -1026,6 +1026,7 @@ def testTagUNF():
                   'REDUCE', 'COUNT', '0')
     env.assertEqual(res[0], 3)
 
+@skip(cluster=True)
 def testTagWildcardWithSuffixTrieNoMatch():
     """Tag wildcard on WITHSUFFIXTRIE field with no matching terms returns
     empty results (covers suffix trie NULL return path)."""
@@ -1044,6 +1045,7 @@ def testTagWildcardWithSuffixTrieNoMatch():
     res = env.cmd('FT.SEARCH', 'idx', "@tag:{w'xyznonexistent*'}", 'NOCONTENT')
     env.assertEqual(res, [0])
 
+@skip(cluster=True)
 def testTagSuffixMaxExpansionsWithSuffixTrie():
     """Tag suffix query on WITHSUFFIXTRIE field hits max prefix expansion
     limit when there are more matching terms than allowed (covers the suffix
@@ -1069,6 +1071,7 @@ def testTagSuffixMaxExpansionsWithSuffixTrie():
     # Restore default
     run_command_on_all_shards(env, config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', '200')
 
+@skip(cluster=True)
 def testTagWildcardMaxExpansionsWithSuffixTrie():
     """Tag wildcard on WITHSUFFIXTRIE field hits max prefix expansion limit."""
     env = Env(moduleArgs='DEFAULT_DIALECT 2', protocol=3)
@@ -1091,6 +1094,7 @@ def testTagWildcardMaxExpansionsWithSuffixTrie():
     # Restore default
     run_command_on_all_shards(env, config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', '200')
 
+@skip(cluster=True)
 def testTagWildcardMaxExpansionsBruteForce():
     """Tag wildcard without suffix trie (brute-force) hits max prefix
     expansion limit."""

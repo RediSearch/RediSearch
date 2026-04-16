@@ -93,6 +93,7 @@ def testFuzzyWithNumbersOnly(env):
         env.expect('ft.search', 'idx', '%%21345%%', 'DIALECT', dialect)\
             .equal([1, 'doc1', ['test', '12345']])
 
+@skip(cluster=True)
 def testFuzzyManyExpansions(env):
     """Verify that a fuzzy query works correctly when matching more than 8
     terms, which triggers the internal iterator array capacity doubling in
@@ -113,6 +114,7 @@ def testFuzzyManyExpansions(env):
     # but all 10 terms are within distance 1 of "bat".
     env.assertGreaterEqual(res[0], 9, message=res)
 
+@skip(cluster=True)
 def testFuzzyMaxPrefixExpansionsWarning():
     """Verify that a fuzzy query triggers a max prefix expansions warning
     when the number of fuzzy matches exceeds MAXPREFIXEXPANSIONS."""

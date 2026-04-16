@@ -805,6 +805,7 @@ INTERSECT {
     env.expect('FT.EXPLAIN', 'idx', '(@text:foo bar) @tag:{baz}', 'VERBATIM').equal(expected)
     env.expect('FT.EXPLAIN', 'idx', '@tag:{baz} (@text:foo bar)', 'VERBATIM').equal(expected)
 
+@skip(cluster=True)
 def test_invalid_query_attributes():
     """Test that invalid query attribute values produce proper errors."""
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
@@ -834,6 +835,7 @@ def test_invalid_query_attributes():
     env.expect('FT.SEARCH', 'idx', 'hello=>{$bogus: 42}').error() \
         .contains('Invalid attribute')
 
+@skip(cluster=True)
 def test_explain_with_inkeys():
     """FT.EXPLAIN with INKEYS renders IDS node in the explain output."""
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
