@@ -97,27 +97,8 @@ LegacyNumericFilter *NumericFilter_LegacyParse(ArgsCursor *ac, bool *hasEmptyFil
   return nf;
 }
 
-void NumericFilter_Free(NumericFilter *nf) {
-  rm_free(nf);
-}
-
 void LegacyNumericFilter_Free(LegacyNumericFilter *nf) {
   HiddenString_Free(nf->field, false);
   rm_free(nf);
 }
 
-NumericFilter *NewNumericFilter(double min, double max, int inclusiveMin, int inclusiveMax,
-                                bool asc, const FieldSpec *fs) {
-  NumericFilter *f = rm_malloc(sizeof(NumericFilter));
-
-  f->min = min;
-  f->max = max;
-  f->fieldSpec = fs;
-  f->maxInclusive = inclusiveMax;
-  f->minInclusive = inclusiveMin;
-  f->geoFilter = NULL;
-  f->ascending = asc;
-  f->offset = 0;
-  f->limit = 0;
-  return f;
-}

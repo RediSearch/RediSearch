@@ -601,6 +601,31 @@ bool NumericFilter_IsNumeric(const struct NumericFilter *filter);
 bool NumericFilter_Match(const struct NumericFilter *filter, double value);
 
 /**
+ * Allocate a new numeric filter. The filter should be freed using [`NumericFilter_Free`].
+ *
+ * # Safety
+ *
+ * - `fs` must be a valid `FieldSpec` pointer or NULL.
+ */
+struct NumericFilter *NewNumericFilter(double min,
+                                       double max,
+                                       int inclusive_min,
+                                       int inclusive_max,
+                                       bool asc,
+                                       const FieldSpec *fs);
+
+/**
+ * Free a numeric filter created with [`NewNumericFilter`].
+ *
+ * No-op if `nf` is NULL.
+ *
+ * # Safety
+ *
+ * - `nf` must have been created by [`NewNumericFilter`], or be NULL.
+ */
+void NumericFilter_Free(struct NumericFilter *nf);
+
+/**
  * Allocate a new intersect result with a given capacity and weight. This result should be freed
  * using [`IndexResult_Free`].
  */

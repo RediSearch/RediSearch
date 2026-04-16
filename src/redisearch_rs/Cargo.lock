@@ -2775,6 +2775,7 @@ version = "0.0.1"
 dependencies = [
  "build_utils",
  "cbindgen",
+ "ffi",
  "field",
  "inverted_index",
  "workspace_hack",

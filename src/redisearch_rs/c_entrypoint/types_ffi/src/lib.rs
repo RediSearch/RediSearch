@@ -9,7 +9,10 @@
 
 //! This module contains pure Rust types that we want to expose to C code.
 
-use std::{ffi::c_char, mem, ptr};
+use std::{
+    ffi::{c_char, c_int},
+    mem, ptr,
+};
 
 use inverted_index::{
     NumericFilter, RSAggregateResult, RSIndexResult, RSOffsetSlice, RSOffsetVector, RSQueryTerm,
@@ -53,6 +56,50 @@ pub unsafe extern "C" fn NumericFilter_Match(filter: *const NumericFilter, value
     let filter = unsafe { &*filter };
 
     filter.value_in_range(value)
+}
+
+/// Allocate a new numeric filter. The filter should be freed using [`NumericFilter_Free`].
+///
+/// # Safety
+///
+/// - `fs` must be a valid `FieldSpec` pointer or NULL.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn NewNumericFilter(
+    min: f64,
+    max: f64,
+    inclusive_min: c_int,
+    inclusive_max: c_int,
+    asc: bool,
+    fs: *const ffi::FieldSpec,
+) -> *mut NumericFilter {
+    Box::into_raw(Box::new(NumericFilter {
+        min,
+        max,
+        field_spec: fs,
+        min_inclusive: inclusive_min != 0,
+        max_inclusive: inclusive_max != 0,
+        geo_filter: ptr::null(),
+        ascending: asc,
+        offset: 0,
+        limit: 0,
+    }))
+}
+
+/// Free a numeric filter created with [`NewNumericFilter`].
+///
+/// No-op if `nf` is NULL.
+///
+/// # Safety
+///
+/// - `nf` must have been created by [`NewNumericFilter`], or be NULL.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn NumericFilter_Free(nf: *mut NumericFilter) {
+    if nf.is_null() {
+        return;
+    }
+
+    // SAFETY: caller ensures `nf` was created by `NewNumericFilter`.
+    drop(unsafe { Box::from_raw(nf) });
 }
 
 /// Allocate a new intersect result with a given capacity and weight. This result should be freed

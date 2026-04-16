@@ -32,10 +32,7 @@ typedef struct LegacyNumericFilter {
   HiddenString *field;    // the numeric field name
 } LegacyNumericFilter;
 
-NumericFilter *NewNumericFilter(double min, double max, int inclusiveMin, int inclusiveMax,
-                                bool asc, const FieldSpec *fs);
 LegacyNumericFilter *NumericFilter_LegacyParse(ArgsCursor *ac, bool *hasEmptyFilterValue, QueryError *status);
-void NumericFilter_Free(NumericFilter *nf);
 void LegacyNumericFilter_Free(LegacyNumericFilter *nf);
 
 int parseDoubleRange(const char *s, bool *inclusive, double *target, int isMin,
