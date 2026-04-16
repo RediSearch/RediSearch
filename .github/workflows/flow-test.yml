@@ -68,9 +68,9 @@ on:
         type: string
         default: QUICK=1
       redis-ref:
-        description: 'Redis version to use (e.g. "7.2.3", "unstable"). Defaults to "unstable"'
+        description: 'Redis version to use (e.g. "7.2.3", "unstable"). Defaults to "8.6"'
         type: string
-        default: unstable
+        default: "8.6"
       rejson-branch:
         type: string
         default: master
