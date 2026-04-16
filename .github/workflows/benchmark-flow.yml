@@ -117,7 +117,7 @@ jobs:
         if: steps.benchmark-filter.outputs.skip != 'true'
         env:
           REJSON_BRANCH: ${{ inputs.rejson_branch }}
-        run: REJSON_BRANCH=$REJSON_BRANCH ./tests/deps/setup_rejson.sh
+        run: ./tests/deps/setup_rejson.sh
 
       - name: Run CI benchmarks on aws for envs ${{ inputs.allowed_envs }}
         if: steps.benchmark-filter.outputs.skip != 'true'
