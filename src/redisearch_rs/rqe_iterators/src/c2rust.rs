@@ -10,9 +10,14 @@
 //   this shim.
 use ffi::{
     IteratorStatus_ITERATOR_EOF, IteratorStatus_ITERATOR_NOTFOUND, IteratorStatus_ITERATOR_OK,
-    IteratorStatus_ITERATOR_TIMEOUT, IteratorType_INV_IDX_WILDCARD_ITERATOR,
-    IteratorType_WILDCARD_ITERATOR, QueryIterator, ValidateStatus_VALIDATE_ABORTED,
+    IteratorStatus_ITERATOR_TIMEOUT, QueryIterator, ValidateStatus_VALIDATE_ABORTED,
     ValidateStatus_VALIDATE_MOVED, ValidateStatus_VALIDATE_OK, t_docId,
+};
+
+use crate::IteratorType;
+use crate::{
+    RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome, interop::RQEIteratorWrapper,
+    intersection::Intersection,
 };
 use inverted_index::RSIndexResult;
 use std::{
@@ -20,8 +25,6 @@ use std::{
     ops::{Deref, DerefMut},
     ptr::NonNull,
 };
-
-use crate::{RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
 
 /// A Rust shim over a query iterator that satisfies the C iterator API.
 ///
@@ -55,7 +58,7 @@ pub struct CRQEIterator {
     /// 2. [`Self::header`] is an owning pointer, in the same way `Box` owns the
     ///    allocated heap data.
     /// 3. All callbacks are defined (i.e. the function pointers are not NULL),
-    ///    with the exception of `SkipTo`, which is optional.
+    ///    with the exception of `SkipTo` and `ProfileChildren`, which are optional.
     /// 4. All callbacks can be safely called, when the right aliasing conditions are
     ///    in place
     header: NonNull<QueryIterator>,
@@ -132,7 +135,7 @@ impl CRQEIterator {
     /// 2. `header` is an owning pointer, in the same way `Box` owns the
     ///    allocated heap data.
     /// 3. All callbacks are defined (i.e. the function pointers are not NULL),
-    ///    with the exception of `SkipTo`, which is optional.
+    ///    with the exception of `SkipTo` and `ProfileChildren`, which are optional.
     /// 4. All callbacks can be safely called, when the right aliasing conditions are
     ///    in place
     pub unsafe fn new(header: NonNull<QueryIterator>) -> Self {
@@ -309,11 +312,116 @@ impl<'index> RQEIterator<'index> for CRQEIterator {
         }
     }
 
-    #[expect(non_upper_case_globals)]
-    fn is_wildcard(&self) -> bool {
-        matches!(
+    #[inline(always)]
+    fn type_(&self) -> IteratorType {
+        self.type_
+    }
+
+    fn as_c_iterator(&self) -> Option<&CRQEIterator> {
+        Some(self)
+    }
+
+    fn intersection_sort_weight(&self, prioritize_union_children: bool) -> f64 {
+        match self.type_ {
+            IteratorType::Intersect => {
+                let ptr = std::ptr::from_ref(self.as_ref());
+                // SAFETY:
+                // - `type_ == INTERSECT_ITERATOR` guarantees `ptr` was produced by
+                //   `RQEIteratorWrapper::boxed_new` with `Intersection<CRQEIterator>` as the
+                //   inner type (`NewIntersectionIterator` is the sole constructor of a C
+                //   wrapped intersection).
+                // - `ref_from_header_ptr` uses the compiler-computed field offset for `inner`
+                //   rather than manual `size_of` arithmetic, making it immune to alignment
+                //   padding between `header` and `inner` in `RQEIteratorWrapper`.
+                let n = unsafe {
+                    RQEIteratorWrapper::<Intersection<'_, CRQEIterator>>::ref_from_header_ptr(ptr)
+                        .inner
+                        .num_children()
+                };
+                1.0 / n.max(1) as f64
+            }
+            IteratorType::Union if prioritize_union_children => {
+                let ptr = std::ptr::from_ref(self.as_ref());
+                // SAFETY: `type_` guarantees `ptr` points to a `UnionIterator` whose first field
+                // is the `QueryIterator` base — the cast is valid by C struct layout.
+                let n = unsafe { (*ptr.cast::<ffi::UnionIterator>()).num as usize };
+                n.max(1) as f64
+            }
+            IteratorType::InvIdxNumeric => 1.0,
+            IteratorType::InvIdxTerm => 1.0,
+            IteratorType::InvIdxWildcard => 1.0,
+            IteratorType::InvIdxMissing => 1.0,
+            IteratorType::InvIdxTag => 1.0,
+            IteratorType::Hybrid => 1.0,
+            IteratorType::Union => 1.0,
+            IteratorType::Not => 1.0,
+            IteratorType::NotOptimized => 1.0,
+            IteratorType::Optional => 1.0,
+            IteratorType::OptionalOptimized => 1.0,
+            IteratorType::Wildcard => 1.0,
+            IteratorType::Empty => 1.0,
+            IteratorType::IdListSorted => 1.0,
+            IteratorType::IdListUnsorted => 1.0,
+            IteratorType::MetricSortedById => 1.0,
+            IteratorType::MetricSortedByScore => 1.0,
+            IteratorType::Profile => 1.0,
+            IteratorType::Optimus => 1.0,
+            IteratorType::Mock => 1.0,
+            IteratorType::Max => 1.0,
+        }
+    }
+}
+
+impl CRQEIterator {
+    /// Profile the subtree rooted at this iterator — wrapping every
+    /// child node — **without** wrapping `self`.
+    ///
+    /// Delegates to the `ProfileChildren` virtual function if set.
+    /// Leaf iterators leave `ProfileChildren` as `NULL` and are returned unchanged.
+    pub fn profile_children(self) -> Self {
+        if let Some(callback) = self.ProfileChildren {
+            let ptr = self.into_raw().as_ptr();
+            // SAFETY: `ptr` is valid and owning (`into_raw` consumed `self`),
+            // and no other references exist, satisfying the callback's contract.
+            // The callback is guaranteed to be valid by the C iterator API contract
+            // and returns a valid, owning `QueryIterator` pointer.
+            let ptr = unsafe { callback(ptr) };
+            debug_assert!(!ptr.is_null(), "ProfileChildren callback returned null");
+            // SAFETY: The callback returns a valid, non-null, owning pointer per
+            // the C iterator API contract. It satisfies all `CRQEIterator::new`
+            // preconditions (valid, owning, callbacks populated).
+            let ptr = unsafe { NonNull::new_unchecked(ptr) };
+            // SAFETY: `ptr` is a valid, owning, non-null pointer with all
+            // callbacks populated, as guaranteed by the C iterator API contract.
+            unsafe { CRQEIterator::new(ptr) }
+        } else {
+            // Leaf iterator — no children to recurse into.
+            self
+        }
+    }
+
+    /// Profile the entire subtree and wrap `self` in a [`Profile`](crate::profile::Profile) node.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `self` is already a [`Profile`](crate::profile::Profile) iterator,
+    /// which would indicate a double-profiling bug.
+    pub fn into_profiled(self) -> Self {
+        assert_ne!(
             self.type_,
-            IteratorType_WILDCARD_ITERATOR | IteratorType_INV_IDX_WILDCARD_ITERATOR
-        )
+            crate::IteratorType::Profile,
+            "Attempted to double-profile an iterator"
+        );
+        let profiled = self.profile_children();
+        let profile_wrapper = crate::profile::Profile::new(profiled);
+        let ptr = RQEIteratorWrapper::boxed_new(profile_wrapper);
+        // SAFETY: `boxed_new` uses `Box::into_raw`, which is guaranteed non-null.
+        let ptr = unsafe { NonNull::new_unchecked(ptr) };
+        // SAFETY:
+        // 1. `ptr` is valid — `boxed_new` returns a `Box::into_raw` pointer.
+        // 2. Ownership transferred — no other handle exists.
+        // 3. `boxed_new` populates all required callbacks (Read, Free, Rewind, etc.).
+        // 4. Callbacks are implemented by `RQEIteratorWrapper` and are safe to call.
+        unsafe { CRQEIterator::new(ptr) }
     }
 }

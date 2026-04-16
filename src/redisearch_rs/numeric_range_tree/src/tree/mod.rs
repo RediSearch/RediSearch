@@ -22,6 +22,9 @@ mod gc;
 mod insert;
 #[cfg(all(feature = "unittest", not(miri)))]
 mod invariants;
+mod util;
+
+pub(crate) use util::CheckedCount;
 
 pub use gc::{CompactIfSparseResult, NodeGcDelta, SingleNodeGcResult};
 
@@ -89,15 +92,15 @@ pub struct TrimEmptyLeavesResult {
 #[derive(Debug, Default, Clone, Copy)]
 pub(crate) struct TreeStats {
     /// Total number of ranges (nodes with inverted indexes).
-    pub num_ranges: usize,
+    pub num_ranges: CheckedCount,
     /// Total number of leaf nodes.
-    pub num_leaves: usize,
+    pub num_leaves: CheckedCount,
     /// Total number of (document, value) entries.
-    pub num_entries: usize,
+    pub num_entries: CheckedCount,
     /// Total memory used by inverted indexes in bytes.
-    pub inverted_indexes_size: usize,
+    pub inverted_indexes_size: CheckedCount,
     /// Number of empty leaves (for GC tracking).
-    pub empty_leaves: usize,
+    pub empty_leaves: CheckedCount,
 }
 
 /// A numeric range tree for efficient range queries over numeric values.
@@ -201,11 +204,11 @@ impl NumericRangeTree {
             root: root_index,
             nodes,
             stats: TreeStats {
-                num_ranges: 1,
-                num_leaves: 1,
-                num_entries: 0,
-                inverted_indexes_size,
-                empty_leaves: 1,
+                num_ranges: CheckedCount::new(1),
+                num_leaves: CheckedCount::new(1),
+                num_entries: CheckedCount::new(0),
+                inverted_indexes_size: CheckedCount::new(inverted_indexes_size),
+                empty_leaves: CheckedCount::new(1),
             },
             last_doc_id: 0,
             revision_id: 0,
@@ -236,22 +239,22 @@ impl NumericRangeTree {
 
     /// Get the total number of ranges in the tree.
     pub const fn num_ranges(&self) -> usize {
-        self.stats.num_ranges
+        self.stats.num_ranges.get()
     }
 
     /// Get the total number of leaf nodes in the tree.
     pub const fn num_leaves(&self) -> usize {
-        self.stats.num_leaves
+        self.stats.num_leaves.get()
     }
 
     /// Get the total number of entries in the tree.
     pub const fn num_entries(&self) -> usize {
-        self.stats.num_entries
+        self.stats.num_entries.get()
     }
 
     /// Get the total memory used by inverted indexes in bytes.
     pub const fn inverted_indexes_size(&self) -> usize {
-        self.stats.inverted_indexes_size
+        self.stats.inverted_indexes_size.get()
     }
 
     /// Get the last document ID added to the tree.
@@ -283,7 +286,7 @@ impl NumericRangeTree {
 
     /// Get the number of empty leaves (for GC tracking).
     pub const fn empty_leaves(&self) -> usize {
-        self.stats.empty_leaves
+        self.stats.empty_leaves.get()
     }
 
     /// Returns an iterator over all nodes in the tree (depth-first traversal).
@@ -298,21 +301,14 @@ impl NumericRangeTree {
 
     /// Calculate the total memory usage of the tree, in bytes.
     pub const fn mem_usage(&self) -> usize {
-        std::mem::size_of::<Self>() + self.stats.inverted_indexes_size + self.nodes.mem_usage()
+        std::mem::size_of::<Self>()
+            + self.stats.inverted_indexes_size.get()
+            + self.nodes.mem_usage()
     }
 }
 
 impl Default for NumericRangeTree {
     fn default() -> Self {
         Self::new(false)
-    }
-}
-
-/// Apply a signed delta to an unsigned value, panicking at bounds instead of wrapping.
-const fn apply_signed_delta(value: usize, delta: i64) -> usize {
-    if delta < 0 {
-        value.checked_sub((-delta) as usize).expect("Underflow!")
-    } else {
-        value.checked_add(delta as usize).expect("Overflow!")
     }
 }

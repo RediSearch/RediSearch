@@ -212,6 +212,10 @@ typedef struct {
   bool infoEmitOnZeroIndexes;
   // Simulate working under Flex conditions. This is used for testing only.
   bool simulateInFlex;
+  // If true, monitor document and field expiration for new indexes.
+  bool monitorExpiration;
+  // Percentage of available memory to use for disk write buffer (0-100).
+  uint8_t diskBufferPercentage;
 } RSConfig;
 
 typedef enum {
@@ -264,6 +268,11 @@ void RSConfigExternalTrigger_Register(RSConfigExternalTrigger trigger, const cha
  * REDISMODULE_ERR and sets an error message if something is invalid */
 int ReadConfig(RedisModuleString **argv, int argc, char **err);
 
+/* Returns the dynamic default number of worker threads:
+ * min(MAX_WORKER_THREADS, number of CPU cores).
+ * Falls back to MAX_WORKER_THREADS if CPU count cannot be determined. */
+size_t GetDefaultWorkerThreads(void);
+
 /* Register module configuration parameters using Module Configuration API */
 int RegisterModuleConfig_Local(RedisModuleCtx *ctx);
 
@@ -286,8 +295,6 @@ int RSConfig_SetOption(RSConfig *config, RSConfigOptions *options, const char *n
                        RedisModuleString **argv, int argc, size_t *offset, QueryError *status);
 
 sds RSConfig_GetInfoString(const RSConfig *config);
-
-void RSConfig_AddToInfo(RedisModuleInfoCtx *ctx);
 
 void UpgradeDeprecatedMTConfigs();
 
@@ -324,7 +331,7 @@ char *getRedisConfigValue(RedisModuleCtx *ctx, const char* confName);
 #define DEFAULT_QUERY_TIMEOUT_MS 500
 #define DEFAULT_UNION_ITERATOR_HEAP 20
 #define DEFAULT_VSS_MAX_RESIZE 0
-#define DEFAULT_WORKER_THREADS 0
+
 #define MIN_WORKER_THREADS_FLEX 1
 #define DEFAULT_WORKER_THREADS_FLEX MIN_WORKER_THREADS_FLEX
 #define MAX_DOC_TABLE_SIZE 100000000
@@ -345,6 +352,7 @@ char *getRedisConfigValue(RedisModuleCtx *ctx, const char* confName);
 #define DEFAULT_MIN_TRIM_DELAY 2000  // 2 seconds in milliseconds
 #define DEFAULT_MAX_TRIM_DELAY 5000  // 5 seconds in milliseconds
 #define DEFAULT_TRIMMING_STATE_CHECK_DELAY 100 // 0.1 seconds in milliseconds (We check the trimming state every 0.1 seconds, between MIN_TRIM_DELAY and MAX_TRIM_DELAY)
+#define DEFAULT_DISK_BUFFER_PERCENTAGE 20  // 20% of available memory for disk write buffer
 
 // default configuration
 #define RS_DEFAULT_CONFIG {                                                    \
@@ -360,7 +368,7 @@ char *getRedisConfigValue(RedisModuleCtx *ctx, const char* confName);
     .cursorReadSize = 1000,                                                    \
     .cursorMaxIdle = DEFAULT_MAX_CURSOR_IDLE,                                  \
     .maxDocTableSize = DEFAULT_DOC_TABLE_SIZE,                                 \
-    .numWorkerThreads = DEFAULT_WORKER_THREADS,                                \
+    .numWorkerThreads = 0, /* overwritten at runtime by GetDefaultWorkerThreads() */ \
     .minOperationWorkers = MIN_OPERATION_WORKERS,                              \
     .tieredVecSimIndexBufferLimit = DEFAULT_BLOCK_SIZE,                        \
     .highPriorityBiasNum = DEFAULT_HIGH_PRIORITY_BIAS_THRESHOLD,               \
@@ -400,7 +408,9 @@ char *getRedisConfigValue(RedisModuleCtx *ctx, const char* confName);
     .maxTrimDelayMS = DEFAULT_MAX_TRIM_DELAY,                                  \
     .trimmingStateCheckDelayMS = DEFAULT_TRIMMING_STATE_CHECK_DELAY,           \
     .infoEmitOnZeroIndexes = false,                                            \
-    .simulateInFlex = false,           \
+    .simulateInFlex = false,                                                   \
+    .monitorExpiration = true,                                                 \
+    .diskBufferPercentage = DEFAULT_DISK_BUFFER_PERCENTAGE,                    \
   }
 
 #define REDIS_ARRAY_LIMIT 7

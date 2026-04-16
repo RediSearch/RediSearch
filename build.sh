@@ -60,7 +60,7 @@ NIGHTLY_VERSION=$(cat ${ROOT}/.rust-nightly)
 #-----------------------------------------------------------------------------
 parse_arguments() {
   for arg in "$@"; do
-    # MacOS only has bash 3.2 built-in, which doesn't support the more modern ${arg^^} syntax.
+    # macOS only has bash 3.2 built-in, which doesn't support the more modern ${arg^^} syntax.
     upper_arg=$(printf '%s' "$arg" | tr '[:lower:]' '[:upper:]')
     case $upper_arg in
       COORD=*)
@@ -373,10 +373,10 @@ prepare_cmake_arguments() {
       fi
     else
       C_COMPILER="$CC"
-      if [[ ! "$C_COMPILER" =~ ^clang ]]; then
+      if [[ ! "$C_COMPILER" =~ clang(-[0-9]+)?$ ]]; then
         echo "Error: LTO requires clang as the C compiler"
         echo "Current CC: $C_COMPILER"
-        echo "Please set CC to a clang-based compiler (e.g., clang, clang-21)"
+        echo "Please set CC to a clang-based compiler (e.g. clang, clang-nn)"
         exit 1
       fi
     fi
@@ -388,10 +388,10 @@ prepare_cmake_arguments() {
       fi
     else
       CXX_COMPILER="$CXX"
-      if [[ ! "$CXX_COMPILER" =~ ^clang ]]; then
+      if [[ ! "$CXX_COMPILER" =~ clang([+][+])?(-[0-9]+)?$ ]]; then
         echo "Error: LTO requires clang++ as the C++ compiler"
         echo "Current CXX: $CXX_COMPILER"
-        echo "Please set CXX to a clang-based compiler (e.g., clang++, clang++-21)"
+        echo "Please set CXX to a clang-based compiler (e.g. clang++, clang++-nn)"
         exit 1
       fi
     fi
@@ -403,19 +403,20 @@ prepare_cmake_arguments() {
       fi
     else
       LINKER="$LD"
-      if [[ ! "$LINKER" =~ ^lld ]]; then
+      if [[ ! "$LINKER" =~ lld(-[0-9]+)?$ ]]; then
         echo "Error: LTO requires lld as the linker"
         echo "Current LD: $LINKER"
-        echo "Please set LD to lld or a versioned lld (e.g., lld, lld-21)"
+        echo "Please set LD to lld (e.g. lld, lld-nn)"
         exit 1
       fi
     fi
 
-    # Check LLVM version compatibility between Rust and Clang
-    CLANG_LLVM_VERSION=$($C_COMPILER --version | head -n1 | sed -n 's/.*version \([0-9]\+\).*/\1/p' | head -n1)
+    # Check LLVM version compatibility between rustc and clang
+    # Use 'sed -E' for compatibility with both GNU sed and BSD sed
+    CLANG_LLVM_VERSION=$($C_COMPILER --version | head -n1 | sed -En 's/.*version ([0-9]+).*/\1/p' | head -n1)
 
     if [[ -z "$RUSTC_LLVM_VERSION" || -z "$CLANG_LLVM_VERSION" ]]; then
-        echo "Error: Could not detect LLVM versions for Rust and Clang."
+        echo "Error: Could not detect LLVM versions for rustc and clang."
         echo "Cross-language LTO requires matching LLVM major versions."
         echo "Rust LLVM version: $RUSTC_LLVM_VERSION"
         echo "Clang LLVM version: $CLANG_LLVM_VERSION"
@@ -423,7 +424,7 @@ prepare_cmake_arguments() {
     fi
 
     if [[ "$RUSTC_LLVM_VERSION" != "$CLANG_LLVM_VERSION" ]]; then
-        echo "Error: LLVM version mismatch between Rust and Clang"
+        echo "Error: LLVM version mismatch between rustc and clang"
         echo "Rust uses LLVM $RUSTC_LLVM_VERSION (from: rustc --version --verbose)"
         echo "Clang uses LLVM $CLANG_LLVM_VERSION (from: $C_COMPILER --version)"
         echo ""
@@ -435,9 +436,92 @@ prepare_cmake_arguments() {
     fi
 
     echo "Enabling C/Rust LTO"
-    CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DCMAKE_C_COMPILER=$C_COMPILER -DCMAKE_CXX_COMPILER=$CXX_COMPILER -DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=$LINKER -DCMAKE_SHARED_LINKER_FLAGS=-fuse-ld=$LINKER -DCMAKE_MODULE_LINKER_FLAGS=-fuse-ld=$LINKER -DCMAKE_INTERPROCEDURAL_OPTIMIZATION=true"
+
+    # LLVM version alignment with the Rust compiler forces us to build with
+    # a rather recent version of clang (>=21.x.y).
+    # This can cause issues on older Linux distributions: if we're not careful,
+    # the .so we produce may rely on C++ symbols that don't exist in the
+    # C++ header files available at runtime (i.e. the ones provided by the
+    # system-level `gcc`/`g++` toolchain).
+    # To prevent this compile-time/runtime header mismatch, we force clang
+    # to use the C++ headers provided by the system's `g++` installation.
+    # This requires us to combine a few different flags and guardrails:
+    # * `--gcc-install-dir`, to point `clang` at artefacts (crtbegin.o, libgcc, etc.)
+    #   for a _specific_ version of `gcc`
+    # * `-nostdinc++`, to disable standard `#include` directives for the C++
+    #   standard library
+    # * `-isystem <dir>`, to control what paths are included in search space for
+    #   C++ standard headers
+    # * An after-the-fact check to ensure we haven't included unwanted headers in
+    #   the search
+    GCC_COMMON_FLAGS=""
+    GCC_CXX_FLAGS=""
+    if command -v g++ &>/dev/null; then
+        # Extract the C++ include paths that system g++ actually uses.
+        _cxx_includes=$(g++ -E -x c++ -v /dev/null 2>&1 | \
+            sed -n '/#include <\.\.\.>/,/^End/{ /^ /p }' | \
+            sed 's/^ *//' | \
+            grep -E '(/c\+\+/|/backward)') || true
+
+        # Point clang at g++'s include paths, disabling its default `#include`s
+        if [[ -n "$_cxx_includes" ]]; then
+            GCC_CXX_FLAGS="-nostdinc++"
+            while IFS= read -r dir; do
+                GCC_CXX_FLAGS+=" -isystem ${dir}"
+            done <<< "$_cxx_includes"
+        else
+            echo "Error: failed to extract C++ include paths from the system g++" >&2
+            exit 1
+        fi
+
+        # Pin `gcc`'s internal library dir (for crtbegin.o, libgcc, etc.)
+        GCC_INSTALL_DIR=$(gcc -print-search-dirs | sed -n 's/^install: //p')
+        if [[ -n "$GCC_INSTALL_DIR" ]]; then
+            GCC_COMMON_FLAGS="--gcc-install-dir=${GCC_INSTALL_DIR}"
+        fi
+
+        # --- Diagnostic: verify C++ header pinning ---
+        echo ">>> GCC common flags: ${GCC_COMMON_FLAGS}"
+        echo ">>> GCC C++ flags: ${GCC_CXX_FLAGS}"
+        echo ">>> Installed C++ header directories:"
+        ls -d /usr/include/c++/*/ 2>/dev/null || echo "  (none found)"
+        echo ">>> Clang C++ include search paths:"
+        _search_paths=$($CXX_COMPILER ${GCC_COMMON_FLAGS} ${GCC_CXX_FLAGS} -x c++ -v -fsyntax-only /dev/null 2>&1 \
+            | sed -n '/#include <\.\.\.>/,/^End/p')
+        echo "$_search_paths"
+        # Fail if clang's actual search paths include C++ headers from a GCC other than system
+        _sys_gcc_major=$(gcc -dumpversion | cut -d. -f1)
+        _bad_paths=$(echo "$_search_paths" | grep -E "/c\+\+/[0-9]+" | grep -vE "/c\+\+/${_sys_gcc_major}(\.[0-9]+){0,2}(/|$)" || true)
+        if [[ -n "$_bad_paths" ]]; then
+            echo "ERROR: Clang sees C++ headers from a GCC version other than system GCC ${_sys_gcc_major}:"
+            echo "$_bad_paths"
+            echo "       C++ header pinning is not working correctly."
+            echo "       This will cause GLIBCXX symbol mismatch at link time."
+            exit 1
+        fi
+    fi
+
+    # Pass LTO C/CXX flags to CMake via CFLAGS/CXXFLAGS env vars so CMake picks them
+    # up without word-splitting issues.
+    # Note: we assume there are no spaces in system C++ include paths.
+    export CFLAGS="${CFLAGS:+${CFLAGS} }${GCC_COMMON_FLAGS}"
+    export CXXFLAGS="${CXXFLAGS:+${CXXFLAGS} }${GCC_COMMON_FLAGS}${GCC_CXX_FLAGS:+ ${GCC_CXX_FLAGS}}"
+    # Export CC/CXX so that Rust's cc crate also uses clang, matching the
+    # clang-specific flags in CFLAGS/CXXFLAGS (e.g. --gcc-install-dir).
+    export CC="$C_COMPILER"
+    export CXX="$CXX_COMPILER"
+    CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS \
+        -DCMAKE_C_COMPILER=$C_COMPILER \
+        -DCMAKE_CXX_COMPILER=$CXX_COMPILER \
+        -DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=$LINKER \
+        -DCMAKE_SHARED_LINKER_FLAGS=-fuse-ld=$LINKER \
+        -DCMAKE_MODULE_LINKER_FLAGS=-fuse-ld=$LINKER \
+        -DCMAKE_INTERPROCEDURAL_OPTIMIZATION=true"
     # Include LLVM bitcode information for cross-language LTO
     RUSTFLAGS="${RUSTFLAGS:+${RUSTFLAGS} }-C linker-plugin-lto -C linker=$C_COMPILER -C link-arg=-fuse-ld=$LINKER"
+    if [[ -n "$GCC_INSTALL_DIR" ]]; then
+      RUSTFLAGS="$RUSTFLAGS -C link-arg=--gcc-install-dir=${GCC_INSTALL_DIR}"
+    fi
   fi
 
   if [[ "$BUILD_TESTS" == "1" ]]; then
@@ -473,9 +557,11 @@ prepare_cmake_arguments() {
   # Ensure output file is always .so even on macOS
   CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DCMAKE_SHARED_LIBRARY_SUFFIX=.so"
 
-  # Enable sccache for C/C++ compilation caching if available
-  if command -v sccache &>/dev/null; then
-    CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DCMAKE_C_COMPILER_LAUNCHER=sccache -DCMAKE_CXX_COMPILER_LAUNCHER=sccache"
+  # Enable sccache for C/C++ compilation caching if available.
+  # Prefer SCCACHE_PATH (set by sccache-action in CI with the full path), otherwise look on PATH.
+  SCCACHE="${SCCACHE_PATH:-$(command -v sccache 2>/dev/null || true)}"
+  if [[ -n "$SCCACHE" && -x "$SCCACHE" ]]; then
+    CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DCMAKE_C_COMPILER_LAUNCHER=$SCCACHE -DCMAKE_CXX_COMPILER_LAUNCHER=$SCCACHE"
     echo "Using sccache for C/C++ compilation caching"
   fi
 
@@ -512,14 +598,26 @@ prepare_cmake_arguments() {
     RUSTFLAGS="${RUSTFLAGS:+${RUSTFLAGS} }-Zsanitizer=address"
   fi
 
+  # Workaround for macOS 14:
+  # Apple's ld (through Apple clang 16 / Xcode 16.2) has an ARM64 bug that
+  # misaligns symbols, causing "not 8-byte aligned" LDR/STR errors. Fixed in
+  # Apple clang 17 (Xcode 16.4+). Use LLVM's lld as a workaround when needed.
+  if [[ "$OS_NAME" == "macos" ]]; then
+    APPLE_CLANG_MAJOR=$(cc --version 2>/dev/null | head -1 | grep -oE 'version [0-9]+' | grep -oE '[0-9]+')
+    if [[ -n "$APPLE_CLANG_MAJOR" && "$APPLE_CLANG_MAJOR" -lt 17 ]]; then
+      # llvm@17 provides ld64.lld; the project's llvm@21 doesn't include lld.
+      local lld_path="$(brew --prefix)/opt/llvm@17/bin/ld64.lld"
+      if [[ -x "$lld_path" ]]; then
+        echo "Apple clang $APPLE_CLANG_MAJOR < 17: using llvm@17's ld64.lld to work around ARM64 alignment bug"
+        RUSTFLAGS="${RUSTFLAGS:+${RUSTFLAGS} }-C link-arg=-fuse-ld=${lld_path}"
+      else
+        echo "WARNING: Apple clang $APPLE_CLANG_MAJOR has a known ARM64 linker bug but ld64.lld is not installed at ${lld_path}"
+      fi
+    fi
+  fi
+
   # Export RUSTFLAGS so it's available to the Rust build process
   export RUSTFLAGS
-
-  # Enable sccache for Rust if available
-  if command -v sccache &>/dev/null; then
-    export RUSTC_WRAPPER="sccache"
-    echo "Using sccache for Rust compilation caching"
-  fi
 
   # RUSTFLAGS will be passed as environment variable to avoid quoting issues
   # This prevents CMake argument parsing from truncating complex flag values

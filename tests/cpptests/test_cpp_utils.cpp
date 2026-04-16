@@ -11,8 +11,8 @@
 #include <stdlib.h>
 #include <cmath>
 
-#include "src/util/heap_doubles.h"
-#include "src/hll/hll.h"
+#include "util/heap_doubles.h"
+#include "hll/hll.h"
 
 
 class UtilsTest : public ::testing::Test {};

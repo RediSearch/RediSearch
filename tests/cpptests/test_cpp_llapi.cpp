@@ -8,13 +8,13 @@
 */
 
 
-#include "src/redisearch_api.h"
+#include "redisearch_api.h"
 #include "gtest/gtest.h"
 #include "common.h"
-#include "src/redis_index.h"
-#include "src/info/indexes_info.h"
-#include "src/config.h"
-#include "src/numeric_index.h"
+#include "redis_index.h"
+#include "info/indexes_info.h"
+#include "config.h"
+#include "numeric_index.h"
 #include "numeric_range_tree.h"
 
 #include <set>
@@ -355,9 +355,9 @@ TEST_F(LLApiTest, testMassivePrefix) {
   char buff[1024];
   int NUM_OF_DOCS = 1000;
   for (int i = 0; i < NUM_OF_DOCS; ++i) {
-    sprintf(buff, "doc%d", i);
+    snprintf(buff, sizeof(buff), "doc%d", i);
     RSDoc* d = RediSearch_CreateDocument(buff, strlen(buff), 1.0, NULL);
-    sprintf(buff, "tag-%d", i);
+    snprintf(buff, sizeof(buff), "tag-%d", i);
     RediSearch_DocumentAddFieldCString(d, TAG_FIELD_NAME1, buff, RSFLDTYPE_DEFAULT);
     RediSearch_SpecAddDocument(index, d);
   }
@@ -384,7 +384,7 @@ const char *words[] = {"he", "her", "hell", "help", "helper", "hello",
 void loadDocsText(RSIndex *index) {
   char buff[16];
   for (int i = 0; i < 10; ++i) {
-    sprintf(buff, "%d", i);
+    snprintf(buff, sizeof(buff), "%d", i);
     RSDoc* d = RediSearch_CreateDocument(buff, strlen(buff), 1.0, NULL);
     RediSearch_DocumentAddFieldCString(d, FIELD_NAME_1, words[i], RSFLDTYPE_DEFAULT);
     RediSearch_DocumentAddFieldCString(d, FIELD_NAME_2, words[i], RSFLDTYPE_DEFAULT);
@@ -453,7 +453,7 @@ TEST_F(LLApiTest, testSuffixText) {
 void loadDocsTag(RSIndex *index) {
   char buff[16];
   for (int i = 0; i < 10; ++i) {
-    sprintf(buff, "%d", i);
+    snprintf(buff, sizeof(buff), "%d", i);
     RSDoc* d = RediSearch_CreateDocument(buff, strlen(buff), 1.0, NULL);
     RediSearch_DocumentAddFieldCString(d, TAG_FIELD_NAME1, words[i], RSFLDTYPE_DEFAULT);
     RediSearch_DocumentAddFieldCString(d, TAG_FIELD_NAME2, words[i], RSFLDTYPE_DEFAULT);
@@ -525,7 +525,7 @@ static void PopulateIndex(RSIndex* index) {
   for (char c = 'a'; c <= 'z'; c++) {
     buf[nbuf - 1] = c;
     char did[64];
-    sprintf(did, "doc%c", c);
+    snprintf(did, sizeof(did), "doc%c", c);
     RSDoc* d = RediSearch_CreateDocument(did, strlen(did), 0, NULL);
     RediSearch_DocumentAddFieldCString(d, FIELD_NAME_1, buf, RSFLDTYPE_DEFAULT);
     RediSearch_SpecAddDocument(index, d);
@@ -538,7 +538,7 @@ static void PopulateIndexMultibyte(RSIndex* index) {
   for (char c = 'a'; c <= 'z'; c++) {
     buf[nbuf - 1] = c;
     char did[64];
-    sprintf(did, "doc%c", c);
+    snprintf(did, sizeof(did), "doc%c", c);
     RSDoc* d = RediSearch_CreateDocument(did, strlen(did), 0, NULL);
     RediSearch_DocumentAddFieldCString(d, FIELD_NAME_1, buf, RSFLDTYPE_DEFAULT);
     RediSearch_SpecAddDocument(index, d);
@@ -560,7 +560,7 @@ static void ValidateResults(RSIndex* index, RSQNode* qn, char start, char end, i
   ASSERT_EQ(numResults, results.size());
   for (char c = start; c <= end; c++) {
     char namebuf[64];
-    sprintf(namebuf, "doc%c", c);
+    snprintf(namebuf, sizeof(namebuf), "doc%c", c);
     ASSERT_NE(results.end(), results.find(namebuf));
   }
   RediSearch_ResultsIteratorFree(iter);
@@ -686,15 +686,15 @@ TEST_F(LLApiTest, testRangesOnTagsWithOneNode) {
 static char buffer[1024];
 
 static int GetValue(void* ctx, const char* fieldName, const void* id, char** strVal,
-                    double* doubleVal) {
-  *strVal = buffer;
+                    double* doubleVal) {  
   int numId;
   sscanf((char*)id, "doc%d", &numId);
   if (strcmp(fieldName, TAG_FIELD_NAME1) == 0) {
-    sprintf(*strVal, "tag1-%d", numId);
+    snprintf(buffer, sizeof(buffer), "tag1-%d", numId);
   } else {
-    sprintf(*strVal, "tag2-%d", numId);
+    snprintf(buffer, sizeof(buffer), "tag2-%d", numId);
   }
+  *strVal = buffer;
   return RSVALTYPE_STRING;
 }
 
@@ -710,9 +710,9 @@ TEST_F(LLApiTest, testMassivePrefixWithUnsortedSupport) {
   char buff[1024];
   int NUM_OF_DOCS = 10000;
   for (int i = 0; i < NUM_OF_DOCS; ++i) {
-    sprintf(buff, "doc%d", i);
+    snprintf(buff, sizeof(buff), "doc%d", i);
     RSDoc* d = RediSearch_CreateDocument(buff, strlen(buff), 1.0, NULL);
-    sprintf(buff, "tag-%d", i);
+    snprintf(buff, sizeof(buff), "tag-%d", i);
     RediSearch_DocumentAddFieldCString(d, TAG_FIELD_NAME1, buff, RSFLDTYPE_DEFAULT);
     RediSearch_SpecAddDocument(index, d);
   }
@@ -746,11 +746,11 @@ TEST_F(LLApiTest, testPrefixIntersection) {
   char buff[1024];
   int NUM_OF_DOCS = 1000;
   for (int i = 0; i < NUM_OF_DOCS; ++i) {
-    sprintf(buff, "doc%d", i);
+    snprintf(buff, sizeof(buff), "doc%d", i);
     RSDoc* d = RediSearch_CreateDocument(buff, strlen(buff), 1.0, NULL);
-    sprintf(buff, "tag1-%d", i);
+    snprintf(buff, sizeof(buff), "tag1-%d", i);
     RediSearch_DocumentAddFieldCString(d, TAG_FIELD_NAME1, buff, RSFLDTYPE_DEFAULT);
-    sprintf(buff, "tag2-%d", i);
+    snprintf(buff, sizeof(buff), "tag2-%d", i);
     RediSearch_DocumentAddFieldCString(d, TAG_FIELD_NAME2, buff, RSFLDTYPE_DEFAULT);
     RediSearch_SpecAddDocument(index, d);
   }
@@ -857,14 +857,14 @@ TEST_F(LLApiTest, testQueryString) {
   // Insert the documents...
   for (size_t ii = 0; ii < 100; ++ii) {
     char docbuf[1024] = {0};
-    sprintf(docbuf, "doc%lu\n", ii);
+    snprintf(docbuf, sizeof(docbuf), "doc%lu\n", ii);
     Document* d = RediSearch_CreateDocumentSimple(docbuf);
     // Fill with fields..
-    sprintf(docbuf, "hello%lu\n", ii);
+    snprintf(docbuf, sizeof(docbuf), "hello%lu\n", ii);
     RediSearch_DocumentAddFieldCString(d, "ft1", docbuf, RSFLDTYPE_DEFAULT);
-    sprintf(docbuf, "world%lu\n", ii);
+    snprintf(docbuf, sizeof(docbuf), "world%lu\n", ii);
     RediSearch_DocumentAddFieldCString(d, "ft2", docbuf, RSFLDTYPE_DEFAULT);
-    sprintf(docbuf, "tag%lu\n", ii);
+    snprintf(docbuf, sizeof(docbuf), "tag%lu\n", ii);
     RediSearch_DocumentAddFieldCString(d, "tg1", docbuf, RSFLDTYPE_TAG);
     RediSearch_DocumentAddFieldNumber(d, "n1", ii, RSFLDTYPE_DEFAULT);
     RediSearch_SpecAddDocument(index, d);
@@ -1286,7 +1286,7 @@ TEST_F(LLApiTest, testInfo) {
   ASSERT_EQ(info.numDocuments, 2);
   ASSERT_EQ(info.maxDocId, 2);
   ASSERT_EQ(info.docTableSize, 124 + doc_table_size);
-  ASSERT_EQ(info.sortablesSize, 48);
+  ASSERT_EQ(info.sortablesSize, 80);
   ASSERT_EQ(info.docTrieSize, 120);
   ASSERT_EQ(info.numTerms, 5);
   ASSERT_EQ(info.numRecords, 7);

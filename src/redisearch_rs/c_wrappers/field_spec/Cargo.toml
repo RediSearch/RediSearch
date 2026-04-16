@@ -1,0 +1,26 @@
+[package]
+name = "field_spec"
+version.workspace = true
+edition.workspace = true
+license-file.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+ffi.workspace = true
+hidden_string.workspace = true
+enumflags2.workspace = true
+workspace_hack.workspace = true
+
+[features]
+unittest = []
+
+[dev-dependencies]
+pretty_assertions.workspace = true
+
+# Crate required to invoke C symbols
+field_spec = { path = ".", features = ["unittest"] }
+redisearch_rs.workspace = true
+redis_mock.workspace = true

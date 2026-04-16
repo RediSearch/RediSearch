@@ -15,6 +15,7 @@ build_utils = { path = "../build_utils" }
 
 [dependencies]
 ffi.workspace = true
+rqe_iterator_type.workspace = true
 field.workspace = true
 idf.workspace = true
 inverted_index.workspace = true
@@ -23,12 +24,12 @@ numeric_range_tree.workspace = true
 query_error.workspace = true
 query_term.workspace = true
 thiserror.workspace = true
+tracing.workspace = true
 trie_rs = { path = "../trie_rs" }
 redis_mock.workspace = true
-value_ffi = { path = "../c_entrypoint/value_ffi" }
 types_ffi = { path = "../c_entrypoint/types_ffi" }
 varint_ffi = { path = "../c_entrypoint/varint_ffi" }
-value = { workspace = true, features = ["c_ffi_impl"] }
+value.workspace = true
 workspace_hack.workspace = true
 
 [dev-dependencies]

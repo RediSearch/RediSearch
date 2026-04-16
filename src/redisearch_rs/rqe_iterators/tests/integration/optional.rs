@@ -9,11 +9,17 @@
 
 use ffi::{RS_FIELDMASK_ALL, t_docId};
 use rqe_iterators::{
-    RQEIterator, RQEValidateStatus, SkipToOutcome, empty::Empty, optional::Optional,
+    IteratorType, RQEIterator, RQEValidateStatus, SkipToOutcome, empty::Empty, optional::Optional,
     wildcard::Wildcard,
 };
 
 use crate::utils;
+
+#[test]
+fn type_() {
+    let it = Optional::new(10, 1.0, Empty::default());
+    assert_eq!(it.type_(), IteratorType::Optional);
+}
 
 mod optional_iterator_skip_backward_panics {
     use super::*;
@@ -962,6 +968,15 @@ mod optional_iterator_non_sequential_reads {
             &mut self,
         ) -> Result<RQEValidateStatus<'_, 'index>, rqe_iterators::RQEIteratorError> {
             Ok(RQEValidateStatus::Ok)
+        }
+
+        #[inline(always)]
+        fn type_(&self) -> IteratorType {
+            IteratorType::Mock
+        }
+
+        fn intersection_sort_weight(&self, _prioritize_union_children: bool) -> f64 {
+            1.0
         }
     }
 

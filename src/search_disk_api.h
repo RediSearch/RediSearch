@@ -68,26 +68,55 @@ typedef struct AsyncReadResult {
 } AsyncReadResult;
 
 typedef struct BasicDiskAPI {
-  RedisSearchDisk *(*open)(void);
-  void (*close)(RedisSearchDisk *disk);
+  /**
+   * @brief Open the disk storage context
+   * @param ctx Redis module context
+   * @param buffer_percentage Percentage of available memory to use for write buffer (0-100)
+   * @return Pointer to the disk context, or NULL on error
+   */
+  RedisSearchDisk *(*open)(RedisModuleCtx *ctx, int buffer_percentage);
+  void (*close)(RedisModuleCtx *ctx, RedisSearchDisk *disk);
   /**
    * @brief Open an index spec
-   * @param ctx Redis module context for BigModule APIs (may be NULL for backward compatibility)
+   * @param ctx Redis module context for BigModule APIs (required for getting DB path)
    * @param disk Pointer to the disk
    * @param indexName Name of the index
    * @param indexNameLen Length of the index name
    * @param type Document type
    * @param deleteBeforeOpen If true, delete any existing data before opening
    * @return Pointer to the index spec, or NULL on error
+   *
+   * @note This opens the database but does NOT register it with Redis. Call registerIndex after this
+   *       to register with BigModule APIs.
    */
   RedisSearchDiskIndexSpec *(*openIndexSpec)(RedisModuleCtx *ctx, RedisSearchDisk *disk, const char *indexName, size_t indexNameLen, DocumentType type, bool deleteBeforeOpen);
   /**
    * @brief Close an index spec
-   * @param ctx Redis module context for BigModule APIs (may be NULL for backward compatibility)
    * @param disk Pointer to the disk context (for cleanup of index metrics)
    * @param index Pointer to the index spec
+   *
+   * @note This closes the database but does NOT unregister from Redis. Call unregisterIndex
+   *       before this to unregister from BigModule APIs.
    */
-  void (*closeIndexSpec)(RedisModuleCtx *ctx, RedisSearchDisk *disk, RedisSearchDiskIndexSpec *index);
+  void (*closeIndexSpec)(RedisSearchDisk *disk, RedisSearchDiskIndexSpec *index);
+  /**
+   * @brief Register an index's database with Redis BigModule APIs
+   * @param ctx Redis module context (required, must be valid)
+   * @param index Pointer to the index spec
+   *
+   * @note Must be called from the main thread with a valid RedisModuleCtx.
+   *       Call this after openIndexSpec to register the database with Redis.
+   */
+  void (*registerIndex)(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index);
+  /**
+   * @brief Unregister an index's database from Redis BigModule APIs
+   * @param ctx Redis module context (required, must be valid)
+   * @param index Pointer to the index spec
+   *
+   * @note Must be called from the main thread with a valid RedisModuleCtx.
+   *       Call this before closeIndexSpec to unregister the database from Redis.
+   */
+  void (*unregisterIndex)(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index);
   void (*indexSpecRdbSave)(RedisModuleIO *rdb, RedisSearchDiskIndexSpec *index);
   u_int32_t (*indexSpecRdbLoad)(RedisModuleIO *rdb, RedisSearchDiskIndexSpec *index);
 
@@ -104,6 +133,20 @@ typedef struct BasicDiskAPI {
    * @param disable Callback to resume CMD_DENYOOM commands (wraps RedisModule_DisablePostponeClients)
    */
   void (*setThrottleCallbacks)(ThrottleCB enable, ThrottleCB disable);
+
+  /**
+   * @brief Update the buffer budget and WBM in response to RAM configuration changes.
+   *
+   * This function requests a new buffer budget from Redis via BigWriteBufferBudgetInit
+   * and updates the WriteBufferManager with the new size.
+   *
+   * @param ctx Redis module context
+   * @param disk Pointer to the disk context
+   * @param percentage Percentage of available memory to request (0-100)
+   * @return The new buffer budget in bytes, or 0 on error. Use this value to update
+   *         existing indexes via updateWriteBufferSize.
+   */
+  size_t (*updateBufferBudget)(RedisModuleCtx *ctx, RedisSearchDisk *disk, int percentage);
 } BasicDiskAPI;
 
 typedef struct IndexDiskAPI {
@@ -150,15 +193,17 @@ typedef struct IndexDiskAPI {
   bool (*indexTags)(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index, const char **values, size_t numValues, t_docId docId, t_fieldIndex fieldIndex);
 
   /**
-   * @brief Deletes a document by key, looking up its doc ID, removing it from the doc table and marking its ID as deleted
+   * @brief Deletes a document by its doc ID directly, removing it from the doc table and marking its ID as deleted
+   *
+   * Used by the metadata unlink callback where the docId is already known
+   * (no key-to-docId lookup needed).
    *
    * @param handle Handle to the document table
-   * @param key Document key
-   * @param keyLen Length of the document key
+   * @param docId Document ID to delete
    * @param oldLen Optional pointer to receive the old document length (can be NULL)
-   * @param id Optional pointer to receive the deleted document ID (can be NULL)
+   * @return true if the document was found and deleted, false if not found
    */
-  void (*deleteDocument)(RedisSearchDiskIndexSpec* handle, const char* key, size_t keyLen, uint32_t *oldLen, t_docId *id);
+  bool (*deleteDocumentById)(RedisSearchDiskIndexSpec* handle, t_docId docId, uint32_t *oldLen);
 
    /**
    * @brief Creates a new iterator for the inverted index
@@ -223,6 +268,18 @@ typedef struct IndexDiskAPI {
    * @param index Pointer to the disk index
    */
   void (*flush)(RedisSearchDiskIndexSpec *index);
+
+  /**
+   * @brief Update the write buffer size for this index's database
+   *
+   * Dynamically changes the write_buffer_size option for all column families
+   * in this index's database. Should be called after updateBufferBudget to
+   * propagate the new per-index buffer size (budget / divisor).
+   *
+   * @param index Pointer to the disk index
+   * @param new_budget New total buffer budget in bytes (will be divided internally)
+   */
+  void (*updateWriteBufferSize)(RedisSearchDiskIndexSpec *index, size_t new_budget);
 } IndexDiskAPI;
 
 typedef struct DocTableDiskAPI {
@@ -230,7 +287,7 @@ typedef struct DocTableDiskAPI {
    * @brief Adds a new document to the table
    *
    * Assigns a new document ID and stores the document metadata.
-   * If the document key already exists, returns 0.
+   * If oldDocId is provided (non-zero), the old document is marked as deleted.
    *
    * @param handle Handle to the document table
    * @param key Document key
@@ -241,9 +298,10 @@ typedef struct DocTableDiskAPI {
    * @param docLen Sum of the frequencies of all terms in the document
    * @param oldLen Pointer to an integer to store the length of the deleted document
    * @param documentTtl Document expiration time (must be positive if Document_HasExpiration flag is set; must be 0 and is ignored if the flag is not set)
-   * @return New document ID, or 0 on error/duplicate
+   * @param oldDocId Old document ID from DocIdMeta (0 if new document)
+   * @return New document ID, or 0 on error
    */
-  t_docId (*putDocument)(RedisSearchDiskIndexSpec* handle, const char* key, size_t keyLen, float score, uint32_t flags, uint32_t maxTermFreq, uint32_t docLen, uint32_t *oldLen, t_expirationTimePoint documentTtl);
+  t_docId (*putDocument)(RedisSearchDiskIndexSpec* handle, const char* key, size_t keyLen, float score, uint32_t flags, uint32_t maxTermFreq, uint32_t docLen, uint32_t *oldLen, t_expirationTimePoint documentTtl, t_docId oldDocId);
 
   /**
    * @brief Returns whether the docId is in the deleted set
@@ -261,10 +319,10 @@ typedef struct DocTableDiskAPI {
    * @param docId Document ID
    * @param dmd Pointer to the document metadata structure to populate
    * @param allocate_key Callback to allocate memory for the key
-   * @param expiration_point Current time for expiration check.
+   * @param expiration_point Current time for expiration check, or NULL to skip expiration check.
    * @return true if found and not expired, false if not found, expired, or on error
    */
-  bool (*getDocumentMetadata)(RedisSearchDiskIndexSpec* handle, t_docId docId, RSDocumentMetadata* dmd, AllocateKeyCallback allocate_key, t_expirationTimePoint expiration_point);
+  bool (*getDocumentMetadata)(RedisSearchDiskIndexSpec* handle, t_docId docId, RSDocumentMetadata* dmd, AllocateKeyCallback allocate_key, const t_expirationTimePoint* expiration_point);
 
   /**
    * @brief Gets the maximum document ID assigned in the index
@@ -349,6 +407,21 @@ typedef struct DocTableDiskAPI {
    * @param pool Pool handle from createAsyncReadPool
    */
   void (*freeAsyncReadPool)(RedisSearchDiskAsyncReadPool pool);
+
+  /**
+   * @brief Replaces the key name in document metadata for a given document ID
+   *
+   * Used when a Redis key is renamed - updates the document metadata to reflect
+   * the new key name while keeping the same document ID and all other metadata
+   * (score, flags, expiration, etc.) unchanged.
+   *
+   * @param handle Handle to the document table
+   * @param docId Document ID whose key should be replaced
+   * @param newKey New key name
+   * @param newKeyLen Length of the new key
+   * @return true if the document was found and updated, false if not found or on error
+   */
+  bool (*replaceKey)(RedisSearchDiskIndexSpec* handle, t_docId docId, const char* newKey, size_t newKeyLen);
 } DocTableDiskAPI;
 
 typedef struct VectorDiskAPI {

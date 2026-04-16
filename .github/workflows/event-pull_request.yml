@@ -15,7 +15,7 @@ jobs:
     # TODO: Revert when 8.4 is released
     runs-on: ubuntu-latest
     outputs:
-      tag: unstable
+      tag: 3cd464263b03b425ffae2e23db24df3dc9346871
     steps:
       - run: echo "Dummy step to set output"
     # uses: ./.github/workflows/task-get-latest-tag.yml
@@ -66,9 +66,9 @@ jobs:
     uses: ./.github/workflows/task-test.yml
     secrets: inherit
     with:
-      platform: ubuntu:default
+      platform: ubuntu:latest
       architecture: x86_64
-      get-redis: ${{ needs.get-latest-redis-tag.outputs.tag }}
+      redis-ref: ${{ needs.get-latest-redis-tag.outputs.tag }}
       test-config: QUICK=1
       coordinator: ${{ matrix.test-mode != 'standalone' }}
       standalone: ${{ matrix.test-mode != 'coordinator' }}

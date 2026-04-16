@@ -9,6 +9,7 @@
 #ifndef RLOOKUP_LOAD_DOCUMENT_H
 #define RLOOKUP_LOAD_DOCUMENT_H
 #include "rlookup.h"
+#include "hiredis/sds.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -55,8 +56,9 @@ int loadIndividualKeys(RLookup *it, RLookupRow *dst, RLookupLoadOptions *options
 int RLookup_LoadDocumentAll(RLookup *lt, RLookupRow *dst, RLookupLoadOptions *options);
 int RLookup_LoadDocumentIndividual(RLookup *lt, RLookupRow *dst, RLookupLoadOptions *options);
 
-int RLookup_LoadRuleFields(RedisSearchCtx *sctx, RLookup *it, RLookupRow *dst,
-                           IndexSpec *sp, const char *keyptr, QueryError *status);
+// added as entry point for the rust code
+// Required from Rust therefore exposed as a non-"inline static" function here.
+size_t sdslen_rust(const sds s);
 
 #ifdef __cplusplus
 }

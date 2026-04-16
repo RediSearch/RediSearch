@@ -11,7 +11,7 @@ use ffi::t_docId;
 use inverted_index::{IndexReader, RSIndexResult};
 
 use crate::{
-    RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
+    IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
     expiration_checker::{ExpirationChecker, NoOpChecker},
 };
 
@@ -310,5 +310,16 @@ where
         };
 
         Ok(res)
+    }
+
+    #[inline(always)]
+    fn type_(&self) -> IteratorType {
+        unimplemented!(
+            "InvIndIterator::type_() should not be called directly; use the specific iterator type"
+        )
+    }
+
+    fn intersection_sort_weight(&self, _prioritize_union_children: bool) -> f64 {
+        1.0
     }
 }

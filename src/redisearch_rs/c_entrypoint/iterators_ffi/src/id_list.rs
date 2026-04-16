@@ -7,13 +7,10 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use ffi::{
-    IteratorType_ID_LIST_SORTED_ITERATOR, IteratorType_ID_LIST_UNSORTED_ITERATOR, QueryIterator,
-    t_docId,
-};
+use ffi::{QueryIterator, t_docId};
 use inverted_index::RSIndexResult;
+use rqe_iterators::interop::RQEIteratorWrapper;
 use rqe_iterators::{id_list::IdList, utils::OwnedSlice};
-use rqe_iterators_interop::RQEIteratorWrapper;
 
 #[unsafe(no_mangle)]
 /// Creates a new iterator over a list of sorted document IDs.
@@ -75,12 +72,8 @@ unsafe fn new_id_list_iterator<const SORTED: bool>(
         OwnedSlice::default()
     };
 
-    RQEIteratorWrapper::boxed_new(
-        if SORTED {
-            IteratorType_ID_LIST_SORTED_ITERATOR
-        } else {
-            IteratorType_ID_LIST_UNSORTED_ITERATOR
-        },
-        IdList::<SORTED>::with_result(ids_list, RSIndexResult::build_virt().weight(weight).build()),
-    )
+    RQEIteratorWrapper::boxed_new(IdList::<SORTED>::with_result(
+        ids_list,
+        RSIndexResult::build_virt().weight(weight).build(),
+    ))
 }

@@ -94,22 +94,22 @@ const RSDocumentMetadata *DocTable_Borrow(const DocTable *t, t_docId docId) {
 
 bool DocTable_Exists(const DocTable *t, t_docId docId) {
   if (!docId || docId > t->maxDocId) {
-    return 0;
+    return false;
   }
   uint32_t ix = DocTable_GetBucket(t, docId);
   if (ix >= t->cap) {
-    return 0;
+    return false;
   }
   const DMDChain *chain = t->buckets + ix;
   if (chain == NULL) {
-    return 0;
+    return false;
   }
   for (const RSDocumentMetadata *md = chain->root; md != NULL; md = md->nextInChain) {
     if (md->id == docId) {
       return !(md->flags & Document_Deleted);
     }
   }
-  return 0;
+  return false;
 }
 
 const RSDocumentMetadata *DocTable_BorrowByKeyR(const DocTable *t, RedisModuleString *s) {
@@ -190,31 +190,20 @@ int DocTable_SetPayload(DocTable *t, RSDocumentMetadata *dmd, const char *data, 
   return 1;
 }
 
-/* Set the sorting vector for a document. If the vector is NULL we mark the doc as not having a
+/* Set the sorting vector for a document. If the vector is empty we mark the doc as not having a
  * vector. Returns 1 on success, 0 if the document does not exist. No further validation is done
  */
-int DocTable_SetSortingVector(DocTable *t, RSDocumentMetadata *dmd, RSSortingVector *v) {
+int DocTable_SetSortingVector(DocTable *t, RSDocumentMetadata *dmd, RSSortingVector v) {
   if (!dmd) {
     return 0;
   }
 
-  // LCOV_EXCL_START
-  /* Null vector means remove the current vector if it exists */
-  /*if (!v) {
-    if (dmd->sortVector) {
-      SortingVector_Free(dmd->sortVector);
-    }
-    dmd->sortVector = NULL;
-    dmd->flags &= ~Document_HasSortVector;
-    return 1;
-  }*/
-  // LCOV_EXCL_STOP
-  RS_LOG_ASSERT(v, "Sorting vector does not exist");  // tested in doAssignIds()
+  RS_LOG_ASSERT(RSSortingVector_Length(&v), "Sorting vector does not exist");  // tested in doAssignIds()
 
-  /* Set th new vector and the flags accordingly */
+  /* Set the new vector and the flags accordingly */
   dmd->sortVector = v;
   dmd->flags |= Document_HasSortVector;
-  t->sortablesSize += RSSortingVector_GetMemorySize(v);
+  t->sortablesSize += RSSortingVector_GetMemorySize(&dmd->sortVector);
 
   return 1;
 }
@@ -241,6 +230,22 @@ bool DocTable_IsDocExpired(DocTable* t, const RSDocumentMetadata* dmd, struct ti
   }
   RS_LOG_ASSERT(t->ttl, "Document has expiration time information but no TTL table");
   return TimeToLiveTable_HasDocExpired(t->ttl, dmd->id, expirationPoint);
+}
+
+void DocTable_ClearExpirationData(DocTable *t) {
+  if (t->ttl) {
+    dictIterator *ttlIter = dictGetIterator(t->ttl);
+    dictEntry *ttlEntry;
+    while ((ttlEntry = dictNext(ttlIter))) {
+      t_docId docId = (t_docId)dictGetKey(ttlEntry);
+      RSDocumentMetadata *dmd = DocTable_GetOwn(t, docId);
+      if (dmd) {
+        dmd->flags &= ~Document_HasExpiration;
+      }
+    }
+    dictReleaseIterator(ttlIter);
+    TimeToLiveTable_Destroy(&t->ttl);
+  }
 }
 
 /* Put a new document into the table, assign it an incremental id and store the metadata in the
@@ -274,7 +279,7 @@ RSDocumentMetadata *DocTable_Put(DocTable *t, const char *s, size_t n, double sc
   dmd->flags = flags;
   dmd->maxTermFreq = 1;
   dmd->id = docId;
-  dmd->sortVector = NULL;
+  dmd->sortVector = RSSortingVector_Empty();
   dmd->type = type;
 
   if (hasPayload(flags)) {
@@ -325,9 +330,8 @@ void DMD_Free(const RSDocumentMetadata *cmd) {
     md->flags &= ~Document_HasPayload;
     md->payload = NULL;
   }
-  if (md->sortVector) {
-    RSSortingVector_Free(md->sortVector);
-    md->sortVector = NULL;
+  if (RSSortingVector_Length(&md->sortVector)) {
+    RSSortingVector_ClearAndDeAlloc(&md->sortVector);
     md->flags &= ~Document_HasSortVector;
   }
   if (md->byteOffsets) {
@@ -383,8 +387,8 @@ RSDocumentMetadata *DocTable_Pop(DocTable *t, const char *s, size_t n) {
       t->memsize -= sizeof(RSDocumentMetadata);
       t->memsize -= md->payload->len + sizeof(RSPayload);
     }
-    if (md->sortVector) {
-      t->sortablesSize -= RSSortingVector_GetMemorySize(md->sortVector);
+    if (RSSortingVector_Length(&md->sortVector)) {
+      t->sortablesSize -= RSSortingVector_GetMemorySize(&md->sortVector);
     }
 
     DocIdMap_Delete(&t->dim, s, n);
@@ -481,10 +485,10 @@ void DocTable_LegacyRdbLoad(DocTable *t, RedisModuleIO *rdb, int encver) {
         RedisModule_Free(RedisModule_LoadStringBuffer(rdb, NULL));  // throw this string to garbage
       }
     }
-    dmd->sortVector = NULL;
+    dmd->sortVector = RSSortingVector_Empty();
     if (dmd->flags & Document_HasSortVector) {
       dmd->sortVector = SortingVector_RdbLoad(rdb);
-      t->sortablesSize += RSSortingVector_GetMemorySize(dmd->sortVector);
+      t->sortablesSize += RSSortingVector_GetMemorySize(&dmd->sortVector);
     }
 
     if (dmd->flags & Document_HasOffsetVector) {

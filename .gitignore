@@ -12,7 +12,7 @@
 *.dSYM
 /bin/
 /site/
-/venv*/
+/*venv*/
 /srcutil/lemon
 /src/query_parser/lemon
 /.vscode/
@@ -33,3 +33,4 @@ callgrind.out.*
 tests/deps/RedisJSON
 **/target/*
 compile_commands.json
+.claude/worktrees/

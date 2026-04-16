@@ -13,10 +13,10 @@
 //! - `max_slop`: Maximum allowed slop between term positions (`None` = no constraint)
 //! - `in_order`: Require terms to appear in order
 
-use ffi::t_docId;
-use inverted_index::RSIndexResult;
+use crate::{IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
 
-use crate::{RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
+use ffi::t_docId;
+use inverted_index::{RSIndexResult, ResultMetrics_Reset_func};
 
 /// Yields documents appearing in ALL child iterators using a merge (AND) algorithm.
 ///
@@ -37,8 +37,6 @@ pub struct Intersection<'index, I> {
     is_eof: bool,
     /// Maximum allowed slop (distance) between term positions. `None` disables proximity
     /// validation entirely.
-    ///
-    /// Capped to [`i32::MAX`] because of [`ffi::IndexResult_IsWithinRange`]
     max_slop: Option<u32>,
     /// When `true`, terms must appear in the same order as the child iterators.
     in_order: bool,
@@ -65,14 +63,21 @@ where
     /// Every document matching all children is yielded. Children are sorted by estimated result
     /// count (smallest first) to minimize iterations.
     ///
+    /// - `weight`: Weight to apply to the term results.
+    /// - `prioritize_union_children`: When `true`, union children are weighted by their child
+    ///   count when sorting (corresponds to `RSGlobalConfig.prioritizeIntersectUnionChildren`).
+    ///
     /// If `children` is empty, returns an iterator immediately at EOF.
     #[must_use]
-    pub fn new(children: Vec<I>) -> Self {
-        Self::new_with_slop_order(children, None, false)
+    pub fn new(children: Vec<I>, weight: f64, prioritize_union_children: bool) -> Self {
+        Self::new_with_slop_order(children, weight, prioritize_union_children, None, false)
     }
 
     /// Creates a new intersection iterator with proximity constraints.
     ///
+    /// - `weight`: Weight to apply to the term results.
+    /// - `prioritize_union_children`: When `true`, union children are weighted by their child
+    ///   count when sorting (corresponds to `RSGlobalConfig.prioritizeIntersectUnionChildren`).
     /// - `max_slop`: Maximum allowed distance between term positions. `None` disables proximity
     ///   validation (every document matching all children is yielded).
     /// - `in_order`: When `true`, terms must appear in the order of the child iterators and
@@ -81,16 +86,48 @@ where
     /// If `children` is empty, returns an iterator immediately at EOF.
     #[must_use]
     pub fn new_with_slop_order(
-        mut children: Vec<I>,
+        children: Vec<I>,
+        weight: f64,
+        prioritize_union_children: bool,
         max_slop: Option<u32>,
         in_order: bool,
     ) -> Self {
-        // Only sort by estimated count when order doesn't matter for proximity checks.
+        Self::new_sorted_by(
+            children,
+            weight,
+            |a, b| {
+                let wa = a.num_estimated() as f64
+                    * a.intersection_sort_weight(prioritize_union_children);
+                let wb = b.num_estimated() as f64
+                    * b.intersection_sort_weight(prioritize_union_children);
+                wa.total_cmp(&wb)
+            },
+            max_slop,
+            in_order,
+        )
+    }
+
+    /// Creates a new intersection iterator, sorting children with a custom comparator.
+    ///
+    /// Identical to [`Intersection::new_with_slop_order`] but sorts children using the provided
+    /// `compare` function instead of by estimated count. Use this when the caller has a
+    /// domain-specific sort key (e.g. a weighted heuristic based on iterator type).
+    ///
+    /// When `in_order` is `true`, sorting is skipped because child order is semantically
+    /// significant for proximity checks.
+    ///
+    /// If `children` is empty, returns an iterator immediately at EOF.
+    #[must_use]
+    fn new_sorted_by(
+        mut children: Vec<I>,
+        weight: f64,
+        compare: impl FnMut(&I, &I) -> std::cmp::Ordering,
+        max_slop: Option<u32>,
+        in_order: bool,
+    ) -> Self {
         if !in_order {
-            children.sort_by_cached_key(|c| c.num_estimated());
+            children.sort_by(compare);
         }
-        // FIXME: Capped because of `ffi::IndexResult_IsWithinRange`
-        let max_slop = max_slop.map(|v| v.min(i32::MAX as u32));
         let Some(num_expected) = children.iter().map(|c| c.num_estimated()).min() else {
             return Self {
                 children,
@@ -99,7 +136,7 @@ where
                 is_eof: true,
                 max_slop,
                 in_order,
-                result: RSIndexResult::build_intersect(0).build(),
+                result: RSIndexResult::build_intersect(0).weight(weight).build(),
             };
         };
         let num_children = children.len();
@@ -110,8 +147,40 @@ where
             is_eof: false,
             max_slop,
             in_order,
-            result: RSIndexResult::build_intersect(num_children).build(),
+            result: RSIndexResult::build_intersect(num_children)
+                .weight(weight)
+                .build(),
         }
+    }
+
+    /// Dynamically append a new child iterator.
+    ///
+    /// Updates `num_expected` if the new child has a lower estimate than the current minimum.
+    ///
+    /// # Note
+    ///
+    /// Unlike the constructor, this method does **not** re-sort the child list after insertion.
+    pub fn push_child(&mut self, child: I) {
+        let est = child.num_estimated();
+        if est < self.num_expected {
+            self.num_expected = est;
+        }
+        self.children.push(child);
+    }
+
+    /// Returns the number of child iterators.
+    pub const fn num_children(&self) -> usize {
+        self.children.len()
+    }
+
+    /// Returns a shared reference to the child at `idx`.
+    pub fn child_at(&self, idx: usize) -> &I {
+        &self.children[idx]
+    }
+
+    /// Returns a mutable iterator over all child iterators.
+    pub fn children_mut(&mut self) -> impl Iterator<Item = &mut I> {
+        self.children.iter_mut()
     }
 
     /// Returns `true` if the current result needs a proximity check after consensus.
@@ -123,21 +192,11 @@ where
     }
 
     /// Check if the current aggregate result satisfies the proximity constraints.
+    ///
+    /// Delegates to [`RSIndexResult::is_within_range`], which handles union children (e.g.
+    /// stemmed/synonym expansions) by recursively merging offset positions across synonyms.
     fn current_is_relevant(&self) -> bool {
-        // SAFETY:
-        // - `self.result` is a valid, fully initialised `RSIndexResult`.
-        // - The C function reads from `r` without taking ownership or storing the pointer.
-        // - `from_ref` gives a `*const` pointer; `cast_mut` is required by the C API, which
-        //   uses a non-const pointer even though it only reads; no mutation occurs.
-        unsafe {
-            ffi::IndexResult_IsWithinRange(
-                std::ptr::from_ref(&self.result).cast_mut().cast(),
-                // `v as i32` is lossless: the constructor caps `max_slop` to
-                // `i32::MAX as u32`, so `v` always fits in `i32`.
-                self.max_slop.map_or(i32::MAX, |v| v as i32),
-                self.in_order as std::ffi::c_int,
-            ) != 0
-        }
+        self.result.is_within_range(self.max_slop, self.in_order)
     }
 
     /// Find consensus on a doc_id and verify that the result satisfies the proximity constraints.
@@ -237,6 +296,11 @@ where
     /// - Restructure [`RSAggregateResult`](inverted_index::RSAggregateResult) to not require `'index` on stored references
     /// - Use a different aggregate pattern that doesn't store child references
     fn build_aggregate_result(&mut self, doc_id: t_docId) {
+        // Reset all per-document accumulating fields before building the new aggregate.
+        self.result.freq = 0;
+        self.result.field_mask = 0;
+        // SAFETY: `self.result` is a valid, initialized `RSIndexResult`.
+        unsafe { ResultMetrics_Reset_func(&mut self.result) };
         if let Some(agg) = self.result.as_aggregate_mut() {
             agg.reset();
         }
@@ -410,6 +474,35 @@ where
                 current: Some(&mut self.result),
             }),
             None => Ok(RQEValidateStatus::Moved { current: None }),
+        }
+    }
+
+    #[inline(always)]
+    fn type_(&self) -> IteratorType {
+        IteratorType::Intersect
+    }
+
+    fn intersection_sort_weight(&self, _prioritize_union_children: bool) -> f64 {
+        1.0 / self.children.len().max(1) as f64
+    }
+}
+
+impl<'index> crate::interop::ProfileChildren<'index>
+    for Intersection<'index, crate::c2rust::CRQEIterator>
+{
+    fn profile_children(self) -> Self {
+        Intersection {
+            children: self
+                .children
+                .into_iter()
+                .map(crate::c2rust::CRQEIterator::into_profiled)
+                .collect(),
+            last_doc_id: self.last_doc_id,
+            num_expected: self.num_expected,
+            is_eof: self.is_eof,
+            max_slop: self.max_slop,
+            in_order: self.in_order,
+            result: self.result,
         }
     }
 }

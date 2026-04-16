@@ -7,14 +7,15 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use ffi::NewOptionalIterator;
 pub use ffi::{
     IndexFlags, IndexFlags_Index_DocIdsOnly, IndexFlags_Index_StoreByteOffsets,
     IndexFlags_Index_StoreFieldFlags, IndexFlags_Index_StoreFreqs, IndexFlags_Index_StoreNumeric,
     IndexFlags_Index_StoreTermOffsets, IteratorStatus, IteratorStatus_ITERATOR_OK,
-    RedisModule_Alloc, RedisModule_Free, ValidateStatus,
+    RedisModule_Alloc, RedisModule_Free, ValidateStatus, t_docId,
 };
-use inverted_index::RSQueryTerm;
-use inverted_index::{RSIndexResult, t_docId};
+use inverted_index::{RSIndexResult, RSQueryTerm};
+use iterators_ffi::intersection::NewIntersectionIterator;
 use std::{ffi::c_void, ptr};
 
 /// Simple wrapper around the C `QueryIterator` type.
@@ -47,26 +48,6 @@ impl QueryIterator {
         Self(unsafe { iterators_ffi::id_list::NewSortedIdListIterator(ids_ptr, num, 1.0) })
     }
 
-    /// Create a non-optimized NOT iterator with the given child and max_doc_id.
-    /// This creates a minimal QueryEvalCtx to ensure the C code creates a non-optimized version.
-    #[inline(always)]
-    pub fn new_not_non_optimized(child: Self, max_doc_id: u64, weight: f64) -> Self {
-        // Create a minimal QueryEvalCtx that will NOT trigger optimization
-        // The C code checks: optimized = q && q->sctx && q->sctx->spec && q->sctx->spec->rule && q->sctx->spec->rule->index_all
-        // By zeroing everything, we ensure spec->rule is NULL, so optimized = false
-        let query_eval_ctx = new_redis_search_ctx(max_doc_id);
-        let timeout = ffi::timespec {
-            tv_sec: 0,
-            tv_nsec: 0,
-        };
-
-        let it =
-            unsafe { ffi::NewNotIterator(child.0, max_doc_id, weight, timeout, query_eval_ctx) };
-
-        free_redis_search_ctx(query_eval_ctx);
-        Self(it)
-    }
-
     /// Give up ownership of the raw pointer without calling `Free`.
     ///
     /// Used when passing the iterator to a C function that takes ownership
@@ -94,7 +75,7 @@ impl QueryIterator {
             *children_ptr.add(0) = child1.into_raw();
             *children_ptr.add(1) = child2.into_raw();
         }
-        Self(unsafe { ffi::NewIntersectionIterator(children_ptr, 2, max_slop, in_order, 1.0) })
+        Self(unsafe { NewIntersectionIterator(children_ptr, 2, max_slop, in_order, 1.0) })
     }
 
     #[inline(always)]
@@ -111,56 +92,21 @@ impl QueryIterator {
         })
     }
 
-    /// Creates a new missing-field inverted index iterator via the C path.
+    /// Create a C `OptionalOptimized` iterator.
     ///
-    /// # Safety
-    ///
-    /// `idx` must be a valid pointer to a DocIdsOnly inverted index.
-    /// `sctx` must be a valid pointer to a `RedisSearchCtx` with valid `spec`
-    /// and `missingFieldDict`.
-    /// `field_index` must be a valid index into `sctx.spec.fields`.
+    /// `qctx` must point to a `QueryEvalCtx` whose `sctx.spec.rule.index_all`
+    /// is `true` and whose `sctx.spec.existingDocs` points to a valid
+    /// `DocIdsOnly` inverted index. The `qctx` (and the `existingDocs` it
+    /// transitively references) **must outlive the returned iterator**, because
+    /// the iterator's internal wildcard holds a raw pointer into `sctx`.
     #[inline(always)]
-    pub unsafe fn new_missing(
-        idx: *const ffi::InvertedIndex,
-        sctx: *const ffi::RedisSearchCtx,
-        field_index: ffi::t_fieldIndex,
-    ) -> Self {
-        Self(unsafe { ffi::NewInvIndIterator_MissingQuery(idx, sctx, field_index) })
-    }
-
-    /// Creates a new tag inverted index iterator via the C path.
-    ///
-    /// # Safety
-    ///
-    /// `idx` must be a valid pointer to a [`DocIdsOnly`](inverted_index::doc_ids_only::DocIdsOnly) inverted index.
-    /// `tag_idx` must be a valid pointer to a [`TagIndex`](ffi::TagIndex).
-    /// `sctx` must be a valid pointer to a [`RedisSearchCtx`](ffi::RedisSearchCtx) with valid `spec`.
-    /// `term` must be a heap-allocated [`RSQueryTerm`] (e.g. created by [`RSQueryTerm::new`]).
-    #[inline(always)]
-    pub unsafe fn new_tag(
-        idx: *const ffi::InvertedIndex,
-        tag_idx: *const ffi::TagIndex,
-        sctx: *const ffi::RedisSearchCtx,
-        term: *mut RSQueryTerm,
+    pub fn new_optional_optimized(
+        child: Self,
+        qctx: *mut ffi::QueryEvalCtx,
+        max_doc_id: t_docId,
         weight: f64,
     ) -> Self {
-        // SAFETY: `field::FieldMaskOrIndex` and `ffi::FieldMaskOrIndex` have the
-        // same binary representation.
-        let field_mask_or_index: ffi::FieldMaskOrIndex =
-            unsafe { std::mem::transmute(field::FieldMaskOrIndex::mask_all()) };
-
-        // SAFETY: The caller guarantees that `idx`, `tag_idx`, `sctx`, and
-        // `term` are valid pointers with the required properties.
-        Self(unsafe {
-            ffi::NewInvIndIterator_TagQuery(
-                idx,
-                tag_idx,
-                sctx,
-                field_mask_or_index,
-                term.cast(),
-                weight,
-            )
-        })
+        Self(unsafe { NewOptionalIterator(child.into_raw(), qctx, max_doc_id, weight) })
     }
 
     /// Creates a new intersection iterator from child ID list iterators.
@@ -200,12 +146,78 @@ impl QueryIterator {
 
         // Create intersection iterator (takes ownership of children array)
         Self(unsafe {
-            ffi::NewIntersectionIterator(
+            NewIntersectionIterator(
                 children_ptr,
                 num_children,
                 -1,    // max_slop: -1 means no slop validation
                 false, // in_order
                 weight,
+            )
+        })
+    }
+
+    /// Creates a new union iterator from child ID list iterators.
+    ///
+    /// # Arguments
+    /// * `children_ids` - A slice of vectors, each containing sorted document IDs for a child iterator
+    /// * `weight` - The weight for the union result
+    /// * `use_heap` - Whether to force heap-based algorithm (for benchmarking purposes)
+    /// * `quick_exit` - Whether to return after first match (true) or aggregate all matches (false)
+    #[inline(always)]
+    pub fn new_union(
+        children_ids: &[Vec<t_docId>],
+        weight: f64,
+        use_heap: bool,
+        quick_exit: bool,
+    ) -> Self {
+        let num_children = children_ids.len();
+
+        // Allocate array of child iterator pointers using RedisModule_Alloc
+        let children_ptr = unsafe {
+            RedisModule_Alloc.unwrap()(
+                num_children * std::mem::size_of::<*mut ffi::QueryIterator>(),
+            ) as *mut *mut ffi::QueryIterator
+        };
+
+        for (i, ids) in children_ids.iter().enumerate() {
+            // Allocate and copy IDs using RedisModule_Alloc (required by NewSortedIdListIterator)
+            let ids_ptr = unsafe {
+                RedisModule_Alloc.unwrap()(ids.len() * std::mem::size_of::<t_docId>())
+                    as *mut t_docId
+            };
+            unsafe {
+                std::ptr::copy_nonoverlapping(ids.as_ptr(), ids_ptr, ids.len());
+            }
+
+            // Create child iterator
+            let child = unsafe {
+                iterators_ffi::id_list::NewSortedIdListIterator(ids_ptr, ids.len() as u64, 1.0)
+            };
+            unsafe {
+                *children_ptr.add(i) = child;
+            }
+        }
+
+        // Create IteratorsConfig with appropriate minUnionIterHeap
+        // If use_heap is true, set minUnionIterHeap to 0 so we always use heap
+        // If use_heap is false, set minUnionIterHeap to a large value so we never use heap
+        let config = ffi::IteratorsConfig {
+            maxPrefixExpansions: 200,
+            minTermPrefix: 2,
+            minStemLength: 4,
+            minUnionIterHeap: if use_heap { 0 } else { i64::MAX },
+        };
+
+        // Create union iterator (takes ownership of children array)
+        Self(unsafe {
+            ffi::NewUnionIterator(
+                children_ptr,
+                num_children as i32,
+                quick_exit,
+                weight,
+                ffi::QueryNodeType::Union,
+                std::ptr::null(), // q_str
+                &config,
             )
         })
     }
@@ -255,66 +267,6 @@ impl QueryIterator {
         let current = unsafe { (*self.0).current };
         unsafe { current.cast::<RSIndexResult>().as_ref() }
     }
-}
-
-fn new_redis_search_ctx(max_id: u64) -> *mut ffi::QueryEvalCtx {
-    let query_eval_ctx = unsafe {
-        RedisModule_Alloc.unwrap()(std::mem::size_of::<ffi::QueryEvalCtx>())
-            as *mut ffi::QueryEvalCtx
-    };
-    unsafe {
-        (*query_eval_ctx) = std::mem::zeroed();
-    }
-    let doc_table = unsafe {
-        RedisModule_Alloc.unwrap()(std::mem::size_of::<ffi::DocTable>()) as *mut ffi::DocTable
-    };
-    unsafe {
-        (*doc_table) = std::mem::zeroed();
-    }
-    let search_ctx = unsafe {
-        RedisModule_Alloc.unwrap()(std::mem::size_of::<ffi::RedisSearchCtx>())
-            as *mut ffi::RedisSearchCtx
-    };
-    unsafe {
-        (*search_ctx) = std::mem::zeroed();
-    }
-    let spec = unsafe {
-        RedisModule_Alloc.unwrap()(std::mem::size_of::<ffi::IndexSpec>()) as *mut ffi::IndexSpec
-    };
-    unsafe {
-        (*spec) = std::mem::zeroed();
-    }
-    unsafe {
-        (*doc_table).maxSize = max_id;
-    }
-    unsafe {
-        (*doc_table).maxDocId = max_id;
-    }
-    unsafe {
-        (*search_ctx).spec = spec;
-    }
-    unsafe {
-        (*query_eval_ctx).docTable = doc_table;
-    }
-    unsafe {
-        (*query_eval_ctx).sctx = search_ctx;
-    }
-    query_eval_ctx
-}
-
-fn free_redis_search_ctx(ctx: *mut ffi::QueryEvalCtx) {
-    unsafe {
-        RedisModule_Free.unwrap()((*(*ctx).sctx).spec as *mut c_void);
-    };
-    unsafe {
-        RedisModule_Free.unwrap()((*ctx).sctx as *mut c_void);
-    };
-    unsafe {
-        RedisModule_Free.unwrap()((*ctx).docTable as *mut c_void);
-    };
-    unsafe {
-        RedisModule_Free.unwrap()(ctx as *mut c_void);
-    };
 }
 
 /// Create a minimal zeroed `RedisSearchCtx` with a valid `IndexSpec`.

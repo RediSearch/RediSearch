@@ -10,10 +10,13 @@ c_ffi_utils = { workspace = true }
 ffi.workspace = true
 fnv.workspace = true
 libc.workspace = true
+query_error.workspace = true
 workspace_hack.workspace = true
 thiserror.workspace = true
+triomphe.workspace = true
 
 [dev-dependencies]
+redisearch_rs = { workspace = true, features = ["mock_allocator"] }
 redis_mock.workspace = true
 
 [target.'cfg(all(target_env="musl", target_os="linux"))'.dependencies.redis-module]
@@ -30,10 +33,3 @@ default-features = true
 
 [lints]
 workspace = true
-
-[features]
-# Enables temporary `RSValueFFI` type.
-# Needs to be disabled
-# in case bindings are being generated for types
-# exposed in this crate.
-c_ffi_impl = []

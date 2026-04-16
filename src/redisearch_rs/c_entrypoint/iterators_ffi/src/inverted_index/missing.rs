@@ -7,17 +7,15 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-#![expect(dead_code)]
-#![expect(non_snake_case)]
-
 use std::{fmt::Debug, ptr::NonNull};
 
 use field::{FieldExpirationPredicate, FieldFilterContext, FieldMaskOrIndex};
 use inverted_index::{
     IndexReader, RSIndexResult, doc_ids_only::DocIdsOnly, raw_doc_ids_only::RawDocIdsOnly, t_docId,
 };
-use rqe_iterators::{FieldExpirationChecker, inverted_index::Missing};
-use rqe_iterators_interop::RQEIteratorWrapper;
+use rqe_iterators::{
+    FieldExpirationChecker, IteratorType, interop::RQEIteratorWrapper, inverted_index::Missing,
+};
 
 /// Wrapper around different II missing iterator encoding types to avoid generics in FFI code.
 ///
@@ -46,23 +44,11 @@ impl MissingIterator<'_> {
             MissingIterator::Raw(m) => m.reader().flags(),
         }
     }
-}
 
-impl<'index> MissingIterator<'index> {
-    /// Swap the reader's index pointer with the given inverted index.
-    ///
-    /// This is only used by C tests to trigger revalidation.
-    pub(super) fn swap_index(&mut self, ii: &'index inverted_index_ffi::InvertedIndex) {
-        match (self, ii) {
-            (MissingIterator::Encoded(m), inverted_index_ffi::InvertedIndex::DocIdsOnly(ii)) => {
-                let mut ii = ii;
-                m.reader_mut().swap_index(&mut ii);
-            }
-            (MissingIterator::Raw(m), inverted_index_ffi::InvertedIndex::RawDocIdsOnly(ii)) => {
-                let mut ii = ii;
-                m.reader_mut().swap_index(&mut ii);
-            }
-            _ => panic!("MissingIterator swap_index: encoding type mismatch"),
+    pub(super) fn field_name(&self) -> (*const std::ffi::c_char, usize) {
+        match self {
+            MissingIterator::Encoded(m) => m.field_name(),
+            MissingIterator::Raw(m) => m.field_name(),
         }
     }
 }
@@ -125,6 +111,15 @@ impl<'index> rqe_iterators::RQEIterator<'index> for MissingIterator<'index> {
     ) -> Result<rqe_iterators::RQEValidateStatus<'_, 'index>, rqe_iterators::RQEIteratorError> {
         dispatch!(self, revalidate)
     }
+
+    #[inline(always)]
+    fn type_(&self) -> IteratorType {
+        IteratorType::InvIdxMissing
+    }
+
+    fn intersection_sort_weight(&self, _prioritize_union_children: bool) -> f64 {
+        1.0
+    }
 }
 
 /// Creates a new missing-field inverted index iterator.
@@ -151,6 +146,7 @@ impl<'index> rqe_iterators::RQEIterator<'index> for MissingIterator<'index> {
 /// 4. `sctx` and `sctx.spec` must remain valid for the lifetime of the returned iterator.
 /// 5. `field_index` must be a valid index into `sctx.spec.fields`.
 /// 6. `sctx.spec.missingFieldDict` must be a non-null, valid dict pointer.
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn NewInvIndIterator_MissingQuery(
     idx: *const ffi::InvertedIndex,
     sctx: *const ffi::RedisSearchCtx,
@@ -197,5 +193,29 @@ pub unsafe extern "C" fn NewInvIndIterator_MissingQuery(
         ),
     };
 
-    RQEIteratorWrapper::boxed_new(ffi::IteratorType_INV_IDX_MISSING_ITERATOR, iterator)
+    RQEIteratorWrapper::boxed_new(iterator)
+}
+
+/// Gets the field name used by a missing-field inverted index iterator.
+///
+/// # Safety
+///
+/// 1. `it` must be a valid non-NULL pointer to a `QueryIterator`.
+/// 2. `it` must have type [`IteratorType::InvIdxMissing`].
+/// 3. `out_len` must be a valid writable pointer.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn InvIndMissingIterator_GetFieldName(
+    it: *const ffi::QueryIterator,
+    out_len: *mut usize,
+) -> *const std::ffi::c_char {
+    debug_assert!(!it.is_null(), "it must not be null");
+    debug_assert!(!out_len.is_null(), "out_len must not be null");
+
+    // SAFETY: 1. and 2. guarantee the iterator is a valid missing iterator wrapper.
+    let wrapper =
+        unsafe { RQEIteratorWrapper::<MissingIterator<'static>>::ref_from_header_ptr(it.cast()) };
+    let (field_name, field_name_len) = wrapper.inner.field_name();
+    // SAFETY: 3. guarantees `out_len` is valid and writable.
+    unsafe { *out_len = field_name_len };
+    field_name
 }

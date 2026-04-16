@@ -24,6 +24,7 @@
 #include "shard_window_ratio.h"
 #include "config.h"
 #include "coord/coord_request_ctx.h"
+#include "debug_commands.h"
 
 // We mainly need the resp protocol to be three in order to easily extract the "score" key from the response
 #define HYBRID_RESP_PROTOCOL_VERSION 3
@@ -254,6 +255,8 @@ void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
   MRCommand_appendVsim(xcmd, argv, argc, vsimOffset, &kArgIndex);
 
   // Calculate and apply effective K for KNN queries if SHARD_K_RATIO is set
+  // TODO: Potentially edit in IO thread where numShards is actually known.
+  // Now we have a risk that by the time I/O thread sends the command, the number of shards changed, making the effective K inaccurate.
   if (vq && vq->type == VECSIM_QT_KNN) {
     double shardWindowRatio = vq->knn.shardWindowRatio;
     if (shardWindowRatio < MAX_SHARD_WINDOW_RATIO && numShards > 1) {
@@ -712,11 +715,10 @@ static int HybridRequest_executePlan(HybridRequest *hreq, struct ConcurrentCmdCt
 
     // Get the command from the RPNet (it was set during prepareForExecution)
     MRCommand *cmd = &searchRPNet->cmd;
-    int numShards = ConcurrentCmdCtx_GetNumShards(cmdCtx);
     cmd->coordStartTime = hreq->profileClocks.coordStartTime;
 
     const RSOomPolicy oomPolicy = hreq->reqConfig.oomPolicy;
-    if (!ProcessHybridCursorMappings(cmd, numShards, searchMappingsRef, vsimMappingsRef, hreq->tailPipeline->qctx.err, oomPolicy)) {
+    if (!ProcessHybridCursorMappings(cmd, searchMappingsRef, vsimMappingsRef, hreq->tailPipeline->qctx.err, oomPolicy)) {
         // Handle error
         StrongRef_Release(searchMappingsRef);
         StrongRef_Release(vsimMappingsRef);
@@ -776,8 +778,6 @@ static void DistHybridCleanups(RedisModuleCtx *ctx,
       goto cleanup;
     }
 
-    QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(status), 1, COORD_ERR_WARN);
-
     if (!hreq) {
       CoordRequestCtx_ReplyOrStoreError(reqCtx, ctx, status);
     } else {
@@ -819,10 +819,15 @@ void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
         return;
     }
 
+#ifdef ENABLE_ASSERT
+    SyncPoint_Wait(SYNC_POINT_BEFORE_DIST_HYBRID_PROMOTE);
+#endif
+
     // Check if the index still exists, and promote the ref accordingly
     StrongRef strong_ref = IndexSpecRef_Promote(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
     IndexSpec *sp = StrongRef_Get(strong_ref);
     if (!sp) {
+        SearchCtx_Free(sctx);
         QueryError_SetCode(&status, QUERY_ERROR_CODE_DROPPED_BACKGROUND);
         DistHybridCleanups(ctx, cmdCtx, sp, &strong_ref, NULL, reply, &status);
         return;
@@ -848,7 +853,7 @@ void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     // Store coordinator start time for dispatch time tracking
     hreq->profileClocks.coordStartTime = ConcurrentCmdCtx_GetCoordStartTime(cmdCtx);
 
-    // Get numShards captured from main thread for thread-safe access
+    // Get numShards captured from main thread for thread-safe access and to compute effective K
     size_t numShards = ConcurrentCmdCtx_GetNumShards(cmdCtx);
 
     if (HybridRequest_prepareForExecution(hreq, ctx, argv, argc, sp, numShards, &status) != REDISMODULE_OK) {
@@ -874,7 +879,7 @@ int DistHybridTimeoutFailClient(RedisModuleCtx *ctx, RedisModuleString **argv, i
   CoordRequestCtx *CoordReqCtx = RedisModule_GetBlockedClientPrivateData(ctx);
   if (!CoordReqCtx) {
     // This shouldn't happen but handle gracefully
-    return RedisModule_ReplyWithError(ctx, "ERR timeout with no context");
+    return RedisModule_ReplyWithError(ctx, "Internal error: timeout with no context");
   }
 
   RS_ASSERT(CoordReqCtx->type == COMMAND_HYBRID);
@@ -905,7 +910,7 @@ int DistHybridReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int a
   CoordRequestCtx *CoordReqCtx = RedisModule_GetBlockedClientPrivateData(ctx);
   if (!CoordReqCtx) {
     RedisModule_Log(ctx, "warning", "DistHybridReplyCallback: no context");
-    return RedisModule_ReplyWithError(ctx, "ERR Internal error: no request context");
+    return RedisModule_ReplyWithError(ctx, "Internal error: no request context");
   }
 
   RS_ASSERT(CoordReqCtx->type == COMMAND_HYBRID);
@@ -920,7 +925,7 @@ int DistHybridReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int a
     }
     // This should not happen, but handle gracefully
     RedisModule_Log(ctx, "warning", "DistHybridReplyCallback: no hybrid request and no preRequestError");
-    return RedisModule_ReplyWithError(ctx, "ERR Internal error: no hybrid request and no preRequestError");
+    return RedisModule_ReplyWithError(ctx, "Internal error: no hybrid request and no preRequestError");
   }
 
   // Check if results were stored (background thread completed successfully)
@@ -930,7 +935,7 @@ int DistHybridReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int a
       QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&hreq->storedReplyState.err), 1, COORD_ERR_WARN);
       QueryError_ReplyAndClear(ctx, &hreq->storedReplyState.err);
     } else {
-      RedisModule_ReplyWithError(ctx, "ERR Internal error: no results stored");
+      RedisModule_ReplyWithError(ctx, "Internal error: no results stored");
     }
     return REDISMODULE_OK;
   }

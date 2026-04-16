@@ -315,7 +315,7 @@ The following operating systems are supported and tested in CI:
 * Amazon linux 2023
 * Mariner 2.0
 * Azure linux 3
-* MacOS
+* macOS
 * Alpine linux 3
 
 ### Platform-specific compiler requirements
@@ -332,5 +332,32 @@ The following operating systems are supported and tested in CI:
 - Amazon Linux 2023: Default GCC is sufficient
 - Mariner 2.0: Default GCC is sufficient
 - Azure Linux 3: Default GCC is sufficient
-- MacOS: Install clang-18 via brew
+- macOS: Install llvm@21 via homebrew
 - Alpine Linux 3: Default GCC is sufficient
+
+## Updating Dependencies
+
+### Snowball Stemmer
+
+The snowball stemmer lives in `deps/snowball` as a git submodule. During the
+build, CMake compiles the snowball compiler, runs it on the `.sbl` algorithm
+files, and generates a C registry header (`modules.h`) that wires up every
+stemmer.
+
+The registry generation is handled by `cmake/generate_snowball_modules_h.cmake`,
+which parses `deps/snowball/libstemmer/modules.txt` and emits the include
+directives, encoding enum, module lookup table, and algorithm name list. It
+replaces the upstream `libstemmer/mkmodules.pl` Perl script and filters to
+UTF-8 encodings only.
+
+When pulling in a new snowball revision:
+
+1. Update the submodule: `git -C deps/snowball checkout <new-rev> && git add deps/snowball`
+2. Check whether `libstemmer/modules.txt` has changed (new languages, renamed
+   algorithms, new encodings). If the only changes are new algorithms with
+   `UTF_8` encoding, the CMake script picks them up automatically.
+3. If upstream added a new encoding beyond `UTF_8` that we need to support, or
+   changed the format of `modules.txt`, update
+   `cmake/generate_snowball_modules_h.cmake` to match.
+4. Build with `./build.sh FORCE` and verify the generated
+   `bin/<arch>/search-community/src/snowball/libstemmer/modules.h` looks correct.

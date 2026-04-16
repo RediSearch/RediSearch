@@ -430,6 +430,17 @@ static QueryIterator *UnionIteratorReducer(QueryIterator **its, int *num, bool q
   return ret;
 }
 
+static QueryIterator *UI_ProfileChildren(QueryIterator *base) {
+  UnionIterator *ui = (UnionIterator *)base;
+  for (uint32_t i = 0; i < ui->num_orig; i++) {
+    if (ui->its_orig[i]) {
+      ui->its_orig[i] = IntoProfiled(ui->its_orig[i]);
+    }
+  }
+  UI_SyncIterList(ui);
+  return base;
+}
+
 static ValidateStatus UI_Revalidate(QueryIterator *base) {
   UnionIterator *ui = (UnionIterator *)base;
   t_docId original_lastDocId = base->lastDocId;
@@ -485,7 +496,7 @@ static ValidateStatus UI_Revalidate(QueryIterator *base) {
 }
 
 QueryIterator *NewUnionIterator(QueryIterator **its, int num, bool quickExit,
-                                double weight, QueryNodeType type, const char *q_str, IteratorsConfig *config) {
+                                double weight, QueryNodeType type, const char *q_str, const IteratorsConfig *config) {
 
   QueryIterator* ret = UnionIteratorReducer(its, &num, quickExit);
   if (ret != NULL) {
@@ -510,6 +521,7 @@ QueryIterator *NewUnionIterator(QueryIterator **its, int num, bool quickExit,
   ret->Free = UI_Free;
   ret->Rewind = UI_Rewind;
   ret->Revalidate = UI_Revalidate;
+  ret->ProfileChildren = UI_ProfileChildren;
 
   // Choose `Read` and `SkipTo` implementations.
   // We have 2 factors for the choice:
@@ -530,4 +542,25 @@ QueryIterator *NewUnionIterator(QueryIterator **its, int num, bool quickExit,
 
   UI_SyncIterList(ui);
   return ret;
+}
+
+QueryNodeType GetUnionIteratorQueryNodeType(const QueryIterator *base) {
+  const UnionIterator *ui = (const UnionIterator *)base;
+  return ui->type;
+}
+
+const char *GetUnionIteratorQueryString(const QueryIterator *base) {
+  const UnionIterator *ui = (const UnionIterator *)base;
+  return ui->q_str;
+}
+
+size_t GetUnionIteratorNumChildren(const QueryIterator *base) {
+  const UnionIterator *ui = (const UnionIterator *)base;
+  return ui->num_orig;
+}
+
+QueryIterator *GetUnionIteratorChild(const QueryIterator *base, size_t index) {
+  const UnionIterator *ui = (const UnionIterator *)base;
+  RS_ASSERT(index < ui->num_orig);
+  return ui->its_orig[index];
 }

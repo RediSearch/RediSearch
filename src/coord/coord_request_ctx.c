@@ -9,6 +9,11 @@
 
 #include "coord_request_ctx.h"
 #include "rmalloc.h"
+#include "info/global_stats.h"
+#include "cursor.h"
+
+#define COORD_REQUEST_CTX_UNSUPPORTED_TYPE() \
+  RS_LOG_ASSERT(false, "CoordRequestCtx only supports COMMAND_AGGREGATE and COMMAND_HYBRID")
 
 CoordRequestCtx *CoordRequestCtx_New(CommandType type) {
   CoordRequestCtx *ctx = rm_calloc(1, sizeof(CoordRequestCtx));
@@ -28,8 +33,20 @@ void CoordRequestCtx_Free(CoordRequestCtx *ctx) {
   // Decrement refcount on the request (if set)
   if (ctx->type == COMMAND_HYBRID) {
     if (ctx->hreq) HybridRequest_DecrRef(ctx->hreq);
+  } else if (ctx->type == COMMAND_AGGREGATE) {
+    if (ctx->areq) {
+      // Timeout edge case for cursor queries with useReplyCallback:
+      // When timeout fires before reply_callback runs, but after the cursor was created and
+      // stored in areq->storedReplyState.cursor, the cursor needs to be freed manually.
+      if (ctx->areq->storedReplyState.cursor) {
+        Cursor *cursor = ctx->areq->storedReplyState.cursor;
+        ctx->areq->storedReplyState.cursor = NULL;
+        Cursor_Free(cursor);
+      }
+      AREQ_DecrRef(ctx->areq);
+    }
   } else {
-    if (ctx->areq) AREQ_DecrRef(ctx->areq);
+    COORD_REQUEST_CTX_UNSUPPORTED_TYPE();
   }
 
   pthread_mutex_destroy(&ctx->setReqLock);
@@ -47,15 +64,19 @@ void CoordRequestCtx_UnlockSetRequest(CoordRequestCtx *ctx) {
 void CoordRequestCtx_SetRequest(CoordRequestCtx *ctx, void *req) {
   if (ctx->type == COMMAND_HYBRID) {
     ctx->hreq = HybridRequest_IncrRef((HybridRequest *)req);
-  } else {
+  } else if (ctx->type == COMMAND_AGGREGATE) {
     ctx->areq = AREQ_IncrRef((AREQ *)req);
+  } else {
+    COORD_REQUEST_CTX_UNSUPPORTED_TYPE();
   }
 
   // Propagate useReplyCallback to the request
   if (ctx->type == COMMAND_HYBRID) {
     ((HybridRequest *)req)->useReplyCallback = ctx->useReplyCallback;
-  } else {
+  } else if (ctx->type == COMMAND_AGGREGATE) {
     ((AREQ *)req)->useReplyCallback = ctx->useReplyCallback;
+  } else {
+    COORD_REQUEST_CTX_UNSUPPORTED_TYPE();
   }
 
   // Propagate timeout to the request if already set
@@ -67,13 +88,23 @@ void CoordRequestCtx_SetRequest(CoordRequestCtx *ctx, void *req) {
 bool CoordRequestCtx_HasRequest(CoordRequestCtx *ctx) {
   if (ctx->type == COMMAND_HYBRID) {
     return ctx->hreq != NULL;
-  } else {
+  } else if (ctx->type == COMMAND_AGGREGATE) {
     return ctx->areq != NULL;
+  } else {
+    COORD_REQUEST_CTX_UNSUPPORTED_TYPE();
+    return false;
   }
 }
 
 void *CoordRequestCtx_GetRequest(CoordRequestCtx *ctx) {
-  return ctx->type == COMMAND_HYBRID ? (void *)ctx->hreq : (void *)ctx->areq;
+  if (ctx->type == COMMAND_HYBRID) {
+    return (void *)ctx->hreq;
+  } else if (ctx->type == COMMAND_AGGREGATE) {
+    return (void *)ctx->areq;
+  } else {
+    COORD_REQUEST_CTX_UNSUPPORTED_TYPE();
+    return NULL;
+  }
 }
 
 bool CoordRequestCtx_TimedOut(CoordRequestCtx *ctx) {
@@ -85,8 +116,10 @@ void CoordRequestCtx_SetTimedOut(CoordRequestCtx *ctx) {
   // Also propagate to the underlying request if set
   if (ctx->type == COMMAND_HYBRID) {
     if (ctx->hreq) HybridRequest_SetTimedOut(ctx->hreq);
-  } else {
+  } else if (ctx->type == COMMAND_AGGREGATE) {
     if (ctx->areq) AREQ_SetTimedOut(ctx->areq);
+  } else {
+    COORD_REQUEST_CTX_UNSUPPORTED_TYPE();
   }
 }
 
@@ -104,6 +137,7 @@ void CoordRequestCtx_ReplyOrStoreError(CoordRequestCtx *req, RedisModuleCtx *ctx
     // Clear the original to avoid leaking heap-allocated strings.
     QueryError_ClearError(status);
   } else {
+    QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(status), 1, COORD_ERR_WARN);
     QueryError_ReplyAndClear(ctx, status);
   }
 }

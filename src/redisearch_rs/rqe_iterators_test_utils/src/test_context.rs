@@ -650,15 +650,6 @@ impl TestContext {
         }
     }
 
-    /// Get a raw pointer to the missing-field inverted index suitable for FFI.
-    /// Panics if this is not a missing context.
-    pub fn missing_index_ptr(&self) -> *const ffi::InvertedIndex {
-        match &self.inner {
-            TestContextInner::Missing { inverted_index, .. } => inverted_index.as_ptr(),
-            _ => panic!("TestContext is not a Missing context"),
-        }
-    }
-
     /// Get the missing-field (doc-ids-only) inverted index for this context.
     /// Returns a reference to the FFI inverted index wrapper.
     /// Panics if this is not a missing context.
@@ -721,6 +712,21 @@ impl TestContext {
             })
             .expect("There must be at least one leaf!");
         tree.node_mut(index).range_mut().unwrap().entries_mut()
+    }
+
+    /// Set [`SchemaRule::index_all`](ffi::SchemaRule::index_all).
+    ///
+    /// # Safety
+    ///
+    /// Must not be called while any iterator created from this context is
+    /// still alive, as it mutates the spec's rule through a raw pointer.
+    pub unsafe fn set_index_all(&self, value: bool) {
+        // SAFETY: Caller guarantees no iterators from this context are alive,
+        // so the write does not race. The spec and rule pointers are valid
+        // because they were created during TestContext construction.
+        unsafe {
+            (*(*self.spec.as_ptr()).rule).index_all = value;
+        }
     }
 
     /// Initialize the TTL table if not already initialized.
@@ -878,6 +884,13 @@ impl Default for GlobalGuard {
                     // specDict_g is allocated when calling Indexes_Init()
                     if !ffi::specDict_g.is_null() {
                         ffi::RS_dictRelease(ffi::specDict_g);
+                    }
+                }
+
+                unsafe {
+                    // specIdDict_g is allocated when calling Indexes_Init()
+                    if !ffi::specIdDict_g.is_null() {
+                        ffi::RS_dictRelease(ffi::specIdDict_g);
                     }
                 }
 

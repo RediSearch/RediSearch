@@ -505,7 +505,6 @@ mod tests {
     use super::*;
     #[cfg_attr(miri, allow(unused))]
     use crate::bindings::FieldSpecBuilder;
-    use crate::bindings::rs_array;
     use enumflags2::make_bitflags;
     use std::ffi::CString;
     use std::mem::MaybeUninit;
@@ -592,7 +591,10 @@ mod tests {
 
     // Assert that a key can be retrieved by its name and is been overridden with the `DocSrc` and `IsLoaded` flags.
     #[test]
-    #[cfg_attr(miri, ignore = "miri does not support FFI functions")]
+    #[cfg_attr(
+        miri,
+        ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
+    )]
     fn rlookup_get_key_load_override_no_field_in_cache() {
         // setup:
         let key_name = c"key_no_cache";
@@ -621,7 +623,10 @@ mod tests {
     }
 
     // Assert that a key can be retrieved by its name and is been overridden with the `DocSrc` and `IsLoaded` flags.
-    #[cfg(not(miri))] // uses strncmp under the hood for HiddenString
+    #[cfg_attr(
+        miri,
+        ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
+    )]
     #[test]
     fn rlookup_get_key_load_override_with_field_in_cache() {
         // setup:
@@ -660,7 +665,10 @@ mod tests {
         assert!(retrieved_key.flags.contains(RLookupKeyFlag::IsLoaded));
     }
 
-    #[cfg(not(miri))] // uses strncmp under the hood for HiddenString
+    #[cfg_attr(
+        miri,
+        ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
+    )]
     #[test]
     fn rlookup_get_key_load_override_with_field_in_cache_but_value_availabe() {
         // setup:
@@ -692,7 +700,10 @@ mod tests {
         assert!(retrieved_key.is_none());
     }
 
-    #[cfg(not(miri))] // uses strncmp under the hood for HiddenString
+    #[cfg_attr(
+        miri,
+        ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
+    )]
     #[test]
     fn rlookup_get_key_load_override_with_field_in_cache_but_value_availabe_however_force_load() {
         // setup:
@@ -733,7 +744,10 @@ mod tests {
 
     // Assert the the cases in which None is returned also the key could be found
     #[test]
-    #[cfg_attr(miri, ignore = "miri does not support FFI functions")]
+    #[cfg_attr(
+        miri,
+        ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
+    )]
     fn rlookup_get_key_load_returns_none_although_key_is_available() {
         // setup:
         let key_name = c"key_no_cache";
@@ -777,7 +791,10 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(miri, ignore = "miri does not support FFI functions")]
+    #[cfg_attr(
+        miri,
+        ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
+    )]
     fn rlookup_get_load_key_on_empty_rlookup_and_cache() {
         // setup:
         let key_name = c"key_no_cache";
@@ -805,7 +822,10 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(miri, ignore = "miri does not support FFI functions")]
+    #[cfg_attr(
+        miri,
+        ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
+    )]
     fn rlookup_get_load_key_name_equals_field_name() {
         // setup:
         let key_name = c"key_no_cache";
@@ -1203,7 +1223,10 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(miri, ignore = "miri does not support FFI functions")]
+    #[cfg_attr(
+        miri,
+        ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
+    )]
     fn create_keys_from_spec() {
         // Arrange
         let mut index_spec = unsafe { MaybeUninit::<ffi::IndexSpec>::zeroed().assume_init() };
@@ -1251,6 +1274,23 @@ mod tests {
                 ffi::HiddenString_Free(fs.fieldPath, false);
             }
         }
+    }
+
+    /// Create a C array from a fixed-size Rust array using the C `array_new_sz` function.
+    fn rs_array<const N: usize, T: Copy>(fields: [T; N]) -> *mut T {
+        let arr = unsafe {
+            let size_t_u16 = const { size_of::<T>() as u16 };
+            let len_u32 = const { N as u32 };
+
+            ffi::array_new_sz(size_t_u16, 0, len_u32).cast::<T>()
+        };
+
+        unsafe {
+            let elements = std::slice::from_raw_parts_mut(arr, fields.len());
+            elements.copy_from_slice(&fields);
+        }
+
+        arr
     }
 
     fn field_spec(field_name: &CStr, field_path: &CStr) -> ffi::FieldSpec {

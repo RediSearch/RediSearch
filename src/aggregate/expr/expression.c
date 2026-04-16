@@ -263,6 +263,7 @@ static int evalPredicate(ExprEval *eval, const RSPredicate *pred, RSValue *resul
     rc = EXPR_EVAL_OK;
   } else {
     RSValue_Clear(result);
+    rc = EXPR_EVAL_ERR;
   }
 
 cleanup:
@@ -382,6 +383,7 @@ EvalCtx *EvalCtx_Create(EvalMode mode) {
   EvalCtx *r = rm_calloc(1, sizeof(EvalCtx));
 
   r->lk = RLookup_New();
+  r->row = RLookupRow_New();
 
   r->ee.lookup = &r->lk;
   r->ee.srcrow = &r->row;

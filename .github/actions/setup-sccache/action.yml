@@ -1,0 +1,22 @@
+name: Setup sccache
+description: Setup sccache with GitHub Actions cache backend
+
+runs:
+  using: composite
+  steps:
+    - name: Setup sccache
+      uses: mozilla-actions/sccache-action@v0.0.9
+      with:
+        # Disable the post-run stats annotation as it runs outside the
+        # container and reports nothing. We show stats ourselves.
+        disable_annotations: true
+    - name: Configure sccache environment
+      # Use --noprofile --norc to avoid Alpine's /etc/profile resetting PATH,
+      # which would hide the sccache binary installed by the previous step.
+      shell: bash --noprofile --norc -eo pipefail {0}
+      run: |
+        SCCACHE=$(command -v sccache)
+        echo "SCCACHE_GHA_ENABLED=true" >> "$GITHUB_ENV"
+        # Disable idle timeout so the sccache server stays alive for the
+        # entire job, otherwise stats are lost if it shuts down between steps.
+        echo "SCCACHE_IDLE_TIMEOUT=0" >> "$GITHUB_ENV"
