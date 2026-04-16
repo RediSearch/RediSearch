@@ -47,6 +47,11 @@ use query_term::{RSQueryTerm, RSTokenFlags};
 use query_types::{QASTValidationFlagsSet, QueryNodeOptions, QueryNodeType};
 use rqe_iterator_type::IteratorType;
 
+// The `redismodule.h` definitions now come from `redis-module` instead of our own
+// bindgen run. Re-exported so existing `ffi::RedisModule*` users keep working; a
+// later commit moves them onto `redis_module` directly.
+pub use redis_module::*;
+
 #[repr(C)]
 #[derive(Debug)]
 pub struct QueryProcessingCtx {
