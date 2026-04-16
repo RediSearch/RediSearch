@@ -375,3 +375,25 @@ def test_issue_3124(env):
   res_not_exist1 = env.cmd('ft.search', 'idx_txt', '@t:ell*')
   res_not_exist2 = env.cmd('ft.search', 'idx_txt_suffix', '@t:ell*')
   env.assertEqual(res_not_exist1, res_not_exist2)
+
+def testTextSuffixTrieMaxPrefixExpansions():
+    """Contains query on TEXT WITHSUFFIXTRIE field hits max prefix expansion limit."""
+    env = Env(moduleArgs='DEFAULT_DIALECT 2', protocol=3)
+    conn = getConnectionByEnv(env)
+
+    env.expect('FT.CREATE', 'idx', 'SCHEMA',
+               't', 'TEXT', 'WITHSUFFIXTRIE').ok()
+
+    # Create many distinct values sharing a common substring
+    for i in range(20):
+        conn.execute_command('HSET', f'{{doc}}:{i}', 't', f'val{i}common')
+
+    # Set max expansions very low
+    run_command_on_all_shards(env, config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', '1')
+
+    # Contains query (*common*) uses the suffix trie charIterCb path
+    res = env.cmd('FT.SEARCH', 'idx', '*common*', 'LIMIT', '0', '0')
+    env.assertContains('Max prefix expansions limit was reached', res['warning'])
+
+    # Restore default
+    run_command_on_all_shards(env, config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', '200')
