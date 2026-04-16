@@ -17,7 +17,6 @@ Examples:
   NAME="Rocky Linux"              VERSION_ID="10.0"   ->  rocky_linux_10.sh
   NAME="Alpine Linux"             VERSION_ID="3.22.1" ->  alpine_linux_3.sh
   NAME="Amazon Linux"             VERSION_ID="2023"   ->  amazon_linux_2023.sh
-  NAME="Common Base Linux Mariner" VERSION_ID="2.0"   ->  common_base_linux_mariner_2.0.sh
   NAME="Microsoft Azure Linux"    VERSION_ID="3.0"    ->  microsoft_azure_linux_3.0.sh
 
 When adding a new platform, boot the container and run:

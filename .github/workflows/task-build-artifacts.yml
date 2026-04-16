@@ -136,39 +136,9 @@ jobs:
       - name: checkout (legacy)
         # Manual checkout path for platforms where Node 20-based actions are unavailable.
         if: needs.get-config.outputs.node20_supported != 'true'
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITHUB_REPO: ${{ github.repository }}
         run: |
-          CONTAINER="${{ needs.get-config.outputs.container }}"
-          echo "Detected platform: $CONTAINER"
-          case "$CONTAINER" in
-            amazonlinux:2)
-              # Configure the safe directory.
-              git config --global --add safe.directory "$GITHUB_WORKSPACE"
-
-              # Checkout.
-              REPO_URL="https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPO}.git"
-
-              # Initialize a Git repository.
-              git init
-              git remote add origin "$REPO_URL"
-
-              # Fetch the requested ref, then check it out and initialize submodules.
-              git fetch origin "$REF" || {
-                echo "Failed to fetch ref: '$REF'";
-                exit 1;
-              }
-              # Check out the fetched ref.
-              git checkout FETCH_HEAD
-              # Update submodules.
-              git submodule update --init --recursive
-              ;;
-            *)
-              echo "Unsupported platform: '$CONTAINER'"
-              exit 1
-              ;;
-          esac
+          echo "No legacy checkout platforms remaining"
+          exit 1
       - name: Setup sccache
         # sccache-action is a JavaScript action requiring Node.js 20+
         if: needs.get-config.outputs.node20_supported == 'true'
