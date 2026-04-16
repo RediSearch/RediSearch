@@ -3846,7 +3846,7 @@ static inline int CursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, i
 
   return ConcurrentSearch_HandleRedisCommandEx(DIST_THREADPOOL, dist_callback, ctx, argv, argc,
                                                &handlerCtx);
-}
+} /*meow*/
 
 
 #define CURSOR_SUBCOMMAND(name) \

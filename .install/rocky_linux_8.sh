@@ -5,13 +5,13 @@ set -eo pipefail
 $MODE dnf update -y
 
 # Development Tools includes config-manager
-$MODE dnf groupinstall "Development Tools" -yqq
+$MODE dnf groupinstall "Development Tools" -y
 
 # powertools is needed to install epel
 $MODE dnf config-manager --set-enabled powertools
 
 # get epel to install gcc13
-$MODE dnf install epel-release -yqq
+$MODE dnf install epel-release -y
 
 $MODE dnf install -y gcc-toolset-13-gcc gcc-toolset-13-gcc-c++ \
     gcc-toolset-13-libatomic-devel make wget git openssl openssl-devel \

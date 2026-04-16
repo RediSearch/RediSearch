@@ -120,7 +120,7 @@ install_llvm() {
     # ----- Debian / Ubuntu (native apt → apt.llvm.org → tarball) --------------
     ubuntu|debian)
         source "$(dirname "${BASH_SOURCE[0]}")/apt_get_cmd.sh"
-        apt_get_cmd "$MODE" update -qq
+        apt_get_cmd "$MODE" update
 
         # 1) Try native distro packages first (e.g. Ubuntu 26.04 ships clang-21).
         if apt_get_cmd "$MODE" install -y --no-install-recommends \
