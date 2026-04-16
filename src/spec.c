@@ -1327,7 +1327,8 @@ static int parseVectorField(IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, Args
     params->primaryIndexParams->algoParams.svsParams.graph_max_degree = SVS_VAMANA_DEFAULT_GRAPH_MAX_DEGREE;
     params->primaryIndexParams->algoParams.svsParams.construction_window_size = SVS_VAMANA_DEFAULT_CONSTRUCTION_WINDOW_SIZE;
     params->primaryIndexParams->algoParams.svsParams.multi = multi;
-    params->primaryIndexParams->algoParams.svsParams.num_threads = workersThreadPool_NumThreads();
+    // num_threads is deprecated — SVS indexes now share a global thread pool managed
+    // via VecSim_UpdateThreadPoolSize(). Leave it at 0 (default) to avoid the deprecation warning.
     params->primaryIndexParams->algoParams.svsParams.leanvec_dim = SVS_VAMANA_DEFAULT_LEANVEC_DIM;
     params->primaryIndexParams->logCtx = logCtx;
     result = parseVectorField_svs(fs, params, ac, status);
