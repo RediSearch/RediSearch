@@ -10,7 +10,6 @@
 #include "util/dict.h"
 #include "spec.h"
 #include "field_spec_info.h"
-#include "search_disk.h"
 #include <string.h>  // Add this for strerror
 
 // Assuming the GIL is held by the caller
@@ -75,13 +74,6 @@ TotalIndexesInfo IndexesInfo_TotalInfo() {
       info.max_indexing_failures = index_error_count;
     }
     info.background_indexing_failures_OOM += sp->scan_failed_OOM;
-
-    // Collect disk metrics if disk API is enabled.
-    // This stores metrics internally and returns the index's disk memory contribution.
-    if (sp->diskSpec) {
-      info.total_mem += SearchDisk_CollectIndexMetrics(sp->diskSpec);
-    }
-
     size_t total_index_mem = info.total_mem - prev_total_mem;
 
     // Update min_mem and max_mem with total memory including disk storage

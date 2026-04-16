@@ -13,7 +13,7 @@
 #include <random>
 #include <vector>
 
-#include "src/iterators/iterator_api.h"
+#include "iterators/iterator_api.h"
 #include "iterators_rs.h"
 
 class BM_IdListIterator : public benchmark::Fixture {

@@ -38,18 +38,23 @@ on:
         type: choice
         options:
           - all
+          - ubuntu:resolute
           - ubuntu:noble
           - ubuntu:jammy
           - ubuntu:focal
           - rockylinux:8
           - rockylinux:9
+          - rockylinux:10
           - debian:bullseye
           - debian:bookworm
+          - debian:trixie
           - amazonlinux:2
           - amazonlinux:2023
           - mariner:2
           - azurelinux:3
           - alpine:3.22
+          - alpine:3.23
+          - macos-14
           - macos-15
           - macos-26
           - intel
@@ -70,7 +75,7 @@ on:
       redis-ref:
         description: 'Redis version to use (e.g. "7.2.3", "unstable"). Defaults to "unstable"'
         type: string
-        default: unstable
+        default: 3cd464263b03b425ffae2e23db24df3dc9346871
       rejson-branch:
         type: string
         default: master

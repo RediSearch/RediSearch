@@ -15,6 +15,49 @@ use std::cmp;
 
 use crate::{IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
 
+/// Trait implemented by all optional iterator variants.
+///
+/// Both [`Optional`] and [`crate::optional_optimized::OptionalOptimized`] implement this,
+/// with the child stored as `Box<dyn RQEIterator>`.
+pub trait OptionalIterator<'index>: RQEIterator<'index> {
+    /// Returns a shared reference to the child iterator, if any.
+    fn child(&self) -> Option<&(dyn RQEIterator<'index> + 'index)>;
+
+    /// Takes ownership of the child iterator, replacing it with an empty state.
+    ///
+    /// Returns `None` if there is no child.
+    fn take_child(&mut self) -> Option<Box<dyn RQEIterator<'index> + 'index>>;
+
+    /// Sets (or overwrites) the child iterator.
+    fn set_child(&mut self, child: Box<dyn RQEIterator<'index> + 'index>);
+
+    /// Unsets the child iterator (makes it `None`).
+    ///
+    /// # Panics
+    ///
+    /// Panics for iterator variants that do not support an absent child
+    /// (e.g. [`crate::optional_optimized::OptionalOptimized`]).
+    fn unset_child(&mut self);
+}
+
+impl<'index> OptionalIterator<'index> for Optional<'index, Box<dyn RQEIterator<'index> + 'index>> {
+    fn child(&self) -> Option<&(dyn RQEIterator<'index> + 'index)> {
+        Optional::child(self).map(|c| c.as_ref())
+    }
+
+    fn take_child(&mut self) -> Option<Box<dyn RQEIterator<'index> + 'index>> {
+        Optional::take_child(self)
+    }
+
+    fn set_child(&mut self, child: Box<dyn RQEIterator<'index> + 'index>) {
+        Optional::set_child(self, child);
+    }
+
+    fn unset_child(&mut self) {
+        Optional::unset_child(self);
+    }
+}
+
 /// An iterator that emits a sequence of results with no gaps, up to a given document id.
 /// Results are pulled from an underlying [`RQEIterator`] instance. If there is no entry
 /// for a given document id, a virtual result is yielded in its place.
@@ -100,6 +143,7 @@ impl<'index, I> RQEIterator<'index> for Optional<'index, I>
 where
     I: RQEIterator<'index>,
 {
+    #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         if let Some(child) = self.child.as_mut()
             && child.last_doc_id() == self.result.doc_id
@@ -239,5 +283,22 @@ where
     #[inline(always)]
     fn type_(&self) -> IteratorType {
         IteratorType::Optional
+    }
+
+    fn intersection_sort_weight(&self, _prioritize_union_children: bool) -> f64 {
+        1.0
+    }
+}
+
+impl<'index> crate::interop::ProfileChildren<'index>
+    for Optional<'index, crate::c2rust::CRQEIterator>
+{
+    fn profile_children(self) -> Self {
+        Optional {
+            max_doc_id: self.max_doc_id,
+            weight: self.weight,
+            result: self.result,
+            child: self.child.map(crate::c2rust::CRQEIterator::into_profiled),
+        }
     }
 }

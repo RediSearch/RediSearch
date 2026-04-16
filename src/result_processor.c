@@ -87,6 +87,7 @@ typedef struct {
 static bool getDocumentMetadata(IndexSpec* spec, DocTable* docs, RedisSearchCtx *sctx, const QueryIterator *it, const RSDocumentMetadata **dmd) {
   if (spec->diskSpec) {
     RSDocumentMetadata* diskDmd = (RSDocumentMetadata *)rm_calloc(1, sizeof(RSDocumentMetadata));
+    diskDmd->sortVector = RSSortingVector_Empty();
     diskDmd->ref_count = 1;
     // Start from checking the deleted-ids (in memory), then perform IO
     const bool foundDocument = !SearchDisk_DocIdDeleted(spec->diskSpec, it->current->docId) && SearchDisk_GetDocumentMetadata(spec->diskSpec, it->current->docId, diskDmd, &sctx->time.current);
@@ -201,7 +202,7 @@ static void setSearchResult(ResultProcessor *base, SearchResult *res, RSIndexRes
   SearchResult_SetIndexResult(res, indexResult);
   SearchResult_SetScore(res, 0);
   SearchResult_SetDocumentMetadata(res, dmd);
-  RLookupRow_SetSortingVector(SearchResult_GetRowDataMut(res), dmd->sortVector);
+  RLookupRow_SetSortingVector(SearchResult_GetRowDataMut(res), &dmd->sortVector);
 }
 
 /**
@@ -720,40 +721,23 @@ static inline int cmpByScore(const void *e1, const void *e2, const void *udata) 
   return SearchResult_GetDocId(h1) > SearchResult_GetDocId(h2) ? -1 : 1;
 }
 
-/* Compare results for the heap by sorting key */
+/* Compare results for the heap by sorting key.
+ *
+ * The field comparison loop lives in Rust (RLookupRow_CmpByFields) to avoid
+ * per-key FFI crossings for RLookupRow_Get. This wrapper handles the qerr
+ * setup and docid tiebreak. */
 static int cmpByFields(const void *e1, const void *e2, const void *udata) {
   const RPSorter *self = udata;
   const SearchResult *h1 = e1, *h2 = e2;
-  int ascending = 0;
 
   QueryError *qerr = NULL;
   if (self && self->base.parent && self->base.parent->err) {
     qerr = self->base.parent->err;
   }
 
-  for (size_t i = 0; i < self->fieldcmp.nkeys && i < SORTASCMAP_MAXFIELDS; i++) {
-    const RSValue *v1 = RLookupRow_Get(self->fieldcmp.keys[i], SearchResult_GetRowData(h1));
-    const RSValue *v2 = RLookupRow_Get(self->fieldcmp.keys[i], SearchResult_GetRowData(h2));
-    // take the ascending bit for this property from the ascending bitmap
-    ascending = SORTASCMAP_GETASC(self->fieldcmp.ascendMap, i);
-    if (!v1 || !v2) {
-      // If at least one of these has no sort key, it gets high value regardless of asc/desc
-      if (v1) {
-        return 1;
-      } else if (v2) {
-        return -1;
-      } else {
-        // Both have no sort key, so they are equal. Continue to next sort key
-        continue;
-      }
-    }
-
-    int rc = RSValue_Cmp(v1, v2, qerr);
-    if (rc != 0) return ascending ? -rc : rc;
-  }
-
-  int rc = SearchResult_GetDocId(h1) < SearchResult_GetDocId(h2) ? -1 : 1;
-  return ascending ? -rc : rc;
+  return SearchResult_CmpByFields(
+      self->fieldcmp.keys, self->fieldcmp.nkeys,
+      h1, h2, self->fieldcmp.ascendMap, qerr);
 }
 
 static void srDtor(void *p) {
@@ -1408,9 +1392,14 @@ ResultProcessor *RPProfile_New(ResultProcessor *rp, QueryProcessingCtx *qctx) {
   return &rpp->base;
 }
 
-rs_wall_clock_ns_t RPProfile_GetClock(ResultProcessor *rp) {
-  RPProfile *self = (RPProfile *)rp;
-  return self->profileTime;
+rs_wall_clock_ns_t RPProfile_GetTime(ResultProcessor *rp) {
+  if (rp->upstream && rp->upstream->type == RP_SAFE_DEPLETER) {
+    return RPSafeDepleter_GetDepletionTime(rp->upstream);
+  } else if (rp->upstream && rp->upstream->type == RP_DEPLETER) {
+    return RPDepleter_GetDepletionTime(rp->upstream);
+  } else {
+    return ((RPProfile *)rp)->profileTime;
+  }
 }
 
 uint64_t RPProfile_GetCount(ResultProcessor *rp) {
@@ -1705,8 +1694,8 @@ static void RPSafeDepleter_Free(ResultProcessor *base) {
  * Get the depletion time for RPSafeDepleter.
  * This is the time spent in the background thread depleting upstream results.
  */
-rs_wall_clock_ns_t RPSafeDepleter_GetDepletionTime(ResultProcessor *base) {
-  RPSafeDepleter *self = (RPSafeDepleter *)base;
+rs_wall_clock_ns_t RPSafeDepleter_GetDepletionTime(const ResultProcessor *base) {
+  const RPSafeDepleter *self = (const RPSafeDepleter *)base;
   return self->depletionTime;
 }
 
@@ -2662,6 +2651,7 @@ typedef struct {
   size_t cur_idx;                  // Current index for yielding results
   RPStatus last_rc;                // Last return code from upstream
   uint32_t depleted_results;       // Total number of results depleted
+  rs_wall_clock_ns_t depletionTime; // Time spent depleting upstream results
 } RPDepleter;
 
 /**
@@ -2673,6 +2663,10 @@ static void RPDepleter_Deplete(RPDepleter *self) {
   SearchResult *r = rm_calloc(1, sizeof(*r));
   *r = SearchResult_New();
 
+  // Track depletion time for profiling
+  rs_wall_clock start;
+  rs_wall_clock_init(&start);
+
   // Deplete all results from upstream
   while ((rc = self->base.upstream->Next(self->base.upstream, r)) == RS_RESULT_OK) {
     array_append(self->results, r);
@@ -2680,6 +2674,9 @@ static void RPDepleter_Deplete(RPDepleter *self) {
     *r = SearchResult_New();
     self->depleted_results++;
   }
+
+  // Record depletion time
+  self->depletionTime = rs_wall_clock_elapsed_ns(&start);
 
   SearchResult_Destroy(r);
   rm_free(r);
@@ -2735,9 +2732,6 @@ static void RPDepleter_Free(ResultProcessor *base) {
   rm_free(self);
 }
 
-/**
- * Constructs a new depleter processor that runs in the current thread.
- */
 ResultProcessor *RPDepleter_New() {
   RPDepleter *ret = rm_calloc(1, sizeof(*ret));
   ret->results = array_new(SearchResult*, 0);
@@ -2746,4 +2740,31 @@ ResultProcessor *RPDepleter_New() {
   ret->base.type = RP_DEPLETER;
   ret->depleted_results = 0;
   return &ret->base;
+}
+
+void RPDepleter_StartDepletion(ResultProcessor *base) {
+  RPDepleter *self = (RPDepleter *)base;
+
+  // Deplete all results from upstream
+  RPDepleter_Deplete(self);
+
+  // Switch to yield mode so subsequent Next() calls return buffered results
+  self->base.Next = RPDepleter_Next_Yield;
+}
+
+rs_wall_clock_ns_t RPDepleter_GetDepletionTime(const ResultProcessor *base) {
+  const RPDepleter *self = (const RPDepleter *)base;
+  return self->depletionTime;
+}
+
+int RPDepleter_DepleteAll(arrayof(ResultProcessor*) depleters) {
+  for (size_t i = 0; i < array_len(depleters); i++) {
+    RS_ASSERT(depleters[i]->type == RP_DEPLETER);
+    RPDepleter_StartDepletion(depleters[i]);
+    const RPDepleter *depleter = (const RPDepleter *)depleters[i];
+    if (depleter->last_rc != RS_RESULT_EOF) {
+      return depleter->last_rc;
+    }
+  }
+  return RS_RESULT_OK;
 }

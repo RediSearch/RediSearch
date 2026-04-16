@@ -11,20 +11,19 @@ extern "C" {
 #include "hiredis/sds.h"
 }
 
-#include "src/buffer/buffer.h"
-#include "src/forward_index.h"
-#include "src/index_result.h"
-#include "src/query_parser/tokenizer.h"
-#include "src/spec.h"
-#include "src/tokenize.h"
+#include "buffer/buffer.h"
+#include "forward_index.h"
+#include "index_result.h"
+#include "query_parser/tokenizer.h"
+#include "spec.h"
+#include "tokenize.h"
 #include "varint.h"
-#include "src/iterators/hybrid_reader.h"
+#include "iterators/hybrid_reader.h"
 #include "iterators_rs.h"
-#include "src/iterators/union_iterator.h"
-#include "src/iterators/intersection_iterator.h"
-#include "src/iterators/not_iterator.h"
-#include "src/util/arr.h"
-#include "src/util/references.h"
+#include "iterators/union_iterator.h"
+#include "iterators/intersection_iterator.h"
+#include "util/arr.h"
+#include "util/references.h"
 #include "types_rs.h"
 
 #include "rmutil/alloc.h"
@@ -83,81 +82,6 @@ TEST_F(IndexTest, testVarint) {
   }
   it.Free(it.ctx);
   VVW_Free(vw);
-}
-
-TEST_F(IndexTest, testDistance) {
-  VarintVectorWriter *vw = NewVarintVectorWriter(8);
-  VarintVectorWriter *vw2 = NewVarintVectorWriter(8);
-  VarintVectorWriter *vw3 = NewVarintVectorWriter(8);
-  VVW_Write(vw, 1);
-  VVW_Write(vw, 9);
-  VVW_Write(vw, 13);
-  VVW_Write(vw, 16);
-  VVW_Write(vw, 22);
-
-  VVW_Write(vw2, 4);
-  VVW_Write(vw2, 7);
-  VVW_Write(vw2, 32);
-
-  VVW_Write(vw3, 20);
-  VVW_Write(vw3, 25);
-
-  VVW_Truncate(vw);
-  VVW_Truncate(vw2);
-
-  RSIndexResult *tr1 = NewTokenRecord(NULL, 1);
-  tr1->docId = 1;
-  tr1->data.term.borrowed.offsets = offsetsFromVVW(vw);
-
-  RSIndexResult *tr2 = NewTokenRecord(NULL, 1);
-  tr2->docId = 1;
-  tr2->data.term.borrowed.offsets = offsetsFromVVW(vw2);
-
-  RSIndexResult *res = NewIntersectResult(2, 1);
-  AggregateResult_AddChild(res, tr1);
-  AggregateResult_AddChild(res, tr2);
-
-  int delta = IndexResult_MinOffsetDelta(res);
-  ASSERT_EQ(2, delta);
-
-  ASSERT_EQ(0, IndexResult_IsWithinRange(res, 0, 0));
-  ASSERT_EQ(0, IndexResult_IsWithinRange(res, 0, 1));
-  ASSERT_EQ(0, IndexResult_IsWithinRange(res, 1, 1));
-  ASSERT_EQ(1, IndexResult_IsWithinRange(res, 1, 0));
-  ASSERT_EQ(1, IndexResult_IsWithinRange(res, 2, 1));
-  ASSERT_EQ(1, IndexResult_IsWithinRange(res, 2, 0));
-  ASSERT_EQ(1, IndexResult_IsWithinRange(res, 3, 1));
-  ASSERT_EQ(1, IndexResult_IsWithinRange(res, 4, 0));
-  ASSERT_EQ(1, IndexResult_IsWithinRange(res, 4, 1));
-  ASSERT_EQ(1, IndexResult_IsWithinRange(res, 5, 1));
-
-  RSIndexResult *tr3 = NewTokenRecord(NULL, 1);
-  tr3->docId = 1;
-  tr3->data.term.borrowed.offsets = offsetsFromVVW(vw3);
-  AggregateResult_AddChild(res, tr3);
-
-  delta = IndexResult_MinOffsetDelta(res);
-  ASSERT_EQ(7, delta);
-
-  // test merge iteration
-  RSOffsetIterator it = RSIndexResult_IterateOffsets(res);
-  uint32_t expected[] = {1, 4, 7, 9, 13, 16, 20, 22, 25, 32, RS_OFFSETVECTOR_EOF};
-
-  uint32_t rc;
-  int i = 0;
-  do {
-    rc = it.Next(it.ctx, NULL);
-    ASSERT_EQ(rc, (expected[i++]));
-  } while (rc != RS_OFFSETVECTOR_EOF);
-  it.Free(it.ctx);
-
-  IndexResult_Free(tr1);
-  IndexResult_Free(tr2);
-  IndexResult_Free(tr3);
-  IndexResult_Free(res);
-  VVW_Free(vw);
-  VVW_Free(vw2);
-  VVW_Free(vw3);
 }
 
 class IndexFlagsTest : public testing::TestWithParam<int> {};
@@ -1144,6 +1068,15 @@ TEST_F(IndexTest, testIndexSpec) {
   ASSERT_TRUE(!(s->flags & Index_StoreFieldFlags));
   ASSERT_TRUE(!(s->flags & Index_StoreTermOffsets));
   IndexSpec_RemoveFromGlobals(ref, false);
+
+  const char *args_invalid[] = {
+      "NOFIELDS", "MAXTEXTFIELDS", "SCHEMA", title, "TEXT",
+  };
+  QueryError_ClearError(&err);
+  ref = IndexSpec_ParseC(NULL, "idx", args_invalid, sizeof(args_invalid) / sizeof(args_invalid[0]), &err);
+  ASSERT_TRUE(QueryError_HasError(&err));
+  ASSERT_EQ(nullptr, StrongRef_Get(ref));
+  ASSERT_NE(nullptr, strstr(QueryError_GetUserError(&err), "MAXTEXTFIELDS cannot be used with NOFIELDS"));
 
   // User-reported bug
   const char *args3[] = {"SCHEMA", "ha", "NUMERIC", "hb", "TEXT", "WEIGHT", "1", "NOSTEM"};

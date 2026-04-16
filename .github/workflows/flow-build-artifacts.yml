@@ -7,18 +7,23 @@ on:
         type: choice
         options:
           - all
+          - ubuntu:resolute
           - ubuntu:noble
           - ubuntu:jammy
           - ubuntu:focal
           - rockylinux:8
           - rockylinux:9
+          - rockylinux:10
           - debian:bullseye
           - debian:bookworm
+          - debian:trixie
           - amazonlinux:2
           - amazonlinux:2023
           - mariner:2
           - azurelinux:3
           - alpine:3.22
+          - alpine:3.23
+          - macos-14
           - macos-15
           - macos-26
         description: 'Platform to build on. Use "all" to build on all'
@@ -66,7 +71,7 @@ jobs:
         run: |
           # TAG=$(curl -sL --retry 5 https://api.github.com/repos/redis/redis/releases/latest | jq -er '.tag_name') && \
           # echo "tag=$TAG" >> $GITHUB_OUTPUT
-          echo "tag=unstable" >> $GITHUB_OUTPUT
+          echo "tag=3cd464263b03b425ffae2e23db24df3dc9346871" >> $GITHUB_OUTPUT
       - name: Generate Beta Version unique identifier
         id: beta-version
         run: |

@@ -44,6 +44,17 @@ where
         }
     }
 
+    /// Transform the inner iterator (if present) into a new type.
+    pub fn map<'b, J>(self, f: impl FnOnce(I) -> J) -> MaybeEmpty<J>
+    where
+        J: RQEIterator<'b>,
+    {
+        match self.0 {
+            MaybeEmptyOption::None(_) => MaybeEmpty(MaybeEmptyOption::None(Empty)),
+            MaybeEmptyOption::Some(it) => MaybeEmpty(MaybeEmptyOption::Some(f(it))),
+        }
+    }
+
     /// Consume the iterator, if there is any, and return if so.
     pub fn take_iterator(&mut self) -> Option<I> {
         if let MaybeEmptyOption::Some(iterator) = std::mem::take(&mut self.0) {
@@ -150,6 +161,15 @@ where
         match &self.0 {
             MaybeEmptyOption::None(empty) => empty.type_(),
             MaybeEmptyOption::Some(it) => it.type_(),
+        }
+    }
+
+    fn intersection_sort_weight(&self, prioritize_union_children: bool) -> f64 {
+        match &self.0 {
+            MaybeEmptyOption::None(empty) => {
+                empty.intersection_sort_weight(prioritize_union_children)
+            }
+            MaybeEmptyOption::Some(it) => it.intersection_sort_weight(prioritize_union_children),
         }
     }
 }

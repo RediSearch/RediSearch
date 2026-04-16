@@ -42,18 +42,13 @@
 #include "iterators/union_iterator.h"
 #include "iterators/intersection_iterator.h"
 #include "iterators/optional_iterator.h"
-#include "iterators/not_iterator.h"
 #include "iterators_rs.h"
 #include "iterators/hybrid_reader.h"
 #include "iterators/optimizer_reader.h"
 #include "search_disk.h"
 #include "shard_window_ratio.h"
 #include "idf.h"
-#ifndef STRINGIFY
-#define __STRINGIFY(x) #x
-#define STRINGIFY(x) __STRINGIFY(x)
-#endif
-
+#include "doc_id_meta.h"
 #define EFFECTIVE_FIELDMASK(q_, qn_) ((qn_)->opts.fieldMask & (q)->opts->fieldmask)
 
 static void QueryTokenNode_Free(QueryTokenNode *tn) {
@@ -131,9 +126,14 @@ void QueryNode_Free(QueryNode *n) {
     case QN_GEOMETRY:
       QueryGeometryNode_Free(&n->gmn);
       break;
+    case QN_IDS:
+      if (n->fn.docIds) {
+        rm_free(n->fn.docIds);
+        n->fn.docIds = NULL;
+      }
+      break;
     case QN_MISSING:
     case QN_WILDCARD:
-    case QN_IDS:
     case QN_TAG:
     case QN_UNION:
     case QN_NOT:
@@ -422,7 +422,12 @@ QueryNode *NewVectorNode_WithParams(struct QueryParseCtx *q, VectorQueryType typ
 }
 
 void SetFilterNode(QueryAST *q, QueryNode *filterNode) {
-  if (q->root == NULL || filterNode == NULL) return;
+  if (filterNode == NULL) return;
+  if (q->root == NULL) {
+    // Cannot add filter to empty AST - free the node to avoid leaking its resources
+    QueryNode_Free(filterNode);
+    return;
+  }
 
   // for a simple phrase node we just add the numeric node
   if (q->root->type == QN_PHRASE) {
@@ -452,7 +457,7 @@ void SetFilterNode(QueryAST *q, QueryNode *filterNode) {
   }
 }
 
-void QAST_SetGlobalFilters(QueryAST *ast, const QAST_GlobalFilterOptions *options) {
+void QAST_SetGlobalFilters(QueryAST *ast, QAST_GlobalFilterOptions *options) {
   if (options->empty) {
     SetFilterNode(ast, NewQueryNode(QN_NULL));
   }
@@ -470,6 +475,9 @@ void QAST_SetGlobalFilters(QueryAST *ast, const QAST_GlobalFilterOptions *option
     QueryNode *n = NewQueryNode(QN_IDS);
     n->fn.keys = options->keys;
     n->fn.len = options->nkeys;
+    // Transfer ownership of docIds to the QueryNode (freed in QueryNode_Free)
+    n->fn.docIds = options->docIds;
+    options->docIds = NULL;
     SetFilterNode(ast, n);
   }
 }
@@ -1083,7 +1091,13 @@ static QueryIterator *Query_EvalIdFilterNode(QueryEvalCtx *q, QueryIdFilterNode 
   size_t num = 0;
   t_docId* it_ids = rm_malloc(sizeof(*it_ids) * node->len);
   for (size_t ii = 0; ii < node->len; ++ii) {
-    t_docId did = DocTable_GetId(&q->sctx->spec->docs, node->keys[ii], sdslen(node->keys[ii]));
+    t_docId did = 0;
+    if (node->docIds) {
+      RS_ASSERT(SearchDisk_IsEnabled());
+      did = node->docIds[ii];
+    } else {
+      did = DocTable_GetId(&q->sctx->spec->docs, node->keys[ii], sdslen(node->keys[ii]));
+    }
     if (did) {
       it_ids[num++] = did;
     }
@@ -1631,8 +1645,7 @@ int QAST_Expand(QueryAST *q, const char *expander, RSSearchOptions *opts, RedisS
 int QAST_EvalParams(QueryAST *q, RSSearchOptions *opts, unsigned int dialectVersion, QueryError *status) {
   if (!q || !q->root || q->numParams == 0)
     return REDISMODULE_OK;
-  QueryNode_EvalParams(opts->params, q->root, dialectVersion, status);
-  return REDISMODULE_OK;
+  return QueryNode_EvalParams(opts->params, q->root, dialectVersion, status);
 }
 
 int QueryNode_EvalParams(dict *params, QueryNode *n, unsigned int dialectVersion, QueryError *status) {
@@ -2041,12 +2054,19 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
                        GeoDistance_ToString(qs->gn.gf->unitType));
       break;
     case QN_IDS:
-
       s = sdscat(s, "IDS {");
-      for (int i = 0; i < qs->fn.len; i++) {
-        t_docId id = DocTable_GetId(&spec->docs, qs->fn.keys[i], sdslen(qs->fn.keys[i]));
-        if (id != 0) {
-          s = sdscatprintf(s, "%lu,", id);
+      if (spec) {
+        for (size_t i = 0; i < qs->fn.len; i++) {
+          t_docId did = 0;
+          if (qs->fn.docIds) {
+            RS_ASSERT(SearchDisk_IsEnabled());
+            did = qs->fn.docIds[i];
+          } else {
+            did = DocTable_GetId(&spec->docs, qs->fn.keys[i], sdslen(qs->fn.keys[i]));
+          }
+          if (did != 0) {
+            s = sdscatprintf(s, "%lu,", did);
+          }
         }
       }
       s = sdscat(s, "}");

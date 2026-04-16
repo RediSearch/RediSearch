@@ -83,6 +83,9 @@ bool SearchDisk_IsInitialized() {
 // Callback for BigModuleRegister - returns total disk usage across all indexes
 static size_t getDiskUsageCallback(void) {
   size_t total = 0;
+  if (!specDict_g) {
+    return total;
+  }
   dictIterator *iter = dictGetIterator(specDict_g);
   dictEntry *entry = NULL;
 
@@ -155,9 +158,23 @@ void SearchDisk_IndexSpecRdbSave(RedisModuleIO *rdb, RedisSearchDiskIndexSpec *i
   disk->basic.indexSpecRdbSave(rdb, index);
 }
 
-int SearchDisk_IndexSpecRdbLoad(RedisModuleIO *rdb, RedisSearchDiskIndexSpec *index) {
+RedisSearchDiskRdbState* SearchDisk_LoadRdbToTempObject(RedisModuleIO *rdb) {
   RS_ASSERT(disk);
-  return disk->basic.indexSpecRdbLoad(rdb, index);
+  return disk->basic.loadRdbToTempObject(rdb);
+}
+
+RedisSearchDiskIndexSpec* SearchDisk_OpenIndexWithRdbState(RedisModuleCtx *ctx,
+                                                            const char *indexName,
+                                                            size_t indexNameLen,
+                                                            DocumentType type,
+                                                            RedisSearchDiskRdbState *rdbState) {
+  RS_ASSERT(disk && disk_db && indexName && rdbState);
+  return disk->basic.openIndexSpecWithRdbState(ctx, disk_db, indexName, indexNameLen, type, rdbState);
+}
+
+void SearchDisk_FreeRdbState(RedisSearchDiskRdbState *rdbState) {
+  RS_ASSERT(disk);
+  disk->basic.freeRdbState(rdbState);
 }
 
 // Index API wrappers
@@ -184,24 +201,19 @@ QueryIterator* SearchDisk_NewTagIterator(RedisSearchDiskIndexSpec *index, const 
     return disk->index.newTagIterator(index, tok, fieldIndex, weight);
 }
 
-QueryIterator* SearchDisk_NewWildcardIterator(RedisSearchDiskIndexSpec *index, double weight) {
-    RS_ASSERT(disk && index);
-    return disk->index.newWildcardIterator(index, weight);
-}
-
 size_t SearchDisk_RunGC(RedisSearchDiskIndexSpec *index, IndexSpec *spec) {
     RS_ASSERT(disk && index && spec);
     return disk->index.runGC(index, spec);
 }
 
-t_docId SearchDisk_PutDocument(RedisSearchDiskIndexSpec *handle, const char *key, size_t keyLen, float score, uint32_t flags, uint32_t maxTermFreq, uint32_t docLen, uint32_t *oldLen, t_expirationTimePoint documentTtl) {
+t_docId SearchDisk_PutDocument(RedisSearchDiskIndexSpec *handle, const char *key, size_t keyLen, float score, uint32_t flags, uint32_t maxTermFreq, uint32_t docLen, uint32_t *oldLen, t_expirationTimePoint documentTtl, t_docId oldDocId) {
     RS_ASSERT(disk && handle);
-    return disk->docTable.putDocument(handle, key, keyLen, score, flags, maxTermFreq, docLen, oldLen, documentTtl);
+    return disk->docTable.putDocument(handle, key, keyLen, score, flags, maxTermFreq, docLen, oldLen, documentTtl, oldDocId);
 }
 
 bool SearchDisk_GetDocumentMetadata(RedisSearchDiskIndexSpec *handle, t_docId docId, RSDocumentMetadata *dmd, struct timespec *current_time) {
-    RS_ASSERT(disk && handle && current_time);
-    return disk->docTable.getDocumentMetadata(handle, docId, dmd, &sdsnewlen, *current_time);
+    RS_ASSERT(disk && handle);
+    return disk->docTable.getDocumentMetadata(handle, docId, dmd, &sdsnewlen, current_time);
 }
 
 bool SearchDisk_DocIdDeleted(RedisSearchDiskIndexSpec *handle, t_docId docId) {
@@ -224,6 +236,11 @@ size_t SearchDisk_GetDeletedIds(RedisSearchDiskIndexSpec *handle, t_docId *buffe
     return disk->docTable.getDeletedIds(handle, buffer, buffer_size);
 }
 
+bool SearchDisk_ReplaceKey(RedisSearchDiskIndexSpec *handle, t_docId docId, const char *newKey, size_t newKeyLen) {
+    RS_ASSERT(disk && handle);
+    return disk->docTable.replaceKey(handle, docId, newKey, newKeyLen);
+}
+
 RedisSearchDiskAsyncReadPool SearchDisk_CreateAsyncReadPool(RedisSearchDiskIndexSpec *handle, uint16_t max_concurrent) {
     RS_ASSERT(disk && handle);
     return disk->docTable.createAsyncReadPool(handle, max_concurrent);
@@ -238,6 +255,7 @@ bool SearchDisk_AddAsyncRead(RedisSearchDiskAsyncReadPool pool, t_docId docId, u
 static RSDocumentMetadata* allocateDMD(const void* key_data, size_t key_len) {
     RSDocumentMetadata* dmd = (RSDocumentMetadata *)rm_calloc(1, sizeof(RSDocumentMetadata));
     if (dmd) {
+        dmd->sortVector = RSSortingVector_Empty();
         dmd->ref_count = 1;
         dmd->keyPtr = sdsnewlen(key_data, key_len);
     }
@@ -275,9 +293,9 @@ bool SearchDisk_GetAsyncIOEnabled() {
     return asyncIOEnabled;
 }
 
-void SearchDisk_DeleteDocument(RedisSearchDiskIndexSpec *handle, const char *key, size_t keyLen, uint32_t *oldLen, t_docId *id) {
+bool SearchDisk_DeleteDocumentById(RedisSearchDiskIndexSpec *handle, t_docId docId, uint32_t *oldLen) {
     RS_ASSERT(disk && handle);
-    disk->index.deleteDocument(handle, key, keyLen, oldLen, id);
+    return disk->index.deleteDocumentById(handle, docId, oldLen);
 }
 
 bool SearchDisk_CheckEnableConfiguration(RedisModuleCtx *ctx) {
@@ -353,5 +371,22 @@ void SearchDisk_Flush(RedisSearchDiskIndexSpec* index) {
 
 void SearchDisk_UpdateBufferBudget(RedisModuleCtx *ctx, int percentage) {
   RS_ASSERT(disk && disk_db);
-  disk->basic.updateBufferBudget(ctx, disk_db, percentage);
+
+  // Update the WriteBufferManager with the new budget and get the new budget value
+  size_t new_budget = disk->basic.updateBufferBudget(ctx, disk_db, percentage);
+  // Update write buffer size for all existing indexes
+  if (!specDict_g) {
+    return;
+  }
+  dictIterator *iter = dictGetIterator(specDict_g);
+  dictEntry *entry = NULL;
+
+  while ((entry = dictNext(iter))) {
+    StrongRef spec_ref = dictGetRef(entry);
+    IndexSpec *sp = StrongRef_Get(spec_ref);
+    if (sp && sp->diskSpec) {
+      disk->index.updateWriteBufferSize(sp->diskSpec, new_budget);
+    }
+  }
+  dictReleaseIterator(iter);
 }

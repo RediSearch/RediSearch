@@ -30,6 +30,7 @@
 #include "coord/rmr/command.h"
 #include "search_disk.h"
 #include "search_disk_utils.h"
+#include "doc_id_meta.h"
 
 extern RSConfig RSGlobalConfig;
 
@@ -1143,10 +1144,9 @@ static bool IsNeededDepleter(AREQ *req) {
 // AREQ execution flags are not set when this function is called currently
 static bool shouldCheckInPipelineTimeout(AREQ *req) {
   // We should check for timeout in pipeline only if timeout is > 0
-  // and when the policy is RETURN or the policy is FAIL, without workers.
+  // and when the policy is RETURN or the policy is FAIL/RETURN-strict, without workers.
   return req->reqConfig.queryTimeoutMS > 0 &&
-         (req->reqConfig.timeoutPolicy == TimeoutPolicy_Return ||
-          (req->reqConfig.timeoutPolicy == TimeoutPolicy_Fail && !RunInThread()));
+         (req->reqConfig.timeoutPolicy == TimeoutPolicy_Return || !RunInThread());
 
 }
 
@@ -1194,6 +1194,12 @@ int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, bool isDiskIndex
     .coordDispatchTime = &req->profileClocks.coordDispatchTime,
   };
   if (parseAggPlan(&papCtx, &ac, isDiskIndex, status) != REDISMODULE_OK) {
+    goto error;
+  }
+
+  if (IsInternal(req) &&
+      RequestConfig_ApplyCoordinatorElapsedTime(&req->reqConfig, req->profileClocks.coordDispatchTime)) {
+    QueryError_SetCode(status, QUERY_ERROR_CODE_TIMED_OUT);
     goto error;
   }
 
@@ -1286,7 +1292,29 @@ static int applyGlobalFilters(RSSearchOptions *opts, QueryAST *ast, const RedisS
 
   if (opts->inkeys) {
     QAST_GlobalFilterOptions filterOpts = {.keys = opts->inkeys, .nkeys = opts->ninkeys};
+
+    // For SearchDisk, resolve docIds from keys on the main thread
+    if (SearchDisk_IsEnabled()) {
+      filterOpts.docIds = rm_malloc(sizeof(t_docId) * opts->ninkeys);
+      for (size_t ii = 0; ii < opts->ninkeys; ++ii) {
+        uint64_t docId = 0;
+        // TODO: inkeys are extracted from RedisModuleString* in the command arguments, we should consider
+        // changing the search options to also use RedisModuleString* to avoid this extra conversion
+        RedisModuleString* keyName = RedisModule_CreateString(
+            sctx->redisCtx, opts->inkeys[ii], sdslen(opts->inkeys[ii]));
+        if (DocIdMeta_Get(sctx->redisCtx, keyName, sctx->spec->specId, &docId) == REDISMODULE_OK) {
+          filterOpts.docIds[ii] = docId;
+        } else {
+          filterOpts.docIds[ii] = 0;  // Mark as not found
+        }
+        RedisModule_FreeString(sctx->redisCtx, keyName);
+      }
+    }
+
     QAST_SetGlobalFilters(ast, &filterOpts);
+    if (filterOpts.docIds) {
+      rm_free(filterOpts.docIds);
+    }
   }
   return REDISMODULE_OK;
 }

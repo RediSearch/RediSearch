@@ -38,15 +38,6 @@ typedef struct HybridRequest HybridRequest;
 #define printProfileVectorSearchMode(searchMode) \
   RedisModule_ReplyKV_SimpleString(reply, "Vector search mode", VecSimSearchMode_ToString(searchMode))
 
-/**
- * @brief Add profile iterators to all nodes in the iterator tree
- *
- * This recursively adds profile iterators to all nodes in the iterator tree.
- *
- * @param root The root iterator
- */
-void Profile_AddIters(QueryIterator **root);
-
 // Print the profile of a single shard
 void Profile_Print(RedisModule_Reply *reply, void *ctx);
 

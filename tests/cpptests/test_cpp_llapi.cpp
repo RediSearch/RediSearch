@@ -8,13 +8,13 @@
 */
 
 
-#include "src/redisearch_api.h"
+#include "redisearch_api.h"
 #include "gtest/gtest.h"
 #include "common.h"
-#include "src/redis_index.h"
-#include "src/info/indexes_info.h"
-#include "src/config.h"
-#include "src/numeric_index.h"
+#include "redis_index.h"
+#include "info/indexes_info.h"
+#include "config.h"
+#include "numeric_index.h"
 #include "numeric_range_tree.h"
 
 #include <set>
@@ -1286,7 +1286,7 @@ TEST_F(LLApiTest, testInfo) {
   ASSERT_EQ(info.numDocuments, 2);
   ASSERT_EQ(info.maxDocId, 2);
   ASSERT_EQ(info.docTableSize, 124 + doc_table_size);
-  ASSERT_EQ(info.sortablesSize, 48);
+  ASSERT_EQ(info.sortablesSize, 80);
   ASSERT_EQ(info.docTrieSize, 120);
   ASSERT_EQ(info.numTerms, 5);
   ASSERT_EQ(info.numRecords, 7);

@@ -127,6 +127,14 @@ static IteratorStatus OI_Read_Optimized(QueryIterator *base) {
   return ITERATOR_OK;
 }
 
+static QueryIterator *OI_ProfileChildren(QueryIterator *base) {
+  OptionalOptimizedIterator *oi = (OptionalOptimizedIterator *)base;
+  if (oi->child) {
+    oi->child = IntoProfiled(oi->child);
+  }
+  return base;
+}
+
 // Revalidate for OPTIONAL iterator - Optimized version.
 static ValidateStatus OI_Revalidate_Optimized(QueryIterator *base) {
   OptionalOptimizedIterator *oi = (OptionalOptimizedIterator *)base;
@@ -210,12 +218,18 @@ QueryIterator *NewOptionalIterator(QueryIterator *it, QueryEvalCtx *q, t_docId m
     return ret;
   }
 
-  bool optimized = q->sctx->spec->rule && q->sctx->spec->rule->index_all;
+  QueryIterator *optimizedWildcardIterator = NULL;
+  if (q->sctx->spec->rule && q->sctx->spec->rule->index_all) {
+    // if index_all is enabled we can use the optimized wildcard iterator
+    optimizedWildcardIterator = NewWildcardIterator_Optimized(q->sctx, 0);
+  } else if (q->sctx->spec->diskSpec) {
+    // for disk spec using the regular wildcard iterator will use the optimized disk iterator
+    optimizedWildcardIterator = NewWildcardIterator(q, 0);
+  }
 
-  if (optimized) {
-    RS_ASSERT(!q->sctx->spec->diskSpec)
+  if (optimizedWildcardIterator) {
     OptionalOptimizedIterator *oi = rm_calloc(1, sizeof(*oi));
-    oi->wcii = NewWildcardIterator_Optimized(q->sctx, 0);
+    oi->wcii = optimizedWildcardIterator;
     oi->child = it;
     oi->virt = NewVirtualResult(0, RS_FIELDMASK_ALL);
     oi->virt->freq = 1;
@@ -232,6 +246,7 @@ QueryIterator *NewOptionalIterator(QueryIterator *it, QueryEvalCtx *q, t_docId m
     ret->Read = OI_Read_Optimized;
     ret->SkipTo = OI_SkipTo_Optimized;
     ret->Revalidate = OI_Revalidate_Optimized;
+    ret->ProfileChildren = OI_ProfileChildren;
   } else {
     ret = NewOptionalNonOptimizedIterator(it, maxDocId, weight);
   }
@@ -246,35 +261,6 @@ QueryIterator const* GetOptionalIteratorChild(const QueryIterator *base) {
     } else {
         return GetOptionalNonOptimizedIteratorChild(base);
     }
-}
-
-QueryIterator *TakeOptionalIteratorChild(QueryIterator *base) {
-    if (base->type == OPTIONAL_OPTIMIZED_ITERATOR) {
-        OptionalOptimizedIterator *it = (OptionalOptimizedIterator *)base;
-        QueryIterator* child = it->child;
-        it->child = NULL;
-        return child;
-    } else {
-        return TakeOptionalNonOptimizedIteratorChild(base);
-    }
-}
-
-void SetOptionalIteratorChild(QueryIterator *base, QueryIterator *newChild) {
-    if (base->type == OPTIONAL_OPTIMIZED_ITERATOR) {
-        OptionalOptimizedIterator *it = (OptionalOptimizedIterator *)base;
-        if (it->child) {
-            it->child->Free(it->child);
-        }
-        it->child = newChild;
-    } else {
-        SetOptionalNonOptimizedIteratorChild(base, newChild);
-    }
-}
-
-QueryIterator const* GetOptionalOptimizedIteratorWildcard(QueryIterator *base) {
-    RS_ASSERT (base->type == OPTIONAL_OPTIMIZED_ITERATOR);
-    OptionalOptimizedIterator const*it = (OptionalOptimizedIterator *)base;
-    return it->wcii;
 }
 
 void SetOptionalOptimizedIteratorWildcard(QueryIterator *base, QueryIterator *newWcii) {

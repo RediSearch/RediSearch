@@ -80,7 +80,7 @@ pub unsafe extern "C" fn NewIntersectionIterator(
         max_slop,
         in_order,
     );
-    let wrapper = RQEIteratorWrapper::boxed_new(intersection);
+    let wrapper = RQEIteratorWrapper::boxed_new_compound(intersection);
 
     // Free the `its` array (iterators are now owned by the intersection).
     // SAFETY: `its` is a valid Redis-allocated pointer per the function's safety contract.
@@ -111,8 +111,7 @@ pub unsafe extern "C" fn GetIntersectionIteratorNumChildren(header: *const Query
 /// Returns a non-owning raw pointer to the child at `idx`.
 ///
 /// The returned pointer is valid as long as the intersection iterator is alive and no
-/// structural modifications are made (e.g. via [`AddIntersectionIteratorChild`] or
-/// [`ForEachIntersectionChildMut`]).
+/// structural modifications are made (e.g. via [`AddIntersectionIteratorChild`]).
 ///
 /// # Safety
 ///
@@ -172,52 +171,4 @@ pub unsafe extern "C" fn AddIntersectionIteratorChild(
     #[expect(clippy::multiple_unsafe_ops_per_block)]
     let child = unsafe { CRQEIterator::new(NonNull::new_unchecked(child)) };
     wrapper.inner.push_child(child);
-}
-
-/// Apply `callback` to each child iterator slot, passing a mutable `QueryIterator**`.
-///
-/// This is designed for use with `Profile_AddIters`, which replaces each child with a
-/// profile-wrapping iterator in place. The callback receives a pointer to the raw pointer
-/// stored inside each [`CRQEIterator`] child, allowing it to update (replace) that pointer.
-///
-/// This is safe because [`CRQEIterator`] is `#[repr(transparent)]` over
-/// `NonNull<QueryIterator>`, which has the same memory layout as `*mut QueryIterator`.
-/// The callback's in-place mutation of the slot directly updates the `CRQEIterator`'s
-/// internal pointer, so the intersection will subsequently own (and free) the new iterator.
-///
-/// # Safety
-///
-/// 1. `header` must be a valid non-null pointer created via [`NewIntersectionIterator`].
-/// 2. `callback` must be a valid function pointer.
-/// 3. The callback must replace `*slot` with a valid non-null `QueryIterator*` that takes
-///    ownership of the original iterator (i.e. `NewProfileIterator` semantics).
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn ForEachIntersectionChildMut(
-    header: *mut QueryIterator,
-    callback: unsafe extern "C" fn(*mut *mut QueryIterator),
-) {
-    debug_assert!(!header.is_null());
-    debug_assert_eq!(
-        // SAFETY: safe thanks to 1
-        unsafe { (*header).type_ },
-        IteratorType::Intersect,
-        "Expected an INTERSECT_ITERATOR"
-    );
-    // SAFETY: safe thanks to 1
-    let wrapper = unsafe {
-        RQEIteratorWrapper::<Intersection<CRQEIterator>>::mut_ref_from_header_ptr(header)
-    };
-
-    for child in wrapper.inner.children_mut() {
-        // SAFETY:
-        // - `CRQEIterator` is `#[repr(transparent)]` over `NonNull<QueryIterator>`, which has
-        //   the same layout as `*mut QueryIterator`.
-        // - Casting `*mut CRQEIterator` to `*mut *mut QueryIterator` gives the callback direct
-        //   write access to the raw pointer stored inside the `CRQEIterator`.
-        // - After the callback (e.g. `Profile_AddIters`) writes a new pointer into the slot,
-        //   the `CRQEIterator` owns it and will free it correctly on drop. Safe per contract 3.
-        let slot = child as *mut CRQEIterator as *mut *mut QueryIterator;
-        // SAFETY: safe thanks to 2 and 3.
-        unsafe { callback(slot) };
-    }
 }

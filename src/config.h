@@ -268,6 +268,11 @@ void RSConfigExternalTrigger_Register(RSConfigExternalTrigger trigger, const cha
  * REDISMODULE_ERR and sets an error message if something is invalid */
 int ReadConfig(RedisModuleString **argv, int argc, char **err);
 
+/* Returns the dynamic default number of worker threads:
+ * min(MAX_WORKER_THREADS, number of CPU cores).
+ * Falls back to MAX_WORKER_THREADS if CPU count cannot be determined. */
+size_t GetDefaultWorkerThreads(void);
+
 /* Register module configuration parameters using Module Configuration API */
 int RegisterModuleConfig_Local(RedisModuleCtx *ctx);
 
@@ -326,7 +331,7 @@ char *getRedisConfigValue(RedisModuleCtx *ctx, const char* confName);
 #define DEFAULT_QUERY_TIMEOUT_MS 500
 #define DEFAULT_UNION_ITERATOR_HEAP 15
 #define DEFAULT_VSS_MAX_RESIZE 0
-#define DEFAULT_WORKER_THREADS 0
+
 #define MIN_WORKER_THREADS_FLEX 1
 #define DEFAULT_WORKER_THREADS_FLEX MIN_WORKER_THREADS_FLEX
 #define MAX_DOC_TABLE_SIZE 100000000
@@ -363,7 +368,7 @@ char *getRedisConfigValue(RedisModuleCtx *ctx, const char* confName);
     .cursorReadSize = 1000,                                                    \
     .cursorMaxIdle = DEFAULT_MAX_CURSOR_IDLE,                                  \
     .maxDocTableSize = DEFAULT_DOC_TABLE_SIZE,                                 \
-    .numWorkerThreads = DEFAULT_WORKER_THREADS,                                \
+    .numWorkerThreads = 0, /* overwritten at runtime by GetDefaultWorkerThreads() */ \
     .minOperationWorkers = MIN_OPERATION_WORKERS,                              \
     .tieredVecSimIndexBufferLimit = DEFAULT_BLOCK_SIZE,                        \
     .highPriorityBiasNum = DEFAULT_HIGH_PRIORITY_BIAS_THRESHOLD,               \

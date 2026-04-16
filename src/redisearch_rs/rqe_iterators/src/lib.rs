@@ -24,10 +24,16 @@ pub mod inverted_index;
 pub mod maybe_empty;
 pub mod metric;
 pub mod not;
+pub mod not_optimized;
+pub mod not_reducer;
 pub mod optional;
+pub mod optional_optimized;
+pub mod optional_reducer;
 pub mod profile;
 pub mod union;
 mod union_flat;
+mod union_heap;
+pub mod union_reducer;
 pub mod utils;
 pub mod wildcard;
 
@@ -37,8 +43,12 @@ pub use id_list::IdList;
 pub use intersection::Intersection;
 pub use inverted_index::{Missing, Numeric, Tag, Term};
 pub use metric::Metric;
+pub use not::NotIterator;
+pub use optional::OptionalIterator;
 pub use rqe_iterator_type::IteratorType;
-pub use union::{Union, UnionFlat, UnionFullFlat, UnionQuickFlat};
+pub use union::{
+    Union, UnionFlat, UnionFullFlat, UnionFullHeap, UnionHeap, UnionQuickFlat, UnionQuickHeap,
+};
 pub use wildcard::{Wildcard, WildcardIterator};
 
 #[derive(Debug, PartialEq)]
@@ -144,12 +154,24 @@ pub trait RQEIterator<'index> {
     fn as_c_iterator(&self) -> Option<&c2rust::CRQEIterator> {
         None
     }
+
+    /// Returns the sort weight for this iterator when used as a child of an [`Intersection`].
+    ///
+    /// [`Intersection`] uses this to order its children before execution: a lower value makes
+    /// this iterator act as the pivot (minimising `SkipTo` calls). The final sort key is
+    /// `num_estimated * intersection_sort_weight(...)`.
+    ///
+    /// Implementers:
+    /// - [`Intersection`]: `1.0 / num_children` — fewer children means tighter selectivity.
+    /// - [`Union`]: `num_children` when `prioritize_union_children`, else `1.0`.
+    /// - Everything else: `1.0` — neutral, no influence.
+    fn intersection_sort_weight(&self, prioritize_union_children: bool) -> f64;
 }
 
-// Implement RQEIterator for any Box<I> where I: RQEIterator + ?Sized.
-// This covers Box<dyn RQEIterator> as well as Box<dyn SubTrait> for any
-// subtrait of RQEIterator, without requiring a separate delegation impl per subtrait.
-impl<'index, I: RQEIterator<'index> + ?Sized> RQEIterator<'index> for Box<I> {
+/// Blanket [`RQEIterator`] impl for `Box<I>` where `I` is a concrete iterator type.
+///
+/// All core methods delegate to the inner iterator.
+impl<'index, I: RQEIterator<'index> + 'index> RQEIterator<'index> for Box<I> {
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         (**self).current()
     }
@@ -192,6 +214,64 @@ impl<'index, I: RQEIterator<'index> + ?Sized> RQEIterator<'index> for Box<I> {
 
     fn as_c_iterator(&self) -> Option<&c2rust::CRQEIterator> {
         (**self).as_c_iterator()
+    }
+
+    fn intersection_sort_weight(&self, prioritize_union_children: bool) -> f64 {
+        (**self).intersection_sort_weight(prioritize_union_children)
+    }
+}
+
+/// [`RQEIterator`] impl for type-erased iterators.
+///
+/// All methods — including profiling — delegate through the vtable to the
+/// concrete type's implementation.
+impl<'index> RQEIterator<'index> for Box<dyn RQEIterator<'index> + 'index> {
+    fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
+        (**self).current()
+    }
+
+    fn read(&mut self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
+        (**self).read()
+    }
+
+    fn skip_to(
+        &mut self,
+        doc_id: t_docId,
+    ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
+        (**self).skip_to(doc_id)
+    }
+
+    fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
+        (**self).revalidate()
+    }
+
+    fn rewind(&mut self) {
+        (**self).rewind()
+    }
+
+    fn num_estimated(&self) -> usize {
+        (**self).num_estimated()
+    }
+
+    fn last_doc_id(&self) -> t_docId {
+        (**self).last_doc_id()
+    }
+
+    fn at_eof(&self) -> bool {
+        (**self).at_eof()
+    }
+
+    #[inline(always)]
+    fn type_(&self) -> IteratorType {
+        (**self).type_()
+    }
+
+    fn as_c_iterator(&self) -> Option<&c2rust::CRQEIterator> {
+        (**self).as_c_iterator()
+    }
+
+    fn intersection_sort_weight(&self, prioritize_union_children: bool) -> f64 {
+        (**self).intersection_sort_weight(prioritize_union_children)
     }
 }
 

@@ -1,4 +1,12 @@
 from common import *
+from test_hybrid_internal import get_shard_slot_ranges
+from test_info_modules import (
+    info_modules_to_dict,
+    WARN_ERR_SECTION, COORD_WARN_ERR_SECTION,
+    TIMEOUT_ERROR_SHARD_METRIC, TIMEOUT_WARNING_SHARD_METRIC,
+    TIMEOUT_ERROR_COORD_METRIC, TIMEOUT_WARNING_COORD_METRIC,
+    _verify_metrics_not_changed,
+)
 import threading
 import psutil
 
@@ -10,6 +18,47 @@ ON_TIMEOUT_CONFIG = 'search-on-timeout'
 def run_cmd_expect_timeout(env, query_args):
     env.expect(*query_args).error().contains(TIMEOUT_ERROR)
 
+def assert_timeout_warning(env, res, message=''):
+    warnings = res.get('warning', res.get('warnings', []))
+    env.assertTrue(warnings, message=message + " expected timeout warning")
+    env.assertContains('Timeout', warnings[0], message=message + " expected timeout warning")
+
+def debug_print_hybrid_clients(env, label=""):
+    """Debug helper: Print clients with HYBRID commands from coordinator and all shards.
+
+    Filters and prints only clients whose last command contains 'HYBRID' (FT.HYBRID or _FT.HYBRID).
+    """
+    prefix = f"[{label}] " if label else ""
+
+    # Check coordinator
+    try:
+        conn = getConnectionByEnv(env)
+        output = conn.execute_command('CLIENT', 'LIST')
+        clients = parse_client_list(output)
+        hybrid_clients = [c for c in clients if 'HYBRID' in c.get('cmd', '').upper()]
+        if hybrid_clients:
+            env.debugPrint(f"{prefix}Coordinator HYBRID clients:", force=True)
+            for c in hybrid_clients:
+                env.debugPrint(f"  id={c.get('id')} cmd={c.get('cmd')} flags={c.get('flags')}", force=True)
+        else:
+            env.debugPrint(f"{prefix}Coordinator: No HYBRID clients found", force=True)
+    except Exception as e:
+        env.debugPrint(f"{prefix}Coordinator CLIENT LIST error: {e}", force=True)
+
+    # Check all shards
+    for shardId in range(1, env.shardsCount + 1):
+        try:
+            shard_conn = env.getConnection(shardId)
+            output = shard_conn.execute_command('CLIENT', 'LIST')
+            clients = parse_client_list(output)
+            hybrid_clients = [c for c in clients if 'HYBRID' in c.get('cmd', '').upper()]
+            if hybrid_clients:
+                env.debugPrint(f"{prefix}Shard {shardId} HYBRID clients:", force=True)
+                for c in hybrid_clients:
+                    env.debugPrint(f"  id={c.get('id')} cmd={c.get('cmd')} flags={c.get('flags')}", force=True)
+        except Exception as e:
+            env.debugPrint(f"{prefix}Shard {shardId} CLIENT LIST error: {e}", force=True)
+
 def pid_cmd(conn):
     """Get the process ID of a Redis connection."""
     return conn.execute_command('info', 'server')['process_id']
@@ -20,6 +69,15 @@ def get_all_shards_pid(env):
     for shardId in range(1, env.shardsCount + 1):
         conn = env.getConnection(shardId)
         yield pid_cmd(conn)
+
+def get_shard_counts(env):
+    """Get the number of documents in each shard using KEYS doc*."""
+    shard_counts = []
+    for i in range(1, env.shardsCount + 1):
+        keys = env.getConnection(i).execute_command('KEYS', 'doc*')
+        shard_counts.append(len(keys))
+    return shard_counts
+
 
 def parse_client_list(client_list_output):
     """Parse the output of CLIENT LIST command into a list of dictionaries.
@@ -97,6 +155,7 @@ def wait_for_blocked_query_client(env, query, msg='Client for query not found', 
                 return client_id
             time.sleep(0.1)
 
+
 class TestCoordinatorTimeout:
     """Tests for the blocked client timeout mechanism for the coordinator."""
 
@@ -147,11 +206,19 @@ class TestCoordinatorTimeout:
         ).noError()
         self.hybrid_query_vec = query_vec
 
+    def tearDown(self):
+        """Teardown: Print debug info about any remaining HYBRID clients."""
+        debug_print_hybrid_clients(self.env, "TestCoordinatorTimeout teardown")
+
     def _test_fail_timeout_impl(self, query_args):
         env = self.env
 
         prev_on_timeout_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
         env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'fail').ok()
+
+        # Capture baseline metrics
+        before_info = info_modules_to_dict(env)
+        base_err_coord = int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC])
 
         initial_jobs_done = getWorkersThpoolStats(env)['totalJobsDone']
 
@@ -195,13 +262,27 @@ class TestCoordinatorTimeout:
         env.assertFalse(t_query.is_alive(), message="Query thread should have finished")
 
         shard_to_pause_p.resume()
+
+        # Verify coord timeout error metric incremented by 1
+        after_info = info_modules_to_dict(env)
+        env.assertEqual(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC],
+                        str(base_err_coord + 1),
+                        message=f"Coordinator timeout error should be +1 after {query_args[0]}")
+        _verify_metrics_not_changed(env, env, before_info, [TIMEOUT_ERROR_COORD_METRIC])
+
         env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy).ok()
 
     def test_fail_timeout_search(self):
         self._test_fail_timeout_impl(['FT.SEARCH', 'idx', '*'])
 
+    def test_fail_timeout_aggregate(self):
+        self._test_fail_timeout_impl(['FT.AGGREGATE', 'idx', '*'])
+
     def test_fail_timeout_profile_search(self):
         self._test_fail_timeout_impl(['FT.PROFILE', 'idx', 'SEARCH', 'QUERY', '*'])
+
+    def test_fail_timeout_profile_aggregate(self):
+        self._test_fail_timeout_impl(['FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*'])
 
     def test_fail_timeout_profile_hybrid(self):
         self._test_fail_timeout_impl([
@@ -228,6 +309,10 @@ class TestCoordinatorTimeout:
 
         prev_on_timeout_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
         env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'fail').ok()
+
+        # Capture baseline metrics
+        before_info = info_modules_to_dict(env)
+        base_err_coord = int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC])
 
         # Pause coordinator thread pool to prevent pickup
         env.expect(debug_cmd(), 'COORD_THREADS', 'PAUSE').ok()
@@ -258,11 +343,22 @@ class TestCoordinatorTimeout:
         t_query.join(timeout=10)
         env.assertFalse(t_query.is_alive(), message="Query thread should have finished")
 
+        # Verify coord timeout error metric incremented by 1
+        after_info = info_modules_to_dict(env)
+        env.assertEqual(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC],
+                        str(base_err_coord + 1),
+                        message=f"Coordinator timeout error should be +1 after {cmd_name}")
+        _verify_metrics_not_changed(env, env, before_info, [TIMEOUT_ERROR_COORD_METRIC])
+
         env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy).ok()
 
     def test_fail_timeout_before_coord_pickup_search(self):
         """Test timeout occurring before coordinator picks up an FT.SEARCH query."""
         self._test_fail_timeout_before_coord_pickup_impl(['FT.SEARCH', 'idx', '*'])
+
+    def test_fail_timeout_before_coord_pickup_aggregate(self):
+        """Test timeout occurring before coordinator picks up an FT.AGGREGATE query."""
+        self._test_fail_timeout_before_coord_pickup_impl(['FT.AGGREGATE', 'idx', '*'])
 
     def test_fail_timeout_before_coord_pickup_hybrid(self):
         """Test timeout occurring before coordinator picks up an FT.HYBRID query."""
@@ -273,12 +369,154 @@ class TestCoordinatorTimeout:
             'PARAMS', '2', 'BLOB', self.hybrid_query_vec
         ])
 
+    def _test_remaining_timeout_exhausted_before_shard_execution_impl(self, internal_cmd_args,
+                                                                      verify_return_result):
+        """
+        Test that a query whose entire timeout budget is consumed by coordinator dispatch
+        time is handled correctly for the 'fail' and 'return-strict' ON_TIMEOUT policies.
+
+        Instead of going through the coordinator (which has its own blocked-client timer
+        that masks the shard-level behavior), this test talks directly to the shard
+        using internal commands (_FT.SEARCH, _FT.AGGREGATE, _FT.HYBRID) with a
+        _COORD_DISPATCH_TIME that exceeds the TIMEOUT budget.
+
+        Args:
+            internal_cmd_args: Base args for the internal command (e.g. ['_FT.SEARCH', 'idx', '*']).
+                Must NOT include TIMEOUT, _SLOTS_INFO, or _COORD_DISPATCH_TIME — these are added
+                automatically.
+            verify_return_result: Callable(env, cmd_args) to verify response under 'return-strict' policy.
+        """
+        env = self.env
+        # A 50ms TIMEOUT with 100ms dispatch time → budget is exhausted before execution.
+        timeout_ms = '50'
+        dispatch_time_ns = '100000000'  # 100ms in nanoseconds (> 50ms timeout)
+
+        # env.cmd uses env.con which connects to shard 1; get its slot range.
+        _, slots_data = get_shard_slot_ranges(env)[0]
+        env.cmd('DEBUG', 'MARK-INTERNAL-CLIENT')
+
+        full_args = list(internal_cmd_args) + [
+            'TIMEOUT', timeout_ms,
+            '_SLOTS_INFO', slots_data,
+            '_COORD_DISPATCH_TIME', dispatch_time_ns,
+        ]
+
+        for on_timeout_policy in ['return-strict', 'fail']:
+            env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, on_timeout_policy)
+            try:
+                if on_timeout_policy == 'fail':
+                    env.expect(*full_args).error().contains(TIMEOUT_ERROR)
+                else:
+                    verify_return_result(env, full_args)
+            finally:
+                env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'return')
+
+    def test_remaining_timeout_exhausted_before_shard_execution_search(self):
+        def verify_return(env, args):
+            res = env.cmd(*args)
+            env.assertEqual(res['total_results'], 0,
+                            message=f"Expected 0 search results under return-strict, got: {res}")
+            assert_timeout_warning(env, res, message="_FT.SEARCH return-strict")
+        self._test_remaining_timeout_exhausted_before_shard_execution_impl(
+            ['_FT.SEARCH', 'idx', '*'],
+            verify_return_result=verify_return,
+        )
+
+    def test_remaining_timeout_exhausted_before_shard_execution_aggregate(self):
+        def verify_return(env, args):
+            res = env.cmd(*args)
+            env.assertEqual(len(res['results']), 0,
+                            message=f"Expected 0 aggregate results under return-strict, got: {res}")
+            assert_timeout_warning(env, res, message="_FT.AGGREGATE return-strict")
+        self._test_remaining_timeout_exhausted_before_shard_execution_impl(
+            ['_FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@name'],
+            verify_return_result=verify_return,
+        )
+
+    def test_remaining_timeout_exhausted_before_shard_execution_hybrid(self):
+        def verify_return(env, args):
+            res = env.cmd(*args)
+            assert_timeout_warning(env, res, message=f"_FT.HYBRID return-strict, got: {res}")
+        self._test_remaining_timeout_exhausted_before_shard_execution_impl(
+            [
+                '_FT.HYBRID', 'hybrid_idx',
+                'SEARCH', '*',
+                'VSIM', '@embedding', '$BLOB',
+                'PARAMS', '2', 'BLOB', self.hybrid_query_vec,
+            ],
+            verify_return_result=verify_return,
+        )
+
+    def _test_remaining_timeout_exhausted_before_shard_execution_profile_impl(self, internal_cmd_args):
+        """
+        Test that FT.PROFILE commands with pre-execution timeout produce consistent
+        reply structures for SEARCH and AGGREGATE.
+
+        When profiling is active, timeout errors are suppressed (never returned as errors)
+        regardless of the ON_TIMEOUT policy. Instead, empty results with profile wrapping
+        should be returned.
+
+        Args:
+            internal_cmd_args: Base args for the internal profile command
+                (e.g. ['_FT.PROFILE', 'idx', 'SEARCH', 'QUERY', '*']).
+                Must NOT include TIMEOUT, _SLOTS_INFO, or _COORD_DISPATCH_TIME.
+        """
+        env = self.env
+        timeout_ms = '50'
+        dispatch_time_ns = '100000000'  # 100ms in nanoseconds (> 50ms timeout)
+
+        _, slots_data = get_shard_slot_ranges(env)[0]
+        env.cmd('DEBUG', 'MARK-INTERNAL-CLIENT')
+
+        full_args = list(internal_cmd_args) + [
+            'TIMEOUT', timeout_ms,
+            '_SLOTS_INFO', slots_data,
+            '_COORD_DISPATCH_TIME', dispatch_time_ns,
+        ]
+
+        # Profile suppresses timeout errors for all policies, so both 'fail' and
+        # 'return-strict' should return empty results with profile structure (not an error).
+        for on_timeout_policy in ['fail', 'return-strict']:
+            env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, on_timeout_policy)
+            try:
+                result = env.expect(*full_args).noError().res
+
+                # Verify profile wrapping: response should have 'Results' key
+                env.assertContains('Results', result,
+                    message=f"Expected 'Results' key in profile output with {on_timeout_policy} policy, got: {result}")
+
+                profile_results = result['Results']
+
+                # Verify timeout warning in results
+                warnings = profile_results.get('warning', profile_results.get('warnings', []))
+                env.assertTrue(warnings,
+                    message=f"Expected timeout warning with {on_timeout_policy} policy, got: {profile_results}")
+                env.assertContains('Timeout', warnings[0],
+                    message=f"Expected timeout in warning with {on_timeout_policy} policy, got: {warnings}")
+            finally:
+                env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'return')
+
+    def test_remaining_timeout_exhausted_before_shard_execution_profile_search(self):
+        self._test_remaining_timeout_exhausted_before_shard_execution_profile_impl(
+            ['_FT.PROFILE', 'idx', 'SEARCH', 'QUERY', '*'],
+        )
+
+    def test_remaining_timeout_exhausted_before_shard_execution_profile_aggregate(self):
+        self._test_remaining_timeout_exhausted_before_shard_execution_profile_impl(
+            ['_FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*', 'LOAD', '1', '@name'],
+        )
+
+
     def test_fail_timeout_after_fanout_search(self):
         """Test timeout occurring after the fanout (after query is dispatched to shards - best effort)."""
         env = self.env
 
         prev_on_timeout_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
         env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'fail').ok()
+
+        # Capture baseline metrics
+        before_info = info_modules_to_dict(env)
+        base_err_coord = int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC])
 
         # Get initial jobs done count from all shards
         initial_jobs_done = [stats['totalJobsDone'] for stats in getWorkersThpoolStatsFromAllShards(env)]
@@ -333,6 +571,13 @@ class TestCoordinatorTimeout:
         t_query.join(timeout=10)
         env.assertFalse(t_query.is_alive(), message="Query thread should have finished")
 
+        # Verify coord timeout error metric incremented by 1
+        after_info = info_modules_to_dict(env)
+        env.assertEqual(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC],
+                        str(base_err_coord + 1),
+                        message="Coordinator timeout error should be +1 after FT.SEARCH fanout")
+        _verify_metrics_not_changed(env, env, before_info, [TIMEOUT_ERROR_COORD_METRIC])
+
         env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy).ok()
 
     def test_partial_results_no_replies_timeout(self):
@@ -350,6 +595,10 @@ class TestCoordinatorTimeout:
 
         prev_on_timeout_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
         env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'return-strict')
+
+        # Capture baseline metrics
+        before_info = info_modules_to_dict(env)
+        base_warn_coord = int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_METRIC])
 
         # Pause coordinator thread pool to prevent fanout
         env.expect(debug_cmd(), 'COORD_THREADS', 'PAUSE').ok()
@@ -387,7 +636,15 @@ class TestCoordinatorTimeout:
         env.assertEqual(result['total_results'], 0, message="Expected 0 results")
         env.assertEqual(result['warning'], [TIMEOUT_WARNING])
 
+        # Verify coord timeout warning metric incremented by 1
+        after_info = info_modules_to_dict(env)
+        env.assertEqual(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_METRIC],
+                        str(base_warn_coord + 1),
+                        message="Coordinator timeout warning should be +1 after FT.SEARCH with RETURN_STRICT")
+        _verify_metrics_not_changed(env, env, before_info, [TIMEOUT_WARNING_COORD_METRIC])
+
         env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy)
+
     def test_no_timeout(self):
         """
         Test that using result-strict or fail policies doesn't affect the regular flow
@@ -433,6 +690,14 @@ class TestCoordinatorTimeout:
                         message=f"Expected {self.n_docs} total results with 'return-strict' policy (FT.PROFILE)")
         env.assertEqual(profile_results.get('warning', []), [],
                         message="Expected no warning with 'return-strict' policy (FT.PROFILE)")
+
+        # Test FT.AGGREGATE with 'fail' policy
+        env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'fail').ok()
+        result = env.cmd('FT.AGGREGATE', 'idx', '*')
+        env.assertEqual(result['total_results'], self.n_docs,
+                        message=f"Expected {self.n_docs} total results with 'fail' policy (FT.AGGREGATE)")
+        env.assertEqual(result.get('warning', []), [],
+                        message="Expected no warning with 'fail' policy (FT.AGGREGATE)")
 
         # Test FT.HYBRID with 'fail' policy
         # Use K=10000, WINDOW=10000, LIMIT=10000 (100^2) to ensure all docs are returned.
@@ -492,8 +757,12 @@ class TestCoordinatorTimeout:
 
         run_command_on_all_shards(env, 'CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'fail')
 
+        # Capture baseline shard and coordinator metrics
+        before_info = info_modules_to_dict(env)
+        base_err_shard = int(before_info[WARN_ERR_SECTION][TIMEOUT_ERROR_SHARD_METRIC])
+        base_err_coord = int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC])
 
-        for query_type in ['FT.SEARCH', 'FT.AGGREGATE', 'FT.HYBRID']:
+        for i, query_type in enumerate(['FT.SEARCH', 'FT.AGGREGATE', 'FT.HYBRID']):
 
             initial_jobs_done = getWorkersThpoolStats(env)['totalJobsDone']
 
@@ -534,6 +803,18 @@ class TestCoordinatorTimeout:
                     'Timeout while waiting for worker to finish job'
                 )
 
+            # Verify shard and coord timeout error metrics incremented
+            info_dict = info_modules_to_dict(env)
+            env.assertEqual(info_dict[WARN_ERR_SECTION][TIMEOUT_ERROR_SHARD_METRIC],
+                            str(base_err_shard + i + 1),
+                            message=f"Shard timeout error should be +{i+1} after {query_type}")
+            env.assertEqual(info_dict[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC],
+                            str(base_err_coord + i + 1),
+                            message=f"Coordinator timeout error should be +{i+1} after {query_type}")
+
+        # Verify no other metrics changed
+        _verify_metrics_not_changed(env, env, before_info, [TIMEOUT_ERROR_SHARD_METRIC, TIMEOUT_ERROR_COORD_METRIC])
+
         run_command_on_all_shards(env, 'CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy)
 
     def _test_fail_timeout_before_coord_store_impl(self, query_args):
@@ -551,6 +832,10 @@ class TestCoordinatorTimeout:
 
         prev_on_timeout_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
         env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'fail').ok()
+
+        # Capture baseline metrics
+        before_info = info_modules_to_dict(env)
+        base_err_coord = int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC])
 
         # Enable pause before store results
         setPauseBeforeStoreResults(env, True)
@@ -578,6 +863,13 @@ class TestCoordinatorTimeout:
         t_query.join(timeout=10)
         env.assertFalse(t_query.is_alive(), message="Query thread should have finished")
 
+        # Verify coord timeout error metric incremented by 1
+        after_info = info_modules_to_dict(env)
+        env.assertEqual(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC],
+                        str(base_err_coord + 1),
+                        message=f"Coordinator timeout error should be +1 after {cmd_name} before coord store")
+        _verify_metrics_not_changed(env, env, before_info, [TIMEOUT_ERROR_COORD_METRIC])
+
         # Cleanup
         resetStoreResultsDebug(env)
         env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy).ok()
@@ -597,6 +889,10 @@ class TestCoordinatorTimeout:
 
         prev_on_timeout_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
         env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'fail').ok()
+
+        # Capture baseline metrics
+        before_info = info_modules_to_dict(env)
+        base_err_coord = int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC])
 
         # Enable pause after store results
         setPauseAfterStoreResults(env, True)
@@ -624,9 +920,24 @@ class TestCoordinatorTimeout:
         t_query.join(timeout=10)
         env.assertFalse(t_query.is_alive(), message="Query thread should have finished")
 
+        # Verify coord timeout error metric incremented by 1
+        after_info = info_modules_to_dict(env)
+        env.assertEqual(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC],
+                        str(base_err_coord + 1),
+                        message=f"Coordinator timeout error should be +1 after {cmd_name} after coord store")
+        _verify_metrics_not_changed(env, env, before_info, [TIMEOUT_ERROR_COORD_METRIC])
+
         # Cleanup
         resetStoreResultsDebug(env)
         env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy).ok()
+
+    def test_fail_timeout_before_coord_store_aggregate(self):
+        """Test timeout occurring before coordinator stores results for FT.AGGREGATE."""
+        self._test_fail_timeout_before_coord_store_impl(['FT.AGGREGATE', 'idx', '*'])
+
+    def test_fail_timeout_after_coord_store_aggregate(self):
+        """Test timeout occurring after coordinator stores results for FT.AGGREGATE."""
+        self._test_fail_timeout_after_coord_store_impl(['FT.AGGREGATE', 'idx', '*'])
 
     def test_fail_timeout_before_coord_store_hybrid(self):
         """Test timeout occurring before coordinator stores results for FT.HYBRID."""
@@ -751,6 +1062,10 @@ class TestCoordinatorReducePause:
         prev_on_timeout_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
         env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'fail')
 
+        # Capture baseline metrics
+        before_info = info_modules_to_dict(env)
+        base_err_coord = int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC])
+
         # Set pause before first result (N=1 means pause before 1st result)
         setPauseBeforeReduce(env, 1)
 
@@ -780,6 +1095,13 @@ class TestCoordinatorReducePause:
         t_query.join(timeout=10)
         env.assertFalse(t_query.is_alive(), message="Query thread should have finished")
 
+        # Verify coord timeout error metric incremented by 1
+        after_info = info_modules_to_dict(env)
+        env.assertEqual(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC],
+                        str(base_err_coord + 1),
+                        message="Coordinator timeout error should be +1 after fail during reduce before first")
+        _verify_metrics_not_changed(env, env, before_info, [TIMEOUT_ERROR_COORD_METRIC])
+
         env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy)
         self._cleanup_pause_state()
 
@@ -794,8 +1116,12 @@ class TestCoordinatorReducePause:
         prev_on_timeout_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
         env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'fail')
 
-        # Set pause after last result (N=-1)
-        setPauseBeforeReduce(env, -1)
+        # Capture baseline metrics
+        before_info = info_modules_to_dict(env)
+        base_err_coord = int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC])
+
+        # Set pause after last result
+        setPauseBeforeReduce(env, PAUSE_AFTER_LAST_RESULT)
 
         blocked_client_id = env.cmd('CLIENT', 'ID')
 
@@ -824,6 +1150,13 @@ class TestCoordinatorReducePause:
         t_query.join(timeout=10)
         env.assertFalse(t_query.is_alive(), message="Query thread should have finished")
 
+        # Verify coord timeout error metric incremented by 1
+        after_info = info_modules_to_dict(env)
+        env.assertEqual(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC],
+                        str(base_err_coord + 1),
+                        message="Coordinator timeout error should be +1 after fail during reduce after last")
+        _verify_metrics_not_changed(env, env, before_info, [TIMEOUT_ERROR_COORD_METRIC])
+
         env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy)
         self._cleanup_pause_state()
 
@@ -831,12 +1164,18 @@ class TestCoordinatorReducePause:
         """Test return-strict timeout policy when timeout occurs before first result is reduced.
 
         Uses pause mechanism (N=1) to pause before the 1st result. When timeout is triggered,
-        the timeout callback waits for the reducer to finish, so we get all results.
+        the timeout callback waits for the reducer to finish. With the early
+        exit behavior on timeout, we get only the results from the first shard
+        that responded, not all 100 results.
         """
         env = self.env
 
         prev_on_timeout_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
         env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'return-strict').ok()
+
+        # Capture baseline metrics
+        before_info = info_modules_to_dict(env)
+        base_warn_coord = int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_METRIC])
 
         setPauseBeforeReduce(env, 1)
 
@@ -867,6 +1206,61 @@ class TestCoordinatorReducePause:
 
         env.assertEqual(len(query_result), 1, message="Expected 1 result from query thread")
         result = query_result[0]
+
+        shard_counts = get_shard_counts(env)
+
+        env.assertContains(result['total_results'], shard_counts,
+                           message=f"Expected total results to exactly match one of the shards' document counts {shard_counts}")
+        env.assertEqual(result['warning'], [TIMEOUT_WARNING], message="Expected timeout warning")
+
+        # Verify coord timeout warning metric incremented by 1
+        after_info = info_modules_to_dict(env)
+        env.assertEqual(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_METRIC],
+                        str(base_warn_coord + 1),
+                        message="Coordinator timeout warning should be +1 after return-strict before first reduce")
+        _verify_metrics_not_changed(env, env, before_info, [TIMEOUT_WARNING_COORD_METRIC])
+
+        env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy).ok()
+        self._cleanup_pause_state()
+
+    def test_timeout_return_strict_before_reducer_ctx_init(self):
+        """Test return-strict timeout after reducer claims ownership but before req->rctx init."""
+        env = self.env
+
+        prev_on_timeout_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
+        env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'return-strict').ok()
+
+        # Pause right after the background reducer claims reducing so timeout
+        # will wait for it, then force the reducer to take the timed-out early exit.
+        setPauseBeforeReduce(env, PAUSE_BEFORE_REDUCER_INIT)
+
+        blocked_client_id = env.cmd('CLIENT', 'ID')
+
+        query_result = []
+
+        t_query = threading.Thread(
+            target=call_and_store,
+            args=(env.cmd, ['FT.SEARCH', 'idx', '*', 'LIMIT', '0', '10'], query_result),
+            daemon=True
+        )
+        t_query.start()
+
+        wait_for_condition(
+            lambda: (getIsCoordReducePaused(env) == 1, {'paused': getIsCoordReducePaused(env)}),
+            'Timeout while waiting for coordinator to pause before reducer ctx init'
+        )
+
+        wait_for_client_blocked(env, blocked_client_id)
+
+        env.expect('CLIENT', 'UNBLOCK', blocked_client_id, 'TIMEOUT').equal(1)
+
+        wait_for_client_unblocked(env, blocked_client_id)
+
+        t_query.join(timeout=10)
+        env.assertFalse(t_query.is_alive(), message="Query thread should have finished")
+
+        env.assertEqual(len(query_result), 1, message="Expected 1 result from query thread")
+        result = query_result[0]
         env.assertEqual(result['total_results'], 100, message="Expected 100 total results from all shards")
         env.assertEqual(result['warning'], [TIMEOUT_WARNING], message="Expected timeout warning")
 
@@ -877,12 +1271,17 @@ class TestCoordinatorReducePause:
         """Test return-strict timeout policy when timeout occurs mid-reduction.
 
         Uses pause mechanism (N=2) to pause before the 2nd result. When timeout is triggered,
-        the timeout callback waits for the reducer to finish, so we get all results.
+        the timeout callback waits for the reducer to finish. With the early exit behavior,
+        we get only the results from the first shard that responded.
         """
         env = self.env
 
         prev_on_timeout_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
         env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'return-strict').ok()
+
+        # Capture baseline metrics
+        before_info = info_modules_to_dict(env)
+        base_warn_coord = int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_METRIC])
 
         pause_before_n = 2
         setPauseBeforeReduce(env, pause_before_n)
@@ -918,8 +1317,18 @@ class TestCoordinatorReducePause:
 
         env.assertEqual(len(query_result), 1, message="Expected 1 result from query thread")
         result = query_result[0]
-        env.assertEqual(result['total_results'], 100, message="Expected 100 total results from all shards")
+
+        shard_counts = get_shard_counts(env)
+        env.assertContains(result['total_results'], shard_counts,
+                           message=f"Expected total results to exactly match one of the shards' document counts {shard_counts}")
         env.assertEqual(result['warning'], [TIMEOUT_WARNING], message="Expected timeout warning")
+
+        # Verify coord timeout warning metric incremented by 1
+        after_info = info_modules_to_dict(env)
+        env.assertEqual(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_METRIC],
+                        str(base_warn_coord + 1),
+                        message="Coordinator timeout warning should be +1 after return-strict mid reduce")
+        _verify_metrics_not_changed(env, env, before_info, [TIMEOUT_WARNING_COORD_METRIC])
 
         env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy).ok()
         self._cleanup_pause_state()
@@ -935,7 +1344,11 @@ class TestCoordinatorReducePause:
         prev_on_timeout_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
         env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'return-strict').ok()
 
-        setPauseBeforeReduce(env, -1)
+        # Capture baseline metrics
+        before_info = info_modules_to_dict(env)
+        base_warn_coord = int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_METRIC])
+
+        setPauseBeforeReduce(env, PAUSE_AFTER_LAST_RESULT)
 
         blocked_client_id = env.cmd('CLIENT', 'ID')
 
@@ -964,8 +1377,18 @@ class TestCoordinatorReducePause:
 
         env.assertEqual(len(query_result), 1, message="Expected 1 result from query thread")
         result = query_result[0]
-        env.assertEqual(result['total_results'], 100, message="Expected 100 total results from all shards")
+
+        shard_counts = get_shard_counts(env)
+        env.assertEqual(result['total_results'], sum(shard_counts),
+                        message=f"Expected total results to match all shards combined ({sum(shard_counts)})")
         env.assertEqual(result['warning'], [TIMEOUT_WARNING], message="Expected timeout warning")
+
+        # Verify coord timeout warning metric incremented by 1
+        after_info = info_modules_to_dict(env)
+        env.assertEqual(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_METRIC],
+                        str(base_warn_coord + 1),
+                        message="Coordinator timeout warning should be +1 after return-strict after last reduce")
+        _verify_metrics_not_changed(env, env, before_info, [TIMEOUT_WARNING_COORD_METRIC])
 
         env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy).ok()
         self._cleanup_pause_state()
@@ -974,12 +1397,17 @@ class TestCoordinatorReducePause:
         """Test return-strict timeout policy with FT.PROFILE command.
 
         Uses pause mechanism (N=2) to pause before the 2nd result. When timeout is triggered,
-        the timeout callback waits for the reducer to finish, so we get all results.
+        the timeout callback waits for the reducer to finish. With the early exit behavior,
+        we get only the results from the first shard that responded.
         """
         env = self.env
 
         prev_on_timeout_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
         env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'return-strict').ok()
+
+        # Capture baseline metrics
+        before_info = info_modules_to_dict(env)
+        base_warn_coord = int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_METRIC])
 
         setPauseBeforeReduce(env, 2)
 
@@ -1014,9 +1442,19 @@ class TestCoordinatorReducePause:
         # FT.PROFILE returns: {'Results': {...}, 'Profile': {...}}
         env.assertContains('Results', result, message="Expected 'Results' key in FT.PROFILE output")
         profile_results = result['Results']
-        env.assertEqual(profile_results['total_results'], 100, message="Expected 100 total results from all shards")
+
+        shard_counts = get_shard_counts(env)
+        env.assertContains(profile_results['total_results'], shard_counts,
+                           message=f"Expected total results to exactly match one of the shards' document counts {shard_counts}")
         env.assertContains('warning', profile_results, message="Expected warning in Results")
         env.assertEqual(profile_results['warning'], [TIMEOUT_WARNING], message="Expected timeout warning")
+
+        # Verify coord timeout warning metric incremented by 1
+        after_info = info_modules_to_dict(env)
+        env.assertEqual(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_METRIC],
+                        str(base_warn_coord + 1),
+                        message="Coordinator timeout warning should be +1 after return-strict with profile")
+        _verify_metrics_not_changed(env, env, before_info, [TIMEOUT_WARNING_COORD_METRIC])
 
         env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy).ok()
         self._cleanup_pause_state()
@@ -1068,7 +1506,11 @@ class TestShardTimeout:
         prev_on_timeout_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
         env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'fail').ok()
 
-        for query_type in ['FT.SEARCH', 'FT.AGGREGATE', 'FT.HYBRID']:
+        # Capture baseline metrics (standalone uses coord metrics)
+        before_info = info_modules_to_dict(env)
+        base_err_coord = int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC])
+
+        for i, query_type in enumerate(['FT.SEARCH', 'FT.AGGREGATE', 'FT.HYBRID']):
 
             initial_jobs_done = getWorkersThpoolStats(env)['totalJobsDone']
 
@@ -1111,6 +1553,15 @@ class TestShardTimeout:
                     'Timeout while waiting for worker to finish job'
                 )
 
+            # Verify coord timeout error metric incremented (standalone uses coord metrics)
+            info_dict = info_modules_to_dict(env)
+            env.assertEqual(info_dict[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC],
+                            str(base_err_coord + i + 1),
+                            message=f"Coordinator timeout error should be +{i+1} after {query_type}")
+
+        # Verify no other metrics changed
+        _verify_metrics_not_changed(env, env, before_info, [TIMEOUT_ERROR_COORD_METRIC])
+
         env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy).ok()
 
     def test_shard_timeout_fail_in_pipeline(self):
@@ -1126,10 +1577,13 @@ class TestShardTimeout:
         prev_on_timeout_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
         env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'fail').ok()
 
+        # Capture baseline metrics (standalone uses coord metrics)
+        before_info = info_modules_to_dict(env)
+        base_err_coord = int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC])
 
         # Run a query that will be blocked
         # Using PAUSE_BEFORE_RP_N to pause inside the pipeline
-        for query_type in ['FT.SEARCH', 'FT.AGGREGATE']:
+        for i, query_type in enumerate(['FT.SEARCH', 'FT.AGGREGATE']):
 
             query_args = [query_type, 'idx', '*']
             debug_args = ['PAUSE_BEFORE_RP_N', 'Index', 0]
@@ -1172,6 +1626,15 @@ class TestShardTimeout:
             )
             env.expect(debug_cmd(), 'WORKERS', 'drain').ok()
 
+            # Verify coord timeout error metric incremented (standalone uses coord metrics)
+            info_dict = info_modules_to_dict(env)
+            env.assertEqual(info_dict[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC],
+                            str(base_err_coord + i + 1),
+                            message=f"Coordinator timeout error should be +{i+1} after {query_type} in pipeline")
+
+        # Verify no other metrics changed
+        _verify_metrics_not_changed(env, env, before_info, [TIMEOUT_ERROR_COORD_METRIC])
+
         env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy).ok()
 
     def _test_fail_timeout_before_store_impl(self, query_args):
@@ -1185,6 +1648,10 @@ class TestShardTimeout:
 
         prev_on_timeout_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
         env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'fail').ok()
+
+        # Capture baseline metrics (standalone uses coord metrics)
+        before_info = info_modules_to_dict(env)
+        base_err_coord = int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC])
 
         # Enable pause before store results
         setPauseBeforeStoreResults(env, True)
@@ -1212,6 +1679,13 @@ class TestShardTimeout:
         t_query.join(timeout=10)
         env.assertFalse(t_query.is_alive(), message="Query thread should have finished")
 
+        # Verify coord timeout error metric incremented by 1 (standalone uses coord metrics)
+        after_info = info_modules_to_dict(env)
+        env.assertEqual(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC],
+                        str(base_err_coord + 1),
+                        message=f"Coordinator timeout error should be +1 after {cmd_name} before store")
+        _verify_metrics_not_changed(env, env, before_info, [TIMEOUT_ERROR_COORD_METRIC])
+
         # Cleanup
         resetStoreResultsDebug(env)
         env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy).ok()
@@ -1227,6 +1701,10 @@ class TestShardTimeout:
 
         prev_on_timeout_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
         env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'fail').ok()
+
+        # Capture baseline metrics (standalone uses coord metrics)
+        before_info = info_modules_to_dict(env)
+        base_err_coord = int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC])
 
         # Enable pause after store results
         setPauseAfterStoreResults(env, True)
@@ -1253,6 +1731,13 @@ class TestShardTimeout:
 
         t_query.join(timeout=10)
         env.assertFalse(t_query.is_alive(), message="Query thread should have finished")
+
+        # Verify coord timeout error metric incremented by 1 (standalone uses coord metrics)
+        after_info = info_modules_to_dict(env)
+        env.assertEqual(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC],
+                        str(base_err_coord + 1),
+                        message=f"Coordinator timeout error should be +1 after {cmd_name} after store")
+        _verify_metrics_not_changed(env, env, before_info, [TIMEOUT_ERROR_COORD_METRIC])
 
         # Cleanup
         resetStoreResultsDebug(env)
@@ -1337,6 +1822,10 @@ class TestShardTimeout:
         prev_on_timeout_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
         env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'fail').ok()
 
+        # Capture baseline metrics (standalone uses coord metrics)
+        before_info = info_modules_to_dict(env)
+        base_err_coord = int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC])
+
         # Pause worker thread pool
         env.expect(debug_cmd(), 'WORKERS', 'pause').ok()
 
@@ -1363,4 +1852,122 @@ class TestShardTimeout:
         env.expect(debug_cmd(), 'WORKERS', 'resume').ok()
         env.expect(debug_cmd(), 'WORKERS', 'drain').ok()
 
+        # Verify coord timeout error metric incremented by 1 (standalone uses coord metrics)
+        after_info = info_modules_to_dict(env)
+        env.assertEqual(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC],
+                        str(base_err_coord + 1),
+                        message="Coordinator timeout error should be +1 after cursor initial timeout")
+        _verify_metrics_not_changed(env, env, before_info, [TIMEOUT_ERROR_COORD_METRIC])
+
         env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy).ok()
+
+
+    def _test_remaining_timeout_exhausted_before_shard_execution_debug_impl(self, query_cmd, verify_return_result):
+        """
+        Test that FT.DEBUG commands with pre-execution timeout (via _COORD_DISPATCH_TIME)
+        correctly handle timeout in the debug command path (DEBUG_execCommandCommon).
+
+        EXEC_DEBUG does NOT include EXEC_WITH_PROFILE, so:
+        - 'fail' policy → timeout error
+        - 'return-strict' policy → empty results with timeout warning
+        """
+        env = self.env
+        timeout_ms = '50'
+        dispatch_time_ns = '100000000'  # 100ms in nanoseconds (> 50ms timeout)
+
+        _, slots_data = get_shard_slot_ranges(env)[0]
+        env.cmd('DEBUG', 'MARK-INTERNAL-CLIENT')
+
+        # Build the debug command: query args + timeout/slots/dispatch + debug params.
+        # We need at least 1 debug param for AREQ_Debug_New to succeed.
+        # Use TIMEOUT_AFTER_N 100 as a dummy (never reached since we time out before execution).
+        debug_params = ['TIMEOUT_AFTER_N', '100']
+        base_query_args = list(query_cmd) + [
+            'TIMEOUT', timeout_ms,
+            '_SLOTS_INFO', slots_data,
+            '_COORD_DISPATCH_TIME', dispatch_time_ns,
+        ]
+        full_args = [debug_cmd()] + parseDebugQueryCommandArgs(base_query_args, debug_params)
+
+        for on_timeout_policy in ['return-strict', 'fail']:
+            env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, on_timeout_policy)
+            try:
+                if on_timeout_policy == 'fail':
+                    env.expect(*full_args).error().contains(TIMEOUT_ERROR)
+                else:
+                    verify_return_result(env, full_args)
+            finally:
+                env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'return')
+
+    def test_remaining_timeout_exhausted_before_shard_execution_debug_search(self):
+        def verify_return(env, args):
+            res = env.cmd(*args)
+            env.assertEqual(res['total_results'], 0,
+                            message=f"Expected 0 search results under return-strict, got: {res}")
+            assert_timeout_warning(env, res, message="_FT.DEBUG _FT.SEARCH return-strict")
+        self._test_remaining_timeout_exhausted_before_shard_execution_debug_impl(
+            ['_FT.SEARCH', 'idx', '*'],
+            verify_return_result=verify_return,
+        )
+
+    def test_remaining_timeout_exhausted_before_shard_execution_debug_aggregate(self):
+        def verify_return(env, args):
+            res = env.cmd(*args)
+            env.assertEqual(len(res['results']), 0,
+                            message=f"Expected 0 aggregate results under return-strict, got: {res}")
+            assert_timeout_warning(env, res, message="_FT.DEBUG _FT.AGGREGATE return-strict")
+        self._test_remaining_timeout_exhausted_before_shard_execution_debug_impl(
+            ['_FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@name'],
+            verify_return_result=verify_return,
+        )
+
+
+
+class TestShardTimeoutResp2:
+    """Tests for shard timeout behavior with RESP2 protocol.
+
+    Covers the RESP2 branch in sendChunk_ReplyOnly_EmptyResults, where timeout warnings
+    are tracked in ProfileWarnings and global stats but not emitted in the reply
+    (consistent with RESP2 not having a warnings array).
+    """
+    def __init__(self):
+        skipTest(cluster=True)
+
+        self.env = Env(protocol=2, moduleArgs='WORKERS 1 TIMEOUT 0')
+
+        conn = getConnectionByEnv(self.env)
+        self.env.expect('FT.CREATE', 'idx', 'PREFIX', '1', 'doc', 'SCHEMA', 'name', 'TEXT').ok()
+        for i in range(10):
+            conn.execute_command('HSET', f'doc{i}', 'name', f'hello{i}')
+
+    def test_remaining_timeout_exhausted_before_shard_execution_resp2(self):
+        """Test RESP2 pre-execution timeout with return-strict and fail policies."""
+        env = self.env
+        timeout_ms = '50'
+        dispatch_time_ns = '100000000'  # 100ms > 50ms timeout
+
+        _, slots_data = get_shard_slot_ranges(env)[0]
+        env.cmd('DEBUG', 'MARK-INTERNAL-CLIENT')
+
+        for cmd_type, query_args in [
+            ('search', ['_FT.SEARCH', 'idx', '*']),
+            ('aggregate', ['_FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@name']),
+        ]:
+            full_args = list(query_args) + [
+                'TIMEOUT', timeout_ms,
+                '_SLOTS_INFO', slots_data,
+                '_COORD_DISPATCH_TIME', dispatch_time_ns,
+            ]
+
+            for on_timeout_policy in ['return-strict', 'fail']:
+                env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, on_timeout_policy)
+                try:
+                    if on_timeout_policy == 'fail':
+                        env.expect(*full_args).error().contains(TIMEOUT_ERROR)
+                    else:
+                        # RESP2 returns a list where first element is total_results (0)
+                        res = env.cmd(*full_args)
+                        env.assertEqual(res[0], 0,
+                                        message=f"Expected 0 total results in RESP2 {cmd_type}, got: {res}")
+                finally:
+                    env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'return')
