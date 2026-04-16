@@ -98,7 +98,14 @@ QueryIterator *NewUnsortedIdListIterator(t_docId *ids, uint64_t num, double weig
  * Create a new intersection iterator.
  *
  * Takes ownership of both the `its` array and all child iterators it contains.
- * Delegates reduction to the C `IntersectionIteratorReducer` before constructing the iterator.
+ * Applies reduction rules before
+ * constructing the iterator:
+ *
+ * 0. No children → empty iterator.
+ * 1. Strip wildcard children. All wildcards → return the last one.
+ * 2. Any empty child → free all, return empty iterator.
+ * 3. Exactly one real child → return it directly.
+ * 4. Two or more real children → build a full intersection.
  *
  * # Safety
  *
