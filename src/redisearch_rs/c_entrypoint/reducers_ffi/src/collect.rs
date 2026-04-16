@@ -98,18 +98,18 @@ pub unsafe extern "C" fn collectNewInstance(r: Option<NonNull<ffi::Reducer>>) ->
 ///
 /// # Safety
 ///
-/// 1. `r` must point to a [valid] `CollectReducer` masquerading as a `ffi::Reducer`.
-/// 2. `ctx` must point to a [valid] `CollectCtx` masquerading as a void pointer.
+/// 1. `ctx` must point to a [valid] `CollectCtx` masquerading as a void pointer.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn collectFreeInstance(r: Option<NonNull<ffi::Reducer>>, ctx: *mut c_void) {
-    // SAFETY: ensured by caller (1.)
-    let r = unsafe { r.unwrap().cast::<CollectReducer>().as_mut() };
-    // SAFETY: ensured by caller (2.)
-    let collect = unsafe { ctx.cast::<CollectCtx>().as_mut().unwrap() };
-
-    collect.free(r);
+pub unsafe extern "C" fn collectFreeInstance(_r: Option<NonNull<ffi::Reducer>>, ctx: *mut c_void) {
+    // SAFETY: ensured by caller (1.) — `ctx` is non-null.
+    let collect = unsafe { NonNull::new_unchecked(ctx.cast::<CollectCtx>()) };
+    // SAFETY: ensured by caller (1.) — `ctx` points to a valid, initialized
+    // `CollectCtx`. After this call the pointee is logically uninitialized,
+    // but the arena memory is freed later when `CollectReducer` (and its
+    // `Bump`) is dropped.
+    unsafe { collect.drop_in_place() }
 }
 
 /// Processes the provided [`ffi::RLookupRow`] with the collect reducer

@@ -52,8 +52,8 @@ pub struct CollectReducer<'a> {
 /// serializes all collected rows as an array of maps.
 ///
 /// Because `CollectCtx` is arena-allocated ([`Bump`] does not run destructors),
-/// [`CollectCtx::free`] must be called to release the heap-allocated `Vec`s
-/// and decrement `SharedRsValue` refcounts.
+/// `ptr::drop_in_place` must be called to run destructors for the inner
+/// heap-allocated `Vec`s and decrement `SharedRsValue` refcounts.
 pub struct CollectCtx {
     rows: Vec<Vec<SharedRsValue>>,
 }
@@ -183,13 +183,5 @@ impl CollectCtx {
             })
             .collect();
         SharedRsValue::new(RsValue::Array(Array::new(row_maps.into_boxed_slice())))
-    }
-
-    /// Release heap-allocated storage and decrement `SharedRsValue` refcounts.
-    ///
-    /// Must be called before the arena drops this instance, since [`Bump`]
-    /// does not run destructors.
-    pub fn free(&mut self, _r: &CollectReducer) {
-        drop(std::mem::take(&mut self.rows));
     }
 }

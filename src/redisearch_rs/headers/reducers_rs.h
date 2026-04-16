@@ -55,12 +55,11 @@ void *collectNewInstance(Reducer *r);
  *
  * # Safety
  *
- * 1. `r` must point to a [valid] `CollectReducer` masquerading as a `ffi::Reducer`.
- * 2. `ctx` must point to a [valid] `CollectCtx` masquerading as a void pointer.
+ * 1. `ctx` must point to a [valid] `CollectCtx` masquerading as a void pointer.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-void collectFreeInstance(Reducer *r, void *ctx);
+void collectFreeInstance(Reducer *_r, void *ctx);
 
 /**
  * Processes the provided [`ffi::RLookupRow`] with the collect reducer
