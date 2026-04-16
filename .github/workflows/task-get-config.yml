@@ -64,13 +64,16 @@ jobs:
       - name: Get configuration for platform and architecture
         id: get-config
         shell: python
+        env:
+          INPUT_PLATFORM: ${{ inputs.platform }}
+          INPUT_ARCHITECTURE: ${{ inputs.architecture }}
         run: |
           import json
           import os
           import sys
 
-          platform = "${{ inputs.platform }}"
-          architecture = "${{ inputs.architecture }}"
+          platform = os.environ["INPUT_PLATFORM"]
+          architecture = os.environ["INPUT_ARCHITECTURE"]
           print(f"Getting configuration for platform: {platform}, architecture: {architecture}")
 
           # Default environment per architecture

@@ -200,13 +200,16 @@ jobs:
           node20_supported: ${{ needs.get-config.outputs.node20_supported }}
       - name: Set Version identifier
         id: set-versions
+        env:
+          INPUT_VERSION_SUFFIX: ${{ inputs.version-suffix }}
+          INPUT_BETA_VERSION: ${{ inputs.beta-version }}
         run: |
-          VERSION_SUFFIX="${{ inputs.version-suffix }}"
+          VERSION_SUFFIX="$INPUT_VERSION_SUFFIX"
           echo "VERSION_SUFFIX=$VERSION_SUFFIX" >> $GITHUB_OUTPUT
           # Use the pre-generated beta version if provided (master branch builds)
           # Otherwise generate regular version from version.h (non-master branch builds)
-          if [[ -n "${{ inputs.beta-version }}" ]]; then
-            BETA_VERSION="${{ inputs.beta-version }}"
+          if [[ -n "$INPUT_BETA_VERSION" ]]; then
+            BETA_VERSION="$INPUT_BETA_VERSION"
             echo "BETA_VERSION=$BETA_VERSION" >> $GITHUB_OUTPUT
             echo "Using pre-generated beta version: $BETA_VERSION"
           else
