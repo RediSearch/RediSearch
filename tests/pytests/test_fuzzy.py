@@ -98,7 +98,7 @@ def testFuzzyManyExpansions(env):
     terms, which triggers the internal iterator array capacity doubling in
     addTerm (initial capacity is 8)."""
     conn = getConnectionByEnv(env)
-    conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
 
     # Create 10 distinct 3-letter terms that are all within Levenshtein
     # distance 1 of "bat": substitute the first character.
@@ -119,7 +119,7 @@ def testFuzzyMaxPrefixExpansionsWarning():
     env = Env(protocol=3)
     conn = getConnectionByEnv(env)
 
-    conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
 
     # Create terms that are all within Levenshtein distance 1 of "ab":
     # aa, ab, ac, ..., az  (26 terms, all distance <= 1 from "ab")
