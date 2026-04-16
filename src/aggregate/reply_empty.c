@@ -17,7 +17,6 @@
 #include "rmutil/util.h"
 #include "reply_empty.h"
 #include "info/global_stats.h"
-#include "../profile/options.h"
 
 // Helper function that performs minimal parsing of query arguments to support sendChunk output
 static int shallow_parse_query_args(RedisModuleString **argv, int argc, AREQ *req) {
@@ -106,9 +105,7 @@ int coord_aggregate_query_reply_empty(RedisModuleCtx *ctx, RedisModuleString **a
     return ret;
 }
 
-// Empty reply for hybrid queries. Currently used during OOM conditions.
-// Creates QueryError with OOM warning and uses sendChunk_ReplyOnly_HybridEmptyResults.
-int common_hybrid_query_reply_empty(RedisModuleCtx *ctx, QueryErrorCode errCode, bool internal) {
+int common_hybrid_query_reply_empty(RedisModuleCtx *ctx, QueryErrorCode errCode, bool internal, bool isProfile) {
 
     QueryError status = QueryError_Default();
     QueryError_SetError(&status, errCode, NULL);
@@ -121,7 +118,15 @@ int common_hybrid_query_reply_empty(RedisModuleCtx *ctx, QueryErrorCode errCode,
     // Shards notify error by setting cursor id to 0
     if (internal) {
         RedisModule_Reply _coordInfoReply = RedisModule_NewReply(ctx), *coordInfoReply = &_coordInfoReply;
-        RedisModule_Reply_Map(coordInfoReply); // root {}
+
+        RedisModule_Reply_Map(coordInfoReply); // outer/root {}
+
+        if (isProfile) {
+            // Profile wrapping: open an outer map, then nest "Results" and "Profile"
+            // inside it, consistent with search/aggregate profile reply structure.
+            Profile_PrepareMapForReply(coordInfoReply); // opens "Results" map
+        }
+
         RedisModule_ReplyKV_LongLong(coordInfoReply, "SEARCH", 0);
         RedisModule_ReplyKV_LongLong(coordInfoReply, "VSIM", 0);
         RedisModule_ReplyKV_Array(coordInfoReply,"warnings"); // warnings []
@@ -130,14 +135,37 @@ int common_hybrid_query_reply_empty(RedisModuleCtx *ctx, QueryErrorCode errCode,
             RedisModule_Reply_SimpleString(coordInfoReply, QueryError_Strerror(QUERY_ERROR_CODE_OUT_OF_MEMORY));
         }
         RedisModule_Reply_ArrayEnd(coordInfoReply); // ~warnings
-        RedisModule_Reply_MapEnd(coordInfoReply); // ~root
+
+        if (isProfile) {
+            RedisModule_Reply_MapEnd(coordInfoReply); // close "Results" map
+            Profile_PrintInFormat(coordInfoReply, NULL, NULL, NULL, NULL);
+        }
+
+        RedisModule_Reply_MapEnd(coordInfoReply); // close outer / root map
         RedisModule_EndReply(coordInfoReply);
         QueryError_ClearError(&status);
         return REDISMODULE_OK;
     }
 
     RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
+
+    if (isProfile) {
+        // Profile wrapping: open outer map containing "Results" and "Profile" sections.
+        // sendChunk_ReplyOnly_HybridEmptyResults opens/closes its own map, so we use it
+        // directly as the value of the "Results" key.
+        RedisModule_Reply_Map(reply); // outer {}
+        if (reply->resp3) {
+            RedisModule_Reply_SimpleString(reply, "Results"); // key
+        }
+    }
+
     sendChunk_ReplyOnly_HybridEmptyResults(reply, &status);
+
+    if (isProfile) {
+        Profile_PrintInFormat(reply, NULL, NULL, NULL, NULL);
+        RedisModule_Reply_MapEnd(reply); // close outer map
+    }
+
     RedisModule_EndReply(reply);
     QueryError_ClearError(&status);
     return REDISMODULE_OK;
