@@ -28,7 +28,7 @@ add_custom_target(generate_command_info ALL DEPENDS ${COMMAND_OUTPUT_H} ${COMMAN
 # Add subdirectories for dependencies (from deps/)
 add_subdirectory(${root}/deps/rmutil ${CMAKE_CURRENT_BINARY_DIR}/rmutil)
 add_subdirectory(${root}/deps/friso ${CMAKE_CURRENT_BINARY_DIR}/friso)
-add_subdirectory(${root}/deps/snowball ${CMAKE_CURRENT_BINARY_DIR}/snowball)
+include(${root}/cmake/snowball.cmake)
 add_subdirectory(${root}/deps/phonetics ${CMAKE_CURRENT_BINARY_DIR}/phonetics)
 add_subdirectory(${root}/deps/fast_float ${CMAKE_CURRENT_BINARY_DIR}/fast_float)
 
