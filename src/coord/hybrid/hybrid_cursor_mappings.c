@@ -253,8 +253,11 @@ bool ProcessHybridCursorMappings(const MRCommand *cmd, StrongRef searchMappingsR
     }
     // Wait for all callbacks to complete
     pthread_mutex_lock(ctx->mutex);
-    // Wait until the IO thread has initialized numShards and all responses arrive.
-    while (!ctx->initialized || ctx->responseCount < ctx->numShards) {
+    // Wait until either:
+    // 1. Normal completion: IO thread initialized numShards and all responses arrived
+    // 2. Early failure: We got a response before initialization (e.g., connection validation failed)
+    //    In this case, responseCount > 0 but initialized is false - we should unblock.
+    while (ctx->responseCount == 0 || (ctx->initialized && ctx->responseCount < ctx->numShards)) {
         pthread_cond_wait(ctx->completionCond, ctx->mutex);
     }
     pthread_mutex_unlock(ctx->mutex);
