@@ -632,6 +632,7 @@ dependencies = [
  "enumflags2",
  "query_node_type",
  "query_term",
+ "redis-module",
  "rqe_core",
  "rqe_iterator_type",
  "workspace_hack",

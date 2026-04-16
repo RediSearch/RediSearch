@@ -257,61 +257,6 @@ const HEADERS: &[HeaderAllowlist] = &[
         vars: &[],
     },
     HeaderAllowlist {
-        path: "src/redismodule.h",
-        fns: &[],
-        // RSE: `RedisModuleIO` is referenced by the RDB save/load entry points
-        // in `src/search_disk_api.h`.
-        types: &[
-            "RedisModuleIO",
-            "RedisModuleString",
-            // RSE: callback typedef used in the `RedisModule_SwapPrefetchKey`
-            // function-pointer signature; bindgen pulls it in transitively but
-            // we allow it explicitly so it is stable across header changes.
-            "RedisModuleSwapPrefetchCB",
-        ],
-        vars: &[
-            "REDISMODULE_ERR",
-            "REDISMODULE_OK",
-            "REDISMODULE_POSTPONED_ARRAY_LEN",
-            "REDISMODULE_POSTPONED_LEN",
-            // RSE: flag constant for `RedisModule_SwapPrefetchKey` — value 0
-            // means "prefetch for anyone / no restrictions".
-            "REDISMODULE_SWAP_PREFETCH_FLAG_NOONE",
-            "RedisModule_Alloc",
-            "RedisModule_Free",
-            "RedisModule_FreeString",
-            "RedisModule_FreeThreadSafeContext",
-            "RedisModule_GetDetachedThreadSafeContext",
-            "RedisModule_GetThreadSafeContext",
-            "RedisModule_InfoAddFieldCString",
-            // RSE: u64 field writer used by `redisearch_disk`'s
-            // `RedisModuleInfoCtx`-backed INFO sink.
-            "RedisModule_InfoAddFieldULongLong",
-            "RedisModule_InfoAddSection",
-            // RSE: open/close pair for nested dict fields, used by the same
-            // INFO sink in `redisearch_disk`.
-            "RedisModule_InfoBeginDictField",
-            "RedisModule_InfoEndDictField",
-            "RedisModule_Log",
-            "RedisModule_ReplySetArrayLength",
-            "RedisModule_ReplySetMapLength",
-            "RedisModule_ReplyWithArray",
-            "RedisModule_ReplyWithDouble",
-            "RedisModule_ReplyWithEmptyArray",
-            "RedisModule_ReplyWithLongLong",
-            "RedisModule_ReplyWithMap",
-            "RedisModule_ReplyWithSimpleString",
-            "RedisModule_ReplyWithStringBuffer",
-            "RedisModule_IsKeyInRam",
-            // RSE: used by `redisearch_disk` to schedule async swap-prefetch
-            // for a key before blocking on disk I/O.
-            "RedisModule_SwapPrefetchKey",
-            "RedisModule_StringPtrLen",
-            "RedisModule_ThreadSafeContextLock",
-            "RedisModule_ThreadSafeContextUnlock",
-        ],
-    },
-    HeaderAllowlist {
         path: "src/doc_id_meta.h",
         fns: &["DocIdMeta_Get"],
         types: &[],
