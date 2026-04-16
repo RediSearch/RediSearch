@@ -22,6 +22,7 @@
 #include "query_error.h"
 #include "info/global_stats.h"
 #include "aggregate_debug.h"
+#include "debug_commands.h"
 #include "info/info_redis/block_client.h"
 #include "info/info_redis/threads/current_thread.h"
 #include "pipeline/pipeline.h"
@@ -907,9 +908,17 @@ void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
 
   // lock spec
   RedisSearchCtx_LockSpecRead(sctx);
+
   if (prepareExecutionPlan(req, &status) != REDISMODULE_OK) {
     goto error;
   }
+
+#ifdef ENABLE_ASSERT
+  // Sync point (debug): pause after iterators are created and snapshot is established.
+  // For disk indexes, the lock is already released at this point.
+  // For RAM indexes, the lock is still held.
+  SyncPoint_Wait(SYNC_POINT_AFTER_ITERATOR_CREATE);
+#endif
 
   if (AREQ_RequestFlags(req) & QEXEC_F_IS_CURSOR) {
     RedisModule_Reply _reply = RedisModule_NewReply(outctx), *reply = &_reply;
