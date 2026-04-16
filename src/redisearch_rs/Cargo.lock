@@ -2911,8 +2911,6 @@ name = "value_ffi"
 version = "0.0.1"
 dependencies = [
  "build_utils",
- "c_ffi_utils",
- "cbindgen",
  "ffi",
  "fnv",
  "libc",
