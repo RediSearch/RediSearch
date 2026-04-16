@@ -603,7 +603,6 @@ def testMissingWithParams():
 
     env.expect('FT.CREATE', 'idx', 'SCHEMA',
                't', 'TEXT', 'INDEXMISSING').ok()
-    waitForIndex(env, 'idx')
 
     conn.execute_command('HSET', 'has_t', 't', 'hello')
     conn.execute_command('HSET', 'no_t', 'other', 'world')

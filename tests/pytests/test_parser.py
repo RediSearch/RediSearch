@@ -808,9 +808,7 @@ INTERSECT {
 def test_invalid_query_attributes():
     """Test that invalid query attribute values produce proper errors."""
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
-    conn = getConnectionByEnv(env)
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
-    waitForIndex(env, 'idx')
 
     # Invalid $slop value (not a number)
     env.expect('FT.SEARCH', 'idx', 'hello=>{$slop: abc}').error() \
