@@ -5,6 +5,10 @@ name: Run a Benchmark Flow
 on:
   workflow_call:
     inputs:
+      git_ref:
+        type: string
+        description: 'Git reference (tag, branch, or commit SHA) to checkout for benchmarking'
+        default: ''
       module_path:
         type: string
         default: bin/linux-x64-release/search-community/redisearch.so
@@ -49,6 +53,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
+          ref: ${{ inputs.git_ref || github.sha }}
           submodules: recursive
       - name: Compute effective benchmark filter
         id: benchmark-filter
