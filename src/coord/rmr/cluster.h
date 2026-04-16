@@ -31,9 +31,10 @@ typedef struct {
   size_t current_round_robin;
 } MRCluster;
 
-/* Multiplex a non-sharding command to all coordinators, using a specific coordination strategy. The
- * return value is the number of nodes we managed to successfully send the command to */
-int MRCluster_FanoutCommand(IORuntimeCtx *ioRuntime, MRCommand *cmd, redisCallbackFn *fn, void *privdata);
+/* Multiplex a non-sharding command to all coordinators, using a specific coordination strategy.  Returns the
+ * number of sent commands.
+ * If validateConnections is true, the function will validate that all connections are up before sending the command */
+int MRCluster_FanoutCommand(IORuntimeCtx *ioRuntime, MRCommand *cmd, redisCallbackFn *fn, void *privdata, bool validateConnections);
 
 /* Send a command to its appropriate shard, selecting a node based on the coordination strategy.
  * Returns REDIS_OK on success, REDIS_ERR on failure. Notice that that send is asynchronous so even
