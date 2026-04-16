@@ -17,7 +17,7 @@ use crate::{IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, Skip
 /// A child iterator paired with its original insertion index.
 ///
 /// Tracks where the child was in the original `children` vector so that
-/// we can restore the original order. 
+/// we can restore the original order.
 pub(crate) struct IndexedChild<I> {
     /// Position of this child in the original `children` vector passed to
     /// [`UnionFlat::new`].
@@ -443,8 +443,7 @@ where
 
     fn rewind(&mut self) {
         // Restore children to their original insertion order.
-        self.children
-            .sort_unstable_by_key(|c| c.original_index);
+        self.children.sort_unstable_by_key(|c| c.original_index);
 
         self.num_active = self.children.len();
         self.is_eof = self.children.is_empty();
