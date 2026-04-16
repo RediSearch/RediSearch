@@ -451,6 +451,34 @@ def testProfileVector(env):
   env.assertEqual(to_dict(env.cmd(debug_cmd(), "VECSIM_INFO", "idx", "v"))['LAST_SEARCH_MODE'], 'HYBRID_BATCHES_TO_ADHOC_BF')
 
 @skip(cluster=True)
+def testProfileHybridRangeMetricSortedByScore(env):
+  """Hybrid RANGE query with YIELD_SCORE_AS creates a METRIC SORTED BY SCORE iterator."""
+  conn = getConnectionByEnv(env)
+  env.cmd(config_cmd(), 'SET', '_PRINT_PROFILE_CLOCK', 'false')
+
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'FLAT', '6',
+             'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2', 't', 'TEXT').ok()
+  query_vector = np.array([0.0, 0.0], dtype=np.float32).tobytes()
+  conn.execute_command('hset', '1', 'v', np.array([1.0, 0.0], dtype=np.float32).tobytes(), 't', 'hello')
+  conn.execute_command('hset', '2', 'v', np.array([0.0, 1.0], dtype=np.float32).tobytes(), 't', 'hello')
+  conn.execute_command('hset', '3', 'v', np.array([10.0, 10.0], dtype=np.float32).tobytes(), 't', 'hello')
+
+  # Hybrid RANGE query without FILTER yields BY_SCORE order + yields_metric=true
+  # This produces a METRIC_SORTED_BY_SCORE iterator
+  actual_res = conn.execute_command('FT.PROFILE', 'idx', 'HYBRID', 'QUERY',
+                                    'SEARCH', 'hello',
+                                    'VSIM', '@v', '$BLOB',
+                                    'RANGE', '2', 'RADIUS', '5',
+                                    'YIELD_SCORE_AS', 'dist',
+                                    'PARAMS', '2', 'BLOB', query_vector)
+  # RESP2: profile data is at actual_res[-1] = ['Shards', [shard_profiles], 'Coordinator', [...]]
+  # shard_profiles[0] = ['SEARCH', [...], 'VSIM', [...]]
+  shard_profile = to_dict(actual_res[-1][1][0])
+  vsim_profile = to_dict(shard_profile['VSIM'])
+  env.assertEqual(vsim_profile['Iterators profile'][0], 'Type', message=vsim_profile)
+  env.assertEqual(vsim_profile['Iterators profile'][1], 'METRIC SORTED BY SCORE - VECTOR DISTANCE', message=vsim_profile)
+
+@skip(cluster=True)
 def testResultProcessorCounter(env):
   conn = getConnectionByEnv(env)
   env.cmd(config_cmd(), 'SET', '_PRINT_PROFILE_CLOCK', 'false')
