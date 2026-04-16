@@ -78,6 +78,26 @@ def testTagPrefix(env):
             res = env.cmd('ft.search', 'idx', q)
             env.assertEqual(res[0], 1)
 
+@skip(cluster=True)
+def testTagPrefixTooShort(env):
+    """A single-char tag prefix is rejected when MINPREFIX (default 2) is not met."""
+    env.expect(
+        'ft.create', 'idx', 'ON', 'HASH',
+        'schema', 'tags', 'tag', 'separator', ',').ok()
+
+    env.expect('ft.add', 'idx', 'doc1', 1.0, 'fields',
+               'tags', 'alpha,beta,gamma').ok()
+
+    for _ in env.reloadingIterator():
+        waitForIndex(env, 'idx')
+        # 2-char prefix works (meets default MINPREFIX=2)
+        res = env.cmd('ft.search', 'idx', '@tags:{al*}', 'nocontent')
+        env.assertEqual(res[0], 1)
+
+        # 1-char prefix returns nothing (below MINPREFIX)
+        res = env.cmd('ft.search', 'idx', '@tags:{a*}', 'nocontent')
+        env.assertEqual(res[0], 0)
+
 def testTagFieldCase(env):
     dialect = env.cmd(config_cmd(), 'GET', 'DEFAULT_DIALECT')[0][1]
     env.expect(
