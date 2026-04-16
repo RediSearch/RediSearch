@@ -877,7 +877,6 @@ def test_memory_info():
 # The heuristic is implemented in VectorSimilarity library in SVSIndex::preferAdHocSearch.
 # The test scenarios below demonstrate each heuristic path with detailed explanations.
 def test_hybrid_query_with_text_vamana():
-    raise SkipTest("Flaky test, see MOD-14826")
     # Set high GC threshold so to eliminate sanitizer warnings from of false leaks from forks (MOD-6229)
     env = Env(moduleArgs='DEFAULT_DIALECT 2 FORK_GC_CLEAN_THRESHOLD 10000 WORKERS 8')
     conn = getConnectionByEnv(env)
@@ -887,7 +886,9 @@ def test_hybrid_query_with_text_vamana():
     create_vector_index(env, dim, datatype=data_type, alg='SVS-VAMANA', additional_schema_args=['t', 'TEXT'])
 
     load_vectors_with_texts_into_redis(conn, DEFAULT_FIELD_NAME, dim, index_size, data_type)
+    start_time = time.time()
     wait_for_background_indexing(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME)
+    env.debugPrint("wait_for_background_indexing took {} seconds".format(time.time() - start_time), force=True)
     index_size = get_tiered_backend_debug_info(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME)['INDEX_SIZE']
     env.debugPrint(f"svs index size: {index_size}", force=True)
 

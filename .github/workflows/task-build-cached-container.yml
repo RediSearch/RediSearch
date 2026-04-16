@@ -54,6 +54,7 @@ jobs:
           SAN: ${{ inputs.san }}
           RUNNER_ENV: ${{ inputs.runner-env }}
           RUN_ID: ${{ github.run_id }}
+          IS_FORK_PR: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
         run: |
           IMAGE_NAME="ghcr.io/redisearch/redisearch-ci"
           CONTAINER_SAFE=$(echo "$CONTAINER" | sed 's#[^A-Za-z0-9_.-]#-#g')
@@ -66,6 +67,12 @@ jobs:
           echo "cache=$CACHE_REF" >> "$GITHUB_OUTPUT"
           echo "Using image tag: $IMAGE_TAG"
           echo "Using cache ref: $CACHE_REF"
+          if [[ "$IS_FORK_PR" == "true" ]]; then
+            echo "can_push=false" >> "$GITHUB_OUTPUT"
+            echo "Cross-repo PR detected. Skipping GHCR push."
+          else
+            echo "can_push=true" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Log in to GHCR
         uses: docker/login-action@v4
@@ -84,17 +91,24 @@ jobs:
         id: build-and-push
         uses: docker/build-push-action@v7
         with:
-          push: true
+          push: ${{ steps.meta.outputs.can_push == 'true' }}
           context: .
           build-args: |
             BASE_IMAGE=${{ inputs.container }}
             SAN=${{ inputs.san }}
+          secrets: |
+            GITHUB_TOKEN=${{ github.token }}
           file: Dockerfile
           tags: ${{ steps.meta.outputs.image }}
-          cache-to: type=registry,ref=${{ steps.meta.outputs.cache }},mode=max,compression=zstd
+          cache-to: ${{ steps.meta.outputs.can_push == 'true' && format('type=registry,ref={0},mode=max,compression=zstd', steps.meta.outputs.cache) || '' }}
           cache-from: type=registry,ref=${{ steps.meta.outputs.cache }}
 
       - name: Mark build status
+        if: always()
         id: mark-status
         run: |
-          echo "succeeded=true" >> "$GITHUB_OUTPUT"
+          if [[ "${{ steps.meta.outputs.can_push }}" == "true" && "${{ steps.build-and-push.outcome }}" == "success" ]]; then
+            echo "succeeded=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "succeeded=false" >> "$GITHUB_OUTPUT"
+          fi

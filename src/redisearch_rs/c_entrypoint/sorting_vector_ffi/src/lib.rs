@@ -14,13 +14,13 @@ use std::{
     ffi::{CStr, c_char},
     ptr::NonNull,
 };
-use value::RSValueFFI;
+use value::{RsValue, SharedRsValue};
 
 pub const RS_SORTABLES_MAX: usize = 1024;
 
-// Verify that the ThinVec<RSValueFFI, u32> heap header has no padding before data,
+// Verify that the ThinVec<SharedRsValue, u32> heap header has no padding before data,
 // so the C inline helpers can use a fixed offset of `sizeof(Header<u64>)` = 16 bytes.
-const _: () = assert!(thin_vec::layout::header_field_padding::<RSValueFFI, u64>() == 0);
+const _: () = assert!(thin_vec::layout::header_field_padding::<SharedRsValue, u64>() == 0);
 
 // Verify that RSSortingVector is pointer-sized (repr(transparent) over ThinVec).
 const _: () = assert!(std::mem::size_of::<RSSortingVector>() == std::mem::size_of::<usize>());
@@ -72,7 +72,7 @@ pub unsafe extern "C" fn RSSortingVector_PutNum(
     // Safety: The caller must ensure that the pointer is valid (1.)
     let vec = unsafe { vec.expect("vec must not be null").as_mut() };
 
-    vec.try_insert_val(idx, RSValueFFI::new_num(num))
+    vec.try_insert_val(idx, SharedRsValue::new_num(num))
         .unwrap_or_else(|_| {
             panic!("Index out of bounds: {} >= {}", idx, vec.len());
         });
@@ -160,13 +160,15 @@ pub unsafe extern "C" fn RSSortingVector_PutStrNormalize(
 pub unsafe extern "C" fn RSSortingVector_PutRSVal(
     vec: Option<NonNull<RSSortingVector>>,
     idx: size_t,
-    val: Option<NonNull<ffi::RSValue>>,
+    val: Option<NonNull<RsValue>>,
 ) {
     // Safety: The caller must ensure that the pointer is valid (1.)
     let vec = unsafe { vec.expect("vec must not be null").as_mut() };
 
+    let value = val.expect("value must not be null").as_ptr().cast_const();
+
     // Safety: The caller must ensure that the pointer is valid (2.)
-    let val = unsafe { RSValueFFI::from_raw(val.expect("val must not be null")) };
+    let val = unsafe { SharedRsValue::from_raw(value) };
 
     vec.try_insert_val(idx, val).unwrap_or_else(|_| {
         panic!("Index out of bounds: {} >= {}", idx, vec.len());
@@ -214,7 +216,7 @@ pub extern "C" fn RSSortingVector_New(len: size_t) -> RSSortingVector {
 
 /// Deallocates the inner values buffer of an [`RSSortingVector`] and zeros the struct.
 ///
-/// Each [`RSValueFFI`] element is dropped (decrementing its refcount) and the heap buffer is freed.
+/// Each [`SharedRsValue`] element is dropped (decrementing its refcount) and the heap buffer is freed.
 /// After this call the pointed-to struct is in the same state as [`RSSortingVector::empty()`].
 /// Passing a null pointer is a no-op.
 ///

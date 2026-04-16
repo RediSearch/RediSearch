@@ -19,7 +19,8 @@ libc.workspace = true
 rlookup.workspace = true
 search_result.workspace = true
 sorting_vector.workspace = true
-value = { workspace = true, features = ["c_ffi_impl"] }
+value.workspace = true
+query_error.workspace = true
 workspace_hack.workspace = true
 
 [dev-dependencies]

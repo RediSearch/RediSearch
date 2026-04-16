@@ -28,6 +28,17 @@ typedef struct {
 void printIteratorProfile(RedisModule_Reply *reply, const QueryIterator *root, const ProfileCounters *counters,
                           double cpuTime, int depth, int limited, PrintProfileConfig *config);
 
+static void printInvIdxIteratorCounters(RedisModule_Reply *reply, const QueryIterator *root,
+                                        const ProfileCounters *counters, double cpuTime,
+                                        PrintProfileConfig *config) {
+  if (config->printProfileClock) {
+    printProfileTime(cpuTime);
+  }
+
+  printProfileCounters(counters);
+  RedisModule_ReplyKV_LongLong(reply, "Estimated number of matches", root->NumEstimated(root));
+}
+
 void printInvIdxIt(RedisModule_Reply *reply, const QueryIterator *root, const ProfileCounters *counters, double cpuTime, PrintProfileConfig *config) {
   IndexFlags readerFlags = InvIndIterator_GetReaderFlags(root);
 
@@ -63,14 +74,19 @@ void printInvIdxIt(RedisModule_Reply *reply, const QueryIterator *root, const Pr
     RedisModule_ReplyKV_StringBuffer(reply, "Term", term_str, term_len);
   }
 
-  // print counter and clock
-  if (config->printProfileClock) {
-    printProfileTime(cpuTime);
-  }
+  printInvIdxIteratorCounters(reply, root, counters, cpuTime, config);
+  RedisModule_Reply_MapEnd(reply);
+}
 
-  printProfileCounters(counters);
-  RedisModule_ReplyKV_LongLong(reply, "Estimated number of matches", root->NumEstimated(root));
+void printInvIdxMissingIt(RedisModule_Reply *reply, const QueryIterator *root, const ProfileCounters *counters, double cpuTime, PrintProfileConfig *config) {
+  RedisModule_Reply_Map(reply);
+  printProfileType("MISSING");
 
+  size_t field_len = 0;
+  const char *field_name = InvIndMissingIterator_GetFieldName(root, &field_len);
+  RedisModule_ReplyKV_StringBuffer(reply, "Field", field_name, field_len);
+
+  printInvIdxIteratorCounters(reply, root, counters, cpuTime, config);
   RedisModule_Reply_MapEnd(reply);
 }
 
@@ -552,10 +568,9 @@ void printIteratorProfile(RedisModule_Reply *reply, const QueryIterator *root, c
     // Reader
     case INV_IDX_NUMERIC_ITERATOR:
     case INV_IDX_TERM_ITERATOR:
-    case INV_IDX_WILDCARD_ITERATOR:
-    case INV_IDX_MISSING_ITERATOR:
     case INV_IDX_TAG_ITERATOR:
                                             { printInvIdxIt(reply, root, counters, cpuTime, config);                                break; }
+    case INV_IDX_MISSING_ITERATOR:          { printInvIdxMissingIt(reply, root, counters, cpuTime, config);                         break; }
     // Multi values
     case UNION_ITERATOR:                    { printUnionIt(reply, root, counters, cpuTime, depth, limited, config);                 break; }
     case INTERSECT_ITERATOR:                { printIntersectIt(reply, root, counters, cpuTime, depth, limited, config);             break; }
@@ -564,6 +579,7 @@ void printIteratorProfile(RedisModule_Reply *reply, const QueryIterator *root, c
     case NOT_ITERATOR_OPTIMIZED:            { printNotIt(reply, root, counters, cpuTime, depth, limited, config);                   break; }
     case OPTIONAL_ITERATOR: // fallthrough
     case OPTIONAL_OPTIMIZED_ITERATOR:       { printOptionalIt(reply, root, counters, cpuTime, depth, limited, config);              break; }
+    case INV_IDX_WILDCARD_ITERATOR: // fallthrough
     case WILDCARD_ITERATOR:                 { printWildcardIt(reply, root, counters, cpuTime, depth, limited, config);              break; }
     case EMPTY_ITERATOR:                    { printEmptyIt(reply, root, counters, cpuTime, depth, limited, config);                 break; }
     case ID_LIST_SORTED_ITERATOR:           { printIdListSortedIt(reply, root, counters, cpuTime, depth, limited, config);          break; }
