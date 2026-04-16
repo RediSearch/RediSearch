@@ -3861,6 +3861,9 @@ int TagValsCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
 }
 
 int AliasListCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  if (argc != 2) {
+    return RedisModule_WrongArity(ctx);
+  }
   return UniqueStringsCommandHandler(ctx, argv, argc, 2);
 }
 
