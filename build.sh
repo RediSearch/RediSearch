@@ -308,7 +308,7 @@ end_group() {
 prepare_coverage_capture() {
   start_group "Code Coverage Preparation"
   lcov --zerocounters      --directory $BINROOT --base-directory $ROOT
-  lcov --capture --initial --directory $BINROOT --base-directory $ROOT -o $BINROOT/base.info
+  lcov --capture --initial --directory $BINROOT --base-directory $ROOT --ignore-errors source -o $BINROOT/base.info
   end_group
 }
 
@@ -322,13 +322,13 @@ capture_coverage() {
   start_group "Code Coverage Capture ($NAME)"
 
   # Capture coverage collected while running tests previously
-  lcov --capture --directory $BINROOT --base-directory $ROOT -o $BINROOT/test.info
+  lcov --capture --directory $BINROOT --base-directory $ROOT --ignore-errors source -o $BINROOT/test.info
 
   # Accumulate results with the baseline captured before the test
-  lcov --add-tracefile $BINROOT/base.info --add-tracefile $BINROOT/test.info -o $BINROOT/full.info
+  lcov --add-tracefile $BINROOT/base.info --add-tracefile $BINROOT/test.info --ignore-errors source -o $BINROOT/full.info
 
   # Extract only the coverage of the project source files
-  lcov --output-file $BINROOT/source.info --extract $BINROOT/full.info \
+  lcov --output-file $BINROOT/source.info --ignore-errors source --extract $BINROOT/full.info \
     "$ROOT/src/*" \
     "$ROOT/deps/thpool/*" \
 
