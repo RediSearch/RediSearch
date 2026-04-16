@@ -48,12 +48,19 @@ on:
         default: false
 
 jobs:
+  get-latest-redis-tag:
+    uses: ./.github/workflows/task-get-latest-tag.yml
+    with:
+      repo: redis/redis
+      prefix: '8.6'
+
   setup:
+    needs: [get-latest-redis-tag]
     # Sets SHA and Validates the reference Input (branch or tag)
     runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
     outputs:
       sha: ${{ steps.set-sha.outputs.sha }}
-      redis-ref: ${{ steps.get-redis.outputs.tag }}
+      redis-ref: ${{ needs.get-latest-redis-tag.outputs.tag }}
       # beta-version not used for OSS builds by default
       beta-version: ${{ inputs.force_beta && steps.beta-version.outputs.BETA_VERSION || '' }}
       version-suffix: ${{ steps.beta-version.outputs.VERSION_SUFFIX }}
@@ -61,12 +68,6 @@ jobs:
       - uses: actions/checkout@v4
       - id: set-sha
         run: echo "sha=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
-      - id: get-redis
-        shell: bash -l -eo pipefail {0}
-        run: |
-          # TAG=$(curl -sL --retry 5 https://api.github.com/repos/redis/redis/releases/latest | jq -er '.tag_name') && \
-          # echo "tag=$TAG" >> $GITHUB_OUTPUT
-          echo "tag=8.6" >> $GITHUB_OUTPUT
       - name: Generate Beta Version unique identifier
         id: beta-version
         run: |

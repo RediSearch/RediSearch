@@ -10,7 +10,14 @@ on:
 # TODO: Use RedisJSON's `master` branch when testing on nightly
 
 jobs:
+  get-latest-redis-tag:
+    uses: ./.github/workflows/task-get-latest-tag.yml
+    with:
+      repo: redis/redis
+      prefix: '8.6'
+
   test-all-platforms:
+    needs: [get-latest-redis-tag]
     permissions:
       contents: read
       packages: write
@@ -19,7 +26,7 @@ jobs:
     with:
       platform: all
       architecture: all
-      redis-ref: '8.6'
+      redis-ref: ${{ needs.get-latest-redis-tag.outputs.tag }}
       job-test-config: '{"test": "QUICK=1", "coverage": "QUICK=1", "sanitize": "QUICK=1"}'
       options: ${{ vars.ENABLE_CODE_COVERAGE != 'false' && 'unit-tests,coordinator,standalone,rejson,coverage,sanitize' || 'unit-tests,coordinator,standalone,rejson,sanitize' }}
 
@@ -29,7 +36,7 @@ jobs:
 
 
   notify-failure:
-    needs: [test-all-platforms, micro-benchmarks]
+    needs: [get-latest-redis-tag, test-all-platforms, micro-benchmarks]
     if: failure()
     runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
     steps:
