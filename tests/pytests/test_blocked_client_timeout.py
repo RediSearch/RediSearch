@@ -150,6 +150,21 @@ def wait_for_blocked_query_client(env, query, msg='Client for query not found', 
                 return client_id
             time.sleep(0.1)
 
+
+def wait_for_blocked_query_client_contains(env, cmd_substr,
+                                           msg='Client for blocked command not found',
+                                           timeout=30):
+    """Wait for a blocked client whose command contains the given substring."""
+    cmd_substr = cmd_substr.upper()
+    with TimeLimit(timeout, msg):
+        while True:
+            output = env.execute_command('CLIENT', 'LIST')
+            clients = parse_client_list(output)
+            for client in clients:
+                if cmd_substr in client.get('cmd', '').upper() and 'b' in client.get('flags', ''):
+                    return client['id']
+            time.sleep(0.1)
+
 class TestCoordinatorTimeout:
     """Tests for the blocked client timeout mechanism for the coordinator."""
 
@@ -578,8 +593,8 @@ class TestCoordinatorTimeout:
     def test_no_timeout_cursor(self):
         """
         Test that FAIL policy doesn't break cursor reads when there is no timeout.
-        This verifies that useReplyCallback is properly cleared for cursor reads,
-        since cursor reads use BlockCursorClient which has no reply_callback.
+        This verifies cursor pagination still works even when cursor reads use the
+        blocked-client timeout path.
         """
         env = self.env
 
@@ -604,6 +619,59 @@ class TestCoordinatorTimeout:
         env.assertEqual(total_results, self.n_docs,
                         message=f"Expected {self.n_docs} total results across all cursor reads")
 
+        env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy).ok()
+
+    def test_cursor_read_timeout_fail(self):
+        """Test FT.CURSOR READ timeout via the blocked-client timeout mechanism."""
+        env = self.env
+
+        prev_on_timeout_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
+        env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'fail').ok()
+
+        before_info = info_modules_to_dict(env)
+        base_err_coord = int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC])
+
+        res, cursor_id = env.cmd('FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@name',
+                                 'WITHCURSOR', 'COUNT', '10')
+        env.assertGreater(len(res), 0, message="Expected results in first chunk")
+        env.assertNotEqual(cursor_id, 0, message="Expected non-zero cursor ID for pagination")
+
+        initial_jobs_done = getWorkersThpoolStats(env)['totalJobsDone']
+        env.expect(debug_cmd(), 'WORKERS', 'pause').ok()
+
+        t_query = threading.Thread(
+            target=run_cmd_expect_timeout,
+            args=(env, ['FT.CURSOR', 'READ', 'idx', cursor_id]),
+            daemon=True
+        )
+        t_query.start()
+
+        blocked_client_id = wait_for_blocked_query_client_contains(
+            env, 'FT.CURSOR',
+            'Client for FT.CURSOR READ not found'
+        )
+
+        env.expect('CLIENT', 'UNBLOCK', blocked_client_id, 'TIMEOUT').equal(1)
+        wait_for_client_unblocked(env, blocked_client_id)
+
+        t_query.join(timeout=10)
+        env.assertFalse(t_query.is_alive(), message="Cursor read thread should have finished")
+
+        env.expect(debug_cmd(), 'WORKERS', 'resume').ok()
+        wait_for_condition(
+            lambda: (getWorkersThpoolStats(env)['totalJobsDone'] > initial_jobs_done,
+                     {'totalJobsDone': getWorkersThpoolStats(env)['totalJobsDone']}),
+            'Timeout while waiting for worker to finish cursor read job'
+        )
+        env.expect(debug_cmd(), 'WORKERS', 'drain').ok()
+
+        after_info = info_modules_to_dict(env)
+        env.assertEqual(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC],
+                        str(base_err_coord + 1),
+                        message="Coordinator timeout error should be +1 after FT.CURSOR READ timeout")
+        _verify_metrics_not_changed(env, env, before_info, [TIMEOUT_ERROR_COORD_METRIC])
+
+        env.expect('FT.CURSOR', 'READ', 'idx', cursor_id).error().contains('Cursor not found')
         env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy).ok()
 
     def test_shard_timeout_fail(self):
@@ -1636,8 +1704,8 @@ class TestShardTimeout:
     def test_no_timeout_cursor(self):
         """
         Test that FAIL policy doesn't break cursor reads when there is no timeout.
-        This verifies that useReplyCallback is properly cleared for cursor reads,
-        since cursor reads use BlockCursorClient which has no reply_callback.
+        This verifies cursor pagination still works even when cursor reads use the
+        blocked-client timeout path.
         """
         env = self.env
 
@@ -1662,6 +1730,59 @@ class TestShardTimeout:
         env.assertEqual(total_results, self.n_docs,
                         message=f"Expected {self.n_docs} total results across all cursor reads")
 
+        env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy).ok()
+
+    def test_cursor_read_timeout_fail(self):
+        """Test FT.CURSOR READ timeout via the blocked-client timeout mechanism."""
+        env = self.env
+
+        prev_on_timeout_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
+        env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'fail').ok()
+
+        before_info = info_modules_to_dict(env)
+        base_err_coord = int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC])
+
+        res, cursor_id = env.cmd('FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@name',
+                                 'WITHCURSOR', 'COUNT', '10')
+        env.assertGreater(len(res), 0, message="Expected results in first chunk")
+        env.assertNotEqual(cursor_id, 0, message="Expected non-zero cursor ID for pagination")
+
+        initial_jobs_done = getWorkersThpoolStats(env)['totalJobsDone']
+        env.expect(debug_cmd(), 'WORKERS', 'pause').ok()
+
+        t_query = threading.Thread(
+            target=run_cmd_expect_timeout,
+            args=(env, ['FT.CURSOR', 'READ', 'idx', cursor_id]),
+            daemon=True
+        )
+        t_query.start()
+
+        blocked_client_id = wait_for_blocked_query_client_contains(
+            env, 'FT.CURSOR',
+            'Client for FT.CURSOR READ not found'
+        )
+
+        env.expect('CLIENT', 'UNBLOCK', blocked_client_id, 'TIMEOUT').equal(1)
+        wait_for_client_unblocked(env, blocked_client_id)
+
+        t_query.join(timeout=10)
+        env.assertFalse(t_query.is_alive(), message="Cursor read thread should have finished")
+
+        env.expect(debug_cmd(), 'WORKERS', 'resume').ok()
+        wait_for_condition(
+            lambda: (getWorkersThpoolStats(env)['totalJobsDone'] > initial_jobs_done,
+                     {'totalJobsDone': getWorkersThpoolStats(env)['totalJobsDone']}),
+            'Timeout while waiting for worker to finish cursor read job'
+        )
+        env.expect(debug_cmd(), 'WORKERS', 'drain').ok()
+
+        after_info = info_modules_to_dict(env)
+        env.assertEqual(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC],
+                        str(base_err_coord + 1),
+                        message="Coordinator timeout error should be +1 after FT.CURSOR READ timeout")
+        _verify_metrics_not_changed(env, env, before_info, [TIMEOUT_ERROR_COORD_METRIC])
+
+        env.expect('FT.CURSOR', 'READ', 'idx', cursor_id).error().contains('Cursor not found')
         env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy).ok()
 
     def test_cursor_read_after_initial_timeout(self):
