@@ -236,7 +236,7 @@ jobs:
           df -h
       - name: Full checkout (node20)
         if: needs.get-config.outputs.node20_supported == 'true'
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           submodules: recursive
       - name: Full checkout (legacy)
@@ -527,7 +527,7 @@ jobs:
             steps.standalone_tests.outcome == 'failure' ||
             steps.coordinator_tests.outcome == 'failure'
           ))
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: Test Logs ${{ steps.artifact-names.outputs.name }}
           path: |
