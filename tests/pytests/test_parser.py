@@ -835,3 +835,14 @@ def test_invalid_query_attributes():
     # Unrecognized attribute name
     env.expect('FT.SEARCH', 'idx', 'hello=>{$bogus: 42}').error() \
         .contains('Invalid attribute')
+
+def test_explain_with_inkeys():
+    """FT.EXPLAIN with INKEYS renders IDS node in the explain output."""
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+    conn.execute_command('HSET', 'doc1', 't', 'hello')
+    conn.execute_command('HSET', 'doc2', 't', 'world')
+
+    res = env.cmd('FT.EXPLAIN', 'idx', 'hello', 'INKEYS', '2', 'doc1', 'doc2')
+    env.assertContains('IDS', res)
