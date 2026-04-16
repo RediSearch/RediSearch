@@ -15,15 +15,10 @@ concurrency:
 
 jobs:
   get-latest-redis-tag:
-    # TODO: Revert to using the latest stable ref in redis when 8.6 is released
-    runs-on: ubuntu-latest
-    outputs:
-      tag: unstable
-    steps:
-      - run: echo "Dummy step to set output"
-    # uses: ./.github/workflows/task-get-latest-tag.yml
-    # with:
-    #   repo: redis/redis
+    uses: ./.github/workflows/task-get-latest-tag.yml
+    with:
+      repo: redis/redis
+      prefix: '8.6'
 
   lint:
     permissions:
