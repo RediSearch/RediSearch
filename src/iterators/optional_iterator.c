@@ -281,10 +281,15 @@ QueryIterator *NewOptionalIterator(QueryIterator *it, QueryEvalCtx *q, double we
     return ret;
   }
   OptionalIterator *oi = rm_calloc(1, sizeof(*oi));
-  bool optimized = q->sctx->spec->rule && q->sctx->spec->rule->index_all;
-  optimized |= q && q->sctx && q->sctx->spec && q->sctx->spec->diskSpec;
+  QueryIterator *optimizedWildcardIterator = NULL;
+  if (q->sctx->spec->rule && q->sctx->spec->rule->index_all) {
+    optimizedWildcardIterator = NewWildcardIterator_Optimized(q->sctx, 0);
+  } else if (q->sctx->spec->diskSpec) {
+    optimizedWildcardIterator = NewWildcardIterator(q, 0);
+  }
+  bool optimized = optimizedWildcardIterator != NULL;
   if (optimized) {
-    oi->wcii = NewWildcardIterator_Optimized(q->sctx, 0);
+    oi->wcii = optimizedWildcardIterator;
   }
   oi->child = it;
   oi->virt = NewVirtualResult(0, RS_FIELDMASK_ALL);
