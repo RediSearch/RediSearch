@@ -453,7 +453,15 @@ where
     }
 
     fn rewind(&mut self) {
-        // Reset num_active to include all children again
+        // Restore children to their original insertion order, matching the
+        let mut indexed: Vec<_> = std::mem::take(&mut self.children)
+            .into_iter()
+            .zip(self.original_indices.iter().copied())
+            .collect();
+        indexed.sort_unstable_by_key(|(_, orig_idx)| *orig_idx);
+        self.children = indexed.into_iter().map(|(child, _)| child).collect();
+        self.original_indices = (0..self.children.len()).collect();
+
         self.num_active = self.children.len();
         self.is_eof = self.children.is_empty();
         self.result.reset_aggregate();
