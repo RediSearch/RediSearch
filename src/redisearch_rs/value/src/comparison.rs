@@ -9,6 +9,7 @@
 
 use crate::RsValue;
 use crate::util::{num_to_str, str_to_float};
+use query_error::{QueryError, QueryErrorCode};
 use std::cmp::Ordering;
 use std::ops::Deref;
 
@@ -26,6 +27,58 @@ pub enum CompareError {
     IncompatibleAgainstString(Ordering),
     /// The two value variants have no defined comparison (e.g. array vs. map).
     IncompatibleTypes,
+}
+
+#[inline]
+pub fn compare_with_query_error_to_int(
+    v1: &RsValue,
+    v2: &RsValue,
+    qerr: Option<&mut QueryError>,
+) -> i32 {
+    // This is a performance optimization to check for string comparisons early
+    // as that is used most often in searches and aggregates.
+    if let (RsValue::String(s1), RsValue::String(s2)) = (v1, v2) {
+        return match s1.as_bytes().cmp(s2.as_bytes()) {
+            Ordering::Less => -1,
+            Ordering::Equal => 0,
+            Ordering::Greater => 1,
+        };
+    }
+
+    match compare(v1, v2, qerr.is_none()) {
+        Ok(Ordering::Less) => -1,
+        Ok(Ordering::Equal) => 0,
+        Ok(Ordering::Greater) => 1,
+        Err(CompareError::NaNFloat) => 0,
+        Err(CompareError::MapComparison) => 0,
+        Err(CompareError::IncompatibleAgainstString(Ordering::Less)) => -1,
+        Err(CompareError::IncompatibleAgainstString(Ordering::Equal)) => 0,
+        Err(CompareError::IncompatibleAgainstString(Ordering::Greater)) => 1,
+        Err(CompareError::IncompatibleTypes) => 0,
+        Err(CompareError::NoNumberToStringFallback) => {
+            // SAFETY: `qerr` is Some because `num_to_str_cmp_fallback` was
+            // `false` (set from `qerr.is_none()`).
+            let query_error = qerr.unwrap();
+            let message = c"Error converting string".to_owned();
+            query_error.set_code_and_message(QueryErrorCode::NumericValueInvalid, Some(message));
+            0
+        }
+    }
+}
+
+#[inline]
+pub fn compare_on_equality_only(v1: &RsValue, v2: &RsValue) -> bool {
+    match compare(v1, v2, false) {
+        Ok(Ordering::Less) => false,
+        Ok(Ordering::Equal) => true,
+        Ok(Ordering::Greater) => false,
+        Err(CompareError::NaNFloat) => true,
+        Err(CompareError::MapComparison) => true,
+        Err(CompareError::IncompatibleAgainstString(Ordering::Equal)) => true,
+        Err(CompareError::IncompatibleAgainstString(_)) => false,
+        Err(CompareError::IncompatibleTypes) => true,
+        Err(CompareError::NoNumberToStringFallback) => false,
+    }
 }
 
 /// Compare two [`RsValue`]s, returning their [`Ordering`].

@@ -92,8 +92,6 @@ def test_oom_verbosity_standalone():
     env.assertEqual(res['Results']['warning'][0], COORD_OOM_WARNING)
     res = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*')
     env.assertEqual(res['Results']['warning'][0], COORD_OOM_WARNING)
-
-
 class testOomClusterBehavior:
     def __init__(self):
         skipTest(cluster=False)

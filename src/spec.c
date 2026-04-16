@@ -3291,7 +3291,9 @@ void IndexSpec_RdbSave(RedisModuleIO *rdb, IndexSpec *sp, int contextFlags) {
   const bool storeDiskRdbData = contextFlags & REDISMODULE_CTX_FLAGS_SST_RDB;
   // Disk index
   // Check if we are using SST files with this RDB. If so, we save the disk-related
-  // RAM-based data-structures to the RDB.
+  // RAM-based data-structures to the RDB. Both save and load paths go through
+  // IndexSpecRdbState as the single source of truth for serialization format:
+  //
   // We assume symmetry w.r.t this context flag. I.e., If it is not set, we
   // assume it was not set in when the RDB will be loaded as well
   if (sp->diskSpec && storeDiskRdbData) {
@@ -3306,6 +3308,7 @@ void IndexSpec_RdbSave(RedisModuleIO *rdb, IndexSpec *sp, int contextFlags) {
     }
     IndexScoringStats_RdbSave(rdb, &sp->stats.scoring);
     TrieType_GenericSave(rdb, sp->terms, false, true);
+    // Save disk metadata via IndexSpecRdbState (loaded via SearchDisk_LoadRdbToTempObject)
     SearchDisk_IndexSpecRdbSave(rdb, sp->diskSpec);
     if (inMainProcess) {
       RedisSearchCtx_UnlockSpec(&sctx);
@@ -3323,15 +3326,18 @@ static void IndexSpec_NormalizeStorageFlagsOnLoad(IndexFlags *flags) {
 }
 
 IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryError *status) {
-  char *rawName = NULL;
-  size_t len = 0;
-  HiddenString* specName = NULL;
   IndexSpec *sp = NULL;
+  RedisSearchDiskRdbState *diskRdbState = NULL;
+  bool indexRegistered = false;
   StrongRef spec_ref = {0};
   IndexFlags flags = 0;
   int16_t numFields = 0;
   size_t narr = 0;
-  RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
+  char *rawName = NULL;
+  size_t len = 0;
+  HiddenString* specName = NULL;
+  RedisModuleCtx* ctx = RedisModule_GetContextFromIO(rdb);
+
   rawName = LoadStringBuffer_IOError(rdb, NULL, goto cleanup_no_index);
   len = strlen(rawName);
   specName = NewHiddenString(rawName, len, true);
@@ -3413,41 +3419,62 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryE
     }
   }
 
-  // Open the index on disk only if we are on Flex, and this is not a duplicate.
-  // If SST persistence was NOT used, delete existing disk data before opening
-  // since there's no SST data to restore from (stale data must be cleared).
-  if (isSpecOnDisk(sp) && !sp->isDuplicate) {
-    RS_ASSERT(disk_db);
-    size_t len;
-    const char* name = HiddenString_GetUnsafe(sp->specName, &len);
-    sp->diskSpec = SearchDisk_OpenIndex(ctx, name, len, sp->rule->type, !useSst);
-    IndexSpec_PopulateVectorDiskParams(sp);
-    if (!sp->diskSpec) {
-      goto cleanup;
-    }
-    SearchDisk_RegisterIndex(ctx, sp->diskSpec);
-  }
-
   // Load the disk-related index data if we are on disk and the save flow used
-  // sst-files, even if this is a duplicate.
-  // In the case of a duplicate, `sp->diskSpec=NULL` thus handled appropriately
-  // On the disk side (RDB is depleted, without updating index fields).
-  if (encver >= INDEX_DISK_VERSION && isSpecOnDisk(sp) && useSst) {
+  // sst-files. We load it into a temporary in-memory object first, then use it
+  // to open the index with the RDB state applied.
+  // We must always consume the RDB data to avoid corrupting the stream,
+  // even for duplicates. We just won't use it in the duplicate case.
+  if (isSpecOnDisk(sp) && encver >= INDEX_DISK_VERSION && useSst) {
+    RS_ASSERT(disk_db);
     IndexScoringStats_RdbLoad(rdb, &sp->stats.scoring, encver);
     if (sp->terms) {
       TrieType_Free(sp->terms);
     }
     sp->terms = TrieType_GenericLoad(rdb, false, true);
     RS_LOG_ASSERT(sp->terms, "Failed to load terms trie");
-    if (SearchDisk_IndexSpecRdbLoad(rdb, sp->diskSpec) != REDISMODULE_OK) {
+
+    // Load disk metadata (max_doc_id, deleted_ids) into temporary object
+    diskRdbState = SearchDisk_LoadRdbToTempObject(rdb);
+    if (!diskRdbState) {
       goto cleanup;
     }
+  }
+
+  // Open the index on disk only if we are on Flex, and this is not a duplicate.
+  if (isSpecOnDisk(sp) && !sp->isDuplicate) {
+    RS_ASSERT(disk_db);
+    size_t len;
+    const char* name = HiddenString_GetUnsafe(sp->specName, &len);
+
+    if (diskRdbState) {
+      // Use the new API that applies the RDB state during index opening
+      sp->diskSpec = SearchDisk_OpenIndexWithRdbState(ctx, name, len, sp->rule->type, diskRdbState);
+      diskRdbState = NULL; // Ownership transferred
+    } else {
+      // No RDB state (non-SST flow), just open the index normally
+      sp->diskSpec = SearchDisk_OpenIndex(ctx, name, len, sp->rule->type, false);
+    }
+
+    IndexSpec_PopulateVectorDiskParams(sp);
+    if (!sp->diskSpec) {
+      goto cleanup;
+    }
+    SearchDisk_RegisterIndex(ctx, sp->diskSpec);
+    indexRegistered = true;
+  } else if (diskRdbState) {
+    // Duplicate case: we loaded the RDB state but won't create diskSpec
+    // Free the RDB state since it won't be used
+    SearchDisk_FreeRdbState(diskRdbState);
+    diskRdbState = NULL;
   }
 
   return sp;
 
 cleanup:
-  if (sp->diskSpec) {
+  if (diskRdbState) {
+    SearchDisk_FreeRdbState(diskRdbState);
+  }
+  if (indexRegistered) {
     SearchDisk_UnregisterIndex(ctx, sp->diskSpec);
   }
   StrongRef_Release(spec_ref);
@@ -3505,8 +3532,7 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   if (encver < LEGACY_INDEX_MIN_VERSION || encver > LEGACY_INDEX_MAX_VERSION) {
     return NULL;
   }
-  RS_ASSERT(!SearchDisk_IsEnabled());
-
+  RS_LOG_ASSERT(!SearchDisk_IsEnabled(), "Legacy indexes are not supported on disk");
   char *legacyName = RedisModule_LoadStringBuffer(rdb, NULL);
 
   RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
@@ -3605,14 +3631,12 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
     return NULL;
   }
 
-  // Start GC after diskSpec is available so the disk GC callback can use it immediately.
-  IndexSpec_StartGC(spec_ref, sp, sp->diskSpec ? GCPolicy_Disk : GCPolicy_Fork);
+  IndexSpec_StartGC(spec_ref, sp, GCPolicy_Fork);
   Cursors_initSpec(sp);
 
   dictAdd(legacySpecDict, (void*)sp->specName, spec_ref.rm);
   // Subscribe to keyspace notifications
   Initialize_KeyspaceNotifications();
-
   return spec_ref.rm;
 }
 

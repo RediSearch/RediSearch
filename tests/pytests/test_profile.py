@@ -527,7 +527,7 @@ def TimeoutWarningInProfile(env):
   ).equal(expected_res_aggregate)
 
 @skip(cluster=True)
-def testFailOnTimeout_nonStrict(env):
+def testFailOnTimeout_nonStrict():
   TimeoutWarningInProfile(Env(moduleArgs="ON_TIMEOUT RETURN"))
 
 @skip(cluster=True)

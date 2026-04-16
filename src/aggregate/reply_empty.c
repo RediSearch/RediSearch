@@ -125,7 +125,10 @@ int common_hybrid_query_reply_empty(RedisModuleCtx *ctx, QueryErrorCode errCode,
         RedisModule_ReplyKV_LongLong(coordInfoReply, "SEARCH", 0);
         RedisModule_ReplyKV_LongLong(coordInfoReply, "VSIM", 0);
         RedisModule_ReplyKV_Array(coordInfoReply,"warnings"); // warnings []
-        if (QueryError_HasQueryOOMWarning(&status)) {
+        if (QueryError_GetCode(&status) == QUERY_ERROR_CODE_TIMED_OUT) {
+            QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_TIMED_OUT, 1, SHARD_ERR_WARN);
+            RedisModule_Reply_SimpleString(coordInfoReply, QueryWarning_Strwarning(QUERY_WARNING_CODE_TIMED_OUT));
+        } else if (QueryError_HasQueryOOMWarning(&status)) {
             QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_OUT_OF_MEMORY_SHARD, 1, SHARD_ERR_WARN);
             RedisModule_Reply_SimpleString(coordInfoReply, QueryError_Strerror(QUERY_ERROR_CODE_OUT_OF_MEMORY));
         }

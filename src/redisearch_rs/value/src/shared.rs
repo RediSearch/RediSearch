@@ -17,6 +17,14 @@ use triomphe::Arc;
 
 use crate::RsValue;
 
+/// The total heap allocation size of the `triomphe::Arc` inner struct.
+/// Since that struct is inaccessible/hidden, the size is calculated manually,
+/// which contains an `RsValue` and a `usize` atomic refcount.
+pub const SHARED_VALUE_CONTENT_SIZE: usize = size_of::<RsValue>() + size_of::<usize>();
+
+// Ensure the size doesn't increase unexpectedly.
+const _: () = assert!(SHARED_VALUE_CONTENT_SIZE == 32);
+
 /// A reference-counted, shared pointer to an [`RsValue`].
 ///
 /// Internally, this is a raw pointer to an [`RsValue`] that is either:
@@ -33,6 +41,7 @@ use crate::RsValue;
 /// (see [`crate::pool`]) instead of deallocating. If the pool is full, the
 /// allocation is deallocated normally.
 #[expect(rustdoc::private_intra_doc_links)]
+#[repr(transparent)]
 pub struct SharedRsValue {
     ptr: *const RsValue,
 }
@@ -121,6 +130,14 @@ impl SharedRsValue {
             let v = ManuallyDrop::new(unsafe { Arc::from_raw(this.ptr) });
             Arc::strong_count(&v)
         }
+    }
+
+    pub fn new_num(num: f64) -> Self {
+        Self::new(RsValue::Number(num))
+    }
+
+    pub fn new_string(str: Vec<u8>) -> Self {
+        Self::new(RsValue::new_string(str))
     }
 }
 

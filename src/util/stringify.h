@@ -7,14 +7,9 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-mod timespec;
+#pragma once
 
-pub mod empty;
-pub mod id_list;
-pub mod intersection;
-pub mod inverted_index;
-pub mod metric;
-pub mod not;
-pub mod optional;
-pub mod profile;
-pub mod wildcard;
+// Two-level stringify: the indirection ensures macro arguments are expanded
+// before stringification. STRINGIFY(FOO) where FOO is 42 produces "42".
+#define STRINGIFY_IMPL(x) #x
+#define STRINGIFY(x) STRINGIFY_IMPL(x)
