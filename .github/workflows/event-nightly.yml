@@ -36,7 +36,7 @@ jobs:
 
 
   notify-failure:
-    needs: [test-all-platforms, micro-benchmarks]
+    needs: [get-latest-redis-tag, test-all-platforms, micro-benchmarks]
     if: failure()
     runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
     steps:
