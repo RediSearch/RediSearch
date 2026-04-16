@@ -212,11 +212,19 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
       uint64_t oldDocId = 0;
       DocIdMeta_Get(ctx->redisCtx, cur->doc->docKey, spec->specId, &oldDocId);
 
+      RedisModule_Log(RSDummyContext, "debug",
+        "Disk update: key='%.*s', oldDocId=%lu, score=%f, flags=%u",
+        (int)len, key, (unsigned long)oldDocId, cur->doc->score, cur->docFlags);
+
       // Put the document and get a new doc-id, and remove the old id->dmd entry
       // if it existed.
       t_docId docId = SearchDisk_PutDocument(spec->diskSpec, key, len,
         cur->doc->score, cur->docFlags, cur->fwIdx->maxTermFreq,
         cur->fwIdx->totalFreq, &oldLen, cur->doc->docExpirationTime, oldDocId);
+
+      RedisModule_Log(RSDummyContext, "debug",
+        "Disk update: key='%.*s', newDocId=%lu, oldLen=%u",
+        (int)len, key, (unsigned long)docId, oldLen);
 
       bool failure = docId == 0;
 
@@ -227,6 +235,9 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
         RS_ASSERT(spec->stats.scoring.totalDocsLen >= oldLen);
         spec->stats.scoring.totalDocsLen -= oldLen;
         updated = docId != 0; // If docId is 0, the document was not added
+        RedisModule_Log(RSDummyContext, "debug",
+          "Disk update: key='%.*s', old document deleted (oldLen=%u), updated=%d",
+          (int)len, key, oldLen, updated);
       }
 
       if (!failure) {
@@ -238,9 +249,16 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
         if (failure) {
           uint32_t docLen = 0;
           SearchDisk_DeleteDocumentById(spec->diskSpec, docId, &docLen);
+          RedisModule_Log(RSDummyContext, "warning",
+            "Disk update: key='%.*s', failed to set DocIdMeta for newDocId=%lu, rolled back",
+            (int)len, key, (unsigned long)docId);
         } else {
           spec->stats.scoring.totalDocsLen += cur->fwIdx->totalFreq;
           ++spec->stats.scoring.numDocuments;
+          RedisModule_Log(RSDummyContext, "debug",
+            "Disk update: key='%.*s', successfully indexed newDocId=%lu, numDocs=%zu, totalDocsLen=%zu",
+            (int)len, key, (unsigned long)docId,
+            spec->stats.scoring.numDocuments, spec->stats.scoring.totalDocsLen);
         }
       }
 
