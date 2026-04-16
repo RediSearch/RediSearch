@@ -47,7 +47,7 @@ bool SearchDisk_IsInitialized();
  * Registers a getDiskUsage callback with Redis that iterates over all
  * disk-based indexes and returns the total disk usage.
  *
- * @param ctx Redis module context
+ * @param ctx Redis module context for BigModule APIs
  * @return true if registration succeeded, false otherwise
  */
 bool SearchDisk_RegisterBigModuleCallbacks(RedisModuleCtx *ctx);
@@ -61,7 +61,7 @@ void SearchDisk_Close(RedisModuleCtx *ctx);
 
 /**
  * @brief Open an index, **Important** must be called once and only once for every index
- * @param ctx Redis module context for BigModule APIs (may be NULL)
+ * @param ctx Redis module context for BigModule APIs
  * @param indexName Name of the index to open
  * @param indexNameLen Length of the index name
  * @param type Document type
@@ -117,14 +117,44 @@ void SearchDisk_CloseIndex(RedisSearchDiskIndexSpec *index);
 void SearchDisk_IndexSpecRdbSave(RedisModuleIO *rdb, RedisSearchDiskIndexSpec *index);
 
 /**
- * @brief Load the disk-related data of the index from the rdb file
+ * @brief Load disk-related RDB data into a temporary in-memory object.
+ *
+ * Called during RDB load when the IndexSpec cannot be created yet (e.g., during replication
+ * before SST files arrive). The returned state must later be passed to
+ * SearchDisk_OpenIndexWithRdbState or freed with SearchDisk_FreeRdbState.
  *
  * @param rdb Redis module rdb file
- * @param index Pointer to the index. If NULL, the RDB section related to the
- * index is consumed only.
- * @return true if successful, false otherwise
+ * @return Pointer to temporary RDB state, or NULL on error
  */
-int SearchDisk_IndexSpecRdbLoad(RedisModuleIO *rdb, RedisSearchDiskIndexSpec *index);
+RedisSearchDiskRdbState* SearchDisk_LoadRdbToTempObject(RedisModuleIO *rdb);
+
+/**
+ * @brief Create an IndexSpec and restore state from a previously loaded RDB state.
+ *
+ * Called after SST files are ready (e.g., after FULL_REPLICATION_FINISHED event).
+ * Takes ownership of rdbState - it will be consumed and freed.
+ *
+* @param ctx Redis module context for BigModule APIs
+ * @param indexName Name of the index
+ * @param indexNameLen Length of the index name
+ * @param type Document type for this index
+ * @param rdbState Temporary RDB state from SearchDisk_LoadRdbToTempObject (will be consumed)
+ * @return Pointer to the created IndexSpec, or NULL on error
+ */
+RedisSearchDiskIndexSpec* SearchDisk_OpenIndexWithRdbState(RedisModuleCtx *ctx,
+                                                            const char *indexName,
+                                                            size_t indexNameLen,
+                                                            DocumentType type,
+                                                            RedisSearchDiskRdbState *rdbState);
+
+/**
+ * @brief Free a temporary RDB state object without creating an IndexSpec.
+ *
+ * Use if index creation fails or is cancelled.
+ *
+ * @param rdbState The temporary RDB state to free (may be NULL)
+ */
+void SearchDisk_FreeRdbState(RedisSearchDiskRdbState *rdbState);
 
 // Index API wrappers
 
@@ -144,6 +174,7 @@ bool SearchDisk_IndexTerm(RedisSearchDiskIndexSpec *index, const char *term, siz
 /**
  * @brief Index multiple tag values for a document
  *
+ * @param ctx Redis module context for BigModule APIs
  * @param index Pointer to the index
  * @param values Array of tag values to associate the document with
  * @param numValues Number of tag values in the array
@@ -370,7 +401,7 @@ bool SearchDisk_GetAsyncIOEnabled();
 /**
  * @brief Check if the search disk module is enabled from configuration
  *
- * @param ctx Redis module context
+ * @param ctx Redis module context for BigModule APIs
  * @return true if enabled, false otherwise
  */
 bool SearchDisk_CheckEnableConfiguration(RedisModuleCtx *ctx);
@@ -378,7 +409,6 @@ bool SearchDisk_CheckEnableConfiguration(RedisModuleCtx *ctx);
 /**
  * @brief Check if the search disk module is enabled
  *
- * @param ctx Redis module context
  * @return true if enabled, false otherwise
  */
 bool SearchDisk_IsEnabled();
