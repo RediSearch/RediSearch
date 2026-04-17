@@ -593,6 +593,16 @@ void iterStartCb(void *p) {
   if (MRCluster_CheckConnections(cluster_g, true) != REDIS_OK) {
     // At least one connection is not established - fail with a single error.
     // it->len/pending/inProcess remain at their initial value of 1.
+    // Set targetShard to 0 (default is INVALID_SHARD=-1) and run privateDataInit
+    // so ShardResponseBarrier (used by FT.AGGREGATE WITHCOUNT) accepts the
+    // synthetic error notification; otherwise its numShards stays 0, Notify's
+    // bounds check short-circuits, and the real error gets replaced by a
+    // misleading timeout message in shardResponseBarrier_HandleTimeout.
+    it->cbxs[0].cmd.targetShard = 0;
+    void *privateData = MRIteratorCallback_GetPrivateData(&it->cbxs[0]);
+    if (privateData && it->ctx.privateDataInit) {
+      it->ctx.privateDataInit(privateData, it);
+    }
     MRReply *err = MRReply_CreateError(CLUSTER_QUERY_ERROR, sizeof(CLUSTER_QUERY_ERROR) - 1);
     it->ctx.cb(&it->cbxs[0], err);
     return;

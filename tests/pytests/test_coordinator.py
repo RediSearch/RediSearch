@@ -306,6 +306,10 @@ def _test_all_queries_fail_on_unreachable_shard(env: Env, scenario: str):
     with TimeLimit(5, f'FT.AGGREGATE WITHCURSOR hung ({scenario})'):
         env.expect('FT.AGGREGATE', 'idx', '*', 'WITHCURSOR').error().contains('Could not send query to cluster')
 
+    # FT.AGGREGATE WITHCOUNT returns an error (does not hang)
+    with TimeLimit(5, f'FT.AGGREGATE WITHCOUNT hung ({scenario})'):
+        env.expect('FT.AGGREGATE', 'idx', '*', 'WITHCOUNT').error().contains('Could not send query to cluster')
+
 
 @skip(cluster=False, min_shards=2)
 def test_queries_fail_on_all_shards_unreachable(env: Env):
