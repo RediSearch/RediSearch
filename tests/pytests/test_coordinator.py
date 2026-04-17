@@ -237,6 +237,21 @@ def test_single_shard_optimization():
 
 
 
+def _cluster_info_shards(env: Env):
+    """Return the list of shard sub-arrays from SEARCH.CLUSTERINFO (RESP2).
+
+    On this branch the reply is a flat array:
+      ['num_partitions', N, 'cluster_type', X, 'hash_func', H, 'num_slots', S,
+       'slots', [startSlot, endSlot, [id, host, port, role], ...], ...]
+    Shards are flattened at the root, starting after the 'slots' marker.
+    Each shard is [startSlot, endSlot, node_array, ...]; each node_array is
+    [id, host, port, role].
+    """
+    info = env.cmd('SEARCH.CLUSTERINFO')
+    slots_idx = info.index('slots')
+    return info[slots_idx + 1:]
+
+
 def _set_all_shards_unreachable(env: Env):
     """Set topology so all shards point to unreachable addresses (port 9)."""
     env.expect('SEARCH.CLUSTERSET',
@@ -247,20 +262,20 @@ def _set_all_shards_unreachable(env: Env):
                'SHARD', '2', 'SLOTRANGE', '8192', '16383',
                'ADDR', '127.0.0.1:9', 'MASTER'
     ).ok()
-    # Wait for the new topology to be applied
+    # Wait for the new topology to be applied (first shard's first node on port 9)
     wait_for_condition(
-        lambda: (env.cmd('SEARCH.CLUSTERINFO')[5][0][7] == 9, {}),
+        lambda: (_cluster_info_shards(env)[0][2][2] == 9, {}),
         'Failed waiting for topology to be applied'
     )
 
 
 def _set_one_shard_unreachable(env: Env):
     """Set topology so one shard is reachable and one points to an unreachable address."""
-    # Get the real shard address before we modify the topology
-    cluster_info = env.cmd('SEARCH.CLUSTERINFO')
-    # cluster_info[5] is the shards array, [0] is first shard, [7] is port, [5] is host
-    real_port = cluster_info[5][0][7]
-    real_host = cluster_info[5][0][5]
+    # Get the real shard address before we modify the topology.
+    # Each shard is [startSlot, endSlot, [id, host, port, role], ...].
+    first_shard = _cluster_info_shards(env)[0]
+    real_host = first_shard[2][1]
+    real_port = first_shard[2][2]
 
     env.expect('SEARCH.CLUSTERSET',
                'MYID', '1',
@@ -270,9 +285,9 @@ def _set_one_shard_unreachable(env: Env):
                'SHARD', '2', 'SLOTRANGE', '8192', '16383',
                'ADDR', '127.0.0.1:9', 'MASTER'
     ).ok()
-    # Wait for the new topology to be applied (check that any shard has port 9)
+    # Wait for the new topology to be applied (any shard's first node on port 9)
     wait_for_condition(
-        lambda: (any(shard[7] == 9 for shard in env.cmd('SEARCH.CLUSTERINFO')[5]), {}),
+        lambda: (any(shard[2][2] == 9 for shard in _cluster_info_shards(env)), {}),
         'Failed waiting for topology to be applied'
     )
 
