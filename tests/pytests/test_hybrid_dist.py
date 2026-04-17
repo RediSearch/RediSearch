@@ -62,5 +62,5 @@ def test_dist_hybrid_index_drop_after_sctx_allocation(env):
 
     env.assertEqual(len(error_holder), 1, message='Expected query to fail with an error')
     error_msg = str(error_holder[0])
-    env.assertTrue(error_msg.startswith('SEARCH_INDEX_DROPPED_BG'),
-                   message=f'Expected error to start with SEARCH_INDEX_DROPPED_BG, got: {error_msg}')
+    env.assertEqual(error_msg, 'The index was dropped before the query could be executed',
+                   message=f'Expected error: `The index was dropped before the query could be executed`, got: {error_msg}')
