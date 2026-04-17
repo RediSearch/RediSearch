@@ -356,10 +356,12 @@ jobs:
 
       - name: Build Redis
         working-directory: redis
+        env:
+          SAN: ${{ inputs.san }}
         run:  ${{ needs.get-config.outputs.install_mode }} make install
               BUILD_TLS=yes
               ${{ inputs.coverage && 'REDIS_CFLAGS=-DCOVERAGE_TEST' || '' }}
-              SANITIZER=${{ inputs.san }}
+              SANITIZER=$SAN
 
       - name: Set Artifact Names
         # Artifact names have to be unique, so we base them on the environment.
@@ -428,7 +430,8 @@ jobs:
           REJSON: ${{ env.REJSON }}
           REJSON_BRANCH: ${{ inputs.rejson-branch }}
           ENABLE_ASSERT: 1
-        run: make pytest ${{ inputs.test-config }}
+          TEST_CONFIG: ${{ inputs.test-config }}
+        run: make pytest $TEST_CONFIG
 
       - name: Flow tests (coordinator)
         timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
@@ -443,7 +446,8 @@ jobs:
           REJSON: ${{ env.REJSON }}
           REJSON_BRANCH: ${{ inputs.rejson-branch }}
           ENABLE_ASSERT: 1
-        run: make pytest ${{ inputs.test-config }}
+          TEST_CONFIG: ${{ inputs.test-config }}
+        run: make pytest $TEST_CONFIG
 
       - name: Rust tests (MIRI)
         if: inputs.san == 'address' && inputs.unit-tests
