@@ -127,7 +127,8 @@ static int MRCommand_appendVsimFilter(MRCommand *xcmd, RedisModuleString **argv,
  * @param argc - total argument count
  * @param vsimOffset - offset where VSIM keyword appears
  * @param kArgIndex - output parameter for the index of the K value argument in
- *        the built command (set to -1 if no KNN K argument found). Can be NULL.
+ *        the built command (set to -1 if no KNN K argument found).
+ *        Must not be NULL.
  */
 static void MRCommand_appendVsim(MRCommand *xcmd, RedisModuleString **argv,
                                  int argc, int vsimOffset, int *kArgIndex) {
@@ -225,11 +226,13 @@ static void MRCommand_appendVsim(MRCommand *xcmd, RedisModuleString **argv,
 // The function transforms FT.HYBRID index SEARCH query VSIM field vector
 // into _FT.HYBRID index SEARCH query VSIM field vector WITHCURSOR
 // _NUM_SSTRING _INDEX_PREFIXES ...
+// stores the index of the K value argument in the MRCommand (for later
+// modification by the command modifier callback in SHARD_K_RATIO optimization).
 void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
                             ProfileOptions profileOptions,
                             MRCommand *xcmd, arrayof(char*) serialized,
-                            IndexSpec *sp, const VectorQuery *vq,
-                            size_t numShards) {
+                            IndexSpec *sp, int *outKArgIndex) {
+  RS_LOG_ASSERT(outKArgIndex, "outKArgIndex must not be NULL");
   int argOffset;
   const char *index_name = RedisModule_StringPtrLen(argv[1], NULL);
 
@@ -251,20 +254,11 @@ void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
   MRCommand_appendSearch(xcmd, argv, argc, searchOffset);
 
   // Add all VSIM-related arguments (VSIM, field, vector, methods, filter)
+  // Note: K value is appended as-is here; effectiveK calculation is deferred to
+  // the command modifier callback (HybridKnnCommandModifier) which runs on the
+  // IO thread with access to the actual topology/numShards.
   int vsimOffset = RMUtil_ArgIndex("VSIM", argv, argc);
-  int kArgIndex = -1;
-  MRCommand_appendVsim(xcmd, argv, argc, vsimOffset, &kArgIndex);
-
-  // Calculate and apply effective K for KNN queries if SHARD_K_RATIO is set
-  // TODO: Potentially edit in IO thread where numShards is actually known.
-  // Now we have a risk that by the time I/O thread sends the command, the number of shards changed, making the effective K inaccurate.
-  if (vq && vq->type == VECSIM_QT_KNN) {
-    double shardWindowRatio = vq->knn.shardWindowRatio;
-    if (shardWindowRatio < MAX_SHARD_WINDOW_RATIO && numShards > 1) {
-      size_t effectiveK = calculateEffectiveK(vq->knn.k, shardWindowRatio, numShards);
-      modifyVsimKNN(xcmd, kArgIndex, effectiveK, vq->knn.k);
-    }
-  }
+  MRCommand_appendVsim(xcmd, argv, argc, vsimOffset, outKArgIndex);
 
   int combineOffset = RMUtil_ArgIndex("COMBINE", argv + vsimOffset, argc - vsimOffset);
   combineOffset = combineOffset != -1 ? combineOffset + vsimOffset : -1;
@@ -582,7 +576,7 @@ static bool shouldCheckInPipelineTimeoutCoord(HybridRequest *req) {
 
 static int HybridRequest_prepareForExecution(HybridRequest *hreq,
         RedisModuleCtx *ctx, RedisModuleString **argv, int argc, IndexSpec *sp,
-        size_t numShards, QueryError *status,
+        QueryError *status,
         const HybridDebugParams *debugParams) {
 
     hreq->tailPipeline->qctx.err = status;
@@ -657,15 +651,11 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq,
 
     // Construct the command string
     MRCommand xcmd;
-    // Get the VectorQuery from the vector request's AST for SHARD_K_RATIO
-    // optimization
-    // Note: parsedVectorData is only set on shards, not on coordinator
-    // The coordinator has the VectorQuery in the AST after parsing
-    const AREQ *vectorRequest = hreq->requests[VECTOR_INDEX];
-    const VectorQuery *vq = (vectorRequest->ast.root && vectorRequest->ast.root->type == QN_VECTOR)
-                      ? vectorRequest->ast.root->vn.vq : NULL;
+    // Track K argument index for SHARD_K_RATIO optimization (set during command building)
+    int kArgIndex = -1;
     HybridRequest_buildMRCommand(argv, argc, profileOptions, &xcmd, serialized,
-                                 sp, vq, numShards);
+                                 sp, &kArgIndex);
+    hreq->kArgIndex = kArgIndex;
 
     xcmd.protocol = HYBRID_RESP_PROTOCOL_VERSION;
     xcmd.forCursor = hreq->reqflags & QEXEC_F_IS_CURSOR;
@@ -710,7 +700,7 @@ static void FreeCursorMappings(void *mappings) {
   rm_free(mappings);
 }
 
-static int HybridRequest_executePlan(HybridRequest *hreq, struct ConcurrentCmdCtx *cmdCtx,
+static int HybridRequest_executePlan(HybridRequest *hreq,
                         RedisModule_Reply *reply, QueryError *status) {
 
     // Get RPNet structures from query context
@@ -731,9 +721,26 @@ static int HybridRequest_executePlan(HybridRequest *hreq, struct ConcurrentCmdCt
     MRCommand *cmd = &searchRPNet->cmd;
     cmd->coordStartTime = hreq->profileClocks.coordStartTime;
 
+    // Create KNN context for SHARD_K_RATIO optimization if applicable
+    HybridKnnContext *knnCtx = NULL;
+    if (hreq->kArgIndex >= 0) {
+        // Get the VectorQuery from the vector request's AST
+        const AREQ *vectorRequest = hreq->requests[VECTOR_INDEX];
+        const VectorQuery *vq = (vectorRequest->ast.root && vectorRequest->ast.root->type == QN_VECTOR)
+                          ? vectorRequest->ast.root->vn.vq : NULL;
+        if (vq && vq->type == VECSIM_QT_KNN) {
+            knnCtx = rm_calloc(1, sizeof(HybridKnnContext));
+            *knnCtx = (HybridKnnContext){
+                .originalK = vq->knn.k,
+                .shardWindowRatio = vq->knn.shardWindowRatio,
+                .kArgIndex = hreq->kArgIndex,
+            };
+        }
+    }
+
     const RSOomPolicy oomPolicy = hreq->reqConfig.oomPolicy;
     const RSTimeoutPolicy timeoutPolicy = hreq->reqConfig.timeoutPolicy;
-    if (!ProcessHybridCursorMappings(cmd, searchMappingsRef, vsimMappingsRef, hreq->tailPipeline->qctx.err, oomPolicy, timeoutPolicy)) {
+    if (!ProcessHybridCursorMappings(cmd, searchMappingsRef, vsimMappingsRef, knnCtx, hreq->tailPipeline->qctx.err, oomPolicy, timeoutPolicy)) {
         // Handle error
         StrongRef_Release(searchMappingsRef);
         StrongRef_Release(vsimMappingsRef);
@@ -871,12 +878,12 @@ void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     // Get numShards captured from main thread for thread-safe access and to compute effective K
     size_t numShards = ConcurrentCmdCtx_GetNumShards(cmdCtx);
 
-    if (HybridRequest_prepareForExecution(hreq, ctx, argv, argc, sp, numShards, &status, NULL) != REDISMODULE_OK) {
+    if (HybridRequest_prepareForExecution(hreq, ctx, argv, argc, sp, &status, NULL) != REDISMODULE_OK) {
       DistHybridCleanups(ctx, cmdCtx, sp, &strong_ref, hreq, reply, &status);
       return;
     }
 
-    if (HybridRequest_executePlan(hreq, cmdCtx, reply, &status) != REDISMODULE_OK) {
+    if (HybridRequest_executePlan(hreq, reply, &status) != REDISMODULE_OK) {
         DistHybridCleanups(ctx, cmdCtx, sp, &strong_ref, hreq, reply, &status);
         return;
     }
@@ -946,13 +953,13 @@ void DEBUG_RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int a
 
     // Use stripped_argc so parsing doesn't see debug params;
     // pass debugParams so the MR command gets _FT.DEBUG prefix + debug args.
-    if (HybridRequest_prepareForExecution(hreq, ctx, argv, stripped_argc, sp, numShards,
+    if (HybridRequest_prepareForExecution(hreq, ctx, argv, stripped_argc, sp,
                                           &status, &debugParams) != REDISMODULE_OK) {
       DistHybridCleanups(ctx, cmdCtx, sp, &strong_ref, hreq, reply, &status);
       return;
     }
 
-    if (HybridRequest_executePlan(hreq, cmdCtx, reply, &status) != REDISMODULE_OK) {
+    if (HybridRequest_executePlan(hreq, reply, &status) != REDISMODULE_OK) {
         DistHybridCleanups(ctx, cmdCtx, sp, &strong_ref, hreq, reply, &status);
         return;
     }

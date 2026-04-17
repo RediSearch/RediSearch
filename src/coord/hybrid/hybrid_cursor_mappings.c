@@ -12,6 +12,7 @@
 #include "rmalloc.h"
 #include "rmutil/rm_assert.h"
 #include "query_error.h"
+#include "shard_window_ratio.h"
 #include <string.h>
 #include "info/global_stats.h"
 
@@ -27,6 +28,7 @@ typedef struct {
     pthread_cond_t *completionCond;   // Condition variable for completion signaling
     int numShards;                    // Total number of expected shards
     bool initialized;                 // Whether numShards has been set by the IO thread
+    HybridKnnContext *knnCtx;         // KNN context for SHARD_K_RATIO optimization (may be NULL)
 } processCursorMappingCallbackContext;
 
 void CursorMapping_Release(CursorMapping *mapping) {
@@ -211,7 +213,7 @@ static void processCursorMappingCallback(MRIteratorCallbackCtx *ctx, MRReply *re
 }
 
 // Init callback for the private data, so that numShards is set to the actual number of shards in the cluster, and the expected responses.
-static void processCursorMappingInit(void *privateData, MRIterator *it) {
+static void processCursorMappingInit(void *privateData, const MRIterator *it) {
     processCursorMappingCallbackContext *ctx = (processCursorMappingCallbackContext *)privateData;
     int actualNumShards = (int)MRIterator_GetNumShards(it);
     pthread_mutex_lock(ctx->mutex);
@@ -231,10 +233,30 @@ static inline void cleanupCtx(processCursorMappingCallbackContext *ctx) {
     StrongRef_Release(ctx->searchMappings);
     StrongRef_Release(ctx->vsimMappings);
     array_free_ex(ctx->errors, QueryError_ClearError((QueryError*)ptr));
+    rm_free(ctx->knnCtx);
     rm_free(ctx);
 }
 
-bool ProcessHybridCursorMappings(const MRCommand *cmd, StrongRef searchMappingsRef, StrongRef vsimMappingsRef, QueryError *status, const RSOomPolicy oomPolicy, const RSTimeoutPolicy timeoutPolicy) {
+// Command modifier callback for SHARD_K_RATIO optimization.
+// Called from iterStartCb on IO thread before commands are sent to shards.
+static void HybridKnnCommandModifier(MRCommand *cmd, size_t numShards, void *privateData) {
+    if (!privateData || !cmd) {
+        return;
+    }
+    const processCursorMappingCallbackContext *ctx = (processCursorMappingCallbackContext *)privateData;
+    const HybridKnnContext *knnCtx = ctx->knnCtx;
+    if (!knnCtx || knnCtx->kArgIndex < 0) {
+        return;
+    }
+    // Only apply optimization for multi-shard deployments with valid ratio
+    if (numShards <= 1 || knnCtx->shardWindowRatio >= MAX_SHARD_WINDOW_RATIO) {
+        return;
+    }
+    size_t effectiveK = calculateEffectiveK(knnCtx->originalK, knnCtx->shardWindowRatio, numShards);
+    modifyVsimKNN(cmd, knnCtx->kArgIndex, effectiveK, knnCtx->originalK);
+}
+
+bool ProcessHybridCursorMappings(const MRCommand *cmd, StrongRef searchMappingsRef, StrongRef vsimMappingsRef, HybridKnnContext *knnCtx, QueryError *status, const RSOomPolicy oomPolicy, const RSTimeoutPolicy timeoutPolicy) {
     CursorMappings *searchMappings = StrongRef_Get(searchMappingsRef);
     CursorMappings *vsimMappings = StrongRef_Get(vsimMappingsRef);
     RS_ASSERT(array_len(searchMappings->mappings) == 0 && array_len(vsimMappings->mappings) == 0);
@@ -257,14 +279,21 @@ bool ProcessHybridCursorMappings(const MRCommand *cmd, StrongRef searchMappingsR
         .mutex = ctx->mutex,
         .completionCond = ctx->completionCond,
         .numShards = 0,
-        .initialized = false
+        .initialized = false,
+        .knnCtx = knnCtx,  // Store KNN context for command modifier callback
       };
+
+    // Pass HybridKnnCommandModifier if knnCtx is provided (for SHARD_K_RATIO
+    // optimization)
+    MRCommandModifier cmdModifier = knnCtx ? &HybridKnnCommandModifier : NULL;
 
     // Start iteration (ctx is cleaned up manually in cleanupCtx, no destructor needed)
     // processCursorMappingInit is called from iterStartCb to update ctx->numShards
     // with the actual shard count from the live topology, preventing use-after-free
     // when topology changes during shard migration.
-    MRIterator *it = MR_IterateWithPrivateData(cmd, processCursorMappingCallback, ctx, NULL, processCursorMappingInit, iterStartCb, NULL);
+    MRIterator *it = MR_IterateWithPrivateData(cmd, processCursorMappingCallback,
+                                               ctx, NULL, processCursorMappingInit,
+                                               cmdModifier, iterStartCb, NULL);
     if (!it) {
         // Cleanup on error
         QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_GENERIC, "Failed to communicate with shards");
@@ -281,6 +310,7 @@ bool ProcessHybridCursorMappings(const MRCommand *cmd, StrongRef searchMappingsR
         pthread_cond_wait(ctx->completionCond, ctx->mutex);
     }
     pthread_mutex_unlock(ctx->mutex);
+
     bool success = true;
     if (array_len(ctx->errors)) {
         for (size_t i = 0; i < array_len(ctx->errors); i++) {
