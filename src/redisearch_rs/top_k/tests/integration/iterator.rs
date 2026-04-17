@@ -17,7 +17,8 @@ use index_result::RSIndexResult;
 use index_spec::IndexSpecReadGuard;
 use rqe_iterators::{IdList, RQEIterator, RQEIteratorError};
 use top_k::{
-    CollectionStrategy, ScoreSource, TopKIterator, mock::MockScoreBatch, mock::MockScoreSource,
+    CollectionStrategy, ScoreSource, TopKIterator, TopKMode, mock::MockScoreBatch,
+    mock::MockScoreSource,
 };
 
 // ── Error path stubs ─────────────────────────────────────────────────────────────
@@ -90,6 +91,10 @@ impl ScoreSource for TimingOutSource {
         Err(RQEIteratorError::TimedOut)
     }
 
+    fn lookup_score(&mut self, _: ffi::t_docId) -> Option<f64> {
+        None
+    }
+
     fn num_estimated(&self) -> usize {
         0
     }
@@ -127,7 +132,7 @@ fn make_child<'a>(ids: Vec<DocId>) -> Box<dyn RQEIterator<'a> + 'a> {
 
 #[test]
 fn read_triggers_collection_on_first_call() {
-    let source = MockScoreSource::new(vec![vec![(1, 1.0), (2, 2.0)]], |_, _| {
+    let source = MockScoreSource::new(vec![vec![(1, 1.0), (2, 2.0)]], vec![], |_, _| {
         CollectionStrategy::Continue
     });
     let mut it = TopKIterator::new(source, None, NonZeroUsize::new(5).unwrap(), asc);
@@ -139,7 +144,7 @@ fn read_triggers_collection_on_first_call() {
 
 #[test]
 fn rewind_resets_to_not_started() {
-    let source = MockScoreSource::new(vec![vec![(1, 1.0), (2, 2.0)]], |_, _| {
+    let source = MockScoreSource::new(vec![vec![(1, 1.0), (2, 2.0)]], vec![], |_, _| {
         CollectionStrategy::Continue
     });
     let mut it = TopKIterator::new(source, None, NonZeroUsize::new(5).unwrap(), asc);
@@ -161,9 +166,10 @@ fn rewind_resets_to_not_started() {
 
 #[test]
 fn eof_set_after_results_exhausted() {
-    let source = MockScoreSource::new(vec![vec![(1, 1.0)]], |_, _| CollectionStrategy::Continue);
+    let source = MockScoreSource::new(vec![vec![(1, 1.0)]], vec![], |_, _| {
+        CollectionStrategy::Continue
+    });
     let mut it = TopKIterator::new(source, None, NonZeroUsize::new(5).unwrap(), asc);
-
     it.read().unwrap();
     let eof = it.read().unwrap();
     assert!(eof.is_none());
@@ -172,7 +178,7 @@ fn eof_set_after_results_exhausted() {
 
 #[test]
 fn last_doc_id_starts_at_zero_tracks_reads_and_resets_on_rewind() {
-    let source = MockScoreSource::new(vec![vec![(1, 1.0), (2, 2.0)]], |_, _| {
+    let source = MockScoreSource::new(vec![vec![(1, 1.0), (2, 2.0)]], vec![], |_, _| {
         CollectionStrategy::Continue
     });
     let mut it = TopKIterator::new(source, None, NonZeroUsize::new(5).unwrap(), asc);
@@ -190,7 +196,7 @@ fn last_doc_id_starts_at_zero_tracks_reads_and_resets_on_rewind() {
 
 #[test]
 fn num_estimated_capped_at_k() {
-    let source = MockScoreSource::new(vec![vec![(1, 1.0), (2, 2.0), (3, 3.0)]], |_, _| {
+    let source = MockScoreSource::new(vec![vec![(1, 1.0), (2, 2.0), (3, 3.0)]], vec![], |_, _| {
         CollectionStrategy::Continue
     })
     .with_num_estimated(100);
@@ -205,7 +211,7 @@ fn num_estimated_capped_at_k() {
 fn unfiltered_yields_batch_in_source_order() {
     // Scores are descending (0.9 → 0.5 → 0.1) while doc IDs are ascending.
     // If the iterator re-sorted by score it would yield [3, 2, 1]; source order gives [1, 2, 3].
-    let source = MockScoreSource::new(vec![vec![(1, 0.9), (2, 0.5), (3, 0.1)]], |_, _| {
+    let source = MockScoreSource::new(vec![vec![(1, 0.9), (2, 0.5), (3, 0.1)]], vec![], |_, _| {
         CollectionStrategy::Continue
     });
     let mut it = TopKIterator::new(source, None, NonZeroUsize::new(10).unwrap(), asc);
@@ -215,7 +221,7 @@ fn unfiltered_yields_batch_in_source_order() {
 
 #[test]
 fn unfiltered_empty_source_is_immediate_eof() {
-    let source = MockScoreSource::new(vec![], |_, _| CollectionStrategy::Continue);
+    let source = MockScoreSource::new(vec![], vec![], |_, _| CollectionStrategy::Continue);
     let mut it = TopKIterator::new(source, None, NonZeroUsize::new(5).unwrap(), asc);
     assert!(it.read().unwrap().is_none());
     assert!(it.at_eof());
@@ -226,7 +232,9 @@ fn unfiltered_empty_source_is_immediate_eof() {
 #[test]
 fn revalidate_without_child_returns_ok() {
     let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-    let source = MockScoreSource::new(vec![vec![(1, 1.0)]], |_, _| CollectionStrategy::Continue);
+    let source = MockScoreSource::new(vec![vec![(1, 1.0)]], vec![], |_, _| {
+        CollectionStrategy::Continue
+    });
     let mut it = TopKIterator::new(source, None, NonZeroUsize::new(5).unwrap(), asc);
     let status = it.revalidate(&mock_ctx.spec_read()).unwrap();
     assert_eq!(status, rqe_iterators::RQEValidateStatus::Ok);
@@ -237,7 +245,9 @@ fn revalidate_with_child_delegates_ok() {
     // rqe_iterators::Empty::revalidate returns Ok, so it is the natural stand-in
     // for any child iterator that leaves the parent in a valid state.
     let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-    let source = MockScoreSource::new(vec![vec![(1, 1.0)]], |_, _| CollectionStrategy::Continue);
+    let source = MockScoreSource::new(vec![vec![(1, 1.0)]], vec![], |_, _| {
+        CollectionStrategy::Continue
+    });
     let child: Box<dyn rqe_iterators::RQEIterator<'_>> = Box::new(rqe_iterators::Empty::default());
     let mut it = TopKIterator::new(source, Some(child), NonZeroUsize::new(5).unwrap(), asc);
     let status = it.revalidate(&mock_ctx.spec_read()).unwrap();
@@ -247,7 +257,9 @@ fn revalidate_with_child_delegates_ok() {
 #[test]
 fn revalidate_with_child_delegates_aborted() {
     let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-    let source = MockScoreSource::new(vec![vec![(1, 1.0)]], |_, _| CollectionStrategy::Continue);
+    let source = MockScoreSource::new(vec![vec![(1, 1.0)]], vec![], |_, _| {
+        CollectionStrategy::Continue
+    });
     let child: Box<dyn rqe_iterators::RQEIterator<'_>> = Box::new(AbortOnRevalidate);
     let mut it = TopKIterator::new(source, Some(child), NonZeroUsize::new(5).unwrap(), asc);
     let status = it.revalidate(&mock_ctx.spec_read()).unwrap();
@@ -271,6 +283,7 @@ fn batches_overlap_intersection() {
     // Matches: 1→0.9, 3→0.7, 5→0.5  → best-first ASC: 5, 3, 1
     let source = MockScoreSource::new(
         vec![vec![(1, 0.9), (2, 0.8), (3, 0.7), (4, 0.6), (5, 0.5)]],
+        vec![],
         |_, _| CollectionStrategy::Continue,
     );
     let mut it = TopKIterator::new(
@@ -285,7 +298,7 @@ fn batches_overlap_intersection() {
 
 #[test]
 fn batches_disjoint_yields_nothing() {
-    let source = MockScoreSource::new(vec![vec![(1, 1.0), (2, 2.0), (3, 3.0)]], |_, _| {
+    let source = MockScoreSource::new(vec![vec![(1, 1.0), (2, 2.0), (3, 3.0)]], vec![], |_, _| {
         CollectionStrategy::Continue
     });
     let mut it = TopKIterator::new(
@@ -300,7 +313,7 @@ fn batches_disjoint_yields_nothing() {
 
 #[test]
 fn batches_empty_child_yields_nothing() {
-    let source = MockScoreSource::new(vec![vec![(1, 1.0), (2, 2.0)]], |_, _| {
+    let source = MockScoreSource::new(vec![vec![(1, 1.0), (2, 2.0)]], vec![], |_, _| {
         CollectionStrategy::Continue
     });
     let mut it = TopKIterator::new(
@@ -319,6 +332,7 @@ fn batches_multiple_batches() {
     // Child: [1,3,4]  Matches: 1→3.0, 3→1.0, 4→2.0  best-first → 3,4,1
     let source = MockScoreSource::new(
         vec![vec![(1, 3.0), (2, 4.0)], vec![(3, 1.0), (4, 2.0)]],
+        vec![],
         |_, _| CollectionStrategy::Continue,
     );
     let mut it = TopKIterator::new(
@@ -339,6 +353,7 @@ fn strategy_stop_stops_after_first_batch() {
             vec![(3, 0.5)], // NOT fetched
             vec![(4, 0.1)], // NOT fetched
         ],
+        vec![],
         |_, _| CollectionStrategy::Stop,
     );
     let mut it = TopKIterator::new(
@@ -363,7 +378,7 @@ fn rewind_after_mid_collect_error_does_not_retain_stale_heap() {
         rewind_count: u32,
     }
 
-    impl<'index> ScoreSource for OnceErrorSource {
+    impl ScoreSource for OnceErrorSource {
         type Batch = MockScoreBatch;
 
         fn next_batch(&mut self) -> Result<Option<Self::Batch>, RQEIteratorError> {
@@ -391,6 +406,10 @@ fn rewind_after_mid_collect_error_does_not_retain_stale_heap() {
         fn rewind(&mut self) {
             self.batch_call = 0;
             self.rewind_count += 1;
+        }
+
+        fn lookup_score(&mut self, _: DocId) -> Option<f64> {
+            None
         }
 
         fn build_result<'r>(&self, doc_id: DocId, _: f64) -> RSIndexResult<'r>
@@ -430,4 +449,132 @@ fn rewind_after_mid_collect_error_does_not_retain_stale_heap() {
     // by rewind(), doc 1 and doc 3 are added a second time and appear twice.
     let doc_ids: Vec<_> = std::iter::from_fn(|| it.read().unwrap().map(|r| r.doc_id)).collect();
     assert_eq!(doc_ids, vec![1, 3]);
+}
+
+#[test]
+fn strategy_switch_to_adhoc() {
+    // First call to collection_strategy → SwitchToAdhoc; subsequent → Continue.
+    let mut call_count = 0u32;
+    let strategy = move |_heap: usize, _k: usize| {
+        call_count += 1;
+        if call_count == 1 {
+            CollectionStrategy::SwitchToAdhoc
+        } else {
+            CollectionStrategy::Continue
+        }
+    };
+    // Doc 2 is found in BOTH phases: the batch (score 3.0) and the adhoc scan
+    // (score 1.0). On SwitchToAdhoc the heap is cleared before the adhoc rescan,
+    // so doc 2 must be admitted exactly once — without the clear it would appear
+    // twice, since TopKHeap::push only de-dups against the worst heap element.
+    // Doc 1 is batch-only (absent from the adhoc scores map) and is dropped.
+    let source = MockScoreSource::new(
+        vec![vec![(1, 5.0), (2, 3.0)]],
+        vec![(2, 1.0), (3, 2.0)],
+        strategy,
+    );
+    let mut it = TopKIterator::new(
+        source,
+        Some(make_child(vec![1, 2, 3])),
+        NonZeroUsize::new(10).unwrap(),
+        asc,
+    );
+    let doc_ids: Vec<_> = std::iter::from_fn(|| it.read().unwrap().map(|r| r.doc_id)).collect();
+    // Adhoc-only scores, doc 2 exactly once: 2(1.0), 3(2.0).
+    assert_eq!(doc_ids, vec![2, 3]);
+}
+
+#[test]
+fn strategy_switch_to_batches_rewinds() {
+    // Call 0 → SwitchToBatches (rewinds source+child, restarts loop).
+    // Call 1 → Stop (to exit on the second pass).
+    let call_count = std::cell::Cell::new(0u32);
+    let strategy = move |_: usize, _: usize| {
+        let n = call_count.get();
+        call_count.set(n + 1);
+        if n == 0 {
+            CollectionStrategy::SwitchToBatches
+        } else {
+            CollectionStrategy::Stop
+        }
+    };
+    let source = MockScoreSource::new(vec![vec![(1, 1.0), (2, 2.0)]], vec![], strategy);
+    let mut it = TopKIterator::new(
+        source,
+        Some(make_child(vec![1, 2])),
+        NonZeroUsize::new(10).unwrap(),
+        asc,
+    );
+    let doc_ids: Vec<_> = std::iter::from_fn(|| it.read().unwrap().map(|r| r.doc_id)).collect();
+    assert_eq!(doc_ids, vec![1, 2]);
+}
+
+// ── Adhoc-BF ──────────────────────────────────────────────────────────────
+
+#[test]
+fn adhoc_scores_known_docs_only() {
+    // Child: [1,2,3,4,5], source has scores for [2,4] only → yields [2,4].
+    let source = MockScoreSource::new(vec![], vec![(2, 1.0), (4, 2.0)], |_, _| {
+        CollectionStrategy::Continue
+    });
+    let mut it = TopKIterator::new_with_mode(
+        source,
+        Some(make_child(vec![1, 2, 3, 4, 5])),
+        NonZeroUsize::new(10).unwrap(),
+        asc,
+        TopKMode::AdhocBF,
+    );
+    let doc_ids: Vec<_> = std::iter::from_fn(|| it.read().unwrap().map(|r| r.doc_id)).collect();
+    assert_eq!(doc_ids, vec![2, 4]);
+}
+
+#[test]
+fn adhoc_early_stop_when_heap_full() {
+    // k=2; strategy signals Stop when heap reaches capacity.
+    let source = MockScoreSource::new(vec![], vec![(1, 1.0), (2, 2.0), (3, 0.5)], |heap, k| {
+        if heap >= k {
+            CollectionStrategy::Stop
+        } else {
+            CollectionStrategy::Continue
+        }
+    });
+    let mut it = TopKIterator::new_with_mode(
+        source,
+        Some(make_child(vec![1, 2, 3])),
+        NonZeroUsize::new(2).unwrap(),
+        asc,
+        TopKMode::AdhocBF,
+    );
+    let doc_ids: Vec<_> = std::iter::from_fn(|| it.read().unwrap().map(|r| r.doc_id)).collect();
+    assert_eq!(doc_ids.len(), 2);
+}
+
+#[test]
+fn adhoc_child_eof_returns_what_was_found() {
+    let source = MockScoreSource::new(vec![], vec![(1, 0.1), (2, 0.2)], |_, _| {
+        CollectionStrategy::Continue
+    });
+    let mut it = TopKIterator::new_with_mode(
+        source,
+        Some(make_child(vec![1, 2])),
+        NonZeroUsize::new(10).unwrap(),
+        asc,
+        TopKMode::AdhocBF,
+    );
+    let doc_ids: Vec<_> = std::iter::from_fn(|| it.read().unwrap().map(|r| r.doc_id)).collect();
+    assert_eq!(doc_ids, vec![1, 2]);
+}
+
+#[test]
+fn adhoc_empty_child_is_eof() {
+    let source = MockScoreSource::new(vec![], vec![], |_, _| CollectionStrategy::Continue);
+    let mut it = TopKIterator::new_with_mode(
+        source,
+        Some(make_child(vec![])),
+        NonZeroUsize::new(10).unwrap(),
+        asc,
+        TopKMode::AdhocBF,
+    );
+    assert!(it.read().unwrap().is_none());
+    assert!(it.at_eof());
 }
