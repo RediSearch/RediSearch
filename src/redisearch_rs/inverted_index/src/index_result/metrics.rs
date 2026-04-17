@@ -21,13 +21,14 @@ use thin_vec::ThinVec;
 /// A single metric: a borrowed key and a numeric value.
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
+#[cheadergen::config(export)]
 pub struct MetricEntry<'a> {
     /// Borrowed reference to the lookup key that identifies this metric.
     /// `None` when the metric has no associated key.
-    key: Option<&'a RLookupKey>,
+    pub key: Option<&'a RLookupKey>,
 
     /// The metric value (e.g. vector distance, score).
-    value: f64,
+    pub value: f64,
 }
 
 impl<'a> MetricEntry<'a> {

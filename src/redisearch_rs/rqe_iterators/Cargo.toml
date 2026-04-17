@@ -14,6 +14,7 @@ unittest = []
 build_utils = { path = "../build_utils" }
 
 [dependencies]
+cheadergen.workspace = true
 ffi.workspace = true
 rqe_iterator_type.workspace = true
 field.workspace = true

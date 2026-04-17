@@ -10,7 +10,7 @@
 #include <limits.h>
 
 #include "spec.h"
-#include "inverted_index.h"
+#include "inverted_index_ffi.h"
 #include "vector_index.h"
 #include "cursor.h"
 #include "resp3.h"
@@ -24,7 +24,7 @@
 #include "field_spec_info.h"
 #include "info/info_redis/threads/current_thread.h"
 #include "obfuscation/obfuscation_api.h"
-#include "query_error.h"
+#include "query_error_ffi.h"
 #include "search_disk.h"
 
 static void renderIndexOptions(RedisModule_Reply *reply, const IndexSpec *sp) {

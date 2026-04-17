@@ -15,6 +15,7 @@
 #include "info/indexes_info.h"
 #include "config.h"
 #include "numeric_range_tree.h"
+#include "numeric_range_tree_ffi.h"
 
 #include <set>
 #include <string>

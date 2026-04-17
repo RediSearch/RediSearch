@@ -14,7 +14,7 @@
 #include "gtest/gtest.h"
 
 #include "aggregate/reducer.h"
-#include "reducers_rs.h"
+#include "reducers_ffi.h"
 #include "spec.h"
 #include "config.h"
 #include "result_processor.h"

@@ -11,7 +11,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "redismodule.h"
-#include "triemap.h"
+#include "triemap_ffi.h"
 #include "redisearch.h"
 #include "sortable.h"
 #include "byte_offsets.h"

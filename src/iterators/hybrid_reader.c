@@ -10,7 +10,9 @@
 #include "hybrid_reader.h"
 #include "VecSim/vec_sim.h"
 #include "VecSim/query_results.h"
-#include "iterators_rs.h"
+#include "iterators_ffi.h"
+#include "metrics_ffi.h"
+#include "rqe_iterator_type.h"
 #include "query.h"
 
 #define VECTOR_SCORE(p) (p->data.tag == RSResultData_Metric ? IndexResult_NumValue(p) : IndexResult_NumValue(AggregateResult_GetUnchecked(IndexResult_AggregateRefUnchecked(p), 0)))
@@ -93,7 +95,7 @@ static void insertResultToHeap_Aggregate(HybridIterator *hr, RSIndexResult *chil
   RSIndexResult *res = NewHybridResult();
   AggregateResult_AddChild(res, IndexResult_DeepCopy(vec_res));
   AggregateResult_AddChild(res, IndexResult_DeepCopy(child_res));
-  res->data.hybrid_metric.tag = RSAggregateResult_Owned; // Mark as copy, so when we free it, it will also free its children.
+  res->data.hybridmetric.tag = RSAggregateResult_Owned; // Mark as copy, so when we free it, it will also free its children.
   ResultMetrics_Add(res, hr->ownKey, IndexResult_NumValue(vec_res));
 
   if (hr->topResults->count < hr->query.k) {

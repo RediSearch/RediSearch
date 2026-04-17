@@ -12,7 +12,7 @@
 #include "util/misc.h"
 #include "spec.h"
 #include "config.h"
-#include "reducers_rs.h"
+#include "reducers_ffi.h"
 #include <errno.h>
 #include <limits.h>
 #include <stdlib.h>

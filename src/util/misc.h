@@ -10,7 +10,7 @@
 #define RS_MISC_H
 
 #include "redismodule.h"
-#include "query_error.h"
+#include "query_error_ffi.h"
 
 /**
  * This handler crashes

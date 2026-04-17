@@ -16,7 +16,7 @@
 #include "concurrent_ctx.h"
 #include "byte_offsets.h"
 #include "rmutil/args.h"
-#include "query_error.h"
+#include "query_error_ffi.h"
 #include "json.h"
 
 #ifdef __cplusplus

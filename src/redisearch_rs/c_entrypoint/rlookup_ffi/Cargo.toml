@@ -30,9 +30,6 @@ rlookup_ffi = { path = ".", features = ["unittest"] }
 redisearch_rs = { path = "../redisearch_rs" }
 redis_mock.workspace = true
 
-[build-dependencies]
-cbindgen.workspace = true
-build_utils = { path = "../../build_utils" }
 
 [features]
 unittest = []

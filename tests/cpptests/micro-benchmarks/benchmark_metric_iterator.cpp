@@ -8,14 +8,13 @@
 */
 
 #include "benchmark/benchmark.h"
-#include "iterators_rs.h"
+#include "iterators_ffi.h"
 #include "redismock/util.h"
 
 #include <random>
 #include <vector>
 
 #include "iterators/iterator_api.h"
-#include "iterators_rs.h"
 
 template <bool yield_metric>
 class BM_MetricIterator : public benchmark::Fixture {

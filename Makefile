@@ -309,7 +309,17 @@ define get_rust_exclude_crates
 $(shell grep "EXCLUDE_RUST_BENCHING_CRATES_LINKING_C=" build.sh | cut -d'=' -f2 | tr -d '"' | head -n1)
 endef
 
-lint:
+# Regenerate the Rust → C FFI headers under src/redisearch_rs/headers/.
+#
+# The recipe (cheadergen CLI args + env scrub) lives in
+# src/redisearch_rs/regen_headers.sh; the CMake `cheadergen_generate`
+# custom target calls the same script. See the script for the rationale
+# on the env scrub.
+generate-rust-headers:
+	@echo "Regenerating Rust → C FFI headers via cheadergen..."
+	@$(ROOT)/src/redisearch_rs/regen_headers.sh
+
+lint: generate-rust-headers
 	@echo "Running linters for debug..."
 	@cd $(ROOT)/src/redisearch_rs && cargo clippy --workspace $(call get_rust_exclude_crates) -- -D warnings
 	@cd $(ROOT)/src/redisearch_rs && RUSTDOCFLAGS="-Dwarnings" cargo doc --workspace $(call get_rust_exclude_crates) --no-deps --document-private-items
