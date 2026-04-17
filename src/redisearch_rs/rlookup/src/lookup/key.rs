@@ -22,6 +22,7 @@ use pin_project::pin_project;
 
 use crate::bindings::{FieldSpecOption, FieldSpecOptions, FieldSpecType, FieldSpecTypes};
 
+#[cheadergen::config(rename = "RLookup_F")]
 #[bitflags]
 #[repr(u32)]
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -74,6 +75,7 @@ pub enum RLookupKeyFlag {
 
 /// Helper type to represent a set of [`RLookupKeyFlag`]s.
 /// cbindgen:ignore
+#[cheadergen::config(skip)]
 pub type RLookupKeyFlags = BitFlags<RLookupKeyFlag>;
 
 // Flags that are allowed to be passed to [`RLookup::get_key_read`], [`RLookup::get_key_write`], or [`RLookup::get_key_load`].
@@ -125,6 +127,7 @@ pub const TRANSIENT_FLAGS: RLookupKeyFlags =
 /// ```
 ///
 /// cbindgen:no-export
+#[cheadergen::config(skip)]
 #[pin_project(!Unpin)]
 #[derive(Debug)]
 #[repr(C)]
@@ -143,6 +146,7 @@ pub struct RLookupKey<'a> {
     _path: Option<Cow<'a, CStr>>,
 }
 
+#[cheadergen::config(rename = "RLookupKey")]
 #[derive(Debug)]
 #[repr(C)]
 pub struct RLookupKeyHeader<'a> {

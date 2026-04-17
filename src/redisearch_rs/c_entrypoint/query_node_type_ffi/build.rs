@@ -10,5 +10,5 @@
 use build_utils::run_cbindgen;
 
 fn main() {
-    run_cbindgen("../../headers/query_node_type.h").unwrap();
+    run_cbindgen("../../old_headers/query_node_type.h").unwrap();
 }

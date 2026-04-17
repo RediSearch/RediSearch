@@ -13,7 +13,7 @@
 #include "cursor.h"
 #include "info/indexes_info.h"
 #include "util/units.h"
-#include "module_init.h"
+#include "module_init_ffi.h"
 #include "info/info_redis/types/blocked_queries.h"
 #include "info/info_redis/threads/current_thread.h"
 #include "info/info_redis/threads/main_thread.h"

@@ -12,7 +12,7 @@
 #include "document.h"
 #include "rmutil/rm_assert.h"
 #include "doc_types.h"
-#include "value.h"
+#include "value_ffi.h"
 #include "util/arr.h"
 
 typedef enum {

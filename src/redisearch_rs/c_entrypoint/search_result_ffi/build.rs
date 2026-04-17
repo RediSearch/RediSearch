@@ -10,5 +10,5 @@
 use build_utils::run_cbindgen;
 
 fn main() {
-    run_cbindgen("../../headers/search_result_rs.h").unwrap();
+    run_cbindgen("../../old_headers/search_result_rs.h").unwrap();
 }

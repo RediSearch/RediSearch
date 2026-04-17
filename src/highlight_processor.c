@@ -9,7 +9,7 @@
 #include "result_processor.h"
 #include "fragmenter.h"
 #include "rlookup.h"
-#include "value.h"
+#include "value_ffi.h"
 #include "util/minmax.h"
 #include "toksep.h"
 #include <ctype.h>

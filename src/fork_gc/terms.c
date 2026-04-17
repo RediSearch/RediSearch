@@ -8,7 +8,7 @@
 */
 
 #include "pipe.h"
-#include "triemap.h"
+#include "triemap_ffi.h"
 #include "redis_index.h"
 #include "suffix.h"
 #include "rmutil/rm_assert.h"

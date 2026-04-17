@@ -21,7 +21,9 @@ use inverted_index::RSIndexResult;
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 /// cbindgen:rename-all=ScreamingSnakeCase
+#[cheadergen::config]
 pub enum MetricType {
+    #[cheadergen(rename = "VECTOR_DISTANCE")]
     VectorDistance,
 }
 

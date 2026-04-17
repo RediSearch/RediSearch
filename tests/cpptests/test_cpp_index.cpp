@@ -17,14 +17,14 @@ extern "C" {
 #include "query_parser/tokenizer.h"
 #include "spec.h"
 #include "tokenize.h"
-#include "varint.h"
+#include "varint_ffi.h"
 #include "iterators/hybrid_reader.h"
 #include "iterators_rs.h"
 #include "iterators/union_iterator.h"
 #include "redisearch_rs/headers/iterators_rs.h"
 #include "util/arr.h"
 #include "util/references.h"
-#include "types_rs.h"
+#include "types_ffi.h"
 
 #include "rmutil/alloc.h"
 

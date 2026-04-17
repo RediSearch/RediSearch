@@ -9,10 +9,10 @@
 #ifndef __INDEX_RESULT_H__
 #define __INDEX_RESULT_H__
 
-#include "varint.h"
+#include "varint_ffi.h"
 #include "rmalloc.h"
 #include "util/arr.h"
-#include "value.h"
+#include "value_ffi.h"
 #include "rlookup.h"
 #define DEFAULT_RECORDLIST_SIZE 4
 

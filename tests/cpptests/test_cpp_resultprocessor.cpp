@@ -10,7 +10,7 @@
 
 #include "result_processor.h"
 #include "query.h"
-#include "value.h"
+#include "value_ffi.h"
 #include "gtest/gtest.h"
 #include "search_result.h"
 

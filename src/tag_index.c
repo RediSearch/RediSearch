@@ -13,7 +13,7 @@
 #include "inverted_index.h"
 #include "redis_index.h"
 #include "rmutil/util.h"
-#include "triemap.h"
+#include "triemap_ffi.h"
 #include "util/misc.h"
 #include "util/arr.h"
 #include "rmutil/rm_assert.h"

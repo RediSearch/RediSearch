@@ -17,6 +17,7 @@ use std::{
 pub type c_size_t = usize;
 
 /// A writer that calls a C function to write data.
+#[cheadergen::config(rename = "II_GCWriter")]
 #[repr(C)]
 pub struct InvertedIndexGCWriter {
     /// Context pointer passed to the write function.
@@ -43,6 +44,7 @@ impl Write for InvertedIndexGCWriter {
 }
 
 /// A reader that calls a C function to read data.
+#[cheadergen::config(rename = "II_GCReader")]
 #[repr(C)]
 pub struct InvertedIndexGCReader {
     /// Context pointer passed to the read function.
@@ -75,6 +77,7 @@ impl Read for InvertedIndexGCReader {
 }
 
 /// A callback structure to trigger garbage collection operations.
+#[cheadergen::config(rename = "II_GCCallback")]
 #[repr(C)]
 pub struct InvertedIndexGCCallback {
     /// Context pointer passed to the call function.

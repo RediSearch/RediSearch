@@ -14,6 +14,7 @@ use std::{alloc::Layout, borrow::Borrow, fmt::Debug, marker::PhantomData, ptr};
 ///
 /// This is a borrowed, `Copy` type — it does not own the data and will not free it on drop.
 /// Use [`RSOffsetVector`] for owned offset data.
+#[cheadergen::config(rename = "RSOffsetVector")]
 #[repr(C)]
 #[derive(Copy, Clone)]
 pub struct RSOffsetSlice<'index> {

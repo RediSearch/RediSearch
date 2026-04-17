@@ -10,7 +10,7 @@
 
 #include "util/arr.h"
 #include "redismodule.h"
-#include "value.h"
+#include "value_ffi.h"
 
 #ifndef __cplusplus
 #include <stdbool.h>

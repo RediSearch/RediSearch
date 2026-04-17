@@ -9,7 +9,7 @@
 #include "reply.h"
 #include "resp3.h"
 #include "query_error.h"
-#include "value.h"
+#include "value_ffi.h"
 
 #include "rmutil/rm_assert.h"
 

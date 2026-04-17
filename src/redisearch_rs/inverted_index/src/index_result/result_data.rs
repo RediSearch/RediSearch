@@ -20,6 +20,7 @@ use super::term_record::RSTermRecord;
 #[repr(u8)]
 #[derive(Debug, PartialEq)]
 /// cbindgen:prefix-with-name=true
+#[cheadergen::config(prefix_with_name)]
 pub enum RSResultData<'index> {
     Union(RSAggregateResult<'index>) = 1,
     Intersection(RSAggregateResult<'index>) = 2,

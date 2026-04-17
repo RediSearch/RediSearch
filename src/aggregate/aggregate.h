@@ -9,7 +9,7 @@
 #ifndef RS_AGGREGATE_H__
 #define RS_AGGREGATE_H__
 
-#include "value.h"
+#include "value_ffi.h"
 #include "query.h"
 #include "reducer.h"
 #include "result_processor.h"

@@ -14,20 +14,18 @@
 #include <limits.h>
 #include <stdbool.h>
 #include <time.h>
+#include "redisearch_types.h"
 #include "document_rs.h"
 #include "util/dllist.h"
 #include "stemmer.h"
-#include "types_rs.h"
+#include "types_ffi.h"
 #include "query_term.h"
 
-typedef uint64_t t_docId;
 typedef uint64_t t_offset;
 // used to represent the id of a single field.
 // to produce a field mask we calculate 2^fieldId
 typedef uint16_t t_fieldId;
 #define RS_INVALID_FIELD_ID (t_fieldId)-1
-// Used to identify any field index within the spec, not just textual fields
-typedef uint16_t t_fieldIndex;
 #define RS_INVALID_FIELD_INDEX (t_fieldIndex)0xFFFF
 struct timespec;
 typedef struct timespec t_expirationTimePoint;
@@ -38,16 +36,6 @@ typedef uint64_t t_uniqueId;
 #define MAX_UNIQUE_ID_TEXT_LENGTH_UPPER_BOUND ((sizeof(t_uniqueId) * LOG_10_ON_256_UPPER_BOUND) + SIGN_CHAR_LENGTH)
 
 #define DOCID_MAX UINT64_MAX
-
-#if (defined(__x86_64__) || defined(__aarch64__) || defined(__arm64__)) && !defined(RS_NO_U128)
-/* 64 bit architectures use 128 bit field masks and up to 128 fields */
-typedef __uint128_t t_fieldMask;
-#define RS_FIELDMASK_ALL (((__uint128_t)1 << 127) - (__uint128_t)1 + ((__uint128_t)1 << 127))
-#else
-/* 32 bit architectures use 64 bits and 64 fields only */
-typedef uint64_t t_fieldMask;
-#define RS_FIELDMASK_ALL 0xFFFFFFFFFFFFFFFF
-#endif
 
 #include "sorting_vector.h"
 
@@ -127,7 +115,7 @@ typedef struct RSDocumentMetadata_s {
 
   uint16_t ref_count;
 
-  struct RSSortingVector sortVector;
+  RSSortingVector sortVector;
   /* Offsets of all terms in the document (in bytes). Used by highlighter */
   struct RSByteOffsets *byteOffsets;
   struct RSDocumentMetadata_s *nextInChain;

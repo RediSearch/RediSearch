@@ -31,79 +31,150 @@ pub const fn query_error_code_max_value() -> u8 {
 ///
 /// cbindgen:prefix-with-name
 /// cbindgen:rename-all=ScreamingSnakeCase
+#[cheadergen::config(prefix_with_name)]
 #[derive(Clone, Copy, Default, EnumCount, FromRepr, PartialEq, Eq)]
 #[repr(u8)]
 pub enum QueryErrorCode {
     #[default]
+    #[cheadergen(rename = "OK")]
     Ok = 0,
+    #[cheadergen(rename = "GENERIC")]
     Generic,
+    #[cheadergen(rename = "SYNTAX")]
     Syntax,
+    #[cheadergen(rename = "PARSE_ARGS")]
     ParseArgs,
+    #[cheadergen(rename = "ADD_ARGS")]
     AddArgs,
+    #[cheadergen(rename = "EXPR")]
     Expr,
+    #[cheadergen(rename = "KEYWORD")]
     Keyword,
+    #[cheadergen(rename = "NO_RESULTS")]
     NoResults,
+    #[cheadergen(rename = "BAD_ATTR")]
     BadAttr,
+    #[cheadergen(rename = "INVAL")]
     Inval,
+    #[cheadergen(rename = "BUILD_PLAN")]
     BuildPlan,
+    #[cheadergen(rename = "CONSTRUCT_PIPELINE")]
     ConstructPipeline,
+    #[cheadergen(rename = "NO_REDUCER")]
     NoReducer,
+    #[cheadergen(rename = "REDUCER_GENERIC")]
     ReducerGeneric,
+    #[cheadergen(rename = "AGG_PLAN")]
     AggPlan,
+    #[cheadergen(rename = "CURSOR_ALLOC")]
     CursorAlloc,
+    #[cheadergen(rename = "REDUCER_INIT")]
     ReducerInit,
+    #[cheadergen(rename = "Q_STRING")]
     QString,
+    #[cheadergen(rename = "NO_PROP_KEY")]
     NoPropKey,
+    #[cheadergen(rename = "NO_PROP_VAL")]
     NoPropVal,
+    #[cheadergen(rename = "NO_DOC")]
     NoDoc,
+    #[cheadergen(rename = "NO_OPTION")]
     NoOption,
+    #[cheadergen(rename = "REDIS_KEY_TYPE")]
     RedisKeyType,
+    #[cheadergen(rename = "INVAL_PATH")]
     InvalPath,
+    #[cheadergen(rename = "INDEX_EXISTS")]
     IndexExists,
+    #[cheadergen(rename = "BAD_OPTION")]
     BadOption,
+    #[cheadergen(rename = "BAD_ORDER_OPTION")]
     BadOrderOption,
+    #[cheadergen(rename = "LIMIT")]
     Limit,
+    #[cheadergen(rename = "NO_INDEX")]
     NoIndex,
+    #[cheadergen(rename = "DOC_EXISTS")]
     DocExists,
+    #[cheadergen(rename = "DOC_NOT_ADDED")]
     DocNotAdded,
+    #[cheadergen(rename = "DUP_FIELD")]
     DupField,
+    #[cheadergen(rename = "GEO_FORMAT")]
     GeoFormat,
+    #[cheadergen(rename = "NO_DISTRIBUTE")]
     NoDistribute,
+    #[cheadergen(rename = "UNSUPP_TYPE")]
     UnsuppType,
+    #[cheadergen(rename = "TIMED_OUT")]
     TimedOut,
+    #[cheadergen(rename = "NO_PARAM")]
     NoParam,
+    #[cheadergen(rename = "DUP_PARAM")]
     DupParam,
+    #[cheadergen(rename = "BAD_VAL")]
     BadVal,
+    #[cheadergen(rename = "NON_HYBRID")]
     NonHybrid,
+    #[cheadergen(rename = "HYBRID_NON_EXIST")]
     HybridNonExist,
+    #[cheadergen(rename = "ADHOC_WITH_BATCH_SIZE")]
     AdhocWithBatchSize,
+    #[cheadergen(rename = "ADHOC_WITH_EF_RUNTIME")]
     AdhocWithEfRuntime,
+    #[cheadergen(rename = "NON_RANGE")]
     NonRange,
+    #[cheadergen(rename = "MISSING")]
     Missing,
+    #[cheadergen(rename = "MISMATCH")]
     Mismatch,
+    #[cheadergen(rename = "DROPPED_BACKGROUND")]
     DroppedBackground,
+    #[cheadergen(rename = "ALIAS_CONFLICT")]
     AliasConflict,
+    #[cheadergen(rename = "INDEX_BG_OOM_FAIL")]
     IndexBgOOMFail,
+    #[cheadergen(rename = "WEIGHT_NOT_ALLOWED")]
     WeightNotAllowed,
+    #[cheadergen(rename = "VECTOR_NOT_ALLOWED")]
     VectorNotAllowed,
+    #[cheadergen(rename = "OUT_OF_MEMORY")]
     OutOfMemory,
+    #[cheadergen(rename = "UNAVAILABLE_SLOTS")]
     UnavailableSlots,
+    #[cheadergen(rename = "FLEX_LIMIT_NUMBER_OF_INDEXES")]
     FlexLimitNumberOfIndexes,
+    #[cheadergen(rename = "FLEX_UNSUPPORTED_FIELD")]
     FlexUnsupportedField,
+    #[cheadergen(rename = "FLEX_UNSUPPORTED_FT_CREATE_ARGUMENT")]
     FlexUnsupportedFTCreateArgument,
+    #[cheadergen(rename = "DISK_CREATION")]
     DiskCreation,
+    #[cheadergen(rename = "FLEX_SKIP_INITIAL_SCAN_MISSING_ARGUMENT")]
     FlexSkipInitialScanMissingArgument,
+    #[cheadergen(rename = "VECTOR_BLOB_SIZE_MISMATCH")]
     VectorBlobSizeMismatch,
+    #[cheadergen(rename = "VECTOR_LEN_BAD")]
     VectorLenBad,
+    #[cheadergen(rename = "NUMERIC_VALUE_INVALID")]
     NumericValueInvalid,
+    #[cheadergen(rename = "ARG_UNRECOGNIZED")]
     ArgUnrecognized,
+    #[cheadergen(rename = "GEO_COORDINATES_INVALID")]
     GeoCoordinatesInvalid,
+    #[cheadergen(rename = "JSON_TYPE_BAD")]
     JsonTypeBad,
+    #[cheadergen(rename = "CLUSTER_NO_RESPONSES")]
     ClusterNoResponses,
+    #[cheadergen(rename = "FLEX_SEARCH_NOCONTENT_OR_RETURN0_REQUIRED")]
     FlexSearchNocontentOrReturn0Required,
+    #[cheadergen(rename = "FLEX_SEARCH_LOAD_UNSUPPORTED")]
     FlexSearchLoadUnsupported,
+    #[cheadergen(rename = "FLEX_UNSUPPORTED_ARGUMENT")]
     FlexUnsupportedArgument,
+    #[cheadergen(rename = "SAFE_DEPLETER_FAILURE")]
     SafeDepleterFailure,
+    #[cheadergen(rename = "FLEX_UNSUPPORTED_QUERY")]
     FlexUnsupportedQuery,
 }
 
@@ -606,16 +677,24 @@ impl QueryError {
 // be passed to functions and easily handled via switch/case logic.
 /// cbindgen:prefix-with-name
 /// cbindgen:rename-all=ScreamingSnakeCase
+#[cheadergen::config(prefix_with_name)]
 #[derive(Clone, Copy, Debug, Default, FromRepr, PartialEq, Eq)]
 #[repr(u8)]
 pub enum QueryWarningCode {
     #[default]
+    #[cheadergen(rename = "OK")]
     Ok = 0,
+    #[cheadergen(rename = "TIMED_OUT")]
     TimedOut,
+    #[cheadergen(rename = "REACHED_MAX_PREFIX_EXPANSIONS")]
     ReachedMaxPrefixExpansions,
+    #[cheadergen(rename = "OUT_OF_MEMORY_SHARD")]
     OutOfMemoryShard,
+    #[cheadergen(rename = "OUT_OF_MEMORY_COORD")]
     OutOfMemoryCoord,
+    #[cheadergen(rename = "UNAVAILABLE_SLOTS")]
     UnavailableSlots,
+    #[cheadergen(rename = "ASM_INACCURATE_RESULTS")]
     AsmInaccurateResults,
 }
 
@@ -674,6 +753,7 @@ pub mod opaque {
     ///
     /// The size and alignment of this struct must match the Rust `QueryError`
     /// structure exactly.
+    #[cheadergen::config(rename = "QueryError")]
     #[repr(C, align(8))]
     pub struct OpaqueQueryError(Size<38>);
 

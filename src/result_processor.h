@@ -11,7 +11,7 @@
 
 #include "redisearch.h"
 #include "sortable.h"
-#include "value.h"
+#include "value_ffi.h"
 #include "concurrent_ctx.h"
 #include "search_ctx.h"
 #include "iterators/iterator_api.h"
@@ -24,7 +24,7 @@
 #include "hybrid/hybrid_scoring.h"
 #include "hybrid/hybrid_lookup_context.h"
 #include "vector_normalization.h"
-#include "result_processor_rs.h"
+#include "result_processor_ffi.h"
 #include "search_result.h"
 #include "slot_ranges.h"
 

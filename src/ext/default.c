@@ -14,7 +14,7 @@
 
 #include "redisearch.h"
 #include "spec.h"
-#include "types_rs.h"
+#include "types_ffi.h"
 #include "query.h"
 #include "synonym_map.h"
 #include "snowball/include/libstemmer.h"

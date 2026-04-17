@@ -390,6 +390,7 @@ pub mod opaque {
     ///
     /// The size and alignment of this struct must match the Rust `RLookupRow`
     /// structure exactly.
+    #[cheadergen::config(rename = "RLookupRow")]
     #[repr(C, align(8))]
     pub struct OpaqueRLookupRow(Size<24>);
 

@@ -23,7 +23,7 @@
 #include "gc.h"
 #include "module.h"
 #include "suffix.h"
-#include "triemap.h"
+#include "triemap_ffi.h"
 #include "util/workers.h"
 #include "cursor.h"
 #include "module.h"

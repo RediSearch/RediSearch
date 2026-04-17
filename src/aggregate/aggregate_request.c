@@ -25,7 +25,7 @@
 #include "obfuscation/hidden.h"
 #include "hybrid/vector_query_utils.h"
 #include "vector_index.h"
-#include "slots_tracker.h"
+#include "slots_tracker_ffi.h"
 #include "asm_state_machine.h"
 #include "coord/rmr/command.h"
 #include "search_disk.h"

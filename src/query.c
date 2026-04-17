@@ -20,7 +20,7 @@
 #include "redis_index.h"
 #include "iterators_rs.h"
 #include "tokenize.h"
-#include "triemap.h"
+#include "triemap_ffi.h"
 #include "util/logging.h"
 #include "extension.h"
 #include "ext/default.h"
@@ -46,7 +46,7 @@
 #include "iterators/optimizer_reader.h"
 #include "search_disk.h"
 #include "shard_window_ratio.h"
-#include "idf.h"
+#include "idf_ffi.h"
 #include "doc_id_meta.h"
 #define EFFECTIVE_FIELDMASK(q_, qn_) ((qn_)->opts.fieldMask & (q)->opts->fieldmask)
 

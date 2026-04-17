@@ -29,6 +29,7 @@ pub mod trio;
 pub mod util;
 
 /// An actual [`RsValue`] object
+#[cheadergen::config(rename = "RSValue")]
 #[derive(Debug)]
 pub enum RsValue {
     /// Undefined, not holding a value.

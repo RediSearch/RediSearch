@@ -7,12 +7,12 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "index_result.h"
-#include "types_rs.h"
+#include "types_ffi.h"
 #include "rmalloc.h"
 #include <math.h>
 #include <sys/param.h>
 #include "util/arr.h"
-#include "value.h"
+#include "value_ffi.h"
 
 void RSYieldableMetric_Concat(RSYieldableMetric **parent, RSYieldableMetric *child) {
   if (child) {

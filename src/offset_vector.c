@@ -9,8 +9,8 @@
 #include <pthread.h>
 
 #include "redisearch.h"
-#include "types_rs.h"
-#include "varint.h"
+#include "types_ffi.h"
+#include "varint_ffi.h"
 #include "rmalloc.h"
 #include "util/mempool.h"
 #include <sys/param.h>

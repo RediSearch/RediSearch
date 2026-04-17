@@ -10,6 +10,7 @@
 
 #include "redismodule.h"
 #include "hiredis/sds.h"
+#include "rmutil/args.h"
 #include "query_error.h"
 #include "reply.h"
 #include "util/config_macros.h"

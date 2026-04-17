@@ -15,7 +15,7 @@
 #include "function.h"
 #include "rmalloc.h"
 
-#include "value.h"
+#include "value_ffi.h"
 
 #include <ctype.h>
 

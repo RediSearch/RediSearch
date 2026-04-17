@@ -8,7 +8,7 @@
 */
 #pragma once
 
-#include "value.h"
+#include "value_ffi.h"
 #include "util/timeout.h"
 #include "iterators/iterator_api.h"
 

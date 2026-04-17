@@ -17,7 +17,7 @@
 #include "index_utils.h"
 #include "iterators_rs.h"
 #include "inverted_index.h"
-#include "types_rs.h"
+#include "types_ffi.h"
 
 
 // Test optional iterator with empty child iterator (all virtual hits)

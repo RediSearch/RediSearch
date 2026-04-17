@@ -13,7 +13,7 @@ extern "C" {
 #endif
 
 #include "trie/trie_type.h"
-#include "triemap.h"
+#include "triemap_ffi.h"
 #include "util/arr.h"
 
 #define MIN_SUFFIX 2

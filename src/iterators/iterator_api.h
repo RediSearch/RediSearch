@@ -13,7 +13,7 @@
 #include <stdint.h>
 #include "redisearch.h"
 #include "index_result.h" // IWYU pragma: keep
-#include "iterator_type.h"
+#include "iterator_type_ffi.h"
 
 struct RLookupKey; // Forward declaration
 

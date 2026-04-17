@@ -21,6 +21,7 @@ use std::{borrow::Cow, ffi::CStr, pin::Pin, ptr};
 pub use key::{GET_KEY_FLAGS, RLookupKey, RLookupKeyFlag, RLookupKeyFlags, TRANSIENT_FLAGS};
 pub use key_list::{Cursor, CursorMut};
 
+#[cheadergen::config(rename = "RLookup_Opt")]
 #[bitflags]
 #[repr(u32)]
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -36,6 +37,7 @@ pub enum RLookupOption {
 
 /// Helper type to represent a set of [`RLookupOption`]s.
 /// cbindgen:ignore
+#[cheadergen::config(skip)]
 pub type RLookupOptions = BitFlags<RLookupOption>;
 
 /// An append-only list of [`RLookupKey`]s.
@@ -493,6 +495,7 @@ pub mod opaque {
     ///
     /// The size and alignment of this struct must match the Rust `RLookup`
     /// structure exactly.
+    #[cheadergen::config(rename = "RLookup")]
     #[repr(C, align(8))]
     pub struct OpaqueRLookup(Size<40>);
 

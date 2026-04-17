@@ -1,0 +1,72 @@
+pragma_once = true
+
+[package.ffi]
+types = "skip"
+
+[package.libc]
+types = "skip"
+
+[package.buffer]
+types = "skip"
+
+[package.document]
+# Avoid a name conflict with the pre-existing `document.h` header file.
+header_name = "document_rs"
+
+[c]
+cpp_compat = true
+
+[header.field]
+includes = ["redisearch_types.h"]
+
+[header.inverted_index]
+includes = ["redisearch_types.h"]
+
+[header.inverted_index_ffi]
+includes = ["redisearch_types.h", "config.h", "search_ctx.h", "spec.h"]
+
+[header.iterators_ffi]
+includes = ["redisearch.h", "<time.h>", "iterators/iterator_api.h", "tag_index.h", "query.h"]
+after_includes = """
+// In C, timespec is a struct tag, not a typedef. Rust's libc::timespec maps to
+// the bare name, so we introduce a typedef to make it valid C.
+typedef struct timespec timespec;
+"""
+
+[header.iterators_rs]
+includes = ["redisearch_types.h"]
+
+[header.module_init_ffi]
+includes = ["redismodule.h"]
+
+[header.query_term_ffi]
+includes = ["redisearch.h"]
+
+[header.search_result]
+includes = ["redisearch_types.h"]
+
+[header.triemap_ffi]
+includes = ["<time.h>"]
+after_includes = """
+// In C, timespec is a struct tag, not a typedef. Rust's libc::timespec maps to
+// the bare name, so we introduce a typedef to make it valid C.
+typedef struct timespec timespec;
+"""
+
+[header.types_ffi]
+includes = ["redisearch_types.h"]
+
+[header.numeric_range_tree_ffi]
+includes = ["redisearch.h", "redismodule.h"]
+
+[header.search_result_ffi]
+includes = ["redisearch.h", "score_explain.h"]
+
+[header.slots_tracker_ffi]
+includes = ["redismodule.h"]
+
+[header.value_ffi]
+includes = ["redismodule.h", "query_error.h", "hiredis/sds.h"]
+
+[header.varint_ffi]
+includes = ["buffer.h", "redisearch.h"]

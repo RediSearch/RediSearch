@@ -13,6 +13,7 @@ use value::RsValue;
 /// Enumeration of the types an [`RsValue`] can be of.
 ///
 /// cbindgen:prefix-with-name
+#[cheadergen::config(prefix_with_name, rename = "RSValueType")]
 #[repr(C)]
 #[derive(Debug)]
 pub enum RsValueType {

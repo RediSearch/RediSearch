@@ -16,7 +16,7 @@
 #include "query_parser/tokenizer.h"
 #include "spec.h"
 #include "tokenize.h"
-#include "varint.h"
+#include "varint_ffi.h"
 
 #include "rmutil/alloc.h"
 

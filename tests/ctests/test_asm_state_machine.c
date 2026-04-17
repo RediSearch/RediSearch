@@ -11,7 +11,7 @@
 #include "slot_ranges.h"
 #include "rmalloc.h"
 #include "asm_state_machine.h"
-#include "slots_tracker.h"
+#include "slots_tracker_ffi.h"
 #include "test_util.h"
 #include "rmutil/alloc.h"
 

@@ -19,6 +19,7 @@ use super::kind::RSResultKindMask;
 /// the `ThinVec` which needs to exist in Rust's memory space to ensure its memory is
 /// managed correctly.
 /// cbindgen:prefix-with-name=true
+#[cheadergen::config(prefix_with_name)]
 #[repr(u8)]
 #[derive(Debug, PartialEq)]
 pub enum RSAggregateResult<'index> {

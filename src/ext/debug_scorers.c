@@ -24,7 +24,7 @@
 
 #include "debug_scorers.h"
 #include "redisearch.h"
-#include "types_rs.h"
+#include "types_ffi.h"
 #include "score_explain.h"
 #include "extension.h"
 

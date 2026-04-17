@@ -12,6 +12,7 @@ use ffi::{RS_FIELDMASK_ALL, RS_INVALID_FIELD_INDEX, t_fieldIndex, t_fieldMask};
 #[repr(u8)]
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
 /// cbindgen:prefix-with-name=true
+#[cheadergen::config(prefix_with_name)]
 /// Type representing either a field mask or field index.
 pub enum FieldMaskOrIndex {
     /// For textual fields, allows to host multiple field indices at once.
@@ -37,10 +38,13 @@ impl FieldMaskOrIndex {
 #[repr(C)]
 /// cbindgen:prefix-with-name
 /// cbindgen:rename-all=ScreamingSnakeCase
+#[cheadergen::config(export)]
 pub enum FieldExpirationPredicate {
     /// one of the fields need to be valid.
+    #[cheadergen(rename = "FIELD_EXPIRATION_PREDICATE_DEFAULT")]
     Default = 0,
     /// one of the fields need to be expired for the entry to be considered missing.
+    #[cheadergen(rename = "FIELD_EXPIRATION_PREDICATE_MISSING")]
     Missing = 1,
 }
 
@@ -54,6 +58,7 @@ impl FieldExpirationPredicate {
 /// Field filter context used when querying fields.
 #[derive(Debug)]
 #[repr(C)]
+#[cheadergen::config(export)]
 pub struct FieldFilterContext {
     /// the field mask or index to filter on.
     pub field: FieldMaskOrIndex,

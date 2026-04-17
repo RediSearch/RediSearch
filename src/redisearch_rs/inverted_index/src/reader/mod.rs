@@ -72,6 +72,7 @@ pub trait TermReader<'index>: IndexReader<'index> {
 /// Filter to apply when reading from an index. Entries which don't match the filter will not be
 /// returned by the reader.
 /// cbindgen:prefix-with-name=true
+#[cheadergen::config(prefix_with_name, rename = "IndexDecoderCtx")]
 #[repr(u8)]
 #[derive(Debug)]
 pub enum ReadFilter<'numeric_filter> {

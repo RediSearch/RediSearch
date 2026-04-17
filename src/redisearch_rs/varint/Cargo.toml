@@ -13,4 +13,5 @@ proptest = { workspace = true, features = ["std"] }
 proptest-derive = { workspace = true }
 
 [dependencies]
+cheadergen.workspace = true
 workspace_hack.workspace = true

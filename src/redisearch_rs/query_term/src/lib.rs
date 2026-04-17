@@ -22,6 +22,7 @@ use std::fmt;
 /// since 1 bit is reserved for the `expanded` flag on [`RSToken`].
 ///
 /// [`RSToken`]: https://github.com/RediSearch/RediSearch
+#[cheadergen::config(export)]
 pub type RSTokenFlags = u32;
 
 /// A single term being evaluated at query time.

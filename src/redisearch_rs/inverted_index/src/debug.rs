@@ -13,6 +13,7 @@ use ffi::t_docId;
 use redis_reply::ArrayBuilder;
 
 /// Summary information about an inverted index containing all key metrics
+#[cheadergen::config(rename = "IISummary")]
 #[repr(C)]
 #[derive(Debug, PartialEq)]
 pub struct Summary {
@@ -48,6 +49,7 @@ impl Summary {
 }
 
 /// Summary information about the key metrics of a block in an inverted index
+#[cheadergen::config(rename = "IIBlockSummary")]
 #[repr(C)]
 #[derive(Debug, PartialEq)]
 pub struct BlockSummary {

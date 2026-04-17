@@ -33,7 +33,8 @@
 
 use std::{cell::UnsafeCell, pin::Pin, ptr};
 
-include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
+// include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
+include!("bindings.rs");
 
 /// Access to the RediSearch Module context
 pub mod context;

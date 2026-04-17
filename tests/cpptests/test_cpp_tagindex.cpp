@@ -8,7 +8,7 @@
 */
 
 #include "tag_index.h"
-#include "triemap.h"
+#include "triemap_ffi.h"
 #include "gtest/gtest.h"
 #include "index_utils.h"
 

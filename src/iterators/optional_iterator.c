@@ -9,7 +9,7 @@
 
 #include "optional_iterator.h"
 #include "iterator_api.h"
-#include "types_rs.h"
+#include "types_ffi.h"
 #include "iterators_rs.h"
 
 typedef struct {

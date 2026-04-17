@@ -10,5 +10,5 @@
 use build_utils::run_cbindgen;
 
 fn main() {
-    run_cbindgen("../../headers/thin_vec.h").unwrap();
+    run_cbindgen("../../old_headers/thin_vec.h").unwrap();
 }
