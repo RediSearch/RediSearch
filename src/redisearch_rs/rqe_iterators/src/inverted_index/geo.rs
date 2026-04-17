@@ -62,17 +62,18 @@ pub unsafe fn build_geo_numeric_filters<'index>(
         if range.min == range.max {
             continue;
         }
-        let filt_ptr = Box::into_raw(Box::new(NumericFilter {
-            min: range.min,
-            max: range.max,
-            field_spec: gf.fieldSpec,
-            geo_filter: (gf as *const GeoFilter).cast(),
-            min_inclusive: true,
-            max_inclusive: true,
-            ascending: true,
-            limit: 0,
-            offset: 0,
-        }));
+        // SAFETY: gf.fieldSpec is valid per the caller's safety contract.
+        let filt_ptr = unsafe {
+            ffi::NewNumericFilter(
+                range.min,
+                range.max,
+                true, // inclusiveMin
+                true, // inclusiveMax
+                true, // ascending
+                gf.fieldSpec,
+                (gf as *const GeoFilter).cast(),
+            )
+        } as *mut NumericFilter;
         // SAFETY: numeric_filters is a valid array of GEO_RANGE_COUNT elements; ii is in bounds.
         unsafe { (*numeric_filters)[ii] = filt_ptr };
         // SAFETY: filt_ptr is exclusively owned and lives for 'index (stored in gf).

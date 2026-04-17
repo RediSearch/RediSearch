@@ -420,7 +420,7 @@ QueryNode* RediSearch_CreateNumericNode(RefManager* rm, const char* field, doubl
   QueryNode* ret = NewQueryNode(QN_NUMERIC);
   const size_t len = strlen(field);
   const FieldSpec *fs = IndexSpec_GetFieldWithLength(__RefManager_Get_Object(rm), field, len);
-  ret->nn.nf = NewNumericFilter(min, max, includeMin, includeMax, true, fs);
+  ret->nn.nf = NewNumericFilter(min, max, includeMin, includeMax, true, fs, NULL);
   ret->opts.fieldMask = IndexSpec_GetFieldBit(__RefManager_Get_Object(rm), field, len);
   return ret;
 }
