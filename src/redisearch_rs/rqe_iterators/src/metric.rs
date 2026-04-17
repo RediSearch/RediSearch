@@ -193,4 +193,8 @@ impl<'index, const SORTED_BY_ID: bool> RQEIterator<'index> for Metric<'index, SO
             IteratorType::MetricSortedByScore
         }
     }
+
+    fn intersection_sort_weight(&self, _prioritize_union_children: bool) -> f64 {
+        1.0
+    }
 }

@@ -16,7 +16,7 @@ ffi.workspace = true
 libc.workspace = true
 sorting_vector.workspace = true
 thin_vec.workspace = true
-value = { workspace = true, features = ["c_ffi_impl"] }
+value.workspace = true
 workspace_hack.workspace = true
 
 [build-dependencies]

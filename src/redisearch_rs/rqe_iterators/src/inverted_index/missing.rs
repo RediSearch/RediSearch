@@ -129,6 +129,22 @@ where
     pub const fn reader(&self) -> &IndexReaderCore<'index, E> {
         &self.it.reader
     }
+
+    /// Get the field name tracked by this missing-field iterator.
+    pub fn field_name(&self) -> (*const std::ffi::c_char, usize) {
+        // SAFETY: the constructor guarantees `context` is valid for the iterator lifetime.
+        let sctx = unsafe { self.context.as_ref() };
+        // SAFETY: the constructor guarantees `spec` is non-null and valid.
+        let spec = unsafe { &*sctx.spec };
+        // SAFETY: the constructor guarantees `field_index` indexes `spec.fields`.
+        let field_ptr = unsafe { spec.fields.add(self.field_index as usize) };
+        // SAFETY: `field_ptr` was derived from a valid `spec.fields` base and an in-bounds index.
+        let field = unsafe { &*field_ptr };
+        let mut len = 0;
+        // SAFETY: `field.fieldName` belongs to the spec and remains valid while the spec lives.
+        let name = unsafe { ffi::HiddenString_GetUnsafe(field.fieldName, &mut len) };
+        (name, len)
+    }
 }
 
 impl<'index, E, C> RQEIterator<'index> for Missing<'index, E, C>
@@ -187,5 +203,9 @@ where
     #[inline(always)]
     fn type_(&self) -> IteratorType {
         IteratorType::InvIdxMissing
+    }
+
+    fn intersection_sort_weight(&self, _prioritize_union_children: bool) -> f64 {
+        1.0
     }
 }

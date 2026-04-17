@@ -431,6 +431,14 @@ where
     fn type_(&self) -> IteratorType {
         IteratorType::Union
     }
+
+    fn intersection_sort_weight(&self, prioritize_union_children: bool) -> f64 {
+        if prioritize_union_children {
+            self.children.len().max(1) as f64
+        } else {
+            1.0
+        }
+    }
 }
 
 impl<'index, const QUICK_EXIT: bool> crate::interop::ProfileChildren<'index>

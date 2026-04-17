@@ -19,7 +19,7 @@ jobs:
       - name: Setup sccache
         uses: ./.github/actions/setup-sccache
       - name: Build RediSearch
-        run: make build
+        run: make build LTO=1
       - name: Download Latest Baseline Artifact from master
         id: get-artifact
         if: github.event_name == 'pull_request'

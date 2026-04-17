@@ -124,7 +124,7 @@ impl MockContext {
         NonNull::new(self.sctx).expect("RedisSearchCtx should not be null")
     }
 
-    /// Get the query evaluation context.
+    /// Get the query evaluation context from the [`MockContext`].
     pub const fn qctx(&self) -> NonNull<ffi::QueryEvalCtx> {
         NonNull::new(self.qctx).expect("QueryEvalCtx should not be null")
     }

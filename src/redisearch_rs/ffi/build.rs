@@ -69,7 +69,6 @@ fn main() {
         src.join("doc_table.h"),
         src.join("forward_index.h"),
         src.join("index_result").join("index_result.h"),
-        src.join("iterators").join("intersection_iterator.h"),
         src.join("iterators").join("optional_iterator.h"),
         src.join("iterators").join("union_iterator.h"),
         src.join("json.h"),
@@ -98,7 +97,6 @@ fn main() {
         src.join("util").join("arr").join("arr.h"),
         src.join("util").join("dict").join("dict.h"),
         src.join("util").join("references.h"),
-        src.join("value").join("value.h"),
     ];
 
     let mut bindings = bindgen::Builder::default();

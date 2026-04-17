@@ -332,6 +332,10 @@ where
     fn type_(&self) -> IteratorType {
         IteratorType::NotOptimized
     }
+
+    fn intersection_sort_weight(&self, _prioritize_union_children: bool) -> f64 {
+        1.0
+    }
 }
 
 impl<'index, W> NotIterator<'index>

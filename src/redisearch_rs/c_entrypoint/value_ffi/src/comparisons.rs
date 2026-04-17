@@ -8,10 +8,10 @@
 */
 
 use crate::util::expect_value;
-use query_error::{QueryError, QueryErrorCode};
-use std::{cmp::Ordering, ffi::c_int};
+use query_error::QueryError;
+use std::ffi::c_int;
 use value::RsValue;
-use value::comparison::{CompareError, compare};
+use value::comparison::{compare_on_equality_only, compare_with_query_error_to_int};
 
 /// Compare two [`RsValue`]s, returning `-1` if `v1 < v2`, `0` if `v1 == v2`,
 /// or `1` if `v1 > v2`.
@@ -37,35 +37,10 @@ pub unsafe extern "C" fn RSValue_Cmp(
     // SAFETY: ensured by caller (1.)
     let v2 = unsafe { expect_value(v2) };
 
-    // This is a performance optimization to check for string comparisons early
-    // as that is used most often in searches and aggregates.
-    if let (RsValue::String(s1), RsValue::String(s2)) = (v1, v2) {
-        return match s1.as_bytes().cmp(s2.as_bytes()) {
-            Ordering::Less => -1,
-            Ordering::Equal => 0,
-            Ordering::Greater => 1,
-        };
-    }
+    // SAFETY: ensured by caller (2.)
+    let qerr = unsafe { status.as_mut() };
 
-    match compare(v1, v2, status.is_null()) {
-        Ok(Ordering::Less) => -1,
-        Ok(Ordering::Equal) => 0,
-        Ok(Ordering::Greater) => 1,
-        Err(CompareError::NaNFloat) => 0,
-        Err(CompareError::MapComparison) => 0,
-        Err(CompareError::IncompatibleAgainstString(Ordering::Less)) => -1,
-        Err(CompareError::IncompatibleAgainstString(Ordering::Equal)) => 0,
-        Err(CompareError::IncompatibleAgainstString(Ordering::Greater)) => 1,
-        Err(CompareError::IncompatibleTypes) => 0,
-        Err(CompareError::NoNumberToStringFallback) => {
-            // SAFETY: `status` is non-null because `num_to_str_cmp_fallback` was
-            // `false` (set from `status.is_null()`), and ensured valid by caller (2.)
-            let query_error = unsafe { status.as_mut().unwrap() };
-            let message = c"Error converting string".to_owned();
-            query_error.set_code_and_message(QueryErrorCode::NumericValueInvalid, Some(message));
-            0
-        }
-    }
+    compare_with_query_error_to_int(v1, v2, qerr)
 }
 
 /// Check whether two [`RsValue`]s are equal, returning `true` if they are and
@@ -87,17 +62,7 @@ pub unsafe extern "C" fn RSValue_Equal(
     // SAFETY: ensured by caller (1.)
     let v2 = unsafe { expect_value(v2) };
 
-    match compare(v1, v2, false) {
-        Ok(Ordering::Less) => false,
-        Ok(Ordering::Equal) => true,
-        Ok(Ordering::Greater) => false,
-        Err(CompareError::NaNFloat) => true,
-        Err(CompareError::MapComparison) => true,
-        Err(CompareError::IncompatibleAgainstString(Ordering::Equal)) => true,
-        Err(CompareError::IncompatibleAgainstString(_)) => false,
-        Err(CompareError::IncompatibleTypes) => true,
-        Err(CompareError::NoNumberToStringFallback) => false,
-    }
+    compare_on_equality_only(v1, v2)
 }
 
 /// Test whether an [`RsValue`] is "truthy".

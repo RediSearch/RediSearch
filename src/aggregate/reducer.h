@@ -169,6 +169,7 @@ Reducer *RDCRFirstValue_New(const ReducerOptions *);
 Reducer *RDCRRandomSample_New(const ReducerOptions *);
 Reducer *RDCRHLL_New(const ReducerOptions *);
 Reducer *RDCRHLLSum_New(const ReducerOptions *);
+Reducer *RDCRCollect_New(const ReducerOptions *);
 
 typedef Reducer *(*ReducerFactory)(const ReducerOptions *);
 ReducerFactory RDCR_GetFactory(const char *name);

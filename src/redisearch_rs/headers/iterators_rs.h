@@ -98,7 +98,14 @@ QueryIterator *NewUnsortedIdListIterator(t_docId *ids, uint64_t num, double weig
  * Create a new intersection iterator.
  *
  * Takes ownership of both the `its` array and all child iterators it contains.
- * Delegates reduction to the C `IntersectionIteratorReducer` before constructing the iterator.
+ * Applies reduction rules before
+ * constructing the iterator:
+ *
+ * 0. No children → empty iterator.
+ * 1. Strip wildcard children. All wildcards → return the last one.
+ * 2. Any empty child → free all, return empty iterator.
+ * 3. Exactly one real child → return it directly.
+ * 4. Two or more real children → build a full intersection.
  *
  * # Safety
  *
@@ -203,6 +210,17 @@ IndexFlags InvIndIterator_GetReaderFlags(const QueryIterator *it);
 QueryIterator *NewInvIndIterator_MissingQuery(const InvertedIndex *idx,
                                               const RedisSearchCtx *sctx,
                                               t_fieldIndex field_index);
+
+/**
+ * Gets the field name used by a missing-field inverted index iterator.
+ *
+ * # Safety
+ *
+ * 1. `it` must be a valid non-NULL pointer to a `QueryIterator`.
+ * 2. `it` must have type [`IteratorType::InvIdxMissing`].
+ * 3. `out_len` must be a valid writable pointer.
+ */
+const char *InvIndMissingIterator_GetFieldName(const QueryIterator *it, size_t *out_len);
 
 /**
  * Creates a new numeric inverted index iterator for querying numeric fields.

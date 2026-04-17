@@ -318,4 +318,8 @@ where
             "InvIndIterator::type_() should not be called directly; use the specific iterator type"
         )
     }
+
+    fn intersection_sort_weight(&self, _prioritize_union_children: bool) -> f64 {
+        1.0
+    }
 }

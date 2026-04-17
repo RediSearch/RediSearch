@@ -13,63 +13,10 @@
 //! - `max_slop`: Maximum allowed slop between term positions (`None` = no constraint)
 //! - `in_order`: Require terms to appear in order
 
-use crate::{
-    IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
-    c2rust::CRQEIterator, interop::RQEIteratorWrapper,
-};
+use crate::{IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
 
 use ffi::t_docId;
 use inverted_index::{RSIndexResult, ResultMetrics_Reset_func};
-
-/// Returns the sort weight for a child iterator, used by [`Intersection`] to order its children
-/// before query execution. A lower value causes the child to act as the pivot, minimising
-/// `SkipTo` calls. The final sort key is `num_estimated * sort_weight`.
-///
-/// Heuristics by type, resolved via [`RQEIterator::as_c_iterator`] + `c.type_`:
-/// - `INTERSECT_ITERATOR`: always a Rust [`Intersection`] wrapped by [`crate::interop::RQEIteratorWrapper`];
-///   weight is `1.0 / num_children`, read directly via [`crate::interop::RQEIteratorWrapper::ref_from_header_ptr`].
-/// - `UNION_ITERATOR`: native C iterator; [`ffi::UnionIterator::num`] cast from the base pointer,
-///   weighted by `num_children` when `prioritize_union_children` is `true`, else `1.0`.
-/// - Everything else (including pure-Rust iterators): `1.0`.
-fn sort_weight<'index, I: RQEIterator<'index>>(iter: &I, prioritize_union_children: bool) -> f64 {
-    // FIXME: pure-Rust iterators (including nested `Intersection`) return `None` here,
-    // so the `INTERSECT_ITERATOR` weight heuristic is silently skipped for them — a
-    // footgun when children are `Box<dyn RQEIterator>`. Not hit in production today
-    // because `NewIntersectionIterator` always produces `CRQEIterator` children.
-    // Will need redesigning when `CRQEIterator` is removed during the full Rust migration.
-    let Some(c) = iter.as_c_iterator() else {
-        return 1.0;
-    };
-    let ptr = std::ptr::from_ref(c.as_ref());
-    match c.type_ {
-        ffi::IteratorType::Intersect => {
-            // SAFETY:
-            // - `type_` guarantees `ptr` was produced by `RQEIteratorWrapper::boxed_new` with
-            //   `Intersection<CRQEIterator>` as the inner type (`NewIntersectionIterator` is the
-            //   sole constructor and always uses that concrete type).
-            // - `ref_from_header_ptr` uses the compiler-computed field offset for `inner` rather
-            //   than manual `size_of` arithmetic, making it immune to alignment padding between
-            //   `header` and `inner` in `RQEIteratorWrapper`.
-            let n = unsafe {
-                RQEIteratorWrapper::<Intersection<'index, CRQEIterator>>::ref_from_header_ptr(ptr)
-                    .inner
-                    .num_children()
-            };
-            if n == 0 { 1.0 } else { 1.0 / n as f64 }
-        }
-        ffi::IteratorType::Union => {
-            if prioritize_union_children {
-                // SAFETY: `type_` guarantees `ptr` points to a `UnionIterator` whose first field
-                // is the `QueryIterator` base — the cast is valid by C struct layout.
-                let num = unsafe { (*ptr.cast::<ffi::UnionIterator>()).num };
-                num as f64
-            } else {
-                1.0
-            }
-        }
-        _ => 1.0,
-    }
-}
 
 /// Yields documents appearing in ALL child iterators using a merge (AND) algorithm.
 ///
@@ -149,8 +96,10 @@ where
             children,
             weight,
             |a, b| {
-                let wa = a.num_estimated() as f64 * sort_weight(a, prioritize_union_children);
-                let wb = b.num_estimated() as f64 * sort_weight(b, prioritize_union_children);
+                let wa = a.num_estimated() as f64
+                    * a.intersection_sort_weight(prioritize_union_children);
+                let wb = b.num_estimated() as f64
+                    * b.intersection_sort_weight(prioritize_union_children);
                 wa.total_cmp(&wb)
             },
             max_slop,
@@ -375,6 +324,83 @@ where
     }
 }
 
+/// Outcome of [`new_intersection_iterator`].
+pub enum NewIntersectionIterator<I> {
+    /// One child was empty — the intersection is trivially empty.
+    /// All other children have already been dropped.
+    Empty,
+    /// Exactly one child survived (or all children were wildcards —
+    /// the last one is returned). No intersection wrapper is needed.
+    Single(I),
+    /// Two or more real, non-wildcard children: build a full [`Intersection`].
+    Proceed(Vec<I>),
+}
+
+/// Reduce `children` before constructing an intersection.
+///
+/// 0. No children → `Empty`.
+/// 1. Strip wildcards. If all were wildcards → `Single(last_wildcard)`. Any wildcard would be
+///    correct (they all match every document); we keep the last as a natural artifact of the
+///    iteration that overwrites `last_wildcard` on each new wildcard seen.
+/// 2. Any empty child → `Empty` (all others are dropped).
+/// 3. Exactly one non-wildcard child → `Single(child)`.
+/// 4. Two or more real children → `Proceed(children)`.
+pub fn new_intersection_iterator<'index, I>(children: Vec<I>) -> NewIntersectionIterator<I>
+where
+    I: RQEIterator<'index>,
+{
+    // Rule 0
+    if children.is_empty() {
+        return NewIntersectionIterator::Empty;
+    }
+
+    // Rule 1: strip wildcards, keep track of the last one seen before any non-wildcard
+    let mut last_wildcard: Option<I> = None;
+    let mut kept: Vec<I> = Vec::with_capacity(children.len());
+    let mut seen_non_wildcard = false;
+
+    for child in children {
+        if matches!(
+            child.type_(),
+            IteratorType::Wildcard | IteratorType::InvIdxWildcard
+        ) {
+            if seen_non_wildcard {
+                drop(child); // wildcard after non-wildcard: discard immediately
+            } else {
+                last_wildcard = Some(child); // Drop evicts the previous wildcard
+            }
+        } else {
+            seen_non_wildcard = true;
+            if let Some(wc) = last_wildcard.take() {
+                drop(wc); // first non-wildcard: discard saved wildcard
+            }
+            kept.push(child);
+        }
+    }
+
+    if kept.is_empty() {
+        // All were wildcards
+        return match last_wildcard {
+            Some(wc) => NewIntersectionIterator::Single(wc),
+            None => NewIntersectionIterator::Empty, // defensive: empty input already handled above
+        };
+    }
+
+    // Rule 2: empty child detection
+    if kept.iter().any(|c| c.type_() == IteratorType::Empty) {
+        // Drop all kept children (including the empty one); intersection is empty
+        return NewIntersectionIterator::Empty;
+    }
+
+    // Rule 3
+    if kept.len() == 1 {
+        return NewIntersectionIterator::Single(kept.remove(0));
+    }
+
+    // Rule 4
+    NewIntersectionIterator::Proceed(kept)
+}
+
 impl<'index, I> RQEIterator<'index> for Intersection<'index, I>
 where
     I: RQEIterator<'index>,
@@ -531,6 +557,10 @@ where
     #[inline(always)]
     fn type_(&self) -> IteratorType {
         IteratorType::Intersect
+    }
+
+    fn intersection_sort_weight(&self, _prioritize_union_children: bool) -> f64 {
+        1.0 / self.children.len().max(1) as f64
     }
 }
 

@@ -7,30 +7,9 @@ jobs:
       permissions:
         pull-requests: write
         contents: read
-        issues: write
       runs-on: ubuntu-latest
       name: Label the PR size
       steps:
-        - name: Remove existing size labels
-          uses: actions/github-script@v7
-          with:
-            script: |
-              // This is a work-around until https://github.com/CodelyTV/pr-size-labeler/pull/97 is merged.
-              const { data: labels } = await github.rest.issues.listLabelsOnIssue({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: context.payload.pull_request.number,
-              });
-              for (const label of labels) {
-                if (label.name.startsWith('size:')) {
-                  await github.rest.issues.removeLabel({
-                    owner: context.repo.owner,
-                    repo: context.repo.repo,
-                    issue_number: context.payload.pull_request.number,
-                    name: label.name,
-                  });
-                }
-              }
         - uses: codelytv/pr-size-labeler@v1
           with:
             xs_label: 'size:XS'

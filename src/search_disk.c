@@ -158,9 +158,23 @@ void SearchDisk_IndexSpecRdbSave(RedisModuleIO *rdb, RedisSearchDiskIndexSpec *i
   disk->basic.indexSpecRdbSave(rdb, index);
 }
 
-int SearchDisk_IndexSpecRdbLoad(RedisModuleIO *rdb, RedisSearchDiskIndexSpec *index) {
+RedisSearchDiskRdbState* SearchDisk_LoadRdbToTempObject(RedisModuleIO *rdb) {
   RS_ASSERT(disk);
-  return disk->basic.indexSpecRdbLoad(rdb, index);
+  return disk->basic.loadRdbToTempObject(rdb);
+}
+
+RedisSearchDiskIndexSpec* SearchDisk_OpenIndexWithRdbState(RedisModuleCtx *ctx,
+                                                            const char *indexName,
+                                                            size_t indexNameLen,
+                                                            DocumentType type,
+                                                            RedisSearchDiskRdbState *rdbState) {
+  RS_ASSERT(disk && disk_db && indexName && rdbState);
+  return disk->basic.openIndexSpecWithRdbState(ctx, disk_db, indexName, indexNameLen, type, rdbState);
+}
+
+void SearchDisk_FreeRdbState(RedisSearchDiskRdbState *rdbState) {
+  RS_ASSERT(disk);
+  disk->basic.freeRdbState(rdbState);
 }
 
 // Index API wrappers
@@ -185,11 +199,6 @@ QueryIterator* SearchDisk_NewTermIterator(RedisSearchDiskIndexSpec *index, RSTok
 QueryIterator* SearchDisk_NewTagIterator(RedisSearchDiskIndexSpec *index, const RSToken *tok, t_fieldIndex fieldIndex, double weight) {
     RS_ASSERT(disk && index && tok);
     return disk->index.newTagIterator(index, tok, fieldIndex, weight);
-}
-
-QueryIterator* SearchDisk_NewWildcardIterator(RedisSearchDiskIndexSpec *index, double weight) {
-    RS_ASSERT(disk && index);
-    return disk->index.newWildcardIterator(index, weight);
 }
 
 size_t SearchDisk_RunGC(RedisSearchDiskIndexSpec *index, IndexSpec *spec) {

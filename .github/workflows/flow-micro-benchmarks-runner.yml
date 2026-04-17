@@ -80,12 +80,13 @@ jobs:
           ./install_script.sh sudo
           cd ..
           # Then install Python dependencies
-          pip3 install --upgrade pip PyYAML setuptools redisbench-admin==0.12.12
+          pip3 install --upgrade pip PyYAML setuptools redisbench-admin==0.12.14
         env:
           DEBIAN_FRONTEND: noninteractive
       - name: Run Micro Benchmark
         env:
           ARCH: ${{ inputs.architecture }}
+          LTO: 1
         timeout-minutes: 300
         run: |
           export HOME=/home/ubuntu
@@ -94,6 +95,8 @@ jobs:
       - name: Show sccache stats
         run: ${SCCACHE_PATH:-sccache} --show-stats
       - name: Collect results
+        env:
+          INPUT_ARCHITECTURE: ${{ inputs.architecture }}
         run: |
           # Determine OS name
           OS_NAME=$(uname | tr '[:upper:]' '[:lower:]')
@@ -152,7 +155,7 @@ jobs:
               --results-format google.benchmark \
               --benchmark-result-file "$file" \
               --triggering_env redisearch-micro-benchmarks \
-              --architecture ${{ inputs.architecture }}
+              --architecture $INPUT_ARCHITECTURE
           done
 
   stop-runner:
