@@ -123,31 +123,41 @@ static inline void ASM_StateMachine_CompleteTrim(const RedisModuleSlotRangeArray
 // START KEY SPACE VERSION QUERY TRACKER IMPLEMENTATION
 //
 // Lock-free fixed-size ring of `{version, count}` slots. Replaces the previous
-// mutex-protected hash map. The design relies on the following concurrency
-// contract:
+// mutex-protected hash map. A slot with `version == INVALID_KEYSPACE_VERSION`
+// (0) is free.
 //
-//   * The `version` field of every slot is written only by the main thread
-//     (during `ASM_KeySpaceVersionTracker_IncreaseQueryCount`, which allocates
-//     a slot, and during cleanup, which frees it). Workers only read it.
-//   * The `count` field is manipulated with atomic RMW operations and may be
-//     modified from any thread.
-//   * Increase, GetQueryCount, GetTrackedVersionsCount, CanStartTrimming, and
-//     cleanup run on the main thread only. Decrease may run from any thread.
-//   * `key_space_version` is advanced only by the main thread.
+// Concurrency contract (must be preserved; relaxing any of these would require
+// reintroducing synchronization):
 //
-// A slot with `version == INVALID_KEYSPACE_VERSION` (0) is free.
+//   * `Increase` is main-thread only and called with
+//     `query_key_space_version == key_space_version` (enforced by assertion).
+//   * `Decrease` may be called from any thread. Each `Increase(v)` is paired
+//     with exactly one `Decrease(v)`.
+//   * `GetQueryCount` and `CanStartTrimming` are main-thread only.
+//   * `key_space_version` is advanced only by the main thread and is
+//     monotonically non-decreasing.
 //
-// Safety of freeing a slot (main-thread cleanup writes `version = 0` when it
-// observes `count == 0` for a non-current version): if `count == 0`, all
-// matching Decreases issued so far have executed (Decrease is the only
-// fetch_sub on `count`, and counts never go negative). No new Decrease(v) can
-// appear without a matching Increase(v); a new Increase(v) would allocate a
-// fresh slot (possibly reusing the one just freed), not touch a stale one.
+// Field-access rules:
+//
+//   * `count` is manipulated only via atomic RMW (`__atomic_fetch_add` /
+//     `__atomic_fetch_sub`), so concurrent Decreases serialize at the hardware
+//     level.
+//   * `version` transitions through two disjoint writes:
+//       - `0 -> v` happens in `Increase` on the main thread when allocating a
+//         free slot.
+//       - `v -> 0` happens in `Decrease` on any thread when `fetch_sub`
+//         returns `prev == 1` AND `v != key_space_version`.
+//     These never target the same slot concurrently: the caller invariant
+//     `query_key_space_version == key_space_version` on `Increase` means the
+//     slot `Increase` matches or allocates has `version == current`, while
+//     the reclaim branch only fires when `version != current`.
+//   * Once a slot is reclaimed, monotonicity of `key_space_version` guarantees
+//     no future `Increase(v)` or `Decrease(v)` can be issued for that old
+//     value, so no surviving operation observes the slot in its old role.
 
 // Maximum number of concurrently tracked key space versions. In steady state
 // only one version (the current one) is live; during migrations one or two
-// older versions may still have in-flight queries. 8 is a generous upper
-// bound; exceeding it triggers an assertion.
+// older versions may still have in-flight queries.
 #define ASM_MAX_LIVE_VERSIONS 16
 
 typedef struct {
@@ -226,8 +236,10 @@ static void ASM_KeySpaceVersionTracker_DecreaseQueryCount(uint32_t query_key_spa
       uint32_t prev = __atomic_fetch_sub(&asm_version_slots[i].count, 1, __ATOMIC_RELAXED);
       RS_LOG_ASSERT(prev > 0, "Query version count underflow in ASM tracker");
       if (prev == 1 && v != __atomic_load_n(&key_space_version, __ATOMIC_RELAXED)) {
+        // We know that this was the last query for this version, and that the version is not the current one, so no query
+        // will ever use this version again. We can safely reclaim the slot.
         __atomic_store_n(&asm_version_slots[i].version, INVALID_KEYSPACE_VERSION, __ATOMIC_RELAXED);
-        //__atomic_store_n(&asm_version_slots[i].count, 0, __ATOMIC_RELAXED);
+        __atomic_store_n(&asm_version_slots[i].count, 0, __ATOMIC_RELAXED);
       }
 #if ASM_SANITIZER_ENABLED
       pthread_mutex_lock(&asm_sanitizer_mutex);
