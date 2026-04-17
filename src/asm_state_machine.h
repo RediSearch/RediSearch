@@ -142,22 +142,43 @@ static inline void ASM_StateMachine_CompleteTrim(const RedisModuleSlotRangeArray
 //   * `count` is manipulated only via atomic RMW (`__atomic_fetch_add` /
 //     `__atomic_fetch_sub`), so concurrent Decreases serialize at the hardware
 //     level.
-//   * `version` transitions through two disjoint writes:
+//   * `version` transitions through three disjoint writes:
 //       - `0 -> v` happens in `Increase` on the main thread when allocating a
 //         free slot.
+//       - `v_stale -> v_current` happens in `Increase` on the main thread
+//         when recycling a slot whose count has already drained to 0 but
+//         whose version field was not reclaimed by `Decrease` (this occurs
+//         when the last `Decrease(v_stale)` ran while `v_stale` was still
+//         the current version, so the reclaim branch did not fire).
 //       - `v -> 0` happens in `Decrease` on any thread when `fetch_sub`
 //         returns `prev == 1` AND `v != key_space_version`.
 //     These never target the same slot concurrently: the caller invariant
 //     `query_key_space_version == key_space_version` on `Increase` means the
 //     slot `Increase` matches or allocates has `version == current`, while
-//     the reclaim branch only fires when `version != current`.
+//     the reclaim branch only fires when `version != current`. A stale slot
+//     that `Increase` recycles has `count == 0`, so no in-flight
+//     `Decrease(v_stale)` can exist (each `Decrease` pairs with an
+//     outstanding `Increase`, which would have kept `count > 0`); and
+//     `Decrease(v_current)` cannot touch a slot whose version is `v_stale`.
 //   * Once a slot is reclaimed, monotonicity of `key_space_version` guarantees
 //     no future `Increase(v)` or `Decrease(v)` can be issued for that old
 //     value, so no surviving operation observes the slot in its old role.
 
-// Maximum number of concurrently tracked key space versions. In steady state
-// only one version (the current one) is live; during migrations one or two
-// older versions may still have in-flight queries.
+// Capacity invariant: at most `ASM_MAX_LIVE_VERSIONS` distinct key-space
+// versions may have in-flight queries (count > 0) simultaneously. The ring has
+// exactly one slot per tracked version, and a slot is reclaimed only when its
+// count drops to 0 AND its version is no longer the current one. Consequently,
+// every ASM state-machine command that advances `key_space_version` (e.g.
+// `SetLocalSlots` when local ownership changes, `StartImport`, `StartTrim`)
+// consumes a slot for any previous version that still has in-flight queries.
+//
+// This puts a hard limit on how many consecutive ASM commands can be issued
+// before the oldest in-flight queries drain: if more than
+// `ASM_MAX_LIVE_VERSIONS` version advancements occur while any query from each
+// of the preceding versions is still running, the next `Increase` cannot find
+// a free slot and triggers an assertion. In steady state only one version is
+// live; during migrations one or two older versions may still have in-flight
+// queries, so the limit is not expected to be reached in normal operation.
 #define ASM_MAX_LIVE_VERSIONS 16
 
 typedef struct {
@@ -198,6 +219,27 @@ static inline void ASM_KeySpaceVersionTracker_Destroy() {
 #endif
 }
 
+/* Returns true if the slot at index `i`, whose version field was just observed
+ * to hold `v`, can be repurposed by `Increase` for `current_version`.
+ *
+ * A slot is reusable if it is truly free (`v == INVALID_KEYSPACE_VERSION`) or
+ * if it holds an old version whose count has drained to 0. The latter case
+ * arises when the last `Decrease(v)` ran while `v` was still the current
+ * version, so `Decrease` could not reclaim the slot. Since `Increase` is
+ * main-thread only and `current_version == key_space_version`, a stale slot
+ * has `v != current_version` and `count == 0`, which means no concurrent
+ * `Decrease` can target it; the main thread is the sole writer and can safely
+ * repurpose it. */
+static inline bool ASM_SlotIsReusableForIncrease(size_t i, uint32_t v, uint32_t current_version) {
+  if (v == INVALID_KEYSPACE_VERSION) {
+    return true;
+  }
+  if (v == current_version) {
+    return false;
+  }
+  return __atomic_load_n(&asm_version_slots[i].count, __ATOMIC_RELAXED) == 0;
+}
+
 /* Increase the query count for `query_key_space_version`. Main-thread only. */
 static void ASM_KeySpaceVersionTracker_IncreaseQueryCount(uint32_t query_key_space_version) {
   RS_ASSERT(query_key_space_version == key_space_version);
@@ -210,12 +252,12 @@ static void ASM_KeySpaceVersionTracker_IncreaseQueryCount(uint32_t query_key_spa
       found = true;
       break;
     }
-    if (v == INVALID_KEYSPACE_VERSION && free_slot < 0) {
+    if (free_slot < 0 && ASM_SlotIsReusableForIncrease(i, v, query_key_space_version)) {
       free_slot = (int)i;
     }
   }
   if (!found) {
-    RS_ASSERT(0 <= free_slot < ASM_MAX_LIVE_VERSIONS);
+    RS_ASSERT(0 <= free_slot && free_slot < ASM_MAX_LIVE_VERSIONS);
     __atomic_store_n(&asm_version_slots[free_slot].count, 1, __ATOMIC_RELAXED);
     __atomic_store_n(&asm_version_slots[free_slot].version, query_key_space_version, __ATOMIC_RELEASE);
   }

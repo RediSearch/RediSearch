@@ -274,6 +274,40 @@ int testKeySpaceVersionTracker() {
   return 0;
 }
 
+// A Decrease whose version still matches key_space_version at the moment the
+// last in-flight query for that version finishes cannot reclaim the slot (the
+// reclaim branch requires v != current). The slot is left with count == 0 and
+// its old version in place. Before the "recycle stale slots" fix in
+// IncreaseQueryCount, such slots were not reusable: Increase only treated a
+// slot as free when its version was INVALID_KEYSPACE_VERSION. Repeatedly
+// starting and ending a single query while advancing key_space_version would
+// therefore leak one slot per version and trip the "no free slot" assertion
+// in Increase after ASM_MAX_LIVE_VERSIONS cycles. With the fix, Increase also
+// reuses slots whose count has drained to 0, so this sequence runs cleanly.
+int testKeySpaceVersionTrackerNoStaleSlotAfterVersionAdvance() {
+  ASM_StateMachine_Init();
+
+  // Run more Increase/Decrease cycles than ASM_MAX_LIVE_VERSIONS, each at a
+  // fresh key_space_version. Every cycle leaves a stale slot behind because
+  // the final Decrease(v) runs while v is still the current version.
+  const uint32_t cycles = ASM_MAX_LIVE_VERSIONS * 2 + 3;
+  for (uint32_t v = 1; v <= cycles; v++) {
+    __atomic_store_n(&key_space_version, v, __ATOMIC_RELAXED);
+    ASM_KeySpaceVersionTracker_IncreaseQueryCount(v);
+    ASSERT_EQUAL(ASM_KeySpaceVersionTracker_GetQueryCount(v), 1);
+    ASM_KeySpaceVersionTracker_DecreaseQueryCount(v);
+    ASSERT_EQUAL(ASM_KeySpaceVersionTracker_GetQueryCount(v), 0);
+  }
+
+  // All cycles completed without tripping the capacity assertion: stale slots
+  // were recycled by Increase. No query is in flight on the current version,
+  // so trimming is allowed.
+  ASSERT_TRUE(ASM_CanStartTrimming());
+
+  ASM_StateMachine_End();
+  return 0;
+}
+
 int testKeySpaceVersionTrackerCapacity() {
   ASM_StateMachine_Init();
 
@@ -339,5 +373,6 @@ TEST_MAIN({
   TESTFUNC(testImportContinuousWorkflow);
   TESTFUNC(testMigrationTrimmingWorkflow);
   TESTFUNC(testKeySpaceVersionTracker);
+  TESTFUNC(testKeySpaceVersionTrackerNoStaleSlotAfterVersionAdvance);
   TESTFUNC(testKeySpaceVersionTrackerCapacity);
 })
