@@ -12,6 +12,8 @@
 //!
 //! Gated behind the `test-utils` feature.
 
+use std::collections::HashMap;
+
 use ffi::t_docId;
 use inverted_index::RSIndexResult;
 use rqe_iterators::RQEIteratorError;
@@ -69,6 +71,8 @@ impl ScoreBatch for MockScoreBatch {
 ///         vec![(1, 0.5), (3, 0.8)],
 ///         vec![(5, 0.2), (7, 0.9)],
 ///     ],
+///     // Per-doc scores for adhoc-BF lookup
+///     vec![(1, 0.5), (3, 0.8), (5, 0.2), (7, 0.9)],
 ///     // Strategy: always Continue
 ///     |_, _| CollectionStrategy::Continue,
 /// );
@@ -76,6 +80,7 @@ impl ScoreBatch for MockScoreBatch {
 pub struct MockScoreSource {
     batches: Vec<Vec<(t_docId, f64)>>,
     batch_pos: usize,
+    scores: HashMap<t_docId, f64>,
     strategy: Box<dyn FnMut(usize, usize) -> CollectionStrategy>,
     num_estimated: usize,
 }
@@ -84,17 +89,22 @@ impl MockScoreSource {
     /// Creates a new `MockScoreSource`.
     ///
     /// - `batches` — sequence of batches; each inner `Vec` is one [`MockScoreBatch`].
-    /// - `strategy` — function called after each batch.
+    /// - `scores`  — per-document scores returned by [`lookup_score`].
+    /// - `strategy` — function called after each batch / adhoc step.
     ///
     /// `num_estimated` defaults to the total number of entries across all batches.
+    ///
+    /// [`lookup_score`]: ScoreSource::lookup_score
     pub fn new(
         batches: Vec<Vec<(t_docId, f64)>>,
+        scores: Vec<(t_docId, f64)>,
         strategy: impl FnMut(usize, usize) -> CollectionStrategy + 'static,
     ) -> Self {
         let num_estimated = batches.iter().map(Vec::len).sum();
         Self {
             batches,
             batch_pos: 0,
+            scores: scores.into_iter().collect(),
             strategy: Box::new(strategy),
             num_estimated,
         }
@@ -120,6 +130,10 @@ impl<'index> ScoreSource<'index> for MockScoreSource {
             self.batch_pos += 1;
         }
         Ok(batch)
+    }
+
+    fn lookup_score(&mut self, doc_id: t_docId) -> Option<f64> {
+        self.scores.get(&doc_id).copied()
     }
 
     fn num_estimated(&self) -> usize {
