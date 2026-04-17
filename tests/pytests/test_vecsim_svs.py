@@ -656,7 +656,9 @@ def test_delete_during_background_indexing():
     deleted_docs = set()
 
     # Phase 1: Insert vectors to trigger initial training
-    create_vector_index(env, dim, index_name=DEFAULT_INDEX_NAME, datatype=data_type, alg='SVS-VAMANA')
+    compression_params = ['COMPRESSION', 'LeanVec4x8', 'TRAINING_THRESHOLD', training_threshold]
+    create_vector_index(env, dim, index_name=DEFAULT_INDEX_NAME, datatype=data_type,
+                        alg='SVS-VAMANA', additional_vec_params=compression_params)
     populate_with_vectors(env, num_docs=training_threshold + 100, dim=dim, datatype=data_type)
 
     # Add more vectors (these are added after training might have started)
@@ -733,9 +735,10 @@ def test_delete_during_background_indexing_multi_value():
     """
     env = Env(moduleArgs='DEFAULT_DIALECT 2 WORKERS 2')
     conn = getConnectionByEnv(env)
-    dim = 4
+    dim = 32
     data_type = 'FLOAT32'
     per_doc = 5
+    training_threshold = DEFAULT_BLOCK_SIZE
     n_docs = 250  # 250 * 5 = 1250 vectors
     k = 10
     query = create_np_array_typed([0] * dim, data_type)
@@ -743,10 +746,11 @@ def test_delete_during_background_indexing_multi_value():
     # Track deleted doc IDs for verification
     deleted_docs = set()
 
-    # Create multi-value SVS index
+    # Create multi-value SVS index with LeanVec compression
     env.expect('FT.CREATE', DEFAULT_INDEX_NAME, 'ON', 'JSON', 'SCHEMA',
-               '$.vecs[*]', 'AS', DEFAULT_FIELD_NAME, 'VECTOR', 'SVS-VAMANA', '6',
-               'TYPE', data_type, 'DIM', dim, 'DISTANCE_METRIC', 'L2').ok()
+               '$.vecs[*]', 'AS', DEFAULT_FIELD_NAME, 'VECTOR', 'SVS-VAMANA', '10',
+               'TYPE', data_type, 'DIM', dim, 'DISTANCE_METRIC', 'L2',
+               'COMPRESSION', 'LeanVec4x8', 'TRAINING_THRESHOLD', training_threshold).ok()
 
     # Phase 1: Insert docs to trigger initial training
     for i in range(n_docs):
