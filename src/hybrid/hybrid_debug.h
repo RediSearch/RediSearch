@@ -10,7 +10,7 @@
 #pragma once
 
 #include "redismodule.h"
-#include "query_error.h"
+#include "query_error_ffi.h"
 
 #ifdef __cplusplus
 extern "C" {

@@ -13,7 +13,7 @@
 #include "hybrid/hybrid_request.h"
 #include <stdatomic.h>
 #include <pthread.h>
-#include "query_error.h"
+#include "query_error_ffi.h"
 
 #ifdef __cplusplus
 extern "C" {

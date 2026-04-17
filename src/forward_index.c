@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "forward_index.h"
+#include "inverted_index_ffi.h"
 #include "tokenize.h"
 #include "util/fnv.h"
 #include "util/logging.h"

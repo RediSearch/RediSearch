@@ -14,7 +14,7 @@
 #include "index_result.h"
 #include "iterators/iterator_api.h"
 #include "search_ctx.h"
-#include "query_error.h"
+#include "query_error_ffi.h"
 #include "rs_geo.h"
 #include "query_node.h"
 #include "obfuscation/hidden.h"

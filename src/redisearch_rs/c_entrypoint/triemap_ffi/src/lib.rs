@@ -17,7 +17,6 @@ use std::{
 
 mod find_prefixes;
 mod iter;
-/// cbindgen:ignore
 mod iter_types;
 mod range;
 

@@ -8,7 +8,7 @@
 */
 #pragma once
 
-#include "query_error.h"
+#include "query_error_ffi.h"
 #include "aggregate.h"
 
 /*

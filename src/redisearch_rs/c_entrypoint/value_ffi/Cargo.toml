@@ -12,6 +12,7 @@ workspace = true
 build_utils.workspace = true
 
 [dependencies]
+cheadergen.workspace = true
 ffi.workspace = true
 fnv.workspace = true
 libc.workspace = true

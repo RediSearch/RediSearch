@@ -14,6 +14,7 @@ use std::{alloc::Layout, borrow::Borrow, fmt::Debug, marker::PhantomData, ptr};
 ///
 /// This is a borrowed, `Copy` type — it does not own the data and will not free it on drop.
 /// Use [`RSOffsetVector`] for owned offset data.
+#[cheadergen::config(rename = "RSOffsetVector")]
 #[repr(C)]
 #[derive(Copy, Clone)]
 pub struct RSOffsetSlice<'index> {
@@ -134,6 +135,7 @@ impl RSOffsetSlice<'_> {
 /// The `#[repr(C)]` layout is identical to [`RSOffsetSlice`] (minus the zero-sized `PhantomData`),
 /// so a `&RSOffsetVector` can be safely cast to `&RSOffsetSlice<'_>`.
 #[repr(C)]
+#[cheadergen::config(skip)]
 pub struct RSOffsetVector {
     /// Pointer to the owned offset data, allocated via the global allocator.
     pub data: *mut u8,

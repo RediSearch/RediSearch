@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "param.h"
+#include "query_error_ffi.h"
 #include "rmalloc.h"
 
 #include <assert.h>

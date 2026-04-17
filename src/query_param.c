@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "query_param.h"
-#include "query_error.h"
+#include "query_error_ffi.h"
 #include "geo_index.h"
 #include "numeric_filter.h"
 #include "query_internal.h"

@@ -13,7 +13,7 @@
 #pragma once
 
 #include "redismodule.h"
-#include "query_error.h"
+#include "query_error_ffi.h"
 
 // Coordinator empty reply for FT.SEARCH commands.
 // Handles both RESP2 and RESP3 with proper search result formatting.

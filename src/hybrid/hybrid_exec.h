@@ -14,7 +14,7 @@
 #include "hybrid_request.h"
 #include "search_ctx.h"
 #include "aggregate/aggregate.h"
-#include "query_error.h"
+#include "query_error_ffi.h"
 #include "cursor.h"
 #include "profile/options.h"
 

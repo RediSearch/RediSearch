@@ -1,0 +1,286 @@
+pragma_once = true
+usize_is_size_t = true
+
+[package.ffi]
+types = "skip"
+
+[package.libc]
+types = "skip"
+
+[package.buffer]
+types = "skip"
+
+[package.document_metadata]
+# We declare `DocumentMetadata` directly in search_result_rs with the correct
+# `const`-ness (the auto-generated typedef drops the `const` qualifier).
+types = "skip"
+
+[package.document]
+# Avoid a name conflict with the pre-existing `document.h` header file.
+header_name = "document_rs"
+
+[package.search_result]
+# Avoid a name conflict with the pre-existing `search_result.h` header file.
+header_name = "search_result_rs"
+
+[c]
+cpp_compat = true
+
+[header.field]
+includes = ["redisearch_types.h"]
+
+[header.inverted_index]
+includes = ["redisearch_types.h"]
+after_includes = """
+// Forward declarations of C types defined in redisearch.h and elsewhere.
+// We can't include redisearch.h directly: it transitively includes inverted_index.h.
+typedef struct RSDocumentMetadata_s RSDocumentMetadata;
+typedef struct FieldSpec FieldSpec;
+"""
+
+[header.inverted_index_ffi]
+includes = ["redisearch_types.h", "config.h", "search_ctx.h", "spec.h"]
+trailer = """
+// Create a new inverted index object, with the given flag.
+// The out parameter memsize must be not NULL, the total of allocated memory
+// will be returned in it.
+//
+// The inverted index should be freed using [`InvertedIndex_Free`] when no longer needed.
+inline static struct InvertedIndex *NewInvertedIndex(IndexFlags flags, size_t *memsize) {
+  return NewInvertedIndex_Ex(flags, RSGlobalConfig.invertedIndexRawDocidEncoding, RSGlobalConfig.numericCompress, memsize);
+}
+"""
+
+[header.iterators_ffi]
+includes = ["redisearch.h", "<time.h>", "iterators/iterator_api.h", "tag_index.h", "query.h"]
+after_includes = """
+// In C, timespec is a struct tag, not a typedef. Rust's libc::timespec maps to
+// the bare name, so we introduce a typedef to make it valid C.
+typedef struct timespec timespec;
+"""
+
+[header.module_init_ffi]
+includes = ["redismodule.h"]
+
+[header.query_error_ffi]
+includes = ["rmutil/args.h"]
+after_includes = """
+// Convenience macro to reply the error string to redis and clear the error code.
+// Defined as a C macro to avoid depending on redismodule.h.
+#define QueryError_ReplyAndClear(rctx, qerr)                         \\
+  ({                                                                 \\
+    RedisModule_ReplyWithError(rctx, QueryError_GetUserError(qerr)); \\
+    QueryError_ClearError(qerr);                                     \\
+    REDISMODULE_OK;                                                  \\
+  })
+
+// Convenience macro to extract the error string of the argument parser.
+#define QERR_MKBADARGS_AC(status, name, rv)                                                     \\
+  QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Bad arguments", " for %s: %s", name, \\
+                         AC_Strerror(rv))
+
+#define QERR_MKSYNTAXERR(status, message) QueryError_SetError(status, QUERY_ERROR_CODE_SYNTAX, message)
+
+// String constants for warnings. These should eventually be moved to const functions in Rust.
+#define QUERY_WMAXPREFIXEXPANSIONS "Max prefix expansions limit was reached"
+#define QUERY_WINDEXING_FAILURE "Index contains partial data due to an indexing failure caused by insufficient memory"
+#define QUERY_WOOM_SHARD "One or more shards failed to execute the query due to insufficient memory"
+#define QUERY_WOOM_COORD "Coordinator failed to execute the query due to insufficient memory"
+#define QUERY_ASM_INACCURATE_RESULTS "Query execution exceeded maximum delay for RediSearch to delay key trimming. Results may be incomplete due to Atomic Slot Migration."
+
+// Variadic helpers not implemented in Rust (variadics don't cross FFI boundaries).
+// Definitions live in src/query_error_compat.c.
+#ifdef __cplusplus
+extern \"C\" {
+#endif
+void QueryError_SetWithUserDataFmt(QueryError *status, QueryErrorCode code, const char *message, const char *fmt, ...);
+void QueryError_SetWithoutUserDataFmt(QueryError *status, QueryErrorCode code, const char *fmt, ...);
+void QueryError_FmtUnknownArg(QueryError *err, ArgsCursor *ac, const char *name);
+#ifdef __cplusplus
+}  // extern \"C\"
+#endif
+"""
+
+[header.query_term_ffi]
+includes = ["redisearch.h"]
+
+[header.rlookup_ffi]
+# FIXME: cheadergen does not auto-include the header that defines `SearchResult`
+# (which lives in `search_result_rs.h` due to the `header_name` override on the
+# `search_result` package). Explicitly include it here so `rlookup_ffi.h` sees
+# the full `SearchResult` definition rather than emitting a bare typedef.
+includes = ["search_result_rs.h"]
+
+[header.rlookup]
+after_includes = """
+// Manually added alias for the "no flags" state of RLookup_F (not a variant in Rust).
+#define RLOOKUP_F_NOFLAGS 0x0
+
+// Forward typedef for RLookupKey.
+//
+// We have two distinct Rust types that both map to the C name `RLookupKey`:
+//   - `RLookupKeyHeader` (renamed via `#[cheadergen::config(rename = "RLookupKey")]`),
+//     whose struct body is what gets emitted in this header.
+//   - `RLookupKey` (the wrapping Rust struct, marked `#[cheadergen::config(skip)]`),
+//     which appears as the pointee of the `next: *mut RLookupKey` self-reference
+//     inside the `RLookupKeyHeader` body.
+//
+// Because the two Rust types share a C name (a name collision we introduced via
+// the rename), cheadergen takes the bare-reference path for the skipped type and
+// emits `RLookupKey *next` with no `struct` qualifier. The typedef is not yet in
+// scope at that point inside the body, so the C compiler errors. We pre-declare
+// the typedef here so the bare reference resolves; C11+ permits the later
+// `typedef struct RLookupKey { ... } RLookupKey;` as a compatible redeclaration.
+typedef struct RLookupKey RLookupKey;
+"""
+
+[header.query_node_type]
+after_includes = """
+/* Backward-compatible aliases for C code that uses the old enum constant names. */
+#define QN_PHRASE          QueryNodeType_Phrase
+#define QN_UNION           QueryNodeType_Union
+#define QN_TOKEN           QueryNodeType_Token
+#define QN_NUMERIC         QueryNodeType_Numeric
+#define QN_NOT             QueryNodeType_Not
+#define QN_OPTIONAL        QueryNodeType_Optional
+#define QN_GEO             QueryNodeType_Geo
+#define QN_GEOMETRY        QueryNodeType_Geometry
+#define QN_PREFIX          QueryNodeType_Prefix
+#define QN_IDS             QueryNodeType_Ids
+#define QN_WILDCARD        QueryNodeType_Wildcard
+#define QN_TAG             QueryNodeType_Tag
+#define QN_FUZZY           QueryNodeType_Fuzzy
+#define QN_LEXRANGE        QueryNodeType_LexRange
+#define QN_VECTOR          QueryNodeType_Vector
+#define QN_WILDCARD_QUERY  QueryNodeType_WildcardQuery
+#define QN_NULL            QueryNodeType_Null
+#define QN_MISSING         QueryNodeType_Missing
+#define QN_MAX             QueryNodeType_Max
+"""
+
+[header.rqe_iterator_type]
+after_includes = """
+/* Backward-compatible aliases for C code that uses the old enum constant names. */
+#define INV_IDX_NUMERIC_ITERATOR          IteratorType_InvIdxNumeric
+#define INV_IDX_TERM_ITERATOR             IteratorType_InvIdxTerm
+#define INV_IDX_WILDCARD_ITERATOR         IteratorType_InvIdxWildcard
+#define INV_IDX_MISSING_ITERATOR          IteratorType_InvIdxMissing
+#define INV_IDX_TAG_ITERATOR              IteratorType_InvIdxTag
+#define HYBRID_ITERATOR                   IteratorType_Hybrid
+#define UNION_ITERATOR                    IteratorType_Union
+#define INTERSECT_ITERATOR                IteratorType_Intersect
+#define NOT_ITERATOR                      IteratorType_Not
+#define NOT_ITERATOR_OPTIMIZED            IteratorType_NotOptimized
+#define OPTIONAL_ITERATOR                 IteratorType_Optional
+#define OPTIONAL_OPTIMIZED_ITERATOR       IteratorType_OptionalOptimized
+#define WILDCARD_ITERATOR                 IteratorType_Wildcard
+#define EMPTY_ITERATOR                    IteratorType_Empty
+#define ID_LIST_SORTED_ITERATOR           IteratorType_IdListSorted
+#define ID_LIST_UNSORTED_ITERATOR         IteratorType_IdListUnsorted
+#define METRIC_SORTED_BY_ID_ITERATOR      IteratorType_MetricSortedById
+#define METRIC_SORTED_BY_SCORE_ITERATOR   IteratorType_MetricSortedByScore
+#define PROFILE_ITERATOR                  IteratorType_Profile
+#define OPTIMUS_ITERATOR                  IteratorType_Optimus
+#define MAX_ITERATOR                      IteratorType_Max
+"""
+
+[header.result_processor_ffi]
+includes = ["rs_wall_clock.h", "config.h", "query_error_ffi.h"]
+after_includes = """
+/**
+ * Forward declaration of ResultProcessor. It will be defined in `result_processor.h`
+ */
+typedef struct ResultProcessor ResultProcessor;
+
+/* `QueryProcessingCtx` is defined as a #[repr(C)] struct in the Rust `ffi`
+ * crate (`ffi/src/lib.rs`). cheadergen does not process the `ffi` crate, so
+ * we mirror the layout here by hand. Keep this block in sync with the Rust
+ * definition. */
+typedef struct QueryProcessingCtx {
+  ResultProcessor *rootProc;
+  ResultProcessor *endProc;
+  rs_wall_clock initTime;
+  rs_wall_clock_ns_t queryGILTime;
+  double minScore;
+  uint32_t totalResults;
+  uint32_t resultLimit;
+  QueryError *err;
+  bool bgScanOOM;
+  bool isProfile;
+  RSTimeoutPolicy timeoutPolicy;
+  bool canYieldPartialResults;
+} QueryProcessingCtx;
+"""
+
+[header.search_result_rs]
+includes = ["redisearch_types.h", "score_explain.h"]
+after_includes = """
+/* SearchResult flags */
+static const uint8_t Result_ExpiredDoc = 1 << 0;
+
+/* Forward decl + reference-counted pointer to a const RSDocumentMetadata.
+ * Declared directly here (rather than auto-generated from the document_metadata
+ * crate) to preserve the `const` qualifier that C callers rely on. */
+typedef struct RSDocumentMetadata_s RSDocumentMetadata;
+typedef const RSDocumentMetadata *DocumentMetadata;
+"""
+
+[header.triemap_ffi]
+includes = ["<time.h>"]
+after_includes = """
+// In C, timespec is a struct tag, not a typedef. Rust's libc::timespec maps to
+// the bare name, so we introduce a typedef to make it valid C.
+typedef struct timespec timespec;
+"""
+
+[header.types_ffi]
+includes = ["redisearch_types.h"]
+
+[header.numeric_range_tree_ffi]
+includes = ["redisearch.h", "redismodule.h"]
+
+[header.search_result_ffi]
+includes = ["redisearch.h", "score_explain.h"]
+
+[header.slots_tracker_ffi]
+includes = ["redismodule.h"]
+
+[header.sorting_vector_ffi]
+trailer = """
+#ifdef __cplusplus
+extern \"C\" {
+#endif // __cplusplus
+
+/**
+ * Returns the length of the sorting vector.
+ *
+ * Reads the `len` field (u64) from the ThinVec heap header.
+ */
+static inline size_t RSSortingVector_Length(const RSSortingVector *v) {
+  // RSSortingVector is repr(transparent) over ThinVec<RSValue, u64>, whose
+  // single field `ptr` points at a Header<u64> { len: u64, cap: u64 }. `len`
+  // is at offset 0.
+  return *(const uint64_t *)v->ptr;
+}
+
+/**
+ * Gets a RSValue from the sorting vector at the given index.
+ *
+ * The caller must ensure that `idx < RSSortingVector_Length(v)`.
+ * Data starts immediately after the 16-byte Header<u64>.
+ */
+static inline RSValue *RSSortingVector_Get(const RSSortingVector *v, size_t idx) {
+  RSValue **data = (RSValue **)((const char *)v->ptr + 16);
+  return data[idx];
+}
+
+#ifdef __cplusplus
+}  // extern \"C\"
+#endif // __cplusplus
+"""
+
+[header.value_ffi]
+includes = ["redismodule.h", "hiredis/sds.h"]
+
+[header.varint_ffi]
+includes = ["buffer.h", "redisearch.h"]
