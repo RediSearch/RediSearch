@@ -39,14 +39,22 @@ pub trait ScoreBatch {
 
 // ── CollectionStrategy ────────────────────────────────────────────────────────
 
-/// Decision returned by [`ScoreSource::collection_strategy`] after each batch,
-/// telling [`TopKIterator`] how to proceed.
+/// Decision returned by [`ScoreSource::collection_strategy`] after each batch
+/// or adhoc lookup, telling [`TopKIterator`] how to proceed.
 ///
 /// [`TopKIterator`]: crate::TopKIterator
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CollectionStrategy {
-    /// Keep iterating — fetch the next batch.
+    /// Keep iterating — fetch the next batch (Batches mode) or the next child
+    /// document (Adhoc-BF mode).
     Continue,
+
+    /// Switch from Batches mode to Adhoc-BF mode.
+    ///
+    /// The iterator will rewind the child and start calling
+    /// [`ScoreSource::lookup_score`] for each document the child yields.
+    /// Only meaningful when the iterator is currently in Batches mode.
+    SwitchToAdhoc,
 
     /// Restart batch collection (e.g. after the source has expanded its range).
     ///
@@ -64,12 +72,14 @@ pub enum CollectionStrategy {
 ///
 /// A [`ScoreSource`] knows how to:
 /// 1. Produce score-ordered batches ([`next_batch`]).
-/// 2. Build the final [`RSIndexResult`] for a `(doc_id, score)` pair ([`build_result`]).
-/// 3. Decide, after each batch, whether to continue or switch strategy
+/// 2. Look up the score for an individual document ([`lookup_score`]), used in Adhoc-BF mode.
+/// 3. Build the final [`RSIndexResult`] for a `(doc_id, score)` pair ([`build_result`]).
+/// 4. Decide, after each batch or adhoc step, whether to continue or switch strategy
 ///    ([`collection_strategy`]).
 ///
 /// [`TopKIterator`]: crate::TopKIterator
 /// [`next_batch`]: ScoreSource::next_batch
+/// [`lookup_score`]: ScoreSource::lookup_score
 /// [`build_result`]: ScoreSource::build_result
 /// [`collection_strategy`]: ScoreSource::collection_strategy
 pub trait ScoreSource<'index> {
@@ -84,6 +94,12 @@ pub trait ScoreSource<'index> {
     /// - `Err(RQEIteratorError::TimedOut)` — the query time limit was reached.
     fn next_batch(&mut self) -> Result<Option<Self::Batch>, RQEIteratorError>;
 
+    /// Return the score for `doc_id`, or `None` if the document is not in
+    /// the source's index.
+    ///
+    /// Used in Adhoc-BF mode where the child iterator drives traversal.
+    fn lookup_score(&mut self, doc_id: t_docId) -> Option<f64>;
+
     /// Return an upper-bound estimate for the number of documents this source
     /// can produce.
     fn num_estimated(&self) -> usize;
@@ -97,7 +113,8 @@ pub trait ScoreSource<'index> {
     /// [`TopKIterator`]: crate::TopKIterator
     fn build_result(&self, doc_id: t_docId, score: f64) -> RSIndexResult<'index>;
 
-    /// Called after each batch to decide how collection should proceed.
+    /// Called after each batch (Batches mode) or each adhoc lookup (Adhoc-BF mode)
+    /// to decide how collection should proceed.
     ///
     /// - `heap_count` — number of results currently in the heap.
     /// - `k` — the target number of results.

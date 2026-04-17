@@ -18,11 +18,18 @@
 //!
 //! - **Unfiltered** — no child filter; stream results directly from the source's batch.
 //! - **Batches** — intersect score-ordered batches with a child filter (merge-join).
+//! - **Adhoc-BF** — walk the child filter and call [`ScoreSource::lookup_score`]
 //!   for each document.
 //!
 //! The score-producing logic is abstracted behind the [`ScoreSource`] / [`ScoreBatch`]
-//! traits.
+//! traits.  Concrete implementations (`VectorScoreSource`, `NumericScoreSource`) are
+//! introduced in M2 and M3 respectively.
 //!
+//! # Milestones
+//!
+//! - **M1 (this crate)**: shared skeleton — `TopKHeap`, `TopKIterator`, traits, mock sources.
+//! - **M2**: `VectorScoreSource` + planner wiring (`TopKIterator<VectorScoreSource>`).
+//! - **M3**: `NumericScoreSource` + planner wiring (`TopKIterator<NumericScoreSource>`).
 
 pub mod heap;
 pub mod iterator;

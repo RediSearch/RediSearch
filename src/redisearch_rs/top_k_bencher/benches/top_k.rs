@@ -21,7 +21,7 @@ use std::{cmp::Ordering, num::NonZeroUsize};
 
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use rqe_iterators::RQEIterator;
-use top_k::{CollectionStrategy, TopKHeap, TopKIterator, mock::MockScoreSource};
+use top_k::{CollectionStrategy, TopKHeap, TopKIterator, TopKMode, mock::MockScoreSource};
 
 // ── Comparators ───────────────────────────────────────────────────────────────
 
@@ -87,8 +87,9 @@ fn bench_intersection_overlap(c: &mut Criterion) {
 
         group.bench_with_input(BenchmarkId::new("batches_50pct_overlap", n), &n, |b, _| {
             b.iter(|| {
-                let source =
-                    MockScoreSource::new(vec![batch.clone()], |_, _| CollectionStrategy::Continue);
+                let source = MockScoreSource::new(vec![batch.clone()], vec![], |_, _| {
+                    CollectionStrategy::Continue
+                });
                 let child: Box<dyn RQEIterator> =
                     Box::new(rqe_iterators::IdList::<true>::new(child_ids.clone()));
                 let mut it = TopKIterator::new(source, Some(child), k, asc);
@@ -110,8 +111,9 @@ fn bench_intersection_disjoint(c: &mut Criterion) {
 
         group.bench_with_input(BenchmarkId::new("batches_0pct_overlap", n), &n, |b, _| {
             b.iter(|| {
-                let source =
-                    MockScoreSource::new(vec![batch.clone()], |_, _| CollectionStrategy::Continue);
+                let source = MockScoreSource::new(vec![batch.clone()], vec![], |_, _| {
+                    CollectionStrategy::Continue
+                });
                 let child: Box<dyn RQEIterator> =
                     Box::new(rqe_iterators::IdList::<true>::new(child_ids.clone()));
                 let mut it = TopKIterator::new(source, Some(child), k, asc);
@@ -123,11 +125,33 @@ fn bench_intersection_disjoint(c: &mut Criterion) {
     group.finish();
 }
 
+fn bench_adhoc_10k_child(c: &mut Criterion) {
+    let n = 10_000usize;
+    let k = NonZeroUsize::new(100).unwrap();
+    // Every 10th document has a score.
+    let scores: Vec<(u64, f64)> = (0..n as u64).step_by(10).map(|i| (i, i as f64)).collect();
+    let child_ids: Vec<u64> = (0..n as u64).collect();
+
+    c.bench_function("iterator/adhoc_10k_child", |b| {
+        b.iter(|| {
+            let source =
+                MockScoreSource::new(vec![], scores.clone(), |_, _| CollectionStrategy::Continue);
+            let child: Box<dyn RQEIterator> =
+                Box::new(rqe_iterators::IdList::<true>::new(child_ids.clone()));
+            let mut it =
+                TopKIterator::new_with_mode(source, Some(child), k, asc, TopKMode::AdhocBF);
+            while it.read().unwrap().is_some() {}
+            black_box(it.at_eof())
+        })
+    });
+}
+
 criterion_group!(
     benches,
     bench_heap_insert,
     bench_heap_pop_all,
     bench_intersection_overlap,
     bench_intersection_disjoint,
+    bench_adhoc_10k_child,
 );
 criterion_main!(benches);

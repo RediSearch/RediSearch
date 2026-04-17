@@ -36,6 +36,9 @@ pub enum TopKMode {
     /// Fetch score-ordered batches from the source and intersect each one
     /// with the child filter iterator.
     Batches,
+    /// Walk the child iterator and call [`ScoreSource::lookup_score`] for
+    /// each document it yields.
+    AdhocBF,
 }
 
 /// Diagnostic counters collected during a single evaluation.
@@ -69,8 +72,9 @@ enum Phase {
 
 /// A generic top-k iterator parameterized over a [`ScoreSource`].
 ///
-/// Implements the two execution modes described in the design doc:
-/// [`Unfiltered`](TopKMode::Unfiltered) and [`Batches`](TopKMode::Batches).
+/// Implements the execution mode described in the design doc:
+/// [`Unfiltered`](TopKMode::Unfiltered), [`Batches`](TopKMode::Batches),
+/// and [`AdhocBF`](TopKMode::AdhocBF).
 pub struct TopKIterator<'index, S: ScoreSource<'index>> {
     source: S,
     child: Option<Box<dyn RQEIterator<'index> + 'index>>,
@@ -116,6 +120,9 @@ impl<'index, S: ScoreSource<'index>> TopKIterator<'index, S> {
     }
 
     /// Create a new [`TopKIterator`] with an explicit initial mode.
+    ///
+    /// Useful for tests and for constructors that want to start in
+    /// [`AdhocBF`](TopKMode::AdhocBF) immediately.
     pub fn new_with_mode(
         source: S,
         child: Option<Box<dyn RQEIterator<'index> + 'index>>,
@@ -155,6 +162,7 @@ impl<'index, S: ScoreSource<'index>> TopKIterator<'index, S> {
         match self.mode {
             TopKMode::Unfiltered => self.prepare_unfiltered_direct(),
             TopKMode::Batches => self.collect_batches(),
+            TopKMode::AdhocBF => self.collect_adhoc(),
         }
     }
 
@@ -195,6 +203,13 @@ impl<'index, S: ScoreSource<'index>> TopKIterator<'index, S> {
             {
                 CollectionStrategy::Continue => continue,
                 CollectionStrategy::Stop => break,
+                CollectionStrategy::SwitchToAdhoc => {
+                    self.metrics.strategy_switches += 1;
+                    self.mode = TopKMode::AdhocBF;
+                    // Fall through to adhoc collection; heap is preserved.
+                    self.collect_adhoc()?;
+                    return Ok(());
+                }
                 CollectionStrategy::SwitchToBatches => {
                     self.metrics.strategy_switches += 1;
                     // Clear the heap: the source restarts with new parameters
@@ -207,6 +222,40 @@ impl<'index, S: ScoreSource<'index>> TopKIterator<'index, S> {
                     }
                     continue;
                 }
+            }
+        }
+        self.finalize_collection();
+        Ok(())
+    }
+
+    // ── T5: Adhoc-BF collection path ─────────────────────────────────────────
+
+    /// Collect results by walking the child iterator and calling
+    /// [`ScoreSource::lookup_score`] for each document.
+    fn collect_adhoc(&mut self) -> Result<(), RQEIteratorError> {
+        let child = self
+            .child
+            .as_mut()
+            .expect("AdhocBF mode requires a child iterator");
+        child.rewind();
+
+        loop {
+            let Some(result) = child.read()? else {
+                break;
+            };
+            let doc_id = result.doc_id;
+
+            // `self.child` is now free (we only needed `doc_id`).
+            if let Some(score) = self.source.lookup_score(doc_id) {
+                self.heap.push(doc_id, score);
+            }
+
+            if self
+                .source
+                .collection_strategy(self.heap.len(), self.k.get())
+                == CollectionStrategy::Stop
+            {
+                break;
             }
         }
         self.finalize_collection();
