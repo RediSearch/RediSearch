@@ -219,39 +219,32 @@ int testMigrationTrimmingWorkflow() {
 int testKeySpaceVersionTracker() {
   ASM_StateMachine_Init();
   __atomic_store_n(&key_space_version, 1, __ATOMIC_RELAXED);
-  ASSERT_EQUAL(ASM_KeySpaceVersionTracker_GetTrackedVersionsCount(), 0);
   // One query is using version 1
   ASM_KeySpaceVersionTracker_IncreaseQueryCount(1);
   ASSERT_EQUAL(ASM_KeySpaceVersionTracker_GetQueryCount(1), 1);
-  ASSERT_EQUAL(ASM_KeySpaceVersionTracker_GetTrackedVersionsCount(), 1);
   ASSERT_FALSE(ASM_CanStartTrimming());
   // Another query starts using version 1
   ASM_KeySpaceVersionTracker_IncreaseQueryCount(1);
   ASSERT_EQUAL(ASM_KeySpaceVersionTracker_GetQueryCount(1), 2);
-  ASSERT_EQUAL(ASM_KeySpaceVersionTracker_GetTrackedVersionsCount(), 1);
   ASSERT_FALSE(ASM_CanStartTrimming());
 
   // One query finishes using version 1
   ASM_KeySpaceVersionTracker_DecreaseQueryCount(1);
   ASSERT_EQUAL(ASM_KeySpaceVersionTracker_GetQueryCount(1), 1);
-  ASSERT_EQUAL(ASM_KeySpaceVersionTracker_GetTrackedVersionsCount(), 1);
   ASSERT_FALSE(ASM_CanStartTrimming());
 
   // Another query finishes using version 1
   ASM_KeySpaceVersionTracker_DecreaseQueryCount(1);
   ASSERT_EQUAL(ASM_KeySpaceVersionTracker_GetQueryCount(1), 0);
-  ASSERT_EQUAL(ASM_KeySpaceVersionTracker_GetTrackedVersionsCount(), 1);
   ASSERT_TRUE(ASM_CanStartTrimming());
 
   // Another query starts using version 1 and finish
   ASM_KeySpaceVersionTracker_IncreaseQueryCount(1);
   ASSERT_EQUAL(ASM_KeySpaceVersionTracker_GetQueryCount(1), 1);
-  ASSERT_EQUAL(ASM_KeySpaceVersionTracker_GetTrackedVersionsCount(), 1);
   ASSERT_FALSE(ASM_CanStartTrimming());
 
   ASM_KeySpaceVersionTracker_DecreaseQueryCount(1);
   ASSERT_EQUAL(ASM_KeySpaceVersionTracker_GetQueryCount(1), 0);
-  ASSERT_EQUAL(ASM_KeySpaceVersionTracker_GetTrackedVersionsCount(), 1);
   ASSERT_TRUE(ASM_CanStartTrimming());
 
   // Another two queries start using version 1
@@ -262,27 +255,80 @@ int testKeySpaceVersionTracker() {
   // From now on we are going to change the version, does not make sense checking if we can start trimming.
   // This does not follow a real migration/trimming flow
   __atomic_store_n(&key_space_version, 2, __ATOMIC_RELAXED);
-  ASSERT_EQUAL(ASM_KeySpaceVersionTracker_GetTrackedVersionsCount(), 1);
   ASM_KeySpaceVersionTracker_DecreaseQueryCount(1);
   ASSERT_EQUAL(ASM_KeySpaceVersionTracker_GetQueryCount(1), 1);
-  ASSERT_EQUAL(ASM_KeySpaceVersionTracker_GetTrackedVersionsCount(), 1);
   // The last one using version 1 finishes (Now version 1 is not tracked anymore)
   ASM_KeySpaceVersionTracker_DecreaseQueryCount(1);
   ASSERT_EQUAL(ASM_KeySpaceVersionTracker_GetQueryCount(1), 0);
-  ASSERT_EQUAL(ASM_KeySpaceVersionTracker_GetTrackedVersionsCount(), 0);
 
   // Version 2 is now being used
   ASM_KeySpaceVersionTracker_IncreaseQueryCount(2);
   ASSERT_EQUAL(ASM_KeySpaceVersionTracker_GetQueryCount(2), 1);
-  ASSERT_EQUAL(ASM_KeySpaceVersionTracker_GetTrackedVersionsCount(), 1);
   ASSERT_FALSE(ASM_CanStartTrimming());
   ASM_KeySpaceVersionTracker_DecreaseQueryCount(2);
   ASSERT_EQUAL(ASM_KeySpaceVersionTracker_GetQueryCount(2), 0);
-  ASSERT_EQUAL(ASM_KeySpaceVersionTracker_GetTrackedVersionsCount(), 1);
   ASSERT_TRUE(ASM_CanStartTrimming());
 
   ASM_StateMachine_End();
 
+  return 0;
+}
+
+int testKeySpaceVersionTrackerCapacity() {
+  ASM_StateMachine_Init();
+
+  // Each Increase is called with v == key_space_version: queries are tagged
+  // with the current version at the moment they start. Long-running queries
+  // keep their slot occupied while key_space_version advances; their final
+  // Decrease then arrives with v != current and reclaims the slot inline.
+
+  // Build up ASM_MAX_LIVE_VERSIONS overlapping in-flight versions by starting
+  // one query per version and advancing the current version before that
+  // query finishes.
+  for (uint32_t v = 1; v <= ASM_MAX_LIVE_VERSIONS; v++) {
+    __atomic_store_n(&key_space_version, v, __ATOMIC_RELAXED);
+    ASM_KeySpaceVersionTracker_IncreaseQueryCount(v);
+    ASSERT_EQUAL(ASM_KeySpaceVersionTracker_GetQueryCount(v), 1);
+  }
+  // Ring is full: ASM_MAX_LIVE_VERSIONS distinct in-flight versions, current = ASM_MAX_LIVE_VERSIONS.
+  ASSERT_FALSE(ASM_CanStartTrimming());
+
+  // More queries arrive while still at the latest version; they share the
+  // current version's slot via ref-count. Capacity applies only to distinct
+  // in-flight versions, not to concurrent queries on the same version.
+  ASM_KeySpaceVersionTracker_IncreaseQueryCount(ASM_MAX_LIVE_VERSIONS);
+  ASM_KeySpaceVersionTracker_IncreaseQueryCount(ASM_MAX_LIVE_VERSIONS);
+  ASSERT_EQUAL(ASM_KeySpaceVersionTracker_GetQueryCount(ASM_MAX_LIVE_VERSIONS), 3);
+
+  // Older in-flight queries finish. Each final Decrease for a non-current
+  // version reclaims its slot inline (prev == 1 && v != current).
+  for (uint32_t v = 1; v < ASM_MAX_LIVE_VERSIONS; v++) {
+    ASM_KeySpaceVersionTracker_DecreaseQueryCount(v);
+    ASSERT_EQUAL(ASM_KeySpaceVersionTracker_GetQueryCount(v), 0);
+  }
+  // Only the current-version slot remains occupied.
+  ASSERT_EQUAL(ASM_KeySpaceVersionTracker_GetQueryCount(ASM_MAX_LIVE_VERSIONS), 3);
+  ASSERT_FALSE(ASM_CanStartTrimming());
+
+  // ASM_MAX_LIVE_VERSIONS - 1 slots are now free. Continue advancing the
+  // current version and starting new in-flight queries; the reclaimed slots
+  // are reusable, so the ring fills back up to capacity.
+  for (uint32_t v = ASM_MAX_LIVE_VERSIONS + 1; v < 2 * ASM_MAX_LIVE_VERSIONS; v++) {
+    __atomic_store_n(&key_space_version, v, __ATOMIC_RELAXED);
+    ASM_KeySpaceVersionTracker_IncreaseQueryCount(v);
+    ASSERT_EQUAL(ASM_KeySpaceVersionTracker_GetQueryCount(v), 1);
+  }
+
+  // Drain everything so the ring ends in a clean state.
+  ASM_KeySpaceVersionTracker_DecreaseQueryCount(ASM_MAX_LIVE_VERSIONS);
+  ASM_KeySpaceVersionTracker_DecreaseQueryCount(ASM_MAX_LIVE_VERSIONS);
+  ASM_KeySpaceVersionTracker_DecreaseQueryCount(ASM_MAX_LIVE_VERSIONS);
+  for (uint32_t v = ASM_MAX_LIVE_VERSIONS + 1; v < 2 * ASM_MAX_LIVE_VERSIONS; v++) {
+    ASM_KeySpaceVersionTracker_DecreaseQueryCount(v);
+  }
+  ASSERT_TRUE(ASM_CanStartTrimming());
+
+  ASM_StateMachine_End();
   return 0;
 }
 
@@ -293,4 +339,5 @@ TEST_MAIN({
   TESTFUNC(testImportContinuousWorkflow);
   TESTFUNC(testMigrationTrimmingWorkflow);
   TESTFUNC(testKeySpaceVersionTracker);
+  TESTFUNC(testKeySpaceVersionTrackerCapacity);
 })
