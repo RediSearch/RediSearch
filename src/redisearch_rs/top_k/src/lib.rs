@@ -17,11 +17,11 @@
 //!
 //! - **Unfiltered** — no child filter; stream results directly from the source's batch.
 //! - **Batches** — intersect score-ordered batches with a child filter (merge-join).
+//! - **Adhoc-BF** — walk the child filter and call [`ScoreSource::lookup_score`]
 //!   for each document.
 //!
 //! The score-producing logic is abstracted behind the [`ScoreSource`] / [`ScoreBatch`]
 //! traits.
-//!
 
 pub mod heap;
 pub mod iterator;
