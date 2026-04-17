@@ -21,7 +21,7 @@ use std::{cmp::Ordering, num::NonZeroUsize};
 
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use rqe_iterators::RQEIterator;
-use top_k::{TopKHeap, TopKIterator, mock::MockScoreSource};
+use top_k::{CollectionStrategy, TopKHeap, TopKIterator, mock::MockScoreSource};
 
 // ── Comparators ───────────────────────────────────────────────────────────────
 
@@ -87,7 +87,8 @@ fn bench_intersection_overlap(c: &mut Criterion) {
 
         group.bench_with_input(BenchmarkId::new("batches_50pct_overlap", n), &n, |b, _| {
             b.iter(|| {
-                let source = MockScoreSource::new(vec![batch.clone()]);
+                let source =
+                    MockScoreSource::new(vec![batch.clone()], |_, _| CollectionStrategy::Continue);
                 let child: Box<dyn RQEIterator> =
                     Box::new(rqe_iterators::IdList::<true>::new(child_ids.clone()));
                 let mut it = TopKIterator::new(source, Some(child), k, asc);
@@ -109,7 +110,8 @@ fn bench_intersection_disjoint(c: &mut Criterion) {
 
         group.bench_with_input(BenchmarkId::new("batches_0pct_overlap", n), &n, |b, _| {
             b.iter(|| {
-                let source = MockScoreSource::new(vec![batch.clone()]);
+                let source =
+                    MockScoreSource::new(vec![batch.clone()], |_, _| CollectionStrategy::Continue);
                 let child: Box<dyn RQEIterator> =
                     Box::new(rqe_iterators::IdList::<true>::new(child_ids.clone()));
                 let mut it = TopKIterator::new(source, Some(child), k, asc);

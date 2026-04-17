@@ -17,10 +17,12 @@
 //! top-k collection in three modes:
 //!
 //! - **Unfiltered** — no child filter; stream results directly from the source's batch.
+//! - **Batches** — intersect score-ordered batches with a child filter (merge-join).
 //!   for each document.
 //!
 //! The score-producing logic is abstracted behind the [`ScoreSource`] / [`ScoreBatch`]
 //! traits.
+//!
 
 pub mod heap;
 pub mod iterator;
@@ -31,4 +33,4 @@ pub mod mock;
 
 pub use heap::{ScoredResult, TopKHeap};
 pub use iterator::{TopKIterator, TopKMetrics, TopKMode};
-pub use traits::{ScoreBatch, ScoreSource};
+pub use traits::{CollectionStrategy, ScoreBatch, ScoreSource};

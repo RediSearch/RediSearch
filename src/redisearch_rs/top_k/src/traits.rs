@@ -20,8 +20,9 @@ use rqe_iterators::RQEIteratorError;
 
 /// A cursor over a single score-ordered batch of `(doc_id, score)` pairs.
 ///
-/// Produced by [`ScoreSource::next_batch`] and streamed by [`TopKIterator`].
-/// Doc IDs within a batch must be **strictly increasing**.
+/// Batches are produced by [`ScoreSource::next_batch`] and consumed by the
+/// [`TopKIterator`]'s intersection engine.  Doc IDs within a batch must be
+/// **strictly increasing**.
 ///
 /// [`TopKIterator`]: crate::TopKIterator
 pub trait ScoreBatch {
@@ -29,6 +30,32 @@ pub trait ScoreBatch {
     ///
     /// Returns `None` when the batch is exhausted.
     fn next(&mut self) -> Option<(t_docId, f64)>;
+
+    /// Skip forward to the first pair whose `doc_id >= target`.
+    ///
+    /// Returns `None` if no such pair exists in this batch.
+    fn skip_to(&mut self, target: t_docId) -> Option<(t_docId, f64)>;
+}
+
+// ── CollectionStrategy ────────────────────────────────────────────────────────
+
+/// Decision returned by [`ScoreSource::collection_strategy`] after each batch,
+/// telling [`TopKIterator`] how to proceed.
+///
+/// [`TopKIterator`]: crate::TopKIterator
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CollectionStrategy {
+    /// Keep iterating — fetch the next batch.
+    Continue,
+
+    /// Restart batch collection (e.g. after the source has expanded its range).
+    ///
+    /// The iterator rewinds both the source and the child, then re-enters
+    /// Batches mode from the beginning.
+    SwitchToBatches,
+
+    /// Collection is complete — stop and yield whatever is in the heap.
+    Stop,
 }
 
 // ── ScoreSource ───────────────────────────────────────────────────────────────
@@ -69,6 +96,12 @@ pub trait ScoreSource<'index> {
     ///
     /// [`TopKIterator`]: crate::TopKIterator
     fn build_result(&self, doc_id: t_docId, score: f64) -> RSIndexResult<'index>;
+
+    /// Called after each batch to decide how collection should proceed.
+    ///
+    /// - `heap_count` — number of results currently in the heap.
+    /// - `k` — the target number of results.
+    fn collection_strategy(&mut self, heap_count: usize, k: usize) -> CollectionStrategy;
 
     /// The [`IteratorType`] that the wrapping [`TopKIterator`] should report.
     ///
