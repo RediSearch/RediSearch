@@ -298,6 +298,9 @@ def test_queries_fail_on_all_shards_unreachable(env: Env):
     for i in range(10):
         conn.execute_command('HSET', f'doc{i}', 't', f'hello{i}', 'v', 'abcdefgh')
 
+    # Enable unstable features so FT.AGGREGATE WITHCOUNT is accepted
+    enable_unstable_features(env)
+
     # Pause topology refresh so our invalid topology stays in effect
     env.expect(debug_cmd(), 'PAUSE_TOPOLOGY_UPDATER').ok()
     # Set validation timeout to 1ms so we don't wait for unreachable shards
@@ -320,6 +323,9 @@ def test_queries_fail_on_one_shard_unreachable(env: Env):
     conn = getConnectionByEnv(env)
     for i in range(10):
         conn.execute_command('HSET', f'doc{i}', 't', f'hello{i}', 'v', 'abcdefgh')
+
+    # Enable unstable features so FT.AGGREGATE WITHCOUNT is accepted
+    enable_unstable_features(env)
 
     # Pause topology refresh so our invalid topology stays in effect
     env.expect(debug_cmd(), 'PAUSE_TOPOLOGY_UPDATER').ok()
