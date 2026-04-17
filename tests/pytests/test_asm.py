@@ -1104,6 +1104,7 @@ def test_hybrid_cursor_after_add_shard_migration():
     # Step 2: Add a new shard and migrate a middle slot range from shard1 to new shard
     initial_shards_count = env.shardsCount
     env.addShardToClusterIfExists()
+    time.sleep(5) # wait a bit for the cluster to stabilize before migrating
     new_shard = env.getConnection(shardId=initial_shards_count + 1)
 
     # Also set trim delays on the new shard
