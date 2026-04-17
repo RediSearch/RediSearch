@@ -164,10 +164,6 @@ void *MRCtx_GetPrivData(struct MRCtx *ctx) {
   return ctx->privdata;
 }
 
-void MRCtx_SetPrivData(struct MRCtx *ctx, void *privdata) {
-  ctx->privdata = privdata;
-}
-
 int MRCtx_GetNumReplied(struct MRCtx *ctx) {
   return ctx->numReplied;
 }

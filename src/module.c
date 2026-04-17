@@ -3874,16 +3874,6 @@ static int prepareCommand(MRCommand *cmd, searchRequestCtx *req, struct MRCtx *m
   return REDISMODULE_OK;
 }
 
-static searchRequestCtx *createReq(RedisModuleString **argv, int argc, struct MRCtx *mrctx, QueryError *status) {
-  searchRequestCtx *req = rscParseRequest(argv, argc, status);
-
-  if (!req) {
-    bailOut(MRCtx_GetBlockedClient(mrctx), status);
-    return NULL;
-  }
-  return req;
-}
-
 int FlatSearchCommandHandler(struct MRCtx *mrctx, RedisModuleBlockedClient *bc, int protocol,
   RedisModuleString **argv, int argc, ConcurrentSearchHandlerCtx *handlerCtx) {
   QueryError status = QueryError_Default();
@@ -4031,17 +4021,23 @@ int DistSearchCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     return ReplyBlockDeny(ctx, argv[0]);
   }
 
-  // Parse the search request on the main thread (non-debug path).
-  // For debug path, req is created later in DEBUG_FlatSearchCommandHandler.
-  searchRequestCtx *req = NULL;
-  if (!isDebug) {
-    QueryError parseStatus = QueryError_Default();
-    req = rscParseRequest(argv, argc, &parseStatus);
-    if (!req) {
+  QueryError parseStatus = QueryError_Default();
+  int parse_argc = argc;
+  if (isDebug) {
+    AREQ_Debug_params debug_params = parseDebugParamsCount(argv, argc, &parseStatus);
+    if (QueryError_HasError(&parseStatus)) {
       QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&parseStatus), 1, COORD_ERR_WARN);
-      QueryError_ReplyAndClear(ctx, &parseStatus);
-      return REDISMODULE_ERR;
+      return QueryError_ReplyAndClear(ctx, &parseStatus);
     }
+    parse_argc = argc - (debug_params.debug_params_count + 2);
+  }
+
+  // Parse the search request on the main thread so both the standard and debug
+  // paths attach req to mrctx before dispatching to the worker thread.
+  searchRequestCtx *req = rscParseRequest(argv, parse_argc, &parseStatus);
+  if (!req) {
+    QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&parseStatus), 1, COORD_ERR_WARN);
+    return QueryError_ReplyAndClear(ctx, &parseStatus);
   }
 
   // Create MRCtx on main thread with searchRequestCtx as privdata.
@@ -4449,14 +4445,9 @@ static int DEBUG_FlatSearchCommandHandler(struct MRCtx *mrctx, RedisModuleBlocke
 
   int debug_argv_count = debug_params.debug_params_count + 2;
   int base_argc = argc - debug_argv_count;
-  searchRequestCtx *req = createReq(argv, base_argc, mrctx, &status);
-
-  if (!req) {
-    return REDISMODULE_OK;
-  }
-
-  // Set req as privdata on mrctx so the reducer and cleanup can access it
-  MRCtx_SetPrivData(mrctx, req);
+  // req was created on the main thread and set as mrctx privdata before dispatch.
+  searchRequestCtx *req = MRCtx_GetPrivData(mrctx);
+  RS_ASSERT(req);
 
   // Copy coordinator queue time for profile output
   req->coordQueueTime = handlerCtx->coordQueueTime;
