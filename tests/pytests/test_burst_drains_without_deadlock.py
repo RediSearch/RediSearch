@@ -90,7 +90,7 @@ def _print_debug_stats(label, env, coord_initial_jobs_done, coord_initial_pendin
     )
 
 
-# @skip(cluster=False)
+@skip(cluster=False)
 def test_search_and_aggregate_burst():
     env = Env(
         testName='Search and aggregate burst',
