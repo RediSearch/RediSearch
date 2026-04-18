@@ -3695,7 +3695,8 @@ void sendRequiredFields(searchRequestCtx *req, MRCommand *cmd) {
   }
 }
 
-static void bailOut(RedisModuleBlockedClient *bc, struct MRCtx *mrctx, QueryError *status) {
+static void bailOut(RedisModuleBlockedClient *bc, QueryError *status) {
+  struct MRCtx *mrctx = RedisModule_BlockClientGetPrivateData(bc);
   RedisModuleCtx* clientCtx = RedisModule_GetThreadSafeContext(bc);
   QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(status), 1, COORD_ERR_WARN);
   QueryError_ReplyAndClear(clientCtx, status);
@@ -3770,7 +3771,7 @@ static int prepareCommand(MRCommand *cmd, searchRequestCtx *req, struct MRCtx *m
     MRCommand_Free(cmd);
     // Don't free req here - DistSearchMRCtxFreePrivData will handle it via MRCtx cleanup
     QueryError_SetCode(status, QUERY_EDROPPEDBACKGROUND);
-    bailOut(bc, mrctx, status);
+    bailOut(bc, status);
     return REDISMODULE_ERR;
   }
 
@@ -3804,7 +3805,7 @@ static searchRequestCtx *createReq(RedisModuleString **argv, int argc, struct MR
   searchRequestCtx *req = rscParseRequest(argv, argc, status);
 
   if (!req) {
-    bailOut(MRCtx_GetBlockedClient(mrctx), mrctx, status);
+    bailOut(MRCtx_GetBlockedClient(mrctx), status);
     return NULL;
   }
   return req;
@@ -3974,6 +3975,9 @@ int DistSearchCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   // Block client - MRCtx is set as privdata so unblock/free callbacks can access it
   RedisModuleBlockedClient* bc = RedisModule_BlockClient(ctx, DistSearchUnblockClient, NULL, DistSearchFreePrivData, 0);
   MRCtx_SetBlockedClient(mrctx, bc);
+
+  // Set MRCtx as privdata for the blocked client
+  RedisModule_BlockClientSetPrivateData(bc, mrctx);
 
   SearchCmdCtx* sCmdCtx = rm_malloc(sizeof(*sCmdCtx));
   sCmdCtx->handlerCtx.spec_ref = StrongRef_Demote(spec_ref);
@@ -4362,7 +4366,7 @@ static int DEBUG_FlatSearchCommandHandler(struct MRCtx *mrctx, RedisModuleBlocke
   AREQ_Debug_params debug_params = parseDebugParamsCount(argv, argc, &status);
 
   if (debug_params.debug_params_count == 0) {
-    bailOut(bc, mrctx, &status);
+    bailOut(bc, &status);
     return REDISMODULE_OK;
   }
 
