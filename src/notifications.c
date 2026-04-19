@@ -532,6 +532,7 @@ bool getHideUserDataFromLogs() {
 
 void onUpdatedHideUserDataFromLogs(RedisModuleCtx *ctx) {
   RSGlobalConfig.hideUserDataFromLog = getHideUserDataFromLogs();
+  SearchDisk_SetLogObfuscation(RSGlobalConfig.hideUserDataFromLog);
   if (RSGlobalConfig.hideUserDataFromLog) {
     RedisModule_Log(ctx, "notice", "Hide user data from search logs is now enabled, "
                    "search entity names (such as indexes and fields) in the logs will now be obfuscated");
