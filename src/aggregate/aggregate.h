@@ -230,7 +230,7 @@ typedef struct {
 #define IsDebug(r) ((r)->reqflags & QEXEC_F_DEBUG)
 
 // Indicates whether a query should run in the background.
-// Requires context to allow blocking the client and that the client is not already blocked.
+// Requires context to check if the client can be blocked.
 bool RunInThread(RedisModuleCtx *ctx);
 
 typedef void (*profiler_func)(RedisModule_Reply *reply, void *ctx);
