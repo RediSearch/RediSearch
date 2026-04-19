@@ -49,6 +49,26 @@ impl Map {
     }
 }
 
+impl Array {
+    /// Looks up a value by string key in a flat key-value array layout
+    /// (`[k1, v1, k2, v2, ...]`), returning a clone of the first matching
+    /// value or `None` if no match is found.
+    ///
+    /// This is needed because RESP2 does not have a native map type.
+    /// Map-like data (e.g. `extra_attributes`) is sent as a flat array of
+    /// alternating keys and values. In RESP3 this same data arrives as a
+    /// proper [`Map`], where [`Map::get`] can be used instead.
+    ///
+    /// A trailing element in an odd-length array is silently ignored.
+    /// Non-string keys are skipped.
+    pub fn map_get(&self, key: &[u8]) -> Option<SharedRsValue> {
+        self.chunks(2).find_map(|pair| {
+            let value = pair.get(1)?;
+            (pair[0].as_str_bytes()? == key).then_some(value.clone())
+        })
+    }
+}
+
 impl<T> Deref for Collection<T> {
     type Target = [T];
 
