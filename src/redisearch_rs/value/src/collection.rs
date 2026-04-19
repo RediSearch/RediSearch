@@ -45,7 +45,7 @@ impl Map {
     /// Non-string keys (e.g. [`RsValue::Number`](crate::RsValue::Number)) are skipped.
     pub fn get(&self, key: &[u8]) -> Option<SharedRsValue> {
         self.iter()
-            .find_map(|(k, v)| (k.as_str_bytes()? == key).then_some(v.clone()))
+            .find_map(|(k, v)| (k.as_str_bytes()? == key).then(|| v.clone()))
     }
 }
 
@@ -64,7 +64,7 @@ impl Array {
     pub fn map_get(&self, key: &[u8]) -> Option<SharedRsValue> {
         self.chunks(2).find_map(|pair| {
             let value = pair.get(1)?;
-            (pair[0].as_str_bytes()? == key).then_some(value.clone())
+            (pair[0].as_str_bytes()? == key).then(|| value.clone())
         })
     }
 }
