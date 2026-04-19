@@ -14,14 +14,10 @@ on:
           - rockylinux:8
           - rockylinux:9
           - rockylinux:10
-          - debian:bullseye
           - debian:bookworm
           - debian:trixie
-          - amazonlinux:2
           - amazonlinux:2023
-          - mariner:2
           - azurelinux:3
-          - alpine:3.22
           - alpine:3.23
           - macos-14
           - macos-15
@@ -94,11 +90,16 @@ jobs:
           fi
       - name: Validate Reference
         shell: python
+        env:
+          INPUT_ARCHITECTURE: ${{ inputs.architecture }}
+          INPUT_PLATFORM: ${{ inputs.platform }}
+          GIT_REF_NAME: ${{ github.ref_name }}
         run: |
+          import os
           from re import fullmatch
-          ref = '${{ github.ref_name }}'
+          ref = os.environ['GIT_REF_NAME']
           if bool(fullmatch(r'[0-9]+\.[0-9]+', ref)) or ref == 'master': # e.g. 2.8, 2.10, master
-            if '${{ inputs.architecture }}' != 'all' or '${{ inputs.platform }}' != 'all':
+            if os.environ['INPUT_ARCHITECTURE'] != 'all' or os.environ['INPUT_PLATFORM'] != 'all':
               print("::error title=Invalid Request::"
                     "You can only build all configurations for master or a release branch")
               exit(1)

@@ -37,6 +37,10 @@ on:
       benchmark_runner_group_total:
         type: number
         default: 1
+      binary_artifact_name:
+        type: string
+        required: true
+        description: "Name of the artifact (uploaded by flow-build-benchmark-binary.yml) containing the prebuilt redisearch.so"
 
 jobs:
   benchmark-steps:
@@ -48,8 +52,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          submodules: recursive
       - name: Compute effective benchmark filter
         id: benchmark-filter
         working-directory: tests/benchmarks
@@ -88,20 +90,20 @@ jobs:
       - name: Setup tests dependencies
         if: steps.benchmark-filter.outputs.skip != 'true'
         run: .install/test_deps/common_installations.sh sudo
-      - name: Install Boost
+      - name: Download prebuilt redisearch.so
         if: steps.benchmark-filter.outputs.skip != 'true'
-        working-directory: .install
-        run: ./install_boost.sh
-
-      - name: Setup sccache
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.binary_artifact_name }}
+          # Place the .so where `inputs.module_path` expects it, e.g.
+          # bin/linux-x64-release/search-community/redisearch.so
+          path: ${{ inputs.profile_env == 1 && 'bin/linux-x64-release-profile/search-community' || 'bin/linux-x64-release/search-community' }}
+      - name: Make redisearch.so executable
         if: steps.benchmark-filter.outputs.skip != 'true'
-        uses: ./.github/actions/setup-sccache
-      - name: Build RediSearch
-        if: steps.benchmark-filter.outputs.skip != 'true'
-        run: make build ${{ inputs.profile_env == 1 && 'PROFILE' || ''}}
-      - name: Show sccache stats
-        if: steps.benchmark-filter.outputs.skip != 'true'
-        run: ${SCCACHE_PATH:-sccache} --show-stats
+        env:
+          MODULE_PATH: ${{ inputs.module_path }}
+        run: chmod +x "../../${MODULE_PATH}"
+        working-directory: tests/benchmarks
       - name: Install Python dependencies
         if: steps.benchmark-filter.outputs.skip != 'true'
         run: |
@@ -115,7 +117,9 @@ jobs:
           terraform_wrapper: false
       - name: Prepare ReJSON Module
         if: steps.benchmark-filter.outputs.skip != 'true'
-        run: REJSON_BRANCH=${{ inputs.rejson_branch }} ./tests/deps/setup_rejson.sh
+        env:
+          REJSON_BRANCH: ${{ inputs.rejson_branch }}
+        run: ./tests/deps/setup_rejson.sh
 
       - name: Run CI benchmarks on aws for envs ${{ inputs.allowed_envs }}
         if: steps.benchmark-filter.outputs.skip != 'true'
@@ -136,20 +140,25 @@ jobs:
           BENCHMARK_RUNNER_GROUP_M_ID: ${{ inputs.benchmark_runner_group_member_id }}
           BENCHMARK_RUNNER_GROUP_TOTAL: ${{ inputs.benchmark_runner_group_total }}
           SEARCH_MEMORY_ENABLED: 1
+          MODULE_PATH: ${{ inputs.module_path }}
+          REJSON_MODULE_PATH: ${{ inputs.rejson_module_path }}
+          TRIGGERING_ENV: ${{ inputs.triggering_env }}
+          ALLOWED_ENVS: ${{ inputs.allowed_envs }}
+          ALLOWED_SETUPS: ${{ inputs.allowed_setups }}
         run: redisbench-admin run-remote
-              --module_path ../../${{ inputs.module_path }}
+              --module_path ../../$MODULE_PATH
               --required-module search
               --github_actor ${{ github.triggering_actor }}
               --github_repo ${{ github.event.repository.name }}
               --github_org ${{ github.repository_owner }}
-              --module_path ../../${{ inputs.rejson_module_path }}
+              --module_path ../../$REJSON_MODULE_PATH
               --required-module ReJSON
               --github_sha ${{ github.sha }}
               --github_branch ${{ github.head_ref || github.ref_name }}
               --upload_results_s3
-              --triggering_env ${{ inputs.triggering_env }}
-              --allowed-envs ${{ inputs.allowed_envs }}
-              --allowed-setups ${{ inputs.allowed_setups }}
+              --triggering_env $TRIGGERING_ENV
+              --allowed-envs $ALLOWED_ENVS
+              --allowed-setups $ALLOWED_SETUPS
               --push_results_redistimeseries
               --redistimeseries_host ${{ secrets.PERFORMANCE_RTS_HOST }}
               --redistimeseries_port ${{ secrets.PERFORMANCE_RTS_PORT }}

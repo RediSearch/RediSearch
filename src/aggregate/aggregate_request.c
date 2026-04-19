@@ -1144,10 +1144,9 @@ static bool IsNeededDepleter(AREQ *req) {
 // AREQ execution flags are not set when this function is called currently
 static bool shouldCheckInPipelineTimeout(AREQ *req) {
   // We should check for timeout in pipeline only if timeout is > 0
-  // and when the policy is RETURN or the policy is FAIL, without workers.
+  // and when the policy is RETURN or the policy is FAIL/RETURN-strict, without workers.
   return req->reqConfig.queryTimeoutMS > 0 &&
-         (req->reqConfig.timeoutPolicy == TimeoutPolicy_Return ||
-          (req->reqConfig.timeoutPolicy == TimeoutPolicy_Fail && !RunInThread()));
+         (req->reqConfig.timeoutPolicy == TimeoutPolicy_Return || !RunInThread());
 
 }
 
@@ -1195,6 +1194,12 @@ int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, bool isDiskIndex
     .coordDispatchTime = &req->profileClocks.coordDispatchTime,
   };
   if (parseAggPlan(&papCtx, &ac, isDiskIndex, status) != REDISMODULE_OK) {
+    goto error;
+  }
+
+  if (IsInternal(req) &&
+      RequestConfig_ApplyCoordinatorElapsedTime(&req->reqConfig, req->profileClocks.coordDispatchTime)) {
+    QueryError_SetCode(status, QUERY_ERROR_CODE_TIMED_OUT);
     goto error;
   }
 

@@ -697,6 +697,11 @@ void VecSim_TieredParams_Init(TieredIndexParams *params, StrongRef sp_ref) {
 }
 
 void VecSimLogCallback(void *ctx, const char *level, const char *message) {
+  if (ctx == NULL) {
+    // Allow global VecSim log (e.g., shared thread pool) — no per-index context.
+    RedisModule_Log(RSDummyContext, level, "VecSim: %s", message);
+    return;
+  }
   VecSimLogCtx *log_ctx = (VecSimLogCtx *)ctx;
   RedisModule_Log(RSDummyContext, level, "vector index '%s' - %s", log_ctx->index_field_name, message);
 }

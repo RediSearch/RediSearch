@@ -10,11 +10,10 @@
 //   this shim.
 use ffi::{
     IteratorStatus_ITERATOR_EOF, IteratorStatus_ITERATOR_NOTFOUND, IteratorStatus_ITERATOR_OK,
-    IteratorStatus_ITERATOR_TIMEOUT, QueryIterator, ValidateStatus_VALIDATE_ABORTED,
+    IteratorStatus_ITERATOR_TIMEOUT, IteratorType, QueryIterator, ValidateStatus_VALIDATE_ABORTED,
     ValidateStatus_VALIDATE_MOVED, ValidateStatus_VALIDATE_OK, t_docId,
 };
 
-use crate::IteratorType;
 use crate::{
     RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome, interop::RQEIteratorWrapper,
     intersection::Intersection,
