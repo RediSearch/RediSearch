@@ -79,15 +79,28 @@ def test_query_while_flush():
         threads.append(thread)
         thread.start()
 
-    # Let queries run for a bit to accumulate some successes
-    time.sleep(0.5)
+    # Wait until query threads have accumulated some successes
+    wait_for_condition(
+        lambda: (stats['before_flush_successes'] > 0, stats),
+        message='no successful pre-flush queries observed',
+        timeout=30,
+    )
 
     # Signal that flushall is about to be called
     flushall_called.set()
-    # Sleep to guarantee synchronization (if a thread sent between the set and its check, we want to minimize risk)
-    # The alternative is to use a lock, but in Python there is no native read-write lock, and therefore would be hard to accumulate queries in the workers queue
-    # so this is a simpler better approach
-    time.sleep(0.5)
+    # Wait for in-flight pre-flush attributions to drain: poll until the pre-flush counters
+    # stop changing across a short interval. Equivalent to the previous fixed sleep, but
+    # adaptive (returns quickly when the system is idle, waits longer on slow machines).
+    def _pre_flush_counters_stable():
+        snap = (stats['before_flush_successes'], stats['before_flush_errors'])
+        time.sleep(0.05)
+        cur = (stats['before_flush_successes'], stats['before_flush_errors'])
+        return snap == cur, {'snap': snap, 'cur': cur}
+    wait_for_condition(
+        _pre_flush_counters_stable,
+        message='pre-flush counters did not stabilize after flushall_called.set()',
+        timeout=10,
+    )
     env.assertGreater(stats['before_flush_successes'], 0)
     env.assertEqual(stats['before_flush_errors'], 0)
 
@@ -96,11 +109,20 @@ def test_query_while_flush():
 
     # Mark flush as completed
     stats['flush_completed'] = True
-    # Sleep to guarantee synchronization (if a thread sent between the set and its check, we want to minimize risk)
-    # The alternative is to use a lock, but in Python there is no native read-write lock, and therefore would be hard to accumulate queries in the workers queue
-    # so this is a simpler better approach
-    # Otherwise I could see successes attributed to before flush that should have been after
-    time.sleep(0.5)
+    # Wait for any thread that already passed the `flushall_called.is_set()` check but has
+    # not yet read `flush_completed` to finish its iteration, so we don't misattribute a
+    # post-flush observation to the before-flush bucket when we later clear the event.
+    # Same drain purpose as the previous sleep, expressed as a stability check.
+    def _pre_flush_counters_stable_post():
+        snap = (stats['before_flush_successes'], stats['before_flush_errors'])
+        time.sleep(0.05)
+        cur = (stats['before_flush_successes'], stats['before_flush_errors'])
+        return snap == cur, {'snap': snap, 'cur': cur}
+    wait_for_condition(
+        _pre_flush_counters_stable_post,
+        message='pre-flush counters did not stabilize after flush_completed=True',
+        timeout=10,
+    )
     flushall_called.clear()  # Reset the event
     # Create index2 and verify it works properly
     env.expect('FT.CREATE', 'index2', 'ON', 'HASH', 'SCHEMA', 'text', 'TEXT').ok()
