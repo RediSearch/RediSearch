@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::{ffi::c_void, mem, ptr, ptr::NonNull};
+use std::{ffi::c_void, ptr};
 
 /// A safe wrapper around an `ffi::Reducer`.
 #[repr(transparent)]
@@ -49,30 +49,18 @@ impl Reducer {
     /// Set `NewInstance` function pointer.
     pub fn set_new_instance(
         &mut self,
-        f: unsafe extern "C" fn(Option<NonNull<ffi::Reducer>>) -> *mut c_void,
+        f: unsafe extern "C" fn(*mut ffi::Reducer) -> *mut c_void,
     ) -> &mut Self {
-        // SAFETY: `Option<NonNull<T>>` is ABI-compatible with `*mut T`.
-        self.0.NewInstance = Some(unsafe {
-            mem::transmute::<
-                unsafe extern "C" fn(Option<NonNull<ffi::Reducer>>) -> *mut c_void,
-                unsafe extern "C" fn(*mut ffi::Reducer) -> *mut c_void,
-            >(f)
-        });
+        self.0.NewInstance = Some(f);
         self
     }
 
     /// Set `FreeInstance` function pointer.
     pub fn set_free_instance(
         &mut self,
-        f: unsafe extern "C" fn(Option<NonNull<ffi::Reducer>>, *mut c_void),
+        f: unsafe extern "C" fn(*mut ffi::Reducer, *mut c_void),
     ) -> &mut Self {
-        // SAFETY: `Option<NonNull<T>>` is ABI-compatible with `*mut T`.
-        self.0.FreeInstance = Some(unsafe {
-            mem::transmute::<
-                unsafe extern "C" fn(Option<NonNull<ffi::Reducer>>, *mut c_void),
-                unsafe extern "C" fn(*mut ffi::Reducer, *mut c_void),
-            >(f)
-        });
+        self.0.FreeInstance = Some(f);
         self
     }
 
@@ -88,18 +76,9 @@ impl Reducer {
     /// Set `Finalize` function pointer.
     pub fn set_finalize(
         &mut self,
-        f: unsafe extern "C" fn(Option<NonNull<ffi::Reducer>>, *mut c_void) -> *mut ffi::RSValue,
+        f: unsafe extern "C" fn(*mut ffi::Reducer, *mut c_void) -> *mut ffi::RSValue,
     ) -> &mut Self {
-        // SAFETY: `Option<NonNull<T>>` is ABI-compatible with `*mut T`.
-        self.0.Finalize = Some(unsafe {
-            mem::transmute::<
-                unsafe extern "C" fn(
-                    Option<NonNull<ffi::Reducer>>,
-                    *mut c_void,
-                ) -> *mut ffi::RSValue,
-                unsafe extern "C" fn(*mut ffi::Reducer, *mut c_void) -> *mut ffi::RSValue,
-            >(f)
-        });
+        self.0.Finalize = Some(f);
         self
     }
 
