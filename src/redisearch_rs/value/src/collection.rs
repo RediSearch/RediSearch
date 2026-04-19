@@ -38,6 +38,17 @@ impl<T> Collection<T> {
     }
 }
 
+impl Map {
+    /// Looks up a value by its string key bytes, returning a clone of
+    /// the first matching [`SharedRsValue`] or `None` if no match is found.
+    ///
+    /// Non-string keys (e.g. [`RsValue::Number`](crate::RsValue::Number)) are skipped.
+    pub fn get(&self, key: &[u8]) -> Option<SharedRsValue> {
+        self.iter()
+            .find_map(|(k, v)| (k.as_str_bytes()? == key).then_some(v.clone()))
+    }
+}
+
 impl<T> Deref for Collection<T> {
     type Target = [T];
 
