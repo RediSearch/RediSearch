@@ -60,7 +60,7 @@ bool SearchDisk_Initialize(RedisModuleCtx *ctx) {
   disk->basic.setThrottleCallbacks(VecSim_EnableThrottle, VecSim_DisableThrottle);
 
   // Pass the disk buffer percentage from config
-  disk_db = disk->basic.open(ctx, (int)RSGlobalConfig.diskBufferPercentage);
+  disk_db = disk->basic.open(ctx, (int)RSGlobalConfig.diskBufferPercentage, RSGlobalConfig.hideUserDataFromLog);
   bool disk_initialized = disk_db != NULL;
 
   if (!disk_initialized) {
@@ -133,9 +133,9 @@ RedisSearchDiskIndexSpec* SearchDisk_OpenIndex(RedisModuleCtx *ctx, const Hidden
     return disk->basic.openIndexSpec(ctx, disk_db, indexName, obfuscatedName, strlen(obfuscatedName), type, deleteBeforeOpen);
 }
 
-void SearchDisk_SetLogObfuscation(bool enable) {
+void SearchDisk_UpdateLogObfuscation() {
     if (disk && disk_db) {
-        disk->basic.setLogObfuscation(disk_db, enable);
+        disk->basic.setLogObfuscation(disk_db, RSGlobalConfig.hideUserDataFromLog);
     }
 }
 

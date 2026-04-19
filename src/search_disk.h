@@ -58,11 +58,9 @@ bool SearchDisk_RegisterBigModuleCallbacks(RedisModuleCtx *ctx);
 void SearchDisk_Close(RedisModuleCtx *ctx);
 
 /**
- * @brief Enable or disable obfuscation of index names and field names in Disk log output
- *
- * @param enable true to enable obfuscation, false to disable
+ * @brief Update the log obfuscation setting for the search disk module
  */
-void SearchDisk_SetLogObfuscation(bool enable);
+void SearchDisk_UpdateLogObfuscation();
 
 // Basic API wrappers
 
