@@ -137,7 +137,7 @@ pub unsafe extern "C" fn collectAdd(
 
     collect.add(r, srcrow);
 
-    1 // C reducer->Add convention: always returns 1 (success)
+    1 // C reducer->Add convention: always returns 1
 }
 
 /// Finalizes the collect reducer instance result into an `RSValue`.
