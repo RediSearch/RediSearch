@@ -450,7 +450,7 @@ class TestCoordinatorTimeout:
     def _test_remaining_timeout_exhausted_before_shard_execution_profile_impl(self, internal_cmd_args):
         """
         Test that FT.PROFILE commands with pre-execution timeout produce consistent
-        reply structures for SEARCH and AGGREGATE.
+        reply structures across SEARCH, AGGREGATE, and HYBRID.
 
         When profiling is active, timeout errors are suppressed (never returned as errors)
         regardless of the ON_TIMEOUT policy. Instead, empty results with profile wrapping
@@ -504,6 +504,16 @@ class TestCoordinatorTimeout:
     def test_remaining_timeout_exhausted_before_shard_execution_profile_aggregate(self):
         self._test_remaining_timeout_exhausted_before_shard_execution_profile_impl(
             ['_FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*', 'LOAD', '1', '@name'],
+        )
+
+    def test_remaining_timeout_exhausted_before_shard_execution_profile_hybrid(self):
+        self._test_remaining_timeout_exhausted_before_shard_execution_profile_impl(
+            [
+                '_FT.PROFILE', 'hybrid_idx', 'HYBRID', 'QUERY',
+                'SEARCH', '*',
+                'VSIM', '@embedding', '$BLOB',
+                'PARAMS', '2', 'BLOB', self.hybrid_query_vec,
+            ],
         )
 
 

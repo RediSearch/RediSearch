@@ -27,6 +27,8 @@ jobs:
     steps:
       - name: Set matrix
         id: set-matrix
+        env:
+          INPUT_ARCHITECTURE: ${{ inputs.architecture }}
         run: |
           # Define the full matrix as a JSON string
           FULL_MATRIX='
@@ -47,12 +49,12 @@ jobs:
           '
 
           # Filter the matrix based on architecture
-          if [ "${{ inputs.architecture }}" = "all" ]; then
+          if [ "$INPUT_ARCHITECTURE" = "all" ]; then
             # Use the full matrix
             FILTERED_MATRIX="$FULL_MATRIX"
           else
             # Filter to only the selected architecture
-            FILTERED_MATRIX=$(echo "$FULL_MATRIX" | jq -c '{include: [.include[] | select(.architecture | contains("${{ inputs.architecture }}"))]}')
+            FILTERED_MATRIX=$(echo "$FULL_MATRIX" | jq -c "{include: [.include[] | select(.architecture | contains(\"$INPUT_ARCHITECTURE\"))]}")
           fi
 
           # Use multiline output delimiter syntax for GitHub Actions

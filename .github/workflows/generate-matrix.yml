@@ -44,6 +44,9 @@ jobs:
       - name: Generate filtered matrix
         id: generate-matrix
         shell: python
+        env:
+          INPUT_PLATFORM: ${{ inputs.platform }}
+          INPUT_ARCHITECTURE: ${{ inputs.architecture }}
         run: |
           import json
           import os
@@ -65,20 +68,14 @@ jobs:
               ('rockylinux:9', 'aarch64'),
               ('rockylinux:10', 'x86_64'),
               ('rockylinux:10', 'aarch64'),
-              ('amazonlinux:2', 'x86_64'),
               ('amazonlinux:2023', 'x86_64'),
               ('amazonlinux:2023', 'aarch64'),
-              ('debian:bullseye', 'x86_64'),
-              ('debian:bullseye', 'aarch64'),
               ('debian:bookworm', 'x86_64'),
               ('debian:bookworm', 'aarch64'),
               ('debian:trixie', 'x86_64'),
               ('debian:trixie', 'aarch64'),
-              ('mariner:2', 'x86_64'),
               ('azurelinux:3', 'x86_64'),
               ('azurelinux:3', 'aarch64'),
-              ('alpine:3.22', 'x86_64'),
-              ('alpine:3.22', 'aarch64'),
               ('alpine:3.23', 'x86_64'),
               ('alpine:3.23', 'aarch64'),
               ('macos-14', 'aarch64'),
@@ -89,8 +86,8 @@ jobs:
               ('intel', 'x86_64'),  # Self-hosted EC2 runner
           ]
 
-          platform_filter = "${{ inputs.platform }}"
-          architecture_filter = "${{ inputs.architecture }}"
+          platform_filter = os.environ["INPUT_PLATFORM"]
+          architecture_filter = os.environ["INPUT_ARCHITECTURE"]
           include_coverage = "${{ inputs.include-coverage }}" == "true"
           include_sanitize = "${{ inputs.include-sanitize }}" == "true"
           separate_coordinator = "${{ inputs.separate-coordinator-job }}" == "true"

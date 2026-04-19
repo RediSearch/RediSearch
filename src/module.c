@@ -3742,7 +3742,8 @@ int DistAggregateCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int a
 void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                       struct ConcurrentCmdCtx *cmdCtx);
 
-int DistHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+static int DistHybridCommandInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
+                                     bool isProfile) {
   // Capture start time for coordinator dispatch time tracking
   rs_wall_clock_ns_t coordInitialTime = rs_wall_clock_now_ns();
 
@@ -3765,7 +3766,7 @@ int DistHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     }
     // Assuming OOM policy is return since we didn't ignore the memory guardrail
     RS_ASSERT(RSGlobalConfig.requestConfigParams.oomPolicy == OomPolicy_Return);
-    return common_hybrid_query_reply_empty(ctx, QUERY_ERROR_CODE_OUT_OF_MEMORY, false);
+    return common_hybrid_query_reply_empty(ctx, QUERY_ERROR_CODE_OUT_OF_MEMORY, false, isProfile);
   }
 
   // Coord callback
@@ -3821,6 +3822,10 @@ int DistHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   return ConcurrentSearch_HandleRedisCommandEx(DIST_THREADPOOL, dist_callback, ctx, argv, argc,
                                                &handlerCtx);
+}
+
+int DistHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  return DistHybridCommandInternal(ctx, argv, argc, false);
 }
 
 static inline int CursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, RedisModuleCmdFunc subcmd, ConcurrentCmdHandler dist_callback) {
@@ -4152,7 +4157,7 @@ static int DistSearchUnblockClient(RedisModuleCtx *ctx, RedisModuleString **argv
     }
 
     if (MRCtx_GetNumReplied(mrctx) == 0) {
-      // Can happen in a topology error
+      // Can happen in a topology error, before or after we sent the command to the cluster
       RedisModule_ReplyWithError(ctx, "Could not send query to cluster");
       return REDISMODULE_OK;
     }
@@ -4441,6 +4446,8 @@ int DistSearchCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   // Create MRCtx on main thread with searchRequestCtx as privdata.
   // NumShards is used as a hint for reply capacity - unsafe read is fine.
   struct MRCtx *mrctx = MR_CreateCtx(ctx, NULL, req, NumShards);
+  // FT.SEARCH coordinator should validate connections before sending the command to the cluster
+  MRCtx_SetValidateConnections(mrctx, true);
   MRCtx_SetFreePrivDataCB(mrctx, DistSearchMRCtxFreePrivData);
 
   // Block client - MRCtx is set as privdata so timeout callback can access it
@@ -4500,7 +4507,7 @@ int ProfileCommandHandlerImp(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   } else if (RMUtil_ArgExists("AGGREGATE", argv, 3, 2)) {
     return DistAggregateCommandImp(ctx, argv, argc, isDebug);
   } else if (RMUtil_ArgExists("HYBRID", argv, 3, 2)) {
-    return DistHybridCommand(ctx, argv, argc);
+    return DistHybridCommandInternal(ctx, argv, argc, true);
   }
   return RedisModule_ReplyWithError(ctx, "No `SEARCH`, `AGGREGATE`, or `HYBRID` provided");
 }

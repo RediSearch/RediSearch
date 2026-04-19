@@ -64,13 +64,16 @@ jobs:
       - name: Get configuration for platform and architecture
         id: get-config
         shell: python
+        env:
+          INPUT_PLATFORM: ${{ inputs.platform }}
+          INPUT_ARCHITECTURE: ${{ inputs.architecture }}
         run: |
           import json
           import os
           import sys
 
-          platform = "${{ inputs.platform }}"
-          architecture = "${{ inputs.architecture }}"
+          platform = os.environ["INPUT_PLATFORM"]
+          architecture = os.environ["INPUT_ARCHITECTURE"]
           print(f"Getting configuration for platform: {platform}, architecture: {architecture}")
 
           # Default environment per architecture
@@ -98,7 +101,7 @@ jobs:
           }
 
           # Platforms that don't support node20
-          node20_unsupported_platforms = ['amazonlinux:2']
+          node20_unsupported_platforms = []
 
           # Platform configurations
           platform_configs = {
@@ -127,7 +130,7 @@ jobs:
               },
               "macos-26": {
                   "x86_64": {
-                      'env': 'macos-26-intel',
+                      'env': 'macos-26-large',
                       'name': 'macOS 26 x86_64'
                   },
                   "aarch64": {
@@ -256,36 +259,6 @@ jobs:
                       'enable_lto': '1'
                   }
               },
-              "amazonlinux:2": {
-                  "x86_64": {
-                      'container': 'amazonlinux:2',
-                      'setup_script': 'yum install -y tar gzip git',
-                      'name': 'Amazon Linux 2 x86_64',
-                      'enable_lto': '0' # Shipped glibc (2.26) is too old for clang 21 tarball (requires 2.34).
-                  },
-                  "aarch64": {
-                      'container': 'amazonlinux:2',
-                      'setup_script': 'yum install -y tar gzip git',
-                      'name': 'Amazon Linux 2 ARM64',
-                      'enable_lto': '0' # Shipped glibc (2.26) is too old for clang 21 tarball (requires 2.34).
-                  }
-              },
-              "alpine:3.22": {
-                # A workaround to get GitHub Actions to work on Alpine in 'post_setup_script'
-                # See https://github.com/actions/runner/issues/801#issuecomment-2976165281 for more details
-                  "x86_64": {
-                      'container': 'alpine:3.22',
-                      'setup_script': 'apk add bash git',
-                      'post_setup_script': 'echo RUST_DYN_CRT=1 >> $GITHUB_ENV; sed -i "/^ID=/s/alpine/NotpineForGHA/" /etc/os-release; apk add nodejs --update-cache; mkdir -p /opt/bin; ln -s /usr/bin/node /opt/bin/node',
-                      'name': 'Alpine 3.22 x86_64'
-                  },
-                  "aarch64": {
-                      'container': 'alpine:3.22',
-                      'setup_script': 'apk add bash gcompat libstdc++ libgcc git',
-                      'post_setup_script': 'echo RUST_DYN_CRT=1 >> $GITHUB_ENV; sed -i "/^ID=/s/alpine/NotpineForGHA/" /etc/os-release; apk add nodejs --update-cache; mkdir -p /opt/bin; ln -s /usr/bin/node /opt/bin/node',
-                      'name': 'Alpine 3.22 ARM64'
-                  }
-              },
               "alpine:3.23": {
                 # A workaround to get GitHub Actions to work on Alpine in 'post_setup_script'
                 # See https://github.com/actions/runner/issues/801#issuecomment-2976165281 for more details
@@ -301,20 +274,6 @@ jobs:
                       'setup_script': 'apk add bash gcompat libstdc++ libgcc git',
                       'post_setup_script': 'echo RUST_DYN_CRT=1 >> $GITHUB_ENV; sed -i "/^ID=/s/alpine/NotpineForGHA/" /etc/os-release; apk add nodejs --update-cache; mkdir -p /opt/bin; ln -s /usr/bin/node /opt/bin/node',
                       'name': 'Alpine 3.23 ARM64',
-                      'enable_lto': '1'
-                  }
-              },
-              "debian:bullseye": {
-                  "x86_64": {
-                      'container': 'gcc:11-bullseye',
-                      'setup_script': 'apt update && apt install -y git',
-                      'name': 'Debian Bullseye x86_64',
-                      'enable_lto': '1'
-                  },
-                  "aarch64": {
-                      'container': 'gcc:11-bullseye',
-                      'setup_script': 'apt update && apt install -y git',
-                      'name': 'Debian Bullseye ARM64',
                       'enable_lto': '1'
                   }
               },
@@ -357,20 +316,6 @@ jobs:
                       'container': 'amazonlinux:2023',
                       'setup_script': 'dnf install -y tar gzip git',
                       'name': 'Amazon Linux 2023 ARM64',
-                      'enable_lto': '1'
-                  }
-              },
-              "mariner:2": {
-                  "x86_64": {
-                      'container': 'mcr.microsoft.com/cbl-mariner/base/core:2.0',
-                      'setup_script': 'tdnf install -y --noplugins --skipsignature tar gzip git ca-certificates',
-                      'name': 'Mariner 2 x86_64',
-                      'enable_lto': '1'
-                  },
-                  "aarch64": {
-                      'container': 'mcr.microsoft.com/cbl-mariner/base/core:2.0',
-                      'setup_script': 'tdnf install -y --noplugins --skipsignature tar gzip git ca-certificates',
-                      'name': 'Mariner 2 ARM64',
                       'enable_lto': '1'
                   }
               },
