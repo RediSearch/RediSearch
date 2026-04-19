@@ -3444,16 +3444,13 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryE
   // Open the index on disk only if we are on Flex, and this is not a duplicate.
   if (isSpecOnDisk(sp) && !sp->isDuplicate) {
     RS_ASSERT(disk_db);
-    size_t len;
-    const char* name = HiddenString_GetUnsafe(sp->specName, &len);
-
     if (diskRdbState) {
       // Use the new API that applies the RDB state during index opening
-      sp->diskSpec = SearchDisk_OpenIndexWithRdbState(ctx, name, len, sp->rule->type, diskRdbState);
+      sp->diskSpec = SearchDisk_OpenIndexWithRdbState(ctx, sp->specName, sp->obfuscatedName, sp->rule->type, diskRdbState);
       diskRdbState = NULL; // Ownership transferred
     } else {
       // No RDB state (non-SST flow), just open the index normally
-      sp->diskSpec = SearchDisk_OpenIndex(ctx, name, len, sp->rule->type, false);
+      sp->diskSpec = SearchDisk_OpenIndex(ctx, sp->specName, sp->obfuscatedName, sp->rule->type, false);
     }
 
     IndexSpec_PopulateVectorDiskParams(sp);
