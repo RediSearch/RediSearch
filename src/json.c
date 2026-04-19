@@ -1053,3 +1053,17 @@ void JSONParse_error(QueryError *status, RedisModuleString *err_msg, const Hidde
                          HiddenString_GetUnsafe(path, NULL), HiddenString_GetUnsafe(fieldName, NULL), HiddenString_GetUnsafe(indexName, NULL));
   RedisModule_FreeString(RSDummyContext, err_msg);
 }
+
+
+#ifdef ENABLE_ASSERT
+#include "json_test_api.h"
+
+bool JSONTest_AcceptsJSONArrayType(VecSimType target, JSONArrayType src) {
+  return VecSim_AcceptsJSONArrayType(target, src);
+}
+
+void JSONTest_ConvertFromTypedBuffer(VecSimType target_type, JSONArrayType jtype,
+                                     const void *src, size_t n, char *target) {
+  VecSim_ConvertFromTypedBuffer(target_type, jtype, src, n, target);
+}
+#endif // ENABLE_ASSERT
