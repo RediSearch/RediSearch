@@ -303,7 +303,7 @@ static void HybridRequest_Free(HybridRequest *req) {
         RedisModuleCtx *thctx = areq->sctx->redisCtx;
         RedisSearchCtx *sctx = areq->sctx;
 
-        if (RunInThread()) {
+        if (RunInThread(sctx->redisCtx)) {
           // Background thread: schedule async cleanup
           ScheduleContextCleanup(thctx, sctx);
         } else {
