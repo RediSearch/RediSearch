@@ -805,7 +805,7 @@ int JSON_LoadDocumentField(JSONResultsIterator jsonIter, size_t len,
                               QueryError *status) {
   int rv = REDISMODULE_OK;
 
-  if (rejectMultiValue && len != 1) {
+  if (rejectMultiValue && len > 1) {
     QueryError_SetError(status, QUERY_ERROR_CODE_INVAL,
                         "Disk JSON index does not support multi-value JSONPath results");
     return REDISMODULE_ERR;
@@ -817,7 +817,7 @@ int JSON_LoadDocumentField(JSONResultsIterator jsonIter, size_t len,
     JSONType jsonType = japi->getType(json);
     if (rejectMultiValue && jsonType == JSONType_Array && fs->types != INDEXFLD_T_VECTOR) {
       QueryError_SetError(status, QUERY_ERROR_CODE_INVAL,
-                          "Disk JSON index does not support array values for this field type");
+                          "Disk JSON index supports JSON array values only for VECTOR fields");
       return REDISMODULE_ERR;
     }
     if (FieldSpec_CheckJsonType(fs->types, jsonType, status) != REDISMODULE_OK) {

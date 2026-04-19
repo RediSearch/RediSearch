@@ -1462,9 +1462,14 @@ int IndexSpec_CreateTextId(IndexSpec *sp, t_fieldIndex index) {
 
 static IndexSpecCache *IndexSpec_BuildSpecCache(const IndexSpec *spec);
 
-static int validateDiskJsonSinglePath(const IndexSpec *sp, const FieldSpec *fs, QueryError *status) {
+/**
+ * Validate that a disk-backed JSON field uses a single-value JSONPath.
+ * Returns `true` when the validation does not apply or the field path is valid.
+ * On failure, sets `status` with the validation error and returns `false`.
+ */
+static bool validateDiskJsonSinglePath(const IndexSpec *sp, const FieldSpec *fs, QueryError *status) {
   if (!isSpecOnDiskForValidation(sp) || !isSpecJson(sp)) {
-    return 1;
+    return true;
   }
 
   RedisModuleString *err_msg = NULL;
@@ -1473,7 +1478,7 @@ static int validateDiskJsonSinglePath(const IndexSpec *sp, const FieldSpec *fs, 
     if (err_msg) {
       JSONParse_error(status, err_msg, fs->fieldPath, fs->fieldName, sp->specName);
     }
-    return 0;
+    return false;
   }
 
   bool isSingle = japi->pathIsSingle(jsonPath);
@@ -1481,10 +1486,10 @@ static int validateDiskJsonSinglePath(const IndexSpec *sp, const FieldSpec *fs, 
   if (!isSingle) {
     QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_INVAL,
                                      "Disk JSON index supports only single-value JSONPath fields");
-    return 0;
+    return false;
   }
 
-  return 1;
+  return true;
 }
 
 /**

@@ -204,7 +204,7 @@ def test_disk_json_ingestion_rejects_array_payload_for_single_path_field(env):
 
     errs = index_errors(env, 'idx')
     env.assertEqual(int(errs['indexing failures']), 1)
-    env.assertContains('Disk JSON index does not support array values for this field type',
+    env.assertContains('Disk JSON index supports JSON array values only for VECTOR fields',
                        errs['last indexing error'])
 
     env.expect('FT.SEARCH', 'idx', '@name:a', 'NOCONTENT').equal([0])
