@@ -234,20 +234,10 @@ jobs:
           ${{ needs.get-config.outputs.install_mode }} rm -rf /opt/ghc || true
           ${{ needs.get-config.outputs.install_mode }} rm -rf /opt/hostedtoolcache/CodeQL || true
           df -h
-      - name: Full checkout (node20)
-        if: needs.get-config.outputs.node20_supported == 'true'
+      - name: Full checkout
         uses: actions/checkout@v4
         with:
           submodules: recursive
-      - name: Full checkout (legacy)
-        # Manual checkout path for platforms where Node 20-based actions are unavailable.
-        if: needs.get-config.outputs.node20_supported != 'true'
-        env:
-          GITHUB_REF: ${{ github.ref }}
-          GITHUB_REPO: ${{ github.repository }}
-        run: |
-          echo "No legacy checkout platforms remaining"
-          exit 1
       - name: Print CPU information
         env:
           RUNNER_ARCH: ${{ runner.arch }}
@@ -271,8 +261,6 @@ jobs:
           echo "Runner Architecture: $RUNNER_ARCH"
           echo "========================"
       - name: Setup sccache
-        # sccache-action is a JavaScript action requiring Node.js 20+
-        if: needs.get-config.outputs.node20_supported == 'true'
         uses: ./.github/actions/setup-sccache
       - name: Setup
         if: needs.build-image.outputs.succeeded != 'true'
@@ -283,7 +271,6 @@ jobs:
 
       # Cache Rust packages
       - uses: Swatinem/rust-cache@v2
-        if: needs.get-config.outputs.node20_supported == 'true'
         with:
           prefix-key: "v2-rust"
           key: ${{ inputs.platform }}-${{ inputs.architecture }}-${{ inputs.san }}-${{ inputs.coverage && 'cov' || '' }}
@@ -325,7 +312,6 @@ jobs:
         uses: ./.github/actions/get-redis
         with:
           ref: ${{ inputs.redis-ref }}
-          node20_supported: ${{ needs.get-config.outputs.node20_supported }}
 
       - name: Build Redis
         working-directory: redis
@@ -435,7 +421,6 @@ jobs:
         run: make rust-tests
 
       - name: Show sccache stats
-        if: needs.get-config.outputs.node20_supported == 'true'
         run: ${SCCACHE_PATH:-sccache} --show-stats
 
       - name: Check test logs folder size
@@ -492,18 +477,16 @@ jobs:
           fi
           echo "=========================="
 
-      # Using version 4 if node20 is supported, since it is MUCH faster (15m vs 25s)
-      - name: Upload Artifacts (node20)
-        # Upload artifacts only if node20 is supported and tests failed (including sanitizer failures)
+      - name: Upload Artifacts
+        # Upload artifacts if tests failed (including sanitizer failures)
         if: >
-          needs.get-config.outputs.node20_supported == 'true' &&
-          (failure() || (
+          failure() || (
             (steps.rust_unit_tests_miri.outcome == 'failure') ||
             steps.rust_unit_tests.outcome == 'failure' ||
             steps.c_unit_tests.outcome == 'failure' ||
             steps.standalone_tests.outcome == 'failure' ||
             steps.coordinator_tests.outcome == 'failure'
-          ))
+          )
         uses: actions/upload-artifact@v4
         with:
           name: Test Logs ${{ steps.artifact-names.outputs.name }}
@@ -513,19 +496,6 @@ jobs:
             bin/**/redisearch.so.debug
 
           if-no-files-found: ignore
-      # If node20 is not supported, we can only use version 3.
-      # Here we only upload the artifacts if the tests had failed, since it is very slow
-      - name: Upload Artifacts (node20 not supported) (temporarily disabled)
-        if: >
-          needs.get-config.outputs.node20_supported != 'true' &&
-          (failure() || (
-            (steps.rust_unit_tests_miri.outcome == 'failure') ||
-            steps.rust_unit_tests.outcome == 'failure' ||
-            steps.c_unit_tests.outcome == 'failure' ||
-            steps.standalone_tests.outcome == 'failure' ||
-            steps.coordinator_tests.outcome == 'failure'
-          ))
-        run: echo "Currently not available..."
 
       - name: Fail flow if tests failed
         # due to continue-on-error, we need to check failure() explicitly for step to run
