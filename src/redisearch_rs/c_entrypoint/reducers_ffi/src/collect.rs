@@ -137,7 +137,7 @@ pub unsafe extern "C" fn collectAdd(
 
     collect.add(r, srcrow);
 
-    1
+    1 // C reducer->Add convention: always returns 1 (success)
 }
 
 /// Finalizes the collect reducer instance result into an `RSValue`.
@@ -156,7 +156,7 @@ pub unsafe extern "C" fn collectFinalize(
     // SAFETY: ensured by caller (1.)
     let r = unsafe { r.unwrap().cast::<CollectReducer>().as_mut() };
     // SAFETY: ensured by caller (2.)
-    let collect = unsafe { ctx.cast::<CollectCtx>().as_ref().unwrap() };
+    let collect = unsafe { ctx.cast::<CollectCtx>().as_mut().unwrap() };
 
     collect.finalize(r).into_raw() as *mut ffi::RSValue
 }

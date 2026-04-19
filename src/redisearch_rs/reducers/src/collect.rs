@@ -151,32 +151,34 @@ impl CollectCtx {
     /// and cloned (incrementing its refcount). Missing values are stored as
     /// [`SharedRsValue::null_static`].
     pub fn add(&mut self, r: &CollectReducer, row: &RLookupRow) {
-        let mut values = Vec::with_capacity(r.field_keys.len());
-        for key in &r.field_keys {
-            let value = row
-                .get(key)
-                .cloned()
-                .unwrap_or_else(SharedRsValue::null_static);
-            values.push(value);
-        }
+        let values = r
+            .field_keys
+            .iter()
+            .map(|key| {
+                row.get(key)
+                    .cloned()
+                    .unwrap_or_else(SharedRsValue::null_static)
+            })
+            .collect();
         self.rows.push(values);
     }
 
-    /// Serialize all collected rows as an array of maps.
+    /// Serialize all collected rows as an array of maps, consuming the stored
+    /// rows.
     ///
     /// Each map contains `{field_name: value}` entries keyed by the
     /// [`RLookupKey`] name. The outer array has one element per collected row.
-    pub fn finalize(&self, r: &CollectReducer) -> SharedRsValue {
+    pub fn finalize(&mut self, r: &CollectReducer) -> SharedRsValue {
         let row_maps: Vec<SharedRsValue> = self
             .rows
-            .iter()
+            .drain(..)
             .map(|row_values| {
                 let entries: Box<[_]> = row_values
-                    .iter()
+                    .into_iter()
                     .zip(r.field_keys.iter())
                     .map(|(val, key)| {
                         let name_val = SharedRsValue::new_string(key.name().to_bytes().to_vec());
-                        (name_val, val.clone())
+                        (name_val, val)
                     })
                     .collect();
                 SharedRsValue::new(RsValue::Map(Map::new(entries)))
