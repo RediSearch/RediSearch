@@ -222,6 +222,17 @@ static bool periodicCb(void *privdata, bool force) {
     RedisModule_KillForkChild(cpid);
     RedisModule_ThreadSafeContextUnlock(ctx);
 
+    // Ensure the child is fully reaped to prevent zombie processes.
+    // KillForkChild may be a no-op if Redis's module_child_pid was already
+    // replaced by a concurrent RM_Fork call (e.g., from RedisGears or
+    // RedisTimeSeries). In that case the child is already dead (killed by
+    // Redis when the other module forked) but was never waited on.
+    // If it was already reaped by KillForkChild above, waitpid returns -1
+    // with ECHILD, which is harmless.
+    while (waitpid(cpid, NULL, 0) == -1) {
+      if (errno != EINTR) break;
+    }
+
     if (gcrv) {
       gcrv = VecSim_CallTieredIndexesGC(gc->index);
     }
