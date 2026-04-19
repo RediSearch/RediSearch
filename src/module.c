@@ -8,6 +8,7 @@
 */
 #define REDISMODULE_MAIN
 
+#include <assert.h>
 #include <stdio.h>
 #include <string.h>
 #include <sys/param.h>
@@ -3828,12 +3829,33 @@ int DistHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   return DistHybridCommandInternal(ctx, argv, argc, false);
 }
 
-static inline int CursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, RedisModuleCmdFunc subcmd, ConcurrentCmdHandler dist_callback) {
+typedef enum {
+  CURSOR_SUBCMD_READ,
+  CURSOR_SUBCMD_DEL,
+  CURSOR_SUBCMD_GC,
+  CURSOR_SUBCMD_COUNT, // keep last
+} CursorSubcommand;
+
+static inline int CursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
+                                RedisModuleCmdFunc subcmd, ConcurrentCmdHandler dist_callback,
+                                CursorSubcommand sub) {
   if (argc < 4) {
     return RedisModule_WrongArity(ctx);
   } else if (!SearchCluster_Ready()) {
     return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
   }
+
+#ifdef ENABLE_ASSERT
+  static const char *const kCursorSubNames[] = {
+      [CURSOR_SUBCMD_READ] = "READ",
+      [CURSOR_SUBCMD_DEL]  = "DEL",
+      [CURSOR_SUBCMD_GC]   = "GC",
+  };
+  static_assert(sizeof(kCursorSubNames) / sizeof(kCursorSubNames[0]) == CURSOR_SUBCMD_COUNT,
+                "kCursorSubNames is missing an entry for a CursorSubcommand value");
+  RS_ASSERT(sub < CURSOR_SUBCMD_COUNT);
+  RS_ASSERT(strcasecmp(RedisModule_StringPtrLen(argv[1], NULL), kCursorSubNames[sub]) == 0);
+#endif
 
   VERIFY_ACL(ctx, argv[2])
 
@@ -3849,22 +3871,46 @@ static inline int CursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, i
 
   handlerCtx.spec_ref = (WeakRef){0};
 
+  // On the coordinator READ path, peek the originating AREQ's timeout
+  // configuration (sticky per-cursor) from the idle cursor without taking
+  // ownership. Reading from the cursor rather than live RSGlobalConfig keeps
+  // coord and shard aligned on the same policy for the lifetime of the cursor,
+  // even across `CONFIG SET search-on-timeout`. A bogus CID peeks default
+  // values (timeoutMS=0, policy=Return) and will be caught and reported by
+  // RSCursorReadCommand on the worker thread.
+  if (sub == CURSOR_SUBCMD_READ) {
+    long long cid;
+    if (RedisModule_StringToLongLong(argv[3], &cid) == REDISMODULE_OK) {
+      CursorTimeoutInfo info =
+          Cursors_PeekTimeoutInfo(GetGlobalCursor((uint64_t)cid), (uint64_t)cid);
+      if (info.queryTimeoutPolicy == TimeoutPolicy_Fail) {
+        CoordRequestCtx *reqCtx = CoordRequestCtx_New(COMMAND_AGGREGATE);
+        handlerCtx.bcCtx.privdata = reqCtx;
+        handlerCtx.bcCtx.free_privdata = DistCoordReqFreePrivData;
+        handlerCtx.bcCtx.reply_callback = DistAggregateReplyCallback;
+        handlerCtx.bcCtx.timeout_callback = DistAggregateTimeoutFailClient;
+        handlerCtx.bcCtx.timeoutMS = info.queryTimeoutMS;
+        CoordRequestCtx_SetUseReplyCallback(reqCtx, true);
+      }
+    }
+  }
+
   return ConcurrentSearch_HandleRedisCommandEx(DIST_THREADPOOL, dist_callback, ctx, argv, argc,
                                                &handlerCtx);
 }
 
 
-#define CURSOR_SUBCOMMAND(name) \
+#define CURSOR_SUBCOMMAND(name, sub_enum) \
 static void Cursor##name##CommandInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, struct ConcurrentCmdCtx *cmdCtx) { \
   RSCursor##name##Command(ctx, argv, argc);                                                                                           \
 }                                                                                                                                     \
 int Cursor##name##Command(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {                                                  \
-  return CursorCommand(ctx, argv, argc, RSCursor##name##Command, Cursor##name##CommandInternal);                                      \
+  return CursorCommand(ctx, argv, argc, RSCursor##name##Command, Cursor##name##CommandInternal, (sub_enum));                          \
 }
 
-CURSOR_SUBCOMMAND(Read)
-CURSOR_SUBCOMMAND(Del)
-CURSOR_SUBCOMMAND(GC)
+CURSOR_SUBCOMMAND(Read, CURSOR_SUBCMD_READ)
+CURSOR_SUBCOMMAND(Del,  CURSOR_SUBCMD_DEL)
+CURSOR_SUBCOMMAND(GC,   CURSOR_SUBCMD_GC)
 
 // This function sits next to RegisterCoordCursorCommands function
 // RegisterCoordCursorCommands currently has too many dependencies to be easily moved up where CreateSubCommands is defined

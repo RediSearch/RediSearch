@@ -48,6 +48,21 @@ typedef struct Cursor {
   /** Initial timeout interval */
   unsigned timeoutIntervalMs;
 
+  /** Query-deadline timeout (in ms) copied from the originating
+   * AREQ->reqConfig.queryTimeoutMS at cursor creation.
+   * Write-once on the creator thread before the first Cursor_Pause publishes
+   * the cursor into the idle list; thereafter read-only and accessed only
+   * under the cursor-list lock (see Cursors_PeekTimeoutInfo). */
+  size_t queryTimeoutMS;
+
+  /** Timeout policy copied from the originating AREQ->reqConfig.timeoutPolicy
+   * at cursor creation. Keeps a cursor's effective policy frozen at FT.AGGREGATE
+   * time (sticky per-cursor), so a `CONFIG SET search-on-timeout` between
+   * commands does not change how an in-flight cursor behaves on subsequent
+   * FT.CURSOR READ calls. Same write-once / lock-protected access pattern as
+   * queryTimeoutMS (see Cursors_PeekTimeoutInfo). */
+  RSTimeoutPolicy queryTimeoutPolicy;
+
   /** Position within idle list.
    * Should only be accessed under cursor list lock */
   int pos;
@@ -170,6 +185,39 @@ Cursor *Cursors_Reserve(CursorList *cl, StrongRef global_spec_ref, unsigned time
  * from the idle list, and returns it
  */
 Cursor *Cursors_TakeForExecution(CursorList *cl, uint64_t cid);
+
+/**
+ * Snapshot of an idle cursor's originating-AREQ timeout configuration, returned
+ * by Cursors_PeekTimeoutInfo without taking ownership of the cursor.
+ */
+typedef struct {
+  /** Cached `queryTimeoutMS` from the originating AREQ. 0 means "no timer": either
+   * the cursor wasn't found, or `TIMEOUT 0` was used on the originating FT.AGGREGATE
+   * (the query engine's reserved sentinel for "disabled timeout"). Both cases map
+   * cleanly to `RedisModule_BlockClient(timeoutMS=0)` ("no timer"). */
+  size_t queryTimeoutMS;
+  /** Cached `timeoutPolicy` from the originating AREQ. Defaults to
+   * `TimeoutPolicy_Return` if the cursor was not found (safe default: the coord
+   * FAIL branch will be skipped, matching the "cursor not found" short-circuit
+   * that follows). */
+  RSTimeoutPolicy queryTimeoutPolicy;
+} CursorTimeoutInfo;
+
+/**
+ * Peek at the configured query-timeout and timeout-policy of an idle cursor,
+ * without taking ownership of it.
+ *
+ * Both values are captured at AREQ creation time (from RSGlobalConfig and then
+ * frozen into `req->reqConfig`) and copied onto the Cursor at AREQ_StartCursor.
+ * Reading from the cursor — rather than re-reading live RSGlobalConfig at
+ * FT.CURSOR READ time — keeps the cursor's effective timeout configuration
+ * sticky per-cursor, so a `CONFIG SET search-on-timeout` between commands
+ * cannot cause coord and shard to disagree about an in-flight cursor.
+ *
+ * Concurrency: the cursor-list lock is held only for the duration of the khash
+ * lookup and a single scalar read of each write-once field.
+ */
+CursorTimeoutInfo Cursors_PeekTimeoutInfo(CursorList *cl, uint64_t cid);
 
 /**
  * Pause a cursor, setting it to idle and placing it back in the cursor

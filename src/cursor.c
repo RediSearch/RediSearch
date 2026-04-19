@@ -316,6 +316,20 @@ Cursor *Cursors_TakeForExecution(CursorList *cl, uint64_t cid) {
   return cur;
 }
 
+CursorTimeoutInfo Cursors_PeekTimeoutInfo(CursorList *cl, uint64_t cid) {
+  CursorTimeoutInfo info = {.queryTimeoutMS = 0, .queryTimeoutPolicy = TimeoutPolicy_Return};
+  CursorList_Lock(cl);
+  CursorList_IncrCounter(cl);
+  khiter_t iter = kh_get(cursors, cl->lookup, cid);
+  if (iter != kh_end(cl->lookup)) {
+    Cursor *cur = kh_value(cl->lookup, iter);
+    info.queryTimeoutMS = cur->queryTimeoutMS;
+    info.queryTimeoutPolicy = cur->queryTimeoutPolicy;
+  }
+  CursorList_Unlock(cl);
+  return info;
+}
+
 int Cursors_Purge(CursorList *cl, uint64_t cid) {
   CursorList_Lock(cl);
   CursorList_IncrCounter(cl);
