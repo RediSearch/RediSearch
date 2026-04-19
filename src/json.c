@@ -729,6 +729,27 @@ int JSON_StoreNumericInDocFieldFromIter(size_t len, JSONResultsIterator jsonIter
 int JSON_StoreNumericInDocFieldFromArr(RedisJSON arr, struct DocumentField *df, QueryError *status) {
   size_t len;
   japi->getLen(arr, &len);
+
+  // V7 fast path: homogeneous numeric buffer -> one dispatch, tight typed conversion to double
+  // (single memcpy when the source is already F64). Arrays containing nulls are tagged
+  // Heterogeneous by RedisJSON and fall through to the V6 iterator which preserves the
+  // null-skipping semantics.
+  if (japi_ver >= 7) {
+    size_t buf_len = 0;
+    JSONArrayType jtype = JSONArrayType_Heterogeneous;
+    const void *buf = japi->getArray(arr, &buf_len, &jtype);
+    if (buf && jtype != JSONArrayType_Heterogeneous) {
+      RS_ASSERT(buf_len == len);
+      arrayof(double) out = array_newlen(double, len);
+      // VecSim_ConvertFromTypedBuffer accepts any homogeneous numeric jtype for a FLOAT64
+      // target, so reusing it here covers every valid tag.
+      VecSim_ConvertFromTypedBuffer(VecSimType_FLOAT64, jtype, buf, len, (char *)out);
+      df->arrNumval = out;
+      df->unionType = FLD_VAR_T_ARRAY;
+      return REDISMODULE_OK;
+    }
+  }
+
   JSONIterable iter = JSONIterable_FromArr(arr);
   int ret = JSON_StoreNumericInDocField(len, &iter, df, status);
   JSONIterable_Clean(&iter);
