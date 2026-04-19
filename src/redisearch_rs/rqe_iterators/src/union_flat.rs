@@ -112,15 +112,15 @@ where
 
     /// Returns a shared reference to the child originally at insertion index `idx`.
     ///
-    /// Scans the children to find the one whose `original_index` matches,
-    /// so this is O(n) — intended for profile display, not hot-path iteration.
-    pub fn child_at(&self, idx: usize) -> &I {
-        let pos = self
-            .children
+    /// Returns `None` if the child was permanently removed (e.g. aborted during
+    /// revalidation). Scans the children to find the one whose `original_index`
+    /// matches, so this is O(n) — intended for profile display, not hot-path
+    /// iteration.
+    pub fn child_at(&self, idx: usize) -> Option<&I> {
+        self.children
             .iter()
-            .position(|c| c.original_index == idx)
-            .expect("child_at: original index not found");
-        &self.children[pos].inner
+            .find(|c| c.original_index == idx)
+            .map(|c| &c.inner)
     }
 
     /// Advances all active children whose `last_doc_id` equals `current_id` and finds the

@@ -189,7 +189,9 @@ macro_rules! union_common_tests {
 
             // Record the pointer (address) of each child before any reads.
             let ptrs_before: Vec<*const dyn RQEIterator<'static>> = (0..3)
-                .map(|i| union_iter.child_at(i) as *const dyn RQEIterator<'static>)
+                .map(|i| {
+                    union_iter.child_at(i).unwrap() as *const dyn RQEIterator<'static>
+                })
                 .collect();
 
             while union_iter.read().expect("read failed").is_some() {}
@@ -198,8 +200,8 @@ macro_rules! union_common_tests {
             // Rewind and verify child_at returns the same child objects.
             union_iter.rewind();
             for i in 0..3 {
-                let ptr_after =
-                    union_iter.child_at(i) as *const dyn RQEIterator<'static>;
+                let ptr_after = union_iter.child_at(i).unwrap()
+                    as *const dyn RQEIterator<'static>;
                 assert!(
                     std::ptr::addr_eq(ptrs_before[i], ptr_after),
                     "child_at({i}) should return the same child after rewind"

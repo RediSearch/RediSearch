@@ -73,8 +73,10 @@ where
     }
 
     /// Returns a shared reference to the child originally at insertion index `idx`.
-    pub fn child_at(&self, idx: usize) -> &I {
-        &self.children[idx]
+    ///(if any child was removed, there is no guarantee that the same child will be at this position).
+    /// Returns `None` if the child is out of range.
+    pub fn child_at(&self, idx: usize) -> Option<&I> {
+        self.children.get(idx)
     }
 
     /// Rebuilds the heap from scratch based on current child positions.
