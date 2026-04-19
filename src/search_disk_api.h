@@ -33,6 +33,28 @@ typedef char* (*AllocateKeyCallback)(const void*, size_t len);
 // Callback function to allocate a new RSDocumentMetadata with ref_count=1 and keyPtr set
 typedef RSDocumentMetadata* (*AllocateDMDCallback)(const void* key_data, size_t key_len);
 
+// Callback functions for applying text compaction delta updates.
+// The C side owns private_data/update_ctx semantics; Rust treats them as opaque.
+typedef struct SearchDiskCompactionCallbacks {
+  // Opens an update session and returns opaque update context.
+  // Implementations may acquire internal locks here.
+  void *(*beginUpdate)(void *private_data);
+
+  // Decrement term doc count in the serving trie.
+  bool (*decrementTrieTermCount)(
+      void *update_ctx,
+      const char *term,
+      size_t term_len,
+      size_t doc_count_decrement);
+
+  // Decrement numTerms in scoring stats.
+  void (*decrementNumTerms)(void *update_ctx, uint64_t num_terms_removed);
+
+  // Closes an update session.
+  // Implementations may release internal locks here.
+  void (*endUpdate)(void *update_ctx);
+} SearchDiskCompactionCallbacks;
+
 // Result of polling the async read pool
 typedef struct AsyncPollResult {
   uint16_t ready_count;   // Number of successful reads in results buffer
@@ -252,14 +274,17 @@ typedef struct IndexDiskAPI {
    *
    * Synchronously runs a full compaction on the inverted index column family,
    * removing entries for deleted documents. Also applies the compaction delta
-   * to update in-memory structures via FFI calls to the provided C IndexSpec.
+   * to update in-memory structures via the provided callback table.
    *
    * @param index Pointer to the disk index
-   * @param user_data Opaque pointer to the C IndexSpec (used for FFI callbacks)
+   * @param callbacks Callback table for applying compaction delta updates
+   * @param private_data Opaque pointer owned by caller and passed into beginUpdate
    *
    * @return Number of deletedIDs removed from the disk index
    */
-  size_t (*runGC)(RedisSearchDiskIndexSpec *index, void *user_data);
+  size_t (*runGC)(RedisSearchDiskIndexSpec *index,
+                  const SearchDiskCompactionCallbacks *callbacks,
+                  void *private_data);
 
   /**
    * @brief Get the total disk usage for this index.
