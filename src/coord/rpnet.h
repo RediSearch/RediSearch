@@ -69,6 +69,7 @@ typedef struct {
   // Pending replies while waiting for all shards' first responses
   arrayof(MRReply *) pendingReplies;   // Replies accumulated while waiting
   bool waitedForAllShards;             // True once all shards have sent their first response
+  bool nonBlocking;                    // Use non-blocking mode (rpnetNext_NonBlocking)
 } RPNet;
 
 
@@ -79,10 +80,19 @@ int rpnetNext(ResultProcessor *self, SearchResult *r);
 int rpnetNext_EOF(ResultProcessor *self, SearchResult *r);
 int rpnetNext_StartWithMappings(ResultProcessor *rp, SearchResult *r);
 
+// Non-blocking variant of rpnetNext. Returns RS_RESULT_DEPLETING if the
+// channel is empty and there are still pending shard responses.
+int rpnetNext_NonBlocking(ResultProcessor *self, SearchResult *r);
+
 // Get the next reply from the channel.
 // Return RS_RESULT_OK if there is a next reply to process, RS_RESULT_EOF if there are no more replies
 // Or RS_RESULT_TIMEDOUT if we timed out
 int getNextReply(RPNet *nc);
+
+// Non-blocking variant of getNextReply. Uses MRIterator_TryNext to avoid
+// blocking when the channel is empty. Returns RS_RESULT_DEPLETING if no reply
+// is immediately available and shards are still pending.
+int getNextReply_NonBlocking(RPNet *nc);
 
 // Allocate and initialize a new ShardResponseBarrier
 // Notice: numShards and shardResponded init is postponed until shardResponseBarrier_Init is called

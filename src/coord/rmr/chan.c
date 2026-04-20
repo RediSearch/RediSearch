@@ -117,6 +117,15 @@ static void *popHeadAndUnlock(MRChannel *chan) {
   return ret;
 }
 
+void *MRChannel_TryPop(MRChannel *chan) {
+  pthread_mutex_lock(&chan->lock);
+  if (!chan->size) {
+    pthread_mutex_unlock(&chan->lock);
+    return NULL;
+  }
+  return popHeadAndUnlock(chan);
+}
+
 void *MRChannel_Pop(MRChannel *chan) {
   pthread_mutex_lock(&chan->lock);
   while (!chan->size) {

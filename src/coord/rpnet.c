@@ -442,8 +442,11 @@ int rpnetNext_StartWithMappings(ResultProcessor *rp, SearchResult *r) {
     rm_free(idx_copy);
 
     nc->it = MR_IterateWithPrivateData(&nc->cmd, netCursorCallback, NULL, NULL, NULL, iterCursorMappingCb, &nc->mappings);
+    if (nc->nonBlocking) {
+      nc->base.Next = rpnetNext_NonBlocking;
+      return rpnetNext_NonBlocking(rp, r);
+    }
     nc->base.Next = rpnetNext;
-
     return rpnetNext(rp, r);
 }
 
@@ -639,4 +642,187 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
 
 int rpnetNext_EOF(ResultProcessor *self, SearchResult *r) {
   return RS_RESULT_EOF;
+}
+
+int getNextReply_NonBlocking(RPNet *nc) {
+  // Non-blocking variant: does not support shardResponseBarrier (WITHCOUNT).
+  // Distributed hybrid sub-queries do not use WITHCOUNT, so this is fine.
+  RS_LOG_ASSERT(!nc->shardResponseBarrier, "Non-blocking getNextReply does not support shardResponseBarrier");
+
+  MRReply *root = NULL;
+
+  // First, return any pending replies collected earlier
+  if (nc->pendingReplies && array_len(nc->pendingReplies) > 0) {
+    root = nc->pendingReplies[0];
+    array_del(nc->pendingReplies, 0);
+  } else {
+    if (nc->cmd.forCursor) {
+      if (!MR_ManuallyTriggerNextIfNeeded(nc->it, clusterConfig.cursorReplyThreshold)) {
+        RPNet_resetCurrent(nc);
+        return RS_RESULT_EOF;
+      }
+    }
+    // Non-blocking: try to pop without waiting
+    root = MRIterator_TryNext(nc->it);
+  }
+
+  if (root == NULL) {
+    RPNet_resetCurrent(nc);
+    // Distinguish "empty channel but still pending" from "truly done"
+    return MRIterator_GetPending(nc->it) ? RS_RESULT_DEPLETING : RS_RESULT_EOF;
+  }
+
+  // Check if an error was returned
+  if (MRReply_Type(root) == MR_REPLY_ERROR) {
+    nc->current.root = root;
+    if (nc->cmd.forProfiling) {
+      MRReply *error = MRReply_Clone(root);
+      array_append(nc->shardsProfile, error);
+    }
+    return RS_RESULT_OK;
+  }
+
+  // For profile command, extract the profile data from the reply
+  if (nc->cmd.forProfiling) {
+    if (CURSOR_EOF == MRReply_Integer(MRReply_ArrayElement(root, 1))) {
+      MRReply *profile_data;
+      if (nc->cmd.protocol == 3) {
+        MRReply *data = MRReply_ArrayElement(root, 0);
+        profile_data = MRReply_TakeMapElement(data, "profile");
+      } else {
+        RS_ASSERT(nc->cmd.protocol == 2);
+        RS_ASSERT(MRReply_Length(root) == 3);
+        profile_data = MRReply_TakeArrayElement(root, 2);
+      }
+      array_append(nc->shardsProfile, profile_data);
+    }
+  }
+
+  // Extract rows and meta from reply
+  MRReply *rows = NULL, *meta = NULL;
+  if (nc->cmd.protocol == 3) {
+    meta = MRReply_ArrayElement(root, 0);
+    if (nc->cmd.forProfiling) {
+      meta = MRReply_MapElement(meta, "results");
+    }
+    rows = MRReply_MapElement(meta, "results");
+  } else {
+    rows = MRReply_ArrayElement(root, 0);
+  }
+
+  nc->current.root = root;
+  nc->current.rows = rows;
+  nc->current.meta = meta;
+
+  const size_t empty_rows_len = nc->cmd.protocol == 3 ? 0 : 1;
+  RS_LOG_ASSERT(rows && MRReply_Type(rows) == MR_REPLY_ARRAY, rows ? "rows is not an array" : "rows is NULL");
+  if (MRReply_Length(rows) <= empty_rows_len) {
+    RedisModule_Log(RSDummyContext, "verbose", "An empty reply was received from a shard");
+    int ret = processWarningsAndCleanup(nc, nc->cmd.protocol == 3);
+    if (ret == RS_RESULT_TIMEDOUT) {
+      return RS_RESULT_TIMEDOUT;
+    }
+  }
+
+  return RS_RESULT_OK;
+}
+
+int rpnetNext_NonBlocking(ResultProcessor *self, SearchResult *r) {
+  RPNet *nc = (RPNet *)self;
+  MRReply *root = nc->current.root, *rows = nc->current.rows;
+  const bool resp3 = nc->cmd.protocol == 3;
+
+  if (rows) {
+    size_t len = MRReply_Length(rows);
+    if (nc->curIdx == len) {
+      if (processWarningsAndCleanup(nc, resp3) == RS_RESULT_TIMEDOUT) {
+        return RS_RESULT_TIMEDOUT;
+      }
+      root = rows = NULL;
+    }
+  }
+
+  bool new_reply = !root;
+
+  while (!root) {
+    // Check for timeout
+    if (!nc->areq->sctx->time.skipTimeoutChecks && TimedOut(&nc->areq->sctx->time.timeout)) {
+      MRIteratorCallback_SetTimedOut(MRIterator_GetCtx(nc->it));
+      return RS_RESULT_TIMEDOUT;
+    } else if (MRIteratorCallback_GetTimedOut(MRIterator_GetCtx(nc->it))) {
+      MRIteratorCallback_ResetTimedOut(MRIterator_GetCtx(nc->it));
+    }
+
+    int ret = getNextReply_NonBlocking(nc);
+    if (ret == RS_RESULT_EOF) {
+      return RS_RESULT_EOF;
+    } else if (ret == RS_RESULT_TIMEDOUT) {
+      MRIteratorCallback_SetTimedOut(MRIterator_GetCtx(nc->it));
+      return RS_RESULT_TIMEDOUT;
+    } else if (ret == RS_RESULT_DEPLETING) {
+      return RS_RESULT_DEPLETING;
+    }
+
+    // If an error was returned, propagate it
+    if (nc->current.root && MRReply_Type(nc->current.root) == MR_REPLY_ERROR) {
+      QueryErrorCode errCode = QueryError_GetCodeFromMessage(MRReply_String(nc->current.root, NULL));
+      if (errCode == QUERY_ERROR_CODE_GENERIC ||
+          errCode == QUERY_ERROR_CODE_UNAVAILABLE_SLOTS ||
+          ((errCode == QUERY_ERROR_CODE_TIMED_OUT) && nc->areq->reqConfig.timeoutPolicy == TimeoutPolicy_Fail) ||
+          ((errCode == QUERY_ERROR_CODE_OUT_OF_MEMORY) && nc->areq->reqConfig.oomPolicy == OomPolicy_Fail)) {
+        QueryError_SetCode(AREQ_QueryProcessingCtx(nc->areq)->err, errCode);
+        QueryError_SetDetail(AREQ_QueryProcessingCtx(nc->areq)->err, MRReply_String(nc->current.root, NULL));
+        return RS_RESULT_ERROR;
+      } else {
+        MRReply_Free(nc->current.root);
+        nc->current.root = NULL;
+      }
+    }
+
+    root = nc->current.root;
+    rows = nc->current.rows;
+  }
+
+  // Parse the result row (same logic as rpnetNext)
+  if (new_reply) {
+    if (resp3) {
+      nc->curIdx = 0;
+      if (!nc->shardResponseBarrier) {
+        nc->base.parent->totalResults += MRReply_Length(rows);
+      }
+      processResultFormat(&nc->areq->reqflags, nc->current.meta);
+    } else {
+      nc->curIdx = 1;
+      if (!nc->shardResponseBarrier) {
+        nc->base.parent->totalResults += MRReply_Integer(MRReply_ArrayElement(rows, 0));
+      }
+    }
+  }
+
+  MRReply *score = NULL;
+  MRReply *fields = MRReply_ArrayElement(rows, nc->curIdx++);
+  size_t fields_length = 0;
+  if (resp3) {
+    score = MRReply_MapElement(fields, "score");
+    fields = MRReply_MapElement(fields, "extra_attributes");
+    fields_length = fields && MRReply_Type(fields) == MR_REPLY_MAP ? MRReply_Length(fields) : 0;
+  } else {
+    fields_length = fields && MRReply_Type(fields) == MR_REPLY_ARRAY ? MRReply_Length(fields) : 0;
+    RS_LOG_ASSERT(fields_length % 2 == 0, "invalid fields record");
+  }
+
+  if (score) {
+    RS_LOG_ASSERT(MRReply_Type(score) == MR_REPLY_DOUBLE, "invalid score record");
+    SearchResult_SetScore(r, MRReply_Double(score));
+  }
+
+  for (size_t i = 0; i < fields_length; i += 2) {
+    size_t len;
+    const char *field = MRReply_String(MRReply_ArrayElement(fields, i), &len);
+    MRReply *val = MRReply_ArrayElement(fields, i + 1);
+    RSValue *v = MRReply_ToValue(val);
+    RLookupRow_WriteByNameOwned(nc->lookup, field, len, SearchResult_GetRowDataMut(r), v);
+  }
+
+  return RS_RESULT_OK;
 }

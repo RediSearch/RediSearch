@@ -2208,7 +2208,15 @@ static int RPHybridMerger_Yield(ResultProcessor *rp, SearchResult *r) {
 
   bool *consumed = rm_calloc(self->numUpstreams, sizeof(bool));
   size_t numConsumed = 0;
-  // Continuously try to consume from upstreams until all are consumed
+  // Round-robin across upstreams. When an upstream returns RS_RESULT_DEPLETING
+  // (no data available yet from its IO channel), we skip to the next upstream.
+  // This busy-spins until all upstreams are fully consumed.
+  // TODO: To avoid busy-spinning when all upstreams return DEPLETING, add a
+  // multi-channel wait here. Options:
+  //   - Use MRChannel_PopWithTimeout with a short timeout on each channel in
+  //     sequence (adds latency proportional to N_upstreams * timeout).
+  //   - Introduce a shared condvar (MRChannelGroup) that any channel signals on
+  //     push, allowing a single pthread_cond_timedwait to cover all channels.
   while (numConsumed < self->numUpstreams) {
     for (size_t i = 0; i < self->numUpstreams; i++) {
       if (consumed[i]) {
@@ -2217,15 +2225,10 @@ static int RPHybridMerger_Yield(ResultProcessor *rp, SearchResult *r) {
       int rc = hybridMergerConsumeFromUpstream(self, window, i);
 
       if (rc == RS_RESULT_DEPLETING) {
-        // Upstream is still active but not ready to provide results. Skip to the next.
         continue;
       }
 
-      // Store the final return code for this upstream
       self->upstreamReturnCodes[i] = rc;
-      // Currently continues processing other upstreams.
-      // No need for a timeout mechanism to stop its spawned thread before completion
-      // assuming other threads would timeout as well within a reasobale delta of docs (See TimedOut_WithCounter)
       consumed[i] = true;
       numConsumed++;
     }

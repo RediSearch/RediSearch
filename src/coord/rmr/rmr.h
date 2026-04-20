@@ -126,6 +126,10 @@ bool MR_ManuallyTriggerNextIfNeeded(MRIterator *it, size_t channelThreshold);
 
 MRReply *MRIterator_Next(MRIterator *it);
 
+/* Non-blocking: try to get the next reply without waiting.
+ * Returns the reply if one is immediately available, or NULL if the channel is empty. */
+MRReply *MRIterator_TryNext(MRIterator *it);
+
 /* Get the next reply from the iterator with a timeout.
  * Parameters:
  *   - it: the iterator
