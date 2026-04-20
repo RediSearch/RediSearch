@@ -3462,7 +3462,7 @@ static int prepareCommand(MRCommand *cmd, searchRequestCtx *req, struct MRCtx *m
   IndexSpec *sp = StrongRef_Get(strong_ref);
   if (!sp) {
     MRCommand_Free(cmd);
-    searchRequestCtx_Free(req);
+    // Don't free req here - DistSearchMRCtxFreePrivData will handle it via MRCtx cleanup
     QueryError_SetCode(status, QUERY_EDROPPEDBACKGROUND);
     bailOut(bc, status);
     return REDISMODULE_ERR;
@@ -4038,7 +4038,7 @@ static int DEBUG_FlatSearchCommandHandler(struct MRCtx *mrctx, RedisModuleBlocke
   req->coordQueueTime = handlerCtx->coordQueueTime;
 
   MRCommand cmd = MR_NewCommandFromRedisStrings(base_argc, argv);
-  int rc = prepareCommand(&cmd, req, bc, protocol, argv, argc, handlerCtx->spec_ref, &status);
+  int rc = prepareCommand(&cmd, req, mrctx, protocol, argv, argc, handlerCtx->spec_ref, &status);
   if (!(rc == REDISMODULE_OK)) {
     return REDISMODULE_OK;
   }
