@@ -44,8 +44,9 @@ fn assert_get(map: &Map, arr: &Array, key: &[u8], expected: Option<f64>) {
 
 #[test]
 fn found_key() {
-    let map = make_map(&[("price", 9.99), ("quantity", 3.0)]);
-    let arr = make_flat_map_array(&[("price", 9.99), ("quantity", 3.0)]);
+    let pairs = &[("price", 9.99), ("quantity", 3.0)];
+    let map = make_map(pairs);
+    let arr = make_flat_map_array(pairs);
 
     assert_get(&map, &arr, b"price", Some(9.99));
     assert_get(&map, &arr, b"quantity", Some(3.0));
@@ -53,8 +54,9 @@ fn found_key() {
 
 #[test]
 fn missing_key() {
-    let map = make_map(&[("price", 9.99)]);
-    let arr = make_flat_map_array(&[("price", 9.99)]);
+    let pairs = &[("price", 9.99)];
+    let map = make_map(pairs);
+    let arr = make_flat_map_array(pairs);
 
     assert_get(&map, &arr, b"missing", None);
 }
@@ -85,8 +87,9 @@ fn non_string_keys_skipped() {
 
 #[test]
 fn first_match_wins() {
-    let map = make_map(&[("key", 1.0), ("key", 2.0)]);
-    let arr = make_flat_map_array(&[("key", 1.0), ("key", 2.0)]);
+    let pairs = &[("key", 1.0), ("key", 2.0)];
+    let map = make_map(pairs);
+    let arr = make_flat_map_array(pairs);
 
     assert_get(&map, &arr, b"key", Some(1.0));
 }
