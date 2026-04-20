@@ -20,10 +20,10 @@ extern crate redisearch_rs;
 redis_mock::mock_or_stub_missing_redis_c_symbols!();
 
 pub use bindings::{IndexSpec, IndexSpecCache, SchemaRule};
+pub use comparison::cmp_rows_by_fields;
 pub use lookup::{
     Cursor, CursorMut, RLookup, RLookupKey, RLookupKeyFlag, RLookupKeyFlags, RLookupOption,
     RLookupOptions, opaque::OpaqueRLookup,
 };
-pub use comparison::cmp_rows_by_fields;
 pub use row::RLookupRow;
 pub use row::opaque::OpaqueRLookupRow;

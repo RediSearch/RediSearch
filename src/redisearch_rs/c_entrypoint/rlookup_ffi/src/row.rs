@@ -17,7 +17,6 @@ use std::{
     ptr::NonNull,
     slice,
 };
-use value::comparison::map_compare_error;
 use value::{RsValue, SharedRsValue};
 
 const SORTASCMAP_MAXFIELDS: usize = 8;
@@ -432,33 +431,28 @@ pub unsafe extern "C" fn SearchResult_CmpByFields(
     qerr: *mut QueryError,
 ) -> c_int {
     let nkeys = nkeys.min(SORTASCMAP_MAXFIELDS);
-    // SAFETY: ensured by caller (1.) — &RLookupKey and *const RLookupKey have identical layout.
-    let keys: &[&RLookupKey] = unsafe {
-        mem::transmute(slice::from_raw_parts(keys, nkeys))
-    };
+    // SAFETY: ensured by caller (1.)
+    let keys = unsafe { slice::from_raw_parts(keys, nkeys) };
+    // SAFETY: &RLookupKey and *const RLookupKey have identical layout.
+    let keys: &[&RLookupKey] = unsafe { mem::transmute(keys) };
     // SAFETY: ensured by caller (2.)
     let h1 = unsafe { &*h1 };
     // SAFETY: ensured by caller (2.)
     let h2 = unsafe { &*h2 };
     // SAFETY: ensured by caller (3.)
-    let mut qerr = unsafe { qerr.as_mut() };
+    let qerr = unsafe { qerr.as_mut() };
 
-    let (ord, err) = cmp_rows_by_fields(h1.row_data(), h2.row_data(), keys, ascend_map);
+    let ord = cmp_rows_by_fields(h1.row_data(), h2.row_data(), keys, ascend_map, qerr);
 
-    if let Some(e) = err {
-        let _ = map_compare_error(e, qerr.as_deref_mut());
+    match ord {
+        Ordering::Less => -1,
+        Ordering::Greater => 1,
+        Ordering::Equal => {
+            // Tiebreak by docid — ascending uses the last key's flag,
+            // matching the original C loop where `ascending` retains its last value.
+            let ascending = nkeys > 0 && (ascend_map & (1u64 << (nkeys - 1))) != 0;
+            let rc: c_int = if h1.doc_id() < h2.doc_id() { -1 } else { 1 };
+            if ascending { -rc } else { rc }
+        }
     }
-
-    if ord != Ordering::Equal {
-        return match ord {
-            Ordering::Less => -1,
-            _ => 1,
-        };
-    }
-
-    // Tiebreak by docid — ascending uses the last key's flag,
-    // matching the original C loop where `ascending` retains its last value.
-    let ascending = nkeys > 0 && (ascend_map & (1u64 << (nkeys - 1))) != 0;
-    let rc: c_int = if h1.doc_id() < h2.doc_id() { -1 } else { 1 };
-    if ascending { -rc } else { rc }
 }
