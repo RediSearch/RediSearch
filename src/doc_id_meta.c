@@ -14,6 +14,7 @@
 #include "rdb.h"
 #include <stdbool.h>
 #include <assert.h>
+#include <inttypes.h>
 
 #define DOCID_META_INVALID 0
 #define DOCID_META_CLASS_NAME "D-ID"
@@ -74,7 +75,17 @@ static void docIdMetaFree(const char *keyname, uint64_t meta) {
 }
 
 static int docIdMetaMove(RedisModuleKeyOptCtx *ctx, uint64_t *meta) {
-  REDISMODULE_NOT_USED(ctx);
+  const RedisModuleString *fromKey = RedisModule_GetKeyNameFromOptCtx(ctx);
+  const RedisModuleString *toKey = RedisModule_GetToKeyNameFromOptCtx(ctx);
+  size_t fromLen = 0, toLen = 0;
+  const char *fromStr = fromKey ? RedisModule_StringPtrLen((RedisModuleString *)fromKey, &fromLen) : NULL;
+  const char *toStr = toKey ? RedisModule_StringPtrLen((RedisModuleString *)toKey, &toLen) : NULL;
+  size_t nEntries = (meta && *meta) ? dictSize((dict *)*meta) : 0;
+  RedisModule_Log(RSDummyContext, "notice",
+                  "DocIdMeta[MOVE] from='%.*s' to='%.*s' entries=%zu (dropping meta)",
+                  (int)fromLen, fromStr ? fromStr : "",
+                  (int)toLen, toStr ? toStr : "",
+                  nEntries);
   REDISMODULE_NOT_USED(meta);
   // We do not want to move the meta, as the docID will not have meaning in the destination DB.
   // Returning 0 tells redis to drop the meta and not move it with the key - see the docs for more info.
@@ -89,21 +100,41 @@ static int docIdMetaMove(RedisModuleKeyOptCtx *ctx, uint64_t *meta) {
  * This fires before the keyspace notification, which is why we handle
  * deletion here rather than in the notification handler. */
 static void docIdMetaUnlink(RedisModuleKeyOptCtx *ctx, uint64_t *meta) {
-  REDISMODULE_NOT_USED(ctx);
-  if (*meta == 0) return;
+  const RedisModuleString *keyName = RedisModule_GetKeyNameFromOptCtx(ctx);
+  size_t keyLen = 0;
+  const char *keyStr = keyName ? RedisModule_StringPtrLen((RedisModuleString *)keyName, &keyLen) : NULL;
+  if (*meta == 0) {
+    RedisModule_Log(RSDummyContext, "notice",
+                    "DocIdMeta[UNLINK] key='%.*s' meta=NULL (nothing to do)",
+                    (int)keyLen, keyStr ? keyStr : "");
+    return;
+  }
 
   dict *specIdToDocId = (dict *)*meta;
-  if (dictSize(specIdToDocId) == 0) return;
+  size_t nEntries = dictSize(specIdToDocId);
+  RedisModule_Log(RSDummyContext, "notice",
+                  "DocIdMeta[UNLINK] key='%.*s' entries=%zu",
+                  (int)keyLen, keyStr ? keyStr : "", nEntries);
+  if (nEntries == 0) return;
 
   dictIterator *iter = dictGetIterator(specIdToDocId);
   dictEntry *de;
   while ((de = dictNext(iter))) {
     uint64_t docId = VAL_TO_DOCID(dictGetVal(de));
-    if (docId == DOCID_META_INVALID) continue;
+    uint64_t specId = KEY_TO_SPECID(dictGetKey(de));
+    if (docId == DOCID_META_INVALID) {
+      RedisModule_Log(RSDummyContext, "notice",
+                      "DocIdMeta[UNLINK]   key='%.*s' specId=%" PRIu64 " docId=INVALID (skip)",
+                      (int)keyLen, keyStr ? keyStr : "", specId);
+      continue;
+    }
 
     // Find the IndexSpec by specId in the global dict (O(1) lookup).
-    uint64_t specId = KEY_TO_SPECID(dictGetKey(de));
     IndexSpec *spec = findSpecBySpecId(specId);
+    RedisModule_Log(RSDummyContext, "notice",
+                    "DocIdMeta[UNLINK]   key='%.*s' specId=%" PRIu64 " docId=%" PRIu64 " spec=%s (deleting)",
+                    (int)keyLen, keyStr ? keyStr : "", specId, docId,
+                    spec ? "found" : "NULL");
     if (spec) {
       // Delete the document from this index by its docId
       IndexSpec_DeleteDocById(spec, docId);
@@ -120,17 +151,28 @@ static void docIdMetaUnlink(RedisModuleKeyOptCtx *ctx, uint64_t *meta) {
 static int docIdMetaRDBLoad(RedisModuleIO *rdb, uint64_t *meta, int encver) {
   RS_LOG_ASSERT(encver == 1, "DocIdMeta: unexpected encver in RDB load");
 
+  const RedisModuleString *keyName = RedisModule_GetKeyNameFromIO(rdb);
+  size_t keyLen = 0;
+  const char *keyStr = keyName ? RedisModule_StringPtrLen((RedisModuleString *)keyName, &keyLen) : NULL;
+
   if (PersistenceInProgress) {
     // Skip actual loading during persistence events. We don't store this metadata in the RDB/AOF files.
+    RedisModule_Log(RSDummyContext, "notice",
+                    "DocIdMeta[RDB_LOAD] key='%.*s' SKIPPED (PersistenceInProgress)",
+                    (int)keyLen, keyStr ? keyStr : "");
     *meta = 0;
     return REDISMODULE_OK;
   }
 
   dict *specIdToDocId = dictCreate(&dictTypeUint64, NULL);
   size_t numEntries;
+  size_t kept = 0, dropped = 0;
 
   // Load the number of entries
   numEntries = LoadUnsigned_IOError(rdb, goto cleanup);
+  RedisModule_Log(RSDummyContext, "notice",
+                  "DocIdMeta[RDB_LOAD] key='%.*s' numEntries=%zu",
+                  (int)keyLen, keyStr ? keyStr : "", numEntries);
 
   // Load each entry (specId + docId), skipping entries whose spec no longer exists.
   for (size_t i = 0; i < numEntries; i++) {
@@ -139,16 +181,30 @@ static int docIdMetaRDBLoad(RedisModuleIO *rdb, uint64_t *meta, int encver) {
 
     // Skip entries belonging to indexes that are no longer in specIdDict_g (O(1) lookup).
     if (!isSpecValid(specId)) {
+      RedisModule_Log(RSDummyContext, "notice",
+                      "DocIdMeta[RDB_LOAD]   key='%.*s' specId=%" PRIu64 " docId=%" PRIu64 " DROPPED (spec invalid)",
+                      (int)keyLen, keyStr ? keyStr : "", specId, docId);
+      dropped++;
       continue;
     }
 
+    RedisModule_Log(RSDummyContext, "notice",
+                    "DocIdMeta[RDB_LOAD]   key='%.*s' specId=%" PRIu64 " docId=%" PRIu64 " LOADED",
+                    (int)keyLen, keyStr ? keyStr : "", specId, docId);
+    kept++;
     dictAdd(specIdToDocId, SPECID_TO_KEY(specId), DOCID_TO_VAL(docId));
   }
+  RedisModule_Log(RSDummyContext, "notice",
+                  "DocIdMeta[RDB_LOAD] key='%.*s' done kept=%zu dropped=%zu",
+                  (int)keyLen, keyStr ? keyStr : "", kept, dropped);
 
   *meta = (uint64_t)(specIdToDocId);
   return REDISMODULE_OK;
 
 cleanup:
+  RedisModule_Log(RSDummyContext, "warning",
+                  "DocIdMeta[RDB_LOAD] key='%.*s' FAILED (io error)",
+                  (int)keyLen, keyStr ? keyStr : "");
   if (specIdToDocId) {
     dictRelease(specIdToDocId);
   }
@@ -159,12 +215,22 @@ cleanup:
 static void docIdMetaRDBSave(RedisModuleIO *rdb, void *value, uint64_t *meta) {
   REDISMODULE_NOT_USED(value);
 
+  const RedisModuleString *keyName = RedisModule_GetKeyNameFromIO(rdb);
+  size_t keyLen = 0;
+  const char *keyStr = keyName ? RedisModule_StringPtrLen((RedisModuleString *)keyName, &keyLen) : NULL;
+
   if (PersistenceInProgress) {
     // Skip saving during persistence events. We don't want to save this metadata to an RDB/AOF file
+    RedisModule_Log(RSDummyContext, "notice",
+                    "DocIdMeta[RDB_SAVE] key='%.*s' SKIPPED (PersistenceInProgress)",
+                    (int)keyLen, keyStr ? keyStr : "");
     return;
   }
 
   if (*meta == 0) {
+    RedisModule_Log(RSDummyContext, "notice",
+                    "DocIdMeta[RDB_SAVE] key='%.*s' meta=NULL (nothing to save)",
+                    (int)keyLen, keyStr ? keyStr : "");
     return;
   }
 
@@ -185,6 +251,10 @@ static void docIdMetaRDBSave(RedisModuleIO *rdb, void *value, uint64_t *meta) {
     }
     dictReleaseIterator(iter);
   }
+  RedisModule_Log(RSDummyContext, "notice",
+                  "DocIdMeta[RDB_SAVE] key='%.*s' totalEntries=%lu validEntries=%zu",
+                  (int)keyLen, keyStr ? keyStr : "",
+                  (unsigned long)dictSize(specIdToDocId), validEntries);
 
   // Save entry count. Version is handled by encver in the KeyMeta API.
   RedisModule_SaveUnsigned(rdb, validEntries);
@@ -202,6 +272,9 @@ static void docIdMetaRDBSave(RedisModuleIO *rdb, void *value, uint64_t *meta) {
     if (docId == DOCID_META_INVALID || !isSpecValid(specId)) {
       continue;
     }
+    RedisModule_Log(RSDummyContext, "notice",
+                    "DocIdMeta[RDB_SAVE]   key='%.*s' specId=%" PRIu64 " docId=%" PRIu64,
+                    (int)keyLen, keyStr ? keyStr : "", specId, docId);
     RedisModule_SaveUnsigned(rdb, specId);
     RedisModule_SaveUnsigned(rdb, docId);
   }
@@ -294,33 +367,65 @@ static int DocIdMeta_DeleteInternal(RedisModuleKey *key, uint64_t specId) {
 // Set docId using key name and spec incarnation ID.
 int DocIdMeta_Set(RedisModuleCtx *ctx, RedisModuleString *keyName,
                   uint64_t specId, uint64_t docId) {
+  size_t keyLen = 0;
+  const char *keyStr = RedisModule_StringPtrLen(keyName, &keyLen);
   RedisModuleKey *key = RedisModule_OpenKey(ctx, keyName, KEY_OPEN_META_SET_FLAGS);
   if (!key) {
+    RedisModule_Log(RSDummyContext, "notice",
+                    "DocIdMeta[SET] key='%.*s' specId=%" PRIu64 " docId=%" PRIu64 " OpenKey=NULL -> ERR",
+                    (int)keyLen, keyStr, specId, docId);
     return REDISMODULE_ERR;
   }
   int result = DocIdMeta_SetInternal(key, specId, docId);
   RedisModule_CloseKey(key);
+  RedisModule_Log(RSDummyContext, "notice",
+                  "DocIdMeta[SET] key='%.*s' specId=%" PRIu64 " docId=%" PRIu64 " result=%s",
+                  (int)keyLen, keyStr, specId, docId,
+                  result == REDISMODULE_OK ? "OK" : "ERR");
   return result;
 }
 
 // Get docId using key name and spec incarnation ID
 int DocIdMeta_Get(RedisModuleCtx *ctx, RedisModuleString *keyName,
                   uint64_t specId, uint64_t *docId) {
+  size_t keyLen = 0;
+  const char *keyStr = RedisModule_StringPtrLen(keyName, &keyLen);
   RedisModuleKey *key = RedisModule_OpenKey(ctx, keyName, KEY_OPEN_META_GET_FLAGS);
   if (!key) {
+    RedisModule_Log(RSDummyContext, "notice",
+                    "DocIdMeta[GET] key='%.*s' specId=%" PRIu64 " OpenKey=NULL -> ERR",
+                    (int)keyLen, keyStr, specId);
     return REDISMODULE_ERR;
   }
   int result = DocIdMeta_GetInternal(key, specId, docId);
   RedisModule_CloseKey(key);
+  if (result == REDISMODULE_OK) {
+    RedisModule_Log(RSDummyContext, "notice",
+                    "DocIdMeta[GET] key='%.*s' specId=%" PRIu64 " -> OK docId=%" PRIu64,
+                    (int)keyLen, keyStr, specId, *docId);
+  } else {
+    RedisModule_Log(RSDummyContext, "notice",
+                    "DocIdMeta[GET] key='%.*s' specId=%" PRIu64 " -> ERR",
+                    (int)keyLen, keyStr, specId);
+  }
   return result;
 }
 
 int DocIdMeta_Delete(RedisModuleCtx *ctx, RedisModuleString *keyName, uint64_t specId) {
+  size_t keyLen = 0;
+  const char *keyStr = RedisModule_StringPtrLen(keyName, &keyLen);
   RedisModuleKey *key = RedisModule_OpenKey(ctx, keyName, KEY_OPEN_META_SET_FLAGS);
   if (!key) {
+    RedisModule_Log(RSDummyContext, "notice",
+                    "DocIdMeta[DEL] key='%.*s' specId=%" PRIu64 " OpenKey=NULL -> ERR",
+                    (int)keyLen, keyStr, specId);
     return REDISMODULE_ERR;
   }
   int result = DocIdMeta_DeleteInternal(key, specId);
   RedisModule_CloseKey(key);
+  RedisModule_Log(RSDummyContext, "notice",
+                  "DocIdMeta[DEL] key='%.*s' specId=%" PRIu64 " result=%s",
+                  (int)keyLen, keyStr, specId,
+                  result == REDISMODULE_OK ? "OK" : "ERR");
   return result;
 }
