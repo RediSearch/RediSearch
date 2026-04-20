@@ -100,6 +100,9 @@ void MRCtx_SetBlockedClient(struct MRCtx *ctx, RedisModuleBlockedClient *bc);
 void MRCtx_SetValidateConnections(struct MRCtx *ctx, bool validateConnections);
 bool MRCtx_GetValidateConnections(struct MRCtx *ctx);
 
+void MRCtx_SetValidateConnections(struct MRCtx *ctx, bool validateConnections);
+bool MRCtx_GetValidateConnections(struct MRCtx *ctx);
+
 /* Create a new MapReduce context with a given private data. In a redis module
  * this should be the RedisModuleCtx */
 struct MRCtx *MR_CreateCtx(struct RedisModuleCtx *ctx, struct RedisModuleBlockedClient *bc, void *privdata, int replyCap);
