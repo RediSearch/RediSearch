@@ -63,19 +63,6 @@ jobs:
         run: |
           python scripts/collect_nightly_results.py --date "${{ steps.date.outputs.date }}"
 
-      - name: Handle collect failure
-        if: steps.collect.outcome == 'failure'
-        uses: slackapi/slack-github-action@v2
-        with:
-          webhook: ${{ secrets.SLACK_WEBHOOK_URL_RQE_CI_RESULT }}
-          webhook-type: incoming-webhook
-          payload: |
-            {
-              "repository": "${{ github.repository }}",
-              "header": "❌ CI Report Generation Failed - ${{ steps.date.outputs.date }}",
-              "error": "The collect_nightly_results.py script failed. Check workflow logs for details."
-            }
-
       - name: Read summary file
         id: summary
         run: |
@@ -107,7 +94,7 @@ jobs:
           fi
 
       - name: Send reports to Slack
-        if: steps.summary.outputs.summary_exists == 'true' || steps.failure_report.outputs.failure_exists == 'true'
+        if: always()
         uses: slackapi/slack-github-action@v2
         with:
           webhook: ${{ secrets.SLACK_WEBHOOK_URL_RQE_CI_RESULT }}
@@ -115,9 +102,10 @@ jobs:
           payload: |
             {
               "repository": "${{ github.repository }}",
-              "header": "📊 Daily CI Report - ${{ steps.date.outputs.date }}",
-              "summary_report": ${{ steps.summary.outputs.summary_exists == 'true' && steps.summary.outputs.summary_content || '"(No summary available)"' }},
-              "failure_report": ${{ steps.failure_report.outputs.failure_exists == 'true' && steps.failure_report.outputs.failure_content || '"(No failures)"' }}
+              "header": "${{ steps.collect.outcome == 'failure' && format('❌ CI Report Generation Failed - {0}', steps.date.outputs.date) || format('📊 Daily CI Report - {0}', steps.date.outputs.date) }}",
+              "summary_report": ${{ steps.summary.outputs.summary_exists == 'true' && steps.summary.outputs.summary_content || '""' }},
+              "failure_report": ${{ steps.failure_report.outputs.failure_exists == 'true' && steps.failure_report.outputs.failure_content || '""' }},
+              "error": "${{ steps.collect.outcome == 'failure' && 'The collect_nightly_results.py script failed. Check workflow logs for details.' || '' }}"
             }
 
       - name: Upload artifacts

@@ -591,6 +591,12 @@ prepare_cmake_arguments() {
   if [[ $OS_NAME != "macos" && $COV == "1" ]]; then
     # Needs the C code to link on gcov
     RUSTFLAGS="${RUSTFLAGS:+${RUSTFLAGS} } -C link-args=-lgcov"
+    # Doctests are compiled by rustdoc, which uses RUSTDOCFLAGS rather than
+    # RUSTFLAGS for its link step. Without this, doctests that pull in
+    # gcov-instrumented C objects (via transitive deps on FFI crates) fail
+    # to link with undefined `__gcov_*` symbols.
+    RUSTDOCFLAGS="${RUSTDOCFLAGS:+${RUSTDOCFLAGS} }-C link-args=-lgcov"
+    export RUSTDOCFLAGS
   fi
   if [[ $SAN == "address" ]]; then
     # Add ASAN flags to RUSTFLAGS (following RedisJSON pattern)

@@ -13,6 +13,7 @@ use rqe_iterators::{
     RQEIterator, RQEValidateStatus, SkipToOutcome, empty::Empty, inverted_index::Wildcard,
     optional_optimized::OptionalOptimized,
 };
+
 use rqe_iterators_test_utils::MockContext;
 
 use crate::utils;
@@ -54,6 +55,8 @@ impl WildcardIndex {
 }
 
 mod optional_optimized_iterator_tests {
+    use rqe_iterators::inverted_index::Wildcard;
+
     use super::*;
 
     const MAX_DOC_ID: t_docId = 100;
@@ -67,11 +70,8 @@ mod optional_optimized_iterator_tests {
 
     fn create_optional_optimized<'index>(
         wcii_index: &'index WildcardIndex,
-    ) -> OptionalOptimized<
-        'index,
-        rqe_iterators::inverted_index::Wildcard<'index, DocIdsOnly>,
-        utils::Mock<'index, NUM_DOCS>,
-    > {
+    ) -> OptionalOptimized<'index, Wildcard<'index, DocIdsOnly>, utils::Mock<'index, NUM_DOCS>>
+    {
         let wcii = wcii_index.create_iterator();
         let child = utils::Mock::new(CHILD_DOCS);
         OptionalOptimized::new(wcii, child, MAX_DOC_ID, WEIGHT)
@@ -337,6 +337,8 @@ mod optional_optimized_iterator_tests {
 }
 
 mod optional_optimized_iterator_with_empty_child_tests {
+    use rqe_iterators::inverted_index::Wildcard;
+
     use super::*;
 
     const MAX_DOC_ID: t_docId = 50;
@@ -348,8 +350,7 @@ mod optional_optimized_iterator_with_empty_child_tests {
 
     fn create<'index>(
         wcii_index: &'index WildcardIndex,
-    ) -> OptionalOptimized<'index, rqe_iterators::inverted_index::Wildcard<'index, DocIdsOnly>, Empty>
-    {
+    ) -> OptionalOptimized<'index, Wildcard<'index, DocIdsOnly>, Empty> {
         let wcii = wcii_index.create_iterator();
         OptionalOptimized::new(wcii, Empty, MAX_DOC_ID, WEIGHT)
     }
@@ -607,7 +608,7 @@ mod optional_optimized_iterator_revalidate_tests {
     const NUM_DOCS: usize = 5;
     const CHILD_DOCS: [t_docId; NUM_DOCS] = [10, 20, 30, 50, 80];
 
-    /// Tests using [`rqe_iterators::inverted_index::Wildcard`] as the wildcard iterator,
+    /// Tests using [`Wildcard`] as the wildcard iterator,
     /// requiring [`TestContext::wildcard`] which touches global C state and is not
     /// compatible with miri.
     #[cfg(not(miri))]

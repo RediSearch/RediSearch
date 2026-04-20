@@ -27,9 +27,6 @@
 #include "module.h"
 #include "search_disk.h"
 
-#define __STRINGIFY(x) #x
-#define STRINGIFY(x) __STRINGIFY(x)
-
 #define DEFAULT_UNSTABLE_FEATURES_ENABLE false
 
 #define RS_MAX_CONFIG_TRIGGERS 1 // Increase this if you need more triggers

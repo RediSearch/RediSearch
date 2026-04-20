@@ -21,10 +21,12 @@
 macro_rules! union_common_tests {
     ($UnionFull:ident, $UnionQuick:ident) => {
         use crate::utils::{
-            Mock, MockRevalidateResult, MockVec, create_mock_1, create_mock_2, create_mock_3,
-            create_union_children,
+            Mock, MockIteratorError, MockRevalidateResult, MockVec, create_mock_1, create_mock_2,
+            create_mock_3, create_union_children,
         };
-        use rqe_iterators::{IteratorType, RQEIterator, RQEValidateStatus, SkipToOutcome};
+        use rqe_iterators::{
+            IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
+        };
         use crate::utils::FieldMaskMock;
 
         type Union<I> = $UnionFull<'static, I>;
@@ -172,6 +174,37 @@ macro_rules! union_common_tests {
                 assert!(
                     !union_iter.at_eof(),
                     "num_children={num_children}, should not be at EOF after rewind"
+                );
+            }
+        }
+
+        #[test]
+        #[cfg_attr(miri, ignore)] // Calls RSYieldableMetric_Concat FFI in push_borrowed
+        fn rewind_restores_original_order_after_exhaustion() {
+            // Child 0: [1]         — exhausts first
+            // Child 1: [1, 5]      — exhausts second
+            // Child 2: [1, 5, 10]  — exhausts last
+            let (children, _data) = create_mock_3([1], [1, 5], [1, 5, 10]);
+            let mut union_iter = Union::new(children);
+
+            // Record the pointer (address) of each child before any reads.
+            let ptrs_before: Vec<*const dyn RQEIterator<'static>> = (0..3)
+                .map(|i| {
+                    union_iter.child_at(i).unwrap() as *const dyn RQEIterator<'static>
+                })
+                .collect();
+
+            while union_iter.read().expect("read failed").is_some() {}
+            assert!(union_iter.at_eof());
+
+            // Rewind and verify child_at returns the same child objects.
+            union_iter.rewind();
+            for i in 0..3 {
+                let ptr_after = union_iter.child_at(i).unwrap()
+                    as *const dyn RQEIterator<'static>;
+                assert!(
+                    std::ptr::addr_eq(ptrs_before[i], ptr_after),
+                    "child_at({i}) should return the same child after rewind"
                 );
             }
         }
@@ -1437,6 +1470,161 @@ macro_rules! union_common_tests {
             let r = union.read().unwrap().unwrap();
             assert_eq!(r.doc_id, 30);
             assert_eq!(r.field_mask, 0x2, "doc 30: only child1 → mask must be 0x2");
+        }
+
+        // =====================================================================
+        // Timeout / error propagation tests
+        // =====================================================================
+
+        /// Helper: create 3 mock iterators and set the child at
+        /// `timeout_idx` to return a timeout error at EOF.
+        fn make_timeout_children(
+            timeout_idx: usize,
+        ) -> Vec<Box<dyn RQEIterator<'static>>> {
+            let mocks = [
+                Mock::new([10, 20, 30, 40, 50]),
+                Mock::new([10, 20, 30, 40, 50]),
+                Mock::new([10, 20, 30, 40, 50]),
+            ];
+            mocks[timeout_idx]
+                .data()
+                .set_error_at_done(Some(MockIteratorError::TimeoutError(None)));
+            mocks.into_iter().map(|m| Box::new(m) as _).collect()
+        }
+
+        /// Read until we get a non-Ok result and assert it is a timeout.
+        fn assert_read_eventually_times_out<'a>(
+            union: &mut impl RQEIterator<'a>,
+        ) {
+            loop {
+                match union.read() {
+                    Ok(Some(_)) => continue,
+                    Err(RQEIteratorError::TimedOut) => return,
+                    Ok(None) => panic!("expected timeout error, got EOF"),
+                    Err(e) => panic!("expected timeout error, got {e:?}"),
+                }
+            }
+        }
+
+        /// Skip forward until we get a non-Ok result and assert it is a timeout.
+        fn assert_skip_to_eventually_times_out<'a>(
+            union: &mut impl RQEIterator<'a>,
+        ) {
+            let mut next = 1;
+            loop {
+                match union.skip_to(next) {
+                    Ok(Some(SkipToOutcome::Found(_) | SkipToOutcome::NotFound(_))) => {
+                        next = union.last_doc_id() + 1;
+                    }
+                    Err(RQEIteratorError::TimedOut) => return,
+                    Ok(None) => panic!("expected timeout error, got EOF"),
+                    Err(e) => panic!("expected timeout error, got {e:?}"),
+                }
+            }
+        }
+
+        // -- Full mode: read propagates timeout ---------------------
+
+        #[test]
+        #[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
+        fn read_full_propagates_timeout_first_child() {
+            let children = make_timeout_children(0);
+            let mut union = $UnionFull::new(children);
+            assert_read_eventually_times_out(&mut union);
+        }
+
+        #[test]
+        #[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
+        fn read_full_propagates_timeout_mid_child() {
+            let children = make_timeout_children(1);
+            let mut union = $UnionFull::new(children);
+            assert_read_eventually_times_out(&mut union);
+        }
+
+        #[test]
+        #[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
+        fn read_full_propagates_timeout_last_child() {
+            let children = make_timeout_children(2);
+            let mut union = $UnionFull::new(children);
+            assert_read_eventually_times_out(&mut union);
+        }
+
+        // -- Quick mode: read propagates timeout --------------------
+
+        #[test]
+        #[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
+        fn read_quick_propagates_timeout_first_child() {
+            let children = make_timeout_children(0);
+            let mut union = $UnionQuick::new(children);
+            assert_read_eventually_times_out(&mut union);
+        }
+
+        #[test]
+        #[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
+        fn read_quick_propagates_timeout_mid_child() {
+            let children = make_timeout_children(1);
+            let mut union = $UnionQuick::new(children);
+            assert_read_eventually_times_out(&mut union);
+        }
+
+        #[test]
+        #[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
+        fn read_quick_propagates_timeout_last_child() {
+            let children = make_timeout_children(2);
+            let mut union = $UnionQuick::new(children);
+            assert_read_eventually_times_out(&mut union);
+        }
+
+        // -- Full mode: skip_to propagates timeout ------------------
+
+        #[test]
+        #[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
+        fn skip_to_full_propagates_timeout_first_child() {
+            let children = make_timeout_children(0);
+            let mut union = $UnionFull::new(children);
+            assert_skip_to_eventually_times_out(&mut union);
+        }
+
+        #[test]
+        #[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
+        fn skip_to_full_propagates_timeout_mid_child() {
+            let children = make_timeout_children(1);
+            let mut union = $UnionFull::new(children);
+            assert_skip_to_eventually_times_out(&mut union);
+        }
+
+        #[test]
+        #[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
+        fn skip_to_full_propagates_timeout_last_child() {
+            let children = make_timeout_children(2);
+            let mut union = $UnionFull::new(children);
+            assert_skip_to_eventually_times_out(&mut union);
+        }
+
+        // -- Quick mode: skip_to propagates timeout -----------------
+
+        #[test]
+        #[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
+        fn skip_to_quick_propagates_timeout_first_child() {
+            let children = make_timeout_children(0);
+            let mut union = $UnionQuick::new(children);
+            assert_skip_to_eventually_times_out(&mut union);
+        }
+
+        #[test]
+        #[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
+        fn skip_to_quick_propagates_timeout_mid_child() {
+            let children = make_timeout_children(1);
+            let mut union = $UnionQuick::new(children);
+            assert_skip_to_eventually_times_out(&mut union);
+        }
+
+        #[test]
+        #[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
+        fn skip_to_quick_propagates_timeout_last_child() {
+            let children = make_timeout_children(2);
+            let mut union = $UnionQuick::new(children);
+            assert_skip_to_eventually_times_out(&mut union);
         }
 
     };

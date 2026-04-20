@@ -12,6 +12,7 @@
 #include "module.h"
 #include "rmutil/rm_assert.h"
 #include "obfuscation/obfuscation_api.h"
+#include "search_disk.h"
 
 #define MILLISECOND_IN_ONE_SECOND 1000
 #define NANOSECOND_IN_ONE_MILLISECOND 1000000
@@ -269,7 +270,7 @@ int Document_LoadSchemaFieldJson(Document *doc, RedisSearchCtx *sctx, QueryError
 
     // on crdt the return value might be the underline value, we must copy it!!!
     // TODO: change `fs->text` to support hash or json not RedisModuleString
-    if (JSON_LoadDocumentField(jsonIter, len, field, &doc->fields[oix], ctx, status) != REDISMODULE_OK) {
+    if (JSON_LoadDocumentField(jsonIter, len, field, &doc->fields[oix], ctx, SearchDisk_IsEnabledForValidation(), status) != REDISMODULE_OK) {
       FieldSpec_AddError(field, QueryError_GetDisplayableError(status, true), QueryError_GetDisplayableError(status, false), doc->docKey);
       char* path = FieldSpec_FormatPath(field, RSGlobalConfig.hideUserDataFromLog);
       RedisModule_Log(ctx, "verbose", "Failed to load value from field %s", path);

@@ -40,8 +40,6 @@
 #include "wildcard.h"
 #include "geometry/geometry_api.h"
 #include "iterators/union_iterator.h"
-#include "iterators/intersection_iterator.h"
-#include "iterators/optional_iterator.h"
 #include "iterators_rs.h"
 #include "iterators/hybrid_reader.h"
 #include "iterators/optimizer_reader.h"
@@ -49,11 +47,6 @@
 #include "shard_window_ratio.h"
 #include "idf.h"
 #include "doc_id_meta.h"
-#ifndef STRINGIFY
-#define __STRINGIFY(x) #x
-#define STRINGIFY(x) __STRINGIFY(x)
-#endif
-
 #define EFFECTIVE_FIELDMASK(q_, qn_) ((qn_)->opts.fieldMask & (q)->opts->fieldmask)
 
 static void QueryTokenNode_Free(QueryTokenNode *tn) {

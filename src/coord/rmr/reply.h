@@ -75,3 +75,7 @@ int RedisModule_ReplyKV_MRReply(RedisModule_Reply *reply, const char *key, MRRep
 // Currently implements a partial clone, only for the type and string types.
 // Support types - MR_REPLY_STRING, MR_REPLY_ERROR
 MRReply *MRReply_Clone(MRReply *src);
+
+// Create a new error reply with the given message.
+// `msg` must be non-NULL and `len` must be greater than 0.
+MRReply *MRReply_CreateError(const char *msg, size_t len);
