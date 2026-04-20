@@ -23,6 +23,7 @@
 #include "dist_profile.h"
 #include "shard_window_ratio.h"
 #include "config.h"
+#include "debug_commands.h"
 
 // We mainly need the resp protocol to be three in order to easily extract the "score" key from the response
 #define HYBRID_RESP_PROTOCOL_VERSION 3
@@ -787,10 +788,15 @@ void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
         return;
     }
 
+#ifdef ENABLE_ASSERT
+    SyncPoint_Wait(SYNC_POINT_BEFORE_DIST_HYBRID_PROMOTE);
+#endif
+
     // Check if the index still exists, and promote the ref accordingly
     StrongRef strong_ref = IndexSpecRef_Promote(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
     IndexSpec *sp = StrongRef_Get(strong_ref);
     if (!sp) {
+        SearchCtx_Free(sctx);
         QueryError_SetCode(&status, QUERY_ERROR_CODE_DROPPED_BACKGROUND);
         DistHybridCleanups(ctx, cmdCtx, sp, &strong_ref, NULL, reply, &status);
         return;
