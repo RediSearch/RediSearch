@@ -42,7 +42,7 @@ impl Map {
     /// Looks up a value by its string key bytes, returning a reference to the first
     /// matching [`RsValue`] or `None` if no match is found.
     ///
-    /// Non-string keys (e.g. [`RsValue::Number`](crate::RsValue::Number)) are skipped.
+    /// Non-string keys (e.g. [`RsValue::Number`]) are skipped.
     pub fn get(&self, key: &[u8]) -> Option<&RsValue> {
         self.iter()
             .find_map(|(k, v)| (k.as_str_bytes()? == key).then_some(&**v))
@@ -68,11 +68,11 @@ impl Array {
     /// Non-string keys are skipped.
     pub fn map_get(&self, key: &[u8]) -> Option<&RsValue> {
         debug_assert!(
-            self.len() % 2 == 0,
+            self.len().is_multiple_of(2),
             "map_get called on an odd-length array (len={}); trailing element will be ignored",
             self.len()
         );
-        if self.len() % 2 != 0 {
+        if !self.len().is_multiple_of(2) {
             tracing::warn!(
                 len = self.len(),
                 "map_get called on an odd-length array; trailing element will be ignored"

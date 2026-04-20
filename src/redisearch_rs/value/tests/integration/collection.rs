@@ -91,16 +91,17 @@ fn first_match_wins() {
     assert_get(&map, &arr, b"key", Some(1.0));
 }
 
-// -- Array-only: odd-length trailing element --
+// -- Array-only: odd-length array panics in debug builds --
 
 #[test]
-fn array_map_get_odd_length_trailing_element_ignored() {
+#[cfg(debug_assertions)]
+#[should_panic(expected = "map_get called on an odd-length array")]
+fn array_map_get_odd_length_panics_in_debug() {
     let arr = Array::new(Box::new([
         SharedRsValue::new_string(b"price".to_vec()),
         SharedRsValue::new_num(9.99),
         SharedRsValue::new_string(b"orphan".to_vec()),
     ]));
 
-    assert_eq!(arr.map_get(b"price").unwrap().as_num(), Some(9.99));
-    assert!(arr.map_get(b"orphan").is_none());
+    let _ = arr.map_get(b"price");
 }
