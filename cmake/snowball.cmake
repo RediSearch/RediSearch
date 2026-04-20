@@ -55,55 +55,17 @@ endif()
 set(SNOWBALL_STEMMER_SOURCES "")
 set(SNOWBALL_STEMMER_HEADERS "")
 
-# --- 2a: Upstream snowball stemmers (from deps/snowball) ---
-
-file(STRINGS "${SNOWBALL_SRC}/libstemmer/modules.txt" _MODULES_LINES)
-foreach(_line IN LISTS _MODULES_LINES)
-    string(STRIP "${_line}" _line)
-    if(_line STREQUAL "" OR _line MATCHES "^#")
-        continue()
-    endif()
-
-    # Parse: algorithm  encodings  aliases [parent_algorithm]
-    string(REGEX MATCH "^([^ \t]+)[ \t]+([^ \t]+)" _ "${_line}")
-    set(_alg "${CMAKE_MATCH_1}")
-
-    set(_stem_base "stem_UTF_8_${_alg}")
-    set(_stem_c "${SNOWBALL_BUILD}/src_c/${_stem_base}.c")
-    set(_stem_h "${SNOWBALL_BUILD}/src_c/${_stem_base}.h")
-
-    add_custom_command(
-        OUTPUT "${_stem_c}" "${_stem_h}"
-        COMMAND ${CMAKE_COMMAND} -E make_directory "${SNOWBALL_BUILD}/src_c"
-        COMMAND ${SNOWBALL_COMPILER_CMD}
-            "${SNOWBALL_SRC}/algorithms/${_alg}.sbl"
-            -o "${SNOWBALL_BUILD}/src_c/${_stem_base}"
-            -eprefix "${_alg}_UTF_8_"
-            -r runtime
-            -u
-        DEPENDS snowball_compiler
-                "${SNOWBALL_SRC}/algorithms/${_alg}.sbl"
-        COMMENT "Generating snowball stemmer: ${_stem_base}"
-        VERBATIM
-    )
-
-    list(APPEND SNOWBALL_STEMMER_SOURCES "${_stem_c}")
-    list(APPEND SNOWBALL_STEMMER_HEADERS "${_stem_h}")
-endforeach()
-
-# --- 2b: Custom stemmers (from deps/stemmers) ---
-
-set(CUSTOM_STEMMERS_SRC "${root}/deps/stemmers")
-set(CUSTOM_STEMMERS_MODULES_TXT "${CUSTOM_STEMMERS_SRC}/modules.txt")
-
-if(EXISTS "${CUSTOM_STEMMERS_MODULES_TXT}")
-    file(STRINGS "${CUSTOM_STEMMERS_MODULES_TXT}" _CUSTOM_LINES)
-    foreach(_line IN LISTS _CUSTOM_LINES)
+# Parses a modules.txt file and generates C stemmers from the .sbl algorithms.
+# Uses a macro so that list(APPEND ...) modifies the caller's scope directly.
+macro(snowball_generate_stemmers _modules_txt _algorithms_dir _label)
+    file(STRINGS "${_modules_txt}" _lines)
+    foreach(_line IN LISTS _lines)
         string(STRIP "${_line}" _line)
         if(_line STREQUAL "" OR _line MATCHES "^#")
             continue()
         endif()
 
+        # Parse: algorithm  encodings  aliases [parent_algorithm]
         string(REGEX MATCH "^([^ \t]+)[ \t]+([^ \t]+)" _ "${_line}")
         set(_alg "${CMAKE_MATCH_1}")
 
@@ -115,20 +77,38 @@ if(EXISTS "${CUSTOM_STEMMERS_MODULES_TXT}")
             OUTPUT "${_stem_c}" "${_stem_h}"
             COMMAND ${CMAKE_COMMAND} -E make_directory "${SNOWBALL_BUILD}/src_c"
             COMMAND ${SNOWBALL_COMPILER_CMD}
-                "${CUSTOM_STEMMERS_SRC}/algorithms/${_alg}.sbl"
+                "${_algorithms_dir}/${_alg}.sbl"
                 -o "${SNOWBALL_BUILD}/src_c/${_stem_base}"
                 -eprefix "${_alg}_UTF_8_"
                 -r runtime
                 -u
             DEPENDS snowball_compiler
-                    "${CUSTOM_STEMMERS_SRC}/algorithms/${_alg}.sbl"
-            COMMENT "Generating custom stemmer: ${_stem_base}"
+                    "${_algorithms_dir}/${_alg}.sbl"
+            COMMENT "Generating ${_label}: ${_stem_base}"
             VERBATIM
         )
 
         list(APPEND SNOWBALL_STEMMER_SOURCES "${_stem_c}")
         list(APPEND SNOWBALL_STEMMER_HEADERS "${_stem_h}")
     endforeach()
+endmacro()
+
+# --- 2a: Upstream snowball stemmers (from deps/snowball) ---
+snowball_generate_stemmers(
+    "${SNOWBALL_SRC}/libstemmer/modules.txt"
+    "${SNOWBALL_SRC}/algorithms"
+    "snowball stemmer"
+)
+
+# --- 2b: Custom stemmers (from deps/stemmers) ---
+set(CUSTOM_STEMMERS_SRC "${root}/deps/stemmers")
+set(CUSTOM_STEMMERS_MODULES_TXT "${CUSTOM_STEMMERS_SRC}/modules.txt")
+if(EXISTS "${CUSTOM_STEMMERS_MODULES_TXT}")
+    snowball_generate_stemmers(
+        "${CUSTOM_STEMMERS_MODULES_TXT}"
+        "${CUSTOM_STEMMERS_SRC}/algorithms"
+        "custom stemmer"
+    )
 endif()
 
 # =============================================================================
