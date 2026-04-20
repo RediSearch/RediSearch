@@ -41,7 +41,15 @@ def test_query_while_flush():
         'flush_completed': False
     }
 
-    def query_worker(stats):
+    # Per-thread iteration counters, incremented at the end of each loop iteration.
+    # Used to deterministically drain in-flight iterations after toggling state
+    # (flushall_called / flush_completed): once every counter has advanced by at
+    # least one, every worker has re-evaluated the state and no stale attribution
+    # to the pre-flush counters can still be pending.
+    num_threads = 5
+    iteration_counts = [0] * num_threads
+
+    def query_worker(stats, thread_id):
         """Worker thread that continuously queries the index"""
         local_conn = env.getClusterConnectionIfNeeded()
 
@@ -65,16 +73,16 @@ def test_query_while_flush():
                 else:
                     stats['after_flush_errors'] += 1
 
+          iteration_counts[thread_id] += 1
           # Small delay to avoid overwhelming the system
           time.sleep(0.001)
 
-    # Start 5 query threads (pass the event)
-    num_threads = 5
+    # Start query threads (pass the event)
     threads = []
     for i in range(num_threads):
         thread = threading.Thread(
             target=query_worker,
-            args=(stats, ),
+            args=(stats, i),
         )
         threads.append(thread)
         thread.start()
@@ -88,17 +96,16 @@ def test_query_while_flush():
 
     # Signal that flushall is about to be called
     flushall_called.set()
-    # Wait for in-flight pre-flush attributions to drain: poll until the pre-flush counters
-    # stop changing across a short interval. Equivalent to the previous fixed sleep, but
-    # adaptive (returns quickly when the system is idle, waits longer on slow machines).
-    def _pre_flush_counters_stable():
-        snap = (stats['before_flush_successes'], stats['before_flush_errors'])
-        time.sleep(0.05)
-        cur = (stats['before_flush_successes'], stats['before_flush_errors'])
-        return snap == cur, {'snap': snap, 'cur': cur}
+    # Wait for in-flight pre-flush attributions to drain: every worker must complete
+    # at least one loop iteration after flushall_called.set(), guaranteeing each has
+    # re-evaluated flushall_called.is_set() at the increment site with the flag set.
+    snap = list(iteration_counts)
     wait_for_condition(
-        _pre_flush_counters_stable,
-        message='pre-flush counters did not stabilize after flushall_called.set()',
+        lambda: (
+            all(c > s for c, s in zip(iteration_counts, snap)),
+            {'snap': snap, 'cur': list(iteration_counts)},
+        ),
+        message='not all workers completed an iteration after flushall_called.set()',
         timeout=10,
     )
     env.assertGreater(stats['before_flush_successes'], 0)
@@ -112,15 +119,14 @@ def test_query_while_flush():
     # Wait for any thread that already passed the `flushall_called.is_set()` check but has
     # not yet read `flush_completed` to finish its iteration, so we don't misattribute a
     # post-flush observation to the before-flush bucket when we later clear the event.
-    # Same drain purpose as the previous sleep, expressed as a stability check.
-    def _pre_flush_counters_stable_post():
-        snap = (stats['before_flush_successes'], stats['before_flush_errors'])
-        time.sleep(0.05)
-        cur = (stats['before_flush_successes'], stats['before_flush_errors'])
-        return snap == cur, {'snap': snap, 'cur': cur}
+    # Same drain purpose as above, expressed against the per-thread iteration counters.
+    snap = list(iteration_counts)
     wait_for_condition(
-        _pre_flush_counters_stable_post,
-        message='pre-flush counters did not stabilize after flush_completed=True',
+        lambda: (
+            all(c > s for c, s in zip(iteration_counts, snap)),
+            {'snap': snap, 'cur': list(iteration_counts)},
+        ),
+        message='not all workers completed an iteration after flush_completed=True',
         timeout=10,
     )
     flushall_called.clear()  # Reset the event
