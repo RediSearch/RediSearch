@@ -66,13 +66,13 @@ pub fn new_vector_top_k_unfiltered(
 /// The initial mode (Batches vs AdhocBF) is chosen via
 /// [`VecSimIndex_PreferAdHocSearch`] using the child's estimated result
 /// count. The source may switch modes mid-execution via
-/// [`CollectionStrategy::SwitchToAdhoc`].
+/// [`BatchStrategy::SwitchToAdhoc`].
 ///
 /// The child is boxed.
 /// Use [`new_vector_top_k_filtered_boxed`] when you already have a `Box`.
 ///
 /// [`VecSimIndex_PreferAdHocSearch`]: ffi::VecSimIndex_PreferAdHocSearch
-/// [`CollectionStrategy::SwitchToAdhoc`]: top_k::CollectionStrategy::SwitchToAdhoc
+/// [`BatchStrategy::SwitchToAdhoc`]: top_k::BatchStrategy::SwitchToAdhoc
 pub fn new_vector_top_k_filtered<'index>(
     source: VectorScoreSource,
     child: impl RQEIterator<'index> + 'index,

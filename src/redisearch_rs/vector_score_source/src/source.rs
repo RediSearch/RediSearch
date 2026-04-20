@@ -16,8 +16,8 @@ use ffi::{
     VecSimBatchIterator_New, VecSimBatchIterator_Next, VecSimIndex, VecSimIndex_AdhocBfCtx_Free,
     VecSimIndex_AdhocBfCtx_GetDistanceFrom, VecSimIndex_AdhocBfCtx_New,
     VecSimIndex_GetDistanceFrom_Unsafe, VecSimIndex_IndexSize, VecSimIndex_PreferAdHocSearch,
-    VecSimQueryParams, VecSimQueryReply_Code_VecSim_QueryReply_TimedOut, VecSimQueryReply_GetCode,
-    VecSimQueryReply_GetIterator, VecSimQueryReply_Order_BY_ID, t_docId,
+    VecSimIndex_TopKQuery, VecSimQueryParams, VecSimQueryReply_Code_VecSim_QueryReply_TimedOut,
+    VecSimQueryReply_GetCode, VecSimQueryReply_GetIterator, VecSimQueryReply_Order_BY_ID, t_docId,
 };
 use inverted_index::RSIndexResult;
 use rqe_iterators::RQEIteratorError;
@@ -54,9 +54,11 @@ pub struct VectorScoreSource {
     fixed_batch_size: usize,
     num_iterations: usize,
     /// Rolling estimate of how many child docs pass the filter;
-    /// seeded by the caller at construction time.
+    /// seeded by the caller at construction time, refined each batch.
     child_num_estimated: usize,
-    /// `k - heap_count`, updated by `collection_strategy`.
+    /// Snapshot of `child_num_estimated` at construction; restored on rewind.
+    initial_child_num_estimated: usize,
+    /// `k - heap_count`, updated by `batch_strategy`.
     k_remaining: usize,
 }
 
@@ -96,6 +98,7 @@ impl VectorScoreSource {
             fixed_batch_size,
             num_iterations: 0,
             child_num_estimated,
+            initial_child_num_estimated: child_num_estimated,
             k_remaining: k.get(),
         }
     }
@@ -173,6 +176,37 @@ impl VectorScoreSource {
 impl<'index> ScoreSource<'index> for VectorScoreSource {
     type Batch = VecSimScoreBatchCursor;
 
+    fn next_batch_unfiltered(&mut self) -> Result<Option<Self::Batch>, RQEIteratorError> {
+        // Single-shot HNSW query for the unfiltered path; called exactly once
+        // per evaluation by `prepare_unfiltered_direct`.
+        self.query_params.timeoutCtx = self.timeout_ctx;
+        // SAFETY: `self.index` and `self.query_vector` are valid.
+        let reply = unsafe {
+            VecSimIndex_TopKQuery(
+                self.index,
+                self.query_vector.as_ptr() as *const c_void,
+                self.k.get(),
+                &mut self.query_params,
+                VecSimQueryReply_Order_BY_ID,
+            )
+        };
+        if reply.is_null() {
+            return Ok(None);
+        }
+        // SAFETY: `reply` is valid.
+        let code = unsafe { VecSimQueryReply_GetCode(reply) };
+        if code == VecSimQueryReply_Code_VecSim_QueryReply_TimedOut {
+            // SAFETY: `reply` must be freed even on timeout.
+            unsafe { ffi::VecSimQueryReply_Free(reply) };
+            return Err(RQEIteratorError::TimedOut);
+        }
+        // SAFETY: `reply` is valid.
+        let iter = unsafe { VecSimQueryReply_GetIterator(reply) };
+        // SAFETY: Ownership of both `reply` and `iter` is passed to the cursor.
+        let cursor = unsafe { VecSimScoreBatchCursor::new(reply, iter) };
+        Ok(Some(cursor))
+    }
+
     fn next_batch(&mut self) -> Result<Option<Self::Batch>, RQEIteratorError> {
         // Timeout is propagated via query_params.timeoutCtx — VecSim checks it
         // internally and returns VecSim_QueryReply_TimedOut from Next/New.
@@ -247,6 +281,7 @@ impl<'index> ScoreSource<'index> for VectorScoreSource {
         }
         self.num_iterations = 0;
         self.k_remaining = self.k.get();
+        self.child_num_estimated = self.initial_child_num_estimated;
     }
 
     fn build_result(&self, doc_id: t_docId, score: f64) -> RSIndexResult<'index> {
@@ -263,18 +298,26 @@ impl<'index> ScoreSource<'index> for VectorScoreSource {
     }
 
     fn batch_strategy(&mut self, heap_count: usize, k: usize) -> BatchStrategy {
+        // n_res_left = k - heap_count_before_this_batch (k_remaining set by previous call).
+        let n_res_left = self.k_remaining;
         self.k_remaining = k.saturating_sub(heap_count);
         if heap_count >= k {
             return BatchStrategy::Stop;
         }
+        // Refine `child_num_estimated` from actual batch hit rate so subsequent heuristic
+        // calls reflect observed selectivity rather than the initial guess.
+        // n_res_left > 0 is guaranteed: heap_count < k (checked above) and k_remaining >= 1.
+        let new_results_cur_batch = heap_count.saturating_sub(k.saturating_sub(n_res_left));
+        let index_size = self.index_size();
+        let cur_ratio = new_results_cur_batch as f64 / n_res_left as f64;
+        let cur_child_est = (cur_ratio * index_size as f64) as usize;
+        // Rolling average; cap at old estimate to suppress upward drift.
+        let old_est = self.child_num_estimated;
+        self.child_num_estimated = ((old_est + cur_child_est) / 2).min(old_est);
+
         // SAFETY: `self.index` is valid.
         let prefer_adhoc = unsafe {
-            VecSimIndex_PreferAdHocSearch(
-                self.index,
-                self.child_num_estimated,
-                k,
-                false, // not initial check
-            )
+            VecSimIndex_PreferAdHocSearch(self.index, self.child_num_estimated, k, false)
         };
         if prefer_adhoc {
             BatchStrategy::SwitchToAdhoc
