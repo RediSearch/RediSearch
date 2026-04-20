@@ -20,23 +20,6 @@ void shardResponseBarrier_Free(void *ptr) {
   }
 }
 
-// Initialize ShardCountBarrier base fields (called from iterStartCb when
-// topology is known)
-// This is a generic init function that can be used as privateDataInit callback
-// when the privateData starts with a ShardCountBarrier (or is a
-// ShardCountBarrier*)
-void shardCountBarrier_Init(void *ptr, const MRIterator *it) {
-  ShardCountBarrier *barrier = (ShardCountBarrier *)ptr;
-  if (!barrier || !it) {
-    return;
-  }
-
-  size_t numShards = MRIterator_GetNumShards(it);
-  // Use atomic_store (not atomic_init) because coord thread may already be
-  // calling atomic_load on numShards concurrently
-  atomic_store(&barrier->numShards, numShards);
-}
-
 // Allocate and initialize a new ShardResponseBarrier
 // Notice: numShards and shardResponded init is postponed until NumShards is
 // known
