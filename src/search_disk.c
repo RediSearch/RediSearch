@@ -60,7 +60,7 @@ bool SearchDisk_Initialize(RedisModuleCtx *ctx) {
   disk->basic.setThrottleCallbacks(VecSim_EnableThrottle, VecSim_DisableThrottle);
 
   // Pass the disk buffer percentage from config
-  disk_db = disk->basic.open(ctx, (int)RSGlobalConfig.diskBufferPercentage);
+  disk_db = disk->basic.open(ctx, (int)RSGlobalConfig.diskBufferPercentage, RSGlobalConfig.hideUserDataFromLog);
   bool disk_initialized = disk_db != NULL;
 
   if (!disk_initialized) {
@@ -128,9 +128,15 @@ void SearchDisk_Close(RedisModuleCtx *ctx) {
 }
 
 // Basic API wrappers
-RedisSearchDiskIndexSpec* SearchDisk_OpenIndex(RedisModuleCtx *ctx, const char *indexName, size_t indexNameLen, DocumentType type, bool deleteBeforeOpen) {
+RedisSearchDiskIndexSpec* SearchDisk_OpenIndex(RedisModuleCtx *ctx, const HiddenString *indexName, const char *obfuscatedName, DocumentType type, bool deleteBeforeOpen) {
     RS_ASSERT(disk_db);
-    return disk->basic.openIndexSpec(ctx, disk_db, indexName, indexNameLen, type, deleteBeforeOpen);
+    return disk->basic.openIndexSpec(ctx, disk_db, indexName, obfuscatedName, strlen(obfuscatedName), type, deleteBeforeOpen);
+}
+
+void SearchDisk_UpdateLogObfuscation() {
+    if (disk && disk_db) {
+        disk->basic.setLogObfuscation(disk_db, RSGlobalConfig.hideUserDataFromLog);
+    }
 }
 
 void SearchDisk_MarkIndexForDeletion(RedisSearchDiskIndexSpec *index) {
@@ -164,12 +170,12 @@ RedisSearchDiskRdbState* SearchDisk_LoadRdbToTempObject(RedisModuleIO *rdb) {
 }
 
 RedisSearchDiskIndexSpec* SearchDisk_OpenIndexWithRdbState(RedisModuleCtx *ctx,
-                                                            const char *indexName,
-                                                            size_t indexNameLen,
+                                                            const HiddenString *indexName,  
+                                                            const char *obfuscatedName,
                                                             DocumentType type,
                                                             RedisSearchDiskRdbState *rdbState) {
   RS_ASSERT(disk && disk_db && indexName && rdbState);
-  return disk->basic.openIndexSpecWithRdbState(ctx, disk_db, indexName, indexNameLen, type, rdbState);
+  return disk->basic.openIndexSpecWithRdbState(ctx, disk_db, indexName, obfuscatedName, strlen(obfuscatedName), type, rdbState);
 }
 
 void SearchDisk_FreeRdbState(RedisSearchDiskRdbState *rdbState) {
