@@ -2225,10 +2225,15 @@ static int RPHybridMerger_Yield(ResultProcessor *rp, SearchResult *r) {
       int rc = hybridMergerConsumeFromUpstream(self, window, i);
 
       if (rc == RS_RESULT_DEPLETING) {
+        // Upstream is still active but not ready to provide results. Skip to the next.
         continue;
       }
 
+      // Store the final return code for this upstream
       self->upstreamReturnCodes[i] = rc;
+      // Currently continues processing other upstreams.
+      // No need for a timeout mechanism to stop its spawned thread before completion
+      // assuming other threads would timeout as well within a reasobale delta of docs (See TimedOut_WithCounter)
       consumed[i] = true;
       numConsumed++;
     }
