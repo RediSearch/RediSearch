@@ -804,11 +804,9 @@ void RLookupRow_SetSortingVector(struct RLookupRow *row, const RSSortingVector *
  * Compares two search results by the given sort keys, returning a negative, zero, or positive
  * value.
  *
- * The comparison loop runs entirely in Rust, avoiding per-key FFI crossings for value lookups.
- * Row fields are accessed directly per-key (like the original C implementation) to minimize
- * stack usage and register pressure.
- *
- * When all fields are equal, breaks the tie by document ID using the last key's ascending flag.
+ * The comparison loop runs entirely in Rust via [`cmp_rows_by_fields`], avoiding per-key FFI
+ * crossings for value lookups. When all fields are equal, breaks the tie by document ID using
+ * the last key's ascending flag.
  *
  * # Safety
  *

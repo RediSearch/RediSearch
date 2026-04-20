@@ -29,6 +29,26 @@ pub enum CompareError {
     IncompatibleTypes,
 }
 
+/// Maps a [`CompareError`] to an [`Ordering`], optionally recording it into a [`QueryError`].
+///
+/// All error variants have a defined fallback ordering. Only
+/// [`CompareError::NoNumberToStringFallback`] writes to `qerr`; all others are benign.
+pub fn map_compare_error(err: CompareError, qerr: Option<&mut QueryError>) -> Ordering {
+    match err {
+        CompareError::NaNFloat | CompareError::MapComparison | CompareError::IncompatibleTypes => {
+            Ordering::Equal
+        }
+        CompareError::IncompatibleAgainstString(ord) => ord,
+        CompareError::NoNumberToStringFallback => {
+            if let Some(q) = qerr {
+                let message = c"Error converting string".to_owned();
+                q.set_code_and_message(QueryErrorCode::NumericValueInvalid, Some(message));
+            }
+            Ordering::Equal
+        }
+    }
+}
+
 #[inline]
 pub fn compare_with_query_error_to_int(
     v1: &RsValue,
@@ -45,24 +65,17 @@ pub fn compare_with_query_error_to_int(
         };
     }
 
-    match compare(v1, v2, qerr.is_none()) {
-        Ok(Ordering::Less) => -1,
-        Ok(Ordering::Equal) => 0,
-        Ok(Ordering::Greater) => 1,
-        Err(CompareError::NaNFloat) => 0,
-        Err(CompareError::MapComparison) => 0,
-        Err(CompareError::IncompatibleAgainstString(Ordering::Less)) => -1,
-        Err(CompareError::IncompatibleAgainstString(Ordering::Equal)) => 0,
-        Err(CompareError::IncompatibleAgainstString(Ordering::Greater)) => 1,
-        Err(CompareError::IncompatibleTypes) => 0,
-        Err(CompareError::NoNumberToStringFallback) => {
-            // SAFETY: `qerr` is Some because `num_to_str_cmp_fallback` was
-            // `false` (set from `qerr.is_none()`).
-            let query_error = qerr.unwrap();
-            let message = c"Error converting string".to_owned();
-            query_error.set_code_and_message(QueryErrorCode::NumericValueInvalid, Some(message));
-            0
-        }
+    // When there is no `qerr` to record an error into, fall back to formatting
+    // the number as a string for comparison instead of returning an error.
+    let use_num_to_str_fallback = qerr.is_none();
+    let ord = match compare(v1, v2, use_num_to_str_fallback) {
+        Ok(ord) => ord,
+        Err(e) => map_compare_error(e, qerr),
+    };
+    match ord {
+        Ordering::Less => -1,
+        Ordering::Equal => 0,
+        Ordering::Greater => 1,
     }
 }
 

@@ -8,6 +8,7 @@
 */
 
 mod bindings;
+pub mod comparison;
 mod lookup;
 mod row;
 
@@ -23,5 +24,6 @@ pub use lookup::{
     Cursor, CursorMut, RLookup, RLookupKey, RLookupKeyFlag, RLookupKeyFlags, RLookupOption,
     RLookupOptions, opaque::OpaqueRLookup,
 };
+pub use comparison::cmp_rows_by_fields;
 pub use row::RLookupRow;
 pub use row::opaque::OpaqueRLookupRow;

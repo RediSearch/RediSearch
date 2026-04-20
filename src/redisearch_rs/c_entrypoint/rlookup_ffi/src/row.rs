@@ -9,14 +9,15 @@
 
 use libc::size_t;
 use query_error::QueryError;
-use rlookup::{OpaqueRLookupRow, RLookup, RLookupKey, RLookupRow};
+use rlookup::{OpaqueRLookupRow, RLookup, RLookupKey, RLookupRow, cmp_rows_by_fields};
 use std::{
+    cmp::Ordering,
     ffi::{CStr, c_char, c_int},
     mem::{self, ManuallyDrop},
     ptr::NonNull,
     slice,
 };
-use value::comparison::compare_with_query_error_to_int;
+use value::comparison::map_compare_error;
 use value::{RsValue, SharedRsValue};
 
 const SORTASCMAP_MAXFIELDS: usize = 8;
@@ -412,11 +413,9 @@ pub unsafe extern "C" fn RLookupRow_SetSortingVector(
 /// Compares two search results by the given sort keys, returning a negative, zero, or positive
 /// value.
 ///
-/// The comparison loop runs entirely in Rust, avoiding per-key FFI crossings for value lookups.
-/// Row fields are accessed directly per-key (like the original C implementation) to minimize
-/// stack usage and register pressure.
-///
-/// When all fields are equal, breaks the tie by document ID using the last key's ascending flag.
+/// The comparison loop runs entirely in Rust via [`cmp_rows_by_fields`], avoiding per-key FFI
+/// crossings for value lookups. When all fields are equal, breaks the tie by document ID using
+/// the last key's ascending flag.
 ///
 /// # Safety
 ///
@@ -433,8 +432,10 @@ pub unsafe extern "C" fn SearchResult_CmpByFields(
     qerr: *mut QueryError,
 ) -> c_int {
     let nkeys = nkeys.min(SORTASCMAP_MAXFIELDS);
-    // SAFETY: ensured by caller (1.)
-    let keys = unsafe { slice::from_raw_parts(keys, nkeys) };
+    // SAFETY: ensured by caller (1.) — &RLookupKey and *const RLookupKey have identical layout.
+    let keys: &[&RLookupKey] = unsafe {
+        mem::transmute(slice::from_raw_parts(keys, nkeys))
+    };
     // SAFETY: ensured by caller (2.)
     let h1 = unsafe { &*h1 };
     // SAFETY: ensured by caller (2.)
@@ -442,31 +443,17 @@ pub unsafe extern "C" fn SearchResult_CmpByFields(
     // SAFETY: ensured by caller (3.)
     let mut qerr = unsafe { qerr.as_mut() };
 
-    let row1 = h1.row_data();
-    let row2 = h2.row_data();
+    let (ord, err) = cmp_rows_by_fields(h1.row_data(), h2.row_data(), keys, ascend_map);
 
-    for (i, &key_ptr) in keys.iter().enumerate() {
-        // SAFETY: ensured by caller (1.)
-        let key = unsafe { &*key_ptr };
-        let v1 = row1.get(key);
-        let v2 = row2.get(key);
-        let ascending = (ascend_map & (1u64 << i)) != 0;
+    if let Some(e) = err {
+        let _ = map_compare_error(e, qerr.as_deref_mut());
+    }
 
-        match (v1, v2) {
-            (Some(v1), Some(v2)) => {
-                let rc = compare_with_query_error_to_int(v1, v2, qerr.as_deref_mut());
-                if rc != 0 {
-                    return if ascending { -rc } else { rc };
-                }
-            }
-            // If at least one of these has no sort key, it gets high value regardless of asc/desc
-            (Some(_), None) => return 1,
-            (None, Some(_)) => return -1,
-            (None, None) => {
-                // Both have no sort key, so they are equal. Continue to next sort key
-                continue;
-            }
-        }
+    if ord != Ordering::Equal {
+        return match ord {
+            Ordering::Less => -1,
+            _ => 1,
+        };
     }
 
     // Tiebreak by docid — ascending uses the last key's flag,
