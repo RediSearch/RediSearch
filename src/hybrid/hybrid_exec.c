@@ -668,7 +668,8 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     }
     // Assuming OOM policy is return since we didn't ignore the memory guardrail
     RS_ASSERT(RSGlobalConfig.requestConfigParams.oomPolicy == OomPolicy_Return);
-    return common_hybrid_query_reply_empty(ctx, QUERY_EOOM, internal);
+    return common_hybrid_query_reply_empty(ctx, QUERY_EOOM, internal,
+                                           profileOptions & EXEC_WITH_PROFILE);
   }
 
   const char *indexname = RedisModule_StringPtrLen(argv[1], NULL);
@@ -683,7 +684,7 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 
   HybridRequest *hybridRequest = MakeDefaultHybridRequest(sctx);
   hybridRequest->profile = printHybridProfile;
-  hybridRequest->tailPipeline->qctx.isProfile = profileOptions != EXEC_NO_FLAGS;
+  hybridRequest->tailPipeline->qctx.isProfile = profileOptions & EXEC_WITH_PROFILE;
   StrongRef hybrid_ref = StrongRef_New(hybridRequest, &FreeHybridRequest);
   HybridPipelineParams hybridParams = {0};
 
