@@ -10,7 +10,6 @@
 use libc::size_t;
 use query_error::QueryError;
 use rlookup::{OpaqueRLookupRow, RLookup, RLookupKey, RLookupRow};
-use value::comparison::cmp_fields;
 use std::{
     cmp::Ordering,
     ffi::{CStr, c_char, c_int},
@@ -18,6 +17,7 @@ use std::{
     ptr::NonNull,
     slice,
 };
+use value::comparison::cmp_fields;
 use value::{RsValue, SharedRsValue};
 
 const SORTASCMAP_MAXFIELDS: usize = 8;

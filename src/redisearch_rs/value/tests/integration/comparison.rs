@@ -9,9 +9,9 @@
 
 #![expect(clippy::missing_safety_doc, clippy::undocumented_unsafe_blocks)]
 
-use std::cmp::Ordering;
 use query_error::QueryError;
-use value::comparison::{CompareError, compare, cmp_fields};
+use std::cmp::Ordering;
+use value::comparison::{CompareError, cmp_fields, compare};
 use value::{Array, Map, RsString, RsValue, RsValueTrio, SharedRsValue};
 
 fn array(values: impl IntoIterator<Item = RsValue>) -> RsValue {
