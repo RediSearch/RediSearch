@@ -18,7 +18,7 @@ use index_result::RSIndexResult;
 use rqe_core::DocId;
 use rqe_iterators::RQEIteratorError;
 
-use crate::traits::{CollectionStrategy, ScoreBatch, ScoreSource};
+use crate::traits::{BatchStrategy, ScoreBatch, ScoreSource};
 
 /// A [`ScoreBatch`] backed by a pre-sorted `Vec<(DocId, f64)>`.
 ///
@@ -62,7 +62,7 @@ impl ScoreBatch for MockScoreBatch {
 ///
 /// ```rust
 /// # use top_k::mock::MockScoreSource;
-/// # use top_k::traits::CollectionStrategy;
+/// # use top_k::traits::BatchStrategy;
 /// let source = MockScoreSource::new(
 ///     // Two batches: each is a Vec<(doc_id, score)>
 ///     vec![
@@ -71,15 +71,15 @@ impl ScoreBatch for MockScoreBatch {
 ///     ],
 ///     // Per-doc scores for adhoc-BF lookup
 ///     vec![(1, 0.5), (3, 0.8), (5, 0.2), (7, 0.9)],
-///     // Strategy: always Continue
-///     |_, _| CollectionStrategy::Continue,
+///     // Batch strategy: always Continue
+///     |_, _| BatchStrategy::Continue,
 /// );
 /// ```
 pub struct MockScoreSource {
     batches: Vec<Vec<(DocId, f64)>>,
     batch_pos: usize,
     scores: HashMap<DocId, f64>,
-    strategy: Box<dyn FnMut(usize, usize) -> CollectionStrategy>,
+    batch_strategy: Box<dyn FnMut(usize, usize) -> BatchStrategy>,
     num_estimated: usize,
 }
 
@@ -88,7 +88,7 @@ impl MockScoreSource {
     ///
     /// - `batches` — sequence of batches; each inner `Vec` is one [`MockScoreBatch`].
     /// - `scores`  — per-document scores returned by [`lookup_score`].
-    /// - `strategy` — function called after each batch / adhoc step.
+    /// - `batch_strategy` — function called after each batch (Batches mode only).
     ///
     /// `num_estimated` defaults to the total number of entries across all batches.
     ///
@@ -96,14 +96,14 @@ impl MockScoreSource {
     pub fn new(
         batches: Vec<Vec<(DocId, f64)>>,
         scores: Vec<(DocId, f64)>,
-        strategy: impl FnMut(usize, usize) -> CollectionStrategy + 'static,
+        batch_strategy: impl FnMut(usize, usize) -> BatchStrategy + 'static,
     ) -> Self {
         let num_estimated = batches.iter().map(Vec::len).sum();
         Self {
             batches,
             batch_pos: 0,
             scores: scores.into_iter().collect(),
-            strategy: Box::new(strategy),
+            batch_strategy: Box::new(batch_strategy),
             num_estimated,
         }
     }
@@ -149,8 +149,8 @@ impl ScoreSource for MockScoreSource {
         RSIndexResult::build_virt().doc_id(doc_id).build()
     }
 
-    fn collection_strategy(&mut self, heap_count: usize, k: usize) -> CollectionStrategy {
-        (self.strategy)(heap_count, k)
+    fn batch_strategy(&mut self, heap_count: usize, k: usize) -> BatchStrategy {
+        (self.batch_strategy)(heap_count, k)
     }
 
     fn iterator_type(&self) -> rqe_iterator_type::IteratorType {
