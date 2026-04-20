@@ -20,11 +20,11 @@ use std::ffi::c_char;
 ///
 /// # Example
 ///
-/// ```rust
-/// use value::util::debug_assert_warn;
-///
+/// ```text
 /// debug_assert_warn!(items.len() % 2 == 0, "odd-length array");
 /// ```
+///
+/// See the `tests::example` unit test for a runnable demonstration.
 macro_rules! debug_assert_warn {
     ($cond:expr, $($arg:tt)+) => {{
         let ok = $cond;
@@ -77,4 +77,13 @@ pub fn num_to_str(num: f64, buf: &mut [u8; 32]) -> usize {
     }
 
     result as usize
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn example() {
+        let items: &[u8] = &[0, 1];
+        super::debug_assert_warn!(items.len() % 2 == 0, "odd-length array");
+    }
 }
