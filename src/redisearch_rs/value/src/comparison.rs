@@ -83,27 +83,14 @@ pub fn compare_on_equality_only(v1: &RsValue, v2: &RsValue) -> bool {
 
 /// Lexicographically compare two rows of sort-key values under the classic sort-by-fields policy.
 ///
-/// Each yielded pair `(v1, v2)` represents the `i`-th sort key's value in the two rows being
-/// compared. Bit `i` of `ascend_map` (LSB-first) controls the direction for pair `i`: set means
-/// ASCending, clear means DESCending.
+/// Each yielded pair `(v1, v2)` is the `i`-th sort key's value in the two rows being compared.
+/// Bit `i` of `ascend_map` (LSB-first) selects the direction: set = ASC, clear = DESC.
 ///
-/// # Missing values
-///
-/// A `None` value always compares as "worst" — a row with `Some` ranks before a row with `None`
-/// regardless of ASC/DESC direction. When both sides are `None`, the pair is treated as equal and
-/// the next pair decides.
-///
-/// # Errors and the num-to-string fallback
-///
-/// When `qerr` is `None`, comparing a number against a string that cannot be parsed as a number
-/// falls back to formatting the number as a string and comparing byte-wise. When `qerr` is
-/// `Some`, that case records a [`QueryErrorCode::NumericValueInvalid`] into the error and treats
-/// the pair as equal, letting the next pair decide. Other [`CompareError`] variants use their
-/// defined fallback ordering.
+/// A `None` value always ranks "worst" regardless of direction; both-`None` is treated as equal
+/// and the next pair decides. Per-pair comparison — including the num-to-string fallback and
+/// `qerr` recording — is delegated to [`compare_with_query_error_to_int`].
 ///
 /// Callers are responsible for any docid tiebreak when this function returns `Ordering::Equal`.
-///
-/// [`QueryErrorCode::NumericValueInvalid`]: query_error::QueryErrorCode::NumericValueInvalid
 #[inline]
 pub fn cmp_fields<'a>(
     pairs: impl IntoIterator<Item = (Option<&'a RsValue>, Option<&'a RsValue>)>,
