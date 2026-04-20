@@ -9,7 +9,7 @@
 
 use std::ops::{Deref, DerefMut};
 
-use crate::{RsValue, SharedRsValue};
+use crate::{RsValue, SharedRsValue, util::debug_assert_warn};
 
 pub type Array = Collection<SharedRsValue>;
 pub type Map = Collection<(SharedRsValue, SharedRsValue)>;
@@ -67,21 +67,14 @@ impl Array {
     ///
     /// Non-string keys are skipped.
     pub fn map_get(&self, key: &[u8]) -> Option<&RsValue> {
-        debug_assert!(
-            self.len().is_multiple_of(2),
-            "map_get called on an odd-length array (len={}); trailing element will be ignored",
-            self.len()
+        let (pairs, remainder) = self.as_chunks::<2>();
+        debug_assert_warn!(
+            remainder.is_empty(),
+            "map_get called on an odd-length array;"
         );
-        if !self.len().is_multiple_of(2) {
-            tracing::warn!(
-                len = self.len(),
-                "map_get called on an odd-length array; trailing element will be ignored"
-            );
-        }
-        self.chunks(2).find_map(|pair| {
-            let value = pair.get(1)?;
-            (pair[0].as_str_bytes()? == key).then_some(&**value)
-        })
+        pairs
+            .iter()
+            .find_map(|[k, v]| (k.as_str_bytes()? == key).then_some(&**v))
     }
 }
 

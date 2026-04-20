@@ -10,6 +10,32 @@
 use libc::snprintf;
 use std::ffi::c_char;
 
+/// Fires a [`debug_assert`] and emits a [`tracing::warn`] when `$cond` is `false`.
+///
+/// In debug builds the process panics immediately on violation; in release builds the
+/// warning is still surfaced at runtime without aborting.
+///
+/// The message tokens are forwarded verbatim to both macros, so structured
+/// [`tracing`] fields (e.g. `field = value, "message"`) work as usual.
+///
+/// # Example
+///
+/// ```rust
+/// use value::util::debug_assert_warn;
+///
+/// debug_assert_warn!(items.len() % 2 == 0, "odd-length array");
+/// ```
+macro_rules! debug_assert_warn {
+    ($cond:expr, $($arg:tt)+) => {{
+        let ok = $cond;
+        debug_assert!(ok, $($arg)+);
+        if !ok {
+            tracing::warn!($($arg)+);
+        }
+    }};
+}
+pub(crate) use debug_assert_warn;
+
 /// Converts a string into a float, returning `None` if it failed.
 pub fn str_to_float(input: &[u8]) -> Option<f64> {
     std::str::from_utf8(input).ok()?.parse::<f64>().ok()
