@@ -293,13 +293,15 @@ pub trait SearchEnterpriseIterators: Send + Sync {
 
     /// Iterate over all the terms in the index. Each document in the iterator will have the term
     /// inside the given query_term and will have the given weight. The iterator will also filter
-    /// the results according to the given field mask.
+    /// the results according to the given field mask. When `needs_offsets` is true the iterator
+    /// will load offset data for each document; otherwise offset data is skipped for efficiency.
     fn new_term_on_disk<'index>(
         &self,
         index: &'index ffi::RedisSearchDiskIndexSpec,
         query_term: Box<RSQueryTerm>,
         field_mask: t_fieldMask,
         weight: f64,
+        needs_offsets: bool,
     ) -> Result<Box<dyn RQEIterator<'index> + 'index>, Box<dyn std::error::Error>>;
 
     /// Iterate over all the tags (tokens) in the index at the given field index. Each document in
