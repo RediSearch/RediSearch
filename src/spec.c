@@ -4143,18 +4143,8 @@ void Indexes_DeleteMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStrin
 
 void Indexes_ReplaceMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *from_key,
                                             RedisModuleString *to_key) {
-  size_t from_len_log, to_len_log;
-  const char *from_str_log = RedisModule_StringPtrLen(from_key, &from_len_log);
-  const char *to_str_log = RedisModule_StringPtrLen(to_key, &to_len_log);
-  RedisModule_Log(RSDummyContext, "notice",
-                  "RENAME[ENTER] from='%.*s' to='%.*s'",
-                  (int)from_len_log, from_str_log, (int)to_len_log, to_str_log);
-
   DocumentType type = getDocTypeFromString(to_key);
   if (type == DocumentType_Unsupported) {
-    RedisModule_Log(RSDummyContext, "notice",
-                    "RENAME[EXIT] from='%.*s' to='%.*s' reason=unsupported_doc_type",
-                    (int)from_len_log, from_str_log, (int)to_len_log, to_str_log);
     return;
   }
 
@@ -4165,28 +4155,16 @@ void Indexes_ReplaceMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStri
   const char *from_str = RedisModule_StringPtrLen(from_key, &from_len);
   const char *to_str = RedisModule_StringPtrLen(to_key, &to_len);
 
-  RedisModule_Log(RSDummyContext, "notice",
-                  "RENAME[SPECS] from='%.*s' to='%.*s' from_specs=%u to_specs=%u",
-                  (int)from_len, from_str, (int)to_len, to_str,
-                  (unsigned)array_len(from_specs->specsOps),
-                  (unsigned)array_len(to_specs->specsOps));
-
   // Handle specs that match the old key (whether they match the new key or not)
   for (size_t i = 0; i < array_len(from_specs->specsOps); ++i) {
     SpecOpCtx *specOp = from_specs->specsOps + i;
     IndexSpec *spec = specOp->spec;
     if (specOp->op == SpecOp_Del) {
-      RedisModule_Log(RSDummyContext, "notice",
-                      "RENAME[FROM] spec='%s' op=DEL skip",
-                      spec->specName);
       // the document is not in the index from the first place
       continue;
     }
     dictEntry *entry = dictFind(to_specs->specs, spec->specName);
     if (entry) {
-      RedisModule_Log(RSDummyContext, "notice",
-                      "RENAME[FROM] spec='%s' specId=%llu branch=RENAME_IN_INDEX",
-                      spec->specName, (unsigned long long)spec->specId);
       // The document should be indexed by the new key as well, so we need to update the key name in the index.
       RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, spec);
       RedisSearchCtx_LockSpecWrite(&sctx);
@@ -4195,14 +4173,7 @@ void Indexes_ReplaceMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStri
       if (SearchDisk_IsEnabled()) {
         uint64_t docId;
         // After RENAME, the metadata lives on to_key (rename callback keeps it).
-        int rc = DocIdMeta_Get(ctx, to_key, spec->specId, &docId);
-        RedisModule_Log(RSDummyContext, "notice",
-                        "RENAME[FROM]   spec='%s' DocIdMeta_Get(to='%.*s', specId=%llu) -> %s docId=%llu",
-                        spec->specName, (int)to_len, to_str,
-                        (unsigned long long)spec->specId,
-                        rc == REDISMODULE_OK ? "OK" : "ERR",
-                        rc == REDISMODULE_OK ? (unsigned long long)docId : 0ULL);
-        if (rc == REDISMODULE_OK) {
+        if (DocIdMeta_Get(ctx, to_key, spec->specId, &docId) == REDISMODULE_OK) {
           // Update the key name in the disk doc table
           SearchDisk_ReplaceKey(spec->diskSpec, docId, to_str, to_len);
         }
@@ -4215,28 +4186,14 @@ void Indexes_ReplaceMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStri
       dictDelete(to_specs->specs, spec->specName);
       array_del_fast(to_specs->specsOps, index);
     } else {
-      RedisModule_Log(RSDummyContext, "notice",
-                      "RENAME[FROM] spec='%s' specId=%llu branch=DELETE_FROM_INDEX",
-                      spec->specName, (unsigned long long)spec->specId);
       // The document should not be indexed by the new key, so we need to delete the old document from the index.
       if (SearchDisk_IsEnabled()) {
         // After RENAME, from_key no longer exists. The metadata is on to_key.
         // Look up the docId from to_key's metadata and delete by id.
         uint64_t docId;
-        int rc = DocIdMeta_Get(ctx, to_key, spec->specId, &docId);
-        RedisModule_Log(RSDummyContext, "notice",
-                        "RENAME[FROM]   spec='%s' DocIdMeta_Get(to='%.*s', specId=%llu) -> %s docId=%llu",
-                        spec->specName, (int)to_len, to_str,
-                        (unsigned long long)spec->specId,
-                        rc == REDISMODULE_OK ? "OK" : "ERR",
-                        rc == REDISMODULE_OK ? (unsigned long long)docId : 0ULL);
-        if (rc == REDISMODULE_OK) {
+        if (DocIdMeta_Get(ctx, to_key, spec->specId, &docId) == REDISMODULE_OK) {
           IndexSpec_DeleteDocById(spec, (t_docId)docId);
           DocIdMeta_Delete(ctx, to_key, spec->specId);
-        } else {
-          RedisModule_Log(RSDummyContext, "warning",
-                          "RENAME[FROM]   spec='%s' DELETE SKIPPED because DocIdMeta_Get failed on to='%.*s'",
-                          spec->specName, (int)to_len, to_str);
         }
       } else {
         // For RAM case, look up by old key name and delete
@@ -4249,25 +4206,16 @@ void Indexes_ReplaceMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStri
   for (size_t i = 0; i < array_len(to_specs->specsOps); ++i) {
     SpecOpCtx *specOp = to_specs->specsOps + i;
     if (specOp->op == SpecOp_Del) {
-      RedisModule_Log(RSDummyContext, "notice",
-                      "RENAME[TO] spec='%s' op=DEL skip",
-                      specOp->spec->specName);
       // not need to index
       // also no need to delete because we know that the document is
       // not in the index because if it was there we would handle it
       // on the spec from section.
       continue;
     }
-    RedisModule_Log(RSDummyContext, "notice",
-                    "RENAME[TO] spec='%s' branch=INDEX_NEW_DOC",
-                    specOp->spec->specName);
     IndexSpec_UpdateDoc(specOp->spec, ctx, to_key, type);
   }
   Indexes_SpecOpsIndexingCtxFree(from_specs);
   Indexes_SpecOpsIndexingCtxFree(to_specs);
-  RedisModule_Log(RSDummyContext, "notice",
-                  "RENAME[EXIT] from='%.*s' to='%.*s' done",
-                  (int)from_len, from_str, (int)to_len, to_str);
 }
 
 void Indexes_List(RedisModule_Reply* reply, bool obfuscate) {

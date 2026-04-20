@@ -63,12 +63,24 @@ static inline bool isSpecValid(uint64_t specId) {
 // DocIdMeta V1: a dict of specId (void*) -> docId (void*), using dictTypeUint64.
 // The meta value stored on a key is a `dict*` cast to `uint64_t` directly (no wrapper struct).
 #define DOCID_META_VERSION 1
-#define KEY_OPEN_META_SET_FLAGS (REDISMODULE_READ | REDISMODULE_WRITE | REDISMODULE_OPEN_KEY_NOEFFECTS)
-#define KEY_OPEN_META_GET_FLAGS (REDISMODULE_READ | REDISMODULE_OPEN_KEY_NOEFFECTS)
+// Compose side-effect suppressors individually instead of REDISMODULE_OPEN_KEY_NOEFFECTS.
+// The aggregate NOEFFECTS flag also inhibits BigRedis swap-in, which would leave the key
+// meta unloaded on disk-resident keys and cause DocIdMeta_Get to return meta=0.
+#define KEY_OPEN_META_NO_SIDE_EFFECTS (REDISMODULE_OPEN_KEY_NOTOUCH   | \
+                                       REDISMODULE_OPEN_KEY_NONOTIFY  | \
+                                       REDISMODULE_OPEN_KEY_NOSTATS   | \
+                                       REDISMODULE_OPEN_KEY_NOEXPIRE)
+#define KEY_OPEN_META_SET_FLAGS (REDISMODULE_READ | REDISMODULE_WRITE | KEY_OPEN_META_NO_SIDE_EFFECTS)
+#define KEY_OPEN_META_GET_FLAGS (REDISMODULE_READ | KEY_OPEN_META_NO_SIDE_EFFECTS)
 
 /* Free callback - called when metadata needs to be freed */
 static void docIdMetaFree(const char *keyname, uint64_t meta) {
-  REDISMODULE_NOT_USED(keyname);
+  size_t nEntries = (meta != 0) ? dictSize((dict *)meta) : 0;
+  RedisModule_Log(RSDummyContext, "notice",
+                  "DocIdMeta[FREE] key='%s' meta=%s entries=%zu",
+                  keyname ? keyname : "(null)",
+                  meta == 0 ? "NULL" : "non-null",
+                  nEntries);
   if (meta == 0) return;
   dict *d = (dict *)meta;
   dictRelease(d);
@@ -148,6 +160,14 @@ static void docIdMetaUnlink(RedisModuleKeyOptCtx *ctx, uint64_t *meta) {
   dictReleaseIterator(iter);
 }
 
+// Return values for RedisModuleKeyMetaLoadFunc (documented on RM_CreateKeyMetaClass):
+//   1: attach the loaded meta to the key
+//   0: skip/ignore (do not attach) - not an error
+//  -1: error, abort RDB load
+#define DOCID_META_RDB_LOAD_ATTACH 1
+#define DOCID_META_RDB_LOAD_SKIP   0
+#define DOCID_META_RDB_LOAD_ERROR  (-1)
+
 static int docIdMetaRDBLoad(RedisModuleIO *rdb, uint64_t *meta, int encver) {
   RS_LOG_ASSERT(encver == 1, "DocIdMeta: unexpected encver in RDB load");
 
@@ -161,7 +181,7 @@ static int docIdMetaRDBLoad(RedisModuleIO *rdb, uint64_t *meta, int encver) {
                     "DocIdMeta[RDB_LOAD] key='%.*s' SKIPPED (PersistenceInProgress)",
                     (int)keyLen, keyStr ? keyStr : "");
     *meta = 0;
-    return REDISMODULE_OK;
+    return DOCID_META_RDB_LOAD_SKIP;
   }
 
   dict *specIdToDocId = dictCreate(&dictTypeUint64, NULL);
@@ -199,7 +219,7 @@ static int docIdMetaRDBLoad(RedisModuleIO *rdb, uint64_t *meta, int encver) {
                   (int)keyLen, keyStr ? keyStr : "", kept, dropped);
 
   *meta = (uint64_t)(specIdToDocId);
-  return REDISMODULE_OK;
+  return DOCID_META_RDB_LOAD_ATTACH;
 
 cleanup:
   RedisModule_Log(RSDummyContext, "warning",
@@ -209,7 +229,7 @@ cleanup:
     dictRelease(specIdToDocId);
   }
   *meta = 0;
-  return REDISMODULE_ERR;
+  return DOCID_META_RDB_LOAD_ERROR;
 }
 
 static void docIdMetaRDBSave(RedisModuleIO *rdb, void *value, uint64_t *meta) {
