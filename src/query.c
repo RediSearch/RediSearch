@@ -1105,6 +1105,8 @@ static QueryIterator *Query_EvalIdFilterNode(QueryEvalCtx *q, QueryIdFilterNode 
 
 static QueryIterator *Query_EvalUnionNode(QueryEvalCtx *q, QueryNode *qn) {
   RS_LOG_ASSERT(qn->type == QN_UNION, "query node type should be union")
+  // Parsers and expanders always create unions with 2+ children.
+  RS_ASSERT(QueryNode_NumChildren(qn) > 1);
 
   // recursively eval the children
   QueryIterator **iters = rm_malloc(QueryNode_NumChildren(qn) * sizeof(QueryIterator *));
