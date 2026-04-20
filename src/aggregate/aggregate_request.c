@@ -1061,7 +1061,12 @@ bool RunInThread(RedisModuleCtx *ctx) {
 
   const bool blockClientUnavailable = RedisModule_GetContextFlags(ctx) & REDISMODULE_CTX_FLAGS_DENY_BLOCKING;
   if (blockClientUnavailable && RSGlobalConfig.fallbackToMainThreadWhenBlockClientUnavailable) {
-    RedisModule_Log(ctx, "warning", "Cannot run command in a worker thread because client cannot be blocked, falling back to main thread.");
+    // We only log once to reduce log spam
+    static bool logged = false;
+    if (!logged) {
+      RedisModule_Log(ctx, "warning", "Detected that client cannot be blocked, all similar requests including this one will fall back to run on the main thread.");
+      logged = true;
+    }
     return false;
   }
 
