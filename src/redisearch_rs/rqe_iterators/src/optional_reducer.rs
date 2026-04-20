@@ -99,7 +99,7 @@ where
                 let wcii = if disk_index_available {
                     // SAFETY: We checked `disk_index_available` (i.e. `!spec.diskSpec.is_null()`)
                     // above, and (6) guarantees the pointer is valid for `'index`.
-                    let disk_spec = unsafe { &*spec.diskSpec };
+                    let disk_spec = unsafe { &mut *spec.diskSpec };
                     // SAFETY: (6).
                     unsafe { new_wildcard_iterator_on_disk(disk_spec, weight) }
                 } else {

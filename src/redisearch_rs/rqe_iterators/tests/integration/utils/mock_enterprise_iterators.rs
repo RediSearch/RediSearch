@@ -57,7 +57,7 @@ impl SearchEnterpriseIterators for MockEnterpriseIterators {
 
     fn new_term_on_disk_without_offsets<'index>(
         &self,
-        _index: &'index ffi::RedisSearchDiskIndexSpec,
+        _index: &'index mut ffi::RedisSearchDiskIndexSpec,
         _query_term: Box<query_term::RSQueryTerm>,
         _field_mask: inverted_index::t_fieldMask,
         _weight: f64,
