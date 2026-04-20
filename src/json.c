@@ -254,6 +254,33 @@ static int JSON_getInt8(RedisJSON json, int8_t *val) {
 typedef int (*getJSONElementFunc)(RedisJSON, void *);
 static getJSONElementFunc VecSimGetJSONCallback(VecSimType type);
 
+// Returns true iff `t` tags a homogeneous buffer of a known numeric type we can
+// read from. This is an explicit opt-in: any future JSONArrayType added upstream
+// must be classified here, otherwise it stays safely routed to the V6 per-element
+// fallback. The switch has no `default:` clause so `-Wswitch` flags new enumerators
+// at compile time until they are handled.
+static bool JSON_ArrayTypeIsNumeric(JSONArrayType t) {
+  switch (t) {
+    case JSONArrayType_I8:
+    case JSONArrayType_U8:
+    case JSONArrayType_I16:
+    case JSONArrayType_U16:
+    case JSONArrayType_F16:
+    case JSONArrayType_BF16:
+    case JSONArrayType_I32:
+    case JSONArrayType_U32:
+    case JSONArrayType_F32:
+    case JSONArrayType_I64:
+    case JSONArrayType_U64:
+    case JSONArrayType_F64:
+      return true;
+    case JSONArrayType_Heterogeneous:
+      return false;
+  }
+  // Unknown (future) tags fall through to V6 per-element handling.
+  return false;
+}
+
 // Returns true iff a JSON numeric element of type `src` can be ingested into a vector
 // field of type `target`. This mirrors the per-element accept matrix of the V6 path,
 // where each element is read through `japi->getInt` (INT8/UINT8 target) or
@@ -261,19 +288,20 @@ static getJSONElementFunc VecSimGetJSONCallback(VecSimType type);
 //   - `getInt`    rejects JSON `Double` values (i.e. the F16/BF16/F32/F64 tags).
 //   - `getDouble` accepts both JSON `Int` and `Double` values (any numeric tag).
 //
-// Assumes `src` is a homogeneous numeric tag (not `JSONArrayType_Heterogeneous`); the
-// heterogeneous case must be handled by the caller via the V6 per-element fallback.
-// When this returns false, the V6 loop would also reject every element of a homogeneous
+// Non-numeric `src` (including Heterogeneous and any future unknown tag) returns
+// false so the caller falls back to the V6 iterator. When it returns false for a
+// known numeric `src`, the V6 loop would also reject every element of a homogeneous
 // array, so the caller can safely short-circuit with an "invalid element at index 0"
 // error instead of falling back.
 static bool VecSim_AcceptsJSONArrayType(VecSimType target, JSONArrayType src) {
+  if (!JSON_ArrayTypeIsNumeric(src)) return false;
   switch (target) {
     case VecSimType_FLOAT32:
     case VecSimType_FLOAT64:
     case VecSimType_FLOAT16:
     case VecSimType_BFLOAT16:
       // Any numeric tag: V6 `getDouble` accepts both Int and Double JSON values.
-      return src != JSONArrayType_Heterogeneous;
+      return true;
     case VecSimType_INT8:
     case VecSimType_UINT8:
       // Integer tags only: V6 `getInt` rejects JSON Double values.
@@ -590,14 +618,15 @@ int JSON_StoreVectorInDocField(FieldSpec *fs, RedisJSON arr, struct DocumentFiel
     return REDISMODULE_ERR;
   }
 
-  // V7 fast probe: a non-Heterogeneous tag implies a flat numeric array (single vector).
-  // Heterogeneous falls through to the V6 probe which also distinguishes single-vs-multi
-  // for arrays whose first element is numeric but whose element types are mixed.
+  // V7 fast probe: a known numeric tag implies a flat numeric array (single vector).
+  // Heterogeneous (and any unknown future tag) falls through to the V6 probe which also
+  // distinguishes single-vs-multi for arrays whose first element is numeric but whose
+  // element types are mixed.
   if (japi_ver >= 7) {
     size_t n = 0;
     JSONArrayType jtype = JSONArrayType_Heterogeneous;
     japi->getArray(arr, &n, &jtype);
-    if (jtype != JSONArrayType_Heterogeneous) {
+    if (JSON_ArrayTypeIsNumeric(jtype)) {
       return JSON_StoreSingleVectorInDocField(fs, arr, df, status);
     }
   }
@@ -733,16 +762,16 @@ int JSON_StoreNumericInDocFieldFromArr(RedisJSON arr, struct DocumentField *df, 
   // V7 fast path: homogeneous numeric buffer -> one dispatch, tight typed conversion to double
   // (single memcpy when the source is already F64). Arrays containing nulls are tagged
   // Heterogeneous by RedisJSON and fall through to the V6 iterator which preserves the
-  // null-skipping semantics.
+  // null-skipping semantics; any unknown future tag falls through for the same reason.
   if (japi_ver >= 7) {
     size_t buf_len = 0;
     JSONArrayType jtype = JSONArrayType_Heterogeneous;
     const void *buf = japi->getArray(arr, &buf_len, &jtype);
-    if (buf && jtype != JSONArrayType_Heterogeneous) {
+    if (buf && JSON_ArrayTypeIsNumeric(jtype)) {
       RS_ASSERT(buf_len == len);
       arrayof(double) out = array_newlen(double, len);
-      // VecSim_ConvertFromTypedBuffer accepts any homogeneous numeric jtype for a FLOAT64
-      // target, so reusing it here covers every valid tag.
+      // VecSim_ConvertFromTypedBuffer accepts any known numeric jtype for a FLOAT64
+      // target, so reusing it here covers every tag JSON_ArrayTypeIsNumeric admits.
       VecSim_ConvertFromTypedBuffer(VecSimType_FLOAT64, jtype, buf, len, (char *)out);
       df->arrNumval = out;
       df->unionType = FLD_VAR_T_ARRAY;
