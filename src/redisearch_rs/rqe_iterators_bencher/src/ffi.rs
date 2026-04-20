@@ -13,8 +13,7 @@ pub use ffi::{
     IndexFlags_Index_StoreTermOffsets, IteratorStatus, IteratorStatus_ITERATOR_OK,
     RedisModule_Alloc, RedisModule_Free, ValidateStatus, t_docId,
 };
-use inverted_index::RSIndexResult;
-use inverted_index::RSQueryTerm;
+use inverted_index::{RSIndexResult, RSQueryTerm};
 use iterators_ffi::intersection::NewIntersectionIterator;
 use std::{ffi::c_void, ptr};
 

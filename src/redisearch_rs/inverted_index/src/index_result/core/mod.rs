@@ -7,6 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+mod proximity;
+
 use std::ptr;
 
 use ffi::{
@@ -350,6 +352,25 @@ impl<'index> RSIndexResult<'index> {
         RSIndexResultBuilder::union(cap)
     }
 
+    /// Reset an aggregate result for reuse, clearing children, frequency,
+    /// field mask, and metrics.
+    pub fn reset_aggregate(&mut self) {
+        self.doc_id = 0;
+        self.freq = 0;
+        self.field_mask = 0;
+        if let Some(agg) = self.as_aggregate_mut() {
+            agg.reset();
+        }
+        if !self.metrics.is_null() {
+            // SAFETY: The null check above guarantees non-null. The pointer is valid
+            // because it was returned by `RSYieldableMetric_Concat` (or equivalent
+            // allocator) and has not been freed — this is the only free before we
+            // set the pointer to null.
+            unsafe { ResultMetrics_Free(self.metrics) };
+            self.metrics = std::ptr::null_mut();
+        }
+    }
+
     /// Create a builder for a hybrid metric index result
     pub fn build_hybrid_metric() -> RSIndexResultBuilder<'index> {
         RSIndexResultBuilder::hybrid_metric()
@@ -606,6 +627,27 @@ impl<'index> RSIndexResult<'index> {
     /// True if this is a term kind
     pub const fn is_term(&self) -> bool {
         matches!(self.data, RSResultData::Term(_))
+    }
+
+    /// Returns `true` when the term positions in this result satisfy the given
+    /// proximity constraints.
+    ///
+    /// - `max_slop`: maximum allowed number of non-matched token slots between
+    ///   consecutive terms. `None` disables the check entirely.
+    /// - `in_order`: when `true`, terms must appear in the same order as the
+    ///   child iterators.
+    ///
+    /// Returns `true` when `self` is not an aggregate, has ≤ 1 child, or ≤ 1
+    /// child has meaningful offsets.
+    ///
+    /// # Preconditions
+    ///
+    /// At least one of `max_slop` or `in_order` must impose a constraint:
+    /// `max_slop.is_some() || in_order` must hold.  If neither is set, the result
+    /// is trivially `true` for every input and the call is pointless; callers are
+    /// expected to short-circuit that case before invoking this function.
+    pub fn is_within_range(&self, max_slop: Option<u32>, in_order: bool) -> bool {
+        proximity::is_within_range(self, max_slop, in_order)
     }
 
     /// Debug-only assertion that `self.data == other.data`.

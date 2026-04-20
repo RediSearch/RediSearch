@@ -37,6 +37,15 @@ set(LIBUV_BUILD_TESTS OFF CACHE BOOL "Build libuv tests" FORCE)
 set(LIBUV_BUILD_BENCH OFF CACHE BOOL "Build libuv benchmarks" FORCE)
 set(LIBUV_BUILD_SHARED OFF CACHE BOOL "Build shared libuv library" FORCE)
 add_subdirectory(${root}/deps/libuv ${CMAKE_CURRENT_BINARY_DIR}/libuv)
+# libuv has const-correctness issues that trigger warnings-as-errors on newer compilers.
+# gcc 16+: -Werror=discarded-qualifiers; clang 21+: -Werror=incompatible-pointer-types-discards-qualifiers.
+# Mirror the compiler guards from the top-level CMakeLists.txt.
+if(HAS_DISCARDED_QUALIFIERS)
+    target_compile_options(uv_a PRIVATE $<$<COMPILE_LANGUAGE:C>:-Wno-error=discarded-qualifiers>)
+endif()
+if(HAS_INCOMPATIBLE_POINTER_TYPES_DISCARDS_QUALIFIERS)
+    target_compile_options(uv_a PRIVATE $<$<COMPILE_LANGUAGE:C>:-Wno-error=incompatible-pointer-types-discards-qualifiers>)
+endif()
 
 option(VECSIM_BUILD_TESTS "Build vecsim tests" OFF)
 add_subdirectory(${root}/deps/VectorSimilarity ${CMAKE_CURRENT_BINARY_DIR}/VectorSimilarity)
@@ -54,7 +63,6 @@ add_subdirectory(buffer)
 add_subdirectory(iterators)
 add_subdirectory(wildcard)
 add_subdirectory(index_result)
-add_subdirectory(value)
 add_subdirectory(util/mempool)
 add_subdirectory(util/arr)
 add_subdirectory(util/dict)
@@ -100,6 +108,9 @@ file(GLOB SOURCES
 # Create the rscore object library
 add_library(rscore OBJECT ${SOURCES})
 add_dependencies(rscore generate_command_info)
+if(MAX_WORKER_THREADS)
+    target_compile_definitions(rscore PRIVATE MAX_WORKER_THREADS=${MAX_WORKER_THREADS})
+endif()
 
 # Collect all object files
 set(FINAL_OBJECTS
@@ -110,7 +121,6 @@ set(FINAL_OBJECTS
     $<TARGET_OBJECTS:wildcard>
     $<TARGET_OBJECTS:index_result>
     $<TARGET_OBJECTS:mempool>
-    $<TARGET_OBJECTS:value>
     $<TARGET_OBJECTS:rscore>
     $<TARGET_OBJECTS:rmutil>
     $<TARGET_OBJECTS:friso>
@@ -266,7 +276,7 @@ if(APPLE)
     # macOS: use libtool to merge static libraries
     add_custom_command(
         OUTPUT ${REDISEARCH_ALL_OUTPUT}
-        COMMAND libtool -static -o ${REDISEARCH_ALL_OUTPUT} ${LIBS_TO_MERGE}
+        COMMAND libtool -static -no_warning_for_no_symbols -o ${REDISEARCH_ALL_OUTPUT} ${LIBS_TO_MERGE}
         DEPENDS ${MERGE_DEPENDS}
         COMMENT "Creating unified libredisearch_all.a with libtool"
         VERBATIM

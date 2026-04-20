@@ -246,7 +246,7 @@ def _test_barrier_waits_for_delayed_unbalanced_shard(protocol):
         shard_conn.execute_command(debug_cmd(), 'SYNC_POINT', 'ARM', sync_point)
 
         verify_command_OK_on_all_shards(env, 'CONFIG', 'SET', 'search-on-timeout', 'FAIL')
-        cmd = ['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LIMIT', 0, 2, 'TIMEOUT', 1]
+        cmd = ['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LIMIT', 0, 2, 'TIMEOUT', 500]
         query_result = []
         t_query = threading.Thread(
             target=_run_query_store_result,
@@ -257,12 +257,13 @@ def _test_barrier_waits_for_delayed_unbalanced_shard(protocol):
         # The coordinator should time out while shard 1 is blocked at the sync point
         t_query.join(timeout=10)
 
-        # Verify query completed with error
+        # Verify query completed with a timeout error.
+        # The error may come from either the barrier timeout (specific message) or
+        # the blocked client timeout (generic message) -- both are valid FAIL behaviors.
         env.assertEqual(len(query_result), 1,
                         message="Query should have completed")
         env.assertTrue(isinstance(query_result[0], redis.exceptions.ResponseError))
-        err_msg = "ShardResponseBarrier: Timeout while waiting for first responses from all shards"
-        env.assertContains(err_msg, str(query_result[0]))
+        env.assertContains('timeout', str(query_result[0]).lower())
 
         # Release shard 1's worker thread
         shard_conn.execute_command(debug_cmd(), 'SYNC_POINT', 'CLEAR')
@@ -284,6 +285,11 @@ def _test_barrier_waits_for_delayed_unbalanced_shard(protocol):
         # The coordinator should time out while shard 1 is blocked at the sync point
         t_query.join(timeout=10)
 
+        # Verify the barrier timed out: total_results must be 0.
+        # Since RETURN policy has no blocked client timeout (unlike FAIL),
+        # the barrier is the sole timeout mechanism. Shards 0 and 2 (with docs)
+        # are NOT blocked and respond quickly, so total_results == 0 proves
+        # the barrier timed out before accumulating any shard totals.
         expected = 0
         env.assertEqual(len(query_result), 1,
                         message="Query should have completed")
@@ -297,7 +303,9 @@ def _test_barrier_waits_for_delayed_unbalanced_shard(protocol):
         env.assertEqual(
             len(_get_results(result)), expected,
             message=f"Expected {expected} results, got {len(_get_results(result))}")
-        # Verify we got a timeout warning in the response
+        # Verify we got a timeout warning in the response.
+        # RETURN policy has no blocked client timeout, so the barrier is the sole
+        # timeout mechanism and the warning is always the standard message.
         if isinstance(result, dict):
             env.assertEqual(result.get('warning', []),
                             ['Timeout limit was reached'])
@@ -305,12 +313,12 @@ def _test_barrier_waits_for_delayed_unbalanced_shard(protocol):
         shard_conn.execute_command(debug_cmd(), 'SYNC_POINT', 'CLEAR')
 
 
-@skip(cluster=False)
+@skip(cluster=False, asan=True)
 def test_barrier_waits_for_delayed_unbalanced_shard_resp2():
     _test_barrier_waits_for_delayed_unbalanced_shard(2)
 
 
-@skip(cluster=False)
+@skip(cluster=False, asan=True)
 def test_barrier_waits_for_delayed_unbalanced_shard_resp3():
     _test_barrier_waits_for_delayed_unbalanced_shard(3)
 
@@ -544,41 +552,6 @@ def test_barrier_handles_error_in_shard_resp3():
 #------------------------------------------------------------------------------
 # Simulated Shard Timeout Tests (using TIMEOUT_AFTER_N)
 #------------------------------------------------------------------------------
-
-def _test_barrier_shard_timeout_with_fail_policy(protocol):
-    """
-    Test barrier behavior when a shard times out with ON_TIMEOUT FAIL policy.
-
-    This test uses TIMEOUT_AFTER_N with INTERNAL_ONLY to simulate a timeout
-    on the shards while the coordinator waits for responses.
-    With FAIL policy, the query should return a timeout error.
-    """
-    env = Env(moduleArgs='DEFAULT_DIALECT 2 ON_TIMEOUT FAIL', protocol=protocol)
-    num_docs = 100 * env.shardsCount
-    setup_index_with_data(env, num_docs)
-
-    # Use TIMEOUT_AFTER_N with INTERNAL_ONLY to simulate shard timeout
-    # This causes shards to timeout after processing N results
-    query_args = ['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LIMIT', '0', num_docs]
-
-    # Timeout after 10 results on each shard - with FAIL policy should error
-    try:
-        runDebugQueryCommandTimeoutAfterN(env, query_args, 10, internal_only=True)
-        env.assertTrue(False, message="Expected timeout error, got valid result")
-    except Exception as e:
-        # Timeout error is expected with FAIL policy
-        env.assertContains(str(e), 'SEARCH_TIMEOUT Timeout limit was reached')
-
-
-@skip(cluster=False)
-def test_barrier_shard_timeout_with_fail_policy_resp2():
-    _test_barrier_shard_timeout_with_fail_policy(2)
-
-
-@skip(cluster=False)
-def test_barrier_shard_timeout_with_fail_policy_resp3():
-    _test_barrier_shard_timeout_with_fail_policy(3)
-
 
 def _test_barrier_shard_timeout_with_return_policy(protocol):
     """

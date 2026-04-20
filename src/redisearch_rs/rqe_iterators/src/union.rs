@@ -19,6 +19,7 @@
 //! - If `false`, collects results from all children with the same document.
 
 pub use crate::union_flat::UnionFlat;
+pub use crate::union_heap::UnionHeap;
 
 // ============================================================================
 // Type aliases for convenient access
@@ -29,6 +30,12 @@ pub type UnionFullFlat<'index, I> = UnionFlat<'index, I, false>;
 
 /// Quick mode, flat array - returns after first match, O(n) min-finding.
 pub type UnionQuickFlat<'index, I> = UnionFlat<'index, I, true>;
+
+/// Full mode, heap - aggregates all matching children, O(log n) min-finding.
+pub type UnionFullHeap<'index, I> = UnionHeap<'index, I, false>;
+
+/// Quick mode, heap - returns after first match, O(log n) min-finding.
+pub type UnionQuickHeap<'index, I> = UnionHeap<'index, I, true>;
 
 /// Backwards compatibility alias - defaults to flat full mode.
 pub type Union<'index, I> = UnionFullFlat<'index, I>;

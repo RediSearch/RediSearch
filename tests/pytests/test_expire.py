@@ -41,6 +41,32 @@ def testExpireIndex(env):
             # `assertContains` expects (expected_substring, actual_string)
             env.assertContains('SEARCH_INDEX_NOT_FOUND Index not found', str(e))
 
+@skip(cluster=True, redis_less_than="7.4")
+def test_MOD_14800_persist_clears_expiration_metadata(env: Env):
+    # Regression for MOD-14800:
+    # Verify that persisting a hash key or an indexed hash field clears the
+    # corresponding expiration metadata from the index, so the document remains
+    # searchable after the original expiration deadline would have passed.
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 't', 'TEXT').ok()
+    env.expect('HSET', 'doc:1', 't', 'hello').equal(1)
+    env.expect('FT.SEARCH', 'idx', 'hello').equal([1, 'doc:1', ['t', 'hello']])
+
+    env.expect('PEXPIRE', 'doc:1', '100').equal(1)
+    env.expect('PERSIST', 'doc:1').equal(1)
+
+    time.sleep(0.2)
+
+    env.expect('EXISTS', 'doc:1').equal(1)
+    env.expect('FT.SEARCH', 'idx', 'hello').equal([1, 'doc:1', ['t', 'hello']])
+
+    env.expect('HPEXPIRE', 'doc:1', '100', 'FIELDS', '1', 't').equal([1])
+    env.expect('HPERSIST', 'doc:1', 'FIELDS', '1', 't').equal([1])
+
+    time.sleep(0.2)
+
+    env.expect('HGET', 'doc:1', 't').equal('hello')
+    env.expect('FT.SEARCH', 'idx', 'hello').equal([1, 'doc:1', ['t', 'hello']])
+
 res_score_and_explanation = ['1', ['Final TFIDF : words TFIDF 1.00 * document score 1.00 / norm 1 / slop 1',
                                     ['(TFIDF 1.00 = Weight 1.00 * Frequency 1)']]]
 both_docs_no_sortby = "both_docs_no_sortby"

@@ -7,14 +7,12 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-pub mod bindings;
-
 use enumflags2::{BitFlags, bitflags};
 use inverted_index::RSIndexResult;
 use rlookup::RLookupRow;
 use std::ptr::NonNull;
 
-use crate::bindings::DocumentMetadata;
+use document_metadata::DocumentMetadata;
 
 #[bitflags]
 #[repr(u8)]
@@ -88,6 +86,7 @@ impl<'index> SearchResult<'index> {
 
     /// Clears the search result, removing all values from the [`RLookupRow`][ffi::RLookupRow].
     /// This has no effect on the allocated capacity of the lookup row.
+    #[inline]
     pub fn clear(&mut self) {
         self._score = 0.0;
 

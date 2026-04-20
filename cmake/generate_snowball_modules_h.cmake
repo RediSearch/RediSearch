@@ -88,11 +88,10 @@ endforeach()
 
 # ── Generate modules.h ───────────────────────────────────────────────────────
 
-set(_o "
-/* ${OUTPUT}: List of stemming modules.
+set(_o "/* ${OUTPUT}: List of stemming modules.
  *
- *
- *
+ * This file is generated from modules.txt.
+ * Do not edit manually.
  *
 ${_comment_line}
  */

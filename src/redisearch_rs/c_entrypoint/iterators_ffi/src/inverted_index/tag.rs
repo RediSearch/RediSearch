@@ -111,6 +111,10 @@ impl<'index> rqe_iterators::RQEIterator<'index> for TagIterator<'index> {
     fn type_(&self) -> IteratorType {
         IteratorType::InvIdxTag
     }
+
+    fn intersection_sort_weight(&self, _prioritize_union_children: bool) -> f64 {
+        1.0
+    }
 }
 
 /// Creates a new tag inverted index iterator.

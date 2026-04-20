@@ -42,6 +42,7 @@ fn main() {
         let ttl_table = src.join("ttl_table");
         let trie = src.join("trie");
         let rmalloc = deps.join("rmalloc");
+        let hiredis = deps.join("hiredis");
 
         [
             src,
@@ -53,6 +54,7 @@ fn main() {
             ttl_table,
             trie,
             rmalloc,
+            hiredis,
         ]
     };
 
@@ -67,9 +69,6 @@ fn main() {
         src.join("doc_table.h"),
         src.join("forward_index.h"),
         src.join("index_result").join("index_result.h"),
-        src.join("iterators").join("intersection_iterator.h"),
-        src.join("iterators").join("not_iterator.h"),
-        src.join("iterators").join("optional_iterator.h"),
         src.join("iterators").join("union_iterator.h"),
         src.join("json.h"),
         src.join("numeric_index.h"),
@@ -97,7 +96,6 @@ fn main() {
         src.join("util").join("arr").join("arr.h"),
         src.join("util").join("dict").join("dict.h"),
         src.join("util").join("references.h"),
-        src.join("value").join("value.h"),
     ];
 
     let mut bindings = bindgen::Builder::default();

@@ -539,6 +539,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "document_metadata"
+version = "0.0.1"
+dependencies = [
+ "ffi",
+ "redis-module",
+ "workspace_hack",
+]
+
+[[package]]
 name = "either"
 version = "1.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1585,7 +1594,7 @@ checksum = "37566cb3fdacef14c0737f9546df7cfeadbfbc9fef10991038bf5015d0c80532"
 dependencies = [
  "bitflags 2.11.0",
  "num-traits 0.2.19",
- "rand 0.9.2",
+ "rand 0.9.3",
  "rand_chacha 0.9.0",
  "rand_xorshift",
  "regex-syntax",
@@ -1610,7 +1619,7 @@ dependencies = [
  "criterion",
  "proptest",
  "proptest-derive",
- "rand 0.9.2",
+ "rand 0.9.3",
  "workspace_hack",
 ]
 
@@ -1704,9 +1713,9 @@ dependencies = [
 
 [[package]]
 name = "rand"
-version = "0.9.2"
+version = "0.9.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6db2770f06117d490610c7488547d543617b21bfa07796d7a12f6f1bd53850d1"
+checksum = "7ec095654a25171c2124e9e3393a930bddbffdc939556c914957a4c3e0a87166"
 dependencies = [
  "rand_chacha 0.9.0",
  "rand_core 0.9.5",
@@ -1870,6 +1879,7 @@ dependencies = [
  "toml",
  "triemap_ffi",
  "types_ffi",
+ "value_ffi",
  "varint_ffi",
  "walkdir",
  "workspace_hack",
@@ -1976,6 +1986,7 @@ dependencies = [
  "schema_rule",
  "sorting_vector",
  "strum",
+ "thin_vec",
  "thiserror",
  "value",
  "workspace_hack",
@@ -1990,10 +2001,12 @@ dependencies = [
  "cbindgen",
  "ffi",
  "libc",
+ "query_error",
  "redis_mock",
  "redisearch_rs",
  "rlookup",
  "rlookup_ffi",
+ "search_result",
  "sorting_vector",
  "value",
  "workspace_hack",
@@ -2080,7 +2093,7 @@ dependencies = [
  "iterators_ffi",
  "itertools 0.14.0",
  "query_term",
- "rand 0.9.2",
+ "rand 0.9.3",
  "redis_mock",
  "redisearch_rs",
  "rqe_iterators",
@@ -2202,9 +2215,9 @@ dependencies = [
 
 [[package]]
 name = "rustls-webpki"
-version = "0.103.10"
+version = "0.103.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "df33b2b81ac578cabaf06b89b0631153a3f416b0a886e8a7a1707fb51abbd1ef"
+checksum = "8279bb85272c9f10811ae6a6c547ff594d6a7f3c6c6b02ee9726d1d0dcfcdd06"
 dependencies = [
  "ring",
  "rustls-pki-types",
@@ -2259,6 +2272,7 @@ dependencies = [
 name = "search_result"
 version = "0.0.1"
 dependencies = [
+ "document_metadata",
  "enumflags2",
  "ffi",
  "inverted_index",
@@ -2403,6 +2417,7 @@ dependencies = [
  "redis_mock",
  "redisearch_rs",
  "sorting_vector",
+ "thin_vec",
  "value",
  "workspace_hack",
 ]
@@ -2416,6 +2431,7 @@ dependencies = [
  "ffi",
  "libc",
  "sorting_vector",
+ "thin_vec",
  "value",
  "workspace_hack",
 ]
@@ -2895,8 +2911,6 @@ name = "value_ffi"
 version = "0.0.1"
 dependencies = [
  "build_utils",
- "c_ffi_utils",
- "cbindgen",
  "ffi",
  "fnv",
  "libc",
@@ -3337,7 +3351,7 @@ dependencies = [
  "ppv-lite86",
  "proc-macro2",
  "quote 1.0.44",
- "rand 0.9.2",
+ "rand 0.9.3",
  "rand_chacha 0.9.0",
  "rand_core 0.6.4",
  "redis-module",

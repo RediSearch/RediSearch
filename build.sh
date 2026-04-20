@@ -591,11 +591,35 @@ prepare_cmake_arguments() {
   if [[ $OS_NAME != "macos" && $COV == "1" ]]; then
     # Needs the C code to link on gcov
     RUSTFLAGS="${RUSTFLAGS:+${RUSTFLAGS} } -C link-args=-lgcov"
+    # Doctests are compiled by rustdoc, which uses RUSTDOCFLAGS rather than
+    # RUSTFLAGS for its link step. Without this, doctests that pull in
+    # gcov-instrumented C objects (via transitive deps on FFI crates) fail
+    # to link with undefined `__gcov_*` symbols.
+    RUSTDOCFLAGS="${RUSTDOCFLAGS:+${RUSTDOCFLAGS} }-C link-args=-lgcov"
+    export RUSTDOCFLAGS
   fi
   if [[ $SAN == "address" ]]; then
     # Add ASAN flags to RUSTFLAGS (following RedisJSON pattern)
     # -Zsanitizer=address enables ASAN in Rust
     RUSTFLAGS="${RUSTFLAGS:+${RUSTFLAGS} }-Zsanitizer=address"
+  fi
+
+  # Workaround for macOS 14:
+  # Apple's ld (through Apple clang 16 / Xcode 16.2) has an ARM64 bug that
+  # misaligns symbols, causing "not 8-byte aligned" LDR/STR errors. Fixed in
+  # Apple clang 17 (Xcode 16.4+). Use LLVM's lld as a workaround when needed.
+  if [[ "$OS_NAME" == "macos" ]]; then
+    APPLE_CLANG_MAJOR=$(cc --version 2>/dev/null | head -1 | grep -oE 'version [0-9]+' | grep -oE '[0-9]+')
+    if [[ -n "$APPLE_CLANG_MAJOR" && "$APPLE_CLANG_MAJOR" -lt 17 ]]; then
+      # llvm@17 provides ld64.lld; the project's llvm@21 doesn't include lld.
+      local lld_path="$(brew --prefix)/opt/llvm@17/bin/ld64.lld"
+      if [[ -x "$lld_path" ]]; then
+        echo "Apple clang $APPLE_CLANG_MAJOR < 17: using llvm@17's ld64.lld to work around ARM64 alignment bug"
+        RUSTFLAGS="${RUSTFLAGS:+${RUSTFLAGS} }-C link-arg=-fuse-ld=${lld_path}"
+      else
+        echo "WARNING: Apple clang $APPLE_CLANG_MAJOR has a known ARM64 linker bug but ld64.lld is not installed at ${lld_path}"
+      fi
+    fi
   fi
 
   # Export RUSTFLAGS so it's available to the Rust build process

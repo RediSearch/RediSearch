@@ -9,7 +9,6 @@
 
 use std::{
     borrow::Cow,
-    cell::UnsafeCell,
     ffi::{CStr, c_char},
     mem,
     ops::{Deref, DerefMut},
@@ -172,7 +171,7 @@ pub struct RLookupKeyHeader<'a> {
     pub name_len: usize,
 
     /// Pointer to next field in the list
-    pub next: UnsafeCell<Option<NonNull<RLookupKey<'a>>>>,
+    pub next: Option<NonNull<RLookupKey<'a>>>,
 }
 
 // ===== impl RLookupKey =====
@@ -216,7 +215,7 @@ impl<'a> RLookupKey<'a> {
                 name: name.as_ptr(),
                 path: name.as_ptr(),
                 name_len: name.count_bytes(),
-                next: UnsafeCell::new(None),
+                next: None,
             },
             _name: name,
             _path: None,
@@ -316,9 +315,7 @@ impl<'a> RLookupKey<'a> {
     /// Return the next pointer in the linked list
     #[inline]
     pub(crate) fn next(&self) -> Option<NonNull<RLookupKey<'a>>> {
-        // Safety: RLookupKeys are created through `KeyList::push` and owned by the `List`. We
-        // can therefore assume this pointer is safe to dereference at this point.
-        unsafe { *self.next.get() }
+        self.next
     }
 
     /// Update the pointer to the next node
@@ -328,7 +325,7 @@ impl<'a> RLookupKey<'a> {
         next: Option<NonNull<RLookupKey<'a>>>,
     ) -> Option<NonNull<RLookupKey<'a>>> {
         let me = self.project();
-        mem::replace(me.header.next.get_mut(), next)
+        mem::replace(&mut me.header.next, next)
     }
 
     #[inline]

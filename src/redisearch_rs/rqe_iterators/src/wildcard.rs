@@ -103,6 +103,10 @@ impl<'index> RQEIterator<'index> for Wildcard<'index> {
     fn type_(&self) -> IteratorType {
         IteratorType::Wildcard
     }
+
+    fn intersection_sort_weight(&self, _prioritize_union_children: bool) -> f64 {
+        1.0
+    }
 }
 
 /// A marker trait for iterators that match all documents.
@@ -124,6 +128,63 @@ where
 impl<'index, I: WildcardIterator<'index>> WildcardIterator<'index>
     for crate::profile::Profile<'index, I>
 {
+}
+
+/// A [`CRQEIterator`](crate::c2rust::CRQEIterator) may wrap a wildcard iterator
+/// at runtime, but this cannot be verified statically.
+/// The caller is responsible for only using this impl when the underlying C
+/// iterator is actually a wildcard—mirroring the C code's use of an untyped
+/// `QueryIterator*` for the `wcii` field.
+impl<'index> WildcardIterator<'index> for crate::c2rust::CRQEIterator {}
+
+impl<'index> RQEIterator<'index> for Box<dyn WildcardIterator<'index> + 'index> {
+    fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
+        (**self).current()
+    }
+
+    fn read(&mut self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
+        (**self).read()
+    }
+
+    fn skip_to(
+        &mut self,
+        doc_id: t_docId,
+    ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
+        (**self).skip_to(doc_id)
+    }
+
+    fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
+        (**self).revalidate()
+    }
+
+    fn rewind(&mut self) {
+        (**self).rewind()
+    }
+
+    fn num_estimated(&self) -> usize {
+        (**self).num_estimated()
+    }
+
+    fn last_doc_id(&self) -> t_docId {
+        (**self).last_doc_id()
+    }
+
+    fn at_eof(&self) -> bool {
+        (**self).at_eof()
+    }
+
+    #[inline(always)]
+    fn type_(&self) -> IteratorType {
+        (**self).type_()
+    }
+
+    fn as_c_iterator(&self) -> Option<&crate::c2rust::CRQEIterator> {
+        (**self).as_c_iterator()
+    }
+
+    fn intersection_sort_weight(&self, prioritize_union_children: bool) -> f64 {
+        (**self).intersection_sort_weight(prioritize_union_children)
+    }
 }
 
 impl<'index> WildcardIterator<'index> for Box<dyn WildcardIterator<'index> + 'index> {}
@@ -178,6 +239,10 @@ impl<'index> RQEIterator<'index> for EmptyWildcard {
     #[inline(always)]
     fn type_(&self) -> IteratorType {
         IteratorType::Empty
+    }
+
+    fn intersection_sort_weight(&self, _prioritize_union_children: bool) -> f64 {
+        1.0
     }
 }
 
@@ -251,6 +316,40 @@ pub unsafe fn new_wildcard_iterator_optimized<'index>(
     }
 }
 
+/// Create a [`WildcardIterator`] backed by an on-disk index implementation.
+///
+/// This delegates to [`SEARCH_ENTERPRISE_ITERATORS`]'s
+/// [`new_wildcard_on_disk`](crate::SearchEnterpriseIterators::new_wildcard_on_disk)
+/// and wraps the resulting iterator in a [`DiskWildcardIterator`].
+///
+/// If the enterprise iterator cannot be created, this function logs a warning
+/// and falls back to an empty iterator.
+///
+/// # Safety
+///
+/// 1. `disk_spec` must reference a valid [`RedisSearchDiskIndexSpec`](ffi::RedisSearchDiskIndexSpec)
+///    that remains valid for `'index`.
+/// 2. [`SEARCH_ENTERPRISE_ITERATORS`] must be initialized before calling this function.
+pub unsafe fn new_wildcard_iterator_on_disk<'index>(
+    disk_spec: &'index ffi::RedisSearchDiskIndexSpec,
+    weight: f64,
+) -> Box<dyn WildcardIterator<'index> + 'index> {
+    // SAFETY: Caller guarantees `SEARCH_ENTERPRISE_ITERATORS` is
+    // initialized when `spec.diskSpec` is non-null (8).
+    let enterprise_iters_api = SEARCH_ENTERPRISE_ITERATORS
+        .get()
+        .expect("SEARCH_ENTERPRISE_ITERATORS not initialized");
+    match enterprise_iters_api.new_wildcard_on_disk(disk_spec, weight) {
+        Ok(it) => Box::new(DiskWildcardIterator(it)),
+        Err(err) => {
+            tracing::warn!(
+                "Failed to create a disk wildcard iterator ({err}); falling back to empty iterator."
+            );
+            Box::new(EmptyWildcard(Empty))
+        }
+    }
+}
+
 /// Create a [`WildcardIterator`] from a query evaluation context.
 ///
 /// There are three possible code paths:
@@ -295,26 +394,13 @@ pub unsafe fn new_wildcard_iterator<'index>(
     let spec = unsafe { &*sctx_ref.spec };
 
     if !spec.diskSpec.is_null() {
-        // SAFETY: Caller guarantees `SEARCH_ENTERPRISE_ITERATORS` is
-        // initialized when `spec.diskSpec` is non-null (8).
-        let enterprise_iters_api = SEARCH_ENTERPRISE_ITERATORS
-            .get()
-            .expect("SEARCH_ENTERPRISE_ITERATORS not initialized");
         // SAFETY: Caller guarantees `spec.diskSpec` is a valid, non-null
         // pointer to a `RedisSearchDiskIndexSpec` that remains valid for
         // `'index` (7).
         let disk_spec = unsafe { &*spec.diskSpec };
-        match enterprise_iters_api.new_wildcard_on_disk(disk_spec, weight) {
-            Ok(it) => {
-                return Box::new(DiskWildcardIterator(it));
-            }
-            Err(err) => {
-                tracing::warn!(
-                    "Failed to create a disk wildcard iterator ({err}); falling back to empty iterator."
-                );
-                return Box::new(EmptyWildcard(Empty));
-            }
-        }
+        // SAFETY: Caller guarantees all preconditions of
+        // `new_wildcard_iterator_on_disk` hold (7, 8).
+        return unsafe { new_wildcard_iterator_on_disk(disk_spec, weight) };
     }
 
     let index_all = NonNull::new(spec.rule)
@@ -387,6 +473,10 @@ impl<'index> RQEIterator<'index> for DiskWildcardIterator<'index> {
     #[inline(always)]
     fn type_(&self) -> IteratorType {
         self.0.type_()
+    }
+
+    fn intersection_sort_weight(&self, prioritize_union_children: bool) -> f64 {
+        self.0.intersection_sort_weight(prioritize_union_children)
     }
 }
 

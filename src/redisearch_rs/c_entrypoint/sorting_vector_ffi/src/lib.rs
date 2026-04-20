@@ -12,55 +12,36 @@ use sorting_vector::RSSortingVector;
 use std::slice;
 use std::{
     ffi::{CStr, c_char},
-    panic,
     ptr::NonNull,
 };
-use value::RSValueFFI;
+use value::{RsValue, SharedRsValue};
 
 pub const RS_SORTABLES_MAX: usize = 1024;
 
-/// Gets a RSValue from the sorting vector at the given index.
+// Verify that the ThinVec<SharedRsValue, u32> heap header has no padding before data,
+// so the C inline helpers can use a fixed offset of `sizeof(Header<u64>)` = 16 bytes.
+const _: () = assert!(thin_vec::layout::header_field_padding::<SharedRsValue, u64>() == 0);
+
+// Verify that RSSortingVector is pointer-sized (repr(transparent) over ThinVec).
+const _: () = assert!(std::mem::size_of::<RSSortingVector>() == std::mem::size_of::<usize>());
+
+/// Initializes an empty `RSSortingVector`.
 ///
-/// # Panics
-///
-/// Panics if the `idx` is out of bounds for the vector.
-///
-/// # Safety
-///
-/// 1. `vec` must be a [valid], non-null pointer to an [`RSSortingVector`] created by [`RSSortingVector_New`].
-///
-/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+/// No heap allocation is performed.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RSSortingVector_Get(
-    vec: *const RSSortingVector,
-    idx: size_t,
-) -> *mut ffi::RSValue {
-    // Safety: The caller must ensure that the pointer is valid (1.)
-    let vec = unsafe { vec.as_ref().expect("vec must not be null") };
-
-    vec[idx].as_ptr()
-}
-
-/// Returns the length of the sorting vector.
-///
-/// # Safety
-///
-/// 1. `vec` must be a [valid], non-null pointer to an [`RSSortingVector`] created by [`RSSortingVector_New`].
-///
-/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn RSSortingVector_Length(vec: *const RSSortingVector) -> size_t {
-    // Safety: The caller must ensure that the pointer is valid (1.)
-    let vec = unsafe { vec.as_ref().expect("vec must not be null") };
-
-    vec.len() as size_t
+#[expect(
+    clippy::missing_const_for_fn,
+    reason = "extern \"C\" functions cannot be const"
+)]
+pub extern "C" fn RSSortingVector_Empty() -> RSSortingVector {
+    RSSortingVector::empty()
 }
 
 /// Returns the memory size of the sorting vector.
 ///
 /// # Safety
 ///
-/// 1. `vec` must be a [valid], non-null pointer to an [`RSSortingVector`] created by [`RSSortingVector_New`].
+/// 1. `vec` must be a [valid], non-null pointer to an [`RSSortingVector`] created by [`RSSortingVector_New`] or equivalent.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
@@ -79,7 +60,7 @@ pub unsafe extern "C" fn RSSortingVector_GetMemorySize(vec: *const RSSortingVect
 ///
 /// # Safety
 ///
-/// 1. `vec` must be a [valid], non-null pointer to an [`RSSortingVector`] created by [`RSSortingVector_New`].
+/// 1. `vec` must be a [valid], non-null pointer to an [`RSSortingVector`] created by [`RSSortingVector_New`] or equivalent.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
@@ -91,7 +72,7 @@ pub unsafe extern "C" fn RSSortingVector_PutNum(
     // Safety: The caller must ensure that the pointer is valid (1.)
     let vec = unsafe { vec.expect("vec must not be null").as_mut() };
 
-    vec.try_insert_val(idx, RSValueFFI::new_num(num))
+    vec.try_insert_val(idx, SharedRsValue::new_num(num))
         .unwrap_or_else(|_| {
             panic!("Index out of bounds: {} >= {}", idx, vec.len());
         });
@@ -105,7 +86,7 @@ pub unsafe extern "C" fn RSSortingVector_PutNum(
 ///
 /// # Safety
 ///
-/// 1. `vec` must be a [valid], non-null pointer to an [`RSSortingVector`] created by [`RSSortingVector_New`].
+/// 1. `vec` must be a [valid], non-null pointer to an [`RSSortingVector`] created by [`RSSortingVector_New`] or equivalent.
 /// 2. `str` must be a [valid], non-null pointer to a C string (null-terminated).
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
@@ -139,7 +120,7 @@ pub unsafe extern "C" fn RSSortingVector_PutStr(
 ///
 /// # Safety
 ///
-/// 1. `vec` must be a [valid], non-null pointer to an [`RSSortingVector`] created by [`RSSortingVector_New`].
+/// 1. `vec` must be a [valid], non-null pointer to an [`RSSortingVector`] created by [`RSSortingVector_New`] or equivalent.
 /// 2. `str` must be a [valid], non-null pointer to a C string (null-terminated).
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
@@ -171,7 +152,7 @@ pub unsafe extern "C" fn RSSortingVector_PutStrNormalize(
 ///
 /// # Safety
 ///
-/// 1. `vec` must be a [valid], non-null pointer to an [`RSSortingVector`] created by [`RSSortingVector_New`].
+/// 1. `vec` must be a [valid], non-null pointer to an [`RSSortingVector`] created by [`RSSortingVector_New`] or equivalent.
 /// 2. `val` must be a [valid], non-null pointer must point to a `RSValue`.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
@@ -179,13 +160,15 @@ pub unsafe extern "C" fn RSSortingVector_PutStrNormalize(
 pub unsafe extern "C" fn RSSortingVector_PutRSVal(
     vec: Option<NonNull<RSSortingVector>>,
     idx: size_t,
-    val: Option<NonNull<ffi::RSValue>>,
+    val: Option<NonNull<RsValue>>,
 ) {
     // Safety: The caller must ensure that the pointer is valid (1.)
     let vec = unsafe { vec.expect("vec must not be null").as_mut() };
 
+    let value = val.expect("value must not be null").as_ptr().cast_const();
+
     // Safety: The caller must ensure that the pointer is valid (2.)
-    let val = unsafe { RSValueFFI::from_raw(val.expect("val must not be null")) };
+    let val = unsafe { SharedRsValue::from_raw(value) };
 
     vec.try_insert_val(idx, val).unwrap_or_else(|_| {
         panic!("Index out of bounds: {} >= {}", idx, vec.len());
@@ -200,7 +183,7 @@ pub unsafe extern "C" fn RSSortingVector_PutRSVal(
 ///
 /// # Safety
 ///
-/// 1. The pointer must be a [valid] pointer to an [`RSSortingVector`] created by [`RSSortingVector_New`].
+/// 1. The pointer must be a [valid] pointer to an [`RSSortingVector`] created by [`RSSortingVector_New`] or equivalent.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
@@ -216,39 +199,36 @@ pub unsafe extern "C" fn RSSortingVector_PutNull(
     });
 }
 
-/// Creates a new `RSSortingVector` with the given length.
+/// Creates a new `RSSortingVector` with the given length, returned by value.
 ///
 /// # Panics
 ///
 /// Panics if `len` is greater than [`RS_SORTABLES_MAX`].
 #[unsafe(no_mangle)]
-pub extern "C" fn RSSortingVector_New(len: size_t) -> *mut RSSortingVector {
+pub extern "C" fn RSSortingVector_New(len: size_t) -> RSSortingVector {
     assert!(
         len <= RS_SORTABLES_MAX,
         "RSSortingVector_New called with length greater than RS_SORTABLES_MAX ({RS_SORTABLES_MAX})"
     );
 
-    let vec = RSSortingVector::new(len);
-    Box::into_raw(Box::new(vec))
+    RSSortingVector::new(len)
 }
 
-/// Reduces the refcount of every `RSValue` and frees the memory allocated for an `RSSortingVector`.
-/// Called by the C code to deallocate the vector.
+/// Deallocates the inner values buffer of an [`RSSortingVector`] and zeros the struct.
+///
+/// Each [`SharedRsValue`] element is dropped (decrementing its refcount) and the heap buffer is freed.
+/// After this call the pointed-to struct is in the same state as [`RSSortingVector::empty()`].
+/// Passing a null pointer is a no-op.
 ///
 /// # Safety
 ///
-/// 1. `vec` must be a [valid] pointer to an [`RSSortingVector`] created by [`RSSortingVector_New`].
-/// 2. `vec` **must not** be used again after this function is called.
+/// 1. `vec` must be either null or a [valid] pointer to an [`RSSortingVector`].
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RSSortingVector_Free(vec: Option<NonNull<RSSortingVector>>) {
-    if let Some(vec) = vec {
-        // Safety:
-        // Condition 1 --> Ensures this is a valid pointer to an RSSortingVector created by RSSortingVector_New
-        // Condition 2 --> Ensures that there is no double free
-        drop(unsafe { Box::from_raw(vec.as_ptr()) });
-    } else {
-        // We allow null in free as this is C standard behavior and used in RediSearch codebase.
+pub unsafe extern "C" fn RSSortingVector_ClearAndDeAlloc(vec: Option<NonNull<RSSortingVector>>) {
+    if let Some(mut vec) = vec {
+        // Safety: The caller must ensure that the pointer is valid (1.)
+        unsafe { vec.as_mut() }.reset();
     }
 }

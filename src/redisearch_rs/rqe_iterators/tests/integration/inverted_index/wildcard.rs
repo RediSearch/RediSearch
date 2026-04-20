@@ -16,7 +16,7 @@ use rqe_iterators::{IteratorType, RQEIterator, inverted_index::Wildcard};
 use crate::inverted_index::utils::BaseTest;
 use rqe_iterators_test_utils::MockContext;
 
-struct WildcardBaseTest {
+pub struct WildcardBaseTest {
     test: BaseTest<DocIdsOnly>,
 }
 
@@ -30,7 +30,7 @@ impl WildcardBaseTest {
             .build()
     }
 
-    fn new(n_docs: u64) -> Self {
+    pub(crate) fn new(n_docs: u64) -> Self {
         Self {
             test: BaseTest::new(
                 IndexFlags_Index_DocIdsOnly,
@@ -40,7 +40,7 @@ impl WildcardBaseTest {
         }
     }
 
-    fn create_iterator(&self) -> Wildcard<'_, DocIdsOnly> {
+    pub(crate) fn create_iterator(&self) -> Wildcard<'_, DocIdsOnly> {
         let reader = self.test.ii.reader();
         // SAFETY: `mock_ctx` provides a valid `RedisSearchCtx` with a valid `spec`
         // that outlives the returned iterator.

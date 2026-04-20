@@ -47,7 +47,7 @@ bool SearchDisk_IsInitialized();
  * Registers a getDiskUsage callback with Redis that iterates over all
  * disk-based indexes and returns the total disk usage.
  *
- * @param ctx Redis module context
+ * @param ctx Redis module context for BigModule APIs
  * @return true if registration succeeded, false otherwise
  */
 bool SearchDisk_RegisterBigModuleCallbacks(RedisModuleCtx *ctx);
@@ -61,7 +61,7 @@ void SearchDisk_Close(RedisModuleCtx *ctx);
 
 /**
  * @brief Open an index, **Important** must be called once and only once for every index
- * @param ctx Redis module context for BigModule APIs (may be NULL)
+ * @param ctx Redis module context for BigModule APIs
  * @param indexName Name of the index to open
  * @param indexNameLen Length of the index name
  * @param type Document type
@@ -117,14 +117,44 @@ void SearchDisk_CloseIndex(RedisSearchDiskIndexSpec *index);
 void SearchDisk_IndexSpecRdbSave(RedisModuleIO *rdb, RedisSearchDiskIndexSpec *index);
 
 /**
- * @brief Load the disk-related data of the index from the rdb file
+ * @brief Load disk-related RDB data into a temporary in-memory object.
+ *
+ * Called during RDB load when the IndexSpec cannot be created yet (e.g., during replication
+ * before SST files arrive). The returned state must later be passed to
+ * SearchDisk_OpenIndexWithRdbState or freed with SearchDisk_FreeRdbState.
  *
  * @param rdb Redis module rdb file
- * @param index Pointer to the index. If NULL, the RDB section related to the
- * index is consumed only.
- * @return true if successful, false otherwise
+ * @return Pointer to temporary RDB state, or NULL on error
  */
-int SearchDisk_IndexSpecRdbLoad(RedisModuleIO *rdb, RedisSearchDiskIndexSpec *index);
+RedisSearchDiskRdbState* SearchDisk_LoadRdbToTempObject(RedisModuleIO *rdb);
+
+/**
+ * @brief Create an IndexSpec and restore state from a previously loaded RDB state.
+ *
+ * Called after SST files are ready (e.g., after FULL_REPLICATION_FINISHED event).
+ * Takes ownership of rdbState - it will be consumed and freed.
+ *
+* @param ctx Redis module context for BigModule APIs
+ * @param indexName Name of the index
+ * @param indexNameLen Length of the index name
+ * @param type Document type for this index
+ * @param rdbState Temporary RDB state from SearchDisk_LoadRdbToTempObject (will be consumed)
+ * @return Pointer to the created IndexSpec, or NULL on error
+ */
+RedisSearchDiskIndexSpec* SearchDisk_OpenIndexWithRdbState(RedisModuleCtx *ctx,
+                                                            const char *indexName,
+                                                            size_t indexNameLen,
+                                                            DocumentType type,
+                                                            RedisSearchDiskRdbState *rdbState);
+
+/**
+ * @brief Free a temporary RDB state object without creating an IndexSpec.
+ *
+ * Use if index creation fails or is cancelled.
+ *
+ * @param rdbState The temporary RDB state to free (may be NULL)
+ */
+void SearchDisk_FreeRdbState(RedisSearchDiskRdbState *rdbState);
 
 // Index API wrappers
 
@@ -144,6 +174,7 @@ bool SearchDisk_IndexTerm(RedisSearchDiskIndexSpec *index, const char *term, siz
 /**
  * @brief Index multiple tag values for a document
  *
+ * @param ctx Redis module context for BigModule APIs
  * @param index Pointer to the index
  * @param values Array of tag values to associate the document with
  * @param numValues Number of tag values in the array
@@ -154,25 +185,27 @@ bool SearchDisk_IndexTerm(RedisSearchDiskIndexSpec *index, const char *term, siz
 bool SearchDisk_IndexTags(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index, const char **values, size_t numValues, t_docId docId, t_fieldIndex fieldIndex);
 
 /**
- * @brief Delete a document by key, looking up its doc ID, removing it from the doc table and marking its ID as deleted
+ * @brief Delete a document by its doc ID directly, removing it from the doc table and marking its ID as deleted
+ *
+ * Used by the metadata unlink callback where the docId is already known.
  *
  * @param handle Handle to the document table
- * @param key Document key
- * @param keyLen Length of the document key
+ * @param docId Document ID to delete
  * @param oldLen Optional pointer to receive the old document length (can be NULL)
- * @param id Optional pointer to receive the deleted document ID (can be NULL)
+ * @return true if the document was found and deleted, false if not found
  */
-void SearchDisk_DeleteDocument(RedisSearchDiskIndexSpec *handle, const char *key, size_t keyLen, uint32_t *oldLen, t_docId *id);
+bool SearchDisk_DeleteDocumentById(RedisSearchDiskIndexSpec *handle, t_docId docId, uint32_t *oldLen);
 
 /**
  * @brief Run a GC compaction cycle on the disk index
  *
  * Synchronously runs a full compaction on the inverted index column family,
  * removing entries for deleted documents. Applies the compaction delta to
- * update in-memory structures via FFI calls to the provided C IndexSpec.
+ * update in-memory structures via callbacks derived from the provided C
+ * IndexSpec, taking the IndexSpec write lock while those updates are applied.
  *
  * @param index Pointer to the disk index
- * @param c_index_spec Pointer to the C IndexSpec (for FFI callbacks to update memory structures)
+ * @param c_index_spec Pointer to the C IndexSpec used as private callback data
  * @return Number of deleted document IDs removed from the disk index
  */
 size_t SearchDisk_RunGC(RedisSearchDiskIndexSpec *index, IndexSpec *c_index_spec);
@@ -209,18 +242,6 @@ QueryIterator* SearchDisk_NewTermIterator(RedisSearchDiskIndexSpec *index, RSTok
  */
 QueryIterator* SearchDisk_NewTagIterator(RedisSearchDiskIndexSpec *index, const RSToken *tok, t_fieldIndex fieldIndex, double weight);
 
-/**
- * @brief Create an IndexIterator for all the existing documents
- *
- * This function creates a full IndexIterator that wraps the disk API and can be used
- * in RediSearch query execution pipelines.
- *
- * @param index Pointer to the index
- * @param weight Weight for the term (used in scoring)
- * @return Pointer to the IndexIterator, or NULL on error
- */
-QueryIterator* SearchDisk_NewWildcardIterator(RedisSearchDiskIndexSpec *index, double weight);
-
 // DocTable API wrappers
 
 /**
@@ -236,9 +257,10 @@ QueryIterator* SearchDisk_NewWildcardIterator(RedisSearchDiskIndexSpec *index, d
  * @param totalFreq Total frequency of the document
  * @param oldLen Pointer to an integer to store the length of the deleted document
  * @param documentTtl Document expiration time (must be positive if Document_HasExpiration flag is set; must be 0 and is ignored if the flag is not set)
- * @return New document ID, or 0 on error or if the key already exists
+ * @param oldDocId Old document ID from DocIdMeta (0 if new document)
+ * @return New document ID, or 0 on error
  */
-t_docId SearchDisk_PutDocument(RedisSearchDiskIndexSpec *handle, const char *key, size_t keyLen, float score, uint32_t flags, uint32_t maxTermFreq, uint32_t totalFreq, uint32_t *oldLen, t_expirationTimePoint documentTtl);
+t_docId SearchDisk_PutDocument(RedisSearchDiskIndexSpec *handle, const char *key, size_t keyLen, float score, uint32_t flags, uint32_t maxTermFreq, uint32_t totalFreq, uint32_t *oldLen, t_expirationTimePoint documentTtl, t_docId oldDocId);
 
 /**
  * @brief Get document metadata by document ID
@@ -288,6 +310,21 @@ uint64_t SearchDisk_GetDeletedIdsCount(RedisSearchDiskIndexSpec *handle);
  * @return The number of IDs written to the buffer
  */
 size_t SearchDisk_GetDeletedIds(RedisSearchDiskIndexSpec *handle, t_docId *buffer, size_t buffer_size);
+
+/**
+ * @brief Replace the key name in document metadata for a given document ID
+ *
+ * Used when a Redis key is renamed - updates the document metadata to reflect
+ * the new key name while keeping the same document ID and all other metadata
+ * unchanged.
+ *
+ * @param handle Handle to the document table
+ * @param docId Document ID whose key should be replaced
+ * @param newKey New key name
+ * @param newKeyLen Length of the new key
+ * @return true if the document was found and updated, false if not found or on error
+ */
+bool SearchDisk_ReplaceKey(RedisSearchDiskIndexSpec *handle, t_docId docId, const char *newKey, size_t newKeyLen);
 
 // Async Read Pool API
 
@@ -365,7 +402,7 @@ bool SearchDisk_GetAsyncIOEnabled();
 /**
  * @brief Check if the search disk module is enabled from configuration
  *
- * @param ctx Redis module context
+ * @param ctx Redis module context for BigModule APIs
  * @return true if enabled, false otherwise
  */
 bool SearchDisk_CheckEnableConfiguration(RedisModuleCtx *ctx);
@@ -373,7 +410,6 @@ bool SearchDisk_CheckEnableConfiguration(RedisModuleCtx *ctx);
 /**
  * @brief Check if the search disk module is enabled
  *
- * @param ctx Redis module context
  * @return true if enabled, false otherwise
  */
 bool SearchDisk_IsEnabled();

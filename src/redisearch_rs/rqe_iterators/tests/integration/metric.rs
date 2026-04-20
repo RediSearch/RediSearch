@@ -65,10 +65,17 @@ fn score_variant_cannot_skip() {
 #[cfg(not(miri))]
 mod not_miri {
     use crate::id_cases;
-    use ffi::RSValue_Number_Get;
     use inverted_index::RSResultKind;
     use rqe_iterators::{RQEIterator, SkipToOutcome, metric::MetricSortedById};
     use rstest_reuse::apply;
+    use std::mem::ManuallyDrop;
+    use value::SharedRsValue;
+
+    fn num_val(value: *mut ffi::RSValue) -> f64 {
+        let shared_value = unsafe { SharedRsValue::from_raw(value.cast_const().cast()) };
+        let shared_value = ManuallyDrop::new(shared_value);
+        shared_value.as_num().unwrap()
+    }
 
     #[apply(id_cases)]
     fn read(#[case] case: &[u64]) {
@@ -88,9 +95,7 @@ mod not_miri {
             assert!(!res.metrics.is_null());
             let metrics = unsafe { *res.metrics };
             assert!(metrics.key.is_null());
-
-            let metric_val = unsafe { RSValue_Number_Get(metrics.value) };
-            assert_eq!(metric_val, metric_data[j]);
+            assert_eq!(num_val(metrics.value), metric_data[j]);
             assert_eq!(it.last_doc_id(), expected_id);
         }
 
@@ -118,8 +123,7 @@ mod not_miri {
         let metrics = unsafe { *first_doc.metrics };
         assert!(metrics.key.is_null());
 
-        let metric_val = unsafe { RSValue_Number_Get(metrics.value) };
-        assert_eq!(metric_val, metric_data[0]);
+        assert_eq!(num_val(metrics.value), metric_data[0]);
         assert_eq!(it.last_doc_id(), first_id);
         assert_eq!(it.current().unwrap().doc_id, first_id);
         assert_eq!(it.at_eof(), Some(&first_id) == case.last());
@@ -153,8 +157,7 @@ mod not_miri {
                 let metrics = unsafe { *res.metrics };
                 assert!(metrics.key.is_null());
 
-                let metric_val = unsafe { RSValue_Number_Get(metrics.value) };
-                assert_eq!(metric_val, metric_data[j]);
+                assert_eq!(num_val(metrics.value), metric_data[j]);
                 // Should land on next existing id
                 assert_eq!(it.at_eof(), Some(&id) == case.last());
                 assert_eq!(it.last_doc_id(), id);
@@ -174,8 +177,7 @@ mod not_miri {
             let metrics = unsafe { *res.metrics };
             assert!(metrics.key.is_null());
 
-            let metric_val = unsafe { RSValue_Number_Get(metrics.value) };
-            assert_eq!(metric_val, metric_data[j]);
+            assert_eq!(num_val(metrics.value), metric_data[j]);
             assert_eq!(it.at_eof(), Some(&id) == case.last());
             assert_eq!(it.last_doc_id(), id);
             assert_eq!(it.current().unwrap().doc_id, id);
@@ -256,8 +258,7 @@ mod not_miri {
             assert!(!res.metrics.is_null());
             let metrics = unsafe { *res.metrics };
             assert!(metrics.key.is_null());
-            let metric_val = unsafe { RSValue_Number_Get(metrics.value) };
-            assert_eq!(metric_val, metric_data[j]);
+            assert_eq!(num_val(metrics.value), metric_data[j]);
             assert_eq!(it.last_doc_id(), id);
             it.rewind();
             assert_eq!(it.last_doc_id(), 0);
@@ -273,8 +274,7 @@ mod not_miri {
             assert!(!res.metrics.is_null());
             let metrics = unsafe { *res.metrics };
             assert!(metrics.key.is_null());
-            let metric_val = unsafe { RSValue_Number_Get(metrics.value) };
-            assert_eq!(metric_val, metric_data[j]);
+            assert_eq!(num_val(metrics.value), metric_data[j]);
             assert_eq!(it.last_doc_id(), id);
         }
 
