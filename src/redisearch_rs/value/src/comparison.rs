@@ -29,26 +29,6 @@ pub enum CompareError {
     IncompatibleTypes,
 }
 
-/// Maps a [`CompareError`] to an [`Ordering`], optionally recording it into a [`QueryError`].
-///
-/// All error variants have a defined fallback ordering. Only
-/// [`CompareError::NoNumberToStringFallback`] writes to `qerr`; all others are benign.
-pub fn map_compare_error(err: CompareError, qerr: Option<&mut QueryError>) -> Ordering {
-    match err {
-        CompareError::NaNFloat | CompareError::MapComparison | CompareError::IncompatibleTypes => {
-            Ordering::Equal
-        }
-        CompareError::IncompatibleAgainstString(ord) => ord,
-        CompareError::NoNumberToStringFallback => {
-            if let Some(q) = qerr {
-                let message = c"Error converting string".to_owned();
-                q.set_code_and_message(QueryErrorCode::NumericValueInvalid, Some(message));
-            }
-            Ordering::Equal
-        }
-    }
-}
-
 #[inline]
 pub fn compare_with_query_error_to_int(
     v1: &RsValue,
@@ -65,17 +45,24 @@ pub fn compare_with_query_error_to_int(
         };
     }
 
-    // When there is no `qerr` to record an error into, fall back to formatting
-    // the number as a string for comparison instead of returning an error.
-    let use_num_to_str_fallback = qerr.is_none();
-    let ord = match compare(v1, v2, use_num_to_str_fallback) {
-        Ok(ord) => ord,
-        Err(e) => map_compare_error(e, qerr),
-    };
-    match ord {
-        Ordering::Less => -1,
-        Ordering::Equal => 0,
-        Ordering::Greater => 1,
+    match compare(v1, v2, qerr.is_none()) {
+        Ok(Ordering::Less) => -1,
+        Ok(Ordering::Equal) => 0,
+        Ok(Ordering::Greater) => 1,
+        Err(CompareError::NaNFloat) => 0,
+        Err(CompareError::MapComparison) => 0,
+        Err(CompareError::IncompatibleAgainstString(Ordering::Less)) => -1,
+        Err(CompareError::IncompatibleAgainstString(Ordering::Equal)) => 0,
+        Err(CompareError::IncompatibleAgainstString(Ordering::Greater)) => 1,
+        Err(CompareError::IncompatibleTypes) => 0,
+        Err(CompareError::NoNumberToStringFallback) => {
+            // SAFETY: `qerr` is Some because `num_to_str_cmp_fallback` was
+            // `false` (set from `qerr.is_none()`).
+            let query_error = qerr.unwrap();
+            let message = c"Error converting string".to_owned();
+            query_error.set_code_and_message(QueryErrorCode::NumericValueInvalid, Some(message));
+            0
+        }
     }
 }
 
@@ -112,32 +99,34 @@ pub fn compare_on_equality_only(v1: &RsValue, v2: &RsValue) -> bool {
 /// falls back to formatting the number as a string and comparing byte-wise. When `qerr` is
 /// `Some`, that case records a [`QueryErrorCode::NumericValueInvalid`] into the error and treats
 /// the pair as equal, letting the next pair decide. Other [`CompareError`] variants use their
-/// defined fallback ordering per [`map_compare_error`].
+/// defined fallback ordering.
 ///
 /// Callers are responsible for any docid tiebreak when this function returns `Ordering::Equal`.
 ///
 /// [`QueryErrorCode::NumericValueInvalid`]: query_error::QueryErrorCode::NumericValueInvalid
+#[inline]
 pub fn cmp_fields<'a>(
     pairs: impl IntoIterator<Item = (Option<&'a RsValue>, Option<&'a RsValue>)>,
     ascend_map: u64,
     mut qerr: Option<&mut QueryError>,
 ) -> Ordering {
-    // When there is no `qerr` to record an error into, fall back to formatting
-    // the number as a string for comparison instead of returning an error.
-    let use_num_to_str_fallback = qerr.is_none();
-
     for (i, (v1, v2)) in pairs.into_iter().enumerate() {
         let ascending = (ascend_map & (1u64 << i)) != 0;
 
         match (v1, v2) {
             (Some(a), Some(b)) => {
-                let ord = match compare(a, b, use_num_to_str_fallback) {
-                    Ok(ord) => ord,
-                    Err(e) => map_compare_error(e, qerr.as_deref_mut()),
-                };
-                if ord == Ordering::Equal {
+                // Delegates to `compare_with_query_error_to_int` so we inherit its
+                // `(String, String)` fast path and the num-to-string fallback policy
+                // (kept in sync by construction, not by duplication).
+                let rc = compare_with_query_error_to_int(a, b, qerr.as_deref_mut());
+                if rc == 0 {
                     continue;
                 }
+                let ord = if rc < 0 {
+                    Ordering::Less
+                } else {
+                    Ordering::Greater
+                };
                 return if ascending { ord.reverse() } else { ord };
             }
             // A row missing a value always ranks as "worst" (last in output), regardless of
