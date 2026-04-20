@@ -1064,7 +1064,7 @@ bool RunInThread(RedisModuleCtx *ctx) {
     // We only log once to reduce log spam
     static bool logged = false;
     if (!logged) {
-      RedisModule_Log(ctx, "warning", "Detected that client cannot be blocked, all similar requests including this one will fall back to run on the main thread.");
+      RedisModule_Log(ctx, "warning", "Detected a client that cannot be blocked, all similar requests including this one will fall back to run on the main thread.");
       logged = true;
     }
     return false;
