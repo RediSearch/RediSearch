@@ -45,14 +45,26 @@ int MRCluster_SendCommand(IORuntimeCtx *ioRuntime,
   return MRConn_SendCommand(conn, cmd, fn, privdata);
 }
 
-/* Multiplex a command to all coordinators, using a specific coordination strategy. Returns the
- * number of sent commands */
+/* Multiplex a non-sharding command to all coordinators, using a specific coordination strategy.  Returns the
+ * number of sent commands.
+ * If validateConnections is true, the function will validate that all connections are up before sending the command */
 int MRCluster_FanoutCommand(IORuntimeCtx *ioRuntime,
                            MRCommand *cmd,
                            redisCallbackFn *fn,
-                           void *privdata) {
+                           void *privdata,
+                           bool validateConnections) {
   struct MRClusterTopology *topo = ioRuntime->topo;
   uint32_t slotsInfoPos = cmd->slotsInfoArgIndex; // 0 if not set, which means slot info is not needed
+  // Pre-fanout connection validation
+  if (validateConnections) {
+    for (size_t i = 0; i < topo->numShards; i++) {
+      MRConn *conn = MRConn_Get(&ioRuntime->conn_mgr, topo->shards[i].node.id);
+      if (!conn) {
+        return 0;
+      }
+    }
+  }
+
   int ret = 0;
   for (size_t i = 0; i < topo->numShards; i++) {
     MRConn *conn = MRConn_Get(&ioRuntime->conn_mgr, topo->shards[i].node.id);
