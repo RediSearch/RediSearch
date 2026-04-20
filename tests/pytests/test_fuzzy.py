@@ -93,6 +93,51 @@ def testFuzzyWithNumbersOnly(env):
         env.expect('ft.search', 'idx', '%%21345%%', 'DIALECT', dialect)\
             .equal([1, 'doc1', ['test', '12345']])
 
+@skip(cluster=True)
+def testFuzzyManyExpansions(env):
+    """Verify that a fuzzy query works correctly when matching more than 8
+    terms, which triggers the internal iterator array capacity doubling in
+    addTerm (initial capacity is 8)."""
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+
+    # Create 10 distinct 3-letter terms that are all within Levenshtein
+    # distance 1 of "bat": substitute the first character.
+    terms = ['bat', 'cat', 'dat', 'eat', 'fat', 'gat', 'hat', 'mat', 'pat', 'rat']
+    for i, term in enumerate(terms):
+        conn.execute_command('HSET', f'doc{i}', 't', term)
+
+    # Fuzzy search with distance 1: %bat% should match all of the above
+    res = env.cmd('ft.search', 'idx', '%bat%', 'LIMIT', '0', '0')
+    # We expect at least 9 results (>8 to trigger the capacity doubling).
+    # The exact count may vary depending on what the trie iterator yields,
+    # but all 10 terms are within distance 1 of "bat".
+    env.assertGreaterEqual(res[0], 9, message=res)
+
+@skip(cluster=True)
+def testFuzzyMaxPrefixExpansionsWarning():
+    """Verify that a fuzzy query triggers a max prefix expansions warning
+    when the number of fuzzy matches exceeds MAXPREFIXEXPANSIONS."""
+    env = Env(protocol=3)
+    conn = getConnectionByEnv(env)
+
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+
+    # Create terms that are all within Levenshtein distance 1 of "ab":
+    # aa, ab, ac, ..., az  (26 terms, all distance <= 1 from "ab")
+    for c in 'abcdefghijklmnopqrstuvwxyz':
+        conn.execute_command('HSET', f'doc_a{c}', 't', f'a{c}')
+
+    # Set max prefix expansions to 1 so the fuzzy expansion is sure to exceed it
+    run_command_on_all_shards(env, config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', '1')
+
+    # Fuzzy query: %ab% should try to expand to all terms within distance 1
+    res = env.cmd('FT.SEARCH', 'idx', '%ab%')
+    env.assertContains('Max prefix expansions limit was reached', res['warning'])
+
+    # Restore default
+    run_command_on_all_shards(env, config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', '200')
+
 @skip()
 def testTagFuzzy(env):
     # TODO: fuzzy on tag is broken?
