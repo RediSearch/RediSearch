@@ -222,6 +222,55 @@ impl QueryIterator {
         })
     }
 
+    /// Creates a new union iterator over C term child iterators.
+    ///
+    /// Each child iterator is built from one of the supplied [`InvertedIndex`] wrappers via
+    /// `NewInvIndIterator_TermQuery`. The `InvertedIndex` wrappers must outlive the returned
+    /// iterator because each child holds a raw pointer to its source index and its `sctx`.
+    ///
+    /// # Arguments
+    /// * `indexes` - Slice of pre-populated term inverted indexes; one child per entry.
+    /// * `use_heap` - Forces the heap-based union strategy when `true` (via `minUnionIterHeap = 0`)
+    ///   or the flat strategy when `false` (via `minUnionIterHeap = i64::MAX`).
+    /// * `quick_exit` - If `true`, the union returns after the first matching child; otherwise
+    ///   all matching children are aggregated.
+    #[inline(always)]
+    pub fn new_union_term(indexes: &[InvertedIndex], use_heap: bool, quick_exit: bool) -> Self {
+        let num_children = indexes.len();
+
+        let children_ptr = unsafe {
+            RedisModule_Alloc.unwrap()(
+                num_children * std::mem::size_of::<*mut ffi::QueryIterator>(),
+            ) as *mut *mut ffi::QueryIterator
+        };
+
+        for (i, ii) in indexes.iter().enumerate() {
+            let child = unsafe { QueryIterator::new_term(ii.ii, ii.sctx) };
+            unsafe {
+                *children_ptr.add(i) = child.into_raw();
+            }
+        }
+
+        let config = ffi::IteratorsConfig {
+            maxPrefixExpansions: 200,
+            minTermPrefix: 2,
+            minStemLength: 4,
+            minUnionIterHeap: if use_heap { 0 } else { i64::MAX },
+        };
+
+        Self(unsafe {
+            ffi::NewUnionIterator(
+                children_ptr,
+                num_children as i32,
+                quick_exit,
+                1.0,
+                ffi::QueryNodeType::Union,
+                std::ptr::null(),
+                &config,
+            )
+        })
+    }
+
     #[inline(always)]
     pub fn num_estimated(&self) -> usize {
         unsafe { (*self.0).NumEstimated.unwrap()(self.0) }
