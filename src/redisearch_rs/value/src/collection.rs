@@ -9,7 +9,7 @@
 
 use std::ops::{Deref, DerefMut};
 
-use crate::SharedRsValue;
+use crate::{RsValue, SharedRsValue};
 
 pub type Array = Collection<SharedRsValue>;
 pub type Map = Collection<(SharedRsValue, SharedRsValue)>;
@@ -39,20 +39,20 @@ impl<T> Collection<T> {
 }
 
 impl Map {
-    /// Looks up a value by its string key bytes, returning a clone of
-    /// the first matching [`SharedRsValue`] or `None` if no match is found.
+    /// Looks up a value by its string key bytes, returning a reference to the first
+    /// matching [`RsValue`] or `None` if no match is found.
     ///
     /// Non-string keys (e.g. [`RsValue::Number`](crate::RsValue::Number)) are skipped.
-    pub fn get(&self, key: &[u8]) -> Option<SharedRsValue> {
+    pub fn get(&self, key: &[u8]) -> Option<&RsValue> {
         self.iter()
-            .find_map(|(k, v)| (k.as_str_bytes()? == key).then(|| v.clone()))
+            .find_map(|(k, v)| (k.as_str_bytes()? == key).then_some(&**v))
     }
 }
 
 impl Array {
     /// Looks up a value by string key in a flat key-value array layout
-    /// (`[k1, v1, k2, v2, ...]`), returning a clone of the first matching
-    /// value or `None` if no match is found.
+    /// (`[k1, v1, k2, v2, ...]`), returning a reference to the first matching
+    /// [`RsValue`] or `None` if no match is found.
     ///
     /// This is needed because RESP2 does not have a native map type.
     /// Map-like data (e.g. `extra_attributes`) is sent as a flat array of
@@ -61,10 +61,10 @@ impl Array {
     ///
     /// A trailing element in an odd-length array is silently ignored.
     /// Non-string keys are skipped.
-    pub fn map_get(&self, key: &[u8]) -> Option<SharedRsValue> {
+    pub fn map_get(&self, key: &[u8]) -> Option<&RsValue> {
         self.chunks(2).find_map(|pair| {
             let value = pair.get(1)?;
-            (pair[0].as_str_bytes()? == key).then(|| value.clone())
+            (pair[0].as_str_bytes()? == key).then_some(&**value)
         })
     }
 }
