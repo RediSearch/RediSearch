@@ -239,7 +239,7 @@ static inline void cleanupCtx(processCursorMappingCallbackContext *ctx) {
 
 // Command modifier callback for SHARD_K_RATIO optimization.
 // Called from iterStartCb on IO thread before commands are sent to shards.
-static void HybridKnnCommandModifier(MRCommand *cmd, size_t numShards, void *privateData) {
+void HybridKnnCommandModifier(MRCommand *cmd, size_t numShards, void *privateData) {
     if (!privateData || !cmd) {
         return;
     }
