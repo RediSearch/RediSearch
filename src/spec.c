@@ -1463,6 +1463,36 @@ int IndexSpec_CreateTextId(IndexSpec *sp, t_fieldIndex index) {
 static IndexSpecCache *IndexSpec_BuildSpecCache(const IndexSpec *spec);
 
 /**
+ * Validate that a disk-backed JSON field uses a single-value JSONPath.
+ * Returns `true` when the validation does not apply or the field path is valid.
+ * On failure, sets `status` with the validation error and returns `false`.
+ */
+static bool validateDiskJsonSinglePath(const IndexSpec *sp, const FieldSpec *fs, QueryError *status) {
+  if (!isSpecOnDiskForValidation(sp) || !isSpecJson(sp)) {
+    return true;
+  }
+
+  RedisModuleString *err_msg = NULL;
+  JSONPath jsonPath = pathParse(fs->fieldPath, &err_msg);
+  if (!jsonPath) {
+    if (err_msg) {
+      JSONParse_error(status, err_msg, fs->fieldPath, fs->fieldName, sp->specName);
+    }
+    return false;
+  }
+
+  bool isSingle = japi->pathIsSingle(jsonPath);
+  japi->pathFree(jsonPath);
+  if (!isSingle) {
+    QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_INVAL,
+                                     "Disk JSON index supports only single-value JSONPath fields");
+    return false;
+  }
+
+  return true;
+}
+
+/**
  * Add fields to an existing (or newly created) index. If the addition fails,
  */
 static int IndexSpec_AddFieldsInternal(IndexSpec *sp, StrongRef spec_ref, ArgsCursor *ac,
@@ -1509,6 +1539,9 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, StrongRef spec_ref, ArgsCu
     if (!fs) {
       QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_LIMIT, "Schema is currently limited", " to %d fields",
                              sp->numFields);
+      goto reset;
+    }
+    if (!validateDiskJsonSinglePath(sp, fs, status)) {
       goto reset;
     }
     if (!parseFieldSpec(ac, sp, spec_ref, fs, status)) {
@@ -1763,7 +1796,6 @@ StrongRef IndexSpec_Parse(RedisModuleCtx *ctx, const HiddenString *name, const c
   ArgsCursor rule_prefixes = {0};
   int rc = AC_OK;
   ACArgSpec *errarg = NULL;
-  bool invalid_flex_on_type = false;
   ACArgSpec flex_argopts[] = {
     {.name = "ON", .target = &rule_args.type, .len = &dummy2, .type = AC_ARGTYPE_STRING},
     {.name = "PREFIX", .target = &rule_prefixes, .type = AC_ARGTYPE_SUBARGS},
@@ -1796,16 +1828,11 @@ StrongRef IndexSpec_Parse(RedisModuleCtx *ctx, const HiddenString *name, const c
   };
   ACArgSpec *argopts = isSpecOnDiskForValidation(spec) ? flex_argopts : non_flex_argopts;
   rc = AC_ParseArgSpec(&ac, argopts, &errarg);
-  invalid_flex_on_type = isSpecOnDiskForValidation(spec) && rule_args.type && (strcasecmp(rule_args.type, RULE_TYPE_HASH) != 0);
   if (rc != AC_OK) {
     if (rc != AC_ERR_ENOENT) {
       QERR_MKBADARGS_AC(status, errarg->name, rc);
       goto failure;
     }
-  }
-  if (invalid_flex_on_type) {
-    QueryError_SetError(status, QUERY_ERROR_CODE_FLEX_UNSUPPORTED_FT_CREATE_ARGUMENT, "Only HASH is supported as index data type for Flex indexes");
-    goto failure;
   }
   if ((spec->flags & Index_WideSchema) && !(spec->flags & Index_StoreFieldFlags)) {
     QueryError_SetError(status, QUERY_ERROR_CODE_INVAL,
@@ -4135,10 +4162,6 @@ void Indexes_SpecOpsIndexingCtxFree(SpecOpIndexingCtx *specs) {
 
 void Indexes_UpdateMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key, DocumentType type,
                                            RedisModuleString **hashFields) {
-  if (type == DocumentType_Json && SearchDisk_IsEnabled()) {
-    return;
-  }
-
   if (type == DocumentType_Unsupported) {
     // COPY could overwrite a hash/json with other types so we must try and remove old doc.
     Indexes_DeleteMatchingWithSchemaRules(ctx, key, type, hashFields);
