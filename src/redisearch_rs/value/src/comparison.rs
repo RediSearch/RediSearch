@@ -94,6 +94,62 @@ pub fn compare_on_equality_only(v1: &RsValue, v2: &RsValue) -> bool {
     }
 }
 
+/// Lexicographically compare two rows of sort-key values under the classic sort-by-fields policy.
+///
+/// Each yielded pair `(v1, v2)` represents the `i`-th sort key's value in the two rows being
+/// compared. Bit `i` of `ascend_map` (LSB-first) controls the direction for pair `i`: set means
+/// ASCending, clear means DESCending.
+///
+/// # Missing values
+///
+/// A `None` value always compares as "worst" — a row with `Some` ranks before a row with `None`
+/// regardless of ASC/DESC direction. When both sides are `None`, the pair is treated as equal and
+/// the next pair decides.
+///
+/// # Errors and the num-to-string fallback
+///
+/// When `qerr` is `None`, comparing a number against a string that cannot be parsed as a number
+/// falls back to formatting the number as a string and comparing byte-wise. When `qerr` is
+/// `Some`, that case records a [`QueryErrorCode::NumericValueInvalid`] into the error and treats
+/// the pair as equal, letting the next pair decide. Other [`CompareError`] variants use their
+/// defined fallback ordering per [`map_compare_error`].
+///
+/// Callers are responsible for any docid tiebreak when this function returns `Ordering::Equal`.
+///
+/// [`QueryErrorCode::NumericValueInvalid`]: query_error::QueryErrorCode::NumericValueInvalid
+pub fn cmp_fields<'a>(
+    pairs: impl IntoIterator<Item = (Option<&'a RsValue>, Option<&'a RsValue>)>,
+    ascend_map: u64,
+    mut qerr: Option<&mut QueryError>,
+) -> Ordering {
+    // When there is no `qerr` to record an error into, fall back to formatting
+    // the number as a string for comparison instead of returning an error.
+    let use_num_to_str_fallback = qerr.is_none();
+
+    for (i, (v1, v2)) in pairs.into_iter().enumerate() {
+        let ascending = (ascend_map & (1u64 << i)) != 0;
+
+        match (v1, v2) {
+            (Some(a), Some(b)) => {
+                let ord = match compare(a, b, use_num_to_str_fallback) {
+                    Ok(ord) => ord,
+                    Err(e) => map_compare_error(e, qerr.as_deref_mut()),
+                };
+                if ord == Ordering::Equal {
+                    continue;
+                }
+                return if ascending { ord.reverse() } else { ord };
+            }
+            // A row missing a value always ranks as "worst" (last in output), regardless of
+            // ASC/DESC direction. Do NOT apply the ascending reversal here.
+            (Some(_), None) => return Ordering::Greater,
+            (None, Some(_)) => return Ordering::Less,
+            (None, None) => continue,
+        }
+    }
+    Ordering::Equal
+}
+
 /// Compare two [`RsValue`]s, returning their [`Ordering`].
 ///
 /// When a number is compared to a string, the string is first parsed as a
