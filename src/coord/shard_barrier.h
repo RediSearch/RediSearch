@@ -21,9 +21,9 @@ extern "C" {
 // Forward declaration
 struct MRIterator;
 
-// Base barrier for tracking shard response counts
-// Used by FT.AGGREGATE (via ShardResponseBarrier)
-// numShards is set atomically from IO thread when topology is known
+// Base barrier for tracking shard response counts.
+// Used by FT.AGGREGATE (via ShardResponseBarrier).
+// numShards is set atomically from IO thread when topology is known.
 typedef struct ShardCountBarrier {
   _Atomic(size_t) numShards;       // Total number of shards (written by IO thread, read by coordinator thread)
   _Atomic(size_t) numResponded;    // Count of shards that have responded
@@ -48,11 +48,6 @@ typedef struct ShardResponseBarrier {
   _Atomic(bool) hasShardError;     // Set to true if any shard returns an error
   ReplyNotifyCallback notifyCallback;  // Callback for processing replies (called from IO thread)
 } ShardResponseBarrier;
-
-// Initialize ShardCountBarrier base fields (called from iterStartCb when topology is known)
-// This is a generic init function that can be used as privateDataInit callback
-// when the privateData starts with a ShardCountBarrier (or is a ShardCountBarrier*)
-void shardCountBarrier_Init(void *ptr, const struct MRIterator *it);
 
 // Allocate and initialize a new ShardResponseBarrier
 // Notice: numShards and shardResponded init is postponed until shardResponseBarrier_Init is called
