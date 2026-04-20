@@ -19,7 +19,7 @@ use rqe_iterators::{RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutc
 
 use crate::{
     heap::{ScoredResult, TopKHeap},
-    traits::{CollectionStrategy, ScoreBatch, ScoreSource},
+    traits::{AdhocStrategy, BatchStrategy, ScoreBatch, ScoreSource},
 };
 
 /// Determines which collection algorithm [`TopKIterator`] uses.
@@ -155,22 +155,22 @@ impl<'index, S: ScoreSource + 'index> TopKIterator<'index, S> {
 
     /// Set up the unfiltered direct-yield path.
     ///
-    /// Calls [`ScoreSource::next_batch`] exactly once.  Results are streamed
+    /// Calls [`ScoreSource::next_batch_unfiltered`] exactly once. Results are streamed
     /// directly from the batch cursor — no heap is involved.
     ///
     /// # Invariants
     ///
     /// [`TopKMode::Unfiltered`] requires the source to produce at most one
-    /// batch.  In debug builds this method calls [`ScoreSource::next_batch`] a
+    /// batch.  In debug builds this method calls [`ScoreSource::next_batch_unfiltered`] a
     /// second time and panics if another batch is returned, catching
     /// misbehaving implementations early.
     fn prepare_unfiltered_direct(&mut self) -> Result<(), RQEIteratorError> {
-        self.direct_batch = self.source.next_batch()?;
+        self.direct_batch = self.source.next_batch_unfiltered()?;
         if self.direct_batch.is_none() {
             self.at_eof = true;
         }
         debug_assert!(
-            matches!(self.source.next_batch(), Ok(None)),
+            matches!(self.source.next_batch_unfiltered(), Ok(None)),
             "ScoreSource did not return Ok(None) in TopKMode::Unfiltered \
              (extra batch or error); use a batched mode instead"
         );
@@ -190,20 +190,16 @@ impl<'index, S: ScoreSource + 'index> TopKIterator<'index, S> {
             if let Some(child) = &mut self.child {
                 intersect_batch_with_child(child, &mut batch, &mut self.heap)?;
             }
-
-            match self
-                .source
-                .collection_strategy(self.heap.len(), self.k.get())
-            {
-                CollectionStrategy::Continue => continue,
-                CollectionStrategy::Stop => break,
-                CollectionStrategy::SwitchToAdhoc => {
+            match self.source.batch_strategy(self.heap.len(), self.k.get()) {
+                BatchStrategy::Continue => continue,
+                BatchStrategy::Stop => break,
+                BatchStrategy::SwitchToAdhoc => {
                     self.mode = TopKMode::AdhocBF;
                     // Fall through to adhoc collection; heap is preserved.
                     self.collect_adhoc()?;
                     return Ok(());
                 }
-                CollectionStrategy::SwitchToBatches => {
+                BatchStrategy::SwitchToBatches => {
                     // Clear the heap: the source restarts with new parameters
                     // (e.g. expanded numeric range) and will re-emit previously
                     // collected docs. Keeping stale entries would cause duplicates.
@@ -239,12 +235,7 @@ impl<'index, S: ScoreSource + 'index> TopKIterator<'index, S> {
             if let Some(score) = self.source.lookup_score(doc_id) {
                 self.heap.push(doc_id, score);
             }
-
-            if self
-                .source
-                .collection_strategy(self.heap.len(), self.k.get())
-                == CollectionStrategy::Stop
-            {
+            if self.source.adhoc_strategy(self.heap.len(), self.k.get()) == AdhocStrategy::Stop {
                 break;
             }
         }

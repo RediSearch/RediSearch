@@ -22,7 +22,7 @@ use std::{cmp::Ordering, num::NonZeroUsize};
 use criterion::{BatchSize, BenchmarkId, Criterion, criterion_group, criterion_main};
 use rand::{SeedableRng as _, seq::SliceRandom as _};
 use rqe_iterators::RQEIterator;
-use top_k::{CollectionStrategy, TopKHeap, TopKIterator, TopKMode, mock::MockScoreSource};
+use top_k::{BatchStrategy, TopKHeap, TopKIterator, TopKMode, mock::MockScoreSource};
 
 fn asc(a: f64, b: f64) -> Ordering {
     a.partial_cmp(&b).unwrap_or(Ordering::Equal)
@@ -127,7 +127,7 @@ fn bench_intersection_overlap(c: &mut Criterion) {
         group.bench_with_input(BenchmarkId::new("batches_50pct_overlap", n), &n, |b, _| {
             b.iter(|| {
                 let source = MockScoreSource::new(vec![batch.clone()], vec![], |_, _| {
-                    CollectionStrategy::Continue
+                    BatchStrategy::Continue
                 });
                 let child: Box<dyn RQEIterator> =
                     Box::new(rqe_iterators::IdList::<true>::new(child_ids.clone()));
@@ -150,7 +150,7 @@ fn bench_intersection_disjoint(c: &mut Criterion) {
         group.bench_with_input(BenchmarkId::new("batches_0pct_overlap", n), &n, |b, _| {
             b.iter(|| {
                 let source = MockScoreSource::new(vec![batch.clone()], vec![], |_, _| {
-                    CollectionStrategy::Continue
+                    BatchStrategy::Continue
                 });
                 let child: Box<dyn RQEIterator> =
                     Box::new(rqe_iterators::IdList::<true>::new(child_ids.clone()));
@@ -172,7 +172,7 @@ fn bench_adhoc_10k_child(c: &mut Criterion) {
     c.bench_function("iterator/adhoc_10k_child", |b| {
         b.iter(|| {
             let source =
-                MockScoreSource::new(vec![], scores.clone(), |_, _| CollectionStrategy::Continue);
+                MockScoreSource::new(vec![], scores.clone(), |_, _| BatchStrategy::Continue);
             let child: Box<dyn RQEIterator> =
                 Box::new(rqe_iterators::IdList::<true>::new(child_ids.clone()));
             let mut it =
