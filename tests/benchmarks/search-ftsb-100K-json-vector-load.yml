@@ -1,0 +1,31 @@
+name: "ftsb-100K-json-vector-load"
+description: "
+             JSON ingestion load benchmark with a dense vector field and a pair of
+             numeric fields per document. Exercises the JSON-array ingestion paths
+             for both VECTOR and NUMERIC fields.
+             Specifically for this testcase:
+                - Type (read/write/mixed): write
+                - Query type: N/A
+                - Query sample: N/A
+             "
+
+metadata:
+  component: "search"
+setups:
+  - oss-standalone
+  - oss-cluster-02-primaries
+  - oss-cluster-04-primaries
+  - oss-cluster-08-primaries
+
+dbconfig:
+  - dataset_name: "ftsb-100K-json-vector"
+  - init_commands:
+    - 'FT.CREATE idx:jv ON JSON PREFIX 1 doc:jv: SCHEMA $.v AS v VECTOR HNSW 6 TYPE FLOAT32 DIM 384 DISTANCE_METRIC COSINE $.n_int AS n_int NUMERIC $.n_float AS n_float NUMERIC'
+clientconfig:
+  - tool: ftsb_redisearch
+  - parameters:
+    - workers: 64
+    - reporting-period: 1s
+    - input: "https://s3.amazonaws.com/benchmarks.redislabs/redisearch/datasets/100K-json-vector/100K-json-vector.redisjson.commands.SETUP.csv"
+  - check:
+      keyspacelen: 100000
