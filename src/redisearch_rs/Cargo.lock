@@ -1979,7 +1979,6 @@ dependencies = [
  "pin-project",
  "pretty_assertions",
  "proptest",
- "query_error",
  "redis-module",
  "redis_mock",
  "redisearch_rs",

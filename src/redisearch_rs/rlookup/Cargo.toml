@@ -16,7 +16,6 @@ index_spec.workspace = true
 index_spec_cache.workspace = true
 libc.workspace = true
 pin-project.workspace = true
-query_error.workspace = true
 schema_rule.workspace = true
 strum.workspace = true
 thin_vec.workspace = true
