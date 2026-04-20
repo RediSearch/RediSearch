@@ -59,9 +59,25 @@ impl Array {
     /// alternating keys and values. In RESP3 this same data arrives as a
     /// proper [`Map`], where [`Map::get`] can be used instead.
     ///
-    /// A trailing element in an odd-length array is silently ignored.
+    /// # Odd-length arrays
+    ///
+    /// An odd number of elements indicates malformed data. A warning is emitted
+    /// via `tracing` and a `debug_assert!` fires in debug builds. The trailing
+    /// element is ignored and the search proceeds over the well-formed prefix.
+    ///
     /// Non-string keys are skipped.
     pub fn map_get(&self, key: &[u8]) -> Option<&RsValue> {
+        debug_assert!(
+            self.len() % 2 == 0,
+            "map_get called on an odd-length array (len={}); trailing element will be ignored",
+            self.len()
+        );
+        if self.len() % 2 != 0 {
+            tracing::warn!(
+                len = self.len(),
+                "map_get called on an odd-length array; trailing element will be ignored"
+            );
+        }
         self.chunks(2).find_map(|pair| {
             let value = pair.get(1)?;
             (pair[0].as_str_bytes()? == key).then_some(&**value)
