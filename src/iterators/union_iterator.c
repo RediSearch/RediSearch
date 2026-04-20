@@ -543,3 +543,24 @@ QueryIterator *NewUnionIterator(QueryIterator **its, int num, bool quickExit,
   UI_SyncIterList(ui);
   return ret;
 }
+
+QueryNodeType GetUnionIteratorQueryNodeType(const QueryIterator *base) {
+  const UnionIterator *ui = (const UnionIterator *)base;
+  return ui->type;
+}
+
+const char *GetUnionIteratorQueryString(const QueryIterator *base) {
+  const UnionIterator *ui = (const UnionIterator *)base;
+  return ui->q_str;
+}
+
+size_t GetUnionIteratorNumChildren(const QueryIterator *base) {
+  const UnionIterator *ui = (const UnionIterator *)base;
+  return ui->num_orig;
+}
+
+QueryIterator *GetUnionIteratorChild(const QueryIterator *base, size_t index) {
+  const UnionIterator *ui = (const UnionIterator *)base;
+  RS_ASSERT(index < ui->num_orig);
+  return ui->its_orig[index];
+}

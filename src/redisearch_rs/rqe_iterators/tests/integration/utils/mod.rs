@@ -7,8 +7,10 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+mod mock_enterprise_iterators;
 mod mock_iterator;
 mod wildcard_helper;
+pub(crate) use mock_enterprise_iterators::{MOCK_DISK_WILDCARD_TOP_ID, init_enterprise_iterators};
 pub(crate) use mock_iterator::{Mock, MockData, MockIteratorError, MockRevalidateResult, MockVec};
 pub(crate) use wildcard_helper::WildcardHelper;
 
@@ -98,6 +100,10 @@ impl RQEIterator<'static> for FieldMaskMock {
 
     fn type_(&self) -> IteratorType {
         IteratorType::Empty
+    }
+
+    fn intersection_sort_weight(&self, _prioritize_union_children: bool) -> f64 {
+        1.0
     }
 }
 

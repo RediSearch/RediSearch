@@ -124,7 +124,7 @@ impl MockContext {
         NonNull::new(self.sctx).expect("RedisSearchCtx should not be null")
     }
 
-    /// Get the query evaluation context.
+    /// Get the query evaluation context from the [`MockContext`].
     pub const fn qctx(&self) -> NonNull<ffi::QueryEvalCtx> {
         NonNull::new(self.qctx).expect("QueryEvalCtx should not be null")
     }
@@ -139,6 +139,23 @@ impl MockContext {
         // SAFETY: Caller guarantees no iterators from this context are alive,
         // so the write does not race.
         unsafe { (*self.rule).index_all = value };
+    }
+
+    /// Set [`IndexSpec::diskSpec`] to point to the given disk index spec.
+    ///
+    /// Pass `std::ptr::null_mut()` to clear the field (making the spec appear
+    /// to have no disk index).
+    ///
+    /// # Safety
+    ///
+    /// 1. Must not be called while any iterator created from this context is
+    ///    still alive, as it mutates the spec through a raw pointer.
+    /// 2. `disk_spec`, when non-null, must remain valid for as long as
+    ///    iterators created from this context are alive.
+    pub unsafe fn set_disk_spec(&self, disk_spec: *mut ffi::RedisSearchDiskIndexSpec) {
+        // SAFETY: Caller guarantees no iterators from this context are alive (1),
+        // so the write does not race.
+        unsafe { (*self.spec).diskSpec = disk_spec };
     }
 
     /// Get a zeroed [`TagIndex`](ffi::TagIndex) pointer for basic (non-revalidation) tests.

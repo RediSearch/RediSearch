@@ -25,12 +25,35 @@ typedef const void* RedisSearchDiskIndexSpec;
 typedef const void* RedisSearchDiskInvertedIndex;
 typedef const void* RedisSearchDiskIterator;
 typedef const void* RedisSearchDiskAsyncReadPool;
+typedef const void* RedisSearchDiskRdbState;
 
 // Callback function to allocate memory for the key in the scope of the search module memory
 typedef char* (*AllocateKeyCallback)(const void*, size_t len);
 
 // Callback function to allocate a new RSDocumentMetadata with ref_count=1 and keyPtr set
 typedef RSDocumentMetadata* (*AllocateDMDCallback)(const void* key_data, size_t key_len);
+
+// Callback functions for applying text compaction delta updates.
+// The C side owns private_data/update_ctx semantics; Rust treats them as opaque.
+typedef struct SearchDiskCompactionCallbacks {
+  // Opens an update session and returns opaque update context.
+  // Implementations may acquire internal locks here.
+  void *(*beginUpdate)(void *private_data);
+
+  // Decrement term doc count in the serving trie.
+  bool (*decrementTrieTermCount)(
+      void *update_ctx,
+      const char *term,
+      size_t term_len,
+      size_t doc_count_decrement);
+
+  // Decrement numTerms in scoring stats.
+  void (*decrementNumTerms)(void *update_ctx, uint64_t num_terms_removed);
+
+  // Closes an update session.
+  // Implementations may release internal locks here.
+  void (*endUpdate)(void *update_ctx);
+} SearchDiskCompactionCallbacks;
 
 // Result of polling the async read pool
 typedef struct AsyncPollResult {
@@ -96,7 +119,6 @@ typedef struct BasicDiskAPI {
    */
   void (*unregisterIndex)(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index);
   void (*indexSpecRdbSave)(RedisModuleIO *rdb, RedisSearchDiskIndexSpec *index);
-  u_int32_t (*indexSpecRdbLoad)(RedisModuleIO *rdb, RedisSearchDiskIndexSpec *index);
 
   /**
    * @brief Check if async I/O is supported by the underlying storage engine
@@ -111,6 +133,48 @@ typedef struct BasicDiskAPI {
    * @param disable Callback to resume CMD_DENYOOM commands (wraps RedisModule_DisablePostponeClients)
    */
   void (*setThrottleCallbacks)(ThrottleCB enable, ThrottleCB disable);
+
+  /**
+   * @brief Load disk-related RDB data into a temporary in-memory object.
+   *
+   * Called during RDB load when the IndexSpec cannot be created yet (e.g., during replication
+   * before SST files arrive). The returned state must later be passed to openIndexSpecWithRdbState
+   * or freed with freeRdbState.
+   *
+   * @param rdb The RedisModuleIO handle for RDB operations
+   * @return Pointer to temporary RDB state, or NULL on error
+   */
+  RedisSearchDiskRdbState *(*loadRdbToTempObject)(RedisModuleIO *rdb);
+
+  /**
+   * @brief Create an IndexSpec and restore state from a previously loaded RDB state.
+   *
+   * Called after SST files are ready (e.g., after FULL_REPLICATION_FINISHED event).
+   * Takes ownership of rdbState - it will be consumed and freed.
+   *
+   * @param disk Pointer to the disk context
+   * @param indexName Name of the index
+   * @param indexNameLen Length of the index name
+   * @param type Document type for this index
+   * @param rdbState Temporary RDB state from loadRdbToTempObject (will be consumed)
+   * @return Pointer to the created IndexSpec, or NULL on error
+   */
+  RedisSearchDiskIndexSpec *(*openIndexSpecWithRdbState)(RedisModuleCtx *ctx,
+                                                          RedisSearchDisk *disk,
+                                                          const char *indexName,
+                                                          size_t indexNameLen,
+                                                          DocumentType type,
+                                                          RedisSearchDiskRdbState *rdbState);
+
+  /**
+   * @brief Free a temporary RDB state object without creating an IndexSpec.
+   *
+   * Use if index creation fails or is cancelled.
+   *
+   * @param rdbState The temporary RDB state to free (may be NULL)
+   */
+  void (*freeRdbState)(RedisSearchDiskRdbState *rdbState);
+
 
   /**
    * @brief Update the buffer budget and WBM in response to RAM configuration changes.
@@ -206,26 +270,21 @@ typedef struct IndexDiskAPI {
   QueryIterator *(*newTagIterator)(RedisSearchDiskIndexSpec* index, const RSToken* tok, t_fieldIndex fieldIndex, double weight);
 
   /**
-   * @brief Returns the number of documents in the index
-   *
-   * @param index Pointer to the index
-   * @return Number of documents in the index
-   */
-  QueryIterator* (*newWildcardIterator)(RedisSearchDiskIndexSpec *index, double weight);
-
-  /**
    * @brief Run a GC compaction cycle on the disk index.
    *
    * Synchronously runs a full compaction on the inverted index column family,
    * removing entries for deleted documents. Also applies the compaction delta
-   * to update in-memory structures via FFI calls to the provided C IndexSpec.
+   * to update in-memory structures via the provided callback table.
    *
    * @param index Pointer to the disk index
-   * @param user_data Opaque pointer to the C IndexSpec (used for FFI callbacks)
+   * @param callbacks Callback table for applying compaction delta updates
+   * @param private_data Opaque pointer owned by caller and passed into beginUpdate
    *
    * @return Number of deletedIDs removed from the disk index
    */
-  size_t (*runGC)(RedisSearchDiskIndexSpec *index, void *user_data);
+  size_t (*runGC)(RedisSearchDiskIndexSpec *index,
+                  const SearchDiskCompactionCallbacks *callbacks,
+                  void *private_data);
 
   /**
    * @brief Get the total disk usage for this index.

@@ -41,7 +41,7 @@ def testExpireIndex(env):
             # `assertContains` expects (expected_substring, actual_string)
             env.assertContains('SEARCH_INDEX_NOT_FOUND Index not found', str(e))
 
-@skip(cluster=True, redis_less_than="7.2")
+@skip(cluster=True, redis_less_than="7.4")
 def test_MOD_14800_persist_clears_expiration_metadata(env: Env):
     # Regression for MOD-14800:
     # Verify that persisting a hash key or an indexed hash field clears the

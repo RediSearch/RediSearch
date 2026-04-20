@@ -21,7 +21,7 @@ extern "C" {
 #include "iterators/hybrid_reader.h"
 #include "iterators_rs.h"
 #include "iterators/union_iterator.h"
-#include "iterators/intersection_iterator.h"
+#include "redisearch_rs/headers/iterators_rs.h"
 #include "util/arr.h"
 #include "util/references.h"
 #include "types_rs.h"
@@ -1068,6 +1068,15 @@ TEST_F(IndexTest, testIndexSpec) {
   ASSERT_TRUE(!(s->flags & Index_StoreFieldFlags));
   ASSERT_TRUE(!(s->flags & Index_StoreTermOffsets));
   IndexSpec_RemoveFromGlobals(ref, false);
+
+  const char *args_invalid[] = {
+      "NOFIELDS", "MAXTEXTFIELDS", "SCHEMA", title, "TEXT",
+  };
+  QueryError_ClearError(&err);
+  ref = IndexSpec_ParseC(NULL, "idx", args_invalid, sizeof(args_invalid) / sizeof(args_invalid[0]), &err);
+  ASSERT_TRUE(QueryError_HasError(&err));
+  ASSERT_EQ(nullptr, StrongRef_Get(ref));
+  ASSERT_NE(nullptr, strstr(QueryError_GetUserError(&err), "MAXTEXTFIELDS cannot be used with NOFIELDS"));
 
   // User-reported bug
   const char *args3[] = {"SCHEMA", "ha", "NUMERIC", "hb", "TEXT", "WEIGHT", "1", "NOSTEM"};

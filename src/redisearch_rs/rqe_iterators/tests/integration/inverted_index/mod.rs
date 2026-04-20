@@ -11,4 +11,4 @@ mod numeric;
 mod tag;
 mod term;
 mod utils;
-mod wildcard;
+pub(crate) mod wildcard;

@@ -275,6 +275,59 @@ def testProfileTag(env):
   actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', '@t:{foo}', 'nocontent')
   env.assertEqual(actual_res[1][1][0][3], ['Type', 'TAG', 'Term', 'foo', 'Number of reading operations', 2, 'Estimated number of matches', 2])
 
+  # tag union profile (multi-value tag query creates a UNION with TAG query type)
+  actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', '@t:{foo|bar}', 'nocontent')
+  expected_res = ['Type', 'UNION', 'Query type', 'TAG', 'Number of reading operations', 2,
+                  'Child iterators', [
+                    ['Type', 'TAG', 'Term', 'foo', 'Number of reading operations', 2, 'Estimated number of matches', 2],
+                    ['Type', 'TAG', 'Term', 'bar', 'Number of reading operations', 1, 'Estimated number of matches', 1]]]
+  env.assertEqual(actual_res[1][1][0][3], expected_res)
+
+@skip(cluster=True)
+def testProfileGeo(env):
+  """GEO query profile: a large-radius GEO query creates a UNION with GEO query type."""
+  conn = getConnectionByEnv(env)
+  env.cmd(config_cmd(), 'SET', '_PRINT_PROFILE_CLOCK', 'false')
+
+  env.cmd('ft.create', 'idx', 'SCHEMA', 'g', 'GEO')
+  # Add enough geo points to force multiple numeric tree nodes, creating a UNION
+  for i in range(10000):
+    lon = (i % 360) - 180
+    lat = (i % 180) - 90
+    conn.execute_command('hset', i, 'g', f'{lon},{lat}')
+  waitForIndex(env, 'idx')
+
+  # geo profile - large radius GEO query creates a UNION with GEO query type
+  actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', '@g:[0 0 20000 km]', 'nocontent', 'limit', '0', '0')
+  profile_data = actual_res[1][1][0][3]
+  env.assertEqual(profile_data[0], 'Type', message=profile_data)
+  env.assertEqual(profile_data[1], 'UNION', message=profile_data)
+  env.assertEqual(profile_data[2], 'Query type', message=profile_data)
+  env.assertContains('GEO', profile_data[3])
+
+@skip(cluster=True)
+def testProfileMissingFieldQuery(env):
+  conn = getConnectionByEnv(env)
+  env.cmd(config_cmd(), 'SET', '_PRINT_PROFILE_CLOCK', 'false')
+
+  env.cmd('ft.create', 'idx', 'SCHEMA', 't', 'text', 'INDEXMISSING')
+  conn.execute_command('hset', '1', 't', 'hello')
+  conn.execute_command('hset', '2', 'other', 'value')
+
+  actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', 'ismissing(@t)', 'nocontent')
+  env.assertEqual(actual_res[0], [1, '2'])
+  env.assertEqual(actual_res[1][1][0][3], ['Type', 'MISSING', 'Field', 't', 'Number of reading operations', 1, 'Estimated number of matches', 1])
+
+  actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', '-ismissing(@t)', 'nocontent')
+  env.assertEqual(actual_res[0], [1, '1'])
+  env.assertEqual(actual_res[1][1][0][3], ['Type', 'NOT', 'Number of reading operations', 1, 'Child iterator',
+                                            ['Type', 'MISSING', 'Field', 't', 'Number of reading operations', 1, 'Estimated number of matches', 1]])
+
+  env.cmd(config_cmd(), 'SET', '_PRINT_PROFILE_CLOCK', 'true')
+  actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', 'ismissing(@t)', 'nocontent')
+  env.assertEqual(actual_res[0], [1, '2'])
+  env.assertEqual(actual_res[1][1][0][11], ['Type', 'MISSING', 'Field', 't', 'Time', ANY, 'Number of reading operations', 1, 'Estimated number of matches', 1])
+
 @skip(cluster=True)
 def testProfileVector(env):
   conn = getConnectionByEnv(env)
@@ -398,6 +451,34 @@ def testProfileVector(env):
   env.assertEqual(to_dict(env.cmd(debug_cmd(), "VECSIM_INFO", "idx", "v"))['LAST_SEARCH_MODE'], 'HYBRID_BATCHES_TO_ADHOC_BF')
 
 @skip(cluster=True)
+def testProfileHybridRangeMetricSortedByScore(env):
+  """Hybrid RANGE query with YIELD_SCORE_AS creates a METRIC SORTED BY SCORE iterator."""
+  conn = getConnectionByEnv(env)
+  env.cmd(config_cmd(), 'SET', '_PRINT_PROFILE_CLOCK', 'false')
+
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'FLAT', '6',
+             'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2', 't', 'TEXT').ok()
+  query_vector = np.array([0.0, 0.0], dtype=np.float32).tobytes()
+  conn.execute_command('hset', '1', 'v', np.array([1.0, 0.0], dtype=np.float32).tobytes(), 't', 'hello')
+  conn.execute_command('hset', '2', 'v', np.array([0.0, 1.0], dtype=np.float32).tobytes(), 't', 'hello')
+  conn.execute_command('hset', '3', 'v', np.array([10.0, 10.0], dtype=np.float32).tobytes(), 't', 'hello')
+
+  # Hybrid RANGE query without FILTER yields BY_SCORE order + yields_metric=true
+  # This produces a METRIC_SORTED_BY_SCORE iterator
+  actual_res = conn.execute_command('FT.PROFILE', 'idx', 'HYBRID', 'QUERY',
+                                    'SEARCH', 'hello',
+                                    'VSIM', '@v', '$BLOB',
+                                    'RANGE', '2', 'RADIUS', '5',
+                                    'YIELD_SCORE_AS', 'dist',
+                                    'PARAMS', '2', 'BLOB', query_vector)
+  # RESP2: profile data is at actual_res[-1] = ['Shards', [shard_profiles], 'Coordinator', [...]]
+  # shard_profiles[0] = ['SEARCH', [...], 'VSIM', [...]]
+  shard_profile = to_dict(actual_res[-1][1][0])
+  vsim_profile = to_dict(shard_profile['VSIM'])
+  env.assertEqual(vsim_profile['Iterators profile'][0], 'Type', message=vsim_profile)
+  env.assertEqual(vsim_profile['Iterators profile'][1], 'METRIC SORTED BY SCORE - VECTOR DISTANCE', message=vsim_profile)
+
+@skip(cluster=True)
 def testResultProcessorCounter(env):
   conn = getConnectionByEnv(env)
   env.cmd(config_cmd(), 'SET', '_PRINT_PROFILE_CLOCK', 'false')
@@ -504,7 +585,7 @@ def TimeoutWarningInProfile(env):
   ).equal(expected_res_aggregate)
 
 @skip(cluster=True)
-def testFailOnTimeout_nonStrict(env):
+def testFailOnTimeout_nonStrict():
   TimeoutWarningInProfile(Env(moduleArgs="ON_TIMEOUT RETURN"))
 
 @skip(cluster=True)
@@ -1498,4 +1579,3 @@ def testCoordinatorQueueTimeInProfile():
   env.assertGreaterEqual(coord_queue_time, pause_duration_ms * 0.8,  # Allow 20% tolerance
     message=f"Coordinator queue time ({coord_queue_time}ms) should capture queue wait. "
             f"Expected >= {pause_duration_ms * 0.8}ms. Full result: {result}")
-

@@ -27,6 +27,8 @@ jobs:
     steps:
       - name: Set matrix
         id: set-matrix
+        env:
+          INPUT_ARCHITECTURE: ${{ inputs.architecture }}
         run: |
           # Define the full matrix as a JSON string
           FULL_MATRIX='
@@ -47,12 +49,12 @@ jobs:
           '
 
           # Filter the matrix based on architecture
-          if [ "${{ inputs.architecture }}" = "all" ]; then
+          if [ "$INPUT_ARCHITECTURE" = "all" ]; then
             # Use the full matrix
             FILTERED_MATRIX="$FULL_MATRIX"
           else
             # Filter to only the selected architecture
-            FILTERED_MATRIX=$(echo "$FULL_MATRIX" | jq -c '{include: [.include[] | select(.architecture | contains("${{ inputs.architecture }}"))]}')
+            FILTERED_MATRIX=$(echo "$FULL_MATRIX" | jq -c "{include: [.include[] | select(.architecture | contains(\"$INPUT_ARCHITECTURE\"))]}")
           fi
 
           # Use multiline output delimiter syntax for GitHub Actions
@@ -87,7 +89,7 @@ jobs:
         run: |
           # Then install Python dependencies
           sudo apt install python3-pip -y
-          pip3 install --upgrade pip PyYAML setuptools redisbench-admin==0.12.12
+          pip3 install --upgrade pip PyYAML setuptools redisbench-admin==0.12.14
       - name: Compare benchmark results
         run: |
           redisbench-admin compare \

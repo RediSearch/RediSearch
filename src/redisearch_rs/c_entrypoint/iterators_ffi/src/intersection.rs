@@ -11,8 +11,12 @@ use std::ptr::NonNull;
 
 use ffi::{IteratorType, QueryIterator};
 use rqe_iterators::{
-    c2rust::CRQEIterator, interop::RQEIteratorWrapper, intersection::Intersection,
+    c2rust::CRQEIterator,
+    interop::RQEIteratorWrapper,
+    intersection::{Intersection, NewIntersectionIterator, new_intersection_iterator},
 };
+
+use crate::empty::NewEmptyIterator;
 
 /// Free the C-allocated `its` array using the Redis allocator.
 ///
@@ -29,7 +33,14 @@ unsafe fn free_iterators_array(its: *mut *mut QueryIterator) {
 /// Create a new intersection iterator.
 ///
 /// Takes ownership of both the `its` array and all child iterators it contains.
-/// Delegates reduction to the C `IntersectionIteratorReducer` before constructing the iterator.
+/// Applies reduction rules before
+/// constructing the iterator:
+///
+/// 0. No children → empty iterator.
+/// 1. Strip wildcard children. All wildcards → return the last one.
+/// 2. Any empty child → free all, return empty iterator.
+/// 3. Exactly one real child → return it directly.
+/// 4. Two or more real children → build a full intersection.
 ///
 /// # Safety
 ///
@@ -45,27 +56,36 @@ pub unsafe extern "C" fn NewIntersectionIterator(
     in_order: bool,
     weight: f64,
 ) -> *mut QueryIterator {
-    let mut num_filtered = num;
-    // SAFETY: `its` is a valid Redis-allocated array of `num` QueryIterator* per caller's
-    // contract. The C reducer frees `its` on short-circuit (non-NULL return).
-    let reduced = unsafe { ffi::IntersectionIteratorReducer(its, &mut num_filtered) };
-    if !reduced.is_null() {
-        return reduced; // `its` already freed by the C reducer
+    // Rule 0 – no children at all.
+    if num == 0 {
+        if !its.is_null() {
+            // SAFETY: `its` is a valid Redis-allocated pointer per the caller's contract.
+            unsafe { free_iterators_array(its) };
+        }
+        return NewEmptyIterator();
     }
 
-    // NULL returned from the reducer: num_filtered >= 2, its[0..num_filtered] are valid non-wildcard iterators.
-    // SAFETY: `its` is still valid and `num_filtered` elements are initialised non-null pointers.
-    let slice = unsafe { std::slice::from_raw_parts(its, num_filtered) };
+    // SAFETY: `its` is valid for `num` elements and `num > 0`.
+    let slice: &[*mut QueryIterator] = unsafe { std::slice::from_raw_parts(its, num) };
+
+    // Wrap each raw pointer into a `CRQEIterator`. From this point, Rust Drop manages lifetimes.
+    // NULL pointers are replaced by an empty iterator so they flow through is_empty() naturally.
     let children: Vec<CRQEIterator> = slice
         .iter()
         .map(|&ptr| {
-            // SAFETY: each pointer is valid, non-null, and uniquely owned.
+            let ptr = if ptr.is_null() {
+                // NULL ≡ empty iterator
+                NewEmptyIterator()
+            } else {
+                ptr
+            };
+            // SAFETY: ptr is non-null (either original or NewEmptyIterator()).
+            // Each pointer is valid and uniquely owned per caller's contract.
             let ptr = unsafe { NonNull::new_unchecked(ptr) };
             // SAFETY: each pointer is valid, non-null, and uniquely owned.
             unsafe { CRQEIterator::new(ptr) }
         })
         .collect();
-
     let max_slop = if max_slop < 0 {
         None
     } else {
@@ -73,14 +93,20 @@ pub unsafe extern "C" fn NewIntersectionIterator(
     };
     // SAFETY: `ffi::RSGlobalConfig` is the global config instance, read-only here.
     let prioritize_union_children = unsafe { ffi::RSGlobalConfig.prioritizeIntersectUnionChildren };
-    let intersection = Intersection::new_with_slop_order(
-        children,
-        weight,
-        prioritize_union_children,
-        max_slop,
-        in_order,
-    );
-    let wrapper = RQEIteratorWrapper::boxed_new_compound(intersection);
+    let wrapper = match new_intersection_iterator(children) {
+        NewIntersectionIterator::Empty => NewEmptyIterator(),
+        NewIntersectionIterator::Single(child) => child.into_raw().as_ptr(),
+        NewIntersectionIterator::Proceed(cs) => {
+            let intersection = Intersection::new_with_slop_order(
+                cs,
+                weight,
+                prioritize_union_children,
+                max_slop,
+                in_order,
+            );
+            RQEIteratorWrapper::boxed_new_compound(intersection)
+        }
+    };
 
     // Free the `its` array (iterators are now owned by the intersection).
     // SAFETY: `its` is a valid Redis-allocated pointer per the function's safety contract.

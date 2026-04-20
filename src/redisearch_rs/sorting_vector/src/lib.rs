@@ -15,7 +15,8 @@ use std::{
 
 use icu_casemap::CaseMapper;
 use thin_vec::ThinVec;
-use value::RSValueFFI;
+use value::SharedRsValue;
+use value::shared::SHARED_VALUE_CONTENT_SIZE;
 
 /// IndexOutOfBounds error can be returned by [`RSSortingVector::try_insert_num`] and the other `try_insert_*` methods.
 ///
@@ -42,19 +43,19 @@ impl std::error::Error for IndexOutOfBounds {}
 ///
 /// # Layout
 ///
-/// This struct is `#[repr(transparent)]` over [`ThinVec<RSValueFFI>`], which is
+/// This struct is `#[repr(transparent)]` over [`ThinVec<SharedRsValue>`], which is
 /// pointer-sized (8 bytes). The length is stored in the heap header alongside the data.
 ///
 /// The `ThinVec<T, u64>` heap layout is:
 /// ```text
 ///   Header { len: u64, cap: u64 }  (16 bytes, no padding for pointer-aligned T)
-///   data: [RSValueFFI; len]
+///   data: [SharedRsValue; len]
 /// ```
 ///
 /// An empty vector points to a static sentinel header (not null), so no allocation is needed.
 #[repr(transparent)]
 pub struct RSSortingVector {
-    inner: ThinVec<RSValueFFI>,
+    inner: ThinVec<SharedRsValue>,
 }
 
 impl RSSortingVector {
@@ -73,36 +74,36 @@ impl RSSortingVector {
     /// Creates a new [`RSSortingVector`] with the given length.
     pub fn new(len: usize) -> Self {
         let mut inner = ThinVec::new();
-        inner.resize(len, RSValueFFI::null_static());
+        inner.resize(len, SharedRsValue::null_static());
         Self { inner }
     }
 
     /// Returns the values as a slice.
     #[inline]
-    pub fn as_slice(&self) -> &[RSValueFFI] {
+    pub fn as_slice(&self) -> &[SharedRsValue] {
         &self.inner
     }
 
     /// Returns the values as a mutable slice.
     #[inline]
-    fn as_mut_slice(&mut self) -> &mut [RSValueFFI] {
+    fn as_mut_slice(&mut self) -> &mut [SharedRsValue] {
         &mut self.inner
     }
 
     /// Returns an immutable reference to the value at index `index`,
     /// or `None` if the index is out-of-bounds for this sorting vector.
     #[inline]
-    pub fn get(&self, index: usize) -> Option<&RSValueFFI> {
+    pub fn get(&self, index: usize) -> Option<&SharedRsValue> {
         self.as_slice().get(index)
     }
 
     /// Returns an iterator over the values in the sorting vector.
-    pub fn iter(&self) -> Iter<'_, RSValueFFI> {
+    pub fn iter(&self) -> Iter<'_, SharedRsValue> {
         self.as_slice().iter()
     }
 
     /// Returns a mutable iterator over the values in the sorting vector.
-    pub fn iter_mut(&mut self) -> IterMut<'_, RSValueFFI> {
+    pub fn iter_mut(&mut self) -> IterMut<'_, SharedRsValue> {
         self.as_mut_slice().iter_mut()
     }
 
@@ -112,7 +113,7 @@ impl RSSortingVector {
             .as_mut_slice()
             .get_mut(idx)
             .ok_or(IndexOutOfBounds(()))?;
-        *spot = RSValueFFI::new_num(num);
+        *spot = SharedRsValue::new_num(num);
         Ok(())
     }
 
@@ -122,7 +123,7 @@ impl RSSortingVector {
             .as_mut_slice()
             .get_mut(idx)
             .ok_or(IndexOutOfBounds(()))?;
-        *spot = RSValueFFI::new_string(str);
+        *spot = SharedRsValue::new_string(str);
         Ok(())
     }
 
@@ -143,7 +144,7 @@ impl RSSortingVector {
     pub fn try_insert_val(
         &mut self,
         idx: usize,
-        value: RSValueFFI,
+        value: SharedRsValue,
     ) -> Result<(), IndexOutOfBounds> {
         let spot = self
             .as_mut_slice()
@@ -159,7 +160,7 @@ impl RSSortingVector {
             .as_mut_slice()
             .get_mut(idx)
             .ok_or(IndexOutOfBounds(()))?;
-        *spot = RSValueFFI::null_static();
+        *spot = SharedRsValue::null_static();
         Ok(())
     }
 
@@ -178,7 +179,7 @@ impl RSSortingVector {
     /// Deallocates the inner values buffer and zeros the struct.
     ///
     /// After calling this, the vector is in the same state as [`RSSortingVector::empty()`].
-    /// Each [`RSValueFFI`] element is dropped (decrementing its refcount) and the
+    /// Each [`SharedRsValue`] element is dropped (decrementing its refcount) and the
     /// heap buffer is freed. Calling `reset` on an already-reset vector is a no-op.
     pub fn reset(&mut self) {
         self.inner.clear();
@@ -199,14 +200,14 @@ impl RSSortingVector {
                 continue;
             }
 
-            sz += RSValueFFI::mem_size();
+            sz += SHARED_VALUE_CONTENT_SIZE;
 
             // the original behavior would by-pass references in the middle of the chain
             // fixup in: MOD-10347
-            let value = value.deep_deref();
+            let value = value.fully_dereferenced_ref();
 
-            if value.get_type() == ffi::RSValueType_RSValueType_String {
-                sz += value.as_str_bytes().unwrap().len();
+            if let Some(bytes) = value.as_str_bytes() {
+                sz += bytes.len();
             }
         }
         sz
@@ -253,7 +254,7 @@ impl<'a> RSSortingVectorRef<'a> {
 
     /// Returns the sorting vector data as a slice.
     #[inline]
-    pub fn as_slice(&self) -> &'a [RSValueFFI] {
+    pub fn as_slice(&self) -> &'a [SharedRsValue] {
         let slice = self.inner.as_slice();
         // SAFETY: The inner ThinVec pointer refers to data owned by the
         // original RSSortingVector which is valid for lifetime 'a.
@@ -279,8 +280,8 @@ impl fmt::Debug for RSSortingVector {
     }
 }
 
-impl FromIterator<RSValueFFI> for RSSortingVector {
-    fn from_iter<T: IntoIterator<Item = RSValueFFI>>(iter: T) -> Self {
+impl FromIterator<SharedRsValue> for RSSortingVector {
+    fn from_iter<T: IntoIterator<Item = SharedRsValue>>(iter: T) -> Self {
         Self {
             inner: iter.into_iter().collect(),
         }
@@ -289,8 +290,8 @@ impl FromIterator<RSValueFFI> for RSSortingVector {
 
 // Consuming iterator: yields owned T by consuming the vector.
 impl IntoIterator for RSSortingVector {
-    type Item = RSValueFFI;
-    type IntoIter = thin_vec::IntoIter<RSValueFFI>;
+    type Item = SharedRsValue;
+    type IntoIter = thin_vec::IntoIter<SharedRsValue>;
     fn into_iter(self) -> Self::IntoIter {
         self.inner.into_iter()
     }
@@ -299,9 +300,9 @@ impl IntoIterator for RSSortingVector {
 // implementing Index opens the usage of the bracket operators `[]` to access elements in the sorting vector.
 impl<I> Index<I> for RSSortingVector
 where
-    I: std::slice::SliceIndex<[RSValueFFI]>,
+    I: std::slice::SliceIndex<[SharedRsValue]>,
 {
-    type Output = <[RSValueFFI] as std::ops::Index<I>>::Output;
+    type Output = <[SharedRsValue] as std::ops::Index<I>>::Output;
 
     fn index(&self, index: I) -> &Self::Output {
         self.as_slice().index(index)
@@ -311,7 +312,7 @@ where
 // implementing IndexMut opens the usage of the bracket operators `[]` to mutate elements in the sorting vector.
 impl<I> IndexMut<I> for RSSortingVector
 where
-    I: std::slice::SliceIndex<[RSValueFFI]>,
+    I: std::slice::SliceIndex<[SharedRsValue]>,
 {
     fn index_mut(&mut self, index: I) -> &mut Self::Output {
         self.as_mut_slice().index_mut(index)
