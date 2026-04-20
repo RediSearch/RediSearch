@@ -11,12 +11,15 @@ on:
 
 jobs:
   test-all-platforms:
+    permissions:
+      contents: read
+      packages: write
     uses: ./.github/workflows/flow-test.yml
     secrets: inherit
     with:
       platform: all
       architecture: all
-      redis-ref: unstable
+      redis-ref: 3cd464263b03b425ffae2e23db24df3dc9346871
       job-test-config: '{"test": "QUICK=1", "coverage": "QUICK=1", "sanitize": "QUICK=1"}'
       options: ${{ vars.ENABLE_CODE_COVERAGE != 'false' && 'unit-tests,coordinator,standalone,rejson,coverage,sanitize' || 'unit-tests,coordinator,standalone,rejson,sanitize' }}
 
@@ -35,7 +38,8 @@ jobs:
         with:
           payload: |
             {
-              "failed_workflow": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}"
+              "failed_workflow": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}",
+              "repository": "${{ github.repository }}"
             }
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL_NIGHTLY_FAILED }}

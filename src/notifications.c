@@ -17,41 +17,56 @@
 #include "dictionary.h"
 #include "slot_ranges.h"
 #include "asm_state_machine.h"
-#include "src/coord/rmr/redis_cluster.h"
+#include "coord/rmr/redis_cluster.h"
 #include "cursor.h"
 #include "search_disk.h"
+#include "doc_id_meta.h"
+#include "iterators_rs.h"
 
 #define JSON_LEN 5 // length of string "json."
 RedisModuleString *global_RenameFromKey = NULL;
 extern RedisModuleCtx *RSDummyContext;
 RedisModuleString **hashFields = NULL;
 
-typedef enum {
-  _null_cmd,
-  hset_cmd,
-  hmset_cmd,
-  hsetnx_cmd,
-  hincrby_cmd,
-  hincrbyfloat_cmd,
-  hdel_cmd,
-  del_cmd,
-  set_cmd,
-  rename_from_cmd,
-  rename_to_cmd,
-  trimmed_cmd,
-  key_trimmed_cmd,
-  restore_cmd,
-  expire_cmd,
-  persist_cmd,
-  expired_cmd,
-  hexpire_cmd,
-  hpersist_cmd,
-  hexpired_cmd,
-  evicted_cmd,
-  change_cmd,
-  loaded_cmd,
-  copy_to_cmd,
-} RedisCmd;
+// The list of events we handle in the notification callback.
+#define REDIS_NOTIFICATION_EVENT_LIST(X)  \
+  X(hset)                                 \
+  X(hmset)                                \
+  X(hsetnx)                               \
+  X(hincrby)                              \
+  X(hincrbyfloat)                         \
+  X(hdel)                                 \
+  X(del)                                  \
+  X(set)                                  \
+  X(rename_from)                          \
+  X(rename_to)                            \
+  X(trimmed)                              \
+  X(key_trimmed)                          \
+  X(restore)                              \
+  X(hexpire)                              \
+  X(hexpired)                             \
+  X(expire)                               \
+  X(expired)                              \
+  X(persist)                              \
+  X(hpersist)                             \
+  X(evicted)                              \
+  X(change)                               \
+  X(loaded)                               \
+  X(copy_to)
+
+// Define an enum value for each event.
+#define DECLARE_EVENT_ENUM(E) E##_cmd,
+enum RedisCmd {
+  _null_cmd = 0,
+  REDIS_NOTIFICATION_EVENT_LIST(DECLARE_EVENT_ENUM)
+};
+#undef DECLARE_EVENT_ENUM
+
+// Declare a static variable for each event to hold the cached pointer.
+// This caches the event string pointer for future comparisons to avoid strcmp in hot paths.
+#define DECLARE_REDIS_NOTIFICATION_EVENT_CACHE(E) static const char *E##_event = NULL;
+REDIS_NOTIFICATION_EVENT_LIST(DECLARE_REDIS_NOTIFICATION_EVENT_CACHE)
+#undef DECLARE_REDIS_NOTIFICATION_EVENT_CACHE
 
 static void freeHashFields() {
   if (hashFields != NULL) {
@@ -66,87 +81,35 @@ static void freeHashFields() {
 int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
                              RedisModuleString *key) {
 
-#define CHECK_CACHED_EVENT(E) \
-  if (event == E##_event) {   \
-    redisCommand = E##_cmd;   \
+#define CHECK_CACHED_EVENT(E)     \
+  else if (event == E##_event) {  \
+    redisCommand = E##_cmd;       \
   }
 
-#define CHECK_AND_CACHE_EVENT(E) \
-  if (!strcmp(event, #E)) {      \
-    redisCommand = E##_cmd;      \
-    E##_event = event;           \
+#define CHECK_AND_CACHE_EVENT(E)  \
+  else if (!strcmp(event, #E)) {  \
+    redisCommand = E##_cmd;       \
+    E##_event = event;            \
   }
 
-  int redisCommand = 0;
+  enum RedisCmd redisCommand;
   RedisModuleKey *kp;
   DocumentType kType;
 
-  static const char *hset_event = 0, *hmset_event = 0, *hsetnx_event = 0, *hincrby_event = 0,
-                    *hincrbyfloat_event = 0, *hdel_event = 0, *del_event = 0, *set_event = 0,
-                    *rename_from_event = 0, *rename_to_event = 0, *trimmed_event = 0, *key_trimmed_event = 0,
-                    *restore_event = 0, *expired_event = 0, *evicted_event = 0, *change_event = 0,
-                    *loaded_event = 0, *copy_to_event = 0, *hexpire_event = 0, *hexpired_event = 0,
-                    *expire_event = 0, *hpersist_event = 0, *persist_event = 0;
+  // Transform the event string into its corresponding enum value,
+  // while caching the event string pointer for future comparisons to avoid strcmp in hot paths.
+  // First "iterate" over the cached events, then fall back to strcmp and cache if found.
 
-  // clang-format off
-
-       CHECK_CACHED_EVENT(hset)
-  else CHECK_CACHED_EVENT(hmset)
-  else CHECK_CACHED_EVENT(hsetnx)
-  else CHECK_CACHED_EVENT(hincrby)
-  else CHECK_CACHED_EVENT(hincrbyfloat)
-  else CHECK_CACHED_EVENT(hdel)
-  else CHECK_CACHED_EVENT(del)
-  else CHECK_CACHED_EVENT(set)
-  else CHECK_CACHED_EVENT(rename_from)
-  else CHECK_CACHED_EVENT(rename_to)
-  else CHECK_CACHED_EVENT(trimmed)
-  else CHECK_CACHED_EVENT(key_trimmed)
-  else CHECK_CACHED_EVENT(restore)
-  else CHECK_CACHED_EVENT(hexpired)
-  else CHECK_CACHED_EVENT(expire)
-  else CHECK_CACHED_EVENT(expired)
-  else CHECK_CACHED_EVENT(persist)
-  else CHECK_CACHED_EVENT(hpersist)
-  else CHECK_CACHED_EVENT(evicted)
-  else CHECK_CACHED_EVENT(change)
-  else CHECK_CACHED_EVENT(del)
-  else CHECK_CACHED_EVENT(set)
-  else CHECK_CACHED_EVENT(rename_from)
-  else CHECK_CACHED_EVENT(rename_to)
-  else CHECK_CACHED_EVENT(loaded)
-  else CHECK_CACHED_EVENT(copy_to)
-
-  else {
-         CHECK_AND_CACHE_EVENT(hset)
-    else CHECK_AND_CACHE_EVENT(hmset)
-    else CHECK_AND_CACHE_EVENT(hsetnx)
-    else CHECK_AND_CACHE_EVENT(hincrby)
-    else CHECK_AND_CACHE_EVENT(hincrbyfloat)
-    else CHECK_AND_CACHE_EVENT(hdel)
-    else CHECK_AND_CACHE_EVENT(del)
-    else CHECK_AND_CACHE_EVENT(set)
-    else CHECK_AND_CACHE_EVENT(rename_from)
-    else CHECK_AND_CACHE_EVENT(rename_to)
-    else CHECK_AND_CACHE_EVENT(trimmed)
-    else CHECK_AND_CACHE_EVENT(key_trimmed)
-    else CHECK_AND_CACHE_EVENT(restore)
-    else CHECK_AND_CACHE_EVENT(hexpire)
-    else CHECK_AND_CACHE_EVENT(hexpired)
-    else CHECK_AND_CACHE_EVENT(expire)
-    else CHECK_AND_CACHE_EVENT(expired)
-    else CHECK_AND_CACHE_EVENT(evicted)
-    else CHECK_AND_CACHE_EVENT(change)
-    else CHECK_AND_CACHE_EVENT(del)
-    else CHECK_AND_CACHE_EVENT(set)
-    else CHECK_AND_CACHE_EVENT(rename_from)
-    else CHECK_AND_CACHE_EVENT(rename_to)
-    else CHECK_AND_CACHE_EVENT(loaded)
-    else CHECK_AND_CACHE_EVENT(copy_to)
-    else redisCommand = _null_cmd;
-  }
+  if (false) {} // dummy first statement to allow the else-if chain
+  REDIS_NOTIFICATION_EVENT_LIST(CHECK_CACHED_EVENT)
+  REDIS_NOTIFICATION_EVENT_LIST(CHECK_AND_CACHE_EVENT)
+  else redisCommand = _null_cmd;
 
   switch (redisCommand) {
+
+/********************************************************
+ *  GROUP A: Normal operation (same handling in RAM and SearchDisk)
+ ********************************************************/
     case loaded_cmd:
       // on loaded event the key is stack allocated so to use it to load the
       // document we must copy it
@@ -167,47 +130,13 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
       if (!IS_SST_RDB_IN_PROCESS(ctx)) {
         Indexes_UpdateMatchingWithSchemaRules(ctx, key, DocumentType_Hash, hashFields);
       }
-
       break;
 
-/********************************************************
- *              Handling Redis commands                 *
- ********************************************************/
     case expire_cmd:
     case persist_cmd:
-    case hexpire_cmd:
-    case hpersist_cmd:
     case restore_cmd:
     case copy_to_cmd:
       Indexes_UpdateMatchingWithSchemaRules(ctx, key, getDocTypeFromString(key), hashFields);
-      break;
-
-    case del_cmd:
-    case set_cmd:
-    case trimmed_cmd:
-    case key_trimmed_cmd:
-    case expired_cmd:
-    case evicted_cmd:
-      Indexes_DeleteMatchingWithSchemaRules(ctx, key, getDocTypeFromString(key), hashFields);
-      break;
-
-    case change_cmd:
-    // TODO: hash/json
-      kp = RedisModule_OpenKey(ctx, key, REDISMODULE_READ);
-      kType = DocumentType_Unsupported;
-      if (kp) {
-        kType = getDocType(kp);
-        RedisModule_CloseKey(kp);
-      }
-      if (kType == DocumentType_Unsupported) {
-        // in crdt empty key means that key was deleted
-        // TODO:FIX
-        Indexes_DeleteMatchingWithSchemaRules(ctx, key, kType, hashFields);
-      } else {
-        // todo: here we will open the key again, we can optimize it by
-        //       somehow passing the key pointer
-        Indexes_UpdateMatchingWithSchemaRules(ctx, key, kType, hashFields);
-      }
       break;
 
     case rename_from_cmd:
@@ -217,6 +146,63 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
 
     case rename_to_cmd:
       Indexes_ReplaceMatchingWithSchemaRules(ctx, global_RenameFromKey, key);
+      break;
+
+/********************************************************
+ *  GROUP B: Skip deletion for SearchDisk (Unlink handles it)
+ ********************************************************/
+    case del_cmd:
+    case set_cmd:
+      // Deletion handled by keyMetaOnUnlink callback
+      if (!SearchDisk_IsEnabled()) {
+        Indexes_DeleteMatchingWithSchemaRules(ctx, key, getDocTypeFromString(key), hashFields);
+      }
+      break;
+
+/********************************************************
+ *  GROUP C: Ignore in SearchDisk (field-TTL metadata only)
+ ********************************************************/
+    case hexpire_cmd:
+    case hpersist_cmd:
+      // We do not support field-TTL metadata changes in the disk flow.
+      if (!SearchDisk_IsEnabled()) {
+        Indexes_UpdateMatchingWithSchemaRules(ctx, key, getDocTypeFromString(key), hashFields);
+      }
+      break;
+
+/********************************************************
+ *  GROUP D: Has deletion branch to skip for SearchDisk
+ ********************************************************/
+    case change_cmd:
+      kp = RedisModule_OpenKey(ctx, key, REDISMODULE_READ);
+      kType = DocumentType_Unsupported;
+      if (kp) {
+        kType = getDocType(kp);
+        RedisModule_CloseKey(kp);
+      }
+      if (kType == DocumentType_Unsupported) {
+        // In CRDT, empty key means key was deleted
+        if (SearchDisk_IsEnabled()) {
+          // Deletion handled by keyMetaOnUnlink callback
+          break;
+        }
+        Indexes_DeleteMatchingWithSchemaRules(ctx, key, kType, hashFields);
+      } else {
+        // todo: here we will open the key again, we can optimize it by
+        //       somehow passing the key pointer
+        Indexes_UpdateMatchingWithSchemaRules(ctx, key, kType, hashFields);
+      }
+      break;
+
+/********************************************************
+ *  GROUP E: Never received with SearchDisk (not subscribed)
+ ********************************************************/
+    case trimmed_cmd:
+    case key_trimmed_cmd:
+    case expired_cmd:
+    case evicted_cmd:
+      RS_ASSERT(!SearchDisk_IsEnabled());
+      Indexes_DeleteMatchingWithSchemaRules(ctx, key, getDocTypeFromString(key), hashFields);
       break;
   }
 
@@ -505,14 +491,36 @@ void ClusterSlotMigrationTrimEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, ui
   }
 }
 
+static void ServerReadyEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data) {
+  REDISMODULE_NOT_USED(eid);
+  REDISMODULE_NOT_USED(subevent);
+  REDISMODULE_NOT_USED(data);
+  RedisModule_Log(ctx, "notice", "Got Server ready event.");
+  if (SearchDisk_IsEnabled()) {
+    bool disk_initialized = SearchDisk_Initialize(ctx);
+    RS_LOG_ASSERT(disk_initialized, "Search Disk is enabled but could not be initialized")
+    if (RSGlobalConfig.numWorkerThreads == 0) {
+      RSGlobalConfig.numWorkerThreads = DEFAULT_WORKER_THREADS_FLEX;
+      workersThreadPool_SetNumWorkers();
+      RedisModule_Log(ctx, "notice", "WORKERS set to 1 (Flex mode default)");
+    }
+  }
+}
 
 void ShutdownEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data) {
   RedisModule_Log(ctx, "notice", "%s", "Begin releasing RediSearch resources on shutdown");
-  RediSearch_CleanupModule();
+  RediSearch_CleanupModule(ctx);
   RedisModule_Log(ctx, "notice", "%s", "End releasing RediSearch resources");
 }
 
+void ShutdownDiskClose(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data) {
+  RedisModule_Log(ctx, "notice", "%s", "Begin releasing RediSearch DiskAPI resources on shutdown");
+  SearchDisk_Close(ctx);
+  RedisModule_Log(ctx, "notice", "%s", "End releasing RediSearch DiskAPI resources");
+}
+
 #define HIDE_USER_DATA_FROM_LOGS "hide-user-data-from-log"
+#define BIGREDIS_MAX_RAM "bigredis-max-ram"
 
 bool getHideUserDataFromLogs() {
   char *value = getRedisConfigValue(RSDummyContext, HIDE_USER_DATA_FROM_LOGS);
@@ -544,19 +552,50 @@ void ConfigChangedCallback(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t e
     if (!strcmp(conf, HIDE_USER_DATA_FROM_LOGS)) {
       onUpdatedHideUserDataFromLogs(ctx);
     }
+    if (!strcmp(conf, BIGREDIS_MAX_RAM)) {
+      RS_ASSERT(SearchDisk_IsInitialized());
+      SearchDisk_UpdateBufferBudget(ctx, (int)RSGlobalConfig.diskBufferPercentage);
+    }
   }
 }
 
 void Initialize_KeyspaceNotifications() {
   static bool RS_KeyspaceEvents_Initialized = false;
   if (!RS_KeyspaceEvents_Initialized) {
-    RedisModule_SubscribeToKeyspaceEvents(RSDummyContext,
-      REDISMODULE_NOTIFY_GENERIC | REDISMODULE_NOTIFY_HASH |
+    int notifyFlags = 0;
+    if (SearchDisk_IsEnabled()) {
+      // On Disk we do not listen to notifications that lead to deleting the keys as the unlink callback of DocIDMeta will handle it.
+      notifyFlags = REDISMODULE_NOTIFY_GENERIC | REDISMODULE_NOTIFY_HASH | REDISMODULE_NOTIFY_STRING |
+      REDISMODULE_NOTIFY_LOADED | REDISMODULE_NOTIFY_MODULE;
+    } else {
+      notifyFlags = REDISMODULE_NOTIFY_GENERIC | REDISMODULE_NOTIFY_HASH |
       REDISMODULE_NOTIFY_TRIMMED | REDISMODULE_NOTIFY_KEY_TRIMMED | REDISMODULE_NOTIFY_STRING |
       REDISMODULE_NOTIFY_EXPIRED | REDISMODULE_NOTIFY_EVICTED |
-      REDISMODULE_NOTIFY_LOADED | REDISMODULE_NOTIFY_MODULE,
-      HashNotificationCallback);
+      REDISMODULE_NOTIFY_LOADED | REDISMODULE_NOTIFY_MODULE;
+    }
+    RedisModule_SubscribeToKeyspaceEvents(RSDummyContext, notifyFlags, HashNotificationCallback);
     RS_KeyspaceEvents_Initialized = true;
+  }
+}
+
+// Persistence event handler.
+// Called on BGSAVE/AOF rewrite start and end.
+static void PersistenceEvent(RedisModuleCtx *ctx, RedisModuleEvent eid,
+                             uint64_t subevent, void *data) {
+  REDISMODULE_NOT_USED(eid);
+  REDISMODULE_NOT_USED(data);
+
+  switch (subevent) {
+  case REDISMODULE_SUBEVENT_PERSISTENCE_RDB_START:
+  case REDISMODULE_SUBEVENT_PERSISTENCE_SYNC_RDB_START:
+    RedisModule_Log(ctx, "notice", "Persistence started");
+    DocIdMeta_SetPersistenceInProgress(true);
+    break;
+  case REDISMODULE_SUBEVENT_PERSISTENCE_ENDED:
+  case REDISMODULE_SUBEVENT_PERSISTENCE_FAILED:
+    RedisModule_Log(ctx, "notice", "Persistence ended");
+    DocIdMeta_SetPersistenceInProgress(false);
+    break;
   }
 }
 
@@ -568,23 +607,35 @@ void Initialize_ServerEventNotifications(RedisModuleCtx *ctx) {
   // after resharding, its safe to filter keys which are not in our slot range.
   if (RedisModule_ShardingGetKeySlot) {
     // we have server events support, lets subscribe to relevant events.
-    RedisModule_Log(ctx, "notice", "%s", "Subscribe to sharding events");
+    RedisModule_Log(ctx, "notice", "Subscribe to sharding events");
     RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_Sharding, ShardingEvent);
   }
-
+  bool shutdownEventHandled = false;
   if (getenv("RS_GLOBAL_DTORS")) {
     // clear resources when the server exits
     // used only with sanitizer or valgrind
-    RedisModule_Log(ctx, "notice", "%s", "Subscribe to clear resources on shutdown");
+    RedisModule_Log(ctx, "notice", "Subscribe to clear resources on shutdown");
     RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_Shutdown, ShutdownEvent);
+    shutdownEventHandled = true;
   }
 
-  RedisModule_Log(ctx, "notice", "%s", "Subscribe to config changes");
+  if (!shutdownEventHandled && SearchDisk_IsEnabled()) {
+    RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_Shutdown, ShutdownDiskClose);
+  }
+
+  RedisModule_Log(ctx, "notice", "Subscribe to config changes");
   RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_Config, ConfigChangedCallback);
 
-  RedisModule_Log(ctx, "notice", "%s", "Subscribe to cluster slot migration events");
+  RedisModule_Log(ctx, "notice", "Subscribe to cluster slot migration events");
   RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_ClusterSlotMigration, ClusterSlotMigrationEvent);
   RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_ClusterSlotMigrationTrim, ClusterSlotMigrationTrimEvent);
+  if (SearchDisk_IsEnabled()) {
+    RedisModule_Log(ctx, "notice", "Subscribe to Server ready event");
+    RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_ServerReady, ServerReadyEvent);
+
+    RedisModule_Log(ctx, "notice", "Subscribe to persistence events");
+    RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_Persistence, PersistenceEvent);
+  }
 }
 
 void Initialize_CommandFilter(RedisModuleCtx *ctx) {
@@ -602,10 +653,10 @@ void ReplicaBackupCallback(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t s
     Backup_Globals();
     break;
   case REDISMODULE_SUBEVENT_REPL_BACKUP_RESTORE:
-    Restore_Globals();
+    Restore_Globals(ctx);
     break;
   case REDISMODULE_SUBEVENT_REPL_BACKUP_DISCARD:
-    Discard_Globals_Backup();
+    Discard_Globals_Backup(ctx);
     break;
   }
 }
@@ -673,7 +724,7 @@ void RDB_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subeve
   case REDISMODULE_SUBEVENT_LOADING_RDB_START:
   case REDISMODULE_SUBEVENT_LOADING_AOF_START:
   case REDISMODULE_SUBEVENT_LOADING_REPL_START:
-    Indexes_StartRDBLoadingEvent();
+    Indexes_StartRDBLoadingEvent(ctx);
     workersThreadPool_OnEventStart();
     RedisModule_Log(RSDummyContext, "notice", "Loading event started");
     break;

@@ -9,10 +9,10 @@
 
 #pragma once
 
-#include "src/query.h"
-#include "src/stopwords.h"
-#include "src/extension.h"
-#include "src/ext/default.h"
+#include "query.h"
+#include "stopwords.h"
+#include "extension.h"
+#include "ext/default.h"
 
 #include <cstring>
 

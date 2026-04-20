@@ -38,15 +38,6 @@ typedef struct HybridRequest HybridRequest;
 #define printProfileVectorSearchMode(searchMode) \
   RedisModule_ReplyKV_SimpleString(reply, "Vector search mode", VecSimSearchMode_ToString(searchMode))
 
-/**
- * @brief Add profile iterators to all nodes in the iterator tree
- *
- * This recursively adds profile iterators to all nodes in the iterator tree.
- *
- * @param root The root iterator
- */
-void Profile_AddIters(QueryIterator **root);
-
 // Print the profile of a single shard
 void Profile_Print(RedisModule_Reply *reply, void *ctx);
 
@@ -79,13 +70,13 @@ static_assert(PROFILE_WARNING_TYPE_ASM_INACCURATE_RESULTS <= (1 << 7),
 
 static void ProfileWarnings_Add(ProfileWarnings *profileWarnings, ProfileWarningType code) {
   RS_ASSERT(profileWarnings);
-  RS_ASSERT(code <= (1 << (sizeof(ProfileWarnings) * 8 - 1)));
+  RS_ASSERT((size_t)code <= (1 << (sizeof(ProfileWarnings) * 8 - 1)));
   *profileWarnings |= code;
 }
 
 static bool ProfileWarnings_Has(const ProfileWarnings *profileWarnings, ProfileWarningType code) {
   RS_ASSERT(profileWarnings);
-  RS_ASSERT(code <= (1 << (sizeof(ProfileWarnings) * 8 - 1)));
+  RS_ASSERT((size_t)code <= (1 << (sizeof(ProfileWarnings) * 8 - 1)));
   return *profileWarnings & code;
 }
 

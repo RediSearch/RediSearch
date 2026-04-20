@@ -66,6 +66,9 @@ typedef struct {
 
   // Async disk I/O state (only used when async disk I/O is enabled)
   IndexResultAsyncReadState async;
+#ifdef ENABLE_ASSERT
+  bool firstRead;  // Debug only: tracks if this is the first read for sync point testing
+#endif
 } RPQueryIterator;
 
 
@@ -84,6 +87,7 @@ typedef struct {
 static bool getDocumentMetadata(IndexSpec* spec, DocTable* docs, RedisSearchCtx *sctx, const QueryIterator *it, const RSDocumentMetadata **dmd) {
   if (spec->diskSpec) {
     RSDocumentMetadata* diskDmd = (RSDocumentMetadata *)rm_calloc(1, sizeof(RSDocumentMetadata));
+    diskDmd->sortVector = RSSortingVector_Empty();
     diskDmd->ref_count = 1;
     // Start from checking the deleted-ids (in memory), then perform IO
     const bool foundDocument = !SearchDisk_DocIdDeleted(spec->diskSpec, it->current->docId) && SearchDisk_GetDocumentMetadata(spec->diskSpec, it->current->docId, diskDmd, &sctx->time.current);
@@ -198,7 +202,7 @@ static void setSearchResult(ResultProcessor *base, SearchResult *res, RSIndexRes
   SearchResult_SetIndexResult(res, indexResult);
   SearchResult_SetScore(res, 0);
   SearchResult_SetDocumentMetadata(res, dmd);
-  RLookupRow_SetSortingVector(SearchResult_GetRowDataMut(res), dmd->sortVector);
+  RLookupRow_SetSortingVector(SearchResult_GetRowDataMut(res), &dmd->sortVector);
 }
 
 /**
@@ -214,6 +218,7 @@ static void setSearchResult(ResultProcessor *base, SearchResult *res, RSIndexRes
  */
 static bool handleSpecLockAndRevalidate(RPQueryIterator *self) {
   RedisSearchCtx *sctx = self->sctx;
+
   // For disk indexes, return immediately, since we don't need to acquire the
   // lock, nor to revalidate the iterators.
   if (sctx->spec->diskSpec) {
@@ -252,6 +257,14 @@ static int rpQueryItNext(ResultProcessor *base, SearchResult *res) {
 
   // Always update it after revalidation as iterator may have been replaced
   it = self->iterator;
+
+#ifdef ENABLE_ASSERT
+  // Make sure MT is enabled and `workers > 0` - deadlock otherwise.
+  if (self->firstRead) {
+    self->firstRead = false;
+    SyncPoint_Wait(SYNC_POINT_BEFORE_FIRST_READ);
+  }
+#endif
 
   while (1) {
     if (TimedOut_WithCounter(&sctx->time.timeout, &self->timeoutLimiter) == TIMED_OUT) {
@@ -300,6 +313,13 @@ static int rpQueryItNext_AsyncDisk(ResultProcessor *base, SearchResult *res) {
 
   // Always update it after revalidation as iterator may have been replaced
   it = self->iterator;
+
+#ifdef ENABLE_ASSERT
+  if (self->firstRead) {
+    self->firstRead = false;
+    SyncPoint_Wait(SYNC_POINT_BEFORE_FIRST_READ);
+  }
+#endif
 
   while (1) {
     if (TimedOut_WithCounter(&sctx->time.timeout, &self->timeoutLimiter) == TIMED_OUT) {
@@ -374,6 +394,9 @@ ResultProcessor *RPQueryIterator_New(QueryIterator *root, const RedisModuleSlotR
   ret->base.type = RP_INDEX;
   // Use REDISEARCH_UNINITIALIZED counter to skip timeout checks
   ret->timeoutLimiter = sctx->time.skipTimeoutChecks ? REDISEARCH_UNINITIALIZED : 0;
+#ifdef ENABLE_ASSERT
+  ret->firstRead = true;
+#endif
 
   // Initialize async read state
   IndexResultAsyncRead_Init(&ret->async, MAX_ONGOING_READ_SIZE);
@@ -698,40 +721,23 @@ static inline int cmpByScore(const void *e1, const void *e2, const void *udata) 
   return SearchResult_GetDocId(h1) > SearchResult_GetDocId(h2) ? -1 : 1;
 }
 
-/* Compare results for the heap by sorting key */
+/* Compare results for the heap by sorting key.
+ *
+ * The field comparison loop lives in Rust (RLookupRow_CmpByFields) to avoid
+ * per-key FFI crossings for RLookupRow_Get. This wrapper handles the qerr
+ * setup and docid tiebreak. */
 static int cmpByFields(const void *e1, const void *e2, const void *udata) {
   const RPSorter *self = udata;
   const SearchResult *h1 = e1, *h2 = e2;
-  int ascending = 0;
 
   QueryError *qerr = NULL;
   if (self && self->base.parent && self->base.parent->err) {
     qerr = self->base.parent->err;
   }
 
-  for (size_t i = 0; i < self->fieldcmp.nkeys && i < SORTASCMAP_MAXFIELDS; i++) {
-    const RSValue *v1 = RLookupRow_Get(self->fieldcmp.keys[i], SearchResult_GetRowData(h1));
-    const RSValue *v2 = RLookupRow_Get(self->fieldcmp.keys[i], SearchResult_GetRowData(h2));
-    // take the ascending bit for this property from the ascending bitmap
-    ascending = SORTASCMAP_GETASC(self->fieldcmp.ascendMap, i);
-    if (!v1 || !v2) {
-      // If at least one of these has no sort key, it gets high value regardless of asc/desc
-      if (v1) {
-        return 1;
-      } else if (v2) {
-        return -1;
-      } else {
-        // Both have no sort key, so they are equal. Continue to next sort key
-        continue;
-      }
-    }
-
-    int rc = RSValue_Cmp(v1, v2, qerr);
-    if (rc != 0) return ascending ? -rc : rc;
-  }
-
-  int rc = SearchResult_GetDocId(h1) < SearchResult_GetDocId(h2) ? -1 : 1;
-  return ascending ? -rc : rc;
+  return SearchResult_CmpByFields(
+      self->fieldcmp.keys, self->fieldcmp.nkeys,
+      h1, h2, self->fieldcmp.ascendMap, qerr);
 }
 
 static void srDtor(void *p) {
@@ -850,6 +856,7 @@ typedef struct {
   ResultProcessor base;
   RLookup *lk;
   RLookupLoadOptions loadopts;
+  bool load_all;
   QueryError status;
 } RPLoader;
 
@@ -884,9 +891,17 @@ static void rpLoader_loadDocument(RPLoader *self, SearchResult *r) {
   }
 
   self->loadopts.dmd = SearchResult_GetDocumentMetadata(r);
+
+  int ret;
+  if (self->load_all) {
+      ret = RLookup_LoadDocumentAll(self->lk, SearchResult_GetRowDataMut(r), &self->loadopts);
+  } else {
+      ret = RLookup_LoadDocumentIndividual(self->lk, SearchResult_GetRowDataMut(r), &self->loadopts);
+  }
+
   // if loading the document has failed, we keep the row as it was.
   // Error code and message are ignored.
-  if (RLookup_LoadDocument(self->lk, SearchResult_GetRowDataMut(r), &self->loadopts) != REDISMODULE_OK) {
+  if (ret != REDISMODULE_OK) {
     // mark the document as "failed to open" for later loaders or other threads (optimization)
     ((RSDocumentMetadata *)(SearchResult_GetDocumentMetadata(r)))->flags |= Document_FailedToOpen;
     // The result contains an expired document.
@@ -923,13 +938,13 @@ static void rploaderNew_setLoadOpts(RPLoader *self, RedisSearchCtx *sctx, RLooku
   self->loadopts.status = &self->status;
   self->loadopts.sctx = sctx;
   self->loadopts.dmd = NULL;
-  self->loadopts.keys = rm_malloc(sizeof(*keys) * nkeys);
-  memcpy(self->loadopts.keys, keys, sizeof(*keys) * nkeys);
-  self->loadopts.nkeys = nkeys;
   if (nkeys) {
-    self->loadopts.mode = RLOOKUP_LOAD_KEYLIST;
+    self->loadopts.keys = rm_malloc(sizeof(*keys) * nkeys);
+    memcpy(self->loadopts.keys, keys, sizeof(*keys) * nkeys);
+    self->loadopts.nkeys = nkeys;
+    self->load_all = false;
   } else {
-    self->loadopts.mode = RLOOKUP_LOAD_ALLKEYS;
+    self->load_all = true;
     RLookup_EnableOptions(lk, RLOOKUP_OPT_ALLLOADED); // TODO: turn on only for HASH specs
   }
 
@@ -1232,6 +1247,8 @@ static ResultProcessor *RPKeyNameLoader_New(const RLookupKey *key) {
 /*********************************************************************************/
 
 ResultProcessor *RPLoader_New(RedisSearchCtx *sctx, uint32_t reqflags, RLookup *lk, const RLookupKey **keys, size_t nkeys, bool forceLoad, uint32_t *outStateflags) {
+  RS_LOG_ASSERT(!(SearchDisk_IsEnabledForValidation() && sctx && sctx->spec && sctx->spec->diskSpec),
+                "RPLoader should not be created for disk indexes");
   if (RSGlobalConfig.enableUnstableFeatures) {
     if (nkeys == 1 && !strcmp(RLookupKey_GetPath(keys[0]), UNDERSCORE_KEY)) {
       // Return a thin RP that doesn't actually loads anything or access to the key space
@@ -1375,9 +1392,14 @@ ResultProcessor *RPProfile_New(ResultProcessor *rp, QueryProcessingCtx *qctx) {
   return &rpp->base;
 }
 
-rs_wall_clock_ns_t RPProfile_GetClock(ResultProcessor *rp) {
-  RPProfile *self = (RPProfile *)rp;
-  return self->profileTime;
+rs_wall_clock_ns_t RPProfile_GetTime(ResultProcessor *rp) {
+  if (rp->upstream && rp->upstream->type == RP_SAFE_DEPLETER) {
+    return RPSafeDepleter_GetDepletionTime(rp->upstream);
+  } else if (rp->upstream && rp->upstream->type == RP_DEPLETER) {
+    return RPDepleter_GetDepletionTime(rp->upstream);
+  } else {
+    return ((RPProfile *)rp)->profileTime;
+  }
 }
 
 uint64_t RPProfile_GetCount(ResultProcessor *rp) {
@@ -1612,6 +1634,7 @@ typedef struct {
   pthread_mutex_t mutex;
   uint32_t num_depleters;  // Number of depleters to sync
   atomic_int num_locked;   // Number of depleters that have locked the index
+  atomic_int num_skipped_lock;  // Number of depleters that skipped locking (timeout before start or lock failure)
   bool index_released;     // Whether or not the index-spec has been released by the pipeline thread yet
   bool take_index_lock;    // Whether or not the depleter should take the index lock
 } DepleterSync;
@@ -1631,6 +1654,8 @@ StrongRef DepleterSync_New(uint32_t num_depleters, bool take_index_lock) {
   pthread_mutex_init(&sync->mutex, NULL);
   sync->num_depleters = num_depleters;
   sync->take_index_lock = take_index_lock;
+  atomic_store(&sync->num_locked, 0);
+  atomic_store(&sync->num_skipped_lock, 0);
   return StrongRef_New(sync, DepleterSync_Free);
 }
 
@@ -1669,19 +1694,30 @@ static void RPSafeDepleter_Free(ResultProcessor *base) {
  * Get the depletion time for RPSafeDepleter.
  * This is the time spent in the background thread depleting upstream results.
  */
-rs_wall_clock_ns_t RPSafeDepleter_GetDepletionTime(ResultProcessor *base) {
-  RPSafeDepleter *self = (RPSafeDepleter *)base;
+rs_wall_clock_ns_t RPSafeDepleter_GetDepletionTime(const ResultProcessor *base) {
+  const RPSafeDepleter *self = (const RPSafeDepleter *)base;
   return self->depletionTime;
 }
 
 // Helper function for RPSafeDepleter_Deplete that does the actual work of locking, depleting, and unlocking
 static void RPSafeDepleter_DepleteFromUpstream(RPSafeDepleter *self, DepleterSync *sync) {
   RPStatus rc;
+  bool lock_acquired = false;
 
   if (sync->take_index_lock) {
-    // Lock the index for read
-    RedisSearchCtx_LockSpecRead(self->depletingThreadCtx);
-    // Increment the counter
+    // Try to lock the index for read (non-blocking)
+    // If a writer is waiting, this will fail immediately to prevent deadlock
+    int lock_rc = RedisSearchCtx_TryLockSpecRead(self->depletingThreadCtx);
+    if (lock_rc != REDISMODULE_OK) {
+      // Failed to acquire lock - likely a writer is waiting
+      // Set error status and return without depleting
+      self->last_rc = RS_RESULT_ERROR;
+      // Signal that we're skipping the lock phase (for WaitForDepletionToStart)
+      atomic_fetch_add(&sync->num_skipped_lock, 1);
+      return;
+    }
+    lock_acquired = true;
+    // Increment the counter to signal we have the lock
     atomic_fetch_add(&sync->num_locked, 1);
   }
 
@@ -1704,7 +1740,7 @@ static void RPSafeDepleter_DepleteFromUpstream(RPSafeDepleter *self, DepleterSyn
   }
 
   // Unlock the index if we locked it
-  if (sync->take_index_lock) {
+  if (lock_acquired) {
     RedisSearchCtx_UnlockSpec(self->depletingThreadCtx);
   }
 
@@ -1728,10 +1764,11 @@ static void RPSafeDepleter_Deplete(void *arg) {
   if (self->depletingThreadCtx->time.skipTimeoutChecks || TimedOut(&self->depletingThreadCtx->time.timeout) == NOT_TIMED_OUT) {
     RPSafeDepleter_DepleteFromUpstream(self, sync);
   } else {
-    // No need to do actual work, but still update the lock counter to be in sync
+    // Timeout before starting - no need to acquire lock or do any work
     self->last_rc = RS_RESULT_TIMEDOUT;
     if (sync->take_index_lock) {
-      atomic_fetch_add(&sync->num_locked, 1);
+      // Signal that we're skipping the lock phase (for WaitForDepletionToStart)
+      atomic_fetch_add(&sync->num_skipped_lock, 1);
     }
   }
 
@@ -1771,23 +1808,34 @@ static inline void RPSafeDepleter_StartDepletionThread(RPSafeDepleter *self) {
   RS_ASSERT_ALWAYS(rc == 0);
 }
 
-// Can only succeed once, if called after RE_RESULT_OK was returned an error will be returned
-// Waits for all the depletion threads to take a read lock
-// After all of them took a lock it will release its own read lock which was previously obtained in the main query thread
-// This ensures all the safe depleters see a consistent index state across the board for their lifetime
+// Can only succeed once, if called after RE_RESULT_OK was returned an error
+// will be returned
+// Waits for all the depletion threads to complete the lock acquisition phase.
+// Each depleter will either: acquire a lock (num_locked++), or skip
+// (num_skipped_lock++).
+// Once all depleters have completed this phase, the main thread releases its
+// lock. This ensures all the safe depleters that acquired locks see a
+// consistent index state.
 static inline int RPSafeDepleter_WaitForDepletionToStart(DepleterSync *sync, RedisSearchCtx *nextThreadCtx) {
   if (sync->take_index_lock && !sync->index_released) {
-    // Load the atomic counter
+    // Load the atomic counters
     int num_locked = atomic_load(&sync->num_locked);
-    RS_ASSERT(num_locked <= sync->num_depleters);
-    if (num_locked == sync->num_depleters) {
-      // Release the index
+    int num_skipped_lock = atomic_load(&sync->num_skipped_lock);
+    int total_handled = num_locked + num_skipped_lock;
+    RS_ASSERT(total_handled <= sync->num_depleters);
+
+    if (total_handled == sync->num_depleters) {
+      // All depleters have completed the lock acquisition phase
+      // Release the main thread's lock - depleters that acquired locks have
+      // their own
+      // This prevents deadlock: SafeLoader needs GIL, Writer holds GIL waiting for write lock
       RedisSearchCtx_UnlockSpec(nextThreadCtx);
       // Mark the index as released
       sync->index_released = true;
       return RS_RESULT_OK;
     } else {
-      // Not all safe depleter threads have taken the index lock yet. Wait for them
+      // Not all safe depleter threads have completed the lock phase yet.
+      // Wait for them
       return RS_RESULT_DEPLETING;
     }
   }
@@ -1915,12 +1963,14 @@ static inline bool verifyInvariants(arrayof(ResultProcessor*) safeDepleters, Dep
 * 2. Wait for all the threads to take their own read lock and then unlock the lock it held - we assume the lock was taken in the query thread
 * 3. Wait for the depletion to complete in all the safe depleters, there is no timeout handling here - we rely on each safe depleter to handle timeout and stop depleting.
 * 4. The function must return only after all the depletion threads finished running
+* 5. If any depleter fails to acquire the lock (RS_RESULT_ERROR), return RS_RESULT_ERROR to propagate the failure
 */
-int RPSafeDepleter_DepleteAll(arrayof(ResultProcessor*) safeDepleters) {
+int RPSafeDepleter_DepleteAll(arrayof(ResultProcessor*) safeDepleters, QueryError *status) {
   DepleterSync *sync = NULL;
   RedisSearchCtx *searchCtx = NULL;
   // Verify we are in a sane state before starting the depletion process
   if (!verifyInvariants(safeDepleters, &sync, &searchCtx)) {
+    QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_SAFE_DEPLETER_FAILURE, "Failed to start background depletion");
     return RS_RESULT_ERROR;
   }
 
@@ -1962,6 +2012,20 @@ int RPSafeDepleter_DepleteAll(arrayof(ResultProcessor*) safeDepleters) {
       usleep(1000);
     }
   }
+
+  // Note: The main thread's lock was already released in WaitForDepletionToStart
+  // after all depleters acquired their locks (or when any failed).
+  // This early release prevents deadlock with SafeLoader GIL acquisition.
+
+  // Check if any depleter skipped the lock phase (timeout before start or lock failure)
+  int num_skipped_lock = atomic_load(&sync->num_skipped_lock);
+  if (num_skipped_lock > 0) {
+    // At least one depleter skipped the lock phase
+    QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_SAFE_DEPLETER_FAILURE,
+      "Failed to acquire index lock for background depletion. A write operation may be in progress. Please retry.");
+    return RS_RESULT_ERROR;
+  }
+
   return RS_RESULT_OK;
 }
 
@@ -2587,6 +2651,7 @@ typedef struct {
   size_t cur_idx;                  // Current index for yielding results
   RPStatus last_rc;                // Last return code from upstream
   uint32_t depleted_results;       // Total number of results depleted
+  rs_wall_clock_ns_t depletionTime; // Time spent depleting upstream results
 } RPDepleter;
 
 /**
@@ -2598,6 +2663,10 @@ static void RPDepleter_Deplete(RPDepleter *self) {
   SearchResult *r = rm_calloc(1, sizeof(*r));
   *r = SearchResult_New();
 
+  // Track depletion time for profiling
+  rs_wall_clock start;
+  rs_wall_clock_init(&start);
+
   // Deplete all results from upstream
   while ((rc = self->base.upstream->Next(self->base.upstream, r)) == RS_RESULT_OK) {
     array_append(self->results, r);
@@ -2605,6 +2674,9 @@ static void RPDepleter_Deplete(RPDepleter *self) {
     *r = SearchResult_New();
     self->depleted_results++;
   }
+
+  // Record depletion time
+  self->depletionTime = rs_wall_clock_elapsed_ns(&start);
 
   SearchResult_Destroy(r);
   rm_free(r);
@@ -2660,9 +2732,6 @@ static void RPDepleter_Free(ResultProcessor *base) {
   rm_free(self);
 }
 
-/**
- * Constructs a new depleter processor that runs in the current thread.
- */
 ResultProcessor *RPDepleter_New() {
   RPDepleter *ret = rm_calloc(1, sizeof(*ret));
   ret->results = array_new(SearchResult*, 0);
@@ -2671,4 +2740,31 @@ ResultProcessor *RPDepleter_New() {
   ret->base.type = RP_DEPLETER;
   ret->depleted_results = 0;
   return &ret->base;
+}
+
+void RPDepleter_StartDepletion(ResultProcessor *base) {
+  RPDepleter *self = (RPDepleter *)base;
+
+  // Deplete all results from upstream
+  RPDepleter_Deplete(self);
+
+  // Switch to yield mode so subsequent Next() calls return buffered results
+  self->base.Next = RPDepleter_Next_Yield;
+}
+
+rs_wall_clock_ns_t RPDepleter_GetDepletionTime(const ResultProcessor *base) {
+  const RPDepleter *self = (const RPDepleter *)base;
+  return self->depletionTime;
+}
+
+int RPDepleter_DepleteAll(arrayof(ResultProcessor*) depleters) {
+  for (size_t i = 0; i < array_len(depleters); i++) {
+    RS_ASSERT(depleters[i]->type == RP_DEPLETER);
+    RPDepleter_StartDepletion(depleters[i]);
+    const RPDepleter *depleter = (const RPDepleter *)depleters[i];
+    if (depleter->last_rc != RS_RESULT_EOF) {
+      return depleter->last_rc;
+    }
+  }
+  return RS_RESULT_OK;
 }

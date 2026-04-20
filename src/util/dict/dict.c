@@ -168,6 +168,23 @@ dictType dictTypeHeapRedisStrings = {
   .valDestructor = NULL,
 };
 
+// Hash function for uint64_t keys stored directly as void* (cast).
+// Identity hash — sufficient for sequential integer keys.
+static uint64_t uint64HashFunction(const void *key) {
+  return (uintptr_t)key;
+}
+
+// Dict type for uint64_t keys (and values) stored as void* (no dup/free needed).
+// Keys are compared by pointer equality (default when keyCompare is NULL).
+dictType dictTypeUint64 = {
+  .hashFunction = uint64HashFunction,
+  .keyDup = NULL,
+  .valDup = NULL,
+  .keyCompare = NULL,
+  .keyDestructor = NULL,
+  .valDestructor = NULL,
+};
+
 /* Using dictEnableResize() / dictDisableResize() we make possible to
  * enable/disable resizing of the hash table as needed. This is very important
  * for Redis, as we use copy-on-write and don't want to move too much memory
@@ -356,7 +373,7 @@ long long timeInMilliseconds(void) {
 
 /* Rehash for an amount of time between ms milliseconds and ms+1 milliseconds */
 int RS_dictRehashMilliseconds(dict *d, int ms) {
-    if (__atomic_load_n(&d->pauserehash, __ATOMIC_RELAXED) > 0) return 0;
+    if (__atomic_load_n(&d->pauserehash, __ATOMIC_ACQUIRE) > 0) return 0;
 
     long long start = timeInMilliseconds();
     int rehashes = 0;
@@ -377,7 +394,8 @@ int RS_dictRehashMilliseconds(dict *d, int ms) {
  * dictionary so that the hash table automatically migrates from H1 to H2
  * while it is actively used. */
 static void _dictRehashStep(dict *d) {
-    if (__atomic_load_n(&d->pauserehash, __ATOMIC_RELAXED) == 0) RS_dictRehash(d,1);
+    // Use __ATOMIC_ACQUIRE to pair with __ATOMIC_RELEASE in dictResumeRehashing.
+    if (__atomic_load_n(&d->pauserehash, __ATOMIC_ACQUIRE) == 0) RS_dictRehash(d,1);
 }
 
 /* Add an element to the target hash table */
@@ -1239,7 +1257,7 @@ void RS_dictGetStats(char *buf, size_t bufsize, dict *d) {
 
 #ifdef DICT_BENCHMARK_MAIN
 
-#include "sds.h"
+#include "hiredis/sds.h"
 
 uint64_t hashCallback(const void *key) {
     return dictGenHashFunction((unsigned char*)key, sdslen((char*)key));

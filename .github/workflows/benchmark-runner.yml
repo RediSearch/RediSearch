@@ -17,6 +17,10 @@ on:
         type: string
         description: "if empty allows all setups. if not, will only trigger for a specific setup"
         default: ""
+      benchmark_filter:
+        type: string
+        description: "Glob to narrow benchmark selection (e.g. 'search-json*.yml'). Intersected with per-job defaults. Empty = no filtering."
+        default: ""
       rejson_branch:
         type: string
         default: master
@@ -33,14 +37,34 @@ on:
         type: string
         description: "if empty allows all setups. if not, will only trigger for a specific setup"
         default: ""
+      benchmark_filter:
+        type: string
+        default: ""
       notify_failure:
         type: boolean
         default: false
         description: "if true, will notify failure on slack"
 
 jobs:
+  # Build RediSearch ONCE here. Every benchmark job below downloads the
+  # resulting redisearch.so as an artifact instead of rebuilding it.
+  build-redisearch:
+    uses: ./.github/workflows/flow-build-benchmark-binary.yml
+    with:
+      profile_env: 0
+      artifact_name: redisearch-bin-${{ github.run_id }}-${{ github.run_attempt }}
+
+  # Profile build is only needed when profiler benchmarks are enabled.
+  build-redisearch-profile:
+    if: ${{ inputs.profiler }}
+    uses: ./.github/workflows/flow-build-benchmark-binary.yml
+    with:
+      profile_env: 1
+      artifact_name: redisearch-bin-profile-${{ github.run_id }}-${{ github.run_attempt }}
+
   benchmark-search-oss-standalone:
     if: ${{ inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-standalone' }}
+    needs: build-redisearch
     strategy:
       fail-fast: false
       matrix:
@@ -49,14 +73,17 @@ jobs:
     secrets: inherit
     with:
       benchmark_glob: "search*.yml"
+      benchmark_filter: ${{ inputs.benchmark_filter }}
       allowed_envs: oss-standalone
       allowed_setups: oss-standalone
       benchmark_runner_group_member_id: ${{ matrix.member_id }}
       benchmark_runner_group_total: ${{ strategy.job-total }}
+      binary_artifact_name: redisearch-bin-${{ github.run_id }}-${{ github.run_attempt }}
 
   benchmark-search-oss-standalone-threads-6:
     # TODO: Temporarily disabled - Redis becomes unavailable after ~3 hours of data loading.
     if: false # ${{ inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-standalone-threads-6' }}
+    needs: build-redisearch
     strategy:
       fail-fast: false
       matrix:
@@ -65,13 +92,16 @@ jobs:
     secrets: inherit
     with:
       benchmark_glob: "search*.yml"
+      benchmark_filter: ${{ inputs.benchmark_filter }}
       allowed_envs: oss-standalone
       allowed_setups: oss-standalone-threads-6
       benchmark_runner_group_member_id: ${{ matrix.member_id }}
       benchmark_runner_group_total: ${{ strategy.job-total }}
+      binary_artifact_name: redisearch-bin-${{ github.run_id }}-${{ github.run_attempt }}
 
   benchmark-vecsim-oss-standalone:
     if: ${{ inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-standalone' }}
+    needs: build-redisearch
     strategy:
       fail-fast: false
       matrix:
@@ -80,13 +110,16 @@ jobs:
     secrets: inherit
     with:
       benchmark_glob: "vecsim*.yml"
+      benchmark_filter: ${{ inputs.benchmark_filter }}
       allowed_envs: oss-standalone
       allowed_setups: oss-standalone
       benchmark_runner_group_member_id: ${{ matrix.member_id }}
       benchmark_runner_group_total: ${{ strategy.job-total }}
+      binary_artifact_name: redisearch-bin-${{ github.run_id }}-${{ github.run_attempt }}
 
   benchmark-vecsim-oss-standalone-threads-6:
     if: ${{ inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-standalone-threads-6' }}
+    needs: build-redisearch
     strategy:
       fail-fast: false
       matrix:
@@ -95,13 +128,16 @@ jobs:
     secrets: inherit
     with:
       benchmark_glob: "vecsim*.yml"
+      benchmark_filter: ${{ inputs.benchmark_filter }}
       allowed_envs: oss-standalone
       allowed_setups: oss-standalone-threads-6
       benchmark_runner_group_member_id: ${{ matrix.member_id }}
       benchmark_runner_group_total: ${{ strategy.job-total }}
+      binary_artifact_name: redisearch-bin-${{ github.run_id }}-${{ github.run_attempt }}
 
   benchmark-search-oss-cluster-02-primaries:
     if: ${{ inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-cluster-02-primaries' }}
+    needs: build-redisearch
     strategy:
       fail-fast: false
       matrix:
@@ -110,13 +146,16 @@ jobs:
     secrets: inherit
     with:
       benchmark_glob: "search*.yml"
+      benchmark_filter: ${{ inputs.benchmark_filter }}
       allowed_envs: oss-cluster
       allowed_setups: oss-cluster-02-primaries
       benchmark_runner_group_member_id: ${{ matrix.member_id }}
       benchmark_runner_group_total: ${{ strategy.job-total }}
+      binary_artifact_name: redisearch-bin-${{ github.run_id }}-${{ github.run_attempt }}
 
   benchmark-search-oss-cluster-04-primaries:
     if: ${{ inputs.extended && (inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-cluster-04-primaries') }}
+    needs: build-redisearch
     strategy:
       fail-fast: false
       matrix:
@@ -125,14 +164,17 @@ jobs:
     secrets: inherit
     with:
       benchmark_glob: "search*.yml"
+      benchmark_filter: ${{ inputs.benchmark_filter }}
       allowed_envs: oss-cluster
       allowed_setups: oss-cluster-04-primaries
       benchmark_runner_group_member_id: ${{ matrix.member_id }}
       benchmark_runner_group_total: ${{ strategy.job-total }}
+      binary_artifact_name: redisearch-bin-${{ github.run_id }}-${{ github.run_attempt }}
 
   benchmark-search-oss-cluster-04-primaries-threads-6:
     # TODO: Temporarily disabled - Redis becomes unavailable after ~3 hours of data loading.
     if: false # if: ${{ inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-cluster-04-primaries-threads-6' }}
+    needs: build-redisearch
     strategy:
       fail-fast: false
       matrix:
@@ -141,13 +183,16 @@ jobs:
     secrets: inherit
     with:
       benchmark_glob: "search*.yml"
+      benchmark_filter: ${{ inputs.benchmark_filter }}
       allowed_envs: oss-cluster
       allowed_setups: oss-cluster-04-primaries-threads-6
       benchmark_runner_group_member_id: ${{ matrix.member_id }}
       benchmark_runner_group_total: ${{ strategy.job-total }}
+      binary_artifact_name: redisearch-bin-${{ github.run_id }}-${{ github.run_attempt }}
 
   benchmark-search-oss-cluster-08-primaries:
     if: ${{ inputs.extended && (inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-cluster-08-primaries') }}
+    needs: build-redisearch
     strategy:
       fail-fast: false
       matrix:
@@ -156,22 +201,28 @@ jobs:
     secrets: inherit
     with:
       benchmark_glob: "search*.yml"
+      benchmark_filter: ${{ inputs.benchmark_filter }}
       allowed_envs: oss-cluster
       allowed_setups: oss-cluster-08-primaries
       benchmark_runner_group_member_id: ${{ matrix.member_id }}
       benchmark_runner_group_total: ${{ strategy.job-total }}
+      binary_artifact_name: redisearch-bin-${{ github.run_id }}-${{ github.run_attempt }}
 
   benchmark-msmarco-oss-cluster-08-primaries-250gb-threads-8:
     if: ${{ inputs.allowed_setup == 'oss-cluster-08-primaries-250gb-threads-8' }}
+    needs: build-redisearch
     uses: ./.github/workflows/benchmark-flow.yml
     secrets: inherit
     with:
       benchmark_glob: "search-msmarco*.yml"
+      benchmark_filter: ${{ inputs.benchmark_filter }}
       allowed_envs: oss-cluster
       allowed_setups: oss-cluster-08-primaries-250gb-threads-8
+      binary_artifact_name: redisearch-bin-${{ github.run_id }}-${{ github.run_attempt }}
 
   benchmark-search-oss-cluster-16-primaries:
     if: ${{ inputs.extended && (inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-cluster-16-primaries') }}
+    needs: build-redisearch
     strategy:
       fail-fast: false
       matrix:
@@ -180,13 +231,16 @@ jobs:
     secrets: inherit
     with:
       benchmark_glob: "search*.yml"
+      benchmark_filter: ${{ inputs.benchmark_filter }}
       allowed_envs: oss-cluster
       allowed_setups: oss-cluster-16-primaries
       benchmark_runner_group_member_id: ${{ matrix.member_id }}
       benchmark_runner_group_total: ${{ strategy.job-total }}
+      binary_artifact_name: redisearch-bin-${{ github.run_id }}-${{ github.run_attempt }}
 
   benchmark-search-oss-cluster-20-primaries:
     if: ${{ inputs.extended && (inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-cluster-20-primaries') }}
+    needs: build-redisearch
     strategy:
       fail-fast: false
       matrix:
@@ -195,13 +249,16 @@ jobs:
     secrets: inherit
     with:
       benchmark_glob: "search*.yml"
+      benchmark_filter: ${{ inputs.benchmark_filter }}
       allowed_envs: oss-cluster
       allowed_setups: oss-cluster-20-primaries
       benchmark_runner_group_member_id: ${{ matrix.member_id }}
       benchmark_runner_group_total: ${{ strategy.job-total }}
+      binary_artifact_name: redisearch-bin-${{ github.run_id }}-${{ github.run_attempt }}
 
   benchmark-search-oss-cluster-24-primaries:
     if: ${{ inputs.extended && (inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-cluster-24-primaries') }}
+    needs: build-redisearch
     strategy:
       fail-fast: false
       matrix:
@@ -210,13 +267,16 @@ jobs:
     secrets: inherit
     with:
       benchmark_glob: "search*.yml"
+      benchmark_filter: ${{ inputs.benchmark_filter }}
       allowed_envs: oss-cluster
       allowed_setups: oss-cluster-24-primaries
       benchmark_runner_group_member_id: ${{ matrix.member_id }}
       benchmark_runner_group_total: ${{ strategy.job-total }}
+      binary_artifact_name: redisearch-bin-${{ github.run_id }}-${{ github.run_attempt }}
 
   benchmark-search-oss-standalone-profiler:
     if: ${{ inputs.profiler && (inputs.allowed_setup == '' || inputs.allowed_setup == 'standalone') }}
+    needs: build-redisearch-profile
     strategy:
       fail-fast: false
       matrix:
@@ -229,13 +289,16 @@ jobs:
       triggering_env: "circleci.profilers" # results generated with profilers attached are not mixed with the ones without it
       module_path: bin/linux-x64-release-profile/search-community/redisearch.so
       benchmark_glob: "search*.yml"
+      benchmark_filter: ${{ inputs.benchmark_filter }}
       allowed_envs: oss-standalone
       allowed_setups: oss-standalone
       benchmark_runner_group_member_id: ${{ matrix.member_id }}
       benchmark_runner_group_total: ${{ strategy.job-total }}
+      binary_artifact_name: redisearch-bin-profile-${{ github.run_id }}-${{ github.run_attempt }}
 
   benchmark-vecsim-oss-standalone-profiler:
     if: ${{ inputs.profiler && (inputs.allowed_setup == '' || inputs.allowed_setup == 'standalone') }}
+    needs: build-redisearch-profile
     strategy:
       fail-fast: false
       matrix:
@@ -248,10 +311,12 @@ jobs:
       triggering_env: "circleci.profilers" # results generated with profilers attached are not mixed with the ones without it
       module_path: bin/linux-x64-release-profile/search-community/redisearch.so
       benchmark_glob: "vecsim*.yml"
+      benchmark_filter: ${{ inputs.benchmark_filter }}
       allowed_envs: oss-standalone
       allowed_setups: oss-standalone
       benchmark_runner_group_member_id: ${{ matrix.member_id }}
       benchmark_runner_group_total: ${{ strategy.job-total }}
+      binary_artifact_name: redisearch-bin-profile-${{ github.run_id }}-${{ github.run_attempt }}
 
   notify-failure:
     needs:
@@ -294,7 +359,7 @@ jobs:
           payload: |
             {
               "failed_workflow": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}",
-              "repository": "RediSearch"
+              "repository": "${{ github.repository }}"
             }
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL_MSMARCO_BENCHMARK_FAILED }}

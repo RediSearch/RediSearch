@@ -8,11 +8,7 @@
 */
 #include "profile.h"
 #include "iterators/iterator_api.h"
-#include "iterators/inverted_index_iterator.h"
-#include "iterators/not_iterator.h"
-#include "iterators/optional_iterator.h"
 #include "iterators/union_iterator.h"
-#include "iterators/intersection_iterator.h"
 #include "iterators/hybrid_reader.h"
 #include "iterators/optimizer_reader.h"
 #include "iterators_rs.h"
@@ -30,51 +26,76 @@ typedef struct {
 void printIteratorProfile(RedisModule_Reply *reply, const QueryIterator *root, const ProfileCounters *counters,
                           double cpuTime, int depth, int limited, PrintProfileConfig *config);
 
-void printInvIdxIt(RedisModule_Reply *reply, const QueryIterator *root, const ProfileCounters *counters, double cpuTime, PrintProfileConfig *config) {
-  const InvIndIterator *it = (const InvIndIterator *)root;
-  IndexFlags readerFlags = InvIndIterator_GetReaderFlags(it);
-
-  RedisModule_Reply_Map(reply);
-  if (readerFlags == Index_DocIdsOnly) {
-    RSQueryTerm *term = IndexResult_QueryTermRef(root->current);
-    if (term != NULL) {
-      printProfileType("TAG");
-      size_t term_len = 0;
-      const char *term_str = QueryTerm_GetStrAndLen(term, &term_len);
-      RedisModule_ReplyKV_StringBuffer(reply, "Term", term_str, term_len);
-    }
-  } else if (readerFlags & Index_StoreNumeric) {
-    const NumericInvIndIterator *numIt = (const NumericInvIndIterator *)it;
-    const NumericFilter *flt = NumericInvIndIterator_GetNumericFilter(numIt);
-    if (!flt || flt->geoFilter == NULL) {
-      printProfileType("NUMERIC");
-      RedisModule_Reply_SimpleString(reply, "Term");
-      RedisModule_Reply_SimpleStringf(reply, "%g - %g", NumericInvIndIterator_GetProfileRangeMin(numIt), NumericInvIndIterator_GetProfileRangeMax(numIt));
-    } else {
-      printProfileType("GEO");
-      RedisModule_Reply_SimpleString(reply, "Term");
-      double se[2];
-      double nw[2];
-      decodeGeo(NumericInvIndIterator_GetProfileRangeMin(numIt), se);
-      decodeGeo(NumericInvIndIterator_GetProfileRangeMax(numIt), nw);
-      RedisModule_Reply_SimpleStringf(reply, "%g,%g - %g,%g", se[0], se[1], nw[0], nw[1]);
-    }
-  } else {
-    printProfileType("TEXT");
-    RSQueryTerm *term = IndexResult_QueryTermRef(root->current);
-    size_t term_len = 0;
-    const char *term_str = QueryTerm_GetStrAndLen(term, &term_len);
-    RedisModule_ReplyKV_StringBuffer(reply, "Term", term_str, term_len);
-  }
-
-  // print counter and clock
+static void printInvIdxIteratorCounters(RedisModule_Reply *reply, const QueryIterator *root,
+                                        const ProfileCounters *counters, double cpuTime,
+                                        PrintProfileConfig *config) {
   if (config->printProfileClock) {
     printProfileTime(cpuTime);
   }
 
   printProfileCounters(counters);
   RedisModule_ReplyKV_LongLong(reply, "Estimated number of matches", root->NumEstimated(root));
+}
 
+void printInvIdxIt(RedisModule_Reply *reply, const QueryIterator *root, const ProfileCounters *counters, double cpuTime, PrintProfileConfig *config) {
+  RedisModule_Reply_Map(reply);
+
+  switch (root->type) {
+    case INV_IDX_TAG_ITERATOR: {
+      RSQueryTerm *term = IndexResult_QueryTermRef(root->current);
+      if (term != NULL) {
+        printProfileType("TAG");
+        size_t term_len = 0;
+        const char *term_str = QueryTerm_GetStrAndLen(term, &term_len);
+        RedisModule_ReplyKV_StringBuffer(reply, "Term", term_str, term_len);
+      }
+      break;
+    }
+
+    case INV_IDX_NUMERIC_ITERATOR: {
+      const NumericFilter *flt = NumericInvIndIterator_GetNumericFilter(root);
+      if (!flt || flt->geoFilter == NULL) {
+        printProfileType("NUMERIC");
+        RedisModule_Reply_SimpleString(reply, "Term");
+        RedisModule_Reply_SimpleStringf(reply, "%g - %g", NumericInvIndIterator_GetProfileRangeMin(root), NumericInvIndIterator_GetProfileRangeMax(root));
+      } else {
+        printProfileType("GEO");
+        RedisModule_Reply_SimpleString(reply, "Term");
+        double se[2];
+        double nw[2];
+        decodeGeo(NumericInvIndIterator_GetProfileRangeMin(root), se);
+        decodeGeo(NumericInvIndIterator_GetProfileRangeMax(root), nw);
+        RedisModule_Reply_SimpleStringf(reply, "%g,%g - %g,%g", se[0], se[1], nw[0], nw[1]);
+      }
+      break;
+    }
+
+    case INV_IDX_TERM_ITERATOR: {
+      printProfileType("TEXT");
+      RSQueryTerm *term = IndexResult_QueryTermRef(root->current);
+      size_t term_len = 0;
+      const char *term_str = QueryTerm_GetStrAndLen(term, &term_len);
+      RedisModule_ReplyKV_StringBuffer(reply, "Term", term_str, term_len);
+      break;
+    }
+
+    default:
+      RS_ABORT("unsupported inverted index iterator type");
+  }
+
+  printInvIdxIteratorCounters(reply, root, counters, cpuTime, config);
+  RedisModule_Reply_MapEnd(reply);
+}
+
+void printInvIdxMissingIt(RedisModule_Reply *reply, const QueryIterator *root, const ProfileCounters *counters, double cpuTime, PrintProfileConfig *config) {
+  RedisModule_Reply_Map(reply);
+  printProfileType("MISSING");
+
+  size_t field_len = 0;
+  const char *field_name = InvIndMissingIterator_GetFieldName(root, &field_len);
+  RedisModule_ReplyKV_StringBuffer(reply, "Field", field_name, field_len);
+
+  printInvIdxIteratorCounters(reply, root, counters, cpuTime, config);
   RedisModule_Reply_MapEnd(reply);
 }
 
@@ -123,20 +144,15 @@ static double _recursiveProfilePrint(RedisModule_Reply *reply, ResultProcessor *
         printProfileGILTime(rs_wall_clock_convert_ns_to_ms_d(rp->rpGILTime));
         break;
 
-      default:
+      default: // LCOV_EXCL_START — defensive: all valid RPType values are handled above
         RS_ABORT("RPType error");
         break;
+      // LCOV_EXCL_STOP
     }
 
     return upstreamTime;
   }
-  double totalRPTime = rs_wall_clock_convert_ns_to_ms_d(RPProfile_GetClock(rp));
-
-  // For RP_SAFE_DEPLETER, use depletion time as the total time instead of
-  // RPProfile time because the actual work happens in the background thread
-  if (rp->upstream && rp->upstream->type == RP_SAFE_DEPLETER) {
-    totalRPTime = rs_wall_clock_convert_ns_to_ms_d(RPSafeDepleter_GetDepletionTime(rp->upstream));
-  }
+  double totalRPTime = rs_wall_clock_convert_ns_to_ms_d(RPProfile_GetTime(rp));
 
   if (printProfileClock) {
     double deltaTime = totalRPTime - upstreamTime;
@@ -366,77 +382,6 @@ void Profile_PrintDefault(RedisModule_Reply *reply, void *ctx) {
   Profile_PrintInFormat(reply, Profile_Print, ctx, NULL, NULL);
 }
 
-/** Add Profile iterator before any iterator in the tree */
-void Profile_AddIters(QueryIterator **root) {
-  if (*root == NULL) return;
-
-  // Add profile iterator before child iterators
-  switch((*root)->type) {
-    case NOT_ITERATOR:
-    case NOT_ITERATOR_OPTIMIZED: {
-      QueryIterator *child = TakeNotIteratorChild(*root);
-      Profile_AddIters(&child);
-      SetNotIteratorChild(*root, child);
-      break;
-    }
-    case OPTIONAL_ITERATOR:
-    case OPTIONAL_OPTIMIZED_ITERATOR: {
-      QueryIterator *child = TakeOptionalIteratorChild(*root);
-      Profile_AddIters(&child);
-      SetOptionalIteratorChild(*root, child);
-      break;
-    }
-    case HYBRID_ITERATOR: {
-      QueryIterator *child = ((HybridIterator *)(*root))->child;
-      Profile_AddIters(&child);
-      ((HybridIterator *)(*root))->child = child;
-      break;
-    }
-    case OPTIMUS_ITERATOR: {
-      QueryIterator *child = ((OptimizerIterator *)(*root))->child;
-      Profile_AddIters(&child);
-      ((OptimizerIterator *)(*root))->child = child;
-      break;
-    }
-    case UNION_ITERATOR: {
-      UnionIterator *ui = (UnionIterator *)(*root);
-      for (int i = 0; i < ui->num_orig; i++) {
-        Profile_AddIters(&(ui->its_orig[i]));
-      }
-      UI_SyncIterList(ui);
-      break;
-    }
-    case INTERSECT_ITERATOR: {
-      IntersectionIterator *ii = (IntersectionIterator *)(*root);
-      for (int i = 0; i < ii->num_its; i++) {
-        Profile_AddIters(&(ii->its[i]));
-      }
-      break;
-    }
-    case WILDCARD_ITERATOR:
-    case INV_IDX_NUMERIC_ITERATOR:
-    case INV_IDX_TERM_ITERATOR:
-    case INV_IDX_WILDCARD_ITERATOR:
-    case INV_IDX_MISSING_ITERATOR:
-    case INV_IDX_TAG_ITERATOR:
-    case EMPTY_ITERATOR:
-    case ID_LIST_SORTED_ITERATOR:
-    case ID_LIST_UNSORTED_ITERATOR:
-    case METRIC_SORTED_BY_ID_ITERATOR:
-    case METRIC_SORTED_BY_SCORE_ITERATOR:
-      break;
-    // LCOV_EXCL_START
-    case PROFILE_ITERATOR:
-    case MAX_ITERATOR:
-      RS_ABORT("Error");
-      break;
-    // LCOV_EXCL_STOP
-  }
-
-  // Create a profile iterator and update outparam pointer
-  *root = NewProfileIterator(*root);
-}
-
 #define PRINT_PROFILE_FUNC(name) static void name(RedisModule_Reply *reply,   \
                                                   const QueryIterator *root,        \
                                                   const ProfileCounters *counters,  \
@@ -446,8 +391,8 @@ void Profile_AddIters(QueryIterator **root) {
                                                   PrintProfileConfig *config)
 
 PRINT_PROFILE_FUNC(printUnionIt) {
-  const UnionIterator *ui = (const UnionIterator *)root;
-  int printFull = !limited  || (ui->type & QN_UNION);
+  QueryNodeType nodeType = GetUnionIteratorQueryNodeType(root);
+  int printFull = !limited || (nodeType & QN_UNION);
 
   RedisModule_Reply_Map(reply);
 
@@ -455,7 +400,7 @@ PRINT_PROFILE_FUNC(printUnionIt) {
 
   RedisModule_Reply_SimpleString(reply, "Query type");
   char *unionTypeStr;
-  switch (ui->type) {
+  switch (nodeType) {
   case QN_GEO : unionTypeStr = "GEO"; break;
   case QN_TAG : unionTypeStr = "TAG"; break;
   case QN_UNION : unionTypeStr = "UNION"; break;
@@ -469,13 +414,14 @@ PRINT_PROFILE_FUNC(printUnionIt) {
     RS_ABORT_ALWAYS("Invalid type for union");
   // LCOV_EXCL_STOP
   }
-  if (!ui->q_str) {
+  const char *q_str = GetUnionIteratorQueryString(root);
+  if (!q_str) {
     RedisModule_Reply_SimpleString(reply, unionTypeStr);
   } else {
-    const char *qstr = ui->q_str;
+    const char *qstr = q_str;
     if (isUnsafeForSimpleString(qstr)) qstr = escapeSimpleString(qstr);
     RedisModule_Reply_SimpleStringf(reply, "%s - %s", unionTypeStr, qstr);
-    if (qstr != ui->q_str) rm_free((char*)qstr);
+    if (qstr != q_str) rm_free((char*)qstr);
   }
 
   if (config->printProfileClock) {
@@ -484,23 +430,22 @@ PRINT_PROFILE_FUNC(printUnionIt) {
 
   printProfileCounters(counters);
 
+  size_t num_children = GetUnionIteratorNumChildren(root);
   RedisModule_Reply_SimpleString(reply, "Child iterators");
   if (printFull) {
     RedisModule_Reply_Array(reply);
-      for (int i = 0; i < ui->num_orig; i++) {
-        printIteratorProfile(reply, ui->its_orig[i], 0, 0, depth + 1, limited, config);
+      for (size_t i = 0; i < num_children; i++) {
+        printIteratorProfile(reply, GetUnionIteratorChild(root, i), 0, 0, depth + 1, limited, config);
       }
     RedisModule_Reply_ArrayEnd(reply);
   } else {
-    RedisModule_Reply_SimpleStringf(reply, "The number of iterators in the union is %d", ui->num_orig);
+    RedisModule_Reply_SimpleStringf(reply, "The number of iterators in the union is %zu", num_children);
   }
 
   RedisModule_Reply_MapEnd(reply);
 }
 
 PRINT_PROFILE_FUNC(printIntersectIt) {
-  const IntersectionIterator *ii = (const IntersectionIterator *)root;
-
   RedisModule_Reply_Map(reply);
 
   printProfileType("INTERSECT");
@@ -511,9 +456,11 @@ PRINT_PROFILE_FUNC(printIntersectIt) {
 
   printProfileCounters(counters);
 
+  size_t num_children = GetIntersectionIteratorNumChildren(root);
   RedisModule_ReplyKV_Array(reply, "Child iterators");
-    for (int i = 0; i < ii->num_its; i++) {
-      printIteratorProfile(reply, ii->its[i], 0, 0, depth + 1, limited, config);
+    for (size_t i = 0; i < num_children; i++) {
+      printIteratorProfile(reply, GetIntersectionIteratorChild(root, i),
+                           0, 0, depth + 1, limited, config);
     }
   RedisModule_Reply_ArrayEnd(reply);
 
@@ -631,10 +578,9 @@ void printIteratorProfile(RedisModule_Reply *reply, const QueryIterator *root, c
     // Reader
     case INV_IDX_NUMERIC_ITERATOR:
     case INV_IDX_TERM_ITERATOR:
-    case INV_IDX_WILDCARD_ITERATOR:
-    case INV_IDX_MISSING_ITERATOR:
     case INV_IDX_TAG_ITERATOR:
                                             { printInvIdxIt(reply, root, counters, cpuTime, config);                                break; }
+    case INV_IDX_MISSING_ITERATOR:          { printInvIdxMissingIt(reply, root, counters, cpuTime, config);                         break; }
     // Multi values
     case UNION_ITERATOR:                    { printUnionIt(reply, root, counters, cpuTime, depth, limited, config);                 break; }
     case INTERSECT_ITERATOR:                { printIntersectIt(reply, root, counters, cpuTime, depth, limited, config);             break; }
@@ -643,6 +589,7 @@ void printIteratorProfile(RedisModule_Reply *reply, const QueryIterator *root, c
     case NOT_ITERATOR_OPTIMIZED:            { printNotIt(reply, root, counters, cpuTime, depth, limited, config);                   break; }
     case OPTIONAL_ITERATOR: // fallthrough
     case OPTIONAL_OPTIMIZED_ITERATOR:       { printOptionalIt(reply, root, counters, cpuTime, depth, limited, config);              break; }
+    case INV_IDX_WILDCARD_ITERATOR: // fallthrough
     case WILDCARD_ITERATOR:                 { printWildcardIt(reply, root, counters, cpuTime, depth, limited, config);              break; }
     case EMPTY_ITERATOR:                    { printEmptyIt(reply, root, counters, cpuTime, depth, limited, config);                 break; }
     case ID_LIST_SORTED_ITERATOR:           { printIdListSortedIt(reply, root, counters, cpuTime, depth, limited, config);          break; }

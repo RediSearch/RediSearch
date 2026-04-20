@@ -7,8 +7,6 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-#![allow(clippy::missing_safety_doc, clippy::undocumented_unsafe_blocks)]
-
 use libc::size_t;
 use redis_mock::mock_or_stub_missing_redis_c_symbols;
 use std::ffi::{CString, c_char};
@@ -51,7 +49,10 @@ unsafe fn drop_value(ptr: *mut RsValue) {
 }
 
 #[test]
-#[cfg_attr(miri, ignore)]
+#[cfg_attr(
+    miri,
+    ignore = "extern static `RedisModule_Free` is not supported by Miri"
+)]
 fn new_string_creates_rm_alloc_string() {
     let (ptr, len) = rm_alloc_cstring("hello");
     let value = unsafe { RSValue_NewString(ptr, len) };
@@ -170,7 +171,10 @@ fn string_ptr_len_returns_null_for_non_string() {
 }
 
 #[test]
-#[cfg_attr(miri, ignore)]
+#[cfg_attr(
+    miri,
+    ignore = "extern static `RedisModule_Free` is not supported by Miri"
+)]
 fn set_string_replaces_value_with_rm_alloc_string() {
     let value = RSValue_NewNumber(42.0);
 

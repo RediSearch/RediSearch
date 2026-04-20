@@ -8,32 +8,47 @@
 */
 
 use ffi::t_docId;
+use std::sync::OnceLock;
 use thiserror::Error;
 
-use ::inverted_index::RSIndexResult;
+use ::inverted_index::{RSIndexResult, t_fieldMask};
+use query_term::RSQueryTerm;
 
 pub mod c2rust;
 pub mod empty;
 pub mod expiration_checker;
 pub mod id_list;
+pub mod interop;
 pub mod intersection;
 pub mod inverted_index;
 pub mod maybe_empty;
 pub mod metric;
 pub mod not;
+pub mod not_optimized;
+pub mod not_reducer;
 pub mod optional;
+pub mod optional_optimized;
+pub mod optional_reducer;
 pub mod profile;
+pub mod union;
+mod union_flat;
+mod union_heap;
+pub mod union_reducer;
 pub mod utils;
 pub mod wildcard;
-
-pub mod util;
 
 pub use empty::Empty;
 pub use expiration_checker::{ExpirationChecker, FieldExpirationChecker, NoOpChecker};
 pub use id_list::IdList;
-pub use intersection::Intersection;
-pub use inverted_index::{Missing, Numeric, Term};
+pub use intersection::{Intersection, NewIntersectionIterator, new_intersection_iterator};
+pub use inverted_index::{Missing, Numeric, Tag, Term};
 pub use metric::Metric;
+pub use not::NotIterator;
+pub use optional::OptionalIterator;
+pub use rqe_iterator_type::IteratorType;
+pub use union::{
+    Union, UnionFlat, UnionFullFlat, UnionFullHeap, UnionHeap, UnionQuickFlat, UnionQuickHeap,
+};
 pub use wildcard::{Wildcard, WildcardIterator};
 
 #[derive(Debug, PartialEq)]
@@ -130,13 +145,86 @@ pub trait RQEIterator<'index> {
     /// when [`read`](Self::read) would return `Ok(None)`.
     fn at_eof(&self) -> bool;
 
-    /// Returns `true` if this iterator matches all documents.
-    fn is_wildcard(&self) -> bool {
-        false
+    /// Returns the [`IteratorType`] of this iterator.
+    fn type_(&self) -> IteratorType;
+
+    /// Returns `Some(&self)` if this iterator is a [`c2rust::CRQEIterator`], `None` otherwise.
+    ///
+    /// Used by [`Intersection`] to compute sort weights without requiring `'static`.
+    fn as_c_iterator(&self) -> Option<&c2rust::CRQEIterator> {
+        None
+    }
+
+    /// Returns the sort weight for this iterator when used as a child of an [`Intersection`].
+    ///
+    /// [`Intersection`] uses this to order its children before execution: a lower value makes
+    /// this iterator act as the pivot (minimising `SkipTo` calls). The final sort key is
+    /// `num_estimated * intersection_sort_weight(...)`.
+    ///
+    /// Implementers:
+    /// - [`Intersection`]: `1.0 / num_children` — fewer children means tighter selectivity.
+    /// - [`Union`]: `num_children` when `prioritize_union_children`, else `1.0`.
+    /// - Everything else: `1.0` — neutral, no influence.
+    fn intersection_sort_weight(&self, prioritize_union_children: bool) -> f64;
+}
+
+/// Blanket [`RQEIterator`] impl for `Box<I>` where `I` is a concrete iterator type.
+///
+/// All core methods delegate to the inner iterator.
+impl<'index, I: RQEIterator<'index> + 'index> RQEIterator<'index> for Box<I> {
+    fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
+        (**self).current()
+    }
+
+    fn read(&mut self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
+        (**self).read()
+    }
+
+    fn skip_to(
+        &mut self,
+        doc_id: t_docId,
+    ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
+        (**self).skip_to(doc_id)
+    }
+
+    fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
+        (**self).revalidate()
+    }
+
+    fn rewind(&mut self) {
+        (**self).rewind()
+    }
+
+    fn num_estimated(&self) -> usize {
+        (**self).num_estimated()
+    }
+
+    fn last_doc_id(&self) -> t_docId {
+        (**self).last_doc_id()
+    }
+
+    fn at_eof(&self) -> bool {
+        (**self).at_eof()
+    }
+
+    #[inline(always)]
+    fn type_(&self) -> IteratorType {
+        (**self).type_()
+    }
+
+    fn as_c_iterator(&self) -> Option<&c2rust::CRQEIterator> {
+        (**self).as_c_iterator()
+    }
+
+    fn intersection_sort_weight(&self, prioritize_union_children: bool) -> f64 {
+        (**self).intersection_sort_weight(prioritize_union_children)
     }
 }
 
-// Implement RQEIterator for Box<dyn RQEIterator> to support dynamic dispatch
+/// [`RQEIterator`] impl for type-erased iterators.
+///
+/// All methods — including profiling — delegate through the vtable to the
+/// concrete type's implementation.
 impl<'index> RQEIterator<'index> for Box<dyn RQEIterator<'index> + 'index> {
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         (**self).current()
@@ -173,7 +261,54 @@ impl<'index> RQEIterator<'index> for Box<dyn RQEIterator<'index> + 'index> {
         (**self).at_eof()
     }
 
-    fn is_wildcard(&self) -> bool {
-        (**self).is_wildcard()
+    #[inline(always)]
+    fn type_(&self) -> IteratorType {
+        (**self).type_()
     }
+
+    fn as_c_iterator(&self) -> Option<&c2rust::CRQEIterator> {
+        (**self).as_c_iterator()
+    }
+
+    fn intersection_sort_weight(&self, prioritize_union_children: bool) -> f64 {
+        (**self).intersection_sort_weight(prioritize_union_children)
+    }
+}
+
+/// Global holder for APIs to get iterators for SearchEnterprise. This allows `rqe_iterators`
+/// to get access to iterators it does not know about.
+pub static SEARCH_ENTERPRISE_ITERATORS: OnceLock<Box<dyn SearchEnterpriseIterators>> =
+    OnceLock::new();
+
+/// A trait to allow SearchEnterprise to provide iterators for on-disk search. The actual
+/// implementation will provide iterators `rqe_iterators` does not know about.
+pub trait SearchEnterpriseIterators: Send + Sync {
+    /// Iterate over all the documents in the index. Each document in the iterator will have the
+    /// given weight.
+    fn new_wildcard_on_disk<'index>(
+        &self,
+        index: &'index ffi::RedisSearchDiskIndexSpec,
+        weight: f64,
+    ) -> Result<Box<dyn RQEIterator<'index> + 'index>, Box<dyn std::error::Error>>;
+
+    /// Iterate over all the terms in the index. Each document in the iterator will have the term
+    /// inside the given query_term and will have the given weight. The iterator will also filter
+    /// the results according to the given field mask.
+    fn new_term_on_disk<'index>(
+        &self,
+        index: &'index ffi::RedisSearchDiskIndexSpec,
+        query_term: Box<RSQueryTerm>,
+        field_mask: t_fieldMask,
+        weight: f64,
+    ) -> Result<Box<dyn RQEIterator<'index> + 'index>, Box<dyn std::error::Error>>;
+
+    /// Iterate over all the tags (tokens) in the index at the given field index. Each document in
+    /// then iterator will have the given weight.
+    fn new_tag_on_disk<'index>(
+        &self,
+        index: &'index ffi::RedisSearchDiskIndexSpec,
+        token: &ffi::RSToken,
+        field_index: ffi::t_fieldIndex,
+        weight: f64,
+    ) -> Result<Box<dyn RQEIterator<'index> + 'index>, Box<dyn std::error::Error>>;
 }

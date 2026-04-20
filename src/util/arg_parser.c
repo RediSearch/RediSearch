@@ -438,19 +438,18 @@ ArgParseResult ArgParser_Parse(ArgParser *parser) {
         current_position++;
     }
 
-    // Check for missing required positional arguments
+    // Check for missing required positional arguments (only if no error yet,
+    // to avoid overwriting a more specific error from parse_single_arg).
     uint16_t check_position = current_position;
-    while (true) {
+    while (parser->last_result.success) {
         ArgDefinition *pos_def = find_positional_definition(parser, check_position, NULL);
         if (!pos_def) break;
 
-        if (pos_def->required) {
-            if (!pos_def->parsed) {
-                set_error(parser, "Required positional argument missing or out of order", pos_def->name);
-                break;
-            }
+        if (pos_def->required && !pos_def->parsed) {
+            set_error(parser, "Required positional argument missing or out of order", pos_def->name);
+        } else {
+            check_position++;
         }
-        check_position++;
     }
 
     // Second pass: parse remaining arguments (both named and positional)

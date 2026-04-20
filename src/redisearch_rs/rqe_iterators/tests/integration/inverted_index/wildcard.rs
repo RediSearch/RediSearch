@@ -11,25 +11,26 @@
 
 use ffi::{IndexFlags_Index_DocIdsOnly, RS_FIELDMASK_ALL, t_docId};
 use inverted_index::{RSIndexResult, doc_ids_only::DocIdsOnly};
-use rqe_iterators::{RQEIterator, inverted_index::Wildcard};
+use rqe_iterators::{IteratorType, RQEIterator, inverted_index::Wildcard};
 
 use crate::inverted_index::utils::BaseTest;
 use rqe_iterators_test_utils::MockContext;
 
-struct WildcardBaseTest {
+pub struct WildcardBaseTest {
     test: BaseTest<DocIdsOnly>,
 }
 
 impl WildcardBaseTest {
     fn expected_record(doc_id: t_docId) -> RSIndexResult<'static> {
-        RSIndexResult::virt()
+        RSIndexResult::build_virt()
             .doc_id(doc_id)
             .field_mask(RS_FIELDMASK_ALL)
             .frequency(1)
             .weight(1.0)
+            .build()
     }
 
-    fn new(n_docs: u64) -> Self {
+    pub(crate) fn new(n_docs: u64) -> Self {
         Self {
             test: BaseTest::new(
                 IndexFlags_Index_DocIdsOnly,
@@ -39,12 +40,19 @@ impl WildcardBaseTest {
         }
     }
 
-    fn create_iterator(&self) -> Wildcard<'_, DocIdsOnly> {
+    pub(crate) fn create_iterator(&self) -> Wildcard<'_, DocIdsOnly> {
         let reader = self.test.ii.reader();
         // SAFETY: `mock_ctx` provides a valid `RedisSearchCtx` with a valid `spec`
         // that outlives the returned iterator.
         unsafe { Wildcard::new(reader, self.test.mock_ctx.sctx(), 1.0) }
     }
+}
+
+#[test]
+fn wildcard_type() {
+    let test = WildcardBaseTest::new(10);
+    let it = test.create_iterator();
+    assert_eq!(it.type_(), IteratorType::InvIdxWildcard);
 }
 
 #[test]
@@ -89,11 +97,12 @@ mod not_miri {
 
     impl WildcardRevalidateTest {
         fn expected_record(doc_id: t_docId) -> RSIndexResult<'static> {
-            RSIndexResult::virt()
+            RSIndexResult::build_virt()
                 .doc_id(doc_id)
                 .field_mask(RS_FIELDMASK_ALL)
                 .frequency(1)
                 .weight(1.0)
+                .build()
         }
 
         fn new(n_docs: u64) -> Self {

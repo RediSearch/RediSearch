@@ -718,6 +718,12 @@ def test_search_errors():
     env.expect('FT.SEARCH', 'idx', 'hello=>[KNN 2 @v $b AS score]=>{$yield_distance_as:__v_score;}', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Distance field was specified twice for vector query: score and __v_score')
     env.expect('FT.SEARCH', 'idx', 'hello=>[KNN 2 @v $b AS score]=>{$yield_distance_as:score;}', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Distance field was specified twice for vector query: score and score')
 
+    # Invalid shard_k_ratio via query attribute syntax.
+    env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b]=>{$shard_k_ratio: invalid;}', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Invalid shard k ratio value')
+
+    # Unrecognized vector attribute via query attribute syntax.
+    env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b]=>{$bogus_vec_param: 42;}', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Invalid attribute')
+
     # Invalid range queries
     env.expect('FT.SEARCH', 'idx', '@v:[vector_range 0.1 $b]', 'PARAMS', '2', 'b', 'abcdefg').error().contains('Error parsing vector similarity query: query vector blob size (7) does not match index\'s expected size (8).')
     env.expect('FT.SEARCH', 'idx', '@v:[vector_range 0.1 $b]', 'PARAMS', '2', 'b', 'abcdefghi').error().contains('Error parsing vector similarity query: query vector blob size (9) does not match index\'s expected size (8).')
@@ -886,7 +892,9 @@ def test_hybrid_query_with_text_vamana():
     create_vector_index(env, dim, datatype=data_type, alg='SVS-VAMANA', additional_schema_args=['t', 'TEXT'])
 
     load_vectors_with_texts_into_redis(conn, DEFAULT_FIELD_NAME, dim, index_size, data_type)
+    start_time = time.time()
     wait_for_background_indexing(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME)
+    env.debugPrint("wait_for_background_indexing took {} seconds".format(time.time() - start_time), force=True)
     index_size = get_tiered_backend_debug_info(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME)['INDEX_SIZE']
     env.debugPrint(f"svs index size: {index_size}", force=True)
 

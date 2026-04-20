@@ -7,18 +7,19 @@ on:
         type: choice
         options:
           - all
+          - ubuntu:resolute
           - ubuntu:noble
           - ubuntu:jammy
           - ubuntu:focal
           - rockylinux:8
           - rockylinux:9
-          - debian:bullseye
+          - rockylinux:10
           - debian:bookworm
-          - amazonlinux:2
+          - debian:trixie
           - amazonlinux:2023
-          - mariner:2
           - azurelinux:3
-          - alpine:3.22
+          - alpine:3.23
+          - macos-14
           - macos-15
           - macos-26
         description: 'Platform to build on. Use "all" to build on all'
@@ -54,7 +55,8 @@ jobs:
     outputs:
       sha: ${{ steps.set-sha.outputs.sha }}
       redis-ref: ${{ steps.get-redis.outputs.tag }}
-      beta-version: ${{ steps.beta-version.outputs.BETA_VERSION }}
+      # beta-version not used for OSS builds by default
+      beta-version: ${{ inputs.force_beta && steps.beta-version.outputs.BETA_VERSION || '' }}
       version-suffix: ${{ steps.beta-version.outputs.VERSION_SUFFIX }}
     steps:
       - uses: actions/checkout@v4
@@ -65,7 +67,7 @@ jobs:
         run: |
           # TAG=$(curl -sL --retry 5 https://api.github.com/repos/redis/redis/releases/latest | jq -er '.tag_name') && \
           # echo "tag=$TAG" >> $GITHUB_OUTPUT
-          echo "tag=unstable" >> $GITHUB_OUTPUT
+          echo "tag=3cd464263b03b425ffae2e23db24df3dc9346871" >> $GITHUB_OUTPUT
       - name: Generate Beta Version unique identifier
         id: beta-version
         run: |
@@ -81,24 +83,23 @@ jobs:
           SHORT_SHA="${GIT_SHA:0:7}"
           VERSION_SUFFIX=".${TIMESTAMP}.${SHORT_SHA}"
           echo VERSION_SUFFIX=$VERSION_SUFFIX >> $GITHUB_OUTPUT
-          if [[ "$BRANCH_NAME" == "master" ]] || [[ "$FORCE_BETA" == "true" ]]; then
+          if [[ "$FORCE_BETA" == "true" ]]; then
             BETA_VERSION="99.99.99"
             echo "BETA_VERSION=$BETA_VERSION" >> $GITHUB_OUTPUT
-            if [[ "$BRANCH_NAME" == "master" ]]; then
-              echo "Master branch detected, generating beta version: $BETA_VERSION"
-            else
-              echo "Force beta enabled for branch $BRANCH_NAME, generating beta version: $BETA_VERSION"
-            fi
-          else
-            echo "Non-master branch detected ($BRANCH_NAME) and force_beta not enabled, no beta version generated"
+            echo "Force beta enabled for branch $BRANCH_NAME, generating beta version: $BETA_VERSION"
           fi
       - name: Validate Reference
         shell: python
+        env:
+          INPUT_ARCHITECTURE: ${{ inputs.architecture }}
+          INPUT_PLATFORM: ${{ inputs.platform }}
+          GIT_REF_NAME: ${{ github.ref_name }}
         run: |
+          import os
           from re import fullmatch
-          ref = '${{ github.ref_name }}'
+          ref = os.environ['GIT_REF_NAME']
           if bool(fullmatch(r'[0-9]+\.[0-9]+', ref)) or ref == 'master': # e.g. 2.8, 2.10, master
-            if '${{ inputs.architecture }}' != 'all' or '${{ inputs.platform }}' != 'all':
+            if os.environ['INPUT_ARCHITECTURE'] != 'all' or os.environ['INPUT_PLATFORM'] != 'all':
               print("::error title=Invalid Request::"
                     "You can only build all configurations for master or a release branch")
               exit(1)
@@ -116,6 +117,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix: ${{ fromJson(needs.generate-matrix.outputs.matrix) }}
+    permissions:
+      contents: read
+      id-token: write
+      packages: write
     uses: ./.github/workflows/task-build-artifacts.yml
     secrets: inherit
     with:

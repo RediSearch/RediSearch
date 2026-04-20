@@ -17,7 +17,7 @@ use std::collections::HashMap;
 
 use inverted_index::{GcApplyInfo, GcScanDelta, IndexBlock, RSIndexResult};
 
-use super::{NumericRangeTree, TrimEmptyLeavesResult, apply_signed_delta};
+use super::{NumericRangeTree, TrimEmptyLeavesResult};
 use crate::NumericRangeNode;
 use crate::arena::{NodeArena, NodeIndex};
 use crate::range::Hll;
@@ -98,7 +98,7 @@ impl NumericRangeNode {
             } else {
                 &mut majority_hll
             };
-            crate::range::update_cardinality(target, value);
+            target.add(&value.into());
         };
 
         let delta = range
@@ -164,7 +164,7 @@ impl NumericRangeTree {
         let is_now_empty = range.entries().num_docs() == 0;
         let became_empty = !was_empty && is_now_empty;
         if is_leaf && became_empty {
-            self.stats.empty_leaves = self.stats.empty_leaves.checked_add(1).expect("Overflow!");
+            self.stats.empty_leaves += 1;
         }
 
         // Update tree-level stats.
@@ -172,24 +172,12 @@ impl NumericRangeTree {
         // when max_depth_range > 0, internal nodes retain ranges with duplicate
         // entries, so decrementing for every node would over-subtract.
         if is_leaf {
-            self.stats.num_entries = self
-                .stats
-                .num_entries
-                .checked_sub(info.entries_removed)
-                .expect("Underflow!");
+            self.stats.num_entries -= info.entries_removed;
         }
         if info.bytes_freed > info.bytes_allocated {
-            self.stats.inverted_indexes_size = self
-                .stats
-                .inverted_indexes_size
-                .checked_sub(info.bytes_freed - info.bytes_allocated)
-                .expect("Underflow!");
+            self.stats.inverted_indexes_size -= info.bytes_freed - info.bytes_allocated;
         } else {
-            self.stats.inverted_indexes_size = self
-                .stats
-                .inverted_indexes_size
-                .checked_add(info.bytes_allocated - info.bytes_freed)
-                .expect("Overflow!");
+            self.stats.inverted_indexes_size += info.bytes_allocated - info.bytes_freed;
         }
 
         #[cfg(all(feature = "unittest", not(miri)))]
@@ -205,7 +193,7 @@ impl NumericRangeTree {
     ///
     /// The threshold is: at least half the leaves are empty.
     pub const fn is_sparse(&self) -> bool {
-        self.stats.empty_leaves * 2 >= self.stats.num_leaves
+        self.stats.empty_leaves.get() * 2 >= self.stats.num_leaves.get()
     }
 
     /// Conditionally trim empty leaves and compact the node slab.
@@ -295,14 +283,20 @@ impl NumericRangeTree {
         if rv.changed {
             // Update tree statistics
             self.revision_id = self.revision_id.wrapping_add(1);
-            self.stats.num_ranges =
-                apply_signed_delta(self.stats.num_ranges, rv.num_ranges_delta as i64);
-            self.stats.empty_leaves =
-                apply_signed_delta(self.stats.empty_leaves, rv.num_leaves_delta as i64);
-            self.stats.num_leaves =
-                apply_signed_delta(self.stats.num_leaves, rv.num_leaves_delta as i64);
+            self.stats.num_ranges = self
+                .stats
+                .num_ranges
+                .apply_delta(rv.num_ranges_delta as i64);
+            self.stats.empty_leaves = self
+                .stats
+                .empty_leaves
+                .apply_delta(rv.num_leaves_delta as i64);
+            self.stats.num_leaves = self
+                .stats
+                .num_leaves
+                .apply_delta(rv.num_leaves_delta as i64);
             self.stats.inverted_indexes_size =
-                apply_signed_delta(self.stats.inverted_indexes_size, rv.size_delta);
+                self.stats.inverted_indexes_size.apply_delta(rv.size_delta);
         }
 
         rv

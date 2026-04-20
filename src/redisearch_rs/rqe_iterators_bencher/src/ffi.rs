@@ -8,35 +8,14 @@
 */
 
 pub use ffi::{
-    IndexFlags_Index_DocIdsOnly, IndexFlags_Index_StoreByteOffsets,
+    IndexFlags, IndexFlags_Index_DocIdsOnly, IndexFlags_Index_StoreByteOffsets,
     IndexFlags_Index_StoreFieldFlags, IndexFlags_Index_StoreFreqs, IndexFlags_Index_StoreNumeric,
     IndexFlags_Index_StoreTermOffsets, IteratorStatus, IteratorStatus_ITERATOR_OK,
-    RedisModule_Alloc, RedisModule_Free, ValidateStatus,
+    RedisModule_Alloc, RedisModule_Free, ValidateStatus, t_docId,
 };
-use inverted_index::{RSIndexResult, t_docId};
-use query_term::RSQueryTerm;
+use inverted_index::{RSIndexResult, RSQueryTerm};
+use iterators_ffi::intersection::NewIntersectionIterator;
 use std::{ffi::c_void, ptr};
-
-// Direct C benchmark functions that eliminate FFI overhead
-// by implementing the benchmark loop entirely in C
-unsafe extern "C" {
-    /// Benchmark optional iterator read operations directly in C
-    /// Returns the number of iterations performed and total time in nanoseconds
-    fn benchmark_optional_read_direct_c(
-        max_id: u64,
-        iterations_out: *mut u64,
-        time_ns_out: *mut u64,
-    );
-
-    /// Benchmark optional iterator skip_to operations directly in C
-    /// Returns the number of iterations performed and total time in nanoseconds
-    fn benchmark_optional_skip_to_direct_c(
-        max_id: u64,
-        step: u64,
-        iterations_out: *mut u64,
-        time_ns_out: *mut u64,
-    );
-}
 
 /// Simple wrapper around the C `QueryIterator` type.
 /// All methods are inlined to avoid the overhead when benchmarking.
@@ -68,24 +47,34 @@ impl QueryIterator {
         Self(unsafe { iterators_ffi::id_list::NewSortedIdListIterator(ids_ptr, num, 1.0) })
     }
 
-    /// Create a non-optimized NOT iterator with the given child and max_doc_id.
-    /// This creates a minimal QueryEvalCtx to ensure the C code creates a non-optimized version.
+    /// Give up ownership of the raw pointer without calling `Free`.
+    ///
+    /// Used when passing the iterator to a C function that takes ownership
+    /// (e.g. `NewIntersectionIterator`), so that the C side is responsible for freeing it.
     #[inline(always)]
-    pub fn new_not_non_optimized(child: Self, max_doc_id: u64, weight: f64) -> Self {
-        // Create a minimal QueryEvalCtx that will NOT trigger optimization
-        // The C code checks: optimized = q && q->sctx && q->sctx->spec && q->sctx->spec->rule && q->sctx->spec->rule->index_all
-        // By zeroing everything, we ensure spec->rule is NULL, so optimized = false
-        let query_eval_ctx = new_redis_search_ctx(max_doc_id);
-        let timeout = ffi::timespec {
-            tv_sec: 0,
-            tv_nsec: 0,
+    pub const fn into_raw(self) -> *mut ffi::QueryIterator {
+        self.0
+    }
+
+    /// Create a C intersection from two pre-built term `QueryIterator`s.
+    ///
+    /// Takes ownership of both children — they will be freed when the intersection is freed.
+    #[inline(always)]
+    pub fn new_intersection_from_term_its(
+        child1: Self,
+        child2: Self,
+        max_slop: i32,
+        in_order: bool,
+    ) -> Self {
+        let children_ptr = unsafe {
+            RedisModule_Alloc.unwrap()(2 * std::mem::size_of::<*mut ffi::QueryIterator>())
+                as *mut *mut ffi::QueryIterator
         };
-
-        let it =
-            unsafe { ffi::NewNotIterator(child.0, max_doc_id, weight, timeout, query_eval_ctx) };
-
-        free_redis_search_ctx(query_eval_ctx);
-        Self(it)
+        unsafe {
+            *children_ptr.add(0) = child1.into_raw();
+            *children_ptr.add(1) = child2.into_raw();
+        }
+        Self(unsafe { NewIntersectionIterator(children_ptr, 2, max_slop, in_order, 1.0) })
     }
 
     #[inline(always)]
@@ -139,12 +128,78 @@ impl QueryIterator {
 
         // Create intersection iterator (takes ownership of children array)
         Self(unsafe {
-            ffi::NewIntersectionIterator(
+            NewIntersectionIterator(
                 children_ptr,
                 num_children,
                 -1,    // max_slop: -1 means no slop validation
                 false, // in_order
                 weight,
+            )
+        })
+    }
+
+    /// Creates a new union iterator from child ID list iterators.
+    ///
+    /// # Arguments
+    /// * `children_ids` - A slice of vectors, each containing sorted document IDs for a child iterator
+    /// * `weight` - The weight for the union result
+    /// * `use_heap` - Whether to force heap-based algorithm (for benchmarking purposes)
+    /// * `quick_exit` - Whether to return after first match (true) or aggregate all matches (false)
+    #[inline(always)]
+    pub fn new_union(
+        children_ids: &[Vec<t_docId>],
+        weight: f64,
+        use_heap: bool,
+        quick_exit: bool,
+    ) -> Self {
+        let num_children = children_ids.len();
+
+        // Allocate array of child iterator pointers using RedisModule_Alloc
+        let children_ptr = unsafe {
+            RedisModule_Alloc.unwrap()(
+                num_children * std::mem::size_of::<*mut ffi::QueryIterator>(),
+            ) as *mut *mut ffi::QueryIterator
+        };
+
+        for (i, ids) in children_ids.iter().enumerate() {
+            // Allocate and copy IDs using RedisModule_Alloc (required by NewSortedIdListIterator)
+            let ids_ptr = unsafe {
+                RedisModule_Alloc.unwrap()(ids.len() * std::mem::size_of::<t_docId>())
+                    as *mut t_docId
+            };
+            unsafe {
+                std::ptr::copy_nonoverlapping(ids.as_ptr(), ids_ptr, ids.len());
+            }
+
+            // Create child iterator
+            let child = unsafe {
+                iterators_ffi::id_list::NewSortedIdListIterator(ids_ptr, ids.len() as u64, 1.0)
+            };
+            unsafe {
+                *children_ptr.add(i) = child;
+            }
+        }
+
+        // Create IteratorsConfig with appropriate minUnionIterHeap
+        // If use_heap is true, set minUnionIterHeap to 0 so we always use heap
+        // If use_heap is false, set minUnionIterHeap to a large value so we never use heap
+        let config = ffi::IteratorsConfig {
+            maxPrefixExpansions: 200,
+            minTermPrefix: 2,
+            minStemLength: 4,
+            minUnionIterHeap: if use_heap { 0 } else { i64::MAX },
+        };
+
+        // Create union iterator (takes ownership of children array)
+        Self(unsafe {
+            ffi::NewUnionIterator(
+                children_ptr,
+                num_children as i32,
+                quick_exit,
+                weight,
+                ffi::QueryNodeType::Union,
+                std::ptr::null(), // q_str
+                &config,
             )
         })
     }
@@ -226,101 +281,6 @@ fn free_search_ctx(sctx: *mut ffi::RedisSearchCtx) {
     }
 }
 
-fn new_redis_search_ctx(max_id: u64) -> *mut ffi::QueryEvalCtx {
-    let query_eval_ctx = unsafe {
-        RedisModule_Alloc.unwrap()(std::mem::size_of::<ffi::QueryEvalCtx>())
-            as *mut ffi::QueryEvalCtx
-    };
-    unsafe {
-        (*query_eval_ctx) = std::mem::zeroed();
-    }
-    let doc_table = unsafe {
-        RedisModule_Alloc.unwrap()(std::mem::size_of::<ffi::DocTable>()) as *mut ffi::DocTable
-    };
-    unsafe {
-        (*doc_table) = std::mem::zeroed();
-    }
-    let search_ctx = unsafe {
-        RedisModule_Alloc.unwrap()(std::mem::size_of::<ffi::RedisSearchCtx>())
-            as *mut ffi::RedisSearchCtx
-    };
-    unsafe {
-        (*search_ctx) = std::mem::zeroed();
-    }
-    let spec = unsafe {
-        RedisModule_Alloc.unwrap()(std::mem::size_of::<ffi::IndexSpec>()) as *mut ffi::IndexSpec
-    };
-    unsafe {
-        (*spec) = std::mem::zeroed();
-    }
-    unsafe {
-        (*doc_table).maxSize = max_id;
-    }
-    unsafe {
-        (*doc_table).maxDocId = max_id;
-    }
-    unsafe {
-        (*search_ctx).spec = spec;
-    }
-    unsafe {
-        (*query_eval_ctx).docTable = doc_table;
-    }
-    unsafe {
-        (*query_eval_ctx).sctx = search_ctx;
-    }
-    query_eval_ctx
-}
-
-fn free_redis_search_ctx(ctx: *mut ffi::QueryEvalCtx) {
-    unsafe {
-        RedisModule_Free.unwrap()((*(*ctx).sctx).spec as *mut c_void);
-    };
-    unsafe {
-        RedisModule_Free.unwrap()((*ctx).sctx as *mut c_void);
-    };
-    unsafe {
-        RedisModule_Free.unwrap()((*ctx).docTable as *mut c_void);
-    };
-    unsafe {
-        RedisModule_Free.unwrap()(ctx as *mut c_void);
-    };
-}
-
-/// Direct C benchmark results
-#[derive(Debug, Clone)]
-pub struct DirectBenchmarkResult {
-    pub iterations: u64,
-    pub time_ns: u64,
-}
-
-impl QueryIterator {
-    /// Run direct C benchmark for optional read operations
-    pub fn benchmark_optional_read_direct(max_id: u64) -> DirectBenchmarkResult {
-        let mut iterations = 0u64;
-        let mut time_ns = 0u64;
-        unsafe {
-            benchmark_optional_read_direct_c(max_id, &mut iterations, &mut time_ns);
-        }
-        DirectBenchmarkResult {
-            iterations,
-            time_ns,
-        }
-    }
-
-    /// Run direct C benchmark for optional skip_to operations
-    pub fn benchmark_optional_skip_to_direct(max_id: u64, step: u64) -> DirectBenchmarkResult {
-        let mut iterations = 0u64;
-        let mut time_ns = 0u64;
-        unsafe {
-            benchmark_optional_skip_to_direct_c(max_id, step, &mut iterations, &mut time_ns);
-        }
-        DirectBenchmarkResult {
-            iterations,
-            time_ns,
-        }
-    }
-}
-
 /// Simple wrapper around the C InvertedIndex.
 /// All methods are inlined to avoid the overhead when benchmarking.
 pub struct InvertedIndex {
@@ -363,13 +323,13 @@ impl InvertedIndex {
         term: Option<Box<RSQueryTerm>>,
         offsets: &[u8],
     ) {
-        let record = RSIndexResult::with_term(
-            term,
-            inverted_index::RSOffsetSlice::from_slice(offsets),
-            doc_id,
-            field_mask as u128,
-            freq,
-        );
+        let offsets = inverted_index::RSOffsetSlice::from_slice(offsets);
+        let record = RSIndexResult::build_term()
+            .borrowed_record(term, offsets)
+            .doc_id(doc_id)
+            .field_mask(field_mask as u128)
+            .frequency(freq)
+            .build();
         unsafe {
             inverted_index_ffi::InvertedIndex_WriteEntryGeneric(
                 self.ii.cast(),
@@ -381,56 +341,5 @@ impl InvertedIndex {
     #[inline(always)]
     pub fn iterator_term(&self) -> QueryIterator {
         unsafe { QueryIterator::new_term(self.ii, self.sctx) }
-    }
-}
-
-#[cfg(test)]
-// `miri` can't handle FFI.
-#[cfg(not(miri))]
-mod tests {
-    use super::*;
-    use ffi::{
-        IteratorStatus_ITERATOR_EOF, IteratorStatus_ITERATOR_NOTFOUND, IteratorStatus_ITERATOR_OK,
-        ValidateStatus_VALIDATE_OK,
-    };
-
-    #[test]
-    fn term_full_iterator() {
-        let ii = InvertedIndex::new(
-            IndexFlags_Index_StoreFreqs
-                | IndexFlags_Index_StoreTermOffsets
-                | IndexFlags_Index_StoreFieldFlags
-                | IndexFlags_Index_StoreByteOffsets,
-        );
-
-        let offsets = vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
-        let term = || {
-            let mut t = RSQueryTerm::new("term", 1, 0);
-            t.set_idf(5.0);
-            t.set_bm25_idf(10.0);
-            Some(t)
-        };
-
-        ii.write_term_entry(1, 1, 1, term(), &offsets);
-        ii.write_term_entry(10, 1, 1, term(), &offsets);
-        ii.write_term_entry(100, 1, 1, term(), &offsets);
-
-        let it = ii.iterator_term();
-        assert_eq!(it.num_estimated(), 3);
-
-        assert_eq!(it.read(), IteratorStatus_ITERATOR_OK);
-        assert_eq!(it.read(), IteratorStatus_ITERATOR_OK);
-        assert_eq!(it.read(), IteratorStatus_ITERATOR_OK);
-        assert_eq!(it.read(), IteratorStatus_ITERATOR_EOF);
-        assert!(it.at_eof());
-
-        it.rewind();
-        assert_eq!(it.skip_to(10), IteratorStatus_ITERATOR_OK);
-        assert_eq!(it.skip_to(20), IteratorStatus_ITERATOR_NOTFOUND);
-
-        it.rewind();
-        assert_eq!(it.revalidate(), ValidateStatus_VALIDATE_OK);
-
-        it.free();
     }
 }

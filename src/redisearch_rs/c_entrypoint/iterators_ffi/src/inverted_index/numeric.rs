@@ -12,8 +12,9 @@ use std::ptr::NonNull;
 use field::{FieldFilterContext, FieldMaskOrIndex};
 use inverted_index::{FilterGeoReader, FilterNumericReader, IndexReader, NumericFilter};
 use numeric_range_tree::{NumericIndex, NumericIndexReader, NumericRange, NumericRangeTree};
-use rqe_iterators::{FieldExpirationChecker, inverted_index::Numeric};
-use rqe_iterators_interop::RQEIteratorWrapper;
+use rqe_iterators::{
+    FieldExpirationChecker, IteratorType, interop::RQEIteratorWrapper, inverted_index::Numeric,
+};
 
 /// Enum holding either a numeric or geo iterator variant.
 /// This allows all iterator types to share the same iterator wrapper structure.
@@ -157,6 +158,15 @@ impl<'index> rqe_iterators::RQEIterator<'index> for NumericIterator<'index> {
             IteratorVariant::NumericFiltered(iter) => iter.at_eof(),
             IteratorVariant::Geo(iter) => iter.at_eof(),
         }
+    }
+
+    #[inline(always)]
+    fn type_(&self) -> IteratorType {
+        IteratorType::InvIdxNumeric
+    }
+
+    fn intersection_sort_weight(&self, _prioritize_union_children: bool) -> f64 {
+        1.0
     }
 }
 
@@ -302,23 +312,25 @@ pub unsafe extern "C" fn NewInvIndIterator_NumericQuery(
         }
     };
 
-    RQEIteratorWrapper::boxed_new(ffi::IteratorType_INV_IDX_NUMERIC_ITERATOR, iterator)
+    RQEIteratorWrapper::boxed_new(iterator)
 }
 
 /// Gets the numeric filter from a numeric inverted index iterator.
 ///
 /// # Safety
 ///
-/// 1. `it` must be a valid pointer to a `NumericInvIndIterator` created by `NewInvIndIterator_NumericQuery`.
+/// 1. `it` must be a valid pointer to a `QueryIterator` created by `NewInvIndIterator_NumericQuery`.
 ///
 /// # Returns
 ///
 /// A pointer to the numeric filter, or NULL if no filter was provided when creating the iterator.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn NumericInvIndIterator_GetNumericFilter(
-    it: *const ffi::NumericInvIndIterator,
+    it: *const ffi::QueryIterator,
 ) -> *const ffi::NumericFilter {
     debug_assert!(!it.is_null());
+    // SAFETY: we just checked for NULL and 1 ensure `it` is an iterator.
+    debug_assert!(unsafe { &*it }.type_ == IteratorType::InvIdxNumeric);
 
     // SAFETY: 1
     let wrapper =
@@ -345,9 +357,11 @@ pub unsafe extern "C" fn NumericInvIndIterator_GetNumericFilter(
 /// The minimum range value from the filter, or negative infinity if no filter was provided.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn NumericInvIndIterator_GetProfileRangeMin(
-    it: *const ffi::NumericInvIndIterator,
+    it: *const ffi::QueryIterator,
 ) -> f64 {
     debug_assert!(!it.is_null());
+    // SAFETY: we just checked for NULL and 1 ensure `it` is an iterator.
+    debug_assert!(unsafe { &*it }.type_ == IteratorType::InvIdxNumeric);
 
     // SAFETY: 1
     let wrapper =
@@ -366,9 +380,11 @@ pub unsafe extern "C" fn NumericInvIndIterator_GetProfileRangeMin(
 /// The maximum range value from the filter, or positive infinity if no filter was provided.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn NumericInvIndIterator_GetProfileRangeMax(
-    it: *const ffi::NumericInvIndIterator,
+    it: *const ffi::QueryIterator,
 ) -> f64 {
     debug_assert!(!it.is_null());
+    // SAFETY: we just checked for NULL and 1 ensure `it` is an iterator.
+    debug_assert!(unsafe { &*it }.type_ == IteratorType::InvIdxNumeric);
 
     // SAFETY: 1
     let wrapper =

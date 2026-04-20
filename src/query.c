@@ -39,22 +39,14 @@
 #include "suffix.h"
 #include "wildcard.h"
 #include "geometry/geometry_api.h"
-#include "iterators/inverted_index_iterator.h"
 #include "iterators/union_iterator.h"
-#include "iterators/intersection_iterator.h"
-#include "iterators/optional_iterator.h"
-#include "iterators/not_iterator.h"
 #include "iterators_rs.h"
 #include "iterators/hybrid_reader.h"
 #include "iterators/optimizer_reader.h"
 #include "search_disk.h"
 #include "shard_window_ratio.h"
 #include "idf.h"
-#ifndef STRINGIFY
-#define __STRINGIFY(x) #x
-#define STRINGIFY(x) __STRINGIFY(x)
-#endif
-
+#include "doc_id_meta.h"
 #define EFFECTIVE_FIELDMASK(q_, qn_) ((qn_)->opts.fieldMask & (q)->opts->fieldmask)
 
 static void QueryTokenNode_Free(QueryTokenNode *tn) {
@@ -132,9 +124,14 @@ void QueryNode_Free(QueryNode *n) {
     case QN_GEOMETRY:
       QueryGeometryNode_Free(&n->gmn);
       break;
+    case QN_IDS:
+      if (n->fn.docIds) {
+        rm_free(n->fn.docIds);
+        n->fn.docIds = NULL;
+      }
+      break;
     case QN_MISSING:
     case QN_WILDCARD:
-    case QN_IDS:
     case QN_TAG:
     case QN_UNION:
     case QN_NOT:
@@ -142,6 +139,8 @@ void QueryNode_Free(QueryNode *n) {
     case QN_NULL:
     case QN_PHRASE:
       break;
+    case QN_MAX:
+      RS_ABORT("Invalid query node type");
   }
   rm_free(n);
 }
@@ -421,7 +420,12 @@ QueryNode *NewVectorNode_WithParams(struct QueryParseCtx *q, VectorQueryType typ
 }
 
 void SetFilterNode(QueryAST *q, QueryNode *filterNode) {
-  if (q->root == NULL || filterNode == NULL) return;
+  if (filterNode == NULL) return;
+  if (q->root == NULL) {
+    // Cannot add filter to empty AST - free the node to avoid leaking its resources
+    QueryNode_Free(filterNode);
+    return;
+  }
 
   // for a simple phrase node we just add the numeric node
   if (q->root->type == QN_PHRASE) {
@@ -451,7 +455,7 @@ void SetFilterNode(QueryAST *q, QueryNode *filterNode) {
   }
 }
 
-void QAST_SetGlobalFilters(QueryAST *ast, const QAST_GlobalFilterOptions *options) {
+void QAST_SetGlobalFilters(QueryAST *ast, QAST_GlobalFilterOptions *options) {
   if (options->empty) {
     SetFilterNode(ast, NewQueryNode(QN_NULL));
   }
@@ -469,6 +473,9 @@ void QAST_SetGlobalFilters(QueryAST *ast, const QAST_GlobalFilterOptions *option
     QueryNode *n = NewQueryNode(QN_IDS);
     n->fn.keys = options->keys;
     n->fn.len = options->nkeys;
+    // Transfer ownership of docIds to the QueryNode (freed in QueryNode_Free)
+    n->fn.docIds = options->docIds;
+    options->docIds = NULL;
     SetFilterNode(ast, n);
   }
 }
@@ -932,14 +939,15 @@ static QueryIterator *Query_EvalNotNode(QueryEvalCtx *q, QueryNode *qn) {
   child = Query_EvalNode(q, qn->children[0]);
   q->notSubtree = currently_notSubtree;
 
-  return NewNotIterator(child, q->docTable->maxDocId, qn->opts.weight, q->sctx->time.timeout, q);
+  t_docId maxDocId = q->sctx->spec->diskSpec ? SearchDisk_GetMaxDocId(q->sctx->spec->diskSpec) : q->docTable->maxDocId;
+  return NewNotIterator(child, maxDocId, qn->opts.weight, q->sctx->time.timeout, q);
 }
 
 static QueryIterator *Query_EvalOptionalNode(QueryEvalCtx *q, QueryNode *qn) {
   RS_LOG_ASSERT(qn->type == QN_OPTIONAL, "query node type should be optional");
   RS_LOG_ASSERT(QueryNode_NumChildren(qn) == 1, "Optional node must have a single child");
-
-  return NewOptionalIterator(Query_EvalNode(q, qn->children[0]), q, qn->opts.weight);
+  t_docId maxDocId = q->sctx->spec->diskSpec ? SearchDisk_GetMaxDocId(q->sctx->spec->diskSpec) : q->docTable->maxDocId;
+  return NewOptionalIterator(Query_EvalNode(q, qn->children[0]), q, maxDocId, qn->opts.weight);
 }
 
 static QueryIterator *Query_EvalNumericNode(QueryEvalCtx *q, QueryNode *node) {
@@ -1081,7 +1089,13 @@ static QueryIterator *Query_EvalIdFilterNode(QueryEvalCtx *q, QueryIdFilterNode 
   size_t num = 0;
   t_docId* it_ids = rm_malloc(sizeof(*it_ids) * node->len);
   for (size_t ii = 0; ii < node->len; ++ii) {
-    t_docId did = DocTable_GetId(&q->sctx->spec->docs, node->keys[ii], sdslen(node->keys[ii]));
+    t_docId did = 0;
+    if (node->docIds) {
+      RS_ASSERT(SearchDisk_IsEnabled());
+      did = node->docIds[ii];
+    } else {
+      did = DocTable_GetId(&q->sctx->spec->docs, node->keys[ii], sdslen(node->keys[ii]));
+    }
     if (did) {
       it_ids[num++] = did;
     }
@@ -1509,6 +1523,8 @@ QueryIterator *Query_EvalNode(QueryEvalCtx *q, QueryNode *n) {
       return NewEmptyIterator();
     case QN_MISSING:
       return Query_EvalMissingNode(q, n);
+    case QN_MAX:
+      RS_ABORT("Invalid query node type");
   }
 
   return NULL;
@@ -1627,8 +1643,7 @@ int QAST_Expand(QueryAST *q, const char *expander, RSSearchOptions *opts, RedisS
 int QAST_EvalParams(QueryAST *q, RSSearchOptions *opts, unsigned int dialectVersion, QueryError *status) {
   if (!q || !q->root || q->numParams == 0)
     return REDISMODULE_OK;
-  QueryNode_EvalParams(opts->params, q->root, dialectVersion, status);
-  return REDISMODULE_OK;
+  return QueryNode_EvalParams(opts->params, q->root, dialectVersion, status);
 }
 
 int QueryNode_EvalParams(dict *params, QueryNode *n, unsigned int dialectVersion, QueryError *status) {
@@ -1662,6 +1677,8 @@ int QueryNode_EvalParams(dict *params, QueryNode *n, unsigned int dialectVersion
     case QN_MISSING:
       withChildren = 0;
       break;
+    case QN_MAX:
+      RS_ABORT("Invalid query node type");
   }
   // Handle children
   if (withChildren && res == REDISMODULE_OK) {
@@ -1721,6 +1738,18 @@ static inline bool QueryNode_ValidateToken(QueryNode *n, IndexSpec *spec, RSSear
   return true;
 }
 
+// Helper function to validate that trie-based query types are not used on disk indexes.
+// Returns REDISMODULE_ERR if the query type is not supported on disk indexes, REDISMODULE_OK otherwise.
+static int validateQueryNotDisk(const char *queryTypeName,
+  QueryError *status) {
+  if (SearchDisk_IsEnabledForValidation()) {
+    QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_FLEX_UNSUPPORTED_QUERY,
+      "%s queries are not supported on Flex indexes", queryTypeName);
+    return REDISMODULE_ERR;
+  }
+  return REDISMODULE_OK;
+}
+
 static int QueryNode_CheckIsValid(QueryNode *n, IndexSpec *spec, RSSearchOptions *opts,
   QueryError *status, QAST_ValidationFlags validationFlags) {
   // Check if this is the main vector node in a hybrid vector subquery
@@ -1760,6 +1789,21 @@ static int QueryNode_CheckIsValid(QueryNode *n, IndexSpec *spec, RSSearchOptions
         if (fs && FieldSpec_IndexesEmpty(fs)) {
           opts->flags |= QueryNode_IndexesEmpty;
         }
+        // Block multi-term TAG queries in disk mode (MVP1 limitation)
+        // These query types require TrieMap iteration which doesn't work with disk storage
+        for (size_t ii = 0; ii < QueryNode_NumChildren(n); ++ii) {
+          QueryNode *child = n->children[ii];
+          if (child->type == QN_PREFIX) {
+            res = validateQueryNotDisk("TAG prefix/suffix/infix", status);
+          } else if (child->type == QN_WILDCARD_QUERY) {
+            res = validateQueryNotDisk("TAG wildcard", status);
+          } else if (child->type == QN_LEXRANGE) {
+            res = validateQueryNotDisk("TAG lexrange", status);
+          }
+          if (res == REDISMODULE_ERR) {
+            return res;
+          }
+        }
       }
       break;
     case QN_UNION:
@@ -1786,17 +1830,27 @@ static int QueryNode_CheckIsValid(QueryNode *n, IndexSpec *spec, RSSearchOptions
         res = REDISMODULE_ERR;
       }
       break;
+    case QN_PREFIX:
+      res = validateQueryNotDisk("Prefix", status);
+      break;
+    case QN_WILDCARD_QUERY:
+      res = validateQueryNotDisk("Wildcard pattern", status);
+      break;
+    case QN_FUZZY:
+      res = validateQueryNotDisk("Fuzzy", status);
+      break;
+    case QN_LEXRANGE:
+      res = validateQueryNotDisk("Lexrange", status);
+      break;
     case QN_NOT:
     case QN_OPTIONAL:
     case QN_GEO:
-    case QN_PREFIX:
     case QN_IDS:
     case QN_WILDCARD:
-    case QN_WILDCARD_QUERY:
-    case QN_FUZZY:
-    case QN_LEXRANGE:
     case QN_GEOMETRY:
       break;
+    case QN_MAX:
+      RS_ABORT("Invalid query node type");
   }
 
   // Handle children
@@ -1813,7 +1867,14 @@ static int QueryNode_CheckIsValid(QueryNode *n, IndexSpec *spec, RSSearchOptions
 // Checks whether query nodes are valid
 // Currently Phrase nodes are checked whether slop/inorder are allowed
 int QAST_CheckIsValid(QueryAST *q, IndexSpec *spec, RSSearchOptions *opts, QueryError *status) {
-  if (!q || !q->root ||
+  if (!q || !q->root) {
+    return REDISMODULE_OK;
+  }
+
+  // Always validate disk indexes (for unsupported query types like prefix/fuzzy/wildcard/lexrange)
+  // For non-disk indexes, skip validation if there's no TEXT/TAG field that doesn't index empty
+  // and no JSON spec with undefined order
+  if (!SearchDisk_IsEnabledForValidation() &&
       !(spec->flags & Index_HasNonEmpty) &&
       (!isSpecJson(spec) || !(spec->flags & Index_HasUndefinedOrder))
   ) {
@@ -1991,12 +2052,19 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
                        GeoDistance_ToString(qs->gn.gf->unitType));
       break;
     case QN_IDS:
-
       s = sdscat(s, "IDS {");
-      for (int i = 0; i < qs->fn.len; i++) {
-        t_docId id = DocTable_GetId(&spec->docs, qs->fn.keys[i], sdslen(qs->fn.keys[i]));
-        if (id != 0) {
-          s = sdscatprintf(s, "%lu,", id);
+      if (spec) {
+        for (size_t i = 0; i < qs->fn.len; i++) {
+          t_docId did = 0;
+          if (qs->fn.docIds) {
+            RS_ASSERT(SearchDisk_IsEnabled());
+            did = qs->fn.docIds[i];
+          } else {
+            did = DocTable_GetId(&spec->docs, qs->fn.keys[i], sdslen(qs->fn.keys[i]));
+          }
+          if (did != 0) {
+            s = sdscatprintf(s, "%lu,", did);
+          }
         }
       }
       s = sdscat(s, "}");
@@ -2064,6 +2132,8 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
     case QN_MISSING:
       s = sdscatprintf(s, "ISMISSING{%s}", HiddenString_GetUnsafe(qs->miss.field->fieldName, NULL));
       break;
+    case QN_MAX:
+      RS_ABORT("Invalid query node type");
   }
 
   // print attributes if not the default

@@ -44,6 +44,9 @@ jobs:
       - name: Generate filtered matrix
         id: generate-matrix
         shell: python
+        env:
+          INPUT_PLATFORM: ${{ inputs.platform }}
+          INPUT_ARCHITECTURE: ${{ inputs.architecture }}
         run: |
           import json
           import os
@@ -51,6 +54,8 @@ jobs:
 
           # All available platform/architecture combinations
           all_combinations = [
+              ('ubuntu:resolute', 'x86_64'),
+              ('ubuntu:resolute', 'aarch64'),
               ('ubuntu:noble', 'x86_64'),
               ('ubuntu:noble', 'aarch64'),
               ('ubuntu:jammy', 'x86_64'),
@@ -61,25 +66,28 @@ jobs:
               ('rockylinux:8', 'aarch64'),
               ('rockylinux:9', 'x86_64'),
               ('rockylinux:9', 'aarch64'),
-              ('amazonlinux:2', 'x86_64'),
+              ('rockylinux:10', 'x86_64'),
+              ('rockylinux:10', 'aarch64'),
               ('amazonlinux:2023', 'x86_64'),
               ('amazonlinux:2023', 'aarch64'),
-              ('debian:bullseye', 'x86_64'),
-              ('debian:bullseye', 'aarch64'),
               ('debian:bookworm', 'x86_64'),
               ('debian:bookworm', 'aarch64'),
-              ('mariner:2', 'x86_64'),
+              ('debian:trixie', 'x86_64'),
+              ('debian:trixie', 'aarch64'),
               ('azurelinux:3', 'x86_64'),
               ('azurelinux:3', 'aarch64'),
-              ('alpine:3.22', 'x86_64'),
-              ('alpine:3.22', 'aarch64'),
+              ('alpine:3.23', 'x86_64'),
+              ('alpine:3.23', 'aarch64'),
+              ('macos-14', 'aarch64'),
+              ('macos-15', 'x86_64'),
               ('macos-15', 'aarch64'),
+              ('macos-26', 'x86_64'),
               ('macos-26', 'aarch64'),
               ('intel', 'x86_64'),  # Self-hosted EC2 runner
           ]
 
-          platform_filter = "${{ inputs.platform }}"
-          architecture_filter = "${{ inputs.architecture }}"
+          platform_filter = os.environ["INPUT_PLATFORM"]
+          architecture_filter = os.environ["INPUT_ARCHITECTURE"]
           include_coverage = "${{ inputs.include-coverage }}" == "true"
           include_sanitize = "${{ inputs.include-sanitize }}" == "true"
           separate_coordinator = "${{ inputs.separate-coordinator-job }}" == "true"
@@ -110,13 +118,13 @@ jobs:
           for platform, architecture in filtered_combinations:
               add_matrix_entries(matrix_items, platform, architecture, 'test')
 
-          # Add coverage job if requested (only on ubuntu:default x86_64)
+          # Add coverage job if requested (only on ubuntu:latest x86_64)
           if include_coverage:
-              add_matrix_entries(matrix_items, 'ubuntu:default', 'x86_64', 'coverage')
+              add_matrix_entries(matrix_items, 'ubuntu:latest', 'x86_64', 'coverage')
 
-          # Add sanitize job if requested (only on ubuntu:default x86_64)
+          # Add sanitize job if requested (only on ubuntu:latest x86_64)
           if include_sanitize:
-              add_matrix_entries(matrix_items, 'ubuntu:default', 'x86_64', 'sanitize')
+              add_matrix_entries(matrix_items, 'ubuntu:latest', 'x86_64', 'sanitize')
 
           # Check if matrix has any jobs
           has_jobs = len(matrix_items) > 0

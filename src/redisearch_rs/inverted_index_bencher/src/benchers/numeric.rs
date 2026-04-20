@@ -170,7 +170,7 @@ fn generate_test_values() -> Vec<BenchGroup> {
                     .into_iter()
                     // We need to find the actual resulting output for the decoding benchmarks
                     .map(|value| {
-                        let record = inverted_index::RSIndexResult::numeric(value);
+                        let record = inverted_index::RSIndexResult::build_numeric(value).build();
                         let mut buffer = Cursor::new(Vec::new());
                         let _grew_size = Numeric::encode(
                             &mut buffer,
@@ -238,7 +238,7 @@ fn encode<M: Measurement>(group: &mut BenchmarkGroup<'_, M>, input: &BenchGroup)
                 },
                 |mut buffer| {
                     for (value, delta, _) in values {
-                        let record = inverted_index::RSIndexResult::numeric(*value);
+                        let record = inverted_index::RSIndexResult::build_numeric(*value).build();
 
                         let grew_size = Numeric::encode(
                             &mut buffer,
@@ -272,7 +272,12 @@ fn decode<M: Measurement>(group: &mut BenchmarkGroup<'_, M>, input: &BenchGroup)
         |b| {
             for (_, _, buffer) in values {
                 b.iter_batched_ref(
-                    || (Cursor::new(buffer.as_ref()), RSIndexResult::numeric(0.0)),
+                    || {
+                        (
+                            Cursor::new(buffer.as_ref()),
+                            RSIndexResult::build_numeric(0.0).build(),
+                        )
+                    },
                     |(cursor, result)| {
                         let res = Numeric::decode(cursor, 100, result);
 

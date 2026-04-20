@@ -1,0 +1,40 @@
+name: Configure AWS Credentials
+description: |
+  Configures AWS credentials using either IAM role (OIDC) or access keys.
+
+inputs:
+  use_role:
+    description: "Whether to use IAM role (OIDC) authentication"
+    required: true
+  role_to_assume:
+    description: "ARN of the IAM role to assume (required if use_role is true)"
+    required: false
+  aws_access_key_id:
+    description: "AWS access key ID (required if use_role is false)"
+    required: false
+  aws_secret_access_key:
+    description: "AWS secret access key (required if use_role is false)"
+    required: false
+  aws_region:
+    description: "AWS region"
+    required: true
+
+runs:
+  using: composite
+  steps:
+    # Role-based auth
+    - name: Configure AWS Credentials Using Role
+      if: ${{ inputs.use_role == 'true' }}
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        role-to-assume: ${{ inputs.role_to_assume }}
+        aws-region: ${{ inputs.aws_region }}
+
+    # Key-based auth
+    - name: Configure AWS Credentials Using Keys
+      if: ${{ inputs.use_role != 'true' }}
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ inputs.aws_access_key_id }}
+        aws-secret-access-key: ${{ inputs.aws_secret_access_key }}
+        aws-region: ${{ inputs.aws_region }}

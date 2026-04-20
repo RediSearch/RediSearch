@@ -38,7 +38,7 @@ int GetJSONAPIs(RedisModuleCtx *ctx, int subscribeToModuleChange) {
     char ver[128];
     // Obtain the newest version of JSON API
     for (int i = RedisJSONAPI_LATEST_API_VER; i >= RedisJSONAPI_MIN_API_VER; --i) {
-      sprintf(ver, "RedisJSON_V%d", i);
+      snprintf(ver, sizeof(ver), "RedisJSON_V%d", i);
       japi = RedisModule_GetSharedAPI(ctx, ver);
       if (japi) {
         japi_ver = i;
@@ -801,13 +801,25 @@ done:
 }
 
 int JSON_LoadDocumentField(JSONResultsIterator jsonIter, size_t len,
-                              FieldSpec *fs, struct DocumentField *df, RedisModuleCtx *ctx, QueryError *status) {
+                              FieldSpec *fs, struct DocumentField *df, RedisModuleCtx *ctx, bool rejectMultiValue,
+                              QueryError *status) {
   int rv = REDISMODULE_OK;
+
+  if (rejectMultiValue && len > 1) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_INVAL,
+                        "Disk JSON index does not support multi-value JSONPath results");
+    return REDISMODULE_ERR;
+  }
 
   if (len == 1) {
     RedisJSON json = japi->next(jsonIter);
 
     JSONType jsonType = japi->getType(json);
+    if (rejectMultiValue && jsonType == JSONType_Array && fs->types != INDEXFLD_T_VECTOR) {
+      QueryError_SetError(status, QUERY_ERROR_CODE_INVAL,
+                          "Disk JSON index supports JSON array values only for VECTOR fields");
+      return REDISMODULE_ERR;
+    }
     if (FieldSpec_CheckJsonType(fs->types, jsonType, status) != REDISMODULE_OK) {
       return REDISMODULE_ERR;
     }

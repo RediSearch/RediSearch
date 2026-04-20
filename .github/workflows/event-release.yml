@@ -1,4 +1,4 @@
-name: Release a Version
+name: Release an OSS Version
 
 # Added these to use JWT token to connect with AWS
 permissions:
@@ -137,12 +137,17 @@ jobs:
           ISSUES_SHIFT_ASSIGNEE: ${{ vars.ISSUES_SHIFT_ASSIGNEE }}
           GITHUB_ACTOR: ${{ github.actor }}
         run: |
+          # Omit GITHUB_ACTOR from reviewers if it is a bot account
+          REVIEWERS="$TEAM_LEADERS,$ISSUES_SHIFT_ASSIGNEE"
+          if [[ "$GITHUB_ACTOR" != *"[bot]" ]]; then
+            REVIEWERS="$REVIEWERS,$GITHUB_ACTOR"
+          fi
           gh pr create \
             --title    "Bump version from $CUR_VERSION to $NEXT_VERSION" \
             --body     "This PR was automatically created by the release workflow of $RELEASE_TAG." \
             --head     "$BRANCH" \
             --base     "$RELEASE_BRANCH" \
-            --reviewer "$TEAM_LEADERS,$ISSUES_SHIFT_ASSIGNEE,$GITHUB_ACTOR" \
+            --reviewer "$REVIEWERS" \
             --draft
 
       - name: Trigger CI
@@ -194,7 +199,6 @@ jobs:
 
           bucket = "redismodules"
           oss_dir = "redisearch-oss"
-          ent_dir = "redisearch"
 
           expected_sha = os.environ["EXPECTED_SHA"]
           expected_short_sha = expected_sha[:7]
@@ -244,9 +248,7 @@ jobs:
 
           ############################### Main Script ###############################
 
-          files = []
-          for dir in [oss_dir, ent_dir]:
-              files.extend(list_snapshots_by_branch(dir))
+          files = list(list_snapshots_by_branch(oss_dir))
 
           group_print(f"{os.environ['SOURCE']} Build Candidates", files)
           if not files:

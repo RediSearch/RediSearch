@@ -539,6 +539,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "document_metadata"
+version = "0.0.1"
+dependencies = [
+ "ffi",
+ "redis-module",
+ "workspace_hack",
+]
+
+[[package]]
 name = "either"
 version = "1.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -641,7 +650,9 @@ dependencies = [
  "cc",
  "document",
  "enumflags2",
+ "query_node_type",
  "query_term",
+ "rqe_iterator_type",
  "workspace_hack",
 ]
 
@@ -662,6 +673,20 @@ name = "field"
 version = "0.0.1"
 dependencies = [
  "ffi",
+ "workspace_hack",
+]
+
+[[package]]
+name = "field_spec"
+version = "0.0.1"
+dependencies = [
+ "enumflags2",
+ "ffi",
+ "field_spec",
+ "hidden_string",
+ "pretty_assertions",
+ "redis_mock",
+ "redisearch_rs",
  "workspace_hack",
 ]
 
@@ -812,6 +837,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2304e00983f87ffb38b55b444b5e3b60a884b5d30c0fca7d82fe33449bbe55ea"
 
 [[package]]
+name = "hidden_string"
+version = "0.0.1"
+dependencies = [
+ "ffi",
+ "pretty_assertions",
+ "redis_mock",
+ "redisearch_rs",
+ "workspace_hack",
+]
+
+[[package]]
 name = "http"
 version = "1.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -957,6 +993,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "index_spec"
+version = "0.0.1"
+dependencies = [
+ "ffi",
+ "field_spec",
+ "pretty_assertions",
+ "redis_mock",
+ "redisearch_rs",
+ "schema_rule",
+ "workspace_hack",
+]
+
+[[package]]
+name = "index_spec_cache"
+version = "0.0.1"
+dependencies = [
+ "ffi",
+ "field_spec",
+ "rm_array",
+ "workspace_hack",
+]
+
+[[package]]
 name = "indexmap"
 version = "2.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1035,6 +1094,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a6cb138bb79a146c1bd460005623e142ef0181e3d0219cb493e02f7d08a35695"
 
 [[package]]
+name = "iterator_type_ffi"
+version = "0.0.1"
+dependencies = [
+ "build_utils",
+ "cbindgen",
+ "rqe_iterator_type",
+ "workspace_hack",
+]
+
+[[package]]
 name = "iterators_ffi"
 version = "0.0.1"
 dependencies = [
@@ -1046,8 +1115,8 @@ dependencies = [
  "inverted_index_ffi",
  "libc",
  "numeric_range_tree",
+ "rqe_iterator_type",
  "rqe_iterators",
- "rqe_iterators_interop",
  "workspace_hack",
 ]
 
@@ -1525,7 +1594,7 @@ checksum = "37566cb3fdacef14c0737f9546df7cfeadbfbc9fef10991038bf5015d0c80532"
 dependencies = [
  "bitflags 2.11.0",
  "num-traits 0.2.19",
- "rand 0.9.2",
+ "rand 0.9.3",
  "rand_chacha 0.9.0",
  "rand_xorshift",
  "regex-syntax",
@@ -1550,7 +1619,7 @@ dependencies = [
  "criterion",
  "proptest",
  "proptest-derive",
- "rand 0.9.2",
+ "rand 0.9.3",
  "workspace_hack",
 ]
 
@@ -1572,6 +1641,23 @@ dependencies = [
  "cbindgen",
  "query_error",
  "strum",
+ "workspace_hack",
+]
+
+[[package]]
+name = "query_node_type"
+version = "0.0.1"
+dependencies = [
+ "workspace_hack",
+]
+
+[[package]]
+name = "query_node_type_ffi"
+version = "0.0.1"
+dependencies = [
+ "build_utils",
+ "cbindgen",
+ "query_node_type",
  "workspace_hack",
 ]
 
@@ -1627,9 +1713,9 @@ dependencies = [
 
 [[package]]
 name = "rand"
-version = "0.9.2"
+version = "0.9.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6db2770f06117d490610c7488547d543617b21bfa07796d7a12f6f1bd53850d1"
+checksum = "7ec095654a25171c2124e9e3393a930bddbffdc939556c914957a4c3e0a87166"
 dependencies = [
  "rand_chacha 0.9.0",
  "rand_core 0.9.5",
@@ -1785,6 +1871,7 @@ dependencies = [
  "quote 1.0.44",
  "redis-module",
  "result_processor_ffi",
+ "rlookup_ffi",
  "search_result_ffi",
  "slots_tracker_ffi",
  "sorting_vector_ffi",
@@ -1792,6 +1879,7 @@ dependencies = [
  "toml",
  "triemap_ffi",
  "types_ffi",
+ "value_ffi",
  "varint_ffi",
  "walkdir",
  "workspace_hack",
@@ -1884,6 +1972,9 @@ dependencies = [
  "document",
  "enumflags2",
  "ffi",
+ "field_spec",
+ "index_spec",
+ "index_spec_cache",
  "libc",
  "pin-project",
  "pretty_assertions",
@@ -1892,8 +1983,10 @@ dependencies = [
  "redis_mock",
  "redisearch_rs",
  "rlookup",
+ "schema_rule",
  "sorting_vector",
  "strum",
+ "thin_vec",
  "thiserror",
  "value",
  "workspace_hack",
@@ -1908,12 +2001,22 @@ dependencies = [
  "cbindgen",
  "ffi",
  "libc",
+ "query_error",
  "redis_mock",
  "redisearch_rs",
  "rlookup",
  "rlookup_ffi",
+ "search_result",
  "sorting_vector",
  "value",
+ "workspace_hack",
+]
+
+[[package]]
+name = "rm_array"
+version = "0.0.1"
+dependencies = [
+ "ffi",
  "workspace_hack",
 ]
 
@@ -1937,6 +2040,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "rqe_iterator_type"
+version = "0.0.1"
+dependencies = [
+ "workspace_hack",
+]
+
+[[package]]
 name = "rqe_iterators"
 version = "0.0.1"
 dependencies = [
@@ -1955,14 +2065,16 @@ dependencies = [
  "query_term_ffi",
  "redis_mock",
  "redisearch_rs",
+ "rqe_iterator_type",
  "rqe_iterators",
  "rqe_iterators_test_utils",
  "rstest",
  "rstest_reuse",
  "thiserror",
+ "tracing",
+ "trie_rs",
  "types_ffi",
  "value",
- "value_ffi",
  "varint_ffi",
  "workspace_hack",
 ]
@@ -1981,21 +2093,11 @@ dependencies = [
  "iterators_ffi",
  "itertools 0.14.0",
  "query_term",
- "rand 0.9.2",
+ "rand 0.9.3",
  "redis_mock",
  "redisearch_rs",
  "rqe_iterators",
  "rqe_iterators_test_utils",
- "workspace_hack",
-]
-
-[[package]]
-name = "rqe_iterators_interop"
-version = "0.0.1"
-dependencies = [
- "ffi",
- "inverted_index",
- "rqe_iterators",
  "workspace_hack",
 ]
 
@@ -2113,9 +2215,9 @@ dependencies = [
 
 [[package]]
 name = "rustls-webpki"
-version = "0.103.9"
+version = "0.103.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d7df23109aa6c1567d1c575b9952556388da57401e4ace1d15f79eedad0d8f53"
+checksum = "8279bb85272c9f10811ae6a6c547ff594d6a7f3c6c6b02ee9726d1d0dcfcdd06"
 dependencies = [
  "ring",
  "rustls-pki-types",
@@ -2156,12 +2258,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "schema_rule"
+version = "0.0.1"
+dependencies = [
+ "ffi",
+ "pretty_assertions",
+ "redis_mock",
+ "redisearch_rs",
+ "workspace_hack",
+]
+
+[[package]]
 name = "search_result"
 version = "0.0.1"
 dependencies = [
+ "document_metadata",
  "enumflags2",
  "ffi",
  "inverted_index",
+ "rlookup",
  "workspace_hack",
 ]
 
@@ -2302,6 +2417,7 @@ dependencies = [
  "redis_mock",
  "redisearch_rs",
  "sorting_vector",
+ "thin_vec",
  "value",
  "workspace_hack",
 ]
@@ -2315,6 +2431,7 @@ dependencies = [
  "ffi",
  "libc",
  "sorting_vector",
+ "thin_vec",
  "value",
  "workspace_hack",
 ]
@@ -2674,6 +2791,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "triomphe"
+version = "0.1.15"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dd69c5aa8f924c7519d6372789a74eac5b94fb0f8fcf0d4a97eb0bfc3e785f39"
+dependencies = [
+ "serde",
+ "stable_deref_trait",
+]
+
+[[package]]
 name = "types_ffi"
 version = "0.0.1"
 dependencies = [
@@ -2789,10 +2916,14 @@ version = "0.0.1"
 dependencies = [
  "c_ffi_utils",
  "ffi",
+ "fnv",
  "libc",
+ "query_error",
  "redis-module",
  "redis_mock",
+ "redisearch_rs",
  "thiserror",
+ "triomphe",
  "workspace_hack",
 ]
 
@@ -2801,10 +2932,10 @@ name = "value_ffi"
 version = "0.0.1"
 dependencies = [
  "build_utils",
- "c_ffi_utils",
- "cbindgen",
  "ffi",
+ "fnv",
  "libc",
+ "query_error",
  "redis_mock",
  "value",
  "workspace_hack",
@@ -3241,7 +3372,7 @@ dependencies = [
  "ppv-lite86",
  "proc-macro2",
  "quote 1.0.44",
- "rand 0.9.2",
+ "rand 0.9.3",
  "rand_chacha 0.9.0",
  "rand_core 0.6.4",
  "redis-module",
@@ -3252,6 +3383,7 @@ dependencies = [
  "serde",
  "serde_core",
  "serde_json",
+ "stable_deref_trait",
  "syn 1.0.109",
  "syn 2.0.117",
  "thiserror",

@@ -14,7 +14,7 @@ use inverted_index::{RSIndexResult, RSOffsetSlice, TermReader};
 use query_term::RSQueryTerm;
 
 use crate::{
-    RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
+    IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
     expiration_checker::ExpirationChecker,
 };
 
@@ -75,9 +75,11 @@ where
         term.set_idf(idf::calculate_idf(total_docs, term_docs));
         term.set_bm25_idf(idf::calculate_idf_bm25(total_docs, term_docs));
 
-        let result =
-            RSIndexResult::with_term(Some(term), RSOffsetSlice::empty(), 0, RS_FIELDMASK_ALL, 1)
-                .weight(weight);
+        let result = RSIndexResult::build_term()
+            .borrowed_record(Some(term), RSOffsetSlice::empty())
+            .field_mask(RS_FIELDMASK_ALL)
+            .weight(weight)
+            .build();
         Self {
             it: InvIndIterator::new(reader, result, expiration_checker),
             context,
@@ -206,5 +208,14 @@ where
         }
 
         self.it.revalidate()
+    }
+
+    #[inline(always)]
+    fn type_(&self) -> IteratorType {
+        IteratorType::InvIdxTerm
+    }
+
+    fn intersection_sort_weight(&self, _prioritize_union_children: bool) -> f64 {
+        1.0
     }
 }

@@ -57,6 +57,11 @@ pub enum Error {
 /// ```rust
 /// # use result_processor::{ResultProcessor, Error, Context};
 /// # use search_result::SearchResult;
+/// #
+/// # // Link both Rust-provided and C-provided symbols
+/// # extern crate redisearch_rs;
+/// # // Mock or stub the ones that aren't provided by the line above
+/// # redis_mock::mock_or_stub_missing_redis_c_symbols!();
 ///
 /// /// A simple result processor that simply prints out the search result received from the previous processor
 /// /// before passing it on.
@@ -205,7 +210,7 @@ impl Upstream<'_> {
 /// For intrusive data types like this we need to tell the compiler "don't move this please I have pointers to it" which is called
 /// pinning in Rust.
 ///
-/// We wrap a reference in the Pin<T> type (Pin<&mut T>) which disallows moving the pointee from its location in memory.
+/// We wrap a reference in the `Pin<T>` type (Pin<&mut T>) which disallows moving the pointee from its location in memory.
 /// Crucially though, the way Pin disallows is not magic, it simply doesn't implement any methods and traits that would
 /// allow a caller to move the value. Unfortunately this means banning all mutable access to the value T (you cannot get a
 /// &mut T from a Pin<&mut T> for example) since with a &mut T you can always move the value very easily (via mem::replace for example).
@@ -233,7 +238,7 @@ struct Header {
     /// not read, so it is the responsibility of the caller to ensure that there
     /// are no refcount leaks in the structure.
     ///
-    /// Users can use [`ffi::SearchResult_Clear`] to reset the structure without freeing it.
+    /// Users can use [`search_result::SearchResult::clear`] to reset the structure without freeing it.
     ///
     /// The populated structure (if [`ffi::RPStatus_RS_RESULT_OK`] is returned) does contain references
     /// to document data. Callers *MUST* ensure they are eventually freed.
@@ -406,6 +411,7 @@ where
     /// # Safety
     ///
     /// 1. `me` must be a well-aligned, valid pointer to a result processor (struct [`Header`]).
+    #[cfg_attr(not(debug_assertions), expect(clippy::missing_const_for_fn))]
     unsafe fn debug_assert_same_type(_me: NonNull<Header>) {
         #[cfg(debug_assertions)]
         {
@@ -462,7 +468,10 @@ pub(crate) mod test {
 
     /// Assert that Rust error types translate to the correct C ret code
     #[test]
-    #[cfg_attr(miri, ignore = "miri does not support FFI functions")]
+    #[cfg_attr(
+        miri,
+        ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
+    )]
     fn error_to_ret_code() {
         fn check(error: Error, expected: i32) {
             let mut chain = Chain::new();
@@ -481,7 +490,10 @@ pub(crate) mod test {
 
     /// Assert that returning `Ok(None)` from Rust translates to EOF in C
     #[test]
-    #[cfg_attr(miri, ignore = "miri does not support FFI functions")]
+    #[cfg_attr(
+        miri,
+        ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
+    )]
     fn none_signals_eof() {
         let mut chain = Chain::new();
         chain.append(ResultRP::new_ok_none());
@@ -494,7 +506,10 @@ pub(crate) mod test {
 
     /// Assert that `Ok(Some(())` in Rust translates to the `OK` in C
     #[test]
-    #[cfg_attr(miri, ignore = "miri does not support FFI functions")]
+    #[cfg_attr(
+        miri,
+        ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
+    )]
     fn ok_some_signals_ok() {
         let mut chain = Chain::new();
         chain.append(ResultRP::new_ok_some());
@@ -507,7 +522,10 @@ pub(crate) mod test {
 
     /// Assert that C return codes translate to the correct Rust error types
     #[test]
-    #[cfg_attr(miri, ignore = "miri does not support FFI functions")]
+    #[cfg_attr(
+        miri,
+        ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
+    )]
     fn c_ret_code_to_error() {
         // This function sets up a result processor in memory that mimics a C result processor
         // sidestepping all the the rust logic
@@ -588,7 +606,10 @@ pub(crate) mod test {
 
     /// Assert that the search result is passed correctly
     #[test]
-    #[cfg_attr(miri, ignore = "miri does not support FFI functions")]
+    #[cfg_attr(
+        miri,
+        ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
+    )]
     fn search_result_passing() {
         struct Upstream;
         impl ResultProcessor for Upstream {

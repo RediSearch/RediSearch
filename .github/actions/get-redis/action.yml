@@ -1,0 +1,21 @@
+name: Get Redis
+description: Checkout Redis repository.
+
+inputs:
+  ref:
+    description: "Redis git ref to checkout"
+    required: true
+  path:
+    description: "Path to checkout Redis into"
+    required: false
+    default: "redis"
+
+runs:
+  using: composite
+  steps:
+    - name: Get Redis
+      uses: actions/checkout@v4
+      with:
+        repository: redis/redis
+        ref: ${{ inputs.ref }}
+        path: ${{ inputs.path }}

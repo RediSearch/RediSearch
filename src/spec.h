@@ -126,7 +126,9 @@ struct IndexesScanner;
 #define MAX_DIALECT_VERSION 4 // MAX_DIALECT_VERSION may not exceed MIN_DIALECT_VERSION + 7.
 
 extern dict *specDict_g;
+extern dict *specIdDict_g;  // Maps specId (uint64_t) → RefManager* (same as specDict_g values)
 #define dictGetRef(he) ((StrongRef){dictGetVal(he)})
+#define dictFetchRef(dict, key) ((StrongRef){dictFetchValue((dict), (key))})
 
 typedef enum {
     DEBUG_INDEX_SCANNER_CODE_NEW,
@@ -211,6 +213,7 @@ typedef struct Version {
 
 extern Version redisVersion;
 extern Version rlecVersion;
+extern bool isEnterprise;
 extern bool isCrdt;
 extern bool isTrimming; // TODO: remove this when redis deprecates sharding trimming events
 extern bool isFlex;
@@ -301,6 +304,7 @@ typedef struct CharBuf {
 typedef struct IndexSpec {
   const HiddenString *specName;         // Index private name
   char *obfuscatedName;           // Index hashed name
+  uint64_t specId;                // Unique monotonically increasing ID for this spec incarnation
   FieldSpec *fields;              // Fields in the index schema
   int16_t numFields;              // Number of fields
   int16_t numSortableFields;      // Number of sortable fields
@@ -542,11 +546,21 @@ StrongRef IndexSpec_ParseC(RedisModuleCtx *ctx, const char *name, const char **a
 
 FieldSpec *IndexSpec_CreateField(IndexSpec *sp, const char *name, const char *path);
 
-// This function locks the spec for writing. use it if you know the spec is not locked
+// Delete a document from the index by its key name.
+// Looks up the docId via DocIdMeta_Get on the key, then removes the document
+// from the DocTable and cleans up associated metadata (DocIdMeta_Delete).
+// Requires a RedisModuleCtx to access the key's metadata.
+// This function locks the spec for writing.
 int IndexSpec_DeleteDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key);
 
-// This function does not lock the spec. use it if you know the spec is locked for writing
+// Same as IndexSpec_DeleteDoc but does not lock the spec.
+// Use when the spec is already locked for writing.
 void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key);
+
+// Delete a document from the index by its docId directly, without needing
+// to look it up by key name. Removes the document from the DocTable but does
+// NOT clean up DocIdMeta on the key. This is called from the metadata unlink callback
+void IndexSpec_DeleteDocById(IndexSpec *spec, t_docId docId);
 
 /**
  * Indicate that the index spec should use an internal dictionary,rather than
@@ -644,10 +658,8 @@ void IndexSpec_Free(IndexSpec *spec);
 void IndexSpec_AddTerm(IndexSpec *sp, const char *term, size_t len);
 
 IndexSpec *NewIndexSpec(const HiddenString *name);
-int IndexSpec_AddField(IndexSpec *sp, FieldSpec *fs);
 IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryError *status);
 void IndexSpec_RdbSave(RedisModuleIO *rdb, IndexSpec *sp, int contextFlags);
-void IndexSpec_Digest(RedisModuleDigest *digest, void *value);
 int IndexSpec_RegisterType(RedisModuleCtx *ctx);
 // int IndexSpec_UpdateWithHash(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key);
 void IndexSpec_ClearAliases(StrongRef ref);
@@ -727,7 +739,7 @@ void Indexes_Init(RedisModuleCtx *ctx);
  * Free all indexes.
  * @param deleteDiskData - delete the disk data
 */
-void Indexes_Free(dict *d, bool deleteDiskData);
+void Indexes_Free(RedisModuleCtx *ctx, dict *d, bool deleteDiskData);
 size_t Indexes_Count();
 void Indexes_Propagate(RedisModuleCtx *ctx);
 void Indexes_UpdateMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key, DocumentType type,
@@ -760,7 +772,7 @@ StrongRef IndexSpecRef_Promote(WeakRef ref);
 void IndexSpecRef_Release(StrongRef ref);
 
 // This function is called in case the server starts RDB loading.
-void Indexes_StartRDBLoadingEvent();
+void Indexes_StartRDBLoadingEvent(RedisModuleCtx *ctx);
 
 // This function is called in case the server ends RDB loading.
 void Indexes_EndRDBLoadingEvent(RedisModuleCtx *ctx);

@@ -11,7 +11,7 @@
 
 use ffi::{IndexFlags_Index_DocIdsOnly, RS_FIELDMASK_ALL, t_docId};
 use inverted_index::{RSIndexResult, doc_ids_only::DocIdsOnly};
-use rqe_iterators::{NoOpChecker, RQEIterator, inverted_index::Missing};
+use rqe_iterators::{IteratorType, NoOpChecker, RQEIterator, inverted_index::Missing};
 use rqe_iterators_test_utils::MockContext;
 
 use crate::inverted_index::utils::BaseTest;
@@ -22,11 +22,12 @@ struct MissingBaseTest {
 
 impl MissingBaseTest {
     fn expected_record(doc_id: t_docId) -> RSIndexResult<'static> {
-        RSIndexResult::virt()
+        RSIndexResult::build_virt()
             .doc_id(doc_id)
             .field_mask(RS_FIELDMASK_ALL)
             .frequency(1)
             .weight(0.0)
+            .build()
     }
 
     fn new(n_docs: u64) -> Self {
@@ -45,6 +46,13 @@ impl MissingBaseTest {
         // that outlives the returned iterator. field_index is 0 (unused with NoOpChecker).
         unsafe { Missing::new(reader, self.test.mock_ctx.sctx(), 0, NoOpChecker) }
     }
+}
+
+#[test]
+fn missing_type() {
+    let test = MissingBaseTest::new(10);
+    let it = test.create_iterator();
+    assert_eq!(it.type_(), IteratorType::InvIdxMissing);
 }
 
 #[test]
@@ -82,6 +90,7 @@ mod not_miri {
     use crate::inverted_index::utils::{RevalidateIndexType, RevalidateTest};
     use inverted_index::opaque::OpaqueEncoding;
     use rqe_iterators::RQEValidateStatus;
+    use std::ffi::CStr;
 
     struct MissingRevalidateTest {
         test: RevalidateTest,
@@ -89,11 +98,12 @@ mod not_miri {
 
     impl MissingRevalidateTest {
         fn expected_record(doc_id: t_docId) -> RSIndexResult<'static> {
-            RSIndexResult::virt()
+            RSIndexResult::build_virt()
                 .doc_id(doc_id)
                 .field_mask(RS_FIELDMASK_ALL)
                 .frequency(1)
                 .weight(0.0)
+                .build()
         }
 
         fn new(n_docs: u64) -> Self {
@@ -238,5 +248,18 @@ mod not_miri {
         let reader = it.reader();
         let ii = DocIdsOnly::from_opaque(test.test.context.missing_inverted_index());
         assert!(reader.points_to_ii(ii));
+    }
+
+    #[test]
+    fn missing_field_name() {
+        let test = MissingRevalidateTest::new(10);
+        let it = test.create_iterator();
+
+        let (field_name, field_name_len) = it.field_name();
+        // SAFETY: `field_name()` returns a valid pointer to the field name stored in the live spec.
+        let field_name = unsafe { CStr::from_ptr(field_name) };
+
+        assert_eq!(field_name.to_bytes().len(), field_name_len);
+        assert_eq!(field_name.to_bytes(), b"text_field");
     }
 }

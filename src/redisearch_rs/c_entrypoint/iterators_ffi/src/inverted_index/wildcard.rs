@@ -12,8 +12,7 @@ use std::{fmt::Debug, ptr::NonNull};
 use inverted_index::{
     RSIndexResult, doc_ids_only::DocIdsOnly, raw_doc_ids_only::RawDocIdsOnly, t_docId,
 };
-use rqe_iterators::inverted_index::Wildcard;
-use rqe_iterators_interop::RQEIteratorWrapper;
+use rqe_iterators::{IteratorType, interop::RQEIteratorWrapper, inverted_index::Wildcard};
 
 /// Wrapper around different II wildcard iterator encoding types to avoid generics in FFI code.
 ///
@@ -108,8 +107,12 @@ impl<'index> rqe_iterators::RQEIterator<'index> for WildcardIterator<'index> {
     }
 
     #[inline(always)]
-    fn is_wildcard(&self) -> bool {
-        true
+    fn type_(&self) -> IteratorType {
+        IteratorType::InvIdxWildcard
+    }
+
+    fn intersection_sort_weight(&self, _prioritize_union_children: bool) -> f64 {
+        1.0
     }
 }
 
@@ -168,5 +171,5 @@ pub unsafe extern "C" fn NewInvIndIterator_WildcardQuery(
         ),
     };
 
-    RQEIteratorWrapper::boxed_new(ffi::IteratorType_INV_IDX_WILDCARD_ITERATOR, iterator)
+    RQEIteratorWrapper::boxed_new(iterator)
 }

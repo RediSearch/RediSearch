@@ -9,7 +9,6 @@
 
 use std::{
     borrow::Cow,
-    cell::UnsafeCell,
     ffi::{CStr, c_char},
     mem,
     ops::{Deref, DerefMut},
@@ -81,7 +80,7 @@ pub type RLookupKeyFlags = BitFlags<RLookupKeyFlag>;
 pub const GET_KEY_FLAGS: RLookupKeyFlags =
     make_bitflags!(RLookupKeyFlag::{Override | Hidden | ExplicitReturn | ForceLoad});
 
-/// Flags do not persist to the key, they are just options to [`RLookup::get_key_read`], [`RLookup::get_key_write`], or [`RLookup::get_key_load`].
+/// Flags do not persist to the key, they are just options to [`super::RLookup::get_key_read`], [`super::RLookup::get_key_write`], or [`super::RLookup::get_key_load`].
 pub const TRANSIENT_FLAGS: RLookupKeyFlags =
     make_bitflags!(RLookupKeyFlag::{Override | ForceLoad | NameAlloc});
 
@@ -172,7 +171,7 @@ pub struct RLookupKeyHeader<'a> {
     pub name_len: usize,
 
     /// Pointer to next field in the list
-    pub next: UnsafeCell<Option<NonNull<RLookupKey<'a>>>>,
+    pub next: Option<NonNull<RLookupKey<'a>>>,
 }
 
 // ===== impl RLookupKey =====
@@ -216,7 +215,7 @@ impl<'a> RLookupKey<'a> {
                 name: name.as_ptr(),
                 path: name.as_ptr(),
                 name_len: name.count_bytes(),
-                next: UnsafeCell::new(None),
+                next: None,
             },
             _name: name,
             _path: None,
@@ -245,7 +244,7 @@ impl<'a> RLookupKey<'a> {
     /// Constructs a `Pin<Box<RLookupKey>>` from a raw pointer.
     ///
     /// The returned `Box` will own the raw pointer, in particular dropping the `Box`
-    /// will deallocate the `RLookupKey`. This function should only be used by [`RLookup::drop`].
+    /// will deallocate the `RLookupKey`. This function should only be used by [`super::key_list::KeyList`]'s `drop` implementation.
     ///
     /// # Safety
     ///
@@ -301,7 +300,6 @@ impl<'a> RLookupKey<'a> {
         #[cfg(any(debug_assertions, test))]
         if is_tombstone {
             debug_assert!(self.name_len == usize::MAX);
-            debug_assert!(self.path.is_null());
             debug_assert!(self.flags.contains(RLookupKeyFlag::Hidden))
         }
 
@@ -317,9 +315,7 @@ impl<'a> RLookupKey<'a> {
     /// Return the next pointer in the linked list
     #[inline]
     pub(crate) fn next(&self) -> Option<NonNull<RLookupKey<'a>>> {
-        // Safety: RLookupKeys are created through `KeyList::push` and owned by the `List`. We
-        // can therefore assume this pointer is safe to dereference at this point.
-        unsafe { *self.next.get() }
+        self.next
     }
 
     /// Update the pointer to the next node
@@ -329,7 +325,7 @@ impl<'a> RLookupKey<'a> {
         next: Option<NonNull<RLookupKey<'a>>>,
     ) -> Option<NonNull<RLookupKey<'a>>> {
         let me = self.project();
-        mem::replace(me.header.next.get_mut(), next)
+        mem::replace(&mut me.header.next, next)
     }
 
     #[inline]
@@ -346,7 +342,19 @@ impl<'a> RLookupKey<'a> {
         me.header.name_len = usize::MAX;
         let name = mem::take(me._name.deref_mut());
 
-        me.header.path = ptr::null();
+        // We intentionally do NOT null `header.path` here.
+        //
+        // C callers may hold raw pointers to keys that later get tombstoned (e.g. a LOAD
+        // step stores a key pointer, then an APPLY with the same name overrides/tombstones it).
+        // Those callers still need a valid path string to continue working (e.g. to load the
+        // field value from the document before the APPLY overwrites it).
+        //
+        // The backing memory for `header.path` transfers to the new key's `_name` or `_path`
+        // via `override_current`, and both the tombstone and the new key share the same
+        // `RLookup` lifetime, so the pointer remains valid.
+        //
+        // This mirrors the original C behaviour: `overrideKey` never cleared `_path`.
+
         let path = mem::take(me._path.deref_mut());
 
         // this will exclude it from iteration
@@ -529,7 +537,10 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(miri, ignore = "miri does not support FFI functions")]
+    #[cfg_attr(
+        miri,
+        ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
+    )]
     fn update_from_field_spec() {
         let mut key = RLookupKey::new(c"test", RLookupKeyFlags::empty());
 
@@ -564,7 +575,10 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(miri, ignore = "miri does not support FFI functions")]
+    #[cfg_attr(
+        miri,
+        ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
+    )]
     fn update_from_field_spec_sortable() {
         let mut key = RLookupKey::new(c"test", RLookupKeyFlags::empty());
 
@@ -606,7 +620,10 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(miri, ignore = "miri does not support FFI functions")]
+    #[cfg_attr(
+        miri,
+        ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
+    )]
     fn update_from_field_spec_numeric() {
         let mut key = RLookupKey::new(c"test", RLookupKeyFlags::empty());
 

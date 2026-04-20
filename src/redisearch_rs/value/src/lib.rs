@@ -16,16 +16,14 @@ pub use crate::{
 };
 use std::fmt::Debug;
 
-/// Ports part of the RediSearch RSValue type to Rust. This is a temporary solution until we have a proper
-/// Rust port of the RSValue type.
-#[cfg(feature = "c_ffi_impl")]
-mod rs_value_ffi;
-#[cfg(feature = "c_ffi_impl")]
-pub use rs_value_ffi::*;
-
 pub mod collection;
+pub mod comparison;
+pub mod debug;
+pub mod hash;
+mod pool;
 pub mod redis_string;
 pub mod rs_string;
+pub mod sds_writer;
 pub mod shared;
 pub mod trio;
 pub mod util;
@@ -54,18 +52,21 @@ pub enum RsValue {
 }
 
 impl RsValue {
+    pub fn new_string(str: Vec<u8>) -> Self {
+        Self::String(RsString::from_vec(str))
+    }
+
     pub fn fully_dereferenced_ref(&self) -> &Self {
-        if let RsValue::Ref(ref_value) = self {
-            ref_value.value().fully_dereferenced_ref()
-        } else {
-            self
+        match self {
+            RsValue::Ref(ref_value) => ref_value.fully_dereferenced_ref(),
+            _ => self,
         }
     }
 
     pub fn fully_dereferenced_ref_and_trio(&self) -> &Self {
         match self {
-            RsValue::Ref(ref_value) => ref_value.value().fully_dereferenced_ref_and_trio(),
-            RsValue::Trio(trio) => trio.left().value().fully_dereferenced_ref_and_trio(),
+            RsValue::Ref(ref_value) => ref_value.fully_dereferenced_ref_and_trio(),
+            RsValue::Trio(trio) => trio.left().fully_dereferenced_ref_and_trio(),
             _ => self,
         }
     }
@@ -92,12 +93,19 @@ impl RsValue {
             _ => None,
         }
     }
-}
 
-#[cfg(test)]
-redis_mock::mock_or_stub_missing_redis_c_symbols!();
-#[cfg(test)]
-#[allow(non_upper_case_globals)]
-#[unsafe(no_mangle)]
-pub static mut RSDummyContext: *mut redis_mock::ffi::RedisModuleCtx =
-    redis_mock::globals::redis_module_ctx();
+    pub const fn as_num(&self) -> Option<f64> {
+        if let RsValue::Number(num) = self {
+            Some(*num)
+        } else {
+            None
+        }
+    }
+
+    pub const fn debug_formatter(&self, obfuscate: bool) -> debug::DebugFormatter<'_> {
+        debug::DebugFormatter {
+            value: self,
+            obfuscate,
+        }
+    }
+}

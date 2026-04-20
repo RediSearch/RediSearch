@@ -14,7 +14,11 @@ on:
 jobs:
 
   alpine-test:
+    permissions:
+      contents: read
+      packages: write
     uses: ./.github/workflows/flow-test.yml
     secrets: inherit
     with:
-      platform: alpine:3.22
+      platform: alpine:3.23
+      redis-ref: unstable

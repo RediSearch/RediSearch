@@ -15,7 +15,7 @@ use inverted_index::{
 };
 
 use crate::{
-    RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
+    IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
     expiration_checker::NoOpChecker,
 };
 
@@ -65,10 +65,11 @@ where
     ) -> Self {
         use ffi::RS_FIELDMASK_ALL;
 
-        let result = RSIndexResult::virt()
+        let result = RSIndexResult::build_virt()
             .weight(weight)
             .field_mask(RS_FIELDMASK_ALL)
-            .frequency(1);
+            .frequency(1)
+            .build();
 
         Self {
             // Wildcard iterator does not support expiration check
@@ -163,7 +164,12 @@ where
         self.it.revalidate()
     }
 
-    fn is_wildcard(&self) -> bool {
-        true
+    #[inline(always)]
+    fn type_(&self) -> IteratorType {
+        IteratorType::InvIdxWildcard
+    }
+
+    fn intersection_sort_weight(&self, _prioritize_union_children: bool) -> f64 {
+        1.0
     }
 }
