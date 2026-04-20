@@ -9,7 +9,8 @@
 
 use libc::size_t;
 use query_error::QueryError;
-use rlookup::{OpaqueRLookupRow, RLookup, RLookupKey, RLookupRow, cmp_rows_by_fields};
+use rlookup::{OpaqueRLookupRow, RLookup, RLookupKey, RLookupRow};
+use value::comparison::cmp_fields;
 use std::{
     cmp::Ordering,
     ffi::{CStr, c_char, c_int},
@@ -412,7 +413,7 @@ pub unsafe extern "C" fn RLookupRow_SetSortingVector(
 /// Compares two search results by the given sort keys, returning a negative, zero, or positive
 /// value.
 ///
-/// The comparison loop runs entirely in Rust via [`cmp_rows_by_fields`], avoiding per-key FFI
+/// The comparison loop runs entirely in Rust via [`cmp_fields`], avoiding per-key FFI
 /// crossings for value lookups. When all fields are equal, breaks the tie by document ID using
 /// the last key's ascending flag.
 ///
@@ -442,7 +443,13 @@ pub unsafe extern "C" fn SearchResult_CmpByFields(
     // SAFETY: ensured by caller (3.)
     let qerr = unsafe { qerr.as_mut() };
 
-    let ord = cmp_rows_by_fields(h1.row_data(), h2.row_data(), keys, ascend_map, qerr);
+    let row1 = h1.row_data();
+    let row2 = h2.row_data();
+    let pairs = keys
+        .iter()
+        .map(|&k| (row1.get(k).map(|v| &**v), row2.get(k).map(|v| &**v)));
+
+    let ord = cmp_fields(pairs, ascend_map, qerr);
 
     match ord {
         Ordering::Less => -1,
