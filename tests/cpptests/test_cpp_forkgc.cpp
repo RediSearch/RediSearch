@@ -25,6 +25,8 @@
 #include "notifications.h"
 extern "C" {
 #include "util/dict.h"
+pid_t RMCK_GetLastChildPid();
+void RMCK_SetKillForkChildShouldFail(bool fail);
 }
 
 #include <set>
@@ -877,4 +879,83 @@ TEST_F(FGCTestNumeric, testNumericBlocksSinceFork) {
   // We had 2 values in the second block and in it only. We expect the cardinality to decrease by 2.
   cur_cardinality -= 2;
   EXPECT_EQ(cur_cardinality, NumericRange_GetCardinality(rootRange));
+}
+
+// Tests for reap_child_blocking -- covers the two loop-body lines that integration tests miss.
+//
+// Integration tests don't cover them because RMCK_KillForkChild does a blocking waitpid before
+// returning, so by the time reap_child_blocking(cpid) runs the child is already gone and
+// waitpid(WNOHANG) immediately returns -1, never entering the loop.
+//
+// Strategy: make KillForkChild return ERR without waiting (RMCK_SetKillForkChildShouldFail),
+// then SIGSTOP the child so it stays alive for reap_child_blocking's loop to enter.
+
+class ReapChildTest : public FGCTestTag {
+ protected:
+  pid_t child_pid = -1;
+
+  void SetUp() override {
+    FGCTestTag::SetUp();
+    RSGlobalConfig.gcConfigParams.gcSettings.forkGcCleanThreshold = 0;
+    ASSERT_TRUE(RS::addDocument(ctx, ism, "doc1", "f1", "hello"));
+    ASSERT_TRUE(RS::deleteDocument(ctx, ism, "doc1"));
+    RMCK_SetKillForkChildShouldFail(false);
+  }
+
+  void TearDown() override {
+    RMCK_SetKillForkChildShouldFail(false);
+    // Kill any leftover stopped child so FGCTest::TearDown doesn't hang.
+    if (child_pid > 0) {
+      kill(child_pid, SIGKILL);
+      waitpid(child_pid, NULL, 0);
+      child_pid = -1;
+    }
+    FGCTestTag::TearDown();
+  }
+
+  // Fork child via the GC, freeze it, and configure KillForkChild to return ERR.
+  // After this call, reap_child_blocking will be invoked with the stopped child still alive.
+  void setupFrozenChild() {
+    FGC_WaitBeforeFork(fgc);
+    FGC_ForkAndWaitBeforeApply(fgc);
+
+    child_pid = RMCK_GetLastChildPid();
+    ASSERT_GT(child_pid, 0);
+    // Stop child so it remains alive (waitpid WNOHANG returns 0) inside reap_child_blocking.
+    ASSERT_EQ(0, kill(child_pid, SIGSTOP));
+
+    RMCK_SetKillForkChildShouldFail(true);
+    // Close the read fd to trigger the GC error path → KillForkChild → reap_child_blocking.
+    close(fgc->pipe_read_fd);
+    fgc->pipe_read_fd = -1;
+  }
+};
+
+// Covers `if (TimedOut(&deadline)) break;`: timeout_sec=0 fires immediately after one loop
+// iteration where waitpid(WNOHANG)==0 (child is alive but stopped).
+TEST_F(ReapChildTest, TimedOutBreak) {
+  setupFrozenChild();
+  RSGlobalConfig.gcConfigParams.gcSettings.forkGcRunIntervalSec = 0;
+  FGC_Apply(fgc);
+  // Child is still alive after the timed-out reap attempt.
+  ASSERT_EQ(0, kill(child_pid, 0)) << "child should still be alive after timeout";
+}
+
+// Covers `nanosleep(...)`: timeout_sec=2 gives enough headroom so TimedOut is false on the
+// first check, allowing nanosleep to execute. A background thread resumes the child after
+// a short delay so the loop exits quickly without waiting the full 2 seconds.
+TEST_F(ReapChildTest, NanosleepCalled) {
+  setupFrozenChild();
+  RSGlobalConfig.gcConfigParams.gcSettings.forkGcRunIntervalSec = 2;
+
+  // Resume the child after 20ms so reap_child_blocking enters the loop, calls nanosleep at
+  // least once, then finds the child exited on a subsequent waitpid.
+  pid_t cpid = child_pid;
+  std::thread([cpid]() {
+    usleep(20000);
+    kill(cpid, SIGCONT); // unblock child; it will write to broken pipe and exit
+  }).detach();
+
+  FGC_Apply(fgc);
+  child_pid = -1; // reaped by reap_child_blocking
 }
