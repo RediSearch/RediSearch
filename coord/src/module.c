@@ -558,6 +558,9 @@ searchRequestCtx *rscParseRequest(RedisModuleString **argv, int argc, QueryError
     if(strcasestr(req->queryString, "KNN")) {
       specialCaseCtx *knnCtx = prepareOptionalTopKCase(req->queryString, argv, argc, status);
       if (QueryError_HasError(status)) {
+        if (knnCtx) {
+          SpecialCaseCtx_Free(knnCtx);
+        }
         searchRequestCtx_Free(req);
         return NULL;
       }
