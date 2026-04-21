@@ -152,8 +152,6 @@ MRReply *MRIterator_NextWithTimeout(MRIterator *it, const struct timespec *absti
  * invoke MRChannel_WakeAbort directly (e.g. from a timeout callback on another thread). */
 struct MRChannel *MRIterator_GetChannel(MRIterator *it);
 
-MRIterator *MR_Iterate(const MRCommand *cmd, MRIteratorCallback cb);
-
 MRIterator *MR_IterateWithPrivateData(const MRCommand *cmd, MRIteratorCallback cb, void *cbPrivateData,
                                       void (*cbPrivateDataDestructor)(void *),
                                       void (*cbPrivateDataInit)(void *, const MRIterator *),
