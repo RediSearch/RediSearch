@@ -42,9 +42,6 @@ int HybridRequest_BuildDistributedDepletionPipeline(HybridRequest *req, const Hy
         RS_ASSERT(IsHybridSearchSubquery(areq));
         qctx->resultLimit = areq->maxSearchResults;
       }
-      if (qctx->isProfile) {
-        pushResultProcessor(qctx, RPProfile_New(qctx->endProc, qctx));
-      }
   }
 
   return REDISMODULE_OK;
