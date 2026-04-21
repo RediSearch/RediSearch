@@ -111,7 +111,7 @@ void testShardingFunc() {
   MRCommand cmd = MR_NewCommand(2, "foo", "baz");
   const char *host = "localhost:6379";
   MRClusterTopology *topo = getTopology(4096, 1, &host);
-  MRCluster *cl = MR_NewCluster(topo, 2);
+  MRCluster *cl = MR_NewCluster(topo, 2, 0, 0);
   mr_slot_t shard = CRCShardFunc(&cmd, cl);
   mu_assert_int_eq(shard, 717);
   MRCommand_Free(&cmd);
@@ -126,7 +126,7 @@ void testCluster() {
   const char *hosts[] = {"localhost:6379", "localhost:6389", "localhost:6399", "localhost:6409"};
   MRClusterTopology *topo = getTopology(4096, n, hosts);
 
-  MRCluster *cl = MR_NewCluster(topo, 2);
+  MRCluster *cl = MR_NewCluster(topo, 2, 0, 0);
   mu_check(cl != NULL);
   //  mu_check(cl->tp == tp);
   mu_check(cl->topo->numShards == n);
@@ -148,7 +148,7 @@ void testClusterSharding() {
   const char *hosts[] = {"localhost:6379", "localhost:6389", "localhost:6399", "localhost:6409"};
   MRClusterTopology *topo = getTopology(4096, n, hosts);
 
-  MRCluster *cl = MR_NewCluster(topo, 2);
+  MRCluster *cl = MR_NewCluster(topo, 2, 0, 0);
   MRCommand cmd = MR_NewCommand(4, "_FT.SEARCH", "foob", "bar", "baz");
   mr_slot_t slot = CRCShardFunc(&cmd, cl);
   mu_check(slot > 0);
@@ -161,6 +161,29 @@ void testClusterSharding() {
   MRClust_Free(cl);
 }
 
+// Regression test: verify that connection and activity timeouts supplied to
+// MR_NewCluster are propagated into the MRConnManager, so connect attempts can
+// fail fast and the reconnect loop can heal hung connections.
+void testConnTimeoutsPropagation() {
+  const char *host = "localhost:6379";
+
+  // Default case: timeouts disabled (0) preserves previous behavior.
+  MRClusterTopology *topo0 = getTopology(4096, 1, &host);
+  MRCluster *cl0 = MR_NewCluster(topo0, 1, 0, 0);
+  mu_check(cl0 != NULL);
+  mu_assert_int_eq(0, (int)cl0->mgr.connectionTimeoutMS);
+  mu_assert_int_eq(0, (int)cl0->mgr.activityTimeoutMS);
+  MRClust_Free(cl0);
+
+  // Non-zero case: both timeouts are stored verbatim.
+  MRClusterTopology *topo1 = getTopology(4096, 1, &host);
+  MRCluster *cl1 = MR_NewCluster(topo1, 1, 2500, 7500);
+  mu_check(cl1 != NULL);
+  mu_assert_int_eq(2500, (int)cl1->mgr.connectionTimeoutMS);
+  mu_assert_int_eq(7500, (int)cl1->mgr.activityTimeoutMS);
+  MRClust_Free(cl1);
+}
+
 static void dummyLog(RedisModuleCtx *ctx, const char *level, const char *fmt, ...) {}
 
 int main(int argc, char **argv) {
@@ -170,6 +193,7 @@ int main(int argc, char **argv) {
   MU_RUN_TEST(testShardingFunc);
   MU_RUN_TEST(testCluster);
   MU_RUN_TEST(testClusterSharding);
+  MU_RUN_TEST(testConnTimeoutsPropagation);
   MU_REPORT();
 
   return minunit_status;

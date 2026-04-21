@@ -134,7 +134,7 @@ void testActiveTopologyUpdateThreadsMetric() {
   // Create an empty cluster with empty topology to prevent crashes in topology validation timer
   // (MR_CheckTopologyConnections accesses cl->topo->numShards)
   MRClusterTopology *emptyTopo = MR_NewTopology(0, 0, MRHashFunc_None);
-  MRCluster *cluster = MR_NewCluster(emptyTopo, 1);
+  MRCluster *cluster = MR_NewCluster(emptyTopo, 1, 5000, 5000);
   MR_Init(cluster, 5000);
 
   // Reset static flags for this test run

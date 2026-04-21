@@ -7,6 +7,8 @@
 
 #pragma once
 
+#include <stdint.h>
+
 #include "hiredis/hiredis.h"
 #include "hiredis/hiredis_ssl.h"
 #include "hiredis/async.h"
@@ -58,15 +60,26 @@ typedef struct {
   void *timer;
   int protocol; // 0 (undetermined), 2, or 3
   unsigned authFailCount; // consecutive auth failures, for rate-limited logging
+  uint32_t connectionTimeoutMS; // 0 = no timeout
+  uint32_t activityTimeoutMS;   // 0 = no timeout
 } MRConn;
 
 /* A pool indexes connections by the node id */
 typedef struct {
   dict *map;
   int nodeConns;
+  /* Connection timeout: Maximum time to wait for initial TCP connection establishment.
+   * Absolute timeout - if the connection isn't established within this time, the connection
+   * attempt fails. Set to 0 to disable (no timeout). */
+  uint32_t connectionTimeoutMS;
+  /* Activity timeout: Maximum time of inactivity before a command is considered failed.
+   * This timeout resets after each I/O event (see refreshTimeout in hiredis async_private.h).
+   * Set to 0 to disable (no timeout). */
+  uint32_t activityTimeoutMS;
 } MRConnManager;
 
-void MRConnManager_Init(MRConnManager *mgr, int nodeConns);
+void MRConnManager_Init(MRConnManager *mgr, int nodeConns,
+                        uint32_t connectionTimeoutMS, uint32_t activityTimeoutMS);
 
 void MRConnManager_ReplyState(MRConnManager *mgr, RedisModuleCtx *ctx);
 

@@ -203,3 +203,35 @@ def test_mod_6287(env):
     # Send another command to make sure that the coordinator is healthy
     res = env.cmd('FT.AGGREGATE', 'idx', '*', 'LIMIT', '0', str(n_docs))
     env.assertEqual(len(res)-1, n_docs)
+
+
+@skip(cluster=False)
+def test_shard_connections_reach_connected(env: Env):
+    """Covers the connection timeout plumbing from clusterConfig down to MRConn:
+    with the timeouts wired through MR_NewCluster -> MRConnManager -> MRConn,
+    every pool connection must still reach the `Connected` state (and stay
+    there across a pool expansion that creates new MRConn objects at runtime)."""
+    verify_shard_init(env)
+
+    def assert_all_connected(expected_conns_per_shard):
+        # Retry briefly: connections transition Disconnected -> Connecting -> Connected.
+        with TimeLimit(10, 'Shard connections did not reach Connected'):
+            while True:
+                flat = env.cmd(debug_cmd(), 'SHARD_CONNECTION_STATES')
+                # flat = [id0, [states0...], id1, [states1...], ...]
+                states = [s for i in range(0, len(flat), 2) for s in flat[i + 1]]
+                env.assertEqual(len(states),
+                                env.shardsCount * expected_conns_per_shard)
+                if all(s == 'Connected' for s in states):
+                    return
+                sleep(0.1)
+
+    # Default pool (CONN_PER_SHARD=0, WORKERS=0 -> 1 conn/shard).
+    assert_all_connected(1)
+
+    # Force pool expansion: new MRConn objects are created through the same
+    # timeout-aware code path (MRConnManager_Expand -> MR_NewConn -> MRConn_Connect).
+    env.expect(config_cmd(), 'SET', 'CONN_PER_SHARD', '4').ok()
+    assert_all_connected(4)
+
+    env.expect(config_cmd(), 'SET', 'CONN_PER_SHARD', '0').ok()

@@ -25,7 +25,7 @@ static int MRConn_Connect(MRConn *conn);
 static void MRConn_SwitchState(MRConn *conn, MRConnState nextState);
 static void MRConn_Free(void *ptr);
 static void MRConn_Stop(MRConn *conn);
-static MRConn *MR_NewConn(MREndpoint *ep);
+static MRConn *MR_NewConn(MREndpoint *ep, uint32_t connectionTimeoutMS, uint32_t activityTimeoutMS);
 static int MRConn_StartNewConnection(MRConn *conn);
 static int MRConn_SendAuth(MRConn *conn);
 
@@ -67,7 +67,8 @@ typedef struct {
   MRConn **conns;
 } MRConnPool;
 
-static MRConnPool *_MR_NewConnPool(MREndpoint *ep, size_t num) {
+static MRConnPool *_MR_NewConnPool(MREndpoint *ep, size_t num,
+                                   uint32_t connectionTimeoutMS, uint32_t activityTimeoutMS) {
   MRConnPool *pool = rm_malloc(sizeof(*pool));
   *pool = (MRConnPool){
       .num = num,
@@ -77,7 +78,7 @@ static MRConnPool *_MR_NewConnPool(MREndpoint *ep, size_t num) {
 
   /* Create the connection */
   for (size_t i = 0; i < num; i++) {
-    pool->conns[i] = MR_NewConn(ep);
+    pool->conns[i] = MR_NewConn(ep, connectionTimeoutMS, activityTimeoutMS);
   }
   return pool;
 }
@@ -119,10 +120,13 @@ static dictType nodeIdToConnPoolType = {
 };
 
 /* Init the connection manager */
-void MRConnManager_Init(MRConnManager *mgr, int nodeConns) {
+void MRConnManager_Init(MRConnManager *mgr, int nodeConns,
+                        uint32_t connectionTimeoutMS, uint32_t activityTimeoutMS) {
   /* Create the connection map */
   mgr->map = dictCreate(&nodeIdToConnPoolType, NULL);
   mgr->nodeConns = nodeConns;
+  mgr->connectionTimeoutMS = connectionTimeoutMS;
+  mgr->activityTimeoutMS = activityTimeoutMS;
 }
 
 /* Free the entire connection manager */
@@ -215,7 +219,8 @@ int MRConnManager_Add(MRConnManager *m, const char *id, MREndpoint *ep, int conn
                     id, conn->ep.host, conn->ep.port, ep->host, ep->port, MRConnState_Str(conn->state));
   }
 
-  MRConnPool *pool = _MR_NewConnPool(ep, m->nodeConns);
+  MRConnPool *pool = _MR_NewConnPool(ep, m->nodeConns,
+                                     m->connectionTimeoutMS, m->activityTimeoutMS);
   if (connect) {
     for (size_t i = 0; i < pool->num; i++) {
       MRConn_Connect(pool->conns[i]);
@@ -299,7 +304,7 @@ void MRConnManager_Expand(MRConnManager *m, size_t num) {
     // There should always be at least one connection in the pool
     MREndpoint *ep = &pool->conns[0]->ep;
     for (size_t i = pool->num; i < num; i++) {
-      pool->conns[i] = MR_NewConn(ep);
+      pool->conns[i] = MR_NewConn(ep, m->connectionTimeoutMS, m->activityTimeoutMS);
       MRConn_StartNewConnection(pool->conns[i]);
     }
     pool->num = num;
@@ -662,9 +667,15 @@ static void MRConn_DisconnectCallback(const redisAsyncContext *c, int status) {
   }
 }
 
-static MRConn *MR_NewConn(MREndpoint *ep) {
+static MRConn *MR_NewConn(MREndpoint *ep, uint32_t connectionTimeoutMS, uint32_t activityTimeoutMS) {
   MRConn *conn = rm_malloc(sizeof(MRConn));
-  *conn = (MRConn){.state = MRConn_Disconnected, .conn = NULL, .protocol = 0};
+  *conn = (MRConn){
+      .state = MRConn_Disconnected,
+      .conn = NULL,
+      .protocol = 0,
+      .connectionTimeoutMS = connectionTimeoutMS,
+      .activityTimeoutMS = activityTimeoutMS,
+  };
   MREndpoint_Copy(&conn->ep, ep);
   return conn;
 }
@@ -673,9 +684,22 @@ static MRConn *MR_NewConn(MREndpoint *ep) {
 static int MRConn_Connect(MRConn *conn) {
   RS_ASSERT(!conn->conn);
 
-  redisOptions options = {.type = REDIS_CONN_TCP,
-                          .options = REDIS_OPT_NOAUTOFREEREPLIES,
-                          .endpoint.tcp = {.ip = conn->ep.host, .port = conn->ep.port}};
+  // Connection timeout: Absolute timeout for TCP connection establishment.
+  // Without this, hiredis does NOT schedule a watchdog timer for the async connect,
+  // meaning an unreachable host will leave the connection hung in `Connecting`
+  // forever instead of failing fast and letting the reconnect loop heal it.
+  struct timeval connectTimeout = {0};
+  if (conn->connectionTimeoutMS > 0) {
+    connectTimeout.tv_sec = conn->connectionTimeoutMS / 1000;
+    connectTimeout.tv_usec = (conn->connectionTimeoutMS % 1000) * 1000;
+  }
+
+  redisOptions options = {
+    .type = REDIS_CONN_TCP,
+    .options = REDIS_OPT_NOAUTOFREEREPLIES,
+    .endpoint.tcp = {.ip = conn->ep.host, .port = conn->ep.port},
+    .connect_timeout = conn->connectionTimeoutMS > 0 ? &connectTimeout : NULL,
+  };
 
   redisAsyncContext *c = redisAsyncConnectWithOptions(&options);
   if (c->err) {
@@ -691,6 +715,19 @@ static int MRConn_Connect(MRConn *conn) {
   redisLibuvAttach(conn->conn, uv_default_loop());
   redisAsyncSetConnectCallback(conn->conn, MRConn_ConnectCallback);
   redisAsyncSetDisconnectCallback(conn->conn, MRConn_DisconnectCallback);
+
+  // Activity timeout: Maximum time of inactivity before a command is considered failed.
+  // Resets after each I/O event (see refreshTimeout in hiredis async_private.h).
+  if (conn->activityTimeoutMS > 0) {
+    struct timeval activityTv = {
+        .tv_sec = conn->activityTimeoutMS / 1000,
+        .tv_usec = (conn->activityTimeoutMS % 1000) * 1000,
+    };
+    if (redisAsyncSetTimeout(conn->conn, activityTv) != REDIS_OK) {
+      CONN_LOG_WARNING(conn, "Failed to set activity timeout");
+      // Non-fatal: continue without command-level timeout protection
+    }
+  }
 
   return REDIS_OK;
 }

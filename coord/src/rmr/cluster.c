@@ -52,10 +52,11 @@ void _MRCluster_UpdateNodes(MRCluster *cl) {
   dictRelease(nodesToDisconnect);
 }
 
-MRCluster *MR_NewCluster(MRClusterTopology *initialTopology, size_t conn_pool_size) {
+MRCluster *MR_NewCluster(MRClusterTopology *initialTopology, size_t conn_pool_size,
+                         uint32_t connectionTimeoutMS, uint32_t activityTimeoutMS) {
   MRCluster *cl = rm_new(MRCluster);
   cl->topo = initialTopology;
-  MRConnManager_Init(&cl->mgr, conn_pool_size);
+  MRConnManager_Init(&cl->mgr, conn_pool_size, connectionTimeoutMS, activityTimeoutMS);
 
   if (cl->topo) {
     _MRCluster_UpdateNodes(cl);
