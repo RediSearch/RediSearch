@@ -93,6 +93,14 @@ static inline bool isOutOfMemory(RedisModuleCtx *ctx) {
   return used_memory_ratio > 1;
 }
 
+// Blocks until cpid is reaped, retrying on EINTR. Called when
+// KillForkChild was a no-op, meaning Redis never waited on this pid.
+static void reap_child_blocking(pid_t cpid) {
+  while (waitpid(cpid, NULL, 0) == -1) {
+    if (errno != EINTR) break;
+  }
+}
+
 static bool periodicCb(void *privdata, bool force) {
   ForkGC *gc = privdata;
   RedisModuleCtx *ctx = gc->ctx;
@@ -222,13 +230,7 @@ static bool periodicCb(void *privdata, bool force) {
     int kill_rv = RedisModule_KillForkChild(cpid);
     RedisModule_ThreadSafeContextUnlock(ctx);
     if (kill_rv != REDISMODULE_OK) {
-      // KillForkChild was a no-op: another module's RM_Fork replaced
-      // module_child_pid between the pipe read and the GIL re-acquire.
-      // Redis sent SIGUSR1 to cpid but skipped waitpid, leaving it as a
-      // zombie. Reap it here.
-      while (waitpid(cpid, NULL, 0) == -1) {
-        if (errno != EINTR) break;
-      }
+      reap_child_blocking(cpid);
     }
 
     if (gcrv) {
