@@ -94,16 +94,17 @@ static inline bool isOutOfMemory(RedisModuleCtx *ctx) {
   return used_memory_ratio > 1;
 }
 
-// Waits up to timeout_sec for cpid to be reaped, polling every 500us. Called when
+// Waits up to timeout_sec for cpid to be reaped, polling every 500us (via nanosleep). Called when
 // KillForkChild was a no-op, meaning Redis never waited on this pid.
 static void reap_child_blocking(pid_t cpid, int timeout_sec) {
   struct timespec deadline;
   clock_gettime(CLOCK_MONOTONIC_RAW, &deadline);
   deadline.tv_sec += timeout_sec;
 
+  struct timespec poll_interval = {.tv_sec = 0, .tv_nsec = 500000};
   while (waitpid(cpid, NULL, WNOHANG) == 0) {
     if (TimedOut(&deadline)) break;
-    usleep(500);
+    nanosleep(&poll_interval, NULL);
   }
 }
 
