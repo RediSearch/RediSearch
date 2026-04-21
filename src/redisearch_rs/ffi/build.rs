@@ -114,6 +114,10 @@ fn main() {
         let _ = rerun_if_c_changes(&include);
     }
 
+    // Required so `<stdio.h>` declares `asprintf`/`vasprintf` (used by
+    // `deps/rmalloc/rmalloc.h`) when bindgen parses the headers with clang.
+    bindings = bindings.clang_arg("-D_GNU_SOURCE");
+
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
     bindings
         .blocklist_file(".*/document_rs.h")
