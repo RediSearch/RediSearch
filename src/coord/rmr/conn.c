@@ -21,7 +21,15 @@
 #include <openssl/ssl.h>
 #include <openssl/err.h>
 
-#include "conn_internal.h"
+struct MRConn {
+  MREndpoint ep;
+  redisAsyncContext *conn;
+  void *timer;
+  uv_loop_t *loop;
+  int protocol; // 0 (undetermined), 2, or 3
+  MRConnState state;
+  unsigned authFailCount; // consecutive auth failures, for rate-limited logging
+};
 
 static void MRConn_ConnectCallback(const redisAsyncContext *c, int status);
 static void MRConn_DisconnectCallback(const redisAsyncContext *, int);
@@ -145,9 +153,9 @@ static void freeConn(MRConn *conn) {
 }
 
 /* Free a connection pool.
- * Called both when a node is removed/replaced (runtime topology updates) and when the
- * connection manager is released (teardown). Runtime paths are expected to disconnect first;
- * this function performs final ownership cleanup of MRConn wrappers.
+ * Invoked by the dict destructor when a node is removed/replaced or when the
+ * manager is released. Callers must disconnect the pool beforehand — every
+ * path reaching this function does so through MRConnPool_Disconnect.
  */
 static void MRConnPool_Free(void *privdata, void *p) {
   UNUSED(privdata);
@@ -155,9 +163,7 @@ static void MRConnPool_Free(void *privdata, void *p) {
   if (!pool) return;
   for (size_t i = 0; i < pool->num; i++) {
     MRConn *conn = pool->conns[i];
-    // Defensive: well-behaved callers disconnect the pool before freeing it.
-    // If they didn't, detachAndFreeAc prevents an ac/fd leak.
-    detachAndFreeAc(conn);
+    RS_ASSERT(conn->conn == NULL);
     freeConn(conn);
   }
   rm_free(pool->conns);
@@ -308,11 +314,8 @@ int MRConn_SendCommand(MRConn *c, MRCommand *cmd, redisCallbackFn *fn, void *pri
     }
   }
   if (cmd->protocol != 0 && c->protocol != cmd->protocol) {
-    // Optimistically cache the requested protocol: the actual command is
-    // pipelined behind HELLO, so it runs under the new protocol if the server
-    // accepts it. MRConn_HelloCallback clears the cache on failure so the next
-    // send retries HELLO.
-    if (redisAsyncCommand(c->conn, MRConn_HelloCallback, NULL, "HELLO %d", cmd->protocol) == REDIS_ERR) {
+    RS_ASSERT(cmd->protocol == 2 || cmd->protocol == 3);
+    if (redisAsyncCommand(c->conn, NULL, NULL, "HELLO %d", cmd->protocol) == REDIS_ERR) {
       return REDIS_ERR;
     }
     c->protocol = cmd->protocol;
@@ -429,7 +432,7 @@ static void signalCallback(uv_timer_t *tm) {
     // Only ReAuth/Connecting/Connected should ever arm the timer. Freeing is
     // synchronous and never schedules a callback.
     CONN_LOG_WARNING(conn, "signalCallback reached unexpected state");
-    RS_ASSERT(0);
+    RS_ABORT_FMT("signalCallback reached unexpected state %d", conn->state);
     detachAndFreeAc(conn);
     MRConn_SwitchState(conn, MRConn_Connecting);
   }
@@ -453,7 +456,8 @@ static void MRConn_SwitchState(MRConn *conn, MRConnState nextState) {
   switch (nextState) {
     case MRConn_Disconnected:
       // We should never *switch* to this state
-      abort();
+      RS_ABORT("MRConn_SwitchState: cannot switch to Disconnected");
+      return;
 
     case MRConn_Connecting:
       nextTimeout = RSCONN_RECONNECT_TIMEOUT;
@@ -474,8 +478,8 @@ static void MRConn_SwitchState(MRConn *conn, MRConnState nextState) {
       }
       return;
     default:
-      // Can't handle this state!
-      abort();
+      RS_ABORT_FMT("MRConn_SwitchState: unknown state %d", nextState);
+      return;
   }
 
   if (conn->timer && !uv_is_active(conn->timer)) {
@@ -522,32 +526,6 @@ static void MRConn_AuthCallback(redisAsyncContext *c, void *r, void *privdata) {
 
 cleanup:
   // We run with `REDIS_OPT_NOAUTOFREEREPLIES` so we need to free the reply ourselves
-  MRReply_Free(rep);
-}
-
-/* Reply callback for the pipelined HELLO sent by MRConn_SendCommand. If the
- * server rejects HELLO on a live connection, clear the cached protocol so the
- * next send will re-issue HELLO. Declared in conn_internal.h. */
-void MRConn_HelloCallback(redisAsyncContext *c, void *r, void *privdata) {
-  UNUSED(privdata);
-  MRConn *conn = c->data;
-  redisReply *rep = r;
-  // Skip work if conn was detached, or if hiredis is tearing the ac down
-  // (reply callbacks fire with r==NULL before the disconnect callback).
-  if (!conn || !r) {
-    goto cleanup;
-  }
-  if (c->err) {
-    CONN_LOG_WARNING(conn, "HELLO failed: %s", c->errstr);
-    conn->protocol = 0;
-  } else if (MRReply_Type(rep) == REDIS_REPLY_ERROR) {
-    size_t len;
-    const char *s = MRReply_String(rep, &len);
-    CONN_LOG_WARNING(conn, "HELLO failed: %.*s", (int)len, s);
-    conn->protocol = 0;
-  }
-cleanup:
-  // We run with `REDIS_OPT_NOAUTOFREEREPLIES` so we need to free the reply ourselves.
   MRReply_Free(rep);
 }
 
