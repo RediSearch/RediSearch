@@ -18,15 +18,53 @@ fn null_static_holds_null() {
 }
 
 #[test]
+fn new_undefined() {
+    let v = SharedRsValue::new(RsValue::Undefined);
+    assert!(matches!(*v, RsValue::Undefined));
+}
+
+#[test]
 fn new_number() {
-    let v = SharedRsValue::new(RsValue::Number(42.0));
+    let v = SharedRsValue::new_num(42.0);
     assert!(matches!(*v, RsValue::Number(42.0)));
 }
 
 #[test]
-fn new_undefined() {
-    let v = SharedRsValue::new(RsValue::Undefined);
-    assert!(matches!(*v, RsValue::Undefined));
+fn new_string() {
+    let v = SharedRsValue::new_string(b"Hello".to_vec());
+    assert!(matches!(&*v, RsValue::String(s) if s.as_bytes() == b"Hello"));
+}
+
+#[test]
+fn new_array() {
+    let v = SharedRsValue::new_array([SharedRsValue::new_num(1.0), SharedRsValue::new_num(2.0)]);
+    assert!(matches!(&*v, RsValue::Array(a) if a.len() == 2
+        && matches!(*a[0], RsValue::Number(1.0))
+        && matches!(*a[1], RsValue::Number(2.0))));
+}
+
+#[test]
+fn new_map() {
+    let v = SharedRsValue::new_map([(
+        SharedRsValue::new_string(b"key".to_vec()),
+        SharedRsValue::new_num(42.0),
+    )]);
+    assert!(matches!(&*v, RsValue::Map(m) if m.len() == 1
+        && matches!(&*m[0].0, RsValue::String(s) if s.as_bytes() == b"key")
+        && matches!(*m[0].1, RsValue::Number(42.0))));
+}
+
+#[test]
+fn new_trio() {
+    let v = SharedRsValue::new_trio(
+        SharedRsValue::new_num(1.0),
+        SharedRsValue::new_num(2.0),
+        SharedRsValue::new_num(3.0),
+    );
+    assert!(matches!(&*v, RsValue::Trio(t)
+        if matches!(**t.left(), RsValue::Number(1.0))
+        && matches!(**t.middle(), RsValue::Number(2.0))
+        && matches!(**t.right(), RsValue::Number(3.0))));
 }
 
 #[test]

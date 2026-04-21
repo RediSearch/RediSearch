@@ -718,6 +718,12 @@ def test_search_errors():
     env.expect('FT.SEARCH', 'idx', 'hello=>[KNN 2 @v $b AS score]=>{$yield_distance_as:__v_score;}', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Distance field was specified twice for vector query: score and __v_score')
     env.expect('FT.SEARCH', 'idx', 'hello=>[KNN 2 @v $b AS score]=>{$yield_distance_as:score;}', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Distance field was specified twice for vector query: score and score')
 
+    # Invalid shard_k_ratio via query attribute syntax.
+    env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b]=>{$shard_k_ratio: invalid;}', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Invalid shard k ratio value')
+
+    # Unrecognized vector attribute via query attribute syntax.
+    env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b]=>{$bogus_vec_param: 42;}', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Invalid attribute')
+
     # Invalid range queries
     env.expect('FT.SEARCH', 'idx', '@v:[vector_range 0.1 $b]', 'PARAMS', '2', 'b', 'abcdefg').error().contains('Error parsing vector similarity query: query vector blob size (7) does not match index\'s expected size (8).')
     env.expect('FT.SEARCH', 'idx', '@v:[vector_range 0.1 $b]', 'PARAMS', '2', 'b', 'abcdefghi').error().contains('Error parsing vector similarity query: query vector blob size (9) does not match index\'s expected size (8).')

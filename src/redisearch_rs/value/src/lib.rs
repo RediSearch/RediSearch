@@ -52,10 +52,6 @@ pub enum RsValue {
 }
 
 impl RsValue {
-    pub fn new_string(str: Vec<u8>) -> Self {
-        Self::String(RsString::from_vec(str))
-    }
-
     pub fn fully_dereferenced_ref(&self) -> &Self {
         match self {
             RsValue::Ref(ref_value) => ref_value.fully_dereferenced_ref(),

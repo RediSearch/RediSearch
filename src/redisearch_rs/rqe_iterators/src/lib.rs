@@ -49,7 +49,7 @@ pub use rqe_iterator_type::IteratorType;
 pub use union::{
     Union, UnionFlat, UnionFullFlat, UnionFullHeap, UnionHeap, UnionQuickFlat, UnionQuickHeap,
 };
-pub use wildcard::{Wildcard, WildcardIterator};
+pub use wildcard::{NewWildcardIterator, Wildcard, WildcardIterator};
 
 #[derive(Debug, PartialEq)]
 /// The outcome of [`RQEIterator::skip_to`].

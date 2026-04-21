@@ -15,7 +15,7 @@ use std::{
 
 use triomphe::Arc;
 
-use crate::RsValue;
+use crate::{Array, Map, RsString, RsValue, RsValueTrio};
 
 /// The total heap allocation size of the `triomphe::Arc` inner struct.
 /// Since that struct is inaccessible/hidden, the size is calculated manually,
@@ -132,12 +132,33 @@ impl SharedRsValue {
         }
     }
 
+    /// Create a new `SharedRsValue` of `RsValue::Number` type.
     pub fn new_num(num: f64) -> Self {
         Self::new(RsValue::Number(num))
     }
 
+    /// Create a new `SharedRsValue` of `RsValue::String` type.
     pub fn new_string(str: Vec<u8>) -> Self {
-        Self::new(RsValue::new_string(str))
+        Self::new(RsValue::String(RsString::from_vec(str)))
+    }
+
+    /// Create a new `SharedRsValue` of `RsValue::Array` type.
+    pub fn new_array(
+        values: impl IntoIterator<IntoIter: ExactSizeIterator, Item = SharedRsValue>,
+    ) -> Self {
+        Self::new(RsValue::Array(Array::new(values.into_iter().collect())))
+    }
+
+    /// Create a new `SharedRsValue` of `RsValue::Map` type.
+    pub fn new_map(
+        values: impl IntoIterator<IntoIter: ExactSizeIterator, Item = (SharedRsValue, SharedRsValue)>,
+    ) -> Self {
+        Self::new(RsValue::Map(Map::new(values.into_iter().collect())))
+    }
+
+    /// Create a new `SharedRsValue` of `RsValue::Trio` type.
+    pub fn new_trio(left: SharedRsValue, middle: SharedRsValue, right: SharedRsValue) -> Self {
+        Self::new(RsValue::Trio(RsValueTrio::new(left, middle, right)))
     }
 }
 

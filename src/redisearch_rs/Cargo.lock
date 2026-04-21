@@ -1870,6 +1870,7 @@ dependencies = [
  "query_term_ffi",
  "quote 1.0.44",
  "redis-module",
+ "reducers_ffi",
  "result_processor_ffi",
  "rlookup_ffi",
  "search_result_ffi",
@@ -1882,6 +1883,32 @@ dependencies = [
  "value_ffi",
  "varint_ffi",
  "walkdir",
+ "workspace_hack",
+]
+
+[[package]]
+name = "reducers"
+version = "0.0.1"
+dependencies = [
+ "bumpalo",
+ "ffi",
+ "query_error",
+ "rlookup",
+ "value",
+ "workspace_hack",
+]
+
+[[package]]
+name = "reducers_ffi"
+version = "0.0.1"
+dependencies = [
+ "build_utils",
+ "cbindgen",
+ "ffi",
+ "query_error",
+ "reducers",
+ "rlookup",
+ "value",
  "workspace_hack",
 ]
 
@@ -2902,6 +2929,7 @@ dependencies = [
  "redis_mock",
  "redisearch_rs",
  "thiserror",
+ "tracing",
  "triomphe",
  "workspace_hack",
 ]
