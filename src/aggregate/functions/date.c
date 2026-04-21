@@ -286,7 +286,8 @@ static int parseTime(ExprEval *ctx, RSValue **argv, size_t argc, RSValue *result
   VALIDATE_ARG_ISSTRING("parsetime", argv, 1);
 
   // strptime requires nul-terminated inputs; stage terminated copies of both args.
-  size_t vallen, fmtlen;
+  size_t vallen;
+  size_t fmtlen;
   const char *val_src = RSValue_StringPtrLen(argv[0], &vallen);
   const char *fmt_src = RSValue_StringPtrLen(argv[1], &fmtlen);
   char *val = rm_malloc(vallen + 1);

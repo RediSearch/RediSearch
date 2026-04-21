@@ -13,13 +13,6 @@ use std::fmt;
 
 /// An [`RsString`] is meant to store string data with support for rust allocated data, C
 /// allocated data or borrowed data, and support for a max length of `u32::MAX`.
-/// It can contain binary data and is always nul-terminated.
-///
-/// # Invariants
-///
-/// - `ptr` points to valid data of `len+1` size.
-/// - a nul-terminator is always present in memory at `ptr+len`
-/// - The size determined by `len` excludes the nul-terminator.
 pub struct RsString {
     ptr: *const c_char,
     len: u32,
@@ -40,9 +33,10 @@ enum RsStringKind {
 }
 
 impl RsString {
-    /// Create an [`RsString`] from a `Vec<u8>`. The length must not be more than
-    /// `u32::MAX` for compatibility with existing C code using `RSValue` functionality.
-    /// A nul-terminator is automatically added by this constructor for compatibility.
+    /// Create an [`RsString`] from any owned byte container that can convert into a
+    /// `Vec<u8>` (e.g. `Vec<u8>`, `String`, `Box<[u8]>`, `&[u8]`, `&str`). The length
+    /// must not be more than `u32::MAX` for compatibility with existing C code using
+    /// `RSValue` functionality.
     ///
     /// # Panic
     ///
@@ -65,11 +59,9 @@ impl RsString {
     ///
     /// # Safety
     ///
-    /// 1. `ptr` must be a [valid], non-null pointer to a buffer of `len+1` bytes
+    /// 1. `ptr` must be a [valid], non-null pointer to a buffer of at least `len` bytes
     ///    allocated by `RedisModule_Alloc`.
-    /// 2. A nul-terminator is expected in memory at `ptr+len`.
-    /// 3. The size determined by `len` excludes the nul-terminator.
-    /// 4. `ptr` **must not** be used or freed after this function is called, as this function
+    /// 2. `ptr` **must not** be used or freed after this function is called, as this function
     ///    takes ownership of the allocation.
     ///
     /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
@@ -87,10 +79,8 @@ impl RsString {
     ///
     /// # Safety
     ///
-    /// 1. `ptr` must be a [valid], non-null pointer to a buffer of `len+1` bytes.
-    /// 2. A nul-terminator is expected in memory at `ptr+len`.
-    /// 3. The size determined by `len` excludes the nul-terminator.
-    /// 4. The string pointed to by `ptr`/`len+1` must stay valid for as long as
+    /// 1. `ptr` must be a [valid], non-null pointer to a buffer of at least `len` bytes.
+    /// 2. The string pointed to by `ptr`/`len` must stay valid for as long as
     ///    this [`RsString`] is exists.
     ///
     /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
@@ -111,7 +101,7 @@ impl RsString {
 
     /// Gets the string pointed to by `ptr`/`len` as a byte slice.
     pub const fn as_bytes(&self) -> &[u8] {
-        // Safety: `self.ptr` points to valid memory of `self.len` bytes per our invariant.
+        // Safety: `self.ptr` points to valid memory of `self.len` bytes.
         unsafe { std::slice::from_raw_parts(self.ptr.cast(), self.len as usize) }
     }
 }
@@ -124,7 +114,7 @@ impl Drop for RsString {
                     self.ptr.cast_mut().cast::<u8>(),
                     self.len as usize,
                 );
-                // Safety: Boxed slice was created in `Self::from_vec` which has `len + 1` bytes.
+                // Safety: Boxed slice was created in `Self::from_bytes` which has `len` bytes.
                 drop(unsafe { Box::from_raw(slice) });
             }
             RsStringKind::RedisModuleAlloc => {
