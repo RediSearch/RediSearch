@@ -22,6 +22,7 @@
 #include "obfuscation/obfuscation_api.h"
 #include "obfuscation/hidden.h"
 #include "util/redis_mem_info.h"
+#include "util/timeout.h"
 
 #define GC_WRITERFD 1
 #define GC_READERFD 0
@@ -93,11 +94,16 @@ static inline bool isOutOfMemory(RedisModuleCtx *ctx) {
   return used_memory_ratio > 1;
 }
 
-// Blocks until cpid is reaped, retrying on EINTR. Called when
+// Waits up to timeout_sec for cpid to be reaped, polling every 500us. Called when
 // KillForkChild was a no-op, meaning Redis never waited on this pid.
-static void reap_child_blocking(pid_t cpid) {
-  while (waitpid(cpid, NULL, 0) == -1) {
-    if (errno != EINTR) break;
+static void reap_child_blocking(pid_t cpid, int timeout_sec) {
+  struct timespec deadline;
+  clock_gettime(CLOCK_MONOTONIC_RAW, &deadline);
+  deadline.tv_sec += timeout_sec;
+
+  while (waitpid(cpid, NULL, WNOHANG) == 0) {
+    if (TimedOut(&deadline)) break;
+    usleep(500);
   }
 }
 
@@ -230,7 +236,7 @@ static bool periodicCb(void *privdata, bool force) {
     int kill_rv = RedisModule_KillForkChild(cpid);
     RedisModule_ThreadSafeContextUnlock(ctx);
     if (kill_rv != REDISMODULE_OK) {
-      reap_child_blocking(cpid);
+      reap_child_blocking(cpid, RSGlobalConfig.gcConfigParams.gcSettings.forkGcRunIntervalSec);
     }
 
     if (gcrv) {
