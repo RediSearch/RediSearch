@@ -384,9 +384,12 @@ static int stringfunc_contains(ExprEval *ctx, RSValue **argv, size_t argc, RSVal
   size_t num;
   if (p_pref_size > 0) {
     num = 0;
-    while ((p_str = strstr(p_str, p_pref)) != NULL) {
+    const char *end = p_str + p_str_size;
+    while (p_str < end) {
+      char *found = memmem(p_str, end - p_str, p_pref, p_pref_size);
+      if (!found) break;
       num++;
-      p_str++;
+      p_str = found + 1;
     }
   } else {
     num = p_str_size + 1;

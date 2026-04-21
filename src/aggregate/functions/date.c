@@ -20,6 +20,8 @@
 // TIME(property, [fmt_string])
 static int timeFormat(ExprEval *ctx, RSValue **argv, size_t argc, RSValue *result) {
   const char *fmt = ISOFMT;
+  // Owns a nul-terminated copy of an argv-provided fmt; NULL when we use the default.
+  char *fmt_buf = NULL;
   char timebuf[1024];  // Should be enough for any human time string
   double n = 0.0;
   time_t tt = 0;
@@ -29,8 +31,13 @@ static int timeFormat(ExprEval *ctx, RSValue **argv, size_t argc, RSValue *resul
 
   if (argc == 2) {
     VALIDATE_ARG_TYPE("time", argv, 1, RSValueType_String);
-    // The returned `fmt` string is nul-terminated so is safe to use in `strftime`.
-    fmt = RSValue_StringPtrLen(argv[1], NULL);
+    // strftime requires a nul-terminated format string; stage a terminated copy.
+    size_t fmtlen;
+    const char *fmt_src = RSValue_StringPtrLen(argv[1], &fmtlen);
+    fmt_buf = rm_malloc(fmtlen + 1);
+    memcpy(fmt_buf, fmt_src, fmtlen);
+    fmt_buf[fmtlen] = '\0';
+    fmt = fmt_buf;
   }
   // Get the format
   // value is not a number
@@ -56,11 +63,13 @@ static int timeFormat(ExprEval *ctx, RSValue **argv, size_t argc, RSValue *resul
   // the value ref counter will not release it
   RS_ASSERT(rv <= UINT32_MAX);
   RSValue_SetConstString(result, buf, rv);
+  rm_free(fmt_buf);
   return EXPR_EVAL_OK;
 err:
   // on runtime error (bad formatting, etc) we just set the result to null
 
   RSValue_MakeReference(result, RSValue_NullStatic());
+  rm_free(fmt_buf);
   return EXPR_EVAL_OK;
 }
 
@@ -269,8 +278,6 @@ err:
 }
 
 static int parseTime(ExprEval *ctx, RSValue **argv, size_t argc, RSValue *result) {
-  const char *val;
-  const char *fmt;
   struct tm tm = {0};
   char *rc;
   time_t rv;
@@ -278,12 +285,20 @@ static int parseTime(ExprEval *ctx, RSValue **argv, size_t argc, RSValue *result
   VALIDATE_ARG_ISSTRING("parsetime", argv, 0);
   VALIDATE_ARG_ISSTRING("parsetime", argv, 1);
 
+  // strptime requires nul-terminated inputs; stage terminated copies of both args.
   size_t vallen, fmtlen;
-  // TODO: copy string over to nul-terminated string before passing to `strptime`.
-  val = RSValue_StringPtrLen(argv[0], &vallen);
-  fmt = RSValue_StringPtrLen(argv[1], &fmtlen);
+  const char *val_src = RSValue_StringPtrLen(argv[0], &vallen);
+  const char *fmt_src = RSValue_StringPtrLen(argv[1], &fmtlen);
+  char *val = rm_malloc(vallen + 1);
+  memcpy(val, val_src, vallen);
+  val[vallen] = '\0';
+  char *fmt = rm_malloc(fmtlen + 1);
+  memcpy(fmt, fmt_src, fmtlen);
+  fmt[fmtlen] = '\0';
 
   rc = strptime(val, fmt, &tm);
+  rm_free(val);
+  rm_free(fmt);
   if (rc == NULL) {
     goto err;
   }

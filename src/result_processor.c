@@ -2108,11 +2108,19 @@ static inline bool RPHybridMerger_Error(const RPHybridMerger *self) {
   const char *keyPtr = dmd ? dmd->keyPtr : NULL;
   // Coordinator case - no dmd - use docKey in rlookup
   const bool fallbackToLookup = !keyPtr && self->docKey;
-  size_t keyLen = 0;
+  // `hybridResults` uses the generic string dict callbacks (strlen/strcmp/strdup), so the
+  // key must be nul-terminated. RSValue_StringPtrLen returns a (ptr, len) buffer that is
+  // not guaranteed to be nul-terminated, so we stage a terminated copy for the dict calls.
+  char *keyBuf = NULL;
   if (fallbackToLookup) {
     RSValue *docKeyValue = RLookupRow_Get(self->docKey, SearchResult_GetRowData(r));
     if (docKeyValue != NULL) {
-      keyPtr = RSValue_StringPtrLen(docKeyValue, &keyLen);
+      size_t keyLen = 0;
+      const char *ptr = RSValue_StringPtrLen(docKeyValue, &keyLen);
+      keyBuf = rm_malloc(keyLen + 1);
+      memcpy(keyBuf, ptr, keyLen);
+      keyBuf[keyLen] = '\0';
+      keyPtr = keyBuf;
     }
   }
   if (!keyPtr) {
@@ -2127,6 +2135,7 @@ static inline bool RPHybridMerger_Error(const RPHybridMerger *self) {
     hybridResult = HybridSearchResult_New(self->numUpstreams);
     dictAdd(self->hybridResults, (void*)keyPtr, hybridResult);
   }
+  rm_free(keyBuf);
 
    SearchResult_SetScore(r, score);
    HybridSearchResult_StoreResult(hybridResult, r, upstreamIndex);
