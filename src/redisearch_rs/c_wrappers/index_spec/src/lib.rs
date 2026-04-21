@@ -87,7 +87,7 @@ impl IndexSpec {
 /// is created and released when the guard is dropped, ensuring the lock is always
 /// released even on early returns or panics.
 ///
-/// # Safety
+/// # Invariants
 ///
 /// The pointer passed to [`IndexSpecLockGuard::new`] must be a valid `IndexSpec*`
 /// that remains valid for the lifetime of this guard.
@@ -97,11 +97,6 @@ impl<'lock> IndexSpecLockGuard<'lock> {
     /// Creates a new guard, acquiring the write lock.
     ///
     /// Returns `None` if the pointer is null.
-    ///
-    /// # Safety
-    ///
-    /// `ptr` must be a valid pointer to a C `IndexSpec` struct that remains
-    /// valid for the lifetime of this guard.
     fn new(index_spec: &'lock mut ffi::IndexSpec) -> Self {
         // Safety: (1.) due to creation with `IndexSpec::from_raw`, and caller must ensure proper synchronization when mutating.
         unsafe { ffi::IndexSpec_AcquireWriteLock(index_spec) };
