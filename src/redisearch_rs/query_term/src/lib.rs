@@ -52,13 +52,7 @@ impl RSQueryTerm {
     ///
     /// The resulting term has `idf = 1.0` and `bm25_idf = 0.0`.
     pub fn new(s: &str, id: i32, flags: RSTokenFlags) -> Box<Self> {
-        Box::new(Self {
-            str_: Some(s.as_bytes().into()),
-            idf: 1.0,
-            id,
-            flags,
-            bm25_idf: 0.0,
-        })
+        Self::new_bytes(s.as_bytes(), id, flags)
     }
 
     /// Create a new [`RSQueryTerm`] from a raw byte slice, copying it into a
@@ -69,8 +63,12 @@ impl RSQueryTerm {
     /// byte sequences that are not valid UTF-8 (e.g. after case-folding
     /// applied to some Unicode codepoints).
     pub fn new_bytes(s: &[u8], id: i32, flags: RSTokenFlags) -> Box<Self> {
+        let mut buf = Vec::with_capacity(s.len() + 1);
+        buf.extend_from_slice(s);
+        buf.push(0); // add nul-terminator because this string ends up in RsValue which requires that.
+
         Box::new(Self {
-            str_: Some(s.into()),
+            str_: Some(buf.into_boxed_slice()),
             idf: 1.0,
             id,
             flags,
@@ -120,7 +118,7 @@ impl RSQueryTerm {
 
     /// Get the term string length in bytes.
     pub fn len(&self) -> usize {
-        self.str_.as_deref().map_or(0, <[u8]>::len)
+        self.as_bytes().map_or(0, <[u8]>::len)
     }
 
     /// Check if the term string is empty (null or zero length).
@@ -130,7 +128,7 @@ impl RSQueryTerm {
 
     /// Get the term as a byte slice, if the string is non-null.
     pub fn as_bytes(&self) -> Option<&[u8]> {
-        self.str_.as_deref()
+        self.str_.as_deref().map(|s| &s[0..(s.len() - 1)])
     }
 }
 
@@ -141,7 +139,7 @@ impl Eq for RSQueryTerm {}
 impl fmt::Debug for RSQueryTerm {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("RSQueryTerm")
-            .field("str", &self.str_.as_deref().map(String::from_utf8_lossy))
+            .field("str", &self.as_bytes().map(String::from_utf8_lossy))
             .field("idf", &self.idf)
             .field("id", &self.id)
             .field("flags", &self.flags)
