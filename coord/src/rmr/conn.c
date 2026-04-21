@@ -32,6 +32,9 @@ static int MRConn_SendAuth(MRConn *conn);
 #define RSCONN_RECONNECT_TIMEOUT 250
 #define RSCONN_REAUTH_TIMEOUT 1000
 #define AUTH_FAIL_LOG_INTERVAL 100
+// Fallback TCP-connect watchdog used when no explicit timeout is configured,
+// so an unreachable peer cannot leave a connection hung in `Connecting` forever.
+#define MRCONN_DEFAULT_CONNECT_TIMEOUT_MS 5000
 #define UNUSED(x) (void)(x)
 
 #define CONN_LOG(conn, fmt, ...)                                                      \
@@ -688,17 +691,21 @@ static int MRConn_Connect(MRConn *conn) {
   // Without this, hiredis does NOT schedule a watchdog timer for the async connect,
   // meaning an unreachable host will leave the connection hung in `Connecting`
   // forever instead of failing fast and letting the reconnect loop heal it.
-  struct timeval connectTimeout = {0};
-  if (conn->connectionTimeoutMS > 0) {
-    connectTimeout.tv_sec = conn->connectionTimeoutMS / 1000;
-    connectTimeout.tv_usec = (conn->connectionTimeoutMS % 1000) * 1000;
-  }
+  // A fallback is always applied (even when no operator-configured timeout exists)
+  // so the hang cannot occur in the default configuration.
+  uint32_t effectiveConnectMS = conn->connectionTimeoutMS > 0
+                                    ? conn->connectionTimeoutMS
+                                    : MRCONN_DEFAULT_CONNECT_TIMEOUT_MS;
+  struct timeval connectTimeout = {
+      .tv_sec = effectiveConnectMS / 1000,
+      .tv_usec = (effectiveConnectMS % 1000) * 1000,
+  };
 
   redisOptions options = {
     .type = REDIS_CONN_TCP,
     .options = REDIS_OPT_NOAUTOFREEREPLIES,
     .endpoint.tcp = {.ip = conn->ep.host, .port = conn->ep.port},
-    .connect_timeout = conn->connectionTimeoutMS > 0 ? &connectTimeout : NULL,
+    .connect_timeout = &connectTimeout,
   };
 
   redisAsyncContext *c = redisAsyncConnectWithOptions(&options);

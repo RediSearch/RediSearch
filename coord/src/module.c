@@ -2064,8 +2064,10 @@ static int initSearchCluster(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     #endif
   }
 
-  // Use the coordinator's configured timeout for both the TCP-connect watchdog and the
-  // per-command activity timeout. See MR_NewCluster / MRConn_Connect for details.
+  // Use the coordinator's configured timeout as the override for both the TCP-connect
+  // watchdog and the per-command activity timeout. When unset (0), MRConn_Connect still
+  // applies a default connect-timeout so an unreachable peer cannot hang the connection.
+  // See MR_NewCluster / MRConn_Connect for details.
   uint32_t timeoutMS = (uint32_t)clusterConfig.timeoutMS;
   MRCluster *cl = MR_NewCluster(NULL, num_connections_per_shard, timeoutMS, timeoutMS);
   MR_Init(cl, clusterConfig.timeoutMS);

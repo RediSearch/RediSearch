@@ -90,9 +90,10 @@ int MRCluster_ConnectAll(MRCluster *cl);
 
 /* Create a new cluster using a node provider.
  *
- * connectionTimeoutMS: Absolute timeout (ms) for TCP connection establishment (0 = no timeout).
- *   Required to avoid hung connections stuck in `Connecting` forever if the peer is unreachable,
- *   so the connection can fail fast and heal via the normal reconnect loop.
+ * connectionTimeoutMS: Absolute timeout (ms) for TCP connection establishment.
+ *   If 0, a built-in default (see MRCONN_DEFAULT_CONNECT_TIMEOUT_MS in conn.c) is applied
+ *   by MRConn_Connect so an unreachable peer cannot leave a connection hung in `Connecting`
+ *   forever; the connection fails fast and heals via the normal reconnect loop.
  * activityTimeoutMS: Inactivity timeout (ms) for in-flight commands (0 = no timeout). */
 MRCluster *MR_NewCluster(MRClusterTopology *topology, size_t conn_pool_size,
                          uint32_t connectionTimeoutMS, uint32_t activityTimeoutMS);
