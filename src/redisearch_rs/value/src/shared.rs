@@ -7,15 +7,13 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use crate::{Array, Map, String, Trio, Value};
 use std::{
     mem::{self, ManuallyDrop},
     ops::Deref,
     ptr,
 };
-
 use triomphe::Arc;
-
-use crate::Value;
 
 /// The total heap allocation size of the `triomphe::Arc` inner struct.
 /// Since that struct is inaccessible/hidden, the size is calculated manually,
@@ -132,12 +130,33 @@ impl SharedValue {
         }
     }
 
+    /// Create a new `SharedValue` of `Value::Number` type.
     pub fn new_num(num: f64) -> Self {
         Self::new(Value::Number(num))
     }
 
+    /// Create a new `SharedValue` of `Value::String` type.
     pub fn new_string(str: Vec<u8>) -> Self {
-        Self::new(Value::new_string(str))
+        Self::new(Value::String(String::from_vec(str)))
+    }
+
+    /// Create a new `SharedValue` of `Value::Array` type.
+    pub fn new_array(
+        values: impl IntoIterator<IntoIter: ExactSizeIterator, Item = SharedValue>,
+    ) -> Self {
+        Self::new(Value::Array(Array::new(values.into_iter().collect())))
+    }
+
+    /// Create a new `SharedValue` of `Value::Map` type.
+    pub fn new_map(
+        values: impl IntoIterator<IntoIter: ExactSizeIterator, Item = (SharedValue, SharedValue)>,
+    ) -> Self {
+        Self::new(Value::Map(Map::new(values.into_iter().collect())))
+    }
+
+    /// Create a new `SharedValue` of `Value::Trio` type.
+    pub fn new_trio(left: SharedValue, middle: SharedValue, right: SharedValue) -> Self {
+        Self::new(Value::Trio(Trio::new(left, middle, right)))
     }
 }
 

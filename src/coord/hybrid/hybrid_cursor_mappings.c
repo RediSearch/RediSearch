@@ -216,7 +216,7 @@ static inline void cleanupCtx(processCursorMappingCallbackContext *ctx) {
     rm_free(ctx);
 }
 
-bool ProcessHybridCursorMappings(const MRCommand *cmd, StrongRef searchMappingsRef, StrongRef vsimMappingsRef, QueryError *status, const RSOomPolicy oomPolicy) {
+bool ProcessHybridCursorMappings(const MRCommand *cmd, StrongRef searchMappingsRef, StrongRef vsimMappingsRef, QueryError *status, const RSOomPolicy oomPolicy, const RSTimeoutPolicy timeoutPolicy) {
     CursorMappings *searchMappings = StrongRef_Get(searchMappingsRef);
     CursorMappings *vsimMappings = StrongRef_Get(vsimMappingsRef);
     RS_ASSERT(array_len(searchMappings->mappings) == 0 && array_len(vsimMappings->mappings) == 0);
@@ -255,8 +255,11 @@ bool ProcessHybridCursorMappings(const MRCommand *cmd, StrongRef searchMappingsR
     }
     // Wait for all callbacks to complete
     pthread_mutex_lock(ctx->mutex);
-    // Wait until the IO thread has initialized numShards and all responses arrive.
-    while (!ctx->initialized || ctx->responseCount < ctx->numShards) {
+    // Wait until either:
+    // 1. Normal completion: IO thread initialized numShards and all responses arrived
+    // 2. Early failure: We got a response before initialization (e.g., connection validation failed)
+    //    In this case, responseCount > 0 but initialized is false - we should unblock.
+    while (ctx->responseCount == 0 || (ctx->initialized && ctx->responseCount < ctx->numShards)) {
         pthread_cond_wait(ctx->completionCond, ctx->mutex);
     }
     pthread_mutex_unlock(ctx->mutex);
@@ -265,6 +268,8 @@ bool ProcessHybridCursorMappings(const MRCommand *cmd, StrongRef searchMappingsR
         for (size_t i = 0; i < array_len(ctx->errors); i++) {
             if (QueryError_GetCode(&ctx->errors[i]) == QUERY_ERROR_CODE_OUT_OF_MEMORY && oomPolicy == OomPolicy_Return ) {
                 QueryError_SetQueryOOMWarning(status);
+            } else if (QueryError_GetCode(&ctx->errors[i]) == QUERY_ERROR_CODE_TIMED_OUT && timeoutPolicy != TimeoutPolicy_Fail) {
+                QueryError_SetCode(status, QUERY_ERROR_CODE_TIMED_OUT);
             } else {
                 QueryError_SetWithoutUserDataFmt(status, QueryError_GetCode(&ctx->errors[i]), "Failed to process shard responses, first error: %s, total error count: %zu",
                     QueryError_GetUserError(&ctx->errors[i]), array_len(ctx->errors));

@@ -60,6 +60,8 @@ pub extern "C" fn RSValue_NewNumber(value: c_double) -> *mut RSValue {
 /// 1. All three arguments must be [valid], non-null pointers to [`RSValue`]s.
 /// 2. All three arguments **must not** be used or freed after this call,
 ///    as this function takes ownership.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RSValue_NewTrio(
     left: *mut RSValue,

@@ -1,24 +1,16 @@
 [package]
-name = "value"
+name = "document_metadata"
 version.workspace = true
 edition.workspace = true
 license-file.workspace = true
 publish.workspace = true
 
-[dependencies]
-c_ffi_utils = { workspace = true }
-ffi.workspace = true
-fnv.workspace = true
-libc.workspace = true
-query_error.workspace = true
-workspace_hack.workspace = true
-thiserror.workspace = true
-tracing.workspace = true
-triomphe.workspace = true
+[lints]
+workspace = true
 
-[dev-dependencies]
-redisearch_rs = { workspace = true, features = ["mock_allocator"] }
-redis_mock.workspace = true
+[dependencies]
+ffi.workspace = true
+workspace_hack.workspace = true
 
 [target.'cfg(all(target_env="musl", target_os="linux"))'.dependencies.redis-module]
 # Statically link to the libclang on aarch64-unknown-linux-musl,
@@ -31,6 +23,3 @@ default-features = false
 [target.'cfg(not(all(target_env="musl", target_os="linux")))'.dependencies.redis-module]
 workspace = true
 default-features = true
-
-[lints]
-workspace = true

@@ -539,6 +539,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "document_metadata"
+version = "0.0.1"
+dependencies = [
+ "ffi",
+ "redis-module",
+ "workspace_hack",
+]
+
+[[package]]
 name = "either"
 version = "1.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2265,6 +2274,7 @@ dependencies = [
 name = "search_result"
 version = "0.0.1"
 dependencies = [
+ "document_metadata",
  "enumflags2",
  "ffi",
  "inverted_index",
@@ -2895,6 +2905,7 @@ dependencies = [
  "redis_mock",
  "redisearch_rs",
  "thiserror",
+ "tracing",
  "triomphe",
  "workspace_hack",
 ]
@@ -2904,8 +2915,6 @@ name = "value_ffi"
 version = "0.0.1"
 dependencies = [
  "build_utils",
- "c_ffi_utils",
- "cbindgen",
  "ffi",
  "fnv",
  "libc",

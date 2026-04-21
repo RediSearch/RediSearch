@@ -12,10 +12,10 @@
 use std::ptr::NonNull;
 
 use ffi::{RS_FIELDMASK_ALL, t_docId};
-
-use crate::IteratorType;
+use inverted_index::codec::{doc_ids_only::DocIdsOnly, raw_doc_ids_only::RawDocIdsOnly};
 use inverted_index::{DocIdsDecoder, RSIndexResult, opaque};
 
+use crate::IteratorType;
 use crate::{
     Empty, RQEIterator, RQEIteratorError, RQEValidateStatus, SEARCH_ENTERPRISE_ITERATORS,
     SkipToOutcome,
@@ -189,73 +189,156 @@ impl<'index> RQEIterator<'index> for Box<dyn WildcardIterator<'index> + 'index> 
 
 impl<'index> WildcardIterator<'index> for Box<dyn WildcardIterator<'index> + 'index> {}
 
-/// [`Empty`] is used as wildcard in the optimized version if the spec has no document.
-struct EmptyWildcard(Empty);
+/// The result of [`new_wildcard_iterator`], representing the different kinds of
+/// wildcard iterators that can be created depending on the index configuration.
+pub enum NewWildcardIterator<'index> {
+    /// Non-optimized wildcard: yields all document ids from 1 to `maxDocId`.
+    NotOptimized(Wildcard<'index>),
+    /// Optimized wildcard: reads from the `existingDocs` inverted index.
+    Optimized(OptimizedWildcard<'index>),
+    /// Empty wildcard: the index has no documents.
+    Empty(Empty),
+    /// Disk-backed wildcard: delegates to the enterprise disk index iterator.
+    Disk(DiskWildcardIterator<'index>),
+}
 
-impl<'index> RQEIterator<'index> for EmptyWildcard {
+/// An optimized wildcard iterator over the `existingDocs` inverted index.
+///
+/// The encoding may be either [`DocIdsOnly`] or [`RawDocIdsOnly`], depending on
+/// the index configuration.
+pub enum OptimizedWildcard<'index> {
+    /// Optimized wildcard with [`DocIdsOnly`] encoding.
+    DocIdsOnly(crate::inverted_index::Wildcard<'index, DocIdsOnly>),
+    /// Optimized wildcard with [`RawDocIdsOnly`] encoding.
+    RawDocIdsOnly(crate::inverted_index::Wildcard<'index, RawDocIdsOnly>),
+}
+
+/// Delegates each [`RQEIterator`] method to the active variant.
+macro_rules! delegate_rqe_iterator {
+    ($self:ident, $method:ident $(, $arg:ident)*) => {
+        match $self {
+            Self::DocIdsOnly(it) => it.$method($($arg),*),
+            Self::RawDocIdsOnly(it) => it.$method($($arg),*),
+        }
+    };
+}
+
+impl<'index> RQEIterator<'index> for OptimizedWildcard<'index> {
     #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
-        self.0.current()
+        delegate_rqe_iterator!(self, current)
     }
 
-    #[inline(always)]
     fn read(&mut self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
-        self.0.read()
+        delegate_rqe_iterator!(self, read)
     }
 
-    #[inline(always)]
     fn skip_to(
         &mut self,
         doc_id: t_docId,
     ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
-        self.0.skip_to(doc_id)
+        delegate_rqe_iterator!(self, skip_to, doc_id)
     }
 
-    #[inline(always)]
     fn rewind(&mut self) {
-        self.0.rewind()
+        delegate_rqe_iterator!(self, rewind)
     }
 
-    #[inline(always)]
     fn num_estimated(&self) -> usize {
-        self.0.num_estimated()
+        delegate_rqe_iterator!(self, num_estimated)
     }
 
-    #[inline(always)]
     fn last_doc_id(&self) -> t_docId {
-        self.0.last_doc_id()
+        delegate_rqe_iterator!(self, last_doc_id)
     }
 
-    #[inline(always)]
     fn at_eof(&self) -> bool {
-        self.0.at_eof()
+        delegate_rqe_iterator!(self, at_eof)
     }
 
-    #[inline(always)]
     fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        self.0.revalidate()
+        delegate_rqe_iterator!(self, revalidate)
     }
 
     #[inline(always)]
     fn type_(&self) -> IteratorType {
-        IteratorType::Empty
+        delegate_rqe_iterator!(self, type_)
     }
 
-    fn intersection_sort_weight(&self, _prioritize_union_children: bool) -> f64 {
-        1.0
+    fn intersection_sort_weight(&self, prioritize_union_children: bool) -> f64 {
+        delegate_rqe_iterator!(self, intersection_sort_weight, prioritize_union_children)
     }
 }
 
-/// [`EmptyWildcard`] matches all documents (vacuously, since the index is empty).
-impl<'index> WildcardIterator<'index> for EmptyWildcard {}
+impl<'index> WildcardIterator<'index> for OptimizedWildcard<'index> {}
+
+/// Delegates each [`RQEIterator`] method to the active variant.
+macro_rules! delegate_wildcard_iterator {
+    ($self:ident, $method:ident $(, $arg:ident)*) => {
+        match $self {
+            Self::NotOptimized(it) => it.$method($($arg),*),
+            Self::Optimized(it) => it.$method($($arg),*),
+            Self::Empty(it) => it.$method($($arg),*),
+            Self::Disk(it) => it.$method($($arg),*),
+        }
+    };
+}
+
+impl<'index> RQEIterator<'index> for NewWildcardIterator<'index> {
+    #[inline(always)]
+    fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
+        delegate_wildcard_iterator!(self, current)
+    }
+
+    fn read(&mut self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
+        delegate_wildcard_iterator!(self, read)
+    }
+
+    fn skip_to(
+        &mut self,
+        doc_id: t_docId,
+    ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
+        delegate_wildcard_iterator!(self, skip_to, doc_id)
+    }
+
+    fn rewind(&mut self) {
+        delegate_wildcard_iterator!(self, rewind)
+    }
+
+    fn num_estimated(&self) -> usize {
+        delegate_wildcard_iterator!(self, num_estimated)
+    }
+
+    fn last_doc_id(&self) -> t_docId {
+        delegate_wildcard_iterator!(self, last_doc_id)
+    }
+
+    fn at_eof(&self) -> bool {
+        delegate_wildcard_iterator!(self, at_eof)
+    }
+
+    fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
+        delegate_wildcard_iterator!(self, revalidate)
+    }
+
+    #[inline(always)]
+    fn type_(&self) -> IteratorType {
+        delegate_wildcard_iterator!(self, type_)
+    }
+
+    fn intersection_sort_weight(&self, prioritize_union_children: bool) -> f64 {
+        delegate_wildcard_iterator!(self, intersection_sort_weight, prioritize_union_children)
+    }
+}
+
+impl<'index> WildcardIterator<'index> for NewWildcardIterator<'index> {}
 
 /// Create a [`WildcardIterator`] for an index whose spec has
 /// [`SchemaRule`](ffi::SchemaRule)`.index_all` set.
 ///
 /// When [`spec.existingDocs`](ffi::IndexSpec::existingDocs) is non-null, the returned iterator
 /// reads from the existing-documents inverted index (either
-/// [`DocIdsOnly`](inverted_index::codec::doc_ids_only::DocIdsOnly) or
-/// [`RawDocIdsOnly`](inverted_index::codec::raw_doc_ids_only::RawDocIdsOnly)
+/// [`DocIdsOnly`] or [`RawDocIdsOnly`]
 /// encoding). When it is null (no documents indexed yet), an [`Empty`] iterator
 /// is returned instead.
 ///
@@ -269,13 +352,12 @@ impl<'index> WildcardIterator<'index> for EmptyWildcard {}
 ///    [`index_all`](ffi::SchemaRule::index_all) set to `true`.
 /// 4. `sctx.spec.existingDocs`, when non-null, must point to a valid
 ///    [`opaque::InvertedIndex`] with either
-///    [`DocIdsOnly`](inverted_index::codec::doc_ids_only::DocIdsOnly) or
-///    [`RawDocIdsOnly`](inverted_index::codec::raw_doc_ids_only::RawDocIdsOnly)
+///    [`DocIdsOnly`] or [`RawDocIdsOnly`]
 ///    encoding.
 pub unsafe fn new_wildcard_iterator_optimized<'index>(
     sctx: NonNull<ffi::RedisSearchCtx>,
     weight: f64,
-) -> Box<dyn WildcardIterator<'index> + 'index> {
+) -> NewWildcardIterator<'index> {
     // SAFETY: Caller guarantees `sctx` points to a valid `RedisSearchCtx` (1).
     let sctx_ref = unsafe { sctx.as_ref() };
     let spec = NonNull::new(sctx_ref.spec).expect("sctx.spec is null");
@@ -293,26 +375,26 @@ pub unsafe fn new_wildcard_iterator_optimized<'index>(
             // `opaque::InvertedIndex` with `DocIdsOnly` or `RawDocIdsOnly`
             // encoding (4).
             let ii_ref = unsafe { ii.as_ref() };
-            let it: Box<dyn WildcardIterator> = match ii_ref {
+            let optimized = match ii_ref {
                 opaque::InvertedIndex::DocIdsOnly(ii) => {
                     // SAFETY: All preconditions of `Wildcard::new` are
                     // satisfied: `sctx` is valid (1), `sctx.spec` is valid (2),
                     // both remain valid for `'index`, and the encoding matches.
-                    Box::new(unsafe {
+                    OptimizedWildcard::DocIdsOnly(unsafe {
                         crate::inverted_index::Wildcard::new(ii.reader(), sctx, weight)
                     })
                 }
                 opaque::InvertedIndex::RawDocIdsOnly(ii) => {
                     // SAFETY: Same as the `DocIdsOnly` arm above.
-                    Box::new(unsafe {
+                    OptimizedWildcard::RawDocIdsOnly(unsafe {
                         crate::inverted_index::Wildcard::new(ii.reader(), sctx, weight)
                     })
                 }
                 _ => panic!("spec.existingDocs has the wrong inverted index type: {ii_ref:?}"),
             };
-            it
+            NewWildcardIterator::Optimized(optimized)
         }
-        None => Box::new(EmptyWildcard(Empty)),
+        None => NewWildcardIterator::Empty(Empty),
     }
 }
 
@@ -333,19 +415,19 @@ pub unsafe fn new_wildcard_iterator_optimized<'index>(
 pub unsafe fn new_wildcard_iterator_on_disk<'index>(
     disk_spec: &'index ffi::RedisSearchDiskIndexSpec,
     weight: f64,
-) -> Box<dyn WildcardIterator<'index> + 'index> {
+) -> NewWildcardIterator<'index> {
     // SAFETY: Caller guarantees `SEARCH_ENTERPRISE_ITERATORS` is
     // initialized when `spec.diskSpec` is non-null (8).
     let enterprise_iters_api = SEARCH_ENTERPRISE_ITERATORS
         .get()
         .expect("SEARCH_ENTERPRISE_ITERATORS not initialized");
     match enterprise_iters_api.new_wildcard_on_disk(disk_spec, weight) {
-        Ok(it) => Box::new(DiskWildcardIterator(it)),
+        Ok(it) => NewWildcardIterator::Disk(DiskWildcardIterator(it)),
         Err(err) => {
             tracing::warn!(
                 "Failed to create a disk wildcard iterator ({err}); falling back to empty iterator."
             );
-            Box::new(EmptyWildcard(Empty))
+            NewWildcardIterator::Empty(Empty)
         }
     }
 }
@@ -384,7 +466,7 @@ pub unsafe fn new_wildcard_iterator_on_disk<'index>(
 pub unsafe fn new_wildcard_iterator<'index>(
     query: NonNull<ffi::QueryEvalCtx>,
     weight: f64,
-) -> Box<dyn WildcardIterator<'index> + 'index> {
+) -> NewWildcardIterator<'index> {
     // SAFETY: Caller guarantees `query` points to a valid `QueryEvalCtx` (1).
     let query = unsafe { query.as_ref() };
     let sctx = NonNull::new(query.sctx).expect("query.sctx is null");
@@ -421,7 +503,7 @@ pub unsafe fn new_wildcard_iterator<'index>(
         // SAFETY: Caller guarantees `query.docTable` is a valid, non-null
         // pointer (6).
         let doc_table = unsafe { &*query.docTable };
-        Box::new(Wildcard::new(doc_table.maxDocId, weight))
+        NewWildcardIterator::NotOptimized(Wildcard::new(doc_table.maxDocId, weight))
     }
 }
 
@@ -432,7 +514,7 @@ pub unsafe fn new_wildcard_iterator<'index>(
 /// allowing disk-based wildcard queries to be used interchangeably with
 /// in-memory ones.
 #[repr(transparent)]
-struct DiskWildcardIterator<'index>(Box<dyn RQEIterator<'index> + 'index>);
+pub struct DiskWildcardIterator<'index>(Box<dyn RQEIterator<'index> + 'index>);
 
 impl<'index> RQEIterator<'index> for DiskWildcardIterator<'index> {
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {

@@ -7,8 +7,6 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-#![allow(clippy::missing_safety_doc, clippy::undocumented_unsafe_blocks)]
-
 use libc::size_t;
 use redis_mock::mock_or_stub_missing_redis_c_symbols;
 use std::ffi::{CString, c_char};

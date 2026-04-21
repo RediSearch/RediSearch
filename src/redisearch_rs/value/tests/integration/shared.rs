@@ -18,15 +18,53 @@ fn null_static_holds_null() {
 }
 
 #[test]
+fn new_undefined() {
+    let v = SharedValue::new(Value::Undefined);
+    assert!(matches!(*v, Value::Undefined));
+}
+
+#[test]
 fn new_number() {
-    let v = SharedValue::new(Value::Number(42.0));
+    let v = SharedValue::new_num(42.0);
     assert!(matches!(*v, Value::Number(42.0)));
 }
 
 #[test]
-fn new_undefined() {
-    let v = SharedValue::new(Value::Undefined);
-    assert!(matches!(*v, Value::Undefined));
+fn new_string() {
+    let v = SharedValue::new_string(b"Hello".to_vec());
+    assert!(matches!(&*v, Value::String(s) if s.as_bytes() == b"Hello"));
+}
+
+#[test]
+fn new_array() {
+    let v = SharedValue::new_array([SharedValue::new_num(1.0), SharedValue::new_num(2.0)]);
+    assert!(matches!(&*v, Value::Array(a) if a.len() == 2
+        && matches!(*a[0], Value::Number(1.0))
+        && matches!(*a[1], Value::Number(2.0))));
+}
+
+#[test]
+fn new_map() {
+    let v = SharedValue::new_map([(
+        SharedValue::new_string(b"key".to_vec()),
+        SharedValue::new_num(42.0),
+    )]);
+    assert!(matches!(&*v, Value::Map(m) if m.len() == 1
+        && matches!(&*m[0].0, Value::String(s) if s.as_bytes() == b"key")
+        && matches!(*m[0].1, Value::Number(42.0))));
+}
+
+#[test]
+fn new_trio() {
+    let v = SharedValue::new_trio(
+        SharedValue::new_num(1.0),
+        SharedValue::new_num(2.0),
+        SharedValue::new_num(3.0),
+    );
+    assert!(matches!(&*v, Value::Trio(t)
+        if matches!(**t.left(), Value::Number(1.0))
+        && matches!(**t.middle(), Value::Number(2.0))
+        && matches!(**t.right(), Value::Number(3.0))));
 }
 
 #[test]

@@ -7,7 +7,9 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use redis_module::RedisString;
 use std::{
+    mem::offset_of,
     ops::Deref,
     ptr::NonNull,
     sync::atomic::{AtomicU16, Ordering},
@@ -43,13 +45,37 @@ impl DocumentMetadata {
 
         Self(ptr)
     }
+
+    pub fn key_name(&self, ctx: Option<NonNull<ffi::RedisModuleCtx>>) -> RedisString {
+        // Safety: the caller has promised - upon construction of the DocumentMetadata - that the type is correctly initialized
+        // which means the `keyPtr` must be a valid SDS.
+        let key_name_len = unsafe { ffi::sdslen_rust(self.keyPtr) };
+
+        // Safety: the caller has promised - upon construction of the DocumentMetadata - that the type is correctly initialized
+        // which means the `keyPtr` must be a valid SDS.
+        unsafe { RedisString::from_raw_parts(ctx.map(|ctx| ctx.cast()), self.keyPtr, key_name_len) }
+    }
+
+    #[inline]
+    const fn refcount_ptr(&self) -> *mut u16 {
+        // Safety: The caller promised - on construction of this type - that this pointer is valid, and alias rules for immutable access are obeyed.
+        // Furthermore, we maintain the refcount ourselves giving us extra confidence that this pointer is safe to access.
+
+        unsafe {
+            self.0
+                .byte_add(offset_of!(ffi::RSDocumentMetadata, ref_count))
+                .cast::<u16>()
+                .as_ptr()
+        }
+    }
 }
 
 impl Deref for DocumentMetadata {
     type Target = ffi::RSDocumentMetadata;
 
     fn deref(&self) -> &Self::Target {
-        // Safety: The caller of `DocumentMetadata::from_raw` promised the pointer is valid.
+        // Safety: The caller of `DocumentMetadata::from_raw` promised the pointer is valid
+        // and we have checked it to be non-null
         unsafe { self.0.as_ref() }
     }
 }
@@ -58,10 +84,7 @@ impl Clone for DocumentMetadata {
     fn clone(&self) -> Self {
         // Safety: The caller promised - on construction of this type - that this pointer is valid, and alias rules for immutable access are obeyed.
         // Furthermore, we maintain the refcount ourselves giving us extra confidence that this pointer is safe to access.
-        let refcount = unsafe { &raw const self.0.as_ref().ref_count };
-
-        // Safety: See above
-        let refcount = unsafe { AtomicU16::from_ptr(refcount.cast_mut()) };
+        let refcount = unsafe { AtomicU16::from_ptr(self.refcount_ptr()) };
 
         let old = refcount.fetch_add(1, Ordering::Relaxed);
         assert!(old < u16::MAX, "overflow of dmd ref_count");
@@ -74,10 +97,7 @@ impl Drop for DocumentMetadata {
     fn drop(&mut self) {
         // Safety: The caller promised - on construction of this type - that this pointer is valid, and alias rules for immutable access are obeyed.
         // Furthermore, we maintain the refcount ourselves giving us extra confidence that this pointer is safe to access.
-        let refcount = unsafe { &raw const self.0.as_ref().ref_count };
-
-        // Safety: See above
-        let refcount = unsafe { AtomicU16::from_ptr(refcount.cast_mut()) };
+        let refcount = unsafe { AtomicU16::from_ptr(self.refcount_ptr()) };
 
         if refcount.fetch_sub(1, Ordering::Relaxed) == 1 {
             // Safety: The caller of `DocumentMetadata::from_raw` promised the pointer is valid.

@@ -186,6 +186,8 @@ struct RSValue *RSValue_NewNumber(double value);
  * 1. All three arguments must be [valid], non-null pointers to [`RSValue`]s.
  * 2. All three arguments **must not** be used or freed after this call,
  *    as this function takes ownership.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 struct RSValue *RSValue_NewTrio(struct RSValue *left,
                                 struct RSValue *middle,

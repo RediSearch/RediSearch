@@ -127,51 +127,12 @@ jobs:
         if: needs.get-config.outputs.post_setup_script
         run: ${{ needs.get-config.outputs.post_setup_script }}
 
-      - name: checkout (node20)
-        if: needs.get-config.outputs.node20_supported == 'true'
+      - name: Checkout
         uses: actions/checkout@v4
         with:
           submodules: recursive
           ref: ${{ env.REF }}
-      - name: checkout (legacy)
-        # Manual checkout path for platforms where Node 20-based actions are unavailable.
-        if: needs.get-config.outputs.node20_supported != 'true'
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITHUB_REPO: ${{ github.repository }}
-        run: |
-          CONTAINER="${{ needs.get-config.outputs.container }}"
-          echo "Detected platform: $CONTAINER"
-          case "$CONTAINER" in
-            amazonlinux:2)
-              # Configure the safe directory.
-              git config --global --add safe.directory "$GITHUB_WORKSPACE"
-
-              # Checkout.
-              REPO_URL="https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPO}.git"
-
-              # Initialize a Git repository.
-              git init
-              git remote add origin "$REPO_URL"
-
-              # Fetch the requested ref, then check it out and initialize submodules.
-              git fetch origin "$REF" || {
-                echo "Failed to fetch ref: '$REF'";
-                exit 1;
-              }
-              # Check out the fetched ref.
-              git checkout FETCH_HEAD
-              # Update submodules.
-              git submodule update --init --recursive
-              ;;
-            *)
-              echo "Unsupported platform: '$CONTAINER'"
-              exit 1
-              ;;
-          esac
       - name: Setup sccache
-        # sccache-action is a JavaScript action requiring Node.js 20+
-        if: needs.get-config.outputs.node20_supported == 'true'
         uses: ./.github/actions/setup-sccache
       - name: Setup
         if: needs.build-image.outputs.succeeded != 'true'
@@ -198,7 +159,6 @@ jobs:
         uses: ./.github/actions/get-redis
         with:
           ref: ${{ inputs.redis-ref }}
-          node20_supported: ${{ needs.get-config.outputs.node20_supported }}
 
       - name: Build Redis
         working-directory: redis
@@ -211,7 +171,6 @@ jobs:
         run: ${{ env.BUILD_CMD }} && make pack
 
       - name: Show sccache stats
-        if: needs.get-config.outputs.node20_supported == 'true'
         run: ${SCCACHE_PATH:-sccache} --show-stats
 
       - name: Validate glibc version
@@ -227,16 +186,18 @@ jobs:
           aws_access_key_id: ${{ secrets.ARTIFACT_UPLOAD_AWS_ACCESS_KEY_ID }}
           aws_secret_access_key: ${{ secrets.ARTIFACT_UPLOAD_AWS_SECRET_ACCESS_KEY }}
           aws_region: ${{ vars.ARTIFACT_UPLOAD_AWS_REGION }}
-          node20_supported: ${{ needs.get-config.outputs.node20_supported }}
       - name: Set Version identifier
         id: set-versions
+        env:
+          INPUT_VERSION_SUFFIX: ${{ inputs.version-suffix }}
+          INPUT_BETA_VERSION: ${{ inputs.beta-version }}
         run: |
-          VERSION_SUFFIX="${{ inputs.version-suffix }}"
+          VERSION_SUFFIX="$INPUT_VERSION_SUFFIX"
           echo "VERSION_SUFFIX=$VERSION_SUFFIX" >> $GITHUB_OUTPUT
           # Use the pre-generated beta version if provided (master branch builds)
           # Otherwise generate regular version from version.h (non-master branch builds)
-          if [[ -n "${{ inputs.beta-version }}" ]]; then
-            BETA_VERSION="${{ inputs.beta-version }}"
+          if [[ -n "$INPUT_BETA_VERSION" ]]; then
+            BETA_VERSION="$INPUT_BETA_VERSION"
             echo "BETA_VERSION=$BETA_VERSION" >> $GITHUB_OUTPUT
             echo "Using pre-generated beta version: $BETA_VERSION"
           else

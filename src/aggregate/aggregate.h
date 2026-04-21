@@ -593,14 +593,37 @@ static inline void AREQ_SetSkipTimeoutChecks(AREQ *req, bool skipTimeoutChecks) 
   }
 }
 
+static inline bool RequestConfig_ApplyCoordinatorElapsedTime(RequestConfig *reqConfig,
+                                                             rs_wall_clock_ns_t coordinatorElapsedTime) {
+  // Only adjust the timeout for 'fail' and 'return-strict' policies.
+  // 'return' policy keeps the original timeout for backwards compatibility.
+  if (reqConfig->timeoutPolicy == TimeoutPolicy_Return) {
+    return false;
+  }
+
+  if (reqConfig->queryTimeoutMS == 0) {
+    return false;
+  }
+
+  const rs_wall_clock_ms_t elapsedMS = rs_wall_clock_convert_ns_to_ms(coordinatorElapsedTime);
+
+  if (elapsedMS >= (rs_wall_clock_ms_t)reqConfig->queryTimeoutMS) {
+    reqConfig->queryTimeoutMS = 1; // Avoid underflow, and reserved 0 for "no timeout"
+    return true;
+  }
+
+  reqConfig->queryTimeoutMS -= (long long)elapsedMS;
+  return false;
+}
+
 void AREQ_ReplyOrStoreError(AREQ *req, RedisModuleCtx *ctx, QueryError *status);
 void AREQ_ReplyWithStoredResults(RedisModuleCtx *ctx, AREQ *req);
 
 #define AREQ_RP(req) AREQ_QueryProcessingCtx(req)->endProc
 
-#ifdef __cplusplus
 #undef RS_Atomic
 
+#ifdef __cplusplus
 }
 #endif
 #endif

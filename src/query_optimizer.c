@@ -12,7 +12,6 @@
 #include "numeric_index.h"
 #include "ext/default.h"
 #include "iterators/union_iterator.h"
-#include "iterators/intersection_iterator.h"
 #include "iterators_rs.h"
 
 /********************* Horrific hacks moved from index.c *********************/

@@ -34,8 +34,8 @@ pub const unsafe fn try_value<'a>(value: *const RSValue) -> Option<&'a Value> {
 
 /// Get a reference to a [`Value`] from an [`RSValue`] pointer.
 ///
-/// Panics with a descriptive message in debug builds and uses
-/// [`Option::unwrap_unchecked`] in release builds to avoid the branch on the
+/// Panics with a descriptive message in debug builds when the value is null and
+/// uses [`Option::unwrap_unchecked`] in release builds to avoid the branch on the
 /// hot path.
 ///
 /// # Safety

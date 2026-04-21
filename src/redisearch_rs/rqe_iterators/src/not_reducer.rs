@@ -15,7 +15,7 @@ use std::{ptr::NonNull, time::Duration};
 use ffi::t_docId;
 
 use crate::{
-    Empty, IteratorType, RQEIterator, WildcardIterator,
+    Empty, IteratorType, NewWildcardIterator, RQEIterator,
     not::Not,
     not_optimized::NotOptimized,
     wildcard::{
@@ -24,9 +24,17 @@ use crate::{
 };
 
 /// The result of [`not_iterator_reducer`].
+///
+/// The `ReducedWildcard` variant is intentionally large (contains an inline
+/// [`NewWildcardIterator`]) to avoid an extra heap allocation on a per-query
+/// construction path. This enum is short-lived and never stored.
+#[expect(
+    clippy::large_enum_variant,
+    reason = "short-lived reducer result; boxing would add a needless allocation"
+)]
 enum NotReduction<'index, I> {
     /// The child is empty → NOT matches everything → wildcard.
-    ReducedWildcard(Box<dyn WildcardIterator<'index> + 'index>),
+    ReducedWildcard(NewWildcardIterator<'index>),
     /// The child is a wildcard → NOT matches nothing → empty.
     ReducedEmpty(Empty),
     /// No reduction was possible. The child is returned unchanged.
@@ -79,13 +87,13 @@ where
 /// The result of [`new_not_iterator`].
 pub enum NewNotIterator<'index, I> {
     /// The child is empty → NOT matches everything → wildcard.
-    ReducedWildcard(Box<dyn WildcardIterator<'index> + 'index>),
+    ReducedWildcard(NewWildcardIterator<'index>),
     /// The child is a wildcard → NOT matches nothing → empty.
     ReducedEmpty(Empty),
     /// Non-optimized path: sequential NOT iterator.
     Not(Not<'index, I>),
     /// Optimized path (`index_all` or disk index): wildcard-backed NOT iterator.
-    NotOptimized(NotOptimized<'index, Box<dyn WildcardIterator<'index> + 'index>, I>),
+    NotOptimized(NotOptimized<'index, NewWildcardIterator<'index>, I>),
 }
 
 /// Construct a NOT iterator, choosing between [`Not`] (sequential) and
