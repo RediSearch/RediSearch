@@ -412,6 +412,273 @@ fn numeric_no_range_tree_revalidate() {
     );
 }
 
+mod from_tree {
+    use std::ptr;
+
+    use ffi::{GeoDistance_GEO_DISTANCE_M, GeoFilter, t_docId};
+    use field::{FieldExpirationPredicate, FieldFilterContext, FieldMaskOrIndex};
+    use inverted_index::NumericFilter;
+    use numeric_range_tree::NumericRangeTree;
+    use rqe_iterators::{NumericIteratorVariant, RQEIterator, RQEValidateStatus};
+    use rqe_iterators_test_utils::MockContext;
+
+    fn make_field_ctx() -> FieldFilterContext {
+        FieldFilterContext {
+            field: FieldMaskOrIndex::Index(0),
+            predicate: FieldExpirationPredicate::Default,
+        }
+    }
+
+    fn passthrough_filter() -> NumericFilter {
+        NumericFilter {
+            min: f64::NEG_INFINITY,
+            max: f64::INFINITY,
+            min_inclusive: true,
+            max_inclusive: true,
+            ..Default::default()
+        }
+    }
+
+    fn build_tree(entries: &[(t_docId, f64)]) -> NumericRangeTree {
+        let mut tree = NumericRangeTree::new(false);
+        for (doc_id, value) in entries {
+            tree.add(*doc_id, *value, false, 0);
+        }
+        tree
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore = "miri does not support #[should_panic]")]
+    #[should_panic(expected = "Numeric queries require a field index, not a field mask")]
+    fn mask_field_panics() {
+        let tree = build_tree(&[(1, 1.0)]);
+        let ctx = MockContext::new(0, 0);
+        let filter = passthrough_filter();
+        let field_ctx = FieldFilterContext {
+            field: FieldMaskOrIndex::Mask(1),
+            predicate: FieldExpirationPredicate::Default,
+        };
+        // SAFETY: panics before any safety-relevant pointer is touched.
+        unsafe { NumericIteratorVariant::from_tree(&tree, ctx.sctx(), &filter, &field_ctx) };
+    }
+
+    #[test]
+    fn empty_when_no_ranges_match() {
+        let tree = build_tree(&[(1, 1.0), (2, 3.0), (3, 5.0)]);
+        let ctx = MockContext::new(0, 0);
+        let filter = NumericFilter {
+            min: -100.0,
+            max: -1.0,
+            min_inclusive: true,
+            max_inclusive: true,
+            ..Default::default()
+        };
+        let field_ctx = make_field_ctx();
+
+        // SAFETY: `ctx` keeps sctx/spec alive past `iters`; field is Index.
+        let iters =
+            unsafe { NumericIteratorVariant::from_tree(&tree, ctx.sctx(), &filter, &field_ctx) };
+
+        assert!(
+            iters.is_empty(),
+            "expected no matching ranges, got {}",
+            iters.len()
+        );
+    }
+
+    #[test]
+    fn unfiltered_when_range_contained_in_filter_bounds() {
+        let tree = build_tree(&[(1, 1.0), (2, 3.0), (3, 5.0)]);
+        let ctx = MockContext::new(0, 0);
+        let filter = passthrough_filter();
+        let field_ctx = make_field_ctx();
+
+        // SAFETY: `ctx` keeps sctx/spec alive past `iters`; field is Index.
+        let iters =
+            unsafe { NumericIteratorVariant::from_tree(&tree, ctx.sctx(), &filter, &field_ctx) };
+
+        assert!(!iters.is_empty(), "expected at least one iterator");
+        for iter in &iters {
+            assert!(
+                matches!(iter, NumericIteratorVariant::Unfiltered(_)),
+                "expected Unfiltered variant, range is fully inside filter bounds"
+            );
+        }
+    }
+
+    #[test]
+    fn filtered_when_range_partially_overlaps_filter_bounds() {
+        // Range [1, 15] extends outside the filter [5, 10], so per-record checks are needed.
+        let tree = build_tree(&[(1, 1.0), (2, 8.0), (3, 15.0)]);
+        let ctx = MockContext::new(0, 0);
+        let filter = NumericFilter {
+            min: 5.0,
+            max: 10.0,
+            min_inclusive: true,
+            max_inclusive: true,
+            ..Default::default()
+        };
+        let field_ctx = make_field_ctx();
+
+        // SAFETY: `ctx` keeps sctx/spec alive past `iters`; field is Index.
+        let iters =
+            unsafe { NumericIteratorVariant::from_tree(&tree, ctx.sctx(), &filter, &field_ctx) };
+
+        assert!(!iters.is_empty(), "expected at least one iterator");
+        for iter in &iters {
+            assert!(
+                matches!(iter, NumericIteratorVariant::Filtered(_)),
+                "expected Filtered variant for partially-overlapping range"
+            );
+        }
+    }
+
+    #[test]
+    fn geo_variant_for_geo_filter() {
+        let tree = build_tree(&[(1, 1.0)]);
+        let ctx = MockContext::new(0, 0);
+        let geo_filter = GeoFilter {
+            fieldSpec: ptr::null(),
+            lat: 0.0,
+            lon: 0.0,
+            radius: 1.0,
+            unitType: GeoDistance_GEO_DISTANCE_M,
+            numericFilters: ptr::null_mut(),
+        };
+        let filter = NumericFilter {
+            geo_filter: &geo_filter as *const _ as *const _,
+            min: f64::NEG_INFINITY,
+            max: f64::INFINITY,
+            min_inclusive: true,
+            max_inclusive: true,
+            ..Default::default()
+        };
+        let field_ctx = make_field_ctx();
+
+        // SAFETY: `ctx` keeps sctx/spec alive past `iters`; field is Index.
+        // `geo_filter` is stack-allocated and outlives `filter`.
+        let iters =
+            unsafe { NumericIteratorVariant::from_tree(&tree, ctx.sctx(), &filter, &field_ctx) };
+
+        assert!(!iters.is_empty(), "expected at least one iterator");
+        for iter in &iters {
+            assert!(
+                matches!(iter, NumericIteratorVariant::Geo(_)),
+                "expected Geo variant for geo filter"
+            );
+        }
+    }
+
+    #[test]
+    fn can_read_all_documents() {
+        let tree = build_tree(&[(1, 1.0), (3, 3.0), (5, 5.0)]);
+        let ctx = MockContext::new(0, 0);
+        let filter = passthrough_filter();
+        let field_ctx = make_field_ctx();
+
+        // SAFETY: `ctx` keeps sctx/spec alive past `iters`; field is Index.
+        let mut iters =
+            unsafe { NumericIteratorVariant::from_tree(&tree, ctx.sctx(), &filter, &field_ctx) };
+
+        assert_eq!(
+            iters.len(),
+            1,
+            "expected exactly one range for a single-leaf tree"
+        );
+        let it = &mut iters[0];
+
+        let mut doc_ids = Vec::new();
+        while let Some(record) = it.read().expect("read failed") {
+            doc_ids.push(record.doc_id);
+        }
+        assert_eq!(doc_ids, vec![1, 3, 5]);
+    }
+
+    #[test]
+    fn non_null_field_spec_enables_revalidation() {
+        let tree_ptr: *mut NumericRangeTree =
+            Box::into_raw(Box::new(build_tree(&[(1, 1.0), (2, 2.0)])));
+        let ctx = MockContext::new(0, 0);
+        // Any non-null pointer makes from_tree store the tree for revalidation.
+        // SAFETY: `FieldSpec` is a plain C struct (generated by bindgen) with no
+        // Rust-level non-zero validity requirements; a zero bit pattern is valid.
+        // `from_tree` only checks the `field_spec` pointer for null and never dereferences it,
+        // so the zeroed field values are never observed.
+        let dummy_fs: ffi::FieldSpec = unsafe { std::mem::zeroed() };
+        let filter = NumericFilter {
+            field_spec: &dummy_fs,
+            min: f64::NEG_INFINITY,
+            max: f64::INFINITY,
+            min_inclusive: true,
+            max_inclusive: true,
+            ..Default::default()
+        };
+        let field_ctx = make_field_ctx();
+
+        // SAFETY: `tree_ptr` and `ctx` both outlive `iters`; field is Index.
+        let mut iters = unsafe {
+            NumericIteratorVariant::from_tree(
+                tree_ptr.as_ref().unwrap(),
+                ctx.sctx(),
+                &filter,
+                &field_ctx,
+            )
+        };
+        assert!(!iters.is_empty());
+
+        let _ = iters[0].read().expect("initial read failed");
+
+        // SAFETY: iterators store a NonNull (no live `&` to the tree), so this
+        // write does not violate aliasing rules.
+        unsafe { (*tree_ptr).increment_revision() };
+
+        assert_eq!(
+            iters[0].revalidate().expect("revalidate failed"),
+            RQEValidateStatus::Aborted,
+        );
+
+        // SAFETY: `tree_ptr` was created by `Box::into_raw` above; `iters` is dropped
+        // before this point and holds only a `NonNull` (not ownership), so no double-free.
+        unsafe { drop(Box::from_raw(tree_ptr)) };
+    }
+
+    #[test]
+    fn null_field_spec_disables_revalidation() {
+        let tree_ptr: *mut NumericRangeTree =
+            Box::into_raw(Box::new(build_tree(&[(1, 1.0), (2, 2.0)])));
+        let ctx = MockContext::new(0, 0);
+        // passthrough_filter() has field_spec = null → no tree snapshot taken.
+        let filter = passthrough_filter();
+        let field_ctx = make_field_ctx();
+
+        // SAFETY: `tree_ptr` and `ctx` both outlive `iters`; field is Index.
+        let mut iters = unsafe {
+            NumericIteratorVariant::from_tree(
+                tree_ptr.as_ref().unwrap(),
+                ctx.sctx(),
+                &filter,
+                &field_ctx,
+            )
+        };
+        assert!(!iters.is_empty());
+
+        let _ = iters[0].read().expect("initial read failed");
+
+        // SAFETY: iterators store a NonNull (no live `&` to the tree), so this
+        // write does not violate aliasing rules.
+        unsafe { (*tree_ptr).increment_revision() };
+
+        assert_eq!(
+            iters[0].revalidate().expect("revalidate failed"),
+            RQEValidateStatus::Ok,
+        );
+
+        // SAFETY: `tree_ptr` was created by `Box::into_raw` above; `iters` is dropped
+        // before this point and holds only a `NonNull` (not ownership), so no double-free.
+        unsafe { drop(Box::from_raw(tree_ptr)) };
+    }
+}
+
 /// Tests for [`rqe_iterators::NumericIteratorVariant`] variant selection logic.
 ///
 /// These tests verify that [`NumericIteratorVariant::new`] selects the correct
