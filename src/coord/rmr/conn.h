@@ -92,11 +92,8 @@ const char *MRConnManager_GetNodeState(MRConnManager *mgr, const char *id);
 
 int MRConn_SendCommand(MRConn *c, MRCommand *cmd, redisCallbackFn *fn, void *privdata);
 
-/* Add a node to the connection manager */
-int MRConnManager_Add(MRConnManager *m, uv_loop_t *loop, const char *id, MREndpoint *ep, int connect);
-
-/* Connect all nodes to their destinations */
-int MRConnManager_ConnectAll(MRConnManager *m);
+/* Add a node to the connection manager and start its connections. */
+int MRConnManager_Add(MRConnManager *m, uv_loop_t *loop, const char *id, MREndpoint *ep);
 
 /* Disconnect a node */
 int MRConnManager_Disconnect(MRConnManager *m, const char *id);
@@ -113,12 +110,11 @@ void MRConnManager_Shrink(MRConnManager *m, size_t num);
  */
 void MRConnManager_Expand(MRConnManager *m, size_t num, uv_loop_t *loop);
 
-void MRConnManager_Free(MRConnManager *m);
-
 /*
-* Stop all the connections in the manager.
-*/
-void MRConnManager_Stop(MRConnManager *mgr);
+ * Disconnect all connections and release the manager's dict. Must be called
+ * from the uv thread while the event loop is still alive.
+ */
+void MRConnManager_Shutdown(MRConnManager *mgr);
 
 #ifdef __cplusplus
 }

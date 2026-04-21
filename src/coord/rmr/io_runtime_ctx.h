@@ -77,11 +77,9 @@ void IORuntimeCtx_RequestCompleted(IORuntimeCtx *io_runtime_ctx);
 // Clears the pendingTopology request that may be queued to be updated, and return the topology that was pending.
 void IORuntimeCtx_Debug_ClearPendingTopo(IORuntimeCtx *io_runtime_ctx);
 uv_loop_t* IORuntimeCtx_GetLoop(IORuntimeCtx *io_runtime_ctx);
-int IORuntimeCtx_ConnectAll(IORuntimeCtx *ioRuntime);
+/* Apply the current topology to the connection manager: add new nodes (and
+ * start their connections), remove nodes no longer in the topology. */
 void IORuntimeCtx_UpdateNodes(IORuntimeCtx *ioRuntime);
-/* Update the topology by calling the topology provider explicitly with ctx. If ctx is NULL, the
- * provider's current context is used. Otherwise, we call its function with the given context */
-int IORuntimeCtx_UpdateNodesAndConnectAll(IORuntimeCtx *ioRuntime);
 void IORuntimeCtx_Schedule_Topology(IORuntimeCtx *io_runtime_ctx, MRQueueCallback cb, struct MRClusterTopology *topo, bool take_topo_ownership);
 void IORuntimeCtx_UpdateConnPoolSize(IORuntimeCtx *ioRuntime, size_t new_conn_pool_size);
 

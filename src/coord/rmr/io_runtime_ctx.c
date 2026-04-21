@@ -179,8 +179,9 @@ static void sideThread(void *arg) {
 
   // Process any remaining requests before closing handles
   uv_run(&io_runtime_ctx->uv_runtime.loop, UV_RUN_NOWAIT);
-  // Go through all the connections and stop the timers
-  MRConnManager_Stop(&io_runtime_ctx->conn_mgr);
+  // Disconnect all connections and release the manager's dict while the loop
+  // is still alive (uv_close / redisAsyncDisconnect require it).
+  MRConnManager_Shutdown(&io_runtime_ctx->conn_mgr);
   // After the loop stops, close all handles https://github.com/libuv/libuv/issues/709
   uv_walk(&io_runtime_ctx->uv_runtime.loop, close_walk_cb, NULL);
   // Run the loop one more time to process close callbacks
@@ -190,11 +191,6 @@ static void sideThread(void *arg) {
 
 uv_loop_t* IORuntimeCtx_GetLoop(IORuntimeCtx *io_runtime_ctx) {
   return &io_runtime_ctx->uv_runtime.loop;
-}
-
-/* Initialize the connections to all shards */
-int IORuntimeCtx_ConnectAll(IORuntimeCtx *ioRuntime) {
-  return MRConnManager_ConnectAll(&ioRuntime->conn_mgr);
 }
 
 void IORuntimeCtx_UpdateNodes(IORuntimeCtx *ioRuntime) {
@@ -215,7 +211,7 @@ void IORuntimeCtx_UpdateNodes(IORuntimeCtx *ioRuntime) {
   for (uint32_t sh = 0; sh < topo->numShards; sh++) {
     // Update all the conn Manager in each of the runtimes.
     MRClusterNode *node = &topo->shards[sh].node;
-    MRConnManager_Add(&ioRuntime->conn_mgr, &ioRuntime->uv_runtime.loop, node->id, &node->endpoint, 0);
+    MRConnManager_Add(&ioRuntime->conn_mgr, &ioRuntime->uv_runtime.loop, node->id, &node->endpoint);
     /* This node is still valid, remove it from the nodes to delete list */
     dictDelete(nodesToDisconnect, node->id);
   }
@@ -228,12 +224,6 @@ void IORuntimeCtx_UpdateNodes(IORuntimeCtx *ioRuntime) {
   }
   dictReleaseIterator(it);
   dictRelease(nodesToDisconnect);
-}
-
-int IORuntimeCtx_UpdateNodesAndConnectAll(IORuntimeCtx *ioRuntime) {
-  IORuntimeCtx_UpdateNodes(ioRuntime);
-  IORuntimeCtx_ConnectAll(ioRuntime);
-  return REDIS_OK;
 }
 
 static void UV_Init(IORuntimeCtx *io_runtime_ctx) {
@@ -311,7 +301,6 @@ void IORuntimeCtx_Free(IORuntimeCtx *io_runtime_ctx) {
     UV_Close(io_runtime_ctx);
   }
   RQ_Free(io_runtime_ctx->queue);
-  MRConnManager_Free(&io_runtime_ctx->conn_mgr);
   queueItem *task = exchangePendingTopo(io_runtime_ctx, NULL);
   if (task) {
     struct UpdateTopologyCtx *ctx = task->privdata;
