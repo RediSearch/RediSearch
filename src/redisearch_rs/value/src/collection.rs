@@ -45,7 +45,8 @@ impl Map {
     /// Non-string keys (e.g. [`RsValue::Number`]) are skipped.
     pub fn get(&self, key: &[u8]) -> Option<&RsValue> {
         self.iter()
-            .find_map(|(k, v)| (k.as_str_bytes()? == key).then_some(&**v))
+            .find(|(k, _)| k.as_str_bytes() == Some(key))
+            .map(|(_, v)| v.deref())
     }
 }
 
@@ -74,7 +75,8 @@ impl Array {
         );
         pairs
             .iter()
-            .find_map(|[k, v]| (k.as_str_bytes()? == key).then_some(&**v))
+            .find(|[k, _]| k.as_str_bytes() == Some(key))
+            .map(|[_, v]| v.deref())
     }
 }
 
