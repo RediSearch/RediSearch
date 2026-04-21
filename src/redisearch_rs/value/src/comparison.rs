@@ -81,16 +81,18 @@ pub fn compare_on_equality_only(v1: &RsValue, v2: &RsValue) -> bool {
     }
 }
 
-/// Lexicographically compare two rows of sort-key values under the classic sort-by-fields policy.
+/// Lexicographically compare two sequences of sort-key values under the classic
+/// sort-by-fields policy.
 ///
-/// Each yielded pair `(v1, v2)` is the `i`-th sort key's value in the two rows being compared.
+/// `pairs` yields the `i`-th sort key as `(v1, v2)` from the two sides being compared.
 /// Bit `i` of `ascend_map` (LSB-first) selects the direction: set = ASC, clear = DESC.
 ///
-/// A `None` value always ranks "worst" regardless of direction; both-`None` is treated as equal
-/// and the next pair decides. Per-pair comparison — including the num-to-string fallback and
-/// `qerr` recording — is delegated to [`compare_with_query_error_to_int`].
+/// A `None` value always ranks "worst" regardless of direction; both-`None` is treated
+/// as equal and the next pair decides. Per-pair comparison — including the num-to-string
+/// fallback and `qerr` recording — is delegated to [`compare_with_query_error_to_int`].
 ///
-/// Callers are responsible for any docid tiebreak when this function returns `Ordering::Equal`.
+/// Callers are responsible for any docid tiebreak when this function returns
+/// [`Ordering::Equal`].
 #[inline]
 pub fn cmp_fields<'a>(
     pairs: impl IntoIterator<Item = (Option<&'a RsValue>, Option<&'a RsValue>)>,
