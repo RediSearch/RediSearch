@@ -146,8 +146,6 @@ MRReply *MRIterator_Next(MRIterator *it);
  * Returns: the next reply, or NULL if no more replies or timed out */
 MRReply *MRIterator_NextWithTimeout(MRIterator *it, const struct timespec *abstime, bool *timedOut);
 
-MRIterator *MR_Iterate(const MRCommand *cmd, MRIteratorCallback cb);
-
 MRIterator *MR_IterateWithPrivateData(const MRCommand *cmd, MRIteratorCallback cb, void *cbPrivateData,
                                       void (*cbPrivateDataDestructor)(void *),
                                       void (*cbPrivateDataInit)(void *, const MRIterator *),

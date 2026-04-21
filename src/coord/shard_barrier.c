@@ -76,7 +76,12 @@ void shardResponseBarrier_Notify(uint16_t shardIndex, long long totalResults,
                                  bool isError, void *privateData) {
   ShardResponseBarrier *barrier = (ShardResponseBarrier *)privateData;
 
-  // Validate shardId bounds
+  if (isError) {
+    // Set hasShardError immediately, even if numShards is 0 (i.e. barrier init failed/skipped)
+    atomic_store(&barrier->hasShardError, true);
+  }
+
+  // Validate shardId bounds before accessing shardResponded array
   size_t numShards = atomic_load(&barrier->base.numShards);
   if (shardIndex >= numShards) {
     return;
@@ -88,8 +93,6 @@ void shardResponseBarrier_Notify(uint16_t shardIndex, long long totalResults,
     barrier->shardResponded[shardIndex] = true;
     if (!isError) {
       atomic_fetch_add(&barrier->accumulatedTotal, totalResults);
-    } else {
-      atomic_store(&barrier->hasShardError, true);
     }
     atomic_fetch_add(&barrier->base.numResponded, 1);
   }
