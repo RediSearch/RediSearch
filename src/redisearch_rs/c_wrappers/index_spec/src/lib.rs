@@ -68,10 +68,14 @@ impl IndexSpec {
     pub fn lock(&mut self) -> IndexSpecLockGuard<'_> {
         IndexSpecLockGuard::new(&mut self.0)
     }
-}
 
-impl Default for IndexSpec {
-    fn default() -> Self {
+    /// Create a default `IndexSpec` with all fields set to zero or null.
+    ///
+    /// # Safety
+    /// The caller must ensure that the returned `IndexSpec` is properly initialized before use. Some
+    /// tests don't require initialization, hence why this method exists. You should never need to
+    /// call this outside of tests.
+    pub const unsafe fn zeroed() -> Self {
         // SAFETY: zeroed IndexSpec is valid to create, but not to use until properly initialized.
         unsafe { std::mem::zeroed() }
     }
