@@ -144,7 +144,7 @@ RSSortingVector RSSortingVector_New(size_t len);
 /**
  * Deallocates the inner values buffer of an [`RSSortingVector`] and zeros the struct.
  *
- * Each [`SharedRsValue`] element is dropped (decrementing its refcount) and the heap buffer is freed.
+ * Each [`RSValue`] element is dropped (decrementing its refcount) and the heap buffer is freed.
  * After this call the pointed-to struct is in the same state as [`RSSortingVector::empty()`].
  * Passing a null pointer is a no-op.
  *

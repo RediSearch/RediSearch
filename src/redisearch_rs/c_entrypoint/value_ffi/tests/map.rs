@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use value::RsValue;
+use value_ffi::RSValue;
 use value_ffi::constructors::RSValue_NewNumber;
 use value_ffi::getters::RSValue_Number_Get;
 use value_ffi::map::*;
@@ -33,8 +33,8 @@ fn test_map() {
 
         assert_eq!(RSValue_Map_Len(map), 2);
 
-        let mut key: *mut RsValue = std::ptr::null_mut();
-        let mut value: *mut RsValue = std::ptr::null_mut();
+        let mut key: *mut RSValue = std::ptr::null_mut();
+        let mut value: *mut RSValue = std::ptr::null_mut();
 
         RSValue_Map_GetEntry(map, 0, &mut key as *mut _, &mut value as *mut _);
         let key_num = RSValue_Number_Get(key);

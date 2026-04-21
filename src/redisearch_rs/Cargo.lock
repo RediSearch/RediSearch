@@ -2036,6 +2036,7 @@ dependencies = [
  "search_result",
  "sorting_vector",
  "value",
+ "value_ffi",
  "workspace_hack",
 ]
 
@@ -2102,6 +2103,7 @@ dependencies = [
  "trie_rs",
  "types_ffi",
  "value",
+ "value_ffi",
  "varint_ffi",
  "workspace_hack",
 ]
@@ -2460,6 +2462,7 @@ dependencies = [
  "sorting_vector",
  "thin_vec",
  "value",
+ "value_ffi",
  "workspace_hack",
 ]
 

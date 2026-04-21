@@ -7,15 +7,15 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use value::{Array, Map, SharedRsValue};
+use value::{Array, Map, SharedValue};
 
 fn make_map(pairs: &[(&str, f64)]) -> Map {
     let entries: Vec<_> = pairs
         .iter()
         .map(|(k, v)| {
             (
-                SharedRsValue::new_string(k.as_bytes().to_vec()),
-                SharedRsValue::new_num(*v),
+                SharedValue::new_string(k.as_bytes().to_vec()),
+                SharedValue::new_num(*v),
             )
         })
         .collect();
@@ -23,12 +23,12 @@ fn make_map(pairs: &[(&str, f64)]) -> Map {
 }
 
 fn make_flat_map_array(pairs: &[(&str, f64)]) -> Array {
-    let elements: Vec<SharedRsValue> = pairs
+    let elements: Vec<SharedValue> = pairs
         .iter()
         .flat_map(|(k, v)| {
             [
-                SharedRsValue::new_string(k.as_bytes().to_vec()),
-                SharedRsValue::new_num(*v),
+                SharedValue::new_string(k.as_bytes().to_vec()),
+                SharedValue::new_num(*v),
             ]
         })
         .collect();
@@ -72,14 +72,14 @@ fn empty() {
 #[test]
 fn non_string_keys_skipped() {
     let map = Map::new(Box::new([
-        (SharedRsValue::new_num(42.0), SharedRsValue::new_num(1.0)),
-        (SharedRsValue::new_num(99.0), SharedRsValue::new_num(2.0)),
+        (SharedValue::new_num(42.0), SharedValue::new_num(1.0)),
+        (SharedValue::new_num(99.0), SharedValue::new_num(2.0)),
     ]));
     let arr = Array::new(Box::new([
-        SharedRsValue::new_num(42.0),
-        SharedRsValue::new_num(1.0),
-        SharedRsValue::new_num(99.0),
-        SharedRsValue::new_num(2.0),
+        SharedValue::new_num(42.0),
+        SharedValue::new_num(1.0),
+        SharedValue::new_num(99.0),
+        SharedValue::new_num(2.0),
     ]));
 
     assert_get(&map, &arr, b"42", None);
@@ -101,9 +101,9 @@ fn first_match_wins() {
 #[should_panic(expected = "map_get called on an odd-length array")]
 fn array_map_get_odd_length_panics_in_debug() {
     let arr = Array::new(Box::new([
-        SharedRsValue::new_string(b"price".to_vec()),
-        SharedRsValue::new_num(9.99),
-        SharedRsValue::new_string(b"orphan".to_vec()),
+        SharedValue::new_string(b"price".to_vec()),
+        SharedValue::new_num(9.99),
+        SharedValue::new_string(b"orphan".to_vec()),
     ]));
 
     let _ = arr.map_get(b"price");

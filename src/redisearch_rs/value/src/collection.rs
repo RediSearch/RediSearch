@@ -7,12 +7,11 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use crate::{SharedValue, Value, util::debug_assert_warn};
 use std::ops::{Deref, DerefMut};
 
-use crate::{RsValue, SharedRsValue, util::debug_assert_warn};
-
-pub type Array = Collection<SharedRsValue>;
-pub type Map = Collection<(SharedRsValue, SharedRsValue)>;
+pub type Array = Collection<SharedValue>;
+pub type Map = Collection<(SharedValue, SharedValue)>;
 
 /// A wrapper around a box slice which limits its `len` to `u32::MAX`
 /// for compatibility with existing C code.
@@ -40,10 +39,10 @@ impl<T> Collection<T> {
 
 impl Map {
     /// Looks up a value by its string key bytes, returning a reference to the first
-    /// matching [`RsValue`] or `None` if no match is found.
+    /// matching [`Value`] or `None` if no match is found.
     ///
-    /// Non-string keys (e.g. [`RsValue::Number`]) are skipped.
-    pub fn get(&self, key: &[u8]) -> Option<&RsValue> {
+    /// Non-string keys (e.g. [`Value::Number`]) are skipped.
+    pub fn get(&self, key: &[u8]) -> Option<&Value> {
         self.iter()
             .find_map(|(k, v)| (k.as_str_bytes()? == key).then_some(&**v))
     }
@@ -52,7 +51,7 @@ impl Map {
 impl Array {
     /// Looks up a value by string key in a flat key-value array layout
     /// (`[k1, v1, k2, v2, ...]`), returning a reference to the first matching
-    /// [`RsValue`] or `None` if no match is found.
+    /// [`Value`] or `None` if no match is found.
     ///
     /// This is needed because RESP2 does not have a native map type.
     /// Map-like data (e.g. `extra_attributes`) is sent as a flat array of
@@ -66,7 +65,7 @@ impl Array {
     /// element is ignored and the search proceeds over the well-formed prefix.
     ///
     /// Non-string keys are skipped.
-    pub fn map_get(&self, key: &[u8]) -> Option<&RsValue> {
+    pub fn map_get(&self, key: &[u8]) -> Option<&Value> {
         let (pairs, remainder) = self.as_chunks::<2>();
         debug_assert_warn!(
             remainder.is_empty(),
