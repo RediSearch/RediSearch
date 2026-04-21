@@ -133,7 +133,8 @@ protected:
     rdbIO->read_pos = 0;
     uint64_t loadedMeta = 0;
     int result = RMCK_KeyMetaRdbLoad(getDocIdMetaClassId(), rdbIO, &loadedMeta, 1);
-    EXPECT_EQ(result, REDISMODULE_OK);
+    // RedisModuleKeyMetaLoadFunc returns 1 to attach the loaded meta to the key.
+    EXPECT_EQ(result, 1);
     EXPECT_EQ(RMCK_IsIOError(rdbIO), 0);
     EXPECT_NE(loadedMeta, 0);
     return loadedMeta;
