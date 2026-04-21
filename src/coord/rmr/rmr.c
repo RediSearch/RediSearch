@@ -922,10 +922,6 @@ bool MR_ManuallyTriggerNextIfNeeded(MRIterator *it, size_t channelThreshold) {
   return channelSize > 0;
 }
 
-MRIterator *MR_Iterate(const MRCommand *cmd, MRIteratorCallback cb) {
-  return MR_IterateWithPrivateData(cmd, cb, NULL, NULL, NULL, NULL, iterStartCb, NULL);
-}
-
 MRIterator *MR_IterateWithPrivateData(const MRCommand *cmd, MRIteratorCallback cb, void *cbPrivateData,
                                       void (*cbPrivateDataDestructor)(void *),
                                       void (*cbPrivateDataInit)(void *, const MRIterator *),
