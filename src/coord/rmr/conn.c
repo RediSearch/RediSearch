@@ -21,15 +21,7 @@
 #include <openssl/ssl.h>
 #include <openssl/err.h>
 
-typedef struct MRConn{
-  MREndpoint ep;
-  redisAsyncContext *conn;
-  void *timer;
-  uv_loop_t *loop;
-  int protocol; // 0 (undetermined), 2, or 3
-  MRConnState state;
-  unsigned authFailCount; // consecutive auth failures, for rate-limited logging
-} MRConn;
+#include "conn_internal.h"
 
 static void MRConn_ConnectCallback(const redisAsyncContext *c, int status);
 static void MRConn_DisconnectCallback(const redisAsyncContext *, int);
@@ -38,7 +30,6 @@ static void MRConn_SwitchState(MRConn *conn, MRConnState nextState);
 static void MRConn_Disconnect(MRConn *conn);
 static MRConn *MR_NewConn(MREndpoint *ep, uv_loop_t *loop);
 static int MRConn_SendAuth(MRConn *conn);
-static void MRConn_HelloCallback(redisAsyncContext *c, void *r, void *privdata);
 
 #define RSCONN_RECONNECT_TIMEOUT 250
 #define RSCONN_REAUTH_TIMEOUT 1000
@@ -60,7 +51,7 @@ static void MRConn_HelloCallback(redisAsyncContext *c, void *r, void *privdata);
  * clear conn->conn / conn->protocol. Returns the detached ac (ownership
  * transferred to the caller) or NULL if conn was not attached. Callers
  * normally use one of the wrappers below instead. */
-static redisAsyncContext *detachAc(MRConn *conn) {
+static redisAsyncContext *_detachAc(MRConn *conn) {
   redisAsyncContext *ac = conn->conn;
   conn->protocol = 0;
   if (!ac) {
@@ -78,7 +69,7 @@ static redisAsyncContext *detachAc(MRConn *conn) {
  * hiredis follows with __redisAsyncDisconnect; reply callbacks fired with
  * r==NULL during hiredis-driven teardown). */
 static void detachCbData(MRConn *conn) {
-  (void)detachAc(conn);
+  (void)_detachAc(conn);
 }
 
 /* Unlink cbData and synchronously free the hiredis async context. Use on
@@ -86,7 +77,7 @@ static void detachCbData(MRConn *conn) {
  * an in-flight command failed and hiredis is not going to tear the ac down
  * on our behalf. Safe to call when conn is not attached. */
 static void detachAndFreeAc(MRConn *conn) {
-  redisAsyncContext *ac = detachAc(conn);
+  redisAsyncContext *ac = _detachAc(conn);
   if (ac) redisAsyncFree(ac);
 }
 
@@ -94,7 +85,7 @@ static void detachAndFreeAc(MRConn *conn) {
  * context. hiredis fires the disconnect callback (with cbData already NULL)
  * and then frees the ac itself. */
 static void disconnectHiredisAc(MRConn *conn) {
-  redisAsyncContext *ac = detachAc(conn);
+  redisAsyncContext *ac = _detachAc(conn);
   if (ac) redisAsyncDisconnect(ac);
 }
 
@@ -536,8 +527,8 @@ cleanup:
 
 /* Reply callback for the pipelined HELLO sent by MRConn_SendCommand. If the
  * server rejects HELLO on a live connection, clear the cached protocol so the
- * next send will re-issue HELLO. */
-static void MRConn_HelloCallback(redisAsyncContext *c, void *r, void *privdata) {
+ * next send will re-issue HELLO. Declared in conn_internal.h. */
+void MRConn_HelloCallback(redisAsyncContext *c, void *r, void *privdata) {
   UNUSED(privdata);
   MRConn *conn = c->data;
   redisReply *rep = r;
