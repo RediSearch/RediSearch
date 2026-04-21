@@ -123,6 +123,12 @@ where
             .map(|c| &c.inner)
     }
 
+    /// Consumes the iterator and returns a [`super::UnionTrimmed`] over the same children,
+    /// or [`None`] if there are fewer than 3 children.
+    pub fn into_trimmed(self, limit: usize, asc: bool) -> Option<super::UnionTrimmed<'index, I>> {
+        let children: Vec<I> = self.children.into_iter().map(|c| c.inner).collect();
+        (children.len() >= 3).then(|| super::UnionTrimmed::new(children, limit, asc))
+    }
     /// Advances all active children whose `last_doc_id` equals `current_id` and finds the
     /// minimum doc_id in a single pass.
     ///
