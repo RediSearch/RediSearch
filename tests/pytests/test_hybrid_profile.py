@@ -201,13 +201,11 @@ def _make_coordinator_cluster_profile(n_search, result_processors):
             [
                 ['Type', 'Network', 'Results processed', n_search],
                 ['Type', 'Sorter', 'Results processed', n_search],
-                ['Type', 'Threadsafe-Depleter', 'Results processed', ANY]
             ],
             'VSIM',
             [
                 ['Type', 'Network', 'Results processed', 4],
                 ['Type', 'Sorter', 'Results processed', 4],
-                ['Type', 'Threadsafe-Depleter', 'Results processed', ANY]
             ]
         ],
         'Result processors profile',

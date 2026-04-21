@@ -1370,7 +1370,13 @@ static int rpprofileNext(ResultProcessor *base, SearchResult *r) {
   rs_wall_clock_init(&start);
   int rc = base->upstream->Next(base->upstream, r);
   self->profileTime += rs_wall_clock_elapsed_ns(&start);
-  self->profileCount++;
+  // Don't count non-blocking poll attempts that found no data yet.
+  // The non-blocking RPNet returns RS_RESULT_DEPLETING when the shard channel
+  // is empty, and the hybrid merger's round-robin loop retries many times,
+  // which would otherwise inflate the profile count by orders of magnitude.
+  if (rc != RS_RESULT_DEPLETING) {
+    self->profileCount++;
+  }
   return rc;
 }
 
