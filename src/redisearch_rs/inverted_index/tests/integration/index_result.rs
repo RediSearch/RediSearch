@@ -385,17 +385,17 @@ fn full_test_mirrors_cpp_testdistance() {
 
 /// Build a `FullyOwned`-backed result, drop the source bytes, and verify the
 /// record still reads back correctly. Also exercises the `is_copy`,
-/// `offsets`, and `query_term` match arms for the new variant.
+/// `offsets`, and `query_term` match arms for the `FullyOwned` variant.
 #[test]
 fn fully_owned_term_result_is_independent_of_source_bytes() {
     let term = RSQueryTerm::new("abc", 1, 0);
 
-    // Allocate the offset bytes on a temporary, short-lived buffer and then
-    // copy them into an owned vector before the buffer is dropped.
-    let offsets_vec = {
-        let transient: [u8; 3] = [1, 4, 9];
-        RSOffsetSlice::from_slice(&transient).to_owned()
-    };
+    // Allocate the offset bytes on a temporary buffer, copy them into an
+    // owned vector, and then explicitly drop the source buffer so any
+    // subsequent read must go through the record's own allocation.
+    let transient: Vec<u8> = vec![1, 4, 9];
+    let offsets_vec = RSOffsetSlice::from_slice(&transient).to_owned();
+    drop(transient);
 
     let ir = RSIndexResult::build_term()
         .fully_owned_record(Some(term), offsets_vec)

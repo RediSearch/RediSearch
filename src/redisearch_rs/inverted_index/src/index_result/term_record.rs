@@ -161,8 +161,8 @@ impl<'index> RSTermRecord<'index> {
     /// Panics if the record is in the [`RSTermRecord::Borrowed`] variant,
     /// which stores an [`RSOffsetSlice`] rather than an owned vector. Callers
     /// that need to call this method should construct the record via
-    /// [`RSIndexResultBuilder::fully_owned_record`](crate::RSIndexResultBuilder)
-    /// or [`RSIndexResultBuilder::owned_record`].
+    /// [`RSTermResultBuilder::fully_owned_record`](super::core::RSTermResultBuilder::fully_owned_record)
+    /// or [`RSTermResultBuilder::owned_record`](super::core::RSTermResultBuilder::owned_record).
     pub fn set_offsets_owned(&mut self, offsets: RSOffsetVector) {
         match self {
             RSTermRecord::Borrowed { .. } => {

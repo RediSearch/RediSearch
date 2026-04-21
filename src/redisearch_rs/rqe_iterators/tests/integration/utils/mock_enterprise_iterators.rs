@@ -49,6 +49,7 @@ impl SearchEnterpriseIterators for MockEnterpriseIterators {
         _query_term: Box<query_term::RSQueryTerm>,
         _field_mask: inverted_index::t_fieldMask,
         _weight: f64,
+        _needs_offsets: bool,
     ) -> Result<Box<dyn RQEIterator<'index> + 'index>, Box<dyn std::error::Error>> {
         unimplemented!("MockEnterpriseIterators::new_term_on_disk not used in these tests")
     }
