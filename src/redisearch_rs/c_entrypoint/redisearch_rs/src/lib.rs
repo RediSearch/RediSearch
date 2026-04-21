@@ -25,6 +25,7 @@ pub use module_init_ffi as tracing_redismodule;
 pub use numeric_range_tree_ffi as numeric_range_tree;
 pub use query_error_ffi as query_error;
 pub use query_term_ffi as query_term;
+pub use reducers_ffi as reducers;
 pub use result_processor_ffi as result_processor;
 pub use rlookup_ffi as rlookup;
 pub use search_result_ffi as search_result;
