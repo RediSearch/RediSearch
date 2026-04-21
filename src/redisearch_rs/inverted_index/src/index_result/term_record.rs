@@ -44,6 +44,21 @@ pub enum RSTermRecord<'index> {
         /// The owned version owns a copy of the offsets data, which is freed on drop.
         offsets: RSOffsetVector,
     },
+    FullyOwned {
+        /// The term that brought up this record.
+        ///
+        /// The term is owned by the record (wrapped in a `Box`), same as in the
+        /// `Borrowed` variant.
+        term: Option<Box<RSQueryTerm>>,
+
+        /// The encoded offsets in which the term appeared in the document.
+        ///
+        /// Unlike `Borrowed`, the offsets are owned by the record as well and
+        /// therefore do not tie the record to an external lifetime. Used when
+        /// the decoded record must outlive the source of the offset bytes
+        /// (e.g. reading from a disk page that may be evicted).
+        offsets: RSOffsetVector,
+    },
 }
 
 impl PartialEq for RSTermRecord<'_> {
@@ -76,7 +91,10 @@ impl<'index> RSTermRecord<'index> {
 
     /// Is this term record borrowed or owned?
     pub const fn is_copy(&self) -> bool {
-        matches!(self, RSTermRecord::Owned { .. })
+        matches!(
+            self,
+            RSTermRecord::Owned { .. } | RSTermRecord::FullyOwned { .. }
+        )
     }
 
     /// Get the offsets of this term record as a byte slice.
@@ -84,6 +102,7 @@ impl<'index> RSTermRecord<'index> {
         match self {
             RSTermRecord::Borrowed { offsets, .. } => offsets.as_bytes(),
             RSTermRecord::Owned { offsets, .. } => offsets.as_bytes(),
+            RSTermRecord::FullyOwned { offsets, .. } => offsets.as_bytes(),
         }
     }
 
@@ -92,6 +111,7 @@ impl<'index> RSTermRecord<'index> {
         match self {
             RSTermRecord::Borrowed { term, .. } => term.as_deref(),
             RSTermRecord::Owned { term, .. } => *term,
+            RSTermRecord::FullyOwned { term, .. } => term.as_deref(),
         }
     }
 
@@ -102,11 +122,16 @@ impl<'index> RSTermRecord<'index> {
             offsets: match self {
                 RSTermRecord::Borrowed { offsets, .. } => offsets.to_owned(),
                 RSTermRecord::Owned { offsets, .. } => offsets.as_slice().to_owned(),
+                RSTermRecord::FullyOwned { offsets, .. } => offsets.as_slice().to_owned(),
             },
         }
     }
 
     /// Set the offsets of this term record, replacing any existing offsets.
+    ///
+    /// For the `Owned` and `FullyOwned` variants the slice is copied into a
+    /// fresh allocation, so the input does not need to satisfy any lifetime
+    /// relationship beyond the call itself.
     pub fn set_offsets(&mut self, offsets: RSOffsetSlice<'index>) {
         match self {
             RSTermRecord::Borrowed { offsets: o, .. } => {
@@ -115,6 +140,42 @@ impl<'index> RSTermRecord<'index> {
             RSTermRecord::Owned { offsets: o, .. } => {
                 // Assign the new owned copy; the old value is auto-dropped, freeing old data.
                 *o = offsets.to_owned();
+            }
+            RSTermRecord::FullyOwned { offsets: o, .. } => {
+                *o = offsets.to_owned();
+            }
+        }
+    }
+
+    /// Set the offsets of this term record from an already-owned
+    /// [`RSOffsetVector`].
+    ///
+    /// Unlike [`Self::set_offsets`], this method does not tie the input to the
+    /// record's `'index` lifetime, since an [`RSOffsetVector`] owns its data.
+    /// This is the method to use from decoders that borrow their source bytes
+    /// with a lifetime shorter than `'index` (for example, a disk-backed block
+    /// that may be replaced on the next read).
+    ///
+    /// # Panics
+    ///
+    /// Panics if the record is in the [`RSTermRecord::Borrowed`] variant,
+    /// which stores an [`RSOffsetSlice`] rather than an owned vector. Callers
+    /// that need to call this method should construct the record via
+    /// [`RSIndexResultBuilder::fully_owned_record`](crate::RSIndexResultBuilder)
+    /// or [`RSIndexResultBuilder::owned_record`].
+    pub fn set_offsets_owned(&mut self, offsets: RSOffsetVector) {
+        match self {
+            RSTermRecord::Borrowed { .. } => {
+                panic!(
+                    "set_offsets_owned called on RSTermRecord::Borrowed; \
+                     construct the record with fully_owned_record or owned_record instead"
+                );
+            }
+            RSTermRecord::Owned { offsets: o, .. } => {
+                *o = offsets;
+            }
+            RSTermRecord::FullyOwned { offsets: o, .. } => {
+                *o = offsets;
             }
         }
     }
@@ -130,6 +191,11 @@ impl Debug for RSTermRecord<'_> {
                 .finish(),
             RSTermRecord::Owned { offsets, .. } => f
                 .debug_struct("RSTermRecord(Owned)")
+                .field("term", &self.query_term())
+                .field("offsets", offsets)
+                .finish(),
+            RSTermRecord::FullyOwned { offsets, .. } => f
+                .debug_struct("RSTermRecord(FullyOwned)")
                 .field("term", &self.query_term())
                 .field("offsets", offsets)
                 .finish(),

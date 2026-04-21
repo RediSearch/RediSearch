@@ -322,6 +322,7 @@ enum RSTermRecord_Tag
  {
   RSTermRecord_Borrowed,
   RSTermRecord_Owned,
+  RSTermRecord_FullyOwned,
 };
 #ifndef __cplusplus
 typedef uint8_t RSTermRecord_Tag;
@@ -364,10 +365,31 @@ typedef struct RSTermRecord_Owned_Body {
   RSOffsetVector offsets;
 } RSTermRecord_Owned_Body;
 
+typedef struct RSTermRecord_FullyOwned_Body {
+  RSTermRecord_Tag tag;
+  /**
+   * The term that brought up this record.
+   *
+   * The term is owned by the record (wrapped in a `Box`), same as in the
+   * `Borrowed` variant.
+   */
+  RSQueryTerm *term;
+  /**
+   * The encoded offsets in which the term appeared in the document.
+   *
+   * Unlike `Borrowed`, the offsets are owned by the record as well and
+   * therefore do not tie the record to an external lifetime. Used when
+   * the decoded record must outlive the source of the offset bytes
+   * (e.g. reading from a disk page that may be evicted).
+   */
+  RSOffsetVector offsets;
+} RSTermRecord_FullyOwned_Body;
+
 typedef union RSTermRecord {
   RSTermRecord_Tag tag;
   RSTermRecord_Borrowed_Body borrowed;
   RSTermRecord_Owned_Body owned;
+  RSTermRecord_FullyOwned_Body fully_owned;
 } RSTermRecord;
 
 /**
