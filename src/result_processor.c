@@ -2117,10 +2117,12 @@ static inline bool RPHybridMerger_Error(const RPHybridMerger *self) {
     if (docKeyValue != NULL) {
       size_t keyLen = 0;
       const char *ptr = RSValue_StringPtrLen(docKeyValue, &keyLen);
-      keyBuf = rm_malloc(keyLen + 1);
-      memcpy(keyBuf, ptr, keyLen);
-      keyBuf[keyLen] = '\0';
-      keyPtr = keyBuf;
+      if (ptr != NULL) {
+        keyBuf = rm_malloc(keyLen + 1);
+        memcpy(keyBuf, ptr, keyLen);
+        keyBuf[keyLen] = '\0';
+        keyPtr = keyBuf;
+      }
     }
   }
   if (!keyPtr) {
