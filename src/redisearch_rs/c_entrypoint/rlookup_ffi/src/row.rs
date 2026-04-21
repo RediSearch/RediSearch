@@ -432,10 +432,10 @@ pub unsafe extern "C" fn SearchResult_CmpByFields(
     qerr: *mut QueryError,
 ) -> c_int {
     let nkeys = nkeys.min(SORTASCMAP_MAXFIELDS);
-    // SAFETY: ensured by caller (1.)
-    let keys = unsafe { slice::from_raw_parts(keys, nkeys) };
-    // SAFETY: &RLookupKey and *const RLookupKey have identical layout.
-    let keys: &[&RLookupKey] = unsafe { mem::transmute(keys) };
+    // SAFETY: caller (1.) guarantees `keys` points to `nkeys` valid, non-null
+    // `RLookupKey` pointers; `*const RLookupKey` and `&RLookupKey` share the
+    // same layout, and the non-null invariant makes the reference niche sound.
+    let keys: &[&RLookupKey] = unsafe { slice::from_raw_parts(keys.cast::<&RLookupKey>(), nkeys) };
     // SAFETY: ensured by caller (2.)
     let h1 = unsafe { &*h1 };
     // SAFETY: ensured by caller (2.)
