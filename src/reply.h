@@ -51,6 +51,11 @@ typedef enum {
 bool RedisModule_IsRESP3(RedisModule_Reply *reply);
 int RedisModule_Reply_LocalCount(RedisModule_Reply *reply);
 
+// Notify the reply wrapper that one element was added directly through ctx,
+// bypassing the wrapper. This increments the internal element count so that
+// map/array length tracking stays correct.
+void RedisModule_Reply_TrackExternalElement(RedisModule_Reply *reply);
+
 RedisModule_Reply RedisModule_NewReply(RedisModuleCtx *ctx);
 int RedisModule_EndReply(RedisModule_Reply *reply);
 
