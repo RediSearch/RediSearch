@@ -219,18 +219,16 @@ static bool periodicCb(void *privdata, bool force) {
     // otherwise it might cause a pipe leak and eventually run
     // out of file descriptor
     RedisModule_ThreadSafeContextLock(ctx);
-    RedisModule_KillForkChild(cpid);
+    int kill_rv = RedisModule_KillForkChild(cpid);
     RedisModule_ThreadSafeContextUnlock(ctx);
-
-    // Ensure the child is fully reaped to prevent zombie processes.
-    // KillForkChild may be a no-op if Redis's module_child_pid was already
-    // replaced by a concurrent RM_Fork call (e.g., from RedisGears or
-    // RedisTimeSeries). In that case the child is already dead (killed by
-    // Redis when the other module forked) but was never waited on.
-    // If it was already reaped by KillForkChild above, waitpid returns -1
-    // with ECHILD, which is harmless.
-    while (waitpid(cpid, NULL, 0) == -1) {
-      if (errno != EINTR) break;
+    if (kill_rv != REDISMODULE_OK) {
+      // KillForkChild was a no-op: another module's RM_Fork replaced
+      // module_child_pid between the pipe read and the GIL re-acquire.
+      // Redis sent SIGUSR1 to cpid but skipped waitpid, leaving it as a
+      // zombie. Reap it here.
+      while (waitpid(cpid, NULL, 0) == -1) {
+        if (errno != EINTR) break;
+      }
     }
 
     if (gcrv) {
