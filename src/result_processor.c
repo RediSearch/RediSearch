@@ -2216,14 +2216,15 @@ static int RPHybridMerger_Yield(ResultProcessor *rp, SearchResult *r) {
   size_t numConsumed = 0;
   // Round-robin across upstreams. When an upstream returns RS_RESULT_DEPLETING
   // (no data available yet from its IO channel), we skip to the next upstream.
-  // This busy-spins until all upstreams are fully consumed.
-  // TODO: To avoid busy-spinning when all upstreams return DEPLETING, add a
-  // multi-channel wait here. Options:
+  // When a full pass makes no progress we yield briefly (usleep) to avoid
+  // starving the IO / shard threads that need CPU to produce replies.
+  // TODO: Replace usleep with a proper multi-channel wait to avoid polling:
   //   - Use MRChannel_PopWithTimeout with a short timeout on each channel in
   //     sequence (adds latency proportional to N_upstreams * timeout).
   //   - Introduce a shared condvar (MRChannelGroup) that any channel signals on
   //     push, allowing a single pthread_cond_timedwait to cover all channels.
   while (numConsumed < self->numUpstreams) {
+    bool madeProgress = false;
     for (size_t i = 0; i < self->numUpstreams; i++) {
       if (consumed[i]) {
         continue;
@@ -2242,6 +2243,13 @@ static int RPHybridMerger_Yield(ResultProcessor *rp, SearchResult *r) {
       // assuming other threads would timeout as well within a reasobale delta of docs (See TimedOut_WithCounter)
       consumed[i] = true;
       numConsumed++;
+      madeProgress = true;
+    }
+    if (!madeProgress) {
+      // All remaining upstreams returned DEPLETING (no data available yet).
+      // Yield briefly to avoid starving the IO thread and shard processing,
+      // which need CPU time to produce the replies we are waiting for.
+      usleep(100);
     }
   }
 
