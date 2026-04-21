@@ -30,6 +30,30 @@ Rust coverage data.
 
 Follow these steps in order. Do NOT skip ahead — each step depends on the previous one.
 
+### Step 0: Platform prerequisites (macOS only)
+
+On macOS, two environment variables must be set once per shell before running any of the
+steps below. On Linux these are no-ops and can be skipped.
+
+```bash
+if [ "$(uname)" = "Darwin" ]; then
+  # bindgen needs the macOS SDK headers (sys/types.h and friends).
+  # Without this, the Rust build fails with:
+  #   fatal error: 'sys/types.h' file not found
+  export SDKROOT=$(xcrun --show-sdk-path)
+
+  # build.sh calls `lcov` directly from `prepare_coverage_capture` BEFORE tests run.
+  # If lcov isn't on PATH, the run aborts with `lcov: command not found` and no
+  # .gcda data is ever produced. Homebrew installs lcov under /opt/homebrew/bin
+  # (Apple Silicon) — make sure it's on PATH.
+  export PATH="/opt/homebrew/bin:$PATH"
+  which lcov >/dev/null || echo "WARNING: lcov not found — run: brew install lcov"
+fi
+```
+
+Re-export both variables in every new shell you run the skill from, including
+subshells that invoke `build.sh`.
+
 ### Step 1: Ensure a coverage build exists
 
 Generate a unique marker path so parallel invocations don't collide. This marker is reused
@@ -41,11 +65,14 @@ COV_MARKER=$(mktemp /tmp/cov_start_marker.XXXXXX)
 echo "Using marker: $COV_MARKER"
 ```
 
-Check if the coverage build output exists **and** was built with coverage instrumentation:
+Check if the coverage build output exists **and** was built with coverage instrumentation.
+The build directory is platform-specific (`bin/linux-x64-debug-cov/`,
+`bin/macos-aarch64-debug-cov/`, `bin/macos-x86_64-debug-cov/`, …) — use a glob so the
+check works regardless of host:
 
 ```bash
-ls bin/linux-x64-debug-cov/search-community/redisearch.so 2>/dev/null && \
-find bin/linux-x64-debug-cov -name '*.gcno' -print -quit 2>/dev/null
+ls bin/*-debug-cov/search-community/redisearch.so 2>/dev/null && \
+find bin/*-debug-cov -name '*.gcno' -print -quit 2>/dev/null
 ```
 
 Both checks must pass — the `.so` must exist AND `.gcno` files must be present (these are
@@ -58,7 +85,8 @@ a file and only show the tail:
 ```
 
 This compiles C code with `--coverage` (gcov). The build flavor is `debug-cov` and artifacts
-go under `bin/`.
+go under `bin/<platform>-debug-cov/`. If the build fails with `'sys/types.h' file not found`
+on macOS, Step 0's `SDKROOT` export is missing.
 
 ### Step 2: Run Python tests with coverage
 
@@ -106,10 +134,10 @@ rm -f "$COV_MARKER"
 This means some tests failed and `capture_coverage` was skipped. The gcov `.gcda` data is
 still on disk from whatever tests did execute.
 
-Check if `.gcda` files exist:
+Check if `.gcda` files exist (platform-agnostic glob, same reasoning as Step 1):
 
 ```bash
-find bin/linux-x64-debug-cov -name '*.gcda' -print -quit 2>/dev/null
+find bin/*-debug-cov -name '*.gcda' -print -quit 2>/dev/null
 ```
 
 **If `.gcda` files exist**, capture coverage manually:
