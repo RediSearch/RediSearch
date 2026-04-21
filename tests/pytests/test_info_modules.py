@@ -1194,7 +1194,7 @@ class testWarningsAndErrorsCluster:
 
   def test_timeout_cluster(self):
     # In cluster mode, test both shard-level and coordinator-level timeouts.
-    # HYBRID debug is not supported in cluster.
+    # TODO: Add HYBRID debug timeout tests in cluster (now supported).
 
     # ---------- Timeout Errors ----------
     allShards_change_timeout_policy(self.env, 'FAIL')

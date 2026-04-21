@@ -29,6 +29,7 @@
 #include "module.h"
 #include "aggregate/aggregate_debug.h"
 #include "hybrid/hybrid_debug.h"
+#include "hybrid/hybrid_exec.h"
 #include "reply.h"
 #include "reply_macros.h"
 #include "obfuscation/obfuscation_api.h"
@@ -1768,11 +1769,42 @@ DEBUG_COMMAND(ProfileCommandCommand_DebugWrapper) {
   return ProfileCommandHandlerImp(ctx, ++argv, --argc, true);
 }
 
+DEBUG_COMMAND(RSShardedHybridCommand_Debug) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  // Skip _FT.DEBUG prefix — argv now starts at FT.HYBRID / _FT.HYBRID
+  ++argv; --argc;
+
+  QueryError status = QueryError_Default();
+  HybridDebugParams params = parseHybridDebugParamsCount(argv, argc, &status);
+  if (QueryError_HasError(&status)) {
+    return QueryError_ReplyAndClear(ctx, &status);
+  }
+  if (parseHybridDebugParams(&params, &status) != REDISMODULE_OK) {
+    return QueryError_ReplyAndClear(ctx, &status);
+  }
+
+  // Strip debug params from argc so hybridCommandHandler sees a normal command
+  int stripped_argc = argc - (int)params.debug_params_count - 2;
+  return hybridCommandHandler(ctx, argv, stripped_argc, true, EXEC_NO_FLAGS, &params);
+}
+
 DEBUG_COMMAND(HybridCommand_DebugWrapper) {
   if (!debugCommandsEnabled(ctx)) {
     return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
   }
-  return DEBUG_hybridCommandHandler(ctx, ++argv, --argc);
+  if (argc < 9) {
+    // Minimum: _FT.DEBUG FT.HYBRID idx SEARCH query VSIM field vector DEBUG_PARAMS_COUNT count
+    return RedisModule_WrongArity(ctx);
+  }
+
+  if (GetNumShards_UnSafe() == 1) {
+    // Single shard — use standalone handler (skip _FT.DEBUG)
+    return DEBUG_hybridCommandHandler(ctx, ++argv, --argc);
+  }
+
+  return DistHybridCommandInternal(ctx, ++argv, --argc, true);
 }
 
 /**
@@ -2844,7 +2876,7 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {"FT.SEARCH", DistSearchCommand_DebugWrapper},
                                {"_FT.SEARCH", RSSearchCommandShard}, // internal use only, in SA use FT.SEARCH
                                {"FT.HYBRID", HybridCommand_DebugWrapper},
-                               {"_FT.HYBRID", HybridCommand_DebugWrapper}, // internal use only, in SA use FT.HYBRID
+                               {"_FT.HYBRID", RSShardedHybridCommand_Debug},
                                {"FT.PROFILE", ProfileCommandCommand_DebugWrapper},
                                {"_FT.PROFILE", RSProfileCommandShard},
                                /* IMPORTANT NOTE: Every debug command starts with

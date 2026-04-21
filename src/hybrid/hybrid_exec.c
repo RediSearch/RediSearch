@@ -774,6 +774,14 @@ static int buildPipelineAndExecute(StrongRef hybrid_ref, HybridPipelineParams *h
     hreq->profileClocks.profilePipelineBuildTime = rs_wall_clock_elapsed_ns(&pipelineClock);
   }
 
+  // Apply debug timeouts after pipeline is built (for _FT.DEBUG FT.HYBRID)
+  if (hreq->debugParams) {
+    if (applyHybridDebugTimeout(hreq, hreq->debugParams) != REDISMODULE_OK) {
+      QueryError_SetError(status, QUERY_ERROR_CODE_INVAL, "Failed to apply debug timeouts");
+      return REDISMODULE_ERR;
+    }
+  }
+
   if (!isCursor) {
     HybridRequest_Execute(hreq, ctx, sctx);
   } else if (HybridRequest_StartCursors(hybrid_ref, ctx, status, depleteInBackground) != REDISMODULE_OK) {
@@ -1028,7 +1036,8 @@ static bool shouldCheckInPipelineTimeoutHybrid(HybridRequest *hreq) {
  * Parses command arguments, builds hybrid request structure, constructs execution pipeline,
  * and prepares for hybrid search execution.
  */
-int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, bool internal, ProfileOptions profileOptions) {
+int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, bool internal,
+                         ProfileOptions profileOptions, HybridDebugParams *debugParams) {
   // Index name is argv[1]
   if (argc < 2) {
     return RedisModule_WrongArity(ctx);
@@ -1064,6 +1073,7 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   HybridRequest *hybridRequest = MakeDefaultHybridRequest(sctx);
   hybridRequest->profile = printHybridProfile;
   hybridRequest->tailPipeline->qctx.isProfile = profileOptions & EXEC_WITH_PROFILE;
+  hybridRequest->debugParams = debugParams;
   StrongRef hybrid_ref = StrongRef_New(hybridRequest, &FreeHybridRequest);
 
   ParseHybridCommandCtx cmd = {0};

@@ -33,9 +33,13 @@ extern "C" {
  * @param argc Number of arguments in argv
  * @param internal Whether the request is internal (true - shard in cluster setup, false - Coordinator in cluster setup or standalone)
  * @param profileOptions Profile options for the command
+ * @param debugParams Optional debug parameters (NULL for normal execution).
+ *                    When non-NULL, debug timeouts are applied after pipeline building.
+ *                    Caller retains ownership.
  * @return REDISMODULE_OK on success, REDISMODULE_ERR on error
  */
-int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, bool internal, ProfileOptions profileOptions);
+int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, bool internal,
+                         ProfileOptions profileOptions, HybridDebugParams *debugParams);
 
 void HybridRequest_StartCursor(HybridRequest *req, RedisModuleCtx *ctx, arrayof(ResultProcessor*) depleters, QueryError *status, bool coord);
 
