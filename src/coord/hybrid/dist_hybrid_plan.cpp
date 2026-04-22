@@ -12,14 +12,9 @@
 #include "hybrid/hybrid_lookup_context.h"
 
 
-static void pushResultProcessor(QueryProcessingCtx *qctx, ResultProcessor *rp) {
-  rp->upstream = qctx->endProc;
-  rp->parent = qctx;
-  qctx->endProc = rp;
-}
-
 // should make sure the product of AREQ_BuildPipeline(areq, &req->errors[i]) would result in rpSorter only (can set up the aggplan to be a sorter only)
-int HybridRequest_BuildDistributedDepletionPipeline(HybridRequest *req, const HybridPipelineParams *params) {
+int HybridRequest_BuildDistributedDepletionPipeline(HybridRequest *req,
+    [[maybe_unused]] const HybridPipelineParams *params) {
   // Build individual pipelines for each search request.
   // No depleter is needed: the RPHybridMerger drives each sub-query pipeline
   // directly, using non-blocking RPNet mode and round-robin iteration.
