@@ -454,11 +454,6 @@ static void MRConn_SwitchState(MRConn *conn, MRConnState nextState) {
   }
 
   switch (nextState) {
-    case MRConn_Disconnected:
-      // We should never *switch* to this state
-      RS_ABORT("MRConn_SwitchState: cannot switch to Disconnected");
-      return;
-
     case MRConn_Connecting:
       nextTimeout = RSCONN_RECONNECT_TIMEOUT;
       conn->state = nextState;
@@ -477,9 +472,18 @@ static void MRConn_SwitchState(MRConn *conn, MRConnState nextState) {
         uv_timer_stop(conn->timer);
       }
       return;
+
+    case MRConn_Disconnected:
     default:
-      RS_ABORT_FMT("MRConn_SwitchState: unknown state %d", nextState);
-      return;
+      // Invariant violation: Disconnected is set only by MR_NewConn, and any
+      // other value is an unknown enum. Crash in debug; in release, fall
+      // through to Connecting so the retry timer is armed and the conn does
+      // not silently hang in its current state.
+      CONN_LOG_WARNING(conn, "SwitchState invariant violated (target=%d); recovering to Connecting", nextState);
+      RS_ABORT_FMT("MRConn_SwitchState: invalid target state %d", nextState);
+      nextTimeout = RSCONN_RECONNECT_TIMEOUT;
+      conn->state = MRConn_Connecting;
+      break;
   }
 
   if (conn->timer && !uv_is_active(conn->timer)) {
