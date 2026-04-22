@@ -59,8 +59,8 @@ pub unsafe fn build_geo_numeric_filters<'index>(
     gf: &'index mut GeoFilter,
 ) -> Result<Vec<&'index NumericFilter>, InvalidGeoInput> {
     if gf.radius <= 0.0
-        || gf.lon > f64::from(GEO_LONG_MAX)
-        || gf.lon < f64::from(GEO_LONG_MIN)
+        || gf.lon > GEO_LONG_MAX
+        || gf.lon < GEO_LONG_MIN
         || gf.lat > GEO_LAT_MAX
         || gf.lat < GEO_LAT_MIN
     {
@@ -105,6 +105,10 @@ pub unsafe fn build_geo_numeric_filters<'index>(
     Ok(filters)
 }
 
+/// Mapping to retrieve a [`NumericFilter`] for a vec of [`NumericIteratorVariant`]
+type GeoFilterAndRangeIterator<'index> =
+    Vec<(NonNull<NumericFilter>, Vec<NumericIteratorVariant<'index>>)>;
+
 /// Creates per-range iterators for all geo-encoded index entries within the radius in `gf`.
 ///
 /// Geo fields are stored as sorted numeric geohash values. The radius maps to up to
@@ -133,7 +137,7 @@ pub unsafe fn new_geo_range_iterator<'index>(
     gf: &'index mut GeoFilter,
     field_ctx: &FieldFilterContext,
     numeric_compress: bool,
-) -> Result<Vec<(NonNull<NumericFilter>, Vec<NumericIteratorVariant<'index>>)>, GeoRangeError> {
+) -> Result<GeoFilterAndRangeIterator<'index>, GeoRangeError> {
     // Read fieldSpec before the mutable borrow in build_geo_numeric_filters.
     // SAFETY: 2. guarantees gf.fieldSpec is valid and non-null.
     let fs = unsafe { &mut *(gf.fieldSpec as *mut ffi::FieldSpec) };

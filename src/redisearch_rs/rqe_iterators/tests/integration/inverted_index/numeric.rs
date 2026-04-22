@@ -7,9 +7,9 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::ptr::NonNull;
+use std::ptr::{self, NonNull};
 
-use ffi::{IndexFlags_Index_StoreNumeric, t_docId};
+use ffi::{GeoDistance_GEO_DISTANCE_M, GeoFilter, IndexFlags_Index_StoreNumeric, t_docId};
 use inverted_index::{
     FilterNumericReader, IndexReader, InvertedIndex, NumericFilter, NumericReader, RSIndexResult,
 };
@@ -412,10 +412,22 @@ fn numeric_no_range_tree_revalidate() {
     );
 }
 
-mod from_tree {
-    use std::ptr;
+/// A [`GeoFilter`] with a non-null address so `is_numeric_filter()` returns `false`.
+/// `fieldSpec` and `numericFilters` are null — tests using this stub must not
+/// reach code paths that dereference those pointers.
+pub fn geo_filter_stub() -> GeoFilter {
+    GeoFilter {
+        fieldSpec: ptr::null(),
+        lat: 0.0,
+        lon: 0.0,
+        radius: 1.0,
+        unitType: GeoDistance_GEO_DISTANCE_M,
+        numericFilters: ptr::null_mut(),
+    }
+}
 
-    use ffi::{GeoDistance_GEO_DISTANCE_M, GeoFilter, t_docId};
+mod from_tree {
+    use ffi::t_docId;
     use field::{FieldExpirationPredicate, FieldFilterContext, FieldMaskOrIndex};
     use inverted_index::NumericFilter;
     use numeric_range_tree::NumericRangeTree;
@@ -537,14 +549,7 @@ mod from_tree {
     fn geo_variant_for_geo_filter() {
         let tree = build_tree(&[(1, 1.0)]);
         let ctx = MockContext::new(0, 0);
-        let geo_filter = GeoFilter {
-            fieldSpec: ptr::null(),
-            lat: 0.0,
-            lon: 0.0,
-            radius: 1.0,
-            unitType: GeoDistance_GEO_DISTANCE_M,
-            numericFilters: ptr::null_mut(),
-        };
+        let geo_filter = super::geo_filter_stub();
         let filter = NumericFilter {
             geo_filter: &geo_filter as *const _ as *const _,
             min: f64::NEG_INFINITY,
@@ -618,7 +623,7 @@ mod from_tree {
         // SAFETY: `tree_ptr` and `ctx` both outlive `iters`; field is Index.
         let mut iters = unsafe {
             NumericIteratorVariant::from_tree(
-                tree_ptr.as_ref().unwrap(),
+                &tree_ptr.as_ref().unwrap(),
                 ctx.sctx(),
                 &filter,
                 &field_ctx,
@@ -636,7 +641,6 @@ mod from_tree {
             iters[0].revalidate().expect("revalidate failed"),
             RQEValidateStatus::Aborted,
         );
-
         // SAFETY: `tree_ptr` was created by `Box::into_raw` above; `iters` is dropped
         // before this point and holds only a `NonNull` (not ownership), so no double-free.
         unsafe { drop(Box::from_raw(tree_ptr)) };
@@ -687,8 +691,7 @@ mod from_tree {
 /// - `Some(f)` where `f.is_numeric_filter()` → [`NumericIteratorVariant::Filtered`]
 /// - `Some(f)` where `!f.is_numeric_filter()` → [`NumericIteratorVariant::Geo`]
 mod variant {
-    use std::ptr;
-
+    use ffi::IndexFlags_Index_StoreNumeric;
     use field::{FieldExpirationPredicate, FieldFilterContext, FieldMaskOrIndex};
     use inverted_index::{NumericFilter, RSIndexResult};
     use numeric_range_tree::NumericIndex;
@@ -720,87 +723,81 @@ mod variant {
     }
 
     #[test]
-    /// `None` filter selects the `Unfiltered` variant.
-    fn variant_select_unfiltered() {
+    /// `None` filter → `Unfiltered` variant; accessors reflect construction parameters.
+    fn variant_unfiltered() {
         let ctx = MockContext::new(0, 0);
         let idx = make_index();
-        let reader = idx.reader();
-        let checker = make_expiration_checker(&ctx);
-
         let variant = NumericIteratorVariant::new(
-            reader,
+            idx.reader(),
             None,
-            checker,
+            make_expiration_checker(&ctx),
             None,
-            f64::NEG_INFINITY,
-            f64::INFINITY,
+            1.0,
+            5.0,
         );
-
         assert!(
             matches!(variant, NumericIteratorVariant::Unfiltered(_)),
             "expected Unfiltered variant for None filter"
         );
+        assert_eq!(variant.range_min(), 1.0);
+        assert_eq!(variant.range_max(), 5.0);
+        assert_eq!(variant.flags(), IndexFlags_Index_StoreNumeric);
     }
 
     #[test]
-    /// A numeric filter (null `geo_filter`) selects the `Filtered` variant.
-    fn variant_select_filtered_numeric() {
+    /// Numeric filter (null `geo_filter`) → `Filtered` variant; accessors reflect construction parameters.
+    fn variant_filtered() {
         let ctx = MockContext::new(0, 0);
         let idx = make_index();
-        let reader = idx.reader();
-        let checker = make_expiration_checker(&ctx);
         // Default NumericFilter has geo_filter = null, so is_numeric_filter() == true.
         let filter = NumericFilter {
             min: 0.0,
             max: 10.0,
             ..Default::default()
         };
-
-        let variant = NumericIteratorVariant::new(reader, Some(&filter), checker, None, 0.0, 10.0);
-
+        let variant = NumericIteratorVariant::new(
+            idx.reader(),
+            Some(&filter),
+            make_expiration_checker(&ctx),
+            None,
+            1.0,
+            5.0,
+        );
         assert!(
             matches!(variant, NumericIteratorVariant::Filtered(_)),
             "expected Filtered variant for numeric filter"
         );
+        assert_eq!(variant.range_min(), 1.0);
+        assert_eq!(variant.range_max(), 5.0);
+        assert_eq!(variant.flags(), IndexFlags_Index_StoreNumeric);
     }
 
     #[test]
-    /// A filter with a non-null `geo_filter` selects the `Geo` variant.
-    fn variant_select_geo() {
-        use ffi::{GeoDistance_GEO_DISTANCE_M, GeoFilter};
-
+    /// Non-null `geo_filter` → `Geo` variant; accessors reflect construction parameters.
+    fn variant_geo() {
         let ctx = MockContext::new(0, 0);
         let idx = make_index();
-        let reader = idx.reader();
-        let checker = make_expiration_checker(&ctx);
-
-        let geo_filter = GeoFilter {
-            fieldSpec: ptr::null(),
-            lat: 0.0,
-            lon: 0.0,
-            radius: 1.0,
-            unitType: GeoDistance_GEO_DISTANCE_M,
-            numericFilters: ptr::null_mut(),
-        };
+        let geo_filter = super::geo_filter_stub();
         // A non-null geo_filter pointer makes is_numeric_filter() return false.
         let filter = NumericFilter {
             geo_filter: &geo_filter as *const _ as *const _,
             ..Default::default()
         };
-
         let variant = NumericIteratorVariant::new(
-            reader,
+            idx.reader(),
             Some(&filter),
-            checker,
+            make_expiration_checker(&ctx),
             None,
-            f64::NEG_INFINITY,
-            f64::INFINITY,
+            1.0,
+            5.0,
         );
-
         assert!(
             matches!(variant, NumericIteratorVariant::Geo(_)),
             "expected Geo variant for geo filter"
         );
+        assert_eq!(variant.range_min(), 1.0);
+        assert_eq!(variant.range_max(), 5.0);
+        assert_eq!(variant.flags(), IndexFlags_Index_StoreNumeric);
     }
 }
 
