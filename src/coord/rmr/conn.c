@@ -732,11 +732,9 @@ static void MRConn_ConnectCallback(const redisAsyncContext *c, int status) {
     return;
   }
 
-  if (conn->state == MRConn_Freeing) {
-    // The connection is being freed, we need to clean up the redisAsyncContext
-    // Before the connection was established, there was a request to Stop connection, so do not proceed further
-    return;
-  }
+  // MRConn_Disconnect always detaches cbData before triggering hiredis
+  // teardown, so when conn is still attached here, state cannot be Freeing.
+  RS_ASSERT(conn->state != MRConn_Freeing);
 
   // if the connection is not stopped - try to reconnect
   if (status != REDIS_OK) {
@@ -777,13 +775,12 @@ static void MRConn_DisconnectCallback(const redisAsyncContext *c, int status) {
     /* Ignore */
     return;
   }
-  if (conn->state != MRConn_Freeing) {
-    // hiredis is freeing the ac after this callback returns; just detach cbData.
-    detachCbData(conn);
-    MRConn_SwitchState(conn, MRConn_Connecting);
-  } else {
-    freeConn(conn);
-  }
+  // MRConn_Disconnect detaches cbData before triggering hiredis teardown, so
+  // when conn is still attached here, state cannot be Freeing.
+  RS_ASSERT(conn->state != MRConn_Freeing);
+  // hiredis is freeing the ac after this callback returns; just detach cbData.
+  detachCbData(conn);
+  MRConn_SwitchState(conn, MRConn_Connecting);
 }
 
 /* Create a new MRConn for the given endpoint and kick off its first
