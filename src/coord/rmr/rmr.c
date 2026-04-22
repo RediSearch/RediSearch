@@ -368,17 +368,25 @@ int MR_Fanout(struct MRCtx *mrctx, MRReduceFunc reducer, MRCommand cmd, bool blo
   return REDIS_OK;
 }
 
-/* on-loop update topology request. This can't be done from the main thread */
-static void uvUpdateTopologyRequest(void *p) {
-  struct UpdateTopologyCtx *ctx = p;
+/* on-loop update topology request. This can't be done from the main thread.
+ *
+ * Returns `true` when the new topology changes cluster connectivity (and
+ * therefore the caller must re-run the connection handshake); returns
+ * `false` when only metadata (e.g. slot ranges) changed so the topology
+ * pointer is refreshed inline but no reconnection is necessary. */
+static bool uvUpdateTopologyRequest(struct UpdateTopologyCtx *ctx) {
   IORuntimeCtx *ioRuntime = ctx->ioRuntime;
   MRClusterTopology *old_topo = ioRuntime->topo;
+  bool connectivityChanged = !MRClusterTopology_ConnectivityEqual(old_topo, ctx->new_topo);
   ioRuntime->topo = ctx->new_topo;
-  IORuntimeCtx_UpdateNodesAndConnectAll(ioRuntime);
+  if (connectivityChanged) {
+    IORuntimeCtx_UpdateNodesAndConnectAll(ioRuntime);
+  }
   rm_free(ctx);
   if (old_topo) {
     MRClusterTopology_Free(old_topo);
   }
+  return connectivityChanged;
 }
 
 /* Set a new topology for the cluster.*/

@@ -13,6 +13,8 @@
 #include "slot_ranges.h"
 #include "rmutil/rm_assert.h"
 
+#include <string.h>
+
 MRClusterShard MR_NewClusterShard(MRClusterNode *node, RedisModuleSlotRangeArray *slotRanges) {
   MRClusterShard ret = (MRClusterShard){
       .node = *node,
@@ -71,4 +73,31 @@ void MRClusterTopology_Free(MRClusterTopology *t) {
   }
   rm_free(t->shards);
   rm_free(t);
+}
+
+static const MRClusterShard *findShardByNodeId(const MRClusterTopology *t, const char *id) {
+  for (uint32_t i = 0; i < t->numShards; i++) {
+    if (t->shards[i].node.id && strcmp(t->shards[i].node.id, id) == 0) {
+      return &t->shards[i];
+    }
+  }
+  return NULL;
+}
+
+bool MRClusterTopology_ConnectivityEqual(const MRClusterTopology *a, const MRClusterTopology *b) {
+  if (a == b) return true;
+  if (!a || !b) return false;
+  if (a->numShards != b->numShards) return false;
+  for (uint32_t i = 0; i < a->numShards; i++) {
+    const MRClusterShard *sa = &a->shards[i];
+    if (!sa->node.id) return false;
+    const MRClusterShard *sb = findShardByNodeId(b, sa->node.id);
+    if (!sb) return false;
+    if (sa->node.endpoint.port != sb->node.endpoint.port) return false;
+    if (!sa->node.endpoint.host || !sb->node.endpoint.host ||
+        strcmp(sa->node.endpoint.host, sb->node.endpoint.host) != 0) {
+      return false;
+    }
+  }
+  return true;
 }

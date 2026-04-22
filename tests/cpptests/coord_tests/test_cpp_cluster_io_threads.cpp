@@ -23,9 +23,10 @@ static void callback(void *privdata) {
   (*counter)++;
 }
 
-// Callback for topology updates
-static void topoCallback(void *privdata) {
-  struct UpdateTopologyCtx *ctx = static_cast<struct UpdateTopologyCtx*>(privdata);
+// Callback for topology updates. Returns `false` so `topologyAsyncCB` does
+// not clear `loop_th_ready` or arm the validation timers (these tests have
+// no real server to handshake with).
+static bool topoCallback(struct UpdateTopologyCtx *ctx) {
   IORuntimeCtx *ioRuntime = ctx->ioRuntime;
   // Update the topology
   if (ioRuntime->topo) {
@@ -36,6 +37,7 @@ static void topoCallback(void *privdata) {
   // Set loop_th_ready to true to allow processing requests
   ioRuntime->uv_runtime.loop_th_ready = true;
   rm_free(ctx);
+  return false;
 }
 
 // Test fixture for cluster IO threads tests

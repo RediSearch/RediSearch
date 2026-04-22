@@ -20,7 +20,7 @@
 
 // Atomically exchange the pending topology with a new topology.
 // Returns the old pending topology (or NULL if there was no pending topology).
-static inline queueItem *exchangePendingTopo(IORuntimeCtx *io_runtime_ctx, queueItem *newTopo) {
+static inline topoQueueItem *exchangePendingTopo(IORuntimeCtx *io_runtime_ctx, topoQueueItem *newTopo) {
   return __atomic_exchange_n(&io_runtime_ctx->pendingTopo, newTopo, __ATOMIC_SEQ_CST);
 }
 
@@ -109,31 +109,51 @@ static void topologyTimerCB(uv_timer_t *timer) {
     uv_timer_stop(&io_runtime_ctx->uv_runtime.topologyFailureTimer);    // stop failure timer (as we are connected)
     triggerPendingItems(io_runtime_ctx);
   } else {
-    RedisModule_Log(RSDummyContext, "verbose", "IORuntime ID %zu: Waiting for all nodes to connect", io_runtime_ctx->queue->id);
+    // This callback fires every 1ms while the topology validation is in progress.
+    // Log at "debug" level to avoid flooding the log (~1 kHz per IO runtime) when
+    // a shard connection is stuck; operators can still enable debug logs if needed.
+    RedisModule_Log(RSDummyContext, "debug", "IORuntime ID %zu: Waiting for all nodes to connect", io_runtime_ctx->queue->id);
   }
 }
 
 static void topologyAsyncCB(uv_async_t *async) {
   IORuntimeCtx *io_runtime_ctx = (IORuntimeCtx *)async->data;
-  queueItem *task = exchangePendingTopo(io_runtime_ctx, NULL); // take the topology
-  if (task) {
-    // Apply new topology
-    RedisModule_Log(RSDummyContext, "verbose", "IORuntime ID %zu: Applying new topology", io_runtime_ctx->queue->id);
-    // Mark the event loop thread as not ready. This will ensure that the next event on the event loop
-    // will be the topology check. If the topology hasn't changed, the topology check will quickly
-    // mark the event loop thread as ready again.
-    io_runtime_ctx->uv_runtime.loop_th_ready = false;
-    GlobalStats_UpdateUvRunningTopoUpdate(1);
-    task->cb(task->privdata);
-    GlobalStats_UpdateUvRunningTopoUpdate(-1);
-    rm_free(task);
-    // Finish this round of topology checks to give the topology connections a chance to connect.
-    // Schedule connectivity check immediately with a 1ms repeat interval
-    uv_timer_start(&io_runtime_ctx->uv_runtime.topologyValidationTimer, topologyTimerCB, 0, 1);
-    if (clusterConfig.topologyValidationTimeoutMS) {
-      // Schedule a timer to fail the topology validation if we don't connect to all nodes in time
-      uv_timer_start(&io_runtime_ctx->uv_runtime.topologyFailureTimer, topologyFailureCB, clusterConfig.topologyValidationTimeoutMS, 0);
-    }
+  topoQueueItem *task = exchangePendingTopo(io_runtime_ctx, NULL); // take the topology
+  if (!task) return;
+
+  // The callback decides whether the update changes cluster connectivity.
+  // When it returns `false` (e.g. slot-range-only refresh) we keep
+  // `loop_th_ready` as-is and skip re-arming the validation/failsafe timers
+  // (issue #9225: under continuous 1s refreshes, re-arming would otherwise
+  // prevent the failsafe from ever firing, and a single stuck shard would
+  // wedge the IO runtime indefinitely).
+  GlobalStats_UpdateUvRunningTopoUpdate(1);
+  bool connectivityChanged = task->cb(task->ctx);
+  GlobalStats_UpdateUvRunningTopoUpdate(-1);
+  rm_free(task);
+
+  if (!connectivityChanged) {
+    RedisModule_Log(RSDummyContext, "debug", "IORuntime ID %zu: Topology connectivity unchanged, refreshing slot ranges only", io_runtime_ctx->queue->id);
+    // Any requests buffered by `rqAsyncCb` while `loop_th_ready` was false
+    // (e.g. during the initial topology handshake window) must still be
+    // dispatched: a connectivity-equal update leaves the existing connections
+    // intact, so the loop is fit to resume work immediately.
+    triggerPendingItems(io_runtime_ctx);
+    return;
+  }
+
+  // Apply new topology
+  RedisModule_Log(RSDummyContext, "verbose", "IORuntime ID %zu: Applying new topology", io_runtime_ctx->queue->id);
+  // Mark the event loop thread as not ready. This will ensure that the next event on the event loop
+  // will be the topology check. If the topology hasn't changed, the topology check will quickly
+  // mark the event loop thread as ready again.
+  io_runtime_ctx->uv_runtime.loop_th_ready = false;
+  // Finish this round of topology checks to give the topology connections a chance to connect.
+  // Schedule connectivity check immediately with a 1ms repeat interval
+  uv_timer_start(&io_runtime_ctx->uv_runtime.topologyValidationTimer, topologyTimerCB, 0, 1);
+  if (clusterConfig.topologyValidationTimeoutMS) {
+    // Schedule a timer to fail the topology validation if we don't connect to all nodes in time
+    uv_timer_start(&io_runtime_ctx->uv_runtime.topologyFailureTimer, topologyFailureCB, clusterConfig.topologyValidationTimeoutMS, 0);
   }
 }
 
@@ -312,9 +332,9 @@ void IORuntimeCtx_Free(IORuntimeCtx *io_runtime_ctx) {
   }
   RQ_Free(io_runtime_ctx->queue);
   MRConnManager_Free(&io_runtime_ctx->conn_mgr);
-  queueItem *task = exchangePendingTopo(io_runtime_ctx, NULL);
+  topoQueueItem *task = exchangePendingTopo(io_runtime_ctx, NULL);
   if (task) {
-    struct UpdateTopologyCtx *ctx = task->privdata;
+    struct UpdateTopologyCtx *ctx = task->ctx;
     if (ctx && ctx->new_topo) {
       MRClusterTopology_Free(ctx->new_topo);
     }
@@ -361,9 +381,9 @@ void IORuntimeCtx_RequestCompleted(IORuntimeCtx *io_runtime_ctx) {
   RQ_Done(io_runtime_ctx->queue);
 }
 
-void IORuntimeCtx_Schedule_Topology(IORuntimeCtx *io_runtime_ctx, MRQueueCallback cb, struct MRClusterTopology *topo, bool take_topo_ownership) {
-  struct queueItem *newTask = rm_new(struct queueItem);
-  struct queueItem *oldTask = NULL;
+void IORuntimeCtx_Schedule_Topology(IORuntimeCtx *io_runtime_ctx, MRTopologyUpdateCallback cb, struct MRClusterTopology *topo, bool take_topo_ownership) {
+  topoQueueItem *newTask = rm_new(topoQueueItem);
+  topoQueueItem *oldTask = NULL;
   //Clone it so that this runtime can handle its own copy
   struct MRClusterTopology *new_topo;
   if (take_topo_ownership) {
@@ -375,14 +395,14 @@ void IORuntimeCtx_Schedule_Topology(IORuntimeCtx *io_runtime_ctx, MRQueueCallbac
   ctx->ioRuntime = io_runtime_ctx;
   ctx->new_topo = new_topo;
   newTask->cb = cb;
-  newTask->privdata = ctx;
+  newTask->ctx = ctx;
   oldTask = exchangePendingTopo(io_runtime_ctx, newTask);
   // I need to trigger regardless of the thread running or not, it would be eventually picked, the same way a regular Request is scheduled without checking
   // if the thread is running or not. Otherwise there may be a race condition where a topology is never scheduled.
   uv_async_send(&io_runtime_ctx->uv_runtime.topologyAsync); // trigger the topology check
   if (oldTask) {
     // If there was an old task
-    struct UpdateTopologyCtx *oldCtx = oldTask->privdata;
+    struct UpdateTopologyCtx *oldCtx = oldTask->ctx;
     if (oldCtx->new_topo) {
       MRClusterTopology_Free(oldCtx->new_topo);
     }
@@ -392,9 +412,9 @@ void IORuntimeCtx_Schedule_Topology(IORuntimeCtx *io_runtime_ctx, MRQueueCallbac
 }
 
 void IORuntimeCtx_Debug_ClearPendingTopo(IORuntimeCtx *io_runtime_ctx) {
-  queueItem *task = exchangePendingTopo(io_runtime_ctx, NULL);
+  topoQueueItem *task = exchangePendingTopo(io_runtime_ctx, NULL);
   if (task) {
-    struct UpdateTopologyCtx *ctx = task->privdata;
+    struct UpdateTopologyCtx *ctx = task->ctx;
     if (ctx && ctx->new_topo) {
       MRClusterTopology_Free(ctx->new_topo);
     }

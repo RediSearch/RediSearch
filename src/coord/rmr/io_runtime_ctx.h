@@ -43,6 +43,29 @@ typedef struct {
   uv_cond_t loop_th_created_cond;
 } UVRuntime;
 
+struct UpdateTopologyCtx;
+
+/* Callback invoked on the IO runtime thread to apply a pending topology.
+ *
+ * Takes ownership of `ctx` (the callee must free it together with whichever
+ * topology it no longer owns). Returns `true` when the update actually
+ * changes cluster connectivity (node ids / hosts / ports) and therefore
+ * requires the IO runtime to re-run the connection handshake; returns
+ * `false` when the update is a metadata-only refresh (e.g. slot ranges
+ * only) and the IO runtime can keep serving requests without disturbing
+ * the validation/failsafe timers. */
+typedef bool (*MRTopologyUpdateCallback)(struct UpdateTopologyCtx *ctx);
+
+/* Variant of `queueItem` dedicated to topology updates.
+ *
+ * A plain `queueItem` carries a `void *` callback that returns nothing;
+ * topology updates need to signal back whether a connectivity handshake is
+ * required, so they use this typed container instead. */
+typedef struct topoQueueItem {
+  struct UpdateTopologyCtx *ctx;
+  MRTopologyUpdateCallback cb;
+} topoQueueItem;
+
 //Structure to encapsulate the IO Runtime context for MR operations to take place
 typedef struct {
   // Connectivity / topology structures
@@ -51,7 +74,7 @@ typedef struct {
 
   // Request queue and topology requests
   MRWorkQueue *queue;
-  struct queueItem *pendingTopo; // The pending topology to be applied
+  struct topoQueueItem *pendingTopo; // The pending topology to be applied
   bool pendingItems; // Are there any pending items waiting for Topology to be applied
 
   //UV runtime
@@ -82,7 +105,7 @@ void IORuntimeCtx_UpdateNodes(IORuntimeCtx *ioRuntime);
 /* Update the topology by calling the topology provider explicitly with ctx. If ctx is NULL, the
  * provider's current context is used. Otherwise, we call its function with the given context */
 int IORuntimeCtx_UpdateNodesAndConnectAll(IORuntimeCtx *ioRuntime);
-void IORuntimeCtx_Schedule_Topology(IORuntimeCtx *io_runtime_ctx, MRQueueCallback cb, struct MRClusterTopology *topo, bool take_topo_ownership);
+void IORuntimeCtx_Schedule_Topology(IORuntimeCtx *io_runtime_ctx, MRTopologyUpdateCallback cb, struct MRClusterTopology *topo, bool take_topo_ownership);
 void IORuntimeCtx_UpdateConnPoolSize(IORuntimeCtx *ioRuntime, size_t new_conn_pool_size);
 
 #ifdef __cplusplus

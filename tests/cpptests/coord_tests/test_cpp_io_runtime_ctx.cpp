@@ -36,8 +36,11 @@ extern "C" {
 static std::atomic<uint32_t> lastAppliedCapShards{0};
 
 extern "C" {
-  static void testTopoCallback(void *privdata) {
-    struct UpdateTopologyCtx *updateCtx = (struct UpdateTopologyCtx *)privdata;
+  // Returns `false` so `topologyAsyncCB` does not clear `loop_th_ready` or
+  // arm the validation timers: these tests have no real server to handshake
+  // with, so we simulate a successful handshake inline by keeping the loop
+  // ready.
+  static bool testTopoCallback(struct UpdateTopologyCtx *updateCtx) {
     IORuntimeCtx *ioRuntime = updateCtx->ioRuntime;
     //Simulate what the TopologyValidationTimer should do
     ioRuntime->uv_runtime.loop_th_ready = true;
@@ -52,6 +55,36 @@ extern "C" {
     if (old_topo) {
       MRClusterTopology_Free(old_topo);
     }
+    return false;
+  }
+} // extern "C"
+
+// Counts how many topology updates actually change connectivity. Used to
+// verify that connectivity-equal topology updates are short-circuited (the
+// callback returns `false` and `topologyAsyncCB` skips the handshake work).
+static std::atomic<int> topoCallbackInvocations{0};
+
+extern "C" {
+  // Always returns `false` so `topologyAsyncCB` does not clear
+  // `loop_th_ready` or arm the validation timers: without a real server the
+  // timer loop would never observe connected nodes and would wedge the test
+  // until the failsafe fires. The counter is only bumped on actual
+  // connectivity changes, which is what the short-circuit test asserts.
+  static bool countingTopoCallback(struct UpdateTopologyCtx *updateCtx) {
+    IORuntimeCtx *ioRuntime = updateCtx->ioRuntime;
+    MRClusterTopology *old_topo = ioRuntime->topo;
+    MRClusterTopology *new_topo = updateCtx->new_topo;
+    bool connectivityChanged = !MRClusterTopology_ConnectivityEqual(old_topo, new_topo);
+    ioRuntime->uv_runtime.loop_th_ready = true;
+    ioRuntime->topo = new_topo;
+    if (connectivityChanged) {
+      topoCallbackInvocations.fetch_add(1, std::memory_order_release);
+    }
+    rm_free(updateCtx);
+    if (old_topo) {
+      MRClusterTopology_Free(old_topo);
+    }
+    return false;
   }
 } // extern "C"
 
@@ -355,10 +388,11 @@ TEST_F(IORuntimeCtxCommonTest, ActiveTopologyUpdateThreadsMetric) {
   topo_started = false;
   topo_should_finish = false;
 
-  // Slow topo callback - signals start, waits for finish signal
-  auto slowTopoCallback = [](void *privdata) {
-    auto *ctx = (struct UpdateTopologyCtx *)privdata;
-
+  // Slow topo callback - signals start, waits for finish signal. Returns
+  // `true` so `topologyAsyncCB` arms the validation timer, which (with an
+  // empty shard list) immediately marks `loop_th_ready` and drains any
+  // pending requests scheduled before the topology update.
+  auto slowTopoCallback = [](struct UpdateTopologyCtx *ctx) -> bool {
     topo_started.store(true);
 
     // Wait until test tells us to finish
@@ -371,6 +405,7 @@ TEST_F(IORuntimeCtxCommonTest, ActiveTopologyUpdateThreadsMetric) {
       MRClusterTopology_Free(ctx->new_topo);
     }
     rm_free(ctx);
+    return true;
   };
 
   // Start the IO runtime thread (required for uv loop to process async events)
@@ -458,4 +493,74 @@ TEST_F(IORuntimeCtxCommonTest, UpdateNodesResizesConnectionMap) {
 
   startAndShutdownRuntime(io);
   IORuntimeCtx_Free(io);
+}
+
+// Regression test for issue #9225: when a topology update does not change
+// cluster connectivity (node ids, hosts, ports), the topology callback must
+// signal that by returning `false`, so topologyAsyncCB skips the validation
+// handshake and does not rearm the validation/failure timers. The topology
+// pointer is still refreshed inline so the fanout path sees current slot
+// ranges, but the handshake work is bypassed. The counter below is bumped
+// only on actual connectivity changes, mirroring what the production
+// uvUpdateTopologyRequest signals to topologyAsyncCB.
+TEST_F(IORuntimeCtxCommonTest, IdenticalTopologyUpdateIsSkipped) {
+  topoCallbackInvocations.store(0, std::memory_order_relaxed);
+
+  // Step 1: apply an initial, non-empty topology so that a subsequent
+  // connectivity-equal topology can be compared against it.
+  std::array<const char *, 2> hosts = {"localhost:6379", "localhost:6389"};
+  MRClusterTopology *topo1 = getTopology(hosts);
+  IORuntimeCtx_Schedule_Topology(ctx, countingTopoCallback, topo1, true);
+
+  int counter = 0;
+  IORuntimeCtx_Schedule(ctx, testCallback, &counter);
+
+  bool ok = RS::WaitForCondition([&]() {
+    return topoCallbackInvocations.load(std::memory_order_acquire) >= 1;
+  });
+  ASSERT_TRUE(ok) << "Initial topology was not applied";
+  ASSERT_EQ(topoCallbackInvocations.load(), 1);
+
+  // Step 2: schedule a connectivity-equal topology. The callback must
+  // still swap ctx->topo inline (so slot ranges stay fresh) but must
+  // return `false` so topologyAsyncCB skips the handshake work. We assert
+  // this indirectly: the counter only increments on real connectivity
+  // changes, and a subsequent regular callback drains (meaning
+  // `loop_th_ready` was not cleared by the short-circuit path).
+  MRClusterTopology *topo1_dup = getTopology(hosts);
+  IORuntimeCtx_Schedule_Topology(ctx, countingTopoCallback, topo1_dup, true);
+
+  // Drain the event loop: a regular callback is only processed after
+  // loop_th_ready is true. Since the short-circuit path does not clear
+  // loop_th_ready, this callback firing proves the runtime has iterated past
+  // the topology async.
+  int counter2 = 0;
+  IORuntimeCtx_Schedule(ctx, testCallback, &counter2);
+  ok = RS::WaitForCondition([&]() { return counter2 >= 1; });
+  ASSERT_TRUE(ok) << "Runtime did not drain regular callback after identical topology update";
+  // Additional quiesce window to be safe against async-handle ordering.
+  usleep(20 * 1000);
+
+  ASSERT_EQ(topoCallbackInvocations.load(std::memory_order_acquire), 1)
+      << "Connectivity-equal topology update must not count as a real change";
+  ASSERT_EQ(ctx->topo, topo1_dup)
+      << "Connectivity-equal topology update must still refresh ctx->topo inline";
+
+  // Step 3: schedule a structurally different topology to confirm that genuine
+  // updates are still applied (i.e. the short-circuit is not over-eager).
+  std::array<const char *, 3> hosts_v2 = {"localhost:6379", "localhost:6389", "localhost:6399"};
+  MRClusterTopology *topo2 = getTopology(hosts_v2);
+  IORuntimeCtx_Schedule_Topology(ctx, countingTopoCallback, topo2, true);
+
+  ok = RS::WaitForCondition([&]() {
+    return topoCallbackInvocations.load(std::memory_order_acquire) >= 2;
+  });
+  ASSERT_TRUE(ok) << "Different topology was unexpectedly skipped";
+
+  // Drain any outstanding regular callbacks so counter stack variables outlive
+  // their uses on the event loop thread.
+  int counter3 = 0;
+  IORuntimeCtx_Schedule(ctx, testCallback, &counter3);
+  ok = RS::WaitForCondition([&]() { return counter3 >= 1; });
+  ASSERT_TRUE(ok);
 }

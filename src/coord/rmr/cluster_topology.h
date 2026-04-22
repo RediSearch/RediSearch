@@ -8,6 +8,7 @@
 */
 #pragma once
 
+#include <stdbool.h>
 #include <stdint.h>
 #include <stddef.h>
 #include "endpoint.h"
@@ -57,6 +58,18 @@ void MRClusterNode_Free(MRClusterNode *n);
 void MRClusterTopology_Free(MRClusterTopology *t);
 
 MRClusterTopology *MRClusterTopology_Clone(MRClusterTopology *t);
+
+/* Return true if `a` and `b` describe the same set of shards with identical
+ * connectivity (node id, host, port). Slot range differences are ignored.
+ * Shard order is ignored, as the topology provider does not guarantee a stable
+ * order across refreshes. Two NULL topologies are treated as equal.
+ *
+ * This predicate is used to decide whether a topology refresh requires
+ * re-running the connection validation handshake: only connectivity changes do.
+ * Slot-range-only updates still need the topology pointer to be refreshed so
+ * the fanout path annotates commands with current slot info, but they do not
+ * require reconnecting or rearming the validation timers. */
+bool MRClusterTopology_ConnectivityEqual(const MRClusterTopology *a, const MRClusterTopology *b);
 
 #ifdef __cplusplus
 }
