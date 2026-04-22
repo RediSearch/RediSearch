@@ -17,19 +17,22 @@
 #include <sys/param.h>
 #include <stdio.h>
 #include <assert.h>
+#include <stdint.h>
 
 #include <openssl/ssl.h>
 #include <openssl/err.h>
 
+// Layout packs the three small fields into the padding slot before the
+// inlined timer, keeping ep+conn+loop+state on the first cache line.
 struct MRConn {
   MREndpoint ep;
   redisAsyncContext *conn;
-  uv_timer_t timer; // back-off timer for Connecting/ReAuth; inlined so its lifetime
-                    // is tied to the conn and libuv owns teardown via uv_close.
   uv_loop_t *loop;
-  int protocol; // 0 (undetermined), 2, or 3
-  MRConnState state;
-  unsigned authFailCount; // consecutive auth failures, for rate-limited logging
+  uint16_t authFailCount; // consecutive auth failures, for rate-limited logging
+  uint8_t state;          // MRConnState
+  uint8_t protocol;       // 0 (undetermined), 2, or 3
+  uv_timer_t timer;       // back-off timer for Connecting/ReAuth; inlined so its
+                          // lifetime is tied to the conn and libuv owns teardown.
 };
 
 static void MRConn_ConnectCallback(const redisAsyncContext *c, int status);
@@ -429,7 +432,7 @@ static void reauthTimerCallback(uv_timer_t *tm) {
   RS_ASSERT(conn->state == MRConn_ReAuth);
   if (MRConn_SendAuth(conn) != REDIS_OK) {
     if (conn->authFailCount % AUTH_FAIL_LOG_INTERVAL == 0) {
-      CONN_LOG_WARNING(conn, "Failed to send AUTH command (%u consecutive failures)", conn->authFailCount);
+      CONN_LOG_WARNING(conn, "Failed to send AUTH command (%hu consecutive failures)", conn->authFailCount);
     }
     conn->authFailCount++;
     // AUTH failed to enqueue; the ac is still alive and ours to free.
@@ -756,7 +759,7 @@ static void MRConn_ConnectCallback(const redisAsyncContext *c, int status) {
   if (!IsEnterprise() || conn->ep.password) {
     if (MRConn_SendAuth(conn) != REDIS_OK) {
       if (conn->authFailCount % AUTH_FAIL_LOG_INTERVAL == 0) {
-        CONN_LOG_WARNING(conn, "Failed to send AUTH command (%u consecutive failures)", conn->authFailCount);
+        CONN_LOG_WARNING(conn, "Failed to send AUTH command (%hu consecutive failures)", conn->authFailCount);
       }
       conn->authFailCount++;
       // AUTH failed to enqueue; the ac is still alive and ours to free.
