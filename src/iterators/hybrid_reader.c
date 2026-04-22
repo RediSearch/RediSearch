@@ -672,3 +672,25 @@ QueryIterator *NewHybridVectorIterator(HybridIteratorParams hParams, QueryError 
   }
   return ri;
 }
+
+RLookupKey **HybridIterator_GetOwnKeyRef(QueryIterator *it) {
+  return &((HybridIterator *)it)->ownKey;
+}
+void HybridIterator_SetKeyHandle(QueryIterator *it, struct RLookupKeyHandle *h) {
+  ((HybridIterator *)it)->keyHandle = h;
+}
+VecSimSearchMode HybridIterator_GetSearchMode(const QueryIterator *it) {
+  return ((const HybridIterator *)it)->searchMode;
+}
+size_t HybridIterator_GetNumIterations(const QueryIterator *it) {
+  return ((const HybridIterator *)it)->numIterations;
+}
+size_t HybridIterator_GetMaxBatchSize(const QueryIterator *it) {
+  return ((const HybridIterator *)it)->maxBatchSize;
+}
+size_t HybridIterator_GetMaxBatchIteration(const QueryIterator *it) {
+  return ((const HybridIterator *)it)->maxBatchIteration;
+}
+QueryIterator *HybridIterator_GetChild(const QueryIterator *it) {
+  return ((const HybridIterator *)it)->child;
+}

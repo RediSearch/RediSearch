@@ -1039,9 +1039,8 @@ static QueryIterator *Query_EvalVectorNode(QueryEvalCtx *q, QueryNode *qn) {
     handle->is_valid = true;
 
     if (it->type == HYBRID_ITERATOR) {
-      HybridIterator *hybridIt = (HybridIterator *)it;
-      handle->key_ptr = &hybridIt->ownKey;
-      hybridIt->keyHandle = handle; // Set up back-reference
+      handle->key_ptr = HybridIterator_GetOwnKeyRef(it);
+      HybridIterator_SetKeyHandle(it, handle); // Set up back-reference
     } else { // Must be METRIC_ITERATOR due to the condition above
       handle->key_ptr = GetMetricOwnKeyRef(it);
       SetMetricRLookupHandle(it, handle); // Set up back-reference

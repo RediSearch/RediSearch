@@ -61,6 +61,13 @@ extern "C" {
 #endif
 
 QueryIterator *NewHybridVectorIterator(HybridIteratorParams hParams, QueryError *status);
+RLookupKey    **HybridIterator_GetOwnKeyRef(QueryIterator *it);
+void            HybridIterator_SetKeyHandle(QueryIterator *it, struct RLookupKeyHandle *h);
+VecSimSearchMode HybridIterator_GetSearchMode(const QueryIterator *it);
+size_t           HybridIterator_GetNumIterations(const QueryIterator *it);
+size_t           HybridIterator_GetMaxBatchSize(const QueryIterator *it);
+size_t           HybridIterator_GetMaxBatchIteration(const QueryIterator *it);
+QueryIterator   *HybridIterator_GetChild(const QueryIterator *it);
 
 #ifdef __cplusplus
 }
