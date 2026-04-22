@@ -2017,13 +2017,22 @@ int RPSafeDepleter_DepleteAll(arrayof(ResultProcessor*) safeDepleters, QueryErro
   // after all depleters acquired their locks (or when any failed).
   // This early release prevents deadlock with SafeLoader GIL acquisition.
 
-  // Check if any depleter skipped the lock phase (timeout before start or lock failure)
-  int num_skipped_lock = atomic_load(&sync->num_skipped_lock);
-  if (num_skipped_lock > 0) {
-    // At least one depleter skipped the lock phase
-    QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_SAFE_DEPLETER_FAILURE,
-      "Failed to acquire index lock for background depletion. A write operation may be in progress. Please retry.");
-    return RS_RESULT_ERROR;
+  // Check each depleter's final status for errors or timeouts.
+  // Errors (lock failures) take priority over timeouts.
+  bool anyTimedOut = false;
+  for (size_t i = 0; i < count; i++) {
+    RPSafeDepleter *safeDepleter = (RPSafeDepleter *)safeDepleters[i];
+    if (safeDepleter->last_rc == RS_RESULT_ERROR) {
+      QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_SAFE_DEPLETER_FAILURE,
+        "Failed to acquire index lock for background depletion. A write operation may be in progress. Please retry.");
+      return RS_RESULT_ERROR;
+    } else if (safeDepleter->last_rc == RS_RESULT_TIMEDOUT) {
+      anyTimedOut = true;
+    }
+  }
+
+  if (anyTimedOut) {
+    return RS_RESULT_TIMEDOUT;
   }
 
   return RS_RESULT_OK;
@@ -2758,13 +2767,14 @@ rs_wall_clock_ns_t RPDepleter_GetDepletionTime(const ResultProcessor *base) {
 }
 
 int RPDepleter_DepleteAll(arrayof(ResultProcessor*) depleters) {
+  int worst_rc = RS_RESULT_OK;
   for (size_t i = 0; i < array_len(depleters); i++) {
     RS_ASSERT(depleters[i]->type == RP_DEPLETER);
     RPDepleter_StartDepletion(depleters[i]);
     const RPDepleter *depleter = (const RPDepleter *)depleters[i];
-    if (depleter->last_rc != RS_RESULT_EOF) {
-      return depleter->last_rc;
+    if (depleter->last_rc != RS_RESULT_EOF && worst_rc == RS_RESULT_OK) {
+      worst_rc = depleter->last_rc;
     }
   }
-  return RS_RESULT_OK;
+  return worst_rc;
 }
