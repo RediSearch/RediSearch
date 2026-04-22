@@ -68,7 +68,6 @@ fn main() {
         src.join("doc_table.h"),
         src.join("forward_index.h"),
         src.join("index_result").join("index_result.h"),
-        src.join("iterators").join("union_iterator.h"),
         src.join("json.h"),
         src.join("numeric_index.h"),
         src.join("obfuscation").join("hidden.h"),

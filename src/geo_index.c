@@ -13,7 +13,7 @@
 #include "rmutil/rm_assert.h"
 #include "query_node.h"
 #include "query_param.h"
-#include "iterators/union_iterator.h"
+#include "iterators_rs.h"
 
 static double extractUnitFactor(GeoDistance unit);
 

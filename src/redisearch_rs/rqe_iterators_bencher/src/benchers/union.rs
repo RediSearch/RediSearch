@@ -35,8 +35,6 @@ use rqe_iterators::{
     id_list::IdListSorted,
 };
 
-use crate::ffi::{self, IteratorStatus_ITERATOR_OK};
-
 #[derive(Default)]
 pub struct Bencher;
 
@@ -446,62 +444,6 @@ impl Bencher {
         M: Measurement,
         F: Fn() -> Vec<Vec<u64>>,
     {
-        // C Flat Full implementation benchmark (aggregates all matching children)
-        group.bench_function("Flat Full/C", |b| {
-            b.iter_batched_ref(
-                || ffi::QueryIterator::new_union(&make_ids(), 1.0, false, false),
-                |it| {
-                    while it.read() == IteratorStatus_ITERATOR_OK {
-                        black_box(it.current());
-                    }
-                    it.free();
-                },
-                criterion::BatchSize::SmallInput,
-            );
-        });
-
-        // C Flat Quick implementation benchmark (returns after first match)
-        group.bench_function("Flat Quick/C", |b| {
-            b.iter_batched_ref(
-                || ffi::QueryIterator::new_union(&make_ids(), 1.0, false, true),
-                |it| {
-                    while it.read() == IteratorStatus_ITERATOR_OK {
-                        black_box(it.current());
-                    }
-                    it.free();
-                },
-                criterion::BatchSize::SmallInput,
-            );
-        });
-
-        // C Heap Full implementation benchmark (aggregates all matching children)
-        group.bench_function("Heap Full/C", |b| {
-            b.iter_batched_ref(
-                || ffi::QueryIterator::new_union(&make_ids(), 1.0, true, false),
-                |it| {
-                    while it.read() == IteratorStatus_ITERATOR_OK {
-                        black_box(it.current());
-                    }
-                    it.free();
-                },
-                criterion::BatchSize::SmallInput,
-            );
-        });
-
-        // C Heap Quick implementation benchmark (returns after first match)
-        group.bench_function("Heap Quick/C", |b| {
-            b.iter_batched_ref(
-                || ffi::QueryIterator::new_union(&make_ids(), 1.0, true, true),
-                |it| {
-                    while it.read() == IteratorStatus_ITERATOR_OK {
-                        black_box(it.current());
-                    }
-                    it.free();
-                },
-                criterion::BatchSize::SmallInput,
-            );
-        });
-
         // Rust Flat Full variant (aggregates all matching children)
         group.bench_function("Flat Full/Rust", |b| {
             b.iter_batched_ref(
@@ -562,62 +504,6 @@ impl Bencher {
         M: Measurement,
         F: Fn() -> Vec<Vec<u64>>,
     {
-        // C Flat Full implementation benchmark (aggregates all matching children)
-        group.bench_function("Flat Full/C", |b| {
-            b.iter_batched_ref(
-                || ffi::QueryIterator::new_union(&make_ids(), 1.0, false, false),
-                |it| {
-                    while it.skip_to(it.last_doc_id() + STEP) == IteratorStatus_ITERATOR_OK {
-                        black_box(it.current());
-                    }
-                    it.free();
-                },
-                criterion::BatchSize::SmallInput,
-            );
-        });
-
-        // C Flat Quick implementation benchmark (returns after first match)
-        group.bench_function("Flat Quick/C", |b| {
-            b.iter_batched_ref(
-                || ffi::QueryIterator::new_union(&make_ids(), 1.0, false, true),
-                |it| {
-                    while it.skip_to(it.last_doc_id() + STEP) == IteratorStatus_ITERATOR_OK {
-                        black_box(it.current());
-                    }
-                    it.free();
-                },
-                criterion::BatchSize::SmallInput,
-            );
-        });
-
-        // C Heap Full implementation benchmark (aggregates all matching children)
-        group.bench_function("Heap Full/C", |b| {
-            b.iter_batched_ref(
-                || ffi::QueryIterator::new_union(&make_ids(), 1.0, true, false),
-                |it| {
-                    while it.skip_to(it.last_doc_id() + STEP) == IteratorStatus_ITERATOR_OK {
-                        black_box(it.current());
-                    }
-                    it.free();
-                },
-                criterion::BatchSize::SmallInput,
-            );
-        });
-
-        // C Heap Quick implementation benchmark (returns after first match)
-        group.bench_function("Heap Quick/C", |b| {
-            b.iter_batched_ref(
-                || ffi::QueryIterator::new_union(&make_ids(), 1.0, true, true),
-                |it| {
-                    while it.skip_to(it.last_doc_id() + STEP) == IteratorStatus_ITERATOR_OK {
-                        black_box(it.current());
-                    }
-                    it.free();
-                },
-                criterion::BatchSize::SmallInput,
-            );
-        });
-
         // Rust Flat Full variant (aggregates all matching children)
         group.bench_function("Flat Full/Rust", |b| {
             b.iter_batched_ref(
