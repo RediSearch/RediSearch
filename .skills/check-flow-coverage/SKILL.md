@@ -30,30 +30,6 @@ Rust coverage data.
 
 Follow these steps in order. Do NOT skip ahead — each step depends on the previous one.
 
-### Step 0: Platform prerequisites (macOS only)
-
-On macOS, two environment variables must be set once per shell before running any of the
-steps below. On Linux these are no-ops and can be skipped.
-
-```bash
-if [ "$(uname)" = "Darwin" ]; then
-  # bindgen needs the macOS SDK headers (sys/types.h and friends).
-  # Without this, the Rust build fails with:
-  #   fatal error: 'sys/types.h' file not found
-  export SDKROOT=$(xcrun --show-sdk-path)
-
-  # build.sh calls `lcov` directly from `prepare_coverage_capture` BEFORE tests run.
-  # If lcov isn't on PATH, the run aborts with `lcov: command not found` and no
-  # .gcda data is ever produced. Homebrew installs lcov under /opt/homebrew/bin
-  # (Apple Silicon) — make sure it's on PATH.
-  export PATH="/opt/homebrew/bin:$PATH"
-  which lcov >/dev/null || echo "WARNING: lcov not found — run: brew install lcov"
-fi
-```
-
-Re-export both variables in every new shell you run the skill from, including
-subshells that invoke `build.sh`.
-
 ### Step 1: Ensure a coverage build exists
 
 Generate a unique marker path so parallel invocations don't collide. This marker is reused
@@ -85,8 +61,7 @@ a file and only show the tail:
 ```
 
 This compiles C code with `--coverage` (gcov). The build flavor is `debug-cov` and artifacts
-go under `bin/<platform>-debug-cov/`. If the build fails with `'sys/types.h' file not found`
-on macOS, Step 0's `SDKROOT` export is missing.
+go under `bin/<platform>-debug-cov/`.
 
 ### Step 2: Run Python tests with coverage
 
