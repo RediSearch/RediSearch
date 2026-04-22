@@ -127,18 +127,9 @@ bool MR_ManuallyTriggerNextIfNeeded(MRIterator *it, size_t channelThreshold);
 
 MRReply *MRIterator_Next(MRIterator *it);
 
-/* Get the next reply from the iterator, optionally honouring a clock deadline and/or
- * an external abort flag.
- * Parameters:
- *   - it: the iterator
- *   - abstime: absolute CLOCK_MONOTONIC_RAW-based deadline. NULL disables the clock.
- *   - abortFlag: atomic flag re-checked on every (re)entry to the wait loop. NULL disables
- *                abort-flag awareness. The caller that flips the flag must also call
- *                MRChannel_WakeAbort on the iterator's channel so a blocked reader
- *                re-evaluates it.
- *   - timedOut: output parameter (may be NULL), set to true if the clock deadline expired.
- * With both knobs NULL this is equivalent to MRIterator_Next.
- * Returns: the next reply, or NULL if no more replies, timed out, or aborted. */
+/* Get next reply, with optional CLOCK_MONOTONIC_RAW deadline (`abstime`) and/or
+ * abort flag (pair with MRChannel_WakeAbort). `timedOut` set if deadline expired.
+ * Both knobs NULL ≡ MRIterator_Next. */
 MRReply *MRIterator_NextWithTimeout(MRIterator *it, const struct timespec *abstime,
                                     atomic_bool *abortFlag, bool *timedOut);
 

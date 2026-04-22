@@ -24,17 +24,9 @@ void MRChannel_Push(MRChannel *chan, void *ptr);
  * Return NULL if the channel is empty and MRChannel_Unblock was called by another thread */
 void *MRChannel_Pop(MRChannel *chan);
 
-/* Pop an item, optionally honouring a clock deadline and/or an external abort flag.
- * Parameters:
- *   - chan: the channel to pop from
- *   - abstime: absolute CLOCK_MONOTONIC_RAW-based deadline. NULL disables the clock.
- *   - abortFlag: atomic flag re-checked on every (re)entry to the wait loop. NULL
- *                disables abort-flag awareness. The caller that flips the flag must
- *                also call MRChannel_WakeAbort so a blocked reader re-evaluates it.
- *   - timedOut: output parameter (may be NULL), set to true if the function returned
- *               because the clock deadline expired.
- * With both knobs NULL this is equivalent to MRChannel_Pop.
- * Returns: the popped item, or NULL if unblocked, timed out, or aborted. */
+/* Pop an item, with optional CLOCK_MONOTONIC_RAW deadline (`abstime`) and/or abort
+ * flag (re-checked on each wait entry; pair with MRChannel_WakeAbort). `timedOut`
+ * set if deadline expired. Both knobs NULL ≡ MRChannel_Pop. */
 void *MRChannel_PopWithTimeout(MRChannel *chan, const struct timespec *abstime,
                                atomic_bool *abortFlag, bool *timedOut);
 

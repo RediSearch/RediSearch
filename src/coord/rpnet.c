@@ -173,10 +173,8 @@ static void shardResponseBarrier_PendingReplies_Free(RPNet *nc) {
   }
 }
 
-// Get the wall-clock deadline for MRIterator_NextWithTimeout.
-// Returns pointer to the CLOCK_MONOTONIC_RAW-based timeout, or NULL when timeout
-// checking is disabled (e.g. RETURN_STRICT, which relies on the blocked-client
-// timeout callback + abort flag instead).
+// Wall-clock deadline pointer for MRIterator_NextWithTimeout. NULL when
+// AREQ_ShouldCheckTimeout is false (e.g. RETURN-STRICT uses the abort flag).
 static struct timespec *getAbsTimeout(RPNet *nc) {
   if (!nc->areq || !nc->areq->sctx || !AREQ_ShouldCheckTimeout(nc->areq)) {
     return NULL;
@@ -288,12 +286,9 @@ int getNextReply(RPNet *nc) {
         break;
       }
 
-      // Pop with both break conditions wired: wall-clock deadline (active when the
-      // request config enables timeout checks) and the AREQ abort flag (flipped by
-      // whichever blocked-client timeout callback is installed for the current
-      // policy, when that callback chooses to wake us). Either one can break an
-      // otherwise-indefinite wait when a shard never replies. Passing NULL for
-      // either knob is fine; the pop degrades accordingly.
+      // Pop with deadline + abort flag wired. Deadline breaks stalled shards under
+      // Return; abort flag breaks under FAIL/RETURN-STRICT via MRChannel_WakeAbort.
+      // Either NULL is fine; the pop degrades accordingly.
       bool nextTimedOut = false;
       atomic_bool *abortFlag = nc->areq ? &nc->areq->syncCtx.timedOut : NULL;
       MRReply *reply = MRIterator_NextWithTimeout(nc->it, getAbsTimeout(nc), abortFlag, &nextTimedOut);
@@ -343,12 +338,9 @@ int getNextReply(RPNet *nc) {
         return RS_RESULT_EOF;
       }
     }
-    // Pop with only the AREQ abort flag wired; no wall-clock deadline. The flag is
-    // flipped by whichever blocked-client timeout callback is installed for the
-    // current policy (FAIL / RETURN_STRICT), when that callback chooses to wake
-    // us via MRChannel_WakeAbort. Under TimeoutPolicy_Return no callback is
-    // installed, so the flag is never flipped and this degrades to a pure
-    // blocking pop — matching the pre-existing MRIterator_Next behavior.
+    // Abort-flag-only pop (no wall-clock deadline). Flipped by the FAIL / RETURN-STRICT
+    // timeout callback via MRChannel_WakeAbort. Under Return the flag is never flipped,
+    // degrading to a blocking pop — matches pre-existing MRIterator_Next behavior.
     atomic_bool *abortFlag = nc->areq ? &nc->areq->syncCtx.timedOut : NULL;
     root = MRIterator_NextWithTimeout(nc->it, NULL, abortFlag, NULL);
   }

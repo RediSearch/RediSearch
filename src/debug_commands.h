@@ -129,11 +129,9 @@ void SyncPoint_ClearAll(void);
 // Called from code paths to potentially wait at a sync point
 // If the named point is armed, blocks until signaled
 void SyncPoint_Wait(const char *name);
-// Interruptible variant of SyncPoint_Wait that also exits early when the
-// supplied request has been marked as timed out. Used at sync points that
-// sit between TryClaim and the dispatch/iterator path, where the main-thread
-// timeout callback would otherwise block in AREQ_WaitForAggregateResultsComplete
-// while the background thread is still parked at the sync point.
+// Interruptible SyncPoint_Wait: exits early if `req` is flagged timed out.
+// Avoids deadlock at sync points between TryClaim and dispatch, where the main
+// thread would otherwise wait in AREQ_WaitForAggregateResultsComplete.
 struct AREQ;
 void SyncPoint_WaitTimeoutInterruptible(const char *name, struct AREQ *req);
 

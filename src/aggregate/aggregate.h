@@ -265,25 +265,17 @@ typedef struct RequestSyncCtx {
   uint8_t refcount;
 
   /* Partial-timeout coordination (mirrors MRCtx). Exactly one of
-   * {background thread, timeout callback} runs AggregateResults; the other
-   * waits for completion. Gated by `requiresAggregateResultsSync` so only
-   * request flows with a main-thread waiter pay the sync cost. */
-  // TEMP: enabled only on the coordinator-side AREQ under RETURN-STRICT, because
-  // shards do not yet implement RETURN-STRICT. Remove this flag (and the gating in
-  // startPipeline) once shard-level RETURN-STRICT is implemented.
+   * {BG thread, timeout callback} runs AggregateResults; the other waits.
+   * Gated by `requiresAggregateResultsSync` (TEMP: coord-only under RETURN-STRICT). */
   bool requiresAggregateResultsSync;     // Enable CAS/Signal/Wait around AggregateResults
   RS_Atomic(bool) aggregatingResults;    // CAS claim flag: whoever flips false->true runs AggregateResults
   bool aggregateResultsDone;             // Set at completion; guarded by aggregateResultsLock
   pthread_mutex_t aggregateResultsLock;
   pthread_cond_t aggregateResultsCond;
 
-  /* Abort-wake registration.
-   * A background thread that may block on an MR channel registers it here so the
-   * main-thread timeout callback can broadcast the channel's cond and unblock the
-   * read immediately after flipping `timedOut`. The lock serializes
-   * register/unregister/wake so the channel pointer cannot be torn down mid-wake.
-   * Single-slot today; extend to a list when a request grows multiple blocking
-   * readers (e.g. hybrid). */
+  /* Abort-wake registration (single-slot). BG reader registers its blocking MR
+   * channel; timeout callback broadcasts on it after flipping `timedOut`.
+   * `abortWakeLock` serializes register/unregister/wake. */
   struct MRChannel *abortWakeChannel;
   pthread_mutex_t abortWakeLock;
 } RequestSyncCtx;
@@ -626,31 +618,16 @@ int parseProfileArgs(RedisModuleString **argv, int argc, AREQ *r);
 bool AREQ_TimedOut(AREQ *req);
 void AREQ_SetTimedOut(AREQ *req);
 
-/**
- * Partial-timeout coordination. Exactly one of {background thread, timeout
- * callback} runs AggregateResults; the other waits for completion.
- *
- * TryClaim: atomic false->true CAS on `aggregatingResults`. Returns true to the winner.
- * Signal:   called by the winner after AggregateResults finishes. Broadcasts to waiters.
- * Wait:     called by the loser. Blocks until Signal has been called.
- */
+/* TryClaim: atomic CAS on `aggregatingResults`; winner runs AggregateResults.
+ * Signal: called by winner at completion. Wait: called by loser, blocks until Signal.
+ * Exactly one of {BG thread, timeout callback} wins. */
 bool AREQ_TryClaimAggregateResults(AREQ *req);
 void AREQ_SignalAggregateResultsComplete(AREQ *req);
 void AREQ_WaitForAggregateResultsComplete(AREQ *req);
 
-/**
- * Abort-wake registration (single-slot).
- *
- * A background reader that may block on an MR channel registers the channel
- * here before it begins to read. The main-thread timeout callback, after
- * flipping `timedOut` via AREQ_SetTimedOut, calls RequestSyncCtx_WakeAbortChannel
- * to broadcast on the registered channel so the blocked reader wakes and
- * re-checks the flag. The background reader must unregister before releasing
- * the channel.
- *
- * These operate on RequestSyncCtx directly so they can be used from any request
- * type that embeds a RequestSyncCtx (AREQ, HybridRequest).
- */
+/* Abort-wake registration (single-slot). BG reader registers its blocking channel
+ * before reading; timeout callback flips `timedOut` then broadcasts to wake it.
+ * Operates on RequestSyncCtx so AREQ and HybridRequest can share. */
 void RequestSyncCtx_RegisterAbortWakeChannel(RequestSyncCtx *ctx, struct MRChannel *chan);
 void RequestSyncCtx_UnregisterAbortWakeChannel(RequestSyncCtx *ctx);
 void RequestSyncCtx_WakeAbortChannel(RequestSyncCtx *ctx);
