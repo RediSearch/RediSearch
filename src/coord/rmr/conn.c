@@ -129,18 +129,6 @@ static MRConnPool *_MR_NewConnPool(MREndpoint *ep, size_t num, uv_loop_t *loop) 
   return pool;
 }
 
-/*
-* This is called from the uv thread.
-*/
-static void MRConn_Disconnect(MRConn *conn) {
-  CONN_LOG(conn, "Disconnecting connection");
-  // Cancel any pending retry timer before tearing down. The timer handle is
-  // closed in freeConn so uv_close is called exactly once per conn.
-  uv_timer_stop(&conn->timer);
-  MRConn_SwitchState(conn, MRConn_Freeing);
-  disconnectHiredisAc(conn);
-}
-
 /* Close callback for the inlined timer handle. libuv has released the handle
  * by the time this fires, so we can free the endpoint strings and the MRConn
  * itself. */
@@ -441,20 +429,24 @@ static void reauthTimerCallback(uv_timer_t *tm) {
   }
 }
 
+/* Thin wrapper that logs the disconnect before entering the terminal state.
+ * Actual teardown (timer stop, cbData detach, hiredis free) lives in the
+ * Freeing case of MRConn_SwitchState. Called from the uv thread. */
+static void MRConn_Disconnect(MRConn *conn) {
+  CONN_LOG(conn, "Disconnecting connection");
+  MRConn_SwitchState(conn, MRConn_Freeing);
+}
+
 /* Safely transition to the given state. Each delayed state (Connecting,
  * ReAuth) arms its own dedicated timer callback, so the callback always
  * handles a single state and no runtime state-dispatch is needed. */
 static void MRConn_SwitchState(MRConn *conn, MRConnState nextState) {
   CONN_LOG(conn, "Switching state to %s", MRConnState_Str(nextState));
-
-  if (nextState == MRConn_Freeing) {
-    // Terminal state. Teardown is synchronous in MRConn_Disconnect;
-    // no timer is scheduled here.
-    conn->state = MRConn_Freeing;
-    return;
-  } else if (conn->state == MRConn_Freeing) {
-    return;
-  }
+  // Freeing is terminal. Idempotent re-entry (Freeing -> Freeing) is allowed,
+  // but transitioning back out would revive a conn whose cbData the Freeing
+  // case below has already detached, which would leave hiredis callbacks
+  // racing against a reattached ac.
+  RS_ASSERT(conn->state != MRConn_Freeing || nextState == MRConn_Freeing);
 
   switch (nextState) {
     case MRConn_Connecting:
@@ -478,10 +470,17 @@ static void MRConn_SwitchState(MRConn *conn, MRConnState nextState) {
       uv_timer_stop(&conn->timer);
       return;
 
-    case MRConn_Disconnected:
     case MRConn_Freeing:
-      // Disconnected is only the initial state set by MR_NewConn and is never
-      // a SwitchState target; Freeing was already handled above.
+      // Terminal state: stop the retry timer and sever cbData so any in-flight
+      // hiredis callbacks on this conn become no-ops. The inlined timer handle
+      // itself is closed later by freeConn via uv_close.
+      conn->state = nextState;
+      uv_timer_stop(&conn->timer);
+      disconnectHiredisAc(conn);
+      return;
+
+    case MRConn_Disconnected:
+      // Only set by MR_NewConn as the initial state; never a SwitchState target.
       break;
   }
   RS_ABORT_FMT("MRConn_SwitchState: invalid target state %d", nextState);
@@ -732,8 +731,8 @@ static void MRConn_ConnectCallback(const redisAsyncContext *c, int status) {
     return;
   }
 
-  // MRConn_Disconnect always detaches cbData before triggering hiredis
-  // teardown, so when conn is still attached here, state cannot be Freeing.
+  // The Freeing case of MRConn_SwitchState detaches cbData before triggering
+  // hiredis teardown, so when conn is still attached here, state cannot be Freeing.
   RS_ASSERT(conn->state != MRConn_Freeing);
 
   // if the connection is not stopped - try to reconnect
@@ -775,8 +774,8 @@ static void MRConn_DisconnectCallback(const redisAsyncContext *c, int status) {
     /* Ignore */
     return;
   }
-  // MRConn_Disconnect detaches cbData before triggering hiredis teardown, so
-  // when conn is still attached here, state cannot be Freeing.
+  // The Freeing case of MRConn_SwitchState detaches cbData before triggering
+  // hiredis teardown, so when conn is still attached here, state cannot be Freeing.
   RS_ASSERT(conn->state != MRConn_Freeing);
   // hiredis is freeing the ac after this callback returns; just detach cbData.
   detachCbData(conn);
