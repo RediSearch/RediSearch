@@ -24,16 +24,19 @@
 #include "index_utils.h"
 #include "notifications.h"
 
-#include <set>
+#include <csignal>
 #include <random>
+#include <set>
+#include <sys/wait.h>
 #include <thread>
 #include <unordered_set>
 
 extern "C" {
 #include "util/dict.h"
+}
+
 pid_t RMCK_GetLastChildPid();
 void RMCK_SetKillForkChildShouldFail(bool fail);
-}
 
 /**
  * The following tests purpose is to make sure the garbage collection is working properly,
@@ -960,7 +963,7 @@ TEST_F(ReapChildTest, NanosleepCalled) {
   std::jthread releaser([cpid]() {
     struct timespec ts = {.tv_sec = 0, .tv_nsec = 20'000'000};
     nanosleep(&ts, nullptr);
-    kill(cpid, SIGCONT); // unblock child; it will write to broken pipe and exit
+    kill(cpid, SIGKILL); // kill the stopped child to unblock reap_child_blocking
   });
 
   FGC_Apply(fgc);
