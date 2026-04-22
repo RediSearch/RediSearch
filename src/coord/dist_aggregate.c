@@ -28,6 +28,7 @@
 #include "coord/dist_utils.h"
 #include "info/global_stats.h"
 #include "search_disk.h"
+#include "debug_commands.h"
 #include "coord_request_ctx.h"
 #include "aggregate/reply_empty.h"
 
@@ -56,8 +57,14 @@ void processResultFormat(uint32_t *flags, MRReply *map) {
 static int rpnetNext_Start(ResultProcessor *rp, SearchResult *r) {
   RPNet *nc = (RPNet *)rp;
 
+#ifdef ENABLE_ASSERT
+  // Sync point (debug): park BG just before the initial timeout gate so tests can
+  // deterministically fire the blocked-client timeout on the main thread and
+  // exercise the "BG returns TIMEDOUT before dispatching the iterator" path.
+  SyncPoint_Wait(SYNC_POINT_BEFORE_RPNET_START);
+#endif
+
   // Check if the request timed out before starting the iterator
-  // TODO : Add sync point
   if (AREQ_TimedOut(nc->areq)) {
     return RS_RESULT_TIMEDOUT;
   }

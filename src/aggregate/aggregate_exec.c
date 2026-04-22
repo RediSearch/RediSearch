@@ -346,7 +346,12 @@ static void startPipeline(AREQ *req, ResultProcessor *rp, SearchResult ***result
     .skipTimeoutChecks = req->sctx->time.skipTimeoutChecks,
   };
 
-  // TODO: ADD SyncPoint here
+#ifdef ENABLE_ASSERT
+  // Sync point (debug): pause before the TryClaim race so tests can deterministically
+  // fire the blocked-client timeout callback on the main thread and exercise the
+  // "main wins the claim" branch of RETURN-STRICT partial-reply coordination.
+  SyncPoint_Wait(SYNC_POINT_BEFORE_AGGREGATE_RESULTS_CLAIM);
+#endif
 
   if (req->syncCtx.requiresAggregateResultsSync && !AREQ_TryClaimAggregateResults(req)) {
     // Possible if RETURN-STRICT timeout callback was called first.
