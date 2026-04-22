@@ -1109,15 +1109,22 @@ class TestCoordinatorTimeout:
         base_warn_coord = int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_METRIC])
 
         coord_pid = pid_cmd(env.con)
-        shards_pid = list(get_all_shards_pid(env))
-        shards_pid.remove(coord_pid)
+        paused_pid = next(pid for pid in get_all_shards_pid(env) if pid != coord_pid)
+        responsive_shard_conns = [
+            env.getConnection(shardId)
+            for shardId in range(1, env.shardsCount + 1)
+            if pid_cmd(env.getConnection(shardId)) != paused_pid
+        ]
 
-        shard_to_pause_p = psutil.Process(shards_pid[0])
+        shard_to_pause_p = psutil.Process(paused_pid)
         shard_to_pause_p.suspend()
         wait_for_condition(
             lambda: (shard_to_pause_p.status() == psutil.STATUS_STOPPED, {'status': shard_to_pause_p.status()}),
             'Timeout while waiting for shard to pause'
         )
+
+        base_jobs_done = [getWorkersThpoolStatsFromShard(c)['totalJobsDone']
+                          for c in responsive_shard_conns]
 
         query_result = []
         t_query = threading.Thread(
@@ -1129,9 +1136,19 @@ class TestCoordinatorTimeout:
 
         blocked_client_id = wait_for_blocked_query_client(env, 'FT.AGGREGATE')
 
-        # Give the responsive shards a chance to reply so BG has something
-        # partial to return. The paused shard's reply never arrives.
-        time.sleep(0.3)
+        # Wait for every responsive shard to complete its _FT.AGGREGATE job so
+        # BG has definitely received partial replies before the timeout fires.
+        # The paused shard's reply never arrives.
+        wait_for_condition(
+            lambda: (
+                all(getWorkersThpoolStatsFromShard(c)['totalJobsDone'] >= base + 1
+                    for c, base in zip(responsive_shard_conns, base_jobs_done)),
+                {'totalJobsDone': [getWorkersThpoolStatsFromShard(c)['totalJobsDone']
+                                   for c in responsive_shard_conns],
+                 'base': base_jobs_done}
+            ),
+            'Timeout waiting for responsive shards to complete their aggregate jobs'
+        )
 
         env.cmd('CLIENT', 'UNBLOCK', blocked_client_id, 'TIMEOUT')
         wait_for_client_unblocked(env, blocked_client_id)
@@ -1158,6 +1175,96 @@ class TestCoordinatorTimeout:
         shard_to_pause_p.resume()
         env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy)
 
+    def test_return_strict_timeout_withcount_one_shard_paused_aggregate(self):
+        """RETURN_STRICT timeout on FT.AGGREGATE WITHCOUNT with one shard suspended.
+
+        WITHCOUNT installs a ShardResponseBarrier that makes RPNet's first
+        getNextReply block until every shard has sent its first reply so that
+        total_results reflects the pre-LIMIT count across the full cluster. When
+        one shard is suspended and the blocked-client timeout fires, the barrier
+        never completes: shardResponseBarrier_HandleTimeout fires before any row
+        is serialized and shardResponseBarrier_UpdateTotalResults is skipped, so
+        the reply carries 0 results + TIMEOUT warning regardless of which side
+        (main-thread callback or BG) wins TryClaim. This is the distinguishing
+        behavior from the non-WITHCOUNT one-shard-paused test, which can return
+        partial rows from the responsive shards.
+        """
+        env = self.env
+
+        prev_on_timeout_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
+        env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'return-strict')
+
+        before_info = info_modules_to_dict(env)
+        base_warn_coord = int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_METRIC])
+
+        coord_pid = pid_cmd(env.con)
+        paused_pid = next(pid for pid in get_all_shards_pid(env) if pid != coord_pid)
+        responsive_shard_conns = [
+            env.getConnection(shardId)
+            for shardId in range(1, env.shardsCount + 1)
+            if pid_cmd(env.getConnection(shardId)) != paused_pid
+        ]
+
+        shard_to_pause_p = psutil.Process(paused_pid)
+        shard_to_pause_p.suspend()
+        wait_for_condition(
+            lambda: (shard_to_pause_p.status() == psutil.STATUS_STOPPED, {'status': shard_to_pause_p.status()}),
+            'Timeout while waiting for shard to pause'
+        )
+
+        base_jobs_done = [getWorkersThpoolStatsFromShard(c)['totalJobsDone']
+                          for c in responsive_shard_conns]
+
+        query_result = []
+        t_query = threading.Thread(
+            target=call_and_store,
+            args=(env.cmd, ['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT'], query_result),
+            daemon=True
+        )
+        t_query.start()
+
+        blocked_client_id = wait_for_blocked_query_client(env, 'FT.AGGREGATE')
+
+        # Wait for every responsive shard to complete its _FT.AGGREGATE job so
+        # the barrier has received n-1 replies (and is stuck waiting for the
+        # paused shard's reply that will never arrive) before the timeout fires.
+        wait_for_condition(
+            lambda: (
+                all(getWorkersThpoolStatsFromShard(c)['totalJobsDone'] >= base + 1
+                    for c, base in zip(responsive_shard_conns, base_jobs_done)),
+                {'totalJobsDone': [getWorkersThpoolStatsFromShard(c)['totalJobsDone']
+                                   for c in responsive_shard_conns],
+                 'base': base_jobs_done}
+            ),
+            'Timeout waiting for responsive shards to complete their aggregate jobs'
+        )
+
+        env.cmd('CLIENT', 'UNBLOCK', blocked_client_id, 'TIMEOUT')
+        wait_for_client_unblocked(env, blocked_client_id)
+
+        t_query.join(timeout=10)
+        env.assertFalse(t_query.is_alive(), message="Query thread should have finished")
+
+        env.assertEqual(len(query_result), 1, message="Expected 1 result from query thread")
+        result = query_result[0]
+        # WITHCOUNT + incomplete barrier: total_results stays at its default 0
+        # because shardResponseBarrier_UpdateTotalResults is not called when the
+        # barrier times out. No rows are serialized either.
+        env.assertEqual(result['total_results'], 0,
+                        message=f"Expected 0 total_results with incomplete WITHCOUNT barrier, got {result['total_results']}")
+        env.assertEqual(result.get('results', []), [],
+                        message=f"Expected no rows, got {result.get('results')}")
+        env.assertEqual(result.get('warning', []), [TIMEOUT_WARNING])
+
+        after_info = info_modules_to_dict(env)
+        env.assertEqual(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_METRIC],
+                        str(base_warn_coord + 1),
+                        message="Coordinator timeout warning should be +1")
+        _verify_metrics_not_changed(env, env, before_info, [TIMEOUT_WARNING_COORD_METRIC])
+
+        shard_to_pause_p.resume()
+        env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy)
+
     def test_return_strict_timeout_all_shards_paused_aggregate(self):
         """RETURN_STRICT timeout while every shard's workers are paused.
 
@@ -1168,8 +1275,13 @@ class TestCoordinatorTimeout:
         MRIterator_Next and blocks on the channel. Firing the blocked-client
         timeout wakes BG via the WakeAbort broadcast, BG stores zero partial
         results and signals main, main replies with 0 results + warning.
+
+        Uses the AfterIteratorStart sync point to park the IO thread after the
+        fan-out loop, guaranteeing every shard has been handed an _FT.AGGREGATE
+        command before the timeout fires.
         """
         env = self.env
+        skipIfNoEnableAssert(env)
 
         prev_on_timeout_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
         env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'return-strict')
@@ -1179,6 +1291,10 @@ class TestCoordinatorTimeout:
 
         verify_command_OK_on_all_shards(env, debug_cmd(), 'WORKERS', 'pause')
 
+        sync_point = 'AfterIteratorStart'
+        env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
+        env.cmd(debug_cmd(), 'SYNC_POINT', 'ARM', sync_point)
+
         query_result = []
         t_query = threading.Thread(
             target=call_and_store,
@@ -1187,10 +1303,20 @@ class TestCoordinatorTimeout:
         )
         t_query.start()
 
-        blocked_client_id = wait_for_blocked_query_client(env, 'FT.AGGREGATE')
+        # Wait for the IO thread to park after dispatching _FT.AGGREGATE to
+        # every shard. Once it is parked we know the fan-out has happened.
+        wait_for_condition(
+            lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', sync_point) == 1, {}),
+            f'Timeout waiting for {sync_point} sync point'
+        )
 
+        blocked_client_id = wait_for_blocked_query_client(env, 'FT.AGGREGATE')
         env.cmd('CLIENT', 'UNBLOCK', blocked_client_id, 'TIMEOUT')
         wait_for_client_unblocked(env, blocked_client_id)
+
+        # Release the IO thread so iterStartCb can complete and the cluster
+        # runtime can drain normally once workers are resumed below.
+        env.cmd(debug_cmd(), 'SYNC_POINT', 'SIGNAL', sync_point)
 
         t_query.join(timeout=10)
         env.assertFalse(t_query.is_alive(), message="Query thread should have finished")
@@ -1206,6 +1332,7 @@ class TestCoordinatorTimeout:
                         message="Coordinator timeout warning should be +1")
         _verify_metrics_not_changed(env, env, before_info, [TIMEOUT_WARNING_COORD_METRIC])
 
+        env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
         verify_command_OK_on_all_shards(env, debug_cmd(), 'WORKERS', 'resume')
         env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy)
 

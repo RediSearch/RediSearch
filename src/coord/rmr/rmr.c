@@ -18,6 +18,7 @@
 #include "resp3.h"
 #include "coord/config.h"
 #include "rs_wall_clock.h"
+#include "debug_commands.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -791,6 +792,13 @@ void iterStartCb(void *p) {
       MRIteratorCallback_Done(&it->cbxs[i], 1);
     }
   }
+
+#ifdef ENABLE_ASSERT
+  // Sync point (debug): park the IO thread after every shard command has been
+  // dispatched so tests can deterministically fire the blocked-client timeout
+  // knowing the fan-out has happened but no reply has been consumed yet.
+  SyncPoint_Wait(SYNC_POINT_AFTER_ITERATOR_START);
+#endif
 
   rm_free(data);
 }
