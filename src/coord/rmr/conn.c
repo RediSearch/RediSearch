@@ -329,7 +329,10 @@ int MRConnManager_Add(MRConnManager *m, uv_loop_t *loop, const char *id, MREndpo
   MRConnPool *pool = _MR_NewConnPool(ep, m->nodeConns, loop);
   if (connect) {
     for (size_t i = 0; i < pool->num; i++) {
-      MRConn_Connect(pool->conns[i]);
+      // Route through StartNewConnection so a synchronous MRConn_Connect
+      // failure lands in Connecting with the retry timer armed, instead of
+      // leaving the conn stuck in Disconnected with no recovery scheduled.
+      MRConn_StartNewConnection(pool->conns[i]);
     }
   }
 
