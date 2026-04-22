@@ -24,7 +24,8 @@
 struct MRConn {
   MREndpoint ep;
   redisAsyncContext *conn;
-  void *timer;
+  uv_timer_t timer; // back-off timer for Connecting/ReAuth; inlined so its lifetime
+                    // is tied to the conn and libuv owns teardown via uv_close.
   uv_loop_t *loop;
   int protocol; // 0 (undetermined), 2, or 3
   MRConnState state;
@@ -39,8 +40,8 @@ static void MRConn_Disconnect(MRConn *conn);
 static MRConn *MR_NewConn(MREndpoint *ep, uv_loop_t *loop);
 static int MRConn_SendAuth(MRConn *conn);
 
-#define RSCONN_RECONNECT_TIMEOUT 250
-#define RSCONN_REAUTH_TIMEOUT 1000
+#define RECONNECT_MS_DELAY 250
+#define REAUTH_MS_DELAY 1000
 #define AUTH_FAIL_LOG_INTERVAL 100
 #define INTERNALAUTH_USERNAME "internal connection"
 #define UNUSED(x) (void)(x)
@@ -125,31 +126,33 @@ static MRConnPool *_MR_NewConnPool(MREndpoint *ep, size_t num, uv_loop_t *loop) 
   return pool;
 }
 
-static void closeTimer(MRConn *conn) {
-  if (conn->timer) {
-    // uv_timer_stop is a safe no-op on inactive timers.
-    uv_timer_stop(conn->timer);
-    // "Multiple calls to uv_close() are ignored. The close callback will be invoked exactly once. No double free"
-    uv_close(conn->timer, (uv_close_cb)rm_free);
-    conn->timer = NULL;
-  }
-}
-
 /*
 * This is called from the uv thread.
 */
 static void MRConn_Disconnect(MRConn *conn) {
   CONN_LOG(conn, "Disconnecting connection");
-  // Cancel any pending retry timer before tearing down.
-  closeTimer(conn);
+  // Cancel any pending retry timer before tearing down. The timer handle is
+  // closed in freeConn so uv_close is called exactly once per conn.
+  uv_timer_stop(&conn->timer);
   MRConn_SwitchState(conn, MRConn_Freeing);
   disconnectHiredisAc(conn);
 }
 
-static void freeConn(MRConn *conn) {
+/* Close callback for the inlined timer handle. libuv has released the handle
+ * by the time this fires, so we can free the endpoint strings and the MRConn
+ * itself. */
+static void freeConnAfterTimerClose(uv_handle_t *h) {
+  MRConn *conn = h->data;
   MREndpoint_Free(&conn->ep);
-  closeTimer(conn);
   rm_free(conn);
+}
+
+/* Free the conn. Teardown is asynchronous because the inlined timer handle
+ * must outlive this call until libuv finishes its close sequence; the actual
+ * rm_free happens in freeConnAfterTimerClose. Callers must ensure no further
+ * SwitchState or timer operations run on conn after this point. */
+static void freeConn(MRConn *conn) {
+  uv_close((uv_handle_t *)&conn->timer, freeConnAfterTimerClose);
 }
 
 /* Free a connection pool.
@@ -405,47 +408,44 @@ void MRConnManager_Expand(MRConnManager *m, size_t num, uv_loop_t *loop) {
   dictReleaseIterator(it);
 }
 
-static void signalCallback(uv_timer_t *tm) {
+/* Timer callback armed while in MRConn_Connecting. Retries the async connect
+ * after the reconnect back-off so we don't hot-loop against a server that
+ * just rejected us. */
+static void reconnectTimerCallback(uv_timer_t *tm) {
   MRConn *conn = tm->data;
-
-  if (conn->state == MRConn_Connected) {
-    return;  // Nothing to do here!
+  RS_ASSERT(conn->state == MRConn_Connecting);
+  if (MRConn_Connect(conn) == REDIS_ERR) {
+    // MRConn_Connect's failure paths leave conn->conn == NULL, so no
+    // detach is needed here.
+    MRConn_SwitchState(conn, MRConn_Connecting);
   }
+}
 
-  if (conn->state == MRConn_ReAuth) {
-    if (MRConn_SendAuth(conn) != REDIS_OK) {
-      if (conn->authFailCount % AUTH_FAIL_LOG_INTERVAL == 0) {
-        CONN_LOG_WARNING(conn, "Failed to send AUTH command (%u consecutive failures)", conn->authFailCount);
-      }
-      conn->authFailCount++;
-      // AUTH failed to enqueue; the ac is still alive and ours to free.
-      detachAndFreeAc(conn);
-      MRConn_SwitchState(conn, MRConn_Connecting);
+/* Timer callback armed while in MRConn_ReAuth. Re-sends AUTH after the reauth
+ * back-off so the server has time to recover and we don't tight-loop on
+ * repeated auth rejections. */
+static void reauthTimerCallback(uv_timer_t *tm) {
+  MRConn *conn = tm->data;
+  RS_ASSERT(conn->state == MRConn_ReAuth);
+  if (MRConn_SendAuth(conn) != REDIS_OK) {
+    if (conn->authFailCount % AUTH_FAIL_LOG_INTERVAL == 0) {
+      CONN_LOG_WARNING(conn, "Failed to send AUTH command (%u consecutive failures)", conn->authFailCount);
     }
-  } else if (conn->state == MRConn_Connecting) {
-    if (MRConn_Connect(conn) == REDIS_ERR) {
-      // MRConn_Connect's failure paths leave conn->conn == NULL, so no
-      // detach is needed here.
-      MRConn_SwitchState(conn, MRConn_Connecting);
-    }
-  } else {
-    // Only ReAuth/Connecting/Connected should ever arm the timer. Freeing is
-    // synchronous and never schedules a callback.
-    CONN_LOG_WARNING(conn, "signalCallback reached unexpected state");
-    RS_ABORT_FMT("signalCallback reached unexpected state %d", conn->state);
+    conn->authFailCount++;
+    // AUTH failed to enqueue; the ac is still alive and ours to free.
     detachAndFreeAc(conn);
     MRConn_SwitchState(conn, MRConn_Connecting);
   }
 }
 
-/* Safely transition to current state */
+/* Safely transition to the given state. Each delayed state (Connecting,
+ * ReAuth) arms its own dedicated timer callback, so the callback always
+ * handles a single state and no runtime state-dispatch is needed. */
 static void MRConn_SwitchState(MRConn *conn, MRConnState nextState) {
   CONN_LOG(conn, "Switching state to %s", MRConnState_Str(nextState));
 
-  uint64_t nextTimeout = 0;
-
   if (nextState == MRConn_Freeing) {
-    // Terminal state. Teardown is synchronous in MRConn_Disconnect/Stop;
+    // Terminal state. Teardown is synchronous in MRConn_Disconnect;
     // no timer is scheduled here.
     conn->state = MRConn_Freeing;
     return;
@@ -455,40 +455,33 @@ static void MRConn_SwitchState(MRConn *conn, MRConnState nextState) {
 
   switch (nextState) {
     case MRConn_Connecting:
-      nextTimeout = RSCONN_RECONNECT_TIMEOUT;
+      // Delayed state: the reconnect timer introduces a back-off between
+      // attempts so we don't spin on a server that just rejected us.
       conn->state = nextState;
-      break;
+      uv_timer_start(&conn->timer, reconnectTimerCallback, RECONNECT_MS_DELAY, 0);
+      return;
 
     case MRConn_ReAuth:
-      nextTimeout = RSCONN_REAUTH_TIMEOUT;
+      // Delayed state: the reauth timer gives the server time to recover
+      // and avoids a tight AUTH-retry loop on repeated rejections.
       conn->state = nextState;
-      break;
+      uv_timer_start(&conn->timer, reauthTimerCallback, REAUTH_MS_DELAY, 0);
+      return;
 
     case MRConn_Connected:
-      // "Dummy" states:
+      // Steady state; cancel any pending back-off timer.
+      // uv_timer_stop is a safe no-op on inactive timers.
       conn->state = nextState;
-      if (conn->timer) {
-        // uv_timer_stop is a safe no-op on inactive timers.
-        uv_timer_stop(conn->timer);
-      }
+      uv_timer_stop(&conn->timer);
       return;
 
     case MRConn_Disconnected:
-    default:
-      // Invariant violation: Disconnected is set only by MR_NewConn, and any
-      // other value is an unknown enum. Crash in debug; in release, fall
-      // through to Connecting so the retry timer is armed and the conn does
-      // not silently hang in its current state.
-      CONN_LOG_WARNING(conn, "SwitchState invariant violated (target=%d); recovering to Connecting", nextState);
-      RS_ABORT_FMT("MRConn_SwitchState: invalid target state %d", nextState);
-      nextTimeout = RSCONN_RECONNECT_TIMEOUT;
-      conn->state = MRConn_Connecting;
+    case MRConn_Freeing:
+      // Disconnected is only the initial state set by MR_NewConn and is never
+      // a SwitchState target; Freeing was already handled above.
       break;
   }
-
-  if (conn->timer && !uv_is_active(conn->timer)) {
-    uv_timer_start(conn->timer, signalCallback, nextTimeout, 0);
-  }
+  RS_ABORT_FMT("MRConn_SwitchState: invalid target state %d", nextState);
 }
 
 static void MRConn_AuthCallback(redisAsyncContext *c, void *r, void *privdata) {
@@ -795,10 +788,9 @@ static void MRConn_DisconnectCallback(const redisAsyncContext *c, int status) {
  * retry timer armed. */
 static MRConn *MR_NewConn(MREndpoint *ep, uv_loop_t *loop) {
   MRConn *conn = rm_malloc(sizeof(MRConn));
-  *conn = (MRConn){.state = MRConn_Disconnected, .conn = NULL, .protocol = 0, .loop = loop, .timer = NULL, .authFailCount = 0};
-  conn->timer = rm_malloc(sizeof(uv_timer_t));
-  uv_timer_init(loop, conn->timer);
-  ((uv_timer_t *)conn->timer)->data = conn;
+  *conn = (MRConn){.state = MRConn_Disconnected, .conn = NULL, .protocol = 0, .loop = loop, .authFailCount = 0};
+  uv_timer_init(loop, &conn->timer);
+  conn->timer.data = conn;
   MREndpoint_Copy(&conn->ep, ep);
   if (MRConn_Connect(conn) == REDIS_ERR) {
     MRConn_SwitchState(conn, MRConn_Connecting);
