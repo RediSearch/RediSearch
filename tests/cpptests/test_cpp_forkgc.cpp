@@ -23,16 +23,17 @@
 #include "redis_index.h"
 #include "index_utils.h"
 #include "notifications.h"
+
+#include <set>
+#include <random>
+#include <thread>
+#include <unordered_set>
+
 extern "C" {
 #include "util/dict.h"
 pid_t RMCK_GetLastChildPid();
 void RMCK_SetKillForkChildShouldFail(bool fail);
 }
-
-#include <set>
-#include <random>
-#include <unordered_set>
-#include <thread>
 
 /**
  * The following tests purpose is to make sure the garbage collection is working properly,
@@ -891,12 +892,14 @@ TEST_F(FGCTestNumeric, testNumericBlocksSinceFork) {
 // then SIGSTOP the child so it stays alive for reap_child_blocking's loop to enter.
 
 class ReapChildTest : public FGCTestTag {
- protected:
+ private:
   pid_t child_pid = -1;
 
   void SetUp() override {
     FGCTestTag::SetUp();
     RSGlobalConfig.gcConfigParams.gcSettings.forkGcCleanThreshold = 0;
+    // Keep child alive long enough for SIGSTOP to land before it calls _exit.
+    RSGlobalConfig.gcConfigParams.gcSettings.forkGcSleepBeforeExit = 1;
     ASSERT_TRUE(RS::addDocument(ctx, ism, "doc1", "f1", "hello"));
     ASSERT_TRUE(RS::deleteDocument(ctx, ism, "doc1"));
     RMCK_SetKillForkChildShouldFail(false);
@@ -907,7 +910,7 @@ class ReapChildTest : public FGCTestTag {
     // Kill any leftover stopped child so FGCTest::TearDown doesn't hang.
     if (child_pid > 0) {
       kill(child_pid, SIGKILL);
-      waitpid(child_pid, NULL, 0);
+      waitpid(child_pid, nullptr, 0);
       child_pid = -1;
     }
     FGCTestTag::TearDown();
@@ -929,6 +932,9 @@ class ReapChildTest : public FGCTestTag {
     close(fgc->pipe_read_fd);
     fgc->pipe_read_fd = -1;
   }
+
+  friend class ReapChildTest_TimedOutBreak_Test;
+  friend class ReapChildTest_NanosleepCalled_Test;
 };
 
 // Covers `if (TimedOut(&deadline)) break;`: timeout_sec=0 fires immediately after one loop
@@ -951,10 +957,11 @@ TEST_F(ReapChildTest, NanosleepCalled) {
   // Resume the child after 20ms so reap_child_blocking enters the loop, calls nanosleep at
   // least once, then finds the child exited on a subsequent waitpid.
   pid_t cpid = child_pid;
-  std::thread([cpid]() {
-    usleep(20000);
+  std::jthread releaser([cpid]() {
+    struct timespec ts = {.tv_sec = 0, .tv_nsec = 20'000'000};
+    nanosleep(&ts, nullptr);
     kill(cpid, SIGCONT); // unblock child; it will write to broken pipe and exit
-  }).detach();
+  });
 
   FGC_Apply(fgc);
   child_pid = -1; // reaped by reap_child_blocking
