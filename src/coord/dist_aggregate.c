@@ -61,7 +61,7 @@ static int rpnetNext_Start(ResultProcessor *rp, SearchResult *r) {
   // Sync point (debug): park BG just before the initial timeout gate so tests can
   // deterministically fire the blocked-client timeout on the main thread and
   // exercise the "BG returns TIMEDOUT before dispatching the iterator" path.
-  SyncPoint_Wait(SYNC_POINT_BEFORE_RPNET_START);
+  SyncPoint_WaitTimeoutInterruptible(SYNC_POINT_BEFORE_RPNET_START, nc->areq);
 #endif
 
   // Check if the request timed out before starting the iterator

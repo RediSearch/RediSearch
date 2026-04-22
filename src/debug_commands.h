@@ -129,6 +129,13 @@ void SyncPoint_ClearAll(void);
 // Called from code paths to potentially wait at a sync point
 // If the named point is armed, blocks until signaled
 void SyncPoint_Wait(const char *name);
+// Interruptible variant of SyncPoint_Wait that also exits early when the
+// supplied request has been marked as timed out. Used at sync points that
+// sit between TryClaim and the dispatch/iterator path, where the main-thread
+// timeout callback would otherwise block in AREQ_WaitForAggregateResultsComplete
+// while the background thread is still parked at the sync point.
+struct AREQ;
+void SyncPoint_WaitTimeoutInterruptible(const char *name, struct AREQ *req);
 
 // Struct used for debugging hybrid cursor storage ONLY (pause before/after cursor creation)
 // Separate from StoreResultsDebugCtx to allow independent control

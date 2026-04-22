@@ -362,9 +362,6 @@ static void startPipeline(AREQ *req, ResultProcessor *rp, SearchResult ***result
 
   startPipelineCommon(&ctx, rp, results, r, rc);
 
-  if (req->syncCtx.requiresAggregateResultsSync) {
-    AREQ_SignalAggregateResultsComplete(req);
-  }
 }
 
 #ifdef ENABLE_ASSERT
@@ -687,6 +684,13 @@ static void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
       AREQ_StoreResults(req, state.results, rc, cv, limit);
       debugPauseStoreResults(req, false); // pause after
 
+      // Signal completion AFTER results are stored so the main-thread timeout
+      // callback waiting in AREQ_WaitForAggregateResultsComplete observes a
+      // consistent `hasStoredResults == true` when it wakes up.
+      if (req->syncCtx.requiresAggregateResultsSync) {
+        AREQ_SignalAggregateResultsComplete(req);
+      }
+
       // Destroy unused SearchResult
       SearchResult_Destroy(&r);
       return;
@@ -883,6 +887,13 @@ static void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
       debugPauseStoreResults(req, true);  // pause before
       AREQ_StoreResults(req, state.results, rc, cv, limit);
       debugPauseStoreResults(req, false); // pause after
+
+      // Signal completion AFTER results are stored so the main-thread timeout
+      // callback waiting in AREQ_WaitForAggregateResultsComplete observes a
+      // consistent `hasStoredResults == true` when it wakes up.
+      if (req->syncCtx.requiresAggregateResultsSync) {
+        AREQ_SignalAggregateResultsComplete(req);
+      }
 
       // Destroy unused SearchResult
       SearchResult_Destroy(&r);

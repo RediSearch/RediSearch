@@ -1092,6 +1092,74 @@ class TestCoordinatorTimeout:
         env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
         env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy)
 
+    def test_return_strict_timeout_at_rpnet_start_sync_point_aggregate(self):
+        """RETURN_STRICT timeout while BG is parked just before the rpnetNext_Start
+        iterator dispatch.
+
+        Uses the BeforeRPNetStart sync point to deterministically race the
+        main-thread timeout callback against a BG worker that has already won
+        TryClaim but not yet dispatched to the shards. Because BG owns the
+        claim, the main-thread callback loses TryClaim and falls through to
+        AREQ_WaitForAggregateResultsComplete. BG breaks out of the sync point's
+        interruptible wait as soon as the callback flips the timedOut flag,
+        observes AREQ_TimedOut in rpnetNext_Start, returns RS_RESULT_TIMEDOUT
+        without ever dispatching the iterator, and signals completion so the
+        callback can reply with empty results + TIMEOUT warning.
+        """
+        env = self.env
+
+        prev_on_timeout_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
+        env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'return-strict')
+
+        before_info = info_modules_to_dict(env)
+        base_warn_coord = int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_METRIC])
+
+        sync_point = 'BeforeRPNetStart'
+        env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
+        env.cmd(debug_cmd(), 'SYNC_POINT', 'ARM', sync_point)
+
+        query_result = []
+        t_query = threading.Thread(
+            target=call_and_store,
+            args=(env.cmd, ['FT.AGGREGATE', 'idx', '*'], query_result),
+            daemon=True
+        )
+        t_query.start()
+
+        # BG has already won TryClaim by the time it parks here.
+        wait_for_condition(
+            lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', sync_point) == 1, {}),
+            f'Timeout waiting for {sync_point} sync point'
+        )
+
+        # Fire the blocked-client timeout on the main thread. The callback loses
+        # TryClaim (BG owns it) and blocks in AREQ_WaitForAggregateResultsComplete.
+        # BG's SyncPoint_WaitTimeoutInterruptible breaks out on the timedOut flag,
+        # returns RS_RESULT_TIMEDOUT without dispatching, and signals completion
+        # so the callback wakes and replies.
+        blocked_client_id = wait_for_blocked_query_client(env, 'FT.AGGREGATE')
+        env.cmd('CLIENT', 'UNBLOCK', blocked_client_id, 'TIMEOUT')
+        wait_for_client_unblocked(env, blocked_client_id)
+
+        t_query.join(timeout=10)
+        env.assertFalse(t_query.is_alive(), message="Query thread should have finished")
+
+        env.assertEqual(len(query_result), 1, message="Expected 1 result from query thread")
+        result = query_result[0]
+        env.assertEqual(result['total_results'], 0, message="Expected 0 results")
+        env.assertEqual(result.get('results', []), [],
+                        message=f"Expected no rows, got {result.get('results')}")
+        env.assertEqual(result.get('warning', []), [TIMEOUT_WARNING])
+
+        after_info = info_modules_to_dict(env)
+        env.assertEqual(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_METRIC],
+                        str(base_warn_coord + 1),
+                        message="Coordinator timeout warning should be +1")
+        _verify_metrics_not_changed(env, env, before_info, [TIMEOUT_WARNING_COORD_METRIC])
+
+        env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
+        env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy)
+
     def test_return_strict_timeout_one_shard_paused_aggregate(self):
         """RETURN_STRICT timeout while one shard process is suspended.
 
