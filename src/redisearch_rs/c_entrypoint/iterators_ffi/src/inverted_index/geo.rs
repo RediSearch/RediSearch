@@ -60,7 +60,7 @@ pub unsafe extern "C" fn NewGeoRangeIterator(
     let min_union_iter_heap = unsafe { (*config).minUnionIterHeap } as usize;
 
     // SAFETY: caller upholds requirements 1–3.
-    let Some(groups) = (unsafe { new_geo_range_iterator(sctx, geo, &field_ctx, compress) }) else {
+    let Ok(groups) = (unsafe { new_geo_range_iterator(sctx, geo, &field_ctx, compress) }) else {
         return ptr::null_mut();
     };
 

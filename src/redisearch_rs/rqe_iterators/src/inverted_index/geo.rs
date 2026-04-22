@@ -18,11 +18,34 @@ use inverted_index::NumericFilter;
 
 use crate::{NumericIteratorVariant, open_numeric_or_geo_index};
 
+/// Error returned by [`build_geo_numeric_filters`] when the caller supplies out-of-range
+/// coordinates or a non-positive radius.
+#[derive(Debug)]
+pub struct InvalidGeoInput;
+
+/// Errors returned by [`new_geo_range_iterator`].
+#[derive(Debug)]
+pub enum GeoRangeError {
+    /// The caller supplied out-of-range coordinates or a non-positive radius.
+    InvalidInput,
+    /// The geo field index has not been created yet.
+    IndexNotFound,
+    /// The query matched no entries in the index.
+    NoMatchingEntries,
+}
+
+impl From<InvalidGeoInput> for GeoRangeError {
+    fn from(_: InvalidGeoInput) -> Self {
+        GeoRangeError::InvalidInput
+    }
+}
+
 /// Validates `gf`'s parameters, computes the geohash ranges covering the requested circle,
 /// allocates a per-range [`NumericFilter`] for each non-trivial range, stores all of them in
 /// `gf.numericFilters`, and returns references to the non-trivial filters.
 ///
-/// Returns `None` if `gf`'s parameters are invalid (bad radius, lat, or lon).
+/// Returns [`Err(InvalidGeoInput)`](InvalidGeoInput) if `gf`'s parameters are invalid (bad
+/// radius, lat, or lon).
 ///
 /// The returned references are valid for `'index` because the filters are owned by
 /// `gf.numericFilters`, which lives as long as `gf`.
@@ -34,14 +57,14 @@ use crate::{NumericIteratorVariant, open_numeric_or_geo_index};
 ///    to `*gf` and must be released by `GeoFilter_Free`.
 pub unsafe fn build_geo_numeric_filters<'index>(
     gf: &'index mut GeoFilter,
-) -> Option<Vec<&'index NumericFilter>> {
+) -> Result<Vec<&'index NumericFilter>, InvalidGeoInput> {
     if gf.radius <= 0.0
         || gf.lon > f64::from(GEO_LONG_MAX)
         || gf.lon < f64::from(GEO_LONG_MIN)
         || gf.lat > GEO_LAT_MAX
         || gf.lat < GEO_LAT_MIN
     {
-        return None;
+        return Err(InvalidGeoInput);
     }
 
     let radius_meters = gf.radius * extract_geo_unit_factor(gf.unitType);
@@ -79,7 +102,7 @@ pub unsafe fn build_geo_numeric_filters<'index>(
         // SAFETY: filt_ptr is exclusively owned and lives for 'index (stored in gf).
         filters.push(unsafe { &*filt_ptr });
     }
-    Some(filters)
+    Ok(filters)
 }
 
 /// Creates per-range iterators for all geo-encoded index entries within the radius in `gf`.
@@ -90,7 +113,11 @@ pub unsafe fn build_geo_numeric_filters<'index>(
 /// associate each [`NumericIteratorVariant`] with its [`NumericFilter`] (needed by C profiling;
 /// see the `C-Code:` comment in `NewGeoRangeIterator`).
 ///
-/// Returns `None` if the parameters are invalid or the index hasn't been created yet.
+/// Returns:
+/// - `Err(`[`GeoRangeError::InvalidInput`]`)` if `gf`'s parameters are invalid.
+/// - `Err(`[`GeoRangeError::IndexNotFound`]`)` if the geo field index hasn't been created yet.
+/// - `Err(`[`GeoRangeError::NoMatchingEntries`]`)` if no entries matched the query.
+/// - `Ok(_)` on success.
 ///
 /// # Safety
 ///
@@ -106,7 +133,7 @@ pub unsafe fn new_geo_range_iterator<'index>(
     gf: &'index mut GeoFilter,
     field_ctx: &FieldFilterContext,
     numeric_compress: bool,
-) -> Option<Vec<(NonNull<NumericFilter>, Vec<NumericIteratorVariant<'index>>)>> {
+) -> Result<Vec<(NonNull<NumericFilter>, Vec<NumericIteratorVariant<'index>>)>, GeoRangeError> {
     // Read fieldSpec before the mutable borrow in build_geo_numeric_filters.
     // SAFETY: 2. guarantees gf.fieldSpec is valid and non-null.
     let fs = unsafe { &mut *(gf.fieldSpec as *mut ffi::FieldSpec) };
@@ -120,7 +147,10 @@ pub unsafe fn new_geo_range_iterator<'index>(
     // SAFETY: 1. guarantees sctx.spec is valid and non-null.
     let spec = unsafe { &mut *sctx_ref.spec };
     // SAFETY: 1–2.
-    let tree = unsafe { open_numeric_or_geo_index(spec, fs, false, numeric_compress)? };
+    let Some(tree) = (unsafe { open_numeric_or_geo_index(spec, fs, false, numeric_compress) })
+    else {
+        return Err(GeoRangeError::IndexNotFound);
+    };
 
     let mut groups: Vec<(NonNull<NumericFilter>, Vec<NumericIteratorVariant<'index>>)> = Vec::new();
     for filter in filters {
@@ -132,9 +162,9 @@ pub unsafe fn new_geo_range_iterator<'index>(
         }
     }
     if groups.is_empty() {
-        None
+        Err(GeoRangeError::NoMatchingEntries)
     } else {
-        Some(groups)
+        Ok(groups)
     }
 }
 
