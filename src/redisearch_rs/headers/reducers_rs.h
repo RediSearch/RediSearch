@@ -62,8 +62,13 @@ void *collectNewInstance(Reducer *r);
 void collectFreeInstance(Reducer *_r, void *ctx);
 
 /**
- * Processes the provided [`ffi::RLookupRow`] with the collect reducer
- * instance.
+ * Shard-style `Add`: reads each configured field / sort key from an
+ * [`ffi::RLookupRow`] and forwards to [`CollectCtx::insert_entry`].
+ *
+ * This is the sole `Add` entry point for the standalone path (Task 1.3).
+ * The coordinator path (Deliverable 2) will introduce a separate
+ * `collectAddCoordinator` that consumes an already-materialised shard
+ * response and funnels into the same [`CollectCtx::insert_entry`] helper.
  *
  * # Safety
  *
@@ -73,7 +78,7 @@ void collectFreeInstance(Reducer *_r, void *ctx);
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-int collectAdd(Reducer *r, void *ctx, const RLookupRow *srcrow);
+int collectAddShard(Reducer *r, void *ctx, const RLookupRow *srcrow);
 
 /**
  * Finalizes the collect reducer instance result into an `RSValue`.
