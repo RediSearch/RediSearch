@@ -236,6 +236,18 @@ void SyncPoint_Wait(const char *name) {
   atomic_fetch_sub(&sp->waiting, 1);  // Decrement waiting counter
 }
 
+void SyncPoint_WaitUntil(const char *name, SyncPointStopFn stop_fn, void *arg) {
+  SyncPointState *sp = SyncPoint_FindByName(name);
+  if (!sp || !atomic_load(&sp->armed)) return;
+
+  atomic_fetch_add(&sp->waiting, 1);
+  while (atomic_load(&sp->armed)) {
+    if (stop_fn && stop_fn(arg)) break;
+    usleep(1000);
+  }
+  atomic_fetch_sub(&sp->waiting, 1);
+}
+
 // Global hybrid store cursors debug context (for HREQ cursor storage only)
 static HybridStoreCursorsDebugCtx globalHybridStoreCursorsDebugCtx = {0};
 

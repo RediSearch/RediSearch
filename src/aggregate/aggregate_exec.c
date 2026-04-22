@@ -350,6 +350,12 @@ static void startPipeline(AREQ *req, ResultProcessor *rp, SearchResult ***result
 }
 
 #ifdef ENABLE_ASSERT
+// SyncPoint stop predicate: break out of a sync-point wait when the request
+// has been flagged as timed out on the main thread.
+static bool areq_timed_out(void *arg) {
+  return AREQ_TimedOut((AREQ *)arg);
+}
+
 // Helper function to pause before/after store results (for testing timeout during store)
 static inline void debugPauseStoreResults(AREQ *req, bool before) {
   bool enabled = before ? StoreResultsDebugCtx_IsPauseBeforeEnabled()
@@ -1712,6 +1718,19 @@ static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num) {
   }
   req->cursorConfig.chunkSize = num;
 
+#ifdef ENABLE_ASSERT
+  // Sync point (debug): pause on the coord+FAIL worker path just before driving
+  // the pipeline, so a test can deterministically fire the blocked-client
+  // timeout callback on the main thread while this worker is "in flight".
+  // Break out of the wait loop if the request is flagged as timed-out so the
+  // worker can proceed to release the cursor without waiting for an explicit
+  // SIGNAL (mirrors debugPauseStoreResults).
+  if (req->useReplyCallback) {
+    SyncPoint_WaitUntil(SYNC_POINT_BEFORE_CURSOR_READ_SEND_CHUNK,
+                        areq_timed_out, req);
+  }
+#endif
+
   sendChunk(req, reply, num);
   RedisSearchCtx_UnlockSpec(AREQ_SearchCtx(req)); // Verify that we release the spec lock
 
@@ -1768,15 +1787,17 @@ static void cursorRead(RedisModuleCtx *ctx, Cursor *cursor, size_t count, bool b
     execution_ref = IndexSpecRef_Promote(cursor->spec_ref);
     if (!StrongRef_Get(execution_ref)) {
       // The index was dropped while the cursor was idle.
-      // Capture the AREQ before Cursor_Free (which DecrRefs it). On the coord
-      // FAIL path the CoordRequestCtx still holds a ref (taken by
-      // CoordRequestCtx_SetRequest in RSCursorReadCommand), so the AREQ
-      // outlives this call and the error is emitted by the reply callback.
+      // Order matters: emit the error via AREQ_ReplyOrStoreError *before*
+      // Cursor_Free. The cursor owns one AREQ ref (set in AREQ_StartCursor,
+      // released by Cursor_FreeInternal), and only the coord+FAIL path takes
+      // an extra ref via CoordRequestCtx_SetRequest. On the other paths
+      // (standalone, coord+RETURN, worker-pool) the cursor holds the only
+      // ref, so freeing it first would turn the subsequent dereference of
+      // req->useReplyCallback inside AREQ_ReplyOrStoreError into a UAF.
       AREQ *req_local = cursor->execState;
       // execState is NULL only for the merged hybrid cursor created by
       // HybridRequest_StartSingleCursor. All other cursor creators set it.
       RS_ASSERT(req_local || cursor->hybrid_ref.rm);
-      Cursor_Free(cursor);
       if (req_local) {
         QueryError err = QueryError_Default();
         QueryError_SetWithoutUserDataFmt(&err, QUERY_ERROR_CODE_DROPPED_BACKGROUND,
@@ -1786,6 +1807,7 @@ static void cursorRead(RedisModuleCtx *ctx, Cursor *cursor, size_t count, bool b
         // Merged hybrid cursor: no AREQ on the cursor, reply inline via ctx.
         RedisModule_ReplyWithError(ctx, "The index was dropped while the cursor was idle");
       }
+      Cursor_Free(cursor);
       return;
     }
 
@@ -1907,10 +1929,12 @@ int RSCursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
       // race with us reading/updating the AREQ.
       CoordRequestCtx_LockSetRequest(reqCtx);
       if (CoordRequestCtx_TimedOut(reqCtx)) {
-        // Timeout callback already ran and replied. Return the cursor to idle
-        // so a later CURSOR DEL (or the idle GC) reclaims it, and bail.
+        // Timeout callback already ran and replied. FAIL policy: the cursor
+        // must not survive the timeout, so free it instead of returning it
+        // to idle (otherwise a subsequent FT.CURSOR READ would keep draining
+        // buffered rows and mask the timeout from the client).
         CoordRequestCtx_UnlockSetRequest(reqCtx);
-        Cursor_Pause(cursor);
+        Cursor_Free(cursor);
         return REDISMODULE_OK;
       }
       // Attach the AREQ to the ctx: IncrRefs, and propagates useReplyCallback
