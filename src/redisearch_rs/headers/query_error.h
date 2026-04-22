@@ -229,6 +229,10 @@ uint8_t QueryError_CodeMaxValue(void);
 /**
  * Returns a [`QueryErrorCode`] given an error message.
  *
+ * Matches the message by its prefix (e.g., `"SEARCH_TIMEOUT "`) rather than
+ * exact equality, so that custom messages like `"SEARCH_TIMEOUT Depleting
+ * timed out"` are correctly classified.
+ *
  * This only supports the query error codes [`QueryErrorCode::TimedOut`],
  * [`QueryErrorCode::OutOfMemory`], and [`QueryErrorCode::UnavailableSlots`].
  * If another message is provided, [`QueryErrorCode::Generic`] is returned.

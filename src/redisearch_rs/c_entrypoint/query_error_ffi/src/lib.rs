@@ -107,6 +107,10 @@ pub const extern "C" fn QueryError_CodeMaxValue() -> u8 {
 
 /// Returns a [`QueryErrorCode`] given an error message.
 ///
+/// Matches the message by its prefix (e.g., `"SEARCH_TIMEOUT "`) rather than
+/// exact equality, so that custom messages like `"SEARCH_TIMEOUT Depleting
+/// timed out"` are correctly classified.
+///
 /// This only supports the query error codes [`QueryErrorCode::TimedOut`],
 /// [`QueryErrorCode::OutOfMemory`], and [`QueryErrorCode::UnavailableSlots`].
 /// If another message is provided, [`QueryErrorCode::Generic`] is returned.
@@ -117,18 +121,18 @@ pub const extern "C" fn QueryError_CodeMaxValue() -> u8 {
 /// - `message` must be a valid C string or a NULL pointer.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn QueryError_GetCodeFromMessage(message: *const c_char) -> QueryErrorCode {
-    const TIMED_OUT_ERROR_CSTR: &CStr = QueryErrorCode::TimedOut.to_c_str();
-    const OUT_OF_MEMORY_ERROR_CSTR: &CStr = QueryErrorCode::OutOfMemory.to_c_str();
-    const UNAVAILABLE_SLOTS_ERROR_CSTR: &CStr = QueryErrorCode::UnavailableSlots.to_c_str();
+    const TIMED_OUT_PREFIX: &[u8] = QueryErrorCode::TimedOut.prefix_c_str().to_bytes();
+    const OUT_OF_MEMORY_PREFIX: &[u8] = QueryErrorCode::OutOfMemory.prefix_c_str().to_bytes();
+    const UNAVAILABLE_SLOTS_PREFIX: &[u8] = QueryErrorCode::UnavailableSlots.prefix_c_str().to_bytes();
 
     // Safety: see safety requirement above.
-    let message = unsafe { CStr::from_ptr(message) };
+    let message = unsafe { CStr::from_ptr(message) }.to_bytes();
 
-    if message == TIMED_OUT_ERROR_CSTR {
+    if message.starts_with(TIMED_OUT_PREFIX) {
         QueryErrorCode::TimedOut
-    } else if message == OUT_OF_MEMORY_ERROR_CSTR {
+    } else if message.starts_with(OUT_OF_MEMORY_PREFIX) {
         QueryErrorCode::OutOfMemory
-    } else if message == UNAVAILABLE_SLOTS_ERROR_CSTR {
+    } else if message.starts_with(UNAVAILABLE_SLOTS_PREFIX) {
         QueryErrorCode::UnavailableSlots
     } else {
         QueryErrorCode::Generic

@@ -3763,7 +3763,8 @@ int DistHybridCommandInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int
     }
     // Assuming OOM policy is return since we didn't ignore the memory guardrail
     RS_ASSERT(RSGlobalConfig.requestConfigParams.oomPolicy == OomPolicy_Return);
-    return common_hybrid_query_reply_empty(ctx, QUERY_ERROR_CODE_OUT_OF_MEMORY, false, false);
+    bool isProfile = (RMUtil_ArgIndex("FT.PROFILE", argv, 1) != -1);
+    return common_hybrid_query_reply_empty(ctx, QUERY_ERROR_CODE_OUT_OF_MEMORY, false, isProfile);
   }
 
   // Coord callback

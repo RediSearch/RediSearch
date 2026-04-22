@@ -291,6 +291,12 @@ bool ProcessHybridCursorMappings(const MRCommand *cmd, StrongRef searchMappingsR
                 // qctx->err. The timeout will propagate through cursor reads (RPNet
                 // detects it from the depleter's last_rc), and replyWarningsWithSuffixes
                 // emits the properly-suffixed warning (e.g., "(SEARCH)" / "(VSIM)").
+            } else if (QueryError_GetCode(&ctx->errors[i]) == QUERY_ERROR_CODE_TIMED_OUT) {
+                // FAIL policy: forward the standard timeout error directly,
+                // matching the standalone path which uses QueryError_Strerror().
+                QueryError_SetCode(status, QUERY_ERROR_CODE_TIMED_OUT);
+                success = false;
+                break;
             } else {
                 QueryError_SetWithoutUserDataFmt(status, QueryError_GetCode(&ctx->errors[i]), "Failed to process shard responses, first error: %s, total error count: %zu",
                     QueryError_GetUserError(&ctx->errors[i]), array_len(ctx->errors));
