@@ -590,6 +590,79 @@ def testLastFieldNoExpiration(env):
     env.expect('FT.SEARCH', 'idx', 'hello', 'NOCONTENT').apply(sort_document_names).equal([2, 'doc:1', 'doc:2'])
 
 
+@skip(cluster=True, redis_less_than='7.4')
+def testWideSchemaFieldExpiration(env):
+    # Indexes with >32 text fields are auto-promoted to wide schema encoding,
+    # so free-text search dispatches TTL checks through
+    # TimeToLiveTable_VerifyDocAndWideFieldMask. Using fields above bit 64
+    # also exercises the fieldMask64[1] (high-half) loop iteration.
+    conn = getConnectionByEnv(env)
+    conn.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '0')
+
+    N_FIELDS = 70
+    schema = list(chain.from_iterable((f'f{i}', 'TEXT') for i in range(N_FIELDS)))
+    conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', *schema)
+
+    # doc:plain   — no TTL record → dictFind miss, early `return true`.
+    # doc:short   — one expired field; query mask has 70 bits so
+    #               fieldWithExpirationCount (1) < fieldCount (70) under DEFAULT
+    #               short-circuits to `return true` before the bitscan loop.
+    hello_kv = list(chain.from_iterable((f'f{i}', 'hello') for i in range(N_FIELDS)))
+    conn.execute_command('HSET', 'doc:plain', *hello_kv)
+    conn.execute_command('HSET', 'doc:short', *hello_kv)
+    conn.execute_command('HPEXPIRE', 'doc:short', '1', 'FIELDS', '1', 'f5')
+
+    # doc:scan — 'needle' only in f3 and f67, and both are expired. The term's
+    # field mask therefore has exactly 2 bits (one per half of fieldMask64[]),
+    # matching fieldWithExpirationCount, so no short-circuit. The bitscan loop
+    # runs across both halves, finds both matches expired under DEFAULT, and
+    # filters the doc.
+    kv_scan = list(chain.from_iterable(
+        (f'f{i}', 'needle' if i in (3, 67) else 'filler') for i in range(N_FIELDS)))
+    conn.execute_command('HSET', 'doc:scan', *kv_scan)
+    conn.execute_command('HPEXPIRE', 'doc:scan', '1', 'FIELDS', '2', 'f3', 'f67')
+
+    # doc:docexp — document-level EXPIRE only creates a TTL entry with empty
+    # fieldExpirations, triggering the `fieldWithExpirationCount == 0 → true`
+    # branch of the wide mask function.
+    conn.execute_command('HSET', 'doc:docexp', *hello_kv)
+    conn.execute_command('EXPIRE', 'doc:docexp', '30000')
+
+    # doc:lowexp — unique token 'tophalf' only in f67; a single expiration on
+    # f5 (low half). Free-text 'tophalf' has fieldCount=1 in the high half, so
+    # the low-half loop is skipped, and the high-half loop must advance past
+    # f5 before exhausting expirations — exercising the `goto end` exit.
+    kv_lowexp = list(chain.from_iterable(
+        (f'f{i}', 'tophalf' if i == 67 else 'other') for i in range(N_FIELDS)))
+    conn.execute_command('HSET', 'doc:lowexp', *kv_lowexp)
+    conn.execute_command('HPEXPIRE', 'doc:lowexp', '1', 'FIELDS', '1', 'f5')
+
+    # doc:below — unique token 'below' only in f3, single expiration on a
+    # higher-index field (f50). fieldCount (1) equals fieldWithExpirationCount
+    # (1) so no short-circuit; the loop then finds f3 < f50 and hits the
+    # `fieldIndexToCheck < expirations[cur].index → continue` branch.
+    kv_below = list(chain.from_iterable(
+        (f'f{i}', 'below' if i == 3 else 'other') for i in range(N_FIELDS)))
+    conn.execute_command('HSET', 'doc:below', *kv_below)
+    conn.execute_command('HPEXPIRE', 'doc:below', '1', 'FIELDS', '1', 'f50')
+
+    # doc:live — unique token 'alive' in f3, expiration far in the future
+    # exercises the `!expired && DEFAULT → return true` in-loop branch.
+    kv_live = list(chain.from_iterable(
+        (f'f{i}', 'alive' if i == 3 else 'other') for i in range(N_FIELDS)))
+    conn.execute_command('HSET', 'doc:live', *kv_live)
+    conn.execute_command('HEXPIRE', 'doc:live', '30000', 'FIELDS', '1', 'f3')
+
+    time.sleep(0.02)
+
+    env.expect('FT.SEARCH', 'idx', 'hello', 'NOCONTENT').apply(sort_document_names) \
+        .equal([3, 'doc:docexp', 'doc:plain', 'doc:short'])
+    env.expect('FT.SEARCH', 'idx', 'needle', 'NOCONTENT').equal([0])
+    env.expect('FT.SEARCH', 'idx', 'tophalf', 'NOCONTENT').equal([1, 'doc:lowexp'])
+    env.expect('FT.SEARCH', 'idx', 'below', 'NOCONTENT').equal([1, 'doc:below'])
+    env.expect('FT.SEARCH', 'idx', 'alive', 'NOCONTENT').equal([1, 'doc:live'])
+
+
 def testDocWithLongExpiration(env):
     # We want to cover this snippet of code:
     # if (ttlEntry->fieldExpirations == NULL || array_len(ttlEntry->fieldExpirations) == 0) {
