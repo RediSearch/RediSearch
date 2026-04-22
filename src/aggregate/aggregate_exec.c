@@ -36,6 +36,8 @@
 #include "search_disk.h"
 #include "search_disk_utils.h"
 #include "iterators_rs.h"
+
+#include <stdarg.h>
 #include "coord/coord_request_ctx.h"
 
 // Multi threading data structure for background query execution.
@@ -1862,16 +1864,58 @@ static void cursorRead_ctx(CursorReadCtx *cr_ctx) {
   rm_free(cr_ctx);
 }
 
+// Helper for RSCursorReadCommand early-error replies.
+// On the coord+FAIL path (upstream blocked client with reply_callback armed),
+// stores the error on CoordRequestCtx->preRequestError so
+// DistAggregateReplyCallback emits it on the main thread, and returns
+// REDISMODULE_OK. Otherwise returns -1 - caller must fall back to the
+// existing inline reply API unchanged.
+//
+// Applied defensively at every early-return site (including ones CursorCommand
+// currently pre-validates), so this worker never touches the regular Reply
+// API while a reply_callback is armed, irrespective of upstream changes.
+static int RSCursorRead_tryStoreEarlyError(RedisModuleCtx *ctx, QueryErrorCode code,
+                                           const char *fmt, ...) {
+  RedisModuleBlockedClient *upstreamBC = RedisModule_GetBlockedClientHandle(ctx);
+  CoordRequestCtx *reqCtx = upstreamBC
+      ? (CoordRequestCtx *)RedisModule_BlockClientGetPrivateData(upstreamBC)
+      : NULL;
+  if (!reqCtx || !reqCtx->useReplyCallback) return -1;
+
+  char buf[512];
+  va_list ap;
+  va_start(ap, fmt);
+  vsnprintf(buf, sizeof(buf), fmt, ap);
+  va_end(ap);
+
+  QueryError err = QueryError_Default();
+  QueryError_SetError(&err, code, buf);
+  CoordRequestCtx_ReplyOrStoreError(reqCtx, ctx, &err);
+  return REDISMODULE_OK;
+}
+
 /**
  * FT.CURSOR READ {index} {CID} {COUNT} [MAXIDLE]
  */
 int RSCursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (argc < 4) {
+    // Shouldn't happen on the coord path: CursorCommand rejects argc<4 on the
+    // main thread before arming a reply_callback. Handled defensively so the
+    // worker never uses the regular Reply API while a reply_callback is armed,
+    // in case upstream pre-validation ever changes.
+    int rc = RSCursorRead_tryStoreEarlyError(ctx, QUERY_ERROR_CODE_PARSE_ARGS,
+        "wrong number of arguments for 'FT.CURSOR|READ'");
+    if (rc == REDISMODULE_OK) return rc;
     return RedisModule_WrongArity(ctx);
   }
 
   long long cid;
   if (RedisModule_StringToLongLong(argv[3], &cid) != REDISMODULE_OK) {
+    // Unreachable on the coord path: CursorCommand rejects a malformed cid on
+    // the main thread before arming reply_callback. Handled defensively in case
+    // upstream pre-validation ever changes.
+    int rc = RSCursorRead_tryStoreEarlyError(ctx, QUERY_ERROR_CODE_PARSE_ARGS, "Bad cursor ID");
+    if (rc == REDISMODULE_OK) return rc;
     return RedisModule_ReplyWithError(ctx, "Bad cursor ID");
   }
 
@@ -1881,17 +1925,27 @@ int RSCursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     // Verify that the 4'th argument is `COUNT`.
     const char *count_str = RedisModule_StringPtrLen(argv[4], NULL);
     if (strcasecmp(count_str, "count") != 0) {
+      int rc = RSCursorRead_tryStoreEarlyError(ctx, QUERY_ERROR_CODE_ARG_UNRECOGNIZED,
+          "Unknown argument `%s`", count_str);
+      if (rc == REDISMODULE_OK) return rc;
       return RedisModule_ReplyWithErrorFormat(ctx, "Unknown argument `%s`", count_str);
     }
 
     if (RedisModule_StringToLongLong(argv[5], &count) != REDISMODULE_OK) {
-      return RedisModule_ReplyWithErrorFormat(ctx, "Bad value for COUNT: `%s`", RedisModule_StringPtrLen(argv[5], NULL));
+      const char *bad = RedisModule_StringPtrLen(argv[5], NULL);
+      int rc = RSCursorRead_tryStoreEarlyError(ctx, QUERY_ERROR_CODE_PARSE_ARGS,
+          "Bad value for COUNT: `%s`", bad);
+      if (rc == REDISMODULE_OK) return rc;
+      return RedisModule_ReplyWithErrorFormat(ctx, "Bad value for COUNT: `%s`", bad);
     }
   }
 
   Cursor *cursor = Cursors_TakeForExecution(GetGlobalCursor(cid), cid);
   if (cursor == NULL) {
-    return RedisModule_ReplyWithErrorFormat(ctx, "Cursor not found, id: %d", cid);
+    int rc = RSCursorRead_tryStoreEarlyError(ctx, QUERY_ERROR_CODE_GENERIC,
+        "Cursor not found, id: %lld", cid);
+    if (rc == REDISMODULE_OK) return rc;
+    return RedisModule_ReplyWithErrorFormat(ctx, "Cursor not found, id: %lld", cid);
   }
 
   // Check if we are already blocked from elsewhere (e.g. coordinator CursorCommand).

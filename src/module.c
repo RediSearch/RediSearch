@@ -3875,23 +3875,27 @@ static inline int CursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, i
   // configuration (sticky per-cursor) from the idle cursor without taking
   // ownership. Reading from the cursor rather than live RSGlobalConfig keeps
   // coord and shard aligned on the same policy for the lifetime of the cursor,
-  // even across `CONFIG SET search-on-timeout`. A bogus CID peeks default
-  // values (timeoutMS=0, policy=Return) and will be caught and reported by
-  // RSCursorReadCommand on the worker thread.
+  // even across `CONFIG SET search-on-timeout`. A valid-format CID that is not
+  // registered peeks default values (timeoutMS=0, policy=Return) and will be
+  // caught and reported by RSCursorReadCommand on the worker thread.
   if (sub == CURSOR_SUBCMD_READ) {
     long long cid;
-    if (RedisModule_StringToLongLong(argv[3], &cid) == REDISMODULE_OK) {
-      CursorTimeoutInfo info =
-          Cursors_PeekTimeoutInfo(GetGlobalCursor((uint64_t)cid), (uint64_t)cid);
-      if (info.queryTimeoutPolicy == TimeoutPolicy_Fail) {
-        CoordRequestCtx *reqCtx = CoordRequestCtx_New(COMMAND_AGGREGATE);
-        handlerCtx.bcCtx.privdata = reqCtx;
-        handlerCtx.bcCtx.free_privdata = DistCoordReqFreePrivData;
-        handlerCtx.bcCtx.reply_callback = DistAggregateReplyCallback;
-        handlerCtx.bcCtx.timeout_callback = DistAggregateTimeoutFailClient;
-        handlerCtx.bcCtx.timeoutMS = info.queryTimeoutMS;
-        CoordRequestCtx_SetUseReplyCallback(reqCtx, true);
-      }
+    if (RedisModule_StringToLongLong(argv[3], &cid) != REDISMODULE_OK) {
+      // Reject a malformed CID on the main thread, before any dispatch. This
+      // parallels the argc<4 bail above and keeps the worker from ever hitting
+      // the "Bad cursor ID" path with a reply_callback armed.
+      return RedisModule_ReplyWithError(ctx, "Bad cursor ID");
+    }
+    CursorTimeoutInfo info =
+        Cursors_PeekTimeoutInfo(GetGlobalCursor((uint64_t)cid), (uint64_t)cid);
+    if (info.queryTimeoutPolicy == TimeoutPolicy_Fail) {
+      CoordRequestCtx *reqCtx = CoordRequestCtx_New(COMMAND_AGGREGATE);
+      handlerCtx.bcCtx.privdata = reqCtx;
+      handlerCtx.bcCtx.free_privdata = DistCoordReqFreePrivData;
+      handlerCtx.bcCtx.reply_callback = DistAggregateReplyCallback;
+      handlerCtx.bcCtx.timeout_callback = DistAggregateTimeoutFailClient;
+      handlerCtx.bcCtx.timeoutMS = info.queryTimeoutMS;
+      CoordRequestCtx_SetUseReplyCallback(reqCtx, true);
     }
   }
 
