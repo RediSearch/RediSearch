@@ -9,6 +9,7 @@
 
 #include "union_iterator.h"
 #include "iterators_rs.h"
+#include "util/likely.h"
 
 static inline int cmpLastDocId(const void *e1, const void *e2, const void *udata) {
   const QueryIterator *it1 = e1, *it2 = e2;
@@ -104,7 +105,7 @@ static inline void UI_QuickSet(UnionIterator *ui, QueryIterator *match) {
 static inline IteratorStatus UI_Skip_Full_Flat(QueryIterator *base, const t_docId nextId) {
   RS_ASSERT(base->lastDocId < nextId);
   UnionIterator *ui = (UnionIterator *)base;
-  if (base->atEOF) {
+  if (unlikely(base->atEOF)) {
     return ITERATOR_EOF;
   }
   t_docId minId = DOCID_MAX;
@@ -113,11 +114,11 @@ static inline IteratorStatus UI_Skip_Full_Flat(QueryIterator *base, const t_docI
     QueryIterator *cur = ui->its[i];
     if (cur->lastDocId < nextId) {
       IteratorStatus rc = cur->SkipTo(cur, nextId);
-      if (rc == ITERATOR_OK) {
+      if (likely(rc == ITERATOR_OK)) {
         UI_AddChild(ui, cur);
       } else if (rc == ITERATOR_NOTFOUND) {
         // No match. Finish the loop iteration normally
-      } else if (rc == ITERATOR_EOF) {
+      } else if (unlikely(rc == ITERATOR_EOF)) {
         UI_RemoveExhausted(ui, i);
         i--;
         continue;
@@ -151,7 +152,7 @@ static inline IteratorStatus UI_Skip_Full_Flat(QueryIterator *base, const t_docI
 // In full mode, we should never have child iterators lagging behind the union's last result
 static inline IteratorStatus UI_Read_Full_Flat(QueryIterator *base) {
   UnionIterator *ui = (UnionIterator *)base;
-  if (base->atEOF) {
+  if (unlikely(base->atEOF)) {
     return ITERATOR_EOF;
   }
   const t_docId lastId = ui->base.lastDocId;
@@ -163,9 +164,9 @@ static inline IteratorStatus UI_Read_Full_Flat(QueryIterator *base) {
       "When reading in full mode, we should never have children behind the union last result");
     if (cur->lastDocId == lastId) {
       IteratorStatus rc = cur->Read(cur);
-      if (rc == ITERATOR_OK) {
+      if (likely(rc == ITERATOR_OK)) {
         // Finish the loop iteration normally
-      } else if (rc == ITERATOR_EOF) {
+      } else if (unlikely(rc == ITERATOR_EOF)) {
         UI_RemoveExhausted(ui, i);
         i--;
         continue;
@@ -190,7 +191,7 @@ static inline IteratorStatus UI_Read_Full_Flat(QueryIterator *base) {
 static inline IteratorStatus UI_Skip_Quick_Flat(QueryIterator *base, const t_docId nextId) {
   RS_ASSERT(base->lastDocId < nextId);
   UnionIterator *ui = (UnionIterator *)base;
-  if (base->atEOF) {
+  if (unlikely(base->atEOF)) {
     return ITERATOR_EOF;
   }
   t_docId minId = DOCID_MAX;
@@ -257,7 +258,7 @@ static inline IteratorStatus UI_Read_Quick_Flat(QueryIterator *base) {
 static inline IteratorStatus UI_Skip_Full_Heap(QueryIterator *base, const t_docId nextId) {
   RS_ASSERT(base->lastDocId < nextId);
   UnionIterator *ui = (UnionIterator *)base;
-  if (base->atEOF) {
+  if (unlikely(base->atEOF)) {
     return ITERATOR_EOF;
   }
   QueryIterator *cur;
@@ -265,9 +266,9 @@ static inline IteratorStatus UI_Skip_Full_Heap(QueryIterator *base, const t_docI
   IndexResult_ResetAggregate(ui->base.current);
   while ((cur = heap_peek(hp)) && cur->lastDocId < nextId) {
     IteratorStatus rc = cur->SkipTo(cur, nextId);
-    if (rc == ITERATOR_OK || rc == ITERATOR_NOTFOUND) {
+    if (likely(rc == ITERATOR_OK || rc == ITERATOR_NOTFOUND)) {
       heap_replace(hp, cur); // replace current iterator with itself to update its position
-    } else if (rc == ITERATOR_EOF) {
+    } else if (unlikely(rc == ITERATOR_EOF)) {
       heap_poll(hp);
     } else {
       return rc;
@@ -289,7 +290,7 @@ static inline IteratorStatus UI_Skip_Full_Heap(QueryIterator *base, const t_docI
 // So we only need a single read on each child that matched on the previous read/skip call.
 static inline IteratorStatus UI_Read_Full_Heap(QueryIterator *base) {
   UnionIterator *ui = (UnionIterator *)base;
-  if (base->atEOF) {
+  if (unlikely(base->atEOF)) {
     return ITERATOR_EOF;
   }
   QueryIterator *cur;
@@ -297,9 +298,9 @@ static inline IteratorStatus UI_Read_Full_Heap(QueryIterator *base) {
   IndexResult_ResetAggregate(ui->base.current);
   while ((cur = heap_peek(hp)) && cur->lastDocId == base->lastDocId) {
     IteratorStatus rc = cur->Read(cur);
-    if (rc == ITERATOR_OK) {
+    if (likely(rc == ITERATOR_OK)) {
       heap_replace(hp, cur); // replace current iterator with itself to update its position
-    } else if (rc == ITERATOR_EOF) {
+    } else if (unlikely(rc == ITERATOR_EOF)) {
       heap_poll(hp);
     } else {
       return rc;
@@ -324,7 +325,7 @@ static inline IteratorStatus UI_Read_Full_Heap(QueryIterator *base) {
 static inline IteratorStatus UI_Skip_Quick_Heap(QueryIterator *base, const t_docId nextId) {
   RS_ASSERT(base->lastDocId < nextId);
   UnionIterator *ui = (UnionIterator *)base;
-  if (base->atEOF) {
+  if (unlikely(base->atEOF)) {
     return ITERATOR_EOF;
   }
   QueryIterator *cur;
@@ -335,7 +336,7 @@ static inline IteratorStatus UI_Skip_Quick_Heap(QueryIterator *base, const t_doc
   // we already have a matching iterator, saving us from performing any `SkipTo` call, which may be expensive.
   while ((cur = heap_peek(hp)) && cur->lastDocId < nextId) {
     IteratorStatus rc = cur->SkipTo(cur, nextId);
-    if (rc == ITERATOR_OK) {
+    if (likely(rc == ITERATOR_OK)) {
       heap_replace(hp, cur); // replace current iterator with itself to update its position
       UI_QuickSet(ui, cur);
       return ITERATOR_OK;

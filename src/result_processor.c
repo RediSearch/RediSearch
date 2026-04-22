@@ -28,6 +28,7 @@
 #include "hybrid/hybrid_scoring.h"
 #include "hybrid/hybrid_search_result.h"
 #include "config.h"
+#include "util/likely.h"
 #include "module.h"
 #include "search_disk.h"
 #include "debug_commands.h"
@@ -91,18 +92,18 @@ static bool getDocumentMetadata(IndexSpec* spec, DocTable* docs, RedisSearchCtx 
     diskDmd->ref_count = 1;
     // Start from checking the deleted-ids (in memory), then perform IO
     const bool foundDocument = !SearchDisk_DocIdDeleted(spec->diskSpec, it->current->docId) && SearchDisk_GetDocumentMetadata(spec->diskSpec, it->current->docId, diskDmd, &sctx->time.current);
-    if (!foundDocument) {
+    if (unlikely(!foundDocument)) {
       DMD_Return(diskDmd);
       return false;
     }
     *dmd = diskDmd;
   } else {
-    if (it->current->dmd) {
+    if (likely(it->current->dmd != NULL)) {
       *dmd = it->current->dmd;
     } else {
       *dmd = DocTable_Borrow(docs, it->lastDocId);
     }
-    if (!*dmd || (*dmd)->flags & Document_Deleted || DocTable_IsDocExpired(docs, *dmd, &sctx->time.current)) {
+    if (unlikely(!*dmd || (*dmd)->flags & Document_Deleted || DocTable_IsDocExpired(docs, *dmd, &sctx->time.current))) {
       DMD_Return(*dmd);
       return false;
     }
@@ -132,15 +133,15 @@ static int refillBufferUsingIterator(RPQueryIterator *self) {
     }
 
     IteratorStatus rc = it->Read(it);
-    if (rc == ITERATOR_EOF) {
+    if (unlikely(rc == ITERATOR_EOF)) {
       break;
-    } else if (rc == ITERATOR_TIMEOUT) {
+    } else if (unlikely(rc == ITERATOR_TIMEOUT)) {
       return RS_RESULT_TIMEDOUT;
     }
 
     // Skip deleted documents (in-memory check, no IO)
     t_docId docId = it->current->docId;
-    if (SearchDisk_DocIdDeleted(spec->diskSpec, docId)) {
+    if (unlikely(SearchDisk_DocIdDeleted(spec->diskSpec, docId))) {
       continue;
     }
 
@@ -273,13 +274,15 @@ static int rpQueryItNext(ResultProcessor *base, SearchResult *res) {
 
     if (!needToValidateCurrent) {
       IteratorStatus rc = it->Read(it);
-      switch (rc) {
-      case ITERATOR_EOF:
-        return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_EOF);
-      case ITERATOR_TIMEOUT:
-        return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_TIMEDOUT);
-      default:
-        RS_ASSERT(rc == ITERATOR_OK);
+      if (unlikely(rc != ITERATOR_OK)) {
+        switch (rc) {
+        case ITERATOR_EOF:
+          return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_EOF);
+        case ITERATOR_TIMEOUT:
+          return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_TIMEDOUT);
+        default:
+          RS_ASSERT(rc == ITERATOR_OK);
+        }
       }
     }
 
@@ -287,7 +290,7 @@ static int rpQueryItNext(ResultProcessor *base, SearchResult *res) {
     needToValidateCurrent = false;
 
     // Get document metadata (either from disk or in-memory DocTable)
-    if (!getDocumentMetadata(spec, &spec->docs, sctx, it, &dmd)) {
+    if (unlikely(!getDocumentMetadata(spec, &spec->docs, sctx, it, &dmd))) {
       continue;
     }
 

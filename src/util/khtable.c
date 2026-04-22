@@ -10,6 +10,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "rmalloc.h"
+#include "likely.h"
 
 static uint32_t primes[] = {5ul,         11ul,        23ul,      47ul,       97ul,       199ul,
                             409ul,       823ul,       1741ul,    3469ul,     6949ul,     14033ul,
@@ -115,7 +116,7 @@ KHTableEntry *KHTable_GetEntry(KHTable *table, const void *s, size_t n, uint32_t
     }
     *isNew = 1;
     // Most likely case - no need for rehashing
-    if (++table->numItems != table->numBuckets) {
+    if (likely(++table->numItems != table->numBuckets)) {
       *bucket = table->procs.Alloc(table->alloc);
       (*bucket)->next = NULL;
       return *bucket;

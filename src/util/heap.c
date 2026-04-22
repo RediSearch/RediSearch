@@ -14,6 +14,7 @@
 
 #include "heap.h"
 #include "rmalloc.h"
+#include "likely.h"
 
 #define DEFAULT_CAPACITY 13
 
@@ -115,7 +116,7 @@ static void __pushdown(heap_t *h, unsigned int idx) {
     childl = __child_left(idx);
     childr = __child_right(idx);
 
-    if (childr >= h->count) {
+    if (unlikely(childr >= h->count)) {
       /* can't pushdown any further */
       if (childl >= h->count) return;
 
