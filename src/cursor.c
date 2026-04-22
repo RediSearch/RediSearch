@@ -322,7 +322,7 @@ CursorTimeoutInfo Cursors_PeekTimeoutInfo(CursorList *cl, uint64_t cid) {
   CursorList_IncrCounter(cl);
   khiter_t iter = kh_get(cursors, cl->lookup, cid);
   if (iter != kh_end(cl->lookup)) {
-    Cursor *cur = kh_value(cl->lookup, iter);
+    const Cursor *cur = kh_value(cl->lookup, iter);
     info.queryTimeoutMS = cur->queryTimeoutMS;
     info.queryTimeoutPolicy = cur->queryTimeoutPolicy;
   }
