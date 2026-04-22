@@ -386,6 +386,54 @@ fn num_children_active_respects_trim() {
 }
 
 // =============================================================================
+// intersection_sort_weight
+// =============================================================================
+
+/// When `prioritize_union_children` is false, weight is always 1.0.
+#[test]
+fn intersection_sort_weight_without_priority() {
+    let children = make_children(&[&[1], &[2], &[3], &[4]]);
+    let union = UnionTrimmed::new(children, usize::MAX, true);
+    assert_eq!(union.intersection_sort_weight(false), 1.0);
+}
+
+/// When `prioritize_union_children` is true, weight equals the active window
+/// size (not the total number of children).
+#[test]
+fn intersection_sort_weight_with_priority() {
+    // 5 children, trim keeps 3 → weight should be 3.0.
+    let children = make_children(&[&[1], &[2], &[3], &[4], &[5]]);
+    let union = UnionTrimmed::new(children, 1, true);
+    assert_eq!(union.num_children_active(), 3);
+    assert_eq!(union.intersection_sort_weight(true), 3.0);
+}
+
+/// Weight shrinks as children exhaust during reads.
+#[test]
+#[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
+fn intersection_sort_weight_decreases_after_reads() {
+    let children = make_children(&[&[1, 2], &[3, 4], &[5, 6]]);
+    let mut union = UnionTrimmed::new(children, usize::MAX, true);
+    assert_eq!(union.intersection_sort_weight(true), 3.0);
+
+    // Drain child[2] (2 docs) then child[1] starts.
+    union.read().unwrap(); // child[2] doc 5
+    union.read().unwrap(); // child[2] doc 6
+    union.read().unwrap(); // child[2] EOF → cursor moves to 1, reads child[1] doc 3
+    assert_eq!(union.intersection_sort_weight(true), 2.0);
+}
+
+/// At EOF, weight is 1.0.
+#[test]
+#[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
+fn intersection_sort_weight_at_eof() {
+    let children = make_children(&[&[1], &[2], &[3]]);
+    let mut union = UnionTrimmed::new(children, usize::MAX, true);
+    drain_doc_ids(&mut union);
+    assert_eq!(union.intersection_sort_weight(true), 1.0);
+}
+
+// =============================================================================
 // into_trimmed
 // =============================================================================
 

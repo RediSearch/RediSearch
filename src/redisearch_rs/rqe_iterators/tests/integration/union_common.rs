@@ -1730,5 +1730,34 @@ macro_rules! union_common_tests {
             );
         }
 
+        // =============================================================================
+        // intersection_sort_weight
+        // =============================================================================
+
+        /// When `prioritize_union_children` is false, weight is always 1.0.
+        #[test]
+        fn intersection_sort_weight_without_priority() {
+            let (children, _data) = create_mock_2([1, 3, 5], [2, 4, 6]);
+            let union = Union::new(children);
+            assert_eq!(union.intersection_sort_weight(false), 1.0);
+        }
+
+        /// When `prioritize_union_children` is true, weight equals the total
+        /// number of children.
+        #[test]
+        fn intersection_sort_weight_with_priority() {
+            let (children, _data) = create_mock_2([1, 3, 5], [2, 4, 6]);
+            let union = Union::new(children);
+            assert_eq!(union.intersection_sort_weight(true), 2.0);
+        }
+
+        /// Weight is at least 1.0 even with a single child.
+        #[test]
+        fn intersection_sort_weight_single_child() {
+            let (child, _data) = create_mock_1([1, 2, 3]);
+            let union = Union::new(vec![child]);
+            assert_eq!(union.intersection_sort_weight(true), 1.0);
+        }
+
     };
 }
