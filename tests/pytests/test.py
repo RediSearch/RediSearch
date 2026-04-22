@@ -3783,6 +3783,12 @@ def testAliasList(env):
     # The INDEXSPEC_LOAD_NOALIAS flag ensures we only accept actual index names
     env.expect('ft.aliaslist', 'alias2').error().contains('SEARCH_INDEX_NOT_FOUND Index not found: alias2')
 
+    # Wrong arity - no arguments
+    env.expect('ft.aliaslist').error().contains('wrong number of arguments')
+
+    # Wrong arity - too many arguments
+    env.expect('ft.aliaslist', 'idx', 'extra').error().contains('wrong number of arguments')
+
 def testEmptyDoc(env):
     conn = getConnectionByEnv(env)
     env.expect('FT.CREATE idx SCHEMA t TEXT').ok()
