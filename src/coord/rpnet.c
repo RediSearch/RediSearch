@@ -343,13 +343,14 @@ int getNextReply(RPNet *nc) {
         return RS_RESULT_EOF;
       }
     }
-    // Pop with both break conditions wired: wall-clock deadline (active when the
-    // request config enables timeout checks) and the AREQ abort flag. The flag is
+    // Pop with only the AREQ abort flag wired; no wall-clock deadline. The flag is
     // flipped by whichever blocked-client timeout callback is installed for the
-    // current policy, when that callback chooses to wake us via MRChannel_WakeAbort.
-    // Either predicate can break an otherwise-indefinite wait.
+    // current policy (FAIL / RETURN_STRICT), when that callback chooses to wake
+    // us via MRChannel_WakeAbort. Under TimeoutPolicy_Return no callback is
+    // installed, so the flag is never flipped and this degrades to a pure
+    // blocking pop — matching the pre-existing MRIterator_Next behavior.
     atomic_bool *abortFlag = nc->areq ? &nc->areq->syncCtx.timedOut : NULL;
-    root = MRIterator_NextWithTimeout(nc->it, getAbsTimeout(nc), abortFlag, NULL);
+    root = MRIterator_NextWithTimeout(nc->it, NULL, abortFlag, NULL);
   }
 
   if (root == NULL) {
