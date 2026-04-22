@@ -347,6 +347,8 @@ static void HybridRequest_Free(HybridRequest *req) {
     // Destroy the cursor mutex
     pthread_mutex_destroy(&req->cursorMutex);
 
+    RequestSyncCtx_Destroy(&req->syncCtx);
+
     if (req->args) {
       for (size_t ii = 0; ii < req->nargs; ++ii) {
         sdsfree(req->args[ii]);

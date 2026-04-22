@@ -3627,6 +3627,7 @@ int RSAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
 int DistAggregateReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 int DistAggregateTimeoutFailClient(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
+int DistAggregateTimeoutReturnStrictClient(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
 // Free privdata callback for distributed aggregate and hybrid query
 static void DistCoordReqFreePrivData(RedisModuleCtx *ctx, void *privdata) {
@@ -3728,9 +3729,12 @@ int DistAggregateCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int a
   handlerCtx.bcCtx.privdata = reqCtx;
   handlerCtx.bcCtx.free_privdata = DistCoordReqFreePrivData;
 
-  if (RSGlobalConfig.requestConfigParams.timeoutPolicy == TimeoutPolicy_Fail) {
+  RSTimeoutPolicy policy = RSGlobalConfig.requestConfigParams.timeoutPolicy;
+  if (policy == TimeoutPolicy_Fail || policy == TimeoutPolicy_ReturnStrict) {
     handlerCtx.bcCtx.reply_callback = DistAggregateReplyCallback;
-    handlerCtx.bcCtx.timeout_callback = DistAggregateTimeoutFailClient;
+    handlerCtx.bcCtx.timeout_callback = (policy == TimeoutPolicy_Fail)
+        ? DistAggregateTimeoutFailClient
+        : DistAggregateTimeoutReturnStrictClient;
     handlerCtx.bcCtx.timeoutMS = queryTimeoutMS;
     CoordRequestCtx_SetUseReplyCallback(reqCtx, true);
   }

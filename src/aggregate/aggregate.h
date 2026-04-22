@@ -35,6 +35,8 @@ extern "C" {
 #include <stdatomic.h>
 #endif
 
+#include <pthread.h>
+
 #define DEFAULT_LIMIT 10
 
 // Forward declaration for cursor
@@ -256,12 +258,37 @@ typedef struct RequestSyncCtx {
   RS_Atomic(bool) timedOut;
   // Reference count for shared ownership between timeout callback (main thread) and background thread
   uint8_t refcount;
+
+  /* Partial-timeout coordination (mirrors MRCtx). Exactly one of
+   * {background thread, timeout callback} runs AggregateResults; the other
+   * waits for completion. Gated by `requiresAggregateResultsSync` so only
+   * request flows with a main-thread waiter pay the sync cost. */
+  // TEMP: enabled only on the coordinator-side AREQ under RETURN-STRICT, because
+  // shards do not yet implement RETURN-STRICT. Remove this flag (and the gating in
+  // startPipeline) once shard-level RETURN-STRICT is implemented.
+  bool requiresAggregateResultsSync;     // Enable CAS/Signal/Wait around AggregateResults
+  RS_Atomic(bool) aggregatingResults;    // CAS claim flag: whoever flips false->true runs AggregateResults
+  bool aggregateResultsDone;             // Set at completion; guarded by aggregateResultsLock
+  pthread_mutex_t aggregateResultsLock;
+  pthread_cond_t aggregateResultsCond;
 } RequestSyncCtx;
 
 // Initialize a RequestSyncCtx with default values
 static inline void RequestSyncCtx_Init(RequestSyncCtx *ctx) {
   ctx->timedOut = false;
   ctx->refcount = 1;
+  ctx->requiresAggregateResultsSync = false;
+  ctx->aggregatingResults = false;
+  ctx->aggregateResultsDone = false;
+  pthread_mutex_init(&ctx->aggregateResultsLock, NULL);
+  pthread_cond_init(&ctx->aggregateResultsCond, NULL);
+}
+
+// Release resources owned by a RequestSyncCtx. Must be called exactly once
+// per successful Init, from the request's free path.
+static inline void RequestSyncCtx_Destroy(RequestSyncCtx *ctx) {
+  pthread_mutex_destroy(&ctx->aggregateResultsLock);
+  pthread_cond_destroy(&ctx->aggregateResultsCond);
 }
 
 typedef struct AREQ {
@@ -580,6 +607,18 @@ int parseProfileArgs(RedisModuleString **argv, int argc, AREQ *r);
 
 bool AREQ_TimedOut(AREQ *req);
 void AREQ_SetTimedOut(AREQ *req);
+
+/**
+ * Partial-timeout coordination. Exactly one of {background thread, timeout
+ * callback} runs AggregateResults; the other waits for completion.
+ *
+ * TryClaim: atomic false->true CAS on `aggregatingResults`. Returns true to the winner.
+ * Signal:   called by the winner after AggregateResults finishes. Broadcasts to waiters.
+ * Wait:     called by the loser. Blocks until Signal has been called.
+ */
+bool AREQ_TryClaimAggregateResults(AREQ *req);
+void AREQ_SignalAggregateResultsComplete(AREQ *req);
+void AREQ_WaitForAggregateResultsComplete(AREQ *req);
 
 static inline bool AREQ_ShouldCheckTimeout(AREQ *req) {
   return !req->skipTimeoutChecks;

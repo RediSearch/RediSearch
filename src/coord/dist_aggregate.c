@@ -29,6 +29,7 @@
 #include "info/global_stats.h"
 #include "search_disk.h"
 #include "coord_request_ctx.h"
+#include "aggregate/reply_empty.h"
 
 static const RLookupKey *keyForField(RPNet *nc, const char *s) {
   RLOOKUP_FOREACH(kk, nc->lookup, {
@@ -486,6 +487,12 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 
   // CMD, index, expr, args...
   AREQ *r = AREQ_New();
+  // TEMP: `requiresAggregateResultsSync` is only needed on the coordinator-side AREQ
+  // because shards do not yet implement RETURN-STRICT. Remove this gating and enable
+  // the sync unconditionally once shard-level RETURN-STRICT is implemented.
+  if (r->reqConfig.timeoutPolicy == TimeoutPolicy_ReturnStrict) {
+    r->syncCtx.requiresAggregateResultsSync = true;
+  }
   CoordRequestCtx_SetRequest(reqCtx, r);
   CoordRequestCtx_UnlockSetRequest(reqCtx);
 
@@ -552,7 +559,60 @@ int DistAggregateTimeoutFailClient(RedisModuleCtx *ctx, RedisModuleString **argv
   return REDISMODULE_OK;
 }
 
-// Reply callback for Coordinator AREQ Request execution (FAIL policy).
+// Timeout callback for Coordinator AREQ execution
+// Called on the main thread when the blocking client times out (RETURN-STRICT policy only).
+int DistAggregateTimeoutReturnStrictClient(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  UNUSED(argv);
+  UNUSED(argc);
+
+  CoordRequestCtx *CoordReqCtx = RedisModule_GetBlockedClientPrivateData(ctx);
+  if (!CoordReqCtx) {
+    // This shouldn't happen but handle gracefully
+    return RedisModule_ReplyWithError(ctx, "Internal error: timeout with no context");
+  }
+
+  RS_ASSERT(CoordReqCtx->type == COMMAND_AGGREGATE);
+
+  // Lock to coordinate with request creation in background thread
+  CoordRequestCtx_LockSetRequest(CoordReqCtx);
+
+  // Signal timeout to the background thread
+  CoordRequestCtx_SetTimedOut(CoordReqCtx);
+
+  CoordRequestCtx_UnlockSetRequest(CoordReqCtx);
+
+  AREQ *req = (AREQ *)CoordRequestCtx_GetRequest(CoordReqCtx);
+
+  if (!req || AREQ_TryClaimAggregateResults(req)) {
+    // Either the request is NULL or We were able to claim the aggregation results.
+    // That means that the background thread didn't reach the aggregation phase (startPipelineCommon) yet.
+    // Reply with empty results
+    coord_aggregate_query_reply_empty(ctx, argv, argc, QUERY_ERROR_CODE_TIMED_OUT);
+    return REDISMODULE_OK;
+  }
+
+  // Sync with the background thread
+  AREQ_WaitForAggregateResultsComplete(req);
+
+  // If we are here, we must have stored results
+  // Check if results were stored (background thread completed successfully)
+  if (!req->storedReplyState.hasStoredResults) {
+    // Background thread didn't store results - some early error occurred.
+    if (QueryError_HasError(&req->storedReplyState.err)) {
+      QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&req->storedReplyState.err), 1, COORD_ERR_WARN);
+      QueryError_ReplyAndClear(ctx, &req->storedReplyState.err);
+    } else {
+      RedisModule_ReplyWithError(ctx, "Internal error: no results stored");
+    }
+    return REDISMODULE_OK;
+  }
+
+  AREQ_ReplyWithStoredResults(ctx, req);
+
+  return REDISMODULE_OK;
+}
+
+// Reply callback for Coordinator AREQ Request execution (FAIL/RETURN-STRICT policy).
 // Called on the main thread when the background thread calls UnblockClient.
 // The background thread stored results in req->storedReplyState, which we use to build the reply.
 // Note: This callback is NOT called if timeout fired first (bc->client becomes NULL).
@@ -644,6 +704,12 @@ void DEBUG_RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, in
   }
   // CMD, index, expr, args...
   r = &debug_req->r;
+  // TEMP: `requiresAggregateResultsSync` is only needed on the coordinator-side AREQ
+  // because shards do not yet implement RETURN-STRICT. Remove this gating and enable
+  // the sync unconditionally once shard-level RETURN-STRICT is implemented.
+  if (r->reqConfig.timeoutPolicy == TimeoutPolicy_ReturnStrict) {
+    r->syncCtx.requiresAggregateResultsSync = true;
+  }
   CoordRequestCtx_SetRequest(reqCtx, r);
   CoordRequestCtx_UnlockSetRequest(reqCtx);
 

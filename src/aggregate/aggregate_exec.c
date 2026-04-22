@@ -345,7 +345,21 @@ static void startPipeline(AREQ *req, ResultProcessor *rp, SearchResult ***result
     .oomPolicy = req->reqConfig.oomPolicy,
     .skipTimeoutChecks = req->sctx->time.skipTimeoutChecks,
   };
+
+  // TODO: ADD SyncPoint here
+
+  if (req->syncCtx.requiresAggregateResultsSync && !AREQ_TryClaimAggregateResults(req)) {
+    // Possible if RETURN-STRICT timeout callback was called first.
+    // In that case, the timeout callback will reply empty results.
+    // Background thread should finish ASAP.
+    return;
+  }
+
   startPipelineCommon(&ctx, rp, results, r, rc);
+
+  if (req->syncCtx.requiresAggregateResultsSync) {
+    AREQ_SignalAggregateResultsComplete(req);
+  }
 }
 
 #ifdef ENABLE_ASSERT
