@@ -14,6 +14,7 @@
 #include "../../src/config.h"
 
 #include <string.h>
+#include <sys/time.h>
 
 typedef enum { ClusterType_RedisOSS = 0, ClusterType_RedisLabs = 1 } MRClusterType;
 
@@ -24,6 +25,7 @@ typedef struct {
   size_t cursorReplyThreshold;
   size_t coordinatorPoolSize; // number of threads in the coordinator thread pool
   size_t topologyValidationTimeoutMS;
+  struct timeval connectTimeout; // per-attempt inter-shard connect timeout; {0,0} disables
 } SearchClusterConfig;
 
 extern SearchClusterConfig clusterConfig;
@@ -36,6 +38,7 @@ extern RedisModuleString *config_dummy_password;
 #define DEFAULT_TOPOLOGY_VALIDATION_TIMEOUT 30000
 #define DEFAULT_CURSOR_REPLY_THRESHOLD 1
 #define DEFAULT_CONN_PER_SHARD 0
+#define DEFAULT_CONNECT_TIMEOUT 10000
 
 #define DEFAULT_CLUSTER_CONFIG                                                 \
   (SearchClusterConfig) {                                                      \
@@ -45,6 +48,8 @@ extern RedisModuleString *config_dummy_password;
     .cursorReplyThreshold = DEFAULT_CURSOR_REPLY_THRESHOLD,                    \
     .coordinatorPoolSize = COORDINATOR_POOL_DEFAULT_SIZE,                      \
     .topologyValidationTimeoutMS = DEFAULT_TOPOLOGY_VALIDATION_TIMEOUT,        \
+    .connectTimeout = {.tv_sec = DEFAULT_CONNECT_TIMEOUT / 1000,               \
+                       .tv_usec = (DEFAULT_CONNECT_TIMEOUT % 1000) * 1000},    \
   }
 
 /* Detect the cluster type, by trying to see if we are running inside RLEC.
