@@ -1463,6 +1463,36 @@ int IndexSpec_CreateTextId(IndexSpec *sp, t_fieldIndex index) {
 static IndexSpecCache *IndexSpec_BuildSpecCache(const IndexSpec *spec);
 
 /**
+ * Validate that a disk-backed JSON field uses a single-value JSONPath.
+ * Returns `true` when the validation does not apply or the field path is valid.
+ * On failure, sets `status` with the validation error and returns `false`.
+ */
+static bool validateDiskJsonSinglePath(const IndexSpec *sp, const FieldSpec *fs, QueryError *status) {
+  if (!isSpecOnDiskForValidation(sp) || !isSpecJson(sp)) {
+    return true;
+  }
+
+  RedisModuleString *err_msg = NULL;
+  JSONPath jsonPath = pathParse(fs->fieldPath, &err_msg);
+  if (!jsonPath) {
+    if (err_msg) {
+      JSONParse_error(status, err_msg, fs->fieldPath, fs->fieldName, sp->specName);
+    }
+    return false;
+  }
+
+  bool isSingle = japi->pathIsSingle(jsonPath);
+  japi->pathFree(jsonPath);
+  if (!isSingle) {
+    QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_INVAL,
+                                     "Disk JSON index supports only single-value JSONPath fields");
+    return false;
+  }
+
+  return true;
+}
+
+/**
  * Add fields to an existing (or newly created) index. If the addition fails,
  */
 static int IndexSpec_AddFieldsInternal(IndexSpec *sp, StrongRef spec_ref, ArgsCursor *ac,
@@ -1509,6 +1539,9 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, StrongRef spec_ref, ArgsCu
     if (!fs) {
       QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_LIMIT, "Schema is currently limited", " to %d fields",
                              sp->numFields);
+      goto reset;
+    }
+    if (!validateDiskJsonSinglePath(sp, fs, status)) {
       goto reset;
     }
     if (!parseFieldSpec(ac, sp, spec_ref, fs, status)) {
@@ -1763,7 +1796,6 @@ StrongRef IndexSpec_Parse(RedisModuleCtx *ctx, const HiddenString *name, const c
   ArgsCursor rule_prefixes = {0};
   int rc = AC_OK;
   ACArgSpec *errarg = NULL;
-  bool invalid_flex_on_type = false;
   ACArgSpec flex_argopts[] = {
     {.name = "ON", .target = &rule_args.type, .len = &dummy2, .type = AC_ARGTYPE_STRING},
     {.name = "PREFIX", .target = &rule_prefixes, .type = AC_ARGTYPE_SUBARGS},
@@ -1796,16 +1828,11 @@ StrongRef IndexSpec_Parse(RedisModuleCtx *ctx, const HiddenString *name, const c
   };
   ACArgSpec *argopts = isSpecOnDiskForValidation(spec) ? flex_argopts : non_flex_argopts;
   rc = AC_ParseArgSpec(&ac, argopts, &errarg);
-  invalid_flex_on_type = isSpecOnDiskForValidation(spec) && rule_args.type && (strcasecmp(rule_args.type, RULE_TYPE_HASH) != 0);
   if (rc != AC_OK) {
     if (rc != AC_ERR_ENOENT) {
       QERR_MKBADARGS_AC(status, errarg->name, rc);
       goto failure;
     }
-  }
-  if (invalid_flex_on_type) {
-    QueryError_SetError(status, QUERY_ERROR_CODE_FLEX_UNSUPPORTED_FT_CREATE_ARGUMENT, "Only HASH is supported as index data type for Flex indexes");
-    goto failure;
   }
   if ((spec->flags & Index_WideSchema) && !(spec->flags & Index_StoreFieldFlags)) {
     QueryError_SetError(status, QUERY_ERROR_CODE_INVAL,
@@ -1841,9 +1868,7 @@ StrongRef IndexSpec_Parse(RedisModuleCtx *ctx, const HiddenString *name, const c
   spec->diskSpec = NULL;
   if (isSpecOnDisk(spec)) {
     RS_ASSERT(disk_db);
-    size_t len;
-    const char* name = HiddenString_GetUnsafe(spec->specName, &len);
-    spec->diskSpec = SearchDisk_OpenIndex(ctx, name, len, spec->rule->type, false);
+    spec->diskSpec = SearchDisk_OpenIndex(ctx, spec->specName, spec->obfuscatedName, spec->rule->type, false);
     RS_LOG_ASSERT(spec->diskSpec, "Failed to open disk spec")
     if (!spec->diskSpec) {
       QueryError_SetError(status, QUERY_ERROR_CODE_DISK_CREATION, "Could not open disk index");
@@ -3444,16 +3469,13 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryE
   // Open the index on disk only if we are on Flex, and this is not a duplicate.
   if (isSpecOnDisk(sp) && !sp->isDuplicate) {
     RS_ASSERT(disk_db);
-    size_t len;
-    const char* name = HiddenString_GetUnsafe(sp->specName, &len);
-
     if (diskRdbState) {
       // Use the new API that applies the RDB state during index opening
-      sp->diskSpec = SearchDisk_OpenIndexWithRdbState(ctx, name, len, sp->rule->type, diskRdbState);
+      sp->diskSpec = SearchDisk_OpenIndexWithRdbState(ctx, sp->specName, sp->obfuscatedName, sp->rule->type, diskRdbState);
       diskRdbState = NULL; // Ownership transferred
     } else {
       // No RDB state (non-SST flow), just open the index normally
-      sp->diskSpec = SearchDisk_OpenIndex(ctx, name, len, sp->rule->type, false);
+      sp->diskSpec = SearchDisk_OpenIndex(ctx, sp->specName, sp->obfuscatedName, sp->rule->type, false);
     }
 
     IndexSpec_PopulateVectorDiskParams(sp);
@@ -4135,10 +4157,6 @@ void Indexes_SpecOpsIndexingCtxFree(SpecOpIndexingCtx *specs) {
 
 void Indexes_UpdateMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key, DocumentType type,
                                            RedisModuleString **hashFields) {
-  if (type == DocumentType_Json && SearchDisk_IsEnabled()) {
-    return;
-  }
-
   if (type == DocumentType_Unsupported) {
     // COPY could overwrite a hash/json with other types so we must try and remove old doc.
     Indexes_DeleteMatchingWithSchemaRules(ctx, key, type, hashFields);

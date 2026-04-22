@@ -22,7 +22,7 @@ macro_rules! union_common_tests {
     ($UnionFull:ident, $UnionQuick:ident) => {
         use crate::utils::{
             Mock, MockIteratorError, MockRevalidateResult, MockVec, create_mock_1, create_mock_2,
-            create_mock_3, create_union_children,
+            create_mock_3, create_union_children, drain_doc_ids,
         };
         use rqe_iterators::{
             IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
@@ -174,6 +174,37 @@ macro_rules! union_common_tests {
                 assert!(
                     !union_iter.at_eof(),
                     "num_children={num_children}, should not be at EOF after rewind"
+                );
+            }
+        }
+
+        #[test]
+        #[cfg_attr(miri, ignore)] // Calls RSYieldableMetric_Concat FFI in push_borrowed
+        fn rewind_restores_original_order_after_exhaustion() {
+            // Child 0: [1]         — exhausts first
+            // Child 1: [1, 5]      — exhausts second
+            // Child 2: [1, 5, 10]  — exhausts last
+            let (children, _data) = create_mock_3([1], [1, 5], [1, 5, 10]);
+            let mut union_iter = Union::new(children);
+
+            // Record the pointer (address) of each child before any reads.
+            let ptrs_before: Vec<*const dyn RQEIterator<'static>> = (0..3)
+                .map(|i| {
+                    union_iter.child_at(i).unwrap() as *const dyn RQEIterator<'static>
+                })
+                .collect();
+
+            while union_iter.read().expect("read failed").is_some() {}
+            assert!(union_iter.at_eof());
+
+            // Rewind and verify child_at returns the same child objects.
+            union_iter.rewind();
+            for i in 0..3 {
+                let ptr_after = union_iter.child_at(i).unwrap()
+                    as *const dyn RQEIterator<'static>;
+                assert!(
+                    std::ptr::addr_eq(ptrs_before[i], ptr_after),
+                    "child_at({i}) should return the same child after rewind"
                 );
             }
         }
@@ -1594,6 +1625,55 @@ macro_rules! union_common_tests {
             let children = make_timeout_children(2);
             let mut union = $UnionQuick::new(children);
             assert_skip_to_eventually_times_out(&mut union);
+        }
+
+        // =============================================================================
+        // into_trimmed
+        // =============================================================================
+
+        /// `into_trimmed` on a Full union produces a working `UnionTrimmed` that
+        /// yields all children in reverse order when the limit is large enough.
+        #[test]
+        #[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
+        fn into_trimmed_full_yields_all_children() {
+            let (children, _data) = create_mock_3([1, 2], [3, 4], [5, 6]);
+            let union = $UnionFull::new(children);
+            let mut trimmed = union.into_trimmed(usize::MAX, true).unwrap();
+
+            let docs = drain_doc_ids(&mut trimmed);
+            assert_eq!(docs, [5, 6, 3, 4, 1, 2]);
+        }
+
+        /// `into_trimmed` on a Quick union applies ascending trimming correctly.
+        #[test]
+        #[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
+        fn into_trimmed_quick_trims_asc() {
+            // 3 children with est [2, 2, 2], limit=1.
+            // Asc scan from child[1]: child[1].est=2 > 1 → keep=2.
+            let (children, _data) = create_mock_3([1, 2], [3, 4], [5, 6]);
+            let union = $UnionQuick::new(children);
+            let mut trimmed = union.into_trimmed(1, true).unwrap();
+
+            assert_eq!(trimmed.num_children_total(), 3, "all children stay alive");
+            let docs = drain_doc_ids(&mut trimmed);
+            // Active window [0..2), reads in reverse: child[1] then child[0].
+            assert_eq!(docs, [3, 4, 1, 2]);
+        }
+
+        /// `into_trimmed` on a Quick union applies descending trimming correctly.
+        #[test]
+        #[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
+        fn into_trimmed_quick_trims_desc() {
+            // 3 children with est [2, 2, 2], limit=1.
+            // Desc scan from child[1] backward: child[1].est=2 > 1 → skip=1.
+            let (children, _data) = create_mock_3([1, 2], [3, 4], [5, 6]);
+            let union = $UnionQuick::new(children);
+            let mut trimmed = union.into_trimmed(1, false).unwrap();
+
+            assert_eq!(trimmed.num_children_total(), 3, "all children stay alive");
+            let docs = drain_doc_ids(&mut trimmed);
+            // Active window [1..3), reads in reverse: child[2] then child[1].
+            assert_eq!(docs, [5, 6, 3, 4]);
         }
 
     };

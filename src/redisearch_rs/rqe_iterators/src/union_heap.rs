@@ -72,6 +72,18 @@ where
         }
     }
 
+    /// Returns a shared reference to the child originally at insertion index `idx`.
+    ///(if any child was removed, there is no guarantee that the same child will be at this position).
+    /// Returns `None` if the child is out of range.
+    pub fn child_at(&self, idx: usize) -> Option<&I> {
+        self.children.get(idx)
+    }
+
+    /// Consumes the iterator and returns a [`super::UnionTrimmed`] over the same children,
+    /// or [`None`] if there are fewer than 3 children.
+    pub fn into_trimmed(self, limit: usize, asc: bool) -> Option<super::UnionTrimmed<'index, I>> {
+        (self.children.len() >= 3).then(|| super::UnionTrimmed::new(self.children, limit, asc))
+    }
     /// Rebuilds the heap from scratch based on current child positions.
     /// Used after revalidation when children may have moved arbitrarily.
     fn rebuild_heap(&mut self) {

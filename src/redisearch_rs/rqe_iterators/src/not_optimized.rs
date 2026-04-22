@@ -26,7 +26,7 @@ const TIMEOUT_CHECK_GRANULARITY: u32 = 5_000;
 ///
 /// Unlike [`Not`](super::not::Not) which iterates sequentially from 1 to
 /// `max_doc_id`, this variant uses a
-/// [`WildcardIterator`] that reads from the existing-documents inverted
+/// [wildcard iterator](crate::wildcard) that reads from the existing-documents inverted
 /// index. It yields all documents present in the wildcard iterator that
 /// are **not** present in the child iterator.
 ///

@@ -57,19 +57,24 @@ bool SearchDisk_RegisterBigModuleCallbacks(RedisModuleCtx *ctx);
  */
 void SearchDisk_Close(RedisModuleCtx *ctx);
 
+/**
+ * @brief Update the log obfuscation setting for the search disk module
+ */
+void SearchDisk_UpdateLogObfuscation();
+
 // Basic API wrappers
 
 /**
  * @brief Open an index, **Important** must be called once and only once for every index
  * @param ctx Redis module context for BigModule APIs
  * @param indexName Name of the index to open
- * @param indexNameLen Length of the index name
+ * @param obfuscatedName Obfuscated name of the index (for logging)
  * @param type Document type
  * @param deleteBeforeOpen If true, delete any existing data before opening (used when loading
  *        without SST persistence to ensure stale data is cleared)
  * @return Pointer to the index, or NULL if it does not exist
  */
-RedisSearchDiskIndexSpec* SearchDisk_OpenIndex(RedisModuleCtx *ctx, const char *indexName, size_t indexNameLen, DocumentType type, bool deleteBeforeOpen);
+RedisSearchDiskIndexSpec* SearchDisk_OpenIndex(RedisModuleCtx *ctx, const HiddenString *indexName, const char *obfuscatedName, DocumentType type, bool deleteBeforeOpen);
 
 /**
  * @brief Mark an index for deletion, the index will be deleted from the disk only after SearchDisk_CloseIndex is called
@@ -136,14 +141,14 @@ RedisSearchDiskRdbState* SearchDisk_LoadRdbToTempObject(RedisModuleIO *rdb);
  *
 * @param ctx Redis module context for BigModule APIs
  * @param indexName Name of the index
- * @param indexNameLen Length of the index name
+ * @param obfuscatedName Obfuscated name of the index (for logging)
  * @param type Document type for this index
  * @param rdbState Temporary RDB state from SearchDisk_LoadRdbToTempObject (will be consumed)
  * @return Pointer to the created IndexSpec, or NULL on error
  */
 RedisSearchDiskIndexSpec* SearchDisk_OpenIndexWithRdbState(RedisModuleCtx *ctx,
-                                                            const char *indexName,
-                                                            size_t indexNameLen,
+                                                            const HiddenString *indexName,  
+                                                            const char *obfuscatedName,
                                                             DocumentType type,
                                                             RedisSearchDiskRdbState *rdbState);
 
@@ -201,10 +206,11 @@ bool SearchDisk_DeleteDocumentById(RedisSearchDiskIndexSpec *handle, t_docId doc
  *
  * Synchronously runs a full compaction on the inverted index column family,
  * removing entries for deleted documents. Applies the compaction delta to
- * update in-memory structures via FFI calls to the provided C IndexSpec.
+ * update in-memory structures via callbacks derived from the provided C
+ * IndexSpec, taking the IndexSpec write lock while those updates are applied.
  *
  * @param index Pointer to the disk index
- * @param c_index_spec Pointer to the C IndexSpec (for FFI callbacks to update memory structures)
+ * @param c_index_spec Pointer to the C IndexSpec used as private callback data
  * @return Number of deleted document IDs removed from the disk index
  */
 size_t SearchDisk_RunGC(RedisSearchDiskIndexSpec *index, IndexSpec *c_index_spec);

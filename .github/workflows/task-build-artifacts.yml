@@ -127,21 +127,12 @@ jobs:
         if: needs.get-config.outputs.post_setup_script
         run: ${{ needs.get-config.outputs.post_setup_script }}
 
-      - name: checkout (node20)
-        if: needs.get-config.outputs.node20_supported == 'true'
+      - name: Checkout
         uses: actions/checkout@v4
         with:
           submodules: recursive
           ref: ${{ env.REF }}
-      - name: checkout (legacy)
-        # Manual checkout path for platforms where Node 20-based actions are unavailable.
-        if: needs.get-config.outputs.node20_supported != 'true'
-        run: |
-          echo "No legacy checkout platforms remaining"
-          exit 1
       - name: Setup sccache
-        # sccache-action is a JavaScript action requiring Node.js 20+
-        if: needs.get-config.outputs.node20_supported == 'true'
         uses: ./.github/actions/setup-sccache
       - name: Setup
         if: needs.build-image.outputs.succeeded != 'true'
@@ -168,7 +159,6 @@ jobs:
         uses: ./.github/actions/get-redis
         with:
           ref: ${{ inputs.redis-ref }}
-          node20_supported: ${{ needs.get-config.outputs.node20_supported }}
 
       - name: Build Redis
         working-directory: redis
@@ -181,7 +171,6 @@ jobs:
         run: ${{ env.BUILD_CMD }} && make pack
 
       - name: Show sccache stats
-        if: needs.get-config.outputs.node20_supported == 'true'
         run: ${SCCACHE_PATH:-sccache} --show-stats
 
       - name: Validate glibc version
@@ -197,7 +186,6 @@ jobs:
           aws_access_key_id: ${{ secrets.ARTIFACT_UPLOAD_AWS_ACCESS_KEY_ID }}
           aws_secret_access_key: ${{ secrets.ARTIFACT_UPLOAD_AWS_SECRET_ACCESS_KEY }}
           aws_region: ${{ vars.ARTIFACT_UPLOAD_AWS_REGION }}
-          node20_supported: ${{ needs.get-config.outputs.node20_supported }}
       - name: Set Version identifier
         id: set-versions
         env:

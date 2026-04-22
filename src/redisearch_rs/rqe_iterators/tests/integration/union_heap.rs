@@ -19,8 +19,8 @@ mod common {
     union_common_tests!(UnionFullHeap, UnionQuickHeap);
 }
 
-use crate::utils::create_mock_2;
-use rqe_iterators::{RQEIterator, UnionQuickHeap};
+use crate::utils::{create_mock_2, create_mock_3};
+use rqe_iterators::{RQEIterator, UnionFullHeap, UnionQuickHeap};
 
 // =============================================================================
 // Implementation-specific tests (read_count assertions differ between Flat and Heap)
@@ -81,4 +81,43 @@ fn reuse_results_optimization_quick_mode() {
         2,
         "child1 already at EOF, no additional read"
     );
+}
+
+// =============================================================================
+// into_trimmed
+// =============================================================================
+
+/// `into_trimmed` on a `UnionFullHeap` produces a working `UnionTrimmed` that
+/// yields all children in reverse order when the limit is large enough.
+#[test]
+#[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
+fn into_trimmed_full_heap_yields_all_children() {
+    let (children, _data) = create_mock_3([1, 2], [3, 4], [5, 6]);
+    let union = UnionFullHeap::new(children);
+    let mut trimmed = union.into_trimmed(usize::MAX, true).unwrap();
+
+    let mut docs = Vec::new();
+    while let Some(r) = trimmed.read().unwrap() {
+        docs.push(r.doc_id);
+    }
+    assert_eq!(docs, [5, 6, 3, 4, 1, 2]);
+}
+
+/// `into_trimmed` on a `UnionQuickHeap` applies trimming correctly.
+#[test]
+#[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
+fn into_trimmed_quick_heap_trims_desc() {
+    // 3 children with est [2, 2, 2], limit=1.
+    // Desc scan from child[1] backward: child[1].est=2 > 1 → skip=1.
+    let (children, _data) = create_mock_3([1, 2], [3, 4], [5, 6]);
+    let union = UnionQuickHeap::new(children);
+    let mut trimmed = union.into_trimmed(1, false).unwrap();
+
+    assert_eq!(trimmed.num_children_total(), 3, "all children stay alive");
+    let mut docs = Vec::new();
+    while let Some(r) = trimmed.read().unwrap() {
+        docs.push(r.doc_id);
+    }
+    // Active window [1..3), reads in reverse: child[2] then child[1].
+    assert_eq!(docs, [5, 6, 3, 4]);
 }

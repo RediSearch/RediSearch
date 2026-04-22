@@ -144,9 +144,10 @@ static double _recursiveProfilePrint(RedisModule_Reply *reply, ResultProcessor *
         printProfileGILTime(rs_wall_clock_convert_ns_to_ms_d(rp->rpGILTime));
         break;
 
-      default:
+      default: // LCOV_EXCL_START — defensive: all valid RPType values are handled above
         RS_ABORT("RPType error");
         break;
+      // LCOV_EXCL_STOP
     }
 
     return upstreamTime;
