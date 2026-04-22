@@ -553,7 +553,12 @@ static int MRConn_SendAuth(MRConn *conn) {
   CONN_LOG(conn, "Authenticating...");
   uv_loop_t *loop = conn->loop;
 
-  // if we failed to send the auth command, start a reconnect loop
+  // On enqueue failure we just return REDIS_ERR; the caller is responsible for
+  // detaching the (broken) ac and switching to Connecting. Switching to ReAuth
+  // here would arm the REAUTH timer on a dead ac, and because activate_timer
+  // is a no-op when a timer is already active, the caller's subsequent
+  // SwitchState(Connecting) would inherit the shorter REAUTH_TIMEOUT instead
+  // of RSCONN_RECONNECT_TIMEOUT.
   size_t len = 0;
 
   if (!IsEnterprise()) {
@@ -563,9 +568,6 @@ static int MRConn_SendAuth(MRConn *conn) {
     // Create a local copy of the secret so we can release the GIL.
     int status = redisAsyncCommand(conn->conn, MRConn_AuthCallback, loop,
         "AUTH %s %b", INTERNALAUTH_USERNAME, internal_secret, len);
-    if (status == REDIS_ERR) {
-      MRConn_SwitchState(conn, MRConn_ReAuth);
-    }
     RedisModule_ThreadSafeContextUnlock(RSDummyContext);
     return status;
   } else {
@@ -573,7 +575,6 @@ static int MRConn_SendAuth(MRConn *conn) {
     // If we got here, we know we have a password.
     if (redisAsyncCommand(conn->conn, MRConn_AuthCallback, loop, "AUTH %s",
           conn->ep.password) == REDIS_ERR) {
-      MRConn_SwitchState(conn, MRConn_ReAuth);
       return REDIS_ERR;
     }
     return REDIS_OK;
