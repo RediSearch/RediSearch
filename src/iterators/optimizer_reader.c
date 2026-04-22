@@ -282,3 +282,4 @@ const char *OptimizerIterator_GetOptimizationType(const QueryIterator *it) {
   const OptimizerIterator *oi = (const OptimizerIterator *)it;
   return QOptimizer_PrintType(oi->optim);
 }
+

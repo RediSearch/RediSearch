@@ -678,6 +678,14 @@ QueryIterator *NewHybridVectorIterator(HybridIteratorParams hParams, QueryError 
   return ri;
 }
 
+RLookupKey **HybridIterator_GetOwnKeyRef(QueryIterator *it) {
+  return &((HybridIterator *)it)->ownKey;
+}
+
+void HybridIterator_SetKeyHandle(QueryIterator *it, struct RLookupKeyHandle *h) {
+  ((HybridIterator *)it)->keyHandle = h;
+}
+
 // Accessors for profile printing.
 const QueryIterator *HybridIterator_GetChild(const QueryIterator *it) {
   const HybridIterator *hi = (const HybridIterator *)it;
