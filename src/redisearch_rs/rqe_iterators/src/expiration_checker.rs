@@ -91,7 +91,7 @@ impl ExpirationChecker for FieldExpirationChecker {
         // SAFETY: Guaranteed by the safety contract of `new`.
         let sctx = unsafe { self.sctx.as_ref() };
         // SAFETY: Guaranteed by the safety contract of `new`.
-        let spec = unsafe { *(sctx.spec) };
+        let spec = unsafe { &(*sctx.spec) };
 
         // Check if TTL is configured and field expiration monitoring is enabled
         if spec.docs.ttl.is_null() || !spec.monitorFieldExpiration {
@@ -118,7 +118,7 @@ impl ExpirationChecker for FieldExpirationChecker {
         // SAFETY: Guaranteed by the safety contract of `new`.
         let sctx = unsafe { self.sctx.as_ref() };
         // SAFETY: Guaranteed by the safety contract of `new`.
-        let spec = unsafe { *(sctx.spec) };
+        let spec = unsafe { &(*sctx.spec) };
 
         let current_time = &sctx.time.current as *const _;
         let doc_id = result.doc_id;
