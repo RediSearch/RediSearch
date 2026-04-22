@@ -42,6 +42,11 @@ extern "C" {
 // Forward declaration for cursor
 struct Cursor;
 
+// Forward declaration for the MR channel used by the abort-wake path.
+// Defined in src/coord/rmr/chan.h. Kept as an opaque forward declaration here
+// so aggregate.h does not pull in coord headers.
+struct MRChannel;
+
 /** Cached variables to avoid serializeResult retrieving these each time */
 typedef struct {
   RLookup *lastLookup;
@@ -271,6 +276,16 @@ typedef struct RequestSyncCtx {
   bool aggregateResultsDone;             // Set at completion; guarded by aggregateResultsLock
   pthread_mutex_t aggregateResultsLock;
   pthread_cond_t aggregateResultsCond;
+
+  /* Abort-wake registration.
+   * A background thread that may block on an MR channel registers it here so the
+   * main-thread timeout callback can broadcast the channel's cond and unblock the
+   * read immediately after flipping `timedOut`. The lock serializes
+   * register/unregister/wake so the channel pointer cannot be torn down mid-wake.
+   * Single-slot today; extend to a list when a request grows multiple blocking
+   * readers (e.g. hybrid). */
+  struct MRChannel *abortWakeChannel;
+  pthread_mutex_t abortWakeLock;
 } RequestSyncCtx;
 
 // Initialize a RequestSyncCtx with default values
@@ -282,6 +297,8 @@ static inline void RequestSyncCtx_Init(RequestSyncCtx *ctx) {
   ctx->aggregateResultsDone = false;
   pthread_mutex_init(&ctx->aggregateResultsLock, NULL);
   pthread_cond_init(&ctx->aggregateResultsCond, NULL);
+  ctx->abortWakeChannel = NULL;
+  pthread_mutex_init(&ctx->abortWakeLock, NULL);
 }
 
 // Release resources owned by a RequestSyncCtx. Must be called exactly once
@@ -289,6 +306,7 @@ static inline void RequestSyncCtx_Init(RequestSyncCtx *ctx) {
 static inline void RequestSyncCtx_Destroy(RequestSyncCtx *ctx) {
   pthread_mutex_destroy(&ctx->aggregateResultsLock);
   pthread_cond_destroy(&ctx->aggregateResultsCond);
+  pthread_mutex_destroy(&ctx->abortWakeLock);
 }
 
 typedef struct AREQ {
@@ -619,6 +637,23 @@ void AREQ_SetTimedOut(AREQ *req);
 bool AREQ_TryClaimAggregateResults(AREQ *req);
 void AREQ_SignalAggregateResultsComplete(AREQ *req);
 void AREQ_WaitForAggregateResultsComplete(AREQ *req);
+
+/**
+ * Abort-wake registration (single-slot).
+ *
+ * A background reader that may block on an MR channel registers the channel
+ * here before it begins to read. The main-thread timeout callback, after
+ * flipping `timedOut` via AREQ_SetTimedOut, calls RequestSyncCtx_WakeAbortChannel
+ * to broadcast on the registered channel so the blocked reader wakes and
+ * re-checks the flag. The background reader must unregister before releasing
+ * the channel.
+ *
+ * These operate on RequestSyncCtx directly so they can be used from any request
+ * type that embeds a RequestSyncCtx (AREQ, HybridRequest).
+ */
+void RequestSyncCtx_RegisterAbortWakeChannel(RequestSyncCtx *ctx, struct MRChannel *chan);
+void RequestSyncCtx_UnregisterAbortWakeChannel(RequestSyncCtx *ctx);
+void RequestSyncCtx_WakeAbortChannel(RequestSyncCtx *ctx);
 
 static inline bool AREQ_ShouldCheckTimeout(AREQ *req) {
   return !req->skipTimeoutChecks;

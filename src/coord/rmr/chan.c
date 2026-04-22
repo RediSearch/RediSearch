@@ -157,30 +157,40 @@ static bool condTimedWait(pthread_cond_t *cond, pthread_mutex_t *lock,
 #endif
 }
 
-void *MRChannel_PopWithTimeout(MRChannel *chan, const struct timespec *abstimeMono, bool *timedOut) {
-  *timedOut = false;
-
-  // If no timeout specified, behave like regular Pop
-  if (!abstimeMono) {
-    return MRChannel_Pop(chan);
-  }
+void *MRChannel_PopWithTimeout(MRChannel *chan, const struct timespec *abstimeMono,
+                               atomic_bool *abortFlag, bool *timedOut) {
+  if (timedOut) *timedOut = false;
+  if (!abstimeMono && !abortFlag) return MRChannel_Pop(chan);
 
   pthread_mutex_lock(&chan->lock);
+  // Break conditions, checked on every (re)entry: item / abort flag / unblock / deadline.
   while (!chan->size) {
+    if (abortFlag && atomic_load_explicit(abortFlag, memory_order_acquire)) {
+      pthread_mutex_unlock(&chan->lock);
+      return NULL;
+    }
     if (!chan->wait) {
       chan->wait = true;  // reset the flag
       pthread_mutex_unlock(&chan->lock);
       return NULL;
     }
-
-    if (condTimedWait(&chan->cond, &chan->lock, abstimeMono)) {
-      *timedOut = true;
-      pthread_mutex_unlock(&chan->lock);
-      return NULL;
+    if (abstimeMono) {
+      if (condTimedWait(&chan->cond, &chan->lock, abstimeMono)) {
+        if (timedOut) *timedOut = true;
+        pthread_mutex_unlock(&chan->lock);
+        return NULL;
+      }
+    } else {
+      pthread_cond_wait(&chan->cond, &chan->lock);
     }
   }
-
   return popHeadAndUnlock(chan);
+}
+
+void MRChannel_WakeAbort(MRChannel *chan) {
+  pthread_mutex_lock(&chan->lock);
+  pthread_cond_broadcast(&chan->cond);
+  pthread_mutex_unlock(&chan->lock);
 }
 
 void MRChannel_Unblock(MRChannel *chan) {

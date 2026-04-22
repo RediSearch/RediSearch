@@ -962,8 +962,13 @@ MRReply *MRIterator_Next(MRIterator *it) {
   return MRChannel_Pop(it->ctx.chan);
 }
 
-MRReply *MRIterator_NextWithTimeout(MRIterator *it, const struct timespec *abstime, bool *timedOut) {
-  return MRChannel_PopWithTimeout(it->ctx.chan, abstime, timedOut);
+MRReply *MRIterator_NextWithTimeout(MRIterator *it, const struct timespec *abstime,
+                                    atomic_bool *abortFlag, bool *timedOut) {
+  return MRChannel_PopWithTimeout(it->ctx.chan, abstime, abortFlag, timedOut);
+}
+
+struct MRChannel *MRIterator_GetChannel(MRIterator *it) {
+  return it->ctx.chan;
 }
 
 size_t MRIterator_GetChannelSize(const MRIterator *it) {

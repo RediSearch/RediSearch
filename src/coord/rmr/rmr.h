@@ -10,6 +10,7 @@
 #pragma once
 
 #include <stdbool.h>
+#include <stdatomic.h>
 
 #include "reply.h"
 #include "cluster.h"
@@ -126,13 +127,24 @@ bool MR_ManuallyTriggerNextIfNeeded(MRIterator *it, size_t channelThreshold);
 
 MRReply *MRIterator_Next(MRIterator *it);
 
-/* Get the next reply from the iterator with a timeout.
+/* Get the next reply from the iterator, optionally honouring a clock deadline and/or
+ * an external abort flag.
  * Parameters:
  *   - it: the iterator
- *   - abstime: absolute time (CLOCK_MONOTONIC) when the timeout expires. If NULL, behaves like MRIterator_Next.
- *   - timedOut: output parameter, set to true if the function returned due to timeout
- * Returns: the next reply, or NULL if no more replies or timed out */
-MRReply *MRIterator_NextWithTimeout(MRIterator *it, const struct timespec *abstime, bool *timedOut);
+ *   - abstime: absolute CLOCK_MONOTONIC_RAW-based deadline. NULL disables the clock.
+ *   - abortFlag: atomic flag re-checked on every (re)entry to the wait loop. NULL disables
+ *                abort-flag awareness. The caller that flips the flag must also call
+ *                MRChannel_WakeAbort on the iterator's channel so a blocked reader
+ *                re-evaluates it.
+ *   - timedOut: output parameter (may be NULL), set to true if the clock deadline expired.
+ * With both knobs NULL this is equivalent to MRIterator_Next.
+ * Returns: the next reply, or NULL if no more replies, timed out, or aborted. */
+MRReply *MRIterator_NextWithTimeout(MRIterator *it, const struct timespec *abstime,
+                                    atomic_bool *abortFlag, bool *timedOut);
+
+/* Return the underlying channel used by the iterator. Intended for callers that need to
+ * invoke MRChannel_WakeAbort directly (e.g. from a timeout callback on another thread). */
+struct MRChannel *MRIterator_GetChannel(MRIterator *it);
 
 MRIterator *MR_Iterate(const MRCommand *cmd, MRIteratorCallback cb);
 

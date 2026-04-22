@@ -173,8 +173,10 @@ static void shardResponseBarrier_PendingReplies_Free(RPNet *nc) {
   }
 }
 
-// Get absolute timeout for MRIterator_NextWithTimeout
-// Returns pointer to the CLOCK_MONOTONIC_RAW based timeout, or NULL if not available
+// Get the wall-clock deadline for MRIterator_NextWithTimeout.
+// Returns pointer to the CLOCK_MONOTONIC_RAW-based timeout, or NULL when timeout
+// checking is disabled (e.g. RETURN_STRICT, which relies on the blocked-client
+// timeout callback + abort flag instead).
 static struct timespec *getAbsTimeout(RPNet *nc) {
   if (!nc->areq || !nc->areq->sctx || !AREQ_ShouldCheckTimeout(nc->areq)) {
     return NULL;
@@ -286,11 +288,17 @@ int getNextReply(RPNet *nc) {
         break;
       }
 
-      // Get next reply with timeout (uses CLOCK_MONOTONIC_RAW based timeout)
+      // Pop with both break conditions wired: wall-clock deadline (active when the
+      // request config enables timeout checks) and the AREQ abort flag (flipped by
+      // whichever blocked-client timeout callback is installed for the current
+      // policy, when that callback chooses to wake us). Either one can break an
+      // otherwise-indefinite wait when a shard never replies. Passing NULL for
+      // either knob is fine; the pop degrades accordingly.
       bool nextTimedOut = false;
-      MRReply *reply = MRIterator_NextWithTimeout(nc->it, getAbsTimeout(nc), &nextTimedOut);
+      atomic_bool *abortFlag = nc->areq ? &nc->areq->syncCtx.timedOut : NULL;
+      MRReply *reply = MRIterator_NextWithTimeout(nc->it, getAbsTimeout(nc), abortFlag, &nextTimedOut);
       if (reply == NULL) {
-        break;  // No more replies or timed out
+        break;  // No more replies, timed out, or aborted
       }
 
       // Store reply for later processing
@@ -335,11 +343,20 @@ int getNextReply(RPNet *nc) {
         return RS_RESULT_EOF;
       }
     }
-    root = MRIterator_Next(nc->it);
+    // Pop with both break conditions wired: wall-clock deadline (active when the
+    // request config enables timeout checks) and the AREQ abort flag. The flag is
+    // flipped by whichever blocked-client timeout callback is installed for the
+    // current policy, when that callback chooses to wake us via MRChannel_WakeAbort.
+    // Either predicate can break an otherwise-indefinite wait.
+    atomic_bool *abortFlag = nc->areq ? &nc->areq->syncCtx.timedOut : NULL;
+    root = MRIterator_NextWithTimeout(nc->it, getAbsTimeout(nc), abortFlag, NULL);
   }
 
   if (root == NULL) {
     RPNet_resetCurrent(nc);
+    if (nc->areq && AREQ_TimedOut(nc->areq)) {
+      return RS_RESULT_TIMEDOUT;
+    }
     return MRIterator_GetPending(nc->it) ? RS_RESULT_OK : RS_RESULT_EOF;
   }
 
@@ -442,6 +459,12 @@ int rpnetNext_StartWithMappings(ResultProcessor *rp, SearchResult *r) {
     rm_free(idx_copy);
 
     nc->it = MR_IterateWithPrivateData(&nc->cmd, netCursorCallback, NULL, NULL, NULL, iterCursorMappingCb, &nc->mappings);
+    // Register the iterator's channel so the main-thread timeout callback can wake a
+    // blocked reader after flipping AREQ's `timedOut` flag. Paired with
+    // RequestSyncCtx_UnregisterAbortWakeChannel in rpnetFree.
+    if (nc->areq) {
+      RequestSyncCtx_RegisterAbortWakeChannel(&nc->areq->syncCtx, MRIterator_GetChannel(nc->it));
+    }
     nc->base.Next = rpnetNext;
 
     return rpnetNext(rp, r);
@@ -458,6 +481,11 @@ void rpnetFree(ResultProcessor *rp) {
   shardResponseBarrier_PendingReplies_Free(nc);
 
   if (nc->it) {
+    // Unregister the abort-wake channel before releasing the iterator, so the main
+    // thread's timeout callback cannot observe a channel that is about to be freed.
+    if (nc->areq) {
+      RequestSyncCtx_UnregisterAbortWakeChannel(&nc->areq->syncCtx);
+    }
     RS_DEBUG_LOG("rpnetFree: calling MRIterator_Release");
     MRIterator_Release(nc->it);
   }

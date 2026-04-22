@@ -28,6 +28,7 @@
 #include "slots_tracker.h"
 #include "asm_state_machine.h"
 #include "coord/rmr/command.h"
+#include "coord/rmr/chan.h"
 #include "search_disk.h"
 #include "search_disk_utils.h"
 #include "doc_id_meta.h"
@@ -1104,6 +1105,26 @@ void AREQ_WaitForAggregateResultsComplete(AREQ *req) {
     pthread_cond_wait(&req->syncCtx.aggregateResultsCond, &req->syncCtx.aggregateResultsLock);
   }
   pthread_mutex_unlock(&req->syncCtx.aggregateResultsLock);
+}
+
+void RequestSyncCtx_RegisterAbortWakeChannel(RequestSyncCtx *ctx, struct MRChannel *chan) {
+  pthread_mutex_lock(&ctx->abortWakeLock);
+  ctx->abortWakeChannel = chan;
+  pthread_mutex_unlock(&ctx->abortWakeLock);
+}
+
+void RequestSyncCtx_UnregisterAbortWakeChannel(RequestSyncCtx *ctx) {
+  pthread_mutex_lock(&ctx->abortWakeLock);
+  ctx->abortWakeChannel = NULL;
+  pthread_mutex_unlock(&ctx->abortWakeLock);
+}
+
+void RequestSyncCtx_WakeAbortChannel(RequestSyncCtx *ctx) {
+  pthread_mutex_lock(&ctx->abortWakeLock);
+  if (ctx->abortWakeChannel) {
+    MRChannel_WakeAbort(ctx->abortWakeChannel);
+  }
+  pthread_mutex_unlock(&ctx->abortWakeLock);
 }
 
 

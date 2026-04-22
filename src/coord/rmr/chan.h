@@ -11,6 +11,7 @@
 
 #include <stdlib.h>
 #include <stdbool.h>
+#include <stdatomic.h>
 #include <time.h>
 
 typedef struct MRChannel MRChannel;
@@ -23,13 +24,23 @@ void MRChannel_Push(MRChannel *chan, void *ptr);
  * Return NULL if the channel is empty and MRChannel_Unblock was called by another thread */
 void *MRChannel_Pop(MRChannel *chan);
 
-/* Pop an item with a timeout. Wait until there is an item, the channel is unblocked, or timeout expires.
+/* Pop an item, optionally honouring a clock deadline and/or an external abort flag.
  * Parameters:
  *   - chan: the channel to pop from
- *   - abstime: absolute time (CLOCK_MONOTONIC) when the timeout expires. If NULL, behaves like MRChannel_Pop.
- *   - timedOut: output parameter, set to true if the function returned due to timeout
- * Returns: the popped item, or NULL if unblocked or timed out */
-void *MRChannel_PopWithTimeout(MRChannel *chan, const struct timespec *abstime, bool *timedOut);
+ *   - abstime: absolute CLOCK_MONOTONIC_RAW-based deadline. NULL disables the clock.
+ *   - abortFlag: atomic flag re-checked on every (re)entry to the wait loop. NULL
+ *                disables abort-flag awareness. The caller that flips the flag must
+ *                also call MRChannel_WakeAbort so a blocked reader re-evaluates it.
+ *   - timedOut: output parameter (may be NULL), set to true if the function returned
+ *               because the clock deadline expired.
+ * With both knobs NULL this is equivalent to MRChannel_Pop.
+ * Returns: the popped item, or NULL if unblocked, timed out, or aborted. */
+void *MRChannel_PopWithTimeout(MRChannel *chan, const struct timespec *abstime,
+                               atomic_bool *abortFlag, bool *timedOut);
+
+/* Wake any thread currently blocked in MRChannel_PopWithTimeout so it re-evaluates
+ * its abort flag. Safe to call even if no reader is blocked. */
+void MRChannel_WakeAbort(MRChannel *chan);
 
 // Same as MRChannel_Pop, but does not lock the channel nor wait for results if it's empty.
 // This is unsafe, and should only be used when the caller is sure that the channel is not being used by other threads.

@@ -56,6 +56,12 @@ void processResultFormat(uint32_t *flags, MRReply *map) {
 static int rpnetNext_Start(ResultProcessor *rp, SearchResult *r) {
   RPNet *nc = (RPNet *)rp;
 
+  // Check if the request timed out before starting the iterator
+  // TODO : Add sync point
+  if (AREQ_TimedOut(nc->areq)) {
+    return RS_RESULT_TIMEDOUT;
+  }
+
   // Initialize shard response barrier if WITHCOUNT is enabled
   if (HasWithCount(nc->areq) && IsAggregate(nc->areq)) {
     ShardResponseBarrier *barrier = shardResponseBarrier_New();
@@ -85,6 +91,10 @@ static int rpnetNext_Start(ResultProcessor *rp, SearchResult *r) {
   }
 
   nc->it = it;
+  // Register the iterator's channel so the main-thread timeout callback can wake
+  // this reader if it blocks in MRIterator_NextWithTimeout after AREQ timed out.
+  // Paired with RequestSyncCtx_UnregisterAbortWakeChannel in rpnetFree.
+  RequestSyncCtx_RegisterAbortWakeChannel(&nc->areq->syncCtx, MRIterator_GetChannel(it));
   nc->base.Next = rpnetNext;
   return rpnetNext(rp, r);
 }
@@ -582,6 +592,12 @@ int DistAggregateTimeoutReturnStrictClient(RedisModuleCtx *ctx, RedisModuleStrin
   CoordRequestCtx_UnlockSetRequest(CoordReqCtx);
 
   AREQ *req = (AREQ *)CoordRequestCtx_GetRequest(CoordReqCtx);
+
+  // Wake the background reader if it is currently blocked in MRIterator_NextWithTimeout
+  // so it observes the `timedOut` flag and exits the pipeline promptly.
+  if (req) {
+    RequestSyncCtx_WakeAbortChannel(&req->syncCtx);
+  }
 
   if (!req || AREQ_TryClaimAggregateResults(req)) {
     // Either the request is NULL or We were able to claim the aggregation results.
