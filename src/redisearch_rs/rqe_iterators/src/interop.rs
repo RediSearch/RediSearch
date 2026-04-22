@@ -40,7 +40,7 @@ where
     I: RQEIterator<'index> + 'index,
 {
     /// Heap-allocate a wrapper with the given `ProfileChildren` callback.
-    fn boxed_new_inner(
+    pub fn boxed_new_inner(
         inner: I,
         profile_children: Option<unsafe extern "C" fn(*mut QueryIterator) -> *mut QueryIterator>,
     ) -> *mut QueryIterator {
@@ -162,6 +162,19 @@ impl<'index, I> RQEIteratorWrapper<I>
 where
     I: RQEIterator<'index> + 'index,
 {
+    /// Re-synchronize the C header's `current` pointer from the inner
+    /// iterator's [`RQEIterator::current`].
+    ///
+    /// Call this after any operation that may invalidate the previously stored
+    /// `header.current` (e.g. replacing the inner variant in-place).
+    pub fn sync_current(&mut self) {
+        self.header.current = self
+            .inner
+            .current()
+            .map(|c| c as *mut RSIndexResult as *mut ffi::RSIndexResult)
+            .unwrap_or(std::ptr::null_mut());
+    }
+
     /// Convert a type-erased iterator "header" into a wrapper around a specific Rust iterator type.
     ///
     /// # Safety

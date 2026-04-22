@@ -184,6 +184,15 @@ where
         self.children.len()
     }
 
+    /// Returns the number of currently active (non-exhausted, non-trimmed) children.
+    pub const fn num_children_active(&self) -> usize {
+        if self.is_eof {
+            0
+        } else {
+            self.cursor - self.trim_start + 1
+        }
+    }
+
     /// Returns a shared reference to the child at `idx` (across all children).
     /// Returns `None` if the index is out of range.
     pub fn child_at(&self, idx: usize) -> Option<&I> {
@@ -296,16 +305,7 @@ where
     #[inline(always)]
     fn intersection_sort_weight(&self, prioritize_union_children: bool) -> f64 {
         if prioritize_union_children {
-            // Use the window size as a proxy — once we're at EOF the weight
-            // no longer matters, but returning 1.0 is safe.
-            if self.is_eof {
-                1.0
-            } else {
-                // Number of children remaining in the active window:
-                // cursor points at the current child, trim_start is the
-                // first, so the count is `cursor - trim_start + 1`.
-                (self.cursor - self.trim_start + 1).max(1) as f64
-            }
+            self.num_children_active().max(1) as f64
         } else {
             1.0
         }
