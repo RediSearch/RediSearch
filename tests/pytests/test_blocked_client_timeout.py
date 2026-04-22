@@ -901,6 +901,7 @@ class TestCoordinatorTimeout:
         no reliance on shard suspension or buffer draining.
         """
         env = self.env
+        skipIfNoEnableAssert(env)
         sync_point = 'BeforeCursorReadSendChunk'
 
         prev_policy, cursor_id, baseline, before_info, base_err_coord = self._setup_fail_cursor_state()
@@ -1211,6 +1212,7 @@ class TestCoordinatorTimeout:
     def test_sticky_policy_fail_aggregate_config_return_cursor_read(self):
         """Cursor created under FAIL keeps FAIL semantics after CONFIG SET to RETURN."""
         env = self.env
+        skipIfNoEnableAssert(env)
         sync_point = 'BeforeCursorReadSendChunk'
 
         prev_policy, cursor_id, baseline, _, _ = self._setup_fail_cursor_state()
