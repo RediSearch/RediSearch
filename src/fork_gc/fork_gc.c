@@ -94,16 +94,19 @@ static inline bool isOutOfMemory(RedisModuleCtx *ctx) {
   return used_memory_ratio > 1;
 }
 
-// Waits up to timeout_sec for cpid to be reaped, polling every 500us (via nanosleep). Called when
+// Waits up to timeout_sec for cpid to be reaped, polling every 1.5ms (via nanosleep). Called when
 // KillForkChild was a no-op, meaning Redis never waited on this pid.
-static void reap_child_blocking(pid_t cpid, int timeout_sec) {
+static void reap_child_blocking(RedisModuleCtx *ctx, pid_t cpid, int timeout_sec) {
   struct timespec deadline;
   clock_gettime(CLOCK_MONOTONIC_RAW, &deadline);
   deadline.tv_sec += timeout_sec;
 
-  struct timespec poll_interval = {.tv_sec = 0, .tv_nsec = 500000};
+  struct timespec poll_interval = {.tv_sec = 0, .tv_nsec = 1500000};
   while (waitpid(cpid, NULL, WNOHANG) == 0) {
-    if (TimedOut(&deadline)) break;
+    if (TimedOut(&deadline)) {
+      RedisModule_Log(ctx, "warning", "ForkGC - timed out waiting for child %d to exit", cpid);
+      break;
+    }
     nanosleep(&poll_interval, NULL);
   }
 }
@@ -237,7 +240,7 @@ static bool periodicCb(void *privdata, bool force) {
     int kill_rv = RedisModule_KillForkChild(cpid);
     RedisModule_ThreadSafeContextUnlock(ctx);
     if (kill_rv != REDISMODULE_OK) {
-      reap_child_blocking(cpid, RSGlobalConfig.gcConfigParams.gcSettings.forkGcRunIntervalSec);
+      reap_child_blocking(ctx, cpid, RSGlobalConfig.gcConfigParams.gcSettings.forkGcRunIntervalSec);
     }
 
     if (gcrv) {
