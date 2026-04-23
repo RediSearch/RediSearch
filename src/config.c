@@ -2387,5 +2387,14 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
     )
   )
 
+  RM_TRY(
+    RedisModule_RegisterBoolConfig(
+      ctx, "search-_fallback-to-main-thread-when-block-client-unavailable", 1,
+      REDISMODULE_CONFIG_UNPREFIXED,
+      get_bool_config, set_bool_config, NULL,
+      (void *)&(RSGlobalConfig.fallbackToMainThreadWhenBlockClientUnavailable)
+    )
+  ) 
+
   return REDISMODULE_OK;
 }
