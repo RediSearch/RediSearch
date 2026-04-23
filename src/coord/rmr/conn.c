@@ -822,8 +822,17 @@ static MRConn *MR_NewConn(MREndpoint *ep, uv_loop_t *loop) {
 
 /* Connect to a cluster node. Return REDIS_OK if either connected, or if  */
 static int MRConn_Connect(MRConn *conn) {
+  // Bounds the async TCP+TLS handshake. Without it, a blackholed SYN can leave
+  // the ac stuck in SYN-SENT indefinitely, because neither ConnectCallback nor
+  // DisconnectCallback will fire and no retry is scheduled. With it, hiredis
+  // surfaces a timeout via ConnectCallback(REDIS_ERR), which drops the conn
+  // into Connecting with the retry timer armed. No command_timeout is set:
+  // legitimate queries may run for many seconds.
+  const struct timeval *connectTimeout = &clusterConfig.connectTimeout;
+  const bool connectTimeoutEnabled = connectTimeout->tv_sec || connectTimeout->tv_usec;
   redisOptions options = {.type = REDIS_CONN_TCP,
                           .options = REDIS_OPT_NOAUTOFREEREPLIES,
+                          .connect_timeout = connectTimeoutEnabled ? connectTimeout : NULL,
                           .endpoint.tcp = {.ip = conn->ep.host, .port = conn->ep.port}};
 
   redisAsyncContext *c = redisAsyncConnectWithOptions(&options);
