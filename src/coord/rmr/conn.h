@@ -23,13 +23,9 @@ extern "C" {
 
 /*
  * The state of the connection.
- * TODO: Not all of these are "real" states
  */
 typedef enum {
-  /* initial state - new connection or disconnected connection due to error */
-  MRConn_Disconnected,
-
-  /* Connection is trying to connect */
+  /* Connection is trying to connect (initial state and retry state) */
   MRConn_Connecting,
 
   MRConn_ReAuth,
@@ -43,8 +39,6 @@ typedef enum {
 
 static inline const char *MRConnState_Str(MRConnState state) {
   switch (state) {
-    case MRConn_Disconnected:
-      return "Disconnected";
     case MRConn_Connecting:
       return "Connecting";
     case MRConn_ReAuth:

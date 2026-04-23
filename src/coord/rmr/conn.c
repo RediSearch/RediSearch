@@ -456,10 +456,6 @@ static void MRConn_SwitchState(MRConn *conn, MRConnState nextState) {
       uv_timer_stop(&conn->timer);
       disconnectHiredisAc(conn);
       return;
-
-    case MRConn_Disconnected:
-      // Only set by MR_NewConn as the initial state; never a SwitchState target.
-      break;
   }
   RS_ABORT_FMT("MRConn_SwitchState: invalid target state %d", nextState);
 }
@@ -761,11 +757,12 @@ static void MRConn_DisconnectCallback(const redisAsyncContext *c, int status) {
 }
 
 /* Create a new MRConn for the given endpoint and kick off its first
- * connection attempt. On sync failure, the conn lands in Connecting with the
- * retry timer armed. */
+ * connection attempt. Conn starts in Connecting with no timer armed; the
+ * ac is in flight until ConnectCallback fires. On sync failure, SwitchState
+ * re-enters Connecting to arm the retry timer. */
 static MRConn *MR_NewConn(MREndpoint *ep, uv_loop_t *loop) {
   MRConn *conn = rm_malloc(sizeof(MRConn));
-  *conn = (MRConn){.state = MRConn_Disconnected, .conn = NULL, .protocol = 0, .loop = loop, .authFailCount = 0};
+  *conn = (MRConn){.state = MRConn_Connecting, .conn = NULL, .protocol = 0, .loop = loop, .authFailCount = 0};
   uv_timer_init(loop, &conn->timer);
   conn->timer.data = conn;
   MREndpoint_Copy(&conn->ep, ep);
