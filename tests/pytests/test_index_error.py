@@ -266,6 +266,36 @@ def test_geo_index_failures(env):
     env.assertEqual(error_dict, {**expected_error_dict, **index_errors_unique_entries_dict}
 )
 
+  con.flushall()
+
+  env.expect('ft.create', 'idx', 'SCHEMA', 'g', 'geo').ok()
+
+  # Insert two documents, one with a geo string longer than 128 bytes and one valid.
+  # The long string should trigger the length validation in parseGeo.
+
+  long_geo = 'x' * 129
+  con.execute_command('hset', 'doc{1}', 'g', long_geo)
+  con.execute_command('hset', 'doc{2}', 'g', '1,1')
+
+  expected_error_dict = {
+                          indexing_failures_str: 1,
+                          last_indexing_error_str: 'SEARCH_PARSE_ARGS Geo string cannot be longer than 128 bytes',
+                          last_indexing_error_key_str: 'doc{1}',
+                        }
+
+  for _ in env.reloadingIterator():
+    info = index_info(env)
+    env.assertEqual(info['num_docs'], 1)
+
+    field_spec_dict = get_field_stats_dict(info)
+    error_dict = to_dict(field_spec_dict["Index Errors"])
+
+    env.assertEqual(error_dict, expected_error_dict)
+
+    error_dict = to_dict(info["Index Errors"])
+    env.assertEqual(error_dict, {**expected_error_dict, **index_errors_unique_entries_dict}
+)
+
 
 # TODO: Talk with Omer about this test
 

@@ -167,3 +167,30 @@ def testGeoOnReopen(env:Env):
     checkResults(res)
 
   env.assertEqual(len(ids), n)
+
+@skip(cluster=True)
+def testGeoLargeRadiusDecreaseStep(env):
+  """Exercise the decrease_step path in geohashGetAreasByRadius.
+  At high latitudes, longitude cells are physically compressed
+  (cos(85°) ≈ 0.087), so a 620 km radius at lat=85 exceeds the
+  east/west neighbor cell boundaries at step 3 (~45° cells =
+  ~556 km physical width), triggering the step decrease."""
+  conn = getConnectionByEnv(env)
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'g', 'GEO').ok()
+
+  points = [
+    ('doc1', '30.0,85.0'),   # at the query center
+    ('doc2', '31.0,84.5'),   # very close to center
+    ('doc3', '0.0,85.0'),    # ~288 km west, within radius
+    ('doc4', '0.0,0.0'),     # equator, well outside radius
+  ]
+  for name, loc in points:
+    conn.execute_command('HSET', name, 'g', loc)
+  waitForIndex(env, 'idx')
+
+  # 620 km radius at (30, 85): at step 3 (313-626 km range), east neighbor
+  # far edge at 90° lon is ~556 km from center — less than 620 km radius,
+  # so decrease_step triggers.
+  res = env.cmd('FT.SEARCH', 'idx', '@g:[30.0 85.0 620 km]', 'NOCONTENT')
+  env.assertGreaterEqual(res[0], 2, message=res)
+  env.assertNotContains('doc4', res)
