@@ -34,6 +34,8 @@
 #define REFCOUNT_DECR_MSG(caller, refcount) \
   RS_DEBUG_LOG_FMT("%s: decreased refCount to == %d", caller, refcount);
 
+#define CLUSTER_QUERY_ERROR "Could not send query to cluster"
+
 /* Currently a single cluster is supported */
 static MRCluster *cluster_g = NULL;
 static MRWorkQueue *rq_g = NULL;
@@ -54,6 +56,10 @@ typedef struct MRCtx {
   RedisModuleBlockedClient *bc;
   bool mastersOnly;
   MRCommand cmd;
+
+  /* If true, the command should validate that all connections
+   are up before sending the command to the cluster */
+  bool validateConnections;
 
   /**
    * This is a reduce function inside the MRCtx.
@@ -86,7 +92,7 @@ MRCtx *MR_CreateCtx(RedisModuleCtx *ctx, RedisModuleBlockedClient *bc, void *pri
   ret->bc = bc;
   RS_ASSERT(ctx || bc);
   ret->fn = NULL;
-
+  ret->validateConnections = false;
   return ret;
 }
 
@@ -129,6 +135,14 @@ RedisModuleBlockedClient *MRCtx_GetBlockedClient(struct MRCtx *ctx) {
 
 void MRCtx_SetReduceFunction(struct MRCtx *ctx, MRReduceFunc fn) {
   ctx->fn = fn;
+}
+
+void MRCtx_SetValidateConnections(struct MRCtx *ctx, bool validateConnections) {
+  ctx->validateConnections = validateConnections;
+}
+
+bool MRCtx_GetValidateConnections(struct MRCtx *ctx) {
+  return ctx->validateConnections;
 }
 
 static void freePrivDataCB(RedisModuleCtx *ctx, void *p) {
@@ -211,7 +225,8 @@ static void uvFanoutRequest(void *p) {
   MRCtx *mrctx = p;
 
   mrctx->numExpected =
-      MRCluster_FanoutCommand(cluster_g, mrctx->mastersOnly, &mrctx->cmd, fanoutCallback, mrctx);
+      MRCluster_FanoutCommand(cluster_g, mrctx->mastersOnly, &mrctx->cmd, fanoutCallback, mrctx,
+                              MRCtx_GetValidateConnections(mrctx));
 
   if (mrctx->numExpected == 0) {
     RedisModuleBlockedClient *bc = mrctx->bc;
@@ -547,6 +562,26 @@ void *MRIteratorCallback_GetPrivateData(MRIteratorCallbackCtx *ctx) {
 void iterStartCb(void *p) {
   MRIterator *it = p;
 
+  // Pre-fanout connection validation - check ALL connections before any setup.
+  // If validation fails, we return early with a single error (it->len stays 1).
+  if (MRCluster_CheckConnections(cluster_g, true) != REDIS_OK) {
+    // At least one connection is not established - fail with a single error.
+    // it->len/pending/inProcess remain at their initial value of 1.
+    // Set targetShard to 0 (default is INVALID_SHARD=-1) and run privateDataInit
+    // so ShardResponseBarrier (used by FT.AGGREGATE WITHCOUNT) accepts the
+    // synthetic error notification; otherwise its numShards stays 0, Notify's
+    // bounds check short-circuits, and the real error gets replaced by a
+    // misleading timeout message in shardResponseBarrier_HandleTimeout.
+    it->cbxs[0].cmd.targetShard = 0;
+    void *privateData = MRIteratorCallback_GetPrivateData(&it->cbxs[0]);
+    if (privateData && it->ctx.privateDataInit) {
+      it->ctx.privateDataInit(privateData, it);
+    }
+    MRReply *err = MRReply_CreateError(CLUSTER_QUERY_ERROR, sizeof(CLUSTER_QUERY_ERROR) - 1);
+    it->ctx.cb(&it->cbxs[0], err);
+    return;
+  }
+
   size_t len = cluster_g->topo->numShards;
   it->len = len;
   it->ctx.pending = len;
@@ -652,6 +687,7 @@ MRIterator *MR_IterateWithPrivateData(const MRCommand *cmd, MRIteratorCallback c
       .privateDataInit = cbPrivateDataInit,
     },
     .cbxs = rm_new(MRIteratorCallbackCtx),
+    .len = 1,
   };
   // Initialize the first command
   *ret->cbxs = (MRIteratorCallbackCtx){
