@@ -234,3 +234,135 @@ def test_single_shard_optimization():
 
     # SpellCheck
     env.expect('FT.SPELLCHECK', 'idx', 'hell').equal([['TERM', 'hell', [['1', 'hello']]]])
+
+
+
+def _cluster_info_shards(env: Env):
+    """Return the list of shard sub-arrays from SEARCH.CLUSTERINFO (RESP2).
+
+    On this branch the reply is a flat array:
+      ['num_partitions', N, 'cluster_type', X, 'hash_func', H, 'num_slots', S,
+       'slots', [startSlot, endSlot, [id, host, port, role], ...], ...]
+    Shards are flattened at the root, starting after the 'slots' marker.
+    Each shard is [startSlot, endSlot, node_array, ...]; each node_array is
+    [id, host, port, role].
+    """
+    info = env.cmd('SEARCH.CLUSTERINFO')
+    slots_idx = info.index('slots')
+    return info[slots_idx + 1:]
+
+
+def _set_all_shards_unreachable(env: Env):
+    """Set topology so all shards point to unreachable addresses (port 9)."""
+    env.expect('SEARCH.CLUSTERSET',
+               'MYID', '1',
+               'RANGES', '2',
+               'SHARD', '1', 'SLOTRANGE', '0', '8191',
+               'ADDR', '127.0.0.1:9', 'MASTER',
+               'SHARD', '2', 'SLOTRANGE', '8192', '16383',
+               'ADDR', '127.0.0.1:9', 'MASTER'
+    ).ok()
+    # Wait for the new topology to be applied (first shard's first node on port 9)
+    wait_for_condition(
+        lambda: (_cluster_info_shards(env)[0][2][2] == 9, {}),
+        'Failed waiting for topology to be applied'
+    )
+
+
+def _set_one_shard_unreachable(env: Env):
+    """Set topology so one shard is reachable and one points to an unreachable address."""
+    # Get the real shard address before we modify the topology.
+    # Each shard is [startSlot, endSlot, [id, host, port, role], ...].
+    first_shard = _cluster_info_shards(env)[0]
+    real_host = first_shard[2][1]
+    real_port = first_shard[2][2]
+
+    env.expect('SEARCH.CLUSTERSET',
+               'MYID', '1',
+               'RANGES', '2',
+               'SHARD', '1', 'SLOTRANGE', '0', '8191',
+               'ADDR', f'{real_host}:{real_port}', 'MASTER',
+               'SHARD', '2', 'SLOTRANGE', '8192', '16383',
+               'ADDR', '127.0.0.1:9', 'MASTER'
+    ).ok()
+    # Wait for the new topology to be applied (any shard's first node on port 9)
+    wait_for_condition(
+        lambda: (any(shard[2][2] == 9 for shard in _cluster_info_shards(env)), {}),
+        'Failed waiting for topology to be applied'
+    )
+
+
+def _test_all_queries_fail_on_unreachable_shard(env: Env, scenario: str):
+    """Test that FT.SEARCH and FT.AGGREGATE all return an error."""
+    # FT.SEARCH returns an error (does not hang)
+    with TimeLimit(5, f'FT.SEARCH hung ({scenario})'):
+        env.expect('FT.SEARCH', 'idx', '*').error().contains('Could not send query to cluster')
+
+    # FT.AGGREGATE returns an error (does not hang)
+    with TimeLimit(5, f'FT.AGGREGATE hung ({scenario})'):
+        env.expect('FT.AGGREGATE', 'idx', '*').error().contains('Could not send query to cluster')
+
+    # FT.AGGREGATE with cursor returns an error (does not hang)
+    with TimeLimit(5, f'FT.AGGREGATE WITHCURSOR hung ({scenario})'):
+        env.expect('FT.AGGREGATE', 'idx', '*', 'WITHCURSOR').error().contains('Could not send query to cluster')
+
+    # FT.AGGREGATE WITHCOUNT returns an error (does not hang)
+    with TimeLimit(5, f'FT.AGGREGATE WITHCOUNT hung ({scenario})'):
+        env.expect('FT.AGGREGATE', 'idx', '*', 'WITHCOUNT').error().contains('Could not send query to cluster')
+
+
+@skip(cluster=False, min_shards=2)
+def test_queries_fail_on_all_shards_unreachable(env: Env):
+    """Test that all query commands (FT.SEARCH, FT.AGGREGATE) return an error
+    when all shards are unreachable, rather than hanging indefinitely.
+
+    When MRCluster_SendCommand fails (REDIS_ERR) during the initial fanout, the error
+    must be routed through the user callback so that:
+    - FT.SEARCH: The reducer receives the error and returns it to the client
+    - FT.AGGREGATE: The error is pushed to the channel and consumed by rpnetNext
+    """
+    # Create an index and add data before breaking topology
+    env.expect('FT.CREATE', 'idx', 'SCHEMA',
+               't', 'TEXT',
+               'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2',
+               'DISTANCE_METRIC', 'L2').ok()
+    conn = getConnectionByEnv(env)
+    for i in range(10):
+        conn.execute_command('HSET', f'doc{i}', 't', f'hello{i}', 'v', 'abcdefgh')
+
+    # Enable unstable features so FT.AGGREGATE WITHCOUNT is accepted
+    enable_unstable_features(env)
+
+    # Pause topology refresh so our invalid topology stays in effect
+    env.expect(debug_cmd(), 'PAUSE_TOPOLOGY_UPDATER').ok()
+    # Set validation timeout to 1ms so we don't wait for unreachable shards
+    env.expect(config_cmd(), 'SET', 'TOPOLOGY_VALIDATION_TIMEOUT', '1').ok()
+
+    _set_all_shards_unreachable(env)
+    _test_all_queries_fail_on_unreachable_shard(env, 'all shards unreachable')
+
+
+@skip(cluster=False, min_shards=2)
+def test_queries_fail_on_one_shard_unreachable(env: Env):
+    """Test that all query commands (FT.SEARCH, FT.AGGREGATE) return an error
+    when one shard is unreachable, rather than hanging indefinitely or returning partial results.
+    """
+    # Create an index and add data before breaking topology
+    env.expect('FT.CREATE', 'idx', 'SCHEMA',
+               't', 'TEXT',
+               'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2',
+               'DISTANCE_METRIC', 'L2').ok()
+    conn = getConnectionByEnv(env)
+    for i in range(10):
+        conn.execute_command('HSET', f'doc{i}', 't', f'hello{i}', 'v', 'abcdefgh')
+
+    # Enable unstable features so FT.AGGREGATE WITHCOUNT is accepted
+    enable_unstable_features(env)
+
+    # Pause topology refresh so our invalid topology stays in effect
+    env.expect(debug_cmd(), 'PAUSE_TOPOLOGY_UPDATER').ok()
+    # Set validation timeout to 1ms so we don't wait for unreachable shards
+    env.expect(config_cmd(), 'SET', 'TOPOLOGY_VALIDATION_TIMEOUT', '1').ok()
+
+    _set_one_shard_unreachable(env)
+    _test_all_queries_fail_on_unreachable_shard(env, 'one shard unreachable')

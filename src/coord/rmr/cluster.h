@@ -73,9 +73,10 @@ typedef struct {
 int MRCluster_CheckConnections(MRCluster *cl, bool mastersOnly);
 
 /* Multiplex a non-sharding command to all coordinators, using a specific coordination strategy. The
- * return value is the number of nodes we managed to successfully send the command to */
+ * return value is the number of nodes we managed to successfully send the command to.
+ * If validateConnections is true, the function will validate that all connections are up before sending the command */
 int MRCluster_FanoutCommand(MRCluster *cl, bool mastersOnly, MRCommand *cmd, redisCallbackFn *fn,
-                            void *privdata);
+                            void *privdata, bool validateConnections);
 
 /* Get a connected connection according to the cluster, strategy and command.
  * Returns NULL if no fitting connection exists at the moment */
