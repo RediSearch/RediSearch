@@ -12,15 +12,11 @@ use std::ptr::{self, NonNull};
 use ffi::{FieldSpec, RSGlobalConfig};
 use field::FieldFilterContext;
 use inverted_index::NumericFilter;
-use numeric_range_tree::NumericRangeTree;
 use query_node_type::QueryNodeType;
 use rqe_iterator_type::IteratorType;
 use rqe_iterators::{
-    NumericIteratorVariant,
-    c2rust::CRQEIterator,
-    interop::RQEIteratorWrapper,
+    NumericIteratorVariant, c2rust::CRQEIterator, interop::RQEIteratorWrapper,
     open_numeric_or_geo_index,
-    union_reducer::{NewUnionIterator, new_union_iterator},
 };
 
 /// Wrapper around [`NumericIteratorVariant`].
@@ -124,21 +120,6 @@ impl<'index> rqe_iterators::RQEIterator<'index> for NumericIterator<'index> {
     fn intersection_sort_weight(&self, _prioritize_union_children: bool) -> f64 {
         1.0
     }
-}
-
-/// Wraps a `Vec<NumericIterator>` into a `Vec<CRQEIterator>` by boxing
-/// each iterator in an [`RQEIteratorWrapper`].
-pub(super) fn into_crqe_from_numeric_iters(iters: Vec<NumericIterator<'_>>) -> Vec<CRQEIterator> {
-    iters
-        .into_iter()
-        .map(|v| {
-            let ptr = RQEIteratorWrapper::boxed_new(v);
-            // SAFETY: `boxed_new` uses `Box::into_raw`, which is guaranteed non-null.
-            let ptr = unsafe { NonNull::new_unchecked(ptr) };
-            // SAFETY: `ptr` is a valid, uniquely-owned `QueryIterator`.
-            unsafe { CRQEIterator::new(ptr) }
-        })
-        .collect()
 }
 
 /// Gets the numeric filter from a numeric inverted index iterator.
@@ -289,123 +270,50 @@ pub unsafe extern "C" fn NewNumericFilterIterator(
     // SAFETY: 5. guarantees filter_ctx is valid and non-null.
     let field_ctx = unsafe { &*filter_ctx };
 
-    // SAFETY: 1.–3. are forwarded from this function's safety contract.
-    let numeric_filter_union = unsafe {
-        new_numeric_filter_iterator(sctx, flt_ref, field_ctx, min_union_iter_heap, compress)
-    };
-
-    // SAFETY: 3. guarantees flt is valid and non-null.
-    let flt_ref = unsafe { &*flt };
     let filter_nn = NonNull::from(flt_ref);
     let node_type = if flt_ref.is_numeric_filter() {
         QueryNodeType::Numeric
     } else {
         QueryNodeType::Geo
     };
-    let inject_filter = |variants: Vec<NumericIteratorVariant<'_>>| {
-        variants
-            .into_iter()
-            .map(|iterator| {
-                let ptr = RQEIteratorWrapper::boxed_new(NumericIterator {
-                    filter: Some(filter_nn),
-                    iterator,
-                });
-                // SAFETY: `boxed_new` uses `Box::into_raw`, which is guaranteed non-null.
-                let ptr = unsafe { NonNull::new_unchecked(ptr) };
-                // SAFETY: `ptr` is a valid, uniquely-owned `QueryIterator`.
-                unsafe { CRQEIterator::new(ptr) }
-            })
-            .collect()
-    };
-    match numeric_filter_union {
-        None | Some(NewUnionIterator::ReducedEmpty(_)) => ptr::null_mut(),
-        Some(NewUnionIterator::ReducedSingle(v)) => {
-            RQEIteratorWrapper::boxed_new(NumericIterator {
-                filter: Some(filter_nn),
-                iterator: v,
-            })
-        }
-        Some(NewUnionIterator::Flat(f)) => crate::union::build_union_from_children(
-            inject_filter(f.into_children()),
-            false,
-            min_union_iter_heap,
-            node_type,
-            ptr::null(),
-            1.0,
-        ),
-        Some(NewUnionIterator::FlatQuick(f)) => crate::union::build_union_from_children(
-            inject_filter(f.into_children()),
-            true,
-            min_union_iter_heap,
-            node_type,
-            ptr::null(),
-            1.0,
-        ),
-        Some(NewUnionIterator::Heap(h)) => crate::union::build_union_from_children(
-            inject_filter(h.into_children()),
-            false,
-            min_union_iter_heap,
-            node_type,
-            ptr::null(),
-            1.0,
-        ),
-        Some(NewUnionIterator::HeapQuick(h)) => crate::union::build_union_from_children(
-            inject_filter(h.into_children()),
-            true,
-            min_union_iter_heap,
-            node_type,
-            ptr::null(),
-            1.0,
-        ),
-    }
-}
 
-/// Opens the numeric/geo index for `flt`'s field and creates a union iterator over all matching
-/// sub-ranges.
-///
-/// Returns `None` if the index hasn't been created yet (no documents indexed for this field).
-///
-/// # Safety
-///
-/// 1. `sctx` must point to a valid [`ffi::RedisSearchCtx`] whose `spec` field is also valid,
-///    both remaining so for `'index`.
-/// 2. `flt.field_spec` must be a valid non-null pointer to a [`ffi::FieldSpec`] for a numeric or
-///    geo field, remaining valid for `'index`.
-/// 3. `field_ctx` must contain a field index (not a field mask).
-pub unsafe fn new_numeric_filter_iterator<'index>(
-    sctx: NonNull<ffi::RedisSearchCtx>,
-    flt: &'index NumericFilter,
-    field_ctx: &FieldFilterContext,
-    min_union_iter_heap: usize,
-    numeric_compress: bool,
-) -> Option<NewUnionIterator<'index, NumericIteratorVariant<'index>>> {
     // SAFETY: 1. guarantees sctx.spec is valid and non-null.
-    // `as_ref` is unsafe because `sctx` is a raw pointer.
     let spec_ptr = unsafe { sctx.as_ref() }.spec;
     // SAFETY: 1. guarantees sctx.spec is valid and non-null.
     let spec = unsafe { &mut *spec_ptr };
-    // SAFETY: 2. guarantees flt.field_spec is valid and non-null.
-    let fs = unsafe { &mut *(flt.field_spec as *mut ffi::FieldSpec) };
-    // SAFETY: 1–2.
-    let tree = unsafe { open_numeric_or_geo_index(spec, fs, false, numeric_compress)? };
-    // SAFETY: 1. and 3.
-    Some(unsafe { create_numeric_iterator(sctx, tree, flt, field_ctx, min_union_iter_heap) })
-}
+    // SAFETY: 3. guarantees flt.field_spec is valid and non-null.
+    let fs = unsafe { &mut *(flt_ref.field_spec as *mut ffi::FieldSpec) };
+    // SAFETY: 1.–3. are forwarded from this function's safety contract.
+    let Some(tree) = (unsafe { open_numeric_or_geo_index(spec, fs, false, compress) }) else {
+        return ptr::null_mut();
+    };
 
-/// Creates a union iterator over all numeric sub-ranges matching `filter` in `tree`.
-///
-/// # Safety
-///
-/// 1. `sctx` and `sctx.spec` must remain valid for `'index`.
-/// 2. `field_ctx` must contain a field index (not a field mask).
-pub unsafe fn create_numeric_iterator<'index>(
-    sctx: NonNull<ffi::RedisSearchCtx>,
-    tree: &'index NumericRangeTree,
-    filter: &'index NumericFilter,
-    field_ctx: &FieldFilterContext,
-    min_union_iter_heap: usize,
-) -> NewUnionIterator<'index, NumericIteratorVariant<'index>> {
-    // SAFETY: 1–2.
-    let variants = unsafe { NumericIteratorVariant::from_tree(tree, sctx, filter, field_ctx) };
-    new_union_iterator(variants, true, min_union_iter_heap)
+    // SAFETY: 1. and 5.
+    let variants = unsafe { NumericIteratorVariant::from_tree(tree, sctx, flt_ref, field_ctx) };
+    if variants.is_empty() {
+        return ptr::null_mut();
+    }
+
+    let children: Vec<CRQEIterator> = variants
+        .into_iter()
+        .map(|iterator| {
+            let ptr = RQEIteratorWrapper::boxed_new(NumericIterator {
+                filter: Some(filter_nn),
+                iterator,
+            });
+            // SAFETY: `boxed_new` uses `Box::into_raw`, which is guaranteed non-null.
+            let ptr = unsafe { NonNull::new_unchecked(ptr) };
+            // SAFETY: `ptr` is a valid, uniquely-owned `QueryIterator`.
+            unsafe { CRQEIterator::new(ptr) }
+        })
+        .collect();
+
+    crate::union::build_union_from_children(
+        children,
+        true,
+        min_union_iter_heap,
+        node_type,
+        ptr::null(),
+        1.0,
+    )
 }

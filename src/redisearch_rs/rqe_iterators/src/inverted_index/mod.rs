@@ -18,7 +18,10 @@ mod term;
 mod wildcard;
 
 pub use core::InvIndIterator;
-pub use geo::{GeoRangeError, InvalidGeoInput, build_geo_numeric_filters, extract_geo_unit_factor, new_geo_range_iterator};
+pub use geo::{
+    GeoRangeError, InvalidGeoInput, build_geo_numeric_filters, extract_geo_unit_factor,
+    new_geo_range_iterator,
+};
 pub use missing::Missing;
 pub use numeric::{Numeric, NumericIteratorVariant, open_numeric_or_geo_index};
 pub use tag::Tag;

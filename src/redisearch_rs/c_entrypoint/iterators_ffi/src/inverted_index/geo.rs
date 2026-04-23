@@ -12,13 +12,9 @@ use std::ptr::{self, NonNull};
 use ffi::{GeoFilter, RSGlobalConfig};
 use field::{FieldExpirationPredicate, FieldFilterContext, FieldMaskOrIndex};
 use query_node_type::QueryNodeType;
-use rqe_iterators::{
-    interop::RQEIteratorWrapper,
-    new_geo_range_iterator,
-    union_reducer::{NewUnionIterator, new_union_iterator},
-};
+use rqe_iterators::{c2rust::CRQEIterator, interop::RQEIteratorWrapper, new_geo_range_iterator};
 
-use crate::inverted_index::numeric::{NumericIterator, into_crqe_from_numeric_iters};
+use crate::inverted_index::numeric::NumericIterator;
 
 /// Creates an iterator over all geo-encoded index entries within the radius specified by `gf`.
 ///
@@ -69,51 +65,26 @@ pub unsafe extern "C" fn NewGeoRangeIterator(
     // the embedded `geo_filter` pointer to display the geo term as coordinates instead of raw
     // geohash values. Once profiling is fully ported to Rust, this wrapper can be dropped and
     // the variants can be used directly.
-    let numeric_iters: Vec<NumericIterator<'_>> = groups
+    // TODO: simplify once profile.c is ported to Rust.
+    let children: Vec<CRQEIterator> = groups
         .into_iter()
         .flat_map(|(filter_nn, variants)| {
-            variants
-                .into_iter()
-                .map(move |v| NumericIterator::with_filter(filter_nn, v))
+            variants.into_iter().map(move |v| {
+                let ptr = RQEIteratorWrapper::boxed_new(NumericIterator::with_filter(filter_nn, v));
+                // SAFETY: `boxed_new` uses `Box::into_raw`, which is guaranteed non-null.
+                let ptr = unsafe { NonNull::new_unchecked(ptr) };
+                // SAFETY: `ptr` is a valid, uniquely-owned `QueryIterator`.
+                unsafe { CRQEIterator::new(ptr) }
+            })
         })
         .collect();
 
-    // Wrap children into RQEIteratorWrapper so C profiling code can traverse the tree.
-    // TODO: simplify once profile.c is ported to Rust.
-    match new_union_iterator(numeric_iters, true, min_union_iter_heap) {
-        NewUnionIterator::ReducedEmpty(empty) => RQEIteratorWrapper::boxed_new(empty),
-        NewUnionIterator::ReducedSingle(v) => RQEIteratorWrapper::boxed_new(v),
-        NewUnionIterator::Flat(f) => crate::union::build_union_from_children(
-            into_crqe_from_numeric_iters(f.into_children()),
-            false,
-            min_union_iter_heap,
-            QueryNodeType::Geo,
-            ptr::null(),
-            1.0,
-        ),
-        NewUnionIterator::FlatQuick(f) => crate::union::build_union_from_children(
-            into_crqe_from_numeric_iters(f.into_children()),
-            true,
-            min_union_iter_heap,
-            QueryNodeType::Geo,
-            ptr::null(),
-            1.0,
-        ),
-        NewUnionIterator::Heap(h) => crate::union::build_union_from_children(
-            into_crqe_from_numeric_iters(h.into_children()),
-            false,
-            min_union_iter_heap,
-            QueryNodeType::Geo,
-            ptr::null(),
-            1.0,
-        ),
-        NewUnionIterator::HeapQuick(h) => crate::union::build_union_from_children(
-            into_crqe_from_numeric_iters(h.into_children()),
-            true,
-            min_union_iter_heap,
-            QueryNodeType::Geo,
-            ptr::null(),
-            1.0,
-        ),
-    }
+    crate::union::build_union_from_children(
+        children,
+        true,
+        min_union_iter_heap,
+        QueryNodeType::Geo,
+        ptr::null(),
+        1.0,
+    )
 }
