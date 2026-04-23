@@ -84,3 +84,18 @@ void MREndpoint_Free(MREndpoint *ep) {
     ep->password = NULL;
   }
 }
+
+static inline bool strEqOrBothNull(const char *a, const char *b) {
+  if (a == b) return true;
+  if (!a || !b) return false;
+  return strcmp(a, b) == 0;
+}
+
+bool MREndpoint_Equal(const MREndpoint *a, const MREndpoint *b) {
+  if (a == b) return true;
+  if (!a || !b) return false;
+  return a->port == b->port
+      && strEqOrBothNull(a->host, b->host)
+      && strEqOrBothNull(a->unixSock, b->unixSock)
+      && strEqOrBothNull(a->password, b->password);
+}
