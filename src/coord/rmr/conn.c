@@ -40,6 +40,7 @@ static void MRConn_DisconnectCallback(const redisAsyncContext *, int);
 static int MRConn_Connect(MRConn *conn);
 static void MRConn_SwitchState(MRConn *conn, MRConnState nextState);
 static void MRConn_Disconnect(MRConn *conn);
+static void freeConn(MRConn *conn);
 static MRConn *MR_NewConn(MREndpoint *ep, uv_loop_t *loop);
 static int MRConn_SendAuth(MRConn *conn);
 
@@ -107,13 +108,6 @@ typedef struct {
   MRConn **conns;
 } MRConnPool;
 
-static inline void MRConnPool_Disconnect(const MRConnPool *pool) {
-  if (!pool) return;
-  for (size_t i = 0; i < pool->num; i++) {
-    MRConn_Disconnect(pool->conns[i]);
-  }
-}
-
 static MRConnPool *_MR_NewConnPool(MREndpoint *ep, size_t num, uv_loop_t *loop) {
   MRConnPool *pool = rm_malloc(sizeof(*pool));
   *pool = (MRConnPool){
@@ -127,6 +121,16 @@ static MRConnPool *_MR_NewConnPool(MREndpoint *ep, size_t num, uv_loop_t *loop) 
     pool->conns[i] = MR_NewConn(ep, loop);
   }
   return pool;
+}
+
+/* Tear down a connection: log, transition to the terminal Freeing state (which
+ * stops the retry timer and severs hiredis cbData) and schedule the async free
+ * of the MRConn struct. Must be called from the uv thread, and exactly once
+ * per conn — uv_close inside freeConn is not idempotent. */
+static void MRConn_Disconnect(MRConn *conn) {
+  CONN_LOG(conn, "Disconnecting connection");
+  MRConn_SwitchState(conn, MRConn_Freeing);
+  freeConn(conn);
 }
 
 /* Close callback for the inlined timer handle. libuv has released the handle
@@ -146,19 +150,16 @@ static void freeConn(MRConn *conn) {
   uv_close((uv_handle_t *)&conn->timer, freeConnAfterTimerClose);
 }
 
-/* Free a connection pool.
- * Invoked by the dict destructor when a node is removed/replaced or when the
- * manager is released. Callers must disconnect the pool beforehand — every
- * path reaching this function does so through MRConnPool_Disconnect.
- */
+/* Dict value destructor: disconnect and free every conn in the pool, then
+ * release the pool itself. Invoked by the dict whenever an entry is removed
+ * (dictRelease, dictReplace, dictDelete), so pool lifetime is owned entirely
+ * by the dict — callers just remove the entry and let this destructor run. */
 static void MRConnPool_Free(void *privdata, void *p) {
   UNUSED(privdata);
   MRConnPool *pool = p;
   if (!pool) return;
   for (size_t i = 0; i < pool->num; i++) {
-    MRConn *conn = pool->conns[i];
-    RS_ASSERT(conn->conn == NULL);
-    freeConn(conn);
+    MRConn_Disconnect(pool->conns[i]);
   }
   rm_free(pool->conns);
   rm_free(pool);
@@ -203,13 +204,6 @@ void MRConnManager_Init(MRConnManager *mgr, int nodeConns) {
  * which require a live loop. After this returns the manager is empty; the
  * MRConnManager struct itself is not freed (it is embedded in IORuntimeCtx). */
 void MRConnManager_Shutdown(MRConnManager *mgr) {
-  dictIterator *it = dictGetIterator(mgr->map);
-  dictEntry *entry;
-  while ((entry = dictNext(it))) {
-    MRConnPool *pool = dictGetVal(entry);
-    MRConnPool_Disconnect(pool);
-  }
-  dictReleaseIterator(it);
   dictRelease(mgr->map);
 }
 
@@ -332,27 +326,21 @@ int MRConnManager_Add(MRConnManager *m, uv_loop_t *loop, const char *id, MREndpo
       return 0;
     }
 
-    // Node changed address - disconnect old pool before replacing it.
+    // Node changed address - dictReplace below will disconnect+free the old pool
+    // via the dict value destructor (MRConnPool_Free).
     RedisModule_Log(RSDummyContext, "notice",
                     "MRConnManager_Add: Node %s changed address from %s:%d to %s:%d, reconnecting (state: %s)",
                     id, conn->ep.host, conn->ep.port, ep->host, ep->port, MRConnState_Str(conn->state));
-    MRConnPool_Disconnect(pool);
   }
 
   MRConnPool *pool = _MR_NewConnPool(ep, m->nodeConns, loop);
   return dictReplace(m->map, (void *)id, pool);
 }
 
-/* Explicitly disconnect a connection and remove it from the connection pool */
+/* Explicitly disconnect a connection and remove it from the connection pool.
+ * The dict value destructor (MRConnPool_Free) handles disconnect + free. */
 int MRConnManager_Disconnect(MRConnManager *m, const char *id) {
-  dictEntry *ptr = dictUnlink(m->map, id);
-  if (!ptr) {
-    return REDIS_ERR;
-  }
-  const MRConnPool *pool = dictGetVal(ptr);
-  MRConnPool_Disconnect(pool);
-  dictFreeUnlinkedEntry(m->map, ptr);
-  return REDIS_OK;
+  return dictDelete(m->map, id) == DICT_OK ? REDIS_OK : REDIS_ERR;
 }
 
 
@@ -367,7 +355,6 @@ void MRConnManager_Shrink(MRConnManager *m, size_t num) {
 
     for (size_t i = num; i < pool->num; i++) {
       MRConn_Disconnect(pool->conns[i]);
-      freeConn(pool->conns[i]);
     }
 
     pool->num = num;
@@ -429,24 +416,15 @@ static void reauthTimerCallback(uv_timer_t *tm) {
   }
 }
 
-/* Thin wrapper that logs the disconnect before entering the terminal state.
- * Actual teardown (timer stop, cbData detach, hiredis free) lives in the
- * Freeing case of MRConn_SwitchState. Called from the uv thread. */
-static void MRConn_Disconnect(MRConn *conn) {
-  CONN_LOG(conn, "Disconnecting connection");
-  MRConn_SwitchState(conn, MRConn_Freeing);
-}
-
 /* Safely transition to the given state. Each delayed state (Connecting,
  * ReAuth) arms its own dedicated timer callback, so the callback always
  * handles a single state and no runtime state-dispatch is needed. */
 static void MRConn_SwitchState(MRConn *conn, MRConnState nextState) {
   CONN_LOG(conn, "Switching state to %s", MRConnState_Str(nextState));
-  // Freeing is terminal. Idempotent re-entry (Freeing -> Freeing) is allowed,
-  // but transitioning back out would revive a conn whose cbData the Freeing
-  // case below has already detached, which would leave hiredis callbacks
-  // racing against a reattached ac.
-  RS_ASSERT(conn->state != MRConn_Freeing || nextState == MRConn_Freeing);
+  // Freeing is terminal: no caller should attempt a second transition. The
+  // Freeing case detaches cbData and hands conn off to freeConn; transitioning
+  // again would revive a half-torn-down conn or double-close its timer handle.
+  RS_ASSERT(conn->state != MRConn_Freeing);
 
   switch (nextState) {
     case MRConn_Connecting:
