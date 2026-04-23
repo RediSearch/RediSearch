@@ -388,6 +388,7 @@ def testGetConfigOptionsCoord(env):
         env.expect('_ft.config', 'get', conf).noError().apply(lambda x: x[0][0]).equal(conf)
 
     check_config('SEARCH_THREADS')
+    check_config('CONNECT_TIMEOUT')
 
 @skip(cluster=COORD) # Change to `skip(cluster=False)`
 def testAllConfigCoord(env):
@@ -402,6 +403,18 @@ def testInitConfigCoord():
 
     test_arg_num('SEARCH_THREADS', 3)
     test_arg_num('CONN_PER_SHARD', 3)
+    test_arg_num('CONNECT_TIMEOUT', 5000)
+
+@skip(cluster=False)
+def testConnectTimeoutCoord(env):
+    # Default is 10000 ms (see DEFAULT_CONNECT_TIMEOUT in coord/src/config.h)
+    env.expect('_ft.config', 'get', 'CONNECT_TIMEOUT').equal([['CONNECT_TIMEOUT', '10000']])
+    # Set/get round-trip
+    env.expect('_ft.config', 'set', 'CONNECT_TIMEOUT', '2500').ok()
+    env.expect('_ft.config', 'get', 'CONNECT_TIMEOUT').equal([['CONNECT_TIMEOUT', '2500']])
+    # 0 disables the timeout
+    env.expect('_ft.config', 'set', 'CONNECT_TIMEOUT', '0').ok()
+    env.expect('_ft.config', 'get', 'CONNECT_TIMEOUT').equal([['CONNECT_TIMEOUT', '0']])
 
 @skip(cluster=False)
 def testImmutableCoord(env):
