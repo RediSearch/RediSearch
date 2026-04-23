@@ -123,14 +123,13 @@ static MRConnPool *_MR_NewConnPool(MREndpoint *ep, size_t num, uv_loop_t *loop) 
   return pool;
 }
 
-/* Tear down a connection: log, transition to the terminal Freeing state (which
- * stops the retry timer and severs hiredis cbData) and schedule the async free
- * of the MRConn struct. Must be called from the uv thread, and exactly once
- * per conn — uv_close inside freeConn is not idempotent. */
+/* Tear down a connection: log and transition to the terminal Freeing state,
+ * which severs hiredis cbData and schedules the async free of the MRConn
+ * struct. Must be called from the uv thread, and exactly once per conn —
+ * uv_close inside freeConn is not idempotent. */
 static void MRConn_Disconnect(MRConn *conn) {
   CONN_LOG(conn, "Disconnecting connection");
   MRConn_SwitchState(conn, MRConn_Freeing);
-  freeConn(conn);
 }
 
 /* Close callback for the inlined timer handle. libuv has released the handle
@@ -426,36 +425,34 @@ static void MRConn_SwitchState(MRConn *conn, MRConnState nextState) {
   // Freeing case detaches cbData and hands conn off to freeConn; transitioning
   // again would revive a half-torn-down conn or double-close its timer handle.
   RS_ASSERT(conn->state != MRConn_Freeing);
+  conn->state = nextState;
 
   switch (nextState) {
     case MRConn_Connecting:
       // Delayed state: the reconnect timer introduces a back-off between
       // attempts so we don't spin on a server that just rejected us.
-      conn->state = nextState;
       uv_timer_start(&conn->timer, reconnectTimerCallback, RECONNECT_MS_DELAY, 0);
       return;
 
     case MRConn_ReAuth:
       // Delayed state: the reauth timer gives the server time to recover
       // and avoids a tight AUTH-retry loop on repeated rejections.
-      conn->state = nextState;
       uv_timer_start(&conn->timer, reauthTimerCallback, REAUTH_MS_DELAY, 0);
       return;
 
     case MRConn_Connected:
       // Steady state; cancel any pending back-off timer.
       // uv_timer_stop is a safe no-op on inactive timers.
-      conn->state = nextState;
       uv_timer_stop(&conn->timer);
       return;
 
     case MRConn_Freeing:
-      // Terminal state: stop the retry timer and sever cbData so any in-flight
-      // hiredis callbacks on this conn become no-ops. The inlined timer handle
-      // itself is closed later by freeConn via uv_close.
-      conn->state = nextState;
-      uv_timer_stop(&conn->timer);
+      // Terminal state: sever cbData so any in-flight hiredis callbacks on
+      // this conn become no-ops, then hand the conn off to freeConn. uv_close
+      // inside freeConn synchronously stops the retry timer and defers the
+      // struct free until the close callback fires.
       disconnectHiredisAc(conn);
+      freeConn(conn);
       return;
   }
   RS_ABORT_FMT("MRConn_SwitchState: invalid target state %d", nextState);
