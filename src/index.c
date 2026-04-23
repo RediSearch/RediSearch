@@ -233,7 +233,7 @@ static inline int UI_ReadUnsorted(void *ctx, RSIndexResult **hit) {
   int rc = INDEXREAD_OK;
   RSIndexResult *res = NULL;
   while (ui->currIt < ui->num) {
-    rc = ui->origits[ui->currIt]->Read(ui->origits[ui->currIt]->ctx, &res);
+    rc = ui->its[ui->currIt]->Read(ui->its[ui->currIt]->ctx, &res);
     if (rc == INDEXREAD_OK) {
       *hit = res;
       return rc;
