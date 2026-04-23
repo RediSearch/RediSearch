@@ -385,14 +385,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b05b61dc5112cbb17e4b6cd61790d9845d13888356391624cbe7e41efeac1e75"
 
 [[package]]
-name = "common"
-version = "0.1.0"
-source = "git+https://github.com/RedisLabsModules/redismodule-rs.git?rev=3a0257d2c34856bab38fe673f65ad8719695619d#3a0257d2c34856bab38fe673f65ad8719695619d"
-dependencies = [
- "serde",
-]
-
-[[package]]
 name = "console"
 version = "0.15.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1790,21 +1782,21 @@ dependencies = [
 
 [[package]]
 name = "redis-module"
-version = "99.99.99"
-source = "git+https://github.com/RedisLabsModules/redismodule-rs.git?rev=3a0257d2c34856bab38fe673f65ad8719695619d#3a0257d2c34856bab38fe673f65ad8719695619d"
+version = "2.0.7"
+source = "git+https://github.com/RedisLabsModules/redismodule-rs.git?rev=ce7e83074376494c20e2fbdb5059384db6c1ca26#ce7e83074376494c20e2fbdb5059384db6c1ca26"
 dependencies = [
  "backtrace",
  "bindgen",
  "bitflags 2.11.0",
  "cc",
  "cfg-if",
- "common",
  "enum-primitive-derive",
  "libc",
  "linkme",
  "log",
  "nix",
  "num-traits 0.2.19",
+ "redis-module-common",
  "redis-module-macros-internals",
  "regex",
  "serde",
@@ -1812,9 +1804,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "redis-module-common"
+version = "0.1.0"
+source = "git+https://github.com/RedisLabsModules/redismodule-rs.git?rev=ce7e83074376494c20e2fbdb5059384db6c1ca26#ce7e83074376494c20e2fbdb5059384db6c1ca26"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "redis-module-macros-internals"
-version = "99.99.99"
-source = "git+https://github.com/RedisLabsModules/redismodule-rs.git?rev=3a0257d2c34856bab38fe673f65ad8719695619d#3a0257d2c34856bab38fe673f65ad8719695619d"
+version = "2.0.7"
+source = "git+https://github.com/RedisLabsModules/redismodule-rs.git?rev=ce7e83074376494c20e2fbdb5059384db6c1ca26#ce7e83074376494c20e2fbdb5059384db6c1ca26"
 dependencies = [
  "lazy_static",
  "proc-macro2",
