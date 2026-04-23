@@ -29,6 +29,11 @@ typedef struct {
   * when the topology check is done. */
   bool io_runtime_started_or_starting; /* Set to true when the IO Runtime is starting or already started. We know that at least one thread (main or worker) is initializing the thread so we are sure (by having atomic access)
   * that the thread will be started only once.*/
+  bool topology_connectivity_changed; /* Scratch flag written by the topology task
+  * (uvUpdateTopologyRequest) and read by topologyAsyncCB to decide whether to
+  * arm the validation handshake. Defaults to true before each task runs so a
+  * task that doesn't set it falls back to the safe handshake path. Only
+  * accessed from the uv event loop thread. */
   uv_async_t async;
   uv_loop_t loop;
   uv_thread_t loop_th;
@@ -78,8 +83,10 @@ void IORuntimeCtx_RequestCompleted(IORuntimeCtx *io_runtime_ctx);
 void IORuntimeCtx_Debug_ClearPendingTopo(IORuntimeCtx *io_runtime_ctx);
 uv_loop_t* IORuntimeCtx_GetLoop(IORuntimeCtx *io_runtime_ctx);
 /* Apply the current topology to the connection manager: add new nodes (and
- * start their connections), remove nodes no longer in the topology. */
-void IORuntimeCtx_UpdateNodes(IORuntimeCtx *ioRuntime);
+ * start their connections), remove nodes no longer in the topology. Returns
+ * true iff new connections were created (a node was inserted or replaced);
+ * false otherwise, including when nodes were only removed from the topology. */
+bool IORuntimeCtx_UpdateNodes(IORuntimeCtx *ioRuntime);
 void IORuntimeCtx_Schedule_Topology(IORuntimeCtx *io_runtime_ctx, MRQueueCallback cb, struct MRClusterTopology *topo, bool take_topo_ownership);
 void IORuntimeCtx_UpdateConnPoolSize(IORuntimeCtx *ioRuntime, size_t new_conn_pool_size);
 

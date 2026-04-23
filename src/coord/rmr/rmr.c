@@ -374,7 +374,10 @@ static void uvUpdateTopologyRequest(void *p) {
   IORuntimeCtx *ioRuntime = ctx->ioRuntime;
   MRClusterTopology *old_topo = ioRuntime->topo;
   ioRuntime->topo = ctx->new_topo;
-  IORuntimeCtx_UpdateNodes(ioRuntime);
+  // Report the connectivity signal back to topologyAsyncCB via a scratch flag
+  // on the uv runtime. The flag is preset to `true` before the task runs, so
+  // lowering it here is the only way to skip the validation handshake.
+  ioRuntime->uv_runtime.topology_connectivity_changed = IORuntimeCtx_UpdateNodes(ioRuntime);
   rm_free(ctx);
   if (old_topo) {
     MRClusterTopology_Free(old_topo);

@@ -310,13 +310,14 @@ int MRConn_SendCommand(MRConn *c, MRCommand *cmd, redisCallbackFn *fn, void *pri
   return redisAsyncFormattedCommand(c->conn, fn, privdata, cmd->cmd, sdslen(cmd->cmd));
 }
 
-/* Add a node to the connection manager and start its connections. Returns a
- * three-way signal so the caller can tell an identical-topology refresh
- * (Unchanged) apart from an actual connectivity change (Replaced or Inserted).
+/* Add a node to the connection manager and start its connections. Returns
+ * true iff the connection pool was (re)created, i.e. the endpoint was new or
+ * differs from the one currently registered for `id`; returns false when the
+ * existing pool already matches `ep` and was left untouched.
  * Endpoint equality covers host, port, unixSock and password; a password
  * rotation therefore forces a pool rebuild rather than silently reusing
  * connections that would AUTH with stale credentials on reconnect. */
-MRConnManager_AddResult MRConnManager_Add(MRConnManager *m, uv_loop_t *loop, const char *id, MREndpoint *ep) {
+bool MRConnManager_Add(MRConnManager *m, uv_loop_t *loop, const char *id, MREndpoint *ep) {
   /* First try to see if the connection is already in the manager */
   dictEntry *ptr = dictFind(m->map, id);
   if (ptr) {
@@ -324,7 +325,7 @@ MRConnManager_AddResult MRConnManager_Add(MRConnManager *m, uv_loop_t *loop, con
 
     MRConn *conn = pool->conns[0];
     if (MREndpoint_Equal(&conn->ep, ep)) {
-      return MRConnManager_Add_Unchanged;
+      return false;
     }
 
     // Endpoint changed - dictReplace below will disconnect+free the old pool
@@ -335,10 +336,8 @@ MRConnManager_AddResult MRConnManager_Add(MRConnManager *m, uv_loop_t *loop, con
   }
 
   MRConnPool *pool = _MR_NewConnPool(ep, m->nodeConns, loop);
-  // dictReplace returns 1 on fresh insert, 0 on replace of an existing key.
-  return dictReplace(m->map, (void *)id, pool) == 1
-    ? MRConnManager_Add_Inserted
-    : MRConnManager_Add_Replaced;
+  dictReplace(m->map, (void *)id, pool);
+  return true;
 }
 
 /* Explicitly disconnect a connection and remove it from the connection pool.

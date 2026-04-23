@@ -55,6 +55,28 @@ extern "C" {
   }
 } // extern "C"
 
+// Counter bumped by realUpdateTopoCallback after each invocation, so tests can
+// synchronize with the uv thread on completion of a topology update.
+static std::atomic<int> topoUpdateCalls{0};
+
+extern "C" {
+  // Mirrors the production uvUpdateTopologyRequest in rmr.c (which is static
+  // and not exported for tests): installs the new topology, walks the conn
+  // manager, and records the connectivity-changed signal on the uv runtime.
+  static void realUpdateTopoCallback(void *privdata) {
+    struct UpdateTopologyCtx *updateCtx = (struct UpdateTopologyCtx *)privdata;
+    IORuntimeCtx *ioRuntime = updateCtx->ioRuntime;
+    MRClusterTopology *old_topo = ioRuntime->topo;
+    ioRuntime->topo = updateCtx->new_topo;
+    ioRuntime->uv_runtime.topology_connectivity_changed = IORuntimeCtx_UpdateNodes(ioRuntime);
+    topoUpdateCalls.fetch_add(1, std::memory_order_release);
+    rm_free(updateCtx);
+    if (old_topo) {
+      MRClusterTopology_Free(old_topo);
+    }
+  }
+} // extern "C"
+
 class IORuntimeCtxCommonTest : public ::testing::Test {
 protected:
   IORuntimeCtx *ctx;
@@ -458,4 +480,94 @@ TEST_F(IORuntimeCtxCommonTest, UpdateNodesResizesConnectionMap) {
 
   startAndShutdownRuntime(io);
   IORuntimeCtx_Free(io);
+}
+
+
+TEST_F(IORuntimeCtxCommonTest, UpdateNodesReportsConnectivityChange) {
+  std::array<const char *, 2> hosts = {"localhost:6379", "localhost:6389"};
+  MRClusterTopology *topo_v1 = getTopology(hosts);
+  IORuntimeCtx *io = IORuntimeCtx_Create(1, topo_v1, 13, true);
+
+  // First application populates an empty conn map -> connectivity changed.
+  ASSERT_TRUE(IORuntimeCtx_UpdateNodes(io));
+
+  // Re-applying the same topology is a no-op from the conn manager's POV.
+  MRClusterTopology *topo_v2 = getTopology(hosts);
+  MRClusterTopology *old = io->topo;
+  io->topo = topo_v2;
+  ASSERT_FALSE(IORuntimeCtx_UpdateNodes(io));
+  MRClusterTopology_Free(old);
+
+  // Dropping a node -> connectivity changed (disconnect returns REDIS_OK).
+  std::array<const char *, 1> hosts_shrunk = {"localhost:6379"};
+  MRClusterTopology *topo_v3 = getTopology(hosts_shrunk);
+  old = io->topo;
+  io->topo = topo_v3;
+  ASSERT_TRUE(IORuntimeCtx_UpdateNodes(io));
+  MRClusterTopology_Free(old);
+
+  // Adding a new node -> connectivity changed (insert returns Inserted).
+  std::array<const char *, 2> hosts_grown = {"localhost:6379", "localhost:6409"};
+  MRClusterTopology *topo_v4 = getTopology(hosts_grown);
+  old = io->topo;
+  io->topo = topo_v4;
+  ASSERT_TRUE(IORuntimeCtx_UpdateNodes(io));
+  MRClusterTopology_Free(old);
+
+  startAndShutdownRuntime(io);
+  IORuntimeCtx_Free(io);
+}
+
+TEST_F(IORuntimeCtxCommonTest, IdenticalTopologyUpdateSkipsHandshake) {
+  // Reset the counter used by realUpdateTopoCallback.
+  topoUpdateCalls.store(0, std::memory_order_relaxed);
+
+  // Start the io runtime by scheduling a work item. The initial dummy topology
+  // has zero shards, so the first realUpdateTopoCallback below will see an
+  // empty conn map and a single-node topology -> connectivity changed.
+  int counter = 0;
+  IORuntimeCtx_Schedule(ctx, testCallback, &counter);
+
+  std::array<const char *, 1> hosts = {"localhost:16379"};
+  MRClusterTopology *topo_v1 = getTopology(hosts);
+  IORuntimeCtx_Schedule_Topology(ctx, realUpdateTopoCallback, topo_v1, true);
+
+  // Wait for the first topology update to complete on the uv thread.
+  bool firstApplied = RS::WaitForCondition([&]() {
+    return topoUpdateCalls.load(std::memory_order_acquire) >= 1;
+  });
+  ASSERT_TRUE(firstApplied) << "Timeout waiting for initial topology update";
+
+  // The first update changed connectivity: topologyAsyncCB should have armed
+  // the validation handshake, clearing loop_th_ready. Force it back to true
+  // to simulate the handshake completing (the node is not reachable in the
+  // test environment, so the real timer would never succeed).
+  ctx->uv_runtime.loop_th_ready = true;
+
+  // Apply the *same* topology again. With the connectivity-change gating,
+  // topologyAsyncCB must not clear loop_th_ready nor arm the validation timer.
+  MRClusterTopology *topo_v2 = getTopology(hosts);
+  IORuntimeCtx_Schedule_Topology(ctx, realUpdateTopoCallback, topo_v2, true);
+
+  bool secondApplied = RS::WaitForCondition([&]() {
+    return topoUpdateCalls.load(std::memory_order_acquire) >= 2;
+  });
+  ASSERT_TRUE(secondApplied) << "Timeout waiting for identical topology update";
+
+  // Schedule a work item and wait for it to run. It can only run if
+  // loop_th_ready is true after the identical-topology update; if the
+  // handshake had been (incorrectly) re-armed, this callback would be
+  // parked on pendingItems and the wait would time out.
+  int postCounter = 0;
+  IORuntimeCtx_Schedule(ctx, testCallback, &postCounter);
+  bool ranPostCallback = RS::WaitForCondition([&]() { return postCounter >= 1; });
+  ASSERT_TRUE(ranPostCallback)
+      << "Work item did not run after identical topology update; "
+         "validation handshake was likely re-armed";
+
+  ASSERT_TRUE(ctx->uv_runtime.loop_th_ready);
+  ASSERT_FALSE(ctx->uv_runtime.topology_connectivity_changed);
+
+  // Wait for the initial testCallback to complete before `counter` leaves scope.
+  RS::WaitForCondition([&]() { return counter >= 1; });
 }
