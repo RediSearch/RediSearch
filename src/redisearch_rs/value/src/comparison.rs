@@ -29,7 +29,7 @@ pub enum CompareError {
     IncompatibleTypes,
 }
 
-/// Compare two [`RsValue`]s, folding non-fatal [`CompareError`]s into
+/// Compare two [`Value`]s, folding non-fatal [`CompareError`]s into
 /// [`Ordering::Equal`] (matching the C implementation).
 ///
 /// Passing `qerr` disables the num-to-string fallback: a failed conversion is
