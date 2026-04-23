@@ -2071,6 +2071,7 @@ dictType dictTypeHybridSearchResult = {
  const RLookupKey *docKey;        // Key for reading document key when dmd is not available
  RPStatus* upstreamReturnCodes;   // Final return codes from each upstream
  HybridLookupContext *lookupCtx;  // Lookup context for field merging
+ size_t *upstreamConsumed;        // Per-upstream consumed count, persists across DEPLETING retries
 
 } RPHybridMerger;
 
@@ -2140,23 +2141,23 @@ static inline bool RPHybridMerger_Error(const RPHybridMerger *self) {
 
  /* Helper function to consume results from a single upstream */
  static int hybridMergerConsumeFromUpstream(RPHybridMerger *self, size_t maxResults, size_t upstreamIndex) {
-   size_t consumed = 0;
+   size_t *consumed = &self->upstreamConsumed[upstreamIndex];
    int rc = RS_RESULT_OK;
    SearchResult *r = rm_calloc(1, sizeof(*r));
    *r = SearchResult_New();
    ResultProcessor *upstream = self->upstreams[upstreamIndex];
-   while (consumed < maxResults && (rc = upstream->Next(upstream, r)) == RS_RESULT_OK) {
+   while (*consumed < maxResults && (rc = upstream->Next(upstream, r)) == RS_RESULT_OK) {
        double score = SearchResult_GetScore(r);
-       consumed++;
+       (*consumed)++;
        if (self->hybridScoringCtx->scoringType == HYBRID_SCORING_RRF) {
-         score = consumed;
+         score = *consumed;
        }
        if (hybridMergerStoreUpstreamResult(self, r, upstreamIndex, score)) {
          r = rm_calloc(1, sizeof(*r));
          *r = SearchResult_New();
        } else {
          SearchResult_Clear(r);
-         --consumed; // avoid wrong rank in RRF
+         --(*consumed); // avoid wrong rank in RRF
        }
    }
    rm_free(r);
@@ -2288,6 +2289,8 @@ static int RPHybridMerger_Yield(ResultProcessor *rp, SearchResult *r) {
    // Free the hybrid results dictionary (HybridSearchResult values automatically freed by destructor)
    dictRelease(self->hybridResults);
 
+   rm_free(self->upstreamConsumed);
+
    // Free the upstreams array, the upstreams themselves are freed by the pipeline(e.g as a result of AREQ_Free)
    array_free(self->upstreams);
 
@@ -2344,6 +2347,7 @@ ResultProcessor *RPHybridMerger_New(RedisSearchCtx *sctx,
 
    // Since we're storing by pointer, the caller is responsible for memory management
    ret->upstreams = upstreams;
+   ret->upstreamConsumed = rm_calloc(numUpstreams, sizeof(size_t));
    ret->hybridResults = dictCreate(&dictTypeHybridSearchResult, NULL);
 
    // Calculate maximal dictionary size based on scoring type

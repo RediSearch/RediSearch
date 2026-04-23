@@ -51,14 +51,21 @@ struct MockUpstream : public ResultProcessor {
   int counter = 0;
   std::vector<RSDocumentMetadata*> documentMetadata;
 
+  int depleteAfterNResults = -1;   // After this many OK results, start mid-stream depletion (-1 = disabled)
+  int midStreamDepletionCount = 0;  // How many DEPLETING returns mid-stream
+  int midStreamDepletionsDone = 0;  // Internal counter for mid-stream depletion phase
+
   // Simplified constructor with just the essentials
   MockUpstream(int timeoutAfterCount = 0,
                const std::vector<double>& Scores = {},
                const std::vector<int>& DocIds = {},
                int depletionCount = 0,
                int errorAfterCount = -1,
-               uint8_t Flags = 0)
-    : timeoutAfterCount(timeoutAfterCount), errorAfterCount(errorAfterCount), scores(Scores), docIds(DocIds), flags(Flags), depletionCount(depletionCount) {
+               uint8_t Flags = 0,
+               int depleteAfterNResults = -1,
+               int midStreamDepletionCount = 0)
+    : timeoutAfterCount(timeoutAfterCount), errorAfterCount(errorAfterCount), scores(Scores), docIds(DocIds), flags(Flags), depletionCount(depletionCount),
+      depleteAfterNResults(depleteAfterNResults), midStreamDepletionCount(midStreamDepletionCount) {
 
     this->Next = NextFn;
     documentMetadata.reserve(50);
@@ -126,6 +133,14 @@ struct MockUpstream : public ResultProcessor {
     int docIndex = p->counter - p->depletionCount;
     if (docIndex >= static_cast<int>(p->scores.size())) {
       return RS_RESULT_EOF;
+    }
+
+    // Handle mid-stream depletion: after yielding depleteAfterNResults results,
+    // return DEPLETING midStreamDepletionCount times before resuming
+    if (p->depleteAfterNResults >= 0 && docIndex == p->depleteAfterNResults
+        && p->midStreamDepletionsDone < p->midStreamDepletionCount) {
+      p->midStreamDepletionsDone++;
+      return RS_RESULT_DEPLETING;
     }
 
     // Use docId from array
@@ -1463,4 +1478,153 @@ TEST_F(HybridMergerTest, testUpstreamReturnCodes) {
   SearchResult_Destroy(&r);
   CleanupDummyLookupContext(lookupCtx);
   hybridMerger->Free(hybridMerger);
+}
+
+/*
+ * Test that RRF ranks are preserved correctly when DEPLETING interrupts consumption mid-stream.
+ *
+ * When a non-blocking upstream returns RS_RESULT_DEPLETING after yielding some results,
+ * the round-robin loop in RPHybridMerger_Accum re-calls hybridMergerConsumeFromUpstream
+ * for the same upstream. The per-upstream consumed counter must persist across these calls
+ * so that RRF ranks continue from where they left off (e.g. result #4 gets rank 4, not 1)
+ * and the window cap is respected cumulatively.
+ *
+ * Scoring function: RRF (Reciprocal Rank Fusion)
+ * Number of upstreams: 2
+ * Intersection: No intersection
+ * Mid-stream depletion: upstream1 depletes after 3 results, then resumes
+ * Expected behavior: All 6 results from upstream1 get monotonically increasing ranks 1-6
+ */
+TEST_F(HybridMergerTest, testRRFRankPreservedAcrossDepleting) {
+  QueryProcessingCtx qitr = {0};
+
+  // Upstream1: 6 results, depletes after yielding 3 (simulates non-blocking RPNet)
+  // Returns: doc1(OK), doc2(OK), doc3(OK), DEPLETING x2, doc4(OK), doc5(OK), doc6(OK), EOF
+  std::vector<double> scores1 = {0.9, 0.8, 0.7, 0.6, 0.5, 0.4};
+  std::vector<int> docIds1 = {1, 2, 3, 4, 5, 6};
+  MockUpstream upstream1(0, scores1, docIds1, /*depletionCount=*/0, /*errorAfterCount=*/-1,
+                         /*Flags=*/0, /*depleteAfterNResults=*/3, /*midStreamDepletionCount=*/2);
+
+  // Upstream2: 6 results, no depletion
+  std::vector<double> scores2 = {0.85, 0.75, 0.65, 0.55, 0.45, 0.35};
+  std::vector<int> docIds2 = {11, 12, 13, 14, 15, 16};
+  MockUpstream upstream2(0, scores2, docIds2);
+
+  ResultProcessor *rp1 = &upstream1;
+  ResultProcessor *rp2 = &upstream2;
+
+  arrayof(ResultProcessor*) upstreams = NULL;
+  array_ensure_append_1(upstreams, rp1);
+  array_ensure_append_1(upstreams, rp2);
+  HybridLookupContext *lookupCtx = CreateDummyLookupContext(2);
+  ResultProcessor *hybridMerger = CreateRRFHybridMerger(upstreams, 2, 60, 10, lookupCtx); // constant=60, window=10
+
+  QITR_PushRP(&qitr, hybridMerger);
+
+  SearchResult r = SearchResult_New();
+  ResultProcessor *rpTail = qitr.endProc;
+  int lastResult;
+  size_t count = 0;
+
+  while ((lastResult = rpTail->Next(rpTail, &r)) == RS_RESULT_OK) {
+    count++;
+
+    ASSERT_TRUE(SearchResult_GetDocumentMetadata(&r) != nullptr);
+    ASSERT_TRUE(SearchResult_GetDocumentMetadata(&r)->keyPtr != nullptr);
+
+    // Upstream1 docs (1-6): ranks 1-6 respectively
+    // Upstream2 docs (11-16): ranks 1-6 respectively
+    // RRF score = 1/(constant + rank)
+    t_docId docId = SearchResult_GetDocId(&r);
+    if (docId >= 1 && docId <= 6) {
+      int expectedRank = static_cast<int>(docId); // doc1→rank1, doc2→rank2, ...
+      EXPECT_NEAR(1.0 / (60.0 + expectedRank), SearchResult_GetScore(&r), 0.0001)
+        << "doc" << docId << " should have rank " << expectedRank;
+    } else if (docId >= 11 && docId <= 16) {
+      int expectedRank = static_cast<int>(docId - 10); // doc11→rank1, doc12→rank2, ...
+      EXPECT_NEAR(1.0 / (60.0 + expectedRank), SearchResult_GetScore(&r), 0.0001)
+        << "doc" << docId << " should have rank " << expectedRank;
+    }
+
+    SearchResult_Clear(&r);
+  }
+
+  ASSERT_EQ(RS_RESULT_EOF, lastResult);
+  ASSERT_EQ(12, count); // 6 from each upstream
+  SearchResult_Destroy(&r);
+
+  CleanupDummyLookupContext(lookupCtx);
+  QITR_FreeChain(&qitr);
+}
+
+/*
+ * Test that the window cap is respected cumulatively across DEPLETING retries.
+ *
+ * With window=4 and an upstream that depletes after 3 results, the second call
+ * should only consume 1 more result (not restart from 0 and consume up to 4).
+ *
+ * Scoring function: RRF (Reciprocal Rank Fusion)
+ * Number of upstreams: 2
+ * Mid-stream depletion: upstream1 depletes after 3 results, then resumes
+ * Window: 4 (should cap total consumed per upstream)
+ * Expected behavior: Only 4 results consumed from upstream1 despite having 6 available
+ */
+TEST_F(HybridMergerTest, testWindowCapRespectsDepletingRetries) {
+  QueryProcessingCtx qitr = {0};
+
+  // Upstream1: 6 results available, but window=4 should cap it.
+  // Depletes after 3: first call consumes 3, second call should only consume 1 more.
+  std::vector<double> scores1 = {0.9, 0.8, 0.7, 0.6, 0.5, 0.4};
+  std::vector<int> docIds1 = {1, 2, 3, 4, 5, 6};
+  MockUpstream upstream1(0, scores1, docIds1, /*depletionCount=*/0, /*errorAfterCount=*/-1,
+                         /*Flags=*/0, /*depleteAfterNResults=*/3, /*midStreamDepletionCount=*/1);
+
+  // Upstream2: 4 results, no depletion
+  std::vector<double> scores2 = {0.85, 0.75, 0.65, 0.55};
+  std::vector<int> docIds2 = {11, 12, 13, 14};
+  MockUpstream upstream2(0, scores2, docIds2);
+
+  ResultProcessor *rp1 = &upstream1;
+  ResultProcessor *rp2 = &upstream2;
+
+  arrayof(ResultProcessor*) upstreams = NULL;
+  array_ensure_append_1(upstreams, rp1);
+  array_ensure_append_1(upstreams, rp2);
+  HybridLookupContext *lookupCtx = CreateDummyLookupContext(2);
+  ResultProcessor *hybridMerger = CreateRRFHybridMerger(upstreams, 2, 60, 4, lookupCtx); // constant=60, window=4
+
+  QITR_PushRP(&qitr, hybridMerger);
+
+  SearchResult r = SearchResult_New();
+  ResultProcessor *rpTail = qitr.endProc;
+  int lastResult;
+
+  std::set<t_docId> upstream1Docs;
+  std::set<t_docId> upstream2Docs;
+
+  while ((lastResult = rpTail->Next(rpTail, &r)) == RS_RESULT_OK) {
+    t_docId docId = SearchResult_GetDocId(&r);
+    if (docId >= 1 && docId <= 6) {
+      upstream1Docs.insert(docId);
+      int expectedRank = static_cast<int>(docId);
+      EXPECT_NEAR(1.0 / (60.0 + expectedRank), SearchResult_GetScore(&r), 0.0001);
+    } else {
+      upstream2Docs.insert(docId);
+    }
+    SearchResult_Clear(&r);
+  }
+
+  ASSERT_EQ(RS_RESULT_EOF, lastResult);
+
+  // Window=4 should cap upstream1 to 4 results (docs 1-4), not 6
+  std::set<t_docId> expectedUpstream1 = {1, 2, 3, 4};
+  EXPECT_EQ(expectedUpstream1, upstream1Docs);
+
+  // Upstream2 also capped at 4
+  std::set<t_docId> expectedUpstream2 = {11, 12, 13, 14};
+  EXPECT_EQ(expectedUpstream2, upstream2Docs);
+
+  SearchResult_Destroy(&r);
+  CleanupDummyLookupContext(lookupCtx);
+  QITR_FreeChain(&qitr);
 }
