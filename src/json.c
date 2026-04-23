@@ -429,7 +429,8 @@ static int JSON_StoreVectorAt(RedisJSON arr, size_t len, VecSimType target_type,
   RS_ASSERT(buf_len == len);
   if (buf && JSON_ArrayTypeIsNumeric(jtype)) {
     if (!VecSim_AcceptsJSONArrayType(target_type, jtype)) {
-      QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_GENERIC, "Invalid vector element at index 0");
+      QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_GENERIC, "Invalid vector elements type - expected %s, got %d",
+                                       VecSimType_ToString(target_type), jtype);
       return REDISMODULE_ERR;
     }
     VecSim_ConvertFromTypedBuffer(target_type, jtype, buf, len, target);
