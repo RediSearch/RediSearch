@@ -51,11 +51,18 @@ pub struct CollectReducer<'a> {
 
 /// Per-group instance of the [`CollectReducer`].
 ///
-/// Each call to [`CollectCtx::add`] projects the configured field and sort
-/// keys from the source row and stores the cloned values in either the
-/// insertion-order [`Storage::Array`] (no `SORTBY`) or the bounded top-K
-/// [`Storage::Heap`] (with `SORTBY`). [`CollectCtx::finalize`] drains the
-/// active variant and serialises the rows as an array of maps.
+/// Entries are kept in either an insertion-order [`Storage::Array`]
+/// (no `SORTBY`) or a bounded top-K [`Storage::Heap`] (with `SORTBY`);
+/// the variant is fixed at construction by [`CollectCtx::new`] and never
+/// changes.
+///
+/// [`CollectCtx::add`] captures the sort key values eagerly and defers
+/// field projection through a closure passed to
+/// [`CollectCtx::insert_entry`], so the per-row allocation and
+/// [`SharedValue::clone`] cost is only paid for entries that survive the
+/// per-variant cap.
+/// [`CollectCtx::finalize`] drains the active variant, applies the `LIMIT`
+/// window, and serialises each surviving row as a `{field_name: value}` map.
 ///
 /// Because `CollectCtx` is arena-allocated ([`Bump`] does not run destructors),
 /// `ptr::drop_in_place` must be called to run destructors for the inner
@@ -64,10 +71,6 @@ pub struct CollectCtx {
     /// Per-variant entry storage; the variant is pinned at construction
     /// time by [`CollectCtx::new`] based on whether `SORTBY` is present.
     storage: Storage,
-    /// Monotonic per-group insertion counter. Assigned to each
-    /// [`CollectEntry::seq`] and used as the final tie-break in
-    /// [`EntryOrd::cmp`] so that heap-path output is stable across ties.
-    seq_counter: u64,
 }
 
 impl<'a> CollectReducer<'a> {
@@ -183,28 +186,18 @@ impl CollectCtx {
         } else {
             Storage::Heap(MinMaxHeap::with_capacity(r.heap_cap()))
         };
-        Self {
-            storage,
-            seq_counter: 0,
-        }
+        Self { storage }
     }
 
     /// Project field and sort values from `row` and forward them to
     /// [`Self::insert_entry`] for cap-aware storage.
     ///
-    /// For each configured field and sort key the value is looked up in the
-    /// row and cloned (incrementing its refcount). Missing values are
+    /// `sort_vals` are materialised eagerly because the comparator reads
+    /// them on every heap decision. `projected` is produced by a closure
+    /// that runs at most once, and only for entries that survive the
+    /// per-variant cap — see [`Self::insert_entry`]. Missing values are
     /// materialised as [`SharedValue::null_static`].
     pub fn add(&mut self, r: &CollectReducer, row: &RLookupRow) {
-        let projected: Vec<SharedValue> = r
-            .field_keys
-            .iter()
-            .map(|key| {
-                row.get(key)
-                    .cloned()
-                    .unwrap_or_else(SharedValue::null_static)
-            })
-            .collect();
         let sort_vals: Vec<SharedValue> = r
             .sort_keys
             .iter()
@@ -214,45 +207,55 @@ impl CollectCtx {
                     .unwrap_or_else(SharedValue::null_static)
             })
             .collect();
-        self.insert_entry(r, &projected, &sort_vals);
+        self.insert_entry(r, &sort_vals, || {
+            r.field_keys
+                .iter()
+                .map(|key| {
+                    row.get(key)
+                        .cloned()
+                        .unwrap_or_else(SharedValue::null_static)
+                })
+                .collect::<Vec<_>>()
+                .into_boxed_slice()
+        });
     }
 
-    /// Store a pre-projected entry, enforcing the per-variant cap.
+    /// Store a candidate entry, enforcing the per-variant cap.
     ///
     /// This is the single integration point shared by the row-oriented
     /// [`Self::add`] (GROUPBY reducer path) and the future coordinator
-    /// path, which will fill `projected` / `sort_vals` from an already
-    /// materialised shard response rather than an [`RLookupRow`].
+    /// path, which will pass a closure producing `projected` from an
+    /// already-materialised shard response rather than from an
+    /// [`RLookupRow`].
     ///
-    /// The per-group `seq_counter` is incremented on every call — even for
-    /// entries dropped by cap enforcement — so that sequence numbers
-    /// observed by downstream consumers match insertion order regardless
-    /// of eviction.
+    /// `sort_vals` is consumed eagerly — the comparator reads it on every
+    /// heap decision. `project` is invoked at most once, **only for
+    /// entries that survive the cap**, so rows that would be dropped
+    /// never pay the projection cost (boxed-slice allocation + one
+    /// [`SharedValue::clone`] per field key).
     ///
     /// ## Array path (no `SORTBY`)
     ///
     /// Effective cap = explicit `LIMIT offset + count` when present, else
     /// `ffi::RSGlobalConfig.maxAggregateResults` (read per-call so runtime
     /// `CONFIG SET` takes effect). Entries are pushed in insertion order
-    /// while `len < cap`; further entries are dropped silently.
+    /// while `len < cap`; further entries are dropped silently before
+    /// `project` is invoked.
     ///
     /// ## Heap path (`SORTBY` present)
     ///
     /// Cap comes from [`CollectReducer::heap_cap`]. Entries are pushed
     /// while `heap.len() < cap`; once full, the new entry replaces the
-    /// current max only if it compares strictly better, via
-    /// [`MinMaxHeap::push_pop_max`] which is a no-op when the new entry is
-    /// `>=` the current max. Monotonic `seq` guarantees strict ordering
-    /// even when all sort values tie, so ties resolve deterministically in
-    /// favour of earlier inserts.
-    pub fn insert_entry(
-        &mut self,
-        r: &CollectReducer,
-        projected: &[SharedValue],
-        sort_vals: &[SharedValue],
-    ) {
-        let seq = self.seq_counter;
-        self.seq_counter += 1;
+    /// current max only if it compares strictly better. Survival is
+    /// decided by building only the [`EntryKey`] for the candidate and
+    /// comparing it against [`MinMaxHeap::peek_max`]'s key — the
+    /// [`HeapEntry::projected`] payload is built (via `project`) only
+    /// for survivors. Ties between equal [`EntryKey`]s resolve in an
+    /// unspecified order.
+    pub fn insert_entry<F>(&mut self, r: &CollectReducer, sort_vals: &[SharedValue], project: F)
+    where
+        F: FnOnce() -> Box<[SharedValue]>,
+    {
         match &mut self.storage {
             Storage::Array(v) => {
                 let cap = match r.limit {
@@ -263,11 +266,7 @@ impl CollectCtx {
                     None => unsafe { ffi::RSGlobalConfig.maxAggregateResults },
                 };
                 if v.len() < cap {
-                    v.push(CollectEntry {
-                        projected: projected.to_vec().into_boxed_slice(),
-                        sort_vals: sort_vals.to_vec().into_boxed_slice(),
-                        seq,
-                    });
+                    v.push(project());
                 }
             }
             Storage::Heap(h) => {
@@ -275,22 +274,29 @@ impl CollectCtx {
                 if cap == 0 {
                     return;
                 }
-                let eo = EntryOrd {
-                    entry: CollectEntry {
-                        projected: projected.to_vec().into_boxed_slice(),
-                        sort_vals: sort_vals.to_vec().into_boxed_slice(),
-                        seq,
-                    },
+                // Build only the comparator-visible half of the
+                // candidate; `EntryKey` cannot (by construction) reach
+                // `projected`, so the survival check runs without ever
+                // building it.
+                let candidate_key = EntryKey {
+                    sort_vals: sort_vals.to_vec().into_boxed_slice(),
                     sort_asc_map: r.sort_asc_map,
                 };
                 if h.len() < cap {
-                    h.push(eo);
-                } else {
-                    // `push_pop_max` is a no-op when `eo > current max`,
-                    // so worse-than-max entries are dropped; strictly
-                    // better entries evict the current max.
-                    h.push_pop_max(eo);
+                    h.push(HeapEntry {
+                        key: candidate_key,
+                        projected: project(),
+                    });
+                } else if candidate_key
+                    < h.peek_max().expect("heap is full, so peek_max is Some").key
+                {
+                    h.push_pop_max(HeapEntry {
+                        key: candidate_key,
+                        projected: project(),
+                    });
                 }
+                // else: candidate loses or ties — drop without ever
+                // calling `project`.
             }
         }
     }
@@ -305,7 +311,7 @@ impl CollectCtx {
     ///
     /// - **Heap path** (`SORTBY` present): entries are drained via
     ///   [`MinMaxHeap::pop_min`], yielding best→worst order under the
-    ///   "best = min" convention fixed by [`EntryOrd`]'s [`Ord`] impl.
+    ///   "best = min" convention fixed by [`EntryKey`]'s [`Ord`] impl.
     /// - **Array path** (`SORTBY` absent): entries are drained in
     ///   insertion order.
     ///
@@ -322,12 +328,12 @@ impl CollectCtx {
     /// `offset > len` yields an empty array; `count > len - offset` emits
     /// the remainder without padding.
     pub fn finalize(&mut self, r: &CollectReducer) -> SharedValue {
-        let entries: Vec<CollectEntry> = match &mut self.storage {
+        let projected_rows: Vec<Box<[SharedValue]>> = match &mut self.storage {
             Storage::Array(v) => std::mem::take(v),
             Storage::Heap(h) => {
                 let mut out = Vec::with_capacity(h.len());
-                while let Some(eo) = h.pop_min() {
-                    out.push(eo.entry);
+                while let Some(he) = h.pop_min() {
+                    out.push(he.projected);
                 }
                 out
             }
@@ -338,13 +344,12 @@ impl CollectCtx {
             None => (0, usize::MAX),
         };
 
-        let row_maps: Vec<SharedValue> = entries
+        let row_maps: Vec<SharedValue> = projected_rows
             .into_iter()
             .skip(offset)
             .take(take)
-            .map(|entry| {
-                let pairs: Box<[_]> = entry
-                    .projected
+            .map(|projected| {
+                let pairs: Box<[_]> = projected
                     .into_vec()
                     .into_iter()
                     .zip(r.field_keys.iter())
@@ -369,46 +374,68 @@ const DEFAULT_LIMIT: u64 = 10;
 /// The variant is chosen in [`CollectCtx::new`] based on whether `SORTBY`
 /// is present and never changes for the lifetime of the instance.
 ///
-/// - [`Storage::Array`] is used when `SORTBY` is absent. Entries are kept
-///   in insertion order; on finalisation they are emitted in the same order.
-///   The array-path cap (explicit `LIMIT` or `RSGlobalConfig.maxAggregateResults`)
-///   is enforced by the shared `insert_entry` helper.
+/// - [`Storage::Array`] is used when `SORTBY` is absent. Projected row
+///   payloads are kept in insertion order and emitted in the same order
+///   on finalisation. The array-path cap (explicit `LIMIT` or
+///   `RSGlobalConfig.maxAggregateResults`) is enforced by the shared
+///   `insert_entry` helper.
 /// - [`Storage::Heap`] is used when `SORTBY` is present. A bounded top-K
-///   min-max heap sized to `offset + count`; the shared `insert_entry`
-///   helper evicts the current max when a better entry arrives.
-///   On finalisation the heap is drained via `pop_min`, yielding
+///   min-max heap of [`HeapEntry`]s sized to `offset + count`; the shared
+///   `insert_entry` helper evicts the current max when a better entry
+///   arrives. On finalisation the heap is drained via `pop_min`, yielding
 ///   best→worst order under the "best = min" convention fixed by
-///   [`EntryOrd`]'s [`Ord`] impl.
+///   [`EntryKey`]'s [`Ord`] impl.
 enum Storage {
-    Array(Vec<CollectEntry>),
-    Heap(MinMaxHeap<EntryOrd>),
+    Array(Vec<Box<[SharedValue]>>),
+    Heap(MinMaxHeap<HeapEntry>),
 }
 
-/// A collected row held in either the insertion-order array (no `SORTBY`) or
-/// the bounded top-K heap (with `SORTBY`).
+/// Heap element: comparator-visible [`EntryKey`] alongside the projected
+/// payload that [`CollectCtx::finalize`] emits.
 ///
-/// `projected` holds the output values, one per configured `FIELDS` key, in
-/// declaration order; this is what gets serialised by [`CollectCtx::finalize`].
-/// `sort_vals` holds the `SORTBY` key values in declaration order and is
-/// empty on the array path. `seq` is a monotonic per-group insertion index
-/// used as the final tie-break in [`EntryOrd::cmp`].
-struct CollectEntry {
+/// `Ord` is delegated to `key` so `projected` is structurally unreachable
+/// from the comparator. This lets [`CollectCtx::insert_entry`] decide
+/// heap survival by building only an `EntryKey` candidate, and defer
+/// building `projected` to survivors — the "deferred projection"
+/// optimisation.
+struct HeapEntry {
+    key: EntryKey,
     projected: Box<[SharedValue]>,
-    sort_vals: Box<[SharedValue]>,
-    seq: u64,
 }
 
-/// Heap-ordering wrapper around a [`CollectEntry`].
+impl PartialEq for HeapEntry {
+    fn eq(&self, other: &Self) -> bool {
+        self.key == other.key
+    }
+}
+
+impl Eq for HeapEntry {}
+
+impl PartialOrd for HeapEntry {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for HeapEntry {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.key.cmp(&other.key)
+    }
+}
+
+/// Comparator-visible half of a heap entry: the `SORTBY` key values and
+/// the ASC/DESC direction map.
 ///
-/// `Ord::cmp` iterates `sort_vals` pairwise and applies the ASC/DESC direction
-/// encoded in `sort_asc_map` (bit `i` set ⇒ ASC, bit `i` clear ⇒ DESC, matching
-/// `SORTASCMAP_GETASC` in C). Ties across all sort keys fall through to `seq`
-/// ascending — earlier inserts win — which keeps the emitted order stable.
+/// `Ord::cmp` iterates `sort_vals` pairwise and applies the direction
+/// encoded in `sort_asc_map` (bit `i` set ⇒ ASC, bit `i` clear ⇒ DESC,
+/// matching `SORTASCMAP_GETASC` in C). Ties across all sort keys compare
+/// `Equal`; the heap path therefore resolves ties in an unspecified
+/// order.
 ///
 /// Heap convention: **best = min**. A value the user asked to sort first
 /// compares `Less`; the top-K heap path keeps the `offset + count`
-/// smallest-by-`cmp` entries, evicting the current max when a better entry
-/// arrives.
+/// smallest-by-`cmp` entries, evicting the current max when a better
+/// entry arrives.
 ///
 /// ## Missing-value semantics
 ///
@@ -422,32 +449,31 @@ struct CollectEntry {
 // replace the inline pairwise-with-direction-and-missing-worst loop below
 // with a single `cmp_fields(pairs, self.sort_asc_map, None)` call so this
 // policy is defined exactly once, shared with `SearchResult_CmpByFields`.
-struct EntryOrd {
-    entry: CollectEntry,
+struct EntryKey {
+    sort_vals: Box<[SharedValue]>,
     sort_asc_map: u64,
 }
 
-impl PartialEq for EntryOrd {
+impl PartialEq for EntryKey {
     fn eq(&self, other: &Self) -> bool {
         self.cmp(other) == Ordering::Equal
     }
 }
 
-impl Eq for EntryOrd {}
+impl Eq for EntryKey {}
 
-impl PartialOrd for EntryOrd {
+impl PartialOrd for EntryKey {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
 
-impl Ord for EntryOrd {
+impl Ord for EntryKey {
     fn cmp(&self, other: &Self) -> Ordering {
         for (i, (a, b)) in self
-            .entry
             .sort_vals
             .iter()
-            .zip(other.entry.sort_vals.iter())
+            .zip(other.sort_vals.iter())
             .enumerate()
         {
             let asc = (self.sort_asc_map >> i) & 1 == 1;
@@ -464,13 +490,13 @@ impl Ord for EntryOrd {
                 return pair;
             }
         }
-        self.entry.seq.cmp(&other.entry.seq)
+        Ordering::Equal
     }
 }
 
 #[cfg(test)]
 mod tests {
-    //! Pure comparator tests on `EntryOrd::cmp`. End-to-end tests that
+    //! Pure comparator tests on `EntryKey::cmp`. End-to-end tests that
     //! drive the public `CollectReducer` / `CollectCtx` surface live in
     //! `reducers/tests/integration/collect.rs`.
 
@@ -480,36 +506,31 @@ mod tests {
         Value::String(value::String::from_vec(s.as_bytes().to_vec()))
     }
 
-    /// Build an [`EntryOrd`] with no projected columns and the given
-    /// `sort_vals` / `seq` / `sort_asc_map`.
-    fn ord_entry(sort_vals: Vec<Value>, seq: u64, sort_asc_map: u64) -> EntryOrd {
+    /// Build an [`EntryKey`] from the given `sort_vals` / `sort_asc_map`.
+    fn key(sort_vals: Vec<Value>, sort_asc_map: u64) -> EntryKey {
         let sort_vals: Box<[SharedValue]> = sort_vals
             .into_iter()
             .map(SharedValue::new)
             .collect::<Vec<_>>()
             .into_boxed_slice();
-        EntryOrd {
-            entry: CollectEntry {
-                projected: Box::new([]),
-                sort_vals,
-                seq,
-            },
+        EntryKey {
+            sort_vals,
             sort_asc_map,
         }
     }
 
     #[test]
     fn single_key_asc_orders_natural() {
-        let a = ord_entry(vec![Value::Number(1.0)], 0, 0b1);
-        let b = ord_entry(vec![Value::Number(2.0)], 1, 0b1);
+        let a = key(vec![Value::Number(1.0)], 0b1);
+        let b = key(vec![Value::Number(2.0)], 0b1);
         assert_eq!(a.cmp(&b), Ordering::Less);
         assert_eq!(b.cmp(&a), Ordering::Greater);
     }
 
     #[test]
     fn single_key_desc_inverts() {
-        let a = ord_entry(vec![Value::Number(1.0)], 0, 0b0);
-        let b = ord_entry(vec![Value::Number(2.0)], 1, 0b0);
+        let a = key(vec![Value::Number(1.0)], 0b0);
+        let b = key(vec![Value::Number(2.0)], 0b0);
         // DESC: the larger value sorts first (Less).
         assert_eq!(a.cmp(&b), Ordering::Greater);
         assert_eq!(b.cmp(&a), Ordering::Less);
@@ -517,8 +538,8 @@ mod tests {
 
     #[test]
     fn missing_ranks_worst_under_asc() {
-        let present = ord_entry(vec![Value::Number(42.0)], 0, 0b1);
-        let missing = ord_entry(vec![Value::Null], 1, 0b1);
+        let present = key(vec![Value::Number(42.0)], 0b1);
+        let missing = key(vec![Value::Null], 0b1);
         assert_eq!(present.cmp(&missing), Ordering::Less);
         assert_eq!(missing.cmp(&present), Ordering::Greater);
     }
@@ -526,31 +547,31 @@ mod tests {
     #[test]
     fn missing_ranks_worst_under_desc_too() {
         // PR 9194 alignment: the missing-worst policy must NOT flip with DESC.
-        let present = ord_entry(vec![Value::Number(42.0)], 0, 0b0);
-        let missing = ord_entry(vec![Value::Null], 1, 0b0);
+        let present = key(vec![Value::Number(42.0)], 0b0);
+        let missing = key(vec![Value::Null], 0b0);
         assert_eq!(present.cmp(&missing), Ordering::Less);
         assert_eq!(missing.cmp(&present), Ordering::Greater);
     }
 
     #[test]
-    fn both_missing_falls_through_to_seq() {
-        let a = ord_entry(vec![Value::Null], 0, 0b1);
-        let b = ord_entry(vec![Value::Null], 1, 0b1);
-        assert_eq!(a.cmp(&b), Ordering::Less);
+    fn both_missing_compares_equal() {
+        let a = key(vec![Value::Null], 0b1);
+        let b = key(vec![Value::Null], 0b1);
+        assert_eq!(a.cmp(&b), Ordering::Equal);
     }
 
     #[test]
     fn multi_key_first_decides() {
         // asc_map = 0b11 ⇒ both ASC. First key strictly decides.
-        let a = ord_entry(vec![Value::Number(1.0), Value::Number(999.0)], 0, 0b11);
-        let b = ord_entry(vec![Value::Number(2.0), Value::Number(0.0)], 1, 0b11);
+        let a = key(vec![Value::Number(1.0), Value::Number(999.0)], 0b11);
+        let b = key(vec![Value::Number(2.0), Value::Number(0.0)], 0b11);
         assert_eq!(a.cmp(&b), Ordering::Less);
     }
 
     #[test]
     fn multi_key_equal_primary_second_decides() {
-        let a = ord_entry(vec![Value::Number(1.0), str_val("apple")], 0, 0b11);
-        let b = ord_entry(vec![Value::Number(1.0), str_val("banana")], 1, 0b11);
+        let a = key(vec![Value::Number(1.0), str_val("apple")], 0b11);
+        let b = key(vec![Value::Number(1.0), str_val("banana")], 0b11);
         assert_eq!(a.cmp(&b), Ordering::Less);
     }
 
@@ -559,22 +580,22 @@ mod tests {
         // asc_map = 0b01 ⇒ key 0 ASC, key 1 DESC. Primary ties, secondary
         // decides with reversed direction: 1.0 is "greater" (worse) than 2.0
         // under DESC.
-        let a = ord_entry(vec![Value::Number(1.0), Value::Number(1.0)], 0, 0b01);
-        let b = ord_entry(vec![Value::Number(1.0), Value::Number(2.0)], 1, 0b01);
+        let a = key(vec![Value::Number(1.0), Value::Number(1.0)], 0b01);
+        let b = key(vec![Value::Number(1.0), Value::Number(2.0)], 0b01);
         assert_eq!(a.cmp(&b), Ordering::Greater);
     }
 
     #[test]
-    fn all_sort_keys_equal_tiebreaks_by_seq() {
-        let a = ord_entry(vec![Value::Number(1.0)], 0, 0b1);
-        let b = ord_entry(vec![Value::Number(1.0)], 1, 0b1);
-        assert_eq!(a.cmp(&b), Ordering::Less);
+    fn all_sort_keys_equal_compares_equal() {
+        let a = key(vec![Value::Number(1.0)], 0b1);
+        let b = key(vec![Value::Number(1.0)], 0b1);
+        assert_eq!(a.cmp(&b), Ordering::Equal);
     }
 
     #[test]
-    fn empty_sort_vals_tiebreaks_by_seq_only() {
-        let a = ord_entry(vec![], 0, 0);
-        let b = ord_entry(vec![], 1, 0);
-        assert_eq!(a.cmp(&b), Ordering::Less);
+    fn empty_sort_vals_compares_equal() {
+        let a = key(vec![], 0);
+        let b = key(vec![], 0);
+        assert_eq!(a.cmp(&b), Ordering::Equal);
     }
 }
