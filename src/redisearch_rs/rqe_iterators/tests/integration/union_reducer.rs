@@ -23,7 +23,7 @@ use crate::utils::Mock;
 #[test]
 fn all_empty_children_reduces_to_empty() {
     let children: Vec<Empty> = vec![Empty, Empty, Empty];
-    let result = new_union_iterator(children, false, 20);
+    let result = new_union_iterator(children, false, false);
 
     let NewUnionIterator::ReducedEmpty(it) = result else {
         panic!("Expected ReducedEmpty");
@@ -34,7 +34,7 @@ fn all_empty_children_reduces_to_empty() {
 #[test]
 fn no_children_reduces_to_empty() {
     let children: Vec<Empty> = vec![];
-    let result = new_union_iterator(children, false, 20);
+    let result = new_union_iterator(children, false, false);
 
     let NewUnionIterator::ReducedEmpty(it) = result else {
         panic!("Expected ReducedEmpty");
@@ -49,7 +49,7 @@ fn no_children_reduces_to_empty() {
 #[test]
 fn single_child_reduces_to_single() {
     let children: Vec<Mock<3>> = vec![Mock::new([1, 2, 3])];
-    let result = new_union_iterator(children, false, 20);
+    let result = new_union_iterator(children, false, false);
 
     let NewUnionIterator::ReducedSingle(mut it) = result else {
         panic!("Expected ReducedSingle");
@@ -68,7 +68,7 @@ fn single_non_empty_after_filtering_reduces_to_single() {
         Box::new(Mock::new([5, 10])),
         Box::new(Empty),
     ];
-    let result = new_union_iterator(children, false, 20);
+    let result = new_union_iterator(children, false, false);
 
     let NewUnionIterator::ReducedSingle(mut it) = result else {
         panic!("Expected ReducedSingle");
@@ -91,7 +91,7 @@ fn quick_exit_wildcard_reduces_to_single() {
         Box::new(Wildcard::new(10, 1.0)),
         Box::new(Mock::new([3, 4])),
     ];
-    let result = new_union_iterator(children, true, 20);
+    let result = new_union_iterator(children, true, false);
 
     let NewUnionIterator::ReducedSingle(it) = result else {
         panic!("Expected ReducedSingle (wildcard)");
@@ -109,7 +109,7 @@ fn non_quick_exit_wildcard_not_reduced() {
         Box::new(Wildcard::new(10, 1.0)),
     ];
     // quick_exit = false, so wildcard should NOT cause reduction.
-    let result = new_union_iterator(children, false, 20);
+    let result = new_union_iterator(children, false, false);
 
     assert!(
         matches!(result, NewUnionIterator::Flat(_)),
@@ -122,24 +122,22 @@ fn non_quick_exit_wildcard_not_reduced() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn flat_selected_when_at_threshold() {
-    // 2 children, threshold 2 → flat (2 is NOT > 2)
+fn flat_selected_when_use_heap_false() {
     let children: Vec<Box<dyn RQEIterator>> =
         vec![Box::new(Mock::new([1, 3])), Box::new(Mock::new([2, 4]))];
-    let result = new_union_iterator(children, false, 2);
+    let result = new_union_iterator(children, false, false);
 
     assert!(matches!(result, NewUnionIterator::Flat(_)), "Expected Flat");
 }
 
 #[test]
-fn heap_selected_when_above_threshold() {
-    // 3 children, threshold 2 → heap (3 > 2)
+fn heap_selected_when_use_heap_true() {
     let children: Vec<Box<dyn RQEIterator>> = vec![
         Box::new(Mock::new([1, 4])),
         Box::new(Mock::new([2, 5])),
         Box::new(Mock::new([3, 6])),
     ];
-    let result = new_union_iterator(children, false, 2);
+    let result = new_union_iterator(children, false, true);
 
     assert!(matches!(result, NewUnionIterator::Heap(_)), "Expected Heap");
 }
@@ -148,7 +146,7 @@ fn heap_selected_when_above_threshold() {
 fn flat_quick_selected() {
     let children: Vec<Box<dyn RQEIterator>> =
         vec![Box::new(Mock::new([1, 3])), Box::new(Mock::new([2, 4]))];
-    let result = new_union_iterator(children, true, 20);
+    let result = new_union_iterator(children, true, false);
 
     assert!(
         matches!(result, NewUnionIterator::FlatQuick(_)),
@@ -163,7 +161,7 @@ fn heap_quick_selected() {
         Box::new(Mock::new([2, 5])),
         Box::new(Mock::new([3, 6])),
     ];
-    let result = new_union_iterator(children, true, 2);
+    let result = new_union_iterator(children, true, true);
 
     assert!(
         matches!(result, NewUnionIterator::HeapQuick(_)),
@@ -182,7 +180,7 @@ fn flat_union_produces_all_docs() {
         Box::new(Mock::new([1, 3, 5])),
         Box::new(Mock::new([2, 3, 4])),
     ];
-    let result = new_union_iterator(children, false, 20);
+    let result = new_union_iterator(children, false, false);
 
     let NewUnionIterator::Flat(mut it) = result else {
         panic!("Expected Flat");
@@ -202,7 +200,7 @@ fn heap_union_produces_all_docs() {
         Box::new(Mock::new([2, 5, 8])),
         Box::new(Mock::new([3, 6, 9])),
     ];
-    let result = new_union_iterator(children, false, 2);
+    let result = new_union_iterator(children, false, true);
 
     let NewUnionIterator::Heap(mut it) = result else {
         panic!("Expected Heap");

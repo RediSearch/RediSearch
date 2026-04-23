@@ -84,7 +84,7 @@ pub enum NewUnionIterator<'index, I> {
 }
 
 /// Construct a union iterator, choosing between flat and heap variants based
-/// on the number of children and the `min_union_iter_heap` threshold.
+/// on the caller-supplied `use_heap` flag.
 ///
 /// If the children are trivially reducible (all empty, single child, or
 /// wildcard in quick-exit mode), the reducer is applied first and a simplified
@@ -92,7 +92,7 @@ pub enum NewUnionIterator<'index, I> {
 pub fn new_union_iterator<'index, I>(
     children: Vec<I>,
     quick_exit: bool,
-    min_union_iter_heap: usize,
+    use_heap: bool,
 ) -> NewUnionIterator<'index, I>
 where
     I: RQEIterator<'index> + 'index,
@@ -103,15 +103,10 @@ where
         UnionReduction::NotReduced(children) => children,
     };
 
-    if children.len() > min_union_iter_heap {
-        if quick_exit {
-            NewUnionIterator::HeapQuick(UnionHeap::new(children))
-        } else {
-            NewUnionIterator::Heap(UnionHeap::new(children))
-        }
-    } else if quick_exit {
-        NewUnionIterator::FlatQuick(UnionFlat::new(children))
-    } else {
-        NewUnionIterator::Flat(UnionFlat::new(children))
+    match (use_heap, quick_exit) {
+        (true, true) => NewUnionIterator::HeapQuick(UnionHeap::new(children)),
+        (true, false) => NewUnionIterator::Heap(UnionHeap::new(children)),
+        (false, true) => NewUnionIterator::FlatQuick(UnionFlat::new(children)),
+        (false, false) => NewUnionIterator::Flat(UnionFlat::new(children)),
     }
 }

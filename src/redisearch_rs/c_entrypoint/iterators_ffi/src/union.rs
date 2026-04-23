@@ -71,6 +71,47 @@ unsafe fn free_iterators_array(its: *mut *mut QueryIterator) {
     unsafe { free_fn(its.cast::<std::ffi::c_void>()) };
 }
 
+/// Minimum child count below which the heap's init and log-n overhead is not
+/// amortised: always pick the flat variant.
+const UI_MIN_HEAP_N: usize = 8;
+/// Crossover for [low-overlap](QueryNodeType) query types in full-aggregation
+/// mode: prefer heap at or above this count.
+const UI_LOW_OVERLAP_HEAP_N: usize = 24;
+/// Crossover for query types with unknown overlap (`QN_UNION` and anything
+/// else): prefer heap at or above this count. Set conservatively high to bound
+/// the worst case on high-overlap children.
+const UI_UNKNOWN_HEAP_N: usize = 32;
+
+/// Decide whether the union iterator should dispatch to the heap- or flat-based
+/// variant.
+///
+/// The [`QueryNodeType`] acts as a structural proxy for children overlap:
+///
+/// - **Disjoint** (`Numeric` / `Geo` / `Geometry`) — each doc lands in exactly
+///   one child; heap wins once the fixed overhead is amortised.
+/// - **Low overlap** (`Prefix` / `WildcardQuery` / `LexRange` / `Fuzzy` /
+///   `Tag`) — term-expansion; heap only helps in full-aggregation mode at
+///   large `num`.
+/// - **Unknown** (`Union` and anything else) — arbitrary user `OR`; bias
+///   toward flat to bound the worst case.
+///
+/// Thresholds are derived from the union sweep benchmarks (see the
+/// `rqe_iterators_bencher` union sweep).
+fn union_should_use_heap(num: usize, type_: QueryNodeType, quick_exit: bool) -> bool {
+    if num < UI_MIN_HEAP_N {
+        return false;
+    }
+    match type_ {
+        QueryNodeType::Numeric | QueryNodeType::Geo | QueryNodeType::Geometry => true,
+        QueryNodeType::Prefix
+        | QueryNodeType::WildcardQuery
+        | QueryNodeType::LexRange
+        | QueryNodeType::Fuzzy
+        | QueryNodeType::Tag => !quick_exit && num >= UI_LOW_OVERLAP_HEAP_N,
+        _ => num >= UI_UNKNOWN_HEAP_N,
+    }
+}
+
 /// Creates a new union iterator, applying reduction rules and choosing between
 /// flat and heap variants based on the number of children.
 ///
@@ -97,8 +138,9 @@ pub unsafe extern "C" fn NewUnionIterator(
 ) -> *mut QueryIterator {
     debug_assert!(num >= 0, "NewUnionIterator called with negative num: {num}");
     let num = num.max(0) as usize;
-    // SAFETY: caller guarantees config is valid (4).
-    let min_union_iter_heap = unsafe { (*config).minUnionIterHeap } as usize;
+    let _ = config;
+
+    let use_heap = union_should_use_heap(num, type_, quick_exit);
 
     // Build Vec<CRQEIterator> from the C array.
     let children: Vec<CRQEIterator> = (0..num)
@@ -119,7 +161,7 @@ pub unsafe extern "C" fn NewUnionIterator(
     unsafe { free_iterators_array(its) };
 
     // Apply reduction and choose variant.
-    let result = new_union_iterator(children, quick_exit, min_union_iter_heap);
+    let result = new_union_iterator(children, quick_exit, use_heap);
 
     use rqe_iterators::union_reducer::NewUnionIterator as NewUI;
     match result {
