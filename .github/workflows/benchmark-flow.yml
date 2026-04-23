@@ -14,8 +14,6 @@ on:
       rejson_module_path:
         type: string
         default: bin/linux-x64-release/RedisJSON/master/rejson.so
-      profile_env:
-        type: number # for default of 0
       benchmark_glob:
         type: string
         default: "*.yml"
@@ -97,7 +95,7 @@ jobs:
           name: ${{ inputs.binary_artifact_name }}
           # Place the .so where `inputs.module_path` expects it, e.g.
           # bin/linux-x64-release/search-community/redisearch.so
-          path: ${{ inputs.profile_env == 1 && 'bin/linux-x64-release-profile/search-community' || 'bin/linux-x64-release/search-community' }}
+          path: bin/linux-x64-release/search-community
       - name: Make redisearch.so executable
         if: steps.benchmark-filter.outputs.skip != 'true'
         env:
@@ -126,9 +124,6 @@ jobs:
         timeout-minutes: 360 # timeout for the step
         working-directory: tests/benchmarks
         env:
-          # Hard-coded
-          PERF_CALLGRAPH_MODE: dwarf
-          MAX_PROFILERS: 3
           # Secrets
           AWS_ACCESS_KEY_ID: ${{ secrets.PERFORMANCE_EC2_ACCESS_KEY }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.PERFORMANCE_EC2_SECRET_KEY }}
@@ -149,7 +144,6 @@ jobs:
           TF_VAR_parca_agent_project_id: ${{ secrets.PERFORMANCE_PARCA_AGENT_PROJECT_ID }}
           TF_VAR_parca_agent_snap_channel: edge
           # Inputs
-          PROFILE: ${{ inputs.profile_env }}
           BENCHMARK_GLOB: ${{ steps.benchmark-filter.outputs.effective_glob }}
           BENCHMARK_RUNNER_GROUP_M_ID: ${{ inputs.benchmark_runner_group_member_id }}
           BENCHMARK_RUNNER_GROUP_TOTAL: ${{ inputs.benchmark_runner_group_total }}
