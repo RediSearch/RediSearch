@@ -9,9 +9,9 @@
 
 use std::ptr::NonNull;
 
-use ffi::{GEO_LAT_MAX, GEO_LAT_MIN, GEO_LONG_MAX, GEO_LONG_MIN, GeoDistance, GeoFilter};
+use ffi::{GeoDistance, GeoFilter};
 use field::FieldFilterContext;
-use geo::GEO_RANGE_COUNT;
+use geo::{GEO_LAT_MAX, GEO_LAT_MIN, GEO_LONG_MAX, GEO_LONG_MIN, GEO_RANGE_COUNT};
 use inverted_index::NumericFilter;
 
 use crate::{NumericIteratorVariant, open_numeric_or_geo_index};

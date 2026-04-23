@@ -101,8 +101,7 @@ file(GLOB SOURCES
     "${root}/deps/libnu/*.c"
     "${root}/deps/miniz/*.c"
     "${root}/deps/fast_float/*.c"
-    "${root}/deps/thpool/*.c"
-    "${root}/deps/geohash/*.c")
+    "${root}/deps/thpool/*.c")
 
 #----------------------------------------------------------------------------------------------
 # Create the rscore object library

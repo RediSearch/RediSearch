@@ -68,7 +68,6 @@ fn main() {
         src.join("doc_table.h"),
         src.join("forward_index.h"),
         src.join("geo_index.h"),
-        deps.join("geohash").join("geohash.h"),
         src.join("index_result").join("index_result.h"),
         src.join("json.h"),
         src.join("obfuscation").join("hidden.h"),

@@ -6,7 +6,6 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdlib.h>
-#include "geohash/geohash_helper.h"
 #include "query_error.h"
 
 /**
@@ -14,6 +13,46 @@
  * plus its 8 neighbors.
  */
 #define GEO_RANGE_COUNT 9
+
+/**
+ * Maximum geohash step count. 26 steps * 2 bits = 52 bits of precision.
+ */
+#define GEO_STEP_MAX 26
+
+/**
+ * WGS-84 latitude lower bound (EPSG:900913).
+ */
+#define GEO_LAT_MIN -85.05112878
+
+/**
+ * WGS-84 latitude upper bound (EPSG:900913).
+ */
+#define GEO_LAT_MAX 85.05112878
+
+/**
+ * WGS-84 longitude lower bound.
+ */
+#define GEO_LONG_MIN -180.0
+
+/**
+ * WGS-84 longitude upper bound.
+ */
+#define GEO_LONG_MAX 180.0
+
+/**
+ * A min/max range for a geohash cell, used by [`calcRanges`].
+ *
+ */
+typedef struct GeoHashRange {
+  /**
+   * Minimum score (inclusive).
+   */
+  double min;
+  /**
+   * Maximum score (exclusive).
+   */
+  double max;
+} GeoHashRange;
 
 #ifdef __cplusplus
 extern "C" {
@@ -50,7 +89,17 @@ int decodeGeo(double bits, double *xy);
  * - `ranges` must be a valid pointer to a writable array of at least
  *   [`geo::GEO_RANGE_COUNT`] [`GeoHashRange`] elements.
  */
-void calcRanges(double longitude, double latitude, double radius_meters, GeoHashRange *ranges);
+void calcRanges(double longitude,
+                double latitude,
+                double radius_meters,
+                struct GeoHashRange *ranges);
+
+/**
+ * Calculate the haversine great-circle distance between two WGS-84 points.
+ *
+ * All coordinates are in degrees. Returns distance in meters.
+ */
+double geohashGetDistance(double lon1, double lat1, double lon2, double lat2);
 
 /**
  * Return `true` if the distance between two lon/lat points is within `radius`

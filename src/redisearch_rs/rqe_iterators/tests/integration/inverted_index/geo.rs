@@ -8,9 +8,10 @@
 */
 
 use ffi::{
-    GEO_LAT_MAX, GEO_LAT_MIN, GEO_LONG_MAX, GEO_LONG_MIN, GeoDistance_GEO_DISTANCE_FT,
-    GeoDistance_GEO_DISTANCE_KM, GeoDistance_GEO_DISTANCE_M, GeoDistance_GEO_DISTANCE_MI,
+    GeoDistance_GEO_DISTANCE_FT, GeoDistance_GEO_DISTANCE_KM, GeoDistance_GEO_DISTANCE_M,
+    GeoDistance_GEO_DISTANCE_MI,
 };
+use geo::{GEO_LAT_MAX, GEO_LAT_MIN, GEO_LONG_MAX, GEO_LONG_MIN};
 use rqe_iterators::{build_geo_numeric_filters, extract_geo_unit_factor};
 
 use crate::inverted_index::numeric::geo_filter_stub;
