@@ -62,13 +62,13 @@ static std::atomic<int> topoUpdateCalls{0};
 extern "C" {
   // Mirrors the production uvUpdateTopologyRequest in rmr.c (which is static
   // and not exported for tests): installs the new topology, walks the conn
-  // manager, and records the connectivity-changed signal on the uv runtime.
+  // manager, and records the handshake signal on the uv runtime.
   static void realUpdateTopoCallback(void *privdata) {
     struct UpdateTopologyCtx *updateCtx = (struct UpdateTopologyCtx *)privdata;
     IORuntimeCtx *ioRuntime = updateCtx->ioRuntime;
     MRClusterTopology *old_topo = ioRuntime->topo;
     ioRuntime->topo = updateCtx->new_topo;
-    ioRuntime->uv_runtime.topology_connectivity_changed = IORuntimeCtx_UpdateNodes(ioRuntime);
+    ioRuntime->uv_runtime.topology_needs_handshake = IORuntimeCtx_UpdateNodes(ioRuntime);
     topoUpdateCalls.fetch_add(1, std::memory_order_release);
     rm_free(updateCtx);
     if (old_topo) {
@@ -483,12 +483,12 @@ TEST_F(IORuntimeCtxCommonTest, UpdateNodesResizesConnectionMap) {
 }
 
 
-TEST_F(IORuntimeCtxCommonTest, UpdateNodesReportsConnectivityChange) {
+TEST_F(IORuntimeCtxCommonTest, UpdateNodesReportsNewConnections) {
   std::array<const char *, 2> hosts = {"localhost:6379", "localhost:6389"};
   MRClusterTopology *topo_v1 = getTopology(hosts);
   IORuntimeCtx *io = IORuntimeCtx_Create(1, topo_v1, 13, true);
 
-  // First application populates an empty conn map -> connectivity changed.
+  // First application populates an empty conn map -> new connections created.
   ASSERT_TRUE(IORuntimeCtx_UpdateNodes(io));
 
   // Re-applying the same topology is a no-op from the conn manager's POV.
@@ -498,15 +498,16 @@ TEST_F(IORuntimeCtxCommonTest, UpdateNodesReportsConnectivityChange) {
   ASSERT_FALSE(IORuntimeCtx_UpdateNodes(io));
   MRClusterTopology_Free(old);
 
-  // Dropping a node -> connectivity changed (disconnect returns REDIS_OK).
+  // Dropping a node only disconnects; no new connections are created, so the
+  // handshake signal stays false (removals don't require re-validation).
   std::array<const char *, 1> hosts_shrunk = {"localhost:6379"};
   MRClusterTopology *topo_v3 = getTopology(hosts_shrunk);
   old = io->topo;
   io->topo = topo_v3;
-  ASSERT_TRUE(IORuntimeCtx_UpdateNodes(io));
+  ASSERT_FALSE(IORuntimeCtx_UpdateNodes(io));
   MRClusterTopology_Free(old);
 
-  // Adding a new node -> connectivity changed (insert returns Inserted).
+  // Adding a new node creates a new connection -> handshake signal true.
   std::array<const char *, 2> hosts_grown = {"localhost:6379", "localhost:6409"};
   MRClusterTopology *topo_v4 = getTopology(hosts_grown);
   old = io->topo;
@@ -566,7 +567,7 @@ TEST_F(IORuntimeCtxCommonTest, IdenticalTopologyUpdateSkipsHandshake) {
          "validation handshake was likely re-armed";
 
   ASSERT_TRUE(ctx->uv_runtime.loop_th_ready);
-  ASSERT_FALSE(ctx->uv_runtime.topology_connectivity_changed);
+  ASSERT_FALSE(ctx->uv_runtime.topology_needs_handshake);
 
   // Wait for the initial testCallback to complete before `counter` leaves scope.
   RS::WaitForCondition([&]() { return counter >= 1; });

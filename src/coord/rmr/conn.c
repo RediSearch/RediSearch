@@ -411,7 +411,7 @@ static void reauthTimerCallback(uv_timer_t *tm) {
   RS_ASSERT(conn->state == MRConn_ReAuth);
   if (MRConn_SendAuth(conn) != REDIS_OK) {
     if (conn->authFailCount % AUTH_FAIL_LOG_INTERVAL == 0) {
-      CONN_LOG_WARNING(conn, "Failed to send AUTH command (%hu consecutive failures)", conn->authFailCount);
+      CONN_LOG_WARNING(conn, "Failed to send AUTH command (%hu consecutive failures)", conn->authFailCount + 1);
     }
     conn->authFailCount++;
     // AUTH failed to enqueue; the ac is still alive and ours to free.
@@ -732,7 +732,7 @@ static void MRConn_ConnectCallback(const redisAsyncContext *c, int status) {
   if (!IsEnterprise() || conn->ep.password) {
     if (MRConn_SendAuth(conn) != REDIS_OK) {
       if (conn->authFailCount % AUTH_FAIL_LOG_INTERVAL == 0) {
-        CONN_LOG_WARNING(conn, "Failed to send AUTH command (%hu consecutive failures)", conn->authFailCount);
+        CONN_LOG_WARNING(conn, "Failed to send AUTH command (%hu consecutive failures)", conn->authFailCount + 1);
       }
       conn->authFailCount++;
       // AUTH failed to enqueue; the ac is still alive and ours to free.
