@@ -400,7 +400,8 @@ Reducer *RDCRCollect_New(const ReducerOptions *options) {
       data.sortAscMap,
       data.has_limit,
       data.limit_offset,
-      data.limit_count
+      data.limit_count,
+      ReducerOpts_IsInternal(options)
     );
   }
 

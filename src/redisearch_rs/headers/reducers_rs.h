@@ -116,6 +116,9 @@ void collectCoordFree(Reducer *r);
  * 3. All [`RLookupKey`][ffi::RLookupKey] pointers must remain valid for the
  *    lifetime of the returned reducer.
  *
+ * `is_internal` should be forwarded from `ReducerOpts_IsInternal(options)`;
+ * `true` when this shard is responding to a coordinator-dispatched command.
+ *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 Reducer *CollectReducer_CreateShard(const RLookupKey *const *field_keys,
@@ -126,7 +129,8 @@ Reducer *CollectReducer_CreateShard(const RLookupKey *const *field_keys,
                                     uint64_t sort_asc_map,
                                     bool has_limit,
                                     uint64_t limit_offset,
-                                    uint64_t limit_count);
+                                    uint64_t limit_count,
+                                    bool is_internal);
 
 /**
  * Creates a new per-group shard collect reducer instance.

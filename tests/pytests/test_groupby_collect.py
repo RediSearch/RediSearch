@@ -337,6 +337,79 @@ def test_collect_loaded_json_path():
 
 
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Internal-path serialization: _FT.AGGREGATE sets QEXEC_F_INTERNAL and must
+# cause the shard to include sort-key values alongside projected fields.
+# ---------------------------------------------------------------------------
+def test_collect_internal_serializes_sort_fields():
+    """In internal mode the shard includes SORTBY fields alongside FIELDS."""
+    env = Env(protocol=3)
+    _setup_hash(env)
+
+    internal = env.cmd(
+        '_FT.AGGREGATE', 'idx', '*',
+        'GROUPBY', '1', '@color',
+        'REDUCE', 'COLLECT', '5',
+            'FIELDS', '1', '@name',
+            'SORTBY', '2', '@sweetness', 'DESC',
+        'AS', 'info',
+    )
+
+    groups = _sort_by(internal['results'], 'color')
+    red = [g for g in groups if g['extra_attributes']['color'] == 'red'][0]
+    for row in red['extra_attributes']['info']:
+        env.assertEqual(set(row.keys()), {'name', 'sweetness'},
+                        message='internal should include both FIELDS and SORTBY keys')
+
+
+def test_collect_internal_without_sortby_equals_external_shape():
+    """No spurious widening: _FT without SORTBY must match FT output."""
+    env = Env(protocol=3)
+    _setup_hash(env)
+
+    common_args = [
+        'idx', '*',
+        'GROUPBY', '1', '@color',
+        'REDUCE', 'COLLECT', '3', 'FIELDS', '1', '@name',
+        'AS', 'names',
+    ]
+
+    ext = env.cmd('FT.AGGREGATE', *common_args)
+    internal = env.cmd('_FT.AGGREGATE', *common_args)
+
+    ext_groups = _sort_by(ext['results'], 'color')
+    int_groups = _sort_by(internal['results'], 'color')
+
+    for eg, ig in zip(ext_groups, int_groups):
+        ext_names = _sort_collected(eg['extra_attributes']['names'], 'name')
+        int_names = _sort_collected(ig['extra_attributes']['names'], 'name')
+        env.assertEqual(ext_names, int_names)
+        # Each row should have only the projected field key
+        for row in int_names:
+            env.assertEqual(set(row.keys()), {'name'})
+
+
+def test_collect_internal_duplicate_field_and_sort():
+    """When a field is also the sort key it appears at least once in each row."""
+    env = Env(protocol=3)
+    _setup_hash(env)
+
+    # @sweetness is both the projected FIELD and the SORTBY key
+    internal = env.cmd(
+        '_FT.AGGREGATE', 'idx', '*',
+        'GROUPBY', '1', '@color',
+        'REDUCE', 'COLLECT', '5',
+            'FIELDS', '1', '@sweetness',
+            'SORTBY', '2', '@sweetness', 'DESC',
+        'AS', 'info',
+    )
+
+    for group in internal['results']:
+        rows = group['extra_attributes']['info']
+        for row in rows:
+            env.assertIn('sweetness', row, message='sweetness must appear in internal row')
+
+
 # RESP2 sanity: basic COLLECT works under RESP2
 # ---------------------------------------------------------------------------
 def test_collect_resp2_sanity():

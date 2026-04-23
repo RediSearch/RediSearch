@@ -12,17 +12,27 @@
 //! Runs on the coordinator node and consumes the per-shard `Array<Map>`
 //! payloads produced by [`super::shard::ShardCollectCtx::finalize`]. Incoming
 //! maps are stored under the `__SOURCE__` key of the merged row;
-//! [`CoordCollectCtx::finalize`] flattens the maps across shards into a
-//! single outer array.
+//! [`CoordCollectCtx::finalize`] rebuilds each output row from the accumulated
+//! shard-provided entries.
 //!
-//! Field and sort-key names are stored as raw bytes because the coordinator
-//! has no access to the shards' `RLookup` schema: ordering and projection at
-//! finalize time happen through the map keys embedded in the shard payload.
-//! Their actual use — projection, SORTBY, LIMIT — is deferred to the
-//! follow-up SORTBY/LIMIT PR.
+//! ## Serialization contract
+//!
+//! The shard emits per-row entries as `Map` (RESP3) or a flat `[k, v, ...]`
+//! `Array` (RESP2). In internal mode (shard responding to a
+//! coordinator-dispatched `_FT.*` command) the shard additionally includes
+//! sort-key values in each entry alongside the projected field values.
+//!
+//! `finalize` uses [`value::Map::get`] / [`value::Array::map_get`] to fish
+//! each `field_name` out of the per-row entry regardless of the RESP flavour,
+//! then constructs a fresh `Map` keyed only by the client-visible field names.
+//! Sort-key values are silently ignored — the coordinator never asks for them
+//! in this step (ordering is deferred to the follow-up SORTBY/LIMIT PR).
+//!
+//! A missing field in a shard entry becomes [`SharedValue::null_static`],
+//! matching the shard's own behaviour for rows where a field has no value.
 
 use rlookup::{RLookupKey, RLookupRow};
-use value::{Array, SharedValue, Value};
+use value::{Array, Map, SharedValue, Value};
 
 use crate::Reducer;
 use crate::collect::common::CollectCommon;
@@ -131,14 +141,58 @@ impl CoordCollectCtx {
         }
     }
 
-    /// Wrap all collected maps in a single outer [`Array`] and return it.
+    /// Rebuild each shard-provided row as a client-facing `Map`, then wrap
+    /// all rows in a single outer [`Array`] and return it.
     ///
-    /// Consumes the internal storage: subsequent calls on the same
-    /// instance (which would indicate reuse across groups — not something
-    /// the reducer pipeline does today) will observe an empty vector.
-    pub fn finalize(&mut self, _r: &CoordCollectReducer) -> SharedValue {
-        let maps: Vec<SharedValue> = std::mem::take(&mut self.maps);
-        SharedValue::new(Value::Array(Array::new(maps.into_boxed_slice())))
+    /// For each accumulated entry the coordinator looks up each configured
+    /// `field_name` using the RESP-flavour-agnostic getters:
+    ///
+    /// - [`value::Map::get`] for RESP3 entries.
+    /// - [`value::Array::map_get`] for RESP2 flat `[k, v, ...]` entries.
+    ///
+    /// Extra keys that the shard included in the entry (e.g. sort-field
+    /// values emitted in internal mode) are never fetched and therefore
+    /// never appear in the output, achieving client-output parity with the
+    /// standalone shard path.
+    ///
+    /// Entries that are neither a `Map` nor an `Array` are silently skipped —
+    /// this should never happen in practice but preserves the defensive
+    /// posture of [`Self::add`] rather than panicking on malformed input.
+    ///
+    /// A missing field within an entry becomes [`SharedValue::null_static`],
+    /// matching the shard's own behaviour for rows where a field has no value.
+    ///
+    /// Consumes the internal storage: subsequent calls on the same instance
+    /// will observe an empty outer array.
+    pub fn finalize(&mut self, r: &CoordCollectReducer) -> SharedValue {
+        let rebuilt: Vec<SharedValue> = std::mem::take(&mut self.maps)
+            .into_iter()
+            .filter_map(|entry| {
+                // Entries that are neither Map nor Array are malformed shard
+                // payloads; skip them defensively rather than panicking.
+                let is_valid = matches!(&*entry, Value::Map(_) | Value::Array(_));
+                if !is_valid {
+                    return None;
+                }
+
+                let row_entries: Box<[_]> = r
+                    .field_names
+                    .iter()
+                    .map(|name| {
+                        let val = match &*entry {
+                            Value::Map(m) => m.get(name).cloned(),
+                            Value::Array(a) => a.map_get(name).cloned(),
+                            // SAFETY: checked above; this arm is unreachable.
+                            _ => unreachable!(),
+                        }
+                        .unwrap_or_else(SharedValue::null_static);
+                        (SharedValue::new_string(name.to_vec()), val)
+                    })
+                    .collect();
+                Some(SharedValue::new(Value::Map(Map::new(row_entries))))
+            })
+            .collect();
+        SharedValue::new(Value::Array(Array::new(rebuilt.into_boxed_slice())))
     }
 }
 
@@ -147,11 +201,10 @@ mod tests {
     use super::*;
     use rlookup::{RLookupKey, RLookupKeyFlags};
 
-    // End-to-end `add`/`finalize` coverage requires the Redis module
-    // allocator to be linked (because `SharedValue` invokes it during
-    // drop). Those paths are exercised by the Python flow tests once the
-    // coordinator path is wired up. The unit tests here only cover pure
-    // configuration round-tripping.
+    // End-to-end `finalize` coverage requires the Redis module allocator to
+    // be linked (because `SharedValue` invokes it during drop). Those paths
+    // are exercised by the Python flow tests (`test_collect_internal_*`).
+    // The unit tests here only cover pure-Rust configuration round-tripping.
 
     /// A coordinator reducer without FIELDS or SORTBY reports defaults on
     /// every shared-state accessor and keeps a stable pointer to its

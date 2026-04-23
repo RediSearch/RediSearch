@@ -12,7 +12,8 @@ extern "C" {
 #endif
 
 static ResultProcessor *buildGroupRP(PLN_GroupStep *gstp, RLookup *srclookup,
-                                     const RLookupKey ***loadKeys, QueryError *err) {
+                                     const RLookupKey ***loadKeys, uint32_t reqflags,
+                                     QueryError *err) {
   arrayof(const char*) properties = PLNGroupStep_GetProperties(gstp);
   size_t nproperties = array_len(properties);
   const RLookupKey *srckeys[nproperties], *dstkeys[nproperties];
@@ -46,7 +47,7 @@ static ResultProcessor *buildGroupRP(PLN_GroupStep *gstp, RLookup *srclookup,
   for (size_t ii = 0; ii < nreducers; ++ii) {
     // Build the actual reducer
     PLN_Reducer *pr = gstp->reducers + ii;
-    ReducerOptions options = REDUCEROPTS_INIT(pr->name, &pr->args, srclookup, loadKeys, err, gstp->strictPrefix, pr->isCoordinator);
+    ReducerOptions options = REDUCEROPTS_INIT(pr->name, &pr->args, srclookup, loadKeys, err, gstp->strictPrefix, pr->isCoordinator, reqflags);
     ReducerFactory ff = RDCR_GetFactory(pr->name);
     if (!ff) {
       // No such reducer!
@@ -93,7 +94,7 @@ static ResultProcessor *getGroupRP(Pipeline *pipeline, const AggregationPipeline
   RLookup *lookup = AGPLN_GetLookup(&pipeline->ap, &gstp->base, AGPLN_GETLOOKUP_PREV);
   RLookup *firstLk = AGPLN_GetLookup(&pipeline->ap, &gstp->base, AGPLN_GETLOOKUP_FIRST); // first lookup can load fields from redis
   const RLookupKey **loadKeys = NULL;
-  ResultProcessor *groupRP = buildGroupRP(gstp, lookup, (firstLk == lookup && RLookup_HasIndexSpecCache(firstLk)) ? &loadKeys : NULL, status);
+  ResultProcessor *groupRP = buildGroupRP(gstp, lookup, (firstLk == lookup && RLookup_HasIndexSpecCache(firstLk)) ? &loadKeys : NULL, params->common.reqflags, status);
 
   if (!groupRP) {
     array_free(loadKeys);

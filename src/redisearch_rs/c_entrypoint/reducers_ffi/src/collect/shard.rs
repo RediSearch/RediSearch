@@ -33,6 +33,9 @@ use super::collect_free_generic;
 /// 3. All [`RLookupKey`][ffi::RLookupKey] pointers must remain valid for the
 ///    lifetime of the returned reducer.
 ///
+/// `is_internal` should be forwarded from `ReducerOpts_IsInternal(options)`;
+/// `true` when this shard is responding to a coordinator-dispatched command.
+///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn CollectReducer_CreateShard(
@@ -45,6 +48,7 @@ pub unsafe extern "C" fn CollectReducer_CreateShard(
     has_limit: bool,
     limit_offset: u64,
     limit_count: u64,
+    is_internal: bool,
 ) -> *mut ffi::Reducer {
     let field_keys: Box<[&RLookupKey]> = if !field_keys.is_null() && field_keys_len > 0 {
         // SAFETY: ensured by caller (1.)
@@ -70,6 +74,7 @@ pub unsafe extern "C" fn CollectReducer_CreateShard(
         sort_keys,
         sort_asc_map,
         limit,
+        is_internal,
     ));
 
     cr.reducer_mut()

@@ -130,13 +130,21 @@ typedef struct {
 
   // Whether this reducer runs on the coordinator (set via PLN_Reducer.isCoordinator)
   bool is_coordinator;
+
+  // Full request flag bitmask forwarded from `AREQ->reqflags` (semantically a
+  // `QEFlags`, stored as `uint32_t` to avoid a circular include with
+  // `aggregate.h`). Canonical source of truth for request-level state such as
+  // internal dispatch, hybrid subqueries, profiling, etc. Do NOT mirror
+  // individual bits into new booleans on this struct — query them via the
+  // dedicated helpers below (e.g. `ReducerOpts_IsInternal`).
+  uint32_t reqflags;
 } ReducerOptions;
 
 /**
  * Macro to ensure that we don't skip important initialization steps
  */
-#define REDUCEROPTS_INIT(name_, args_, lk_, lkl_, statusp_, strict_, is_coordinator_) \
-  { name_, args_, lk_, lkl_, statusp_, strict_, is_coordinator_ }
+#define REDUCEROPTS_INIT(name_, args_, lk_, lkl_, statusp_, strict_, is_coordinator_, reqflags_) \
+  { name_, args_, lk_, lkl_, statusp_, strict_, is_coordinator_, reqflags_ }
 
 /**
  * Utility function to read the next argument as a lookup key.
@@ -155,6 +163,14 @@ int ReducerOpts_GetKey(const ReducerOptions *options, const RLookupKey **kout);
  * Otherwise, an error is raised to the user.
  */
 int ReducerOpts_EnsureArgsConsumed(const ReducerOptions *options);
+
+/**
+ * True iff the current request is an internal continuation of a
+ * coordinator-dispatched command (`QEXEC_F_INTERNAL` is set on
+ * `ReducerOptions::reqflags`). Orthogonal to `is_coordinator`: the
+ * coordinator itself never has `QEXEC_F_INTERNAL` set.
+ */
+bool ReducerOpts_IsInternal(const ReducerOptions *options);
 
 void *Reducer_BlkAlloc(Reducer *r, size_t elemsz, size_t absBlkSize);
 
