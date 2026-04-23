@@ -524,21 +524,61 @@ QueryIterator *NewUnionIterator(QueryIterator **its, int num, bool quickExit,
   ret->ProfileChildren = UI_ProfileChildren;
 
   // Choose `Read` and `SkipTo` implementations.
-  // We have 2 factors for the choice:
-  // 1. quickExit - whether to return after the first match was found without checking if more iterator agree with it,
-  //                or should we collect all the results from all the children that agree on the current ID.
-  // 2. minUnionIterHeap - choose whether to use a flat array or a heap for tracking the children, according to the number of children
-  // Each implementation if fine-tuned for the best performance in its scenario, and relies on the current state
-  // of the iterator and how it was left by previous API calls, so we can't change implementation mid-execution.
-  // if (type == QN_NUMERIC && num > config->minUnionIterHeap) {
-  //   ret->Read = quickExit ? UI_Read_Quick_Heap : UI_Read_Full_Heap;
-  //   ret->SkipTo = quickExit ? UI_Skip_Quick_Heap : UI_Skip_Full_Heap;
-  //   ui->heap_min_id = rm_malloc(heap_sizeof(num));
-  //   heap_init(ui->heap_min_id, cmpLastDocId, NULL, num);
-  // } else {
+  // The choice depends on three factors:
+  // 1. quickExit - whether to return after the first match or aggregate every child that hits the same docId.
+  // 2. num       - below a minimum the heap's init and log-n overhead isn't amortised.
+  // 3. type      - the QueryNodeType is a structural proxy for children overlap:
+  //                - Disjoint (Numeric/Geo/Geometry): each doc lands in exactly one child.
+  //                - Low      (Prefix/Wildcard/LexRange/Fuzzy/Tag): term-expansion, mild overlap.
+  //                - Unknown  (Union/other): arbitrary user OR.
+  // The implementations are fine-tuned for their scenario and rely on invariants left by previous calls,
+  // so we commit to one and cannot switch mid-execution.
+  //
+  // Thresholds are hard-coded from the v2 union sweep (see UNION_SWEEP_RESULTS.md). The
+  // `minUnionIterHeap` config knob is still honoured as an explicit override (benchmarks
+  // and tests rely on this to force a specific path).
+  #define UI_MIN_HEAP_N          8
+  #define UI_LOW_OVERLAP_HEAP_N  24
+  #define UI_UNKNOWN_HEAP_N      32
+  bool use_heap;
+  // if (config->minUnionIterHeap != DEFAULT_UNION_ITERATOR_HEAP) {
+  //   // Explicit override from config.
+  //   use_heap = (num > config->minUnionIterHeap);
+  // } else 
+  if (num < UI_MIN_HEAP_N) {
+    use_heap = false;
+  } else {
+    switch (type) {
+      case QN_NUMERIC:
+      case QN_GEO:
+      case QN_GEOMETRY:
+        // Disjoint by construction - Heap always wins once num >= UI_MIN_HEAP_N.
+        use_heap = true;
+        break;
+      case QN_PREFIX:
+      case QN_WILDCARD_QUERY:
+      case QN_LEXRANGE:
+      case QN_FUZZY:
+      case QN_TAG:
+        // Low overlap - Heap only helps in Full mode at large num.
+        use_heap = !quickExit && (num >= UI_LOW_OVERLAP_HEAP_N);
+        break;
+      default:
+        // Unknown (QN_UNION and anything else) - bias toward Flat to bound the worst case.
+        use_heap = (num >= UI_UNKNOWN_HEAP_N);
+        break;
+    }
+  }
+
+  if (use_heap) {
+    ret->Read = quickExit ? UI_Read_Quick_Heap : UI_Read_Full_Heap;
+    ret->SkipTo = quickExit ? UI_Skip_Quick_Heap : UI_Skip_Full_Heap;
+    ui->heap_min_id = rm_malloc(heap_sizeof(num));
+    heap_init(ui->heap_min_id, cmpLastDocId, NULL, num);
+  } else {
     ret->Read = quickExit ? UI_Read_Quick_Flat : UI_Read_Full_Flat;
     ret->SkipTo = quickExit ? UI_Skip_Quick_Flat : UI_Skip_Full_Flat;
-  // }
+  }
 
   UI_SyncIterList(ui);
   return ret;
