@@ -143,9 +143,15 @@ For each C/C++ test, verify that an equivalent Rust test exists that covers the 
 scenario. Use [`/check-rust-coverage`](../check-rust-coverage/SKILL.md) to confirm
 line-level coverage of the new Rust code.
 
+**Test placement rules:**
+- Public (`pub`) functions must be tested in `tests/integration/` (integration tests).
+- `pub(crate)` and private functions should be tested in `#[cfg(test)] mod test`
+  (unit tests inside the source file), since integration tests cannot access them.
+
 Violations:
 - A C/C++ test scenario that has no corresponding Rust test.
 - Rust code paths that are uncovered by any test.
+- Public functions tested only in `mod test` instead of `tests/integration/`.
 
 ### 5. Emit the report
 
