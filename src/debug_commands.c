@@ -1773,6 +1773,9 @@ DEBUG_COMMAND(RSShardedHybridCommand_Debug) {
   if (!debugCommandsEnabled(ctx)) {
     return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
   }
+  if (argc < 9) {
+    return RedisModule_WrongArity(ctx);
+  }
   // Skip _FT.DEBUG prefix — argv now starts at FT.HYBRID / _FT.HYBRID
   ++argv; --argc;
 

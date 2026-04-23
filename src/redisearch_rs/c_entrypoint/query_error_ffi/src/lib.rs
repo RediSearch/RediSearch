@@ -123,7 +123,8 @@ pub const extern "C" fn QueryError_CodeMaxValue() -> u8 {
 pub unsafe extern "C" fn QueryError_GetCodeFromMessage(message: *const c_char) -> QueryErrorCode {
     const TIMED_OUT_PREFIX: &[u8] = QueryErrorCode::TimedOut.prefix_c_str().to_bytes();
     const OUT_OF_MEMORY_PREFIX: &[u8] = QueryErrorCode::OutOfMemory.prefix_c_str().to_bytes();
-    const UNAVAILABLE_SLOTS_PREFIX: &[u8] = QueryErrorCode::UnavailableSlots.prefix_c_str().to_bytes();
+    const UNAVAILABLE_SLOTS_PREFIX: &[u8] =
+        QueryErrorCode::UnavailableSlots.prefix_c_str().to_bytes();
 
     // Safety: see safety requirement above.
     let message = unsafe { CStr::from_ptr(message) }.to_bytes();
