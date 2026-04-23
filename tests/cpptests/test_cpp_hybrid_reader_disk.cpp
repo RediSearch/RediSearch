@@ -33,11 +33,12 @@ extern "C" {
 extern int (*vecsimTimeoutCallback)(TimeoutCtx *ctx);
 }
 
-// operator delete reads obj->allocator after destruction; keep the shared_ptr alive across delete.
+// operator delete reads obj->allocator after destruction; keep the allocator's shared_ptr alive across delete.
 static void freeVecSimObject(VecSimIndexInterface *obj) {
-    auto alloc = obj->getAllocator();
+    [[maybe_unused]] auto alloc = obj->getAllocator();
     delete obj;
 }
+
 
 // ============================================================================
 // Mocks
@@ -119,6 +120,22 @@ struct MockDiskVecSimIndex : public VecSimIndexInterface {
     void releaseSharedLocks() override {}
 };
 
+struct TestHybrid {
+    MockDiskVecSimIndex *index;
+    QueryIterator *iter;
+    TestHybrid(MockDiskVecSimIndex *idx, QueryIterator *it) : index(idx), iter(it) {}
+    TestHybrid(TestHybrid &&o) noexcept : index(o.index), iter(o.iter) {
+        o.index = nullptr;
+        o.iter = nullptr;
+    }
+    TestHybrid(const TestHybrid &) = delete;
+    TestHybrid &operator=(const TestHybrid &) = delete;
+    ~TestHybrid() {
+        if (iter) iter->Free(iter);
+        if (index) freeVecSimObject(index);
+    }
+};
+
 // ============================================================================
 // Test fixture
 // ============================================================================
@@ -129,17 +146,19 @@ class HybridReaderDiskTest : public ::testing::Test {
 protected:
     void SetUp() override {
         mockCtx = std::make_unique<MockQueryEvalCtx>(100, 10);
-        // Non-null diskSpec routes the hybrid reader into the disk code path.
-        mockCtx->spec.diskSpec = (RedisSearchDiskIndexSpec *)1;
+        // Sentinel to route the hybrid reader into the disk code path. Safe because:
+        //  - hybrid_reader.c only checks diskSpec for nullness, never dereferences it.
+        //  - All disk I/O flows through hr->index (MockDiskVecSimIndex), not diskSpec.
+        // A real instance is not constructible in unit tests: RedisSearchDiskIndexSpec
+        // is an opaque type only the disk backend can produce.
+        mockCtx->spec.diskSpec = reinterpret_cast<RedisSearchDiskIndexSpec *>(uintptr_t{1});
     }
 
-// Creates a HybridIterator forced into ADHOC_BF / disk mode.
-    // The caller is responsible for calling outIter->Free(outIter) and delete on the returned index.
-    MockDiskVecSimIndex *makeIterator(std::map<labelType, double> sq8,
-                                     std::map<labelType, double> exact,
-                                     std::vector<t_docId> docIds,
-                                     size_t k,
-                                     QueryIterator **outIter) {
+    // Creates a HybridIterator forced into ADHOC_BF / disk mode.
+    TestHybrid makeIterator(std::map<labelType, double> sq8,
+                            std::map<labelType, double> exact,
+                            std::vector<t_docId> docIds,
+                            size_t k) {
         auto alloc = VecSimAllocator::newVecsimAllocator();
         auto *index = new (alloc) MockDiskVecSimIndex(alloc, std::move(sq8), std::move(exact));
 
@@ -170,10 +189,28 @@ protected:
         };
 
         QueryError err = QueryError_Default();
-        *outIter = NewHybridVectorIterator(hParams, &err);
+        QueryIterator *iter = NewHybridVectorIterator(hParams, &err);
         EXPECT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
-        return index;
+        return {index, iter};
     }
+
+    TestHybrid makeNormalIterator(std::map<labelType, double> sq8,
+                                  std::vector<t_docId> docIds,
+                                  size_t k) {
+        return makeIterator(std::move(sq8), {}, std::move(docIds), k);
+    }
+
+    TestHybrid makeRerankingIterator(std::map<labelType, double> sq8,
+                                     std::map<labelType, double> exact,
+                                     std::vector<t_docId> docIds,
+                                     size_t k) {
+        auto h = makeIterator(std::move(sq8), std::move(exact), std::move(docIds), k);
+        // Enable reranking before the first Read() triggers prepareResults().
+        auto hr = (HybridIterator *)h.iter;
+        hr->runtimeParams.hnswDiskRuntimeParams.shouldRerank = VecSimBool_TRUE;
+        return h;
+    }
+
 };
 
 // ============================================================================
@@ -183,8 +220,7 @@ protected:
 // Basic top-k: verify that the k results with the lowest distances are returned in score order.
 TEST_F(HybridReaderDiskTest, BasicTopK) {
     std::map<labelType, double> sq8 = {{1, 0.5}, {2, 0.1}, {3, 0.8}};
-    QueryIterator *it = nullptr;
-    MockDiskVecSimIndex *index = makeIterator(sq8, {}, {1, 2, 3}, 2, &it);
+    auto [index, it] = makeNormalIterator(sq8, {1, 2, 3}, 2);
 
     ASSERT_NE(it, nullptr);
 
@@ -198,17 +234,13 @@ TEST_F(HybridReaderDiskTest, BasicTopK) {
 
     // Doc 3 (0.8) is outside top-2 and should not appear.
     ASSERT_EQ(it->Read(it), ITERATOR_EOF);
-
-    it->Free(it);
-    freeVecSimObject(index);
 }
 
 // NaN filtering: labels whose distance is NaN must be excluded from results.
 TEST_F(HybridReaderDiskTest, NaNFiltering) {
     // Doc 2 has no entry in sq8Distances → getDistanceFrom returns NaN → skipped.
     std::map<labelType, double> sq8 = {{1, 0.5}, {3, 0.8}};
-    QueryIterator *it = nullptr;
-    MockDiskVecSimIndex *index = makeIterator(sq8, {}, {1, 2, 3}, 3, &it);
+    auto [index, it] = makeNormalIterator(sq8, {1, 2, 3}, 3);
 
     ASSERT_NE(it, nullptr);
 
@@ -218,9 +250,6 @@ TEST_F(HybridReaderDiskTest, NaNFiltering) {
         ++count;
     }
     EXPECT_EQ(count, 2u);
-
-    it->Free(it);
-    freeVecSimObject(index);
 }
 
 // Reranking: when shouldRerank is enabled, getExactDistances results replace SQ8 distances.
@@ -229,14 +258,9 @@ TEST_F(HybridReaderDiskTest, RerankingUpdatesScores) {
     std::map<labelType, double> sq8 = {{1, 0.9}, {2, 0.8}};
     // Exact FP32 distances reverse the ranking.
     std::map<labelType, double> exact = {{1, 0.1}, {2, 0.7}};
-    QueryIterator *it = nullptr;
-    MockDiskVecSimIndex *index = makeIterator(sq8, exact, {1, 2}, 2, &it);
+    auto [index, it] = makeRerankingIterator(sq8, exact, {1, 2}, 2);
 
     ASSERT_NE(it, nullptr);
-
-    // Enable reranking before the first Read() triggers prepareResults().
-    auto hr = (HybridIterator *)it;
-    hr->runtimeParams.hnswDiskRuntimeParams.shouldRerank = VecSimBool_TRUE;
 
     // After reranking with exact distances, doc 1 (0.1) should come before doc 2 (0.7).
     ASSERT_EQ(it->Read(it), ITERATOR_OK);
@@ -246,17 +270,13 @@ TEST_F(HybridReaderDiskTest, RerankingUpdatesScores) {
     EXPECT_EQ(it->lastDocId, (t_docId)2);
 
     ASSERT_EQ(it->Read(it), ITERATOR_EOF);
-
-    it->Free(it);
-    freeVecSimObject(index);
 }
 
 // Timeout: when the timeout callback fires, prepareResults returns TimedOut and Read returns
 // ITERATOR_TIMEOUT.
 TEST_F(HybridReaderDiskTest, TimeoutReturnsTimedOut) {
     std::map<labelType, double> sq8 = {{1, 0.5}, {2, 0.1}};
-    QueryIterator *it = nullptr;
-    MockDiskVecSimIndex *index = makeIterator(sq8, {}, {1, 2}, 2, &it);
+    auto [index, it] = makeNormalIterator(sq8, {1, 2}, 2);
 
     ASSERT_NE(it, nullptr);
 
@@ -267,7 +287,4 @@ TEST_F(HybridReaderDiskTest, TimeoutReturnsTimedOut) {
     EXPECT_EQ(it->Read(it), ITERATOR_TIMEOUT);
 
     vecsimTimeoutCallback = saved;
-
-    it->Free(it);
-    freeVecSimObject(index);
 }
