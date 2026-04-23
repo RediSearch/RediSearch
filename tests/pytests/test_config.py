@@ -515,6 +515,7 @@ numericConfigs = [
     ('search-topology-validation-timeout', 'TOPOLOGY_VALIDATION_TIMEOUT', 30_000, 0, LLONG_MAX, False, True),
     ('search-cursor-reply-threshold', 'CURSOR_REPLY_THRESHOLD', 1, 1, LLONG_MAX, False, True),
     ('search-conn-per-shard', 'CONN_PER_SHARD', 0, 0, UINT32_MAX, False, True),
+    ('search-connect-timeout', 'CONNECT_TIMEOUT', 10_000, 0, LLONG_MAX, False, True),
 ]
 
 @skip(redis_less_than='7.9.227')
