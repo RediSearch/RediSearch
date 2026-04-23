@@ -619,7 +619,10 @@ def test_JSON_RDB_load_fail_without_JSON_module(env: Env):
     env.envRunner.moduleArgs.pop()
     env.envRunner.masterCmdArgs = env.envRunner.createCmdArgs('master')
     # Restart without JSON module. Attempt to load RDB - should fail.
-    # RLTest may or may not fail to start the server with an exception
+    # RLTest may or may not fail to start the server with an exception.
+    # Use a large startup grace period so the server has time to abort during
+    # RDB load before RLTest's readiness probe races with the abort.
+    env.envRunner.startupGraceSecs = 10
     try:
         env.start()
     except Exception as e:

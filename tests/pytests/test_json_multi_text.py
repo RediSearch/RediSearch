@@ -535,8 +535,12 @@ def testconfigMultiTextOffsetDeltaSlop0():
 @skip(cluster=True, asan=True, no_json=True)
 def testconfigMultiTextOffsetDeltaSlopNeg():
     """ test ft.config `MULTI_TEXT_SLOP` rejects negative values """
+    # Use a large startup grace period so the server has time to abort during
+    # module init before RLTest's readiness probe runs. With the default 0.1s
+    # the probe races with the abort and occasionally surfaces a spurious
+    # "<Environment destroyed>" failure.
     try:
-        env = Env(moduleArgs='MULTI_TEXT_SLOP -1')
+        env = Env(moduleArgs='MULTI_TEXT_SLOP -1', startupGraceSecs=10)
         assert not env.isUp()
     except Exception as e:
         # It sometimes captures the error of it not being up (PID dead and sometimes not).
