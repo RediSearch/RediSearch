@@ -8,6 +8,7 @@ members = [
     "field",
     "fnv",
     "generational_slab",
+    "geo",
     "hyperloglog",
     "inverted_index",
     "inverted_index_bencher",
@@ -97,6 +98,7 @@ field = { path = "./field" }
 field_spec = { path = "./c_wrappers/field_spec" }
 fnv = { path = "./fnv" }
 generational_slab = { path = "./generational_slab" }
+geo = { path = "./geo" }
 hidden_string = { path = "./c_wrappers/hidden_string" }
 hyperloglog = { path = "./hyperloglog" }
 idf = { path = "./idf" }
