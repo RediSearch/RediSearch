@@ -310,30 +310,35 @@ int MRConn_SendCommand(MRConn *c, MRCommand *cmd, redisCallbackFn *fn, void *pri
   return redisAsyncFormattedCommand(c->conn, fn, privdata, cmd->cmd, sdslen(cmd->cmd));
 }
 
-/* Add a node to the connection manager and start its connections.
- * Returns 1 if the pool was added/replaced, 0 if the node was already present
- * at the same address. */
-int MRConnManager_Add(MRConnManager *m, uv_loop_t *loop, const char *id, MREndpoint *ep) {
+/* Add a node to the connection manager and start its connections. Returns a
+ * three-way signal so the caller can tell an identical-topology refresh
+ * (Unchanged) apart from an actual connectivity change (Replaced or Inserted).
+ * Endpoint equality covers host, port, unixSock and password; a password
+ * rotation therefore forces a pool rebuild rather than silently reusing
+ * connections that would AUTH with stale credentials on reconnect. */
+MRConnManager_AddResult MRConnManager_Add(MRConnManager *m, uv_loop_t *loop, const char *id, MREndpoint *ep) {
   /* First try to see if the connection is already in the manager */
   dictEntry *ptr = dictFind(m->map, id);
   if (ptr) {
     MRConnPool *pool = dictGetVal(ptr);
 
     MRConn *conn = pool->conns[0];
-    // the node hasn't changed address, we don't need to do anything
-    if (!strcmp(conn->ep.host, ep->host) && conn->ep.port == ep->port) {
-      return 0;
+    if (MREndpoint_Equal(&conn->ep, ep)) {
+      return MRConnManager_Add_Unchanged;
     }
 
-    // Node changed address - dictReplace below will disconnect+free the old pool
+    // Endpoint changed - dictReplace below will disconnect+free the old pool
     // via the dict value destructor (MRConnPool_Free).
     RedisModule_Log(RSDummyContext, "notice",
-                    "MRConnManager_Add: Node %s changed address from %s:%d to %s:%d, reconnecting (state: %s)",
+                    "MRConnManager_Add: Node %s endpoint changed from %s:%d to %s:%d, reconnecting (state: %s)",
                     id, conn->ep.host, conn->ep.port, ep->host, ep->port, MRConnState_Str(conn->state));
   }
 
   MRConnPool *pool = _MR_NewConnPool(ep, m->nodeConns, loop);
-  return dictReplace(m->map, (void *)id, pool);
+  // dictReplace returns 1 on fresh insert, 0 on replace of an existing key.
+  return dictReplace(m->map, (void *)id, pool) == 1
+    ? MRConnManager_Add_Inserted
+    : MRConnManager_Add_Replaced;
 }
 
 /* Explicitly disconnect a connection and remove it from the connection pool.

@@ -86,8 +86,19 @@ const char *MRConnManager_GetNodeState(MRConnManager *mgr, const char *id);
 
 int MRConn_SendCommand(MRConn *c, MRCommand *cmd, redisCallbackFn *fn, void *privdata);
 
+/* Result of MRConnManager_Add: distinguishes no-op refreshes (same endpoint)
+ * from actual connectivity changes (endpoint replaced or newly inserted).
+ * Callers can collapse Replaced/Inserted into "connectivity changed" via a
+ * `!= MRConnManager_Add_Unchanged` test, while still having the three-way
+ * signal available for logging or metrics. */
+typedef enum {
+  MRConnManager_Add_Unchanged = 0,  // id present, endpoint equal (no-op)
+  MRConnManager_Add_Replaced,       // id present, endpoint differs; old pool freed
+  MRConnManager_Add_Inserted,       // id not present; new pool added
+} MRConnManager_AddResult;
+
 /* Add a node to the connection manager and start its connections. */
-int MRConnManager_Add(MRConnManager *m, uv_loop_t *loop, const char *id, MREndpoint *ep);
+MRConnManager_AddResult MRConnManager_Add(MRConnManager *m, uv_loop_t *loop, const char *id, MREndpoint *ep);
 
 /* Disconnect a node */
 int MRConnManager_Disconnect(MRConnManager *m, const char *id);
