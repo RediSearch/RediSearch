@@ -18,7 +18,7 @@ extern "C" {
 
 extern RedisJSONAPI *japi;
 extern int japi_ver;
-#define RedisJSONAPI_MIN_API_VER 6
+#define RedisJSONAPI_MIN_API_VER 7
 
 #define JSON_ROOT "$"
 

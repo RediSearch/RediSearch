@@ -417,28 +417,26 @@ static void VecSim_ConvertFromTypedBuffer(VecSimType target_type, JSONArrayType 
 }
 
 // Stores `len` elements from the JSON array `arr` into the VecSim blob at `target`.
-// When the RedisJSON V7 `getArray` API is available and the array is a homogeneous
-// numeric buffer, uses the typed-buffer fast path (single `memcpy` or a typed
-// conversion loop). Otherwise, falls back to the V6 per-element loop.
+// For a homogeneous numeric array, uses the typed-buffer fast path (single `memcpy`
+// or a typed conversion loop). Heterogeneous arrays fall back to the per-element
+// loop using RedisJSON scalar accessors.
 static int JSON_StoreVectorAt(RedisJSON arr, size_t len, VecSimType target_type,
                               char *target, QueryError *status) {
-  // V7 fast path: homogeneous numeric buffer, single allocation-free copy/conversion.
-  if (japi_ver >= 7) {
-    size_t buf_len = 0;
-    JSONArrayType jtype = JSONArrayType_Heterogeneous;
-    const void *buf = japi->getArray(arr, &buf_len, &jtype);
-    RS_ASSERT(buf_len == len);
-    if (buf && jtype != JSONArrayType_Heterogeneous) {
-      if (!VecSim_AcceptsJSONArrayType(target_type, jtype)) {
-        QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_GENERIC, "Invalid vector element at index 0");
-        return REDISMODULE_ERR;
-      }
-      VecSim_ConvertFromTypedBuffer(target_type, jtype, buf, len, target);
-      return REDISMODULE_OK;
+  // Fast path: homogeneous numeric buffer, single allocation-free copy/conversion.
+  size_t buf_len = 0;
+  JSONArrayType jtype = JSONArrayType_Heterogeneous;
+  const void *buf = japi->getArray(arr, &buf_len, &jtype);
+  RS_ASSERT(buf_len == len);
+  if (buf && jtype != JSONArrayType_Heterogeneous) {
+    if (!VecSim_AcceptsJSONArrayType(target_type, jtype)) {
+      QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_GENERIC, "Invalid vector element at index 0");
+      return REDISMODULE_ERR;
     }
+    VecSim_ConvertFromTypedBuffer(target_type, jtype, buf, len, target);
+    return REDISMODULE_OK;
   }
 
-  // V6 fallback: per-element conversion via RedisJSON scalar accessors.
+  // Heterogeneous fallback: per-element conversion via RedisJSON scalar accessors.
   getJSONElementFunc getElement = VecSimGetJSONCallback(target_type);
   unsigned char step = VecSimType_sizeof(target_type);
   RedisJSONPtr element = japi->allocJson();
@@ -618,17 +616,15 @@ int JSON_StoreVectorInDocField(FieldSpec *fs, RedisJSON arr, struct DocumentFiel
     return REDISMODULE_ERR;
   }
 
-  // V7 fast probe: a known numeric tag implies a flat numeric array (single vector).
-  // Heterogeneous (and any unknown future tag) falls through to the V6 probe which also
-  // distinguishes single-vs-multi for arrays whose first element is numeric but whose
-  // element types are mixed.
-  if (japi_ver >= 7) {
-    size_t n = 0;
-    JSONArrayType jtype = JSONArrayType_Heterogeneous;
-    japi->getArray(arr, &n, &jtype);
-    if (JSON_ArrayTypeIsNumeric(jtype)) {
-      return JSON_StoreSingleVectorInDocField(fs, arr, df, status);
-    }
+  // Fast probe: a known numeric tag implies a flat numeric array (single vector).
+  // Heterogeneous (and any unknown future tag) falls through to the per-element
+  // probe below, which also distinguishes single-vs-multi for arrays whose first
+  // element is numeric but whose element types are mixed.
+  size_t n;
+  JSONArrayType jtype = JSONArrayType_Heterogeneous;
+  japi->getArray(arr, &n, &jtype);
+  if (JSON_ArrayTypeIsNumeric(jtype)) {
+    return JSON_StoreSingleVectorInDocField(fs, arr, df, status);
   }
 
   RedisJSONPtr ptr = japi->allocJson();
@@ -759,24 +755,23 @@ int JSON_StoreNumericInDocFieldFromArr(RedisJSON arr, struct DocumentField *df, 
   size_t len;
   japi->getLen(arr, &len);
 
-  // V7 fast path: homogeneous numeric buffer -> one dispatch, tight typed conversion to double
-  // (single memcpy when the source is already F64). Arrays containing nulls are tagged
-  // Heterogeneous by RedisJSON and fall through to the V6 iterator which preserves the
-  // null-skipping semantics; any unknown future tag falls through for the same reason.
-  if (japi_ver >= 7) {
-    size_t buf_len = 0;
-    JSONArrayType jtype = JSONArrayType_Heterogeneous;
-    const void *buf = japi->getArray(arr, &buf_len, &jtype);
-    if (buf && JSON_ArrayTypeIsNumeric(jtype)) {
-      RS_ASSERT(buf_len == len);
-      arrayof(double) out = array_newlen(double, len);
-      // VecSim_ConvertFromTypedBuffer accepts any known numeric jtype for a FLOAT64
-      // target, so reusing it here covers every tag JSON_ArrayTypeIsNumeric admits.
-      VecSim_ConvertFromTypedBuffer(VecSimType_FLOAT64, jtype, buf, len, (char *)out);
-      df->arrNumval = out;
-      df->unionType = FLD_VAR_T_ARRAY;
-      return REDISMODULE_OK;
-    }
+  // Fast path: homogeneous numeric buffer -> one dispatch, tight typed conversion to
+  // double (single memcpy when the source is already F64). Arrays containing nulls
+  // are tagged Heterogeneous by RedisJSON and fall through to the per-element
+  // iterator which preserves the null-skipping semantics; any unknown future tag
+  // falls through for the same reason.
+  size_t buf_len = 0;
+  JSONArrayType jtype = JSONArrayType_Heterogeneous;
+  const void *buf = japi->getArray(arr, &buf_len, &jtype);
+  if (buf && JSON_ArrayTypeIsNumeric(jtype)) {
+    RS_ASSERT(buf_len == len);
+    arrayof(double) out = array_newlen(double, len);
+    // VecSim_ConvertFromTypedBuffer accepts any known numeric jtype for a FLOAT64
+    // target, so reusing it here covers every tag JSON_ArrayTypeIsNumeric admits.
+    VecSim_ConvertFromTypedBuffer(VecSimType_FLOAT64, jtype, buf, len, (char *)out);
+    df->arrNumval = out;
+    df->unionType = FLD_VAR_T_ARRAY;
+    return REDISMODULE_OK;
   }
 
   JSONIterable iter = JSONIterable_FromArr(arr);
@@ -954,7 +949,6 @@ static RSValue *jsonValToValueExpanded(RedisModuleCtx *ctx, RedisJSON json) {
 
 // Return an array of expanded values from an iterator.
 // The iterator is being reset and is not being freed.
-// Required japi_ver >= 4
 static RSValue* jsonIterToValueExpanded(RedisModuleCtx *ctx, JSONResultsIterator iter) {
   RSValue *ret;
   RSValue **arr;
