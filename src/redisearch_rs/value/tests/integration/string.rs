@@ -8,7 +8,7 @@
 */
 
 use std::ffi::c_char;
-use value::RsString;
+use value::String;
 
 /// Allocate a nul-terminated C string using the mock Redis allocator.
 fn rm_alloc_string(s: &str) -> (*mut c_char, u32) {
@@ -22,7 +22,7 @@ fn rm_alloc_string(s: &str) -> (*mut c_char, u32) {
 
 #[test]
 fn from_vec_as_ptr_len() {
-    let s = RsString::from_vec(b"hello".to_vec());
+    let s = String::from_vec(b"hello".to_vec());
     let (ptr, len) = s.as_ptr_len();
     let bytes = unsafe { std::slice::from_raw_parts(ptr as *const u8, len as usize) };
     assert_eq!(bytes, b"hello");
@@ -31,7 +31,7 @@ fn from_vec_as_ptr_len() {
 
 #[test]
 fn from_vec_as_bytes() {
-    let s = RsString::from_vec(b"hello".to_vec());
+    let s = String::from_vec(b"hello".to_vec());
     assert_eq!(s.as_bytes(), b"hello");
 }
 
@@ -42,7 +42,7 @@ fn from_vec_as_bytes() {
 )]
 fn rm_alloc_string_as_ptr_len() {
     let (ptr, len) = rm_alloc_string("redis");
-    let s = unsafe { RsString::rm_alloc_string(ptr, len) };
+    let s = unsafe { String::rm_alloc_string(ptr, len) };
     let (out_ptr, out_len) = s.as_ptr_len();
     let bytes = unsafe { std::slice::from_raw_parts(out_ptr as *const u8, out_len as usize) };
     assert_eq!(bytes, b"redis");
@@ -56,13 +56,13 @@ fn rm_alloc_string_as_ptr_len() {
 )]
 fn rm_alloc_string_as_bytes() {
     let (ptr, len) = rm_alloc_string("redis");
-    let s = unsafe { RsString::rm_alloc_string(ptr, len) };
+    let s = unsafe { String::rm_alloc_string(ptr, len) };
     assert_eq!(s.as_bytes(), b"redis");
 }
 
 #[test]
 fn borrowed_string_as_ptr_len() {
-    let s = unsafe { RsString::borrowed_string(c"borrowed".as_ptr(), 8) };
+    let s = unsafe { String::borrowed_string(c"borrowed".as_ptr(), 8) };
     let (ptr, len) = s.as_ptr_len();
     let bytes = unsafe { std::slice::from_raw_parts(ptr as *const u8, len as usize) };
     assert_eq!(bytes, b"borrowed");
@@ -71,6 +71,6 @@ fn borrowed_string_as_ptr_len() {
 
 #[test]
 fn borrowed_string_as_bytes() {
-    let s = unsafe { RsString::borrowed_string(c"borrowed".as_ptr(), 8) };
+    let s = unsafe { String::borrowed_string(c"borrowed".as_ptr(), 8) };
     assert_eq!(s.as_bytes(), b"borrowed");
 }

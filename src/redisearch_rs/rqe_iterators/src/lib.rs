@@ -33,7 +33,9 @@ pub mod profile;
 pub mod union;
 mod union_flat;
 mod union_heap;
+pub mod union_opaque;
 pub mod union_reducer;
+mod union_trimmed;
 pub mod utils;
 pub mod wildcard;
 
@@ -48,7 +50,9 @@ pub use optional::OptionalIterator;
 pub use rqe_iterator_type::IteratorType;
 pub use union::{
     Union, UnionFlat, UnionFullFlat, UnionFullHeap, UnionHeap, UnionQuickFlat, UnionQuickHeap,
+    UnionTrimmed,
 };
+pub use union_opaque::{UnionOpaque, UnionVariant};
 pub use wildcard::{NewWildcardIterator, Wildcard, WildcardIterator};
 
 #[derive(Debug, PartialEq)]

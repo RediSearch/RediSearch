@@ -1053,6 +1053,26 @@ static int handleLoad(AGGPlan *plan, uint32_t *reqflags, ArgsCursor *ac, bool is
   return REDISMODULE_OK;
 }
 
+bool RunInThread(RedisModuleCtx *ctx) {
+  const bool hasWorkerThreads = RSGlobalConfig.numWorkerThreads > 0;
+  if (!hasWorkerThreads) {
+    return false;
+  }
+
+  const bool blockClientUnavailable = RedisModule_GetContextFlags(ctx) & REDISMODULE_CTX_FLAGS_DENY_BLOCKING;
+  if (blockClientUnavailable && RSGlobalConfig.fallbackToMainThreadWhenBlockClientUnavailable) {
+    // We only log once to reduce log spam
+    static bool logged = false;
+    if (!logged) {
+      RedisModule_Log(ctx, "warning", "Detected a client that cannot be blocked, all similar requests including this one will fall back to run on the main thread.");
+      logged = true;
+    }
+    return false;
+  }
+
+  return true;
+}
+
 AREQ *AREQ_New(void) {
   AREQ* req = rm_calloc(1, sizeof(AREQ));
   /*
@@ -1142,15 +1162,15 @@ static bool IsNeededDepleter(AREQ *req) {
 
 // This function should only be called from the main thread (calling RunInThread() is not thread safe)
 // AREQ execution flags are not set when this function is called currently
-static bool shouldCheckInPipelineTimeout(AREQ *req) {
+static bool shouldCheckInPipelineTimeout(RedisModuleCtx* ctx, AREQ *req) {
   // We should check for timeout in pipeline only if timeout is > 0
   // and when the policy is RETURN or the policy is FAIL/RETURN-strict, without workers.
   return req->reqConfig.queryTimeoutMS > 0 &&
-         (req->reqConfig.timeoutPolicy == TimeoutPolicy_Return || !RunInThread());
+         (req->reqConfig.timeoutPolicy == TimeoutPolicy_Return || !RunInThread(ctx));
 
 }
 
-int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, bool isDiskIndex, QueryError *status) {
+int AREQ_Compile(AREQ *req, RedisModuleCtx *ctx, RedisModuleString **argv, int argc, bool isDiskIndex, QueryError *status) {
   req->args = rm_malloc(sizeof(*req->args) * argc);
   req->nargs = argc;
   // Copy the arguments into an owned array of sds strings
@@ -1217,7 +1237,7 @@ int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, bool isDiskIndex
   }
 
   // Check if we should check for timeout in pipeline
-  AREQ_SetSkipTimeoutChecks(req, !shouldCheckInPipelineTimeout(req));
+  AREQ_SetSkipTimeoutChecks(req, !shouldCheckInPipelineTimeout(ctx, req));
 
   return REDISMODULE_OK;
 

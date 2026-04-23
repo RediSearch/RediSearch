@@ -11,7 +11,7 @@ use bumpalo::Bump;
 use rlookup::{RLookupKey, RLookupRow};
 
 use crate::Reducer;
-use value::{Array, Map, RsValue, SharedRsValue};
+use value::{Array, Map, SharedValue, Value};
 
 /// The COLLECT reducer aggregates rows within each group, with optional field
 /// projection, sorting, and limiting.
@@ -53,9 +53,9 @@ pub struct CollectReducer<'a> {
 ///
 /// Because `CollectCtx` is arena-allocated ([`Bump`] does not run destructors),
 /// `ptr::drop_in_place` must be called to run destructors for the inner
-/// heap-allocated `Vec`s and decrement `SharedRsValue` refcounts.
+/// heap-allocated `Vec`s and decrement `SharedValue` refcounts.
 pub struct CollectCtx {
-    rows: Vec<Vec<SharedRsValue>>,
+    rows: Vec<Vec<SharedValue>>,
 }
 
 impl<'a> CollectReducer<'a> {
@@ -149,7 +149,7 @@ impl CollectCtx {
     ///
     /// For each configured field key the value is looked up in the row
     /// and cloned (incrementing its refcount). Missing values are stored as
-    /// [`SharedRsValue::null_static`].
+    /// [`SharedValue::null_static`].
     pub fn add(&mut self, r: &CollectReducer, row: &RLookupRow) {
         let values = r
             .field_keys
@@ -157,7 +157,7 @@ impl CollectCtx {
             .map(|key| {
                 row.get(key)
                     .cloned()
-                    .unwrap_or_else(SharedRsValue::null_static)
+                    .unwrap_or_else(SharedValue::null_static)
             })
             .collect();
         self.rows.push(values);
@@ -168,8 +168,8 @@ impl CollectCtx {
     ///
     /// Each map contains `{field_name: value}` entries keyed by the
     /// [`RLookupKey`] name. The outer array has one element per collected row.
-    pub fn finalize(&mut self, r: &CollectReducer) -> SharedRsValue {
-        let row_maps: Vec<SharedRsValue> = self
+    pub fn finalize(&mut self, r: &CollectReducer) -> SharedValue {
+        let row_maps: Vec<SharedValue> = self
             .rows
             .drain(..)
             .map(|row_values| {
@@ -177,13 +177,13 @@ impl CollectCtx {
                     .into_iter()
                     .zip(r.field_keys.iter())
                     .map(|(val, key)| {
-                        let name_val = SharedRsValue::new_string(key.name().to_bytes().to_vec());
+                        let name_val = SharedValue::new_string(key.name().to_bytes().to_vec());
                         (name_val, val)
                     })
                     .collect();
-                SharedRsValue::new(RsValue::Map(Map::new(entries)))
+                SharedValue::new(Value::Map(Map::new(entries)))
             })
             .collect();
-        SharedRsValue::new(RsValue::Array(Array::new(row_maps.into_boxed_slice())))
+        SharedValue::new(Value::Array(Array::new(row_maps.into_boxed_slice())))
     }
 }

@@ -22,7 +22,7 @@ macro_rules! union_common_tests {
     ($UnionFull:ident, $UnionQuick:ident) => {
         use crate::utils::{
             Mock, MockIteratorError, MockRevalidateResult, MockVec, create_mock_1, create_mock_2,
-            create_mock_3, create_union_children,
+            create_mock_3, create_union_children, drain_doc_ids,
         };
         use rqe_iterators::{
             IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
@@ -1625,6 +1625,138 @@ macro_rules! union_common_tests {
             let children = make_timeout_children(2);
             let mut union = $UnionQuick::new(children);
             assert_skip_to_eventually_times_out(&mut union);
+        }
+
+        // =============================================================================
+        // into_trimmed
+        // =============================================================================
+
+        /// `into_trimmed` on a Full union produces a working `UnionTrimmed` that
+        /// yields all children in reverse order when the limit is large enough.
+        #[test]
+        #[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
+        fn into_trimmed_full_yields_all_children() {
+            let (children, _data) = create_mock_3([1, 2], [3, 4], [5, 6]);
+            let union = $UnionFull::new(children);
+            let mut trimmed = union.into_trimmed(usize::MAX, true).unwrap();
+
+            let docs = drain_doc_ids(&mut trimmed);
+            assert_eq!(docs, [5, 6, 3, 4, 1, 2]);
+        }
+
+        /// `into_trimmed` on a Quick union applies ascending trimming correctly.
+        #[test]
+        #[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
+        fn into_trimmed_quick_trims_asc() {
+            // 3 children with est [2, 2, 2], limit=1.
+            // Asc scan from child[1]: child[1].est=2 > 1 → keep=2.
+            let (children, _data) = create_mock_3([1, 2], [3, 4], [5, 6]);
+            let union = $UnionQuick::new(children);
+            let mut trimmed = union.into_trimmed(1, true).unwrap();
+
+            assert_eq!(trimmed.num_children_total(), 3, "all children stay alive");
+            let docs = drain_doc_ids(&mut trimmed);
+            // Active window [0..2), reads in reverse: child[1] then child[0].
+            assert_eq!(docs, [3, 4, 1, 2]);
+        }
+
+        /// `into_trimmed` on a Quick union applies descending trimming correctly.
+        #[test]
+        #[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
+        fn into_trimmed_quick_trims_desc() {
+            // 3 children with est [2, 2, 2], limit=1.
+            // Desc scan from child[1] backward: child[1].est=2 > 1 → skip=1.
+            let (children, _data) = create_mock_3([1, 2], [3, 4], [5, 6]);
+            let union = $UnionQuick::new(children);
+            let mut trimmed = union.into_trimmed(1, false).unwrap();
+
+            assert_eq!(trimmed.num_children_total(), 3, "all children stay alive");
+            let docs = drain_doc_ids(&mut trimmed);
+            // Active window [1..3), reads in reverse: child[2] then child[1].
+            assert_eq!(docs, [5, 6, 3, 4]);
+        }
+
+        // =============================================================================
+        // num_children_total / num_children_active
+        // =============================================================================
+
+        /// Before any read, all children should be active.
+        #[test]
+        fn num_children_active_before_first_read() {
+            let (children, _data) = create_mock_2([1, 3, 5], [2, 4, 6]);
+            let union = Union::new(children);
+
+            assert_eq!(union.num_children_total(), 2);
+            assert_eq!(
+                union.num_children_active(),
+                2,
+                "all children should be active before any read"
+            );
+        }
+
+        /// After reading to EOF, `num_children_active` should be 0.
+        #[test]
+        #[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
+        fn num_children_active_after_eof() {
+            let (children, _data) = create_mock_2([1], [2]);
+            let mut union = Union::new(children);
+
+            while union.read().expect("read failed").is_some() {}
+
+            assert!(union.at_eof());
+            assert_eq!(
+                union.num_children_active(),
+                0,
+                "no children should be active after EOF"
+            );
+        }
+
+        /// After rewind, `num_children_active` should be restored to the total.
+        #[test]
+        #[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
+        fn num_children_active_after_rewind() {
+            let (children, _data) = create_mock_2([1, 3], [2, 4]);
+            let mut union = Union::new(children);
+
+            // Read to EOF.
+            while union.read().expect("read failed").is_some() {}
+            assert_eq!(union.num_children_active(), 0);
+
+            union.rewind();
+            assert_eq!(
+                union.num_children_active(),
+                2,
+                "all children should be active after rewind"
+            );
+        }
+
+        // =============================================================================
+        // intersection_sort_weight
+        // =============================================================================
+
+        /// When `prioritize_union_children` is false, weight is always 1.0.
+        #[test]
+        fn intersection_sort_weight_without_priority() {
+            let (children, _data) = create_mock_2([1, 3, 5], [2, 4, 6]);
+            let union = Union::new(children);
+            assert_eq!(union.intersection_sort_weight(false), 1.0);
+        }
+
+        /// When `prioritize_union_children` is true, weight equals the total
+        /// number of children.
+        #[test]
+        fn intersection_sort_weight_with_priority() {
+            let (children, _data) = create_mock_2([1, 3, 5], [2, 4, 6]);
+            let union = Union::new(children);
+            assert_eq!(union.intersection_sort_weight(true), 2.0);
+        }
+
+        /// Weight is at least 1.0 even with a single child.
+        #[test]
+        fn intersection_sort_weight_single_child() {
+            let (child, _data) = create_mock_1([1, 2, 3]);
+            let union = Union::new(vec![child]);
+            assert_eq!(union.intersection_sort_weight(true), 1.0);
         }
 
     };

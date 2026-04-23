@@ -7,15 +7,16 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use crate::util::expect_value;
-use value::RsValue;
+use crate::RSValue;
+use crate::util::{expect_value, try_value};
+use value::Value;
 
-/// Enumeration of the types an [`RsValue`] can be of.
+/// Enumeration of the types an [`RSValue`] can be of.
 ///
 /// cbindgen:prefix-with-name
 #[repr(C)]
 #[derive(Debug)]
-pub enum RsValueType {
+pub enum RSValueType {
     Undef = 0,
     Number = 1,
     String = 2,
@@ -27,120 +28,134 @@ pub enum RsValueType {
     Map = 8,
 }
 
-/// Returns the type of the given [`RsValue`].
+/// Returns the type of the given [`RSValue`].
 ///
 /// # Safety
 ///
-/// 1. `value` must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
+/// 1. `value` must be a [valid], non-null pointer to an [`RSValue`].
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-pub const unsafe extern "C" fn RSValue_Type(value: *const RsValue) -> RsValueType {
+pub const unsafe extern "C" fn RSValue_Type(value: *const RSValue) -> RSValueType {
     // Safety: ensured by caller (1.)
     let value = unsafe { expect_value(value) };
 
-    use RsValueType::*;
+    use RSValueType::*;
 
     match value {
-        RsValue::Undefined => Undef,
-        RsValue::Null => Null,
-        RsValue::Number(_) => Number,
-        RsValue::String(_) => String,
-        RsValue::RedisString(_) => RedisString,
-        RsValue::Array(_) => Array,
-        RsValue::Ref(_) => Reference,
-        RsValue::Trio(_) => Trio,
-        RsValue::Map(_) => Map,
+        Value::Undefined => Undef,
+        Value::Null => Null,
+        Value::Number(_) => Number,
+        Value::String(_) => String,
+        Value::RedisString(_) => RedisString,
+        Value::Array(_) => Array,
+        Value::Ref(_) => Reference,
+        Value::Trio(_) => Trio,
+        Value::Map(_) => Map,
     }
 }
 
-/// Returns whether the given [`RsValue`] is a reference type, or `false` if `value` is NULL.
+/// Returns whether the given [`RSValue`] is a reference type, or `false` if `value` is NULL.
 ///
 /// # Safety
 ///
-/// 1. If `value` is non-null, it must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
+/// 1. `value` must be a [valid] pointer to an [`RSValue`], or null.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-pub const unsafe extern "C" fn RSValue_IsReference(value: *const RsValue) -> bool {
+pub const unsafe extern "C" fn RSValue_IsReference(value: *const RSValue) -> bool {
     // Safety: ensured by caller (1.)
-    let Some(value) = (unsafe { value.as_ref() }) else {
+    let Some(value) = (unsafe { try_value(value) }) else {
         return false;
     };
 
-    matches!(value, RsValue::Ref(_))
+    matches!(value, Value::Ref(_))
 }
 
-/// Returns whether the given [`RsValue`] is a number type, or `false` if `value` is NULL.
+/// Returns whether the given [`RSValue`] is a number type, or `false` if `value` is NULL.
 ///
 /// # Safety
 ///
-/// 1. If `value` is non-null, it must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
+/// 1. `value` must be a [valid] pointer to an [`RSValue`], or null.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-pub const unsafe extern "C" fn RSValue_IsNumber(value: *const RsValue) -> bool {
+pub const unsafe extern "C" fn RSValue_IsNumber(value: *const RSValue) -> bool {
     // Safety: ensured by caller (1.)
-    let Some(value) = (unsafe { value.as_ref() }) else {
+    let Some(value) = (unsafe { try_value(value) }) else {
         return false;
     };
 
-    matches!(value, RsValue::Number(_))
+    matches!(value, Value::Number(_))
 }
 
-/// Returns whether the given [`RsValue`] is a string type (any string variant), or `false` if `value` is NULL.
+/// Returns whether the given [`RSValue`] is a string type (any string variant), or `false` if `value` is NULL.
 ///
 /// # Safety
 ///
-/// 1. If `value` is non-null, it must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
+/// 1. `value` must be a [valid] pointer to an [`RSValue`], or null.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-pub const unsafe extern "C" fn RSValue_IsString(value: *const RsValue) -> bool {
+pub const unsafe extern "C" fn RSValue_IsString(value: *const RSValue) -> bool {
     // Safety: ensured by caller (1.)
-    let Some(value) = (unsafe { value.as_ref() }) else {
+    let Some(value) = (unsafe { try_value(value) }) else {
         return false;
     };
 
-    matches!(value, RsValue::String(_) | RsValue::RedisString(_))
+    matches!(value, Value::String(_) | Value::RedisString(_))
 }
 
-/// Returns whether the given [`RsValue`] is an array type, or `false` if `value` is NULL.
+/// Returns whether the given [`RSValue`] is an array type, or `false` if `value` is NULL.
 ///
 /// # Safety
 ///
-/// 1. If `value` is non-null, it must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
+/// 1. `value` must be a [valid] pointer to an [`RSValue`], or null.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-pub const unsafe extern "C" fn RSValue_IsArray(value: *const RsValue) -> bool {
+pub const unsafe extern "C" fn RSValue_IsArray(value: *const RSValue) -> bool {
     // Safety: ensured by caller (1.)
-    let Some(value) = (unsafe { value.as_ref() }) else {
+    let Some(value) = (unsafe { try_value(value) }) else {
         return false;
     };
 
-    matches!(value, RsValue::Array(_))
+    matches!(value, Value::Array(_))
 }
 
-/// Returns whether the given [`RsValue`] is a trio type, or `false` if `value` is NULL.
+/// Returns whether the given [`RSValue`] is a trio type, or `false` if `value` is NULL.
 ///
 /// # Safety
 ///
-/// 1. If `value` is non-null, it must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
+/// 1. `value` must be a [valid] pointer to an [`RSValue`], or null.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-pub const unsafe extern "C" fn RSValue_IsTrio(value: *const RsValue) -> bool {
+pub const unsafe extern "C" fn RSValue_IsTrio(value: *const RSValue) -> bool {
     // Safety: ensured by caller (1.)
-    let Some(value) = (unsafe { value.as_ref() }) else {
+    let Some(value) = (unsafe { try_value(value) }) else {
         return false;
     };
 
-    matches!(value, RsValue::Trio(_))
+    matches!(value, Value::Trio(_))
 }
 
-/// Returns whether the given [`RsValue`] is a null pointer, a null type, or a reference to a null type.
+/// Returns whether the given [`RSValue`] is a null pointer, a null type, or a reference to a null type.
 ///
 /// # Safety
 ///
-/// 1. If `value` is non-null, it must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
+/// 1. `value` must be a [valid] pointer to an [`RSValue`], or null.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RSValue_IsNull(value: *const RsValue) -> bool {
+pub unsafe extern "C" fn RSValue_IsNull(value: *const RSValue) -> bool {
     // Safety: ensured by caller (1.)
-    let Some(value) = (unsafe { value.as_ref() }) else {
+    let Some(value) = (unsafe { try_value(value) }) else {
         return true;
     };
 
     // C implementation does a recursive check on reference types.
     let value = value.fully_dereferenced_ref();
 
-    matches!(value, RsValue::Null)
+    matches!(value, Value::Null)
 }

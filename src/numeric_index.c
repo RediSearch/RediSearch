@@ -15,7 +15,6 @@
 
 #include "numeric_index.h"
 #include "redis_index.h"
-#include "iterators/union_iterator.h"
 #include "redisearch_rs/headers/iterators_rs.h"
 #include "sys/param.h"
 #include "rmutil/util.h"

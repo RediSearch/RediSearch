@@ -110,6 +110,16 @@ where
         }
     }
 
+    /// Returns the total number of children (including exhausted ones).
+    pub const fn num_children_total(&self) -> usize {
+        self.children.len()
+    }
+
+    /// Returns the number of currently active (non-exhausted) children.
+    pub const fn num_children_active(&self) -> usize {
+        self.num_active
+    }
+
     /// Returns a shared reference to the child originally at insertion index `idx`.
     ///
     /// Returns `None` if the child was permanently removed (e.g. aborted during
@@ -123,6 +133,17 @@ where
             .map(|c| &c.inner)
     }
 
+    /// Returns a mutable iterator over all children (including exhausted ones).
+    pub fn children_mut(&mut self) -> impl Iterator<Item = &mut I> {
+        self.children.iter_mut().map(|c| &mut c.inner)
+    }
+
+    /// Consumes the iterator and returns a [`super::UnionTrimmed`] over the same children,
+    /// or [`None`] if there are fewer than 3 children.
+    pub fn into_trimmed(self, limit: usize, asc: bool) -> Option<super::UnionTrimmed<'index, I>> {
+        let children: Vec<I> = self.children.into_iter().map(|c| c.inner).collect();
+        (children.len() >= 3).then(|| super::UnionTrimmed::new(children, limit, asc))
+    }
     /// Advances all active children whose `last_doc_id` equals `current_id` and finds the
     /// minimum doc_id in a single pass.
     ///
