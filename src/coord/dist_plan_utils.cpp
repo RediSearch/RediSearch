@@ -29,18 +29,17 @@ void buildCoordCollectArgs(ArgsCursor *out, void **objs_buf, char *count_buf,
                            const ArgsCursor *src_args,
                            const char *shard_alias, const char *user_alias) {
   size_t argc = src_args->argc;
-  snprintf(count_buf, 16, "%zu", argc + 3);
+  snprintf(count_buf, 16, "%zu", argc + 2);
 
   objs_buf[0] = count_buf;
   memcpy(objs_buf + 1, src_args->objs, argc * sizeof(void *));
   objs_buf[argc + 1] = (void *)"__SOURCE__";
-  objs_buf[argc + 2] = (void *)"1";
-  objs_buf[argc + 3] = (void *)shard_alias;
-  objs_buf[argc + 4] = (void *)"AS";
-  objs_buf[argc + 5] = (void *)user_alias;
+  objs_buf[argc + 2] = (void *)shard_alias;
+  objs_buf[argc + 3] = (void *)"AS";
+  objs_buf[argc + 4] = (void *)user_alias;
 
   out->objs = objs_buf;
-  out->argc = argc + 6;
+  out->argc = argc + 5;
   out->offset = 0;
   out->type = AC_TYPE_CHAR;
 }

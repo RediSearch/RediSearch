@@ -7,63 +7,70 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use bumpalo::Bump;
-use rlookup::{RLookupKey, RLookupRow};
+//! Shard-side COLLECT reducer.
+//!
+//! Runs on every data shard and projects the configured field keys out of each
+//! row, storing the (refcounted) values per group. [`ShardCollectCtx::finalize`]
+//! serializes the collected rows as an array of maps that the coordinator will
+//! later unpack.
 
-use crate::Reducer;
+use rlookup::{RLookupKey, RLookupRow};
 use value::{Array, Map, SharedValue, Value};
 
-/// The COLLECT reducer aggregates rows within each group, with optional field
-/// projection, sorting, and limiting.
+use crate::Reducer;
+use crate::collect::common::CollectCommon;
+
+/// Shard-side COLLECT reducer.
 ///
 /// Configuration (field keys, sort keys, limits) is parsed in C and passed to
-/// Rust via [`CollectReducer::new`]. The [`RLookupKey`][ffi::RLookupKey]
+/// Rust via [`ShardCollectReducer::new`]. The [`RLookupKey`][ffi::RLookupKey]
 /// pointers are borrowed from the [`RLookup`][ffi::RLookup] infrastructure and
 /// outlive this reducer.
 ///
-/// This struct must be `#[repr(C)]` and its first field must be a [`Reducer`]
-/// because it is downcast in C to `ffi::Reducer`, which reads vtable pointers
-/// directly.
+/// Must remain `#[repr(C)]` with [`CollectCommon`] at offset 0 so the C layer
+/// can downcast this struct to `ffi::Reducer*` and read the vtable directly.
 #[repr(C)]
-pub struct CollectReducer<'a> {
-    reducer: Reducer,
-    /// Arena allocator for [`CollectCtx`] instances, matching the `BlkAlloc`
-    /// pattern used by C reducers. All instances are freed at once when the
-    /// reducer is dropped.
-    arena: Bump,
+pub struct ShardCollectReducer<'a> {
+    /// Shared base state: vtable, arena, SORTBY/LIMIT configuration. Must be
+    /// the first field so `&ShardCollectReducer as *const ffi::Reducer` is
+    /// valid.
+    common: CollectCommon,
     /// Projected field keys. Empty when only a wildcard is used.
     field_keys: Box<[&'a RLookupKey<'a>]>,
     /// Whether the wildcard `*` was specified in the FIELDS clause.
     has_wildcard: bool,
     /// Sort keys for in-group ordering. Empty when SORTBY is omitted.
+    ///
+    /// Stored as raw `RLookupKey` references (not resolved indices) so that
+    /// sort keys absent from `FIELDS` still survive parsing. How they are
+    /// consumed at finalize time is decided by the follow-up SORTBY/LIMIT PR.
     sort_keys: Box<[&'a RLookupKey<'a>]>,
-    /// Bitmask where bit `i` is 0 for DESC and 1 for ASC (matching
-    /// `SORTASCMAP_INIT`). Only meaningful for the first
-    /// `sort_keys.len()` bits.
-    sort_asc_map: u64,
-    /// Optional LIMIT clause: `(offset, count)`.
-    limit: Option<(u64, u64)>,
 }
 
-/// Per-group instance of the [`CollectReducer`].
+// `CollectCommon` must live at offset 0 so the C layer can downcast to
+// `ffi::Reducer`. Guard against accidental reordering of the struct fields.
+const _: () = assert!(core::mem::offset_of!(ShardCollectReducer<'_>, common) == 0);
+
+/// Per-group instance of [`ShardCollectReducer`].
 ///
-/// Each call to [`CollectCtx::add`] projects the configured field keys from
-/// the source row and stores the cloned values. [`CollectCtx::finalize`]
+/// Each call to [`ShardCollectCtx::add`] projects the configured field keys
+/// from the source row and stores the cloned values. [`ShardCollectCtx::finalize`]
 /// serializes all collected rows as an array of maps.
 ///
-/// Because `CollectCtx` is arena-allocated ([`Bump`] does not run destructors),
-/// `ptr::drop_in_place` must be called to run destructors for the inner
-/// heap-allocated `Vec`s and decrement `SharedValue` refcounts.
-pub struct CollectCtx {
+/// Because `ShardCollectCtx` is arena-allocated ([`Bump`][bumpalo::Bump] does
+/// not run destructors), `ptr::drop_in_place` must be called to run
+/// destructors for the inner heap-allocated `Vec`s and decrement
+/// `SharedValue` refcounts.
+pub struct ShardCollectCtx {
     rows: Vec<Vec<SharedValue>>,
 }
 
-impl<'a> CollectReducer<'a> {
-    /// Create a new `CollectReducer` with the given pre-parsed configuration.
+impl<'a> ShardCollectReducer<'a> {
+    /// Create a new `ShardCollectReducer` with the given pre-parsed configuration.
     ///
     /// The raw pointers in `field_keys` and `sort_keys` are stored but not
     /// dereferenced here; they are only dereferenced (unsafely) in
-    /// [`CollectCtx::add`] and [`CollectCtx::finalize`].
+    /// [`ShardCollectCtx::add`] and [`ShardCollectCtx::finalize`].
     pub fn new(
         field_keys: Box<[&'a RLookupKey<'a>]>,
         has_wildcard: bool,
@@ -72,24 +79,21 @@ impl<'a> CollectReducer<'a> {
         limit: Option<(u64, u64)>,
     ) -> Self {
         Self {
-            reducer: Reducer::new(),
-            arena: Bump::new(),
+            common: CollectCommon::new(sort_asc_map, limit),
             field_keys,
             has_wildcard,
             sort_keys,
-            sort_asc_map,
-            limit,
         }
     }
 
     /// Get a mutable reference to the base reducer.
     pub const fn reducer_mut(&mut self) -> &mut Reducer {
-        &mut self.reducer
+        &mut self.common.reducer
     }
 
-    /// Allocate a new [`CollectCtx`] instance from the arena.
-    pub fn alloc_instance(&self) -> &mut CollectCtx {
-        self.arena.alloc(CollectCtx::new(self))
+    /// Allocate a new [`ShardCollectCtx`] instance from the arena.
+    pub fn alloc_instance(&self) -> &mut ShardCollectCtx {
+        self.common.arena.alloc(ShardCollectCtx::new(self))
     }
 
     // The accessors below exist only for the C++ parser tests
@@ -113,17 +117,17 @@ impl<'a> CollectReducer<'a> {
 
     /// The ASC/DESC bitmask for sort keys.
     pub const fn sort_asc_map(&self) -> u64 {
-        self.sort_asc_map
+        self.common.sort_asc_map
     }
 
     /// Whether a LIMIT clause was specified.
     pub const fn has_limit(&self) -> bool {
-        self.limit.is_some()
+        self.common.limit.is_some()
     }
 
     /// The LIMIT offset value (0 if no limit).
     pub const fn limit_offset(&self) -> u64 {
-        match self.limit {
+        match self.common.limit {
             Some((offset, _)) => offset,
             None => 0,
         }
@@ -131,16 +135,16 @@ impl<'a> CollectReducer<'a> {
 
     /// The LIMIT count value (0 if no limit).
     pub const fn limit_count(&self) -> u64 {
-        match self.limit {
+        match self.common.limit {
             Some((_, count)) => count,
             None => 0,
         }
     }
 }
 
-impl CollectCtx {
-    /// Create a new per-group collect reducer instance.
-    pub const fn new(_r: &CollectReducer) -> Self {
+impl ShardCollectCtx {
+    /// Create a new per-group shard collect reducer instance.
+    pub const fn new(_r: &ShardCollectReducer) -> Self {
         Self { rows: Vec::new() }
     }
 
@@ -150,7 +154,7 @@ impl CollectCtx {
     /// For each configured field key the value is looked up in the row
     /// and cloned (incrementing its refcount). Missing values are stored as
     /// [`SharedValue::null_static`].
-    pub fn add(&mut self, r: &CollectReducer, row: &RLookupRow) {
+    pub fn add(&mut self, r: &ShardCollectReducer, row: &RLookupRow) {
         let values = r
             .field_keys
             .iter()
@@ -168,7 +172,7 @@ impl CollectCtx {
     ///
     /// Each map contains `{field_name: value}` entries keyed by the
     /// [`RLookupKey`] name. The outer array has one element per collected row.
-    pub fn finalize(&mut self, r: &CollectReducer) -> SharedValue {
+    pub fn finalize(&mut self, r: &ShardCollectReducer) -> SharedValue {
         let row_maps: Vec<SharedValue> = self
             .rows
             .drain(..)
@@ -185,5 +189,42 @@ impl CollectCtx {
             })
             .collect();
         SharedValue::new(Value::Array(Array::new(row_maps.into_boxed_slice())))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // End-to-end `add`/`finalize` coverage requires the Redis module
+    // allocator (`RedisModule_Alloc`/`_Free`) to be linked because
+    // `SharedValue` invokes it during drop. Those tests live in
+    // `tests/test_cpp_collect.cpp` today and will migrate to Python flow
+    // tests alongside the SORTBY/LIMIT follow-up PR. The unit tests here
+    // only cover pure-Rust configuration round-tripping.
+
+    /// Every accessor on a reducer built with no configuration reports the
+    /// defaults expected by the C-side factory.
+    #[test]
+    fn new_with_no_fields_exposes_empty_configuration() {
+        let r = ShardCollectReducer::new(Box::new([]), false, Box::new([]), 0, None);
+        assert_eq!(r.field_keys_len(), 0);
+        assert!(!r.has_wildcard());
+        assert_eq!(r.sort_keys_len(), 0);
+        assert_eq!(r.sort_asc_map(), 0);
+        assert!(!r.has_limit());
+        assert_eq!(r.limit_offset(), 0);
+        assert_eq!(r.limit_count(), 0);
+    }
+
+    /// LIMIT and SORTBY configuration round-trips through the accessors.
+    #[test]
+    fn new_with_limit_and_sort_exposes_configuration() {
+        let r = ShardCollectReducer::new(Box::new([]), true, Box::new([]), 0b101, Some((5, 10)));
+        assert!(r.has_wildcard());
+        assert_eq!(r.sort_asc_map(), 0b101);
+        assert!(r.has_limit());
+        assert_eq!(r.limit_offset(), 5);
+        assert_eq!(r.limit_count(), 10);
     }
 }

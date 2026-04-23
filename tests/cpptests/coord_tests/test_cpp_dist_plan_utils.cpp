@@ -76,23 +76,22 @@ TEST(DistPlanUtils, CoordCollectArgs_FieldsOnly) {
   ArgsCursor srcArgs = makeArgs(src, 4);
 
   char countBuf[16];
-  void *objs[10];  // argc + 6
+  void *objs[9];  // argc + 5
   ArgsCursor out;
   buildCoordCollectArgs(&out, objs, countBuf, &srcArgs, "__collect_ab", "my_collect");
 
-  ASSERT_EQ(out.argc, 10u);
+  ASSERT_EQ(out.argc, 9u);
   ASSERT_EQ(out.offset, 0u);
   ASSERT_EQ(out.type, AC_TYPE_CHAR);
-  ASSERT_STREQ((const char *)out.objs[0], "7");       // argc + 3
+  ASSERT_STREQ((const char *)out.objs[0], "6");       // argc + 2
   ASSERT_STREQ((const char *)out.objs[1], "FIELDS");
   ASSERT_STREQ((const char *)out.objs[2], "2");
   ASSERT_STREQ((const char *)out.objs[3], "@a");
   ASSERT_STREQ((const char *)out.objs[4], "@b");
   ASSERT_STREQ((const char *)out.objs[5], "__SOURCE__");
-  ASSERT_STREQ((const char *)out.objs[6], "1");
-  ASSERT_STREQ((const char *)out.objs[7], "__collect_ab");
-  ASSERT_STREQ((const char *)out.objs[8], "AS");
-  ASSERT_STREQ((const char *)out.objs[9], "my_collect");
+  ASSERT_STREQ((const char *)out.objs[6], "__collect_ab");
+  ASSERT_STREQ((const char *)out.objs[7], "AS");
+  ASSERT_STREQ((const char *)out.objs[8], "my_collect");
 }
 
 TEST(DistPlanUtils, CoordCollectArgs_FieldsSortbyLimit) {
@@ -100,12 +99,12 @@ TEST(DistPlanUtils, CoordCollectArgs_FieldsSortbyLimit) {
   ArgsCursor srcArgs = makeArgs(src, 10);
 
   char countBuf[16];
-  void *objs[16];  // argc + 6
+  void *objs[15];  // argc + 5
   ArgsCursor out;
   buildCoordCollectArgs(&out, objs, countBuf, &srcArgs, "shard_alias", "user_alias");
 
-  ASSERT_EQ(out.argc, 16u);
-  ASSERT_STREQ((const char *)out.objs[0], "13");  // argc + 3
+  ASSERT_EQ(out.argc, 15u);
+  ASSERT_STREQ((const char *)out.objs[0], "12");  // argc + 2
 
   // Original args forwarded in order
   for (size_t i = 0; i < 10; i++) {
@@ -113,29 +112,28 @@ TEST(DistPlanUtils, CoordCollectArgs_FieldsSortbyLimit) {
         << "objs[" << i + 1 << "] should point to src_args element " << i;
   }
 
-  // Appended __SOURCE__ block
+  // Appended __SOURCE__ block (no explicit count because __SOURCE__ is
+  // registered as fixed-arity in the reducer parser)
   ASSERT_STREQ((const char *)out.objs[11], "__SOURCE__");
-  ASSERT_STREQ((const char *)out.objs[12], "1");
-  ASSERT_STREQ((const char *)out.objs[13], "shard_alias");
+  ASSERT_STREQ((const char *)out.objs[12], "shard_alias");
 
   // AS + alias outside the counted block
-  ASSERT_STREQ((const char *)out.objs[14], "AS");
-  ASSERT_STREQ((const char *)out.objs[15], "user_alias");
+  ASSERT_STREQ((const char *)out.objs[13], "AS");
+  ASSERT_STREQ((const char *)out.objs[14], "user_alias");
 }
 
 TEST(DistPlanUtils, CoordCollectArgs_EmptyOriginalArgs) {
   ArgsCursor srcArgs = makeArgs(nullptr, 0);
 
   char countBuf[16];
-  void *objs[6];  // argc + 6
+  void *objs[5];  // argc + 5
   ArgsCursor out;
   buildCoordCollectArgs(&out, objs, countBuf, &srcArgs, "sa", "ua");
 
-  ASSERT_EQ(out.argc, 6u);
-  ASSERT_STREQ((const char *)out.objs[0], "3");  // 0 + 3
+  ASSERT_EQ(out.argc, 5u);
+  ASSERT_STREQ((const char *)out.objs[0], "2");  // 0 + 2
   ASSERT_STREQ((const char *)out.objs[1], "__SOURCE__");
-  ASSERT_STREQ((const char *)out.objs[2], "1");
-  ASSERT_STREQ((const char *)out.objs[3], "sa");
-  ASSERT_STREQ((const char *)out.objs[4], "AS");
-  ASSERT_STREQ((const char *)out.objs[5], "ua");
+  ASSERT_STREQ((const char *)out.objs[2], "sa");
+  ASSERT_STREQ((const char *)out.objs[3], "AS");
+  ASSERT_STREQ((const char *)out.objs[4], "ua");
 }

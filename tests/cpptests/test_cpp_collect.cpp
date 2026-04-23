@@ -47,7 +47,7 @@ protected:
   Reducer *parseCollect(std::vector<const char *> &args, QueryError *status) {
     ArgsCursor ac;
     ArgsCursor_InitCString(&ac, args.data(), args.size());
-    ReducerOptions opts = REDUCEROPTS_INIT("COLLECT", &ac, &lk, NULL, status, true);
+    ReducerOptions opts = REDUCEROPTS_INIT("COLLECT", &ac, &lk, NULL, status, true, false);
     return RDCRCollect_New(&opts);
   }
 

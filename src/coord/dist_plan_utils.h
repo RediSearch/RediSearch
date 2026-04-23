@@ -33,13 +33,18 @@ void buildShardCollectArgs(ArgsCursor *out, void **objs_buf, char *count_buf,
 /**
  * Build the ArgsCursor layout for forwarding a COLLECT reducer to the coordinator.
  *
- * Layout: [nargs, original_args..., __SOURCE__, 1, shard_alias, AS, user_alias]
- * where nargs = src_args->argc + 3 (covering original_args + __SOURCE__ + "1" + shard_alias).
+ * Layout: [nargs, original_args..., __SOURCE__, shard_alias, AS, user_alias]
+ * where nargs = src_args->argc + 2 (covering original_args + __SOURCE__ + shard_alias).
+ * The `__SOURCE__` sub-arg is registered with fixed arity (exactly one alias),
+ * so the ArgParser does not expect an explicit count token between the sub-arg
+ * name and its value — matching the wire format used by `LIMIT` (which is also
+ * fixed-arity).
+ *
  * AS + user_alias sit outside the counted block so PLNGroupStep_AddReducer
  * picks them up as the explicit alias.
  *
  * @param out         Populated with the resulting ArgsCursor
- * @param objs_buf    Caller-provided buffer; must hold at least src_args->argc + 6 elements
+ * @param objs_buf    Caller-provided buffer; must hold at least src_args->argc + 5 elements
  * @param count_buf   Caller-provided buffer for the count string; must be at least 16 bytes
  * @param src_args    The original reducer's parsed args (without the leading nargs)
  * @param shard_alias Alias of the shard's COLLECT reducer output column

@@ -356,9 +356,9 @@ static int distributeCollect(ReducerDistCtx *rdctx, QueryError *status) {
   }
 
   // Coord: build args on stack, persist with copyArgs.
-  // Layout: [nargs, original_args..., __SOURCE__, 1, shard_alias, AS, user_alias]
+  // Layout: [nargs, original_args..., __SOURCE__, shard_alias, AS, user_alias]
   char coordCountBuf[16];
-  void *coordObjs[argc + 6];
+  void *coordObjs[argc + 5];
   ArgsCursor coordArgs;
   buildCoordCollectArgs(&coordArgs, coordObjs, coordCountBuf, &src->args, alias, src->alias);
   rdctx->copyArgs(&coordArgs);
