@@ -88,46 +88,7 @@ pub fn compare_on_equality_only(v1: &Value, v2: &Value) -> bool {
 /// [`Ordering::Equal`].
 #[inline]
 pub fn cmp_fields<'a>(
-    pairs: impl IntoIterator<Item = (Option<&'a RsValue>, Option<&'a RsValue>)>,
-    ascend_map: u64,
-    mut qerr: Option<&mut QueryError>,
-) -> Ordering {
-    for (i, (v1, v2)) in pairs.into_iter().enumerate() {
-        let ascending = (ascend_map & (1u64 << i)) != 0;
-
-        match (v1, v2) {
-            // Delegates to `compare_with_query_error` so we inherit its
-            // `(String, String)` fast path and the num-to-string fallback policy
-            // (kept in sync by construction, not by duplication).
-            (Some(a), Some(b)) => match compare_with_query_error(a, b, qerr.as_deref_mut()) {
-                Ordering::Equal => continue,
-                ord => return if ascending { ord.reverse() } else { ord },
-            },
-            // A row missing a value always ranks as "worst" (last in output), regardless of
-            // ASC/DESC direction. Do NOT apply the ascending reversal here.
-            (Some(_), None) => return Ordering::Greater,
-            (None, Some(_)) => return Ordering::Less,
-            (None, None) => continue,
-        }
-    }
-    Ordering::Equal
-}
-
-/// Lexicographically compare two sequences of sort-key values under the classic
-/// sort-by-fields policy.
-///
-/// `pairs` yields the `i`-th sort key as `(v1, v2)` from the two sides being compared.
-/// Bit `i` of `ascend_map` (LSB-first) selects the direction: set = ASC, clear = DESC.
-///
-/// A `None` value always ranks "worst" regardless of direction; both-`None` is treated
-/// as equal and the next pair decides. Per-pair comparison — including the num-to-string
-/// fallback and `qerr` recording — is delegated to [`compare_with_query_error`].
-///
-/// Callers are responsible for any docid tiebreak when this function returns
-/// [`Ordering::Equal`].
-#[inline]
-pub fn cmp_fields<'a>(
-    pairs: impl IntoIterator<Item = (Option<&'a RsValue>, Option<&'a RsValue>)>,
+    pairs: impl IntoIterator<Item = (Option<&'a Value>, Option<&'a Value>)>,
     ascend_map: u64,
     mut qerr: Option<&mut QueryError>,
 ) -> Ordering {

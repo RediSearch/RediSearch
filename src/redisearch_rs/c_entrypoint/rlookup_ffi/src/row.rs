@@ -18,7 +18,10 @@ use std::{
     slice,
 };
 use value::comparison::cmp_fields;
-use value::{RsValue, SharedRsValue};
+use value_ffi::{
+    RSValue,
+    util::{as_rs_value, as_shared_value, into_shared_value},
+};
 
 const SORTASCMAP_MAXFIELDS: usize = 8;
 
