@@ -15,5 +15,7 @@
 
 pub mod hash;
 mod parse;
+mod ranges;
 
 pub use parse::{ParseGeoError, parse_geo};
+pub use ranges::{GEO_RANGE_COUNT, GeoScoreRange, calc_ranges};

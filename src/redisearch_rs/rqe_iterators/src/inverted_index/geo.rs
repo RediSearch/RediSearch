@@ -9,11 +9,9 @@
 
 use std::ptr::NonNull;
 
-use ffi::{
-    GEO_LAT_MAX, GEO_LAT_MIN, GEO_LONG_MAX, GEO_LONG_MIN, GEO_RANGE_COUNT, GeoDistance, GeoFilter,
-    GeoHashRange, calcRanges,
-};
+use ffi::{GEO_LAT_MAX, GEO_LAT_MIN, GEO_LONG_MAX, GEO_LONG_MIN, GeoDistance, GeoFilter};
 use field::FieldFilterContext;
+use geo::GEO_RANGE_COUNT;
 use inverted_index::NumericFilter;
 
 use crate::{NumericIteratorVariant, open_numeric_or_geo_index};
@@ -68,14 +66,12 @@ pub unsafe fn build_geo_numeric_filters<'index>(
     }
 
     let radius_meters = gf.radius * extract_geo_unit_factor(gf.unitType);
-    let mut ranges = [GeoHashRange { min: 0.0, max: 0.0 }; GEO_RANGE_COUNT as usize];
-    // SAFETY: ranges is a stack array of exactly GEO_RANGE_COUNT elements.
-    unsafe { calcRanges(gf.lon, gf.lat, radius_meters, ranges.as_mut_ptr()) };
+    let ranges = geo::calc_ranges(gf.lon, gf.lat, radius_meters);
 
     // Allocate the numericFilters array and hand ownership to *gf so that
     // GeoFilter_Free → NumericFilter_Free → rm_free can clean up each entry.
     let numeric_filters = Box::into_raw(Box::new(
-        [std::ptr::null_mut::<NumericFilter>(); GEO_RANGE_COUNT as usize],
+        [std::ptr::null_mut::<NumericFilter>(); GEO_RANGE_COUNT],
     ));
     // SAFETY: 2. guarantees gf.numericFilters is NULL and writable.
     gf.numericFilters = numeric_filters.cast();
