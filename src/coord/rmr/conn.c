@@ -167,7 +167,7 @@ static void MRConnPool_Free(void *privdata, void *p) {
 
 /* Get a connection from the connection pool. We select the next available connected connection with
  * a round robin selector */
-static MRConn *MRConnPool_Get(MRConnPool *pool) {
+static MRConn *MRConnPool_GetConn(MRConnPool *pool) {
 
   for (size_t i = 0; i < pool->num; i++) {
 
@@ -266,7 +266,7 @@ MRConn *MRConn_Get(MRConnManager *mgr, const char *id) {
   dictEntry *ptr = dictFind(mgr->map, id);
   if (ptr) {
     MRConnPool *pool = dictGetVal(ptr);
-    return MRConnPool_Get(pool);
+    return MRConnPool_GetConn(pool);
   }
   return NULL;
 }
@@ -392,6 +392,7 @@ void MRConnManager_Expand(MRConnManager *m, size_t num, uv_loop_t *loop) {
 static void reconnectTimerCallback(uv_timer_t *tm) {
   MRConn *conn = tm->data;
   RS_ASSERT(conn->state == MRConn_Connecting);
+  CONN_LOG(conn, "Reconnect attempt");
   if (MRConn_Connect(conn) == REDIS_ERR) {
     // MRConn_Connect's failure paths leave conn->conn == NULL, so no
     // detach is needed here.
@@ -766,6 +767,7 @@ static MRConn *MR_NewConn(MREndpoint *ep, uv_loop_t *loop) {
   uv_timer_init(loop, &conn->timer);
   conn->timer.data = conn;
   MREndpoint_Copy(&conn->ep, ep);
+  CONN_LOG(conn, "Initial connection attempt");
   if (MRConn_Connect(conn) == REDIS_ERR) {
     MRConn_SwitchState(conn, MRConn_Connecting);
   }
