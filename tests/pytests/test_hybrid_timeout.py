@@ -284,12 +284,7 @@ def test_tail_property_not_loaded_error_standalone():
 
 @skip(cluster=False)
 def test_debug_profile_hybrid_uses_normal_callback():
-    """Regression: _FT.DEBUG FT.PROFILE HYBRID must not route through
-    DEBUG_RSExecDistHybrid in multi-shard mode.  Before the fix,
-    DistHybridCommandInternal received isDebug=true from the profile
-    path, selecting the debug callback which tried to parse hybrid-
-    specific debug params (TIMEOUT_AFTER_N_SEARCH, etc.) from argv
-    that contained none — causing a parse failure."""
+    """Test FT.DEBUG FT.PROFILE is handled correctly."""
     env = Env(enableDebugCommand=True)
     setup_basic_index(env)
     res = env.cmd(
@@ -304,7 +299,7 @@ def test_debug_profile_hybrid_uses_normal_callback():
 @skip(cluster=False)
 def test_tail_property_not_loaded_warning_coordinator():
     """Test warning when tail pipeline references property not loaded (coordinator mode)
-    
+
     Related: test_tail_property_not_loaded_error_standalone
     In coordinator mode, tail pipeline errors become warnings (protocol limitation).
     The error code also differs: VALUE_NOT_FOUND (coord) vs PROP_NOT_FOUND (standalone).
