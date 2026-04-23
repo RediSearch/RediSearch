@@ -427,7 +427,7 @@ static int JSON_StoreVectorAt(RedisJSON arr, size_t len, VecSimType target_type,
   JSONArrayType jtype = JSONArrayType_Heterogeneous;
   const void *buf = japi->getArray(arr, &buf_len, &jtype);
   RS_ASSERT(buf_len == len);
-  if (buf && jtype != JSONArrayType_Heterogeneous) {
+  if (buf && JSON_ArrayTypeIsNumeric(jtype)) {
     if (!VecSim_AcceptsJSONArrayType(target_type, jtype)) {
       QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_GENERIC, "Invalid vector element at index 0");
       return REDISMODULE_ERR;
@@ -436,7 +436,8 @@ static int JSON_StoreVectorAt(RedisJSON arr, size_t len, VecSimType target_type,
     return REDISMODULE_OK;
   }
 
-  // Heterogeneous fallback: per-element conversion via RedisJSON scalar accessors.
+  // Fallback: per-element conversion via RedisJSON scalar accessors. Covers
+  // heterogeneous arrays and any future unknown JSONArrayType tag.
   getJSONElementFunc getElement = VecSimGetJSONCallback(target_type);
   unsigned char step = VecSimType_sizeof(target_type);
   RedisJSONPtr element = japi->allocJson();
