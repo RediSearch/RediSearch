@@ -127,13 +127,16 @@ typedef struct {
 
   // Whether to enforce strict parsing of arguments
   bool strictPrefix;
+
+  // Whether this reducer runs on the coordinator (set via PLN_Reducer.isCoordinator)
+  bool is_coordinator;
 } ReducerOptions;
 
 /**
  * Macro to ensure that we don't skip important initialization steps
  */
-#define REDUCEROPTS_INIT(name_, args_, lk_, lkl_, statusp_, strict_) \
-  { name_, args_, lk_, lkl_, statusp_, strict_ }
+#define REDUCEROPTS_INIT(name_, args_, lk_, lkl_, statusp_, strict_, is_coordinator_) \
+  { name_, args_, lk_, lkl_, statusp_, strict_, is_coordinator_ }
 
 /**
  * Utility function to read the next argument as a lookup key.

@@ -12,8 +12,8 @@
 #include "pipeline/pipeline_construction.h"
 #include "aggregate/reducer.h"
 #include "util/arr.h"
-#include "util/stringify.h"
 #include "dist_plan.h"
+#include "dist_plan_utils.h"
 
 #include <vector>
 #include <string>
@@ -62,6 +62,7 @@ struct ReducerDistCtx {
     if (PLNGroupStep_AddReducer(gstp, name, cargs, status) != REDISMODULE_OK) {
       return false;
     }
+    array_tail(gstp->reducers).isCoordinator = (gstp == localGroup);
     if (alias) {
       *alias = getLastAlias(gstp);
     }
@@ -241,7 +242,9 @@ static int distributeSingleArgSelf(ReducerDistCtx *rdctx, QueryError *status) {
 
 #define RANDOM_SAMPLE_SIZE 500
 
-#define RANDOM_SAMPLE_SIZE_STR STRINGIFY(RANDOM_SAMPLE_SIZE)
+#define STRINGIFY_(a) STRINGIFY__(a)
+#define STRINGIFY__(a) #a
+#define RANDOM_SAMPLE_SIZE_STR STRINGIFY_(RANDOM_SAMPLE_SIZE)
 
 /* Distribute QUANTILE into remote RANDOM_SAMPLE and local QUANTILE */
 static int distributeQuantile(ReducerDistCtx *rdctx, QueryError *status) {
@@ -332,6 +335,41 @@ static int distributeAvg(ReducerDistCtx *rdctx, QueryError *status) {
   return REDISMODULE_OK;
 }
 
+/* Distribute COLLECT: shard runs the original COLLECT, coord runs COLLECT on
+ * the shard's alias (a single column containing the array-of-maps output).
+ * The coord COLLECT's Add/Finalize will need adjustment to properly unpack and
+ * re-aggregate the shard results. */
+static int distributeCollect(ReducerDistCtx *rdctx, QueryError *status) {
+  PLN_Reducer *src = rdctx->srcReducer;
+  size_t argc = src->args.argc;
+
+  // Shard: build args on stack, persist with copyArgs
+  char shardCountBuf[16];
+  void *shardObjs[argc + 1];
+  ArgsCursor shardArgs;
+  buildShardCollectArgs(&shardArgs, shardObjs, shardCountBuf, &src->args);
+  rdctx->copyArgs(&shardArgs);
+
+  const char *alias;
+  if (!rdctx->add(rdctx->remoteGroup, "COLLECT", &alias, status, &shardArgs)) {
+    return REDISMODULE_ERR;
+  }
+
+  // Coord: build args on stack, persist with copyArgs.
+  // Layout: [nargs, original_args..., __SOURCE__, 1, shard_alias, AS, user_alias]
+  char coordCountBuf[16];
+  void *coordObjs[argc + 6];
+  ArgsCursor coordArgs;
+  buildCoordCollectArgs(&coordArgs, coordObjs, coordCountBuf, &src->args, alias, src->alias);
+  rdctx->copyArgs(&coordArgs);
+
+  if (!rdctx->add(rdctx->localGroup, "COLLECT", NULL, status, &coordArgs)) {
+    return REDISMODULE_ERR;
+  }
+
+  return REDISMODULE_OK;
+}
+
 // Registry of available distribution functions
 static struct {
   const char *key;
@@ -346,6 +384,7 @@ static struct {
     {"STDDEV", distributeStdDev},
     {"COUNT_DISTINCTISH", distributeCountDistinctish},
     {"QUANTILE", distributeQuantile},
+    {"COLLECT", distributeCollect},
 
     {NULL, NULL}  // sentinel value
 

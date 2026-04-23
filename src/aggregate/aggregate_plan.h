@@ -133,6 +133,7 @@ typedef struct {
     const char *name;  // Name of function
     char *alias;       // Output key
     bool isHidden;     // If the output key is hidden. Used by the coordinator
+    bool isCoordinator;  // Whether this reducer runs on the coordinator
     ArgsCursor args;
   } * reducers;
   int idx;
