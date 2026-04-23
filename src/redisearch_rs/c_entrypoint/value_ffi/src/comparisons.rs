@@ -9,9 +9,10 @@
 
 use crate::util::expect_value;
 use query_error::QueryError;
+use std::cmp::Ordering;
 use std::ffi::c_int;
 use value::RsValue;
-use value::comparison::{compare_on_equality_only, compare_with_query_error_to_int};
+use value::comparison::{compare_on_equality_only, compare_with_query_error};
 
 /// Compare two [`RsValue`]s, returning `-1` if `v1 < v2`, `0` if `v1 == v2`,
 /// or `1` if `v1 > v2`.
@@ -40,7 +41,11 @@ pub unsafe extern "C" fn RSValue_Cmp(
     // SAFETY: ensured by caller (2.)
     let qerr = unsafe { status.as_mut() };
 
-    compare_with_query_error_to_int(v1, v2, qerr)
+    match compare_with_query_error(v1, v2, qerr) {
+        Ordering::Less => -1,
+        Ordering::Equal => 0,
+        Ordering::Greater => 1,
+    }
 }
 
 /// Check whether two [`RsValue`]s are equal, returning `true` if they are and
