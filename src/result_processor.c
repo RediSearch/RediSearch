@@ -2230,7 +2230,14 @@ static int RPHybridMerger_Yield(ResultProcessor *rp, SearchResult *r) {
       if (consumed[i]) {
         continue;
       }
+      // Track whether partial results were consumed even if the upstream
+      // ultimately returns DEPLETING, so we don't sleep unnecessarily.
+      size_t consumedBefore = self->upstreamConsumed[i];
       int rc = hybridMergerConsumeFromUpstream(self, window, i);
+
+      if (self->upstreamConsumed[i] > consumedBefore) {
+        madeProgress = true;
+      }
 
       if (rc == RS_RESULT_DEPLETING) {
         // Upstream is still active but not ready to provide results. Skip to the next.
@@ -2244,7 +2251,6 @@ static int RPHybridMerger_Yield(ResultProcessor *rp, SearchResult *r) {
       // assuming other threads would timeout as well within a reasobale delta of docs (See TimedOut_WithCounter)
       consumed[i] = true;
       numConsumed++;
-      madeProgress = true;
     }
     if (!madeProgress) {
       // All remaining upstreams returned DEPLETING (no data available yet).
