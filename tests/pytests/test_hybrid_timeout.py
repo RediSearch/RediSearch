@@ -51,6 +51,99 @@ def test_hybrid_debug_with_no_index_error():
         'TIMEOUT_AFTER_N_SEARCH', '1', 'DEBUG_PARAMS_COUNT', '2').error()\
         .contains('SEARCH_INDEX_NOT_FOUND Index not found: nonexistent_idx')
 
+
+# ---------------------------------------------------------------------------
+# Parameter validation tests for FT.HYBRID debug commands
+# ---------------------------------------------------------------------------
+
+def _base_hybrid_debug_cmd(idx='idx'):
+    """Build the common prefix for a hybrid debug command."""
+    return ['_FT.DEBUG', 'FT.HYBRID', idx, 'SEARCH', '*',
+            'VSIM', '@embedding', '$BLOB', 'PARAMS', '2', 'BLOB', query_vector]
+
+def test_hybrid_debug_wrong_arity():
+    """Test wrong arity for both the distributed and shard-level debug wrappers."""
+    env = Env(enableDebugCommand=True)
+    setup_basic_index(env)
+    # Too few arguments (need at least 9 for _FT.DEBUG FT.HYBRID)
+    env.expect('_FT.DEBUG', 'FT.HYBRID', 'idx', 'SEARCH', '*', 'VSIM', '@embedding') \
+        .error().contains('wrong number of arguments')
+
+def test_hybrid_debug_missing_debug_params_count():
+    """Test error when DEBUG_PARAMS_COUNT is not provided."""
+    env = Env(enableDebugCommand=True)
+    setup_basic_index(env)
+    # Valid hybrid command but no DEBUG_PARAMS_COUNT at the end
+    env.expect(*_base_hybrid_debug_cmd(),
+               'TIMEOUT_AFTER_N_SEARCH', '1') \
+        .error().contains('DEBUG_PARAMS_COUNT')
+
+def test_hybrid_debug_invalid_debug_params_count():
+    """Test error when DEBUG_PARAMS_COUNT has an invalid value."""
+    env = Env(enableDebugCommand=True)
+    setup_basic_index(env)
+    for invalid_count in ['meow', '-1', '0.5']:
+        env.expect(*_base_hybrid_debug_cmd(),
+                   'TIMEOUT_AFTER_N_SEARCH', '1',
+                   'DEBUG_PARAMS_COUNT', invalid_count) \
+            .error().contains('Invalid DEBUG_PARAMS_COUNT count')
+
+def test_hybrid_debug_unrecognized_argument():
+    """Test error when an unrecognized debug argument is provided."""
+    env = Env(enableDebugCommand=True)
+    setup_basic_index(env)
+    env.expect(*_base_hybrid_debug_cmd(),
+               'TIMEOUT_AFTER_N_MEOW', '1',
+               'DEBUG_PARAMS_COUNT', '2') \
+        .error().contains('Unrecognized argument')
+
+@skip(cluster=True)
+def test_hybrid_debug_no_component_timeout_sa():
+    """Test error when no component timeout parameter is specified (SA).
+
+    In SA mode, HybridRequest_Debug_New short-circuits on debug_params_count==0
+    before parseHybridDebugParams can validate. The reply is an error but
+    without the specific "At least one component timeout parameter" message.
+    """
+    env = Env(enableDebugCommand=True)
+    setup_basic_index(env)
+    env.expect(*_base_hybrid_debug_cmd(), 'DEBUG_PARAMS_COUNT', '0').error()
+
+@skip(cluster=False)
+def test_hybrid_debug_no_component_timeout_cluster():
+    """Test error when no component timeout parameter is specified (cluster).
+
+    In cluster mode, RSShardedHybridCommand_Debug calls parseHybridDebugParams
+    which validates that at least one component timeout is present.
+    """
+    env = Env(enableDebugCommand=True)
+    setup_basic_index(env)
+    env.expect(*_base_hybrid_debug_cmd(),
+               'DEBUG_PARAMS_COUNT', '0') \
+        .error().contains('At least one component timeout parameter')
+
+def test_hybrid_debug_invalid_timeout_values():
+    """Test error when timeout count values are invalid."""
+    env = Env(enableDebugCommand=True)
+    setup_basic_index(env)
+    for param in ['TIMEOUT_AFTER_N_SEARCH', 'TIMEOUT_AFTER_N_VSIM', 'TIMEOUT_AFTER_N_TAIL']:
+        for bad_val in ['meow', '-1', '0.5']:
+            env.expect(*_base_hybrid_debug_cmd(),
+                       param, bad_val,
+                       'DEBUG_PARAMS_COUNT', '2') \
+                .error().contains(f'Invalid {param} count')
+
+def test_hybrid_debug_missing_timeout_value():
+    """Test error when timeout parameter is provided without a value."""
+    env = Env(enableDebugCommand=True)
+    setup_basic_index(env)
+    # TIMEOUT_AFTER_N_SEARCH without its numeric argument;
+    # DEBUG_PARAMS_COUNT 1 means only 1 token is parsed as debug args.
+    env.expect(*_base_hybrid_debug_cmd(),
+               'TIMEOUT_AFTER_N_SEARCH',
+               'DEBUG_PARAMS_COUNT', '1') \
+        .error().contains('TIMEOUT_AFTER_N_SEARCH')
+
 # Debug timeout tests using TIMEOUT_AFTER_N_* parameters
 def test_debug_timeout_fail_search():
     """Test FAIL policy with search timeout using debug parameters"""
