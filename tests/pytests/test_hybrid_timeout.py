@@ -283,6 +283,25 @@ def test_tail_property_not_loaded_error_standalone():
               'AS', 'doubled_score').error().contains('__score')
 
 @skip(cluster=False)
+def test_debug_profile_hybrid_uses_normal_callback():
+    """Regression: _FT.DEBUG FT.PROFILE HYBRID must not route through
+    DEBUG_RSExecDistHybrid in multi-shard mode.  Before the fix,
+    DistHybridCommandInternal received isDebug=true from the profile
+    path, selecting the debug callback which tried to parse hybrid-
+    specific debug params (TIMEOUT_AFTER_N_SEARCH, etc.) from argv
+    that contained none — causing a parse failure."""
+    env = Env(enableDebugCommand=True)
+    setup_basic_index(env)
+    res = env.cmd(
+        '_FT.DEBUG', 'FT.PROFILE', 'idx', 'HYBRID', 'QUERY',
+        'SEARCH', '*',
+        'VSIM', '@embedding', '$BLOB',
+        'PARAMS', '2', 'BLOB', query_vector)
+    # Basic sanity: we got results and profile info without an error.
+    env.assertIsNotNone(res)
+    env.assertGreater(len(res), 0)
+
+@skip(cluster=False)
 def test_tail_property_not_loaded_warning_coordinator():
     """Test warning when tail pipeline references property not loaded (coordinator mode)
     

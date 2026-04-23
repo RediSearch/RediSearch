@@ -2767,14 +2767,16 @@ rs_wall_clock_ns_t RPDepleter_GetDepletionTime(const ResultProcessor *base) {
 }
 
 int RPDepleter_DepleteAll(arrayof(ResultProcessor*) depleters) {
-  int worst_rc = RS_RESULT_OK;
+  bool anyTimedOut = false;
   for (size_t i = 0; i < array_len(depleters); i++) {
     RS_ASSERT(depleters[i]->type == RP_DEPLETER);
     RPDepleter_StartDepletion(depleters[i]);
     const RPDepleter *depleter = (const RPDepleter *)depleters[i];
-    if (depleter->last_rc != RS_RESULT_EOF && worst_rc == RS_RESULT_OK) {
-      worst_rc = depleter->last_rc;
+    if (depleter->last_rc == RS_RESULT_ERROR) {
+      return RS_RESULT_ERROR;
+    } else if (depleter->last_rc == RS_RESULT_TIMEDOUT) {
+      anyTimedOut = true;
     }
   }
-  return worst_rc;
+  return anyTimedOut ? RS_RESULT_TIMEDOUT : RS_RESULT_OK;
 }

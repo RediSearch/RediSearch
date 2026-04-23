@@ -4503,12 +4503,19 @@ int ProfileCommandHandlerImp(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     return RSProfileCommandImp(ctx, argv, argc, isDebug);
   }
 
+  // Never pass isDebug to the Dist* functions from the profile path.
+  // The Dist* functions interpret isDebug as "argv contains command-specific debug params
+  // and a debug callback should be used", but profile commands carry profile-level debug
+  // params (TIMEOUT_AFTER_N, INTERNAL_ONLY) — not command-specific ones
+  // (e.g. TIMEOUT_AFTER_N_SEARCH for hybrid). Passing isDebug=true here would select the
+  // wrong callback (e.g. DEBUG_RSExecDistHybrid), which would fail to parse the profile
+  // debug params.
   if (RMUtil_ArgExists("SEARCH", argv, 3, 2)) {
-    return DistSearchCommandImp(ctx, argv, argc, isDebug);
+    return DistSearchCommandImp(ctx, argv, argc, false);
   } else if (RMUtil_ArgExists("AGGREGATE", argv, 3, 2)) {
-    return DistAggregateCommandImp(ctx, argv, argc, isDebug);
+    return DistAggregateCommandImp(ctx, argv, argc, false);
   } else if (RMUtil_ArgExists("HYBRID", argv, 3, 2)) {
-    return DistHybridCommandInternal(ctx, argv, argc, isDebug);
+    return DistHybridCommandInternal(ctx, argv, argc, false);
   }
   return RedisModule_ReplyWithError(ctx, "No `SEARCH`, `AGGREGATE`, or `HYBRID` provided");
 }
