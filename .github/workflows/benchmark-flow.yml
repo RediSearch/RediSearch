@@ -124,6 +124,10 @@ jobs:
         if: steps.benchmark-filter.outputs.skip != 'true'
         env:
           REJSON_BRANCH: ${{ inputs.rejson_branch }}
+          # setup_rejson.sh defaults BINROOT to bin/linux-x64-release regardless
+          # of the host arch; on aarch64 runners we must redirect it to the
+          # matching linux-aarch64-release tree so rejson_module_path resolves.
+          BINROOT: ${{ format('{0}/bin/linux-{1}-release', github.workspace, inputs.arch == 'aarch64' && 'aarch64' || 'x64') }}
         run: ./tests/deps/setup_rejson.sh
 
       - name: Run CI benchmarks on aws for envs ${{ inputs.allowed_envs }}
