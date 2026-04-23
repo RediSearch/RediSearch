@@ -311,6 +311,132 @@ fn child_at_accesses_trimmed_children() {
     assert_eq!(union.child_at(4).unwrap().num_estimated(), 1);
 }
 
+// =============================================================================
+// num_children_active
+// =============================================================================
+
+/// `num_children_active` tracks the remaining active window across reads.
+///
+/// The cursor moves to the next child only when the current child is
+/// exhausted, so `num_children_active` decreases one step behind: reading
+/// the last doc from a child doesn't move the cursor until the *next*
+/// read discovers EOF on that child.
+#[test]
+#[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
+fn num_children_active_shrinks_as_children_exhaust() {
+    // 4 children with 2 docs each, asc trim with large limit → active window [0..4).
+    let children = make_children(&[&[1, 2], &[3, 4], &[5, 6], &[7, 8]]);
+    let mut union = UnionTrimmed::new(children, usize::MAX, true);
+
+    assert_eq!(union.num_children_total(), 4);
+    assert_eq!(union.num_children_active(), 4, "all active before reads");
+
+    // Read first doc of child[3] — cursor still at 3.
+    union.read().unwrap().unwrap();
+    assert_eq!(union.num_children_active(), 4);
+
+    // Read second doc of child[3] — child[3] not yet detected as exhausted.
+    union.read().unwrap().unwrap();
+    assert_eq!(union.num_children_active(), 4);
+
+    // Next read: child[3] returns None → cursor moves to 2, reads child[2].
+    union.read().unwrap().unwrap();
+    assert_eq!(union.num_children_active(), 3);
+
+    // Read second doc of child[2].
+    union.read().unwrap().unwrap();
+    assert_eq!(union.num_children_active(), 3);
+
+    // child[2] exhausted → cursor moves to 1.
+    union.read().unwrap().unwrap();
+    assert_eq!(union.num_children_active(), 2);
+
+    // Read second doc of child[1].
+    union.read().unwrap().unwrap();
+    assert_eq!(union.num_children_active(), 2);
+
+    // child[1] exhausted → cursor moves to 0.
+    union.read().unwrap().unwrap();
+    assert_eq!(union.num_children_active(), 1);
+
+    // Read second doc of child[0].
+    union.read().unwrap().unwrap();
+    assert_eq!(union.num_children_active(), 1);
+
+    // child[0] exhausted → EOF.
+    assert!(union.read().unwrap().is_none());
+    assert_eq!(union.num_children_active(), 0, "none active at EOF");
+
+    // Rewind restores full active window.
+    union.rewind();
+    assert_eq!(union.num_children_active(), 4, "all active after rewind");
+}
+
+/// When trimming reduces the active window, `num_children_active` reflects
+/// only the kept children, not the total.
+#[test]
+fn num_children_active_respects_trim() {
+    // 5 children each with est=1. Asc trim with limit=1:
+    // scan from child[1]: child[1].est=1 → total=1 ≤ 1, child[2].est=1 → total=2 > 1 → keep=3.
+    let children = make_children(&[&[1], &[2], &[3], &[4], &[5]]);
+    let union = UnionTrimmed::new(children, 1, true);
+
+    assert_eq!(union.num_children_total(), 5);
+    assert_eq!(union.num_children_active(), 3);
+}
+
+// =============================================================================
+// intersection_sort_weight
+// =============================================================================
+
+/// When `prioritize_union_children` is false, weight is always 1.0.
+#[test]
+fn intersection_sort_weight_without_priority() {
+    let children = make_children(&[&[1], &[2], &[3], &[4]]);
+    let union = UnionTrimmed::new(children, usize::MAX, true);
+    assert_eq!(union.intersection_sort_weight(false), 1.0);
+}
+
+/// When `prioritize_union_children` is true, weight equals the active window
+/// size (not the total number of children).
+#[test]
+fn intersection_sort_weight_with_priority() {
+    // 5 children, trim keeps 3 → weight should be 3.0.
+    let children = make_children(&[&[1], &[2], &[3], &[4], &[5]]);
+    let union = UnionTrimmed::new(children, 1, true);
+    assert_eq!(union.num_children_active(), 3);
+    assert_eq!(union.intersection_sort_weight(true), 3.0);
+}
+
+/// Weight shrinks as children exhaust during reads.
+#[test]
+#[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
+fn intersection_sort_weight_decreases_after_reads() {
+    let children = make_children(&[&[1, 2], &[3, 4], &[5, 6]]);
+    let mut union = UnionTrimmed::new(children, usize::MAX, true);
+    assert_eq!(union.intersection_sort_weight(true), 3.0);
+
+    // Drain child[2] (2 docs) then child[1] starts.
+    union.read().unwrap(); // child[2] doc 5
+    union.read().unwrap(); // child[2] doc 6
+    union.read().unwrap(); // child[2] EOF → cursor moves to 1, reads child[1] doc 3
+    assert_eq!(union.intersection_sort_weight(true), 2.0);
+}
+
+/// At EOF, weight is 1.0.
+#[test]
+#[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
+fn intersection_sort_weight_at_eof() {
+    let children = make_children(&[&[1], &[2], &[3]]);
+    let mut union = UnionTrimmed::new(children, usize::MAX, true);
+    drain_doc_ids(&mut union);
+    assert_eq!(union.intersection_sort_weight(true), 1.0);
+}
+
+// =============================================================================
+// into_trimmed
+// =============================================================================
+
 /// `into_trimmed` re-trims with new parameters, preserving all children
 /// including those previously trimmed away.
 #[test]

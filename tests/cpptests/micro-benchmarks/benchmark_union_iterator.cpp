@@ -15,7 +15,7 @@
 #include <vector>
 
 #include "iterators/iterator_api.h"
-#include "iterators/union_iterator.h"
+#include "iterators_rs.h"
 
 template <bool quickExit>
 class BM_UnionIterator : public benchmark::Fixture {
