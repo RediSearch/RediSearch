@@ -229,9 +229,9 @@ typedef struct {
 #define IsInternal(r) ((r)->reqflags & QEXEC_F_INTERNAL)
 #define IsDebug(r) ((r)->reqflags & QEXEC_F_DEBUG)
 
-// Indicates whether a query should run in the background. This
-// will also guarantee that there is a running thread pool with al least 1 thread.
-#define RunInThread() (RSGlobalConfig.numWorkerThreads)
+// Indicates whether a query should run in the background.
+// Requires context to check if the client can be blocked.
+bool RunInThread(RedisModuleCtx *ctx);
 
 typedef void (*profiler_func)(RedisModule_Reply *reply, void *ctx);
 
@@ -395,7 +395,7 @@ AREQ *AREQ_New(void);
  * Redis-specific states and may be unit-tested. This largely just
  * compiles the options and parses the commands..
  */
-int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, bool isDiskIndex, QueryError *status);
+int AREQ_Compile(AREQ *req, RedisModuleCtx *ctx, RedisModuleString **argv, int argc, bool isDiskIndex, QueryError *status);
 
 /**
  * Parse aggregate plan arguments (GROUPBY, APPLY, LOAD, FILTER) from an ArgsCursor.

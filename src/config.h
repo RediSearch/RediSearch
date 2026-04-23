@@ -216,6 +216,8 @@ typedef struct {
   bool monitorExpiration;
   // Percentage of available memory to use for disk write buffer (0-100).
   uint8_t diskBufferPercentage;
+  // If true, fallback to main thread when BlockClient is unavailable.
+  bool fallbackToMainThreadWhenBlockClientUnavailable;
 } RSConfig;
 
 typedef enum {
@@ -408,6 +410,7 @@ char *getRedisConfigValue(RedisModuleCtx *ctx, const char* confName);
     .simulateInFlex = false,                                                   \
     .monitorExpiration = true,                                                 \
     .diskBufferPercentage = DEFAULT_DISK_BUFFER_PERCENTAGE,                    \
+    .fallbackToMainThreadWhenBlockClientUnavailable = true,                    \
   }
 
 #define REDIS_ARRAY_LIMIT 7
