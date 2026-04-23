@@ -14,6 +14,9 @@ on:
         description: "Indicates if tests were modified"
         value: ${{ jobs.change-checks.outputs.TESTS_CHANGED }}
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   change-checks:
     runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
@@ -24,7 +27,7 @@ jobs:
       TESTS_CHANGED: ${{ steps.check-tests.outputs.any_modified == 'true' || steps.check-workflows.outputs.any_modified == 'true' }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0 # required for changed-files action to work
 

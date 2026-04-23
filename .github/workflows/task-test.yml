@@ -52,6 +52,7 @@ on:
         description: "If true, the workflow will terminate as soon as one test step fails."
 
 env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   REJSON: ${{ inputs.rejson && 1 || 0 }} # convert the boolean input to numeric
   VERBOSE_UTESTS: 1
   COV: ${{ inputs.coverage && 1 || 0 }} # convert the boolean input to numeric
@@ -235,7 +236,7 @@ jobs:
           ${{ needs.get-config.outputs.install_mode }} rm -rf /opt/hostedtoolcache/CodeQL || true
           df -h
       - name: Full checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           submodules: recursive
       - name: Print CPU information

@@ -34,6 +34,9 @@ on:
         description: "Whether there are any jobs to run"
         value: ${{ jobs.generate.outputs.has-jobs }}
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   generate:
     runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}

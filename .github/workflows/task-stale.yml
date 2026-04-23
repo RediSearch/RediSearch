@@ -5,6 +5,9 @@ on:
   schedule:
     - cron: '30 1 * * *'
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   stale:
     runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}

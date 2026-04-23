@@ -6,6 +6,9 @@ on:
   issues:
     types: [opened, reopened]
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   Assign:
     if: ${{ !contains(github.event.issue.labels.*.name, 'feature') }}

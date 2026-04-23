@@ -8,6 +8,9 @@ on:
       assignee:
         description: 'Assignee to take the shift. Default (when empty) is the actor of the event (you).'
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   take:
     runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}

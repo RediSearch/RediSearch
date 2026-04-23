@@ -19,6 +19,9 @@ on:
           description: 'Run only on specific architecture'
           default: 'all'
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   prepare_runner_configurations:
     runs-on: ubuntu-latest
@@ -84,7 +87,7 @@ jobs:
       PERFORMANCE_WH_TOKEN: ${{ secrets.PERFORMANCE_WH_TOKEN }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
       - name: Install benchmark dependencies
         run: |
           # Then install Python dependencies

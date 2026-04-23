@@ -10,6 +10,9 @@ on:
 permissions:
   contents: write # so it can comment
   pull-requests: write # so it can create pull requests
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   backport:
     name: Backport pull request
@@ -38,7 +41,7 @@ jobs:
           private-key: ${{ secrets.GH_PR_APP_PRIVATE_KEY }}
           owner: RediSearch
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           token: ${{ steps.generate-app-token.outputs.token }}
       - name: Create backport pull requests

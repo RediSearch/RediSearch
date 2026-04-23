@@ -43,6 +43,9 @@ on:
         description: "Whether LTO is enabled for this platform (0 or 1)"
         value: ${{ jobs.get-config.outputs.enable_lto }}
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   get-config:
     runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}

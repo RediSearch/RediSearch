@@ -2,6 +2,9 @@ name: labeler
 
 on: [pull_request]
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
     labeler:
       permissions:
@@ -29,4 +32,3 @@ jobs:
             github_api_url: 'https://api.github.com'
             files_to_ignore: '*.md .gitignore'
             GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
