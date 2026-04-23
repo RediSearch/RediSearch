@@ -1870,6 +1870,7 @@ dependencies = [
  "query_term_ffi",
  "quote 1.0.44",
  "redis-module",
+ "reducers_ffi",
  "result_processor_ffi",
  "rlookup_ffi",
  "search_result_ffi",
@@ -1882,6 +1883,32 @@ dependencies = [
  "value_ffi",
  "varint_ffi",
  "walkdir",
+ "workspace_hack",
+]
+
+[[package]]
+name = "reducers"
+version = "0.0.1"
+dependencies = [
+ "bumpalo",
+ "ffi",
+ "query_error",
+ "rlookup",
+ "value",
+ "workspace_hack",
+]
+
+[[package]]
+name = "reducers_ffi"
+version = "0.0.1"
+dependencies = [
+ "build_utils",
+ "cbindgen",
+ "ffi",
+ "query_error",
+ "reducers",
+ "rlookup",
+ "value",
  "workspace_hack",
 ]
 
@@ -2009,6 +2036,7 @@ dependencies = [
  "search_result",
  "sorting_vector",
  "value",
+ "value_ffi",
  "workspace_hack",
 ]
 
@@ -2075,6 +2103,7 @@ dependencies = [
  "trie_rs",
  "types_ffi",
  "value",
+ "value_ffi",
  "varint_ffi",
  "workspace_hack",
 ]
@@ -2215,9 +2244,9 @@ dependencies = [
 
 [[package]]
 name = "rustls-webpki"
-version = "0.103.12"
+version = "0.103.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8279bb85272c9f10811ae6a6c547ff594d6a7f3c6c6b02ee9726d1d0dcfcdd06"
+checksum = "61c429a8649f110dddef65e2a5ad240f747e85f7758a6bccc7e5777bd33f756e"
 dependencies = [
  "ring",
  "rustls-pki-types",
@@ -2433,6 +2462,7 @@ dependencies = [
  "sorting_vector",
  "thin_vec",
  "value",
+ "value_ffi",
  "workspace_hack",
 ]
 
@@ -2902,6 +2932,7 @@ dependencies = [
  "redis_mock",
  "redisearch_rs",
  "thiserror",
+ "tracing",
  "triomphe",
  "workspace_hack",
 ]

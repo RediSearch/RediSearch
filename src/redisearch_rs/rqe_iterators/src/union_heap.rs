@@ -35,6 +35,12 @@ use crate::{IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, Skip
 pub struct UnionHeap<'index, I, const QUICK_EXIT: bool> {
     children: Vec<I>,
     num_estimated: usize,
+    /// Number of children that have not yet reached EOF.
+    ///
+    /// Tracked separately from [`Self::heap`] because the heap is lazily
+    /// populated on the first `read`/`skip_to` call, so `heap.len()` is 0
+    /// before that even though all children are active.
+    num_active: usize,
     is_eof: bool,
     /// Reused across calls to avoid allocations.
     result: RSIndexResult<'index>,
@@ -57,6 +63,7 @@ where
             return Self {
                 children,
                 num_estimated: 0,
+                num_active: 0,
                 is_eof: true,
                 result: RSIndexResult::build_union(0).build(),
                 heap: DocIdMinHeap::new(),
@@ -66,12 +73,41 @@ where
         Self {
             children,
             num_estimated,
+            num_active: num_children,
             is_eof: false,
             result: RSIndexResult::build_union(num_children).build(),
             heap: DocIdMinHeap::with_capacity(num_children),
         }
     }
 
+    /// Returns the total number of children (including exhausted ones).
+    pub const fn num_children_total(&self) -> usize {
+        self.children.len()
+    }
+
+    /// Returns the number of currently active (non-exhausted) children.
+    pub const fn num_children_active(&self) -> usize {
+        self.num_active
+    }
+
+    /// Returns a shared reference to the child originally at insertion index `idx`.
+    ///
+    /// If any child was removed, there is no guarantee that the same child will be at this position.
+    /// Returns [`None`] if the child is out of range.
+    pub fn child_at(&self, idx: usize) -> Option<&I> {
+        self.children.get(idx)
+    }
+
+    /// Returns a mutable iterator over all children (including exhausted ones).
+    pub fn children_mut(&mut self) -> impl Iterator<Item = &mut I> {
+        self.children.iter_mut()
+    }
+
+    /// Consumes the iterator and returns a [`super::UnionTrimmed`] over the same children,
+    /// or [`None`] if there are fewer than 3 children.
+    pub fn into_trimmed(self, limit: usize, asc: bool) -> Option<super::UnionTrimmed<'index, I>> {
+        (self.children.len() >= 3).then(|| super::UnionTrimmed::new(self.children, limit, asc))
+    }
     /// Rebuilds the heap from scratch based on current child positions.
     /// Used after revalidation when children may have moved arbitrarily.
     fn rebuild_heap(&mut self) {
@@ -99,6 +135,7 @@ where
                 self.heap.replace_root(child.last_doc_id(), root.child_idx);
             } else {
                 self.heap.pop();
+                self.num_active -= 1;
                 if self.heap.is_empty() {
                     return Ok(());
                 }
@@ -172,6 +209,8 @@ where
             if child.last_doc_id() == 0 && !child.at_eof() {
                 if child.read()?.is_some() {
                     self.heap.push(child.last_doc_id(), idx);
+                } else {
+                    self.num_active -= 1;
                 }
             } else if child.last_doc_id() > 0 {
                 self.heap.push(child.last_doc_id(), idx);
@@ -208,6 +247,7 @@ where
                 }
                 None => {
                     self.heap.pop();
+                    self.num_active -= 1;
                     if self.heap.is_empty() {
                         break;
                     }
@@ -232,7 +272,9 @@ where
                     Some(SkipToOutcome::Found(r) | SkipToOutcome::NotFound(r)) => {
                         self.heap.push(r.doc_id, idx);
                     }
-                    None => {}
+                    None => {
+                        self.num_active -= 1;
+                    }
                 }
             }
             Ok(usize::MAX)
@@ -350,6 +392,7 @@ where
 
     fn rewind(&mut self) {
         self.is_eof = self.children.is_empty();
+        self.num_active = self.children.len();
         self.result.reset_aggregate();
         self.children.iter_mut().for_each(|c| c.rewind());
         self.heap.clear();
@@ -398,6 +441,7 @@ where
 
         if self.children.is_empty() {
             self.is_eof = true;
+            self.num_active = 0;
             return Ok(RQEValidateStatus::Aborted);
         }
 
@@ -406,6 +450,7 @@ where
         }
 
         self.rebuild_heap();
+        self.num_active = self.heap.len();
 
         let Some(min) = self.heap.peek() else {
             self.is_eof = true;
@@ -452,6 +497,7 @@ impl<'index, const QUICK_EXIT: bool> crate::interop::ProfileChildren<'index>
                 .map(crate::c2rust::CRQEIterator::into_profiled)
                 .collect(),
             num_estimated: self.num_estimated,
+            num_active: self.num_active,
             is_eof: self.is_eof,
             result: self.result,
             heap: self.heap,

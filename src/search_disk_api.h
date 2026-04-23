@@ -19,6 +19,9 @@ extern "C" {
 // Forward declarations to avoid circular dependencies
 typedef struct QueryIterator QueryIterator;
 
+// Forward declaration for HiddenString
+typedef struct HiddenString HiddenString;
+
 // Helper opaque types for the disk API
 typedef const void* RedisSearchDisk;
 typedef const void* RedisSearchDiskIndexSpec;
@@ -73,16 +76,26 @@ typedef struct BasicDiskAPI {
    * @brief Open the disk storage context
    * @param ctx Redis module context
    * @param buffer_percentage Percentage of available memory to use for write buffer (0-100)
+   * @param logObfuscation true to enable obfuscation, false to disable
    * @return Pointer to the disk context, or NULL on error
    */
-  RedisSearchDisk *(*open)(RedisModuleCtx *ctx, int buffer_percentage);
+  RedisSearchDisk *(*open)(RedisModuleCtx *ctx, int buffer_percentage, bool logObfuscation);
   void (*close)(RedisModuleCtx *ctx, RedisSearchDisk *disk);
+
+  /**
+   * @brief Enable or disable obfuscation of index names and field names in Disk log output
+   * @param disk Pointer to the disk
+   * @param enable true to enable obfuscation, false to disable
+   */
+  void (*setLogObfuscation)(RedisSearchDisk *disk, bool enable);
+
   /**
    * @brief Open an index spec
    * @param ctx Redis module context for BigModule APIs (required for getting DB path)
    * @param disk Pointer to the disk
    * @param indexName Name of the index
-   * @param indexNameLen Length of the index name
+   * @param obfuscatedName Obfuscated name of the index (for logging)
+   * @param obfuscatedNameLen Length of the obfuscated name
    * @param type Document type
    * @param deleteBeforeOpen If true, delete any existing data before opening
    * @return Pointer to the index spec, or NULL on error
@@ -90,7 +103,7 @@ typedef struct BasicDiskAPI {
    * @note This opens the database but does NOT register it with Redis. Call registerIndex after this
    *       to register with BigModule APIs.
    */
-  RedisSearchDiskIndexSpec *(*openIndexSpec)(RedisModuleCtx *ctx, RedisSearchDisk *disk, const char *indexName, size_t indexNameLen, DocumentType type, bool deleteBeforeOpen);
+  RedisSearchDiskIndexSpec *(*openIndexSpec)(RedisModuleCtx *ctx, RedisSearchDisk *disk, const HiddenString *indexName, const char *obfuscatedName, size_t obfuscatedNameLen, DocumentType type, bool deleteBeforeOpen);
   /**
    * @brief Close an index spec
    * @param disk Pointer to the disk context (for cleanup of index metrics)
@@ -154,15 +167,17 @@ typedef struct BasicDiskAPI {
    *
    * @param disk Pointer to the disk context
    * @param indexName Name of the index
-   * @param indexNameLen Length of the index name
+   * @param obfuscatedName Obfuscated name of the index (for logging)
+   * @param obfuscatedNameLen Length of the obfuscated name
    * @param type Document type for this index
    * @param rdbState Temporary RDB state from loadRdbToTempObject (will be consumed)
    * @return Pointer to the created IndexSpec, or NULL on error
    */
   RedisSearchDiskIndexSpec *(*openIndexSpecWithRdbState)(RedisModuleCtx *ctx,
                                                           RedisSearchDisk *disk,
-                                                          const char *indexName,
-                                                          size_t indexNameLen,
+                                                          const HiddenString *indexName,
+                                                          const char *obfuscatedName,
+                                                          size_t obfuscatedNameLen,
                                                           DocumentType type,
                                                           RedisSearchDiskRdbState *rdbState);
 

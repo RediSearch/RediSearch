@@ -11,8 +11,7 @@ use std::ptr::NonNull;
 
 use ffi::{QueryIterator, t_docId};
 use rqe_iterator_type::IteratorType;
-use rqe_iterators::interop::RQEIteratorWrapper;
-use rqe_iterators::{RQEIterator, Wildcard};
+use rqe_iterators::{Wildcard, interop::RQEIteratorWrapper};
 
 /// Creates a new non-optimized wildcard iterator over the `[0, max_id]` document id range.
 #[unsafe(no_mangle)]
@@ -65,7 +64,6 @@ pub unsafe extern "C" fn NewWildcardIterator_Optimized(
     let sctx = NonNull::new(sctx.cast_mut()).expect("sctx is null");
     // SAFETY: Caller guarantees all preconditions of `new_wildcard_iterator_optimized`.
     let it = unsafe { rqe_iterators::wildcard::new_wildcard_iterator_optimized(sctx, weight) };
-    let it: Box<dyn RQEIterator + '_> = it;
     RQEIteratorWrapper::boxed_new(it)
 }
 
@@ -104,6 +102,5 @@ pub unsafe extern "C" fn NewWildcardIterator(
     let query = NonNull::new(q.cast_mut()).expect("q is null");
     // SAFETY: Caller guarantees all preconditions of `new_wildcard_iterator`.
     let it = unsafe { rqe_iterators::wildcard::new_wildcard_iterator(query, weight) };
-    let it: Box<dyn RQEIterator + '_> = it;
     RQEIteratorWrapper::boxed_new(it)
 }

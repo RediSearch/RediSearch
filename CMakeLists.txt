@@ -18,6 +18,21 @@ elseif(UNIX)
 endif()
 message(STATUS "OS detected: ${OS}")
 
+# Suppress 'has no symbols' warnings from ranlib on macOS.
+# Cross-platform deps (cpu_features, hiredis) compile platform stubs that are
+# empty on irrelevant architectures, producing harmless noise.
+# CMake may pick up LLVM's llvm-ranlib from PATH, which doesn't support
+# -no_warning_for_no_symbols. Use xcrun to locate Apple's native ranlib.
+if(APPLE)
+    execute_process(
+        COMMAND xcrun --find ranlib
+        OUTPUT_VARIABLE APPLE_RANLIB
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+    )
+    set(CMAKE_C_ARCHIVE_FINISH "${APPLE_RANLIB} -no_warning_for_no_symbols <TARGET>")
+    set(CMAKE_CXX_ARCHIVE_FINISH "${APPLE_RANLIB} -no_warning_for_no_symbols <TARGET>")
+endif()
+
 # Always use .so extension even on macOS
 set(CMAKE_SHARED_LIBRARY_SUFFIX ".so")
 # Export the underlying compiler invocations in a compile_commands.json, located in the bin directory.

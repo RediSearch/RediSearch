@@ -42,7 +42,6 @@ fn main() {
         let ttl_table = src.join("ttl_table");
         let trie = src.join("trie");
         let rmalloc = deps.join("rmalloc");
-        let hiredis = deps.join("hiredis");
 
         [
             src,
@@ -54,7 +53,6 @@ fn main() {
             ttl_table,
             trie,
             rmalloc,
-            hiredis,
         ]
     };
 
@@ -64,12 +62,12 @@ fn main() {
         src.join("redismodule.h"),
         deps.join("hiredis").join("sds.h"),
         deps.join("rmutil").join("vector.h"),
+        src.join("aggregate").join("reducer.h"),
         src.join("buffer/buffer.h"),
         src.join("config.h"),
         src.join("doc_table.h"),
         src.join("forward_index.h"),
         src.join("index_result").join("index_result.h"),
-        src.join("iterators").join("union_iterator.h"),
         src.join("json.h"),
         src.join("numeric_index.h"),
         src.join("obfuscation").join("hidden.h"),
@@ -113,6 +111,10 @@ fn main() {
         // directory changes
         let _ = rerun_if_c_changes(&include);
     }
+
+    // Required so `<stdio.h>` declares `asprintf`/`vasprintf` (used by
+    // `deps/rmalloc/rmalloc.h`) when bindgen parses the headers with clang.
+    bindings = bindings.clang_arg("-D_GNU_SOURCE");
 
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
     bindings
