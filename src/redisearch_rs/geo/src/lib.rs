@@ -9,8 +9,11 @@
 
 //! Geographic utilities for RediSearch.
 //!
-//! This crate provides geo coordinate parsing and validation.
+//! This crate provides geo coordinate parsing, validation, and geohash
+//! encoding/decoding. The lower-level geohash primitives live in the
+//! [`hash`] module.
 
+pub mod hash;
 mod parse;
 
 pub use parse::{Coordinates, ParseGeoError};
