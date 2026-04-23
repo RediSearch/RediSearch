@@ -37,12 +37,6 @@ const HEADERS: &[HeaderAllowlist] = &[
         vars: &[],
     },
     HeaderAllowlist {
-        path: "deps/geohash/geohash.h",
-        fns: &[],
-        types: &[],
-        vars: &["GEO_LAT_MAX", "GEO_LAT_MIN", "GEO_LONG_MAX", "GEO_LONG_MIN"],
-    },
-    HeaderAllowlist {
         path: "deps/hiredis/sds.h",
         fns: &["sdscatlen"],
         types: &[],
