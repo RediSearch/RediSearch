@@ -39,11 +39,17 @@ on:
         type: string
         required: true
         description: "Name of the artifact (uploaded by flow-build-benchmark-binary.yml) containing the prebuilt redisearch.so"
+      arch:
+        type: string
+        default: x86_64
+        description: "CPU arch the built .so targets. Passed to `redisbench-admin run-remote --architecture <arch>` so terraform picks the matching oss-standalone-redisearch-m7[-aarch64] dir. Valid: `x86_64` | `aarch64`."
 
 jobs:
   benchmark-steps:
-    name: "Benchmark ${{ inputs.allowed_setups }} (${{ inputs.benchmark_runner_group_member_id }}/${{ inputs.benchmark_runner_group_total }}) filter=${{ inputs.benchmark_glob }}${{ inputs.benchmark_filter && format(' narrowed={0}', inputs.benchmark_filter) || '' }}"
-    runs-on: ubuntu-24.04  # We need the os to be a match to the base image used in the benchmarks.
+    name: "Benchmark ${{ inputs.arch }} ${{ inputs.allowed_setups }} (${{ inputs.benchmark_runner_group_member_id }}/${{ inputs.benchmark_runner_group_total }}) filter=${{ inputs.benchmark_glob }}${{ inputs.benchmark_filter && format(' narrowed={0}', inputs.benchmark_filter) || '' }}"
+    # Match the orchestrator runner arch to inputs.arch because tests/deps/setup_rejson.sh
+    # builds rejson.so here and it must be ABI-compatible with the target EC2 DB.
+    runs-on: ${{ inputs.arch == 'aarch64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
     defaults:
       run:
         shell: bash -l -eo pipefail {0}
@@ -94,8 +100,9 @@ jobs:
         with:
           name: ${{ inputs.binary_artifact_name }}
           # Place the .so where `inputs.module_path` expects it, e.g.
-          # bin/linux-x64-release/search-community/redisearch.so
-          path: bin/linux-x64-release/search-community
+          # bin/linux-x64-release/search-community/redisearch.so on x86_64,
+          # bin/linux-aarch64-release/search-community/redisearch.so on aarch64.
+          path: ${{ format('bin/linux-{0}-release/search-community', inputs.arch == 'aarch64' && 'aarch64' || 'x64') }}
       - name: Make redisearch.so executable
         if: steps.benchmark-filter.outputs.skip != 'true'
         env:
@@ -168,6 +175,7 @@ jobs:
               --required-module ReJSON
               --github_sha ${{ github.event.pull_request.head.sha || github.sha }}
               --github_branch ${{ github.head_ref || github.ref_name }}
+              --architecture ${{ inputs.arch }}
               --upload_results_s3
               --triggering_env $TRIGGERING_ENV
               --allowed-envs $ALLOWED_ENVS
