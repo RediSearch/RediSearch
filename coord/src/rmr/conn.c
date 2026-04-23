@@ -32,6 +32,8 @@ static int MRConn_SendAuth(MRConn *conn);
 #define RSCONN_RECONNECT_TIMEOUT 250
 #define RSCONN_REAUTH_TIMEOUT 1000
 #define AUTH_FAIL_LOG_INTERVAL 100
+// Absolute timeout (ms) applied to the async TCP connect attempt.
+#define MRCONN_DEFAULT_CONNECT_TIMEOUT_MS 5000
 #define UNUSED(x) (void)(x)
 
 #define CONN_LOG(conn, fmt, ...)                                                      \
@@ -673,9 +675,14 @@ static MRConn *MR_NewConn(MREndpoint *ep) {
 static int MRConn_Connect(MRConn *conn) {
   RS_ASSERT(!conn->conn);
 
+  struct timeval connectTimeout = {
+      .tv_sec = MRCONN_DEFAULT_CONNECT_TIMEOUT_MS / 1000,
+      .tv_usec = (MRCONN_DEFAULT_CONNECT_TIMEOUT_MS % 1000) * 1000,
+  };
   redisOptions options = {.type = REDIS_CONN_TCP,
                           .options = REDIS_OPT_NOAUTOFREEREPLIES,
-                          .endpoint.tcp = {.ip = conn->ep.host, .port = conn->ep.port}};
+                          .endpoint.tcp = {.ip = conn->ep.host, .port = conn->ep.port},
+                          .connect_timeout = &connectTimeout};
 
   redisAsyncContext *c = redisAsyncConnectWithOptions(&options);
   if (c->err) {
