@@ -1045,6 +1045,8 @@ static bool shouldCheckInPipelineTimeoutHybrid(HybridRequest *hreq) {
  *
  * Parses command arguments, builds hybrid request structure, constructs execution pipeline,
  * and prepares for hybrid search execution.
+ *
+ * This method does not take ownership of `debugParams`.
  */
 int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, bool internal,
                          ProfileOptions profileOptions, HybridDebugParams *debugParams) {
@@ -1083,7 +1085,10 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   HybridRequest *hybridRequest = MakeDefaultHybridRequest(sctx);
   hybridRequest->profile = printHybridProfile;
   hybridRequest->tailPipeline->qctx.isProfile = profileOptions & EXEC_WITH_PROFILE;
-  hybridRequest->debugParams = debugParams;
+  if (debugParams) {
+    hybridRequest->debugParams = rm_malloc(sizeof(*debugParams));
+    *hybridRequest->debugParams = *debugParams;
+  }
   StrongRef hybrid_ref = StrongRef_New(hybridRequest, &FreeHybridRequest);
 
   ParseHybridCommandCtx cmd = {0};

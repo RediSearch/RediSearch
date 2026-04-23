@@ -75,7 +75,7 @@ typedef struct HybridRequest {
 
     // Optional debug parameters for _FT.DEBUG FT.HYBRID.
     // When non-NULL, debug timeouts are applied after pipeline building.
-    // Owned by caller — not freed by HybridRequest.
+    // Heap-allocated and owned by HybridRequest — freed in HybridRequest_Free.
     HybridDebugParams *debugParams;
 } HybridRequest;
 
