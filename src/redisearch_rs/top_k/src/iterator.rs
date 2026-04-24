@@ -136,6 +136,21 @@ impl<'index, S: ScoreSource<'index>> TopKIterator<'index, S> {
         }
     }
 
+    /// Returns the current execution mode.
+    pub fn mode(&self) -> TopKMode {
+        self.mode
+    }
+
+    /// Returns a shared reference to the score source.
+    pub fn source(&self) -> &S {
+        &self.source
+    }
+
+    /// Returns a mutable reference to the score source.
+    pub fn source_mut(&mut self) -> &mut S {
+        &mut self.source
+    }
+
     /// Drive collection based on the current mode.
     fn collect(&mut self) -> Result<(), RQEIteratorError> {
         self.phase = Phase::Collecting;
