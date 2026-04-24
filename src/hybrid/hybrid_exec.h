@@ -39,7 +39,7 @@ extern "C" {
  * @return REDISMODULE_OK on success, REDISMODULE_ERR on error
  */
 int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, bool internal,
-                         ProfileOptions profileOptions, HybridDebugParams *debugParams);
+                         ProfileOptions profileOptions, const HybridDebugParams *debugParams);
 
 void HybridRequest_StartCursor(HybridRequest *req, RedisModuleCtx *ctx, arrayof(ResultProcessor*) depleters, QueryError *status, bool coord);
 

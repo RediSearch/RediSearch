@@ -45,7 +45,7 @@ static void processHybridError(processCursorMappingCallbackContext *ctx, MRReply
 
 // Warning strings use a different format than error strings (no prefix).
 // Map warning codes to error codes for uniform handling in ProcessHybridCursorMappings.
-static void processHybridWarning(processCursorMappingCallbackContext *ctx, MRReply *rep) {
+static void processHybridWarning(processCursorMappingCallbackContext *ctx, const MRReply *rep) {
     const char *warningMessage = MRReply_String(rep, NULL);
     QueryWarningCode warningCode = QueryWarningCode_GetCodeFromMessage(warningMessage);
     QueryError error = QueryError_Default();

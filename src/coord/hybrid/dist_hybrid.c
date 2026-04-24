@@ -894,7 +894,8 @@ void DEBUG_RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int a
       return;
     }
 
-    RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
+    RedisModule_Reply _reply = RedisModule_NewReply(ctx);
+    RedisModule_Reply *reply = &_reply;
     QueryError status = QueryError_Default();
 
     // Parse debug params from the end of argv

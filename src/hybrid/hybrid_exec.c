@@ -784,11 +784,9 @@ static int buildPipelineAndExecute(StrongRef hybrid_ref, HybridPipelineParams *h
   }
 
   // Apply debug timeouts after pipeline is built (for _FT.DEBUG FT.HYBRID)
-  if (hreq->debugParams) {
-    if (applyHybridDebugTimeout(hreq, hreq->debugParams) != REDISMODULE_OK) {
+  if (hreq->debugParams && applyHybridDebugTimeout(hreq, hreq->debugParams) != REDISMODULE_OK) {
       QueryError_SetError(status, QUERY_ERROR_CODE_INVAL, "Failed to apply debug timeouts");
       return REDISMODULE_ERR;
-    }
   }
 
   if (!isCursor) {
@@ -1049,7 +1047,7 @@ static bool shouldCheckInPipelineTimeoutHybrid(HybridRequest *hreq) {
  * This method does not take ownership of `debugParams`.
  */
 int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, bool internal,
-                         ProfileOptions profileOptions, HybridDebugParams *debugParams) {
+                         ProfileOptions profileOptions, const HybridDebugParams *debugParams) {
   // Index name is argv[1]
   if (argc < 2) {
     return RedisModule_WrongArity(ctx);

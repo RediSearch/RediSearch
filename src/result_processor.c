@@ -2021,7 +2021,7 @@ int RPSafeDepleter_DepleteAll(arrayof(ResultProcessor*) safeDepleters, QueryErro
   // Errors (lock failures) take priority over timeouts.
   bool anyTimedOut = false;
   for (size_t i = 0; i < count; i++) {
-    RPSafeDepleter *safeDepleter = (RPSafeDepleter *)safeDepleters[i];
+    const RPSafeDepleter *safeDepleter = (RPSafeDepleter *)safeDepleters[i];
     if (safeDepleter->last_rc == RS_RESULT_ERROR) {
       QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_SAFE_DEPLETER_FAILURE,
         "Failed to acquire index lock for background depletion. A write operation may be in progress. Please retry.");
