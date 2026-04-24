@@ -48,19 +48,14 @@ typedef struct Cursor {
   /** Initial timeout interval */
   unsigned timeoutIntervalMs;
 
-  /** Query-deadline timeout (in ms) copied from the originating
-   * AREQ->reqConfig.queryTimeoutMS at cursor creation.
-   * Write-once on the creator thread before the first Cursor_Pause publishes
-   * the cursor into the idle list; thereafter read-only and accessed only
-   * under the cursor-list lock (see Cursors_PeekTimeoutInfo). */
+  /** Query-deadline timeout (ms) copied from the originating AREQ at cursor
+   * creation. Write-once before the first Cursor_Pause; read under the
+   * cursor-list lock (see Cursors_PeekTimeoutInfo). */
   size_t queryTimeoutMS;
 
-  /** Timeout policy copied from the originating AREQ->reqConfig.timeoutPolicy
-   * at cursor creation. Keeps a cursor's effective policy frozen at FT.AGGREGATE
-   * time (sticky per-cursor), so a `CONFIG SET search-on-timeout` between
-   * commands does not change how an in-flight cursor behaves on subsequent
-   * FT.CURSOR READ calls. Same write-once / lock-protected access pattern as
-   * queryTimeoutMS (see Cursors_PeekTimeoutInfo). */
+  /** Timeout policy copied from the originating AREQ at cursor creation.
+   * Sticky per-cursor: changes to the `search-on-timeout` config between
+   * commands do not affect in-flight cursors. Same access pattern as queryTimeoutMS. */
   RSTimeoutPolicy queryTimeoutPolicy;
 
   /** Position within idle list.
@@ -187,35 +182,27 @@ Cursor *Cursors_Reserve(CursorList *cl, StrongRef global_spec_ref, unsigned time
 Cursor *Cursors_TakeForExecution(CursorList *cl, uint64_t cid);
 
 /**
- * Snapshot of an idle cursor's originating-AREQ timeout configuration, returned
- * by Cursors_PeekTimeoutInfo without taking ownership of the cursor.
+ * Snapshot of an idle cursor's timeout configuration, returned by
+ * Cursors_PeekTimeoutInfo without taking ownership of the cursor.
  */
 typedef struct {
-  /** Cached `queryTimeoutMS` from the originating AREQ. 0 means "no timer": either
-   * the cursor wasn't found, or `TIMEOUT 0` was used on the originating FT.AGGREGATE
-   * (the query engine's reserved sentinel for "disabled timeout"). Both cases map
-   * cleanly to `RedisModule_BlockClient(timeoutMS=0)` ("no timer"). */
+  /** Cached `queryTimeoutMS`. 0 means "no timer": cursor not found, or
+   * `TIMEOUT 0` on the originating FT.AGGREGATE. Maps to
+   * `RedisModule_BlockClient(timeoutMS=0)`. */
   size_t queryTimeoutMS;
-  /** Cached `timeoutPolicy` from the originating AREQ. Defaults to
-   * `TimeoutPolicy_Return` if the cursor was not found (safe default: the coord
-   * FAIL branch will be skipped, matching the "cursor not found" short-circuit
-   * that follows). */
+  /** Cached `timeoutPolicy`. Defaults to `TimeoutPolicy_Return` when the
+   * cursor was not found (safe: the coord FAIL branch is then skipped). */
   RSTimeoutPolicy queryTimeoutPolicy;
 } CursorTimeoutInfo;
 
 /**
- * Peek at the configured query-timeout and timeout-policy of an idle cursor,
- * without taking ownership of it.
+ * Peek at an idle cursor's cached query-timeout and timeout-policy without
+ * taking ownership. Values are captured at AREQ creation and frozen onto the
+ * cursor at AREQ_StartCursor; reading them here (instead of live RSGlobalConfig)
+ * keeps the cursor's timeout configuration sticky per-cursor.
  *
- * Both values are captured at AREQ creation time (from RSGlobalConfig and then
- * frozen into `req->reqConfig`) and copied onto the Cursor at AREQ_StartCursor.
- * Reading from the cursor — rather than re-reading live RSGlobalConfig at
- * FT.CURSOR READ time — keeps the cursor's effective timeout configuration
- * sticky per-cursor, so a `CONFIG SET search-on-timeout` between commands
- * cannot cause coord and shard to disagree about an in-flight cursor.
- *
- * Concurrency: the cursor-list lock is held only for the duration of the khash
- * lookup and a single scalar read of each write-once field.
+ * Concurrency: the cursor-list lock is held only for the khash lookup and a
+ * single scalar read of each write-once field.
  */
 CursorTimeoutInfo Cursors_PeekTimeoutInfo(CursorList *cl, uint64_t cid);
 

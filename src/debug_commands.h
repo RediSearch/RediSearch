@@ -130,10 +130,8 @@ void SyncPoint_Wait(const char *name);
 
 // Predicate callback type for SyncPoint_WaitUntil
 typedef bool (*SyncPointStopFn)(void *arg);
-// Like SyncPoint_Wait but also breaks out of the wait loop if `stop_fn(arg)`
-// returns true. Used by code paths that must release the worker early when a
-// timeout callback has fired on the main thread, to avoid holding the cursor
-// state machine across the timeout reply.
+// Like SyncPoint_Wait, but also exits the wait loop when `stop_fn(arg)` returns
+// true. Lets workers release early when a timeout fires on the main thread.
 void SyncPoint_WaitUntil(const char *name, SyncPointStopFn stop_fn, void *arg);
 
 // Struct used for debugging hybrid cursor storage ONLY (pause before/after cursor creation)

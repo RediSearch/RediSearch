@@ -19,12 +19,7 @@ def run_cmd_expect_timeout(env, query_args):
     env.expect(*query_args).error().contains(TIMEOUT_ERROR)
 
 def _coord_cursor_total(env, idx='idx'):
-    """Return the coordinator's global cursor count from FT.INFO.
-
-    Returns 0 if the cursor_stats section is absent (e.g. all cursors gone
-    and the index dropped it), matching the behavior of getCursorStats in
-    test_cursors.py.
-    """
+    """Return the coordinator's global cursor count, or 0 if cursor_stats is absent."""
     info = env.cmd('FT.INFO', idx)
     try:
         stats = to_dict(to_dict(info)['cursor_stats'])
@@ -35,10 +30,8 @@ def _coord_cursor_total(env, idx='idx'):
 def _wait_for_cursor_cleanup(env, baseline_total, context, idx='idx', timeout=30):
     """Wait for the coord cursor count to drop below `baseline_total`.
 
-    Tests in this file share a class-level `env`, so polling for an absolute
-    zero count is unreliable (a previous test may have left cursors behind).
-    Instead, callers capture the coord cursor count immediately after creating
-    their cursor and wait for at least one cursor to be reclaimed.
+    Tests share a class-level `env`; polling against an absolute baseline
+    captured after cursor creation avoids races with cursors from prior tests.
     """
     wait_for_condition(
         lambda: (_coord_cursor_total(env, idx) < baseline_total,
@@ -812,13 +805,8 @@ class TestCoordinatorTimeout:
         return total_results
 
     def _setup_fail_cursor_state(self, chunk_size=10):
-        """Common FAIL-timeout cursor test setup.
-
-        Switches all shards to FAIL, creates an FT.AGGREGATE WITHCURSOR, and
-        captures the coord cursor-count baseline plus a pre-timeout snapshot of
-        the coord error metric. Returns
-        ``(prev_policy, cursor_id, baseline_cursor_total, before_info, base_err_coord)``.
-        """
+        """Switch shards to FAIL, create a WITHCURSOR aggregate, and return
+        ``(prev_policy, cursor_id, baseline_cursor_total, before_info, base_err_coord)``."""
         env = self.env
         prev_on_timeout_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
         run_command_on_all_shards(env, 'CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'fail')
@@ -829,12 +817,8 @@ class TestCoordinatorTimeout:
         return prev_on_timeout_policy, cursor_id, baseline_cursor_total, before_info, base_err_coord
 
     def _start_blocked_cursor_read(self, cursor_id):
-        """Start FT.CURSOR READ in a thread and wait for its client to be blocked.
-
-        Returns ``(thread, blocked_client_id)``. Caller is responsible for
-        firing the timeout (see ``_fire_client_timeout``) and joining the
-        thread (see ``_join_cursor_read_thread``).
-        """
+        """Start FT.CURSOR READ in a thread and return ``(thread, blocked_client_id)``
+        once the client is blocked. Caller fires the timeout and joins the thread."""
         env = self.env
         t_query = threading.Thread(
             target=run_cmd_expect_timeout,
@@ -853,11 +837,8 @@ class TestCoordinatorTimeout:
         wait_for_client_unblocked(env, blocked_client_id)
 
     def _fire_blocked_cursor_read_timeout(self, cursor_id):
-        """Start FT.CURSOR READ in a thread, fire CLIENT UNBLOCK ... TIMEOUT, return the thread.
-
-        Caller is responsible for any sync-point / pause arming before the call
-        so the worker is pinned when we fire the timeout.
-        """
+        """Start FT.CURSOR READ, fire CLIENT UNBLOCK ... TIMEOUT, return the thread.
+        Caller arms any sync-point/pause before calling so the worker is pinned."""
         t_query, blocked_client_id = self._start_blocked_cursor_read(cursor_id)
         self._fire_client_timeout(blocked_client_id)
         return t_query
@@ -893,12 +874,10 @@ class TestCoordinatorTimeout:
         )
 
     def test_fail_timeout_cursor_read(self):
-        """FAIL timeout fired on the coord+FAIL worker path mid-pipeline.
+        """FAIL timeout fired mid-pipeline on the coord+FAIL worker path.
 
-        Uses the `BeforeCursorReadSendChunk` sync point to pin the worker
-        between `CoordRequestCtx_SetRequest` and `sendChunk`, then fires the
-        blocked-client deadline via `CLIENT UNBLOCK ... TIMEOUT`. Deterministic,
-        no reliance on shard suspension or buffer draining.
+        Pins the worker at `BeforeCursorReadSendChunk`, then fires
+        CLIENT UNBLOCK ... TIMEOUT to trigger the blocked-client deadline.
         """
         env = self.env
         skipIfNoEnableAssert(env)
@@ -916,11 +895,8 @@ class TestCoordinatorTimeout:
 
         self._join_cursor_read_thread(t_query)
 
-        # The timeout callback replies -TIMEOUT on the main thread while the
-        # worker is still completing its post-sync-point wind-down (UnblockClient
-        # → free_privdata → Cursor_Free). The helper waits for cursor reclaim so
-        # the next FT.CURSOR READ deterministically observes "Cursor not found"
-        # instead of racing with in-flight cleanup.
+        # Wait for cursor reclaim so the next FT.CURSOR READ deterministically
+        # sees "Cursor not found" instead of racing with the worker's wind-down.
         self._assert_cursor_freed_and_metric_bumped(cursor_id, baseline, before_info,
                                                     base_err_coord, 'FAIL cursor-read timeout')
 
@@ -948,9 +924,7 @@ class TestCoordinatorTimeout:
                 'Timeout while waiting for coordinator threads to resume', timeout=30)
 
         # After RESUME, the worker dequeues the already-timed-out job and frees
-        # the cursor on the timeout-early-exit branch. The helper waits for
-        # cursor reclaim so the next FT.CURSOR READ deterministically observes
-        # "Cursor not found" instead of racing with the worker.
+        # the cursor on the timeout-early-exit branch. Wait for cursor reclaim.
         self._assert_cursor_freed_and_metric_bumped(cursor_id, baseline, before_info,
                                                     base_err_coord,
                                                     'FAIL pre-pickup cursor-read timeout')
@@ -1165,12 +1139,7 @@ class TestCoordinatorTimeout:
         ])
 
     def _test_fail_timeout_coord_store_cursor_read_impl(self, before):
-        """Test FAIL timeout on FT.CURSOR READ paused before/after AREQ_StoreResults.
-
-        Uses setPauseBefore/AfterStoreResults to freeze the worker at the exact
-        point around AREQ_StoreResults on the coord side, then triggers timeout
-        via CLIENT UNBLOCK.
-        """
+        """FAIL timeout on FT.CURSOR READ paused before/after coord AREQ_StoreResults."""
         env = self.env
         skipIfNoEnableAssert(env)
 
@@ -1192,9 +1161,7 @@ class TestCoordinatorTimeout:
         finally:
             resetStoreResultsDebug(env)
 
-        # The helper waits for the worker to complete its post-timeout wind-down
-        # (UnblockClient → free_privdata → Cursor_Free) before asserting the
-        # cursor is gone.
+        # Wait for the worker's post-timeout wind-down before asserting.
         self._assert_cursor_freed_and_metric_bumped(cursor_id, baseline, before_info,
                                                     base_err_coord,
                                                     'FAIL coord-store cursor-read timeout')
@@ -1217,18 +1184,15 @@ class TestCoordinatorTimeout:
 
         prev_policy, cursor_id, baseline, _, _ = self._setup_fail_cursor_state()
 
-        # Flip global policy to RETURN after cursor creation (all shards, so the
-        # test proves FAIL-stickiness against a fully-propagated RETURN global).
-        # The baselines captured before the flip are discarded; re-snapshot now
-        # so the metric-delta assertion below is against the post-flip state.
+        # Flip the global to RETURN on all shards after cursor creation, then
+        # re-snapshot metrics so the post-flip delta is measured.
         run_command_on_all_shards(env, 'CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'return')
 
         before_info = info_modules_to_dict(env)
         base_err_coord = int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC])
 
-        # Pin the worker mid-pipeline via the sync point and fire the
-        # blocked-client deadline; proves the cursor takes the FAIL
-        # (blocked-client) path despite the RETURN global.
+        # Pin the worker mid-pipeline and fire the blocked-client deadline;
+        # the cursor must still take the FAIL path despite the RETURN global.
         self._arm_cursor_read_sync_point(sync_point)
         try:
             t_query, blocked_client_id = self._start_blocked_cursor_read(cursor_id)
@@ -1253,11 +1217,9 @@ class TestCoordinatorTimeout:
     def test_sticky_policy_return_aggregate_config_fail_cursor_read(self):
         """Cursor created under RETURN keeps RETURN semantics after CONFIG SET to FAIL.
 
-        Under RETURN, the coord does not block the client for the cursor read; it
-        executes inline and returns partial results on timeout. After flipping
-        the global to FAIL, a subsequent FT.CURSOR READ must still take the
-        RETURN path: no blocked-client, no coord timeout metric bump, reply is
-        well-formed and the cursor can be drained to completion.
+        After flipping the global to FAIL, FT.CURSOR READ must still take the
+        RETURN path (no blocked-client, no coord timeout metric bump, cursor
+        drains to completion).
         """
         env = self.env
 
@@ -1294,15 +1256,12 @@ class TestCoordinatorTimeout:
         run_command_on_all_shards(env, 'CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy)
 
     def test_sticky_policy_between_cursor_reads(self):
-        """Multiple CONFIG SET flips between FT.CURSOR READ calls must not change
-        the cursor's effective policy captured at creation time.
+        """CONFIG SET flips between FT.CURSOR READ calls must not change the
+        cursor's effective policy captured at creation time.
 
-        Creates the cursor under FAIL, performs a happy FT.CURSOR READ, flips to
-        RETURN, performs a second happy read, flips back to FAIL, performs a
-        third happy read. All reads must succeed without timeout metric bumps.
-        Then forces a mid-pipeline timeout on a 4th read under the RETURN global
-        to prove FAIL is still sticky: coord arms the blocked-client timer and
-        returns -TIMEOUT on CLIENT UNBLOCK.
+        Creates under FAIL, reads happily across FAIL→RETURN→FAIL flips, then
+        forces a mid-pipeline timeout under the RETURN global to prove FAIL
+        remains sticky (coord arms the blocked-client timer and returns -TIMEOUT).
         """
         env = self.env
 

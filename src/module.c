@@ -3871,19 +3871,15 @@ static inline int CursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, i
 
   handlerCtx.spec_ref = (WeakRef){0};
 
-  // On the coordinator READ path, peek the originating AREQ's timeout
-  // configuration (sticky per-cursor) from the idle cursor without taking
-  // ownership. Reading from the cursor rather than live RSGlobalConfig keeps
-  // coord and shard aligned on the same policy for the lifetime of the cursor,
-  // even across `CONFIG SET search-on-timeout`. A valid-format CID that is not
-  // registered peeks default values (timeoutMS=0, policy=Return) and will be
-  // caught and reported by RSCursorReadCommand on the worker thread.
+  // On coord+READ, peek the cursor's sticky timeout config so coord and shard
+  // stay aligned across changes to the `search-on-timeout` config. A valid-format
+  // CID with no registered cursor returns defaults (timeoutMS=0, policy=Return)
+  // and is reported by RSCursorReadCommand on the worker.
   if (sub == CURSOR_SUBCMD_READ) {
     long long cid;
     if (RedisModule_StringToLongLong(argv[3], &cid) != REDISMODULE_OK) {
-      // Reject a malformed CID on the main thread, before any dispatch. This
-      // parallels the argc<4 bail above and keeps the worker from ever hitting
-      // the "Bad cursor ID" path with a reply_callback armed.
+      // Reject malformed CID on the main thread so the worker never hits
+      // "Bad cursor ID" with a reply_callback armed.
       return RedisModule_ReplyWithError(ctx, "Bad cursor ID");
     }
     CursorTimeoutInfo info =
