@@ -69,6 +69,15 @@ typedef struct {
   // Pending replies while waiting for all shards' first responses
   arrayof(MRReply *) pendingReplies;   // Replies accumulated while waiting
   bool waitedForAllShards;             // True once all shards have sent their first response
+
+  // Drain-only mode: set by the RETURN-STRICT timeout callback on the main
+  // thread after the background pipeline has aborted and exited. When true,
+  // rpnetNext pops already-queued shard replies without blocking and treats
+  // timeouts (wall-clock or abort) as EOF rather than RS_RESULT_TIMEDOUT.
+  // Safe as a plain bool: set by the main thread only after
+  // AREQ_WaitForAggregateResultsComplete returns, so no reader is running
+  // concurrently.
+  bool drainOnly;
 } RPNet;
 
 

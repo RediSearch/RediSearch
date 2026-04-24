@@ -348,6 +348,12 @@ int getNextReply(RPNet *nc) {
 
   if (root == NULL) {
     RPNet_resetCurrent(nc);
+    // Drain-only: empty channel means end of queued replies, not a timeout —
+    // the main-thread timeout callback already observed the deadline and is
+    // now consuming whatever the I/O threads had already pushed.
+    if (nc->drainOnly) {
+      return RS_RESULT_EOF;
+    }
     if (nc->areq && AREQ_TimedOut(nc->areq)) {
       return RS_RESULT_TIMEDOUT;
     }
@@ -553,17 +559,22 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
 
   // get the next reply from the channel
   while (!root) {
-    // Check for timeout (respecting skipTimeoutChecks flag)
-    if (!nc->areq->sctx->time.skipTimeoutChecks && TimedOut(&nc->areq->sctx->time.timeout)) {
-      // Set the `timedOut` flag in the MRIteratorCtx, later to be read by the
-      // callback so that a `CURSOR DEL` command will be dispatched instead of
-      // a `CURSOR READ` command.
-      MRIteratorCallback_SetTimedOut(MRIterator_GetCtx(nc->it));
+    // Drain-only mode bypasses the wall-clock check: by definition the
+    // deadline has already passed, and we want to harvest whatever the I/O
+    // threads already pushed instead of reporting a timeout.
+    if (!nc->drainOnly) {
+      // Check for timeout (respecting skipTimeoutChecks flag)
+      if (!nc->areq->sctx->time.skipTimeoutChecks && TimedOut(&nc->areq->sctx->time.timeout)) {
+        // Set the `timedOut` flag in the MRIteratorCtx, later to be read by the
+        // callback so that a `CURSOR DEL` command will be dispatched instead of
+        // a `CURSOR READ` command.
+        MRIteratorCallback_SetTimedOut(MRIterator_GetCtx(nc->it));
 
-      return RS_RESULT_TIMEDOUT;
-    } else if (MRIteratorCallback_GetTimedOut(MRIterator_GetCtx(nc->it))) {
-      // if timeout was set in previous reads, reset it
-      MRIteratorCallback_ResetTimedOut(MRIterator_GetCtx(nc->it));
+        return RS_RESULT_TIMEDOUT;
+      } else if (MRIteratorCallback_GetTimedOut(MRIterator_GetCtx(nc->it))) {
+        // if timeout was set in previous reads, reset it
+        MRIteratorCallback_ResetTimedOut(MRIterator_GetCtx(nc->it));
+      }
     }
 
     int ret = getNextReply(nc);
