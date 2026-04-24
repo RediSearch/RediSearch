@@ -1723,20 +1723,12 @@ void UpgradeDeprecatedMTConfigs() {
   }
 }
 
-char *getRedisConfigValue(RedisModuleCtx *ctx, const char* confName) {
+RedisModuleString *getRedisConfigValue(RedisModuleCtx *ctx, const char *confName) {
   RedisModuleString *valueStr = NULL;
   if (RedisModule_ConfigGet(ctx, confName, &valueStr) != REDISMODULE_OK) {
     return NULL;
   }
-  size_t len;
-  const char *valueCStr = RedisModule_StringPtrLen(valueStr, &len);
-
-  char *res = rm_calloc(1, len + 1);
-  memcpy(res, valueCStr, len);
-
-  RedisModule_FreeString(ctx, valueStr);
-
-  return res;
+  return valueStr;
 }
 
 bool getRedisConfigBool(RedisModuleCtx *ctx, const char *confName, bool defaultValue) {
