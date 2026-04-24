@@ -16,6 +16,7 @@
 //! one.
 
 pub mod fork_gc;
+pub mod reader;
 pub mod util;
 pub mod writer;
 

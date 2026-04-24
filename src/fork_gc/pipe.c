@@ -32,27 +32,8 @@ void FGC_updateStats(ForkGC *gc, RedisSearchCtx *sctx,
 // FGC_sendBuffer and FGC_sendTerminator are defined in Rust
 // (fork_gc_ffi crate); prototypes come from fork_gc_rs.h.
 
-int __attribute__((warn_unused_result)) FGC_recvFixed(ForkGC *fgc, void *buf, size_t len) {
-  // poll the pipe, so that we don't block while read, with timeout of 3 minutes
-  int poll_rc;
-  while ((poll_rc = poll(fgc->pollfd_read, 1, 180000)) == 1) {
-    ssize_t nrecvd = read(fgc->pipe_read_fd, buf, len);
-    if (nrecvd > 0) {
-      buf += nrecvd;
-      len -= nrecvd;
-    } else if (nrecvd <= 0 && errno != EINTR) {
-      break;
-    }
-    if (len == 0) {
-      return REDISMODULE_OK;
-    }
-  }
-  short revents = fgc->pollfd_read[0].revents;
-  const char *what = (poll_rc == 0) ? "timeout" : "error";
-  RedisModule_Log(fgc->ctx, "warning", "ForkGC - got %s while reading from pipe. errno: %s, revents: 0x%x (POLLIN=%x POLLERR=%x POLLHUP=%x POLLNVAL=%x)",
-                  what, strerror(errno), revents, (revents & POLLIN), (revents & POLLERR), (revents & POLLHUP), (revents & POLLNVAL));
-  return REDISMODULE_ERR;
-}
+// FGC_recvFixed is defined in Rust (fork_gc_ffi crate); prototype comes
+// from fork_gc_rs.h.
 
 int __attribute__((warn_unused_result))
 FGC_recvBuffer(ForkGC *fgc, void **buf, size_t *len) {

@@ -60,6 +60,21 @@ void FGC_sendBuffer(ForkGC *fgc, const void *buff, size_t len);
  */
 void FGC_sendTerminator(ForkGC *fgc);
 
+/**
+ * Read exactly `len` bytes from the FGC pipe into `buf`.
+ *
+ * Polls the pipe fd with a 3-minute timeout and retries on `EINTR`. On
+ * timeout, read error, or unexpected EOF, logs a detailed warning
+ * (matching the original C format) and returns `REDISMODULE_ERR`.
+ *
+ * # Safety
+ *
+ * 1. `fgc` must point to a valid `ForkGC` whose `pipe_read_fd` is an open,
+ *    readable file descriptor.
+ * 2. `buf` must point to a writable region of at least `len` bytes.
+ */
+__attribute__((warn_unused_result)) int FGC_recvFixed(ForkGC *fgc, void *buf, size_t len);
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif  // __cplusplus

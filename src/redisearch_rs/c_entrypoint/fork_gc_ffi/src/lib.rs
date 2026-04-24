@@ -15,7 +15,7 @@
 //! delegates everything else — including Redis-specific failure
 //! handling — to the `fork_gc` crate.
 
-use std::ffi::c_void;
+use std::ffi::{c_int, c_void};
 
 use fork_gc::ForkGC;
 
@@ -88,4 +88,33 @@ pub unsafe extern "C" fn FGC_sendTerminator(fgc: *mut ffi::ForkGC) {
     let fgc = unsafe { ForkGC::from_ptr_mut(fgc) };
 
     fgc.writer().send_terminator_or_exit();
+}
+
+/// Read exactly `len` bytes from the FGC pipe into `buf`.
+///
+/// Polls the pipe fd with a 3-minute timeout and retries on `EINTR`. On
+/// timeout, read error, or unexpected EOF, logs a detailed warning
+/// (matching the original C format) and returns `REDISMODULE_ERR`.
+///
+/// # Safety
+///
+/// 1. `fgc` must point to a valid `ForkGC` whose `pipe_read_fd` is an open,
+///    readable file descriptor.
+/// 2. `buf` must point to a writable region of at least `len` bytes.
+#[unsafe(no_mangle)]
+#[must_use]
+pub unsafe extern "C" fn FGC_recvFixed(
+    fgc: *mut ffi::ForkGC,
+    buf: *mut c_void,
+    len: usize,
+) -> c_int {
+    // SAFETY: caller guarantees (1).
+    let fgc = unsafe { ForkGC::from_ptr_mut(fgc) };
+    // SAFETY: caller guarantees (2).
+    let slice = unsafe { std::slice::from_raw_parts_mut(buf.cast::<u8>(), len) };
+
+    match fgc.reader().recv_fixed(slice) {
+        Ok(()) => ffi::REDISMODULE_OK as c_int,
+        Err(_) => ffi::REDISMODULE_ERR as c_int,
+    }
 }
