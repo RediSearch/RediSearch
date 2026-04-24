@@ -436,13 +436,21 @@ static void reauthTimerCallback(uv_timer_t *tm) {
 /* Main state transition function. */
 static void MRConn_SwitchState(MRConn *conn, MRConnState nextState) {
   CONN_LOG(conn, "Switching state to %s", MRConnState_Str(nextState));
+
   // Freeing is terminal: no caller should attempt a second transition. The
   // Freeing case detaches cbData and hands conn off to freeConn; transitioning
   // again would revive a half-torn-down conn or double-close its timer handle.
   RS_ASSERT(conn->state != MRConn_Freeing);
-  conn->state = nextState;
 
+  // Timer-state invariant: the only states we may switch *to* with an armed timer are
+  // Freeing (explicit stop) and Reconnecting (from an unexpected disconnect callback).
+  // They are the only states that has to handle a timer stop.
+  // We reach any other state linearly from the previous one, so no timer should be active on the transition.
+  RS_ASSERT(!uv_is_active(&conn->timer) || nextState == MRConn_Reconnecting || nextState == MRConn_Freeing);
+
+  conn->state = nextState;
   switch (nextState) {
+
     case MRConn_Reconnecting:
       // Delayed state: the reconnect timer introduces a back-off between
       // attempts so we don't spin on a server that just rejected us.
@@ -456,19 +464,15 @@ static void MRConn_SwitchState(MRConn *conn, MRConnState nextState) {
       return;
 
     case MRConn_Connecting:
-      uv_timer_stop(&conn->timer);
       doConnect(conn);
       return;
 
     case MRConn_Authenticating:
-      uv_timer_stop(&conn->timer);
       doAuthenticate(conn);
       return;
 
     case MRConn_Connected:
-      // Steady state; cancel any pending back-off timer.
-      // uv_timer_stop is a safe no-op on inactive timers.
-      uv_timer_stop(&conn->timer);
+      // Steady state: nothing to do on the transition itself
       return;
 
     case MRConn_Freeing:
