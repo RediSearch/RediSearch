@@ -37,7 +37,6 @@
 #include "search_disk_utils.h"
 #include "iterators_rs.h"
 
-#include <stdarg.h>
 #include "coord/coord_request_ctx.h"
 
 // Multi threading data structure for background query execution.
@@ -1853,51 +1852,43 @@ static void cursorRead_ctx(CursorReadCtx *cr_ctx) {
   rm_free(cr_ctx);
 }
 
-// Helper for RSCursorReadCommand early-error replies.
-// On coord+FAIL (reply_callback armed upstream), stores the error on the
-// CoordRequestCtx so DistAggregateReplyCallback emits it on the main thread
-// and returns REDISMODULE_OK. Otherwise returns -1, so the caller falls back
-// to the inline reply API.
-static int RSCursorRead_tryStoreEarlyError(RedisModuleCtx *ctx, QueryErrorCode code,
-                                           const char *fmt, ...) {
-  RedisModuleBlockedClient *upstreamBC = RedisModule_GetBlockedClientHandle(ctx);
-  CoordRequestCtx *reqCtx = upstreamBC
-      ? (CoordRequestCtx *)RedisModule_BlockClientGetPrivateData(upstreamBC)
-      : NULL;
-  if (!reqCtx || !reqCtx->useReplyCallback) return -1;
-
-  char buf[512];
-  va_list ap;
-  va_start(ap, fmt);
-  vsnprintf(buf, sizeof(buf), fmt, ap);
-  va_end(ap);
-
-  QueryError err = QueryError_Default();
-  QueryError_SetError(&err, code, buf);
-  CoordRequestCtx_ReplyOrStoreError(reqCtx, ctx, &err);
-  return REDISMODULE_OK;
-}
-
 /**
  * FT.CURSOR READ {index} {CID} {COUNT} [MAXIDLE]
  */
 int RSCursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  // Coord+FAIL is the only path that attaches a CoordRequestCtx as privdata
+  // and arms a reply_callback; shard, single-shard and coord+RETURN paths all
+  // see reqCtx == NULL and fall back to the inline Reply API.
+  RedisModuleBlockedClient *upstreamBC = RedisModule_GetBlockedClientHandle(ctx);
+  CoordRequestCtx *reqCtx = upstreamBC
+      ? (CoordRequestCtx *)RedisModule_BlockClientGetPrivateData(upstreamBC)
+      : NULL;
+  // Only the coord+FAIL path meets the precondition for
+  // CoordRequestCtx_ReplyOrStoreError (useReplyCallback == true).
+  RS_ASSERT(!reqCtx || reqCtx->useReplyCallback);
+  // Reused across all coord+FAIL early-error sites below.
+  QueryError err = QueryError_Default();
+
   if (argc < 4) {
     // Shouldn't happen on the coord path (CursorCommand pre-validates argc on
-    // the main thread); handled defensively so the worker never uses the
-    // regular Reply API while a reply_callback is armed.
-    int rc = RSCursorRead_tryStoreEarlyError(ctx, QUERY_ERROR_CODE_PARSE_ARGS,
-        "wrong number of arguments for 'FT.CURSOR|READ'");
-    if (rc == REDISMODULE_OK) return rc;
+    // the main thread); defensive fallback.
+    if (reqCtx) {
+      QueryError_SetWithoutUserDataFmt(&err, QUERY_ERROR_CODE_PARSE_ARGS,
+                                       "wrong number of arguments for 'FT.CURSOR|READ'");
+      CoordRequestCtx_ReplyOrStoreError(reqCtx, ctx, &err);
+      return REDISMODULE_OK;
+    }
     return RedisModule_WrongArity(ctx);
   }
 
   long long cid;
   if (RedisModule_StringToLongLong(argv[3], &cid) != REDISMODULE_OK) {
-    // Unreachable on the coord path (CursorCommand pre-validates the cid);
-    // handled defensively in case upstream pre-validation changes.
-    int rc = RSCursorRead_tryStoreEarlyError(ctx, QUERY_ERROR_CODE_PARSE_ARGS, "Bad cursor ID");
-    if (rc == REDISMODULE_OK) return rc;
+    // Unreachable on the coord path (CursorCommand pre-validates the cid); defensive fallback.
+    if (reqCtx) {
+      QueryError_SetWithoutUserDataFmt(&err, QUERY_ERROR_CODE_PARSE_ARGS, "Bad cursor ID");
+      CoordRequestCtx_ReplyOrStoreError(reqCtx, ctx, &err);
+      return REDISMODULE_OK;
+    }
     return RedisModule_ReplyWithError(ctx, "Bad cursor ID");
   }
 
@@ -1907,31 +1898,38 @@ int RSCursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     // Verify that the 4'th argument is `COUNT`.
     const char *count_str = RedisModule_StringPtrLen(argv[4], NULL);
     if (strcasecmp(count_str, "count") != 0) {
-      int rc = RSCursorRead_tryStoreEarlyError(ctx, QUERY_ERROR_CODE_ARG_UNRECOGNIZED,
-          "Unknown argument `%s`", count_str);
-      if (rc == REDISMODULE_OK) return rc;
+      if (reqCtx) {
+        QueryError_SetWithoutUserDataFmt(&err, QUERY_ERROR_CODE_ARG_UNRECOGNIZED,
+                                         "Unknown argument `%s`", count_str);
+        CoordRequestCtx_ReplyOrStoreError(reqCtx, ctx, &err);
+        return REDISMODULE_OK;
+      }
       return RedisModule_ReplyWithErrorFormat(ctx, "Unknown argument `%s`", count_str);
     }
 
     if (RedisModule_StringToLongLong(argv[5], &count) != REDISMODULE_OK) {
       const char *bad = RedisModule_StringPtrLen(argv[5], NULL);
-      int rc = RSCursorRead_tryStoreEarlyError(ctx, QUERY_ERROR_CODE_PARSE_ARGS,
-          "Bad value for COUNT: `%s`", bad);
-      if (rc == REDISMODULE_OK) return rc;
+      if (reqCtx) {
+        QueryError_SetWithoutUserDataFmt(&err, QUERY_ERROR_CODE_PARSE_ARGS,
+                                         "Bad value for COUNT: `%s`", bad);
+        CoordRequestCtx_ReplyOrStoreError(reqCtx, ctx, &err);
+        return REDISMODULE_OK;
+      }
       return RedisModule_ReplyWithErrorFormat(ctx, "Bad value for COUNT: `%s`", bad);
     }
   }
 
   Cursor *cursor = Cursors_TakeForExecution(GetGlobalCursor(cid), cid);
   if (cursor == NULL) {
-    int rc = RSCursorRead_tryStoreEarlyError(ctx, QUERY_ERROR_CODE_GENERIC,
-        "Cursor not found, id: %lld", cid);
-    if (rc == REDISMODULE_OK) return rc;
+    if (reqCtx) {
+      QueryError_SetWithoutUserDataFmt(&err, QUERY_ERROR_CODE_GENERIC,
+                                       "Cursor not found, id: %lld", cid);
+      CoordRequestCtx_ReplyOrStoreError(reqCtx, ctx, &err);
+      return REDISMODULE_OK;
+    }
     return RedisModule_ReplyWithErrorFormat(ctx, "Cursor not found, id: %lld", cid);
   }
 
-  // Check if we are already blocked from elsewhere (e.g. coordinator CursorCommand).
-  RedisModuleBlockedClient *upstreamBC = RedisModule_GetBlockedClientHandle(ctx);
   if (RunInThread(ctx) && !upstreamBC) {
     // Shard/local path: block and dispatch to worker. BlockCursorClient uses
     // NULL reply_callback (reply is written inline via thread-safe ctx), so
@@ -1950,8 +1948,6 @@ int RSCursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     //   (1) Coord+FAIL: upstreamBC != NULL, privdata is a CoordRequestCtx.
     //   (2) Coord+RETURN: upstreamBC != NULL, privdata is NULL.
     //   (3) NumShards==1 or !RunInThread(): upstreamBC == NULL.
-    CoordRequestCtx *reqCtx =
-        upstreamBC ? (CoordRequestCtx *)RedisModule_BlockClientGetPrivateData(upstreamBC) : NULL;
     if (reqCtx) {
       // Sub-case (1): lock out the main-thread timeout callback while we
       // read/update the AREQ.
