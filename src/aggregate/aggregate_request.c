@@ -1127,6 +1127,13 @@ void AREQ_WaitForAggregateResultsComplete(AREQ *req) {
   pthread_mutex_unlock(&req->syncCtx.aggregateResultsLock);
 }
 
+void AREQ_ResetAggregateResultsClaim(AREQ *req) {
+  atomic_store_explicit(&req->syncCtx.aggregatingResults, false, memory_order_release);
+  pthread_mutex_lock(&req->syncCtx.aggregateResultsLock);
+  req->syncCtx.aggregateResultsDone = false;
+  pthread_mutex_unlock(&req->syncCtx.aggregateResultsLock);
+}
+
 void RequestSyncCtx_RegisterAbortWakeChannel(RequestSyncCtx *ctx, struct MRChannel *chan) {
   pthread_mutex_lock(&ctx->abortWakeLock);
   ctx->abortWakeChannel = chan;

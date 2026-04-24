@@ -1815,6 +1815,14 @@ static void cursorRead(RedisModuleCtx *ctx, Cursor *cursor, size_t count, bool b
   if (req) {
     // Cursor reads don't use reply_callback, so clear the flag.
     req->useReplyCallback = false;
+    // Reset the claim so the next startPipeline can re-enter AggregateResults.
+    // Safe to reset unconditionally: the claim protocol isn't wired into cursor
+    // chunks yet, so no other thread is racing on this AREQ's sync state here.
+    // This assertion will catch any attempt to wire RETURN_STRICT into cursor reads.
+    RS_ASSERT(req->reqConfig.timeoutPolicy != TimeoutPolicy_ReturnStrict);
+    // TODO: remove once cursor reads are wired for RETURN_STRICT and verify that
+    // the reset is still safe.
+    AREQ_ResetAggregateResultsClaim(req);
     RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
     runCursor(reply, cursor, count);
     RedisModule_EndReply(reply);

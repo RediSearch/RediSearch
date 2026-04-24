@@ -624,6 +624,10 @@ void AREQ_SetTimedOut(AREQ *req);
 bool AREQ_TryClaimAggregateResults(AREQ *req);
 void AREQ_SignalAggregateResultsComplete(AREQ *req);
 void AREQ_WaitForAggregateResultsComplete(AREQ *req);
+/* Reset claim+done back to initial state between cursor chunks so the next
+ * startPipeline can re-claim. Caller must ensure no other thread is currently
+ * calling TryClaim/Signal/Wait on this AREQ (true between paused cursor chunks). */
+void AREQ_ResetAggregateResultsClaim(AREQ *req);
 
 /* Abort-wake registration (single-slot). BG reader registers its blocking channel
  * before reading; timeout callback flips `timedOut` then broadcasts to wake it.
