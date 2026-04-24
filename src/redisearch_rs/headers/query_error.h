@@ -237,6 +237,7 @@ uint8_t QueryError_CodeMaxValue(void);
  * [`QueryErrorCode::OutOfMemory`], and [`QueryErrorCode::UnavailableSlots`].
  * If another message is provided, [`QueryErrorCode::Generic`] is returned.
  *
+ * If the message is a null pointer, [`QueryErrorCode::Generic`] is returned.
  *
  * # Safety
  *

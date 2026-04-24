@@ -115,12 +115,17 @@ pub const extern "C" fn QueryError_CodeMaxValue() -> u8 {
 /// [`QueryErrorCode::OutOfMemory`], and [`QueryErrorCode::UnavailableSlots`].
 /// If another message is provided, [`QueryErrorCode::Generic`] is returned.
 ///
+/// If the message is a null pointer, [`QueryErrorCode::Generic`] is returned.
 ///
 /// # Safety
 ///
 /// - `message` must be a valid C string or a NULL pointer.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn QueryError_GetCodeFromMessage(message: *const c_char) -> QueryErrorCode {
+    if message.is_null() {
+        return QueryErrorCode::Generic;
+    }
+
     const TIMED_OUT_PREFIX: &[u8] = QueryErrorCode::TimedOut.prefix_c_str().to_bytes();
     const OUT_OF_MEMORY_PREFIX: &[u8] = QueryErrorCode::OutOfMemory.prefix_c_str().to_bytes();
     const UNAVAILABLE_SLOTS_PREFIX: &[u8] =
