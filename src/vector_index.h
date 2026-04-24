@@ -6,7 +6,8 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#pragma once
+#ifndef VECTOR_INDEX_H__
+#define VECTOR_INDEX_H__
 #include "VecSim/vec_sim.h"
 #include "iterators/iterator_api.h"
 #include "query_node.h"
@@ -196,3 +197,5 @@ QueryIterator *createMetricIteratorFromVectorQueryResults(VecSimQueryReply *repl
 #ifdef __cplusplus
 }
 #endif
+
+#endif // VECTOR_INDEX_H__

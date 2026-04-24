@@ -16,7 +16,7 @@ use std::{
 };
 
 use ffi::{
-    QueryIterator, RS_VecSimCheckTimeout, TimeoutCtx, VecSearchMode, VecSimIndex,
+    QueryIterator, RLookupKeyHandle, RS_VecSimCheckTimeout, TimeoutCtx, VecSearchMode, VecSimIndex,
     VecSimQueryParams, timespec,
 };
 use index_result::RSIndexResult;
@@ -89,18 +89,15 @@ pub struct VectorScoreSource<'index, E: ExpirationChecker = FieldExpirationCheck
     ///
     /// Both lifetime slots are `'index`: the iterator borrows the index (`'index`)
     /// and reads the `timeoutCtx` referent, which [`new`](Self::new) requires
-    /// to stay valid for `'index` as well.
+    /// to stay valid for `'idx` as well.
     batch_iter: Option<BatchIterator<'index, 'index>>,
-    /// Number of batches consumed so far. Reset on rewind.
+    /// Total number of batches fetched so far. Reset on rewind. (Batches mode only.)
     pub num_iterations: usize,
-    /// Largest batch size used so far. Reset on rewind. Read by the
-    /// profile printer.
+    /// Maximum batch size used across all batches. Reset on rewind. (Batches mode only.)
     pub max_batch_size: usize,
-    /// Highest `num_iterations` value observed so far. Reset on rewind. Read
-    /// by the profile printer.
+    /// Zero-based batch index at which `max_batch_size` was first observed.
+    /// Reset on rewind.
     pub max_batch_iteration: usize,
-    /// Raw child iterator handle exposed to the C profile printer.
-    pub child_raw: *mut QueryIterator,
     /// Rolling estimate of how many child docs pass the filter; seeded from
     /// [`initial_child_num_estimated`](Self::initial_child_num_estimated) and
     /// refined each batch. Reset on rewind.
@@ -114,15 +111,22 @@ pub struct VectorScoreSource<'index, E: ExpirationChecker = FieldExpirationCheck
     /// contract without re-issuing the HNSW query (which would also re-poll
     /// the timeout context and could spuriously fail). Reset by `rewind`.
     unfiltered_consumed: bool,
-
-    /// Score key for this iterator's metric output; set by the metrics loader.
-    pub own_key: *mut RLookupKey<'idx>,
+    /// Score key for this iterator's metric output. Set by the C metrics
+    /// loader via an accessor; null until then.
+    pub own_key: *mut RLookupKey<'index>,
+    /// Back-reference to the handle that points to [`own_key`](Self::own_key).
+    /// Set by the C side alongside `own_key`; null until then.
+    pub key_handle: *mut RLookupKeyHandle,
+    /// Raw owning pointer to the C child iterator; stored for
+    /// `HybridIterator_GetChild`. Set by the C side via an accessor; null
+    /// until then.
+    pub child_raw: *mut QueryIterator,
 }
 
 // SAFETY: VectorScoreSource is used from a single thread (the query execution
-// thread). The raw pointers are non-owning (index, timeout_ctx) or are managed
-// by the struct itself (batch_iter). It is the caller's responsibility to
-// ensure the index outlives the iterator.
+// thread). `index`, `own_key`, `key_handle`, and `child_raw` are non-owning raw
+// pointers; the caller ensures they outlive the iterator. `batch_iter` is managed
+// by the struct itself. All other fields are owned Rust values.
 unsafe impl<E: ExpirationChecker> Send for VectorScoreSource<'_, E> {}
 
 impl<'index, E: ExpirationChecker> VectorScoreSource<'index, E> {
@@ -192,13 +196,14 @@ impl<'index, E: ExpirationChecker> VectorScoreSource<'index, E> {
             num_iterations: 0,
             max_batch_size: 0,
             max_batch_iteration: 0,
-            child_raw: ptr::null_mut(),
             child_num_estimated,
             initial_child_num_estimated: child_num_estimated,
             k_remaining: k.get(),
             expiration,
             unfiltered_consumed: false,
             own_key: ptr::null_mut(),
+            key_handle: ptr::null_mut(),
+            child_raw: ptr::null_mut(),
         }
     }
 
@@ -307,6 +312,11 @@ impl<'index, E: ExpirationChecker + Clone> ScoreSource for VectorScoreSource<'in
         }
 
         let batch_size = self.compute_batch_size();
+        // Track max batch size and which iteration it occurred on (zero-based).
+        if batch_size.get() > self.max_batch_size {
+            self.max_batch_size = batch_size.get();
+            self.max_batch_iteration = self.num_iterations; // zero-based before increment
+        }
         self.num_iterations += 1;
 
         let batch_iter = self.batch_iter.as_mut().expect("just initialised above");
@@ -424,6 +434,8 @@ impl<'index, E: ExpirationChecker + Clone> ScoreSource for VectorScoreSource<'in
         // Drop the batch iterator, which frees it via `BatchIterator::Drop`.
         self.batch_iter = None;
         self.num_iterations = 0;
+        self.max_batch_size = 0;
+        self.max_batch_iteration = 0;
         self.k_remaining = self.k.get();
         self.child_num_estimated = self.initial_child_num_estimated;
         self.unfiltered_consumed = false;

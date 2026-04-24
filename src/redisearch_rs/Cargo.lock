@@ -1183,6 +1183,8 @@ dependencies = [
  "rqe_core",
  "rqe_iterator_type",
  "rqe_iterators",
+ "top_k",
+ "vector_score_source",
  "workspace_hack",
 ]
 
@@ -3288,7 +3290,6 @@ name = "vector_score_source_bencher"
 version = "0.0.1"
 dependencies = [
  "build_utils",
- "cc",
  "criterion",
  "ffi",
  "redis_mock",

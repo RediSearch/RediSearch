@@ -23,58 +23,6 @@ use rqe_iterators::{c2rust::call_print_profile, profile_print::ProfilePrintCtx};
 
 // ── C-only iterator PrintProfile vtable implementations ─────────────────
 
-/// `PrintProfile` vtable entry for Hybrid (vector search) iterators.
-///
-/// # Safety
-///
-/// 1. `self_` must be a valid pointer to a Hybrid iterator.
-/// 2. `map` must be a valid pointer to a [`redis_reply::MapBuilder`].
-/// 3. `ctx` must be a valid pointer to a [`ProfilePrintCtx`].
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn Hybrid_PrintProfile(
-    self_: *const QueryIterator,
-    map: *mut redis_reply::MapBuilder,
-    ctx: *mut ProfilePrintCtx,
-) {
-    // SAFETY: precondition 2.
-    let map = unsafe { &mut *map };
-    // SAFETY: precondition 3.
-    let ctx = unsafe { &mut *ctx };
-
-    map.kv_simple_string(c"Type", c"VECTOR");
-    ctx.print_optional_counters(map);
-
-    // SAFETY: precondition 1.
-    let mode_str = unsafe { ffi::HybridIterator_GetSearchModeString(self_) };
-    if !mode_str.is_null() {
-        // SAFETY: mode_str is a valid C string (checked non-null).
-        let mode_cstr = unsafe { CStr::from_ptr(mode_str) };
-        map.kv_simple_string(c"Vector search mode", mode_cstr);
-    }
-    // SAFETY: precondition 1.
-    if unsafe { ffi::HybridIterator_IsBatchMode(self_) } {
-        // SAFETY: precondition 1.
-        let num_iters = unsafe { ffi::HybridIterator_GetNumIterations(self_) };
-        map.kv_long_long(c"Batches number", num_iters as i64);
-        // SAFETY: precondition 1.
-        let max_batch = unsafe { ffi::HybridIterator_GetMaxBatchSize(self_) };
-        map.kv_long_long(c"Largest batch size", max_batch as i64);
-        // SAFETY: precondition 1.
-        let max_iter = unsafe { ffi::HybridIterator_GetMaxBatchIteration(self_) };
-        map.kv_long_long(c"Largest batch iteration (zero based)", max_iter as i64);
-    }
-
-    // SAFETY: precondition 1.
-    let child = unsafe { ffi::HybridIterator_GetChild(self_) };
-    if let Some(child) = std::ptr::NonNull::new(child as *mut _) {
-        let mut child_map = map.kv_map(c"Child iterator");
-        let mut child_ctx = ctx.child_ctx();
-        // SAFETY: child is valid (checked non-null) and its PrintProfile
-        // vtable entry is set (it was profile-wrapped by Profile_AddIters).
-        unsafe { call_print_profile(child, &mut child_map, &mut child_ctx) };
-    }
-}
-
 /// `PrintProfile` vtable entry for Optimus (optimizer) iterators.
 ///
 /// # Safety
