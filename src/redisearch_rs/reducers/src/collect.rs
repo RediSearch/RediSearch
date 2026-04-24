@@ -47,6 +47,17 @@ pub struct CollectReducer<'a> {
     sort_asc_map: u64,
     /// Optional LIMIT clause: `(offset, count)`.
     limit: Option<(u64, u64)>,
+    /// Effective per-variant cap, resolved once at construction by
+    /// [`Self::new`] and reused by every [`CollectCtx::insert_entry`] call.
+    ///
+    /// Heap path (`!sort_keys.is_empty()`): `offset + count` with
+    /// [`DEFAULT_LIMIT`] filling in for a missing `LIMIT`.
+    /// Array path (`sort_keys.is_empty()`): explicit `LIMIT offset + count`
+    /// when present, otherwise `ffi::RSGlobalConfig.maxAggregateResults`
+    /// sampled at construction (runtime `CONFIG SET MAXAGGREGATERESULTS` is
+    /// therefore picked up at the next reducer instantiation, i.e. the next
+    /// aggregate query, not mid-query).
+    cap: usize,
 }
 
 /// Per-group instance of the [`CollectReducer`].
@@ -86,6 +97,7 @@ impl<'a> CollectReducer<'a> {
         sort_asc_map: u64,
         limit: Option<(u64, u64)>,
     ) -> Self {
+        let cap = Self::resolve_cap(sort_keys.is_empty(), limit);
         Self {
             reducer: Reducer::new(),
             arena: Bump::new(),
@@ -94,6 +106,41 @@ impl<'a> CollectReducer<'a> {
             sort_keys,
             sort_asc_map,
             limit,
+            cap,
+        }
+    }
+
+    /// Resolve the effective per-variant cap once at construction.
+    ///
+    /// `saturating_add` guards against overflow on pathological
+    /// `(offset, count)` pairs; the result is clamped to `u64::MAX` and
+    /// narrowed to `usize` (used by [`MinMaxHeap::with_capacity`] on the
+    /// heap path and by the `len < cap` check on the array path).
+    ///
+    /// Array path (`is_array`): explicit `LIMIT offset + count` when
+    /// present, otherwise `ffi::RSGlobalConfig.maxAggregateResults`
+    /// sampled here. Runtime `CONFIG SET MAXAGGREGATERESULTS` is picked
+    /// up at the next reducer instantiation (next aggregate query), not
+    /// mid-query.
+    ///
+    /// Heap path (`!is_array`): `offset + count` with [`DEFAULT_LIMIT`]
+    /// filling in for a missing `LIMIT`, matching the C reducer's
+    /// default when `SORTBY` is present without `LIMIT`.
+    fn resolve_cap(is_array: bool, limit: Option<(u64, u64)>) -> usize {
+        if is_array {
+            match limit {
+                Some((offset, count)) => offset.saturating_add(count) as usize,
+                // SAFETY: `ffi::RSGlobalConfig` is the module-global
+                // config instance initialised once during module load;
+                // we only read a single `usize` field here.
+                None => unsafe { ffi::RSGlobalConfig.maxAggregateResults },
+            }
+        } else {
+            let (offset, count) = match limit {
+                Some(pair) => pair,
+                None => (0, DEFAULT_LIMIT),
+            };
+            offset.saturating_add(count) as usize
         }
     }
 
@@ -105,25 +152,6 @@ impl<'a> CollectReducer<'a> {
     /// Allocate a new [`CollectCtx`] instance from the arena.
     pub fn alloc_instance(&self) -> &mut CollectCtx {
         self.arena.alloc(CollectCtx::new(self))
-    }
-
-    /// Effective top-K heap capacity (`offset + count`) for the heap path.
-    ///
-    /// Resolves a missing `LIMIT` to `(0, `[`DEFAULT_LIMIT`]`)` per design
-    /// doc §6.5, matching the C reducer's default when `SORTBY` is present
-    /// without `LIMIT`. `saturating_add` guards against overflow on
-    /// pathological `(offset, count)` pairs; the result is clamped to
-    /// `u64::MAX` and narrowed to `usize` for [`MinMaxHeap::with_capacity`].
-    ///
-    /// Only meaningful on the heap path (`!sort_keys.is_empty()`); callers
-    /// on the array path use `ffi::RSGlobalConfig.maxAggregateResults` as
-    /// the cap instead (consulted inside the shared `insert_entry` helper).
-    const fn heap_cap(&self) -> usize {
-        let (offset, count) = match self.limit {
-            Some(pair) => pair,
-            None => (0, DEFAULT_LIMIT),
-        };
-        offset.saturating_add(count) as usize
     }
 
     // The accessors below exist only for the C++ parser tests
@@ -184,7 +212,7 @@ impl CollectCtx {
         let storage = if r.sort_keys.is_empty() {
             Storage::Array(Vec::new())
         } else {
-            Storage::Heap(MinMaxHeap::with_capacity(r.heap_cap()))
+            Storage::Heap(MinMaxHeap::with_capacity(r.cap))
         };
         Self { storage }
     }
@@ -234,44 +262,37 @@ impl CollectCtx {
     /// never pay the projection cost (boxed-slice allocation + one
     /// [`SharedValue::clone`] per field key).
     ///
+    /// Both paths consult the cap resolved once at reducer construction
+    /// time by [`CollectReducer::resolve_cap`] and stored on
+    /// [`CollectReducer::cap`]; neither re-reads the global config nor
+    /// recomputes `offset + count` per row.
+    ///
     /// ## Array path (no `SORTBY`)
     ///
-    /// Effective cap = explicit `LIMIT offset + count` when present, else
-    /// `ffi::RSGlobalConfig.maxAggregateResults` (read per-call so runtime
-    /// `CONFIG SET` takes effect). Entries are pushed in insertion order
-    /// while `len < cap`; further entries are dropped silently before
-    /// `project` is invoked.
+    /// Entries are pushed in insertion order while `len < cap`; further
+    /// entries are dropped silently before `project` is invoked.
     ///
     /// ## Heap path (`SORTBY` present)
     ///
-    /// Cap comes from [`CollectReducer::heap_cap`]. Entries are pushed
-    /// while `heap.len() < cap`; once full, the new entry replaces the
-    /// current max only if it compares strictly better. Survival is
-    /// decided by building only the [`EntryKey`] for the candidate and
-    /// comparing it against [`MinMaxHeap::peek_max`]'s key — the
-    /// [`HeapEntry::projected`] payload is built (via `project`) only
-    /// for survivors. Ties between equal [`EntryKey`]s resolve in an
-    /// unspecified order.
+    /// Entries are pushed while `heap.len() < cap`; once full, the new
+    /// entry replaces the current max only if it compares strictly
+    /// better. Survival is decided by building only the [`EntryKey`] for
+    /// the candidate and comparing it against [`MinMaxHeap::peek_max`]'s
+    /// key — the [`HeapEntry::projected`] payload is built (via
+    /// `project`) only for survivors. Ties between equal [`EntryKey`]s
+    /// resolve in an unspecified order.
     pub fn insert_entry<F>(&mut self, r: &CollectReducer, sort_vals: &[SharedValue], project: F)
     where
         F: FnOnce() -> Box<[SharedValue]>,
     {
         match &mut self.storage {
             Storage::Array(v) => {
-                let cap = match r.limit {
-                    Some((offset, count)) => offset.saturating_add(count) as usize,
-                    // SAFETY: `ffi::RSGlobalConfig` is the module-global
-                    // config instance initialised once during module load;
-                    // we only read a single `usize` field here.
-                    None => unsafe { ffi::RSGlobalConfig.maxAggregateResults },
-                };
-                if v.len() < cap {
+                if v.len() < r.cap {
                     v.push(project());
                 }
             }
             Storage::Heap(h) => {
-                let cap = r.heap_cap();
-                if cap == 0 {
+                if r.cap == 0 {
                     return;
                 }
                 // Build only the comparator-visible half of the
@@ -282,7 +303,7 @@ impl CollectCtx {
                     sort_vals: sort_vals.to_vec().into_boxed_slice(),
                     sort_asc_map: r.sort_asc_map,
                 };
-                if h.len() < cap {
+                if h.len() < r.cap {
                     h.push(HeapEntry {
                         key: candidate_key,
                         projected: project(),
@@ -320,10 +341,10 @@ impl CollectCtx {
     /// The `(offset, count)` pair in [`CollectReducer::limit`] is applied
     /// as `skip(offset).take(count)` over the drained sequence, emitting
     /// at most `count` entries starting at rank `offset`. When `LIMIT` is
-    /// absent, all drained entries are emitted (the heap path is already
-    /// bounded by [`DEFAULT_LIMIT`] via [`CollectReducer::heap_cap`]; the
-    /// array path is bounded by `ffi::RSGlobalConfig.maxAggregateResults`
-    /// via [`Self::insert_entry`]).
+    /// absent, all drained entries are emitted (both paths are already
+    /// bounded by [`CollectReducer::cap`] via [`Self::insert_entry`]:
+    /// the heap path by [`DEFAULT_LIMIT`] and the array path by
+    /// `ffi::RSGlobalConfig.maxAggregateResults`).
     ///
     /// `offset > len` yields an empty array; `count > len - offset` emits
     /// the remainder without padding.

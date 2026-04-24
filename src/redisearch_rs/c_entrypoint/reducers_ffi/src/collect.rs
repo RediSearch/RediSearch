@@ -112,7 +112,7 @@ pub unsafe extern "C" fn collectFreeInstance(_r: *mut ffi::Reducer, ctx: *mut c_
 /// Shard-style `Add`: reads each configured field / sort key from an
 /// [`ffi::RLookupRow`] and forwards to [`CollectCtx::insert_entry`].
 ///
-/// This is the sole `Add` entry point for the standalone path (Task 1.3).
+/// This is the sole `Add` entry point for the standalone path.
 /// The coordinator path (Deliverable 2) will introduce a separate
 /// `collectAddCoordinator` that consumes an already-materialised shard
 /// response and funnels into the same [`CollectCtx::insert_entry`] helper.
