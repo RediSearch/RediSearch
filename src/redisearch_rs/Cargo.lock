@@ -721,6 +721,26 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d9c4f5dac5e15c24eb999c26181a6ca40b39fe946cbe4c263c7209467bc83af2"
 
 [[package]]
+name = "fork_gc"
+version = "0.0.1"
+dependencies = [
+ "ffi",
+ "redis-module",
+ "workspace_hack",
+]
+
+[[package]]
+name = "fork_gc_ffi"
+version = "0.0.1"
+dependencies = [
+ "build_utils",
+ "cbindgen",
+ "ffi",
+ "fork_gc",
+ "workspace_hack",
+]
+
+[[package]]
 name = "fs-err"
 version = "3.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1863,6 +1883,7 @@ dependencies = [
  "buffer",
  "build_utils",
  "fnv_ffi",
+ "fork_gc_ffi",
  "idf_ffi",
  "inverted_index_ffi",
  "iterators_ffi",
