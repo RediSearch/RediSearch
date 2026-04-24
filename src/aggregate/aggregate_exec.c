@@ -1689,8 +1689,10 @@ int AREQ_StartCursor(AREQ *r, RedisModule_Reply *reply, StrongRef spec_ref, Quer
     return REDISMODULE_ERR;
   }
   cursor->execState = r;
-  // Cache timeout config so FT.CURSOR READ stays sticky per-cursor across
-  // changes to the `search-on-timeout` config. Written before the first Cursor_Pause.
+  // Cache timeout config on the Cursor so subsequent FT.CURSOR READs use the
+  // values from the originating FT.AGGREGATE, regardless of any later
+  // `search-on-timeout` config change. Written before the first Cursor_Pause.
+  RS_ASSERT(cursor->hybrid_ref.rm == NULL); // assuming hybrid cursors don't reach here
   cursor->queryTimeoutMS = (size_t)r->reqConfig.queryTimeoutMS;
   cursor->queryTimeoutPolicy = r->reqConfig.timeoutPolicy;
   r->cursor_id = cursor->id;

@@ -3871,7 +3871,7 @@ static inline int CursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, i
 
   handlerCtx.spec_ref = (WeakRef){0};
 
-  // On coord+READ, peek the cursor's sticky timeout config so coord and shard
+  // On coord+READ, peek the cursor's cached timeout config so coord and shard
   // stay aligned across changes to the `search-on-timeout` config. A valid-format
   // CID with no registered cursor returns defaults (timeoutMS=0, policy=Return)
   // and is reported by RSCursorReadCommand on the worker.
@@ -3885,6 +3885,9 @@ static inline int CursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, i
     CursorTimeoutInfo info =
         Cursors_PeekTimeoutInfo(GetGlobalCursor((uint64_t)cid), (uint64_t)cid);
     if (info.queryTimeoutPolicy == TimeoutPolicy_Fail) {
+#ifdef ENABLE_ASSERT
+      RS_ASSERT(!info.isHybrid);
+#endif
       CoordRequestCtx *reqCtx = CoordRequestCtx_New(COMMAND_AGGREGATE);
       handlerCtx.bcCtx.privdata = reqCtx;
       handlerCtx.bcCtx.free_privdata = DistCoordReqFreePrivData;

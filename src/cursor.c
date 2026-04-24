@@ -9,6 +9,7 @@
 #include "cursor.h"
 #include "resp3.h"
 #include <time.h>
+#include <assert.h>
 #include "rmutil/rm_assert.h"
 #include <err.h>
 
@@ -316,6 +317,11 @@ Cursor *Cursors_TakeForExecution(CursorList *cl, uint64_t cid) {
   return cur;
 }
 
+// Cursors that never populated queryTimeoutPolicy (e.g. hybrid cursors) rely
+// on the rm_calloc zero reading back as TimeoutPolicy_Return so the coord
+// FAIL branch is skipped for them.
+static_assert(TimeoutPolicy_Return == 0, "TimeoutPolicy_Return must be the zero value");
+
 CursorTimeoutInfo Cursors_PeekTimeoutInfo(CursorList *cl, uint64_t cid) {
   CursorTimeoutInfo info = {.queryTimeoutMS = 0, .queryTimeoutPolicy = TimeoutPolicy_Return};
   CursorList_Lock(cl);
@@ -325,6 +331,9 @@ CursorTimeoutInfo Cursors_PeekTimeoutInfo(CursorList *cl, uint64_t cid) {
     const Cursor *cur = kh_value(cl->lookup, iter);
     info.queryTimeoutMS = cur->queryTimeoutMS;
     info.queryTimeoutPolicy = cur->queryTimeoutPolicy;
+#ifdef ENABLE_ASSERT
+    info.isHybrid = (cur->hybrid_ref.rm != NULL);
+#endif
   }
   CursorList_Unlock(cl);
   return info;

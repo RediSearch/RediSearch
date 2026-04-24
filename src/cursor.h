@@ -54,8 +54,9 @@ typedef struct Cursor {
   size_t queryTimeoutMS;
 
   /** Timeout policy copied from the originating AREQ at cursor creation.
-   * Sticky per-cursor: changes to the `search-on-timeout` config between
-   * commands do not affect in-flight cursors. Same access pattern as queryTimeoutMS. */
+   * Frozen for the life of the cursor: changes to the `search-on-timeout`
+   * config between commands do not affect in-flight cursors. Same access
+   * pattern as queryTimeoutMS. */
   RSTimeoutPolicy queryTimeoutPolicy;
 
   /** Position within idle list.
@@ -193,13 +194,16 @@ typedef struct {
   /** Cached `timeoutPolicy`. Defaults to `TimeoutPolicy_Return` when the
    * cursor was not found (safe: the coord FAIL branch is then skipped). */
   RSTimeoutPolicy queryTimeoutPolicy;
+#ifdef ENABLE_ASSERT
+  bool isHybrid;
+#endif
 } CursorTimeoutInfo;
 
 /**
  * Peek at an idle cursor's cached query-timeout and timeout-policy without
  * taking ownership. Values are captured at AREQ creation and frozen onto the
  * cursor at AREQ_StartCursor; reading them here (instead of live RSGlobalConfig)
- * keeps the cursor's timeout configuration sticky per-cursor.
+ * keeps the cursor's timeout configuration frozen for the life of the cursor.
  *
  * Concurrency: the cursor-list lock is held only for the khash lookup and a
  * single scalar read of each write-once field.
