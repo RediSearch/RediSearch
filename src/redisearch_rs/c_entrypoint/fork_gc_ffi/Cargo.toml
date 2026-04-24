@@ -21,4 +21,5 @@ build_utils = { path = "../../build_utils" }
 [dependencies]
 ffi = { workspace = true }
 fork_gc = { workspace = true }
+tracing.workspace = true
 workspace_hack.workspace = true

@@ -8,13 +8,18 @@
 */
 
 use std::{
-    io::{self, Write},
+    io::{self, Read, Write},
     marker::PhantomData,
     mem::ManuallyDrop,
     os::fd::FromRawFd,
 };
 
+use crate::reader::Reader;
+use crate::util::read_with_timeout;
 use crate::writer::Writer;
+
+/// Poll timeout used by the parent-side pipe reader (3 minutes).
+const POLL_TIMEOUT_MS: i32 = 1_000 * 60 * 3;
 
 /// Safe wrapper around [`ffi::ForkGC`].
 #[repr(transparent)]
@@ -67,6 +72,38 @@ impl ForkGC {
             // the C side's Fork GC state machine.
             pipe_writer: ManuallyDrop::new(unsafe {
                 io::PipeWriter::from_raw_fd(self.0.pipe_write_fd)
+            }),
+            _borrow: PhantomData,
+        })
+    }
+
+    /// Return a readable handle to the GC pipe.
+    ///
+    /// Each call to [`Reader::recv_fixed`] delegates to
+    /// [`read_with_timeout`] (3-minute poll) and retries on `EINTR`.
+    /// On timeout or pipe error the error is logged and surfaced.
+    pub fn reader(&mut self) -> Reader<impl Read + '_> {
+        // Local [`Read`] adapter over the pipe fd. Holds a
+        // `ManuallyDrop<io::PipeWriter>` so dropping the writer does not
+        // close the caller's fd, and a `PhantomData<&'a mut ForkGC>` so
+        // the writer borrows the `ForkGC` for its entire lifetime.
+        struct ForkGCPipeReader<'a> {
+            pipe_reader: ManuallyDrop<io::PipeReader>,
+            _borrow: PhantomData<&'a mut ForkGC>,
+        }
+
+        impl Read for ForkGCPipeReader<'_> {
+            fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+                read_with_timeout(&mut *self.pipe_reader, buf, POLL_TIMEOUT_MS)
+            }
+        }
+
+        Reader::from_reader(ForkGCPipeReader {
+            // SAFETY: `pipe_read_fd` is an open readable fd maintained
+            // by the C side's Fork GC state machine; `ManuallyDrop`
+            // prevents `File::drop` from closing it.
+            pipe_reader: ManuallyDrop::new(unsafe {
+                io::PipeReader::from_raw_fd(self.0.pipe_read_fd)
             }),
             _borrow: PhantomData,
         })

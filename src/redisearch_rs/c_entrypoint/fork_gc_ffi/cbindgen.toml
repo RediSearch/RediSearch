@@ -11,3 +11,8 @@ usize_is_size_t = true
 # `ForkGC` is a C type defined in `fork_gc.h`; don't emit a forward
 # declaration for it.
 exclude = ["ForkGC"]
+
+[fn]
+# Map Rust's `#[must_use]` to the GCC/Clang warn_unused_result attribute
+# so C call sites get the same warning as the original C code.
+must_use = "__attribute__((warn_unused_result))"
