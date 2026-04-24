@@ -3835,6 +3835,7 @@ typedef enum {
   CURSOR_SUBCMD_GC,
   CURSOR_SUBCMD_COUNT, // keep last
 } CursorSubcommand;
+
 #ifdef ENABLE_ASSERT
 static const char *const kCursorSubNames[] = {
     [CURSOR_SUBCMD_READ] = "READ",

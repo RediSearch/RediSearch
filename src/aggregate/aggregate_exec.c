@@ -1703,8 +1703,9 @@ int AREQ_StartCursor(AREQ *r, RedisModule_Reply *reply, StrongRef spec_ref, Quer
 static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num) {
   AREQ *req = cursor->execState;
   AREQ_ProfilePrinterCtx(req)->cursor_reads++;
-  // Update timeout for current cursor read; skip on coord+FAIL where the
-  // deadline is enforced by the blocked-client timer armed in CursorCommand.
+  // Skip when useReplyCallback is set (coord+FAIL): the deadline is owned by
+  // the blocked-client timer, armed by buildPipelineAndExecute (initial
+  // WITHCURSOR) or CursorCommand (subsequent READ).
   if (!req->useReplyCallback) {
     SearchCtx_UpdateTime(AREQ_SearchCtx(req), req->reqConfig.queryTimeoutMS);
   }
