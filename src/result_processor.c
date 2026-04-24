@@ -2716,6 +2716,16 @@ static int RPDepleter_Next_Accumulate(ResultProcessor *base, SearchResult *r) {
   // Call the sync depletion function directly
   RPDepleter_Deplete(self);
 
+  // Under RETURN-STRICT an upstream timeout must abort the pipeline with zero
+  // results: propagate TIMEDOUT immediately instead of yielding buffered data.
+  // Matches the behavior already implemented in RPSorter / RPMaxScoreNormalizer
+  // / RPSafeLoader via their "rc != RS_RESULT_OK" fallthrough.
+  if (self->last_rc == RS_RESULT_TIMEDOUT &&
+      base->parent->timeoutPolicy == TimeoutPolicy_ReturnStrict) {
+    self->last_rc = RS_RESULT_EOF;
+    return RS_RESULT_TIMEDOUT;
+  }
+
   // Switch to yield mode
   self->base.Next = RPDepleter_Next_Yield;
 
