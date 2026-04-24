@@ -302,6 +302,12 @@ void UpgradeDeprecatedMTConfigs();
 
 char *getRedisConfigValue(RedisModuleCtx *ctx, const char* confName);
 
+/*
+ * Get the boolean value of a Redis config. Returns `defaultValue` if the
+ * config does not exist or isn't a boolean config.
+ */
+bool getRedisConfigBool(RedisModuleCtx *ctx, const char *confName, bool defaultValue);
+
 // We limit the number of worker threads to limit the amount of memory used by the thread pool
 // and to prevent the system from running out of resources.
 // The number of worker threads should be proportional to the number of cores in the system at most,

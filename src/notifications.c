@@ -523,11 +523,7 @@ void ShutdownDiskClose(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subev
 #define BIGREDIS_MAX_RAM "bigredis-max-ram"
 
 bool getHideUserDataFromLogs() {
-  char *value = getRedisConfigValue(RSDummyContext, HIDE_USER_DATA_FROM_LOGS);
-  RedisModule_Assert(value);
-  const bool hideUserData = !strcasecmp(value, "yes");
-  rm_free(value);
-  return hideUserData;
+  return getRedisConfigBool(RSDummyContext, HIDE_USER_DATA_FROM_LOGS, false);
 }
 
 void onUpdatedHideUserDataFromLogs(RedisModuleCtx *ctx) {

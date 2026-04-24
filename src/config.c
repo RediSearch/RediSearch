@@ -1739,6 +1739,14 @@ char *getRedisConfigValue(RedisModuleCtx *ctx, const char* confName) {
   return res;
 }
 
+bool getRedisConfigBool(RedisModuleCtx *ctx, const char *confName, bool defaultValue) {
+  int value = 0;
+  if (RedisModule_ConfigGetBool(ctx, confName, &value) != REDISMODULE_OK) {
+    return defaultValue;
+  }
+  return value != 0;
+}
+
 sds RSConfig_GetInfoString(const RSConfig *config) {
   sds ss = sdsempty();
 

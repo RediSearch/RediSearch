@@ -55,11 +55,7 @@ static int validateAofSettings(RedisModuleCtx *ctx) {
   }
 
   // Can't execute commands on the loading context, so use the dummy one
-  int value = 0;
-  int rv = RedisModule_ConfigGetBool(RSDummyContext, "aof-use-rdb-preamble", &value);
-  RS_ASSERT(rv == REDISMODULE_OK);
-
-  if (!value) {
+  if (!getRedisConfigBool(RSDummyContext, "aof-use-rdb-preamble", false)) {
     RedisModule_Log(RSDummyContext, "warning", "FATAL: aof-use-rdb-preamble required if AOF is used!");
     rc = 0;
   }

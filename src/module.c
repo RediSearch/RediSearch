@@ -4644,10 +4644,7 @@ void Initialize_CoordKeyspaceNotifications(RedisModuleCtx *ctx) {
 }
 
 static bool checkClusterEnabled(RedisModuleCtx *ctx) {
-  int isClusterEnabled = 0;
-  int rv = RedisModule_ConfigGetBool(ctx, "cluster-enabled", &isClusterEnabled);
-  RS_ASSERT_ALWAYS(rv == REDISMODULE_OK);
-  return isClusterEnabled;
+  return getRedisConfigBool(ctx, "cluster-enabled", false);
 }
 
 int ConfigCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
