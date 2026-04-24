@@ -39,7 +39,6 @@
 #include "wildcard.h"
 #include "geometry/geometry_api.h"
 #include "iterators_rs.h"
-#include "iterators/hybrid_reader.h"
 #include "iterators/optimizer_reader.h"
 #include "search_disk.h"
 #include "shard_window_ratio.h"

@@ -7,16 +7,9 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-mod timespec;
+// Provide stubs for C symbols
+// that rqe_iterators and inverted_index reference at link time.
+redis_mock::mock_or_stub_missing_redis_c_symbols!();
+extern crate redisearch_rs;
 
-pub mod empty;
-pub mod id_list;
-pub mod intersection;
-pub mod inverted_index;
-pub mod metric;
-pub mod not;
-pub mod optional;
-pub mod profile;
-pub mod union;
-pub mod vector_top_k;
-pub mod wildcard;
+mod iterator;

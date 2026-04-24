@@ -7,16 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-mod timespec;
-
-pub mod empty;
-pub mod id_list;
-pub mod intersection;
-pub mod inverted_index;
-pub mod metric;
-pub mod not;
-pub mod optional;
-pub mod profile;
-pub mod union;
-pub mod vector_top_k;
-pub mod wildcard;
+fn main() {
+    #[cfg(feature = "unittest")]
+    build_utils::bind_foreign_c_symbols();
+}

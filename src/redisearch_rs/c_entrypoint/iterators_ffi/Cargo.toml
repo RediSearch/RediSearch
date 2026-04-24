@@ -30,6 +30,8 @@ numeric_range_tree.workspace = true
 query_node_type.workspace = true
 rqe_iterator_type.workspace = true
 rqe_iterators.workspace = true
+top_k.workspace = true
+vector_score_source.workspace = true
 workspace_hack.workspace = true
 
 [build-dependencies]

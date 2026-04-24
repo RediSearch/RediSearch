@@ -7,16 +7,6 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-mod timespec;
-
-pub mod empty;
-pub mod id_list;
-pub mod intersection;
-pub mod inverted_index;
-pub mod metric;
-pub mod not;
-pub mod optional;
-pub mod profile;
-pub mod union;
-pub mod vector_top_k;
-pub mod wildcard;
+// Some of the missing C symbols are actually Rust-provided.
+extern crate redisearch_rs;
+redis_mock::mock_or_stub_missing_redis_c_symbols!();
