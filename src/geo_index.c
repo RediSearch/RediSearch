@@ -8,10 +8,10 @@
 */
 
 #include "geo_index.h"
+#include "numeric_filter.h"
 #include "rmutil/util.h"
 #include "rmalloc.h"
 #include "rmutil/rm_assert.h"
-#include "query_node.h"
 #include "query_param.h"
 #include "iterators_rs.h"
 
@@ -100,33 +100,6 @@ void LegacyGeoFilter_Free(LegacyGeoFilter *gf) {
   GeoFilter_Free(&gf->base);
 }
 
-QueryIterator *NewGeoRangeIterator(const RedisSearchCtx *ctx, const GeoFilter *gf, IteratorsConfig *config) {
-  // check input parameters are valid
-  if (gf->radius <= 0 ||
-      gf->lon > GEO_LONG_MAX || gf->lon < GEO_LONG_MIN ||
-      gf->lat > GEO_LAT_MAX || gf->lat < GEO_LAT_MIN) {
-    return NULL;
-  }
-
-  GeoHashRange ranges[GEO_RANGE_COUNT] = {{0}};
-  double radius_meter = gf->radius * extractUnitFactor(gf->unitType);
-  calcRanges(gf->lon, gf->lat, radius_meter, ranges);
-
-  QueryIterator **iters = rm_calloc(GEO_RANGE_COUNT, sizeof(*iters));
-  ((GeoFilter *)gf)->numericFilters = rm_calloc(GEO_RANGE_COUNT, sizeof(*gf->numericFilters));
-  FieldFilterContext filterCtx = {.field = {.index_tag = FieldMaskOrIndex_Index, .index = gf->fieldSpec->index}, .predicate = FIELD_EXPIRATION_PREDICATE_DEFAULT};
-  for (size_t ii = 0; ii < GEO_RANGE_COUNT; ++ii) {
-    if (ranges[ii].min != ranges[ii].max) {
-      NumericFilter *filt = gf->numericFilters[ii] =
-              NewNumericFilter(ranges[ii].min, ranges[ii].max, 1, 1, true, NULL);
-      filt->fieldSpec = gf->fieldSpec;
-      filt->geoFilter = gf;
-      iters[ii] = NewNumericFilterIterator(ctx, filt, INDEXFLD_T_GEO, config, &filterCtx);
-    }
-  }
-
-  return NewUnionIterator(iters, GEO_RANGE_COUNT, true, 1, QN_GEO, NULL, config);
-}
 
 GeoDistance GeoDistance_Parse(const char *s) {
 #define X(c, val)            \

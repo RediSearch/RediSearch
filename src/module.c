@@ -38,7 +38,6 @@
 #include "query_param.h"
 #include "dictionary.h"
 #include "suggest.h"
-#include "numeric_index.h"
 #include "redisearch_api.h"
 #include "alias.h"
 #include "module.h"

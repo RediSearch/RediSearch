@@ -15,7 +15,6 @@
 #include "redis_index.h"
 #include "redisearch_rs/headers/numeric_range_tree.h"
 #include "tag_index.h"
-#include "numeric_index.h"
 #include "redisearch_rs/headers/iterators_rs.h"
 #include "geometry/geometry_api.h"
 #include "geometry_index.h"

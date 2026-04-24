@@ -103,6 +103,11 @@ where
         self.children.iter_mut()
     }
 
+    /// Consumes the iterator and returns its children.
+    pub fn into_children(self) -> Vec<I> {
+        self.children
+    }
+
     /// Consumes the iterator and returns a [`super::UnionTrimmed`] over the same children,
     /// or [`None`] if there are fewer than 3 children.
     pub fn into_trimmed(self, limit: usize, asc: bool) -> Option<super::UnionTrimmed<'index, I>> {

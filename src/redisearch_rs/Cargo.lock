@@ -1107,6 +1107,8 @@ dependencies = [
  "inverted_index_ffi",
  "libc",
  "numeric_range_tree",
+ "numeric_range_tree_ffi",
+ "query_node_type",
  "rqe_iterator_type",
  "rqe_iterators",
  "workspace_hack",
@@ -2143,6 +2145,7 @@ dependencies = [
  "numeric_range_tree_ffi",
  "query_error",
  "redis_mock",
+ "rqe_iterators",
  "varint_ffi",
  "workspace_hack",
 ]

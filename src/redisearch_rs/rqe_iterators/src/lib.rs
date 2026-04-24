@@ -43,8 +43,11 @@ pub use empty::Empty;
 pub use expiration_checker::{ExpirationChecker, FieldExpirationChecker, NoOpChecker};
 pub use id_list::IdList;
 pub use intersection::{Intersection, NewIntersectionIterator, new_intersection_iterator};
-pub use inverted_index::{Missing, Numeric, Tag, Term};
-pub use metric::Metric;
+pub use inverted_index::{
+    GeoRangeError, InvalidGeoInput, Missing, Numeric, NumericIteratorVariant, Tag, Term,
+    build_geo_numeric_filters, extract_geo_unit_factor, new_geo_range_iterator,
+    open_numeric_or_geo_index,
+};
 pub use not::NotIterator;
 pub use optional::OptionalIterator;
 pub use rqe_iterator_type::IteratorType;

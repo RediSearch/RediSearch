@@ -25,7 +25,9 @@ libc.workspace = true
 field.workspace = true
 inverted_index.workspace = true
 inverted_index_ffi = { path = "../inverted_index_ffi" }
+numeric_range_tree_ffi = { path = "../numeric_range_tree_ffi" }
 numeric_range_tree.workspace = true
+query_node_type.workspace = true
 rqe_iterator_type.workspace = true
 rqe_iterators.workspace = true
 workspace_hack.workspace = true
