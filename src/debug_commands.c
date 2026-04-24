@@ -1807,7 +1807,7 @@ DEBUG_COMMAND(HybridCommand_DebugWrapper) {
     return DEBUG_hybridCommandHandler(ctx, ++argv, --argc);
   }
 
-  return DistHybridCommandInternal(ctx, ++argv, --argc, true);
+  return DistHybridCommandInternal(ctx, ++argv, --argc, true, false /* isProfile */);
 }
 
 /**
