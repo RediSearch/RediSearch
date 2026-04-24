@@ -3579,7 +3579,6 @@ name = "vector_score_source_bencher"
 version = "0.0.1"
 dependencies = [
  "build_utils",
- "cc",
  "criterion",
  "ffi",
  "redis_mock",

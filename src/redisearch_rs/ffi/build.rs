@@ -181,16 +181,8 @@ const HEADERS: &[HeaderAllowlist] = &[
         vars: &[],
     },
     HeaderAllowlist {
-        path: "src/iterators/hybrid_reader.h",
-        fns: &[
-            "HybridIterator_GetChild",
-            "HybridIterator_GetMaxBatchIteration",
-            "HybridIterator_GetMaxBatchSize",
-            "HybridIterator_GetNumIterations",
-            "HybridIterator_GetSearchModeString",
-            "HybridIterator_IsBatchMode",
-            "RS_VecSimCheckTimeout",
-        ],
+        path: "src/iterators/vector_top_k.h",
+        fns: &["RS_VecSimCheckTimeout"],
         types: &[],
         vars: &[],
     },

@@ -37,7 +37,6 @@
 #include "query_internal.h"
 #include "aggregate/aggregate.h"
 #include "suffix.h"
-#include "iterators/hybrid_reader.h"
 #include "search_disk.h"
 #include "shard_window_ratio.h"
 #include "idf_ffi.h"
@@ -854,8 +853,8 @@ static QueryIterator *Query_EvalVectorNode(QueryEvalCtx *q, QueryNode *qn,
     handle->is_valid = true;
 
     if (it->type == HYBRID_ITERATOR) {
-      handle->key_ptr = HybridIterator_GetOwnKeyRef(it);
-      HybridIterator_SetKeyHandle(it, handle); // Set up back-reference
+      handle->key_ptr = VectorTopK_GetOwnKeyRef(it);
+      VectorTopK_SetKeyHandle(it, handle); // Set up back-reference
     } else { // Must be METRIC_ITERATOR due to the condition above
       handle->key_ptr = GetMetricOwnKeyRef(it);
       SetMetricRLookupHandle(it, handle); // Set up back-reference

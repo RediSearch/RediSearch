@@ -207,7 +207,6 @@ Packaging:
 Benchmarks:
   make benchmark        Run performance benchmarks
   make micro-benchmarks Run micro-benchmarks
-  make vecsim-bench     Run VecSim micro-benchmarks
 
 Documentation:
   make check-links         Check all links in Markdown files (failures only)
@@ -440,17 +439,6 @@ micro-benchmarks: $(BUILD_SCRIPT)
 	@echo "Running micro-benchmarks..."
 	@$(BUILD_SCRIPT) $(BUILD_ARGS) RUN_MICRO_BENCHMARKS
 
-vecsim-bench: $(BUILD_SCRIPT)
-	@echo "Running VecSim micro-benchmarks..."
-	@$(BUILD_SCRIPT) $(BUILD_ARGS) TESTS
-	@RSBENCH_PATH=$$(find $(ROOT)/bin -name "rsbench" | head -1); \
-	if [ -z "$$RSBENCH_PATH" ]; then \
-		echo "Error: rsbench executable not found after build"; \
-		exit 1; \
-	fi; \
-	echo "Running rsbench from $$RSBENCH_PATH"; \
-	$$RSBENCH_PATH
-
 callgrind:
 	@echo "Running callgrind profiling..."
 	@valgrind --tool=callgrind --dump-instr=yes --simulate-cache=no \
@@ -493,5 +481,5 @@ test-linkcheck:
 
 .PHONY: list dry-run bootstrap-modes help bootstrap fetch build clean test unit-tests rust-tests archive-rust-tests rust-tests-from-archive pytest
 .PHONY: run lint fmt license-check pack upload-artifacts
-.PHONY: benchmark micro-benchmarks vecsim-bench callgrind parsers verify-deps
+.PHONY: benchmark micro-benchmarks callgrind parsers verify-deps
 .PHONY: check-links check-links-verbose test-linkcheck
