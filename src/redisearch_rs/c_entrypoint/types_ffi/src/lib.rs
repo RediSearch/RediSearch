@@ -259,7 +259,7 @@ pub unsafe extern "C" fn IndexResult_TermOffsetsRef<'result, 'index>(
 
     result.as_term().map(move |term| match term {
         RSTermRecord::Borrowed { offsets, .. } => offsets,
-        RSTermRecord::Owned { offsets, .. } => {
+        RSTermRecord::Owned { offsets, .. } | RSTermRecord::FullyOwned { offsets, .. } => {
             // SAFETY: `RSOffsetVector` and `RSOffsetSlice` have identical `#[repr(C)]` layout.
             // The inner lifetime parameter is a zero-sized `PhantomData` marker. The owned data
             // lives as long as the `RSIndexResult`.

@@ -612,21 +612,18 @@ error:
 }
 
 extern RedisModuleCtx *RSDummyContext;
-static int checkTLS(char** client_key, char** client_cert, char** ca_cert, char** key_pass){
+static int checkTLS(RedisModuleString **client_key, RedisModuleString **client_cert,
+                    RedisModuleString **ca_cert, RedisModuleString **key_pass) {
   int ret = 1;
   RedisModuleCtx *ctx = RSDummyContext;
   RedisModule_ThreadSafeContextLock(ctx);
-  char* clusterTls = NULL;
-  char* tlsPort = NULL;
 
   // If `tls-cluster` is not set to `yes`, and `tls-port` is not set or zero,
   // we do not connect to the other nodes with TLS. We always want to connect with TLS
   // when the tls-port is set to a non-zero value, since this is the port we
   // get from the proxy on Enterprise, and the preferred port on OSS (see RedisCluster_GetTopology).
-  clusterTls = getRedisConfigValue(ctx, "tls-cluster");
-  if (!clusterTls || strcmp(clusterTls, "yes")) {
-    tlsPort = getRedisConfigValue(ctx, "tls-port");
-    if (!tlsPort || !strcmp(tlsPort, "0")) {
+  if (!getRedisConfigBool(ctx, "tls-cluster", false)) {
+    if (getRedisConfigNumeric(ctx, "tls-port", 0) == 0) {
       ret = 0;
       goto done;
     }
@@ -640,30 +637,24 @@ static int checkTLS(char** client_key, char** client_cert, char** ca_cert, char*
   if (!*client_key || !*client_cert || !*ca_cert){
     ret = 0;
     if(*client_key){
-      rm_free(*client_key);
+      RedisModule_FreeString(ctx, *client_key);
       *client_key = NULL;
     }
     if(*client_cert){
-      rm_free(*client_cert);
+      RedisModule_FreeString(ctx, *client_cert);
       *client_cert = NULL;
     }
     if(*ca_cert){
-      rm_free(*ca_cert);
+      RedisModule_FreeString(ctx, *ca_cert);
       *ca_cert = NULL;
     }
     if (*key_pass) {
-      rm_free(*key_pass);
+      RedisModule_FreeString(ctx, *key_pass);
       *key_pass = NULL;
     }
   }
 
 done:
-  if (clusterTls) {
-    rm_free(clusterTls);
-  }
-  if (tlsPort) {
-    rm_free(tlsPort);
-  }
   RedisModule_ThreadSafeContextUnlock(ctx);
   return ret;
 }
@@ -673,17 +664,23 @@ done:
  * "TLS not configured", which is a no-op) and REDIS_ERR on any setup failure;
  * a warning is logged on failure. The caller owns the ac on failure. */
 static int MRConn_InitTLS(MRConn *conn, redisAsyncContext *c) {
-  char *client_cert = NULL, *client_key = NULL, *ca_cert = NULL, *key_file_pass = NULL;
+  RedisModuleString *client_cert = NULL, *client_key = NULL, *ca_cert = NULL, *key_file_pass = NULL;
   if (!checkTLS(&client_key, &client_cert, &ca_cert, &key_file_pass)) {
     return REDIS_OK;
   }
 
   redisSSLContextError ssl_error = 0;
-  SSL_CTX *ssl_context = MRConn_CreateSSLContext(ca_cert, client_cert, client_key, key_file_pass, &ssl_error);
-  rm_free(client_key);
-  rm_free(client_cert);
-  rm_free(ca_cert);
-  rm_free(key_file_pass);
+  SSL_CTX *ssl_context = MRConn_CreateSSLContext(
+      RedisModule_StringPtrLen(ca_cert, NULL),
+      RedisModule_StringPtrLen(client_cert, NULL),
+      RedisModule_StringPtrLen(client_key, NULL),
+      key_file_pass ? RedisModule_StringPtrLen(key_file_pass, NULL) : NULL,
+      &ssl_error);
+
+  RedisModule_FreeString(RSDummyContext, client_key);
+  RedisModule_FreeString(RSDummyContext, client_cert);
+  RedisModule_FreeString(RSDummyContext, ca_cert);
+  if (key_file_pass) RedisModule_FreeString(RSDummyContext, key_file_pass);
 
   if (ssl_context == NULL || ssl_error != 0) {
     CONN_LOG_WARNING(conn, "Error on ssl context creation: %s",

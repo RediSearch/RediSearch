@@ -60,6 +60,10 @@ enum TermBuilderRecord<'index> {
         term: Option<&'index RSQueryTerm>,
         offsets: RSOffsetVector,
     },
+    FullyOwned {
+        term: Option<Box<RSQueryTerm>>,
+        offsets: RSOffsetVector,
+    },
 }
 
 impl<'index> RSIndexResultBuilder<'index> {
@@ -234,6 +238,24 @@ impl<'index> RSTermResultBuilder<'index> {
         self
     }
 
+    /// Set the term record data with an owned query term (wrapped in a
+    /// [`Box`]) and owned offsets.
+    ///
+    /// Produces an [`RSTermRecord::FullyOwned`] variant. Use this when the
+    /// offsets do not live long enough to be borrowed by the result, but the
+    /// caller still wants the record to own the query term (as with
+    /// [`Self::borrowed_record`]). This is the right choice for readers that
+    /// decode offsets from a transient source such as a disk page.
+    #[inline]
+    pub fn fully_owned_record(
+        mut self,
+        term: Option<Box<RSQueryTerm>>,
+        offsets: RSOffsetVector,
+    ) -> Self {
+        self.record = TermBuilderRecord::FullyOwned { term, offsets };
+        self
+    }
+
     /// Build the final [`RSIndexResult`]
     #[inline]
     pub fn build(self) -> RSIndexResult<'index> {
@@ -243,6 +265,9 @@ impl<'index> RSTermResultBuilder<'index> {
             }
             TermBuilderRecord::Owned { term, offsets } => {
                 RSResultData::Term(RSTermRecord::Owned { term, offsets })
+            }
+            TermBuilderRecord::FullyOwned { term, offsets } => {
+                RSResultData::Term(RSTermRecord::FullyOwned { term, offsets })
             }
         };
         RSIndexResult {
@@ -664,7 +689,8 @@ impl<'index> RSIndexResult<'index> {
             RSResultData::Union(RSAggregateResult::Owned { .. })
             | RSResultData::Intersection(RSAggregateResult::Owned { .. })
             | RSResultData::HybridMetric(RSAggregateResult::Owned { .. })
-            | RSResultData::Term(RSTermRecord::Owned { .. }) => true,
+            | RSResultData::Term(RSTermRecord::Owned { .. })
+            | RSResultData::Term(RSTermRecord::FullyOwned { .. }) => true,
             RSResultData::Union(RSAggregateResult::Borrowed { .. })
             | RSResultData::Intersection(RSAggregateResult::Borrowed { .. })
             | RSResultData::HybridMetric(RSAggregateResult::Borrowed { .. })
