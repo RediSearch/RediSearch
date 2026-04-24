@@ -234,6 +234,87 @@ def test_debug_timeout_return_with_results():
     # Expect exactly one document from VSIM since the timeout occurred after processing one result - should be either doc:2 or doc:4
     env.assertTrue(('doc:2' in results.keys()) ^ ('doc:4' in results.keys()))
 
+# ---------------------------------------------------------------------------
+# Sanity comparison: debug results vs regular results
+# ---------------------------------------------------------------------------
+
+@skip(cluster=True)
+def test_debug_sanity_no_truncation():
+    """Verify a debug query with high timeouts returns the same results as a regular query.
+
+    Analogous to the Sanity() method in test_debug_commands.py for FT.SEARCH/FT.AGGREGATE.
+    """
+    env = Env(enableDebugCommand=True)
+    setup_basic_index(env)
+
+    regular_res = env.cmd('FT.HYBRID', 'idx', 'SEARCH', '*', 'VSIM',
+                          '@embedding', '$BLOB', 'PARAMS', '2', 'BLOB', query_vector)
+    regular_results, regular_count = get_results_from_hybrid_response(regular_res)
+
+    # Timeouts high enough that no component actually times out (4 docs in dataset).
+    debug_res = env.cmd('_FT.DEBUG', 'FT.HYBRID', 'idx', 'SEARCH', '*', 'VSIM',
+                        '@embedding', '$BLOB', 'PARAMS', '2', 'BLOB', query_vector,
+                        'TIMEOUT_AFTER_N_SEARCH', '100', 'TIMEOUT_AFTER_N_VSIM', '100',
+                        'DEBUG_PARAMS_COUNT', '4')
+    debug_results, debug_count = get_results_from_hybrid_response(debug_res)
+
+    env.assertEqual(regular_count, debug_count,
+                    message=f"Expected same count: regular={regular_count}, debug={debug_count}")
+    env.assertEqual(set(regular_results.keys()), set(debug_results.keys()),
+                    message="Debug query should return the same documents as regular query")
+
+@skip(cluster=True)
+def test_debug_sanity_truncated_subset():
+    """Verify a debug query with truncation returns a subset of regular query results."""
+    env = Env(enableDebugCommand=True, moduleArgs='ON_TIMEOUT RETURN')
+    setup_basic_index(env)
+
+    regular_res = env.cmd('FT.HYBRID', 'idx', 'SEARCH', '*', 'VSIM',
+                          '@embedding', '$BLOB', 'PARAMS', '2', 'BLOB', query_vector)
+    regular_results, _ = get_results_from_hybrid_response(regular_res)
+
+    # Both components limited to 1 result each; the union is at most 2 of the 4 docs.
+    debug_res = env.cmd('_FT.DEBUG', 'FT.HYBRID', 'idx', 'SEARCH', '*', 'VSIM',
+                        '@embedding', '$BLOB', 'PARAMS', '2', 'BLOB', query_vector,
+                        'TIMEOUT_AFTER_N_SEARCH', '1', 'TIMEOUT_AFTER_N_VSIM', '1',
+                        'DEBUG_PARAMS_COUNT', '4')
+    debug_results, debug_count = get_results_from_hybrid_response(debug_res)
+
+    env.assertGreater(len(regular_results), len(debug_results),
+                      message="Debug query with truncation should return fewer documents")
+    env.assertTrue(set(debug_results.keys()).issubset(set(regular_results.keys())),
+                   message="Debug results should be a subset of regular results")
+    warnings = get_warnings(debug_res)
+    env.assertGreater(len(warnings), 0, message="Expected at least one timeout warning")
+
+# ---------------------------------------------------------------------------
+# Boundary: TIMEOUT_AFTER_N_* 0 means "no timeout for that component"
+# ---------------------------------------------------------------------------
+
+@skip(cluster=True)
+def test_debug_timeout_zero_means_no_timeout():
+    """TIMEOUT_AFTER_N_* 0 means "no timeout for this component" — it runs normally.
+
+    This differs from non-hybrid TIMEOUT_AFTER_N where 0 means "timeout immediately."
+    """
+    env = Env(enableDebugCommand=True)
+    setup_basic_index(env)
+
+    regular_res = env.cmd('FT.HYBRID', 'idx', 'SEARCH', '*', 'VSIM',
+                          '@embedding', '$BLOB', 'PARAMS', '2', 'BLOB', query_vector)
+    regular_results, regular_count = get_results_from_hybrid_response(regular_res)
+
+    debug_res = env.cmd('_FT.DEBUG', 'FT.HYBRID', 'idx', 'SEARCH', '*', 'VSIM',
+                        '@embedding', '$BLOB', 'PARAMS', '2', 'BLOB', query_vector,
+                        'TIMEOUT_AFTER_N_SEARCH', '0', 'TIMEOUT_AFTER_N_VSIM', '0',
+                        'DEBUG_PARAMS_COUNT', '4')
+    debug_results, debug_count = get_results_from_hybrid_response(debug_res)
+
+    env.assertEqual(regular_count, debug_count,
+                    message="Timeout 0 should not truncate results")
+    env.assertEqual(set(regular_results.keys()), set(debug_results.keys()),
+                    message="Timeout 0 should return the same documents as regular query")
+
 # Warning and error tests
 #TODO: remove skip once FT.HYBRID warning handling for cluster is stable
 @skip(cluster=True)
