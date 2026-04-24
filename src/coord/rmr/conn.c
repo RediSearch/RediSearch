@@ -125,8 +125,7 @@ static MRConnPool *_MR_NewConnPool(MREndpoint *ep, size_t num, uv_loop_t *loop) 
  * which detaches hiredis cbData and schedules the async free of the MRConn
  * struct. Must be called from the uv thread, and exactly once per conn —
  * uv_close inside freeConn is not idempotent. */
-static void MRConn_Disconnect(MRConn *conn) {
-  CONN_LOG(conn, "Disconnecting connection");
+static inline void MRConn_Disconnect(MRConn *conn) {
   MRConn_SwitchState(conn, MRConn_Freeing);
 }
 
@@ -395,16 +394,6 @@ static inline void doConnect(MRConn *conn) {
   }
 }
 
-/* Timer callback armed while in MRConn_Reconnecting. Re-issues the async
- * connect in-place so the observable state stays Reconnecting for the whole
- * retry cycle (mirrors reauthTimerCallback). */
-static void reconnectTimerCallback(uv_timer_t *tm) {
-  MRConn *conn = tm->data;
-  RS_ASSERT(conn->state == MRConn_Reconnecting);
-  CONN_LOG(conn, "Reconnect attempt");
-  doConnect(conn);
-}
-
 static inline void doAuthenticate(MRConn *conn) {
   if (MRConn_SendAuth(conn) != REDIS_OK) {
     if (conn->authFailCount % AUTH_FAIL_LOG_INTERVAL == 0) {
@@ -415,6 +404,15 @@ static inline void doAuthenticate(MRConn *conn) {
     detachAndFreeAc(conn);
     MRConn_SwitchState(conn, MRConn_Reconnecting);
   }
+}
+
+/* Timer callback armed while in MRConn_Reconnecting. Re-issues the async
+ * connect in-place so the observable state stays Reconnecting for the whole
+ * retry cycle (mirrors reauthTimerCallback). */
+static void reconnectTimerCallback(uv_timer_t *tm) {
+  MRConn *conn = tm->data;
+  RS_ASSERT(conn->state == MRConn_Reconnecting);
+  doConnect(conn);
 }
 
 /* Timer callback armed while in MRConn_ReAuth. Re-sends AUTH after the reauth
@@ -485,7 +483,7 @@ static void MRConn_AuthCallback(redisAsyncContext *c, void *r, void *privdata) {
     goto cleanup;
   }
   // Entered only while the AUTH we issued is in flight.
-  RS_ASSERT(conn->state == MRConn_Authenticating);
+  RS_ASSERT(conn->state == MRConn_Authenticating || conn->state == MRConn_ReAuth);
 
   if (!r) {
     // hiredis is tearing down the ac (reply callbacks fire with r==NULL
@@ -524,8 +522,7 @@ cleanup:
  * MRConn_SwitchState, which handles the REDIS_ERR path by detaching and
  * transitioning back to Connecting. */
 static int MRConn_SendAuth(MRConn *conn) {
-  RS_ASSERT(conn->state == MRConn_Authenticating);
-  CONN_LOG(conn, "Authenticating...");
+  RS_ASSERT(conn->state == MRConn_Authenticating || conn->state == MRConn_ReAuth);
 
   size_t len = 0;
 
@@ -783,7 +780,7 @@ static MRConn *MR_NewConn(MREndpoint *ep, uv_loop_t *loop) {
   uv_timer_init(loop, &conn->timer);
   conn->timer.data = conn;
   MREndpoint_Copy(&conn->ep, ep);
-  CONN_LOG(conn, "Initial connection attempt");
+
   MRConn_SwitchState(conn, MRConn_Connecting);
   return conn;
 }
