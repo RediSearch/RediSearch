@@ -789,14 +789,6 @@ class TestCoordinatorTimeout:
         self.env.assertNotEqual(cursor_id, 0, message="Expected non-zero cursor ID")
         return cursor_id, res
 
-    def _drain_cursor(self, cursor_id):
-        """Drain remaining chunks from a cursor, tolerating 'Cursor not found'."""
-        while cursor_id != 0:
-            try:
-                _, cursor_id = self.env.cmd('FT.CURSOR', 'READ', 'idx', cursor_id)
-            except Exception:
-                break
-
     def _drain_cursor_counting(self, cursor_id, total_results):
         """Drain a cursor accumulating total_results from each chunk. Returns the final total."""
         while cursor_id != 0:
@@ -810,10 +802,10 @@ class TestCoordinatorTimeout:
         env = self.env
         prev_on_timeout_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
         run_command_on_all_shards(env, 'CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'fail')
-        cursor_id, _ = self._create_fail_cursor(chunk_size=chunk_size)
         baseline_cursor_total = _coord_cursor_total(env)
         before_info = info_modules_to_dict(env)
         base_err_coord = int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC])
+        cursor_id, _ = self._create_fail_cursor(chunk_size=chunk_size)
         return prev_on_timeout_policy, cursor_id, baseline_cursor_total, before_info, base_err_coord
 
     def _start_blocked_cursor_read(self, cursor_id):
@@ -829,19 +821,6 @@ class TestCoordinatorTimeout:
         blocked_client_id = wait_for_blocked_query_client(env, 'FT.CURSOR|READ',
                                                           'Client for FT.CURSOR|READ not found')
         return t_query, blocked_client_id
-
-    def _fire_client_timeout(self, blocked_client_id):
-        """Fire CLIENT UNBLOCK ... TIMEOUT and wait for the client to be unblocked."""
-        env = self.env
-        env.expect('CLIENT', 'UNBLOCK', blocked_client_id, 'TIMEOUT').equal(1)
-        wait_for_client_unblocked(env, blocked_client_id)
-
-    def _fire_blocked_cursor_read_timeout(self, cursor_id):
-        """Start FT.CURSOR READ, fire CLIENT UNBLOCK ... TIMEOUT, return the thread.
-        Caller arms any sync-point/pause before calling so the worker is pinned."""
-        t_query, blocked_client_id = self._start_blocked_cursor_read(cursor_id)
-        self._fire_client_timeout(blocked_client_id)
-        return t_query
 
     def _join_cursor_read_thread(self, t_query):
         env = self.env
@@ -889,7 +868,8 @@ class TestCoordinatorTimeout:
         try:
             t_query, blocked_client_id = self._start_blocked_cursor_read(cursor_id)
             self._wait_worker_pinned_at_sync_point(sync_point)
-            self._fire_client_timeout(blocked_client_id)
+            env.expect('CLIENT', 'UNBLOCK', blocked_client_id, 'TIMEOUT').equal(1)
+            wait_for_client_unblocked(env, blocked_client_id)
         finally:
             env.expect(debug_cmd(), 'SYNC_POINT', 'SIGNAL', sync_point).ok()
 
@@ -915,7 +895,9 @@ class TestCoordinatorTimeout:
             'Timeout while waiting for coordinator threads to pause', timeout=30)
 
         try:
-            t_query = self._fire_blocked_cursor_read_timeout(cursor_id)
+            t_query, blocked_client_id = self._start_blocked_cursor_read(cursor_id)
+            env.expect('CLIENT', 'UNBLOCK', blocked_client_id, 'TIMEOUT').equal(1)
+            wait_for_client_unblocked(env, blocked_client_id)
             self._join_cursor_read_thread(t_query)
         finally:
             env.expect(debug_cmd(), 'COORD_THREADS', 'RESUME').ok()
@@ -1156,7 +1138,8 @@ class TestCoordinatorTimeout:
                 lambda: (getIsStoreResultsPaused(env) == 1, {'paused': getIsStoreResultsPaused(env)}),
                 'Timeout while waiting for FT.CURSOR READ to pause around store results'
             )
-            self._fire_client_timeout(blocked_client_id)
+            env.expect('CLIENT', 'UNBLOCK', blocked_client_id, 'TIMEOUT').equal(1)
+            wait_for_client_unblocked(env, blocked_client_id)
             self._join_cursor_read_thread(t_query)
         finally:
             resetStoreResultsDebug(env)
@@ -1197,7 +1180,8 @@ class TestCoordinatorTimeout:
         try:
             t_query, blocked_client_id = self._start_blocked_cursor_read(cursor_id)
             self._wait_worker_pinned_at_sync_point(sync_point)
-            self._fire_client_timeout(blocked_client_id)
+            env.expect('CLIENT', 'UNBLOCK', blocked_client_id, 'TIMEOUT').equal(1)
+            wait_for_client_unblocked(env, blocked_client_id)
         finally:
             env.expect(debug_cmd(), 'SYNC_POINT', 'SIGNAL', sync_point).ok()
 
