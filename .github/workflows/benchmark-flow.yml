@@ -161,7 +161,12 @@ jobs:
               --github_org ${{ github.repository_owner }}
               --module_path ../../$REJSON_MODULE_PATH
               --required-module ReJSON
-              --github_sha ${{ github.sha }}
+              # On pull_request events github.sha is the ephemeral merge commit,
+              # which is garbage-collected after the PR merges and breaks later
+              # reproducibility of RTS time-series and Polar Signals `git_hash`
+              # labels. Use the PR head SHA instead; fall back to github.sha on
+              # push events (where it already is the head).
+              --github_sha ${{ github.event.pull_request.head.sha || github.sha }}
               --github_branch ${{ github.head_ref || github.ref_name }}
               --upload_results_s3
               --triggering_env $TRIGGERING_ENV
