@@ -68,10 +68,9 @@ pub struct CollectReducer<'a> {
 /// changes.
 ///
 /// [`CollectCtx::add`] captures the sort key values eagerly and defers
-/// field projection through a closure passed to
-/// [`CollectCtx::insert_entry`], so the per-row allocation and
-/// [`SharedValue::clone`] cost is only paid for entries that survive the
-/// per-variant cap.
+/// field projection through a closure passed to [`CollectCtx::insert_entry`],
+/// so the per-row allocation and [`SharedValue::clone`] cost is only paid for
+/// entries that survive the per-variant cap.
 /// [`CollectCtx::finalize`] drains the active variant, applies the `LIMIT`
 /// window, and serialises each surviving row as a `{field_name: value}` map.
 ///
@@ -365,6 +364,16 @@ impl CollectCtx {
             None => (0, usize::MAX),
         };
 
+        // Build the field-name `SharedValue`s once and `clone` them per
+        // row. `SharedValue::clone` is a refcount bump (see
+        // [`SharedValue`] doc), so each emitted row pays `F` Arc bumps
+        // instead of `F` fresh `Value::String` allocations.
+        let field_names: Box<[SharedValue]> = r
+            .field_keys
+            .iter()
+            .map(|key| SharedValue::new_string(key.name().to_bytes().to_vec()))
+            .collect();
+
         let row_maps: Vec<SharedValue> = projected_rows
             .into_iter()
             .skip(offset)
@@ -373,11 +382,8 @@ impl CollectCtx {
                 let pairs: Box<[_]> = projected
                     .into_vec()
                     .into_iter()
-                    .zip(r.field_keys.iter())
-                    .map(|(val, key)| {
-                        let name_val = SharedValue::new_string(key.name().to_bytes().to_vec());
-                        (name_val, val)
-                    })
+                    .zip(field_names.iter())
+                    .map(|(val, name)| (name.clone(), val))
                     .collect();
                 SharedValue::new(Value::Map(Map::new(pairs)))
             })
