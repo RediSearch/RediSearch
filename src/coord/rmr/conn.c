@@ -28,11 +28,10 @@ struct MRConn {
   MREndpoint ep;
   redisAsyncContext *conn;
   uv_loop_t *loop;
-  uint16_t authFailCount; // consecutive auth failures, for rate-limited logging
-  uint8_t state;          // MRConnState
-  uint8_t protocol;       // 0 (undetermined), 2, or 3
-  uv_timer_t timer;       // back-off timer for Connecting/ReAuth; inlined so its
-                          // lifetime is tied to the conn and libuv owns teardown.
+  uint16_t authFailCount;   // consecutive auth failures, for rate-limited logging
+  MRConnState state;
+  MRConnProtocol protocol;  // Current Redis protocol version in use on this connection
+  uv_timer_t timer;         // back-off timer for Connecting/ReAuth
 };
 
 static void MRConn_ConnectCallback(const redisAsyncContext *c, int status);
@@ -66,11 +65,10 @@ static int MRConn_SendAuth(MRConn *conn);
  * normally use one of the wrappers below instead. */
 static redisAsyncContext *_detachAc(MRConn *conn) {
   redisAsyncContext *ac = conn->conn;
-  conn->protocol = 0;
+  conn->protocol = MRConn_Protocol_Undetermined;
   if (!ac) {
     return NULL;
   }
-  // Freeing the cbData, not the connection or the uvloop.
   ac->data = NULL;
   conn->conn = NULL;
   return ac;
@@ -97,7 +95,7 @@ static void detachAndFreeAc(MRConn *conn) {
 /* Detach cbData and request a graceful shutdown of the hiredis async
  * context. hiredis fires the disconnect callback (with cbData already NULL)
  * and then frees the ac itself. */
-static void disconnectHiredisAc(MRConn *conn) {
+static void detachAndDisconnectAc(MRConn *conn) {
   redisAsyncContext *ac = _detachAc(conn);
   if (ac) redisAsyncDisconnect(ac);
 }
@@ -300,12 +298,13 @@ int MRConn_SendCommand(MRConn *c, MRCommand *cmd, redisCallbackFn *fn, void *pri
       return REDIS_ERR;
     }
   }
-  if (cmd->protocol != 0 && c->protocol != cmd->protocol) {
-    RS_ASSERT(cmd->protocol == 2 || cmd->protocol == 3);
-    if (redisAsyncCommand(c->conn, NULL, NULL, "HELLO %d", cmd->protocol) == REDIS_ERR) {
+  MRConnProtocol requiredProtocol = (MRConnProtocol)cmd->protocol;
+  if (requiredProtocol != MRConn_Protocol_Undetermined && c->protocol != requiredProtocol) {
+    RS_ASSERT(requiredProtocol == MRConn_Protocol_RESP2 || requiredProtocol == MRConn_Protocol_RESP3);
+    if (redisAsyncCommand(c->conn, NULL, NULL, "HELLO %d", requiredProtocol) == REDIS_ERR) {
       return REDIS_ERR;
     }
-    c->protocol = cmd->protocol;
+    c->protocol = requiredProtocol;
   }
   return redisAsyncFormattedCommand(c->conn, fn, privdata, cmd->cmd, sdslen(cmd->cmd));
 }
@@ -455,7 +454,7 @@ static void MRConn_SwitchState(MRConn *conn, MRConnState nextState) {
       // this conn become no-ops, then hand the conn off to freeConn. uv_close
       // inside freeConn synchronously stops the retry timer and defers the
       // struct free until the close callback fires.
-      disconnectHiredisAc(conn);
+      detachAndDisconnectAc(conn);
       freeConn(conn);
       return;
   }
@@ -762,8 +761,14 @@ static void MRConn_DisconnectCallback(const redisAsyncContext *c, int status) {
  * ac is in flight until ConnectCallback fires. On sync failure, SwitchState
  * re-enters Connecting to arm the retry timer. */
 static MRConn *MR_NewConn(MREndpoint *ep, uv_loop_t *loop) {
-  MRConn *conn = rm_malloc(sizeof(MRConn));
-  *conn = (MRConn){.state = MRConn_Connecting, .conn = NULL, .protocol = 0, .loop = loop, .authFailCount = 0};
+  MRConn *conn = rm_new(MRConn);
+  *conn = (MRConn){
+    .state = MRConn_Connecting,
+    .conn = NULL,
+    .protocol = MRConn_Protocol_Undetermined,
+    .loop = loop,
+    .authFailCount = 0,
+  };
   uv_timer_init(loop, &conn->timer);
   conn->timer.data = conn;
   MREndpoint_Copy(&conn->ep, ep);
@@ -806,7 +811,7 @@ static int MRConn_Connect(MRConn *conn) {
   }
   conn->conn = c;
   conn->conn->data = conn;
-  conn->protocol = 0;
+  conn->protocol = MRConn_Protocol_Undetermined;
 
   if (redisLibuvAttach(conn->conn, conn->loop) != REDIS_OK ||
       redisAsyncSetConnectCallback(conn->conn, MRConn_ConnectCallback) != REDIS_OK ||

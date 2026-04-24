@@ -22,9 +22,10 @@ extern "C" {
 #include <uv.h>
 
 /*
- * The state of the connection.
+ * The state of the connection. Packed so it fits in one byte when embedded
+ * in MRConn.
  */
-typedef enum {
+typedef enum __attribute__((packed)) {
   /* Connection is trying to connect (initial state and retry state) */
   MRConn_Connecting,
 
@@ -36,6 +37,16 @@ typedef enum {
   /* Connection should be freed */
   MRConn_Freeing
 } MRConnState;
+
+/*
+ * RESP protocol version negotiated on the connection. Packed so it fits in
+ * one byte when embedded in MRConn. Values match the HELLO argument.
+ */
+typedef enum __attribute__((packed)) {
+  MRConn_Protocol_Undetermined = 0,
+  MRConn_Protocol_RESP2 = 2,
+  MRConn_Protocol_RESP3 = 3,
+} MRConnProtocol;
 
 static inline const char *MRConnState_Str(MRConnState state) {
   switch (state) {
