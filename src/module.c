@@ -3835,6 +3835,15 @@ typedef enum {
   CURSOR_SUBCMD_GC,
   CURSOR_SUBCMD_COUNT, // keep last
 } CursorSubcommand;
+#ifdef ENABLE_ASSERT
+static const char *const kCursorSubNames[] = {
+    [CURSOR_SUBCMD_READ] = "READ",
+    [CURSOR_SUBCMD_DEL]  = "DEL",
+    [CURSOR_SUBCMD_GC]   = "GC",
+};
+static_assert(sizeof(kCursorSubNames) / sizeof(kCursorSubNames[0]) == CURSOR_SUBCMD_COUNT,
+              "kCursorSubNames is missing an entry for a CursorSubcommand value");
+#endif
 
 static inline int CursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                                 RedisModuleCmdFunc subcmd, ConcurrentCmdHandler dist_callback,
@@ -3846,13 +3855,6 @@ static inline int CursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, i
   }
 
 #ifdef ENABLE_ASSERT
-  static const char *const kCursorSubNames[] = {
-      [CURSOR_SUBCMD_READ] = "READ",
-      [CURSOR_SUBCMD_DEL]  = "DEL",
-      [CURSOR_SUBCMD_GC]   = "GC",
-  };
-  static_assert(sizeof(kCursorSubNames) / sizeof(kCursorSubNames[0]) == CURSOR_SUBCMD_COUNT,
-                "kCursorSubNames is missing an entry for a CursorSubcommand value");
   RS_ASSERT(sub < CURSOR_SUBCMD_COUNT);
   RS_ASSERT(strcasecmp(RedisModule_StringPtrLen(argv[1], NULL), kCursorSubNames[sub]) == 0);
 #endif
