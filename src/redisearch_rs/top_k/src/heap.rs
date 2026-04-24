@@ -11,6 +11,7 @@
 
 use std::cmp::Ordering;
 use std::collections::BinaryHeap;
+use std::num::NonZeroUsize;
 
 use ffi::t_docId;
 
@@ -55,14 +56,11 @@ impl PartialOrd for HeapEntry {
 
 impl Ord for HeapEntry {
     fn cmp(&self, other: &Self) -> Ordering {
-        // We want BinaryHeap's root to be the *worst* element so eviction is O(log k).
-        // `compare(self, other) == Greater` means self is worse than other
-        //   → self should be "greater" in BinaryHeap ordering → root.
+        // We want the worst element at the top of the heap so eviction is O(log k).
+        // `compare(self, other) == Greater` means self is worse.
         let score_ord = (self.compare)(self.result.score, other.result.score);
         match score_ord {
-            // self is better than other  → self should NOT be at root → self is "less"
             Ordering::Less => Ordering::Less,
-            // self is worse than other   → self should be at root → self is "greater"
             Ordering::Greater => Ordering::Greater,
             // Tie on score: higher doc_id is worse (evicted first) → Greater
             Ordering::Equal => self.result.doc_id.cmp(&other.result.doc_id),
@@ -96,7 +94,8 @@ pub struct TopKHeap {
 impl TopKHeap {
     /// Creates a new heap that holds at most `capacity` elements,
     /// using the supplied `compare` function to determine score order.
-    pub fn new(capacity: usize, compare: fn(f64, f64) -> Ordering) -> Self {
+    pub fn new(capacity: NonZeroUsize, compare: fn(f64, f64) -> Ordering) -> Self {
+        let capacity = capacity.into();
         Self {
             inner: BinaryHeap::with_capacity(capacity),
             capacity,
@@ -141,19 +140,13 @@ impl TopKHeap {
 
         if !self.is_full() {
             self.inner.push(entry);
-            return true;
+            true
         }
-
         // The heap is full. Only insert if the new element is strictly better than the
-        // current worst (root). `entry > root` means entry is worse → discard.
-        // `entry < root` means entry is better → evict root, insert entry.
+        // current worst (root). `entry > worst` means entry is worse → discard.
+        // `entry < worst` means entry is better → evict worst, insert entry.
         // Equal (same score AND same doc_id) → discard to avoid duplicates.
-        let should_insert = match self.inner.peek() {
-            Some(worst) => entry.cmp(worst) == Ordering::Less,
-            None => false,
-        };
-
-        if should_insert {
+        else if self.inner.peek().is_some_and(|worst| &entry < worst) {
             self.inner.pop();
             self.inner.push(entry);
             true
@@ -185,6 +178,10 @@ impl TopKHeap {
 mod tests {
     use super::*;
 
+    fn non_zero_capacity(capacity: usize) -> NonZeroUsize {
+        NonZeroUsize::new(capacity).unwrap()
+    }
+
     /// Ascending comparator: lower score is better (e.g. vector distance).
     fn asc(a: f64, b: f64) -> Ordering {
         a.partial_cmp(&b).unwrap_or(Ordering::Equal)
@@ -195,18 +192,16 @@ mod tests {
         b.partial_cmp(&a).unwrap_or(Ordering::Equal)
     }
 
-    // ── T1 tests ─────────────────────────────────────────────────────────────
-
     #[test]
     fn heap_fewer_than_k_preserves_all() {
-        let mut heap = TopKHeap::new(5, asc);
+        let mut heap = TopKHeap::new(non_zero_capacity(5), asc);
         heap.push(1, 3.0);
         heap.push(2, 1.0);
         heap.push(3, 2.0);
-        assert_eq!(heap.len(), 3);
 
         let results = heap.drain_sorted();
-        // Best first (lowest score first for ASC)
+
+        assert_eq!(results.len(), 3);
         assert_eq!(results[0].score, 1.0);
         assert_eq!(results[1].score, 2.0);
         assert_eq!(results[2].score, 3.0);
@@ -214,17 +209,18 @@ mod tests {
 
     #[test]
     fn heap_evicts_worst_when_full_asc() {
-        let mut heap = TopKHeap::new(3, asc);
+        let mut heap = TopKHeap::new(non_zero_capacity(3), asc);
         heap.push(1, 5.0);
         heap.push(2, 3.0);
         heap.push(3, 4.0);
-        // Full, worst = 5.0 (doc 1)
 
-        let inserted = heap.push(4, 2.0); // 2.0 is better than 5.0 → evict doc 1
+        // Better score evicts the current worst (5.0)
+        let inserted = heap.push(4, 2.0);
         assert!(inserted);
         assert_eq!(heap.len(), 3);
 
-        let not_inserted = heap.push(5, 6.0); // 6.0 is worse than current worst (4.0) → discard
+        // Worse score is rejected without changing the heap
+        let not_inserted = heap.push(5, 6.0);
         assert!(!not_inserted);
 
         let results = heap.drain_sorted();
@@ -234,31 +230,33 @@ mod tests {
 
     #[test]
     fn heap_evicts_worst_when_full_desc() {
-        let mut heap = TopKHeap::new(3, desc);
+        let mut heap = TopKHeap::new(non_zero_capacity(3), desc);
         heap.push(1, 1.0);
         heap.push(2, 3.0);
         heap.push(3, 2.0);
-        // Full, worst = 1.0 (doc 1)
 
-        let inserted = heap.push(4, 4.0); // 4.0 is better (higher) → evict doc 1
+        // Better score (higher in DESC) evicts the current worst (1.0)
+        let inserted = heap.push(4, 4.0);
         assert!(inserted);
 
-        let not_inserted = heap.push(5, 0.5); // 0.5 is worse → discard
+        // Worse score (lower in DESC) is rejected
+        let not_inserted = heap.push(5, 0.5);
         assert!(!not_inserted);
 
         let results = heap.drain_sorted();
         let scores: Vec<f64> = results.iter().map(|r| r.score).collect();
-        assert_eq!(scores, vec![4.0, 3.0, 2.0]); // best-first = highest-first for DESC
+        assert_eq!(scores, vec![4.0, 3.0, 2.0]);
     }
 
     #[test]
     fn heap_capacity_one_keeps_best_asc() {
-        let mut heap = TopKHeap::new(1, asc);
+        let mut heap = TopKHeap::new(non_zero_capacity(1), asc);
         heap.push(1, 5.0);
-        heap.push(2, 3.0); // better
-        heap.push(3, 4.0); // worse than 3.0, not inserted
+        heap.push(2, 3.0);
+        heap.push(3, 4.0);
 
         let results = heap.drain_sorted();
+
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].score, 3.0);
         assert_eq!(results[0].doc_id, 2);
@@ -266,16 +264,44 @@ mod tests {
 
     #[test]
     fn heap_tie_breaking_keeps_lower_doc_id() {
-        let mut heap = TopKHeap::new(2, asc);
+        let mut heap = TopKHeap::new(non_zero_capacity(2), asc);
         heap.push(10, 1.0);
         heap.push(5, 1.0);
-        // Both have score 1.0. Capacity=2, both fit.
-        // Now insert a third with the same score → evict highest doc_id (10)
-        heap.push(3, 1.0);
+        heap.push(3, 1.0); // third tied entry evicts doc_id 10 (highest loses the tie)
 
         let results = heap.drain_sorted();
         let ids: Vec<t_docId> = results.iter().map(|r| r.doc_id).collect();
-        // Should keep doc_ids 3 and 5 (lower ids win ties)
+
+        assert!(ids.contains(&3));
+        assert!(ids.contains(&5));
+        assert!(!ids.contains(&10));
+    }
+
+    #[test]
+    fn heap_exact_duplicate_not_inserted_when_full() {
+        let mut heap = TopKHeap::new(non_zero_capacity(2), asc);
+        heap.push(1, 1.0);
+        heap.push(2, 2.0);
+
+        let inserted = heap.push(2, 2.0);
+
+        assert!(!inserted);
+        assert_eq!(heap.len(), 2);
+        let results = heap.drain_sorted();
+        assert_eq!(results.len(), 2);
+        assert_eq!(results.iter().filter(|r| r.doc_id == 2).count(), 1);
+    }
+
+    #[test]
+    fn heap_tie_breaking_keeps_lower_doc_id_desc() {
+        let mut heap = TopKHeap::new(non_zero_capacity(2), desc);
+        heap.push(10, 1.0);
+        heap.push(5, 1.0);
+        heap.push(3, 1.0); // third tied entry evicts doc_id 10 (highest loses the tie, regardless of sort direction)
+
+        let results = heap.drain_sorted();
+        let ids: Vec<t_docId> = results.iter().map(|r| r.doc_id).collect();
+
         assert!(ids.contains(&3));
         assert!(ids.contains(&5));
         assert!(!ids.contains(&10));
@@ -283,44 +309,49 @@ mod tests {
 
     #[test]
     fn heap_peek_worst_returns_eviction_candidate() {
-        let mut heap = TopKHeap::new(3, asc);
+        let mut heap = TopKHeap::new(non_zero_capacity(3), asc);
         heap.push(1, 2.0);
         heap.push(2, 5.0);
         heap.push(3, 3.0);
-        // Worst in ASC mode = highest score = 5.0
+
         assert_eq!(heap.peek_worst().unwrap().score, 5.0);
     }
 
     #[test]
     fn drain_sorted_best_first_asc() {
-        let mut heap = TopKHeap::new(4, asc);
+        let mut heap = TopKHeap::new(non_zero_capacity(4), asc);
         for (id, score) in [(1, 4.0), (2, 1.0), (3, 3.0), (4, 2.0)] {
             heap.push(id, score);
         }
+
         let results = heap.drain_sorted();
+
         let scores: Vec<f64> = results.iter().map(|r| r.score).collect();
         assert_eq!(scores, vec![1.0, 2.0, 3.0, 4.0]);
     }
 
     #[test]
     fn drain_sorted_best_first_desc() {
-        let mut heap = TopKHeap::new(4, desc);
+        let mut heap = TopKHeap::new(non_zero_capacity(4), desc);
         for (id, score) in [(1, 4.0), (2, 1.0), (3, 3.0), (4, 2.0)] {
             heap.push(id, score);
         }
+
         let results = heap.drain_sorted();
+
         let scores: Vec<f64> = results.iter().map(|r| r.score).collect();
         assert_eq!(scores, vec![4.0, 3.0, 2.0, 1.0]);
     }
 
     #[test]
     fn pop_worst_removes_eviction_candidate_asc() {
-        let mut heap = TopKHeap::new(3, asc);
+        let mut heap = TopKHeap::new(non_zero_capacity(3), asc);
         heap.push(1, 2.0);
         heap.push(2, 5.0);
         heap.push(3, 3.0);
-        // Worst in ASC = highest score = 5.0 (doc 2)
+
         let worst = heap.pop_worst().unwrap();
+
         assert_eq!(worst.score, 5.0);
         assert_eq!(worst.doc_id, 2);
         assert_eq!(heap.len(), 2);
@@ -328,12 +359,13 @@ mod tests {
 
     #[test]
     fn pop_worst_removes_eviction_candidate_desc() {
-        let mut heap = TopKHeap::new(3, desc);
+        let mut heap = TopKHeap::new(non_zero_capacity(3), desc);
         heap.push(1, 4.0);
         heap.push(2, 1.0);
         heap.push(3, 2.0);
-        // Worst in DESC = lowest score = 1.0 (doc 2)
+
         let worst = heap.pop_worst().unwrap();
+
         assert_eq!(worst.score, 1.0);
         assert_eq!(worst.doc_id, 2);
         assert_eq!(heap.len(), 2);
@@ -341,26 +373,32 @@ mod tests {
 
     #[test]
     fn pop_worst_on_empty_returns_none() {
-        let mut heap = TopKHeap::new(3, asc);
+        let mut heap = TopKHeap::new(non_zero_capacity(3), asc);
         assert!(heap.pop_worst().is_none());
     }
 
     #[test]
+    fn peek_worst_on_empty_returns_none() {
+        let heap = TopKHeap::new(non_zero_capacity(3), asc);
+        assert!(heap.peek_worst().is_none());
+    }
+
+    #[test]
     fn pop_worst_allows_reinsertion() {
-        let mut heap = TopKHeap::new(2, asc);
+        let mut heap = TopKHeap::new(non_zero_capacity(2), asc);
         heap.push(1, 3.0);
         heap.push(2, 1.0);
-        // Full; worst = 3.0. Pop it, then a previously-rejected score can enter.
         heap.pop_worst();
-        assert!(!heap.is_full());
+
         let inserted = heap.push(3, 2.5);
+
         assert!(inserted);
         assert_eq!(heap.len(), 2);
     }
 
     #[test]
     fn heap_is_empty_and_is_full() {
-        let mut heap = TopKHeap::new(2, asc);
+        let mut heap = TopKHeap::new(non_zero_capacity(2), asc);
         assert!(heap.is_empty());
         assert!(!heap.is_full());
 
