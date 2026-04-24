@@ -399,10 +399,6 @@ fn rewind_after_mid_collect_error_does_not_retain_stale_heap() {
             self.rewind_count += 1;
         }
 
-        fn lookup_score(&mut self, _: ffi::t_docId) -> Option<f64> {
-            Some(10f64)
-        }
-
         fn build_result(
             &self,
             doc_id: ffi::t_docId,
@@ -413,12 +409,16 @@ fn rewind_after_mid_collect_error_does_not_retain_stale_heap() {
                 .build()
         }
 
-        fn batch_strategy(&mut self, _: usize, _: usize) -> BatchStrategy {
+        fn batch_strategy(&mut self, _heap_count: usize, _k: usize) -> BatchStrategy {
             BatchStrategy::Continue
         }
 
         fn iterator_type(&self) -> rqe_iterator_type::IteratorType {
             rqe_iterator_type::IteratorType::Mock
+        }
+
+        fn lookup_score(&mut self, _doc_id: ffi::t_docId) -> Option<f64> {
+            Some(10f64)
         }
     }
 
