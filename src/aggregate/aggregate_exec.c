@@ -1365,7 +1365,7 @@ static int buildRequest(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
 
   AREQ_AddRequestFlags(*r, QEXEC_FORMAT_DEFAULT);
 
-  if (AREQ_Compile(*r, argv + 2, argc - 2, SearchDisk_IsEnabledForValidation(), status) != REDISMODULE_OK) {
+  if (AREQ_Compile(*r, ctx, argv + 2, argc - 2, SearchDisk_IsEnabledForValidation(), status) != REDISMODULE_OK) {
     RS_LOG_ASSERT(QueryError_HasError(status), "Query has error");
     goto done;
   }
@@ -1555,7 +1555,7 @@ static int QueryReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int
 
 static int buildPipelineAndExecute(AREQ *r, RedisModuleCtx *ctx, QueryError *status) {
   RedisSearchCtx *sctx = AREQ_SearchCtx(r);
-  if (RunInThread()) {
+  if (RunInThread(ctx)) {
     StrongRef spec_ref = IndexSpec_GetStrongRefUnsafe(sctx->spec);
 
     BlockClientCtx blockClientCtx = {0};
@@ -1875,7 +1875,7 @@ int RSCursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
   }
 
   // We have to check that we are not blocked yet from elsewhere (e.g. coordinator)
-  if (RunInThread() && !RedisModule_GetBlockedClientHandle(ctx)) {
+  if (RunInThread(ctx) && !RedisModule_GetBlockedClientHandle(ctx)) {
     CursorReadCtx *cr_ctx = rm_new(CursorReadCtx);
     cr_ctx->bc = BlockCursorClient(ctx, cursor, count, 0);
     cr_ctx->cursor = cursor;

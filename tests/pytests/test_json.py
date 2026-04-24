@@ -1090,6 +1090,43 @@ def testVector_correct_eval(env):
         env.assertAlmostEqual(expected_res[i+1][1], float(actual_res[i+1][1]), 1E-6)
     conn.execute_command('FT.DROPINDEX', 'idx', 'DD')
 
+    # Test FLOAT16 / BFLOAT16 with integer JSON (exercises the typed-conversion
+    # fast path from an integer JSON array to a half-precision float target).
+    for data_type in ['FLOAT16', 'BFLOAT16']:
+        env.expect('FT.CREATE', 'idx', 'ON', 'JSON',
+                   'SCHEMA', '$.vec', 'AS', 'vec', 'VECTOR', 'FLAT', '6', 'TYPE', data_type, 'DIM', dim, 'DISTANCE_METRIC', 'L2').ok()
+        env.assertOk(conn.execute_command('JSON.SET', 'j1', '$', r'{"vec":[1,1]}'))
+        env.assertOk(conn.execute_command('JSON.SET', 'j2', '$', r'{"vec":[-1,1]}'))
+        env.assertOk(conn.execute_command('JSON.SET', 'j3', '$', r'{"vec":[2,3]}'))
+        env.assertOk(conn.execute_command('JSON.SET', 'j4', '$', r'{"vec":[0,-2]}'))
+        query_vec = create_np_array_typed([1]*dim, data_type)
+        expected_res = [4, 'j1', ['score', spatial.distance.sqeuclidean(create_np_array_typed([1, 1], data_type), query_vec)],
+                           'j2', ['score', spatial.distance.sqeuclidean(create_np_array_typed([-1, 1], data_type), query_vec)],
+                           'j3', ['score', spatial.distance.sqeuclidean(create_np_array_typed([2, 3], data_type), query_vec)],
+                           'j4', ['score', spatial.distance.sqeuclidean(create_np_array_typed([0, -2], data_type), query_vec)]]
+        actual_res = env.expect('FT.SEARCH', 'idx', '*=>[KNN 4 @vec $b AS scores]', 'PARAMS', '2', 'b', query_vec.tobytes(),
+                                'RETURN', '1', 'scores').res
+        env.assertEqual(expected_res[0], actual_res[0], message=data_type)
+        for i in range(1, len(expected_res), 2):
+            env.assertEqual(expected_res[i], actual_res[i], message=data_type)
+            env.assertAlmostEqual(expected_res[i+1][1], float(actual_res[i+1][1]), 1E-2)
+        conn.execute_command('FT.DROPINDEX', 'idx', 'DD')
+
+    # Test INT8 / UINT8 reject float JSON elements (preserves V6-compatible
+    # behavior: integer targets refuse any array containing a float).
+    for data_type in ['INT8', 'UINT8']:
+        env.expect('FT.CREATE', 'idx', 'ON', 'JSON',
+                   'SCHEMA', '$.vec', 'AS', 'vec', 'VECTOR', 'FLAT', '6', 'TYPE', data_type, 'DIM', dim, 'DISTANCE_METRIC', 'L2').ok()
+        env.assertOk(conn.execute_command('JSON.SET', 'jf1', '$', r'{"vec":[1.5,2.5]}'))
+        failures_after_float = int(index_info(env, 'idx')['hash_indexing_failures'])
+        env.assertOk(conn.execute_command('JSON.SET', 'jf2', '$', r'{"vec":[1,2.5]}'))
+        failures_after_mixed = int(index_info(env, 'idx')['hash_indexing_failures'])
+        env.assertGreater(failures_after_float, 0, message=data_type + " all-float rejected")
+        env.assertGreater(failures_after_mixed, failures_after_float,
+                          message=data_type + " mixed int/float rejected")
+        assertInfoField(env, 'idx', 'num_docs', 0)
+        conn.execute_command('FT.DROPINDEX', 'idx', 'DD')
+
 
 @skip(msan=True, no_json=True)
 def testVector_bad_values(env):

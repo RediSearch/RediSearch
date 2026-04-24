@@ -47,6 +47,7 @@ configPair_t __configPairs[] = {
   {"_PRIORITIZE_INTERSECT_UNION_CHILDREN", "search-_prioritize-intersect-union-children"},
   {"_BG_INDEX_MEM_PCT_THR",           "search-_bg-index-mem-pct-thr"},
   {"BG_INDEX_SLEEP_GAP",              "search-bg-index-sleep-gap"},
+  {"CONNECT_TIMEOUT",                 "search-connect-timeout"},
   {"CONN_PER_SHARD",                  "search-conn-per-shard"},
   {"CURSOR_MAX_IDLE",                 "search-cursor-max-idle"},
   {"CURSOR_REPLY_THRESHOLD",          "search-cursor-reply-threshold"},
@@ -2386,6 +2387,15 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
       (void *)&(RSGlobalConfig.diskBufferPercentage)
     )
   )
+
+  RM_TRY(
+    RedisModule_RegisterBoolConfig(
+      ctx, "search-_fallback-to-main-thread-when-block-client-unavailable", 1,
+      REDISMODULE_CONFIG_UNPREFIXED,
+      get_bool_config, set_bool_config, NULL,
+      (void *)&(RSGlobalConfig.fallbackToMainThreadWhenBlockClientUnavailable)
+    )
+  ) 
 
   return REDISMODULE_OK;
 }

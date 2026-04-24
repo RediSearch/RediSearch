@@ -29,39 +29,32 @@ pub enum CompareError {
     IncompatibleTypes,
 }
 
+/// Compare two [`Value`]s, folding non-fatal [`CompareError`]s into
+/// [`Ordering::Equal`] (matching the C implementation).
+///
+/// Passing `qerr` disables the num-to-string fallback: a failed conversion is
+/// recorded on the [`QueryError`] and the pair is treated as equal.
 #[inline]
-pub fn compare_with_query_error_to_int(
-    v1: &Value,
-    v2: &Value,
-    qerr: Option<&mut QueryError>,
-) -> i32 {
+pub fn compare_with_query_error(v1: &Value, v2: &Value, qerr: Option<&mut QueryError>) -> Ordering {
     // This is a performance optimization to check for string comparisons early
     // as that is used most often in searches and aggregates.
     if let (Value::String(s1), Value::String(s2)) = (v1, v2) {
-        return match s1.as_bytes().cmp(s2.as_bytes()) {
-            Ordering::Less => -1,
-            Ordering::Equal => 0,
-            Ordering::Greater => 1,
-        };
+        return s1.as_bytes().cmp(s2.as_bytes());
     }
 
     match compare(v1, v2, qerr.is_none()) {
-        Ok(Ordering::Less) => -1,
-        Ok(Ordering::Equal) => 0,
-        Ok(Ordering::Greater) => 1,
-        Err(CompareError::NaNFloat) => 0,
-        Err(CompareError::MapComparison) => 0,
-        Err(CompareError::IncompatibleAgainstString(Ordering::Less)) => -1,
-        Err(CompareError::IncompatibleAgainstString(Ordering::Equal)) => 0,
-        Err(CompareError::IncompatibleAgainstString(Ordering::Greater)) => 1,
-        Err(CompareError::IncompatibleTypes) => 0,
+        Ok(ord) => ord,
+        Err(CompareError::NaNFloat)
+        | Err(CompareError::MapComparison)
+        | Err(CompareError::IncompatibleTypes) => Ordering::Equal,
+        Err(CompareError::IncompatibleAgainstString(ord)) => ord,
         Err(CompareError::NoNumberToStringFallback) => {
-            // SAFETY: `qerr` is Some because `num_to_str_cmp_fallback` was
+            // SAFETY: `qerr` is `Some` because `num_to_str_cmp_fallback` was
             // `false` (set from `qerr.is_none()`).
             let query_error = qerr.unwrap();
             let message = c"Error converting string".to_owned();
             query_error.set_code_and_message(QueryErrorCode::NumericValueInvalid, Some(message));
-            0
+            Ordering::Equal
         }
     }
 }
@@ -79,6 +72,45 @@ pub fn compare_on_equality_only(v1: &Value, v2: &Value) -> bool {
         Err(CompareError::IncompatibleTypes) => true,
         Err(CompareError::NoNumberToStringFallback) => false,
     }
+}
+
+/// Lexicographically compare two sequences of sort-key values under the classic
+/// sort-by-fields policy.
+///
+/// `pairs` yields the `i`-th sort key as `(v1, v2)` from the two sides being compared.
+/// Bit `i` of `ascend_map` (LSB-first) selects the direction: set = ASC, clear = DESC.
+///
+/// A `None` value always ranks "worst" regardless of direction; both-`None` is treated
+/// as equal and the next pair decides. Per-pair comparison — including the num-to-string
+/// fallback and `qerr` recording — is delegated to [`compare_with_query_error`].
+///
+/// Callers are responsible for any docid tiebreak when this function returns
+/// [`Ordering::Equal`].
+#[inline]
+pub fn cmp_fields<'a>(
+    pairs: impl IntoIterator<Item = (Option<&'a Value>, Option<&'a Value>)>,
+    ascend_map: u64,
+    mut qerr: Option<&mut QueryError>,
+) -> Ordering {
+    for (i, (v1, v2)) in pairs.into_iter().enumerate() {
+        let ascending = (ascend_map & (1u64 << i)) != 0;
+
+        match (v1, v2) {
+            // Delegates to `compare_with_query_error` so we inherit its
+            // `(String, String)` fast path and the num-to-string fallback policy
+            // (kept in sync by construction, not by duplication).
+            (Some(a), Some(b)) => match compare_with_query_error(a, b, qerr.as_deref_mut()) {
+                Ordering::Equal => continue,
+                ord => return if ascending { ord.reverse() } else { ord },
+            },
+            // A row missing a value always ranks as "worst" (last in output), regardless of
+            // ASC/DESC direction. Do NOT apply the ascending reversal here.
+            (Some(_), None) => return Ordering::Greater,
+            (None, Some(_)) => return Ordering::Less,
+            (None, None) => continue,
+        }
+    }
+    Ordering::Equal
 }
 
 /// Compare two [`Value`]s, returning their [`Ordering`].
