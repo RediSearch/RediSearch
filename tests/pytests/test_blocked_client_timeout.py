@@ -1164,11 +1164,13 @@ class TestCoordinatorTimeout:
         """RETURN_STRICT timeout while one shard process is suspended.
 
         Suspends a single non-coordinator shard via SIGSTOP so its replies never
-        arrive. The responsive shards get a short window to reply before the
-        blocked-client timeout fires on the main thread, at which point BG
-        returns partial results from whichever shards did respond + warning.
+        arrive. Uses the RpnetReplyAdmitted sync point to park BG after each
+        responsive shard's reply is admitted into the pipeline, so the test can
+        count exactly how many replies have been drained before firing the
+        blocked-client timeout. This makes the partial-count assertion exact.
         """
         env = self.env
+        skipIfNoEnableAssert(env)
 
         prev_on_timeout_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
         env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'return-strict')
@@ -1184,6 +1186,13 @@ class TestCoordinatorTimeout:
             if pid_cmd(env.getConnection(shardId)) != paused_pid
         ]
 
+        # Docs on responsive shards. The paused shard's docs never reach BG,
+        # so this is the exact count BG will emit (one _FT.AGGREGATE reply per
+        # responsive shard, each carrying that shard's docs as rows).
+        expected_partial = sum(len(c.execute_command('KEYS', 'doc*'))
+                               for c in responsive_shard_conns)
+        expected_replies = len(responsive_shard_conns)
+
         shard_to_pause_p = psutil.Process(paused_pid)
         shard_to_pause_p.suspend()
         wait_for_condition(
@@ -1191,8 +1200,9 @@ class TestCoordinatorTimeout:
             'Timeout while waiting for shard to pause'
         )
 
-        base_jobs_done = [getWorkersThpoolStatsFromShard(c)['totalJobsDone']
-                          for c in responsive_shard_conns]
+        sync_point = 'RpnetReplyAdmitted'
+        env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
+        env.cmd(debug_cmd(), 'SYNC_POINT', 'ARM', sync_point)
 
         query_result = []
         t_query = threading.Thread(
@@ -1204,20 +1214,27 @@ class TestCoordinatorTimeout:
 
         blocked_client_id = wait_for_blocked_query_client(env, 'FT.AGGREGATE')
 
-        # Wait for every responsive shard to complete its _FT.AGGREGATE job so
-        # BG has definitely received partial replies before the timeout fires.
-        # The paused shard's reply never arrives.
-        wait_for_condition(
-            lambda: (
-                all(getWorkersThpoolStatsFromShard(c)['totalJobsDone'] >= base + 1
-                    for c, base in zip(responsive_shard_conns, base_jobs_done)),
-                {'totalJobsDone': [getWorkersThpoolStatsFromShard(c)['totalJobsDone']
-                                   for c in responsive_shard_conns],
-                 'base': base_jobs_done}
-            ),
-            'Timeout waiting for responsive shards to complete their aggregate jobs'
-        )
+        # Count sync-point hits: BG parks once per responsive shard reply admitted
+        # into the pipeline. After `expected_replies` signals, every responsive
+        # shard's rows are in the downstream result set. The paused shard never
+        # triggers a hit since its reply never arrives.
+        hits = 0
+        while hits < expected_replies:
+            wait_for_condition(
+                lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', sync_point) == 1,
+                         {'hits': hits, 'expected': expected_replies}),
+                f'Timeout waiting for BG to park at {sync_point} (hits={hits}/{expected_replies})'
+            )
+            hits += 1
+            env.cmd(debug_cmd(), 'SYNC_POINT', 'SIGNAL', sync_point)
+            if hits < expected_replies:
+                env.cmd(debug_cmd(), 'SYNC_POINT', 'ARM', sync_point)
 
+        # All responsive replies have been admitted. BG is now either emitting
+        # rows from the last reply or blocked on the next channel pop waiting
+        # for the (never-arriving) paused shard. Fire the blocked-client timeout;
+        # the abort flag wakes the pop and BG returns TIMEDOUT with the already-
+        # accumulated rows intact.
         env.cmd('CLIENT', 'UNBLOCK', blocked_client_id, 'TIMEOUT')
         wait_for_client_unblocked(env, blocked_client_id)
 
@@ -1226,12 +1243,9 @@ class TestCoordinatorTimeout:
 
         env.assertEqual(len(query_result), 1, message="Expected 1 result from query thread")
         result = query_result[0]
-        # Partial: fewer than all shards responded. Upper bound is n_docs - 1
-        # since at least one shard's data is missing; lower bound is 0 since
-        # the timeout may race ahead of any shard reply.
-        env.assertLess(result['total_results'], self.n_docs,
-                       message=f"Expected partial results, got {result['total_results']}")
-        env.assertGreaterEqual(result['total_results'], 0)
+        env.assertEqual(result['total_results'], expected_partial,
+                        message=f"Expected {expected_partial} docs from responsive shards, "
+                                f"got {result['total_results']}")
         env.assertEqual(result.get('warning', []), [TIMEOUT_WARNING])
 
         after_info = info_modules_to_dict(env)
@@ -1240,6 +1254,7 @@ class TestCoordinatorTimeout:
                         message="Coordinator timeout warning should be +1")
         _verify_metrics_not_changed(env, env, before_info, [TIMEOUT_WARNING_COORD_METRIC])
 
+        env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
         shard_to_pause_p.resume()
         env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy)
 

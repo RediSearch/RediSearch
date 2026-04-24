@@ -13,6 +13,7 @@
 #include "rmr/rmr.h"
 #include "hiredis/sds.h"
 #include "coord/dist_utils.h"
+#include "debug_commands.h"
 
 
 #define CURSOR_EOF 0
@@ -602,6 +603,12 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
 
   // invariant: at least one row exists
   if (new_reply) {
+#ifdef ENABLE_ASSERT
+    // Sync point (debug): park BG after a shard reply has been admitted into the
+    // pipeline (popped from the channel, about to emit its rows). Tests count
+    // hits to know exactly how many shard replies have been drained.
+    SyncPoint_WaitTimeoutInterruptible(SYNC_POINT_RPNET_REPLY_ADMITTED, nc->areq);
+#endif
     if (resp3) { // RESP3
       nc->curIdx = 0;
       // Note: For WITHCOUNT in multi-shard aggregate, totalResults is already set
