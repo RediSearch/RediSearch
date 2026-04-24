@@ -88,6 +88,15 @@ def test_hybrid_debug_invalid_debug_params_count():
                    'DEBUG_PARAMS_COUNT', invalid_count) \
             .error().contains('Invalid DEBUG_PARAMS_COUNT count')
 
+def test_hybrid_debug_params_count_exceeds_argc():
+    """Test error when DEBUG_PARAMS_COUNT is larger than the number of available arguments."""
+    env = Env(enableDebugCommand=True)
+    setup_basic_index(env)
+    env.expect(*_base_hybrid_debug_cmd(),
+               'TIMEOUT_AFTER_N_SEARCH', '1',
+               'DEBUG_PARAMS_COUNT', '9999') \
+        .error().contains('DEBUG_PARAMS_COUNT exceeds')
+
 def test_hybrid_debug_unrecognized_argument():
     """Test error when an unrecognized debug argument is provided."""
     env = Env(enableDebugCommand=True)

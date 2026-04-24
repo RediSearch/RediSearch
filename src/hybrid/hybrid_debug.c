@@ -46,6 +46,12 @@ HybridDebugParams parseHybridDebugParamsCount(RedisModuleString **argv, int argc
     return debug_params;
   }
 
+  if (debug_params_count > (unsigned long long)(argc - 2)) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS,
+                        "DEBUG_PARAMS_COUNT exceeds the number of available arguments");
+    return debug_params;
+  }
+
   debug_params.debug_params_count = debug_params_count;
   int debug_argv_count = debug_params_count + 2;  // account for `DEBUG_PARAMS_COUNT` `<count>` strings
   debug_params.debug_argv = argv + (argc - debug_argv_count);
