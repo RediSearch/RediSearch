@@ -196,17 +196,6 @@ void GeoFilter_FreeNumericFilters(NumericFilter * *filters);
 RLookupKey * *GetMetricOwnKeyRef(QueryIterator *header);
 
 /**
- * `PrintProfile` vtable entry for Hybrid (vector search) iterators.
- *
- * # Safety
- *
- * 1. `self_` must be a valid pointer to a Hybrid iterator.
- * 2. `map` must be a valid pointer to a [`redis_reply::MapBuilder`].
- * 3. `ctx` must be a valid pointer to a [`ProfilePrintCtx`].
- */
-void Hybrid_PrintProfile(const QueryIterator *self_, struct MapBuilder *map, struct ProfilePrintCtx *ctx);
-
-/**
  * Profile-wrap an iterator and its entire subtree.
  *
  * Wraps the iterator as a [`CRQEIterator`], calls

@@ -141,9 +141,9 @@ impl<E: ExpirationChecker> Drop for VectorScoreSource<'_, E> {
 }
 
 // SAFETY: VectorScoreSource is used from a single thread (the query execution
-// thread). The `index` pointer is non-owning; everything else is owned and
-// managed by the struct itself (timeout_ctx, batch_iter). It is the caller's
-// responsibility to ensure the index outlives the iterator.
+// thread). `index`, `own_key` and `key_handle` are non-owning raw
+// pointers; the caller ensures they outlive the iterator. `batch_iter` is managed
+// by the struct itself. All other fields are owned Rust values.
 unsafe impl<E: ExpirationChecker + Send> Send for VectorScoreSource<'_, E> {}
 
 impl<'index, E: ExpirationChecker> VectorScoreSource<'index, E> {
