@@ -170,7 +170,7 @@ RedisSearchDiskRdbState* SearchDisk_LoadRdbToTempObject(RedisModuleIO *rdb) {
 }
 
 RedisSearchDiskIndexSpec* SearchDisk_OpenIndexWithRdbState(RedisModuleCtx *ctx,
-                                                            const HiddenString *indexName,  
+                                                            const HiddenString *indexName,
                                                             const char *obfuscatedName,
                                                             DocumentType type,
                                                             RedisSearchDiskRdbState *rdbState) {
@@ -343,13 +343,7 @@ bool SearchDisk_DeleteDocumentById(RedisSearchDiskIndexSpec *handle, t_docId doc
 }
 
 bool SearchDisk_CheckEnableConfiguration(RedisModuleCtx *ctx) {
-  bool isFlexConfigured = false;
-  char *isFlexEnabledStr = getRedisConfigValue(ctx, "bigredis-enabled");
-  if (isFlexEnabledStr && !strcasecmp(isFlexEnabledStr, "yes")) {
-    isFlexConfigured = true;
-  } // Default is false, so nothing to change in that case.
-  rm_free(isFlexEnabledStr);
-  return isFlexConfigured;
+  return getRedisConfigBool(ctx, "bigredis-enabled", false);
 }
 
 bool SearchDisk_IsEnabled() {
