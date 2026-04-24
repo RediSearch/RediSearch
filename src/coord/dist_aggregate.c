@@ -585,6 +585,40 @@ int DistAggregateTimeoutFailClient(RedisModuleCtx *ctx, RedisModuleString **argv
   return REDISMODULE_OK;
 }
 
+// Drain any queued shard replies into `storedReplyState.results` on the main
+// thread after the background pipeline has aborted. Only safe for pipelines
+// classified as trivial (RPNet -> RPPager -> end): they carry no buffering or
+// reordering state, so resuming endProc->Next simply yields the rows that the
+// I/O threads had already pushed to the channel before the timeout fired.
+//
+// Caller must have already flipped syncCtx.timedOut and waited for BG to exit
+// the pipeline via AREQ_WaitForAggregateResultsComplete. The pager's internal
+// `remaining` and qctx->resultLimit reflect the post-abort budget, so this
+// loop naturally respects the user's LIMIT and terminates at EOF.
+static void drainTrivialPipelineAfterTimeout(AREQ *req) {
+  QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
+  if (!qctx->isTrivialPipeline) {
+    return;
+  }
+
+  RPNet *rpnet = (RPNet *)qctx->rootProc;
+  rpnet->drainOnly = true;
+
+  ResultProcessor *endProc = qctx->endProc;
+  ChunkReplyState *stored = &req->storedReplyState;
+  if (!stored->results) {
+    stored->results = array_new(SearchResult *, 8);
+  }
+
+  SearchResult r = SearchResult_New();
+  while (qctx->resultLimit && endProc->Next(endProc, &r) == RS_RESULT_OK) {
+    qctx->resultLimit--;
+    array_append(stored->results, SearchResult_AllocateMove(&r));
+    r = SearchResult_New();
+  }
+  SearchResult_Destroy(&r);
+}
+
 // Timeout callback for Coordinator AREQ execution
 // Called on the main thread when the blocking client times out (RETURN-STRICT policy only).
 int DistAggregateTimeoutReturnStrictClient(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
@@ -636,6 +670,10 @@ int DistAggregateTimeoutReturnStrictClient(RedisModuleCtx *ctx, RedisModuleStrin
     }
     return REDISMODULE_OK;
   }
+
+  // Harvest any shard replies that landed in the channel before the deadline.
+  // No-op for already-complete runs (pager at LIMIT / channel empty).
+  drainTrivialPipelineAfterTimeout(req);
 
   AREQ_ReplyWithStoredResults(ctx, req);
 
