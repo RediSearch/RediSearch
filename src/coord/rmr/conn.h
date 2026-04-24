@@ -26,8 +26,11 @@ extern "C" {
  * in MRConn.
  */
 typedef enum __attribute__((packed)) {
-  /* Connection is trying to connect (initial state and retry state) */
+  /* TCP (and TLS) handshake is in flight */
   MRConn_Connecting,
+
+  /* Back-off before retrying connect after a connection failure */
+  MRConn_Reconnecting,
 
   /* TCP (and TLS) handshake completed; AUTH command is in flight */
   MRConn_Authenticating,
@@ -56,6 +59,8 @@ static inline const char *MRConnState_Str(MRConnState state) {
   switch (state) {
     case MRConn_Connecting:
       return "Connecting";
+    case MRConn_Reconnecting:
+      return "Reconnecting";
     case MRConn_Authenticating:
       return "Authenticating";
     case MRConn_ReAuth:

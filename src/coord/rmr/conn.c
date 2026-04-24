@@ -387,18 +387,22 @@ void MRConnManager_Expand(MRConnManager *m, size_t num, uv_loop_t *loop) {
   dictReleaseIterator(it);
 }
 
-/* Timer callback armed while in MRConn_Connecting. Retries the async connect
- * after the reconnect back-off so we don't hot-loop against a server that
- * just rejected us. */
-static void reconnectTimerCallback(uv_timer_t *tm) {
-  MRConn *conn = tm->data;
-  RS_ASSERT(conn->state == MRConn_Connecting);
-  CONN_LOG(conn, "Reconnect attempt");
-  if (MRConn_Connect(conn) == REDIS_ERR) {
+static inline void doConnect(MRConn *conn) {
+  if (MRConn_Connect(conn) != REDIS_OK) {
     // MRConn_Connect's failure paths leave conn->conn == NULL, so no
     // detach is needed here.
-    MRConn_SwitchState(conn, MRConn_Connecting);
+    MRConn_SwitchState(conn, MRConn_Reconnecting);
   }
+}
+
+/* Timer callback armed while in MRConn_Reconnecting. Re-issues the async
+ * connect in-place so the observable state stays Reconnecting for the whole
+ * retry cycle (mirrors reauthTimerCallback). */
+static void reconnectTimerCallback(uv_timer_t *tm) {
+  MRConn *conn = tm->data;
+  RS_ASSERT(conn->state == MRConn_Reconnecting);
+  CONN_LOG(conn, "Reconnect attempt");
+  doConnect(conn);
 }
 
 static inline void doAuthenticate(MRConn *conn) {
@@ -409,7 +413,7 @@ static inline void doAuthenticate(MRConn *conn) {
     conn->authFailCount++;
     // AUTH failed to enqueue; the ac is still alive and ours to free.
     detachAndFreeAc(conn);
-    MRConn_SwitchState(conn, MRConn_Connecting);
+    MRConn_SwitchState(conn, MRConn_Reconnecting);
   }
 }
 
@@ -432,7 +436,7 @@ static void MRConn_SwitchState(MRConn *conn, MRConnState nextState) {
   conn->state = nextState;
 
   switch (nextState) {
-    case MRConn_Connecting:
+    case MRConn_Reconnecting:
       // Delayed state: the reconnect timer introduces a back-off between
       // attempts so we don't spin on a server that just rejected us.
       uv_timer_start(&conn->timer, reconnectTimerCallback, RECONNECT_MS_DELAY, 0);
@@ -442,6 +446,11 @@ static void MRConn_SwitchState(MRConn *conn, MRConnState nextState) {
       // Delayed state: the reauth timer gives the server time to recover
       // and avoids a tight AUTH-retry loop on repeated rejections.
       uv_timer_start(&conn->timer, reauthTimerCallback, REAUTH_MS_DELAY, 0);
+      return;
+
+    case MRConn_Connecting:
+      uv_timer_stop(&conn->timer);
+      doConnect(conn);
       return;
 
     case MRConn_Authenticating:
@@ -482,13 +491,13 @@ static void MRConn_AuthCallback(redisAsyncContext *c, void *r, void *privdata) {
     // hiredis is tearing down the ac (reply callbacks fire with r==NULL
     // before the disconnect callback); just sever cbData.
     detachCbData(conn);
-    MRConn_SwitchState(conn, MRConn_Connecting);
+    MRConn_SwitchState(conn, MRConn_Reconnecting);
     goto cleanup;
   }
   if (c->err) {
     // Live ac with an error condition; free it explicitly.
     detachAndFreeAc(conn);
-    MRConn_SwitchState(conn, MRConn_Connecting);
+    MRConn_SwitchState(conn, MRConn_Reconnecting);
     goto cleanup;
   }
 
@@ -725,13 +734,13 @@ static void MRConn_ConnectCallback(const redisAsyncContext *c, int status) {
     // Hiredis will call __redisAsyncDisconnect() after connect-failure callback
     // and free the ac itself; we only sever cbData to keep stale callbacks safe.
     detachCbData(conn);
-    MRConn_SwitchState(conn, MRConn_Connecting);
+    MRConn_SwitchState(conn, MRConn_Reconnecting);
     return;
   }
 
   if (MRConn_InitTLS(conn, (redisAsyncContext *)c) != REDIS_OK) {
     detachAndFreeAc(conn);
-    MRConn_SwitchState(conn, MRConn_Connecting);
+    MRConn_SwitchState(conn, MRConn_Reconnecting);
     return;
   }
 
@@ -755,13 +764,13 @@ static void MRConn_DisconnectCallback(const redisAsyncContext *c, int status) {
   RS_ASSERT(conn->state != MRConn_Freeing);
   // hiredis is freeing the ac after this callback returns; just detach cbData.
   detachCbData(conn);
-  MRConn_SwitchState(conn, MRConn_Connecting);
+  MRConn_SwitchState(conn, MRConn_Reconnecting);
 }
 
 /* Create a new MRConn for the given endpoint and kick off its first
- * connection attempt. Conn starts in Connecting with no timer armed; the
- * ac is in flight until ConnectCallback fires. On sync failure, SwitchState
- * re-enters Connecting to arm the retry timer. */
+ * connection attempt via SwitchState(Connecting), which dispatches the async
+ * connect and falls back to Reconnecting on synchronous failure. The initial
+ * Reconnecting value is just a placeholder overwritten by SwitchState. */
 static MRConn *MR_NewConn(MREndpoint *ep, uv_loop_t *loop) {
   MRConn *conn = rm_new(MRConn);
   *conn = (MRConn){
@@ -775,24 +784,23 @@ static MRConn *MR_NewConn(MREndpoint *ep, uv_loop_t *loop) {
   conn->timer.data = conn;
   MREndpoint_Copy(&conn->ep, ep);
   CONN_LOG(conn, "Initial connection attempt");
-  if (MRConn_Connect(conn) == REDIS_ERR) {
-    MRConn_SwitchState(conn, MRConn_Connecting);
-  }
+  MRConn_SwitchState(conn, MRConn_Connecting);
   return conn;
 }
 
 /* Initiate an async connection attempt. Must be called with `conn->conn ==
- * NULL` (i.e. no ac currently attached). Returns REDIS_OK if the attempt was
- * dispatched to libuv or REDIS_ERR on synchronous setup failure; on REDIS_ERR
- * `conn->conn` is left NULL. */
+ * NULL` (i.e. no ac currently attached) and state in {Connecting, Reconnecting}
+ * \u2014 the initial attempt runs in Connecting, retries run in Reconnecting.
+ * Returns REDIS_OK if the attempt was dispatched to libuv or REDIS_ERR on
+ * synchronous setup failure; on REDIS_ERR `conn->conn` is left NULL. */
 static int MRConn_Connect(MRConn *conn) {
   RS_ASSERT(conn->conn == NULL);
-  RS_ASSERT(conn->state == MRConn_Connecting);
+  RS_ASSERT(conn->state == MRConn_Connecting || conn->state == MRConn_Reconnecting);
   // Bounds the async TCP+TLS handshake. Without it, a blackholed SYN can leave
   // the ac stuck in SYN-SENT indefinitely, because neither ConnectCallback nor
   // DisconnectCallback will fire and no retry is scheduled. With it, hiredis
   // surfaces a timeout via ConnectCallback(REDIS_ERR), which drops the conn
-  // into Connecting with the retry timer armed. No command_timeout is set:
+  // into Reconnecting with the retry timer armed. No command_timeout is set:
   // legitimate queries may run for many seconds.
   const struct timeval *connectTimeout = &clusterConfig.connectTimeout;
   const bool connectTimeoutEnabled = connectTimeout->tv_sec || connectTimeout->tv_usec;
