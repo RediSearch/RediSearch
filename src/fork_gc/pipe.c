@@ -35,33 +35,8 @@ void FGC_updateStats(ForkGC *gc, RedisSearchCtx *sctx,
 // FGC_recvFixed is defined in Rust (fork_gc_ffi crate); prototype comes
 // from fork_gc_rs.h.
 
-int __attribute__((warn_unused_result))
-FGC_recvBuffer(ForkGC *fgc, void **buf, size_t *len) {
-  size_t temp_len;
-  if (FGC_recvFixed(fgc, &temp_len, sizeof temp_len) != REDISMODULE_OK) {
-    return REDISMODULE_ERR;
-  }
-  if (temp_len == SIZE_MAX) {
-    *len = temp_len;
-    *buf = RECV_BUFFER_EMPTY;
-    return REDISMODULE_OK;
-  }
-  if (temp_len == 0) {
-    *len = temp_len;
-    *buf = NULL;
-    return REDISMODULE_OK;
-  }
-
-  char *buf_data = rm_malloc(temp_len + 1);
-  buf_data[temp_len] = 0;
-  if (FGC_recvFixed(fgc, buf_data, temp_len) != REDISMODULE_OK) {
-    rm_free(buf_data);
-    return REDISMODULE_ERR;
-  }
-  *len = temp_len;
-  *buf = buf_data;
-  return REDISMODULE_OK;
-}
+// FGC_recvBuffer is defined in Rust (fork_gc_ffi crate); prototype comes
+// from fork_gc_rs.h.
 
 // glue to use process pipe as writer for II GC delta info
 void pipe_write_cb(void *ctx, const void *buf, size_t len) {

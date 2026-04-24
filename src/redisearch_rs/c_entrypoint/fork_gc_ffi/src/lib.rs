@@ -19,6 +19,13 @@ use std::ffi::{c_int, c_void};
 
 use fork_gc::ForkGC;
 
+// Sentinel pointer defined in `src/fork_gc/pipe.c`, compared by pointer
+// identity in C callers (e.g. `recvFieldHeader`) to detect end-of-stream
+// frames returned through `FGC_recvBuffer`'s `buf` out-parameter.
+unsafe extern "C" {
+    static RECV_BUFFER_EMPTY: *mut c_void;
+}
+
 /// Write exactly `len` bytes from `buff` to the FGC pipe.
 ///
 /// On error, logs the failure and terminates the child process via
@@ -117,4 +124,49 @@ pub unsafe extern "C" fn FGC_recvFixed(
         Ok(()) => ffi::REDISMODULE_OK as c_int,
         Err(_) => ffi::REDISMODULE_ERR as c_int,
     }
+}
+
+/// Read a length-prefixed buffer frame from the FGC pipe.
+///
+/// On receipt of a `SIZE_MAX` length prefix, writes `SIZE_MAX` to
+/// `*len` and the `RECV_BUFFER_EMPTY` sentinel pointer to `*buf`. On a
+/// zero-length prefix, writes `0` and a null pointer. Otherwise
+/// allocates `len + 1` bytes (NUL-terminated) via the module allocator,
+/// reads the payload, and stores the pointer in `*buf`; the caller is
+/// responsible for releasing it with `rm_free`.
+///
+/// On read error (timeout, short stream, ...), returns `REDISMODULE_ERR`
+/// and leaves `*buf` / `*len` unchanged.
+///
+/// # Safety
+///
+/// 1. `fgc` must point to a valid `ForkGC` whose `pipe_read_fd` is an
+///    open, readable file descriptor.
+/// 2. `buf` and `len` must point to writable `void*` and `size_t`
+///    locations respectively.
+#[unsafe(no_mangle)]
+#[must_use]
+pub unsafe extern "C" fn FGC_recvBuffer(
+    fgc: *mut ffi::ForkGC,
+    buf: *mut *mut c_void,
+    len: *mut usize,
+) -> c_int {
+    // SAFETY: caller guarantees (1).
+    let fgc = unsafe { ForkGC::from_ptr_mut(fgc) };
+
+    let frame = match fgc.reader().recv_buffer() {
+        Ok(frame) => frame,
+        Err(_) => return ffi::REDISMODULE_ERR as c_int,
+    };
+
+    // SAFETY: `RECV_BUFFER_EMPTY` is a static pointer defined in `pipe.c`.
+    let terminator = unsafe { RECV_BUFFER_EMPTY };
+    let (ptr, payload_len) = frame.into_c_buffer(terminator);
+
+    // SAFETY: caller guarantees (2).
+    unsafe {
+        *buf = ptr;
+        *len = payload_len;
+    }
+    ffi::REDISMODULE_OK as c_int
 }

@@ -75,6 +75,28 @@ void FGC_sendTerminator(ForkGC *fgc);
  */
 __attribute__((warn_unused_result)) int FGC_recvFixed(ForkGC *fgc, void *buf, size_t len);
 
+/**
+ * Read a length-prefixed buffer frame from the FGC pipe.
+ *
+ * On receipt of a `SIZE_MAX` length prefix, writes `SIZE_MAX` to
+ * `*len` and the `RECV_BUFFER_EMPTY` sentinel pointer to `*buf`. On a
+ * zero-length prefix, writes `0` and a null pointer. Otherwise
+ * allocates `len + 1` bytes (NUL-terminated) via the module allocator,
+ * reads the payload, and stores the pointer in `*buf`; the caller is
+ * responsible for releasing it with `rm_free`.
+ *
+ * On read error (timeout, short stream, ...), returns `REDISMODULE_ERR`
+ * and leaves `*buf` / `*len` unchanged.
+ *
+ * # Safety
+ *
+ * 1. `fgc` must point to a valid `ForkGC` whose `pipe_read_fd` is an
+ *    open, readable file descriptor.
+ * 2. `buf` and `len` must point to writable `void*` and `size_t`
+ *    locations respectively.
+ */
+__attribute__((warn_unused_result)) int FGC_recvBuffer(ForkGC *fgc, void **buf, size_t *len);
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif  // __cplusplus
