@@ -540,7 +540,7 @@ def testconfigMultiTextOffsetDeltaSlopNeg():
     # the probe races with the abort and occasionally surfaces a spurious
     # "<Environment destroyed>" failure.
     try:
-        env = Env(moduleArgs='MULTI_TEXT_SLOP -1', startupGraceSecs=10)
+        env = Env(moduleArgs='MULTI_TEXT_SLOP -1', startupGraceSecs=1)
         assert not env.isUp()
     except Exception as e:
         # It sometimes captures the error of it not being up (PID dead and sometimes not).

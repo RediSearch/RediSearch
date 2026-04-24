@@ -226,14 +226,14 @@ def test_default_scorer_startup_validation():
     # the probe races with the abort and occasionally surfaces a spurious
     # "<Environment destroyed>" failure.
     try:
-        env = Env(moduleArgs=f'EXTLOAD {ext_path} DEFAULT_DIALECT 2 DEFAULT_SCORER example_scorer2', startupGraceSecs=10)
+        env = Env(moduleArgs=f'EXTLOAD {ext_path} DEFAULT_DIALECT 2 DEFAULT_SCORER example_scorer2', startupGraceSecs=1)
         assert not env.isUp()
     except Exception as e:
         # It sometimes captures the error of it not being up (PID dead and sometimes not). We cannot have a false positive that env.isUp but we still pass the test
         assert not isinstance(e, AssertionError)
 
     try:
-        env = Env(moduleArgs=f'DEFAULT_SCORER example_scorer', startupGraceSecs=10)
+        env = Env(moduleArgs=f'DEFAULT_SCORER example_scorer', startupGraceSecs=1)
         assert not env.isUp()
     except Exception as e:
         # It sometimes captures the error of it not being up (PID dead and sometimes not). We cannot have a false positive that env.isUp but we still pass the test
