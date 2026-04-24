@@ -29,18 +29,6 @@ void FGC_updateStats(ForkGC *gc, RedisSearchCtx *sctx,
   gc->stats.gcBlocksDenied += ignoredLastBlock ? 1 : 0;
 }
 
-// Buff shouldn't be NULL.
-void FGC_sendFixed(ForkGC *fgc, const void *buff, size_t len) {
-  RS_LOG_ASSERT(len > 0, "buffer length cannot be 0");
-  ssize_t size = write(fgc->pipe_write_fd, buff, len);
-  if (size != len) {
-    perror("broken pipe, exiting GC fork: write() failed");
-    // just exit, do not abort(), which will trigger a watchdog on RLEC, causing adverse effects
-    RedisModule_Log(fgc->ctx, "warning", "GC fork: broken pipe, exiting");
-    RedisModule_ExitFromChild(1);
-  }
-}
-
 void FGC_sendBuffer(ForkGC *fgc, const void *buff, size_t len) {
   FGC_SEND_VAR(fgc, len);
   if (len > 0) {
