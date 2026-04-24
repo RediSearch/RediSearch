@@ -353,11 +353,21 @@ static void startPipeline(AREQ *req, ResultProcessor *rp, SearchResult ***result
   SyncPoint_Wait(SYNC_POINT_BEFORE_AGGREGATE_RESULTS_CLAIM);
 #endif
 
-  if (req->syncCtx.requiresAggregateResultsSync && !AREQ_TryClaimAggregateResults(req)) {
-    // Possible if RETURN-STRICT timeout callback was called first.
-    // In that case, the timeout callback will reply empty results.
-    // Background thread should finish ASAP.
-    return;
+  if (req->syncCtx.requiresAggregateResultsSync) {
+    if (!AREQ_TryClaimAggregateResults(req)) {
+      // Possible if RETURN-STRICT timeout callback was called first.
+      // In that case, the timeout callback will reply empty results.
+      // Background thread should finish ASAP.
+      return;
+    }
+    // We won the claim but the timeout may have been signaled in parallel: if
+    // so the timeout callback is now blocked in AREQ_WaitForAggregateResultsComplete
+    // and will reply with whatever we store. Skip the pipeline so the stored
+    // state carries zero results and the wall-clock deadline is observed.
+    if (AREQ_TimedOut(req)) {
+      *rc = RS_RESULT_TIMEDOUT;
+      return;
+    }
   }
 
   startPipelineCommon(&ctx, rp, results, r, rc);
