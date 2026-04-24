@@ -76,11 +76,11 @@ static redisAsyncContext *_detachAc(MRConn *conn) {
   return ac;
 }
 
-/* Unlink cbData, leaving the hiredis async context's lifecycle to someone
- * else. Use from inside hiredis callbacks where hiredis is about to tear
- * the ac down itself (DisconnectCallback; ConnectCallback on failure, which
- * hiredis follows with __redisAsyncDisconnect; reply callbacks fired with
- * r==NULL during hiredis-driven teardown). */
+/* Unlink cbData, leaving the hiredis async context's lifecycle to hiredis.
+ * Use from inside hiredis callbacks (DisconnectCallback, ConnectCallback on
+ * failure, reply callbacks with reply==NULL) where __redisAsyncDisconnect /
+ * __redisAsyncFree are about to free the ac on return — see the comment on
+ * __redisAsyncDisconnect in deps/hiredis/async.c. */
 static void detachCbData(MRConn *conn) {
   (void)_detachAc(conn);
 }
@@ -692,9 +692,7 @@ static int MRConn_InitTLS(MRConn *conn, redisAsyncContext *c) {
 }
 
 /* hiredis async connect callback.
- * conn (c->data) can be NULL if we detached from the ac before the connect
- * completed (e.g., MRConn_Freeing with deferred disconnect). Both status
- * values are expected. */
+ */
 static void MRConn_ConnectCallback(const redisAsyncContext *c, int status) {
   MRConn *conn = c->data;
   if (!conn) {
@@ -781,6 +779,7 @@ static MRConn *MR_NewConn(MREndpoint *ep, uv_loop_t *loop) {
  * `conn->conn` is left NULL. */
 static int MRConn_Connect(MRConn *conn) {
   RS_ASSERT(conn->conn == NULL);
+  RS_ASSERT(conn->state == MRConn_Connecting);
   // Bounds the async TCP+TLS handshake. Without it, a blackholed SYN can leave
   // the ac stuck in SYN-SENT indefinitely, because neither ConnectCallback nor
   // DisconnectCallback will fire and no retry is scheduled. With it, hiredis
@@ -816,7 +815,6 @@ static int MRConn_Connect(MRConn *conn) {
     detachAndFreeAc(conn);
     return REDIS_ERR;
   }
-  conn->state = MRConn_Connecting;
 
   return REDIS_OK;
 }
