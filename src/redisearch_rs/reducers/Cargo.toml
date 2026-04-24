@@ -18,5 +18,14 @@ workspace_hack.workspace = true
 redisearch_rs = { workspace = true, features = ["mock_allocator"] }
 redis_mock.workspace = true
 
+# Crate required to invoke C symbols
+reducers = { path = ".", features = ["unittest"] }
+
+[build-dependencies]
+build_utils.workspace = true
+
+[features]
+unittest = []
+
 [lints]
 workspace = true

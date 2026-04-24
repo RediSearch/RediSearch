@@ -14,7 +14,7 @@ use min_max_heap::MinMaxHeap;
 use rlookup::{RLookupKey, RLookupRow};
 
 use crate::Reducer;
-use value::comparison::compare_with_query_error_to_int;
+use value::comparison::cmp_fields;
 use value::{Array, Map, SharedValue, Value};
 
 /// The COLLECT reducer aggregates rows within each group, with optional field
@@ -426,29 +426,28 @@ impl Ord for HeapEntry {
 /// Comparator-visible half of a heap entry: the `SORTBY` key values and
 /// the ASC/DESC direction map.
 ///
-/// `Ord::cmp` iterates `sort_vals` pairwise and applies the direction
-/// encoded in `sort_asc_map` (bit `i` set ⇒ ASC, bit `i` clear ⇒ DESC,
-/// matching `SORTASCMAP_GETASC` in C). Ties across all sort keys compare
-/// `Equal`; the heap path therefore resolves ties in an unspecified
-/// order.
+/// `Ord::cmp` delegates to [`value::comparison::cmp_fields`] so the per-key
+/// policy (direction from `sort_asc_map` with bit `i` set ⇒ ASC matching
+/// `SORTASCMAP_GETASC`, missing-worst regardless of direction, num-to-str
+/// fallback, type-incompatibility handling) is defined once and shared
+/// with the top-level `SearchResult_CmpByFields`. Ties across all sort
+/// keys compare `Equal`; the heap path therefore resolves ties in an
+/// unspecified order.
 ///
 /// Heap convention: **best = min**. A value the user asked to sort first
 /// compares `Less`; the top-K heap path keeps the `offset + count`
 /// smallest-by-`cmp` entries, evicting the current max when a better
-/// entry arrives.
+/// entry arrives. This is the opposite of the "best = max" convention
+/// [`cmp_fields`] is written for (C's `RPSorter` drains via `mmh_pop_max`),
+/// hence the trailing `Ordering::reverse` in [`EntryKey::cmp`].
 ///
 /// ## Missing-value semantics
 ///
 /// A missing sort key (materialised as [`Value::Null`] by [`CollectCtx::add`])
-/// ranks **worst regardless of direction**: in both ASC and DESC an entry with
-/// a missing key sorts after an entry with any present value. Missing-on-both
-/// sides is `Equal` and falls through to the next pair. This matches the
-/// `SearchResult_CmpByFields` policy so reducer-side and top-level `SORTBY`
-/// agree on NULL ordering.
-// TODO(MOD-14803, PR #9194): once `value::comparison::cmp_fields` lands,
-// replace the inline pairwise-with-direction-and-missing-worst loop below
-// with a single `cmp_fields(pairs, self.sort_asc_map, None)` call so this
-// policy is defined exactly once, shared with `SearchResult_CmpByFields`.
+/// is mapped to [`None`] before delegation, so in both ASC and DESC an entry
+/// with a missing key ranks **worst**: it sorts after an entry with any
+/// present value. Missing-on-both sides is `Equal` and falls through to the
+/// next pair.
 struct EntryKey {
     sort_vals: Box<[SharedValue]>,
     sort_asc_map: u64,
@@ -470,27 +469,24 @@ impl PartialOrd for EntryKey {
 
 impl Ord for EntryKey {
     fn cmp(&self, other: &Self) -> Ordering {
-        for (i, (a, b)) in self
+        // Map [`Value::Null`] (the missing-key marker set by `CollectCtx::add`)
+        // to `None` so `cmp_fields`'s missing-worst branch applies; any other
+        // value passes through as `Some` and reaches `compare_with_query_error`.
+        fn as_opt(v: &SharedValue) -> Option<&Value> {
+            match &**v {
+                Value::Null => None,
+                other => Some(other),
+            }
+        }
+        let pairs = self
             .sort_vals
             .iter()
             .zip(other.sort_vals.iter())
-            .enumerate()
-        {
-            let asc = (self.sort_asc_map >> i) & 1 == 1;
-            let pair = match (&**a, &**b) {
-                (Value::Null, Value::Null) => Ordering::Equal,
-                (Value::Null, _) => Ordering::Greater,
-                (_, Value::Null) => Ordering::Less,
-                (va, vb) => {
-                    let base = compare_with_query_error_to_int(va, vb, None).cmp(&0);
-                    if asc { base } else { base.reverse() }
-                }
-            };
-            if pair != Ordering::Equal {
-                return pair;
-            }
-        }
-        Ordering::Equal
+            .map(|(a, b)| (as_opt(a), as_opt(b)));
+        // `cmp_fields` follows the "best = max" convention used by C's
+        // `SearchResult_CmpByFields`; reverse the result for the "best = min"
+        // convention this heap path uses (see type-level doc).
+        cmp_fields(pairs, self.sort_asc_map, None).reverse()
     }
 }
 
@@ -546,7 +542,7 @@ mod tests {
 
     #[test]
     fn missing_ranks_worst_under_desc_too() {
-        // PR 9194 alignment: the missing-worst policy must NOT flip with DESC.
+        // The missing-worst policy must NOT flip with DESC.
         let present = key(vec![Value::Number(42.0)], 0b0);
         let missing = key(vec![Value::Null], 0b0);
         assert_eq!(present.cmp(&missing), Ordering::Less);
