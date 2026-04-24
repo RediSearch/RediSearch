@@ -198,21 +198,20 @@ jobs:
         env:
           PERFORMANCE_GH_TOKEN: ${{ secrets.PERFORMANCE_GH_TOKEN }}
           PERFORMANCE_WH_TOKEN: ${{ secrets.PERFORMANCE_WH_TOKEN }}
-          # Route inputs.arch through env to satisfy SonarCloud's
-          # script-injection rule (same reasoning as the run-remote step).
-          ARCH: ${{ inputs.arch }}
-        # --baseline_architecture / --comparison_architecture filter the
-        # RedisTimeSeries lookup on `arch=<value>`. x86_64 keeps the existing
-        # backwards-compat behavior (redisbench-admin treats it as "no arch
-        # filter" so pre-#521 unlabeled samples still match); aarch64 jobs
-        # explicitly scope to aarch64 so they don't regress against x86
-        # baselines.
+        # --architectures enables the multi-arch PR comment layout from
+        # redisbench-admin 0.12.25+: one H2 section per arch covering
+        # branch-over-branch, plus a cross-arch delta section on the PR
+        # commit (x86_64 -> aarch64). Each matrix entry's compare call
+        # queries ALL arches from RTS; modules without aarch64 data (e.g.
+        # early in a run, before aarch64 jobs complete) render a warning
+        # block instead of an empty table, and the cross-arch section
+        # auto-suppresses. The last-to-finish upsert wins -- same behavior
+        # as today, but with the richer multi-arch body.
         run: redisbench-admin compare
               --defaults_filename ./tests/benchmarks/defaults.yml
               --comparison-branch ${{ github.event.pull_request.head.ref || github.ref_name }}
               --baseline-branch ${{ github.event.pull_request.base.ref }}
-              --baseline_architecture "$ARCH"
-              --comparison_architecture "$ARCH"
+              --architectures x86_64,aarch64
               --auto-approve
               --pull-request ${{ github.event.number }}
               --redistimeseries_host ${{ secrets.PERFORMANCE_RTS_HOST }}
