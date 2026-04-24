@@ -194,10 +194,18 @@ jobs:
         env:
           PERFORMANCE_GH_TOKEN: ${{ secrets.PERFORMANCE_GH_TOKEN }}
           PERFORMANCE_WH_TOKEN: ${{ secrets.PERFORMANCE_WH_TOKEN }}
+        # --baseline_architecture / --comparison_architecture filter the
+        # RedisTimeSeries lookup on `arch=<value>`. x86_64 keeps the existing
+        # backwards-compat behavior (redisbench-admin treats it as "no arch
+        # filter" so pre-#521 unlabeled samples still match); aarch64 jobs
+        # explicitly scope to aarch64 so they don't regress against x86
+        # baselines.
         run: redisbench-admin compare
               --defaults_filename ./tests/benchmarks/defaults.yml
               --comparison-branch ${{ github.event.pull_request.head.ref || github.ref_name }}
               --baseline-branch ${{ github.event.pull_request.base.ref }}
+              --baseline_architecture ${{ inputs.arch }}
+              --comparison_architecture ${{ inputs.arch }}
               --auto-approve
               --pull-request ${{ github.event.number }}
               --redistimeseries_host ${{ secrets.PERFORMANCE_RTS_HOST }}
