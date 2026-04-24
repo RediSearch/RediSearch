@@ -401,12 +401,7 @@ static void reconnectTimerCallback(uv_timer_t *tm) {
   }
 }
 
-/* Timer callback armed while in MRConn_ReAuth. Re-sends AUTH after the reauth
- * back-off so the server has time to recover and we don't tight-loop on
- * repeated auth rejections. */
-static void reauthTimerCallback(uv_timer_t *tm) {
-  MRConn *conn = tm->data;
-  RS_ASSERT(conn->state == MRConn_ReAuth);
+static inline void doAuthenticate(MRConn *conn) {
   if (MRConn_SendAuth(conn) != REDIS_OK) {
     if (conn->authFailCount % AUTH_FAIL_LOG_INTERVAL == 0) {
       CONN_LOG_WARNING(conn, "Failed to send AUTH command (%hu consecutive failures)", conn->authFailCount + 1);
@@ -418,9 +413,16 @@ static void reauthTimerCallback(uv_timer_t *tm) {
   }
 }
 
-/* Safely transition to the given state. Each delayed state (Connecting,
- * ReAuth) arms its own dedicated timer callback, so the callback always
- * handles a single state and no runtime state-dispatch is needed. */
+/* Timer callback armed while in MRConn_ReAuth. Re-sends AUTH after the reauth
+ * back-off so the server has time to recover and we don't tight-loop on
+ * repeated auth rejections. */
+static void reauthTimerCallback(uv_timer_t *tm) {
+  MRConn *conn = tm->data;
+  RS_ASSERT(conn->state == MRConn_ReAuth);
+  doAuthenticate(conn);
+}
+
+/* Main state transition function. */
 static void MRConn_SwitchState(MRConn *conn, MRConnState nextState) {
   CONN_LOG(conn, "Switching state to %s", MRConnState_Str(nextState));
   // Freeing is terminal: no caller should attempt a second transition. The
@@ -440,6 +442,11 @@ static void MRConn_SwitchState(MRConn *conn, MRConnState nextState) {
       // Delayed state: the reauth timer gives the server time to recover
       // and avoids a tight AUTH-retry loop on repeated rejections.
       uv_timer_start(&conn->timer, reauthTimerCallback, REAUTH_MS_DELAY, 0);
+      return;
+
+    case MRConn_Authenticating:
+      uv_timer_stop(&conn->timer);
+      doAuthenticate(conn);
       return;
 
     case MRConn_Connected:
@@ -468,6 +475,8 @@ static void MRConn_AuthCallback(redisAsyncContext *c, void *r, void *privdata) {
     // Will be picked up by disconnect callback
     goto cleanup;
   }
+  // Entered only while the AUTH we issued is in flight.
+  RS_ASSERT(conn->state == MRConn_Authenticating);
 
   if (!r) {
     // hiredis is tearing down the ac (reply callbacks fire with r==NULL
@@ -502,9 +511,11 @@ cleanup:
   MRReply_Free(rep);
 }
 
+/* Issue AUTH on the current ac. Only called from the Authenticating case of
+ * MRConn_SwitchState, which handles the REDIS_ERR path by detaching and
+ * transitioning back to Connecting. */
 static int MRConn_SendAuth(MRConn *conn) {
-  // Callers react to REDIS_ERR by detaching and switching back to Connecting.
-  RS_ASSERT(conn->state == MRConn_Connecting || conn->state == MRConn_ReAuth);
+  RS_ASSERT(conn->state == MRConn_Authenticating);
   CONN_LOG(conn, "Authenticating...");
 
   size_t len = 0;
@@ -727,15 +738,7 @@ static void MRConn_ConnectCallback(const redisAsyncContext *c, int status) {
   // Authenticate on OSS always (as an internal connection), or on Enterprise if
   // a password is set to the `default` ACL user.
   if (!IsEnterprise() || conn->ep.password) {
-    if (MRConn_SendAuth(conn) != REDIS_OK) {
-      if (conn->authFailCount % AUTH_FAIL_LOG_INTERVAL == 0) {
-        CONN_LOG_WARNING(conn, "Failed to send AUTH command (%hu consecutive failures)", conn->authFailCount + 1);
-      }
-      conn->authFailCount++;
-      // AUTH failed to enqueue; the ac is still alive and ours to free.
-      detachAndFreeAc(conn);
-      MRConn_SwitchState(conn, MRConn_Connecting);
-    }
+    MRConn_SwitchState(conn, MRConn_Authenticating);
   } else {
     MRConn_SwitchState(conn, MRConn_Connected);
   }

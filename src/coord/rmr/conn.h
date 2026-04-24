@@ -29,6 +29,10 @@ typedef enum __attribute__((packed)) {
   /* Connection is trying to connect (initial state and retry state) */
   MRConn_Connecting,
 
+  /* TCP (and TLS) handshake completed; AUTH command is in flight */
+  MRConn_Authenticating,
+
+  /* Back-off before retrying AUTH after a server-side AUTH rejection */
   MRConn_ReAuth,
 
   /* Connected, authenticated and active */
@@ -52,6 +56,8 @@ static inline const char *MRConnState_Str(MRConnState state) {
   switch (state) {
     case MRConn_Connecting:
       return "Connecting";
+    case MRConn_Authenticating:
+      return "Authenticating";
     case MRConn_ReAuth:
       return "Re-Authenticating";
     case MRConn_Connected:
