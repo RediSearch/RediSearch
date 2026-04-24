@@ -119,6 +119,12 @@ typedef struct QueryProcessingCtx {
 
   bool isProfile;
   RSTimeoutPolicy timeoutPolicy;
+
+  // True iff the pipeline is structurally trivial: endProc is a pager whose
+  // only upstream is the RPNet root. Set post-construction on the coordinator
+  // AREQ. Used by the RETURN-STRICT timeout path to drain queued shard replies
+  // on the main thread after the background pipeline has aborted.
+  bool isTrivialPipeline;
 } QueryProcessingCtx;
 
 QueryIterator *QITR_GetRootFilter(QueryProcessingCtx *it);

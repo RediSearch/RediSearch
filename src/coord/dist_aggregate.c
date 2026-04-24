@@ -280,6 +280,15 @@ static void buildDistRPChain(AREQ *r, MRCommand *xcmd, AREQDIST_UpstreamInfo *us
       qctx->endProc = rpProfile;
     }
   }
+
+  // Classify the coordinator pipeline as trivial when it is exactly
+  // `RPNet -> RPPager_Limiter -> end`. Such a pipeline carries no buffering or
+  // reordering state, so under RETURN-STRICT the main-thread timeout callback
+  // can safely drain queued shard replies after the background pipeline aborts.
+  // Profile wraps every RP, so profile queries are never trivial.
+  qctx->isTrivialPipeline = !IsProfile(r) &&
+                            qctx->endProc && qctx->endProc->type == RP_PAGER_LIMITER &&
+                            qctx->endProc->upstream == &rpRoot->base;
 }
 
 void PrintShardProfile(RedisModule_Reply *reply, void *ctx);
