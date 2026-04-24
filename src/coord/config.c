@@ -227,6 +227,45 @@ long long get_topology_validation_timeout(
   return realConfig->topologyValidationTimeoutMS;
 }
 
+// CONNECT_TIMEOUT
+static inline void connectTimeoutFromMS(struct timeval *tv, size_t ms) {
+  tv->tv_sec = ms / 1000;
+  tv->tv_usec = (ms % 1000) * 1000;
+}
+
+static inline size_t connectTimeoutToMS(const struct timeval *tv) {
+  return (size_t)tv->tv_sec * 1000 + (size_t)tv->tv_usec / 1000;
+}
+
+CONFIG_SETTER(setConnectTimeout) {
+  SearchClusterConfig *realConfig = getOrCreateRealConfig((RSConfig *)config);
+  size_t ms;
+  int acrc = AC_GetSize(ac, &ms, AC_F_GE0);
+  if (acrc == AC_OK) connectTimeoutFromMS(&realConfig->connectTimeout, ms);
+  RETURN_STATUS(acrc);
+}
+
+CONFIG_GETTER(getConnectTimeout) {
+  SearchClusterConfig *realConfig = getOrCreateRealConfig((RSConfig *)config);
+  return sdsfromlonglong(connectTimeoutToMS(&realConfig->connectTimeout));
+}
+
+// connect-timeout
+int set_connect_timeout(const char *name,
+                      long long val, void *privdata, RedisModuleString **err) {
+  RSConfig *config = (RSConfig *)privdata;
+  SearchClusterConfig *realConfig = getOrCreateRealConfig(config);
+  connectTimeoutFromMS(&realConfig->connectTimeout, (size_t)val);
+  return REDISMODULE_OK;
+}
+
+long long get_connect_timeout(
+                const char *name, void *privdata) {
+  RSConfig *config = (RSConfig *)privdata;
+  SearchClusterConfig *realConfig = getOrCreateRealConfig(config);
+  return (long long)connectTimeoutToMS(&realConfig->connectTimeout);
+}
+
 static RSConfigOptions clusterOptions_g = {
     .vars =
         {
@@ -268,6 +307,12 @@ static RSConfigOptions clusterOptions_g = {
                          "Default is 30000 (30 seconds). 0 means no timeout.",
              .setValue = setTopologyValidationTimeout,
              .getValue = getTopologyValidationTimeout,},
+            {.name = "CONNECT_TIMEOUT",
+             .helpText = "Sets the per-attempt timeout for inter-shard connection setup (in milliseconds). "
+                         "Bounds the TCP+TLS handshake so a blackholed SYN does not stall a connection "
+                         "indefinitely. Default is 10000 (10 seconds). 0 disables the timeout.",
+             .setValue = setConnectTimeout,
+             .getValue = getConnectTimeout,},
             {.name = NULL}
             // fin
         }
@@ -351,6 +396,15 @@ int RegisterClusterModuleConfig(RedisModuleCtx *ctx) {
       ctx, "search-conn-per-shard", DEFAULT_CONN_PER_SHARD,
       REDISMODULE_CONFIG_UNPREFIXED, 0, UINT32_MAX,
       get_conn_per_shard, set_conn_per_shard, NULL,
+      (void*)&RSGlobalConfig
+    )
+  )
+
+  RM_TRY(
+    RedisModule_RegisterNumericConfig (
+      ctx, "search-connect-timeout", DEFAULT_CONNECT_TIMEOUT,
+      REDISMODULE_CONFIG_UNPREFIXED, 0, LLONG_MAX,
+      get_connect_timeout, set_connect_timeout, NULL,
       (void*)&RSGlobalConfig
     )
   )
