@@ -802,10 +802,10 @@ class TestCoordinatorTimeout:
         env = self.env
         prev_on_timeout_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
         run_command_on_all_shards(env, 'CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'fail')
-        baseline_cursor_total = _coord_cursor_total(env)
         before_info = info_modules_to_dict(env)
         base_err_coord = int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC])
         cursor_id, _ = self._create_fail_cursor(chunk_size=chunk_size)
+        baseline_cursor_total = _coord_cursor_total(env)
         return prev_on_timeout_policy, cursor_id, baseline_cursor_total, before_info, base_err_coord
 
     def _start_blocked_cursor_read(self, cursor_id):
@@ -821,11 +821,6 @@ class TestCoordinatorTimeout:
         blocked_client_id = wait_for_blocked_query_client(env, 'FT.CURSOR|READ',
                                                           'Client for FT.CURSOR|READ not found')
         return t_query, blocked_client_id
-
-    def _join_cursor_read_thread(self, t_query):
-        env = self.env
-        t_query.join(timeout=10)
-        env.assertFalse(t_query.is_alive(), message="Cursor read thread should have finished")
 
     def _assert_cursor_freed_and_metric_bumped(self, cursor_id, baseline_cursor_total,
                                                before_info, base_err_coord, context):
@@ -873,7 +868,8 @@ class TestCoordinatorTimeout:
         finally:
             env.expect(debug_cmd(), 'SYNC_POINT', 'SIGNAL', sync_point).ok()
 
-        self._join_cursor_read_thread(t_query)
+        t_query.join(timeout=10)
+        env.assertFalse(t_query.is_alive(), message="Cursor read thread should have finished")
 
         # Wait for cursor reclaim so the next FT.CURSOR READ deterministically
         # sees "Cursor not found" instead of racing with the worker's wind-down.
@@ -898,7 +894,8 @@ class TestCoordinatorTimeout:
             t_query, blocked_client_id = self._start_blocked_cursor_read(cursor_id)
             env.expect('CLIENT', 'UNBLOCK', blocked_client_id, 'TIMEOUT').equal(1)
             wait_for_client_unblocked(env, blocked_client_id)
-            self._join_cursor_read_thread(t_query)
+            t_query.join(timeout=10)
+            env.assertFalse(t_query.is_alive(), message="Cursor read thread should have finished")
         finally:
             env.expect(debug_cmd(), 'COORD_THREADS', 'RESUME').ok()
             wait_for_condition(
@@ -1140,7 +1137,8 @@ class TestCoordinatorTimeout:
             )
             env.expect('CLIENT', 'UNBLOCK', blocked_client_id, 'TIMEOUT').equal(1)
             wait_for_client_unblocked(env, blocked_client_id)
-            self._join_cursor_read_thread(t_query)
+            t_query.join(timeout=10)
+            env.assertFalse(t_query.is_alive(), message="Cursor read thread should have finished")
         finally:
             resetStoreResultsDebug(env)
 
@@ -1185,7 +1183,8 @@ class TestCoordinatorTimeout:
         finally:
             env.expect(debug_cmd(), 'SYNC_POINT', 'SIGNAL', sync_point).ok()
 
-        self._join_cursor_read_thread(t_query)
+        t_query.join(timeout=10)
+        env.assertFalse(t_query.is_alive(), message="Cursor read thread should have finished")
 
         # FAIL semantics held: cursor was freed by the timeout, error metric bumped.
         self._assert_cursor_freed_and_metric_bumped(cursor_id, baseline, before_info,
