@@ -42,7 +42,7 @@ def testLoadRdbWithIndexAuxData(env: Env):
     # Attempt to load RDB should fail because the RDB contains module aux data.
     # Use a large startup grace period so the server has time to abort during
     # RDB load before RLTest's readiness probe races with the abort.
-    env.envRunner.startupGraceSecs = 10
+    env.envRunner.startupGraceSecs = 1
     try:
         env.start()
     except Exception as e:
@@ -97,7 +97,7 @@ def testLoadRdbWithSpellcheckDictAuxData(env: Env):
     # Attempt to load RDB should fail because the RDB contains module aux data.
     # Use a large startup grace period so the server has time to abort during
     # RDB load before RLTest's readiness probe races with the abort.
-    env.envRunner.startupGraceSecs = 10
+    env.envRunner.startupGraceSecs = 1
     try:
         env.start()
     except Exception as e:
@@ -204,7 +204,7 @@ def testLoadRdbWithSuggestionData(env: Env):
     # Attempt to load RDB should fail because the RDB contains module data.
     # Use a large startup grace period so the server has time to abort during
     # RDB load before RLTest's readiness probe races with the abort.
-    env.envRunner.startupGraceSecs = 10
+    env.envRunner.startupGraceSecs = 1
     try:
         env.start()
     except Exception as e:

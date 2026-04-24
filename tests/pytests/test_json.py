@@ -622,7 +622,7 @@ def test_JSON_RDB_load_fail_without_JSON_module(env: Env):
     # RLTest may or may not fail to start the server with an exception.
     # Use a large startup grace period so the server has time to abort during
     # RDB load before RLTest's readiness probe races with the abort.
-    env.envRunner.startupGraceSecs = 10
+    env.envRunner.startupGraceSecs = 1
     try:
         env.start()
     except Exception as e:
