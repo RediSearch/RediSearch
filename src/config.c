@@ -1725,10 +1725,8 @@ void UpgradeDeprecatedMTConfigs() {
 
 RedisModuleString *getRedisConfigValue(RedisModuleCtx *ctx, const char *confName) {
   RedisModuleString *valueStr = NULL;
-  if (RedisModule_ConfigGet(ctx, confName, &valueStr) != REDISMODULE_OK) {
-    return NULL;
-  }
-  return valueStr;
+  RedisModule_ConfigGet(ctx, confName, &valueStr);
+  return valueStr; // Unset on error, caller should check for NULL
 }
 
 bool getRedisConfigBool(RedisModuleCtx *ctx, const char *confName, bool defaultValue) {
@@ -1737,6 +1735,14 @@ bool getRedisConfigBool(RedisModuleCtx *ctx, const char *confName, bool defaultV
     return defaultValue;
   }
   return value != 0;
+}
+
+long long getRedisConfigNumeric(RedisModuleCtx *ctx, const char *confName, long long defaultValue) {
+  long long value = 0;
+  if (RedisModule_ConfigGetNumeric(ctx, confName, &value) != REDISMODULE_OK) {
+    return defaultValue;
+  }
+  return value;
 }
 
 sds RSConfig_GetInfoString(const RSConfig *config) {

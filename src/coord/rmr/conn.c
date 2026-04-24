@@ -650,15 +650,13 @@ static int checkTLS(RedisModuleString **client_key, RedisModuleString **client_c
   int ret = 1;
   RedisModuleCtx *ctx = RSDummyContext;
   RedisModule_ThreadSafeContextLock(ctx);
-  RedisModuleString *tlsPort = NULL;
 
   // If `tls-cluster` is not set to `yes`, and `tls-port` is not set or zero,
   // we do not connect to the other nodes with TLS. We always want to connect with TLS
   // when the tls-port is set to a non-zero value, since this is the port we
   // get from the proxy on Enterprise, and the preferred port on OSS (see RedisCluster_GetTopology).
   if (!getRedisConfigBool(ctx, "tls-cluster", false)) {
-    tlsPort = getRedisConfigValue(ctx, "tls-port");
-    if (!tlsPort || !strcmp(RedisModule_StringPtrLen(tlsPort, NULL), "0")) {
+    if (getRedisConfigNumeric(ctx, "tls-port", 0) == 0) {
       ret = 0;
       goto done;
     }
@@ -690,9 +688,6 @@ static int checkTLS(RedisModuleString **client_key, RedisModuleString **client_c
   }
 
 done:
-  if (tlsPort) {
-    RedisModule_FreeString(ctx, tlsPort);
-  }
   RedisModule_ThreadSafeContextUnlock(ctx);
   return ret;
 }
