@@ -695,6 +695,7 @@ name = "fork_gc"
 version = "0.0.1"
 dependencies = [
  "ffi",
+ "libc",
  "redis-module",
  "tracing",
  "workspace_hack",
@@ -707,6 +708,7 @@ dependencies = [
  "cheadergen",
  "ffi",
  "fork_gc",
+ "tracing",
  "workspace_hack",
 ]
 
