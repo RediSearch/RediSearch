@@ -164,6 +164,10 @@ jobs:
           TRIGGERING_ENV: ${{ inputs.triggering_env }}
           ALLOWED_ENVS: ${{ inputs.allowed_envs }}
           ALLOWED_SETUPS: ${{ inputs.allowed_setups }}
+          # Route inputs.arch through env rather than inline ${{ inputs.arch }}
+          # in the shell template — SonarCloud's script-injection rule treats
+          # inputs.* as untrusted in a run: block and flags the direct form.
+          ARCH: ${{ inputs.arch }}
         # --github_sha: on pull_request events github.sha is the ephemeral
         # merge commit, which is garbage-collected after the PR merges and
         # breaks later reproducibility of RTS time-series and Polar Signals
@@ -179,7 +183,7 @@ jobs:
               --required-module ReJSON
               --github_sha ${{ github.event.pull_request.head.sha || github.sha }}
               --github_branch ${{ github.head_ref || github.ref_name }}
-              --architecture ${{ inputs.arch }}
+              --architecture "$ARCH"
               --upload_results_s3
               --triggering_env $TRIGGERING_ENV
               --allowed-envs $ALLOWED_ENVS
@@ -194,6 +198,9 @@ jobs:
         env:
           PERFORMANCE_GH_TOKEN: ${{ secrets.PERFORMANCE_GH_TOKEN }}
           PERFORMANCE_WH_TOKEN: ${{ secrets.PERFORMANCE_WH_TOKEN }}
+          # Route inputs.arch through env to satisfy SonarCloud's
+          # script-injection rule (same reasoning as the run-remote step).
+          ARCH: ${{ inputs.arch }}
         # --baseline_architecture / --comparison_architecture filter the
         # RedisTimeSeries lookup on `arch=<value>`. x86_64 keeps the existing
         # backwards-compat behavior (redisbench-admin treats it as "no arch
@@ -204,8 +211,8 @@ jobs:
               --defaults_filename ./tests/benchmarks/defaults.yml
               --comparison-branch ${{ github.event.pull_request.head.ref || github.ref_name }}
               --baseline-branch ${{ github.event.pull_request.base.ref }}
-              --baseline_architecture ${{ inputs.arch }}
-              --comparison_architecture ${{ inputs.arch }}
+              --baseline_architecture "$ARCH"
+              --comparison_architecture "$ARCH"
               --auto-approve
               --pull-request ${{ github.event.number }}
               --redistimeseries_host ${{ secrets.PERFORMANCE_RTS_HOST }}
