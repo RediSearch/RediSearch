@@ -406,6 +406,15 @@ static inline void doAuthenticate(MRConn *conn) {
   }
 }
 
+/* Terminal state: detach cbData so any in-flight hiredis callbacks on
+ * this conn become no-ops, then hand the conn off to freeConn. uv_close
+ * inside freeConn synchronously stops the retry timer and defers the
+ * struct free until the close callback fires. */
+static inline void doFreeConnection(MRConn *conn) {
+  detachAndDisconnectAc(conn);
+  freeConn(conn);
+}
+
 /* Timer callback armed while in MRConn_Reconnecting. Re-issues the async
  * connect in-place so the observable state stays Reconnecting for the whole
  * retry cycle (mirrors reauthTimerCallback). */
@@ -463,12 +472,7 @@ static void MRConn_SwitchState(MRConn *conn, MRConnState nextState) {
       return;
 
     case MRConn_Freeing:
-      // Terminal state: sever cbData so any in-flight hiredis callbacks on
-      // this conn become no-ops, then hand the conn off to freeConn. uv_close
-      // inside freeConn synchronously stops the retry timer and defers the
-      // struct free until the close callback fires.
-      detachAndDisconnectAc(conn);
-      freeConn(conn);
+      doFreeConnection(conn);
       return;
   }
   RS_ABORT_FMT("MRConn_SwitchState: invalid target state %d", nextState);
