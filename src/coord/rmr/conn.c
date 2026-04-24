@@ -692,7 +692,8 @@ static int MRConn_InitTLS(MRConn *conn, redisAsyncContext *c) {
 }
 
 /* hiredis async connect callback.
- */
+ * conn (c->data) can be NULL if detachFromConn was called before the connect completed
+ * (e.g., MRConn_Freeing with deferred disconnect). Both status values are expected. */
 static void MRConn_ConnectCallback(const redisAsyncContext *c, int status) {
   MRConn *conn = c->data;
   if (!conn) {
