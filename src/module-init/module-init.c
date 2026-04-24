@@ -13,7 +13,6 @@
 #include "config.h"
 #include "redisearch_api.h"
 #include <assert.h>
-#include <ctype.h>
 #include <dlfcn.h>
 #include "concurrent_ctx.h"
 #include "cursor.h"
@@ -55,22 +54,15 @@ static int validateAofSettings(RedisModuleCtx *ctx) {
     return rc;
   }
 
-  // Can't execute commands on the loading context, so make a new one
-  RedisModuleCallReply *reply =
-      RedisModule_Call(RSDummyContext, "CONFIG", "cc", "GET", "aof-use-rdb-preamble");
-  RS_ASSERT(reply);
-  RS_ASSERT(RedisModule_CallReplyType(reply) == REDISMODULE_REPLY_ARRAY);
-  RS_ASSERT(RedisModule_CallReplyLength(reply) == 2);
-  const char *value =
-      RedisModule_CallReplyStringPtr(RedisModule_CallReplyArrayElement(reply, 1), NULL);
+  // Can't execute commands on the loading context, so use the dummy one
+  int value = 0;
+  int rv = RedisModule_ConfigGetBool(RSDummyContext, "aof-use-rdb-preamble", &value);
+  RS_ASSERT(rv == REDISMODULE_OK);
 
-  // I tried using strcasecmp, but it seems that the yes/no replies have a trailing
-  // embedded newline in them
-  if (tolower(*value) == 'n') {
+  if (!value) {
     RedisModule_Log(RSDummyContext, "warning", "FATAL: aof-use-rdb-preamble required if AOF is used!");
     rc = 0;
   }
-  RedisModule_FreeCallReply(reply);
   return rc;
 }
 
