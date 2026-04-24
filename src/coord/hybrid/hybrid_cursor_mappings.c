@@ -287,10 +287,14 @@ bool ProcessHybridCursorMappings(const MRCommand *cmd, StrongRef searchMappingsR
             if (QueryError_GetCode(&ctx->errors[i]) == QUERY_ERROR_CODE_OUT_OF_MEMORY && oomPolicy == OomPolicy_Return ) {
                 QueryError_SetQueryOOMWarning(status);
             } else if (QueryError_GetCode(&ctx->errors[i]) == QUERY_ERROR_CODE_TIMED_OUT && timeoutPolicy != TimeoutPolicy_Fail) {
-                // RETURN policy: acknowledge the shard timeout but don't set it on
-                // qctx->err. The timeout will propagate through cursor reads (RPNet
-                // detects it from the depleter's last_rc), and replyWarningsWithSuffixes
-                // emits the properly-suffixed warning (e.g., "(SEARCH)" / "(VSIM)").
+                // RETURN / RETURN-STRICT policy: acknowledge the shard timeout but
+                // don't set it on qctx->err. The timeout will propagate through cursor
+                // reads (RPNet detects it from the depleter's last_rc), and
+                // replyWarningsWithSuffixes emits the properly-suffixed warning
+                // (e.g., "(SEARCH)" / "(VSIM)").
+                // Note: for the _FT.DEBUG FT.HYBRID path, RETURN-STRICT is rejected
+                // earlier in parseHybridDebugParams, so only RETURN reaches here in
+                // debug mode.
             } else if (QueryError_GetCode(&ctx->errors[i]) == QUERY_ERROR_CODE_TIMED_OUT) {
                 // FAIL policy: forward the standard timeout error directly,
                 // matching the standalone path which uses QueryError_Strerror().

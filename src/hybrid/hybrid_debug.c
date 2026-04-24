@@ -8,6 +8,7 @@
  */
 
 #include "hybrid_debug.h"
+#include "config.h"
 #include "hybrid_exec.h"
 #include "hybrid_request.h"
 #include "parse_hybrid.h"
@@ -128,6 +129,12 @@ int parseHybridDebugParams(HybridDebugParams *params, QueryError *status) {
   // Validate that at least one component timeout parameter was provided
   if (!params->search_timeout_set && !params->vsim_timeout_set && !params->tail_timeout_set) {
     QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "At least one component timeout parameter (TIMEOUT_AFTER_N_SEARCH, TIMEOUT_AFTER_N_VSIM, or TIMEOUT_AFTER_N_TAIL) must be specified");
+    return REDISMODULE_ERR;
+  }
+
+  if (RSGlobalConfig.requestConfigParams.timeoutPolicy == TimeoutPolicy_ReturnStrict) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS,
+                        "FT.HYBRID debug timeout is not supported with ON_TIMEOUT RETURN-STRICT");
     return REDISMODULE_ERR;
   }
 

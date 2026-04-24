@@ -411,6 +411,8 @@ void QueryError_SetQueryOOMWarning(struct QueryError *query_error);
  * [`QueryWarningCode::OutOfMemoryShard`] and [`QueryWarningCode::OutOfMemoryCoord`]. If another message is provided,
  * [`QueryWarningCode::Ok`] is returned.
  *
+ * If the message is a null pointer, returns [`QueryWarningCode::Ok`].
+ *
  * # Safety
  *
  * - `message` must be a valid C string or a NULL pointer.

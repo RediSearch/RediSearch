@@ -321,3 +321,13 @@ def test_tail_property_not_loaded_warning_coordinator():
         warnings = []
     env.assertTrue(any('__score' in w for w in warnings),
                    message=f"Expected warning about __score, got: {warnings}")
+
+def test_debug_timeout_return_strict_rejected():
+    """Test that _FT.DEBUG FT.HYBRID rejects ON_TIMEOUT RETURN-STRICT policy."""
+    env = Env(enableDebugCommand=True, moduleArgs='ON_TIMEOUT RETURN-STRICT')
+    setup_basic_index(env)
+    env.expect(
+        '_FT.DEBUG', 'FT.HYBRID', 'idx', 'SEARCH', 'running',
+        'VSIM', '@embedding', '$BLOB', 'PARAMS', '2', 'BLOB', query_vector,
+        'TIMEOUT_AFTER_N_SEARCH', '1', 'DEBUG_PARAMS_COUNT', '2'
+    ).error().contains('not supported with ON_TIMEOUT RETURN-STRICT')
