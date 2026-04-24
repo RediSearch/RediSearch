@@ -222,28 +222,25 @@ fn bind_metric_request(
     // SAFETY: `it` is a valid iterator freshly returned by `NewVectorIterator`.
     let iterator_type = unsafe { it.as_ref() }.type_;
 
-    // Neither accessor can infer the key's borrow — one comes from C, the other
-    // from a type-erased header — and `bind_metric_request_key` leaves it free
-    // on both sides too, so nothing constrains the lifetime inferred here. It is
-    // discharged by discarding it: the key leaves this function only as a raw
-    // pointer, handed straight back to the iterator that owns the slot, so no
-    // `RLookupKey` reference — nor any borrow its safe accessors hand out — is
-    // ever formed at that lifetime.
+    // Neither accessor can infer the key's borrow — both reach it through a
+    // type-erased header — and `bind_metric_request_key` leaves it free too, so
+    // nothing constrains the lifetime inferred here. It is discharged by
+    // discarding it: the key leaves this function only as a raw pointer, handed
+    // straight back to the iterator that owns the slot, so no `RLookupKey`
+    // reference — nor any borrow its safe accessors hand out — is ever formed at
+    // that lifetime.
     match iterator_type {
         IteratorType::Hybrid => {
-            // SAFETY: the discriminant says this is a hybrid iterator, and we
-            // hold it exclusively.
-            //
-            // The cast is C's view of the key — its header — widened back to
-            // the whole key the header is the first field of.
-            let own_key = unsafe { ffi::HybridIterator_GetOwnKeyRef(it.as_ptr()) }.cast();
+            // SAFETY: the discriminant says this is a vector top-k iterator, and
+            // we hold it exclusively.
+            let own_key = unsafe { vector_score_source::interop::own_key_ref(it) };
             // SAFETY: `id` was reserved by `add_metric_request` on this same
             // context; `own_key` points into the iterator, which outlives the
             // handle (it clears the handle's validity flag when freed).
             let handle = unsafe { ctx.bind_metric_request_key(id, own_key) };
             // SAFETY: as above, and `handle` is a valid handle that lives as
-            // long as the AST. The cast is the same handle as C declares it.
-            unsafe { ffi::HybridIterator_SetKeyHandle(it.as_ptr(), handle.cast()) };
+            // long as the AST.
+            unsafe { vector_score_source::interop::set_key_handle(it, handle) };
         }
         IteratorType::MetricSortedById
         | IteratorType::MetricSortedByScore

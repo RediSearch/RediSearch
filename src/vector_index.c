@@ -20,7 +20,6 @@
 #include <time.h>
 
 #include "VecSim/query_results.h"
-#include "iterators/hybrid_reader.h"
 #include "iterators_ffi.h"
 #include "query_param.h"
 #include "rdb.h"
@@ -239,7 +238,6 @@ QueryIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, QueryIterator
   VecSimIndexBasicInfo info = VecSimIndex_BasicInfo(vecsim);
   size_t dim = info.dim;
   VecSimType type = info.type;
-  VecSimMetric metric = info.metric;
 
   VecSimQueryParams qParams = {0};
   FieldFilterContext filterCtx = {.field = {.index_tag = FieldMaskOrIndex_Index, .index = vq->field->index}, .predicate = FIELD_EXPIRATION_PREDICATE_DEFAULT};
@@ -272,19 +270,10 @@ QueryIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, QueryIterator
                                                "Error parsing vector similarity query: query " VECSIM_KNN_K_TOO_LARGE_ERR_MSG ", must not exceed %zu", MAX_KNN_K);
         return NULL;
       }
-      HybridIteratorParams hParams = {.index = vecsim,
-                                      .dim = dim,
-                                      .elementType = type,
-                                      .spaceMetric = metric,
-                                      .query = vq->knn,
-                                      .qParams = qParams,
-                                      .vectorScoreField = vq->scoreField,
-                                      .canTrimDeepResults = q->opts->flags & Search_CanSkipRichResults,
-                                      .childIt = child_it,
-                                      .sctx = q->sctx,
-                                      .filterCtx = &filterCtx,
-      };
-      return NewHybridVectorIterator(hParams, q->status);
+      RS_ASSERT(q->sctx->timeout);
+      return NewVectorTopKIterator(vecsim, vq->knn.vector, dim * VecSimType_sizeof(type), &qParams,
+                                   vq->knn.k, q->opts->flags & Search_CanSkipRichResults, child_it,
+                                   q->sctx->timeout, q->sctx, &filterCtx);
     }
     case VECSIM_QT_RANGE: {
       if ((dim * VecSimType_sizeof(type)) != vq->range.vecLen) {
