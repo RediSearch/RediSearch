@@ -29,20 +29,8 @@ void FGC_updateStats(ForkGC *gc, RedisSearchCtx *sctx,
   gc->stats.gcBlocksDenied += ignoredLastBlock ? 1 : 0;
 }
 
-void FGC_sendBuffer(ForkGC *fgc, const void *buff, size_t len) {
-  FGC_SEND_VAR(fgc, len);
-  if (len > 0) {
-    FGC_sendFixed(fgc, buff, len);
-  }
-}
-
-/**
- * Send instead of a string to indicate that no more buffers are to be received
- */
-void FGC_sendTerminator(ForkGC *fgc) {
-  size_t smax = SIZE_MAX;
-  FGC_SEND_VAR(fgc, smax);
-}
+// FGC_sendBuffer and FGC_sendTerminator are defined in Rust
+// (fork_gc_ffi crate); prototypes come from fork_gc_rs.h.
 
 int __attribute__((warn_unused_result)) FGC_recvFixed(ForkGC *fgc, void *buf, size_t len) {
   // poll the pipe, so that we don't block while read, with timeout of 3 minutes

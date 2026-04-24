@@ -39,7 +39,53 @@ pub unsafe extern "C" fn FGC_sendFixed(fgc: *mut ffi::ForkGC, buff: *const c_voi
     // SAFETY: caller guarantees (2).
     let slice = unsafe { std::slice::from_raw_parts(buff.cast::<u8>(), len) };
 
-    let mut writer = fgc.writer();
+    fgc.writer().send_fixed_or_exit(slice);
+}
 
-    fork_gc::pipe::send_fixed_or_exit(&mut writer, slice);
+/// Write a length-prefixed buffer frame: a native-endian `size_t` header
+/// followed by `len` payload bytes.
+///
+/// On error, logs the failure and terminates the child process via
+/// `RedisModule_ExitFromChild(1)`. Mirrors `FGC_sendBuffer` in
+/// `src/fork_gc/pipe.c`.
+///
+/// # Safety
+///
+/// 1. `fgc` must point to a valid `ForkGC` whose `pipe_write_fd` is an open,
+///    writable file descriptor.
+/// 2. If `len > 0`, `buff` must point to a readable region of at least
+///    `len` bytes. When `len == 0`, `buff` is unused and may be anything
+///    (including NULL).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn FGC_sendBuffer(fgc: *mut ffi::ForkGC, buff: *const c_void, len: usize) {
+    // SAFETY: caller guarantees (1).
+    let fgc = unsafe { ForkGC::from_ptr_mut(fgc) };
+
+    let slice = if len > 0 {
+        // SAFETY: caller guarantees (2).
+        unsafe { std::slice::from_raw_parts(buff.cast::<u8>(), len) }
+    } else {
+        &[]
+    };
+
+    fgc.writer().send_buffer_or_exit(slice);
+}
+
+/// Write the end-of-stream sentinel, signalling to the parent reader
+/// that no more buffers will follow.
+///
+/// On error, logs the failure and terminates the child process via
+/// `RedisModule_ExitFromChild(1)`. Mirrors `FGC_sendTerminator` in
+/// `src/fork_gc/pipe.c`.
+///
+/// # Safety
+///
+/// `fgc` must point to a valid `ForkGC` whose `pipe_write_fd` is an open,
+/// writable file descriptor.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn FGC_sendTerminator(fgc: *mut ffi::ForkGC) {
+    // SAFETY: caller guarantees fgc validity.
+    let fgc = unsafe { ForkGC::from_ptr_mut(fgc) };
+
+    fgc.writer().send_terminator_or_exit();
 }

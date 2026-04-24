@@ -27,6 +27,39 @@ extern "C" {
  */
 void FGC_sendFixed(ForkGC *fgc, const void *buff, size_t len);
 
+/**
+ * Write a length-prefixed buffer frame: a native-endian `size_t` header
+ * followed by `len` payload bytes.
+ *
+ * On error, logs the failure and terminates the child process via
+ * `RedisModule_ExitFromChild(1)`. Mirrors `FGC_sendBuffer` in
+ * `src/fork_gc/pipe.c`.
+ *
+ * # Safety
+ *
+ * 1. `fgc` must point to a valid `ForkGC` whose `pipe_write_fd` is an open,
+ *    writable file descriptor.
+ * 2. If `len > 0`, `buff` must point to a readable region of at least
+ *    `len` bytes. When `len == 0`, `buff` is unused and may be anything
+ *    (including NULL).
+ */
+void FGC_sendBuffer(ForkGC *fgc, const void *buff, size_t len);
+
+/**
+ * Write the end-of-stream sentinel, signalling to the parent reader
+ * that no more buffers will follow.
+ *
+ * On error, logs the failure and terminates the child process via
+ * `RedisModule_ExitFromChild(1)`. Mirrors `FGC_sendTerminator` in
+ * `src/fork_gc/pipe.c`.
+ *
+ * # Safety
+ *
+ * `fgc` must point to a valid `ForkGC` whose `pipe_write_fd` is an open,
+ * writable file descriptor.
+ */
+void FGC_sendTerminator(ForkGC *fgc);
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif  // __cplusplus
