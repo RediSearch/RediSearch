@@ -258,15 +258,15 @@ QueryIterator *NewOptionalIterator(QueryIterator *child, QueryEvalCtx *q, t_docI
 bool IsWildcardIterator(const QueryIterator *it);
 
 /**
- * `PrintProfile` vtable entry for Hybrid (vector search) iterators.
+ * `PrintProfile` vtable entry for Optimus (optimizer) iterators.
  *
  * # Safety
  *
- * 1. `self_` must be a valid pointer to a Hybrid iterator.
+ * 1. `self_` must be a valid pointer to an Optimus iterator.
  * 2. `map` must be a valid pointer to a [`redis_reply::MapBuilder`].
  * 3. `ctx` must be a valid pointer to a [`ProfilePrintCtx`].
  */
-void Hybrid_PrintProfile(const QueryIterator *self_, struct MapBuilder *map, struct ProfilePrintCtx *ctx);
+void Optimus_PrintProfile(const QueryIterator *self_, struct MapBuilder *map, struct ProfilePrintCtx *ctx);
 
 /**
  * Creates a new missing-field inverted index iterator.
@@ -502,15 +502,29 @@ QueryIterator *NewUnionIterator(QueryIterator * *its, int32_t num, bool quick_ex
 QueryIterator *NewWildcardIterator(const QueryEvalCtx *q, double weight);
 
 /**
- * `PrintProfile` vtable entry for Optimus (optimizer) iterators.
+ * Print iterator profile tree as a Redis reply.
+ *
+ * This is the FFI entry point called from C `Profile_PrintCommon`.
+ *
+ * # Parameters
+ *
+ * - `ctx`: The Redis module context used to emit reply protocol.
+ * - `root`: The root of the profile-wrapped iterator tree to print.
+ *   May be null, in which case the function returns immediately.
+ * - `limited`: When `true`, non-`UNION` union iterators collapse their
+ *   children into a summary count instead of printing each child
+ *   individually. Corresponds to `FT.PROFILE ... LIMITED`.
+ * - `print_profile_clock`: When `true`, include wall-clock timing
+ *   (`"Time"`) in each profile entry. Corresponds to
+ *   `PROFILE_VERBOSE` / `_FT.DEBUG PROFILE_VERBOSE`.
  *
  * # Safety
  *
- * 1. `self_` must be a valid pointer to an Optimus iterator.
- * 2. `map` must be a valid pointer to a [`redis_reply::MapBuilder`].
- * 3. `ctx` must be a valid pointer to a [`ProfilePrintCtx`].
+ * 1. `ctx` must be a valid [`RedisModuleCtx`] pointer.
+ * 2. `root` must be null or a valid pointer to a [`QueryIterator`] tree
+ *    that has been profile-wrapped via `Profile_AddIters`.
  */
-void Optimus_PrintProfile(const QueryIterator *self_, struct MapBuilder *map, struct ProfilePrintCtx *ctx);
+void Profile_PrintIterators(RedisModuleCtx *ctx, const QueryIterator *root, bool limited, bool print_profile_clock);
 
 /**
  * Creates a new geometry-query iterator over a list of matching document IDs.
@@ -602,31 +616,6 @@ void AddIntersectionIteratorChild(QueryIterator *header, QueryIterator *child);
  *    created via [`NewUnionIterator`].
  */
 void TrimUnionIterator(QueryIterator *it, size_t limit, bool asc);
-
-/**
- * Print iterator profile tree as a Redis reply.
- *
- * This is the FFI entry point called from C `Profile_PrintCommon`.
- *
- * # Parameters
- *
- * - `ctx`: The Redis module context used to emit reply protocol.
- * - `root`: The root of the profile-wrapped iterator tree to print.
- *   May be null, in which case the function returns immediately.
- * - `limited`: When `true`, non-`UNION` union iterators collapse their
- *   children into a summary count instead of printing each child
- *   individually. Corresponds to `FT.PROFILE ... LIMITED`.
- * - `print_profile_clock`: When `true`, include wall-clock timing
- *   (`"Time"`) in each profile entry. Corresponds to
- *   `PROFILE_VERBOSE` / `_FT.DEBUG PROFILE_VERBOSE`.
- *
- * # Safety
- *
- * 1. `ctx` must be a valid [`RedisModuleCtx`] pointer.
- * 2. `root` must be null or a valid pointer to a [`QueryIterator`] tree
- *    that has been profile-wrapped via `Profile_AddIters`.
- */
-void Profile_PrintIterators(RedisModuleCtx *ctx, const QueryIterator *root, bool limited, bool print_profile_clock);
 
 /**
  * Creates a new wildcard inverted index iterator for querying all existing documents.
