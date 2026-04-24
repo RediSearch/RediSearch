@@ -410,7 +410,7 @@ fn rewind_after_mid_collect_error_does_not_retain_stale_heap() {
             RSIndexResult::build_virt().doc_id(doc_id).build()
         }
 
-        fn batch_strategy(&mut self, _: usize, _: usize) -> BatchStrategy {
+        fn batch_strategy(&mut self, _heap_count: usize, _k: usize) -> BatchStrategy {
             BatchStrategy::Continue
         }
 
