@@ -122,7 +122,7 @@ static MRConnPool *_MR_NewConnPool(MREndpoint *ep, size_t num, uv_loop_t *loop) 
 }
 
 /* Tear down a connection: log and transition to the terminal Freeing state,
- * which severs hiredis cbData and schedules the async free of the MRConn
+ * which detaches hiredis cbData and schedules the async free of the MRConn
  * struct. Must be called from the uv thread, and exactly once per conn —
  * uv_close inside freeConn is not idempotent. */
 static void MRConn_Disconnect(MRConn *conn) {
@@ -131,20 +131,19 @@ static void MRConn_Disconnect(MRConn *conn) {
 }
 
 /* Close callback for the inlined timer handle. libuv has released the handle
- * by the time this fires, so we can free the endpoint strings and the MRConn
- * itself. */
-static void freeConnAfterTimerClose(uv_handle_t *h) {
+ * by the time this fires, so we can free the MRConn itself. */
+static void _asyncFreeConn(uv_handle_t *h) {
   MRConn *conn = h->data;
-  MREndpoint_Free(&conn->ep);
   rm_free(conn);
 }
 
-/* Free the conn. Teardown is asynchronous because the inlined timer handle
- * must outlive this call until libuv finishes its close sequence; the actual
- * rm_free happens in freeConnAfterTimerClose. Callers must ensure no further
- * SwitchState or timer operations run on conn after this point. */
+// Free the conn.
 static void freeConn(MRConn *conn) {
-  uv_close((uv_handle_t *)&conn->timer, freeConnAfterTimerClose);
+  MREndpoint_Free(&conn->ep);
+  // Some of the teardown is asynchronous because the inlined timer handle
+  // must outlive this call until libuv finishes its close sequence; the actual
+  // rm_free happens in _asyncFreeConn.
+  uv_close((uv_handle_t *)&conn->timer, _asyncFreeConn);
 }
 
 /* Dict value destructor: disconnect and free every conn in the pool, then
@@ -196,7 +195,7 @@ void MRConnManager_Init(MRConnManager *mgr, int nodeConns) {
 
 /* Tear down every connection in the manager and release the dict.
  *
- * Must be called from the uv thread while the event loop is still alive: the
+ * Must be called from the owning uv thread while the event loop is still alive: the
  * per-conn disconnect path invokes uv_close and redisAsyncDisconnect, both of
  * which require a live loop. After this returns the manager is empty; the
  * MRConnManager struct itself is not freed (it is embedded in IORuntimeCtx). */

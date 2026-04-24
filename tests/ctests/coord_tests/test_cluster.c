@@ -57,6 +57,70 @@ void testEndpoint() {
   MREndpoint_Free(&ep);
 }
 
+void testEndpointEqual() {
+  MREndpoint a = {0}, b = {0};
+
+  // NULL pointer handling
+  mu_check(MREndpoint_Equal(NULL, NULL));
+  mu_check(!MREndpoint_Equal(&a, NULL));
+  mu_check(!MREndpoint_Equal(NULL, &b));
+
+  // Same pointer
+  mu_check(MREndpoint_Equal(&a, &a));
+
+  // Equal endpoints (host + port only)
+  a.host = rm_strdup("localhost"); a.port = 6379;
+  b.host = rm_strdup("localhost"); b.port = 6379;
+  mu_check(MREndpoint_Equal(&a, &b));
+
+  // Different port
+  b.port = 6380;
+  mu_check(!MREndpoint_Equal(&a, &b));
+  b.port = 6379;
+
+  // Different host
+  rm_free(b.host); b.host = rm_strdup("other");
+  mu_check(!MREndpoint_Equal(&a, &b));
+  rm_free(b.host); b.host = rm_strdup("localhost");
+
+  // Password: NULL vs non-NULL
+  a.password = rm_strdup("secret");
+  mu_check(!MREndpoint_Equal(&a, &b));
+  // Both passwords equal
+  b.password = rm_strdup("secret");
+  mu_check(MREndpoint_Equal(&a, &b));
+  // Different passwords
+  rm_free(b.password); b.password = rm_strdup("other");
+  mu_check(!MREndpoint_Equal(&a, &b));
+  rm_free(b.password); b.password = rm_strdup("secret");
+
+  // unixSock: NULL vs non-NULL
+  a.unixSock = rm_strdup("/tmp/redis.sock");
+  mu_check(!MREndpoint_Equal(&a, &b));
+  // Both unixSock equal
+  b.unixSock = rm_strdup("/tmp/redis.sock");
+  mu_check(MREndpoint_Equal(&a, &b));
+  // Different unixSock
+  rm_free(b.unixSock); b.unixSock = rm_strdup("/tmp/other.sock");
+  mu_check(!MREndpoint_Equal(&a, &b));
+
+  MREndpoint_Free(&a);
+  MREndpoint_Free(&b);
+
+  // Host: NULL vs non-NULL
+  MREndpoint na = {0}, nb = {0};
+  na.port = 6379;
+  nb.port = 6379;
+  nb.host = rm_strdup("localhost");
+  mu_check(!MREndpoint_Equal(&na, &nb));
+  // Both hosts NULL with equal other fields
+  rm_free(nb.host); nb.host = NULL;
+  mu_check(MREndpoint_Equal(&na, &nb));
+
+  MREndpoint_Free(&na);
+  MREndpoint_Free(&nb);
+}
+
 static RedisModuleSlotRangeArray *createSlotRangeArray(size_t numRanges, uint16_t ranges[][2]) {
   size_t total_size = sizeof(RedisModuleSlotRangeArray) + sizeof(RedisModuleSlotRange) * numRanges;
   RedisModuleSlotRangeArray *array = (RedisModuleSlotRangeArray *)rm_malloc(total_size);
@@ -163,6 +227,7 @@ int main(int argc, char **argv) {
   RMUTil_InitAlloc();
   RedisModule_Log = dummyLog;
   MU_RUN_TEST(testEndpoint);
+  MU_RUN_TEST(testEndpointEqual);
   MU_RUN_TEST(testCluster);
   MU_RUN_TEST(testClusterTopology_Clone);
   MU_REPORT();
