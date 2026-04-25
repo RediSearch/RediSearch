@@ -239,9 +239,9 @@ static inline size_t connectTimeoutToMS(const struct timeval *tv) {
 
 CONFIG_SETTER(setConnectTimeout) {
   SearchClusterConfig *realConfig = getOrCreateRealConfig((RSConfig *)config);
-  size_t ms;
-  int acrc = AC_GetSize(ac, &ms, AC_F_GE0);
-  if (acrc == AC_OK) connectTimeoutFromMS(&realConfig->connectTimeout, ms);
+  int ms;
+  int acrc = AC_GetInt(ac, &ms, AC_F_GE0); // ms can be up to INT_MAX
+  if (acrc == AC_OK) connectTimeoutFromMS(&realConfig->connectTimeout, (size_t)ms);
   RETURN_STATUS(acrc);
 }
 
