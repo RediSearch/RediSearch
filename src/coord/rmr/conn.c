@@ -39,7 +39,6 @@ static void MRConn_DisconnectCallback(const redisAsyncContext *, int);
 static int MRConn_Connect(MRConn *conn);
 static void MRConn_SwitchState(MRConn *conn, MRConnState nextState);
 static void MRConn_Disconnect(MRConn *conn);
-static void freeConn(MRConn *conn);
 static MRConn *MR_NewConn(MREndpoint *ep, uv_loop_t *loop);
 static int MRConn_SendAuth(MRConn *conn);
 
@@ -375,14 +374,6 @@ static inline void doAuthenticate(MRConn *conn) {
   }
 }
 
-/* Terminal state: detach the ac and hand the conn off to freeConn. uv_close
- * inside freeConn stops the retry timer and defers the struct free until the
- * close callback fires. */
-static inline void doFreeConnection(MRConn *conn) {
-  detachRedisAsyncContext(conn);
-  freeConn(conn);
-}
-
 /* Timer callback armed while in MRConn_Reconnecting. Re-issues the async
  * connect in-place so the observable state stays Reconnecting for the whole
  * retry cycle (mirrors reauthTimerCallback). */
@@ -445,7 +436,9 @@ static void MRConn_SwitchState(MRConn *conn, MRConnState nextState) {
       return;
 
     case MRConn_Freeing:
-      doFreeConnection(conn);
+      // Terminal state: detach the ac and hand the conn off to freeConn.
+      detachRedisAsyncContext(conn);
+      freeConn(conn);
       return;
   }
   RS_ABORT_FMT("MRConn_SwitchState: invalid target state %d", nextState);
@@ -453,9 +446,9 @@ static void MRConn_SwitchState(MRConn *conn, MRConnState nextState) {
 
 static void MRConn_AuthCallback(redisAsyncContext *c, void *r, void *privdata) {
   MRConn *conn = c->data;
-
   redisReply *rep = r;
-  if (!conn || conn->state == MRConn_Freeing) {
+
+  if (!conn) {
     // Will be picked up by disconnect callback
     goto cleanup;
   }
