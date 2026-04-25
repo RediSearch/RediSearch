@@ -403,7 +403,7 @@ int RegisterClusterModuleConfig(RedisModuleCtx *ctx) {
   RM_TRY(
     RedisModule_RegisterNumericConfig (
       ctx, "search-connect-timeout", DEFAULT_CONNECT_TIMEOUT,
-      REDISMODULE_CONFIG_UNPREFIXED, 0, LLONG_MAX,
+      REDISMODULE_CONFIG_UNPREFIXED, 0, INT_MAX,
       get_connect_timeout, set_connect_timeout, NULL,
       (void*)&RSGlobalConfig
     )
