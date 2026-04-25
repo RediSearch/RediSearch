@@ -119,13 +119,13 @@ int MRConnManager_Disconnect(MRConnManager *m, const char *id);
  * Set number of connections to each node to `num`, disconnect from extras.
  * Assumes that `num` is less than the current number of connections and non-zero
  */
-void MRConnManager_Shrink(MRConnManager *m, size_t num);
+void MRConnManager_Shrink(MRConnManager *m, uint32_t num);
 
 /*
  * Set number of connections to each node to `num`, connect new connections.
  * Assumes that `num` is greater than the current number of connections
  */
-void MRConnManager_Expand(MRConnManager *m, size_t num, uv_loop_t *loop);
+void MRConnManager_Expand(MRConnManager *m, uint32_t num, uv_loop_t *loop);
 
 /*
  * Disconnect all connections and release the manager's dict. Must be called
