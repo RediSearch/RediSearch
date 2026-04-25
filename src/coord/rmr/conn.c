@@ -500,34 +500,39 @@ static int MRConn_SendAuth(MRConn *conn) {
   } else {
     // On Enterprise, we use the password we got from `CLUSTERSET`.
     // If we got here, we know we have a password.
-    return redisAsyncCommand(conn->conn, MRConn_AuthCallback, NULL, "AUTH %s",
-        conn->ep.password);
+    return redisAsyncCommand(conn->conn, MRConn_AuthCallback, NULL, "AUTH %s", conn->ep.password);
   }
 }
 
-/* Callback for passing a keyfile password stored as an sds to OpenSSL */
+/* OpenSSL passphrase callback. Userdata is the RedisModuleString* holding the
+ * key-file password (or NULL once we've cleared it after use). */
 static int MRConn_TlsPasswordCallback(char *buf, int size, int rwflag, void *u) {
-    const char *pass = u;
-    size_t pass_len;
-
+    const RedisModuleString *pass = u;
     if (!pass) return -1;
-    pass_len = strlen(pass);
+    size_t pass_len;
+    const char *p = RedisModule_StringPtrLen(pass, &pass_len);
     if (pass_len > (size_t) size) return -1;
-    memcpy(buf, pass, pass_len);
-
+    memcpy(buf, p, pass_len);
     return (int) pass_len;
 }
 
-static SSL_CTX* MRConn_CreateSSLContext(const char *cacert_filename,
-                                        const char *cert_filename,
-                                        const char *private_key_filename,
-                                        const char *private_key_pass,
+/* Build a client SSL_CTX from the cluster's TLS config. ca_cert/client_cert/
+ * client_key are required; key_pass is optional. The caller owns the strings
+ * and may free them as soon as this returns: the password callback fires
+ * synchronously from SSL_CTX_use_PrivateKey_file and the userdata is cleared
+ * before returning, so the ctx never holds a dangling reference. */
+static SSL_CTX* MRConn_CreateSSLContext(RedisModuleString *ca_cert,
+                                        RedisModuleString *client_cert,
+                                        RedisModuleString *client_key,
+                                        RedisModuleString *key_pass,
                                         redisSSLContextError *error)
 {
+    RS_ASSERT(ca_cert && client_cert && client_key && error);
+
     SSL_CTX *ssl_ctx = SSL_CTX_new(SSLv23_client_method());
     if (!ssl_ctx) {
-        if (error) *error = REDIS_SSL_CTX_CREATE_FAILED;
-        goto error;
+      *error = REDIS_SSL_CTX_CREATE_FAILED;
+      goto error;
     }
 
     SSL_CTX_set_options(ssl_ctx, SSL_OP_NO_SSLv2 | SSL_OP_NO_SSLv3);
@@ -536,32 +541,22 @@ static SSL_CTX* MRConn_CreateSSLContext(const char *cacert_filename,
     /* always set the callback, otherwise if key is encrypted and password
      * was not given, we will be waiting on stdin. */
     SSL_CTX_set_default_passwd_cb(ssl_ctx, MRConn_TlsPasswordCallback);
-    SSL_CTX_set_default_passwd_cb_userdata(ssl_ctx, (void *) private_key_pass);
+    SSL_CTX_set_default_passwd_cb_userdata(ssl_ctx, key_pass);
 
-    if ((cert_filename != NULL && private_key_filename == NULL) ||
-            (private_key_filename != NULL && cert_filename == NULL)) {
-        if (error) *error = REDIS_SSL_CTX_CERT_KEY_REQUIRED;
-        goto error;
+    if (!SSL_CTX_load_verify_locations(ssl_ctx, RedisModule_StringPtrLen(ca_cert, NULL), NULL)) {
+      *error = REDIS_SSL_CTX_CA_CERT_LOAD_FAILED;
+      goto error;
+    }
+    if (!SSL_CTX_use_certificate_chain_file(ssl_ctx, RedisModule_StringPtrLen(client_cert, NULL))) {
+      *error = REDIS_SSL_CTX_CLIENT_CERT_LOAD_FAILED;
+      goto error;
+    }
+    if (!SSL_CTX_use_PrivateKey_file(ssl_ctx, RedisModule_StringPtrLen(client_key, NULL), SSL_FILETYPE_PEM)) {
+      *error = REDIS_SSL_CTX_PRIVATE_KEY_LOAD_FAILED;
+      goto error;
     }
 
-    if (cacert_filename) {
-        if (!SSL_CTX_load_verify_locations(ssl_ctx, cacert_filename, NULL)) {
-            if (error) *error = REDIS_SSL_CTX_CA_CERT_LOAD_FAILED;
-            goto error;
-        }
-    }
-
-    if (cert_filename) {
-        if (!SSL_CTX_use_certificate_chain_file(ssl_ctx, cert_filename)) {
-            if (error) *error = REDIS_SSL_CTX_CLIENT_CERT_LOAD_FAILED;
-            goto error;
-        }
-        if (!SSL_CTX_use_PrivateKey_file(ssl_ctx, private_key_filename, SSL_FILETYPE_PEM)) {
-            if (error) *error = REDIS_SSL_CTX_PRIVATE_KEY_LOAD_FAILED;
-            goto error;
-        }
-    }
-
+    SSL_CTX_set_default_passwd_cb_userdata(ssl_ctx, NULL);
     return ssl_ctx;
 
 error:
@@ -621,19 +616,14 @@ done:
  * the given hiredis async context. Returns REDIS_OK on success (including
  * "TLS not configured", which is a no-op) and REDIS_ERR on any setup failure;
  * a warning is logged on failure. The caller owns the ac on failure. */
-static int MRConn_InitTLS(MRConn *conn, redisAsyncContext *c) {
+static int MRConn_InitTLS(MRConn *conn) {
   RedisModuleString *client_cert = NULL, *client_key = NULL, *ca_cert = NULL, *key_file_pass = NULL;
   if (!checkTLS(&client_key, &client_cert, &ca_cert, &key_file_pass)) {
     return REDIS_OK;
   }
 
   redisSSLContextError ssl_error = 0;
-  SSL_CTX *ssl_context = MRConn_CreateSSLContext(
-      RedisModule_StringPtrLen(ca_cert, NULL),
-      RedisModule_StringPtrLen(client_cert, NULL),
-      RedisModule_StringPtrLen(client_key, NULL),
-      key_file_pass ? RedisModule_StringPtrLen(key_file_pass, NULL) : NULL,
-      &ssl_error);
+  SSL_CTX *ssl_context = MRConn_CreateSSLContext(ca_cert, client_cert, client_key, key_file_pass, &ssl_error);
 
   RedisModule_FreeString(RSDummyContext, client_key);
   RedisModule_FreeString(RSDummyContext, client_cert);
@@ -654,10 +644,11 @@ static int MRConn_InitTLS(MRConn *conn, redisAsyncContext *c) {
     return REDIS_ERR;
   }
 
-  int rc = redisInitiateSSL(&c->c, ssl);
+  redisContext *c = &conn->conn->c;
+  int rc = redisInitiateSSL(c, ssl);
   SSL_CTX_free(ssl_context);
   if (rc != REDIS_OK) {
-    CONN_LOG_WARNING(conn, "Error on tls auth, %s.", c->c.err ? c->c.errstr : "Unknown error");
+    CONN_LOG_WARNING(conn, "Error on tls auth, %s.", c->err ? c->errstr : "Unknown error");
     SSL_free(ssl);
     return REDIS_ERR;
   }
@@ -690,7 +681,7 @@ static void MRConn_ConnectCallback(const redisAsyncContext *c, int status) {
     return;
   }
 
-  if (MRConn_InitTLS(conn, (redisAsyncContext *)c) != REDIS_OK) {
+  if (MRConn_InitTLS(conn) != REDIS_OK) {
     MRConn_SwitchState(conn, MRConn_Reconnecting);
     return;
   }
