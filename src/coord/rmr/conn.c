@@ -22,16 +22,17 @@
 #include <openssl/ssl.h>
 #include <openssl/err.h>
 
-// Layout packs the three small fields into the padding slot before the
-// inlined timer, keeping ep+conn+loop+state on the first cache line.
+// Hot path first: callbacks read conn+state+protocol on every entry, so
+// they share the head of the first cache line. ep/loop are warm (init and
+// connect paths). The libuv timer is last because it is large and only
+// touched while in Reconnecting / ReAuth.
 struct MRConn {
-  MREndpoint ep;
   redisAsyncContext *conn;
-  uv_loop_t *loop;
-  uint16_t authFailCount;   // consecutive auth failures, for rate-limited logging
   MRConnState state;
   MRConnProtocol protocol;  // Current Redis protocol version in use on this connection
-  uv_timer_t timer;         // back-off timer for Connecting/ReAuth
+  MREndpoint ep;
+  uv_loop_t *loop;
+  uv_timer_t timer;         // back-off timer for Reconnecting / ReAuth
 };
 
 static void MRConn_ConnectCallback(const redisAsyncContext *c, int status);
@@ -44,7 +45,6 @@ static int MRConn_SendAuth(MRConn *conn);
 
 #define RECONNECT_MS_DELAY 250
 #define REAUTH_MS_DELAY 1000
-#define AUTH_FAIL_LOG_INTERVAL 100
 #define INTERNALAUTH_USERNAME "internal connection"
 #define UNUSED(x) (void)(x)
 
@@ -366,10 +366,6 @@ static inline void doConnect(MRConn *conn) {
 
 static inline void doAuthenticate(MRConn *conn) {
   if (MRConn_SendAuth(conn) != REDIS_OK) {
-    if (conn->authFailCount % AUTH_FAIL_LOG_INTERVAL == 0) {
-      CONN_LOG_WARNING(conn, "Failed to send AUTH command (%hu consecutive failures)", conn->authFailCount + 1);
-    }
-    conn->authFailCount++;
     MRConn_SwitchState(conn, MRConn_Reconnecting);
   }
 }
@@ -472,7 +468,6 @@ static void MRConn_AuthCallback(redisAsyncContext *c, void *r, void *privdata) {
   }
 
   /* Success! we are now connected! */
-  conn->authFailCount = 0;
   MRConn_SwitchState(conn, MRConn_Connected);
 
 cleanup:
@@ -716,7 +711,6 @@ static MRConn *MR_NewConn(MREndpoint *ep, uv_loop_t *loop) {
     .conn = NULL,
     .protocol = MRConn_Protocol_Undetermined,
     .loop = loop,
-    .authFailCount = 0,
   };
   uv_timer_init(loop, &conn->timer);
   conn->timer.data = conn;

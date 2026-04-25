@@ -22,10 +22,9 @@ extern "C" {
 #include <uv.h>
 
 /*
- * The state of the connection. Packed so it fits in one byte when embedded
- * in MRConn.
+ * The state of the connection.
  */
-typedef enum __attribute__((packed)) {
+typedef enum {
   /* TCP (and TLS) handshake is in flight */
   MRConn_Connecting,
 
@@ -46,10 +45,10 @@ typedef enum __attribute__((packed)) {
 } MRConnState;
 
 /*
- * RESP protocol version negotiated on the connection. Packed so it fits in
- * one byte when embedded in MRConn. Values match the HELLO argument.
+ * RESP protocol version negotiated on the connection. Values match the
+ * HELLO argument.
  */
-typedef enum __attribute__((packed)) {
+typedef enum {
   MRConn_Protocol_Undetermined = 0,
   MRConn_Protocol_RESP2 = 2,
   MRConn_Protocol_RESP3 = 3,
