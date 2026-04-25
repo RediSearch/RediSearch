@@ -476,11 +476,10 @@ cleanup:
 static int MRConn_SendAuth(MRConn *conn) {
   RS_ASSERT(conn->state == MRConn_Authenticating || conn->state == MRConn_ReAuth);
 
-  size_t len = 0;
-
   if (!IsEnterprise()) {
     // Take the GIL before calling the internal function getter
     RedisModule_ThreadSafeContextLock(RSDummyContext);
+    size_t len;
     const char *internal_secret = RedisModule_GetInternalSecret(RSDummyContext, &len);
     // Create a local copy of the secret so we can release the GIL.
     int status = redisAsyncCommand(conn->conn, MRConn_AuthCallback, NULL,
