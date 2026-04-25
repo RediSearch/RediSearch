@@ -59,45 +59,18 @@ static int MRConn_SendAuth(MRConn *conn);
                   conn, conn->ep.host, conn->ep.port, MRConnState_Str((conn)->state), \
                   ##__VA_ARGS__)
 
-/* Strip the cbData link between conn and its hiredis async context and
- * clear conn->conn / conn->protocol. Returns the detached ac (ownership
- * transferred to the caller) or NULL if conn was not attached. Callers
- * normally use one of the wrappers below instead. */
-static redisAsyncContext *_detachAc(MRConn *conn) {
+/* Sever the link between conn and its hiredis async context and ask hiredis
+ * to tear the ac down. No-op when conn is not attached, and safe to call from
+ * inside any hiredis callback: redisAsyncDisconnect defers via the
+ * REDIS_IN_CALLBACK flag and lets hiredis's normal post-callback paths run
+ * __redisAsyncFree. */
+static void detachRedisAsyncContext(MRConn *conn) {
   redisAsyncContext *ac = conn->conn;
   conn->protocol = MRConn_Protocol_Undetermined;
-  if (!ac) {
-    return NULL;
-  }
+  if (!ac) return;
   ac->data = NULL;
   conn->conn = NULL;
-  return ac;
-}
-
-/* Unlink cbData, leaving the hiredis async context's lifecycle to hiredis.
- * Use from inside hiredis callbacks (DisconnectCallback, ConnectCallback on
- * failure, reply callbacks with reply==NULL) where __redisAsyncDisconnect /
- * __redisAsyncFree are about to free the ac on return — see the comment on
- * __redisAsyncDisconnect in deps/hiredis/async.c. */
-static void detachCbData(MRConn *conn) {
-  (void)_detachAc(conn);
-}
-
-/* Unlink cbData and synchronously free the hiredis async context. Use on
- * error paths that own the ac outright — e.g. before libuv attach, or after
- * an in-flight command failed and hiredis is not going to tear the ac down
- * on our behalf. Safe to call when conn is not attached. */
-static void detachAndFreeAc(MRConn *conn) {
-  redisAsyncContext *ac = _detachAc(conn);
-  if (ac) redisAsyncFree(ac);
-}
-
-/* Detach cbData and request a graceful shutdown of the hiredis async
- * context. hiredis fires the disconnect callback (with cbData already NULL)
- * and then frees the ac itself. */
-static void detachAndDisconnectAc(MRConn *conn) {
-  redisAsyncContext *ac = _detachAc(conn);
-  if (ac) redisAsyncDisconnect(ac);
+  redisAsyncDisconnect(ac);
 }
 
 typedef struct {
@@ -111,7 +84,7 @@ static MRConnPool *_MR_NewConnPool(MREndpoint *ep, size_t num, uv_loop_t *loop) 
   *pool = (MRConnPool){
       .num = num,
       .rr = 0,
-      .conns = rm_calloc(num, sizeof(MRConn *)),
+      .conns = rm_malloc(num * sizeof(MRConn *)),
   };
 
   /* Create the connection */
@@ -122,7 +95,7 @@ static MRConnPool *_MR_NewConnPool(MREndpoint *ep, size_t num, uv_loop_t *loop) 
 }
 
 /* Tear down a connection: log and transition to the terminal Freeing state,
- * which detaches hiredis cbData and schedules the async free of the MRConn
+ * which detaches the hiredis ac and schedules the async free of the MRConn
  * struct. Must be called from the uv thread, and exactly once per conn —
  * uv_close inside freeConn is not idempotent. */
 static inline void MRConn_Disconnect(MRConn *conn) {
@@ -388,8 +361,6 @@ void MRConnManager_Expand(MRConnManager *m, size_t num, uv_loop_t *loop) {
 
 static inline void doConnect(MRConn *conn) {
   if (MRConn_Connect(conn) != REDIS_OK) {
-    // MRConn_Connect's failure paths leave conn->conn == NULL, so no
-    // detach is needed here.
     MRConn_SwitchState(conn, MRConn_Reconnecting);
   }
 }
@@ -400,18 +371,15 @@ static inline void doAuthenticate(MRConn *conn) {
       CONN_LOG_WARNING(conn, "Failed to send AUTH command (%hu consecutive failures)", conn->authFailCount + 1);
     }
     conn->authFailCount++;
-    // AUTH failed to enqueue; the ac is still alive and ours to free.
-    detachAndFreeAc(conn);
     MRConn_SwitchState(conn, MRConn_Reconnecting);
   }
 }
 
-/* Terminal state: detach cbData so any in-flight hiredis callbacks on
- * this conn become no-ops, then hand the conn off to freeConn. uv_close
- * inside freeConn synchronously stops the retry timer and defers the
- * struct free until the close callback fires. */
+/* Terminal state: detach the ac and hand the conn off to freeConn. uv_close
+ * inside freeConn stops the retry timer and defers the struct free until the
+ * close callback fires. */
 static inline void doFreeConnection(MRConn *conn) {
-  detachAndDisconnectAc(conn);
+  detachRedisAsyncContext(conn);
   freeConn(conn);
 }
 
@@ -438,7 +406,7 @@ static void MRConn_SwitchState(MRConn *conn, MRConnState nextState) {
   CONN_LOG(conn, "Switching state to %s", MRConnState_Str(nextState));
 
   // Freeing is terminal: no caller should attempt a second transition. The
-  // Freeing case detaches cbData and hands conn off to freeConn; transitioning
+  // Freeing case detaches the ac and hands conn off to freeConn; transitioning
   // again would revive a half-torn-down conn or double-close its timer handle.
   RS_ASSERT(conn->state != MRConn_Freeing);
 
@@ -452,8 +420,9 @@ static void MRConn_SwitchState(MRConn *conn, MRConnState nextState) {
   switch (nextState) {
 
     case MRConn_Reconnecting:
-      // Delayed state: the reconnect timer introduces a back-off between
-      // attempts so we don't spin on a server that just rejected us.
+      // Detach the ac and arm the back-off timer so we don't spin on a
+      // server that just rejected us.
+      detachRedisAsyncContext(conn);
       uv_timer_start(&conn->timer, reconnectTimerCallback, RECONNECT_MS_DELAY, 0);
       return;
 
@@ -493,16 +462,8 @@ static void MRConn_AuthCallback(redisAsyncContext *c, void *r, void *privdata) {
   // Entered only while the AUTH we issued is in flight.
   RS_ASSERT(conn->state == MRConn_Authenticating || conn->state == MRConn_ReAuth);
 
-  if (!r) {
-    // hiredis is tearing down the ac (reply callbacks fire with r==NULL
-    // before the disconnect callback); just sever cbData.
-    detachCbData(conn);
-    MRConn_SwitchState(conn, MRConn_Reconnecting);
-    goto cleanup;
-  }
-  if (c->err) {
-    // Live ac with an error condition; free it explicitly.
-    detachAndFreeAc(conn);
+  if (!r || c->err) {
+    // ac is being torn down (r==NULL) or in an error state; reconnect.
     MRConn_SwitchState(conn, MRConn_Reconnecting);
     goto cleanup;
   }
@@ -726,22 +687,17 @@ static void MRConn_ConnectCallback(const redisAsyncContext *c, int status) {
     return;
   }
 
-  // The Freeing case of MRConn_SwitchState detaches cbData before triggering
-  // hiredis teardown, so when conn is still attached here, state cannot be Freeing.
+  // Freeing detaches the ac before tearing it down, so we can't be here.
   RS_ASSERT(conn->state != MRConn_Freeing);
 
   // if the connection is not stopped - try to reconnect
   if (status != REDIS_OK) {
     CONN_LOG_WARNING(conn, "Error on connect: %s", c->errstr);
-    // Hiredis will call __redisAsyncDisconnect() after connect-failure callback
-    // and free the ac itself; we only sever cbData to keep stale callbacks safe.
-    detachCbData(conn);
     MRConn_SwitchState(conn, MRConn_Reconnecting);
     return;
   }
 
   if (MRConn_InitTLS(conn, (redisAsyncContext *)c) != REDIS_OK) {
-    detachAndFreeAc(conn);
     MRConn_SwitchState(conn, MRConn_Reconnecting);
     return;
   }
@@ -761,11 +717,8 @@ static void MRConn_DisconnectCallback(const redisAsyncContext *c, int status) {
     /* Ignore */
     return;
   }
-  // The Freeing case of MRConn_SwitchState detaches cbData before triggering
-  // hiredis teardown, so when conn is still attached here, state cannot be Freeing.
+  // Freeing detaches the ac before tearing it down, so we can't be here.
   RS_ASSERT(conn->state != MRConn_Freeing);
-  // hiredis is freeing the ac after this callback returns; just detach cbData.
-  detachCbData(conn);
   MRConn_SwitchState(conn, MRConn_Reconnecting);
 }
 
@@ -821,18 +774,17 @@ static int MRConn_Connect(MRConn *conn) {
     redisAsyncFree(c);
     return REDIS_ERR;
   }
-  conn->conn = c;
-  conn->conn->data = conn;
-  conn->protocol = MRConn_Protocol_Undetermined;
-
-  if (redisLibuvAttach(conn->conn, conn->loop) != REDIS_OK ||
-      redisAsyncSetConnectCallback(conn->conn, MRConn_ConnectCallback) != REDIS_OK ||
-      redisAsyncSetDisconnectCallback(conn->conn, MRConn_DisconnectCallback) != REDIS_OK) {
+  if (redisLibuvAttach(c, conn->loop) != REDIS_OK ||
+      redisAsyncSetConnectCallback(c, MRConn_ConnectCallback) != REDIS_OK ||
+      redisAsyncSetDisconnectCallback(c, MRConn_DisconnectCallback) != REDIS_OK) {
     CONN_LOG_WARNING(conn, "Failed to attach hiredis context to libuv");
-    // Attach failed before hiredis took ownership; free the ac ourselves.
-    detachAndFreeAc(conn);
+    redisAsyncFree(c);
     return REDIS_ERR;
   }
 
+  // All setup succeeded; take ownership of the ac.
+  conn->conn = c;
+  c->data = conn;
+  conn->protocol = MRConn_Protocol_Undetermined;
   return REDIS_OK;
 }
