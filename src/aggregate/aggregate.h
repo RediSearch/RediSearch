@@ -35,16 +35,12 @@ extern "C" {
 #include <stdatomic.h>
 #endif
 
-#include <pthread.h>
-
 #define DEFAULT_LIMIT 10
 
 // Forward declaration for cursor
 struct Cursor;
 
 // Forward declaration for the MR channel used by the abort-wake path.
-// Defined in src/coord/rmr/chan.h. Kept as an opaque forward declaration here
-// so aggregate.h does not pull in coord headers.
 struct MRChannel;
 
 /** Cached variables to avoid serializeResult retrieving these each time */
@@ -264,11 +260,14 @@ typedef struct RequestSyncCtx {
   // Reference count for shared ownership between timeout callback (main thread) and background thread
   uint8_t refcount;
 
-  /* Partial-timeout coordination (mirrors MRCtx). Exactly one of
-   * {BG thread, timeout callback} runs AggregateResults; the other waits.
-   * Gated by `requiresAggregateResultsSync` (TEMP: coord-only under RETURN-STRICT). */
+  /* Partial-timeout coordination. The CAS claim grants exclusive ownership of
+   * the result-production phase: the BG-thread winner runs AggregateResults
+   * and stores results, while the timeout-callback winner preempts BG (BG
+   * bails at its post-claim check) and replies empty without running the
+   * pipeline. The loser waits for the winner's completion signal.
+   * Gated by `requiresAggregateResultsSync`. */
   bool requiresAggregateResultsSync;     // Enable CAS/Signal/Wait around AggregateResults
-  RS_Atomic(bool) aggregatingResults;    // CAS claim flag: whoever flips false->true runs AggregateResults
+  RS_Atomic(bool) aggregatingResults;    // CAS claim: BG winner runs the pipeline; timeout-callback winner skips it and replies empty
   bool aggregateResultsDone;             // Set at completion; guarded by aggregateResultsLock
   pthread_mutex_t aggregateResultsLock;
   pthread_cond_t aggregateResultsCond;
@@ -617,6 +616,11 @@ int parseProfileArgs(RedisModuleString **argv, int argc, AREQ *r);
 
 bool AREQ_TimedOut(AREQ *req);
 void AREQ_SetTimedOut(AREQ *req);
+
+/* True when this AREQ uses the BG-thread / timeout-callback claim handshake
+ * around AggregateResults (TryClaim/Signal/Wait). Currently set only on the
+ * coordinator AREQ under RETURN-STRICT; all other paths skip the protocol. */
+bool AREQ_RequiresThreadsSyncResults(const AREQ *req);
 
 /* TryClaim: atomic CAS on `aggregatingResults`; winner runs AggregateResults.
  * Signal: called by winner at completion. Wait: called by loser, blocks until Signal.

@@ -1107,6 +1107,10 @@ void AREQ_SetTimedOut(AREQ *req) {
   atomic_store_explicit(&req->syncCtx.timedOut, true, memory_order_release);
 }
 
+bool AREQ_RequiresThreadsSyncResults(const AREQ *req) {
+  return req->syncCtx.requiresAggregateResultsSync;
+}
+
 bool AREQ_TryClaimAggregateResults(AREQ *req) {
   bool expected = false;
   return atomic_compare_exchange_strong(&req->syncCtx.aggregatingResults, &expected, true);

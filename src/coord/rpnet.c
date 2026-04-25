@@ -559,22 +559,21 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
 
   // get the next reply from the channel
   while (!root) {
-    // Drain-only mode bypasses the wall-clock check: by definition the
-    // deadline has already passed, and we want to harvest whatever the I/O
-    // threads already pushed instead of reporting a timeout.
-    if (!nc->drainOnly) {
-      // Check for timeout (respecting skipTimeoutChecks flag)
-      if (!nc->areq->sctx->time.skipTimeoutChecks && TimedOut(&nc->areq->sctx->time.timeout)) {
-        // Set the `timedOut` flag in the MRIteratorCtx, later to be read by the
-        // callback so that a `CURSOR DEL` command will be dispatched instead of
-        // a `CURSOR READ` command.
-        MRIteratorCallback_SetTimedOut(MRIterator_GetCtx(nc->it));
+    // Check for timeout (respecting skipTimeoutChecks flag). Under RETURN-STRICT
+    // (the only policy that sets drainOnly) shouldCheckInPipelineTimeoutCoord
+    // already forces skipTimeoutChecks=true, so this branch is naturally bypassed
+    // during a drain.
+    if (!nc->areq->sctx->time.skipTimeoutChecks && TimedOut(&nc->areq->sctx->time.timeout)) {
+      // Set the `timedOut` flag in the MRIteratorCtx, later to be read by the
+      // callback so that a `CURSOR DEL` command will be dispatched instead of
+      // a `CURSOR READ` command.
+      MRIteratorCallback_SetTimedOut(MRIterator_GetCtx(nc->it));
 
-        return RS_RESULT_TIMEDOUT;
-      } else if (MRIteratorCallback_GetTimedOut(MRIterator_GetCtx(nc->it))) {
-        // if timeout was set in previous reads, reset it
-        MRIteratorCallback_ResetTimedOut(MRIterator_GetCtx(nc->it));
-      }
+      return RS_RESULT_TIMEDOUT;
+    } else if (!nc->drainOnly && MRIteratorCallback_GetTimedOut(MRIterator_GetCtx(nc->it))) {
+      // if timeout was set in previous reads, reset it. Drain-only must keep
+      // the flag set so the post-drain callback dispatches CURSOR DEL.
+      MRIteratorCallback_ResetTimedOut(MRIterator_GetCtx(nc->it));
     }
 
     int ret = getNextReply(nc);
@@ -616,8 +615,7 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
   if (new_reply) {
 #ifdef ENABLE_ASSERT
     // Sync point (debug): park BG after a shard reply has been admitted into the
-    // pipeline (popped from the channel, about to emit its rows). Tests count
-    // hits to know exactly how many shard replies have been drained.
+    // pipeline (popped from the channel, about to emit its rows).
     SyncPoint_WaitTimeoutInterruptible(SYNC_POINT_RPNET_REPLY_ADMITTED, nc->areq);
 #endif
     if (resp3) { // RESP3

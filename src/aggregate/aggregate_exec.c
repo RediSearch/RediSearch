@@ -347,31 +347,20 @@ static void startPipeline(AREQ *req, ResultProcessor *rp, SearchResult ***result
   };
 
 #ifdef ENABLE_ASSERT
-  // Sync point (debug): pause before the TryClaim race so tests can deterministically
-  // fire the blocked-client timeout callback on the main thread and exercise the
-  // "main wins the claim" branch of RETURN-STRICT partial-reply coordination.
+  // Sync point (debug): pause before the TryClaim race
   SyncPoint_Wait(SYNC_POINT_BEFORE_AGGREGATE_RESULTS_CLAIM);
 #endif
 
-  if (req->syncCtx.requiresAggregateResultsSync) {
-    if (!AREQ_TryClaimAggregateResults(req)) {
-      // Possible if RETURN-STRICT timeout callback was called first.
-      // In that case, the timeout callback will reply empty results.
-      // Background thread should finish ASAP.
-      return;
-    }
-    // We won the claim but the timeout may have been signaled in parallel: if
-    // so the timeout callback is now blocked in AREQ_WaitForAggregateResultsComplete
-    // and will reply with whatever we store. Skip the pipeline so the stored
-    // state carries zero results and the wall-clock deadline is observed.
-    if (AREQ_TimedOut(req)) {
-      *rc = RS_RESULT_TIMEDOUT;
-      return;
-    }
+  // Bail if the RETURN-STRICT timeout callback already claimed (it replies)
+  // or if it signaled timeout in parallel after we won (it will reply with
+  // our stored zero-result state).
+  if (AREQ_RequiresThreadsSyncResults(req) &&
+      (!AREQ_TryClaimAggregateResults(req) || AREQ_TimedOut(req))) {
+    *rc = RS_RESULT_TIMEDOUT;
+    return;
   }
 
   startPipelineCommon(&ctx, rp, results, r, rc);
-
 }
 
 #ifdef ENABLE_ASSERT
@@ -694,10 +683,8 @@ static void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
       AREQ_StoreResults(req, state.results, rc, cv, limit);
       debugPauseStoreResults(req, false); // pause after
 
-      // Signal completion AFTER results are stored so the main-thread timeout
-      // callback waiting in AREQ_WaitForAggregateResultsComplete observes a
-      // consistent `hasStoredResults == true` when it wakes up.
-      if (req->syncCtx.requiresAggregateResultsSync) {
+      // Signal completion for main-thread timeout
+      if (AREQ_RequiresThreadsSyncResults(req)) {
         AREQ_SignalAggregateResultsComplete(req);
       }
 
@@ -901,7 +888,7 @@ static void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
       // Signal completion AFTER results are stored so the main-thread timeout
       // callback waiting in AREQ_WaitForAggregateResultsComplete observes a
       // consistent `hasStoredResults == true` when it wakes up.
-      if (req->syncCtx.requiresAggregateResultsSync) {
+      if (AREQ_RequiresThreadsSyncResults(req)) {
         AREQ_SignalAggregateResultsComplete(req);
       }
 

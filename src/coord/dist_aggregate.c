@@ -58,9 +58,7 @@ static int rpnetNext_Start(ResultProcessor *rp, SearchResult *r) {
   RPNet *nc = (RPNet *)rp;
 
 #ifdef ENABLE_ASSERT
-  // Sync point (debug): park BG just before the initial timeout gate so tests can
-  // deterministically fire the blocked-client timeout on the main thread and
-  // exercise the "BG returns TIMEDOUT before dispatching the iterator" path.
+  // Sync point (debug): park BG just before the initial timeout check.
   SyncPoint_WaitTimeoutInterruptible(SYNC_POINT_BEFORE_RPNET_START, nc->areq);
 #endif
 
@@ -242,6 +240,19 @@ static void buildMRCommand(RedisModuleString **argv, int argc, ProfileOptions pr
   array_free(tmparr);
 }
 
+// True iff the coordinator pipeline is exactly `RPNet -> RPPager_Limiter -> end`.
+// Such a pipeline carries no buffering or reordering state, so any prefix of
+// its output is a valid partial answer and the RETURN-STRICT main-thread
+// timeout callback can safely drain queued shard replies after the background
+// pipeline aborts. Profile wraps every RP and is not yet supported under
+// RETURN-STRICT drain, so profile queries are excluded for now.
+static bool pipelineYieldsPartialResults(AREQ *r) {
+  QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(r);
+  return !IsProfile(r) &&
+         qctx->endProc && qctx->endProc->type == RP_PAGER_LIMITER &&
+         qctx->endProc->upstream == qctx->rootProc;
+}
+
 static void buildDistRPChain(AREQ *r, MRCommand *xcmd, AREQDIST_UpstreamInfo *us, int (*nextFunc)(ResultProcessor *, SearchResult *)) {
   // Establish our root processor, which is the distributed processor
   RPNet *rpRoot = RPNet_New(xcmd, nextFunc); // This will take ownership of the command
@@ -281,14 +292,7 @@ static void buildDistRPChain(AREQ *r, MRCommand *xcmd, AREQDIST_UpstreamInfo *us
     }
   }
 
-  // Classify the coordinator pipeline as trivial when it is exactly
-  // `RPNet -> RPPager_Limiter -> end`. Such a pipeline carries no buffering or
-  // reordering state, so under RETURN-STRICT the main-thread timeout callback
-  // can safely drain queued shard replies after the background pipeline aborts.
-  // Profile wraps every RP, so profile queries are never trivial.
-  qctx->isTrivialPipeline = !IsProfile(r) &&
-                            qctx->endProc && qctx->endProc->type == RP_PAGER_LIMITER &&
-                            qctx->endProc->upstream == &rpRoot->base;
+  qctx->yieldsPartialResults = pipelineYieldsPartialResults(r);
 }
 
 void PrintShardProfile(RedisModule_Reply *reply, void *ctx);
@@ -513,9 +517,7 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 
   // CMD, index, expr, args...
   AREQ *r = AREQ_New();
-  // TEMP: `requiresAggregateResultsSync` is only needed on the coordinator-side AREQ
-  // because shards do not yet implement RETURN-STRICT. Remove this gating and enable
-  // the sync unconditionally once shard-level RETURN-STRICT is implemented.
+
   if (r->reqConfig.timeoutPolicy == TimeoutPolicy_ReturnStrict) {
     r->syncCtx.requiresAggregateResultsSync = true;
   }
@@ -587,7 +589,7 @@ int DistAggregateTimeoutFailClient(RedisModuleCtx *ctx, RedisModuleString **argv
 
 // Drain any queued shard replies into `storedReplyState.results` on the main
 // thread after the background pipeline has aborted. Only safe for pipelines
-// classified as trivial (RPNet -> RPPager -> end): they carry no buffering or
+// classified as yielding partial results: they carry no buffering or
 // reordering state, so resuming endProc->Next simply yields the rows that the
 // I/O threads had already pushed to the channel before the timeout fired.
 //
@@ -595,9 +597,9 @@ int DistAggregateTimeoutFailClient(RedisModuleCtx *ctx, RedisModuleString **argv
 // the pipeline via AREQ_WaitForAggregateResultsComplete. The pager's internal
 // `remaining` and qctx->resultLimit reflect the post-abort budget, so this
 // loop naturally respects the user's LIMIT and terminates at EOF.
-static void drainTrivialPipelineAfterTimeout(AREQ *req) {
+static void drainPartialResultsAfterTimeout(AREQ *req) {
   QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
-  if (!qctx->isTrivialPipeline) {
+  if (!qctx->yieldsPartialResults) {
     return;
   }
 
@@ -611,7 +613,7 @@ static void drainTrivialPipelineAfterTimeout(AREQ *req) {
   }
 
   SearchResult r = SearchResult_New();
-  while (qctx->resultLimit && endProc->Next(endProc, &r) == RS_RESULT_OK) {
+while (qctx->resultLimit && endProc->Next(endProc, &r) == RS_RESULT_OK) {
     qctx->resultLimit--;
     array_append(stored->results, SearchResult_AllocateMove(&r));
     r = SearchResult_New();
@@ -673,7 +675,17 @@ int DistAggregateTimeoutReturnStrictClient(RedisModuleCtx *ctx, RedisModuleStrin
 
   // Harvest any shard replies that landed in the channel before the deadline.
   // No-op for already-complete runs (pager at LIMIT / channel empty).
-  drainTrivialPipelineAfterTimeout(req);
+  drainPartialResultsAfterTimeout(req);
+
+  // Pipelines that don't yield partial results (SORTBY/GROUPBY/depleter)
+  // discard their buffer on TIMEDOUT, but RPNet may have already accumulated
+  // `total_results` from admitted shard replies. Zero it so `total_results`
+  // stays consistent with empty results.
+  ChunkReplyState *stored = &req->storedReplyState;
+  if (!AREQ_QueryProcessingCtx(req)->yieldsPartialResults &&
+      array_len(stored->results) == 0) {
+    AREQ_QueryProcessingCtx(req)->totalResults = 0;
+  }
 
   AREQ_ReplyWithStoredResults(ctx, req);
 
@@ -682,7 +694,6 @@ int DistAggregateTimeoutReturnStrictClient(RedisModuleCtx *ctx, RedisModuleStrin
 
 // Main-thread reply callback for coord AREQ (FAIL / RETURN-STRICT). Reads results
 // stored by the BG thread in req->storedReplyState. NOT called if timeout fired
-// first (bc->client becomes NULL).
 int DistAggregateReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   UNUSED(argv);
   UNUSED(argc);
@@ -771,9 +782,7 @@ void DEBUG_RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, in
   }
   // CMD, index, expr, args...
   r = &debug_req->r;
-  // TEMP: `requiresAggregateResultsSync` is only needed on the coordinator-side AREQ
-  // because shards do not yet implement RETURN-STRICT. Remove this gating and enable
-  // the sync unconditionally once shard-level RETURN-STRICT is implemented.
+
   if (r->reqConfig.timeoutPolicy == TimeoutPolicy_ReturnStrict) {
     r->syncCtx.requiresAggregateResultsSync = true;
   }
