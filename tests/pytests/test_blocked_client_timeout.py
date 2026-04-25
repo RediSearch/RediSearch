@@ -1107,6 +1107,7 @@ class TestCoordinatorTimeout:
         callback can reply with empty results + TIMEOUT warning.
         """
         env = self.env
+        skipIfNoEnableAssert(env)
 
         prev_on_timeout_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
         env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'return-strict')
@@ -1678,8 +1679,6 @@ class TestCoordinatorTimeout:
 
         resetStoreResultsDebug(env)
         env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy)
-
-
 
 
 class TestCoordinatorReducePause:
