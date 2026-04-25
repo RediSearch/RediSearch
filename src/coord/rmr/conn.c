@@ -13,11 +13,6 @@
 #include "hiredis/adapters/libuv.h"
 
 #include <uv.h>
-#include <signal.h>
-#include <sys/param.h>
-#include <stdio.h>
-#include <assert.h>
-#include <stdint.h>
 
 #include <openssl/ssl.h>
 #include <openssl/err.h>
