@@ -458,7 +458,6 @@ static void MRConn_AuthCallback(redisAsyncContext *c, void *r, void *privdata) {
     const char* s = MRReply_String(rep, &len);
     CONN_LOG_WARNING(conn, "Error authenticating: %.*s", (int)len, s);
     MRConn_SwitchState(conn, MRConn_ReAuth);
-    /*we don't try to reconnect to failed connections */
     goto cleanup;
   }
 
@@ -715,8 +714,7 @@ static MRConn *MR_NewConn(MREndpoint *ep, uv_loop_t *loop) {
 }
 
 /* Initiate an async connection attempt. Must be called with `conn->conn ==
- * NULL` (i.e. no ac currently attached) and state in {Connecting, Reconnecting}
- * \u2014 the initial attempt runs in Connecting, retries run in Reconnecting.
+ * NULL` (i.e. no ac currently attached)
  * Returns REDIS_OK if the attempt was dispatched to libuv or REDIS_ERR on
  * synchronous setup failure; on REDIS_ERR `conn->conn` is left NULL. */
 static int MRConn_Connect(MRConn *conn) {
