@@ -885,9 +885,7 @@ static void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
       AREQ_StoreResults(req, state.results, rc, cv, limit);
       debugPauseStoreResults(req, false); // pause after
 
-      // Signal completion AFTER results are stored so the main-thread timeout
-      // callback waiting in AREQ_WaitForAggregateResultsComplete observes a
-      // consistent `hasStoredResults == true` when it wakes up.
+      // Signal completion for main-thread timeout
       if (AREQ_RequiresThreadsSyncResults(req)) {
         AREQ_SignalAggregateResultsComplete(req);
       }
