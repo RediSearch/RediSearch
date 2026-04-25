@@ -674,7 +674,6 @@ static void MRConn_ConnectCallback(const redisAsyncContext *c, int status) {
   // Freeing detaches the ac before tearing it down, so we can't be here.
   RS_ASSERT(conn->state != MRConn_Freeing);
 
-  // if the connection is not stopped - try to reconnect
   if (status != REDIS_OK) {
     CONN_LOG_WARNING(conn, "Error on connect: %s", c->errstr);
     MRConn_SwitchState(conn, MRConn_Reconnecting);

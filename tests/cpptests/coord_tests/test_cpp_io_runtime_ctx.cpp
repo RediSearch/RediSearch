@@ -22,20 +22,22 @@
 #include <initializer_list>
 #include <span>
 
+// Test callback for topology updates - signals completion to test thread
+// by storing the capShards value in an atomic, avoiding race conditions
+// where the test thread might read a freed topology pointer.
+static std::atomic<uint32_t> lastAppliedCapShards{0};
+
+// Counter bumped by realUpdateTopoCallback after each invocation, so tests can
+// synchronize with the uv thread on completion of a topology update.
+static std::atomic<int> topoUpdateCalls{0};
+
 extern "C" {
   // Test callback for queue operations
   static void testCallback(void *privdata) {
     int *counter = (int *)privdata;
     (*counter)++;
   }
-} // extern "C"
 
-// Test callback for topology updates - signals completion to test thread
-// by storing the capShards value in an atomic, avoiding race conditions
-// where the test thread might read a freed topology pointer.
-static std::atomic<uint32_t> lastAppliedCapShards{0};
-
-extern "C" {
   static void testTopoCallback(void *privdata) {
     struct UpdateTopologyCtx *updateCtx = (struct UpdateTopologyCtx *)privdata;
     IORuntimeCtx *ioRuntime = updateCtx->ioRuntime;
@@ -53,13 +55,7 @@ extern "C" {
       MRClusterTopology_Free(old_topo);
     }
   }
-} // extern "C"
 
-// Counter bumped by realUpdateTopoCallback after each invocation, so tests can
-// synchronize with the uv thread on completion of a topology update.
-static std::atomic<int> topoUpdateCalls{0};
-
-extern "C" {
   // Mirrors the production uvUpdateTopologyRequest in rmr.c (which is static
   // and not exported for tests): installs the new topology, walks the conn
   // manager, and records the handshake signal on the uv runtime.
@@ -70,6 +66,30 @@ extern "C" {
     ioRuntime->topo = updateCtx->new_topo;
     ioRuntime->uv_runtime.topology_needs_handshake = IORuntimeCtx_UpdateNodes(ioRuntime);
     topoUpdateCalls.fetch_add(1, std::memory_order_release);
+    rm_free(updateCtx);
+    if (old_topo) {
+      MRClusterTopology_Free(old_topo);
+    }
+  }
+
+  // Like realUpdateTopoCallback, but additionally simulates a successful
+  // handshake from the uv thread: clears topology_needs_handshake so
+  // topologyAsyncCB takes the ELSE branch (no validation timer armed) and
+  // sets loop_th_ready = true so subsequent work items can run. All writes
+  // happen on the uv thread, so there is no race with topologyAsyncCB's
+  // post-callback bookkeeping. Drains pendingItems via uv_async_send in
+  // case any work items piled up while loop_th_ready was false. Tests
+  // synchronize on this callback's effects (e.g. a previously parked work
+  // item draining), not on topoUpdateCalls.
+  static void simulateConnectedTopologyCallback(void *privdata) {
+    struct UpdateTopologyCtx *updateCtx = (struct UpdateTopologyCtx *)privdata;
+    IORuntimeCtx *ioRuntime = updateCtx->ioRuntime;
+    MRClusterTopology *old_topo = ioRuntime->topo;
+    ioRuntime->topo = updateCtx->new_topo;
+    IORuntimeCtx_UpdateNodes(ioRuntime);
+    ioRuntime->uv_runtime.topology_needs_handshake = false;
+    ioRuntime->uv_runtime.loop_th_ready = true;
+    uv_async_send(&ioRuntime->uv_runtime.async);
     rm_free(updateCtx);
     if (old_topo) {
       MRClusterTopology_Free(old_topo);
@@ -520,45 +540,54 @@ TEST_F(IORuntimeCtxCommonTest, UpdateNodesReportsNewConnections) {
 }
 
 TEST_F(IORuntimeCtxCommonTest, IdenticalTopologyUpdateSkipsHandshake) {
-  // Reset the counter used by realUpdateTopoCallback.
+  // Reset the counter, which now tracks only realUpdateTopoCallback invocations.
   topoUpdateCalls.store(0, std::memory_order_relaxed);
 
-  // Start the io runtime by scheduling a work item. The initial dummy topology
-  // has zero shards, so the first realUpdateTopoCallback below will see an
-  // empty conn map and a single-node topology -> connectivity changed.
-  int counter = 0;
-  IORuntimeCtx_Schedule(ctx, testCallback, &counter);
+  // Bootstrap the uv thread with a work item. loop_th_ready starts false, so
+  // rqAsyncCb parks this item in pendingItems. The initial dummy topology has
+  // zero shards, so the first update below sees an empty conn map and a
+  // single-node topology -> connectivity changed.
+  int initialCounter = 0;
+  IORuntimeCtx_Schedule(ctx, testCallback, &initialCounter);
 
+  // Apply the first topology using a callback that simulates handshake
+  // completion entirely on the uv thread (sets topology_needs_handshake=false
+  // and loop_th_ready=true, then uv_async_sends to drain pendingItems). All
+  // writes happen on the uv thread, so there's no race with topologyAsyncCB's
+  // post-callback bookkeeping.
   std::array<const char *, 1> hosts = {"localhost:16379"};
   MRClusterTopology *topo_v1 = getTopology(hosts);
-  IORuntimeCtx_Schedule_Topology(ctx, realUpdateTopoCallback, topo_v1, true);
+  IORuntimeCtx_Schedule_Topology(ctx, simulateConnectedTopologyCallback, topo_v1, true);
 
-  // Wait for the first topology update to complete on the uv thread.
-  bool firstApplied = RS::WaitForCondition([&]() {
-    return topoUpdateCalls.load(std::memory_order_acquire) >= 1;
-  });
-  ASSERT_TRUE(firstApplied) << "Timeout waiting for initial topology update";
+  // initialCounter draining proves: (a) topo_v1's callback ran on the uv
+  // thread, and (b) pendingItems was flushed -- i.e. the system reached the
+  // post-handshake quiescent state. This also serves as a barrier preventing
+  // the next Schedule_Topology from displacing topo_v1 via exchangePendingTopo.
+  bool initialDrained = RS::WaitForCondition([&]() { return initialCounter >= 1; });
+  ASSERT_TRUE(initialDrained)
+      << "Initial work item did not drain after simulated handshake completion";
 
-  // The first update changed connectivity: topologyAsyncCB should have armed
-  // the validation handshake, clearing loop_th_ready. Force it back to true
-  // to simulate the handshake completing (the node is not reachable in the
-  // test environment, so the real timer would never succeed).
-  ctx->uv_runtime.loop_th_ready = true;
-
-  // Apply the *same* topology again. With the connectivity-change gating,
-  // topologyAsyncCB must not clear loop_th_ready nor arm the validation timer.
+  // Apply the *same* topology again, this time via the real callback. With
+  // connectivity-change gating, IORuntimeCtx_UpdateNodes returns false (no
+  // new connections), so topologyAsyncCB takes the ELSE branch and leaves
+  // loop_th_ready alone.
   MRClusterTopology *topo_v2 = getTopology(hosts);
   IORuntimeCtx_Schedule_Topology(ctx, realUpdateTopoCallback, topo_v2, true);
 
+  // Sync on realUpdateTopoCallback completing. This is required before the
+  // post-update assertions: topologyAsyncCB defaults topology_needs_handshake
+  // to true before invoking the callback, and the callback then sets it to
+  // its final value. Reading the flag before the callback finishes would
+  // observe the transient true.
   bool secondApplied = RS::WaitForCondition([&]() {
-    return topoUpdateCalls.load(std::memory_order_acquire) >= 2;
+    return topoUpdateCalls.load(std::memory_order_acquire) >= 1;
   });
   ASSERT_TRUE(secondApplied) << "Timeout waiting for identical topology update";
 
-  // Schedule a work item and wait for it to run. It can only run if
-  // loop_th_ready is true after the identical-topology update; if the
-  // handshake had been (incorrectly) re-armed, this callback would be
-  // parked on pendingItems and the wait would time out.
+  // Final witness: a fresh work item must run, proving loop_th_ready stayed
+  // true across the identical-topology update. If the handshake had been
+  // (incorrectly) re-armed, this callback would be parked on pendingItems
+  // and the wait would time out.
   int postCounter = 0;
   IORuntimeCtx_Schedule(ctx, testCallback, &postCounter);
   bool ranPostCallback = RS::WaitForCondition([&]() { return postCounter >= 1; });
@@ -568,7 +597,4 @@ TEST_F(IORuntimeCtxCommonTest, IdenticalTopologyUpdateSkipsHandshake) {
 
   ASSERT_TRUE(ctx->uv_runtime.loop_th_ready);
   ASSERT_FALSE(ctx->uv_runtime.topology_needs_handshake);
-
-  // Wait for the initial testCallback to complete before `counter` leaves scope.
-  RS::WaitForCondition([&]() { return counter >= 1; });
 }
