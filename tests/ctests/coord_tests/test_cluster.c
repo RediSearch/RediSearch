@@ -95,13 +95,13 @@ void testEndpointEqual() {
   rm_free(b.password); b.password = rm_strdup("secret");
 
   // unixSock: NULL vs non-NULL
-  a.unixSock = rm_strdup("/tmp/redis.sock");
+  a.unixSock = rm_strdup("unix.sock");
   mu_check(!MREndpoint_Equal(&a, &b));
   // Both unixSock equal
-  b.unixSock = rm_strdup("/tmp/redis.sock");
+  b.unixSock = rm_strdup("unix.sock");
   mu_check(MREndpoint_Equal(&a, &b));
   // Different unixSock
-  rm_free(b.unixSock); b.unixSock = rm_strdup("/tmp/other.sock");
+  rm_free(b.unixSock); b.unixSock = rm_strdup("other.sock");
   mu_check(!MREndpoint_Equal(&a, &b));
 
   MREndpoint_Free(&a);
