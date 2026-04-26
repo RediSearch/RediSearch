@@ -999,10 +999,9 @@ void printHybridProfile(RedisModule_Reply *reply, void *ctx) {
 // HybridRequest execution flags are not set when this function is called currently
 static bool shouldCheckInPipelineTimeoutHybrid(RedisModuleCtx* ctx, HybridRequest *hreq) {
   // We should check for timeout in pipeline only if timeout is > 0
-  // and when the policy is RETURN or the policy is FAIL, without workers.
+  // and when the policy is RETURN or the policy is FAIL/RETURN-strict, without workers.
   return hreq->reqConfig.queryTimeoutMS > 0 &&
-         (hreq->reqConfig.timeoutPolicy == TimeoutPolicy_Return ||
-          (hreq->reqConfig.timeoutPolicy == TimeoutPolicy_Fail && !RunInThread(ctx)));
+         (hreq->reqConfig.timeoutPolicy == TimeoutPolicy_Return || !RunInThread(ctx));
 
 }
 
