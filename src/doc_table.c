@@ -219,7 +219,7 @@ void DocTable_SetByteOffsets(RSDocumentMetadata *dmd, RSByteOffsets *v) {
 
 void DocTable_UpdateExpiration(DocTable *t, RSDocumentMetadata* dmd, t_expirationTimePoint ttl, arrayof(FieldExpiration) sortedFieldWithExpiration) {
   if (hasExpirationTimeInformation(dmd->flags)) {
-    TimeToLiveTable_VerifyInit(&t->ttl);
+    TimeToLiveTable_VerifyInit(&t->ttl, t->maxSize);
     TimeToLiveTable_Add(t->ttl, dmd->id, ttl, sortedFieldWithExpiration);
   }
 }
@@ -232,18 +232,17 @@ bool DocTable_IsDocExpired(DocTable* t, const RSDocumentMetadata* dmd, struct ti
   return TimeToLiveTable_HasDocExpired(t->ttl, dmd->id, expirationPoint);
 }
 
+static void clearExpirationFlagCallback(t_docId docId, void *ctx) {
+  DocTable *t = ctx;
+  RSDocumentMetadata *dmd = DocTable_GetOwn(t, docId);
+  if (dmd) {
+    dmd->flags &= ~Document_HasExpiration;
+  }
+}
+
 void DocTable_ClearExpirationData(DocTable *t) {
   if (t->ttl) {
-    dictIterator *ttlIter = dictGetIterator(t->ttl);
-    dictEntry *ttlEntry;
-    while ((ttlEntry = dictNext(ttlIter))) {
-      t_docId docId = (t_docId)dictGetKey(ttlEntry);
-      RSDocumentMetadata *dmd = DocTable_GetOwn(t, docId);
-      if (dmd) {
-        dmd->flags &= ~Document_HasExpiration;
-      }
-    }
-    dictReleaseIterator(ttlIter);
+    TimeToLiveTable_ForEach(t->ttl, clearExpirationFlagCallback, t);
     TimeToLiveTable_Destroy(&t->ttl);
   }
 }

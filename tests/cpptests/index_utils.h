@@ -124,6 +124,6 @@ private:
         array_append(spec.fieldIdToIndex, i);
       }
     }
-    TimeToLiveTable_VerifyInit(&spec.docs.ttl);
+    TimeToLiveTable_VerifyInit(&spec.docs.ttl, RSGlobalConfig.maxDocTableSize);
   }
 };
