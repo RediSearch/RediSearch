@@ -60,9 +60,46 @@ static void CollectParseData_Free(CollectParseData *data) {
 // Parses: FIELDS nargs <@field | *> [<@field | *> ...]
 //   nargs: 1..COLLECT_MAX_FIELD_ARGS
 //
-// Shards resolve fields against the source lookup; the coordinator strips `@`
-// and later matches against map keys carried by `__SOURCE__`.
-static void handleCollectFields(ArgParser *parser, const void *value, void *user_data) {
+// The coordinator strips `@` and later matches against map keys carried by `__SOURCE__`.
+static void handleCollectFieldsCoord(ArgParser *parser, const void *value, void *user_data) {
+  (void)parser;
+  CollectParseCtx *pctx = (CollectParseCtx *)user_data;
+  CollectParseData *data = pctx->data;
+  const ReducerOptions *opts = pctx->options;
+  ArgsCursor *ac = (ArgsCursor *)value;
+
+  int count = AC_NumRemaining(ac);
+
+  // ArgParser validates nargs is within [1, COLLECT_MAX_FIELD_ARGS] before invoking this callback.
+  RS_ASSERT(count >= 1 && count <= COLLECT_MAX_FIELD_ARGS);
+
+  data->field_names = array_new(const char *, count);
+  for (int i = 0; i < count; i++) {
+    const char *s;
+    size_t len;
+    if (AC_GetString(ac, &s, &len, 0) != AC_OK) {
+      QueryError_SetError(opts->status, QUERY_ERROR_CODE_PARSE_ARGS,
+        "FIELDS (coord) missing field name");
+      return;
+    }
+    if (len == 1 && s[0] == '*') {
+      QueryError_SetError(opts->status, QUERY_ERROR_CODE_PARSE_ARGS,
+        "Wildcard `*` in FIELDS is not supported by the coordinator");
+      return;
+    }
+    if (len == 0 || s[0] != '@') {
+      QueryError_SetWithUserDataFmt(opts->status, QUERY_ERROR_CODE_PARSE_ARGS,
+        "Missing prefix: name requires '@' prefix", " (%s)", s);
+      return;
+    }
+    // `s` aliases the original argv and is NUL-terminated.
+    array_append(data->field_names, s + 1);
+  }
+}
+
+// Shards resolve fields against the source lookup.
+static void handleCollectFieldsShard(ArgParser *parser, const void *value, void *user_data) {
+  (void)parser;
   CollectParseCtx *pctx = (CollectParseCtx *)user_data;
   CollectParseData *data = pctx->data;
   const ReducerOptions *opts = pctx->options;
@@ -75,32 +112,6 @@ static void handleCollectFields(ArgParser *parser, const void *value, void *user
 
   // ArgParser validates nargs is within [1, COLLECT_MAX_FIELD_ARGS] before invoking this callback.
   RS_ASSERT(count >= 1 && count <= COLLECT_MAX_FIELD_ARGS);
-
-  if (opts->is_coordinator) {
-    data->field_names = array_new(const char *, count);
-    for (int i = 0; i < count; i++) {
-      const char *s;
-      size_t len;
-      if (AC_GetString(ac, &s, &len, 0) != AC_OK) {
-        QueryError_SetError(opts->status, QUERY_ERROR_CODE_PARSE_ARGS,
-          "FIELDS (coord) missing field name");
-        return;
-      }
-      if (len == 1 && s[0] == '*') {
-        QueryError_SetError(opts->status, QUERY_ERROR_CODE_PARSE_ARGS,
-          "Wildcard `*` in FIELDS is not supported by the coordinator");
-        return;
-      }
-      if (len == 0 || s[0] != '@') {
-        QueryError_SetWithUserDataFmt(opts->status, QUERY_ERROR_CODE_PARSE_ARGS,
-          "Missing prefix: name requires '@' prefix", " (%s)", s);
-        return;
-      }
-      // `s` aliases the original argv and is NUL-terminated.
-      array_append(data->field_names, s + 1);
-    }
-    return;
-  }
 
   data->field_keys = array_new(const RLookupKey *, count);
   for (int i = 0; i < count; i++) {
@@ -125,19 +136,69 @@ static void handleCollectFields(ArgParser *parser, const void *value, void *user
 //   nargs: 1..COLLECT_MAX_SORT_KEYS*2
 //   Direction defaults to ASC when omitted.
 //
-// Shards resolve keys; the coordinator stores raw names. Direction handling is shared.
-static void handleCollectSortBy(ArgParser *parser, const void *value, void *user_data) {
+static void handleCollectSortDirection(ArgsCursor *ac, uint64_t *sortAscMap, size_t dir_idx) {
+  if (AC_AdvanceIfMatch(ac, SORT_DIR_ASC)) {
+    // ASC is the default; nothing to do.
+  } else if (AC_AdvanceIfMatch(ac, SORT_DIR_DESC)) {
+    SORTASCMAP_SETDESC(*sortAscMap, dir_idx);
+  }
+}
+
+// The coordinator stores raw names that match shard payload map keys.
+static void handleCollectSortByCoord(ArgParser *parser, const void *value, void *user_data) {
+  (void)parser;
   CollectParseCtx *pctx = (CollectParseCtx *)user_data;
   CollectParseData *data = pctx->data;
   const ReducerOptions *opts = pctx->options;
   ArgsCursor *ac = (ArgsCursor *)value;
 
-  const bool is_coord = opts->is_coordinator;
-  if (is_coord) {
-    data->sort_names = array_new(const char *, 4);
-  } else {
-    data->sort_keys = array_new(const RLookupKey *, 4);
+  data->sort_names = array_new(const char *, 4);
+  data->sortAscMap = SORTASCMAP_INIT;
+
+  while (!AC_IsAtEnd(ac)) {
+    const char *s = AC_StringArg(ac, ac->offset);
+    if (!s) {
+      QueryError_SetError(opts->status, QUERY_ERROR_CODE_PARSE_ARGS,
+        "SORTBY: unexpected null argument");
+      return;
+    }
+
+    if (s[0] != '@') {
+      QueryError_SetWithUserDataFmt(opts->status, QUERY_ERROR_CODE_PARSE_ARGS,
+        "Missing prefix: name requires '@' prefix", " (%s)", s);
+      return;
+    }
+
+    if (array_len(data->sort_names) >= COLLECT_MAX_SORT_KEYS) {
+      QueryError_SetWithoutUserDataFmt(opts->status, QUERY_ERROR_CODE_LIMIT,
+        "SORTBY exceeds maximum of %d fields", COLLECT_MAX_SORT_KEYS);
+      return;
+    }
+
+    // Store the raw name alias, then expose the optional ASC/DESC token.
+    array_append(data->sort_names, s + 1);
+    ac->offset++;
+
+    size_t dir_idx = array_len(data->sort_names) - 1;
+    handleCollectSortDirection(ac, &data->sortAscMap, dir_idx);
   }
+
+  if (array_len(data->sort_names) == 0) {
+    QueryError_SetError(opts->status, QUERY_ERROR_CODE_PARSE_ARGS,
+      "SORTBY requires at least one sort field");
+    return;
+  }
+}
+
+// Shards resolve keys against the source lookup.
+static void handleCollectSortByShard(ArgParser *parser, const void *value, void *user_data) {
+  (void)parser;
+  CollectParseCtx *pctx = (CollectParseCtx *)user_data;
+  CollectParseData *data = pctx->data;
+  const ReducerOptions *opts = pctx->options;
+  ArgsCursor *ac = (ArgsCursor *)value;
+
+  data->sort_keys = array_new(const RLookupKey *, 4);
   data->sortAscMap = SORTASCMAP_INIT;
 
   ReducerOptions key_opts = *opts;
@@ -158,38 +219,23 @@ static void handleCollectSortBy(ArgParser *parser, const void *value, void *user
       return;
     }
 
-    size_t sort_count = is_coord ? array_len(data->sort_names)
-                                 : array_len(data->sort_keys);
-    if (sort_count >= COLLECT_MAX_SORT_KEYS) {
+    if (array_len(data->sort_keys) >= COLLECT_MAX_SORT_KEYS) {
       QueryError_SetWithoutUserDataFmt(opts->status, QUERY_ERROR_CODE_LIMIT,
         "SORTBY exceeds maximum of %d fields", COLLECT_MAX_SORT_KEYS);
       return;
     }
 
-    if (is_coord) {
-      // Store the raw name alias, then expose the optional ASC/DESC token.
-      array_append(data->sort_names, s + 1);
-      ac->offset++;
-    } else {
-      const RLookupKey *key = NULL;
-      if (!ReducerOpts_GetKey(&key_opts, &key)) {
-        return;
-      }
-      array_append(data->sort_keys, key);
+    const RLookupKey *key = NULL;
+    if (!ReducerOpts_GetKey(&key_opts, &key)) {
+      return;
     }
+    array_append(data->sort_keys, key);
 
-    size_t dir_idx = (is_coord ? array_len(data->sort_names)
-                                : array_len(data->sort_keys)) - 1;
-    if (AC_AdvanceIfMatch(ac, SORT_DIR_ASC)) {
-      // ASC is the default; nothing to do.
-    } else if (AC_AdvanceIfMatch(ac, SORT_DIR_DESC)) {
-      SORTASCMAP_SETDESC(data->sortAscMap, dir_idx);
-    }
+    size_t dir_idx = array_len(data->sort_keys) - 1;
+    handleCollectSortDirection(ac, &data->sortAscMap, dir_idx);
   }
 
-  size_t final_count = is_coord ? array_len(data->sort_names)
-                                : array_len(data->sort_keys);
-  if (final_count == 0) {
+  if (array_len(data->sort_keys) == 0) {
     QueryError_SetError(opts->status, QUERY_ERROR_CODE_PARSE_ARGS,
       "SORTBY requires at least one sort field");
     return;
@@ -286,18 +332,22 @@ Reducer *RDCRCollect_New(const ReducerOptions *options) {
   }
 
   ArgsCursor subArgs = {0};
+  ArgCallback handleFields =
+    options->is_coordinator ? handleCollectFieldsCoord : handleCollectFieldsShard;
+  ArgCallback handleSortBy =
+    options->is_coordinator ? handleCollectSortByCoord : handleCollectSortByShard;
 
   ArgParser_AddSubArgsV(parser, "FIELDS", "Projected fields",
     &subArgs, 1, COLLECT_MAX_FIELD_ARGS,
     ARG_OPT_REQUIRED,
     ARG_OPT_POSITION, 1,
-    ARG_OPT_CALLBACK, handleCollectFields, &pctx,
+    ARG_OPT_CALLBACK, handleFields, &pctx,
     ARG_OPT_END);
 
   ArgParser_AddSubArgsV(parser, "SORTBY", "In-group sort keys",
     &subArgs, 1, COLLECT_MAX_SORT_TOKENS,
     ARG_OPT_OPTIONAL,
-    ARG_OPT_CALLBACK, handleCollectSortBy, &pctx,
+    ARG_OPT_CALLBACK, handleSortBy, &pctx,
     ARG_OPT_END);
 
   ArgParser_AddSubArgsV(parser, "LIMIT", "Per-group limit",
