@@ -99,6 +99,56 @@ def test_collect_cluster_merges_same_group_across_shards():
 
 
 # ---------------------------------------------------------------------------
+# Chained GROUPBY in coordinator mode
+# ---------------------------------------------------------------------------
+# @skip(cluster=False)
+def test_collect_cluster_chained_groupby_collect():
+    env = Env(shardsCount=3, protocol=3)
+    enable_unstable_features(env)
+
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH',
+               'SCHEMA',
+               'name', 'TEXT', 'SORTABLE',
+               'sweetness', 'NUMERIC', 'SORTABLE',
+               'color', 'TAG', 'SORTABLE').ok()
+
+    conn = getConnectionByEnv(env)
+    docs = [
+        ('doc:1{shard:0}', 'apple', 'red', '4'),
+        ('doc:2{shard:1}', 'strawberry', 'red', '3'),
+        ('doc:3{shard:2}', 'banana', 'yellow', '4'),
+        ('doc:4{shard:3}', 'lemon', 'yellow', '2'),
+    ]
+    for key, name, color, sweetness in docs:
+        conn.execute_command('HSET', key, 'name', name, 'color', color,
+                             'sweetness', sweetness)
+
+    res = env.cmd(
+        'FT.AGGREGATE', 'idx', '*',
+        'GROUPBY', '1', '@color',
+            'REDUCE', 'COUNT', '0', 'AS', 'cnt',
+            'REDUCE', 'COLLECT', '4',
+                'FIELDS', '2', '@name', '@sweetness',
+            'AS', 'names',
+        'GROUPBY', '0',
+            'REDUCE', 'COLLECT', '5', 'FIELDS', '3', '@color', '@cnt', '@names',
+            'AS', 'groups')
+
+    env.assertEqual(len(res['results']), 1)
+    groups = _sort_collected(res['results'][0]['extra_attributes']['groups'], 'color')
+    for group in groups:
+        group['names'] = _sort_collected(group['names'], 'name')
+    env.assertEqual(groups, [
+        {'color': 'red', 'cnt': '2',
+         'names': [{'name': 'apple', 'sweetness': '4'},
+                   {'name': 'strawberry', 'sweetness': '3'}]},
+        {'color': 'yellow', 'cnt': '2',
+         'names': [{'name': 'banana', 'sweetness': '4'},
+                   {'name': 'lemon', 'sweetness': '2'}]},
+    ])
+
+
+# ---------------------------------------------------------------------------
 # COLLECT 1 field, HASH
 # ---------------------------------------------------------------------------
 def test_collect_1_field_hash():
