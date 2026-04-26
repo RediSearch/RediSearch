@@ -76,6 +76,10 @@ typedef struct {
   DMDChain *buckets;
   DocIdMap dim;             // Mapping between document name to internal id
   TimeToLiveTable* ttl;
+  // One-way latch: false until the first field-expiration (HEXPIRE) is written
+  // through DocTable_UpdateExpiration; never reset within the spec's lifetime.
+  // Lets iterators skip TTL lookups entirely when only doc-level EXPIRE is in use.
+  bool hasFieldExpiration;
 } DocTable;
 
 #define DOCTABLE_FOREACH(dt, code)                                           \

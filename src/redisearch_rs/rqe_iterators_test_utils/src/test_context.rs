@@ -732,6 +732,10 @@ impl TestContext {
             // Enable expiration monitoring (required for expiration checks to work)
             spec.monitorDocumentExpiration = true;
             spec.monitorFieldExpiration = true;
+            // Test helpers always exercise the field-expiration path, so flip
+            // the HFE-observed latch up front to mirror what
+            // DocTable_UpdateExpiration would do at runtime.
+            spec.docs.hasFieldExpiration = true;
             ffi::TimeToLiveTable_VerifyInit(&mut spec.docs.ttl, spec.docs.maxSize as usize);
         }
     }

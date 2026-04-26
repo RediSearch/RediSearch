@@ -54,6 +54,8 @@ typedef struct {
   bool canTrimDeepResults;         // Ignore the document scores, only vector score matters. No need to deep copy the results from the child iterator.
   TimeoutCtx timeoutCtx;           // Timeout parameters
   FieldFilterContext filterCtx;
+  bool checkFieldExpiration;       // Hoisted at construction: true iff we must run the per-posting
+                                   // field-expiration check. See NewHybridVectorIterator.
 } HybridIterator;
 
 #ifdef __cplusplus

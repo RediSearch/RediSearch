@@ -221,6 +221,9 @@ void DocTable_UpdateExpiration(DocTable *t, RSDocumentMetadata* dmd, t_expiratio
   if (hasExpirationTimeInformation(dmd->flags)) {
     TimeToLiveTable_VerifyInit(&t->ttl, t->maxSize);
     TimeToLiveTable_Add(t->ttl, dmd->id, ttl, sortedFieldWithExpiration);
+    if (sortedFieldWithExpiration && array_len(sortedFieldWithExpiration) > 0) {
+      t->hasFieldExpiration = true;
+    }
   }
 }
 

@@ -93,8 +93,10 @@ impl ExpirationChecker for FieldExpirationChecker {
         // SAFETY: Guaranteed by the safety contract of `new`.
         let spec = unsafe { *(sctx.spec) };
 
-        // Check if TTL is configured and field expiration monitoring is enabled
-        if spec.docs.ttl.is_null() || !spec.monitorFieldExpiration {
+        // Check if TTL is configured and field expiration monitoring is enabled.
+        // The `hasFieldExpiration` latch lets us skip the per-posting TTL lookup
+        // entirely when only doc-level EXPIRE has ever been observed on this spec.
+        if spec.docs.ttl.is_null() || !spec.docs.hasFieldExpiration || !spec.monitorFieldExpiration {
             return false;
         }
 
