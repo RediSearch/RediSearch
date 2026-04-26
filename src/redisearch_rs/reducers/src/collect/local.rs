@@ -7,9 +7,9 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! Coordinator-side COLLECT reducer.
+//! Local COLLECT reducer.
 //!
-//! Consumes the per-shard payloads stored under `__SOURCE__` and rebuilds the
+//! Consumes the per-remote payloads stored under `__SOURCE__` and rebuilds the
 //! client-facing rows.
 //!
 //! ## Serialization contract
@@ -24,12 +24,12 @@ use value::{Array, Map, SharedValue, Value};
 use crate::Reducer;
 use crate::collect::common::CollectCommon;
 
-/// Coordinator-side COLLECT reducer.
+/// Local COLLECT reducer.
 ///
 /// Must remain `#[repr(C)]` with [`CollectCommon`] at offset 0 so the C layer
 /// can downcast this struct to `ffi::Reducer*` and read the vtable directly.
 #[repr(C)]
-pub struct CoordCollectReducer<'a> {
+pub struct LocalCollectReducer<'a> {
     common: CollectCommon,
     /// Lookup key for the per-shard `__SOURCE__` payload.
     source_key: &'a RLookupKey<'a>,
@@ -39,18 +39,18 @@ pub struct CoordCollectReducer<'a> {
 
 // `CollectCommon` must live at offset 0 so the C layer can downcast to
 // `ffi::Reducer`. Guard against accidental reordering of the struct fields.
-const _: () = assert!(core::mem::offset_of!(CoordCollectReducer<'_>, common) == 0);
+const _: () = assert!(core::mem::offset_of!(LocalCollectReducer<'_>, common) == 0);
 
-/// Per-group instance of [`CoordCollectReducer`].
+/// Per-group instance of [`LocalCollectReducer`].
 ///
-/// Because `CoordCollectCtx` is arena-allocated ([`Bump`][bumpalo::Bump] does
+/// Because `LocalCollectCtx` is arena-allocated ([`Bump`][bumpalo::Bump] does
 /// not run destructors), `ptr::drop_in_place` must be called to run
 /// destructors for the inner `Vec` and decrement `SharedValue` refcounts.
-pub struct CoordCollectCtx {
+pub struct LocalCollectCtx {
     maps: Vec<SharedValue>,
 }
 
-impl<'a> CoordCollectReducer<'a> {
+impl<'a> LocalCollectReducer<'a> {
     /// Create a reducer from C-parsed configuration. Names are owned byte
     /// copies because the coordinator cannot borrow shard `RLookupKey`s.
     pub fn new(
@@ -72,18 +72,18 @@ impl<'a> CoordCollectReducer<'a> {
         &mut self.common.reducer
     }
 
-    pub fn alloc_instance(&self) -> &mut CoordCollectCtx {
-        self.common.arena.alloc(CoordCollectCtx::new(self))
+    pub fn alloc_instance(&self) -> &mut LocalCollectCtx {
+        self.common.arena.alloc(LocalCollectCtx::new(self))
     }
 }
 
-impl CoordCollectCtx {
-    pub const fn new(_r: &CoordCollectReducer) -> Self {
+impl LocalCollectCtx {
+    pub const fn new(_r: &LocalCollectReducer) -> Self {
         Self { maps: Vec::new() }
     }
 
     /// Append maps from the shard payload; missing or malformed payloads are skipped.
-    pub fn add(&mut self, r: &CoordCollectReducer, row: &RLookupRow) {
+    pub fn add(&mut self, r: &LocalCollectReducer, row: &RLookupRow) {
         let Some(payload) = row.get(r.source_key) else {
             return;
         };
@@ -97,7 +97,7 @@ impl CoordCollectCtx {
 
     /// Rebuild shard rows as client-facing maps, accepting RESP3 maps and
     /// RESP2 flat arrays while ignoring internal-only extra keys.
-    pub fn finalize(&mut self, r: &CoordCollectReducer) -> SharedValue {
+    pub fn finalize(&mut self, r: &LocalCollectReducer) -> SharedValue {
         let rebuilt: Vec<SharedValue> = std::mem::take(&mut self.maps)
             .into_iter()
             .filter_map(|entry| {
@@ -136,7 +136,7 @@ mod tests {
     #[test]
     fn new_with_no_fields_uses_common_defaults() {
         let source_key = RLookupKey::new(c"__SOURCE__", RLookupKeyFlags::empty());
-        let r = CoordCollectReducer::new(&source_key, Box::new([]), Box::new([]), 0, None);
+        let r = LocalCollectReducer::new(&source_key, Box::new([]), Box::new([]), 0, None);
         assert_eq!(r.common.sort_asc_map, 0);
         assert!(r.common.limit.is_none());
         assert!(std::ptr::eq(r.source_key, &source_key));
@@ -145,7 +145,7 @@ mod tests {
     #[test]
     fn new_with_limit_and_sort_stores_configuration() {
         let source_key = RLookupKey::new(c"__SOURCE__", RLookupKeyFlags::empty());
-        let r = CoordCollectReducer::new(
+        let r = LocalCollectReducer::new(
             &source_key,
             Box::new([b"a".to_vec().into_boxed_slice()]),
             Box::new([b"b".to_vec().into_boxed_slice()]),

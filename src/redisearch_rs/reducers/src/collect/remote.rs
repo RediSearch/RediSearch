@@ -7,10 +7,10 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! Shard-side COLLECT reducer.
+//! Remote COLLECT reducer.
 //!
-//! Projects configured fields on each shard and serializes collected rows for
-//! the coordinator.
+//! Projects configured fields on each remote node and serializes collected rows
+//! for the local merge step.
 
 use rlookup::{RLookupKey, RLookupRow};
 use value::{Array, Map, SharedValue, Value};
@@ -18,12 +18,12 @@ use value::{Array, Map, SharedValue, Value};
 use crate::Reducer;
 use crate::collect::common::CollectCommon;
 
-/// Shard-side COLLECT reducer.
+/// Remote COLLECT reducer.
 ///
 /// Must remain `#[repr(C)]` with [`CollectCommon`] at offset 0 so the C layer
 /// can downcast this struct to `ffi::Reducer*` and read the vtable directly.
 #[repr(C)]
-pub struct ShardCollectReducer<'a> {
+pub struct RemoteCollectReducer<'a> {
     common: CollectCommon,
     pub(crate) field_keys: Box<[&'a RLookupKey<'a>]>,
     has_wildcard: bool,
@@ -35,20 +35,20 @@ pub struct ShardCollectReducer<'a> {
 
 // `CollectCommon` must live at offset 0 so the C layer can downcast to
 // `ffi::Reducer`. Guard against accidental reordering of the struct fields.
-const _: () = assert!(core::mem::offset_of!(ShardCollectReducer<'_>, common) == 0);
+const _: () = assert!(core::mem::offset_of!(RemoteCollectReducer<'_>, common) == 0);
 
-/// Per-group instance of [`ShardCollectReducer`].
+/// Per-group instance of [`RemoteCollectReducer`].
 ///
-/// Because `ShardCollectCtx` is arena-allocated ([`Bump`][bumpalo::Bump] does
+/// Because `RemoteCollectCtx` is arena-allocated ([`Bump`][bumpalo::Bump] does
 /// not run destructors), `ptr::drop_in_place` must be called to run
 /// destructors for the inner `Vec`s and decrement `SharedValue` refcounts.
-pub struct ShardCollectCtx {
+pub struct RemoteCollectCtx {
     field_values: Vec<Vec<SharedValue>>,
     /// Kept row-aligned with `field_values`.
     sort_values: Vec<Vec<SharedValue>>,
 }
 
-impl<'a> ShardCollectReducer<'a> {
+impl<'a> RemoteCollectReducer<'a> {
     /// Create a reducer from C-parsed configuration.
     pub fn new(
         field_keys: Box<[&'a RLookupKey<'a>]>,
@@ -71,8 +71,8 @@ impl<'a> ShardCollectReducer<'a> {
         &mut self.common.reducer
     }
 
-    pub fn alloc_instance(&self) -> &mut ShardCollectCtx {
-        self.common.arena.alloc(ShardCollectCtx::new(self))
+    pub fn alloc_instance(&self) -> &mut RemoteCollectCtx {
+        self.common.arena.alloc(RemoteCollectCtx::new(self))
     }
 
     // Temporary C++ parser-test accessors, exposed through `reducers_ffi`.
@@ -112,8 +112,8 @@ impl<'a> ShardCollectReducer<'a> {
     }
 }
 
-impl ShardCollectCtx {
-    pub const fn new(_r: &ShardCollectReducer) -> Self {
+impl RemoteCollectCtx {
+    pub const fn new(_r: &RemoteCollectReducer) -> Self {
         Self {
             field_values: Vec::new(),
             sort_values: Vec::new(),
@@ -121,7 +121,7 @@ impl ShardCollectCtx {
     }
 
     /// Store projected field and sort values, filling missing values with nulls.
-    pub fn add(&mut self, r: &ShardCollectReducer, row: &RLookupRow) {
+    pub fn add(&mut self, r: &RemoteCollectReducer, row: &RLookupRow) {
         let fv = r
             .field_keys
             .iter()
@@ -146,7 +146,7 @@ impl ShardCollectCtx {
     }
 
     /// Serialize rows as maps; internal shard replies also include sort keys.
-    pub fn finalize(&mut self, r: &ShardCollectReducer) -> SharedValue {
+    pub fn finalize(&mut self, r: &RemoteCollectReducer) -> SharedValue {
         let row_maps: Vec<SharedValue> = self
             .field_values
             .drain(..)
@@ -185,7 +185,7 @@ mod tests {
 
     #[test]
     fn new_with_no_fields_exposes_empty_configuration() {
-        let r = ShardCollectReducer::new(Box::new([]), false, Box::new([]), 0, None, false);
+        let r = RemoteCollectReducer::new(Box::new([]), false, Box::new([]), 0, None, false);
         assert_eq!(r.field_keys_len(), 0);
         assert!(!r.has_wildcard());
         assert_eq!(r.sort_keys_len(), 0);
@@ -199,7 +199,7 @@ mod tests {
     #[test]
     fn new_with_limit_and_sort_exposes_configuration() {
         let r =
-            ShardCollectReducer::new(Box::new([]), true, Box::new([]), 0b101, Some((5, 10)), true);
+            RemoteCollectReducer::new(Box::new([]), true, Box::new([]), 0b101, Some((5, 10)), true);
         assert!(r.has_wildcard());
         assert_eq!(r.sort_asc_map(), 0b101);
         assert!(r.has_limit());
@@ -215,7 +215,7 @@ mod tests {
         let s1 = RLookupKey::new(c"price", RLookupKeyFlags::empty());
         let s2 = RLookupKey::new(c"weight", RLookupKeyFlags::empty());
 
-        let r = ShardCollectReducer::new(
+        let r = RemoteCollectReducer::new(
             Box::new([&f1, &f2]),
             false,
             Box::new([&s1, &s2]),
@@ -234,7 +234,7 @@ mod tests {
         let f1 = RLookupKey::new(c"name", RLookupKeyFlags::empty());
         let s1 = RLookupKey::new(c"price", RLookupKeyFlags::empty());
 
-        let r = ShardCollectReducer::new(Box::new([&f1]), false, Box::new([&s1]), 0, None, true);
+        let r = RemoteCollectReducer::new(Box::new([&f1]), false, Box::new([&s1]), 0, None, true);
 
         assert_eq!(r.field_keys_len(), 1);
         assert_eq!(r.sort_keys_len(), 1);
@@ -245,7 +245,7 @@ mod tests {
     fn internal_mode_without_sortby_has_empty_sort_keys() {
         let f1 = RLookupKey::new(c"name", RLookupKeyFlags::empty());
 
-        let r = ShardCollectReducer::new(Box::new([&f1]), false, Box::new([]), 0, None, true);
+        let r = RemoteCollectReducer::new(Box::new([&f1]), false, Box::new([]), 0, None, true);
 
         assert_eq!(r.field_keys_len(), 1);
         assert_eq!(r.sort_keys_len(), 0);
@@ -256,7 +256,7 @@ mod tests {
     fn sort_key_overlapping_with_field_appears_in_both_slices() {
         let k = RLookupKey::new(c"price", RLookupKeyFlags::empty());
 
-        let r = ShardCollectReducer::new(Box::new([&k]), false, Box::new([&k]), 0, None, true);
+        let r = RemoteCollectReducer::new(Box::new([&k]), false, Box::new([&k]), 0, None, true);
 
         assert_eq!(r.field_keys_len(), 1);
         assert_eq!(r.sort_keys_len(), 1);

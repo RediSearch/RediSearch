@@ -7,14 +7,14 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! COLLECT reducer variants for shard execution and coordinator merge.
+//! COLLECT reducer variants: remote (field collection) and local (merge).
 //!
 //! C parses the reducer arguments and constructs the appropriate variant via
 //! `reducers_ffi`.
 
 pub(crate) mod common;
-pub mod coord;
-pub mod shard;
+pub mod local;
+pub mod remote;
 
-pub use coord::{CoordCollectCtx, CoordCollectReducer};
-pub use shard::{ShardCollectCtx, ShardCollectReducer};
+pub use local::{LocalCollectCtx, LocalCollectReducer};
+pub use remote::{RemoteCollectCtx, RemoteCollectReducer};
