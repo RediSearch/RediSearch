@@ -182,14 +182,22 @@ impl ShardCollectCtx {
         let fv = r
             .field_keys
             .iter()
-            .map(|key| row.get(key).cloned().unwrap_or_else(SharedValue::null_static))
+            .map(|key| {
+                row.get(key)
+                    .cloned()
+                    .unwrap_or_else(SharedValue::null_static)
+            })
             .collect();
         self.field_values.push(fv);
 
         let sv = r
             .sort_keys
             .iter()
-            .map(|key| row.get(key).cloned().unwrap_or_else(SharedValue::null_static))
+            .map(|key| {
+                row.get(key)
+                    .cloned()
+                    .unwrap_or_else(SharedValue::null_static)
+            })
             .collect();
         self.sort_values.push(sv);
     }
@@ -212,6 +220,8 @@ impl ShardCollectCtx {
             .zip(self.sort_values.drain(..))
             .map(|(fv, sv)| {
                 let entries: Box<[_]> = if r.is_internal {
+                    // Include sort-key values so the coordinator can order
+                    // groups across shards;
                     fv.into_iter()
                         .zip(r.field_keys.iter())
                         .chain(sv.into_iter().zip(r.sort_keys.iter()))
@@ -240,7 +250,6 @@ impl ShardCollectCtx {
 mod tests {
     use super::*;
     use rlookup::RLookupKeyFlags;
-
 
     // End-to-end `add`/`finalize` coverage requires the Redis module
     // allocator (`RedisModule_Alloc`/`_Free`) to be linked because
@@ -308,14 +317,7 @@ mod tests {
         let f1 = RLookupKey::new(c"name", RLookupKeyFlags::empty());
         let s1 = RLookupKey::new(c"price", RLookupKeyFlags::empty());
 
-        let r = ShardCollectReducer::new(
-            Box::new([&f1]),
-            false,
-            Box::new([&s1]),
-            0,
-            None,
-            true,
-        );
+        let r = ShardCollectReducer::new(Box::new([&f1]), false, Box::new([&s1]), 0, None, true);
 
         assert_eq!(r.field_keys_len(), 1);
         assert_eq!(r.sort_keys_len(), 1);

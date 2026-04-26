@@ -1,4 +1,5 @@
 from common import *
+from test_hybrid_internal import get_shard_slot_ranges
 import json
 
 
@@ -346,13 +347,17 @@ def test_collect_internal_serializes_sort_fields():
     env = Env(protocol=3)
     _setup_hash(env)
 
+    _, slots_data = get_shard_slot_ranges(env)[0]
+    env.cmd('DEBUG', 'MARK-INTERNAL-CLIENT')
+
     internal = env.cmd(
         '_FT.AGGREGATE', 'idx', '*',
         'GROUPBY', '1', '@color',
-        'REDUCE', 'COLLECT', '5',
+        'REDUCE', 'COLLECT', '7',
             'FIELDS', '1', '@name',
             'SORTBY', '2', '@sweetness', 'DESC',
         'AS', 'info',
+        '_SLOTS_INFO', slots_data,
     )
 
     groups = _sort_by(internal['results'], 'color')
@@ -367,6 +372,8 @@ def test_collect_internal_without_sortby_equals_external_shape():
     env = Env(protocol=3)
     _setup_hash(env)
 
+    _, slots_data = get_shard_slot_ranges(env)[0]
+
     common_args = [
         'idx', '*',
         'GROUPBY', '1', '@color',
@@ -375,7 +382,8 @@ def test_collect_internal_without_sortby_equals_external_shape():
     ]
 
     ext = env.cmd('FT.AGGREGATE', *common_args)
-    internal = env.cmd('_FT.AGGREGATE', *common_args)
+    env.cmd('DEBUG', 'MARK-INTERNAL-CLIENT')
+    internal = env.cmd('_FT.AGGREGATE', *common_args, '_SLOTS_INFO', slots_data)
 
     ext_groups = _sort_by(ext['results'], 'color')
     int_groups = _sort_by(internal['results'], 'color')
@@ -394,14 +402,18 @@ def test_collect_internal_duplicate_field_and_sort():
     env = Env(protocol=3)
     _setup_hash(env)
 
+    _, slots_data = get_shard_slot_ranges(env)[0]
+    env.cmd('DEBUG', 'MARK-INTERNAL-CLIENT')
+
     # @sweetness is both the projected FIELD and the SORTBY key
     internal = env.cmd(
         '_FT.AGGREGATE', 'idx', '*',
         'GROUPBY', '1', '@color',
-        'REDUCE', 'COLLECT', '5',
+        'REDUCE', 'COLLECT', '7',
             'FIELDS', '1', '@sweetness',
             'SORTBY', '2', '@sweetness', 'DESC',
         'AS', 'info',
+        '_SLOTS_INFO', slots_data,
     )
 
     for group in internal['results']:
