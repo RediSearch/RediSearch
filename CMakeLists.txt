@@ -28,11 +28,41 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 function(setup_cc_options)
     message("# CMAKE_C_COMPILER_ID: " ${CMAKE_C_COMPILER_ID})
 
-    # Common compiler flags
-    set(CMAKE_C_FLAGS "-fPIC -g -pthread -fno-strict-aliasing -Wno-unused-function -Wno-unused-variable -Wno-sign-compare -fcommon -funsigned-char" PARENT_SCOPE)
-    set(CMAKE_CXX_FLAGS "-fPIC -g -pthread -fno-strict-aliasing -Wno-unused-function -Wno-unused-variable -Wno-sign-compare" PARENT_SCOPE)
+    # Accumulate C/CXX flags locally and publish once. set(... PARENT_SCOPE)
+    # does NOT update the function-local variable, so a later read of
+    # ${CMAKE_C_FLAGS} would miss earlier additions (MOD-14916).
+    set(_common_c_flags "${CMAKE_C_FLAGS} -fPIC -g -pthread -fno-strict-aliasing -Wno-unused-function -Wno-unused-variable -Wno-sign-compare -fcommon -funsigned-char")
+    set(_common_cxx_flags "${CMAKE_CXX_FLAGS} -fPIC -g -pthread -fno-strict-aliasing -Wno-unused-function -Wno-unused-variable -Wno-sign-compare")
     set(CMAKE_CXX_STANDARD 20)
-    # Release/Debug/Profile specific flags
+
+    # MOD-14916: inline LSE atomics on Linux AArch64 -- avoid libgcc
+    # __aarch64_* outline-atomics helpers on every atomic RMW.
+    #   -march=armv8-a+lse   adds LSE without raising -march, so deps that
+    #                        probe `-march=armv8-a` (e.g. VecSim's CXX_ARMV8A
+    #                        gate on NEON_HP.cpp) still pass.
+    #   -mno-outline-atomics canonical disable spelling (the "=no" form is
+    #                        silently ignored by GCC).
+    # Apple excluded: Apple clang rejects -mno-outline-atomics and Apple
+    # Silicon already emits inline LSE.
+    if(NOT APPLE AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64)$")
+        include(CheckCCompilerFlag)
+        include(CheckCXXCompilerFlag)
+        set(_aarch64_lse_flags "-march=armv8-a+lse -mtune=neoverse-n1 -mno-outline-atomics")
+        check_c_compiler_flag("${_aarch64_lse_flags}" _c_lse_ok)
+        check_cxx_compiler_flag("${_aarch64_lse_flags}" _cxx_lse_ok)
+        if(_c_lse_ok AND _cxx_lse_ok)
+            set(_common_c_flags   "${_common_c_flags} ${_aarch64_lse_flags}")
+            set(_common_cxx_flags "${_common_cxx_flags} ${_aarch64_lse_flags}")
+        else()
+            message(WARNING "AArch64 LSE build flags not accepted by compiler; "
+                            "outline atomics will remain in the .so")
+        endif()
+    endif()
+
+    set(CMAKE_C_FLAGS   "${_common_c_flags}"   PARENT_SCOPE)
+    set(CMAKE_CXX_FLAGS "${_common_cxx_flags}" PARENT_SCOPE)
+
+    # Config-specific flags only — CMake appends these to CMAKE_C/CXX_FLAGS automatically
     if(CMAKE_BUILD_TYPE STREQUAL "Debug")
         set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS} -O0 -fno-omit-frame-pointer -ggdb" PARENT_SCOPE)
         set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS} -O0 -fno-omit-frame-pointer -ggdb" PARENT_SCOPE)
