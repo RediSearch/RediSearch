@@ -27,8 +27,7 @@ struct CPPQueryIterator {
   const RedisSearchCtx *sctx_;
   const FieldFilterContext filterCtx_;
   const uint32_t initTimeoutCounter_;  // Value to reset counter to on each read() call
-  // Hoisted at construction: true iff we must run the per-posting
-  // field-expiration check. See should_check_field_expiration().
+  // Hoisted gate; refreshed in QIter_Revalidate.
   bool check_field_expiration_;
 
   explicit CPPQueryIterator() = delete;
@@ -62,11 +61,11 @@ struct CPPQueryIterator {
   void rewind() noexcept;
 
   static QueryIterator init_base();
-private:
-  IteratorStatus read_single() noexcept;
   // Defined in query_iterator.cpp where the spec/doc-table headers are included.
   static bool should_check_field_expiration(const RedisSearchCtx *sctx,
                                             const FieldFilterContext *filterCtx) noexcept;
+private:
+  IteratorStatus read_single() noexcept;
 };
 
 }  // namespace GeoShape

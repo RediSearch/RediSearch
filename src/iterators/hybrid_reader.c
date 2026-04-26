@@ -584,6 +584,8 @@ static ValidateStatus HR_Revalidate(QueryIterator *ctx) {
   if (hr->child && hr->child->Revalidate(hr->child) == VALIDATE_ABORTED) {
     return VALIDATE_ABORTED;
   }
+  hr->checkFieldExpiration = hr->sctx && hr->filterCtx.field.index != RS_INVALID_FIELD_INDEX &&
+                             hr->sctx->spec->docs.ttl;
   return VALIDATE_OK;
 }
 

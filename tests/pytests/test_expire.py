@@ -686,7 +686,7 @@ def test_background_index_no_lazy_expiration_json(env):
 
 
 @skip(cluster=True, redis_less_than='7.4')
-def test_ttl_table_collision_chain(env: Env):
+def test_ttl_table_collision_chain():
     # Regression for the direct-modulo TTL table: seed the index with far more
     # HEXPIRE-covered docs than the TTL bucket cap, so every slot must carry
     # a collision chain. Then query for fresh and expired entries and verify

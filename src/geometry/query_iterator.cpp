@@ -119,6 +119,12 @@ std::size_t QIter_NumEstimated(const QueryIterator *ctx) {
 void QIter_Rewind(QueryIterator *ctx) {
   reinterpret_cast<CPPQueryIterator *>(ctx)->rewind();
 }
+ValidateStatus QIter_Revalidate(QueryIterator *ctx) {
+  auto *qi = reinterpret_cast<CPPQueryIterator *>(ctx);
+  qi->check_field_expiration_ =
+      CPPQueryIterator::should_check_field_expiration(qi->sctx_, &qi->filterCtx_);
+  return VALIDATE_OK;
+}
 
 }  // anonymous namespace
 
@@ -131,7 +137,7 @@ QueryIterator CPPQueryIterator::init_base() {
       .NumEstimated = QIter_NumEstimated,
       .Read = QIter_Read,
       .SkipTo = QIter_SkipTo,
-      .Revalidate = Default_Revalidate,
+      .Revalidate = QIter_Revalidate,
       .Free = QIter_Free,
       .Rewind = QIter_Rewind,
   };

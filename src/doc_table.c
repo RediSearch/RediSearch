@@ -221,7 +221,6 @@ void DocTable_SetByteOffsets(RSDocumentMetadata *dmd, RSByteOffsets *v) {
 // the {0,0} "no expiration" sentinel as 0 so callers can use a single scalar
 // compare on the result-processor hot path.
 static inline int64_t expirationTimePointToNs(t_expirationTimePoint t) {
-  if (t.tv_sec == 0 && t.tv_nsec == 0) return 0;
   return (int64_t)t.tv_sec * 1000000000LL + (int64_t)t.tv_nsec;
 }
 
@@ -233,7 +232,7 @@ static inline int64_t expirationTimePointToNs(t_expirationTimePoint t) {
 // when there are no field-level entries to register.
 void DocTable_UpdateExpiration(DocTable *t, RSDocumentMetadata* dmd, t_expirationTimePoint ttl, arrayof(FieldExpiration) sortedFieldWithExpiration) {
   dmd->expirationTimeNs = expirationTimePointToNs(ttl);
-  if (sortedFieldWithExpiration && array_len(sortedFieldWithExpiration) > 0) {
+  if (array_len(sortedFieldWithExpiration) > 0) {
     TimeToLiveTable_VerifyInit(&t->ttl, t->maxSize);
     TimeToLiveTable_Add(t->ttl, dmd->id, sortedFieldWithExpiration);
   } else {
