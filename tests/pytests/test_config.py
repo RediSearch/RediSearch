@@ -528,6 +528,7 @@ def _getRDBFilePath(env: Env):
     return os.path.join(dbDir, dbFileName)
 
 LLONG_MAX = (1 << 63) - 1
+INT_MAX = (1 << 31) - 1
 UINT64_MAX = (1 << 64) - 1
 UINT32_MAX = (1 << 32) - 1
 MAX_AGGREGATE_REQUEST_RESULTS = (1 << 31)
@@ -575,7 +576,7 @@ numericConfigs = [
     ('search-topology-validation-timeout', 'TOPOLOGY_VALIDATION_TIMEOUT', 30_000, 0, LLONG_MAX, False, True),
     ('search-cursor-reply-threshold', 'CURSOR_REPLY_THRESHOLD', 1, 1, LLONG_MAX, False, True),
     ('search-conn-per-shard', 'CONN_PER_SHARD', 0, 0, UINT32_MAX, False, True),
-    ('search-connect-timeout', 'CONNECT_TIMEOUT', 10_000, 0, LLONG_MAX, False, True),
+    ('search-connect-timeout', 'CONNECT_TIMEOUT', 10_000, 0, INT_MAX, False, True),
 ]
 
 @skip(redis_less_than='7.9.227')
