@@ -220,7 +220,19 @@ void DocTable_SetByteOffsets(RSDocumentMetadata *dmd, RSByteOffsets *v) {
 // Pack a t_expirationTimePoint into nanoseconds since the epoch, preserving
 // the {0,0} "no expiration" sentinel as 0 so callers can use a single scalar
 // compare on the result-processor hot path.
+//
+// `t_expirationTimePoint` is a POSIX `struct timespec` (IEEE Std 1003.1), which
+// is the OS-level resolution ceiling: `tv_nsec` is in [0, 999999999], and any
+// finer-grained clock would require a different type. `int64_t` of nanoseconds
+// covers ~292 years from the epoch (year 2262), far beyond any TTL Redis can
+// produce — `RM_GetAbsExpire` and `RM_HashFieldMinExpire` both return an
+// `mstime_t` (signed milliseconds since epoch), which we expand into a
+// `timespec` in `document_basic.c::timespecFromMilliseconds` before reaching
+// here. The debug assert traps any future caller that violates the timespec
+// invariant.
 static inline int64_t expirationTimePointToNs(t_expirationTimePoint t) {
+  RS_LOG_ASSERT(t.tv_nsec >= 0 && t.tv_nsec < 1000000000L,
+                "tv_nsec out of POSIX timespec range");
   return (int64_t)t.tv_sec * 1000000000LL + (int64_t)t.tv_nsec;
 }
 
@@ -244,8 +256,7 @@ bool DocTable_IsDocExpired(DocTable* t, const RSDocumentMetadata* dmd, struct ti
   if (dmd->expirationTimeNs == 0) {
     return false;
   }
-  const int64_t now_ns = (int64_t)expirationPoint->tv_sec * 1000000000LL + (int64_t)expirationPoint->tv_nsec;
-  return dmd->expirationTimeNs <= now_ns;
+  return dmd->expirationTimeNs <= expirationTimePointToNs(*expirationPoint);
 }
 
 void DocTable_ClearExpirationData(DocTable *t) {
