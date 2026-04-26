@@ -328,9 +328,9 @@ Reducer *RDCRCollect_New(const ReducerOptions *options) {
 
   ArgsCursor subArgs = {0};
   ArgCallback handleFields =
-    options->is_coordinator ? handleCollectFieldsCoord : handleCollectFieldsShard;
+    options->is_local ? handleCollectFieldsCoord : handleCollectFieldsShard;
   ArgCallback handleSortBy =
-    options->is_coordinator ? handleCollectSortByCoord : handleCollectSortByShard;
+    options->is_local ? handleCollectSortByCoord : handleCollectSortByShard;
 
   ArgParser_AddSubArgsV(parser, "FIELDS", "Projected fields",
     &subArgs, 1, COLLECT_MAX_FIELD_ARGS,
@@ -351,7 +351,7 @@ Reducer *RDCRCollect_New(const ReducerOptions *options) {
     ARG_OPT_CALLBACK, handleCollectLimit, &pctx,
     ARG_OPT_END);
 
-  if (options->is_coordinator) {
+  if (options->is_local) {
     // Only the coordinator registers `COLLECT_SOURCE_KEY`; shards reject it.
     ArgParser_AddSubArgsV(parser, COLLECT_SOURCE_KEY, "Coord source key",
       &subArgs, 1, 1,
@@ -387,7 +387,7 @@ Reducer *RDCRCollect_New(const ReducerOptions *options) {
 
   // Rust copies the mode-specific parsed data and wires the vtable.
   Reducer *rbase;
-  if (options->is_coordinator) {
+  if (options->is_local) {
     rbase = CollectReducer_CreateCoord(
       data.source_key,
       (const char *const *)data.field_names,

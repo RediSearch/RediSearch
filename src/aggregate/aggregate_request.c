@@ -879,7 +879,7 @@ int PLNGroupStep_AddReducer(PLN_GroupStep *gstp, const char *name, ArgsCursor *a
     gr->alias = rm_strdup(alias);
   }
   gr->isHidden = 0; // By default, reducers are not hidden
-  gr->isCoordinator = false;
+  gr->isLocal = false;
   return REDISMODULE_OK;
 
 error:

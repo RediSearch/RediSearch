@@ -128,8 +128,8 @@ typedef struct {
   // Whether to enforce strict parsing of arguments
   bool strictPrefix;
 
-  // Whether this reducer runs on the coordinator (set via PLN_Reducer.isCoordinator)
-  bool is_coordinator;
+  // Whether this reducer runs locally (set via PLN_Reducer.isLocal)
+  bool is_local;
 
   // Full request flag bitmask forwarded from `AREQ->reqflags` (semantically a
   // `QEFlags`, stored as `uint32_t` to avoid a circular include with
@@ -143,8 +143,8 @@ typedef struct {
 /**
  * Macro to ensure that we don't skip important initialization steps
  */
-#define REDUCEROPTS_INIT(name_, args_, lk_, lkl_, statusp_, strict_, is_coordinator_, reqflags_) \
-  { name_, args_, lk_, lkl_, statusp_, strict_, is_coordinator_, reqflags_ }
+#define REDUCEROPTS_INIT(name_, args_, lk_, lkl_, statusp_, strict_, is_local_, reqflags_) \
+  { name_, args_, lk_, lkl_, statusp_, strict_, is_local_, reqflags_ }
 
 /**
  * Utility function to read the next argument as a lookup key.
@@ -167,7 +167,7 @@ int ReducerOpts_EnsureArgsConsumed(const ReducerOptions *options);
 /**
  * True iff the current request is an internal continuation of a
  * coordinator-dispatched command (`QEXEC_F_INTERNAL` is set on
- * `ReducerOptions::reqflags`). Orthogonal to `is_coordinator`: the
+ * `ReducerOptions::reqflags`). Orthogonal to `is_local`: the
  * coordinator itself never has `QEXEC_F_INTERNAL` set.
  */
 bool ReducerOpts_IsInternal(const ReducerOptions *options);

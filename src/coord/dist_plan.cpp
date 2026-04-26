@@ -63,7 +63,7 @@ struct ReducerDistCtx {
     if (PLNGroupStep_AddReducer(gstp, name, cargs, status) != REDISMODULE_OK) {
       return false;
     }
-    array_tail(gstp->reducers).isCoordinator = (gstp == localGroup);
+    array_tail(gstp->reducers).isLocal = (gstp == localGroup);
     if (alias) {
       *alias = getLastAlias(gstp);
     }
