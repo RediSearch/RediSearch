@@ -250,12 +250,6 @@ static void handleCollectSource(ArgParser *parser, const void *value, void *user
   const ReducerOptions *opts = pctx->options;
   ArgsCursor *ac = (ArgsCursor *)value;
 
-  if (AC_NumRemaining(ac) != 1) {
-    QueryError_SetError(opts->status, QUERY_ERROR_CODE_PARSE_ARGS,
-      "__SOURCE__ requires exactly one alias argument");
-    return;
-  }
-
   ReducerOptions sub_opts = *opts;
   sub_opts.args = ac;
   sub_opts.name = "__SOURCE__";
