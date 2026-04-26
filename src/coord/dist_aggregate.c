@@ -613,7 +613,7 @@ static void drainPartialResultsAfterTimeout(AREQ *req) {
   }
 
   SearchResult r = SearchResult_New();
-while (qctx->resultLimit && endProc->Next(endProc, &r) == RS_RESULT_OK) {
+  while (qctx->resultLimit && endProc->Next(endProc, &r) == RS_RESULT_OK) {
     qctx->resultLimit--;
     array_append(stored->results, SearchResult_AllocateMove(&r));
     r = SearchResult_New();
@@ -643,12 +643,6 @@ int DistAggregateTimeoutReturnStrictClient(RedisModuleCtx *ctx, RedisModuleStrin
 
   AREQ *req = (AREQ *)CoordRequestCtx_GetRequest(CoordReqCtx);
 
-  // Wake the background reader if it is currently blocked in MRIterator_NextWithTimeout
-  // so it observes the `timedOut` flag and exits the pipeline promptly.
-  if (req) {
-    RequestSyncCtx_WakeAbortChannel(&req->syncCtx);
-  }
-
   if (!req || AREQ_TryClaimAggregateResults(req)) {
     // Either the request is NULL or We were able to claim the aggregation results.
     // That means that the background thread didn't reach the aggregation phase (startPipelineCommon) yet.
@@ -657,24 +651,18 @@ int DistAggregateTimeoutReturnStrictClient(RedisModuleCtx *ctx, RedisModuleStrin
     return REDISMODULE_OK;
   }
 
+  // Losing TryClaim means BG owns the claim, it may be blocked in MRIterator_NextWithTimeout.
+  // Wake it so it observes the Timeout and exits the pipeline promptly.
+  RequestSyncCtx_WakeAbortChannel(&req->syncCtx);
+
   // Sync with the background thread
   AREQ_WaitForAggregateResultsComplete(req);
 
-  // If we are here, we must have stored results
-  // Check if results were stored (background thread completed successfully)
-  if (!req->storedReplyState.hasStoredResults) {
-    // Background thread didn't store results - some early error occurred.
-    if (QueryError_HasError(&req->storedReplyState.err)) {
-      QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&req->storedReplyState.err), 1, COORD_ERR_WARN);
-      QueryError_ReplyAndClear(ctx, &req->storedReplyState.err);
-    } else {
-      RedisModule_ReplyWithError(ctx, "Internal error: no results stored");
-    }
-    return REDISMODULE_OK;
-  }
+  // BG signals only after AREQ_StoreResults
+  RS_ASSERT(req->storedReplyState.hasStoredResults);
 
   // Harvest any shard replies that landed in the channel before the deadline.
-  // No-op for already-complete runs (pager at LIMIT / channel empty).
+  // No-op for already-complete runs.
   drainPartialResultsAfterTimeout(req);
 
   // Pipelines that don't yield partial results (SORTBY/GROUPBY/depleter)
