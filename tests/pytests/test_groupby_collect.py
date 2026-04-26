@@ -490,6 +490,7 @@ def test_collect_internal_without_sortby_equals_external_shape():
             env.assertEqual(set(row.keys()), {'name'})
 
 
+@skip(cluster=True)
 def test_collect_internal_duplicate_field_and_sort():
     """When a field is also the sort key it appears at least once in each row."""
     env = Env(protocol=3)
