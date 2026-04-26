@@ -57,6 +57,48 @@ def _sort_collected(entries, key):
 
 
 # ---------------------------------------------------------------------------
+# COLLECT coordinator merge across shards, HASH
+# ---------------------------------------------------------------------------
+@skip(cluster=False)
+def test_collect_cluster_merges_same_group_across_shards():
+    env = Env(shardsCount=3, protocol=3)
+    enable_unstable_features(env)
+
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH',
+               'SCHEMA',
+               'name', 'TEXT', 'SORTABLE',
+               'sweetness', 'NUMERIC', 'SORTABLE',
+               'color', 'TAG', 'SORTABLE').ok()
+
+    conn = getConnectionByEnv(env)
+    docs = [
+        ('doc:1{shard:0}', 'from_shard_0', '1'),
+        ('doc:2{shard:1}', 'from_shard_1', '2'),
+        ('doc:3{shard:3}', 'from_shard_3', '3'),
+    ]
+    for key, name, sweetness in docs:
+        conn.execute_command('HSET', key, 'name', name, 'color', 'shared',
+                             'sweetness', sweetness)
+
+    res = env.cmd(
+        'FT.AGGREGATE', 'idx', '*',
+        'GROUPBY', '1', '@color',
+            'REDUCE', 'COLLECT', '6',
+                'FIELDS', '1', '@name',
+                'SORTBY', '1', '@sweetness',
+            'AS', 'names')
+
+    env.assertEqual(len(res['results']), 1)
+    attrs = res['results'][0]['extra_attributes']
+    env.assertEqual(attrs['color'], 'shared')
+    env.assertEqual(_sort_collected(attrs['names'], 'name'), [
+        {'name': 'from_shard_0'},
+        {'name': 'from_shard_1'},
+        {'name': 'from_shard_3'},
+    ])
+
+
+# ---------------------------------------------------------------------------
 # COLLECT 1 field, HASH
 # ---------------------------------------------------------------------------
 def test_collect_1_field_hash():

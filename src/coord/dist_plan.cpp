@@ -337,17 +337,16 @@ static int distributeAvg(ReducerDistCtx *rdctx, QueryError *status) {
 
 /* Distribute COLLECT: shard runs the original COLLECT, coord runs COLLECT on
  * the shard's alias (a single column containing the array-of-maps output).
- * The coord COLLECT's Add/Finalize will need adjustment to properly unpack and
- * re-aggregate the shard results. */
+ */
 static int distributeCollect(ReducerDistCtx *rdctx, QueryError *status) {
   PLN_Reducer *src = rdctx->srcReducer;
   size_t argc = src->args.argc;
 
-  // Shard: build args on stack, persist with copyArgs
+  // Shard: build temporary args, then persist the object array with copyArgs.
   char shardCountBuf[16];
-  void *shardObjs[argc + 1];
+  std::vector<void *> shardObjs(argc + 1);
   ArgsCursor shardArgs;
-  buildShardCollectArgs(&shardArgs, shardObjs, shardCountBuf, &src->args);
+  buildShardCollectArgs(&shardArgs, shardObjs.data(), shardCountBuf, &src->args);
   rdctx->copyArgs(&shardArgs);
 
   const char *alias;
@@ -355,12 +354,12 @@ static int distributeCollect(ReducerDistCtx *rdctx, QueryError *status) {
     return REDISMODULE_ERR;
   }
 
-  // Coord: build args on stack, persist with copyArgs.
+  // Coord: build temporary args, then persist the object array with copyArgs.
   // Layout: [nargs, original_args..., __SOURCE__, shard_alias, AS, user_alias]
   char coordCountBuf[16];
-  void *coordObjs[argc + 5];
+  std::vector<void *> coordObjs(argc + 5);
   ArgsCursor coordArgs;
-  buildCoordCollectArgs(&coordArgs, coordObjs, coordCountBuf, &src->args, alias, src->alias);
+  buildCoordCollectArgs(&coordArgs, coordObjs.data(), coordCountBuf, &src->args, alias, src->alias);
   rdctx->copyArgs(&coordArgs);
 
   if (!rdctx->add(rdctx->localGroup, "COLLECT", NULL, status, &coordArgs)) {
