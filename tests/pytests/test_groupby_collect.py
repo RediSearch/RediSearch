@@ -433,6 +433,7 @@ def test_collect_loaded_json_path():
 # Internal-path serialization: _FT.AGGREGATE sets QEXEC_F_INTERNAL and must
 # cause the shard to include sort-key values alongside projected fields.
 # ---------------------------------------------------------------------------
+@skip(cluster=True)
 def test_collect_internal_serializes_sort_fields():
     """In internal mode the shard includes SORTBY fields alongside FIELDS."""
     env = Env(protocol=3)
@@ -458,6 +459,7 @@ def test_collect_internal_serializes_sort_fields():
                         message='internal should include both FIELDS and SORTBY keys')
 
 
+@skip(cluster=True)
 def test_collect_internal_without_sortby_equals_external_shape():
     """No spurious widening: _FT without SORTBY must match FT output."""
     env = Env(protocol=3)
