@@ -20,10 +20,11 @@ namespace GeoShape {
 bool CPPQueryIterator::should_check_field_expiration(const RedisSearchCtx *sctx,
                                                      const FieldFilterContext *filterCtx) noexcept {
   // Mirrors the hoisted gate in HybridIterator / InvIndIterator: all inputs are
-  // iterator-invariant, so snapshot the AND once here.
+  // iterator-invariant, so snapshot the AND once here. A non-NULL `ttl` is a
+  // sufficient and tight gate by itself: the table holds field-level entries
+  // only and is destroyed when the last one leaves the index.
   return sctx && filterCtx->field.index != RS_INVALID_FIELD_INDEX &&
-         sctx->spec->docs.ttl && sctx->spec->docs.hasFieldExpiration &&
-         sctx->spec->monitorFieldExpiration;
+         sctx->spec->docs.ttl;
 }
 
 auto CPPQueryIterator::base() noexcept -> QueryIterator * {

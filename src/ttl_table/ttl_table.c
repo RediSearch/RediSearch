@@ -50,9 +50,8 @@
 //    matters in deployments with many indexes that sparsely use TTL.
 
 typedef struct {
-  t_docId docId;                        // 0 is reserved / unused
-  t_expirationTimePoint documentExpirationPoint;
-  arrayof(FieldExpiration) fieldExpirations;  // owned, sorted by field index
+  t_docId docId;                              // 0 is reserved / unused
+  arrayof(FieldExpiration) fieldExpirations;  // owned, sorted by field index, never empty
 } TimeToLiveEntry;
 
 typedef struct {
@@ -157,7 +156,8 @@ void TimeToLiveTable_Destroy(TimeToLiveTable **table) {
   *table = NULL;
 }
 
-void TimeToLiveTable_Add(TimeToLiveTable *t, t_docId docId, t_expirationTimePoint docExpirationTime, arrayof(FieldExpiration) sortedById) {
+void TimeToLiveTable_Add(TimeToLiveTable *t, t_docId docId, arrayof(FieldExpiration) sortedById) {
+  RS_ASSERT(sortedById && array_len(sortedById) > 0);
   const size_t slot = ttl_slot(t, docId);
   ttl_grow(t, slot);
   TTLBucket *b = &t->buckets[slot];
@@ -170,7 +170,6 @@ void TimeToLiveTable_Add(TimeToLiveTable *t, t_docId docId, t_expirationTimePoin
   b->count++;
   t->count++;
   e->docId = docId;
-  e->documentExpirationPoint = docExpirationTime;
   e->fieldExpirations = sortedById;
 }
 
@@ -204,28 +203,12 @@ size_t TimeToLiveTable_DebugAllocatedBuckets(const TimeToLiveTable *t) {
   return t ? t->cap : 0;
 }
 
-void TimeToLiveTable_ForEach(TimeToLiveTable *t, TimeToLiveTable_DocIdCallback cb, void *ctx) {
-  if (!t) return;
-  for (size_t s = 0; s < t->cap; s++) {
-    const TTLBucket *b = &t->buckets[s];
-    for (uint32_t i = 0; i < b->count; i++) {
-      cb(b->entries[i].docId, ctx);
-    }
-  }
-}
-
 static inline bool DidExpire(const t_expirationTimePoint* field, const t_expirationTimePoint* now) {
   if (!field->tv_sec && !field->tv_nsec) {
     return false;
   }
 
   return !((field->tv_sec > now->tv_sec) || (field->tv_sec == now->tv_sec && field->tv_nsec > now->tv_nsec));
-}
-
-bool TimeToLiveTable_HasDocExpired(TimeToLiveTable *t, t_docId docId, const struct timespec* expirationPoint) {
-  const TimeToLiveEntry *e = ttl_find_entry(t, docId);
-  if (!e) return false;
-  return DidExpire(&e->documentExpirationPoint, expirationPoint);
 }
 
 bool TimeToLiveTable_VerifyDocAndField(TimeToLiveTable *t, t_docId docId, t_fieldIndex field, enum FieldExpirationPredicate predicate, const struct timespec* expirationPoint) {

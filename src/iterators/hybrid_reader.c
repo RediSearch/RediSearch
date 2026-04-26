@@ -630,11 +630,13 @@ QueryIterator *NewHybridVectorIterator(HybridIteratorParams hParams, QueryError 
   hi->sctx = hParams.sctx;
   hi->filterCtx = *hParams.filterCtx;
   // Hoist the per-posting field-expiration gate: sctx, fieldIndex and the spec
-  // TTL/HFE state are all iterator-invariant, so we snapshot the AND once here.
+  // TTL pointer are all iterator-invariant, so we snapshot the AND once here.
+  // The TTL table holds field-level (HEXPIRE) entries only and is destroyed
+  // when the last one leaves the index, so a non-NULL `ttl` is a sufficient
+  // and tight gate by itself.
   hi->checkFieldExpiration =
       hParams.sctx && hParams.filterCtx->field.index != RS_INVALID_FIELD_INDEX &&
-      hParams.sctx->spec->docs.ttl && hParams.sctx->spec->docs.hasFieldExpiration &&
-      hParams.sctx->spec->monitorFieldExpiration;
+      hParams.sctx->spec->docs.ttl;
 
   if (hParams.childIt == NULL || hParams.query.k == 0) {
     // If there is no child iterator, or the query is going to return 0 results, we can use simple KNN.

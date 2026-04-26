@@ -225,14 +225,19 @@ static inline int64_t expirationTimePointToNs(t_expirationTimePoint t) {
   return (int64_t)t.tv_sec * 1000000000LL + (int64_t)t.tv_nsec;
 }
 
+// Inlines the doc-level TTL on the DMD unconditionally so the result-processor
+// can drop the TTL-table lookup, and only routes field-level expirations into
+// the TTL table. This keeps the table strictly an HFE store, which lets
+// iterators use `t->ttl == NULL` as their per-spec gate. Takes ownership of
+// `sortedFieldWithExpiration` either by handing it to the table or freeing it
+// when there are no field-level entries to register.
 void DocTable_UpdateExpiration(DocTable *t, RSDocumentMetadata* dmd, t_expirationTimePoint ttl, arrayof(FieldExpiration) sortedFieldWithExpiration) {
-  if (hasExpirationTimeInformation(dmd->flags)) {
-    dmd->expirationTimeNs = expirationTimePointToNs(ttl);
+  dmd->expirationTimeNs = expirationTimePointToNs(ttl);
+  if (sortedFieldWithExpiration && array_len(sortedFieldWithExpiration) > 0) {
     TimeToLiveTable_VerifyInit(&t->ttl, t->maxSize);
-    TimeToLiveTable_Add(t->ttl, dmd->id, ttl, sortedFieldWithExpiration);
-    if (sortedFieldWithExpiration && array_len(sortedFieldWithExpiration) > 0) {
-      t->hasFieldExpiration = true;
-    }
+    TimeToLiveTable_Add(t->ttl, dmd->id, sortedFieldWithExpiration);
+  } else {
+    array_free(sortedFieldWithExpiration);
   }
 }
 
@@ -244,20 +249,13 @@ bool DocTable_IsDocExpired(DocTable* t, const RSDocumentMetadata* dmd, struct ti
   return dmd->expirationTimeNs <= now_ns;
 }
 
-static void clearExpirationFlagCallback(t_docId docId, void *ctx) {
-  DocTable *t = ctx;
-  RSDocumentMetadata *dmd = DocTable_GetOwn(t, docId);
-  if (dmd) {
-    dmd->flags &= ~Document_HasExpiration;
-    dmd->expirationTimeNs = 0;
-  }
-}
-
 void DocTable_ClearExpirationData(DocTable *t) {
-  if (t->ttl) {
-    TimeToLiveTable_ForEach(t->ttl, clearExpirationFlagCallback, t);
-    TimeToLiveTable_Destroy(&t->ttl);
-  }
+  // Walk every DMD: doc-level TTL lives inline on the DMD (not in the TTL
+  // table), and field-level TTL is only present for docs that are also in
+  // the table. Either may be set, so a single sweep over all DMDs is the
+  // simplest correct path.
+  DOCTABLE_FOREACH(t, dmd->expirationTimeNs = 0);
+  TimeToLiveTable_Destroy(&t->ttl);
 }
 
 /* Put a new document into the table, assign it an incremental id and store the metadata in the
@@ -381,7 +379,11 @@ RSDocumentMetadata *DocTable_Pop(DocTable *t, const char *s, size_t n) {
       return NULL;
     }
 
-    if (t->ttl && hasExpirationTimeInformation(md->flags)) {
+    // The TTL table holds field-level (HEXPIRE) entries only. Remove is a
+    // no-op if this doc never had one, and the IsEmpty check destroys the
+    // table once the last HFE doc leaves the index, restoring the iterator
+    // gate to its NULL "no HFE in this spec" state.
+    if (t->ttl) {
       TimeToLiveTable_Remove(t->ttl, md->id);
       if (TimeToLiveTable_IsEmpty(t->ttl)) {
         TimeToLiveTable_Destroy(&t->ttl);

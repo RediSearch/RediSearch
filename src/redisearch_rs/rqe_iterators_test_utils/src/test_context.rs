@@ -732,10 +732,6 @@ impl TestContext {
             // Enable expiration monitoring (required for expiration checks to work)
             spec.monitorDocumentExpiration = true;
             spec.monitorFieldExpiration = true;
-            // Test helpers always exercise the field-expiration path, so flip
-            // the HFE-observed latch up front to mirror what
-            // DocTable_UpdateExpiration would do at runtime.
-            spec.docs.hasFieldExpiration = true;
             ffi::TimeToLiveTable_VerifyInit(&mut spec.docs.ttl, spec.docs.maxSize as usize);
         }
     }
@@ -792,20 +788,9 @@ impl TestContext {
             }
         };
 
-        // Document expiration time set to far future (we only care about field expiration)
-        let doc_expiration_time = ffi::t_expirationTimePoint {
-            tv_sec: i64::MAX,
-            tv_nsec: i64::MAX,
-        };
-
         // SAFETY: self.spec is valid, TTL table is initialized, fe is a valid array
         unsafe {
-            ffi::TimeToLiveTable_Add(
-                self.spec.as_ref().docs.ttl,
-                doc_id,
-                doc_expiration_time,
-                fe as _,
-            );
+            ffi::TimeToLiveTable_Add(self.spec.as_ref().docs.ttl, doc_id, fe as _);
         }
     }
 
