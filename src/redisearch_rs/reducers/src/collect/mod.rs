@@ -12,10 +12,9 @@
 //! C parses the reducer arguments and constructs the appropriate variant via
 //! `reducers_ffi`.
 
-pub mod common;
+pub(crate) mod common;
 pub mod coord;
 pub mod shard;
 
-pub use common::CollectCommon;
 pub use coord::{CoordCollectCtx, CoordCollectReducer};
 pub use shard::{ShardCollectCtx, ShardCollectReducer};

@@ -17,12 +17,12 @@ use crate::Reducer;
 /// an `ffi::Reducer*`.
 #[repr(C)]
 pub struct CollectCommon {
-    pub reducer: Reducer,
+    pub(super) reducer: Reducer,
     /// Arena for per-group contexts; destructors still need explicit calls.
-    pub arena: Bump,
+    pub(super) arena: Bump,
     /// Bit `i` is 0 for DESC and 1 for ASC, matching `SORTASCMAP_INIT`.
-    pub sort_asc_map: u64,
-    pub limit: Option<(u64, u64)>,
+    pub(super) sort_asc_map: u64,
+    pub(super) limit: Option<(u64, u64)>,
 }
 
 impl CollectCommon {
