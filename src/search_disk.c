@@ -393,23 +393,17 @@ uint64_t SearchDisk_CollectIndexMetrics(RedisSearchDiskIndexSpec* index) {
 }
 
 uint64_t SearchDisk_GetDocTableTotalMemory(RedisSearchDiskIndexSpec* index) {
-  if (!disk || !disk_db || !index || !disk->metrics.getDocTableTotalMemory) {
-    return 0;
-  }
+  RS_ASSERT(disk && disk_db && index);
   return disk->metrics.getDocTableTotalMemory(disk_db, index);
 }
 
 uint64_t SearchDisk_GetInvertedIndexTotalMemory(RedisSearchDiskIndexSpec* index) {
-  if (!disk || !disk_db || !index || !disk->metrics.getInvertedIndexTotalMemory) {
-    return 0;
-  }
+  RS_ASSERT(disk && disk_db && index);
   return disk->metrics.getInvertedIndexTotalMemory(disk_db, index);
 }
 
 uint64_t SearchDisk_GetVectorIndexTotalMemory(RedisSearchDiskIndexSpec* index) {
-  if (!disk || !disk_db || !index || !disk->metrics.getVectorIndexTotalMemory) {
-    return 0;
-  }
+  RS_ASSERT(disk && disk_db && index);
   return disk->metrics.getVectorIndexTotalMemory(disk_db, index);
 }
 
