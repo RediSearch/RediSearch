@@ -239,9 +239,9 @@ static inline size_t connectTimeoutToMS(const struct timeval *tv) {
 
 CONFIG_SETTER(setConnectTimeout) {
   SearchClusterConfig *realConfig = getOrCreateRealConfig((RSConfig *)config);
-  size_t ms;
-  int acrc = AC_GetSize(ac, &ms, AC_F_GE0);
-  if (acrc == AC_OK) connectTimeoutFromMS(&realConfig->connectTimeout, ms);
+  int ms;
+  int acrc = AC_GetInt(ac, &ms, AC_F_GE0); // ms can be up to INT_MAX
+  if (acrc == AC_OK) connectTimeoutFromMS(&realConfig->connectTimeout, (size_t)ms);
   RETURN_STATUS(acrc);
 }
 
@@ -403,7 +403,7 @@ int RegisterClusterModuleConfig(RedisModuleCtx *ctx) {
   RM_TRY(
     RedisModule_RegisterNumericConfig (
       ctx, "search-connect-timeout", DEFAULT_CONNECT_TIMEOUT,
-      REDISMODULE_CONFIG_UNPREFIXED, 0, LLONG_MAX,
+      REDISMODULE_CONFIG_UNPREFIXED, 0, INT_MAX,
       get_connect_timeout, set_connect_timeout, NULL,
       (void*)&RSGlobalConfig
     )
