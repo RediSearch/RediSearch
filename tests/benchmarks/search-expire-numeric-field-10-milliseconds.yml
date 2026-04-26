@@ -1,5 +1,5 @@
 version: 0.2
-name: "search-expired-numeric-field-10-milliseconds"
+name: "search-expire-numeric-field-10-milliseconds"
 description: |
   TTL table benchmark for field-level expiration under heavy lookup pressure.
   This variant focuses on lazy expiration by disabling active expiration so
