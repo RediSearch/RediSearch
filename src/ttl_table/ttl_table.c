@@ -23,20 +23,20 @@
 //    prefetcher can pull upcoming bucket headers into L1 ahead of demand.
 //    This primarily benefits the "miss" hot path — docs without TTL, the
 //    common case at query time — where each `ttl_find_entry` probes a
-//    TTLBucket (16 B: pointer + count + pad), sees count == 0, and returns
-//    NULL. Four such probes fit in one 64-byte cache line, and the stride-1
-//    access pattern matches the hardware prefetcher's sequential detector
-//    so it streams the next lines in without demand-miss stalls as long as
-//    the iterator walks docIds in ascending order.
+//    bucket pointer (8 B), sees NULL, and returns. Eight such probes fit in
+//    one 64-byte cache line, and the stride-1 access pattern matches the
+//    hardware prefetcher's sequential detector so it streams the next lines
+//    in without demand-miss stalls as long as the iterator walks docIds in
+//    ascending order.
 //  - When maxDocId exceeds `maxSize`, multiple docIds collide on the same
 //    slot. A per-bucket contiguous-vec chain keeps walks cache-line
 //    sequential and bounds worst-case behavior (Poisson tail at load factor
 //    1 gives chain length ≤ ~5) — unlike linear probing, which degrades to
 //    O(cap) once deletes create probe-gaps in a near-full table.
-//  - Writes happen once per notification-driven reindex under the spec write
-//    lock, so we can afford an rm_realloc per insert/delete instead of
-//    maintaining a geometric `cap` field per bucket. No-shrink-on-delete caps
-//    the realloc count per bucket at its lifetime high-water mark.
+//  - Each non-empty bucket is an arr.h fat pointer: len/cap live in the
+//    `array_hdr_t` immediately preceding the elements, so the slot itself
+//    is just an 8 B pointer. Writes go through arr.h's geometric growth
+//    rather than a +1 realloc per insert.
 //  - Lazy growth mirrors DocTable_Set: `maxSize` (the modulus used by the
 //    slot formula) is captured once at init and never changes, while `cap`
 //    (the number of buckets actually allocated) starts at 0 and grows on
@@ -54,15 +54,12 @@ typedef struct {
   arrayof(FieldExpiration) fieldExpirations;  // owned, sorted by field index, never empty
 } TimeToLiveEntry;
 
-typedef struct {
-  TimeToLiveEntry *entries;             // rm_malloc'd block of `count`, NULL when count == 0
-  uint32_t count;
-  uint32_t _pad;                        // reserved for future per-bucket stats
-} TTLBucket;
+// A bucket is a NULL-or-arr.h-managed chain of entries. NULL means empty.
+typedef arrayof(TimeToLiveEntry) TTLBucket;
 
 struct TimeToLiveTable {
-  TTLBucket *buckets;                   // allocated for the first `cap` entries
-  size_t cap;                           // number of buckets physically allocated
+  TTLBucket *buckets;                   // allocated for the first `cap` slots
+  size_t cap;                           // number of bucket slots physically allocated
   size_t maxSize;                       // modulus for slot calculation, fixed at init
   size_t count;                         // total live entries
 };
@@ -102,11 +99,11 @@ static void ttl_grow(TimeToLiveTable *t, size_t slot) {
 static inline TimeToLiveEntry *ttl_find_entry(const TimeToLiveTable *t, t_docId docId) {
   const size_t slot = ttl_slot(t, docId);
   if (slot >= t->cap) return NULL;  // bucket unallocated => entry cannot exist
-  const TTLBucket *b = &t->buckets[slot];
-  for (uint32_t i = 0; i < b->count; i++) {
-    if (b->entries[i].docId == docId) {
-      return &b->entries[i];
-    }
+  TTLBucket bucket = t->buckets[slot];
+  if (!bucket) return NULL;
+  const uint32_t n = array_len(bucket);
+  for (uint32_t i = 0; i < n; i++) {
+    if (bucket[i].docId == docId) return &bucket[i];
   }
   return NULL;
 }
@@ -115,9 +112,10 @@ static inline TimeToLiveEntry *ttl_find_entry(const TimeToLiveTable *t, t_docId 
 // keep the Add call site readable (`assert(!ttl_bucket_contains(...))`); the
 // invariant itself is enforced upstream by the spec write lock in
 // DocTable_Put, so eliding the scan in release is intentional.
-static bool ttl_bucket_contains(const TTLBucket *b, t_docId docId) {
-  for (uint32_t i = 0; i < b->count; i++) {
-    if (b->entries[i].docId == docId) return true;
+static bool ttl_bucket_contains(TTLBucket bucket, t_docId docId) {
+  const uint32_t n = array_len(bucket);
+  for (uint32_t i = 0; i < n; i++) {
+    if (bucket[i].docId == docId) return true;
   }
   return false;
 }
@@ -145,11 +143,13 @@ void TimeToLiveTable_Destroy(TimeToLiveTable **table) {
   if (!*table) return;
   TimeToLiveTable *t = *table;
   for (size_t s = 0; s < t->cap; s++) {
-    TTLBucket *b = &t->buckets[s];
-    for (uint32_t i = 0; i < b->count; i++) {
-      ttl_entry_release(&b->entries[i]);
+    TTLBucket bucket = t->buckets[s];
+    if (!bucket) continue;
+    const uint32_t n = array_len(bucket);
+    for (uint32_t i = 0; i < n; i++) {
+      ttl_entry_release(&bucket[i]);
     }
-    rm_free(b->entries);
+    array_free(bucket);
   }
   rm_free(t->buckets);
   rm_free(t);
@@ -160,37 +160,32 @@ void TimeToLiveTable_Add(TimeToLiveTable *t, t_docId docId, arrayof(FieldExpirat
   RS_ASSERT(sortedById && array_len(sortedById) > 0);
   const size_t slot = ttl_slot(t, docId);
   ttl_grow(t, slot);
-  TTLBucket *b = &t->buckets[slot];
   // docIds are monotonically assigned in DocTable_Put under the spec write
   // lock, so duplicates should not reach here; the assert catches a broken
   // locking discipline during development before it corrupts the table.
-  RS_LOG_ASSERT(!ttl_bucket_contains(b, docId), "duplicate docId in TTL table");
-  b->entries = rm_realloc(b->entries, (b->count + 1) * sizeof(*b->entries));
-  TimeToLiveEntry *e = &b->entries[b->count];
-  b->count++;
+  RS_LOG_ASSERT(!ttl_bucket_contains(t->buckets[slot], docId), "duplicate docId in TTL table");
+  TimeToLiveEntry entry = { .docId = docId, .fieldExpirations = sortedById };
+  t->buckets[slot] = array_ensure_append_1(t->buckets[slot], entry);
   t->count++;
-  e->docId = docId;
-  e->fieldExpirations = sortedById;
 }
 
 void TimeToLiveTable_Remove(TimeToLiveTable *t, t_docId docId) {
   const size_t slot = ttl_slot(t, docId);
   if (slot >= t->cap) return;  // bucket unallocated => nothing to remove
-  TTLBucket *b = &t->buckets[slot];
-  for (uint32_t i = 0; i < b->count; i++) {
-    if (b->entries[i].docId != docId) continue;
-    ttl_entry_release(&b->entries[i]);
-    // swap-last to avoid memmove and keep the chain contiguous
-    b->entries[i] = b->entries[b->count - 1];
-    b->count--;
+  TTLBucket bucket = t->buckets[slot];
+  if (!bucket) return;
+  const uint32_t n = array_len(bucket);
+  for (uint32_t i = 0; i < n; i++) {
+    if (bucket[i].docId != docId) continue;
+    ttl_entry_release(&bucket[i]);
+    array_del_fast(bucket, i);  // swap-last + dec len; in-place, no realloc
     t->count--;
-    if (b->count == 0) {
-      rm_free(b->entries);
-      b->entries = NULL;
+    if (array_len(bucket) == 0) {
+      array_free(bucket);
+      t->buckets[slot] = NULL;
     }
-    // No-shrink-on-delete: keep the allocation at its high-water mark; the
-    // few wasted bytes per chained bucket are dwarfed by the bucket header
-    // array itself and avoid realloc churn for buckets that churn.
+    // No-shrink-on-delete: arr.h keeps the allocation at its high-water
+    // mark via remain_cap, avoiding realloc churn for buckets that churn.
     return;
   }
 }
