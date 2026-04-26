@@ -83,6 +83,7 @@ static inline size_t ttl_slot(const TimeToLiveTable *t, t_docId docId) {
 // DocTable_Set: +1.5x geometric up to TTL_BUCKET_MAX_GROW_STEP, clamped to
 // maxSize, with TTL_BUCKET_INITIAL_CAP as the first-grow seed.
 static void ttl_grow(TimeToLiveTable *t, size_t slot) {
+  RS_ASSERT(slot < t->maxSize);    // ttl_slot's contract; tightens the call boundary
   if (slot < t->cap) return;
   RS_ASSERT(t->cap < t->maxSize);  // slot is always < maxSize, so room must exist
   const size_t oldcap = t->cap;
