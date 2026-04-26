@@ -12,7 +12,7 @@ extern "C" {
 #endif // __cplusplus
 
 /**
- * Create a coordinator COLLECT reducer; free it with [`collectCoordFree`].
+ * Create a local COLLECT reducer; free it with [`collectLocalFree`].
  *
  * # Safety
  *
@@ -25,7 +25,7 @@ extern "C" {
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-Reducer *CollectReducer_CreateCoord(const RLookupKey *source_key,
+Reducer *CollectReducer_CreateLocal(const RLookupKey *source_key,
                                     const char *const *field_names,
                                     uintptr_t field_names_len,
                                     const char *const *sort_names,
@@ -38,11 +38,11 @@ Reducer *CollectReducer_CreateCoord(const RLookupKey *source_key,
 /**
  * # Safety
  *
- * 1. `r` must point to a [valid] `CoordCollectReducer` masquerading as a `ffi::Reducer`.
+ * 1. `r` must point to a [valid] `LocalCollectReducer` masquerading as a `ffi::Reducer`.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-void *collectCoordNewInstance(Reducer *r);
+void *collectLocalNewInstance(Reducer *r);
 
 /**
  * # Safety
@@ -51,44 +51,44 @@ void *collectCoordNewInstance(Reducer *r);
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-void collectCoordFreeInstance(Reducer *_r, void *ctx);
+void collectLocalFreeInstance(Reducer *_r, void *ctx);
 
 /**
  * # Safety
  *
- * 1. `r` must point to a [valid] `CoordCollectReducer` masquerading as a `ffi::Reducer`.
+ * 1. `r` must point to a [valid] `LocalCollectReducer` masquerading as a `ffi::Reducer`.
  * 2. `ctx` must point to a [valid] `CoordCollectCtx` masquerading as a void pointer.
  * 3. `srcrow` must point to a [valid] `ffi::RLookupRow`.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-int collectCoordAdd(Reducer *r, void *ctx, const RLookupRow *srcrow);
+int collectLocalAdd(Reducer *r, void *ctx, const RLookupRow *srcrow);
 
 /**
  * # Safety
  *
- * 1. `r` must point to a [valid] `CoordCollectReducer` masquerading as a `ffi::Reducer`.
+ * 1. `r` must point to a [valid] `LocalCollectReducer` masquerading as a `ffi::Reducer`.
  * 2. `ctx` must point to a [valid] `CoordCollectCtx` masquerading as a void pointer.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-RSValue *collectCoordFinalize(Reducer *r, void *ctx);
+RSValue *collectLocalFinalize(Reducer *r, void *ctx);
 
 /**
  * # Safety
  *
  * 1. `r` must point to a [valid] `CoordCollectReducer` masquerading as a `ffi::Reducer`,
- *    originally created by [`CollectReducer_CreateCoord`].
+ *    originally created by [`CollectReducer_CreateLocal`].
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-void collectCoordFree(Reducer *r);
+void collectLocalFree(Reducer *r);
 
 /**
  * Creates a new [`ShardCollectReducer`] from pre-parsed configuration and
  * returns a pointer to its base [`ffi::Reducer`] with the vtable fully wired.
  *
- * The caller is responsible for eventually calling [`collectShardFree`] on
+ * The caller is responsible for eventually calling [`collectRemoteFree`] on
  * the returned pointer.
  *
  * # Safety
@@ -105,16 +105,16 @@ void collectCoordFree(Reducer *r);
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-Reducer *CollectReducer_CreateShard(const RLookupKey *const *field_keys,
-                                    uintptr_t field_keys_len,
-                                    bool has_wildcard,
-                                    const RLookupKey *const *sort_keys,
-                                    uintptr_t sort_keys_len,
-                                    uint64_t sort_asc_map,
-                                    bool has_limit,
-                                    uint64_t limit_offset,
-                                    uint64_t limit_count,
-                                    bool is_internal);
+Reducer *CollectReducer_CreateRemote(const RLookupKey *const *field_keys,
+                                     uintptr_t field_keys_len,
+                                     bool has_wildcard,
+                                     const RLookupKey *const *sort_keys,
+                                     uintptr_t sort_keys_len,
+                                     uint64_t sort_asc_map,
+                                     bool has_limit,
+                                     uint64_t limit_offset,
+                                     uint64_t limit_count,
+                                     bool is_internal);
 
 /**
  * Creates a new per-group shard collect reducer instance.
@@ -125,7 +125,7 @@ Reducer *CollectReducer_CreateShard(const RLookupKey *const *field_keys,
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-void *collectShardNewInstance(Reducer *r);
+void *collectRemoteNewInstance(Reducer *r);
 
 /**
  * Frees a per-group shard collect reducer instance.
@@ -136,7 +136,7 @@ void *collectShardNewInstance(Reducer *r);
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-void collectShardFreeInstance(Reducer *_r, void *ctx);
+void collectRemoteFreeInstance(Reducer *_r, void *ctx);
 
 /**
  * Processes the provided [`ffi::RLookupRow`] with the shard collect reducer
@@ -150,7 +150,7 @@ void collectShardFreeInstance(Reducer *_r, void *ctx);
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-int collectShardAdd(Reducer *r, void *ctx, const RLookupRow *srcrow);
+int collectRemoteAdd(Reducer *r, void *ctx, const RLookupRow *srcrow);
 
 /**
  * Finalizes the shard collect reducer instance result into an `RSValue`.
@@ -162,7 +162,7 @@ int collectShardAdd(Reducer *r, void *ctx, const RLookupRow *srcrow);
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-RSValue *collectShardFinalize(Reducer *r, void *ctx);
+RSValue *collectRemoteFinalize(Reducer *r, void *ctx);
 
 /**
  * Frees the provided shard collect reducer (the global struct, not a
@@ -171,65 +171,65 @@ RSValue *collectShardFinalize(Reducer *r, void *ctx);
  * # Safety
  *
  * 1. `r` must point to a [valid] `ShardCollectReducer` masquerading as a `ffi::Reducer`,
- *    originally created by [`CollectReducer_CreateShard`].
+ *    originally created by [`CollectReducer_CreateRemote`].
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-void collectShardFree(Reducer *r);
+void collectRemoteFree(Reducer *r);
 
 /**
  * # Safety
  *
- * `r` must point to a valid [`ShardCollectReducer`] originally created by
- * `CollectReducer_CreateShard`.
+ * `r` must point to a valid [`RemoteCollectReducer`] originally created by
+ * `CollectReducer_CreateRemote`.
  */
 uintptr_t CollectReducer_GetFieldKeysLen(const Reducer *r);
 
 /**
  * # Safety
  *
- * `r` must point to a valid [`ShardCollectReducer`] originally created by
- * `CollectReducer_CreateShard`.
+ * `r` must point to a valid [`RemoteCollectReducer`] originally created by
+ * `CollectReducer_CreateRemote`.
  */
 bool CollectReducer_HasWildcard(const Reducer *r);
 
 /**
  * # Safety
  *
- * `r` must point to a valid [`ShardCollectReducer`] originally created by
- * `CollectReducer_CreateShard`.
+ * `r` must point to a valid [`RemoteCollectReducer`] originally created by
+ * `CollectReducer_CreateRemote`.
  */
 uintptr_t CollectReducer_GetSortKeysLen(const Reducer *r);
 
 /**
  * # Safety
  *
- * `r` must point to a valid [`ShardCollectReducer`] originally created by
- * `CollectReducer_CreateShard`.
+ * `r` must point to a valid [`RemoteCollectReducer`] originally created by
+ * `CollectReducer_CreateRemote`.
  */
 uint64_t CollectReducer_GetSortAscMap(const Reducer *r);
 
 /**
  * # Safety
  *
- * `r` must point to a valid [`ShardCollectReducer`] originally created by
- * `CollectReducer_CreateShard`.
+ * `r` must point to a valid [`RemoteCollectReducer`] originally created by
+ * `CollectReducer_CreateRemote`.
  */
 bool CollectReducer_HasLimit(const Reducer *r);
 
 /**
  * # Safety
  *
- * `r` must point to a valid [`ShardCollectReducer`] originally created by
- * `CollectReducer_CreateShard`.
+ * `r` must point to a valid [`RemoteCollectReducer`] originally created by
+ * `CollectReducer_CreateRemote`.
  */
 uint64_t CollectReducer_GetLimitOffset(const Reducer *r);
 
 /**
  * # Safety
  *
- * `r` must point to a valid [`ShardCollectReducer`] originally created by
- * `CollectReducer_CreateShard`.
+ * `r` must point to a valid [`RemoteCollectReducer`] originally created by
+ * `CollectReducer_CreateRemote`.
  */
 uint64_t CollectReducer_GetLimitCount(const Reducer *r);
 

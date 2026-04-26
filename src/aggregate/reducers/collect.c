@@ -388,7 +388,7 @@ Reducer *RDCRCollect_New(const ReducerOptions *options) {
   // Rust copies the mode-specific parsed data and wires the vtable.
   Reducer *rbase;
   if (options->is_local) {
-    rbase = CollectReducer_CreateCoord(
+    rbase = CollectReducer_CreateLocal(
       data.source_key,
       (const char *const *)data.field_names,
       data.field_names ? array_len(data.field_names) : 0,
@@ -400,7 +400,7 @@ Reducer *RDCRCollect_New(const ReducerOptions *options) {
       data.limit_count
     );
   } else {
-    rbase = CollectReducer_CreateShard(
+    rbase = CollectReducer_CreateRemote(
       data.field_keys,
       data.field_keys ? array_len(data.field_keys) : 0,
       data.has_wildcard,

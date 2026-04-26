@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! FFI layer for shard and coordinator COLLECT reducers.
+//! FFI layer for remote and local COLLECT reducers.
 
-pub mod coord;
-pub mod shard;
+pub mod local;
+pub mod remote;

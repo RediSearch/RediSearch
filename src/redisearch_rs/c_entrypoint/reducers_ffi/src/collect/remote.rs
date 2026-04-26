@@ -7,9 +7,9 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! Shard-side COLLECT reducer FFI.
+//! Remote COLLECT reducer FFI.
 
-use reducers::collect::{ShardCollectCtx, ShardCollectReducer};
+use reducers::collect::{RemoteCollectCtx, RemoteCollectReducer};
 use rlookup::{RLookupKey, RLookupRow};
 use std::{
     ffi::{c_int, c_void},
@@ -19,7 +19,7 @@ use std::{
 /// Creates a new [`ShardCollectReducer`] from pre-parsed configuration and
 /// returns a pointer to its base [`ffi::Reducer`] with the vtable fully wired.
 ///
-/// The caller is responsible for eventually calling [`collectShardFree`] on
+/// The caller is responsible for eventually calling [`collectRemoteFree`] on
 /// the returned pointer.
 ///
 /// # Safety
@@ -36,7 +36,7 @@ use std::{
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn CollectReducer_CreateShard(
+pub unsafe extern "C" fn CollectReducer_CreateRemote(
     field_keys: *const *const ffi::RLookupKey,
     field_keys_len: usize,
     has_wildcard: bool,
@@ -66,7 +66,7 @@ pub unsafe extern "C" fn CollectReducer_CreateShard(
 
     let limit = has_limit.then_some((limit_offset, limit_count));
 
-    let mut cr = Box::new(ShardCollectReducer::new(
+    let mut cr = Box::new(RemoteCollectReducer::new(
         field_keys,
         has_wildcard,
         sort_keys,
@@ -76,11 +76,11 @@ pub unsafe extern "C" fn CollectReducer_CreateShard(
     ));
 
     cr.reducer_mut()
-        .set_new_instance(collectShardNewInstance)
-        .set_add(collectShardAdd)
-        .set_finalize(collectShardFinalize)
-        .set_free_instance(collectShardFreeInstance)
-        .set_free(collectShardFree);
+        .set_new_instance(collectRemoteNewInstance)
+        .set_add(collectRemoteAdd)
+        .set_finalize(collectRemoteFinalize)
+        .set_free_instance(collectRemoteFreeInstance)
+        .set_free(collectRemoteFree);
 
     Box::into_raw(cr).cast()
 }
@@ -93,9 +93,9 @@ pub unsafe extern "C" fn CollectReducer_CreateShard(
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn collectShardNewInstance(r: *mut ffi::Reducer) -> *mut c_void {
+pub unsafe extern "C" fn collectRemoteNewInstance(r: *mut ffi::Reducer) -> *mut c_void {
     // SAFETY: ensured by caller (1.)
-    let r = unsafe { r.cast::<ShardCollectReducer>().as_mut().unwrap() };
+    let r = unsafe { r.cast::<RemoteCollectReducer>().as_mut().unwrap() };
 
     ptr::from_mut(r.alloc_instance()).cast::<c_void>()
 }
@@ -108,12 +108,12 @@ pub unsafe extern "C" fn collectShardNewInstance(r: *mut ffi::Reducer) -> *mut c
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn collectShardFreeInstance(_r: *mut ffi::Reducer, ctx: *mut c_void) {
+pub unsafe extern "C" fn collectRemoteFreeInstance(_r: *mut ffi::Reducer, ctx: *mut c_void) {
     // SAFETY: ensured by caller (1.) — `ctx` points to a valid, initialized
-    // `ShardCollectCtx`. After this call the pointee is logically uninitialized,
-    // but the arena memory is freed later when `ShardCollectReducer` (and its
+    // `RemoteCollectCtx`. After this call the pointee is logically uninitialized,
+    // but the arena memory is freed later when `RemoteCollectReducer` (and its
     // `Bump`) is dropped.
-    unsafe { ptr::drop_in_place(ctx.cast::<ShardCollectCtx>()) }
+    unsafe { ptr::drop_in_place(ctx.cast::<RemoteCollectCtx>()) }
 }
 
 /// Processes the provided [`ffi::RLookupRow`] with the shard collect reducer
@@ -127,15 +127,15 @@ pub unsafe extern "C" fn collectShardFreeInstance(_r: *mut ffi::Reducer, ctx: *m
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn collectShardAdd(
+pub unsafe extern "C" fn collectRemoteAdd(
     r: *mut ffi::Reducer,
     ctx: *mut c_void,
     srcrow: *const ffi::RLookupRow,
 ) -> c_int {
     // SAFETY: ensured by caller (1.)
-    let r = unsafe { r.cast::<ShardCollectReducer>().as_ref().unwrap() };
+    let r = unsafe { r.cast::<RemoteCollectReducer>().as_ref().unwrap() };
     // SAFETY: ensured by caller (2.)
-    let collect = unsafe { ctx.cast::<ShardCollectCtx>().as_mut().unwrap() };
+    let collect = unsafe { ctx.cast::<RemoteCollectCtx>().as_mut().unwrap() };
     // SAFETY: ensured by caller (3.)
     let srcrow = unsafe { srcrow.cast::<RLookupRow>().as_ref().unwrap() };
 
@@ -153,14 +153,14 @@ pub unsafe extern "C" fn collectShardAdd(
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn collectShardFinalize(
+pub unsafe extern "C" fn collectRemoteFinalize(
     r: *mut ffi::Reducer,
     ctx: *mut c_void,
 ) -> *mut ffi::RSValue {
     // SAFETY: ensured by caller (1.)
-    let r = unsafe { r.cast::<ShardCollectReducer>().as_ref().unwrap() };
+    let r = unsafe { r.cast::<RemoteCollectReducer>().as_ref().unwrap() };
     // SAFETY: ensured by caller (2.)
-    let collect = unsafe { ctx.cast::<ShardCollectCtx>().as_mut().unwrap() };
+    let collect = unsafe { ctx.cast::<RemoteCollectCtx>().as_mut().unwrap() };
 
     collect.finalize(r).into_raw() as *mut ffi::RSValue
 }
@@ -171,14 +171,14 @@ pub unsafe extern "C" fn collectShardFinalize(
 /// # Safety
 ///
 /// 1. `r` must point to a [valid] `ShardCollectReducer` masquerading as a `ffi::Reducer`,
-///    originally created by [`CollectReducer_CreateShard`].
+///    originally created by [`CollectReducer_CreateRemote`].
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn collectShardFree(r: *mut ffi::Reducer) {
+pub unsafe extern "C" fn collectRemoteFree(r: *mut ffi::Reducer) {
     // SAFETY: ensured by caller (1.); `r` originates from `Box::into_raw` of a
-    // `Box<ShardCollectReducer>` and is still owned by C, so we can reclaim it here.
-    drop(unsafe { Box::from_raw(r.cast::<ShardCollectReducer>()) });
+    // `Box<RemoteCollectReducer>` and is still owned by C, so we can reclaim it here.
+    drop(unsafe { Box::from_raw(r.cast::<RemoteCollectReducer>()) });
 }
 
 // --- Accessors for C++ parser tests (temporary) ---
@@ -193,77 +193,77 @@ pub unsafe extern "C" fn collectShardFree(r: *mut ffi::Reducer) {
 //
 /// # Safety
 ///
-/// `r` must point to a valid [`ShardCollectReducer`] originally created by
-/// `CollectReducer_CreateShard`.
+/// `r` must point to a valid [`RemoteCollectReducer`] originally created by
+/// `CollectReducer_CreateRemote`.
 #[unsafe(no_mangle)]
 pub const unsafe extern "C" fn CollectReducer_GetFieldKeysLen(r: *const ffi::Reducer) -> usize {
     // SAFETY: ensured by caller.
-    let r = unsafe { r.cast::<ShardCollectReducer>().as_ref().unwrap() };
+    let r = unsafe { r.cast::<RemoteCollectReducer>().as_ref().unwrap() };
     r.field_keys_len()
 }
 
 /// # Safety
 ///
-/// `r` must point to a valid [`ShardCollectReducer`] originally created by
-/// `CollectReducer_CreateShard`.
+/// `r` must point to a valid [`RemoteCollectReducer`] originally created by
+/// `CollectReducer_CreateRemote`.
 #[unsafe(no_mangle)]
 pub const unsafe extern "C" fn CollectReducer_HasWildcard(r: *const ffi::Reducer) -> bool {
     // SAFETY: ensured by caller.
-    let r = unsafe { r.cast::<ShardCollectReducer>().as_ref().unwrap() };
+    let r = unsafe { r.cast::<RemoteCollectReducer>().as_ref().unwrap() };
     r.has_wildcard()
 }
 
 /// # Safety
 ///
-/// `r` must point to a valid [`ShardCollectReducer`] originally created by
-/// `CollectReducer_CreateShard`.
+/// `r` must point to a valid [`RemoteCollectReducer`] originally created by
+/// `CollectReducer_CreateRemote`.
 #[unsafe(no_mangle)]
 pub const unsafe extern "C" fn CollectReducer_GetSortKeysLen(r: *const ffi::Reducer) -> usize {
     // SAFETY: ensured by caller.
-    let r = unsafe { r.cast::<ShardCollectReducer>().as_ref().unwrap() };
+    let r = unsafe { r.cast::<RemoteCollectReducer>().as_ref().unwrap() };
     r.sort_keys_len()
 }
 
 /// # Safety
 ///
-/// `r` must point to a valid [`ShardCollectReducer`] originally created by
-/// `CollectReducer_CreateShard`.
+/// `r` must point to a valid [`RemoteCollectReducer`] originally created by
+/// `CollectReducer_CreateRemote`.
 #[unsafe(no_mangle)]
 pub const unsafe extern "C" fn CollectReducer_GetSortAscMap(r: *const ffi::Reducer) -> u64 {
     // SAFETY: ensured by caller.
-    let r = unsafe { r.cast::<ShardCollectReducer>().as_ref().unwrap() };
+    let r = unsafe { r.cast::<RemoteCollectReducer>().as_ref().unwrap() };
     r.sort_asc_map()
 }
 
 /// # Safety
 ///
-/// `r` must point to a valid [`ShardCollectReducer`] originally created by
-/// `CollectReducer_CreateShard`.
+/// `r` must point to a valid [`RemoteCollectReducer`] originally created by
+/// `CollectReducer_CreateRemote`.
 #[unsafe(no_mangle)]
 pub const unsafe extern "C" fn CollectReducer_HasLimit(r: *const ffi::Reducer) -> bool {
     // SAFETY: ensured by caller.
-    let r = unsafe { r.cast::<ShardCollectReducer>().as_ref().unwrap() };
+    let r = unsafe { r.cast::<RemoteCollectReducer>().as_ref().unwrap() };
     r.has_limit()
 }
 
 /// # Safety
 ///
-/// `r` must point to a valid [`ShardCollectReducer`] originally created by
-/// `CollectReducer_CreateShard`.
+/// `r` must point to a valid [`RemoteCollectReducer`] originally created by
+/// `CollectReducer_CreateRemote`.
 #[unsafe(no_mangle)]
 pub const unsafe extern "C" fn CollectReducer_GetLimitOffset(r: *const ffi::Reducer) -> u64 {
     // SAFETY: ensured by caller.
-    let r = unsafe { r.cast::<ShardCollectReducer>().as_ref().unwrap() };
+    let r = unsafe { r.cast::<RemoteCollectReducer>().as_ref().unwrap() };
     r.limit_offset()
 }
 
 /// # Safety
 ///
-/// `r` must point to a valid [`ShardCollectReducer`] originally created by
-/// `CollectReducer_CreateShard`.
+/// `r` must point to a valid [`RemoteCollectReducer`] originally created by
+/// `CollectReducer_CreateRemote`.
 #[unsafe(no_mangle)]
 pub const unsafe extern "C" fn CollectReducer_GetLimitCount(r: *const ffi::Reducer) -> u64 {
     // SAFETY: ensured by caller.
-    let r = unsafe { r.cast::<ShardCollectReducer>().as_ref().unwrap() };
+    let r = unsafe { r.cast::<RemoteCollectReducer>().as_ref().unwrap() };
     r.limit_count()
 }
