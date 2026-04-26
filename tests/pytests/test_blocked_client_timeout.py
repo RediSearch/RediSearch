@@ -1187,9 +1187,9 @@ class TestCoordinatorTimeout:
         env.assertFalse(t_query.is_alive(), message="Cursor read thread should have finished")
 
         # FAIL semantics held: cursor was freed by the timeout, error metric bumped.
-        self._assert_cursor_freed_and_metric_bumped(cursor_id, baseline, before_info,
-                                                    base_err_coord,
-                                                    'sticky FAIL cursor-read timeout under RETURN global')
+        self._assert_cursor_freed_and_metric_bumped(
+            cursor_id, baseline, before_info, base_err_coord,
+            'FAIL cursor-read timeout after global config flipped to RETURN')
 
         # Global must remain as most recently set (RETURN), untouched by the sticky snapshot
         env.assertEqual(env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG], 'return',
