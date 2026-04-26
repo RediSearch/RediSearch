@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include <aggregate/reducer.h>
+#include "aggregate/reducers/collect.h"
 #include "util/arg_parser.h"
 #include "util/arr_rm_alloc.h"
 #include "spec.h"
@@ -242,7 +243,7 @@ static void handleCollectSortByShard(ArgParser *parser, const void *value, void 
   }
 }
 
-// Parses: __SOURCE__ 1 <alias>
+// Parses: COLLECT_SOURCE_KEY 1 <alias>
 static void handleCollectSource(ArgParser *parser, const void *value, void *user_data) {
   (void)parser;
   CollectParseCtx *pctx = (CollectParseCtx *)user_data;
@@ -252,7 +253,7 @@ static void handleCollectSource(ArgParser *parser, const void *value, void *user
 
   ReducerOptions sub_opts = *opts;
   sub_opts.args = ac;
-  sub_opts.name = "__SOURCE__";
+  sub_opts.name = COLLECT_SOURCE_KEY;
 
   const RLookupKey *key = NULL;
   if (!ReducerOpts_GetKey(&sub_opts, &key)) {
@@ -351,8 +352,8 @@ Reducer *RDCRCollect_New(const ReducerOptions *options) {
     ARG_OPT_END);
 
   if (options->is_coordinator) {
-    // Only the coordinator registers `__SOURCE__`; shards reject it.
-    ArgParser_AddSubArgsV(parser, "__SOURCE__", "Coord source key",
+    // Only the coordinator registers `COLLECT_SOURCE_KEY`; shards reject it.
+    ArgParser_AddSubArgsV(parser, COLLECT_SOURCE_KEY, "Coord source key",
       &subArgs, 1, 1,
       ARG_OPT_REQUIRED,
       ARG_OPT_CALLBACK, handleCollectSource, &pctx,

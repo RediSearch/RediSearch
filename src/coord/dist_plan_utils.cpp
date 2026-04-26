@@ -8,6 +8,7 @@
 */
 
 #include "dist_plan_utils.h"
+#include "aggregate/reducers/collect.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -33,7 +34,7 @@ void buildCoordCollectArgs(ArgsCursor *out, void **objs_buf, char *count_buf,
 
   objs_buf[0] = count_buf;
   memcpy(objs_buf + 1, src_args->objs, argc * sizeof(void *));
-  objs_buf[argc + 1] = (void *)"__SOURCE__";
+  objs_buf[argc + 1] = (void *)COLLECT_SOURCE_KEY;
   objs_buf[argc + 2] = (void *)shard_alias;
   objs_buf[argc + 3] = (void *)"AS";
   objs_buf[argc + 4] = (void *)user_alias;

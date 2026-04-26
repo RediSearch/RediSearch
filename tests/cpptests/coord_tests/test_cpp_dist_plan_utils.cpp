@@ -9,6 +9,7 @@
 
 #include "gtest/gtest.h"
 #include "dist_plan_utils.h"
+#include "aggregate/reducers/collect.h"
 
 #include <initializer_list>
 
@@ -89,7 +90,7 @@ TEST(DistPlanUtils, CoordCollectArgs_FieldsOnly) {
   ASSERT_EQ(out.offset, 0u);
   ASSERT_EQ(out.type, AC_TYPE_CHAR);
   assertArgs(out,
-             {"6", "FIELDS", "2", "@a", "@b", "__SOURCE__", "__collect_ab", "AS",
+             {"6", "FIELDS", "2", "@a", "@b", COLLECT_SOURCE_KEY, "__collect_ab", "AS",
               "my_collect"});
 }
 
@@ -103,7 +104,7 @@ TEST(DistPlanUtils, CoordCollectArgs_FieldsSortbyLimit) {
   buildCoordCollectArgs(&out, objs, countBuf, &srcArgs, "shard_alias", "user_alias");
 
   assertArgs(out, {"12", "FIELDS", "1", "@x", "SORTBY", "2", "@x", "ASC", "LIMIT", "0",
-                   "10", "__SOURCE__", "shard_alias", "AS", "user_alias"});
+                   "10", COLLECT_SOURCE_KEY, "shard_alias", "AS", "user_alias"});
 
   // Original args forwarded in order
   for (size_t i = 0; i < 10; i++) {
@@ -120,5 +121,5 @@ TEST(DistPlanUtils, CoordCollectArgs_EmptyOriginalArgs) {
   ArgsCursor out;
   buildCoordCollectArgs(&out, objs, countBuf, &srcArgs, "sa", "ua");
 
-  assertArgs(out, {"2", "__SOURCE__", "sa", "AS", "ua"});
+  assertArgs(out, {"2", COLLECT_SOURCE_KEY, "sa", "AS", "ua"});
 }
