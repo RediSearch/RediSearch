@@ -102,7 +102,7 @@ def test_collect_cluster_merges_same_group_across_shards():
 # Chained GROUPBY
 # ---------------------------------------------------------------------------
 def test_collect_cluster_chained_groupby_collect():
-    env = Env(shardsCount=3, protocol=3)
+    env = Env(protocol=3)
     enable_unstable_features(env)
 
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH',
