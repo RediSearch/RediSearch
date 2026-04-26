@@ -16,8 +16,6 @@ use std::{
     ptr, slice,
 };
 
-use super::collect_free_generic;
-
 /// Creates a new [`ShardCollectReducer`] from pre-parsed configuration and
 /// returns a pointer to its base [`ffi::Reducer`] with the vtable fully wired.
 ///
@@ -178,8 +176,9 @@ pub unsafe extern "C" fn collectShardFinalize(
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn collectShardFree(r: *mut ffi::Reducer) {
-    // SAFETY: ensured by caller (1.)
-    unsafe { collect_free_generic::<ShardCollectReducer>(r) }
+    // SAFETY: ensured by caller (1.); `r` originates from `Box::into_raw` of a
+    // `Box<ShardCollectReducer>` and is still owned by C, so we can reclaim it here.
+    drop(unsafe { Box::from_raw(r.cast::<ShardCollectReducer>()) });
 }
 
 // --- Accessors for C++ parser tests (temporary) ---

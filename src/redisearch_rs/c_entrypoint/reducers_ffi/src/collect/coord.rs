@@ -16,8 +16,6 @@ use std::{
     ptr, slice,
 };
 
-use super::collect_free_generic;
-
 /// # Safety
 ///
 /// If `len > 0`, `names` must point to an array of at least `len` valid,
@@ -173,6 +171,7 @@ pub unsafe extern "C" fn collectCoordFinalize(
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn collectCoordFree(r: *mut ffi::Reducer) {
-    // SAFETY: ensured by caller (1.)
-    unsafe { collect_free_generic::<CoordCollectReducer>(r) }
+    // SAFETY: ensured by caller (1.); `r` originates from `Box::into_raw` of a
+    // `Box<CoordCollectReducer>` and is still owned by C, so we can reclaim it here.
+    drop(unsafe { Box::from_raw(r.cast::<CoordCollectReducer>()) });
 }

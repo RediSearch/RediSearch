@@ -11,13 +11,3 @@
 
 pub mod coord;
 pub mod shard;
-
-/// # Safety
-///
-/// `r` must point to a valid `Box<T>` that was created by the matching
-/// `CollectReducer_Create*` factory and has not yet been freed.
-pub(crate) unsafe fn collect_free_generic<T>(r: *mut ffi::Reducer) {
-    // SAFETY: ensured by caller; `r` originates from `Box::into_raw` of a `Box<T>`
-    // and is still owned by C, so we can reclaim it here.
-    drop(unsafe { Box::from_raw(r.cast::<T>()) });
-}
