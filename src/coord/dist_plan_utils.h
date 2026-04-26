@@ -16,11 +16,7 @@ extern "C" {
 #endif
 
 /**
- * Build the ArgsCursor layout for forwarding a COLLECT reducer to a shard.
- *
- * PLNGroupStep_AddReducer expects [nargs, arg1, ..., argN] but the parsed
- * reducer args only contain [arg1, ..., argN] (nargs was consumed). This
- * function prepends the count string.
+ * Build shard COLLECT args: [nargs, original_args...].
  *
  * @param out       Populated with the resulting ArgsCursor
  * @param objs_buf  Caller-provided buffer; must hold at least src_args->argc + 1 elements
@@ -31,17 +27,11 @@ void buildShardCollectArgs(ArgsCursor *out, void **objs_buf, char *count_buf,
                            const ArgsCursor *src_args);
 
 /**
- * Build the ArgsCursor layout for forwarding a COLLECT reducer to the coordinator.
+ * Build coordinator COLLECT args:
  *
- * Layout: [nargs, original_args..., __SOURCE__, shard_alias, AS, user_alias]
- * where nargs = src_args->argc + 2 (covering original_args + __SOURCE__ + shard_alias).
- * The `__SOURCE__` sub-arg is registered with fixed arity (exactly one alias),
- * so the ArgParser does not expect an explicit count token between the sub-arg
- * name and its value — matching the wire format used by `LIMIT` (which is also
- * fixed-arity).
- *
- * AS + user_alias sit outside the counted block so PLNGroupStep_AddReducer
- * picks them up as the explicit alias.
+ * [nargs, original_args..., __SOURCE__, shard_alias, AS, user_alias]
+ * where nargs covers only original_args + __SOURCE__ + shard_alias. `AS`
+ * remains outside the counted block for PLNGroupStep_AddReducer.
  *
  * @param out         Populated with the resulting ArgsCursor
  * @param objs_buf    Caller-provided buffer; must hold at least src_args->argc + 5 elements

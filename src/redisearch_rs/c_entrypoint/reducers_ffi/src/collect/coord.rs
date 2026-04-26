@@ -18,8 +18,6 @@ use std::{
 
 use super::collect_free_generic;
 
-/// Copy an array of C string pointers into owned byte boxes.
-///
 /// # Safety
 ///
 /// If `len > 0`, `names` must point to an array of at least `len` valid,
@@ -43,11 +41,7 @@ unsafe fn copy_c_names(names: *const *const c_char, len: usize) -> Box<[Box<[u8]
         .into_boxed_slice()
 }
 
-/// Creates a new [`CoordCollectReducer`] from pre-parsed configuration and
-/// returns a pointer to its base [`ffi::Reducer`] with the vtable fully wired.
-///
-/// The caller is responsible for eventually calling [`collectCoordFree`] on
-/// the returned pointer.
+/// Create a coordinator COLLECT reducer; free it with [`collectCoordFree`].
 ///
 /// # Safety
 ///
@@ -71,7 +65,7 @@ pub unsafe extern "C" fn CollectReducer_CreateCoord(
     limit_offset: u64,
     limit_count: u64,
 ) -> *mut ffi::Reducer {
-    // SAFETY: ensured by caller (1.) — `source_key` points to a valid
+    // SAFETY: ensured by caller (1.); `source_key` points to a valid
     // `RLookupKey` that outlives the returned reducer.
     let source_key: &RLookupKey = unsafe { &*source_key.cast::<RLookupKey>() };
 
@@ -100,8 +94,6 @@ pub unsafe extern "C" fn CollectReducer_CreateCoord(
     Box::into_raw(cr).cast()
 }
 
-/// Creates a new per-group coord collect reducer instance.
-///
 /// # Safety
 ///
 /// 1. `r` must point to a [valid] `CoordCollectReducer` masquerading as a `ffi::Reducer`.
@@ -115,8 +107,6 @@ pub unsafe extern "C" fn collectCoordNewInstance(r: *mut ffi::Reducer) -> *mut c
     ptr::from_mut(r.alloc_instance()).cast::<c_void>()
 }
 
-/// Frees a per-group coord collect reducer instance.
-///
 /// # Safety
 ///
 /// 1. `ctx` must point to a [valid] `CoordCollectCtx` masquerading as a void pointer.
@@ -124,16 +114,13 @@ pub unsafe extern "C" fn collectCoordNewInstance(r: *mut ffi::Reducer) -> *mut c
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn collectCoordFreeInstance(_r: *mut ffi::Reducer, ctx: *mut c_void) {
-    // SAFETY: ensured by caller (1.) — `ctx` points to a valid, initialized
+    // SAFETY: ensured by caller (1.); `ctx` points to a valid, initialized
     // `CoordCollectCtx`. After this call the pointee is logically uninitialized,
     // but the arena memory is freed later when `CoordCollectReducer` (and its
     // `Bump`) is dropped.
     unsafe { ptr::drop_in_place(ctx.cast::<CoordCollectCtx>()) }
 }
 
-/// Processes the provided [`ffi::RLookupRow`] with the coord collect reducer
-/// instance.
-///
 /// # Safety
 ///
 /// 1. `r` must point to a [valid] `CoordCollectReducer` masquerading as a `ffi::Reducer`.
@@ -159,8 +146,6 @@ pub unsafe extern "C" fn collectCoordAdd(
     1 // C reducer->Add convention: always returns 1
 }
 
-/// Finalizes the coord collect reducer instance result into an `RSValue`.
-///
 /// # Safety
 ///
 /// 1. `r` must point to a [valid] `CoordCollectReducer` masquerading as a `ffi::Reducer`.
@@ -180,9 +165,6 @@ pub unsafe extern "C" fn collectCoordFinalize(
     collect.finalize(r).into_raw() as *mut ffi::RSValue
 }
 
-/// Frees the provided coord collect reducer (the global struct, not a
-/// per-group instance).
-///
 /// # Safety
 ///
 /// 1. `r` must point to a [valid] `CoordCollectReducer` masquerading as a `ffi::Reducer`,

@@ -21,29 +21,16 @@
 #define SORT_DIR_ASC "ASC"
 #define SORT_DIR_DESC "DESC"
 
-// ===== Parse state =====
-
 // Temporary storage for parsed COLLECT arguments. The data is handed off to
 // Rust via the appropriate `CollectReducer_Create*` factory once parsing
-// succeeds.
-//
-// Shard-mode parsing resolves `FIELDS`/`SORTBY` names into `RLookupKey *`
-// entries via `ReducerOpts_GetKey`. Coordinator-mode parsing cannot do this
-// — the coordinator does not share the shards' `RLookup` tables — and
-// instead stores raw name strings (with the leading `@` stripped). Each
-// mode populates only its own subset of fields; the rest stay `NULL`.
+// succeeds. Shards keep `RLookupKey *`; the coordinator keeps raw names
+// because it cannot resolve fields through shard lookup tables.
 typedef struct {
-  // Shard-mode projection keys resolved against `options->srclookup`.
   arrayof(const RLookupKey *) field_keys;
-  // Shard-mode sort keys resolved against `options->srclookup`.
   arrayof(const RLookupKey *) sort_keys;
-  // Coord-mode raw field names (no `@`). Pointers alias into `options->args`,
-  // which the caller guarantees outlives reducer construction.
+  // Coord-mode names alias `options->args` and omit the leading `@`.
   arrayof(const char *) field_names;
-  // Coord-mode raw sort-key names (no `@`). Pointers alias into
-  // `options->args`, which the caller guarantees outlives reducer construction.
   arrayof(const char *) sort_names;
-  // Coord-mode `__SOURCE__` key, resolved by `handleCollectSource`.
   const RLookupKey *source_key;
 
   bool has_wildcard;
@@ -73,10 +60,8 @@ static void CollectParseData_Free(CollectParseData *data) {
 // Parses: FIELDS nargs <@field | *> [<@field | *> ...]
 //   nargs: 1..COLLECT_MAX_FIELD_ARGS
 //
-// Shard mode resolves each `@field` into an `RLookupKey *` against the
-// source lookup. Coordinator mode strips the `@` prefix and stores the raw
-// name — the coordinator cannot resolve keys through the shards' lookup and
-// instead matches against the map keys carried by `__SOURCE__`.
+// Shards resolve fields against the source lookup; the coordinator strips `@`
+// and later matches against map keys carried by `__SOURCE__`.
 static void handleCollectFields(ArgParser *parser, const void *value, void *user_data) {
   CollectParseCtx *pctx = (CollectParseCtx *)user_data;
   CollectParseData *data = pctx->data;
@@ -111,8 +96,7 @@ static void handleCollectFields(ArgParser *parser, const void *value, void *user
           "Missing prefix: name requires '@' prefix", " (%s)", s);
         return;
       }
-      // Strip the leading '@'. `s` aliases into the original argv and is
-      // NUL-terminated by construction.
+      // `s` aliases the original argv and is NUL-terminated.
       array_append(data->field_names, s + 1);
     }
     return;
@@ -137,16 +121,11 @@ static void handleCollectFields(ArgParser *parser, const void *value, void *user
   }
 }
 
-// ----- SORTBY -----
-
 // Parses: SORTBY nargs <@field [ASC|DESC]> [<@field [ASC|DESC]> ...]
 //   nargs: 1..COLLECT_MAX_SORT_KEYS*2
 //   Direction defaults to ASC when omitted.
 //
-// Shard mode resolves each `@field` into an `RLookupKey *` against the
-// source lookup. Coordinator mode stores the raw name (no `@`). Both modes
-// share the ASC/DESC token handling because it follows the sort token in
-// the same loop iteration and its logic is identical.
+// Shards resolve keys; the coordinator stores raw names. Direction handling is shared.
 static void handleCollectSortBy(ArgParser *parser, const void *value, void *user_data) {
   CollectParseCtx *pctx = (CollectParseCtx *)user_data;
   CollectParseData *data = pctx->data;
@@ -188,8 +167,7 @@ static void handleCollectSortBy(ArgParser *parser, const void *value, void *user
     }
 
     if (is_coord) {
-      // Strip `@` and store a raw name alias. Consume the token so the
-      // cursor points at an optional ASC/DESC after this block.
+      // Store the raw name alias, then expose the optional ASC/DESC token.
       array_append(data->sort_names, s + 1);
       ac->offset++;
     } else {
@@ -200,8 +178,6 @@ static void handleCollectSortBy(ArgParser *parser, const void *value, void *user
       array_append(data->sort_keys, key);
     }
 
-    // Shared direction handling: index into the relevant names/keys array
-    // is the slot we just appended.
     size_t dir_idx = (is_coord ? array_len(data->sort_names)
                                 : array_len(data->sort_keys)) - 1;
     if (AC_AdvanceIfMatch(ac, SORT_DIR_ASC)) {
@@ -220,14 +196,7 @@ static void handleCollectSortBy(ArgParser *parser, const void *value, void *user
   }
 }
 
-// ----- __SOURCE__ (coord mode only) -----
-
 // Parses: __SOURCE__ 1 <alias>
-//
-// The coordinator's COLLECT reducer aggregates per-shard results that are
-// surfaced under a known alias in the coordinator's lookup table. This
-// callback resolves that alias into an `RLookupKey *` so `CoordCollectCtx`
-// can read each row's payload.
 static void handleCollectSource(ArgParser *parser, const void *value, void *user_data) {
   CollectParseCtx *pctx = (CollectParseCtx *)user_data;
   CollectParseData *data = pctx->data;
@@ -250,8 +219,6 @@ static void handleCollectSource(ArgParser *parser, const void *value, void *user
   }
   data->source_key = key;
 }
-
-// ----- LIMIT -----
 
 // Parses: LIMIT <offset> <count>
 //   Both values must be non-negative integers <= MAX_AGGREGATE_REQUEST_RESULTS.
@@ -339,8 +306,7 @@ Reducer *RDCRCollect_New(const ReducerOptions *options) {
     ARG_OPT_END);
 
   if (options->is_coordinator) {
-    // Only the coordinator's COLLECT sees `__SOURCE__`; shards reject it by
-    // virtue of the sub-arg not being registered.
+    // Only the coordinator registers `__SOURCE__`; shards reject it.
     ArgParser_AddSubArgsV(parser, "__SOURCE__", "Coord source key",
       &subArgs, 1, 1,
       ARG_OPT_REQUIRED,
@@ -373,10 +339,7 @@ Reducer *RDCRCollect_New(const ReducerOptions *options) {
     return NULL;
   }
 
-  // Hand off parsed configuration to Rust, which allocates the mode-specific
-  // CollectReducer and wires the vtable. Shard and coord modes populate
-  // disjoint subsets of `CollectParseData`; the unused arrays stay `NULL`
-  // and `array_free(NULL)` below is a no-op for them.
+  // Rust copies the mode-specific parsed data and wires the vtable.
   Reducer *rbase;
   if (options->is_coordinator) {
     rbase = CollectReducer_CreateCoord(

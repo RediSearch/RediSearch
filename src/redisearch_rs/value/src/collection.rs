@@ -41,10 +41,7 @@ impl Map {
     /// Looks up a value by its string key bytes, returning a reference to the
     /// first matching [`SharedValue`] or `None` if no match is found.
     ///
-    /// Returning `&SharedValue` (rather than `&Value`) lets callers cheaply
-    /// [`SharedValue::clone`] the result to refcount-bump it into a new
-    /// collection; the inner `Value` is still reachable via `SharedValue`'s
-    /// `Deref<Target = Value>` impl for read-only access.
+    /// Returning `&SharedValue` lets callers clone without unwrapping.
     ///
     /// Non-string keys (e.g. numeric values) are skipped.
     pub fn get(&self, key: &[u8]) -> Option<&SharedValue> {
@@ -62,11 +59,6 @@ impl Array {
     /// Map-like data (e.g. `extra_attributes`) is sent as a flat array of
     /// alternating keys and values. In RESP3 this same data arrives as a
     /// proper [`Map`], where [`Map::get`] can be used instead.
-    ///
-    /// Returning `&SharedValue` (rather than `&Value`) lets callers cheaply
-    /// [`SharedValue::clone`] the result to refcount-bump it into a new
-    /// collection; the inner `Value` is still reachable via `SharedValue`'s
-    /// `Deref<Target = Value>` impl for read-only access.
     ///
     /// # Odd-length arrays
     ///
