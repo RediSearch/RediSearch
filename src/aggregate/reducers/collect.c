@@ -62,7 +62,7 @@ static void CollectParseData_Free(CollectParseData *data) {
 //   nargs: 1..COLLECT_MAX_FIELD_ARGS
 //
 // The coordinator strips `@` and later matches against map keys carried by `__SOURCE__`.
-static void handleCollectFieldsCoord(ArgParser *parser, const void *value, void *user_data) {
+static void handleCollectFieldsLocal(ArgParser *parser, const void *value, void *user_data) {
   (void)parser;
   CollectParseCtx *pctx = (CollectParseCtx *)user_data;
   CollectParseData *data = pctx->data;
@@ -99,7 +99,7 @@ static void handleCollectFieldsCoord(ArgParser *parser, const void *value, void 
 }
 
 // Shards resolve fields against the source lookup.
-static void handleCollectFieldsShard(ArgParser *parser, const void *value, void *user_data) {
+static void handleCollectFieldsRemote(ArgParser *parser, const void *value, void *user_data) {
   (void)parser;
   CollectParseCtx *pctx = (CollectParseCtx *)user_data;
   CollectParseData *data = pctx->data;
@@ -146,7 +146,7 @@ static void handleCollectSortDirection(ArgsCursor *ac, uint64_t *sortAscMap, siz
 }
 
 // The coordinator stores raw names that match shard payload map keys.
-static void handleCollectSortByCoord(ArgParser *parser, const void *value, void *user_data) {
+static void handleCollectSortByLocal(ArgParser *parser, const void *value, void *user_data) {
   (void)parser;
   CollectParseCtx *pctx = (CollectParseCtx *)user_data;
   CollectParseData *data = pctx->data;
@@ -192,7 +192,7 @@ static void handleCollectSortByCoord(ArgParser *parser, const void *value, void 
 }
 
 // Shards resolve keys against the source lookup.
-static void handleCollectSortByShard(ArgParser *parser, const void *value, void *user_data) {
+static void handleCollectSortByRemote(ArgParser *parser, const void *value, void *user_data) {
   (void)parser;
   CollectParseCtx *pctx = (CollectParseCtx *)user_data;
   CollectParseData *data = pctx->data;
@@ -328,9 +328,9 @@ Reducer *RDCRCollect_New(const ReducerOptions *options) {
 
   ArgsCursor subArgs = {0};
   ArgCallback handleFields =
-    options->is_local ? handleCollectFieldsCoord : handleCollectFieldsShard;
+    options->is_local ? handleCollectFieldsLocal : handleCollectFieldsRemote;
   ArgCallback handleSortBy =
-    options->is_local ? handleCollectSortByCoord : handleCollectSortByShard;
+    options->is_local ? handleCollectSortByLocal : handleCollectSortByRemote;
 
   ArgParser_AddSubArgsV(parser, "FIELDS", "Projected fields",
     &subArgs, 1, COLLECT_MAX_FIELD_ARGS,

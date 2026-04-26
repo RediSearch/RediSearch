@@ -12,8 +12,8 @@
 #include <stdio.h>
 #include <string.h>
 
-void buildShardCollectArgs(ArgsCursor *out, void **objs_buf, char *count_buf,
-                           const ArgsCursor *src_args) {
+void buildRemoteCollectArgs(ArgsCursor *out, void **objs_buf, char *count_buf,
+                            const ArgsCursor *src_args) {
   size_t argc = src_args->argc;
   snprintf(count_buf, 16, "%zu", argc);
 
@@ -26,16 +26,16 @@ void buildShardCollectArgs(ArgsCursor *out, void **objs_buf, char *count_buf,
   out->type = AC_TYPE_CHAR;
 }
 
-void buildCoordCollectArgs(ArgsCursor *out, void **objs_buf, char *count_buf,
+void buildLocalCollectArgs(ArgsCursor *out, void **objs_buf, char *count_buf,
                            const ArgsCursor *src_args,
-                           const char *shard_alias, const char *user_alias) {
+                           const char *remote_alias, const char *user_alias) {
   size_t argc = src_args->argc;
   snprintf(count_buf, 16, "%zu", argc + 2);
 
   objs_buf[0] = count_buf;
   memcpy(objs_buf + 1, src_args->objs, argc * sizeof(void *));
   objs_buf[argc + 1] = (void *)COLLECT_SOURCE_KEY;
-  objs_buf[argc + 2] = (void *)shard_alias;
+  objs_buf[argc + 2] = (void *)remote_alias;
   objs_buf[argc + 3] = (void *)"AS";
   objs_buf[argc + 4] = (void *)user_alias;
 

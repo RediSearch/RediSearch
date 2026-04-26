@@ -16,33 +16,33 @@ extern "C" {
 #endif
 
 /**
- * Build shard COLLECT args: [nargs, original_args...].
+ * Build remote COLLECT args: [nargs, original_args...].
  *
  * @param out       Populated with the resulting ArgsCursor
  * @param objs_buf  Caller-provided buffer; must hold at least src_args->argc + 1 elements
  * @param count_buf Caller-provided buffer for the count string; must be at least 16 bytes
  * @param src_args  The original reducer's parsed args (without the leading nargs)
  */
-void buildShardCollectArgs(ArgsCursor *out, void **objs_buf, char *count_buf,
-                           const ArgsCursor *src_args);
+void buildRemoteCollectArgs(ArgsCursor *out, void **objs_buf, char *count_buf,
+                            const ArgsCursor *src_args);
 
 /**
- * Build coordinator COLLECT args:
+ * Build local COLLECT args:
  *
- * [nargs, original_args..., __SOURCE__, shard_alias, AS, user_alias]
- * where nargs covers only original_args + __SOURCE__ + shard_alias. `AS`
+ * [nargs, original_args..., __SOURCE__, remote_alias, AS, user_alias]
+ * where nargs covers only original_args + __SOURCE__ + remote_alias. `AS`
  * remains outside the counted block for PLNGroupStep_AddReducer.
  *
- * @param out         Populated with the resulting ArgsCursor
- * @param objs_buf    Caller-provided buffer; must hold at least src_args->argc + 5 elements
- * @param count_buf   Caller-provided buffer for the count string; must be at least 16 bytes
- * @param src_args    The original reducer's parsed args (without the leading nargs)
- * @param shard_alias Alias of the shard's COLLECT reducer output column
- * @param user_alias  User-visible alias to preserve via AS
+ * @param out          Populated with the resulting ArgsCursor
+ * @param objs_buf     Caller-provided buffer; must hold at least src_args->argc + 5 elements
+ * @param count_buf    Caller-provided buffer for the count string; must be at least 16 bytes
+ * @param src_args     The original reducer's parsed args (without the leading nargs)
+ * @param remote_alias Alias of the remote COLLECT reducer output column
+ * @param user_alias   User-visible alias to preserve via AS
  */
-void buildCoordCollectArgs(ArgsCursor *out, void **objs_buf, char *count_buf,
+void buildLocalCollectArgs(ArgsCursor *out, void **objs_buf, char *count_buf,
                            const ArgsCursor *src_args,
-                           const char *shard_alias, const char *user_alias);
+                           const char *remote_alias, const char *user_alias);
 
 #ifdef __cplusplus
 }

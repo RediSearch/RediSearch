@@ -334,31 +334,31 @@ static int distributeAvg(ReducerDistCtx *rdctx, QueryError *status) {
   return REDISMODULE_OK;
 }
 
-/* Shard COLLECT emits array-of-maps; coord COLLECT consumes it via __SOURCE__. */
+/* Remote COLLECT emits array-of-maps; local COLLECT consumes it via __SOURCE__. */
 static int distributeCollect(ReducerDistCtx *rdctx, QueryError *status) {
   const PLN_Reducer *src = rdctx->srcReducer;
   size_t argc = src->args.argc;
 
   // Build temporary args, then persist their object arrays with copyArgs.
-  char shardCountBuf[16];
-  std::vector<void *> shardObjs(argc + 1);
-  ArgsCursor shardArgs;
-  buildShardCollectArgs(&shardArgs, shardObjs.data(), shardCountBuf, &src->args);
-  rdctx->copyArgs(&shardArgs);
+  char remoteCountBuf[16];
+  std::vector<void *> remoteObjs(argc + 1);
+  ArgsCursor remoteArgs;
+  buildRemoteCollectArgs(&remoteArgs, remoteObjs.data(), remoteCountBuf, &src->args);
+  rdctx->copyArgs(&remoteArgs);
 
   const char *alias;
-  if (!rdctx->add(rdctx->remoteGroup, "COLLECT", &alias, status, &shardArgs)) {
+  if (!rdctx->add(rdctx->remoteGroup, "COLLECT", &alias, status, &remoteArgs)) {
     return REDISMODULE_ERR;
   }
 
-  // Layout: [nargs, original_args..., __SOURCE__, shard_alias, AS, user_alias]
-  char coordCountBuf[16];
-  std::vector<void *> coordObjs(argc + 5);
-  ArgsCursor coordArgs;
-  buildCoordCollectArgs(&coordArgs, coordObjs.data(), coordCountBuf, &src->args, alias, src->alias);
-  rdctx->copyArgs(&coordArgs);
+  // Layout: [nargs, original_args..., __SOURCE__, remote_alias, AS, user_alias]
+  char localCountBuf[16];
+  std::vector<void *> localObjs(argc + 5);
+  ArgsCursor localArgs;
+  buildLocalCollectArgs(&localArgs, localObjs.data(), localCountBuf, &src->args, alias, src->alias);
+  rdctx->copyArgs(&localArgs);
 
-  if (!rdctx->add(rdctx->localGroup, "COLLECT", nullptr, status, &coordArgs)) {
+  if (!rdctx->add(rdctx->localGroup, "COLLECT", nullptr, status, &localArgs)) {
     return REDISMODULE_ERR;
   }
 
