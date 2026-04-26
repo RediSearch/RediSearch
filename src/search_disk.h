@@ -471,7 +471,8 @@ uint64_t SearchDisk_CollectIndexMetrics(RedisSearchDiskIndexSpec* index);
  * @brief Get doc table memory for a disk index
  *
  * Returns the latest collected doc table memory in bytes.
- * On null or invalid handles, returns 0.
+ * Preconditions: SearchDisk is initialized and index is non-null.
+ * Violating preconditions triggers RS_ASSERT.
  * For fresh values, call SearchDisk_CollectIndexMetrics(index) before this getter.
  *
  * @param index Pointer to the disk index spec
@@ -483,7 +484,8 @@ uint64_t SearchDisk_GetDocTableTotalMemory(RedisSearchDiskIndexSpec* index);
  * @brief Get inverted index memory for a disk index
  *
  * Returns the latest collected inverted index memory in bytes.
- * On null or invalid handles, returns 0.
+ * Preconditions: SearchDisk is initialized and index is non-null.
+ * Violating preconditions triggers RS_ASSERT.
  * For fresh values, call SearchDisk_CollectIndexMetrics(index) before this getter.
  *
  * @param index Pointer to the disk index spec
@@ -495,7 +497,8 @@ uint64_t SearchDisk_GetInvertedIndexTotalMemory(RedisSearchDiskIndexSpec* index)
  * @brief Get vector index memory for a disk index
  *
  * Returns the latest collected vector index memory in bytes.
- * On null or invalid handles, returns 0.
+ * Preconditions: SearchDisk is initialized and index is non-null.
+ * Violating preconditions triggers RS_ASSERT.
  * For fresh values, call SearchDisk_CollectIndexMetrics(index) before this getter.
  *
  * @param index Pointer to the disk index spec

@@ -515,7 +515,7 @@ typedef struct MetricsDiskAPI {
    * @brief Get total doc table memory for a specific index
    *
    * Returns the latest collected doc table memory in bytes.
-   * Invalid or null handles should return 0.
+   * Called with valid disk and index pointers.
    *
    * @param disk Pointer to the disk context
    * @param index Pointer to the index spec
@@ -528,7 +528,7 @@ typedef struct MetricsDiskAPI {
    *
    * Returns the latest collected inverted index memory in bytes.
    * This value includes both text and tag inverted indexes.
-   * Invalid or null handles should return 0.
+   * Called with valid disk and index pointers.
    *
    * @param disk Pointer to the disk context
    * @param index Pointer to the index spec
@@ -540,7 +540,7 @@ typedef struct MetricsDiskAPI {
    * @brief Get total vector index memory for a specific index
    *
    * Returns the latest collected vector index memory in bytes.
-   * Invalid or null handles should return 0.
+   * Called with valid disk and index pointers.
    *
    * @param disk Pointer to the disk context
    * @param index Pointer to the index spec
