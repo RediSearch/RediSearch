@@ -1,3 +1,7 @@
+<img src="docs/images/logo.svg" title="RediSearch's Logo" width="175">
+
+# RediSearch
+
 [![Discord](https://img.shields.io/discord/697882427875393627)](https://discord.gg/xTbqgTB)
 
 | Total Coverage | Unit Tests | Flow Tests |
@@ -9,9 +13,7 @@
 [![Latest 2.8](https://img.shields.io/github/v/release/RediSearch/RediSearch?filter=v2.8%2A&label=latest%20maintenance%20release%20for%202.8)](https://github.com/RediSearch/RediSearch/releases?q=tag:v2.8%20draft:false)
 [![Latest 2.6](https://img.shields.io/github/v/release/RediSearch/RediSearch?filter=v2.6%2A&label=latest%20maintenance%20release%20for%202.6)](https://github.com/RediSearch/RediSearch/releases?q=tag:v2.6%20draft:false)
 
-# RediSearch
 
-<img src="docs/images/logo.svg" title="RediSearch's Logo" width="300">
 
 > [!NOTE]
 > Starting with Redis 8, Redis Query Engine (RediSearch) is integral to Redis. You don't need to install this module separately.
