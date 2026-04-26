@@ -13,5 +13,9 @@ rlookup.workspace = true
 value.workspace = true
 workspace_hack.workspace = true
 
+[dev-dependencies]
+rlookup = { path = "../rlookup", features = ["unittest"] }
+redisearch_rs = { path = "../c_entrypoint/redisearch_rs", features = ["mock_allocator"] }
+
 [lints]
 workspace = true

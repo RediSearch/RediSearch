@@ -1893,6 +1893,7 @@ dependencies = [
  "bumpalo",
  "ffi",
  "query_error",
+ "redisearch_rs",
  "rlookup",
  "value",
  "workspace_hack",
