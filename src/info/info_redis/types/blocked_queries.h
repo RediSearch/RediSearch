@@ -45,6 +45,8 @@ typedef struct {
   size_t count;       // cursor count
   time_t start;       // Time node was added into list
   char *query;        // The query that created the cursor
+  void *privdata;     // Non-owning. Must remain valid until UnblockClient is called.
+  BlockedQueryNode_FreePrivData freePrivData; // Optional callback to free privdata
 } BlockedCursorNode;
 
 /**
@@ -76,7 +78,8 @@ void BlockedQueries_Free(BlockedQueries*);
 
 BlockedQueryNode* BlockedQueries_AddQuery(BlockedQueries* list, StrongRef spec, QueryAST* ast,
                                           void *privdata, BlockedQueryNode_FreePrivData freePrivData);
-BlockedCursorNode* BlockedQueries_AddCursor(BlockedQueries* list, WeakRef spec, uint64_t cursorId, QueryAST* ast, size_t count);
+BlockedCursorNode* BlockedQueries_AddCursor(BlockedQueries* list, WeakRef spec, uint64_t cursorId, QueryAST* ast, size_t count,
+                                            void *privdata, BlockedQueryNode_FreePrivData freePrivData);
 void BlockedQueries_RemoveQuery(BlockedQueryNode* node);
 void BlockedQueries_RemoveCursor(BlockedCursorNode* node);
 

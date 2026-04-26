@@ -57,6 +57,18 @@ static void AREQ_DecrRefWrapper(void *privdata) {
   AREQ_DecrRef((AREQ *)privdata);
 }
 
+// freePrivData for BlockCursorClient on the shard FAIL path. Drains a leftover
+// storedReplyState.cursor (set by runCursor when the timeout fires before
+// CursorReadReplyCallback can run) before releasing our AREQ ref. The drain
+// helper is shared with the coord path (see AREQ_DrainStoredCursor in
+// aggregate_request.c). On the happy path CursorReadReplyCallback already NULLs
+// stored->cursor, so AREQ_DrainStoredCursor is a no-op.
+static void ShardCursorBlockClient_FreeAREQ(void *privdata) {
+  AREQ *req = (AREQ *)privdata;
+  AREQ_DrainStoredCursor(req);
+  AREQ_DecrRef(req);
+}
+
 /**
  * Get the sorting key of the result. This will be the sorting key of the last
  * RLookup registry. Returns NULL if there is no sorting key
@@ -1531,6 +1543,71 @@ static int QueryReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int
   return REDISMODULE_OK;
 }
 
+// Timeout fail callback for the shard FT.CURSOR READ FAIL path. Identical to
+// QueryTimeoutFailCallback except the blocked-client privdata is a
+// BlockedCursorNode (different field layout than BlockedQueryNode).
+static int CursorReadTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  UNUSED(argv);
+  UNUSED(argc);
+
+  BlockedCursorNode *node = RedisModule_GetBlockedClientPrivateData(ctx);
+  if (!node || !node->privdata) {
+    // Shouldn't happen, but handle gracefully
+    RedisModule_Log(ctx, "warning", "CursorReadTimeoutFailCallback: no node or privdata");
+    QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, true);
+    RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT));
+    return REDISMODULE_OK;
+  }
+
+  AREQ *req = (AREQ *)node->privdata;
+  // Signal timeout to background thread (will notice and skip storing results)
+  AREQ_SetTimedOut(req);
+
+  // Reply with timeout error
+  QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, !IsInternal(req));
+  RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT));
+
+  return REDISMODULE_OK;
+}
+
+// Reply callback for the shard FT.CURSOR READ FAIL path. Identical to
+// QueryReplyCallback except the blocked-client privdata is a
+// BlockedCursorNode (different field layout than BlockedQueryNode).
+// Note: This callback is NOT called if timeout fired first (bc->client becomes NULL).
+// Reference counting: BlockedCursorNode holds a reference released via
+// FreeCursorNode → ShardCursorBlockClient_FreeAREQ after this callback.
+static int CursorReadReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  UNUSED(argv);
+  UNUSED(argc);
+
+  BlockedCursorNode *node = RedisModule_GetBlockedClientPrivateData(ctx);
+  if (!node || !node->privdata) {
+    // Shouldn't happen, but handle gracefully
+    RedisModule_Log(ctx, "warning", "CursorReadReplyCallback: no node or privdata");
+    RedisModule_ReplyWithError(ctx, "ERR Internal error: no request context");
+    return REDISMODULE_OK;
+  }
+
+  AREQ *req = (AREQ *)node->privdata;
+
+  // Check if results were stored (background thread completed successfully)
+  if (!req->storedReplyState.hasStoredResults) {
+    // Background thread didn't store results - some early error occurred.
+    if (QueryError_HasError(&req->storedReplyState.err)) {
+      QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&req->storedReplyState.err), 1, !IsInternal(req));
+      QueryError_ReplyAndClear(ctx, &req->storedReplyState.err);
+    } else {
+      RedisModule_ReplyWithError(ctx, "ERR Internal error: no results stored");
+    }
+    return REDISMODULE_OK;
+  }
+
+  AREQ_ReplyWithStoredResults(ctx, req);
+
+  // No AREQ_DecrRef here - BlockedCursorNode holds the reference, released via FreeCursorNode.
+  return REDISMODULE_OK;
+}
+
 static int buildPipelineAndExecute(AREQ *r, RedisModuleCtx *ctx, QueryError *status) {
   RedisSearchCtx *sctx = AREQ_SearchCtx(r);
   if (RunInThread(ctx)) {
@@ -1915,15 +1992,38 @@ int RSCursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
   }
 
   if (RunInThread(ctx) && !upstreamBC) {
-    // Shard/local path: block and dispatch to worker. BlockCursorClient uses
-    // NULL reply_callback (reply is written inline via thread-safe ctx), so
-    // clear any stale useReplyCallback from a prior FAIL-policy FT.AGGREGATE
-    // to avoid runCursor parking the cursor in storedReplyState.
-    if (cursor->execState) {
+    // Shard/local path: block and dispatch to worker. For FAIL policy, arm the
+    // blocked-client timer with reply/timeout callbacks so Redis fires
+    // -TIMEOUT deterministically when the deadline elapses; otherwise the
+    // worker writes the reply inline via the thread-safe ctx and there is no
+    // timer.
+    // BlockCursorClient requires cursor->execState != NULL (it dereferences it
+    // for the AST). Hybrid cursors leave execState == NULL and must not reach
+    // this path;
+    RS_ASSERT(cursor->execState != NULL);
+    BlockClientCtx blockClientCtx = {0};
+    if (cursor->queryTimeoutPolicy == TimeoutPolicy_Fail) {
+      AREQ *req = cursor->execState;
+      // Cursor cache is the snapshot frozen at AREQ_StartCursor; must agree with reqConfig.
+      RS_ASSERT(cursor->queryTimeoutMS == (size_t)req->reqConfig.queryTimeoutMS);
+      RS_ASSERT(cursor->queryTimeoutPolicy == req->reqConfig.timeoutPolicy);
+      // Extra ref owned by the BlockedCursorNode (released in FreeCursorNode
+      // → ShardCursorBlockClient_FreeAREQ).
+      AREQ_IncrRef(req);
+      blockClientCtx.privdata        = req;
+      blockClientCtx.freePrivData    = ShardCursorBlockClient_FreeAREQ;
+      blockClientCtx.replyCallback   = CursorReadReplyCallback;
+      blockClientCtx.timeoutCallback = CursorReadTimeoutFailCallback;
+      blockClientCtx.timeoutMS       = (rs_wall_clock_ms_t)cursor->queryTimeoutMS;
+      req->useReplyCallback = true;
+    } else {
+      // RETURN/non-FAIL: reply is written inline via thread-safe ctx; clear
+      // any stale useReplyCallback from a prior FAIL-policy FT.AGGREGATE to
+      // avoid runCursor parking the cursor in storedReplyState.
       cursor->execState->useReplyCallback = false;
     }
     CursorReadCtx *cr_ctx = rm_new(CursorReadCtx);
-    cr_ctx->bc = BlockCursorClient(ctx, cursor, count, 0);
+    cr_ctx->bc = BlockCursorClient(ctx, cursor, count, &blockClientCtx);
     cr_ctx->cursor = cursor;
     cr_ctx->count = count;
     workersThreadPool_AddWork((redisearch_thpool_proc)cursorRead_ctx, cr_ctx);

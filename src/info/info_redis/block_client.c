@@ -29,6 +29,10 @@ static void FreeQueryNode(RedisModuleCtx* ctx, void *node) {
 
 static void FreeCursorNode(RedisModuleCtx* ctx, void *node) {
   BlockedCursorNode *cursorNode = node;
+  // Call the callback to free privdata if provided
+  if (cursorNode->freePrivData && cursorNode->privdata) {
+    cursorNode->freePrivData(cursorNode->privdata);
+  }
   BlockedQueries_RemoveCursor(cursorNode);
   rm_free(cursorNode);
 }
@@ -56,15 +60,31 @@ RedisModuleBlockedClient *BlockQueryClientWithTimeout(RedisModuleCtx *ctx, Stron
   return blockedClient;
 }
 
-RedisModuleBlockedClient *BlockCursorClient(RedisModuleCtx *ctx, Cursor *cursor, size_t count, int timeoutMS) {
+RedisModuleBlockedClient *BlockCursorClient(RedisModuleCtx *ctx, Cursor *cursor, size_t count, BlockClientCtx *blockClientCtx) {
+  RS_ASSERT(blockClientCtx != NULL);
+  // Hybrid cursors, which leave execState == NULL, must not reach this helper.
+  RS_ASSERT(cursor->execState != NULL);
+  // If timeoutMS is non-zero, both callbacks must be set.
+  RS_ASSERT(blockClientCtx->timeoutMS == 0 ||
+            (blockClientCtx->timeoutCallback != NULL && blockClientCtx->replyCallback != NULL));
+
   BlockedQueries *blockedQueries = MainThread_GetBlockedQueries();
   RS_LOG_ASSERT(blockedQueries, "MainThread_InitBlockedQueries was not called, or function not called from main thread");
-  BlockedCursorNode *node = BlockedQueries_AddCursor(blockedQueries, cursor->spec_ref, cursor->id, &cursor->execState->ast, count);
+
+  // privdata ownership: shared between the worker (via cr_ctx->cursor->execState) and BlockedCursorNode
+  // (timeout/reply callback access). Caller is responsible for taking the extra reference (e.g.
+  // AREQ_IncrRef on the FAIL path); FreeCursorNode releases it via the freePrivData callback.
+  BlockedCursorNode *node = BlockedQueries_AddCursor(blockedQueries, cursor->spec_ref, cursor->id,
+                                                     &cursor->execState->ast, count,
+                                                     blockClientCtx->privdata,
+                                                     blockClientCtx->freePrivData);
+
   // Prepare context for the worker thread
   // Since we are still in the main thread, and we already validated the
   // spec's existence, it is safe to directly get the strong reference from the spec
   // found in buildRequest.
-  RedisModuleBlockedClient *blockedClient = RedisModule_BlockClient(ctx, NULL, NULL, FreeCursorNode, 0);
+  RedisModuleBlockedClient *blockedClient = RedisModule_BlockClient(ctx, blockClientCtx->replyCallback,
+      blockClientCtx->timeoutCallback, FreeCursorNode, blockClientCtx->timeoutMS);
   RedisModule_BlockClientSetPrivateData(blockedClient, node);
   // report block client start time
   RedisModule_BlockedClientMeasureTimeStart(blockedClient);
