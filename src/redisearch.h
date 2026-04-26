@@ -132,6 +132,13 @@ typedef struct RSDocumentMetadata_s {
   struct RSByteOffsets *byteOffsets;
   struct RSDocumentMetadata_s *nextInChain;
 
+  /* Document-level expiration time in nanoseconds since the epoch.
+   * Zero means no doc-level TTL is set. Inlined here to avoid a per-result
+   * TTL-table lookup in DocTable_IsDocExpired on the result-processor hot path.
+   * Placed before `payload` so the lean-allocation in DocTable_Put (which omits
+   * the trailing pointer when no payload is set) is preserved. */
+  int64_t expirationTimeNs;
+
   /* Optional user payload */
   RSPayload *payload;
 

@@ -217,8 +217,17 @@ void DocTable_SetByteOffsets(RSDocumentMetadata *dmd, RSByteOffsets *v) {
   dmd->flags |= Document_HasOffsetVector;
 }
 
+// Pack a t_expirationTimePoint into nanoseconds since the epoch, preserving
+// the {0,0} "no expiration" sentinel as 0 so callers can use a single scalar
+// compare on the result-processor hot path.
+static inline int64_t expirationTimePointToNs(t_expirationTimePoint t) {
+  if (t.tv_sec == 0 && t.tv_nsec == 0) return 0;
+  return (int64_t)t.tv_sec * 1000000000LL + (int64_t)t.tv_nsec;
+}
+
 void DocTable_UpdateExpiration(DocTable *t, RSDocumentMetadata* dmd, t_expirationTimePoint ttl, arrayof(FieldExpiration) sortedFieldWithExpiration) {
   if (hasExpirationTimeInformation(dmd->flags)) {
+    dmd->expirationTimeNs = expirationTimePointToNs(ttl);
     TimeToLiveTable_VerifyInit(&t->ttl, t->maxSize);
     TimeToLiveTable_Add(t->ttl, dmd->id, ttl, sortedFieldWithExpiration);
     if (sortedFieldWithExpiration && array_len(sortedFieldWithExpiration) > 0) {
@@ -228,11 +237,11 @@ void DocTable_UpdateExpiration(DocTable *t, RSDocumentMetadata* dmd, t_expiratio
 }
 
 bool DocTable_IsDocExpired(DocTable* t, const RSDocumentMetadata* dmd, struct timespec* expirationPoint) {
-  if (!hasExpirationTimeInformation(dmd->flags)) {
-      return false;
+  if (dmd->expirationTimeNs == 0) {
+    return false;
   }
-  RS_LOG_ASSERT(t->ttl, "Document has expiration time information but no TTL table");
-  return TimeToLiveTable_HasDocExpired(t->ttl, dmd->id, expirationPoint);
+  const int64_t now_ns = (int64_t)expirationPoint->tv_sec * 1000000000LL + (int64_t)expirationPoint->tv_nsec;
+  return dmd->expirationTimeNs <= now_ns;
 }
 
 static void clearExpirationFlagCallback(t_docId docId, void *ctx) {
@@ -240,6 +249,7 @@ static void clearExpirationFlagCallback(t_docId docId, void *ctx) {
   RSDocumentMetadata *dmd = DocTable_GetOwn(t, docId);
   if (dmd) {
     dmd->flags &= ~Document_HasExpiration;
+    dmd->expirationTimeNs = 0;
   }
 }
 
