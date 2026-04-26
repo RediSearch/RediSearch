@@ -119,20 +119,33 @@ static void topologyAsyncCB(uv_async_t *async) {
   if (task) {
     // Apply new topology
     RedisModule_Log(RSDummyContext, "verbose", "IORuntime ID %zu: Applying new topology", io_runtime_ctx->queue->id);
-    // Mark the event loop thread as not ready. This will ensure that the next event on the event loop
-    // will be the topology check. If the topology hasn't changed, the topology check will quickly
-    // mark the event loop thread as ready again.
-    io_runtime_ctx->uv_runtime.loop_th_ready = false;
+    // Default to running the handshake. The task (uvUpdateTopologyRequest) will
+    // lower this flag if the update didn't create any new connections. Other
+    // tasks (e.g. unit-test topology callbacks) keep the conservative default.
+    io_runtime_ctx->uv_runtime.topology_needs_handshake = true;
     GlobalStats_UpdateUvRunningTopoUpdate(1);
     task->cb(task->privdata);
     GlobalStats_UpdateUvRunningTopoUpdate(-1);
     rm_free(task);
-    // Finish this round of topology checks to give the topology connections a chance to connect.
-    // Schedule connectivity check immediately with a 1ms repeat interval
-    uv_timer_start(&io_runtime_ctx->uv_runtime.topologyValidationTimer, topologyTimerCB, 0, 1);
-    if (clusterConfig.topologyValidationTimeoutMS) {
-      // Schedule a timer to fail the topology validation if we don't connect to all nodes in time
-      uv_timer_start(&io_runtime_ctx->uv_runtime.topologyFailureTimer, topologyFailureCB, clusterConfig.topologyValidationTimeoutMS, 0);
+    if (io_runtime_ctx->uv_runtime.topology_needs_handshake) {
+      // Mark the event loop thread as not ready. This will ensure that the next event on the event loop
+      // will be the topology check. If the topology hasn't changed, the topology check will quickly
+      // mark the event loop thread as ready again.
+      io_runtime_ctx->uv_runtime.loop_th_ready = false;
+      // Finish this round of topology checks to give the topology connections a chance to connect.
+      // Schedule connectivity check immediately with a 1ms repeat interval
+      uv_timer_start(&io_runtime_ctx->uv_runtime.topologyValidationTimer, topologyTimerCB, 0, 1);
+      if (clusterConfig.topologyValidationTimeoutMS) {
+        // Schedule a timer to fail the topology validation if we don't connect to all nodes in time
+        uv_timer_start(&io_runtime_ctx->uv_runtime.topologyFailureTimer, topologyFailureCB, clusterConfig.topologyValidationTimeoutMS, 0);
+      }
+    } else {
+      // No new connections to validate: loop_th_ready stays as it was, so
+      // pending requests (if any) will drain on the next rqAsyncCb tick
+      // without our help.
+      RedisModule_Log(RSDummyContext, "verbose",
+                      "IORuntime ID %zu: All nodes connected: IO thread is ready to handle requests (topology update did not create new connections)",
+                      io_runtime_ctx->queue->id);
     }
   }
 }
@@ -179,8 +192,9 @@ static void sideThread(void *arg) {
 
   // Process any remaining requests before closing handles
   uv_run(&io_runtime_ctx->uv_runtime.loop, UV_RUN_NOWAIT);
-  // Go through all the connections and stop the timers
-  MRConnManager_Stop(&io_runtime_ctx->conn_mgr);
+  // Disconnect all connections and release the manager's dict while the loop
+  // is still alive (uv_close / redisAsyncDisconnect require it).
+  MRConnManager_Shutdown(&io_runtime_ctx->conn_mgr);
   // After the loop stops, close all handles https://github.com/libuv/libuv/issues/709
   uv_walk(&io_runtime_ctx->uv_runtime.loop, close_walk_cb, NULL);
   // Run the loop one more time to process close callbacks
@@ -192,17 +206,13 @@ uv_loop_t* IORuntimeCtx_GetLoop(IORuntimeCtx *io_runtime_ctx) {
   return &io_runtime_ctx->uv_runtime.loop;
 }
 
-/* Initialize the connections to all shards */
-int IORuntimeCtx_ConnectAll(IORuntimeCtx *ioRuntime) {
-  return MRConnManager_ConnectAll(&ioRuntime->conn_mgr);
-}
-
-void IORuntimeCtx_UpdateNodes(IORuntimeCtx *ioRuntime) {
+bool IORuntimeCtx_UpdateNodes(IORuntimeCtx *ioRuntime) {
   /* Get all the current node ids from the connection manager.  We will remove all the nodes
    * that are in the new topology, and after the update, delete all the nodes that are in this map
    * and not in the new topology */
   const struct MRClusterTopology *topo = ioRuntime->topo;
   dict *nodesToDisconnect = dictCreate(&dictTypeHeapStrings, NULL);
+  bool newConnectionsCreated = false;
 
   dictIterator *it = dictGetIterator(ioRuntime->conn_mgr.map);
   dictEntry *de;
@@ -215,30 +225,29 @@ void IORuntimeCtx_UpdateNodes(IORuntimeCtx *ioRuntime) {
   for (uint32_t sh = 0; sh < topo->numShards; sh++) {
     // Update all the conn Manager in each of the runtimes.
     MRClusterNode *node = &topo->shards[sh].node;
-    MRConnManager_Add(&ioRuntime->conn_mgr, &ioRuntime->uv_runtime.loop, node->id, &node->endpoint, 0);
+    if (MRConnManager_Add(&ioRuntime->conn_mgr, &ioRuntime->uv_runtime.loop, node->id, &node->endpoint)) {
+      newConnectionsCreated = true;
+    }
     /* This node is still valid, remove it from the nodes to delete list */
     dictDelete(nodesToDisconnect, node->id);
   }
 
   // if we didn't remove the node from the original nodes map copy, it means it's not in the new topology,
-  // we need to disconnect the node's connections
+  // we need to disconnect the node's connections. Removals don't create new
+  // connections, so they don't flip newConnectionsCreated.
   it = dictGetIterator(nodesToDisconnect);
   while ((de = dictNext(it))) {
     MRConnManager_Disconnect(&ioRuntime->conn_mgr, dictGetKey(de));
   }
   dictReleaseIterator(it);
   dictRelease(nodesToDisconnect);
-}
-
-int IORuntimeCtx_UpdateNodesAndConnectAll(IORuntimeCtx *ioRuntime) {
-  IORuntimeCtx_UpdateNodes(ioRuntime);
-  IORuntimeCtx_ConnectAll(ioRuntime);
-  return REDIS_OK;
+  return newConnectionsCreated;
 }
 
 static void UV_Init(IORuntimeCtx *io_runtime_ctx) {
   io_runtime_ctx->uv_runtime.loop_th_ready = false;
   io_runtime_ctx->uv_runtime.io_runtime_started_or_starting = false;
+  io_runtime_ctx->uv_runtime.topology_needs_handshake = false;
   io_runtime_ctx->uv_runtime.loop_th_created = false;
   io_runtime_ctx->uv_runtime.loop_th_creation_failed = false;
   uv_loop_init(&io_runtime_ctx->uv_runtime.loop);
@@ -308,10 +317,13 @@ void IORuntimeCtx_Free(IORuntimeCtx *io_runtime_ctx) {
       uv_thread_join(&io_runtime_ctx->uv_runtime.loop_th);
     }
   } else {
+    // sideThread never ran, so it didn't get to tear down the conn manager.
+    // Release the dict here: any pending conn teardown (uv_close on the
+    // inlined timer) is then processed by the uv_run(UV_RUN_ONCE) in UV_Close.
+    MRConnManager_Shutdown(&io_runtime_ctx->conn_mgr);
     UV_Close(io_runtime_ctx);
   }
   RQ_Free(io_runtime_ctx->queue);
-  MRConnManager_Free(&io_runtime_ctx->conn_mgr);
   queueItem *task = exchangePendingTopo(io_runtime_ctx, NULL);
   if (task) {
     struct UpdateTopologyCtx *ctx = task->privdata;
