@@ -468,6 +468,42 @@ void SearchDisk_FreeVectorIndex(void *vecIndex);
 uint64_t SearchDisk_CollectIndexMetrics(RedisSearchDiskIndexSpec* index);
 
 /**
+ * @brief Get doc table memory for a disk index
+ *
+ * Returns the latest collected doc table memory in bytes.
+ * On null or invalid handles, returns 0.
+ * For fresh values, call SearchDisk_CollectIndexMetrics(index) before this getter.
+ *
+ * @param index Pointer to the disk index spec
+ * @return Doc table memory in bytes
+ */
+uint64_t SearchDisk_GetDocTableTotalMemory(RedisSearchDiskIndexSpec* index);
+
+/**
+ * @brief Get inverted index memory for a disk index
+ *
+ * Returns the latest collected inverted index memory in bytes.
+ * On null or invalid handles, returns 0.
+ * For fresh values, call SearchDisk_CollectIndexMetrics(index) before this getter.
+ *
+ * @param index Pointer to the disk index spec
+ * @return Inverted index memory in bytes
+ */
+uint64_t SearchDisk_GetInvertedIndexTotalMemory(RedisSearchDiskIndexSpec* index);
+
+/**
+ * @brief Get vector index memory for a disk index
+ *
+ * Returns the latest collected vector index memory in bytes.
+ * On null or invalid handles, returns 0.
+ * For fresh values, call SearchDisk_CollectIndexMetrics(index) before this getter.
+ *
+ * @param index Pointer to the disk index spec
+ * @return Vector index memory in bytes
+ */
+uint64_t SearchDisk_GetVectorIndexTotalMemory(RedisSearchDiskIndexSpec* index);
+
+/**
  * @brief Output aggregated disk metrics to Redis INFO
  *
  * Iterates over all collected index metrics, aggregates them, and outputs

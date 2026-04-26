@@ -392,6 +392,27 @@ uint64_t SearchDisk_CollectIndexMetrics(RedisSearchDiskIndexSpec* index) {
   return disk->metrics.collectIndexMetrics(disk_db, index);
 }
 
+uint64_t SearchDisk_GetDocTableTotalMemory(RedisSearchDiskIndexSpec* index) {
+  if (!disk || !disk_db || !index || !disk->metrics.getDocTableTotalMemory) {
+    return 0;
+  }
+  return disk->metrics.getDocTableTotalMemory(disk_db, index);
+}
+
+uint64_t SearchDisk_GetInvertedIndexTotalMemory(RedisSearchDiskIndexSpec* index) {
+  if (!disk || !disk_db || !index || !disk->metrics.getInvertedIndexTotalMemory) {
+    return 0;
+  }
+  return disk->metrics.getInvertedIndexTotalMemory(disk_db, index);
+}
+
+uint64_t SearchDisk_GetVectorIndexTotalMemory(RedisSearchDiskIndexSpec* index) {
+  if (!disk || !disk_db || !index || !disk->metrics.getVectorIndexTotalMemory) {
+    return 0;
+  }
+  return disk->metrics.getVectorIndexTotalMemory(disk_db, index);
+}
+
 void SearchDisk_OutputInfoMetrics(RedisModuleInfoCtx* ctx) {
   RS_ASSERT(disk && disk_db && ctx);
   disk->metrics.outputInfoMetrics(disk_db, ctx);
