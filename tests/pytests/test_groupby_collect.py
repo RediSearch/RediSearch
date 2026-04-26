@@ -99,9 +99,8 @@ def test_collect_cluster_merges_same_group_across_shards():
 
 
 # ---------------------------------------------------------------------------
-# Chained GROUPBY in coordinator mode
+# Chained GROUPBY
 # ---------------------------------------------------------------------------
-# @skip(cluster=False)
 def test_collect_cluster_chained_groupby_collect():
     env = Env(shardsCount=3, protocol=3)
     enable_unstable_features(env)
@@ -114,10 +113,10 @@ def test_collect_cluster_chained_groupby_collect():
 
     conn = getConnectionByEnv(env)
     docs = [
-        ('doc:1{shard:0}', 'apple', 'red', '4'),
-        ('doc:2{shard:1}', 'strawberry', 'red', '3'),
-        ('doc:3{shard:2}', 'banana', 'yellow', '4'),
-        ('doc:4{shard:3}', 'lemon', 'yellow', '2'),
+        ('doc:1', 'apple', 'red', '4'),
+        ('doc:2', 'strawberry', 'red', '3'),
+        ('doc:3', 'banana', 'yellow', '4'),
+        ('doc:4', 'lemon', 'yellow', '2'),
     ]
     for key, name, color, sweetness in docs:
         conn.execute_command('HSET', key, 'name', name, 'color', color,

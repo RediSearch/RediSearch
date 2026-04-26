@@ -16,7 +16,7 @@ use std::{
     ptr, slice,
 };
 
-/// Creates a new [`ShardCollectReducer`] from pre-parsed configuration and
+/// Creates a new [`RemoteCollectReducer`] from pre-parsed configuration and
 /// returns a pointer to its base [`ffi::Reducer`] with the vtable fully wired.
 ///
 /// The caller is responsible for eventually calling [`collectRemoteFree`] on
