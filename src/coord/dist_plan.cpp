@@ -12,6 +12,7 @@
 #include "pipeline/pipeline_construction.h"
 #include "aggregate/reducer.h"
 #include "util/arr.h"
+#include "util/stringify.h"
 #include "dist_plan.h"
 #include "dist_plan_utils.h"
 
@@ -242,9 +243,7 @@ static int distributeSingleArgSelf(ReducerDistCtx *rdctx, QueryError *status) {
 
 #define RANDOM_SAMPLE_SIZE 500
 
-#define STRINGIFY_(a) STRINGIFY__(a)
-#define STRINGIFY__(a) #a
-#define RANDOM_SAMPLE_SIZE_STR STRINGIFY_(RANDOM_SAMPLE_SIZE)
+#define RANDOM_SAMPLE_SIZE_STR STRINGIFY(RANDOM_SAMPLE_SIZE)
 
 /* Distribute QUANTILE into remote RANDOM_SAMPLE and local QUANTILE */
 static int distributeQuantile(ReducerDistCtx *rdctx, QueryError *status) {
@@ -337,7 +336,7 @@ static int distributeAvg(ReducerDistCtx *rdctx, QueryError *status) {
 
 /* Shard COLLECT emits array-of-maps; coord COLLECT consumes it via __SOURCE__. */
 static int distributeCollect(ReducerDistCtx *rdctx, QueryError *status) {
-  PLN_Reducer *src = rdctx->srcReducer;
+  const PLN_Reducer *src = rdctx->srcReducer;
   size_t argc = src->args.argc;
 
   // Build temporary args, then persist their object arrays with copyArgs.
@@ -359,7 +358,7 @@ static int distributeCollect(ReducerDistCtx *rdctx, QueryError *status) {
   buildCoordCollectArgs(&coordArgs, coordObjs.data(), coordCountBuf, &src->args, alias, src->alias);
   rdctx->copyArgs(&coordArgs);
 
-  if (!rdctx->add(rdctx->localGroup, "COLLECT", NULL, status, &coordArgs)) {
+  if (!rdctx->add(rdctx->localGroup, "COLLECT", nullptr, status, &coordArgs)) {
     return REDISMODULE_ERR;
   }
 

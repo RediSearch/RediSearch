@@ -12,11 +12,7 @@ extern "C" {
 #endif // __cplusplus
 
 /**
- * Creates a new [`CoordCollectReducer`] from pre-parsed configuration and
- * returns a pointer to its base [`ffi::Reducer`] with the vtable fully wired.
- *
- * The caller is responsible for eventually calling [`collectCoordFree`] on
- * the returned pointer.
+ * Create a coordinator COLLECT reducer; free it with [`collectCoordFree`].
  *
  * # Safety
  *
@@ -40,8 +36,6 @@ Reducer *CollectReducer_CreateCoord(const RLookupKey *source_key,
                                     uint64_t limit_count);
 
 /**
- * Creates a new per-group coord collect reducer instance.
- *
  * # Safety
  *
  * 1. `r` must point to a [valid] `CoordCollectReducer` masquerading as a `ffi::Reducer`.
@@ -51,8 +45,6 @@ Reducer *CollectReducer_CreateCoord(const RLookupKey *source_key,
 void *collectCoordNewInstance(Reducer *r);
 
 /**
- * Frees a per-group coord collect reducer instance.
- *
  * # Safety
  *
  * 1. `ctx` must point to a [valid] `CoordCollectCtx` masquerading as a void pointer.
@@ -62,9 +54,6 @@ void *collectCoordNewInstance(Reducer *r);
 void collectCoordFreeInstance(Reducer *_r, void *ctx);
 
 /**
- * Processes the provided [`ffi::RLookupRow`] with the coord collect reducer
- * instance.
- *
  * # Safety
  *
  * 1. `r` must point to a [valid] `CoordCollectReducer` masquerading as a `ffi::Reducer`.
@@ -76,8 +65,6 @@ void collectCoordFreeInstance(Reducer *_r, void *ctx);
 int collectCoordAdd(Reducer *r, void *ctx, const RLookupRow *srcrow);
 
 /**
- * Finalizes the coord collect reducer instance result into an `RSValue`.
- *
  * # Safety
  *
  * 1. `r` must point to a [valid] `CoordCollectReducer` masquerading as a `ffi::Reducer`.
@@ -88,9 +75,6 @@ int collectCoordAdd(Reducer *r, void *ctx, const RLookupRow *srcrow);
 RSValue *collectCoordFinalize(Reducer *r, void *ctx);
 
 /**
- * Frees the provided coord collect reducer (the global struct, not a
- * per-group instance).
- *
  * # Safety
  *
  * 1. `r` must point to a [valid] `CoordCollectReducer` masquerading as a `ffi::Reducer`,

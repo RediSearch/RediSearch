@@ -198,6 +198,7 @@ static void handleCollectSortBy(ArgParser *parser, const void *value, void *user
 
 // Parses: __SOURCE__ 1 <alias>
 static void handleCollectSource(ArgParser *parser, const void *value, void *user_data) {
+  (void)parser;
   CollectParseCtx *pctx = (CollectParseCtx *)user_data;
   CollectParseData *data = pctx->data;
   const ReducerOptions *opts = pctx->options;
