@@ -178,7 +178,6 @@ jobs:
           PERFORMANCE_RTS_PORT: ${{ secrets.PERFORMANCE_RTS_PORT }}
           PERFORMANCE_RTS_AUTH: ${{ secrets.PERFORMANCE_RTS_AUTH }}
         run: |
-          set -x
           for i in {1..3}; do
             rc=0
             redisbench-admin run-remote \
@@ -202,9 +201,7 @@ jobs:
                 --redistimeseries_pass "$PERFORMANCE_RTS_AUTH" \
                 --collect_search_memory True \
                 || rc=$?
-            echo "DBG-RC-AFTER-RBA: rc=$rc i=$i"
             if [ $rc -eq 0 ]; then
-              echo "DBG-BREAK: rc=0 at iter=$i"
               break
             fi
             if [ $i -lt 3 ]; then
@@ -212,8 +209,12 @@ jobs:
               sleep 60
             fi
           done
-          echo "DBG-EXIT: final rc=$rc"
-          exit $rc
+          # Propagate $rc without invoking the exit builtin: bash's `-l` flag
+          # makes /etc/bash.bash_logout run on `exit`, where Ubuntu's
+          # `clear_console -q` fails (no /dev/console) and `set -e` rewrites
+          # our exit code to 1. A subshell sets $? for set-e to act on,
+          # which terminates without triggering the logout file.
+          (exit $rc)
       - name: Generate Pull Request Performance info
         if: github.event.number && steps.benchmark-filter.outputs.skip != 'true'
         env:
