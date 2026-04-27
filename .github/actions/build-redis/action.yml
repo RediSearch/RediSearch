@@ -1,0 +1,119 @@
+name: Build Redis (cached)
+description: |
+  Build and install Redis once per (resolved Redis SHA, platform, arch, sanitizer,
+  coverage) tuple, restoring from the GitHub Actions cache when available.
+
+  Redis is installed under a workspace-relative prefix and that directory is
+  cached. After the action completes, `redis-server` is on PATH for subsequent
+  steps and the REDIS_SERVER env var points at the binary explicitly.
+
+inputs:
+  ref:
+    description: "Redis git ref to build (e.g. 'unstable', '7.2.3', or a 40-char SHA)"
+    required: true
+  san:
+    description: "Sanitizer (empty or 'address')"
+    required: false
+    default: ""
+  coverage:
+    description: "Build with coverage instrumentation ('true' or 'false')"
+    required: false
+    default: "false"
+  build_tls:
+    description: "Build Redis with TLS support ('true' or 'false')"
+    required: false
+    default: "true"
+  cache_platform_id:
+    description: "Opaque identifier for the binary-compatible platform (container image or runner env)"
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Resolve Redis SHA
+      id: resolve
+      shell: bash
+      env:
+        REDIS_REF: ${{ inputs.ref }}
+      run: |
+        if [[ "$REDIS_REF" =~ ^[0-9a-f]{40}$ ]]; then
+          SHA="$REDIS_REF"
+        else
+          SHA=$(git ls-remote https://github.com/redis/redis.git "$REDIS_REF" \
+                | awk 'NR==1 {print $1}')
+        fi
+        if [[ -z "$SHA" ]]; then
+          echo "Failed to resolve Redis ref '$REDIS_REF' to a commit SHA" >&2
+          exit 1
+        fi
+        echo "Resolved $REDIS_REF -> $SHA"
+        echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+        echo "prefix=$GITHUB_WORKSPACE/redis-install" >> "$GITHUB_OUTPUT"
+
+    - name: Compute cache key
+      id: key
+      shell: bash
+      env:
+        SHA: ${{ steps.resolve.outputs.sha }}
+        PLATFORM_ID: ${{ inputs.cache_platform_id }}
+        ARCH: ${{ runner.arch }}
+        SAN: ${{ inputs.san }}
+        COV: ${{ inputs.coverage }}
+        TLS: ${{ inputs.build_tls }}
+      run: |
+        SAN_LABEL="${SAN:-none}"
+        # Sanitize platform id for use in a cache key.
+        PLATFORM_SAFE=$(echo "$PLATFORM_ID" | sed 's#[^A-Za-z0-9_.-]#-#g')
+        KEY="redis-${SHA}-${PLATFORM_SAFE}-${ARCH}-san_${SAN_LABEL}-cov_${COV}-tls_${TLS}"
+        echo "key=$KEY" >> "$GITHUB_OUTPUT"
+        echo "Cache key: $KEY"
+
+    - name: Restore cached Redis
+      id: cache-restore
+      uses: actions/cache/restore@v4
+      with:
+        path: ${{ steps.resolve.outputs.prefix }}
+        key: ${{ steps.key.outputs.key }}
+
+    - name: Get Redis (cache miss)
+      if: ${{ steps.cache-restore.outputs.cache-hit != 'true' }}
+      uses: ./.github/actions/get-redis
+      with:
+        # Check out the resolved SHA, not the original (possibly moving) ref,
+        # so the built binary always matches the cache key.
+        ref: ${{ steps.resolve.outputs.sha }}
+        path: redis
+
+    - name: Build Redis (cache miss)
+      if: ${{ steps.cache-restore.outputs.cache-hit != 'true' }}
+      shell: bash
+      working-directory: redis
+      env:
+        PREFIX: ${{ steps.resolve.outputs.prefix }}
+        SAN: ${{ inputs.san }}
+        COVERAGE: ${{ inputs.coverage }}
+        BUILD_TLS: ${{ inputs.build_tls }}
+      run: |
+        EXTRA=()
+        if [[ "$BUILD_TLS" == "true" ]]; then
+          EXTRA+=("BUILD_TLS=yes")
+        fi
+        if [[ "$COVERAGE" == "true" ]]; then
+          EXTRA+=("REDIS_CFLAGS=-DCOVERAGE_TEST")
+        fi
+        make PREFIX="$PREFIX" install "${EXTRA[@]}" SANITIZER="$SAN"
+
+    - name: Save Redis to cache
+      if: ${{ steps.cache-restore.outputs.cache-hit != 'true' }}
+      uses: actions/cache/save@v4
+      with:
+        path: ${{ steps.resolve.outputs.prefix }}
+        key: ${{ steps.key.outputs.key }}
+
+    - name: Expose Redis on PATH
+      shell: bash
+      env:
+        PREFIX: ${{ steps.resolve.outputs.prefix }}
+      run: |
+        echo "$PREFIX/bin" >> "$GITHUB_PATH"
+        echo "REDIS_SERVER=$PREFIX/bin/redis-server" >> "$GITHUB_ENV"
