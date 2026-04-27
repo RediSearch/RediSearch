@@ -51,7 +51,6 @@ typedef struct ShardResponseBarrier {
 
 // Allocate and initialize a new ShardResponseBarrier
 // Notice: numShards and shardResponded init is postponed until shardResponseBarrier_Init is called
-// Returns NULL on allocation failure
 ShardResponseBarrier *shardResponseBarrier_New(void);
 
 // Initialize ShardResponseBarrier (called from iterStartCb when topology is known)

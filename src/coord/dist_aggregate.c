@@ -126,17 +126,10 @@ static int rpnetNext_Start(ResultProcessor *rp, SearchResult *r) {
   // Create the iterator context wrapper for privateData
   // This holds both optional barrier (for WITHCOUNT) and optional KNN context (for SHARD_K_RATIO)
   AggregateIteratorContext *iterCtx = rm_calloc(1, sizeof(AggregateIteratorContext));
-  if (!iterCtx) {
-    return RS_RESULT_ERROR;
-  }
 
   // Initialize shard response barrier if WITHCOUNT is enabled
   if (HasWithCount(nc->areq) && IsAggregate(nc->areq)) {
     ShardResponseBarrier *barrier = shardResponseBarrier_New();
-    if (!barrier) {
-      rm_free(iterCtx);
-      return RS_RESULT_ERROR;
-    }
     iterCtx->barrier = barrier;
     nc->shardResponseBarrier = barrier;  // Keep reference for getNextReply
   }
@@ -144,11 +137,6 @@ static int rpnetNext_Start(ResultProcessor *rp, SearchResult *r) {
   // Initialize KNN context if SHARD_K_RATIO optimization is needed
   if (nc->knnVectorQuery) {
     AggregateKnnContext *knnCtx = rm_calloc(1, sizeof(AggregateKnnContext));
-    if (!knnCtx) {
-      nc->shardResponseBarrier = NULL;
-      aggregateIteratorContext_Free(iterCtx);
-      return RS_RESULT_ERROR;
-    }
     knnCtx->vq = nc->knnVectorQuery;
     knnCtx->queryArgIndex = nc->knnQueryArgIndex;
     iterCtx->knnCtx = knnCtx;
