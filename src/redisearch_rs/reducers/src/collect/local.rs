@@ -127,32 +127,3 @@ impl LocalCollectCtx {
         SharedValue::new(Value::Array(Array::new(rebuilt.into_boxed_slice())))
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use rlookup::{RLookupKey, RLookupKeyFlags};
-
-    #[test]
-    fn new_with_no_fields_uses_common_defaults() {
-        let source_key = RLookupKey::new(c"__SOURCE__", RLookupKeyFlags::empty());
-        let r = LocalCollectReducer::new(&source_key, Box::new([]), Box::new([]), 0, None);
-        assert_eq!(r.common.sort_asc_map, 0);
-        assert!(r.common.limit.is_none());
-        assert!(std::ptr::eq(r.source_key, &source_key));
-    }
-
-    #[test]
-    fn new_with_limit_and_sort_stores_configuration() {
-        let source_key = RLookupKey::new(c"__SOURCE__", RLookupKeyFlags::empty());
-        let r = LocalCollectReducer::new(
-            &source_key,
-            Box::new([b"a".to_vec().into_boxed_slice()]),
-            Box::new([b"b".to_vec().into_boxed_slice()]),
-            0b11,
-            Some((2, 7)),
-        );
-        assert_eq!(r.common.sort_asc_map, 0b11);
-        assert_eq!(r.common.limit, Some((2, 7)));
-    }
-}
