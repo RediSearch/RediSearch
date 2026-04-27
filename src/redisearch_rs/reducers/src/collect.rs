@@ -49,14 +49,6 @@ pub struct CollectReducer<'a> {
     limit: Option<(u64, u64)>,
     /// Effective per-variant cap, resolved once at construction by
     /// [`Self::new`] and reused by every [`CollectCtx::insert_entry`] call.
-    ///
-    /// Heap path (`!sort_keys.is_empty()`): `offset + count` with
-    /// [`DEFAULT_LIMIT`] filling in for a missing `LIMIT`.
-    /// Array path (`sort_keys.is_empty()`): explicit `LIMIT offset + count`
-    /// when present, otherwise `ffi::RSGlobalConfig.maxAggregateResults`
-    /// sampled at construction (runtime `CONFIG SET MAXAGGREGATERESULTS` is
-    /// therefore picked up at the next reducer instantiation, i.e. the next
-    /// aggregate query, not mid-query).
     cap: usize,
 }
 
@@ -203,10 +195,7 @@ impl CollectCtx {
     /// Create a new per-group collect reducer instance.
     ///
     /// The storage variant is chosen here and never changes for the lifetime
-    /// of the instance: [`Storage::Array`] when `SORTBY` is absent (entries
-    /// are collected in insertion order) and [`Storage::Heap`] otherwise
-    /// (bounded top-K min-max heap, sized to `offset + count` with
-    /// [`DEFAULT_LIMIT`] filling in for a missing `LIMIT`).
+    /// of the instance.
     pub fn new(r: &CollectReducer) -> Self {
         let storage = if r.sort_keys.is_empty() {
             Storage::Array(Vec::new())
