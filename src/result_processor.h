@@ -126,7 +126,7 @@ typedef struct QueryProcessingCtx {
   // Set post-construction on the coordinator AREQ. Used by the RETURN-STRICT
   // timeout path to drain queued shard replies on the main thread after the
   // background pipeline has aborted.
-  bool yieldsPartialResults;
+  bool canYieldPartialResults;
 } QueryProcessingCtx;
 
 QueryIterator *QITR_GetRootFilter(QueryProcessingCtx *it);

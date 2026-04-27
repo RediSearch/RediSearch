@@ -1513,7 +1513,7 @@ class TestCoordinatorTimeout:
         """RETURN_STRICT timeout on FT.AGGREGATE SORTBY with one shard suspended.
 
         SORTBY adds an RPSorter to the pipeline, so it does not yield partial
-        results (yieldsPartialResults=false) and drainPartialResultsAfterTimeout
+        results (canYieldPartialResults=false) and drainPartialResultsAfterTimeout
         is a no-op. RPSorter buffers rows from upstream and yields them only
         after EOF. Under RETURN_STRICT, when upstream returns TIMEDOUT the
         sorter must discard its buffered rows and propagate TIMEDOUT in O(1)

@@ -26,7 +26,8 @@ void *MRChannel_Pop(MRChannel *chan);
 
 /* Pop an item, with optional CLOCK_MONOTONIC_RAW deadline (`abstime`) and/or abort
  * flag (re-checked on each wait entry; pair with MRChannel_WakeAbort). `timedOut`
- * set if deadline expired. Both knobs NULL ≡ MRChannel_Pop. */
+ * set if deadline expired. At least one of `abstime` / `abortFlag` must be non-NULL;
+ * callers wanting an indefinite blocking pop should use MRChannel_Pop. */
 void *MRChannel_PopWithTimeout(MRChannel *chan, const struct timespec *abstime,
                                atomic_bool *abortFlag, bool *timedOut);
 

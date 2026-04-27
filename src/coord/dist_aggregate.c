@@ -240,17 +240,49 @@ static void buildMRCommand(RedisModuleString **argv, int argc, ProfileOptions pr
   array_free(tmparr);
 }
 
-// True iff the coordinator pipeline is exactly `RPNet -> RPPager_Limiter -> end`.
-// Such a pipeline carries no buffering or reordering state, so any prefix of
-// its output is a valid partial answer and the RETURN-STRICT main-thread
-// timeout callback can safely drain queued shard replies after the background
-// pipeline aborts. Profile wraps every RP and is not yet supported under
-// RETURN-STRICT drain, so profile queries are excluded for now.
-static bool pipelineYieldsPartialResults(AREQ *r) {
+// True iff the coordinator pipeline is shaped such that any prefix of its
+// output is a valid partial answer, allowing the RETURN-STRICT main-thread
+// timeout callback to drain queued shard replies after the background
+// pipeline aborts.
+//
+// A pipeline qualifies when it carries no buffering or reordering state
+// between RPNet and the end processor. Two shapes are supported:
+//
+//   1. `RPNet -> end`              -- end IS the RPNet itself
+//   2. `RPNet -> RPPager_Limiter`  -- end is a pager directly above RPNet
+//
+// Profile wraps every RP and is not yet supported under RETURN-STRICT drain,
+// so profile queries are excluded.
+//
+// To extend support to additional pipeline shapes, add a new case below.
+static bool pipelineCanYieldPartialResults(AREQ *r) {
+  if (IsProfile(r)) {
+    return false;
+  }
+
   QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(r);
-  return !IsProfile(r) &&
-         qctx->endProc && qctx->endProc->type == RP_PAGER_LIMITER &&
-         qctx->endProc->upstream == qctx->rootProc;
+  ResultProcessor *end = qctx->endProc;
+  ResultProcessor *root = qctx->rootProc;
+
+  if (!end || !root) {
+    return false;
+  }
+
+  // root is always RPNet on the coordinator pipeline.
+  RS_ASSERT(root->type == RP_NETWORK);
+
+  // Shape 1: end IS the RPNet (no tail pipeline was attached).
+  if (end == root && end->type == RP_NETWORK) {
+    return true;
+  }
+
+  // Shape 2: end is RPPager_Limiter sitting directly above RPNet.
+  if (end->type == RP_PAGER_LIMITER &&
+      end->upstream == root && end->upstream->type == RP_NETWORK) {
+    return true;
+  }
+
+  return false;
 }
 
 static void buildDistRPChain(AREQ *r, MRCommand *xcmd, AREQDIST_UpstreamInfo *us, int (*nextFunc)(ResultProcessor *, SearchResult *)) {
@@ -292,7 +324,7 @@ static void buildDistRPChain(AREQ *r, MRCommand *xcmd, AREQDIST_UpstreamInfo *us
     }
   }
 
-  qctx->yieldsPartialResults = pipelineYieldsPartialResults(r);
+  qctx->canYieldPartialResults = pipelineCanYieldPartialResults(r);
 }
 
 void PrintShardProfile(RedisModule_Reply *reply, void *ctx);
@@ -599,10 +631,11 @@ int DistAggregateTimeoutFailClient(RedisModuleCtx *ctx, RedisModuleString **argv
 // loop naturally respects the user's LIMIT and terminates at EOF.
 static void drainPartialResultsAfterTimeout(AREQ *req) {
   QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
-  if (!qctx->yieldsPartialResults) {
+  if (!qctx->canYieldPartialResults) {
     return;
   }
 
+  RS_ASSERT(qctx->rootProc->type == RP_NETWORK);
   RPNet *rpnet = (RPNet *)qctx->rootProc;
   rpnet->drainOnly = true;
 
@@ -670,7 +703,7 @@ int DistAggregateTimeoutReturnStrictClient(RedisModuleCtx *ctx, RedisModuleStrin
   // `total_results` from admitted shard replies. Zero it so `total_results`
   // stays consistent with empty results.
   ChunkReplyState *stored = &req->storedReplyState;
-  if (!AREQ_QueryProcessingCtx(req)->yieldsPartialResults &&
+  if (!AREQ_QueryProcessingCtx(req)->canYieldPartialResults &&
       array_len(stored->results) == 0) {
     AREQ_QueryProcessingCtx(req)->totalResults = 0;
   }

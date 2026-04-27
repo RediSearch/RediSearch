@@ -129,7 +129,8 @@ MRReply *MRIterator_Next(MRIterator *it);
 
 /* Get next reply, with optional CLOCK_MONOTONIC_RAW deadline (`abstime`) and/or
  * abort flag (pair with MRChannel_WakeAbort). `timedOut` set if deadline expired.
- * Both knobs NULL ≡ MRIterator_Next. */
+ * At least one of `abstime` / `abortFlag` must be non-NULL; for an indefinite
+ * blocking next, use MRIterator_Next. */
 MRReply *MRIterator_NextWithTimeout(MRIterator *it, const struct timespec *abstime,
                                     atomic_bool *abortFlag, bool *timedOut);
 

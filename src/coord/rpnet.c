@@ -289,10 +289,11 @@ int getNextReply(RPNet *nc) {
 
       // Pop with deadline + abort flag wired. Deadline breaks stalled shards under
       // Return; abort flag breaks under FAIL/RETURN-STRICT via MRChannel_WakeAbort.
-      // Either NULL is fine; the pop degrades accordingly.
+      // No areq means no wake mechanism is available — degrade to a blocking pop.
       bool nextTimedOut = false;
-      atomic_bool *abortFlag = nc->areq ? &nc->areq->syncCtx.timedOut : NULL;
-      MRReply *reply = MRIterator_NextWithTimeout(nc->it, getAbsTimeout(nc), abortFlag, &nextTimedOut);
+      MRReply *reply = nc->areq
+        ? MRIterator_NextWithTimeout(nc->it, getAbsTimeout(nc), &nc->areq->syncCtx.timedOut, &nextTimedOut)
+        : MRIterator_Next(nc->it);
       if (reply == NULL) {
         break;  // No more replies, timed out, or aborted
       }
@@ -341,9 +342,10 @@ int getNextReply(RPNet *nc) {
     }
     // Abort-flag-only pop (no wall-clock deadline). Flipped by the FAIL / RETURN-STRICT
     // timeout callback via MRChannel_WakeAbort. Under Return the flag is never flipped,
-    // degrading to a blocking pop — matches pre-existing MRIterator_Next behavior.
-    atomic_bool *abortFlag = nc->areq ? &nc->areq->syncCtx.timedOut : NULL;
-    root = MRIterator_NextWithTimeout(nc->it, NULL, abortFlag, NULL);
+    // degrading to a blocking pop. No areq means no wake mechanism — use MRIterator_Next.
+    root = nc->areq
+      ? MRIterator_NextWithTimeout(nc->it, NULL, &nc->areq->syncCtx.timedOut, NULL)
+      : MRIterator_Next(nc->it);
   }
 
   if (root == NULL) {

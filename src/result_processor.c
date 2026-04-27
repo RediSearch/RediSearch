@@ -2716,10 +2716,11 @@ static int RPDepleter_Next_Accumulate(ResultProcessor *base, SearchResult *r) {
   // Call the sync depletion function directly
   RPDepleter_Deplete(self);
 
-  // Under RETURN-STRICT an upstream timeout must abort the pipeline with zero
-  // results: propagate TIMEDOUT immediately instead of yielding buffered data.
+  // Only TimeoutPolicy_Return yields buffered results on timeout; FAIL and
+  // RETURN-STRICT propagate TIMEDOUT immediately since the buffer will be
+  // discarded by the serializer anyway.
   if (self->last_rc == RS_RESULT_TIMEDOUT &&
-      base->parent->timeoutPolicy == TimeoutPolicy_ReturnStrict) {
+      base->parent->timeoutPolicy != TimeoutPolicy_Return) {
     self->last_rc = RS_RESULT_EOF;
     return RS_RESULT_TIMEDOUT;
   }
