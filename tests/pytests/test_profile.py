@@ -287,6 +287,24 @@ def testProfileTag(env):
   env.assertEqual(actual_res[1][5], ['Iterators profile', ['Type', 'TAG', 'Term', 'foo', 'Number of reading operations', 2, 'Estimated number of matches', 2]])
 
 @skip(cluster=True)
+def testProfileMissingFieldQuery(env):
+  conn = getConnectionByEnv(env)
+  env.cmd('FT.CONFIG', 'SET', '_PRINT_PROFILE_CLOCK', 'false')
+
+  env.cmd('ft.create', 'idx', 'SCHEMA', 't', 'text', 'INDEXMISSING')
+  conn.execute_command('hset', '1', 't', 'hello')
+  conn.execute_command('hset', '2', 'other', 'value')
+
+  actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', 'ismissing(@t)', 'nocontent', 'DIALECT', 2)
+  env.assertEqual(actual_res[0], [1, '2'])
+  env.assertEqual(actual_res[1][5], ['Iterators profile', ['Type', 'MISSING', 'Field', 't', 'Number of reading operations', 1, 'Estimated number of matches', 1]])
+
+  actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', '-ismissing(@t)', 'nocontent', 'DIALECT', 2)
+  env.assertEqual(actual_res[0], [1, '1'])
+  env.assertEqual(actual_res[1][5], ['Iterators profile', ['Type', 'NOT', 'Number of reading operations', 1, 'Child iterator',
+                                            ['Type', 'MISSING', 'Field', 't', 'Number of reading operations', 1, 'Estimated number of matches', 1]]])
+
+@skip(cluster=True)
 def testProfileVector(env):
   conn = getConnectionByEnv(env)
   env.cmd('FT.CONFIG', 'SET', '_PRINT_PROFILE_CLOCK', 'false')

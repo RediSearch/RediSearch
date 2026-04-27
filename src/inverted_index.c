@@ -1083,6 +1083,7 @@ static void IndexReader_Init(const IndexSpec *sp, IndexReader *ret, InvertedInde
   ret->decoderCtx = decoderCtx;
   ret->isValidP = NULL;
   ret->sp = sp;
+  ret->profileCtx = (typeof(ret->profileCtx)){0};
   IR_SetAtEnd(ret, 0);
 }
 
@@ -1118,11 +1119,14 @@ IndexReader *NewTermIndexReader(InvertedIndex *idx, IndexSpec *sp, t_fieldMask f
   return NewIndexReaderGeneric(sp, idx, decoder, dctx, false, record);
 }
 
-IndexReader *NewMissingIndexReader(InvertedIndex *idx, IndexSpec *sp) {
+IndexReader *NewMissingIndexReader(InvertedIndex *idx, IndexSpec *sp, uint16_t fieldIndex) {
   IndexDecoderCtx dctx = {.wideMask = RS_FIELDMASK_ALL}; // Also covers the case of a non-wide schema
   IndexDecoderProcs decoder = InvertedIndex_GetDecoder(idx->flags);
   RSIndexResult *record = NewVirtualResult(0, RS_FIELDMASK_ALL);
-  return NewIndexReaderGeneric(sp, idx, decoder, dctx, false, record);
+  IndexReader *ir = NewIndexReaderGeneric(sp, idx, decoder, dctx, false, record);
+  ir->profileCtx.missing.isMissing = true;
+  ir->profileCtx.missing.fieldIndex = fieldIndex;
+  return ir;
 }
 
 void IR_Free(IndexReader *ir) {

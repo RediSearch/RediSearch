@@ -1364,6 +1364,11 @@ StrongRef IndexSpec_Parse(const char *name, const char **argv, int argc, QueryEr
       goto failure;
     }
   }
+  if ((spec->flags & Index_WideSchema) && !(spec->flags & Index_StoreFieldFlags)) {
+    QueryError_SetError(status, QUERY_EINVAL,
+                        SPEC_SCHEMA_EXPANDABLE_STR " cannot be used with " SPEC_NOFIELDS_STR);
+    goto failure;
+  }
 
   if (timeout != -1) {
     spec->flags |= Index_Temporary;
@@ -2672,6 +2677,14 @@ void Indexes_ScanAndReindex() {
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
+static void IndexSpec_NormalizeStorageFlagsOnLoad(IndexFlags *flags) {
+  if ((*flags & Index_WideSchema) && !(*flags & Index_StoreFieldFlags)) {
+    *flags &= ~Index_WideSchema;
+    RedisModule_Log(RSDummyContext, "warning", "Ignoring %s because %s is set",
+                    SPEC_SCHEMA_EXPANDABLE_STR, SPEC_NOFIELDS_STR);
+  }
+}
+
 int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
                                        QueryError *status) {
   char *rawName = LoadStringBuffer_IOError(rdb, NULL, goto cleanup_no_index);
@@ -2707,6 +2720,8 @@ int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
   if (encver < INDEX_MIN_NOFREQ_VERSION) {
     sp->flags |= Index_StoreFreqs;
   }
+  IndexSpec_NormalizeStorageFlagsOnLoad(&sp->flags);
+
   uint64_t numFields_u64 = LoadUnsigned_IOError(rdb, goto cleanup);
 
   if (unlikely(numFields_u64 > SPEC_MAX_FIELDS)) {
@@ -2838,6 +2853,7 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   if (encver < INDEX_MIN_NOFREQ_VERSION) {
     sp->flags |= Index_StoreFreqs;
   }
+  IndexSpec_NormalizeStorageFlagsOnLoad(&sp->flags);
 
   uint64_t numFields_u64 = RedisModule_LoadUnsigned(rdb);
 

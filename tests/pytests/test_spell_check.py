@@ -178,3 +178,35 @@ def testSpellCheckIssue437(env):
                'Tooni toque kerfuffle', 'TERMS',
                'EXCLUDE', 'slang', 'TERMS',
                'INCLUDE', 'slang').equal([['TERM', 'tooni', [['0', 'toonie']]]])
+
+def test_spell_check_with_params(env:Env):
+    """Test FT.SPELLCHECK with PARAMS support (MOD-10596).
+    Covers parameterized queries in dialect 2 and 3, missing params error,
+    and fuzzy params."""
+    env.cmd('ft.create', 'idx', 'ON', 'HASH', 'SCHEMA', 'name', 'TEXT', 'body', 'TEXT')
+    with env.getClusterConnectionIfNeeded() as r:
+        r.execute_command('hset', 'doc1', 'name', 'name1', 'body', 'body1')
+        r.execute_command('hset', 'doc2', 'name', 'name2', 'body', 'body2')
+        r.execute_command('hset', 'doc3', 'name', 'name2', 'body', 'name2')
+        r.execute_command('hset', 'doc4', 'name', 'hello', 'body', 'help')
+
+    # Dialect 2: parameterized query should match non-parameterized baseline
+    res1 = env.cmd('ft.spellcheck', 'idx', 'name', 'DIALECT', '2')
+    res2 = env.cmd('ft.spellcheck', 'idx', '$query', 'PARAMS', '2', 'query', 'name', 'DIALECT', '2')
+    compare_lists(env, res1, res2)
+
+    # Dialect 3: the exact scenario that causes the crash
+    res1 = env.cmd('ft.spellcheck', 'idx', 'name', 'DIALECT', '3')
+    res2 = env.cmd('ft.spellcheck', 'idx', '$query', 'PARAMS', '2', 'query', 'name', 'DIALECT', '3')
+    compare_lists(env, res1, res2)
+
+    # Missing PARAMS: $a in dialect 3 without PARAMS should error, not crash
+    env.expect('ft.spellcheck', 'idx', '$a', 'DIALECT', '3').error().contains('No such parameter `a`')
+
+    # Cover the PARAMS parsing error path
+    env.expect('ft.spellcheck', 'idx', '$a', 'PARAMS', '3', 'a', 'b', 'c', 'DIALECT', '2').error().contains('Parameters must be specified in PARAM VALUE pairs')
+
+    # Fuzzy params
+    res1 = env.cmd('ft.spellcheck', 'idx', '%hell%', 'DIALECT', '2')
+    res2 = env.cmd('ft.spellcheck', 'idx', '%$tok%', 'PARAMS', '2', 'tok', 'hell', 'DIALECT', '2')
+    compare_lists(env, res1, res2)

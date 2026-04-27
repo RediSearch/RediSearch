@@ -78,29 +78,6 @@ void validateDebugMode(DebugCTX *debugCtx) {
     return REDISMODULE_OK;                                          \
   }
 
-#define REPLY_WITH_LONG_LONG(name, val, len)                  \
-  RedisModule_ReplyWithStringBuffer(ctx, name, strlen(name)); \
-  RedisModule_ReplyWithLongLong(ctx, val);                    \
-  len += 2;
-
-#define REPLY_WITH_DOUBLE(name, val, len)                     \
-  RedisModule_ReplyWithStringBuffer(ctx, name, strlen(name)); \
-  RedisModule_ReplyWithDouble(ctx, val);                      \
-  len += 2;
-
-#define REPLY_WITH_STR(name, len)                        \
-  RedisModule_ReplyWithStringBuffer(ctx, name, strlen(name)); \
-  len += 1;
-
-#define START_POSTPONED_LEN_ARRAY(array_name) \
-  size_t len_##array_name = 0;                \
-  RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN)
-
-#define ARRAY_LEN_VAR(array_name) len_##array_name
-
-#define END_POSTPONED_LEN_ARRAY(array_name) \
-  RedisModule_ReplySetArrayLength(ctx, len_##array_name)
-
 static void ReplyReaderResults(IndexReader *reader, RedisModuleCtx *ctx) {
   IndexIterator *iter = NewReadIterator(reader);
   RSIndexResult *r;
@@ -1826,7 +1803,7 @@ DEBUG_COMMAND(SetMaxIndexes) {
   size_t numIndexes = Indexes_Count();
   if (newMaxIndexes < numIndexes) {
     return RedisModule_ReplyWithErrorFormat(ctx,
-        "Invalid value. Must be at least current number of indexes: %zu.", numIndexes);
+        "Invalid value. Must be at least current number of indexes: %d.", numIndexes);
   }
 
   maxIndexes_g = (uint32_t)newMaxIndexes;

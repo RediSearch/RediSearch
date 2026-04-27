@@ -9,6 +9,7 @@
 #include "crc12.h"
 #include "rmutil/rm_assert.h"
 #include "rmalloc.h"
+#include "module.h"
 
 #include <stdlib.h>
 
@@ -188,10 +189,38 @@ int MRCluster_CheckConnections(MRCluster *cl, bool mastersOnly) {
   return REDIS_OK;
 }
 
+/* Must be called from the uv event loop thread, as cl->topo and cl->mgr.map
+ * are not thread-safe. */
+void MRCluster_LogDisconnectedNodes(MRCluster *cl, bool mastersOnly) {
+  for (size_t i = 0; i < cl->topo->numShards; i++) {
+    MRClusterShard *sh = &cl->topo->shards[i];
+    for (size_t j = 0; j < sh->numNodes; j++) {
+      if (mastersOnly && !(sh->nodes[j].flags & MRNode_Master)) {
+        continue;
+      }
+      MRClusterNode *node = &sh->nodes[j];
+      MRConn *conn = MRConn_Get(&cl->mgr, node->id);
+      if (!conn) {
+        const char *state = MRConnManager_GetNodeState(&cl->mgr, node->id);
+        RedisModule_Log(RSDummyContext, "warning",
+                        "Node %s (%s:%d) not connected (state: %s)",
+                        node->id, node->endpoint.host, node->endpoint.port,
+                        state ? state : "unknown");
+      }
+    }
+  }
+}
+
 /* Multiplex a command to all coordinators, using a specific coordination strategy. Returns the
- * number of sent commands */
+ * number of sent commands.
+ * If validateConnections is true, the function will validate that all connections are up before sending the command */
 int MRCluster_FanoutCommand(MRCluster *cl, bool mastersOnly, MRCommand *cmd,
-                            redisCallbackFn *fn, void *privdata) {
+                            redisCallbackFn *fn, void *privdata, bool validateConnections) {
+  // Pre-fanout connection validation
+  if (validateConnections && MRCluster_CheckConnections(cl, mastersOnly) != REDIS_OK) {
+    return 0;
+  }
+
   int ret = 0;
   for (size_t i = 0; i < cl->topo->numShards; i++) {
     MRClusterShard *sh = &cl->topo->shards[i];

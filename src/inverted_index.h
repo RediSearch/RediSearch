@@ -162,6 +162,10 @@ typedef struct IndexReader {
       double rangeMin;
       double rangeMax;
     } numeric;
+    struct {
+      bool isMissing;
+      uint16_t fieldIndex;
+    } missing;
   } profileCtx;
 
   /* The decoder's filtering context. It may be a number or a pointer. The number is used for
@@ -231,7 +235,7 @@ IndexReader *NewTermIndexReader(InvertedIndex *idx, IndexSpec *sp, t_fieldMask f
                                 RSQueryTerm *term, double weight);
 
 /* Create a new index reader on an inverted index of "missing values". */
-IndexReader *NewMissingIndexReader(InvertedIndex *idx, IndexSpec *sp);
+IndexReader *NewMissingIndexReader(InvertedIndex *idx, IndexSpec *sp, uint16_t fieldIndex);
 
 void IR_Abort(void *ctx);
 

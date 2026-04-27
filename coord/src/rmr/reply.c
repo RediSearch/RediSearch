@@ -235,3 +235,14 @@ void MRReply_ArrayToMap(MRReply *reply) {
   if (reply->type != MR_REPLY_ARRAY) return;
   reply->type = MR_REPLY_MAP;
 }
+
+// Create a new error reply with the given message.
+// `msg` must be non-NULL and `len` must be greater than 0.
+MRReply *MRReply_CreateError(const char *msg, size_t len) {
+  RS_ASSERT(msg && len > 0);
+  MRReply *reply = rm_calloc(1, sizeof(MRReply));
+  reply->type = MR_REPLY_ERROR;
+  reply->len = len;
+  reply->str = rm_strndup(msg, len);
+  return reply;
+}
