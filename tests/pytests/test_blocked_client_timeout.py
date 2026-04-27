@@ -926,23 +926,11 @@ class TestCoordinatorTimeout:
     def test_fail_timeout_internal_cursor_read(self):
         """FAIL timeout fired on a non-coord shard's _FT.CURSOR READ BC timer.
 
-        Validates the shard-side blocked-client timer for the internal
-        ``_FT.CURSOR READ`` issued by the coordinator's RPNet pipeline:
-
-        - Shrink ``RSGlobalConfig.cursorReadSize`` to 1 on every shard so each
-          ``_FT.CURSOR READ`` returns a single doc, forcing the coord's RPNet
-          to keep pulling from shards instead of draining a local buffer.
-        - Create a FAIL-policy ``WITHCURSOR`` aggregate; arm the
-          ``BeforeCursorReadSendChunk`` sync point only on shards whose process
-          differs from the coordinator's, so the coord-side ``runCursor`` (and
-          any self-targeted ``_FT.CURSOR READ``) keeps moving.
-        - Trigger the user's ``FT.CURSOR READ`` from a worker thread; once a
-          non-coord shard worker pins at the sync point, fire
-          ``CLIENT UNBLOCK ... TIMEOUT`` on its blocked ``_FT.CURSOR|READ``
-          client to invoke ``CursorReadTimeoutFailCallback``.
-        - Verify the user sees ``-TIMEOUT``, the coord error metric increments
-          by 1, and the coord cursor is reclaimed (drained via
-          ``DistCoordReqFreePrivData -> AREQ_DrainStoredCursor``).
+        Pin a non-coord shard's internal ``_FT.CURSOR READ`` at
+        ``BeforeCursorReadSendChunk`` and fire ``CLIENT UNBLOCK ... TIMEOUT``
+        to invoke ``CursorReadTimeoutFailCallback``. Verify the user sees
+        ``-TIMEOUT``, the coord error metric bumps, and the coord cursor is
+        reclaimed via ``AREQ_DrainStoredCursor``.
         """
         env = self.env
         skipIfNoEnableAssert(env)
@@ -953,16 +941,13 @@ class TestCoordinatorTimeout:
                           message="Test requires at least one shard process distinct "
                                   "from the coordinator to exercise the internal "
                                   "_FT.CURSOR READ path")
-        # One pinned shard is enough: MR_ManuallyTriggerNextIfNeeded won't
-        # dispatch a new _FT.CURSOR READ round while any prior command is
-        # still in flight, so a single stalled shard stalls the whole coord.
+        # One pinned shard stalls the whole coord: MR_ManuallyTriggerNextIfNeeded
+        # won't dispatch a new round while any prior command is still in flight.
         target_shard = non_coord_shards[0]
 
-        # Shrink shard cursor read size on every shard (including the coord's
-        # own shard) so each _FT.CURSOR READ returns 1 doc; otherwise the
-        # coord-self shard could satisfy the user request alone with its
-        # default 1000-doc chunk and the dispatch to the target shard would
-        # never happen.
+        # Shrink cursor read size on every shard so each _FT.CURSOR READ returns
+        # 1 doc; otherwise the coord-self shard could satisfy the request alone
+        # and the target shard would never be dispatched to.
         all_shards = [env.getConnection(i) for i in range(1, env.shardsCount + 1)]
         prev_sizes = [
             c.execute_command(debug_cmd(), 'QUERY_CONTROLLER', 'SET_CURSOR_READ_SIZE', 1)

@@ -29,7 +29,6 @@ static void FreeQueryNode(RedisModuleCtx* ctx, void *node) {
 
 static void FreeCursorNode(RedisModuleCtx* ctx, void *node) {
   BlockedCursorNode *cursorNode = node;
-  // Call the callback to free privdata if provided
   if (cursorNode->freePrivData && cursorNode->privdata) {
     cursorNode->freePrivData(cursorNode->privdata);
   }
@@ -62,18 +61,17 @@ RedisModuleBlockedClient *BlockQueryClientWithTimeout(RedisModuleCtx *ctx, Stron
 
 RedisModuleBlockedClient *BlockCursorClient(RedisModuleCtx *ctx, Cursor *cursor, size_t count, BlockClientCtx *blockClientCtx) {
   RS_ASSERT(blockClientCtx != NULL);
-  // Hybrid cursors, which leave execState == NULL, must not reach this helper.
+  // Hybrid cursors (execState == NULL) must not reach this helper.
   RS_ASSERT(cursor->execState != NULL);
-  // If timeoutMS is non-zero, both callbacks must be set.
   RS_ASSERT(blockClientCtx->timeoutMS == 0 ||
             (blockClientCtx->timeoutCallback != NULL && blockClientCtx->replyCallback != NULL));
 
   BlockedQueries *blockedQueries = MainThread_GetBlockedQueries();
   RS_LOG_ASSERT(blockedQueries, "MainThread_InitBlockedQueries was not called, or function not called from main thread");
 
-  // privdata ownership: shared between the worker (via cr_ctx->cursor->execState) and BlockedCursorNode
-  // (timeout/reply callback access). Caller is responsible for taking the extra reference (e.g.
-  // AREQ_IncrRef on the FAIL path); FreeCursorNode releases it via the freePrivData callback.
+  // privdata is shared between the worker and BlockedCursorNode (timeout/reply
+  // callbacks). Caller takes the extra ref (e.g. AREQ_IncrRef on FAIL);
+  // FreeCursorNode releases it via freePrivData.
   BlockedCursorNode *node = BlockedQueries_AddCursor(blockedQueries, cursor->spec_ref, cursor->id,
                                                      &cursor->execState->ast, count,
                                                      blockClientCtx->privdata,

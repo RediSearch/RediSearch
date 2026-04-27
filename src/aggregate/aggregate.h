@@ -538,17 +538,11 @@ AREQ *AREQ_IncrRef(AREQ *req);
 void AREQ_DecrRef(AREQ *req);
 
 /**
- * Free a cursor parked in `req->storedReplyState.cursor` if any.
- *
- * On the `useReplyCallback` path the worker may park a cursor in
- * `storedReplyState.cursor` (so the main thread can pause/free it from
- * `QueryReplyCallback`). When the blocked-client timeout fires before
- * the reply callback runs, that cursor is left dangling. Call this
- * helper from any "free privdata" / cleanup path that owns the AREQ to
- * release such a leftover cursor before dropping the AREQ ref.
- *
- * No-op when `storedReplyState.cursor` is NULL (the happy path, where
- * `QueryReplyCallback` already drained it).
+ * Free a cursor parked in `req->storedReplyState.cursor`, if any.
+ * Used by cleanup paths to release a cursor left behind when the
+ * blocked-client timeout fires before the reply callback runs and
+ * drains it via `AREQ_ReplyWithStoredResults`.
+ * No-op when `storedReplyState.cursor` is NULL.
  */
 void AREQ_DrainStoredCursor(AREQ *req);
 
