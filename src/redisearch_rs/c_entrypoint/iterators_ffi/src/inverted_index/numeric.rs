@@ -25,7 +25,7 @@ use rqe_iterators::{
 pub(super) struct NumericIterator<'index> {
     /// The user numeric filter, or None if no filter was provided.
     ///
-    /// C-Code: kept here (rather than in `rqe_iterators`) solely so that
+    /// Kept here (rather than in `rqe_iterators`) solely so that
     /// `NumericInvIndIterator_GetNumericFilter` can hand the pointer back to C callers.
     /// Once those callers are ported to Rust, this field and `NumericIterator` itself can be
     /// removed — callers will use [`NumericIteratorVariant`] directly.
