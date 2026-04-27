@@ -2,6 +2,7 @@ from common import *
 from test_hybrid_internal import get_shard_slot_ranges
 from test_info_modules import (
     info_modules_to_dict,
+    wait_for_info_metric,
     WARN_ERR_SECTION, COORD_WARN_ERR_SECTION,
     TIMEOUT_ERROR_SHARD_METRIC, TIMEOUT_WARNING_SHARD_METRIC,
     TIMEOUT_ERROR_COORD_METRIC, TIMEOUT_WARNING_COORD_METRIC,
@@ -957,6 +958,15 @@ class TestCoordinatorTimeout:
             prev_policy, cursor_id, baseline, before_info, base_err_coord = \
                 _setup_fail_cursor_state(env)
 
+            # Per-shard baseline: only the timed-out shard should bump
+            # TIMEOUT_ERROR_SHARD_METRIC via CursorReadTimeoutFailCallback;
+            # all other shards stay flat.
+            base_err_shards = [
+                int(info_modules_to_dict(c)[WARN_ERR_SECTION][TIMEOUT_ERROR_SHARD_METRIC])
+                for c in all_shards
+            ]
+            target_pid = pid_cmd(target_shard)
+
             target_shard.execute_command(debug_cmd(), 'SYNC_POINT', 'CLEAR')
             target_shard.execute_command(debug_cmd(), 'SYNC_POINT', 'ARM', sync_point)
 
@@ -984,6 +994,17 @@ class TestCoordinatorTimeout:
             self._assert_cursor_freed_and_metric_bumped(
                 cursor_id, baseline, before_info, base_err_coord,
                 'FAIL internal _FT.CURSOR READ timeout')
+
+            # Verify the shard-side timeout metric: +1 on the target shard
+            # only (CursorReadTimeoutFailCallback runs on its main thread),
+            # unchanged everywhere else.
+            for c, base in zip(all_shards, base_err_shards):
+                expected = base + (1 if pid_cmd(c) == target_pid else 0)
+                wait_for_info_metric(
+                    c, [WARN_ERR_SECTION, TIMEOUT_ERROR_SHARD_METRIC],
+                    str(expected),
+                    msg=f"Shard pid={pid_cmd(c)} TIMEOUT_ERROR_SHARD_METRIC "
+                        f"expected {expected} (base={base}, target_pid={target_pid})")
 
             run_command_on_all_shards(env, 'CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_policy)
         finally:
