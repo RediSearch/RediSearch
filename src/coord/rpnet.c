@@ -75,6 +75,17 @@ static RSValue *MRReply_ToValue(MRReply *r) {
   return v;
 }
 
+static void shardResponseBarrier_UpdateTotalResults(RPNet *nc) {
+  // Set the accumulated total now that all shards have responded
+  // numShards == 0 means IO thread never initialized the barrier (timeout before init)
+  size_t numResponded = atomic_load(&nc->shardResponseBarrier->base.numResponded);
+  size_t numShards_loaded = atomic_load(&nc->shardResponseBarrier->base.numShards);
+  if (numShards_loaded > 0 && numResponded >= numShards_loaded) {
+    long long accumulatedTotal = atomic_load(&nc->shardResponseBarrier->accumulatedTotal);
+    nc->base.parent->totalResults = accumulatedTotal;
+  }
+}
+
 static void shardResponseBarrier_PendingReplies_Free(RPNet *nc) {
   if (nc->pendingReplies) {
     array_foreach(nc->pendingReplies, reply, MRReply_Free(reply));
@@ -229,15 +240,7 @@ int getNextReply(RPNet *nc) {
     if (shardResponseBarrier_HandleTimeout(nc)) {
       return RS_RESULT_TIMEDOUT;
     }
-
-    // Set the accumulated total now that all shards have responded
-    // numShards == 0 means IO thread never initialized the barrier (timeout before init)
-    size_t numResponded = atomic_load(&nc->shardResponseBarrier->base.numResponded);
-    size_t numShards_loaded = atomic_load(&nc->shardResponseBarrier->base.numShards);
-    if (numShards_loaded > 0 && numResponded >= numShards_loaded) {
-      long long accumulatedTotal = atomic_load(&nc->shardResponseBarrier->accumulatedTotal);
-      nc->base.parent->totalResults = accumulatedTotal;
-    }
+    shardResponseBarrier_UpdateTotalResults(nc);
   }
 
   // First, return any pending replies collected during the wait
