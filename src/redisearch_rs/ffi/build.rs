@@ -69,7 +69,8 @@ fn main() {
         root.join("src").join("rlookup.h"),
     ];
 
-    let mut bindings = bindgen::Builder::default();
+    let mut bindings = bindgen::Builder::default()
+        .clang_arg("-DRS_BINDGEN_GENERATION=1");
 
     for header in headers {
         bindings = bindings
