@@ -23,12 +23,8 @@ void shardResponseBarrier_Free(void *ptr) {
 // Allocate and initialize a new ShardResponseBarrier
 // Notice: numShards and shardResponded init is postponed until NumShards is
 // known
-// Returns NULL on allocation failure
 ShardResponseBarrier *shardResponseBarrier_New(void) {
   ShardResponseBarrier *barrier = rm_calloc(1, sizeof(ShardResponseBarrier));
-  if (!barrier) {
-    return NULL;
-  }
 
   // numShards is initialized to 0 here and later updated via atomic_store in
   // shardResponseBarrier_Init when the actual shard count is known.
