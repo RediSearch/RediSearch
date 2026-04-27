@@ -9,8 +9,14 @@
 
 //! Remote COLLECT reducer.
 //!
-//! Projects configured fields on each remote node and serializes collected rows
-//! for the local merge step.
+//! This reducer consumes ordinary input rows: each [`RLookupRow`] represents one
+//! item/document flowing through the aggregation pipeline. In distributed
+//! execution it is used for the shard-side half of the innermost split
+//! `GROUPBY`, where it serializes collected items into a payload for the
+//! coordinator-side COLLECT reducer.
+//!
+//! Coordinator-side outer `GROUPBY` steps also see ordinary rows/items; they are
+//! not this reducer's special merge input.
 
 use rlookup::{RLookupKey, RLookupRow};
 use value::{Array, Map, SharedValue, Value};

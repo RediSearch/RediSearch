@@ -9,8 +9,15 @@
 
 //! Local COLLECT reducer.
 //!
-//! Consumes the per-remote payloads stored under the planner-provided source key and rebuilds the
-//! client-facing rows.
+//! This reducer consumes merge rows produced by the distributed `GROUPBY` split:
+//! each input row represents an already-collected shard group, and the collected
+//! items arrive as an [`Value`] payload under the planner-provided source key.
+//! It flattens those shard payloads and rebuilds the client-facing COLLECT
+//! result.
+//!
+//! Only the coordinator-side reducer for the innermost split `GROUPBY` has this
+//! shape. Shard-side COLLECT and outer coordinator `GROUPBY` reducers consume
+//! ordinary rows/items.
 //!
 //! ## Serialization contract
 //!

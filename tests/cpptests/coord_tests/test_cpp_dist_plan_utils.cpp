@@ -37,10 +37,9 @@ TEST(DistPlanUtils, ShardCollectArgs_FieldsOnly) {
   const char *src[] = {"FIELDS", "2", "@a", "@b"};
   ArgsCursor srcArgs = makeArgs(src, 4);
 
-  char countBuf[16];
+  char countBuf[COLLECT_ARGS_COUNT_BUF_LEN];
   void *objs[5];  // argc + 1
-  ArgsCursor out;
-  buildCollectArgs(&out, objs, countBuf, &srcArgs, nullptr);
+  ArgsCursor out = buildCollectArgs(objs, countBuf, &srcArgs, nullptr);
 
   ASSERT_EQ(out.offset, 0u);
   ASSERT_EQ(out.type, AC_TYPE_CHAR);
@@ -51,10 +50,9 @@ TEST(DistPlanUtils, ShardCollectArgs_FieldsSortbyLimit) {
   const char *src[] = {"FIELDS", "1", "@x", "SORTBY", "2", "@x", "ASC", "LIMIT", "0", "10"};
   ArgsCursor srcArgs = makeArgs(src, 10);
 
-  char countBuf[16];
+  char countBuf[COLLECT_ARGS_COUNT_BUF_LEN];
   void *objs[11];  // argc + 1
-  ArgsCursor out;
-  buildCollectArgs(&out, objs, countBuf, &srcArgs, nullptr);
+  ArgsCursor out = buildCollectArgs(objs, countBuf, &srcArgs, nullptr);
 
   assertArgs(out, {"10", "FIELDS", "1", "@x", "SORTBY", "2", "@x", "ASC", "LIMIT", "0",
                    "10"});
@@ -67,10 +65,9 @@ TEST(DistPlanUtils, ShardCollectArgs_FieldsSortbyLimit) {
 TEST(DistPlanUtils, ShardCollectArgs_EmptyArgs) {
   ArgsCursor srcArgs = makeArgs(nullptr, 0);
 
-  char countBuf[16];
+  char countBuf[COLLECT_ARGS_COUNT_BUF_LEN];
   void *objs[1];  // argc + 1
-  ArgsCursor out;
-  buildCollectArgs(&out, objs, countBuf, &srcArgs, nullptr);
+  ArgsCursor out = buildCollectArgs(objs, countBuf, &srcArgs, nullptr);
 
   assertArgs(out, {"0"});
 }
@@ -81,10 +78,9 @@ TEST(DistPlanUtils, CoordCollectArgs_FieldsOnly) {
   const char *src[] = {"FIELDS", "2", "@a", "@b"};
   ArgsCursor srcArgs = makeArgs(src, 4);
 
-  char countBuf[16];
+  char countBuf[COLLECT_ARGS_COUNT_BUF_LEN];
   void *objs[7];  // argc + 3
-  ArgsCursor out;
-  buildCollectArgs(&out, objs, countBuf, &srcArgs, "my_collect");
+  ArgsCursor out = buildCollectArgs(objs, countBuf, &srcArgs, "my_collect");
 
   ASSERT_EQ(out.offset, 0u);
   ASSERT_EQ(out.type, AC_TYPE_CHAR);
@@ -95,10 +91,9 @@ TEST(DistPlanUtils, CoordCollectArgs_FieldsSortbyLimit) {
   const char *src[] = {"FIELDS", "1", "@x", "SORTBY", "2", "@x", "ASC", "LIMIT", "0", "10"};
   ArgsCursor srcArgs = makeArgs(src, 10);
 
-  char countBuf[16];
+  char countBuf[COLLECT_ARGS_COUNT_BUF_LEN];
   void *objs[13];  // argc + 3
-  ArgsCursor out;
-  buildCollectArgs(&out, objs, countBuf, &srcArgs, "user_alias");
+  ArgsCursor out = buildCollectArgs(objs, countBuf, &srcArgs, "user_alias");
 
   assertArgs(out, {"10", "FIELDS", "1", "@x", "SORTBY", "2", "@x", "ASC", "LIMIT", "0",
                    "10", "AS", "user_alias"});
@@ -113,10 +108,9 @@ TEST(DistPlanUtils, CoordCollectArgs_FieldsSortbyLimit) {
 TEST(DistPlanUtils, CoordCollectArgs_EmptyOriginalArgs) {
   ArgsCursor srcArgs = makeArgs(nullptr, 0);
 
-  char countBuf[16];
+  char countBuf[COLLECT_ARGS_COUNT_BUF_LEN];
   void *objs[3];  // argc + 3
-  ArgsCursor out;
-  buildCollectArgs(&out, objs, countBuf, &srcArgs, "ua");
+  ArgsCursor out = buildCollectArgs(objs, countBuf, &srcArgs, "ua");
 
   assertArgs(out, {"0", "AS", "ua"});
 }

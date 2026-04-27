@@ -340,10 +340,9 @@ static int distributeCollect(ReducerDistCtx *rdctx, QueryError *status) {
   size_t argc = src->args.argc;
 
   // Build temporary args, then persist their object arrays with copyArgs.
-  char remoteCountBuf[16];
+  char remoteCountBuf[COLLECT_ARGS_COUNT_BUF_LEN];
   std::vector<void *> remoteObjs(argc + 1);
-  ArgsCursor remoteArgs;
-  buildCollectArgs(&remoteArgs, remoteObjs.data(), remoteCountBuf, &src->args, nullptr);
+  ArgsCursor remoteArgs = buildCollectArgs(remoteObjs.data(), remoteCountBuf, &src->args, nullptr);
   rdctx->copyArgs(&remoteArgs);
 
   const char *alias;
@@ -352,10 +351,9 @@ static int distributeCollect(ReducerDistCtx *rdctx, QueryError *status) {
   }
 
   // Layout: [nargs, original_args..., AS, user_alias]
-  char localCountBuf[16];
+  char localCountBuf[COLLECT_ARGS_COUNT_BUF_LEN];
   std::vector<void *> localObjs(argc + 3);
-  ArgsCursor localArgs;
-  buildCollectArgs(&localArgs, localObjs.data(), localCountBuf, &src->args, src->alias);
+  ArgsCursor localArgs = buildCollectArgs(localObjs.data(), localCountBuf, &src->args, src->alias);
   rdctx->copyArgs(&localArgs);
 
   if (!rdctx->add(rdctx->localGroup, "COLLECT", nullptr, status, &localArgs)) {
