@@ -18,7 +18,7 @@ setups:
   - oss-cluster-32-primaries
 
 dbconfig:
-  - dataset_name: "5200K-docs-union-iterators.idx10"
+  - dataset_name: "5200K-docs-union-iterators.idx10-expire-doc-10ms"
   - tool: ftsb_redisearch
   - parameters:
     - workers: 64
