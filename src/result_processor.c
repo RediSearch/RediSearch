@@ -1370,7 +1370,13 @@ static int rpprofileNext(ResultProcessor *base, SearchResult *r) {
   rs_wall_clock_init(&start);
   int rc = base->upstream->Next(base->upstream, r);
   self->profileTime += rs_wall_clock_elapsed_ns(&start);
-  self->profileCount++;
+  // Don't count non-blocking poll attempts that found no data yet.
+  // The non-blocking RPNet returns RS_RESULT_DEPLETING when the shard channel
+  // is empty, and the hybrid merger's round-robin loop retries many times,
+  // which would otherwise inflate the profile count by orders of magnitude.
+  if (rc != RS_RESULT_DEPLETING) {
+    self->profileCount++;
+  }
   return rc;
 }
 
@@ -2065,6 +2071,7 @@ dictType dictTypeHybridSearchResult = {
  const RLookupKey *docKey;        // Key for reading document key when dmd is not available
  RPStatus* upstreamReturnCodes;   // Final return codes from each upstream
  HybridLookupContext *lookupCtx;  // Lookup context for field merging
+ size_t *upstreamConsumed;        // Per-upstream consumed count, persists across DEPLETING retries
 
 } RPHybridMerger;
 
@@ -2134,23 +2141,23 @@ static inline bool RPHybridMerger_Error(const RPHybridMerger *self) {
 
  /* Helper function to consume results from a single upstream */
  static int hybridMergerConsumeFromUpstream(RPHybridMerger *self, size_t maxResults, size_t upstreamIndex) {
-   size_t consumed = 0;
+   size_t *consumed = &self->upstreamConsumed[upstreamIndex];
    int rc = RS_RESULT_OK;
    SearchResult *r = rm_calloc(1, sizeof(*r));
    *r = SearchResult_New();
    ResultProcessor *upstream = self->upstreams[upstreamIndex];
-   while (consumed < maxResults && (rc = upstream->Next(upstream, r)) == RS_RESULT_OK) {
+   while (*consumed < maxResults && (rc = upstream->Next(upstream, r)) == RS_RESULT_OK) {
        double score = SearchResult_GetScore(r);
-       consumed++;
+       (*consumed)++;
        if (self->hybridScoringCtx->scoringType == HYBRID_SCORING_RRF) {
-         score = consumed;
+         score = *consumed;
        }
        if (hybridMergerStoreUpstreamResult(self, r, upstreamIndex, score)) {
          r = rm_calloc(1, sizeof(*r));
          *r = SearchResult_New();
        } else {
          SearchResult_Clear(r);
-         --consumed; // avoid wrong rank in RRF
+         --(*consumed); // avoid wrong rank in RRF
        }
    }
    rm_free(r);
@@ -2208,13 +2215,29 @@ static int RPHybridMerger_Yield(ResultProcessor *rp, SearchResult *r) {
 
   bool *consumed = rm_calloc(self->numUpstreams, sizeof(bool));
   size_t numConsumed = 0;
-  // Continuously try to consume from upstreams until all are consumed
+  // Round-robin across upstreams. When an upstream returns RS_RESULT_DEPLETING
+  // (no data available yet from its IO channel), we skip to the next upstream.
+  // When a full pass makes no progress we yield briefly (usleep) to avoid
+  // starving the IO / shard threads that need CPU to produce replies.
+  // TODO: Replace usleep with a proper multi-channel wait to avoid polling:
+  //   - Use MRChannel_PopWithTimeout with a short timeout on each channel in
+  //     sequence (adds latency proportional to N_upstreams * timeout).
+  //   - Introduce a shared condvar (MRChannelGroup) that any channel signals on
+  //     push, allowing a single pthread_cond_timedwait to cover all channels.
   while (numConsumed < self->numUpstreams) {
+    bool madeProgress = false;
     for (size_t i = 0; i < self->numUpstreams; i++) {
       if (consumed[i]) {
         continue;
       }
+      // Track whether partial results were consumed even if the upstream
+      // ultimately returns DEPLETING, so we don't sleep unnecessarily.
+      size_t consumedBefore = self->upstreamConsumed[i];
       int rc = hybridMergerConsumeFromUpstream(self, window, i);
+
+      if (self->upstreamConsumed[i] > consumedBefore) {
+        madeProgress = true;
+      }
 
       if (rc == RS_RESULT_DEPLETING) {
         // Upstream is still active but not ready to provide results. Skip to the next.
@@ -2228,6 +2251,12 @@ static int RPHybridMerger_Yield(ResultProcessor *rp, SearchResult *r) {
       // assuming other threads would timeout as well within a reasobale delta of docs (See TimedOut_WithCounter)
       consumed[i] = true;
       numConsumed++;
+    }
+    if (!madeProgress) {
+      // All remaining upstreams returned DEPLETING (no data available yet).
+      // Yield briefly to avoid starving the IO thread and shard processing,
+      // which need CPU time to produce the replies we are waiting for.
+      usleep(100);
     }
   }
 
@@ -2265,6 +2294,8 @@ static int RPHybridMerger_Yield(ResultProcessor *rp, SearchResult *r) {
 
    // Free the hybrid results dictionary (HybridSearchResult values automatically freed by destructor)
    dictRelease(self->hybridResults);
+
+   rm_free(self->upstreamConsumed);
 
    // Free the upstreams array, the upstreams themselves are freed by the pipeline(e.g as a result of AREQ_Free)
    array_free(self->upstreams);
@@ -2322,6 +2353,7 @@ ResultProcessor *RPHybridMerger_New(RedisSearchCtx *sctx,
 
    // Since we're storing by pointer, the caller is responsible for memory management
    ret->upstreams = upstreams;
+   ret->upstreamConsumed = rm_calloc(numUpstreams, sizeof(size_t));
    ret->hybridResults = dictCreate(&dictTypeHybridSearchResult, NULL);
 
    // Calculate maximal dictionary size based on scoring type

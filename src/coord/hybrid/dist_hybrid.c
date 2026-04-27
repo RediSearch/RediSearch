@@ -671,9 +671,13 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq,
     xcmd.rootCommand = C_READ;
     xcmd.coordStartTime = hreq->profileClocks.coordStartTime;
 
-    // UPDATED: Use new start function with mappings (no dispatcher needed)
+    // Use start function with mappings; set non-blocking mode so the
+    // RPHybridMerger can round-robin across sub-query pipelines without
+    // blocking on any single shard channel.
     HybridRequest_buildDistRPChain(hreq->requests[0], &xcmd, lookups[0], rpnetNext_StartWithMappings);
     HybridRequest_buildDistRPChain(hreq->requests[1], &xcmd, lookups[1], rpnetNext_StartWithMappings);
+    ((RPNet *)AREQ_QueryProcessingCtx(hreq->requests[0])->rootProc)->nonBlocking = true;
+    ((RPNet *)AREQ_QueryProcessingCtx(hreq->requests[1])->rootProc)->nonBlocking = true;
 
     if (profileOptions != EXEC_NO_FLAGS) {
       rs_wall_clock pipelineClock;

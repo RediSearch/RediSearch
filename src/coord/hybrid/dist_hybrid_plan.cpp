@@ -12,20 +12,12 @@
 #include "hybrid/hybrid_lookup_context.h"
 
 
-static void pushResultProcessor(QueryProcessingCtx *qctx, ResultProcessor *rp) {
-  rp->upstream = qctx->endProc;
-  rp->parent = qctx;
-  qctx->endProc = rp;
-}
-
 // should make sure the product of AREQ_BuildPipeline(areq, &req->errors[i]) would result in rpSorter only (can set up the aggplan to be a sorter only)
-int HybridRequest_BuildDistributedDepletionPipeline(HybridRequest *req, const HybridPipelineParams *params) {
-  // Create synchronization context for coordinating depleter processors
-  // We avoid taking the index lock since we are not directly accessing the index at all
-  // This avoids deadlocks with main thread while it is trying to access the index
-  StrongRef sync_ref = DepleterSync_New(req->nrequests, false);
-
-  // Build individual pipelines for each search request
+int HybridRequest_BuildDistributedDepletionPipeline(HybridRequest *req,
+    [[maybe_unused]] const HybridPipelineParams *params) {
+  // Build individual pipelines for each search request.
+  // No depleter is needed: the RPHybridMerger drives each sub-query pipeline
+  // directly, using non-blocking RPNet mode and round-robin iteration.
   for (size_t i = 0; i < req->nrequests; i++) {
       AREQ *areq = req->requests[i];
 
@@ -33,7 +25,6 @@ int HybridRequest_BuildDistributedDepletionPipeline(HybridRequest *req, const Hy
 
       int rc = AREQ_BuildPipeline(areq, &req->errors[i]);
       if (rc != REDISMODULE_OK) {
-          StrongRef_Release(sync_ref);
           return REDISMODULE_ERR;
       }
 
@@ -46,19 +37,8 @@ int HybridRequest_BuildDistributedDepletionPipeline(HybridRequest *req, const Hy
         RS_ASSERT(IsHybridSearchSubquery(areq));
         qctx->resultLimit = areq->maxSearchResults;
       }
-      // Create a depleter processor to extract results from this pipeline
-      // The depleter will feed results to the hybrid merger
-      RedisSearchCtx *nextThread = params->aggregationParams.common.sctx; // We will use the context provided in the params
-      RedisSearchCtx *depletingThread = AREQ_SearchCtx(areq); // when constructing the AREQ a new context should have been created
-      ResultProcessor *depleter = RPSafeDepleter_New(StrongRef_Clone(sync_ref), depletingThread, nextThread);
-      pushResultProcessor(qctx, depleter);
-      if (qctx->isProfile) {
-        pushResultProcessor(qctx, RPProfile_New(qctx->endProc, qctx));
-      }
   }
 
-  // Release the sync reference as depleters now hold their own references
-  StrongRef_Release(sync_ref);
   return REDISMODULE_OK;
 }
 

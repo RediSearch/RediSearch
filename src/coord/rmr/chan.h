@@ -31,6 +31,10 @@ void *MRChannel_Pop(MRChannel *chan);
  * Returns: the popped item, or NULL if unblocked or timed out */
 void *MRChannel_PopWithTimeout(MRChannel *chan, const struct timespec *abstime, bool *timedOut);
 
+// Non-blocking pop: returns the head item if one is available, or NULL if the channel is empty.
+// Thread-safe (acquires the lock) but never waits.
+void *MRChannel_TryPop(MRChannel *chan);
+
 // Same as MRChannel_Pop, but does not lock the channel nor wait for results if it's empty.
 // This is unsafe, and should only be used when the caller is sure that the channel is not being used by other threads.
 void *MRChannel_UnsafeForcePop(MRChannel *chan);

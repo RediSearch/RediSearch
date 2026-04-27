@@ -265,11 +265,85 @@ static int processWarningsAndCleanup(RPNet *nc, bool is_resp3) {
   return RS_RESULT_OK;
 }
 
-int getNextReply(RPNet *nc) {
+// Process a non-NULL root reply: handle errors, profiling, and extract rows/meta.
+// Sets nc->current.{root, rows, meta} on success.
+static int processRootReply(RPNet *nc, MRReply *root) {
+  if (MRReply_Type(root) == MR_REPLY_ERROR) {
+    nc->current.root = root;
+    if (nc->cmd.forProfiling) {
+      MRReply *error = MRReply_Clone(root);
+      array_append(nc->shardsProfile, error);
+    }
+    return RS_RESULT_OK;
+  }
+
+  // For profile command, extract the profile data from the reply
+  if (nc->cmd.forProfiling) {
+    // if the cursor id is 0, this is the last reply from this shard, and it has the profile data
+    if (CURSOR_EOF == MRReply_Integer(MRReply_ArrayElement(root, 1))) {
+      MRReply *profile_data;
+      if (nc->cmd.protocol == 3) {
+        // [
+        //   {
+        //     "Results": { <FT.AGGREGATE reply> },
+        //     "Profile": { <profile data> }
+        //   },
+        //   cursor_id
+        // ]
+        MRReply *data = MRReply_ArrayElement(root, 0);
+        profile_data = MRReply_TakeMapElement(data, "profile");
+      } else {
+        // RESP2
+        RS_ASSERT(nc->cmd.protocol == 2);
+        // [
+        //   <FT.AGGREGATE reply>,
+        //   cursor_id,
+        //   <profile data>
+        // ]
+        RS_ASSERT(MRReply_Length(root) == 3);
+        profile_data = MRReply_TakeArrayElement(root, 2);
+      }
+      array_append(nc->shardsProfile, profile_data);
+    }
+  }
+
+  // Extract rows and meta from reply
+  MRReply *rows = NULL, *meta = NULL;
+  if (nc->cmd.protocol == 3) { // RESP3
+    meta = MRReply_ArrayElement(root, 0);
+    if (nc->cmd.forProfiling) {
+      meta = MRReply_MapElement(meta, "results"); // profile has an extra level
+    }
+    rows = MRReply_MapElement(meta, "results");
+  } else { // RESP2
+    rows = MRReply_ArrayElement(root, 0);
+  }
+
+  nc->current.root = root;
+  nc->current.rows = rows;
+  nc->current.meta = meta;
+
+  const size_t empty_rows_len = nc->cmd.protocol == 3 ? 0 : 1; // RESP2 has the first element as the number of results.
+  RS_LOG_ASSERT(rows && MRReply_Type(rows) == MR_REPLY_ARRAY, rows ? "rows is not an array" : "rows is NULL");
+  if (MRReply_Length(rows) <= empty_rows_len) {
+    RedisModule_Log(RSDummyContext, "verbose", "An empty reply was received from a shard");
+    int ret = processWarningsAndCleanup(nc, nc->cmd.protocol == 3);
+    if (ret == RS_RESULT_TIMEDOUT) {
+      return RS_RESULT_TIMEDOUT;
+    }
+  }
+
+  return RS_RESULT_OK;
+}
+
+// Unified implementation for getNextReply / getNextReply_NonBlocking.
+// When blocking=true, waits for replies (supports shardResponseBarrier).
+// When blocking=false, returns RS_RESULT_DEPLETING if no reply is immediately available.
+static int getNextReply_impl(RPNet *nc, bool blocking) {
   // Wait for all shards' first responses before returning any results
   // This ensures accurate total_results from the start
   MRReply *root = NULL;
-  if (nc->shardResponseBarrier && !nc->waitedForAllShards) {
+  if (blocking && nc->shardResponseBarrier && !nc->waitedForAllShards) {
     // Get at least 1 response from each shard
     // Notice: numShards is re-read on each iteration because it may initially be 0
     // (in case the IO thread iterStartCb did not run yet and did not initialize the barrier yet).
@@ -335,84 +409,27 @@ int getNextReply(RPNet *nc) {
         return RS_RESULT_EOF;
       }
     }
-    root = MRIterator_Next(nc->it);
+    root = blocking ? MRIterator_Next(nc->it) : MRIterator_TryNext(nc->it);
   }
 
   if (root == NULL) {
     RPNet_resetCurrent(nc);
-    return MRIterator_GetPending(nc->it) ? RS_RESULT_OK : RS_RESULT_EOF;
+    if (!MRIterator_GetPending(nc->it)) return RS_RESULT_EOF;
+    return blocking ? RS_RESULT_OK : RS_RESULT_DEPLETING;
   }
 
-  // Check if an error was returned
-  if (MRReply_Type(root) == MR_REPLY_ERROR) {
-    nc->current.root = root;
-    // If for profiling, clone and append the error
-    if (nc->cmd.forProfiling) {
-      // Clone the error and append it to the profile
-      MRReply *error = MRReply_Clone(root);
-      array_append(nc->shardsProfile, error);
-    }
-    return RS_RESULT_OK;
-  }
+  return processRootReply(nc, root);
+}
 
-  // For profile command, extract the profile data from the reply
-  if (nc->cmd.forProfiling) {
-    // if the cursor id is 0, this is the last reply from this shard, and it has the profile data
-    if (CURSOR_EOF == MRReply_Integer(MRReply_ArrayElement(root, 1))) {
-      MRReply *profile_data;
-      if (nc->cmd.protocol == 3) {
-        // [
-        //   {
-        //     "Results": { <FT.AGGREGATE reply> },
-        //     "Profile": { <profile data> }
-        //   },
-        //   cursor_id
-        // ]
-        MRReply *data = MRReply_ArrayElement(root, 0);
-        profile_data = MRReply_TakeMapElement(data, "profile");
-      } else {
-        // RESP2
-        RS_ASSERT(nc->cmd.protocol == 2);
-        // [
-        //   <FT.AGGREGATE reply>,
-        //   cursor_id,
-        //   <profile data>
-        // ]
-        RS_ASSERT(MRReply_Length(root) == 3);
-        profile_data = MRReply_TakeArrayElement(root, 2);
-      }
-      array_append(nc->shardsProfile, profile_data);
-    }
-  }
+int getNextReply(RPNet *nc) {
+  return getNextReply_impl(nc, true);
+}
 
-  // Extract rows and meta from reply
-  MRReply *rows = NULL, *meta = NULL;
-  if (nc->cmd.protocol == 3) { // RESP3
-    meta = MRReply_ArrayElement(root, 0);
-    if (nc->cmd.forProfiling) {
-      meta = MRReply_MapElement(meta, "results"); // profile has an extra level
-    }
-    rows = MRReply_MapElement(meta, "results");
-  } else { // RESP2
-    rows = MRReply_ArrayElement(root, 0);
-  }
-
-  nc->current.root = root;
-  nc->current.rows = rows;
-  nc->current.meta = meta;
-
-  const size_t empty_rows_len = nc->cmd.protocol == 3 ? 0 : 1; // RESP2 has the first element as the number of results.
-  RS_LOG_ASSERT(rows && MRReply_Type(rows) == MR_REPLY_ARRAY, rows ? "rows is not an array" : "rows is NULL");
-  if (MRReply_Length(rows) <= empty_rows_len) {
-    RedisModule_Log(RSDummyContext, "verbose", "An empty reply was received from a shard");
-    int ret = processWarningsAndCleanup(nc, nc->cmd.protocol == 3);
-
-    if (ret == RS_RESULT_TIMEDOUT) {
-      return RS_RESULT_TIMEDOUT;
-    }
-  }
-
-  return RS_RESULT_OK;
+int getNextReply_NonBlocking(RPNet *nc) {
+  // Non-blocking variant: does not support shardResponseBarrier (WITHCOUNT).
+  // Distributed hybrid sub-queries do not use WITHCOUNT, so this is fine.
+  RS_LOG_ASSERT(!nc->shardResponseBarrier, "Non-blocking getNextReply does not support shardResponseBarrier");
+  return getNextReply_impl(nc, false);
 }
 
 /**
@@ -442,8 +459,11 @@ int rpnetNext_StartWithMappings(ResultProcessor *rp, SearchResult *r) {
     rm_free(idx_copy);
 
     nc->it = MR_IterateWithPrivateData(&nc->cmd, netCursorCallback, NULL, NULL, NULL, iterCursorMappingCb, &nc->mappings);
+    if (nc->nonBlocking) {
+      nc->base.Next = rpnetNext_NonBlocking;
+      return rpnetNext_NonBlocking(rp, r);
+    }
     nc->base.Next = rpnetNext;
-
     return rpnetNext(rp, r);
 }
 
@@ -495,7 +515,10 @@ void RPNet_resetCurrent(RPNet *nc) {
     nc->current.meta = NULL;
 }
 
-int rpnetNext(ResultProcessor *self, SearchResult *r) {
+// Unified implementation for rpnetNext / rpnetNext_NonBlocking.
+// When blocking=true, uses getNextReply (waits for replies).
+// When blocking=false, uses getNextReply_NonBlocking (returns RS_RESULT_DEPLETING if empty).
+static int rpnetNext_impl(ResultProcessor *self, SearchResult *r, bool blocking) {
   RPNet *nc = (RPNet *)self;
   MRReply *root = nc->current.root, *rows = nc->current.rows;
   const bool resp3 = nc->cmd.protocol == 3;
@@ -544,12 +567,14 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
       MRIteratorCallback_ResetTimedOut(MRIterator_GetCtx(nc->it));
     }
 
-    int ret = getNextReply(nc);
+    int ret = blocking ? getNextReply(nc) : getNextReply_NonBlocking(nc);
     if (ret == RS_RESULT_EOF) {
       return RS_RESULT_EOF;
     } else if (ret == RS_RESULT_TIMEDOUT) {
       MRIteratorCallback_SetTimedOut(MRIterator_GetCtx(nc->it));
       return RS_RESULT_TIMEDOUT;
+    } else if (ret == RS_RESULT_DEPLETING) {
+      return RS_RESULT_DEPLETING;
     }
 
     // If an error was returned, propagate it
@@ -558,8 +583,8 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
       // TODO - use should_return_error after it is changed to support RequestConfig ptr
       if (errCode == QUERY_ERROR_CODE_GENERIC ||
           errCode == QUERY_ERROR_CODE_UNAVAILABLE_SLOTS ||
-          ((errCode == QUERY_ERROR_CODE_TIMED_OUT) && nc -> areq -> reqConfig.timeoutPolicy == TimeoutPolicy_Fail) ||
-          ((errCode == QUERY_ERROR_CODE_OUT_OF_MEMORY) && nc -> areq -> reqConfig.oomPolicy == OomPolicy_Fail)) {
+          ((errCode == QUERY_ERROR_CODE_TIMED_OUT) && nc->areq->reqConfig.timeoutPolicy == TimeoutPolicy_Fail) ||
+          ((errCode == QUERY_ERROR_CODE_OUT_OF_MEMORY) && nc->areq->reqConfig.oomPolicy == OomPolicy_Fail)) {
         // The shard reply already contains the prefixed error string — set it directly
         // without re-prefixing via QueryError_SetError.
         QueryError_SetCode(AREQ_QueryProcessingCtx(nc->areq)->err, errCode);
@@ -637,6 +662,14 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
   return RS_RESULT_OK;
 }
 
+int rpnetNext(ResultProcessor *self, SearchResult *r) {
+  return rpnetNext_impl(self, r, true);
+}
+
 int rpnetNext_EOF(ResultProcessor *self, SearchResult *r) {
   return RS_RESULT_EOF;
+}
+
+int rpnetNext_NonBlocking(ResultProcessor *self, SearchResult *r) {
+  return rpnetNext_impl(self, r, false);
 }
