@@ -270,8 +270,8 @@ def test_geo_index_failures(env):
 
   env.expect('ft.create', 'idx', 'SCHEMA', 'g', 'geo').ok()
 
-  # Insert two documents, one with a geo string longer than 128 bytes and one valid.
-  # The long string should trigger the length validation in parseGeo.
+  # Insert two documents, one with a long nonsense geo string and one valid.
+  # The long string has no separator and should be rejected as invalid.
 
   long_geo = 'x' * 129
   con.execute_command('hset', 'doc{1}', 'g', long_geo)
@@ -279,7 +279,7 @@ def test_geo_index_failures(env):
 
   expected_error_dict = {
                           indexing_failures_str: 1,
-                          last_indexing_error_str: 'SEARCH_PARSE_ARGS Geo string cannot be longer than 128 bytes',
+                          last_indexing_error_str: 'SEARCH_PARSE_ARGS Invalid geo string',
                           last_indexing_error_key_str: 'doc{1}',
                         }
 
