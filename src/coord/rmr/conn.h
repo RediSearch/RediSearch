@@ -59,6 +59,7 @@ typedef struct {
   MRConnState state;
   void *timer;
   int protocol; // 0 (undetermined), 2, or 3
+  unsigned authFailCount; // consecutive auth failures, for rate-limited logging
 } MRConn;
 
 /* A pool indexes connections by the node id */
@@ -98,3 +99,7 @@ void MRConnManager_Shrink(MRConnManager *m, size_t num);
 void MRConnManager_Expand(MRConnManager *m, size_t num);
 
 void MRConnManager_Free(MRConnManager *m);
+
+/* Get the state string for a specific node by id, return NULL if not in the pool.
+ * Must be called from the uv event loop thread, as mgr->map is not thread-safe. */
+const char *MRConnManager_GetNodeState(MRConnManager *mgr, const char *id);

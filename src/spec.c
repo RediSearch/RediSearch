@@ -1587,6 +1587,11 @@ StrongRef IndexSpec_Parse(const HiddenString *name, const char **argv, int argc,
       goto failure;
     }
   }
+  if ((spec->flags & Index_WideSchema) && !(spec->flags & Index_StoreFieldFlags)) {
+    QueryError_SetError(status, QUERY_EINVAL,
+                        SPEC_SCHEMA_EXPANDABLE_STR " cannot be used with " SPEC_NOFIELDS_STR);
+    goto failure;
+  }
 
   if (timeout != -1) {
     spec->flags |= Index_Temporary;
@@ -3011,23 +3016,42 @@ void IndexSpec_RdbSave(RedisModuleIO *rdb, IndexSpec *sp) {
   }
 }
 
+static void IndexSpec_NormalizeStorageFlagsOnLoad(IndexFlags *flags) {
+  if ((*flags & Index_WideSchema) && !(*flags & Index_StoreFieldFlags)) {
+    *flags &= ~Index_WideSchema;
+    RedisModule_Log(RSDummyContext, "warning", "Ignoring %s because %s is set",
+                    SPEC_SCHEMA_EXPANDABLE_STR, SPEC_NOFIELDS_STR);
+  }
+}
+
 IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, QueryError *status) {
-  char *rawName = LoadStringBuffer_IOError(rdb, NULL, goto cleanup_no_index);
-  size_t len = strlen(rawName);
-  HiddenString* specName = NewHiddenString(rawName, len, true);
+  char *rawName = NULL;
+  size_t len = 0;
+  HiddenString* specName = NULL;
+  IndexSpec *sp = NULL;
+  StrongRef spec_ref = {0};
+  IndexFlags flags = 0;
+  uint64_t numFields_u64 = 0;
+  size_t narr = 0;
+
+  rawName = LoadStringBuffer_IOError(rdb, NULL, goto cleanup_no_index);
+  len = strlen(rawName);
+  specName = NewHiddenString(rawName, len, true);
   RedisModule_Free(rawName);
 
-  IndexSpec *sp = rm_calloc(1, sizeof(IndexSpec));
-  StrongRef spec_ref = StrongRef_New(sp, (RefManager_Free)IndexSpec_Free);
+  sp = rm_calloc(1, sizeof(IndexSpec));
+  spec_ref = StrongRef_New(sp, (RefManager_Free)IndexSpec_Free);
   sp->own_ref = spec_ref;
 
   // Note: indexError, fieldIdToIndex, docs, specName, obfuscatedName, terms, and monitor flags are already initialized in initializeIndexSpec
-  IndexFlags flags = (IndexFlags)LoadUnsigned_IOError(rdb, goto cleanup);
+  flags = (IndexFlags)LoadUnsigned_IOError(rdb, goto cleanup);
   // Note: monitorDocumentExpiration and monitorFieldExpiration are already set in initializeIndexSpec
   if (encver < INDEX_MIN_NOFREQ_VERSION) {
     flags |= Index_StoreFreqs;
   }
-  uint64_t numFields_u64 = LoadUnsigned_IOError(rdb, goto cleanup);
+  IndexSpec_NormalizeStorageFlagsOnLoad(&flags);
+
+  numFields_u64 = LoadUnsigned_IOError(rdb, goto cleanup);
 
   if (unlikely(numFields_u64 > SPEC_MAX_FIELDS)) {
     QueryError_SetWithoutUserDataFmt(status, QUERY_ELIMIT,
@@ -3084,7 +3108,7 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, QueryError *status)
 
   sp->timeout = LoadUnsigned_IOError(rdb, goto cleanup);
 
-  size_t narr = LoadUnsigned_IOError(rdb, goto cleanup);
+  narr = LoadUnsigned_IOError(rdb, goto cleanup);
   for (size_t ii = 0; ii < narr; ++ii) {
     QueryError _status;
     char *s = LoadStringBuffer_IOError(rdb, NULL, goto cleanup);
@@ -3170,6 +3194,7 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   if (encver < INDEX_MIN_NOFREQ_VERSION) {
     sp->flags |= Index_StoreFreqs;
   }
+  IndexSpec_NormalizeStorageFlagsOnLoad(&sp->flags);
 
   uint64_t numFields_u64 = RedisModule_LoadUnsigned(rdb);
 

@@ -21,3 +21,4 @@ jobs:
     secrets: inherit
     with:
       platform: alpine:3.22
+      redis-ref: unstable

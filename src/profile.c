@@ -15,7 +15,12 @@ void printReadIt(RedisModule_Reply *reply, IndexIterator *root, size_t counter, 
   IndexReader *ir = root->ctx;
 
   RedisModule_Reply_Map(reply);
-  if (ir->idx->flags == Index_DocIdsOnly) {
+  if (ir->filterCtx.predicate == FIELD_EXPIRATION_MISSING) {
+    printProfileType("MISSING");
+    size_t fieldLen = 0;
+    const char *fieldName = HiddenString_GetUnsafe(ir->sctx->spec->fields[ir->filterCtx.field.value.index].fieldName, &fieldLen);
+    RedisModule_ReplyKV_StringBuffer(reply, "Field", fieldName, fieldLen);
+  } else if (ir->idx->flags == Index_DocIdsOnly) {
     if (ir->record->data.term.term != NULL) {
       printProfileType("TAG");
       REPLY_KVSTR_SAFE("Term", ir->record->data.term.term->str);

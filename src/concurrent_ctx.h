@@ -168,6 +168,8 @@ int ConcurrentSearch_pause();
 
 int ConcurrentSearch_resume();
 
+thpool_stats ConcurrentSearch_getStats();
+
 #ifdef __cplusplus
 }
 #endif

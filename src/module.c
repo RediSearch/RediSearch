@@ -34,6 +34,7 @@
 #include "cursor.h"
 #include "debug_commands.h"
 #include "spell_check.h"
+#include "query_param.h"
 #include "dictionary.h"
 #include "suggest.h"
 #include "numeric_index.h"
@@ -277,9 +278,25 @@ int SpellCheckCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   const char **includeDict = NULL, **excludeDict = NULL;
   RSSearchOptions opts = {0};
   QueryAST qast = {0};
-  int rc = QAST_Parse(&qast, sctx, &opts, rawQuery, len, dialect, &status);
 
-  if (rc != REDISMODULE_OK) {
+  // Parse PARAMS if present
+  int paramsArgIndex = RMUtil_ArgExists("PARAMS", argv, argc, argvOffset);
+  if (paramsArgIndex > 0) {
+    ArgsCursor ac;
+    ArgsCursor_InitRString(&ac, argv + paramsArgIndex + 1, argc - paramsArgIndex - 1);
+    if (parseParams(&opts.params, &ac, &status) != REDISMODULE_OK) {
+      RedisModule_ReplyWithError(ctx, QueryError_GetUserError(&status));
+      goto end;
+    }
+  }
+
+  if (QAST_Parse(&qast, sctx, &opts, rawQuery, len, dialect, &status) != REDISMODULE_OK) {
+    RedisModule_ReplyWithError(ctx, QueryError_GetUserError(&status));
+    goto end;
+  }
+
+  // Evaluate parameters in the parsed query AST
+  if (QAST_EvalParams(&qast, &opts, dialect, &status) != REDISMODULE_OK) {
     RedisModule_ReplyWithError(ctx, QueryError_GetUserError(&status));
     goto end;
   }
@@ -339,6 +356,9 @@ int SpellCheckCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
 end:
   QueryError_ClearError(&status);
+  if (opts.params) {
+    Param_DictFree(opts.params);
+  }
   if (includeDict != NULL) {
     array_free(includeDict);
   }
@@ -767,7 +787,7 @@ int SynDumpCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (!sp->smap) {
     return RedisModule_ReplyWithMapOrArray(ctx, 0, false);
   }
-  
+
   CurrentThread_SetIndexSpec(ref);
 
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
@@ -2846,9 +2866,11 @@ static void profileSearchReply(RedisModule_Reply *reply, searchReducerCtx *rCtx,
 static void searchResultReducer_wrapper(void *mc_v) {
   struct MRCtx *mc = mc_v;
   searchResultReducer(mc, MRCtx_GetNumReplied(mc), MRCtx_GetReplies(mc));
+  MRCtx_DecrRef(mc);
 }
 
 static int searchResultReducer_background(struct MRCtx *mc, int count, MRReply **replies) {
+  MRCtx_IncrRef(mc);
   ConcurrentSearch_ThreadPoolRun(searchResultReducer_wrapper, mc, DIST_THREADPOOL);
   return REDISMODULE_OK;
 }
@@ -2996,17 +3018,12 @@ cleanup:
   }
 
   RedisModule_BlockedClientMeasureTimeEnd(bc);
+  // Reducer already replied — unblock with NULL to prevent
+  // DistSearchUnblockClient from double-replying.
   RedisModule_UnblockClient(bc, NULL);
   RedisModule_FreeThreadSafeContext(ctx);
-  // We could pass `mc` to the unblock function to perform the next 3 cleanup steps, but
-  // this way we free the memory from the background after the client is unblocked,
-  // which is a bit more efficient.
-  // The unblocking callback also replies with error if there was 0 replies from the shards,
-  // and since we already replied with error in this case (in the beginning of this function),
-  // we can't pass `mc` to the unblock function.
-  searchRequestCtx_Free(req);
-  MR_requestCompleted();
-  MRCtx_Free(mc);
+  // Compensate for DistSearchFreePrivData not receiving mc.
+  MRCtx_DecrRef(mc);
   return res;
 }
 
@@ -3381,17 +3398,24 @@ void sendRequiredFields(searchRequestCtx *req, MRCommand *cmd) {
 }
 
 static void bailOut(RedisModuleBlockedClient *bc, QueryError *status) {
+  struct MRCtx *mrctx = RedisModule_BlockClientGetPrivateData(bc);
   RedisModuleCtx* clientCtx = RedisModule_GetThreadSafeContext(bc);
   QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(status), 1, COORD_ERR_WARN);
   QueryError_ReplyAndClear(clientCtx, status);
   RedisModule_BlockedClientMeasureTimeEnd(bc);
+  // Unblock with NULL since we already replied. DistSearchUnblockClient will
+  // see NULL privdata and skip replying, avoiding a double-reply.
+  // Manually DecrRef mrctx to compensate for DistSearchFreePrivData not
+  // receiving it (it gets NULL and does nothing).
   RedisModule_UnblockClient(bc, NULL);
   RedisModule_FreeThreadSafeContext(clientCtx);
+  MRCtx_DecrRef(mrctx);
 }
 
-static int prepareCommand(MRCommand *cmd, searchRequestCtx *req, RedisModuleBlockedClient *bc, int protocol,
+static int prepareCommand(MRCommand *cmd, searchRequestCtx *req, struct MRCtx *mrctx, int protocol,
   RedisModuleString **argv, int argc, WeakRef spec_ref, QueryError *status) {
 
+  RedisModuleBlockedClient *bc = MRCtx_GetBlockedClient(mrctx);
   cmd->protocol = protocol;
 
   // Handle KNN with shard ratio optimization for both multi-shard and standalone
@@ -3447,7 +3471,7 @@ static int prepareCommand(MRCommand *cmd, searchRequestCtx *req, RedisModuleBloc
   IndexSpec *sp = StrongRef_Get(strong_ref);
   if (!sp) {
     MRCommand_Free(cmd);
-    searchRequestCtx_Free(req);
+    // Don't free req here - DistSearchMRCtxFreePrivData will handle it via MRCtx cleanup
     QueryError_SetCode(status, QUERY_EDROPPEDBACKGROUND);
     bailOut(bc, status);
     return REDISMODULE_ERR;
@@ -3475,41 +3499,48 @@ static int prepareCommand(MRCommand *cmd, searchRequestCtx *req, RedisModuleBloc
   return REDISMODULE_OK;
 }
 
-static searchRequestCtx *createReq(RedisModuleString **argv, int argc, RedisModuleBlockedClient *bc, QueryError *status) {
-  searchRequestCtx *req = rscParseRequest(argv, argc, status);
-
-  if (!req) {
-    bailOut(bc, status);
-    return NULL;
-  }
-  return req;
-}
-
-int FlatSearchCommandHandler(RedisModuleBlockedClient *bc, int protocol,
+int FlatSearchCommandHandler(struct MRCtx *mrctx, int protocol,
   RedisModuleString **argv, int argc, ConcurrentSearchHandlerCtx *handlerCtx) {
   QueryError status = {0};
 
-  searchRequestCtx *req = createReq(argv, argc, bc, &status);
-
-  if (!req) {
-    return REDISMODULE_OK;
-  }
+  // req was created on the main thread and set as mrctx privdata
+  searchRequestCtx *req = MRCtx_GetPrivData(mrctx);
+  RS_ASSERT(req);
 
   // Copy coordinator queue time for profile output
   req->coordQueueTime = handlerCtx->coordQueueTime;
 
   MRCommand cmd = MR_NewCommandFromRedisStrings(argc, argv);
-  int rc = prepareCommand(&cmd, req, bc, protocol, argv, argc, handlerCtx->spec_ref, &status);
+  int rc = prepareCommand(&cmd, req, mrctx, protocol, argv, argc, handlerCtx->spec_ref, &status);
   if (!(rc == REDISMODULE_OK)) {
     return REDISMODULE_OK;
   }
 
-  // Here we have an unsafe read of `NumShards`. This is fine because its just a hint.
-  struct MRCtx *mrctx = MR_CreateCtx(0, bc, req, NumShards);
+  // FT.SEARCH coordinator should validate connections before sending the command to the cluster
+  MRCtx_SetValidateConnections(mrctx, true);
 
   MRCtx_SetReduceFunction(mrctx, searchResultReducer_background);
   MR_Fanout(mrctx, NULL, cmd, false);
   return REDISMODULE_OK;
+}
+
+static void DistSearchMRCtxFreePrivData(struct MRCtx *mrctx) {
+  searchRequestCtx *req = MRCtx_GetPrivData(mrctx);
+  if (!req) {
+    return;
+  }
+  searchRequestCtx_Free(req);
+}
+
+// Free privdata callback for distributed search.
+// Called after the reply callback (or timeout callback) completes.
+// Releases only the blocked-client reference; MRCtx cleanup runs on the final release.
+static void DistSearchFreePrivData(RedisModuleCtx *ctx, void *privdata) {
+  // UNUSED(ctx);
+  if (privdata) {
+    struct MRCtx *mrctx = privdata;
+    MRCtx_DecrRef(mrctx);
+  }
 }
 
 typedef struct SearchCmdCtx {
@@ -3517,6 +3548,7 @@ typedef struct SearchCmdCtx {
   int argc;
   RedisModuleBlockedClient* bc;
   int protocol;
+  struct MRCtx *mrctx;
   ConcurrentSearchHandlerCtx handlerCtx;
 } SearchCmdCtx;
 
@@ -3525,26 +3557,25 @@ static void DistSearchCommandHandler(void* pd) {
   if (sCmdCtx->handlerCtx.isProfile) {
     sCmdCtx->handlerCtx.coordQueueTime = rs_wall_clock_now_ns() - sCmdCtx->handlerCtx.coordStartTime;
   }
-  FlatSearchCommandHandler(sCmdCtx->bc, sCmdCtx->protocol, sCmdCtx->argv, sCmdCtx->argc, &sCmdCtx->handlerCtx);
+  FlatSearchCommandHandler(sCmdCtx->mrctx, sCmdCtx->protocol, sCmdCtx->argv, sCmdCtx->argc, &sCmdCtx->handlerCtx);
   for (size_t i = 0 ; i < sCmdCtx->argc ; ++i) {
     RedisModule_FreeString(NULL, sCmdCtx->argv[i]);
   }
   rm_free(sCmdCtx->argv);
+  MRCtx_DecrRef(sCmdCtx->mrctx);
   rm_free(sCmdCtx);
 }
 
-// If the client is unblocked with a private data, we have to free it.
-// This currently happens only when the client is unblocked without calling its reduce function,
-// because we expect 0 replies. This function handles this case as well.
+// Reply callback for the blocked client. Called when the client is unblocked.
+// The privdata passed to UnblockClient is the MRCtx. Cleanup is handled by
+// DistSearchFreePrivData (the free_privdata callback).
 static int DistSearchUnblockClient(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  // Nothing to do here - the reducer already replied to the client.
+  // If no reducer ran (0 replies), we need to reply with an error.
   struct MRCtx *mrctx = RedisModule_GetBlockedClientPrivateData(ctx);
-  if (mrctx) {
-    if (MRCtx_GetNumReplied(mrctx) == 0) {
-      RedisModule_ReplyWithError(ctx, "Could not send query to cluster");
-    }
-    searchRequestCtx_Free(MRCtx_GetPrivData(mrctx));
-    MR_requestCompleted();
-    MRCtx_Free(mrctx);
+  if (mrctx && MRCtx_GetNumReplied(mrctx) == 0) {
+    // Can happen in a topology error, before or after we sent the command to the cluster
+    RedisModule_ReplyWithError(ctx, "Could not send query to cluster");
   }
   return REDISMODULE_OK;
 }
@@ -3595,12 +3626,42 @@ int DistSearchCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     return ReplyBlockDeny(ctx, argv[0]);
   }
 
+  QueryError parseStatus = {0};
+  int parse_argc = argc;
+  if (isDebug) {
+    AREQ_Debug_params debug_params = parseDebugParamsCount(argv, argc, &parseStatus);
+    if (QueryError_HasError(&parseStatus)) {
+      QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&parseStatus), 1, COORD_ERR_WARN);
+      return QueryError_ReplyAndClear(ctx, &parseStatus);
+    }
+    parse_argc = argc - (debug_params.debug_params_count + 2);
+  }
+
+  // Parse the search request on the main thread so both the standard and debug
+  // paths attach req to mrctx before dispatching to the worker thread.
+  searchRequestCtx *req = rscParseRequest(argv, parse_argc, &parseStatus);
+  if (!req) {
+    QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&parseStatus), 1, COORD_ERR_WARN);
+    return QueryError_ReplyAndClear(ctx, &parseStatus);
+  }
+
+  // Create MRCtx on main thread with searchRequestCtx as privdata.
+  // NumShards is used as a hint for reply capacity - unsafe read is fine.
+  struct MRCtx *mrctx = MR_CreateCtx(ctx, NULL, req, NumShards);
+  MRCtx_SetFreePrivDataCB(mrctx, DistSearchMRCtxFreePrivData);
+
+  // Block client - MRCtx is set as privdata so unblock/free callbacks can access it
+  RedisModuleBlockedClient* bc = RedisModule_BlockClient(ctx, DistSearchUnblockClient, NULL, DistSearchFreePrivData, 0);
+  MRCtx_SetBlockedClient(mrctx, bc);
+
+  // Set MRCtx as privdata for the blocked client
+  RedisModule_BlockClientSetPrivateData(bc, mrctx);
+
   SearchCmdCtx* sCmdCtx = rm_malloc(sizeof(*sCmdCtx));
   sCmdCtx->handlerCtx.spec_ref = StrongRef_Demote(spec_ref);
   sCmdCtx->handlerCtx.coordStartTime = coordInitialTime;
   sCmdCtx->handlerCtx.coordQueueTime = 0;
   sCmdCtx->handlerCtx.isProfile = isProfile;
-  RedisModuleBlockedClient* bc = RedisModule_BlockClient(ctx, DistSearchUnblockClient, NULL, NULL, 0);
   sCmdCtx->argv = rm_malloc(sizeof(RedisModuleString*) * argc);
   for (size_t i = 0 ; i < argc ; ++i) {
     // We need to copy the argv because it will be freed in the callback (from another thread).
@@ -3608,8 +3669,10 @@ int DistSearchCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   }
   sCmdCtx->argc = argc;
   sCmdCtx->bc = bc;
+  sCmdCtx->mrctx = mrctx;
   sCmdCtx->protocol = is_resp3(ctx) ? 3 : 2;
   RedisModule_BlockedClientMeasureTimeStart(bc);
+  MRCtx_IncrRef(mrctx);
 
   ConcurrentSearch_ThreadPoolRun(dist_callback, sCmdCtx, DIST_THREADPOOL);
 
@@ -3868,23 +3931,15 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     RedisModule_Log(ctx, "warning", "Redis version does not support ACL API necessary for index protection");
   }
 
-  // read commands
-  if (clusterConfig.type == ClusterType_RedisLabs) {
-    RM_TRY(RMCreateSearchCommand(ctx, "FT.AGGREGATE",
-           SafeCmd(DistAggregateCommand), "readonly", 0, 1, -2, "read", false))
-  } else {
-    RM_TRY(RMCreateSearchCommand(ctx, "FT.AGGREGATE",
-           SafeCmd(DistAggregateCommand), "readonly", 0, 0, -1, "read", false))
-  }
-  RM_TRY(RMCreateSearchCommand(ctx, "FT.INFO", SafeCmd(InfoCommandHandler), "readonly", 0, 0, -1, "", false))
-  RM_TRY(RMCreateSearchCommand(ctx, "FT.SEARCH", SafeCmd(DistSearchCommand), "readonly", 0, 0, -1, "read", false))
-  RM_TRY(RMCreateSearchCommand(ctx, "FT.PROFILE", SafeCmd(ProfileCommandHandler), "readonly", 0, 0, -1, "read", false))
-  if (clusterConfig.type == ClusterType_RedisLabs) {
-    RM_TRY(RMCreateSearchCommand(ctx, "FT.CURSOR", SafeCmd(CursorCommand), "readonly", 3, 1, -3, "read", false))
-  } else {
-    RM_TRY(RMCreateSearchCommand(ctx, "FT.CURSOR", SafeCmd(CursorCommand), "readonly", 0, 0, -1, "read", false))
-  }
-  RM_TRY(RMCreateSearchCommand(ctx, "FT.SPELLCHECK", SafeCmd(SpellCheckCommandHandler), "readonly", 0, 0, -1, "", false))
+  // Coordinator commands don't operate on Redis keys.
+  // The enterprise proxy gets any special routing metadata from pack/ramp-enterprise.yml.
+  RM_TRY(RMCreateSearchCommand(ctx, "FT.AGGREGATE",
+         SafeCmd(DistAggregateCommand), "readonly", 0, 0, 0, "read", false))
+  RM_TRY(RMCreateSearchCommand(ctx, "FT.INFO", SafeCmd(InfoCommandHandler), "readonly", 0, 0, 0, "", false))
+  RM_TRY(RMCreateSearchCommand(ctx, "FT.SEARCH", SafeCmd(DistSearchCommand), "readonly", 0, 0, 0, "read", false))
+  RM_TRY(RMCreateSearchCommand(ctx, "FT.PROFILE", SafeCmd(ProfileCommandHandler), "readonly", 0, 0, 0, "read", false))
+  RM_TRY(RMCreateSearchCommand(ctx, "FT.CURSOR", SafeCmd(CursorCommand), "readonly", 0, 0, 0, "read", false))
+  RM_TRY(RMCreateSearchCommand(ctx, "FT.SPELLCHECK", SafeCmd(SpellCheckCommandHandler), "readonly", 0, 0, 0, "", false))
   // Assumes "_FT.DEBUG" is registered (from `RediSearch_InitModuleInternal`)
   RM_TRY(RegisterCoordDebugCommands(RedisModule_GetCommand(ctx, "_FT.DEBUG")));
 
@@ -3896,48 +3951,48 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     }
     RedisModule_Log(ctx, "notice", "Register write commands");
     // write commands (on enterprise we do not define them, the dmc take care of them)
-    RM_TRY(RMCreateSearchCommand(ctx, "FT.CREATE", SafeCmd(FanoutCommandHandlerIndexless), "write deny-oom", 0, 0, -1, "", false))
-    RM_TRY(RMCreateSearchCommand(ctx, "FT._CREATEIFNX", SafeCmd(FanoutCommandHandlerIndexless), "write deny-oom", 0, 0, -1, "", false))
-    RM_TRY(RMCreateSearchCommand(ctx, "FT.ALTER", SafeCmd(FanoutCommandHandlerWithIndexAtFirstArg), "write deny-oom", 0, 0, -1, "", false))
-    RM_TRY(RMCreateSearchCommand(ctx, "FT._ALTERIFNX", SafeCmd(FanoutCommandHandlerWithIndexAtFirstArg), "write deny-oom", 0, 0, -1, "", false))
-    RM_TRY(RMCreateSearchCommand(ctx, "FT.DROPINDEX", SafeCmd(FanoutCommandHandlerWithIndexAtFirstArg), "write",0, 0, -1, "write slow dangerous", false))
+    RM_TRY(RMCreateSearchCommand(ctx, "FT.CREATE", SafeCmd(FanoutCommandHandlerIndexless), "write deny-oom", 0, 0, 0, "", false))
+    RM_TRY(RMCreateSearchCommand(ctx, "FT._CREATEIFNX", SafeCmd(FanoutCommandHandlerIndexless), "write deny-oom", 0, 0, 0, "", false))
+    RM_TRY(RMCreateSearchCommand(ctx, "FT.ALTER", SafeCmd(FanoutCommandHandlerWithIndexAtFirstArg), "write deny-oom", 0, 0, 0, "", false))
+    RM_TRY(RMCreateSearchCommand(ctx, "FT._ALTERIFNX", SafeCmd(FanoutCommandHandlerWithIndexAtFirstArg), "write deny-oom", 0, 0, 0, "", false))
+    RM_TRY(RMCreateSearchCommand(ctx, "FT.DROPINDEX", SafeCmd(FanoutCommandHandlerWithIndexAtFirstArg), "write",0, 0, 0, "write slow dangerous", false))
     // TODO: Either make ALL replication commands internal (such that no need for ACL check), or add ACL check.
-    RM_TRY(RMCreateSearchCommand(ctx, "FT._DROPINDEXIFX", SafeCmd(FanoutCommandHandlerIndexless), "write",0, 0, -1, "write slow dangerous", false))
+    RM_TRY(RMCreateSearchCommand(ctx, "FT._DROPINDEXIFX", SafeCmd(FanoutCommandHandlerIndexless), "write",0, 0, 0, "write slow dangerous", false))
     // search write slow dangerous
-    RM_TRY(RMCreateSearchCommand(ctx, "FT.DICTADD", SafeCmd(FanoutCommandHandlerIndexless), "write deny-oom", 0, 0, -1, "", false))
-    RM_TRY(RMCreateSearchCommand(ctx, "FT.DICTDEL", SafeCmd(FanoutCommandHandlerIndexless), "write", 0, 0, -1, "", false))
-    RM_TRY(RMCreateSearchCommand(ctx, "FT.ALIASADD", SafeCmd(FanoutCommandHandlerWithIndexAtSecondArg), "write deny-oom", 0, 0, -1, "", false))
-    RM_TRY(RMCreateSearchCommand(ctx, "FT._ALIASADDIFNX", SafeCmd(FanoutCommandHandlerIndexless), "write deny-oom", 0, 0, -1, "", false))
-    RM_TRY(RMCreateSearchCommand(ctx, "FT.ALIASDEL", SafeCmd(FanoutCommandHandlerIndexless), "write", 0, 0, -1, "", false))
-    RM_TRY(RMCreateSearchCommand(ctx, "FT._ALIASDELIFX", SafeCmd(FanoutCommandHandlerIndexless), "write", 0, 0, -1, "", false))
-    RM_TRY(RMCreateSearchCommand(ctx, "FT.ALIASUPDATE", SafeCmd(FanoutCommandHandlerWithIndexAtSecondArg), "write deny-oom", 0, 0, -1, "", false))
-    RM_TRY(RMCreateSearchCommand(ctx, "FT.SYNUPDATE", SafeCmd(FanoutCommandHandlerWithIndexAtFirstArg),"write deny-oom", 0, 0, -1, "", false))
+    RM_TRY(RMCreateSearchCommand(ctx, "FT.DICTADD", SafeCmd(FanoutCommandHandlerIndexless), "write deny-oom", 0, 0, 0, "", false))
+    RM_TRY(RMCreateSearchCommand(ctx, "FT.DICTDEL", SafeCmd(FanoutCommandHandlerIndexless), "write", 0, 0, 0, "", false))
+    RM_TRY(RMCreateSearchCommand(ctx, "FT.ALIASADD", SafeCmd(FanoutCommandHandlerWithIndexAtSecondArg), "write deny-oom", 0, 0, 0, "", false))
+    RM_TRY(RMCreateSearchCommand(ctx, "FT._ALIASADDIFNX", SafeCmd(FanoutCommandHandlerIndexless), "write deny-oom", 0, 0, 0, "", false))
+    RM_TRY(RMCreateSearchCommand(ctx, "FT.ALIASDEL", SafeCmd(FanoutCommandHandlerIndexless), "write", 0, 0, 0, "", false))
+    RM_TRY(RMCreateSearchCommand(ctx, "FT._ALIASDELIFX", SafeCmd(FanoutCommandHandlerIndexless), "write", 0, 0, 0, "", false))
+    RM_TRY(RMCreateSearchCommand(ctx, "FT.ALIASUPDATE", SafeCmd(FanoutCommandHandlerWithIndexAtSecondArg), "write deny-oom", 0, 0, 0, "", false))
+    RM_TRY(RMCreateSearchCommand(ctx, "FT.SYNUPDATE", SafeCmd(FanoutCommandHandlerWithIndexAtFirstArg),"write deny-oom", 0, 0, 0, "", false))
 
     // Deprecated OSS commands
-    RM_TRY(RMCreateSearchCommand(ctx, "FT.GET", SafeCmd(SingleShardCommandHandlerWithIndexAtFirstArg), "readonly", 0, 0, -1, "read", false))
-    RM_TRY(RMCreateSearchCommand(ctx, "FT.ADD", SafeCmd(SingleShardCommandHandlerWithIndexAtFirstArg), "write deny-oom", 0, 0, -1, "write", false))
-    RM_TRY(RMCreateSearchCommand(ctx, "FT.DEL", SafeCmd(SingleShardCommandHandlerWithIndexAtFirstArg), "write", 0, 0, -1, "write", false))
-    RM_TRY(RMCreateSearchCommand(ctx, "FT.DROP", SafeCmd(FanoutCommandHandlerWithIndexAtFirstArg), "write", 0, 0, -1, "write slow dangerous", false))
-    RM_TRY(RMCreateSearchCommand(ctx, "FT._DROPIFX", SafeCmd(FanoutCommandHandlerIndexless), "write", 0, 0, -1, "write", false))
+    RM_TRY(RMCreateSearchCommand(ctx, "FT.GET", SafeCmd(SingleShardCommandHandlerWithIndexAtFirstArg), "readonly", 0, 0, 0, "read", false))
+    RM_TRY(RMCreateSearchCommand(ctx, "FT.ADD", SafeCmd(SingleShardCommandHandlerWithIndexAtFirstArg), "write deny-oom", 0, 0, 0, "write", false))
+    RM_TRY(RMCreateSearchCommand(ctx, "FT.DEL", SafeCmd(SingleShardCommandHandlerWithIndexAtFirstArg), "write", 0, 0, 0, "write", false))
+    RM_TRY(RMCreateSearchCommand(ctx, "FT.DROP", SafeCmd(FanoutCommandHandlerWithIndexAtFirstArg), "write", 0, 0, 0, "write slow dangerous", false))
+    RM_TRY(RMCreateSearchCommand(ctx, "FT._DROPIFX", SafeCmd(FanoutCommandHandlerIndexless), "write", 0, 0, 0, "write", false))
 #endif
 
   // cluster set commands. We filter from the proxy, but do not mark them as internal.
   RM_TRY(RMCreateSearchCommand(ctx, REDISEARCH_MODULE_NAME".CLUSTERSET",
          SafeCmd(SetClusterCommand),
          IsEnterprise() ? "readonly allow-loading deny-script " CMD_PROXY_FILTERED : "readonly allow-loading deny-script",
-         0, 0, -1, "", false))
+         0, 0, 0, "", false))
   RM_TRY(RMCreateSearchCommand(ctx, REDISEARCH_MODULE_NAME".CLUSTERREFRESH",
          SafeCmd(RefreshClusterCommand),
          IsEnterprise() ? "readonly deny-script " CMD_PROXY_FILTERED : "readonly deny-script",
-         0, 0, -1, "", false))
+         0, 0, 0, "", false))
   RM_TRY(RMCreateSearchCommand(ctx, REDISEARCH_MODULE_NAME".CLUSTERINFO",
          SafeCmd(ClusterInfoCommand),
          IsEnterprise() ? "readonly allow-loading deny-script " CMD_PROXY_FILTERED : "readonly allow-loading deny-script",
-         0, 0, -1, "", false))
+         0, 0, 0, "", false))
 
   // Deprecated commands. Grouped here for easy tracking
-  RM_TRY(RMCreateSearchCommand(ctx, "FT.MGET", SafeCmd(MGetCommandHandler), "readonly", 0, 0, -1, "read", false))
-  RM_TRY(RMCreateSearchCommand(ctx, "FT.TAGVALS", SafeCmd(TagValsCommandHandler), "readonly", 0, 0, -1, "read slow dangerous", false))
+  RM_TRY(RMCreateSearchCommand(ctx, "FT.MGET", SafeCmd(MGetCommandHandler), "readonly", 0, 0, 0, "read", false))
+  RM_TRY(RMCreateSearchCommand(ctx, "FT.TAGVALS", SafeCmd(TagValsCommandHandler), "readonly", 0, 0, 0, "read slow dangerous", false))
 
   return REDISMODULE_OK;
 }
@@ -3972,7 +4027,7 @@ int RedisModule_OnUnload(RedisModuleCtx *ctx) {
 }
 /* ======================= DEBUG ONLY ======================= */
 
-static int DEBUG_FlatSearchCommandHandler(RedisModuleBlockedClient *bc, int protocol,
+static int DEBUG_FlatSearchCommandHandler(struct MRCtx *mrctx, RedisModuleBlockedClient *bc, int protocol,
   RedisModuleString **argv, int argc, ConcurrentSearchHandlerCtx *handlerCtx) {
   QueryError status = {0};
   AREQ_Debug_params debug_params = parseDebugParamsCount(argv, argc, &status);
@@ -3984,17 +4039,15 @@ static int DEBUG_FlatSearchCommandHandler(RedisModuleBlockedClient *bc, int prot
 
   int debug_argv_count = debug_params.debug_params_count + 2;
   int base_argc = argc - debug_argv_count;
-  searchRequestCtx *req = createReq(argv, base_argc, bc, &status);
-
-  if (!req) {
-    return REDISMODULE_OK;
-  }
+  // req was created on the main thread and set as mrctx privdata before dispatch.
+  searchRequestCtx *req = MRCtx_GetPrivData(mrctx);
+  RS_ASSERT(req);
 
   // Copy coordinator queue time for profile output
   req->coordQueueTime = handlerCtx->coordQueueTime;
 
   MRCommand cmd = MR_NewCommandFromRedisStrings(base_argc, argv);
-  int rc = prepareCommand(&cmd, req, bc, protocol, argv, argc, handlerCtx->spec_ref, &status);
+  int rc = prepareCommand(&cmd, req, mrctx, protocol, argv, argc, handlerCtx->spec_ref, &status);
   if (!(rc == REDISMODULE_OK)) {
     return REDISMODULE_OK;
   }
@@ -4007,7 +4060,8 @@ static int DEBUG_FlatSearchCommandHandler(RedisModuleBlockedClient *bc, int prot
     MRCommand_Append(&cmd, arg, n);
   }
 
-  struct MRCtx *mrctx = MR_CreateCtx(0, bc, req, NumShards);
+  // FT.SEARCH coordinator should validate connections before sending the command to the cluster
+  MRCtx_SetValidateConnections(mrctx, true);
 
   MRCtx_SetReduceFunction(mrctx, searchResultReducer_background);
   MR_Fanout(mrctx, NULL, cmd, false);
@@ -4020,10 +4074,11 @@ static void DEBUG_DistSearchCommandHandler(void* pd) {
     sCmdCtx->handlerCtx.coordQueueTime = rs_wall_clock_now_ns() - sCmdCtx->handlerCtx.coordStartTime;
   }
   // send argv not including the _FT.DEBUG
-  DEBUG_FlatSearchCommandHandler(sCmdCtx->bc, sCmdCtx->protocol, sCmdCtx->argv, sCmdCtx->argc, &sCmdCtx->handlerCtx);
+  DEBUG_FlatSearchCommandHandler(sCmdCtx->mrctx, sCmdCtx->bc, sCmdCtx->protocol, sCmdCtx->argv, sCmdCtx->argc, &sCmdCtx->handlerCtx);
   for (size_t i = 0 ; i < sCmdCtx->argc ; ++i) {
     RedisModule_FreeString(NULL, sCmdCtx->argv[i]);
   }
   rm_free(sCmdCtx->argv);
+  MRCtx_DecrRef(sCmdCtx->mrctx);
   rm_free(sCmdCtx);
 }

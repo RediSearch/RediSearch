@@ -378,11 +378,18 @@ int SchemaRule_RdbLoad(StrongRef ref, RedisModuleIO *rdb, int encver, QueryError
   size_t len;
 #define RULEARGS_INITIAL_NUM_PREFIXES_ON_STACK 32
   char *prefixes[RULEARGS_INITIAL_NUM_PREFIXES_ON_STACK];
+  uint64_t nprefixes_u64 = 0;
+  uint64_t exist = 0;
+  double score_default = 0.0;
+  RSLanguage lang_default = DEFAULT_LANGUAGE;
+  bool index_all = false;
+  SchemaRule *rule = NULL;
+  IndexSpec *sp = NULL;
 
   int ret = REDISMODULE_OK;
   args.type = LoadStringBuffer_IOError(rdb, &len, goto cleanup);
 
-  uint64_t nprefixes_u64 = LoadUnsigned_IOError(rdb, goto cleanup);
+  nprefixes_u64 = LoadUnsigned_IOError(rdb, goto cleanup);
 
   RS_ASSERT(MAX_SCHEMA_PREFIXES <= UINT32_MAX);
   if (unlikely(nprefixes_u64 > MAX_SCHEMA_PREFIXES)) {
@@ -406,7 +413,7 @@ int SchemaRule_RdbLoad(StrongRef ref, RedisModuleIO *rdb, int encver, QueryError
     args.prefixes[i] = LoadStringBuffer_IOError(rdb, &len, goto cleanup);
   }
 
-  uint64_t exist = LoadUnsigned_IOError(rdb, goto cleanup);
+  exist = LoadUnsigned_IOError(rdb, goto cleanup);
   if (exist) {
     args.filter_exp_str = LoadStringBuffer_IOError(rdb, &len, goto cleanup);
   }
@@ -422,14 +429,13 @@ int SchemaRule_RdbLoad(StrongRef ref, RedisModuleIO *rdb, int encver, QueryError
   if (exist) {
     args.payload_field = LoadStringBuffer_IOError(rdb, &len, goto cleanup);
   }
-  double score_default = LoadDouble_IOError(rdb, goto cleanup);
-  RSLanguage lang_default = LoadUnsigned_IOError(rdb, goto cleanup);
-  bool index_all = false;
+  score_default = LoadDouble_IOError(rdb, goto cleanup);
+  lang_default = LoadUnsigned_IOError(rdb, goto cleanup);
   if (encver >= INDEX_INDEXALL_VERSION) {
     index_all = LoadUnsigned_IOError(rdb, goto cleanup);
   }
 
-  SchemaRule *rule = SchemaRule_Create(&args, ref, status);
+  rule = SchemaRule_Create(&args, ref, status);
   if (!rule) {
     ret = REDISMODULE_ERR;
     goto cleanup;
@@ -439,7 +445,7 @@ int SchemaRule_RdbLoad(StrongRef ref, RedisModuleIO *rdb, int encver, QueryError
   rule->index_all = index_all;
 
   // No need to validate the reference here, since we are loading it from the RDB
-  IndexSpec *sp = StrongRef_Get(ref);
+  sp = StrongRef_Get(ref);
   sp->rule = rule;
   SchemaRule_FilterFields(sp);
 
