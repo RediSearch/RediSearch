@@ -105,10 +105,14 @@ void StoreResultsDebugCtx_SetPause(bool pause);
 
 // Predefined sync point names for query execution
 // These correspond to specific locations in the query execution path
-#define SYNC_POINT_AFTER_ITERATOR_CREATE       "AfterIteratorCreate"
-#define SYNC_POINT_BEFORE_FIRST_READ           "BeforeFirstRead"
-#define SYNC_POINT_BEFORE_DIST_HYBRID_PROMOTE  "BeforeDistHybridPromote"
-#define SYNC_POINT_BEFORE_SPEC_LOCK            "BeforeSpecLock"
+#define SYNC_POINT_AFTER_ITERATOR_CREATE           "AfterIteratorCreate"
+#define SYNC_POINT_BEFORE_FIRST_READ               "BeforeFirstRead"
+#define SYNC_POINT_BEFORE_DIST_HYBRID_PROMOTE      "BeforeDistHybridPromote"
+#define SYNC_POINT_BEFORE_SPEC_LOCK                "BeforeSpecLock"
+#define SYNC_POINT_BEFORE_AGGREGATE_RESULTS_CLAIM  "BeforeAggregateResultsClaim"
+#define SYNC_POINT_BEFORE_RPNET_START              "BeforeRPNetStart"
+#define SYNC_POINT_AFTER_ITERATOR_START            "AfterIteratorStart"
+#define SYNC_POINT_RPNET_REPLY_ADMITTED            "RpnetReplyAdmitted"
 
 // SyncPoint API function declarations
 // Arm a sync point - subsequent calls to SyncPoint_Wait will block
@@ -126,6 +130,11 @@ void SyncPoint_ClearAll(void);
 // Called from code paths to potentially wait at a sync point
 // If the named point is armed, blocks until signaled
 void SyncPoint_Wait(const char *name);
+// Interruptible SyncPoint_Wait: exits early if `req` is flagged timed out.
+// Avoids deadlock at sync points between TryClaim and dispatch, where the main
+// thread would otherwise wait in AREQ_WaitForAggregateResultsComplete.
+struct AREQ;
+void SyncPoint_WaitTimeoutInterruptible(const char *name, struct AREQ *req);
 
 // Struct used for debugging hybrid cursor storage ONLY (pause before/after cursor creation)
 // Separate from StoreResultsDebugCtx to allow independent control

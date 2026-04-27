@@ -345,6 +345,21 @@ static void startPipeline(AREQ *req, ResultProcessor *rp, SearchResult ***result
     .oomPolicy = req->reqConfig.oomPolicy,
     .skipTimeoutChecks = req->sctx->time.skipTimeoutChecks,
   };
+
+#ifdef ENABLE_ASSERT
+  // Sync point (debug): pause before the TryClaim race
+  SyncPoint_Wait(SYNC_POINT_BEFORE_AGGREGATE_RESULTS_CLAIM);
+#endif
+
+  // Bail if the RETURN-STRICT timeout callback already claimed (it replies)
+  // or if it signaled timeout in parallel after we won (it will reply with
+  // our stored zero-result state).
+  if (AREQ_RequiresThreadsSyncResults(req) &&
+      (!AREQ_TryClaimAggregateResults(req) || AREQ_TimedOut(req))) {
+    *rc = RS_RESULT_TIMEDOUT;
+    return;
+  }
+
   startPipelineCommon(&ctx, rp, results, r, rc);
 }
 
@@ -668,6 +683,11 @@ static void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
       AREQ_StoreResults(req, state.results, rc, cv, limit);
       debugPauseStoreResults(req, false); // pause after
 
+      // Signal completion for main-thread timeout
+      if (AREQ_RequiresThreadsSyncResults(req)) {
+        AREQ_SignalAggregateResultsComplete(req);
+      }
+
       // Destroy unused SearchResult
       SearchResult_Destroy(&r);
       return;
@@ -864,6 +884,11 @@ static void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
       debugPauseStoreResults(req, true);  // pause before
       AREQ_StoreResults(req, state.results, rc, cv, limit);
       debugPauseStoreResults(req, false); // pause after
+
+      // Signal completion for main-thread timeout
+      if (AREQ_RequiresThreadsSyncResults(req)) {
+        AREQ_SignalAggregateResultsComplete(req);
+      }
 
       // Destroy unused SearchResult
       SearchResult_Destroy(&r);
@@ -1785,6 +1810,14 @@ static void cursorRead(RedisModuleCtx *ctx, Cursor *cursor, size_t count, bool b
   if (req) {
     // Cursor reads don't use reply_callback, so clear the flag.
     req->useReplyCallback = false;
+    // Reset the claim so the next startPipeline can re-enter AggregateResults.
+    // Safe to reset unconditionally: the claim protocol isn't wired into cursor
+    // chunks yet, so no other thread is racing on this AREQ's sync state here.
+    // This assertion will catch any attempt to wire RETURN_STRICT into cursor reads.
+    RS_ASSERT(req->reqConfig.timeoutPolicy != TimeoutPolicy_ReturnStrict);
+    // TODO: remove once cursor reads are wired for RETURN_STRICT and verify that
+    // the reset is still safe.
+    AREQ_ResetAggregateResultsClaim(req);
     RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
     runCursor(reply, cursor, count);
     RedisModule_EndReply(reply);

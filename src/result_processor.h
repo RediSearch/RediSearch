@@ -119,6 +119,14 @@ typedef struct QueryProcessingCtx {
 
   bool isProfile;
   RSTimeoutPolicy timeoutPolicy;
+
+  // True iff any prefix of the pipeline's output is a valid (though possibly
+  // incomplete) answer to the query - i.e. the pipeline can yield partial
+  // results on early termination.
+  // Set post-construction on the coordinator AREQ. Used by the RETURN-STRICT
+  // timeout path to drain queued shard replies on the main thread after the
+  // background pipeline has aborted.
+  bool canYieldPartialResults;
 } QueryProcessingCtx;
 
 QueryIterator *QITR_GetRootFilter(QueryProcessingCtx *it);
