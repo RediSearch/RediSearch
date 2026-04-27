@@ -1282,7 +1282,7 @@ TEST_F(LLApiTest, testInfo) {
   // common stats
   ASSERT_EQ(info.numDocuments, 2);
   ASSERT_EQ(info.maxDocId, 2);
-  ASSERT_EQ(info.docTableSize, 140 + doc_table_size);
+  ASSERT_EQ(info.docTableSize, 156 + doc_table_size);
   ASSERT_EQ(info.sortablesSize, 48);
   ASSERT_EQ(info.docTrieSize, 120);
   ASSERT_EQ(info.numTerms, 5);
@@ -1378,23 +1378,23 @@ TEST_F(LLApiTest, testInfoSize) {
   // additional memory so from now on it will be easier to track the expected memory.
   size_t additional_overhead = sizeof(NumericRangeTree) + doc_table_size;
 
-  EXPECT_EQ(RediSearch_MemUsage(index), 330 + additional_overhead);
+  EXPECT_EQ(RediSearch_MemUsage(index), 338 + additional_overhead);
 
   d = RediSearch_CreateDocument(DOCID2, strlen(DOCID2), 2.0, NULL);
   RediSearch_DocumentAddFieldCString(d, FIELD_NAME_1, "TXT", RSFLDTYPE_DEFAULT);
   RediSearch_DocumentAddFieldNumber(d, NUMERIC_FIELD_NAME, 1, RSFLDTYPE_DEFAULT);
   RediSearch_SpecAddDocument(index, d);
 
-  EXPECT_EQ(RediSearch_MemUsage(index), 613 + additional_overhead);
+  EXPECT_EQ(RediSearch_MemUsage(index), 629 + additional_overhead);
 
   // test MemUsage after deleting docs
   int ret = RediSearch_DropDocument(index, DOCID2, strlen(DOCID2));
   ASSERT_EQ(REDISMODULE_OK, ret);
-  EXPECT_EQ(RediSearch_MemUsage(index), 471 + additional_overhead);
+  EXPECT_EQ(RediSearch_MemUsage(index), 479 + additional_overhead);
   RSGlobalConfig.gcConfigParams.forkGc.forkGcCleanThreshold = 0;
   gc = get_spec(index)->gc;
   gc->callbacks.periodicCallback(gc->gcCtx);
-  EXPECT_EQ(RediSearch_MemUsage(index), 327 + additional_overhead);
+  EXPECT_EQ(RediSearch_MemUsage(index), 335 + additional_overhead);
 
   ret = RediSearch_DropDocument(index, DOCID1, strlen(DOCID1));
   ASSERT_EQ(REDISMODULE_OK, ret);
@@ -1438,23 +1438,23 @@ TEST_F(LLApiTest, testInfoSizeWithExistingIndex) {
   // additional memory so from now on it will be easier to track the expected memory.
   size_t additional_overhead = sizeof(NumericRangeTree) + doc_table_size;
 
-  EXPECT_EQ(RediSearch_MemUsage(index), 416 + additional_overhead);
+  EXPECT_EQ(RediSearch_MemUsage(index), 424 + additional_overhead);
 
   d = RediSearch_CreateDocument(DOCID2, strlen(DOCID2), 2.0, NULL);
   RediSearch_DocumentAddFieldCString(d, FIELD_NAME_1, "TXT", RSFLDTYPE_DEFAULT);
   RediSearch_DocumentAddFieldNumber(d, NUMERIC_FIELD_NAME, 1, RSFLDTYPE_DEFAULT);
   RediSearch_SpecAddDocument(index, d);
 
-  EXPECT_EQ(RediSearch_MemUsage(index), 699 + additional_overhead);
+  EXPECT_EQ(RediSearch_MemUsage(index), 715 + additional_overhead);
 
   // test MemUsage after deleting docs
   int ret = RediSearch_DropDocument(index, DOCID2, strlen(DOCID2));
   ASSERT_EQ(REDISMODULE_OK, ret);
-  EXPECT_EQ(RediSearch_MemUsage(index), 557 + additional_overhead);
+  EXPECT_EQ(RediSearch_MemUsage(index), 565 + additional_overhead);
   RSGlobalConfig.gcConfigParams.forkGc.forkGcCleanThreshold = 0;
   gc = get_spec(index)->gc;
   gc->callbacks.periodicCallback(gc->gcCtx);
-  EXPECT_EQ(RediSearch_MemUsage(index), 408 + additional_overhead);
+  EXPECT_EQ(RediSearch_MemUsage(index), 416 + additional_overhead);
 
   ret = RediSearch_DropDocument(index, DOCID1, strlen(DOCID1));
   ASSERT_EQ(REDISMODULE_OK, ret);

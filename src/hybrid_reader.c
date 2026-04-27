@@ -324,6 +324,9 @@ static int HR_ReadHybridUnsortedSingle(HybridIterator *hr, RSIndexResult **hit) 
   const t_fieldIndex fieldIndex = hr->filterCtx.field.value.index;
   if (hr->sctx && fieldIndex != RS_INVALID_FIELD_INDEX
       && !DocTable_VerifyFieldExpirationPredicate(&hr->sctx->spec->docs, (*hit)->docId, &fieldIndex, 1, hr->filterCtx.predicate, &hr->sctx->time.current)) {
+    // The popped hit is no longer owned by topResults and is not appended to
+    // returnedResults, so free it here to avoid leaking on NOTFOUND.
+    IndexResult_Free(*hit);
     return INDEXREAD_NOTFOUND;
   }
   array_append(hr->returnedResults, *hit);

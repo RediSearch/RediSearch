@@ -217,7 +217,10 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
     Document* doc = cur->doc;
     const bool hasExpiration = doc->docExpirationTime.tv_sec || doc->docExpirationTime.tv_nsec || doc->fieldExpirations;
     if (hasExpiration) {
-      md->flags |= Document_HasExpiration;
+      // No need to mark the DMD with Document_HasExpiration: the result
+      // processor already fetches the DMD from the doc table on every hit,
+      // so it can read `expirationTimeNs` directly without going through
+      // a flag-gated branch.
       DocTable_UpdateExpiration(&ctx->spec->docs, md, doc->docExpirationTime, doc->fieldExpirations);
     }
     DMD_Return(md);
