@@ -39,11 +39,17 @@ on:
         type: string
         required: true
         description: "Name of the artifact (uploaded by flow-build-benchmark-binary.yml) containing the prebuilt redisearch.so"
+      arch:
+        type: string
+        default: x86_64
+        description: "CPU arch the built .so targets. Passed to `redisbench-admin run-remote --architecture <arch>` so terraform picks the matching oss-standalone-redisearch-m7[-aarch64] dir. Valid: `x86_64` | `aarch64`."
 
 jobs:
   benchmark-steps:
-    name: "Benchmark ${{ inputs.allowed_setups }} (${{ inputs.benchmark_runner_group_member_id }}/${{ inputs.benchmark_runner_group_total }}) filter=${{ inputs.benchmark_glob }}${{ inputs.benchmark_filter && format(' narrowed={0}', inputs.benchmark_filter) || '' }}"
-    runs-on: ubuntu-24.04  # We need the os to be a match to the base image used in the benchmarks.
+    name: "Benchmark ${{ inputs.arch }} ${{ inputs.allowed_setups }} (${{ inputs.benchmark_runner_group_member_id }}/${{ inputs.benchmark_runner_group_total }}) filter=${{ inputs.benchmark_glob }}${{ inputs.benchmark_filter && format(' narrowed={0}', inputs.benchmark_filter) || '' }}"
+    # Match the orchestrator runner arch to inputs.arch because tests/deps/setup_rejson.sh
+    # builds rejson.so here and it must be ABI-compatible with the target EC2 DB.
+    runs-on: ${{ inputs.arch == 'aarch64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
     defaults:
       run:
         shell: bash -l -eo pipefail {0}
@@ -94,8 +100,9 @@ jobs:
         with:
           name: ${{ inputs.binary_artifact_name }}
           # Place the .so where `inputs.module_path` expects it, e.g.
-          # bin/linux-x64-release/search-community/redisearch.so
-          path: bin/linux-x64-release/search-community
+          # bin/linux-x64-release/search-community/redisearch.so on x86_64,
+          # bin/linux-aarch64-release/search-community/redisearch.so on aarch64.
+          path: ${{ format('bin/linux-{0}-release/search-community', inputs.arch == 'aarch64' && 'aarch64' || 'x64') }}
       - name: Make redisearch.so executable
         if: steps.benchmark-filter.outputs.skip != 'true'
         env:
@@ -117,6 +124,10 @@ jobs:
         if: steps.benchmark-filter.outputs.skip != 'true'
         env:
           REJSON_BRANCH: ${{ inputs.rejson_branch }}
+          # setup_rejson.sh defaults BINROOT to bin/linux-x64-release regardless
+          # of the host arch; on aarch64 runners we must redirect it to the
+          # matching linux-aarch64-release tree so rejson_module_path resolves.
+          BINROOT: ${{ format('{0}/bin/linux-{1}-release', github.workspace, inputs.arch == 'aarch64' && 'aarch64' || 'x64') }}
         run: ./tests/deps/setup_rejson.sh
 
       - name: Run CI benchmarks on aws for envs ${{ inputs.allowed_envs }}
@@ -153,6 +164,10 @@ jobs:
           TRIGGERING_ENV: ${{ inputs.triggering_env }}
           ALLOWED_ENVS: ${{ inputs.allowed_envs }}
           ALLOWED_SETUPS: ${{ inputs.allowed_setups }}
+          # Route inputs.arch through env rather than inline ${{ inputs.arch }}
+          # in the shell template — SonarCloud's script-injection rule treats
+          # inputs.* as untrusted in a run: block and flags the direct form.
+          ARCH: ${{ inputs.arch }}
         # --github_sha: on pull_request events github.sha is the ephemeral
         # merge commit, which is garbage-collected after the PR merges and
         # breaks later reproducibility of RTS time-series and Polar Signals
@@ -168,6 +183,7 @@ jobs:
               --required-module ReJSON
               --github_sha ${{ github.event.pull_request.head.sha || github.sha }}
               --github_branch ${{ github.head_ref || github.ref_name }}
+              --architecture "$ARCH"
               --upload_results_s3
               --triggering_env $TRIGGERING_ENV
               --allowed-envs $ALLOWED_ENVS
@@ -182,10 +198,20 @@ jobs:
         env:
           PERFORMANCE_GH_TOKEN: ${{ secrets.PERFORMANCE_GH_TOKEN }}
           PERFORMANCE_WH_TOKEN: ${{ secrets.PERFORMANCE_WH_TOKEN }}
+        # --architectures enables the multi-arch PR comment layout from
+        # redisbench-admin 0.12.25+: one H2 section per arch covering
+        # branch-over-branch, plus a cross-arch delta section on the PR
+        # commit (x86_64 -> aarch64). Each matrix entry's compare call
+        # queries ALL arches from RTS; modules without aarch64 data (e.g.
+        # early in a run, before aarch64 jobs complete) render a warning
+        # block instead of an empty table, and the cross-arch section
+        # auto-suppresses. The last-to-finish upsert wins -- same behavior
+        # as today, but with the richer multi-arch body.
         run: redisbench-admin compare
               --defaults_filename ./tests/benchmarks/defaults.yml
               --comparison-branch ${{ github.event.pull_request.head.ref || github.ref_name }}
               --baseline-branch ${{ github.event.pull_request.base.ref }}
+              --architectures x86_64,aarch64
               --auto-approve
               --pull-request ${{ github.event.number }}
               --redistimeseries_host ${{ secrets.PERFORMANCE_RTS_HOST }}
