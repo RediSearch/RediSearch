@@ -1864,24 +1864,15 @@ int RSCursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 
   if (argc < 4) {
     // Shouldn't happen on the coord path (CursorCommand pre-validates argc on
-    // the main thread); defensive fallback.
-    if (reqCtx) {
-      QueryError_SetWithoutUserDataFmt(&err, QUERY_ERROR_CODE_PARSE_ARGS,
-                                       "wrong number of arguments for 'FT.CURSOR|READ'");
-      CoordRequestCtx_ReplyOrStoreError(reqCtx, ctx, &err);
-      return REDISMODULE_OK;
-    }
+    // the main thread)
+    RS_LOG_ASSERT(!reqCtx, "CursorCommand should have validated argc");
     return RedisModule_WrongArity(ctx);
   }
 
   long long cid;
   if (RedisModule_StringToLongLong(argv[3], &cid) != REDISMODULE_OK) {
-    // Unreachable on the coord path (CursorCommand pre-validates the cid); defensive fallback.
-    if (reqCtx) {
-      QueryError_SetWithoutUserDataFmt(&err, QUERY_ERROR_CODE_PARSE_ARGS, "Bad cursor ID");
-      CoordRequestCtx_ReplyOrStoreError(reqCtx, ctx, &err);
-      return REDISMODULE_OK;
-    }
+    // Unreachable on the coord path (CursorCommand pre-validates the cid)
+    RS_LOG_ASSERT(!reqCtx, "CursorCommand should have validated cursor ID")
     return RedisModule_ReplyWithError(ctx, "Bad cursor ID");
   }
 
