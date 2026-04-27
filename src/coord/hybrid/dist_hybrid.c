@@ -875,9 +875,6 @@ void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     // Store coordinator start time for dispatch time tracking
     hreq->profileClocks.coordStartTime = ConcurrentCmdCtx_GetCoordStartTime(cmdCtx);
 
-    // Get numShards captured from main thread for thread-safe access and to compute effective K
-    size_t numShards = ConcurrentCmdCtx_GetNumShards(cmdCtx);
-
     if (HybridRequest_prepareForExecution(hreq, ctx, argv, argc, sp, &status, NULL) != REDISMODULE_OK) {
       DistHybridCleanups(ctx, cmdCtx, sp, &strong_ref, hreq, reply, &status);
       return;
@@ -949,7 +946,6 @@ void DEBUG_RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int a
     CoordRequestCtx_UnlockSetRequest(reqCtx);
 
     hreq->profileClocks.coordStartTime = ConcurrentCmdCtx_GetCoordStartTime(cmdCtx);
-    size_t numShards = ConcurrentCmdCtx_GetNumShards(cmdCtx);
 
     // Use stripped_argc so parsing doesn't see debug params;
     // pass debugParams so the MR command gets _FT.DEBUG prefix + debug args.
