@@ -115,7 +115,7 @@ type GeoFilterAndRangeIterator<'index> =
 /// [`GEO_RANGE_COUNT`] contiguous geohash ranges; each range is queried via the numeric range
 /// tree. Returns one `(filter, variants)` pair per non-trivial range so that callers can
 /// associate each [`NumericIteratorVariant`] with its [`NumericFilter`] (needed by C profiling;
-/// see the `C-Code:` comment in `NewGeoRangeIterator`).
+/// see the comment in `NewGeoRangeIterator`).
 ///
 /// Returns:
 /// - `Err(`[`GeoRangeError::InvalidInput`]`)` if `gf`'s parameters are invalid.

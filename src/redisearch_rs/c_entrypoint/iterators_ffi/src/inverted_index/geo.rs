@@ -60,7 +60,7 @@ pub unsafe extern "C" fn NewGeoRangeIterator(
         return ptr::null_mut();
     };
 
-    // C-Code: each NumericIterator must carry its NumericFilter so that
+    // Each NumericIterator must carry its NumericFilter so that
     // `NumericInvIndIterator_GetNumericFilter` can hand it back to C profiling code, which uses
     // the embedded `geo_filter` pointer to display the geo term as coordinates instead of raw
     // geohash values. Once profiling is fully ported to Rust, this wrapper can be dropped and

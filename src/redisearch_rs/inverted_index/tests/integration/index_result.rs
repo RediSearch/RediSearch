@@ -337,8 +337,6 @@ fn purely_numeric_children_always_true() {
 
 // ── is_within_range — full integration ───────────────────────────────────
 
-/// C-Code: Mirrors the C++ `testDistance` test using the full `is_within_range` entry point.
-///
 /// vw1 = {1, 9, 13, 16, 22}, vw2 = {4, 7, 32}
 #[test]
 fn full_test_mirrors_cpp_testdistance() {
