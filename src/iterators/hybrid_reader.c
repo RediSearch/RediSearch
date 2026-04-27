@@ -436,9 +436,10 @@ static IteratorStatus HR_ReadHybridUnsortedSingle(HybridIterator *hr) {
   }
   hr->base.current = mmh_pop_min(hr->topResults);
 
-  const t_fieldIndex fieldIndex = hr->filterCtx.field.index;
-  if (hr->sctx && fieldIndex != RS_INVALID_FIELD_INDEX
-      && !DocTable_CheckFieldExpirationPredicate(&hr->sctx->spec->docs, hr->base.current->docId, fieldIndex, hr->filterCtx.predicate, &hr->sctx->time.current)) {
+  if (hr->checkFieldExpiration
+      && !DocTable_CheckFieldExpirationPredicate(&hr->sctx->spec->docs, hr->base.current->docId,
+                                                 hr->filterCtx.field.index,
+                                                 hr->filterCtx.predicate, &hr->sctx->time.current)) {
     return ITERATOR_NOTFOUND;
   }
   hr->base.lastDocId = hr->base.current->docId;
@@ -473,9 +474,10 @@ static IteratorStatus HR_ReadKnnUnsortedSingle(HybridIterator *hr) {
     return ITERATOR_EOF;
   }
 
-  const t_fieldIndex fieldIndex = hr->filterCtx.field.index;
-  if (hr->sctx && fieldIndex != RS_INVALID_FIELD_INDEX
-      && !DocTable_CheckFieldExpirationPredicate(&hr->sctx->spec->docs, hr->base.current->docId, fieldIndex, hr->filterCtx.predicate, &hr->sctx->time.current)) {
+  if (hr->checkFieldExpiration
+      && !DocTable_CheckFieldExpirationPredicate(&hr->sctx->spec->docs, hr->base.current->docId,
+                                                 hr->filterCtx.field.index,
+                                                 hr->filterCtx.predicate, &hr->sctx->time.current)) {
     return ITERATOR_NOTFOUND;
   }
 
@@ -582,6 +584,8 @@ static ValidateStatus HR_Revalidate(QueryIterator *ctx) {
   if (hr->child && hr->child->Revalidate(hr->child) == VALIDATE_ABORTED) {
     return VALIDATE_ABORTED;
   }
+  hr->checkFieldExpiration = hr->sctx && hr->filterCtx.field.index != RS_INVALID_FIELD_INDEX &&
+                             hr->sctx->spec->docs.ttl;
   return VALIDATE_OK;
 }
 
@@ -619,6 +623,14 @@ QueryIterator *NewHybridVectorIterator(HybridIteratorParams hParams, QueryError 
   hi->runtimeParams.timeoutCtx = &hi->timeoutCtx;
   hi->sctx = hParams.sctx;
   hi->filterCtx = *hParams.filterCtx;
+  // Hoist the per-posting field-expiration gate: sctx, fieldIndex and the spec
+  // TTL pointer are all iterator-invariant, so we snapshot the AND once here.
+  // The TTL table holds field-level (HEXPIRE) entries only and is destroyed
+  // when the last one leaves the index, so a non-NULL `ttl` is a sufficient
+  // and tight gate by itself.
+  hi->checkFieldExpiration =
+      hParams.sctx && hParams.filterCtx->field.index != RS_INVALID_FIELD_INDEX &&
+      hParams.sctx->spec->docs.ttl;
 
   if (hParams.childIt == NULL || hParams.query.k == 0) {
     // If there is no child iterator, or the query is going to return 0 results, we can use simple KNN.

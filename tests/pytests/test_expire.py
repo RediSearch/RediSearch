@@ -683,3 +683,35 @@ def test_background_index_no_lazy_expiration_json(env):
     # Accessing doc:1 directly should cause lazy expire and its removal from the DB.
     env.expect('JSON.GET', 'doc:1', "$").equal(None)
     env.expect('DBSIZE').equal(1)
+
+
+@skip(cluster=True, redis_less_than='7.4')
+def test_ttl_table_collision_chain():
+    # Regression for the direct-modulo TTL table: seed the index with far more
+    # HEXPIRE-covered docs than the TTL bucket cap, so every slot must carry
+    # a collision chain. Then query for fresh and expired entries and verify
+    # the chain walk returns the right ones.
+    env = Env(moduleArgs='MAXDOCTABLESIZE 4')
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH',
+               'SCHEMA', 'n', 'NUMERIC', 't', 'TAG').ok()
+
+    # Docs 1..odd are long-lived; docs 1..even get a fast HPEXPIRE so they
+    # will be reported as expired at query time.
+    N = 64  # > 16x the bucket cap => many collisions per slot
+    for d in range(1, N + 1):
+        env.expect('HSET', f'doc:{d}', 'n', str(d), 't', 'tag').equal(2)
+        if d % 2 == 0:
+            env.expect('HPEXPIRE', f'doc:{d}', '1', 'FIELDS', '2', 'n', 't').equal([1, 1])
+
+    time.sleep(0.050)
+
+    # Tag filter should still find every odd doc; evens are all expired.
+    res = env.cmd('FT.SEARCH', 'idx', '@t:{tag}', 'NOCONTENT', 'LIMIT', '0', str(N))
+    returned = sorted(int(d.split(':')[1]) for d in res[1:])
+    expected = list(range(1, N + 1, 2))
+    env.assertEqual(returned, expected)
+
+    # Numeric filter over the full range: same expectation.
+    res = env.cmd('FT.SEARCH', 'idx', f'@n:[1 {N}]', 'NOCONTENT', 'LIMIT', '0', str(N))
+    returned = sorted(int(d.split(':')[1]) for d in res[1:])
+    env.assertEqual(returned, expected)

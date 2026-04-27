@@ -90,11 +90,6 @@ void RedisSearchCtx_LockSpecRead(RedisSearchCtx *ctx) {
   // pause rehashing while we're using the dict for reads only
   // Assert that the pause value before we pause is valid.
   RS_ASSERT_ALWAYS(dictPauseRehashing(ctx->spec->keysDict));
-  // Also pause rehashing on the TTL table if it exists, to avoid concurrent
-  // rehash steps from multiple query threads corrupting the dict during reads.
-  if (ctx->spec->docs.ttl) {
-    RS_ASSERT_ALWAYS(dictPauseRehashing(ctx->spec->docs.ttl));
-  }
   ctx->flags = RS_CTX_READONLY;
 }
 
@@ -108,11 +103,6 @@ int RedisSearchCtx_TryLockSpecRead(RedisSearchCtx *ctx) {
   // pause rehashing while we're using the dict for reads only
   // Assert that the pause value before we pause is valid.
   RS_ASSERT_ALWAYS(dictPauseRehashing(ctx->spec->keysDict));
-  // Also pause rehashing on the TTL table if it exists, to avoid concurrent
-  // rehash steps from multiple query threads corrupting the dict during reads.
-  if (ctx->spec->docs.ttl) {
-    RS_ASSERT_ALWAYS(dictPauseRehashing(ctx->spec->docs.ttl));
-  }
   ctx->flags = RS_CTX_READONLY;
   return REDISMODULE_OK;
 }
@@ -150,10 +140,6 @@ void RedisSearchCtx_UnlockSpec(RedisSearchCtx *sctx) {
     // We paused rehashing when we locked the spec for read. Now we can resume it.
     // Assert that it was actually previously paused
     RS_ASSERT_ALWAYS(dictResumeRehashing(sctx->spec->keysDict));
-    // Also resume rehashing on the TTL table if it exists
-    if (sctx->spec->docs.ttl) {
-      RS_ASSERT_ALWAYS(dictResumeRehashing(sctx->spec->docs.ttl));
-    }
   }
   pthread_rwlock_unlock(&sctx->spec->rwlock);
   sctx->flags = RS_CTX_UNSET;
