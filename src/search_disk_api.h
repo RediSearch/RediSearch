@@ -514,8 +514,8 @@ typedef struct MetricsDiskAPI {
   /**
    * @brief Get total doc table memory for a specific index
    *
-   * Returns the latest collected doc table memory in bytes.
-   * Called with valid disk and index pointers.
+   * Returns disk-side doc table memory in bytes from the latest collected snapshot.
+   * Does not include RAM-only accounting from non-disk paths.
    *
    * @param disk Pointer to the disk context
    * @param index Pointer to the index spec
@@ -526,9 +526,9 @@ typedef struct MetricsDiskAPI {
   /**
    * @brief Get total inverted index memory for a specific index
    *
-   * Returns the latest collected inverted index memory in bytes.
+   * Returns disk-side inverted index memory in bytes from the latest collected snapshot.
    * This value includes both text and tag inverted indexes.
-   * Called with valid disk and index pointers.
+   * Does not include RAM-only accounting from non-disk paths.
    *
    * @param disk Pointer to the disk context
    * @param index Pointer to the index spec
@@ -539,8 +539,8 @@ typedef struct MetricsDiskAPI {
   /**
    * @brief Get total vector index memory for a specific index
    *
-   * Returns the latest collected vector index memory in bytes.
-   * Called with valid disk and index pointers.
+   * Returns disk-side vector index memory in bytes from the latest collected snapshot.
+   * Does not include RAM-only accounting from non-disk paths.
    *
    * @param disk Pointer to the disk context
    * @param index Pointer to the index spec
