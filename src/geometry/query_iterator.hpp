@@ -26,6 +26,8 @@ struct CPPQueryIterator {
   std::size_t index_;
   const RedisSearchCtx *sctx_;
   const FieldFilterContext filterCtx_;
+  // Hoisted gate; refreshed in QIter_Revalidate.
+  bool check_field_expiration_;
 
   explicit CPPQueryIterator() = delete;
 
@@ -36,7 +38,8 @@ struct CPPQueryIterator {
   explicit CPPQueryIterator(const RedisSearchCtx *sctx, const FieldFilterContext* filterCtx, R &&range, std::size_t &alloc, Proj proj = {})
       : base_{init_base()},
         iter_{std::ranges::begin(range), std::ranges::end(range), alloc_type{alloc}},
-        index_{0}, sctx_(sctx), filterCtx_(*filterCtx) {
+        index_{0}, sctx_(sctx), filterCtx_(*filterCtx),
+        check_field_expiration_{should_check_field_expiration(sctx, filterCtx)} {
     std::ranges::sort(iter_, std::ranges::less{}, proj);
   }
 
@@ -57,6 +60,9 @@ struct CPPQueryIterator {
   void rewind() noexcept;
 
   static QueryIterator init_base();
+  // Defined in query_iterator.cpp where the spec/doc-table headers are included.
+  static bool should_check_field_expiration(const RedisSearchCtx *sctx,
+                                            const FieldFilterContext *filterCtx) noexcept;
 private:
   IteratorStatus read_single() noexcept;
 };

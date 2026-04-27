@@ -389,6 +389,9 @@ pub(super) mod not_miri {
                 ptr.spec.monitorDocumentExpiration = true; // Only depends on API availability, so always true
                 ptr.spec.monitorFieldExpiration = true; // Only depends on API availability, so always true
                 ptr.spec.docs.maxDocId = max_doc_id;
+                // Match the DocTable's own slot formula so the lazy-init TTL
+                // table uses a non-zero modulus; tests never exceed maxDocId.
+                ptr.spec.docs.maxSize = std::cmp::max(max_doc_id, 1);
                 ptr.spec.docs.size = if num_docs > 0 {
                     num_docs
                 } else {
@@ -485,13 +488,8 @@ pub(super) mod not_miri {
                 }
             };
 
-            let doc_expiration_time = ffi::t_expirationTimePoint {
-                tv_sec: i64::MAX,
-                tv_nsec: i64::MAX,
-            };
-
             unsafe {
-                ffi::TimeToLiveTable_Add(self.spec.docs.ttl, doc_id, doc_expiration_time, fe as _);
+                ffi::TimeToLiveTable_Add(self.spec.docs.ttl, doc_id, fe as _);
             }
         }
 
@@ -514,7 +512,10 @@ pub(super) mod not_miri {
 
             self.spec.fieldIdToIndex = arr as _;
             unsafe {
-                ffi::TimeToLiveTable_VerifyInit(&mut self.spec.docs.ttl);
+                ffi::TimeToLiveTable_VerifyInit(
+                    &mut self.spec.docs.ttl,
+                    self.spec.docs.maxSize as usize,
+                );
             }
         }
     }

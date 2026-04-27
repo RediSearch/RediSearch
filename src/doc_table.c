@@ -228,35 +228,55 @@ void DocTable_SetByteOffsets(RSDocumentMetadata *dmd, RSByteOffsets *v) {
   dmd->flags |= Document_HasOffsetVector;
 }
 
+// Pack a t_expirationTimePoint into nanoseconds since the epoch, preserving
+// the {0,0} "no expiration" sentinel as 0 so callers can use a single scalar
+// compare on the result-processor hot path.
+//
+// `t_expirationTimePoint` is a POSIX `struct timespec` (IEEE Std 1003.1), which
+// is the OS-level resolution ceiling: `tv_nsec` is in [0, 999999999], and any
+// finer-grained clock would require a different type. `int64_t` of nanoseconds
+// covers ~292 years from the epoch (year 2262), far beyond any TTL Redis can
+// produce — `RM_GetAbsExpire` and `RM_HashFieldMinExpire` both return an
+// `mstime_t` (signed milliseconds since epoch), which we expand into a
+// `timespec` in `document_basic.c::timespecFromMilliseconds` before reaching
+// here. The debug assert traps any future caller that violates the timespec
+// invariant.
+static inline int64_t expirationTimePointToNs(t_expirationTimePoint t) {
+  RS_LOG_ASSERT(t.tv_nsec >= 0 && t.tv_nsec < 1000000000L,
+                "tv_nsec out of POSIX timespec range");
+  return (int64_t)t.tv_sec * 1000000000LL + (int64_t)t.tv_nsec;
+}
+
+// Inlines the doc-level TTL on the DMD unconditionally so the result-processor
+// can drop the TTL-table lookup, and only routes field-level expirations into
+// the TTL table. This keeps the table strictly an HFE store, which lets
+// iterators use `t->ttl == NULL` as their per-spec gate. Takes ownership of
+// `sortedFieldWithExpiration` either by handing it to the table or freeing it
+// when there are no field-level entries to register.
 void DocTable_UpdateExpiration(DocTable *t, RSDocumentMetadata* dmd, t_expirationTimePoint ttl, arrayof(FieldExpiration) sortedFieldWithExpiration) {
-  if (hasExpirationTimeInformation(dmd->flags)) {
-    TimeToLiveTable_VerifyInit(&t->ttl);
-    TimeToLiveTable_Add(t->ttl, dmd->id, ttl, sortedFieldWithExpiration);
+  dmd->expirationTimeNs = expirationTimePointToNs(ttl);
+  if (array_len(sortedFieldWithExpiration) > 0) {
+    TimeToLiveTable_VerifyInit(&t->ttl, t->maxSize);
+    TimeToLiveTable_Add(t->ttl, dmd->id, sortedFieldWithExpiration);
+  } else {
+    array_free(sortedFieldWithExpiration);
   }
 }
 
 bool DocTable_IsDocExpired(DocTable* t, const RSDocumentMetadata* dmd, struct timespec* expirationPoint) {
-  if (!hasExpirationTimeInformation(dmd->flags)) {
-      return false;
+  if (dmd->expirationTimeNs == 0) {
+    return false;
   }
-  RS_LOG_ASSERT(t->ttl, "Document has expiration time information but no TTL table");
-  return TimeToLiveTable_HasDocExpired(t->ttl, dmd->id, expirationPoint);
+  return dmd->expirationTimeNs <= expirationTimePointToNs(*expirationPoint);
 }
 
 void DocTable_ClearExpirationData(DocTable *t) {
-  if (t->ttl) {
-    dictIterator *ttlIter = dictGetIterator(t->ttl);
-    dictEntry *ttlEntry;
-    while ((ttlEntry = dictNext(ttlIter))) {
-      t_docId docId = (t_docId)dictGetKey(ttlEntry);
-      RSDocumentMetadata *dmd = DocTable_GetOwn(t, docId);
-      if (dmd) {
-        dmd->flags &= ~Document_HasExpiration;
-      }
-    }
-    dictReleaseIterator(ttlIter);
-    TimeToLiveTable_Destroy(&t->ttl);
-  }
+  // Walk every DMD: doc-level TTL lives inline on the DMD (not in the TTL
+  // table), and field-level TTL is only present for docs that are also in
+  // the table. Either may be set, so a single sweep over all DMDs is the
+  // simplest correct path.
+  DOCTABLE_FOREACH(t, dmd->expirationTimeNs = 0);
+  TimeToLiveTable_Destroy(&t->ttl);
 }
 
 /* Put a new document into the table, assign it an incremental id and store the metadata in the
@@ -381,7 +401,11 @@ RSDocumentMetadata *DocTable_Pop(DocTable *t, const char *s, size_t n) {
       return NULL;
     }
 
-    if (t->ttl && hasExpirationTimeInformation(md->flags)) {
+    // The TTL table holds field-level (HEXPIRE) entries only. Remove is a
+    // no-op if this doc never had one, and the IsEmpty check destroys the
+    // table once the last HFE doc leaves the index, restoring the iterator
+    // gate to its NULL "no HFE in this spec" state.
+    if (t->ttl) {
       TimeToLiveTable_Remove(t->ttl, md->id);
       if (TimeToLiveTable_IsEmpty(t->ttl)) {
         TimeToLiveTable_Destroy(&t->ttl);
