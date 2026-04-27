@@ -128,13 +128,12 @@ static void docIdMetaUnlink(RedisModuleKeyOptCtx *ctx, uint64_t *meta) {
 static int docIdMetaRDBLoad(RedisModuleIO *rdb, uint64_t *meta, int encver) {
   RS_LOG_ASSERT(encver == 1, "DocIdMeta: unexpected encver in RDB load");
 
-  if (PersistenceInProgress) {
-    // Skip actual loading during persistence events. We don't store this metadata in the RDB/AOF files.
-    *meta = 0;
-    return DOCID_META_RDB_LOAD_SKIP;
-  }
-
-  dict *specIdToDocId = dictCreate(&dictTypeUint64, NULL);
+  // Even when PersistenceInProgress is set we must consume exactly the bytes
+  // that docIdMetaRDBSave wrote: the key-meta framework reads a trailing EOF
+  // marker right after this callback returns and expects the stream to be
+  // positioned at it. Discarding the parsed entries is fine; skipping the
+  // reads would desynchronize the stream and fail the EOF check.
+  dict *specIdToDocId = PersistenceInProgress ? NULL : dictCreate(&dictTypeUint64, NULL);
   size_t numEntries;
 
   // Load the number of entries
@@ -145,12 +144,20 @@ static int docIdMetaRDBLoad(RedisModuleIO *rdb, uint64_t *meta, int encver) {
     uint64_t specId = LoadUnsigned_IOError(rdb, goto cleanup);
     uint64_t docId = LoadUnsigned_IOError(rdb, goto cleanup);
 
+    // While persistence is in progress, drain the bytes but do not attach.
+    if (PersistenceInProgress) continue;
+
     // Skip entries belonging to indexes that are no longer in specIdDict_g (O(1) lookup).
     if (!isSpecValid(specId)) {
       continue;
     }
 
     dictAdd(specIdToDocId, SPECID_TO_KEY(specId), DOCID_TO_VAL(docId));
+  }
+
+  if (PersistenceInProgress) {
+    *meta = 0;
+    return DOCID_META_RDB_LOAD_SKIP;
   }
 
   *meta = (uint64_t)(specIdToDocId);
