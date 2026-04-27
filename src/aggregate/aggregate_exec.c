@@ -1824,7 +1824,7 @@ static QueryProcessingCtx *prepareForCursorRead(Cursor *cursor, bool *hasLoader,
     *reqFlags = AREQ_RequestFlags(req);
     *hasLoader = HasLoader(req);
     *initClock = IsProfile(req) || !IsInternal(req);
-  } else {
+  } else { // Dead code
     HybridRequest *hreq = StrongRef_Get(cursor->hybrid_ref);
     *reqFlags = hreq->reqflags;
     qctx = &hreq->tailPipeline->qctx;
@@ -1844,6 +1844,7 @@ static void cursorRead(RedisModuleCtx *ctx, Cursor *cursor, size_t count, bool b
   bool hasLoader = false;
   bool initClock = false;
   AREQ *req = cursor->execState;
+  RS_LOG_ASSERT(req, "cursorRead reached with execState==NULL");
   QueryProcessingCtx *qctx = prepareForCursorRead(cursor, &hasLoader, &initClock, &reqFlags, &status);
   StrongRef execution_ref;
   bool has_spec = cursor_HasSpecWeakRef(cursor);
@@ -1854,7 +1855,6 @@ static void cursorRead(RedisModuleCtx *ctx, Cursor *cursor, size_t count, bool b
       // Index dropped while idle. Emit the error *before* Cursor_Free: on
       // non-coord+FAIL paths the cursor holds the only AREQ ref, so freeing
       // first would UAF the req->useReplyCallback read inside AREQ_ReplyOrStoreError.
-      RS_LOG_ASSERT(req, "cursorRead reached with execState==NULL (unsupported FT.HYBRID WITHCURSOR)");
       QueryError_SetWithoutUserDataFmt(&status, QUERY_ERROR_CODE_DROPPED_BACKGROUND,
                                        "The index was dropped while the cursor was idle");
       AREQ_ReplyOrStoreError(req, ctx, &status);

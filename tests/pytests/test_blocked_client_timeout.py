@@ -954,6 +954,7 @@ class TestCoordinatorTimeout:
             c.execute_command(debug_cmd(), 'QUERY_CONTROLLER', 'SET_CURSOR_READ_SIZE', 1)
             for c in all_shards
         ]
+        prev_policy = None
         try:
             prev_policy, cursor_id, baseline, before_info, base_err_coord = \
                 _setup_fail_cursor_state(env)
@@ -1005,9 +1006,9 @@ class TestCoordinatorTimeout:
                     str(expected),
                     msg=f"Shard pid={pid_cmd(c)} TIMEOUT_ERROR_SHARD_METRIC "
                         f"expected {expected} (base={base}, target_pid={target_pid})")
-
-            run_command_on_all_shards(env, 'CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_policy)
         finally:
+            if prev_policy is not None:
+                run_command_on_all_shards(env, 'CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_policy)
             for c, prev in zip(all_shards, prev_sizes):
                 c.execute_command(debug_cmd(), 'QUERY_CONTROLLER',
                                   'SET_CURSOR_READ_SIZE', prev)
