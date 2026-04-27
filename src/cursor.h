@@ -195,6 +195,11 @@ typedef struct {
    * cursor was not found (safe: the coord FAIL branch is then skipped). */
   RSTimeoutPolicy queryTimeoutPolicy;
 #ifdef ENABLE_ASSERT
+  /** Today no hybrid cursor reaches this peek:
+   * `_FT.HYBRID WITHCURSOR` cursors live on the shard cursor list and are
+   * read via `_FT.CURSOR READ` which goes directly to RSCursorReadCommand,
+   * bypassing CursorCommand (the only caller of Cursors_PeekTimeoutInfo).
+   * User-facing `FT.HYBRID WITHCURSOR` is not supported. */
   bool isHybrid;
 #endif
 } CursorTimeoutInfo;

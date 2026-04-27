@@ -317,11 +317,6 @@ Cursor *Cursors_TakeForExecution(CursorList *cl, uint64_t cid) {
   return cur;
 }
 
-// Cursors that never populated queryTimeoutPolicy (e.g. hybrid cursors) rely
-// on the rm_calloc zero reading back as TimeoutPolicy_Return so the coord
-// FAIL branch is skipped for them.
-static_assert(TimeoutPolicy_Return == 0, "TimeoutPolicy_Return must be the zero value");
-
 CursorTimeoutInfo Cursors_PeekTimeoutInfo(CursorList *cl, uint64_t cid) {
   CursorTimeoutInfo info = {.queryTimeoutMS = 0, .queryTimeoutPolicy = TimeoutPolicy_Return};
   CursorList_Lock(cl);

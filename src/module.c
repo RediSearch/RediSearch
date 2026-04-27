@@ -3889,6 +3889,7 @@ static inline int CursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, i
         Cursors_PeekTimeoutInfo(GetGlobalCursor((uint64_t)cid), (uint64_t)cid);
     if (info.queryTimeoutPolicy == TimeoutPolicy_Fail) {
 #ifdef ENABLE_ASSERT
+      // ft.hybrid withcursor is not supported.
       RS_ASSERT(!info.isHybrid);
 #endif
       CoordRequestCtx *reqCtx = CoordRequestCtx_New(COMMAND_AGGREGATE);

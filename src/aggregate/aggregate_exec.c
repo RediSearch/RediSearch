@@ -1786,18 +1786,10 @@ static void cursorRead(RedisModuleCtx *ctx, Cursor *cursor, size_t count, bool b
       // Index dropped while idle. Emit the error *before* Cursor_Free: on
       // non-coord+FAIL paths the cursor holds the only AREQ ref, so freeing
       // first would UAF the req->useReplyCallback read inside AREQ_ReplyOrStoreError.
-      AREQ *req_local = cursor->execState;
-      // execState is NULL only for the merged hybrid cursor (HybridRequest_StartSingleCursor).
-      RS_ASSERT(req_local || cursor->hybrid_ref.rm);
-      if (req_local) {
-        QueryError err = QueryError_Default();
-        QueryError_SetWithoutUserDataFmt(&err, QUERY_ERROR_CODE_DROPPED_BACKGROUND,
-                                         "The index was dropped while the cursor was idle");
-        AREQ_ReplyOrStoreError(req_local, ctx, &err);
-      } else {
-        // Merged hybrid cursor: no AREQ, reply inline.
-        RedisModule_ReplyWithError(ctx, "The index was dropped while the cursor was idle");
-      }
+      RS_LOG_ASSERT(req, "cursorRead reached with execState==NULL (unsupported FT.HYBRID WITHCURSOR)");
+      QueryError_SetWithoutUserDataFmt(&status, QUERY_ERROR_CODE_DROPPED_BACKGROUND,
+                                       "The index was dropped while the cursor was idle");
+      AREQ_ReplyOrStoreError(req, ctx, &status);
       Cursor_Free(cursor);
       return;
     }
