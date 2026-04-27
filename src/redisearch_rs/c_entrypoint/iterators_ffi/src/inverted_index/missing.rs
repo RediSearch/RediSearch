@@ -45,7 +45,7 @@ impl MissingIterator<'_> {
         }
     }
 
-    pub(super) const fn field_name(&self) -> (*const std::ffi::c_char, usize) {
+    pub(super) fn field_name(&self) -> (*const std::ffi::c_char, usize) {
         match self {
             MissingIterator::Encoded(m) => m.field_name(),
             MissingIterator::Raw(m) => m.field_name(),
