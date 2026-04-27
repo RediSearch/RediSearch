@@ -33,7 +33,6 @@ void iterCursorMappingCb(void *p);
 
 /* Prototype for all reduce functions */
 typedef int (*MRReduceFunc)(struct MRCtx *ctx, int count, MRReply **replies);
-typedef void (*MRCtxFreePrivDataCB)(struct MRCtx *ctx);
 
 /* Fanout map - send the same command to all the shards, sending the collective
  * reply to the reducer callback */
@@ -86,16 +85,14 @@ void *MRCtx_GetPrivData(struct MRCtx *ctx);
 
 struct RedisModuleCtx *MRCtx_GetRedisCtx(struct MRCtx *ctx);
 int MRCtx_GetNumReplied(struct MRCtx *ctx);
+void MRCtx_RequestCompleted(struct MRCtx *ctx);
 MRReply** MRCtx_GetReplies(struct MRCtx *ctx);
 RedisModuleBlockedClient *MRCtx_GetBlockedClient(struct MRCtx *ctx);
 void MRCtx_SetReduceFunction(struct MRCtx *ctx, MRReduceFunc fn);
 
-void MRCtx_IncrRef(struct MRCtx *ctx);
-void MRCtx_DecrRef(struct MRCtx *ctx);
-void MRCtx_SetFreePrivDataCB(struct MRCtx *ctx, MRCtxFreePrivDataCB cb);
 
-/* Set the blocked client for the context (used when MRCtx is created before blocking) */
-void MRCtx_SetBlockedClient(struct MRCtx *ctx, struct RedisModuleBlockedClient *bc);
+/* Free the MapReduce context */
+void MRCtx_Free(struct MRCtx *ctx);
 
 void MRCtx_SetValidateConnections(struct MRCtx *ctx, bool validateConnections);
 bool MRCtx_GetValidateConnections(struct MRCtx *ctx);
