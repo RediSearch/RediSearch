@@ -7,7 +7,10 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::ptr::NonNull;
+use std::{
+    ffi::{CString, c_char},
+    ptr::NonNull,
+};
 
 use ffi::{RedisSearchCtx, t_docId, t_fieldIndex};
 use inverted_index::{
@@ -39,11 +42,11 @@ use super::InvIndIterator;
 pub struct Missing<'index, E: DecodedBy, C = crate::expiration_checker::NoOpChecker> {
     it: InvIndIterator<'index, IndexReaderCore<'index, E>, C>,
     field_index: t_fieldIndex,
-    /// Cached field name pointer and length, extracted from the spec at
-    /// construction time. The pointer remains valid for the iterator's
-    /// lifetime because pre-condition 3 of [`Missing::new`] requires
-    /// `context.spec` (and its fields) to remain valid for that long.
-    field_name: (*const std::ffi::c_char, usize),
+    /// Owned copy of the field name, extracted from the spec at construction
+    /// time. Owning the string means the iterator no longer borrows into
+    /// `spec.fields`, so `context`/`spec` only need to be valid at
+    /// construction time (not for the iterator's entire lifetime).
+    field_name: CString,
 }
 
 impl<'index, E, C> Missing<'index, E, C>
@@ -61,11 +64,9 @@ where
     ///
     /// 1. `context` must point to a valid [`RedisSearchCtx`].
     /// 2. `context.spec` must be a non-null pointer to a valid `IndexSpec`.
-    /// 3. Both 1 and 2 must remain valid for the lifetime of the iterator
-    ///    (the cached field name pointer points into `spec.fields`).
-    /// 4. `field_index` must be a valid index into `context.spec.fields`.
-    /// 5. `context.spec.missingFieldDict` must be a non-null, valid dict pointer.
-    /// 6. The entry in `missingFieldDict` for `spec.fields[field_index].fieldName`,
+    /// 3. `field_index` must be a valid index into `context.spec.fields`.
+    /// 4. `context.spec.missingFieldDict` must be a non-null, valid dict pointer.
+    /// 5. The entry in `missingFieldDict` for `spec.fields[field_index].fieldName`,
     ///    when non-null, must point to an opaque
     ///    [`InvertedIndex`](inverted_index::opaque::InvertedIndex) whose encoding
     ///    variant matches `E`.
@@ -86,26 +87,27 @@ where
             .frequency(1)
             .build();
 
-        // Cache the field name at construction time so `field_name()` doesn't
-        // need the context later (it was removed from the struct).
-        // Pre-condition 3 guarantees the cached pointer remains valid.
-        // SAFETY: pre-conditions 1, 2, and 4 guarantee context, spec, and field_index validity.
+        // Copy the field name into an owned CString so the iterator does not
+        // borrow into spec.fields beyond construction.
+        // SAFETY: pre-conditions 1, 2, and 3 guarantee context, spec, and field_index validity.
         let field_name = {
             // SAFETY: pre-condition 1 guarantees `context` points to a valid `RedisSearchCtx`.
             let sctx = unsafe { context.as_ref() };
             // SAFETY: pre-condition 2 guarantees `spec` is non-null and valid.
             let spec = unsafe { &*sctx.spec };
             if spec.fields.is_null() {
-                (std::ptr::null(), 0)
+                CString::default()
             } else {
-                // SAFETY: pre-condition 4 guarantees `field_index` is in bounds.
+                // SAFETY: pre-condition 3 guarantees `field_index` is in bounds.
                 let field_ptr = unsafe { spec.fields.add(field_index as usize) };
                 // SAFETY: `field_ptr` is valid per the above bounds guarantee.
                 let field = unsafe { &*field_ptr };
                 let mut len = 0;
                 // SAFETY: `field.fieldName` is valid per spec field validity.
                 let name = unsafe { ffi::HiddenString_GetUnsafe(field.fieldName, &mut len) };
-                (name, len)
+                // SAFETY: `name` points to `len` valid bytes (per HiddenString contract).
+                let bytes = unsafe { std::slice::from_raw_parts(name.cast::<u8>(), len) };
+                CString::new(bytes).expect("field name contains interior nul byte")
             }
         };
 
@@ -170,8 +172,8 @@ where
     }
 
     /// Get the field name tracked by this missing-field iterator.
-    pub const fn field_name(&self) -> (*const std::ffi::c_char, usize) {
-        self.field_name
+    pub fn field_name(&self) -> (*const c_char, usize) {
+        (self.field_name.as_ptr(), self.field_name.as_bytes().len())
     }
 }
 
