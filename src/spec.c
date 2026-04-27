@@ -1611,6 +1611,11 @@ StrongRef IndexSpec_Parse(const HiddenString *name, const char **argv, int argc,
       goto failure;
     }
   }
+  if ((spec->flags & Index_WideSchema) && !(spec->flags & Index_StoreFieldFlags)) {
+    QueryError_SetError(status, QUERY_EINVAL,
+                        SPEC_SCHEMA_EXPANDABLE_STR " cannot be used with " SPEC_NOFIELDS_STR);
+    goto failure;
+  }
 
   if (timeout != -1) {
     spec->flags |= Index_Temporary;
@@ -3041,6 +3046,14 @@ void IndexSpec_RdbSave(RedisModuleIO *rdb, IndexSpec *sp) {
   }
 }
 
+static void IndexSpec_NormalizeStorageFlagsOnLoad(IndexFlags *flags) {
+  if ((*flags & Index_WideSchema) && !(*flags & Index_StoreFieldFlags)) {
+    *flags &= ~Index_WideSchema;
+    RedisModule_Log(RSDummyContext, "warning", "Ignoring %s because %s is set",
+                    SPEC_SCHEMA_EXPANDABLE_STR, SPEC_NOFIELDS_STR);
+  }
+}
+
 IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, QueryError *status) {
   char *rawName = LoadStringBuffer_IOError(rdb, NULL, goto cleanup_no_index);
   size_t len = strlen(rawName);
@@ -3058,6 +3071,8 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, QueryError *status)
   if (encver < INDEX_MIN_NOFREQ_VERSION) {
     flags |= Index_StoreFreqs;
   }
+  IndexSpec_NormalizeStorageFlagsOnLoad(&flags);
+
   uint64_t numFields_u64 = LoadUnsigned_IOError(rdb, goto cleanup);
 
   if (unlikely(numFields_u64 > SPEC_MAX_FIELDS)) {
@@ -3212,6 +3227,7 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   if (encver < INDEX_MIN_NOFREQ_VERSION) {
     sp->flags |= Index_StoreFreqs;
   }
+  IndexSpec_NormalizeStorageFlagsOnLoad(&sp->flags);
 
   uint64_t numFields_u64 = RedisModule_LoadUnsigned(rdb);
 
@@ -3761,7 +3777,9 @@ SpecOpIndexingCtx *Indexes_FindMatchingSchemaRules(RedisModuleCtx *ctx, RedisMod
       }
 
       // load document only if required
-      if (!r) r = EvalCtx_Create();
+      if (!r) {
+        r = EvalCtx_Create(EVAL_MODE_INDEX);
+      }
       RLookup_LoadRuleFields(ctx, &r->lk, &r->row, spec, key_p);
 
       if (!SchemaRule_FilterPasses(r, spec->rule->filter_exp)) {
@@ -3769,8 +3787,8 @@ SpecOpIndexingCtx *Indexes_FindMatchingSchemaRules(RedisModuleCtx *ctx, RedisMod
           specOp->op = SpecOp_Del;
         }
       }
-      QueryError_ClearError(r->ee.err);
-      // Clean up the row and lookup between iterations (indexes)
+      // Clean up state between iterations (indexes)
+      QueryError_ClearError(&r->status);
       RLookup_Cleanup(&r->lk);
       RLookupRow_Reset(&r->row);
     }

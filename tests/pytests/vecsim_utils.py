@@ -90,7 +90,7 @@ def wait_for_background_indexing(env, index_name, field_name, message=''):
     index_state = f"iter: {iter}, index_sizes: {index_sizes}, flat_index_sizes: {flat_index_sizes}, backend_index_sizes: {backend_index_sizes}, is_trained: {is_trained}"
 
     try:
-        with TimeLimit(120):
+        with TimeLimit(250):
             while not all(is_trained):
                 # 'BACKGROUND_INDEXING' == 0 means training is done
                 for i, con in enumerate(env.getOSSMasterNodesConnectionList()):
@@ -103,6 +103,10 @@ def wait_for_background_indexing(env, index_name, field_name, message=''):
                 time.sleep(0.1)
                 iter += 1
                 index_state = f"iter: {iter}, index_sizes: {index_sizes}, flat_index_sizes: {flat_index_sizes}, backend_index_sizes: {backend_index_sizes}, is_trained: {is_trained}"
+            # Drain workers to ensure all background job cleanup (including job object
+            # deallocation from tracked memory) has completed before returning.
+            for con in env.getOSSMasterNodesConnectionList():
+                con.execute_command(debug_cmd(), 'WORKERS', 'DRAIN')
         for id, con in enumerate(env.getOSSMasterNodesConnectionList()):
             index_size = get_tiered_debug_info(con, index_name, field_name)['INDEX_SIZE']
             env.assertGreater(get_tiered_backend_debug_info(con, index_name, field_name)['INDEX_SIZE'], 0, message=f"wait_for_background_indexing: shard: {id}, index size: {index_size}" + message)

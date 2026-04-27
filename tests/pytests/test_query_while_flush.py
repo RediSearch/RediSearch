@@ -41,7 +41,15 @@ def test_query_while_flush():
         'flush_completed': False
     }
 
-    def query_worker(stats):
+    # Per-thread iteration counters, incremented at the end of each loop iteration.
+    # Used to deterministically drain in-flight iterations after toggling state
+    # (flushall_called / flush_completed): once every counter has advanced by at
+    # least one, every worker has re-evaluated the state and no stale attribution
+    # to the pre-flush counters can still be pending.
+    num_threads = 5
+    iteration_counts = [0] * num_threads
+
+    def query_worker(stats, thread_id):
         """Worker thread that continuously queries the index"""
         local_conn = env.getClusterConnectionIfNeeded()
 
@@ -65,30 +73,42 @@ def test_query_while_flush():
                 else:
                     stats['after_flush_errors'] += 1
 
+          iteration_counts[thread_id] += 1
           # Small delay to avoid overwhelming the system
           time.sleep(0.001)
 
-    # Start 5 query threads (pass the event)
-    num_threads = 5
+    # Start query threads (pass the event)
     threads = []
     for i in range(num_threads):
         thread = threading.Thread(
             target=query_worker,
-            args=(stats, ),
+            args=(stats, i),
             daemon=True
         )
         threads.append(thread)
         thread.start()
 
-    # Let queries run for a bit to accumulate some successes
-    time.sleep(0.5)
+    # Wait until query threads have accumulated some successes
+    wait_for_condition(
+        lambda: (stats['before_flush_successes'] > 0, stats),
+        message='no successful pre-flush queries observed',
+        timeout=30,
+    )
 
     # Signal that flushall is about to be called
     flushall_called.set()
-    # Sleep to guarantee synchronization (if a thread sent between the set and its check, we want to minimize risk)
-    # The alternative is to use a lock, but in Python there is no native read-write lock, and therefore would be hard to accumulate queries in the workers queue
-    # so this is a simpler better approach
-    time.sleep(0.5)
+    # Wait for in-flight pre-flush attributions to drain: every worker must complete
+    # at least one loop iteration after flushall_called.set(), guaranteeing each has
+    # re-evaluated flushall_called.is_set() at the increment site with the flag set.
+    snap = list(iteration_counts)
+    wait_for_condition(
+        lambda: (
+            all(c > s for c, s in zip(iteration_counts, snap)),
+            {'snap': snap, 'cur': list(iteration_counts)},
+        ),
+        message='not all workers completed an iteration after flushall_called.set()',
+        timeout=10,
+    )
     env.assertGreater(stats['before_flush_successes'], 0)
     env.assertEqual(stats['before_flush_errors'], 0)
 
@@ -97,11 +117,19 @@ def test_query_while_flush():
 
     # Mark flush as completed
     stats['flush_completed'] = True
-    # Sleep to guarantee synchronization (if a thread sent between the set and its check, we want to minimize risk)
-    # The alternative is to use a lock, but in Python there is no native read-write lock, and therefore would be hard to accumulate queries in the workers queue
-    # so this is a simpler better approach
-    # Otherwise I could see successes attributed to before flush that should have been after
-    time.sleep(0.5)
+    # Wait for any thread that already passed the `flushall_called.is_set()` check but has
+    # not yet read `flush_completed` to finish its iteration, so we don't misattribute a
+    # post-flush observation to the before-flush bucket when we later clear the event.
+    # Same drain purpose as above, expressed against the per-thread iteration counters.
+    snap = list(iteration_counts)
+    wait_for_condition(
+        lambda: (
+            all(c > s for c, s in zip(iteration_counts, snap)),
+            {'snap': snap, 'cur': list(iteration_counts)},
+        ),
+        message='not all workers completed an iteration after flush_completed=True',
+        timeout=10,
+    )
     flushall_called.clear()  # Reset the event
     # Create index2 and verify it works properly
     env.expect('FT.CREATE', 'index2', 'ON', 'HASH', 'SCHEMA', 'text', 'TEXT').ok()

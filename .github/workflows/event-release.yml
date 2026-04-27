@@ -137,12 +137,17 @@ jobs:
           ISSUES_SHIFT_ASSIGNEE: ${{ vars.ISSUES_SHIFT_ASSIGNEE }}
           GITHUB_ACTOR: ${{ github.actor }}
         run: |
+          # Omit GITHUB_ACTOR from reviewers if it is a bot account
+          REVIEWERS="$TEAM_LEADERS,$ISSUES_SHIFT_ASSIGNEE"
+          if [[ "$GITHUB_ACTOR" != *"[bot]" ]]; then
+            REVIEWERS="$REVIEWERS,$GITHUB_ACTOR"
+          fi
           gh pr create \
             --title    "Bump version from $CUR_VERSION to $NEXT_VERSION" \
             --body     "This PR was automatically created by the release workflow of $RELEASE_TAG." \
             --head     "$BRANCH" \
             --base     "$RELEASE_BRANCH" \
-            --reviewer "$TEAM_LEADERS,$ISSUES_SHIFT_ASSIGNEE,$GITHUB_ACTOR" \
+            --reviewer "$REVIEWERS" \
             --draft
 
       - name: Trigger CI

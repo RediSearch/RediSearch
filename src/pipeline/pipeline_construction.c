@@ -571,7 +571,7 @@ int Pipeline_BuildAggregationPart(Pipeline *pipeline, const AggregationPipelineP
 
         // Ensure the lookups can actually find what they need
         RLookup *curLookup = AGPLN_GetLookup(pln, stp, AGPLN_GETLOOKUP_PREV);
-        if (!ExprAST_GetLookupKeys(mstp->parsedExpr, curLookup, status)) {
+        if (ExprAST_GetLookupKeys(mstp->parsedExpr, curLookup, status) == EXPR_EVAL_ERR) {
           goto error;
         }
 

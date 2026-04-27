@@ -24,16 +24,18 @@
 typedef struct MRConn{
   MREndpoint ep;
   redisAsyncContext *conn;
-  MRConnState state;
   void *timer;
-  int protocol; // 0 (undetermined), 2, or 3
   uv_loop_t *loop;
+  int protocol; // 0 (undetermined), 2, or 3
+  MRConnState state;
+  unsigned authFailCount; // consecutive auth failures, for rate-limited logging
 } MRConn;
 
 static void MRConn_ConnectCallback(const redisAsyncContext *c, int status);
 static void MRConn_DisconnectCallback(const redisAsyncContext *, int);
 static int MRConn_Connect(MRConn *conn);
 static void MRConn_SwitchState(MRConn *conn, MRConnState nextState);
+static void MRConn_Disconnect(MRConn *conn);
 static void MRConn_Stop(MRConn *conn);
 static MRConn *MR_NewConn(MREndpoint *ep, uv_loop_t *loop);
 static int MRConn_StartNewConnection(MRConn *conn);
@@ -41,6 +43,7 @@ static int MRConn_SendAuth(MRConn *conn);
 
 #define RSCONN_RECONNECT_TIMEOUT 250
 #define RSCONN_REAUTH_TIMEOUT 1000
+#define AUTH_FAIL_LOG_INTERVAL 100
 #define INTERNALAUTH_USERNAME "internal connection"
 #define UNUSED(x) (void)(x)
 
@@ -49,9 +52,15 @@ static int MRConn_SendAuth(MRConn *conn);
                   conn, conn->ep.host, conn->ep.port, MRConnState_Str((conn)->state), \
                   ##__VA_ARGS__)
 
+#define CONN_LOG_WARNING(conn, fmt, ...)                                              \
+  RedisModule_Log(RSDummyContext, "warning", "[%p %s:%d %s] " fmt,                    \
+                  conn, conn->ep.host, conn->ep.port, MRConnState_Str((conn)->state), \
+                  ##__VA_ARGS__)
+
 /* detaches from our redis context */
 static redisAsyncContext *detachFromConn(MRConn *conn, bool shouldFree) {
   if (!conn->conn) {
+    conn->protocol = 0;
     return NULL;
   }
 
@@ -59,6 +68,7 @@ static redisAsyncContext *detachFromConn(MRConn *conn, bool shouldFree) {
   //Freeing the cbData, not the connection or the uvloop
   ac->data = NULL;
   conn->conn = NULL;
+  conn->protocol = 0;
   if (shouldFree) {
     redisAsyncFree(ac);
     return NULL;
@@ -72,6 +82,13 @@ typedef struct {
   size_t rr;  // round robin counter
   MRConn **conns;
 } MRConnPool;
+
+static inline void MRConnPool_Disconnect(const MRConnPool *pool) {
+  if (!pool) return;
+  for (size_t i = 0; i < pool->num; i++) {
+    MRConn_Disconnect(pool->conns[i]);
+  }
+}
 
 static MRConnPool *_MR_NewConnPool(MREndpoint *ep, size_t num, uv_loop_t *loop) {
   MRConnPool *pool = rm_malloc(sizeof(*pool));
@@ -101,16 +118,14 @@ static void closeTimer(MRConn *conn) {
 }
 
 /*
-* This is called when the IORuntime is being shut down. This is called from the uv thread.
+* This is called from the uv thread.
 */
 static void MRConn_Disconnect(MRConn *conn) {
   CONN_LOG(conn, "Disconnecting connection");
   conn->state = MRConn_Freeing; // So that DisconnectCallback will free the connection
   closeTimer(conn);
-  redisAsyncContext *ac = conn->conn;
+  redisAsyncContext *ac = detachFromConn(conn, false);
   if (ac) {
-    ac->data = NULL;
-    conn->conn = NULL;
     redisAsyncDisconnect(ac);
   }
 }
@@ -121,19 +136,20 @@ static void freeConn(MRConn *conn) {
   rm_free(conn);
 }
 
-/* Free a connection pool. This is called when the connection pool is removed from the manager
-  This happens in the main thread and while the uv loop has been terminated, so we can safely free the connection
-*/
+/* Free a connection pool.
+ * Called both when a node is removed/replaced (runtime topology updates) and when the
+ * connection manager is released (teardown). Runtime paths are expected to disconnect first;
+ * this function performs final ownership cleanup of MRConn wrappers.
+ */
 static void MRConnPool_Free(void *privdata, void *p) {
   UNUSED(privdata);
   MRConnPool *pool = p;
   if (!pool) return;
   for (size_t i = 0; i < pool->num; i++) {
     MRConn *conn = pool->conns[i];
-    // Avoid callbacks (MRConn_DisconnectCallback) to access freed memory
-    if (conn->conn) {
-      conn->conn->data = NULL;
-    }
+    // Detach callback data to avoid disconnect callbacks touching freed MRConn.
+    // A non-NULL return here means the caller skipped explicit disconnect.
+    detachFromConn(conn, false);
     freeConn(conn);
   }
   rm_free(pool->conns);
@@ -178,10 +194,7 @@ void MRConnManager_Stop(MRConnManager *mgr) {
   dictEntry *entry;
   while ((entry = dictNext(it))) {
     MRConnPool *pool = dictGetVal(entry);
-    for (size_t i = 0; i < pool->num; i++) {
-      MRConn *conn = pool->conns[i];
-      MRConn_Disconnect(conn);
-    }
+    MRConnPool_Disconnect(pool);
   }
   dictReleaseIterator(it);
 }
@@ -287,21 +300,40 @@ MRConn *MRConn_Get(MRConnManager *mgr, const char *id) {
   return NULL;
 }
 
+/* Get the state string of the first connection for a specific node by id.
+ * Returns NULL if this node is not in the pool.
+ * Must be called from the uv event loop thread, as mgr->map is not thread-safe. */
+const char *MRConnManager_GetNodeState(MRConnManager *mgr, const char *id) {
+  dictEntry *ptr = dictFind(mgr->map, id);
+  if (ptr) {
+    MRConnPool *pool = dictGetVal(ptr);
+    // All connections in the pool share the same endpoint, so any one is representative.
+    if (pool->num > 0 && pool->conns[0]) {
+      return MRConnState_Str(pool->conns[0]->state);
+    }
+  }
+  return NULL;
+}
+
 /* Send a command to the connection */
 int MRConn_SendCommand(MRConn *c, MRCommand *cmd, redisCallbackFn *fn, void *privdata) {
 
   /* Only send to connected nodes */
   if (c->state != MRConn_Connected) {
+    CONN_LOG_WARNING(c, "Tried to send command to node in state %s", MRConnState_Str(c->state));
     return REDIS_ERR;
   }
 
   if (!cmd->cmd) {
     if (redisFormatSdsCommandArgv(&cmd->cmd, cmd->num, (const char **)cmd->strs, cmd->lens) == REDIS_ERR) {
+      CONN_LOG_WARNING(c, "Failed to format command");
       return REDIS_ERR;
     }
   }
   if (cmd->protocol != 0 && (!c->protocol || c->protocol != cmd->protocol)) {
-    int rc = redisAsyncCommand(c->conn, NULL, NULL, "HELLO %d", cmd->protocol);
+    if (redisAsyncCommand(c->conn, NULL, NULL, "HELLO %d", cmd->protocol) == REDIS_ERR) {
+      return REDIS_ERR;
+    }
     c->protocol = cmd->protocol;
   }
   return redisAsyncFormattedCommand(c->conn, fn, privdata, cmd->cmd, sdslen(cmd->cmd));
@@ -315,12 +347,16 @@ int MRConnManager_Add(MRConnManager *m, uv_loop_t *loop, const char *id, MREndpo
     MRConnPool *pool = dictGetVal(ptr);
 
     MRConn *conn = pool->conns[0];
-    // the node hasn't changed address, we don't need to do anything */
+    // the node hasn't changed address, we don't need to do anything
     if (!strcmp(conn->ep.host, ep->host) && conn->ep.port == ep->port) {
       return 0;
     }
 
-    // if the node has changed, we just replace the pool with a new one automatically
+    // Node changed address - disconnect old pool before replacing it.
+    RedisModule_Log(RSDummyContext, "notice",
+                    "MRConnManager_Add: Node %s changed address from %s:%d to %s:%d, reconnecting (state: %s)",
+                    id, conn->ep.host, conn->ep.port, ep->host, ep->port, MRConnState_Str(conn->state));
+    MRConnPool_Disconnect(pool);
   }
 
   MRConnPool *pool = _MR_NewConnPool(ep, m->nodeConns, loop);
@@ -368,10 +404,14 @@ int MRConnManager_ConnectAll(MRConnManager *m) {
 
 /* Explicitly disconnect a connection and remove it from the connection pool */
 int MRConnManager_Disconnect(MRConnManager *m, const char *id) {
-  if (dictDelete(m->map, id)) {
-    return REDIS_OK;
+  dictEntry *ptr = dictUnlink(m->map, id);
+  if (!ptr) {
+    return REDIS_ERR;
   }
-  return REDIS_ERR;
+  const MRConnPool *pool = dictGetVal(ptr);
+  MRConnPool_Disconnect(pool);
+  dictFreeUnlinkedEntry(m->map, ptr);
+  return REDIS_OK;
 }
 
 
@@ -430,13 +470,11 @@ static void signalCallback(uv_timer_t *tm) {
     return;  // Nothing to do here!
   }
 
-  redisAsyncContext *ac = conn->conn;
-
   if (conn->state == MRConn_Freeing) {
     CONN_LOG(conn, "Freeing connection");
+
+    redisAsyncContext *ac = detachFromConn(conn, false);
     if (ac) {
-      ac->data = NULL;
-      conn->conn = NULL;
       redisAsyncDisconnect(ac);
     }
     freeConn(conn);
@@ -445,6 +483,10 @@ static void signalCallback(uv_timer_t *tm) {
 
   if (conn->state == MRConn_ReAuth) {
     if (MRConn_SendAuth(conn) != REDIS_OK) {
+      conn->authFailCount++;
+      if (conn->authFailCount == 1 || conn->authFailCount % AUTH_FAIL_LOG_INTERVAL == 0) {
+        CONN_LOG_WARNING(conn, "Failed to send AUTH command (%u consecutive failures)", conn->authFailCount);
+      }
       detachFromConn(conn, true);
       MRConn_SwitchState(conn, MRConn_Connecting);
     }
@@ -502,7 +544,6 @@ static void MRConn_SwitchState(MRConn *conn, MRConnState nextState) {
 
 activate_timer:
   if (conn->timer && !uv_is_active(conn->timer)) {
-    uv_timer_t *tm = conn->timer;
     uv_timer_start(conn->timer, signalCallback, nextTimeout, 0);
   }
 }
@@ -528,13 +569,14 @@ static void MRConn_AuthCallback(redisAsyncContext *c, void *r, void *privdata) {
   if (MRReply_Type(rep) == REDIS_REPLY_ERROR) {
     size_t len;
     const char* s = MRReply_String(rep, &len);
-    CONN_LOG(conn, "Error authenticating: %.*s", (int)len, s);
+    CONN_LOG_WARNING(conn, "Error authenticating: %.*s", (int)len, s);
     MRConn_SwitchState(conn, MRConn_ReAuth);
     /*we don't try to reconnect to failed connections */
     goto cleanup;
   }
 
   /* Success! we are now connected! */
+  conn->authFailCount = 0;
   MRConn_SwitchState(conn, MRConn_Connected);
 
 cleanup:
@@ -667,12 +709,19 @@ static int checkTLS(char** client_key, char** client_cert, char** ca_cert, char*
     ret = 0;
     if(*client_key){
       rm_free(*client_key);
+      *client_key = NULL;
     }
     if(*client_cert){
       rm_free(*client_cert);
+      *client_cert = NULL;
     }
     if(*ca_cert){
-      rm_free(*client_cert);
+      rm_free(*ca_cert);
+      *ca_cert = NULL;
+    }
+    if (*key_pass) {
+      rm_free(*key_pass);
+      *key_pass = NULL;
     }
   }
 
@@ -687,7 +736,9 @@ done:
   return ret;
 }
 
-/* hiredis async connect callback */
+/* hiredis async connect callback.
+ * conn (c->data) can be NULL if detachFromConn was called before the connect completed
+ * (e.g., MRConn_Freeing with deferred disconnect). Both status values are expected. */
 static void MRConn_ConnectCallback(const redisAsyncContext *c, int status) {
   MRConn *conn = c->data;
   if (!conn) {
@@ -708,8 +759,10 @@ static void MRConn_ConnectCallback(const redisAsyncContext *c, int status) {
 
   // if the connection is not stopped - try to reconnect
   if (status != REDIS_OK) {
-    CONN_LOG(conn, "Error on connect: %s", c->errstr);
-    detachFromConn(conn, false);  // Free the connection as well - we have an error
+    CONN_LOG_WARNING(conn, "Error on connect: %s", c->errstr);
+    // Hiredis will call __redisAsyncDisconnect() after connect-failure callback.
+    // We only detach from MRConn here to avoid stale callback data access.
+    detachFromConn(conn, false);
     MRConn_SwitchState(conn, MRConn_Connecting);
     return;
   }
@@ -727,13 +780,20 @@ static void MRConn_ConnectCallback(const redisAsyncContext *c, int status) {
     rm_free(ca_cert);
     if (key_file_pass) rm_free(key_file_pass);
     if(ssl_context == NULL || ssl_error != 0) {
-      CONN_LOG(conn, "Error on ssl context creation: %s", (ssl_error != 0) ? redisSSLContextGetError(ssl_error) : "Unknown error");
-      detachFromConn(conn, false);  // Free the connection as well - we have an error
+      CONN_LOG_WARNING(conn, "Error on ssl context creation: %s", (ssl_error != 0) ? redisSSLContextGetError(ssl_error) : "Unknown error");
+      detachFromConn(conn, true);
       MRConn_SwitchState(conn, MRConn_Connecting);
       if (ssl_context) SSL_CTX_free(ssl_context);
       return;
     }
     SSL *ssl = SSL_new(ssl_context);
+    if (!ssl) {
+      CONN_LOG_WARNING(conn, "Error creating SSL object");
+      detachFromConn(conn, true);
+      MRConn_SwitchState(conn, MRConn_Connecting);
+      SSL_CTX_free(ssl_context);
+      return;
+    }
     const redisContextFuncs *old_callbacks = c->c.funcs;
     if (redisInitiateSSL((redisContext *)(&c->c), ssl) != REDIS_OK) {
       const char *err = c->c.err ? c->c.errstr : "Unknown error";
@@ -743,9 +803,10 @@ static void MRConn_ConnectCallback(const redisAsyncContext *c, int status) {
       // function will not do it for us.
       ((struct redisAsyncContext*)c)->c.funcs = old_callbacks;
 
-      CONN_LOG(conn, "Error on tls auth, %s.", err);
-      detachFromConn(conn, false);  // Free the connection as well - we have an error
+      CONN_LOG_WARNING(conn, "Error on tls auth, %s.", err);
+      detachFromConn(conn, true);
       MRConn_SwitchState(conn, MRConn_Connecting);
+      SSL_free(ssl);
       if (ssl_context) SSL_CTX_free(ssl_context);
       return;
     }
@@ -756,6 +817,10 @@ static void MRConn_ConnectCallback(const redisAsyncContext *c, int status) {
   // a password is set to the `default` ACL user.
   if (!IsEnterprise() || conn->ep.password) {
     if (MRConn_SendAuth(conn) != REDIS_OK) {
+      conn->authFailCount++;
+      if (conn->authFailCount == 1 || conn->authFailCount % AUTH_FAIL_LOG_INTERVAL == 0) {
+        CONN_LOG_WARNING(conn, "Failed to send AUTH command (%u consecutive failures)", conn->authFailCount);
+      }
       detachFromConn(conn, true);
       MRConn_SwitchState(conn, MRConn_Connecting);
     }
@@ -780,7 +845,7 @@ static void MRConn_DisconnectCallback(const redisAsyncContext *c, int status) {
 
 static MRConn *MR_NewConn(MREndpoint *ep, uv_loop_t *loop) {
   MRConn *conn = rm_malloc(sizeof(MRConn));
-  *conn = (MRConn){.state = MRConn_Disconnected, .conn = NULL, .protocol = 0, .loop = loop, .timer = NULL};
+  *conn = (MRConn){.state = MRConn_Disconnected, .conn = NULL, .protocol = 0, .loop = loop, .timer = NULL, .authFailCount = 0};
   conn->timer = rm_malloc(sizeof(uv_timer_t));
   uv_timer_init(loop, conn->timer);
   ((uv_timer_t *)conn->timer)->data = conn;
@@ -790,23 +855,41 @@ static MRConn *MR_NewConn(MREndpoint *ep, uv_loop_t *loop) {
 
 /* Connect to a cluster node. Return REDIS_OK if either connected, or if  */
 static int MRConn_Connect(MRConn *conn) {
+  // Bounds the async TCP+TLS handshake. Without it, a blackholed SYN can leave
+  // the ac stuck in SYN-SENT indefinitely, because neither ConnectCallback nor
+  // DisconnectCallback will fire and no retry is scheduled. With it, hiredis
+  // surfaces a timeout via ConnectCallback(REDIS_ERR), which drops the conn
+  // into Connecting with the retry timer armed. No command_timeout is set:
+  // legitimate queries may run for many seconds.
+  const struct timeval *connectTimeout = &clusterConfig.connectTimeout;
+  const bool connectTimeoutEnabled = connectTimeout->tv_sec || connectTimeout->tv_usec;
   redisOptions options = {.type = REDIS_CONN_TCP,
                           .options = REDIS_OPT_NOAUTOFREEREPLIES,
+                          .connect_timeout = connectTimeoutEnabled ? connectTimeout : NULL,
                           .endpoint.tcp = {.ip = conn->ep.host, .port = conn->ep.port}};
 
   redisAsyncContext *c = redisAsyncConnectWithOptions(&options);
+  if (!c) {
+    CONN_LOG(conn, "Could not allocate async context with the given options");
+    return REDIS_ERR;
+  }
   if (c->err) {
-    CONN_LOG(conn, "Could not connect to node: %s", c->errstr);
+    CONN_LOG_WARNING(conn, "Could not connect to node: %s", c->errstr);
     redisAsyncFree(c);
     return REDIS_ERR;
   }
   conn->conn = c;
   conn->conn->data = conn;
-  conn->state = MRConn_Connecting;
+  conn->protocol = 0;
 
-  redisLibuvAttach(conn->conn, conn->loop);
-  redisAsyncSetConnectCallback(conn->conn, MRConn_ConnectCallback);
-  redisAsyncSetDisconnectCallback(conn->conn, MRConn_DisconnectCallback);
+  if (redisLibuvAttach(conn->conn, conn->loop) != REDIS_OK ||
+      redisAsyncSetConnectCallback(conn->conn, MRConn_ConnectCallback) != REDIS_OK ||
+      redisAsyncSetDisconnectCallback(conn->conn, MRConn_DisconnectCallback) != REDIS_OK) {
+    CONN_LOG_WARNING(conn, "Failed to attach hiredis context to libuv");
+    detachFromConn(conn, true);
+    return REDIS_ERR;
+  }
+  conn->state = MRConn_Connecting;
 
   return REDIS_OK;
 }
