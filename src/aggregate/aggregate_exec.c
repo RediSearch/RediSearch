@@ -1988,8 +1988,7 @@ int RSCursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     // other policies write the reply inline via the thread-safe
     // ctx with no timer.
     // BlockCursorClient requires cursor->execState != NULL (it dereferences it
-    // for the AST). Hybrid cursors leave execState == NULL and must not reach
-    // this path;
+    // for the AST).
     RS_ASSERT(cursor->execState != NULL);
     BlockClientCtx blockClientCtx = {0};
     if (cursor->queryTimeoutPolicy == TimeoutPolicy_Fail) {

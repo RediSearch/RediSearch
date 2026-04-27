@@ -61,7 +61,6 @@ RedisModuleBlockedClient *BlockQueryClientWithTimeout(RedisModuleCtx *ctx, Stron
 
 RedisModuleBlockedClient *BlockCursorClient(RedisModuleCtx *ctx, Cursor *cursor, size_t count, BlockClientCtx *blockClientCtx) {
   RS_ASSERT(blockClientCtx != NULL);
-  // Hybrid cursors (execState == NULL) must not reach this helper.
   RS_ASSERT(cursor->execState != NULL);
   RS_ASSERT(blockClientCtx->timeoutMS == 0 ||
             (blockClientCtx->timeoutCallback != NULL && blockClientCtx->replyCallback != NULL));
