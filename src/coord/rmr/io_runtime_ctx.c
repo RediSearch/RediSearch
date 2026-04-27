@@ -359,13 +359,13 @@ void IORuntimeCtx_Start(IORuntimeCtx *io_runtime_ctx) {
   RedisModule_Log(RSDummyContext, "verbose", "Created event loop thread for IORuntime ID %zu", io_runtime_ctx->queue->id);
 }
 
-void IORuntimeCtx_Schedule(IORuntimeCtx *io_runtime_ctx, MRQueueCallback cb, void *privdata) {
+void IORuntimeCtx_Schedule(IORuntimeCtx *io_runtime_ctx, MRQueueCallback cb, MRQueueDestructor dtor, void *privdata) {
   if (CheckAndSetIoRuntimeNotStarted(io_runtime_ctx)) {
     //This guarantees only one worker thread will start the IORuntime because of the atomic check. If started but loop is not ready, still RQ will accumulate the request
     // and would still be processed when the thread uvloop starts
     IORuntimeCtx_Start(io_runtime_ctx);
   }
-  RQ_Push(io_runtime_ctx->queue, cb, privdata);
+  RQ_Push(io_runtime_ctx->queue, cb, dtor, privdata);
   uv_async_send(&io_runtime_ctx->uv_runtime.async);
 }
 

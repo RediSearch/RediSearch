@@ -104,7 +104,7 @@ TEST_F(ClusterIOThreadsTest, TestIOThreadsResize) {
     IORuntimeCtx_Schedule_Topology(ioRuntime, topoCallback, topo, false);
     // Schedule multiple callbacks on each runtime
     for (int j = 0; j < target; j++) {
-      IORuntimeCtx_Schedule(ioRuntime, callback, &counters[i]);
+      IORuntimeCtx_Schedule(ioRuntime, callback, NULL, &counters[i]);
     }
   }
 
@@ -133,7 +133,7 @@ TEST_F(ClusterIOThreadsTest, TestIOThreadsResize) {
   for (int i = first_num_io_threads; i < cluster->num_io_threads; i++) {
     IORuntimeCtx *ioRuntime = MRCluster_GetIORuntimeCtx(cluster, i);
     for (int j = 0; j < 10; j++) {
-      IORuntimeCtx_Schedule(ioRuntime, callback, &counters[i]);
+      IORuntimeCtx_Schedule(ioRuntime, callback, NULL, &counters[i]);
     }
   }
 
@@ -144,7 +144,7 @@ TEST_F(ClusterIOThreadsTest, TestIOThreadsResize) {
   for (int i = 0; i < cluster->num_io_threads; i++) {
     IORuntimeCtx *ioRuntime = MRCluster_GetIORuntimeCtx(cluster, i);
     for (int j = 0; j < 10; j++) {
-      IORuntimeCtx_Schedule(ioRuntime, callback, &counters[i]);
+      IORuntimeCtx_Schedule(ioRuntime, callback, NULL, &counters[i]);
     }
   }
 
