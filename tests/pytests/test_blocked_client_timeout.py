@@ -191,6 +191,32 @@ def wait_for_blocked_query_client(env, query, msg='Client for query not found', 
             time.sleep(0.1)
 
 
+def _non_coord_shard_conns(env):
+    """Return shard connections whose process id differs from the coordinator's."""
+    coord_pid = pid_cmd(env.con)
+    conns = []
+    for shardId in range(1, env.shardsCount + 1):
+        conn = env.getConnection(shardId)
+        if pid_cmd(conn) != coord_pid:
+            conns.append(conn)
+    return conns
+
+
+def _wait_pinned_shard_with_blocked_cmd(shard_conn, sync_point, cmd_name, timeout=30):
+    """Wait for `shard_conn` to be paused at `sync_point` while a client is
+    blocked running `cmd_name`. Returns the blocked client id."""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if shard_conn.execute_command(debug_cmd(), 'SYNC_POINT',
+                                      'IS_WAITING', sync_point) == 1:
+            cid = get_query_client(shard_conn, cmd_name)
+            if cid:
+                return cid
+        time.sleep(0.1)
+    raise TimeoutError(
+        f'Shard not pinned at {sync_point} with a blocked {cmd_name} client within {timeout}s')
+
+
 class TestCoordinatorTimeout:
     """Tests for the blocked client timeout mechanism for the coordinator."""
 
@@ -896,6 +922,89 @@ class TestCoordinatorTimeout:
                                                     'FAIL pre-pickup cursor-read timeout')
 
         run_command_on_all_shards(env, 'CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_policy)
+
+    def test_fail_timeout_internal_cursor_read(self):
+        """FAIL timeout fired on a non-coord shard's _FT.CURSOR READ BC timer.
+
+        Validates the shard-side blocked-client timer for the internal
+        ``_FT.CURSOR READ`` issued by the coordinator's RPNet pipeline:
+
+        - Shrink ``RSGlobalConfig.cursorReadSize`` to 1 on every shard so each
+          ``_FT.CURSOR READ`` returns a single doc, forcing the coord's RPNet
+          to keep pulling from shards instead of draining a local buffer.
+        - Create a FAIL-policy ``WITHCURSOR`` aggregate; arm the
+          ``BeforeCursorReadSendChunk`` sync point only on shards whose process
+          differs from the coordinator's, so the coord-side ``runCursor`` (and
+          any self-targeted ``_FT.CURSOR READ``) keeps moving.
+        - Trigger the user's ``FT.CURSOR READ`` from a worker thread; once a
+          non-coord shard worker pins at the sync point, fire
+          ``CLIENT UNBLOCK ... TIMEOUT`` on its blocked ``_FT.CURSOR|READ``
+          client to invoke ``CursorReadTimeoutFailCallback``.
+        - Verify the user sees ``-TIMEOUT``, the coord error metric increments
+          by 1, and the coord cursor is reclaimed (drained via
+          ``DistCoordReqFreePrivData -> AREQ_DrainStoredCursor``).
+        """
+        env = self.env
+        skipIfNoEnableAssert(env)
+        sync_point = 'BeforeCursorReadSendChunk'
+
+        non_coord_shards = _non_coord_shard_conns(env)
+        env.assertGreater(len(non_coord_shards), 0,
+                          message="Test requires at least one shard process distinct "
+                                  "from the coordinator to exercise the internal "
+                                  "_FT.CURSOR READ path")
+        # One pinned shard is enough: MR_ManuallyTriggerNextIfNeeded won't
+        # dispatch a new _FT.CURSOR READ round while any prior command is
+        # still in flight, so a single stalled shard stalls the whole coord.
+        target_shard = non_coord_shards[0]
+
+        # Shrink shard cursor read size on every shard (including the coord's
+        # own shard) so each _FT.CURSOR READ returns 1 doc; otherwise the
+        # coord-self shard could satisfy the user request alone with its
+        # default 1000-doc chunk and the dispatch to the target shard would
+        # never happen.
+        all_shards = [env.getConnection(i) for i in range(1, env.shardsCount + 1)]
+        prev_sizes = [
+            c.execute_command(debug_cmd(), 'QUERY_CONTROLLER', 'SET_CURSOR_READ_SIZE', 1)
+            for c in all_shards
+        ]
+        try:
+            prev_policy, cursor_id, baseline, before_info, base_err_coord = \
+                _setup_fail_cursor_state(env)
+
+            target_shard.execute_command(debug_cmd(), 'SYNC_POINT', 'CLEAR')
+            target_shard.execute_command(debug_cmd(), 'SYNC_POINT', 'ARM', sync_point)
+
+            t_query = threading.Thread(
+                target=run_cmd_expect_timeout,
+                args=(env, ['FT.CURSOR', 'READ', 'idx', str(cursor_id)]),
+                daemon=True,
+            )
+            t_query.start()
+            try:
+                blocked_client_id = _wait_pinned_shard_with_blocked_cmd(
+                    target_shard, sync_point, '_FT.CURSOR|READ')
+                # Fire the BC timeout on the pinned shard's internal cursor-read client.
+                env.assertEqual(
+                    target_shard.execute_command('CLIENT', 'UNBLOCK', blocked_client_id, 'TIMEOUT'),
+                    1,
+                    message="CLIENT UNBLOCK on shard's _FT.CURSOR|READ should report 1")
+            finally:
+                target_shard.execute_command(debug_cmd(), 'SYNC_POINT', 'SIGNAL', sync_point)
+
+            t_query.join(timeout=10)
+            env.assertFalse(t_query.is_alive(),
+                            message="Cursor read thread should have finished")
+
+            self._assert_cursor_freed_and_metric_bumped(
+                cursor_id, baseline, before_info, base_err_coord,
+                'FAIL internal _FT.CURSOR READ timeout')
+
+            run_command_on_all_shards(env, 'CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_policy)
+        finally:
+            for c, prev in zip(all_shards, prev_sizes):
+                c.execute_command(debug_cmd(), 'QUERY_CONTROLLER',
+                                  'SET_CURSOR_READ_SIZE', prev)
 
     def test_shard_timeout_fail(self):
         """Test shard timeout with FAIL policy."""
