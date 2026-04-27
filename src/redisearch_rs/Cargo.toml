@@ -36,6 +36,7 @@ members = [
     "tracing_redismodule",
     "trie_bencher",
     "trie_rs",
+    "ttl_table",
     "value",
     "varint",
     "varint_bencher",
@@ -126,6 +127,7 @@ sorting_vector = { path = "./sorting_vector" }
 thin_vec = { path = "./thin_vec" }
 tracing_redismodule = { path = "./tracing_redismodule" }
 trie_rs = { path = "./trie_rs" }
+ttl_table = { path = "./ttl_table" }
 value = { path = "./value" }
 varint = { path = "./varint" }
 wildcard = { path = "./wildcard" }
