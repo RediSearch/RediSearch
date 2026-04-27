@@ -129,7 +129,7 @@ static int docIdMetaRDBLoad(RedisModuleIO *rdb, uint64_t *meta, int encver) {
   RS_LOG_ASSERT(encver == 1, "DocIdMeta: unexpected encver in RDB load");
 
   // Cache the flag locally to ensure all decisions in this callback observe a
-  // consistent value, although it cannot really happen, this gives certanty to static analyzers.
+  // consistent value, although it cannot really happen, this gives certainty to static analyzers.
   const bool persistenceInProgress = PersistenceInProgress;
 
   // Even when persistenceInProgress is set we must consume exactly the bytes
