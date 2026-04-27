@@ -387,6 +387,7 @@ void IORuntimeCtx_Schedule_Topology(IORuntimeCtx *io_runtime_ctx, MRQueueCallbac
   ctx->ioRuntime = io_runtime_ctx;
   ctx->new_topo = new_topo;
   newTask->cb = cb;
+  newTask->dtor = NULL;
   newTask->privdata = ctx;
   oldTask = exchangePendingTopo(io_runtime_ctx, newTask);
   // I need to trigger regardless of the thread running or not, it would be eventually picked, the same way a regular Request is scheduled without checking
