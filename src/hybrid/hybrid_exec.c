@@ -603,7 +603,7 @@ int HybridRequest_StartSingleCursor(StrongRef hybrid_ref, RedisModule_Reply *rep
     return REDISMODULE_OK;
 }
 
-static inline void replyWithCursors(RedisModuleCtx *replyCtx, arrayof(Cursor*) cursors) {
+static inline void replyWithCursors(RedisModuleCtx *replyCtx, arrayof(Cursor*) cursors, bool timedOut) {
     RedisModule_Reply _reply = RedisModule_NewReply(replyCtx), *reply = &_reply;
     // Send map of cursor IDs as response
     RedisModule_Reply_Map(reply);
@@ -616,12 +616,14 @@ static inline void replyWithCursors(RedisModuleCtx *replyCtx, arrayof(Cursor*) c
       } else if (IsHybridVectorSubquery(areq)) {
         RedisModule_ReplyKV_LongLong(reply, "VSIM", cursor->id);
       } else {
-        // This should never happen, we currently only support SEARCH and VSIM subqueries
         RS_ABORT_ALWAYS("Unknown subquery type");
       }
     }
-    // Add warnings array
     RedisModule_ReplyKV_Array(reply, "warnings"); // >warnings
+    if (timedOut) {
+      QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_TIMED_OUT, 1, SHARD_ERR_WARN);
+      RedisModule_Reply_SimpleString(reply, QueryWarning_Strwarning(QUERY_WARNING_CODE_TIMED_OUT));
+    }
     RedisModule_Reply_ArrayEnd(reply); // ~warnings
 
     RedisModule_Reply_MapEnd(reply);
@@ -702,18 +704,25 @@ int HybridRequest_StartCursors(StrongRef hybrid_ref, RedisModuleCtx *replyCtx, Q
 
     array_free(depleters);
 
+    bool depletionTimedOut = false;
     if (rc != RS_RESULT_OK) {
-      array_free_ex(req->cursors, Cursor_Free(*(Cursor**)ptr));
-      req->cursors = NULL;
-      HybridRequest_UnlockCursors(req);
-      if (!QueryError_HasError(status)) {
-        if (rc == RS_RESULT_TIMEDOUT) {
-          QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_TIMED_OUT, "Depleting timed out");
-        } else {
-          QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_GENERIC, "Failed to deplete set of results, rc=%d", rc);
+      if (rc == RS_RESULT_TIMEDOUT && req->reqConfig.timeoutPolicy != TimeoutPolicy_Fail) {
+        // RETURN policy: keep cursors with partial results, emit warning in reply
+        depletionTimedOut = true;
+      } else {
+        // Fatal error or FAIL policy — free everything
+        array_free_ex(req->cursors, Cursor_Free(*(Cursor**)ptr));
+        req->cursors = NULL;
+        HybridRequest_UnlockCursors(req);
+        if (!QueryError_HasError(status)) {
+          if (rc == RS_RESULT_TIMEDOUT) {
+            QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_TIMED_OUT, "Depleting timed out");
+          } else {
+            QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_GENERIC, "Failed to deplete set of results, rc=%d", rc);
+          }
         }
+        return REDISMODULE_ERR;
       }
-      return REDISMODULE_ERR;
     }
 
     HybridRequest_UnlockCursors(req);
@@ -723,7 +732,7 @@ int HybridRequest_StartCursors(StrongRef hybrid_ref, RedisModuleCtx *replyCtx, Q
 
     if (!req->useReplyCallback) {
       // If we are not using reply callback, we should reply with the cursors here
-      replyWithCursors(replyCtx, req->cursors);
+      replyWithCursors(replyCtx, req->cursors, depletionTimedOut);
       array_free(req->cursors);
       req->cursors = NULL;
     } // else the reply callback will reply with the cursors and free the array
@@ -772,6 +781,12 @@ static int buildPipelineAndExecute(StrongRef hybrid_ref, HybridPipelineParams *h
   // Record pipeline build time if profiling is enabled
   if (isProfile) {
     hreq->profileClocks.profilePipelineBuildTime = rs_wall_clock_elapsed_ns(&pipelineClock);
+  }
+
+  // Apply debug timeouts after pipeline is built (for _FT.DEBUG FT.HYBRID)
+  if (hreq->debugParams && applyHybridDebugTimeout(hreq, hreq->debugParams) != REDISMODULE_OK) {
+      QueryError_SetError(status, QUERY_ERROR_CODE_INVAL, "Failed to apply debug timeouts");
+      return REDISMODULE_ERR;
   }
 
   if (!isCursor) {
@@ -850,7 +865,8 @@ static int HybridQueryCursorReplyCallback(RedisModuleCtx *ctx, RedisModuleString
     return REDISMODULE_OK;
   }
 
-  replyWithCursors(ctx, req->cursors);
+  // FAIL policy path — timeout would have been handled by HybridQueryTimeoutFailCallback
+  replyWithCursors(ctx, req->cursors, false);
   array_free(req->cursors);
   req->cursors = NULL;
   return REDISMODULE_OK;
@@ -1017,8 +1033,7 @@ static bool shouldCheckInPipelineTimeoutHybrid(RedisModuleCtx* ctx, HybridReques
   // We should check for timeout in pipeline only if timeout is > 0
   // and when the policy is RETURN or the policy is FAIL, without workers.
   return hreq->reqConfig.queryTimeoutMS > 0 &&
-         (hreq->reqConfig.timeoutPolicy == TimeoutPolicy_Return ||
-          (hreq->reqConfig.timeoutPolicy == TimeoutPolicy_Fail && !RunInThread(ctx)));
+         (hreq->reqConfig.timeoutPolicy == TimeoutPolicy_Return || !RunInThread(ctx));
 
 }
 
@@ -1027,8 +1042,11 @@ static bool shouldCheckInPipelineTimeoutHybrid(RedisModuleCtx* ctx, HybridReques
  *
  * Parses command arguments, builds hybrid request structure, constructs execution pipeline,
  * and prepares for hybrid search execution.
+ *
+ * This method does not take ownership of `debugParams`.
  */
-int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, bool internal, ProfileOptions profileOptions) {
+int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, bool internal,
+                         ProfileOptions profileOptions, const HybridDebugParams *debugParams) {
   // Index name is argv[1]
   if (argc < 2) {
     return RedisModule_WrongArity(ctx);
@@ -1064,6 +1082,10 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   HybridRequest *hybridRequest = MakeDefaultHybridRequest(sctx);
   hybridRequest->profile = printHybridProfile;
   hybridRequest->tailPipeline->qctx.isProfile = profileOptions & EXEC_WITH_PROFILE;
+  if (debugParams) {
+    hybridRequest->debugParams = rm_malloc(sizeof(*debugParams));
+    *hybridRequest->debugParams = *debugParams;
+  }
   StrongRef hybrid_ref = StrongRef_New(hybridRequest, &FreeHybridRequest);
 
   ParseHybridCommandCtx cmd = {0};

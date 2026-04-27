@@ -10,17 +10,26 @@ on:
         type: string
         required: true
         description: "Name of the artifact to upload the built redisearch.so under"
+      arch:
+        type: string
+        default: x86_64
+        description: "CPU arch to build for. `x86_64` (default) runs on GitHub's ubuntu-24.04; `aarch64` runs on ubuntu-24.04-arm. Must match the target EC2 DB architecture at benchmark time."
 
 jobs:
   build:
-    name: "Build RediSearch"
-    # Must match the runner used by benchmark-flow.yml so the binary is ABI-compatible
-    runs-on: ubuntu-24.04
+    name: "Build RediSearch ${{ inputs.arch }}"
+    # Runner matches inputs.arch so the produced .so is ABI-compatible with
+    # the target EC2 instance. build.sh derives the output dir from `uname -m`,
+    # so we run the build natively on the matching-arch runner instead of
+    # cross-compiling.
+    runs-on: ${{ inputs.arch == 'aarch64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
     defaults:
       run:
         shell: bash -l -eo pipefail {0}
     env:
-      BUILD_DIR: bin/linux-x64-release/search-community
+      # build.sh maps `uname -m == x86_64` -> `x64` and `uname -m == aarch64` -> `aarch64`;
+      # BUILD_DIR mirrors that so the upload step finds the .so.
+      BUILD_DIR: ${{ format('bin/linux-{0}-release/search-community', inputs.arch == 'aarch64' && 'aarch64' || 'x64') }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4

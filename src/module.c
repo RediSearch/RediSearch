@@ -8,6 +8,7 @@
 */
 #define REDISMODULE_MAIN
 
+#include <assert.h>
 #include <stdio.h>
 #include <string.h>
 #include <sys/param.h>
@@ -74,6 +75,7 @@
 #include "search_disk_utils.h"
 #include "rs_wall_clock.h"
 #include "hybrid/hybrid_exec.h"
+#include "hybrid/hybrid_debug.h"
 #include "coord/coord_request_ctx.h"
 #include "coord/hybrid/dist_hybrid.h"
 #include "util/redis_mem_info.h"
@@ -1588,11 +1590,11 @@ static int CreateArbitraryWriteSearchCommands(RedisModuleCtx *ctx, const SearchC
 }
 
 int RSShardedHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-return hybridCommandHandler(ctx, argv, argc, true, EXEC_NO_FLAGS);
+return hybridCommandHandler(ctx, argv, argc, true, EXEC_NO_FLAGS, NULL);
 }
 
 int RSClientHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  return hybridCommandHandler(ctx, argv, argc, false, EXEC_NO_FLAGS);
+  return hybridCommandHandler(ctx, argv, argc, false, EXEC_NO_FLAGS, NULL);
 }
 
 #define PROFILE_1ST_PARAM 2
@@ -1664,7 +1666,7 @@ int RSProfileCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
   if (cmdType == COMMAND_HYBRID) {
     RedisModuleString *command = argv[0];
     bool internal = RedisModule_StringPtrLen(command, NULL)[0] == '_'; // _FT.PROFILE or FT.PROFILE
-    hybridCommandHandler(ctx, newArgv, newArgc, internal, withProfile);
+    hybridCommandHandler(ctx, newArgv, newArgc, internal, withProfile, NULL);
   } else {
     // RSExecuteAggregateOrSearch(ctx, newArgv, newArgc, cmdType, withProfile);
     execCommandHandlerFunc(ctx, newArgv, newArgc, cmdType, withProfile);
@@ -3703,6 +3705,10 @@ int DistAggregateCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int a
 
   if (NumShards == 1) {
     // There is only one shard in the cluster. We can handle the command locally.
+    if (isDebug) {
+      // argv still contains debug params; the non-debug handler would reject them as unknown args.
+      return DEBUG_RSAggregateCommand(ctx, argv, argc);
+    }
     return RSAggregateCommand(ctx, argv, argc);
   } else if (cannotBlockCtx(ctx)) {
     return ReplyBlockDeny(ctx, argv[0]);
@@ -3738,11 +3744,8 @@ int DistAggregateCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int a
                                                &handlerCtx);
 }
 
-void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
-                      struct ConcurrentCmdCtx *cmdCtx);
-
-static int DistHybridCommandInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
-                                     bool isProfile) {
+int DistHybridCommandInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
+                              bool isDebug, bool isProfile) {
   // Capture start time for coordinator dispatch time tracking
   rs_wall_clock_ns_t coordInitialTime = rs_wall_clock_now_ns();
 
@@ -3770,6 +3773,9 @@ static int DistHybridCommandInternal(RedisModuleCtx *ctx, RedisModuleString **ar
 
   // Coord callback
   ConcurrentCmdHandler dist_callback = RSExecDistHybrid;
+  if (isDebug) {
+    dist_callback = DEBUG_RSExecDistHybrid;
+  }
 
   // Prepare the spec ref for the background thread
   const char *idx = RedisModule_StringPtrLen(argv[1], NULL);
@@ -3786,6 +3792,10 @@ static int DistHybridCommandInternal(RedisModuleCtx *ctx, RedisModuleString **ar
   }
 
   if (NumShards == 1) {
+    if (isDebug) {
+      // argv still contains debug params; the non-debug handler would reject them as unknown args.
+      return DEBUG_hybridCommandHandler(ctx, argv, argc);
+    }
     return RSClientHybridCommand(ctx, argv, argc);
   } else if (cannotBlockCtx(ctx)) {
     return ReplyBlockDeny(ctx, argv[0]);
@@ -3824,15 +3834,39 @@ static int DistHybridCommandInternal(RedisModuleCtx *ctx, RedisModuleString **ar
 }
 
 int DistHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  return DistHybridCommandInternal(ctx, argv, argc, false);
+  return DistHybridCommandInternal(ctx, argv, argc, false /* isDebug */, false /* isProfile */);
 }
 
-static inline int CursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, RedisModuleCmdFunc subcmd, ConcurrentCmdHandler dist_callback) {
+typedef enum {
+  CURSOR_SUBCMD_READ,
+  CURSOR_SUBCMD_DEL,
+  CURSOR_SUBCMD_GC,
+  CURSOR_SUBCMD_COUNT, // keep last
+} CursorSubcommand;
+
+#ifdef ENABLE_ASSERT
+static const char *const kCursorSubNames[] = {
+    [CURSOR_SUBCMD_READ] = "READ",
+    [CURSOR_SUBCMD_DEL]  = "DEL",
+    [CURSOR_SUBCMD_GC]   = "GC",
+};
+static_assert(sizeof(kCursorSubNames) / sizeof(kCursorSubNames[0]) == CURSOR_SUBCMD_COUNT,
+              "kCursorSubNames is missing an entry for a CursorSubcommand value");
+#endif
+
+static inline int CursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
+                                RedisModuleCmdFunc subcmd, ConcurrentCmdHandler dist_callback,
+                                CursorSubcommand sub) {
   if (argc < 4) {
     return RedisModule_WrongArity(ctx);
   } else if (!SearchCluster_Ready()) {
     return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
   }
+
+#ifdef ENABLE_ASSERT
+  RS_ASSERT(sub < CURSOR_SUBCMD_COUNT);
+  RS_ASSERT(strcasecmp(RedisModule_StringPtrLen(argv[1], NULL), kCursorSubNames[sub]) == 0);
+#endif
 
   VERIFY_ACL(ctx, argv[2])
 
@@ -3848,22 +3882,50 @@ static inline int CursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, i
 
   handlerCtx.spec_ref = (WeakRef){0};
 
+  // On coord+READ, peek the cursor's cached timeout config so coord and shard
+  // stay aligned across changes to the `search-on-timeout` config. A valid-format
+  // CID with no registered cursor returns defaults (timeoutMS=0, policy=Return)
+  // and is reported by RSCursorReadCommand on the worker.
+  if (sub == CURSOR_SUBCMD_READ) {
+    long long cid;
+    if (RedisModule_StringToLongLong(argv[3], &cid) != REDISMODULE_OK) {
+      // Reject malformed CID on the main thread so the worker never hits
+      // "Bad cursor ID" with a reply_callback armed.
+      return RedisModule_ReplyWithError(ctx, "Bad cursor ID");
+    }
+    CursorTimeoutInfo info =
+        Cursors_PeekTimeoutInfo(GetGlobalCursor((uint64_t)cid), (uint64_t)cid);
+    if (info.queryTimeoutPolicy == TimeoutPolicy_Fail) {
+#ifdef ENABLE_ASSERT
+      // ft.hybrid withcursor is not supported.
+      RS_ASSERT(!info.isHybrid);
+#endif
+      CoordRequestCtx *reqCtx = CoordRequestCtx_New(COMMAND_AGGREGATE);
+      handlerCtx.bcCtx.privdata = reqCtx;
+      handlerCtx.bcCtx.free_privdata = DistCoordReqFreePrivData;
+      handlerCtx.bcCtx.reply_callback = DistAggregateReplyCallback;
+      handlerCtx.bcCtx.timeout_callback = DistAggregateTimeoutFailClient;
+      handlerCtx.bcCtx.timeoutMS = info.queryTimeoutMS;
+      CoordRequestCtx_SetUseReplyCallback(reqCtx, true);
+    }
+  }
+
   return ConcurrentSearch_HandleRedisCommandEx(DIST_THREADPOOL, dist_callback, ctx, argv, argc,
                                                &handlerCtx);
 }
 
 
-#define CURSOR_SUBCOMMAND(name) \
+#define CURSOR_SUBCOMMAND(name, sub_enum) \
 static void Cursor##name##CommandInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, struct ConcurrentCmdCtx *cmdCtx) { \
   RSCursor##name##Command(ctx, argv, argc);                                                                                           \
 }                                                                                                                                     \
 int Cursor##name##Command(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {                                                  \
-  return CursorCommand(ctx, argv, argc, RSCursor##name##Command, Cursor##name##CommandInternal);                                      \
+  return CursorCommand(ctx, argv, argc, RSCursor##name##Command, Cursor##name##CommandInternal, (sub_enum));                          \
 }
 
-CURSOR_SUBCOMMAND(Read)
-CURSOR_SUBCOMMAND(Del)
-CURSOR_SUBCOMMAND(GC)
+CURSOR_SUBCOMMAND(Read, CURSOR_SUBCMD_READ)
+CURSOR_SUBCOMMAND(Del,  CURSOR_SUBCMD_DEL)
+CURSOR_SUBCOMMAND(GC,   CURSOR_SUBCMD_GC)
 
 // This function sits next to RegisterCoordCursorCommands function
 // RegisterCoordCursorCommands currently has too many dependencies to be easily moved up where CreateSubCommands is defined
@@ -4405,6 +4467,10 @@ int DistSearchCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 
   if (NumShards == 1) {
     // There is only one shard in the cluster. We can handle the command locally.
+    if (isDebug) {
+      // argv still contains debug params; the non-debug handler would reject them as unknown args.
+      return DEBUG_RSSearchCommand(ctx, argv, argc);
+    }
     return RSSearchCommand(ctx, argv, argc);
   } else if (cannotBlockCtx(ctx)) {
     return ReplyBlockDeny(ctx, argv[0]);
@@ -4501,12 +4567,18 @@ int ProfileCommandHandlerImp(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     return RSProfileCommandImp(ctx, argv, argc, isDebug);
   }
 
+  // For SEARCH and AGGREGATE, pass isDebug through: their debug param format
+  // (TIMEOUT_AFTER_N, INTERNAL_ONLY) matches the profile debug params.
+  // For HYBRID, always pass false: hybrid uses command-specific debug params
+  // (TIMEOUT_AFTER_N_SEARCH, TIMEOUT_AFTER_N_VSIM, TIMEOUT_AFTER_N_TAIL) that
+  // differ from profile debug params. Passing isDebug=true would select
+  // DEBUG_RSExecDistHybrid, which would fail to parse the profile debug params.
   if (RMUtil_ArgExists("SEARCH", argv, 3, 2)) {
     return DistSearchCommandImp(ctx, argv, argc, isDebug);
   } else if (RMUtil_ArgExists("AGGREGATE", argv, 3, 2)) {
     return DistAggregateCommandImp(ctx, argv, argc, isDebug);
   } else if (RMUtil_ArgExists("HYBRID", argv, 3, 2)) {
-    return DistHybridCommandInternal(ctx, argv, argc, true);
+    return DistHybridCommandInternal(ctx, argv, argc, false, true /* isProfile */);
   }
   return RedisModule_ReplyWithError(ctx, "No `SEARCH`, `AGGREGATE`, or `HYBRID` provided");
 }

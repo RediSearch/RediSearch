@@ -39,12 +39,19 @@ on:
         description: "if true, will notify failure on slack"
 
 jobs:
-  # Build RediSearch ONCE here. Every benchmark job below downloads the
+  # Build RediSearch ONCE per-arch. Every benchmark job below downloads the
   # resulting redisearch.so as an artifact instead of rebuilding it.
   build-redisearch:
     uses: ./.github/workflows/flow-build-benchmark-binary.yml
     with:
+      arch: x86_64
       artifact_name: redisearch-bin-${{ github.run_id }}-${{ github.run_attempt }}
+
+  build-redisearch-aarch64:
+    uses: ./.github/workflows/flow-build-benchmark-binary.yml
+    with:
+      arch: aarch64
+      artifact_name: redisearch-bin-aarch64-${{ github.run_id }}-${{ github.run_attempt }}
 
   benchmark-search-oss-standalone:
     if: ${{ inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-standalone' }}
@@ -60,9 +67,34 @@ jobs:
       benchmark_filter: ${{ inputs.benchmark_filter }}
       allowed_envs: oss-standalone
       allowed_setups: oss-standalone
+      arch: x86_64
       benchmark_runner_group_member_id: ${{ matrix.member_id }}
       benchmark_runner_group_total: ${{ strategy.job-total }}
       binary_artifact_name: redisearch-bin-${{ github.run_id }}-${{ github.run_attempt }}
+
+  # aarch64 sibling of benchmark-search-oss-standalone. Targets the
+  # oss-standalone-redisearch-m7-aarch64 terraform dir (m7g.8xlarge DB +
+  # m7g.4xlarge client, matched AMI/installer scripts to the x86 m7 pair).
+  benchmark-search-oss-standalone-aarch64:
+    if: ${{ inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-standalone' }}
+    needs: build-redisearch-aarch64
+    strategy:
+      fail-fast: false
+      matrix:
+        member_id: [1, 2, 3]
+    uses: ./.github/workflows/benchmark-flow.yml
+    secrets: inherit
+    with:
+      benchmark_glob: "search*.yml"
+      benchmark_filter: ${{ inputs.benchmark_filter }}
+      allowed_envs: oss-standalone
+      allowed_setups: oss-standalone
+      arch: aarch64
+      module_path: bin/linux-aarch64-release/search-community/redisearch.so
+      rejson_module_path: bin/linux-aarch64-release/RedisJSON/master/rejson.so
+      benchmark_runner_group_member_id: ${{ matrix.member_id }}
+      benchmark_runner_group_total: ${{ strategy.job-total }}
+      binary_artifact_name: redisearch-bin-aarch64-${{ github.run_id }}-${{ github.run_attempt }}
 
   benchmark-search-oss-standalone-threads-6:
     # TODO: Temporarily disabled - Redis becomes unavailable after ~3 hours of data loading.
@@ -261,6 +293,7 @@ jobs:
   notify-failure:
     needs:
       - benchmark-search-oss-standalone
+      - benchmark-search-oss-standalone-aarch64
       - benchmark-search-oss-standalone-threads-6
       - benchmark-vecsim-oss-standalone
       - benchmark-vecsim-oss-standalone-threads-6

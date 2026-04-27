@@ -22,20 +22,22 @@
 #include <initializer_list>
 #include <span>
 
+// Test callback for topology updates - signals completion to test thread
+// by storing the capShards value in an atomic, avoiding race conditions
+// where the test thread might read a freed topology pointer.
+static std::atomic<uint32_t> lastAppliedCapShards{0};
+
+// Counter bumped by realUpdateTopoCallback after each invocation, so tests can
+// synchronize with the uv thread on completion of a topology update.
+static std::atomic<int> topoUpdateCalls{0};
+
 extern "C" {
   // Test callback for queue operations
   static void testCallback(void *privdata) {
     int *counter = (int *)privdata;
     (*counter)++;
   }
-} // extern "C"
 
-// Test callback for topology updates - signals completion to test thread
-// by storing the capShards value in an atomic, avoiding race conditions
-// where the test thread might read a freed topology pointer.
-static std::atomic<uint32_t> lastAppliedCapShards{0};
-
-extern "C" {
   static void testTopoCallback(void *privdata) {
     struct UpdateTopologyCtx *updateCtx = (struct UpdateTopologyCtx *)privdata;
     IORuntimeCtx *ioRuntime = updateCtx->ioRuntime;
@@ -48,6 +50,46 @@ extern "C" {
     ioRuntime->topo = new_topo;
     // Signal to the test thread that this topology was applied
     lastAppliedCapShards.store(newCapShards, std::memory_order_release);
+    rm_free(updateCtx);
+    if (old_topo) {
+      MRClusterTopology_Free(old_topo);
+    }
+  }
+
+  // Mirrors the production uvUpdateTopologyRequest in rmr.c (which is static
+  // and not exported for tests): installs the new topology, walks the conn
+  // manager, and records the handshake signal on the uv runtime.
+  static void realUpdateTopoCallback(void *privdata) {
+    struct UpdateTopologyCtx *updateCtx = (struct UpdateTopologyCtx *)privdata;
+    IORuntimeCtx *ioRuntime = updateCtx->ioRuntime;
+    MRClusterTopology *old_topo = ioRuntime->topo;
+    ioRuntime->topo = updateCtx->new_topo;
+    ioRuntime->uv_runtime.topology_needs_handshake = IORuntimeCtx_UpdateNodes(ioRuntime);
+    topoUpdateCalls.fetch_add(1, std::memory_order_release);
+    rm_free(updateCtx);
+    if (old_topo) {
+      MRClusterTopology_Free(old_topo);
+    }
+  }
+
+  // Like realUpdateTopoCallback, but additionally simulates a successful
+  // handshake from the uv thread: clears topology_needs_handshake so
+  // topologyAsyncCB takes the ELSE branch (no validation timer armed) and
+  // sets loop_th_ready = true so subsequent work items can run. All writes
+  // happen on the uv thread, so there is no race with topologyAsyncCB's
+  // post-callback bookkeeping. Drains pendingItems via uv_async_send in
+  // case any work items piled up while loop_th_ready was false. Tests
+  // synchronize on this callback's effects (e.g. a previously parked work
+  // item draining), not on topoUpdateCalls.
+  static void simulateConnectedTopologyCallback(void *privdata) {
+    struct UpdateTopologyCtx *updateCtx = (struct UpdateTopologyCtx *)privdata;
+    IORuntimeCtx *ioRuntime = updateCtx->ioRuntime;
+    MRClusterTopology *old_topo = ioRuntime->topo;
+    ioRuntime->topo = updateCtx->new_topo;
+    IORuntimeCtx_UpdateNodes(ioRuntime);
+    ioRuntime->uv_runtime.topology_needs_handshake = false;
+    ioRuntime->uv_runtime.loop_th_ready = true;
+    uv_async_send(&ioRuntime->uv_runtime.async);
     rm_free(updateCtx);
     if (old_topo) {
       MRClusterTopology_Free(old_topo);
@@ -458,4 +500,101 @@ TEST_F(IORuntimeCtxCommonTest, UpdateNodesResizesConnectionMap) {
 
   startAndShutdownRuntime(io);
   IORuntimeCtx_Free(io);
+}
+
+
+TEST_F(IORuntimeCtxCommonTest, UpdateNodesReportsNewConnections) {
+  std::array<const char *, 2> hosts = {"localhost:6379", "localhost:6389"};
+  MRClusterTopology *topo_v1 = getTopology(hosts);
+  IORuntimeCtx *io = IORuntimeCtx_Create(1, topo_v1, 13, true);
+
+  // First application populates an empty conn map -> new connections created.
+  ASSERT_TRUE(IORuntimeCtx_UpdateNodes(io));
+
+  // Re-applying the same topology is a no-op from the conn manager's POV.
+  MRClusterTopology *topo_v2 = getTopology(hosts);
+  MRClusterTopology *old = io->topo;
+  io->topo = topo_v2;
+  ASSERT_FALSE(IORuntimeCtx_UpdateNodes(io));
+  MRClusterTopology_Free(old);
+
+  // Dropping a node only disconnects; no new connections are created, so the
+  // handshake signal stays false (removals don't require re-validation).
+  std::array<const char *, 1> hosts_shrunk = {"localhost:6379"};
+  MRClusterTopology *topo_v3 = getTopology(hosts_shrunk);
+  old = io->topo;
+  io->topo = topo_v3;
+  ASSERT_FALSE(IORuntimeCtx_UpdateNodes(io));
+  MRClusterTopology_Free(old);
+
+  // Adding a new node creates a new connection -> handshake signal true.
+  std::array<const char *, 2> hosts_grown = {"localhost:6379", "localhost:6409"};
+  MRClusterTopology *topo_v4 = getTopology(hosts_grown);
+  old = io->topo;
+  io->topo = topo_v4;
+  ASSERT_TRUE(IORuntimeCtx_UpdateNodes(io));
+  MRClusterTopology_Free(old);
+
+  startAndShutdownRuntime(io);
+  IORuntimeCtx_Free(io);
+}
+
+TEST_F(IORuntimeCtxCommonTest, IdenticalTopologyUpdateSkipsHandshake) {
+  // Reset the counter, which now tracks only realUpdateTopoCallback invocations.
+  topoUpdateCalls.store(0, std::memory_order_relaxed);
+
+  // Bootstrap the uv thread with a work item. loop_th_ready starts false, so
+  // rqAsyncCb parks this item in pendingItems. The initial dummy topology has
+  // zero shards, so the first update below sees an empty conn map and a
+  // single-node topology -> connectivity changed.
+  int initialCounter = 0;
+  IORuntimeCtx_Schedule(ctx, testCallback, &initialCounter);
+
+  // Apply the first topology using a callback that simulates handshake
+  // completion entirely on the uv thread (sets topology_needs_handshake=false
+  // and loop_th_ready=true, then uv_async_sends to drain pendingItems). All
+  // writes happen on the uv thread, so there's no race with topologyAsyncCB's
+  // post-callback bookkeeping.
+  std::array<const char *, 1> hosts = {"localhost:16379"};
+  MRClusterTopology *topo_v1 = getTopology(hosts);
+  IORuntimeCtx_Schedule_Topology(ctx, simulateConnectedTopologyCallback, topo_v1, true);
+
+  // initialCounter draining proves: (a) topo_v1's callback ran on the uv
+  // thread, and (b) pendingItems was flushed -- i.e. the system reached the
+  // post-handshake quiescent state. This also serves as a barrier preventing
+  // the next Schedule_Topology from displacing topo_v1 via exchangePendingTopo.
+  bool initialDrained = RS::WaitForCondition([&]() { return initialCounter >= 1; });
+  ASSERT_TRUE(initialDrained)
+      << "Initial work item did not drain after simulated handshake completion";
+
+  // Apply the *same* topology again, this time via the real callback. With
+  // connectivity-change gating, IORuntimeCtx_UpdateNodes returns false (no
+  // new connections), so topologyAsyncCB takes the ELSE branch and leaves
+  // loop_th_ready alone.
+  MRClusterTopology *topo_v2 = getTopology(hosts);
+  IORuntimeCtx_Schedule_Topology(ctx, realUpdateTopoCallback, topo_v2, true);
+
+  // Sync on realUpdateTopoCallback completing. This is required before the
+  // post-update assertions: topologyAsyncCB defaults topology_needs_handshake
+  // to true before invoking the callback, and the callback then sets it to
+  // its final value. Reading the flag before the callback finishes would
+  // observe the transient true.
+  bool secondApplied = RS::WaitForCondition([&]() {
+    return topoUpdateCalls.load(std::memory_order_acquire) >= 1;
+  });
+  ASSERT_TRUE(secondApplied) << "Timeout waiting for identical topology update";
+
+  // Final witness: a fresh work item must run, proving loop_th_ready stayed
+  // true across the identical-topology update. If the handshake had been
+  // (incorrectly) re-armed, this callback would be parked on pendingItems
+  // and the wait would time out.
+  int postCounter = 0;
+  IORuntimeCtx_Schedule(ctx, testCallback, &postCounter);
+  bool ranPostCallback = RS::WaitForCondition([&]() { return postCounter >= 1; });
+  ASSERT_TRUE(ranPostCallback)
+      << "Work item did not run after identical topology update; "
+         "validation handshake was likely re-armed";
+
+  ASSERT_TRUE(ctx->uv_runtime.loop_th_ready);
+  ASSERT_FALSE(ctx->uv_runtime.topology_needs_handshake);
 }

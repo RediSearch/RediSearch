@@ -512,6 +512,43 @@ typedef struct MetricsDiskAPI {
   uint64_t (*collectIndexMetrics)(RedisSearchDisk *disk, RedisSearchDiskIndexSpec *index);
 
   /**
+   * @brief Get total doc table memory for a specific index
+   *
+   * Returns disk-side doc table memory in bytes from the latest collected snapshot.
+   * Does not include RAM-only accounting from non-disk paths.
+   *
+   * @param disk Pointer to the disk context
+   * @param index Pointer to the index spec
+   * @return Doc table memory in bytes
+   */
+  uint64_t (*getDocTableTotalMemory)(RedisSearchDisk *disk, RedisSearchDiskIndexSpec *index);
+
+  /**
+   * @brief Get total inverted index memory for a specific index
+   *
+   * Returns disk-side inverted index memory in bytes from the latest collected snapshot.
+   * This value includes both text and tag inverted indexes.
+   * Does not include RAM-only accounting from non-disk paths.
+   *
+   * @param disk Pointer to the disk context
+   * @param index Pointer to the index spec
+   * @return Inverted index memory in bytes
+   */
+  uint64_t (*getInvertedIndexTotalMemory)(RedisSearchDisk *disk, RedisSearchDiskIndexSpec *index);
+
+  /**
+   * @brief Get total vector index memory for a specific index
+   *
+   * Returns disk-side vector index memory in bytes from the latest collected snapshot.
+   * Does not include RAM-only accounting from non-disk paths.
+   *
+   * @param disk Pointer to the disk context
+   * @param index Pointer to the index spec
+   * @return Vector index memory in bytes
+   */
+  uint64_t (*getVectorIndexTotalMemory)(RedisSearchDisk *disk, RedisSearchDiskIndexSpec *index);
+
+  /**
    * @brief Output aggregated disk metrics to Redis INFO
    *
    * Iterates over all collected index metrics, aggregates them, and outputs

@@ -456,6 +456,12 @@ void SearchDisk_FreeVectorIndex(void *vecIndex);
 
 // Metrics API wrappers
 
+/*
+ * FT.INFO disk usage:
+ * 1) SearchDisk_CollectIndexMetrics(index)
+ * 2) Read the per-component getters below
+ */
+
 /**
  * @brief Collect metrics for an index and store them in the disk context
  *
@@ -466,6 +472,45 @@ void SearchDisk_FreeVectorIndex(void *vecIndex);
  * @return The total memory used by this index's disk components
  */
 uint64_t SearchDisk_CollectIndexMetrics(RedisSearchDiskIndexSpec* index);
+
+/**
+ * @brief Get doc table memory for a disk index
+ *
+ * Returns disk-side doc table memory in bytes from the latest collected snapshot.
+ * Does not include RAM-only accounting from non-disk paths.
+ * Call SearchDisk_CollectIndexMetrics(index) before this getter.
+ * Requires initialized SearchDisk and non-null index (RS_ASSERT).
+ *
+ * @param index Pointer to the disk index spec
+ * @return Doc table memory in bytes
+ */
+uint64_t SearchDisk_GetDocTableTotalMemory(RedisSearchDiskIndexSpec* index);
+
+/**
+ * @brief Get inverted index memory for a disk index
+ *
+ * Returns disk-side inverted index memory in bytes from the latest collected snapshot.
+ * Does not include RAM-only accounting from non-disk paths.
+ * Call SearchDisk_CollectIndexMetrics(index) before this getter.
+ * Requires initialized SearchDisk and non-null index (RS_ASSERT).
+ *
+ * @param index Pointer to the disk index spec
+ * @return Inverted index memory in bytes
+ */
+uint64_t SearchDisk_GetInvertedIndexTotalMemory(RedisSearchDiskIndexSpec* index);
+
+/**
+ * @brief Get vector index memory for a disk index
+ *
+ * Returns disk-side vector index memory in bytes from the latest collected snapshot.
+ * Does not include RAM-only accounting from non-disk paths.
+ * Call SearchDisk_CollectIndexMetrics(index) before this getter.
+ * Requires initialized SearchDisk and non-null index (RS_ASSERT).
+ *
+ * @param index Pointer to the disk index spec
+ * @return Vector index memory in bytes
+ */
+uint64_t SearchDisk_GetVectorIndexTotalMemory(RedisSearchDiskIndexSpec* index);
 
 /**
  * @brief Output aggregated disk metrics to Redis INFO
