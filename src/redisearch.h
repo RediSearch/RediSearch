@@ -127,12 +127,16 @@ typedef struct RSDocumentMetadata_s {
 
   uint16_t ref_count;
 
+  /* Document-level expiration time in nanoseconds since the epoch (0 = none).
+   * Inlined to avoid a TTL-table lookup on the result-processor hot path. */
+  int64_t expirationTimeNs;
+
   struct RSSortingVector sortVector;
   /* Offsets of all terms in the document (in bytes). Used by highlighter */
   struct RSByteOffsets *byteOffsets;
   struct RSDocumentMetadata_s *nextInChain;
 
-  /* Optional user payload */
+  /* Optional user payload. Must remain last for DocTable_Put's lean alloc. */
   RSPayload *payload;
 
 } RSDocumentMetadata;
