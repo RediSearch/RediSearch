@@ -179,9 +179,11 @@ const char *QueryError_Strerror(uint8_t maybe_code);
 /**
  * Returns a [`QueryErrorCode`] given an error message.
  *
- * This only supports the query error codes [`QueryErrorCode::TimedOut`] and
- * [`QueryErrorCode::OutOfMemory`]. If another message is provided,
- * [`QueryErrorCode::Generic`] is returned.
+ * This only supports the query error codes [`QueryErrorCode::TimedOut`],
+ * [`QueryErrorCode::OutOfMemory`], and [`QueryErrorCode::UnavailableSlots`].
+ * If another message is provided, [`QueryErrorCode::Generic`] is returned.
+ *
+ * If the message is a null pointer, [`QueryErrorCode::Generic`] is returned.
  *
  * # Safety
  *
@@ -349,6 +351,8 @@ void QueryError_SetQueryOOMWarning(struct QueryError *query_error);
  * This only supports the query error codes [`QueryWarningCode::TimedOut`], [`QueryWarningCode::ReachedMaxPrefixExpansions`],
  * [`QueryWarningCode::OutOfMemoryShard`] and [`QueryWarningCode::OutOfMemoryCoord`]. If another message is provided,
  * [`QueryWarningCode::Ok`] is returned.
+ *
+ * If the message is a null pointer, returns [`QueryWarningCode::Ok`].
  *
  * # Safety
  *
