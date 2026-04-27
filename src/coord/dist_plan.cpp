@@ -63,7 +63,7 @@ struct ReducerDistCtx {
     if (PLNGroupStep_AddReducer(gstp, name, cargs, status) != REDISMODULE_OK) {
       return false;
     }
-    array_tail(gstp->reducers).isLocal = (gstp == localGroup);
+    array_tail(gstp->reducers).isLocal = (gstp == this->localGroup);
     if (alias) {
       *alias = getLastAlias(gstp);
     }
@@ -334,7 +334,7 @@ static int distributeAvg(ReducerDistCtx *rdctx, QueryError *status) {
   return REDISMODULE_OK;
 }
 
-/* Remote COLLECT emits array-of-maps; local COLLECT consumes it via __SOURCE__. */
+/* Remote COLLECT emits array-of-maps; local COLLECT consumes the remote alias. */
 static int distributeCollect(ReducerDistCtx *rdctx, QueryError *status) {
   const PLN_Reducer *src = rdctx->srcReducer;
   size_t argc = src->args.argc;
@@ -343,7 +343,7 @@ static int distributeCollect(ReducerDistCtx *rdctx, QueryError *status) {
   char remoteCountBuf[16];
   std::vector<void *> remoteObjs(argc + 1);
   ArgsCursor remoteArgs;
-  buildRemoteCollectArgs(&remoteArgs, remoteObjs.data(), remoteCountBuf, &src->args);
+  buildCollectArgs(&remoteArgs, remoteObjs.data(), remoteCountBuf, &src->args, nullptr);
   rdctx->copyArgs(&remoteArgs);
 
   const char *alias;
@@ -351,16 +351,17 @@ static int distributeCollect(ReducerDistCtx *rdctx, QueryError *status) {
     return REDISMODULE_ERR;
   }
 
-  // Layout: [nargs, original_args..., __SOURCE__, remote_alias, AS, user_alias]
+  // Layout: [nargs, original_args..., AS, user_alias]
   char localCountBuf[16];
-  std::vector<void *> localObjs(argc + 5);
+  std::vector<void *> localObjs(argc + 3);
   ArgsCursor localArgs;
-  buildLocalCollectArgs(&localArgs, localObjs.data(), localCountBuf, &src->args, alias, src->alias);
+  buildCollectArgs(&localArgs, localObjs.data(), localCountBuf, &src->args, src->alias);
   rdctx->copyArgs(&localArgs);
 
   if (!rdctx->add(rdctx->localGroup, "COLLECT", nullptr, status, &localArgs)) {
     return REDISMODULE_ERR;
   }
+  array_tail(rdctx->localGroup->reducers).sourceAlias = rm_strdup(alias);
 
   return REDISMODULE_OK;
 }

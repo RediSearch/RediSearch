@@ -9,13 +9,13 @@
 
 //! Local COLLECT reducer.
 //!
-//! Consumes the per-remote payloads stored under `__SOURCE__` and rebuilds the
+//! Consumes the per-remote payloads stored under the planner-provided source key and rebuilds the
 //! client-facing rows.
 //!
 //! ## Serialization contract
 //!
-//! Shards emit each row as `Map` (RESP3) or flat `[k, v, ...]` `Array`
-//! (RESP2). The coordinator projects only requested field names; extra
+//! Remote reducers emit each row as `Map` (RESP3) or flat `[k, v, ...]` `Array`
+//! (RESP2). The local reducer projects only requested field names; extra
 //! internal sort-key values are ignored, and missing fields become nulls.
 
 use rlookup::{RLookupKey, RLookupRow};
@@ -31,7 +31,7 @@ use crate::collect::common::CollectCommon;
 #[repr(C)]
 pub struct LocalCollectReducer<'a> {
     common: CollectCommon,
-    /// Lookup key for the per-shard `__SOURCE__` payload.
+    /// Lookup key for the per-remote payload.
     source_key: &'a RLookupKey<'a>,
     field_names: Box<[Box<[u8]>]>,
     sort_key_names: Box<[Box<[u8]>]>,
@@ -52,7 +52,7 @@ pub struct LocalCollectCtx {
 
 impl<'a> LocalCollectReducer<'a> {
     /// Create a reducer from C-parsed configuration. Names are owned byte
-    /// copies because the coordinator cannot borrow shard `RLookupKey`s.
+    /// copies because the local reducer cannot borrow remote `RLookupKey`s.
     pub fn new(
         source_key: &'a RLookupKey<'a>,
         field_names: Box<[Box<[u8]>]>,
@@ -82,7 +82,7 @@ impl LocalCollectCtx {
         Self { maps: Vec::new() }
     }
 
-    /// Append maps from the shard payload; missing or malformed payloads are skipped.
+    /// Append maps from the remote payload; missing or malformed payloads are skipped.
     pub fn add(&mut self, r: &LocalCollectReducer, row: &RLookupRow) {
         let Some(payload) = row.get(r.source_key) else {
             return;
@@ -95,13 +95,13 @@ impl LocalCollectCtx {
         }
     }
 
-    /// Rebuild shard rows as client-facing maps, accepting RESP3 maps and
+    /// Rebuild remote rows as client-facing maps, accepting RESP3 maps and
     /// RESP2 flat arrays while ignoring internal-only extra keys.
     pub fn finalize(&mut self, r: &LocalCollectReducer) -> SharedValue {
         let rebuilt: Vec<SharedValue> = std::mem::take(&mut self.maps)
             .into_iter()
             .filter_map(|entry| {
-                // Malformed shard payloads are skipped defensively.
+                // Malformed remote payloads are skipped defensively.
                 let is_valid = matches!(&*entry, Value::Map(_) | Value::Array(_));
                 if !is_valid {
                     return None;

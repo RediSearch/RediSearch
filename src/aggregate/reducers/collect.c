@@ -7,7 +7,6 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include <aggregate/reducer.h>
-#include "aggregate/reducers/collect.h"
 #include "util/arg_parser.h"
 #include "util/arr_rm_alloc.h"
 #include "spec.h"
@@ -24,8 +23,8 @@
 
 // Temporary storage for parsed COLLECT arguments. The data is handed off to
 // Rust via the appropriate `CollectReducer_Create*` factory once parsing
-// succeeds. Shards keep `RLookupKey *`; the coordinator keeps raw names
-// because it cannot resolve fields through shard lookup tables.
+// succeeds. Remote reducers keep `RLookupKey *`; local reducers keep raw names
+// because they cannot resolve fields through remote lookup tables.
 typedef struct {
   arrayof(const RLookupKey *) field_keys;
   arrayof(const RLookupKey *) sort_keys;
@@ -61,7 +60,7 @@ static void CollectParseData_Free(CollectParseData *data) {
 // Parses: FIELDS nargs <@field | *> [<@field | *> ...]
 //   nargs: 1..COLLECT_MAX_FIELD_ARGS
 //
-// The coordinator strips `@` and later matches against map keys carried by `__SOURCE__`.
+// The local reducer strips `@` and later matches against map keys carried by the remote payload.
 static void handleCollectFieldsLocal(ArgParser *parser, const void *value, void *user_data) {
   (void)parser;
   CollectParseCtx *pctx = (CollectParseCtx *)user_data;
@@ -80,12 +79,12 @@ static void handleCollectFieldsLocal(ArgParser *parser, const void *value, void 
     size_t len;
     if (AC_GetString(ac, &s, &len, 0) != AC_OK) {
       QueryError_SetError(opts->status, QUERY_ERROR_CODE_PARSE_ARGS,
-        "FIELDS (coord) missing field name");
+        "FIELDS (local) missing field name");
       return;
     }
     if (len == 1 && s[0] == '*') {
       QueryError_SetError(opts->status, QUERY_ERROR_CODE_PARSE_ARGS,
-        "Wildcard `*` in FIELDS is not supported by the coordinator");
+        "Wildcard `*` in FIELDS is not supported by local COLLECT");
       return;
     }
     if (len == 0 || s[0] != '@') {
@@ -145,7 +144,7 @@ static void handleCollectSortDirection(ArgsCursor *ac, uint64_t *sortAscMap, siz
   }
 }
 
-// The coordinator stores raw names that match shard payload map keys.
+// The local reducer stores raw names that match remote payload map keys.
 static void handleCollectSortByLocal(ArgParser *parser, const void *value, void *user_data) {
   (void)parser;
   CollectParseCtx *pctx = (CollectParseCtx *)user_data;
@@ -243,25 +242,6 @@ static void handleCollectSortByRemote(ArgParser *parser, const void *value, void
   }
 }
 
-// Parses: COLLECT_SOURCE_KEY 1 <alias>
-static void handleCollectSource(ArgParser *parser, const void *value, void *user_data) {
-  (void)parser;
-  CollectParseCtx *pctx = (CollectParseCtx *)user_data;
-  CollectParseData *data = pctx->data;
-  const ReducerOptions *opts = pctx->options;
-  ArgsCursor *ac = (ArgsCursor *)value;
-
-  ReducerOptions sub_opts = *opts;
-  sub_opts.args = ac;
-  sub_opts.name = COLLECT_SOURCE_KEY;
-
-  const RLookupKey *key = NULL;
-  if (!ReducerOpts_GetKey(&sub_opts, &key)) {
-    return;
-  }
-  data->source_key = key;
-}
-
 // Parses: LIMIT <offset> <count>
 //   Both values must be non-negative integers <= MAX_AGGREGATE_REQUEST_RESULTS.
 static void handleCollectLimit(ArgParser *parser, const void *value, void *user_data) {
@@ -351,15 +331,6 @@ Reducer *RDCRCollect_New(const ReducerOptions *options) {
     ARG_OPT_CALLBACK, handleCollectLimit, &pctx,
     ARG_OPT_END);
 
-  if (options->is_local) {
-    // Only the coordinator registers `COLLECT_SOURCE_KEY`; shards reject it.
-    ArgParser_AddSubArgsV(parser, COLLECT_SOURCE_KEY, "Coord source key",
-      &subArgs, 1, 1,
-      ARG_OPT_REQUIRED,
-      ARG_OPT_CALLBACK, handleCollectSource, &pctx,
-      ARG_OPT_END);
-  }
-
   ArgParseResult result = ArgParser_Parse(parser);
 
   if (QueryError_HasError(options->status)) {
@@ -377,6 +348,16 @@ Reducer *RDCRCollect_New(const ReducerOptions *options) {
   }
 
   ArgParser_Free(parser);
+
+  if (options->is_local) {
+    if (!options->source_key) {
+      QueryError_SetError(options->status, QUERY_ERROR_CODE_PARSE_ARGS,
+        "COLLECT local source key was not provided");
+      CollectParseData_Free(&data);
+      return NULL;
+    }
+    data.source_key = options->source_key;
+  }
 
   if (data.has_wildcard) {
     QueryError_SetError(options->status, QUERY_ERROR_CODE_PARSE_ARGS,

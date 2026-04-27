@@ -387,6 +387,7 @@ def test_collect_output_structure():
 # ---------------------------------------------------------------------------
 def test_collect_requires_unstable_features():
     env = Env()
+    run_command_on_all_shards(env, 'CONFIG', 'SET', 'search-enable-unstable-features', 'no')
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH',
                'SCHEMA', 'name', 'TEXT', 'color', 'TAG').ok()
     conn = getConnectionByEnv(env)

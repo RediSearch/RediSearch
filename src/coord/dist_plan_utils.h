@@ -16,33 +16,22 @@ extern "C" {
 #endif
 
 /**
- * Build remote COLLECT args: [nargs, original_args...].
+ * Build COLLECT args for distributed planning.
  *
- * @param out       Populated with the resulting ArgsCursor
- * @param objs_buf  Caller-provided buffer; must hold at least src_args->argc + 1 elements
- * @param count_buf Caller-provided buffer for the count string; must be at least 16 bytes
- * @param src_args  The original reducer's parsed args (without the leading nargs)
- */
-void buildRemoteCollectArgs(ArgsCursor *out, void **objs_buf, char *count_buf,
-                            const ArgsCursor *src_args);
-
-/**
- * Build local COLLECT args:
+ * Remote layout: [nargs, original_args...].
+ * Local layout:  [nargs, original_args..., AS, user_alias].
  *
- * [nargs, original_args..., __SOURCE__, remote_alias, AS, user_alias]
- * where nargs covers only original_args + __SOURCE__ + remote_alias. `AS`
- * remains outside the counted block for PLNGroupStep_AddReducer.
+ * The local input source is not encoded in args; it is carried as planner
+ * metadata and later resolved into ReducerOptions::source_key.
  *
  * @param out          Populated with the resulting ArgsCursor
- * @param objs_buf     Caller-provided buffer; must hold at least src_args->argc + 5 elements
+ * @param objs_buf     Caller-provided buffer; must hold at least src_args->argc + 3 elements
  * @param count_buf    Caller-provided buffer for the count string; must be at least 16 bytes
  * @param src_args     The original reducer's parsed args (without the leading nargs)
- * @param remote_alias Alias of the remote COLLECT reducer output column
- * @param user_alias   User-visible alias to preserve via AS
+ * @param user_alias   User-visible alias to preserve via AS, or NULL for remote args
  */
-void buildLocalCollectArgs(ArgsCursor *out, void **objs_buf, char *count_buf,
-                           const ArgsCursor *src_args,
-                           const char *remote_alias, const char *user_alias);
+void buildCollectArgs(ArgsCursor *out, void **objs_buf, char *count_buf,
+                      const ArgsCursor *src_args, const char *user_alias);
 
 #ifdef __cplusplus
 }

@@ -9,7 +9,6 @@
 
 #include "gtest/gtest.h"
 #include "dist_plan_utils.h"
-#include "aggregate/reducers/collect.h"
 
 #include <initializer_list>
 
@@ -32,7 +31,7 @@ static void assertArgs(const ArgsCursor& out, std::initializer_list<const char*>
   }
 }
 
-// --- buildRemoteCollectArgs ---
+// --- buildCollectArgs remote ---
 
 TEST(DistPlanUtils, ShardCollectArgs_FieldsOnly) {
   const char *src[] = {"FIELDS", "2", "@a", "@b"};
@@ -41,7 +40,7 @@ TEST(DistPlanUtils, ShardCollectArgs_FieldsOnly) {
   char countBuf[16];
   void *objs[5];  // argc + 1
   ArgsCursor out;
-  buildRemoteCollectArgs(&out, objs, countBuf, &srcArgs);
+  buildCollectArgs(&out, objs, countBuf, &srcArgs, nullptr);
 
   ASSERT_EQ(out.offset, 0u);
   ASSERT_EQ(out.type, AC_TYPE_CHAR);
@@ -55,7 +54,7 @@ TEST(DistPlanUtils, ShardCollectArgs_FieldsSortbyLimit) {
   char countBuf[16];
   void *objs[11];  // argc + 1
   ArgsCursor out;
-  buildRemoteCollectArgs(&out, objs, countBuf, &srcArgs);
+  buildCollectArgs(&out, objs, countBuf, &srcArgs, nullptr);
 
   assertArgs(out, {"10", "FIELDS", "1", "@x", "SORTBY", "2", "@x", "ASC", "LIMIT", "0",
                    "10"});
@@ -71,27 +70,25 @@ TEST(DistPlanUtils, ShardCollectArgs_EmptyArgs) {
   char countBuf[16];
   void *objs[1];  // argc + 1
   ArgsCursor out;
-  buildRemoteCollectArgs(&out, objs, countBuf, &srcArgs);
+  buildCollectArgs(&out, objs, countBuf, &srcArgs, nullptr);
 
   assertArgs(out, {"0"});
 }
 
-// --- buildLocalCollectArgs ---
+// --- buildCollectArgs local ---
 
 TEST(DistPlanUtils, CoordCollectArgs_FieldsOnly) {
   const char *src[] = {"FIELDS", "2", "@a", "@b"};
   ArgsCursor srcArgs = makeArgs(src, 4);
 
   char countBuf[16];
-  void *objs[9];  // argc + 5
+  void *objs[7];  // argc + 3
   ArgsCursor out;
-  buildLocalCollectArgs(&out, objs, countBuf, &srcArgs, "__collect_ab", "my_collect");
+  buildCollectArgs(&out, objs, countBuf, &srcArgs, "my_collect");
 
   ASSERT_EQ(out.offset, 0u);
   ASSERT_EQ(out.type, AC_TYPE_CHAR);
-  assertArgs(out,
-             {"6", "FIELDS", "2", "@a", "@b", COLLECT_SOURCE_KEY, "__collect_ab", "AS",
-              "my_collect"});
+  assertArgs(out, {"4", "FIELDS", "2", "@a", "@b", "AS", "my_collect"});
 }
 
 TEST(DistPlanUtils, CoordCollectArgs_FieldsSortbyLimit) {
@@ -99,12 +96,12 @@ TEST(DistPlanUtils, CoordCollectArgs_FieldsSortbyLimit) {
   ArgsCursor srcArgs = makeArgs(src, 10);
 
   char countBuf[16];
-  void *objs[15];  // argc + 5
+  void *objs[13];  // argc + 3
   ArgsCursor out;
-  buildLocalCollectArgs(&out, objs, countBuf, &srcArgs, "shard_alias", "user_alias");
+  buildCollectArgs(&out, objs, countBuf, &srcArgs, "user_alias");
 
-  assertArgs(out, {"12", "FIELDS", "1", "@x", "SORTBY", "2", "@x", "ASC", "LIMIT", "0",
-                   "10", COLLECT_SOURCE_KEY, "shard_alias", "AS", "user_alias"});
+  assertArgs(out, {"10", "FIELDS", "1", "@x", "SORTBY", "2", "@x", "ASC", "LIMIT", "0",
+                   "10", "AS", "user_alias"});
 
   // Original args forwarded in order
   for (size_t i = 0; i < 10; i++) {
@@ -117,9 +114,9 @@ TEST(DistPlanUtils, CoordCollectArgs_EmptyOriginalArgs) {
   ArgsCursor srcArgs = makeArgs(nullptr, 0);
 
   char countBuf[16];
-  void *objs[5];  // argc + 5
+  void *objs[3];  // argc + 3
   ArgsCursor out;
-  buildLocalCollectArgs(&out, objs, countBuf, &srcArgs, "sa", "ua");
+  buildCollectArgs(&out, objs, countBuf, &srcArgs, "ua");
 
-  assertArgs(out, {"2", COLLECT_SOURCE_KEY, "sa", "AS", "ua"});
+  assertArgs(out, {"0", "AS", "ua"});
 }

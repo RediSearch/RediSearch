@@ -131,6 +131,10 @@ typedef struct {
   // Whether this reducer runs locally (set via PLN_Reducer.isLocal)
   bool is_local;
 
+  // Optional planner-provided input key for reducers whose source is not part
+  // of their public argument syntax.
+  const RLookupKey *source_key;
+
   // Full request flag bitmask forwarded from `AREQ->reqflags` (semantically a
   // `QEFlags`, stored as `uint32_t` to avoid a circular include with
   // `aggregate.h`). Canonical source of truth for request-level state such as
@@ -143,8 +147,9 @@ typedef struct {
 /**
  * Macro to ensure that we don't skip important initialization steps
  */
-#define REDUCEROPTS_INIT(name_, args_, lk_, lkl_, statusp_, strict_, is_local_, reqflags_) \
-  { name_, args_, lk_, lkl_, statusp_, strict_, is_local_, reqflags_ }
+#define REDUCEROPTS_INIT(name_, args_, lk_, lkl_, statusp_, strict_, is_local_, \
+                         source_key_, reqflags_)                                \
+  { name_, args_, lk_, lkl_, statusp_, strict_, is_local_, source_key_, reqflags_ }
 
 /**
  * Utility function to read the next argument as a lookup key.
