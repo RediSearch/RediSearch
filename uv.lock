@@ -464,7 +464,7 @@ requires-dist = [{ name = "pip" }]
 
 [[package]]
 name = "rltest"
-version = "0.7.24"
+version = "0.7.25"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "distro" },
@@ -474,9 +474,9 @@ dependencies = [
     { name = "pytest-cov" },
     { name = "redis" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/44/b4/b0e4dc5ba51fc936715df9da2b814237de749f8607ebad79f727dec6625a/rltest-0.7.24.tar.gz", hash = "sha256:ddfe27ccee14410caa60d4c8920c000d190cb03dfc69776a1e117526787a590f", size = 42017, upload-time = "2026-04-15T11:25:45.447Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/80/07/41e2a7acb84460edf504e1894b30d3dff38ef26bcc2e49225e2fae496a06/rltest-0.7.25.tar.gz", hash = "sha256:0836ab407a3ab5629be98e2d98bc0c3113a96e388a72e69cdb4137e439471625", size = 42629, upload-time = "2026-04-26T10:52:50.919Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/fe/33/4e18365da9a18f61a36486e7ed75863e029ff9fc7b597c39126f724eed36/rltest-0.7.24-py3-none-any.whl", hash = "sha256:a79dff7c422547f20fd34faa118d99474d72ce682d14e9fc06b7639de568333c", size = 47275, upload-time = "2026-04-15T11:25:46.427Z" },
+    { url = "https://files.pythonhosted.org/packages/7b/8b/1b78f12f887742a48ebe3c5cfed4e008c91d4db68e3695797b8e647e15d7/rltest-0.7.25-py3-none-any.whl", hash = "sha256:7a599bae73e858530369e7f68248ed0228134550c23ac724efc4adaa128079b2", size = 47886, upload-time = "2026-04-26T10:52:52.039Z" },
 ]
 
 [[package]]
@@ -508,7 +508,7 @@ requires-dist = [
     { name = "orderly-set", specifier = "<=5.4.1" },
     { name = "packaging", specifier = "<=24.2" },
     { name = "redis", specifier = ">=5.2.1,<7.0.0" },
-    { name = "rltest", specifier = "==0.7.24" },
+    { name = "rltest", specifier = "==0.7.25" },
     { name = "scipy", specifier = "<=1.15.2" },
 ]
 
