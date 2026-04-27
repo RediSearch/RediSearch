@@ -164,35 +164,52 @@ jobs:
           TRIGGERING_ENV: ${{ inputs.triggering_env }}
           ALLOWED_ENVS: ${{ inputs.allowed_envs }}
           ALLOWED_SETUPS: ${{ inputs.allowed_setups }}
-          # Route inputs.arch through env rather than inline ${{ inputs.arch }}
-          # in the shell template — SonarCloud's script-injection rule treats
-          # inputs.* as untrusted in a run: block and flags the direct form.
           ARCH: ${{ inputs.arch }}
-        # --github_sha: on pull_request events github.sha is the ephemeral
-        # merge commit, which is garbage-collected after the PR merges and
-        # breaks later reproducibility of RTS time-series and Polar Signals
-        # `git_hash` labels. Use the PR head SHA instead; fall back to
-        # github.sha on push events (where it already is the head).
-        run: redisbench-admin run-remote
-              --module_path ../../$MODULE_PATH
-              --required-module search
-              --github_actor ${{ github.triggering_actor }}
-              --github_repo ${{ github.event.repository.name }}
-              --github_org ${{ github.repository_owner }}
-              --module_path ../../$REJSON_MODULE_PATH
-              --required-module ReJSON
-              --github_sha ${{ github.event.pull_request.head.sha || github.sha }}
-              --github_branch ${{ github.head_ref || github.ref_name }}
-              --architecture "$ARCH"
-              --upload_results_s3
-              --triggering_env $TRIGGERING_ENV
-              --allowed-envs $ALLOWED_ENVS
-              --allowed-setups $ALLOWED_SETUPS
-              --push_results_redistimeseries
-              --redistimeseries_host ${{ secrets.PERFORMANCE_RTS_HOST }}
-              --redistimeseries_port ${{ secrets.PERFORMANCE_RTS_PORT }}
-              --redistimeseries_pass '${{ secrets.PERFORMANCE_RTS_AUTH }}'
-              --collect_search_memory True
+          GITHUB_ACTOR_NAME: ${{ github.triggering_actor }}
+          GITHUB_REPO_NAME: ${{ github.event.repository.name }}
+          GITHUB_ORG_NAME: ${{ github.repository_owner }}
+          # on pull_request events github.sha is the ephemeral merge commit,
+          # which is garbage-collected after the PR merges and breaks later
+          # reproducibility. Use the PR head SHA instead; fall back to
+          # github.sha on push events (where it already is the head).
+          GITHUB_SHA_RESOLVED: ${{ github.event.pull_request.head.sha || github.sha }}
+          GITHUB_BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
+          PERFORMANCE_RTS_HOST: ${{ secrets.PERFORMANCE_RTS_HOST }}
+          PERFORMANCE_RTS_PORT: ${{ secrets.PERFORMANCE_RTS_PORT }}
+          PERFORMANCE_RTS_AUTH: ${{ secrets.PERFORMANCE_RTS_AUTH }}
+        run: |
+          for i in {1..3}; do
+            rc=0
+            redisbench-admin run-remote \
+                --module_path "../../$MODULE_PATH" \
+                --required-module search \
+                --github_actor "$GITHUB_ACTOR_NAME" \
+                --github_repo "$GITHUB_REPO_NAME" \
+                --github_org "$GITHUB_ORG_NAME" \
+                --module_path "../../$REJSON_MODULE_PATH" \
+                --required-module ReJSON \
+                --github_sha "$GITHUB_SHA_RESOLVED" \
+                --github_branch "$GITHUB_BRANCH_NAME" \
+                --architecture "$ARCH" \
+                --upload_results_s3 \
+                --triggering_env "$TRIGGERING_ENV" \
+                --allowed-envs "$ALLOWED_ENVS" \
+                --allowed-setups "$ALLOWED_SETUPS" \
+                --push_results_redistimeseries \
+                --redistimeseries_host "$PERFORMANCE_RTS_HOST" \
+                --redistimeseries_port "$PERFORMANCE_RTS_PORT" \
+                --redistimeseries_pass "$PERFORMANCE_RTS_AUTH" \
+                --collect_search_memory True \
+                || rc=$?
+            if [ $rc -eq 0 ]; then
+              break
+            fi
+            if [ $i -lt 3 ]; then
+              echo "redisbench-admin run-remote failed, attempt $i of 3, error code $rc, retrying in 60 seconds..."
+              sleep 60
+            fi
+          done
+          exit $rc
       - name: Generate Pull Request Performance info
         if: github.event.number && steps.benchmark-filter.outputs.skip != 'true'
         env:
