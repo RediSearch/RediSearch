@@ -386,6 +386,14 @@ build_redisearch_rs() {
     # See: https://doc.rust-lang.org/reference/linkage.html#r-link.crt
     export RUSTFLAGS="${RUSTFLAGS:+${RUSTFLAGS} }-C target-feature=-crt-static"
   fi
+  # MOD-14916: inline LSE atomics for Rust on AArch64. `-C target-cpu=neoverse-n1`
+  # implies +lse so rustc emits LDADDH/LDADD instead of an ldxrh/stxrh LL/SC loop.
+  # macOS is excluded to match the CMake NOT APPLE gate: Apple Silicon's default
+  # target-cpu (apple-m1) is already ≥Armv8.5-a with inline LSE, so overriding it
+  # with neoverse-n1 would only downgrade scheduling.
+  if [[ "$ARCH" == "aarch64" && "$OS_NAME" != "macos" ]]; then
+    export RUSTFLAGS="${RUSTFLAGS:+${RUSTFLAGS} }-C target-cpu=neoverse-n1"
+  fi
   # Build using cargo
   mkdir -p "$REDISEARCH_RS_TARGET_DIR"
   pushd .
