@@ -330,6 +330,8 @@ static void HybridRequest_Free(HybridRequest *req) {
     // Clean up storedReplyState
     ChunkReplyState_Destroy(&req->storedReplyState);
 
+    rm_free(req->debugParams);
+
     if (req->args) {
       for (size_t ii = 0; ii < req->nargs; ++ii) {
         sdsfree(req->args[ii]);

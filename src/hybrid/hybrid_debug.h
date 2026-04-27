@@ -10,12 +10,13 @@
 #pragma once
 
 #include "redismodule.h"
-#include "hybrid_request.h"
 #include "query_error.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+struct HybridRequest;
 
 /*
  * Debug Mechanism for FT.HYBRID Command
@@ -44,8 +45,39 @@ extern "C" {
  *   # Tail pipeline timeout
  *   _FT.DEBUG FT.HYBRID idx SEARCH "hello" VSIM @vec $blob TIMEOUT_AFTER_N_TAIL 3 DEBUG_PARAMS_COUNT 2
  *
- * Note: Currently supports single shard mode only. Coordinator-shards support will be added later.
+ * Supports both single shard (standalone) and multi-shard (cluster) modes.
  */
+
+// Debug parameters structure for hybrid queries
+typedef struct {
+  RedisModuleString **debug_argv;
+  unsigned long long debug_params_count;
+
+  unsigned long long search_timeout_count;
+  unsigned long long vsim_timeout_count;
+  unsigned long long tail_timeout_count;
+  int search_timeout_set;
+  int vsim_timeout_set;
+  int tail_timeout_set;
+} HybridDebugParams;
+
+/**
+ * Parse DEBUG_PARAMS_COUNT and debug_argv pointer from the end of argv.
+ * Does NOT parse individual debug params (TIMEOUT_AFTER_N_SEARCH, etc.).
+ * Sets status on error; returns a zeroed struct with debug_params_count==0 on failure.
+ */
+HybridDebugParams parseHybridDebugParamsCount(RedisModuleString **argv, int argc, QueryError *status);
+
+/**
+ * Parse individual debug parameters (TIMEOUT_AFTER_N_SEARCH, etc.) from
+ * the debug_argv region already identified by parseHybridDebugParamsCount.
+ */
+int parseHybridDebugParams(HybridDebugParams *params, QueryError *status);
+
+/**
+ * Apply parsed debug timeouts to the built pipelines of a HybridRequest.
+ */
+int applyHybridDebugTimeout(struct HybridRequest *hreq, const HybridDebugParams *params);
 
 /**
  * Debug command handler for FT.HYBRID (single shard mode).
