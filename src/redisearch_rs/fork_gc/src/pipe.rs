@@ -11,7 +11,7 @@
 
 use std::io::{self, Write};
 
-use redis_module::{logging::log_warning, raw::RedisModule_ExitFromChild};
+use redis_module::raw::RedisModule_ExitFromChild;
 
 /// Write all bytes of `buf` to `writer`.
 ///
@@ -36,26 +36,29 @@ pub fn send_fixed<W: Write + ?Sized>(writer: &mut W, buf: &[u8]) -> io::Result<(
 /// Redis module loader — a programmer error, not a runtime condition.
 pub fn send_fixed_or_exit<W: Write + ?Sized>(writer: &mut W, buf: &[u8]) {
     if let Err(err) = send_fixed(writer, buf) {
-        die_on_pipe_error(err);
+        exit_on_write_error(err);
     }
 }
 
-/// Log a broken-pipe warning and terminate the forked child.
-///
-/// `RedisModule_ExitFromChild` is declared as returning `int` but never
-/// actually returns (it invokes `_exit` after Redis-side cleanup). The
-/// trailing [`unreachable!`] exists to satisfy the `!` return type.
-fn die_on_pipe_error(err: io::Error) -> ! {
-    log_warning(format!("GC fork: broken pipe, exiting: {err}"));
+/// Log a write error and terminate the forked child.
+fn exit_on_write_error(err: io::Error) -> ! {
+    // Write the error message to the logging mechanism as well as directly to `stderr`
+    // to make sure it ends up somewhere.
+    let message = format!("GC fork: broken pipe, exiting: {err}");
+    eprintln!("{message}");
+    tracing::warn!("{message}");
+
     // SAFETY: `RedisModule_ExitFromChild` is a function-pointer static
     // initialized by the Redis module loader before any module code
     // runs; it is never written after that, so reading it is sound.
     let exit_from_child = unsafe { RedisModule_ExitFromChild }
         .expect("RedisModule_ExitFromChild must be initialized");
+
     // SAFETY: terminates the child process; does not return.
     unsafe {
         exit_from_child(1);
     }
+
     unreachable!("RedisModule_ExitFromChild returned")
 }
 

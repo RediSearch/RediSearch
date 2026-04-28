@@ -39,7 +39,7 @@ pub unsafe extern "C" fn FGC_sendFixed(fgc: *mut ffi::ForkGC, buff: *const c_voi
     // SAFETY: caller guarantees (2).
     let slice = unsafe { std::slice::from_raw_parts(buff.cast::<u8>(), len) };
 
-    let mut writer = fgc.pipe_write();
+    let mut writer = fgc.writer();
 
     fork_gc::pipe::send_fixed_or_exit(&mut writer, slice);
 }

@@ -11,4 +11,5 @@ workspace = true
 [dependencies]
 ffi = { workspace = true }
 redis-module = { workspace = true }
+tracing.workspace = true
 workspace_hack.workspace = true

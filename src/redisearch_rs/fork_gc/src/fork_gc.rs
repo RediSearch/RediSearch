@@ -39,11 +39,10 @@ impl ForkGC {
     /// The returned [`PipeWriter`] borrows `self`, which statically
     /// prevents two concurrent writers from interleaving pipe frames and
     /// ensures the writer cannot outlive the `ForkGC` it came from.
-    pub fn pipe_write(&mut self) -> PipeWriter<'_> {
+    pub fn writer(&mut self) -> PipeWriter<'_> {
         PipeWriter {
             // SAFETY: `pipe_write_fd` is an open writable fd maintained
-            // by the C side's Fork GC state machine. `ManuallyDrop`
-            // prevents `File::drop` from closing the caller's fd.
+            // by the C side's Fork GC state machine.
             file: ManuallyDrop::new(unsafe { File::from_raw_fd(self.0.pipe_write_fd) }),
             _borrow: PhantomData,
         }
@@ -52,10 +51,11 @@ impl ForkGC {
 
 /// Borrowed write handle over a [`ForkGC`]'s pipe file descriptor.
 ///
-/// Constructed via [`ForkGC::pipe_write`]. Implements [`Write`] so it can
+/// Constructed via [`ForkGC::writer`]. Implements [`Write`] so it can
 /// be passed directly to generic writer APIs like
 /// [`fork_gc::pipe::send_fixed_or_exit`](crate::pipe::send_fixed_or_exit).
 pub struct PipeWriter<'a> {
+    // `ManuallyDrop` prevents `File::drop` from closing the borrowed file descriptor.
     file: ManuallyDrop<File>,
     _borrow: PhantomData<&'a mut ForkGC>,
 }

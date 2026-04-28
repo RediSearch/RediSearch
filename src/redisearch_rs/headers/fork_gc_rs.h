@@ -4,6 +4,7 @@
 
 #include <stdarg.h>
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 #include <stdlib.h>
 
@@ -24,7 +25,7 @@ extern "C" {
  * 2. `buff` must point to a readable region of at least `len` bytes.
  * 3. `len` must be greater than zero.
  */
-void FGC_sendFixed(ForkGC *fgc, const void *buff, uintptr_t len);
+void FGC_sendFixed(ForkGC *fgc, const void *buff, size_t len);
 
 #ifdef __cplusplus
 }  // extern "C"
