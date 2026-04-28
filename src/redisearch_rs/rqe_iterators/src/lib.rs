@@ -139,7 +139,6 @@ pub trait RQEIterator<'index> {
     /// # Safety
     /// `ctx` must point to a valid [`RedisSearchCtx`] whose `spec` is a
     /// non-null pointer to a valid [`IndexSpec`](ffi::IndexSpec) for the duration of the call.
-    /// The caller guarantees this while the spec read lock is held.
     unsafe fn revalidate(
         &mut self,
         ctx: NonNull<RedisSearchCtx>,
