@@ -58,6 +58,9 @@ extern "C" {
 
 QueryIterator *NewOptimizerIterator(QOptimizer *q_opt, QueryIterator *root, IteratorsConfig *config);
 
+QOptimizer    *OptimizerIterator_GetOptim(const QueryIterator *it);
+QueryIterator *OptimizerIterator_GetChild(const QueryIterator *it);
+
 #ifdef __cplusplus
 }
 #endif

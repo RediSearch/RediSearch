@@ -271,3 +271,10 @@ QueryIterator *NewOptimizerIterator(QOptimizer *qOpt, QueryIterator *root, Itera
 
   return &oi->base;
 }
+
+QOptimizer *OptimizerIterator_GetOptim(const QueryIterator *it) {
+  return ((const OptimizerIterator *)it)->optim;
+}
+QueryIterator *OptimizerIterator_GetChild(const QueryIterator *it) {
+  return ((const OptimizerIterator *)it)->child;
+}
