@@ -65,6 +65,17 @@ typedef struct {
 bool ProcessHybridCursorMappings(const MRCommand *cmd, StrongRef searchMappings, StrongRef vsimMappings, HybridKnnContext *knnCtx, QueryError *status, RSOomPolicy oomPolicy, RSTimeoutPolicy timeoutPolicy);
 
 /**
+ * Apply SHARD_K_RATIO optimization to an MRCommand based on the provided
+ * HybridKnnContext. Computes the effective per-shard K and rewrites the K
+ * argument in the command in-place. No-op for single-shard deployments or
+ * when the ratio disables the optimization.
+ *
+ * Exposed primarily as the inner logic of HybridKnnCommandModifier so that
+ * it can be unit-tested without replicating the iteration callback context.
+ */
+void HybridKnnApplyShardKRatio(MRCommand *cmd, size_t numShards, const HybridKnnContext *knnCtx);
+
+/**
  * Release resources associated with a cursor mapping
  */
 void CursorMapping_Release(CursorMapping *mapping);

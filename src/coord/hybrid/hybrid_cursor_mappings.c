@@ -237,19 +237,22 @@ static inline void cleanupCtx(processCursorMappingCallbackContext *ctx) {
     rm_free(ctx);
 }
 
-// Command modifier callback for SHARD_K_RATIO optimization.
-// Called from iterStartCb on IO thread before commands are sent to shards.
-void HybridKnnCommandModifier(MRCommand *cmd, size_t numShards, void *privateData) {
-    RS_ASSERT(privateData && cmd);
-    const processCursorMappingCallbackContext *ctx = (processCursorMappingCallbackContext *)privateData;
-    const HybridKnnContext *knnCtx = ctx->knnCtx;
-    RS_ASSERT(knnCtx && knnCtx->kArgIndex >= 0);
+void HybridKnnApplyShardKRatio(MRCommand *cmd, size_t numShards, const HybridKnnContext *knnCtx) {
+    RS_ASSERT(cmd && knnCtx && knnCtx->kArgIndex >= 0);
     // Only apply optimization for multi-shard deployments with valid ratio
     if (numShards <= 1 || knnCtx->shardWindowRatio >= MAX_SHARD_WINDOW_RATIO) {
         return;
     }
     size_t effectiveK = calculateEffectiveK(knnCtx->originalK, knnCtx->shardWindowRatio, numShards);
     modifyVsimKNN(cmd, knnCtx->kArgIndex, effectiveK, knnCtx->originalK);
+}
+
+// Command modifier callback for SHARD_K_RATIO optimization.
+// Called from iterStartCb on IO thread before commands are sent to shards.
+void HybridKnnCommandModifier(MRCommand *cmd, size_t numShards, void *privateData) {
+    RS_ASSERT(privateData && cmd);
+    const processCursorMappingCallbackContext *ctx = (processCursorMappingCallbackContext *)privateData;
+    HybridKnnApplyShardKRatio(cmd, numShards, ctx->knnCtx);
 }
 
 bool ProcessHybridCursorMappings(const MRCommand *cmd, StrongRef searchMappingsRef, StrongRef vsimMappingsRef, HybridKnnContext *knnCtx, QueryError *status, const RSOomPolicy oomPolicy, const RSTimeoutPolicy timeoutPolicy) {
