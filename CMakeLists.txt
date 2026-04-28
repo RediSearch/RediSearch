@@ -168,6 +168,7 @@ endif()
 message(STATUS "COV: ${COV}")
 if (COV)
     set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} --coverage")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} --coverage")
     set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} --coverage")
     set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} --coverage")
     add_compile_definitions(COVERAGE=1)
@@ -365,6 +366,11 @@ add_dependencies(redisearch redisearch_rs)
 # Unit tests configuration
 if(BUILD_SEARCH_UNIT_TESTS)
     enable_testing()
+
+    # Disable coverage on C++ tests/benchmarks to avoid geninfo mismatch errors
+    if (COV)
+        string(REPLACE "--coverage" "" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
+    endif()
 
     add_subdirectory(tests/cpptests/redismock)
 
