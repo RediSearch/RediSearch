@@ -35,7 +35,7 @@ jobs:
       expected_sha: ${{ steps.get_sha.outputs.sha }}
       release_branch: ${{ steps.verify.outputs.release_branch }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           ref: ${{ env.checkout_target }}
           fetch-depth: 0
@@ -108,7 +108,7 @@ jobs:
       RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
       GITHUB_REPOSITORY: ${{ github.repository }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           ref: ${{ needs.validate-tag.outputs.release_branch }}
       - name: Update version for next patch
