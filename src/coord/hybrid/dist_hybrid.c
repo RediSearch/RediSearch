@@ -232,7 +232,7 @@ void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
                             ProfileOptions profileOptions,
                             MRCommand *xcmd, arrayof(char*) serialized,
                             IndexSpec *sp, int *outKArgIndex) {
-  RS_LOG_ASSERT(outKArgIndex, "outKArgIndex must not be NULL");
+  RS_ASSERT(outKArgIndex != NULL);
   int argOffset;
   const char *index_name = RedisModule_StringPtrLen(argv[1], NULL);
 
