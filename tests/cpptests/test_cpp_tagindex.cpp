@@ -48,8 +48,8 @@ TEST_F(TagIndexTest, testCreate) {
   // The size of the inverted index structure is 24 bytes
   size_t iv_index_size = 24;
 
-  // Each index block is 48 bytes + its buffer capacity + the header of the block vector
-  size_t expectedTotalSZ = v.size() * (iv_index_size + (8 + (buffer_cap + 48) * num_blocks));
+  // Each index block is 56 bytes + its buffer capacity + the header of the block vector
+  size_t expectedTotalSZ = v.size() * (iv_index_size + (8 + (buffer_cap + 56) * num_blocks));
   ASSERT_EQ(expectedTotalSZ, stats.invertedSize);
 
   // Add a new entry to and check the last block size
@@ -57,9 +57,9 @@ TEST_F(TagIndexTest, testCreate) {
   TagIndex_Index(NULL, idx, &v2[0], v2.size(), ++d, &stats);
   // A base inverted index is 24 bytes
   // The header of the block vector is 8 bytes
-  // An index block is 48 bytes
+  // An index block is 56 bytes
   // And after the first insert the buffer capacity is 1 byte
-  size_t last_block_size = 24 + 8 + 48 + 1;
+  size_t last_block_size = 24 + 8 + 56 + 1;
   ASSERT_EQ(expectedTotalSZ + last_block_size, stats.invertedSize);
 
   MockQueryEvalCtx mockQctx(N, N);

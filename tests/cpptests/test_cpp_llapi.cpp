@@ -685,7 +685,7 @@ TEST_F(LLApiTest, testRangesOnTagsWithOneNode) {
 static char buffer[1024];
 
 static int GetValue(void* ctx, const char* fieldName, const void* id, char** strVal,
-                    double* doubleVal) {  
+                    double* doubleVal) {
   int numId;
   sscanf((char*)id, "doc%d", &numId);
   if (strcmp(fieldName, TAG_FIELD_NAME1) == 0) {
@@ -1289,7 +1289,7 @@ TEST_F(LLApiTest, testInfo) {
   ASSERT_EQ(info.docTrieSize, 120);
   ASSERT_EQ(info.numTerms, 5);
   ASSERT_EQ(info.numRecords, 7);
-  ASSERT_EQ(info.invertedSize, 677);
+  ASSERT_EQ(info.invertedSize, 733);
   ASSERT_EQ(info.invertedCap, 0);
   ASSERT_EQ(info.skipIndexesSize, 0);
   ASSERT_EQ(info.scoreIndexesSize, 0);
@@ -1386,26 +1386,26 @@ TEST_F(LLApiTest, testInfoSize) {
 
   // Memory values use the original magic numbers, adjusted for TrieNode size changes.
   // The numDocs field added 8 bytes per trie entry.
-  EXPECT_EQ(RediSearch_MemUsage(index), 327 + additional_overhead + get_trie_entry_extra_overhead(1));
+  EXPECT_EQ(RediSearch_MemUsage(index), 343 + additional_overhead + get_trie_entry_extra_overhead(1));
 
   d = RediSearch_CreateDocument(DOCID2, strlen(DOCID2), 2.0, NULL);
   RediSearch_DocumentAddFieldCString(d, FIELD_NAME_1, "TXT", RSFLDTYPE_DEFAULT);
   RediSearch_DocumentAddFieldNumber(d, NUMERIC_FIELD_NAME, 1, RSFLDTYPE_DEFAULT);
   RediSearch_SpecAddDocument(index, d);
 
-  EXPECT_EQ(RediSearch_MemUsage(index), 613 + additional_overhead + get_trie_entry_extra_overhead(2));
+  EXPECT_EQ(RediSearch_MemUsage(index), 637 + additional_overhead + get_trie_entry_extra_overhead(2));
 
   // test MemUsage after deleting docs
   int ret = RediSearch_DropDocument(index, DOCID2, strlen(DOCID2));
   ASSERT_EQ(REDISMODULE_OK, ret);
-  EXPECT_EQ(RediSearch_MemUsage(index), 471 + additional_overhead + get_trie_entry_extra_overhead(2));
+  EXPECT_EQ(RediSearch_MemUsage(index), 495 + additional_overhead + get_trie_entry_extra_overhead(2));
   RSGlobalConfig.gcConfigParams.gcSettings.forkGcCleanThreshold = 0;
   gc = get_spec(index)->gc;
   gc->callbacks.periodicCallback(gc->gcCtx, false);
-  EXPECT_EQ(RediSearch_MemUsage(index), 328 + additional_overhead + get_trie_entry_extra_overhead(1));
+  EXPECT_EQ(RediSearch_MemUsage(index), 344 + additional_overhead + get_trie_entry_extra_overhead(1));
   ret = RediSearch_DropDocument(index, DOCID1, strlen(DOCID1));
   ASSERT_EQ(REDISMODULE_OK, ret);
-  EXPECT_EQ(RediSearch_MemUsage(index), 234 + additional_overhead + get_trie_entry_extra_overhead(1));
+  EXPECT_EQ(RediSearch_MemUsage(index), 250 + additional_overhead + get_trie_entry_extra_overhead(1));
   gc = get_spec(index)->gc;
   gc->callbacks.periodicCallback(gc->gcCtx, false);
   // we always keep the numeric index root.
@@ -1448,26 +1448,26 @@ TEST_F(LLApiTest, testInfoSizeWithExistingIndex) {
 
   // Memory values use the original magic numbers, adjusted for TrieNode size changes.
   // The numDocs field added 8 bytes per trie entry.
-  EXPECT_EQ(RediSearch_MemUsage(index), 408 + additional_overhead + get_trie_entry_extra_overhead(1));
+  EXPECT_EQ(RediSearch_MemUsage(index), 432 + additional_overhead + get_trie_entry_extra_overhead(1));
 
   d = RediSearch_CreateDocument(DOCID2, strlen(DOCID2), 2.0, NULL);
   RediSearch_DocumentAddFieldCString(d, FIELD_NAME_1, "TXT", RSFLDTYPE_DEFAULT);
   RediSearch_DocumentAddFieldNumber(d, NUMERIC_FIELD_NAME, 1, RSFLDTYPE_DEFAULT);
   RediSearch_SpecAddDocument(index, d);
 
-  EXPECT_EQ(RediSearch_MemUsage(index), 695 + additional_overhead + get_trie_entry_extra_overhead(2));
+  EXPECT_EQ(RediSearch_MemUsage(index), 727 + additional_overhead + get_trie_entry_extra_overhead(2));
 
   // test MemUsage after deleting docs
   int ret = RediSearch_DropDocument(index, DOCID2, strlen(DOCID2));
   ASSERT_EQ(REDISMODULE_OK, ret);
-  EXPECT_EQ(RediSearch_MemUsage(index), 553 + additional_overhead + get_trie_entry_extra_overhead(2));
+  EXPECT_EQ(RediSearch_MemUsage(index), 585 + additional_overhead + get_trie_entry_extra_overhead(2));
   RSGlobalConfig.gcConfigParams.gcSettings.forkGcCleanThreshold = 0;
   gc = get_spec(index)->gc;
   gc->callbacks.periodicCallback(gc->gcCtx, false);
-  EXPECT_EQ(RediSearch_MemUsage(index), 409 + additional_overhead + get_trie_entry_extra_overhead(1));
+  EXPECT_EQ(RediSearch_MemUsage(index), 433 + additional_overhead + get_trie_entry_extra_overhead(1));
   ret = RediSearch_DropDocument(index, DOCID1, strlen(DOCID1));
   ASSERT_EQ(REDISMODULE_OK, ret);
-  EXPECT_EQ(RediSearch_MemUsage(index), 315 + additional_overhead + get_trie_entry_extra_overhead(1));
+  EXPECT_EQ(RediSearch_MemUsage(index), 339 + additional_overhead + get_trie_entry_extra_overhead(1));
   gc = get_spec(index)->gc;
   gc->callbacks.periodicCallback(gc->gcCtx, false);
   // we always keep the numeric index root.

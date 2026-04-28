@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+pub mod block_max_score;
 pub mod codec;
 pub mod controlled_cursor;
 pub mod debug;

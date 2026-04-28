@@ -16,7 +16,7 @@ use crate::{
 };
 use ffi::{FieldType_INDEXFLD_T_GEO, FieldType_INDEXFLD_T_NUMERIC, IndexFlags, t_docId};
 use inverted_index::{
-    FilterGeoReader, FilterNumericReader, IndexReader, NumericFilter, NumericReader, RSIndexResult,
+    FilterGeoReader, FilterNumericReader, IndexReader, NumericFilter, NumericReader, RSIndexResult, block_max_score::BlockScorer
 };
 use numeric_range_tree::{NumericIndexReader, NumericRangeTree};
 
@@ -187,6 +187,15 @@ where
         }
 
         self.it.revalidate()
+    }
+
+    #[inline(always)]
+    fn read_with_threshold(
+        &mut self,
+        min_score: f64,
+        scorer: &BlockScorer,
+    ) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
+        self.it.read_with_threshold(min_score, scorer)
     }
 
     #[inline(always)]
