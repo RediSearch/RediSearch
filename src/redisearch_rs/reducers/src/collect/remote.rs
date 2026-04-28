@@ -18,8 +18,10 @@
 //! Coordinator-side outer `GROUPBY` steps also see ordinary rows/items; they are
 //! not this reducer's special merge input.
 
+use std::mem;
+
 use rlookup::{RLookupKey, RLookupRow};
-use value::{Array, Map, SharedValue, Value};
+use value::SharedValue;
 
 use crate::Reducer;
 use crate::collect::common::CollectCommon;
@@ -31,23 +33,32 @@ use crate::collect::common::CollectCommon;
 #[repr(C)]
 pub struct RemoteCollectReducer<'a> {
     common: CollectCommon,
-    pub(crate) field_keys: Box<[&'a RLookupKey<'a>]>,
+    field_keys: Box<[&'a RLookupKey<'a>]>,
     has_wildcard: bool,
     /// Raw sort-key references, including keys not present in `FIELDS`.
-    pub(crate) sort_keys: Box<[&'a RLookupKey<'a>]>,
-    /// Internal shard replies include sort-key values for coordinator merge.
-    is_internal: bool,
+    sort_keys: Box<[&'a RLookupKey<'a>]>,
+    /// `true` for shard replies dispatched by the coordinator: extra sort-key
+    /// columns are emitted alongside the requested fields so the coordinator
+    /// can re-order shard rows during merge. `false` for direct execution.
+    include_sort_keys: bool,
 }
 
-// `CollectCommon` must live at offset 0 so the C layer can downcast to
-// `ffi::Reducer`. Guard against accidental reordering of the struct fields.
-const _: () = assert!(core::mem::offset_of!(RemoteCollectReducer<'_>, common) == 0);
+// Chain through `CollectCommon::reducer` so the assertion still catches a
+// reordering inside `CollectCommon`, not just inside the outer struct.
+const _: () = assert!(
+    core::mem::offset_of!(RemoteCollectReducer<'_>, common)
+        + core::mem::offset_of!(CollectCommon, reducer)
+        == 0
+);
 
 /// Per-group instance of [`RemoteCollectReducer`].
 ///
 /// Because `RemoteCollectCtx` is arena-allocated ([`Bump`][bumpalo::Bump] does
 /// not run destructors), `ptr::drop_in_place` must be called to run
 /// destructors for the inner `Vec`s and decrement `SharedValue` refcounts.
+//
+// TODO: replace both vectors with a single `Vec<RLookupRow>` once the
+// row-representation migration lands.
 pub struct RemoteCollectCtx {
     field_values: Vec<Vec<SharedValue>>,
     /// Kept row-aligned with `field_values`.
@@ -62,14 +73,14 @@ impl<'a> RemoteCollectReducer<'a> {
         sort_keys: Box<[&'a RLookupKey<'a>]>,
         sort_asc_map: u64,
         limit: Option<(u64, u64)>,
-        is_internal: bool,
+        include_sort_keys: bool,
     ) -> Self {
         Self {
             common: CollectCommon::new(sort_asc_map, limit),
             field_keys,
             has_wildcard,
             sort_keys,
-            is_internal,
+            include_sort_keys,
         }
     }
 
@@ -151,35 +162,22 @@ impl RemoteCollectCtx {
         self.sort_values.push(sv);
     }
 
-    /// Serialize rows as maps; internal shard replies also include sort keys.
+    /// Serialize the buffered rows into a `[Map, ...]` array.
     pub fn finalize(&mut self, r: &RemoteCollectReducer) -> SharedValue {
-        let row_maps: Vec<SharedValue> = self
-            .field_values
-            .drain(..)
-            .zip(self.sort_values.drain(..))
-            .map(|(fv, sv)| {
-                let entries: Box<[_]> = if r.is_internal {
-                    // Include sort-key values for coordinator ordering.
-                    fv.into_iter()
-                        .zip(r.field_keys.iter())
-                        .chain(sv.into_iter().zip(r.sort_keys.iter()))
-                        .map(|(val, key)| {
-                            let name = SharedValue::new_string(key.name().to_bytes().to_vec());
-                            (name, val)
-                        })
-                        .collect()
-                } else {
-                    fv.into_iter()
-                        .zip(r.field_keys.iter())
-                        .map(|(val, key)| {
-                            let name = SharedValue::new_string(key.name().to_bytes().to_vec());
-                            (name, val)
-                        })
-                        .collect()
-                };
-                SharedValue::new(Value::Map(Map::new(entries)))
-            })
-            .collect();
-        SharedValue::new(Value::Array(Array::new(row_maps.into_boxed_slice())))
+        let field_rows = mem::take(&mut self.field_values);
+        let sort_rows = mem::take(&mut self.sort_values);
+        let pair = |(val, key): (SharedValue, &&RLookupKey<'_>)| {
+            (SharedValue::new_string(key.name().to_bytes().to_vec()), val)
+        };
+
+        SharedValue::new_array(field_rows.into_iter().zip(sort_rows).map(|(fv, sv)| {
+            let fields = fv.into_iter().zip(r.field_keys.iter()).map(pair);
+            if r.include_sort_keys {
+                let sorts = sv.into_iter().zip(r.sort_keys.iter()).map(pair);
+                SharedValue::new_map(fields.chain(sorts).collect::<Vec<_>>())
+            } else {
+                SharedValue::new_map(fields.collect::<Vec<_>>())
+            }
+        }))
     }
 }

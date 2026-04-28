@@ -11,6 +11,14 @@
 //!
 //! C parses the reducer arguments and constructs the appropriate variant via
 //! `reducers_ffi`.
+//!
+//! ## Terminology: `Local` vs `Remote`
+//!
+//! Naming follows the C planner's `ReducerOptions::is_local` /
+//! `PLN_GroupStep`: the names tell *which side of the distributed `GROUPBY`
+//! split* the reducer runs on, not the cluster topology. Read "local" as
+//! "local to the merge step", not "the local node". See [`local`] and
+//! [`remote`] for per-variant details.
 
 pub(crate) mod common;
 pub mod local;

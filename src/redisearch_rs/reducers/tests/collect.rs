@@ -41,10 +41,6 @@ fn array_entries(value: &SharedValue) -> &[SharedValue] {
     array
 }
 
-fn assert_string(value: &SharedValue, expected: &[u8]) {
-    assert_eq!(value.as_str_bytes(), Some(expected));
-}
-
 struct RemoteCollectFixture {
     name_key: RLookupKey<'static>,
     sweetness_key: RLookupKey<'static>,
@@ -63,19 +59,14 @@ impl RemoteCollectFixture {
     /// REDUCE COLLECT 6
     ///   FIELDS 1 @name
     ///   SORTBY 1 @sweetness
-    ///
-    /// `is_internal = true` models the shard-side internal request sent by the
-    /// coordinator, where sort-key values must be serialized for merge.
-    /// `is_internal = false` models ordinary/direct execution, where only
-    /// requested fields are emitted.
-    fn reducer(&self, is_internal: bool) -> RemoteCollectReducer<'_> {
+    fn reducer(&self, include_sort_keys: bool) -> RemoteCollectReducer<'_> {
         RemoteCollectReducer::new(
             Box::new([&self.name_key]),
             false,
             Box::new([&self.sweetness_key]),
             0,
             None,
-            is_internal,
+            include_sort_keys,
         )
     }
 
@@ -100,9 +91,9 @@ fn remote_external_collect_emits_only_requested_fields() {
     assert_eq!(rows.len(), 1);
 
     let row = map_entries(&rows[0]);
-    assert_string(
-        row.get(b"name").expect("name field should be present"),
-        b"apple",
+    assert_eq!(
+        row.get(b"name").and_then(|v| v.as_str_bytes()),
+        Some(b"apple".as_slice())
     );
     assert!(row.get(b"sweetness").is_none());
 }
@@ -120,16 +111,12 @@ fn remote_internal_collect_includes_sort_fields_for_coordinator_merge() {
     assert_eq!(rows.len(), 1);
 
     let row = map_entries(&rows[0]);
-    assert_string(
-        row.get(b"name").expect("name field should be present"),
-        b"apple",
-    );
     assert_eq!(
-        row.get(b"sweetness")
-            .and_then(|value| value.as_num())
-            .expect("sort field should be present"),
-        10.0
+        row.get(b"name").and_then(|v| v.as_str_bytes()),
+        Some(b"apple".as_slice())
     );
+    let sweetness = row.get(b"sweetness").unwrap();
+    assert_eq!(sweetness.as_num(), Some(10.0));
 }
 
 #[test]
@@ -160,16 +147,12 @@ fn local_collect_projects_remote_maps_and_fills_missing_fields_with_null() {
     assert_eq!(rows.len(), 1);
 
     let row = map_entries(&rows[0]);
-    assert_string(
-        row.get(b"name").expect("name field should be present"),
-        b"apple",
+    assert_eq!(
+        row.get(b"name").and_then(|v| v.as_str_bytes()),
+        Some(b"apple".as_slice())
     );
     assert!(row.get(b"sweetness").is_none());
-    assert!(
-        row.get(b"missing")
-            .expect("missing projected field should be present")
-            .is_null_static()
-    );
+    assert!(row.get(b"missing").unwrap().is_null_static());
 }
 
 #[test]
@@ -199,9 +182,9 @@ fn local_collect_accepts_resp2_flat_array_payloads() {
     assert_eq!(rows.len(), 1);
 
     let row = map_entries(&rows[0]);
-    assert_string(
-        row.get(b"name").expect("name field should be present"),
-        b"apple",
+    assert_eq!(
+        row.get(b"name").and_then(|v| v.as_str_bytes()),
+        Some(b"apple".as_slice())
     );
     assert!(row.get(b"sweetness").is_none());
 }

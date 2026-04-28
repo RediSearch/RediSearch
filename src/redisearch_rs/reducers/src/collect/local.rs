@@ -25,8 +25,10 @@
 //! (RESP2). The local reducer projects only requested field names; extra
 //! internal sort-key values are ignored, and missing fields become nulls.
 
+use std::mem;
+
 use rlookup::{RLookupKey, RLookupRow};
-use value::{Array, Map, SharedValue, Value};
+use value::{SharedValue, Value};
 
 use crate::Reducer;
 use crate::collect::common::CollectCommon;
@@ -44,9 +46,13 @@ pub struct LocalCollectReducer<'a> {
     sort_key_names: Box<[Box<[u8]>]>,
 }
 
-// `CollectCommon` must live at offset 0 so the C layer can downcast to
-// `ffi::Reducer`. Guard against accidental reordering of the struct fields.
-const _: () = assert!(core::mem::offset_of!(LocalCollectReducer<'_>, common) == 0);
+// Chain through `CollectCommon::reducer` so the assertion still catches a
+// reordering inside `CollectCommon`, not just inside the outer struct.
+const _: () = assert!(
+    core::mem::offset_of!(LocalCollectReducer<'_>, common)
+        + core::mem::offset_of!(CollectCommon, reducer)
+        == 0
+);
 
 /// Per-group instance of [`LocalCollectReducer`].
 ///
@@ -91,46 +97,38 @@ impl LocalCollectCtx {
 
     /// Append maps from the remote payload; missing or malformed payloads are skipped.
     pub fn add(&mut self, r: &LocalCollectReducer, row: &RLookupRow) {
-        let Some(payload) = row.get(r.input_key) else {
-            return;
-        };
-        if let Value::Array(array) = &**payload {
-            self.maps.reserve(array.len());
-            for entry in array.iter() {
-                self.maps.push(entry.clone());
-            }
+        if let Some(payload) = row.get(r.input_key)
+            && let Value::Array(array) = &**payload
+        {
+            self.maps.extend(array.iter().cloned());
         }
     }
 
     /// Rebuild remote rows as client-facing maps, accepting RESP3 maps and
     /// RESP2 flat arrays while ignoring internal-only extra keys.
     pub fn finalize(&mut self, r: &LocalCollectReducer) -> SharedValue {
-        let rebuilt: Vec<SharedValue> = std::mem::take(&mut self.maps)
+        let rebuilt = mem::take(&mut self.maps)
             .into_iter()
-            .filter_map(|entry| {
-                // Malformed remote payloads are skipped defensively.
-                let is_valid = matches!(&*entry, Value::Map(_) | Value::Array(_));
-                if !is_valid {
-                    return None;
-                }
-
-                let row_entries: Box<[_]> = r
+            // Malformed remote payloads are skipped defensively.
+            .filter(|entry| matches!(&**entry, Value::Map(_) | Value::Array(_)))
+            .map(|entry| {
+                let row_entries: Vec<_> = r
                     .field_names
                     .iter()
                     .map(|name| {
                         let val = match &*entry {
                             Value::Map(m) => m.get(name).cloned(),
                             Value::Array(a) => a.map_get(name).cloned(),
-                            // Checked above; this arm is unreachable.
+                            // Filtered above; only `Map` and `Array` reach here.
                             _ => unreachable!(),
                         }
                         .unwrap_or_else(SharedValue::null_static);
                         (SharedValue::new_string(name.to_vec()), val)
                     })
                     .collect();
-                Some(SharedValue::new(Value::Map(Map::new(row_entries))))
+                SharedValue::new_map(row_entries)
             })
-            .collect();
-        SharedValue::new(Value::Array(Array::new(rebuilt.into_boxed_slice())))
+            .collect::<Vec<_>>();
+        SharedValue::new_array(rebuilt)
     }
 }

@@ -13,8 +13,12 @@ use bumpalo::Bump;
 
 use crate::Reducer;
 
-/// Shared state embedded at offset 0 so C can view every COLLECT variant as
-/// an `ffi::Reducer*`.
+/// State shared by every COLLECT reducer variant, plus its FFI-layout prefix.
+///
+/// `#[repr(C)]` plus embedding `CollectCommon` as the first field of each
+/// variant pins the C-visible [`Reducer`] vtable header to byte 0, so the C
+/// layer can downcast any variant to `ffi::Reducer*`. Each variant asserts the
+/// invariant with its own `const _` offset check.
 #[repr(C)]
 pub struct CollectCommon {
     pub(super) reducer: Reducer,
