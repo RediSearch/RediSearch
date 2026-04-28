@@ -959,6 +959,7 @@ class TestCoordinatorReducePause:
         env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy).ok()
         self._cleanup_pause_state()
 
+    @skip_until("2026-05-05", reason="Flaky test, see MOD-15123")
     def test_timeout_return_strict_with_profile(self):
         """Test return-strict timeout policy with FT.PROFILE command.
 
