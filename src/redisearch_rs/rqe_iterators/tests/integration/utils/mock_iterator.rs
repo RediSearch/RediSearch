@@ -385,7 +385,7 @@ impl<'index, const N: usize> RQEIterator<'index> for Mock<'index, N> {
         }))
     }
 
-    fn revalidate(
+    unsafe fn revalidate(
         &mut self,
         _ctx: std::ptr::NonNull<ffi::RedisSearchCtx>,
     ) -> Result<rqe_iterators::RQEValidateStatus<'_, 'index>, rqe_iterators::RQEIteratorError> {
@@ -553,7 +553,7 @@ impl<'index> RQEIterator<'index> for MockVec<'index> {
         }))
     }
 
-    fn revalidate(
+    unsafe fn revalidate(
         &mut self,
         _ctx: std::ptr::NonNull<ffi::RedisSearchCtx>,
     ) -> Result<rqe_iterators::RQEValidateStatus<'_, 'index>, rqe_iterators::RQEIteratorError> {

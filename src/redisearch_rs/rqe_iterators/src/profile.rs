@@ -132,11 +132,12 @@ impl<'index, I: RQEIterator<'index>> RQEIterator<'index> for Profile<'index, I> 
         self.child.at_eof()
     }
 
-    fn revalidate(
+    unsafe fn revalidate(
         &mut self,
         ctx: std::ptr::NonNull<ffi::RedisSearchCtx>,
     ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        self.child.revalidate(ctx)
+        // SAFETY: Delegating to child with the same `ctx` passed by our caller.
+        unsafe { self.child.revalidate(ctx) }
     }
 
     #[inline(always)]

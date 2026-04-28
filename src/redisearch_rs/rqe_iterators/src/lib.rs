@@ -136,10 +136,11 @@ pub trait RQEIterator<'index> {
     ///
     /// The iterator should check if it is still valid.
     ///
+    /// # Safety
     /// `ctx` must point to a valid [`RedisSearchCtx`] whose `spec` is a
     /// non-null pointer to a valid [`IndexSpec`](ffi::IndexSpec) for the duration of the call.
     /// The caller guarantees this while the spec read lock is held.
-    fn revalidate(
+    unsafe fn revalidate(
         &mut self,
         ctx: NonNull<RedisSearchCtx>,
     ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError>;
@@ -202,11 +203,12 @@ impl<'index, I: RQEIterator<'index> + 'index> RQEIterator<'index> for Box<I> {
         (**self).skip_to(doc_id)
     }
 
-    fn revalidate(
+    unsafe fn revalidate(
         &mut self,
         ctx: NonNull<RedisSearchCtx>,
     ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        (**self).revalidate(ctx)
+        // SAFETY: Delegating to inner iterator with the same `ctx` passed by our caller.
+        unsafe { (**self).revalidate(ctx) }
     }
 
     fn rewind(&mut self) {
@@ -259,11 +261,12 @@ impl<'index> RQEIterator<'index> for Box<dyn RQEIterator<'index> + 'index> {
         (**self).skip_to(doc_id)
     }
 
-    fn revalidate(
+    unsafe fn revalidate(
         &mut self,
         ctx: NonNull<RedisSearchCtx>,
     ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        (**self).revalidate(ctx)
+        // SAFETY: Delegating to inner iterator with the same `ctx` passed by our caller.
+        unsafe { (**self).revalidate(ctx) }
     }
 
     fn rewind(&mut self) {

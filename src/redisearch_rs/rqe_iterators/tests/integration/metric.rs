@@ -285,7 +285,11 @@ fn revalidate() {
     let ctx = mock_ctx.sctx();
     let metric_data = vec![0.1, 0.2, 0.3];
     let mut it = MetricSortedById::new(vec![1, 2, 3], metric_data);
-    assert_eq!(it.revalidate(ctx).unwrap(), RQEValidateStatus::Ok);
+    // SAFETY: test-only call with valid context
+    assert_eq!(
+        unsafe { it.revalidate(ctx) }.unwrap(),
+        RQEValidateStatus::Ok
+    );
 }
 
 #[test]

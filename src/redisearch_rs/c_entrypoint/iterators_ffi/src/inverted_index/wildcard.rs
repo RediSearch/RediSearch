@@ -97,13 +97,15 @@ impl<'index> rqe_iterators::RQEIterator<'index> for WildcardIterator<'index> {
     }
 
     #[inline(always)]
-    fn revalidate(
+    unsafe fn revalidate(
         &mut self,
         ctx: std::ptr::NonNull<ffi::RedisSearchCtx>,
     ) -> Result<rqe_iterators::RQEValidateStatus<'_, 'index>, rqe_iterators::RQEIteratorError> {
         match self {
-            WildcardIterator::Encoded(w) => w.revalidate(ctx),
-            WildcardIterator::Raw(w) => w.revalidate(ctx),
+            // SAFETY: Delegating to variant with the same `ctx` passed by our caller.
+            WildcardIterator::Encoded(w) => unsafe { w.revalidate(ctx) },
+            // SAFETY: Delegating to variant with the same `ctx` passed by our caller.
+            WildcardIterator::Raw(w) => unsafe { w.revalidate(ctx) },
         }
     }
 

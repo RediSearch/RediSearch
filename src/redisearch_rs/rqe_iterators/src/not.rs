@@ -227,12 +227,13 @@ where
     }
 
     #[inline(always)]
-    fn revalidate(
+    unsafe fn revalidate(
         &mut self,
         ctx: std::ptr::NonNull<ffi::RedisSearchCtx>,
     ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         // Get child status
-        match self.child.revalidate(ctx)? {
+        // SAFETY: Delegating to child with the same `ctx` passed by our caller.
+        match unsafe { self.child.revalidate(ctx) }? {
             RQEValidateStatus::Aborted => {
                 self.child = MaybeEmpty::new_empty();
                 Ok(RQEValidateStatus::Ok)

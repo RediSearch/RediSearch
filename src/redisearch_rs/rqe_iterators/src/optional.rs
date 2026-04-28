@@ -225,7 +225,7 @@ where
         Ok(Some(SkipToOutcome::Found(&mut self.result)))
     }
 
-    fn revalidate(
+    unsafe fn revalidate(
         &mut self,
         ctx: std::ptr::NonNull<ffi::RedisSearchCtx>,
     ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
@@ -235,7 +235,8 @@ where
         let last_child_doc_id = child.last_doc_id();
 
         // Revalidate the child iterator
-        match child.revalidate(ctx)? {
+        // SAFETY: Delegating to child with the same `ctx` passed by our caller.
+        match unsafe { child.revalidate(ctx) }? {
             // Abort: Handle child validation results (but continue processing)
             status @ (RQEValidateStatus::Aborted | RQEValidateStatus::Moved { .. }) => {
                 if matches!(status, RQEValidateStatus::Aborted) {

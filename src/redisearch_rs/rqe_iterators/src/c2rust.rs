@@ -259,7 +259,7 @@ impl<'index> RQEIterator<'index> for CRQEIterator {
         unsafe { callback(self.header.as_ptr()) };
     }
 
-    fn revalidate(
+    unsafe fn revalidate(
         &mut self,
         ctx: NonNull<ffi::RedisSearchCtx>,
     ) -> Result<crate::RQEValidateStatus<'_, 'index>, RQEIteratorError> {

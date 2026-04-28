@@ -291,7 +291,10 @@ extern "C" fn revalidate<'index, I: RQEIterator<'index> + 'index>(
     // SAFETY: The caller guarantees `sctx` is a valid non-null pointer to a `RedisSearchCtx`
     // while the read lock is held.
     let ctx = unsafe { NonNull::new_unchecked(sctx) };
-    match wrapper.inner.revalidate(ctx) {
+    // SAFETY: The caller guarantees `sctx` is a valid non-null pointer to a
+    // `RedisSearchCtx` while the read lock is held, satisfying the safety
+    // requirements of `RQEIterator::revalidate`.
+    match unsafe { wrapper.inner.revalidate(ctx) } {
         Ok(RQEValidateStatus::Ok) => ValidateStatus_VALIDATE_OK,
         Ok(RQEValidateStatus::Moved { current }) => {
             if let Some(result) = current {

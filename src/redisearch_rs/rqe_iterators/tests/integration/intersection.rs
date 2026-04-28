@@ -586,7 +586,8 @@ fn revalidate_ok() {
     assert_eq!(result.doc_id, 20);
 
     // Revalidate should return Ok
-    let status = ii.revalidate(ctx).expect("revalidate failed");
+    // SAFETY: test-only call with valid context
+    let status = unsafe { ii.revalidate(ctx) }.expect("revalidate failed");
     assert!(matches!(status, RQEValidateStatus::Ok));
 
     // Should be able to continue reading
@@ -624,7 +625,8 @@ fn revalidate_aborted() {
     assert_eq!(result.doc_id, 10);
 
     // Revalidate should return Aborted since one child aborted
-    let status = ii.revalidate(ctx).expect("revalidate failed");
+    // SAFETY: test-only call with valid context
+    let status = unsafe { ii.revalidate(ctx) }.expect("revalidate failed");
     assert!(matches!(status, RQEValidateStatus::Aborted));
 }
 
@@ -658,7 +660,8 @@ fn revalidate_moved() {
     assert_eq!(result.doc_id, 10);
 
     // Revalidate should return Moved
-    let status = ii.revalidate(ctx).expect("revalidate failed");
+    // SAFETY: test-only call with valid context
+    let status = unsafe { ii.revalidate(ctx) }.expect("revalidate failed");
     assert!(
         matches!(status, RQEValidateStatus::Moved { current: Some(_) }),
         "Expected Moved with current, got {:?}",
@@ -703,7 +706,8 @@ fn revalidate_mixed_results() {
     assert_eq!(result.doc_id, 10);
 
     // Revalidate should return Moved (if any child moved)
-    let status = ii.revalidate(ctx).expect("revalidate failed");
+    // SAFETY: test-only call with valid context
+    let status = unsafe { ii.revalidate(ctx) }.expect("revalidate failed");
     assert!(matches!(status, RQEValidateStatus::Moved { .. }));
     assert_eq!(ii.last_doc_id(), 20);
 }
@@ -738,7 +742,8 @@ fn revalidate_after_eof() {
     assert!(ii.at_eof());
 
     // Revalidate should return OK when already at EOF
-    let status = ii.revalidate(ctx).expect("revalidate failed");
+    // SAFETY: test-only call with valid context
+    let status = unsafe { ii.revalidate(ctx) }.expect("revalidate failed");
     assert!(
         matches!(status, RQEValidateStatus::Ok),
         "Revalidate after EOF should return OK, got {:?}",
@@ -789,7 +794,8 @@ fn revalidate_some_children_moved_to_eof() {
 
     // Revalidate should return Moved with current=None (EOF)
     // because child 1 moves to EOF (it only had 1 element which was already read)
-    let status = ii.revalidate(ctx).expect("revalidate failed");
+    // SAFETY: test-only call with valid context
+    let status = unsafe { ii.revalidate(ctx) }.expect("revalidate failed");
     assert!(
         matches!(status, RQEValidateStatus::Moved { current: None }),
         "Expected Moved to EOF, got {:?}",
@@ -948,7 +954,8 @@ fn revalidate_before_read() {
     let mut ii = Intersection::new(children, 1.0, false);
 
     // Revalidate before any read
-    let status = ii.revalidate(ctx).expect("revalidate failed");
+    // SAFETY: test-only call with valid context
+    let status = unsafe { ii.revalidate(ctx) }.expect("revalidate failed");
     assert!(
         matches!(status, RQEValidateStatus::Ok),
         "Revalidate before read should return Ok"
@@ -985,7 +992,8 @@ fn revalidate_move_before_read() {
     let mut ii = Intersection::new(children, 1.0, false);
 
     // Revalidate before any read - children will move
-    let status = ii.revalidate(ctx).expect("revalidate failed");
+    // SAFETY: test-only call with valid context
+    let status = unsafe { ii.revalidate(ctx) }.expect("revalidate failed");
 
     // Since we haven't read anything yet, and children moved,
     // the result depends on implementation. The iterator should
@@ -1128,7 +1136,8 @@ fn revalidate_moved_skip_to_returns_none() {
     // skip_to(22) will fail because:
     // - child0 has no doc >= 22 (only has [10, 15]), goes EOF
     // - Result: Moved { current: None }
-    let status = ii.revalidate(ctx).expect("revalidate failed");
+    // SAFETY: test-only call with valid context
+    let status = unsafe { ii.revalidate(ctx) }.expect("revalidate failed");
     assert!(
         matches!(status, RQEValidateStatus::Moved { current: None }),
         "Expected Moved {{ current: None }} when skip_to cannot find consensus, got {:?}",
