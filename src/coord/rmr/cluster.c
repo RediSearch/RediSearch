@@ -13,8 +13,6 @@
 #include <stdlib.h>
 #include "rq.h"
 
-extern RedisModuleCtx *RSDummyContext;
-
 /* Initialize the MapReduce engine with a node provider */
 MRCluster *MR_NewCluster(MRClusterTopology *initialTopology, size_t conn_pool_size, size_t num_io_threads) {
   MRCluster *cl = rm_new(MRCluster);
@@ -68,14 +66,6 @@ int MRCluster_FanoutCommand(IORuntimeCtx *ioRuntime,
     for (size_t i = 0; i < topo->numShards; i++) {
       MRConn *conn = MRConn_Get(&ioRuntime->conn_mgr, topo->shards[i].node.id);
       if (!conn) {
-        // MOD-13322: surface why a fanout was aborted before any shard was contacted.
-        // MRConn_Get returns NULL when no connection in the pool is in `Connected` state,
-        // which can happen transiently after MR_UpdateConnPoolSize has expanded the pool
-        // but the new connections have not finished their async TCP+AUTH+HELLO handshake.
-        const char *state = MRConnManager_GetNodeState(&ioRuntime->conn_mgr, topo->shards[i].node.id);
-        RedisModule_Log(RSDummyContext, "warning",
-                        "Fanout aborted by validateConnections: no Connected conn for shard %zu (node id %s, first-conn state %s, pool size %d)",
-                        i, topo->shards[i].node.id, state ? state : "<no pool>", ioRuntime->conn_mgr.nodeConns);
         return 0;
       }
     }

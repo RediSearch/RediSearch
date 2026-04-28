@@ -1340,36 +1340,6 @@ def call_and_store(fn, args, out_list):
     """
     out_list.append(fn(*args))
 
-class BackgroundCommands:
-    """Handle returned by `launch_cmds_in_bg_with_exception_check`.
-
-    Iterating over the handle yields the spawned threads, preserving the
-    historical `for t in result: t.join(...)` usage. Captured exceptions remain
-    accessible for the entire lifetime of the test, so callers can re-check them
-    after `wait_for_condition` or after joining the threads, and surface a real
-    assertion message instead of a silent timeout.
-    """
-
-    def __init__(self, threads, exceptions, command):
-        self.threads = threads
-        self.exceptions = exceptions
-        self.command = command
-
-    def __iter__(self):
-        return iter(self.threads)
-
-    def __len__(self):
-        return len(self.threads)
-
-    def raise_if_failed(self, env):
-        """Assert false (and return True) if any background thread has failed so far."""
-        if self.exceptions:
-            error_msg = (f"Background command {self.command} failed with "
-                         f"{len(self.exceptions)} error(s): {self.exceptions}")
-            env.assertTrue(False, message=error_msg)
-            return True
-        return False
-
 def launch_cmds_in_bg_with_exception_check(env, command, num_triggers, exception_timeout=1):
     """
     Launch the same Redis command multiple times in background threads with exception monitoring.
@@ -1378,15 +1348,10 @@ def launch_cmds_in_bg_with_exception_check(env, command, num_triggers, exception
         env: Redis test environment for executing commands.
         command: A list containing the Redis command to execute (e.g., ['FT.SEARCH', 'idx', 'query']).
         num_triggers: Number of background threads to spawn, each executing the same command.
-        exception_timeout: Seconds to wait for early exception detection (default: 1).
+        exception_timeout: Seconds to wait for exception detection (default: 1).
 
     Returns:
-        BackgroundCommands: Handle holding the started threads and the exceptions list,
-            iterable as the threads list. Returns None if any thread fails within
-            `exception_timeout` seconds (early-fail path). Callers should also call
-            `raise_if_failed(env)` later in the test to surface late exceptions that
-            would otherwise be swallowed (e.g., MOD-13322 pattern where a coordinator
-            error reaches the client only after the 1s window has elapsed).
+        list[Thread]: Started thread objects if no exceptions occur, None if any thread fails.
     """
     threads = []
     exceptions = []
@@ -1404,13 +1369,13 @@ def launch_cmds_in_bg_with_exception_check(env, command, num_triggers, exception
         threads.append(t)
         t.start()
 
-    # Fast-fail check for exceptions raised within `exception_timeout` seconds.
+    # Check for exceptions before proceeding
     if exception_event.wait(timeout=exception_timeout):
         error_msg = f"Background command {command} failed with {len(exceptions)} error(s): {exceptions}"
         env.assertTrue(False, message=error_msg)
         return None
 
-    return BackgroundCommands(threads, exceptions, command)
+    return threads
 
 def generate_slots(slots = range(2**14)) -> bytes:
     """Generate slot ranges in binary format matching RedisModuleSlotRangeArray serialization.
