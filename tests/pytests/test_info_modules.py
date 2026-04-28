@@ -1973,7 +1973,8 @@ def _test_pending_jobs_metrics(env, command_type):
           state['workers_stats'][i] = {f'shard {i}': to_dict(con.execute_command(debug_cmd(), 'WORKERS', 'stats'))}
         return all(all_shards_ready), state
 
-    wait_for_condition(check_queries_jobs_pending, "wait_for_high_priority_jobs_pending")
+    iter = wait_for_condition(check_queries_jobs_pending, "wait_for_high_priority_jobs_pending")
+    env.debugPrint(f"wait_for_high_priority_jobs_pending iters: {iter}", force=True)
 
     # --- STEP 7: RESUME WORKERS AND DRAIN ---
     # Resume workers:
