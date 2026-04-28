@@ -1,0 +1,32 @@
+[package]
+name = "top_k_bencher"
+version.workspace = true
+edition.workspace = true
+license-file.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[lib]
+# See https://bheisler.github.io/criterion.rs/book/faq.html#cargo-bench-gives-unrecognized-option-errors-for-valid-command-line-options
+bench = false
+
+[[bench]]
+name = "top_k"
+harness = false
+
+[build-dependencies]
+bindgen.workspace = true
+build_utils = { path = "../build_utils" }
+
+[dependencies]
+criterion.workspace = true
+redis_mock.workspace = true
+rqe_iterators = { workspace = true }
+top_k = { workspace = true, features = ["test-utils"] }
+workspace_hack.workspace = true
+# Crate required to invoke C symbols and keep Rust-defined FFI symbols alive.
+redisearch_rs = { path = "../c_entrypoint/redisearch_rs", features = [
+    "mock_allocator",
+] }

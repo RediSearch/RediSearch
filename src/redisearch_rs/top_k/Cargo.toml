@@ -8,6 +8,31 @@ publish.workspace = true
 [lib]
 bench = false
 
+[features]
+# Exposes MockScoreSource and MockScoreBatch for use in tests and benchmarks.
+test-utils = []
+# Links C static libraries at test time (see build.rs).
+# https://github.com/rust-lang/cargo/issues/4789#issuecomment-2308131243
+unittest = []
+
+[build-dependencies]
+build_utils = { path = "../build_utils" }
+
 [dependencies]
 ffi.workspace = true
+inverted_index.workspace = true
+rqe_iterator_type.workspace = true
+rqe_iterators.workspace = true
 workspace_hack.workspace = true
+
+[dev-dependencies]
+top_k = { path = ".", features = ["unittest", "test-utils"] }
+redis_mock.workspace = true
+# `unittest` feature triggers rqe_iterators' build.rs to link libredisearch_all.a,
+# providing the C symbols (RedisModule_Free, ResultMetrics_Free, etc.) needed at
+# link time by rqe_iterators and inverted_index.
+# Same pattern used by rqe_iterators for its own integration tests.
+rqe_iterators = { workspace = true, features = ["unittest"] }
+redisearch_rs = { path = "../c_entrypoint/redisearch_rs", features = [
+    "mock_allocator",
+] }

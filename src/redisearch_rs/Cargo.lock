@@ -2709,7 +2709,28 @@ checksum = "ab16f14aed21ee8bfd8ec22513f7287cd4a91aa92e44edfe2c17ddd004e92607"
 name = "top_k"
 version = "0.0.1"
 dependencies = [
+ "build_utils",
  "ffi",
+ "inverted_index",
+ "redis_mock",
+ "redisearch_rs",
+ "rqe_iterator_type",
+ "rqe_iterators",
+ "top_k",
+ "workspace_hack",
+]
+
+[[package]]
+name = "top_k_bencher"
+version = "0.0.1"
+dependencies = [
+ "bindgen",
+ "build_utils",
+ "criterion",
+ "redis_mock",
+ "redisearch_rs",
+ "rqe_iterators",
+ "top_k",
  "workspace_hack",
 ]
 
