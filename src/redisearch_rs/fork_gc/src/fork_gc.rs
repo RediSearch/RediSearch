@@ -8,7 +8,6 @@
 */
 
 use std::{
-    fs::File,
     io::{self, Write},
     marker::PhantomData,
     mem::ManuallyDrop,
@@ -43,7 +42,9 @@ impl ForkGC {
         PipeWriter {
             // SAFETY: `pipe_write_fd` is an open writable fd maintained
             // by the C side's Fork GC state machine.
-            file: ManuallyDrop::new(unsafe { File::from_raw_fd(self.0.pipe_write_fd) }),
+            pipe_writer: ManuallyDrop::new(unsafe {
+                io::PipeWriter::from_raw_fd(self.0.pipe_write_fd)
+            }),
             _borrow: PhantomData,
         }
     }
@@ -55,17 +56,17 @@ impl ForkGC {
 /// be passed directly to generic writer APIs like
 /// [`fork_gc::pipe::send_fixed_or_exit`](crate::pipe::send_fixed_or_exit).
 pub struct PipeWriter<'a> {
-    // `ManuallyDrop` prevents `File::drop` from closing the borrowed file descriptor.
-    file: ManuallyDrop<File>,
+    // `ManuallyDrop` prevents `io::PipeWriter::drop` from closing the borrowed file descriptor.
+    pipe_writer: ManuallyDrop<io::PipeWriter>,
     _borrow: PhantomData<&'a mut ForkGC>,
 }
 
 impl Write for PipeWriter<'_> {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        self.file.write(buf)
+        self.pipe_writer.write(buf)
     }
 
     fn flush(&mut self) -> io::Result<()> {
-        self.file.flush()
+        self.pipe_writer.flush()
     }
 }
