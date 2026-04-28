@@ -269,6 +269,26 @@ setup_build_environment() {
   # Create full variant string for the build directory
   FULL_VARIANT="${OS_NAME}-${ARCH}-${FLAVOR}"
 
+  if [[ "$OS_NAME" == "macos" ]]; then
+    # `bindgen` needs the macOS SDK headers. Set the correct path
+    export SDKROOT="${SDKROOT:-$(xcrun --show-sdk-path)}"
+
+    if [[ "$COV" == "1" ]]; then
+      # If lcov isn't on PATH yet, try Homebrew's Apple Silicon bin dir
+      # before giving up.
+      if ! command -v lcov >/dev/null 2>&1; then
+        if [[ -d /opt/homebrew/bin ]]; then
+          export PATH="/opt/homebrew/bin:$PATH"
+        fi
+        if ! command -v lcov >/dev/null 2>&1; then
+          echo "Error: COV=1 requires 'lcov' on PATH but it was not found."
+          echo "Install it with: brew install lcov"
+          exit 1
+        fi
+      fi
+    fi
+  fi
+
   # Set BINDIR based on configuration and FULL_VARIANT
   if [[ "$COORD" == "oss" ]]; then
     OUTDIR="search-community"
