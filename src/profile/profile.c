@@ -598,6 +598,7 @@ void printIteratorProfile(RedisModule_Reply *reply, const QueryIterator *root, c
     case METRIC_SORTED_BY_ID_ITERATOR:      { printMetricSortedByIdIt(reply, root, counters, cpuTime, depth, limited, config);      break; }
     case METRIC_SORTED_BY_SCORE_ITERATOR:   { printMetricSortedByScoreIt(reply, root, counters, cpuTime, depth, limited, config);   break; }
     case OPTIMUS_ITERATOR:                  { printOptimusIt(reply, root, counters, cpuTime, depth, limited, config);               break; }
+    case IteratorType_Mock:                 { RS_ABORT("mock iterator cannot be profiled");                                         break; } // LCOV_EXCL_LINE
     case MAX_ITERATOR:                      { RS_ABORT("nope");                                                                     break; } // LCOV_EXCL_LINE
   }
 }
