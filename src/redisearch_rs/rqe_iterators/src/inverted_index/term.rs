@@ -31,7 +31,6 @@ use super::core::InvIndIterator;
 /// * `E` - The expiration checker type used to check for expired documents.
 pub struct Term<'index, R, E = crate::expiration_checker::NoOpChecker> {
     it: InvIndIterator<'index, R, E>,
-    context: NonNull<RedisSearchCtx>,
 }
 
 impl<'index, R, E> Term<'index, R, E>
@@ -57,7 +56,6 @@ where
     ///
     /// 1. `context` must point to a valid [`RedisSearchCtx`].
     /// 2. `context.spec` must be a non-null pointer to a valid [`IndexSpec`](ffi::IndexSpec).
-    /// 3. Both 1 and 2 must remain valid for the lifetime of the iterator.
     pub unsafe fn new(
         reader: R,
         context: NonNull<RedisSearchCtx>,
@@ -82,7 +80,6 @@ where
             .build();
         Self {
             it: InvIndIterator::new(reader, result, expiration_checker),
-            context,
         }
     }
 
@@ -94,16 +91,16 @@ where
     /// Check if the iterator should abort revalidation.
     ///
     /// The term's inverted index may have been garbage-collected and
-    /// replaced with a new allocation. If the index pointer returned by
-    /// [`ffi::Redis_OpenInvertedIndex`] no longer matches the reader's
-    /// stored index, the iterator must [abort](RQEValidateStatus::Aborted).
-    fn should_abort(&self) -> bool {
-        // SAFETY: 1. and 3. guarantee `context` is valid for the iterator's lifetime.
-        let sctx_ref = unsafe { self.context.as_ref() };
-        // SAFETY: 2. and 3. guarantee `spec` is a valid, non-null pointer for the iterator's lifetime.
-        let spec = unsafe { &*sctx_ref.spec };
-
-        // Redis_OpenInvertedIndex() relies on keysDict to open the II.
+    /// replaced with a new allocation. If the index pointer looked up via
+    /// `spec.keysDict` no longer matches the reader's stored index, the
+    /// iterator must [abort](RQEValidateStatus::Aborted).
+    ///
+    /// # Safety
+    ///
+    /// The raw pointers inside `spec` (e.g. `keysDict`) must be valid and
+    /// dereferenceable for the duration of the call.
+    unsafe fn should_abort(&self, spec: &ffi::IndexSpec) -> bool {
+        // keysDict is needed to look up the inverted index.
         // It should always be set in production flows but some tests do not set up a full spec.
         if spec.keysDict.is_null() {
             return false;
@@ -119,27 +116,30 @@ where
 
         let str_ptr = term
             .as_bytes()
-            .map_or(std::ptr::null(), |b| b.as_ptr().cast());
+            .map_or(std::ptr::null_mut(), |b| b.as_ptr() as *mut _);
 
-        // SAFETY: `context` is a valid `RedisSearchCtx` (1.) and `str_ptr`
-        // is a valid byte slice of `term.len()` bytes.
+        let mut term_key = ffi::CharBuf {
+            buf: str_ptr,
+            len: term.len(),
+        };
+
+        // SAFETY: `spec.keysDict` is a valid dict (checked non-null above) and
+        // `term_key` is a valid `CharBuf` pointing to the term's bytes for the
+        // duration of this call.
         let idx = unsafe {
-            ffi::Redis_OpenInvertedIndex(
-                self.context.as_ptr(),
-                str_ptr,
-                term.len(),
-                false,
-                std::ptr::null_mut(),
+            ffi::RS_dictFetchValue(
+                spec.keysDict,
+                &mut term_key as *mut ffi::CharBuf as *const _,
             )
         };
 
-        let Some(idx) = NonNull::new(idx) else {
+        let Some(idx) = NonNull::new(idx as *mut _) else {
             // The inverted index was collected entirely by GC.
             return true;
         };
 
         let opaque = idx.cast::<inverted_index::opaque::InvertedIndex>();
-        // SAFETY: `Redis_OpenInvertedIndex` returned a non-null pointer to a
+        // SAFETY: `RS_dictFetchValue` returned a non-null pointer to a
         // valid opaque `InvertedIndex`.
         let opaque = unsafe { opaque.as_ref() };
         !self.it.reader.points_to_the_same_opaque_index(opaque)
@@ -202,12 +202,20 @@ where
     }
 
     #[inline(always)]
-    fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        if self.should_abort() {
+    unsafe fn revalidate(
+        &mut self,
+        spec: NonNull<ffi::IndexSpec>,
+    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
+        // SAFETY: The caller guarantees `spec` points to a valid `IndexSpec`
+        // while the spec read lock is held.
+        let spec_ref = unsafe { spec.as_ref() };
+        // SAFETY: `spec_ref` satisfies `should_abort`'s safety requirements.
+        if unsafe { self.should_abort(spec_ref) } {
             return Ok(RQEValidateStatus::Aborted);
         }
 
-        self.it.revalidate()
+        // SAFETY: Delegating to inner iterator with the same `spec` passed by our caller.
+        unsafe { self.it.revalidate(spec) }
     }
 
     #[inline(always)]

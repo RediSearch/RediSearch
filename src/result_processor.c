@@ -233,7 +233,7 @@ static bool handleSpecLockAndRevalidate(RPQueryIterator *self) {
 
   RedisSearchCtx_LockSpecRead(sctx);
 
-  ValidateStatus rc = it->Revalidate(it);
+  ValidateStatus rc = it->Revalidate(it, sctx->spec);
 
   if (rc == VALIDATE_ABORTED) {
     self->iterator->Free(self->iterator);

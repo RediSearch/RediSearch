@@ -227,9 +227,13 @@ where
     }
 
     #[inline(always)]
-    fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
+    unsafe fn revalidate(
+        &mut self,
+        spec: std::ptr::NonNull<ffi::IndexSpec>,
+    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         // Get child status
-        match self.child.revalidate()? {
+        // SAFETY: Delegating to child with the same `spec` passed by our caller.
+        match unsafe { self.child.revalidate(spec) }? {
             RQEValidateStatus::Aborted => {
                 self.child = MaybeEmpty::new_empty();
                 Ok(RQEValidateStatus::Ok)

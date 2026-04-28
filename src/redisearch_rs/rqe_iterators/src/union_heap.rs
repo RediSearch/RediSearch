@@ -418,7 +418,10 @@ where
         self.is_eof
     }
 
-    fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
+    unsafe fn revalidate(
+        &mut self,
+        spec: std::ptr::NonNull<ffi::IndexSpec>,
+    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         if self.is_eof {
             return Ok(RQEValidateStatus::Ok);
         }
@@ -429,7 +432,8 @@ where
         // Index-based iteration: swap_remove may reorder elements.
         let mut i = 0;
         while i < self.children.len() {
-            match self.children[i].revalidate()? {
+            // SAFETY: Delegating to child with the same `spec` passed by our caller.
+            match unsafe { self.children[i].revalidate(spec) }? {
                 RQEValidateStatus::Aborted => {
                     self.children.swap_remove(i);
                     any_change = true;

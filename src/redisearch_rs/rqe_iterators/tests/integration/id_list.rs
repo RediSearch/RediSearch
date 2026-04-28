@@ -231,9 +231,12 @@ fn rewind(#[case] case: &[u64]) {
 
 #[test]
 fn revalidate() {
+    let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+    let ctx = mock_ctx.spec();
     let mut it = IdListSorted::new(vec![1, 2, 3]);
+    // SAFETY: test-only call with valid context
     assert_eq!(
-        it.revalidate().expect("revalidate failed"),
+        unsafe { it.revalidate(ctx) }.expect("revalidate failed"),
         RQEValidateStatus::Ok
     );
 }

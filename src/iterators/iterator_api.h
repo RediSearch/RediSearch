@@ -75,11 +75,12 @@ typedef struct QueryIterator {
    * Called when the iterator is being revalidated after a concurrent index change.
    * The iterator should check if it is still valid.
    *
+   * @param spec The index spec, provided by the caller (result processor).
    * @return VALIDATE_OK if the iterator is still valid
    * @return VALIDATE_MOVED if the iterator is still valid, but the lastDocId has changed (moved forward)
    * @return VALIDATE_ABORTED if the iterator is no longer valid
    */
-  ValidateStatus (*Revalidate)(struct QueryIterator *self);
+  ValidateStatus (*Revalidate)(struct QueryIterator *self, struct IndexSpec *spec);
 
   /* release the iterator's context and free everything needed */
   void (*Free)(struct QueryIterator *self);
@@ -93,7 +94,7 @@ typedef struct QueryIterator {
   QueryIterator* (*ProfileChildren)(struct QueryIterator *self);
 } QueryIterator;
 
-static inline ValidateStatus Default_Revalidate(struct QueryIterator *base) {
+static inline ValidateStatus Default_Revalidate(struct QueryIterator *base, struct IndexSpec *spec) {
   // Default implementation does nothing.
   return VALIDATE_OK;
 }

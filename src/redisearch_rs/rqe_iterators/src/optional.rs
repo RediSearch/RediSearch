@@ -225,14 +225,18 @@ where
         Ok(Some(SkipToOutcome::Found(&mut self.result)))
     }
 
-    fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
+    unsafe fn revalidate(
+        &mut self,
+        spec: std::ptr::NonNull<ffi::IndexSpec>,
+    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         let Some(ref mut child) = self.child else {
             return Ok(RQEValidateStatus::Ok);
         };
         let last_child_doc_id = child.last_doc_id();
 
         // Revalidate the child iterator
-        match child.revalidate()? {
+        // SAFETY: Delegating to child with the same `spec` passed by our caller.
+        match unsafe { child.revalidate(spec) }? {
             // Abort: Handle child validation results (but continue processing)
             status @ (RQEValidateStatus::Aborted | RQEValidateStatus::Moved { .. }) => {
                 if matches!(status, RQEValidateStatus::Aborted) {

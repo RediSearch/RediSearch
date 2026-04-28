@@ -283,7 +283,9 @@ fn revalidate_panics() {
     let (children, _data) = create_mock_3([1], [2], [3]);
     let mut union = UnionTrimmed::new(children, usize::MAX, true);
 
-    let _ = union.revalidate();
+    let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+    // SAFETY: test-only call with valid context
+    let _ = unsafe { union.revalidate(mock_ctx.spec()) };
 }
 
 // =============================================================================

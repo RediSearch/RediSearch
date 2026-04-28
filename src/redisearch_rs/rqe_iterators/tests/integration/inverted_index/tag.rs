@@ -177,15 +177,18 @@ mod not_miri {
     fn tag_revalidate_after_index_disappears() {
         let test = TagRevalidateTest::new(10);
         let mut it = test.create_iterator();
+        let sctx = test.test.context.spec;
 
         // Verify the iterator works normally and read at least one document
+        // SAFETY: test-only call with valid context
         assert_eq!(
-            it.revalidate().expect("revalidate failed"),
+            unsafe { it.revalidate(sctx) }.expect("revalidate failed"),
             RQEValidateStatus::Ok
         );
         assert!(it.read().expect("failed to read").is_some());
+        // SAFETY: test-only call with valid context
         assert_eq!(
-            it.revalidate().expect("revalidate failed"),
+            unsafe { it.revalidate(sctx) }.expect("revalidate failed"),
             RQEValidateStatus::Ok
         );
 
@@ -216,8 +219,9 @@ mod not_miri {
 
         // Revalidate should return Aborted because the tag II no longer
         // points to the same index the reader was created from.
+        // SAFETY: test-only call with valid context
         assert_eq!(
-            it.revalidate().expect("revalidate failed"),
+            unsafe { it.revalidate(sctx) }.expect("revalidate failed"),
             RQEValidateStatus::Aborted
         );
 
@@ -246,8 +250,10 @@ mod not_miri {
 
         // Read at least one document so the iterator has a position.
         assert!(it.read().expect("failed to read").is_some());
+        let sctx = test.test.context.spec;
+        // SAFETY: test-only call with valid context
         assert_eq!(
-            it.revalidate().expect("revalidate failed"),
+            unsafe { it.revalidate(sctx) }.expect("revalidate failed"),
             RQEValidateStatus::Ok
         );
 
@@ -266,8 +272,9 @@ mod not_miri {
         assert!(old_val.is_some(), "test_tag should exist in the TrieMap");
 
         // `should_abort` sees the tag value is missing and returns true.
+        // SAFETY: test-only call with valid context
         assert_eq!(
-            it.revalidate().expect("revalidate failed"),
+            unsafe { it.revalidate(sctx) }.expect("revalidate failed"),
             RQEValidateStatus::Aborted
         );
 
