@@ -555,7 +555,7 @@ fn many_children() {
 #[test]
 fn revalidate_ok() {
     let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-    let ctx = mock_ctx.sctx();
+    let ctx = mock_ctx.spec();
     // Create mock children with const generic arrays
     let child0: Mock<'static, 10> = Mock::new([10, 15, 20, 25, 30, 35, 40, 45, 50, 55]);
     let child1: Mock<'static, 11> = Mock::new([5, 10, 18, 20, 28, 30, 38, 40, 48, 50, 60]);
@@ -599,7 +599,7 @@ fn revalidate_ok() {
 #[test]
 fn revalidate_aborted() {
     let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-    let ctx = mock_ctx.sctx();
+    let ctx = mock_ctx.spec();
     let child0: Mock<'static, 10> = Mock::new([10, 15, 20, 25, 30, 35, 40, 45, 50, 55]);
     let child1: Mock<'static, 11> = Mock::new([5, 10, 18, 20, 28, 30, 38, 40, 48, 50, 60]);
     let child2: Mock<'static, 11> = Mock::new([2, 10, 12, 20, 22, 30, 32, 40, 42, 50, 70]);
@@ -634,7 +634,7 @@ fn revalidate_aborted() {
 #[test]
 fn revalidate_moved() {
     let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-    let ctx = mock_ctx.sctx();
+    let ctx = mock_ctx.spec();
     let child0: Mock<'static, 10> = Mock::new([10, 15, 20, 25, 30, 35, 40, 45, 50, 55]);
     let child1: Mock<'static, 11> = Mock::new([5, 10, 18, 20, 28, 30, 38, 40, 48, 50, 60]);
     let child2: Mock<'static, 11> = Mock::new([2, 10, 12, 20, 22, 30, 32, 40, 42, 50, 70]);
@@ -680,7 +680,7 @@ fn revalidate_moved() {
 #[test]
 fn revalidate_mixed_results() {
     let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-    let ctx = mock_ctx.sctx();
+    let ctx = mock_ctx.spec();
     let child0: Mock<'static, 10> = Mock::new([10, 15, 20, 25, 30, 35, 40, 45, 50, 55]);
     let child1: Mock<'static, 11> = Mock::new([5, 10, 18, 20, 28, 30, 38, 40, 48, 50, 60]);
     let child2: Mock<'static, 11> = Mock::new([2, 10, 12, 20, 22, 30, 32, 40, 42, 50, 70]);
@@ -716,7 +716,7 @@ fn revalidate_mixed_results() {
 #[test]
 fn revalidate_after_eof() {
     let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-    let ctx = mock_ctx.sctx();
+    let ctx = mock_ctx.spec();
     // Pre-set children to return MOVE on revalidate
     let child0: Mock<'static, 10> = Mock::new([10, 15, 20, 25, 30, 35, 40, 45, 50, 55]);
     let child1: Mock<'static, 11> = Mock::new([5, 10, 18, 20, 28, 30, 38, 40, 48, 50, 60]);
@@ -763,7 +763,7 @@ fn revalidate_after_eof() {
 #[test]
 fn revalidate_some_children_moved_to_eof() {
     let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-    let ctx = mock_ctx.sctx();
+    let ctx = mock_ctx.spec();
     // Child 0 and 2 have normal data, child 1 is small (only 2 elements: [10, 20])
     // When we read doc 10 and then call Move, child 1 moves to 20 and the next Move
     // would go to EOF
@@ -932,7 +932,7 @@ fn overlapping_children_ids() {
 #[test]
 fn revalidate_before_read() {
     let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-    let ctx = mock_ctx.sctx();
+    let ctx = mock_ctx.spec();
     let child0: Mock<'static, 10> = Mock::new([10, 15, 20, 25, 30, 35, 40, 45, 50, 55]);
     let child1: Mock<'static, 11> = Mock::new([5, 10, 18, 20, 28, 30, 38, 40, 48, 50, 60]);
     let child2: Mock<'static, 11> = Mock::new([2, 10, 12, 20, 22, 30, 32, 40, 42, 50, 70]);
@@ -970,7 +970,7 @@ fn revalidate_before_read() {
 #[test]
 fn revalidate_move_before_read() {
     let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-    let ctx = mock_ctx.sctx();
+    let ctx = mock_ctx.spec();
     let child0: Mock<'static, 10> = Mock::new([10, 15, 20, 25, 30, 35, 40, 45, 50, 55]);
     let child1: Mock<'static, 11> = Mock::new([5, 10, 18, 20, 28, 30, 38, 40, 48, 50, 60]);
     let child2: Mock<'static, 11> = Mock::new([2, 10, 12, 20, 22, 30, 32, 40, 42, 50, 70]);
@@ -1092,7 +1092,7 @@ fn children_sorted_by_estimated() {
 #[test]
 fn revalidate_moved_skip_to_returns_none() {
     let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-    let ctx = mock_ctx.sctx();
+    let ctx = mock_ctx.spec();
     // Set up children where:
     // - They share doc 10 (will read this first)
     // - After Move, child0 goes to doc 15, child1 goes to doc 18, child2 goes to doc 22

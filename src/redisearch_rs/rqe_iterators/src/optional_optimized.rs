@@ -245,7 +245,7 @@ where
 
     unsafe fn revalidate(
         &mut self,
-        ctx: std::ptr::NonNull<ffi::RedisSearchCtx>,
+        spec: std::ptr::NonNull<ffi::IndexSpec>,
     ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         // Simple enum to avoid holding a borrow through the match.
         enum ValidateOutcome {
@@ -254,8 +254,8 @@ where
         }
 
         // Step 1: Revalidate wcii. If it aborts or is at EOF, we can return immediately.
-        // SAFETY: Delegating to children with the same `ctx` passed by our caller.
-        let wcii_outcome = match unsafe { self.wcii.revalidate(ctx) }? {
+        // SAFETY: Delegating to children with the same `spec` passed by our caller.
+        let wcii_outcome = match unsafe { self.wcii.revalidate(spec) }? {
             RQEValidateStatus::Ok => ValidateOutcome::Ok,
             RQEValidateStatus::Moved { current: Some(_) } => ValidateOutcome::Moved,
             RQEValidateStatus::Moved { current: None } => {
@@ -273,8 +273,8 @@ where
 
         // Step 2: Revalidate child. If it aborts, replace with an empty iterator.
         // Abort is treated as Moved: child's state changed, so we must re-evaluate.
-        // SAFETY: Delegating to child with the same `ctx` passed by our caller.
-        let child_outcome = match unsafe { self.child.revalidate(ctx) }? {
+        // SAFETY: Delegating to child with the same `spec` passed by our caller.
+        let child_outcome = match unsafe { self.child.revalidate(spec) }? {
             RQEValidateStatus::Ok => ValidateOutcome::Ok,
             RQEValidateStatus::Moved { .. } => ValidateOutcome::Moved,
             RQEValidateStatus::Aborted => {

@@ -310,7 +310,7 @@ fn rewind_resets_state() {
 #[test]
 fn revalidate_child_ok_preserves_exclusions() {
     let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-    let ctx = mock_ctx.sctx();
+    let ctx = mock_ctx.spec();
     let child = Mock::new([2, 4]);
     let mut it = Not::new(child, 5, 1.0, Duration::ZERO, true);
 
@@ -331,7 +331,7 @@ fn revalidate_child_ok_preserves_exclusions() {
 #[test]
 fn revalidate_child_aborted_replaces_child_with_empty() {
     let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-    let ctx = mock_ctx.sctx();
+    let ctx = mock_ctx.spec();
     let child = Mock::new([2, 4]);
     let mut data = child.data();
     data.set_revalidate_result(MockRevalidateResult::Abort);
@@ -354,7 +354,7 @@ fn revalidate_child_aborted_replaces_child_with_empty() {
 #[test]
 fn revalidate_child_moved_on_fresh_iterator() {
     let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-    let ctx = mock_ctx.sctx();
+    let ctx = mock_ctx.spec();
     let child = Mock::new([2, 4]);
     let mut data = child.data();
     data.set_revalidate_result(MockRevalidateResult::Move);
@@ -379,7 +379,7 @@ fn revalidate_child_moved_on_fresh_iterator() {
 #[test]
 fn revalidate_child_moved_after_read_with_child_ahead() {
     let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-    let ctx = mock_ctx.sctx();
+    let ctx = mock_ctx.spec();
     let child = Mock::new([5, 10]);
     let mut data = child.data();
     let mut it = Not::new(child, 15, 1.0, Duration::ZERO, true);
@@ -413,7 +413,7 @@ fn revalidate_child_moved_after_read_with_child_ahead() {
 #[test]
 fn revalidate_child_moved_after_skip_to_with_child_ahead() {
     let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-    let ctx = mock_ctx.sctx();
+    let ctx = mock_ctx.spec();
     let child = Mock::new([8, 15]);
     let mut data = child.data();
     let mut it = Not::new(child, 20, 1.0, Duration::ZERO, true);

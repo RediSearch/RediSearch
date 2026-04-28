@@ -134,10 +134,10 @@ impl<'index, I: RQEIterator<'index>> RQEIterator<'index> for Profile<'index, I> 
 
     unsafe fn revalidate(
         &mut self,
-        ctx: std::ptr::NonNull<ffi::RedisSearchCtx>,
+        spec: std::ptr::NonNull<ffi::IndexSpec>,
     ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        // SAFETY: Delegating to child with the same `ctx` passed by our caller.
-        unsafe { self.child.revalidate(ctx) }
+        // SAFETY: Delegating to child with the same `spec` passed by our caller.
+        unsafe { self.child.revalidate(spec) }
     }
 
     #[inline(always)]

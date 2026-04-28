@@ -9,7 +9,7 @@
 
 use std::{ptr::NonNull, sync::OnceLock};
 
-use ffi::{RedisSearchCtx, t_docId};
+use ffi::{IndexSpec, t_docId};
 use thiserror::Error;
 
 use ::inverted_index::{RSIndexResult, t_fieldMask};
@@ -137,11 +137,10 @@ pub trait RQEIterator<'index> {
     /// The iterator should check if it is still valid.
     ///
     /// # Safety
-    /// `ctx` must point to a valid [`RedisSearchCtx`] whose `spec` is a
-    /// non-null pointer to a valid [`IndexSpec`](ffi::IndexSpec) for the duration of the call.
+    /// `spec` must point to a valid [`IndexSpec`] for the duration of the call.
     unsafe fn revalidate(
         &mut self,
-        ctx: NonNull<RedisSearchCtx>,
+        spec: NonNull<IndexSpec>,
     ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError>;
 
     /// Rewind the iterator to the beginning and reset its properties.
@@ -204,10 +203,10 @@ impl<'index, I: RQEIterator<'index> + 'index> RQEIterator<'index> for Box<I> {
 
     unsafe fn revalidate(
         &mut self,
-        ctx: NonNull<RedisSearchCtx>,
+        spec: NonNull<IndexSpec>,
     ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        // SAFETY: Delegating to inner iterator with the same `ctx` passed by our caller.
-        unsafe { (**self).revalidate(ctx) }
+        // SAFETY: Delegating to inner iterator with the same `spec` passed by our caller.
+        unsafe { (**self).revalidate(spec) }
     }
 
     fn rewind(&mut self) {
@@ -262,10 +261,10 @@ impl<'index> RQEIterator<'index> for Box<dyn RQEIterator<'index> + 'index> {
 
     unsafe fn revalidate(
         &mut self,
-        ctx: NonNull<RedisSearchCtx>,
+        spec: NonNull<IndexSpec>,
     ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        // SAFETY: Delegating to inner iterator with the same `ctx` passed by our caller.
-        unsafe { (**self).revalidate(ctx) }
+        // SAFETY: Delegating to inner iterator with the same `spec` passed by our caller.
+        unsafe { (**self).revalidate(spec) }
     }
 
     fn rewind(&mut self) {

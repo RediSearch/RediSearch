@@ -354,7 +354,7 @@ mod not_miri {
     fn term_revalidate_after_index_disappears() {
         let test = TermRevalidateTest::new(10);
         let mut it = test.create_iterator();
-        let sctx = test.test.context.sctx;
+        let sctx = test.test.context.spec;
 
         // First, verify the iterator works normally and read at least one document
         // SAFETY: test-only call with valid context
@@ -429,7 +429,7 @@ mod not_miri {
         // null, triggering the abort path.
         // SAFETY: test-only call with valid context
         assert_eq!(
-            unsafe { it.revalidate(test.test.context.sctx) }.expect("revalidate failed"),
+            unsafe { it.revalidate(test.test.context.spec) }.expect("revalidate failed"),
             RQEValidateStatus::Aborted
         );
     }

@@ -636,7 +636,7 @@ mod optional_optimized_iterator_revalidate_tests {
             let _ = it.read().expect("read").expect("result");
 
             // SAFETY: test-only call with valid context
-            let status = unsafe { it.revalidate(test_ctx.sctx) }.expect("revalidate");
+            let status = unsafe { it.revalidate(test_ctx.spec) }.expect("revalidate");
             assert!(matches!(status, RQEValidateStatus::Ok));
             assert_eq!(data.revalidate_count(), 1);
 
@@ -657,7 +657,7 @@ mod optional_optimized_iterator_revalidate_tests {
             assert_eq!(r.doc_id, 1);
 
             // SAFETY: test-only call with valid context
-            let status = unsafe { it.revalidate(test_ctx.sctx) }.expect("revalidate");
+            let status = unsafe { it.revalidate(test_ctx.spec) }.expect("revalidate");
             // Child aborted while on a virtual result → Ok (no state change needed)
             assert!(matches!(status, RQEValidateStatus::Ok));
             assert!(
@@ -685,7 +685,7 @@ mod optional_optimized_iterator_revalidate_tests {
 
             data.set_revalidate_result(utils::MockRevalidateResult::Move);
             // SAFETY: test-only call with valid context
-            let status = unsafe { it.revalidate(test_ctx.sctx) }.expect("revalidate");
+            let status = unsafe { it.revalidate(test_ctx.spec) }.expect("revalidate");
             // Child moved while on a real result → Moved
             assert!(matches!(status, RQEValidateStatus::Moved { .. }));
             assert_eq!(data.revalidate_count(), 1);
@@ -705,7 +705,7 @@ mod optional_optimized_iterator_revalidate_tests {
 
             data.set_revalidate_result(utils::MockRevalidateResult::Move);
             // SAFETY: test-only call with valid context
-            let status = unsafe { it.revalidate(test_ctx.sctx) }.expect("revalidate");
+            let status = unsafe { it.revalidate(test_ctx.spec) }.expect("revalidate");
             // Child moved while on a virtual result → Ok
             assert!(matches!(status, RQEValidateStatus::Ok));
             assert_eq!(data.revalidate_count(), 1);
@@ -727,7 +727,7 @@ mod optional_optimized_iterator_revalidate_tests {
 
         wcii_data.set_revalidate_result(utils::MockRevalidateResult::Abort);
         let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-        let ctx = mock_ctx.sctx();
+        let ctx = mock_ctx.spec();
         // SAFETY: test-only call with valid context
         let status = unsafe { it.revalidate(ctx) }.expect("revalidate");
         assert!(matches!(status, RQEValidateStatus::Aborted));
@@ -750,7 +750,7 @@ mod optional_optimized_iterator_revalidate_tests {
 
         wcii_data.set_revalidate_result(utils::MockRevalidateResult::Move);
         let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-        let ctx = mock_ctx.sctx();
+        let ctx = mock_ctx.spec();
         // SAFETY: test-only call with valid context
         match unsafe { it.revalidate(ctx) }.expect("revalidate") {
             RQEValidateStatus::Moved { current: Some(r) } => {
@@ -779,7 +779,7 @@ mod optional_optimized_iterator_revalidate_tests {
 
         wcii_data.set_revalidate_result(utils::MockRevalidateResult::Move);
         let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-        let ctx = mock_ctx.sctx();
+        let ctx = mock_ctx.spec();
         // SAFETY: test-only call with valid context
         match unsafe { it.revalidate(ctx) }.expect("revalidate") {
             RQEValidateStatus::Moved { current: Some(r) } => {
@@ -808,7 +808,7 @@ mod optional_optimized_iterator_revalidate_tests {
 
         wcii_data.set_revalidate_result(utils::MockRevalidateResult::Move);
         let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-        let ctx = mock_ctx.sctx();
+        let ctx = mock_ctx.spec();
         // SAFETY: test-only call with valid context
         match unsafe { it.revalidate(ctx) }.expect("revalidate") {
             RQEValidateStatus::Moved { current: None } => {}
@@ -841,7 +841,7 @@ mod optional_optimized_iterator_revalidate_tests {
         // wcii is at EOF; Move revalidation returns Moved { current: None }.
         wcii_data.set_revalidate_result(utils::MockRevalidateResult::Move);
         let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-        let ctx = mock_ctx.sctx();
+        let ctx = mock_ctx.spec();
         // SAFETY: test-only call with valid context
         match unsafe { it.revalidate(ctx) }.expect("revalidate") {
             RQEValidateStatus::Moved { current: None } => {}
@@ -871,7 +871,7 @@ mod optional_optimized_iterator_revalidate_tests {
 
         // wcii moves to 20; child aborts → replaced by Empty → virtual hit at 20.
         let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-        let ctx = mock_ctx.sctx();
+        let ctx = mock_ctx.spec();
         // SAFETY: test-only call with valid context
         match unsafe { it.revalidate(ctx) }.expect("revalidate") {
             RQEValidateStatus::Moved { current: Some(r) } => {
@@ -905,7 +905,7 @@ mod optional_optimized_iterator_revalidate_tests {
         child_data.set_revalidate_result(utils::MockRevalidateResult::Move);
 
         let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-        let ctx = mock_ctx.sctx();
+        let ctx = mock_ctx.spec();
         // SAFETY: test-only call with valid context
         let status = unsafe { it.revalidate(ctx) }.expect("revalidate");
         assert!(matches!(status, RQEValidateStatus::Aborted));
@@ -934,7 +934,7 @@ mod optional_optimized_iterator_revalidate_tests {
 
         // wcii moves to 20; child moves to 25 — no child hit at 20 → virtual.
         let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-        let ctx = mock_ctx.sctx();
+        let ctx = mock_ctx.spec();
         // SAFETY: test-only call with valid context
         match unsafe { it.revalidate(ctx) }.expect("revalidate") {
             RQEValidateStatus::Moved { current: Some(r) } => {

@@ -498,13 +498,13 @@ impl RevalidateTest {
     {
         // SAFETY: test-only call with valid context
         assert_eq!(
-            unsafe { it.revalidate(self.context.sctx) }.expect("revalidate failed"),
+            unsafe { it.revalidate(self.context.spec) }.expect("revalidate failed"),
             RQEValidateStatus::Ok
         );
         assert!(matches!(it.read(), Ok(Some(_))));
         // SAFETY: test-only call with valid context
         assert_eq!(
-            unsafe { it.revalidate(self.context.sctx) }.expect("revalidate failed"),
+            unsafe { it.revalidate(self.context.spec) }.expect("revalidate failed"),
             RQEValidateStatus::Ok
         );
     }
@@ -519,7 +519,7 @@ impl RevalidateTest {
         assert!(it.at_eof());
         // SAFETY: test-only call with valid context
         assert_eq!(
-            unsafe { it.revalidate(self.context.sctx) }.expect("revalidate failed"),
+            unsafe { it.revalidate(self.context.spec) }.expect("revalidate failed"),
             RQEValidateStatus::Ok
         );
     }
@@ -577,7 +577,7 @@ impl RevalidateTest {
     {
         // SAFETY: test-only call with valid context
         assert_eq!(
-            unsafe { it.revalidate(self.context.sctx) }.expect("revalidate failed"),
+            unsafe { it.revalidate(self.context.spec) }.expect("revalidate failed"),
             RQEValidateStatus::Ok
         );
 
@@ -606,7 +606,7 @@ impl RevalidateTest {
         // Nothing changed in the index so revalidate does nothing
         // SAFETY: test-only call with valid context
         assert_eq!(
-            unsafe { it.revalidate(self.context.sctx) }.expect("revalidate failed"),
+            unsafe { it.revalidate(self.context.spec) }.expect("revalidate failed"),
             RQEValidateStatus::Ok
         );
 
@@ -614,7 +614,7 @@ impl RevalidateTest {
         self.remove_document(ii, self.doc_ids[0]);
         // SAFETY: test-only call with valid context
         assert_eq!(
-            unsafe { it.revalidate(self.context.sctx) }.expect("revalidate failed"),
+            unsafe { it.revalidate(self.context.spec) }.expect("revalidate failed"),
             RQEValidateStatus::Ok
         );
         assert_eq!(it.last_doc_id(), self.doc_ids[2]);
@@ -624,7 +624,7 @@ impl RevalidateTest {
         self.remove_document(ii, self.doc_ids[4]);
         // SAFETY: test-only call with valid context
         assert_eq!(
-            unsafe { it.revalidate(self.context.sctx) }.expect("revalidate failed"),
+            unsafe { it.revalidate(self.context.spec) }.expect("revalidate failed"),
             RQEValidateStatus::Ok
         );
         assert_eq!(it.last_doc_id(), self.doc_ids[2]);
@@ -634,7 +634,7 @@ impl RevalidateTest {
         // When validating we won't be able to skip to this element, so we should get RQEValidateStatus::Moved.
         self.remove_document(ii, self.doc_ids[2]);
         // SAFETY: test-only call with valid context
-        let res = unsafe { it.revalidate(self.context.sctx) }.expect("revalidate failed");
+        let res = unsafe { it.revalidate(self.context.spec) }.expect("revalidate failed");
         let current_doc = match res {
             RQEValidateStatus::Moved {
                 current: Some(current),
@@ -669,7 +669,7 @@ impl RevalidateTest {
         self.remove_document(ii, last_doc_id);
         // revalidate should return Moved without current doc and be at EOF.
         // SAFETY: test-only call with valid context
-        let res = unsafe { it.revalidate(self.context.sctx) }.expect("revalidate failed");
+        let res = unsafe { it.revalidate(self.context.spec) }.expect("revalidate failed");
         assert!(matches!(res, RQEValidateStatus::Moved { current: None }));
         assert!(it.at_eof());
     }

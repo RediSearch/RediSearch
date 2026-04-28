@@ -229,11 +229,11 @@ where
     #[inline(always)]
     unsafe fn revalidate(
         &mut self,
-        ctx: std::ptr::NonNull<ffi::RedisSearchCtx>,
+        spec: std::ptr::NonNull<ffi::IndexSpec>,
     ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         // Get child status
-        // SAFETY: Delegating to child with the same `ctx` passed by our caller.
-        match unsafe { self.child.revalidate(ctx) }? {
+        // SAFETY: Delegating to child with the same `spec` passed by our caller.
+        match unsafe { self.child.revalidate(spec) }? {
             RQEValidateStatus::Aborted => {
                 self.child = MaybeEmpty::new_empty();
                 Ok(RQEValidateStatus::Ok)

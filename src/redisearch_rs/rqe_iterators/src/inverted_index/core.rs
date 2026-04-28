@@ -290,7 +290,7 @@ where
 
     unsafe fn revalidate(
         &mut self,
-        _ctx: NonNull<ffi::RedisSearchCtx>,
+        _spec: NonNull<ffi::IndexSpec>,
     ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         if !self.reader.needs_revalidation() {
             return Ok(RQEValidateStatus::Ok);

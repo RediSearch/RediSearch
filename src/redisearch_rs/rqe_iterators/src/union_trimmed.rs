@@ -266,7 +266,7 @@ where
     #[inline(always)]
     unsafe fn revalidate(
         &mut self,
-        _ctx: std::ptr::NonNull<ffi::RedisSearchCtx>,
+        _spec: std::ptr::NonNull<ffi::IndexSpec>,
     ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         // Trimmed unions run in a single, short-lived read path that does not
         // interleave with GC cycles, so revalidation should never be called.

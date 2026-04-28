@@ -668,7 +668,7 @@ mod optional_iterator_revalidate_test {
     #[test]
     fn test_revalidate_ok() {
         let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-        let ctx = mock_ctx.sctx();
+        let ctx = mock_ctx.spec();
         let (mut it, mut data) = setup_optional_iterator_with_mock_child_and_data();
 
         // Child returns VALIDATE_OK
@@ -702,7 +702,7 @@ mod optional_iterator_revalidate_test {
     #[test]
     fn test_revalidate_aborted() {
         let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-        let ctx = mock_ctx.sctx();
+        let ctx = mock_ctx.spec();
         let (mut it, mut data) = setup_optional_iterator_with_mock_child_and_data();
 
         // Child returns VALIDATE_ABORTED
@@ -730,7 +730,7 @@ mod optional_iterator_revalidate_test {
     #[test]
     fn test_revalidate_moved() {
         let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-        let ctx = mock_ctx.sctx();
+        let ctx = mock_ctx.spec();
         let (mut it, mut data) = setup_optional_iterator_with_mock_child_and_data();
 
         // Child returns VALIDATE_MOVED
@@ -768,7 +768,7 @@ mod optional_iterator_revalidate_test {
     #[test]
     fn test_revalidate_moved_virtual_result() {
         let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-        let ctx = mock_ctx.sctx();
+        let ctx = mock_ctx.spec();
         let (mut it, mut data) = setup_optional_iterator_with_mock_child_and_data();
 
         // Child returns VALIDATE_MOVED
@@ -814,7 +814,7 @@ mod optional_iterator_revalidate_after_abort {
     #[test]
     fn test_revalidate_twice_after_abort() {
         let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-        let ctx = mock_ctx.sctx();
+        let ctx = mock_ctx.spec();
         let child = utils::Mock::new([5, 10, 15]);
         let mut data = child.data();
         let mut it = Optional::new(MAX_DOC_ID, WEIGHT, child);
@@ -845,7 +845,7 @@ mod optional_iterator_revalidate_after_abort {
     #[test]
     fn test_skip_to_after_abort() {
         let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-        let ctx = mock_ctx.sctx();
+        let ctx = mock_ctx.spec();
         let child = utils::Mock::new([5, 10, 15]);
         let mut data = child.data();
         let mut it = Optional::new(MAX_DOC_ID, WEIGHT, child);
@@ -878,7 +878,7 @@ mod optional_iterator_revalidate_after_abort {
     #[test]
     fn test_rewind_after_abort() {
         let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-        let ctx = mock_ctx.sctx();
+        let ctx = mock_ctx.spec();
         let child = utils::Mock::new([5, 10, 15]);
         let mut data = child.data();
         let mut it = Optional::new(MAX_DOC_ID, WEIGHT, child);
@@ -980,7 +980,7 @@ mod optional_iterator_non_sequential_reads {
 
         unsafe fn revalidate(
             &mut self,
-            _ctx: std::ptr::NonNull<ffi::RedisSearchCtx>,
+            _spec: std::ptr::NonNull<ffi::IndexSpec>,
         ) -> Result<RQEValidateStatus<'_, 'index>, rqe_iterators::RQEIteratorError> {
             Ok(RQEValidateStatus::Ok)
         }
