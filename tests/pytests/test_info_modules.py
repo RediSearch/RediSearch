@@ -1974,8 +1974,7 @@ def _test_pending_jobs_metrics(env, command_type):
         return all(all_shards_ready), state
 
     try:
-        iter = wait_for_condition(check_queries_jobs_pending, "wait_for_high_priority_jobs_pending")
-        env.debugPrint(f"wait_for_high_priority_jobs_pending iters: {iter}", force=True)
+        wait_for_condition(check_queries_jobs_pending, "wait_for_high_priority_jobs_pending")
     finally:
         # MOD-13322: surface any background-thread exception that was swallowed past the 1s
         # fast-fail window in `launch_cmds_in_bg_with_exception_check`. We must do this even
@@ -2021,7 +2020,6 @@ def _test_pending_jobs_metrics(env, command_type):
 
     wait_for_condition(check_reset_metrics, "wait_for_workers_pending_jobs_metric_reset")
 
-# @skip_until("2026-07-01", reason="Flaky test, see MOD-15023")
 def test_pending_jobs_metrics_search():
   env = Env(moduleArgs='DEFAULT_DIALECT 2')
   _test_pending_jobs_metrics(env, 'SEARCH')

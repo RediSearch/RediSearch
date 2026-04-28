@@ -11,7 +11,6 @@
 #include "rmalloc.h"
 
 #include <stdlib.h>
-#include <string.h>
 #include "rq.h"
 
 extern RedisModuleCtx *RSDummyContext;
@@ -62,20 +61,6 @@ int MRCluster_FanoutCommand(IORuntimeCtx *ioRuntime,
   if (dispatchTimePos) {
     // Update dispatch time for this command
     MRCommand_SetDispatchTime(cmd);
-  }
-
-  // MOD-13322 DEBUG (DO NOT MERGE): force the FIRST _FT.SEARCH / _FT.AGGREGATE
-  // fanout to take the validateConnections failure path, deterministically
-  // reproducing the "one query lost across all shards" CI symptom.
-  // Filtered to the test's commands so setup-time fanouts (FT.CREATE etc.) are unaffected.
-  static int debug_remaining_fails = 1;
-  if (debug_remaining_fails > 0 && cmd->num > 0 && cmd->strs[0] &&
-      ((cmd->lens[0] == 10 && memcmp(cmd->strs[0], "_FT.SEARCH", 10) == 0) ||
-       (cmd->lens[0] == 13 && memcmp(cmd->strs[0], "_FT.AGGREGATE", 13) == 0))) {
-    debug_remaining_fails--;
-    RedisModule_Log(RSDummyContext, "warning",
-                    "MOD-13322 DEBUG: forcing fanout to fail for '%.*s'", (int)cmd->lens[0], cmd->strs[0]);
-    return 0;
   }
 
   // Pre-fanout connection validation
