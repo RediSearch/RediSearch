@@ -8,7 +8,6 @@
 */
 #include "indexer.h"
 #include "forward_index.h"
-#include "numeric_index.h"
 #include "inverted_index.h"
 #include "geo_index.h"
 #include "vector_index.h"
@@ -104,7 +103,14 @@ static void writeCurEntries(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
 
   while (entry != NULL) {
     if (spec->diskSpec) {
-      if (SearchDisk_IndexTerm(spec->diskSpec, entry->term, entry->len, aCtx->doc->docId, entry->fieldMask, entry->freq)) {
+      // Get offset data if available (when Index_StoreTermOffsets flag is set)
+      const uint8_t *offsets = NULL;
+      size_t offsetsLen = 0;
+      if ((spec->flags & Index_StoreTermOffsets) && entry->vw) {
+        offsets = VVW_GetByteData(entry->vw);
+        offsetsLen = VVW_GetByteLength(entry->vw);
+      }
+      if (SearchDisk_IndexTerm(spec->diskSpec, entry->term, entry->len, aCtx->doc->docId, entry->fieldMask, entry->freq, offsets, offsetsLen)) {
         IndexSpec_AddTerm(spec, entry->term, entry->len);
       }
     } else {
@@ -275,7 +281,10 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
       Document* doc = cur->doc;
       const bool hasExpiration = doc->docExpirationTime.tv_sec || doc->docExpirationTime.tv_nsec || doc->fieldExpirations;
       if (hasExpiration) {
-        md->flags |= Document_HasExpiration;
+        // No need to mark the DMD with Document_HasExpiration: the result
+        // processor already fetches the DMD from the doc table on every hit,
+        // so it can read `expirationTimeNs` directly without going through
+        // a flag-gated branch.
         DocTable_UpdateExpiration(&ctx->spec->docs, md, doc->docExpirationTime, doc->fieldExpirations);
       }
       DMD_Return(md);

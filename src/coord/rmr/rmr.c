@@ -374,7 +374,10 @@ static void uvUpdateTopologyRequest(void *p) {
   IORuntimeCtx *ioRuntime = ctx->ioRuntime;
   MRClusterTopology *old_topo = ioRuntime->topo;
   ioRuntime->topo = ctx->new_topo;
-  IORuntimeCtx_UpdateNodesAndConnectAll(ioRuntime);
+  // Report the handshake signal back to topologyAsyncCB via a scratch flag
+  // on the uv runtime. The flag is preset to `true` before the task runs, so
+  // lowering it here is the only way to skip the validation handshake.
+  ioRuntime->uv_runtime.topology_needs_handshake = IORuntimeCtx_UpdateNodes(ioRuntime);
   rm_free(ctx);
   if (old_topo) {
     MRClusterTopology_Free(old_topo);
@@ -744,6 +747,15 @@ void iterStartCb(void *p) {
     if (!conn) {
       // At least one connection is not established - fail with a single error.
       // it->len/pending/inProcess remain at their initial value of 1.
+      // Run privateDataInit so ShardResponseBarrier (used by FT.AGGREGATE
+      // WITHCOUNT) accepts the synthetic error notification; otherwise its
+      // numShards stays 0, Notify's bounds check short-circuits, and the real
+      // error gets replaced by a misleading timeout message in
+      // shardResponseBarrier_HandleTimeout.
+      void *privateData = MRIteratorCallback_GetPrivateData(&it->cbxs[0]);
+      if (privateData && it->ctx.privateDataInit) {
+        it->ctx.privateDataInit(privateData, it);
+      }
       MRReply *err = MRReply_CreateError(CLUSTER_QUERY_ERROR, sizeof(CLUSTER_QUERY_ERROR) - 1);
       it->ctx.cb(&it->cbxs[0], err);
       rm_free(data);

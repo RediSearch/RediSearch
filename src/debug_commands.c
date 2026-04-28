@@ -15,7 +15,6 @@
 #include "redis_index.h"
 #include "redisearch_rs/headers/numeric_range_tree.h"
 #include "tag_index.h"
-#include "numeric_index.h"
 #include "redisearch_rs/headers/iterators_rs.h"
 #include "geometry/geometry_api.h"
 #include "geometry_index.h"
@@ -234,6 +233,18 @@ void SyncPoint_Wait(const char *name) {
     usleep(1000);  // Spin-wait with 1ms sleep (matches existing pattern)
   }
   atomic_fetch_sub(&sp->waiting, 1);  // Decrement waiting counter
+}
+
+void SyncPoint_WaitUntil(const char *name, SyncPointStopFn stop_fn, void *arg) {
+  SyncPointState *sp = SyncPoint_FindByName(name);
+  if (!sp || !atomic_load(&sp->armed)) return;
+
+  atomic_fetch_add(&sp->waiting, 1);
+  while (atomic_load(&sp->armed)) {
+    if (stop_fn && stop_fn(arg)) break;
+    usleep(1000);
+  }
+  atomic_fetch_sub(&sp->waiting, 1);
 }
 
 // Global hybrid store cursors debug context (for HREQ cursor storage only)

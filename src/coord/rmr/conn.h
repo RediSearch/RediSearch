@@ -23,15 +23,18 @@ extern "C" {
 
 /*
  * The state of the connection.
- * TODO: Not all of these are "real" states
  */
 typedef enum {
-  /* initial state - new connection or disconnected connection due to error */
-  MRConn_Disconnected,
-
-  /* Connection is trying to connect */
+  /* TCP (and TLS) handshake is in flight */
   MRConn_Connecting,
 
+  /* Back-off before retrying connect after a connection failure */
+  MRConn_Reconnecting,
+
+  /* TCP (and TLS) handshake completed; AUTH command is in flight */
+  MRConn_Authenticating,
+
+  /* Back-off before retrying AUTH after a server-side AUTH rejection */
   MRConn_ReAuth,
 
   /* Connected, authenticated and active */
@@ -41,12 +44,24 @@ typedef enum {
   MRConn_Freeing
 } MRConnState;
 
+/*
+ * RESP protocol version negotiated on the connection. Values match the
+ * HELLO argument.
+ */
+typedef enum {
+  MRConn_Protocol_Undetermined = 0,
+  MRConn_Protocol_RESP2 = 2,
+  MRConn_Protocol_RESP3 = 3,
+} MRConnProtocol;
+
 static inline const char *MRConnState_Str(MRConnState state) {
   switch (state) {
-    case MRConn_Disconnected:
-      return "Disconnected";
     case MRConn_Connecting:
       return "Connecting";
+    case MRConn_Reconnecting:
+      return "Reconnecting";
+    case MRConn_Authenticating:
+      return "Authenticating";
     case MRConn_ReAuth:
       return "Re-Authenticating";
     case MRConn_Connected:
@@ -92,11 +107,10 @@ const char *MRConnManager_GetNodeState(MRConnManager *mgr, const char *id);
 
 int MRConn_SendCommand(MRConn *c, MRCommand *cmd, redisCallbackFn *fn, void *privdata);
 
-/* Add a node to the connection manager */
-int MRConnManager_Add(MRConnManager *m, uv_loop_t *loop, const char *id, MREndpoint *ep, int connect);
-
-/* Connect all nodes to their destinations */
-int MRConnManager_ConnectAll(MRConnManager *m);
+/* Add a node to the connection manager and start its connections. Returns
+ * true iff the pool for `id` was (re)created; false when an existing pool
+ * already matches `ep` and was reused. */
+bool MRConnManager_Add(MRConnManager *m, uv_loop_t *loop, const char *id, MREndpoint *ep);
 
 /* Disconnect a node */
 int MRConnManager_Disconnect(MRConnManager *m, const char *id);
@@ -105,20 +119,19 @@ int MRConnManager_Disconnect(MRConnManager *m, const char *id);
  * Set number of connections to each node to `num`, disconnect from extras.
  * Assumes that `num` is less than the current number of connections and non-zero
  */
-void MRConnManager_Shrink(MRConnManager *m, size_t num);
+void MRConnManager_Shrink(MRConnManager *m, uint32_t num);
 
 /*
  * Set number of connections to each node to `num`, connect new connections.
  * Assumes that `num` is greater than the current number of connections
  */
-void MRConnManager_Expand(MRConnManager *m, size_t num, uv_loop_t *loop);
-
-void MRConnManager_Free(MRConnManager *m);
+void MRConnManager_Expand(MRConnManager *m, uint32_t num, uv_loop_t *loop);
 
 /*
-* Stop all the connections in the manager.
-*/
-void MRConnManager_Stop(MRConnManager *mgr);
+ * Disconnect all connections and release the manager's dict. Must be called
+ * from the uv thread while the event loop is still alive.
+ */
+void MRConnManager_Shutdown(MRConnManager *mgr);
 
 #ifdef __cplusplus
 }

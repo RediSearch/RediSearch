@@ -105,10 +105,11 @@ void StoreResultsDebugCtx_SetPause(bool pause);
 
 // Predefined sync point names for query execution
 // These correspond to specific locations in the query execution path
-#define SYNC_POINT_AFTER_ITERATOR_CREATE       "AfterIteratorCreate"
-#define SYNC_POINT_BEFORE_FIRST_READ           "BeforeFirstRead"
-#define SYNC_POINT_BEFORE_DIST_HYBRID_PROMOTE  "BeforeDistHybridPromote"
-#define SYNC_POINT_BEFORE_SPEC_LOCK            "BeforeSpecLock"
+#define SYNC_POINT_AFTER_ITERATOR_CREATE            "AfterIteratorCreate"
+#define SYNC_POINT_BEFORE_FIRST_READ                "BeforeFirstRead"
+#define SYNC_POINT_BEFORE_DIST_HYBRID_PROMOTE       "BeforeDistHybridPromote"
+#define SYNC_POINT_BEFORE_SPEC_LOCK                 "BeforeSpecLock"
+#define SYNC_POINT_BEFORE_CURSOR_READ_SEND_CHUNK    "BeforeCursorReadSendChunk"
 
 // SyncPoint API function declarations
 // Arm a sync point - subsequent calls to SyncPoint_Wait will block
@@ -126,6 +127,12 @@ void SyncPoint_ClearAll(void);
 // Called from code paths to potentially wait at a sync point
 // If the named point is armed, blocks until signaled
 void SyncPoint_Wait(const char *name);
+
+// Predicate callback type for SyncPoint_WaitUntil
+typedef bool (*SyncPointStopFn)(void *arg);
+// Like SyncPoint_Wait, but also exits the wait loop when `stop_fn(arg)` returns
+// true. Lets workers release early when a timeout fires on the main thread.
+void SyncPoint_WaitUntil(const char *name, SyncPointStopFn stop_fn, void *arg);
 
 // Struct used for debugging hybrid cursor storage ONLY (pause before/after cursor creation)
 // Separate from StoreResultsDebugCtx to allow independent control

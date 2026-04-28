@@ -11,13 +11,17 @@ use libc::size_t;
 use query_error::QueryError;
 use rlookup::{OpaqueRLookupRow, RLookup, RLookupKey, RLookupRow};
 use std::{
+    cmp::Ordering,
     ffi::{CStr, c_char, c_int},
     mem::{self, ManuallyDrop},
     ptr::NonNull,
     slice,
 };
-use value::comparison::compare_with_query_error_to_int;
-use value::{RsValue, SharedRsValue};
+use value::comparison::cmp_fields;
+use value_ffi::{
+    RSValue,
+    util::{as_rs_value, as_shared_value, into_shared_value},
+};
 
 const SORTASCMAP_MAXFIELDS: usize = 8;
 
@@ -33,14 +37,14 @@ pub extern "C" fn RLookupRow_New() -> OpaqueRLookupRow {
 ///
 /// 1. `key` must be a [valid], non-null pointer to an [`RLookupKey`].
 /// 2. `row` must be a [valid], non-null pointer to an [`RLookupRow`].
-/// 3. `value` must be a [valid], non-null pointer to an [`RsValue`].
+/// 3. `value` must be a [valid], non-null pointer to an [`RSValue`].
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RLookup_WriteKey(
     key: *const RLookupKey,
     row: Option<NonNull<OpaqueRLookupRow>>,
-    value: Option<NonNull<RsValue>>,
+    value: Option<NonNull<RSValue>>,
 ) {
     // Safety: ensured by caller (1.)
     let key = unsafe { key.as_ref() }.expect("Key must not be null");
@@ -50,10 +54,8 @@ pub unsafe extern "C" fn RLookup_WriteKey(
 
     let value = value.expect("value must not be null").as_ptr().cast_const();
 
-    // this method does not take ownership of `value` so we must take care not to drop it at the end of the scope
-    // (therefore the `ManuallyDrop`). Instead we explicitly clone the value before inserting it below.
     // Safety: ensured by caller (3.)
-    let value = ManuallyDrop::new(unsafe { SharedRsValue::from_raw(value) });
+    let value = unsafe { as_shared_value(value) };
 
     row.write_key(key, ManuallyDrop::into_inner(value.clone()));
 }
@@ -64,14 +66,14 @@ pub unsafe extern "C" fn RLookup_WriteKey(
 ///
 /// 1. `key` must be a [valid], non-null pointer to an [`RLookupKey`].
 /// 2. `row` must be a [valid], non-null pointer to an [`RLookupRow`].
-/// 3. `value` must be a [valid], non-null pointer to an [`RsValue`].
+/// 3. `value` must be a [valid], non-null pointer to an [`RSValue`].
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RLookup_WriteOwnKey(
     key: *const RLookupKey,
     row: Option<NonNull<OpaqueRLookupRow>>,
-    value: Option<NonNull<RsValue>>,
+    value: Option<NonNull<RSValue>>,
 ) {
     // Safety: ensured by caller (1.)
     let key = unsafe { key.as_ref() }.expect("`key` must not be null");
@@ -79,10 +81,10 @@ pub unsafe extern "C" fn RLookup_WriteOwnKey(
     // Safety: ensured by caller (2.)
     let row = unsafe { RLookupRow::from_opaque_non_null(row.expect("`row` must not be null")) };
 
-    let value = value.expect("value must not be null").as_ptr().cast_const();
+    let value = value.expect("value must not be null").as_ptr();
 
     // Safety: ensured by caller (3.)
-    let value = unsafe { SharedRsValue::from_raw(value) };
+    let value = unsafe { into_shared_value(value) };
 
     row.write_key(key, value);
 }
@@ -168,7 +170,7 @@ pub unsafe extern "C-unwind" fn RLookupRow_MoveFieldsFrom(
 ///     2. The entire memory range of this cstr must be contained within a single allocation!
 ///     3. `name` must be non-null even for a zero-length cstr.
 /// 4. `row` must be a [valid], non-null pointer to an [`RLookupRow`].
-/// 5. `value` must be a [valid], non-null pointer to an [`RsValue`].
+/// 5. `value` must be a [valid], non-null pointer to an [`RSValue`].
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
@@ -177,7 +179,7 @@ pub unsafe extern "C" fn RLookupRow_WriteByName<'a>(
     name: *const c_char,
     name_len: size_t,
     row: Option<NonNull<OpaqueRLookupRow>>,
-    value: Option<NonNull<RsValue>>,
+    value: Option<NonNull<RSValue>>,
 ) {
     // Safety: ensured by caller (1.)
     let lookup = unsafe { lookup.expect("lookup must not be null").as_mut() };
@@ -194,10 +196,10 @@ pub unsafe extern "C" fn RLookupRow_WriteByName<'a>(
     // Safety: ensured by caller (4.)
     let row = unsafe { RLookupRow::from_opaque_non_null(row.expect("`row` must not be null")) };
 
-    let value = value.expect("value must not be null").as_ptr().cast_const();
+    let value = value.expect("value must not be null").as_ptr();
 
     // Safety: ensured by caller (5.)
-    let value = unsafe { SharedRsValue::from_raw(value) };
+    let value = unsafe { into_shared_value(value) };
 
     // In order to increase the refcount, we first clone `value` (which increases the refcount)
     // and move the clone into the function.
@@ -226,7 +228,7 @@ pub unsafe extern "C" fn RLookupRow_WriteByName<'a>(
 ///     2. The entire memory range of this cstr must be contained within a single allocation!
 ///     3. `name` must be non-null even for a zero-length cstr.
 /// 4. `row` must be a [valid], non-null pointer to an [`RLookupRow`].
-/// 5. `value` must be a [valid], non-null pointer to an [`RsValue`].
+/// 5. `value` must be a [valid], non-null pointer to an [`RSValue`].
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
@@ -235,7 +237,7 @@ pub unsafe extern "C" fn RLookupRow_WriteByNameOwned<'a>(
     name: *const c_char,
     name_len: size_t,
     row: Option<NonNull<OpaqueRLookupRow>>,
-    value: Option<NonNull<RsValue>>,
+    value: Option<NonNull<RSValue>>,
 ) {
     // Safety: ensured by caller (1.)
     let lookup = unsafe { lookup.expect("lookup must not be null").as_mut() };
@@ -252,10 +254,10 @@ pub unsafe extern "C" fn RLookupRow_WriteByNameOwned<'a>(
     // Safety: ensured by caller (4.)
     let row = unsafe { RLookupRow::from_opaque_non_null(row.expect("`row` must not be null")) };
 
-    let value = value.expect("value must not be null").as_ptr().cast_const();
+    let value = value.expect("value must not be null").as_ptr();
 
     // Safety: ensured by caller (5.)
-    let value = unsafe { SharedRsValue::from_raw(value) };
+    let value = unsafe { into_shared_value(value) };
 
     // 'value' is moved directly into the function without affecting its refcount.
     row.write_key_by_name(lookup, name, value);
@@ -333,7 +335,7 @@ pub unsafe extern "C-unwind" fn RLookupRow_WriteFieldsFrom<'a>(
 pub unsafe extern "C" fn RLookupRow_Get(
     key: *const RLookupKey,
     row: *const OpaqueRLookupRow,
-) -> Option<NonNull<RsValue>> {
+) -> Option<NonNull<RSValue>> {
     // Safety: ensured by caller (1.)
     let key = unsafe { &*key };
 
@@ -341,8 +343,8 @@ pub unsafe extern "C" fn RLookupRow_Get(
     let row = unsafe { RLookupRow::from_opaque_ptr_unchecked(row) };
 
     row.get(key).map(|x| {
-        // Safety: `SharedRsValue` is a valid.
-        unsafe { NonNull::new_unchecked(x.as_ptr().cast_mut()) }
+        // Safety: `RSValue` is a valid pointer.
+        unsafe { NonNull::new_unchecked(as_rs_value(x).cast_mut()) }
     })
 }
 
@@ -352,9 +354,9 @@ pub unsafe extern "C" fn RLookupRow_Get(
 /// since this is a borrowed, non-owning view.
 #[repr(C)]
 pub struct RSSortingVectorSlice {
-    /// Pointer to the array of [`SharedRsValue`] values.
+    /// Pointer to the array of [`RSValue`] values.
     /// When `len == 0` this is a dangling pointer — **not** null. Callers must check `len`.
-    pub values: *const *const RsValue,
+    pub values: *const *const RSValue,
     /// Number of elements in the array. Zero means no sorting vector is set.
     pub len: size_t,
 }
@@ -378,9 +380,9 @@ pub unsafe extern "C" fn RLookupRow_GetSortingVector(
 
     let slice = row.sorting_vector();
     RSSortingVectorSlice {
-        // Even though slice is a `&[SharedRsValue]`, a `SharedRsValue` is actually a
-        // `*const RsValue`. `SharedRsValue` is used within Rust code and
-        // `*const RsValue` is used to interface with C. We can safely cast here.
+        // Even though slice is a `&[SharedValue]`, a `SharedValue` is actually a
+        // `*const RSValue`. `SharedValue` is used within Rust code and
+        // `*const RSValue` is used to interface with C. We can safely cast here.
         values: slice.as_ptr().cast(),
         len: slice.len(),
     }
@@ -412,11 +414,9 @@ pub unsafe extern "C" fn RLookupRow_SetSortingVector(
 /// Compares two search results by the given sort keys, returning a negative, zero, or positive
 /// value.
 ///
-/// The comparison loop runs entirely in Rust, avoiding per-key FFI crossings for value lookups.
-/// Row fields are accessed directly per-key (like the original C implementation) to minimize
-/// stack usage and register pressure.
-///
-/// When all fields are equal, breaks the tie by document ID using the last key's ascending flag.
+/// The comparison loop runs entirely in Rust via [`cmp_fields`], avoiding per-key FFI
+/// crossings for value lookups. When all fields are equal, breaks the tie by document ID using
+/// the last key's ascending flag.
 ///
 /// # Safety
 ///
@@ -433,45 +433,34 @@ pub unsafe extern "C" fn SearchResult_CmpByFields(
     qerr: *mut QueryError,
 ) -> c_int {
     let nkeys = nkeys.min(SORTASCMAP_MAXFIELDS);
-    // SAFETY: ensured by caller (1.)
-    let keys = unsafe { slice::from_raw_parts(keys, nkeys) };
+    // SAFETY: caller (1.) guarantees `keys` points to `nkeys` valid, non-null
+    // `RLookupKey` pointers; `*const RLookupKey` and `&RLookupKey` share the
+    // same layout, and the non-null invariant makes the reference niche sound.
+    let keys: &[&RLookupKey] = unsafe { slice::from_raw_parts(keys.cast::<&RLookupKey>(), nkeys) };
     // SAFETY: ensured by caller (2.)
     let h1 = unsafe { &*h1 };
     // SAFETY: ensured by caller (2.)
     let h2 = unsafe { &*h2 };
     // SAFETY: ensured by caller (3.)
-    let mut qerr = unsafe { qerr.as_mut() };
+    let qerr = unsafe { qerr.as_mut() };
 
     let row1 = h1.row_data();
     let row2 = h2.row_data();
+    let pairs = keys
+        .iter()
+        .map(|&k| (row1.get(k).map(|v| &**v), row2.get(k).map(|v| &**v)));
 
-    for (i, &key_ptr) in keys.iter().enumerate() {
-        // SAFETY: ensured by caller (1.)
-        let key = unsafe { &*key_ptr };
-        let v1 = row1.get(key);
-        let v2 = row2.get(key);
-        let ascending = (ascend_map & (1u64 << i)) != 0;
+    let ord = cmp_fields(pairs, ascend_map, qerr);
 
-        match (v1, v2) {
-            (Some(v1), Some(v2)) => {
-                let rc = compare_with_query_error_to_int(v1, v2, qerr.as_deref_mut());
-                if rc != 0 {
-                    return if ascending { -rc } else { rc };
-                }
-            }
-            // If at least one of these has no sort key, it gets high value regardless of asc/desc
-            (Some(_), None) => return 1,
-            (None, Some(_)) => return -1,
-            (None, None) => {
-                // Both have no sort key, so they are equal. Continue to next sort key
-                continue;
-            }
+    match ord {
+        Ordering::Less => -1,
+        Ordering::Greater => 1,
+        Ordering::Equal => {
+            // Tiebreak by docid — ascending uses the last key's flag,
+            // matching the original C loop where `ascending` retains its last value.
+            let ascending = nkeys > 0 && (ascend_map & (1u64 << (nkeys - 1))) != 0;
+            let rc: c_int = if h1.doc_id() < h2.doc_id() { -1 } else { 1 };
+            if ascending { -rc } else { rc }
         }
     }
-
-    // Tiebreak by docid — ascending uses the last key's flag,
-    // matching the original C loop where `ascending` retains its last value.
-    let ascending = nkeys > 0 && (ascend_map & (1u64 << (nkeys - 1))) != 0;
-    let rc: c_int = if h1.doc_id() < h2.doc_id() { -1 } else { 1 };
-    if ascending { -rc } else { rc }
 }

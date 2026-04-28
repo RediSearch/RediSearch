@@ -9,7 +9,7 @@
 
 use ffi::RS_FIELDMASK_ALL;
 use inverted_index::{
-    RSAggregateResult, RSIndexResult, RSOffsetSlice, RSResultKind, RSResultKindMask,
+    RSAggregateResult, RSIndexResult, RSOffsetSlice, RSOffsetVector, RSResultKind, RSResultKindMask,
 };
 use query_term::RSQueryTerm;
 
@@ -337,8 +337,6 @@ fn purely_numeric_children_always_true() {
 
 // ── is_within_range — full integration ───────────────────────────────────
 
-/// C-Code: Mirrors the C++ `testDistance` test using the full `is_within_range` entry point.
-///
 /// vw1 = {1, 9, 13, 16, 22}, vw2 = {4, 7, 32}
 #[test]
 fn full_test_mirrors_cpp_testdistance() {
@@ -375,4 +373,95 @@ fn full_test_mirrors_cpp_testdistance() {
     assert!(ir.is_within_range(Some(3), true));
     assert!(ir.is_within_range(Some(4), true));
     assert!(ir.is_within_range(Some(5), true));
+}
+
+// ── RSTermRecord::FullyOwned ─────────────────────────────────────────────
+//
+// The `FullyOwned` variant owns both the query term (via `Box`) and the
+// offsets (via `RSOffsetVector`), so the resulting `RSIndexResult` is
+// independent of the original offset byte source.
+
+/// Build a `FullyOwned`-backed result, drop the source bytes, and verify the
+/// record still reads back correctly. Also exercises the `is_copy`,
+/// `offsets`, and `query_term` match arms for the `FullyOwned` variant.
+#[test]
+fn fully_owned_term_result_is_independent_of_source_bytes() {
+    let term = RSQueryTerm::new("abc", 1, 0);
+
+    // Allocate the offset bytes on a temporary buffer, copy them into an
+    // owned vector, and then explicitly drop the source buffer so any
+    // subsequent read must go through the record's own allocation.
+    let transient: Vec<u8> = vec![1, 4, 9];
+    let offsets_vec = RSOffsetSlice::from_slice(&transient).to_owned();
+    drop(transient);
+
+    let ir = RSIndexResult::build_term()
+        .fully_owned_record(Some(term), offsets_vec)
+        .doc_id(42)
+        .field_mask(7)
+        .frequency(2)
+        .weight(1.5)
+        .build();
+
+    let term_rec = ir.as_term().expect("term record");
+    assert!(term_rec.is_copy(), "FullyOwned is a copy variant");
+    assert!(ir.is_copy(), "FullyOwned bubbles up through RSIndexResult");
+    assert_eq!(term_rec.offsets(), &[1, 4, 9]);
+    assert_eq!(
+        term_rec.query_term().and_then(|t| t.as_bytes()),
+        Some(b"abc".as_ref())
+    );
+    assert_eq!(ir.doc_id, 42);
+    assert_eq!(ir.field_mask, 7);
+    assert_eq!(ir.freq, 2);
+    assert_eq!(ir.weight, 1.5);
+}
+
+/// `set_offsets` on a `FullyOwned` record copies the input slice into the
+/// record's own allocation (exercising the `FullyOwned` match arm of
+/// `set_offsets`, distinct from the `Borrowed` arm covered elsewhere).
+#[test]
+fn set_offsets_on_fully_owned_copies_slice() {
+    static INITIAL: [u8; 2] = [1, 2];
+    static REPLACEMENT: [u8; 3] = [9, 8, 7];
+    let term = RSQueryTerm::new("t", 1, 0);
+    let mut ir = RSIndexResult::build_term()
+        .fully_owned_record(Some(term), RSOffsetSlice::from_slice(&INITIAL).to_owned())
+        .build();
+
+    ir.as_term_mut()
+        .unwrap()
+        .set_offsets(RSOffsetSlice::from_slice(&REPLACEMENT));
+
+    assert_eq!(ir.as_term().unwrap().offsets(), &REPLACEMENT);
+}
+
+/// `set_offsets_owned` must also work on the `Owned` variant, replacing its
+/// offset vector in place.
+#[test]
+fn set_offsets_owned_on_owned_replaces_data() {
+    // Build an `Owned` record via `to_owned()` from a `Borrowed` one.
+    let source = RSIndexResult::build_term()
+        .borrowed_record(None, RSOffsetSlice::from_slice(&[1u8]))
+        .build();
+    let mut owned = source.to_owned();
+    assert!(owned.is_copy(), "to_owned produces a copy variant");
+
+    let replacement = RSOffsetSlice::from_slice(&[42u8, 43]).to_owned();
+    owned.as_term_mut().unwrap().set_offsets_owned(replacement);
+
+    assert_eq!(owned.as_term().unwrap().offsets(), &[42, 43]);
+}
+
+/// Calling `set_offsets_owned` on a `Borrowed` record is a programming error:
+/// the variant has no home for an owned vector. It must panic.
+#[test]
+#[should_panic(expected = "set_offsets_owned called on RSTermRecord::Borrowed")]
+fn set_offsets_owned_on_borrowed_panics() {
+    let mut ir = RSIndexResult::build_term()
+        .borrowed_record(None, RSOffsetSlice::empty())
+        .build();
+    ir.as_term_mut()
+        .unwrap()
+        .set_offsets_owned(RSOffsetVector::empty());
 }

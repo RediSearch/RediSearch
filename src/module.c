@@ -8,6 +8,7 @@
 */
 #define REDISMODULE_MAIN
 
+#include <assert.h>
 #include <stdio.h>
 #include <string.h>
 #include <sys/param.h>
@@ -38,7 +39,6 @@
 #include "query_param.h"
 #include "dictionary.h"
 #include "suggest.h"
-#include "numeric_index.h"
 #include "redisearch_api.h"
 #include "alias.h"
 #include "module.h"
@@ -3828,12 +3828,36 @@ int DistHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   return DistHybridCommandInternal(ctx, argv, argc, false);
 }
 
-static inline int CursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, RedisModuleCmdFunc subcmd, ConcurrentCmdHandler dist_callback) {
+typedef enum {
+  CURSOR_SUBCMD_READ,
+  CURSOR_SUBCMD_DEL,
+  CURSOR_SUBCMD_GC,
+  CURSOR_SUBCMD_COUNT, // keep last
+} CursorSubcommand;
+
+#ifdef ENABLE_ASSERT
+static const char *const kCursorSubNames[] = {
+    [CURSOR_SUBCMD_READ] = "READ",
+    [CURSOR_SUBCMD_DEL]  = "DEL",
+    [CURSOR_SUBCMD_GC]   = "GC",
+};
+static_assert(sizeof(kCursorSubNames) / sizeof(kCursorSubNames[0]) == CURSOR_SUBCMD_COUNT,
+              "kCursorSubNames is missing an entry for a CursorSubcommand value");
+#endif
+
+static inline int CursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
+                                RedisModuleCmdFunc subcmd, ConcurrentCmdHandler dist_callback,
+                                CursorSubcommand sub) {
   if (argc < 4) {
     return RedisModule_WrongArity(ctx);
   } else if (!SearchCluster_Ready()) {
     return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
   }
+
+#ifdef ENABLE_ASSERT
+  RS_ASSERT(sub < CURSOR_SUBCMD_COUNT);
+  RS_ASSERT(strcasecmp(RedisModule_StringPtrLen(argv[1], NULL), kCursorSubNames[sub]) == 0);
+#endif
 
   VERIFY_ACL(ctx, argv[2])
 
@@ -3849,22 +3873,50 @@ static inline int CursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, i
 
   handlerCtx.spec_ref = (WeakRef){0};
 
+  // On coord+READ, peek the cursor's cached timeout config so coord and shard
+  // stay aligned across changes to the `search-on-timeout` config. A valid-format
+  // CID with no registered cursor returns defaults (timeoutMS=0, policy=Return)
+  // and is reported by RSCursorReadCommand on the worker.
+  if (sub == CURSOR_SUBCMD_READ) {
+    long long cid;
+    if (RedisModule_StringToLongLong(argv[3], &cid) != REDISMODULE_OK) {
+      // Reject malformed CID on the main thread so the worker never hits
+      // "Bad cursor ID" with a reply_callback armed.
+      return RedisModule_ReplyWithError(ctx, "Bad cursor ID");
+    }
+    CursorTimeoutInfo info =
+        Cursors_PeekTimeoutInfo(GetGlobalCursor((uint64_t)cid), (uint64_t)cid);
+    if (info.queryTimeoutPolicy == TimeoutPolicy_Fail) {
+#ifdef ENABLE_ASSERT
+      // ft.hybrid withcursor is not supported.
+      RS_ASSERT(!info.isHybrid);
+#endif
+      CoordRequestCtx *reqCtx = CoordRequestCtx_New(COMMAND_AGGREGATE);
+      handlerCtx.bcCtx.privdata = reqCtx;
+      handlerCtx.bcCtx.free_privdata = DistCoordReqFreePrivData;
+      handlerCtx.bcCtx.reply_callback = DistAggregateReplyCallback;
+      handlerCtx.bcCtx.timeout_callback = DistAggregateTimeoutFailClient;
+      handlerCtx.bcCtx.timeoutMS = info.queryTimeoutMS;
+      CoordRequestCtx_SetUseReplyCallback(reqCtx, true);
+    }
+  }
+
   return ConcurrentSearch_HandleRedisCommandEx(DIST_THREADPOOL, dist_callback, ctx, argv, argc,
                                                &handlerCtx);
 }
 
 
-#define CURSOR_SUBCOMMAND(name) \
+#define CURSOR_SUBCOMMAND(name, sub_enum) \
 static void Cursor##name##CommandInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, struct ConcurrentCmdCtx *cmdCtx) { \
   RSCursor##name##Command(ctx, argv, argc);                                                                                           \
 }                                                                                                                                     \
 int Cursor##name##Command(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {                                                  \
-  return CursorCommand(ctx, argv, argc, RSCursor##name##Command, Cursor##name##CommandInternal);                                      \
+  return CursorCommand(ctx, argv, argc, RSCursor##name##Command, Cursor##name##CommandInternal, (sub_enum));                          \
 }
 
-CURSOR_SUBCOMMAND(Read)
-CURSOR_SUBCOMMAND(Del)
-CURSOR_SUBCOMMAND(GC)
+CURSOR_SUBCOMMAND(Read, CURSOR_SUBCMD_READ)
+CURSOR_SUBCOMMAND(Del,  CURSOR_SUBCMD_DEL)
+CURSOR_SUBCOMMAND(GC,   CURSOR_SUBCMD_GC)
 
 // This function sits next to RegisterCoordCursorCommands function
 // RegisterCoordCursorCommands currently has too many dependencies to be easily moved up where CreateSubCommands is defined
@@ -4644,14 +4696,7 @@ void Initialize_CoordKeyspaceNotifications(RedisModuleCtx *ctx) {
 }
 
 static bool checkClusterEnabled(RedisModuleCtx *ctx) {
-  RedisModuleCallReply *rep = RedisModule_Call(ctx, "CONFIG", "cc", "GET", "cluster-enabled");
-  RS_ASSERT_ALWAYS(rep && RedisModule_CallReplyType(rep) == REDISMODULE_REPLY_ARRAY &&
-                     RedisModule_CallReplyLength(rep) == 2);
-  size_t len;
-  const char *isCluster = RedisModule_CallReplyStringPtr(RedisModule_CallReplyArrayElement(rep, 1), &len);
-  bool isClusterEnabled = STR_EQCASE(isCluster, len, "yes");
-  RedisModule_FreeCallReply(rep);
-  return isClusterEnabled;
+  return getRedisConfigBool(ctx, "cluster-enabled", false);
 }
 
 int ConfigCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);

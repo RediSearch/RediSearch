@@ -8,12 +8,24 @@
 */
 #include "query_iterator.hpp"
 #include "doc_table.h"
+#include "search_ctx.h"
+#include "spec.h"
 #include "util/timeout.h"
 
 #include <iterator>   // ranges::distance
 
 namespace RediSearch {
 namespace GeoShape {
+
+bool CPPQueryIterator::should_check_field_expiration(const RedisSearchCtx *sctx,
+                                                     const FieldFilterContext *filterCtx) noexcept {
+  // Mirrors the hoisted gate in HybridIterator / InvIndIterator: all inputs are
+  // iterator-invariant, so snapshot the AND once here. A non-NULL `ttl` is a
+  // sufficient and tight gate by itself: the table holds field-level entries
+  // only and is destroyed when the last one leaves the index.
+  return sctx && filterCtx->field.index != RS_INVALID_FIELD_INDEX &&
+         sctx->spec->docs.ttl;
+}
 
 auto CPPQueryIterator::base() noexcept -> QueryIterator * {
   return &base_;
@@ -24,8 +36,10 @@ IteratorStatus CPPQueryIterator::read_single() noexcept {
     return ITERATOR_EOF;
   }
   t_docId docId = iter_[index_++];
-  const t_fieldIndex fieldIndex = filterCtx_.field.index;
-  if (sctx_ && fieldIndex != RS_INVALID_FIELD_INDEX && !DocTable_CheckFieldExpirationPredicate(&sctx_->spec->docs, docId, fieldIndex, filterCtx_.predicate, &sctx_->time.current)) {
+  if (check_field_expiration_
+      && !DocTable_CheckFieldExpirationPredicate(&sctx_->spec->docs, docId,
+                                                 filterCtx_.field.index,
+                                                 filterCtx_.predicate, &sctx_->time.current)) {
     return ITERATOR_NOTFOUND;
   }
 
@@ -105,6 +119,12 @@ std::size_t QIter_NumEstimated(const QueryIterator *ctx) {
 void QIter_Rewind(QueryIterator *ctx) {
   reinterpret_cast<CPPQueryIterator *>(ctx)->rewind();
 }
+ValidateStatus QIter_Revalidate(QueryIterator *ctx) {
+  auto *qi = reinterpret_cast<CPPQueryIterator *>(ctx);
+  qi->check_field_expiration_ =
+      CPPQueryIterator::should_check_field_expiration(qi->sctx_, &qi->filterCtx_);
+  return VALIDATE_OK;
+}
 
 }  // anonymous namespace
 
@@ -117,7 +137,7 @@ QueryIterator CPPQueryIterator::init_base() {
       .NumEstimated = QIter_NumEstimated,
       .Read = QIter_Read,
       .SkipTo = QIter_SkipTo,
-      .Revalidate = Default_Revalidate,
+      .Revalidate = QIter_Revalidate,
       .Free = QIter_Free,
       .Rewind = QIter_Rewind,
   };

@@ -12,6 +12,7 @@
 #include "rmutil/rm_assert.h"
 #include "vector_index.h"
 
+#include <math.h>
 #include <string.h>
 
 // REJSON APIs
@@ -188,6 +189,29 @@ static inline uint16_t floatToFP16bits(float input) {
   return ((f16 >> 13) | (sign >> 16));
 }
 
+// Inverse of `floatToFP16bits`; equivalent to VecSim's `FP16_to_FP32`.
+static inline float FP16bitsToFloat(uint16_t input) {
+  const uint32_t shifted_exp = 0x7c00u << 13;
+  int32_t o = ((int32_t)(input & 0x7fffu)) << 13;
+  int32_t exp = shifted_exp & o;
+  o += (int32_t)(127 - 15) << 23;
+
+  int32_t infnan_val = o + ((int32_t)(128 - 16) << 23);
+  int32_t zerodenorm_val = BIT_CAST(int32_t,
+      BIT_CAST(float, (uint32_t)(o + (1 << 23))) - BIT_CAST(float, 113u << 23));
+  int32_t reg_val = (exp == 0) ? zerodenorm_val : o;
+
+  int32_t sign_bit = ((int32_t)(input & 0x8000u)) << 16;
+  int32_t bits = ((exp == shifted_exp) ? infnan_val : reg_val) | sign_bit;
+  return BIT_CAST(float, bits);
+}
+
+// Reverse of `floatToBF16bits`: place the 16 bits in the upper half of a float32.
+static inline float BF16bitsToFloat(uint16_t input) {
+  uint32_t f32 = ((uint32_t)input) << 16;
+  return BIT_CAST(float, f32);
+}
+
 static int JSON_getBFloat16(RedisJSON json, uint16_t *val) {
   double temp;
   int ret = japi->getDouble(json, &temp);
@@ -228,11 +252,199 @@ static int JSON_getInt8(RedisJSON json, int8_t *val) {
 }
 
 typedef int (*getJSONElementFunc)(RedisJSON, void *);
-int JSON_StoreVectorAt(RedisJSON arr, size_t len, getJSONElementFunc getElement, char *target, unsigned char step, QueryError* status) {
+static getJSONElementFunc VecSimGetJSONCallback(VecSimType type);
+
+// Returns true iff `t` tags a homogeneous buffer of a known numeric type we can
+// read from. This is an explicit opt-in: any future JSONArrayType added upstream
+// must be classified here, otherwise it stays safely routed to the V6 per-element
+// fallback. The switch has no `default:` clause so `-Wswitch` flags new enumerators
+// at compile time until they are handled.
+static bool JSON_ArrayTypeIsNumeric(JSONArrayType t) {
+  switch (t) {
+    case JSONArrayType_I8:
+    case JSONArrayType_U8:
+    case JSONArrayType_I16:
+    case JSONArrayType_U16:
+    case JSONArrayType_F16:
+    case JSONArrayType_BF16:
+    case JSONArrayType_I32:
+    case JSONArrayType_U32:
+    case JSONArrayType_F32:
+    case JSONArrayType_I64:
+    case JSONArrayType_U64:
+    case JSONArrayType_F64:
+      return true;
+    case JSONArrayType_Heterogeneous:
+      return false;
+  }
+  // Unknown (future) tags fall through to V6 per-element handling.
+  return false;
+}
+
+// Returns true iff a JSON numeric element of type `src` can be ingested into a vector
+// field of type `target`. This mirrors the per-element accept matrix of the V6 path,
+// where each element is read through `japi->getInt` (INT8/UINT8 target) or
+// `japi->getDouble` (float targets):
+//   - `getInt`    rejects JSON `Double` values (i.e. the F16/BF16/F32/F64 tags).
+//   - `getDouble` accepts both JSON `Int` and `Double` values (any numeric tag).
+//
+// Non-numeric `src` (including Heterogeneous and any future unknown tag) returns
+// false so the caller falls back to the V6 iterator. When it returns false for a
+// known numeric `src`, the V6 loop would also reject every element of a homogeneous
+// array, so the caller can safely short-circuit with an "invalid element at index 0"
+// error instead of falling back.
+static bool VecSim_AcceptsJSONArrayType(VecSimType target, JSONArrayType src) {
+  if (!JSON_ArrayTypeIsNumeric(src)) return false;
+  switch (target) {
+    case VecSimType_FLOAT32:
+    case VecSimType_FLOAT64:
+    case VecSimType_FLOAT16:
+    case VecSimType_BFLOAT16:
+      // Any numeric tag: V6 `getDouble` accepts both Int and Double JSON values.
+      return true;
+    case VecSimType_INT8:
+    case VecSimType_UINT8:
+      // Integer tags only: V6 `getInt` rejects JSON Double values.
+      switch (src) {
+        case JSONArrayType_I8:
+        case JSONArrayType_U8:
+        case JSONArrayType_I16:
+        case JSONArrayType_U16:
+        case JSONArrayType_I32:
+        case JSONArrayType_U32:
+        case JSONArrayType_I64:
+        case JSONArrayType_U64:
+          return true;
+        default:
+          return false;
+      }
+    default:
+      return false;
+  }
+}
+
+// Mirrors the V6 `getDouble` path: promotes the i-th element of `src` to double.
+static inline double VecSim_JSONArray_ReadAsDouble(const void *src, size_t i, JSONArrayType j) {
+  switch (j) {
+    case JSONArrayType_I8:   return (double)((const int8_t *)src)[i];
+    case JSONArrayType_U8:   return (double)((const uint8_t *)src)[i];
+    case JSONArrayType_I16:  return (double)((const int16_t *)src)[i];
+    case JSONArrayType_U16:  return (double)((const uint16_t *)src)[i];
+    case JSONArrayType_F16:  return (double)FP16bitsToFloat(((const uint16_t *)src)[i]);
+    case JSONArrayType_BF16: return (double)BF16bitsToFloat(((const uint16_t *)src)[i]);
+    case JSONArrayType_I32:  return (double)((const int32_t *)src)[i];
+    case JSONArrayType_U32:  return (double)((const uint32_t *)src)[i];
+    case JSONArrayType_I64:  return (double)((const int64_t *)src)[i];
+    case JSONArrayType_U64:  return (double)((const uint64_t *)src)[i];
+    case JSONArrayType_F32:  return (double)((const float *)src)[i];
+    case JSONArrayType_F64:  return ((const double *)src)[i];
+    default:
+      RS_ABORT("unexpected JSONArrayType");
+      return NAN;
+  }
+}
+
+// Mirrors the V6 `getInt` path: reads the i-th element of `src` as `long long`.
+// Only called for integer JSONArrayTypes (VecSim_AcceptsJSONArrayType enforces this
+// for INT8/UINT8 targets).
+static inline long long VecSim_JSONArray_ReadAsInt(const void *src, size_t i, JSONArrayType j) {
+  switch (j) {
+    case JSONArrayType_I8:  return ((const int8_t *)src)[i];
+    case JSONArrayType_U8:  return ((const uint8_t *)src)[i];
+    case JSONArrayType_I16: return ((const int16_t *)src)[i];
+    case JSONArrayType_U16: return ((const uint16_t *)src)[i];
+    case JSONArrayType_I32: return ((const int32_t *)src)[i];
+    case JSONArrayType_U32: return (long long)((const uint32_t *)src)[i];
+    case JSONArrayType_I64: return ((const int64_t *)src)[i];
+    case JSONArrayType_U64: return (long long)((const uint64_t *)src)[i];
+    default:
+      RS_ABORT("unexpected JSONArrayType for integer target");
+      return 0;
+  }
+}
+
+// Writes `n` elements of `src` (tagged `jtype`) into the VecSim blob at `target`,
+// converting scalar-by-scalar to match `target_type`. Preconditions:
+//   VecSim_AcceptsJSONArrayType(target_type, jtype) == true.
+// If source and target layouts are identical, a single `memcpy` is used.
+static void VecSim_ConvertFromTypedBuffer(VecSimType target_type, JSONArrayType jtype,
+                                          const void *src, size_t n, char *target) {
+  if ((target_type == VecSimType_FLOAT32  && jtype == JSONArrayType_F32) ||
+      (target_type == VecSimType_FLOAT64  && jtype == JSONArrayType_F64) ||
+      (target_type == VecSimType_FLOAT16  && jtype == JSONArrayType_F16) ||
+      (target_type == VecSimType_BFLOAT16 && jtype == JSONArrayType_BF16) ||
+      (target_type == VecSimType_INT8     && jtype == JSONArrayType_I8) ||
+      (target_type == VecSimType_UINT8    && jtype == JSONArrayType_U8)) {
+    memcpy(target, src, n * VecSimType_sizeof(target_type));
+    return;
+  }
+
+  switch (target_type) {
+    case VecSimType_FLOAT32: {
+      float *dst = (float *)target;
+      for (size_t i = 0; i < n; ++i) dst[i] = (float)VecSim_JSONArray_ReadAsDouble(src, i, jtype);
+      break;
+    }
+    case VecSimType_FLOAT64: {
+      double *dst = (double *)target;
+      for (size_t i = 0; i < n; ++i) dst[i] = VecSim_JSONArray_ReadAsDouble(src, i, jtype);
+      break;
+    }
+    case VecSimType_FLOAT16: {
+      uint16_t *dst = (uint16_t *)target;
+      for (size_t i = 0; i < n; ++i) dst[i] = floatToFP16bits((float)VecSim_JSONArray_ReadAsDouble(src, i, jtype));
+      break;
+    }
+    case VecSimType_BFLOAT16: {
+      uint16_t *dst = (uint16_t *)target;
+      for (size_t i = 0; i < n; ++i) dst[i] = floatToBF16bits((float)VecSim_JSONArray_ReadAsDouble(src, i, jtype));
+      break;
+    }
+    case VecSimType_INT8: {
+      int8_t *dst = (int8_t *)target;
+      for (size_t i = 0; i < n; ++i) dst[i] = (int8_t)VecSim_JSONArray_ReadAsInt(src, i, jtype);
+      break;
+    }
+    case VecSimType_UINT8: {
+      uint8_t *dst = (uint8_t *)target;
+      for (size_t i = 0; i < n; ++i) dst[i] = (uint8_t)VecSim_JSONArray_ReadAsInt(src, i, jtype);
+      break;
+    }
+    default:
+      RS_ABORT("unexpected VecSimType");
+      break;
+  }
+}
+
+// Stores `len` elements from the JSON array `arr` into the VecSim blob at `target`.
+// For a homogeneous numeric array, uses the typed-buffer fast path (single `memcpy`
+// or a typed conversion loop). Heterogeneous arrays fall back to the per-element
+// loop using RedisJSON scalar accessors.
+static int JSON_StoreVectorAt(RedisJSON arr, size_t len, VecSimType target_type,
+                              char *target, QueryError *status) {
+  // Fast path: homogeneous numeric buffer, single allocation-free copy/conversion.
+  size_t buf_len = 0;
+  JSONArrayType jtype = JSONArrayType_Heterogeneous;
+  const void *buf = japi->getArray(arr, &buf_len, &jtype);
+  RS_ASSERT(buf_len == len);
+  if (buf && JSON_ArrayTypeIsNumeric(jtype)) {
+    if (!VecSim_AcceptsJSONArrayType(target_type, jtype)) {
+      QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_GENERIC, "Invalid vector elements type - expected %s, got %d",
+                                       VecSimType_ToString(target_type), jtype);
+      return REDISMODULE_ERR;
+    }
+    VecSim_ConvertFromTypedBuffer(target_type, jtype, buf, len, target);
+    return REDISMODULE_OK;
+  }
+
+  // Fallback: per-element conversion via RedisJSON scalar accessors. Covers
+  // heterogeneous arrays and any future unknown JSONArrayType tag.
+  getJSONElementFunc getElement = VecSimGetJSONCallback(target_type);
+  unsigned char step = VecSimType_sizeof(target_type);
   RedisJSONPtr element = japi->allocJson();
-  for (int i = 0; i < len; ++i) {
+  for (size_t i = 0; i < len; ++i) {
     if (japi->getAt(arr, i, element) != REDISMODULE_OK || getElement(*element, target) != REDISMODULE_OK) {
-      QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_GENERIC, "Invalid vector element at index %d", i);
+      QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_GENERIC, "Invalid vector element at index %zu", i);
       japi->freeJson(element);
       return REDISMODULE_ERR;
     }
@@ -242,7 +454,7 @@ int JSON_StoreVectorAt(RedisJSON arr, size_t len, getJSONElementFunc getElement,
   return REDISMODULE_OK;
 }
 
-getJSONElementFunc VecSimGetJSONCallback(VecSimType type) {
+static getJSONElementFunc VecSimGetJSONCallback(VecSimType type) {
   // The right function will put a value of the right type in the address given, or return REDISMODULE_ERR
   switch (type) {
     default:
@@ -269,7 +481,6 @@ getJSONElementFunc VecSimGetJSONCallback(VecSimType type) {
 int JSON_StoreSingleVectorInDocField(FieldSpec *fs, RedisJSON arr, struct DocumentField *df, QueryError *status) {
   VecSimType type;
   size_t dim;
-  getJSONElementFunc getElement;
 
   VecSimParams *params = &fs->vectorOpts.vecSimParams;
   if (params->algo == VecSimAlgo_TIERED) {
@@ -302,8 +513,6 @@ int JSON_StoreSingleVectorInDocField(FieldSpec *fs, RedisJSON arr, struct Docume
     return REDISMODULE_ERR;
   }
 
-  getElement = VecSimGetJSONCallback(type);
-
   if (!(df->strval = rm_malloc(fs->vectorOpts.expBlobSize))) {
     QueryError_SetError(status, QUERY_ERROR_CODE_GENERIC, "Failed to allocate memory for vector");
     return REDISMODULE_ERR;
@@ -311,7 +520,7 @@ int JSON_StoreSingleVectorInDocField(FieldSpec *fs, RedisJSON arr, struct Docume
   df->strlen = fs->vectorOpts.expBlobSize;
 
   // At this point array length matches blob length
-  if (JSON_StoreVectorAt(arr, arrLen, getElement, df->strval, VecSimType_sizeof(type), status) != REDISMODULE_OK) {
+  if (JSON_StoreVectorAt(arr, arrLen, type, df->strval, status) != REDISMODULE_OK) {
     rm_free(df->strval);
     return REDISMODULE_ERR;
   }
@@ -323,10 +532,8 @@ int JSON_StoreMultiVectorInDocField(FieldSpec *fs, JSONIterable *itr, size_t len
   VecSimType type;
   size_t dim;
   bool multi;
-  getJSONElementFunc getElement;
   RedisJSON element;
 
-  unsigned char step = 0;
   size_t count = 0;
 
   VecSimParams *params = &fs->vectorOpts.vecSimParams;
@@ -354,12 +561,8 @@ switch (params->algo) {
     default: goto fail;
   }
 
-  step = VecSimType_sizeof(type);
-
   if (!multi)
     goto fail;
-
-  getElement = VecSimGetJSONCallback(type);
 
   if (!(df->blobArr = rm_malloc(fs->vectorOpts.expBlobSize * len))) {
     goto fail;
@@ -377,7 +580,8 @@ switch (params->algo) {
     if ((REDISMODULE_OK != japi->getLen(element, &cur_dim)) || (cur_dim != dim)) {
       goto cleanup;
     }
-    if (REDISMODULE_OK != JSON_StoreVectorAt(element, cur_dim, getElement, df->blobArr + df->blobSize * count, step, status)) {
+    char *slot = df->blobArr + df->blobSize * count;
+    if (REDISMODULE_OK != JSON_StoreVectorAt(element, cur_dim, type, slot, status)) {
       goto cleanup;
     }
     count++; // counts only the valid non-null vectors, so we store only valid vectors continuously.
@@ -412,6 +616,17 @@ int JSON_StoreVectorInDocField(FieldSpec *fs, RedisJSON arr, struct DocumentFiel
   if (len == 0) {
     QueryError_SetError(status, QUERY_ERROR_CODE_BAD_VAL, "Empty array for vector field on JSON document");
     return REDISMODULE_ERR;
+  }
+
+  // Fast probe: a known numeric tag implies a flat numeric array (single vector).
+  // Heterogeneous (and any unknown future tag) falls through to the per-element
+  // probe below, which also distinguishes single-vs-multi for arrays whose first
+  // element is numeric but whose element types are mixed.
+  size_t n;
+  JSONArrayType jtype = JSONArrayType_Heterogeneous;
+  japi->getArray(arr, &n, &jtype);
+  if (JSON_ArrayTypeIsNumeric(jtype)) {
+    return JSON_StoreSingleVectorInDocField(fs, arr, df, status);
   }
 
   RedisJSONPtr ptr = japi->allocJson();
@@ -541,6 +756,26 @@ int JSON_StoreNumericInDocFieldFromIter(size_t len, JSONResultsIterator jsonIter
 int JSON_StoreNumericInDocFieldFromArr(RedisJSON arr, struct DocumentField *df, QueryError *status) {
   size_t len;
   japi->getLen(arr, &len);
+
+  // Fast path: homogeneous numeric buffer -> one dispatch, tight typed conversion to
+  // double (single memcpy when the source is already F64). Arrays containing nulls
+  // are tagged Heterogeneous by RedisJSON and fall through to the per-element
+  // iterator which preserves the null-skipping semantics; any unknown future tag
+  // falls through for the same reason.
+  size_t buf_len = 0;
+  JSONArrayType jtype = JSONArrayType_Heterogeneous;
+  const void *buf = japi->getArray(arr, &buf_len, &jtype);
+  if (buf && JSON_ArrayTypeIsNumeric(jtype)) {
+    RS_ASSERT(buf_len == len);
+    arrayof(double) out = array_newlen(double, len);
+    // VecSim_ConvertFromTypedBuffer accepts any known numeric jtype for a FLOAT64
+    // target, so reusing it here covers every tag JSON_ArrayTypeIsNumeric admits.
+    VecSim_ConvertFromTypedBuffer(VecSimType_FLOAT64, jtype, buf, len, (char *)out);
+    df->arrNumval = out;
+    df->unionType = FLD_VAR_T_ARRAY;
+    return REDISMODULE_OK;
+  }
+
   JSONIterable iter = JSONIterable_FromArr(arr);
   int ret = JSON_StoreNumericInDocField(len, &iter, df, status);
   JSONIterable_Clean(&iter);
@@ -716,7 +951,6 @@ static RSValue *jsonValToValueExpanded(RedisModuleCtx *ctx, RedisJSON json) {
 
 // Return an array of expanded values from an iterator.
 // The iterator is being reset and is not being freed.
-// Required japi_ver >= 4
 static RSValue* jsonIterToValueExpanded(RedisModuleCtx *ctx, JSONResultsIterator iter) {
   RSValue *ret;
   RSValue **arr;
@@ -877,3 +1111,17 @@ void JSONParse_error(QueryError *status, RedisModuleString *err_msg, const Hidde
                          HiddenString_GetUnsafe(path, NULL), HiddenString_GetUnsafe(fieldName, NULL), HiddenString_GetUnsafe(indexName, NULL));
   RedisModule_FreeString(RSDummyContext, err_msg);
 }
+
+
+#ifdef ENABLE_ASSERT
+#include "json_test_api.h"
+
+bool JSONTest_AcceptsJSONArrayType(VecSimType target, JSONArrayType src) {
+  return VecSim_AcceptsJSONArrayType(target, src);
+}
+
+void JSONTest_ConvertFromTypedBuffer(VecSimType target_type, JSONArrayType jtype,
+                                     const void *src, size_t n, char *target) {
+  VecSim_ConvertFromTypedBuffer(target_type, jtype, src, n, target);
+}
+#endif // ENABLE_ASSERT

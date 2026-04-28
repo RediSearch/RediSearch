@@ -35,7 +35,9 @@ pub mod profile;
 pub mod union;
 mod union_flat;
 mod union_heap;
+pub mod union_opaque;
 pub mod union_reducer;
+mod union_trimmed;
 pub mod utils;
 pub mod wildcard;
 
@@ -43,15 +45,20 @@ pub use empty::Empty;
 pub use expiration_checker::{ExpirationChecker, FieldExpirationChecker, NoOpChecker};
 pub use id_list::IdList;
 pub use intersection::{Intersection, NewIntersectionIterator, new_intersection_iterator};
-pub use inverted_index::{Missing, Numeric, Tag, Term};
-pub use metric::Metric;
+pub use inverted_index::{
+    GeoRangeError, InvalidGeoInput, Missing, Numeric, NumericIteratorVariant, Tag, Term,
+    build_geo_numeric_filters, extract_geo_unit_factor, new_geo_range_iterator,
+    open_numeric_or_geo_index,
+};
 pub use not::NotIterator;
 pub use optional::OptionalIterator;
 pub use rqe_iterator_type::IteratorType;
 pub use union::{
     Union, UnionFlat, UnionFullFlat, UnionFullHeap, UnionHeap, UnionQuickFlat, UnionQuickHeap,
+    UnionTrimmed,
 };
-pub use wildcard::{Wildcard, WildcardIterator};
+pub use union_opaque::{UnionOpaque, UnionVariant};
+pub use wildcard::{NewWildcardIterator, Wildcard, WildcardIterator};
 
 #[derive(Debug, PartialEq)]
 /// The outcome of [`RQEIterator::skip_to`].
@@ -340,10 +347,27 @@ pub trait SearchEnterpriseIterators: Send + Sync {
         weight: f64,
     ) -> Result<Box<dyn RQEIterator<'index> + 'index>, Box<dyn std::error::Error>>;
 
-    /// Iterate over all the terms in the index. Each document in the iterator will have the term
-    /// inside the given query_term and will have the given weight. The iterator will also filter
-    /// the results according to the given field mask.
-    fn new_term_on_disk<'index>(
+    /// Iterate over all the terms in the index, loading offset data for each document.
+    ///
+    /// Each document in the iterator will have the term inside the given `query_term` and will
+    /// have the given weight. The iterator will also filter the results according to the given
+    /// field mask. Use this variant for phrase queries, slop constraints, or any query that needs
+    /// term positions.
+    fn new_term_on_disk_with_offsets<'index>(
+        &self,
+        index: &'index ffi::RedisSearchDiskIndexSpec,
+        query_term: Box<RSQueryTerm>,
+        field_mask: t_fieldMask,
+        weight: f64,
+    ) -> Result<Box<dyn RQEIterator<'index> + 'index>, Box<dyn std::error::Error>>;
+
+    /// Iterate over all the terms in the index, skipping offset data for efficiency.
+    ///
+    /// Each document in the iterator will have the term inside the given `query_term` and will
+    /// have the given weight. The iterator will also filter the results according to the given
+    /// field mask. Use this variant for BM25_STD queries or any query that doesn't need term
+    /// positions.
+    fn new_term_on_disk_without_offsets<'index>(
         &self,
         index: &'index ffi::RedisSearchDiskIndexSpec,
         query_term: Box<RSQueryTerm>,

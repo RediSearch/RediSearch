@@ -385,14 +385,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b05b61dc5112cbb17e4b6cd61790d9845d13888356391624cbe7e41efeac1e75"
 
 [[package]]
-name = "common"
-version = "0.1.0"
-source = "git+https://github.com/RedisLabsModules/redismodule-rs.git?rev=3a0257d2c34856bab38fe673f65ad8719695619d#3a0257d2c34856bab38fe673f65ad8719695619d"
-dependencies = [
- "serde",
-]
-
-[[package]]
 name = "console"
 version = "0.15.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1116,6 +1108,8 @@ dependencies = [
  "inverted_index_ffi",
  "libc",
  "numeric_range_tree",
+ "numeric_range_tree_ffi",
+ "query_node_type",
  "rqe_iterator_type",
  "rqe_iterators",
  "workspace_hack",
@@ -1791,21 +1785,21 @@ dependencies = [
 
 [[package]]
 name = "redis-module"
-version = "99.99.99"
-source = "git+https://github.com/RedisLabsModules/redismodule-rs.git?rev=3a0257d2c34856bab38fe673f65ad8719695619d#3a0257d2c34856bab38fe673f65ad8719695619d"
+version = "2.0.7"
+source = "git+https://github.com/RedisLabsModules/redismodule-rs.git?rev=ce7e83074376494c20e2fbdb5059384db6c1ca26#ce7e83074376494c20e2fbdb5059384db6c1ca26"
 dependencies = [
  "backtrace",
  "bindgen",
  "bitflags 2.11.0",
  "cc",
  "cfg-if",
- "common",
  "enum-primitive-derive",
  "libc",
  "linkme",
  "log",
  "nix",
  "num-traits 0.2.19",
+ "redis-module-common",
  "redis-module-macros-internals",
  "regex",
  "serde",
@@ -1813,9 +1807,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "redis-module-common"
+version = "0.1.0"
+source = "git+https://github.com/RedisLabsModules/redismodule-rs.git?rev=ce7e83074376494c20e2fbdb5059384db6c1ca26#ce7e83074376494c20e2fbdb5059384db6c1ca26"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "redis-module-macros-internals"
-version = "99.99.99"
-source = "git+https://github.com/RedisLabsModules/redismodule-rs.git?rev=3a0257d2c34856bab38fe673f65ad8719695619d#3a0257d2c34856bab38fe673f65ad8719695619d"
+version = "2.0.7"
+source = "git+https://github.com/RedisLabsModules/redismodule-rs.git?rev=ce7e83074376494c20e2fbdb5059384db6c1ca26#ce7e83074376494c20e2fbdb5059384db6c1ca26"
 dependencies = [
  "lazy_static",
  "proc-macro2",
@@ -1871,6 +1873,7 @@ dependencies = [
  "query_term_ffi",
  "quote 1.0.44",
  "redis-module",
+ "reducers_ffi",
  "result_processor_ffi",
  "rlookup_ffi",
  "search_result_ffi",
@@ -1883,6 +1886,32 @@ dependencies = [
  "value_ffi",
  "varint_ffi",
  "walkdir",
+ "workspace_hack",
+]
+
+[[package]]
+name = "reducers"
+version = "0.0.1"
+dependencies = [
+ "bumpalo",
+ "ffi",
+ "query_error",
+ "rlookup",
+ "value",
+ "workspace_hack",
+]
+
+[[package]]
+name = "reducers_ffi"
+version = "0.0.1"
+dependencies = [
+ "build_utils",
+ "cbindgen",
+ "ffi",
+ "query_error",
+ "reducers",
+ "rlookup",
+ "value",
  "workspace_hack",
 ]
 
@@ -2010,6 +2039,7 @@ dependencies = [
  "search_result",
  "sorting_vector",
  "value",
+ "value_ffi",
  "workspace_hack",
 ]
 
@@ -2076,6 +2106,7 @@ dependencies = [
  "trie_rs",
  "types_ffi",
  "value",
+ "value_ffi",
  "varint_ffi",
  "workspace_hack",
 ]
@@ -2115,6 +2146,7 @@ dependencies = [
  "numeric_range_tree_ffi",
  "query_error",
  "redis_mock",
+ "rqe_iterators",
  "varint_ffi",
  "workspace_hack",
 ]
@@ -2216,9 +2248,9 @@ dependencies = [
 
 [[package]]
 name = "rustls-webpki"
-version = "0.103.12"
+version = "0.103.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8279bb85272c9f10811ae6a6c547ff594d6a7f3c6c6b02ee9726d1d0dcfcdd06"
+checksum = "61c429a8649f110dddef65e2a5ad240f747e85f7758a6bccc7e5777bd33f756e"
 dependencies = [
  "ring",
  "rustls-pki-types",
@@ -2434,6 +2466,7 @@ dependencies = [
  "sorting_vector",
  "thin_vec",
  "value",
+ "value_ffi",
  "workspace_hack",
 ]
 
@@ -2903,6 +2936,7 @@ dependencies = [
  "redis_mock",
  "redisearch_rs",
  "thiserror",
+ "tracing",
  "triomphe",
  "workspace_hack",
 ]

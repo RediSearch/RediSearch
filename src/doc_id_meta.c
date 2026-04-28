@@ -117,13 +117,21 @@ static void docIdMetaUnlink(RedisModuleKeyOptCtx *ctx, uint64_t *meta) {
   dictReleaseIterator(iter);
 }
 
+// Return values for RedisModuleKeyMetaLoadFunc (documented on RM_CreateKeyMetaClass):
+//   1: attach the loaded meta to the key
+//   0: skip/ignore (do not attach) - not an error
+//  -1: error, abort RDB load
+#define DOCID_META_RDB_LOAD_ATTACH 1
+#define DOCID_META_RDB_LOAD_SKIP   0
+#define DOCID_META_RDB_LOAD_ERROR  (-1)
+
 static int docIdMetaRDBLoad(RedisModuleIO *rdb, uint64_t *meta, int encver) {
   RS_LOG_ASSERT(encver == 1, "DocIdMeta: unexpected encver in RDB load");
 
   if (PersistenceInProgress) {
     // Skip actual loading during persistence events. We don't store this metadata in the RDB/AOF files.
     *meta = 0;
-    return REDISMODULE_OK;
+    return DOCID_META_RDB_LOAD_SKIP;
   }
 
   dict *specIdToDocId = dictCreate(&dictTypeUint64, NULL);
@@ -146,14 +154,14 @@ static int docIdMetaRDBLoad(RedisModuleIO *rdb, uint64_t *meta, int encver) {
   }
 
   *meta = (uint64_t)(specIdToDocId);
-  return REDISMODULE_OK;
+  return DOCID_META_RDB_LOAD_ATTACH;
 
 cleanup:
   if (specIdToDocId) {
     dictRelease(specIdToDocId);
   }
   *meta = 0;
-  return REDISMODULE_ERR;
+  return DOCID_META_RDB_LOAD_ERROR;
 }
 
 static void docIdMetaRDBSave(RedisModuleIO *rdb, void *value, uint64_t *meta) {

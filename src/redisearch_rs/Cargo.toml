@@ -22,6 +22,7 @@ members = [
     "result_processor",
     "rlookup",
     "query_node_type",
+    "reducers",
     "rqe_iterator_type",
     "rqe_iterators",
     "rqe_iterators_bencher",
@@ -110,6 +111,7 @@ query_term = { path = "./query_term" }
 redis_json_api = { path = "./redis_json_api" }
 redis_mock = { path = "./redis_mock" }
 redisearch_rs = { path = "./c_entrypoint/redisearch_rs" }
+reducers = { path = "./reducers" }
 result_processor = { path = "./result_processor" }
 rlookup = { path = "./rlookup" }
 rm_array = { path = "./c_wrappers/rm_array" }
@@ -130,6 +132,7 @@ wildcard = { path = "./wildcard" }
 workspace_hack = { path = "./workspace_hack" }
 
 ahash = "0.8"
+bumpalo = "3"
 anstyle-query = "1.1.5"
 anyhow = "1"
 approx = "0.6.0-rc2"
@@ -182,7 +185,7 @@ xxhash-rust = "0.8"
 
 [workspace.dependencies.redis-module]
 git = "https://github.com/RedisLabsModules/redismodule-rs.git"
-rev = "3a0257d2c34856bab38fe673f65ad8719695619d"
+rev = "ce7e83074376494c20e2fbdb5059384db6c1ca26"
 default-features = false
 
 [profile.release]

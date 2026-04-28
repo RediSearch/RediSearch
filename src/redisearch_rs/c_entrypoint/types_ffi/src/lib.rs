@@ -21,23 +21,6 @@ pub use inverted_index::{
     debug::{BlockSummary, Summary},
 };
 
-/// Check if this is a numeric filter and not a geo filter
-///
-/// # Safety
-///
-/// The following invariant must be upheld when calling this function:
-/// - `filter` must point to a valid `NumericFilter` and cannot be NULL.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn NumericFilter_IsNumeric(filter: *const NumericFilter) -> bool {
-    debug_assert!(!filter.is_null(), "filter must not be null");
-
-    // SAFETY: Caller is to ensure that the pointer `filter` is a valid, non-null pointer to
-    // a `NumericFilter`.
-    let filter = unsafe { &*filter };
-
-    filter.is_numeric_filter()
-}
-
 /// Check if the given value matches the numeric filter.
 ///
 /// # Safety
@@ -276,7 +259,7 @@ pub unsafe extern "C" fn IndexResult_TermOffsetsRef<'result, 'index>(
 
     result.as_term().map(move |term| match term {
         RSTermRecord::Borrowed { offsets, .. } => offsets,
-        RSTermRecord::Owned { offsets, .. } => {
+        RSTermRecord::Owned { offsets, .. } | RSTermRecord::FullyOwned { offsets, .. } => {
             // SAFETY: `RSOffsetVector` and `RSOffsetSlice` have identical `#[repr(C)]` layout.
             // The inner lifetime parameter is a zero-sized `PhantomData` marker. The owned data
             // lives as long as the `RSIndexResult`.

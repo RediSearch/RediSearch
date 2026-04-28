@@ -11,7 +11,7 @@ use ffi::RedisModule_Free;
 use std::ffi::c_char;
 use std::fmt;
 
-/// An [`RsString`] is meant to store string data with support for rust allocated data, C
+/// An [`String`] is meant to store string data with support for rust allocated data, C
 /// allocated data or borrowed data, and support for a max length of `u32::MAX`.
 /// It can contain binary data and is always nul-terminated.
 ///
@@ -20,27 +20,27 @@ use std::fmt;
 /// - `ptr` points to valid data of `len+1` size.
 /// - a nul-terminator is always present in memory at `ptr+len`
 /// - The size determined by `len` excludes the nul-terminator.
-pub struct RsString {
+pub struct String {
     ptr: *const c_char,
     len: u32,
-    kind: RsStringKind,
+    kind: StringKind,
 }
 
-/// This defines the type of allocation used by the [`RsString`]
-enum RsStringKind {
-    /// Used when the [`RsString`] is allocated directly through the Rust
+/// This defines the type of allocation used by the [`String`]
+enum StringKind {
+    /// Used when the [`String`] is allocated directly through the Rust
     /// Global allocator. Most often when originating from Rust code.
     RustGlobalAlloc,
-    /// Used when the [`RsString`] is allocated directly through
+    /// Used when the [`String`] is allocated directly through
     /// `RedisModule_Alloc`. Most often when originating from C code.
     RedisModuleAlloc,
-    /// Used when the [`RsString`] is referencing borrowed data which
-    /// should not be freed when dropping the [`RsString`].
+    /// Used when the [`String`] is referencing borrowed data which
+    /// should not be freed when dropping the [`String`].
     Borrowed,
 }
 
-impl RsString {
-    /// Create an [`RsString`] from a `Vec<u8>`. The length must not be more than
+impl String {
+    /// Create an [`String`] from a `Vec<u8>`. The length must not be more than
     /// `u32::MAX` for compatibility with existing C code using `RSValue` functionality.
     /// A nul-terminator is automatically added by this constructor for compatibility.
     ///
@@ -57,11 +57,11 @@ impl RsString {
         Self {
             ptr: ptr.cast(),
             len: len as u32,
-            kind: RsStringKind::RustGlobalAlloc,
+            kind: StringKind::RustGlobalAlloc,
         }
     }
 
-    /// Create an [`RsString`] from a redis module allocated string.
+    /// Create an [`String`] from a redis module allocated string.
     /// Takes ownership of the string pointed to by `ptr`/`len`.
     ///
     /// # Safety
@@ -74,17 +74,20 @@ impl RsString {
     ///    takes ownership of the allocation.
     ///
     /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+    #[expect(clippy::multiple_unsafe_ops_per_block)]
     pub unsafe fn rm_alloc_string(ptr: *const c_char, len: u32) -> Self {
         debug_assert!(!ptr.is_null());
+        // Safety: ensured by caller (1., 2., 3.)
+        debug_assert!(unsafe { ptr.add(len as usize).read() } as u8 == b'\0');
 
         Self {
             ptr,
             len,
-            kind: RsStringKind::RedisModuleAlloc,
+            kind: StringKind::RedisModuleAlloc,
         }
     }
 
-    /// Create an [`RsString`] from a borrowed string.
+    /// Create an [`String`] from a borrowed string.
     ///
     /// # Safety
     ///
@@ -92,16 +95,19 @@ impl RsString {
     /// 2. A nul-terminator is expected in memory at `ptr+len`.
     /// 3. The size determined by `len` excludes the nul-terminator.
     /// 4. The string pointed to by `ptr`/`len+1` must stay valid for as long as
-    ///    this [`RsString`] is exists.
+    ///    this [`String`] is exists.
     ///
     /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+    #[expect(clippy::multiple_unsafe_ops_per_block)]
     pub unsafe fn borrowed_string(ptr: *const c_char, len: u32) -> Self {
         debug_assert!(!ptr.is_null());
+        // Safety: ensured by caller (1., 2., 3.)
+        debug_assert!(unsafe { ptr.add(len as usize).read() } as u8 == b'\0');
 
         Self {
             ptr,
             len,
-            kind: RsStringKind::Borrowed,
+            kind: StringKind::Borrowed,
         }
     }
 
@@ -117,10 +123,10 @@ impl RsString {
     }
 }
 
-impl Drop for RsString {
+impl Drop for String {
     fn drop(&mut self) {
         match self.kind {
-            RsStringKind::RustGlobalAlloc => {
+            StringKind::RustGlobalAlloc => {
                 let slice = std::ptr::slice_from_raw_parts_mut(
                     self.ptr.cast_mut().cast::<u8>(),
                     (self.len as usize) + 1,
@@ -128,25 +134,25 @@ impl Drop for RsString {
                 // Safety: Boxed slice was created in `Self::from_vec` which has `len + 1` bytes.
                 drop(unsafe { Box::from_raw(slice) });
             }
-            RsStringKind::RedisModuleAlloc => {
+            StringKind::RedisModuleAlloc => {
                 // Safety: Accessing a global function pointer initialized during module load.
                 let rm_free = unsafe { RedisModule_Free.expect("Redis allocator not available") };
                 // Safety: `self.ptr` was allocated by rm_alloc and has not been freed.
                 unsafe { rm_free(self.ptr.cast_mut().cast()) };
             }
-            RsStringKind::Borrowed => (), // No need to free borrowed strings.
+            StringKind::Borrowed => (), // No need to free borrowed strings.
         }
     }
 }
 
-impl fmt::Debug for RsString {
+impl fmt::Debug for String {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let lossy = String::from_utf8_lossy(self.as_bytes());
-        f.debug_tuple("RsString").field(&lossy).finish()
+        let lossy = std::string::String::from_utf8_lossy(self.as_bytes());
+        f.debug_tuple("String").field(&lossy).finish()
     }
 }
 
-// Safety: [`RsString`] does not hold data that cannot be sent to another thread.
-unsafe impl Send for RsString {}
-// Safety: [`RsString`] provides no interior mutability; shared references are read-only.
-unsafe impl Sync for RsString {}
+// Safety: [`String`] does not hold data that cannot be sent to another thread.
+unsafe impl Send for String {}
+// Safety: [`String`] provides no interior mutability; shared references are read-only.
+unsafe impl Sync for String {}

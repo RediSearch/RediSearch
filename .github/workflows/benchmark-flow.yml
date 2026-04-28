@@ -14,8 +14,6 @@ on:
       rejson_module_path:
         type: string
         default: bin/linux-x64-release/RedisJSON/master/rejson.so
-      profile_env:
-        type: number # for default of 0
       benchmark_glob:
         type: string
         default: "*.yml"
@@ -97,7 +95,7 @@ jobs:
           name: ${{ inputs.binary_artifact_name }}
           # Place the .so where `inputs.module_path` expects it, e.g.
           # bin/linux-x64-release/search-community/redisearch.so
-          path: ${{ inputs.profile_env == 1 && 'bin/linux-x64-release-profile/search-community' || 'bin/linux-x64-release/search-community' }}
+          path: bin/linux-x64-release/search-community
       - name: Make redisearch.so executable
         if: steps.benchmark-filter.outputs.skip != 'true'
         env:
@@ -126,16 +124,26 @@ jobs:
         timeout-minutes: 360 # timeout for the step
         working-directory: tests/benchmarks
         env:
-          # Hard-coded
-          PERF_CALLGRAPH_MODE: dwarf
-          MAX_PROFILERS: 3
           # Secrets
           AWS_ACCESS_KEY_ID: ${{ secrets.PERFORMANCE_EC2_ACCESS_KEY }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.PERFORMANCE_EC2_SECRET_KEY }}
           AWS_DEFAULT_REGION: ${{ secrets.PERFORMANCE_EC2_REGION }}
           EC2_PRIVATE_PEM: ${{ secrets.PERFORMANCE_EC2_PRIVATE_PEM }}
+          # Polar Signals / parca-agent configuration. Terraform reads these
+          # as `TF_VAR_<name>` env vars when redisbench-admin run-remote
+          # shells out to `terraform apply`. When enable_parca_agent is true
+          # the cloud-init on the DB server installs parca-agent (from the
+          # `edge` snap channel so `remote-store-grpc-headers=projectID=...`
+          # is honored) and streams profile samples to Polar Signals project
+          # $PERFORMANCE_PARCA_AGENT_PROJECT_ID during the benchmark.
+          # redisbench-admin additionally sets `metadata-external-labels`
+          # per-test (test_name, git_hash, tested_commands, ...) so samples
+          # are queryable by the same dimensions as the RTS result.
+          TF_VAR_enable_parca_agent: true
+          TF_VAR_parca_agent_token: ${{ secrets.PERFORMANCE_PARCA_AGENT_TOKEN }}
+          TF_VAR_parca_agent_project_id: ${{ secrets.PERFORMANCE_PARCA_AGENT_PROJECT_ID }}
+          TF_VAR_parca_agent_snap_channel: edge
           # Inputs
-          PROFILE: ${{ inputs.profile_env }}
           BENCHMARK_GLOB: ${{ steps.benchmark-filter.outputs.effective_glob }}
           BENCHMARK_RUNNER_GROUP_M_ID: ${{ inputs.benchmark_runner_group_member_id }}
           BENCHMARK_RUNNER_GROUP_TOTAL: ${{ inputs.benchmark_runner_group_total }}
@@ -145,6 +153,11 @@ jobs:
           TRIGGERING_ENV: ${{ inputs.triggering_env }}
           ALLOWED_ENVS: ${{ inputs.allowed_envs }}
           ALLOWED_SETUPS: ${{ inputs.allowed_setups }}
+        # --github_sha: on pull_request events github.sha is the ephemeral
+        # merge commit, which is garbage-collected after the PR merges and
+        # breaks later reproducibility of RTS time-series and Polar Signals
+        # `git_hash` labels. Use the PR head SHA instead; fall back to
+        # github.sha on push events (where it already is the head).
         run: redisbench-admin run-remote
               --module_path ../../$MODULE_PATH
               --required-module search
@@ -153,7 +166,7 @@ jobs:
               --github_org ${{ github.repository_owner }}
               --module_path ../../$REJSON_MODULE_PATH
               --required-module ReJSON
-              --github_sha ${{ github.sha }}
+              --github_sha ${{ github.event.pull_request.head.sha || github.sha }}
               --github_branch ${{ github.head_ref || github.ref_name }}
               --upload_results_s3
               --triggering_env $TRIGGERING_ENV
