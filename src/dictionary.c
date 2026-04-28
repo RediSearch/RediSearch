@@ -16,6 +16,7 @@
 #include "rmutil/rm_assert.h"
 #include "commands.h"
 #include "config.h"
+#include "module.h"
 
 dict *spellCheckDicts = NULL;
 
@@ -171,7 +172,8 @@ static void Propagate_Dict(RedisModuleCtx* ctx, const char* dictName, Trie* trie
 
   RS_ASSERT(termsCount == trie->size);
   RS_LOG_ASSERT(trie->size != 0, "Empty dictionary should not exist in the dictionary list");
-  int rc = RedisModule_ClusterPropagateForSlotMigration(ctx, RS_DICT_ADD, "cv", dictName, terms, termsCount);
+  const char *dictAddCmd = IsEnterprise() ? RS_DICT_ADD_PUBLIC : RS_DICT_ADD_INTERNAL;
+  int rc = RedisModule_ClusterPropagateForSlotMigration(ctx, dictAddCmd, "cv", dictName, terms, termsCount);
   if (rc != REDISMODULE_OK) {
     RedisModule_Log(ctx, "warning", "Failed to propagate dictionary '%s' during slot migration. errno: %d", RSGlobalConfig.hideUserDataFromLog ? "****" : dictName, errno);
   }

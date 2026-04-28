@@ -389,7 +389,8 @@ static void IndexSpec_TimedOutProc(RedisModuleCtx *ctx, WeakRef w_ref) {
   } else {
     // called on master shard for temporary indexes and deletes all documents by defaults
     // pass FT.DROPINDEX with "DD" flag to self.
-    RedisModuleCallReply *rep = RedisModule_Call(RSDummyContext, RS_DROP_INDEX_CMD, "cc!", HiddenString_GetUnsafe(sp->specName, NULL), "DD");
+    const char *dropIndexCmd = IsEnterprise() ? RS_DROP_INDEX_CMD_PUBLIC : RS_DROP_INDEX_CMD_INTERNAL;
+    RedisModuleCallReply *rep = RedisModule_Call(RSDummyContext, dropIndexCmd, "cc!", HiddenString_GetUnsafe(sp->specName, NULL), "DD");
     if (rep) {
       RedisModule_FreeCallReply(rep);
     }
@@ -3796,7 +3797,8 @@ void Indexes_Propagate(RedisModuleCtx *ctx) {
     RS_ASSERT(sp != NULL);
     RedisModuleString *serialized = IndexSpec_Serialize(sp);
     RS_ASSERT(serialized != NULL);
-    int rc = RedisModule_ClusterPropagateForSlotMigration(ctx, RS_RESTORE_IF_NX, "cls", SPEC_SCHEMA_STR, INDEX_CURRENT_VERSION, serialized);
+    const char *restoreIfNxCmd = IsEnterprise() ? RS_RESTORE_IF_NX_PUBLIC : RS_RESTORE_IF_NX_INTERNAL;
+    int rc = RedisModule_ClusterPropagateForSlotMigration(ctx, restoreIfNxCmd, "cls", SPEC_SCHEMA_STR, INDEX_CURRENT_VERSION, serialized);
     if (rc != REDISMODULE_OK) {
       RedisModule_Log(ctx, "warning", "Failed to propagate index '%s' during slot migration. errno: %d", IndexSpec_FormatName(sp, RSGlobalConfig.hideUserDataFromLog), errno);
     }
