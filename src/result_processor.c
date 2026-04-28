@@ -2256,7 +2256,7 @@ static int RPHybridMerger_Yield(ResultProcessor *rp, SearchResult *r) {
       // All remaining upstreams returned DEPLETING (no data available yet).
       // Yield briefly to avoid starving the IO thread and shard processing,
       // which need CPU time to produce the replies we are waiting for.
-      usleep(100);
+      usleep(50);
     }
   }
 
