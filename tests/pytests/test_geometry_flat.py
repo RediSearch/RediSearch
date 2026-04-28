@@ -372,3 +372,92 @@ def testFtInfo(env):
   else:
     # TODO: in cluster - be able to wait for cleaning of the index (would wait for freeing the geoshape index memory)
     env.assertLess(cur_usage, usage)
+
+@skip(cluster=True)
+def testGeometryShapeIteratorSkipTo(env):
+  '''Test skip_to paths in the geometry shape query iterator.
+  Combined geometry+numeric queries cause the intersection engine to call
+  skip_to on the geometry iterator when numeric has fewer estimated results.'''
+  conn = getConnectionByEnv(env)
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'geom', 'GEOSHAPE', 'FLAT', 'n', 'NUMERIC').ok()
+
+  inside = 'POLYGON((1 1, 1 100, 100 100, 100 1, 1 1))'
+  outside = 'POLYGON((200 200, 200 300, 300 300, 300 200, 200 200))'
+  query_poly = 'POLYGON((0 0, 0 150, 150 150, 150 0, 0 0))'
+
+  # Geometry iterator matches [doc1,doc2,doc4,doc5,doc6], misses [doc3,doc7]
+  conn.execute_command('HSET', 'doc1', 'geom', inside, 'n', 1)
+  conn.execute_command('HSET', 'doc2', 'geom', inside, 'n', 2)
+  conn.execute_command('HSET', 'doc3', 'geom', outside, 'n', 3)
+  conn.execute_command('HSET', 'doc4', 'geom', inside, 'n', 4)
+  conn.execute_command('HSET', 'doc5', 'geom', inside, 'n', 5)
+  conn.execute_command('HSET', 'doc6', 'geom', inside, 'n', 6)
+  conn.execute_command('HSET', 'doc7', 'geom', outside, 'n', 7)
+
+  # skip_to with non-matching docId: numeric drives with doc3 (outside geom),
+  # geometry skips to doc4 != doc3 → NOTFOUND
+  res = env.cmd('FT.SEARCH', 'idx', '@n:[3 3] @geom:[within $poly]',
+                'PARAMS', 2, 'poly', query_poly, 'NOCONTENT', 'DIALECT', 3)
+  env.assertEqual(res, [0])
+
+  # skip_to beyond last geometry doc: numeric drives with doc7, which exceeds
+  # last geometry match (doc6) → EOF with atEOF
+  res = env.cmd('FT.SEARCH', 'idx', '@n:[7 7] @geom:[within $poly]',
+                'PARAMS', 2, 'poly', query_poly, 'NOCONTENT', 'DIALECT', 3)
+  env.assertEqual(res, [0])
+
+  # skip_to to last element (exhausting iterator) then skip_to on exhausted:
+  # numeric returns doc6 (last geometry match, sets atEOF) then doc7 (already EOF)
+  res = env.cmd('FT.SEARCH', 'idx', '@n:[6 7] @geom:[within $poly]',
+                'PARAMS', 2, 'poly', query_poly, 'NOCONTENT', 'DIALECT', 3)
+  env.assertEqual(res, [1, 'doc6'])
+
+@skip(cluster=True)
+def testGeometryShapeIteratorRewind(env):
+  '''Test rewind path in geometry shape iterator via HIGHLIGHT.
+  The highlight processor rewinds the root iterator tree (including geometry
+  child) to locate index results for each highlighted document.'''
+  conn = getConnectionByEnv(env)
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'geom', 'GEOSHAPE', 'FLAT', 't', 'TEXT').ok()
+
+  conn.execute_command('HSET', 'doc1', 'geom', 'POLYGON((1 1, 1 100, 100 100, 100 1, 1 1))',
+                       't', 'hello world')
+  conn.execute_command('HSET', 'doc2', 'geom', 'POLYGON((1 1, 1 50, 50 50, 50 1, 1 1))',
+                       't', 'hello there')
+
+  query_poly = 'POLYGON((0 0, 0 150, 150 150, 150 0, 0 0))'
+  res = env.cmd('FT.SEARCH', 'idx', '@t:(hello) @geom:[within $poly]',
+                'PARAMS', 2, 'poly', query_poly,
+                'HIGHLIGHT', 'FIELDS', 1, 't',
+                'DIALECT', 3)
+  env.assertEqual(res[0], 2)
+  # Verify highlighting was applied, confirming rewind was called
+  env.assertContains('<b>hello</b>', str(res))
+
+@skip(cluster=True)
+def testGeometryShapeIteratorRevalidate(env):
+  '''Test revalidate path in geometry shape iterator via cursor query.
+  In cursor mode the spec lock is released between reads; re-acquiring it
+  calls Revalidate on the root iterator (geometry) on each cursor resume.'''
+  conn = getConnectionByEnv(env)
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'geom', 'GEOSHAPE', 'FLAT').ok()
+
+  inside = 'POLYGON((1 1, 1 100, 100 100, 100 1, 1 1))'
+  for i in range(5):
+    conn.execute_command('HSET', f'doc{i}', 'geom', inside)
+
+  query_poly = 'POLYGON((0 0, 0 150, 150 150, 150 0, 0 0))'
+  res = env.cmd('FT.AGGREGATE', 'idx', '@geom:[within $poly]',
+                'PARAMS', 2, 'poly', query_poly,
+                'WITHCURSOR', 'COUNT', 1, 'DIALECT', 3)
+  cursor_id = res[1]
+  env.assertNotEqual(cursor_id, 0)
+
+  # Read remaining results via cursor — each resume re-acquires the spec lock,
+  # triggering Revalidate on the geometry iterator
+  results = len(res[0]) - 1
+  while cursor_id != 0:
+    res = env.cmd('FT.CURSOR', 'READ', 'idx', cursor_id)
+    cursor_id = res[1]
+    results += len(res[0]) - 1
+  env.assertEqual(results, 5)
