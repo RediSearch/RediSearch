@@ -359,7 +359,7 @@ static int distributeCollect(ReducerDistCtx *rdctx, QueryError *status) {
   if (!rdctx->add(rdctx->localGroup, "COLLECT", nullptr, status, &localArgs)) {
     return REDISMODULE_ERR;
   }
-  array_tail(rdctx->localGroup->reducers).sourceAlias = rm_strdup(alias);
+  array_tail(rdctx->localGroup->reducers).inputAlias = rm_strdup(alias);
 
   return REDISMODULE_OK;
 }

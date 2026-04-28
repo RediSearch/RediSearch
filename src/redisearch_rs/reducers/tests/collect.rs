@@ -134,9 +134,9 @@ fn remote_internal_collect_includes_sort_fields_for_coordinator_merge() {
 
 #[test]
 fn local_collect_projects_remote_maps_and_fills_missing_fields_with_null() {
-    let source_key = key(c"__source", 0);
+    let input_key = key(c"generatedalias", 0);
     let reducer = LocalCollectReducer::new(
-        &source_key,
+        &input_key,
         Box::new([
             b"name".to_vec().into_boxed_slice(),
             b"missing".to_vec().into_boxed_slice(),
@@ -152,7 +152,7 @@ fn local_collect_projects_remote_maps_and_fills_missing_fields_with_null() {
         (string_value("sweetness"), SharedValue::new_num(10.0)),
     ]);
     let mut row = RLookupRow::new();
-    row.write_key(&source_key, SharedValue::new_array([remote_row]));
+    row.write_key(&input_key, SharedValue::new_array([remote_row]));
 
     ctx.add(&reducer, &row);
     let output = ctx.finalize(&reducer);
@@ -174,9 +174,9 @@ fn local_collect_projects_remote_maps_and_fills_missing_fields_with_null() {
 
 #[test]
 fn local_collect_accepts_resp2_flat_array_payloads() {
-    let source_key = key(c"__source", 0);
+    let input_key = key(c"generatedalias", 0);
     let reducer = LocalCollectReducer::new(
-        &source_key,
+        &input_key,
         Box::new([b"name".to_vec().into_boxed_slice()]),
         Box::new([]),
         0,
@@ -191,7 +191,7 @@ fn local_collect_accepts_resp2_flat_array_payloads() {
         SharedValue::new_num(10.0),
     ]);
     let mut row = RLookupRow::new();
-    row.write_key(&source_key, SharedValue::new_array([remote_row]));
+    row.write_key(&input_key, SharedValue::new_array([remote_row]));
 
     ctx.add(&reducer, &row);
     let output = ctx.finalize(&reducer);

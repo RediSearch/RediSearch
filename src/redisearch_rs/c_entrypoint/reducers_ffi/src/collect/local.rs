@@ -43,7 +43,7 @@ unsafe fn copy_c_names(names: *const *const c_char, len: usize) -> Box<[Box<[u8]
 ///
 /// # Safety
 ///
-/// 1. `source_key` must be a [valid] pointer to an [`RLookupKey`] that remains
+/// 1. `input_key` must be a [valid] pointer to an [`RLookupKey`] that remains
 ///    alive for the lifetime of the returned reducer.
 /// 2. If `field_names_len > 0`, `field_names` must point to an array of at
 ///    least `field_names_len` valid, NUL-terminated C strings.
@@ -53,7 +53,7 @@ unsafe fn copy_c_names(names: *const *const c_char, len: usize) -> Box<[Box<[u8]
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn CollectReducer_CreateLocal(
-    source_key: *const ffi::RLookupKey,
+    input_key: *const ffi::RLookupKey,
     field_names: *const *const c_char,
     field_names_len: usize,
     sort_names: *const *const c_char,
@@ -63,9 +63,9 @@ pub unsafe extern "C" fn CollectReducer_CreateLocal(
     limit_offset: u64,
     limit_count: u64,
 ) -> *mut ffi::Reducer {
-    // SAFETY: ensured by caller (1.); `source_key` points to a valid
+    // SAFETY: ensured by caller (1.); `input_key` points to a valid
     // `RLookupKey` that outlives the returned reducer.
-    let source_key: &RLookupKey = unsafe { &*source_key.cast::<RLookupKey>() };
+    let input_key: &RLookupKey = unsafe { &*input_key.cast::<RLookupKey>() };
 
     // SAFETY: ensured by caller (2.)
     let field_names = unsafe { copy_c_names(field_names, field_names_len) };
@@ -75,7 +75,7 @@ pub unsafe extern "C" fn CollectReducer_CreateLocal(
     let limit = has_limit.then_some((limit_offset, limit_count));
 
     let mut cr = Box::new(LocalCollectReducer::new(
-        source_key,
+        input_key,
         field_names,
         sort_key_names,
         sort_asc_map,

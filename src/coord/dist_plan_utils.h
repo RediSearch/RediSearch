@@ -27,11 +27,11 @@ extern "C" {
  * COLLECT consumes ordinary item rows on each shard and emits one payload per
  * shard group. The local COLLECT consumes coordinator merge rows, where each
  * row is already a shard group and the collected items are stored under
- * PLN_Reducer.sourceAlias. Outer coordinator GROUPBY reducers continue to
+ * PLN_Reducer.inputAlias. Outer coordinator GROUPBY reducers continue to
  * consume ordinary item rows.
  *
  * The local input source is not encoded in args; it is carried as planner
- * metadata and later resolved into ReducerOptions::source_key.
+ * metadata and later resolved into ReducerOptions::input_key.
  *
  * @param objs_buf     Caller-provided buffer; must hold at least src_args->argc + 3 elements
  * @param count_buf    Caller-provided buffer for the count string; must be at least

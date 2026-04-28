@@ -45,11 +45,11 @@ protected:
   }
 
   Reducer *parseCollect(std::vector<const char *> &args, QueryError *status,
-                        bool isLocal = false, const RLookupKey *sourceKey = NULL) {
+                        bool isLocal = false, const RLookupKey *inputKey = NULL) {
     ArgsCursor ac;
     ArgsCursor_InitCString(&ac, args.data(), args.size());
     ReducerOptions opts = REDUCEROPTS_INIT("COLLECT", &ac, &lk, NULL, status, true, isLocal,
-                                           sourceKey, 0);
+                                           inputKey, 0);
     return RDCRCollect_New(&opts);
   }
 
@@ -100,19 +100,19 @@ TEST_F(CollectParserTest, FieldsAndSortBy) {
   r->Free(r);
 }
 
-TEST_F(CollectParserTest, LocalFieldsUsePlannerSourceKey) {
-  const RLookupKey *sourceKey = RLookup_GetKey_Write(&lk, "remote_collect", RLOOKUP_F_NOFLAGS);
+TEST_F(CollectParserTest, LocalFieldsUsePlannerInputKey) {
+  const RLookupKey *inputKey = RLookup_GetKey_Write(&lk, "remote_collect", RLOOKUP_F_NOFLAGS);
   std::vector<const char *> args = {"FIELDS", "2", "@price", "@name"};
   QueryError status = QueryError_Default();
 
-  Reducer *r = parseCollect(args, &status, true, sourceKey);
+  Reducer *r = parseCollect(args, &status, true, inputKey);
 
   ASSERT_NE(r, nullptr) << QueryError_GetUserError(&status);
   r->Free(r);
   QueryError_ClearError(&status);
 }
 
-TEST_F(CollectParserTest, LocalCollectRequiresPlannerSourceKey) {
+TEST_F(CollectParserTest, LocalCollectRequiresPlannerInputKey) {
   std::vector<const char *> args = {"FIELDS", "1", "@price"};
   QueryError status = QueryError_Default();
 
@@ -121,7 +121,7 @@ TEST_F(CollectParserTest, LocalCollectRequiresPlannerSourceKey) {
   ASSERT_EQ(r, nullptr);
   const char *user_error = QueryError_GetUserError(&status);
   ASSERT_NE(user_error, nullptr);
-  EXPECT_TRUE(std::string(user_error).find("COLLECT source key was not provided") !=
+  EXPECT_TRUE(std::string(user_error).find("COLLECT input key was not provided") !=
               std::string::npos)
       << user_error;
   QueryError_ClearError(&status);

@@ -16,7 +16,7 @@ extern "C" {
  *
  * # Safety
  *
- * 1. `source_key` must be a [valid] pointer to an [`RLookupKey`] that remains
+ * 1. `input_key` must be a [valid] pointer to an [`RLookupKey`] that remains
  *    alive for the lifetime of the returned reducer.
  * 2. If `field_names_len > 0`, `field_names` must point to an array of at
  *    least `field_names_len` valid, NUL-terminated C strings.
@@ -25,7 +25,7 @@ extern "C" {
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-Reducer *CollectReducer_CreateLocal(const RLookupKey *source_key,
+Reducer *CollectReducer_CreateLocal(const RLookupKey *input_key,
                                     const char *const *field_names,
                                     uintptr_t field_names_len,
                                     const char *const *sort_names,

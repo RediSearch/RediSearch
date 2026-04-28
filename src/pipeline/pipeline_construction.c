@@ -47,19 +47,19 @@ static ResultProcessor *buildGroupRP(PLN_GroupStep *gstp, RLookup *srclookup,
   for (size_t ii = 0; ii < nreducers; ++ii) {
     // Build the actual reducer
     PLN_Reducer *pr = gstp->reducers + ii;
-    const RLookupKey *source_key = NULL;
-    if (pr->sourceAlias) {
-      source_key = RLookup_GetKey_Read(srclookup, pr->sourceAlias, RLOOKUP_F_HIDDEN);
-      if (!source_key) {
+    const RLookupKey *input_key = NULL;
+    if (pr->inputAlias) {
+      input_key = RLookup_GetKey_Read(srclookup, pr->inputAlias, RLOOKUP_F_HIDDEN);
+      if (!input_key) {
         Grouper_Free(grp);
         QueryError_SetWithUserDataFmt(err, QUERY_ERROR_CODE_NO_PROP_KEY,
                                       "Property not loaded nor in pipeline", ": `%s`",
-                                      pr->sourceAlias);
+                                      pr->inputAlias);
         return NULL;
       }
     }
     ReducerOptions options = REDUCEROPTS_INIT(pr->name, &pr->args, srclookup, loadKeys, err,
-                                              gstp->strictPrefix, pr->isLocal, source_key,
+                                              gstp->strictPrefix, pr->isLocal, input_key,
                                               reqflags);
     ReducerFactory ff = RDCR_GetFactory(pr->name);
     if (!ff) {

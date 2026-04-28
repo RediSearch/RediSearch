@@ -31,7 +31,7 @@ typedef struct {
   // Coord-mode names alias `options->args` and omit the leading `@`.
   arrayof(const char *) field_names;
   arrayof(const char *) sort_names;
-  const RLookupKey *source_key;
+  const RLookupKey *input_key;
 
   bool has_wildcard;
   uint64_t sortAscMap;
@@ -350,13 +350,13 @@ Reducer *RDCRCollect_New(const ReducerOptions *options) {
   ArgParser_Free(parser);
 
   if (options->is_local) {
-    if (!options->source_key) {
+    if (!options->input_key) {
       QueryError_SetError(options->status, QUERY_ERROR_CODE_PARSE_ARGS,
-        "COLLECT source key was not provided");
+        "COLLECT input key was not provided");
       CollectParseData_Free(&data);
       return NULL;
     }
-    data.source_key = options->source_key;
+    data.input_key = options->input_key;
   }
 
   if (data.has_wildcard) {
@@ -370,7 +370,7 @@ Reducer *RDCRCollect_New(const ReducerOptions *options) {
   Reducer *rbase;
   if (options->is_local) {
     rbase = CollectReducer_CreateLocal(
-      data.source_key,
+      data.input_key,
       (const char *const *)data.field_names,
       data.field_names ? array_len(data.field_names) : 0,
       (const char *const *)data.sort_names,

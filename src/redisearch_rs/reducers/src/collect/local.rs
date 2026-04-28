@@ -11,7 +11,7 @@
 //!
 //! This reducer consumes merge rows produced by the distributed `GROUPBY` split:
 //! each input row represents an already-collected shard group, and the collected
-//! items arrive as an [`Value`] payload under the planner-provided source key.
+//! items arrive as an [`Value`] payload under the planner-provided input key.
 //! It flattens those shard payloads and rebuilds the client-facing COLLECT
 //! result.
 //!
@@ -39,7 +39,7 @@ use crate::collect::common::CollectCommon;
 pub struct LocalCollectReducer<'a> {
     common: CollectCommon,
     /// Lookup key for the per-remote payload.
-    source_key: &'a RLookupKey<'a>,
+    input_key: &'a RLookupKey<'a>,
     field_names: Box<[Box<[u8]>]>,
     sort_key_names: Box<[Box<[u8]>]>,
 }
@@ -61,7 +61,7 @@ impl<'a> LocalCollectReducer<'a> {
     /// Create a reducer from C-parsed configuration. Names are owned byte
     /// copies because the local reducer cannot borrow remote `RLookupKey`s.
     pub fn new(
-        source_key: &'a RLookupKey<'a>,
+        input_key: &'a RLookupKey<'a>,
         field_names: Box<[Box<[u8]>]>,
         sort_key_names: Box<[Box<[u8]>]>,
         sort_asc_map: u64,
@@ -69,7 +69,7 @@ impl<'a> LocalCollectReducer<'a> {
     ) -> Self {
         Self {
             common: CollectCommon::new(sort_asc_map, limit),
-            source_key,
+            input_key,
             field_names,
             sort_key_names,
         }
@@ -91,7 +91,7 @@ impl LocalCollectCtx {
 
     /// Append maps from the remote payload; missing or malformed payloads are skipped.
     pub fn add(&mut self, r: &LocalCollectReducer, row: &RLookupRow) {
-        let Some(payload) = row.get(r.source_key) else {
+        let Some(payload) = row.get(r.input_key) else {
             return;
         };
         if let Value::Array(array) = &**payload {
