@@ -25,6 +25,10 @@ on:
         type: string
         description: "Optional: build RediSearch at this git ref instead of the dispatch ref. Accepts a branch name, a tag name, or a FULL 40-char commit SHA (actions/checkout rejects short SHAs). Benchmark specs and orchestration still come from the dispatch ref. Results get tagged with the resolved historical SHA and labeled `historical-<short-sha>` so they don't collide with master's series. Empty = today's behavior."
         default: ""
+      benchmark_groups:
+        type: string
+        description: "Optional comma-list to gate which benchmark groups run. Valid tokens: `search`, `vecsim`, `hybrid`, `msmarco`. Example: `search,vecsim` skips hybrid and msmarco even if their setup gate would otherwise match. Empty = all groups allowed (today's behavior). Skipped jobs still appear in the run UI as gray 'Skipped' but consume no compute."
+        default: ""
       rejson_branch:
         type: string
         default: master
@@ -49,6 +53,10 @@ on:
         type: string
         default: ""
         description: "Optional historical git ref to build instead of the dispatch ref."
+      benchmark_groups:
+        type: string
+        default: ""
+        description: "Comma list of benchmark groups to allow (search,vecsim,hybrid,msmarco). Empty = all."
       notify_failure:
         type: boolean
         default: false
@@ -72,7 +80,7 @@ jobs:
       git_ref: ${{ inputs.git_ref }}
 
   benchmark-search-oss-standalone:
-    if: ${{ inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-standalone' }}
+    if: ${{ (inputs.benchmark_groups == '' || contains(format(',{0},', inputs.benchmark_groups), ',search,')) && (inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-standalone') }}
     needs: build-redisearch
     strategy:
       fail-fast: false
@@ -97,7 +105,7 @@ jobs:
   # oss-standalone-redisearch-m7-aarch64 terraform dir (m7g.8xlarge DB +
   # m7g.4xlarge client, matched AMI/installer scripts to the x86 m7 pair).
   benchmark-search-oss-standalone-aarch64:
-    if: ${{ inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-standalone' }}
+    if: ${{ (inputs.benchmark_groups == '' || contains(format(',{0},', inputs.benchmark_groups), ',search,')) && (inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-standalone') }}
     needs: build-redisearch-aarch64
     strategy:
       fail-fast: false
@@ -143,7 +151,7 @@ jobs:
       test_regex: ${{ inputs.test_regex }}
 
   benchmark-vecsim-oss-standalone:
-    if: ${{ inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-standalone' }}
+    if: ${{ (inputs.benchmark_groups == '' || contains(format(',{0},', inputs.benchmark_groups), ',vecsim,')) && (inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-standalone') }}
     needs: build-redisearch
     strategy:
       fail-fast: false
@@ -164,7 +172,7 @@ jobs:
       test_regex: ${{ inputs.test_regex }}
 
   benchmark-vecsim-oss-standalone-threads-6:
-    if: ${{ inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-standalone-threads-6' }}
+    if: ${{ (inputs.benchmark_groups == '' || contains(format(',{0},', inputs.benchmark_groups), ',vecsim,')) && (inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-standalone-threads-6') }}
     needs: build-redisearch
     strategy:
       fail-fast: false
@@ -185,7 +193,7 @@ jobs:
       test_regex: ${{ inputs.test_regex }}
 
   benchmark-search-oss-cluster-02-primaries:
-    if: ${{ inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-cluster-02-primaries' }}
+    if: ${{ (inputs.benchmark_groups == '' || contains(format(',{0},', inputs.benchmark_groups), ',search,')) && (inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-cluster-02-primaries') }}
     needs: build-redisearch
     strategy:
       fail-fast: false
@@ -206,7 +214,7 @@ jobs:
       test_regex: ${{ inputs.test_regex }}
 
   benchmark-search-oss-cluster-04-primaries:
-    if: ${{ inputs.extended && (inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-cluster-04-primaries') }}
+    if: ${{ (inputs.benchmark_groups == '' || contains(format(',{0},', inputs.benchmark_groups), ',search,')) && (inputs.extended && (inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-cluster-04-primaries')) }}
     needs: build-redisearch
     strategy:
       fail-fast: false
@@ -249,7 +257,7 @@ jobs:
       test_regex: ${{ inputs.test_regex }}
 
   benchmark-search-oss-cluster-08-primaries:
-    if: ${{ inputs.extended && (inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-cluster-08-primaries') }}
+    if: ${{ (inputs.benchmark_groups == '' || contains(format(',{0},', inputs.benchmark_groups), ',search,')) && (inputs.extended && (inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-cluster-08-primaries')) }}
     needs: build-redisearch
     strategy:
       fail-fast: false
@@ -270,7 +278,7 @@ jobs:
       test_regex: ${{ inputs.test_regex }}
 
   benchmark-msmarco-oss-cluster-08-primaries-250gb-threads-8:
-    if: ${{ inputs.allowed_setup == 'oss-cluster-08-primaries-250gb-threads-8' }}
+    if: ${{ (inputs.benchmark_groups == '' || contains(format(',{0},', inputs.benchmark_groups), ',msmarco,')) && (inputs.allowed_setup == 'oss-cluster-08-primaries-250gb-threads-8') }}
     needs: build-redisearch
     uses: ./.github/workflows/benchmark-flow.yml
     secrets: inherit
@@ -285,7 +293,7 @@ jobs:
       test_regex: ${{ inputs.test_regex }}
 
   benchmark-search-oss-cluster-16-primaries:
-    if: ${{ inputs.extended && (inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-cluster-16-primaries') }}
+    if: ${{ (inputs.benchmark_groups == '' || contains(format(',{0},', inputs.benchmark_groups), ',search,')) && (inputs.extended && (inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-cluster-16-primaries')) }}
     needs: build-redisearch
     strategy:
       fail-fast: false
@@ -306,7 +314,7 @@ jobs:
       test_regex: ${{ inputs.test_regex }}
 
   benchmark-search-oss-cluster-20-primaries:
-    if: ${{ inputs.extended && (inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-cluster-20-primaries') }}
+    if: ${{ (inputs.benchmark_groups == '' || contains(format(',{0},', inputs.benchmark_groups), ',search,')) && (inputs.extended && (inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-cluster-20-primaries')) }}
     needs: build-redisearch
     strategy:
       fail-fast: false
@@ -327,7 +335,7 @@ jobs:
       test_regex: ${{ inputs.test_regex }}
 
   benchmark-search-oss-cluster-24-primaries:
-    if: ${{ inputs.extended && (inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-cluster-24-primaries') }}
+    if: ${{ (inputs.benchmark_groups == '' || contains(format(',{0},', inputs.benchmark_groups), ',search,')) && (inputs.extended && (inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-cluster-24-primaries')) }}
     needs: build-redisearch
     strategy:
       fail-fast: false
@@ -348,7 +356,7 @@ jobs:
       test_regex: ${{ inputs.test_regex }}
 
   benchmark-hybrid-oss-standalone:
-    if: ${{ inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-standalone' }}
+    if: ${{ (inputs.benchmark_groups == '' || contains(format(',{0},', inputs.benchmark_groups), ',hybrid,')) && (inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-standalone') }}
     needs: build-redisearch
     strategy:
       fail-fast: false
