@@ -70,7 +70,7 @@ pub unsafe extern "C" fn CollectReducer_Create(
 
     cr.reducer_mut()
         .set_new_instance(collectNewInstance)
-        .set_add(collectAdd)
+        .set_add(collectAddShard)
         .set_finalize(collectFinalize)
         .set_free_instance(collectFreeInstance)
         .set_free(collectFree);
@@ -109,8 +109,8 @@ pub unsafe extern "C" fn collectFreeInstance(_r: *mut ffi::Reducer, ctx: *mut c_
     unsafe { ptr::drop_in_place(ctx.cast::<CollectCtx>()) }
 }
 
-/// Processes the provided [`ffi::RLookupRow`] with the collect reducer
-/// instance.
+/// Shard-style `Add`: reads each configured field / sort key from an
+/// [`ffi::RLookupRow`] and forwards to [`CollectCtx::insert_entry`].
 ///
 /// # Safety
 ///
@@ -120,7 +120,7 @@ pub unsafe extern "C" fn collectFreeInstance(_r: *mut ffi::Reducer, ctx: *mut c_
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn collectAdd(
+pub unsafe extern "C" fn collectAddShard(
     r: *mut ffi::Reducer,
     ctx: *mut c_void,
     srcrow: *const ffi::RLookupRow,

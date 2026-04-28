@@ -1278,6 +1278,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f8ca58f447f06ed17d5fc4043ce1b10dd205e060fb3ce5b979b8ed8e59ff3f79"
 
 [[package]]
+name = "min-max-heap"
+version = "1.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2687e6cf9c00f48e9284cf9fd15f2ef341d03cc7743abf9df4c5f07fdee50b18"
+
+[[package]]
 name = "minimal-lexical"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1892,9 +1898,14 @@ dependencies = [
 name = "reducers"
 version = "0.0.1"
 dependencies = [
+ "build_utils",
  "bumpalo",
  "ffi",
+ "min-max-heap",
  "query_error",
+ "redis_mock",
+ "redisearch_rs",
+ "reducers",
  "rlookup",
  "value",
  "workspace_hack",

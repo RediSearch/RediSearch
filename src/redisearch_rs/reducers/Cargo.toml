@@ -8,10 +8,24 @@ publish.workspace = true
 [dependencies]
 bumpalo.workspace = true
 ffi.workspace = true
+min-max-heap.workspace = true
 query_error.workspace = true
 rlookup.workspace = true
 value.workspace = true
 workspace_hack.workspace = true
+
+[dev-dependencies]
+redisearch_rs = { workspace = true, features = ["mock_allocator"] }
+redis_mock.workspace = true
+
+# Crate required to invoke C symbols
+reducers = { path = ".", features = ["unittest"] }
+
+[build-dependencies]
+build_utils.workspace = true
+
+[features]
+unittest = []
 
 [lints]
 workspace = true
