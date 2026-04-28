@@ -11,8 +11,7 @@
 #include "vector_index.h"
 #include "shard_window_ratio.h"
 #include "redisearch_rs/headers/query_error.h"
-
-#include <vector>
+#include "hybrid/hybrid_cursor_mappings.h"
 
 #define TEST_BLOB_DATA "AQIDBAUGBwgJCg=="
 
@@ -20,9 +19,7 @@ extern "C" {
 void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
                                   ProfileOptions profileOptions,
                                   MRCommand *xcmd, arrayof(char *) serialized,
-                                  IndexSpec *sp,
-                                  const VectorQuery *vq,
-                                  size_t numShards);
+                                  IndexSpec *sp, int *outKArgIndex);
 }
 
 class HybridBuildMRCommandTest : public ::testing::Test {
@@ -40,6 +37,9 @@ protected:
     }
 
     void TearDown() override {
+        if (testIndexSpec) {
+            IndexSpec_RemoveFromGlobals(testIndexSpec->own_ref, false);
+        }
         if (ctx) {
             RedisModule_FreeThreadSafeContext(ctx);
         }
@@ -70,19 +70,15 @@ protected:
 
     // Helper function to test SHARD_K_RATIO command transformation
     // Uses stack-allocated variables following the pattern in hybrid_debug.c
+    // Tests the new architecture where:
+    // 1. HybridRequest_buildMRCommand builds the command with original K value
+    // 2. HybridKnnApplyShardKRatio is called on IO thread to calculate effectiveK
     void testShardKRatioTransformation(const std::vector<const char*>& inputArgs,
                                        size_t numShards,
                                        size_t expectedK,
                                        double expectedRatio,
                                        long long expectedEffectiveK,
-                                       bool passNullVectorQuery = false) {
-        // Access the global NumShards variable for testing
-        extern size_t NumShards;
-
-        // Save and set NumShards
-        size_t originalNumShards = NumShards;
-        NumShards = numShards;
-
+                                       bool passNullKnnContext = false) {
         // Set up args
         std::vector<const char*> argsWithNull = inputArgs;
         argsWithNull.push_back(nullptr);
@@ -115,7 +111,6 @@ protected:
                 HybridScoringContext_Free(hybridParams.scoringCtx);
             }
             HybridRequest_DecrRef(hreq);
-            NumShards = originalNumShards;
             FAIL() << "Failed to parse hybrid command";
         }
 
@@ -123,20 +118,41 @@ protected:
         const VectorQuery *vq = validateVectorQuery(cmd.vector, expectedK, expectedRatio);
         ASSERT_NE(vq, nullptr) << "VectorQuery validation failed";
 
-        // Build MR command
+        // Build MR command - now returns kArgIndex instead of calculating effectiveK
         MRCommand xcmd;
+        int kArgIndex = -1;
         HybridRequest_buildMRCommand(args, args.size(), EXEC_NO_FLAGS, &xcmd,
-                                     nullptr, testIndexSpec,
-                                     passNullVectorQuery ? nullptr : vq, numShards);
+                                     nullptr, testIndexSpec, &kArgIndex);
 
         // Verify the command was built correctly
         EXPECT_STREQ(xcmd.strs[0], "_FT.HYBRID");
 
-        // Verify K value in output command
+        // Verify K value in output command is the ORIGINAL K value (before modifier)
         long long kValue;
         int kIndex = findKValue(&xcmd, &kValue);
         EXPECT_NE(kIndex, -1) << "K keyword should be present in output command";
-        EXPECT_EQ(kValue, expectedEffectiveK) << "K value mismatch";
+        EXPECT_EQ(kValue, (long long)expectedK) << "Initial K value should be original K";
+
+        // Verify kArgIndex points to the correct position (kIndex + 1 is the value)
+        EXPECT_EQ(kArgIndex, kIndex + 1) << "kArgIndex should point to K value position";
+
+        // Simulate the IO thread applying the SHARD_K_RATIO optimization.
+        // Call HybridKnnApplyShardKRatio directly to avoid duplicating the
+        // file-local processCursorMappingCallbackContext layout used by the
+        // HybridKnnCommandModifier callback wrapper.
+        if (!passNullKnnContext) {
+            HybridKnnContext knnCtxValue = {};
+            knnCtxValue.originalK = vq->knn.k;
+            knnCtxValue.shardWindowRatio = vq->knn.shardWindowRatio;
+            knnCtxValue.kArgIndex = kArgIndex;
+
+            HybridKnnApplyShardKRatio(&xcmd, numShards, &knnCtxValue);
+
+            // Verify K value is now updated to effectiveK
+            kIndex = findKValue(&xcmd, &kValue);
+            EXPECT_NE(kIndex, -1) << "K keyword should still be present after modification";
+            EXPECT_EQ(kValue, expectedEffectiveK) << "K value should be effectiveK after modifier";
+        }
 
         // Cleanup (following hybrid_debug.c pattern)
         MRCommand_Free(&xcmd);
@@ -144,7 +160,6 @@ protected:
             HybridScoringContext_Free(hybridParams.scoringCtx);
         }
         HybridRequest_DecrRef(hreq);
-        NumShards = originalNumShards;
     }
 
     // Helper function to find K value in MRCommand
@@ -175,11 +190,11 @@ protected:
         // Create ArgvList from input
         RMCK::ArgvList args(ctx, argsWithNull.data(), inputArgs.size());
 
-        // Build MR command (pass NULL for VectorQuery - not testing
-        // SHARD_K_RATIO here)
+        // Build MR command
         MRCommand xcmd;
+        int kArgIndex = -1;
         HybridRequest_buildMRCommand(args, args.size(), EXEC_NO_FLAGS, &xcmd,
-                                     nullptr, nullptr, nullptr, NumShards);
+                                     nullptr, nullptr, &kArgIndex);
 
         // Verify transformation: FT.HYBRID -> _FT.HYBRID
         EXPECT_STREQ(xcmd.strs[0], "_FT.HYBRID");
@@ -220,14 +235,14 @@ protected:
       ASSERT_NE(sp->rule->prefixes, nullptr) << "IndexSpec rule should have prefixes";
       ASSERT_EQ(array_len(sp->rule->prefixes), 2) << "IndexSpec rule should have 2 prefixes";
 
-      // Build MR command (pass NULL for VectorQuery - not testing
-      // SHARD_K_RATIO here)
+      // Build MR command (not testing SHARD_K_RATIO here)
       MRCommand xcmd;
+      int kArgIndex = -1;
       HybridRequest_buildMRCommand(args, args.size(), EXEC_NO_FLAGS, &xcmd,
-                                   nullptr, sp, nullptr, NumShards);
+                                   nullptr, sp, &kArgIndex);
       // Verify transformation: FT.HYBRID -> _FT.HYBRID
       EXPECT_STREQ(xcmd.strs[0], "_FT.HYBRID");
-        // Verify all other original args are preserved (except first). Attention: This is not true if TIMEOUT is not at the end before DIALECT
+      // Verify all other original args are preserved (except first). Attention: This is not true if TIMEOUT is not at the end before DIALECT
       for (size_t i = 1; i < inputArgs.size(); i++) {
           EXPECT_STREQ(xcmd.strs[i], inputArgs[i]) << "Argument at index " << i << " should be preserved";
       }

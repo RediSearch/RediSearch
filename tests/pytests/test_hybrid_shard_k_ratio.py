@@ -348,3 +348,34 @@ def test_shard_k_ratio_insufficient_docs():
     env.assertEqual(
         total_count, expected_result_count,
         message=f"FT.HYBRID with SHARD_K_RATIO: expected {expected_result_count} results, got {total_count}")
+
+
+@skip(cluster=False)
+def test_debug_hybrid_with_shard_k_ratio():
+    env = Env(moduleArgs='DEFAULT_DIALECT 2', enableDebugCommand=True)
+
+    dim = 2
+    k = 6  # multiple of 3 shards so effectiveK is unambiguous
+    setup_basic_index(env, dim)
+
+    conn = getConnectionByEnv(env)
+    for i in range(1, 11):
+        vec = create_np_array_typed([float(i)] * dim)
+        conn.execute_command('HSET', f'doc{i}', 'v', vec.tobytes(), 't', 'some text')
+
+    query_vec = create_random_np_array_typed(dim, 'FLOAT32')
+    ratio = 0.5  # < 1.0, multi-shard => modifier path is active
+
+    # Use a non-matching SEARCH term so result count is driven solely by VSIM K.
+    res = env.cmd('_FT.DEBUG', 'FT.HYBRID', 'idx',
+                  'SEARCH', 'nonexistent_term_xyz',
+                  'VSIM', '@v', '$BLOB',
+                    'KNN', '4', 'K', k, 'SHARD_K_RATIO', ratio,
+                  'PARAMS', '2', 'BLOB', query_vec.tobytes(),
+                  'TIMEOUT_AFTER_N_SEARCH', '1000000', 'DEBUG_PARAMS_COUNT', '2')
+
+    # Response format: ['total_results', N, 'results', [...], ...]
+    actual_result_count = len(res[3])
+    env.assertEqual(actual_result_count, k,
+                    message=f"_FT.DEBUG FT.HYBRID with SHARD_K_RATIO={ratio}, K={k}: "
+                            f"expected {k} results, got {actual_result_count}")

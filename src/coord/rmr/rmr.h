@@ -120,6 +120,18 @@ typedef struct MRIterator MRIterator;
 
 typedef void (*MRIteratorCallback)(MRIteratorCallbackCtx *ctx, MRReply *rep);
 
+/**
+ * Callback type for modifying commands before they are sent to shards.
+ * Called from iterStartCb on the IO thread after numShards is known but before
+ * commands are sent.
+ * This allows calculating values like effectiveK based on the actual topology.
+ *
+ * @param cmd The command to modify (will be copied for each shard after this callback)
+ * @param numShards The actual number of shards from the IO thread's topology
+ * @param privateData The private data passed to MR_IterateWithPrivateData
+ */
+typedef void (*MRCommandModifier)(MRCommand *cmd, size_t numShards, void *privateData);
+
 // Trigger all the commands in the iterator to be sent.
 // Returns true if there may be more replies to come, false if we are done.
 bool MR_ManuallyTriggerNextIfNeeded(MRIterator *it, size_t channelThreshold);
@@ -134,11 +146,10 @@ MRReply *MRIterator_Next(MRIterator *it);
  * Returns: the next reply, or NULL if no more replies or timed out */
 MRReply *MRIterator_NextWithTimeout(MRIterator *it, const struct timespec *abstime, bool *timedOut);
 
-MRIterator *MR_Iterate(const MRCommand *cmd, MRIteratorCallback cb);
-
 MRIterator *MR_IterateWithPrivateData(const MRCommand *cmd, MRIteratorCallback cb, void *cbPrivateData,
                                       void (*cbPrivateDataDestructor)(void *),
-                                      void (*cbPrivateDataInit)(void *, MRIterator *),
+                                      void (*cbPrivateDataInit)(void *, const MRIterator *),
+                                      MRCommandModifier commandModifier,
                                       void (*iterStartCb)(void *), StrongRef *iterStartCbPrivateData);
 
 MRCommand *MRIteratorCallback_GetCommand(MRIteratorCallbackCtx *ctx);
