@@ -79,12 +79,12 @@ static void handleCollectFieldsLocal(ArgParser *parser, const void *value, void 
     size_t len;
     if (AC_GetString(ac, &s, &len, 0) != AC_OK) {
       QueryError_SetError(opts->status, QUERY_ERROR_CODE_PARSE_ARGS,
-        "FIELDS (local) missing field name");
+        "FIELDS missing field name");
       return;
     }
     if (len == 1 && s[0] == '*') {
       QueryError_SetError(opts->status, QUERY_ERROR_CODE_PARSE_ARGS,
-        "Wildcard `*` in FIELDS is not supported by local COLLECT");
+        "COLLECT does not yet support `*` in FIELDS");
       return;
     }
     if (len == 0 || s[0] != '@') {
@@ -118,7 +118,7 @@ static void handleCollectFieldsRemote(ArgParser *parser, const void *value, void
     if (AC_AdvanceIfMatch(ac, "*")) {
       if (data->has_wildcard) {
         QueryError_SetError(opts->status, QUERY_ERROR_CODE_PARSE_ARGS,
-          "Wildcard `*` can only appear once in FIELDS");
+          "`*` can only appear once in FIELDS");
         return;
       }
       data->has_wildcard = true;
@@ -352,7 +352,7 @@ Reducer *RDCRCollect_New(const ReducerOptions *options) {
   if (options->is_local) {
     if (!options->source_key) {
       QueryError_SetError(options->status, QUERY_ERROR_CODE_PARSE_ARGS,
-        "COLLECT local source key was not provided");
+        "COLLECT source key was not provided");
       CollectParseData_Free(&data);
       return NULL;
     }
@@ -361,7 +361,7 @@ Reducer *RDCRCollect_New(const ReducerOptions *options) {
 
   if (data.has_wildcard) {
     QueryError_SetError(options->status, QUERY_ERROR_CODE_PARSE_ARGS,
-      "COLLECT does not yet support wildcard `*` in FIELDS");
+      "COLLECT does not yet support `*` in FIELDS");
     CollectParseData_Free(&data);
     return NULL;
   }
