@@ -35,6 +35,7 @@
 #define RS_ALIASDEL RS_CMD_WRITE_PREFIX ".ALIASDEL"
 #define RS_ALIASDEL_IF_EX RS_CMD_WRITE_PREFIX "._ALIASDELIFX"        // for replica of support
 #define RS_ALIASUPDATE RS_CMD_WRITE_PREFIX ".ALIASUPDATE"
+#define RS_ALIASLIST RS_CMD_READ_PREFIX ".ALIASLIST"
 #define RS_RESTORE_IF_NX RS_CMD_WRITE_PREFIX "._RESTOREIFNX"         // for replica of support (Currently there is no FT.RESTORE command)
 
 // Legacy write commands that are key-bounded (+ extra legacy commands that have to be registered for enterprise)
