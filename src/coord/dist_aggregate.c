@@ -194,8 +194,8 @@ static inline int getProfileArgs(ProfileOptions profileOptions) {
 // Outputs VectorQuery and query arg index for command modifier
 static void extractKnnOptimizationContext(specialCaseCtx *knnCtx, ProfileOptions profileOptions,
                                           VectorQuery **outKnnVq, size_t *outQueryArgIndex) {
-  if (outKnnVq) *outKnnVq = NULL;
-  if (outQueryArgIndex) *outQueryArgIndex = 0;
+  RS_ASSERT(outKnnVq != NULL);
+  RS_ASSERT(outQueryArgIndex != NULL);
 
   const KNNVectorQuery *knn_query = &knnCtx->knn.queryNode->vn.vq->knn;
   double ratio = knn_query->shardWindowRatio;
@@ -203,8 +203,8 @@ static void extractKnnOptimizationContext(specialCaseCtx *knnCtx, ProfileOptions
   if (ratio < MAX_SHARD_WINDOW_RATIO) {
     int profileArgs = getProfileArgs(profileOptions);
     // Store the VectorQuery and query arg index for the command modifier
-    if (outKnnVq) *outKnnVq = knnCtx->knn.queryNode->vn.vq;
-    if (outQueryArgIndex) *outQueryArgIndex = 2 + profileArgs;  // Query is at index 2 + profileArgs
+    *outKnnVq = knnCtx->knn.queryNode->vn.vq;
+    *outQueryArgIndex = 2 + profileArgs;  // Query is at index 2 + profileArgs
   }
 }
 
