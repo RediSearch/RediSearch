@@ -161,7 +161,7 @@ where
         let wcii = if disk_index_available {
             // SAFETY: Caller guarantees `spec.diskSpec` is valid, non-null and
             // remains valid for `'index` (5).
-            let disk_spec = unsafe { &*spec.diskSpec };
+            let disk_spec = unsafe { &mut *spec.diskSpec };
             // SAFETY: Caller guarantees all preconditions of `new_wildcard_iterator_on_disk` hold (5).
             unsafe { new_wildcard_iterator_on_disk(disk_spec, weight) }
         } else {
