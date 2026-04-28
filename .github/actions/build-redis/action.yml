@@ -86,7 +86,7 @@ runs:
 
     - name: Build Redis (cache miss)
       if: ${{ steps.cache-restore.outputs.cache-hit != 'true' }}
-      shell: bash
+      shell: bash -leo pipefail {0}
       working-directory: redis
       env:
         PREFIX: ${{ steps.resolve.outputs.prefix }}
