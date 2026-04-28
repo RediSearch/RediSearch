@@ -409,6 +409,7 @@ jobs:
           REJSON_BRANCH: ${{ inputs.rejson-branch }}
           ENABLE_ASSERT: 1
           TEST_CONFIG: ${{ inputs.test-config }}
+          TEST: test_info_modules
         run: make pytest $TEST_CONFIG
 
       - name: Rust tests (MIRI)
