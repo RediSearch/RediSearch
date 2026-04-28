@@ -54,6 +54,7 @@ typedef struct {
   size_t maxBatchSize;             // Maximum batch size used during batches mode
   size_t maxBatchIteration;        // Iteration (zero-based) where the maximum batch size occurred
   bool canTrimDeepResults;         // Ignore the document scores, only vector score matters. No need to deep copy the results from the child iterator.
+  bool checkFieldExpiration;       // Hoisted gate; refreshed in HR_Revalidate.
   TimeoutCtx timeoutCtx;           // Timeout parameters
   FieldFilterContext filterCtx;
 } HybridIterator;

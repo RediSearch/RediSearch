@@ -10,7 +10,6 @@
 #ifndef TTL_TABLE_H
 #define TTL_TABLE_H
 #include "redisearch.h"
-#include "util/dict.h"
 #include "stdbool.h"
 #include "util/arr.h"
 
@@ -23,19 +22,32 @@ typedef struct {
   t_expirationTimePoint point;
 } FieldExpiration;
 
-typedef dict TimeToLiveTable;
+typedef struct TimeToLiveTable TimeToLiveTable;
 
-void TimeToLiveTable_VerifyInit(TimeToLiveTable **table);
+// Lazy-init: allocates the table on first use with `maxSize` as the fixed
+// modulus for the slot formula. Caller (DocTable) passes its own
+// `t->maxSize` so the two tables' slot formulas are identical by
+// construction and cannot drift if `search-max-doctablesize` is later
+// mutated. No-op if the table is already initialized.
+//
+// The table only holds field-level (HEXPIRE) expirations: doc-level TTL is
+// inlined directly on `RSDocumentMetadata::expirationTimeNs` so the
+// result-processor hot path can avoid this lookup entirely.
+void TimeToLiveTable_VerifyInit(TimeToLiveTable **table, size_t maxSize);
 void TimeToLiveTable_Destroy(TimeToLiveTable **table);
-void TimeToLiveTable_Add(TimeToLiveTable *table, t_docId docId, t_expirationTimePoint docExpiration, arrayof(FieldExpiration) sortedById);
+// Adds a field-level expiration entry. `sortedById` must be non-empty;
+// ownership of the array transfers to the table.
+void TimeToLiveTable_Add(TimeToLiveTable *table, t_docId docId, arrayof(FieldExpiration) sortedById);
 void TimeToLiveTable_Remove(TimeToLiveTable *table, t_docId docId);
 bool TimeToLiveTable_IsEmpty(TimeToLiveTable *table);
-
-bool TimeToLiveTable_HasDocExpired(TimeToLiveTable *table, t_docId docId, const struct timespec* expirationPoint);
 
 bool TimeToLiveTable_VerifyDocAndField(TimeToLiveTable *table, t_docId docId, t_fieldIndex fieldIndex, enum FieldExpirationPredicate predicate, const struct timespec* expirationPoint);
 bool TimeToLiveTable_VerifyDocAndFieldMask(TimeToLiveTable *table, t_docId docId, uint32_t fieldMask, enum FieldExpirationPredicate predicate, const struct timespec* expirationPoint, const t_fieldIndex* ftIdToFieldIndex);
 bool TimeToLiveTable_VerifyDocAndWideFieldMask(TimeToLiveTable *table, t_docId docId, t_fieldMask fieldMask, enum FieldExpirationPredicate predicate, const struct timespec* expirationPoint, const t_fieldIndex* ftIdToFieldIndex);
+
+// Test-only: number of buckets currently allocated (lazy-growth high-water
+// mark). Not exposed for runtime use.
+size_t TimeToLiveTable_DebugAllocatedBuckets(const TimeToLiveTable *table);
 
 #ifdef __cplusplus
 }
