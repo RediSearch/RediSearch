@@ -49,6 +49,11 @@ typedef struct {
 
 // Combined context for MR_IterateWithPrivateData in FT.AGGREGATE
 // Contains optional barrier (for WITHCOUNT) and optional KNN context (for SHARD_K_RATIO)
+//
+// Ownership: once MR_IterateWithPrivateData succeeds the MRIterator owns this
+// struct and is responsible for freeing it via aggregateIteratorContext_Free.
+// The struct in turn owns its `barrier` and `knnCtx` allocations (but not
+// knnCtx->vq, which is borrowed from the parsed query).
 typedef struct {
   ShardResponseBarrier *barrier;  // May be NULL if WITHCOUNT not enabled
   AggregateKnnContext *knnCtx;    // May be NULL if no KNN optimization needed
@@ -127,11 +132,15 @@ static int rpnetNext_Start(ResultProcessor *rp, SearchResult *r) {
   // This holds both optional barrier (for WITHCOUNT) and optional KNN context (for SHARD_K_RATIO)
   AggregateIteratorContext *iterCtx = rm_calloc(1, sizeof(AggregateIteratorContext));
 
-  // Initialize shard response barrier if WITHCOUNT is enabled
+  // Initialize shard response barrier if WITHCOUNT is enabled.
+  // The barrier is owned by iterCtx (and thus by the MRIterator after
+  // MR_IterateWithPrivateData below); nc->shardResponseBarrier is a non-owning
+  // alias for use by the coord thread in getNextReply. rpnetFree releases the
+  // iterator and then frees nc without touching the alias again.
   if (HasWithCount(nc->areq) && IsAggregate(nc->areq)) {
     ShardResponseBarrier *barrier = shardResponseBarrier_New();
     iterCtx->barrier = barrier;
-    nc->shardResponseBarrier = barrier;  // Keep reference for getNextReply
+    nc->shardResponseBarrier = barrier;  // non-owning alias for getNextReply
   }
 
   // Initialize KNN context if SHARD_K_RATIO optimization is needed
@@ -156,9 +165,10 @@ static int rpnetNext_Start(ResultProcessor *rp, SearchResult *r) {
                                               cmdModifier, iterStartCb, NULL);
 
   if (!it) {
-    // Clean up on error - iterator never started so no callbacks running
-    // Must free manually since iterator didn't take ownership
-    nc->shardResponseBarrier = NULL;  // Will be freed by aggregateIteratorContext_Free
+    // Iterator never started, so no callbacks are running and the iterator did
+    // not take ownership of iterCtx. Drop the non-owning alias on nc and free
+    // iterCtx, which in turn frees the barrier it owns.
+    nc->shardResponseBarrier = NULL;
     aggregateIteratorContext_Free(iterCtx);
     return RS_RESULT_ERROR;
   }
