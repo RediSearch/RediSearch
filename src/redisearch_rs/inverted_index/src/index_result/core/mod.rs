@@ -11,13 +11,12 @@ mod proximity;
 
 use std::ptr;
 
-use ffi::{
-    FieldMask, RS_FIELDMASK_ALL, RSDocumentMetadata, RSYieldableMetric, t_docId, t_fieldMask,
-};
+use ffi::{FieldMask, RS_FIELDMASK_ALL, RSDocumentMetadata, t_docId, t_fieldMask};
 use query_term::RSQueryTerm;
 
 use super::aggregate::RSAggregateResult;
 use super::kind::RSResultKind;
+use super::metrics::MetricsVec;
 use super::offsets::{RSOffsetSlice, RSOffsetVector};
 use super::result_data::RSResultData;
 use super::term_record::RSTermRecord;
@@ -166,7 +165,7 @@ impl<'index> RSIndexResultBuilder<'index> {
             field_mask: self.field_mask,
             freq: self.freq,
             data: self.data,
-            metrics: ptr::null_mut(),
+            metrics: MetricsVec::new(),
             weight: self.weight,
         }
     }
@@ -276,46 +275,10 @@ impl<'index> RSTermResultBuilder<'index> {
             field_mask: self.field_mask,
             freq: self.freq,
             data,
-            metrics: ptr::null_mut(),
+            metrics: MetricsVec::new(),
             weight: self.weight,
         }
     }
-}
-
-// Manually define some C functions, because we'll create a circular dependency if we use the FFI
-// crate to make them automatically.
-unsafe extern "C" {
-    /// Adds the metrics of a child [`RSYieldableMetric`] to the parent [`RSYieldableMetric`].
-    ///
-    /// # Safety
-    /// Both should be valid `RSYieldableMetric` instances.
-    unsafe fn RSYieldableMetric_Concat(
-        parent: *mut *mut RSYieldableMetric,
-        child: *const RSYieldableMetric,
-    );
-
-    /// Free the metrics
-    ///
-    /// # Safety
-    /// The caller must ensure that the `metrics` pointer is either `null` or valid and points to a `*mut RSYieldableMetric`.
-    unsafe fn ResultMetrics_Free(metrics: *mut RSYieldableMetric);
-
-    /// reset the metrics
-    ///
-    /// # Safety
-    /// The caller must ensure that the `metrics` pointer is either `null` or valid and points to a `*mut RSYieldableMetric`.
-    #[expect(
-        improper_ctypes,
-        reason = "RSQueryTerm is opaque - accessed via FFI functions only"
-    )]
-    pub unsafe fn ResultMetrics_Reset_func(result: *mut RSIndexResult);
-
-    /// Make a complete clone of the metrics array and increment the reference count of each value
-    ///
-    /// # Safety
-    /// The caller must ensure that the `src` pointer is valid and points to an `RSYieldableMetric`.
-    /// The caller must also not free the returned pointer, but should use `ResultMetrics_Free` instead.
-    unsafe fn RSYieldableMetrics_Clone(src: *mut RSYieldableMetric) -> *mut RSYieldableMetric;
 }
 
 /// The result of an inverted index
@@ -338,8 +301,11 @@ pub struct RSIndexResult<'index> {
     /// The actual data of the result
     data: RSResultData<'index>,
 
-    /// Holds an array of metrics yielded by the different iterators in the AST
-    pub metrics: *mut RSYieldableMetric,
+    /// Holds an array of metrics yielded by the different iterators in the AST.
+    ///
+    /// Backed by [`ThinVec`](thin_vec::ThinVec) — pointer-sized, no
+    /// allocation when empty.
+    pub metrics: MetricsVec<'index>,
 
     /// Relative weight for scoring calculations. This is derived from the result's iterator weight
     pub weight: f64,
@@ -386,14 +352,7 @@ impl<'index> RSIndexResult<'index> {
         if let Some(agg) = self.as_aggregate_mut() {
             agg.reset();
         }
-        if !self.metrics.is_null() {
-            // SAFETY: The null check above guarantees non-null. The pointer is valid
-            // because it was returned by `RSYieldableMetric_Concat` (or equivalent
-            // allocator) and has not been freed — this is the only free before we
-            // set the pointer to null.
-            unsafe { ResultMetrics_Free(self.metrics) };
-            self.metrics = std::ptr::null_mut();
-        }
+        self.metrics.reset();
     }
 
     /// Create a builder for a hybrid metric index result
@@ -703,38 +662,44 @@ impl<'index> RSIndexResult<'index> {
 
     /// If this is an aggregate result, then add a child to it. Also updates the following of this
     /// record:
-    /// - The document ID will inherit the new child added
-    /// - The child's frequency will contribute to this result
-    /// - The child's field mask will contribute to this result's field mask
-    /// - If the child has metrics, then they will be concatenated to this result's metrics
+    /// - `doc_id` is set to the child's doc_id (inherits, not accumulated)
+    /// - `freq` is accumulated (`+=`) from the child's frequency
+    /// - `field_mask` is OR'd with the child's field mask
+    /// - `child_metrics` are concatenated (moved) into this result's metrics
     ///
     /// If this is not an aggregate result, then nothing happens. Use [`Self::is_aggregate()`] first
     /// to make sure this is an aggregate result.
     ///
+    /// The caller must drain the child's metrics via `std::mem::take(&mut child.metrics)`
+    /// before calling this method, and pass them as `child_metrics`.
+    ///
     /// # Safety
     ///
-    /// The given `result` has to stay valid for the lifetime of this index result. Else reading
+    /// The given `child` has to stay valid for the lifetime of this index result. Else reading
     /// from this result will cause undefined behaviour.
-    pub fn push_borrowed(&mut self, child: &'index RSIndexResult) {
-        match &mut self.data {
-            RSResultData::Union(agg)
-            | RSResultData::Intersection(agg)
-            | RSResultData::HybridMetric(agg) => {
-                agg.push_borrowed(child);
+    pub fn push_borrowed(
+        &mut self,
+        child: &'index RSIndexResult<'index>,
+        mut child_metrics: MetricsVec<'index>,
+    ) {
+        debug_assert!(
+            child.metrics.is_empty(),
+            "child metrics must be drained by caller via std::mem::take()"
+        );
+        if !self.is_aggregate() {
+            return;
+        }
 
-                self.doc_id = child.doc_id;
-                self.freq += child.freq;
-                self.field_mask |= child.field_mask;
+        self.doc_id = child.doc_id;
+        self.freq += child.freq;
+        self.field_mask |= child.field_mask;
 
-                // SAFETY: we know both arguments are valid `RSIndexResult` types
-                unsafe {
-                    RSYieldableMetric_Concat(&mut self.metrics, child.metrics);
-                }
-            }
-            RSResultData::Term(_)
-            | RSResultData::Virtual
-            | RSResultData::Numeric(_)
-            | RSResultData::Metric(_) => {}
+        if !child_metrics.is_empty() {
+            self.metrics.concat(&mut child_metrics);
+        }
+
+        if let Some(agg) = self.as_aggregate_mut() {
+            agg.push_borrowed(child);
         }
     }
 
@@ -756,21 +721,13 @@ impl<'index> RSIndexResult<'index> {
     ///
     /// The returned result may borrow the term data from the original result.
     pub fn to_owned<'a>(&'a self) -> RSIndexResult<'a> {
-        let metrics = if !self.metrics.is_null() {
-            // SAFETY: we know metric is a valid pointer to `RSYieldableMetric` because we created
-            // it in a constructor. We also know it is not NULL because of the check above.
-            unsafe { RSYieldableMetrics_Clone(self.metrics) }
-        } else {
-            ptr::null_mut()
-        };
-
         RSIndexResult {
             doc_id: self.doc_id,
             dmd: self.dmd,
             field_mask: self.field_mask,
             freq: self.freq,
             data: self.data.to_owned(),
-            metrics,
+            metrics: self.metrics.clone(),
             weight: self.weight,
         }
     }
@@ -784,27 +741,33 @@ impl<'index> RSIndexResult<'index> {
     ///
     /// If this is not an aggregate result, then nothing happens. Use [`Self::is_aggregate()`] first
     /// to make sure this is an aggregate result.
-    pub fn push_boxed(&mut self, child: Box<RSIndexResult<'index>>) {
-        match &mut self.data {
-            RSResultData::Union(agg)
-            | RSResultData::Intersection(agg)
-            | RSResultData::HybridMetric(agg) => {
-                self.doc_id = child.doc_id;
-                self.freq += child.freq;
-                self.field_mask |= child.field_mask;
-
-                // SAFETY: we know both arguments are valid `RSIndexResult` types
-                unsafe {
-                    RSYieldableMetric_Concat(&mut self.metrics, child.metrics);
-                }
-
-                agg.push_boxed(child);
-            }
-            RSResultData::Term(_)
-            | RSResultData::Virtual
-            | RSResultData::Numeric(_)
-            | RSResultData::Metric(_) => {}
+    pub fn push_boxed(&mut self, mut child: Box<RSIndexResult<'index>>) {
+        if !self.is_aggregate() {
+            return;
         }
+
+        self.doc_id = child.doc_id;
+        self.freq += child.freq;
+        self.field_mask |= child.field_mask;
+
+        let mut child_metrics = std::mem::take(&mut child.metrics);
+        if !child_metrics.is_empty() {
+            self.metrics.concat(&mut child_metrics);
+        }
+
+        if let Some(agg) = self.as_aggregate_mut() {
+            agg.push_boxed(child);
+        }
+    }
+
+    /// Returns a mutable reference to the metrics collection.
+    pub const fn metrics_mut(&mut self) -> &mut MetricsVec<'index> {
+        &mut self.metrics
+    }
+
+    /// Returns a reference to the metrics collection.
+    pub const fn metrics_ref(&self) -> &MetricsVec<'index> {
+        &self.metrics
     }
 
     /// Get a mutable reference to the child at the given index, if it is an aggregate record.
@@ -818,18 +781,6 @@ impl<'index> RSIndexResult<'index> {
             | RSResultData::Virtual
             | RSResultData::Numeric(_)
             | RSResultData::Metric(_) => None,
-        }
-    }
-}
-
-impl Drop for RSIndexResult<'_> {
-    fn drop(&mut self) {
-        if !self.metrics.is_null() {
-            // SAFETY: we know `self` still exists because we are in `drop`. We also know the C type is
-            // the same since it was autogenerated from the Rust type
-            unsafe {
-                ResultMetrics_Free(self.metrics);
-            }
         }
     }
 }

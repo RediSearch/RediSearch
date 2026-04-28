@@ -239,17 +239,6 @@ typedef struct {
 
 #define RS_RESULT_NUMERIC (RSResultData_Numeric | RSResultData_Metric)
 
-// Forward declaration of needed structs
-struct RLookupKey;
-struct RSValue;
-
-// Holds a key-value pair of an `RSValue` and the `RLookupKey` to add it into.
-// A result processor will write the value into the key if the result passed the AST.
-typedef struct RSYieldableMetric{
-  struct RLookupKey *key;
-  struct RSValue *value;
-} RSYieldableMetric;
-
 #pragma pack()
 
 RSOffsetIterator RSOffsetVector_Iterate(const RSOffsetVector *v, RSQueryTerm *t);
