@@ -340,9 +340,10 @@ static int distributeCollect(ReducerDistCtx *rdctx, QueryError *status) {
   size_t argc = src->args.argc;
 
   // Build temporary args, then persist their object arrays with copyArgs.
-  char remoteCountBuf[COLLECT_ARGS_COUNT_BUF_LEN];
-  std::vector<void *> remoteObjs(argc + 1);
-  ArgsCursor remoteArgs = buildCollectArgs(remoteObjs.data(), remoteCountBuf, &src->args, nullptr);
+  std::string remoteCountStr = std::to_string(argc);
+  std::vector<void *> remoteObjs(collectObjsBufLen(argc, /*has_alias=*/false));
+  ArgsCursor remoteArgs = buildCollectArgs(remoteObjs.data(), remoteCountStr.c_str(),
+                                           &src->args, nullptr);
   rdctx->copyArgs(&remoteArgs);
 
   const char *alias;
@@ -350,10 +351,10 @@ static int distributeCollect(ReducerDistCtx *rdctx, QueryError *status) {
     return REDISMODULE_ERR;
   }
 
-  // Layout: [nargs, original_args..., AS, user_alias]
-  char localCountBuf[COLLECT_ARGS_COUNT_BUF_LEN];
-  std::vector<void *> localObjs(argc + 3);
-  ArgsCursor localArgs = buildCollectArgs(localObjs.data(), localCountBuf, &src->args, src->alias);
+  std::string localCountStr = std::to_string(argc);
+  std::vector<void *> localObjs(collectObjsBufLen(argc, /*has_alias=*/true));
+  ArgsCursor localArgs = buildCollectArgs(localObjs.data(), localCountStr.c_str(),
+                                          &src->args, src->alias);
   rdctx->copyArgs(&localArgs);
 
   if (!rdctx->add(rdctx->localGroup, "COLLECT", nullptr, status, &localArgs)) {

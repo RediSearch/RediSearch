@@ -25,20 +25,28 @@
 // Rust via the appropriate `CollectReducer_Create*` factory once parsing
 // succeeds. Remote reducers keep `RLookupKey *`; local reducers keep raw names
 // because they cannot resolve fields through remote lookup tables.
+//
+// Exactly one population pattern is used per parse, selected by
+// `options->is_local`:
+//   - is_local == true  : `field_names`, `sort_names`, `input_key` are set;
+//                          `field_keys`, `sort_keys`, `has_wildcard` are not.
+//   - is_local == false : `field_keys`, `sort_keys`, `has_wildcard` are set;
+//                          `field_names`, `sort_names`, `input_key` are not.
+// `sortAscMap` and the `limit_*` triple are shared across both modes.
 typedef struct {
-  arrayof(const RLookupKey *) field_keys;
-  arrayof(const RLookupKey *) sort_keys;
+  arrayof(const RLookupKey *) field_keys;   // remote-only
+  arrayof(const RLookupKey *) sort_keys;    // remote-only
   // Coord-mode names alias `options->args` and omit the leading `@`.
-  arrayof(const char *) field_names;
-  arrayof(const char *) sort_names;
-  const RLookupKey *input_key;
+  arrayof(const char *) field_names;        // local-only
+  arrayof(const char *) sort_names;         // local-only
+  const RLookupKey *input_key;              // local-only
 
-  bool has_wildcard;
-  uint64_t sortAscMap;
+  bool has_wildcard;                        // remote-only
+  uint64_t sortAscMap;                      // shared
 
-  bool has_limit;
-  uint64_t limit_offset;
-  uint64_t limit_count;
+  bool has_limit;                           // shared
+  uint64_t limit_offset;                    // shared
+  uint64_t limit_count;                     // shared
 } CollectParseData;
 
 typedef struct {
@@ -51,6 +59,19 @@ static void CollectParseData_Free(CollectParseData *data) {
   array_free(data->sort_keys);
   array_free(data->field_names);
   array_free(data->sort_names);
+}
+
+// Validates a `@`-prefixed name argument and returns the name with the leading
+// `@` stripped. On error, sets `status` and returns NULL.
+//
+// Caller guarantees `s` is NUL-terminated and `len` reflects strlen(s).
+static const char *parseAtPrefixedName(const char *s, size_t len, QueryError *status) {
+  if (len == 0 || s[0] != '@') {
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS,
+      "Missing prefix: name requires '@' prefix", " (%s)", s ? s : "");
+    return NULL;
+  }
+  return s + 1;
 }
 
 // ===== ArgParser callbacks =====
@@ -78,8 +99,8 @@ static void handleCollectFieldsLocal(ArgParser *parser, const void *value, void 
     const char *s;
     size_t len;
     if (AC_GetString(ac, &s, &len, 0) != AC_OK) {
-      QueryError_SetError(opts->status, QUERY_ERROR_CODE_PARSE_ARGS,
-        "FIELDS missing field name");
+      QueryError_SetWithUserDataFmt(opts->status, QUERY_ERROR_CODE_PARSE_ARGS,
+        "Missing arguments", " for FIELDS");
       return;
     }
     if (len == 1 && s[0] == '*') {
@@ -87,13 +108,10 @@ static void handleCollectFieldsLocal(ArgParser *parser, const void *value, void 
         "COLLECT does not yet support `*` in FIELDS");
       return;
     }
-    if (len == 0 || s[0] != '@') {
-      QueryError_SetWithUserDataFmt(opts->status, QUERY_ERROR_CODE_PARSE_ARGS,
-        "Missing prefix: name requires '@' prefix", " (%s)", s);
-      return;
-    }
     // `s` aliases the original argv and is NUL-terminated.
-    array_append(data->field_names, s + 1);
+    const char *name = parseAtPrefixedName(s, len, opts->status);
+    if (!name) return;
+    array_append(data->field_names, name);
   }
 }
 
@@ -156,18 +174,14 @@ static void handleCollectSortByLocal(ArgParser *parser, const void *value, void 
   data->sortAscMap = SORTASCMAP_INIT;
 
   while (!AC_IsAtEnd(ac)) {
+    // AC_StringArg only returns NULL when AC_IsAtEnd would be true OR the cursor
+    // type is not AC_TYPE_CHAR. The loop guards the first; ArgParser dispatch
+    // guarantees the second. Debug-only tripwire for future maintainers.
     const char *s = AC_StringArg(ac, ac->offset);
-    if (!s) {
-      QueryError_SetError(opts->status, QUERY_ERROR_CODE_PARSE_ARGS,
-        "SORTBY: unexpected null argument");
-      return;
-    }
+    RS_ASSERT(s != NULL);
 
-    if (s[0] != '@') {
-      QueryError_SetWithUserDataFmt(opts->status, QUERY_ERROR_CODE_PARSE_ARGS,
-        "Missing prefix: name requires '@' prefix", " (%s)", s);
-      return;
-    }
+    const char *name = parseAtPrefixedName(s, strlen(s), opts->status);
+    if (!name) return;
 
     if (array_len(data->sort_names) >= COLLECT_MAX_SORT_KEYS) {
       QueryError_SetWithoutUserDataFmt(opts->status, QUERY_ERROR_CODE_LIMIT,
@@ -176,7 +190,7 @@ static void handleCollectSortByLocal(ArgParser *parser, const void *value, void 
     }
 
     // Store the raw name alias, then expose the optional ASC/DESC token.
-    array_append(data->sort_names, s + 1);
+    array_append(data->sort_names, name);
     ac->offset++;
 
     size_t dir_idx = array_len(data->sort_names) - 1;
@@ -206,18 +220,12 @@ static void handleCollectSortByRemote(ArgParser *parser, const void *value, void
   key_opts.name = "SORTBY";
 
   while (!AC_IsAtEnd(ac)) {
+    // SORTBY is `@`-only, even though `ReducerOpts_GetKey -> ExtractKeyName`
+    // would otherwise accept `$` JSON paths. Validate the prefix here before
+    // delegating the lookup; `parseAtPrefixedName` does not consume the cursor.
     const char *s = AC_StringArg(ac, ac->offset);
-    if (!s) {
-      QueryError_SetError(opts->status, QUERY_ERROR_CODE_PARSE_ARGS,
-        "SORTBY: unexpected null argument");
-      return;
-    }
-
-    if (s[0] != '@') {
-      QueryError_SetWithUserDataFmt(opts->status, QUERY_ERROR_CODE_PARSE_ARGS,
-        "Missing prefix: name requires '@' prefix", " (%s)", s);
-      return;
-    }
+    RS_ASSERT(s != NULL);
+    if (!parseAtPrefixedName(s, strlen(s), opts->status)) return;
 
     if (array_len(data->sort_keys) >= COLLECT_MAX_SORT_KEYS) {
       QueryError_SetWithoutUserDataFmt(opts->status, QUERY_ERROR_CODE_LIMIT,

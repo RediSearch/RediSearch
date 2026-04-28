@@ -8,15 +8,13 @@
 */
 
 #include "dist_plan_utils.h"
-#include <stdio.h>
 #include <string.h>
 
-ArgsCursor buildCollectArgs(void **objs_buf, char *count_buf, const ArgsCursor *src_args,
+ArgsCursor buildCollectArgs(void **objs_buf, const char *count_buf, const ArgsCursor *src_args,
                             const char *user_alias) {
   size_t argc = src_args->argc;
-  snprintf(count_buf, COLLECT_ARGS_COUNT_BUF_LEN, "%zu", argc);
 
-  objs_buf[0] = count_buf;
+  objs_buf[0] = (void *)count_buf;
   if (argc) {
     memcpy(objs_buf + 1, src_args->objs, argc * sizeof(void *));
   }

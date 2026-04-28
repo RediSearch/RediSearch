@@ -10,12 +10,27 @@
 #pragma once
 
 #include "rmutil/args.h"
+#include <stdbool.h>
+#include <stddef.h>
 
 #define COLLECT_ARGS_COUNT_BUF_LEN 24  // Enough digits for a 64-bit decimal count plus NUL.
 
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+/**
+ * Returns the number of object slots the caller must reserve in `objs_buf`
+ * passed to `buildCollectArgs`.
+ *
+ * Layout reminder:
+ *   - 1 slot for `nargs`
+ *   - `argc` slots for the forwarded args
+ *   - 2 slots for "AS" + user_alias (only when `has_alias` is true)
+ */
+static inline size_t collectObjsBufLen(size_t argc, bool has_alias) {
+  return argc + 1 + (has_alias ? 2 : 0);
+}
 
 /**
  * Build COLLECT args for distributed planning.
@@ -33,13 +48,14 @@ extern "C" {
  * The local input source is not encoded in args; it is carried as planner
  * metadata and later resolved into ReducerOptions::input_key.
  *
- * @param objs_buf     Caller-provided buffer; must hold at least src_args->argc + 3 elements
- * @param count_buf    Caller-provided buffer for the count string; must be at least
- *                     COLLECT_ARGS_COUNT_BUF_LEN bytes
+ * @param objs_buf     Caller-provided buffer; size = collectObjsBufLen(src_args->argc, user_alias != NULL)
+ * @param count_buf    Caller-formatted decimal string of `src_args->argc`. Lifetime
+ *                     must outlive the returned ArgsCursor (typically a stack buffer
+ *                     at the call site, sized to COLLECT_ARGS_COUNT_BUF_LEN).
  * @param src_args     The original reducer's parsed args (without the leading nargs)
  * @param user_alias   User-visible alias to preserve via AS, or NULL for remote args
  */
-ArgsCursor buildCollectArgs(void **objs_buf, char *count_buf, const ArgsCursor *src_args,
+ArgsCursor buildCollectArgs(void **objs_buf, const char *count_buf, const ArgsCursor *src_args,
                             const char *user_alias);
 
 #ifdef __cplusplus
