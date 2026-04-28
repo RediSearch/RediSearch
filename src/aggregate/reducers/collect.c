@@ -320,7 +320,7 @@ Reducer *RDCRCollect_New(const ReducerOptions *options) {
     ARG_OPT_END);
 
   ArgParser_AddSubArgsV(parser, "SORTBY", "In-group sort keys",
-    &subArgs, 2, COLLECT_MAX_SORT_TOKENS,
+    &subArgs, 1, COLLECT_MAX_SORT_TOKENS,
     ARG_OPT_OPTIONAL,
     ARG_OPT_CALLBACK, handleSortBy, &pctx,
     ARG_OPT_END);
