@@ -50,6 +50,10 @@ jobs:
         with:
           submodules: recursive
           ref: ${{ inputs.git_ref || github.ref }}
+          # When git_ref is a raw SHA, depth=1's refspec
+          # (+refs/heads/<ref>*) can't resolve it — full history is required.
+          # When git_ref is empty (today's behavior) we keep depth=1 for speed.
+          fetch-depth: ${{ inputs.git_ref != '' && 0 || 1 }}
       - name: Resolve build SHA + branch label
         id: resolve
         run: |
