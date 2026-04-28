@@ -8,6 +8,7 @@
 */
 
 mod bindings;
+mod load_document;
 mod lookup;
 mod row;
 
@@ -19,6 +20,7 @@ extern crate redisearch_rs;
 redis_mock::mock_or_stub_missing_redis_c_symbols!();
 
 pub use bindings::{IndexSpec, IndexSpecCache, SchemaRule};
+pub use load_document::{DocumentFormat, DocumentLoader, LoadDocumentError};
 pub use lookup::{
     Cursor, CursorMut, RLookup, RLookupKey, RLookupKeyFlag, RLookupKeyFlags, RLookupOption,
     RLookupOptions, opaque::OpaqueRLookup,
