@@ -43,8 +43,8 @@ pub struct Missing<'index, E: DecodedBy, C = crate::expiration_checker::NoOpChec
     it: InvIndIterator<'index, IndexReaderCore<'index, E>, C>,
     field_index: t_fieldIndex,
     /// Owned copy of the field name, extracted from the spec at construction
-    /// time. Owning the string means the iterator no longer borrows into
-    /// `spec.fields`, so `context`/`spec` only need to be valid at
+    /// time. Owning the string means the iterator no longer borrows from
+    /// `spec.fields`, therefore `context`/`spec` only need to be valid at
     /// construction time (not for the iterator's entire lifetime).
     field_name: CString,
 }
