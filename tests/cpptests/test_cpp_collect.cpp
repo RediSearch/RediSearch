@@ -121,7 +121,7 @@ TEST_F(CollectParserTest, LocalCollectRequiresPlannerSourceKey) {
   ASSERT_EQ(r, nullptr);
   const char *user_error = QueryError_GetUserError(&status);
   ASSERT_NE(user_error, nullptr);
-  EXPECT_TRUE(std::string(user_error).find("COLLECT local source key was not provided") !=
+  EXPECT_TRUE(std::string(user_error).find("COLLECT source key was not provided") !=
               std::string::npos)
       << user_error;
   QueryError_ClearError(&status);
