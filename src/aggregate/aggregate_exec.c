@@ -1905,7 +1905,15 @@ typedef struct {
 
 static void cursorRead_ctx(CursorReadCtx *cr_ctx) {
   RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(cr_ctx->bc);
-  cursorRead(ctx, cr_ctx->cursor, cr_ctx->count, true);
+  // Optimization (mirrors AREQ_Execute_Callback): if the timer fired while
+  // we were queued, the client already got its timeout reply. Skip the
+  // pipeline and free the cursor; FreeCursorNode will release the AREQ ref.
+  AREQ *req = cr_ctx->cursor->execState;
+  if (req && AREQ_TimedOut(req)) {
+    Cursor_Free(cr_ctx->cursor);
+  } else {
+    cursorRead(ctx, cr_ctx->cursor, cr_ctx->count, true);
+  }
   RedisModule_FreeThreadSafeContext(ctx);
   RedisModule_BlockedClientMeasureTimeEnd(cr_ctx->bc);
   void *privdata = RedisModule_BlockClientGetPrivateData(cr_ctx->bc);
