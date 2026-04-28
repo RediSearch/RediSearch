@@ -736,6 +736,7 @@ void DEBUG_RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, in
   StrongRef strong_ref = {0};
   int debug_argv_count = 0;
   MRCommand *cmd = NULL;
+  RPNet *rpnet = NULL;
 
   // debug_req and &debug_req->r are allocated in the same memory block, so it will be freed
   // when AREQ_Free is called
@@ -780,9 +781,14 @@ void DEBUG_RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, in
   }
 
   // rpnet now owns the command
-  cmd = &(((RPNet *)AREQ_QueryProcessingCtx(r)->rootProc)->cmd);
+  rpnet = (RPNet *)AREQ_QueryProcessingCtx(r)->rootProc;
+  cmd = &rpnet->cmd;
 
   MRCommand_Insert(cmd, 0, "_FT.DEBUG", sizeof("_FT.DEBUG") - 1);
+  // The _FT.DEBUG prefix shifts every existing argument by one; adjust the
+  // saved KNN query argument index so the SHARD_K_RATIO modifier rewrites the
+  // right slot.
+  if (rpnet->knnVectorQuery) rpnet->knnQueryArgIndex += 1;
   // insert also debug params at the end
   for (size_t i = 0; i < debug_argv_count; i++) {
     size_t n;

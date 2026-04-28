@@ -667,6 +667,10 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq,
     // append the debug parameters so the shard-side debug handler can apply them.
     if (debugParams) {
       MRCommand_Insert(&xcmd, 0, "_FT.DEBUG", sizeof("_FT.DEBUG") - 1);
+      // The _FT.DEBUG prefix shifts every existing argument by one; adjust the
+      // saved K argument index so the SHARD_K_RATIO modifier rewrites the right
+      // slot.
+      if (hreq->kArgIndex >= 0) hreq->kArgIndex += 1;
       int debug_argv_count = (int)debugParams->debug_params_count + 2;
       for (int i = 0; i < debug_argv_count; i++) {
         size_t n;
