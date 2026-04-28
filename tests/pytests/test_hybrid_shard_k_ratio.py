@@ -350,7 +350,7 @@ def test_shard_k_ratio_insufficient_docs():
         message=f"FT.HYBRID with SHARD_K_RATIO: expected {expected_result_count} results, got {total_count}")
 
 
-@skip(cluster=False)  # Bug only manifests on multi-shard via the coord modifier
+@skip(cluster=False)
 def test_debug_hybrid_with_shard_k_ratio():
     env = Env(moduleArgs='DEFAULT_DIALECT 2', enableDebugCommand=True)
 
@@ -372,7 +372,7 @@ def test_debug_hybrid_with_shard_k_ratio():
                   'VSIM', '@v', '$BLOB',
                     'KNN', '4', 'K', k, 'SHARD_K_RATIO', ratio,
                   'PARAMS', '2', 'BLOB', query_vec.tobytes(),
-                  'TIMEOUT_AFTER_N_TAIL', '1000000', 'DEBUG_PARAMS_COUNT', '2')
+                  'TIMEOUT_AFTER_N_SEARCH', '1000000', 'DEBUG_PARAMS_COUNT', '2')
 
     # Response format: ['total_results', N, 'results', [...], ...]
     actual_result_count = len(res[3])
