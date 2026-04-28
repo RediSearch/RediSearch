@@ -12,6 +12,7 @@ on:
         type: string
 
 env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   TAGS: | # Make sure there is no trailing comma!
     [
       {"Key": "Name",         "Value": "redisearch-ci-runner"},
@@ -57,7 +58,7 @@ jobs:
       - name: Pre checkout deps
         run:  sudo apt-get update && sudo apt-get -y --no-install-recommends install git
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           submodules: recursive
       - name: Print runner info

@@ -16,6 +16,7 @@ on:
         value: ${{ jobs.get-tag.outputs.tag }}
 
 env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   RETRY_COUNT: 10
   RETRY_MAX_TIME: 60 # seconds
   NUM_RELEASES: 100

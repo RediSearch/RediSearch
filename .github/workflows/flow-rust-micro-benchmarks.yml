@@ -3,6 +3,9 @@ name: Run a Rust Micro Benchmark Flow
 on:
   workflow_call:
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   benchmarks:
     runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
@@ -10,7 +13,7 @@ jobs:
       RUST_BACKTRACE: full
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           submodules: recursive
       - name: Setup specific

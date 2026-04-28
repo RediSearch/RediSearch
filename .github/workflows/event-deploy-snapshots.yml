@@ -12,6 +12,9 @@ concurrency: # Global concurrency because newer runs should also cancel failure 
   group: snapshot-${{ github.ref_name }} # Snapshot guard for each branch
   cancel-in-progress: true # Cancel previous snapshot builds. Only the latest snapshot build will be kept.
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   deploy-snapshots:
     secrets: inherit

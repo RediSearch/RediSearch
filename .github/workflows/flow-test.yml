@@ -101,6 +101,9 @@ on:
         default: false
         description: "Run coordinator tests in a separate parallel job per platform"
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   generate-matrix:
     uses: ./.github/workflows/generate-matrix.yml

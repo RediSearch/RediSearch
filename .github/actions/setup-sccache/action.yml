@@ -5,7 +5,7 @@ runs:
   using: composite
   steps:
     - name: Setup sccache
-      uses: mozilla-actions/sccache-action@v0.0.9
+      uses: mozilla-actions/sccache-action@v0.0.10
       with:
         # Disable the post-run stats annotation as it runs outside the
         # container and reports nothing. We show stats ourselves.

@@ -38,6 +38,9 @@ on:
         default: false
         description: "if true, will notify failure on slack"
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   # Build RediSearch ONCE per-arch. Every benchmark job below downloads the
   # resulting redisearch.so as an artifact instead of rebuilding it.

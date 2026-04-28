@@ -11,6 +11,9 @@ on:
   push:
     branches-ignore: ['**'] # ignore all branches. Comment this line to run your workflow below on every push.
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
 
   alpine-test:

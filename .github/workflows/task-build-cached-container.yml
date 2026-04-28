@@ -27,6 +27,9 @@ on:
         description: "Whether image build completed successfully"
         value: ${{ jobs.build-image.outputs.succeeded }}
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   build-image:
     runs-on: ${{ inputs.runner-env }}
@@ -40,11 +43,11 @@ jobs:
     steps:
       - name: Checkout
         if: inputs.checkout-ref == ''
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
 
       - name: Checkout (custom ref)
         if: inputs.checkout-ref != ''
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
         with:
           ref: ${{ inputs.checkout-ref }}
       - name: Set image name

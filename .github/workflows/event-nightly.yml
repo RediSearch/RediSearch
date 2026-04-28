@@ -9,6 +9,9 @@ on:
 
 # TODO: Use RedisJSON's `master` branch when testing on nightly
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   test-all-platforms:
     permissions:

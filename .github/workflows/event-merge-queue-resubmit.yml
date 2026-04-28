@@ -8,6 +8,9 @@ permissions:
   actions: read
   contents: read
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   detect-resubmit:
     runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
