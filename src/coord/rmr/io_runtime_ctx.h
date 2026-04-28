@@ -77,7 +77,10 @@ void IORuntimeCtx_Free(IORuntimeCtx *io_runtime_ctx);
 void IORuntimeCtx_FireShutdown(IORuntimeCtx *io_runtime_ctx);
 
 //TODO: Have it return int status (return error if thread not created)
-void IORuntimeCtx_Schedule(IORuntimeCtx *io_runtime_ctx, MRQueueCallback cb, void *privdata);
+// Schedule a callback on the IO runtime thread. `dtor` (optional) is invoked
+// on `privdata` if the runtime is torn down before the callback runs; pass
+// `NULL` when `privdata` is not heap-owned by the queued item.
+void IORuntimeCtx_Schedule(IORuntimeCtx *io_runtime_ctx, MRQueueCallback cb, MRQueueDestructor dtor, void *privdata);
 
 void IORuntimeCtx_RequestCompleted(IORuntimeCtx *io_runtime_ctx);
 

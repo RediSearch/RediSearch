@@ -15,9 +15,10 @@
 #include "rmutil/rm_assert.h"
 #include "rq.h"
 
-void RQ_Push(MRWorkQueue *q, MRQueueCallback cb, void *privdata) {
+void RQ_Push(MRWorkQueue *q, MRQueueCallback cb, MRQueueDestructor dtor, void *privdata) {
   queueItem *item = rm_new(struct queueItem);
   item->cb = cb;
+  item->dtor = dtor;
   item->privdata = privdata;
   item->next = NULL;
   uv_mutex_lock(&q->lock);
@@ -97,10 +98,16 @@ MRWorkQueue *RQ_New(int maxPending, size_t id) {
 
 void RQ_Free(MRWorkQueue *q) {
   uv_mutex_lock(&q->lock);
-  // clear the queue
+  // Drain any items left on the queue at shutdown. Each item carries an
+  // optional destructor for its privdata; if absent, the privdata is
+  // owned elsewhere (or doesn't own heap memory) and we only release the
+  // wrapper.
   queueItem *cur = q->head;
   while (cur) {
     queueItem *next = cur->next;
+    if (cur->dtor) {
+      cur->dtor(cur->privdata);
+    }
     rm_free(cur);
     cur = next;
   }

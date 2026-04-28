@@ -14,10 +14,15 @@
 #include <uv.h>
 
 typedef void (*MRQueueCallback)(void *);
+// Optional destructor invoked by `RQ_Free` on the privdata of any queue item
+// still pending at shutdown. Pass `NULL` if the privdata does not own heap
+// memory (e.g. when it points at a long-lived runtime structure).
+typedef void (*MRQueueDestructor)(void *);
 
 typedef struct queueItem {
   void *privdata;
   MRQueueCallback cb;
+  MRQueueDestructor dtor;
   struct queueItem *next;
 } queueItem;
 
@@ -43,6 +48,6 @@ void RQ_UpdateMaxPending(MRWorkQueue *q, int maxPending);
 
 void RQ_Done(MRWorkQueue *q);
 
-void RQ_Push(MRWorkQueue *q, MRQueueCallback cb, void *privdata);
+void RQ_Push(MRWorkQueue *q, MRQueueCallback cb, MRQueueDestructor dtor, void *privdata);
 
 queueItem *RQ_Pop(MRWorkQueue *q, uv_async_t* async);

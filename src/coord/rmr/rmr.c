@@ -350,6 +350,13 @@ static void uvFanoutRequest(void *p) {
   }
 }
 
+// Drop the queued reference taken in `MR_Fanout` when the IO runtime tears
+// down before `uvFanoutRequest` runs. The blocked client (if any) is owned
+// by Redis and cleaned up on its own teardown path.
+static void uvFanoutRequest_dtor(void *p) {
+  MRCtx_DecrRef((MRCtx *)p);
+}
+
 /* Fanout map - send the same command to all the shards, sending the collective
  * reply to the reducer callback */
 int MR_Fanout(struct MRCtx *mrctx, MRReduceFunc reducer, MRCommand cmd, bool block) {
@@ -364,7 +371,7 @@ int MR_Fanout(struct MRCtx *mrctx, MRReduceFunc reducer, MRCommand cmd, bool blo
   mrctx->cmd = cmd;
 
   MRCtx_IncrRef(mrctx);
-  IORuntimeCtx_Schedule(mrctx->ioRuntime, uvFanoutRequest, mrctx);
+  IORuntimeCtx_Schedule(mrctx->ioRuntime, uvFanoutRequest, uvFanoutRequest_dtor, mrctx);
   return REDIS_OK;
 }
 
@@ -440,14 +447,18 @@ void MR_FreeLocalNodeId() {
   local_node_id_g = NULL;
 }
 
-struct UpdateConnPoolSizeCtx {
+/* Modifying the connection pools cannot be done from the main thread, so
+ * `MR_UpdateConnPoolSize` schedules this callback on each IO runtime. The
+ * heap-allocated context is freed by the callback on the normal path, or by
+ * the queue destructor (`rm_free`) if the runtime is torn down before the
+ * task runs. */
+typedef struct {
   IORuntimeCtx *ioRuntime;
   size_t conn_pool_size;
-};
+} UpdateConnPoolSizeCtx;
 
-/* Modifying the connection pools cannot be done from the main thread */
 static void uvUpdateConnPoolSize(void *p) {
-  struct UpdateConnPoolSizeCtx *ctx = p;
+  UpdateConnPoolSizeCtx *ctx = p;
   IORuntimeCtx *ioRuntime = ctx->ioRuntime;
   IORuntimeCtx_UpdateConnPoolSize(ioRuntime, ctx->conn_pool_size);
   size_t max_pending = ioRuntime->conn_mgr.nodeConns * PENDING_FACTOR;
@@ -469,10 +480,10 @@ void MR_UpdateConnPoolSize(size_t conn_pool_size) {
     }
   } else {
     for (size_t i = 0; i < cluster_g->num_io_threads; i++) {
-      struct UpdateConnPoolSizeCtx *ctx = rm_malloc(sizeof(*ctx));
+      UpdateConnPoolSizeCtx *ctx = rm_new(UpdateConnPoolSizeCtx);
       ctx->ioRuntime = cluster_g->io_runtimes_pool[i];
       ctx->conn_pool_size = conn_pool_size;
-      IORuntimeCtx_Schedule(cluster_g->io_runtimes_pool[i], uvUpdateConnPoolSize, ctx);
+      IORuntimeCtx_Schedule(cluster_g->io_runtimes_pool[i], uvUpdateConnPoolSize, rm_free, ctx);
     }
   }
 }
@@ -547,7 +558,10 @@ void MR_GetConnectionPoolState(RedisModuleCtx *ctx) {
     struct ReducedConnPoolStateCtx *reducedConnPoolStateCtx = rm_new(struct ReducedConnPoolStateCtx);
     reducedConnPoolStateCtx->ioRuntime = cluster_g->io_runtimes_pool[i];
     reducedConnPoolStateCtx->mt_ctx = mt_bc;
-    IORuntimeCtx_Schedule(cluster_g->io_runtimes_pool[i], uvGetConnectionPoolState, reducedConnPoolStateCtx);
+    // The wrapper is queue-owned; the shared `mt_bc` (and its blocked
+    // client) is cleaned up by `freeConnectionPoolStateCtx` when Redis
+    // tears down the bc on shutdown.
+    IORuntimeCtx_Schedule(cluster_g->io_runtimes_pool[i], uvGetConnectionPoolState, rm_free, reducedConnPoolStateCtx);
   }
 }
 
@@ -571,7 +585,8 @@ void MR_uvReplyClusterInfo(RedisModuleCtx *ctx) {
   size_t idx = MRCluster_AssignRoundRobinIORuntimeIdx(cluster_g);
   replyClusterInfoCtx->bc = bc;
   replyClusterInfoCtx->ioRuntime = cluster_g->io_runtimes_pool[idx];
-  IORuntimeCtx_Schedule(replyClusterInfoCtx->ioRuntime, uvReplyClusterInfo, replyClusterInfoCtx);
+  // The wrapper is queue-owned; the bc is cleaned up by Redis on shutdown.
+  IORuntimeCtx_Schedule(replyClusterInfoCtx->ioRuntime, uvReplyClusterInfo, rm_free, replyClusterInfoCtx);
 }
 
 void MR_ReplyClusterInfo(RedisModuleCtx *ctx, MRClusterTopology *topo) {
@@ -908,7 +923,10 @@ bool MR_ManuallyTriggerNextIfNeeded(MRIterator *it, size_t channelThreshold) {
     // We need to take a reference to the iterator for the next batch of commands.
     int8_t refCount = MRIterator_IncreaseRefCount(it);
     REFCOUNT_INCR_MSG("MR_ManuallyTriggerNextIfNeeded", refCount);
-    IORuntimeCtx_Schedule(it->ctx.ioRuntime, iterManualNextCb, it);
+    // No destructor: the iterator is co-owned with reader/writer threads
+    // and the channel; releasing the queued ref safely at shutdown
+    // requires deliberate teardown and is out of scope of this fix.
+    IORuntimeCtx_Schedule(it->ctx.ioRuntime, iterManualNextCb, NULL, it);
     return true; // We may have more replies (and we surely will)
   }
   // We have no pending commands and no more than channelThreshold replies to process.
@@ -962,7 +980,10 @@ MRIterator *MR_IterateWithPrivateData(const MRCommand *cmd, MRIteratorCallback c
   if (iterStartCbPrivateData) {
     data->privateDataRef = StrongRef_Demote(*iterStartCbPrivateData);
   }
-  IORuntimeCtx_Schedule(ret->ctx.ioRuntime, iterStartCb, data);
+  // No destructor: `data` (and the WeakRef it carries) plus the iterator's
+  // initial refcount are co-owned with the reader; cleaning these up at
+  // shutdown requires deliberate teardown and is out of scope of this fix.
+  IORuntimeCtx_Schedule(ret->ctx.ioRuntime, iterStartCb, NULL, data);
   return ret;
 }
 
@@ -1028,7 +1049,9 @@ void MRIterator_Release(MRIterator *it) {
     // The iterator will be released when DEL commands are done.
     refcount = MRIterator_IncreaseRefCount(it);
     REFCOUNT_INCR_MSG("MRIterator_Release: triggering DEL on the shards' cursors", refcount);
-    IORuntimeCtx_Schedule(it->ctx.ioRuntime, iterManualNextCb, it);
+    // See note above (MR_ManuallyTriggerNextIfNeeded): no destructor here
+    // for the same reason.
+    IORuntimeCtx_Schedule(it->ctx.ioRuntime, iterManualNextCb, NULL, it);
   } else {
     // No pending shards, so no remote resources to free.
     // Free the iterator and we are done.
