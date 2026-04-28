@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use crate::{SharedValue, Value, util::debug_assert_warn};
+use crate::{SharedValue, util::debug_assert_warn};
 use std::ops::{Deref, DerefMut};
 
 pub type Array = Collection<SharedValue>;
@@ -38,20 +38,22 @@ impl<T> Collection<T> {
 }
 
 impl Map {
-    /// Looks up a value by its string key bytes, returning a reference to the first
-    /// matching [`Value`] or `None` if no match is found.
+    /// Looks up a value by its string key bytes, returning a reference to the
+    /// first matching [`SharedValue`] or `None` if no match is found.
     ///
-    /// Non-string keys (e.g. [`Value::Number`]) are skipped.
-    pub fn get(&self, key: &[u8]) -> Option<&Value> {
+    /// Returning `&SharedValue` lets callers clone without unwrapping.
+    ///
+    /// Non-string keys (e.g. numeric values) are skipped.
+    pub fn get(&self, key: &[u8]) -> Option<&SharedValue> {
         self.iter()
-            .find_map(|(k, v)| (k.as_str_bytes()? == key).then_some(&**v))
+            .find_map(|(k, v)| (k.as_str_bytes()? == key).then_some(v))
     }
 }
 
 impl Array {
     /// Looks up a value by string key in a flat key-value array layout
     /// (`[k1, v1, k2, v2, ...]`), returning a reference to the first matching
-    /// [`Value`] or `None` if no match is found.
+    /// [`SharedValue`] or `None` if no match is found.
     ///
     /// This is needed because RESP2 does not have a native map type.
     /// Map-like data (e.g. `extra_attributes`) is sent as a flat array of
@@ -65,7 +67,7 @@ impl Array {
     /// element is ignored and the search proceeds over the well-formed prefix.
     ///
     /// Non-string keys are skipped.
-    pub fn map_get(&self, key: &[u8]) -> Option<&Value> {
+    pub fn map_get(&self, key: &[u8]) -> Option<&SharedValue> {
         let (pairs, remainder) = self.as_chunks::<2>();
         debug_assert_warn!(
             remainder.is_empty(),
@@ -73,7 +75,7 @@ impl Array {
         );
         pairs
             .iter()
-            .find_map(|[k, v]| (k.as_str_bytes()? == key).then_some(&**v))
+            .find_map(|[k, v]| (k.as_str_bytes()? == key).then_some(v))
     }
 }
 

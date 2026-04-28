@@ -44,10 +44,12 @@ protected:
     }
   }
 
-  Reducer *parseCollect(std::vector<const char *> &args, QueryError *status) {
+  Reducer *parseCollect(std::vector<const char *> &args, QueryError *status,
+                        bool isLocal = false, const RLookupKey *inputKey = NULL) {
     ArgsCursor ac;
     ArgsCursor_InitCString(&ac, args.data(), args.size());
-    ReducerOptions opts = REDUCEROPTS_INIT("COLLECT", &ac, &lk, NULL, status, true);
+    ReducerOptions opts = REDUCEROPTS_INIT("COLLECT", &ac, &lk, NULL, status, true, isLocal,
+                                           inputKey, 0);
     return RDCRCollect_New(&opts);
   }
 
@@ -75,13 +77,13 @@ protected:
 
 TEST_F(CollectParserTest, WildcardOnlyRejected) {
   expectError({"FIELDS", "1", "*"},
-      "COLLECT does not yet support wildcard `*` in FIELDS");
+      "COLLECT does not yet support `*` in FIELDS");
 }
 
 TEST_F(CollectParserTest, WildcardAmongFieldsRejected) {
   registerKeys({"price", "name"});
   expectError({"FIELDS", "3", "@price", "*", "@name"},
-      "COLLECT does not yet support wildcard `*` in FIELDS");
+      "COLLECT does not yet support `*` in FIELDS");
 }
 
 TEST_F(CollectParserTest, FieldsAndSortBy) {
@@ -96,6 +98,33 @@ TEST_F(CollectParserTest, FieldsAndSortBy) {
   EXPECT_FALSE(SORTASCMAP_GETASC(CollectReducer_GetSortAscMap(r), 0));
   EXPECT_TRUE(SORTASCMAP_GETASC(CollectReducer_GetSortAscMap(r), 1));
   r->Free(r);
+}
+
+TEST_F(CollectParserTest, LocalFieldsUsePlannerInputKey) {
+  const RLookupKey *inputKey = RLookup_GetKey_Write(&lk, "remote_collect", RLOOKUP_F_NOFLAGS);
+  std::vector<const char *> args = {"FIELDS", "2", "@price", "@name"};
+  QueryError status = QueryError_Default();
+
+  Reducer *r = parseCollect(args, &status, true, inputKey);
+
+  ASSERT_NE(r, nullptr) << QueryError_GetUserError(&status);
+  r->Free(r);
+  QueryError_ClearError(&status);
+}
+
+TEST_F(CollectParserTest, LocalCollectRequiresPlannerInputKey) {
+  std::vector<const char *> args = {"FIELDS", "1", "@price"};
+  QueryError status = QueryError_Default();
+
+  Reducer *r = parseCollect(args, &status, true, NULL);
+
+  ASSERT_EQ(r, nullptr);
+  const char *user_error = QueryError_GetUserError(&status);
+  ASSERT_NE(user_error, nullptr);
+  EXPECT_TRUE(std::string(user_error).find("COLLECT input key was not provided") !=
+              std::string::npos)
+      << user_error;
+  QueryError_ClearError(&status);
 }
 
 TEST_F(CollectParserTest, FieldsSortByAndLimit) {
@@ -286,7 +315,7 @@ TEST_F(CollectParserTest, FieldsSecondFieldNotInPipeline) {
 
 TEST_F(CollectParserTest, DuplicateWildcard) {
   registerKeys({"price"});
-  expectError({"FIELDS", "3", "*", "@price", "*"}, "Wildcard `*` can only appear once in FIELDS");
+  expectError({"FIELDS", "3", "*", "@price", "*"}, "`*` can only appear once in FIELDS");
 }
 
 TEST_F(CollectParserTest, UnknownSubcommand) {

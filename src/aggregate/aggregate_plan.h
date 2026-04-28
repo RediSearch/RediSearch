@@ -132,7 +132,9 @@ typedef struct {
   struct PLN_Reducer {
     const char *name;  // Name of function
     char *alias;       // Output key
+    char *inputAlias;  // Optional input key
     bool isHidden;     // If the output key is hidden. Used by the coordinator
+    bool isLocal;      // Whether this reducer runs locally (on the coordinator side)
     ArgsCursor args;
   } * reducers;
   int idx;

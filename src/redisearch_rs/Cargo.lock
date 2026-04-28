@@ -1904,9 +1904,13 @@ dependencies = [
 name = "reducers"
 version = "0.0.1"
 dependencies = [
+ "build_utils",
  "bumpalo",
  "ffi",
  "query_error",
+ "redis_mock",
+ "redisearch_rs",
+ "reducers",
  "rlookup",
  "value",
  "workspace_hack",

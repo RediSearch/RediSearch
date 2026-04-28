@@ -822,6 +822,7 @@ static void groupStepFree(PLN_BaseStep *base) {
     for (size_t ii = 0; ii < nreducers; ++ii) {
       PLN_Reducer *gr = g->reducers + ii;
       rm_free(gr->alias);
+      rm_free(gr->inputAlias);
     }
     array_free(g->reducers);
   }
@@ -879,6 +880,8 @@ int PLNGroupStep_AddReducer(PLN_GroupStep *gstp, const char *name, ArgsCursor *a
     gr->alias = rm_strdup(alias);
   }
   gr->isHidden = 0; // By default, reducers are not hidden
+  gr->isLocal = false;
+  gr->inputAlias = NULL;
   return REDISMODULE_OK;
 
 error:
