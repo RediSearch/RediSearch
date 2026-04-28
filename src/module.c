@@ -3264,11 +3264,9 @@ void sendSearchResults_EmptyResults(RedisModule_Reply *reply, searchRequestCtx *
 static void searchResultReducer_wrapper(void *mc_v) {
   struct MRCtx *mc = mc_v;
   searchResultReducer(mc, MRCtx_GetNumReplied(mc), MRCtx_GetReplies(mc), false);
-  MRCtx_DecrRef(mc);
 }
 
 static int searchResultReducer_background(struct MRCtx *mc, int count, MRReply **replies) {
-  MRCtx_IncrRef(mc);
   ConcurrentSearch_ThreadPoolRun(searchResultReducer_wrapper, mc, DIST_THREADPOOL);
   return REDISMODULE_OK;
 }
@@ -3289,54 +3287,27 @@ bool should_return_error(QueryErrorCode errCode) {
 }
 
 static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies, bool fromTimeout) {
-  RedisModuleBlockedClient *bc = NULL;
-  RedisModuleCtx *ctx = NULL;
+  RedisModuleBlockedClient *bc = MRCtx_GetBlockedClient(mc);
+  RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(bc);
   searchRequestCtx *req = NULL;
   searchReducerCtx *rCtx = NULL;
   int profile = 0;
   size_t num = 0;
 
   // Try to claim the REDUCING state - if timeout callback already claimed it,
-  // skip reduction and return without touching the blocked client.
+  // skip reduction but still call UnblockClient to trigger free_privdata.
   // If called from timeout callback, we already own reducing (claimed before calling).
   bool ownsReducing = fromTimeout || MRCtx_TryClaimReducing(mc);
   if (!ownsReducing) {
-    // Timeout callback is handling the reduction / reply path.
-    return REDISMODULE_OK;
+    // Timeout callback is handling the reduction, just unblock and return
+    goto unblock_client;
   }
-
-#ifdef ENABLE_ASSERT
-  // Debug-only hook to pause after claiming reducing but before reducer setup.
-  // This lets tests force the timeout race where the background reducer exits
-  // before initializing req->rctx.
-  if (CoordReduceDebugCtx_GetPauseBeforeN() == COORD_REDUCE_PAUSE_BEFORE_REDUCER_INIT) {
-    CoordReduceDebugCtx_SetPause(true);
-    while (CoordReduceDebugCtx_IsPaused()) {
-      if (MRCtx_IsTimedOut(mc)) {
-        CoordReduceDebugCtx_SetPause(false);
-        break;
-      }
-      usleep(1000);  // Spin-wait with 1ms sleep
-    }
-  }
-#endif
-
-  // Timeout may have fired after the reducer was queued but before it started.
-  // In that case the timeout callback owns the blocked-client lifetime, so the
-  // background reducer must exit before touching `bc`.
-  if (!fromTimeout && MRCtx_IsTimedOut(mc)) {
-    goto cleanup;
-  }
-
-  bc = MRCtx_GetBlockedClient(mc);
-  ctx = RedisModule_GetThreadSafeContext(bc);
 
   req = MRCtx_GetPrivData(mc);
 
   rCtx = rm_calloc(1, sizeof(searchReducerCtx));
 
-  // Save the reducer state in the request so it is available to the
-  // blocked-client reply callback after the normal unblock path.
+  // Save the rctx in the request so it can be used in reply_callback of unblock client
   req->rctx = rCtx;
   // Set searchCtx early so it's available even if we bail out early
   rCtx->searchCtx = req;
@@ -3349,7 +3320,7 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies, b
   // got no replies
   if (!fromTimeout && (count == 0 || req->limit < 0)) {
     QueryError_SetError(MRCtx_GetStatus(mc), QUERY_ERROR_CODE_GENERIC, "Could not send query to cluster");
-    goto cleanup;
+    goto unblock_client;
   }
 
   // Traverse the replies, check for early bail-out which we want for all errors
@@ -3365,7 +3336,7 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies, b
         // Shard reply already contains the prefixed error string — set directly.
         QueryError_SetCode(MRCtx_GetStatus(mc), errCode);
         QueryError_SetDetail(MRCtx_GetStatus(mc), errStr);
-        goto cleanup;
+        goto unblock_client;
       }
     }
   }
@@ -3404,9 +3375,7 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies, b
   if (!profile) {
     for (int i = 0; i < count; ++i) {
       rCtx->processReply(replies[i], rCtx, ctx);
-      if (!fromTimeout && MRCtx_IsTimedOut(mc)) {
-          goto cleanup;
-      }
+
     }
   } else {
     const bool resp3 = MRCtx_GetCommandProtocol(mc) == 3;
@@ -3424,15 +3393,13 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies, b
         mr_reply = MRReply_ArrayElement(replies[i], 0);
       }
       rCtx->processReply(mr_reply, rCtx, ctx);
-      if (!fromTimeout && MRCtx_IsTimedOut(mc)) {
-          goto cleanup;
-      }
+
     }
   }
 
 #ifdef ENABLE_ASSERT
   // Handle N=-1: pause after the last result is reduced
-  if (CoordReduceDebugCtx_GetPauseBeforeN() == COORD_REDUCE_PAUSE_AFTER_LAST_RESULT) {
+  if (CoordReduceDebugCtx_GetPauseBeforeN() == -1) {
     CoordReduceDebugCtx_SetPause(true);
     while (CoordReduceDebugCtx_IsPaused()) {
       // Check if timed out - break to avoid deadlock with timeout callback
@@ -3445,39 +3412,30 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies, b
   }
 #endif
 
+  if (rCtx->cachedResult) {
+    rm_free(rCtx->cachedResult);
+  }
+
   if (rCtx->errorOccurred && !rCtx->lastError) {
     QueryError_SetError(MRCtx_GetStatus(mc), QUERY_ERROR_CODE_GENERIC, "could not parse redisearch results");
-    goto cleanup;
+    goto unblock_client;
   }
 
-cleanup:
-  if (rCtx) {
-    // Call postProcess even on early exits (e.g. timeouts) so that partially
-    // processed special cases like KNN can flush their internal queues into
-    // the final result heap.
-    if (rCtx->postProcess) {
-      rCtx->postProcess(rCtx);
-      rCtx->postProcess = NULL;
-    }
-    rm_free(rCtx->cachedResult);
-    rCtx->cachedResult = NULL;
-  }
+  // Post process before unblocking the client
+  rCtx->postProcess(rCtx);
 
-  if (bc && !fromTimeout && !MRCtx_IsTimedOut(mc)) {
-    // Timeout callback should not call unblockClient
-    RedisModule_BlockedClientMeasureTimeEnd(bc);
-    RedisModule_UnblockClient(bc, mc);
-  }
-
-  if (ctx) {
-    RedisModule_FreeThreadSafeContext(ctx);
-  }
-
-  // Signal reducer complete only after all blocked-client usage is finished.
+unblock_client:
+  // Signal reducer complete - timeout callback may be waiting for this
   if (ownsReducing) {
     MRCtx_SignalReducerComplete(mc);
   }
 
+  if (!fromTimeout) {
+    // Timeout callback should not call unblockClient
+    RedisModule_BlockedClientMeasureTimeEnd(bc);
+    RedisModule_UnblockClient(bc, mc);
+  }
+  RedisModule_FreeThreadSafeContext(ctx);
   return REDISMODULE_OK;
 }
 
@@ -3968,10 +3926,9 @@ static void bailOut(RedisModuleBlockedClient *bc, QueryError *status) {
   }
   // Clear the original status after cloning (or if timeout owns reply) to avoid double-free or leaks
   QueryError_ClearError(status);
-  if (!MRCtx_IsTimedOut(mrctx)) {
-    RedisModule_BlockedClientMeasureTimeEnd(bc);
-    RedisModule_UnblockClient(bc, mrctx);
-  }
+  RedisModule_BlockedClientMeasureTimeEnd(bc);
+  // Unblock with mrctx - if timeout already fired, this is a no-op.
+  RedisModule_UnblockClient(bc, mrctx);
 }
 
 static int prepareCommand(MRCommand *cmd, const searchRequestCtx *req, int protocol,
@@ -4064,12 +4021,16 @@ static int prepareCommand(MRCommand *cmd, const searchRequestCtx *req, int proto
   return REDISMODULE_OK;
 }
 
-int FlatSearchCommandHandler(struct MRCtx *mrctx, RedisModuleBlockedClient *bc, int protocol,
+int FlatSearchCommandHandler(RedisModuleBlockedClient *bc, int protocol,
   RedisModuleString **argv, int argc, ConcurrentSearchHandlerCtx *handlerCtx) {
   QueryError status = QueryError_Default();
 
-  // If timeout already fired, its callback owns the reply path.
+  struct MRCtx *mrctx = RedisModule_BlockClientGetPrivateData(bc);
+
+  // Check for timeout before doing any work
   if (MRCtx_IsTimedOut(mrctx)) {
+    RedisModule_BlockedClientMeasureTimeEnd(bc);
+    RedisModule_UnblockClient(bc, mrctx);
     return REDISMODULE_OK;
   }
 
@@ -4098,7 +4059,6 @@ typedef struct SearchCmdCtx {
   RedisModuleString **argv;
   int argc;
   RedisModuleBlockedClient* bc;
-  struct MRCtx *mrctx;
   int protocol;
   ConcurrentSearchHandlerCtx handlerCtx;
 } SearchCmdCtx;
@@ -4108,12 +4068,11 @@ static void DistSearchCommandHandler(void* pd) {
   if (sCmdCtx->handlerCtx.isProfile) {
     sCmdCtx->handlerCtx.coordQueueTime = rs_wall_clock_now_ns() - sCmdCtx->handlerCtx.coordStartTime;
   }
-  FlatSearchCommandHandler(sCmdCtx->mrctx, sCmdCtx->bc, sCmdCtx->protocol, sCmdCtx->argv, sCmdCtx->argc, &sCmdCtx->handlerCtx);
+  FlatSearchCommandHandler(sCmdCtx->bc, sCmdCtx->protocol, sCmdCtx->argv, sCmdCtx->argc, &sCmdCtx->handlerCtx);
   for (size_t i = 0 ; i < sCmdCtx->argc ; ++i) {
     RedisModule_FreeString(NULL, sCmdCtx->argv[i]);
   }
   rm_free(sCmdCtx->argv);
-  MRCtx_DecrRef(sCmdCtx->mrctx);
   rm_free(sCmdCtx);
 }
 
@@ -4164,13 +4123,28 @@ static int DistSearchUnblockClient(RedisModuleCtx *ctx, RedisModuleString **argv
   return REDISMODULE_OK;
 }
 
-static void DistSearchMRCtxFreePrivData(struct MRCtx *mrctx) {
-  searchRequestCtx *req = MRCtx_GetPrivData(mrctx);
-  if (!req) {
+// Free privdata callback for distributed search.
+// Called after the reply callback (or timeout callback) completes.
+// Responsible for freeing all resources associated with the blocked client.
+static void DistSearchFreePrivData(RedisModuleCtx *ctx, void *privdata) {
+  UNUSED(ctx);
+  struct MRCtx *mrctx = privdata;
+  if (!mrctx) {
     return;
   }
 
+  searchRequestCtx *req = MRCtx_GetPrivData(mrctx);
+
+  // Bailout case: no request context was set
+  // In this case, no IO request was started, so we only free the MRCtx
+  if (!req) {
+    MRCtx_Free(mrctx);
+    return;
+  }
+
+  // Free the reducer context if it was allocated
   searchReducerCtx *rctx = req->rctx;
+
   if (rctx) {
     if (rctx->pq) {
       heap_destroy(rctx->pq);
@@ -4183,17 +4157,7 @@ static void DistSearchMRCtxFreePrivData(struct MRCtx *mrctx) {
   }
 
   searchRequestCtx_Free(req);
-}
-
-// Free privdata callback for distributed search.
-// Called after the reply callback (or timeout callback) completes.
-// Releases only the blocked-client reference; MRCtx cleanup runs on the final release.
-static void DistSearchFreePrivData(RedisModuleCtx *ctx, void *privdata) {
-  UNUSED(ctx);
-  if (privdata) {
-    struct MRCtx *mrctx = privdata;
-    MRCtx_DecrRef(mrctx);
-  }
+  MRCtx_Free(mrctx);
 }
 
 typedef RedisModuleCmdFunc BlockedClientTimeoutCB;
@@ -4223,19 +4187,6 @@ static int initQueryTimeout(size_t *timeout, RedisModuleString **argv, int argc,
 static int DistSearchTimeoutFailClient(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   UNUSED(argv);
   UNUSED(argc);
-
-  struct MRCtx *mrctx = RedisModule_GetBlockedClientPrivateData(ctx);
-  if (mrctx) {
-    MRCtx_SetTimedOut(mrctx);
-
-    // Coordinate with any queued/in-flight reducer so the blocked client is not
-    // destroyed while it is still being used on a background thread.
-    if (MRCtx_TryClaimReducing(mrctx)) {
-      MRCtx_SignalReducerComplete(mrctx);
-    } else {
-      MRCtx_WaitForReducerComplete(mrctx);
-    }
-  }
 
   QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, COORD_ERR_WARN);
   RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT));
@@ -4270,13 +4221,6 @@ static int DistSearchTimeoutPartialClient(RedisModuleCtx *ctx, RedisModuleString
   } else {
     // Reducer already running or bailout claimed it - wait for completion
     MRCtx_WaitForReducerComplete(mrctx);
-
-    // A background reducer may have claimed reducing, observed the timeout,
-    // and exited before initializing req->rctx. In that case adopt the
-    // timeout-owned reduction path now that the competing reducer has finished.
-    if (!QueryError_HasError(MRCtx_GetStatus(mrctx)) && req->rctx == NULL) {
-      searchResultReducer(mrctx, MRCtx_GetNumReplied(mrctx), MRCtx_GetReplies(mrctx), true);
-    }
   }
 
   // Check if bailout set an error (e.g., index dropped before fanout)
@@ -4426,7 +4370,6 @@ int DistSearchCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   struct MRCtx *mrctx = MR_CreateCtx(ctx, NULL, req, NumShards);
   // FT.SEARCH coordinator should validate connections before sending the command to the cluster
   MRCtx_SetValidateConnections(mrctx, true);
-  MRCtx_SetFreePrivDataCB(mrctx, DistSearchMRCtxFreePrivData);
 
   // Block client - MRCtx is set as privdata so timeout callback can access it
   RedisModuleBlockedClient* bc = DistSearchBlockClientWithTimeout(ctx, queryTimeoutMS);
@@ -4448,11 +4391,9 @@ int DistSearchCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   }
   sCmdCtx->argc = argc;
   sCmdCtx->bc = bc;
-  sCmdCtx->mrctx = mrctx;
   sCmdCtx->protocol = is_resp3(ctx) ? 3 : 2;
   RedisModule_BlockedClientMeasureTimeStart(bc);
 
-  MRCtx_IncrRef(mrctx);
   ConcurrentSearch_ThreadPoolRun(dist_callback, sCmdCtx, DIST_THREADPOOL);
 
   return REDISMODULE_OK;
@@ -4829,12 +4770,16 @@ int RedisModule_OnUnload(RedisModuleCtx *ctx) {
 }
 /* ======================= DEBUG ONLY ======================= */
 
-static int DEBUG_FlatSearchCommandHandler(struct MRCtx *mrctx, RedisModuleBlockedClient *bc, int protocol,
+static int DEBUG_FlatSearchCommandHandler(RedisModuleBlockedClient *bc, int protocol,
   RedisModuleString **argv, int argc, ConcurrentSearchHandlerCtx *handlerCtx) {
   QueryError status = QueryError_Default();
 
-  // If timeout already fired, its callback owns the reply path.
+  struct MRCtx *mrctx = RedisModule_BlockClientGetPrivateData(bc);
+
+  // Check for timeout before doing any work
   if (MRCtx_IsTimedOut(mrctx)) {
+    RedisModule_BlockedClientMeasureTimeEnd(bc);
+    RedisModule_UnblockClient(bc, mrctx);
     return REDISMODULE_OK;
   }
 
@@ -4883,12 +4828,11 @@ static void DEBUG_DistSearchCommandHandler(void* pd) {
     sCmdCtx->handlerCtx.coordQueueTime = rs_wall_clock_now_ns() - sCmdCtx->handlerCtx.coordStartTime;
   }
   // send argv not including the _FT.DEBUG
-  DEBUG_FlatSearchCommandHandler(sCmdCtx->mrctx, sCmdCtx->bc, sCmdCtx->protocol, sCmdCtx->argv, sCmdCtx->argc, &sCmdCtx->handlerCtx);
+  DEBUG_FlatSearchCommandHandler(sCmdCtx->bc, sCmdCtx->protocol, sCmdCtx->argv, sCmdCtx->argc, &sCmdCtx->handlerCtx);
   for (size_t i = 0 ; i < sCmdCtx->argc ; ++i) {
     RedisModule_FreeString(NULL, sCmdCtx->argv[i]);
   }
   rm_free(sCmdCtx->argv);
-  MRCtx_DecrRef(sCmdCtx->mrctx);
   rm_free(sCmdCtx);
 }
 
