@@ -15,6 +15,7 @@ build_utils = { path = "../build_utils" }
 
 [dependencies]
 ffi.workspace = true
+geo.workspace = true
 rqe_iterator_type.workspace = true
 field.workspace = true
 idf.workspace = true
