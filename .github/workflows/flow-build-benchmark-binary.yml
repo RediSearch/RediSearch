@@ -104,18 +104,26 @@ jobs:
         id: locate
         # Detect which flavour subdir the build wrote into. 8.x and master
         # use `search-community/`; 2.x branches use plain `search/`.
+        # Note: avoid mid-script `exit 0` — under GHA's
+        # `bash -l -eo pipefail {0}` shell it's been observed to surface as
+        # exit code 1 even when the script's flow reaches it cleanly. Use
+        # a flag and let the script run to the end instead.
         run: |
+          build_dir=""
           for cand in "${BUILD_ROOT}/search-community" "${BUILD_ROOT}/search"; do
             if [ -f "${cand}/redisearch.so" ]; then
-              echo "build_dir=${cand}" >> "$GITHUB_OUTPUT"
-              echo "Found redisearch.so in ${cand}"
-              ls -la "${cand}"/redisearch.so* 2>&1 || true
-              exit 0
+              build_dir="${cand}"
+              break
             fi
           done
-          echo "::error::redisearch.so not found in expected locations under ${BUILD_ROOT}"
-          find bin -name "redisearch.so" 2>/dev/null || true
-          exit 1
+          if [ -z "$build_dir" ]; then
+            echo "::error::redisearch.so not found in expected locations under ${BUILD_ROOT}"
+            find bin -name "redisearch.so" 2>/dev/null || true
+            exit 1
+          fi
+          echo "Found redisearch.so in ${build_dir}"
+          ls -la "${build_dir}"/redisearch.so* 2>/dev/null || true
+          echo "build_dir=${build_dir}" >> "$GITHUB_OUTPUT"
       - name: Upload redisearch.so artifact
         uses: actions/upload-artifact@v4
         with:
