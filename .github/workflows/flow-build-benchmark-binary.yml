@@ -14,10 +14,24 @@ on:
         type: string
         default: x86_64
         description: "CPU arch to build for. `x86_64` (default) runs on GitHub's ubuntu-24.04; `aarch64` runs on ubuntu-24.04-arm. Must match the target EC2 DB architecture at benchmark time."
+      git_ref:
+        type: string
+        default: ""
+        description: "Optional: build at this git ref (sha/tag/branch) instead of the dispatch ref. Empty = checkout default (today's behavior)."
+    outputs:
+      resolved_sha:
+        description: "Full SHA of the commit that was actually checked out and built"
+        value: ${{ jobs.build.outputs.resolved_sha }}
+      branch_label:
+        description: "Derived label suitable for --github_branch when building a historical ref (historical-<short-sha>)"
+        value: ${{ jobs.build.outputs.branch_label }}
 
 jobs:
   build:
-    name: "Build RediSearch ${{ inputs.arch }}"
+    name: "Build RediSearch ${{ inputs.arch }}${{ inputs.git_ref != '' && format(' @ {0}', inputs.git_ref) || '' }}"
+    outputs:
+      resolved_sha: ${{ steps.resolve.outputs.resolved_sha }}
+      branch_label: ${{ steps.resolve.outputs.branch_label }}
     # Runner matches inputs.arch so the produced .so is ABI-compatible with
     # the target EC2 instance. build.sh derives the output dir from `uname -m`,
     # so we run the build natively on the matching-arch runner instead of
@@ -27,14 +41,33 @@ jobs:
       run:
         shell: bash -l -eo pipefail {0}
     env:
-      # build.sh maps `uname -m == x86_64` -> `x64` and `uname -m == aarch64` -> `aarch64`;
-      # BUILD_DIR mirrors that so the upload step finds the .so.
-      BUILD_DIR: ${{ format('bin/linux-{0}-release/search-community', inputs.arch == 'aarch64' && 'aarch64' || 'x64') }}
+      # `bin/linux-{x64,aarch64}-release/<flavour>` where <flavour> is:
+      #   - `search-community` on 8.0+ and master (current name)
+      #   - `search` on the older 2.x release branches
+      # The build root prefix is constant; the flavour is detected post-build
+      # by the `Locate built artifacts` step so historical refs work without
+      # backporting CI tooling.
+      BUILD_ROOT: ${{ format('bin/linux-{0}-release', inputs.arch == 'aarch64' && 'aarch64' || 'x64') }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           submodules: recursive
+          ref: ${{ inputs.git_ref || github.ref }}
+          # When git_ref is a raw SHA, depth=1's refspec
+          # (+refs/heads/<ref>*) can't resolve it — full history is required.
+          # When git_ref is empty (today's behavior) we keep depth=1 for speed.
+          # Quote the values: integer `0` is falsy in GHA expressions, so the
+          # ternary `A && 0 || 1` always evaluates to 1 — use strings instead.
+          fetch-depth: ${{ inputs.git_ref != '' && '0' || '1' }}
+      - name: Resolve build SHA + branch label
+        id: resolve
+        run: |
+          full_sha=$(git rev-parse HEAD)
+          short_sha=$(git rev-parse --short=7 HEAD)
+          echo "resolved_sha=${full_sha}" >> "$GITHUB_OUTPUT"
+          echo "branch_label=historical-${short_sha}" >> "$GITHUB_OUTPUT"
+          echo "Built ref resolves to ${full_sha} (label: historical-${short_sha})"
       - name: Setup specific
         working-directory: .install
         run: ./install_script.sh sudo
@@ -43,18 +76,62 @@ jobs:
       - name: Install Boost
         working-directory: .install
         run: ./install_boost.sh
+      # The local composite action `./.github/actions/setup-sccache` is a
+      # recent master addition. When git_ref points at an older ref (e.g. a
+      # release branch like 2.10 / 8.4) the action.yml isn't there and the
+      # workflow fails before the build even runs. Gate sccache on its
+      # presence in the checked-out tree so the historical-ref path doesn't
+      # require backporting CI tooling. Builds without sccache are slower
+      # but functionally equivalent.
+      - name: Detect setup-sccache action
+        id: sccache_check
+        run: |
+          if [ -f .github/actions/setup-sccache/action.yml ]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::setup-sccache action not present at this ref; building without sccache"
+          fi
       - name: Setup sccache
+        if: steps.sccache_check.outputs.available == 'true'
         uses: ./.github/actions/setup-sccache
       - name: Build RediSearch
         run: make build LTO=1
       - name: Show sccache stats
+        if: steps.sccache_check.outputs.available == 'true'
         run: ${SCCACHE_PATH:-sccache} --show-stats
+      - name: Locate built artifacts
+        id: locate
+        # Detect which flavour subdir the build wrote into. 8.x and master
+        # use `search-community/`; 2.x branches use plain `search/`.
+        # Note: avoid mid-script `exit 0` — under GHA's
+        # `bash -l -eo pipefail {0}` shell it's been observed to surface as
+        # exit code 1 even when the script's flow reaches it cleanly. Use
+        # a flag and let the script run to the end instead.
+        run: |
+          build_dir=""
+          for cand in "${BUILD_ROOT}/search-community" "${BUILD_ROOT}/search"; do
+            if [ -f "${cand}/redisearch.so" ]; then
+              build_dir="${cand}"
+              break
+            fi
+          done
+          if [ -z "$build_dir" ]; then
+            echo "::error::redisearch.so not found in expected locations under ${BUILD_ROOT}"
+            find bin -name "redisearch.so" 2>/dev/null || true
+            exit 1
+          fi
+          echo "Found redisearch.so in ${build_dir}"
+          ls -la "${build_dir}"/redisearch.so* 2>/dev/null || true
+          echo "build_dir=${build_dir}" >> "$GITHUB_OUTPUT"
       - name: Upload redisearch.so artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ inputs.artifact_name }}
           path: |
-            ${{ env.BUILD_DIR }}/redisearch.so
-            ${{ env.BUILD_DIR }}/redisearch.so.debug
-          if-no-files-found: error
+            ${{ steps.locate.outputs.build_dir }}/redisearch.so
+            ${{ steps.locate.outputs.build_dir }}/redisearch.so.debug
+          # 2.x doesn't always emit a .so.debug — warn instead of erroring
+          # on the missing optional file.
+          if-no-files-found: warn
           retention-days: 1
