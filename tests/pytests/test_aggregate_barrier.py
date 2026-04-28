@@ -315,11 +315,13 @@ def _test_barrier_waits_for_delayed_unbalanced_shard(protocol):
 
 @skip(cluster=False, asan=True)
 def test_barrier_waits_for_delayed_unbalanced_shard_resp2():
+    raise SkipTest("Flaky test, see https://github.com/RediSearch/RediSearch/actions/runs/24157298438")
     _test_barrier_waits_for_delayed_unbalanced_shard(2)
 
 
 @skip(cluster=False, asan=True)
 def test_barrier_waits_for_delayed_unbalanced_shard_resp3():
+    raise SkipTest("Flaky test, see https://github.com/RediSearch/RediSearch/actions/runs/24157298438")
     _test_barrier_waits_for_delayed_unbalanced_shard(3)
 
 
