@@ -75,6 +75,13 @@ jobs:
           BENCHMARK_GLOB: ${{ inputs.benchmark_glob }}
           BENCHMARK_FILTER: ${{ inputs.benchmark_filter }}
         run: |
+          # Don't early-exit from this script: a mid-script `exit 0` inside
+          # `bash -l -eo pipefail {0}` was observed to surface as exit code 1
+          # on the GHA runner (only when the empty-intersection branch fires;
+          # local repro of the same script exits 0 cleanly). Use a flag and
+          # route every $GITHUB_OUTPUT write through one tail at the bottom.
+          skip="false"
+          effective_glob="${BENCHMARK_GLOB}"
           if [ -n "${BENCHMARK_FILTER}" ]; then
             effective_files=""
             echo "Filtering benchmarks: glob='${BENCHMARK_GLOB}' filter='${BENCHMARK_FILTER}'"
@@ -89,16 +96,18 @@ jobs:
             done
             if [ -z "$effective_files" ]; then
               echo "::notice::No benchmarks match both '${BENCHMARK_GLOB}' and '${BENCHMARK_FILTER}'. Skipping."
-              echo "skip=true" >> "$GITHUB_OUTPUT"
-              exit 0
+              skip="true"
+            else
+              echo "Selected $(echo ${effective_files} | wc -w | tr -d ' ') benchmark(s)"
+              effective_glob="${BENCHMARK_FILTER}"
             fi
-            echo "Selected $(echo ${effective_files} | wc -w | tr -d ' ') benchmark(s)"
-            echo "effective_glob=${BENCHMARK_FILTER}" >> "$GITHUB_OUTPUT"
           else
             echo "No filter applied, using glob: ${BENCHMARK_GLOB}"
-            echo "effective_glob=${BENCHMARK_GLOB}" >> "$GITHUB_OUTPUT"
           fi
-          echo "skip=false" >> "$GITHUB_OUTPUT"
+          {
+            echo "skip=${skip}"
+            echo "effective_glob=${effective_glob}"
+          } >> "$GITHUB_OUTPUT"
       - name: Setup specific
         if: steps.benchmark-filter.outputs.skip != 'true'
         working-directory: .install
