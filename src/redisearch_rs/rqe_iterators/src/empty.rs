@@ -60,7 +60,7 @@ impl<'index> RQEIterator<'index> for Empty {
     #[inline(always)]
     unsafe fn revalidate(
         &mut self,
-        _ctx: std::ptr::NonNull<ffi::RedisSearchCtx>,
+        _spec: std::ptr::NonNull<ffi::IndexSpec>,
     ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         Ok(RQEValidateStatus::Ok)
     }

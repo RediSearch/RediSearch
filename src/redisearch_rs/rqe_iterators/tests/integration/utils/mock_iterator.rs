@@ -387,7 +387,7 @@ impl<'index, const N: usize> RQEIterator<'index> for Mock<'index, N> {
 
     unsafe fn revalidate(
         &mut self,
-        _ctx: std::ptr::NonNull<ffi::RedisSearchCtx>,
+        _spec: std::ptr::NonNull<ffi::IndexSpec>,
     ) -> Result<rqe_iterators::RQEValidateStatus<'_, 'index>, rqe_iterators::RQEIteratorError> {
         let revalidate_result = {
             let mut data = self.data.0.borrow_mut();
@@ -555,7 +555,7 @@ impl<'index> RQEIterator<'index> for MockVec<'index> {
 
     unsafe fn revalidate(
         &mut self,
-        _ctx: std::ptr::NonNull<ffi::RedisSearchCtx>,
+        _spec: std::ptr::NonNull<ffi::IndexSpec>,
     ) -> Result<rqe_iterators::RQEValidateStatus<'_, 'index>, rqe_iterators::RQEIteratorError> {
         let revalidate_result = {
             let mut data = self.data.0.borrow_mut();

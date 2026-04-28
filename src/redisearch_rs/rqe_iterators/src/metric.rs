@@ -187,10 +187,10 @@ impl<'index, const SORTED_BY_ID: bool> RQEIterator<'index> for Metric<'index, SO
     #[inline(always)]
     unsafe fn revalidate(
         &mut self,
-        ctx: std::ptr::NonNull<ffi::RedisSearchCtx>,
+        spec: std::ptr::NonNull<ffi::IndexSpec>,
     ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        // SAFETY: Delegating to inner iterator with the same `ctx` passed by our caller.
-        unsafe { self.base.revalidate(ctx) }
+        // SAFETY: Delegating to inner iterator with the same `spec` passed by our caller.
+        unsafe { self.base.revalidate(spec) }
     }
 
     #[inline(always)]

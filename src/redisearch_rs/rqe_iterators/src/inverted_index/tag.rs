@@ -220,14 +220,14 @@ where
     #[inline(always)]
     unsafe fn revalidate(
         &mut self,
-        ctx: NonNull<RedisSearchCtx>,
+        spec: NonNull<ffi::IndexSpec>,
     ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         if self.should_abort() {
             return Ok(RQEValidateStatus::Aborted);
         }
 
-        // SAFETY: Delegating to inner iterator with the same `ctx` passed by our caller.
-        unsafe { self.it.revalidate(ctx) }
+        // SAFETY: Delegating to inner iterator with the same `spec` passed by our caller.
+        unsafe { self.it.revalidate(spec) }
     }
 
     #[inline(always)]

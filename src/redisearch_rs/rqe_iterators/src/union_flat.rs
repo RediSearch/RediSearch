@@ -507,7 +507,7 @@ where
 
     unsafe fn revalidate(
         &mut self,
-        ctx: std::ptr::NonNull<ffi::RedisSearchCtx>,
+        spec: std::ptr::NonNull<ffi::IndexSpec>,
     ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         // Already at EOF - nothing to do
         if self.is_eof {
@@ -522,8 +522,8 @@ where
         // We use index-based iteration because we need to remove elements while iterating.
         let mut i = 0;
         while i < self.children.len() {
-            // SAFETY: Delegating to child with the same `ctx` passed by our caller.
-            match unsafe { self.children[i].revalidate(ctx) }? {
+            // SAFETY: Delegating to child with the same `spec` passed by our caller.
+            match unsafe { self.children[i].revalidate(spec) }? {
                 RQEValidateStatus::Aborted => {
                     // Remove aborted child using swap_remove for O(1) removal.
                     // Order doesn't matter for union iteration.

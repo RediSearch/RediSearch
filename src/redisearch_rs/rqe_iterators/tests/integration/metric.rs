@@ -282,7 +282,7 @@ mod metrics_tests {
 #[test]
 fn revalidate() {
     let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-    let ctx = mock_ctx.sctx();
+    let ctx = mock_ctx.spec();
     let metric_data = vec![0.1, 0.2, 0.3];
     let mut it = MetricSortedById::new(vec![1, 2, 3], metric_data);
     // SAFETY: test-only call with valid context

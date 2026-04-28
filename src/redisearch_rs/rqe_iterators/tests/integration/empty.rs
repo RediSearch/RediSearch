@@ -66,7 +66,7 @@ fn type_() {
 #[test]
 fn revalidate() {
     let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-    let ctx = mock_ctx.sctx();
+    let ctx = mock_ctx.spec();
     let mut it = Empty::default();
     // SAFETY: test-only call with valid context
     assert_eq!(

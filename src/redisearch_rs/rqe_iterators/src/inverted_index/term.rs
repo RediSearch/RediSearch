@@ -91,21 +91,16 @@ where
     /// Check if the iterator should abort revalidation.
     ///
     /// The term's inverted index may have been garbage-collected and
-    /// replaced with a new allocation. If the index pointer returned by
-    /// [`ffi::Redis_OpenInvertedIndex`] no longer matches the reader's
-    /// stored index, the iterator must [abort](RQEValidateStatus::Aborted).
+    /// replaced with a new allocation. If the index pointer looked up via
+    /// `spec.keysDict` no longer matches the reader's stored index, the
+    /// iterator must [abort](RQEValidateStatus::Aborted).
     ///
     /// # Safety
     ///
-    /// 1. `context` must point to a valid [`RedisSearchCtx`].
-    /// 2. `context.spec` must be a non-null pointer to a valid [`IndexSpec`](ffi::IndexSpec).
-    unsafe fn should_abort(&self, context: NonNull<RedisSearchCtx>) -> bool {
-        // SAFETY: 1. guarantees `context` is valid.
-        let sctx_ref = unsafe { context.as_ref() };
-        // SAFETY: 2. guarantees `spec` is a valid, non-null pointer.
-        let spec = unsafe { &*sctx_ref.spec };
-
-        // Redis_OpenInvertedIndex() relies on keysDict to open the II.
+    /// The raw pointers inside `spec` (e.g. `keysDict`) must be valid and
+    /// dereferenceable for the duration of the call.
+    unsafe fn should_abort(&self, spec: &ffi::IndexSpec) -> bool {
+        // keysDict is needed to look up the inverted index.
         // It should always be set in production flows but some tests do not set up a full spec.
         if spec.keysDict.is_null() {
             return false;
@@ -121,27 +116,30 @@ where
 
         let str_ptr = term
             .as_bytes()
-            .map_or(std::ptr::null(), |b| b.as_ptr().cast());
+            .map_or(std::ptr::null_mut(), |b| b.as_ptr() as *mut _);
 
-        // SAFETY: 1. guarantees `context` is a valid `RedisSearchCtx` and
-        // `str_ptr` is a valid byte slice of `term.len()` bytes.
+        let mut term_key = ffi::CharBuf {
+            buf: str_ptr,
+            len: term.len(),
+        };
+
+        // SAFETY: `spec.keysDict` is a valid dict (checked non-null above) and
+        // `term_key` is a valid `CharBuf` pointing to the term's bytes for the
+        // duration of this call.
         let idx = unsafe {
-            ffi::Redis_OpenInvertedIndex(
-                context.as_ptr(),
-                str_ptr,
-                term.len(),
-                false,
-                std::ptr::null_mut(),
+            ffi::RS_dictFetchValue(
+                spec.keysDict,
+                &mut term_key as *mut ffi::CharBuf as *const _,
             )
         };
 
-        let Some(idx) = NonNull::new(idx) else {
+        let Some(idx) = NonNull::new(idx as *mut _) else {
             // The inverted index was collected entirely by GC.
             return true;
         };
 
         let opaque = idx.cast::<inverted_index::opaque::InvertedIndex>();
-        // SAFETY: `Redis_OpenInvertedIndex` returned a non-null pointer to a
+        // SAFETY: `RS_dictFetchValue` returned a non-null pointer to a
         // valid opaque `InvertedIndex`.
         let opaque = unsafe { opaque.as_ref() };
         !self.it.reader.points_to_the_same_opaque_index(opaque)
@@ -206,17 +204,18 @@ where
     #[inline(always)]
     unsafe fn revalidate(
         &mut self,
-        ctx: NonNull<RedisSearchCtx>,
+        spec: NonNull<ffi::IndexSpec>,
     ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        // SAFETY: The caller (result processor) guarantees conditions 1-2
-        // of `should_abort` (`ctx` points to a valid `RedisSearchCtx` with a
-        // valid `spec`) while the spec read lock is held.
-        if unsafe { self.should_abort(ctx) } {
+        // SAFETY: The caller guarantees `spec` points to a valid `IndexSpec`
+        // while the spec read lock is held.
+        let spec_ref = unsafe { spec.as_ref() };
+        // SAFETY: `spec_ref` satisfies `should_abort`'s safety requirements.
+        if unsafe { self.should_abort(spec_ref) } {
             return Ok(RQEValidateStatus::Aborted);
         }
 
-        // SAFETY: Delegating to inner iterator with the same `ctx` passed by our caller.
-        unsafe { self.it.revalidate(ctx) }
+        // SAFETY: Delegating to inner iterator with the same `spec` passed by our caller.
+        unsafe { self.it.revalidate(spec) }
     }
 
     #[inline(always)]

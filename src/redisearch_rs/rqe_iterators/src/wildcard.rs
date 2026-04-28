@@ -97,7 +97,7 @@ impl<'index> RQEIterator<'index> for Wildcard<'index> {
 
     unsafe fn revalidate(
         &mut self,
-        _ctx: std::ptr::NonNull<ffi::RedisSearchCtx>,
+        _spec: std::ptr::NonNull<ffi::IndexSpec>,
     ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         Ok(RQEValidateStatus::Ok)
     }
@@ -158,10 +158,10 @@ impl<'index> RQEIterator<'index> for Box<dyn WildcardIterator<'index> + 'index> 
 
     unsafe fn revalidate(
         &mut self,
-        ctx: std::ptr::NonNull<ffi::RedisSearchCtx>,
+        spec: std::ptr::NonNull<ffi::IndexSpec>,
     ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        // SAFETY: Delegating to inner iterator with the same `ctx` passed by our caller.
-        unsafe { (**self).revalidate(ctx) }
+        // SAFETY: Delegating to inner iterator with the same `spec` passed by our caller.
+        unsafe { (**self).revalidate(spec) }
     }
 
     fn rewind(&mut self) {
@@ -265,10 +265,10 @@ impl<'index> RQEIterator<'index> for OptimizedWildcard<'index> {
 
     unsafe fn revalidate(
         &mut self,
-        ctx: std::ptr::NonNull<ffi::RedisSearchCtx>,
+        spec: std::ptr::NonNull<ffi::IndexSpec>,
     ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        // SAFETY: Delegating to variant with the same `ctx` passed by our caller.
-        unsafe { delegate_rqe_iterator!(self, revalidate, ctx) }
+        // SAFETY: Delegating to variant with the same `spec` passed by our caller.
+        unsafe { delegate_rqe_iterator!(self, revalidate, spec) }
     }
 
     #[inline(always)]
@@ -330,10 +330,10 @@ impl<'index> RQEIterator<'index> for NewWildcardIterator<'index> {
 
     unsafe fn revalidate(
         &mut self,
-        ctx: std::ptr::NonNull<ffi::RedisSearchCtx>,
+        spec: std::ptr::NonNull<ffi::IndexSpec>,
     ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        // SAFETY: Delegating to variant with the same `ctx` passed by our caller.
-        unsafe { delegate_wildcard_iterator!(self, revalidate, ctx) }
+        // SAFETY: Delegating to variant with the same `spec` passed by our caller.
+        unsafe { delegate_wildcard_iterator!(self, revalidate, spec) }
     }
 
     #[inline(always)]
@@ -541,10 +541,10 @@ impl<'index> RQEIterator<'index> for DiskWildcardIterator<'index> {
 
     unsafe fn revalidate(
         &mut self,
-        ctx: std::ptr::NonNull<ffi::RedisSearchCtx>,
+        spec: std::ptr::NonNull<ffi::IndexSpec>,
     ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        // SAFETY: Delegating to inner iterator with the same `ctx` passed by our caller.
-        unsafe { self.0.revalidate(ctx) }
+        // SAFETY: Delegating to inner iterator with the same `spec` passed by our caller.
+        unsafe { self.0.revalidate(spec) }
     }
 
     fn rewind(&mut self) {

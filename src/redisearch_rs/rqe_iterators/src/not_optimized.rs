@@ -268,19 +268,19 @@ where
     #[inline(always)]
     unsafe fn revalidate(
         &mut self,
-        ctx: std::ptr::NonNull<ffi::RedisSearchCtx>,
+        spec: std::ptr::NonNull<ffi::IndexSpec>,
     ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         // 1. Revalidate the wildcard iterator first.
-        // SAFETY: Delegating to children with the same `ctx` passed by our caller.
-        let wcii_status = unsafe { self.wcii.revalidate(ctx) }?;
+        // SAFETY: Delegating to children with the same `spec` passed by our caller.
+        let wcii_status = unsafe { self.wcii.revalidate(spec) }?;
         if matches!(wcii_status, RQEValidateStatus::Aborted) {
             return Ok(RQEValidateStatus::Aborted);
         }
 
         // 2. Revalidate the child iterator.
         let child_aborted = matches!(
-            // SAFETY: Delegating to child with the same `ctx` passed by our caller.
-            unsafe { self.child.revalidate(ctx) }?,
+            // SAFETY: Delegating to child with the same `spec` passed by our caller.
+            unsafe { self.child.revalidate(spec) }?,
             RQEValidateStatus::Aborted
         );
         if child_aborted {

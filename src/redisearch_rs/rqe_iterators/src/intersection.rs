@@ -517,15 +517,15 @@ where
 
     unsafe fn revalidate(
         &mut self,
-        ctx: std::ptr::NonNull<ffi::RedisSearchCtx>,
+        spec: std::ptr::NonNull<ffi::IndexSpec>,
     ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         let mut any_child_moved = false;
         let mut max_child_doc_id: t_docId = 0;
         let mut moved_to_eof = false;
 
         for child in &mut self.children {
-            // SAFETY: Delegating to child with the same `ctx` passed by our caller.
-            match unsafe { child.revalidate(ctx) }? {
+            // SAFETY: Delegating to child with the same `spec` passed by our caller.
+            match unsafe { child.revalidate(spec) }? {
                 RQEValidateStatus::Aborted => return Ok(RQEValidateStatus::Aborted),
                 RQEValidateStatus::Moved { current } => {
                     any_child_moved = true;

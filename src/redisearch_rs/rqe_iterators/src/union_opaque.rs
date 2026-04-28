@@ -168,10 +168,10 @@ impl<'index, I: RQEIterator<'index>> RQEIterator<'index> for UnionOpaque<'index,
     #[inline(always)]
     unsafe fn revalidate(
         &mut self,
-        ctx: std::ptr::NonNull<ffi::RedisSearchCtx>,
+        spec: std::ptr::NonNull<ffi::IndexSpec>,
     ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        // SAFETY: Delegating to variant with the same `ctx` passed by our caller.
-        unsafe { delegate_variant_ref_mut!(self, revalidate, ctx) }
+        // SAFETY: Delegating to variant with the same `spec` passed by our caller.
+        unsafe { delegate_variant_ref_mut!(self, revalidate, spec) }
     }
 
     #[inline(always)]

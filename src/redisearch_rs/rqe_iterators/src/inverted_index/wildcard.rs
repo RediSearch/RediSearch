@@ -9,7 +9,7 @@
 
 use std::ptr::NonNull;
 
-use ffi::{RedisSearchCtx, t_docId};
+use ffi::t_docId;
 use inverted_index::{
     DecodedBy, DocIdsDecoder, IndexReaderCore, RSIndexResult, opaque::OpaqueEncoding,
 };
@@ -72,17 +72,10 @@ where
     ///
     /// # Safety
     ///
-    /// 1. `context` must point to a valid [`RedisSearchCtx`].
-    /// 2. `context.spec` must be a non-null pointer to a valid [`IndexSpec`](ffi::IndexSpec).
-    /// 3. `spec.existingDocs`, when non-null, must point to an opaque
+    /// 1. `spec.existingDocs`, when non-null, must point to an opaque
     ///    [`InvertedIndex`](inverted_index::InvertedIndex) whose encoding
     ///    variant matches `E`.
-    unsafe fn should_abort(&self, context: NonNull<RedisSearchCtx>) -> bool {
-        // SAFETY: 1. guarantees `context` is valid.
-        let sctx_ref = unsafe { context.as_ref() };
-        // SAFETY: 2. guarantees `spec` is a valid, non-null pointer.
-        let spec = unsafe { &*sctx_ref.spec };
-
+    unsafe fn should_abort(&self, spec: &ffi::IndexSpec) -> bool {
         let existing_docs = spec
             .existingDocs
             .cast::<inverted_index::opaque::InvertedIndex>();
@@ -91,9 +84,9 @@ where
             return true;
         }
 
-        // SAFETY: 3. guarantees `existingDocs` is valid when non-null, and we just checked it's not null.
+        // SAFETY: 2. guarantees `existingDocs` is valid when non-null, and we just checked it's not null.
         let existing_docs = unsafe { &*existing_docs };
-        // SAFETY: 3. guarantees the encoding variant matches E.
+        // SAFETY: 2. guarantees the encoding variant matches E.
         let ii = E::from_opaque(existing_docs);
 
         !self.it.reader.points_to_ii(ii)
@@ -151,19 +144,20 @@ where
     #[inline(always)]
     unsafe fn revalidate(
         &mut self,
-        ctx: NonNull<RedisSearchCtx>,
+        spec: NonNull<ffi::IndexSpec>,
     ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        // SAFETY: The caller (result processor) guarantees conditions 1-2
-        // of `should_abort` (`ctx` points to a valid `RedisSearchCtx` with a
-        // valid `spec`) while the spec read lock is held. Condition 3
-        // (existingDocs encoding match) is a structural invariant: the
+        // SAFETY: The caller guarantees `spec` points to a valid `IndexSpec`
+        // while the spec read lock is held.
+        let spec_ref = unsafe { spec.as_ref() };
+        // SAFETY: `spec_ref` satisfies `should_abort`'s safety requirements.
+        // The existingDocs encoding match is a structural invariant: the
         // encoding is determined at index creation and cannot change.
-        if unsafe { self.should_abort(ctx) } {
+        if unsafe { self.should_abort(spec_ref) } {
             return Ok(RQEValidateStatus::Aborted);
         }
 
-        // SAFETY: Delegating to inner iterator with the same `ctx` passed by our caller.
-        unsafe { self.it.revalidate(ctx) }
+        // SAFETY: Delegating to inner iterator with the same `spec` passed by our caller.
+        unsafe { self.it.revalidate(spec) }
     }
 
     #[inline(always)]
