@@ -23,7 +23,7 @@ on:
         default: ""
       git_ref:
         type: string
-        description: "Optional: build RediSearch at this git ref (sha/tag/branch) instead of the dispatch ref. Benchmark specs and orchestration still come from the dispatch ref. Results get tagged with the resolved historical SHA and labeled `historical-<short-sha>` so they don't collide with master's series. Empty = today's behavior."
+        description: "Optional: build RediSearch at this git ref instead of the dispatch ref. Accepts a branch name, a tag name, or a FULL 40-char commit SHA (actions/checkout rejects short SHAs). Benchmark specs and orchestration still come from the dispatch ref. Results get tagged with the resolved historical SHA and labeled `historical-<short-sha>` so they don't collide with master's series. Empty = today's behavior."
         default: ""
       rejson_branch:
         type: string
