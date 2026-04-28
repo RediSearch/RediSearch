@@ -25,15 +25,14 @@
 #include <unistd.h>
 #include <pthread.h>
 #include <sys/param.h>
-#include <stdatomic.h>
 
 #include "hiredis/hiredis.h"
 #include "hiredis/async.h"
 
 #define REFCOUNT_INCR_MSG(caller, refcount) \
-  RS_DEBUG_LOG_FMT("%s: increased refCount to == %d", caller, refcount);
+  RS_DEBUG_LOG_FMT("%s: increased refCount to == %d", caller, refcount)
 #define REFCOUNT_DECR_MSG(caller, refcount) \
-  RS_DEBUG_LOG_FMT("%s: decreased refCount to == %d", caller, refcount);
+  RS_DEBUG_LOG_FMT("%s: decreased refCount to == %d", caller, refcount)
 
 #define CLUSTER_QUERY_ERROR "Could not send query to cluster"
 
@@ -46,7 +45,6 @@ long long timeout_g = 5000; // unused value. will be set in MR_Init
 
 /* MapReduce context for a specific command's execution */
 typedef struct MRCtx {
-  _Atomic(int) refcount;
   int numReplied;
   int numExpected;
   int numErrored;
@@ -73,7 +71,6 @@ typedef struct MRCtx {
    * needs to unblock the client.
    */
   MRReduceFunc fn;
-  MRCtxFreePrivDataCB freePrivDataCB;
 } MRCtx;
 
 void MR_SetCoordinationStrategy(MRCtx *ctx, bool mastersOnly) {
@@ -82,8 +79,7 @@ void MR_SetCoordinationStrategy(MRCtx *ctx, bool mastersOnly) {
 
 /* Create a new MapReduce context */
 MRCtx *MR_CreateCtx(RedisModuleCtx *ctx, RedisModuleBlockedClient *bc, void *privdata, int replyCap) {
-  MRCtx *ret = rm_calloc(1, sizeof(MRCtx));
-  atomic_init(&ret->refcount, 1);
+  MRCtx *ret = rm_malloc(sizeof(MRCtx));
   ret->numReplied = 0;
   ret->numErrored = 0;
   ret->numExpected = 0;
@@ -97,18 +93,10 @@ MRCtx *MR_CreateCtx(RedisModuleCtx *ctx, RedisModuleBlockedClient *bc, void *pri
   RS_ASSERT(ctx || bc);
   ret->fn = NULL;
   ret->validateConnections = false;
-  ret->freePrivDataCB = NULL;
   return ret;
 }
 
-void MRCtx_SetFreePrivDataCB(MRCtx *ctx, MRCtxFreePrivDataCB cb) {
-  ctx->freePrivDataCB = cb;
-}
-
-static void MRCtx_FreeInternal(MRCtx *ctx) {
-  if (ctx->freePrivDataCB) {
-    ctx->freePrivDataCB(ctx);
-  }
+void MRCtx_Free(MRCtx *ctx) {
 
   MRCommand_Free(&ctx->cmd);
 
@@ -124,22 +112,6 @@ static void MRCtx_FreeInternal(MRCtx *ctx) {
   rm_free(ctx);
 }
 
-void MRCtx_IncrRef(MRCtx *ctx) {
-  int refcount = atomic_fetch_add(&ctx->refcount, 1) + 1;
-  REFCOUNT_INCR_MSG("MRCtx_IncrRef", refcount);
-}
-
-void MRCtx_DecrRef(MRCtx *ctx) {
-  int prev_refcount = atomic_fetch_sub(&ctx->refcount, 1);
-  RS_ASSERT(prev_refcount > 0);
-
-  int refcount = prev_refcount - 1;
-  REFCOUNT_DECR_MSG("MRCtx_DecrRef", refcount);
-  if (refcount == 0) {
-    MRCtx_FreeInternal(ctx);
-  }
-}
-
 /* Get the user stored private data from the context */
 void *MRCtx_GetPrivData(struct MRCtx *ctx) {
   return ctx->privdata;
@@ -151,10 +123,6 @@ int MRCtx_GetNumReplied(struct MRCtx *ctx) {
 
 MRReply** MRCtx_GetReplies(struct MRCtx *ctx) {
   return ctx->replies;
-}
-
-void MRCtx_SetBlockedClient(struct MRCtx *ctx, RedisModuleBlockedClient *bc) {
-  ctx->bc = bc;
 }
 
 RedisModuleCtx *MRCtx_GetRedisCtx(struct MRCtx *ctx) {
@@ -180,8 +148,7 @@ bool MRCtx_GetValidateConnections(struct MRCtx *ctx) {
 static void freePrivDataCB(RedisModuleCtx *ctx, void *p) {
   if (p) {
     MRCtx *mc = p;
-    /* RQ completion is owned by the libuv fanout-completion paths. */
-    MRCtx_DecrRef(mc);
+    MRCtx_Free(mc);
   }
 }
 
@@ -200,7 +167,8 @@ static int unblockHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
   return mc->reducer(mc, mc->numReplied, mc->replies);
 }
 
-/* The callback called from each fanout request to aggregate their replies */
+// If we've received the last reply, the fanout/network phase is complete.
+// Release the RQ slot here before unblocking or handing off to reduction.
 static void fanoutCallback(redisAsyncContext *c, void *r, void *privdata) {
   MRCtx *ctx = privdata;
 
@@ -216,23 +184,17 @@ static void fanoutCallback(redisAsyncContext *c, void *r, void *privdata) {
     ctx->replies[ctx->numReplied++] = r;
   }
 
-  // If we've received the last reply, the fanout/network phase is complete.
-  // Release the RQ slot here before unblocking or handing off to reduction.
+  // If we've received the last reply - unblock the client
   if (ctx->numReplied + ctx->numErrored == ctx->numExpected) {
+    MR_requestCompleted();
     if (ctx->fn) {
       ctx->fn(ctx, ctx->numReplied, ctx->replies);
-      // `ctx->fn` may hand off to an async reducer that can unblock and free `ctx`
-      // before this libuv callback is scheduled again. Complete the RQ request via
-      // the saved ioRuntime instead of reading more state from `ctx` after the handoff.
-      MR_requestCompleted();
     } else {
-      MR_requestCompleted();
       RedisModuleBlockedClient *bc = ctx->bc;
       RS_ASSERT(bc);
       RedisModule_BlockedClientMeasureTimeEnd(bc);
       RedisModule_UnblockClient(bc, ctx);
     }
-    MRCtx_DecrRef(ctx);
   }
 }
 
@@ -274,7 +236,6 @@ static void uvFanoutRequest(void *p) {
     RS_ASSERT(bc);
     RedisModule_BlockedClientMeasureTimeEnd(bc);
     RedisModule_UnblockClient(bc, mrctx);
-    MRCtx_DecrRef(mrctx);
   }
 }
 
@@ -291,7 +252,6 @@ static void uvMapRequest(void *p) {
     RS_ASSERT(bc);
     RedisModule_BlockedClientMeasureTimeEnd(bc);
     RedisModule_UnblockClient(bc, mrctx);
-    MRCtx_DecrRef(mrctx);
   }
 }
 
@@ -310,7 +270,6 @@ int MR_Fanout(struct MRCtx *mrctx, MRReduceFunc reducer, MRCommand cmd, bool blo
   }
   mrctx->reducer = reducer;
   mrctx->cmd = cmd;
-  MRCtx_IncrRef(mrctx);
   RQ_Push(rq_g, uvFanoutRequest, mrctx);
   return REDIS_OK;
 }
@@ -321,7 +280,6 @@ int MR_MapSingle(struct MRCtx *ctx, MRReduceFunc reducer, MRCommand cmd) {
   RS_ASSERT(!ctx->bc);
   ctx->bc = RedisModule_BlockClient(ctx->redisCtx, unblockHandler, timeoutHandler, freePrivDataCB, 0); // timeout_g);
   RedisModule_BlockedClientMeasureTimeStart(ctx->bc);
-  MRCtx_IncrRef(ctx);
   RQ_Push(rq_g, uvMapRequest, ctx);
   return REDIS_OK;
 }
