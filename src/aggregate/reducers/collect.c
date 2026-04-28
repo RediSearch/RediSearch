@@ -98,11 +98,10 @@ static void handleCollectFieldsLocal(ArgParser *parser, const void *value, void 
   for (int i = 0; i < count; i++) {
     const char *s;
     size_t len;
-    if (AC_GetString(ac, &s, &len, 0) != AC_OK) {
-      QueryError_SetWithUserDataFmt(opts->status, QUERY_ERROR_CODE_PARSE_ARGS,
-        "Missing arguments", " for FIELDS");
-      return;
-    }
+    int rv = AC_GetString(ac, &s, &len, 0);
+    // ArgParser already validated `count` and provided a sub-cursor with
+    // exactly `count` so each iteration is guaranteed to succeed.
+    RS_ASSERT(rv == AC_OK);
     if (len == 1 && s[0] == '*') {
       QueryError_SetError(opts->status, QUERY_ERROR_CODE_PARSE_ARGS,
         "COLLECT does not yet support `*` in FIELDS");
@@ -174,13 +173,15 @@ static void handleCollectSortByLocal(ArgParser *parser, const void *value, void 
   data->sortAscMap = SORTASCMAP_INIT;
 
   while (!AC_IsAtEnd(ac)) {
-    // AC_StringArg only returns NULL when AC_IsAtEnd would be true OR the cursor
-    // type is not AC_TYPE_CHAR. The loop guards the first; ArgParser dispatch
-    // guarantees the second. Debug-only tripwire for future maintainers.
-    const char *s = AC_StringArg(ac, ac->offset);
-    RS_ASSERT(s != NULL);
+    const char *s;
+    size_t len;
 
-    const char *name = parseAtPrefixedName(s, strlen(s), opts->status);
+    int rv = AC_GetString(ac, &s, &len, 0);
+    // ArgParser already validated `count` and provided a sub-cursor with
+    // exactly `count` so each iteration is guaranteed to succeed.
+    RS_ASSERT(rv == AC_OK);
+
+    const char *name = parseAtPrefixedName(s, len, opts->status);
     if (!name) return;
 
     if (array_len(data->sort_names) >= COLLECT_MAX_SORT_KEYS) {
@@ -191,7 +192,6 @@ static void handleCollectSortByLocal(ArgParser *parser, const void *value, void 
 
     // Store the raw name alias, then expose the optional ASC/DESC token.
     array_append(data->sort_names, name);
-    ac->offset++;
 
     size_t dir_idx = array_len(data->sort_names) - 1;
     handleCollectSortDirection(ac, &data->sortAscMap, dir_idx);
@@ -220,10 +220,9 @@ static void handleCollectSortByRemote(ArgParser *parser, const void *value, void
   key_opts.name = "SORTBY";
 
   while (!AC_IsAtEnd(ac)) {
-    // SORTBY is `@`-only, even though `ReducerOpts_GetKey -> ExtractKeyName`
-    // would otherwise accept `$` JSON paths. Validate the prefix here before
-    // delegating the lookup; `parseAtPrefixedName` does not consume the cursor.
     const char *s = AC_StringArg(ac, ac->offset);
+    // ArgParser already validated `count` and provided a sub-cursor with
+    // exactly `count` so each iteration is guaranteed to succeed.
     RS_ASSERT(s != NULL);
     if (!parseAtPrefixedName(s, strlen(s), opts->status)) return;
 
