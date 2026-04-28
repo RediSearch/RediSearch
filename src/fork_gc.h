@@ -127,4 +127,6 @@ void FGC_Apply(ForkGC *gc);
 }
 #endif
 
+#include "fork_gc_rs.h"
+
 #endif /* SRC_FORK_GC_H_ */

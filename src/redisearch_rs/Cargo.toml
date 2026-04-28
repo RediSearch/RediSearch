@@ -7,6 +7,7 @@ members = [
     "ffi",
     "field",
     "fnv",
+    "fork_gc",
     "generational_slab",
     "hyperloglog",
     "inverted_index",
@@ -96,6 +97,7 @@ ffi = { path = "./ffi", default-features = false }
 field = { path = "./field" }
 field_spec = { path = "./c_wrappers/field_spec" }
 fnv = { path = "./fnv" }
+fork_gc = { path = "./fork_gc" }
 generational_slab = { path = "./generational_slab" }
 hidden_string = { path = "./c_wrappers/hidden_string" }
 hyperloglog = { path = "./hyperloglog" }
