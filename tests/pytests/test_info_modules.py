@@ -1973,7 +1973,14 @@ def _test_pending_jobs_metrics(env, command_type):
           state['workers_stats'][i] = {f'shard {i}': to_dict(con.execute_command(debug_cmd(), 'WORKERS', 'stats'))}
         return all(all_shards_ready), state
 
-    wait_for_condition(check_queries_jobs_pending, "wait_for_high_priority_jobs_pending")
+    try:
+        wait_for_condition(check_queries_jobs_pending, "wait_for_high_priority_jobs_pending")
+    except Exception:
+        # MOD-13322: on timeout, log how many query threads are still hung in `env.cmd()`.
+        # 1+ alive => one or more client threads never delivered their command to the coord.
+        alive = sum(t.is_alive() for t in query_threads)
+        env.debugPrint(f"alive query threads after timeout: {alive}/{len(query_threads)}", force=True)
+        raise
 
     # --- STEP 7: RESUME WORKERS AND DRAIN ---
     # Resume workers:
@@ -2011,7 +2018,6 @@ def _test_pending_jobs_metrics(env, command_type):
 
     wait_for_condition(check_reset_metrics, "wait_for_workers_pending_jobs_metric_reset")
 
-@skip_until("2026-07-01", reason="Flaky test, see MOD-15023")
 def test_pending_jobs_metrics_search():
   env = Env(moduleArgs='DEFAULT_DIALECT 2')
   _test_pending_jobs_metrics(env, 'SEARCH')
