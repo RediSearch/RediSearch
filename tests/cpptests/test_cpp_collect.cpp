@@ -77,13 +77,13 @@ protected:
 
 TEST_F(CollectParserTest, WildcardOnlyRejected) {
   expectError({"FIELDS", "1", "*"},
-      "COLLECT does not yet support wildcard `*` in FIELDS");
+      "COLLECT does not yet support `*` in FIELDS");
 }
 
 TEST_F(CollectParserTest, WildcardAmongFieldsRejected) {
   registerKeys({"price", "name"});
   expectError({"FIELDS", "3", "@price", "*", "@name"},
-      "COLLECT does not yet support wildcard `*` in FIELDS");
+      "COLLECT does not yet support `*` in FIELDS");
 }
 
 TEST_F(CollectParserTest, FieldsAndSortBy) {
@@ -315,7 +315,7 @@ TEST_F(CollectParserTest, FieldsSecondFieldNotInPipeline) {
 
 TEST_F(CollectParserTest, DuplicateWildcard) {
   registerKeys({"price"});
-  expectError({"FIELDS", "3", "*", "@price", "*"}, "Wildcard `*` can only appear once in FIELDS");
+  expectError({"FIELDS", "3", "*", "@price", "*"}, "`*` can only appear once in FIELDS");
 }
 
 TEST_F(CollectParserTest, UnknownSubcommand) {
