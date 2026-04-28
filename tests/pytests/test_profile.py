@@ -322,7 +322,7 @@ def testProfileGeoshape(env):
   env.assertEqual(actual_res[0], [1, '1'])
   profile_data = actual_res[1][1][0][3]
   env.assertEqual(profile_data[0], 'Type')
-  env.assertEqual(profile_data[1], 'ID-LIST-SORTED')
+  env.assertEqual(profile_data[1], 'GEO-SHAPE')
 
 @skip(cluster=True)
 def testProfileMissingFieldQuery(env):
