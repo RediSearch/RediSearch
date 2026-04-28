@@ -20,8 +20,6 @@ void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
                                   ProfileOptions profileOptions,
                                   MRCommand *xcmd, arrayof(char *) serialized,
                                   IndexSpec *sp, int *outKArgIndex);
-
-void HybridKnnCommandModifier(MRCommand *cmd, size_t numShards, void *privateData);
 }
 
 class HybridBuildMRCommandTest : public ::testing::Test {
@@ -74,7 +72,7 @@ protected:
     // Uses stack-allocated variables following the pattern in hybrid_debug.c
     // Tests the new architecture where:
     // 1. HybridRequest_buildMRCommand builds the command with original K value
-    // 2. HybridKnnCommandModifier is called on IO thread to calculate effectiveK
+    // 2. HybridKnnApplyShardKRatio is called on IO thread to calculate effectiveK
     void testShardKRatioTransformation(const std::vector<const char*>& inputArgs,
                                        size_t numShards,
                                        size_t expectedK,
@@ -138,43 +136,17 @@ protected:
         // Verify kArgIndex points to the correct position (kIndex + 1 is the value)
         EXPECT_EQ(kArgIndex, kIndex + 1) << "kArgIndex should point to K value position";
 
-        // Now simulate the IO thread calling HybridKnnCommandModifier
-        // Create a mock context structure that mimics processCursorMappingCallbackContext
-        // The actual struct layout is:
-        //   StrongRef searchMappings;
-        //   StrongRef vsimMappings;
-        //   arrayof(QueryError) errors;
-        //   size_t responseCount;
-        //   pthread_mutex_t *mutex;
-        //   pthread_cond_t *completionCond;
-        //   int numShards;
-        //   bool initialized;
-        //   HybridKnnContext *knnCtx;  <-- knnCtx is the LAST field
-        // We must match this layout exactly for the cast in HybridKnnCommandModifier to work
-        HybridKnnContext knnCtxValue;
-        struct MockCallbackContext {
-            StrongRef searchMappings;
-            StrongRef vsimMappings;
-            void *errors;           // arrayof(QueryError)
-            size_t responseCount;
-            pthread_mutex_t *mutex;
-            pthread_cond_t *completionCond;
-            int numShards;
-            bool initialized;
-            HybridKnnContext *knnCtx;  // Must match the real struct layout
-        };
-        MockCallbackContext mockCtx = {};
-
+        // Simulate the IO thread applying the SHARD_K_RATIO optimization.
+        // Call HybridKnnApplyShardKRatio directly to avoid duplicating the
+        // file-local processCursorMappingCallbackContext layout used by the
+        // HybridKnnCommandModifier callback wrapper.
         if (!passNullKnnContext) {
+            HybridKnnContext knnCtxValue = {};
             knnCtxValue.originalK = vq->knn.k;
             knnCtxValue.shardWindowRatio = vq->knn.shardWindowRatio;
             knnCtxValue.kArgIndex = kArgIndex;
-            mockCtx.knnCtx = &knnCtxValue;
 
-            // Call the command modifier (simulates IO thread callback)
-            // Pass &mockCtx since the callback casts privateData to processCursorMappingCallbackContext*
-            // and accesses ctx->knnCtx (a pointer)
-            HybridKnnCommandModifier(&xcmd, numShards, &mockCtx);
+            HybridKnnApplyShardKRatio(&xcmd, numShards, &knnCtxValue);
 
             // Verify K value is now updated to effectiveK
             kIndex = findKValue(&xcmd, &kValue);
