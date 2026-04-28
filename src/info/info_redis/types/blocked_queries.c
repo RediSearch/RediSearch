@@ -65,7 +65,8 @@ BlockedQueryNode* BlockedQueries_AddQuery(BlockedQueries* blockedQueries, Strong
   return blockedQueryNode;
 }
 
-BlockedCursorNode* BlockedQueries_AddCursor(BlockedQueries* blockedQueries, WeakRef spec, uint64_t cursorId, QueryAST* ast, size_t count) {
+BlockedCursorNode* BlockedQueries_AddCursor(BlockedQueries* blockedQueries, WeakRef spec, uint64_t cursorId, QueryAST* ast, size_t count,
+                                            void *privdata, BlockedQueryNode_FreePrivData freePrivData) {
   BlockedCursorNode* blockedCursorNode = rm_calloc(1, sizeof(BlockedCursorNode));
   if (spec.rm) {
     // we don't want cursors to block index deletion, so we don't take a strong ref
@@ -79,6 +80,8 @@ BlockedCursorNode* BlockedQueries_AddCursor(BlockedQueries* blockedQueries, Weak
   blockedCursorNode->cursorId = cursorId;
   blockedCursorNode->count = count;
   blockedCursorNode->start = time(NULL);
+  blockedCursorNode->privdata = privdata;
+  blockedCursorNode->freePrivData = freePrivData;
   dllist_prepend(&blockedQueries->cursors, &blockedCursorNode->llnode);
   return blockedCursorNode;
 }
