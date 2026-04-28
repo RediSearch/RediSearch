@@ -1,0 +1,1201 @@
+version,topology,query_type,index_size,timeout_ms,iter,observed_ms,timed_out,error,server_mean_ms
+old,sa,AGGREGATE,10000,1,0,17.882,1,Timeout limit was reached,10.038
+old,sa,AGGREGATE,10000,1,1,13.769,1,Timeout limit was reached,10.038
+old,sa,AGGREGATE,10000,1,2,12.902,1,Timeout limit was reached,10.038
+old,sa,AGGREGATE,10000,1,3,12.986,1,Timeout limit was reached,10.038
+old,sa,AGGREGATE,10000,1,4,10.456,1,Timeout limit was reached,10.038
+old,sa,AGGREGATE,10000,1,5,10.525,1,Timeout limit was reached,10.038
+old,sa,AGGREGATE,10000,1,6,9.808,1,Timeout limit was reached,10.038
+old,sa,AGGREGATE,10000,1,7,9.840,1,Timeout limit was reached,10.038
+old,sa,AGGREGATE,10000,1,8,9.778,1,Timeout limit was reached,10.038
+old,sa,AGGREGATE,10000,1,9,9.946,1,Timeout limit was reached,10.038
+old,sa,AGGREGATE,10000,1,10,9.417,1,Timeout limit was reached,10.038
+old,sa,AGGREGATE,10000,1,11,9.681,1,Timeout limit was reached,10.038
+old,sa,AGGREGATE,10000,1,12,9.795,1,Timeout limit was reached,10.038
+old,sa,AGGREGATE,10000,1,13,10.001,1,Timeout limit was reached,10.038
+old,sa,AGGREGATE,10000,1,14,9.478,1,Timeout limit was reached,10.038
+old,sa,AGGREGATE,10000,1,15,9.853,1,Timeout limit was reached,10.038
+old,sa,AGGREGATE,10000,1,16,9.846,1,Timeout limit was reached,10.038
+old,sa,AGGREGATE,10000,1,17,10.040,1,Timeout limit was reached,10.038
+old,sa,AGGREGATE,10000,1,18,9.492,1,Timeout limit was reached,10.038
+old,sa,AGGREGATE,10000,1,19,9.779,1,Timeout limit was reached,10.038
+old,sa,AGGREGATE,10000,1,20,9.934,1,Timeout limit was reached,10.038
+old,sa,AGGREGATE,10000,1,21,10.083,1,Timeout limit was reached,10.038
+old,sa,AGGREGATE,10000,1,22,9.591,1,Timeout limit was reached,10.038
+old,sa,AGGREGATE,10000,1,23,9.711,1,Timeout limit was reached,10.038
+old,sa,AGGREGATE,10000,1,24,9.739,1,Timeout limit was reached,10.038
+old,sa,AGGREGATE,10000,1,25,10.091,1,Timeout limit was reached,10.038
+old,sa,AGGREGATE,10000,1,26,9.466,1,Timeout limit was reached,10.038
+old,sa,AGGREGATE,10000,1,27,9.710,1,Timeout limit was reached,10.038
+old,sa,AGGREGATE,10000,1,28,9.585,1,Timeout limit was reached,10.038
+old,sa,AGGREGATE,10000,1,29,10.041,1,Timeout limit was reached,10.038
+old,sa,AGGREGATE,10000,1,30,9.405,1,Timeout limit was reached,10.038
+old,sa,AGGREGATE,10000,1,31,9.733,1,Timeout limit was reached,10.038
+old,sa,AGGREGATE,10000,1,32,9.751,1,Timeout limit was reached,10.038
+old,sa,AGGREGATE,10000,1,33,10.072,1,Timeout limit was reached,10.038
+old,sa,AGGREGATE,10000,1,34,9.690,1,Timeout limit was reached,10.038
+old,sa,AGGREGATE,10000,1,35,9.685,1,Timeout limit was reached,10.038
+old,sa,AGGREGATE,10000,1,36,9.749,1,Timeout limit was reached,10.038
+old,sa,AGGREGATE,10000,1,37,10.139,1,Timeout limit was reached,10.038
+old,sa,AGGREGATE,10000,1,38,9.508,1,Timeout limit was reached,10.038
+old,sa,AGGREGATE,10000,1,39,9.732,1,Timeout limit was reached,10.038
+old,sa,AGGREGATE,10000,1,40,9.817,1,Timeout limit was reached,10.038
+old,sa,AGGREGATE,10000,1,41,10.032,1,Timeout limit was reached,10.038
+old,sa,AGGREGATE,10000,1,42,9.616,1,Timeout limit was reached,10.038
+old,sa,AGGREGATE,10000,1,43,9.729,1,Timeout limit was reached,10.038
+old,sa,AGGREGATE,10000,1,44,9.449,1,Timeout limit was reached,10.038
+old,sa,AGGREGATE,10000,1,45,9.817,1,Timeout limit was reached,10.038
+old,sa,AGGREGATE,10000,1,46,9.359,1,Timeout limit was reached,10.038
+old,sa,AGGREGATE,10000,1,47,9.530,1,Timeout limit was reached,10.038
+old,sa,AGGREGATE,10000,1,48,9.462,1,Timeout limit was reached,10.038
+old,sa,AGGREGATE,10000,1,49,9.848,1,Timeout limit was reached,10.038
+old,sa,AGGREGATE,10000,2,0,9.274,1,Timeout limit was reached,9.730
+old,sa,AGGREGATE,10000,2,1,9.550,1,Timeout limit was reached,9.730
+old,sa,AGGREGATE,10000,2,2,9.424,1,Timeout limit was reached,9.730
+old,sa,AGGREGATE,10000,2,3,9.896,1,Timeout limit was reached,9.730
+old,sa,AGGREGATE,10000,2,4,9.348,1,Timeout limit was reached,9.730
+old,sa,AGGREGATE,10000,2,5,9.718,1,Timeout limit was reached,9.730
+old,sa,AGGREGATE,10000,2,6,9.530,1,Timeout limit was reached,9.730
+old,sa,AGGREGATE,10000,2,7,10.458,1,Timeout limit was reached,9.730
+old,sa,AGGREGATE,10000,2,8,9.665,1,Timeout limit was reached,9.730
+old,sa,AGGREGATE,10000,2,9,10.132,1,Timeout limit was reached,9.730
+old,sa,AGGREGATE,10000,2,10,9.959,1,Timeout limit was reached,9.730
+old,sa,AGGREGATE,10000,2,11,10.569,1,Timeout limit was reached,9.730
+old,sa,AGGREGATE,10000,2,12,9.831,1,Timeout limit was reached,9.730
+old,sa,AGGREGATE,10000,2,13,10.079,1,Timeout limit was reached,9.730
+old,sa,AGGREGATE,10000,2,14,9.905,1,Timeout limit was reached,9.730
+old,sa,AGGREGATE,10000,2,15,10.601,1,Timeout limit was reached,9.730
+old,sa,AGGREGATE,10000,2,16,9.943,1,Timeout limit was reached,9.730
+old,sa,AGGREGATE,10000,2,17,10.160,1,Timeout limit was reached,9.730
+old,sa,AGGREGATE,10000,2,18,9.947,1,Timeout limit was reached,9.730
+old,sa,AGGREGATE,10000,2,19,10.545,1,Timeout limit was reached,9.730
+old,sa,AGGREGATE,10000,2,20,9.841,1,Timeout limit was reached,9.730
+old,sa,AGGREGATE,10000,2,21,10.098,1,Timeout limit was reached,9.730
+old,sa,AGGREGATE,10000,2,22,9.851,1,Timeout limit was reached,9.730
+old,sa,AGGREGATE,10000,2,23,10.569,1,Timeout limit was reached,9.730
+old,sa,AGGREGATE,10000,2,24,9.837,1,Timeout limit was reached,9.730
+old,sa,AGGREGATE,10000,2,25,10.061,1,Timeout limit was reached,9.730
+old,sa,AGGREGATE,10000,2,26,9.881,1,Timeout limit was reached,9.730
+old,sa,AGGREGATE,10000,2,27,10.357,1,Timeout limit was reached,9.730
+old,sa,AGGREGATE,10000,2,28,9.783,1,Timeout limit was reached,9.730
+old,sa,AGGREGATE,10000,2,29,10.094,1,Timeout limit was reached,9.730
+old,sa,AGGREGATE,10000,2,30,9.697,1,Timeout limit was reached,9.730
+old,sa,AGGREGATE,10000,2,31,10.327,1,Timeout limit was reached,9.730
+old,sa,AGGREGATE,10000,2,32,9.618,1,Timeout limit was reached,9.730
+old,sa,AGGREGATE,10000,2,33,9.950,1,Timeout limit was reached,9.730
+old,sa,AGGREGATE,10000,2,34,9.724,1,Timeout limit was reached,9.730
+old,sa,AGGREGATE,10000,2,35,10.267,1,Timeout limit was reached,9.730
+old,sa,AGGREGATE,10000,2,36,9.706,1,Timeout limit was reached,9.730
+old,sa,AGGREGATE,10000,2,37,10.009,1,Timeout limit was reached,9.730
+old,sa,AGGREGATE,10000,2,38,9.920,1,Timeout limit was reached,9.730
+old,sa,AGGREGATE,10000,2,39,10.504,1,Timeout limit was reached,9.730
+old,sa,AGGREGATE,10000,2,40,9.793,1,Timeout limit was reached,9.730
+old,sa,AGGREGATE,10000,2,41,10.018,1,Timeout limit was reached,9.730
+old,sa,AGGREGATE,10000,2,42,9.848,1,Timeout limit was reached,9.730
+old,sa,AGGREGATE,10000,2,43,10.577,1,Timeout limit was reached,9.730
+old,sa,AGGREGATE,10000,2,44,9.842,1,Timeout limit was reached,9.730
+old,sa,AGGREGATE,10000,2,45,10.104,1,Timeout limit was reached,9.730
+old,sa,AGGREGATE,10000,2,46,9.743,1,Timeout limit was reached,9.730
+old,sa,AGGREGATE,10000,2,47,10.486,1,Timeout limit was reached,9.730
+old,sa,AGGREGATE,10000,2,48,9.881,1,Timeout limit was reached,9.730
+old,sa,AGGREGATE,10000,2,49,10.092,1,Timeout limit was reached,9.730
+old,sa,AGGREGATE,10000,5,0,9.795,1,Timeout limit was reached,9.651
+old,sa,AGGREGATE,10000,5,1,10.566,1,Timeout limit was reached,9.651
+old,sa,AGGREGATE,10000,5,2,9.872,1,Timeout limit was reached,9.651
+old,sa,AGGREGATE,10000,5,3,10.195,1,Timeout limit was reached,9.651
+old,sa,AGGREGATE,10000,5,4,9.791,1,Timeout limit was reached,9.651
+old,sa,AGGREGATE,10000,5,5,10.461,1,Timeout limit was reached,9.651
+old,sa,AGGREGATE,10000,5,6,9.707,1,Timeout limit was reached,9.651
+old,sa,AGGREGATE,10000,5,7,9.907,1,Timeout limit was reached,9.651
+old,sa,AGGREGATE,10000,5,8,9.742,1,Timeout limit was reached,9.651
+old,sa,AGGREGATE,10000,5,9,10.258,1,Timeout limit was reached,9.651
+old,sa,AGGREGATE,10000,5,10,9.517,1,Timeout limit was reached,9.651
+old,sa,AGGREGATE,10000,5,11,9.675,1,Timeout limit was reached,9.651
+old,sa,AGGREGATE,10000,5,12,9.614,1,Timeout limit was reached,9.651
+old,sa,AGGREGATE,10000,5,13,10.373,1,Timeout limit was reached,9.651
+old,sa,AGGREGATE,10000,5,14,9.610,1,Timeout limit was reached,9.651
+old,sa,AGGREGATE,10000,5,15,9.799,1,Timeout limit was reached,9.651
+old,sa,AGGREGATE,10000,5,16,9.610,1,Timeout limit was reached,9.651
+old,sa,AGGREGATE,10000,5,17,10.211,1,Timeout limit was reached,9.651
+old,sa,AGGREGATE,10000,5,18,9.518,1,Timeout limit was reached,9.651
+old,sa,AGGREGATE,10000,5,19,9.837,1,Timeout limit was reached,9.651
+old,sa,AGGREGATE,10000,5,20,9.696,1,Timeout limit was reached,9.651
+old,sa,AGGREGATE,10000,5,21,10.259,1,Timeout limit was reached,9.651
+old,sa,AGGREGATE,10000,5,22,9.539,1,Timeout limit was reached,9.651
+old,sa,AGGREGATE,10000,5,23,9.835,1,Timeout limit was reached,9.651
+old,sa,AGGREGATE,10000,5,24,9.858,1,Timeout limit was reached,9.651
+old,sa,AGGREGATE,10000,5,25,10.316,1,Timeout limit was reached,9.651
+old,sa,AGGREGATE,10000,5,26,9.573,1,Timeout limit was reached,9.651
+old,sa,AGGREGATE,10000,5,27,9.886,1,Timeout limit was reached,9.651
+old,sa,AGGREGATE,10000,5,28,9.655,1,Timeout limit was reached,9.651
+old,sa,AGGREGATE,10000,5,29,10.244,1,Timeout limit was reached,9.651
+old,sa,AGGREGATE,10000,5,30,9.565,1,Timeout limit was reached,9.651
+old,sa,AGGREGATE,10000,5,31,9.883,1,Timeout limit was reached,9.651
+old,sa,AGGREGATE,10000,5,32,9.671,1,Timeout limit was reached,9.651
+old,sa,AGGREGATE,10000,5,33,10.202,1,Timeout limit was reached,9.651
+old,sa,AGGREGATE,10000,5,34,9.622,1,Timeout limit was reached,9.651
+old,sa,AGGREGATE,10000,5,35,9.865,1,Timeout limit was reached,9.651
+old,sa,AGGREGATE,10000,5,36,9.667,1,Timeout limit was reached,9.651
+old,sa,AGGREGATE,10000,5,37,10.470,1,Timeout limit was reached,9.651
+old,sa,AGGREGATE,10000,5,38,9.587,1,Timeout limit was reached,9.651
+old,sa,AGGREGATE,10000,5,39,9.926,1,Timeout limit was reached,9.651
+old,sa,AGGREGATE,10000,5,40,9.677,1,Timeout limit was reached,9.651
+old,sa,AGGREGATE,10000,5,41,10.226,1,Timeout limit was reached,9.651
+old,sa,AGGREGATE,10000,5,42,9.552,1,Timeout limit was reached,9.651
+old,sa,AGGREGATE,10000,5,43,9.969,1,Timeout limit was reached,9.651
+old,sa,AGGREGATE,10000,5,44,9.624,1,Timeout limit was reached,9.651
+old,sa,AGGREGATE,10000,5,45,10.250,1,Timeout limit was reached,9.651
+old,sa,AGGREGATE,10000,5,46,9.667,1,Timeout limit was reached,9.651
+old,sa,AGGREGATE,10000,5,47,10.120,1,Timeout limit was reached,9.651
+old,sa,AGGREGATE,10000,5,48,9.577,1,Timeout limit was reached,9.651
+old,sa,AGGREGATE,10000,5,49,10.253,1,Timeout limit was reached,9.651
+old,sa,AGGREGATE,10000,10,0,55.177,0,,13.658
+old,sa,AGGREGATE,10000,10,1,54.282,0,,13.658
+old,sa,AGGREGATE,10000,10,2,54.568,0,,13.658
+old,sa,AGGREGATE,10000,10,3,12.964,1,Timeout limit was reached,13.658
+old,sa,AGGREGATE,10000,10,4,54.393,0,,13.658
+old,sa,AGGREGATE,10000,10,5,12.843,1,Timeout limit was reached,13.658
+old,sa,AGGREGATE,10000,10,6,60.831,0,,13.658
+old,sa,AGGREGATE,10000,10,7,13.186,1,Timeout limit was reached,13.658
+old,sa,AGGREGATE,10000,10,8,54.558,0,,13.658
+old,sa,AGGREGATE,10000,10,9,54.463,0,,13.658
+old,sa,AGGREGATE,10000,10,10,12.018,1,Timeout limit was reached,13.658
+old,sa,AGGREGATE,10000,10,11,53.694,0,,13.658
+old,sa,AGGREGATE,10000,10,12,54.235,0,,13.658
+old,sa,AGGREGATE,10000,10,13,54.829,0,,13.658
+old,sa,AGGREGATE,10000,10,14,12.878,1,Timeout limit was reached,13.658
+old,sa,AGGREGATE,10000,10,15,12.667,1,Timeout limit was reached,13.658
+old,sa,AGGREGATE,10000,10,16,12.066,1,Timeout limit was reached,13.658
+old,sa,AGGREGATE,10000,10,17,12.280,1,Timeout limit was reached,13.658
+old,sa,AGGREGATE,10000,10,18,53.782,0,,13.658
+old,sa,AGGREGATE,10000,10,19,13.982,1,Timeout limit was reached,13.658
+old,sa,AGGREGATE,10000,10,20,12.162,1,Timeout limit was reached,13.658
+old,sa,AGGREGATE,10000,10,21,12.186,1,Timeout limit was reached,13.658
+old,sa,AGGREGATE,10000,10,22,12.140,1,Timeout limit was reached,13.658
+old,sa,AGGREGATE,10000,10,23,54.636,0,,13.658
+old,sa,AGGREGATE,10000,10,24,15.053,1,Timeout limit was reached,13.658
+old,sa,AGGREGATE,10000,10,25,13.098,1,Timeout limit was reached,13.658
+old,sa,AGGREGATE,10000,10,26,12.563,1,Timeout limit was reached,13.658
+old,sa,AGGREGATE,10000,10,27,13.318,1,Timeout limit was reached,13.658
+old,sa,AGGREGATE,10000,10,28,55.783,0,,13.658
+old,sa,AGGREGATE,10000,10,29,16.748,1,Timeout limit was reached,13.658
+old,sa,AGGREGATE,10000,10,30,14.718,1,Timeout limit was reached,13.658
+old,sa,AGGREGATE,10000,10,31,14.630,1,Timeout limit was reached,13.658
+old,sa,AGGREGATE,10000,10,32,14.654,1,Timeout limit was reached,13.658
+old,sa,AGGREGATE,10000,10,33,13.942,1,Timeout limit was reached,13.658
+old,sa,AGGREGATE,10000,10,34,14.232,1,Timeout limit was reached,13.658
+old,sa,AGGREGATE,10000,10,35,13.819,1,Timeout limit was reached,13.658
+old,sa,AGGREGATE,10000,10,36,13.914,1,Timeout limit was reached,13.658
+old,sa,AGGREGATE,10000,10,37,13.455,1,Timeout limit was reached,13.658
+old,sa,AGGREGATE,10000,10,38,12.467,1,Timeout limit was reached,13.658
+old,sa,AGGREGATE,10000,10,39,61.778,0,,13.658
+old,sa,AGGREGATE,10000,10,40,14.802,1,Timeout limit was reached,13.658
+old,sa,AGGREGATE,10000,10,41,12.375,1,Timeout limit was reached,13.658
+old,sa,AGGREGATE,10000,10,42,54.370,0,,13.658
+old,sa,AGGREGATE,10000,10,43,12.796,1,Timeout limit was reached,13.658
+old,sa,AGGREGATE,10000,10,44,53.411,0,,13.658
+old,sa,AGGREGATE,10000,10,45,53.582,0,,13.658
+old,sa,AGGREGATE,10000,10,46,54.828,0,,13.658
+old,sa,AGGREGATE,10000,10,47,12.604,1,Timeout limit was reached,13.658
+old,sa,AGGREGATE,10000,10,48,54.608,0,,13.658
+old,sa,AGGREGATE,10000,10,49,12.228,1,Timeout limit was reached,13.658
+old,sa,AGGREGATE,10000,20,0,53.885,0,,18.293
+old,sa,AGGREGATE,10000,20,1,53.741,0,,18.293
+old,sa,AGGREGATE,10000,20,2,54.806,0,,18.293
+old,sa,AGGREGATE,10000,20,3,54.282,0,,18.293
+old,sa,AGGREGATE,10000,20,4,62.127,0,,18.293
+old,sa,AGGREGATE,10000,20,5,56.557,0,,18.293
+old,sa,AGGREGATE,10000,20,6,61.251,0,,18.293
+old,sa,AGGREGATE,10000,20,7,55.858,0,,18.293
+old,sa,AGGREGATE,10000,20,8,55.563,0,,18.293
+old,sa,AGGREGATE,10000,20,9,55.089,0,,18.293
+old,sa,AGGREGATE,10000,20,10,54.714,0,,18.293
+old,sa,AGGREGATE,10000,20,11,55.608,0,,18.293
+old,sa,AGGREGATE,10000,20,12,55.962,0,,18.293
+old,sa,AGGREGATE,10000,20,13,62.550,0,,18.293
+old,sa,AGGREGATE,10000,20,14,55.838,0,,18.293
+old,sa,AGGREGATE,10000,20,15,56.357,0,,18.293
+old,sa,AGGREGATE,10000,20,16,59.101,0,,18.293
+old,sa,AGGREGATE,10000,20,17,59.354,0,,18.293
+old,sa,AGGREGATE,10000,20,18,58.840,0,,18.293
+old,sa,AGGREGATE,10000,20,19,59.476,0,,18.293
+old,sa,AGGREGATE,10000,20,20,58.439,0,,18.293
+old,sa,AGGREGATE,10000,20,21,58.178,0,,18.293
+old,sa,AGGREGATE,10000,20,22,58.412,0,,18.293
+old,sa,AGGREGATE,10000,20,23,64.970,0,,18.293
+old,sa,AGGREGATE,10000,20,24,60.195,0,,18.293
+old,sa,AGGREGATE,10000,20,25,59.585,0,,18.293
+old,sa,AGGREGATE,10000,20,26,59.265,0,,18.293
+old,sa,AGGREGATE,10000,20,27,58.806,0,,18.293
+old,sa,AGGREGATE,10000,20,28,58.333,0,,18.293
+old,sa,AGGREGATE,10000,20,29,57.419,0,,18.293
+old,sa,AGGREGATE,10000,20,30,58.933,0,,18.293
+old,sa,AGGREGATE,10000,20,31,58.891,0,,18.293
+old,sa,AGGREGATE,10000,20,32,64.715,0,,18.293
+old,sa,AGGREGATE,10000,20,33,58.153,0,,18.293
+old,sa,AGGREGATE,10000,20,34,57.806,0,,18.293
+old,sa,AGGREGATE,10000,20,35,56.650,0,,18.293
+old,sa,AGGREGATE,10000,20,36,60.003,0,,18.293
+old,sa,AGGREGATE,10000,20,37,59.201,0,,18.293
+old,sa,AGGREGATE,10000,20,38,60.117,0,,18.293
+old,sa,AGGREGATE,10000,20,39,59.491,0,,18.293
+old,sa,AGGREGATE,10000,20,40,58.876,0,,18.293
+old,sa,AGGREGATE,10000,20,41,58.596,0,,18.293
+old,sa,AGGREGATE,10000,20,42,64.938,0,,18.293
+old,sa,AGGREGATE,10000,20,43,59.395,0,,18.293
+old,sa,AGGREGATE,10000,20,44,58.935,0,,18.293
+old,sa,AGGREGATE,10000,20,45,59.126,0,,18.293
+old,sa,AGGREGATE,10000,20,46,58.754,0,,18.293
+old,sa,AGGREGATE,10000,20,47,57.274,0,,18.293
+old,sa,AGGREGATE,10000,20,48,57.300,0,,18.293
+old,sa,AGGREGATE,10000,20,49,57.065,0,,18.293
+old,sa,AGGREGATE,10000,50,0,56.768,0,,18.074
+old,sa,AGGREGATE,10000,50,1,63.633,0,,18.074
+old,sa,AGGREGATE,10000,50,2,56.558,0,,18.074
+old,sa,AGGREGATE,10000,50,3,56.975,0,,18.074
+old,sa,AGGREGATE,10000,50,4,57.257,0,,18.074
+old,sa,AGGREGATE,10000,50,5,58.307,0,,18.074
+old,sa,AGGREGATE,10000,50,6,59.291,0,,18.074
+old,sa,AGGREGATE,10000,50,7,59.087,0,,18.074
+old,sa,AGGREGATE,10000,50,8,60.460,0,,18.074
+old,sa,AGGREGATE,10000,50,9,59.112,0,,18.074
+old,sa,AGGREGATE,10000,50,10,58.458,0,,18.074
+old,sa,AGGREGATE,10000,50,11,64.548,0,,18.074
+old,sa,AGGREGATE,10000,50,12,58.579,0,,18.074
+old,sa,AGGREGATE,10000,50,13,58.249,0,,18.074
+old,sa,AGGREGATE,10000,50,14,57.922,0,,18.074
+old,sa,AGGREGATE,10000,50,15,57.636,0,,18.074
+old,sa,AGGREGATE,10000,50,16,58.468,0,,18.074
+old,sa,AGGREGATE,10000,50,17,58.368,0,,18.074
+old,sa,AGGREGATE,10000,50,18,60.014,0,,18.074
+old,sa,AGGREGATE,10000,50,19,59.076,0,,18.074
+old,sa,AGGREGATE,10000,50,20,65.684,0,,18.074
+old,sa,AGGREGATE,10000,50,21,58.250,0,,18.074
+old,sa,AGGREGATE,10000,50,22,58.160,0,,18.074
+old,sa,AGGREGATE,10000,50,23,58.272,0,,18.074
+old,sa,AGGREGATE,10000,50,24,59.194,0,,18.074
+old,sa,AGGREGATE,10000,50,25,58.674,0,,18.074
+old,sa,AGGREGATE,10000,50,26,57.109,0,,18.074
+old,sa,AGGREGATE,10000,50,27,57.225,0,,18.074
+old,sa,AGGREGATE,10000,50,28,57.185,0,,18.074
+old,sa,AGGREGATE,10000,50,29,56.877,0,,18.074
+old,sa,AGGREGATE,10000,50,30,63.435,0,,18.074
+old,sa,AGGREGATE,10000,50,31,57.044,0,,18.074
+old,sa,AGGREGATE,10000,50,32,57.428,0,,18.074
+old,sa,AGGREGATE,10000,50,33,55.940,0,,18.074
+old,sa,AGGREGATE,10000,50,34,55.945,0,,18.074
+old,sa,AGGREGATE,10000,50,35,55.594,0,,18.074
+old,sa,AGGREGATE,10000,50,36,55.771,0,,18.074
+old,sa,AGGREGATE,10000,50,37,55.500,0,,18.074
+old,sa,AGGREGATE,10000,50,38,55.666,0,,18.074
+old,sa,AGGREGATE,10000,50,39,63.744,0,,18.074
+old,sa,AGGREGATE,10000,50,40,56.253,0,,18.074
+old,sa,AGGREGATE,10000,50,41,56.154,0,,18.074
+old,sa,AGGREGATE,10000,50,42,56.658,0,,18.074
+old,sa,AGGREGATE,10000,50,43,57.281,0,,18.074
+old,sa,AGGREGATE,10000,50,44,56.578,0,,18.074
+old,sa,AGGREGATE,10000,50,45,56.064,0,,18.074
+old,sa,AGGREGATE,10000,50,46,56.090,0,,18.074
+old,sa,AGGREGATE,10000,50,47,56.114,0,,18.074
+old,sa,AGGREGATE,10000,50,48,55.865,0,,18.074
+old,sa,AGGREGATE,10000,50,49,62.513,0,,18.074
+old,cluster3,AGGREGATE,10000,1,0,2.950,1,Timeout limit was reached,2.610
+old,cluster3,AGGREGATE,10000,1,1,2.299,1,Timeout limit was reached,2.610
+old,cluster3,AGGREGATE,10000,1,2,1.914,1,Timeout limit was reached,2.610
+old,cluster3,AGGREGATE,10000,1,3,1.852,1,Timeout limit was reached,2.610
+old,cluster3,AGGREGATE,10000,1,4,5.371,1,Timeout limit was reached,2.610
+old,cluster3,AGGREGATE,10000,1,5,5.110,1,Timeout limit was reached,2.610
+old,cluster3,AGGREGATE,10000,1,6,3.681,1,Timeout limit was reached,2.610
+old,cluster3,AGGREGATE,10000,1,7,1.873,1,Timeout limit was reached,2.610
+old,cluster3,AGGREGATE,10000,1,8,3.726,1,Timeout limit was reached,2.610
+old,cluster3,AGGREGATE,10000,1,9,3.626,1,Timeout limit was reached,2.610
+old,cluster3,AGGREGATE,10000,1,10,4.744,1,Timeout limit was reached,2.610
+old,cluster3,AGGREGATE,10000,1,11,2.124,1,Timeout limit was reached,2.610
+old,cluster3,AGGREGATE,10000,1,12,2.098,1,Timeout limit was reached,2.610
+old,cluster3,AGGREGATE,10000,1,13,2.451,1,Timeout limit was reached,2.610
+old,cluster3,AGGREGATE,10000,1,14,2.058,1,Timeout limit was reached,2.610
+old,cluster3,AGGREGATE,10000,1,15,4.752,1,Timeout limit was reached,2.610
+old,cluster3,AGGREGATE,10000,1,16,2.519,1,Timeout limit was reached,2.610
+old,cluster3,AGGREGATE,10000,1,17,2.641,1,Timeout limit was reached,2.610
+old,cluster3,AGGREGATE,10000,1,18,3.994,1,Timeout limit was reached,2.610
+old,cluster3,AGGREGATE,10000,1,19,3.977,1,Timeout limit was reached,2.610
+old,cluster3,AGGREGATE,10000,1,20,5.244,1,Timeout limit was reached,2.610
+old,cluster3,AGGREGATE,10000,1,21,2.672,1,Timeout limit was reached,2.610
+old,cluster3,AGGREGATE,10000,1,22,1.995,1,Timeout limit was reached,2.610
+old,cluster3,AGGREGATE,10000,1,23,2.772,1,Timeout limit was reached,2.610
+old,cluster3,AGGREGATE,10000,1,24,2.108,1,Timeout limit was reached,2.610
+old,cluster3,AGGREGATE,10000,1,25,3.822,1,Timeout limit was reached,2.610
+old,cluster3,AGGREGATE,10000,1,26,2.234,1,Timeout limit was reached,2.610
+old,cluster3,AGGREGATE,10000,1,27,3.152,1,Timeout limit was reached,2.610
+old,cluster3,AGGREGATE,10000,1,28,4.353,1,Timeout limit was reached,2.610
+old,cluster3,AGGREGATE,10000,1,29,2.408,1,Timeout limit was reached,2.610
+old,cluster3,AGGREGATE,10000,1,30,2.749,1,Timeout limit was reached,2.610
+old,cluster3,AGGREGATE,10000,1,31,3.723,1,Timeout limit was reached,2.610
+old,cluster3,AGGREGATE,10000,1,32,2.220,1,Timeout limit was reached,2.610
+old,cluster3,AGGREGATE,10000,1,33,2.359,1,Timeout limit was reached,2.610
+old,cluster3,AGGREGATE,10000,1,34,3.920,1,Timeout limit was reached,2.610
+old,cluster3,AGGREGATE,10000,1,35,2.064,1,Timeout limit was reached,2.610
+old,cluster3,AGGREGATE,10000,1,36,1.676,1,Timeout limit was reached,2.610
+old,cluster3,AGGREGATE,10000,1,37,3.600,1,Timeout limit was reached,2.610
+old,cluster3,AGGREGATE,10000,1,38,4.295,1,Timeout limit was reached,2.610
+old,cluster3,AGGREGATE,10000,1,39,1.961,1,Timeout limit was reached,2.610
+old,cluster3,AGGREGATE,10000,1,40,2.263,1,Timeout limit was reached,2.610
+old,cluster3,AGGREGATE,10000,1,41,2.825,1,Timeout limit was reached,2.610
+old,cluster3,AGGREGATE,10000,1,42,3.885,1,Timeout limit was reached,2.610
+old,cluster3,AGGREGATE,10000,1,43,2.535,1,Timeout limit was reached,2.610
+old,cluster3,AGGREGATE,10000,1,44,3.641,1,Timeout limit was reached,2.610
+old,cluster3,AGGREGATE,10000,1,45,1.637,1,Timeout limit was reached,2.610
+old,cluster3,AGGREGATE,10000,1,46,1.982,1,Timeout limit was reached,2.610
+old,cluster3,AGGREGATE,10000,1,47,3.199,1,Timeout limit was reached,2.610
+old,cluster3,AGGREGATE,10000,1,48,2.302,1,Timeout limit was reached,2.610
+old,cluster3,AGGREGATE,10000,1,49,2.717,1,Timeout limit was reached,2.610
+old,cluster3,AGGREGATE,10000,2,0,3.697,1,Timeout limit was reached,3.851
+old,cluster3,AGGREGATE,10000,2,1,5.898,1,Timeout limit was reached,3.851
+old,cluster3,AGGREGATE,10000,2,2,5.342,1,Timeout limit was reached,3.851
+old,cluster3,AGGREGATE,10000,2,3,4.248,1,Timeout limit was reached,3.851
+old,cluster3,AGGREGATE,10000,2,4,5.218,1,Timeout limit was reached,3.851
+old,cluster3,AGGREGATE,10000,2,5,3.542,1,Timeout limit was reached,3.851
+old,cluster3,AGGREGATE,10000,2,6,3.780,1,Timeout limit was reached,3.851
+old,cluster3,AGGREGATE,10000,2,7,4.366,1,Timeout limit was reached,3.851
+old,cluster3,AGGREGATE,10000,2,8,4.624,1,Timeout limit was reached,3.851
+old,cluster3,AGGREGATE,10000,2,9,3.667,1,Timeout limit was reached,3.851
+old,cluster3,AGGREGATE,10000,2,10,4.124,1,Timeout limit was reached,3.851
+old,cluster3,AGGREGATE,10000,2,11,5.288,1,Timeout limit was reached,3.851
+old,cluster3,AGGREGATE,10000,2,12,4.899,1,Timeout limit was reached,3.851
+old,cluster3,AGGREGATE,10000,2,13,3.626,1,Timeout limit was reached,3.851
+old,cluster3,AGGREGATE,10000,2,14,3.508,1,Timeout limit was reached,3.851
+old,cluster3,AGGREGATE,10000,2,15,3.176,1,Timeout limit was reached,3.851
+old,cluster3,AGGREGATE,10000,2,16,3.651,1,Timeout limit was reached,3.851
+old,cluster3,AGGREGATE,10000,2,17,4.338,1,Timeout limit was reached,3.851
+old,cluster3,AGGREGATE,10000,2,18,3.956,1,Timeout limit was reached,3.851
+old,cluster3,AGGREGATE,10000,2,19,4.456,1,Timeout limit was reached,3.851
+old,cluster3,AGGREGATE,10000,2,20,3.054,1,Timeout limit was reached,3.851
+old,cluster3,AGGREGATE,10000,2,21,4.577,1,Timeout limit was reached,3.851
+old,cluster3,AGGREGATE,10000,2,22,4.303,1,Timeout limit was reached,3.851
+old,cluster3,AGGREGATE,10000,2,23,4.179,1,Timeout limit was reached,3.851
+old,cluster3,AGGREGATE,10000,2,24,4.497,1,Timeout limit was reached,3.851
+old,cluster3,AGGREGATE,10000,2,25,4.551,1,Timeout limit was reached,3.851
+old,cluster3,AGGREGATE,10000,2,26,3.676,1,Timeout limit was reached,3.851
+old,cluster3,AGGREGATE,10000,2,27,4.837,1,Timeout limit was reached,3.851
+old,cluster3,AGGREGATE,10000,2,28,5.325,1,Timeout limit was reached,3.851
+old,cluster3,AGGREGATE,10000,2,29,5.582,1,Timeout limit was reached,3.851
+old,cluster3,AGGREGATE,10000,2,30,3.237,1,Timeout limit was reached,3.851
+old,cluster3,AGGREGATE,10000,2,31,4.573,1,Timeout limit was reached,3.851
+old,cluster3,AGGREGATE,10000,2,32,6.080,1,Timeout limit was reached,3.851
+old,cluster3,AGGREGATE,10000,2,33,5.822,1,Timeout limit was reached,3.851
+old,cluster3,AGGREGATE,10000,2,34,4.842,1,Timeout limit was reached,3.851
+old,cluster3,AGGREGATE,10000,2,35,3.539,1,Timeout limit was reached,3.851
+old,cluster3,AGGREGATE,10000,2,36,4.712,1,Timeout limit was reached,3.851
+old,cluster3,AGGREGATE,10000,2,37,3.761,1,Timeout limit was reached,3.851
+old,cluster3,AGGREGATE,10000,2,38,3.043,1,Timeout limit was reached,3.851
+old,cluster3,AGGREGATE,10000,2,39,3.828,1,Timeout limit was reached,3.851
+old,cluster3,AGGREGATE,10000,2,40,5.207,1,Timeout limit was reached,3.851
+old,cluster3,AGGREGATE,10000,2,41,5.754,1,Timeout limit was reached,3.851
+old,cluster3,AGGREGATE,10000,2,42,4.333,1,Timeout limit was reached,3.851
+old,cluster3,AGGREGATE,10000,2,43,4.910,1,Timeout limit was reached,3.851
+old,cluster3,AGGREGATE,10000,2,44,5.210,1,Timeout limit was reached,3.851
+old,cluster3,AGGREGATE,10000,2,45,5.420,1,Timeout limit was reached,3.851
+old,cluster3,AGGREGATE,10000,2,46,3.589,1,Timeout limit was reached,3.851
+old,cluster3,AGGREGATE,10000,2,47,3.282,1,Timeout limit was reached,3.851
+old,cluster3,AGGREGATE,10000,2,48,4.474,1,Timeout limit was reached,3.851
+old,cluster3,AGGREGATE,10000,2,49,5.871,1,Timeout limit was reached,3.851
+old,cluster3,AGGREGATE,10000,5,0,6.460,1,Timeout limit was reached,6.232
+old,cluster3,AGGREGATE,10000,5,1,5.878,1,Timeout limit was reached,6.232
+old,cluster3,AGGREGATE,10000,5,2,6.289,1,Timeout limit was reached,6.232
+old,cluster3,AGGREGATE,10000,5,3,6.931,1,Timeout limit was reached,6.232
+old,cluster3,AGGREGATE,10000,5,4,6.099,1,Timeout limit was reached,6.232
+old,cluster3,AGGREGATE,10000,5,5,6.556,1,Timeout limit was reached,6.232
+old,cluster3,AGGREGATE,10000,5,6,6.432,1,Timeout limit was reached,6.232
+old,cluster3,AGGREGATE,10000,5,7,8.122,1,Timeout limit was reached,6.232
+old,cluster3,AGGREGATE,10000,5,8,5.864,1,Timeout limit was reached,6.232
+old,cluster3,AGGREGATE,10000,5,9,7.673,1,Timeout limit was reached,6.232
+old,cluster3,AGGREGATE,10000,5,10,6.441,1,Timeout limit was reached,6.232
+old,cluster3,AGGREGATE,10000,5,11,7.615,1,Timeout limit was reached,6.232
+old,cluster3,AGGREGATE,10000,5,12,6.138,1,Timeout limit was reached,6.232
+old,cluster3,AGGREGATE,10000,5,13,6.266,1,Timeout limit was reached,6.232
+old,cluster3,AGGREGATE,10000,5,14,5.831,1,Timeout limit was reached,6.232
+old,cluster3,AGGREGATE,10000,5,15,5.926,1,Timeout limit was reached,6.232
+old,cluster3,AGGREGATE,10000,5,16,6.295,1,Timeout limit was reached,6.232
+old,cluster3,AGGREGATE,10000,5,17,6.027,1,Timeout limit was reached,6.232
+old,cluster3,AGGREGATE,10000,5,18,5.849,1,Timeout limit was reached,6.232
+old,cluster3,AGGREGATE,10000,5,19,6.195,1,Timeout limit was reached,6.232
+old,cluster3,AGGREGATE,10000,5,20,6.444,1,Timeout limit was reached,6.232
+old,cluster3,AGGREGATE,10000,5,21,6.111,1,Timeout limit was reached,6.232
+old,cluster3,AGGREGATE,10000,5,22,6.553,1,Timeout limit was reached,6.232
+old,cluster3,AGGREGATE,10000,5,23,7.608,1,Timeout limit was reached,6.232
+old,cluster3,AGGREGATE,10000,5,24,6.765,1,Timeout limit was reached,6.232
+old,cluster3,AGGREGATE,10000,5,25,6.730,1,Timeout limit was reached,6.232
+old,cluster3,AGGREGATE,10000,5,26,6.186,1,Timeout limit was reached,6.232
+old,cluster3,AGGREGATE,10000,5,27,7.514,1,Timeout limit was reached,6.232
+old,cluster3,AGGREGATE,10000,5,28,5.912,1,Timeout limit was reached,6.232
+old,cluster3,AGGREGATE,10000,5,29,6.282,1,Timeout limit was reached,6.232
+old,cluster3,AGGREGATE,10000,5,30,6.902,1,Timeout limit was reached,6.232
+old,cluster3,AGGREGATE,10000,5,31,6.711,1,Timeout limit was reached,6.232
+old,cluster3,AGGREGATE,10000,5,32,6.947,1,Timeout limit was reached,6.232
+old,cluster3,AGGREGATE,10000,5,33,7.294,1,Timeout limit was reached,6.232
+old,cluster3,AGGREGATE,10000,5,34,6.212,1,Timeout limit was reached,6.232
+old,cluster3,AGGREGATE,10000,5,35,7.619,1,Timeout limit was reached,6.232
+old,cluster3,AGGREGATE,10000,5,36,5.875,1,Timeout limit was reached,6.232
+old,cluster3,AGGREGATE,10000,5,37,8.476,1,Timeout limit was reached,6.232
+old,cluster3,AGGREGATE,10000,5,38,6.845,1,Timeout limit was reached,6.232
+old,cluster3,AGGREGATE,10000,5,39,6.484,1,Timeout limit was reached,6.232
+old,cluster3,AGGREGATE,10000,5,40,6.347,1,Timeout limit was reached,6.232
+old,cluster3,AGGREGATE,10000,5,41,6.211,1,Timeout limit was reached,6.232
+old,cluster3,AGGREGATE,10000,5,42,6.279,1,Timeout limit was reached,6.232
+old,cluster3,AGGREGATE,10000,5,43,6.637,1,Timeout limit was reached,6.232
+old,cluster3,AGGREGATE,10000,5,44,6.390,1,Timeout limit was reached,6.232
+old,cluster3,AGGREGATE,10000,5,45,6.076,1,Timeout limit was reached,6.232
+old,cluster3,AGGREGATE,10000,5,46,7.434,1,Timeout limit was reached,6.232
+old,cluster3,AGGREGATE,10000,5,47,7.146,1,Timeout limit was reached,6.232
+old,cluster3,AGGREGATE,10000,5,48,6.388,1,Timeout limit was reached,6.232
+old,cluster3,AGGREGATE,10000,5,49,6.522,1,Timeout limit was reached,6.232
+old,cluster3,AGGREGATE,10000,10,0,11.423,1,Timeout limit was reached,12.346
+old,cluster3,AGGREGATE,10000,10,1,56.065,0,,12.346
+old,cluster3,AGGREGATE,10000,10,2,11.499,1,Timeout limit was reached,12.346
+old,cluster3,AGGREGATE,10000,10,3,11.485,1,Timeout limit was reached,12.346
+old,cluster3,AGGREGATE,10000,10,4,12.189,1,Timeout limit was reached,12.346
+old,cluster3,AGGREGATE,10000,10,5,11.738,1,Timeout limit was reached,12.346
+old,cluster3,AGGREGATE,10000,10,6,11.487,1,Timeout limit was reached,12.346
+old,cluster3,AGGREGATE,10000,10,7,54.605,0,,12.346
+old,cluster3,AGGREGATE,10000,10,8,11.883,1,Timeout limit was reached,12.346
+old,cluster3,AGGREGATE,10000,10,9,12.252,1,Timeout limit was reached,12.346
+old,cluster3,AGGREGATE,10000,10,10,55.666,0,,12.346
+old,cluster3,AGGREGATE,10000,10,11,11.930,1,Timeout limit was reached,12.346
+old,cluster3,AGGREGATE,10000,10,12,12.157,1,Timeout limit was reached,12.346
+old,cluster3,AGGREGATE,10000,10,13,11.908,1,Timeout limit was reached,12.346
+old,cluster3,AGGREGATE,10000,10,14,11.717,1,Timeout limit was reached,12.346
+old,cluster3,AGGREGATE,10000,10,15,11.500,1,Timeout limit was reached,12.346
+old,cluster3,AGGREGATE,10000,10,16,11.498,1,Timeout limit was reached,12.346
+old,cluster3,AGGREGATE,10000,10,17,54.519,0,,12.346
+old,cluster3,AGGREGATE,10000,10,18,12.190,1,Timeout limit was reached,12.346
+old,cluster3,AGGREGATE,10000,10,19,11.576,1,Timeout limit was reached,12.346
+old,cluster3,AGGREGATE,10000,10,20,55.173,0,,12.346
+old,cluster3,AGGREGATE,10000,10,21,11.736,1,Timeout limit was reached,12.346
+old,cluster3,AGGREGATE,10000,10,22,11.590,1,Timeout limit was reached,12.346
+old,cluster3,AGGREGATE,10000,10,23,11.485,1,Timeout limit was reached,12.346
+old,cluster3,AGGREGATE,10000,10,24,12.131,1,Timeout limit was reached,12.346
+old,cluster3,AGGREGATE,10000,10,25,55.709,0,,12.346
+old,cluster3,AGGREGATE,10000,10,26,11.662,1,Timeout limit was reached,12.346
+old,cluster3,AGGREGATE,10000,10,27,11.505,1,Timeout limit was reached,12.346
+old,cluster3,AGGREGATE,10000,10,28,54.804,0,,12.346
+old,cluster3,AGGREGATE,10000,10,29,11.521,1,Timeout limit was reached,12.346
+old,cluster3,AGGREGATE,10000,10,30,53.952,0,,12.346
+old,cluster3,AGGREGATE,10000,10,31,11.653,1,Timeout limit was reached,12.346
+old,cluster3,AGGREGATE,10000,10,32,62.035,0,,12.346
+old,cluster3,AGGREGATE,10000,10,33,11.919,1,Timeout limit was reached,12.346
+old,cluster3,AGGREGATE,10000,10,34,12.141,1,Timeout limit was reached,12.346
+old,cluster3,AGGREGATE,10000,10,35,11.458,1,Timeout limit was reached,12.346
+old,cluster3,AGGREGATE,10000,10,36,54.824,0,,12.346
+old,cluster3,AGGREGATE,10000,10,37,11.595,1,Timeout limit was reached,12.346
+old,cluster3,AGGREGATE,10000,10,38,54.770,0,,12.346
+old,cluster3,AGGREGATE,10000,10,39,11.993,1,Timeout limit was reached,12.346
+old,cluster3,AGGREGATE,10000,10,40,11.585,1,Timeout limit was reached,12.346
+old,cluster3,AGGREGATE,10000,10,41,11.996,1,Timeout limit was reached,12.346
+old,cluster3,AGGREGATE,10000,10,42,11.468,1,Timeout limit was reached,12.346
+old,cluster3,AGGREGATE,10000,10,43,11.498,1,Timeout limit was reached,12.346
+old,cluster3,AGGREGATE,10000,10,44,11.454,1,Timeout limit was reached,12.346
+old,cluster3,AGGREGATE,10000,10,45,54.659,0,,12.346
+old,cluster3,AGGREGATE,10000,10,46,12.021,1,Timeout limit was reached,12.346
+old,cluster3,AGGREGATE,10000,10,47,11.797,1,Timeout limit was reached,12.346
+old,cluster3,AGGREGATE,10000,10,48,11.688,1,Timeout limit was reached,12.346
+old,cluster3,AGGREGATE,10000,10,49,11.676,1,Timeout limit was reached,12.346
+old,cluster3,AGGREGATE,10000,20,0,54.810,0,,16.720
+old,cluster3,AGGREGATE,10000,20,1,55.463,0,,16.720
+old,cluster3,AGGREGATE,10000,20,2,55.852,0,,16.720
+old,cluster3,AGGREGATE,10000,20,3,55.118,0,,16.720
+old,cluster3,AGGREGATE,10000,20,4,55.622,0,,16.720
+old,cluster3,AGGREGATE,10000,20,5,63.944,0,,16.720
+old,cluster3,AGGREGATE,10000,20,6,56.208,0,,16.720
+old,cluster3,AGGREGATE,10000,20,7,55.126,0,,16.720
+old,cluster3,AGGREGATE,10000,20,8,55.175,0,,16.720
+old,cluster3,AGGREGATE,10000,20,9,57.015,0,,16.720
+old,cluster3,AGGREGATE,10000,20,10,56.223,0,,16.720
+old,cluster3,AGGREGATE,10000,20,11,55.578,0,,16.720
+old,cluster3,AGGREGATE,10000,20,12,55.994,0,,16.720
+old,cluster3,AGGREGATE,10000,20,13,55.966,0,,16.720
+old,cluster3,AGGREGATE,10000,20,14,57.924,0,,16.720
+old,cluster3,AGGREGATE,10000,20,15,64.100,0,,16.720
+old,cluster3,AGGREGATE,10000,20,16,57.471,0,,16.720
+old,cluster3,AGGREGATE,10000,20,17,56.880,0,,16.720
+old,cluster3,AGGREGATE,10000,20,18,56.812,0,,16.720
+old,cluster3,AGGREGATE,10000,20,19,57.115,0,,16.720
+old,cluster3,AGGREGATE,10000,20,20,56.325,0,,16.720
+old,cluster3,AGGREGATE,10000,20,21,56.134,0,,16.720
+old,cluster3,AGGREGATE,10000,20,22,57.304,0,,16.720
+old,cluster3,AGGREGATE,10000,20,23,56.205,0,,16.720
+old,cluster3,AGGREGATE,10000,20,24,64.780,0,,16.720
+old,cluster3,AGGREGATE,10000,20,25,57.975,0,,16.720
+old,cluster3,AGGREGATE,10000,20,26,56.466,0,,16.720
+old,cluster3,AGGREGATE,10000,20,27,55.625,0,,16.720
+old,cluster3,AGGREGATE,10000,20,28,56.713,0,,16.720
+old,cluster3,AGGREGATE,10000,20,29,56.597,0,,16.720
+old,cluster3,AGGREGATE,10000,20,30,56.072,0,,16.720
+old,cluster3,AGGREGATE,10000,20,31,56.482,0,,16.720
+old,cluster3,AGGREGATE,10000,20,32,56.627,0,,16.720
+old,cluster3,AGGREGATE,10000,20,33,56.187,0,,16.720
+old,cluster3,AGGREGATE,10000,20,34,63.579,0,,16.720
+old,cluster3,AGGREGATE,10000,20,35,56.309,0,,16.720
+old,cluster3,AGGREGATE,10000,20,36,57.551,0,,16.720
+old,cluster3,AGGREGATE,10000,20,37,55.982,0,,16.720
+old,cluster3,AGGREGATE,10000,20,38,57.639,0,,16.720
+old,cluster3,AGGREGATE,10000,20,39,55.008,0,,16.720
+old,cluster3,AGGREGATE,10000,20,40,57.871,0,,16.720
+old,cluster3,AGGREGATE,10000,20,41,56.679,0,,16.720
+old,cluster3,AGGREGATE,10000,20,42,56.318,0,,16.720
+old,cluster3,AGGREGATE,10000,20,43,63.530,0,,16.720
+old,cluster3,AGGREGATE,10000,20,44,57.483,0,,16.720
+old,cluster3,AGGREGATE,10000,20,45,57.005,0,,16.720
+old,cluster3,AGGREGATE,10000,20,46,55.607,0,,16.720
+old,cluster3,AGGREGATE,10000,20,47,56.972,0,,16.720
+old,cluster3,AGGREGATE,10000,20,48,56.169,0,,16.720
+old,cluster3,AGGREGATE,10000,20,49,55.715,0,,16.720
+old,cluster3,AGGREGATE,10000,50,0,55.128,0,,16.607
+old,cluster3,AGGREGATE,10000,50,1,55.248,0,,16.607
+old,cluster3,AGGREGATE,10000,50,2,54.571,0,,16.607
+old,cluster3,AGGREGATE,10000,50,3,62.736,0,,16.607
+old,cluster3,AGGREGATE,10000,50,4,57.167,0,,16.607
+old,cluster3,AGGREGATE,10000,50,5,54.853,0,,16.607
+old,cluster3,AGGREGATE,10000,50,6,55.265,0,,16.607
+old,cluster3,AGGREGATE,10000,50,7,56.945,0,,16.607
+old,cluster3,AGGREGATE,10000,50,8,55.617,0,,16.607
+old,cluster3,AGGREGATE,10000,50,9,56.750,0,,16.607
+old,cluster3,AGGREGATE,10000,50,10,56.333,0,,16.607
+old,cluster3,AGGREGATE,10000,50,11,56.375,0,,16.607
+old,cluster3,AGGREGATE,10000,50,12,63.654,0,,16.607
+old,cluster3,AGGREGATE,10000,50,13,56.534,0,,16.607
+old,cluster3,AGGREGATE,10000,50,14,55.895,0,,16.607
+old,cluster3,AGGREGATE,10000,50,15,56.947,0,,16.607
+old,cluster3,AGGREGATE,10000,50,16,56.132,0,,16.607
+old,cluster3,AGGREGATE,10000,50,17,56.402,0,,16.607
+old,cluster3,AGGREGATE,10000,50,18,56.587,0,,16.607
+old,cluster3,AGGREGATE,10000,50,19,56.702,0,,16.607
+old,cluster3,AGGREGATE,10000,50,20,56.429,0,,16.607
+old,cluster3,AGGREGATE,10000,50,21,56.051,0,,16.607
+old,cluster3,AGGREGATE,10000,50,22,64.646,0,,16.607
+old,cluster3,AGGREGATE,10000,50,23,57.092,0,,16.607
+old,cluster3,AGGREGATE,10000,50,24,58.223,0,,16.607
+old,cluster3,AGGREGATE,10000,50,25,56.248,0,,16.607
+old,cluster3,AGGREGATE,10000,50,26,56.031,0,,16.607
+old,cluster3,AGGREGATE,10000,50,27,55.633,0,,16.607
+old,cluster3,AGGREGATE,10000,50,28,55.849,0,,16.607
+old,cluster3,AGGREGATE,10000,50,29,55.741,0,,16.607
+old,cluster3,AGGREGATE,10000,50,30,56.569,0,,16.607
+old,cluster3,AGGREGATE,10000,50,31,64.170,0,,16.607
+old,cluster3,AGGREGATE,10000,50,32,55.264,0,,16.607
+old,cluster3,AGGREGATE,10000,50,33,55.643,0,,16.607
+old,cluster3,AGGREGATE,10000,50,34,56.028,0,,16.607
+old,cluster3,AGGREGATE,10000,50,35,58.080,0,,16.607
+old,cluster3,AGGREGATE,10000,50,36,55.638,0,,16.607
+old,cluster3,AGGREGATE,10000,50,37,56.218,0,,16.607
+old,cluster3,AGGREGATE,10000,50,38,56.915,0,,16.607
+old,cluster3,AGGREGATE,10000,50,39,55.338,0,,16.607
+old,cluster3,AGGREGATE,10000,50,40,55.571,0,,16.607
+old,cluster3,AGGREGATE,10000,50,41,62.392,0,,16.607
+old,cluster3,AGGREGATE,10000,50,42,55.545,0,,16.607
+old,cluster3,AGGREGATE,10000,50,43,55.470,0,,16.607
+old,cluster3,AGGREGATE,10000,50,44,57.904,0,,16.607
+old,cluster3,AGGREGATE,10000,50,45,55.169,0,,16.607
+old,cluster3,AGGREGATE,10000,50,46,55.178,0,,16.607
+old,cluster3,AGGREGATE,10000,50,47,56.770,0,,16.607
+old,cluster3,AGGREGATE,10000,50,48,56.351,0,,16.607
+old,cluster3,AGGREGATE,10000,50,49,55.668,0,,16.607
+new,sa,AGGREGATE,10000,1,0,2.015,1,SEARCH_TIMEOUT Timeout limit was reached,8.290
+new,sa,AGGREGATE,10000,1,1,1.661,1,SEARCH_TIMEOUT Timeout limit was reached,8.290
+new,sa,AGGREGATE,10000,1,2,1.838,1,SEARCH_TIMEOUT Timeout limit was reached,8.290
+new,sa,AGGREGATE,10000,1,3,13.979,1,SEARCH_TIMEOUT Timeout limit was reached,8.290
+new,sa,AGGREGATE,10000,1,4,16.966,1,SEARCH_TIMEOUT Timeout limit was reached,8.290
+new,sa,AGGREGATE,10000,1,5,14.013,1,SEARCH_TIMEOUT Timeout limit was reached,8.290
+new,sa,AGGREGATE,10000,1,6,13.373,1,SEARCH_TIMEOUT Timeout limit was reached,8.290
+new,sa,AGGREGATE,10000,1,7,11.215,1,SEARCH_TIMEOUT Timeout limit was reached,8.290
+new,sa,AGGREGATE,10000,1,8,10.778,1,SEARCH_TIMEOUT Timeout limit was reached,8.290
+new,sa,AGGREGATE,10000,1,9,10.401,1,SEARCH_TIMEOUT Timeout limit was reached,8.290
+new,sa,AGGREGATE,10000,1,10,10.472,1,SEARCH_TIMEOUT Timeout limit was reached,8.290
+new,sa,AGGREGATE,10000,1,11,9.957,1,SEARCH_TIMEOUT Timeout limit was reached,8.290
+new,sa,AGGREGATE,10000,1,12,7.790,1,SEARCH_TIMEOUT Timeout limit was reached,8.290
+new,sa,AGGREGATE,10000,1,13,11.750,1,SEARCH_TIMEOUT Timeout limit was reached,8.290
+new,sa,AGGREGATE,10000,1,14,9.900,1,SEARCH_TIMEOUT Timeout limit was reached,8.290
+new,sa,AGGREGATE,10000,1,15,9.651,1,SEARCH_TIMEOUT Timeout limit was reached,8.290
+new,sa,AGGREGATE,10000,1,16,9.590,1,SEARCH_TIMEOUT Timeout limit was reached,8.290
+new,sa,AGGREGATE,10000,1,17,9.372,1,SEARCH_TIMEOUT Timeout limit was reached,8.290
+new,sa,AGGREGATE,10000,1,18,9.512,1,SEARCH_TIMEOUT Timeout limit was reached,8.290
+new,sa,AGGREGATE,10000,1,19,9.501,1,SEARCH_TIMEOUT Timeout limit was reached,8.290
+new,sa,AGGREGATE,10000,1,20,9.331,1,SEARCH_TIMEOUT Timeout limit was reached,8.290
+new,sa,AGGREGATE,10000,1,21,9.277,1,SEARCH_TIMEOUT Timeout limit was reached,8.290
+new,sa,AGGREGATE,10000,1,22,9.358,1,SEARCH_TIMEOUT Timeout limit was reached,8.290
+new,sa,AGGREGATE,10000,1,23,7.242,1,SEARCH_TIMEOUT Timeout limit was reached,8.290
+new,sa,AGGREGATE,10000,1,24,11.377,1,SEARCH_TIMEOUT Timeout limit was reached,8.290
+new,sa,AGGREGATE,10000,1,25,9.305,1,SEARCH_TIMEOUT Timeout limit was reached,8.290
+new,sa,AGGREGATE,10000,1,26,9.325,1,SEARCH_TIMEOUT Timeout limit was reached,8.290
+new,sa,AGGREGATE,10000,1,27,9.349,1,SEARCH_TIMEOUT Timeout limit was reached,8.290
+new,sa,AGGREGATE,10000,1,28,9.281,1,SEARCH_TIMEOUT Timeout limit was reached,8.290
+new,sa,AGGREGATE,10000,1,29,9.461,1,SEARCH_TIMEOUT Timeout limit was reached,8.290
+new,sa,AGGREGATE,10000,1,30,9.351,1,SEARCH_TIMEOUT Timeout limit was reached,8.290
+new,sa,AGGREGATE,10000,1,31,9.328,1,SEARCH_TIMEOUT Timeout limit was reached,8.290
+new,sa,AGGREGATE,10000,1,32,9.367,1,SEARCH_TIMEOUT Timeout limit was reached,8.290
+new,sa,AGGREGATE,10000,1,33,9.235,1,SEARCH_TIMEOUT Timeout limit was reached,8.290
+new,sa,AGGREGATE,10000,1,34,7.118,1,SEARCH_TIMEOUT Timeout limit was reached,8.290
+new,sa,AGGREGATE,10000,1,35,11.372,1,SEARCH_TIMEOUT Timeout limit was reached,8.290
+new,sa,AGGREGATE,10000,1,36,9.453,1,SEARCH_TIMEOUT Timeout limit was reached,8.290
+new,sa,AGGREGATE,10000,1,37,9.210,1,SEARCH_TIMEOUT Timeout limit was reached,8.290
+new,sa,AGGREGATE,10000,1,38,9.209,1,SEARCH_TIMEOUT Timeout limit was reached,8.290
+new,sa,AGGREGATE,10000,1,39,9.399,1,SEARCH_TIMEOUT Timeout limit was reached,8.290
+new,sa,AGGREGATE,10000,1,40,9.379,1,SEARCH_TIMEOUT Timeout limit was reached,8.290
+new,sa,AGGREGATE,10000,1,41,9.132,1,SEARCH_TIMEOUT Timeout limit was reached,8.290
+new,sa,AGGREGATE,10000,1,42,9.198,1,SEARCH_TIMEOUT Timeout limit was reached,8.290
+new,sa,AGGREGATE,10000,1,43,9.207,1,SEARCH_TIMEOUT Timeout limit was reached,8.290
+new,sa,AGGREGATE,10000,1,44,9.312,1,SEARCH_TIMEOUT Timeout limit was reached,8.290
+new,sa,AGGREGATE,10000,1,45,7.096,1,SEARCH_TIMEOUT Timeout limit was reached,8.290
+new,sa,AGGREGATE,10000,1,46,2.334,1,SEARCH_TIMEOUT Timeout limit was reached,8.290
+new,sa,AGGREGATE,10000,1,47,18.106,1,SEARCH_TIMEOUT Timeout limit was reached,8.290
+new,sa,AGGREGATE,10000,1,48,9.326,1,SEARCH_TIMEOUT Timeout limit was reached,8.290
+new,sa,AGGREGATE,10000,1,49,9.225,1,SEARCH_TIMEOUT Timeout limit was reached,8.290
+new,sa,AGGREGATE,10000,2,0,9.174,1,SEARCH_TIMEOUT Timeout limit was reached,9.841
+new,sa,AGGREGATE,10000,2,1,9.486,1,SEARCH_TIMEOUT Timeout limit was reached,9.841
+new,sa,AGGREGATE,10000,2,2,9.294,1,SEARCH_TIMEOUT Timeout limit was reached,9.841
+new,sa,AGGREGATE,10000,2,3,9.409,1,SEARCH_TIMEOUT Timeout limit was reached,9.841
+new,sa,AGGREGATE,10000,2,4,9.258,1,SEARCH_TIMEOUT Timeout limit was reached,9.841
+new,sa,AGGREGATE,10000,2,5,9.403,1,SEARCH_TIMEOUT Timeout limit was reached,9.841
+new,sa,AGGREGATE,10000,2,6,7.205,1,SEARCH_TIMEOUT Timeout limit was reached,9.841
+new,sa,AGGREGATE,10000,2,7,11.389,1,SEARCH_TIMEOUT Timeout limit was reached,9.841
+new,sa,AGGREGATE,10000,2,8,9.334,1,SEARCH_TIMEOUT Timeout limit was reached,9.841
+new,sa,AGGREGATE,10000,2,9,9.493,1,SEARCH_TIMEOUT Timeout limit was reached,9.841
+new,sa,AGGREGATE,10000,2,10,9.436,1,SEARCH_TIMEOUT Timeout limit was reached,9.841
+new,sa,AGGREGATE,10000,2,11,9.462,1,SEARCH_TIMEOUT Timeout limit was reached,9.841
+new,sa,AGGREGATE,10000,2,12,9.255,1,SEARCH_TIMEOUT Timeout limit was reached,9.841
+new,sa,AGGREGATE,10000,2,13,9.526,1,SEARCH_TIMEOUT Timeout limit was reached,9.841
+new,sa,AGGREGATE,10000,2,14,9.344,1,SEARCH_TIMEOUT Timeout limit was reached,9.841
+new,sa,AGGREGATE,10000,2,15,9.338,1,SEARCH_TIMEOUT Timeout limit was reached,9.841
+new,sa,AGGREGATE,10000,2,16,9.213,1,SEARCH_TIMEOUT Timeout limit was reached,9.841
+new,sa,AGGREGATE,10000,2,17,7.317,1,SEARCH_TIMEOUT Timeout limit was reached,9.841
+new,sa,AGGREGATE,10000,2,18,11.674,1,SEARCH_TIMEOUT Timeout limit was reached,9.841
+new,sa,AGGREGATE,10000,2,19,9.692,1,SEARCH_TIMEOUT Timeout limit was reached,9.841
+new,sa,AGGREGATE,10000,2,20,9.267,1,SEARCH_TIMEOUT Timeout limit was reached,9.841
+new,sa,AGGREGATE,10000,2,21,9.406,1,SEARCH_TIMEOUT Timeout limit was reached,9.841
+new,sa,AGGREGATE,10000,2,22,9.284,1,SEARCH_TIMEOUT Timeout limit was reached,9.841
+new,sa,AGGREGATE,10000,2,23,9.392,1,SEARCH_TIMEOUT Timeout limit was reached,9.841
+new,sa,AGGREGATE,10000,2,24,9.281,1,SEARCH_TIMEOUT Timeout limit was reached,9.841
+new,sa,AGGREGATE,10000,2,25,9.438,1,SEARCH_TIMEOUT Timeout limit was reached,9.841
+new,sa,AGGREGATE,10000,2,26,9.287,1,SEARCH_TIMEOUT Timeout limit was reached,9.841
+new,sa,AGGREGATE,10000,2,27,9.277,1,SEARCH_TIMEOUT Timeout limit was reached,9.841
+new,sa,AGGREGATE,10000,2,28,7.069,1,SEARCH_TIMEOUT Timeout limit was reached,9.841
+new,sa,AGGREGATE,10000,2,29,11.590,1,SEARCH_TIMEOUT Timeout limit was reached,9.841
+new,sa,AGGREGATE,10000,2,30,9.381,1,SEARCH_TIMEOUT Timeout limit was reached,9.841
+new,sa,AGGREGATE,10000,2,31,9.582,1,SEARCH_TIMEOUT Timeout limit was reached,9.841
+new,sa,AGGREGATE,10000,2,32,12.963,1,SEARCH_TIMEOUT Timeout limit was reached,9.841
+new,sa,AGGREGATE,10000,2,33,14.192,1,SEARCH_TIMEOUT Timeout limit was reached,9.841
+new,sa,AGGREGATE,10000,2,34,14.229,1,SEARCH_TIMEOUT Timeout limit was reached,9.841
+new,sa,AGGREGATE,10000,2,35,14.587,1,SEARCH_TIMEOUT Timeout limit was reached,9.841
+new,sa,AGGREGATE,10000,2,36,15.691,1,SEARCH_TIMEOUT Timeout limit was reached,9.841
+new,sa,AGGREGATE,10000,2,37,14.768,1,SEARCH_TIMEOUT Timeout limit was reached,9.841
+new,sa,AGGREGATE,10000,2,38,14.772,1,SEARCH_TIMEOUT Timeout limit was reached,9.841
+new,sa,AGGREGATE,10000,2,39,13.767,1,SEARCH_TIMEOUT Timeout limit was reached,9.841
+new,sa,AGGREGATE,10000,2,40,14.608,1,SEARCH_TIMEOUT Timeout limit was reached,9.841
+new,sa,AGGREGATE,10000,2,41,14.140,1,SEARCH_TIMEOUT Timeout limit was reached,9.841
+new,sa,AGGREGATE,10000,2,42,9.946,1,SEARCH_TIMEOUT Timeout limit was reached,9.841
+new,sa,AGGREGATE,10000,2,43,9.779,1,SEARCH_TIMEOUT Timeout limit was reached,9.841
+new,sa,AGGREGATE,10000,2,44,9.840,1,SEARCH_TIMEOUT Timeout limit was reached,9.841
+new,sa,AGGREGATE,10000,2,45,9.636,1,SEARCH_TIMEOUT Timeout limit was reached,9.841
+new,sa,AGGREGATE,10000,2,46,9.368,1,SEARCH_TIMEOUT Timeout limit was reached,9.841
+new,sa,AGGREGATE,10000,2,47,9.504,1,SEARCH_TIMEOUT Timeout limit was reached,9.841
+new,sa,AGGREGATE,10000,2,48,9.521,1,SEARCH_TIMEOUT Timeout limit was reached,9.841
+new,sa,AGGREGATE,10000,2,49,9.378,1,SEARCH_TIMEOUT Timeout limit was reached,9.841
+new,sa,AGGREGATE,10000,5,0,9.197,1,SEARCH_TIMEOUT Timeout limit was reached,8.468
+new,sa,AGGREGATE,10000,5,1,9.469,1,SEARCH_TIMEOUT Timeout limit was reached,8.468
+new,sa,AGGREGATE,10000,5,2,9.435,1,SEARCH_TIMEOUT Timeout limit was reached,8.468
+new,sa,AGGREGATE,10000,5,3,9.595,1,SEARCH_TIMEOUT Timeout limit was reached,8.468
+new,sa,AGGREGATE,10000,5,4,9.322,1,SEARCH_TIMEOUT Timeout limit was reached,8.468
+new,sa,AGGREGATE,10000,5,5,7.345,1,SEARCH_TIMEOUT Timeout limit was reached,8.468
+new,sa,AGGREGATE,10000,5,6,11.426,1,SEARCH_TIMEOUT Timeout limit was reached,8.468
+new,sa,AGGREGATE,10000,5,7,9.285,1,SEARCH_TIMEOUT Timeout limit was reached,8.468
+new,sa,AGGREGATE,10000,5,8,9.279,1,SEARCH_TIMEOUT Timeout limit was reached,8.468
+new,sa,AGGREGATE,10000,5,9,9.360,1,SEARCH_TIMEOUT Timeout limit was reached,8.468
+new,sa,AGGREGATE,10000,5,10,9.347,1,SEARCH_TIMEOUT Timeout limit was reached,8.468
+new,sa,AGGREGATE,10000,5,11,9.218,1,SEARCH_TIMEOUT Timeout limit was reached,8.468
+new,sa,AGGREGATE,10000,5,12,9.026,1,SEARCH_TIMEOUT Timeout limit was reached,8.468
+new,sa,AGGREGATE,10000,5,13,9.452,1,SEARCH_TIMEOUT Timeout limit was reached,8.468
+new,sa,AGGREGATE,10000,5,14,9.312,1,SEARCH_TIMEOUT Timeout limit was reached,8.468
+new,sa,AGGREGATE,10000,5,15,9.283,1,SEARCH_TIMEOUT Timeout limit was reached,8.468
+new,sa,AGGREGATE,10000,5,16,7.053,1,SEARCH_TIMEOUT Timeout limit was reached,8.468
+new,sa,AGGREGATE,10000,5,17,11.510,1,SEARCH_TIMEOUT Timeout limit was reached,8.468
+new,sa,AGGREGATE,10000,5,18,9.561,1,SEARCH_TIMEOUT Timeout limit was reached,8.468
+new,sa,AGGREGATE,10000,5,19,9.262,1,SEARCH_TIMEOUT Timeout limit was reached,8.468
+new,sa,AGGREGATE,10000,5,20,9.323,1,SEARCH_TIMEOUT Timeout limit was reached,8.468
+new,sa,AGGREGATE,10000,5,21,9.362,1,SEARCH_TIMEOUT Timeout limit was reached,8.468
+new,sa,AGGREGATE,10000,5,22,9.313,1,SEARCH_TIMEOUT Timeout limit was reached,8.468
+new,sa,AGGREGATE,10000,5,23,9.250,1,SEARCH_TIMEOUT Timeout limit was reached,8.468
+new,sa,AGGREGATE,10000,5,24,9.235,1,SEARCH_TIMEOUT Timeout limit was reached,8.468
+new,sa,AGGREGATE,10000,5,25,9.372,1,SEARCH_TIMEOUT Timeout limit was reached,8.468
+new,sa,AGGREGATE,10000,5,26,9.337,1,SEARCH_TIMEOUT Timeout limit was reached,8.468
+new,sa,AGGREGATE,10000,5,27,7.130,1,SEARCH_TIMEOUT Timeout limit was reached,8.468
+new,sa,AGGREGATE,10000,5,28,11.006,1,SEARCH_TIMEOUT Timeout limit was reached,8.468
+new,sa,AGGREGATE,10000,5,29,9.317,1,SEARCH_TIMEOUT Timeout limit was reached,8.468
+new,sa,AGGREGATE,10000,5,30,9.424,1,SEARCH_TIMEOUT Timeout limit was reached,8.468
+new,sa,AGGREGATE,10000,5,31,9.251,1,SEARCH_TIMEOUT Timeout limit was reached,8.468
+new,sa,AGGREGATE,10000,5,32,9.357,1,SEARCH_TIMEOUT Timeout limit was reached,8.468
+new,sa,AGGREGATE,10000,5,33,9.404,1,SEARCH_TIMEOUT Timeout limit was reached,8.468
+new,sa,AGGREGATE,10000,5,34,9.431,1,SEARCH_TIMEOUT Timeout limit was reached,8.468
+new,sa,AGGREGATE,10000,5,35,9.204,1,SEARCH_TIMEOUT Timeout limit was reached,8.468
+new,sa,AGGREGATE,10000,5,36,9.379,1,SEARCH_TIMEOUT Timeout limit was reached,8.468
+new,sa,AGGREGATE,10000,5,37,9.370,1,SEARCH_TIMEOUT Timeout limit was reached,8.468
+new,sa,AGGREGATE,10000,5,38,7.207,1,SEARCH_TIMEOUT Timeout limit was reached,8.468
+new,sa,AGGREGATE,10000,5,39,11.197,1,SEARCH_TIMEOUT Timeout limit was reached,8.468
+new,sa,AGGREGATE,10000,5,40,9.491,1,SEARCH_TIMEOUT Timeout limit was reached,8.468
+new,sa,AGGREGATE,10000,5,41,9.472,1,SEARCH_TIMEOUT Timeout limit was reached,8.468
+new,sa,AGGREGATE,10000,5,42,9.391,1,SEARCH_TIMEOUT Timeout limit was reached,8.468
+new,sa,AGGREGATE,10000,5,43,9.134,1,SEARCH_TIMEOUT Timeout limit was reached,8.468
+new,sa,AGGREGATE,10000,5,44,9.349,1,SEARCH_TIMEOUT Timeout limit was reached,8.468
+new,sa,AGGREGATE,10000,5,45,9.388,1,SEARCH_TIMEOUT Timeout limit was reached,8.468
+new,sa,AGGREGATE,10000,5,46,9.377,1,SEARCH_TIMEOUT Timeout limit was reached,8.468
+new,sa,AGGREGATE,10000,5,47,9.151,1,SEARCH_TIMEOUT Timeout limit was reached,8.468
+new,sa,AGGREGATE,10000,5,48,9.364,1,SEARCH_TIMEOUT Timeout limit was reached,8.468
+new,sa,AGGREGATE,10000,5,49,7.233,1,SEARCH_TIMEOUT Timeout limit was reached,8.468
+new,sa,AGGREGATE,10000,10,0,55.368,0,,14.565
+new,sa,AGGREGATE,10000,10,1,12.702,1,SEARCH_TIMEOUT Timeout limit was reached,14.565
+new,sa,AGGREGATE,10000,10,2,56.110,0,,14.565
+new,sa,AGGREGATE,10000,10,3,56.278,0,,14.565
+new,sa,AGGREGATE,10000,10,4,56.218,0,,14.565
+new,sa,AGGREGATE,10000,10,5,56.567,0,,14.565
+new,sa,AGGREGATE,10000,10,6,55.062,0,,14.565
+new,sa,AGGREGATE,10000,10,7,54.947,0,,14.565
+new,sa,AGGREGATE,10000,10,8,54.732,0,,14.565
+new,sa,AGGREGATE,10000,10,9,62.075,0,,14.565
+new,sa,AGGREGATE,10000,10,10,55.376,0,,14.565
+new,sa,AGGREGATE,10000,10,11,55.036,0,,14.565
+new,sa,AGGREGATE,10000,10,12,55.344,0,,14.565
+new,sa,AGGREGATE,10000,10,13,55.135,0,,14.565
+new,sa,AGGREGATE,10000,10,14,54.580,0,,14.565
+new,sa,AGGREGATE,10000,10,15,55.227,0,,14.565
+new,sa,AGGREGATE,10000,10,16,54.912,0,,14.565
+new,sa,AGGREGATE,10000,10,17,55.095,0,,14.565
+new,sa,AGGREGATE,10000,10,18,12.422,1,SEARCH_TIMEOUT Timeout limit was reached,14.565
+new,sa,AGGREGATE,10000,10,19,54.228,0,,14.565
+new,sa,AGGREGATE,10000,10,20,60.596,0,,14.565
+new,sa,AGGREGATE,10000,10,21,54.710,0,,14.565
+new,sa,AGGREGATE,10000,10,22,12.783,1,SEARCH_TIMEOUT Timeout limit was reached,14.565
+new,sa,AGGREGATE,10000,10,23,54.894,0,,14.565
+new,sa,AGGREGATE,10000,10,24,54.959,0,,14.565
+new,sa,AGGREGATE,10000,10,25,54.422,0,,14.565
+new,sa,AGGREGATE,10000,10,26,54.129,0,,14.565
+new,sa,AGGREGATE,10000,10,27,54.495,0,,14.565
+new,sa,AGGREGATE,10000,10,28,54.223,0,,14.565
+new,sa,AGGREGATE,10000,10,29,53.933,0,,14.565
+new,sa,AGGREGATE,10000,10,30,61.486,0,,14.565
+new,sa,AGGREGATE,10000,10,31,55.270,0,,14.565
+new,sa,AGGREGATE,10000,10,32,13.464,1,SEARCH_TIMEOUT Timeout limit was reached,14.565
+new,sa,AGGREGATE,10000,10,33,54.308,0,,14.565
+new,sa,AGGREGATE,10000,10,34,12.428,1,SEARCH_TIMEOUT Timeout limit was reached,14.565
+new,sa,AGGREGATE,10000,10,35,54.180,0,,14.565
+new,sa,AGGREGATE,10000,10,36,55.309,0,,14.565
+new,sa,AGGREGATE,10000,10,37,54.973,0,,14.565
+new,sa,AGGREGATE,10000,10,38,12.914,1,SEARCH_TIMEOUT Timeout limit was reached,14.565
+new,sa,AGGREGATE,10000,10,39,54.692,0,,14.565
+new,sa,AGGREGATE,10000,10,40,12.588,1,SEARCH_TIMEOUT Timeout limit was reached,14.565
+new,sa,AGGREGATE,10000,10,41,53.832,0,,14.565
+new,sa,AGGREGATE,10000,10,42,54.158,0,,14.565
+new,sa,AGGREGATE,10000,10,43,55.066,0,,14.565
+new,sa,AGGREGATE,10000,10,44,13.358,1,SEARCH_TIMEOUT Timeout limit was reached,14.565
+new,sa,AGGREGATE,10000,10,45,61.280,0,,14.565
+new,sa,AGGREGATE,10000,10,46,13.390,1,SEARCH_TIMEOUT Timeout limit was reached,14.565
+new,sa,AGGREGATE,10000,10,47,17.013,1,SEARCH_TIMEOUT Timeout limit was reached,14.565
+new,sa,AGGREGATE,10000,10,48,13.790,1,SEARCH_TIMEOUT Timeout limit was reached,14.565
+new,sa,AGGREGATE,10000,10,49,13.620,1,SEARCH_TIMEOUT Timeout limit was reached,14.565
+new,sa,AGGREGATE,10000,20,0,56.837,0,,17.415
+new,sa,AGGREGATE,10000,20,1,58.210,0,,17.415
+new,sa,AGGREGATE,10000,20,2,58.191,0,,17.415
+new,sa,AGGREGATE,10000,20,3,57.597,0,,17.415
+new,sa,AGGREGATE,10000,20,4,57.312,0,,17.415
+new,sa,AGGREGATE,10000,20,5,56.516,0,,17.415
+new,sa,AGGREGATE,10000,20,6,55.913,0,,17.415
+new,sa,AGGREGATE,10000,20,7,55.868,0,,17.415
+new,sa,AGGREGATE,10000,20,8,62.866,0,,17.415
+new,sa,AGGREGATE,10000,20,9,55.728,0,,17.415
+new,sa,AGGREGATE,10000,20,10,55.375,0,,17.415
+new,sa,AGGREGATE,10000,20,11,56.108,0,,17.415
+new,sa,AGGREGATE,10000,20,12,57.449,0,,17.415
+new,sa,AGGREGATE,10000,20,13,58.429,0,,17.415
+new,sa,AGGREGATE,10000,20,14,59.184,0,,17.415
+new,sa,AGGREGATE,10000,20,15,59.018,0,,17.415
+new,sa,AGGREGATE,10000,20,16,57.811,0,,17.415
+new,sa,AGGREGATE,10000,20,17,57.283,0,,17.415
+new,sa,AGGREGATE,10000,20,18,64.921,0,,17.415
+new,sa,AGGREGATE,10000,20,19,58.401,0,,17.415
+new,sa,AGGREGATE,10000,20,20,59.550,0,,17.415
+new,sa,AGGREGATE,10000,20,21,58.422,0,,17.415
+new,sa,AGGREGATE,10000,20,22,57.601,0,,17.415
+new,sa,AGGREGATE,10000,20,23,57.990,0,,17.415
+new,sa,AGGREGATE,10000,20,24,57.788,0,,17.415
+new,sa,AGGREGATE,10000,20,25,57.344,0,,17.415
+new,sa,AGGREGATE,10000,20,26,57.961,0,,17.415
+new,sa,AGGREGATE,10000,20,27,64.406,0,,17.415
+new,sa,AGGREGATE,10000,20,28,57.700,0,,17.415
+new,sa,AGGREGATE,10000,20,29,57.269,0,,17.415
+new,sa,AGGREGATE,10000,20,30,56.945,0,,17.415
+new,sa,AGGREGATE,10000,20,31,57.059,0,,17.415
+new,sa,AGGREGATE,10000,20,32,56.056,0,,17.415
+new,sa,AGGREGATE,10000,20,33,56.683,0,,17.415
+new,sa,AGGREGATE,10000,20,34,56.713,0,,17.415
+new,sa,AGGREGATE,10000,20,35,56.485,0,,17.415
+new,sa,AGGREGATE,10000,20,36,57.437,0,,17.415
+new,sa,AGGREGATE,10000,20,37,64.127,0,,17.415
+new,sa,AGGREGATE,10000,20,38,56.939,0,,17.415
+new,sa,AGGREGATE,10000,20,39,57.438,0,,17.415
+new,sa,AGGREGATE,10000,20,40,56.733,0,,17.415
+new,sa,AGGREGATE,10000,20,41,56.785,0,,17.415
+new,sa,AGGREGATE,10000,20,42,56.356,0,,17.415
+new,sa,AGGREGATE,10000,20,43,56.594,0,,17.415
+new,sa,AGGREGATE,10000,20,44,56.756,0,,17.415
+new,sa,AGGREGATE,10000,20,45,57.742,0,,17.415
+new,sa,AGGREGATE,10000,20,46,63.894,0,,17.415
+new,sa,AGGREGATE,10000,20,47,56.559,0,,17.415
+new,sa,AGGREGATE,10000,20,48,56.564,0,,17.415
+new,sa,AGGREGATE,10000,20,49,56.298,0,,17.415
+new,sa,AGGREGATE,10000,50,0,55.550,0,,16.895
+new,sa,AGGREGATE,10000,50,1,55.300,0,,16.895
+new,sa,AGGREGATE,10000,50,2,55.934,0,,16.895
+new,sa,AGGREGATE,10000,50,3,56.540,0,,16.895
+new,sa,AGGREGATE,10000,50,4,56.284,0,,16.895
+new,sa,AGGREGATE,10000,50,5,56.810,0,,16.895
+new,sa,AGGREGATE,10000,50,6,63.557,0,,16.895
+new,sa,AGGREGATE,10000,50,7,57.201,0,,16.895
+new,sa,AGGREGATE,10000,50,8,56.627,0,,16.895
+new,sa,AGGREGATE,10000,50,9,57.021,0,,16.895
+new,sa,AGGREGATE,10000,50,10,56.633,0,,16.895
+new,sa,AGGREGATE,10000,50,11,56.598,0,,16.895
+new,sa,AGGREGATE,10000,50,12,56.324,0,,16.895
+new,sa,AGGREGATE,10000,50,13,56.100,0,,16.895
+new,sa,AGGREGATE,10000,50,14,56.460,0,,16.895
+new,sa,AGGREGATE,10000,50,15,63.271,0,,16.895
+new,sa,AGGREGATE,10000,50,16,56.108,0,,16.895
+new,sa,AGGREGATE,10000,50,17,55.967,0,,16.895
+new,sa,AGGREGATE,10000,50,18,56.779,0,,16.895
+new,sa,AGGREGATE,10000,50,19,56.621,0,,16.895
+new,sa,AGGREGATE,10000,50,20,56.387,0,,16.895
+new,sa,AGGREGATE,10000,50,21,57.274,0,,16.895
+new,sa,AGGREGATE,10000,50,22,57.624,0,,16.895
+new,sa,AGGREGATE,10000,50,23,57.735,0,,16.895
+new,sa,AGGREGATE,10000,50,24,56.478,0,,16.895
+new,sa,AGGREGATE,10000,50,25,62.821,0,,16.895
+new,sa,AGGREGATE,10000,50,26,57.294,0,,16.895
+new,sa,AGGREGATE,10000,50,27,57.122,0,,16.895
+new,sa,AGGREGATE,10000,50,28,56.458,0,,16.895
+new,sa,AGGREGATE,10000,50,29,56.551,0,,16.895
+new,sa,AGGREGATE,10000,50,30,56.581,0,,16.895
+new,sa,AGGREGATE,10000,50,31,56.344,0,,16.895
+new,sa,AGGREGATE,10000,50,32,56.354,0,,16.895
+new,sa,AGGREGATE,10000,50,33,57.027,0,,16.895
+new,sa,AGGREGATE,10000,50,34,64.141,0,,16.895
+new,sa,AGGREGATE,10000,50,35,56.239,0,,16.895
+new,sa,AGGREGATE,10000,50,36,56.945,0,,16.895
+new,sa,AGGREGATE,10000,50,37,58.098,0,,16.895
+new,sa,AGGREGATE,10000,50,38,58.791,0,,16.895
+new,sa,AGGREGATE,10000,50,39,58.286,0,,16.895
+new,sa,AGGREGATE,10000,50,40,58.677,0,,16.895
+new,sa,AGGREGATE,10000,50,41,58.692,0,,16.895
+new,sa,AGGREGATE,10000,50,42,57.894,0,,16.895
+new,sa,AGGREGATE,10000,50,43,57.675,0,,16.895
+new,sa,AGGREGATE,10000,50,44,63.919,0,,16.895
+new,sa,AGGREGATE,10000,50,45,57.336,0,,16.895
+new,sa,AGGREGATE,10000,50,46,56.866,0,,16.895
+new,sa,AGGREGATE,10000,50,47,56.902,0,,16.895
+new,sa,AGGREGATE,10000,50,48,58.520,0,,16.895
+new,sa,AGGREGATE,10000,50,49,58.158,0,,16.895
+new,cluster3,AGGREGATE,10000,1,0,3.154,1,SEARCH_TIMEOUT Timeout limit was reached,0.943
+new,cluster3,AGGREGATE,10000,1,1,2.303,1,SEARCH_TIMEOUT Timeout limit was reached,0.943
+new,cluster3,AGGREGATE,10000,1,2,2.374,1,SEARCH_TIMEOUT Timeout limit was reached,0.943
+new,cluster3,AGGREGATE,10000,1,3,2.218,1,SEARCH_TIMEOUT Timeout limit was reached,0.943
+new,cluster3,AGGREGATE,10000,1,4,2.578,1,SEARCH_TIMEOUT Timeout limit was reached,0.943
+new,cluster3,AGGREGATE,10000,1,5,2.467,1,SEARCH_TIMEOUT Timeout limit was reached,0.943
+new,cluster3,AGGREGATE,10000,1,6,2.305,1,SEARCH_TIMEOUT Timeout limit was reached,0.943
+new,cluster3,AGGREGATE,10000,1,7,5.157,1,SEARCH_TIMEOUT Timeout limit was reached,0.943
+new,cluster3,AGGREGATE,10000,1,8,2.177,1,SEARCH_TIMEOUT Timeout limit was reached,0.943
+new,cluster3,AGGREGATE,10000,1,9,1.969,1,SEARCH_TIMEOUT Timeout limit was reached,0.943
+new,cluster3,AGGREGATE,10000,1,10,3.959,1,SEARCH_TIMEOUT Timeout limit was reached,0.943
+new,cluster3,AGGREGATE,10000,1,11,1.560,1,SEARCH_TIMEOUT Timeout limit was reached,0.943
+new,cluster3,AGGREGATE,10000,1,12,3.307,1,SEARCH_TIMEOUT Timeout limit was reached,0.943
+new,cluster3,AGGREGATE,10000,1,13,2.706,1,SEARCH_TIMEOUT Timeout limit was reached,0.943
+new,cluster3,AGGREGATE,10000,1,14,3.031,1,SEARCH_TIMEOUT Timeout limit was reached,0.943
+new,cluster3,AGGREGATE,10000,1,15,2.689,1,SEARCH_TIMEOUT Timeout limit was reached,0.943
+new,cluster3,AGGREGATE,10000,1,16,1.403,1,SEARCH_TIMEOUT Timeout limit was reached,0.943
+new,cluster3,AGGREGATE,10000,1,17,4.182,1,SEARCH_TIMEOUT Timeout limit was reached,0.943
+new,cluster3,AGGREGATE,10000,1,18,3.041,1,SEARCH_TIMEOUT Timeout limit was reached,0.943
+new,cluster3,AGGREGATE,10000,1,19,3.603,1,SEARCH_TIMEOUT Timeout limit was reached,0.943
+new,cluster3,AGGREGATE,10000,1,20,1.996,1,SEARCH_TIMEOUT Timeout limit was reached,0.943
+new,cluster3,AGGREGATE,10000,1,21,4.148,1,SEARCH_TIMEOUT Timeout limit was reached,0.943
+new,cluster3,AGGREGATE,10000,1,22,2.068,1,SEARCH_TIMEOUT Timeout limit was reached,0.943
+new,cluster3,AGGREGATE,10000,1,23,3.398,1,SEARCH_TIMEOUT Timeout limit was reached,0.943
+new,cluster3,AGGREGATE,10000,1,24,1.781,1,SEARCH_TIMEOUT Timeout limit was reached,0.943
+new,cluster3,AGGREGATE,10000,1,25,2.075,1,SEARCH_TIMEOUT Timeout limit was reached,0.943
+new,cluster3,AGGREGATE,10000,1,26,2.846,1,SEARCH_TIMEOUT Timeout limit was reached,0.943
+new,cluster3,AGGREGATE,10000,1,27,2.596,1,SEARCH_TIMEOUT Timeout limit was reached,0.943
+new,cluster3,AGGREGATE,10000,1,28,2.418,1,SEARCH_TIMEOUT Timeout limit was reached,0.943
+new,cluster3,AGGREGATE,10000,1,29,2.330,1,SEARCH_TIMEOUT Timeout limit was reached,0.943
+new,cluster3,AGGREGATE,10000,1,30,4.530,1,SEARCH_TIMEOUT Timeout limit was reached,0.943
+new,cluster3,AGGREGATE,10000,1,31,3.015,1,SEARCH_TIMEOUT Timeout limit was reached,0.943
+new,cluster3,AGGREGATE,10000,1,32,2.020,1,SEARCH_TIMEOUT Timeout limit was reached,0.943
+new,cluster3,AGGREGATE,10000,1,33,2.342,1,SEARCH_TIMEOUT Timeout limit was reached,0.943
+new,cluster3,AGGREGATE,10000,1,34,2.469,1,SEARCH_TIMEOUT Timeout limit was reached,0.943
+new,cluster3,AGGREGATE,10000,1,35,2.842,1,SEARCH_TIMEOUT Timeout limit was reached,0.943
+new,cluster3,AGGREGATE,10000,1,36,3.405,1,SEARCH_TIMEOUT Timeout limit was reached,0.943
+new,cluster3,AGGREGATE,10000,1,37,2.625,1,SEARCH_TIMEOUT Timeout limit was reached,0.943
+new,cluster3,AGGREGATE,10000,1,38,2.663,1,SEARCH_TIMEOUT Timeout limit was reached,0.943
+new,cluster3,AGGREGATE,10000,1,39,2.527,1,SEARCH_TIMEOUT Timeout limit was reached,0.943
+new,cluster3,AGGREGATE,10000,1,40,2.494,1,SEARCH_TIMEOUT Timeout limit was reached,0.943
+new,cluster3,AGGREGATE,10000,1,41,2.581,1,SEARCH_TIMEOUT Timeout limit was reached,0.943
+new,cluster3,AGGREGATE,10000,1,42,3.381,1,SEARCH_TIMEOUT Timeout limit was reached,0.943
+new,cluster3,AGGREGATE,10000,1,43,2.180,1,SEARCH_TIMEOUT Timeout limit was reached,0.943
+new,cluster3,AGGREGATE,10000,1,44,1.871,1,SEARCH_TIMEOUT Timeout limit was reached,0.943
+new,cluster3,AGGREGATE,10000,1,45,1.936,1,SEARCH_TIMEOUT Timeout limit was reached,0.943
+new,cluster3,AGGREGATE,10000,1,46,2.152,1,SEARCH_TIMEOUT Timeout limit was reached,0.943
+new,cluster3,AGGREGATE,10000,1,47,1.822,1,SEARCH_TIMEOUT Timeout limit was reached,0.943
+new,cluster3,AGGREGATE,10000,1,48,1.548,1,SEARCH_TIMEOUT Timeout limit was reached,0.943
+new,cluster3,AGGREGATE,10000,1,49,2.361,1,SEARCH_TIMEOUT Timeout limit was reached,0.943
+new,cluster3,AGGREGATE,10000,2,0,3.265,1,SEARCH_TIMEOUT Timeout limit was reached,0.290
+new,cluster3,AGGREGATE,10000,2,1,3.551,1,SEARCH_TIMEOUT Timeout limit was reached,0.290
+new,cluster3,AGGREGATE,10000,2,2,5.199,1,SEARCH_TIMEOUT Timeout limit was reached,0.290
+new,cluster3,AGGREGATE,10000,2,3,8.223,1,SEARCH_TIMEOUT Timeout limit was reached,0.290
+new,cluster3,AGGREGATE,10000,2,4,3.541,1,SEARCH_TIMEOUT Timeout limit was reached,0.290
+new,cluster3,AGGREGATE,10000,2,5,4.742,1,SEARCH_TIMEOUT Timeout limit was reached,0.290
+new,cluster3,AGGREGATE,10000,2,6,4.285,1,SEARCH_TIMEOUT Timeout limit was reached,0.290
+new,cluster3,AGGREGATE,10000,2,7,4.578,1,SEARCH_TIMEOUT Timeout limit was reached,0.290
+new,cluster3,AGGREGATE,10000,2,8,4.007,1,SEARCH_TIMEOUT Timeout limit was reached,0.290
+new,cluster3,AGGREGATE,10000,2,9,4.307,1,SEARCH_TIMEOUT Timeout limit was reached,0.290
+new,cluster3,AGGREGATE,10000,2,10,5.531,1,SEARCH_TIMEOUT Timeout limit was reached,0.290
+new,cluster3,AGGREGATE,10000,2,11,3.512,1,SEARCH_TIMEOUT Timeout limit was reached,0.290
+new,cluster3,AGGREGATE,10000,2,12,3.809,1,SEARCH_TIMEOUT Timeout limit was reached,0.290
+new,cluster3,AGGREGATE,10000,2,13,2.368,1,SEARCH_TIMEOUT Timeout limit was reached,0.290
+new,cluster3,AGGREGATE,10000,2,14,4.351,1,SEARCH_TIMEOUT Timeout limit was reached,0.290
+new,cluster3,AGGREGATE,10000,2,15,5.938,1,SEARCH_TIMEOUT Timeout limit was reached,0.290
+new,cluster3,AGGREGATE,10000,2,16,10.947,1,SEARCH_TIMEOUT Timeout limit was reached,0.290
+new,cluster3,AGGREGATE,10000,2,17,3.476,1,SEARCH_TIMEOUT Timeout limit was reached,0.290
+new,cluster3,AGGREGATE,10000,2,18,6.883,1,SEARCH_TIMEOUT Timeout limit was reached,0.290
+new,cluster3,AGGREGATE,10000,2,19,4.294,1,SEARCH_TIMEOUT Timeout limit was reached,0.290
+new,cluster3,AGGREGATE,10000,2,20,3.279,1,SEARCH_TIMEOUT Timeout limit was reached,0.290
+new,cluster3,AGGREGATE,10000,2,21,4.217,1,SEARCH_TIMEOUT Timeout limit was reached,0.290
+new,cluster3,AGGREGATE,10000,2,22,3.986,1,SEARCH_TIMEOUT Timeout limit was reached,0.290
+new,cluster3,AGGREGATE,10000,2,23,4.294,1,SEARCH_TIMEOUT Timeout limit was reached,0.290
+new,cluster3,AGGREGATE,10000,2,24,6.989,1,SEARCH_TIMEOUT Timeout limit was reached,0.290
+new,cluster3,AGGREGATE,10000,2,25,5.589,1,SEARCH_TIMEOUT Timeout limit was reached,0.290
+new,cluster3,AGGREGATE,10000,2,26,3.576,1,SEARCH_TIMEOUT Timeout limit was reached,0.290
+new,cluster3,AGGREGATE,10000,2,27,6.063,1,SEARCH_TIMEOUT Timeout limit was reached,0.290
+new,cluster3,AGGREGATE,10000,2,28,3.055,1,SEARCH_TIMEOUT Timeout limit was reached,0.290
+new,cluster3,AGGREGATE,10000,2,29,5.922,1,SEARCH_TIMEOUT Timeout limit was reached,0.290
+new,cluster3,AGGREGATE,10000,2,30,6.390,1,SEARCH_TIMEOUT Timeout limit was reached,0.290
+new,cluster3,AGGREGATE,10000,2,31,5.161,1,SEARCH_TIMEOUT Timeout limit was reached,0.290
+new,cluster3,AGGREGATE,10000,2,32,6.245,1,SEARCH_TIMEOUT Timeout limit was reached,0.290
+new,cluster3,AGGREGATE,10000,2,33,5.386,1,SEARCH_TIMEOUT Timeout limit was reached,0.290
+new,cluster3,AGGREGATE,10000,2,34,3.551,1,SEARCH_TIMEOUT Timeout limit was reached,0.290
+new,cluster3,AGGREGATE,10000,2,35,4.763,1,SEARCH_TIMEOUT Timeout limit was reached,0.290
+new,cluster3,AGGREGATE,10000,2,36,6.354,1,SEARCH_TIMEOUT Timeout limit was reached,0.290
+new,cluster3,AGGREGATE,10000,2,37,3.316,1,SEARCH_TIMEOUT Timeout limit was reached,0.290
+new,cluster3,AGGREGATE,10000,2,38,6.595,1,SEARCH_TIMEOUT Timeout limit was reached,0.290
+new,cluster3,AGGREGATE,10000,2,39,5.242,1,SEARCH_TIMEOUT Timeout limit was reached,0.290
+new,cluster3,AGGREGATE,10000,2,40,3.491,1,SEARCH_TIMEOUT Timeout limit was reached,0.290
+new,cluster3,AGGREGATE,10000,2,41,7.273,1,SEARCH_TIMEOUT Timeout limit was reached,0.290
+new,cluster3,AGGREGATE,10000,2,42,4.543,1,SEARCH_TIMEOUT Timeout limit was reached,0.290
+new,cluster3,AGGREGATE,10000,2,43,4.273,1,SEARCH_TIMEOUT Timeout limit was reached,0.290
+new,cluster3,AGGREGATE,10000,2,44,4.474,1,SEARCH_TIMEOUT Timeout limit was reached,0.290
+new,cluster3,AGGREGATE,10000,2,45,4.686,1,SEARCH_TIMEOUT Timeout limit was reached,0.290
+new,cluster3,AGGREGATE,10000,2,46,4.756,1,SEARCH_TIMEOUT Timeout limit was reached,0.290
+new,cluster3,AGGREGATE,10000,2,47,6.758,1,SEARCH_TIMEOUT Timeout limit was reached,0.290
+new,cluster3,AGGREGATE,10000,2,48,4.531,1,SEARCH_TIMEOUT Timeout limit was reached,0.290
+new,cluster3,AGGREGATE,10000,2,49,3.364,1,SEARCH_TIMEOUT Timeout limit was reached,0.290
+new,cluster3,AGGREGATE,10000,5,0,5.667,1,SEARCH_TIMEOUT Timeout limit was reached,0.080
+new,cluster3,AGGREGATE,10000,5,1,8.681,1,SEARCH_TIMEOUT Timeout limit was reached,0.080
+new,cluster3,AGGREGATE,10000,5,2,5.999,1,SEARCH_TIMEOUT Timeout limit was reached,0.080
+new,cluster3,AGGREGATE,10000,5,3,6.783,1,SEARCH_TIMEOUT Timeout limit was reached,0.080
+new,cluster3,AGGREGATE,10000,5,4,7.689,1,SEARCH_TIMEOUT Timeout limit was reached,0.080
+new,cluster3,AGGREGATE,10000,5,5,5.826,1,SEARCH_TIMEOUT Timeout limit was reached,0.080
+new,cluster3,AGGREGATE,10000,5,6,7.040,1,SEARCH_TIMEOUT Timeout limit was reached,0.080
+new,cluster3,AGGREGATE,10000,5,7,8.357,1,SEARCH_TIMEOUT Timeout limit was reached,0.080
+new,cluster3,AGGREGATE,10000,5,8,8.322,1,SEARCH_TIMEOUT Timeout limit was reached,0.080
+new,cluster3,AGGREGATE,10000,5,9,12.474,1,SEARCH_TIMEOUT Timeout limit was reached,0.080
+new,cluster3,AGGREGATE,10000,5,10,6.046,1,SEARCH_TIMEOUT Timeout limit was reached,0.080
+new,cluster3,AGGREGATE,10000,5,11,5.739,1,SEARCH_TIMEOUT Timeout limit was reached,0.080
+new,cluster3,AGGREGATE,10000,5,12,8.405,1,SEARCH_TIMEOUT Timeout limit was reached,0.080
+new,cluster3,AGGREGATE,10000,5,13,8.151,1,SEARCH_TIMEOUT Timeout limit was reached,0.080
+new,cluster3,AGGREGATE,10000,5,14,10.395,1,SEARCH_TIMEOUT Timeout limit was reached,0.080
+new,cluster3,AGGREGATE,10000,5,15,8.872,1,SEARCH_TIMEOUT Timeout limit was reached,0.080
+new,cluster3,AGGREGATE,10000,5,16,8.845,1,SEARCH_TIMEOUT Timeout limit was reached,0.080
+new,cluster3,AGGREGATE,10000,5,17,8.045,1,SEARCH_TIMEOUT Timeout limit was reached,0.080
+new,cluster3,AGGREGATE,10000,5,18,6.909,1,SEARCH_TIMEOUT Timeout limit was reached,0.080
+new,cluster3,AGGREGATE,10000,5,19,11.238,1,SEARCH_TIMEOUT Timeout limit was reached,0.080
+new,cluster3,AGGREGATE,10000,5,20,8.512,1,SEARCH_TIMEOUT Timeout limit was reached,0.080
+new,cluster3,AGGREGATE,10000,5,21,7.803,1,SEARCH_TIMEOUT Timeout limit was reached,0.080
+new,cluster3,AGGREGATE,10000,5,22,7.252,1,SEARCH_TIMEOUT Timeout limit was reached,0.080
+new,cluster3,AGGREGATE,10000,5,23,7.805,1,SEARCH_TIMEOUT Timeout limit was reached,0.080
+new,cluster3,AGGREGATE,10000,5,24,10.150,1,SEARCH_TIMEOUT Timeout limit was reached,0.080
+new,cluster3,AGGREGATE,10000,5,25,6.140,1,SEARCH_TIMEOUT Timeout limit was reached,0.080
+new,cluster3,AGGREGATE,10000,5,26,6.690,1,SEARCH_TIMEOUT Timeout limit was reached,0.080
+new,cluster3,AGGREGATE,10000,5,27,7.634,1,SEARCH_TIMEOUT Timeout limit was reached,0.080
+new,cluster3,AGGREGATE,10000,5,28,6.258,1,SEARCH_TIMEOUT Timeout limit was reached,0.080
+new,cluster3,AGGREGATE,10000,5,29,6.965,1,SEARCH_TIMEOUT Timeout limit was reached,0.080
+new,cluster3,AGGREGATE,10000,5,30,7.977,1,SEARCH_TIMEOUT Timeout limit was reached,0.080
+new,cluster3,AGGREGATE,10000,5,31,8.769,1,SEARCH_TIMEOUT Timeout limit was reached,0.080
+new,cluster3,AGGREGATE,10000,5,32,9.177,1,SEARCH_TIMEOUT Timeout limit was reached,0.080
+new,cluster3,AGGREGATE,10000,5,33,7.541,1,SEARCH_TIMEOUT Timeout limit was reached,0.080
+new,cluster3,AGGREGATE,10000,5,34,7.145,1,SEARCH_TIMEOUT Timeout limit was reached,0.080
+new,cluster3,AGGREGATE,10000,5,35,6.693,1,SEARCH_TIMEOUT Timeout limit was reached,0.080
+new,cluster3,AGGREGATE,10000,5,36,7.757,1,SEARCH_TIMEOUT Timeout limit was reached,0.080
+new,cluster3,AGGREGATE,10000,5,37,6.599,1,SEARCH_TIMEOUT Timeout limit was reached,0.080
+new,cluster3,AGGREGATE,10000,5,38,7.559,1,SEARCH_TIMEOUT Timeout limit was reached,0.080
+new,cluster3,AGGREGATE,10000,5,39,7.132,1,SEARCH_TIMEOUT Timeout limit was reached,0.080
+new,cluster3,AGGREGATE,10000,5,40,5.944,1,SEARCH_TIMEOUT Timeout limit was reached,0.080
+new,cluster3,AGGREGATE,10000,5,41,10.292,1,SEARCH_TIMEOUT Timeout limit was reached,0.080
+new,cluster3,AGGREGATE,10000,5,42,8.380,1,SEARCH_TIMEOUT Timeout limit was reached,0.080
+new,cluster3,AGGREGATE,10000,5,43,10.637,1,SEARCH_TIMEOUT Timeout limit was reached,0.080
+new,cluster3,AGGREGATE,10000,5,44,6.248,1,SEARCH_TIMEOUT Timeout limit was reached,0.080
+new,cluster3,AGGREGATE,10000,5,45,8.902,1,SEARCH_TIMEOUT Timeout limit was reached,0.080
+new,cluster3,AGGREGATE,10000,5,46,11.755,1,SEARCH_TIMEOUT Timeout limit was reached,0.080
+new,cluster3,AGGREGATE,10000,5,47,8.770,1,SEARCH_TIMEOUT Timeout limit was reached,0.080
+new,cluster3,AGGREGATE,10000,5,48,5.719,1,SEARCH_TIMEOUT Timeout limit was reached,0.080
+new,cluster3,AGGREGATE,10000,5,49,8.936,1,SEARCH_TIMEOUT Timeout limit was reached,0.080
+new,cluster3,AGGREGATE,10000,10,0,12.071,1,SEARCH_TIMEOUT Timeout limit was reached,10.234
+new,cluster3,AGGREGATE,10000,10,1,11.379,1,SEARCH_TIMEOUT Timeout limit was reached,10.234
+new,cluster3,AGGREGATE,10000,10,2,57.908,0,,10.234
+new,cluster3,AGGREGATE,10000,10,3,55.567,0,,10.234
+new,cluster3,AGGREGATE,10000,10,4,56.330,0,,10.234
+new,cluster3,AGGREGATE,10000,10,5,62.673,0,,10.234
+new,cluster3,AGGREGATE,10000,10,6,56.159,0,,10.234
+new,cluster3,AGGREGATE,10000,10,7,55.784,0,,10.234
+new,cluster3,AGGREGATE,10000,10,8,55.475,0,,10.234
+new,cluster3,AGGREGATE,10000,10,9,10.653,1,SEARCH_TIMEOUT Timeout limit was reached,10.234
+new,cluster3,AGGREGATE,10000,10,10,56.096,0,,10.234
+new,cluster3,AGGREGATE,10000,10,11,57.882,0,,10.234
+new,cluster3,AGGREGATE,10000,10,12,55.977,0,,10.234
+new,cluster3,AGGREGATE,10000,10,13,55.738,0,,10.234
+new,cluster3,AGGREGATE,10000,10,14,56.303,0,,10.234
+new,cluster3,AGGREGATE,10000,10,15,11.260,1,SEARCH_TIMEOUT Timeout limit was reached,10.234
+new,cluster3,AGGREGATE,10000,10,16,11.225,1,SEARCH_TIMEOUT Timeout limit was reached,10.234
+new,cluster3,AGGREGATE,10000,10,17,11.342,1,SEARCH_TIMEOUT Timeout limit was reached,10.234
+new,cluster3,AGGREGATE,10000,10,18,62.763,0,,10.234
+new,cluster3,AGGREGATE,10000,10,19,56.091,0,,10.234
+new,cluster3,AGGREGATE,10000,10,20,56.414,0,,10.234
+new,cluster3,AGGREGATE,10000,10,21,11.194,1,SEARCH_TIMEOUT Timeout limit was reached,10.234
+new,cluster3,AGGREGATE,10000,10,22,11.369,1,SEARCH_TIMEOUT Timeout limit was reached,10.234
+new,cluster3,AGGREGATE,10000,10,23,11.554,1,SEARCH_TIMEOUT Timeout limit was reached,10.234
+new,cluster3,AGGREGATE,10000,10,24,56.414,0,,10.234
+new,cluster3,AGGREGATE,10000,10,25,55.424,0,,10.234
+new,cluster3,AGGREGATE,10000,10,26,10.727,1,SEARCH_TIMEOUT Timeout limit was reached,10.234
+new,cluster3,AGGREGATE,10000,10,27,11.422,1,SEARCH_TIMEOUT Timeout limit was reached,10.234
+new,cluster3,AGGREGATE,10000,10,28,11.008,1,SEARCH_TIMEOUT Timeout limit was reached,10.234
+new,cluster3,AGGREGATE,10000,10,29,10.994,1,SEARCH_TIMEOUT Timeout limit was reached,10.234
+new,cluster3,AGGREGATE,10000,10,30,57.453,0,,10.234
+new,cluster3,AGGREGATE,10000,10,31,54.964,0,,10.234
+new,cluster3,AGGREGATE,10000,10,32,55.744,0,,10.234
+new,cluster3,AGGREGATE,10000,10,33,10.470,1,SEARCH_TIMEOUT Timeout limit was reached,10.234
+new,cluster3,AGGREGATE,10000,10,34,10.871,1,SEARCH_TIMEOUT Timeout limit was reached,10.234
+new,cluster3,AGGREGATE,10000,10,35,11.240,1,SEARCH_TIMEOUT Timeout limit was reached,10.234
+new,cluster3,AGGREGATE,10000,10,36,11.030,1,SEARCH_TIMEOUT Timeout limit was reached,10.234
+new,cluster3,AGGREGATE,10000,10,37,56.135,0,,10.234
+new,cluster3,AGGREGATE,10000,10,38,55.461,0,,10.234
+new,cluster3,AGGREGATE,10000,10,39,62.458,0,,10.234
+new,cluster3,AGGREGATE,10000,10,40,54.280,0,,10.234
+new,cluster3,AGGREGATE,10000,10,41,54.403,0,,10.234
+new,cluster3,AGGREGATE,10000,10,42,55.352,0,,10.234
+new,cluster3,AGGREGATE,10000,10,43,54.710,0,,10.234
+new,cluster3,AGGREGATE,10000,10,44,54.738,0,,10.234
+new,cluster3,AGGREGATE,10000,10,45,54.146,0,,10.234
+new,cluster3,AGGREGATE,10000,10,46,55.414,0,,10.234
+new,cluster3,AGGREGATE,10000,10,47,56.607,0,,10.234
+new,cluster3,AGGREGATE,10000,10,48,11.067,1,SEARCH_TIMEOUT Timeout limit was reached,10.234
+new,cluster3,AGGREGATE,10000,10,49,64.272,0,,10.234
+new,cluster3,AGGREGATE,10000,20,0,57.482,0,,16.639
+new,cluster3,AGGREGATE,10000,20,1,57.329,0,,16.639
+new,cluster3,AGGREGATE,10000,20,2,57.437,0,,16.639
+new,cluster3,AGGREGATE,10000,20,3,57.265,0,,16.639
+new,cluster3,AGGREGATE,10000,20,4,56.980,0,,16.639
+new,cluster3,AGGREGATE,10000,20,5,55.973,0,,16.639
+new,cluster3,AGGREGATE,10000,20,6,57.081,0,,16.639
+new,cluster3,AGGREGATE,10000,20,7,57.049,0,,16.639
+new,cluster3,AGGREGATE,10000,20,8,55.384,0,,16.639
+new,cluster3,AGGREGATE,10000,20,9,63.075,0,,16.639
+new,cluster3,AGGREGATE,10000,20,10,55.683,0,,16.639
+new,cluster3,AGGREGATE,10000,20,11,55.799,0,,16.639
+new,cluster3,AGGREGATE,10000,20,12,55.526,0,,16.639
+new,cluster3,AGGREGATE,10000,20,13,55.720,0,,16.639
+new,cluster3,AGGREGATE,10000,20,14,55.882,0,,16.639
+new,cluster3,AGGREGATE,10000,20,15,55.048,0,,16.639
+new,cluster3,AGGREGATE,10000,20,16,57.551,0,,16.639
+new,cluster3,AGGREGATE,10000,20,17,56.114,0,,16.639
+new,cluster3,AGGREGATE,10000,20,18,62.771,0,,16.639
+new,cluster3,AGGREGATE,10000,20,19,56.135,0,,16.639
+new,cluster3,AGGREGATE,10000,20,20,56.565,0,,16.639
+new,cluster3,AGGREGATE,10000,20,21,55.834,0,,16.639
+new,cluster3,AGGREGATE,10000,20,22,55.612,0,,16.639
+new,cluster3,AGGREGATE,10000,20,23,56.785,0,,16.639
+new,cluster3,AGGREGATE,10000,20,24,55.947,0,,16.639
+new,cluster3,AGGREGATE,10000,20,25,55.585,0,,16.639
+new,cluster3,AGGREGATE,10000,20,26,57.252,0,,16.639
+new,cluster3,AGGREGATE,10000,20,27,57.910,0,,16.639
+new,cluster3,AGGREGATE,10000,20,28,63.764,0,,16.639
+new,cluster3,AGGREGATE,10000,20,29,55.568,0,,16.639
+new,cluster3,AGGREGATE,10000,20,30,57.506,0,,16.639
+new,cluster3,AGGREGATE,10000,20,31,55.957,0,,16.639
+new,cluster3,AGGREGATE,10000,20,32,55.834,0,,16.639
+new,cluster3,AGGREGATE,10000,20,33,56.167,0,,16.639
+new,cluster3,AGGREGATE,10000,20,34,55.213,0,,16.639
+new,cluster3,AGGREGATE,10000,20,35,55.688,0,,16.639
+new,cluster3,AGGREGATE,10000,20,36,58.684,0,,16.639
+new,cluster3,AGGREGATE,10000,20,37,63.460,0,,16.639
+new,cluster3,AGGREGATE,10000,20,38,56.414,0,,16.639
+new,cluster3,AGGREGATE,10000,20,39,55.997,0,,16.639
+new,cluster3,AGGREGATE,10000,20,40,55.757,0,,16.639
+new,cluster3,AGGREGATE,10000,20,41,56.871,0,,16.639
+new,cluster3,AGGREGATE,10000,20,42,56.234,0,,16.639
+new,cluster3,AGGREGATE,10000,20,43,58.616,0,,16.639
+new,cluster3,AGGREGATE,10000,20,44,55.447,0,,16.639
+new,cluster3,AGGREGATE,10000,20,45,55.033,0,,16.639
+new,cluster3,AGGREGATE,10000,20,46,56.403,0,,16.639
+new,cluster3,AGGREGATE,10000,20,47,63.359,0,,16.639
+new,cluster3,AGGREGATE,10000,20,48,54.575,0,,16.639
+new,cluster3,AGGREGATE,10000,20,49,54.771,0,,16.639
+new,cluster3,AGGREGATE,10000,50,0,56.552,0,,16.693
+new,cluster3,AGGREGATE,10000,50,1,56.116,0,,16.693
+new,cluster3,AGGREGATE,10000,50,2,56.601,0,,16.693
+new,cluster3,AGGREGATE,10000,50,3,55.547,0,,16.693
+new,cluster3,AGGREGATE,10000,50,4,56.155,0,,16.693
+new,cluster3,AGGREGATE,10000,50,5,56.511,0,,16.693
+new,cluster3,AGGREGATE,10000,50,6,66.973,0,,16.693
+new,cluster3,AGGREGATE,10000,50,7,56.270,0,,16.693
+new,cluster3,AGGREGATE,10000,50,8,56.455,0,,16.693
+new,cluster3,AGGREGATE,10000,50,9,56.540,0,,16.693
+new,cluster3,AGGREGATE,10000,50,10,55.890,0,,16.693
+new,cluster3,AGGREGATE,10000,50,11,55.959,0,,16.693
+new,cluster3,AGGREGATE,10000,50,12,58.032,0,,16.693
+new,cluster3,AGGREGATE,10000,50,13,57.738,0,,16.693
+new,cluster3,AGGREGATE,10000,50,14,56.214,0,,16.693
+new,cluster3,AGGREGATE,10000,50,15,56.639,0,,16.693
+new,cluster3,AGGREGATE,10000,50,16,65.460,0,,16.693
+new,cluster3,AGGREGATE,10000,50,17,56.871,0,,16.693
+new,cluster3,AGGREGATE,10000,50,18,58.076,0,,16.693
+new,cluster3,AGGREGATE,10000,50,19,55.690,0,,16.693
+new,cluster3,AGGREGATE,10000,50,20,56.528,0,,16.693
+new,cluster3,AGGREGATE,10000,50,21,56.380,0,,16.693
+new,cluster3,AGGREGATE,10000,50,22,56.507,0,,16.693
+new,cluster3,AGGREGATE,10000,50,23,57.690,0,,16.693
+new,cluster3,AGGREGATE,10000,50,24,58.679,0,,16.693
+new,cluster3,AGGREGATE,10000,50,25,66.007,0,,16.693
+new,cluster3,AGGREGATE,10000,50,26,58.942,0,,16.693
+new,cluster3,AGGREGATE,10000,50,27,57.723,0,,16.693
+new,cluster3,AGGREGATE,10000,50,28,57.246,0,,16.693
+new,cluster3,AGGREGATE,10000,50,29,57.456,0,,16.693
+new,cluster3,AGGREGATE,10000,50,30,56.801,0,,16.693
+new,cluster3,AGGREGATE,10000,50,31,56.152,0,,16.693
+new,cluster3,AGGREGATE,10000,50,32,54.956,0,,16.693
+new,cluster3,AGGREGATE,10000,50,33,54.928,0,,16.693
+new,cluster3,AGGREGATE,10000,50,34,55.984,0,,16.693
+new,cluster3,AGGREGATE,10000,50,35,64.208,0,,16.693
+new,cluster3,AGGREGATE,10000,50,36,56.469,0,,16.693
+new,cluster3,AGGREGATE,10000,50,37,56.520,0,,16.693
+new,cluster3,AGGREGATE,10000,50,38,55.512,0,,16.693
+new,cluster3,AGGREGATE,10000,50,39,55.530,0,,16.693
+new,cluster3,AGGREGATE,10000,50,40,56.246,0,,16.693
+new,cluster3,AGGREGATE,10000,50,41,55.240,0,,16.693
+new,cluster3,AGGREGATE,10000,50,42,55.883,0,,16.693
+new,cluster3,AGGREGATE,10000,50,43,55.433,0,,16.693
+new,cluster3,AGGREGATE,10000,50,44,64.963,0,,16.693
+new,cluster3,AGGREGATE,10000,50,45,55.965,0,,16.693
+new,cluster3,AGGREGATE,10000,50,46,56.586,0,,16.693
+new,cluster3,AGGREGATE,10000,50,47,54.331,0,,16.693
+new,cluster3,AGGREGATE,10000,50,48,54.121,0,,16.693
+new,cluster3,AGGREGATE,10000,50,49,53.787,0,,16.693

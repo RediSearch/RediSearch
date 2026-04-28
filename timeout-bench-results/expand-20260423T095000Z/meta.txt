@@ -1,0 +1,7 @@
+START=2026-04-21T14:13:17+00:00  # pilot start
+END=2026-04-23T09:58:08Z  # expansion end
+host=ip-172-31-38-140
+master_so=-rwxrwxr-x 1 ubuntu ubuntu 19580272 Apr 15 15:01 /home/ubuntu/RediSearch/bin/linux-x64-release/search-community/redisearch.so
+old_so=-rwxrwxr-x 1 ubuntu ubuntu 18395832 Apr 20 11:43 /home/ubuntu/RediSearch-v8.6.0/bin/linux-x64-release/search-community/redisearch.so
+redis_server=Redis server v=255.255.255 sha=3bcfbbe9:0 malloc=jemalloc-5.3.0 bits=64 build=d2b32c2febe1ab22
+notes=Pilot {SEARCH,AGGREGATE}x{sa,cluster3}x{100K,1M}x{50,100,500,1000,2000}ms. Expansion adds HYBRID (TEXT+VECTOR FLAT KNN) across same matrix. new/cluster3/1M cells were re-run with fresh clusters per timeout (cluster unstable after multiple timeouts in one process).

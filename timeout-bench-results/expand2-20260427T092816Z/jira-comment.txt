@@ -1,0 +1,198 @@
+Benchmark completed locally for the ON_TIMEOUT=FAIL strictness comparison.
+
+TL;DR
+
+The new mechanism on master is generally stricter than the old v8.6.0 in-pipeline timeout mechanism.
+
+Across the full completed benchmark set, in cells where both versions timed out 100% of the time:
+
+v8.6.0 mean overshoot: 269.3 ms
+master mean overshoot: 198.9 ms
+delta: -70.4 ms, about 26% less overshoot
+cell count: 34 apples-to-apples cells
+cell direction: master better in 26 cells, worse in 8
+
+Using a looser threshold of cells where both versions timed out at least 50% of the time gives the same result:
+
+v8.6.0 mean overshoot: 262.3 ms
+master mean overshoot: 193.4 ms
+delta: about 26% less overshoot
+
+Main conclusion: for FAIL, the new mechanism is not too strict. It is generally closer to the requested timeout, especially for FT.AGGREGATE. FT.SEARCH is mostly similar with small wins for master on short-timeout cluster cases. FT.HYBRID has one caveat at very tight timeouts, described below.
+
+Setup
+
+Compared:
+* v8.6.0 old in-pipeline timeout mechanism
+* current master new blocked-client timeout mechanism
+
+Same setup across runs:
+* Same host
+* Same client-side timing method
+* WORKERS 4
+* ON_TIMEOUT FAIL
+* Query filter: *
+* N=50 per cell
+* Timeouts: 50, 100, 500, 1000, and 2000 ms
+
+Covered workloads:
+* FT.SEARCH
+* FT.AGGREGATE
+* FT.HYBRID
+
+Covered topologies and sizes:
+* standalone and cluster3: 100K, 500K, and 1M docs
+* cluster5 and cluster7: 1M docs
+
+Total coverage:
+* 12,000 raw samples
+* 240 cells
+
+The latest run also added server_mean_ms, based on cmdstat_FT.<qtype>.usec deltas. For cluster topologies this is coordinator-only, so it matches the client/coordinator perspective.
+
+Headline overshoot reductions
+
+Largest apples-to-apples reductions where both versions timed out 100% of the time:
+
+* standalone / FT.AGGREGATE / 1M / TIMEOUT 100 ms
+  v8.6.0: +2239.5 ms
+  master: +862.8 ms
+  reduction: -1376.7 ms
+
+* standalone / FT.AGGREGATE / 500K / TIMEOUT 50 ms
+  v8.6.0: +1003.4 ms
+  master: +671.6 ms
+  reduction: -331.8 ms
+
+* standalone / FT.AGGREGATE / 1M / TIMEOUT 500 ms
+  v8.6.0: +1839.5 ms
+  master: +1710.6 ms
+  reduction: -128.9 ms
+
+* standalone / FT.AGGREGATE / 1M / TIMEOUT 2000 ms
+  v8.6.0: +340.7 ms
+  master: +218.4 ms
+  reduction: -122.3 ms
+
+* standalone / FT.AGGREGATE / 1M / TIMEOUT 1000 ms
+  v8.6.0: +1338.0 ms
+  master: +1227.6 ms
+  reduction: -110.4 ms
+
+* cluster3 / FT.AGGREGATE / 1M / TIMEOUT 1000 ms
+  v8.6.0: +106.0 ms
+  master: +31.8 ms
+  reduction: -74.1 ms
+
+* cluster7 / FT.SEARCH / 1M / TIMEOUT 100 ms
+  v8.6.0: +49.9 ms
+  master: +4.6 ms
+  reduction: -45.3 ms
+
+* cluster3 / FT.AGGREGATE / 500K / TIMEOUT 500 ms
+  v8.6.0: +53.6 ms
+  master: +18.8 ms
+  reduction: -34.8 ms
+
+* standalone / FT.AGGREGATE / 500K / TIMEOUT 100 ms
+  v8.6.0: +957.0 ms
+  master: +923.8 ms
+  reduction: -33.2 ms
+
+* cluster3 / FT.SEARCH / 500K / TIMEOUT 50 ms
+  v8.6.0: +36.4 ms
+  master: +13.3 ms
+  reduction: -23.1 ms
+
+* cluster5 / FT.AGGREGATE / 1M / TIMEOUT 500 ms
+  v8.6.0: +73.9 ms
+  master: +53.0 ms
+  reduction: -20.9 ms
+
+* cluster5 / FT.SEARCH / 1M / TIMEOUT 50 ms
+  v8.6.0: +35.4 ms
+  master: +20.5 ms
+  reduction: -14.9 ms
+
+* cluster7 / FT.AGGREGATE / 1M / TIMEOUT 500 ms
+  v8.6.0: +79.8 ms
+  master: +66.5 ms
+  reduction: -13.2 ms
+
+Important asymmetric results
+
+These are not apples-to-apples overshoot rows, but they are behaviorally important because v8.6.0 mostly lets the query run to natural latency instead of reporting a timeout, while master starts aborting closer to the configured budget.
+
+* cluster5 / FT.AGGREGATE / 1M / TIMEOUT 1000 ms
+  v8.6.0 observed mean / timeout rate: 5872.2 ms / 6%
+  master observed mean / timeout rate: 1036.1 ms / 100%
+
+* cluster7 / FT.AGGREGATE / 1M / TIMEOUT 1000 ms
+  v8.6.0 observed mean / timeout rate: 5849.9 ms / 6%
+  master observed mean / timeout rate: 3493.7 ms / 54%
+
+* standalone / FT.AGGREGATE / 500K / TIMEOUT 1000 ms
+  v8.6.0 observed mean / timeout rate: 3589.1 ms / 0%
+  master observed mean / timeout rate: 2148.0 ms / 58%
+
+Workload notes
+
+FT.AGGREGATE:
+Strongest improvement. master is consistently closer to the requested timeout in cells where timeout enforcement actually triggers, especially at 500K/1M docs and on wider clusters.
+
+FT.SEARCH:
+Mostly similar, with small wins for master on short-timeout cluster cases, for example cluster7 / 1M / TIMEOUT 100 ms.
+
+FT.HYBRID:
+This is the one caveat. In the earlier 1M runs:
+* standalone / HYBRID / TIMEOUT 50 ms:
+  v8.6.0 mean overshoot was +0.4 ms
+  master mean overshoot was +50.8 ms
+* cluster3 / HYBRID / TIMEOUT 50 ms:
+  v8.6.0 mean overshoot was +0.37 ms
+  master mean overshoot was +41.5 ms
+
+The later cluster5 and cluster7 HYBRID 1M rows mostly did not hit the timeout budget because natural latency was under or near 50 ms.
+
+server_mean_ms note
+
+The new server_mean_ms column is useful, but it should not replace client-observed wall time for this comparison.
+
+On v8.6.0, server_mean_ms usually tracks observed_ms closely. On master, timeout-heavy worker-thread paths often report near-zero server_mean_ms even when the client waits tens or hundreds of milliseconds. This means INFO commandstats under-reports work attributable to timed-out queries on the new mechanism.
+
+Examples from the latest run:
+
+* cluster3 / FT.SEARCH / 500K / TIMEOUT 50 ms
+  observed old/new: 86.4 / 63.3 ms
+  server_mean old/new: 86.1 / 0.12 ms
+
+* cluster3 / FT.AGGREGATE / 500K / TIMEOUT 500 ms
+  observed old/new: 553.6 / 518.8 ms
+  server_mean old/new: 553.3 / 0.21 ms
+
+* cluster5 / FT.AGGREGATE / 1M / TIMEOUT 100 ms
+  observed old/new: 116.4 / 105.1 ms
+  server_mean old/new: 116.1 / 0.14 ms
+
+* cluster7 / FT.AGGREGATE / 1M / TIMEOUT 50 ms
+  observed old/new: 60.2 / 54.8 ms
+  server_mean old/new: 59.9 / 0.13 ms
+
+* standalone / FT.AGGREGATE / 500K / TIMEOUT 100 ms
+  observed old/new: 1057.0 / 1023.8 ms
+  server_mean old/new: 1056.7 / 0.19 ms
+
+So the main metric for MOD-14527 should remain client-observed wall time and overshoot. server_mean_ms is a useful operator-facing caveat: timed-out queries on master may not be represented accurately in commandstats.
+
+Caveats
+
+* Long-timeout AGGREGATE cells sometimes run to natural latency without firing the timeout. Those rows are useful behaviorally, but they should not be treated as apples-to-apples timeout overshoot unless timeout_pct is high on both versions.
+* HYBRID exact-deadline strictness at very tight timeouts should be tracked separately if it matters. It is the only clear opposite-direction result.
+* This is still a local single-host benchmark with N=50. It answers the yes/no and rough-magnitude question, not an absolute SLA question.
+
+Artifacts
+
+* timeout-bench-results/expand-20260423T095000Z/raw.csv - earlier expanded run, including the pilot rows.
+* timeout-bench-results/expand2-20260427T092816Z/raw.csv - 500K, cluster5/cluster7, and server_mean_ms run.
+* summary.csv in each directory - per-cell aggregates.
+* meta.txt in each directory - run metadata and notes.

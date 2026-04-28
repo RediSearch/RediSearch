@@ -1,0 +1,7 @@
+START=2026-04-28T07:55:40Z
+host=ip-172-31-38-140
+plan=Option3 — cluster5/7 @ 100K (all qtypes) + sa/cluster3 @ 10K AGGREGATE tight timeouts
+master_so=-rwxrwxr-x 1 ubuntu ubuntu 19580272 Apr 15 15:01 /home/ubuntu/RediSearch/bin/linux-x64-release/search-community/redisearch.so
+old_so=-rwxrwxr-x 1 ubuntu ubuntu 18395832 Apr 20 11:43 /home/ubuntu/RediSearch-v8.6.0/bin/linux-x64-release/search-community/redisearch.so
+iters=50
+server_timing_scope=coordinator

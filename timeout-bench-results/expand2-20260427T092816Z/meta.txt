@@ -1,0 +1,22 @@
+START=2026-04-27T09:28:16Z
+host=ip-172-31-38-140
+master_so=-rwxrwxr-x 1 ubuntu ubuntu 19580272 Apr 15 15:01 /home/ubuntu/RediSearch/bin/linux-x64-release/search-community/redisearch.so
+old_so=-rwxrwxr-x 1 ubuntu ubuntu 18395832 Apr 20 11:43 /home/ubuntu/RediSearch-v8.6.0/bin/linux-x64-release/search-community/redisearch.so
+redis_server=Redis server v=255.255.255 sha=3bcfbbe9:0 malloc=jemalloc-5.3.0 bits=64 build=d2b32c2febe1ab22
+plan=Plan A (cluster5/7 at 1M + 500K at SA/cluster3) with server_mean_ms (coordinator-only)
+iters=50
+
+--- 2026-04-27T10:32:11Z ---
+Re-running cluster3 cells of inv#1 with cmdstat normalisation fix
+(prior cluster3 commandstats double-counted internal _FT.X calls)
+
+--- 2026-04-27T11:54Z ---
+Run complete.
+- inv#1  (sa+cluster3 @ 500K, all qtypes, all timeouts)
+- inv#1b (cluster3 @ 500K re-run after the cmdstat fix; replaces inv#1's
+          cluster3 rows in raw.csv. inv#1's full output preserved as
+          raw-inv1-original.csv for audit.)
+- inv#2  (cluster5 @ 1M, all qtypes, all timeouts)
+- inv#3  (cluster7 @ 1M, all qtypes, all timeouts)
+Total: 6000 samples / 120 cells / ~1h30m wall.
+N=50, WORKERS=4, ON_TIMEOUT FAIL, filter=*, server_timing_scope=coordinator.

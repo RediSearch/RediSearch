@@ -1,0 +1,32 @@
+Cells where both versions observed 100% timeouts (apples-to-apples):
+--------------------------------------------------------------------------------------
+topo      qt             size    to  v8.6 over  master over    delta  ratio
+cluster3  AGGREGATE    100000   100       12.5          7.9     -4.6   0.63
+cluster3  AGGREGATE    100000    50        7.3          8.7     +1.3   1.18
+cluster3  AGGREGATE   1000000   100       12.2          8.4     -3.7   0.69
+cluster3  AGGREGATE   1000000  1000      106.0         31.8    -74.1   0.30
+cluster3  AGGREGATE   1000000    50        7.0          7.3     +0.3   1.05
+cluster3  AGGREGATE   1000000   500       52.6         39.4    -13.2   0.75
+cluster3  SEARCH      1000000    50       10.4         12.0     +1.6   1.15
+sa        AGGREGATE    100000   100       85.1         59.0    -26.1   0.69
+sa        AGGREGATE    100000    50      119.8        106.2    -13.7   0.89
+sa        AGGREGATE   1000000   100     2239.5        862.8  -1376.7   0.39
+sa        AGGREGATE   1000000  1000     1338.0       1227.6   -110.4   0.92
+sa        AGGREGATE   1000000  2000      340.7        218.4   -122.3   0.64
+sa        AGGREGATE   1000000    50       25.6         28.5     +2.9   1.11
+sa        AGGREGATE   1000000   500     1839.5       1710.6   -128.9   0.93
+sa        HYBRID      1000000    50        0.4         50.8    +50.4 123.88
+sa        SEARCH      1000000   100        8.6          1.5     -7.1   0.18
+sa        SEARCH      1000000    50        1.1          1.2     +0.0   1.03
+overall                                  365.1        257.8   -107.3   0.71
+
+Biggest overshoot reductions (master vs v8.6) for same cell:
+--------------------------------------------------------------------------------------
+  sa        AGGREGATE  size=1000000 to=  100ms old_over= 2239.5ms  new_over=  862.8ms  delta=-1376.7ms  ratio=0.39
+  sa        AGGREGATE  size=1000000 to=  500ms old_over= 1839.5ms  new_over= 1710.6ms  delta= -128.9ms  ratio=0.93
+  sa        AGGREGATE  size=1000000 to= 2000ms old_over=  340.7ms  new_over=  218.4ms  delta= -122.3ms  ratio=0.64
+  sa        AGGREGATE  size=1000000 to= 1000ms old_over= 1338.0ms  new_over= 1227.6ms  delta= -110.4ms  ratio=0.92
+  cluster3  AGGREGATE  size=1000000 to= 1000ms old_over=  106.0ms  new_over=   31.8ms  delta=  -74.1ms  ratio=0.30
+  sa        AGGREGATE  size= 100000 to=  100ms old_over=   85.1ms  new_over=   59.0ms  delta=  -26.1ms  ratio=0.69
+  sa        AGGREGATE  size= 100000 to=   50ms old_over=  119.8ms  new_over=  106.2ms  delta=  -13.7ms  ratio=0.89
+  cluster3  AGGREGATE  size=1000000 to=  500ms old_over=   52.6ms  new_over=   39.4ms  delta=  -13.2ms  ratio=0.75
