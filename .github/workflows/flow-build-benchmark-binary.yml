@@ -72,11 +72,29 @@ jobs:
       - name: Install Boost
         working-directory: .install
         run: ./install_boost.sh
+      # The local composite action `./.github/actions/setup-sccache` is a
+      # recent master addition. When git_ref points at an older ref (e.g. a
+      # release branch like 2.10 / 8.4) the action.yml isn't there and the
+      # workflow fails before the build even runs. Gate sccache on its
+      # presence in the checked-out tree so the historical-ref path doesn't
+      # require backporting CI tooling. Builds without sccache are slower
+      # but functionally equivalent.
+      - name: Detect setup-sccache action
+        id: sccache_check
+        run: |
+          if [ -f .github/actions/setup-sccache/action.yml ]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::setup-sccache action not present at this ref; building without sccache"
+          fi
       - name: Setup sccache
+        if: steps.sccache_check.outputs.available == 'true'
         uses: ./.github/actions/setup-sccache
       - name: Build RediSearch
         run: make build LTO=1
       - name: Show sccache stats
+        if: steps.sccache_check.outputs.available == 'true'
         run: ${SCCACHE_PATH:-sccache} --show-stats
       - name: Upload redisearch.so artifact
         uses: actions/upload-artifact@v4
