@@ -241,7 +241,7 @@ impl<'index, const SORTED_BY_ID: bool> RQEIterator<'index> for IdList<'index, SO
     }
 
     #[inline(always)]
-    fn revalidate(
+    unsafe fn revalidate(
         &mut self,
         _ctx: std::ptr::NonNull<ffi::RedisSearchCtx>,
     ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {

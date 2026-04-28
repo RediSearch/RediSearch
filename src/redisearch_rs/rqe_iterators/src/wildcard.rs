@@ -95,7 +95,7 @@ impl<'index> RQEIterator<'index> for Wildcard<'index> {
         self.result.doc_id >= self.top_id
     }
 
-    fn revalidate(
+    unsafe fn revalidate(
         &mut self,
         _ctx: std::ptr::NonNull<ffi::RedisSearchCtx>,
     ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
@@ -156,11 +156,12 @@ impl<'index> RQEIterator<'index> for Box<dyn WildcardIterator<'index> + 'index> 
         (**self).skip_to(doc_id)
     }
 
-    fn revalidate(
+    unsafe fn revalidate(
         &mut self,
         ctx: std::ptr::NonNull<ffi::RedisSearchCtx>,
     ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        (**self).revalidate(ctx)
+        // SAFETY: Delegating to inner iterator with the same `ctx` passed by our caller.
+        unsafe { (**self).revalidate(ctx) }
     }
 
     fn rewind(&mut self) {
@@ -262,11 +263,12 @@ impl<'index> RQEIterator<'index> for OptimizedWildcard<'index> {
         delegate_rqe_iterator!(self, at_eof)
     }
 
-    fn revalidate(
+    unsafe fn revalidate(
         &mut self,
         ctx: std::ptr::NonNull<ffi::RedisSearchCtx>,
     ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        delegate_rqe_iterator!(self, revalidate, ctx)
+        // SAFETY: Delegating to variant with the same `ctx` passed by our caller.
+        unsafe { delegate_rqe_iterator!(self, revalidate, ctx) }
     }
 
     #[inline(always)]
@@ -326,11 +328,12 @@ impl<'index> RQEIterator<'index> for NewWildcardIterator<'index> {
         delegate_wildcard_iterator!(self, at_eof)
     }
 
-    fn revalidate(
+    unsafe fn revalidate(
         &mut self,
         ctx: std::ptr::NonNull<ffi::RedisSearchCtx>,
     ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        delegate_wildcard_iterator!(self, revalidate, ctx)
+        // SAFETY: Delegating to variant with the same `ctx` passed by our caller.
+        unsafe { delegate_wildcard_iterator!(self, revalidate, ctx) }
     }
 
     #[inline(always)]
@@ -536,11 +539,12 @@ impl<'index> RQEIterator<'index> for DiskWildcardIterator<'index> {
         self.0.skip_to(doc_id)
     }
 
-    fn revalidate(
+    unsafe fn revalidate(
         &mut self,
         ctx: std::ptr::NonNull<ffi::RedisSearchCtx>,
     ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        self.0.revalidate(ctx)
+        // SAFETY: Delegating to inner iterator with the same `ctx` passed by our caller.
+        unsafe { self.0.revalidate(ctx) }
     }
 
     fn rewind(&mut self) {

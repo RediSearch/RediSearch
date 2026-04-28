@@ -264,7 +264,7 @@ where
     }
 
     #[inline(always)]
-    fn revalidate(
+    unsafe fn revalidate(
         &mut self,
         _ctx: std::ptr::NonNull<ffi::RedisSearchCtx>,
     ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {

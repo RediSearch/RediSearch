@@ -136,13 +136,15 @@ mod not_miri {
         let sctx = test.test.context.sctx;
 
         // Verify the iterator works normally and read at least one document
+        // SAFETY: test-only call with valid context
         assert_eq!(
-            it.revalidate(sctx).expect("revalidate failed"),
+            unsafe { it.revalidate(sctx) }.expect("revalidate failed"),
             RQEValidateStatus::Ok
         );
         assert!(it.read().expect("failed to read").is_some());
+        // SAFETY: test-only call with valid context
         assert_eq!(
-            it.revalidate(sctx).expect("revalidate failed"),
+            unsafe { it.revalidate(sctx) }.expect("revalidate failed"),
             RQEValidateStatus::Ok
         );
 
@@ -160,8 +162,9 @@ mod not_miri {
 
         // Revalidate should return Aborted because existingDocs no longer
         // points to the same index the reader was created from.
+        // SAFETY: test-only call with valid context
         assert_eq!(
-            it.revalidate(sctx).expect("revalidate failed"),
+            unsafe { it.revalidate(sctx) }.expect("revalidate failed"),
             RQEValidateStatus::Aborted
         );
 
@@ -193,8 +196,9 @@ mod not_miri {
         // Read at least one document so the iterator has a position.
         assert!(it.read().expect("failed to read").is_some());
         let sctx = test.test.context.sctx;
+        // SAFETY: test-only call with valid context
         assert_eq!(
-            it.revalidate(sctx).expect("revalidate failed"),
+            unsafe { it.revalidate(sctx) }.expect("revalidate failed"),
             RQEValidateStatus::Ok
         );
 
@@ -207,8 +211,9 @@ mod not_miri {
             (*spec).existingDocs = std::ptr::null_mut();
         }
 
+        // SAFETY: test-only call with valid context
         assert_eq!(
-            it.revalidate(sctx).expect("revalidate failed"),
+            unsafe { it.revalidate(sctx) }.expect("revalidate failed"),
             RQEValidateStatus::Aborted
         );
 

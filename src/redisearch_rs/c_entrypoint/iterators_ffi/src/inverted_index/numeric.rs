@@ -86,11 +86,12 @@ impl<'index> rqe_iterators::RQEIterator<'index> for NumericIterator<'index> {
     }
 
     #[inline(always)]
-    fn revalidate(
+    unsafe fn revalidate(
         &mut self,
         ctx: std::ptr::NonNull<ffi::RedisSearchCtx>,
     ) -> Result<rqe_iterators::RQEValidateStatus<'_, 'index>, rqe_iterators::RQEIteratorError> {
-        self.iterator.revalidate(ctx)
+        // SAFETY: Delegating to inner iterator with the same `ctx` passed by our caller.
+        unsafe { self.iterator.revalidate(ctx) }
     }
 
     #[inline(always)]

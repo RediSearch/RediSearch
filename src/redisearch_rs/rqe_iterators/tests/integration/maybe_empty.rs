@@ -51,7 +51,7 @@ impl<'index> RQEIterator<'index> for Infinite<'index> {
         false
     }
 
-    fn revalidate(
+    unsafe fn revalidate(
         &mut self,
         _ctx: std::ptr::NonNull<ffi::RedisSearchCtx>,
     ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
@@ -201,7 +201,11 @@ fn revalidate_empty() {
     let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
     let ctx = mock_ctx.sctx();
     let mut it = MaybeEmpty::<Infinite>::new_empty();
-    assert_eq!(it.revalidate(ctx).unwrap(), RQEValidateStatus::Ok);
+    // SAFETY: test-only call with valid context
+    assert_eq!(
+        unsafe { it.revalidate(ctx) }.unwrap(),
+        RQEValidateStatus::Ok
+    );
 }
 
 #[test]
@@ -209,7 +213,11 @@ fn revalidate_not_empty() {
     let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
     let ctx = mock_ctx.sctx();
     let mut it = MaybeEmpty::new(Infinite::default());
-    assert_eq!(it.revalidate(ctx).unwrap(), RQEValidateStatus::Ok);
+    // SAFETY: test-only call with valid context
+    assert_eq!(
+        unsafe { it.revalidate(ctx) }.unwrap(),
+        RQEValidateStatus::Ok
+    );
 }
 
 #[test]

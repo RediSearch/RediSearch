@@ -407,8 +407,9 @@ fn numeric_no_range_tree_revalidate() {
     assert_eq!(record.doc_id, 1);
 
     // Revalidate should succeed (not abort) even though there is no range tree.
+    // SAFETY: test-only call with valid context
     assert_eq!(
-        it.revalidate(mock_ctx.sctx()).expect("revalidate failed"),
+        unsafe { it.revalidate(mock_ctx.sctx()) }.expect("revalidate failed"),
         RQEValidateStatus::Ok
     );
 }
@@ -647,8 +648,9 @@ mod from_tree {
         // write does not violate aliasing rules.
         unsafe { (*tree_ptr).increment_revision() };
 
+        // SAFETY: test-only call with valid context
         assert_eq!(
-            iters[0].revalidate(ctx.sctx()).expect("revalidate failed"),
+            unsafe { iters[0].revalidate(ctx.sctx()) }.expect("revalidate failed"),
             RQEValidateStatus::Aborted,
         );
         // SAFETY: `tree_ptr` was created by `Box::into_raw` above; `iters` is dropped
@@ -682,8 +684,9 @@ mod from_tree {
         // write does not violate aliasing rules.
         unsafe { (*tree_ptr).increment_revision() };
 
+        // SAFETY: test-only call with valid context
         assert_eq!(
-            iters[0].revalidate(ctx.sctx()).expect("revalidate failed"),
+            unsafe { iters[0].revalidate(ctx.sctx()) }.expect("revalidate failed"),
             RQEValidateStatus::Ok,
         );
 
@@ -999,9 +1002,9 @@ mod not_miri {
 
         // Revalidate before any reads. last_doc_id is 0, so even though
         // needs_revalidation is true, we should get Ok.
+        // SAFETY: test-only call with valid context
         assert_eq!(
-            it.revalidate(test.test.context.sctx)
-                .expect("revalidate failed"),
+            unsafe { it.revalidate(test.test.context.sctx) }.expect("revalidate failed"),
             RQEValidateStatus::Ok
         );
 
@@ -1063,13 +1066,15 @@ mod not_miri {
         let sctx = test.test.context.sctx;
 
         // First, verify the iterator works normally and read at least one document
+        // SAFETY: test-only call with valid context
         assert_eq!(
-            it.revalidate(sctx).expect("revalidate failed"),
+            unsafe { it.revalidate(sctx) }.expect("revalidate failed"),
             RQEValidateStatus::Ok
         );
         assert!(it.read().expect("failed to read").is_some());
+        // SAFETY: test-only call with valid context
         assert_eq!(
-            it.revalidate(sctx).expect("revalidate failed"),
+            unsafe { it.revalidate(sctx) }.expect("revalidate failed"),
             RQEValidateStatus::Ok
         );
 
@@ -1086,8 +1091,9 @@ mod not_miri {
         }
 
         // Now Revalidate should return Aborted because the revision IDs don't match
+        // SAFETY: test-only call with valid context
         assert_eq!(
-            it.revalidate(sctx).expect("revalidate failed"),
+            unsafe { it.revalidate(sctx) }.expect("revalidate failed"),
             RQEValidateStatus::Aborted
         );
     }

@@ -218,7 +218,7 @@ where
     }
 
     #[inline(always)]
-    fn revalidate(
+    unsafe fn revalidate(
         &mut self,
         ctx: NonNull<RedisSearchCtx>,
     ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
@@ -226,7 +226,8 @@ where
             return Ok(RQEValidateStatus::Aborted);
         }
 
-        self.it.revalidate(ctx)
+        // SAFETY: Delegating to inner iterator with the same `ctx` passed by our caller.
+        unsafe { self.it.revalidate(ctx) }
     }
 
     #[inline(always)]

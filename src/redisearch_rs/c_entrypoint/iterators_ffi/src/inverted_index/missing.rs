@@ -106,11 +106,12 @@ impl<'index> rqe_iterators::RQEIterator<'index> for MissingIterator<'index> {
     }
 
     #[inline(always)]
-    fn revalidate(
+    unsafe fn revalidate(
         &mut self,
         ctx: std::ptr::NonNull<ffi::RedisSearchCtx>,
     ) -> Result<rqe_iterators::RQEValidateStatus<'_, 'index>, rqe_iterators::RQEIteratorError> {
-        dispatch!(self, revalidate, ctx)
+        // SAFETY: Delegating to variant with the same `ctx` passed by our caller.
+        unsafe { dispatch!(self, revalidate, ctx) }
     }
 
     #[inline(always)]

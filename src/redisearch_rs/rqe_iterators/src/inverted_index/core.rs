@@ -288,7 +288,7 @@ where
         self.at_eos
     }
 
-    fn revalidate(
+    unsafe fn revalidate(
         &mut self,
         _ctx: NonNull<ffi::RedisSearchCtx>,
     ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {

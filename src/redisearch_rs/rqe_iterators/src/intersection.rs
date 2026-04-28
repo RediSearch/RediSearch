@@ -515,7 +515,7 @@ where
         self.is_eof
     }
 
-    fn revalidate(
+    unsafe fn revalidate(
         &mut self,
         ctx: std::ptr::NonNull<ffi::RedisSearchCtx>,
     ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
@@ -524,7 +524,8 @@ where
         let mut moved_to_eof = false;
 
         for child in &mut self.children {
-            match child.revalidate(ctx)? {
+            // SAFETY: Delegating to child with the same `ctx` passed by our caller.
+            match unsafe { child.revalidate(ctx) }? {
                 RQEValidateStatus::Aborted => return Ok(RQEValidateStatus::Aborted),
                 RQEValidateStatus::Moved { current } => {
                     any_child_moved = true;

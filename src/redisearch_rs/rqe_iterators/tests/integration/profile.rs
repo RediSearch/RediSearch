@@ -162,7 +162,8 @@ fn profile_revalidate() {
     let _ = profile.read(); // doc 2
 
     // Revalidate (Wildcard returns OK)
-    let status = profile.revalidate(ctx);
+    // SAFETY: test-only call with valid context
+    let status = unsafe { profile.revalidate(ctx) };
     assert!(status.is_ok());
 
     // Verify delegation still works
