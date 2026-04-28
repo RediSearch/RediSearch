@@ -1,0 +1,71 @@
+// Malay Language Stemmer (Bahasa Melayu) for Snowball
+//
+// Based on: Khan et al., "Malay Language Stemmer", IJREST 2017.
+//
+// Algorithm (applied in order):
+//   1. Strip extra suffix "-nya" (possessive/determiner clitic)
+//   2. Strip one prefix  (longest match)
+//   3. Strip one suffix  (longest match)
+//
+// The algirithm does not remove infixes, duplications (e.g.
+// for plurals) and does not use a dictionary for disambiguation.
+
+routines (
+    strip_nya
+    strip_prefix
+    strip_suffix
+)
+
+externals ( stem )
+
+stringescapes {}
+
+backwardmode (
+
+    // Remove the clitic "-nya".
+    //
+    // Only when the remaining stem would be >= 3 characters.
+    // 'test hop 3' verifies that at least 3 characters remain between
+    // the cursor and the limit after the match.
+    define strip_nya as (
+        [substring] among (
+            'nya'
+        )
+        test hop 3
+        delete
+    )
+
+    // Remove one suffix (longest match, stem >= 2).
+    //
+    // Only attempted when the current string is at least 5 characters.
+    define strip_suffix as (
+        $(len >= 5)
+        [substring] among (
+            'wati'
+            'kan' 'kah' 'lah' 'pun' 'man' 'wan' 'ita'
+            'an'  'ku'  'mu'
+            'i'
+        )
+        test hop 2
+        delete
+    )
+)
+
+// Remove one prefix (longest match, stem >= 2).
+define strip_prefix as (
+    [substring] among (
+        'diper'
+        'penye' 'menye' 'menge' 'penge'
+        'peny'  'meny'  'meng'  'peng'
+        'ber'   'bel'   'per'   'ter'   'mem' 'men' 'pen' 'pem'
+        'me'    'pe'    'be'    'ke'    'se'  'te'  'di'
+    )
+    test hop 2
+    delete
+)
+
+define stem as (
+    backwards do strip_nya
+    do strip_prefix
+    backwards do strip_suffix
+)

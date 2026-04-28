@@ -43,6 +43,8 @@ typedef enum {
   RS_LANG_ARMENIAN,
   RS_LANG_SERBIAN,
   RS_LANG_YIDDISH,
+  RS_LANG_MALAY,
+  RS_LANG_TAGALOG,
   RS_LANG_UNSUPPORTED,
   RS_LANG_UNSET, // The user did not set the language for FT.SEARCH, use the index language
 } RSLanguage;
