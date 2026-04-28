@@ -348,9 +348,9 @@ def testDocTableInfo(env):
     # = leanSize + sdsAllocSize(keyPtr)
     # = (sizeof(RSDocumentMetadata) - sizeof(RSPayload *))  (No payload)
     #   + (strlen(key) + 2)
-    # = (72 - 8) + 3 = 67
-    # 2 docs * 67 = 134
-    exp_doc_table_size = (n * doc_table_size_mb) + (134 / (1024 * 1024))
+    # = (80 - 8) + 3 = 75
+    # 2 docs * 75 = 150
+    exp_doc_table_size = (n * doc_table_size_mb) + (150 / (1024 * 1024))
     env.assertEqual(doctable_size1, exp_doc_table_size)
     sortable_size1 = float(d['sortable_values_size_mb'])
     env.assertGreater(sortable_size1, 0)
