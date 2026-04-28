@@ -41,9 +41,13 @@ jobs:
       run:
         shell: bash -l -eo pipefail {0}
     env:
-      # build.sh maps `uname -m == x86_64` -> `x64` and `uname -m == aarch64` -> `aarch64`;
-      # BUILD_DIR mirrors that so the upload step finds the .so.
-      BUILD_DIR: ${{ format('bin/linux-{0}-release/search-community', inputs.arch == 'aarch64' && 'aarch64' || 'x64') }}
+      # `bin/linux-{x64,aarch64}-release/<flavour>` where <flavour> is:
+      #   - `search-community` on 8.0+ and master (current name)
+      #   - `search` on the older 2.x release branches
+      # The build root prefix is constant; the flavour is detected post-build
+      # by the `Locate built artifacts` step so historical refs work without
+      # backporting CI tooling.
+      BUILD_ROOT: ${{ format('bin/linux-{0}-release', inputs.arch == 'aarch64' && 'aarch64' || 'x64') }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -96,12 +100,30 @@ jobs:
       - name: Show sccache stats
         if: steps.sccache_check.outputs.available == 'true'
         run: ${SCCACHE_PATH:-sccache} --show-stats
+      - name: Locate built artifacts
+        id: locate
+        # Detect which flavour subdir the build wrote into. 8.x and master
+        # use `search-community/`; 2.x branches use plain `search/`.
+        run: |
+          for cand in "${BUILD_ROOT}/search-community" "${BUILD_ROOT}/search"; do
+            if [ -f "${cand}/redisearch.so" ]; then
+              echo "build_dir=${cand}" >> "$GITHUB_OUTPUT"
+              echo "Found redisearch.so in ${cand}"
+              ls -la "${cand}"/redisearch.so* 2>&1 || true
+              exit 0
+            fi
+          done
+          echo "::error::redisearch.so not found in expected locations under ${BUILD_ROOT}"
+          find bin -name "redisearch.so" 2>/dev/null || true
+          exit 1
       - name: Upload redisearch.so artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ inputs.artifact_name }}
           path: |
-            ${{ env.BUILD_DIR }}/redisearch.so
-            ${{ env.BUILD_DIR }}/redisearch.so.debug
-          if-no-files-found: error
+            ${{ steps.locate.outputs.build_dir }}/redisearch.so
+            ${{ steps.locate.outputs.build_dir }}/redisearch.so.debug
+          # 2.x doesn't always emit a .so.debug — warn instead of erroring
+          # on the missing optional file.
+          if-no-files-found: warn
           retention-days: 1
