@@ -17,5 +17,6 @@ pub mod hash;
 mod parse;
 mod ranges;
 
+pub use hash::{GEO_LAT_MAX, GEO_LAT_MIN, GEO_LONG_MAX, GEO_LONG_MIN, GEO_STEP_MAX};
 pub use parse::{ParseGeoError, parse_geo};
 pub use ranges::{GEO_RANGE_COUNT, GeoScoreRange, calc_ranges};

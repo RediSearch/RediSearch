@@ -20,13 +20,32 @@ use query_error::{QueryError, QueryErrorCode, opaque::OpaqueQueryError};
 const REDISMODULE_OK: c_int = 0;
 const REDISMODULE_ERR: c_int = 1;
 
+// The constants below use literals rather than cross-crate references (e.g.
+// `geo::GEO_RANGE_COUNT`, `geo::hash::GEO_STEP_MAX`) because cbindgen cannot
+// resolve cross-crate const references and would omit the `#define` from the
+// generated C header. Compile-time asserts keep them in sync.
+
 /// The number of geohash ranges computed by [`calcRanges`]: the center cell
 /// plus its 8 neighbors.
-// This is a literal rather than `geo::GEO_RANGE_COUNT` because cbindgen cannot
-// resolve cross-crate const references and would omit the `#define` from the
-// generated C header.
 pub const GEO_RANGE_COUNT: usize = 9;
 const _: () = assert!(GEO_RANGE_COUNT == geo::GEO_RANGE_COUNT);
+
+/// Maximum geohash step count. 26 steps * 2 bits = 52 bits of precision.
+pub const GEO_STEP_MAX: u8 = 26;
+const _: () = assert!(GEO_STEP_MAX == geo::hash::GEO_STEP_MAX);
+
+/// WGS-84 latitude lower bound (EPSG:900913).
+pub const GEO_LAT_MIN: f64 = -85.05112878;
+const _: () = assert!(GEO_LAT_MIN.to_bits() == geo::GEO_LAT_MIN.to_bits());
+/// WGS-84 latitude upper bound (EPSG:900913).
+pub const GEO_LAT_MAX: f64 = 85.05112878;
+const _: () = assert!(GEO_LAT_MAX.to_bits() == geo::GEO_LAT_MAX.to_bits());
+/// WGS-84 longitude lower bound.
+pub const GEO_LONG_MIN: f64 = -180.0;
+const _: () = assert!(GEO_LONG_MIN.to_bits() == geo::GEO_LONG_MIN.to_bits());
+/// WGS-84 longitude upper bound.
+pub const GEO_LONG_MAX: f64 = 180.0;
+const _: () = assert!(GEO_LONG_MAX.to_bits() == geo::GEO_LONG_MAX.to_bits());
 
 /// A min/max range for a geohash cell, used by [`calcRanges`].
 ///
@@ -125,6 +144,14 @@ pub unsafe extern "C" fn calcRanges(
         range.min = score_range.min;
         range.max = score_range.max;
     }
+}
+
+/// Calculate the haversine great-circle distance between two WGS-84 points.
+///
+/// All coordinates are in degrees. Returns distance in meters.
+#[unsafe(no_mangle)]
+pub extern "C" fn geohashGetDistance(lon1: f64, lat1: f64, lon2: f64, lat2: f64) -> f64 {
+    geo::hash::haversine_distance(lon1, lat1, lon2, lat2)
 }
 
 /// Return `true` if the distance between two lon/lat points is within `radius`
