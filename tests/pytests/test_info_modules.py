@@ -1973,8 +1973,15 @@ def _test_pending_jobs_metrics(env, command_type):
           state['workers_stats'][i] = {f'shard {i}': to_dict(con.execute_command(debug_cmd(), 'WORKERS', 'stats'))}
         return all(all_shards_ready), state
 
-    iter = wait_for_condition(check_queries_jobs_pending, "wait_for_high_priority_jobs_pending")
-    env.debugPrint(f"wait_for_high_priority_jobs_pending iters: {iter}", force=True)
+    try:
+        iter = wait_for_condition(check_queries_jobs_pending, "wait_for_high_priority_jobs_pending")
+        env.debugPrint(f"wait_for_high_priority_jobs_pending iters: {iter}", force=True)
+    finally:
+        # MOD-13322: surface any background-thread exception that was swallowed past the 1s
+        # fast-fail window in `launch_cmds_in_bg_with_exception_check`. We must do this even
+        # on a wait_for_condition timeout so the failure message reflects the real cause
+        # (e.g., one client got an error from the coordinator instead of fanning out).
+        query_threads.raise_if_failed(env)
 
     # --- STEP 7: RESUME WORKERS AND DRAIN ---
     # Resume workers:
@@ -1983,6 +1990,8 @@ def _test_pending_jobs_metrics(env, command_type):
     # Wait for all query threads to complete:
     for t in query_threads:
         t.join(timeout=30)
+    # Re-check exceptions after join, in case a query failed only after RESUME.
+    query_threads.raise_if_failed(env)
 
     # Drain worker thread pool to ensure all jobs complete:
     run_command_on_all_shards(env, debug_cmd(), 'WORKERS', 'DRAIN')
@@ -2058,12 +2067,20 @@ class TestCoordHighPriorityPendingJobs(object):
       pending_jobs = int(info_dict[MULTI_THREADING_SECTION][COORD_HIGH_PRIORITY_PENDING_JOBS_METRIC])
       return (pending_jobs == num_commands_per_type), {'pending_jobs': pending_jobs, 'expected': num_commands_per_type}
 
-    wait_for_condition(check_coord_pending_jobs, f"wait_for_coord_pending_jobs_{command_type}")
+    try:
+        wait_for_condition(check_coord_pending_jobs, f"wait_for_coord_pending_jobs_{command_type}")
+    finally:
+        # MOD-13322: re-check background-thread exceptions even on timeout, so a coordinator
+        # error reaching one of the clients past the 1s fast-fail window in
+        # `launch_cmds_in_bg_with_exception_check` is reported instead of being masked
+        # by a generic 120s wait_for_condition timeout.
+        search_threads.raise_if_failed(self.env)
     # --- RESUME COORD_THREADS ---
     self.env.expect(debug_cmd(), 'COORD_THREADS', 'RESUME').ok()
     # --- WAIT FOR ALL THREADS TO COMPLETE ---
     for t in search_threads:
         t.join(timeout=30)
+    search_threads.raise_if_failed(self.env)
     # --- VERIFY METRIC DECREASED TO 0 ---
     def check_coord_pending_jobs_reset():
         info_dict = info_modules_to_dict(self.env)

@@ -11,7 +11,10 @@
 #include "rmalloc.h"
 
 #include <stdlib.h>
+#include <string.h>
 #include "rq.h"
+
+extern RedisModuleCtx *RSDummyContext;
 
 /* Initialize the MapReduce engine with a node provider */
 MRCluster *MR_NewCluster(MRClusterTopology *initialTopology, size_t conn_pool_size, size_t num_io_threads) {
@@ -61,11 +64,33 @@ int MRCluster_FanoutCommand(IORuntimeCtx *ioRuntime,
     MRCommand_SetDispatchTime(cmd);
   }
 
+  // MOD-13322 DEBUG (DO NOT MERGE): force the FIRST _FT.SEARCH / _FT.AGGREGATE
+  // fanout to take the validateConnections failure path, deterministically
+  // reproducing the "one query lost across all shards" CI symptom.
+  // Filtered to the test's commands so setup-time fanouts (FT.CREATE etc.) are unaffected.
+  static int debug_remaining_fails = 1;
+  if (debug_remaining_fails > 0 && cmd->num > 0 && cmd->strs[0] &&
+      ((cmd->lens[0] == 10 && memcmp(cmd->strs[0], "_FT.SEARCH", 10) == 0) ||
+       (cmd->lens[0] == 13 && memcmp(cmd->strs[0], "_FT.AGGREGATE", 13) == 0))) {
+    debug_remaining_fails--;
+    RedisModule_Log(RSDummyContext, "warning",
+                    "MOD-13322 DEBUG: forcing fanout to fail for '%.*s'", (int)cmd->lens[0], cmd->strs[0]);
+    return 0;
+  }
+
   // Pre-fanout connection validation
   if (validateConnections) {
     for (size_t i = 0; i < topo->numShards; i++) {
       MRConn *conn = MRConn_Get(&ioRuntime->conn_mgr, topo->shards[i].node.id);
       if (!conn) {
+        // MOD-13322: surface why a fanout was aborted before any shard was contacted.
+        // MRConn_Get returns NULL when no connection in the pool is in `Connected` state,
+        // which can happen transiently after MR_UpdateConnPoolSize has expanded the pool
+        // but the new connections have not finished their async TCP+AUTH+HELLO handshake.
+        const char *state = MRConnManager_GetNodeState(&ioRuntime->conn_mgr, topo->shards[i].node.id);
+        RedisModule_Log(RSDummyContext, "warning",
+                        "Fanout aborted by validateConnections: no Connected conn for shard %zu (node id %s, first-conn state %s, pool size %d)",
+                        i, topo->shards[i].node.id, state ? state : "<no pool>", ioRuntime->conn_mgr.nodeConns);
         return 0;
       }
     }
