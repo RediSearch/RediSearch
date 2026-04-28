@@ -257,19 +257,21 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
   REPLY_KVINT("max_doc_id", maxDocId);
   REPLY_KVINT("num_terms", sp->stats.scoring.numTerms);
 
-  const bool isDisk = SearchDisk_IsEnabledForValidation();
+  const bool isDisk = sp->diskSpec != NULL;
   size_t num_records = isDisk ? 0 : sp->stats.numRecords;
-  size_t inverted_size = isDisk ? 0 : sp->stats.invertedSize;
   size_t vector_indexes_size = isDisk ? 0 : IndexSpec_VectorIndexesSize(specForOpeningIndexes);
   size_t total_ii_blocks = isDisk ? 0 : TotalIIBlocks();
   size_t offset_vecs_size = isDisk ? 0 : sp->stats.offsetVecsSize;
-  size_t doc_table_size = isDisk ? 0 : sp->docs.memsize;
   size_t sortables_size = isDisk ? 0 : sp->docs.sortablesSize;
   size_t dt_tm_size = isDisk ? 0 : TrieMap_MemUsage(sp->docs.dim.tm);
   size_t tags_overhead = isDisk ? 0 : IndexSpec_collect_tags_overhead(sp);
   size_t text_overhead = IndexSpec_collect_text_overhead(sp);
-  size_t total_memory = IndexSpec_TotalMemUsage(specForOpeningIndexes, dt_tm_size,
-    tags_overhead, text_overhead, vector_indexes_size);
+  size_t total_memory = IndexSpec_TotalMemUsage(specForOpeningIndexes, dt_tm_size, tags_overhead,
+    text_overhead, vector_indexes_size);
+  size_t inverted_size = isDisk ? SearchDisk_GetInvertedIndexTotalMemory(sp->diskSpec) :
+    sp->stats.invertedSize;
+  size_t doc_table_size = isDisk ? SearchDisk_GetDocTableTotalMemory(sp->diskSpec) :
+    sp->docs.memsize;
   size_t geoshapes_size = isDisk ? 0 : geom_idx_sz;
   size_t offset_vec_records = isDisk ? 0 : sp->stats.offsetVecRecords;
 
