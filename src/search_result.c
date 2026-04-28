@@ -21,31 +21,7 @@ SearchResult *SearchResult_AllocateMove(SearchResult *r) {
   return ret;
 }
 
-void SearchResult_Clear(SearchResult *r) {
-  // This won't affect anything if the result is null
-
-  SearchResult_SetScore(r, 0.0);
-
-  RSScoreExplain *score_explain = SearchResult_GetScoreExplainMut(r);
-  if (score_explain) {
-    SEDestroy(score_explain);
-    SearchResult_SetScoreExplain(r, NULL);
-  }
-
-  const RSIndexResult* index_result = SearchResult_GetIndexResult(r);
-  if (index_result) {
-    SearchResult_SetIndexResult(r, NULL);
-  }
-
-  SearchResult_SetFlags(r, 0);
-  RLookupRow_Wipe(SearchResult_GetRowDataMut(r));
-
-  const RSDocumentMetadata* dmd = SearchResult_GetDocumentMetadata(r);
-  if (dmd) {
-    DMD_Return(dmd);
-    SearchResult_SetDocumentMetadata(r, NULL);
-  }
-}
+extern inline void SearchResult_Clear(SearchResult *r);
 
 void SearchResult_Destroy(SearchResult *r) {
   SearchResult_Clear(r);

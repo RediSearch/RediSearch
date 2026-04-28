@@ -14,6 +14,7 @@
 #include "types_rs.h"
 #include "rlookup.h"
 #include "index_result.h"
+#include "doc_table.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -58,7 +59,32 @@ SearchResult* SearchResult_AllocateMove(SearchResult* r);
  * This function resets the search result, so that it may be reused again.
  * Internal caches are reset but not freed
  */
+#ifdef RS_BINDGEN_GENERATION
 void SearchResult_Clear(SearchResult* r);
+#else
+inline void SearchResult_Clear(SearchResult *r) {
+  // This won't affect anything if the result is null
+
+  r->score = 0.0;
+
+  if (r->scoreExplain) {
+    SEDestroy(r->scoreExplain);
+    r->scoreExplain = NULL;
+  }
+
+  if (r->indexResult) {
+    r->indexResult = NULL;
+  }
+
+  r->flags = 0;
+  RLookupRow_Wipe(&r->rowdata);
+
+  if (r->dmd) {
+    DMD_Return(r->dmd);
+    r->dmd = NULL;
+  }
+}
+#endif
 
 /**
  * This function clears the search result, also freeing its internals. Internal
