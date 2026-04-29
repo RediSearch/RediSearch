@@ -163,17 +163,6 @@ QueryIterator *NewMetricIteratorSortedById(t_docId *ids, double *metric_list, si
 bool IsWildcardIterator(const QueryIterator *it);
 
 /**
- * `PrintProfile` vtable entry for Hybrid (vector search) iterators.
- *
- * # Safety
- *
- * 1. `self_` must be a valid pointer to a Hybrid iterator.
- * 2. `map` must be a valid pointer to a [`redis_reply::MapBuilder`].
- * 3. `ctx` must be a valid pointer to a [`ProfilePrintCtx`].
- */
-void Hybrid_PrintProfile(const QueryIterator *self_, struct MapBuilder *map, struct ProfilePrintCtx *ctx);
-
-/**
  * Create an optional iterator over `child`, applying shortcircuit reductions where possible.
  *
  * - If `child` is null or an empty iterator, a wildcard iterator is returned instead (all results will be virtual hits).
@@ -188,6 +177,17 @@ void Hybrid_PrintProfile(const QueryIterator *self_, struct MapBuilder *map, str
  *    [`new_optional_iterator`].
  */
 QueryIterator *NewOptionalIterator(QueryIterator *child, QueryEvalCtx *q, t_docId max_doc_id, double weight);
+
+/**
+ * `PrintProfile` vtable entry for Hybrid (vector search) iterators.
+ *
+ * # Safety
+ *
+ * 1. `self_` must be a valid pointer to a Hybrid iterator.
+ * 2. `map` must be a valid pointer to a [`redis_reply::MapBuilder`].
+ * 3. `ctx` must be a valid pointer to a [`ProfilePrintCtx`].
+ */
+void Hybrid_PrintProfile(const QueryIterator *self_, struct MapBuilder *map, struct ProfilePrintCtx *ctx);
 
 /**
  * Creates an iterator over all geo-encoded index entries within the radius specified by `gf`.
@@ -619,6 +619,31 @@ QueryIterator *NewInvIndIterator_TermQuery(const InvertedIndex *idx, const Redis
  * 4. `sctx` and `sctx.spec` must remain valid for the lifetime of the returned iterator.
  */
 QueryIterator *NewInvIndIterator_WildcardQuery(const InvertedIndex *idx, const RedisSearchCtx *sctx, double weight);
+
+/**
+ * Print iterator profile tree as a Redis reply.
+ *
+ * This is the FFI entry point called from C `Profile_PrintCommon`.
+ *
+ * # Parameters
+ *
+ * - `ctx`: The Redis module context used to emit reply protocol.
+ * - `root`: The root of the profile-wrapped iterator tree to print.
+ *   May be null, in which case the function returns immediately.
+ * - `limited`: When `true`, non-`UNION` union iterators collapse their
+ *   children into a summary count instead of printing each child
+ *   individually. Corresponds to `FT.PROFILE ... LIMITED`.
+ * - `print_profile_clock`: When `true`, include wall-clock timing
+ *   (`"Time"`) in each profile entry. Corresponds to
+ *   `PROFILE_VERBOSE` / `_FT.DEBUG PROFILE_VERBOSE`.
+ *
+ * # Safety
+ *
+ * 1. `ctx` must be a valid [`RedisModuleCtx`] pointer.
+ * 2. `root` must be null or a valid pointer to a [`QueryIterator`] tree
+ *    that has been profile-wrapped via `Profile_AddIters`.
+ */
+void Profile_PrintIterators(RedisModuleCtx *ctx, const QueryIterator *root, bool limited, bool print_profile_clock);
 
 /**
  * Gets the minimum range value for profiling a numeric iterator.

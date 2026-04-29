@@ -15,9 +15,10 @@
 //! iterator types (Hybrid, Optimus, GeoShape) set theirs to the
 //! `extern "C"` functions exported here.
 
-use std::ffi::CStr;
+use std::{ffi::CStr, ptr::NonNull};
 
-use ffi::QueryIterator;
+use ffi::{QueryIterator, RedisModuleCtx};
+use redis_reply::Replier;
 use rqe_iterators::{c2rust::call_print_profile, profile_print::ProfilePrintCtx};
 
 // ── C-only iterator PrintProfile vtable implementations ─────────────────
@@ -134,4 +135,47 @@ pub unsafe extern "C" fn GeoShape_PrintProfile(
     let ctx = unsafe { &mut *ctx };
 
     ctx.print_leaf(c"GEO-SHAPE", map);
+}
+
+// ── FFI entry point ─────────────────────────────────────────────────────
+
+/// Print iterator profile tree as a Redis reply.
+///
+/// This is the FFI entry point called from C `Profile_PrintCommon`.
+///
+/// # Parameters
+///
+/// - `ctx`: The Redis module context used to emit reply protocol.
+/// - `root`: The root of the profile-wrapped iterator tree to print.
+///   May be null, in which case the function returns immediately.
+/// - `limited`: When `true`, non-`UNION` union iterators collapse their
+///   children into a summary count instead of printing each child
+///   individually. Corresponds to `FT.PROFILE ... LIMITED`.
+/// - `print_profile_clock`: When `true`, include wall-clock timing
+///   (`"Time"`) in each profile entry. Corresponds to
+///   `PROFILE_VERBOSE` / `_FT.DEBUG PROFILE_VERBOSE`.
+///
+/// # Safety
+///
+/// 1. `ctx` must be a valid [`RedisModuleCtx`] pointer.
+/// 2. `root` must be null or a valid pointer to a [`QueryIterator`] tree
+///    that has been profile-wrapped via `Profile_AddIters`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn Profile_PrintIterators(
+    ctx: *mut RedisModuleCtx,
+    root: *const QueryIterator,
+    limited: bool,
+    print_profile_clock: bool,
+) {
+    let Some(root) = NonNull::new(root as *mut _) else {
+        return;
+    };
+
+    // SAFETY: precondition 1.
+    let mut replier = unsafe { Replier::new(ctx) };
+    let mut profile_ctx = ProfilePrintCtx::new(limited, print_profile_clock);
+    let mut map = replier.map();
+    // SAFETY: precondition 2 (null case handled above). The PrintProfile
+    // vtable entry is set because the tree was profile-wrapped.
+    unsafe { call_print_profile(root, &mut map, &mut profile_ctx) };
 }
