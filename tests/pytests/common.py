@@ -1141,7 +1141,10 @@ def launch_cmds_in_bg_with_exception_check(env, command, num_triggers, exception
         exception_timeout: Seconds to wait for exception detection (default: 1).
 
     Returns:
-        list[Thread]: Started thread objects if no exceptions occur, None if any thread fails.
+        tuple[list[Thread] | None, list[Exception]]: (threads, exceptions). `threads` is the
+        list of started thread objects, or None if any thread raised within `exception_timeout`.
+        `exceptions` is the live list that background threads append to on failure; callers may
+        re-inspect it after a later wait to surface errors that arrive past the fast-fail window.
     """
     threads = []
     exceptions = []
@@ -1163,9 +1166,9 @@ def launch_cmds_in_bg_with_exception_check(env, command, num_triggers, exception
     if exception_event.wait(timeout=exception_timeout):
         error_msg = f"Background command {command} failed with {len(exceptions)} error(s): {exceptions}"
         env.assertTrue(False, message=error_msg)
-        return None
+        return None, exceptions
 
-    return threads
+    return threads, exceptions
 
 def get_shards_profile(env, res):
   """Extract shard profiles from FT.PROFILE AGGREGATE response."""
