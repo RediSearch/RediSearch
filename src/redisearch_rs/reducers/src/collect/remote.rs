@@ -34,7 +34,7 @@ use crate::collect::common::CollectCommon;
 pub struct RemoteCollectReducer<'a> {
     common: CollectCommon,
     field_keys: Box<[&'a RLookupKey<'a>]>,
-    has_wildcard: bool,
+    load_all: bool,
     /// Raw sort-key references, including keys not present in `FIELDS`.
     sort_keys: Box<[&'a RLookupKey<'a>]>,
     /// `true` for shard replies dispatched by the coordinator: extra sort-key
@@ -69,7 +69,7 @@ impl<'a> RemoteCollectReducer<'a> {
     /// Create a reducer from C-parsed configuration.
     pub fn new(
         field_keys: Box<[&'a RLookupKey<'a>]>,
-        has_wildcard: bool,
+        load_all: bool,
         sort_keys: Box<[&'a RLookupKey<'a>]>,
         sort_asc_map: u64,
         limit: Option<(u64, u64)>,
@@ -78,7 +78,7 @@ impl<'a> RemoteCollectReducer<'a> {
         Self {
             common: CollectCommon::new(sort_asc_map, limit),
             field_keys,
-            has_wildcard,
+            load_all,
             sort_keys,
             include_sort_keys,
         }
@@ -98,8 +98,8 @@ impl<'a> RemoteCollectReducer<'a> {
         self.field_keys.len()
     }
 
-    pub const fn has_wildcard(&self) -> bool {
-        self.has_wildcard
+    pub const fn load_all(&self) -> bool {
+        self.load_all
     }
 
     pub const fn sort_keys_len(&self) -> usize {

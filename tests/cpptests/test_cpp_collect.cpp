@@ -115,21 +115,21 @@ protected:
 // ====== Happy path tests ======
 
 // TODO: Re-enable (drop the `DISABLED_` prefix) and remove the companion
-// `FieldsWildcardRejected` test below once `*` in FIELDS is supported by the
+// `FieldsLoadAllRejected` test below once `*` in FIELDS is supported by the
 // COLLECT parser. Today the parser unconditionally rejects `*` in FIELDS in
 // both modes (see `src/aggregate/reducers/collect.c`, the
 // `if (data.load_all)` branch).
-TEST_F(CollectParserTest, DISABLED_FieldsWildcard) {
+TEST_F(CollectParserTest, DISABLED_FieldsLoadAll) {
   parseOk({"FIELDS", "*"}, [](Reducer *r) {
-    EXPECT_TRUE(CollectReducer_HasWildcard(r));
+    EXPECT_TRUE(CollectReducer_HasLoadAll(r));
     EXPECT_EQ(CollectReducer_GetFieldKeysLen(r), 0u);
   });
 }
 
 // Documents the current behavior: `*` in FIELDS is rejected by the parser in
-// both remote and local modes with the same message. Remove once wildcard
-// support lands and `DISABLED_FieldsWildcard` is re-enabled.
-TEST_F(CollectParserTest, FieldsWildcardRejected) {
+// both remote and local modes with the same message. Remove once LoadAll
+// support lands and `DISABLED_FieldsLoadAll` is re-enabled.
+TEST_F(CollectParserTest, FieldsLoadAllRejected) {
   expectError({"FIELDS", "*"}, "COLLECT does not yet support `*` in FIELDS");
 }
 
@@ -137,21 +137,21 @@ TEST_F(CollectParserTest, FieldsWithCount) {
   registerKeys({"a", "b"});
   Reducer *r = parseCollectOk({"FIELDS", "2", "@a", "@b"});
   ASSERT_NE(r, nullptr);
-  EXPECT_FALSE(CollectReducer_HasWildcard(r));
+  EXPECT_FALSE(CollectReducer_HasLoadAll(r));
   EXPECT_EQ(CollectReducer_GetFieldKeysLen(r), 2u);
   r->Free(r);
 }
 
 // TODO: Re-enable (drop the `DISABLED_` prefix) once `*` in FIELDS is supported
 // by the COLLECT parser.
-TEST_F(CollectParserTest, DISABLED_FieldsWildcardWithSortBy) {
+TEST_F(CollectParserTest, DISABLED_FieldsLoadAllWithSortBy) {
   registerKeys({"price"});
   Reducer *r = parseCollectOk({
       "FIELDS", "*",
       "SORTBY", "1", "@price",
   });
   ASSERT_NE(r, nullptr);
-  EXPECT_TRUE(CollectReducer_HasWildcard(r));
+  EXPECT_TRUE(CollectReducer_HasLoadAll(r));
   EXPECT_EQ(CollectReducer_GetSortKeysLen(r), 1u);
   r->Free(r);
 }
@@ -336,7 +336,7 @@ TEST_F(CollectParserTest, JsonPathField) {
   Reducer *r = parseCollectOk({"FIELDS", "1", "$..price"});
   ASSERT_NE(r, nullptr);
   EXPECT_EQ(CollectReducer_GetFieldKeysLen(r), 1u);
-  EXPECT_FALSE(CollectReducer_HasWildcard(r));
+  EXPECT_FALSE(CollectReducer_HasLoadAll(r));
   r->Free(r);
 }
 
@@ -393,31 +393,31 @@ TEST_F(CollectParserTest, FieldsSecondFieldNotInPipeline) {
       "Property not loaded nor in pipeline");
 }
 
-TEST_F(CollectParserTest, FieldsWildcardWithCount) {
+TEST_F(CollectParserTest, FieldsLoadAllWithCount) {
   expectError({"FIELDS", "1", "*"},
       "COLLECT does not support `*` with a count");
 }
 
-TEST_F(CollectParserTest, FieldsWildcardAmongFields) {
+TEST_F(CollectParserTest, FieldsLoadAllAmongFields) {
   registerKeys({"price", "name"});
   expectError({"FIELDS", "3", "@price", "*", "@name"},
       "COLLECT does not support `*` with a count");
 }
 
-TEST_F(CollectParserTest, FieldsWildcardFollowedByField) {
+TEST_F(CollectParserTest, FieldsLoadAllFollowedByField) {
   expectError({"FIELDS", "*", "@a"},
       "Unexpected tokens after `*` in FIELDS");
 }
 
-TEST_F(CollectParserTest, FieldsWildcardFollowedByJsonPath) {
+TEST_F(CollectParserTest, FieldsLoadAllFollowedByJsonPath) {
   expectError({"FIELDS", "*", "$..a"},
       "Unexpected tokens after `*` in FIELDS");
 }
 
-// `*` followed by another `*` is not caught by our wildcard stray-token peek
+// `*` followed by another `*` is not caught by our loadall stray-token peek
 // (which only flags `@`/`$`-prefixed tokens); the trailing `*` falls through
 // to the outer ArgParser and is rejected as an unknown argument.
-TEST_F(CollectParserTest, FieldsWildcardFollowedByWildcard) {
+TEST_F(CollectParserTest, FieldsLoadAllFollowedByAsterisk) {
   expectError({"FIELDS", "*", "*"}, "Unknown argument");
 }
 

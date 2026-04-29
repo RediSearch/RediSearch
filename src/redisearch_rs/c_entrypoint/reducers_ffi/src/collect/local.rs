@@ -56,7 +56,7 @@ pub unsafe extern "C" fn CollectReducer_CreateLocal(
     input_key: *const ffi::RLookupKey,
     field_names: *const *const c_char,
     field_names_len: usize,
-    has_wildcard: bool,
+    load_all: bool,
     sort_names: *const *const c_char,
     sort_names_len: usize,
     sort_asc_map: u64,
@@ -78,7 +78,7 @@ pub unsafe extern "C" fn CollectReducer_CreateLocal(
     let mut cr = Box::new(LocalCollectReducer::new(
         input_key,
         field_names,
-        has_wildcard,
+        load_all,
         sort_key_names,
         sort_asc_map,
         limit,
