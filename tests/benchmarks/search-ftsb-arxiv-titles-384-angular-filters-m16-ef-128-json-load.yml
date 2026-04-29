@@ -1,0 +1,33 @@
+version: 0.5
+name: "search-ftsb-arxiv-titles-384-angular-filters-m16-ef-128-json-load"
+description: "
+             JSON ingestion load benchmark over the arxiv-titles-384-angular
+             dataset (100K real 384-d sentence embeddings, numeric/tag/text
+             metadata). Exercises the JSON-array ingestion paths for VECTOR
+             and NUMERIC fields (MOD-14943). Load-only; companion to the
+             hash-based vecsim-arxiv-titles-* read benchmarks.
+             Specifically for this testcase:
+                - Type (read/write/mixed): write
+                - Query type: N/A
+                - Query sample: N/A
+             "
+metadata:
+  component: "search"
+timeout_seconds: 1800
+setups:
+  - oss-standalone
+  - oss-standalone-threads-6
+
+dbconfig:
+  - dataset_name: "arxiv-titles-384-angular-filters-m16-ef-128-json"
+  - init_commands:
+    - 'FT.CREATE idx ON JSON PREFIX 1 doc:arxiv: SCHEMA $.vector AS vector VECTOR HNSW 6 TYPE FLOAT32 DIM 384 DISTANCE_METRIC COSINE $.update_date_ts AS update_date_ts NUMERIC $.labels AS labels TAG SEPARATOR ; $.submitter AS submitter TAG SEPARATOR ; $.abstract AS abstract TEXT'
+
+clientconfig:
+  - tool: ftsb_redisearch
+  - parameters:
+    - workers: 16
+    - reporting-period: 1s
+    - input: "https://s3.amazonaws.com/benchmarks.redislabs/redisearch/datasets/arxiv-titles-384-angular-filters-m16-ef-128-json/arxiv-titles-384-angular-filters-m16-ef-128-json.redisjson.commands.SETUP.csv"
+  - check:
+      keyspacelen: 100000

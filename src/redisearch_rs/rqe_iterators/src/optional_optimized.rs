@@ -10,7 +10,7 @@
 //! Supporting types for [`OptionalOptimized`].
 //!
 //! This is the optimized variant of the optional iterator. Instead of scanning
-//! all doc IDs from 1 to `maxDocId`, it uses a [`WildcardIterator`] over
+//! all doc IDs from 1 to `maxDocId`, it uses a [wildcard iterator](crate::wildcard) over
 //! `spec.existingDocs` to visit only real document IDs, yielding real or virtual
 //! results accordingly.
 
@@ -23,7 +23,7 @@ use crate::{
 };
 
 /// An iterator that emits results for all document IDs present in the index,
-/// driven by a [`WildcardIterator`] over the existing-documents inverted index.
+/// driven by a [wildcard iterator](crate::wildcard) over the existing-documents inverted index.
 ///
 /// For each doc ID that `wcii` yields:
 /// - If the query child also has a hit at that doc ID, a **real** result is
@@ -363,12 +363,8 @@ where
     }
 }
 
-impl<'index> crate::interop::ProfileChildren<'index>
-    for OptionalOptimized<
-        'index,
-        Box<dyn WildcardIterator<'index> + 'index>,
-        crate::c2rust::CRQEIterator,
-    >
+impl<'index, W: WildcardIterator<'index> + 'index> crate::interop::ProfileChildren<'index>
+    for OptionalOptimized<'index, W, crate::c2rust::CRQEIterator>
 {
     fn profile_children(self) -> Self {
         OptionalOptimized {

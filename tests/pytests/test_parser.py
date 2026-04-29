@@ -804,3 +804,43 @@ INTERSECT {
     env.expect('FT.EXPLAIN', 'idx', '@text:foo bar @tag:{baz}', 'VERBATIM').equal(expected)
     env.expect('FT.EXPLAIN', 'idx', '(@text:foo bar) @tag:{baz}', 'VERBATIM').equal(expected)
     env.expect('FT.EXPLAIN', 'idx', '@tag:{baz} (@text:foo bar)', 'VERBATIM').equal(expected)
+
+@skip(cluster=True)
+def test_invalid_query_attributes(env):
+    """Test that invalid query attribute values produce proper errors."""
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+
+    # Invalid $slop value (not a number)
+    env.expect('FT.SEARCH', 'idx', 'hello=>{$slop: abc}').error() \
+        .contains('Invalid value')
+
+    # Invalid $slop value (below minimum of -1)
+    env.expect('FT.SEARCH', 'idx', 'hello=>{$slop: -2}').error() \
+        .contains('Invalid value')
+
+    # Invalid $inorder value (not a boolean)
+    env.expect('FT.SEARCH', 'idx', 'hello=>{$inorder: abc}').error() \
+        .contains('Invalid value')
+
+    # Invalid $weight value (not a number)
+    env.expect('FT.SEARCH', 'idx', 'hello=>{$weight: abc}').error() \
+        .contains('Invalid value')
+
+    # Invalid $weight value (negative)
+    env.expect('FT.SEARCH', 'idx', 'hello=>{$weight: -1}').error() \
+        .contains('Invalid value')
+
+    # Unrecognized attribute name
+    env.expect('FT.SEARCH', 'idx', 'hello=>{$bogus: 42}').error() \
+        .contains('Invalid attribute')
+
+@skip(cluster=True)
+def test_explain_with_inkeys(env):
+    """FT.EXPLAIN with INKEYS renders IDS node in the explain output."""
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+    conn.execute_command('HSET', 'doc1', 't', 'hello')
+    conn.execute_command('HSET', 'doc2', 't', 'world')
+
+    res = env.cmd('FT.EXPLAIN', 'idx', 'hello', 'INKEYS', '2', 'doc1', 'doc2')
+    env.assertContains('IDS', res)

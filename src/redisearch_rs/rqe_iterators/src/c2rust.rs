@@ -341,9 +341,21 @@ impl<'index> RQEIterator<'index> for CRQEIterator {
             }
             IteratorType::Union if prioritize_union_children => {
                 let ptr = std::ptr::from_ref(self.as_ref());
-                // SAFETY: `type_` guarantees `ptr` points to a `UnionIterator` whose first field
-                // is the `QueryIterator` base — the cast is valid by C struct layout.
-                let n = unsafe { (*ptr.cast::<ffi::UnionIterator>()).num as usize };
+                // SAFETY:
+                // - `type_ == Union` guarantees `ptr` was produced by
+                //   `RQEIteratorWrapper::boxed_new_inner` with
+                //   `UnionOpaque<CRQEIterator>` as the inner type
+                //   (`NewUnionIterator` is the sole constructor of a C wrapped union).
+                // - `ref_from_header_ptr` uses the compiler-computed field offset for `inner`
+                //   rather than manual `size_of` arithmetic, making it immune to alignment
+                //   padding between `header` and `inner` in `RQEIteratorWrapper`.
+                let n = unsafe {
+                    RQEIteratorWrapper::<super::UnionOpaque<'_, CRQEIterator>>::ref_from_header_ptr(
+                        ptr,
+                    )
+                    .inner
+                    .num_children_active()
+                };
                 n.max(1) as f64
             }
             IteratorType::InvIdxNumeric => 1.0,

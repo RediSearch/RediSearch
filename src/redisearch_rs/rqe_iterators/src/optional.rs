@@ -191,9 +191,8 @@ where
         Ok(Some(&mut self.result))
     }
 
-    // C-Code: SkipTo for OPTIONAL iterator - Non-optimized version.
-    // Skip to a specific docId. If the child has a hit on this docId, return it.
-    // Otherwise, return a virtual hit.
+    /// Skip to a specific docId. If the child has a hit on this docId, return it.
+    /// Otherwise, return a virtual hit.
     fn skip_to(
         &mut self,
         doc_id: t_docId,

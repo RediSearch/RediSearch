@@ -1,24 +1,23 @@
+# RediSearch
+
+<img src="docs/images/logo.svg" alt="RediSearch's Logo" title="RediSearch's Logo" width="300">
+
 [![Discord](https://img.shields.io/discord/697882427875393627)](https://discord.gg/xTbqgTB)
 
 | Total Coverage | Unit Tests | Flow Tests |
 |----------------|------------|------------|
 |[![codecov](https://codecov.io/gh/RediSearch/RediSearch/graph/badge.svg?token=bfZ02W6x3K)](https://codecov.io/gh/RediSearch/RediSearch)|[![codecov](https://codecov.io/gh/RediSearch/RediSearch/graph/badge.svg?token=bfZ02W6x3K&flag=unit)](https://codecov.io/gh/RediSearch/RediSearch?flags[0]=unit)|[![codecov](https://codecov.io/gh/RediSearch/RediSearch/graph/badge.svg?token=bfZ02W6x3K&flag=flow)](https://codecov.io/gh/RediSearch/RediSearch?flags[0]=flow)|
 
-[![Latest Release](https://img.shields.io/github/v/release/RediSearch/RediSearch?label=latest%20release)](https://github.com/RediSearch/RediSearch/releases/latest)
-
-[![Latest 2.8](https://img.shields.io/github/v/release/RediSearch/RediSearch?filter=v2.8%2A&label=latest%20maintenance%20release%20for%202.8)](https://github.com/RediSearch/RediSearch/releases?q=tag:v2.8%20draft:false)
-[![Latest 2.6](https://img.shields.io/github/v/release/RediSearch/RediSearch?filter=v2.6%2A&label=latest%20maintenance%20release%20for%202.6)](https://github.com/RediSearch/RediSearch/releases?q=tag:v2.6%20draft:false)
-
-# RediSearch
-
-<img src="docs/images/logo.svg" title="RediSearch's Logo" width="300">
-
 > [!NOTE]
 > Starting with Redis 8, Redis Query Engine (RediSearch) is integral to Redis. You don't need to install this module separately.
 >
 > We no longer release standalone versions of RediSearch.
 >
-> See https://github.com/redis/redis
+> See https://github.com/redis/redis for more information.
+
+[![Latest 2.10](https://img.shields.io/github/v/release/RediSearch/RediSearch?filter=v2.10%2A&label=latest%20maintenance%20release%20for%202.10)](https://github.com/RediSearch/RediSearch/releases?q=tag:v2.10%20draft:false)
+[![Latest 2.8](https://img.shields.io/github/v/release/RediSearch/RediSearch?filter=v2.8%2A&label=latest%20maintenance%20release%20for%202.8)](https://github.com/RediSearch/RediSearch/releases?q=tag:v2.8%20draft:false)
+[![Latest 2.6](https://img.shields.io/github/v/release/RediSearch/RediSearch?filter=v2.6%2A&label=latest%20maintenance%20release%20for%202.6)](https://github.com/RediSearch/RediSearch/releases?q=tag:v2.6%20draft:false)
 
 > [!NOTE]
 > 32 bit systems are not supported.
@@ -81,4 +80,4 @@ Starting with Redis 8, RediSearch is licensed under your choice of: (i) Redis So
 
 ## Code contributions
 
-By contributing code to this Redis module in any form, including sending a pull request via GitHub, a code fragment or patch via private email or public discussion groups, you agree to release your code under the terms of the Redis Software Grant and Contributor License Agreement. Please see the CONTRIBUTING.md file in this source distribution for more information. For security bugs and vulnerabilities, please see SECURITY.md. 
+By contributing code to this Redis module in any form, including sending a pull request via GitHub, a code fragment or patch via private email or public discussion groups, you agree to release your code under the terms of the Redis Software Grant and Contributor License Agreement. Please see the CONTRIBUTING.md file in this source distribution for more information. For security bugs and vulnerabilities, please see SECURITY.md.

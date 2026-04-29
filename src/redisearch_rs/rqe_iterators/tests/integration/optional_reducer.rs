@@ -18,7 +18,7 @@ use rqe_iterators::{
 };
 use rqe_iterators_test_utils::MockContext;
 
-use crate::utils::Mock;
+use crate::utils::{MOCK_DISK_WILDCARD_TOP_ID, Mock, init_enterprise_iterators};
 
 mod optional_reducer_tests {
     use super::*;
@@ -175,6 +175,52 @@ mod optional_reducer_tests {
         );
     }
 
+    /// Regular case — disk index: child is a plain [`Mock`] iterator and
+    /// `spec.diskSpec` is non-null, so the factory calls
+    /// `new_wildcard_iterator_on_disk` and wraps the child in an
+    /// [`OptionalOptimized`].
+    ///
+    /// We confirm the disk path was taken by checking `num_estimated()` on the
+    /// result — [`OptionalOptimized`] delegates it to its inner wildcard, and
+    /// [`MockEnterpriseIterators`](crate::utils::MockEnterpriseIterators) uses
+    /// [`MOCK_DISK_WILDCARD_TOP_ID`] as the sentinel `top_id`.
+    #[test]
+    fn regular_disk_index_child_wrapped_in_optional_optimized_via_disk_wildcard() {
+        const MAX_DOC_ID: ffi::t_docId = 100;
+        const WEIGHT: f64 = 1.5;
+        const DOCS: [ffi::t_docId; 3] = [10, 20, 30];
+
+        // Ensure the global enterprise-iterator registry is populated.
+        init_enterprise_iterators();
+
+        let ctx = MockContext::new(MAX_DOC_ID, 0);
+        // Point `spec.diskSpec` at a local storage cell — its value is ignored
+        // by the mock; all that matters is that the pointer is non-null.
+        let mut disk_spec_storage: ffi::RedisSearchDiskIndexSpec = std::ptr::null();
+        // SAFETY: no iterator from `ctx` is alive at this point, and
+        // `disk_spec_storage` outlives all iterators created below.
+        unsafe { ctx.set_disk_spec(&mut disk_spec_storage) };
+
+        let child = Mock::new(DOCS);
+
+        // SAFETY: `ctx` provides a valid `QueryEvalCtx`; `spec.diskSpec` is
+        // non-null so `new_wildcard_iterator_on_disk` is called;
+        // `SEARCH_ENTERPRISE_ITERATORS` is initialized above.
+        let result = unsafe { new_optional_iterator(child, WEIGHT, ctx.qctx(), MAX_DOC_ID) };
+
+        let NewOptionalIterator::OptionalOptimized(it) = result else {
+            panic!("expected OptionalOptimized for disk-index path, got a different variant");
+        };
+        // `OptionalOptimized::num_estimated` delegates to the inner wildcard.
+        // The mock returns a `Wildcard` with `MOCK_DISK_WILDCARD_TOP_ID` as its
+        // `top_id`, so this assertion confirms the disk path was taken.
+        assert_eq!(
+            it.num_estimated(),
+            MOCK_DISK_WILDCARD_TOP_ID as usize,
+            "inner wildcard must come from the mock disk enterprise iterator"
+        );
+    }
+
     /// Regular case — optimized index: child is a plain [`Mock`] iterator and
     /// `rule.index_all` is true, so the factory wraps it in an
     /// [`OptionalOptimized`] backed by an empty wildcard (because
@@ -197,9 +243,16 @@ mod optional_reducer_tests {
         // wildcard side of the `OptionalOptimized`.
         let result = unsafe { new_optional_iterator(child, WEIGHT, ctx.qctx(), MAX_DOC_ID) };
 
-        assert!(
-            matches!(result, NewOptionalIterator::OptionalOptimized(_)),
-            "expected OptionalOptimized, got a different variant"
+        let NewOptionalIterator::OptionalOptimized(it) = result else {
+            panic!("expected OptionalOptimized, got a different variant");
+        };
+        // `diskSpec` is null, so the disk path is not taken.
+        // The inner wildcard is an `EmptyWildcard` (because `existingDocs` is
+        // also null), which reports `num_estimated() == 0`.
+        assert_eq!(
+            it.num_estimated(),
+            0,
+            "inner wildcard must be EmptyWildcard, not the disk wildcard"
         );
     }
 }

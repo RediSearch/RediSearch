@@ -12,7 +12,7 @@ use std::ptr::NonNull;
 use ffi::{QueryIterator, t_docId, timespec};
 use rqe_iterator_type::IteratorType;
 use rqe_iterators::{
-    RQEIterator, WildcardIterator,
+    NewWildcardIterator, RQEIterator,
     c2rust::CRQEIterator,
     interop::RQEIteratorWrapper,
     not::Not,
@@ -21,17 +21,24 @@ use rqe_iterators::{
 };
 
 type NotFfi<'index> = Not<'index, CRQEIterator>;
-type NotOptimizedFfi<'index> =
-    NotOptimized<'index, Box<dyn WildcardIterator<'index> + 'index>, CRQEIterator>;
+type NotOptimizedFfi<'index> = NotOptimized<'index, NewWildcardIterator<'index>, CRQEIterator>;
 
 /// Enum holding both NOT iterator variants with concrete [`CRQEIterator`] child.
+///
+/// The `NotOptimized` variant is intentionally large because it inlines a
+/// [`WildcardIterator`] to avoid heap allocation. Both variants are
+/// long-lived (query lifetime), and the size difference is acceptable.
+#[expect(
+    clippy::large_enum_variant,
+    reason = "both variants are query-lifetime; boxing would add a needless allocation"
+)]
 enum NotIteratorEnum<'index> {
     Not(NotFfi<'index>),
     NotOptimized(NotOptimizedFfi<'index>),
 }
 
 impl<'index> NotIteratorEnum<'index> {
-    fn child(&self) -> Option<&CRQEIterator> {
+    const fn child(&self) -> Option<&CRQEIterator> {
         match self {
             Self::Not(it) => it.child(),
             Self::NotOptimized(it) => it.child(),
@@ -203,9 +210,7 @@ pub unsafe extern "C" fn NewNotIterator(
             )
         };
         return match result {
-            NewNotIterator::ReducedWildcard(wc) => {
-                RQEIteratorWrapper::boxed_new(wc as Box<dyn RQEIterator>)
-            }
+            NewNotIterator::ReducedWildcard(wc) => RQEIteratorWrapper::boxed_new(wc),
             NewNotIterator::ReducedEmpty(empty) => {
                 RQEIteratorWrapper::boxed_new(Box::new(empty) as Box<dyn RQEIterator>)
             }
@@ -232,9 +237,7 @@ pub unsafe extern "C" fn NewNotIterator(
     };
 
     match result {
-        NewNotIterator::ReducedWildcard(wc) => {
-            RQEIteratorWrapper::boxed_new(wc as Box<dyn RQEIterator>)
-        }
+        NewNotIterator::ReducedWildcard(wc) => RQEIteratorWrapper::boxed_new(wc),
         NewNotIterator::ReducedEmpty(empty) => {
             RQEIteratorWrapper::boxed_new(Box::new(empty) as Box<dyn RQEIterator>)
         }

@@ -1194,7 +1194,13 @@ class testWarningsAndErrorsCluster:
 
   def test_timeout_cluster(self):
     # In cluster mode, test both shard-level and coordinator-level timeouts.
-    # HYBRID debug is not supported in cluster.
+
+    # Insert enough vec docs so every shard has VSIM data for HYBRID timeout testing.
+    conn = getConnectionByEnv(self.env)
+    for i in range(30):
+      conn.execute_command('HSET', f'vec:timeout_{i}', 'vector', np.array([float(i), 0.0]).astype(np.float32).tobytes())
+
+    query_vec = np.array([1.0, 0.0]).astype(np.float32).tobytes()
 
     # ---------- Timeout Errors ----------
     allShards_change_timeout_policy(self.env, 'FAIL')
@@ -1229,6 +1235,20 @@ class testWarningsAndErrorsCluster:
     self.env.assertEqual(info_coord[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC], str(base_err_coord + 2),
                          message="Coordinator timeout error should be +1 after AGG INTERNAL_ONLY")
 
+    # Test timeout error in FT.HYBRID (shards via TIMEOUT_AFTER_N_VSIM)
+    self.env.expect(debug_cmd(), 'FT.HYBRID', 'idx_vec', 'SEARCH', 'hello world',
+                    'VSIM', '@vector', '$BLOB', 'PARAMS', '2', 'BLOB', query_vec,
+                    'TIMEOUT_AFTER_N_VSIM', 1, 'DEBUG_PARAMS_COUNT', 2).error().contains('SEARCH_TIMEOUT Timeout limit was reached')
+    # Shards: +1 each (total +3)
+    for shardId in range(1, self.env.shardsCount + 1):
+      shard_conn = self.env.getConnection(shardId)
+      wait_for_info_metric(shard_conn, [WARN_ERR_SECTION, TIMEOUT_ERROR_SHARD_METRIC], str(base_err_shards[shardId] + 3),
+                           msg=f"Shard {shardId} HYBRID VSIM timeout error should be +3")
+    # Coord: +3
+    info_coord = info_modules_to_dict(self.env)
+    self.env.assertEqual(info_coord[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC], str(base_err_coord + 3),
+                         message="Coordinator timeout error should be +3 after FT.HYBRID")
+
     # ---------- Timeout Warnings ----------
     allShards_change_timeout_policy(self.env, 'RETURN')
 
@@ -1249,6 +1269,18 @@ class testWarningsAndErrorsCluster:
     info_coord = info_modules_to_dict(self.env)
     self.env.assertEqual(info_coord[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_METRIC], str(base_warn_coord),
                          message="Coordinator timeout warning should not change after FT.SEARCH")
+
+    # Test timeout warning in FT.HYBRID (shards via TIMEOUT_AFTER_N_VSIM)
+    self.env.expect(debug_cmd(), 'FT.HYBRID', 'idx_vec', 'SEARCH', 'hello world',
+                    'VSIM', '@vector', '$BLOB', 'PARAMS', '2', 'BLOB', query_vec,
+                    'TIMEOUT_AFTER_N_VSIM', 1, 'DEBUG_PARAMS_COUNT', 2).noError()
+    # In RETURN mode, the shard increments timeout_warning twice per hybrid query:
+    # once from the internal AREQ subquery timeout and once from replyWithCursors.
+    # Shards: +2 each (total: SEARCH +1, HYBRID +2 = +3)
+    for shardId in range(1, self.env.shardsCount + 1):
+      shard_conn = self.env.getConnection(shardId)
+      wait_for_info_metric(shard_conn, [WARN_ERR_SECTION, TIMEOUT_WARNING_SHARD_METRIC], str(base_warn_shards[shardId] + 3),
+                           msg=f"Shard {shardId} HYBRID VSIM timeout warning should be +3")
 
     # Test other metrics not changed (on shards)
     tested_in_this_test = [TIMEOUT_ERROR_SHARD_METRIC, TIMEOUT_WARNING_SHARD_METRIC, TIMEOUT_ERROR_COORD_METRIC, TIMEOUT_WARNING_COORD_METRIC]
@@ -1913,7 +1945,7 @@ def _test_pending_jobs_metrics(env, command_type):
     # Launch num_queries queries in background threads
     # Queries will be queued as high-priority jobs but not executed (workers paused)
 
-    query_threads = launch_cmds_in_bg_with_exception_check(env, [f'FT.{command_type}', index_name, '*'], num_queries)
+    query_threads, query_excs = launch_cmds_in_bg_with_exception_check(env, [f'FT.{command_type}', index_name, '*'], num_queries)
     if query_threads is None:
         run_command_on_all_shards(env, debug_cmd(), 'WORKERS', 'RESUME')
         return
@@ -1941,7 +1973,18 @@ def _test_pending_jobs_metrics(env, command_type):
           state['workers_stats'][i] = {f'shard {i}': to_dict(con.execute_command(debug_cmd(), 'WORKERS', 'stats'))}
         return all(all_shards_ready), state
 
-    wait_for_condition(check_queries_jobs_pending, "wait_for_high_priority_jobs_pending")
+    try:
+        wait_for_condition(check_queries_jobs_pending, "wait_for_high_priority_jobs_pending")
+    except Exception:
+        # MOD-13322: on timeout, surface late-arriving background-thread exceptions
+        # (raised after the 1s fast-fail window in launch_cmds_in_bg_with_exception_check)
+        # and log how many query threads are still hung in `env.cmd()`.
+        # 1+ alive => one or more client threads never delivered their command to the coord.
+        if query_excs:
+            env.debugPrint(f"background thread errors after timeout: {query_excs}", force=True)
+        alive = sum(t.is_alive() for t in query_threads)
+        env.debugPrint(f"alive query threads after timeout: {alive}/{len(query_threads)}", force=True)
+        raise
 
     # --- STEP 7: RESUME WORKERS AND DRAIN ---
     # Resume workers:
@@ -2044,7 +2087,7 @@ class TestCoordHighPriorityPendingJobs(object):
 
     env.expect(debug_cmd(), 'COORD_THREADS', 'PAUSE').ok()
 
-    search_threads = launch_cmds_in_bg_with_exception_check(self.env, [f'FT.{command_type}', DEFAULT_INDEX_NAME, '*'], num_commands_per_type)
+    search_threads, _ = launch_cmds_in_bg_with_exception_check(self.env, [f'FT.{command_type}', DEFAULT_INDEX_NAME, '*'], num_commands_per_type)
     if search_threads is None:
       env.expect(debug_cmd(), 'COORD_THREADS', 'RESUME').ok()
       return
@@ -2064,7 +2107,7 @@ class TestCoordHighPriorityPendingJobs(object):
     num_commands_per_type = 1  # Number of commands to execute for each command type
 
     self.env.expect(debug_cmd(), 'COORD_THREADS', 'PAUSE').ok()
-    search_threads = launch_cmds_in_bg_with_exception_check(self.env, ['FT.CURSOR', 'READ', DEFAULT_INDEX_NAME, cursor_id], num_commands_per_type)
+    search_threads, _ = launch_cmds_in_bg_with_exception_check(self.env, ['FT.CURSOR', 'READ', DEFAULT_INDEX_NAME, cursor_id], num_commands_per_type)
     if search_threads is None:
       self.env.expect(debug_cmd(), 'COORD_THREADS', 'RESUME').ok()
       return
@@ -2078,7 +2121,7 @@ class TestCoordHighPriorityPendingJobs(object):
 
     self.env.expect(debug_cmd(), 'COORD_THREADS', 'PAUSE').ok()
 
-    hybrid_threads = launch_cmds_in_bg_with_exception_check(self.env, ['FT.HYBRID', DEFAULT_INDEX_NAME, 'SEARCH', 'hello',
+    hybrid_threads, _ = launch_cmds_in_bg_with_exception_check(self.env, ['FT.HYBRID', DEFAULT_INDEX_NAME, 'SEARCH', 'hello',
                                  'VSIM', f'@{DEFAULT_FIELD_NAME}', '$BLOB', 'PARAMS', '2', 'BLOB', query_vector], num_commands_per_type)
     if hybrid_threads is None:
       self.env.expect(debug_cmd(), 'COORD_THREADS', 'RESUME').ok()

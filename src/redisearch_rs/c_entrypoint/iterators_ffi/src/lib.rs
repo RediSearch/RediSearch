@@ -17,4 +17,5 @@ pub mod metric;
 pub mod not;
 pub mod optional;
 pub mod profile;
+pub mod union;
 pub mod wildcard;

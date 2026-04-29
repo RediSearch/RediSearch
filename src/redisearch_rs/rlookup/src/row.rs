@@ -13,7 +13,7 @@ use crate::{
 use sorting_vector::{RSSortingVector, RSSortingVectorRef};
 use std::{borrow::Cow, ffi::CStr};
 use thin_vec::ThinVec;
-use value::SharedRsValue;
+use value::SharedValue;
 
 /// Tests if the given [`RLookupKey`] is a special key (lang, score, or payload field)
 /// with respect to this schema rule.
@@ -31,7 +31,7 @@ pub struct RLookupRow<'a> {
     sorting_vector: RSSortingVectorRef<'a>,
 
     /// Dynamic values obtained from prior processing
-    dyn_values: ThinVec<Option<SharedRsValue>>,
+    dyn_values: ThinVec<Option<SharedValue>>,
 
     /// The number of values in [`RLookupRow::dyn_values`] that are `is_some()`. Note that this
     /// is not the length of [`RLookupRow::dyn_values`]
@@ -171,7 +171,7 @@ impl<'a> RLookupRow<'a> {
     ///
     /// The function [`RLookupRow::write_key`] can be used to write values to this vector.
     #[inline]
-    pub fn dyn_values(&self) -> &[Option<SharedRsValue>] {
+    pub fn dyn_values(&self) -> &[Option<SharedValue>] {
         &self.dyn_values
     }
 
@@ -184,7 +184,7 @@ impl<'a> RLookupRow<'a> {
 
     /// Readonly access to the sorting vector values as a slice.
     #[inline]
-    pub fn sorting_vector(&self) -> &'a [SharedRsValue] {
+    pub fn sorting_vector(&self) -> &'a [SharedValue] {
         self.sorting_vector.as_slice()
     }
 
@@ -216,7 +216,7 @@ impl<'a> RLookupRow<'a> {
     /// if the `SvSrc` flag is set in the key.
     /// If the item is not found in either location, it returns `None`.
     #[inline]
-    pub fn get(&self, key: &RLookupKey) -> Option<&SharedRsValue> {
+    pub fn get(&self, key: &RLookupKey) -> Option<&SharedValue> {
         // Check dynamic values first
         if let Some(Some(val)) = self.dyn_values().get(key.dstidx as usize) {
             return Some(val);
@@ -238,7 +238,7 @@ impl<'a> RLookupRow<'a> {
 
     /// Write a value to the lookup table in [`RLookupRow::dyn_values`]. Key must already be registered, and not
     /// refer to a read-only (SVSRC) key.
-    pub fn write_key(&mut self, key: &RLookupKey, val: SharedRsValue) -> Option<SharedRsValue> {
+    pub fn write_key(&mut self, key: &RLookupKey, val: SharedValue) -> Option<SharedValue> {
         let idx = key.dstidx;
         if self.dyn_values.len() <= idx as usize {
             self.set_dyn_capacity((idx + 1) as usize);
@@ -260,7 +260,7 @@ impl<'a> RLookupRow<'a> {
         &mut self,
         rlookup: &mut RLookup<'a>,
         name: impl Into<Cow<'a, CStr>>,
-        val: SharedRsValue,
+        val: SharedValue,
     ) {
         let name = name.into();
         let key = if let Some(cursor) = rlookup.find_key_by_name(&name) {
@@ -375,8 +375,8 @@ impl<'a> RLookupRow<'a> {
     pub fn assert_valid(&self, ctx: &str) {
         for val in self.dyn_values.iter().flatten() {
             assert!(
-                SharedRsValue::refcount(val) >= 1,
-                "{ctx} - RSValue refcount must not be zero"
+                SharedValue::refcount(val) >= 1,
+                "{ctx} - SharedValue refcount must not be zero"
             );
         }
     }
@@ -442,9 +442,9 @@ mod tests {
     fn get_length_without_flags() {
         let mut rlookup = RLookup::new();
         let mut row = RLookupRow::new();
-        row.write_key_by_name(&mut rlookup, c"a", SharedRsValue::new_num(42.));
-        row.write_key_by_name(&mut rlookup, c"b", SharedRsValue::new_num(12.));
-        row.write_key_by_name(&mut rlookup, c"c", SharedRsValue::new_num(36.));
+        row.write_key_by_name(&mut rlookup, c"a", SharedValue::new_num(42.));
+        row.write_key_by_name(&mut rlookup, c"b", SharedValue::new_num(12.));
+        row.write_key_by_name(&mut rlookup, c"c", SharedValue::new_num(36.));
 
         let tsrw = test_schema_rule(None, None, None);
         let (len, flags) = row.get_length(
@@ -484,9 +484,9 @@ mod tests {
         let rlk = rlookup
             .get_key_write(c"a", make_bitflags!(RLookupKeyFlag::ExplicitReturn))
             .expect("key must be created");
-        row.write_key(rlk, SharedRsValue::new_num(42.));
-        row.write_key_by_name(&mut rlookup, c"b", SharedRsValue::new_num(12.));
-        row.write_key_by_name(&mut rlookup, c"c", SharedRsValue::new_num(36.));
+        row.write_key(rlk, SharedValue::new_num(42.));
+        row.write_key_by_name(&mut rlookup, c"b", SharedValue::new_num(12.));
+        row.write_key_by_name(&mut rlookup, c"c", SharedValue::new_num(36.));
 
         let tsrw = test_schema_rule(None, None, None);
         let (len, flags) = row.get_length(
@@ -510,9 +510,9 @@ mod tests {
         let rlk = rlookup
             .get_key_load(c"a", c"a", make_bitflags!(RLookupKeyFlag::ExplicitReturn))
             .expect("key must be created");
-        row.write_key(rlk, SharedRsValue::new_num(42.));
-        row.write_key_by_name(&mut rlookup, c"b", SharedRsValue::new_num(12.));
-        row.write_key_by_name(&mut rlookup, c"c", SharedRsValue::new_num(36.));
+        row.write_key(rlk, SharedValue::new_num(42.));
+        row.write_key_by_name(&mut rlookup, c"b", SharedValue::new_num(12.));
+        row.write_key_by_name(&mut rlookup, c"c", SharedValue::new_num(36.));
 
         let tsrw = test_schema_rule(None, None, None);
         let (len, flags) = row.get_length(
@@ -537,9 +537,9 @@ mod tests {
         let rlk = rlookup
             .get_key_load(c"a", c"a", make_bitflags!(RLookupKeyFlag::ExplicitReturn))
             .expect("key must be created");
-        row.write_key(rlk, SharedRsValue::new_num(42.));
-        row.write_key_by_name(&mut rlookup, c"b", SharedRsValue::new_num(12.));
-        row.write_key_by_name(&mut rlookup, c"c", SharedRsValue::new_num(36.));
+        row.write_key(rlk, SharedValue::new_num(42.));
+        row.write_key_by_name(&mut rlookup, c"b", SharedValue::new_num(12.));
+        row.write_key_by_name(&mut rlookup, c"c", SharedValue::new_num(36.));
 
         let tsrw = test_schema_rule(None, None, None);
         let (len, flags) = row.get_length(
@@ -561,9 +561,9 @@ mod tests {
     fn get_length_without_rule() {
         let mut rlookup = RLookup::new();
         let mut row = RLookupRow::new();
-        row.write_key_by_name(&mut rlookup, c"a", SharedRsValue::new_num(42.));
-        row.write_key_by_name(&mut rlookup, c"b", SharedRsValue::new_num(12.));
-        row.write_key_by_name(&mut rlookup, c"c", SharedRsValue::new_num(36.));
+        row.write_key_by_name(&mut rlookup, c"a", SharedValue::new_num(42.));
+        row.write_key_by_name(&mut rlookup, c"b", SharedValue::new_num(12.));
+        row.write_key_by_name(&mut rlookup, c"c", SharedValue::new_num(36.));
 
         let (len, flags) = row.get_length(
             &rlookup,
@@ -585,9 +585,9 @@ mod tests {
     fn get_length_with_rule() {
         let mut rlookup = RLookup::new();
         let mut row = RLookupRow::new();
-        row.write_key_by_name(&mut rlookup, c"a", SharedRsValue::new_num(42.));
-        row.write_key_by_name(&mut rlookup, c"b", SharedRsValue::new_num(12.));
-        row.write_key_by_name(&mut rlookup, c"score", SharedRsValue::new_num(100.));
+        row.write_key_by_name(&mut rlookup, c"a", SharedValue::new_num(42.));
+        row.write_key_by_name(&mut rlookup, c"b", SharedValue::new_num(12.));
+        row.write_key_by_name(&mut rlookup, c"score", SharedValue::new_num(100.));
 
         let tsrw = test_schema_rule(None, Some(c"score"), None);
         let (len, flags) = row.get_length(
@@ -604,10 +604,10 @@ mod tests {
         row.write_key_by_name(
             &mut rlookup,
             c"lang",
-            SharedRsValue::new_string(b"en".to_vec()),
+            SharedValue::new_string(b"en".to_vec()),
         );
-        row.write_key_by_name(&mut rlookup, c"c", SharedRsValue::new_num(42.));
-        row.write_key_by_name(&mut rlookup, c"payload", SharedRsValue::new_num(815.0));
+        row.write_key_by_name(&mut rlookup, c"c", SharedValue::new_num(42.));
+        row.write_key_by_name(&mut rlookup, c"payload", SharedValue::new_num(815.0));
 
         let tsrw = test_schema_rule(Some(c"lang"), Some(c"score"), Some(c"payload"));
         let (len, flags) = row.get_length(

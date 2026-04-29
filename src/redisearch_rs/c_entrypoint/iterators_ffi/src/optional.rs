@@ -11,7 +11,6 @@ use std::ptr::NonNull;
 
 use ffi::{QueryEvalCtx, QueryIterator, t_docId};
 use rqe_iterator_type::IteratorType;
-use rqe_iterators::RQEIterator;
 use rqe_iterators::c2rust::CRQEIterator;
 use rqe_iterators::interop::RQEIteratorWrapper;
 use rqe_iterators::optional::Optional;
@@ -44,8 +43,7 @@ pub unsafe extern "C" fn NewOptionalIterator(
     let Some(child_nn) = NonNull::new(child) else {
         // SAFETY: thanks to 2.
         let wc = unsafe { rqe_iterators::wildcard::new_wildcard_iterator(query, 0.0) };
-        let it: Box<dyn RQEIterator + '_> = wc;
-        return RQEIteratorWrapper::boxed_new(it);
+        return RQEIteratorWrapper::boxed_new(wc);
     };
 
     // SAFETY: thanks to 1.
@@ -119,11 +117,10 @@ unsafe fn get_optional_non_optimized_iterator_child(
 unsafe fn get_optional_optimized_iterator_child(
     header: *const QueryIterator,
 ) -> *const QueryIterator {
+    use rqe_iterators::NewWildcardIterator;
     use rqe_iterators::optional_optimized::OptionalOptimized;
-    use rqe_iterators::wildcard::WildcardIterator;
 
-    type OptionalOptimizedFfi<'a> =
-        OptionalOptimized<'a, Box<dyn WildcardIterator<'a> + 'a>, CRQEIterator>;
+    type OptionalOptimizedFfi<'a> = OptionalOptimized<'a, NewWildcardIterator<'a>, CRQEIterator>;
     debug_assert!(!header.is_null());
     debug_assert_eq!(
         // SAFETY: Safe thanks to 1

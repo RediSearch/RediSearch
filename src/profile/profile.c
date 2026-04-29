@@ -8,7 +8,6 @@
 */
 #include "profile.h"
 #include "iterators/iterator_api.h"
-#include "iterators/union_iterator.h"
 #include "iterators/hybrid_reader.h"
 #include "iterators/optimizer_reader.h"
 #include "iterators_rs.h"
@@ -144,9 +143,10 @@ static double _recursiveProfilePrint(RedisModule_Reply *reply, ResultProcessor *
         printProfileGILTime(rs_wall_clock_convert_ns_to_ms_d(rp->rpGILTime));
         break;
 
-      default:
+      default: // LCOV_EXCL_START — defensive: all valid RPType values are handled above
         RS_ABORT("RPType error");
         break;
+      // LCOV_EXCL_STOP
     }
 
     return upstreamTime;
