@@ -157,6 +157,12 @@ TEST_F(CollectParserTest, LocalCollectRequiresPlannerInputKey) {
   QueryError_ClearError(&status);
 }
 
+TEST_F(CollectParserTest, LocalWildcardRejected) {
+  const RLookupKey *inputKey = RLookup_GetKey_Write(&lk, "remote_collect", RLOOKUP_F_NOFLAGS);
+  expectErrorLocal({"FIELDS", "*"}, inputKey,
+      "COLLECT does not yet support `*` in FIELDS for local mode");
+}
+
 TEST_F(CollectParserTest, FieldsSortByAndLimit) {
   registerKeys({"price"});
   Reducer *r = parseCollectOk({
