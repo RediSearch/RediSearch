@@ -487,6 +487,45 @@ def test_disk_vector_query_validation(env: Env):
 
 @skip(cluster=True)
 @with_simulate_in_flex(True)
+def test_flex_ft_info_reports_vector_index_memory(env):
+    """Regression test for MOD-14840.
+
+    HNSW vector indexes are kept in memory even in Flex/ROF mode, so
+    FT.INFO must report a non-zero `vector_index_sz_mb` and the vector
+    memory must be included in `total_index_memory_sz_mb`.
+    """
+    dim = 4
+    env.expect(
+        'FT.CREATE', 'idx', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA',
+        't', 'TEXT',
+        'tag', 'TAG',
+        'v', 'VECTOR', 'HNSW', '14',
+        'TYPE', 'FLOAT32', 'DIM', str(dim), 'DISTANCE_METRIC', 'L2',
+        'M', '16', 'EF_CONSTRUCTION', '100', 'EF_RUNTIME', '10', 'RERANK', 'TRUE',
+    ).ok()
+
+    n_docs = 100
+    with env.getClusterConnectionIfNeeded() as conn:
+        for i in range(n_docs):
+            vector = create_np_array_typed([float(i)] * dim, 'FLOAT32').tobytes()
+            conn.execute_command('HSET', f'doc:{i}', 't', f'hello{i}',
+                                 'tag', f'tag{i}', 'v', vector)
+
+    info = index_info(env, 'idx')
+    vector_size_mb = float(info['vector_index_sz_mb'])
+    total_size_mb = float(info['total_index_memory_sz_mb'])
+
+    env.assertGreater(vector_size_mb, 0,
+                      message=f'Expected vector_index_sz_mb > 0 for HNSW index, got {vector_size_mb}')
+    env.assertGreater(total_size_mb, 0,
+                      message=f'Expected total_index_memory_sz_mb > 0, got {total_size_mb}')
+    env.assertGreaterEqual(total_size_mb, vector_size_mb,
+                           message=f'total_index_memory_sz_mb ({total_size_mb}) must include '
+                                   f'vector_index_sz_mb ({vector_size_mb})')
+
+
+@skip(cluster=True)
+@with_simulate_in_flex(True)
 def test_flex_blocks_alter_command(env):
     _create_flex_search(env)
 
