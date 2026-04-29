@@ -210,6 +210,20 @@ Invoke [/build](.skills/build/SKILL.md) to compile and verify the build.
 Invoke [/lint](.skills/lint/SKILL.md) to check code quality and formatting.
 Invoke [/jj-fix-conflicts](.skills/jj-fix-conflicts/SKILL.md) to resolve conflicts in jj changes.
 
+## Pull Request Description (Required)
+
+When creating a PR, include the following checkboxes from the PR template
+(exactly one must be checked — CI enforces this):
+
+```
+- [x] This PR requires release notes
+- [ ] This PR does not require release notes
+```
+
+Check "requires" for user-facing changes (new commands, behavior changes, bug fixes,
+performance improvements). Check "does not require" for internal-only changes
+(refactoring, CI, tests, documentation).
+
 ## License Header (Required)
 ```
 /*
