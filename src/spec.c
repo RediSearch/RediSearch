@@ -4224,7 +4224,6 @@ void Indexes_UpdateMatchingHashFieldExpiration(RedisModuleCtx *ctx, RedisModuleS
   RS_ASSERT(k);
 
   // runFilters=true so SpecOp_Del is set for keys that fail the FILTER —
-  // otherwise the INDEXMISSING fallback below would index a filter-failing doc.
   SpecOpIndexingCtx *specs = Indexes_FindMatchingSchemaRules(ctx, key, DocumentType_Hash, true, NULL);
 
   for (size_t i = 0; i < array_len(specs->specsOps); ++i) {
@@ -4241,6 +4240,13 @@ void Indexes_UpdateMatchingHashFieldExpiration(RedisModuleCtx *ctx, RedisModuleS
     if (!spec->monitorFieldExpiration) {
       continue;
     }
+
+    // FILTER fails: doc cannot be in the index here (see comment above the
+    // Indexes_FindMatchingSchemaRules call), so nothing to do.
+    if (specOp->op == SpecOp_Del) {
+      continue;
+    }
+
     // Skip specs whose indexed fields were untouched by this notification.
     //
     // Called without the spec lock: hashFieldChanged only reads schema-shape
@@ -4251,12 +4257,6 @@ void Indexes_UpdateMatchingHashFieldExpiration(RedisModuleCtx *ctx, RedisModuleS
     // possible. The spec write lock guards index data against background
     // workers, not the immutable schema descriptors compared here.
     if (!hashFieldChanged(spec, hashFields)) {
-      continue;
-    }
-
-    // FILTER fails: drop if previously indexed, otherwise no-op.
-    if (specOp->op == SpecOp_Del) {
-      IndexSpec_DeleteDoc(spec, ctx, key);
       continue;
     }
 
