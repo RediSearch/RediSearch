@@ -16,7 +16,7 @@ use query_node_type::QueryNodeType;
 use rqe_iterator_type::IteratorType;
 use rqe_iterators::{
     IteratorsConfig, NumericIteratorVariant, c2rust::CRQEIterator, interop::RQEIteratorWrapper,
-    open_numeric_or_geo_index,
+    open_numeric_or_geo_index, profile_print,
 };
 
 /// Wrapper around [`NumericIteratorVariant`].
@@ -317,4 +317,14 @@ pub unsafe extern "C" fn NewNumericFilterIterator(
         ptr::null(),
         1.0,
     )
+}
+
+impl profile_print::ProfilePrint for NumericIterator<'_> {
+    fn print_profile(
+        &self,
+        map: &mut redis_reply::MapBuilder<'_>,
+        ctx: &mut profile_print::ProfilePrintCtx<'_>,
+    ) {
+        self.iterator.print_profile(map, ctx);
+    }
 }

@@ -13,7 +13,10 @@
 //! - `max_slop`: Maximum allowed slop between term positions (`None` = no constraint)
 //! - `in_order`: Require terms to appear in order
 
-use crate::{IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
+use crate::{
+    IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
+    profile_print::{ProfilePrint, ProfilePrintCtx},
+};
 
 use ffi::t_docId;
 use index_result::RSIndexResult;
@@ -584,6 +587,25 @@ impl<'index> crate::interop::ProfileChildren<'index>
             max_slop: self.max_slop,
             in_order: self.in_order,
             result: self.result,
+        }
+    }
+}
+
+impl<'index, I> ProfilePrint for Intersection<'index, I>
+where
+    I: RQEIterator<'index> + ProfilePrint,
+{
+    fn print_profile(&self, map: &mut redis_reply::MapBuilder<'_>, ctx: &mut ProfilePrintCtx<'_>) {
+        map.kv_simple_string(c"Type", c"INTERSECT");
+        ctx.print_optional_counters(map);
+
+        let num_children = self.num_children();
+        let mut arr = map.kv_array(c"Child iterators");
+        for i in 0..num_children {
+            let mut child_map = arr.map();
+            let mut child_ctx = ctx.child_ctx();
+            self.child_at(i)
+                .print_profile(&mut child_map, &mut child_ctx);
         }
     }
 }

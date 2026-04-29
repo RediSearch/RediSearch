@@ -16,6 +16,7 @@ use inverted_index::{
 };
 use rqe_iterators::{
     FieldExpirationChecker, IteratorType, interop::RQEIteratorWrapper, inverted_index::Tag,
+    profile_print,
 };
 
 /// Wrapper around different tag iterator encoding types to avoid generics in FFI code.
@@ -222,4 +223,14 @@ pub unsafe extern "C" fn NewInvIndIterator_TagQuery(
     };
 
     RQEIteratorWrapper::boxed_new(iterator)
+}
+
+impl profile_print::ProfilePrint for TagIterator<'_> {
+    fn print_profile(
+        &self,
+        map: &mut redis_reply::MapBuilder<'_>,
+        ctx: &mut profile_print::ProfilePrintCtx<'_>,
+    ) {
+        tag_it_dispatch!(self, print_profile, map, ctx);
+    }
 }

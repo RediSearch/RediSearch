@@ -48,6 +48,19 @@ impl<'index> NotIteratorEnum<'index> {
     }
 }
 
+impl rqe_iterators::profile_print::ProfilePrint for NotIteratorEnum<'_> {
+    fn print_profile(
+        &self,
+        map: &mut redis_reply::MapBuilder<'_>,
+        ctx: &mut rqe_iterators::profile_print::ProfilePrintCtx<'_>,
+    ) {
+        match self {
+            Self::Not(it) => it.print_profile(map, ctx),
+            Self::NotOptimized(it) => it.print_profile(map, ctx),
+        }
+    }
+}
+
 // Delegate `RQEIterator` to the inner variant.
 impl<'index> RQEIterator<'index> for NotIteratorEnum<'index> {
     #[inline(always)]
@@ -252,9 +265,7 @@ pub unsafe extern "C" fn NewNotIterator(
         let result = unsafe { new_not_iterator(empty, max_doc_id, weight, timeout_ctx, query) };
         return match result {
             NewNotIterator::ReducedWildcard(wc) => RQEIteratorWrapper::boxed_new(wc),
-            NewNotIterator::ReducedEmpty(empty) => {
-                RQEIteratorWrapper::boxed_new(Box::new(empty) as Box<dyn RQEIterator>)
-            }
+            NewNotIterator::ReducedEmpty(empty) => RQEIteratorWrapper::boxed_new(empty),
             // Empty child always reduces; these arms are unreachable.
             NewNotIterator::Not(_) | NewNotIterator::NotOptimized(_) => {
                 panic!("Empty not child always reduces")
@@ -270,9 +281,7 @@ pub unsafe extern "C" fn NewNotIterator(
 
     match result {
         NewNotIterator::ReducedWildcard(wc) => RQEIteratorWrapper::boxed_new(wc),
-        NewNotIterator::ReducedEmpty(empty) => {
-            RQEIteratorWrapper::boxed_new(Box::new(empty) as Box<dyn RQEIterator>)
-        }
+        NewNotIterator::ReducedEmpty(empty) => RQEIteratorWrapper::boxed_new(empty),
         NewNotIterator::Not(iter) => {
             RQEIteratorWrapper::boxed_new_compound(NotIteratorEnum::Not(iter))
         }
