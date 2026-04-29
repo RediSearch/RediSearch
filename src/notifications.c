@@ -174,7 +174,7 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
       if (!SearchDisk_IsEnabled()) {
         Indexes_UpdateMatchingWithSchemaRules(ctx, key, getDocTypeFromString(key), hashFields);
       } else {
-        RedisModule_Log(ctx, "warning", "Field-level expiration is not supported on Search when Flex is enabled. Ignoring HPEXPIRE/HEXPIRE on Search");
+        RedisModule_Log(ctx, "warning", "Field-level expiration is not supported on Search when Flex is enabled. Ignoring HPEXPIRE/HPERSIST on Search");
       }
       break;
 
