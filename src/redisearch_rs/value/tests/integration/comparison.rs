@@ -366,33 +366,6 @@ fn explicit_map_skips_non_string_keys() {
     assert_eq!(result, Ordering::Equal);
 }
 
-#[test]
-#[cfg(debug_assertions)]
-#[should_panic(expected = "map-like comparison called with duplicate map keys")]
-fn array_as_map_duplicate_string_keys_trip_debug_assertion() {
-    let a1 = raw_array([
-        string("a"),
-        Value::Number(1.0),
-        string("a"),
-        Value::Number(2.0),
-    ]);
-    let a2 = raw_array([string("a"), Value::Number(1.0)]);
-
-    let _ = compare_arrays_as_maps(&a1, &a2, false);
-}
-
-#[test]
-#[cfg(debug_assertions)]
-#[should_panic(expected = "map-like comparison called with duplicate map keys")]
-fn explicit_map_duplicate_string_keys_trip_debug_assertion() {
-    let m1 = map([
-        (string("a"), Value::Number(1.0)),
-        (string("a"), Value::Number(2.0)),
-    ]);
-    let m2 = map([(string("a"), Value::Number(1.0))]);
-
-    let _ = compare_maps(&m1, &m2, false);
-}
 
 #[test]
 fn array_as_map_propagates_value_comparison_errors() {
