@@ -220,11 +220,14 @@ static void handleCollectSortByRemote(ArgParser *parser, const void *value, void
   key_opts.name = "SORTBY";
 
   while (!AC_IsAtEnd(ac)) {
-    const char *s = AC_StringArg(ac, ac->offset);
-    // ArgParser already validated `count` and provided a sub-cursor with
-    // exactly `count` so each iteration is guaranteed to succeed.
-    RS_ASSERT(s != NULL);
-    if (!parseAtPrefixedName(s, strlen(s), opts->status)) return;
+    // Peek-only: `ReducerOpts_GetKey` below consumes this arg via its own
+    // `AC_GetString`. Pass AC_F_NOADVANCE so we don't double-advance the
+    // cursor. The loop guard makes AC_ERR_NOARG unreachable.
+    const char *s;
+    size_t len;
+    int rv = AC_GetString(ac, &s, &len, AC_F_NOADVANCE);
+    RS_ASSERT(rv == AC_OK);
+    if (!parseAtPrefixedName(s, len, opts->status)) return;
 
     if (array_len(data->sort_keys) >= COLLECT_MAX_SORT_KEYS) {
       QueryError_SetWithoutUserDataFmt(opts->status, QUERY_ERROR_CODE_LIMIT,
