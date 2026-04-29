@@ -20,6 +20,7 @@
 #include "redisearch.h"
 #include "util/timeout.h"
 #include "types_rs.h"
+#include "rlookup_rs.h"
 
 #include <cmath>
 #include <limits>
@@ -143,6 +144,9 @@ struct TestHybrid {
 class HybridReaderDiskTest : public ::testing::Test {
     std::unique_ptr<MockQueryEvalCtx> mockCtx;
     std::array<float, 4> queryVec = {1.0f, 2.0f, 3.0f, 4.0f};
+    // Stable address used as ownKey sentinel. MetricsVec_UpdateValue compares by
+    // pointer identity only and never reads the fields, so zero-init is fine.
+    RLookupKey scoreKey = {};
 protected:
     void SetUp() override {
         mockCtx = std::make_unique<MockQueryEvalCtx>(100, 10);
@@ -205,9 +209,13 @@ protected:
                                      std::vector<t_docId> docIds,
                                      size_t k) {
         auto h = makeIterator(std::move(sq8), std::move(exact), std::move(docIds), k);
-        // Enable reranking before the first Read() triggers prepareResults().
         auto hr = (HybridIterator *)h.iter;
+        // Enable reranking before the first Read() triggers prepareResults().
         hr->runtimeParams.hnswDiskRuntimeParams.shouldRerank = VecSimBool_TRUE;
+        // Provide a non-null ownKey so MetricsVec_UpdateValue can find and update
+        // the score entry. In production this is set by the metrics loader results
+        // processor; in tests we supply a stable fixture-member address instead.
+        hr->ownKey = &scoreKey;
         return h;
     }
 
