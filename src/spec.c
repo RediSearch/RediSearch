@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "spec.h"
+#include "document.h"
 #include "rlookup_load_document.h"
 
 #include <math.h>
@@ -4200,42 +4201,6 @@ void Indexes_DeleteMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStrin
   Indexes_SpecOpsIndexingCtxFree(specs);
 }
 
-// Build a fresh arrayof(FieldExpiration) from the hash key, sorted by
-// `t_fieldIndex` (which equals the field's position in `spec->fields`, so the
-// natural iteration order produces the sorted invariant required by the TTL
-// table). Returns NULL when the spec opted out of HFE tracking or when no
-// indexed field on this key has a TTL; otherwise the caller owns the returned
-// array. Mirrors the per-field walk in Document_LoadSchemaFieldHash so the
-// fast path produces an entry identical to the one a full reindex would.
-static arrayof(FieldExpiration) loadSortedHashFieldExpirations(IndexSpec *spec,
-                                                               RedisModuleKey *k) {
-  if (!spec->monitorFieldExpiration) {
-    return NULL;
-  }
-  if (RedisModule_HashFieldMinExpire(k) == REDISMODULE_NO_EXPIRE) {
-    return NULL;
-  }
-  arrayof(FieldExpiration) out = NULL;
-  for (size_t ii = 0; ii < spec->numFields; ++ii) {
-    FieldSpec *field = &spec->fields[ii];
-    mstime_t expireAt = REDISMODULE_NO_EXPIRE;
-    RedisModule_HashGet(k, REDISMODULE_HASH_CFIELDS | REDISMODULE_HASH_EXPIRE_TIME,
-                        HiddenString_GetUnsafe(field->fieldPath, NULL), &expireAt, NULL);
-    if (expireAt == REDISMODULE_NO_EXPIRE) {
-      continue;
-    }
-    // Same conversion as document_basic.c::timespecFromMilliseconds; inlined
-    // here to avoid exposing that helper on a hot fast path.
-    FieldExpiration fx = {
-        .index = (t_fieldIndex)ii,
-        .point = {.tv_sec = expireAt / 1000,
-                  .tv_nsec = (expireAt % 1000) * 1000000L},
-    };
-    array_ensure_append_1(out, fx);
-  }
-  return out;
-}
-
 void Indexes_UpdateMatchingHashFieldExpiration(RedisModuleCtx *ctx, RedisModuleString *key,
                                                RedisModuleString **hashFields, DocumentType type) {
 
@@ -4285,7 +4250,7 @@ void Indexes_UpdateMatchingHashFieldExpiration(RedisModuleCtx *ctx, RedisModuleS
       continue;
     }
 
-    arrayof(FieldExpiration) sorted = loadSortedHashFieldExpirations(spec, k);
+    arrayof(FieldExpiration) sorted = Document_LoadHashFieldExpirations(spec, k);
     DocTable_UpdateFieldExpiration(&spec->docs, (RSDocumentMetadata *)cdmd, sorted);
     DMD_Return(cdmd);
 
