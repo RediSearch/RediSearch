@@ -4195,10 +4195,13 @@ void Indexes_UpdateMatchingDocExpiration(RedisModuleCtx *ctx, RedisModuleString 
   // installed on the key, so a single GetAbsExpire is authoritative. The
   // shared GetKeyExpirationTime helper guarantees the value handed
   // to DocTable_UpdateExpiration matches what the full reindex path produces.
-  t_expirationTimePoint ttl = {.tv_sec = 0, .tv_nsec = 0};
   RedisModuleKey *kp = RedisModule_OpenKey(ctx, key, DOCUMENT_OPEN_KEY_INDEXING_FLAGS);
-  RS_ASSERT(kp);
-  ttl = GetKeyExpirationTime(kp);
+  if (!kp) {
+    // Key was deleted, remove from all indexes (NULL hashFields means no schema rule filtering)
+    Indexes_DeleteMatchingWithSchemaRules(ctx, key, type, NULL);
+    return;
+  }
+  t_expirationTimePoint ttl = GetKeyExpirationTime(kp);
   RedisModule_CloseKey(kp);
 
   // Find all indexes that match the key's name prefix
@@ -4206,6 +4209,20 @@ void Indexes_UpdateMatchingDocExpiration(RedisModuleCtx *ctx, RedisModuleString 
 
   for (size_t i = 0; i < array_len(specs->specsOps); ++i) {
     IndexSpec *spec = specs->specsOps[i].spec;
+    // Skip TTL update for specs that opted out of doc-level TTL tracking,
+    // matching the gate in Document_LoadSchemaFieldHash/Json. Otherwise
+    // DocTable_IsDocExpired could drop rows for an index that doesn't
+    // monitor TTLs.
+    //
+    // No spec lock needed: monitorDocumentExpiration is only written from
+    // main-thread callbacks (spec init, FT.CONFIG SET, FT.DEBUG
+    // MONITOR_EXPIRATION), and this keyspace-notification callback also
+    // runs on the main thread, so the Redis event loop serializes them.
+    // The spec write lock guards index data against background workers,
+    // not main-thread config flags (same pattern as the load path).
+    if (!spec->monitorDocumentExpiration) {
+      continue;
+    }
     RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, spec);
     RedisSearchCtx_LockSpecWrite(&sctx);
     const RSDocumentMetadata *cdmd = DocTable_BorrowByKeyR(&spec->docs, key);
