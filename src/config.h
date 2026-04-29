@@ -250,6 +250,7 @@ void DialectsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx);
 #define DEFAULT_INDEXING_MEMORY_LIMIT 100
 #define DEFAULT_BG_OOM_PAUSE_TIME_BEFOR_RETRY 0 // Note: The config value default is changed to 5 in enterprise
 #define DEFAULT_UNSTABLE_FEATURES_ENABLE false
+#define DEFAULT_MAX_INDEXES 200000
 
 #ifdef MT_BUILD
 #define MT_BUILD_CONFIG .numWorkerThreads = 0,                                                                     \

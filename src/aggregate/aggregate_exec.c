@@ -949,7 +949,9 @@ int prepareExecutionPlan(AREQ *req, QueryError *status) {
 
   // check possible optimization after creation of IndexIterator tree
   if (IsOptimized(req)) {
-    QOptimizer_Iterators(req, req->optimizer);
+    if (QOptimizer_Iterators(req, req->optimizer, status) != REDISMODULE_OK) {
+      return REDISMODULE_ERR;
+    }
   }
 
   if (req->reqConfig.timeoutPolicy == TimeoutPolicy_Fail) {
