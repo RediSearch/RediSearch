@@ -6,9 +6,6 @@ on:
   schedule:
     - cron: "20 20 * * 0"
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
 jobs:
   run-benchmarks:
     uses: ./.github/workflows/benchmark-runner.yml

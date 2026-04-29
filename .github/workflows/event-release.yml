@@ -19,7 +19,6 @@ on:
         description: 'The branch/tag/commit of the snapshots to release. Defaults to the given tag'
 
 env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   checkout_target: ${{ inputs.snapshot_of || inputs.tag || github.ref_name }}
   input_tag: ${{ inputs.tag || github.ref_name }}
 

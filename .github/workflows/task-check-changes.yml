@@ -14,9 +14,6 @@ on:
         description: "Indicates if tests were modified"
         value: ${{ jobs.change-checks.outputs.TESTS_CHANGED }}
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
 jobs:
   change-checks:
     runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}

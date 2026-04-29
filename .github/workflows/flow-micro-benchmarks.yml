@@ -19,9 +19,6 @@ on:
           description: 'Run only on specific architecture'
           default: 'all'
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
 jobs:
   prepare_runner_configurations:
     runs-on: ubuntu-latest

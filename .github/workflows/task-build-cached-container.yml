@@ -27,9 +27,6 @@ on:
         description: "Whether image build completed successfully"
         value: ${{ jobs.build-image.outputs.succeeded }}
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
 jobs:
   build-image:
     runs-on: ${{ inputs.runner-env }}

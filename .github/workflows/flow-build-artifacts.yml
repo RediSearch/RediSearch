@@ -48,9 +48,6 @@ on:
         type: boolean
         default: false
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
 jobs:
   setup:
     # Sets SHA and Validates the reference Input (branch or tag)

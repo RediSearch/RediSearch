@@ -13,9 +13,6 @@ on:
       - 'scripts/requirements-linkcheck.txt'
       - '.github/workflows/link-check.yml'
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
 jobs:
   link-check:
     runs-on: ubuntu-latest

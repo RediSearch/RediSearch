@@ -5,9 +5,6 @@ name: Lint for warnings, missing license headers and check that code is well-for
 on:
   workflow_call:
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
 jobs:
   build-image:
     name: Build container for lint

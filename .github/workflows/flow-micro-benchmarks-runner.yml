@@ -12,7 +12,6 @@ on:
         type: string
 
 env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   TAGS: | # Make sure there is no trailing comma!
     [
       {"Key": "Name",         "Value": "redisearch-ci-runner"},

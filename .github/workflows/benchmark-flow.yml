@@ -44,9 +44,6 @@ on:
         default: x86_64
         description: "CPU arch the built .so targets. Passed to `redisbench-admin run-remote --architecture <arch>` so terraform picks the matching oss-standalone-redisearch-m7[-aarch64] dir. Valid: `x86_64` | `aarch64`."
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
 jobs:
   benchmark-steps:
     name: "Benchmark ${{ inputs.arch }} ${{ inputs.allowed_setups }} (${{ inputs.benchmark_runner_group_member_id }}/${{ inputs.benchmark_runner_group_total }}) filter=${{ inputs.benchmark_glob }}${{ inputs.benchmark_filter && format(' narrowed={0}', inputs.benchmark_filter) || '' }}"
