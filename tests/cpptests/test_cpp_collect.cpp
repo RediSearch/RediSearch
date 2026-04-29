@@ -64,6 +64,18 @@ protected:
     QueryError_ClearError(&status);
   }
 
+  void expectErrorLocal(std::vector<const char *> args, const RLookupKey *inputKey,
+                        const char *expected_detail) {
+    QueryError status = QueryError_Default();
+    Reducer *r = parseCollect(args, &status, /*isLocal=*/true, inputKey);
+    ASSERT_EQ(r, nullptr) << "Expected parse failure but got success";
+    const char *user_error = QueryError_GetUserError(&status);
+    ASSERT_NE(user_error, nullptr);
+    EXPECT_TRUE(std::string(user_error).find(expected_detail) != std::string::npos)
+        << "Expected error containing: " << expected_detail << ", got: " << user_error;
+    QueryError_ClearError(&status);
+  }
+
   Reducer *parseCollectOk(std::vector<const char *> args) {
     QueryError status = QueryError_Default();
     Reducer *r = parseCollect(args, &status);
@@ -75,15 +87,33 @@ protected:
 
 // ====== Happy path tests ======
 
-TEST_F(CollectParserTest, WildcardOnlyRejected) {
-  expectError({"FIELDS", "1", "*"},
-      "COLLECT does not yet support `*` in FIELDS");
+TEST_F(CollectParserTest, FieldsWildcardOnly) {
+  Reducer *r = parseCollectOk({"FIELDS", "*"});
+  ASSERT_NE(r, nullptr);
+  EXPECT_TRUE(CollectReducer_HasWildcard(r));
+  EXPECT_EQ(CollectReducer_GetFieldKeysLen(r), 0u);
+  r->Free(r);
 }
 
-TEST_F(CollectParserTest, WildcardAmongFieldsRejected) {
-  registerKeys({"price", "name"});
-  expectError({"FIELDS", "3", "@price", "*", "@name"},
-      "COLLECT does not yet support `*` in FIELDS");
+TEST_F(CollectParserTest, FieldsWithCount) {
+  registerKeys({"a", "b"});
+  Reducer *r = parseCollectOk({"FIELDS", "2", "@a", "@b"});
+  ASSERT_NE(r, nullptr);
+  EXPECT_FALSE(CollectReducer_HasWildcard(r));
+  EXPECT_EQ(CollectReducer_GetFieldKeysLen(r), 2u);
+  r->Free(r);
+}
+
+TEST_F(CollectParserTest, FieldsWildcardWithSortBy) {
+  registerKeys({"price"});
+  Reducer *r = parseCollectOk({
+      "FIELDS", "*",
+      "SORTBY", "1", "@price",
+  });
+  ASSERT_NE(r, nullptr);
+  EXPECT_TRUE(CollectReducer_HasWildcard(r));
+  EXPECT_EQ(CollectReducer_GetSortKeysLen(r), 1u);
+  r->Free(r);
 }
 
 TEST_F(CollectParserTest, FieldsAndSortBy) {
@@ -299,6 +329,12 @@ TEST_F(CollectParserTest, FieldWithoutAtPrefix) {
       "Missing prefix: name requires '@' prefix, JSON path require '$' prefix");
 }
 
+TEST_F(CollectParserTest, LocalFieldWithoutAtPrefix) {
+  const RLookupKey *inputKey = RLookup_GetKey_Write(&lk, "remote_collect", RLOOKUP_F_NOFLAGS);
+  expectErrorLocal({"FIELDS", "1", "price"}, inputKey,
+      "Missing prefix: name requires '@' prefix");
+}
+
 TEST_F(CollectParserTest, FieldEmptyAfterAt) {
   expectError({"FIELDS", "1", "@"}, "Property not loaded nor in pipeline");
 }
@@ -313,9 +349,42 @@ TEST_F(CollectParserTest, FieldsSecondFieldNotInPipeline) {
       "Property not loaded nor in pipeline");
 }
 
-TEST_F(CollectParserTest, DuplicateWildcard) {
-  registerKeys({"price"});
-  expectError({"FIELDS", "3", "*", "@price", "*"}, "`*` can only appear once in FIELDS");
+TEST_F(CollectParserTest, FieldsWildcardWithCount) {
+  expectError({"FIELDS", "1", "*"},
+      "COLLECT does not support `*` with a count");
+}
+
+TEST_F(CollectParserTest, FieldsWildcardAmongFields) {
+  registerKeys({"price", "name"});
+  expectError({"FIELDS", "3", "@price", "*", "@name"},
+      "COLLECT does not support `*` with a count");
+}
+
+TEST_F(CollectParserTest, FieldsWildcardFollowedByField) {
+  expectError({"FIELDS", "*", "@a"},
+      "Unexpected tokens after `*` in FIELDS");
+}
+
+TEST_F(CollectParserTest, FieldsWildcardFollowedByJsonPath) {
+  expectError({"FIELDS", "*", "$..a"},
+      "Unexpected tokens after `*` in FIELDS");
+}
+
+// `*` followed by another `*` is not caught by our wildcard stray-token peek
+// (which only flags `@`/`$`-prefixed tokens); the trailing `*` falls through
+// to the outer ArgParser and is rejected as an unknown argument.
+TEST_F(CollectParserTest, FieldsWildcardFollowedByWildcard) {
+  expectError({"FIELDS", "*", "*"}, "Unknown argument");
+}
+
+TEST_F(CollectParserTest, FieldsBareKeyword) {
+  expectError({"FIELDS"},
+      "Bad arguments for COLLECT: FIELDS: Expected an argument, but none provided");
+}
+
+TEST_F(CollectParserTest, FieldsNonNumericCount) {
+  expectError({"FIELDS", "abc"},
+      "Expected number of fields or `*` after FIELDS");
 }
 
 TEST_F(CollectParserTest, UnknownSubcommand) {
@@ -364,7 +433,7 @@ TEST_F(CollectParserTest, FieldsExceedsMax) {
     field_strs[i] = "@f" + std::to_string(i);
     args.push_back(field_strs[i].c_str());
   }
-  expectError(std::move(args), "Bad arguments for COLLECT: FIELDS: Invalid argument count");
+  expectError(std::move(args), "FIELDS count must be in [1,");
 }
 
 TEST_F(CollectParserTest, SortByInvalidTokenBetweenFields) {
@@ -404,7 +473,7 @@ TEST_F(CollectParserTest, LimitNonNumericOffset) {
 }
 
 TEST_F(CollectParserTest, FieldsZeroCountRequiresAtLeastOne) {
-  expectError({"FIELDS", "0"}, "Bad arguments for COLLECT: FIELDS: Invalid argument count");
+  expectError({"FIELDS", "0"}, "FIELDS count must be in [1,");
 }
 
 TEST_F(CollectParserTest, SortByOnlyDirectionsNoFields) {
