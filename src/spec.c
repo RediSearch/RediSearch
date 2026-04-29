@@ -4201,7 +4201,9 @@ void Indexes_DeleteMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStrin
   Indexes_SpecOpsIndexingCtxFree(specs);
 }
 
-// True iff the spec has any field with INDEXMISSING.
+// True iff the spec has any field with INDEXMISSING. Linear scan over the
+// schema's fields[] array; called from the HEXPIRE fast path (main thread)
+// without the spec lock — same locking discipline as hashFieldChanged.
 static bool specHasIndexMissing(const IndexSpec *spec) {
   for (size_t i = 0; i < spec->numFields; ++i) {
     if (FieldSpec_IndexesMissing(&spec->fields[i])) {
@@ -4221,27 +4223,46 @@ void Indexes_UpdateMatchingHashFieldExpiration(RedisModuleCtx *ctx, RedisModuleS
   RedisModuleKey *k = RedisModule_OpenKey(ctx, key, DOCUMENT_OPEN_KEY_INDEXING_FLAGS);
   RS_ASSERT(k);
 
-  SpecOpIndexingCtx *specs = Indexes_FindMatchingSchemaRules(ctx, key, DocumentType_Hash, false, NULL);
+  // runFilters=true so SpecOp_Del is set for keys that fail the FILTER —
+  // otherwise the INDEXMISSING fallback below would index a filter-failing doc.
+  SpecOpIndexingCtx *specs = Indexes_FindMatchingSchemaRules(ctx, key, DocumentType_Hash, true, NULL);
 
   for (size_t i = 0; i < array_len(specs->specsOps); ++i) {
-    IndexSpec *spec = specs->specsOps[i].spec;
-    // Specs that opted out of HFE tracking have no TTL table state to refresh.
-    // Read without the spec lock: this flag is only written from main-thread
-    // callbacks, which the Redis event loop serializes against this one.
+    SpecOpCtx *specOp = &specs->specsOps[i];
+    IndexSpec *spec = specOp->spec;
+    // Specs that opted out of HFE tracking have no TTL table state to refresh
+    // and HEXPIRE cannot otherwise affect their indexed view of the doc.
+    //
+    // No spec lock needed for the read: monitorFieldExpiration is only
+    // written from main-thread callbacks, and this keyspace-notification
+    // callback also runs on the main thread, so the Redis event loop
+    // serializes them. The spec write lock guards index data against
+    // background workers, not main-thread config flags.
     if (!spec->monitorFieldExpiration) {
       continue;
     }
     // Skip specs whose indexed fields were untouched by this notification.
+    //
     // Called without the spec lock: hashFieldChanged only reads schema-shape
-    // state, which is mutated exclusively from main-thread commands that the
-    // Redis event loop serializes against this notification.
+    // state (numFields, fields[].fieldName, rule->{lang,score,payload}_field)
+    // which is mutated exclusively by FT.CREATE / FT.ALTER / RDB load on the
+    // main thread. This keyspace-notification callback also runs on the main
+    // thread, so the Redis event loop serializes them and no torn read is
+    // possible. The spec write lock guards index data against background
+    // workers, not the immutable schema descriptors compared here.
     if (!hashFieldChanged(spec, hashFields)) {
       continue;
     }
 
-    // INDEXMISSING relies on reindexing: the missing-docs iterator walks an
-    // inverted index that requires monotonically increasing docIds, so we
-    // cannot patch it here. Run the full reindex instead.
+    // FILTER fails: drop if previously indexed, otherwise no-op.
+    if (specOp->op == SpecOp_Del) {
+      IndexSpec_DeleteDoc(spec, ctx, key);
+      continue;
+    }
+
+    // INDEXMISSING relies on reindexing: the missing-docs iterator walks
+    // an inverted index that requires monotonically increasing docIds, so
+    // we cannot patch it from the fast path. Fall back to full reindex.
     if (specHasIndexMissing(spec)) {
       IndexSpec_UpdateDoc(spec, ctx, key, type);
       continue;
@@ -4252,13 +4273,15 @@ void Indexes_UpdateMatchingHashFieldExpiration(RedisModuleCtx *ctx, RedisModuleS
 
     const RSDocumentMetadata *cdmd = DocTable_BorrowByKeyR(&spec->docs, key);
     if (!cdmd) {
-      // Doc not in this index (filter failed or never indexed): nothing to
-      // refresh.
+      // Doc not in this index (filter failed or never indexed). Nothing to
+      // refresh on the fast path.
       RedisSearchCtx_UnlockSpec(&sctx);
       continue;
     }
 
-    // Build the FieldExpiration array using the shared per-field loader. The
+    // Build the FieldExpiration array using the same per-field loader the full
+    // reindex path uses, so both paths produce byte-identical entries. The
+    // outer monitorFieldExpiration gate is already checked above; the
     // HashFieldMinExpire gate avoids the per-field HashGet pass when no field
     // on this hash has a TTL at all.
     arrayof(FieldExpiration) sorted = NULL;
