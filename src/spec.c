@@ -4185,6 +4185,47 @@ void Indexes_UpdateMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStrin
   Indexes_SpecOpsIndexingCtxFree(specs);
 }
 
+void Indexes_UpdateMatchingDocExpiration(RedisModuleCtx *ctx, RedisModuleString *key, DocumentType type) {
+  if (type == DocumentType_Unsupported) {
+    return;
+  }
+
+  // Read the new absolute expiration once for all matching specs. After
+  // EXPIRE/PERSIST has fired the new TTL (or its absence) is already
+  // installed on the key, so a single GetAbsExpire is authoritative.
+  // Mirrors the timespec construction in document_basic.c::getDocExpirationTime
+  // so the value handed to DocTable_UpdateExpiration matches what the full
+  // reindex path produces.
+  t_expirationTimePoint ttl = {.tv_sec = 0, .tv_nsec = 0};
+  RedisModuleKey *kp = RedisModule_OpenKey(ctx, key, DOCUMENT_OPEN_KEY_INDEXING_FLAGS);
+  if (kp) {
+    ttl = getDocExpirationTime(ctx, kp);
+    RedisModule_CloseKey(kp);
+  }
+
+  // Find all indexes that match the key's name prefix
+  SpecOpIndexingCtx *specs = Indexes_FindMatchingSchemaRules(ctx, key, type, false, NULL);
+
+  for (size_t i = 0; i < array_len(specs->specsOps); ++i) {
+    IndexSpec *spec = specs->specsOps[i].spec;
+    RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, spec);
+    RedisSearchCtx_LockSpecWrite(&sctx);
+    const RSDocumentMetadata *cdmd = DocTable_BorrowByKeyR(&spec->docs, key);
+    if (cdmd) {
+      // Reuse the canonical setter so the doc-level write goes through the
+      // same path as Indexer_Add (indexer.c) and the timespec->ns conversion
+      // assertion in expirationTimePointToNs runs. Pass NULL for the field
+      // expirations: EXPIRE/PERSIST do not affect HEXPIRE state, so the
+      // existing per-spec TTL table entries must be preserved untouched.
+      DocTable_UpdateExpiration(&spec->docs, (RSDocumentMetadata *)cdmd, ttl, NULL);
+      DMD_Return(cdmd);
+    }
+    RedisSearchCtx_UnlockSpec(&sctx);
+  }
+
+  Indexes_SpecOpsIndexingCtxFree(specs);
+}
+
 void Indexes_DeleteMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key,
                                            DocumentType type,
                                            RedisModuleString **hashFields) {

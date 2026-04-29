@@ -119,7 +119,7 @@ static inline timespec timespecFromMilliseconds(int64_t totalMilliseconds) {
   return result;
 }
 
-static inline t_expirationTimePoint getDocExpirationTime(RedisModuleCtx* ctx, RedisModuleKey *openedKey) {
+t_expirationTimePoint getDocExpirationTime(RedisModuleCtx* ctx, RedisModuleKey *openedKey) {
   t_expirationTimePoint zero = {.tv_sec = 0, .tv_nsec = 0};
   mstime_t totalMilliseconds = RedisModule_GetAbsExpire(openedKey);
   if (totalMilliseconds == REDISMODULE_NO_EXPIRE) {
