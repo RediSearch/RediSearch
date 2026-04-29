@@ -570,6 +570,81 @@ def testLazyVectorFieldExpiration(env):
     # also we expect that the ismissing inverted index to contain document 1 since it had an active expiration
     env.expect('FT.SEARCH', 'idx', 'ismissing(@v)', 'NOCONTENT', 'DIALECT', '3').equal([1, 'doc:1'])
 
+@skip(cluster=True, redis_less_than='8.0')
+def testKeyExpirationWithNonMatchingIndexes(env):
+    # Cover the full-key TTL case when several indexes coexist but only
+    # some are affected by an EXPIRE/PEXPIRE notification. Three distinct ways
+    # an index can fail to match the key are exercised:
+    #   - idx_other_prefix: PREFIX excludes the key entirely, so the spec is
+    #                       not returned by FindMatchingSchemaRules.
+    #   - idx_filter_skip:  PREFIX matches but the FILTER excludes the doc, so
+    #                       FindMatchingSchemaRules tags the op as SpecOp_Del.
+    #   - idx_no_monitor:   PREFIX matches but monitorDocumentExpiration is
+    #                       disabled, so the spec is skipped on the fast path.
+    # Only idx_match should reflect the new TTL via DocTable_UpdateExpiration;
+    # the others must keep returning their pre-EXPIRE view of the data.
+    conn = getConnectionByEnv(env)
+    conn.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '0')
+
+    env.expect('FT.CREATE', 'idx_match', 'ON', 'HASH',
+               'PREFIX', '1', 'doc:',
+               'SCHEMA', 'x', 'TEXT').ok()
+    env.expect('FT.CREATE', 'idx_other_prefix', 'ON', 'HASH',
+               'PREFIX', '1', 'other:',
+               'SCHEMA', 'x', 'TEXT').ok()
+    env.expect('FT.CREATE', 'idx_filter_skip', 'ON', 'HASH',
+               'PREFIX', '1', 'doc:',
+               'FILTER', '@n == 100',
+               'SCHEMA', 'x', 'TEXT', 'n', 'NUMERIC').ok()
+    env.expect('FT.CREATE', 'idx_no_monitor', 'ON', 'HASH',
+               'PREFIX', '1', 'doc:',
+               'SCHEMA', 'x', 'TEXT').ok()
+
+    # Disable doc-level expiration tracking on idx_no_monitor; the other specs
+    # keep the default monitorDocumentExpiration=true.
+    env.cmd(debug_cmd(), 'SET_MONITOR_EXPIRATION', 'idx_no_monitor', 'not-documents')
+
+    # n=1 fails the FILTER on idx_filter_skip but the PREFIX still selects
+    # these hashes for the keyspace-notification path.
+    conn.execute_command('HSET', 'doc:1', 'x', 'hello', 'n', '1')
+    conn.execute_command('HSET', 'doc:2', 'x', 'hello', 'n', '1')
+    # other:1 belongs only to idx_other_prefix.
+    conn.execute_command('HSET', 'other:1', 'x', 'hello')
+
+    # Sanity check: every index returns the docs it is supposed to before the
+    # PEXPIRE fires.
+    env.expect('FT.SEARCH', 'idx_match', '@x:hello', 'NOCONTENT') \
+        .apply(sort_document_names).equal([2, 'doc:1', 'doc:2'])
+    env.expect('FT.SEARCH', 'idx_no_monitor', '@x:hello', 'NOCONTENT') \
+        .apply(sort_document_names).equal([2, 'doc:1', 'doc:2'])
+    env.expect('FT.SEARCH', 'idx_other_prefix', '@x:hello', 'NOCONTENT') \
+        .equal([1, 'other:1'])
+    env.expect('FT.SEARCH', 'idx_filter_skip', '*', 'NOCONTENT').equal([0])
+
+    conn.execute_command('PEXPIRE', 'doc:1', '1')
+    # https://www.kernel.org/doc/html/latest/core-api/timekeeping.html (CLOCK_REALTIME_COARSE may be off by 10ms)
+    time.sleep(0.015)
+
+    # idx_match: monitorDocumentExpiration=true, so DocTable_UpdateExpiration
+    # ran for doc:1 and DocTable_IsDocExpired now filters it out at search.
+    env.expect('FT.SEARCH', 'idx_match', '@x:hello', 'NOCONTENT').equal([1, 'doc:2'])
+
+    # idx_no_monitor: spec opted out, so the fast path skipped it and the
+    # DocTable entry for doc:1 was never tagged with the new TTL. Active
+    # expiration is off, so the underlying hash is still present and doc:1
+    # remains visible on this index.
+    env.expect('FT.SEARCH', 'idx_no_monitor', '@x:hello', 'NOCONTENT') \
+        .apply(sort_document_names).equal([2, 'doc:1', 'doc:2'])
+
+    # idx_other_prefix: doc:1 was never selected by this index's PREFIX, and
+    # other:1 has no TTL of its own.
+    env.expect('FT.SEARCH', 'idx_other_prefix', '@x:hello', 'NOCONTENT') \
+        .equal([1, 'other:1'])
+
+    # idx_filter_skip: the FILTER excludes every doc, so the index stays empty
+    # and the SpecOp_Del branch in the fast path is exercised.
+    env.expect('FT.SEARCH', 'idx_filter_skip', '*', 'NOCONTENT').equal([0])
+
 
 @skip(redis_less_than='7.3')
 def testLastFieldNoExpiration(env):
