@@ -8,6 +8,7 @@
 */
 
 #include "hybrid_cursor_mappings.h"
+#include "hybrid/hybrid_exec.h"
 #include "redismodule.h"
 #include "rmalloc.h"
 #include "rmutil/rm_assert.h"
@@ -304,9 +305,9 @@ bool ProcessHybridCursorMappings(const MRCommand *cmd, StrongRef searchMappingsR
             } else {
                 const char *msg = QueryError_GetUserError(&ctx->errors[i]);
                 if (msg && strncmp(msg, QUERY_WMAXPREFIXEXPANSIONS, strlen(QUERY_WMAXPREFIXEXPANSIONS)) == 0) {
-                    if (strstr(msg, "(SEARCH)")) {
+                    if (strstr(msg, SEARCH_SUFFIX)) {
                         *maxPrefixSearch = true;
-                    } else if (strstr(msg, "(VSIM)")) {
+                    } else if (strstr(msg, VSIM_SUFFIX)) {
                         *maxPrefixVsim = true;
                     }
                     continue;

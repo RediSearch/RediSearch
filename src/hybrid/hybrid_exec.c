@@ -38,10 +38,6 @@
 
 #include <time.h>
 
-#define SEARCH_SUFFIX "(SEARCH)"
-#define VSIM_SUFFIX "(VSIM)"
-#define POST_PROCESSING_SUFFIX "(POST PROCESSING)"
-
 // Send a warning message to the client, optionally appending a suffix to identify the source
 static inline void ReplyWarning(RedisModule_Reply *reply, const char *message, const char *suffix) {
   if (suffix) {
