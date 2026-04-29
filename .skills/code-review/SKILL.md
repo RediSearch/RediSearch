@@ -82,6 +82,12 @@ Run every check below on the changed C code. For each violation found, record:
 
 #### 2c. Redis Module API usage
 
+- `RedisModule_*` functions must be called with the Redis global lock (GIL) held.
+  The GIL can be acquired via `RedisModule_ThreadSafeContextLock` (blocking) or
+  `RedisModule_ThreadSafeContextTryLock` (non-blocking; must check return value
+  and skip the API call on failure). Code running on worker threads (after
+  `ConcurrentSearchCtx` releases the lock) must not call Redis Module API
+  functions until the GIL is re-acquired.
 - `RedisModuleCtx` is not used after the command handler returns or after the
   blocked client is freed.
 - `RedisModule_AutoMemory` scope is understood: auto-freed objects must not be
