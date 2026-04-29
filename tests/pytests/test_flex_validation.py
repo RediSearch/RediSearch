@@ -108,7 +108,7 @@ def test_valid_flex_arguments(env):
                'SCORE', '0.5',
                'SCORE_FIELD', 'score',
                'STOPWORDS', '2', 'the', 'and',
-               'SCHEMA', 'title', 'TEXT', 'body', 'TEXT').ok()
+               'SCHEMA', 'title', 'TEXT', 'body', 'TEXT', 'INDEXEMPTY').ok()
 
     # Verify the index was created successfully
     info_result = env.cmd('FT.INFO', 'flex_args_idx')
@@ -159,9 +159,6 @@ def test_unsupported_schema_options(env):
     env.expect('FT.CREATE', 'idx3', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA', 'field', 'TEXT', 'INDEXMISSING') \
         .error().contains('Disk index does not support INDEXMISSING fields')
 
-    # Test INDEXEMPTY is not supported
-    env.expect('FT.CREATE', 'idx4', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA', 'field', 'TEXT', 'INDEXEMPTY') \
-        .error().contains('Disk index does not support INDEXEMPTY fields')
 
 
 @skip(cluster=True)
