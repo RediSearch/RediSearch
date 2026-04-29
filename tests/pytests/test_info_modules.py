@@ -1945,7 +1945,7 @@ def _test_pending_jobs_metrics(env, command_type):
     # Launch num_queries queries in background threads
     # Queries will be queued as high-priority jobs but not executed (workers paused)
 
-    query_threads = launch_cmds_in_bg_with_exception_check(env, [f'FT.{command_type}', index_name, '*'], num_queries)
+    query_threads, query_excs = launch_cmds_in_bg_with_exception_check(env, [f'FT.{command_type}', index_name, '*'], num_queries)
     if query_threads is None:
         run_command_on_all_shards(env, debug_cmd(), 'WORKERS', 'RESUME')
         return
@@ -1973,7 +1973,18 @@ def _test_pending_jobs_metrics(env, command_type):
           state['workers_stats'][i] = {f'shard {i}': to_dict(con.execute_command(debug_cmd(), 'WORKERS', 'stats'))}
         return all(all_shards_ready), state
 
-    wait_for_condition(check_queries_jobs_pending, "wait_for_high_priority_jobs_pending")
+    try:
+        wait_for_condition(check_queries_jobs_pending, "wait_for_high_priority_jobs_pending")
+    except Exception:
+        # MOD-13322: on timeout, surface late-arriving background-thread exceptions
+        # (raised after the 1s fast-fail window in launch_cmds_in_bg_with_exception_check)
+        # and log how many query threads are still hung in `env.cmd()`.
+        # 1+ alive => one or more client threads never delivered their command to the coord.
+        if query_excs:
+            env.debugPrint(f"background thread errors after timeout: {query_excs}", force=True)
+        alive = sum(t.is_alive() for t in query_threads)
+        env.debugPrint(f"alive query threads after timeout: {alive}/{len(query_threads)}", force=True)
+        raise
 
     # --- STEP 7: RESUME WORKERS AND DRAIN ---
     # Resume workers:
@@ -2011,7 +2022,6 @@ def _test_pending_jobs_metrics(env, command_type):
 
     wait_for_condition(check_reset_metrics, "wait_for_workers_pending_jobs_metric_reset")
 
-@skip_until("2026-07-01", reason="Flaky test, see MOD-15023")
 def test_pending_jobs_metrics_search():
   env = Env(moduleArgs='DEFAULT_DIALECT 2')
   _test_pending_jobs_metrics(env, 'SEARCH')
@@ -2077,7 +2087,7 @@ class TestCoordHighPriorityPendingJobs(object):
 
     env.expect(debug_cmd(), 'COORD_THREADS', 'PAUSE').ok()
 
-    search_threads = launch_cmds_in_bg_with_exception_check(self.env, [f'FT.{command_type}', DEFAULT_INDEX_NAME, '*'], num_commands_per_type)
+    search_threads, _ = launch_cmds_in_bg_with_exception_check(self.env, [f'FT.{command_type}', DEFAULT_INDEX_NAME, '*'], num_commands_per_type)
     if search_threads is None:
       env.expect(debug_cmd(), 'COORD_THREADS', 'RESUME').ok()
       return
@@ -2097,7 +2107,7 @@ class TestCoordHighPriorityPendingJobs(object):
     num_commands_per_type = 1  # Number of commands to execute for each command type
 
     self.env.expect(debug_cmd(), 'COORD_THREADS', 'PAUSE').ok()
-    search_threads = launch_cmds_in_bg_with_exception_check(self.env, ['FT.CURSOR', 'READ', DEFAULT_INDEX_NAME, cursor_id], num_commands_per_type)
+    search_threads, _ = launch_cmds_in_bg_with_exception_check(self.env, ['FT.CURSOR', 'READ', DEFAULT_INDEX_NAME, cursor_id], num_commands_per_type)
     if search_threads is None:
       self.env.expect(debug_cmd(), 'COORD_THREADS', 'RESUME').ok()
       return
@@ -2111,7 +2121,7 @@ class TestCoordHighPriorityPendingJobs(object):
 
     self.env.expect(debug_cmd(), 'COORD_THREADS', 'PAUSE').ok()
 
-    hybrid_threads = launch_cmds_in_bg_with_exception_check(self.env, ['FT.HYBRID', DEFAULT_INDEX_NAME, 'SEARCH', 'hello',
+    hybrid_threads, _ = launch_cmds_in_bg_with_exception_check(self.env, ['FT.HYBRID', DEFAULT_INDEX_NAME, 'SEARCH', 'hello',
                                  'VSIM', f'@{DEFAULT_FIELD_NAME}', '$BLOB', 'PARAMS', '2', 'BLOB', query_vector], num_commands_per_type)
     if hybrid_threads is None:
       self.env.expect(debug_cmd(), 'COORD_THREADS', 'RESUME').ok()

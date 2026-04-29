@@ -413,7 +413,7 @@ pub unsafe fn new_wildcard_iterator_optimized<'index>(
 ///    that remains valid for `'index`.
 /// 2. [`SEARCH_ENTERPRISE_ITERATORS`] must be initialized before calling this function.
 pub unsafe fn new_wildcard_iterator_on_disk<'index>(
-    disk_spec: &'index ffi::RedisSearchDiskIndexSpec,
+    disk_spec: &'index mut ffi::RedisSearchDiskIndexSpec,
     weight: f64,
 ) -> NewWildcardIterator<'index> {
     // SAFETY: Caller guarantees `SEARCH_ENTERPRISE_ITERATORS` is
@@ -479,7 +479,7 @@ pub unsafe fn new_wildcard_iterator<'index>(
         // SAFETY: Caller guarantees `spec.diskSpec` is a valid, non-null
         // pointer to a `RedisSearchDiskIndexSpec` that remains valid for
         // `'index` (7).
-        let disk_spec = unsafe { &*spec.diskSpec };
+        let disk_spec = unsafe { &mut *spec.diskSpec };
         // SAFETY: Caller guarantees all preconditions of
         // `new_wildcard_iterator_on_disk` hold (7, 8).
         return unsafe { new_wildcard_iterator_on_disk(disk_spec, weight) };

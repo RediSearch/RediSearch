@@ -130,7 +130,7 @@ ValidateStatus QIter_Revalidate(QueryIterator *ctx) {
 
 QueryIterator CPPQueryIterator::init_base() {
   return QueryIterator{
-      .type = ID_LIST_SORTED_ITERATOR,
+      .type = IteratorType_GeoShape,
       .atEOF = false,
       .lastDocId = 0,
       .current = NewVirtualResult(0, RS_FIELDMASK_ALL),

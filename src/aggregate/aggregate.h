@@ -574,6 +574,15 @@ AREQ *AREQ_IncrRef(AREQ *req);
 void AREQ_DecrRef(AREQ *req);
 
 /**
+ * Free a cursor parked in `req->storedReplyState.cursor`, if any.
+ * Used by cleanup paths to release a cursor left behind when the
+ * blocked-client timeout fires before the reply callback runs and
+ * drains it via `AREQ_ReplyWithStoredResults`.
+ * No-op when `storedReplyState.cursor` is NULL.
+ */
+void AREQ_CleanUpStoredCursor(AREQ *req);
+
+/**
  * Start the cursor on the current request
  * @param r the request
  * @param reply the context used for replies (only used in current command)

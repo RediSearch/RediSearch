@@ -27,7 +27,7 @@ typedef const void* RedisSearchDisk;
 typedef const void* RedisSearchDiskIndexSpec;
 typedef const void* RedisSearchDiskInvertedIndex;
 typedef const void* RedisSearchDiskIterator;
-typedef const void* RedisSearchDiskAsyncReadPool;
+typedef void* RedisSearchDiskAsyncReadPool;
 typedef const void* RedisSearchDiskRdbState;
 
 // Callback function to allocate memory for the key in the scope of the search module memory

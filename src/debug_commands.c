@@ -2571,6 +2571,28 @@ DEBUG_COMMAND(syncPoint) {
   }
   return RedisModule_ReplyWithError(ctx, "Unknown SYNC_POINT subcommand. Valid: ARM, SIGNAL, IS_WAITING, IS_ARMED, CLEAR");
 }
+
+/**
+ * FT.DEBUG QUERY_CONTROLLER SET_CURSOR_READ_SIZE <N>
+ * Override RSGlobalConfig.cursorReadSize at runtime. Returns the previous
+ * value so the caller can restore it. N must be >= 1.
+ */
+DEBUG_COMMAND(setCursorReadSize) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc != 3) {
+    return RedisModule_WrongArity(ctx);
+  }
+  long long n;
+  if (RedisModule_StringToLongLong(argv[2], &n) != REDISMODULE_OK || n < 1) {
+    return RedisModule_ReplyWithError(ctx, "Invalid argument for 'SET_CURSOR_READ_SIZE'");
+  }
+
+  long long previous = RSGlobalConfig.cursorReadSize;
+  RSGlobalConfig.cursorReadSize = n;
+  return RedisModule_ReplyWithLongLong(ctx, previous);
+}
 #endif
 
 /**
@@ -2596,6 +2618,9 @@ DEBUG_COMMAND(queryController) {
     return printRPStream(ctx, argv + 1, argc - 1);
   }
 #ifdef ENABLE_ASSERT
+  if (!strcmp("SET_CURSOR_READ_SIZE", op)) {
+    return setCursorReadSize(ctx, argv + 1, argc - 1);
+  }
   // Coordinator reduce pause commands (only available with ENABLE_ASSERT)
   if (!strcmp("SET_PAUSE_BEFORE_REDUCE", op)) {
     return setPauseBeforeReduce(ctx, argv + 1, argc - 1);

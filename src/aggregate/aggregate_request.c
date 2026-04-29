@@ -823,6 +823,7 @@ static void groupStepFree(PLN_BaseStep *base) {
     for (size_t ii = 0; ii < nreducers; ++ii) {
       PLN_Reducer *gr = g->reducers + ii;
       rm_free(gr->alias);
+      rm_free(gr->inputAlias);
     }
     array_free(g->reducers);
   }
@@ -880,6 +881,8 @@ int PLNGroupStep_AddReducer(PLN_GroupStep *gstp, const char *name, ArgsCursor *a
     gr->alias = rm_strdup(alias);
   }
   gr->isHidden = 0; // By default, reducers are not hidden
+  gr->isLocal = false;
+  gr->inputAlias = NULL;
   return REDISMODULE_OK;
 
 error:
@@ -1716,6 +1719,14 @@ AREQ *AREQ_IncrRef(AREQ *req) {
 void AREQ_DecrRef(AREQ *req) {
   if (req && !__atomic_sub_fetch(&req->syncCtx.refcount, 1, __ATOMIC_ACQ_REL)) {
     AREQ_Free(req);
+  }
+}
+
+void AREQ_CleanUpStoredCursor(AREQ *req) {
+  if (req->storedReplyState.cursor) {
+    Cursor *cursor = req->storedReplyState.cursor;
+    req->storedReplyState.cursor = NULL;
+    Cursor_Free(cursor);
   }
 }
 

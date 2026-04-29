@@ -37,7 +37,7 @@ pub(crate) struct MockEnterpriseIterators;
 impl SearchEnterpriseIterators for MockEnterpriseIterators {
     fn new_wildcard_on_disk<'index>(
         &self,
-        _index: &'index ffi::RedisSearchDiskIndexSpec,
+        _index: &'index mut ffi::RedisSearchDiskIndexSpec,
         weight: f64,
     ) -> Result<Box<dyn RQEIterator<'index> + 'index>, Box<dyn std::error::Error>> {
         Ok(Box::new(Wildcard::new(MOCK_DISK_WILDCARD_TOP_ID, weight)))
@@ -45,7 +45,7 @@ impl SearchEnterpriseIterators for MockEnterpriseIterators {
 
     fn new_term_on_disk_with_offsets<'index>(
         &self,
-        _index: &'index ffi::RedisSearchDiskIndexSpec,
+        _index: &'index mut ffi::RedisSearchDiskIndexSpec,
         _query_term: Box<query_term::RSQueryTerm>,
         _field_mask: inverted_index::t_fieldMask,
         _weight: f64,
@@ -57,7 +57,7 @@ impl SearchEnterpriseIterators for MockEnterpriseIterators {
 
     fn new_term_on_disk_without_offsets<'index>(
         &self,
-        _index: &'index ffi::RedisSearchDiskIndexSpec,
+        _index: &'index mut ffi::RedisSearchDiskIndexSpec,
         _query_term: Box<query_term::RSQueryTerm>,
         _field_mask: inverted_index::t_fieldMask,
         _weight: f64,
@@ -69,7 +69,7 @@ impl SearchEnterpriseIterators for MockEnterpriseIterators {
 
     fn new_tag_on_disk<'index>(
         &self,
-        _index: &'index ffi::RedisSearchDiskIndexSpec,
+        _index: &'index mut ffi::RedisSearchDiskIndexSpec,
         _token: &ffi::RSToken,
         _field_index: ffi::t_fieldIndex,
         _weight: f64,
