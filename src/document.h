@@ -208,11 +208,9 @@ int Document_LoadSchemaFieldJson(Document *doc, RedisSearchCtx *sctx, QueryError
 
 /**
  * Append a `FieldExpiration` entry for `field` (at position `ii` in
- * `spec->fields`) to `*out` if the hash key has a TTL on that field; no-op
- * otherwise. Iterating in `spec->fields` order keeps `*out` sorted by
- * `t_fieldIndex`, which is the invariant the TTL table relies on. Caller is
- * responsible for skipping the call entirely when `spec->monitorFieldExpiration`
- * is false or `RedisModule_HashFieldMinExpire(k) == REDISMODULE_NO_EXPIRE`.
+ * `spec->fields`) to `*out` when the hash key has a TTL on that field; no-op
+ * otherwise. Calling this in `spec->fields` order keeps `*out` sorted by
+ * `t_fieldIndex`, which is the invariant the TTL table relies on.
  */
 void Document_LoadHashFieldExpiration(RedisModuleKey *k, const FieldSpec *field,
                                       size_t ii, arrayof(FieldExpiration) *out);

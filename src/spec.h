@@ -741,10 +741,10 @@ size_t Indexes_Count();
 void Indexes_Propagate(RedisModuleCtx *ctx);
 void Indexes_UpdateMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key, DocumentType type,
                                            RedisModuleString **hashFields);
-// Fast path for HEXPIRE/HPERSIST keyspace events: re-reads the per-field
-// absolute expirations from the hash and writes them directly onto the
-// matching specs' TTL tables, without re-tokenizing the document or rebuilding
-// inverted indexes. In-memory flow only; callers must fall back to
+// Refresh the per-field TTL entries on every spec that indexes `key`: reads
+// the hash's current per-field expiration timestamps and writes them onto
+// the matching specs' TTL tables, without re-tokenizing the document or
+// rebuilding inverted indexes. In-memory flow only; callers must use
 // Indexes_UpdateMatchingWithSchemaRules for disk-backed indexes.
 void Indexes_UpdateMatchingHashFieldExpiration(RedisModuleCtx *ctx, RedisModuleString *key,
                                                RedisModuleString **hashFields, DocumentType type);

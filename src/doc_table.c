@@ -236,16 +236,11 @@ static inline int64_t expirationTimePointToNs(t_expirationTimePoint t) {
   return (int64_t)t.tv_sec * 1000000000LL + (int64_t)t.tv_nsec;
 }
 
-// Inlines the doc-level TTL on the DMD unconditionally so the result-processor
-// can drop the TTL-table lookup, and delegates the field-level entry to
-// DocTable_UpdateFieldExpiration. This keeps the table strictly an HFE store,
-// which lets iterators use `t->ttl == NULL` as their per-spec gate. Takes
-// ownership of `sortedFieldWithExpiration`.
-//
-// On the indexer path the docId is freshly minted by `makeDocumentId` (any
-// prior dmd was popped via DocTable_Pop, which already cleared its TTL entry),
-// so the eviction step inside DocTable_UpdateFieldExpiration is a no-op here
-// by construction.
+// Sets the doc-level TTL on the DMD and delegates the per-field entry to
+// DocTable_UpdateFieldExpiration. The doc-level TTL is inlined on the DMD so
+// the result-processor can skip the TTL-table lookup; the table itself stays
+// strictly an HFE store, which lets iterators use `t->ttl == NULL` as their
+// per-spec gate. Takes ownership of `sortedFieldWithExpiration`.
 void DocTable_UpdateExpiration(DocTable *t, RSDocumentMetadata* dmd, t_expirationTimePoint ttl, arrayof(FieldExpiration) sortedFieldWithExpiration) {
   dmd->expirationTimeNs = expirationTimePointToNs(ttl);
   DocTable_UpdateFieldExpiration(t, dmd, sortedFieldWithExpiration);
@@ -253,10 +248,8 @@ void DocTable_UpdateExpiration(DocTable *t, RSDocumentMetadata* dmd, t_expiratio
 
 void DocTable_UpdateFieldExpiration(DocTable *t, RSDocumentMetadata *dmd,
                                     arrayof(FieldExpiration) sortedFieldWithExpiration) {
-  // The HFE fast path may run on a docId that is already registered in the
-  // table (a previous HEXPIRE), so drop any prior entry before reinserting:
-  // TimeToLiveTable_Add asserts on duplicate ids. The indexer path always
-  // arrives here with a fresh docId, in which case Remove is a no-op.
+  // Drop any prior entry before reinserting; TimeToLiveTable_Add asserts on
+  // duplicate ids. Remove is a no-op when the docId is not registered.
   if (t->ttl) {
     TimeToLiveTable_Remove(t->ttl, dmd->id);
   }
@@ -265,8 +258,6 @@ void DocTable_UpdateFieldExpiration(DocTable *t, RSDocumentMetadata *dmd,
     TimeToLiveTable_Add(t->ttl, dmd->id, sortedFieldWithExpiration);
   } else {
     array_free(sortedFieldWithExpiration);
-    // Drop the table once the last HFE doc leaves so iterators can use the
-    // NULL gate again, mirroring DocTable_Pop.
     if (t->ttl && TimeToLiveTable_IsEmpty(t->ttl)) {
       TimeToLiveTable_Destroy(&t->ttl);
     }
@@ -410,10 +401,8 @@ RSDocumentMetadata *DocTable_Pop(DocTable *t, const char *s, size_t n) {
       return NULL;
     }
 
-    // The TTL table holds field-level (HEXPIRE) entries only. Remove is a
-    // no-op if this doc never had one, and the IsEmpty check destroys the
-    // table once the last HFE doc leaves the index, restoring the iterator
-    // gate to its NULL "no HFE in this spec" state.
+    // Drop the doc's per-field TTL entry, if any, and tear down the table
+    // once the last entry is gone so iterators can use the NULL gate again.
     if (t->ttl) {
       TimeToLiveTable_Remove(t->ttl, md->id);
       if (TimeToLiveTable_IsEmpty(t->ttl)) {
