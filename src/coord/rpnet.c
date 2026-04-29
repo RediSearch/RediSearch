@@ -618,7 +618,7 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
 #ifdef ENABLE_ASSERT
     // Sync point (debug): park BG after a shard reply has been admitted into the
     // pipeline (popped from the channel, about to emit its rows).
-    SyncPoint_WaitTimeoutInterruptible(SYNC_POINT_RPNET_REPLY_ADMITTED, nc->areq);
+    SyncPoint_WaitUntil(SYNC_POINT_RPNET_REPLY_ADMITTED, areq_timed_out, nc->areq);
 #endif
     if (resp3) { // RESP3
       nc->curIdx = 0;

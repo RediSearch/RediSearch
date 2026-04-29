@@ -616,6 +616,11 @@ int parseProfileArgs(RedisModuleString **argv, int argc, AREQ *r);
 
 bool AREQ_TimedOut(AREQ *req);
 void AREQ_SetTimedOut(AREQ *req);
+#ifdef ENABLE_ASSERT
+// SyncPointStopFn predicate adapter for AREQ_TimedOut. Pass the AREQ as `arg`
+// to SyncPoint_WaitUntil to release the wait when the request is timed out.
+bool areq_timed_out(void *arg);
+#endif
 
 /* True when this AREQ uses the BG-thread / timeout-callback claim handshake
  * around AggregateResults (TryClaim/Signal/Wait). Currently set only on the

@@ -137,11 +137,6 @@ typedef bool (*SyncPointStopFn)(void *arg);
 // Like SyncPoint_Wait, but also exits the wait loop when `stop_fn(arg)` returns
 // true. Lets workers release early when a timeout fires on the main thread.
 void SyncPoint_WaitUntil(const char *name, SyncPointStopFn stop_fn, void *arg);
-// Interruptible SyncPoint_Wait: exits early if `req` is flagged timed out.
-// Avoids deadlock at sync points between TryClaim and dispatch, where the main
-// thread would otherwise wait in AREQ_WaitForAggregateResultsComplete.
-struct AREQ;
-void SyncPoint_WaitTimeoutInterruptible(const char *name, struct AREQ *req);
 
 // Struct used for debugging hybrid cursor storage ONLY (pause before/after cursor creation)
 // Separate from StoreResultsDebugCtx to allow independent control

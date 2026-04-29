@@ -59,7 +59,7 @@ static int rpnetNext_Start(ResultProcessor *rp, SearchResult *r) {
 
 #ifdef ENABLE_ASSERT
   // Sync point (debug): park BG just before the initial timeout check.
-  SyncPoint_WaitTimeoutInterruptible(SYNC_POINT_BEFORE_RPNET_START, nc->areq);
+  SyncPoint_WaitUntil(SYNC_POINT_BEFORE_RPNET_START, areq_timed_out, nc->areq);
 #endif
 
   // Check if the request timed out before starting the iterator

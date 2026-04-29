@@ -249,21 +249,6 @@ void SyncPoint_WaitUntil(const char *name, SyncPointStopFn stop_fn, void *arg) {
   atomic_fetch_sub(&sp->waiting, 1);
 }
 
-void SyncPoint_WaitTimeoutInterruptible(const char *name, AREQ *req) {
-  SyncPointState *sp = SyncPoint_FindByName(name);
-  if (!sp || !atomic_load(&sp->armed)) return;
-
-  atomic_fetch_add(&sp->waiting, 1);
-  while (atomic_load(&sp->armed)) {
-    // Break out if the request was marked as timed out so the background
-    // thread can proceed and signal completion to the main-thread callback
-    // that is blocked in AREQ_WaitForAggregateResultsComplete.
-    if (req && AREQ_TimedOut(req)) break;
-    usleep(1000);
-  }
-  atomic_fetch_sub(&sp->waiting, 1);
-}
-
 // Global hybrid store cursors debug context (for HREQ cursor storage only)
 static HybridStoreCursorsDebugCtx globalHybridStoreCursorsDebugCtx = {0};
 
