@@ -78,33 +78,21 @@ static const char *parseAtPrefixedName(const char *s, size_t len, QueryError *st
 
 // ----- FIELDS -----
 
-// Parses: FIELDS nargs <@field | *> [<@field | *> ...]
-//   nargs: 1..COLLECT_MAX_FIELD_ARGS
-//
-// The local reducer strips `@` and later matches against map keys carried by the remote payload.
-static void handleCollectFieldsLocal(ArgParser *parser, const void *value, void *user_data) {
-  (void)parser;
-  CollectParseCtx *pctx = (CollectParseCtx *)user_data;
-  CollectParseData *data = pctx->data;
-  const ReducerOptions *opts = pctx->options;
-  ArgsCursor *ac = (ArgsCursor *)value;
-
-  int count = AC_NumRemaining(ac);
-
-  // ArgParser validates nargs is within [1, COLLECT_MAX_FIELD_ARGS] before invoking this callback.
-  RS_ASSERT(count >= 1 && count <= COLLECT_MAX_FIELD_ARGS);
-
-  data->field_names = array_new(const char *, count);
-  for (int i = 0; i < count; i++) {
+// Drains `<num_fields>` `@field` tokens into `data->field_names`.
+// The local reducer strips `@` and later matches against map keys carried by
+// the remote payload.
+static void handleCollectFieldsLocal(ArgsCursor *ac, CollectParseData *data,
+                                     const ReducerOptions *opts) {
+  data->field_names = array_new(const char *, AC_NumRemaining(ac));
+  while (!AC_IsAtEnd(ac)) {
     const char *s;
     size_t len;
     int rv = AC_GetString(ac, &s, &len, 0);
-    // ArgParser already validated `count` and provided a sub-cursor with
-    // exactly `count` so each iteration is guaranteed to succeed.
+    // The slice is sized exactly to `<num_fields>`, so every iteration succeeds.
     RS_ASSERT(rv == AC_OK);
     if (len == 1 && s[0] == '*') {
       QueryError_SetError(opts->status, QUERY_ERROR_CODE_PARSE_ARGS,
-        "COLLECT does not yet support `*` in FIELDS");
+        "COLLECT does not support `*` with a count");
       return;
     }
     // `s` aliases the original argv and is NUL-terminated.
@@ -114,38 +102,86 @@ static void handleCollectFieldsLocal(ArgParser *parser, const void *value, void 
   }
 }
 
-// Shards resolve fields against the source lookup.
-static void handleCollectFieldsRemote(ArgParser *parser, const void *value, void *user_data) {
-  (void)parser;
-  CollectParseCtx *pctx = (CollectParseCtx *)user_data;
-  CollectParseData *data = pctx->data;
-  const ReducerOptions *opts = pctx->options;
-  ArgsCursor *ac = (ArgsCursor *)value;
-
-  int count = AC_NumRemaining(ac);
+// Drains `<num_fields>` `@field` tokens into `data->field_keys`. Remote (shard)
+// mode resolves each field against the source lookup via `ReducerOpts_GetKey`.
+static void handleCollectFieldsRemote(ArgsCursor *ac, CollectParseData *data,
+                                      const ReducerOptions *opts) {
   ReducerOptions sub_opts = *opts;
   sub_opts.args = ac;
   sub_opts.name = "FIELDS";
 
-  // ArgParser validates nargs is within [1, COLLECT_MAX_FIELD_ARGS] before invoking this callback.
-  RS_ASSERT(count >= 1 && count <= COLLECT_MAX_FIELD_ARGS);
-
-  data->field_keys = array_new(const RLookupKey *, count);
-  for (int i = 0; i < count; i++) {
+  data->field_keys = array_new(const RLookupKey *, AC_NumRemaining(ac));
+  while (!AC_IsAtEnd(ac)) {
     if (AC_AdvanceIfMatch(ac, "*")) {
-      if (data->has_wildcard) {
-        QueryError_SetError(opts->status, QUERY_ERROR_CODE_PARSE_ARGS,
-          "`*` can only appear once in FIELDS");
-        return;
-      }
-      data->has_wildcard = true;
-    } else {
-      const RLookupKey *key = NULL;
-      if (!ReducerOpts_GetKey(&sub_opts, &key)) {
-        return;
-      }
-      array_append(data->field_keys, key);
+      QueryError_SetError(opts->status, QUERY_ERROR_CODE_PARSE_ARGS,
+        "COLLECT does not support `*` with a count");
+      return;
     }
+    const RLookupKey *key = NULL;
+    if (!ReducerOpts_GetKey(&sub_opts, &key)) {
+      return;
+    }
+    array_append(data->field_keys, key);
+  }
+}
+
+// Parses: FIELDS ( * | <num_fields> @field [@field ...] )
+//   <num_fields>: 1..COLLECT_MAX_FIELD_ARGS
+//
+// The first token after `FIELDS` is consumed by `ArgParser_AddStringV` and
+// passed in via `value`; the remainder is read directly from the parser's
+// underlying cursor. On wildcard the callback returns immediately; otherwise
+// it slices `<num_fields>` tokens and dispatches to the per-mode drainer.
+static void handleCollectFields(ArgParser *parser, const void *value, void *user_data) {
+  CollectParseCtx *pctx = (CollectParseCtx *)user_data;
+  CollectParseData *data = pctx->data;
+  const ReducerOptions *opts = pctx->options;
+  ArgsCursor *ac = parser->cursor;
+  const char *firstArg = *(const char **)value;
+
+  // Wildcard branch: `*` consumes nothing else from FIELDS. If the next token
+  // begins with `@` or `$` it's a stray field reference and we reject it here;
+  // other tokens (SORTBY, LIMIT, ...) are left for the outer parser to dispatch.
+  if (strcmp(firstArg, "*") == 0) {
+    data->has_wildcard = true;
+    if (!AC_IsAtEnd(ac)) {
+      const char *next = AC_StringArg(ac, ac->offset);
+      if (next && (next[0] == '@' || next[0] == '$')) {
+        QueryError_SetError(opts->status, QUERY_ERROR_CODE_PARSE_ARGS,
+          "Unexpected tokens after `*` in FIELDS");
+      }
+    }
+    return;
+  }
+
+  // Count branch: validate <num_fields> then carve a slice of that size and
+  // hand it off to the mode-specific drain. `firstArg` was already extracted
+  // by `ArgParser_AddStringV`; wrap it in a one-element cursor so we can reuse
+  // `AC_GetLongLong` (which handles `LLONG_MIN/MAX` overflow internally).
+  ArgsCursor numAc;
+  ArgsCursor_InitCString(&numAc, &firstArg, 1);
+  long long count;
+  if (AC_GetLongLong(&numAc, &count, 0) != AC_OK) {
+    QueryError_SetError(opts->status, QUERY_ERROR_CODE_PARSE_ARGS,
+      "Expected number of fields or `*` after FIELDS");
+    return;
+  }
+  if (count < 1 || count > COLLECT_MAX_FIELD_ARGS) {
+    QueryError_SetWithoutUserDataFmt(opts->status, QUERY_ERROR_CODE_LIMIT,
+      "FIELDS count must be in [1, %d]", COLLECT_MAX_FIELD_ARGS);
+    return;
+  }
+  ArgsCursor sub = {0};
+  if (AC_GetSlice(ac, &sub, (size_t)count) != AC_OK) {
+    QueryError_SetError(opts->status, QUERY_ERROR_CODE_PARSE_ARGS,
+      "Not enough arguments were provided based on argument count for FIELDS");
+    return;
+  }
+
+  if (opts->is_local) {
+    handleCollectFieldsLocal(&sub, data, opts);
+  } else {
+    handleCollectFieldsRemote(&sub, data, opts);
   }
 }
 
@@ -317,16 +353,18 @@ Reducer *RDCRCollect_New(const ReducerOptions *options) {
   }
 
   ArgsCursor subArgs = {0};
-  ArgCallback handleFields =
-    options->is_local ? handleCollectFieldsLocal : handleCollectFieldsRemote;
   ArgCallback handleSortBy =
     options->is_local ? handleCollectSortByLocal : handleCollectSortByRemote;
 
-  ArgParser_AddSubArgsV(parser, "FIELDS", "Projected fields",
-    &subArgs, 1, COLLECT_MAX_FIELD_ARGS,
+  // FIELDS accepts either `*` or `<num_fields> @field [@field ...]`. The first
+  // token is consumed as a string; `handleCollectFields` branches on `*` vs.
+  // count and dispatches to the mode-specific drain.
+  const char *fieldsTarget = NULL;
+  ArgParser_AddStringV(parser, "FIELDS", "Projected fields",
+    &fieldsTarget,
     ARG_OPT_REQUIRED,
     ARG_OPT_POSITION, 1,
-    ARG_OPT_CALLBACK, handleFields, &pctx,
+    ARG_OPT_CALLBACK, handleCollectFields, &pctx,
     ARG_OPT_END);
 
   ArgParser_AddSubArgsV(parser, "SORTBY", "In-group sort keys",
@@ -367,13 +405,6 @@ Reducer *RDCRCollect_New(const ReducerOptions *options) {
       return NULL;
     }
     data.input_key = options->input_key;
-  }
-
-  if (data.has_wildcard) {
-    QueryError_SetError(options->status, QUERY_ERROR_CODE_PARSE_ARGS,
-      "COLLECT does not yet support `*` in FIELDS");
-    CollectParseData_Free(&data);
-    return NULL;
   }
 
   // Rust copies the mode-specific parsed data and wires the vtable.
