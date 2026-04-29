@@ -300,7 +300,24 @@ sds RSConfig_GetInfoString(const RSConfig *config);
 
 void UpgradeDeprecatedMTConfigs();
 
-char *getRedisConfigValue(RedisModuleCtx *ctx, const char* confName);
+/*
+ * Get the value of a Redis config as a `RedisModuleString`. Returns NULL if the
+ * config does not exist. The caller is responsible for freeing the returned
+ * string using `RedisModule_FreeString`.
+ */
+RedisModuleString *getRedisConfigValue(RedisModuleCtx *ctx, const char *confName);
+
+/*
+ * Get the boolean value of a Redis config. Returns `defaultValue` if the
+ * config does not exist or isn't a boolean config.
+ */
+bool getRedisConfigBool(RedisModuleCtx *ctx, const char *confName, bool defaultValue);
+
+/*
+ * Get the numeric value of a Redis config. Returns `defaultValue` if the
+ * config does not exist or isn't a numeric config.
+ */
+long long getRedisConfigNumeric(RedisModuleCtx *ctx, const char *confName, long long defaultValue);
 
 // We limit the number of worker threads to limit the amount of memory used by the thread pool
 // and to prevent the system from running out of resources.

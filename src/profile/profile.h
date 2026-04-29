@@ -8,7 +8,12 @@
 */
 #pragma once
 
+#include <assert.h>
+
 #include "value.h"
+#include "reply.h"
+#include "rs_wall_clock.h"
+#include "rmutil/rm_assert.h"
 #include "util/timeout.h"
 #include "iterators/iterator_api.h"
 

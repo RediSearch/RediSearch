@@ -1724,25 +1724,26 @@ void UpgradeDeprecatedMTConfigs() {
   }
 }
 
-char *getRedisConfigValue(RedisModuleCtx *ctx, const char* confName) {
-  RedisModuleCallReply *rep = RedisModule_Call(ctx, "config", "cc", "get", confName);
-  RS_ASSERT(RedisModule_CallReplyType(rep) == REDISMODULE_REPLY_ARRAY);
-  if (RedisModule_CallReplyLength(rep) == 0){
-    RedisModule_FreeCallReply(rep);
-    return NULL;
+RedisModuleString *getRedisConfigValue(RedisModuleCtx *ctx, const char *confName) {
+  RedisModuleString *valueStr = NULL;
+  RedisModule_ConfigGet(ctx, confName, &valueStr);
+  return valueStr; // Unset on error, caller should check for NULL
+}
+
+bool getRedisConfigBool(RedisModuleCtx *ctx, const char *confName, bool defaultValue) {
+  int value = 0;
+  if (RedisModule_ConfigGetBool(ctx, confName, &value) != REDISMODULE_OK) {
+    return defaultValue;
   }
-  RS_ASSERT(RedisModule_CallReplyLength(rep) == 2);
-  RedisModuleCallReply *valueRep = RedisModule_CallReplyArrayElement(rep, 1);
-  RS_ASSERT(RedisModule_CallReplyType(valueRep) == REDISMODULE_REPLY_STRING);
-  size_t len;
-  const char* valueRepCStr = RedisModule_CallReplyStringPtr(valueRep, &len);
+  return value != 0;
+}
 
-  char* res = rm_calloc(1, len + 1);
-  memcpy(res, valueRepCStr, len);
-
-  RedisModule_FreeCallReply(rep);
-
-  return res;
+long long getRedisConfigNumeric(RedisModuleCtx *ctx, const char *confName, long long defaultValue) {
+  long long value = 0;
+  if (RedisModule_ConfigGetNumeric(ctx, confName, &value) != REDISMODULE_OK) {
+    return defaultValue;
+  }
+  return value;
 }
 
 sds RSConfig_GetInfoString(const RSConfig *config) {
@@ -2395,7 +2396,7 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
       get_bool_config, set_bool_config, NULL,
       (void *)&(RSGlobalConfig.fallbackToMainThreadWhenBlockClientUnavailable)
     )
-  ) 
+  )
 
   return REDISMODULE_OK;
 }

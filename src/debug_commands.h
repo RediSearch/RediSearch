@@ -105,10 +105,11 @@ void StoreResultsDebugCtx_SetPause(bool pause);
 
 // Predefined sync point names for query execution
 // These correspond to specific locations in the query execution path
-#define SYNC_POINT_AFTER_ITERATOR_CREATE           "AfterIteratorCreate"
-#define SYNC_POINT_BEFORE_FIRST_READ               "BeforeFirstRead"
-#define SYNC_POINT_BEFORE_DIST_HYBRID_PROMOTE      "BeforeDistHybridPromote"
-#define SYNC_POINT_BEFORE_SPEC_LOCK                "BeforeSpecLock"
+#define SYNC_POINT_AFTER_ITERATOR_CREATE                "AfterIteratorCreate"
+#define SYNC_POINT_BEFORE_FIRST_READ                    "BeforeFirstRead"
+#define SYNC_POINT_BEFORE_DIST_HYBRID_PROMOTE           "BeforeDistHybridPromote"
+#define SYNC_POINT_BEFORE_SPEC_LOCK                     "BeforeSpecLock"
+#define SYNC_POINT_BEFORE_CURSOR_READ_SEND_CHUNK    "BeforeCursorReadSendChunk"
 #define SYNC_POINT_BEFORE_AGGREGATE_RESULTS_CLAIM  "BeforeAggregateResultsClaim"
 #define SYNC_POINT_BEFORE_RPNET_START              "BeforeRPNetStart"
 #define SYNC_POINT_AFTER_ITERATOR_START            "AfterIteratorStart"
@@ -130,6 +131,12 @@ void SyncPoint_ClearAll(void);
 // Called from code paths to potentially wait at a sync point
 // If the named point is armed, blocks until signaled
 void SyncPoint_Wait(const char *name);
+
+// Predicate callback type for SyncPoint_WaitUntil
+typedef bool (*SyncPointStopFn)(void *arg);
+// Like SyncPoint_Wait, but also exits the wait loop when `stop_fn(arg)` returns
+// true. Lets workers release early when a timeout fires on the main thread.
+void SyncPoint_WaitUntil(const char *name, SyncPointStopFn stop_fn, void *arg);
 // Interruptible SyncPoint_Wait: exits early if `req` is flagged timed out.
 // Avoids deadlock at sync points between TryClaim and dispatch, where the main
 // thread would otherwise wait in AREQ_WaitForAggregateResultsComplete.

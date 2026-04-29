@@ -37,6 +37,7 @@ fnv_ffi = { path = "../fnv_ffi" }
 idf_ffi = { path = "../idf_ffi" }
 inverted_index_ffi = { path = "../inverted_index_ffi" }
 iterators_ffi = { path = "../iterators_ffi" }
+metrics_ffi = { path = "../metrics_ffi" }
 query_error_ffi = { path = "../query_error_ffi" }
 query_term_ffi = { path = "../query_term_ffi" }
 reducers_ffi = { path = "../reducers_ffi" }

@@ -17,27 +17,6 @@ mod index_result;
 mod reader;
 
 #[unsafe(no_mangle)]
-pub extern "C" fn ResultMetrics_Free(metrics: *mut ffi::RSYieldableMetric) {
-    if metrics.is_null() {
-        return;
-    }
-
-    panic!(
-        "did not expect any test to set metrics, but got: {:?}",
-        unsafe { *metrics }
-    );
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn RSYieldableMetric_Concat(
-    _parent: *mut *mut ffi::RSYieldableMetric,
-    _child: *const ffi::RSYieldableMetric,
-) {
-    // No unit test sets metrics on results, so this is always called with a null child.
-    // The symbol must be defined because `push_borrowed` references it for aggregate results.
-}
-
-#[unsafe(no_mangle)]
 pub extern "C" fn Term_Free(_t: *mut ffi::RSQueryTerm) {
     panic!("No test created a term record");
 }

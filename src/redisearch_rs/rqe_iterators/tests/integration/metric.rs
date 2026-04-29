@@ -62,18 +62,11 @@ fn score_variant_cannot_skip() {
     let _ = i.skip_to(3);
 }
 
-#[cfg(not(miri))]
-mod not_miri {
+mod metrics_tests {
     use crate::id_cases;
     use inverted_index::RSResultKind;
     use rqe_iterators::{RQEIterator, SkipToOutcome, metric::MetricSortedById};
     use rstest_reuse::apply;
-    use value_ffi::util::as_shared_value;
-
-    fn num_val(value: *mut ffi::RSValue) -> f64 {
-        let shared_value = unsafe { as_shared_value(value.cast_const().cast()) };
-        shared_value.as_num().unwrap()
-    }
 
     #[apply(id_cases)]
     fn read(#[case] case: &[u64]) {
@@ -90,10 +83,10 @@ mod not_miri {
             assert_eq!(res.kind(), RSResultKind::Metric);
             assert_eq!(res.as_numeric(), Some(metric_data[j]));
 
-            assert!(!res.metrics.is_null());
-            let metrics = unsafe { *res.metrics };
-            assert!(metrics.key.is_null());
-            assert_eq!(num_val(metrics.value), metric_data[j]);
+            let metrics = res.metrics_ref();
+            let entry = metrics.get(0).expect("should have one entry");
+            assert!(entry.key().is_none());
+            assert_eq!(entry.value(), metric_data[j]);
             assert_eq!(it.last_doc_id(), expected_id);
         }
 
@@ -106,6 +99,7 @@ mod not_miri {
     }
 
     #[apply(id_cases)]
+    #[cfg_attr(miri, ignore = "Too slow under miri")]
     fn skip_to(#[case] case: &[u64]) {
         let metric_data: Vec<f64> = case.iter().map(|&id| id as f64 * 0.1).collect();
         let mut it = MetricSortedById::new(case.to_vec(), metric_data.clone());
@@ -117,11 +111,10 @@ mod not_miri {
         assert_eq!(first_doc.kind(), RSResultKind::Metric);
         assert_eq!(first_doc.as_numeric().unwrap(), metric_data[0]);
 
-        assert!(!first_doc.metrics.is_null());
-        let metrics = unsafe { *first_doc.metrics };
-        assert!(metrics.key.is_null());
-
-        assert_eq!(num_val(metrics.value), metric_data[0]);
+        let metrics = first_doc.metrics_ref();
+        let entry = metrics.get(0).expect("should have one entry");
+        assert!(entry.key().is_none());
+        assert_eq!(entry.value(), metric_data[0]);
         assert_eq!(it.last_doc_id(), first_id);
         assert_eq!(it.current().unwrap().doc_id, first_id);
         assert_eq!(it.at_eof(), Some(&first_id) == case.last());
@@ -151,11 +144,10 @@ mod not_miri {
                 assert_eq!(res.kind(), RSResultKind::Metric);
                 assert_eq!(res.as_numeric().unwrap(), metric_data[j]);
 
-                assert!(!res.metrics.is_null());
-                let metrics = unsafe { *res.metrics };
-                assert!(metrics.key.is_null());
-
-                assert_eq!(num_val(metrics.value), metric_data[j]);
+                let metrics = res.metrics_ref();
+                let entry = metrics.get(0).expect("should have one entry");
+                assert!(entry.key().is_none());
+                assert_eq!(entry.value(), metric_data[j]);
                 // Should land on next existing id
                 assert_eq!(it.at_eof(), Some(&id) == case.last());
                 assert_eq!(it.last_doc_id(), id);
@@ -171,11 +163,10 @@ mod not_miri {
             assert_eq!(res.kind(), RSResultKind::Metric);
             assert_eq!(res.as_numeric().unwrap(), metric_data[j]);
 
-            assert!(!res.metrics.is_null());
-            let metrics = unsafe { *res.metrics };
-            assert!(metrics.key.is_null());
-
-            assert_eq!(num_val(metrics.value), metric_data[j]);
+            let metrics = res.metrics_ref();
+            let entry = metrics.get(0).expect("should have one entry");
+            assert!(entry.key().is_none());
+            assert_eq!(entry.value(), metric_data[j]);
             assert_eq!(it.at_eof(), Some(&id) == case.last());
             assert_eq!(it.last_doc_id(), id);
             assert_eq!(it.current().unwrap().doc_id, id);
@@ -253,10 +244,10 @@ mod not_miri {
             assert_eq!(res.doc_id, id);
             assert_eq!(res.as_numeric().unwrap(), metric_data[j]);
 
-            assert!(!res.metrics.is_null());
-            let metrics = unsafe { *res.metrics };
-            assert!(metrics.key.is_null());
-            assert_eq!(num_val(metrics.value), metric_data[j]);
+            let metrics = res.metrics_ref();
+            let entry = metrics.get(0).expect("should have one entry");
+            assert!(entry.key().is_none());
+            assert_eq!(entry.value(), metric_data[j]);
             assert_eq!(it.last_doc_id(), id);
             it.rewind();
             assert_eq!(it.last_doc_id(), 0);
@@ -269,10 +260,10 @@ mod not_miri {
             assert_eq!(res.doc_id, id);
             assert_eq!(res.as_numeric().unwrap(), metric_data[j]);
 
-            assert!(!res.metrics.is_null());
-            let metrics = unsafe { *res.metrics };
-            assert!(metrics.key.is_null());
-            assert_eq!(num_val(metrics.value), metric_data[j]);
+            let metrics = res.metrics_ref();
+            let entry = metrics.get(0).expect("should have one entry");
+            assert!(entry.key().is_none());
+            assert_eq!(entry.value(), metric_data[j]);
             assert_eq!(it.last_doc_id(), id);
         }
 

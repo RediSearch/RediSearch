@@ -10,6 +10,7 @@
 #include "dist_hybrid.h"
 #include "hybrid/hybrid_request.h"
 #include "hybrid/hybrid_exec.h"
+#include "hybrid/hybrid_debug.h"
 #include "hybrid/dist_hybrid_plan.h"
 #include "hybrid/parse_hybrid.h"
 #include "dist_plan.h"
@@ -581,7 +582,8 @@ static bool shouldCheckInPipelineTimeoutCoord(HybridRequest *req) {
 
 static int HybridRequest_prepareForExecution(HybridRequest *hreq,
         RedisModuleCtx *ctx, RedisModuleString **argv, int argc, IndexSpec *sp,
-        size_t numShards, QueryError *status) {
+        size_t numShards, QueryError *status,
+        const HybridDebugParams *debugParams) {
 
     hreq->tailPipeline->qctx.err = status;
     hreq->profile = printDistHybridProfile;
@@ -670,6 +672,18 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq,
     xcmd.forProfiling = profileOptions != EXEC_NO_FLAGS;
     xcmd.rootCommand = C_READ;
     xcmd.coordStartTime = hreq->profileClocks.coordStartTime;
+
+    // For debug commands, wrap the shard command with _FT.DEBUG prefix and
+    // append the debug parameters so the shard-side debug handler can apply them.
+    if (debugParams) {
+      MRCommand_Insert(&xcmd, 0, "_FT.DEBUG", sizeof("_FT.DEBUG") - 1);
+      int debug_argv_count = (int)debugParams->debug_params_count + 2;
+      for (int i = 0; i < debug_argv_count; i++) {
+        size_t n;
+        const char *arg = RedisModule_StringPtrLen(debugParams->debug_argv[i], &n);
+        MRCommand_Append(&xcmd, arg, n);
+      }
+    }
 
     // UPDATED: Use new start function with mappings (no dispatcher needed)
     HybridRequest_buildDistRPChain(hreq->requests[0], &xcmd, lookups[0], rpnetNext_StartWithMappings);
@@ -857,7 +871,83 @@ void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     // Get numShards captured from main thread for thread-safe access and to compute effective K
     size_t numShards = ConcurrentCmdCtx_GetNumShards(cmdCtx);
 
-    if (HybridRequest_prepareForExecution(hreq, ctx, argv, argc, sp, numShards, &status) != REDISMODULE_OK) {
+    if (HybridRequest_prepareForExecution(hreq, ctx, argv, argc, sp, numShards, &status, NULL) != REDISMODULE_OK) {
+      DistHybridCleanups(ctx, cmdCtx, sp, &strong_ref, hreq, reply, &status);
+      return;
+    }
+
+    if (HybridRequest_executePlan(hreq, cmdCtx, reply, &status) != REDISMODULE_OK) {
+        DistHybridCleanups(ctx, cmdCtx, sp, &strong_ref, hreq, reply, &status);
+        return;
+    }
+    WeakRef_Release(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
+    IndexSpecRef_Release(strong_ref);
+    RedisModule_EndReply(reply);
+}
+
+void DEBUG_RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
+                            struct ConcurrentCmdCtx *cmdCtx) {
+
+    CoordRequestCtx *reqCtx = RedisModule_BlockClientGetPrivateData(ConcurrentCmdCtx_GetBlockedClient(cmdCtx));
+
+    if(CoordRequestCtx_TimedOut(reqCtx)) {
+      return;
+    }
+
+    RedisModule_Reply _reply = RedisModule_NewReply(ctx);
+    RedisModule_Reply *reply = &_reply;
+    QueryError status = QueryError_Default();
+
+    // Parse debug params from the end of argv
+    HybridDebugParams debugParams = parseHybridDebugParamsCount(argv, argc, &status);
+    if (QueryError_HasError(&status)) {
+      DistHybridCleanups(ctx, cmdCtx, NULL, NULL, NULL, reply, &status);
+      return;
+    }
+    if (parseHybridDebugParams(&debugParams, &status) != REDISMODULE_OK) {
+      DistHybridCleanups(ctx, cmdCtx, NULL, NULL, NULL, reply, &status);
+      return;
+    }
+
+    // Strip debug params from argc for parsing
+    int stripped_argc = argc - (int)debugParams.debug_params_count - 2;
+
+    const char *indexname = RedisModule_StringPtrLen(argv[1], NULL);
+    RedisSearchCtx *sctx = NewSearchCtxC(ctx, indexname, true);
+    if (!sctx) {
+        QueryError_SetWithUserDataFmt(&status, QUERY_ERROR_CODE_NO_INDEX, "Index not found", ": %s", indexname);
+        DistHybridCleanups(ctx, cmdCtx, NULL, NULL, NULL, reply, &status);
+        return;
+    }
+
+    StrongRef strong_ref = IndexSpecRef_Promote(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
+    IndexSpec *sp = StrongRef_Get(strong_ref);
+    if (!sp) {
+        SearchCtx_Free(sctx);
+        QueryError_SetCode(&status, QUERY_ERROR_CODE_DROPPED_BACKGROUND);
+        DistHybridCleanups(ctx, cmdCtx, sp, &strong_ref, NULL, reply, &status);
+        return;
+    }
+
+    CoordRequestCtx_LockSetRequest(reqCtx);
+    if (CoordRequestCtx_TimedOut(reqCtx)) {
+        CoordRequestCtx_UnlockSetRequest(reqCtx);
+        SearchCtx_Free(sctx);
+        DistHybridCleanups(ctx, cmdCtx, sp, &strong_ref, NULL, reply, &status);
+        return;
+    }
+
+    HybridRequest *hreq = MakeDefaultHybridRequest(sctx);
+    CoordRequestCtx_SetRequest(reqCtx, hreq);
+    CoordRequestCtx_UnlockSetRequest(reqCtx);
+
+    hreq->profileClocks.coordStartTime = ConcurrentCmdCtx_GetCoordStartTime(cmdCtx);
+    size_t numShards = ConcurrentCmdCtx_GetNumShards(cmdCtx);
+
+    // Use stripped_argc so parsing doesn't see debug params;
+    // pass debugParams so the MR command gets _FT.DEBUG prefix + debug args.
+    if (HybridRequest_prepareForExecution(hreq, ctx, argv, stripped_argc, sp, numShards,
+                                          &status, &debugParams) != REDISMODULE_OK) {
       DistHybridCleanups(ctx, cmdCtx, sp, &strong_ref, hreq, reply, &status);
       return;
     }

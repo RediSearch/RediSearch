@@ -82,6 +82,22 @@ fn reuse_results_optimization_quick_mode() {
 // into_trimmed
 // =============================================================================
 
+/// `into_children` returns all children that were passed to the constructor.
+#[test]
+fn into_children_returns_all_children() {
+    let (children, _data) = create_mock_3([1, 2], [3, 4], [5, 6]);
+    let mut recovered = UnionFullFlat::new(children).into_children();
+    assert_eq!(recovered.len(), 3);
+
+    let mut docs: Vec<Vec<u64>> = recovered
+        .iter_mut()
+        .map(|c| std::iter::from_fn(|| c.read().unwrap().map(|r| r.doc_id)).collect::<Vec<_>>())
+        .collect();
+    // The order is not a strong contract so we sort again.
+    docs.sort_unstable();
+    assert_eq!(docs, [[1, 2], [3, 4], [5, 6]]);
+}
+
 /// `into_trimmed` on a `UnionFullFlat` produces a working `UnionTrimmed` that
 /// yields all children in reverse order when the limit is large enough.
 #[test]

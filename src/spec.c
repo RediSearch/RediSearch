@@ -49,6 +49,7 @@
 #include "util/redis_mem_info.h"
 #include "search_disk.h"
 #include "search_disk_utils.h"
+#include "iterators_rs.h"
 
 #define INITIAL_DOC_TABLE_SIZE 1000
 

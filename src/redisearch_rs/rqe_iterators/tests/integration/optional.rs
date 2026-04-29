@@ -67,8 +67,6 @@ mod optional_iterator_tests {
     const NUM_DOCS: usize = 5;
     const CHILD_DOCS: [t_docId; NUM_DOCS] = [10, 20, 30, 50, 80];
 
-    // C-Code: port of OptionalIteratorTest::SetUp
-    // as found in tests/cpptests/test_cpp_iterator_optional.cpp
     fn setup_optional_iterator_with_mock_child<'index>()
     -> Optional<'index, utils::Mock<'index, NUM_DOCS>> {
         // Create child iterator with specific docIds
@@ -350,8 +348,6 @@ mod optional_iterator_timeout_tests {
     const NUM_DOCS: usize = 3;
     const CHILD_DOCS: [t_docId; NUM_DOCS] = [10, 20, 30];
 
-    // C-Code: port of OptionalIteratorTimeoutTest::SetUp
-    // as found in tests/cpptests/test_cpp_iterator_optional.cpp
     fn setup_optional_iterator_with_mock_child<'index>()
     -> Optional<'index, utils::Mock<'index, NUM_DOCS>> {
         // Create child iterator with specific docIds
@@ -469,8 +465,6 @@ mod optional_iterator_with_empty_child_test {
     const MAX_DOC_ID: t_docId = 50;
     const WEIGHT: f64 = 3.;
 
-    // C-Code: port of OptionalIteratorWithEmptyChildTest::SetUp
-    // as found in tests/cpptests/test_cpp_iterator_optional.cpp
     fn setup_optional_iterator_with_empty_child<'index>() -> Optional<'index, Empty> {
         // Create empty child iterator
         let child = Empty::default();
@@ -658,8 +652,6 @@ mod optional_iterator_revalidate_test {
     const NUM_DOCS: usize = 5;
     const CHILD_DOCS: [t_docId; NUM_DOCS] = [10, 20, 30, 50, 80];
 
-    // C-Code: port of OptionalIteratorRevalidateTest::SetUp
-    // as found in tests/cpptests/test_cpp_iterator_optional.cpp
     fn setup_optional_iterator_with_mock_child_and_data<'index>() -> (
         Optional<'index, utils::Mock<'index, NUM_DOCS>>,
         utils::MockData,

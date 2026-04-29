@@ -222,7 +222,7 @@ jobs:
                           yield obj["Key"]
 
           def list_snapshots_by_branch(dir):
-              return list_files_by_branch(f"{dir}/snapshots/{dir}")
+              return list_files_by_branch(f"{dir}/snapshots/")
 
           # Return the git sha from the module.json file in the zip file (build sha)
           def extract_sha(key):
