@@ -931,7 +931,7 @@ class TestCoordinatorTimeout:
         ``BeforeCursorReadSendChunk`` and fire ``CLIENT UNBLOCK ... TIMEOUT``
         to invoke ``CursorReadTimeoutFailCallback``. Verify the user sees
         ``-TIMEOUT``, the coord error metric bumps, and the coord cursor is
-        reclaimed via ``AREQ_DrainStoredCursor``.
+        reclaimed via ``AREQ_CleanUpStoredCursor``.
         """
         env = self.env
         skipIfNoEnableAssert(env)
