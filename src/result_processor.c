@@ -657,10 +657,20 @@ static int rpsortNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
   if (rc == RS_RESULT_EOF) {
     rp->Next = rpsortNext_Yield;
     return rpsortNext_Yield(rp, r);
-  } else if (rc == RS_RESULT_TIMEDOUT && (rp->parent->timeoutPolicy == TimeoutPolicy_Return)) {
-    self->timedOut = true;
+  } else if (rc == RS_RESULT_TIMEDOUT) {
+    RSTimeoutPolicy policy = rp->parent->timeoutPolicy;
+
+    if (policy == TimeoutPolicy_Fail) {
+      return rc;
+    }
+    // Both Return and ReturnStrict switch to the yield state; they only
+    // differ in whether buffered results are surfaced before the timeout.
     rp->Next = rpsortNext_Yield;
-    return rpsortNext_Yield(rp, r);
+    if (policy == TimeoutPolicy_Return) {
+      self->timedOut = true;
+      return rpsortNext_Yield(rp, r);
+    }
+    return rc;
   } else if (rc != RS_RESULT_OK) {
     // whoops!
     return rc;
