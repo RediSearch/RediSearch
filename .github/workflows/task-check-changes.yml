@@ -30,14 +30,14 @@ jobs:
 
       - name: Check if any workflows were changed
         id: check-workflows
-        uses: tj-actions/changed-files@9426d40962ed5378910ee2e21d5f8c6fcbf2dd96 # v47.0.6
+        uses: tj-actions/changed-files@v47.0.6
         with: # Only run on changes to these paths (workflows)
           files: |
                 .github/workflows/**
                 .github/actions/**
       - name: Check if code were changed
         id: check-code
-        uses: tj-actions/changed-files@9426d40962ed5378910ee2e21d5f8c6fcbf2dd96 # v47.0.6
+        uses: tj-actions/changed-files@v47.0.6
         with: # Only run on changes to these paths (code, deps)
           files: |
                 src/**
@@ -47,7 +47,7 @@ jobs:
           fetch_additional_submodule_history: true
       - name: Check if benchmarks or code were changed
         id: check-benchmarks
-        uses: tj-actions/changed-files@9426d40962ed5378910ee2e21d5f8c6fcbf2dd96 # v47.0.6
+        uses: tj-actions/changed-files@v47.0.6
         with: # Only run on changes to these paths (code, deps, and benchmarks related changes)
           files: |
                 src/**
@@ -59,7 +59,7 @@ jobs:
           fetch_additional_submodule_history: true
       - name: Check if tests were changed
         id: check-tests
-        uses: tj-actions/changed-files@9426d40962ed5378910ee2e21d5f8c6fcbf2dd96 # v47.0.6
+        uses: tj-actions/changed-files@v47.0.6
         with: # Only run on changes to these paths (tests related changes)
           files: |
                 tests/**
@@ -67,7 +67,7 @@ jobs:
           fetch_additional_submodule_history: true
       - name: Check if rust micro-benchmarks were changed
         id: check-micro-benchmarks
-        uses: tj-actions/changed-files@9426d40962ed5378910ee2e21d5f8c6fcbf2dd96 # v47.0.6
+        uses: tj-actions/changed-files@v47.0.6
         with: # Only run on changes to these paths (redisearch_rs)
           files: |
               src/redisearch_rs/**
