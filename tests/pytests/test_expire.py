@@ -570,19 +570,16 @@ def testLazyVectorFieldExpiration(env):
     # also we expect that the ismissing inverted index to contain document 1 since it had an active expiration
     env.expect('FT.SEARCH', 'idx', 'ismissing(@v)', 'NOCONTENT', 'DIALECT', '3').equal([1, 'doc:1'])
 
-@skip(cluster=True, redis_less_than='8.0')
-def testKeyExpirationWithNonMatchingIndexes(env):
-    # Cover the full-key TTL case when several indexes coexist but only
-    # some are affected by an EXPIRE/PEXPIRE notification. Three distinct ways
-    # an index can fail to match the key are exercised:
+def _setup_non_matching_indexes(env):
+    # Shared setup for the EXPIRE/PEXPIRE/PERSIST scenarios. Three distinct
+    # ways an index can fail to match the key are exercised:
     #   - idx_other_prefix: PREFIX excludes the key entirely, so the spec is
     #                       not returned by FindMatchingSchemaRules.
     #   - idx_filter_skip:  PREFIX matches but the FILTER excludes the doc, so
     #                       FindMatchingSchemaRules tags the op as SpecOp_Del.
     #   - idx_no_monitor:   PREFIX matches but monitorDocumentExpiration is
     #                       disabled, so the spec is skipped on the fast path.
-    # Only idx_match should reflect the new TTL via DocTable_UpdateExpiration;
-    # the others must keep returning their pre-EXPIRE view of the data.
+    # Only idx_match should reflect TTL changes via DocTable_UpdateExpiration.
     conn = getConnectionByEnv(env)
     conn.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '0')
 
@@ -611,8 +608,8 @@ def testKeyExpirationWithNonMatchingIndexes(env):
     # other:1 belongs only to idx_other_prefix.
     conn.execute_command('HSET', 'other:1', 'x', 'hello')
 
-    # Sanity check: every index returns the docs it is supposed to before the
-    # PEXPIRE fires.
+    # Sanity check: every index returns the docs it is supposed to before
+    # any TTL command fires.
     env.expect('FT.SEARCH', 'idx_match', '@x:hello', 'NOCONTENT') \
         .apply(sort_document_names).equal([2, 'doc:1', 'doc:2'])
     env.expect('FT.SEARCH', 'idx_no_monitor', '@x:hello', 'NOCONTENT') \
@@ -621,29 +618,77 @@ def testKeyExpirationWithNonMatchingIndexes(env):
         .equal([1, 'other:1'])
     env.expect('FT.SEARCH', 'idx_filter_skip', '*', 'NOCONTENT').equal([0])
 
-    conn.execute_command('PEXPIRE', 'doc:1', '1')
+    return conn
+
+
+def _assert_non_matching_indexes_unchanged(env):
+    # Indexes that did not match doc:1 must keep their pre-TTL view of the
+    # data regardless of which TTL command fired.
+    #
+    # idx_no_monitor: spec opted out, so the fast path skipped it and the
+    # DocTable entry for doc:1 was never tagged. Active expiration is off,
+    # so the underlying hash is still present and doc:1 remains visible.
+    env.expect('FT.SEARCH', 'idx_no_monitor', '@x:hello', 'NOCONTENT') \
+        .apply(sort_document_names).equal([2, 'doc:1', 'doc:2'])
+    # idx_other_prefix: doc:1 was never selected by this index's PREFIX, and
+    # other:1 has no TTL of its own.
+    env.expect('FT.SEARCH', 'idx_other_prefix', '@x:hello', 'NOCONTENT') \
+        .equal([1, 'other:1'])
+    # idx_filter_skip: the FILTER excludes every doc, so the index stays
+    # empty and the SpecOp_Del branch in the fast path is exercised.
+    env.expect('FT.SEARCH', 'idx_filter_skip', '*', 'NOCONTENT').equal([0])
+
+
+def _run_key_expiration_with_non_matching_indexes(env, expire_cmd, ttl_arg, sleep_secs):
+    # Cover the full-key TTL case when several indexes coexist but only
+    # idx_match is affected by an EXPIRE/PEXPIRE notification.
+    conn = _setup_non_matching_indexes(env)
+
+    conn.execute_command(expire_cmd, 'doc:1', ttl_arg)
     # https://www.kernel.org/doc/html/latest/core-api/timekeeping.html (CLOCK_REALTIME_COARSE may be off by 10ms)
-    time.sleep(0.015)
+    time.sleep(sleep_secs)
 
     # idx_match: monitorDocumentExpiration=true, so DocTable_UpdateExpiration
     # ran for doc:1 and DocTable_IsDocExpired now filters it out at search.
     env.expect('FT.SEARCH', 'idx_match', '@x:hello', 'NOCONTENT').equal([1, 'doc:2'])
 
-    # idx_no_monitor: spec opted out, so the fast path skipped it and the
-    # DocTable entry for doc:1 was never tagged with the new TTL. Active
-    # expiration is off, so the underlying hash is still present and doc:1
-    # remains visible on this index.
-    env.expect('FT.SEARCH', 'idx_no_monitor', '@x:hello', 'NOCONTENT') \
+    _assert_non_matching_indexes_unchanged(env)
+
+
+@skip(cluster=True, redis_less_than='8.0')
+def testKeyExpirationWithNonMatchingIndexes(env):
+    # PEXPIRE granularity: TTL of 1ms, expires almost immediately.
+    _run_key_expiration_with_non_matching_indexes(env, 'PEXPIRE', '1', 0.015)
+
+
+@skip(cluster=True, redis_less_than='8.0')
+def testKeyExpirationWithNonMatchingIndexesExpire(env):
+    # EXPIRE (seconds) granularity: same scenario, but the keyspace
+    # notification arrives via the seconds-based path.
+    _run_key_expiration_with_non_matching_indexes(env, 'EXPIRE', '1', 1.05)
+
+
+@skip(cluster=True, redis_less_than='8.0')
+def testKeyPersistWithNonMatchingIndexes(env):
+    # PERSIST shares the expire_cmd branch in src/notifications.c, so it
+    # also flows through Indexes_UpdateMatchingDocExpiration. Verify that
+    # clearing the TTL on doc:1 propagates to idx_match's DocTable entry
+    # so the doc remains visible past the original PEXPIRE deadline, while
+    # the non-matching indexes keep their pre-TTL view.
+    conn = _setup_non_matching_indexes(env)
+
+    conn.execute_command('PEXPIRE', 'doc:1', '1')
+    # PERSIST runs synchronously on the main thread before the sleep, so it
+    # clears the DocTable expiration recorded by the PEXPIRE notification.
+    conn.execute_command('PERSIST', 'doc:1')
+    time.sleep(0.015)
+
+    # idx_match: PERSIST cleared the DocTable TTL, so DocTable_IsDocExpired
+    # returns false and doc:1 is still visible.
+    env.expect('FT.SEARCH', 'idx_match', '@x:hello', 'NOCONTENT') \
         .apply(sort_document_names).equal([2, 'doc:1', 'doc:2'])
 
-    # idx_other_prefix: doc:1 was never selected by this index's PREFIX, and
-    # other:1 has no TTL of its own.
-    env.expect('FT.SEARCH', 'idx_other_prefix', '@x:hello', 'NOCONTENT') \
-        .equal([1, 'other:1'])
-
-    # idx_filter_skip: the FILTER excludes every doc, so the index stays empty
-    # and the SpecOp_Del branch in the fast path is exercised.
-    env.expect('FT.SEARCH', 'idx_filter_skip', '*', 'NOCONTENT').equal([0])
+    _assert_non_matching_indexes_unchanged(env)
 
 
 @skip(redis_less_than='7.3')
