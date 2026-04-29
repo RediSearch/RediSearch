@@ -12,8 +12,10 @@
 #include "spec.h"
 #include "config.h"
 #include "reducers_rs.h"
-#include <string.h>
+#include <errno.h>
 #include <limits.h>
+#include <stdlib.h>
+#include <string.h>
 
 #define COLLECT_MAX_SORT_KEYS SORTASCMAP_MAXFIELDS
 #define COLLECT_MAX_SORT_TOKENS (COLLECT_MAX_SORT_KEYS * 2)  // each key may have a direction
@@ -29,8 +31,8 @@
 // Exactly one population pattern is used per parse, selected by
 // `options->is_local`:
 //   - is_local == true  : `field_names`, `sort_names`, `input_key` are set;
-//                          `field_keys`, `sort_keys`, `has_wildcard` are not.
-//   - is_local == false : `field_keys`, `sort_keys`, `has_wildcard` are set;
+//                          `field_keys`, `sort_keys`, `load_all` are not.
+//   - is_local == false : `field_keys`, `sort_keys`, `load_all` are set;
 //                          `field_names`, `sort_names`, `input_key` are not.
 // `sortAscMap` and the `limit_*` triple are shared across both modes.
 typedef struct {
@@ -41,7 +43,7 @@ typedef struct {
   arrayof(const char *) sort_names;         // local-only
   const RLookupKey *input_key;              // local-only
 
-  bool load_all;                            // remote-only
+  bool load_all;                            // shared
   uint64_t sortAscMap;                      // shared
 
   bool has_limit;                           // shared
@@ -130,7 +132,7 @@ static void handleCollectFieldsRemote(ArgsCursor *ac, CollectParseData *data,
 //
 // The first token after `FIELDS` is consumed by `ArgParser_AddStringV` and
 // passed in via `value`; the remainder is read directly from the parser's
-// underlying cursor. On wildcard the callback returns immediately; otherwise
+// underlying cursor. On load-all the callback returns immediately; otherwise
 // it slices `<num_fields>` tokens and dispatches to the per-mode drainer.
 static void handleCollectFields(ArgParser *parser, const void *value, void *user_data) {
   CollectParseCtx *pctx = (CollectParseCtx *)user_data;
@@ -139,7 +141,7 @@ static void handleCollectFields(ArgParser *parser, const void *value, void *user
   ArgsCursor *ac = parser->cursor;
   const char *firstArg = *(const char **)value;
 
-  // Wildcard branch: `*` consumes nothing else from FIELDS. If the next token
+  // Load-all branch: `*` consumes nothing else from FIELDS. If the next token
   // begins with `@` or `$` it's a stray field reference and we reject it here;
   // other tokens (SORTBY, LIMIT, ...) are left for the outer parser to dispatch.
   if (strcmp(firstArg, "*") == 0) {
@@ -156,12 +158,11 @@ static void handleCollectFields(ArgParser *parser, const void *value, void *user
 
   // Count branch: validate <num_fields> then carve a slice of that size and
   // hand it off to the mode-specific drain. `firstArg` was already extracted
-  // by `ArgParser_AddStringV`; wrap it in a one-element cursor so we can reuse
-  // `AC_GetLongLong` (which handles `LLONG_MIN/MAX` overflow internally).
-  ArgsCursor numAc;
-  ArgsCursor_InitCString(&numAc, &firstArg, 1);
-  long long count;
-  if (AC_GetLongLong(&numAc, &count, 0) != AC_OK) {
+  // by `ArgParser_AddStringV` and is NUL-terminated, so parse it directly.
+  char *end;
+  errno = 0;
+  long long count = strtoll(firstArg, &end, 10);
+  if (errno != 0 || end == firstArg || *end != '\0') {
     QueryError_SetError(opts->status, QUERY_ERROR_CODE_PARSE_ARGS,
       "Expected number of fields or `*` after FIELDS");
     return;
