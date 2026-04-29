@@ -4186,7 +4186,7 @@ void Indexes_UpdateMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStrin
 }
 
 void Indexes_UpdateMatchingDocExpiration(RedisModuleCtx *ctx, RedisModuleString *key, DocumentType type) {
-  if (type == DocumentType_Unsupported) {
+  if (type == DocumentType_Unsupported || !RSGlobalConfig.monitorExpiration) {
     return;
   }
 

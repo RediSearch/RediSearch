@@ -720,11 +720,6 @@ def test_ttl_table_collision_chain():
 
 @skip(cluster=True)
 def test_expire_past_timestamp_removes_doc(env):
-    # Cover the !kp path in Indexes_UpdateMatchingDocExpiration: when
-    # EXPIREAT is set with a timestamp in the past, the key is gone by the
-    # time the expire keyspace-notification callback opens it. The fast TTL
-    # path must fall back to deleting the document from all matching indexes
-    # via Indexes_DeleteMatchingWithSchemaRules.
     env.cmd('DEBUG', 'SET-ACTIVE-EXPIRE', '0')
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
     env.expect('HSET', 'doc:1', 't', 'hello').equal(1)
