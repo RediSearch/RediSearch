@@ -628,8 +628,13 @@ static int serializeAndReplyResults_Resp2(AREQ *req, RedisModule_Reply *reply, R
     state->resultsLen = prepareSendChunkReply_Resp2(req, reply, qctx, rc, limit);
     state->nelem++;
 
-    // Once we get here, we want to return the results we got from the pipeline (with no error)
-    if (AREQ_RequestFlags(req) & QEXEC_F_NOROWS || (rc != RS_RESULT_OK && rc != RS_RESULT_EOF)) {
+    // Once we get here, we want to return the results we got from the pipeline (with no error).
+    // Under RETURN_STRICT, buffered results from AREQ_StoreResults must be emitted even on
+    // timeout so the harvested rows are not dropped.
+    const bool buffered_strict_2 = state->results != NULL &&
+                                   req->reqConfig.timeoutPolicy == TimeoutPolicy_ReturnStrict;
+    if (AREQ_RequestFlags(req) & QEXEC_F_NOROWS ||
+        (!buffered_strict_2 && rc != RS_RESULT_OK && rc != RS_RESULT_EOF)) {
       goto done_2;
     }
 
@@ -835,7 +840,12 @@ static int serializeAndReplyResults_Resp3(AREQ *req, RedisModule_Reply *reply, R
 
     prepareSendChunkReply_Resp3(req, reply);
 
-    if (AREQ_RequestFlags(req) & QEXEC_F_NOROWS || (rc != RS_RESULT_OK && rc != RS_RESULT_EOF)) {
+    // Under RETURN_STRICT, buffered results from AREQ_StoreResults must be emitted even on
+    // timeout so the harvested rows are not dropped.
+    const bool buffered_strict_3 = state->results != NULL &&
+                                   req->reqConfig.timeoutPolicy == TimeoutPolicy_ReturnStrict;
+    if (AREQ_RequestFlags(req) & QEXEC_F_NOROWS ||
+        (!buffered_strict_3 && rc != RS_RESULT_OK && rc != RS_RESULT_EOF)) {
       goto done_3;
     }
 

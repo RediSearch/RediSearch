@@ -1463,6 +1463,8 @@ class TestCoordinatorTimeout:
         env.assertEqual(len(query_result), 1, message="Expected 1 result from query thread")
         result = query_result[0]
         env.assertEqual(result['total_results'], 0, message="Expected 0 results")
+        env.assertEqual(result.get('results', []), [],
+                        message=f"Expected no rows, got {result.get('results')}")
         env.assertEqual(result.get('warning', []), [TIMEOUT_WARNING])
 
         after_info = info_modules_to_dict(env)
@@ -1629,6 +1631,9 @@ class TestCoordinatorTimeout:
         env.assertEqual(result['total_results'], expected_partial,
                         message=f"Expected {expected_partial} docs from responsive shards, "
                                 f"got {result['total_results']}")
+        env.assertEqual(len(result.get('results', [])), expected_partial,
+                        message=f"Expected {expected_partial} rows from responsive shards in reply, "
+                                f"got {len(result.get('results', []))}")
         env.assertEqual(result.get('warning', []), [TIMEOUT_WARNING])
 
         after_info = info_modules_to_dict(env)
@@ -1806,6 +1811,8 @@ class TestCoordinatorTimeout:
         env.assertEqual(len(query_result), 1, message="Expected 1 result from query thread")
         result = query_result[0]
         env.assertEqual(result['total_results'], 0, message="Expected 0 results")
+        env.assertEqual(result.get('results', []), [],
+                        message=f"Expected no rows, got {result.get('results')}")
         env.assertEqual(result.get('warning', []), [TIMEOUT_WARNING])
 
         after_info = info_modules_to_dict(env)
@@ -1887,6 +1894,9 @@ class TestCoordinatorTimeout:
         env.assertEqual(result['total_results'], self.n_docs,
                         message=f"Expected {self.n_docs} docs after channel drain, "
                                 f"got {result['total_results']}")
+        env.assertEqual(len(result.get('results', [])), self.n_docs,
+                        message=f"Expected {self.n_docs} drained rows in reply, "
+                                f"got {len(result.get('results', []))}")
 
         env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
         env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy)
