@@ -492,7 +492,7 @@ mod tests {
             field_mask: 0,
             freq: 0,
             data: RSResultData::Union(agg),
-            metrics: ptr::null_mut(),
+            metrics: crate::MetricsVec::new(),
             weight: 0.0,
         };
 

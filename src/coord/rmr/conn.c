@@ -396,7 +396,7 @@ static void MRConn_SwitchState(MRConn *conn, MRConnState nextState) {
   // Freeing (explicit stop) and Reconnecting (from an unexpected disconnect callback).
   // They are the only states that has to handle a timer stop.
   // We reach any other state linearly from the previous one, so no timer should be active on the transition.
-  RS_ASSERT(!uv_is_active(&conn->timer) || nextState == MRConn_Reconnecting || nextState == MRConn_Freeing);
+  RS_ASSERT(!uv_is_active((uv_handle_t *)&conn->timer) || nextState == MRConn_Reconnecting || nextState == MRConn_Freeing);
 
   conn->state = nextState;
   switch (nextState) {

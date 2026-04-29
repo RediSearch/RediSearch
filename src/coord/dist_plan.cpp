@@ -14,6 +14,7 @@
 #include "util/arr.h"
 #include "util/stringify.h"
 #include "dist_plan.h"
+#include "dist_plan_utils.h"
 
 #include <vector>
 #include <string>
@@ -62,6 +63,7 @@ struct ReducerDistCtx {
     if (PLNGroupStep_AddReducer(gstp, name, cargs, status) != REDISMODULE_OK) {
       return false;
     }
+    array_tail(gstp->reducers).isLocal = (gstp == this->localGroup);
     if (alias) {
       *alias = getLastAlias(gstp);
     }
@@ -332,6 +334,37 @@ static int distributeAvg(ReducerDistCtx *rdctx, QueryError *status) {
   return REDISMODULE_OK;
 }
 
+/* Remote COLLECT emits array-of-maps; local COLLECT consumes the remote alias. */
+static int distributeCollect(ReducerDistCtx *rdctx, QueryError *status) {
+  const PLN_Reducer *src = rdctx->srcReducer;
+  size_t argc = src->args.argc;
+
+  // Build temporary args, then persist their object arrays with copyArgs.
+  std::string remoteCountStr = std::to_string(argc);
+  std::vector<void *> remoteObjs(collectObjsBufLen(argc, /*has_alias=*/false));
+  ArgsCursor remoteArgs = buildCollectArgs(remoteObjs.data(), remoteCountStr.c_str(),
+                                           &src->args, nullptr);
+  rdctx->copyArgs(&remoteArgs);
+
+  const char *alias;
+  if (!rdctx->add(rdctx->remoteGroup, "COLLECT", &alias, status, &remoteArgs)) {
+    return REDISMODULE_ERR;
+  }
+
+  std::string localCountStr = std::to_string(argc);
+  std::vector<void *> localObjs(collectObjsBufLen(argc, /*has_alias=*/true));
+  ArgsCursor localArgs = buildCollectArgs(localObjs.data(), localCountStr.c_str(),
+                                          &src->args, src->alias);
+  rdctx->copyArgs(&localArgs);
+
+  if (!rdctx->add(rdctx->localGroup, "COLLECT", nullptr, status, &localArgs)) {
+    return REDISMODULE_ERR;
+  }
+  array_tail(rdctx->localGroup->reducers).inputAlias = rm_strdup(alias);
+
+  return REDISMODULE_OK;
+}
+
 // Registry of available distribution functions
 static struct {
   const char *key;
@@ -346,6 +379,7 @@ static struct {
     {"STDDEV", distributeStdDev},
     {"COUNT_DISTINCTISH", distributeCountDistinctish},
     {"QUANTILE", distributeQuantile},
+    {"COLLECT", distributeCollect},
 
     {NULL, NULL}  // sentinel value
 

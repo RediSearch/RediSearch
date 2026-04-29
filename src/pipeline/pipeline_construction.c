@@ -12,7 +12,8 @@ extern "C" {
 #endif
 
 static ResultProcessor *buildGroupRP(PLN_GroupStep *gstp, RLookup *srclookup,
-                                     const RLookupKey ***loadKeys, QueryError *err) {
+                                     const RLookupKey ***loadKeys, uint32_t reqflags,
+                                     QueryError *err) {
   arrayof(const char*) properties = PLNGroupStep_GetProperties(gstp);
   size_t nproperties = array_len(properties);
   const RLookupKey *srckeys[nproperties], *dstkeys[nproperties];
@@ -46,7 +47,20 @@ static ResultProcessor *buildGroupRP(PLN_GroupStep *gstp, RLookup *srclookup,
   for (size_t ii = 0; ii < nreducers; ++ii) {
     // Build the actual reducer
     PLN_Reducer *pr = gstp->reducers + ii;
-    ReducerOptions options = REDUCEROPTS_INIT(pr->name, &pr->args, srclookup, loadKeys, err, gstp->strictPrefix);
+    const RLookupKey *input_key = NULL;
+    if (pr->inputAlias) {
+      input_key = RLookup_GetKey_Read(srclookup, pr->inputAlias, RLOOKUP_F_HIDDEN);
+      if (!input_key) {
+        Grouper_Free(grp);
+        QueryError_SetWithUserDataFmt(err, QUERY_ERROR_CODE_NO_PROP_KEY,
+                                      "Property not loaded nor in pipeline", ": `%s`",
+                                      pr->inputAlias);
+        return NULL;
+      }
+    }
+    ReducerOptions options = REDUCEROPTS_INIT(pr->name, &pr->args, srclookup, loadKeys, err,
+                                              gstp->strictPrefix, pr->isLocal, input_key,
+                                              reqflags);
     ReducerFactory ff = RDCR_GetFactory(pr->name);
     if (!ff) {
       // No such reducer!
@@ -93,7 +107,7 @@ static ResultProcessor *getGroupRP(Pipeline *pipeline, const AggregationPipeline
   RLookup *lookup = AGPLN_GetLookup(&pipeline->ap, &gstp->base, AGPLN_GETLOOKUP_PREV);
   RLookup *firstLk = AGPLN_GetLookup(&pipeline->ap, &gstp->base, AGPLN_GETLOOKUP_FIRST); // first lookup can load fields from redis
   const RLookupKey **loadKeys = NULL;
-  ResultProcessor *groupRP = buildGroupRP(gstp, lookup, (firstLk == lookup && RLookup_HasIndexSpecCache(firstLk)) ? &loadKeys : NULL, status);
+  ResultProcessor *groupRP = buildGroupRP(gstp, lookup, (firstLk == lookup && RLookup_HasIndexSpecCache(firstLk)) ? &loadKeys : NULL, params->common.reqflags, status);
 
   if (!groupRP) {
     array_free(loadKeys);

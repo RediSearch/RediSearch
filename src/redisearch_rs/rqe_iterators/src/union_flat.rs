@@ -205,14 +205,14 @@ where
             if child.last_doc_id() == min_id
                 && let Some(child_result) = child.current()
             {
+                let drained_metrics = std::mem::take(&mut child_result.metrics);
                 let child_ptr: *const RSIndexResult<'index> = child_result;
                 // SAFETY: We need a raw pointer to decouple the borrow of the child's
                 // result from `&mut self.result`. This is sound because:
                 // 1. `self.children[i]` and `self.result` are disjoint fields — no aliasing.
-                // 2. `push_borrowed` takes a shared reference, so no mutation through child_ref.
-                // 3. The child is owned by `self`, so the 'index data remains valid.
+                // 2. The child is owned by `self`, so the 'index data remains valid.
                 let child_ref = unsafe { &*child_ptr };
-                self.result.push_borrowed(child_ref);
+                self.result.push_borrowed(child_ref, drained_metrics);
             }
         }
     }
@@ -426,14 +426,14 @@ where
     fn add_child_to_result(&mut self, child_idx: usize) {
         let child = &mut self.children[child_idx];
         if let Some(child_result) = child.current() {
+            let drained_metrics = std::mem::take(&mut child_result.metrics);
             let child_ptr: *const RSIndexResult<'index> = child_result;
             // SAFETY: We need a raw pointer to decouple the borrow of the child's
             // result from `&mut self.result`. This is sound because:
             // 1. `self.children[i]` and `self.result` are disjoint fields — no aliasing.
-            // 2. `push_borrowed` takes a shared reference, so no mutation through child_ref.
-            // 3. The child is owned by `self`, so the 'index data remains valid.
+            // 2. The child is owned by `self`, so the 'index data remains valid.
             let child_ref = unsafe { &*child_ptr };
-            self.result.push_borrowed(child_ref);
+            self.result.push_borrowed(child_ref, drained_metrics);
         }
     }
 }

@@ -290,6 +290,24 @@ jobs:
       benchmark_runner_group_total: ${{ strategy.job-total }}
       binary_artifact_name: redisearch-bin-${{ github.run_id }}-${{ github.run_attempt }}
 
+  benchmark-hybrid-oss-standalone:
+    if: ${{ inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-standalone' }}
+    needs: build-redisearch
+    strategy:
+      fail-fast: false
+      matrix:
+        member_id: [1]
+    uses: ./.github/workflows/benchmark-flow.yml
+    secrets: inherit
+    with:
+      benchmark_glob: "hybrid*.yml"
+      benchmark_filter: ${{ inputs.benchmark_filter }}
+      allowed_envs: oss-standalone
+      allowed_setups: oss-standalone
+      benchmark_runner_group_member_id: ${{ matrix.member_id }}
+      benchmark_runner_group_total: ${{ strategy.job-total }}
+      binary_artifact_name: redisearch-bin-${{ github.run_id }}-${{ github.run_attempt }}
+
   notify-failure:
     needs:
       - benchmark-search-oss-standalone
@@ -305,6 +323,7 @@ jobs:
       - benchmark-search-oss-cluster-20-primaries
       - benchmark-search-oss-cluster-24-primaries
       - benchmark-msmarco-oss-cluster-08-primaries-250gb-threads-8
+      - benchmark-hybrid-oss-standalone
     if: ${{ always() && contains(needs.*.result, 'failure') && inputs.notify_failure }}
     runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
     steps:
