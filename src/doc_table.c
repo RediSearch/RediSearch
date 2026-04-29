@@ -236,48 +236,40 @@ static inline int64_t expirationTimePointToNs(t_expirationTimePoint t) {
   return (int64_t)t.tv_sec * 1000000000LL + (int64_t)t.tv_nsec;
 }
 
-// Takes ownership of `sortedFieldWithExpiration` (NULL or empty is fine):
-// installs it as the TTL-table entry for `id` when non-empty (handing the
-// allocation to the table, which frees it on entry release), or frees it
-// in place when empty. Does not remove any prior entry for `id` -- callers
-// must evict it first via TimeToLiveTable_Remove, since TimeToLiveTable_Add
-// asserts on duplicate ids. Does not destroy the table when it becomes
-// empty; callers that need the iterator NULL-gate behavior must check
-// TimeToLiveTable_IsEmpty after this returns.
-static inline void docTableSetFieldExpirations(DocTable *t, t_docId id,
-                                               arrayof(FieldExpiration) sortedFieldWithExpiration) {
-  if (array_len(sortedFieldWithExpiration) > 0) {
-    TimeToLiveTable_VerifyInit(&t->ttl, t->maxSize);
-    TimeToLiveTable_Add(t->ttl, id, sortedFieldWithExpiration);
-  } else {
-    array_free(sortedFieldWithExpiration);
-  }
-}
-
 // Inlines the doc-level TTL on the DMD unconditionally so the result-processor
-// can drop the TTL-table lookup, and only routes field-level expirations into
-// the TTL table. This keeps the table strictly an HFE store, which lets
-// iterators use `t->ttl == NULL` as their per-spec gate. Takes ownership of
-// `sortedFieldWithExpiration` either by handing it to the table or freeing it
-// when there are no field-level entries to register.
+// can drop the TTL-table lookup, and delegates the field-level entry to
+// DocTable_UpdateFieldExpiration. This keeps the table strictly an HFE store,
+// which lets iterators use `t->ttl == NULL` as their per-spec gate. Takes
+// ownership of `sortedFieldWithExpiration`.
+//
+// On the indexer path the docId is freshly minted by `makeDocumentId` (any
+// prior dmd was popped via DocTable_Pop, which already cleared its TTL entry),
+// so the eviction step inside DocTable_UpdateFieldExpiration is a no-op here
+// by construction.
 void DocTable_UpdateExpiration(DocTable *t, RSDocumentMetadata* dmd, t_expirationTimePoint ttl, arrayof(FieldExpiration) sortedFieldWithExpiration) {
   dmd->expirationTimeNs = expirationTimePointToNs(ttl);
-  docTableSetFieldExpirations(t, dmd->id, sortedFieldWithExpiration);
+  DocTable_UpdateFieldExpiration(t, dmd, sortedFieldWithExpiration);
 }
 
 void DocTable_UpdateFieldExpiration(DocTable *t, RSDocumentMetadata *dmd,
                                     arrayof(FieldExpiration) sortedFieldWithExpiration) {
   // The HFE fast path may run on a docId that is already registered in the
   // table (a previous HEXPIRE), so drop any prior entry before reinserting:
-  // TimeToLiveTable_Add asserts on duplicate ids.
+  // TimeToLiveTable_Add asserts on duplicate ids. The indexer path always
+  // arrives here with a fresh docId, in which case Remove is a no-op.
   if (t->ttl) {
     TimeToLiveTable_Remove(t->ttl, dmd->id);
   }
-  docTableSetFieldExpirations(t, dmd->id, sortedFieldWithExpiration);
-  // Drop the table once the last HFE doc leaves so iterators can use the
-  // NULL gate again, mirroring DocTable_Pop.
-  if (t->ttl && TimeToLiveTable_IsEmpty(t->ttl)) {
-    TimeToLiveTable_Destroy(&t->ttl);
+  if (array_len(sortedFieldWithExpiration) > 0) {
+    TimeToLiveTable_VerifyInit(&t->ttl, t->maxSize);
+    TimeToLiveTable_Add(t->ttl, dmd->id, sortedFieldWithExpiration);
+  } else {
+    array_free(sortedFieldWithExpiration);
+    // Drop the table once the last HFE doc leaves so iterators can use the
+    // NULL gate again, mirroring DocTable_Pop.
+    if (t->ttl && TimeToLiveTable_IsEmpty(t->ttl)) {
+      TimeToLiveTable_Destroy(&t->ttl);
+    }
   }
 }
 

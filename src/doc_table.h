@@ -134,8 +134,9 @@ void DocTable_SetByteOffsets(RSDocumentMetadata *dmd, RSByteOffsets *offsets);
 void DocTable_UpdateExpiration(DocTable *t, RSDocumentMetadata* dmd, t_expirationTimePoint ttl, arrayof(FieldExpiration) allFieldSorted);
 
 // Replaces the per-field expiration entry for an existing document without
-// touching `dmd->expirationTimeNs`. Used by the HEXPIRE/HPERSIST fast path,
-// which only mutates field-level TTL metadata. Takes ownership of
+// touching `dmd->expirationTimeNs`. Used directly by the HEXPIRE/HPERSIST
+// fast path (which only mutates field-level TTL metadata) and indirectly by
+// the indexer path via DocTable_UpdateExpiration. Takes ownership of
 // `sortedFieldWithExpiration`: a NULL or empty array clears the entry and
 // destroys the TTL table when no other doc still has an entry; otherwise it
 // replaces the entry. Caller must hold the spec write lock.
