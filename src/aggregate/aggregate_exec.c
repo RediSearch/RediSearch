@@ -1542,6 +1542,7 @@ static int QueryReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int
 
 // Shard FT.CURSOR READ FAIL-path timeout callback. Mirrors
 // QueryTimeoutFailCallback but uses a different privdata type (BlockedCursorNode).
+// Can be consolidated with QueryTimeoutFailCallback - See MOD-15038.
 static int CursorReadTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   UNUSED(argv);
   UNUSED(argc);
@@ -1569,6 +1570,7 @@ static int CursorReadTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString 
 // Mirrors QueryReplyCallbackbut uses a different privdata type (BlockedCursorNode).
 // Not invoked if the timeout fired first.
 // The BlockedCursorNode reference is released by FreeCursorNode → ShardCursorBlockClient_FreeAREQ after this callback.
+// Can be consolidated with QueryReplyCallback - See MOD-15038.
 static int CursorReadReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   UNUSED(argv);
   UNUSED(argc);
@@ -1914,10 +1916,11 @@ static void cursorRead_ctx(CursorReadCtx *cr_ctx) {
   // we were queued, the client already got its timeout reply. Skip the
   // pipeline and free the cursor; FreeCursorNode will release the AREQ ref.
   AREQ *req = cr_ctx->cursor->execState;
-  if (req && AREQ_TimedOut(req)) {
-    Cursor_Free(cr_ctx->cursor);
-  } else {
+  RS_ASSERT(req);
+  if (!AREQ_TimedOut(req)) {
     cursorRead(ctx, cr_ctx->cursor, cr_ctx->count, true);
+  } else {
+    Cursor_Free(cr_ctx->cursor);
   }
   RedisModule_FreeThreadSafeContext(ctx);
   RedisModule_BlockedClientMeasureTimeEnd(cr_ctx->bc);
