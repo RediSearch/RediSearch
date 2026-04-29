@@ -407,6 +407,13 @@ Reducer *RDCRCollect_New(const ReducerOptions *options) {
     data.input_key = options->input_key;
   }
 
+  if (data.has_wildcard && options->is_local) {
+    QueryError_SetError(options->status, QUERY_ERROR_CODE_PARSE_ARGS,
+      "COLLECT does not yet support `*` in FIELDS for local mode");
+    CollectParseData_Free(&data);
+    return NULL;
+  }
+
   // Rust copies the mode-specific parsed data and wires the vtable.
   Reducer *rbase;
   if (options->is_local) {
