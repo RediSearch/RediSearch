@@ -7,8 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use crate::Value;
-use crate::util::{num_to_str, str_to_float};
+use crate::util::{debug_assert_warn, num_to_str, str_to_float};
+use crate::{Array, Map, Value};
 use query_error::{QueryError, QueryErrorCode};
 use std::cmp::Ordering;
 use std::ops::Deref;
@@ -184,6 +184,104 @@ pub fn compare(
         )),
         _ => Err(CompareError::IncompatibleTypes),
     }
+}
+
+fn sorted_map_like_entries<'a>(
+    pairs: impl Iterator<Item = (&'a Value, &'a Value)>,
+) -> Vec<(&'a [u8], &'a Value)> {
+    let mut entries: Vec<_> = pairs
+        .filter_map(|(key, value)| Some((key.as_str_bytes()?, value)))
+        .collect();
+
+    entries.sort_unstable_by(|(left_key, _), (right_key, _)| left_key.cmp(right_key));
+
+    // Sorting groups equal keys together, so duplicate map keys can be detected
+    // with a single adjacent-pair scan. Duplicate keys are a caller contract
+    // violation, not a runtime comparison error.
+    debug_assert_warn!(
+        !entries.windows(2).any(|window| window[0].0 == window[1].0),
+        "map-like comparison called with duplicate map keys;"
+    );
+
+    entries
+}
+
+fn sorted_array_map_entries(array: &Array) -> Vec<(&[u8], &Value)> {
+    let (pairs, remainder) = array.as_chunks::<2>();
+    debug_assert_warn!(
+        remainder.is_empty(),
+        "compare_arrays_as_maps called on an odd-length array;"
+    );
+
+    sorted_map_like_entries(pairs.iter().map(|[key, value]| (&**key, &**value)))
+}
+
+fn sorted_map_entries(map: &Map) -> Vec<(&[u8], &Value)> {
+    sorted_map_like_entries(map.iter().map(|(key, value)| (&**key, &**value)))
+}
+
+fn compare_sorted_map_entries(
+    entries1: &[(&[u8], &Value)],
+    entries2: &[(&[u8], &Value)],
+    num_to_str_cmp_fallback: bool,
+) -> Result<Ordering, CompareError> {
+    for ((key1, value1), (key2, value2)) in entries1.iter().copied().zip(entries2.iter().copied()) {
+        match key1.cmp(key2) {
+            Ordering::Equal => {}
+            ordering => return Ok(ordering),
+        }
+
+        match compare(value1, value2, num_to_str_cmp_fallback)? {
+            Ordering::Equal => {}
+            ordering => return Ok(ordering),
+        }
+    }
+
+    Ok(entries1.len().cmp(&entries2.len()))
+}
+
+/// Compare two flat key-value arrays as maps.
+///
+/// The arrays are interpreted as RESP2 map fallbacks: `[k1, v1, k2, v2, ...]`.
+/// String and Redis string keys participate in the map; non-string keys are
+/// skipped. Odd trailing elements are ignored with the same warning behavior as
+/// [`Array::map_get`].
+///
+/// # Panics
+///
+/// Asserts in debug builds and warns in release builds if a string key appears
+/// more than once after non-string keys and odd trailing entries are ignored.
+/// Duplicate keys are a caller contract violation.
+pub fn compare_arrays_as_maps(
+    a1: &Array,
+    a2: &Array,
+    num_to_str_cmp_fallback: bool,
+) -> Result<Ordering, CompareError> {
+    let entries1 = sorted_array_map_entries(a1);
+    let entries2 = sorted_array_map_entries(a2);
+
+    compare_sorted_map_entries(&entries1, &entries2, num_to_str_cmp_fallback)
+}
+
+/// Compare two maps by string keys.
+///
+/// This is an explicit map comparison helper. It does not change the default
+/// [`compare`] behavior for [`Value::Map`], which remains unsupported.
+///
+/// # Panics
+///
+/// Asserts in debug builds and warns in release builds if a string key appears
+/// more than once after non-string keys are ignored. Duplicate keys are a caller
+/// contract violation.
+pub fn compare_maps(
+    m1: &Map,
+    m2: &Map,
+    num_to_str_cmp_fallback: bool,
+) -> Result<Ordering, CompareError> {
+    let entries1 = sorted_map_entries(m1);
+    let entries2 = sorted_map_entries(m2);
+
+    compare_sorted_map_entries(&entries1, &entries2, num_to_str_cmp_fallback)
 }
 
 /// Compare a number to a byte-string.
