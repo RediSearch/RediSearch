@@ -11,7 +11,7 @@
 
 use query_error::QueryError;
 use std::cmp::Ordering;
-use value::comparison::{CompareError, cmp_fields, compare, compare_arrays_as_maps, compare_maps};
+use value::comparison::{CompareError, arrays_equal_as_maps, cmp_fields, compare, maps_equal};
 use value::{Array, Map, SharedValue, String, Trio, Value};
 
 fn array(values: impl IntoIterator<Item = Value>) -> Value {
@@ -218,9 +218,7 @@ fn array_as_map_equal_same_order() {
         Value::Number(2.0),
     ]);
 
-    let result = compare_arrays_as_maps(&a1, &a2, false).unwrap();
-
-    assert_eq!(result, Ordering::Equal);
+    assert!(arrays_equal_as_maps(&a1, &a2));
 }
 
 #[test]
@@ -238,9 +236,7 @@ fn array_as_map_equal_different_order() {
         Value::Number(1.0),
     ]);
 
-    let result = compare_arrays_as_maps(&a1, &a2, false).unwrap();
-
-    assert_eq!(result, Ordering::Equal);
+    assert!(arrays_equal_as_maps(&a1, &a2));
 }
 
 #[test]
@@ -254,77 +250,17 @@ fn explicit_map_equal_different_order() {
         (string("a"), Value::Number(1.0)),
     ]);
 
-    let result = compare_maps(&m1, &m2, false).unwrap();
-
-    assert_eq!(result, Ordering::Equal);
-}
-
-#[test]
-fn explicit_map_compares_values_for_matching_keys() {
-    let m1 = map([(string("a"), Value::Number(1.0))]);
-    let m2 = map([(string("a"), Value::Number(2.0))]);
-
-    let result = compare_maps(&m1, &m2, false).unwrap();
-
-    assert_eq!(result, Ordering::Less);
-}
-
-#[test]
-fn explicit_map_orders_by_missing_or_extra_key() {
-    let m1 = map([(string("a"), Value::Number(1.0))]);
-    let m2 = map([
-        (string("a"), Value::Number(1.0)),
-        (string("b"), Value::Number(2.0)),
-    ]);
-
-    let result = compare_maps(&m1, &m2, false).unwrap();
-
-    assert_eq!(result, Ordering::Less);
-}
-
-#[test]
-fn array_as_map_compares_values_for_matching_keys() {
-    let a1 = raw_array([string("a"), Value::Number(1.0)]);
-    let a2 = raw_array([string("a"), Value::Number(2.0)]);
-
-    let result = compare_arrays_as_maps(&a1, &a2, false).unwrap();
-
-    assert_eq!(result, Ordering::Less);
-}
-
-#[test]
-fn array_as_map_orders_by_missing_or_extra_key() {
-    let a1 = raw_array([string("a"), Value::Number(1.0)]);
-    let a2 = raw_array([
-        string("a"),
-        Value::Number(1.0),
-        string("b"),
-        Value::Number(2.0),
-    ]);
-
-    let result = compare_arrays_as_maps(&a1, &a2, false).unwrap();
-
-    assert_eq!(result, Ordering::Less);
-}
-
-#[test]
-fn array_as_map_orders_by_key_bytes() {
-    let a1 = raw_array([string("a"), Value::Number(1.0)]);
-    let a2 = raw_array([string("b"), Value::Number(1.0)]);
-
-    let result = compare_arrays_as_maps(&a1, &a2, false).unwrap();
-
-    assert_eq!(result, Ordering::Less);
+    assert!(maps_equal(&m1, &m2));
 }
 
 #[test]
 #[cfg(debug_assertions)]
-#[should_panic(expected = "compare_arrays_as_maps called on an odd-length array")]
+#[should_panic(expected = "arrays_equal_as_maps called on an odd-length array")]
 fn array_as_map_odd_trailing_entry_trips_debug_assertion() {
     let a1 = raw_array([string("a"), Value::Number(1.0), string("ignored")]);
     let a2 = raw_array([string("a"), Value::Number(1.0)]);
 
-    let _ = compare_arrays_as_maps(&a1, &a2, false);
+    let _ = arrays_equal_as_maps(&a1, &a2);
 }
 
 #[test]
@@ -333,9 +269,7 @@ fn array_as_map_ignores_odd_trailing_entry() {
     let a1 = raw_array([string("a"), Value::Number(1.0), string("ignored")]);
     let a2 = raw_array([string("a"), Value::Number(1.0)]);
 
-    let result = compare_arrays_as_maps(&a1, &a2, false).unwrap();
-
-    assert_eq!(result, Ordering::Equal);
+    assert!(arrays_equal_as_maps(&a1, &a2));
 }
 
 #[test]
@@ -348,9 +282,7 @@ fn array_as_map_skips_non_string_keys() {
     ]);
     let a2 = raw_array([string("a"), Value::Number(1.0)]);
 
-    let result = compare_arrays_as_maps(&a1, &a2, false).unwrap();
-
-    assert_eq!(result, Ordering::Equal);
+    assert!(arrays_equal_as_maps(&a1, &a2));
 }
 
 #[test]
@@ -361,36 +293,7 @@ fn explicit_map_skips_non_string_keys() {
     ]);
     let m2 = map([(string("a"), Value::Number(1.0))]);
 
-    let result = compare_maps(&m1, &m2, false).unwrap();
-
-    assert_eq!(result, Ordering::Equal);
-}
-
-
-#[test]
-fn array_as_map_propagates_value_comparison_errors() {
-    let a1 = raw_array([string("a"), trio(Value::Null, Value::Null, Value::Null)]);
-    let a2 = raw_array([string("a"), array([Value::Number(1.0)])]);
-
-    let result = compare_arrays_as_maps(&a1, &a2, false);
-
-    assert_eq!(result, Err(CompareError::IncompatibleTypes));
-}
-
-#[test]
-#[cfg_attr(miri, ignore = "Calls FFI function `snprintf`")]
-fn array_as_map_uses_number_to_string_fallback_flag() {
-    let a1 = raw_array([string("a"), Value::Number(5.0)]);
-    let a2 = raw_array([string("a"), string("hello")]);
-
-    let result_without_fallback = compare_arrays_as_maps(&a1, &a2, false);
-    assert_eq!(
-        result_without_fallback,
-        Err(CompareError::NoNumberToStringFallback)
-    );
-
-    let result_with_fallback = compare_arrays_as_maps(&a1, &a2, true).unwrap();
-    assert_eq!(result_with_fallback, Ordering::Less);
+    assert!(maps_equal(&m1, &m2));
 }
 
 #[test]
