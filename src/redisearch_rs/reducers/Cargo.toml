@@ -5,6 +5,9 @@ edition.workspace = true
 license-file.workspace = true
 publish.workspace = true
 
+[features]
+unittest = []
+
 [dependencies]
 bumpalo.workspace = true
 ffi.workspace = true
@@ -12,6 +15,14 @@ query_error.workspace = true
 rlookup.workspace = true
 value.workspace = true
 workspace_hack.workspace = true
+
+[build-dependencies]
+build_utils.workspace = true
+
+[dev-dependencies]
+reducers = { path = ".", features = ["unittest"] }
+redis_mock.workspace = true
+redisearch_rs = { path = "../c_entrypoint/redisearch_rs", features = ["mock_allocator"] }
 
 [lints]
 workspace = true

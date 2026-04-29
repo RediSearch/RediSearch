@@ -377,6 +377,7 @@ impl<'index> RQEIterator<'index> for CRQEIterator {
             IteratorType::MetricSortedByScore => 1.0,
             IteratorType::Profile => 1.0,
             IteratorType::Optimus => 1.0,
+            IteratorType::GeoShape => 1.0,
             IteratorType::Mock => 1.0,
             IteratorType::Max => 1.0,
         }

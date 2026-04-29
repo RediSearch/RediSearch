@@ -1,4 +1,5 @@
 from common import *
+from test_hybrid_internal import get_shard_slot_ranges
 import json
 
 
@@ -56,9 +57,99 @@ def _sort_collected(entries, key):
 
 
 # ---------------------------------------------------------------------------
+# COLLECT coordinator merge across shards, HASH
+# ---------------------------------------------------------------------------
+@skip(cluster=False)
+def test_collect_cluster_merges_same_group_across_shards():
+    env = Env(shardsCount=3, protocol=3)
+    enable_unstable_features(env)
+
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH',
+               'SCHEMA',
+               'name', 'TEXT', 'SORTABLE',
+               'sweetness', 'NUMERIC', 'SORTABLE',
+               'color', 'TAG', 'SORTABLE').ok()
+
+    conn = getConnectionByEnv(env)
+    docs = [
+        ('doc:1{shard:0}', 'from_shard_0', '1'),
+        ('doc:2{shard:1}', 'from_shard_1', '2'),
+        ('doc:3{shard:3}', 'from_shard_3', '3'),
+    ]
+    for key, name, sweetness in docs:
+        conn.execute_command('HSET', key, 'name', name, 'color', 'shared',
+                             'sweetness', sweetness)
+
+    res = env.cmd(
+        'FT.AGGREGATE', 'idx', '*',
+        'GROUPBY', '1', '@color',
+            'REDUCE', 'COLLECT', '6',
+                'FIELDS', '1', '@name',
+                'SORTBY', '1', '@sweetness',
+            'AS', 'names')
+
+    env.assertEqual(len(res['results']), 1)
+    attrs = res['results'][0]['extra_attributes']
+    env.assertEqual(attrs['color'], 'shared')
+    env.assertEqual(_sort_collected(attrs['names'], 'name'), [
+        {'name': 'from_shard_0'},
+        {'name': 'from_shard_1'},
+        {'name': 'from_shard_3'},
+    ])
+
+
+# ---------------------------------------------------------------------------
+# Chained GROUPBY
+# ---------------------------------------------------------------------------
+def test_collect_cluster_chained_groupby_collect():
+    env = Env(protocol=3)
+    enable_unstable_features(env)
+
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH',
+               'SCHEMA',
+               'name', 'TEXT', 'SORTABLE',
+               'sweetness', 'NUMERIC', 'SORTABLE',
+               'color', 'TAG', 'SORTABLE').ok()
+
+    conn = getConnectionByEnv(env)
+    docs = [
+        ('doc:1', 'apple', 'red', '4'),
+        ('doc:2', 'strawberry', 'red', '3'),
+        ('doc:3', 'banana', 'yellow', '4'),
+        ('doc:4', 'lemon', 'yellow', '2'),
+    ]
+    for key, name, color, sweetness in docs:
+        conn.execute_command('HSET', key, 'name', name, 'color', color,
+                             'sweetness', sweetness)
+
+    res = env.cmd(
+        'FT.AGGREGATE', 'idx', '*',
+        'GROUPBY', '1', '@color',
+            'REDUCE', 'COUNT', '0', 'AS', 'cnt',
+            'REDUCE', 'COLLECT', '4',
+                'FIELDS', '2', '@name', '@sweetness',
+            'AS', 'names',
+        'GROUPBY', '0',
+            'REDUCE', 'COLLECT', '5', 'FIELDS', '3', '@color', '@cnt', '@names',
+            'AS', 'groups')
+
+    env.assertEqual(len(res['results']), 1)
+    groups = _sort_collected(res['results'][0]['extra_attributes']['groups'], 'color')
+    for group in groups:
+        group['names'] = _sort_collected(group['names'], 'name')
+    env.assertEqual(groups, [
+        {'color': 'red', 'cnt': '2',
+         'names': [{'name': 'apple', 'sweetness': '4'},
+                   {'name': 'strawberry', 'sweetness': '3'}]},
+        {'color': 'yellow', 'cnt': '2',
+         'names': [{'name': 'banana', 'sweetness': '4'},
+                   {'name': 'lemon', 'sweetness': '2'}]},
+    ])
+
+
+# ---------------------------------------------------------------------------
 # COLLECT 1 field, HASH
 # ---------------------------------------------------------------------------
-@skip(cluster=True)
 def test_collect_1_field_hash():
     env = Env(protocol=3)
     _setup_hash(env)
@@ -86,7 +177,6 @@ def test_collect_1_field_hash():
 # ---------------------------------------------------------------------------
 # COLLECT 3 fields, HASH  (TEXT fields are lowercased in HASH)
 # ---------------------------------------------------------------------------
-@skip(cluster=True)
 def test_collect_3_fields_hash():
     env = Env(protocol=3)
     _setup_hash(env)
@@ -120,7 +210,6 @@ def test_collect_3_fields_hash():
 # ---------------------------------------------------------------------------
 # COLLECT 1 field, JSON
 # ---------------------------------------------------------------------------
-@skip(cluster=True)
 @skip(no_json=True)
 def test_collect_1_field_json():
     env = Env(protocol=3)
@@ -144,7 +233,6 @@ def test_collect_1_field_json():
 # ---------------------------------------------------------------------------
 # COLLECT 3 fields, JSON  (JSON preserves original case)
 # ---------------------------------------------------------------------------
-@skip(cluster=True)
 @skip(no_json=True)
 def test_collect_3_fields_json():
     env = Env(protocol=3)
@@ -173,7 +261,6 @@ def test_collect_3_fields_json():
 # ---------------------------------------------------------------------------
 # Chained GROUPBY: second COLLECT collects previous reducers output
 # ---------------------------------------------------------------------------
-@skip(cluster=True)
 def test_chained_groupby_collect():
     env = Env(protocol=3)
     _setup_hash(env)
@@ -202,7 +289,6 @@ def test_chained_groupby_collect():
 # ---------------------------------------------------------------------------
 # COLLECT with NULL/missing values
 # ---------------------------------------------------------------------------
-@skip(cluster=True)
 def test_collect_missing_values():
     env = Env(protocol=3)
     _setup_hash(env)
@@ -237,7 +323,6 @@ def test_collect_missing_values():
 # ---------------------------------------------------------------------------
 # COLLECT with AS alias
 # ---------------------------------------------------------------------------
-@skip(cluster=True)
 def test_collect_alias():
     env = Env(protocol=3)
     _setup_hash(env)
@@ -256,7 +341,6 @@ def test_collect_alias():
 # ---------------------------------------------------------------------------
 # COLLECT with multi-key GROUPBY
 # ---------------------------------------------------------------------------
-@skip(cluster=True)
 def test_collect_multi_groupby_keys():
     env = Env(protocol=3)
     _setup_hash(env)
@@ -279,7 +363,6 @@ def test_collect_multi_groupby_keys():
 # ---------------------------------------------------------------------------
 # Verify output structure: array of maps
 # ---------------------------------------------------------------------------
-@skip(cluster=True)
 def test_collect_output_structure():
     env = Env(protocol=3)
     _setup_hash(env)
@@ -302,9 +385,9 @@ def test_collect_output_structure():
 # ---------------------------------------------------------------------------
 # COLLECT requires ENABLE_UNSTABLE_FEATURES
 # ---------------------------------------------------------------------------
-@skip(cluster=True)
 def test_collect_requires_unstable_features():
     env = Env()
+    run_command_on_all_shards(env, 'CONFIG', 'SET', 'search-enable-unstable-features', 'no')
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH',
                'SCHEMA', 'name', 'TEXT', 'color', 'TAG').ok()
     conn = getConnectionByEnv(env)
@@ -320,7 +403,6 @@ def test_collect_requires_unstable_features():
 # ---------------------------------------------------------------------------
 # COLLECT with LOAD json path aliased field
 # ---------------------------------------------------------------------------
-@skip(cluster=True)
 @skip(no_json=True)
 def test_collect_loaded_json_path():
     env = Env(protocol=3)
@@ -348,9 +430,95 @@ def test_collect_loaded_json_path():
 
 
 # ---------------------------------------------------------------------------
-# RESP2 sanity: basic COLLECT works under RESP2
+# ---------------------------------------------------------------------------
+# Internal-path serialization: _FT.AGGREGATE sets QEXEC_F_INTERNAL and must
+# cause the shard to include sort-key values alongside projected fields.
 # ---------------------------------------------------------------------------
 @skip(cluster=True)
+def test_collect_internal_serializes_sort_fields():
+    """In internal mode the shard includes SORTBY fields alongside FIELDS."""
+    env = Env(protocol=3)
+    _setup_hash(env)
+
+    _, slots_data = get_shard_slot_ranges(env)[0]
+    env.cmd('DEBUG', 'MARK-INTERNAL-CLIENT')
+
+    internal = env.cmd(
+        '_FT.AGGREGATE', 'idx', '*',
+        'GROUPBY', '1', '@color',
+        'REDUCE', 'COLLECT', '7',
+            'FIELDS', '1', '@name',
+            'SORTBY', '2', '@sweetness', 'DESC',
+        'AS', 'info',
+        '_SLOTS_INFO', slots_data,
+    )
+
+    groups = _sort_by(internal['results'], 'color')
+    red = [g for g in groups if g['extra_attributes']['color'] == 'red'][0]
+    for row in red['extra_attributes']['info']:
+        env.assertEqual(set(row.keys()), {'name', 'sweetness'},
+                        message='internal should include both FIELDS and SORTBY keys')
+
+
+@skip(cluster=True)
+def test_collect_internal_without_sortby_equals_external_shape():
+    """No spurious widening: _FT without SORTBY must match FT output."""
+    env = Env(protocol=3)
+    _setup_hash(env)
+
+    _, slots_data = get_shard_slot_ranges(env)[0]
+
+    common_args = [
+        'idx', '*',
+        'GROUPBY', '1', '@color',
+        'REDUCE', 'COLLECT', '3', 'FIELDS', '1', '@name',
+        'AS', 'names',
+    ]
+
+    ext = env.cmd('FT.AGGREGATE', *common_args)
+    env.cmd('DEBUG', 'MARK-INTERNAL-CLIENT')
+    internal = env.cmd('_FT.AGGREGATE', *common_args, '_SLOTS_INFO', slots_data)
+
+    ext_groups = _sort_by(ext['results'], 'color')
+    int_groups = _sort_by(internal['results'], 'color')
+
+    for eg, ig in zip(ext_groups, int_groups):
+        ext_names = _sort_collected(eg['extra_attributes']['names'], 'name')
+        int_names = _sort_collected(ig['extra_attributes']['names'], 'name')
+        env.assertEqual(ext_names, int_names)
+        # Each row should have only the projected field key
+        for row in int_names:
+            env.assertEqual(set(row.keys()), {'name'})
+
+
+@skip(cluster=True)
+def test_collect_internal_duplicate_field_and_sort():
+    """When a field is also the sort key it appears at least once in each row."""
+    env = Env(protocol=3)
+    _setup_hash(env)
+
+    _, slots_data = get_shard_slot_ranges(env)[0]
+    env.cmd('DEBUG', 'MARK-INTERNAL-CLIENT')
+
+    # @sweetness is both the projected FIELD and the SORTBY key
+    internal = env.cmd(
+        '_FT.AGGREGATE', 'idx', '*',
+        'GROUPBY', '1', '@color',
+        'REDUCE', 'COLLECT', '7',
+            'FIELDS', '1', '@sweetness',
+            'SORTBY', '2', '@sweetness', 'DESC',
+        'AS', 'info',
+        '_SLOTS_INFO', slots_data,
+    )
+
+    for group in internal['results']:
+        rows = group['extra_attributes']['info']
+        for row in rows:
+            env.assertIn('sweetness', row, message='sweetness must appear in internal row')
+
+
+# RESP2 sanity: basic COLLECT works under RESP2
+# ---------------------------------------------------------------------------
 def test_collect_resp2_sanity():
     env = Env(protocol=2)
     _setup_hash(env)

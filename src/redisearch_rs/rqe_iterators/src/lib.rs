@@ -294,7 +294,7 @@ pub trait SearchEnterpriseIterators: Send + Sync {
     /// given weight.
     fn new_wildcard_on_disk<'index>(
         &self,
-        index: &'index ffi::RedisSearchDiskIndexSpec,
+        index: &'index mut ffi::RedisSearchDiskIndexSpec,
         weight: f64,
     ) -> Result<Box<dyn RQEIterator<'index> + 'index>, Box<dyn std::error::Error>>;
 
@@ -306,7 +306,7 @@ pub trait SearchEnterpriseIterators: Send + Sync {
     /// term positions.
     fn new_term_on_disk_with_offsets<'index>(
         &self,
-        index: &'index ffi::RedisSearchDiskIndexSpec,
+        index: &'index mut ffi::RedisSearchDiskIndexSpec,
         query_term: Box<RSQueryTerm>,
         field_mask: t_fieldMask,
         weight: f64,
@@ -320,7 +320,7 @@ pub trait SearchEnterpriseIterators: Send + Sync {
     /// positions.
     fn new_term_on_disk_without_offsets<'index>(
         &self,
-        index: &'index ffi::RedisSearchDiskIndexSpec,
+        index: &'index mut ffi::RedisSearchDiskIndexSpec,
         query_term: Box<RSQueryTerm>,
         field_mask: t_fieldMask,
         weight: f64,
@@ -330,7 +330,7 @@ pub trait SearchEnterpriseIterators: Send + Sync {
     /// then iterator will have the given weight.
     fn new_tag_on_disk<'index>(
         &self,
-        index: &'index ffi::RedisSearchDiskIndexSpec,
+        index: &'index mut ffi::RedisSearchDiskIndexSpec,
         token: &ffi::RSToken,
         field_index: ffi::t_fieldIndex,
         weight: f64,
