@@ -729,9 +729,6 @@ def test_expire_past_timestamp_removes_doc(env):
     env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT').apply(sort_document_names).equal(
         [2, 'doc:1', 'doc:2'])
 
-    # Unix timestamp 1 is in 1970, so doc:1 is deleted synchronously by the
-    # EXPIREAT command. RedisModule_OpenKey in the notification callback
-    # returns NULL, exercising the deletion fallback branch.
     env.expect('EXPIREAT', 'doc:1', '1').equal(1)
 
     env.expect('EXISTS', 'doc:1').equal(0)
