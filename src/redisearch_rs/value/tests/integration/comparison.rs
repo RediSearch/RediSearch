@@ -318,6 +318,17 @@ fn array_as_map_orders_by_key_bytes() {
 }
 
 #[test]
+#[cfg(debug_assertions)]
+#[should_panic(expected = "compare_arrays_as_maps called on an odd-length array")]
+fn array_as_map_odd_trailing_entry_trips_debug_assertion() {
+    let a1 = raw_array([string("a"), Value::Number(1.0), string("ignored")]);
+    let a2 = raw_array([string("a"), Value::Number(1.0)]);
+
+    let _ = compare_arrays_as_maps(&a1, &a2, false);
+}
+
+#[test]
+#[cfg(not(debug_assertions))]
 fn array_as_map_ignores_odd_trailing_entry() {
     let a1 = raw_array([string("a"), Value::Number(1.0), string("ignored")]);
     let a2 = raw_array([string("a"), Value::Number(1.0)]);
