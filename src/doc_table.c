@@ -236,6 +236,24 @@ static inline int64_t expirationTimePointToNs(t_expirationTimePoint t) {
   return (int64_t)t.tv_sec * 1000000000LL + (int64_t)t.tv_nsec;
 }
 
+// Takes ownership of `sortedFieldWithExpiration` (NULL or empty is fine):
+// installs it as the TTL-table entry for `id` when non-empty (handing the
+// allocation to the table, which frees it on entry release), or frees it
+// in place when empty. Does not remove any prior entry for `id` -- callers
+// must evict it first via TimeToLiveTable_Remove, since TimeToLiveTable_Add
+// asserts on duplicate ids. Does not destroy the table when it becomes
+// empty; callers that need the iterator NULL-gate behavior must check
+// TimeToLiveTable_IsEmpty after this returns.
+static inline void docTableSetFieldExpirations(DocTable *t, t_docId id,
+                                               arrayof(FieldExpiration) sortedFieldWithExpiration) {
+  if (array_len(sortedFieldWithExpiration) > 0) {
+    TimeToLiveTable_VerifyInit(&t->ttl, t->maxSize);
+    TimeToLiveTable_Add(t->ttl, id, sortedFieldWithExpiration);
+  } else {
+    array_free(sortedFieldWithExpiration);
+  }
+}
+
 // Inlines the doc-level TTL on the DMD unconditionally so the result-processor
 // can drop the TTL-table lookup, and only routes field-level expirations into
 // the TTL table. This keeps the table strictly an HFE store, which lets
@@ -244,12 +262,7 @@ static inline int64_t expirationTimePointToNs(t_expirationTimePoint t) {
 // when there are no field-level entries to register.
 void DocTable_UpdateExpiration(DocTable *t, RSDocumentMetadata* dmd, t_expirationTimePoint ttl, arrayof(FieldExpiration) sortedFieldWithExpiration) {
   dmd->expirationTimeNs = expirationTimePointToNs(ttl);
-  if (array_len(sortedFieldWithExpiration) > 0) {
-    TimeToLiveTable_VerifyInit(&t->ttl, t->maxSize);
-    TimeToLiveTable_Add(t->ttl, dmd->id, sortedFieldWithExpiration);
-  } else {
-    array_free(sortedFieldWithExpiration);
-  }
+  docTableSetFieldExpirations(t, dmd->id, sortedFieldWithExpiration);
 }
 
 void DocTable_UpdateFieldExpiration(DocTable *t, RSDocumentMetadata *dmd,
@@ -260,16 +273,11 @@ void DocTable_UpdateFieldExpiration(DocTable *t, RSDocumentMetadata *dmd,
   if (t->ttl) {
     TimeToLiveTable_Remove(t->ttl, dmd->id);
   }
-  if (array_len(sortedFieldWithExpiration) > 0) {
-    TimeToLiveTable_VerifyInit(&t->ttl, t->maxSize);
-    TimeToLiveTable_Add(t->ttl, dmd->id, sortedFieldWithExpiration);
-  } else {
-    array_free(sortedFieldWithExpiration);
-    // Drop the table once the last HFE doc leaves so iterators can use the
-    // NULL gate again, mirroring DocTable_Pop.
-    if (t->ttl && TimeToLiveTable_IsEmpty(t->ttl)) {
-      TimeToLiveTable_Destroy(&t->ttl);
-    }
+  docTableSetFieldExpirations(t, dmd->id, sortedFieldWithExpiration);
+  // Drop the table once the last HFE doc leaves so iterators can use the
+  // NULL gate again, mirroring DocTable_Pop.
+  if (t->ttl && TimeToLiveTable_IsEmpty(t->ttl)) {
+    TimeToLiveTable_Destroy(&t->ttl);
   }
 }
 
