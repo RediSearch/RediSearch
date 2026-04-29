@@ -130,26 +130,16 @@ static inline t_expirationTimePoint getDocExpirationTime(RedisModuleCtx* ctx, Re
   return result;
 }
 
-arrayof(FieldExpiration) Document_LoadHashFieldExpirations(IndexSpec *spec, RedisModuleKey *k) {
-  if (!spec->monitorFieldExpiration ||
-      RedisModule_HashFieldMinExpire(k) == REDISMODULE_NO_EXPIRE) {
-    return NULL;
+void Document_LoadHashFieldExpiration(RedisModuleKey *k, const FieldSpec *field,
+                                      size_t ii, arrayof(FieldExpiration) *out) {
+  mstime_t expireAt = REDISMODULE_NO_EXPIRE;
+  RedisModule_HashGet(k, REDISMODULE_HASH_CFIELDS | REDISMODULE_HASH_EXPIRE_TIME,
+                      HiddenString_GetUnsafe(field->fieldPath, NULL), &expireAt, NULL);
+  if (expireAt == REDISMODULE_NO_EXPIRE) {
+    return;
   }
-  // Iterating in spec->fields order yields entries already sorted by
-  // t_fieldIndex, which is the invariant the TTL table relies on.
-  arrayof(FieldExpiration) out = NULL;
-  for (size_t ii = 0; ii < spec->numFields; ++ii) {
-    FieldSpec *field = &spec->fields[ii];
-    mstime_t expireAt = REDISMODULE_NO_EXPIRE;
-    RedisModule_HashGet(k, REDISMODULE_HASH_CFIELDS | REDISMODULE_HASH_EXPIRE_TIME,
-                        HiddenString_GetUnsafe(field->fieldPath, NULL), &expireAt, NULL);
-    if (expireAt == REDISMODULE_NO_EXPIRE) {
-      continue;
-    }
-    FieldExpiration fx = {.index = (t_fieldIndex)ii, .point = timespecFromMilliseconds(expireAt)};
-    array_ensure_append_1(out, fx);
-  }
-  return out;
+  FieldExpiration fx = {.index = (t_fieldIndex)ii, .point = timespecFromMilliseconds(expireAt)};
+  array_ensure_append_1(*out, fx);
 }
 
 int Document_LoadSchemaFieldHash(Document *doc, RedisSearchCtx *sctx, QueryError *status) {
@@ -161,6 +151,7 @@ int Document_LoadSchemaFieldHash(Document *doc, RedisSearchCtx *sctx, QueryError
   SchemaRule *rule = NULL;
   RedisModuleString *payload_rms = NULL;
   const char *keyname = NULL;
+  bool hasExpireTimeOnFields = false;
 
   // This is possible if the key has expired for example in previous redis API calls in this notification flow.
   if (!k || RedisModule_KeyType(k) != REDISMODULE_KEYTYPE_HASH) {
@@ -184,6 +175,7 @@ int Document_LoadSchemaFieldHash(Document *doc, RedisSearchCtx *sctx, QueryError
     RedisModule_FreeString(sctx->redisCtx, payload_rms);
   }
 
+  hasExpireTimeOnFields = spec->monitorFieldExpiration && RedisModule_HashFieldMinExpire(k) != REDISMODULE_NO_EXPIRE;
   // Load indexed fields from the document
   doc->fields = rm_calloc(nitems, sizeof(*doc->fields));
   for (size_t ii = 0; ii < spec->numFields; ++ii) {
@@ -194,6 +186,10 @@ int Document_LoadSchemaFieldHash(Document *doc, RedisSearchCtx *sctx, QueryError
       continue;
     }
 
+    if (hasExpireTimeOnFields) {
+      Document_LoadHashFieldExpiration(k, field, ii, &doc->fieldExpirations);
+    }
+
     size_t oix = doc->numFields++;
     doc->fields[oix].docFieldName = HiddenString_Duplicate(field->fieldName);
     // on crdt the return value might be the underline value, we must copy it!!!
@@ -201,8 +197,6 @@ int Document_LoadSchemaFieldHash(Document *doc, RedisSearchCtx *sctx, QueryError
     doc->fields[oix].unionType = FLD_VAR_T_RMS;
     RedisModule_FreeString(sctx->redisCtx, v);
   }
-
-  doc->fieldExpirations = Document_LoadHashFieldExpirations(spec, k);
 
   if (spec->monitorDocumentExpiration) {
     doc->docExpirationTime = getDocExpirationTime(sctx->redisCtx, k);

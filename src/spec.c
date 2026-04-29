@@ -4250,7 +4250,17 @@ void Indexes_UpdateMatchingHashFieldExpiration(RedisModuleCtx *ctx, RedisModuleS
       continue;
     }
 
-    arrayof(FieldExpiration) sorted = Document_LoadHashFieldExpirations(spec, k);
+    // Build the FieldExpiration array using the same per-field loader the full
+    // reindex path uses, so both paths produce byte-identical entries. The
+    // outer monitorFieldExpiration gate is already checked above; the
+    // HashFieldMinExpire gate avoids the per-field HashGet pass when no field
+    // on this hash has a TTL at all.
+    arrayof(FieldExpiration) sorted = NULL;
+    if (RedisModule_HashFieldMinExpire(k) != REDISMODULE_NO_EXPIRE) {
+      for (size_t ii = 0; ii < spec->numFields; ++ii) {
+        Document_LoadHashFieldExpiration(k, &spec->fields[ii], ii, &sorted);
+      }
+    }
     DocTable_UpdateFieldExpiration(&spec->docs, (RSDocumentMetadata *)cdmd, sorted);
     DMD_Return(cdmd);
 
