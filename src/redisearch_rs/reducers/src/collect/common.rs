@@ -12,6 +12,7 @@
 use bumpalo::Bump;
 
 use crate::Reducer;
+use crate::collect::storage;
 
 /// State shared by every COLLECT reducer variant, plus its FFI-layout prefix.
 ///
@@ -27,15 +28,18 @@ pub struct CollectCommon {
     /// Bit `i` is 0 for DESC and 1 for ASC, matching `SORTASCMAP_INIT`.
     pub(super) sort_asc_map: u64,
     pub(super) limit: Option<(u64, u64)>,
+    /// Resolved by [`storage::resolve_cap`].
+    pub(super) cap: usize,
 }
 
 impl CollectCommon {
-    pub fn new(sort_asc_map: u64, limit: Option<(u64, u64)>) -> Self {
+    pub fn new(is_array: bool, sort_asc_map: u64, limit: Option<(u64, u64)>) -> Self {
         Self {
             reducer: Reducer::new(),
             arena: Bump::new(),
             sort_asc_map,
             limit,
+            cap: storage::resolve_cap(is_array, limit),
         }
     }
 }

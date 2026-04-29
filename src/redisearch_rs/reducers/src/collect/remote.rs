@@ -18,18 +18,15 @@
 //! Coordinator-side outer `GROUPBY` steps also see ordinary rows/items; they are
 //! not this reducer's special merge input.
 
-use std::mem;
-
 use rlookup::{RLookupKey, RLookupRow};
 use value::SharedValue;
 
 use crate::Reducer;
 use crate::collect::common::CollectCommon;
+use crate::collect::storage::Storage;
 
-/// Remote COLLECT reducer.
-///
-/// Must remain `#[repr(C)]` with [`CollectCommon`] at offset 0 so the C layer
-/// can downcast this struct to `ffi::Reducer*` and read the vtable directly.
+/// Remote COLLECT reducer. See [`CollectCommon`] for the FFI-layout invariant
+/// the trailing `const _` assertion enforces.
 #[repr(C)]
 pub struct RemoteCollectReducer<'a> {
     common: CollectCommon,
@@ -37,10 +34,52 @@ pub struct RemoteCollectReducer<'a> {
     has_wildcard: bool,
     /// Raw sort-key references, including keys not present in `FIELDS`.
     sort_keys: Box<[&'a RLookupKey<'a>]>,
-    /// `true` for shard replies dispatched by the coordinator: extra sort-key
-    /// columns are emitted alongside the requested fields so the coordinator
-    /// can re-order shard rows during merge. `false` for direct execution.
-    include_sort_keys: bool,
+    /// Set by `RDCRCollect_New` from `ReducerOpts_IsInternal(options)`:
+    /// `true` for shard replies that the coordinator dispatched with
+    /// `_FT.AGGREGATE`, `false` for direct standalone or coordinator
+    /// execution.
+    ///
+    /// In its current shape this single bit gates **two** behaviours that
+    /// the distributed COLLECT pipeline needs from the shard side:
+    ///
+    /// 1. **Sort-key column emission.** When `true`, the per-row map serialised
+    ///    by [`RemoteCollectCtx::finalize`] includes the raw sort-key values
+    ///    alongside the requested fields, so the coordinator's
+    ///    [`super::local::LocalCollectReducer`] can re-rank shard rows during
+    ///    merge.
+    /// 2. **LIMIT offset application policy.** The coordinator forwards the
+    ///    user's `LIMIT offset count` to shards verbatim (via
+    ///    `buildCollectArgs`'s `memcpy`) instead of rewriting it to
+    ///    `LIMIT 0 (offset+count)` like
+    ///    [`crate::collect::storage`]'s sister patterns do (see
+    ///    `serializeArrange` in `aggregate_plan.c`). To honour that wire
+    ///    contract, when `is_internal == true` the shard sizes its top-K
+    ///    storage to `offset + count` but **does not** apply `skip(offset)`
+    ///    locally — the coordinator owns the global offset. When `false`
+    ///    (standalone), the shard applies the full
+    ///    `skip(offset).take(count)` itself.
+    ///
+    /// ## Architectural debt — `TODO(<TICKET>)`
+    ///
+    /// Conflating these two concerns into one bit reflects a missing piece
+    /// of the COLLECT planner integration: unlike the outer pipeline's
+    /// `PLN_ArrangeStep`, COLLECT's `PLN_Reducer` does not have `LIMIT` as
+    /// a semantic field that the C planner can rewrite for the shard wire
+    /// (`(offset, count) → (0, offset+count)`). Once `LIMIT` is lifted into
+    /// `PLN_Reducer` the C side can perform the canonical rewrite once,
+    /// at which point this flag should split back into a single-purpose
+    /// "emit sort-key columns" boolean and the local-offset gate disappears
+    /// — the coordinator-to-shard wire would already carry `(0,
+    /// offset+count)` like every other distributed pipeline step.
+    ///
+    /// Until then, the implicit contract is: **whoever changes
+    /// `distributeCollect` (or any other coordinator-side rewriter) to drop
+    /// `offset` on the shard wire must also flip this gate to always apply
+    /// `skip(offset).take(count)`**, otherwise the offset gets dropped
+    /// twice. The `remote_internal_mode_does_not_apply_limit_offset_locally`
+    /// integration regression test in `reducers/tests/collect.rs` codifies
+    /// the contract.
+    is_internal: bool,
 }
 
 // Chain through `CollectCommon::reducer` so the assertion still catches a
@@ -53,34 +92,29 @@ const _: () = assert!(
 
 /// Per-group instance of [`RemoteCollectReducer`].
 ///
-/// Because `RemoteCollectCtx` is arena-allocated ([`Bump`][bumpalo::Bump] does
-/// not run destructors), `ptr::drop_in_place` must be called to run
-/// destructors for the inner `Vec`s and decrement `SharedValue` refcounts.
-//
-// TODO: replace both vectors with a single `Vec<RLookupRow>` once the
-// row-representation migration lands.
+/// `RemoteCollectCtx` is arena-allocated ([`Bump`][bumpalo::Bump] does not run
+/// destructors), so the FFI side must call `ptr::drop_in_place` to decrement
+/// the buffered [`SharedValue`] refcounts.
 pub struct RemoteCollectCtx {
-    field_values: Vec<Vec<SharedValue>>,
-    /// Kept row-aligned with `field_values`.
-    sort_values: Vec<Vec<SharedValue>>,
+    storage: Storage,
 }
 
 impl<'a> RemoteCollectReducer<'a> {
-    /// Create a reducer from C-parsed configuration.
     pub fn new(
         field_keys: Box<[&'a RLookupKey<'a>]>,
         has_wildcard: bool,
         sort_keys: Box<[&'a RLookupKey<'a>]>,
         sort_asc_map: u64,
         limit: Option<(u64, u64)>,
-        include_sort_keys: bool,
+        is_internal: bool,
     ) -> Self {
+        let is_array = sort_keys.is_empty();
         Self {
-            common: CollectCommon::new(sort_asc_map, limit),
+            common: CollectCommon::new(is_array, sort_asc_map, limit),
             field_keys,
             has_wildcard,
             sort_keys,
-            include_sort_keys,
+            is_internal,
         }
     }
 
@@ -130,27 +164,18 @@ impl<'a> RemoteCollectReducer<'a> {
 }
 
 impl RemoteCollectCtx {
-    pub const fn new(_r: &RemoteCollectReducer) -> Self {
+    pub fn new(r: &RemoteCollectReducer) -> Self {
         Self {
-            field_values: Vec::new(),
-            sort_values: Vec::new(),
+            storage: Storage::new(r.sort_keys.is_empty(), r.common.cap),
         }
     }
 
-    /// Store projected field and sort values, filling missing values with nulls.
+    /// Buffer one input row through [`Storage::insert_entry`]. Sort values are
+    /// eager (the comparator reads them on every heap decision); field values
+    /// are deferred inside the `project` closure. Missing values are
+    /// materialised as the static null sentinel.
     pub fn add(&mut self, r: &RemoteCollectReducer, row: &RLookupRow) {
-        let fv = r
-            .field_keys
-            .iter()
-            .map(|key| {
-                row.get(key)
-                    .cloned()
-                    .unwrap_or_else(SharedValue::null_static)
-            })
-            .collect();
-        self.field_values.push(fv);
-
-        let sv = r
+        let sort_vals: Vec<SharedValue> = r
             .sort_keys
             .iter()
             .map(|key| {
@@ -159,25 +184,58 @@ impl RemoteCollectCtx {
                     .unwrap_or_else(SharedValue::null_static)
             })
             .collect();
-        self.sort_values.push(sv);
+        let project = || {
+            r.field_keys
+                .iter()
+                .map(|key| {
+                    row.get(key)
+                        .cloned()
+                        .unwrap_or_else(SharedValue::null_static)
+                })
+                .collect::<Vec<_>>()
+                .into_boxed_slice()
+        };
+        self.storage
+            .insert_entry(r.common.cap, r.common.sort_asc_map, &sort_vals, project);
     }
 
-    /// Serialize the buffered rows into a `[Map, ...]` array.
+    /// Serialise the buffered rows as `[Map, ...]`. The two `is_internal`
+    /// behaviours (LIMIT-offset gating, sort-key column emission) are
+    /// documented on [`RemoteCollectReducer::is_internal`].
     pub fn finalize(&mut self, r: &RemoteCollectReducer) -> SharedValue {
-        let field_rows = mem::take(&mut self.field_values);
-        let sort_rows = mem::take(&mut self.sort_values);
-        let pair = |(val, key): (SharedValue, &&RLookupKey<'_>)| {
-            (SharedValue::new_string(key.name().to_bytes().to_vec()), val)
+        let drain_limit = if r.is_internal { None } else { r.common.limit };
+        let drained = self.storage.drain_with_limit(drain_limit);
+
+        let field_names: Vec<SharedValue> = r
+            .field_keys
+            .iter()
+            .map(|k| SharedValue::new_string(k.name().to_bytes().to_vec()))
+            .collect();
+        let sort_names: Vec<SharedValue> = if r.is_internal {
+            r.sort_keys
+                .iter()
+                .map(|k| SharedValue::new_string(k.name().to_bytes().to_vec()))
+                .collect()
+        } else {
+            Vec::new()
         };
 
-        SharedValue::new_array(field_rows.into_iter().zip(sort_rows).map(|(fv, sv)| {
-            let fields = fv.into_iter().zip(r.field_keys.iter()).map(pair);
-            if r.include_sort_keys {
-                let sorts = sv.into_iter().zip(r.sort_keys.iter()).map(pair);
-                SharedValue::new_map(fields.chain(sorts).collect::<Vec<_>>())
-            } else {
-                SharedValue::new_map(fields.collect::<Vec<_>>())
-            }
-        }))
+        let rows: Vec<SharedValue> = drained
+            .into_iter()
+            .map(|(projected, sort_vals)| {
+                let mut entries: Vec<(SharedValue, SharedValue)> = field_names
+                    .iter()
+                    .cloned()
+                    .zip(projected.into_vec())
+                    .collect();
+                if r.is_internal
+                    && let Some(sort_vals) = sort_vals
+                {
+                    entries.extend(sort_names.iter().cloned().zip(sort_vals.into_vec()));
+                }
+                SharedValue::new_map(entries)
+            })
+            .collect();
+        SharedValue::new_array(rows)
     }
 }

@@ -364,7 +364,6 @@ def test_collect_multi_groupby_keys():
 # Multiple COLLECT reducers in the same GROUPBY: mix array-path (no SORTBY)
 # and heap-path (SORTBY + LIMIT) reducers to verify they don't share state.
 # ---------------------------------------------------------------------------
-@skip(cluster=True)
 def test_collect_multiple_reducers_same_groupby():
     env = Env(protocol=3)
     _setup_hash(env)
@@ -403,7 +402,6 @@ def test_collect_multiple_reducers_same_groupby():
 # ---------------------------------------------------------------------------
 # COLLECT alongside a scalar reducer in the same GROUPBY.
 # ---------------------------------------------------------------------------
-@skip(cluster=True)
 def test_collect_with_scalar_reducer_same_groupby():
     env = Env(protocol=3)
     _setup_hash(env)
@@ -686,7 +684,6 @@ def test_collect_sortby_desc_limit():
 # ---------------------------------------------------------------------------
 # (b) Multi-key SORTBY with mixed directions
 # ---------------------------------------------------------------------------
-@skip(cluster=True)
 @skip(no_json=True)
 def test_collect_sortby_multi_mixed_directions():
     env = Env(protocol=3)
@@ -711,7 +708,6 @@ def test_collect_sortby_multi_mixed_directions():
 # ---------------------------------------------------------------------------
 # (c) LIMIT without SORTBY (array path, first-K in insertion order)
 # ---------------------------------------------------------------------------
-@skip(cluster=True)
 @skip(no_json=True)
 def test_collect_limit_without_sortby():
     env = Env(protocol=3)
@@ -800,7 +796,6 @@ def test_collect_sortby_with_offset():
 # ---------------------------------------------------------------------------
 # (f) Array path (no SORTBY, no LIMIT) capped by MAXAGGREGATERESULTS
 # ---------------------------------------------------------------------------
-@skip(cluster=True)
 @skip(no_json=True)
 def test_collect_array_path_capped_by_max_aggregate_results():
     env = Env(protocol=3)
@@ -824,3 +819,66 @@ def test_collect_array_path_capped_by_max_aggregate_results():
             env.assertContains(e['name'], known)
     finally:
         env.expect(config_cmd(), 'SET', 'MAXAGGREGATERESULTS', '-1').ok()
+
+
+# ---------------------------------------------------------------------------
+# Cluster-only DEFAULT_LIMIT coverage
+#
+# 12 docs with strictly-unique descending prices, all in the same colour
+# group, so the cross-shard heap merge has a single ASC tie-free total
+# order. This avoids the §6.4 doc-ID tie-breaker dependency that pins the
+# `test_collect_sortby_*` family above (those use the `PRICED` fixture
+# which intentionally has tied prices).
+# ---------------------------------------------------------------------------
+PRICED_UNIQUE = [
+    {'name': f'name_{i:02d}', 'color': 'red', 'price': 1000 - i}
+    for i in range(12)
+]
+
+
+def _setup_priced_unique_json(env):
+    env.expect('FT.CREATE', 'idx', 'ON', 'JSON',
+               'SCHEMA',
+               '$.name',  'AS', 'name',  'TEXT',    'SORTABLE',
+               '$.color', 'AS', 'color', 'TAG',     'SORTABLE',
+               '$.price', 'AS', 'price', 'NUMERIC', 'SORTABLE').ok()
+    conn = getConnectionByEnv(env)
+    for i, item in enumerate(PRICED_UNIQUE):
+        conn.execute_command('JSON.SET', f'doc:{i}', '$', json.dumps(item))
+    enable_unstable_features(env)
+
+
+@skip(cluster=False)
+@skip(no_json=True)
+def test_collect_cluster_sortby_default_limit():
+    """Cross-shard `SORTBY @price DESC` without an explicit `LIMIT` must
+    converge on `DEFAULT_LIMIT = 10` regardless of how the docs are
+    distributed across shards.
+
+    Each shard runs `RemoteCollectReducer` with `is_internal = true`, so
+    it returns its top-`DEFAULT_LIMIT` rows (cap=`offset+count` with
+    offset=0 and the heap-path default count=10) without applying a local
+    offset; the coordinator's `LocalCollectReducer` then drains its own
+    bounded heap and applies the same global cap.
+
+    Strictly-unique prices keep the test deterministic without depending
+    on the §6.4 doc-ID tie-breaker (still out of scope under MOD-14803).
+    """
+    env = Env(shardsCount=3, protocol=3)
+    _setup_priced_unique_json(env)
+
+    res = env.cmd(
+        'FT.AGGREGATE', 'idx', '*',
+        'GROUPBY', '1', '@color',
+        'REDUCE', 'COLLECT', '7',
+            'FIELDS', '1', '@name',
+            'SORTBY', '2', '@price', 'DESC',
+        'AS', 'names')
+
+    env.assertEqual(len(res['results']), 1)
+    entries = res['results'][0]['extra_attributes']['names']
+    # DEFAULT_LIMIT = 10 enforced at both shards and the coordinator.
+    env.assertEqual(len(entries), 10)
+    # Top-10 by price DESC (1000..991) → name_00..name_09 in that order.
+    expected = [f'name_{i:02d}' for i in range(10)]
+    env.assertEqual(_names(entries), expected)

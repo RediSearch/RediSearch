@@ -18,25 +18,16 @@
 //! Only the coordinator-side reducer for the innermost split `GROUPBY` has this
 //! shape. Shard-side COLLECT and outer coordinator `GROUPBY` reducers consume
 //! ordinary rows/items.
-//!
-//! ## Serialization contract
-//!
-//! Remote reducers emit each row as `Map` (RESP3) or flat `[k, v, ...]` `Array`
-//! (RESP2). The local reducer projects only requested field names; extra
-//! internal sort-key values are ignored, and missing fields become nulls.
-
-use std::mem;
 
 use rlookup::{RLookupKey, RLookupRow};
 use value::{SharedValue, Value};
 
 use crate::Reducer;
 use crate::collect::common::CollectCommon;
+use crate::collect::storage::Storage;
 
-/// Local COLLECT reducer.
-///
-/// Must remain `#[repr(C)]` with [`CollectCommon`] at offset 0 so the C layer
-/// can downcast this struct to `ffi::Reducer*` and read the vtable directly.
+/// Local COLLECT reducer. See [`CollectCommon`] for the FFI-layout invariant
+/// the trailing `const _` assertion enforces.
 #[repr(C)]
 pub struct LocalCollectReducer<'a> {
     common: CollectCommon,
@@ -56,16 +47,20 @@ const _: () = assert!(
 
 /// Per-group instance of [`LocalCollectReducer`].
 ///
-/// Because `LocalCollectCtx` is arena-allocated ([`Bump`][bumpalo::Bump] does
-/// not run destructors), `ptr::drop_in_place` must be called to run
-/// destructors for the inner `Vec` and decrement `SharedValue` refcounts.
+/// Each shard-payload entry passes through [`Storage::insert_entry`] so the
+/// global cap is enforced as candidates arrive — there is no
+/// "concatenate-then-sort-then-cap" intermediate.
+///
+/// `LocalCollectCtx` is arena-allocated ([`Bump`][bumpalo::Bump] does not run
+/// destructors), so the FFI side must call `ptr::drop_in_place` to decrement
+/// the buffered [`SharedValue`] refcounts.
 pub struct LocalCollectCtx {
-    maps: Vec<SharedValue>,
+    storage: Storage,
 }
 
 impl<'a> LocalCollectReducer<'a> {
-    /// Create a reducer from C-parsed configuration. Names are owned byte
-    /// copies because the local reducer cannot borrow remote `RLookupKey`s.
+    /// Names are owned byte copies because the local reducer cannot borrow
+    /// remote `RLookupKey`s.
     pub fn new(
         input_key: &'a RLookupKey<'a>,
         field_names: Box<[Box<[u8]>]>,
@@ -73,8 +68,9 @@ impl<'a> LocalCollectReducer<'a> {
         sort_asc_map: u64,
         limit: Option<(u64, u64)>,
     ) -> Self {
+        let is_array = sort_key_names.is_empty();
         Self {
-            common: CollectCommon::new(sort_asc_map, limit),
+            common: CollectCommon::new(is_array, sort_asc_map, limit),
             input_key,
             field_names,
             sort_key_names,
@@ -91,44 +87,89 @@ impl<'a> LocalCollectReducer<'a> {
 }
 
 impl LocalCollectCtx {
-    pub const fn new(_r: &LocalCollectReducer) -> Self {
-        Self { maps: Vec::new() }
-    }
-
-    /// Append maps from the remote payload; missing or malformed payloads are skipped.
-    pub fn add(&mut self, r: &LocalCollectReducer, row: &RLookupRow) {
-        if let Some(payload) = row.get(r.input_key)
-            && let Value::Array(array) = &**payload
-        {
-            self.maps.extend(array.iter().cloned());
+    pub fn new(r: &LocalCollectReducer) -> Self {
+        Self {
+            storage: Storage::new(r.sort_key_names.is_empty(), r.common.cap),
         }
     }
 
-    /// Rebuild remote rows as client-facing maps, accepting RESP3 maps and
-    /// RESP2 flat arrays while ignoring internal-only extra keys.
-    pub fn finalize(&mut self, r: &LocalCollectReducer) -> SharedValue {
-        let rebuilt = mem::take(&mut self.maps)
-            .into_iter()
-            // Malformed remote payloads are skipped defensively.
-            .filter(|entry| matches!(&**entry, Value::Map(_) | Value::Array(_)))
-            .map(|entry| {
-                let row_entries: Vec<_> = r
-                    .field_names
+    /// Push every entry from the merge row's payload through
+    /// [`Storage::insert_entry`].
+    ///
+    /// Per-entry lookup is delegated to [`lookup_in_entry`]. Missing or
+    /// malformed payloads are skipped defensively rather than aborting the
+    /// merge — one bad shard reply must not poison the rest.
+    pub fn add(&mut self, r: &LocalCollectReducer, row: &RLookupRow) {
+        let Some(payload) = row.get(r.input_key) else {
+            return;
+        };
+        let Value::Array(array) = &**payload else {
+            return;
+        };
+        for entry in array.iter() {
+            if !matches!(&**entry, Value::Map(_) | Value::Array(_)) {
+                continue;
+            }
+            let sort_vals: Vec<SharedValue> = r
+                .sort_key_names
+                .iter()
+                .map(|name| {
+                    lookup_in_entry(entry, name)
+                        .cloned()
+                        .unwrap_or_else(SharedValue::null_static)
+                })
+                .collect();
+            let project = || {
+                r.field_names
                     .iter()
                     .map(|name| {
-                        let val = match &*entry {
-                            Value::Map(m) => m.get(name).cloned(),
-                            Value::Array(a) => a.map_get(name).cloned(),
-                            // Filtered above; only `Map` and `Array` reach here.
-                            _ => unreachable!(),
-                        }
-                        .unwrap_or_else(SharedValue::null_static);
-                        (SharedValue::new_string(name.to_vec()), val)
+                        lookup_in_entry(entry, name)
+                            .cloned()
+                            .unwrap_or_else(SharedValue::null_static)
                     })
+                    .collect::<Vec<_>>()
+                    .into_boxed_slice()
+            };
+            self.storage
+                .insert_entry(r.common.cap, r.common.sort_asc_map, &sort_vals, project);
+        }
+    }
+
+    /// Apply the user's global `LIMIT offset count` and drop the heap-path
+    /// sort-key columns. The local reducer is the client-facing terminus, so
+    /// it is the single point where `LIMIT` is honoured in distributed mode
+    /// — see [`super::remote::RemoteCollectReducer::is_internal`].
+    pub fn finalize(&mut self, r: &LocalCollectReducer) -> SharedValue {
+        let drained = self.storage.drain_with_limit(r.common.limit);
+
+        let field_names: Vec<SharedValue> = r
+            .field_names
+            .iter()
+            .map(|name| SharedValue::new_string(name.to_vec()))
+            .collect();
+
+        let rows: Vec<SharedValue> = drained
+            .into_iter()
+            .map(|(projected, _sort_vals)| {
+                let entries: Vec<(SharedValue, SharedValue)> = field_names
+                    .iter()
+                    .cloned()
+                    .zip(projected.into_vec())
                     .collect();
-                SharedValue::new_map(row_entries)
+                SharedValue::new_map(entries)
             })
-            .collect::<Vec<_>>();
-        SharedValue::new_array(rebuilt)
+            .collect();
+        SharedValue::new_array(rows)
+    }
+}
+
+/// Resolve a key by name in a remote row entry. Remote rows arrive as
+/// [`Value::Map`] under RESP3 and as a flat `[k, v, k, v, ...]`
+/// [`Value::Array`] under RESP2; any other shape is treated as "not present".
+fn lookup_in_entry<'e>(entry: &'e SharedValue, name: &[u8]) -> Option<&'e SharedValue> {
+    match &**entry {
+        Value::Map(m) => m.get(name),
+        Value::Array(a) => a.map_get(name),
+        _ => None,
     }
 }

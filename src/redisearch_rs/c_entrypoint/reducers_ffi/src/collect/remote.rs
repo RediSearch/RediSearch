@@ -43,7 +43,7 @@ pub unsafe extern "C" fn CollectReducer_CreateRemote(
     has_limit: bool,
     limit_offset: u64,
     limit_count: u64,
-    include_sort_keys: bool,
+    is_internal: bool,
 ) -> *mut ffi::Reducer {
     let field_keys: Box<[&RLookupKey]> = if !field_keys.is_null() && field_keys_len > 0 {
         // SAFETY: ensured by caller (1.)
@@ -69,23 +69,15 @@ pub unsafe extern "C" fn CollectReducer_CreateRemote(
         sort_keys,
         sort_asc_map,
         limit,
-        include_sort_keys,
+        is_internal,
     ));
 
     cr.reducer_mut()
-<<<<<<< HEAD:src/redisearch_rs/c_entrypoint/reducers_ffi/src/collect.rs
-        .set_new_instance(collectNewInstance)
-        .set_add(collectAddShard)
-        .set_finalize(collectFinalize)
-        .set_free_instance(collectFreeInstance)
-        .set_free(collectFree);
-=======
         .set_new_instance(collectRemoteNewInstance)
         .set_add(collectRemoteAdd)
         .set_finalize(collectRemoteFinalize)
         .set_free_instance(collectRemoteFreeInstance)
         .set_free(collectRemoteFree);
->>>>>>> master:src/redisearch_rs/c_entrypoint/reducers_ffi/src/collect/remote.rs
 
     Box::into_raw(cr).cast()
 }
@@ -121,13 +113,8 @@ pub unsafe extern "C" fn collectRemoteFreeInstance(_r: *mut ffi::Reducer, ctx: *
     unsafe { ptr::drop_in_place(ctx.cast::<RemoteCollectCtx>()) }
 }
 
-<<<<<<< HEAD:src/redisearch_rs/c_entrypoint/reducers_ffi/src/collect.rs
-/// Shard-style `Add`: reads each configured field / sort key from an
-/// [`ffi::RLookupRow`] and forwards to [`CollectCtx::insert_entry`].
-=======
 /// Processes the provided [`ffi::RLookupRow`] with the shard collect reducer
 /// instance.
->>>>>>> master:src/redisearch_rs/c_entrypoint/reducers_ffi/src/collect/remote.rs
 ///
 /// # Safety
 ///
@@ -137,11 +124,7 @@ pub unsafe extern "C" fn collectRemoteFreeInstance(_r: *mut ffi::Reducer, ctx: *
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-<<<<<<< HEAD:src/redisearch_rs/c_entrypoint/reducers_ffi/src/collect.rs
-pub unsafe extern "C" fn collectAddShard(
-=======
 pub unsafe extern "C" fn collectRemoteAdd(
->>>>>>> master:src/redisearch_rs/c_entrypoint/reducers_ffi/src/collect/remote.rs
     r: *mut ffi::Reducer,
     ctx: *mut c_void,
     srcrow: *const ffi::RLookupRow,
