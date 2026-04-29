@@ -135,9 +135,18 @@ Only applies when changes touch `src/rdb.c` or serialization logic:
 - No commented-out code left in the diff.
 - No `TODO` or `FIXME` comments without a tracking issue reference.
 
+#### 2i. PR description
+
+Only applies when reviewing a PR (not files or commits directly):
+- Exactly one release notes checkbox is checked (`This PR requires release notes`
+  or `This PR does not require release notes`). CI will fail if neither or both
+  are checked.
+- If the PR has user-facing impact (new commands, changed behavior, bug fixes
+  affecting users), it should check "requires release notes."
+
 ### 3. Emit the report
 
-Present findings grouped by check (2a through 2h). For each group, list the
+Present findings grouped by check (2a through 2i). For each group, list the
 violations or state "No issues found."
 
 At the end, provide a summary:
@@ -145,4 +154,4 @@ At the end, provide a summary:
 - Whether the change is **ready to merge** or **needs revision**.
 
 Blocking violations: any issue in 2a, 2b, 2c, 2d, 2e, or 2f.
-Suggestions: issues in 2g (null safety, when the null case is unlikely) and 2h (style).
+Suggestions: issues in 2g (null safety), 2h (style), and 2i (PR description).
