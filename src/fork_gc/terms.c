@@ -24,7 +24,7 @@ void FGC_childCollectTerms(ForkGC *gc, RedisSearchCtx *sctx) {
   while (TrieIterator_Next(iter, &rstr, &slen, NULL, &score, NULL, &dist)) {
     size_t termLen;
     char *term = runesToStr(rstr, slen, &termLen);
-    InvertedIndex *idx = Redis_OpenInvertedIndex(sctx, term, termLen, DONT_CREATE_INDEX, NULL);
+    InvertedIndex *idx = Redis_OpenInvertedIndex(sctx->spec, term, termLen, DONT_CREATE_INDEX, NULL);
     if (idx) {
       struct iovec iov = {.iov_base = (void *)term, termLen};
 
@@ -88,7 +88,7 @@ FGCError FGC_parentHandleTerms(ForkGC *gc) {
 
   RedisSearchCtx_LockSpecWrite(sctx);
 
-  idx = Redis_OpenInvertedIndex(sctx, term, len, DONT_CREATE_INDEX, NULL);
+  idx = Redis_OpenInvertedIndex(sctx->spec, term, len, DONT_CREATE_INDEX, NULL);
 
   if (idx == NULL) {
     status = FGC_PARENT_ERROR;

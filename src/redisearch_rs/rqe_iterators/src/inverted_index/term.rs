@@ -103,11 +103,11 @@ where
         // SAFETY: 1. guarantees `context` is valid.
         let sctx_ref = unsafe { context.as_ref() };
         // SAFETY: 2. guarantees `spec` is a valid, non-null pointer.
-        let spec = unsafe { &*sctx_ref.spec };
+        let spec = sctx_ref.spec;
 
         // Redis_OpenInvertedIndex() relies on keysDict to open the II.
         // It should always be set in production flows but some tests do not set up a full spec.
-        if spec.keysDict.is_null() {
+        if unsafe { (*spec).keysDict.is_null() } {
             return false;
         }
 
@@ -123,16 +123,10 @@ where
             .as_bytes()
             .map_or(std::ptr::null(), |b| b.as_ptr().cast());
 
-        // SAFETY: 1. guarantees `context` is a valid `RedisSearchCtx` and
+        // SAFETY: 2. guarantees `spec` is a valid `IndexSpec` and
         // `str_ptr` is a valid byte slice of `term.len()` bytes.
         let idx = unsafe {
-            ffi::Redis_OpenInvertedIndex(
-                context.as_ptr(),
-                str_ptr,
-                term.len(),
-                false,
-                std::ptr::null_mut(),
-            )
+            ffi::Redis_OpenInvertedIndex(spec, str_ptr, term.len(), false, std::ptr::null_mut())
         };
 
         let Some(idx) = NonNull::new(idx) else {
