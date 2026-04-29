@@ -41,7 +41,7 @@ typedef struct {
   arrayof(const char *) sort_names;         // local-only
   const RLookupKey *input_key;              // local-only
 
-  bool has_wildcard;                        // remote-only
+  bool load_all;                            // remote-only
   uint64_t sortAscMap;                      // shared
 
   bool has_limit;                           // shared
@@ -143,7 +143,7 @@ static void handleCollectFields(ArgParser *parser, const void *value, void *user
   // begins with `@` or `$` it's a stray field reference and we reject it here;
   // other tokens (SORTBY, LIMIT, ...) are left for the outer parser to dispatch.
   if (strcmp(firstArg, "*") == 0) {
-    data->has_wildcard = true;
+    data->load_all = true;
     if (!AC_IsAtEnd(ac)) {
       const char *next = AC_StringArg(ac, ac->offset);
       if (next && (next[0] == '@' || next[0] == '$')) {
@@ -407,7 +407,7 @@ Reducer *RDCRCollect_New(const ReducerOptions *options) {
     data.input_key = options->input_key;
   }
 
-  if (data.has_wildcard && options->is_local) {
+  if (data.load_all && options->is_local) {
     QueryError_SetError(options->status, QUERY_ERROR_CODE_PARSE_ARGS,
       "COLLECT does not yet support `*` in FIELDS for local mode");
     CollectParseData_Free(&data);
@@ -432,7 +432,7 @@ Reducer *RDCRCollect_New(const ReducerOptions *options) {
     rbase = CollectReducer_CreateRemote(
       data.field_keys,
       data.field_keys ? array_len(data.field_keys) : 0,
-      data.has_wildcard,
+      data.load_all,
       data.sort_keys,
       data.sort_keys ? array_len(data.sort_keys) : 0,
       data.sortAscMap,
