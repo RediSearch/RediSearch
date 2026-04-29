@@ -11,8 +11,8 @@
 #include "dist_plan_utils.h"
 
 #include <array>
-#include <cstdio>
 #include <initializer_list>
+#include <string>
 
 static ArgsCursor makeArgs(const char **argv, size_t argc) {
   ArgsCursor ac;
@@ -39,10 +39,9 @@ TEST(DistPlanUtils, ShardCollectArgs_FieldsOnly) {
   const char *src[] = {"FIELDS", "2", "@a", "@b"};
   ArgsCursor srcArgs = makeArgs(src, 4);
 
-  std::array<char, COLLECT_ARGS_COUNT_BUF_LEN> countBuf;
-  std::snprintf(countBuf.data(), countBuf.size(), "%zu", srcArgs.argc);
+  std::string countStr = std::to_string(srcArgs.argc);
   std::array<void *, 5> objs;  // collectObjsBufLen(4, /*has_alias=*/false)
-  ArgsCursor out = buildCollectArgs(objs.data(), countBuf.data(), &srcArgs, nullptr);
+  ArgsCursor out = buildCollectArgs(objs.data(), countStr.c_str(), &srcArgs, nullptr);
 
   ASSERT_EQ(out.offset, 0u);
   ASSERT_EQ(out.type, AC_TYPE_CHAR);
@@ -53,10 +52,9 @@ TEST(DistPlanUtils, ShardCollectArgs_FieldsSortbyLimit) {
   const char *src[] = {"FIELDS", "1", "@x", "SORTBY", "2", "@x", "ASC", "LIMIT", "0", "10"};
   ArgsCursor srcArgs = makeArgs(src, 10);
 
-  std::array<char, COLLECT_ARGS_COUNT_BUF_LEN> countBuf;
-  std::snprintf(countBuf.data(), countBuf.size(), "%zu", srcArgs.argc);
+  std::string countStr = std::to_string(srcArgs.argc);
   std::array<void *, 11> objs;  // collectObjsBufLen(10, /*has_alias=*/false)
-  ArgsCursor out = buildCollectArgs(objs.data(), countBuf.data(), &srcArgs, nullptr);
+  ArgsCursor out = buildCollectArgs(objs.data(), countStr.c_str(), &srcArgs, nullptr);
 
   assertArgs(out, {"10", "FIELDS", "1", "@x", "SORTBY", "2", "@x", "ASC", "LIMIT", "0",
                    "10"});
@@ -69,10 +67,9 @@ TEST(DistPlanUtils, ShardCollectArgs_FieldsSortbyLimit) {
 TEST(DistPlanUtils, ShardCollectArgs_EmptyArgs) {
   ArgsCursor srcArgs = makeArgs(nullptr, 0);
 
-  std::array<char, COLLECT_ARGS_COUNT_BUF_LEN> countBuf;
-  std::snprintf(countBuf.data(), countBuf.size(), "%zu", srcArgs.argc);
+  std::string countStr = std::to_string(srcArgs.argc);
   std::array<void *, 1> objs;  // collectObjsBufLen(0, /*has_alias=*/false)
-  ArgsCursor out = buildCollectArgs(objs.data(), countBuf.data(), &srcArgs, nullptr);
+  ArgsCursor out = buildCollectArgs(objs.data(), countStr.c_str(), &srcArgs, nullptr);
 
   assertArgs(out, {"0"});
 }
@@ -83,10 +80,9 @@ TEST(DistPlanUtils, CoordCollectArgs_FieldsOnly) {
   const char *src[] = {"FIELDS", "2", "@a", "@b"};
   ArgsCursor srcArgs = makeArgs(src, 4);
 
-  std::array<char, COLLECT_ARGS_COUNT_BUF_LEN> countBuf;
-  std::snprintf(countBuf.data(), countBuf.size(), "%zu", srcArgs.argc);
+  std::string countStr = std::to_string(srcArgs.argc);
   std::array<void *, 7> objs;  // collectObjsBufLen(4, /*has_alias=*/true)
-  ArgsCursor out = buildCollectArgs(objs.data(), countBuf.data(), &srcArgs, "my_collect");
+  ArgsCursor out = buildCollectArgs(objs.data(), countStr.c_str(), &srcArgs, "my_collect");
 
   ASSERT_EQ(out.offset, 0u);
   ASSERT_EQ(out.type, AC_TYPE_CHAR);
@@ -97,10 +93,9 @@ TEST(DistPlanUtils, CoordCollectArgs_FieldsSortbyLimit) {
   const char *src[] = {"FIELDS", "1", "@x", "SORTBY", "2", "@x", "ASC", "LIMIT", "0", "10"};
   ArgsCursor srcArgs = makeArgs(src, 10);
 
-  std::array<char, COLLECT_ARGS_COUNT_BUF_LEN> countBuf;
-  std::snprintf(countBuf.data(), countBuf.size(), "%zu", srcArgs.argc);
+  std::string countStr = std::to_string(srcArgs.argc);
   std::array<void *, 13> objs;  // collectObjsBufLen(10, /*has_alias=*/true)
-  ArgsCursor out = buildCollectArgs(objs.data(), countBuf.data(), &srcArgs, "user_alias");
+  ArgsCursor out = buildCollectArgs(objs.data(), countStr.c_str(), &srcArgs, "user_alias");
 
   assertArgs(out, {"10", "FIELDS", "1", "@x", "SORTBY", "2", "@x", "ASC", "LIMIT", "0",
                    "10", "AS", "user_alias"});
@@ -115,10 +110,9 @@ TEST(DistPlanUtils, CoordCollectArgs_FieldsSortbyLimit) {
 TEST(DistPlanUtils, CoordCollectArgs_EmptyOriginalArgs) {
   ArgsCursor srcArgs = makeArgs(nullptr, 0);
 
-  std::array<char, COLLECT_ARGS_COUNT_BUF_LEN> countBuf;
-  std::snprintf(countBuf.data(), countBuf.size(), "%zu", srcArgs.argc);
+  std::string countStr = std::to_string(srcArgs.argc);
   std::array<void *, 3> objs;  // collectObjsBufLen(0, /*has_alias=*/true)
-  ArgsCursor out = buildCollectArgs(objs.data(), countBuf.data(), &srcArgs, "ua");
+  ArgsCursor out = buildCollectArgs(objs.data(), countStr.c_str(), &srcArgs, "ua");
 
   assertArgs(out, {"0", "AS", "ua"});
 }
