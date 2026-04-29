@@ -245,16 +245,17 @@ static void buildMRCommand(RedisModuleString **argv, int argc, ProfileOptions pr
 // timeout callback to drain queued shard replies after the background
 // pipeline aborts.
 //
-// A pipeline qualifies when it carries no buffering or reordering state
-// between RPNet and the end processor. Two shapes are supported:
+// A pipeline qualifies when its tail (above RPNet) is one of:
 //
-//   1. `RPNet -> end`              -- end IS the RPNet itself
-//   2. `RPNet -> RPPager_Limiter`  -- end is a pager directly above RPNet
+//   RPNet
+//   RPNet -> RPSorter
+//   RPNet -> RPPager_Limiter
+//   RPNet -> RPSorter -> RPPager_Limiter
 //
 // Profile wraps every RP and is not yet supported under RETURN-STRICT drain,
 // so profile queries are excluded.
 //
-// To extend support to additional pipeline shapes, add a new case below.
+// To extend support, allow additional RP types in the peel sequence below.
 static bool pipelineCanYieldPartialResults(AREQ *r) {
   if (IsProfile(r)) {
     return false;
@@ -271,18 +272,17 @@ static bool pipelineCanYieldPartialResults(AREQ *r) {
   // root is always RPNet on the coordinator pipeline.
   RS_ASSERT(root->type == RP_NETWORK);
 
-  // Shape 1: end IS the RPNet (no tail pipeline was attached).
-  if (end == root && end->type == RP_NETWORK) {
-    return true;
+  // Supported tail shape: [RPPager_Limiter] -> [RPSorter] -> RPNet.
+  // Peel the optional pager and sorter; whatever remains must be the RPNet root.
+  // To extend support, allow additional RP types in the peel sequence below.
+  ResultProcessor *rp = end;
+  if (rp->type == RP_PAGER_LIMITER) {
+    rp = rp->upstream;
   }
-
-  // Shape 2: end is RPPager_Limiter sitting directly above RPNet.
-  if (end->type == RP_PAGER_LIMITER &&
-      end->upstream == root && end->upstream->type == RP_NETWORK) {
-    return true;
+  if (rp && rp->type == RP_SORTER) {
+    rp = rp->upstream;
   }
-
-  return false;
+  return rp == root;
 }
 
 static void buildDistRPChain(AREQ *r, MRCommand *xcmd, AREQDIST_UpstreamInfo *us, int (*nextFunc)(ResultProcessor *, SearchResult *)) {
