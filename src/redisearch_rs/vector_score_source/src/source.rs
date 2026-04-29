@@ -9,10 +9,10 @@
 
 //! [`VectorScoreSource`] — [`ScoreSource`] implementation backed by VecSim.
 
-use std::{ffi::c_void, num::NonZeroUsize};
+use std::{ffi::c_void, num::NonZeroUsize, ptr};
 
 use ffi::{
-    VecSimBatchIterator, VecSimBatchIterator_Free, VecSimBatchIterator_HasNext,
+    RLookupKey, VecSimBatchIterator, VecSimBatchIterator_Free, VecSimBatchIterator_HasNext,
     VecSimBatchIterator_New, VecSimBatchIterator_Next, VecSimIndex, VecSimIndex_AdhocBfCtx_Free,
     VecSimIndex_AdhocBfCtx_GetDistanceFrom, VecSimIndex_AdhocBfCtx_New,
     VecSimIndex_GetDistanceFrom_Unsafe, VecSimIndex_IndexSize, VecSimIndex_PreferAdHocSearch,
@@ -60,6 +60,14 @@ pub struct VectorScoreSource {
     initial_child_num_estimated: usize,
     /// `k - heap_count`, updated by `batch_strategy`.
     k_remaining: usize,
+    /// `true` once `next_batch_unfiltered` has been called; subsequent calls
+    /// short-circuit to `Ok(None)` so the source honors the single-shot
+    /// contract without re-issuing the HNSW query (which would also re-poll
+    /// the timeout context and could spuriously fail). Reset by `rewind`.
+    unfiltered_consumed: bool,
+
+    /// Score key for this iterator's metric output; set by the metrics loader.
+    pub own_key: *mut RLookupKey,
 }
 
 // SAFETY: VectorScoreSource is used from a single thread (the query execution
@@ -100,6 +108,8 @@ impl VectorScoreSource {
             child_num_estimated,
             initial_child_num_estimated: child_num_estimated,
             k_remaining: k.get(),
+            unfiltered_consumed: false,
+            own_key: ptr::null_mut(),
         }
     }
 
@@ -177,8 +187,10 @@ impl<'index> ScoreSource<'index> for VectorScoreSource {
     type Batch = VecSimScoreBatchCursor;
 
     fn next_batch_unfiltered(&mut self) -> Result<Option<Self::Batch>, RQEIteratorError> {
-        // Single-shot HNSW query for the unfiltered path; called exactly once
-        // per evaluation by `prepare_unfiltered_direct`.
+        if self.unfiltered_consumed {
+            return Ok(None);
+        }
+        self.unfiltered_consumed = true;
         self.query_params.timeoutCtx = self.timeout_ctx;
         // SAFETY: `self.index` and `self.query_vector` are valid.
         let reply = unsafe {
@@ -282,14 +294,22 @@ impl<'index> ScoreSource<'index> for VectorScoreSource {
         self.num_iterations = 0;
         self.k_remaining = self.k.get();
         self.child_num_estimated = self.initial_child_num_estimated;
+        self.unfiltered_consumed = false;
     }
 
     fn build_result(&self, doc_id: t_docId, score: f64) -> RSIndexResult<'index> {
-        let result = RSIndexResult::build_metric()
+        let mut result = RSIndexResult::build_metric()
             .doc_id(doc_id)
             .num_value(score)
             .build();
-        // TODO: MOD-14210: push the score to `result.metrics`. This needs `self` to know its key.
+        if !self.own_key.is_null() {
+            // SAFETY: `own_key` is set by `getAdditionalMetricsRP` in pipeline_construction.c
+            // before any reads occur, and the key lives in the query's RLookup structure for
+            // at least `'index` (the query lifetime).
+            let key: &'index ffi::RLookupKey =
+                unsafe { &*(self.own_key as *const ffi::RLookupKey) };
+            result.metrics.push_with_key(key, score);
+        }
         result
     }
 
