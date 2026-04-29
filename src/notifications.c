@@ -126,8 +126,12 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
     case hincrby_cmd:
     case hincrbyfloat_cmd:
     case hdel_cmd:
-    case hexpired_cmd:
       if (!IS_SST_RDB_IN_PROCESS(ctx)) {
+        Indexes_UpdateMatchingWithSchemaRules(ctx, key, DocumentType_Hash, hashFields);
+      }
+      break;
+    case hexpired_cmd:
+      if (!IS_SST_RDB_IN_PROCESS(ctx) && !SearchDisk_IsEnabled()) {
         Indexes_UpdateMatchingWithSchemaRules(ctx, key, DocumentType_Hash, hashFields);
       }
       break;
@@ -167,6 +171,8 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
       // We do not support field-TTL metadata changes in the disk flow.
       if (!SearchDisk_IsEnabled()) {
         Indexes_UpdateMatchingWithSchemaRules(ctx, key, getDocTypeFromString(key), hashFields);
+      } else {
+        RedisModule_Log(ctx, "warning", "Field-level expiration is not supported on Search when Flex is enabled. Ignoring HPEXPIRE/HEXPIRE on Search");
       }
       break;
 
