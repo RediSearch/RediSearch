@@ -4199,7 +4199,7 @@ void Indexes_UpdateMatchingDocExpiration(RedisModuleCtx *ctx, RedisModuleString 
   RedisModule_CloseKey(kp);
 
   // Find all indexes that match the key's name prefix
-  SpecOpIndexingCtx *specs = Indexes_FindMatchingSchemaRules(ctx, key, type, false, NULL);
+  SpecOpIndexingCtx *specs = Indexes_FindMatchingSchemaRules(ctx, key, type, true, NULL);
 
   for (size_t i = 0; i < array_len(specs->specsOps); ++i) {
     IndexSpec *spec = specs->specsOps[i].spec;
