@@ -14,7 +14,6 @@
 #include "redis_index.h"
 #include "info/indexes_info.h"
 #include "config.h"
-#include "numeric_index.h"
 #include "numeric_range_tree.h"
 
 #include <set>
@@ -1285,7 +1284,7 @@ TEST_F(LLApiTest, testInfo) {
   // common stats
   ASSERT_EQ(info.numDocuments, 2);
   ASSERT_EQ(info.maxDocId, 2);
-  ASSERT_EQ(info.docTableSize, 124 + doc_table_size);
+  ASSERT_EQ(info.docTableSize, 140 + doc_table_size);
   ASSERT_EQ(info.sortablesSize, 80);
   ASSERT_EQ(info.docTrieSize, 120);
   ASSERT_EQ(info.numTerms, 5);
@@ -1387,23 +1386,23 @@ TEST_F(LLApiTest, testInfoSize) {
 
   // Memory values use the original magic numbers, adjusted for TrieNode size changes.
   // The numDocs field added 8 bytes per trie entry.
-  EXPECT_EQ(RediSearch_MemUsage(index), 319 + additional_overhead + get_trie_entry_extra_overhead(1));
+  EXPECT_EQ(RediSearch_MemUsage(index), 327 + additional_overhead + get_trie_entry_extra_overhead(1));
 
   d = RediSearch_CreateDocument(DOCID2, strlen(DOCID2), 2.0, NULL);
   RediSearch_DocumentAddFieldCString(d, FIELD_NAME_1, "TXT", RSFLDTYPE_DEFAULT);
   RediSearch_DocumentAddFieldNumber(d, NUMERIC_FIELD_NAME, 1, RSFLDTYPE_DEFAULT);
   RediSearch_SpecAddDocument(index, d);
 
-  EXPECT_EQ(RediSearch_MemUsage(index), 597 + additional_overhead + get_trie_entry_extra_overhead(2));
+  EXPECT_EQ(RediSearch_MemUsage(index), 613 + additional_overhead + get_trie_entry_extra_overhead(2));
 
   // test MemUsage after deleting docs
   int ret = RediSearch_DropDocument(index, DOCID2, strlen(DOCID2));
   ASSERT_EQ(REDISMODULE_OK, ret);
-  EXPECT_EQ(RediSearch_MemUsage(index), 463 + additional_overhead + get_trie_entry_extra_overhead(2));
+  EXPECT_EQ(RediSearch_MemUsage(index), 471 + additional_overhead + get_trie_entry_extra_overhead(2));
   RSGlobalConfig.gcConfigParams.gcSettings.forkGcCleanThreshold = 0;
   gc = get_spec(index)->gc;
   gc->callbacks.periodicCallback(gc->gcCtx, false);
-  EXPECT_EQ(RediSearch_MemUsage(index), 320 + additional_overhead + get_trie_entry_extra_overhead(1));
+  EXPECT_EQ(RediSearch_MemUsage(index), 328 + additional_overhead + get_trie_entry_extra_overhead(1));
   ret = RediSearch_DropDocument(index, DOCID1, strlen(DOCID1));
   ASSERT_EQ(REDISMODULE_OK, ret);
   EXPECT_EQ(RediSearch_MemUsage(index), 234 + additional_overhead + get_trie_entry_extra_overhead(1));
@@ -1449,23 +1448,23 @@ TEST_F(LLApiTest, testInfoSizeWithExistingIndex) {
 
   // Memory values use the original magic numbers, adjusted for TrieNode size changes.
   // The numDocs field added 8 bytes per trie entry.
-  EXPECT_EQ(RediSearch_MemUsage(index), 400 + additional_overhead + get_trie_entry_extra_overhead(1));
+  EXPECT_EQ(RediSearch_MemUsage(index), 408 + additional_overhead + get_trie_entry_extra_overhead(1));
 
   d = RediSearch_CreateDocument(DOCID2, strlen(DOCID2), 2.0, NULL);
   RediSearch_DocumentAddFieldCString(d, FIELD_NAME_1, "TXT", RSFLDTYPE_DEFAULT);
   RediSearch_DocumentAddFieldNumber(d, NUMERIC_FIELD_NAME, 1, RSFLDTYPE_DEFAULT);
   RediSearch_SpecAddDocument(index, d);
 
-  EXPECT_EQ(RediSearch_MemUsage(index), 679 + additional_overhead + get_trie_entry_extra_overhead(2));
+  EXPECT_EQ(RediSearch_MemUsage(index), 695 + additional_overhead + get_trie_entry_extra_overhead(2));
 
   // test MemUsage after deleting docs
   int ret = RediSearch_DropDocument(index, DOCID2, strlen(DOCID2));
   ASSERT_EQ(REDISMODULE_OK, ret);
-  EXPECT_EQ(RediSearch_MemUsage(index), 545 + additional_overhead + get_trie_entry_extra_overhead(2));
+  EXPECT_EQ(RediSearch_MemUsage(index), 553 + additional_overhead + get_trie_entry_extra_overhead(2));
   RSGlobalConfig.gcConfigParams.gcSettings.forkGcCleanThreshold = 0;
   gc = get_spec(index)->gc;
   gc->callbacks.periodicCallback(gc->gcCtx, false);
-  EXPECT_EQ(RediSearch_MemUsage(index), 401 + additional_overhead + get_trie_entry_extra_overhead(1));
+  EXPECT_EQ(RediSearch_MemUsage(index), 409 + additional_overhead + get_trie_entry_extra_overhead(1));
   ret = RediSearch_DropDocument(index, DOCID1, strlen(DOCID1));
   ASSERT_EQ(REDISMODULE_OK, ret);
   EXPECT_EQ(RediSearch_MemUsage(index), 315 + additional_overhead + get_trie_entry_extra_overhead(1));

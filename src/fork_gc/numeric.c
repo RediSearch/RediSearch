@@ -9,9 +9,9 @@
 
 #include "pipe.h"
 #include "redis_index.h"
-#include "numeric_index.h"
 #include "rmutil/rm_assert.h"
 #include "obfuscation/hidden.h"
+#include "iterators_rs.h"
 
 void FGC_childCollectNumeric(ForkGC *gc, RedisSearchCtx *sctx) {
   arrayof(FieldSpec*) numericFields = getFieldsByType(sctx->spec, INDEXFLD_T_NUMERIC | INDEXFLD_T_GEO);

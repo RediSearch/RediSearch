@@ -18,19 +18,6 @@ pub mod benchers;
 redis_mock::mock_or_stub_missing_redis_c_symbols!();
 
 #[unsafe(no_mangle)]
-#[expect(clippy::not_unsafe_ptr_arg_deref)]
-pub extern "C" fn ResultMetrics_Free(metrics: *mut ::ffi::RSYieldableMetric) {
-    if metrics.is_null() {
-        return;
-    }
-
-    panic!(
-        "did not expect any benchmark to set metrics, but got: {:?}",
-        unsafe { *metrics }
-    );
-}
-
-#[unsafe(no_mangle)]
 pub extern "C" fn isWithinRadius(
     _gf: *const ::ffi::GeoFilter,
     _d: f64,

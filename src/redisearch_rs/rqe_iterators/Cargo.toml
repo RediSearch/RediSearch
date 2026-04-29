@@ -41,6 +41,7 @@ rqe_iterators = { path = ".", features = ["unittest"] }
 rqe_iterators_test_utils = { workspace = true }
 rstest.workspace = true
 rstest_reuse.workspace = true
+value_ffi = { path = "../c_entrypoint/value_ffi" }
 
 # Crate required to invoke C symbols
 redisearch_rs = { path = "../c_entrypoint/redisearch_rs", features = [

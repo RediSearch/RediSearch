@@ -13,6 +13,7 @@ libc.workspace = true
 query_error.workspace = true
 workspace_hack.workspace = true
 thiserror.workspace = true
+tracing.workspace = true
 triomphe.workspace = true
 
 [dev-dependencies]

@@ -9,10 +9,15 @@
 
 //! Safe wrapper around [`ffi::HiddenString`].
 
-use std::{ffi::CStr, marker::PhantomData, ptr::NonNull};
+use std::{
+    ffi::CStr,
+    fmt::{self, Debug, Pointer},
+    marker::PhantomData,
+    ptr::NonNull,
+};
 
 /// A safe wrapper around a non-null `ffi::HiddenString` reference.
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy)]
 #[repr(transparent)]
 pub struct HiddenStringRef<'a>(
     NonNull<ffi::HiddenString>,
@@ -57,5 +62,19 @@ impl<'a> HiddenStringRef<'a> {
         let bytes = unsafe { core::slice::from_raw_parts(data.cast::<u8>(), n) };
 
         CStr::from_bytes_with_nul(bytes).expect("malformed C string")
+    }
+}
+
+impl Debug for HiddenStringRef<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_tuple("HiddenStringRef")
+            .field(&format_args!("****"))
+            .finish()
+    }
+}
+
+impl Pointer for HiddenStringRef<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        Pointer::fmt(&self.0, f)
     }
 }

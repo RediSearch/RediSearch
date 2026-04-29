@@ -255,9 +255,6 @@ mod optional_optimized_iterator_tests {
         assert!(it.at_eof());
     }
 
-    /// C-Code: Exhaustive skip_to coverage ported from `OptionalIteratorOptimized::SkipTo`
-    /// (nested-loop section) in `tests/cpptests/test_cpp_iterator_optional.cpp`.
-    ///
     /// For every ordered pair `(from_id, skip_to_id)` drawn from the wildcard document
     /// range, rewinds the iterator, positions it at `from_id`, then calls `skip_to`
     /// targeting `skip_to_id`. Verifies that:
@@ -843,9 +840,6 @@ mod optional_optimized_iterator_revalidate_tests {
         assert_eq!(wcii_data.revalidate_count(), 1);
     }
 
-    /// C-Code: Ported from `RevalidateChildAborted_WildcardMoved` in
-    /// `tests/cpptests/test_cpp_iterator_optional.cpp`.
-    ///
     /// When `child` aborts and `wcii` moves simultaneously, the iterator must:
     /// - Replace `child` with `Empty`.
     /// - Return `Moved` at the new `wcii` position (virtual hit, since child is gone).
@@ -880,9 +874,6 @@ mod optional_optimized_iterator_revalidate_tests {
         assert_eq!(child_data.revalidate_count(), 1);
     }
 
-    /// C-Code: Ported from `RevalidateChildMoved_WildcardAborted` in
-    /// `tests/cpptests/test_cpp_iterator_optional.cpp`.
-    ///
     /// When `wcii` aborts the entire optional iterator must abort immediately,
     /// without even revalidating `child`.
     #[test]
@@ -906,9 +897,6 @@ mod optional_optimized_iterator_revalidate_tests {
         assert_eq!(child_data.revalidate_count(), 0);
     }
 
-    /// C-Code: Ported from `RevalidateChildMoved_WildcardMoved` in
-    /// `tests/cpptests/test_cpp_iterator_optional.cpp`.
-    ///
     /// When both `wcii` and `child` move, the iterator must return `Moved` at
     /// `wcii`'s new position, with the appropriate real-vs-virtual result.
     #[test]

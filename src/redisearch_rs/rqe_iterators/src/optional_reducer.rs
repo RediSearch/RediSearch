@@ -15,12 +15,11 @@ use std::ptr::NonNull;
 use ffi::{IteratorType, t_docId};
 
 use crate::{
-    RQEIterator,
+    NewWildcardIterator, RQEIterator,
     optional::Optional,
     optional_optimized::OptionalOptimized,
     wildcard::{
-        WildcardIterator, new_wildcard_iterator, new_wildcard_iterator_on_disk,
-        new_wildcard_iterator_optimized,
+        new_wildcard_iterator, new_wildcard_iterator_on_disk, new_wildcard_iterator_optimized,
     },
 };
 
@@ -29,7 +28,7 @@ pub enum NewOptionalIterator<'index, I: RQEIterator<'index> + 'index> {
     /// Shortcircuit 1: child was structurally empty ([`crate::Empty`] or `EMPTY_ITERATOR`) — a wildcard is returned instead.
     ///
     /// All results will be virtual hits.
-    WildcardFallback(Box<dyn WildcardIterator<'index> + 'index>),
+    WildcardFallback(NewWildcardIterator<'index>),
 
     /// Shortcircuit 2: child was already a wildcard — it is returned as-is,
     /// with `weight` already applied to its current result.
@@ -41,7 +40,7 @@ pub enum NewOptionalIterator<'index, I: RQEIterator<'index> + 'index> {
     Optional(Optional<'index, I>),
 
     /// Regular case, optimized index (`spec.rule.index_all` set  or disk index): wrap child in an [`OptionalOptimized`].
-    OptionalOptimized(OptionalOptimized<'index, Box<dyn WildcardIterator<'index> + 'index>, I>),
+    OptionalOptimized(OptionalOptimized<'index, NewWildcardIterator<'index>, I>),
 }
 
 /// Create an optional iterator over `child`, applying shortcircuit reductions
