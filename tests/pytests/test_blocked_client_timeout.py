@@ -1013,6 +1013,96 @@ class TestCoordinatorTimeout:
                 c.execute_command(debug_cmd(), 'QUERY_CONTROLLER',
                                   'SET_CURSOR_READ_SIZE', prev)
 
+    def test_fail_timeout_queued_internal_cursor_read(self):
+        """FAIL timeout on a non-coord shard's _FT.CURSOR READ while queued.
+
+        Times out the shard's ``_FT.CURSOR|READ`` blocked client while its
+        cursor-read job is still queued in the worker pool, so the worker
+        takes the early-exit branch and frees the cursor without running
+        the pipeline.
+        """
+        env = self.env
+        skipIfNoEnableAssert(env)
+
+        non_coord_shards = _non_coord_shard_conns(env)
+        env.assertGreater(len(non_coord_shards), 0,
+                          message="Test requires at least one shard process distinct "
+                                  "from the coordinator to exercise the internal "
+                                  "_FT.CURSOR READ path")
+        # One pinned shard stalls the whole coord: MR_ManuallyTriggerNextIfNeeded
+        # won't dispatch a new round while any prior command is still in flight.
+        target_shard = non_coord_shards[0]
+
+        # Shrink cursor read size on every shard so each _FT.CURSOR READ returns
+        # 1 doc; otherwise the coord-self shard could satisfy the request alone
+        # and the target shard would never be dispatched to.
+        all_shards = [env.getConnection(i) for i in range(1, env.shardsCount + 1)]
+        prev_sizes = [
+            c.execute_command(debug_cmd(), 'QUERY_CONTROLLER', 'SET_CURSOR_READ_SIZE', 1)
+            for c in all_shards
+        ]
+        prev_policy = None
+        try:
+            prev_policy, cursor_id, baseline, before_info, base_err_coord = \
+                _setup_fail_cursor_state(env)
+
+            # Per-shard baseline: only the timed-out shard should bump
+            # TIMEOUT_ERROR_SHARD_METRIC via CursorReadTimeoutFailCallback;
+            # all other shards stay flat.
+            base_err_shards = [
+                int(info_modules_to_dict(c)[WARN_ERR_SECTION][TIMEOUT_ERROR_SHARD_METRIC])
+                for c in all_shards
+            ]
+            target_pid = pid_cmd(target_shard)
+
+            # Pause WORKERS on the target shard so its cursorRead_ctx queues
+            # without running. The shard's main thread still processes the
+            # incoming _FT.CURSOR|READ and blocks the BC.
+            target_shard.execute_command(debug_cmd(), 'WORKERS', 'pause')
+            try:
+                t_query = threading.Thread(
+                    target=run_cmd_expect_timeout,
+                    args=(env, ['FT.CURSOR', 'READ', 'idx', str(cursor_id)]),
+                    daemon=True,
+                )
+                t_query.start()
+                blocked_client_id = wait_for_blocked_query_client(
+                    target_shard, '_FT.CURSOR|READ',
+                    f'Client for _FT.CURSOR|READ not found on shard pid={target_pid}')
+                # Fire the BC timeout on the pinned shard's internal cursor-read client.
+                env.assertEqual(
+                    target_shard.execute_command('CLIENT', 'UNBLOCK', blocked_client_id, 'TIMEOUT'),
+                    1,
+                    message="CLIENT UNBLOCK on shard's _FT.CURSOR|READ should report 1")
+            finally:
+                target_shard.execute_command(debug_cmd(), 'WORKERS', 'resume')
+                target_shard.execute_command(debug_cmd(), 'WORKERS', 'drain')
+
+            t_query.join(timeout=10)
+            env.assertFalse(t_query.is_alive(),
+                            message="Cursor read thread should have finished")
+
+            self._assert_cursor_freed_and_metric_bumped(
+                cursor_id, baseline, before_info, base_err_coord,
+                'FAIL queued internal _FT.CURSOR READ timeout')
+
+            # Verify the shard-side timeout metric: +1 on the target shard
+            # only (CursorReadTimeoutFailCallback runs on its main thread),
+            # unchanged everywhere else.
+            for c, base in zip(all_shards, base_err_shards):
+                expected = base + (1 if pid_cmd(c) == target_pid else 0)
+                wait_for_info_metric(
+                    c, [WARN_ERR_SECTION, TIMEOUT_ERROR_SHARD_METRIC],
+                    str(expected),
+                    msg=f"Shard pid={pid_cmd(c)} TIMEOUT_ERROR_SHARD_METRIC "
+                        f"expected {expected} (base={base}, target_pid={target_pid})")
+        finally:
+            if prev_policy is not None:
+                run_command_on_all_shards(env, 'CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_policy)
+            for c, prev in zip(all_shards, prev_sizes):
+                c.execute_command(debug_cmd(), 'QUERY_CONTROLLER',
+                                  'SET_CURSOR_READ_SIZE', prev)
+
     def test_shard_timeout_fail(self):
         """Test shard timeout with FAIL policy."""
         env = self.env
@@ -2426,6 +2516,49 @@ class TestShardTimeout:
             env.expect('FT.CURSOR', 'READ', 'idx', str(cursor_id)).error().contains('Cursor not found')
         finally:
             env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_policy).ok()
+
+    def test_fail_timeout_queued_shard_cursor_read(self):
+        """FAIL timeout on FT.CURSOR READ while queued in workersThreadPool (standalone).
+
+        Times out the ``FT.CURSOR READ`` blocked client while its cursor-read
+        job is still queued in the worker pool, so the worker takes the
+        early-exit branch and frees the cursor without running the pipeline.
+        """
+        env = self.env
+        prev_policy, cursor_id, baseline, before_info, base_err_coord = \
+            _setup_fail_cursor_state(env)
+
+        env.expect(debug_cmd(), 'WORKERS', 'pause').ok()
+        try:
+            t_query = threading.Thread(
+                target=run_cmd_expect_timeout,
+                args=(env, ['FT.CURSOR', 'READ', 'idx', str(cursor_id)]),
+                daemon=True,
+            )
+            t_query.start()
+            blocked_client_id = wait_for_blocked_query_client(
+                env, 'FT.CURSOR|READ', 'Client for FT.CURSOR|READ not found')
+            env.expect('CLIENT', 'UNBLOCK', blocked_client_id, 'TIMEOUT').equal(1)
+            wait_for_client_unblocked(env, blocked_client_id)
+            t_query.join(timeout=10)
+            env.assertFalse(t_query.is_alive(),
+                            message="Cursor read thread should have finished")
+        finally:
+            env.expect(debug_cmd(), 'WORKERS', 'resume').ok()
+            env.expect(debug_cmd(), 'WORKERS', 'drain').ok()
+
+        # After drain, the queued cursorRead_ctx ran, observed AREQ_TimedOut(req)
+        # and freed the cursor on the early-exit branch (aggregate_exec.c:1922-1924).
+        _wait_for_cursor_cleanup(env, baseline,
+                                 'FAIL queued cursor-read timeout (standalone)')
+        env.expect('FT.CURSOR', 'READ', 'idx', str(cursor_id)).error().contains('Cursor not found')
+        after_info = info_modules_to_dict(env)
+        env.assertEqual(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC],
+                        str(base_err_coord + 1),
+                        message="Coordinator timeout error should be +1 after queued cursor-read timeout")
+        _verify_metrics_not_changed(env, env, before_info, [TIMEOUT_ERROR_COORD_METRIC])
+
+        env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_policy).ok()
 
     def test_sticky_policy_fail_aggregate_config_return_shard_cursor_read(self):
         """Cursor created under FAIL keeps FAIL semantics after CONFIG SET to RETURN (standalone)."""
