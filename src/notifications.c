@@ -131,8 +131,10 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
       }
       break;
     case hexpired_cmd:
-      if (!IS_SST_RDB_IN_PROCESS(ctx) && !SearchDisk_IsEnabled()) {
+      if (!SearchDisk_IsEnabled()) {
         Indexes_UpdateMatchingWithSchemaRules(ctx, key, DocumentType_Hash, hashFields);
+      } else {
+        RedisModule_Log(ctx, "warning", "HEXPIRED event is not supported on Search when Flex is enabled. Ignoring HEXPIRED on Search");
       }
       break;
 
