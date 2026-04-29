@@ -544,7 +544,7 @@ void AREQ_DecrRef(AREQ *req);
  * drains it via `AREQ_ReplyWithStoredResults`.
  * No-op when `storedReplyState.cursor` is NULL.
  */
-void AREQ_DrainStoredCursor(AREQ *req);
+void AREQ_CleanUpStoredCursor(AREQ *req);
 
 /**
  * Start the cursor on the current request

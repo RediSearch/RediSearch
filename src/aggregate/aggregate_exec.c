@@ -57,12 +57,12 @@ static void AREQ_DecrRefWrapper(void *privdata) {
   AREQ_DecrRef((AREQ *)privdata);
 }
 
-// freePrivData for BlockCursorClient on the shard FAIL path. Drains any cursor
+// freePrivData for BlockCursorClientWithTimeout on the shard FAIL path. Drains any cursor
 // parked in storedReplyState before releasing our AREQ ref (no-op on the happy
 // path, where CursorReadReplyCallback already cleared it).
 static void ShardCursorBlockClient_FreeAREQ(void *privdata) {
   AREQ *req = (AREQ *)privdata;
-  AREQ_DrainStoredCursor(req);
+  AREQ_CleanUpStoredCursor(req);
   AREQ_DecrRef(req);
 }
 
@@ -1993,9 +1993,7 @@ int RSCursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
   if (RunInThread(ctx) && !upstreamBC) {
     // Shard/local path: block and dispatch to worker. FAIL arms the
     // blocked-client timer with reply/timeout callbacks;
-    // other policies write the reply inline via the thread-safe
-    // ctx with no timer.
-    // BlockCursorClient requires cursor->execState != NULL (it dereferences it
+    // BlockCursorClientWithTimeout requires cursor->execState != NULL (it dereferences it
     // for the AST).
     RS_ASSERT(cursor->execState != NULL);
     BlockClientCtx blockClientCtx = {0};
@@ -2018,7 +2016,7 @@ int RSCursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
       cursor->execState->useReplyCallback = false;
     }
     CursorReadCtx *cr_ctx = rm_new(CursorReadCtx);
-    cr_ctx->bc = BlockCursorClient(ctx, cursor, count, &blockClientCtx);
+    cr_ctx->bc = BlockCursorClientWithTimeout(ctx, cursor, count, &blockClientCtx);
     cr_ctx->cursor = cursor;
     cr_ctx->count = count;
     workersThreadPool_AddWork((redisearch_thpool_proc)cursorRead_ctx, cr_ctx);

@@ -59,7 +59,7 @@ RedisModuleBlockedClient *BlockQueryClientWithTimeout(RedisModuleCtx *ctx, Stron
   return blockedClient;
 }
 
-RedisModuleBlockedClient *BlockCursorClient(RedisModuleCtx *ctx, Cursor *cursor, size_t count, BlockClientCtx *blockClientCtx) {
+RedisModuleBlockedClient *BlockCursorClientWithTimeout(RedisModuleCtx *ctx, Cursor *cursor, size_t count, BlockClientCtx *blockClientCtx) {
   RS_ASSERT(blockClientCtx != NULL);
   RS_ASSERT(cursor->execState != NULL);
   RS_ASSERT(blockClientCtx->timeoutMS == 0 ||

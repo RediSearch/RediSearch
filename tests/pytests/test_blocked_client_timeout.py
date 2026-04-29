@@ -795,7 +795,7 @@ class TestCoordinatorTimeout:
         """
         Test that FAIL policy doesn't break cursor reads when there is no timeout.
         This verifies that useReplyCallback is properly cleared for cursor reads,
-        since cursor reads use BlockCursorClient which has no reply_callback.
+        since cursor reads use BlockCursorClientWithTimeout which has no reply_callback.
         """
         env = self.env
 
@@ -2276,7 +2276,7 @@ class TestShardTimeout:
         """
         Test that FAIL policy doesn't break cursor reads when there is no timeout.
         This verifies that useReplyCallback is properly cleared for cursor reads,
-        since cursor reads use BlockCursorClient which has no reply_callback.
+        since cursor reads use BlockCursorClientWithTimeout which has no reply_callback.
         """
         env = self.env
 

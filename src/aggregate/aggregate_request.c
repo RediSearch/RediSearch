@@ -1664,7 +1664,7 @@ void AREQ_DecrRef(AREQ *req) {
   }
 }
 
-void AREQ_DrainStoredCursor(AREQ *req) {
+void AREQ_CleanUpStoredCursor(AREQ *req) {
   if (req->storedReplyState.cursor) {
     Cursor *cursor = req->storedReplyState.cursor;
     req->storedReplyState.cursor = NULL;
