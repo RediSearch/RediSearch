@@ -340,16 +340,49 @@ TEST_F(CollectParserTest, JsonPathField) {
   r->Free(r);
 }
 
+TEST_F(CollectParserTest, SortByJsonPathAccepted) {
+  registerKeys({"$..price"});
+  Reducer *r = parseCollectOk({"FIELDS", "1", "$..price", "SORTBY", "1", "@$..price"});
+  ASSERT_NE(r, nullptr);
+  EXPECT_EQ(CollectReducer_GetFieldKeysLen(r), 1u);
+  EXPECT_EQ(CollectReducer_GetSortKeysLen(r), 1u);
+  EXPECT_TRUE(SORTASCMAP_GETASC(CollectReducer_GetSortAscMap(r), 0));
+  r->Free(r);
+}
+
+TEST_F(CollectParserTest, LocalSortByJsonPathAccepted) {
+  std::vector<const char *> args = {"FIELDS", "1", "@$..price", "SORTBY", "1", "@$..price"};
+  QueryError status = QueryError_Default();
+  Reducer *r = parseCollect(args, &status, /*isLocal=*/true, plannerInputKey);
+  ASSERT_NE(r, nullptr) << QueryError_GetUserError(&status);
+  r->Free(r);
+  QueryError_ClearError(&status);
+}
+
 // ====== Validation / error tests ======
 
 TEST_F(CollectParserTest, SortByJsonPathRejected) {
   registerKeys({"$..price"});
-  // Remote: FIELDS resolves `$..price` via lookup, SORTBY rejects it.
-  // Local: FIELDS rejects it directly (no lookup, only `@` is allowed).
-  // Both modes surface the same shared `parseAtPrefixedName` error substring.
-  expectError(
-      {"FIELDS", "1", "$..price", "SORTBY", "1", "$..price"},
-      "Missing prefix: name requires '@' prefix");
+  std::vector<const char *> args = {"FIELDS", "1", "$..price", "SORTBY", "1", "$..price"};
+  const char *expected =
+      "SEARCH_PARSE_ARGS Missing prefix: name requires '@' prefix ($..price)";
+
+  // Remote parse
+  {
+    QueryError status = QueryError_Default();
+    Reducer *r = parseCollect(args, &status);
+    ASSERT_EQ(r, nullptr) << "Expected parse failure but got success";
+    EXPECT_STREQ(QueryError_GetUserError(&status), expected);
+    QueryError_ClearError(&status);
+  }
+  // Local parse
+  {
+    QueryError status = QueryError_Default();
+    Reducer *r = parseCollect(args, &status, /*isLocal=*/true, plannerInputKey);
+    ASSERT_EQ(r, nullptr) << "Expected parse failure but got success";
+    EXPECT_STREQ(QueryError_GetUserError(&status), expected);
+    QueryError_ClearError(&status);
+  }
 }
 
 TEST_F(CollectParserTest, EmptyArgs) {
