@@ -18,8 +18,11 @@ use ffi::{RS_FIELDMASK_ALL, t_docId};
 use index_result::RSIndexResult;
 
 use crate::{
-    RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome, maybe_empty::MaybeEmpty,
-    optional::OptionalIterator, wildcard::WildcardIterator,
+    RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
+    maybe_empty::MaybeEmpty,
+    optional::OptionalIterator,
+    profile_print::{ProfilePrint, ProfilePrintCtx},
+    wildcard::WildcardIterator,
 };
 
 use index_spec::IndexSpecReadGuard;
@@ -380,5 +383,15 @@ impl<'index, W: WildcardIterator<'index> + 'index> crate::interop::ProfileChildr
             last_doc_id: self.last_doc_id,
             at_eof: self.at_eof,
         }
+    }
+}
+
+impl<'index, W, I> ProfilePrint for OptionalOptimized<'index, W, I>
+where
+    W: crate::WildcardIterator<'index>,
+    I: RQEIterator<'index> + ProfilePrint,
+{
+    fn print_profile(&self, map: &mut redis_reply::MapBuilder<'_>, ctx: &mut ProfilePrintCtx<'_>) {
+        ctx.print_single_child(c"OPTIONAL", self.child(), map);
     }
 }

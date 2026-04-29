@@ -17,6 +17,11 @@ typedef enum MetricType {
 } MetricType;
 
 /**
+ * Context passed through recursive profile printing calls.
+ */
+typedef struct ProfilePrintCtx ProfilePrintCtx;
+
+/**
  * Profile counters collected during query execution.
  *
  * This struct is `#[repr(C)]` so that C code can access its fields directly.

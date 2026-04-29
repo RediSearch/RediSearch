@@ -16,7 +16,9 @@ use index_result::RSIndexResult;
 
 use crate::{
     IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
-    maybe_empty::MaybeEmpty, utils::TimeoutContext,
+    maybe_empty::MaybeEmpty,
+    profile_print::{ProfilePrint, ProfilePrintCtx},
+    utils::TimeoutContext,
 };
 
 use index_spec::IndexSpecReadGuard;
@@ -291,5 +293,14 @@ impl<'index> crate::interop::ProfileChildren<'index> for Not<'index, crate::c2ru
             result: self.result,
             timeout_ctx: self.timeout_ctx,
         }
+    }
+}
+
+impl<'index, I> ProfilePrint for Not<'index, I>
+where
+    I: RQEIterator<'index> + ProfilePrint,
+{
+    fn print_profile(&self, map: &mut redis_reply::MapBuilder<'_>, ctx: &mut ProfilePrintCtx<'_>) {
+        ctx.print_single_child(c"NOT", self.child(), map);
     }
 }

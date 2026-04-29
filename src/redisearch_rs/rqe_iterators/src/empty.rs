@@ -13,7 +13,10 @@ use ffi::t_docId;
 use index_result::RSIndexResult;
 use index_spec::IndexSpecReadGuard;
 
-use crate::{IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
+use crate::{
+    IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
+    profile_print::{ProfilePrint, ProfilePrintCtx},
+};
 
 /// An iterator that yields no results.
 ///
@@ -73,5 +76,11 @@ impl<'index> RQEIterator<'index> for Empty {
 
     fn intersection_sort_weight(&self, _prioritize_union_children: bool) -> f64 {
         1.0
+    }
+}
+
+impl ProfilePrint for Empty {
+    fn print_profile(&self, map: &mut redis_reply::MapBuilder<'_>, ctx: &mut ProfilePrintCtx<'_>) {
+        ctx.print_leaf(c"EMPTY", map);
     }
 }

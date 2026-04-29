@@ -16,6 +16,7 @@ use inverted_index::{
 };
 use rqe_iterators::{
     FieldExpirationChecker, IteratorType, interop::RQEIteratorWrapper, inverted_index::Missing,
+    profile_print,
 };
 
 /// Wrapper around different II missing iterator encoding types to avoid generics in FFI code.
@@ -220,4 +221,17 @@ pub unsafe extern "C" fn InvIndMissingIterator_GetFieldName(
     // SAFETY: 3. guarantees `out_len` is valid and writable.
     unsafe { *out_len = field_name_len };
     field_name
+}
+
+impl profile_print::ProfilePrint for MissingIterator<'_> {
+    fn print_profile(
+        &self,
+        map: &mut redis_reply::MapBuilder<'_>,
+        ctx: &mut profile_print::ProfilePrintCtx<'_>,
+    ) {
+        match self {
+            MissingIterator::Encoded(m) => m.print_profile(map, ctx),
+            MissingIterator::Raw(m) => m.print_profile(map, ctx),
+        }
+    }
 }

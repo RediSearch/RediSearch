@@ -21,6 +21,7 @@ use crate::IteratorType;
 use crate::{
     Empty, RQEIterator, RQEIteratorError, RQEValidateStatus, SEARCH_ENTERPRISE_ITERATORS,
     SkipToOutcome,
+    profile_print::{ProfilePrint, ProfilePrintCtx},
 };
 
 /// An iterator that yields all ids within a given range, from 1 to max id (inclusive) in an index.
@@ -282,6 +283,19 @@ impl<'index> RQEIterator<'index> for OptimizedWildcard<'index> {
 }
 
 impl<'index> WildcardIterator<'index> for OptimizedWildcard<'index> {}
+
+impl crate::profile_print::ProfilePrint for OptimizedWildcard<'_> {
+    fn print_profile(
+        &self,
+        map: &mut redis_reply::MapBuilder<'_>,
+        ctx: &mut crate::profile_print::ProfilePrintCtx<'_>,
+    ) {
+        match self {
+            Self::DocIdsOnly(it) => it.print_profile(map, ctx),
+            Self::RawDocIdsOnly(it) => it.print_profile(map, ctx),
+        }
+    }
+}
 
 /// Delegates each [`RQEIterator`] method to the active variant.
 macro_rules! delegate_wildcard_iterator {
@@ -573,3 +587,27 @@ impl<'index> RQEIterator<'index> for DiskWildcardIterator<'index> {
 
 /// [`DiskWildcardIterator`] matches all documents on the disk index.
 impl<'index> WildcardIterator<'index> for DiskWildcardIterator<'index> {}
+
+impl ProfilePrint for Wildcard<'_> {
+    fn print_profile(&self, map: &mut redis_reply::MapBuilder<'_>, ctx: &mut ProfilePrintCtx<'_>) {
+        ctx.print_leaf(c"WILDCARD", map);
+    }
+}
+
+impl ProfilePrint for DiskWildcardIterator<'_> {
+    fn print_profile(&self, map: &mut redis_reply::MapBuilder<'_>, ctx: &mut ProfilePrintCtx<'_>) {
+        // TODO: delegate to actual implementation once RSE implements the trait.
+        ctx.print_leaf(c"WILDCARD", map);
+    }
+}
+
+impl ProfilePrint for NewWildcardIterator<'_> {
+    fn print_profile(&self, map: &mut redis_reply::MapBuilder<'_>, ctx: &mut ProfilePrintCtx<'_>) {
+        match self {
+            Self::NotOptimized(it) => it.print_profile(map, ctx),
+            Self::Optimized(it) => it.print_profile(map, ctx),
+            Self::Empty(it) => it.print_profile(map, ctx),
+            Self::Disk(it) => it.print_profile(map, ctx),
+        }
+    }
+}

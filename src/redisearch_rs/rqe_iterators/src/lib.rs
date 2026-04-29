@@ -33,6 +33,7 @@ pub mod optional;
 pub mod optional_optimized;
 pub mod optional_reducer;
 pub mod profile;
+pub mod profile_print;
 pub mod union;
 mod union_flat;
 mod union_heap;

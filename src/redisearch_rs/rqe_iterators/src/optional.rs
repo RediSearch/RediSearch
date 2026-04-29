@@ -13,7 +13,10 @@ use ffi::{RS_FIELDMASK_ALL, t_docId};
 use index_result::RSIndexResult;
 use std::cmp;
 
-use crate::{IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
+use crate::{
+    IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
+    profile_print::{ProfilePrint, ProfilePrintCtx},
+};
 use index_spec::IndexSpecReadGuard;
 
 /// Trait implemented by all optional iterator variants.
@@ -303,5 +306,14 @@ impl<'index> crate::interop::ProfileChildren<'index>
             result: self.result,
             child: self.child.map(crate::c2rust::CRQEIterator::into_profiled),
         }
+    }
+}
+
+impl<'index, I> ProfilePrint for Optional<'index, I>
+where
+    I: RQEIterator<'index> + ProfilePrint,
+{
+    fn print_profile(&self, map: &mut redis_reply::MapBuilder<'_>, ctx: &mut ProfilePrintCtx<'_>) {
+        ctx.print_single_child(c"OPTIONAL", self.child(), map);
     }
 }

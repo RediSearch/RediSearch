@@ -443,6 +443,16 @@ impl<'index, const N: usize> RQEIterator<'index> for Mock<'index, N> {
 
 impl<'index, const N: usize> WildcardIterator<'index> for Mock<'index, N> {}
 
+impl<const N: usize> rqe_iterators::profile_print::ProfilePrint for Mock<'_, N> {
+    fn print_profile(
+        &self,
+        map: &mut redis_reply::MapBuilder<'_>,
+        _ctx: &mut rqe_iterators::profile_print::ProfilePrintCtx<'_>,
+    ) {
+        map.kv_simple_string(c"Type", c"MOCK");
+    }
+}
+
 /// Dynamic-size variant of [`Mock`] that uses a [`Vec`] instead of a fixed array.
 ///
 /// This is useful when the document IDs are determined at runtime.
