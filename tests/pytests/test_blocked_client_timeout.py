@@ -2560,6 +2560,59 @@ class TestShardTimeout:
 
         env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_policy).ok()
 
+    def test_fail_dropped_index_during_queued_cursor_read(self):
+        """FAIL cursor-read replies the stored error when the index is dropped while queued.
+
+        Drops the index while the ``cursorRead_ctx`` job is queued in the
+        worker pool, so the worker takes the dropped-spec branch in
+        ``cursorRead`` and stores the error on ``storedReplyState.err``.
+        ``CursorReadReplyCallback`` then has no stored results and falls
+        into the ``QueryError_HasError`` branch, replying with the stored
+        error.
+        """
+        env = self.env
+
+        # Use a dedicated index so we don't break the class-level shared 'idx'.
+        prev_on_timeout_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
+        env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'fail').ok()
+        try:
+            env.expect('FT.CREATE', 'drop_idx', 'PREFIX', '1', 'drop_doc',
+                       'SCHEMA', 'name', 'TEXT').ok()
+            conn = getConnectionByEnv(env)
+            for i in range(20):
+                conn.execute_command('HSET', f'drop_doc{i}', 'name', f'hello{i}')
+            waitForIndex(env, 'drop_idx')
+
+            _, cursor_id = env.cmd('FT.AGGREGATE', 'drop_idx', '*',
+                                   'LOAD', '1', '@name',
+                                   'WITHCURSOR', 'COUNT', '1')
+            env.assertNotEqual(cursor_id, 0,
+                               message="Expected non-zero cursor ID")
+
+            env.expect(debug_cmd(), 'WORKERS', 'pause').ok()
+            try:
+                expected_err = 'The index was dropped while the cursor was idle'
+                t_query = threading.Thread(
+                    target=lambda: env.expect(
+                        'FT.CURSOR', 'READ', 'drop_idx', str(cursor_id)
+                    ).error().contains(expected_err),
+                    daemon=True,
+                )
+                t_query.start()
+                wait_for_blocked_query_client(
+                    env, 'FT.CURSOR|READ', 'Client for FT.CURSOR|READ not found')
+                # Drop the index while the cursor-read job sits in the worker queue.
+                env.expect('FT.DROPINDEX', 'drop_idx').ok()
+            finally:
+                env.expect(debug_cmd(), 'WORKERS', 'resume').ok()
+                env.expect(debug_cmd(), 'WORKERS', 'drain').ok()
+
+            t_query.join(timeout=10)
+            env.assertFalse(t_query.is_alive(),
+                            message="Cursor read thread should have finished")
+        finally:
+            env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy).ok()
+
     def test_sticky_policy_fail_aggregate_config_return_shard_cursor_read(self):
         """Cursor created under FAIL keeps FAIL semantics after CONFIG SET to RETURN (standalone)."""
         env = self.env
