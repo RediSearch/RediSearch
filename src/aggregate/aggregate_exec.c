@@ -1565,10 +1565,10 @@ static int CursorReadTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString 
   return REDISMODULE_OK;
 }
 
-// Shard FT.CURSOR READ FAIL-path reply callback. Mirrors QueryReplyCallbackbut uses a different privdata type
-// (BlockedCursorNode). Not invoked if the timeout fired first.
-// The BlockedCursorNode reference is released by FreeCursorNode →
-// ShardCursorBlockClient_FreeAREQ after this callback..
+// Shard FT.CURSOR READ FAIL-path reply callback.
+// Mirrors QueryReplyCallbackbut uses a different privdata type (BlockedCursorNode).
+// Not invoked if the timeout fired first.
+// The BlockedCursorNode reference is released by FreeCursorNode → ShardCursorBlockClient_FreeAREQ after this callback.
 static int CursorReadReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   UNUSED(argv);
   UNUSED(argc);
@@ -1824,7 +1824,12 @@ static QueryProcessingCtx *prepareForCursorRead(Cursor *cursor, bool *hasLoader,
     *reqFlags = AREQ_RequestFlags(req);
     *hasLoader = HasLoader(req);
     *initClock = IsProfile(req) || !IsInternal(req);
-  } else { // Dead code
+  } else {
+    // Single-cursor hybrid fallback: only reachable via
+    // HybridRequest_StartSingleCursor (execState NULL, hybrid_ref set),
+    // i.e. user-facing FT.HYBRID WITHCURSOR — currently not supported
+    // (see cursor.h CursorTimeoutInfo). _FT.HYBRID WITHCURSOR sub-cursors
+    // always carry an execState and take the if branch above.
     HybridRequest *hreq = StrongRef_Get(cursor->hybrid_ref);
     *reqFlags = hreq->reqflags;
     qctx = &hreq->tailPipeline->qctx;
