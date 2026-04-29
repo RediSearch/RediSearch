@@ -570,6 +570,42 @@ def testLazyVectorFieldExpiration(env):
     env.expect('FT.SEARCH', 'idx', 'ismissing(@v)', 'NOCONTENT', 'DIALECT', '3').equal([1, 'doc:1'])
 
 
+# Same scenario as testLazyVectorFieldExpiration but without INDEXMISSING, so the
+# HPEXPIRE notification routes through the TTL-table fast path rather than the
+# full reindex fallback. Verifies the fast path keeps KNN results consistent.
+@skip(redis_less_than='8.0')
+def testFastPathVectorFieldExpiration(env):
+    conn = getConnectionByEnv(env)
+    conn.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '0')
+    env.expect('FT.CREATE idx SCHEMA v VECTOR FLAT 6 TYPE FLOAT32 DIM 2 DISTANCE_METRIC L2 t TEXT n NUMERIC').ok()
+    env.cmd(debug_cmd(), 'SET_MONITOR_EXPIRATION', 'idx', 'fields')
+    conn.execute_command('hset', 'doc:1', 'v', 'bababaca', 't', "hello", 'n', 1)
+    conn.execute_command('hset', 'doc:2', 'v', 'babababa', 't', "hello", 'n', 2)
+    conn.execute_command('HPEXPIRE', 'doc:1', '1', 'FIELDS', '1', 'v')
+    time.sleep(0.015)
+    env.expect('FT.SEARCH', 'idx', '@n:[1, 4]=>[KNN 3 @v $vec]', 'PARAMS', 2, 'vec', 'aaaaaaaa', 'NOCONTENT', 'DIALECT', 3).equal([1, 'doc:2'])
+
+
+# Same scenario as testLazyGeoshapeFieldExpiration but without INDEXMISSING, so
+# the HPEXPIRE notification routes through the TTL-table fast path rather than
+# the full reindex fallback. Verifies the fast path keeps geoshape results
+# consistent.
+@skip(redis_less_than='8.0')
+def testFastPathGeoshapeFieldExpiration(env):
+    conn = getConnectionByEnv(env)
+    conn.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '0')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'txt', 'TEXT', 'geom', 'GEOSHAPE', 'FLAT').ok()
+    env.cmd(debug_cmd(), 'SET_MONITOR_EXPIRATION', 'idx', 'fields')
+    first = 'POLYGON((1 1, 1 100, 100 100, 100 1, 1 1))'
+    second = 'POLYGON((1 1, 1 120, 120 120, 120 1, 1 1))'
+    conn.execute_command('HSET', 'doc:1', 'txt', 'hello', 'geom', first)
+    conn.execute_command('HSET', 'doc:2', 'txt', 'world', 'geom', second)
+    conn.execute_command('HPEXPIRE', 'doc:1', '1', 'FIELDS', '1', 'geom')
+    time.sleep(0.015)
+    query = 'POLYGON((0 0, 0 150, 150 150, 150 0, 0 0))'
+    env.expect('FT.SEARCH', 'idx', '@geom:[within $poly]', 'PARAMS', 2, 'poly', query, 'NOCONTENT', 'DIALECT', 3).equal([1, 'doc:2'])
+
+
 @skip(redis_less_than='7.3')
 def testLastFieldNoExpiration(env):
     conn = getConnectionByEnv(env)

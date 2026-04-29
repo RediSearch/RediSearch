@@ -4201,6 +4201,16 @@ void Indexes_DeleteMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStrin
   Indexes_SpecOpsIndexingCtxFree(specs);
 }
 
+// True iff the spec has any field with INDEXMISSING.
+static bool specHasIndexMissing(const IndexSpec *spec) {
+  for (size_t i = 0; i < spec->numFields; ++i) {
+    if (FieldSpec_IndexesMissing(&spec->fields[i])) {
+      return true;
+    }
+  }
+  return false;
+}
+
 void Indexes_UpdateMatchingHashFieldExpiration(RedisModuleCtx *ctx, RedisModuleString *key,
                                                RedisModuleString **hashFields, DocumentType type) {
 
@@ -4236,6 +4246,14 @@ void Indexes_UpdateMatchingHashFieldExpiration(RedisModuleCtx *ctx, RedisModuleS
     // possible. The spec write lock guards index data against background
     // workers, not the immutable schema descriptors compared here.
     if (!hashFieldChanged(spec, hashFields)) {
+      continue;
+    }
+
+    // INDEXMISSING relies on reindexing: the missing-docs iterator walks
+    // an inverted index that requires monotonically increasing docIds, so
+    // we cannot patch it from the fast path. Fall back to full reindex.
+    if (specHasIndexMissing(spec)) {
+      IndexSpec_UpdateDoc(spec, ctx, key, type);
       continue;
     }
 
