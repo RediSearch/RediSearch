@@ -4196,11 +4196,7 @@ void Indexes_UpdateMatchingDocExpiration(RedisModuleCtx *ctx, RedisModuleString 
   // shared GetKeyExpirationTime helper guarantees the value handed
   // to DocTable_UpdateExpiration matches what the full reindex path produces.
   RedisModuleKey *kp = RedisModule_OpenKey(ctx, key, DOCUMENT_OPEN_KEY_INDEXING_FLAGS);
-  if (!kp) {
-    // Key was deleted, remove from all indexes (NULL hashFields means no schema rule filtering)
-    Indexes_DeleteMatchingWithSchemaRules(ctx, key, type, NULL);
-    return;
-  }
+  RS_ASSERT(kp);
   t_expirationTimePoint ttl = GetKeyExpirationTime(kp);
   RedisModule_CloseKey(kp);
 

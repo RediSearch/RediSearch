@@ -278,10 +278,11 @@ def test_expire_aggregate(env):
     # This test ensures that the flag indicating expiration is cleared and the search result struct is ready to be reused.
     res = conn.execute_command('FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@t')
     # The result count is not accurate in aggregation, because WITHOUTCOUNT is the default
-    env.assertEqual(res, [1, ['t', 'arr'], ['t', 'bar']])
+    # Accept both orders, since docID did not advance
+    env.assertEqual([res[0], sorted(res[1:])], [1, sorted([['t', 'arr'], ['t', 'bar']])])
     # Test using WITHCOUNT
     res = conn.execute_command('FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LOAD', 1, '@t')
-    env.assertEqual(res, [2, ['t', 'arr'], ['t', 'bar']])
+    env.assertEqual([res[0], sorted(res[1:])], [2, sorted([['t', 'arr'], ['t', 'bar']])])
 
 
 
@@ -715,3 +716,28 @@ def test_ttl_table_collision_chain():
     res = env.cmd('FT.SEARCH', 'idx', f'@n:[1 {N}]', 'NOCONTENT', 'LIMIT', '0', str(N))
     returned = sorted(int(d.split(':')[1]) for d in res[1:])
     env.assertEqual(returned, expected)
+
+
+@skip(cluster=True)
+def test_expire_past_timestamp_removes_doc(env):
+    # Cover the !kp path in Indexes_UpdateMatchingDocExpiration: when
+    # EXPIREAT is set with a timestamp in the past, the key is gone by the
+    # time the expire keyspace-notification callback opens it. The fast TTL
+    # path must fall back to deleting the document from all matching indexes
+    # via Indexes_DeleteMatchingWithSchemaRules.
+    env.cmd('DEBUG', 'SET-ACTIVE-EXPIRE', '0')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+    env.expect('HSET', 'doc:1', 't', 'hello').equal(1)
+    env.expect('HSET', 'doc:2', 't', 'world').equal(1)
+    waitForIndex(env, 'idx')
+
+    env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT').apply(sort_document_names).equal(
+        [2, 'doc:1', 'doc:2'])
+
+    # Unix timestamp 1 is in 1970, so doc:1 is deleted synchronously by the
+    # EXPIREAT command. RedisModule_OpenKey in the notification callback
+    # returns NULL, exercising the deletion fallback branch.
+    env.expect('EXPIREAT', 'doc:1', '1').equal(1)
+
+    env.expect('EXISTS', 'doc:1').equal(0)
+    env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT').equal([1, 'doc:2'])
