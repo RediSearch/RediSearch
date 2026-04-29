@@ -161,7 +161,10 @@ def test_maxprefixexpansions_warning_search_only():
     # Only SEARCH returns results, VSIM returns empty
     response = env.cmd('FT.HYBRID', 'idx', 'SEARCH', 'run*', 'VSIM', \
                        '@embedding', '$BLOB', 'RANGE', '2', 'RADIUS', '0.01', 'PARAMS', '2', 'BLOB', query_vector)
-    env.assertTrue('Max prefix expansions limit was reached (SEARCH)' in get_warnings(response))
+    warnings = get_warnings(response)
+    env.assertTrue('Max prefix expansions limit was reached (SEARCH)' in warnings)
+    # Ensure the expansion warning is not in VSIM as well.
+    env.assertFalse('Max prefix expansions limit was reached (VSIM)' in warnings)
 
 def test_maxprefixexpansions_warning_vsim_only():
     """Test max prefix expansions warning when only VSIM component is affected"""
@@ -174,7 +177,10 @@ def test_maxprefixexpansions_warning_vsim_only():
     # Only VSIM returns results, SEARCH returns empty
     response = env.cmd('FT.HYBRID', 'idx', 'SEARCH', 'green', 'VSIM', \
                        '@embedding', '$BLOB', 'FILTER', '@description:run*', 'PARAMS', '2', 'BLOB', query_vector)
-    env.assertTrue('Max prefix expansions limit was reached (VSIM)' in get_warnings(response))
+    warnings = get_warnings(response)
+    env.assertTrue('Max prefix expansions limit was reached (VSIM)' in warnings)
+    # Ensure the expansion warning is not in SEARCH as well.
+    env.assertFalse('Max prefix expansions limit was reached (SEARCH)' in warnings)
 
 def test_maxprefixexpansions_warning_both_components():
     """Test max prefix expansions warning when both SEARCH and VSIM components are affected"""
@@ -205,7 +211,7 @@ def test_tail_property_not_loaded_error_standalone():
 @skip(cluster=False)
 def test_tail_property_not_loaded_warning_coordinator():
     """Test warning when tail pipeline references property not loaded (coordinator mode)
-    
+
     Related: test_tail_property_not_loaded_error_standalone
     In coordinator mode, tail pipeline errors become warnings (protocol limitation).
     The error code also differs: VALUE_NOT_FOUND (coord) vs PROP_NOT_FOUND (standalone).

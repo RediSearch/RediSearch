@@ -216,7 +216,7 @@ static inline void cleanupCtx(processCursorMappingCallbackContext *ctx) {
     rm_free(ctx);
 }
 
-bool ProcessHybridCursorMappings(const MRCommand *cmd, StrongRef searchMappingsRef, StrongRef vsimMappingsRef, QueryError *status, const RSOomPolicy oomPolicy, const RSTimeoutPolicy timeoutPolicy, bool *maxPrefixReached) {
+bool ProcessHybridCursorMappings(const MRCommand *cmd, StrongRef searchMappingsRef, StrongRef vsimMappingsRef, QueryError *status, const RSOomPolicy oomPolicy, const RSTimeoutPolicy timeoutPolicy, bool *maxPrefixSearch, bool *maxPrefixVsim) {
     CursorMappings *searchMappings = StrongRef_Get(searchMappingsRef);
     CursorMappings *vsimMappings = StrongRef_Get(vsimMappingsRef);
     RS_ASSERT(array_len(searchMappings->mappings) == 0 && array_len(vsimMappings->mappings) == 0);
@@ -272,8 +272,12 @@ bool ProcessHybridCursorMappings(const MRCommand *cmd, StrongRef searchMappingsR
                 QueryError_SetCode(status, QUERY_ERROR_CODE_TIMED_OUT);
             } else {
                 const char *msg = QueryError_GetUserError(&ctx->errors[i]);
-                if (msg && strcmp(msg, QUERY_WMAXPREFIXEXPANSIONS) == 0) {
-                    *maxPrefixReached = true;
+                if (msg && strncmp(msg, QUERY_WMAXPREFIXEXPANSIONS, strlen(QUERY_WMAXPREFIXEXPANSIONS)) == 0) {
+                    if (strstr(msg, "(SEARCH)")) {
+                        *maxPrefixSearch = true;
+                    } else if (strstr(msg, "(VSIM)")) {
+                        *maxPrefixVsim = true;
+                    }
                     continue;
                 } else {
                     QueryError_SetWithoutUserDataFmt(status, QueryError_GetCode(&ctx->errors[i]), "Failed to process shard responses, first error: %s, total error count: %zu",

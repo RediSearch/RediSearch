@@ -621,12 +621,16 @@ static inline void replyWithCursors(RedisModuleCtx *replyCtx, arrayof(Cursor*) c
         RS_ABORT_ALWAYS("Unknown subquery type");
       }
     }
-    // Add warnings from subquery execution
+    // Add warnings from subquery execution, suffixed with subquery type
+    // for per-subquery attribution on the coordinator.
     RedisModule_ReplyKV_Array(reply, "warnings"); // >warnings
     for (size_t i = 0; i < hreq->nrequests; i++) {
       QueryError *err = &hreq->errors[i];
       if (QueryError_HasReachedMaxPrefixExpansionsWarning(err)) {
-        RedisModule_Reply_SimpleString(reply, QUERY_WMAXPREFIXEXPANSIONS);
+        const char *suffix = (i == SEARCH_INDEX) ? SEARCH_SUFFIX : VSIM_SUFFIX;
+        char buf[128];
+        snprintf(buf, sizeof(buf), "%s %s", QUERY_WMAXPREFIXEXPANSIONS, suffix);
+        RedisModule_Reply_SimpleString(reply, buf);
       }
     }
     RedisModule_Reply_ArrayEnd(reply); // ~warnings
