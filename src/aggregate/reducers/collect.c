@@ -407,9 +407,9 @@ Reducer *RDCRCollect_New(const ReducerOptions *options) {
     data.input_key = options->input_key;
   }
 
-  if (data.load_all && options->is_local) {
+  if (data.load_all) {
     QueryError_SetError(options->status, QUERY_ERROR_CODE_PARSE_ARGS,
-      "COLLECT does not yet support `*` in FIELDS for local mode");
+      "COLLECT does not yet support `*` in FIELDS");
     CollectParseData_Free(&data);
     return NULL;
   }

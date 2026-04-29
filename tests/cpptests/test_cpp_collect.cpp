@@ -20,6 +20,7 @@
 #include "result_processor.h"
 #include "redismock/redismock.h"
 
+#include <functional>
 #include <initializer_list>
 #include <string>
 #include <vector>
@@ -27,10 +28,14 @@
 class CollectParserTest : public ::testing::Test {
 protected:
   RLookup lk;
+  // Synthetic planner-input key used by `expectErrorBoth` to drive local-mode
+  // parses. Named so it does not collide with any user-registered key.
+  const RLookupKey *plannerInputKey = nullptr;
 
   void SetUp() override {
     RSGlobalConfig.enableUnstableFeatures = true;
     lk = RLookup_New();
+    plannerInputKey = RLookup_GetKey_Write(&lk, "__collect_planner_input__", RLOOKUP_F_NOFLAGS);
   }
 
   void TearDown() override {
@@ -53,7 +58,7 @@ protected:
     return RDCRCollect_New(&opts);
   }
 
-  void expectError(std::vector<const char *> args, const char *expected_detail) {
+  void expectErrorRemote(std::vector<const char *> args, const char *expected_detail) {
     QueryError status = QueryError_Default();
     Reducer *r = parseCollect(args, &status);
     ASSERT_EQ(r, nullptr) << "Expected parse failure but got success";
@@ -76,6 +81,11 @@ protected:
     QueryError_ClearError(&status);
   }
 
+  void expectError(std::vector<const char *> args, const char *expected_detail) {
+    expectErrorRemote(args, expected_detail);
+    expectErrorLocal(args, plannerInputKey, expected_detail);
+  }
+
   Reducer *parseCollectOk(std::vector<const char *> args) {
     QueryError status = QueryError_Default();
     Reducer *r = parseCollect(args, &status);
@@ -83,16 +93,44 @@ protected:
     QueryError_ClearError(&status);
     return r;
   }
+
+  void parseOk(std::vector<const char *> args,
+               std::function<void(Reducer *)> check = {}) {
+    QueryError status = QueryError_Default();
+    Reducer *remote = parseCollect(args, &status);
+    ASSERT_NE(remote, nullptr) << QueryError_GetUserError(&status);
+    if (check) check(remote);
+    remote->Free(remote);
+    QueryError_ClearError(&status);
+
+    status = QueryError_Default();
+    Reducer *local = parseCollect(args, &status, /*isLocal=*/true, plannerInputKey);
+    ASSERT_NE(local, nullptr) << QueryError_GetUserError(&status);
+    if (check) check(local);
+    local->Free(local);
+    QueryError_ClearError(&status);
+  }
 };
 
 // ====== Happy path tests ======
 
-TEST_F(CollectParserTest, FieldsWildcardOnly) {
-  Reducer *r = parseCollectOk({"FIELDS", "*"});
-  ASSERT_NE(r, nullptr);
-  EXPECT_TRUE(CollectReducer_HasWildcard(r));
-  EXPECT_EQ(CollectReducer_GetFieldKeysLen(r), 0u);
-  r->Free(r);
+// TODO: Re-enable (drop the `DISABLED_` prefix) and remove the companion
+// `FieldsWildcardRejected` test below once `*` in FIELDS is supported by the
+// COLLECT parser. Today the parser unconditionally rejects `*` in FIELDS in
+// both modes (see `src/aggregate/reducers/collect.c`, the
+// `if (data.load_all)` branch).
+TEST_F(CollectParserTest, DISABLED_FieldsWildcard) {
+  parseOk({"FIELDS", "*"}, [](Reducer *r) {
+    EXPECT_TRUE(CollectReducer_HasWildcard(r));
+    EXPECT_EQ(CollectReducer_GetFieldKeysLen(r), 0u);
+  });
+}
+
+// Documents the current behavior: `*` in FIELDS is rejected by the parser in
+// both remote and local modes with the same message. Remove once wildcard
+// support lands and `DISABLED_FieldsWildcard` is re-enabled.
+TEST_F(CollectParserTest, FieldsWildcardRejected) {
+  expectError({"FIELDS", "*"}, "COLLECT does not yet support `*` in FIELDS");
 }
 
 TEST_F(CollectParserTest, FieldsWithCount) {
@@ -104,7 +142,9 @@ TEST_F(CollectParserTest, FieldsWithCount) {
   r->Free(r);
 }
 
-TEST_F(CollectParserTest, FieldsWildcardWithSortBy) {
+// TODO: Re-enable (drop the `DISABLED_` prefix) once `*` in FIELDS is supported
+// by the COLLECT parser.
+TEST_F(CollectParserTest, DISABLED_FieldsWildcardWithSortBy) {
   registerKeys({"price"});
   Reducer *r = parseCollectOk({
       "FIELDS", "*",
@@ -155,12 +195,6 @@ TEST_F(CollectParserTest, LocalCollectRequiresPlannerInputKey) {
               std::string::npos)
       << user_error;
   QueryError_ClearError(&status);
-}
-
-TEST_F(CollectParserTest, LocalWildcardRejected) {
-  const RLookupKey *inputKey = RLookup_GetKey_Write(&lk, "remote_collect", RLOOKUP_F_NOFLAGS);
-  expectErrorLocal({"FIELDS", "*"}, inputKey,
-      "COLLECT does not yet support `*` in FIELDS for local mode");
 }
 
 TEST_F(CollectParserTest, FieldsSortByAndLimit) {
@@ -310,6 +344,9 @@ TEST_F(CollectParserTest, JsonPathField) {
 
 TEST_F(CollectParserTest, SortByJsonPathRejected) {
   registerKeys({"$..price"});
+  // Remote: FIELDS resolves `$..price` via lookup, SORTBY rejects it.
+  // Local: FIELDS rejects it directly (no lookup, only `@` is allowed).
+  // Both modes surface the same shared `parseAtPrefixedName` error substring.
   expectError(
       {"FIELDS", "1", "$..price", "SORTBY", "1", "$..price"},
       "Missing prefix: name requires '@' prefix");
@@ -321,7 +358,8 @@ TEST_F(CollectParserTest, EmptyArgs) {
 
 TEST_F(CollectParserTest, MissingFieldsRequired) {
   registerKeys({"price"});
-  expectError({"SORTBY", "1", "@price"}, "FIELDS: Required positional argument missing or out of order");
+  expectError({"SORTBY", "1", "@price"},
+      "FIELDS: Required positional argument missing or out of order");
 }
 
 TEST_F(CollectParserTest, FieldsMustBeFirstParam) {
@@ -331,7 +369,7 @@ TEST_F(CollectParserTest, FieldsMustBeFirstParam) {
 }
 
 TEST_F(CollectParserTest, FieldWithoutAtPrefix) {
-  expectError({"FIELDS", "1", "price"},
+  expectErrorRemote({"FIELDS", "1", "price"},
       "Missing prefix: name requires '@' prefix, JSON path require '$' prefix");
 }
 
@@ -342,16 +380,16 @@ TEST_F(CollectParserTest, LocalFieldWithoutAtPrefix) {
 }
 
 TEST_F(CollectParserTest, FieldEmptyAfterAt) {
-  expectError({"FIELDS", "1", "@"}, "Property not loaded nor in pipeline");
+  expectErrorRemote({"FIELDS", "1", "@"}, "Property not loaded nor in pipeline");
 }
 
 TEST_F(CollectParserTest, FieldNotInPipeline) {
-  expectError({"FIELDS", "1", "@nonexistent"}, "Property not loaded nor in pipeline");
+  expectErrorRemote({"FIELDS", "1", "@nonexistent"}, "Property not loaded nor in pipeline");
 }
 
 TEST_F(CollectParserTest, FieldsSecondFieldNotInPipeline) {
   registerKeys({"price"});
-  expectError({"FIELDS", "2", "@price", "@unknown"},
+  expectErrorRemote({"FIELDS", "2", "@price", "@unknown"},
       "Property not loaded nor in pipeline");
 }
 
@@ -395,12 +433,13 @@ TEST_F(CollectParserTest, FieldsNonNumericCount) {
 
 TEST_F(CollectParserTest, UnknownSubcommand) {
   registerKeys({"x"});
-  expectError({"FIELDS", "1", "@x", "FOO", "1", "2"}, "Bad arguments for COLLECT: FOO: Unknown argument");
+  expectError({"FIELDS", "1", "@x", "FOO", "1", "2"},
+      "Bad arguments for COLLECT: FOO: Unknown argument");
 }
 
 TEST_F(CollectParserTest, SortByFieldNotInPipeline) {
   registerKeys({"x"});
-  expectError(
+  expectErrorRemote(
       {"FIELDS", "1", "@x", "SORTBY", "1", "@unknown"},
       "Property not loaded nor in pipeline");
 }
@@ -419,14 +458,15 @@ TEST_F(CollectParserTest, SortByFieldWithoutAtPrefix) {
 
 TEST_F(CollectParserTest, SortByTooManyFields) {
   registerKeys({"x", "a", "b", "c", "d", "e", "f", "g", "h", "i"});
-  expectError({"FIELDS", "1", "@x", "SORTBY", "9", "@a", "@b", "@c", "@d", "@e", "@f", "@g", "@h", "@i"},
+  expectError(
+      {"FIELDS", "1", "@x", "SORTBY", "9", "@a", "@b", "@c", "@d", "@e", "@f", "@g", "@h", "@i"},
       "SORTBY exceeds maximum of 8 fields");
 }
 
 TEST_F(CollectParserTest, SortByExceedsMaxTokens) {
   registerKeys({"x", "a", "b", "c", "d", "e", "f", "g", "h", "i"});
-  expectError({"FIELDS", "1", "@x", "SORTBY", "17", "@a", "ASC", "@b", "ASC", "@c", "ASC", "@d", "ASC",
-                  "@e", "ASC", "@f", "ASC", "@g", "ASC", "@h", "ASC", "@i"},
+  expectError({"FIELDS", "1", "@x", "SORTBY", "17", "@a", "ASC", "@b", "ASC", "@c", "ASC",
+                      "@d", "ASC", "@e", "ASC", "@f", "ASC", "@g", "ASC", "@h", "ASC", "@i"},
       "Bad arguments for COLLECT: SORTBY: Invalid argument count");
 }
 
