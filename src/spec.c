@@ -4198,11 +4198,17 @@ void Indexes_UpdateMatchingDocExpiration(RedisModuleCtx *ctx, RedisModuleString 
   t_expirationTimePoint ttl = GetKeyExpirationTime(kp);
   RedisModule_CloseKey(kp);
 
-  // Find all indexes that match the key's name prefix
+  // Find all indexes that match the key's name prefix. runFilters=true so
+  // SpecOp_Del is set for keys that fail the schema-rule FILTER — those
+  // are skipped below: EXPIRE/PERSIST does not change field values, so a
+  // filter-failing doc cannot be in the index (any prior HSET that made
+  // the filter fail already removed it via Indexes_UpdateMatchingWithSchemaRules).
+  // Same pattern as Indexes_ReplaceMatchingWithSchemaRules (RENAME).
   SpecOpIndexingCtx *specs = Indexes_FindMatchingSchemaRules(ctx, key, type, true, NULL);
 
   for (size_t i = 0; i < array_len(specs->specsOps); ++i) {
-    IndexSpec *spec = specs->specsOps[i].spec;
+    SpecOpCtx *specOp = &specs->specsOps[i];
+    IndexSpec *spec = specOp->spec;
     // Skip TTL update for specs that opted out of doc-level TTL tracking,
     // matching the gate in Document_LoadSchemaFieldHash/Json. Otherwise
     // DocTable_IsDocExpired could drop rows for an index that doesn't
@@ -4215,6 +4221,11 @@ void Indexes_UpdateMatchingDocExpiration(RedisModuleCtx *ctx, RedisModuleString 
     // The spec write lock guards index data against background workers,
     // not main-thread config flags (same pattern as the load path).
     if (!spec->monitorDocumentExpiration) {
+      continue;
+    }
+    // FILTER fails: doc cannot be in the index here (see comment above the
+    // Indexes_FindMatchingSchemaRules call), so nothing to do.
+    if (specOp->op == SpecOp_Del) {
       continue;
     }
     RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, spec);
