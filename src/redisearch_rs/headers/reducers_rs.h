@@ -28,6 +28,7 @@ extern "C" {
 Reducer *CollectReducer_CreateLocal(const RLookupKey *input_key,
                                     const char *const *field_names,
                                     uintptr_t field_names_len,
+                                    bool has_wildcard,
                                     const char *const *sort_names,
                                     uintptr_t sort_names_len,
                                     uint64_t sort_asc_map,

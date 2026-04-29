@@ -128,6 +128,7 @@ fn local_collect_projects_remote_maps_and_fills_missing_fields_with_null() {
             b"name".to_vec().into_boxed_slice(),
             b"missing".to_vec().into_boxed_slice(),
         ]),
+        false,
         Box::new([]),
         0,
         None,
@@ -161,6 +162,7 @@ fn local_collect_accepts_resp2_flat_array_payloads() {
     let reducer = LocalCollectReducer::new(
         &input_key,
         Box::new([b"name".to_vec().into_boxed_slice()]),
+        false,
         Box::new([]),
         0,
         None,

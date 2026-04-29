@@ -421,6 +421,7 @@ Reducer *RDCRCollect_New(const ReducerOptions *options) {
       data.input_key,
       (const char *const *)data.field_names,
       data.field_names ? array_len(data.field_names) : 0,
+      data.load_all,
       (const char *const *)data.sort_names,
       data.sort_names ? array_len(data.sort_names) : 0,
       data.sortAscMap,
