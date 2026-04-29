@@ -6,6 +6,8 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
+#include <math.h>
+
 #include "spec.h"
 #include "inverted_index.h"
 #include "vector_index.h"
@@ -289,8 +291,12 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
   REPLY_KVNUM("geoshapes_sz_mb", geoshapes_size / (float)0x100000);
   REPLY_KVNUM("records_per_doc_avg",
               (float)num_records / (float)sp->stats.scoring.numDocuments);
+  // Disk metrics expose inverted size but not posting record count yet; keep NaN
+  // when denominator is unavailable to avoid returning +/-inf.
+  double bytes_per_record_avg = num_records ?
+    (float)inverted_size / (float)num_records : NAN;
   REPLY_KVNUM("bytes_per_record_avg",
-              (float)inverted_size / (float)num_records);
+              bytes_per_record_avg);
   REPLY_KVNUM("offsets_per_term_avg",
               (float)offset_vec_records / (float)num_records);
   REPLY_KVNUM("offset_bits_per_record_avg",
