@@ -134,7 +134,7 @@ fn read_triggers_collection_on_first_call() {
     let source = MockScoreSource::new(vec![vec![(1, 1.0), (2, 2.0)]], vec![], |_, _| {
         BatchStrategy::Continue
     });
-    let mut it = TopKIterator::new(source, None, NonZeroUsize::new(5).unwrap(), asc);
+    let mut it = TopKIterator::new(source, None, NonZeroUsize::new(5).unwrap(), asc, true);
 
     assert!(!it.at_eof());
     let result = it.read().unwrap().expect("should have a result");
@@ -146,7 +146,7 @@ fn rewind_resets_to_not_started() {
     let source = MockScoreSource::new(vec![vec![(1, 1.0), (2, 2.0)]], vec![], |_, _| {
         BatchStrategy::Continue
     });
-    let mut it = TopKIterator::new(source, None, NonZeroUsize::new(5).unwrap(), asc);
+    let mut it = TopKIterator::new(source, None, NonZeroUsize::new(5).unwrap(), asc, true);
     it.read().unwrap();
     it.read().unwrap();
     let eof = it.read().unwrap();
@@ -166,7 +166,7 @@ fn rewind_resets_to_not_started() {
 #[test]
 fn eof_set_after_results_exhausted() {
     let source = MockScoreSource::new(vec![vec![(1, 1.0)]], vec![], |_, _| BatchStrategy::Continue);
-    let mut it = TopKIterator::new(source, None, NonZeroUsize::new(5).unwrap(), asc);
+    let mut it = TopKIterator::new(source, None, NonZeroUsize::new(5).unwrap(), asc, true);
     it.read().unwrap();
     let eof = it.read().unwrap();
     assert!(eof.is_none());
@@ -178,7 +178,7 @@ fn last_doc_id_starts_at_zero_tracks_reads_and_resets_on_rewind() {
     let source = MockScoreSource::new(vec![vec![(1, 1.0), (2, 2.0)]], vec![], |_, _| {
         BatchStrategy::Continue
     });
-    let mut it = TopKIterator::new(source, None, NonZeroUsize::new(5).unwrap(), asc);
+    let mut it = TopKIterator::new(source, None, NonZeroUsize::new(5).unwrap(), asc, true);
 
     assert_eq!(it.last_doc_id(), 0);
 
@@ -197,7 +197,7 @@ fn num_estimated_capped_at_k() {
         BatchStrategy::Continue
     })
     .with_num_estimated(100);
-    let it = TopKIterator::new(source, None, NonZeroUsize::new(3).unwrap(), asc);
+    let it = TopKIterator::new(source, None, NonZeroUsize::new(3).unwrap(), asc, true);
 
     assert_eq!(it.num_estimated(), 3);
 }
@@ -211,7 +211,7 @@ fn unfiltered_yields_batch_in_source_order() {
     let source = MockScoreSource::new(vec![vec![(1, 0.9), (2, 0.5), (3, 0.1)]], vec![], |_, _| {
         BatchStrategy::Continue
     });
-    let mut it = TopKIterator::new(source, None, NonZeroUsize::new(10).unwrap(), asc);
+    let mut it = TopKIterator::new(source, None, NonZeroUsize::new(10).unwrap(), asc, true);
     let ids: Vec<_> = std::iter::from_fn(|| it.read().unwrap().map(|r| r.doc_id)).collect();
     assert_eq!(ids, vec![1, 2, 3]);
 }
@@ -219,7 +219,7 @@ fn unfiltered_yields_batch_in_source_order() {
 #[test]
 fn unfiltered_empty_source_is_immediate_eof() {
     let source = MockScoreSource::new(vec![], vec![], |_, _| BatchStrategy::Continue);
-    let mut it = TopKIterator::new(source, None, NonZeroUsize::new(5).unwrap(), asc);
+    let mut it = TopKIterator::new(source, None, NonZeroUsize::new(5).unwrap(), asc, true);
     assert!(it.read().unwrap().is_none());
     assert!(it.at_eof());
 }
@@ -230,7 +230,7 @@ fn unfiltered_empty_source_is_immediate_eof() {
 fn revalidate_without_child_returns_ok() {
     let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
     let source = MockScoreSource::new(vec![vec![(1, 1.0)]], vec![], |_, _| BatchStrategy::Continue);
-    let mut it = TopKIterator::new(source, None, NonZeroUsize::new(5).unwrap(), asc);
+    let mut it = TopKIterator::new(source, None, NonZeroUsize::new(5).unwrap(), asc, true);
     let status = it.revalidate(&mock_ctx.spec_read()).unwrap();
     assert_eq!(status, rqe_iterators::RQEValidateStatus::Ok);
 }
@@ -242,7 +242,13 @@ fn revalidate_with_child_delegates_ok() {
     let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
     let source = MockScoreSource::new(vec![vec![(1, 1.0)]], vec![], |_, _| BatchStrategy::Continue);
     let child: Box<dyn rqe_iterators::RQEIterator<'_>> = Box::new(rqe_iterators::Empty::default());
-    let mut it = TopKIterator::new(source, Some(child), NonZeroUsize::new(5).unwrap(), asc);
+    let mut it = TopKIterator::new(
+        source,
+        Some(child),
+        NonZeroUsize::new(5).unwrap(),
+        asc,
+        true,
+    );
     let status = it.revalidate(&mock_ctx.spec_read()).unwrap();
     assert_eq!(status, rqe_iterators::RQEValidateStatus::Ok);
 }
@@ -252,14 +258,26 @@ fn revalidate_with_child_delegates_aborted() {
     let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
     let source = MockScoreSource::new(vec![vec![(1, 1.0)]], vec![], |_, _| BatchStrategy::Continue);
     let child: Box<dyn rqe_iterators::RQEIterator<'_>> = Box::new(AbortOnRevalidate);
-    let mut it = TopKIterator::new(source, Some(child), NonZeroUsize::new(5).unwrap(), asc);
+    let mut it = TopKIterator::new(
+        source,
+        Some(child),
+        NonZeroUsize::new(5).unwrap(),
+        asc,
+        true,
+    );
     let status = it.revalidate(&mock_ctx.spec_read()).unwrap();
     assert_eq!(status, rqe_iterators::RQEValidateStatus::Aborted);
 }
 
 #[test]
 fn unfiltered_timeout_propagated() {
-    let mut it = TopKIterator::new(TimingOutSource, None, NonZeroUsize::new(5).unwrap(), asc);
+    let mut it = TopKIterator::new(
+        TimingOutSource,
+        None,
+        NonZeroUsize::new(5).unwrap(),
+        asc,
+        true,
+    );
     assert!(matches!(
         it.read().unwrap_err(),
         rqe_iterators::RQEIteratorError::TimedOut
@@ -282,6 +300,7 @@ fn batches_overlap_intersection() {
         Some(make_child(vec![1, 3, 5])),
         NonZeroUsize::new(10).unwrap(),
         asc,
+        true,
     );
     let doc_ids: Vec<_> = std::iter::from_fn(|| it.read().unwrap().map(|r| r.doc_id)).collect();
     assert_eq!(doc_ids, vec![5, 3, 1]);
@@ -297,6 +316,7 @@ fn batches_disjoint_yields_nothing() {
         Some(make_child(vec![10, 20])),
         NonZeroUsize::new(10).unwrap(),
         asc,
+        true,
     );
     assert!(it.read().unwrap().is_none());
     assert!(it.at_eof());
@@ -312,6 +332,7 @@ fn batches_empty_child_yields_nothing() {
         Some(make_child(vec![])),
         NonZeroUsize::new(10).unwrap(),
         asc,
+        true,
     );
     assert!(it.read().unwrap().is_none());
     assert!(it.at_eof());
@@ -331,6 +352,7 @@ fn batches_multiple_batches() {
         Some(make_child(vec![1, 3, 4])),
         NonZeroUsize::new(10).unwrap(),
         asc,
+        true,
     );
     let doc_ids: Vec<_> = std::iter::from_fn(|| it.read().unwrap().map(|r| r.doc_id)).collect();
     assert_eq!(doc_ids, vec![3, 4, 1]);
@@ -352,6 +374,7 @@ fn strategy_stop_stops_after_first_batch() {
         Some(make_child(vec![1, 2, 3, 4])),
         NonZeroUsize::new(10).unwrap(),
         asc,
+        true,
     );
     let doc_ids: Vec<_> = std::iter::from_fn(|| it.read().unwrap().map(|r| r.doc_id)).collect();
     assert_eq!(doc_ids.len(), 2);
@@ -428,6 +451,7 @@ fn rewind_after_mid_collect_error_does_not_retain_stale_heap() {
         Some(make_child(vec![1, 3])),
         NonZeroUsize::new(10).unwrap(),
         asc,
+        true,
     );
 
     // Session 1: the source returns one batch (doc 1, doc 3 land in the heap)
@@ -469,6 +493,7 @@ fn strategy_switch_to_adhoc() {
         Some(make_child(vec![1, 2, 3])),
         NonZeroUsize::new(10).unwrap(),
         asc,
+        true,
     );
     let doc_ids: Vec<_> = std::iter::from_fn(|| it.read().unwrap().map(|r| r.doc_id)).collect();
     // Adhoc-only scores, doc 2 exactly once: 2(1.0), 3(2.0).
@@ -495,6 +520,7 @@ fn strategy_switch_to_batches_rewinds() {
         Some(make_child(vec![1, 2])),
         NonZeroUsize::new(10).unwrap(),
         asc,
+        true,
     );
     let doc_ids: Vec<_> = std::iter::from_fn(|| it.read().unwrap().map(|r| r.doc_id)).collect();
     assert_eq!(doc_ids, vec![1, 2]);
@@ -513,6 +539,7 @@ fn adhoc_scores_known_docs_only() {
         Some(make_child(vec![1, 2, 3, 4, 5])),
         NonZeroUsize::new(10).unwrap(),
         asc,
+        true,
         TopKMode::AdhocBF,
     );
     let doc_ids: Vec<_> = std::iter::from_fn(|| it.read().unwrap().map(|r| r.doc_id)).collect();
@@ -534,6 +561,7 @@ fn adhoc_early_stop_when_heap_full() {
         Some(make_child(vec![1, 2, 3])),
         NonZeroUsize::new(2).unwrap(),
         asc,
+        true,
         TopKMode::AdhocBF,
     );
     let doc_ids: Vec<_> = std::iter::from_fn(|| it.read().unwrap().map(|r| r.doc_id)).collect();
@@ -550,6 +578,7 @@ fn adhoc_child_eof_returns_what_was_found() {
         Some(make_child(vec![1, 2])),
         NonZeroUsize::new(10).unwrap(),
         asc,
+        true,
         TopKMode::AdhocBF,
     );
     let doc_ids: Vec<_> = std::iter::from_fn(|| it.read().unwrap().map(|r| r.doc_id)).collect();
@@ -564,8 +593,37 @@ fn adhoc_empty_child_is_eof() {
         Some(make_child(vec![])),
         NonZeroUsize::new(10).unwrap(),
         asc,
+        true,
         TopKMode::AdhocBF,
     );
     assert!(it.read().unwrap().is_none());
     assert!(it.at_eof());
+}
+
+/// Drives a batches run where every match shares the same score and k is smaller
+/// than the number of matches, so the retained set is decided entirely by the
+/// tie-break direction.
+fn tied_scores_doc_ids(tiebreak_ascending: bool) -> Vec<DocId> {
+    let source = MockScoreSource::new(vec![vec![(3, 1.0), (5, 1.0), (10, 1.0)]], vec![], |_, _| {
+        BatchStrategy::Continue
+    });
+    let mut it = TopKIterator::new(
+        source,
+        Some(make_child(vec![3, 5, 10])),
+        NonZeroUsize::new(2).unwrap(),
+        asc,
+        tiebreak_ascending,
+    );
+    std::iter::from_fn(|| it.read().unwrap().map(|r| r.doc_id)).collect()
+}
+
+#[test]
+fn tiebreak_ascending_keeps_lowest_doc_ids() {
+    assert_eq!(tied_scores_doc_ids(true), vec![3, 5]);
+}
+
+#[test]
+fn tiebreak_descending_keeps_highest_doc_ids() {
+    // With the old hard-coded `true`, this returned [3, 5] regardless of the flag.
+    assert_eq!(tied_scores_doc_ids(false), vec![10, 5]);
 }
