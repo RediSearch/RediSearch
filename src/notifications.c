@@ -164,9 +164,13 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
  ********************************************************/
     case hexpire_cmd:
     case hpersist_cmd:
-      // We do not support field-TTL metadata changes in the disk flow.
+      // HEXPIRE/HPERSIST only change per-field TTL metadata; the document
+      // content, schema-rule filters and inverted indexes are all unaffected.
+      // The fast path refreshes only the matching specs' TTL tables. Disk-
+      // backed indexes do not support field-TTL metadata so they are skipped
+      // entirely.
       if (!SearchDisk_IsEnabled()) {
-        Indexes_UpdateMatchingWithSchemaRules(ctx, key, getDocTypeFromString(key), hashFields);
+        Indexes_UpdateMatchingHashFieldExpiration(ctx, key, hashFields, getDocTypeFromString(key));
       }
       break;
 

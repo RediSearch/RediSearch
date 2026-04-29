@@ -4200,6 +4200,102 @@ void Indexes_DeleteMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStrin
   Indexes_SpecOpsIndexingCtxFree(specs);
 }
 
+// Build a fresh arrayof(FieldExpiration) from the hash key, sorted by
+// `t_fieldIndex` (which equals the field's position in `spec->fields`, so the
+// natural iteration order produces the sorted invariant required by the TTL
+// table). Returns NULL when the spec opted out of HFE tracking or when no
+// indexed field on this key has a TTL; otherwise the caller owns the returned
+// array. Mirrors the per-field walk in Document_LoadSchemaFieldHash so the
+// fast path produces an entry identical to the one a full reindex would.
+static arrayof(FieldExpiration) loadSortedHashFieldExpirations(IndexSpec *spec,
+                                                               RedisModuleKey *k) {
+  if (!spec->monitorFieldExpiration) {
+    return NULL;
+  }
+  if (RedisModule_HashFieldMinExpire(k) == REDISMODULE_NO_EXPIRE) {
+    return NULL;
+  }
+  arrayof(FieldExpiration) out = NULL;
+  for (size_t ii = 0; ii < spec->numFields; ++ii) {
+    FieldSpec *field = &spec->fields[ii];
+    mstime_t expireAt = REDISMODULE_NO_EXPIRE;
+    RedisModule_HashGet(k, REDISMODULE_HASH_CFIELDS | REDISMODULE_HASH_EXPIRE_TIME,
+                        HiddenString_GetUnsafe(field->fieldPath, NULL), &expireAt, NULL);
+    if (expireAt == REDISMODULE_NO_EXPIRE) {
+      continue;
+    }
+    // Same conversion as document_basic.c::timespecFromMilliseconds; inlined
+    // here to avoid exposing that helper on a hot fast path.
+    FieldExpiration fx = {
+        .index = (t_fieldIndex)ii,
+        .point = {.tv_sec = expireAt / 1000,
+                  .tv_nsec = (expireAt % 1000) * 1000000L},
+    };
+    array_ensure_append_1(out, fx);
+  }
+  return out;
+}
+
+void Indexes_UpdateMatchingHashFieldExpiration(RedisModuleCtx *ctx, RedisModuleString *key,
+                                               RedisModuleString **hashFields, DocumentType type) {
+
+  if (type == DocumentType_Unsupported) {
+    return;
+  }
+  RS_ASSERT(type == DocumentType_Hash);
+  RedisModuleKey *k = RedisModule_OpenKey(ctx, key, DOCUMENT_OPEN_KEY_INDEXING_FLAGS);
+  RS_ASSERT(k);
+
+  SpecOpIndexingCtx *specs = Indexes_FindMatchingSchemaRules(ctx, key, DocumentType_Hash, false, NULL);
+
+  for (size_t i = 0; i < array_len(specs->specsOps); ++i) {
+    IndexSpec *spec = specs->specsOps[i].spec;
+    // Specs that opted out of HFE tracking have no TTL table state to refresh
+    // and HEXPIRE cannot otherwise affect their indexed view of the doc.
+    //
+    // No spec lock needed for the read: monitorFieldExpiration is only
+    // written from main-thread callbacks, and this keyspace-notification
+    // callback also runs on the main thread, so the Redis event loop
+    // serializes them. The spec write lock guards index data against
+    // background workers, not main-thread config flags.
+    if (!spec->monitorFieldExpiration) {
+      continue;
+    }
+    // Skip specs whose indexed fields were untouched by this notification.
+    //
+    // Called without the spec lock: hashFieldChanged only reads schema-shape
+    // state (numFields, fields[].fieldName, rule->{lang,score,payload}_field)
+    // which is mutated exclusively by FT.CREATE / FT.ALTER / RDB load on the
+    // main thread. This keyspace-notification callback also runs on the main
+    // thread, so the Redis event loop serializes them and no torn read is
+    // possible. The spec write lock guards index data against background
+    // workers, not the immutable schema descriptors compared here.
+    if (!hashFieldChanged(spec, hashFields)) {
+      continue;
+    }
+
+    RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, spec);
+    RedisSearchCtx_LockSpecWrite(&sctx);
+
+    const RSDocumentMetadata *cdmd = DocTable_BorrowByKeyR(&spec->docs, key);
+    if (!cdmd) {
+      // Doc not in this index (filter failed or never indexed). Nothing to
+      // refresh on the fast path.
+      RedisSearchCtx_UnlockSpec(&sctx);
+      continue;
+    }
+
+    arrayof(FieldExpiration) sorted = loadSortedHashFieldExpirations(spec, k);
+    DocTable_UpdateFieldExpiration(&spec->docs, (RSDocumentMetadata *)cdmd, sorted);
+    DMD_Return(cdmd);
+
+    RedisSearchCtx_UnlockSpec(&sctx);
+  }
+
+  RedisModule_CloseKey(k);
+  Indexes_SpecOpsIndexingCtxFree(specs);
+}
+
 void Indexes_ReplaceMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *from_key,
                                             RedisModuleString *to_key) {
   DocumentType type = getDocTypeFromString(to_key);

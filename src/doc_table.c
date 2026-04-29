@@ -252,6 +252,27 @@ void DocTable_UpdateExpiration(DocTable *t, RSDocumentMetadata* dmd, t_expiratio
   }
 }
 
+void DocTable_UpdateFieldExpiration(DocTable *t, RSDocumentMetadata *dmd,
+                                    arrayof(FieldExpiration) sortedFieldWithExpiration) {
+  // The HFE fast path may run on a docId that is already registered in the
+  // table (a previous HEXPIRE), so drop any prior entry before reinserting:
+  // TimeToLiveTable_Add asserts on duplicate ids.
+  if (t->ttl) {
+    TimeToLiveTable_Remove(t->ttl, dmd->id);
+  }
+  if (array_len(sortedFieldWithExpiration) > 0) {
+    TimeToLiveTable_VerifyInit(&t->ttl, t->maxSize);
+    TimeToLiveTable_Add(t->ttl, dmd->id, sortedFieldWithExpiration);
+  } else {
+    array_free(sortedFieldWithExpiration);
+    // Drop the table once the last HFE doc leaves so iterators can use the
+    // NULL gate again, mirroring DocTable_Pop.
+    if (t->ttl && TimeToLiveTable_IsEmpty(t->ttl)) {
+      TimeToLiveTable_Destroy(&t->ttl);
+    }
+  }
+}
+
 bool DocTable_IsDocExpired(DocTable* t, const RSDocumentMetadata* dmd, struct timespec* expirationPoint) {
   if (dmd->expirationTimeNs == 0) {
     return false;
