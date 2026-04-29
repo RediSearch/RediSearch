@@ -151,7 +151,7 @@ typedef struct {
 // Returns the absolute expiration time of an already-opened key as a
 // t_expirationTimePoint, or {0,0} if the key has no TTL. Wraps
 // RedisModule_GetAbsExpire so callers share a single ms->timespec conversion.
-t_expirationTimePoint getDocExpirationTime(RedisModuleCtx* ctx, RedisModuleKey *openedKey);
+t_expirationTimePoint GetKeyExpirationTime(RedisModuleKey *openedKey);
 
 void Document_AddField(Document *d, const char *fieldname, RedisModuleString *fieldval,
                        uint32_t typemask);

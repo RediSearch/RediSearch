@@ -4192,16 +4192,14 @@ void Indexes_UpdateMatchingDocExpiration(RedisModuleCtx *ctx, RedisModuleString 
 
   // Read the new absolute expiration once for all matching specs. After
   // EXPIRE/PERSIST has fired the new TTL (or its absence) is already
-  // installed on the key, so a single GetAbsExpire is authoritative.
-  // Mirrors the timespec construction in document_basic.c::getDocExpirationTime
-  // so the value handed to DocTable_UpdateExpiration matches what the full
-  // reindex path produces.
+  // installed on the key, so a single GetAbsExpire is authoritative. The
+  // shared GetKeyExpirationTime helper guarantees the value handed
+  // to DocTable_UpdateExpiration matches what the full reindex path produces.
   t_expirationTimePoint ttl = {.tv_sec = 0, .tv_nsec = 0};
   RedisModuleKey *kp = RedisModule_OpenKey(ctx, key, DOCUMENT_OPEN_KEY_INDEXING_FLAGS);
-  if (kp) {
-    ttl = getDocExpirationTime(ctx, kp);
-    RedisModule_CloseKey(kp);
-  }
+  RS_ASSERT(kp);
+  ttl = GetKeyExpirationTime(kp);
+  RedisModule_CloseKey(kp);
 
   // Find all indexes that match the key's name prefix
   SpecOpIndexingCtx *specs = Indexes_FindMatchingSchemaRules(ctx, key, type, false, NULL);
