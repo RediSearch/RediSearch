@@ -47,9 +47,10 @@ typedef struct QueryError QueryError;
  * @param status QueryError pointer to store warning/error information
  * @param oomPolicy OOM policy to determine error handling behavior
  * @param timeoutPolicy Timeout policy to determine timeout error handling behavior
+ * @param maxPrefixReached Output: set to true if any shard reported max prefix expansion warning
  * @return true if processing completed (even with warnings), false on fatal errors; status will contain error/warning information
  */
-bool ProcessHybridCursorMappings(const MRCommand *cmd, StrongRef searchMappings, StrongRef vsimMappings, QueryError *status, RSOomPolicy oomPolicy, RSTimeoutPolicy timeoutPolicy);
+bool ProcessHybridCursorMappings(const MRCommand *cmd, StrongRef searchMappings, StrongRef vsimMappings, QueryError *status, RSOomPolicy oomPolicy, RSTimeoutPolicy timeoutPolicy, bool *maxPrefixReached);
 
 /**
  * Release resources associated with a cursor mapping

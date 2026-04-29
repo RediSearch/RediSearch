@@ -719,11 +719,21 @@ static int HybridRequest_executePlan(HybridRequest *hreq, struct ConcurrentCmdCt
 
     const RSOomPolicy oomPolicy = hreq->reqConfig.oomPolicy;
     const RSTimeoutPolicy timeoutPolicy = hreq->reqConfig.timeoutPolicy;
-    if (!ProcessHybridCursorMappings(cmd, searchMappingsRef, vsimMappingsRef, hreq->tailPipeline->qctx.err, oomPolicy, timeoutPolicy)) {
+    bool maxPrefixReached = false;
+    if (!ProcessHybridCursorMappings(cmd, searchMappingsRef, vsimMappingsRef, hreq->tailPipeline->qctx.err, oomPolicy, timeoutPolicy, &maxPrefixReached)) {
         // Handle error
         StrongRef_Release(searchMappingsRef);
         StrongRef_Release(vsimMappingsRef);
         return REDISMODULE_ERR;
+    }
+
+    // Propagate max-prefix-expansion warning to per-subquery errors.
+    // The flat warnings array from shards doesn't distinguish which subquery
+    // triggered the warning, so we propagate to all subqueries.
+    if (maxPrefixReached) {
+        for (int i = 0; i < hreq->nrequests; i++) {
+            QueryError_SetReachedMaxPrefixExpansionsWarning(&hreq->errors[i]);
+        }
     }
 
     RS_ASSERT(array_len(search->mappings) == array_len(vsim->mappings));
