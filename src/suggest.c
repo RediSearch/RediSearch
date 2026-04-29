@@ -10,6 +10,7 @@
 #include "rmutil/args.h"
 #include "trie/trie_type.h"
 #include "query_error.h"
+#include "util/likely.h"
 
 extern bool isCrdt;
 
@@ -94,7 +95,11 @@ int RSSuggestAddCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
   }
 
   /* Insert the new element. */
-  Trie_Insert(tree, val, score, incr, &payload);
+  int rc = Trie_Insert(tree, val, score, incr, &payload);
+  if (unlikely(rc == TRIE_ERR_PAYLOAD_OVERFLOW)) {
+    RedisModule_ReplyWithError(ctx, "Payload too large");
+    goto end;
+  }
 
   RedisModule_ReplyWithLongLong(ctx, tree->size);
   RedisModule_ReplicateVerbatim(ctx);
