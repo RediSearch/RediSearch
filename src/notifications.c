@@ -134,7 +134,11 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
       if (!SearchDisk_IsEnabled()) {
         Indexes_UpdateMatchingWithSchemaRules(ctx, key, DocumentType_Hash, hashFields);
       } else {
-        RedisModule_Log(ctx, "warning", "HEXPIRED event is not supported on Search when Flex is enabled. Ignoring HEXPIRED on Search");
+        static bool hexpired_warned = false;
+        if (!hexpired_warned && Indexes_Count() > 0) {
+          RedisModule_Log(ctx, "warning", "HEXPIRED event is not supported on Search when Flex is enabled. Ignoring HEXPIRED on Search");
+          hexpired_warned = true;
+        }
       }
       break;
 
@@ -174,7 +178,11 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
       if (!SearchDisk_IsEnabled()) {
         Indexes_UpdateMatchingWithSchemaRules(ctx, key, getDocTypeFromString(key), hashFields);
       } else {
-        RedisModule_Log(ctx, "warning", "Field-level expiration is not supported on Search when Flex is enabled. Ignoring HPEXPIRE/HPERSIST on Search");
+        static bool hpexpire_warned = false;
+        if (!hpexpire_warned && Indexes_Count() > 0) {
+          RedisModule_Log(ctx, "warning", "Field-level expiration is not supported on Search when Flex is enabled. Ignoring HPEXPIRE/HPERSIST on Search");
+          hpexpire_warned = true;
+        }
       }
       break;
 
