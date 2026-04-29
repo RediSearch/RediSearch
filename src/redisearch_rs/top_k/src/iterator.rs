@@ -134,7 +134,7 @@ impl<'index, S: ScoreSource<'index>, C: RQEIterator<'index> + 'index> TopKIterat
         mode: TopKMode,
     ) -> Self {
         Self {
-            heap: TopKHeap::new(k, compare),
+            heap: TopKHeap::new(k, compare, true),
             source,
             child,
             mode,
@@ -246,7 +246,7 @@ impl<'index, S: ScoreSource<'index>, C: RQEIterator<'index> + 'index> TopKIterat
                     // Clear the heap: the source restarts with new parameters
                     // (e.g. expanded numeric range) and will re-emit previously
                     // collected docs. Keeping stale entries would cause duplicates.
-                    self.heap = TopKHeap::new(self.k, self.compare);
+                    self.heap = TopKHeap::new(self.k, self.compare, true);
                     self.source.rewind();
                     if let Some(child) = &mut self.child {
                         child.rewind();
@@ -290,7 +290,7 @@ impl<'index, S: ScoreSource<'index>, C: RQEIterator<'index> + 'index> TopKIterat
     /// the [`Yielding`](Phase::Yielding) phase.
     fn finalize_collection(&mut self) {
         // Replace heap with a fresh one; drain_sorted consumes the old one.
-        let old_heap = std::mem::replace(&mut self.heap, TopKHeap::new(self.k, self.compare));
+        let old_heap = std::mem::replace(&mut self.heap, TopKHeap::new(self.k, self.compare, true));
         self.results = old_heap.drain_sorted();
         self.yield_pos = 0;
         self.phase = Phase::Yielding;
@@ -390,7 +390,7 @@ impl<'index, S: ScoreSource<'index>, C: RQEIterator<'index> + 'index> RQEIterato
             child.rewind();
         }
         self.mode = self.initial_mode;
-        self.heap = TopKHeap::new(self.k, self.compare);
+        self.heap = TopKHeap::new(self.k, self.compare, true);
         self.direct_batch = None;
         self.results.clear();
         self.yield_pos = 0;

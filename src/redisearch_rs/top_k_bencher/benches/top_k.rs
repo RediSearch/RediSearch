@@ -41,7 +41,7 @@ fn bench_heap_insert(c: &mut Criterion) {
         &(n, k),
         |b, &(n, k)| {
             b.iter(|| {
-                let mut heap = TopKHeap::new(k, asc);
+                let mut heap = TopKHeap::new(k, asc, true);
                 for i in 0..n {
                     heap.push(i as u64, i as f64);
                 }
@@ -58,7 +58,7 @@ fn bench_heap_insert(c: &mut Criterion) {
         &(n, k),
         |b, &(n, k)| {
             b.iter(|| {
-                let mut heap = TopKHeap::new(k, asc);
+                let mut heap = TopKHeap::new(k, asc, true);
                 for i in (0..n).rev() {
                     heap.push(i as u64, i as f64);
                 }
@@ -79,7 +79,7 @@ fn bench_heap_insert(c: &mut Criterion) {
         BenchmarkId::new("insert_rand", format!("{n}→k{k}")),
         |b| {
             b.iter(|| {
-                let mut heap = TopKHeap::new(k, asc);
+                let mut heap = TopKHeap::new(k, asc, true);
                 for &i in &scores {
                     heap.push(i, i as f64);
                 }
@@ -100,7 +100,7 @@ fn bench_heap_pop_all(c: &mut Criterion) {
         |b, &k| {
             b.iter_batched(
                 || {
-                    let mut heap = TopKHeap::new(k, asc);
+                    let mut heap = TopKHeap::new(k, asc, true);
                     for i in 0..k.get() {
                         heap.push(i as u64, i as f64);
                     }
