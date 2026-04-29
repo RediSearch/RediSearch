@@ -4191,10 +4191,8 @@ void Indexes_UpdateMatchingDocExpiration(RedisModuleCtx *ctx, RedisModuleString 
   }
 
   // Read the new absolute expiration once for all matching specs. After
-  // EXPIRE/PERSIST has fired the new TTL (or its absence) is already
-  // installed on the key, so a single GetAbsExpire is authoritative. The
-  // shared GetKeyExpirationTime helper guarantees the value handed
-  // to DocTable_UpdateExpiration matches what the full reindex path produces.
+  // EXPIRE/PERSIST has fired the new TTL is already
+  // installed on the key.
   RedisModuleKey *kp = RedisModule_OpenKey(ctx, key, DOCUMENT_OPEN_KEY_INDEXING_FLAGS);
   RS_ASSERT(kp);
   t_expirationTimePoint ttl = GetKeyExpirationTime(kp);
