@@ -606,6 +606,72 @@ def testFastPathGeoshapeFieldExpiration(env):
     env.expect('FT.SEARCH', 'idx', '@geom:[within $poly]', 'PARAMS', 2, 'poly', query, 'NOCONTENT', 'DIALECT', 3).equal([1, 'doc:2'])
 
 
+@skip(cluster=True, redis_less_than='8.0')
+def testHashFieldExpirationWithNonMatchingIndexes(env):
+    # Cover Indexes_UpdateMatchingHashFieldExpiration (src/spec.c) when several
+    # indexes coexist but only some are affected by an HPEXPIRE notification.
+    # Three distinct ways an index can fail to match the hash are exercised:
+    #   - idx_other_prefix: PREFIX excludes the doc key entirely, so the spec
+    #                       is not even returned by FindMatchingSchemaRules.
+    #   - idx_other_field:  PREFIX matches but the schema does not reference
+    #                       the expiring field, so hashFieldChanged() is false
+    #                       and the spec is skipped on the fast path.
+    #   - idx_filter_skip:  PREFIX matches but the FILTER excludes the doc, so
+    #                       FindMatchingSchemaRules tags the op as SpecOp_Del.
+    # Only idx_match should reflect the field expiration; the others must keep
+    # serving their pre-expiration view of the data.
+    conn = getConnectionByEnv(env)
+    conn.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '0')
+
+    env.expect('FT.CREATE', 'idx_match', 'ON', 'HASH',
+               'PREFIX', '1', 'doc:',
+               'SCHEMA', 'x', 'TEXT', 'y', 'TEXT').ok()
+    env.expect('FT.CREATE', 'idx_other_prefix', 'ON', 'HASH',
+               'PREFIX', '1', 'other:',
+               'SCHEMA', 'x', 'TEXT').ok()
+    env.expect('FT.CREATE', 'idx_other_field', 'ON', 'HASH',
+               'PREFIX', '1', 'doc:',
+               'SCHEMA', 'y', 'TEXT').ok()
+    env.expect('FT.CREATE', 'idx_filter_skip', 'ON', 'HASH',
+               'PREFIX', '1', 'doc:',
+               'FILTER', '@n == 100',
+               'SCHEMA', 'x', 'TEXT', 'n', 'NUMERIC').ok()
+
+    env.cmd(debug_cmd(), 'SET_MONITOR_EXPIRATION', 'idx_match', 'fields')
+    env.cmd(debug_cmd(), 'SET_MONITOR_EXPIRATION', 'idx_other_prefix', 'fields')
+    env.cmd(debug_cmd(), 'SET_MONITOR_EXPIRATION', 'idx_other_field', 'fields')
+    env.cmd(debug_cmd(), 'SET_MONITOR_EXPIRATION', 'idx_filter_skip', 'fields')
+
+    # n=1 fails the FILTER on idx_filter_skip but the PREFIX still selects
+    # these hashes for the keyspace-notification path.
+    conn.execute_command('HSET', 'doc:1', 'x', 'hello', 'y', 'world', 'n', '1')
+    conn.execute_command('HSET', 'doc:2', 'x', 'hello', 'y', 'world', 'n', '1')
+    # other:1 belongs only to idx_other_prefix.
+    conn.execute_command('HSET', 'other:1', 'x', 'hello')
+
+    conn.execute_command('HPEXPIRE', 'doc:1', '1', 'FIELDS', '1', 'x')
+    # https://www.kernel.org/doc/html/latest/core-api/timekeeping.html (CLOCK_REALTIME_COARSE may be off by 10ms)
+    time.sleep(0.015)
+
+    # idx_match: doc:1's x is expired, doc:2 still matches; y is untouched.
+    env.expect('FT.SEARCH', 'idx_match', '@x:hello', 'NOCONTENT').equal([1, 'doc:2'])
+    env.expect('FT.SEARCH', 'idx_match', '@y:world', 'NOCONTENT') \
+        .apply(sort_document_names).equal([2, 'doc:1', 'doc:2'])
+
+    # idx_other_field: schema only references 'y', so hashFieldChanged() must
+    # short-circuit and leave doc:1 searchable on this index.
+    env.expect('FT.SEARCH', 'idx_other_field', '@y:world', 'NOCONTENT') \
+        .apply(sort_document_names).equal([2, 'doc:1', 'doc:2'])
+
+    # idx_other_prefix: doc:1 was never selected by this index's PREFIX.
+    env.expect('FT.SEARCH', 'idx_other_prefix', '@x:hello', 'NOCONTENT') \
+        .equal([1, 'other:1'])
+
+    # idx_filter_skip: the FILTER excludes every doc, so the index stays empty
+    # and the SpecOp_Del branch in the fast path is exercised.
+    env.expect('FT.SEARCH', 'idx_filter_skip', '*', 'NOCONTENT').equal([0])
+
+
 @skip(redis_less_than='7.3')
 def testLastFieldNoExpiration(env):
     conn = getConnectionByEnv(env)
