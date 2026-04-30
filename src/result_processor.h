@@ -84,50 +84,8 @@ typedef enum {
 struct ResultProcessor;
 struct RLookup;
 
-// Define our own structures to avoid conflicts with the iterator_api.h QueryIterator
-/// <div rustbindgen hide></div>
-typedef struct QueryProcessingCtx {
-  // First processor
-  struct ResultProcessor *rootProc;
-
-  // Last processor
-  struct ResultProcessor *endProc;
-
-  rs_wall_clock initTime; //used with clock_gettime(CLOCK_MONOTONIC, ...)
-  rs_wall_clock_ns_t queryGILTime;  //Time accumulated in nanoseconds
-
-  // the minimal score applicable for a result. It can be used to optimize the
-  // scorers
-  double minScore;
-
-  // the total results found in the query, incremented by the root processors
-  // and decremented by others who might disqualify results
-  uint32_t totalResults;
-
-  // the number of results we requested to return at the current chunk.
-  // This value is meant to be used by the RP to limit the number of results
-  // returned by its upstream RP ONLY.
-  // It should be restored after using it for local aggregation etc., as done in
-  // the Safe-Loader, Sorter, and Pager.
-  uint32_t resultLimit;
-
-  // Object which contains the error
-  QueryError *err;
-
-  // Background indexing OOM warning
-  bool bgScanOOM;
-
-  bool isProfile;
-  RSTimeoutPolicy timeoutPolicy;
-
-  // True iff any prefix of the pipeline's output is a valid (though possibly
-  // incomplete) answer to the query - i.e. the pipeline can yield partial
-  // results on early termination.
-  // Set post-construction on the coordinator AREQ. Used by the RETURN-STRICT
-  // timeout path to drain queued shard replies on the main thread after the
-  // background pipeline has aborted.
-  bool canYieldPartialResults;
-} QueryProcessingCtx;
+// QueryProcessingCtx is defined in Rust (ffi crate) and generated via cbindgen
+// into result_processor_rs.h which is included above.
 
 QueryIterator *QITR_GetRootFilter(QueryProcessingCtx *it);
 void QITR_PushRP(QueryProcessingCtx *it, struct ResultProcessor *rp);
