@@ -21,7 +21,7 @@
 use std::collections::HashSet;
 use std::mem;
 
-use rlookup::{RLookupKey, RLookupRow};
+use rlookup::{RLookup, RLookupKey, RLookupKeyFlag, RLookupRow};
 use value::SharedValue;
 
 use crate::Reducer;
@@ -31,16 +31,35 @@ use crate::collect::common::CollectCommon;
 ///
 /// Must remain `#[repr(C)]` with [`CollectCommon`] at offset 0 so the C layer
 /// can downcast this struct to `ffi::Reducer*` and read the vtable directly.
+#[expect(rustdoc::private_intra_doc_links)]
 #[repr(C)]
 pub struct RemoteCollectReducer<'a> {
     common: CollectCommon,
     field_keys: Box<[&'a RLookupKey<'a>]>,
-    has_wildcard: bool,
+    /// [`Some`] when `FIELDS *` was specified at parse time.
+    ///
+    /// In wildcard mode both [`RemoteCollectCtx::add`] and
+    /// [`RemoteCollectCtx::finalize`] walk this lookup *live* on every
+    /// invocation, filtering tombstones and keys flagged
+    /// [`RLookupKeyFlag::Hidden`]. The
+    /// per-call walk is required because an upstream `LOAD *` may append
+    /// keys mid-pipeline; caching the iteration result would silently lose
+    /// them. This mirrors the per-row `RLOOKUP_FOREACH` pattern in
+    /// `aggregate_exec.c`'s wildcard reply path.
+    ///
+    /// The borrow lives for the reducer's full lifetime; both the source
+    /// [`RLookup`] and the reducer outlive every per-group
+    /// [`RemoteCollectCtx`].
+    srclookup: Option<&'a RLookup<'a>>,
     /// Raw sort-key references, including keys not present in `FIELDS`.
     sort_keys: Box<[&'a RLookupKey<'a>]>,
     /// `true` for shard replies dispatched by the coordinator: extra sort-key
     /// columns are emitted alongside the requested fields so the coordinator
     /// can re-order shard rows during merge. `false` for direct execution.
+    /// No-op in wildcard mode — the [`srclookup`][Self::srclookup] live walk
+    /// emits whatever is currently in the lookup regardless of this flag,
+    /// since sort keys are always registered in the source lookup at parse
+    /// time.
     include_sort_keys: bool,
 }
 
@@ -60,7 +79,7 @@ const _: () = assert!(
 /// [`SharedValue`] refcounts.
 ///
 /// The `<'a>` parameter ties the row's slot indices back to the source
-/// [`RLookup`][rlookup::RLookup]: every value sits at the slot keyed by
+/// [`RLookup`]: every value sits at the slot keyed by
 /// `dstidx` on its [`RLookupKey`]. Stored values are owned [`SharedValue`]
 /// clones; no row data borrows from the source lookup.
 pub struct RemoteCollectCtx<'a> {
@@ -69,9 +88,19 @@ pub struct RemoteCollectCtx<'a> {
 
 impl<'a> RemoteCollectReducer<'a> {
     /// Create a reducer from C-parsed configuration.
+    ///
+    /// `srclookup` is [`Some`] when the user wrote `FIELDS *`;
+    /// see [`Self::srclookup`] for the wildcard-mode policy. The borrow ties
+    /// the reducer to the request's source lookup, whose stable address is
+    /// guaranteed by the parser holding `options->srclookup` for the
+    /// reducer's entire lifetime.
+    #[expect(
+        rustdoc::private_intra_doc_links,
+        reason = "links to the private srclookup field per docs guidelines"
+    )]
     pub fn new(
         field_keys: Box<[&'a RLookupKey<'a>]>,
-        has_wildcard: bool,
+        srclookup: Option<&'a RLookup<'a>>,
         sort_keys: Box<[&'a RLookupKey<'a>]>,
         sort_asc_map: u64,
         limit: Option<(u64, u64)>,
@@ -80,7 +109,7 @@ impl<'a> RemoteCollectReducer<'a> {
         Self {
             common: CollectCommon::new(sort_asc_map, limit),
             field_keys,
-            has_wildcard,
+            srclookup,
             sort_keys,
             include_sort_keys,
         }
@@ -101,7 +130,7 @@ impl<'a> RemoteCollectReducer<'a> {
     }
 
     pub const fn has_wildcard(&self) -> bool {
-        self.has_wildcard
+        self.srclookup.is_some()
     }
 
     pub const fn sort_keys_len(&self) -> usize {
@@ -136,74 +165,130 @@ impl<'a> RemoteCollectCtx<'a> {
         Self { rows: Vec::new() }
     }
 
-    /// Project the source row's field-key and sort-key values into a stored
-    /// [`RLookupRow`].
+    /// Project the source row's values into a stored [`RLookupRow`].
     ///
-    /// Sort-key values are stored unconditionally; the reducer's
-    /// `include_sort_keys` flag gates *emission* in [`Self::finalize`], not
-    /// storage. A planned follow-up will cache sort values in-place from the
-    /// row's dynamic-values slots for SORTBY/heap re-use, and that cache
-    /// wants them present whether or not they end up in the wire output.
+    /// Branches on `r.srclookup`:
+    ///
+    /// - [`None`]: iterates `r.field_keys` and `r.sort_keys`,
+    ///   `clone`-projecting each present value. Sort-key values are stored
+    ///   unconditionally; the `include_sort_keys` flag gates *emission* in
+    ///   [`Self::finalize`], not storage here.
+    /// - [`Some`]: follows the live-walk policy on
+    ///   [`RemoteCollectReducer::srclookup`].
+    #[expect(
+        rustdoc::private_intra_doc_links,
+        reason = "cross-type link to the private srclookup field per docs guidelines"
+    )]
     pub fn add(&mut self, r: &RemoteCollectReducer<'a>, row: &RLookupRow<'_>) {
         let mut dst = RLookupRow::new();
-        for key in r.field_keys.iter() {
-            if let Some(v) = row.get(key) {
-                dst.write_key(key, v.clone());
+        if let Some(lookup) = r.srclookup {
+            let mut cursor = lookup.cursor();
+            while let Some(key) = cursor.current() {
+                if !key.is_tombstone()
+                    && !key.flags.contains(RLookupKeyFlag::Hidden)
+                    && let Some(v) = row.get(key)
+                {
+                    dst.write_key(key, v.clone());
+                }
+                cursor.move_next();
             }
-        }
-        for key in r.sort_keys.iter() {
-            if let Some(v) = row.get(key) {
-                dst.write_key(key, v.clone());
+        } else {
+            for key in r.field_keys.iter() {
+                if let Some(v) = row.get(key) {
+                    dst.write_key(key, v.clone());
+                }
+            }
+            for key in r.sort_keys.iter() {
+                if let Some(v) = row.get(key) {
+                    dst.write_key(key, v.clone());
+                }
             }
         }
         self.rows.push(dst);
     }
 
-    /// Serialize the buffered rows into a `[Map, ...]` array.
+    /// Serialize the buffered rows into a [`Map`][value::Map]-of-fields array.
     ///
-    /// The emission template is built once and reused for every stored row:
-    /// each entry pairs an [`RLookupKey`] with a [`SharedValue`] holding its
-    /// name, so per-row emission only clones (cheap [`SharedValue`] refcount
-    /// bump) and looks up the row's value.
+    /// Branches on `r.srclookup`:
     ///
-    /// Keys are deduplicated by `dstidx` across `field_keys` and (when the
-    /// reducer's `include_sort_keys` is set) `sort_keys`, so a key appearing
-    /// in both lists is emitted exactly once. `field_keys` retain their
-    /// order, then any not-yet-seen `sort_keys` follow.
+    /// - [`None`]: builds a name-allocation-hoisted,
+    ///   dedup-by-`dstidx` template across `r.field_keys` and (when
+    ///   `include_sort_keys`) `r.sort_keys`. Per-row, each template entry
+    ///   emits `(name, value)` and falls back to
+    ///   [`SharedValue::null_static`] for absent values, keeping the output
+    ///   map shape uniform across rows.
+    /// - [`Some`]: follows the live-walk policy on
+    ///   [`RemoteCollectReducer::srclookup`]. Per-row, an entry is emitted
+    ///   **only** if `row.get(key)` is [`Some`] — there is no
+    ///   [`SharedValue::null_static`] padding for absent values, so two rows
+    ///   in the same group may emit maps with different key sets. Dedup is
+    ///   automatic since each key appears at most once in the lookup's
+    ///   key list.
+    #[expect(
+        rustdoc::private_intra_doc_links,
+        reason = "cross-type link to the private srclookup field per docs guidelines"
+    )]
     pub fn finalize(&mut self, r: &RemoteCollectReducer<'a>) -> SharedValue {
         let rows = mem::take(&mut self.rows);
 
-        let sort_extras: &[&RLookupKey<'a>] = if r.include_sort_keys {
-            &r.sort_keys
+        if let Some(lookup) = r.srclookup {
+            // Each row walks the lookup freshly. The cursor hands out
+            // references borrowed from itself, so the explicit-fields path's
+            // pre-built template (with hoisted name allocations) cannot be
+            // expressed without unsafe — and hoisting matters less here
+            // anyway, since the wildcard key set varies per row (a hoisted
+            // name might not even be emitted for some rows).
+            SharedValue::new_array(rows.into_iter().map(|row| {
+                let mut entries: Vec<(SharedValue, SharedValue)> = Vec::new();
+                let mut cursor = lookup.cursor();
+                while let Some(key) = cursor.current() {
+                    if !key.is_tombstone()
+                        && !key.flags.contains(RLookupKeyFlag::Hidden)
+                        && let Some(v) = row.get(key)
+                    {
+                        entries.push((
+                            SharedValue::new_string(key.name().to_bytes().to_vec()),
+                            v.clone(),
+                        ));
+                    }
+                    cursor.move_next();
+                }
+                SharedValue::new_map(entries)
+            }))
         } else {
-            &[]
-        };
-        let mut seen: HashSet<u16> = HashSet::with_capacity(r.field_keys.len() + sort_extras.len());
-        let template: Vec<(&RLookupKey<'a>, SharedValue)> = r
-            .field_keys
-            .iter()
-            .chain(sort_extras)
-            .filter(|key| seen.insert(key.dstidx))
-            .map(|key| {
-                (
-                    *key,
-                    SharedValue::new_string(key.name().to_bytes().to_vec()),
-                )
-            })
-            .collect();
-
-        SharedValue::new_array(rows.into_iter().map(|row| {
-            let entries: Vec<_> = template
+            let sort_extras: &[&RLookupKey<'a>] = if r.include_sort_keys {
+                &r.sort_keys
+            } else {
+                &[]
+            };
+            let mut seen: HashSet<u16> =
+                HashSet::with_capacity(r.field_keys.len() + sort_extras.len());
+            let template: Vec<(&RLookupKey<'a>, SharedValue)> = r
+                .field_keys
                 .iter()
-                .map(|(key, name)| {
-                    let val = row
-                        .get(key)
-                        .cloned()
-                        .unwrap_or_else(SharedValue::null_static);
-                    (name.clone(), val)
+                .chain(sort_extras)
+                .filter(|key| seen.insert(key.dstidx))
+                .map(|key| {
+                    (
+                        *key,
+                        SharedValue::new_string(key.name().to_bytes().to_vec()),
+                    )
                 })
                 .collect();
-            SharedValue::new_map(entries)
-        }))
+
+            SharedValue::new_array(rows.into_iter().map(|row| {
+                let entries: Vec<_> = template
+                    .iter()
+                    .map(|(key, name)| {
+                        let val = row
+                            .get(key)
+                            .cloned()
+                            .unwrap_or_else(SharedValue::null_static);
+                        (name.clone(), val)
+                    })
+                    .collect();
+                SharedValue::new_map(entries)
+            }))
+        }
     }
 }

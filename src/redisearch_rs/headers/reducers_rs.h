@@ -99,12 +99,15 @@ void collectLocalFree(Reducer *r);
  *    `sort_keys_len` [valid] `*const RLookupKey` pointers.
  * 3. All [`RLookupKey`][ffi::RLookupKey] pointers must remain valid for the
  *    lifetime of the returned reducer.
+ * 4. `srclookup` is either null (no wildcard) or a [valid] pointer to a
+ *    [`RLookup`][ffi::RLookup] that remains alive for the lifetime of the
+ *    returned reducer.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 Reducer *CollectReducer_CreateRemote(const RLookupKey *const *field_keys,
                                      uintptr_t field_keys_len,
-                                     bool has_wildcard,
+                                     const RLookup *srclookup,
                                      const RLookupKey *const *sort_keys,
                                      uintptr_t sort_keys_len,
                                      uint64_t sort_asc_map,

@@ -532,6 +532,102 @@ def test_collect_internal_duplicate_field_and_sort():
                 message='internal row must contain exactly one (key, value) pair')
 
 
+@skip(cluster=True)
+def test_collect_internal_wildcard_emits_all_fields():
+    """`COLLECT FIELDS *` projects every non-hidden lookup key on each row.
+
+    `LOAD` populates the source lookup with the schema fields before
+    `GROUPBY`; the reducer's wildcard walk then sees those keys live and
+    emits them per row.
+
+    Uses RESP2 because RESP3 maps are parsed into Python dicts that silently
+    collapse duplicate keys, hiding any wire-level duplication. Under RESP2
+    each row arrives as a flat ``[k, v, k, v, ...]`` list where keys can be
+    counted directly.
+    """
+    env = Env(protocol=2)
+    _setup_hash(env)
+
+    _, slots_data = get_shard_slot_ranges(env)[0]
+    env.cmd('DEBUG', 'MARK-INTERNAL-CLIENT')
+
+    internal = env.cmd(
+        '_FT.AGGREGATE', 'idx', '*',
+        'LOAD', '3', '@name', '@sweetness', '@origin',
+        'GROUPBY', '1', '@color',
+        'REDUCE', 'COLLECT', '3',
+            'FIELDS', '1', '*',
+        'AS', 'info',
+        '_SLOTS_INFO', slots_data,
+    )
+
+    # RESP2 shape: [num_groups, group_row, group_row, ...] where each
+    # group_row is a flat [key, val, key, val, ...] list. The 'info' value
+    # is a list of rows, each itself a flat [key, val, ...] list.
+    always_present = {'name', 'color', 'sweetness'}
+    for group_row in internal[1:]:
+        info_idx = group_row.index('info') + 1
+        rows = group_row[info_idx]
+        for row in rows:
+            row_keys = set(row[0::2])
+            env.assertTrue(
+                always_present.issubset(row_keys),
+                message=f'wildcard row missing always-present schema fields: {row_keys}')
+
+
+@skip(cluster=True)
+def test_collect_internal_wildcard_omits_missing_fields():
+    """When a row has no value for a key, `FIELDS *` drops it from the map.
+
+    `lemon` and `kiwi` in the FRUITS fixture have no `origin` field; their
+    rows must NOT contain an `origin` entry on the wire. Other fruits with
+    `origin` set must still emit it. The `LOAD` step pulls every schema
+    field (including `origin`) into the lookup so the wildcard walk has a
+    chance to project it — the omit-if-missing rule is what makes the
+    fruits with no `origin` value drop it.
+    """
+    env = Env(protocol=2)
+    _setup_hash(env)
+
+    _, slots_data = get_shard_slot_ranges(env)[0]
+    env.cmd('DEBUG', 'MARK-INTERNAL-CLIENT')
+
+    internal = env.cmd(
+        '_FT.AGGREGATE', 'idx', '*',
+        'LOAD', '3', '@name', '@sweetness', '@origin',
+        'GROUPBY', '1', '@color',
+        'REDUCE', 'COLLECT', '3',
+            'FIELDS', '1', '*',
+        'AS', 'info',
+        '_SLOTS_INFO', slots_data,
+    )
+
+    expected_has_origin = {f['name']: 'origin' in f for f in FRUITS}
+
+    seen_names = set()
+    for group_row in internal[1:]:
+        info_idx = group_row.index('info') + 1
+        rows = group_row[info_idx]
+        for row in rows:
+            row_dict = dict(zip(row[0::2], row[1::2]))
+
+            name = row_dict.get('name')
+            env.assertIsNotNone(
+                name,
+                message='every fruit row must carry its `name`')
+            seen_names.add(name)
+
+            should_have_origin = expected_has_origin.get(name, False)
+            has_origin = 'origin' in row_dict
+            env.assertEqual(
+                has_origin, should_have_origin,
+                message=f'fruit {name!r}: expected origin present={should_have_origin}, got {has_origin}')
+
+    env.assertEqual(
+        seen_names, set(expected_has_origin),
+        message='every fruit must appear in some collected group')
+
+
 # RESP2 sanity: basic COLLECT works under RESP2
 # ---------------------------------------------------------------------------
 def test_collect_resp2_sanity():

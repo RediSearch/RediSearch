@@ -369,13 +369,6 @@ Reducer *RDCRCollect_New(const ReducerOptions *options) {
     data.input_key = options->input_key;
   }
 
-  if (data.has_wildcard) {
-    QueryError_SetError(options->status, QUERY_ERROR_CODE_PARSE_ARGS,
-      "COLLECT does not yet support `*` in FIELDS");
-    CollectParseData_Free(&data);
-    return NULL;
-  }
-
   // Rust copies the mode-specific parsed data and wires the vtable.
   Reducer *rbase;
   if (options->is_local) {
@@ -394,7 +387,7 @@ Reducer *RDCRCollect_New(const ReducerOptions *options) {
     rbase = CollectReducer_CreateRemote(
       data.field_keys,
       data.field_keys ? array_len(data.field_keys) : 0,
-      data.has_wildcard,
+      data.has_wildcard ? options->srclookup : NULL,
       data.sort_keys,
       data.sort_keys ? array_len(data.sort_keys) : 0,
       data.sortAscMap,
