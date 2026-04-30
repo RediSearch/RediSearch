@@ -35,6 +35,8 @@ const PERMITTED_GENERATED_HEADERS: &[&str] = &[
     "query_error.h",
     // `QueryNodeType` is taken by value in `src/query_node.h`.
     "query_node_type.h",
+    // `geo_index.h` includes `geo_ffi.h` for the Rust geo function declarations.
+    "geo_ffi.h",
     // `src/field_spec.h`, `src/info/index_error.h`, and `src/util/timeout.h`
     // contain `static inline` functions calling `QueryError_GetDisplayableError`
     // / `QueryError_SetCode` etc., so they need the function declarations.
@@ -140,7 +142,6 @@ fn main() {
         src.join("fork_gc.h"),
         src.join("forward_index.h"),
         src.join("geo_index.h"),
-        src.join("rs_geo.h"),
         deps.join("geohash").join("geohash.h"),
         src.join("index_result").join("index_result.h"),
         src.join("json.h"),

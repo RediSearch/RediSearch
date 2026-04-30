@@ -10,7 +10,7 @@
 #include "function.h"
 #include "value_ffi.h"
 #include "aggregate/expr/expression.h"
-#include "rs_geo.h"
+#include "geo_ffi.h"
 
 // parse "x,y"
 static int parseField(RSValue *argv, double *geo, QueryError *status) {
