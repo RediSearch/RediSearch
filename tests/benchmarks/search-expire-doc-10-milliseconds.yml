@@ -7,6 +7,8 @@ description: |
 
 metadata:
   component: "search"
+  group: "expire-persist"
+  use_case: "PEXPIRE fast path on indexed hashes (5/95 write ratio, lazy expiration)"
 setups:
   - oss-standalone
   - oss-cluster-02-primaries
