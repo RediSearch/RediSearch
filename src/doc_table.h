@@ -158,6 +158,15 @@ static inline bool DocTable_CheckWideFieldMaskExpirationPredicate(const DocTable
   return TimeToLiveTable_VerifyDocAndWideFieldMask(t->ttl, docId, fieldMask, predicate, expirationPoint, ftIdToFieldIndex);
 }
 
+// Borrowed read of the field-expiration array for `docId`. Returns NULL if
+// this index has never registered any field-level TTLs (`t->ttl == NULL`)
+// or if `docId` has no field-level entry. See
+// TimeToLiveTable_GetFieldExpirations for lifetime / aliasing rules.
+static inline const arrayof(FieldExpiration) DocTable_GetFieldExpirations(const DocTable *t, t_docId docId) {
+  if (!t->ttl) return NULL;
+  return TimeToLiveTable_GetFieldExpirations(t->ttl, docId);
+}
+
 
 /** Get the docId of a key if it exists in the table, or 0 if it doesn't */
 t_docId DocTable_GetId(const DocTable *dt, const char *s, size_t n);
