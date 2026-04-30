@@ -10,7 +10,7 @@
 //! Remote COLLECT reducer FFI.
 
 use reducers::collect::{RemoteCollectCtx, RemoteCollectReducer};
-use rlookup::{RLookupKey, RLookupRow};
+use rlookup::{OpaqueRLookup, RLookup, RLookupKey, RLookupRow};
 use std::{
     ffi::{c_int, c_void},
     ptr, slice,
@@ -30,13 +30,16 @@ use std::{
 ///    `sort_keys_len` [valid] `*const RLookupKey` pointers.
 /// 3. All [`RLookupKey`][ffi::RLookupKey] pointers must remain valid for the
 ///    lifetime of the returned reducer.
+/// 4. `srclookup` is either null (no wildcard) or a [valid] pointer to a
+///    [`RLookup`][ffi::RLookup] that remains alive for the lifetime of the
+///    returned reducer.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn CollectReducer_CreateRemote(
     field_keys: *const *const ffi::RLookupKey,
     field_keys_len: usize,
-    load_all: bool,
+    srclookup: *const ffi::RLookup,
     sort_keys: *const *const ffi::RLookupKey,
     sort_keys_len: usize,
     sort_asc_map: u64,
@@ -61,11 +64,19 @@ pub unsafe extern "C" fn CollectReducer_CreateRemote(
         Box::new([])
     };
 
+    // SAFETY: ensured by caller (4.) — when non-null, `srclookup` outlives
+    // the returned reducer. `from_opaque_ptr` maps null to `None`, so the
+    // pointer's nullness is the wildcard-mode signal. The cbindgen rename
+    // `OpaqueRLookup → RLookup` makes `*const ffi::RLookup` and
+    // `*const OpaqueRLookup` interchangeable at the layout level.
+    let srclookup: Option<&RLookup> =
+        unsafe { RLookup::from_opaque_ptr(srclookup.cast::<OpaqueRLookup>()) };
+
     let limit = has_limit.then_some((limit_offset, limit_count));
 
     let mut cr = Box::new(RemoteCollectReducer::new(
         field_keys,
-        load_all,
+        srclookup,
         sort_keys,
         sort_asc_map,
         limit,
@@ -207,7 +218,7 @@ pub const unsafe extern "C" fn CollectReducer_GetFieldKeysLen(r: *const ffi::Red
 pub const unsafe extern "C" fn CollectReducer_HasLoadAll(r: *const ffi::Reducer) -> bool {
     // SAFETY: ensured by caller.
     let r = unsafe { r.cast::<RemoteCollectReducer>().as_ref().unwrap() };
-    r.load_all()
+    r.has_wildcard()
 }
 
 /// # Safety
