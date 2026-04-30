@@ -40,11 +40,11 @@ jobs:
     steps:
       - name: Checkout
         if: inputs.checkout-ref == ''
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
 
       - name: Checkout (custom ref)
         if: inputs.checkout-ref != ''
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
         with:
           ref: ${{ inputs.checkout-ref }}
       - name: Set image name

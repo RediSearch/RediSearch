@@ -27,7 +27,7 @@ jobs:
         shell: bash -l -eo pipefail {0}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           submodules: recursive
       - name: Fix HOME Directory

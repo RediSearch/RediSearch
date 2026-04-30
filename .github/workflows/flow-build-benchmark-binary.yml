@@ -27,7 +27,7 @@ jobs:
       BUILD_DIR: ${{ inputs.profile_env == 1 && 'bin/linux-x64-release-profile/search-community' || 'bin/linux-x64-release/search-community' }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           submodules: recursive
       - name: Setup specific
