@@ -431,23 +431,23 @@ TEST_F(CollectParserTest, FieldsSecondFieldNotInPipeline) {
 
 TEST_F(CollectParserTest, FieldsLoadAllWithCount) {
   expectError({"FIELDS", "1", "*"},
-      "COLLECT does not support `*` with a count");
+      "Missing prefix: name requires '@' prefix, JSON path require '$' prefix, got: * in FIELDS");
 }
 
 TEST_F(CollectParserTest, FieldsLoadAllAmongFields) {
   registerKeys({"price", "name"});
   expectError({"FIELDS", "3", "@price", "*", "@name"},
-      "COLLECT does not support `*` with a count");
+      "Missing prefix: name requires '@' prefix, JSON path require '$' prefix, got: * in FIELDS");
 }
 
 TEST_F(CollectParserTest, FieldsLoadAllFollowedByField) {
   expectError({"FIELDS", "*", "@a"},
-      "Unexpected tokens after `*` in FIELDS");
+      "Bad arguments for COLLECT: @a: Unknown argument");
 }
 
 TEST_F(CollectParserTest, FieldsLoadAllFollowedByJsonPath) {
   expectError({"FIELDS", "*", "$..a"},
-      "Unexpected tokens after `*` in FIELDS");
+      "Bad arguments for COLLECT: $..a: Unknown argument");
 }
 
 TEST_F(CollectParserTest, FieldsLoadAllFollowedByAsterisk) {

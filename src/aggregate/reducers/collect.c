@@ -9,6 +9,7 @@
 #include <aggregate/reducer.h>
 #include "util/arg_parser.h"
 #include "util/arr_rm_alloc.h"
+#include "util/misc.h"
 #include "spec.h"
 #include "config.h"
 #include "reducers_rs.h"
@@ -92,13 +93,8 @@ static void handleCollectFieldsLocal(ArgsCursor *ac, CollectParseData *data,
     int rv = AC_GetString(ac, &s, &len, 0);
     // The slice is sized exactly to `<num_fields>`, so every iteration succeeds.
     RS_ASSERT(rv == AC_OK);
-    if (len == 1 && s[0] == '*') {
-      QueryError_SetError(opts->status, QUERY_ERROR_CODE_PARSE_ARGS,
-        "COLLECT does not support `*` with a count");
-      return;
-    }
     // `s` aliases the original argv and is NUL-terminated.
-    const char *name = parseAtPrefixedName(s, len, opts->status);
+    const char *name = ExtractKeyName(s, &len, opts->status, opts->strictPrefix, "FIELDS");
     if (!name) return;
     array_append(data->field_names, name);
   }
@@ -114,11 +110,6 @@ static void handleCollectFieldsRemote(ArgsCursor *ac, CollectParseData *data,
 
   data->field_keys = array_new(const RLookupKey *, AC_NumRemaining(ac));
   while (!AC_IsAtEnd(ac)) {
-    if (AC_AdvanceIfMatch(ac, "*")) {
-      QueryError_SetError(opts->status, QUERY_ERROR_CODE_PARSE_ARGS,
-        "COLLECT does not support `*` with a count");
-      return;
-    }
     const RLookupKey *key = NULL;
     if (!ReducerOpts_GetKey(&sub_opts, &key)) {
       return;
@@ -146,13 +137,6 @@ static void handleCollectFields(ArgParser *parser, const void *value, void *user
   // other tokens (SORTBY, LIMIT, ...) are left for the outer parser to dispatch.
   if (strcmp(firstArg, "*") == 0) {
     data->load_all = true;
-    if (!AC_IsAtEnd(ac)) {
-      const char *next = AC_StringArg(ac, ac->offset);
-      if (next && (next[0] == '@' || next[0] == '$')) {
-        QueryError_SetError(opts->status, QUERY_ERROR_CODE_PARSE_ARGS,
-          "Unexpected tokens after `*` in FIELDS");
-      }
-    }
     return;
   }
 
