@@ -58,11 +58,6 @@ const _: () = assert!(
 /// destructors — [`ptr::drop_in_place`][std::ptr::drop_in_place] must be
 /// called to release the stored [`RLookupRow`]s and decrement
 /// [`SharedValue`] refcounts.
-///
-/// The `<'a>` parameter ties the row's slot indices back to the source
-/// [`RLookup`][rlookup::RLookup]: every value sits at the slot keyed by
-/// `dstidx` on its [`RLookupKey`]. Stored values are owned [`SharedValue`]
-/// clones; no row data borrows from the source lookup.
 pub struct RemoteCollectCtx<'a> {
     rows: Vec<RLookupRow<'a>>,
 }
@@ -138,12 +133,6 @@ impl<'a> RemoteCollectCtx<'a> {
 
     /// Project the source row's field-key and sort-key values into a stored
     /// [`RLookupRow`].
-    ///
-    /// Sort-key values are stored unconditionally; the reducer's
-    /// `include_sort_keys` flag gates *emission* in [`Self::finalize`], not
-    /// storage. A planned follow-up will cache sort values in-place from the
-    /// row's dynamic-values slots for SORTBY/heap re-use, and that cache
-    /// wants them present whether or not they end up in the wire output.
     pub fn add(&mut self, r: &RemoteCollectReducer<'a>, row: &RLookupRow<'_>) {
         let mut dst = RLookupRow::new();
         for key in r.field_keys.iter() {
@@ -159,17 +148,7 @@ impl<'a> RemoteCollectCtx<'a> {
         self.rows.push(dst);
     }
 
-    /// Serialize the buffered rows into a `[Map, ...]` array.
-    ///
-    /// The emission template is built once and reused for every stored row:
-    /// each entry pairs an [`RLookupKey`] with a [`SharedValue`] holding its
-    /// name, so per-row emission only clones (cheap [`SharedValue`] refcount
-    /// bump) and looks up the row's value.
-    ///
-    /// Keys are deduplicated by `dstidx` across `field_keys` and (when the
-    /// reducer's `include_sort_keys` is set) `sort_keys`, so a key appearing
-    /// in both lists is emitted exactly once. `field_keys` retain their
-    /// order, then any not-yet-seen `sort_keys` follow.
+    /// Serialize the buffered rows into a Map.
     pub fn finalize(&mut self, r: &RemoteCollectReducer<'a>) -> SharedValue {
         let rows = mem::take(&mut self.rows);
 

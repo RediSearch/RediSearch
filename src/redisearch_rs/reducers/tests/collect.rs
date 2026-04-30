@@ -124,8 +124,7 @@ fn remote_finalize_dedupes_overlapping_field_and_sort_key() {
     let fixture = RemoteCollectFixture::new();
     // Both `field_keys` and `sort_keys` reference the same `name_key`
     // (same dstidx 0), with internal mode on so sort keys participate in
-    // emission. After the refactor, the deduped finalize template emits
-    // the key once instead of twice.
+    // emission.
     let reducer = RemoteCollectReducer::new(
         Box::new([&fixture.name_key]),
         false,
