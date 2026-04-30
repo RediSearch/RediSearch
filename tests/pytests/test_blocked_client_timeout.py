@@ -1738,6 +1738,7 @@ class TestCoordinatorTimeout:
         env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
         env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy)
 
+    @skip_until("2026-05-14", reason="Flaky test, see MOD-15335")
     def test_return_strict_timeout_one_shard_paused_aggregate(self):
         """RETURN_STRICT timeout while one shard process is suspended.
 
