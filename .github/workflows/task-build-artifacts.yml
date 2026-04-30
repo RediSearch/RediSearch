@@ -76,7 +76,7 @@ jobs:
           echo "supported=true" >> $GITHUB_OUTPUT
       - name: checkout (node20)
         if: steps.node20.outputs.supported == 'true'
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           submodules: recursive
           ref: ${{ env.REF }}
