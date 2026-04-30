@@ -21,7 +21,7 @@ on:
       redis-ref:
         description: 'Redis version to use (e.g. "7.2.3", "unstable")'
         type: string
-        required: true
+        default: 3cd464263b03b425ffae2e23db24df3dc9346871
       test-config:
         description: 'Test configuration environment variable (e.g. "CONFIG=tls" or "QUICK=1")'
         required: true
@@ -135,7 +135,7 @@ jobs:
 
   common-flow:
     needs: [get-config, build-image, start-runner]
-    name: Test ${{ needs.get-config.outputs.name }}, Redis ${{ inputs.redis-ref || '3cd464263b03b425ffae2e23db24df3dc9346871' }}
+    name: Test ${{ needs.get-config.outputs.name }}, Redis ${{ inputs.redis-ref }}
     # Run if get-config succeeded and at least one test type is enabled
     if: |
       !cancelled() &&
@@ -334,7 +334,7 @@ jobs:
           COV_LABEL: ${{ inputs.coverage && 'coverage test' || '' }}
           PLATFORM: ${{ needs.get-config.outputs.container || needs.get-config.outputs.env }}
           ARCH: ${{ runner.arch }}
-          REDIS_VERSION: ${{ inputs.redis-ref || '3cd464263b03b425ffae2e23db24df3dc9346871' }}
+          REDIS_VERSION: ${{ inputs.redis-ref }}
         run:
           | # Invalid characters include: Double quote ", Colon :, Less than <, Greater than >, Vertical bar |, Asterisk *, Question mark ?
           UNIQUE_ID="$RANDOM$RANDOM"
