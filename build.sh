@@ -852,7 +852,7 @@ run_rust_tests() {
       --doctests
       $EXCLUDE_RUST_BENCHING_CRATES_LINKING_C
       --codecov
-      --ignore-filename-regex="varint_bencher/*,trie_bencher/*,inverted_index_bencher/*"
+      --ignore-filename-regex="varint_bencher/*,trie_bencher/*,inverted_index_bencher/*,top_k_bencher/*"
       --output-path=$BINROOT/rust_cov.info
     "
   elif [[ "$RUN_MIRI" == "1" ]]; then

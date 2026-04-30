@@ -26,6 +26,11 @@ pub mod heap;
 pub mod iterator;
 pub mod traits;
 
+#[cfg(test)]
+extern crate redisearch_rs;
+#[cfg(test)]
+redis_mock::mock_or_stub_missing_redis_c_symbols!();
+
 #[cfg(feature = "test-utils")]
 pub mod mock;
 
