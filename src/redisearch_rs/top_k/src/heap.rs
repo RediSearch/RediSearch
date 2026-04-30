@@ -146,9 +146,10 @@ impl TopKHeap {
         // current worst (root). `entry > worst` means entry is worse → discard.
         // `entry < worst` means entry is better → evict worst, insert entry.
         // Equal (same score AND same doc_id) → discard to avoid duplicates.
-        else if self.inner.peek().is_some_and(|worst| &entry < worst) {
-            self.inner.pop();
-            self.inner.push(entry);
+        else if let Some(mut worst) = self.inner.peek_mut()
+            && entry < *worst
+        {
+            *worst = entry;
             true
         } else {
             false
