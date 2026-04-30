@@ -515,6 +515,18 @@ uint64_t SearchDisk_GetInvertedIndexTotalMemory(RedisSearchDiskIndexSpec* index)
 uint64_t SearchDisk_GetVectorIndexTotalMemory(RedisSearchDiskIndexSpec* index);
 
 /**
+ * @brief Get the disk-owned total number of records for a disk index
+ *
+ * Returns the disk-side num_records counter used by FT.INFO.
+ * This wrapper is safe for read-only callers: if SearchDisk is not initialized,
+ * the callback is unavailable, or the index handle is invalid, it returns 0.
+ *
+ * @param index Pointer to the disk index spec
+ * @return Number of records in the index, or 0 if unavailable
+ */
+uint64_t SearchDisk_GetNumRecords(RedisSearchDiskIndexSpec* index);
+
+/**
  * @brief Output aggregated disk metrics to Redis INFO
  *
  * Iterates over all collected index metrics, aggregates them, and outputs

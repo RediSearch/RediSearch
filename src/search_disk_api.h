@@ -549,6 +549,17 @@ typedef struct MetricsDiskAPI {
   uint64_t (*getVectorIndexTotalMemory)(RedisSearchDisk *disk, RedisSearchDiskIndexSpec *index);
 
   /**
+   * @brief Get the disk-owned total number of records for a specific index
+   *
+   * Returns the disk-side num_records counter used by FT.INFO.
+   *
+   * @param disk Pointer to the disk context
+   * @param index Pointer to the index spec
+   * @return Number of records in the index
+   */
+  uint64_t (*getNumRecords)(RedisSearchDisk *disk, RedisSearchDiskIndexSpec *index);
+
+  /**
    * @brief Output aggregated disk metrics to Redis INFO
    *
    * Iterates over all collected index metrics, aggregates them, and outputs
