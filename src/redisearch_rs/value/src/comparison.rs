@@ -192,7 +192,10 @@ fn string_keyed<'a>(
     pairs
         .filter_map(|(key, value)| {
             let bytes = key.as_str_bytes();
-            debug_assert_warn!(bytes.is_some(), "non-string key in map comparison; pair skipped");
+            debug_assert_warn!(
+                bytes.is_some(),
+                "non-string key in map comparison; pair skipped"
+            );
             Some((bytes?, value))
         })
         .collect()
@@ -200,22 +203,19 @@ fn string_keyed<'a>(
 
 fn entries_equal(entries1: &[(&[u8], &Value)], entries2: &[(&[u8], &Value)]) -> bool {
     debug_assert_eq!(entries1.len(), entries2.len());
-    entries1
-        .iter()
-        .zip(entries2)
-        .all(|((k1, v1), (k2, v2))| {
-            // Nested maps/arrays are not supported: `compare_on_equality_only` treats them as
-            // equal regardless of content. This function is intended for flat hash results only.
-            debug_assert_warn!(
-                !matches!(v1, Value::Map(_) | Value::Array(_)),
-                "nested map/array value in map equality comparison; result may be incorrect"
-            );
-            debug_assert_warn!(
-                !matches!(v2, Value::Map(_) | Value::Array(_)),
-                "nested map/array value in map equality comparison; result may be incorrect"
-            );
-            k1 == k2 && compare_on_equality_only(v1, v2)
-        })
+    entries1.iter().zip(entries2).all(|((k1, v1), (k2, v2))| {
+        // Nested maps/arrays are not supported: `compare_on_equality_only` treats them as
+        // equal regardless of content. This function is intended for flat hash results only.
+        debug_assert_warn!(
+            !matches!(v1, Value::Map(_) | Value::Array(_)),
+            "nested map/array value in map equality comparison; result may be incorrect"
+        );
+        debug_assert_warn!(
+            !matches!(v2, Value::Map(_) | Value::Array(_)),
+            "nested map/array value in map equality comparison; result may be incorrect"
+        );
+        k1 == k2 && compare_on_equality_only(v1, v2)
+    })
 }
 
 fn collect_array(array: &Array) -> Vec<(&[u8], &Value)> {
