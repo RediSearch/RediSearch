@@ -52,39 +52,41 @@ jobs:
           import os
           import sys
 
-          # All available platform/architecture combinations
+          # All available platform/architecture combinations.
+          # Display names mirror the 'name' field in task-get-config.yml — keep them in sync
+          # when adding/renaming a platform.
           all_combinations = [
-              ('ubuntu:26.04', 'x86_64'),
-              ('ubuntu:26.04', 'aarch64'),
-              ('ubuntu:24.04', 'x86_64'),
-              ('ubuntu:24.04', 'aarch64'),
-              ('ubuntu:22.04', 'x86_64'),
-              ('ubuntu:22.04', 'aarch64'),
-              ('ubuntu:20.04', 'x86_64'),
-              ('ubuntu:20.04', 'aarch64'),
-              ('rockylinux:8', 'x86_64'),
-              ('rockylinux:8', 'aarch64'),
-              ('rockylinux:9', 'x86_64'),
-              ('rockylinux:9', 'aarch64'),
-              ('rockylinux:10', 'x86_64'),
-              ('rockylinux:10', 'aarch64'),
-              ('amazonlinux:2023', 'x86_64'),
-              ('amazonlinux:2023', 'aarch64'),
-              ('debian:12', 'x86_64'),
-              ('debian:12', 'aarch64'),
-              ('debian:13', 'x86_64'),
-              ('debian:13', 'aarch64'),
-              ('azurelinux:3', 'x86_64'),
-              ('azurelinux:3', 'aarch64'),
-              ('alpine:3.23', 'x86_64'),
-              ('alpine:3.23', 'aarch64'),
-              ('macos-14', 'x86_64'),
-              ('macos-14', 'aarch64'),
-              ('macos-15', 'x86_64'),
-              ('macos-15', 'aarch64'),
-              ('macos-26', 'x86_64'),
-              ('macos-26', 'aarch64'),
-              ('intel', 'x86_64'),  # Self-hosted EC2 runner
+              ('ubuntu:26.04',     'x86_64',  'Ubuntu 26.04 (Resolute) x86_64'),
+              ('ubuntu:26.04',     'aarch64', 'Ubuntu 26.04 (Resolute) aarch64'),
+              ('ubuntu:24.04',     'x86_64',  'Ubuntu 24.04 (Noble) x86_64'),
+              ('ubuntu:24.04',     'aarch64', 'Ubuntu 24.04 (Noble) aarch64'),
+              ('ubuntu:22.04',     'x86_64',  'Ubuntu 22.04 (Jammy) x86_64'),
+              ('ubuntu:22.04',     'aarch64', 'Ubuntu 22.04 (Jammy) aarch64'),
+              ('ubuntu:20.04',     'x86_64',  'Ubuntu 20.04 (Focal) x86_64'),
+              ('ubuntu:20.04',     'aarch64', 'Ubuntu 20.04 (Focal) aarch64'),
+              ('rockylinux:8',     'x86_64',  'Rocky Linux 8 (Green Obsidian) x86_64'),
+              ('rockylinux:8',     'aarch64', 'Rocky Linux 8 (Green Obsidian) aarch64'),
+              ('rockylinux:9',     'x86_64',  'Rocky Linux 9 (Blue Onyx) x86_64'),
+              ('rockylinux:9',     'aarch64', 'Rocky Linux 9 (Blue Onyx) aarch64'),
+              ('rockylinux:10',    'x86_64',  'Rocky Linux 10 (Red Quartz) x86_64'),
+              ('rockylinux:10',    'aarch64', 'Rocky Linux 10 (Red Quartz) aarch64'),
+              ('amazonlinux:2023', 'x86_64',  'Amazon Linux 2023 x86_64'),
+              ('amazonlinux:2023', 'aarch64', 'Amazon Linux 2023 aarch64'),
+              ('debian:12',        'x86_64',  'Debian 12 (Bookworm) x86_64'),
+              ('debian:12',        'aarch64', 'Debian 12 (Bookworm) aarch64'),
+              ('debian:13',        'x86_64',  'Debian 13 (Trixie) x86_64'),
+              ('debian:13',        'aarch64', 'Debian 13 (Trixie) aarch64'),
+              ('azurelinux:3',     'x86_64',  'Azure Linux 3 x86_64'),
+              ('azurelinux:3',     'aarch64', 'Azure Linux 3 aarch64'),
+              ('alpine:3.23',      'x86_64',  'Alpine 3.23 x86_64'),
+              ('alpine:3.23',      'aarch64', 'Alpine 3.23 aarch64'),
+              ('macos-14',         'x86_64',  'macOS 14 (Sonoma) x86_64'),
+              ('macos-14',         'aarch64', 'macOS 14 (Sonoma) aarch64'),
+              ('macos-15',         'x86_64',  'macOS 15 (Sequoia) x86_64'),
+              ('macos-15',         'aarch64', 'macOS 15 (Sequoia) aarch64'),
+              ('macos-26',         'x86_64',  'macOS 26 (Tahoe) x86_64'),
+              ('macos-26',         'aarch64', 'macOS 26 (Tahoe) aarch64'),
+              ('intel',            'x86_64',  'Intel x86_64'),  # Self-hosted EC2 runner
           ]
 
           platform_filter = os.environ["INPUT_PLATFORM"]
@@ -93,13 +95,19 @@ jobs:
           include_sanitize = "${{ inputs.include-sanitize }}" == "true"
           separate_coordinator = "${{ inputs.separate-coordinator-job }}" == "true"
 
-          def add_matrix_entries(items, platform, architecture, job_type):
+          def add_matrix_entries(items, platform, architecture, job_type, display_name):
               """Add matrix entries, splitting by test-mode if separate_coordinator is enabled."""
+              base = {
+                  'platform': platform,
+                  'architecture': architecture,
+                  'job-type': job_type,
+                  'display-name': display_name,
+              }
               if separate_coordinator:
-                  items.append({'platform': platform, 'architecture': architecture, 'job-type': job_type, 'test-mode': 'standalone'})
-                  items.append({'platform': platform, 'architecture': architecture, 'job-type': job_type, 'test-mode': 'coordinator'})
+                  items.append({**base, 'test-mode': 'standalone'})
+                  items.append({**base, 'test-mode': 'coordinator'})
               else:
-                  items.append({'platform': platform, 'architecture': architecture, 'job-type': job_type, 'test-mode': 'all'})
+                  items.append({**base, 'test-mode': 'all'})
 
           # Parse comma-separated filters
           platform_list = [p.strip() for p in platform_filter.split(',')]
@@ -107,8 +115,8 @@ jobs:
 
           # Filter combinations based on inputs
           filtered_combinations = [
-              (platform, architecture)
-              for platform, architecture in all_combinations
+              (platform, architecture, display_name)
+              for platform, architecture, display_name in all_combinations
               if (platform in platform_list or 'all' in platform_list) and
                  (platform not in exclude_list) and
                  (architecture == architecture_filter or architecture_filter == 'all')
@@ -116,16 +124,16 @@ jobs:
 
           # Generate matrix items
           matrix_items = []
-          for platform, architecture in filtered_combinations:
-              add_matrix_entries(matrix_items, platform, architecture, 'test')
+          for platform, architecture, display_name in filtered_combinations:
+              add_matrix_entries(matrix_items, platform, architecture, 'test', display_name)
 
           # Add coverage job if requested (only on ubuntu:latest x86_64)
           if include_coverage:
-              add_matrix_entries(matrix_items, 'ubuntu:latest', 'x86_64', 'coverage')
+              add_matrix_entries(matrix_items, 'ubuntu:latest', 'x86_64', 'coverage', 'Coverage (x86_64)')
 
           # Add sanitize job if requested (only on ubuntu:latest x86_64)
           if include_sanitize:
-              add_matrix_entries(matrix_items, 'ubuntu:latest', 'x86_64', 'sanitize')
+              add_matrix_entries(matrix_items, 'ubuntu:latest', 'x86_64', 'sanitize', 'Sanitize (x86_64)')
 
           # Check if matrix has any jobs
           has_jobs = len(matrix_items) > 0
