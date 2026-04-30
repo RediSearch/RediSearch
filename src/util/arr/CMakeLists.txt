@@ -1,6 +1,6 @@
-# Build the `arr` module as a standalone static library
-# This is a temporary requirement to allow us to benchmark the
-# Rust implementation of the triemap against the original C implementation.
+# Build the `arr` module as a CMake OBJECT library so its objects can be
+# pulled into `redisearch_c` via `$<TARGET_OBJECTS:arr>` without producing an
+# unused `libarr.a` archive.
 file(GLOB ARR_SOURCES "arr.c")
-add_library(arr STATIC ${ARR_SOURCES})
+add_library(arr OBJECT ${ARR_SOURCES})
 target_include_directories(arr PRIVATE . ../..)
