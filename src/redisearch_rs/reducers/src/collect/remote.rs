@@ -18,6 +18,7 @@
 //! Coordinator-side outer `GROUPBY` steps also see ordinary rows/items; they are
 //! not this reducer's special merge input.
 
+use std::collections::HashSet;
 use std::mem;
 
 use rlookup::{RLookupKey, RLookupRow};
@@ -53,16 +54,17 @@ const _: () = assert!(
 
 /// Per-group instance of [`RemoteCollectReducer`].
 ///
-/// Because `RemoteCollectCtx` is arena-allocated ([`Bump`][bumpalo::Bump] does
-/// not run destructors), `ptr::drop_in_place` must be called to run
-/// destructors for the inner `Vec`s and decrement `SharedValue` refcounts.
-//
-// TODO: replace both vectors with a single `Vec<RLookupRow>` once the
-// row-representation migration lands.
-pub struct RemoteCollectCtx {
-    field_values: Vec<Vec<SharedValue>>,
-    /// Kept row-aligned with `field_values`.
-    sort_values: Vec<Vec<SharedValue>>,
+/// Arena-allocated under [`Bump`][bumpalo::Bump], which does not run
+/// destructors — [`ptr::drop_in_place`][std::ptr::drop_in_place] must be
+/// called to release the stored [`RLookupRow`]s and decrement
+/// [`SharedValue`] refcounts.
+///
+/// The `<'a>` parameter ties the row's slot indices back to the source
+/// [`RLookup`][rlookup::RLookup]: every value sits at the slot keyed by
+/// `dstidx` on its [`RLookupKey`]. Stored values are owned [`SharedValue`]
+/// clones; no row data borrows from the source lookup.
+pub struct RemoteCollectCtx<'a> {
+    rows: Vec<RLookupRow<'a>>,
 }
 
 impl<'a> RemoteCollectReducer<'a> {
@@ -88,7 +90,7 @@ impl<'a> RemoteCollectReducer<'a> {
         &mut self.common.reducer
     }
 
-    pub fn alloc_instance(&self) -> &mut RemoteCollectCtx {
+    pub fn alloc_instance(&self) -> &mut RemoteCollectCtx<'a> {
         self.common.arena.alloc(RemoteCollectCtx::new(self))
     }
 
@@ -129,55 +131,79 @@ impl<'a> RemoteCollectReducer<'a> {
     }
 }
 
-impl RemoteCollectCtx {
-    pub const fn new(_r: &RemoteCollectReducer) -> Self {
-        Self {
-            field_values: Vec::new(),
-            sort_values: Vec::new(),
-        }
+impl<'a> RemoteCollectCtx<'a> {
+    pub const fn new(_r: &RemoteCollectReducer<'a>) -> Self {
+        Self { rows: Vec::new() }
     }
 
-    /// Store projected field and sort values, filling missing values with nulls.
-    pub fn add(&mut self, r: &RemoteCollectReducer, row: &RLookupRow) {
-        let fv = r
-            .field_keys
-            .iter()
-            .map(|key| {
-                row.get(key)
-                    .cloned()
-                    .unwrap_or_else(SharedValue::null_static)
-            })
-            .collect();
-        self.field_values.push(fv);
-
-        let sv = r
-            .sort_keys
-            .iter()
-            .map(|key| {
-                row.get(key)
-                    .cloned()
-                    .unwrap_or_else(SharedValue::null_static)
-            })
-            .collect();
-        self.sort_values.push(sv);
+    /// Project the source row's field-key and sort-key values into a stored
+    /// [`RLookupRow`].
+    ///
+    /// Sort-key values are stored unconditionally; the reducer's
+    /// `include_sort_keys` flag gates *emission* in [`Self::finalize`], not
+    /// storage. A planned follow-up will cache sort values in-place from the
+    /// row's dynamic-values slots for SORTBY/heap re-use, and that cache
+    /// wants them present whether or not they end up in the wire output.
+    pub fn add(&mut self, r: &RemoteCollectReducer<'a>, row: &RLookupRow<'_>) {
+        let mut dst = RLookupRow::new();
+        for key in r.field_keys.iter() {
+            if let Some(v) = row.get(key) {
+                dst.write_key(key, v.clone());
+            }
+        }
+        for key in r.sort_keys.iter() {
+            if let Some(v) = row.get(key) {
+                dst.write_key(key, v.clone());
+            }
+        }
+        self.rows.push(dst);
     }
 
     /// Serialize the buffered rows into a `[Map, ...]` array.
-    pub fn finalize(&mut self, r: &RemoteCollectReducer) -> SharedValue {
-        let field_rows = mem::take(&mut self.field_values);
-        let sort_rows = mem::take(&mut self.sort_values);
-        let pair = |(val, key): (SharedValue, &&RLookupKey<'_>)| {
-            (SharedValue::new_string(key.name().to_bytes().to_vec()), val)
-        };
+    ///
+    /// The emission template is built once and reused for every stored row:
+    /// each entry pairs an [`RLookupKey`] with a [`SharedValue`] holding its
+    /// name, so per-row emission only clones (cheap [`SharedValue`] refcount
+    /// bump) and looks up the row's value.
+    ///
+    /// Keys are deduplicated by `dstidx` across `field_keys` and (when the
+    /// reducer's `include_sort_keys` is set) `sort_keys`, so a key appearing
+    /// in both lists is emitted exactly once. `field_keys` retain their
+    /// order, then any not-yet-seen `sort_keys` follow.
+    pub fn finalize(&mut self, r: &RemoteCollectReducer<'a>) -> SharedValue {
+        let rows = mem::take(&mut self.rows);
 
-        SharedValue::new_array(field_rows.into_iter().zip(sort_rows).map(|(fv, sv)| {
-            let fields = fv.into_iter().zip(r.field_keys.iter()).map(pair);
-            if r.include_sort_keys {
-                let sorts = sv.into_iter().zip(r.sort_keys.iter()).map(pair);
-                SharedValue::new_map(fields.chain(sorts).collect::<Vec<_>>())
-            } else {
-                SharedValue::new_map(fields.collect::<Vec<_>>())
-            }
+        let sort_extras: &[&RLookupKey<'a>] = if r.include_sort_keys {
+            &r.sort_keys
+        } else {
+            &[]
+        };
+        let mut seen: HashSet<u16> = HashSet::with_capacity(r.field_keys.len() + sort_extras.len());
+        let template: Vec<(&RLookupKey<'a>, SharedValue)> = r
+            .field_keys
+            .iter()
+            .chain(sort_extras)
+            .filter(|key| seen.insert(key.dstidx))
+            .map(|key| {
+                (
+                    *key,
+                    SharedValue::new_string(key.name().to_bytes().to_vec()),
+                )
+            })
+            .collect();
+
+        SharedValue::new_array(rows.into_iter().map(|row| {
+            let entries: Vec<_> = template
+                .iter()
+                .map(|(key, name)| {
+                    let val = row
+                        .get(key)
+                        .cloned()
+                        .unwrap_or_else(SharedValue::null_static);
+                    (name.clone(), val)
+                })
+                .collect();
+            SharedValue::new_map(entries)
         }))
     }
 }
