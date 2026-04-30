@@ -28,7 +28,9 @@
 #include "coord/dist_utils.h"
 #include "info/global_stats.h"
 #include "search_disk.h"
+#include "debug_commands.h"
 #include "coord_request_ctx.h"
+#include "aggregate/reply_empty.h"
 
 static const RLookupKey *keyForField(RPNet *nc, const char *s) {
   RLOOKUP_FOREACH(kk, nc->lookup, {
@@ -54,6 +56,16 @@ void processResultFormat(uint32_t *flags, MRReply *map) {
 
 static int rpnetNext_Start(ResultProcessor *rp, SearchResult *r) {
   RPNet *nc = (RPNet *)rp;
+
+#ifdef ENABLE_ASSERT
+  // Sync point (debug): park BG just before the initial timeout check.
+  SyncPoint_WaitUntil(SYNC_POINT_BEFORE_RPNET_START, areq_timed_out, nc->areq);
+#endif
+
+  // Check if the request timed out before starting the iterator
+  if (AREQ_TimedOut(nc->areq)) {
+    return RS_RESULT_TIMEDOUT;
+  }
 
   // Initialize shard response barrier if WITHCOUNT is enabled
   if (HasWithCount(nc->areq) && IsAggregate(nc->areq)) {
@@ -84,6 +96,10 @@ static int rpnetNext_Start(ResultProcessor *rp, SearchResult *r) {
   }
 
   nc->it = it;
+  // Register the iterator's channel so the main-thread timeout callback can wake
+  // this reader if it blocks in MRIterator_NextWithTimeout after AREQ timed out.
+  // Paired with RequestSyncCtx_UnregisterAbortWakeChannel in rpnetFree.
+  RequestSyncCtx_RegisterAbortWakeChannel(&nc->areq->syncCtx, MRIterator_GetChannel(it));
   nc->base.Next = rpnetNext;
   return rpnetNext(rp, r);
 }
@@ -224,6 +240,51 @@ static void buildMRCommand(RedisModuleString **argv, int argc, ProfileOptions pr
   array_free(tmparr);
 }
 
+// True iff the coordinator pipeline is shaped such that any prefix of its
+// output is a valid partial answer, allowing the RETURN-STRICT main-thread
+// timeout callback to drain queued shard replies after the background
+// pipeline aborts.
+//
+// A pipeline qualifies when it carries no buffering or reordering state
+// between RPNet and the end processor. Two shapes are supported:
+//
+//   1. `RPNet -> end`              -- end IS the RPNet itself
+//   2. `RPNet -> RPPager_Limiter`  -- end is a pager directly above RPNet
+//
+// Profile wraps every RP and is not yet supported under RETURN-STRICT drain,
+// so profile queries are excluded.
+//
+// To extend support to additional pipeline shapes, add a new case below.
+static bool pipelineCanYieldPartialResults(AREQ *r) {
+  if (IsProfile(r)) {
+    return false;
+  }
+
+  QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(r);
+  ResultProcessor *end = qctx->endProc;
+  ResultProcessor *root = qctx->rootProc;
+
+  if (!end || !root) {
+    return false;
+  }
+
+  // root is always RPNet on the coordinator pipeline.
+  RS_ASSERT(root->type == RP_NETWORK);
+
+  // Shape 1: end IS the RPNet (no tail pipeline was attached).
+  if (end == root && end->type == RP_NETWORK) {
+    return true;
+  }
+
+  // Shape 2: end is RPPager_Limiter sitting directly above RPNet.
+  if (end->type == RP_PAGER_LIMITER &&
+      end->upstream == root && end->upstream->type == RP_NETWORK) {
+    return true;
+  }
+
+  return false;
+}
+
 static void buildDistRPChain(AREQ *r, MRCommand *xcmd, AREQDIST_UpstreamInfo *us, int (*nextFunc)(ResultProcessor *, SearchResult *)) {
   // Establish our root processor, which is the distributed processor
   RPNet *rpRoot = RPNet_New(xcmd, nextFunc); // This will take ownership of the command
@@ -262,6 +323,8 @@ static void buildDistRPChain(AREQ *r, MRCommand *xcmd, AREQDIST_UpstreamInfo *us
       qctx->endProc = rpProfile;
     }
   }
+
+  qctx->canYieldPartialResults = pipelineCanYieldPartialResults(r);
 }
 
 void PrintShardProfile(RedisModule_Reply *reply, void *ctx);
@@ -486,6 +549,10 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 
   // CMD, index, expr, args...
   AREQ *r = AREQ_New();
+
+  if (r->reqConfig.timeoutPolicy == TimeoutPolicy_ReturnStrict) {
+    r->syncCtx.requiresAggregateResultsSync = true;
+  }
   CoordRequestCtx_SetRequest(reqCtx, r);
   CoordRequestCtx_UnlockSetRequest(reqCtx);
 
@@ -552,10 +619,102 @@ int DistAggregateTimeoutFailClient(RedisModuleCtx *ctx, RedisModuleString **argv
   return REDISMODULE_OK;
 }
 
-// Reply callback for Coordinator AREQ Request execution (FAIL policy).
-// Called on the main thread when the background thread calls UnblockClient.
-// The background thread stored results in req->storedReplyState, which we use to build the reply.
-// Note: This callback is NOT called if timeout fired first (bc->client becomes NULL).
+// Drain any queued shard replies into `storedReplyState.results` on the main
+// thread after the background pipeline has aborted. Only safe for pipelines
+// classified as yielding partial results: they carry no buffering or
+// reordering state, so resuming endProc->Next simply yields the rows that the
+// I/O threads had already pushed to the channel before the timeout fired.
+//
+// Caller must have already flipped syncCtx.timedOut and waited for BG to exit
+// the pipeline via AREQ_WaitForAggregateResultsComplete. The pager's internal
+// `remaining` and qctx->resultLimit reflect the post-abort budget, so this
+// loop naturally respects the user's LIMIT and terminates at EOF.
+static void drainPartialResultsAfterTimeout(AREQ *req) {
+  QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
+  if (!qctx->canYieldPartialResults) {
+    return;
+  }
+
+  RS_ASSERT(qctx->rootProc->type == RP_NETWORK);
+  RPNet *rpnet = (RPNet *)qctx->rootProc;
+  rpnet->drainOnly = true;
+
+  ResultProcessor *endProc = qctx->endProc;
+  ChunkReplyState *stored = &req->storedReplyState;
+  if (!stored->results) {
+    stored->results = array_new(SearchResult *, 8);
+  }
+
+  SearchResult r = SearchResult_New();
+  while (qctx->resultLimit && endProc->Next(endProc, &r) == RS_RESULT_OK) {
+    qctx->resultLimit--;
+    array_append(stored->results, SearchResult_AllocateMove(&r));
+    r = SearchResult_New();
+  }
+  SearchResult_Destroy(&r);
+}
+
+// Timeout callback for Coordinator AREQ execution
+// Called on the main thread when the blocking client times out (RETURN-STRICT policy only).
+int DistAggregateTimeoutReturnStrictClient(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+
+  CoordRequestCtx *CoordReqCtx = RedisModule_GetBlockedClientPrivateData(ctx);
+  if (!CoordReqCtx) {
+    // This shouldn't happen but handle gracefully
+    return RedisModule_ReplyWithError(ctx, "Internal error: timeout with no context");
+  }
+
+  RS_ASSERT(CoordReqCtx->type == COMMAND_AGGREGATE);
+
+  // Lock to coordinate with request creation in background thread
+  CoordRequestCtx_LockSetRequest(CoordReqCtx);
+
+  // Signal timeout to the background thread
+  CoordRequestCtx_SetTimedOut(CoordReqCtx);
+
+  CoordRequestCtx_UnlockSetRequest(CoordReqCtx);
+
+  AREQ *req = (AREQ *)CoordRequestCtx_GetRequest(CoordReqCtx);
+
+  if (!req || AREQ_TryClaimAggregateResults(req)) {
+    // Either the request is NULL or We were able to claim the aggregation results.
+    // That means that the background thread didn't reach the aggregation phase (startPipelineCommon) yet.
+    // Reply with empty results
+    coord_aggregate_query_reply_empty(ctx, argv, argc, QUERY_ERROR_CODE_TIMED_OUT);
+    return REDISMODULE_OK;
+  }
+
+  // Losing TryClaim means BG owns the claim, it may be blocked in MRIterator_NextWithTimeout.
+  // Wake it so it observes the Timeout and exits the pipeline promptly.
+  RequestSyncCtx_WakeAbortChannel(&req->syncCtx);
+
+  // Sync with the background thread
+  AREQ_WaitForAggregateResultsComplete(req);
+
+  // BG signals only after AREQ_StoreResults
+  RS_ASSERT(req->storedReplyState.hasStoredResults);
+
+  // Harvest any shard replies that landed in the channel before the deadline.
+  // No-op for already-complete runs.
+  drainPartialResultsAfterTimeout(req);
+
+  // Pipelines that don't yield partial results (SORTBY/GROUPBY/depleter)
+  // discard their buffer on TIMEDOUT, but RPNet may have already accumulated
+  // `total_results` from admitted shard replies. Zero it so `total_results`
+  // stays consistent with empty results.
+  ChunkReplyState *stored = &req->storedReplyState;
+  if (!AREQ_QueryProcessingCtx(req)->canYieldPartialResults &&
+      array_len(stored->results) == 0) {
+    AREQ_QueryProcessingCtx(req)->totalResults = 0;
+  }
+
+  AREQ_ReplyWithStoredResults(ctx, req);
+
+  return REDISMODULE_OK;
+}
+
+// Main-thread reply callback for coord AREQ (FAIL / RETURN-STRICT). Reads results
+// stored by the BG thread in req->storedReplyState. NOT called if timeout fired
 int DistAggregateReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   UNUSED(argv);
   UNUSED(argc);
@@ -644,6 +803,10 @@ void DEBUG_RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, in
   }
   // CMD, index, expr, args...
   r = &debug_req->r;
+
+  if (r->reqConfig.timeoutPolicy == TimeoutPolicy_ReturnStrict) {
+    r->syncCtx.requiresAggregateResultsSync = true;
+  }
   CoordRequestCtx_SetRequest(reqCtx, r);
   CoordRequestCtx_UnlockSetRequest(reqCtx);
 

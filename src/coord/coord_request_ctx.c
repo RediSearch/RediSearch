@@ -38,11 +38,7 @@ void CoordRequestCtx_Free(CoordRequestCtx *ctx) {
       // Timeout edge case for cursor queries with useReplyCallback:
       // When timeout fires before reply_callback runs, but after the cursor was created and
       // stored in areq->storedReplyState.cursor, the cursor needs to be freed manually.
-      if (ctx->areq->storedReplyState.cursor) {
-        Cursor *cursor = ctx->areq->storedReplyState.cursor;
-        ctx->areq->storedReplyState.cursor = NULL;
-        Cursor_Free(cursor);
-      }
+      AREQ_CleanUpStoredCursor(ctx->areq);
       AREQ_DecrRef(ctx->areq);
     }
   } else {
