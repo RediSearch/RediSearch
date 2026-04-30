@@ -52,7 +52,7 @@ jobs:
       redis-ref: ${{ needs.get-latest-redis-tag.outputs.tag }}
       version-suffix: ${{ steps.set-version.outputs.VERSION_SUFFIX }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - id: set-sha
         run: echo "sha=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
       - name: Generate Version Suffix
