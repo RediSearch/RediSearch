@@ -19,7 +19,7 @@ jobs:
     name: Build container for lint
     uses: ./.github/workflows/task-build-cached-container.yml
     with:
-      container: ubuntu:noble
+      container: ubuntu:24.04
       runner-env: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
 
   lint:
