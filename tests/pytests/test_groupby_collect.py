@@ -532,78 +532,203 @@ def test_collect_internal_duplicate_field_and_sort():
                 message='internal row must contain exactly one (key, value) pair')
 
 
+# ---------------------------------------------------------------------------
+# `COLLECT FIELDS *` rule: emits exactly the keys present in the source
+# rlookup at row time — neither the schema, nor whatever happens to be in
+# the underlying Redis hash, drives the projection.
+#
+# The three tests below pin this rule by varying what `LOAD` puts into the
+# lookup while keeping the schema and hash contents constant:
+#   1. Partial LOAD             → only the loaded subset is emitted.
+#   2. LOAD with `@__key`       → derived keys ride along like any field.
+#   3. LOAD *                   → the full schema is emitted.
+#
+# All three use RESP2 so each emitted row arrives as a flat
+# ``[k, v, k, v, ...]`` list whose keys can be inspected directly without
+# RESP3's silent duplicate-key collapse.
+# ---------------------------------------------------------------------------
+def _collect_load_all_index_with_three_fields(env):
+    """Create a 3-field schema and two docs in the same group.
+
+    Both docs populate every schema field, so any field absent from a
+    collected row's wire payload comes from the rlookup not having that
+    key — never from the row missing a value.
+    """
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH',
+               'SCHEMA',
+               'name', 'TEXT', 'SORTABLE',
+               'team', 'TAG', 'SORTABLE',
+               'score', 'NUMERIC', 'SORTABLE').ok()
+    conn = getConnectionByEnv(env)
+    conn.execute_command('HSET', 'doc:alpha', 'name', 'alice', 'team', 't', 'score', '7')
+    conn.execute_command('HSET', 'doc:bravo', 'name', 'bob',   'team', 't', 'score', '5')
+    enable_unstable_features(env)
+
+
+def _collect_load_all_extract_rows(internal_resp2):
+    """Iterate every collected row across every group from a RESP2 reply.
+
+    RESP2 shape: ``[num_groups, group_row, group_row, ...]`` where each
+    ``group_row`` is a flat ``[k, v, k, v, ...]`` list and the ``info``
+    entry is itself a list of flat rows.
+    """
+    for group_row in internal_resp2[1:]:
+        info_idx = group_row.index('info') + 1
+        for row in group_row[info_idx]:
+            yield row
+
+
 @skip(cluster=True)
-def test_collect_internal_load_all_emits_all_fields():
-    """`COLLECT FIELDS *` projects every non-hidden lookup key on each row.
+def test_collect_internal_load_all_partial_load_emits_only_loaded_fields():
+    """Loading a strict subset of the schema produces a strict subset on the
+    wire — even though the underlying hash holds all three fields.
 
-    `LOAD` populates the source lookup with the schema fields before
-    `GROUPBY`; the reducer's load-all walk then sees those keys live and
-    emits them per row.
-
-    Uses RESP2 because RESP3 maps are parsed into Python dicts that silently
-    collapse duplicate keys, hiding any wire-level duplication. Under RESP2
-    each row arrives as a flat ``[k, v, k, v, ...]`` list where keys can be
-    counted directly.
+    The schema has ``name``, ``team``, ``score``; ``LOAD`` pulls in only
+    ``name`` and ``team``. Every emitted row therefore carries exactly
+    ``{name, team}`` and ``score`` is absent. This is the canonical
+    counter-example to "FIELDS * mirrors the schema": the rlookup, not the
+    schema, drives the load-all walk.
     """
     env = Env(protocol=2)
-    _setup_hash(env)
+    _collect_load_all_index_with_three_fields(env)
 
     _, slots_data = get_shard_slot_ranges(env)[0]
     env.cmd('DEBUG', 'MARK-INTERNAL-CLIENT')
 
     internal = env.cmd(
         '_FT.AGGREGATE', 'idx', '*',
-        'LOAD', '3', '@name', '@sweetness', '@origin',
-        'GROUPBY', '1', '@color',
+        'LOAD', '2', '@name', '@team',
+        'GROUPBY', '1', '@team',
         'REDUCE', 'COLLECT', '3',
             'FIELDS', '1', '*',
         'AS', 'info',
         '_SLOTS_INFO', slots_data,
     )
 
-    # RESP2 shape: [num_groups, group_row, group_row, ...] where each
-    # group_row is a flat [key, val, key, val, ...] list. The 'info' value
-    # is a list of rows, each itself a flat [key, val, ...] list.
-    always_present = {'name', 'color', 'sweetness'}
-    for group_row in internal[1:]:
-        info_idx = group_row.index('info') + 1
-        rows = group_row[info_idx]
-        for row in rows:
-            row_keys = set(row[0::2])
-            env.assertTrue(
-                always_present.issubset(row_keys),
-                message=f'load-all row missing always-present schema fields: {row_keys}')
+    expected_keys = {'name', 'team'}
+    for row in _collect_load_all_extract_rows(internal):
+        row_keys = set(row[0::2])
+        env.assertEqual(
+            row_keys, expected_keys,
+            message=f'partial-load row must emit only the loaded subset, got {row_keys}')
+
+
+@skip(cluster=True)
+def test_collect_internal_load_all_emits_dunder_key_when_loaded():
+    """``@__key`` rides through `FIELDS *` like any other loaded field.
+
+    The schema has ``name``, ``team``, ``score``; ``LOAD`` pulls in
+    ``name``, ``team`` and the special derived ``@__key``, but not
+    ``score``. Every emitted row therefore carries exactly
+    ``{name, team, __key}``, and the ``__key`` value matches the doc's
+    Redis key. This documents that the load-all walk does not
+    discriminate against derived keys: anything sitting in the rlookup at
+    row time (modulo hidden flags and tombstones, neither of which apply
+    to ``@__key``) is emitted.
+    """
+    env = Env(protocol=2)
+    _collect_load_all_index_with_three_fields(env)
+
+    _, slots_data = get_shard_slot_ranges(env)[0]
+    env.cmd('DEBUG', 'MARK-INTERNAL-CLIENT')
+
+    internal = env.cmd(
+        '_FT.AGGREGATE', 'idx', '*',
+        'LOAD', '3', '@name', '@team', '@__key',
+        'GROUPBY', '1', '@team',
+        'REDUCE', 'COLLECT', '3',
+            'FIELDS', '1', '*',
+        'AS', 'info',
+        '_SLOTS_INFO', slots_data,
+    )
+
+    expected_keys = {'name', 'team', '__key'}
+    expected_dunder_values = {'doc:alpha', 'doc:bravo'}
+    seen_dunder = set()
+    for row in _collect_load_all_extract_rows(internal):
+        row_dict = dict(zip(row[0::2], row[1::2]))
+        env.assertEqual(
+            set(row_dict.keys()), expected_keys,
+            message=f'expected exactly {expected_keys}, got {set(row_dict.keys())}')
+        seen_dunder.add(row_dict['__key'])
+
+    env.assertEqual(
+        seen_dunder, expected_dunder_values,
+        message='each doc must emit its own @__key value through FIELDS *')
+
+
+@skip(cluster=True)
+def test_collect_internal_load_all_with_load_star_emits_full_schema():
+    """``LOAD *`` populates the rlookup with every schema field, so
+    ``COLLECT FIELDS *`` emits all of them per row.
+
+    With ``LOAD *`` the rlookup at COLLECT-time mirrors the schema
+    exactly. This is the case the previous single test conflated — it now
+    sits as one of three points on the rule curve, alongside the partial
+    and `@__key` cases above.
+    """
+    env = Env(protocol=2)
+    _collect_load_all_index_with_three_fields(env)
+
+    _, slots_data = get_shard_slot_ranges(env)[0]
+    env.cmd('DEBUG', 'MARK-INTERNAL-CLIENT')
+
+    internal = env.cmd(
+        '_FT.AGGREGATE', 'idx', '*',
+        'LOAD', '*',
+        'GROUPBY', '1', '@team',
+        'REDUCE', 'COLLECT', '3',
+            'FIELDS', '1', '*',
+        'AS', 'info',
+        '_SLOTS_INFO', slots_data,
+    )
+
+    expected_keys = {'name', 'team', 'score'}
+    for row in _collect_load_all_extract_rows(internal):
+        row_keys = set(row[0::2])
+        env.assertEqual(
+            row_keys, expected_keys,
+            message=f'LOAD * row must emit the full schema, got {row_keys}')
 
 
 @skip(cluster=True)
 def test_collect_internal_load_all_omits_missing_fields():
     """When a row has no value for a key, `FIELDS *` drops it from the map.
 
-    `lemon` and `kiwi` in the FRUITS fixture have no `origin` field; their
-    rows must NOT contain an `origin` entry on the wire. Other fruits with
-    `origin` set must still emit it. The `LOAD` step pulls every schema
-    field (including `origin`) into the lookup so the load-all walk has a
+    Two docs share the same group: ``full`` has every schema field set,
+    ``partial`` is missing ``extra``. The `LOAD` step pulls every schema
+    field (including ``extra``) into the lookup so the load-all walk has a
     chance to project it — the omit-if-missing rule is what makes the
-    fruits with no `origin` value drop it.
+    ``partial`` row drop ``extra`` while ``full`` still emits it.
+
+    Uses RESP2 to inspect each row as a flat ``[k, v, k, v, ...]`` list
+    without RESP3's silent duplicate-key collapse.
     """
     env = Env(protocol=2)
-    _setup_hash(env)
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH',
+               'SCHEMA',
+               'name', 'TEXT', 'SORTABLE',
+               'team', 'TAG', 'SORTABLE',
+               'extra', 'TEXT', 'SORTABLE').ok()
+    conn = getConnectionByEnv(env)
+    conn.execute_command('HSET', 'doc:full',    'name', 'full',    'team', 'g', 'extra', 'set')
+    conn.execute_command('HSET', 'doc:partial', 'name', 'partial', 'team', 'g')
+    enable_unstable_features(env)
 
     _, slots_data = get_shard_slot_ranges(env)[0]
     env.cmd('DEBUG', 'MARK-INTERNAL-CLIENT')
 
     internal = env.cmd(
         '_FT.AGGREGATE', 'idx', '*',
-        'LOAD', '3', '@name', '@sweetness', '@origin',
-        'GROUPBY', '1', '@color',
+        'LOAD', '3', '@name', '@team', '@extra',
+        'GROUPBY', '1', '@team',
         'REDUCE', 'COLLECT', '3',
             'FIELDS', '1', '*',
         'AS', 'info',
         '_SLOTS_INFO', slots_data,
     )
 
-    expected_has_origin = {f['name']: 'origin' in f for f in FRUITS}
-
+    expected_has_extra = {'full': True, 'partial': False}
     seen_names = set()
     for group_row in internal[1:]:
         info_idx = group_row.index('info') + 1
@@ -612,20 +737,52 @@ def test_collect_internal_load_all_omits_missing_fields():
             row_dict = dict(zip(row[0::2], row[1::2]))
 
             name = row_dict.get('name')
-            env.assertIsNotNone(
-                name,
-                message='every fruit row must carry its `name`')
+            env.assertIsNotNone(name, message='every row must carry its `name`')
             seen_names.add(name)
 
-            should_have_origin = expected_has_origin.get(name, False)
-            has_origin = 'origin' in row_dict
+            should_have_extra = expected_has_extra[name]
+            has_extra = 'extra' in row_dict
             env.assertEqual(
-                has_origin, should_have_origin,
-                message=f'fruit {name!r}: expected origin present={should_have_origin}, got {has_origin}')
+                has_extra, should_have_extra,
+                message=f'doc {name!r}: expected extra present={should_have_extra}, got {has_extra}')
 
     env.assertEqual(
-        seen_names, set(expected_has_origin),
-        message='every fruit must appear in some collected group')
+        seen_names, set(expected_has_extra),
+        message='every doc must appear in the collected group')
+
+
+# ---------------------------------------------------------------------------
+# Chained GROUPBY: outer COLLECT FIELDS * projects every key the inner
+# reducers placed in the lookup
+# ---------------------------------------------------------------------------
+def test_chained_groupby_collect_load_all():
+    """Outer ``COLLECT FIELDS *`` after a chained GROUPBY projects every
+    key surfaced by the inner reducers (``@color``, ``@cnt``,
+    ``@avg_sweet``), none of which are explicit fields on the outer
+    reducer.
+    """
+    env = Env(protocol=3)
+    _setup_hash(env)
+
+    res = env.cmd(
+        'FT.AGGREGATE', 'idx', '*',
+        'GROUPBY', '1', '@color',
+        'REDUCE', 'COUNT', '0', 'AS', 'cnt',
+        'REDUCE', 'AVG', '1', '@sweetness', 'AS', 'avg_sweet',
+        'GROUPBY', '0',
+        'REDUCE', 'COLLECT', '3', 'FIELDS', '1', '*',
+        'AS', 'stats')
+
+    results = res['results']
+    env.assertEqual(len(results), 1)
+
+    stats = sorted(results[0]['extra_attributes']['stats'],
+                   key=lambda e: e['avg_sweet'])
+    env.assertEqual(stats, [
+        {'color': 'green',  'cnt': '2', 'avg_sweet': '2.5'},
+        {'color': 'yellow', 'cnt': '2', 'avg_sweet': '3'},
+        {'color': 'red',    'cnt': '2', 'avg_sweet': '3.5'},
+    ])
 
 
 # RESP2 sanity: basic COLLECT works under RESP2
