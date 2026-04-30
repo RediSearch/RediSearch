@@ -16,6 +16,7 @@
 //! one.
 
 pub mod fork_gc;
+pub mod io_result_ext;
 pub mod util;
 pub mod writer;
 

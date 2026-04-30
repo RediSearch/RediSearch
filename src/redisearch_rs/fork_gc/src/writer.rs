@@ -9,7 +9,6 @@
 
 //! Pipe I/O primitives used by the Fork GC child/parent protocol.
 
-use crate::util::exit_on_write_error;
 use std::io::{self, Write};
 
 /// Writer over a Fork GC pipe endpoint.
@@ -58,29 +57,5 @@ impl<W: Write> Writer<W> {
     /// the parent reader that no more buffers will follow.
     pub fn send_terminator(&mut self) -> io::Result<()> {
         self.send_fixed(&usize::MAX.to_ne_bytes())
-    }
-
-    /// Like [`send_fixed`](Self::send_fixed), but terminate the child
-    /// process on failure via `RedisModule_ExitFromChild`.
-    pub fn send_fixed_or_exit(&mut self, buf: &[u8]) {
-        if let Err(err) = self.send_fixed(buf) {
-            exit_on_write_error(err);
-        }
-    }
-
-    /// Like [`send_buffer`](Self::send_buffer), but terminate the child
-    /// process on failure.
-    pub fn send_buffer_or_exit(&mut self, buf: &[u8]) {
-        if let Err(err) = self.send_buffer(buf) {
-            exit_on_write_error(err);
-        }
-    }
-
-    /// Like [`send_terminator`](Self::send_terminator), but terminate the
-    /// child process on failure.
-    pub fn send_terminator_or_exit(&mut self) {
-        if let Err(err) = self.send_terminator() {
-            exit_on_write_error(err);
-        }
     }
 }

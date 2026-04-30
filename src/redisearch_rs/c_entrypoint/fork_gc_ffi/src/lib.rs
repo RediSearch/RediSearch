@@ -17,7 +17,7 @@
 
 use std::ffi::c_void;
 
-use fork_gc::ForkGC;
+use fork_gc::{ForkGC, io_result_ext::IoResultExt};
 
 /// Write exactly `len` bytes from `buff` to the FGC pipe.
 ///
@@ -39,7 +39,7 @@ pub unsafe extern "C" fn FGC_sendFixed(fgc: *mut ffi::ForkGC, buff: *const c_voi
     // SAFETY: caller guarantees (2).
     let slice = unsafe { std::slice::from_raw_parts(buff.cast::<u8>(), len) };
 
-    fgc.writer().send_fixed_or_exit(slice);
+    fgc.writer().send_fixed(slice).unwrap_or_exit();
 }
 
 /// Write a length-prefixed buffer frame: a native-endian `size_t` header
@@ -67,7 +67,7 @@ pub unsafe extern "C" fn FGC_sendBuffer(fgc: *mut ffi::ForkGC, buff: *const c_vo
         &[]
     };
 
-    fgc.writer().send_buffer_or_exit(slice);
+    fgc.writer().send_buffer(slice).unwrap_or_exit();
 }
 
 /// Write the end-of-stream sentinel, signalling to the parent reader
@@ -85,5 +85,5 @@ pub unsafe extern "C" fn FGC_sendTerminator(fgc: *mut ffi::ForkGC) {
     // SAFETY: caller guarantees (1).
     let fgc = unsafe { ForkGC::from_ptr_mut(fgc) };
 
-    fgc.writer().send_terminator_or_exit();
+    fgc.writer().send_terminator().unwrap_or_exit();
 }
