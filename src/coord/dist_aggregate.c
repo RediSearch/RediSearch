@@ -240,22 +240,33 @@ static void buildMRCommand(RedisModuleString **argv, int argc, ProfileOptions pr
   array_free(tmparr);
 }
 
-// True iff the coordinator pipeline is shaped such that any prefix of its
-// output is a valid partial answer, allowing the RETURN-STRICT main-thread
-// timeout callback to drain queued shard replies after the background
-// pipeline aborts.
+// True iff the coordinator pipeline is shaped such that draining endProc->Next
+// after a RETURN-STRICT timeout produces a valid (possibly empty) partial
+// answer to the query.
 //
-// A pipeline qualifies when its tail (above RPNet) is one of:
+// A pipeline qualifies when its end is one of:
 //
-//   RPNet
-//   RPNet -> RPSorter
-//   RPNet -> RPPager_Limiter
-//   RPNet -> RPSorter -> RPPager_Limiter
+//   1. RPNet                              -- bare network root, no tail.
+//   2. RPPager_Limiter -> RPNet           -- pager directly above RPNet.
+//   3. [RPPager_Limiter ->] RPSorter -> ...  -- end is RPSorter, optionally
+//                                            with a pager directly above it;
+//                                            anything between the sorter and
+//                                            RPNet is allowed.
+//
+// Why (3) is safe regardless of what sits between RPSorter and RPNet:
+//
+//   - rpsortNext_Yield (the state RPSorter switches to under RETURN-STRICT
+//     when upstream returns TIMEDOUT) only pops from the sorter's heap; it
+//     never calls upstream->Next.
+//   - Drain only invokes endProc->Next. For shapes in (3) that resolves to
+//     either the sorter directly or a pager that pulls from the sorter, so
+//     no RP between the sorter and RPNet is ever invoked during drain.
+//   - Those intermediate RPs are frozen at whatever state they returned
+//     TIMEDOUT in; their contributions to the sorter's heap up to that point
+//     are exactly the partial answer we surface.
 //
 // Profile wraps every RP and is not yet supported under RETURN-STRICT drain,
 // so profile queries are excluded.
-//
-// To extend support, allow additional RP types in the peel sequence below.
 static bool pipelineCanYieldPartialResults(AREQ *r) {
   if (IsProfile(r)) {
     return false;
@@ -272,17 +283,28 @@ static bool pipelineCanYieldPartialResults(AREQ *r) {
   // root is always RPNet on the coordinator pipeline.
   RS_ASSERT(root->type == RP_NETWORK);
 
-  // Supported tail shape: [RPPager_Limiter] -> [RPSorter] -> RPNet.
-  // Peel the optional pager and sorter; whatever remains must be the RPNet root.
-  // To extend support, allow additional RP types in the peel sequence below.
+  // Shape 1: bare RPNet end.
+  if (end == root) {
+    return true;
+  }
+
+  // Optionally peel a single RPPager_Limiter at the very end. The pager is a
+  // streaming op that just paginates whatever its upstream yields.
   ResultProcessor *rp = end;
   if (rp->type == RP_PAGER_LIMITER) {
     rp = rp->upstream;
+    if (!rp) {
+      return false;
+    }
+    // Shape 2: pager directly above RPNet.
+    if (rp == root) {
+      return true;
+    }
   }
-  if (rp && rp->type == RP_SORTER) {
-    rp = rp->upstream;
-  }
-  return rp == root;
+
+  // Shape 3: the drained RP must be RPSorter. What sits between it and RPNet
+  // does not matter -- drain pops from the sorter's heap, not from upstream.
+  return rp->type == RP_SORTER;
 }
 
 static void buildDistRPChain(AREQ *r, MRCommand *xcmd, AREQDIST_UpstreamInfo *us, int (*nextFunc)(ResultProcessor *, SearchResult *)) {
@@ -619,11 +641,17 @@ int DistAggregateTimeoutFailClient(RedisModuleCtx *ctx, RedisModuleString **argv
   return REDISMODULE_OK;
 }
 
-// Drain any queued shard replies into `storedReplyState.results` on the main
+// Drain any queued partial results into `storedReplyState.results` on the main
 // thread after the background pipeline has aborted. Only safe for pipelines
-// classified as yielding partial results: they carry no buffering or
-// reordering state, so resuming endProc->Next simply yields the rows that the
-// I/O threads had already pushed to the channel before the timeout fired.
+// classified as yielding partial results (see pipelineCanYieldPartialResults).
+//
+// What endProc->Next resolves to depends on the shape:
+//   - Bare RPNet / Pager-above-RPNet: pulls from RPNet in drainOnly mode,
+//     yielding shard replies the I/O threads pushed to the channel before the
+//     deadline.
+//   - RPSorter (optionally with a pager above it): pops from the sorter's
+//     heap, which the BG thread filled with admitted rows before TIMEDOUT
+//     switched the sorter to Yield mode.
 //
 // Caller must have already flipped syncCtx.timedOut and waited for BG to exit
 // the pipeline via AREQ_WaitForAggregateResultsComplete. The pager's internal
@@ -698,7 +726,7 @@ int DistAggregateTimeoutReturnStrictClient(RedisModuleCtx *ctx, RedisModuleStrin
   // No-op for already-complete runs.
   drainPartialResultsAfterTimeout(req);
 
-  // Pipelines that don't yield partial results (SORTBY/GROUPBY/depleter)
+  // Pipelines that don't yield partial results (e.g. GROUPBY, depleter)
   // discard their buffer on TIMEDOUT, but RPNet may have already accumulated
   // `total_results` from admitted shard replies. Zero it so `total_results`
   // stays consistent with empty results.

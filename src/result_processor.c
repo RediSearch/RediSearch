@@ -663,8 +663,11 @@ static int rpsortNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
     if (policy == TimeoutPolicy_Fail) {
       return rc;
     }
-    // Both Return and ReturnStrict switch to the yield state; they only
-    // differ in whether buffered results are surfaced before the timeout.
+    // Both Return and ReturnStrict switch to Yield mode (so subsequent Next
+    // calls pop the buffered, sorted prefix from the heap). They differ in
+    // who drives that draining: Return surfaces a row inline now, while
+    // ReturnStrict returns TIMEDOUT immediately so the BG unwinds promptly,
+    // and the main-thread drain pops the heap.
     rp->Next = rpsortNext_Yield;
     if (policy == TimeoutPolicy_Return) {
       self->timedOut = true;
