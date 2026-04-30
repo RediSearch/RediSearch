@@ -112,6 +112,15 @@ checksum = "7f202df86484c868dbad7eaa557ef785d5c66295e41b460ef922eca0723b842c"
 
 [[package]]
 name = "approx"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cab112f0a86d568ea0e627cc1d6be74a1e9cd55214684db5561995f6dad897c6"
+dependencies = [
+ "num-traits 0.2.19",
+]
+
+[[package]]
+name = "approx"
 version = "0.6.0-rc2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "94fbdd65cc59dcc820bfb0fd01315963d4f9898bf3399a47134c9836698c47df"
@@ -493,6 +502,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "decorum"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7fcc6bb0c903f3f815b48365bb9182092866f54a132d8ebe906f0b66952936e3"
+dependencies = [
+ "approx 0.5.1",
+ "num-traits 0.2.19",
+ "rustversion",
+ "serde",
+ "serde_derive",
+ "thiserror",
+]
+
+[[package]]
 name = "diff"
 version = "0.1.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -740,6 +763,7 @@ dependencies = [
 name = "geo"
 version = "0.0.1"
 dependencies = [
+ "decorum",
  "proptest",
  "thiserror",
  "workspace_hack",
@@ -979,7 +1003,7 @@ checksum = "3d3067d79b975e8844ca9eb072e16b31c3c1c36928edf9c6789548c524d0d954"
 name = "idf"
 version = "0.0.1"
 dependencies = [
- "approx",
+ "approx 0.6.0-rc2",
  "rstest",
  "workspace_hack",
 ]
@@ -2105,7 +2129,7 @@ dependencies = [
 name = "rqe_iterators"
 version = "0.0.1"
 dependencies = [
- "approx",
+ "approx 0.6.0-rc2",
  "build_utils",
  "ffi",
  "field",
@@ -3428,6 +3452,7 @@ dependencies = [
  "semver",
  "serde",
  "serde_core",
+ "serde_derive",
  "serde_json",
  "stable_deref_trait",
  "syn 1.0.109",

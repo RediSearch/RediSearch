@@ -11,6 +11,8 @@
 
 use std::{num::ParseFloatError, str::FromStr};
 
+use decorum::R64;
+
 /// Maximum length of a geo string input (in bytes).
 const MAX_GEO_STRING_LEN: usize = 128;
 
@@ -38,6 +40,10 @@ pub enum ParseGeoError {
 
 /// A longitude/latitude coordinate pair.
 ///
+/// Coordinates are stored as [`R64`] values, which are guaranteed to be real
+/// (finite and not NaN). This enforces at the type level that invalid
+/// floating-point values like `NaN`, `inf`, and `-inf` cannot be represented.
+///
 /// Created by parsing a `"lon,lat"` or `"lon lat"` string via [`Coordinates::parse_geo`]:
 ///
 /// ```
@@ -50,9 +56,9 @@ pub enum ParseGeoError {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Coordinates {
     /// Longitude value.
-    pub lon: f64,
+    pub lon: R64,
     /// Latitude value.
-    pub lat: f64,
+    pub lat: R64,
 }
 
 impl Coordinates {
@@ -90,24 +96,20 @@ impl FromStr for Coordinates {
         let lon_trimmed = lon_str.trim();
         let lat_trimmed = lat_str.trim();
 
-        let lon: f64 = lon_trimmed
-            .parse()
+        let lon: R64 = lon_trimmed
+            .parse::<f64>()
             .map_err(|source| ParseGeoError::Invalid {
                 input: lon_trimmed.to_owned(),
                 source,
-            })?;
-        let lat: f64 = lat_trimmed
-            .parse()
+            })
+            .and_then(|v| R64::try_new(v).map_err(|_| ParseGeoError::NotFinite))?;
+        let lat: R64 = lat_trimmed
+            .parse::<f64>()
             .map_err(|source| ParseGeoError::Invalid {
                 input: lat_trimmed.to_owned(),
                 source,
-            })?;
-
-        // Reject non-finite values (NaN, inf, -inf) that Rust's f64 parser
-        // accepts but the original fast_float_strtod did not.
-        if !lon.is_finite() || !lat.is_finite() {
-            return Err(ParseGeoError::NotFinite);
-        }
+            })
+            .and_then(|v| R64::try_new(v).map_err(|_| ParseGeoError::NotFinite))?;
 
         Ok(Self { lon, lat })
     }
