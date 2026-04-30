@@ -27,9 +27,6 @@ on:
       post_setup_script:
         description: "Post-setup script to run after setup"
         value: ${{ jobs.get-config.outputs.post_setup_script }}
-      name:
-        description: "Configuration name"
-        value: ${{ jobs.get-config.outputs.name }}
       ec2_image_id:
         description: "EC2 AMI ID for self-hosted runners"
         value: ${{ jobs.get-config.outputs.ec2_image_id }}
@@ -51,7 +48,6 @@ jobs:
       container: ${{ steps.get-config.outputs.container }}
       setup_script: ${{ steps.get-config.outputs.setup_script }}
       post_setup_script: ${{ steps.get-config.outputs.post_setup_script }}
-      name: ${{ steps.get-config.outputs.name }}
       ec2_image_id: ${{ steps.get-config.outputs.ec2_image_id }}
       ec2_instance_type: ${{ steps.get-config.outputs.ec2_instance_type }}
       install_mode: ${{ steps.get-config.outputs.install_mode }}
@@ -88,7 +84,6 @@ jobs:
               'container': '',
               'setup_script': '',
               'post_setup_script': '',
-              'name': '',
               'ec2_image_id': '',
               'ec2_instance_type': '',
               'install_mode': '',  # Empty for containers, 'sudo' for non-containers
@@ -105,36 +100,30 @@ jobs:
                       # llvm@21 (installed by install_llvm.sh) doesn't include lld, so we
                       # install llvm@17 separately for its ld64.lld (used via RUSTFLAGS in build.sh).
                       'setup_script': 'brew install llvm@17',
-                      'name': 'macOS 14 (Sonoma) aarch64',
                       'enable_lto': '0' # Currently not possible on macOS.
                   }
               },
               "macos-15": {
                   "x86_64": {
                       'env': 'macos-15-intel',
-                      'name': 'macOS 15 (Sequoia) x86_64'
                   },
                   "aarch64": {
                       'env': 'macos-15',
-                      'name': 'macOS 15 (Sequoia) aarch64',
                       'enable_lto': '0' # Currently not possible on macOS.
                   }
               },
               "macos-26": {
                   "x86_64": {
                       'env': 'macos-26-large',
-                      'name': 'macOS 26 (Tahoe) x86_64'
                   },
                   "aarch64": {
                       'env': 'macos-26',
-                      'name': 'macOS 26 (Tahoe) aarch64',
                       'enable_lto': '0' # Currently not possible on macOS.
                   }
               },
               "intel": {
                   "x86_64": {
                       'setup_script': 'echo "HOME=/home/ubuntu" >> $GITHUB_ENV',
-                      'name': 'Intel x86_64',
                       'env': '',
                       'container': '',
                       'ec2_image_id': 'ami-09fabd03bb09b3704',
@@ -145,25 +134,21 @@ jobs:
                   "x86_64": {
                       'container': 'ubuntu:latest',
                       'setup_script': 'apt update && apt install -y git',
-                      'name': 'Ubuntu Latest x86_64'
                   },
                   "aarch64": {
                       'container': 'ubuntu:latest',
                       'setup_script': 'apt update && apt install -y git',
-                      'name': 'Ubuntu Latest aarch64'
                   }
               },
               "ubuntu:26.04": {
                   "x86_64": {
                       'container': 'ubuntu:26.04',
                       'setup_script': 'apt update && apt install -y git',
-                      'name': 'Ubuntu 26.04 (Resolute) x86_64',
                       'enable_lto': '1'
                   },
                   "aarch64": {
                       'container': 'ubuntu:26.04',
                       'setup_script': 'apt update && apt install -y git',
-                      'name': 'Ubuntu 26.04 (Resolute) aarch64',
                       'enable_lto': '1'
                   }
               },
@@ -171,13 +156,11 @@ jobs:
                   "x86_64": {
                       'container': 'ubuntu:24.04',
                       'setup_script': 'apt update && apt install -y git',
-                      'name': 'Ubuntu 24.04 (Noble) x86_64',
                       'enable_lto': '1'
                   },
                   "aarch64": {
                       'container': 'ubuntu:24.04',
                       'setup_script': 'apt update && apt install -y git',
-                      'name': 'Ubuntu 24.04 (Noble) aarch64',
                       'enable_lto': '1'
                   }
               },
@@ -185,13 +168,11 @@ jobs:
                   "x86_64": {
                       'container': 'ubuntu:22.04',
                       'setup_script': 'apt update && apt install -y git',
-                      'name': 'Ubuntu 22.04 (Jammy) x86_64',
                       'enable_lto': '1'
                   },
                   "aarch64": {
                       'container': 'ubuntu:22.04',
                       'setup_script': 'apt update && apt install -y git',
-                      'name': 'Ubuntu 22.04 (Jammy) aarch64',
                       'enable_lto': '1'
                   }
               },
@@ -199,13 +180,11 @@ jobs:
                   "x86_64": {
                       'container': 'ubuntu:20.04',
                       'setup_script': 'apt update && apt install -y git',
-                      'name': 'Ubuntu 20.04 (Focal) x86_64',
                       'enable_lto': '1'
                   },
                   "aarch64": {
                       'container': 'ubuntu:20.04',
                       'setup_script': 'apt update && apt install -y git',
-                      'name': 'Ubuntu 20.04 (Focal) aarch64',
                       'enable_lto': '1'
                   }
               },
@@ -213,13 +192,11 @@ jobs:
                   "x86_64": {
                       'container': 'rockylinux:8',
                       'setup_script': 'dnf update -y && dnf install -y git',
-                      'name': 'Rocky Linux 8 (Green Obsidian) x86_64',
                       'enable_lto': '0' # Shipped glibc (2.28) is too old for clang 21 tarball (requires 2.34).
                   },
                   "aarch64": {
                       'container': 'rockylinux:8',
                       'setup_script': 'dnf update -y && dnf install -y git',
-                      'name': 'Rocky Linux 8 (Green Obsidian) aarch64',
                       'enable_lto': '0' # Shipped glibc (2.28) is too old for clang 21 tarball (requires 2.34).
                   }
               },
@@ -227,13 +204,11 @@ jobs:
                   "x86_64": {
                       'container': 'rockylinux:9',
                       'setup_script': 'dnf update -y && dnf install -y git',
-                      'name': 'Rocky Linux 9 (Blue Onyx) x86_64',
                       'enable_lto': '1'
                   },
                   "aarch64": {
                       'container': 'rockylinux:9',
                       'setup_script': 'dnf update -y && dnf install -y git',
-                      'name': 'Rocky Linux 9 (Blue Onyx) aarch64',
                       'enable_lto': '1'
                   }
               },
@@ -241,13 +216,11 @@ jobs:
                   "x86_64": {
                       'container': 'rockylinux/rockylinux:10',
                       'setup_script': 'dnf update -y && dnf install -y git',
-                      'name': 'Rocky Linux 10 (Red Quartz) x86_64',
                       'enable_lto': '1'
                   },
                   "aarch64": {
                       'container': 'rockylinux/rockylinux:10',
                       'setup_script': 'dnf update -y && dnf install -y git',
-                      'name': 'Rocky Linux 10 (Red Quartz) aarch64',
                       'enable_lto': '1'
                   }
               },
@@ -258,14 +231,12 @@ jobs:
                       'container': 'alpine:3.23',
                       'setup_script': 'apk add bash git',
                       'post_setup_script': 'echo RUST_DYN_CRT=1 >> $GITHUB_ENV; sed -i "/^ID=/s/alpine/NotpineForGHA/" /etc/os-release; apk add nodejs --update-cache; mkdir -p /opt/bin; ln -s /usr/bin/node /opt/bin/node',
-                      'name': 'Alpine 3.23 x86_64',
                       'enable_lto': '1'
                   },
                   "aarch64": {
                       'container': 'alpine:3.23',
                       'setup_script': 'apk add bash gcompat libstdc++ libgcc git',
                       'post_setup_script': 'echo RUST_DYN_CRT=1 >> $GITHUB_ENV; sed -i "/^ID=/s/alpine/NotpineForGHA/" /etc/os-release; apk add nodejs --update-cache; mkdir -p /opt/bin; ln -s /usr/bin/node /opt/bin/node',
-                      'name': 'Alpine 3.23 aarch64',
                       'enable_lto': '1'
                   }
               },
@@ -273,13 +244,11 @@ jobs:
                   "x86_64": {
                       'container': 'gcc:12-bookworm',
                       'setup_script': 'apt update && apt install -y git',
-                      'name': 'Debian 12 (Bookworm) x86_64',
                       'enable_lto': '1'
                   },
                   "aarch64": {
                       'container': 'gcc:12-bookworm',
                       'setup_script': 'apt update && apt install -y git',
-                      'name': 'Debian 12 (Bookworm) aarch64',
                       'enable_lto': '1'
                   }
               },
@@ -287,13 +256,11 @@ jobs:
                   "x86_64": {
                       'container': 'gcc:14-trixie',
                       'setup_script': 'apt update && apt install -y git',
-                      'name': 'Debian 13 (Trixie) x86_64',
                       'enable_lto': '1'
                   },
                   "aarch64": {
                       'container': 'gcc:14-trixie',
                       'setup_script': 'apt update && apt install -y git',
-                      'name': 'Debian 13 (Trixie) aarch64',
                       'enable_lto': '1'
                   }
               },
@@ -301,13 +268,11 @@ jobs:
                   "x86_64": {
                       'container': 'amazonlinux:2023',
                       'setup_script': 'dnf install -y tar gzip git',
-                      'name': 'Amazon Linux 2023 x86_64',
                       'enable_lto': '1'
                   },
                   "aarch64": {
                       'container': 'amazonlinux:2023',
                       'setup_script': 'dnf install -y tar gzip git',
-                      'name': 'Amazon Linux 2023 aarch64',
                       'enable_lto': '1'
                   }
               },
@@ -315,13 +280,11 @@ jobs:
                   "x86_64": {
                       'container': 'mcr.microsoft.com/azurelinux/base/core:3.0',
                       'setup_script': 'tdnf install -y --noplugins tar git ca-certificates',
-                      'name': 'Azure Linux 3 x86_64',
                       'enable_lto': '1'
                   },
                   "aarch64": {
                       'container': 'mcr.microsoft.com/azurelinux/base/core:3.0',
                       'setup_script': 'tdnf install -y --noplugins tar git ca-certificates',
-                      'name': 'Azure Linux 3 aarch64',
                       'enable_lto': '1'
                   }
               }
@@ -350,7 +313,6 @@ jobs:
               f.write(f'container={config["container"]}\n')
               f.write(f'setup_script={config["setup_script"]}\n')
               f.write(f'post_setup_script={config["post_setup_script"]}\n')
-              f.write(f'name={config["name"]}\n')
               f.write(f'ec2_image_id={config["ec2_image_id"]}\n')
               f.write(f'ec2_instance_type={config["ec2_instance_type"]}\n')
               f.write(f'install_mode={config["install_mode"]}\n')
