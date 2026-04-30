@@ -22,6 +22,9 @@ pub enum ParseGeoError {
     /// The input string exceeds 128 bytes.
     #[error("Geo string cannot be longer than {MAX_GEO_STRING_LEN} bytes")]
     TooLong,
+    /// The input is not valid UTF-8.
+    #[error("Invalid geo string: not valid UTF-8")]
+    InvalidUtf8,
     /// The input string does not contain a comma or space separator.
     #[error("Invalid geo string: missing separator")]
     MissingSeparator,
