@@ -54,7 +54,7 @@ jobs:
       checkout-ref: ${{ inputs.sha || inputs.ref || github.sha }}
 
   build:
-    name: Build ${{ needs.get-config.outputs.name }}
+    name: Build artifact
     needs: [get-config, build-image]
     if: |
       !cancelled() &&
