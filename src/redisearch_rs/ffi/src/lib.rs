@@ -55,8 +55,10 @@ pub struct QueryProcessingCtx {
     pub totalResults: u32,
     pub resultLimit: u32,
     pub err: *mut QueryError,
+    pub bgScanOOM: bool,
     pub isProfile: bool,
     pub timeoutPolicy: RSTimeoutPolicy,
+    pub canYieldPartialResults: bool,
 }
 
 impl QueryProcessingCtx {
@@ -73,8 +75,10 @@ impl QueryProcessingCtx {
             totalResults: 0,
             resultLimit: 0,
             err: ptr::null_mut(),
+            bgScanOOM: false,
             isProfile: false,
             timeoutPolicy: 0,
+            canYieldPartialResults: false,
         };
 
         Box::pin(ctx)
