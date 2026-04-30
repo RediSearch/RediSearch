@@ -30,7 +30,7 @@ use std::{
 ///    `sort_keys_len` [valid] `*const RLookupKey` pointers.
 /// 3. All [`RLookupKey`][ffi::RLookupKey] pointers must remain valid for the
 ///    lifetime of the returned reducer.
-/// 4. `srclookup` is either null (no wildcard) or a [valid] pointer to a
+/// 4. `srclookup` is either null (no load-all) or a [valid] pointer to a
 ///    [`RLookup`][ffi::RLookup] that remains alive for the lifetime of the
 ///    returned reducer.
 ///
@@ -66,7 +66,7 @@ pub unsafe extern "C" fn CollectReducer_CreateRemote(
 
     // SAFETY: ensured by caller (4.) — when non-null, `srclookup` outlives
     // the returned reducer. `from_opaque_ptr` maps null to `None`, so the
-    // pointer's nullness is the wildcard-mode signal. The cbindgen rename
+    // pointer's nullness is the load-all-mode signal. The cbindgen rename
     // `OpaqueRLookup → RLookup` makes `*const ffi::RLookup` and
     // `*const OpaqueRLookup` interchangeable at the layout level.
     let srclookup: Option<&RLookup> =
@@ -215,10 +215,10 @@ pub const unsafe extern "C" fn CollectReducer_GetFieldKeysLen(r: *const ffi::Red
 /// `r` must point to a valid [`RemoteCollectReducer`] originally created by
 /// `CollectReducer_CreateRemote`.
 #[unsafe(no_mangle)]
-pub const unsafe extern "C" fn CollectReducer_HasLoadAll(r: *const ffi::Reducer) -> bool {
+pub const unsafe extern "C" fn CollectReducer_IsLoadAll(r: *const ffi::Reducer) -> bool {
     // SAFETY: ensured by caller.
     let r = unsafe { r.cast::<RemoteCollectReducer>().as_ref().unwrap() };
-    r.has_wildcard()
+    r.is_load_all()
 }
 
 /// # Safety

@@ -252,15 +252,15 @@ fn local_collect_accepts_resp2_flat_array_payloads() {
     assert!(row.get(b"sweetness").is_none());
 }
 
-/// Fixture for wildcard (`FIELDS *`) tests. Owns a real [`RLookup`] so the
+/// Fixture for load-all (`FIELDS *`) tests. Owns a real [`RLookup`] so the
 /// reducer's live walk has something to iterate. Pre-registers three visible
 /// keys (`name`, `color`, `sweetness`) plus one [`RLookupKeyFlag::Hidden`]
 /// key (`__hidden`) so the "skip hidden" assertion has a target.
-struct RemoteCollectWildcardFixture {
+struct RemoteCollectLoadAllFixture {
     lookup: RLookup<'static>,
 }
 
-impl RemoteCollectWildcardFixture {
+impl RemoteCollectLoadAllFixture {
     fn new() -> Self {
         let mut lookup = RLookup::new();
         let _ = lookup
@@ -279,7 +279,7 @@ impl RemoteCollectWildcardFixture {
     }
 
     /// Build a reducer with `srclookup = Some(&self.lookup)` and no explicit
-    /// field/sort keys (matching the parser's "wildcard alone" assumption).
+    /// field/sort keys (matching the parser's "load-all alone" assumption).
     fn reducer(&self) -> RemoteCollectReducer<'_> {
         RemoteCollectReducer::new(
             Box::new([]),
@@ -293,8 +293,8 @@ impl RemoteCollectWildcardFixture {
 }
 
 #[test]
-fn remote_wildcard_emits_all_lookup_keys_present_on_row() {
-    let mut fixture = RemoteCollectWildcardFixture::new();
+fn remote_load_all_emits_all_lookup_keys_present_on_row() {
+    let mut fixture = RemoteCollectLoadAllFixture::new();
     let mut row = RLookupRow::new();
     row.write_key_by_name(&mut fixture.lookup, c"name", string_value("apple"));
     row.write_key_by_name(&mut fixture.lookup, c"color", string_value("red"));
@@ -325,15 +325,15 @@ fn remote_wildcard_emits_all_lookup_keys_present_on_row() {
 }
 
 #[test]
-fn remote_wildcard_omits_keys_missing_on_row() {
-    let mut fixture = RemoteCollectWildcardFixture::new();
+fn remote_load_all_omits_keys_missing_on_row() {
+    let mut fixture = RemoteCollectLoadAllFixture::new();
 
     let mut row_a = RLookupRow::new();
     row_a.write_key_by_name(&mut fixture.lookup, c"name", string_value("apple"));
     row_a.write_key_by_name(&mut fixture.lookup, c"color", string_value("red"));
     row_a.write_key_by_name(&mut fixture.lookup, c"sweetness", SharedValue::new_num(4.0));
 
-    // Row B is missing `color` entirely — the wildcard map must drop the
+    // Row B is missing `color` entirely — the load-all map must drop the
     // entry instead of padding with `null_static`.
     let mut row_b = RLookupRow::new();
     row_b.write_key_by_name(&mut fixture.lookup, c"name", string_value("lemon"));
@@ -352,13 +352,13 @@ fn remote_wildcard_omits_keys_missing_on_row() {
     assert_eq!(
         map_a.get(b"color").and_then(|v| v.as_str_bytes()),
         Some(b"red".as_slice()),
-        "row A had `color`; the wildcard map must include it"
+        "row A had `color`; the load-all map must include it"
     );
 
     let map_b = map_entries(&rows[1]);
     assert!(
         map_b.get(b"color").is_none(),
-        "row B was missing `color`; the wildcard map must omit the entry entirely (no null_static padding)"
+        "row B was missing `color`; the load-all map must omit the entry entirely (no null_static padding)"
     );
     assert_eq!(
         map_b.get(b"name").and_then(|v| v.as_str_bytes()),
@@ -368,8 +368,8 @@ fn remote_wildcard_omits_keys_missing_on_row() {
 }
 
 #[test]
-fn remote_wildcard_skips_hidden_keys_even_when_row_has_value() {
-    let mut fixture = RemoteCollectWildcardFixture::new();
+fn remote_load_all_skips_hidden_keys_even_when_row_has_value() {
+    let mut fixture = RemoteCollectLoadAllFixture::new();
     let mut row = RLookupRow::new();
     row.write_key_by_name(&mut fixture.lookup, c"name", string_value("apple"));
     // Populate the Hidden key on the row to prove the filter happens at the
@@ -391,6 +391,6 @@ fn remote_wildcard_skips_hidden_keys_even_when_row_has_value() {
     );
     assert!(
         map.get(b"__hidden").is_none(),
-        "Hidden keys must be excluded from the wildcard emission template"
+        "Hidden keys must be excluded from the load-all emission template"
     );
 }

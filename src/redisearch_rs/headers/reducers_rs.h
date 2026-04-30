@@ -100,7 +100,7 @@ void collectLocalFree(Reducer *r);
  *    `sort_keys_len` [valid] `*const RLookupKey` pointers.
  * 3. All [`RLookupKey`][ffi::RLookupKey] pointers must remain valid for the
  *    lifetime of the returned reducer.
- * 4. `srclookup` is either null (no wildcard) or a [valid] pointer to a
+ * 4. `srclookup` is either null (no load-all) or a [valid] pointer to a
  *    [`RLookup`][ffi::RLookup] that remains alive for the lifetime of the
  *    returned reducer.
  *
@@ -192,7 +192,7 @@ uintptr_t CollectReducer_GetFieldKeysLen(const Reducer *r);
  * `r` must point to a valid [`RemoteCollectReducer`] originally created by
  * `CollectReducer_CreateRemote`.
  */
-bool CollectReducer_HasLoadAll(const Reducer *r);
+bool CollectReducer_IsLoadAll(const Reducer *r);
 
 /**
  * # Safety

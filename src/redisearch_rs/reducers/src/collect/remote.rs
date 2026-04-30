@@ -38,14 +38,14 @@ pub struct RemoteCollectReducer<'a> {
     field_keys: Box<[&'a RLookupKey<'a>]>,
     /// [`Some`] when `FIELDS *` was specified at parse time.
     ///
-    /// In wildcard mode both [`RemoteCollectCtx::add`] and
+    /// In load-all mode both [`RemoteCollectCtx::add`] and
     /// [`RemoteCollectCtx::finalize`] walk this lookup *live* on every
     /// invocation, filtering tombstones and keys flagged
     /// [`RLookupKeyFlag::Hidden`]. The
     /// per-call walk is required because an upstream `LOAD *` may append
     /// keys mid-pipeline; caching the iteration result would silently lose
     /// them. This mirrors the per-row `RLOOKUP_FOREACH` pattern in
-    /// `aggregate_exec.c`'s wildcard reply path.
+    /// `aggregate_exec.c`'s load-all reply path.
     ///
     /// The borrow lives for the reducer's full lifetime; both the source
     /// [`RLookup`] and the reducer outlive every per-group
@@ -56,7 +56,7 @@ pub struct RemoteCollectReducer<'a> {
     /// `true` for shard replies dispatched by the coordinator: extra sort-key
     /// columns are emitted alongside the requested fields so the coordinator
     /// can re-order shard rows during merge. `false` for direct execution.
-    /// No-op in wildcard mode — the [`srclookup`][Self::srclookup] live walk
+    /// No-op in load-all mode — the [`srclookup`][Self::srclookup] live walk
     /// emits whatever is currently in the lookup regardless of this flag,
     /// since sort keys are always registered in the source lookup at parse
     /// time.
@@ -85,7 +85,7 @@ impl<'a> RemoteCollectReducer<'a> {
     /// Create a reducer from C-parsed configuration.
     ///
     /// `srclookup` is [`Some`] when the user wrote `FIELDS *`;
-    /// see [`Self::srclookup`] for the wildcard-mode policy. The borrow ties
+    /// see [`Self::srclookup`] for the load-all-mode policy. The borrow ties
     /// the reducer to the request's source lookup, whose stable address is
     /// guaranteed by the parser holding `options->srclookup` for the
     /// reducer's entire lifetime.
@@ -124,7 +124,7 @@ impl<'a> RemoteCollectReducer<'a> {
         self.field_keys.len()
     }
 
-    pub const fn has_wildcard(&self) -> bool {
+    pub const fn is_load_all(&self) -> bool {
         self.srclookup.is_some()
     }
 
@@ -199,7 +199,7 @@ impl<'a> RemoteCollectCtx<'a> {
             // references borrowed from itself, so the explicit-fields path's
             // pre-built template (with hoisted name allocations) cannot be
             // expressed without unsafe — and hoisting matters less here
-            // anyway, since the wildcard key set varies per row (a hoisted
+            // anyway, since the load-all key set varies per row (a hoisted
             // name might not even be emitted for some rows).
             SharedValue::new_array(rows.into_iter().map(|row| {
                 let mut entries: Vec<(SharedValue, SharedValue)> = Vec::new();

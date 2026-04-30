@@ -533,11 +533,11 @@ def test_collect_internal_duplicate_field_and_sort():
 
 
 @skip(cluster=True)
-def test_collect_internal_wildcard_emits_all_fields():
+def test_collect_internal_load_all_emits_all_fields():
     """`COLLECT FIELDS *` projects every non-hidden lookup key on each row.
 
     `LOAD` populates the source lookup with the schema fields before
-    `GROUPBY`; the reducer's wildcard walk then sees those keys live and
+    `GROUPBY`; the reducer's load-all walk then sees those keys live and
     emits them per row.
 
     Uses RESP2 because RESP3 maps are parsed into Python dicts that silently
@@ -572,17 +572,17 @@ def test_collect_internal_wildcard_emits_all_fields():
             row_keys = set(row[0::2])
             env.assertTrue(
                 always_present.issubset(row_keys),
-                message=f'wildcard row missing always-present schema fields: {row_keys}')
+                message=f'load-all row missing always-present schema fields: {row_keys}')
 
 
 @skip(cluster=True)
-def test_collect_internal_wildcard_omits_missing_fields():
+def test_collect_internal_load_all_omits_missing_fields():
     """When a row has no value for a key, `FIELDS *` drops it from the map.
 
     `lemon` and `kiwi` in the FRUITS fixture have no `origin` field; their
     rows must NOT contain an `origin` entry on the wire. Other fruits with
     `origin` set must still emit it. The `LOAD` step pulls every schema
-    field (including `origin`) into the lookup so the wildcard walk has a
+    field (including `origin`) into the lookup so the load-all walk has a
     chance to project it — the omit-if-missing rule is what makes the
     fruits with no `origin` value drop it.
     """
