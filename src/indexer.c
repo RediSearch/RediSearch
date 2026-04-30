@@ -455,13 +455,15 @@ static void Indexer_Process(RSAddDocumentCtx *aCtx) {
   // Index the document in the `existing docs` inverted index
   writeExistingDocs(aCtx, &ctx);
 
-  // On the non-disk path, `doc->fieldExpirations` ownership is moved
+  // On the non-disk path, `doc->fieldExpirations` ownership has already been
+  // moved into the TTL table by `doAssignIds` on success. On failure (e.g.
+  // `makeDocumentId` returned NULL), the array stays attached to `doc` so
+  // `Document_Free` can release it.
   arrayof(FieldExpiration) fes;
   if (SearchDisk_IsEnabled()) {
     fes = doc->fieldExpirations;
   } else {
     fes = (arrayof(FieldExpiration))DocTable_GetFieldExpirations(&ctx.spec->docs, doc->docId);
-    doc->fieldExpirations = NULL;
   }
   writeMissingFieldDocs(aCtx, &ctx, fes);
 

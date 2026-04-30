@@ -461,6 +461,8 @@ void Document_Clear(Document *d) {
 
 void Document_Free(Document *doc) {
   Document_Clear(doc);
+  array_free(doc->fieldExpirations);
+  doc->fieldExpirations = NULL;
   if (doc->flags & (DOCUMENT_F_OWNREFS | DOCUMENT_F_OWNSTRINGS)) {
     RedisModule_FreeString(RSDummyContext, doc->docKey);
   }
