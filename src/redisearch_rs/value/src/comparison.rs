@@ -190,33 +190,33 @@ fn string_keyed<'a>(
     pairs: impl Iterator<Item = (&'a Value, &'a Value)>,
 ) -> Vec<(&'a [u8], &'a Value)> {
     pairs
-        .filter_map(|(key, value)| Some((key.as_str_bytes()?, value)))
+        .filter_map(|(key, value)| {
+            let bytes = key.as_str_bytes();
+            debug_assert_warn!(bytes.is_some(), "non-string key in map comparison; pair skipped");
+            Some((bytes?, value))
+        })
         .collect()
 }
 
 fn entries_equal(entries1: &[(&[u8], &Value)], entries2: &[(&[u8], &Value)]) -> bool {
-    entries1.len() == entries2.len()
-        && entries1
-            .iter()
-            .zip(entries2)
-            .all(|((k1, v1), (k2, v2))| k1 == k2 && compare_on_equality_only(v1, v2))
+    debug_assert_eq!(entries1.len(), entries2.len());
+    entries1
+        .iter()
+        .zip(entries2)
+        .all(|((k1, v1), (k2, v2))| k1 == k2 && compare_on_equality_only(v1, v2))
 }
 
-fn prepare_array(array: &Array) -> Vec<(&[u8], &Value)> {
+fn collect_array(array: &Array) -> Vec<(&[u8], &Value)> {
     let (pairs, remainder) = array.as_chunks::<2>();
     debug_assert_warn!(
         remainder.is_empty(),
         "arrays_equal_as_maps called on an odd-length array;"
     );
-    let mut entries = string_keyed(pairs.iter().map(|[key, value]| (&**key, &**value)));
-    entries.sort_unstable_by(|(left_key, _), (right_key, _)| left_key.cmp(right_key));
-    entries
+    string_keyed(pairs.iter().map(|[key, value]| (&**key, &**value)))
 }
 
-fn prepare_map(map: &Map) -> Vec<(&[u8], &Value)> {
-    let mut entries = string_keyed(map.iter().map(|(key, value)| (&**key, &**value)));
-    entries.sort_unstable_by(|(left_key, _), (right_key, _)| left_key.cmp(right_key));
-    entries
+fn collect_map(map: &Map) -> Vec<(&[u8], &Value)> {
+    string_keyed(map.iter().map(|(key, value)| (&**key, &**value)))
 }
 
 /// Check whether two flat key-value arrays are equal when interpreted as maps.
@@ -231,7 +231,14 @@ fn prepare_map(map: &Map) -> Vec<(&[u8], &Value)> {
 /// Asserts in debug builds and warns in release builds if either array has an
 /// odd number of elements.
 pub fn arrays_equal_as_maps(a1: &Array, a2: &Array) -> bool {
-    entries_equal(&prepare_array(a1), &prepare_array(a2))
+    let mut e1 = collect_array(a1);
+    let mut e2 = collect_array(a2);
+    if e1.len() != e2.len() {
+        return false;
+    }
+    e1.sort_unstable_by_key(|k| k.0);
+    e2.sort_unstable_by_key(|k| k.0);
+    entries_equal(&e1, &e2)
 }
 
 /// Check whether two maps are equal by their string keys and corresponding values.
@@ -239,7 +246,14 @@ pub fn arrays_equal_as_maps(a1: &Array, a2: &Array) -> bool {
 /// This is an explicit map equality helper. It does not change the default
 /// [`compare`] behavior for [`Value::Map`], which remains unsupported.
 pub fn maps_equal(m1: &Map, m2: &Map) -> bool {
-    entries_equal(&prepare_map(m1), &prepare_map(m2))
+    let mut e1 = collect_map(m1);
+    let mut e2 = collect_map(m2);
+    if e1.len() != e2.len() {
+        return false;
+    }
+    e1.sort_unstable_by_key(|k| k.0);
+    e2.sort_unstable_by_key(|k| k.0);
+    entries_equal(&e1, &e2)
 }
 
 /// Compare a number to a byte-string.

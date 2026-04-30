@@ -273,6 +273,22 @@ fn array_as_map_ignores_odd_trailing_entry() {
 }
 
 #[test]
+#[cfg(debug_assertions)]
+#[should_panic(expected = "non-string key in map comparison")]
+fn array_as_map_non_string_key_trips_debug_assertion() {
+    let a1 = raw_array([
+        Value::Number(100.0),
+        Value::Number(999.0),
+        string("a"),
+        Value::Number(1.0),
+    ]);
+    let a2 = raw_array([string("a"), Value::Number(1.0)]);
+
+    let _ = arrays_equal_as_maps(&a1, &a2);
+}
+
+#[test]
+#[cfg(not(debug_assertions))]
 fn array_as_map_skips_non_string_keys() {
     let a1 = raw_array([
         Value::Number(100.0),
@@ -286,12 +302,120 @@ fn array_as_map_skips_non_string_keys() {
 }
 
 #[test]
+fn array_as_map_not_equal_different_values() {
+    let a1 = raw_array([string("a"), Value::Number(1.0)]);
+    let a2 = raw_array([string("a"), Value::Number(2.0)]);
+
+    assert!(!arrays_equal_as_maps(&a1, &a2));
+}
+
+#[test]
+fn array_as_map_not_equal_extra_key() {
+    let a1 = raw_array([
+        string("a"),
+        Value::Number(1.0),
+        string("b"),
+        Value::Number(2.0),
+    ]);
+    let a2 = raw_array([string("a"), Value::Number(1.0)]);
+
+    assert!(!arrays_equal_as_maps(&a1, &a2));
+}
+
+#[test]
+fn explicit_map_not_equal_different_values() {
+    let m1 = map([(string("a"), Value::Number(1.0))]);
+    let m2 = map([(string("a"), Value::Number(2.0))]);
+
+    assert!(!maps_equal(&m1, &m2));
+}
+
+#[test]
+fn explicit_map_not_equal_extra_key() {
+    let m1 = map([
+        (string("a"), Value::Number(1.0)),
+        (string("b"), Value::Number(2.0)),
+    ]);
+    let m2 = map([(string("a"), Value::Number(1.0))]);
+
+    assert!(!maps_equal(&m1, &m2));
+}
+
+#[test]
+#[cfg(debug_assertions)]
+#[should_panic(expected = "non-string key in map comparison")]
+fn explicit_map_non_string_key_trips_debug_assertion() {
+    let m1 = map([
+        (Value::Number(100.0), Value::Number(999.0)),
+        (string("a"), Value::Number(1.0)),
+    ]);
+    let m2 = map([(string("a"), Value::Number(1.0))]);
+
+    let _ = maps_equal(&m1, &m2);
+}
+
+#[test]
+#[cfg(not(debug_assertions))]
 fn explicit_map_skips_non_string_keys() {
     let m1 = map([
         (Value::Number(100.0), Value::Number(999.0)),
         (string("a"), Value::Number(1.0)),
     ]);
     let m2 = map([(string("a"), Value::Number(1.0))]);
+
+    assert!(maps_equal(&m1, &m2));
+}
+
+#[test]
+fn array_as_map_both_empty() {
+    let a1 = raw_array([]);
+    let a2 = raw_array([]);
+
+    assert!(arrays_equal_as_maps(&a1, &a2));
+}
+
+#[test]
+fn explicit_map_both_empty() {
+    let m1 = map([]);
+    let m2 = map([]);
+
+    assert!(maps_equal(&m1, &m2));
+}
+
+#[test]
+#[cfg(debug_assertions)]
+#[should_panic(expected = "non-string key in map comparison")]
+fn array_as_map_all_non_string_keys_trips_debug_assertion() {
+    let a1 = raw_array([Value::Number(100.0), Value::Number(999.0)]);
+    let a2 = raw_array([]);
+
+    let _ = arrays_equal_as_maps(&a1, &a2);
+}
+
+#[test]
+#[cfg(not(debug_assertions))]
+fn array_as_map_all_non_string_keys_equal_to_empty() {
+    let a1 = raw_array([Value::Number(100.0), Value::Number(999.0)]);
+    let a2 = raw_array([]);
+
+    assert!(arrays_equal_as_maps(&a1, &a2));
+}
+
+#[test]
+#[cfg(debug_assertions)]
+#[should_panic(expected = "non-string key in map comparison")]
+fn explicit_map_all_non_string_keys_trips_debug_assertion() {
+    let m1 = map([(Value::Number(100.0), Value::Number(999.0))]);
+    let m2 = map([]);
+
+    let _ = maps_equal(&m1, &m2);
+}
+
+#[test]
+#[cfg(not(debug_assertions))]
+fn explicit_map_all_non_string_keys_equal_to_empty() {
+    let m1 = map([(Value::Number(100.0), Value::Number(999.0))]);
+    let m2 = map([]);
 
     assert!(maps_equal(&m1, &m2));
 }
