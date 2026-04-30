@@ -752,6 +752,143 @@ def test_collect_internal_load_all_omits_missing_fields():
 
 
 # ---------------------------------------------------------------------------
+# `COLLECT FIELDS *` on JSON indexes
+#
+# JSON's `LOAD *` does not fan out into per-field rlookup keys (as `HGETALL`
+# does for HASH). Instead `RLookup_JSON_GetAll` adds a single key named
+# ``$`` (`JSON_ROOT`) carrying the whole serialized document. The wildcard
+# walk picks this up unchanged: each emitted row is a singleton map keyed
+# on ``$``. The "rlookup drives projection" rule holds without any
+# JSON-specific code path on the COLLECT side.
+#
+# The two tests below pin the rule by varying whether `LOAD *` runs:
+#   1. With LOAD *  -> rlookup contains `$`; wildcard emits {$: <doc>}.
+#   2. Without LOAD -> rlookup contains only what the GROUPBY key
+#                      registered (`color`); wildcard emits {color: ...}
+#                      and `$` is absent.
+# ---------------------------------------------------------------------------
+@skip(cluster=True, no_json=True)
+def test_collect_internal_load_all_emits_dollar_on_json():
+    """`LOAD *` on JSON adds a single ``$`` key to the rlookup carrying
+    the whole serialized doc; `COLLECT FIELDS *` emits it alongside
+    whatever else the request stages registered (here: ``color`` from
+    the GROUPBY).
+
+    This is the JSON counterpart of
+    ``test_collect_internal_load_all_with_load_star_emits_full_schema``:
+    both lock in that the rlookup at row time is what drives the
+    wildcard's projection. The HASH side fans out into many keys, the
+    JSON side keeps a single ``$`` carrying the serialized doc — and
+    that asymmetry is intentional, mirroring the runtime behaviour of
+    `LOAD *` itself (HGETALL fans out fields, JSON_GetAll does not).
+    """
+    env = Env(protocol=2)
+    _setup_json(env)
+
+    _, slots_data = get_shard_slot_ranges(env)[0]
+    env.cmd('DEBUG', 'MARK-INTERNAL-CLIENT')
+
+    internal = env.cmd(
+        '_FT.AGGREGATE', 'idx', '*',
+        'LOAD', '*',
+        'GROUPBY', '1', '@color',
+        'REDUCE', 'COLLECT', '3',
+            'FIELDS', '1', '*',
+        'AS', 'info',
+        '_SLOTS_INFO', slots_data,
+    )
+
+    fixture_by_name = {f['name']: f for f in FRUITS}
+    seen_names = set()
+    for group_row in internal[1:]:
+        info_idx = group_row.index('info') + 1
+        rows = group_row[info_idx]
+        for row in rows:
+            row_dict = dict(zip(row[0::2], row[1::2]))
+            env.assertEqual(
+                set(row_dict.keys()), {'color', '$'},
+                message=f'LOAD * + FIELDS * on JSON must emit exactly the lookup keys ({{color, $}}), got {set(row_dict.keys())}')
+
+            doc_str = row_dict['$']
+            doc = json.loads(doc_str)
+            env.assertIn(
+                doc.get('name'), fixture_by_name,
+                message=f'`$` value must be a serialized fixture doc, got {doc_str!r}')
+            seen_names.add(doc['name'])
+            # The `$` doc must be self-consistent with the GROUPBY key
+            # that the same row also carries.
+            env.assertEqual(
+                doc['color'], row_dict['color'],
+                message=f"row's `color` and `$.color` must agree, got color={row_dict['color']!r}, $.color={doc['color']!r}")
+            # And it must match the original fixture exactly (both for
+            # set fields and for absent-`origin` rows).
+            env.assertEqual(
+                doc, fixture_by_name[doc['name']],
+                message=f"`$` value for {doc['name']!r} must round-trip the fixture exactly, got {doc!r}")
+
+    env.assertEqual(
+        seen_names, set(fixture_by_name),
+        message=f'every fruit must appear in some collected group, saw {seen_names}')
+
+
+@skip(cluster=True, no_json=True)
+def test_collect_internal_no_load_emits_only_groupby_key_on_json():
+    """Without `LOAD *`, only fields the request itself registered in the
+    source rlookup are emitted by `COLLECT FIELDS *`.
+
+    With ``GROUPBY 1 @color REDUCE COLLECT FIELDS 1 *`` and no upstream
+    `LOAD`, the only key registered in the source rlookup is ``color``
+    (resolved by the GROUPBY against the schema cache). ``color`` is
+    sortable, so its value is supplied via the per-row sorting vector
+    even without an explicit loader. ``$`` is absent because no
+    `LOAD *` ever ran; ``name``/``sweetness``/``origin`` are absent
+    because nothing in the request resolved them.
+
+    This documents that the wildcard is rlookup-driven, not
+    schema-driven — calling `COLLECT FIELDS *` on JSON without an
+    explicit `LOAD` is a footgun that emits less than users may expect.
+    """
+    env = Env(protocol=2)
+    _setup_json(env)
+
+    _, slots_data = get_shard_slot_ranges(env)[0]
+    env.cmd('DEBUG', 'MARK-INTERNAL-CLIENT')
+
+    internal = env.cmd(
+        '_FT.AGGREGATE', 'idx', '*',
+        'GROUPBY', '1', '@color',
+        'REDUCE', 'COLLECT', '3',
+            'FIELDS', '1', '*',
+        'AS', 'info',
+        '_SLOTS_INFO', slots_data,
+    )
+
+    expected_colors = {f['color'] for f in FRUITS}
+    seen_colors = set()
+    seen_doc_count = 0
+    for group_row in internal[1:]:
+        info_idx = group_row.index('info') + 1
+        rows = group_row[info_idx]
+        for row in rows:
+            seen_doc_count += 1
+            row_keys = row[0::2]
+            env.assertEqual(
+                row_keys, ['color'],
+                message=f'no-LOAD wildcard row must contain exactly [\'color\', <val>], got keys {row_keys}')
+            env.assertEqual(
+                len(row), 2,
+                message=f'no-LOAD wildcard row must contain exactly one (key, value) pair, got {row}')
+            seen_colors.add(row[1])
+
+    env.assertEqual(
+        seen_colors, expected_colors,
+        message=f'every fixture color must appear, expected {expected_colors}, got {seen_colors}')
+    env.assertEqual(
+        seen_doc_count, len(FRUITS),
+        message=f'every fruit must appear in some collected group, saw {seen_doc_count}/{len(FRUITS)}')
+
+
+# ---------------------------------------------------------------------------
 # Chained GROUPBY: outer COLLECT FIELDS * projects every key the inner
 # reducers placed in the lookup
 # ---------------------------------------------------------------------------
