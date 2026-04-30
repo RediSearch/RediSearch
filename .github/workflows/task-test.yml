@@ -79,7 +79,7 @@ jobs:
           echo "supported=true" >> $GITHUB_OUTPUT
       - name: Full checkout (node20)
         if: steps.node20.outputs.supported == 'true'
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           submodules: recursive
       - name: Full checkout (node20 not supported)
@@ -279,7 +279,7 @@ jobs:
 
       - name: Upload flow coverage
         if: inputs.coverage
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v6 # NOSONAR
         with:
           files: bin/flow_standalone.info,bin/flow_coordinator.info
           disable_search: true
@@ -288,7 +288,7 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
       - name: Upload unit coverage
         if: inputs.coverage
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v6 # NOSONAR
         with:
           files: bin/unit_standalone.info,bin/unit_coordinator.info
           disable_search: true
