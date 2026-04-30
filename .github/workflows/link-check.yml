@@ -22,17 +22,17 @@ jobs:
       github.event_name == 'workflow_dispatch' ||
       github.event.action != 'labeled' ||
       contains(github.event.label.name, 'check-links')
-    
+
     steps:
     - name: Checkout repository
-      uses: actions/checkout@v4
-      
+      uses: actions/checkout@v6
+
     - name: Set up Python
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v6
       with:
         python-version: '3.11'
         cache: 'pip'
-        
+
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip uv
@@ -44,7 +44,7 @@ jobs:
           --timeout 15 \
           --max-workers 5 \
           --delay 0.2
-      
+
     - name: Upload results on failure
       if: failure()
       uses: actions/upload-artifact@v4
@@ -53,10 +53,10 @@ jobs:
         path: |
           link-check-*.log
         retention-days: 7
-        
+
     - name: Comment on PR
       if: failure()
-      uses: actions/github-script@v6
+      uses: actions/github-script@v8
       with:
         script: |
           github.rest.issues.createComment({

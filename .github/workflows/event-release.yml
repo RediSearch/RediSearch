@@ -34,7 +34,7 @@ jobs:
       expected_sha: ${{ steps.get_sha.outputs.sha }}
       release_branch: ${{ steps.verify.outputs.release_branch }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           ref: ${{ env.checkout_target }}
           fetch-depth: 0
@@ -107,7 +107,7 @@ jobs:
       RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
       GITHUB_REPOSITORY: ${{ github.repository }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           ref: ${{ needs.validate-tag.outputs.release_branch }}
       - name: Update version for next patch
@@ -257,7 +257,7 @@ jobs:
           with ThreadPoolExecutor() as executor:
               sha_list = executor.map(extract_sha, files)
           sha_list = list(sha_list)
-          
+
           # Include only files that match the expected SHA
           exclude_list = [(f, sha) for f, sha in zip(files, sha_list) if sha != expected_sha]
           include_list = [f for f in files if f not in [x for x, _ in exclude_list]]
@@ -287,7 +287,7 @@ jobs:
           group_print("Excluded Files", exclude_list)
           group_print("Included Files", include_list)
           group_print("Unexpected SHAs", set([sha for _, sha in exclude_list]))
-          
+
           # Copy included files to new location
           for src, dst in zip(include_list, dest_files):
               client.copy_object(Bucket=bucket, Key=dst, CopySource={"Bucket": bucket, "Key": src}, ACL="public-read")
