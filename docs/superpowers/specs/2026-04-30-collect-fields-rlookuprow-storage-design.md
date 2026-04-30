@@ -101,21 +101,20 @@ pub fn add(&mut self, r: &RemoteCollectReducer<'a>, src_row: &RLookupRow<'_>) {
             dst.write_key(key, v.clone());
         }
     }
-    if r.include_sort_keys {
-        for key in r.sort_keys.iter() {
-            if let Some(v) = src_row.get(key) {
-                dst.write_key(key, v.clone());
-            }
+    // Always copy sort-key values into `dst` (independent of `include_sort_keys`):
+    // a planned follow-up caches sort values for SORTBY/heap re-use.
+    for key in r.sort_keys.iter() {
+        if let Some(v) = src_row.get(key) {
+            dst.write_key(key, v.clone());
         }
     }
     self.rows.push(dst);
 }
 ```
 
-Two notable storage changes vs. today:
+One notable storage change vs. today: **missing values become `None` slots in `dyn_values` instead of explicit `SharedValue::null_static()` entries in the projected vec.** The `null_static` translation happens at emission time. Output to the C side is identical.
 
-- **Sort values are not stored when `include_sort_keys` is false.** Today's code stores them unconditionally and emits only when the flag is true. The new code skips both storage and emission. **Output is identical**; this is a small memory saving.
-- **Missing values become `None` slots in `dyn_values` instead of explicit `SharedValue::null_static()` entries in the projected vec.** The `null_static` translation happens at emission time. Output to the C side is identical.
+Sort-key storage is unconditional, mirroring today's `sort_values.push(sv)` (which today always runs regardless of `include_sort_keys`). The `include_sort_keys` flag remains an *emission* gate only — it controls whether sort keys appear in `finalize`'s output, not whether they're stored.
 
 ### `finalize()` semantics
 
@@ -171,24 +170,23 @@ This is the same chain depth as today's `Vec<Vec<SharedValue>>` and the same num
 
 ### Memory characteristics
 
-Per-row storage today vs. after this PR. Let `K = field_keys.len()`, `S = sort_keys.len()`, `N = max(dstidx among written keys) + 1`.
+Per-row storage today vs. after this PR. Let `K = field_keys.len()`, `S = sort_keys.len()`, `N = max(dstidx among written keys) + 1`. Sort-key values are always stored (matches today's behavior), so `N` covers both `field_keys` and `sort_keys`.
 
-**Today** — two `Vec<SharedValue>` per row:
+**Today** — two `Vec<SharedValue>` per row, both stored inline in the outer `Vec`'s heap:
 
-- `field_values[i]: Vec<SharedValue>` — 24 byte header (cap, len, ptr) + `8 * K` bytes on heap.
-- `sort_values[i]: Vec<SharedValue>` — 24 byte header + `8 * S` bytes on heap (`S = 0` and the inner vec is empty when there's no SORTBY, but the empty vec's 24-byte header is still pushed per row).
+- 24 byte `Vec<SharedValue>` slot for `field_values[i]` + `8 * K` byte data heap.
+- 24 byte `Vec<SharedValue>` slot for `sort_values[i]` + `8 * S` byte data heap (when `S = 0` the data heap is the static `dangling()` sentinel — zero alloc — but the 24-byte slot is still occupied per row).
 
-Total per row ≈ `48 + 8 * (K + S)` bytes.
+Total per row ≈ `48 + 8 * (K + S)` bytes (struct slots + data heap).
 
-**After** — one `RLookupRow<'a>` per row:
+**After** — one `RLookupRow<'a>` per row, stored inline in the outer `Vec`'s heap:
 
-- `RLookupRow` struct itself ≈ 32 bytes (16 byte sorting-vector view + 8 byte `ThinVec` header + 4 byte counter + padding).
-- `dyn_values` heap allocation: 8 bytes per `Option<SharedValue>` slot × `N` slots (`Option<Arc<T>>` is niche-optimized to pointer-sized).
-- Plus, when `include_sort_keys=true`, sort-key writes share the same `dyn_values` (deduped by `dstidx`); when false, they are not stored at all.
+- 24 byte `RLookupRow` slot (8 byte `RSSortingVectorRef` = single `ThinVec` ptr to the empty-header singleton, 8 byte `dyn_values` `ThinVec` ptr, 4 byte `num_dyn_values` + 4 byte tail padding).
+- 16 byte `dyn_values` heap header (u64 cap + u64 len) + `8 * N` byte data area (`Option<SharedValue>` is niche-optimized to pointer-sized via `Arc`'s null niche).
 
-Total per row ≈ `32 + 8 * N` bytes.
+Total per row ≈ `40 + 8 * N` bytes. Sort-key writes always share the same `dyn_values`, deduped by `dstidx` — independent of `include_sort_keys`. This matches today's unconditional `sort_values.push`. The flag gates emission, not storage.
 
-The new shape is **smaller** when `K + S ≥ N - 2` (roughly: when the projected keys are dstidx-dense). It is larger only when projected keys sit at sparse high dstidx values in a wide source lookup — i.e. `N >> K`. The worst-case overhead is bounded by the source RLookup's width, the same upper bound that any other `RLookupRow` storage in the codebase pays. Acceptable for the layout uniformity it buys downstream.
+The new shape is **smaller** when `K + S ≥ N - 1` (roughly: whenever the projected keys are dstidx-dense in the source lookup). It is larger only when projected keys sit at sparse high dstidx values in a wide source lookup — i.e. `N >> K + S`. The worst-case overhead is bounded by the source RLookup's width, the same upper bound that any other `RLookupRow` storage in the codebase pays. Acceptable for the layout uniformity it buys downstream.
 
 ## Testing
 
