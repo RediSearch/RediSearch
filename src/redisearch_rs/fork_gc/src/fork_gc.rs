@@ -37,7 +37,7 @@ impl ForkGC {
 
     /// Return a writable handle to the GC pipe.
     ///
-    /// The returned [`Writer`] wraps an internal `FdWriter` that
+    /// The returned [`Writer`] wraps an internal `ForkGCPipeWriter` that
     /// holds a `PhantomData<&'a mut ForkGC>`, so it statically borrows
     /// `self` — preventing two concurrent writers and ensuring the
     /// writer cannot outlive the `ForkGC` it came from. The concrete
@@ -64,8 +64,7 @@ impl ForkGC {
 
         Writer::from_writer(ForkGCPipeWriter {
             // SAFETY: `pipe_write_fd` is an open writable fd maintained by
-            // the C side's Fork GC state machine; `ManuallyDrop` prevents
-            // `File::drop` from closing it.
+            // the C side's Fork GC state machine.
             pipe_writer: ManuallyDrop::new(unsafe {
                 io::PipeWriter::from_raw_fd(self.0.pipe_write_fd)
             }),
