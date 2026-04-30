@@ -328,7 +328,7 @@ The following operating systems are supported and tested in CI on both `x86_64` 
 * Ubuntu 20.04 (Focal)
 * Ubuntu 22.04 (Jammy)
 * Ubuntu 24.04 (Noble)
-* Ubuntu 25.10 (Resolute)
+* Ubuntu 26.04 (Resolute)
 * Debian 12 (Bookworm)
 * Debian 13 (Trixie)
 * Rocky Linux 8
