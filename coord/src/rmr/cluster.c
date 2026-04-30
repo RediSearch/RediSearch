@@ -192,6 +192,7 @@ int MRCluster_CheckConnections(MRCluster *cl, bool mastersOnly) {
  * number of sent commands */
 int MRCluster_FanoutCommand(MRCluster *cl, bool mastersOnly, MRCommand *cmd,
                             redisCallbackFn *fn, void *privdata) {
+  const char *cmdName = (cmd && cmd->num > 0 && cmd->strs[0]) ? cmd->strs[0] : "?";
   int ret = 0;
   for (size_t i = 0; i < cl->topo->numShards; i++) {
     MRClusterShard *sh = &cl->topo->shards[i];
@@ -199,11 +200,25 @@ int MRCluster_FanoutCommand(MRCluster *cl, bool mastersOnly, MRCommand *cmd,
       if (mastersOnly && !(sh->nodes[j].flags & MRNode_Master)) {
         continue;
       }
-      MRConn *conn = MRConn_Get(&cl->mgr, sh->nodes[j].id);
+      MRClusterNode *node = &sh->nodes[j];
+      MRConn *conn = MRConn_Get(&cl->mgr, node->id);
       if (conn) {
-        if (MRConn_SendCommand(conn, cmd, fn, privdata) != REDIS_ERR) {
+        int rc = MRConn_SendCommand(conn, cmd, fn, privdata);
+        RedisModule_Log(RSDummyContext, "notice",
+                        "[trace] uv send cmd=%s privdata=%p shard=%zu node=%s endpoint=%s:%d rc=%s",
+                        cmdName, privdata, i, node->id,
+                        node->endpoint.host ? node->endpoint.host : "?",
+                        node->endpoint.port,
+                        (rc != REDIS_ERR) ? "OK" : "ERR");
+        if (rc != REDIS_ERR) {
           ret++;
         }
+      } else {
+        RedisModule_Log(RSDummyContext, "notice",
+                        "[trace] uv send cmd=%s privdata=%p shard=%zu node=%s endpoint=%s:%d rc=NO_CONN",
+                        cmdName, privdata, i, node->id,
+                        node->endpoint.host ? node->endpoint.host : "?",
+                        node->endpoint.port);
       }
     }
   }

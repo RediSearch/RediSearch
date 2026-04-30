@@ -1731,6 +1731,11 @@ int TagValsCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
 }
 
 int InfoCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  size_t idxlen = 0;
+  const char *idxname = (argc >= 2) ? RedisModule_StringPtrLen(argv[1], &idxlen) : "";
+  RedisModule_Log(ctx, "notice",
+                  "[trace] FT.INFO received (main thread, no worker step) index=%.*s",
+                  (int)idxlen, idxname);
   if (argc != 2) {
     // FT.INFO {index}
     return RedisModule_WrongArity(ctx);
@@ -1749,6 +1754,9 @@ int InfoCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
   MRCommand_SetPrefix(&cmd, "_FT");
 
   struct MRCtx *mctx = MR_CreateCtx(ctx, 0, NULL, NumShards);
+  RedisModule_Log(ctx, "notice",
+                  "[trace] FT.INFO enqueueing fanout to uv (mrctx=%p) index=%.*s",
+                  (void *)mctx, (int)idxlen, idxname);
   MR_Fanout(mctx, InfoReplyReducer, cmd, true);
   return REDISMODULE_OK;
 }
@@ -1905,6 +1913,9 @@ typedef struct SearchCmdCtx {
 
 static void DistSearchCommandHandler(void* pd) {
   SearchCmdCtx* sCmdCtx = pd;
+  RedisModule_Log(RSDummyContext, "notice",
+    "[trace] FT.SEARCH worker started (DIST_AGG_THREADPOOL) bc=%p argc=%d",
+    (void *)sCmdCtx->bc, sCmdCtx->argc);
   FlatSearchCommandHandler(sCmdCtx->bc, sCmdCtx->protocol, sCmdCtx->argv, sCmdCtx->argc);
   for (size_t i = 0 ; i < sCmdCtx->argc ; ++i) {
     RedisModule_FreeString(NULL, sCmdCtx->argv[i]);
@@ -1935,6 +1946,11 @@ int DistSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 }
 
 int DistSearchCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, bool isDebug) {
+  size_t idxlen = 0;
+  const char *idxname = (argc >= 2) ? RedisModule_StringPtrLen(argv[1], &idxlen) : "";
+  RedisModule_Log(ctx, "notice",
+                  "[trace] FT.SEARCH received (main thread) index=%.*s argc=%d isDebug=%d",
+                  (int)idxlen, idxname, argc, isDebug);
   if (NumShards == 0) {
     return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
   }
@@ -1963,6 +1979,9 @@ int DistSearchCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   sCmdCtx->bc = bc;
   sCmdCtx->protocol = is_resp3(ctx) ? 3 : 2;
   RedisModule_BlockedClientMeasureTimeStart(bc);
+  RedisModule_Log(ctx, "notice",
+                  "[trace] FT.SEARCH enqueueing to DIST_AGG_THREADPOOL worker index=%.*s",
+                  (int)idxlen, idxname);
   ConcurrentSearch_ThreadPoolRun(dist_callback, sCmdCtx, DIST_AGG_THREADPOOL);
 
   return REDISMODULE_OK;

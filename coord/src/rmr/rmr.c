@@ -185,13 +185,14 @@ static void fanoutCallback(redisAsyncContext *c, void *r, void *privdata) {
 
 // `*50` for following the previous behavior
 // #define MAX_CONCURRENT_REQUESTS (MR_CONN_POOL_SIZE * 50)
-#define PENDING_FACTOR 50
+// MOD-14734 repro: lowered from 50 to 2 to make rq_g saturation trivially reachable.
+#define PENDING_FACTOR 2
 /* Initialize the MapReduce engine with a node provider */
 void MR_Init(MRCluster *cl, long long timeoutMS) {
 
   cluster_g = cl;
   timeout_g = timeoutMS;
-  rq_g = RQ_New(cl->mgr.nodeConns * PENDING_FACTOR);
+  rq_g = RQ_New(PENDING_FACTOR);
 }
 
 int MR_CheckTopologyConnections(bool mastersOnly) {
@@ -206,8 +207,17 @@ bool MR_CurrentTopologyExists() {
 static void uvFanoutRequest(void *p) {
   MRCtx *mrctx = p;
 
+  const char *cmdName = (mrctx->cmd.num > 0 && mrctx->cmd.strs[0]) ? mrctx->cmd.strs[0] : "?";
+  RedisModule_Log(RSDummyContext, "notice",
+                  "[trace] uv fanout begin cmd=%s mrctx=%p mastersOnly=%d",
+                  cmdName, (void *)mrctx, mrctx->mastersOnly);
+
   mrctx->numExpected =
       MRCluster_FanoutCommand(cluster_g, mrctx->mastersOnly, &mrctx->cmd, fanoutCallback, mrctx);
+
+  RedisModule_Log(RSDummyContext, "notice",
+                  "[trace] uv fanout sent  cmd=%s mrctx=%p numExpected=%d",
+                  cmdName, (void *)mrctx, mrctx->numExpected);
 
   if (mrctx->numExpected == 0) {
     RedisModuleBlockedClient *bc = mrctx->bc;
@@ -275,7 +285,7 @@ void MR_UpdateTopology(MRClusterTopology *newTopo) {
 static void uvUpdateConnPerShard(void *p) {
   size_t connPerShard = (uintptr_t)p;
   MRCluster_UpdateConnPerShard(cluster_g, connPerShard);
-  RQ_UpdateMaxPending(rq_g, connPerShard * PENDING_FACTOR);
+  RQ_UpdateMaxPending(rq_g, PENDING_FACTOR);
   MR_requestCompleted();
 }
 

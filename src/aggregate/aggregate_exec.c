@@ -22,6 +22,7 @@
 #include "aggregate_debug.h"
 #include "rs_wall_clock.h"
 #include "module.h"
+#include <unistd.h> // MOD-14734 repro: sleep()
 
 typedef enum { COMMAND_AGGREGATE, COMMAND_SEARCH, COMMAND_EXPLAIN } CommandType;
 
@@ -875,6 +876,12 @@ void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
   AREQ *req = blockedClientReqCtx_getRequest(BCRctx);
   RedisModuleCtx *outctx = RedisModule_GetThreadSafeContext(BCRctx->blockedClient);
   QueryError status = {0}, detailed_status = {0};
+
+  // MOD-14734 repro: stall only shard-side _FT.SEARCH on the worker thread,
+  // leaving the Redis main thread (and cluster bus) free.
+  //if (IsInternal(req)) {
+  //  sleep(5);
+  //}
 
   StrongRef execution_ref = WeakRef_Promote(BCRctx->spec_ref);
   if (!StrongRef_Get(execution_ref)) {
