@@ -94,20 +94,22 @@ protected:
     return r;
   }
 
-  void parseOk(std::vector<const char *> args,
-               std::function<void(Reducer *)> check = {}) {
+  void parseOkRemote(std::vector<const char *> args,
+                     std::function<void(Reducer *)> check = {}) {
     QueryError status = QueryError_Default();
-    Reducer *remote = parseCollect(args, &status);
-    ASSERT_NE(remote, nullptr) << QueryError_GetUserError(&status);
-    if (check) check(remote);
-    remote->Free(remote);
+    Reducer *r = parseCollect(args, &status);
+    ASSERT_NE(r, nullptr) << QueryError_GetUserError(&status);
+    if (check) check(r);
+    r->Free(r);
     QueryError_ClearError(&status);
+  }
 
-    status = QueryError_Default();
-    Reducer *local = parseCollect(args, &status, /*isLocal=*/true, plannerInputKey);
-    ASSERT_NE(local, nullptr) << QueryError_GetUserError(&status);
-    if (check) check(local);
-    local->Free(local);
+  // No check callback: CollectReducer_* accessors are remote-only.
+  void parseOkLocal(std::vector<const char *> args) {
+    QueryError status = QueryError_Default();
+    Reducer *r = parseCollect(args, &status, /*isLocal=*/true, plannerInputKey);
+    ASSERT_NE(r, nullptr) << QueryError_GetUserError(&status);
+    r->Free(r);
     QueryError_ClearError(&status);
   }
 };
@@ -120,10 +122,11 @@ protected:
 // both modes (see `src/aggregate/reducers/collect.c`, the
 // `if (data.load_all)` branch).
 TEST_F(CollectParserTest, DISABLED_FieldsLoadAll) {
-  parseOk({"FIELDS", "*"}, [](Reducer *r) {
+  parseOkRemote({"FIELDS", "*"}, [](Reducer *r) {
     EXPECT_TRUE(CollectReducer_HasLoadAll(r));
     EXPECT_EQ(CollectReducer_GetFieldKeysLen(r), 0u);
   });
+  parseOkLocal({"FIELDS", "*"});
 }
 
 // Documents the current behavior: `*` in FIELDS is rejected by the parser in
@@ -447,9 +450,6 @@ TEST_F(CollectParserTest, FieldsLoadAllFollowedByJsonPath) {
       "Unexpected tokens after `*` in FIELDS");
 }
 
-// `*` followed by another `*` is not caught by our loadall stray-token peek
-// (which only flags `@`/`$`-prefixed tokens); the trailing `*` falls through
-// to the outer ArgParser and is rejected as an unknown argument.
 TEST_F(CollectParserTest, FieldsLoadAllFollowedByAsterisk) {
   expectError({"FIELDS", "*", "*"}, "Unknown argument");
 }
@@ -462,6 +462,11 @@ TEST_F(CollectParserTest, FieldsBareKeyword) {
 TEST_F(CollectParserTest, FieldsNonNumericCount) {
   expectError({"FIELDS", "abc"},
       "Expected number of fields or `*` after FIELDS");
+}
+
+TEST_F(CollectParserTest, NotEnoughFieldNames) {
+  expectError({"FIELDS", "2", "@a"},
+      "Not enough arguments were provided based on argument count for FIELDS");
 }
 
 TEST_F(CollectParserTest, UnknownSubcommand) {
