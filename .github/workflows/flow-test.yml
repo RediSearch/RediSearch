@@ -113,7 +113,7 @@ jobs:
 
   # Unified test matrix - includes Linux and macOS platforms, plus optional coverage, sanitize, and intel
   test-matrix:
-    name: ${{ matrix.job-type == 'test' && format('{0} ({1})', matrix.platform, matrix.architecture) || format('{0} ({1})', matrix.job-type, matrix.architecture) }}${{ matrix.test-mode == 'standalone' && ' (Standalone)' || (matrix.test-mode == 'coordinator' && ' (Coordinator-only)' || '') }}
+    name: ${{ matrix.display-name }}${{ matrix.test-mode == 'standalone' && ' (Standalone)' || (matrix.test-mode == 'coordinator' && ' (Coordinator-only)' || '') }}
     needs: [generate-matrix]
     if: ${{ needs.generate-matrix.outputs.has-jobs == 'true' }}
     strategy:
