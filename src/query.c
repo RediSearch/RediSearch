@@ -337,6 +337,20 @@ QueryNode *NewMissingNode(const FieldSpec *field) {
   return ret;
 }
 
+QueryNode *NewLexRangeNode(const char *begin, size_t beginLen, bool includeBegin,
+                           const char *end, size_t endLen, bool includeEnd) {
+  QueryNode *ret = NewQueryNode(QN_LEXRANGE);
+  if (begin) {
+    ret->lxrng.begin = rm_strndup(begin, beginLen);
+    ret->lxrng.includeBegin = includeBegin;
+  }
+  if (end) {
+    ret->lxrng.end = rm_strndup(end, endLen);
+    ret->lxrng.includeEnd = includeEnd;
+  }
+  return ret;
+}
+
 static enum QueryType parseGeometryPredicate(const char *predicate, size_t len) {
   enum QueryType query_type;
   // length is insufficient to uniquely identify predicates. CONTAINS, DISJOINT, and DISTANCE all have 8 chars.
