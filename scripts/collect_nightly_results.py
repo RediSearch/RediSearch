@@ -195,7 +195,7 @@ def simplify_job_name(job_name):
 
     Container jobs (show as "container arch"):
     - "test-linux / linux-matrix-aarch64 (gcc:11-bullseye) / ..." -> "gcc:11-bullseye aarch64"
-    - "test-linux / linux-matrix-x86_64 (ubuntu:noble) / ..." -> "ubuntu:noble x86_64"
+    - "test-linux / linux-matrix-x86_64 (ubuntu:24.04) / ..." -> "ubuntu:24.04 x86_64"
     """
     import re
 

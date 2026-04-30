@@ -6,7 +6,7 @@ on:
   workflow_call:
     inputs:
       platform:
-        description: 'Platform name (e.g., ubuntu:noble, macos-15, macos-26, sanitizer, coverage)'
+        description: 'Platform name (e.g., ubuntu:24.04, macos-15, macos-26, sanitizer, coverage)'
         type: string
         required: true
       architecture:
@@ -349,7 +349,7 @@ jobs:
           ENABLE_ASSERT: 1
         run: make build TESTS=1
       - name: Validate glibc version
-        if: runner.os == 'Linux' && inputs.platform != 'ubuntu:focal'
+        if: runner.os == 'Linux' && inputs.platform != 'ubuntu:20.04'
         uses: ./.github/actions/validate-glibc-version
       - name: Check disk space after build
         run: |

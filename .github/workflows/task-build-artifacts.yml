@@ -4,7 +4,7 @@ on:
   workflow_call:
     inputs:
       platform:
-        description: 'Platform name (e.g., ubuntu:noble, rockylinux:8)'
+        description: 'Platform name (e.g., ubuntu:24.04, rockylinux:8)'
         type: string
         required: true
       architecture:
@@ -171,7 +171,7 @@ jobs:
         run: ${SCCACHE_PATH:-sccache} --show-stats
 
       - name: Validate glibc version
-        if: runner.os == 'Linux' && inputs.platform != 'ubuntu:focal'
+        if: runner.os == 'Linux' && inputs.platform != 'ubuntu:20.04'
         uses: ./.github/actions/validate-glibc-version
 
       # Upload

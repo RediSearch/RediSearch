@@ -7,7 +7,7 @@ on:
   workflow_call:
     inputs:
       platform:
-        description: 'Platform name (e.g., ubuntu:noble, macos-15, macos-26, sanitizer, coverage)'
+        description: 'Platform name (e.g., ubuntu:24.04, macos-15, macos-26, sanitizer, coverage)'
         type: string
         required: true
       architecture:
@@ -153,57 +153,57 @@ jobs:
                       'name': 'Ubuntu Latest ARM64'
                   }
               },
-              "ubuntu:resolute": {
+              "ubuntu:26.04": {
                   "x86_64": {
-                      'container': 'ubuntu:resolute',
+                      'container': 'ubuntu:26.04',
                       'setup_script': 'apt update && apt install -y git',
                       'name': 'Ubuntu Resolute x86_64',
                       'enable_lto': '1'
                   },
                   "aarch64": {
-                      'container': 'ubuntu:resolute',
+                      'container': 'ubuntu:26.04',
                       'setup_script': 'apt update && apt install -y git',
                       'name': 'Ubuntu Resolute ARM64',
                       'enable_lto': '1'
                   }
               },
-              "ubuntu:noble": {
+              "ubuntu:24.04": {
                   "x86_64": {
-                      'container': 'ubuntu:noble',
+                      'container': 'ubuntu:24.04',
                       'setup_script': 'apt update && apt install -y git',
                       'name': 'Ubuntu Noble x86_64',
                       'enable_lto': '1'
                   },
                   "aarch64": {
-                      'container': 'ubuntu:noble',
+                      'container': 'ubuntu:24.04',
                       'setup_script': 'apt update && apt install -y git',
                       'name': 'Ubuntu Noble ARM64',
                       'enable_lto': '1'
                   }
               },
-              "ubuntu:jammy": {
+              "ubuntu:22.04": {
                   "x86_64": {
-                      'container': 'ubuntu:jammy',
+                      'container': 'ubuntu:22.04',
                       'setup_script': 'apt update && apt install -y git',
                       'name': 'Ubuntu Jammy x86_64',
                       'enable_lto': '1'
                   },
                   "aarch64": {
-                      'container': 'ubuntu:jammy',
+                      'container': 'ubuntu:22.04',
                       'setup_script': 'apt update && apt install -y git',
                       'name': 'Ubuntu Jammy ARM64',
                       'enable_lto': '1'
                   }
               },
-              "ubuntu:focal": {
+              "ubuntu:20.04": {
                   "x86_64": {
-                      'container': 'ubuntu:focal',
+                      'container': 'ubuntu:20.04',
                       'setup_script': 'apt update && apt install -y git',
                       'name': 'Ubuntu Focal x86_64',
                       'enable_lto': '1'
                   },
                   "aarch64": {
-                      'container': 'ubuntu:focal',
+                      'container': 'ubuntu:20.04',
                       'setup_script': 'apt update && apt install -y git',
                       'name': 'Ubuntu Focal ARM64',
                       'enable_lto': '1'
@@ -269,7 +269,7 @@ jobs:
                       'enable_lto': '1'
                   }
               },
-              "debian:bookworm": {
+              "debian:12": {
                   "x86_64": {
                       'container': 'gcc:12-bookworm',
                       'setup_script': 'apt update && apt install -y git',
@@ -283,7 +283,7 @@ jobs:
                       'enable_lto': '1'
                   }
               },
-              "debian:trixie": {
+              "debian:13": {
                   "x86_64": {
                       'container': 'gcc:14-trixie',
                       'setup_script': 'apt update && apt install -y git',

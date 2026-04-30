@@ -38,15 +38,15 @@ on:
         type: choice
         options:
           - all
-          - ubuntu:resolute
-          - ubuntu:noble
-          - ubuntu:jammy
-          - ubuntu:focal
+          - ubuntu:26.04
+          - ubuntu:24.04
+          - ubuntu:22.04
+          - ubuntu:20.04
           - rockylinux:8
           - rockylinux:9
           - rockylinux:10
-          - debian:bookworm
-          - debian:trixie
+          - debian:12
+          - debian:13
           - amazonlinux:2023
           - azurelinux:3
           - alpine:3.23

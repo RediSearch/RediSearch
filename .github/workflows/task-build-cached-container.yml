@@ -4,7 +4,7 @@ on:
   workflow_call:
     inputs:
       container:
-        description: "Base container image (for example: ubuntu:noble)"
+        description: "Base container image (for example: ubuntu:24.04)"
         type: string
         required: true
       runner-env:
