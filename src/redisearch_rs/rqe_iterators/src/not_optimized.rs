@@ -266,15 +266,24 @@ where
     }
 
     #[inline(always)]
-    fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
+    unsafe fn revalidate(
+        &mut self,
+        spec: std::ptr::NonNull<ffi::IndexSpec>,
+    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         // 1. Revalidate the wildcard iterator first.
-        let wcii_status = self.wcii.revalidate()?;
+        // SAFETY: Delegating to children with the same `spec` passed by our caller.
+        let wcii_status = unsafe { self.wcii.revalidate(spec) }?;
         if matches!(wcii_status, RQEValidateStatus::Aborted) {
             return Ok(RQEValidateStatus::Aborted);
         }
 
         // 2. Revalidate the child iterator.
-        if matches!(self.child.revalidate()?, RQEValidateStatus::Aborted) {
+        let child_aborted = matches!(
+            // SAFETY: Delegating to child with the same `spec` passed by our caller.
+            unsafe { self.child.revalidate(spec) }?,
+            RQEValidateStatus::Aborted
+        );
+        if child_aborted {
             // When child is aborted, NOT becomes "NOT nothing" = everything
             // from the wildcard iterator.
             self.child = MaybeEmpty::new_empty();

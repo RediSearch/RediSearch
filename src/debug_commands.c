@@ -421,7 +421,7 @@ DEBUG_COMMAND(InvertedIndexSummary) {
   }
   GET_SEARCH_CTX(argv[2])
   invIdxName = RedisModule_StringPtrLen(argv[3], &len);
-  invidx = Redis_OpenInvertedIndex(sctx, invIdxName, len, 0, NULL);
+  invidx = Redis_OpenInvertedIndex(sctx->spec, invIdxName, len, 0, NULL);
   if (!invidx) {
     RedisModule_ReplyWithError(sctx->redisCtx, "Can not find the inverted index");
     goto end;
@@ -473,7 +473,7 @@ DEBUG_COMMAND(DumpInvertedIndex) {
   }
   GET_SEARCH_CTX(argv[2])
   invIdxName = RedisModule_StringPtrLen(argv[3], &len);
-  invidx = Redis_OpenInvertedIndex(sctx, invIdxName, len, 0, NULL);
+  invidx = Redis_OpenInvertedIndex(sctx->spec, invIdxName, len, 0, NULL);
   if (!invidx) {
     RedisModule_ReplyWithError(sctx->redisCtx, "Can not find the inverted index");
     goto end;

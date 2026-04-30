@@ -70,7 +70,7 @@ runs:
 
     - name: Restore cached Redis
       id: cache-restore
-      uses: actions/cache/restore@v4
+      uses: actions/cache/restore@v5
       with:
         path: ${{ steps.resolve.outputs.prefix }}
         key: ${{ steps.key.outputs.key }}
@@ -105,7 +105,7 @@ runs:
 
     - name: Save Redis to cache
       if: ${{ steps.cache-restore.outputs.cache-hit != 'true' }}
-      uses: actions/cache/save@v4
+      uses: actions/cache/save@v5
       with:
         path: ${{ steps.resolve.outputs.prefix }}
         key: ${{ steps.key.outputs.key }}

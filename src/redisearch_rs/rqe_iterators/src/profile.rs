@@ -132,8 +132,12 @@ impl<'index, I: RQEIterator<'index>> RQEIterator<'index> for Profile<'index, I> 
         self.child.at_eof()
     }
 
-    fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        self.child.revalidate()
+    unsafe fn revalidate(
+        &mut self,
+        spec: std::ptr::NonNull<ffi::IndexSpec>,
+    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
+        // SAFETY: Delegating to child with the same `spec` passed by our caller.
+        unsafe { self.child.revalidate(spec) }
     }
 
     #[inline(always)]

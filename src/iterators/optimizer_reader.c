@@ -40,12 +40,12 @@ static size_t OPT_NumEstimated(const QueryIterator *self) {
 }
 
 // TODO: handle MOVED better
-static ValidateStatus OPT_Validate(QueryIterator *self) {
+static ValidateStatus OPT_Validate(QueryIterator *self, struct IndexSpec *spec) {
   OptimizerIterator *opt = (OptimizerIterator *)self;
-  if (opt->child->Revalidate(opt->child) != VALIDATE_OK) {
+  if (opt->child->Revalidate(opt->child, spec) != VALIDATE_OK) {
     return VALIDATE_ABORTED;
   }
-  if (opt->numericIter->Revalidate(opt->numericIter) != VALIDATE_OK) {
+  if (opt->numericIter->Revalidate(opt->numericIter, spec) != VALIDATE_OK) {
     return VALIDATE_ABORTED;
   }
   return VALIDATE_OK;

@@ -572,9 +572,9 @@ static QueryIterator* HybridIteratorReducer(HybridIteratorParams *hParams) {
 // If we already have the results prepared, we are OK, and if not, we didn't execute the query yet so we are also OK.
 // Only if we have a child iterator, and it aborted, we need to abort the hybrid iterator.
 // If the child iterator is OK or MOVED, we are OK whether we have results prepared or not.
-static ValidateStatus HR_Revalidate(QueryIterator *ctx) {
+static ValidateStatus HR_Revalidate(QueryIterator *ctx, struct IndexSpec *spec) {
   HybridIterator *hr = (HybridIterator *)ctx;
-  if (hr->child && hr->child->Revalidate(hr->child) == VALIDATE_ABORTED) {
+  if (hr->child && hr->child->Revalidate(hr->child, spec) == VALIDATE_ABORTED) {
     return VALIDATE_ABORTED;
   }
   hr->checkFieldExpiration = hr->sctx && hr->filterCtx.field.index != RS_INVALID_FIELD_INDEX &&

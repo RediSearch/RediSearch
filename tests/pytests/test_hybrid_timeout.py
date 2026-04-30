@@ -234,6 +234,13 @@ def test_debug_timeout_return_with_results():
     # Expect exactly one document from VSIM since the timeout occurred after processing one result - should be either doc:2 or doc:4
     env.assertTrue(('doc:2' in results.keys()) ^ ('doc:4' in results.keys()))
 
+# Helper to add enough documents with distinct "run*" terms to guarantee
+# max prefix expansion triggers on at least one shard in cluster mode.
+def add_run_prefix_docs(conn, count=20):
+    vec = np.array([0.5, 0.5]).astype(np.float32).tobytes()
+    for i in range(count):
+        conn.execute_command('HSET', f'run_doc:{i}', 'description', f'run{i}word', 'embedding', vec)
+
 # ---------------------------------------------------------------------------
 # Sanity comparison: debug results vs regular results
 # ---------------------------------------------------------------------------
@@ -316,43 +323,45 @@ def test_debug_timeout_zero_means_no_timeout():
                     message="Timeout 0 should return the same documents as regular query")
 
 # Warning and error tests
-#TODO: remove skip once FT.HYBRID warning handling for cluster is stable
-@skip(cluster=True)
 def test_maxprefixexpansions_warning_search_only():
     """Test max prefix expansions warning when only SEARCH component is affected"""
     env = Env(enableDebugCommand=True)
     setup_basic_index(env)
     conn = env.getClusterConnectionIfNeeded()
-    conn.execute_command('HSET', 'doc:5', 'description', 'runo')
-    conn.execute_command(config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', '1')
+    add_run_prefix_docs(conn)
+    run_command_on_all_shards(env, config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', '1')
 
     # Only SEARCH returns results, VSIM returns empty
     response = env.cmd('FT.HYBRID', 'idx', 'SEARCH', 'run*', 'VSIM', \
                        '@embedding', '$BLOB', 'RANGE', '2', 'RADIUS', '0.01', 'PARAMS', '2', 'BLOB', query_vector)
-    env.assertTrue('Max prefix expansions limit was reached (SEARCH)' in get_warnings(response))
+    warnings = get_warnings(response)
+    env.assertTrue('Max prefix expansions limit was reached (SEARCH)' in warnings)
+    # Ensure the expansion warning is not in VSIM as well.
+    env.assertFalse('Max prefix expansions limit was reached (VSIM)' in warnings)
 
-@skip(cluster=True)
 def test_maxprefixexpansions_warning_vsim_only():
     """Test max prefix expansions warning when only VSIM component is affected"""
     env = Env(enableDebugCommand=True)
     setup_basic_index(env)
     conn = env.getClusterConnectionIfNeeded()
-    conn.execute_command('HSET', 'doc:5', 'description', 'runo')
-    conn.execute_command(config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', '1')
+    add_run_prefix_docs(conn)
+    run_command_on_all_shards(env, config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', '1')
 
     # Only VSIM returns results, SEARCH returns empty
     response = env.cmd('FT.HYBRID', 'idx', 'SEARCH', 'green', 'VSIM', \
                        '@embedding', '$BLOB', 'FILTER', '@description:run*', 'PARAMS', '2', 'BLOB', query_vector)
-    env.assertTrue('Max prefix expansions limit was reached (VSIM)' in get_warnings(response))
+    warnings = get_warnings(response)
+    env.assertTrue('Max prefix expansions limit was reached (VSIM)' in warnings)
+    # Ensure the expansion warning is not in SEARCH as well.
+    env.assertFalse('Max prefix expansions limit was reached (SEARCH)' in warnings)
 
-@skip(cluster=True)
 def test_maxprefixexpansions_warning_both_components():
     """Test max prefix expansions warning when both SEARCH and VSIM components are affected"""
     env = Env(enableDebugCommand=True)
     setup_basic_index(env)
     conn = env.getClusterConnectionIfNeeded()
-    conn.execute_command('HSET', 'doc:5', 'description', 'runo')
-    conn.execute_command(config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', '1')
+    add_run_prefix_docs(conn)
+    run_command_on_all_shards(env, config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', '1')
 
     # Both SEARCH and VSIM return results
     response = env.cmd('FT.HYBRID', 'idx', 'SEARCH', 'run*', 'VSIM', \

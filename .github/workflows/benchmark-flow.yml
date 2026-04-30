@@ -55,7 +55,7 @@ jobs:
         shell: bash -l -eo pipefail {0}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
       - name: Compute effective benchmark filter
         id: benchmark-filter
         working-directory: tests/benchmarks

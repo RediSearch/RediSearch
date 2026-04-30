@@ -115,7 +115,7 @@ static void writeCurEntries(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
       }
     } else {
       bool isNew;
-      InvertedIndex *invidx = Redis_OpenInvertedIndex(ctx, entry->term, entry->len, 1, &isNew);
+      InvertedIndex *invidx = Redis_OpenInvertedIndex(ctx->spec, entry->term, entry->len, 1, &isNew);
       if (isNew && strlen(entry->term) != 0) {
         IndexSpec_AddTerm(spec, entry->term, entry->len);
       }

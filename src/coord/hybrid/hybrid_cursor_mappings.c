@@ -8,6 +8,7 @@
 */
 
 #include "hybrid_cursor_mappings.h"
+#include "hybrid/hybrid_exec.h"
 #include "redismodule.h"
 #include "rmalloc.h"
 #include "rmutil/rm_assert.h"
@@ -234,7 +235,7 @@ static inline void cleanupCtx(processCursorMappingCallbackContext *ctx) {
     rm_free(ctx);
 }
 
-bool ProcessHybridCursorMappings(const MRCommand *cmd, StrongRef searchMappingsRef, StrongRef vsimMappingsRef, QueryError *status, const RSOomPolicy oomPolicy, const RSTimeoutPolicy timeoutPolicy) {
+bool ProcessHybridCursorMappings(const MRCommand *cmd, StrongRef searchMappingsRef, StrongRef vsimMappingsRef, QueryError *status, const RSOomPolicy oomPolicy, const RSTimeoutPolicy timeoutPolicy, bool *maxPrefixSearch, bool *maxPrefixVsim) {
     CursorMappings *searchMappings = StrongRef_Get(searchMappingsRef);
     CursorMappings *vsimMappings = StrongRef_Get(vsimMappingsRef);
     RS_ASSERT(array_len(searchMappings->mappings) == 0 && array_len(vsimMappings->mappings) == 0);
@@ -302,10 +303,20 @@ bool ProcessHybridCursorMappings(const MRCommand *cmd, StrongRef searchMappingsR
                 success = false;
                 break;
             } else {
-                QueryError_SetWithoutUserDataFmt(status, QueryError_GetCode(&ctx->errors[i]), "Failed to process shard responses, first error: %s, total error count: %zu",
-                    QueryError_GetUserError(&ctx->errors[i]), array_len(ctx->errors));
-                success = false;
-                break;
+                const char *msg = QueryError_GetUserError(&ctx->errors[i]);
+                if (msg && strncmp(msg, QUERY_WMAXPREFIXEXPANSIONS, strlen(QUERY_WMAXPREFIXEXPANSIONS)) == 0) {
+                    if (strstr(msg, SEARCH_SUFFIX)) {
+                        *maxPrefixSearch = true;
+                    } else if (strstr(msg, VSIM_SUFFIX)) {
+                        *maxPrefixVsim = true;
+                    }
+                    continue;
+                } else {
+                    QueryError_SetWithoutUserDataFmt(status, QueryError_GetCode(&ctx->errors[i]), "Failed to process shard responses, first error: %s, total error count: %zu",
+                        msg, array_len(ctx->errors));
+                    success = false;
+                    break;
+                }
             }
         }
     }

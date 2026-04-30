@@ -1739,13 +1739,19 @@ class TestCoordinatorTimeout:
         env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy)
 
     def test_return_strict_timeout_one_shard_paused_aggregate(self):
-        """RETURN_STRICT timeout while one shard process is suspended.
+        """RETURN_STRICT timeout with one shard's reply gated off forever.
 
-        Suspends a single non-coordinator shard via SIGSTOP so its replies never
-        arrive. Uses the RpnetReplyAdmitted sync point to park BG after each
-        responsive shard's reply is admitted into the pipeline, so the test can
-        count exactly how many replies have been drained before firing the
-        blocked-client timeout. This makes the partial-count assertion exact.
+        Pauses the search worker pool on every shard so no `_FT.AGGREGATE`
+        job can run. Resumes the responsive shards one at a time, parking
+        BG at `RpnetReplyAdmitted` between admissions so each reply is
+        fully integrated before the next one is in flight. The chosen
+        `paused` shard's workers are never resumed, so its reply never
+        arrives; firing the blocked-client timeout drains BG with the
+        already-accumulated rows from every other shard.
+
+        Determinism comes from never having more than one reply in flight:
+        between SIGNAL and the next resume, BG is guaranteed to be parked
+        in `MRIterator_PopWithTimeout` with an empty channel.
         """
         env = self.env
         skipIfNoEnableAssert(env)
@@ -1756,27 +1762,22 @@ class TestCoordinatorTimeout:
         before_info = info_modules_to_dict(env)
         base_warn_coord = int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_METRIC])
 
-        coord_pid = pid_cmd(env.con)
-        paused_pid = next(pid for pid in get_all_shards_pid(env) if pid != coord_pid)
-        responsive_shard_conns = [
-            env.getConnection(shardId)
-            for shardId in range(1, env.shardsCount + 1)
-            if pid_cmd(env.getConnection(shardId)) != paused_pid
-        ]
+        all_shard_conns = [env.getConnection(i) for i in range(1, env.shardsCount + 1)]
+        non_coord_conns = _non_coord_shard_conns(env)
+        env.assertGreater(len(non_coord_conns), 0,
+                          message="Test requires at least one non-coordinator shard")
+        paused_conn = non_coord_conns[0]
+        paused_pid = pid_cmd(paused_conn)
+        responsive_conns = [c for c in all_shard_conns if pid_cmd(c) != paused_pid]
 
         # Docs on responsive shards. The paused shard's docs never reach BG,
         # so this is the exact count BG will emit (one _FT.AGGREGATE reply per
         # responsive shard, each carrying that shard's docs as rows).
         expected_partial = sum(len(c.execute_command('KEYS', 'doc*'))
-                               for c in responsive_shard_conns)
-        expected_replies = len(responsive_shard_conns)
+                               for c in responsive_conns)
 
-        shard_to_pause_p = psutil.Process(paused_pid)
-        shard_to_pause_p.suspend()
-        wait_for_condition(
-            lambda: (shard_to_pause_p.status() == psutil.STATUS_STOPPED, {'status': shard_to_pause_p.status()}),
-            'Timeout while waiting for shard to pause'
-        )
+        # Pause workers on every shard so no `_FT.AGGREGATE` job can run.
+        verify_command_OK_on_all_shards(env, debug_cmd(), 'WORKERS', 'pause')
 
         sync_point = 'RpnetReplyAdmitted'
         env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
@@ -1792,52 +1793,80 @@ class TestCoordinatorTimeout:
 
         blocked_client_id = wait_for_blocked_query_client(env, 'FT.AGGREGATE')
 
-        # Count sync-point hits: BG parks once per responsive shard reply admitted
-        # into the pipeline. After `expected_replies` signals, every responsive
-        # shard's rows are in the downstream result set. The paused shard never
-        # triggers a hit since its reply never arrives.
-        hits = 0
-        while hits < expected_replies:
-            wait_for_condition(
-                lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', sync_point) == 1,
-                         {'hits': hits, 'expected': expected_replies}),
-                f'Timeout waiting for BG to park at {sync_point} (hits={hits}/{expected_replies})'
-            )
-            hits += 1
-            env.cmd(debug_cmd(), 'SYNC_POINT', 'SIGNAL', sync_point)
-            if hits < expected_replies:
+        try:
+            for c in responsive_conns:
+                base_jobs = getWorkersThpoolStatsFromShard(c)['totalJobsDone']
+                c.execute_command(debug_cmd(), 'WORKERS', 'resume')
+
+                # Wait for the shard to run its `_FT.AGGREGATE` job (so the
+                # reply has been sent), then for BG to park at the sync
+                # point (so the reply has been admitted on the coord).
+                wait_for_condition(
+                    lambda c=c, base_jobs=base_jobs: (
+                        getWorkersThpoolStatsFromShard(c)['totalJobsDone'] > base_jobs,
+                        {'totalJobsDone': getWorkersThpoolStatsFromShard(c)['totalJobsDone'],
+                         'base': base_jobs}),
+                    'Timeout waiting for shard to process its _FT.AGGREGATE job'
+                )
+                wait_for_condition(
+                    lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', sync_point) == 1, {}),
+                    f'Timeout waiting for BG to park at {sync_point} after resuming a shard'
+                )
+
+                # Release BG, then wait for it to fully exit the sync-point
+                # spin loop before re-arming. Once IS_WAITING is 0, BG is
+                # back in MRIterator_PopWithTimeout with an empty channel
+                # (the next responsive shard's workers are still paused),
+                # so the next ARM cannot race with an in-flight reply.
+                env.cmd(debug_cmd(), 'SYNC_POINT', 'SIGNAL', sync_point)
+                wait_for_condition(
+                    lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', sync_point) == 0, {}),
+                    f'Timeout waiting for BG to exit {sync_point}'
+                )
                 env.cmd(debug_cmd(), 'SYNC_POINT', 'ARM', sync_point)
 
-        # All responsive replies have been admitted. BG is now either emitting
-        # rows from the last reply or blocked on the next channel pop waiting
-        # for the (never-arriving) paused shard. Fire the blocked-client timeout;
-        # the abort flag wakes the pop and BG returns TIMEDOUT with the already-
-        # accumulated rows intact.
-        env.cmd('CLIENT', 'UNBLOCK', blocked_client_id, 'TIMEOUT')
-        wait_for_client_unblocked(env, blocked_client_id)
+            # All responsive replies are in. BG is blocked in pop waiting
+            # for the (never-arriving) paused shard. Fire the blocked-client
+            # timeout; the abort flag wakes the pop and BG returns TIMEDOUT
+            # with the accumulated rows intact.
+            env.cmd('CLIENT', 'UNBLOCK', blocked_client_id, 'TIMEOUT')
+            wait_for_client_unblocked(env, blocked_client_id)
 
-        t_query.join(timeout=10)
-        env.assertFalse(t_query.is_alive(), message="Query thread should have finished")
+            t_query.join(timeout=10)
+            env.assertFalse(t_query.is_alive(), message="Query thread should have finished")
 
-        env.assertEqual(len(query_result), 1, message="Expected 1 result from query thread")
-        result = query_result[0]
-        env.assertEqual(result['total_results'], expected_partial,
-                        message=f"Expected {expected_partial} docs from responsive shards, "
-                                f"got {result['total_results']}")
-        env.assertEqual(len(result.get('results', [])), expected_partial,
-                        message=f"Expected {expected_partial} rows from responsive shards in reply, "
-                                f"got {len(result.get('results', []))}")
-        env.assertEqual(result.get('warning', []), [TIMEOUT_WARNING])
+            env.assertEqual(len(query_result), 1, message="Expected 1 result from query thread")
+            result = query_result[0]
+            env.assertEqual(result['total_results'], expected_partial,
+                            message=f"Expected {expected_partial} docs from responsive shards, "
+                                    f"got {result['total_results']}")
+            env.assertEqual(len(result.get('results', [])), expected_partial,
+                            message=f"Expected {expected_partial} rows from responsive shards in reply, "
+                                    f"got {len(result.get('results', []))}")
+            env.assertEqual(result.get('warning', []), [TIMEOUT_WARNING])
 
-        after_info = info_modules_to_dict(env)
-        env.assertEqual(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_METRIC],
-                        str(base_warn_coord + 1),
-                        message="Coordinator timeout warning should be +1")
-        _verify_metrics_not_changed(env, env, before_info, [TIMEOUT_WARNING_COORD_METRIC])
+            after_info = info_modules_to_dict(env)
+            env.assertEqual(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_METRIC],
+                            str(base_warn_coord + 1),
+                            message="Coordinator timeout warning should be +1")
+            _verify_metrics_not_changed(env, env, before_info, [TIMEOUT_WARNING_COORD_METRIC])
 
-        env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
-        shard_to_pause_p.resume()
-        env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy)
+        finally:
+            # Best-effort cleanup: disarm the sync point and resume any shard
+            # whose workers are still paused. On the happy path only
+            # `paused_conn` is still paused; on a mid-loop failure several
+            # shards may need resuming. WORKERS resume returns ERR if a
+            # shard is already running, so swallow per-shard errors.
+            try:
+                env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
+            except Exception:
+                pass
+            for c in all_shard_conns:
+                try:
+                    c.execute_command(debug_cmd(), 'WORKERS', 'resume')
+                except Exception:
+                    pass
+            env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy)
 
     def test_return_strict_timeout_withcount_one_shard_paused_aggregate(self):
         """RETURN_STRICT timeout on FT.AGGREGATE WITHCOUNT with one shard suspended.

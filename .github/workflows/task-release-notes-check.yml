@@ -47,4 +47,3 @@ jobs:
           else:
               print('✅ Release notes not required - checkbox is checked.')
           EOF
-

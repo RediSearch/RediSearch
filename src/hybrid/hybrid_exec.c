@@ -38,10 +38,6 @@
 
 #include <time.h>
 
-#define SEARCH_SUFFIX "(SEARCH)"
-#define VSIM_SUFFIX "(VSIM)"
-#define POST_PROCESSING_SUFFIX "(POST PROCESSING)"
-
 // Send a warning message to the client, optionally appending a suffix to identify the source
 static inline void ReplyWarning(RedisModule_Reply *reply, const char *message, const char *suffix) {
   if (suffix) {
@@ -603,7 +599,8 @@ int HybridRequest_StartSingleCursor(StrongRef hybrid_ref, RedisModule_Reply *rep
     return REDISMODULE_OK;
 }
 
-static inline void replyWithCursors(RedisModuleCtx *replyCtx, arrayof(Cursor*) cursors, bool timedOut) {
+static inline void replyWithCursors(RedisModuleCtx *replyCtx, arrayof(Cursor*) cursors,
+                                     HybridRequest *hreq, bool timedOut) {
     RedisModule_Reply _reply = RedisModule_NewReply(replyCtx), *reply = &_reply;
     // Send map of cursor IDs as response
     RedisModule_Reply_Map(reply);
@@ -623,6 +620,16 @@ static inline void replyWithCursors(RedisModuleCtx *replyCtx, arrayof(Cursor*) c
     if (timedOut) {
       QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_TIMED_OUT, 1, SHARD_ERR_WARN);
       RedisModule_Reply_SimpleString(reply, QueryWarning_Strwarning(QUERY_WARNING_CODE_TIMED_OUT));
+    }
+    for (size_t i = 0; i < hreq->nrequests; i++) {
+      QueryError *err = &hreq->errors[i];
+      if (QueryError_HasReachedMaxPrefixExpansionsWarning(err)) {
+        const char *suffix = (i == SEARCH_INDEX) ? SEARCH_SUFFIX : VSIM_SUFFIX;
+        char buf[128];
+        snprintf(buf, sizeof(buf), "%s %s", QUERY_WMAXPREFIXEXPANSIONS, suffix);
+        QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_REACHED_MAX_PREFIX_EXPANSIONS, 1, SHARD_ERR_WARN);
+        RedisModule_Reply_SimpleString(reply, buf);
+      }
     }
     RedisModule_Reply_ArrayEnd(reply); // ~warnings
 
@@ -732,7 +739,7 @@ int HybridRequest_StartCursors(StrongRef hybrid_ref, RedisModuleCtx *replyCtx, Q
 
     if (!req->useReplyCallback) {
       // If we are not using reply callback, we should reply with the cursors here
-      replyWithCursors(replyCtx, req->cursors, depletionTimedOut);
+      replyWithCursors(replyCtx, req->cursors, req, depletionTimedOut);
       array_free(req->cursors);
       req->cursors = NULL;
     } // else the reply callback will reply with the cursors and free the array
@@ -866,7 +873,7 @@ static int HybridQueryCursorReplyCallback(RedisModuleCtx *ctx, RedisModuleString
   }
 
   // FAIL policy path — timeout would have been handled by HybridQueryTimeoutFailCallback
-  replyWithCursors(ctx, req->cursors, false);
+  replyWithCursors(ctx, req->cursors, req, false);
   array_free(req->cursors);
   req->cursors = NULL;
   return REDISMODULE_OK;

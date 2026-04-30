@@ -6,6 +6,8 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
+#include <math.h>
+
 #include "spec.h"
 #include "inverted_index.h"
 #include "vector_index.h"
@@ -257,21 +259,23 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
   REPLY_KVINT("max_doc_id", maxDocId);
   REPLY_KVINT("num_terms", sp->stats.scoring.numTerms);
 
-  const bool isDisk = SearchDisk_IsEnabledForValidation();
+  const bool isDisk = sp->diskSpec != NULL;
   size_t num_records = isDisk ? 0 : sp->stats.numRecords;
-  size_t inverted_size = isDisk ? 0 : sp->stats.invertedSize;
   // Vector indexes (e.g. HNSW) remain in memory even when the rest of the
   // index is stored on disk, so their memory must always be reported.
   size_t vector_indexes_size = IndexSpec_VectorIndexesSize(specForOpeningIndexes);
   size_t total_ii_blocks = isDisk ? 0 : TotalIIBlocks();
   size_t offset_vecs_size = isDisk ? 0 : sp->stats.offsetVecsSize;
-  size_t doc_table_size = isDisk ? 0 : sp->docs.memsize;
   size_t sortables_size = isDisk ? 0 : sp->docs.sortablesSize;
   size_t dt_tm_size = isDisk ? 0 : TrieMap_MemUsage(sp->docs.dim.tm);
   size_t tags_overhead = isDisk ? 0 : IndexSpec_collect_tags_overhead(sp);
   size_t text_overhead = IndexSpec_collect_text_overhead(sp);
-  size_t total_memory = IndexSpec_TotalMemUsage(specForOpeningIndexes, dt_tm_size,
-    tags_overhead, text_overhead, vector_indexes_size);
+  size_t total_memory = IndexSpec_TotalMemUsage(specForOpeningIndexes, dt_tm_size, tags_overhead,
+    text_overhead, vector_indexes_size);
+  size_t inverted_size = isDisk ? SearchDisk_GetInvertedIndexTotalMemory(sp->diskSpec) :
+    sp->stats.invertedSize;
+  size_t doc_table_size = isDisk ? SearchDisk_GetDocTableTotalMemory(sp->diskSpec) :
+    sp->docs.memsize;
   size_t geoshapes_size = isDisk ? 0 : geom_idx_sz;
   size_t offset_vec_records = isDisk ? 0 : sp->stats.offsetVecRecords;
 
@@ -289,8 +293,12 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
   REPLY_KVNUM("geoshapes_sz_mb", geoshapes_size / (float)0x100000);
   REPLY_KVNUM("records_per_doc_avg",
               (float)num_records / (float)sp->stats.scoring.numDocuments);
+  // Disk metrics expose inverted size but not posting record count yet; keep NaN
+  // when denominator is unavailable to avoid returning +/-inf.
+  double bytes_per_record_avg = num_records ?
+    (float)inverted_size / (float)num_records : NAN;
   REPLY_KVNUM("bytes_per_record_avg",
-              (float)inverted_size / (float)num_records);
+              bytes_per_record_avg);
   REPLY_KVNUM("offsets_per_term_avg",
               (float)offset_vec_records / (float)num_records);
   REPLY_KVNUM("offset_bits_per_record_avg",

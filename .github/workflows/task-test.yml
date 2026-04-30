@@ -235,7 +235,7 @@ jobs:
           ${{ needs.get-config.outputs.install_mode }} rm -rf /opt/hostedtoolcache/CodeQL || true
           df -h
       - name: Full checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           submodules: recursive
       - name: Print CPU information
@@ -523,7 +523,7 @@ jobs:
         run: gpg --import .github/codecov_gpg.pub
       - name: Upload flow coverage (combined)
         if: inputs.coverage && inputs.standalone && inputs.coordinator
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v6 # NOSONAR
         with:
           files: bin/flow_standalone.info,bin/flow_coordinator.info
           disable_search: true
@@ -532,7 +532,7 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
       - name: Upload flow coverage (standalone)
         if: inputs.coverage && inputs.standalone && !inputs.coordinator
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v6 # NOSONAR
         with:
           files: bin/flow_standalone.info
           disable_search: true
@@ -541,7 +541,7 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
       - name: Upload flow coverage (coordinator)
         if: inputs.coverage && !inputs.standalone && inputs.coordinator
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v6 # NOSONAR
         with:
           files: bin/flow_coordinator.info
           disable_search: true
@@ -550,7 +550,7 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
       - name: Upload unit coverage
         if: inputs.coverage && inputs.unit-tests
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v6 # NOSONAR
         with:
           files: bin/unit.info,bin/rust_cov.info
           disable_search: true
