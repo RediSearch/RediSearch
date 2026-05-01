@@ -18,6 +18,15 @@
 #include "wildcard.h"
 #include "trie/levenshtein.h"
 
+static const rune *runenchr(const rune *r, size_t len, rune c) {
+  for (size_t i = 0; i < len; ++i) {
+    if (r[i] == c) {
+      return r + i;
+    }
+  }
+  return NULL;
+}
+
 typedef struct {
   rune * buf;
   TrieRangeCallback *callback;
