@@ -108,7 +108,7 @@ TrieNode *__newTrieNode(const rune *str, t_len offset, t_len len, const char *pa
   return n;
 }
 
-TrieNode *__trieNode_resizeChildren(TrieNode *n, int offset) {
+static TrieNode *__trieNode_resizeChildren(TrieNode *n, int offset) {
   n = rm_realloc(n, __trieNode_Sizeof(n->numChildren + offset, n->len));
   TrieNode **children = __trieNode_children(n);
 
@@ -118,8 +118,8 @@ TrieNode *__trieNode_resizeChildren(TrieNode *n, int offset) {
   return n;
 }
 
-TrieNode *__trie_AddChildIdx(TrieNode *n, const rune *str, t_len offset, t_len len, RSPayload *payload,
-                             float score, int idx, size_t numDocs) {
+static TrieNode *__trie_AddChildIdx(TrieNode *n, const rune *str, t_len offset, t_len len, RSPayload *payload,
+                                    float score, int idx, size_t numDocs) {
   n = __trieNode_resizeChildren(n, 1);
 
   // a newly added child must be a terminal node
@@ -169,7 +169,7 @@ static TrieNode *__trie_SplitNode(TrieNode *n, t_len offset) {
 
 /* If a node has a single child after delete, we can merged them. This deletes
  * the node and returns a newly allocated node */
-TrieNode *__trieNode_MergeWithSingleChild(TrieNode *n, TrieFreeCallback freecb) {
+static TrieNode *__trieNode_MergeWithSingleChild(TrieNode *n, TrieFreeCallback freecb) {
 
   if (__trieNode_isTerminal(n) || n->numChildren != 1) {
     return n;
@@ -375,7 +375,7 @@ TrieNode *TrieNode_Get(TrieNode *n, const rune *str, t_len len, bool exact, int 
  *   2. If a child has a single child - merge them
  *   3. recalculate the max child score
  */
-int __trieNode_optimizeChildren(TrieNode *n, TrieFreeCallback freecb) {
+static int __trieNode_optimizeChildren(TrieNode *n, TrieFreeCallback freecb) {
   int rc = 0;
   int i = 0;
   TrieNode **nodes = __trieNode_children(n);
