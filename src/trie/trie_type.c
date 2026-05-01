@@ -65,6 +65,10 @@ int Trie_InsertRune(Trie *t, const rune *runes, size_t len, double score, int in
   return rc;
 }
 
+static void *Trie_GetValueRune(Trie *t, const rune *runes, size_t len, bool exact) {
+  return TrieNode_GetValue(t->root, runes, len, exact);
+}
+
 void *Trie_GetValueStringBuffer(Trie *t, const char *s, size_t len, bool exact) {
   if (len > TRIE_INITIAL_STRING_LEN * sizeof(rune)) {
     return 0;
@@ -74,10 +78,6 @@ void *Trie_GetValueStringBuffer(Trie *t, const char *s, size_t len, bool exact) 
   void *val = Trie_GetValueRune(t, runes, len, exact);
   runeBufFree(&buf);
   return val;
-}
-
-void *Trie_GetValueRune(Trie *t, const rune *runes, size_t len, bool exact) {
-  return TrieNode_GetValue(t->root, runes, len, exact);
 }
 
 int Trie_Delete(Trie *t, const char *s, size_t len) {
