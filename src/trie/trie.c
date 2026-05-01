@@ -366,11 +366,6 @@ TrieNode *TrieNode_Get(TrieNode *n, const rune *str, t_len len, bool exact, int 
   return NULL;
 }
 
-void *TrieNode_GetValue(TrieNode *n, const rune *str, t_len len, bool exact) {
-  TrieNode *res = TrieNode_Get(n, str, len, exact, NULL);
-  return (res && res->payload) ? res->payload->data : NULL;
-}
-
 /* Optimize the node and its children:
  *   1. If a child should be deleted - delete it and reduce the child count
  *   2. If a child has a single child - merge them
