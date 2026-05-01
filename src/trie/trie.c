@@ -68,7 +68,9 @@ do {                                                      \
   }                                                       \
 } while(0)
 
-size_t __trieNode_Sizeof(t_len numChildren, t_len slen) {
+/* The byte size of a node, based on its internal string length and number of
+ * children */
+static size_t __trieNode_Sizeof(t_len numChildren, t_len slen) {
   return sizeof(TrieNode) + numChildren * (sizeof(rune) + sizeof(TrieNode *)) + sizeof(rune) * (slen + 1);
 }
 
@@ -133,7 +135,10 @@ TrieNode *__trie_AddChildIdx(TrieNode *n, const rune *str, t_len offset, t_len l
   return n;
 }
 
-TrieNode *__trie_SplitNode(TrieNode *n, t_len offset) {
+/* Split node n at string offset n. This returns a new node which has a string
+ * up until offset, and
+ * a single child holding The old score of n, and its score */
+static TrieNode *__trie_SplitNode(TrieNode *n, t_len offset) {
   // Copy the current node's data and children to a new child node
   TrieNode *newChild = __newTrieNode(n->str, offset, n->len, NULL, 0, n->numChildren, n->score,
                                      __trieNode_isTerminal(n), n->sortMode, n->numDocs);

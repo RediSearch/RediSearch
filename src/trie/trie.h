@@ -78,10 +78,6 @@ typedef struct {
 } TrieNode;
 #pragma pack()
 
-/* The byte size of a node, based on its internal string length and number of
- * children */
-size_t __trieNode_Sizeof(t_len numChildren, t_len slen);
-
 /* Create a new trie node. str is a string to be copied into the node, starting
  * from offset up until
  * len. numChildren is the initial number of allocated child nodes */
@@ -99,11 +95,6 @@ TrieNode *__newTrieNode(const rune *str, t_len offset, t_len len, const char *pa
 #define __trieNode_isTerminal(n) (n->flags & TRIENODE_TERMINAL)
 
 #define __trieNode_isDeleted(n) (n->flags & TRIENODE_DELETED)
-
-/* Split node n at string offset n. This returns a new node which has a string
- * up until offset, and
- * a single child holding The old score of n, and its score */
-TrieNode *__trie_SplitNode(TrieNode *n, t_len offset);
 
 typedef enum {
   ADD_REPLACE,
