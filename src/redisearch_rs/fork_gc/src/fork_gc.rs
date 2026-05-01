@@ -82,29 +82,47 @@ impl ForkGC {
     /// Each call to [`Reader::recv_fixed`] delegates to
     /// [`read_with_timeout`] (3-minute poll) and retries on `EINTR`.
     /// On timeout or pipe error the error is logged and surfaced.
+    ///
+    /// When `pipe_read_fd` is negative — tests deliberately set it to
+    /// `-1` to simulate pipe failure — the returned reader yields
+    /// `EBADF` on every read instead of constructing an `io::PipeReader`,
+    /// which would otherwise trip a std-internal `fd != -1` precondition.
     pub fn reader(&mut self) -> Reader<impl Read + '_> {
-        // Local [`Read`] adapter over the pipe fd. Holds a
-        // `ManuallyDrop<io::PipeWriter>` so dropping the writer does not
-        // close the caller's fd, and a `PhantomData<&'a mut ForkGC>` so
-        // the writer borrows the `ForkGC` for its entire lifetime.
+        // Local [`Read`] adapter over the pipe fd. Holds an
+        // `Option<ManuallyDrop<io::PipeReader>>`: `Some` for a live pipe
+        // (the `ManuallyDrop` keeps `Drop` from closing the caller's
+        // fd), `None` to surface `EBADF` on each read. The
+        // `PhantomData<&'a mut ForkGC>` makes the reader borrow the
+        // `ForkGC` for its entire lifetime.
         struct ForkGCPipeReader<'a> {
-            pipe_reader: ManuallyDrop<io::PipeReader>,
+            pipe_reader: Option<ManuallyDrop<io::PipeReader>>,
             _borrow: PhantomData<&'a mut ForkGC>,
         }
 
         impl Read for ForkGCPipeReader<'_> {
             fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-                read_with_timeout(&mut *self.pipe_reader, buf, POLL_TIMEOUT_MS)
+                match &mut self.pipe_reader {
+                    Some(pr) => read_with_timeout(&mut **pr, buf, POLL_TIMEOUT_MS),
+                    None => Err(io::Error::from_raw_os_error(libc::EBADF)),
+                }
             }
         }
 
+        // Snapshot the fd: tests close the pipe and assign `-1` from
+        // another thread to simulate pipe failure. Reading once and
+        // validating before constructing `io::PipeReader` avoids an
+        // `fd != -1` panic.
+        let fd = self.0.pipe_read_fd;
+        let pipe_reader = (fd >= 0).then(|| {
+            // SAFETY: `fd` is non-negative (checked above) and refers to
+            // an open readable fd maintained by the C side's Fork GC
+            // state machine; `ManuallyDrop` prevents `File::drop` from
+            // closing it.
+            ManuallyDrop::new(unsafe { io::PipeReader::from_raw_fd(fd) })
+        });
+
         Reader::from_reader(ForkGCPipeReader {
-            // SAFETY: `pipe_read_fd` is an open readable fd maintained
-            // by the C side's Fork GC state machine; `ManuallyDrop`
-            // prevents `File::drop` from closing it.
-            pipe_reader: ManuallyDrop::new(unsafe {
-                io::PipeReader::from_raw_fd(self.0.pipe_read_fd)
-            }),
+            pipe_reader,
             _borrow: PhantomData,
         })
     }
