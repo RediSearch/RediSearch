@@ -13,7 +13,6 @@
 #include "redisearch.h"
 #include "rmutil/rm_assert.h"
 #include "util/arr.h"
-#include "config.h"
 #include "util/timeout.h"
 #include "wildcard.h"
 #include "trie/levenshtein.h"
