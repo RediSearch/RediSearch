@@ -582,6 +582,60 @@ fn adhoc_empty_child_is_eof() {
     assert!(it.at_eof());
 }
 
+#[test]
+fn adhoc_timeout_propagated() {
+    use rqe_iterators::RQEIteratorError;
+    use top_k::{AdhocStrategy, ScoreSource, mock::MockScoreBatch};
+
+    // Source that returns TimedOut on the second adhoc_strategy call, simulating
+    // a timeout mid-walk (after one document has already been scored).
+    struct TimingOutAdhocSource {
+        adhoc_calls: u32,
+    }
+    impl<'index> ScoreSource<'index> for TimingOutAdhocSource {
+        type Batch = MockScoreBatch;
+        fn next_batch(&mut self) -> Result<Option<Self::Batch>, RQEIteratorError> {
+            Ok(None)
+        }
+        fn lookup_score(&mut self, _: ffi::t_docId) -> Option<f64> {
+            Some(1.0)
+        }
+        fn num_estimated(&self) -> usize {
+            0
+        }
+        fn rewind(&mut self) {
+            self.adhoc_calls = 0;
+        }
+        fn build_result(&self, doc_id: ffi::t_docId, _: f64) -> inverted_index::RSIndexResult<'index> {
+            inverted_index::RSIndexResult::build_virt().doc_id(doc_id).build()
+        }
+        fn batch_strategy(&mut self, _: usize, _: usize) -> BatchStrategy {
+            BatchStrategy::Continue
+        }
+        fn adhoc_strategy(&mut self, _heap_count: usize, _k: usize) -> AdhocStrategy {
+            self.adhoc_calls += 1;
+            if self.adhoc_calls >= 2 {
+                AdhocStrategy::TimedOut
+            } else {
+                AdhocStrategy::Continue
+            }
+        }
+        fn iterator_type(&self) -> rqe_iterator_type::IteratorType {
+            rqe_iterator_type::IteratorType::Mock
+        }
+    }
+
+    let source = TimingOutAdhocSource { adhoc_calls: 0 };
+    let mut it = TopKIterator::new_with_mode(
+        source,
+        Some(make_child(vec![1, 2, 3, 4, 5])),
+        NonZeroUsize::new(10).unwrap(),
+        asc,
+        TopKMode::AdhocBF,
+    );
+    assert!(matches!(it.read().unwrap_err(), RQEIteratorError::TimedOut));
+}
+
 // ── ProfileChildren ───────────────────────────────────────────────────────────
 
 #[test]

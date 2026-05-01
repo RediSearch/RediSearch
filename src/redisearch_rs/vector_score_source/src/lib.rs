@@ -36,6 +36,7 @@ pub use source::VectorScoreSource;
 
 use std::{cmp::Ordering, num::NonZeroUsize};
 
+use ffi::{VecSearchMode_HYBRID_ADHOC_BF, VecSearchMode_HYBRID_BATCHES};
 use rqe_iterators::RQEIterator;
 use top_k::{TopKIterator, TopKMode};
 
@@ -85,16 +86,25 @@ pub fn new_vector_top_k_filtered<'index>(
 ///
 /// Accepts an already-boxed `Box<dyn RQEIterator>`, avoiding an extra
 /// allocation when the caller already holds one.
+#[expect(non_upper_case_globals)]
 pub fn new_vector_top_k_filtered_boxed<'index>(
     source: VectorScoreSource,
     child: Box<dyn RQEIterator<'index> + 'index>,
     k: NonZeroUsize,
 ) -> VectorTopKIterator<'index> {
-    let child_est = child.num_estimated().min(source.index_size());
-    let mode = if source.prefer_adhoc(child_est, k.get(), true) {
-        TopKMode::AdhocBF
-    } else {
-        TopKMode::Batches
+    // Honor an explicit user-supplied `HYBRID_POLICY` first; otherwise fall back
+    // to VecSim's `prefer_adhoc` heuristic.
+    let mode = match source.user_search_mode() {
+        VecSearchMode_HYBRID_ADHOC_BF => TopKMode::AdhocBF,
+        VecSearchMode_HYBRID_BATCHES => TopKMode::Batches,
+        _ => {
+            let child_est = child.num_estimated().min(source.index_size());
+            if source.prefer_adhoc(child_est, k.get(), true) {
+                TopKMode::AdhocBF
+            } else {
+                TopKMode::Batches
+            }
+        }
     };
     TopKIterator::new_with_mode(source, Some(child), k, asc_cmp, mode)
 }

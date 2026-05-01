@@ -278,8 +278,13 @@ impl<'index, S: ScoreSource<'index>, C: RQEIterator<'index> + 'index> TopKIterat
             if let Some(score) = self.source.lookup_score(doc_id) {
                 self.heap.push(doc_id, score);
             }
-            if self.source.adhoc_strategy(self.heap.len(), self.k.get()) == AdhocStrategy::Stop {
-                break;
+            match self.source.adhoc_strategy(self.heap.len(), self.k.get()) {
+                AdhocStrategy::Continue => {}
+                AdhocStrategy::Stop => break,
+                AdhocStrategy::TimedOut => {
+                    self.finalize_collection();
+                    return Err(RQEIteratorError::TimedOut);
+                }
             }
         }
         self.finalize_collection();

@@ -71,6 +71,9 @@ pub enum AdhocStrategy {
 
     /// Collection is complete — stop and yield whatever is in the heap.
     Stop,
+
+    /// The query time limit was reached — abort collection and surface a timeout error.
+    TimedOut,
 }
 
 /// The score-producing half of a [`TopKIterator`].

@@ -155,6 +155,12 @@
 // Need the redirection so tests can pass a mock function to test timeout behavior.
 int (*vecsimTimeoutCallback)(TimeoutCtx *ctx) = TimedOut_WithCtx;
 
+// Non-inline wrapper called from Rust's VectorScoreSource::adhoc_strategy so that
+// the test-mockable vecsimTimeoutCallback indirection is preserved.
+int RS_VecSimCheckTimeout(TimeoutCtx *ctx) {
+  return vecsimTimeoutCallback(ctx);
+}
+
 // // Updates both locations where scores are stored:
 // // 1. IndexResult numeric value (used by VECTOR_SCORE macro for heap ordering)
 // // 2. metrics array entry (used downstream for $score in queries)
