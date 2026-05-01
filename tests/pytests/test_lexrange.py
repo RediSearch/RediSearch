@@ -25,6 +25,23 @@ def testTagLexRangeGT(env):
     env.assertContains('doc5', results)
 
 
+def testTagLexRangeLeadingDigitNotParsedAsNumber(env):
+    """RHS like 5stars must be a full TERM, not a partial numeric parse (issue #14996)."""
+    conn = getConnectionByEnv(env)
+    env.expect('ft.create', 'idx', 'ON', 'HASH',
+               'schema', 'id', 'tag').ok()
+    conn.execute_command('hset', 'a', 'id', '1st')
+    conn.execute_command('hset', 'b', 'id', '5stars')
+    conn.execute_command('hset', 'c', 'id', '5zzz')
+
+    waitForIndex(env, 'idx')
+
+    # Strictly greater than "5stars" -> only "5zzz"
+    res = env.cmd('ft.search', 'idx', '@id > 5stars', 'nocontent')
+    env.assertEqual(res[0], 1)
+    env.assertContains('c', res[1:])
+
+
 def testTagLexRangeGE(env):
     """Test >= operator on TAG fields returns tags lexicographically greater or equal."""
     conn = getConnectionByEnv(env)
