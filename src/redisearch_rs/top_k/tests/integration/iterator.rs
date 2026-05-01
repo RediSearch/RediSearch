@@ -11,7 +11,12 @@
 
 use std::{cmp::Ordering, num::NonZeroUsize};
 
-use rqe_iterators::{IdList, RQEIterator, RQEIteratorError};
+use rqe_iterator_type::IteratorType;
+use rqe_iterators::{
+    IdList, RQEIterator, RQEIteratorError,
+    c2rust::CRQEIterator,
+    interop::{ProfileChildren, RQEIteratorWrapper},
+};
 use top_k::{
     AdhocStrategy, BatchStrategy, ScoreSource, TopKIterator, TopKMode, mock::MockScoreBatch,
     mock::MockScoreSource,
@@ -124,6 +129,18 @@ fn make_child<'a>(ids: Vec<ffi::t_docId>) -> Box<dyn RQEIterator<'a> + 'a> {
     Box::new(IdList::<true>::new(ids))
 }
 
+/// Wrap an [`IdList`] in a [`CRQEIterator`] so the typed-child `TopKIterator`
+/// variant (which supports [`ProfileChildren`]) can be exercised in tests.
+fn make_crqe_child(ids: Vec<ffi::t_docId>) -> CRQEIterator {
+    let it = IdList::<true>::new(ids);
+    let ptr = RQEIteratorWrapper::boxed_new(it);
+    // SAFETY: `boxed_new` returns a non-null `Box::into_raw` pointer.
+    let ptr = unsafe { std::ptr::NonNull::new_unchecked(ptr) };
+    // SAFETY: `ptr` is a valid, owning, non-null `QueryIterator` pointer produced
+    // by `RQEIteratorWrapper::boxed_new`, satisfying all `CRQEIterator::new` preconditions.
+    unsafe { CRQEIterator::new(ptr) }
+}
+
 // ── State machine ─────────────────────────────────────────────────────────────
 
 #[test]
@@ -131,7 +148,7 @@ fn read_triggers_collection_on_first_call() {
     let source = MockScoreSource::new(vec![vec![(1, 1.0), (2, 2.0)]], vec![], |_, _| {
         BatchStrategy::Continue
     });
-    let mut it = TopKIterator::new(source, None, NonZeroUsize::new(5).unwrap(), asc);
+    let mut it = TopKIterator::new_unfiltered(source, NonZeroUsize::new(5).unwrap(), asc);
 
     assert!(!it.at_eof());
     let result = it.read().unwrap().expect("should have a result");
@@ -143,7 +160,7 @@ fn rewind_resets_to_not_started() {
     let source = MockScoreSource::new(vec![vec![(1, 1.0), (2, 2.0)]], vec![], |_, _| {
         BatchStrategy::Continue
     });
-    let mut it = TopKIterator::new(source, None, NonZeroUsize::new(5).unwrap(), asc);
+    let mut it = TopKIterator::new_unfiltered(source, NonZeroUsize::new(5).unwrap(), asc);
     it.read().unwrap();
     it.read().unwrap();
     let eof = it.read().unwrap();
@@ -163,7 +180,7 @@ fn rewind_resets_to_not_started() {
 #[test]
 fn eof_set_after_results_exhausted() {
     let source = MockScoreSource::new(vec![vec![(1, 1.0)]], vec![], |_, _| BatchStrategy::Continue);
-    let mut it = TopKIterator::new(source, None, NonZeroUsize::new(5).unwrap(), asc);
+    let mut it = TopKIterator::new_unfiltered(source, NonZeroUsize::new(5).unwrap(), asc);
     it.read().unwrap();
     let eof = it.read().unwrap();
     assert!(eof.is_none());
@@ -175,7 +192,7 @@ fn last_doc_id_starts_at_zero_tracks_reads_and_resets_on_rewind() {
     let source = MockScoreSource::new(vec![vec![(1, 1.0), (2, 2.0)]], vec![], |_, _| {
         BatchStrategy::Continue
     });
-    let mut it = TopKIterator::new(source, None, NonZeroUsize::new(5).unwrap(), asc);
+    let mut it = TopKIterator::new_unfiltered(source, NonZeroUsize::new(5).unwrap(), asc);
 
     assert_eq!(it.last_doc_id(), 0);
 
@@ -194,7 +211,7 @@ fn num_estimated_capped_at_k() {
         BatchStrategy::Continue
     })
     .with_num_estimated(100);
-    let it = TopKIterator::new(source, None, NonZeroUsize::new(3).unwrap(), asc);
+    let it = TopKIterator::new_unfiltered(source, NonZeroUsize::new(3).unwrap(), asc);
 
     assert_eq!(it.num_estimated(), 3);
 }
@@ -208,7 +225,7 @@ fn unfiltered_yields_batch_in_source_order() {
     let source = MockScoreSource::new(vec![vec![(1, 0.9), (2, 0.5), (3, 0.1)]], vec![], |_, _| {
         BatchStrategy::Continue
     });
-    let mut it = TopKIterator::new(source, None, NonZeroUsize::new(10).unwrap(), asc);
+    let mut it = TopKIterator::new_unfiltered(source, NonZeroUsize::new(10).unwrap(), asc);
     let ids: Vec<_> = std::iter::from_fn(|| it.read().unwrap().map(|r| r.doc_id)).collect();
     assert_eq!(ids, vec![1, 2, 3]);
 }
@@ -216,7 +233,7 @@ fn unfiltered_yields_batch_in_source_order() {
 #[test]
 fn unfiltered_empty_source_is_immediate_eof() {
     let source = MockScoreSource::new(vec![], vec![], |_, _| BatchStrategy::Continue);
-    let mut it = TopKIterator::new(source, None, NonZeroUsize::new(5).unwrap(), asc);
+    let mut it = TopKIterator::new_unfiltered(source, NonZeroUsize::new(5).unwrap(), asc);
     assert!(it.read().unwrap().is_none());
     assert!(it.at_eof());
 }
@@ -227,7 +244,7 @@ fn unfiltered_empty_source_is_immediate_eof() {
 fn revalidate_without_child_returns_ok() {
     let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
     let source = MockScoreSource::new(vec![vec![(1, 1.0)]], vec![], |_, _| BatchStrategy::Continue);
-    let mut it = TopKIterator::new(source, None, NonZeroUsize::new(5).unwrap(), asc);
+    let mut it = TopKIterator::new_unfiltered(source, NonZeroUsize::new(5).unwrap(), asc);
     // SAFETY: child-less path returns Ok unconditionally; spec is never read.
     let status = unsafe { it.revalidate(mock_ctx.spec()) }.unwrap();
     assert_eq!(status, rqe_iterators::RQEValidateStatus::Ok);
@@ -240,7 +257,7 @@ fn revalidate_with_child_delegates_ok() {
     let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
     let source = MockScoreSource::new(vec![vec![(1, 1.0)]], vec![], |_, _| BatchStrategy::Continue);
     let child: Box<dyn rqe_iterators::RQEIterator<'_>> = Box::new(rqe_iterators::Empty::default());
-    let mut it = TopKIterator::new(source, Some(child), NonZeroUsize::new(5).unwrap(), asc);
+    let mut it = TopKIterator::new(source, child, NonZeroUsize::new(5).unwrap(), asc);
     // SAFETY: Empty::revalidate ignores spec; nothing is dereferenced.
     let status = unsafe { it.revalidate(mock_ctx.spec()) }.unwrap();
     assert_eq!(status, rqe_iterators::RQEValidateStatus::Ok);
@@ -251,7 +268,7 @@ fn revalidate_with_child_delegates_aborted() {
     let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
     let source = MockScoreSource::new(vec![vec![(1, 1.0)]], vec![], |_, _| BatchStrategy::Continue);
     let child: Box<dyn rqe_iterators::RQEIterator<'_>> = Box::new(AbortOnRevalidate);
-    let mut it = TopKIterator::new(source, Some(child), NonZeroUsize::new(5).unwrap(), asc);
+    let mut it = TopKIterator::new(source, child, NonZeroUsize::new(5).unwrap(), asc);
     // SAFETY: AbortOnRevalidate::revalidate ignores spec; nothing is dereferenced.
     let status = unsafe { it.revalidate(mock_ctx.spec()) }.unwrap();
     assert_eq!(status, rqe_iterators::RQEValidateStatus::Aborted);
@@ -259,7 +276,7 @@ fn revalidate_with_child_delegates_aborted() {
 
 #[test]
 fn unfiltered_timeout_propagated() {
-    let mut it = TopKIterator::new(TimingOutSource, None, NonZeroUsize::new(5).unwrap(), asc);
+    let mut it = TopKIterator::new_unfiltered(TimingOutSource, NonZeroUsize::new(5).unwrap(), asc);
     assert!(matches!(
         it.read().unwrap_err(),
         rqe_iterators::RQEIteratorError::TimedOut
@@ -279,7 +296,7 @@ fn batches_overlap_intersection() {
     );
     let mut it = TopKIterator::new(
         source,
-        Some(make_child(vec![1, 3, 5])),
+        make_child(vec![1, 3, 5]),
         NonZeroUsize::new(10).unwrap(),
         asc,
     );
@@ -294,7 +311,7 @@ fn batches_disjoint_yields_nothing() {
     });
     let mut it = TopKIterator::new(
         source,
-        Some(make_child(vec![10, 20])),
+        make_child(vec![10, 20]),
         NonZeroUsize::new(10).unwrap(),
         asc,
     );
@@ -309,7 +326,7 @@ fn batches_empty_child_yields_nothing() {
     });
     let mut it = TopKIterator::new(
         source,
-        Some(make_child(vec![])),
+        make_child(vec![]),
         NonZeroUsize::new(10).unwrap(),
         asc,
     );
@@ -328,7 +345,7 @@ fn batches_multiple_batches() {
     );
     let mut it = TopKIterator::new(
         source,
-        Some(make_child(vec![1, 3, 4])),
+        make_child(vec![1, 3, 4]),
         NonZeroUsize::new(10).unwrap(),
         asc,
     );
@@ -349,7 +366,7 @@ fn strategy_stop_stops_after_first_batch() {
     );
     let mut it = TopKIterator::new(
         source,
-        Some(make_child(vec![1, 2, 3, 4])),
+        make_child(vec![1, 2, 3, 4]),
         NonZeroUsize::new(10).unwrap(),
         asc,
     );
@@ -428,7 +445,7 @@ fn rewind_after_mid_collect_error_does_not_retain_stale_heap() {
     };
     let mut it = TopKIterator::new(
         source,
-        Some(make_child(vec![1, 3])),
+        make_child(vec![1, 3]),
         NonZeroUsize::new(10).unwrap(),
         asc,
     );
@@ -462,7 +479,7 @@ fn strategy_switch_to_adhoc() {
     let source = MockScoreSource::new(vec![vec![(1, 3.0)]], vec![(2, 1.0), (3, 2.0)], strategy);
     let mut it = TopKIterator::new(
         source,
-        Some(make_child(vec![1, 2, 3])),
+        make_child(vec![1, 2, 3]),
         NonZeroUsize::new(10).unwrap(),
         asc,
     );
@@ -488,7 +505,7 @@ fn strategy_switch_to_batches_rewinds() {
     let source = MockScoreSource::new(vec![vec![(1, 1.0), (2, 2.0)]], vec![], strategy);
     let mut it = TopKIterator::new(
         source,
-        Some(make_child(vec![1, 2])),
+        make_child(vec![1, 2]),
         NonZeroUsize::new(10).unwrap(),
         asc,
     );
@@ -569,4 +586,53 @@ fn adhoc_empty_child_is_eof() {
     );
     assert!(it.read().unwrap().is_none());
     assert!(it.at_eof());
+}
+
+// ── ProfileChildren ───────────────────────────────────────────────────────────
+
+#[test]
+fn profile_children_wraps_child_in_profile_node() {
+    // Verify that `profile_children()` wraps the filter child in a Profile
+    // iterator without changing the results produced by the TopKIterator.
+    let source = MockScoreSource::new(vec![vec![(1, 1.0), (2, 2.0), (3, 0.5)]], vec![], |_, _| {
+        BatchStrategy::Continue
+    });
+    let child = make_crqe_child(vec![1, 2, 3]);
+    let it = TopKIterator::new(source, child, NonZeroUsize::new(10).unwrap(), asc);
+
+    let mut profiled = it.profile_children();
+
+    // Child must now be a Profile wrapper.
+    assert_eq!(
+        profiled.child().map(|c| c.type_),
+        Some(IteratorType::Profile),
+        "filter child should be wrapped in a Profile node after profile_children()"
+    );
+
+    // Results must be unchanged: all three docs, sorted best-first (asc).
+    let doc_ids: Vec<_> =
+        std::iter::from_fn(|| profiled.read().unwrap().map(|r| r.doc_id)).collect();
+    assert_eq!(doc_ids, vec![3, 1, 2]);
+}
+
+#[test]
+fn profile_children_with_no_child_is_identity() {
+    // Unfiltered path: profile_children() is a no-op on the child (there is none).
+    let source = MockScoreSource::new(vec![vec![(1, 1.0), (2, 2.0)]], vec![], |_, _| {
+        BatchStrategy::Continue
+    });
+    let it = TopKIterator::<_, CRQEIterator>::new_with_mode(
+        source,
+        None,
+        NonZeroUsize::new(10).unwrap(),
+        asc,
+        TopKMode::Unfiltered,
+    );
+
+    let mut profiled = it.profile_children();
+
+    assert!(profiled.child().is_none());
+    let doc_ids: Vec<_> =
+        std::iter::from_fn(|| profiled.read().unwrap().map(|r| r.doc_id)).collect();
+    assert_eq!(doc_ids, vec![1, 2]);
 }
