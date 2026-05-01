@@ -19,12 +19,7 @@ use std::ffi::{c_int, c_void};
 
 use fork_gc::{ForkGC, io_result_ext::IoResultExt};
 
-// Sentinel pointer defined in `src/fork_gc/pipe.c`, compared by pointer
-// identity in C callers (e.g. `recvFieldHeader`) to detect end-of-stream
-// frames returned through `FGC_recvBuffer`'s `buf` out-parameter.
-unsafe extern "C" {
-    static RECV_BUFFER_EMPTY: *mut c_void;
-}
+mod util;
 
 /// Write exactly `len` bytes from `buff` to the FGC pipe.
 ///
@@ -160,14 +155,13 @@ pub unsafe extern "C" fn FGC_recvBuffer(
         Err(_) => return ffi::REDISMODULE_ERR as c_int,
     };
 
-    // SAFETY: `RECV_BUFFER_EMPTY` is a static pointer defined in `pipe.c`.
-    let terminator = unsafe { RECV_BUFFER_EMPTY };
-    let (ptr, payload_len) = frame.into_c_buffer(terminator);
+    let (ptr, payload_len) = util::frame_into_c_buffer(frame);
 
     // SAFETY: caller guarantees (2).
     unsafe {
         *buf = ptr;
         *len = payload_len;
     }
+
     ffi::REDISMODULE_OK as c_int
 }
