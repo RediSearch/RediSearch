@@ -26,10 +26,6 @@ typedef uint16_t t_len;
 #define TRIENODE_TERMINAL 0x1
 #define TRIENODE_DELETED 0x2
 
-#define TRIENODE_SORTED_NONE 0
-#define TRIENODE_SORTED_SCORE 1
-#define TRIENODE_SORTED_LEX 2
-
 typedef enum {
   Trie_Sort_Lex = 0,
   Trie_Sort_Score = 1,
