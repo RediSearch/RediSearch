@@ -45,9 +45,6 @@ typedef struct {
 } TriePayload;
 #pragma pack()
 
-/* The byte size of a TriePayload, based on its internal data length */
-size_t __triePayload_Sizeof(uint32_t len);
-
 #pragma pack(1)
 /* TrieNode represents a single node in a trie. The actual size of it is bigger,
  * as the children are
@@ -107,12 +104,6 @@ TrieNode *__newTrieNode(const rune *str, t_len offset, t_len len, const char *pa
 
 #define __trieNode_isDeleted(n) (n->flags & TRIENODE_DELETED)
 
-/* Add a child node to the parent node n, with a string str starting at offset
-up until len, and a
-given score */
-TrieNode *__trie_AddChild(TrieNode *n, const rune *str, t_len offset, t_len len, RSPayload *payload,
-                          float score);
-
 /* Split node n at string offset n. This returns a new node which has a string
  * up until offset, and
  * a single child holding The old score of n, and its score */
@@ -130,12 +121,6 @@ typedef enum {
 int TrieNode_Add(TrieNode **n, const rune *str, t_len len, RSPayload *payload,
                  float score, TrieAddOp op, TrieFreeCallback freecb,
                  size_t numDocs);
-
-/* Find the entry with a given string and length, and return its score. Returns
- * 0 if the entry was
- * not found.
- * Note that you cannot put entries with zero score */
-float TrieNode_Find(TrieNode *n, rune *str, t_len len);
 
 /* Find the entry with a given string and length, and return it. */
 TrieNode *TrieNode_Get(TrieNode *n, const rune *str, t_len len, bool exact, int *offsetOut);
