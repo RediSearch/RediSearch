@@ -633,7 +633,6 @@ inline int __ti_step(TrieIterator *it, void *matchCtx) {
           __ti_Push(it, ch, 0);
           it->nodesConsumed++;
         } else {
-          //__ti_Push(it, ch, 1);
           it->nodesSkipped++;
         }
       } else {
@@ -754,7 +753,6 @@ TrieNode *TrieNode_RandomWalk(TrieNode *n, int minSteps, rune **str, t_len *len)
 
   *str = buf;
   *len = bufSize;
-  //(*str)[bufSize] = '\0';
   rm_free(stack);
   return n;
 }
