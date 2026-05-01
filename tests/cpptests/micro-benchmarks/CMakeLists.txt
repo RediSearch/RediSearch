@@ -22,6 +22,14 @@ set(BENCHMARK_ENABLE_TESTING OFF)
 FetchContent_MakeAvailable(googlebench)
 include_directories("${googlebench_SOURCE_DIR}/include")
 
+# clang 22+ warns about __COUNTER__ under -Wc2y-extensions: it's a compiler extension
+# being standardized in C2y (the C standard after C23). googlebench uses -pedantic-errors
+# and -Werror, turning this into a fatal error. __COUNTER__ has been a de facto compiler
+# extension so is fine to use it, but we need to suppress the warning now that clang 22+
+# is more strict.
+target_compile_options(benchmark PRIVATE $<$<CXX_COMPILER_ID:Clang>:-Wno-c2y-extensions>)
+target_compile_options(benchmark_main PRIVATE $<$<CXX_COMPILER_ID:Clang>:-Wno-c2y-extensions>)
+
 file(GLOB BENCHMARK_ITER_SOURCES "benchmark_*_iterator.cpp")
 foreach(benchmark_file ${BENCHMARK_ITER_SOURCES})
   get_filename_component(benchmark_name ${benchmark_file} NAME_WE)
