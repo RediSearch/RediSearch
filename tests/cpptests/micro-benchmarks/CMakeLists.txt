@@ -28,3 +28,9 @@ foreach(benchmark_file ${BENCHMARK_ITER_SOURCES})
   add_executable(${benchmark_name} ${benchmark_file} ../index_utils.cpp ../iterator_util.cpp)
   target_link_libraries(${benchmark_name} redisearch redismock benchmark::benchmark)
 endforeach()
+
+# Local-only trie microbenchmark. Named `bench_*` (not `benchmark_*`) so
+# build.sh's `for benchmark in benchmark_*` auto-runner does not pick it up,
+# keeping it out of `make micro-benchmarks` and the nightly CI pipeline.
+add_executable(bench_trie bench_trie.cpp)
+target_link_libraries(bench_trie redisearch redismock benchmark::benchmark)
