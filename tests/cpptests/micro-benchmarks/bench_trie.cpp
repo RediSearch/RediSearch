@@ -44,6 +44,17 @@ int CountingRangeCb(const rune *, size_t, void *ctx, void *, size_t) {
     return REDISEARCH_OK;
 }
 
+void *triePayload(Trie *t, const char *s, size_t len, bool exact) {
+    if (len > TRIE_INITIAL_STRING_LEN * sizeof(rune)) {
+        return nullptr;
+    }
+    runeBuf buf;
+    rune *runes = runeBufFill(s, len, &buf, &len);
+    TrieNode *node = TrieNode_Get(t->root, runes, len, exact, NULL);
+    runeBufFree(&buf);
+    return (node && node->payload) ? node->payload->data : nullptr;
+}
+
 }  // namespace
 
 template <TrieSortMode SortMode>
@@ -113,7 +124,7 @@ BENCHMARK_TEMPLATE1_DEFINE_F(BM_Trie, FindHit, Trie_Sort_Lex)(benchmark::State &
     for (auto _ : state) {
         const auto &w = corpus[i];
         benchmark::DoNotOptimize(
-            Trie_GetValueStringBuffer(trie, w.c_str(), w.size(), true));
+            triePayload(trie, w.c_str(), w.size(), true));
         if (++i == corpus.size()) i = 0;
     }
 }
@@ -123,7 +134,7 @@ BENCHMARK_TEMPLATE1_DEFINE_F(BM_Trie, FindMiss, Trie_Sort_Lex)(benchmark::State 
     for (auto _ : state) {
         const auto &w = misses[i];
         benchmark::DoNotOptimize(
-            Trie_GetValueStringBuffer(trie, w.c_str(), w.size(), true));
+            triePayload(trie, w.c_str(), w.size(), true));
         if (++i == misses.size()) i = 0;
     }
 }
