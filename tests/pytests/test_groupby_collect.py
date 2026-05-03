@@ -1020,3 +1020,43 @@ def test_collect_apply_alias_as_field():
         for entry in g['extra_attributes']['shouted']:
             env.assertNotContains('name', entry)
             env.assertEqual(set(entry.keys()), {'NAME_UP'})
+
+
+def test_chained_groupby_collect_apply_on_reducer_alias():
+    """APPLY between two GROUPBYs consumes two reducer aliases
+    (``@cnt`` and ``@avg_sweet``) and writes ``@weighted`` into the
+    pipeline rlookup. The outer GROUPBY's COLLECT then projects
+    ``@color`` and ``@weighted`` per inner-group row.
+
+    The multiplication is chosen so every color group produces a
+    distinct post-APPLY value -- a passing test can only be explained
+    by per-group APPLY evaluation against that group's reducer output.
+
+    Fixture math:
+        green:  cnt=2, avg_sweet=2.5 -> weighted = 5
+        yellow: cnt=2, avg_sweet=3.0 -> weighted = 6
+        red:    cnt=2, avg_sweet=3.5 -> weighted = 7
+    """
+    env = Env(protocol=3)
+    _setup_hash(env)
+
+    res = env.cmd(
+        'FT.AGGREGATE', 'idx', '*',
+        'GROUPBY', '1', '@color',
+        'REDUCE', 'COUNT', '0', 'AS', 'cnt',
+        'REDUCE', 'AVG', '1', '@sweetness', 'AS', 'avg_sweet',
+        'APPLY', '@cnt * @avg_sweet', 'AS', 'weighted',
+        'GROUPBY', '0',
+        'REDUCE', 'COLLECT', '4', 'FIELDS', '2', '@color', '@weighted',
+        'AS', 'per_color')
+
+    results = res['results']
+    env.assertEqual(len(results), 1)
+
+    entries = sorted(results[0]['extra_attributes']['per_color'],
+                     key=lambda e: float(e['weighted']))
+    env.assertEqual(entries, [
+        {'color': 'green',  'weighted': '5'},
+        {'color': 'yellow', 'weighted': '6'},
+        {'color': 'red',    'weighted': '7'},
+    ])
