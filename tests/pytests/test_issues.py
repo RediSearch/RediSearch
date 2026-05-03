@@ -374,18 +374,14 @@ def test_MOD_1517(env):
 
 @skip(msan=True, no_json=True)
 def test_MOD1544(env):
-  # Test parsing failure
   conn = getConnectionByEnv(env)
   env.cmd('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.name', 'AS', 'name', 'TEXT')
   conn.execute_command('JSON.SET', '1', '.', '{"name": "John Smith"}')
-  # res = [1, '1', ['name', '<b>John</b> Smith']]
-
-  # Highlight/summarize is not supported with JSON indexes
-  error_msg = "HIGHLIGHT/SUMMARIZE is not supported with JSON indexes"
+  res = [1, '1', ['name', '<b>John</b> Smith']]
   env.expect('FT.SEARCH', 'idx', '@name:(John)', 'RETURN', '1', 'name',
-             'HIGHLIGHT').error().contains(error_msg)
+             'HIGHLIGHT', 'DIALECT', '2').equal(res)
   env.expect('FT.SEARCH', 'idx', '@name:(John)', 'RETURN', '1', 'name',
-             'HIGHLIGHT', 'FIELDS', '1', 'name').error().contains(error_msg)
+             'HIGHLIGHT', 'FIELDS', '1', 'name', 'DIALECT', '2').equal(res)
 
 def test_MOD_1808(env):
   conn = getConnectionByEnv(env)
@@ -1119,6 +1115,44 @@ def test_mod_6541(env: Env):
   # Test Lua
   for cmd in cmds:
     env.expect('EVAL', f'return redis.call{cmd}', '0').error().contains(expect_error(cmd))
+
+
+@skip(cluster=True)
+def test_mod_14921(env: Env):
+  """Test that FT.SEARCH, FT.AGGREGATE, and FT.PROFILE work inside MULTI/EXEC
+  in standalone mode (MOD-14921). When search-workers > 0, the module falls
+  back to main-thread execution instead of calling RedisModule_BlockClient."""
+  env = Env(moduleArgs='WORKERS 1')
+  conn = getConnectionByEnv(env)
+
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'n', 'NUMERIC').ok()
+  conn.execute_command('HSET', 'doc1', 't', 'hello world', 'n', '1')
+  conn.execute_command('HSET', 'doc2', 't', 'foo bar', 'n', '2')
+
+  # FT.SEARCH inside MULTI/EXEC
+  env.expect('MULTI').ok()
+  env.expect('FT.SEARCH', 'idx', '*', 'LIMIT', '0', '10').equal('QUEUED')
+  res = env.cmd('EXEC')
+  env.assertEqual(len(res), 1)
+  env.assertTrue(not isinstance(res[0], redis_exceptions.ResponseError),
+                 message=f'FT.SEARCH in MULTI failed: {res[0]}')
+  env.assertGreaterEqual(res[0][0], 1)
+
+  # FT.AGGREGATE inside MULTI/EXEC
+  env.expect('MULTI').ok()
+  env.expect('FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@n').equal('QUEUED')
+  res = env.cmd('EXEC')
+  env.assertEqual(len(res), 1)
+  env.assertTrue(not isinstance(res[0], redis_exceptions.ResponseError),
+                 message=f'FT.AGGREGATE in MULTI failed: {res[0]}')
+
+  # FT.PROFILE inside MULTI/EXEC
+  env.expect('MULTI').ok()
+  env.expect('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', '*').equal('QUEUED')
+  res = env.cmd('EXEC')
+  env.assertEqual(len(res), 1)
+  env.assertTrue(not isinstance(res[0], redis_exceptions.ResponseError),
+                 message=f'FT.PROFILE in MULTI failed: {res[0]}')
 
 
 @skip(cluster=True)
