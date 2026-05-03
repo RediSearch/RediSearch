@@ -43,6 +43,20 @@ pub struct RemoteCollectReducer<'a> {
     /// Raw sort-key references, including keys not present in `FIELDS`.
     sort_keys: Box<[&'a RLookupKey<'a>]>,
     limit: Option<(u64, u64)>,
+    /// Gates two behaviours of [`RemoteCollectCtx::finalize`]:
+    ///
+    /// * **Sort-key columns.** When `true`, each emitted row map carries
+    ///   `SORTBY` key columns alongside the requested `FIELDS` so the
+    ///   coordinator can re-order shard rows during merge. When `false`,
+    ///   only `FIELDS` columns are emitted.
+    /// * **LIMIT offset.** When `false`, [`Storage::drain`] applies
+    ///   `skip(offset).take(count)` to the buffered rows. When `true`,
+    ///   only the cap (`offset + count)` is enforced and every buffered
+    ///   row is forwarded because the coordinator owns the global offset.
+    ///
+    /// These semantics are bundled today because `distributeCollect` forwards
+    /// `LIMIT offset count` verbatim to the shard rather than rewriting it to
+    /// `LIMIT 0 (offset + count)` like the other `distribute*` paths do.
     is_internal: bool,
 }
 
@@ -206,8 +220,7 @@ impl<'a> RemoteCollectCtx<'a> {
     /// Serialize the buffered rows into an array of maps. Keys absent from a
     /// row are omitted; on the cluster path
     /// [`LocalCollectCtx::finalize`][crate::collect::local::LocalCollectCtx::finalize]
-    /// null-fills missing requested fields when reconstructing the
-    /// client-facing result.
+    /// reconstructs the client-facing result from the emitted payload.
     pub fn finalize(&mut self, r: &RemoteCollectReducer<'a>) -> SharedValue {
         // TODO: drop `limit` and the `apply_limit` argument to `drain` once
         // `distributeCollect` switches to the `LIMIT 0 (offset+count)`
