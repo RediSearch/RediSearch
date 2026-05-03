@@ -16,7 +16,6 @@
 //! coordinator-side COLLECT reducer.
 
 use std::collections::HashSet;
-use std::mem;
 
 use itertools::Either;
 use rlookup::{RLookup, RLookupKey, RLookupKeyFlag, RLookupRow};
@@ -24,6 +23,7 @@ use value::SharedValue;
 
 use crate::Reducer;
 use crate::collect::common::CollectCommon;
+use crate::collect::storage::Storage;
 
 /// Remote COLLECT reducer.
 ///
@@ -42,9 +42,26 @@ pub struct RemoteCollectReducer<'a> {
     srclookup: Option<&'a RLookup<'a>>,
     /// Raw sort-key references, including keys not present in `FIELDS`.
     sort_keys: Box<[&'a RLookupKey<'a>]>,
-    /// `true` for shard replies dispatched by the coordinator: extra sort-key
-    /// columns are emitted alongside the requested fields so the coordinator
-    /// can re-order shard rows during merge. `false` for direct execution.
+    limit: Option<(u64, u64)>,
+    /// Gates two behaviours of [`RemoteCollectCtx::finalize`]:
+    ///
+    /// * **Sort-key columns.** When `true`, each emitted row map carries
+    ///   `SORTBY` key columns alongside the requested `FIELDS` so the
+    ///   coordinator can re-order shard rows during merge. When `false`,
+    ///   only `FIELDS` columns are emitted.
+    /// * **LIMIT offset.** When `false`, [`Storage::drain`] applies
+    ///   `skip(offset).take(count)` to the buffered rows. When `true`,
+    ///   only the cap (`offset + count`) is enforced and every buffered
+    ///   row is forwarded — the coordinator owns the global offset.
+    ///
+    /// The two semantics are bundled today because `distributeCollect`
+    /// forwards `LIMIT offset count` verbatim to the shard rather than
+    /// rewriting it to `LIMIT 0 (offset + count)` like the other
+    /// `distribute*` paths do; see the TODO in `distributeCollect`. Once
+    /// that rewrite lands the LIMIT-offset semantics disappear and this
+    /// flag reverts to a pure sort-key-emission gate (eventually renamed
+    /// to an explicit `WITHSORTKEYS` argument; see the second TODO in
+    /// [`RemoteCollectCtx::finalize`]).
     include_sort_keys: bool,
 }
 
@@ -63,7 +80,7 @@ const _: () = assert!(
 /// called to release the stored [`RLookupRow`]s and decrement
 /// [`SharedValue`] refcounts.
 pub struct RemoteCollectCtx<'a> {
-    rows: Vec<RLookupRow<'a>>,
+    storage: Storage<RLookupRow<'a>>,
 }
 
 impl<'a> RemoteCollectReducer<'a> {
@@ -79,10 +96,11 @@ impl<'a> RemoteCollectReducer<'a> {
         include_sort_keys: bool,
     ) -> Self {
         Self {
-            common: CollectCommon::new(sort_asc_map, limit),
+            common: CollectCommon::new(sort_asc_map),
             field_keys,
             srclookup,
             sort_keys,
+            limit,
             include_sort_keys,
         }
     }
@@ -114,18 +132,18 @@ impl<'a> RemoteCollectReducer<'a> {
     }
 
     pub const fn has_limit(&self) -> bool {
-        self.common.limit.is_some()
+        self.limit.is_some()
     }
 
     pub const fn limit_offset(&self) -> u64 {
-        match self.common.limit {
+        match self.limit {
             Some((offset, _)) => offset,
             None => 0,
         }
     }
 
     pub const fn limit_count(&self) -> u64 {
-        match self.common.limit {
+        match self.limit {
             Some((_, count)) => count,
             None => 0,
         }
@@ -169,34 +187,40 @@ fn build_finalize_template<'a>(
 }
 
 impl<'a> RemoteCollectCtx<'a> {
-    pub const fn new(_r: &RemoteCollectReducer<'a>) -> Self {
-        Self { rows: Vec::new() }
+    pub fn new(r: &RemoteCollectReducer<'a>) -> Self {
+        Self {
+            storage: Storage::new(!r.sort_keys.is_empty(), r.limit),
+        }
     }
 
-    /// Project the relevant fields from `row` for later serialization by
-    /// [`Self::finalize`].
+    /// Project the relevant fields from `row` into a stored [`RLookupRow`]
+    /// for later serialization by [`Self::finalize`]. Storage caps the buffer
+    /// at `offset + count`; entries past the cap are dropped without
+    /// projection cost.
     pub fn add(&mut self, r: &RemoteCollectReducer<'a>, row: &RLookupRow<'_>) {
-        let mut dst = RLookupRow::new();
-        let keys = if let Some(lookup) = r.srclookup {
-            Either::Left(
-                lookup
-                    .iter()
-                    .filter(|k| !k.flags.contains(RLookupKeyFlag::Hidden)),
-            )
-        } else {
-            Either::Right(
-                r.field_keys
-                    .iter()
-                    .copied()
-                    .chain(r.sort_keys.iter().copied()),
-            )
-        };
-        for key in keys {
-            if let Some(v) = row.get(key) {
-                dst.write_key(key, v.clone());
+        self.storage.insert_entry(|| {
+            let mut dst = RLookupRow::new();
+            let keys = if let Some(lookup) = r.srclookup {
+                Either::Left(
+                    lookup
+                        .iter()
+                        .filter(|k| !k.flags.contains(RLookupKeyFlag::Hidden)),
+                )
+            } else {
+                Either::Right(
+                    r.field_keys
+                        .iter()
+                        .copied()
+                        .chain(r.sort_keys.iter().copied()),
+                )
+            };
+            for key in keys {
+                if let Some(v) = row.get(key) {
+                    dst.write_key(key, v.clone());
+                }
             }
-        }
-        self.rows.push(dst);
+            dst
+        });
     }
 
     /// Serialize the buffered rows into an array of maps. Keys absent from a
@@ -205,7 +229,15 @@ impl<'a> RemoteCollectCtx<'a> {
     /// null-fills missing requested fields when reconstructing the
     /// client-facing result.
     pub fn finalize(&mut self, r: &RemoteCollectReducer<'a>) -> SharedValue {
-        let rows = mem::take(&mut self.rows);
+        // TODO: drop `limit` and the `include_sort_keys` LIMIT branch once
+        // `distributeCollect` switches to the `LIMIT 0 (offset+count)`
+        // rewrite that other `distribute*` paths use; the shard would no
+        // longer need LIMIT context and `drain` could be unconditional.
+        let rows = if r.include_sort_keys {
+            self.storage.drain_unlimited()
+        } else {
+            self.storage.drain()
+        };
         let template = build_finalize_template(r);
         SharedValue::new_array(rows.into_iter().map(|row| {
             let entries: Vec<_> = template

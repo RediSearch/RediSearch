@@ -25,6 +25,7 @@ use std::ffi::c_char;
 /// ```
 ///
 /// See the `tests::example` unit test for a runnable demonstration.
+#[macro_export]
 macro_rules! debug_assert_warn {
     ($cond:expr, $($arg:tt)+) => {{
         let ok = $cond;
@@ -34,7 +35,7 @@ macro_rules! debug_assert_warn {
         }
     }};
 }
-pub(crate) use debug_assert_warn;
+pub use debug_assert_warn;
 
 /// Converts a string into a float, returning `None` if it failed.
 pub fn str_to_float(input: &[u8]) -> Option<f64> {

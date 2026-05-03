@@ -7,7 +7,17 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+//! End-to-end tests for the COLLECT reducer that drive
+//! [`RemoteCollectReducer`] and [`LocalCollectReducer`] through
+//! `add` → `finalize`. Pure comparator unit tests live inline in
+//! `reducers/src/collect/storage.rs`. The
+//! `RSGlobalConfig.maxAggregateResults` array-path cap is covered by the
+//! Python E2E tests because mutating the process-global would require
+//! serialising Rust tests.
+
 extern crate redisearch_rs;
+
+use std::ffi::CStr;
 
 use reducers::collect::{
     LocalCollectCtx, LocalCollectReducer, RemoteCollectCtx, RemoteCollectReducer,
@@ -17,7 +27,9 @@ use value::{Map, SharedValue, Value};
 
 redis_mock::mock_or_stub_missing_redis_c_symbols!();
 
-fn key(name: &'static std::ffi::CStr, dstidx: u16) -> RLookupKey<'static> {
+/// Distinct keys in the same row need distinct `dstidx`es so they don't
+/// alias the same `RLookupRow` slot.
+fn mk_key(name: &'static CStr, dstidx: u16) -> RLookupKey<'static> {
     let mut key = RLookupKey::new(name, RLookupKeyFlags::empty());
     key.dstidx = dstidx;
     key
@@ -49,8 +61,8 @@ struct RemoteCollectFixture {
 impl RemoteCollectFixture {
     fn new() -> Self {
         Self {
-            name_key: key(c"name", 0),
-            sweetness_key: key(c"sweetness", 1),
+            name_key: mk_key(c"name", 0),
+            sweetness_key: mk_key(c"sweetness", 1),
         }
     }
 
@@ -223,7 +235,7 @@ fn remote_finalize_hoists_name_allocations() {
 
 #[test]
 fn local_collect_projects_remote_maps_and_omits_missing_fields() {
-    let input_key = key(c"generatedalias", 0);
+    let input_key = mk_key(c"generatedalias", 0);
     let reducer = LocalCollectReducer::new(
         &input_key,
         Box::new([
@@ -255,12 +267,20 @@ fn local_collect_projects_remote_maps_and_omits_missing_fields() {
         Some(b"apple".as_slice())
     );
     assert!(row.get(b"sweetness").is_none());
-    assert!(row.get(b"missing").is_none());
+    assert!(
+        row.get(b"missing")
+            .expect("requested key absent from payload must be null-filled")
+            .is_null_static()
+    );
 }
 
 #[test]
+#[cfg_attr(
+    miri,
+    ignore = "reads `ffi::RSGlobalConfig` extern static, unsupported by miri"
+)]
 fn local_collect_accepts_resp2_flat_array_payloads() {
-    let input_key = key(c"generatedalias", 0);
+    let input_key = mk_key(c"generatedalias", 0);
     let reducer = LocalCollectReducer::new(
         &input_key,
         Box::new([b"name".to_vec().into_boxed_slice()]),
@@ -434,4 +454,304 @@ fn remote_load_all_skips_hidden_keys_even_when_row_has_value() {
         map.get(b"__hidden").is_none(),
         "Hidden keys must be excluded from the load-all emission template"
     );
+}
+
+// ---------------------------------------------------------------------------
+// Free helpers used by the LIMIT-focused tests below.
+// ---------------------------------------------------------------------------
+
+fn make_row<'a>(
+    field_keys: &[&RLookupKey<'_>],
+    sort_keys: &[&RLookupKey<'_>],
+    field_vals: &[SharedValue],
+    sort_vals: &[SharedValue],
+) -> RLookupRow<'a> {
+    let mut row = RLookupRow::new();
+    for (k, v) in field_keys.iter().zip(field_vals.iter()) {
+        row.write_key(k, v.clone());
+    }
+    for (k, v) in sort_keys.iter().zip(sort_vals.iter()) {
+        row.write_key(k, v.clone());
+    }
+    row
+}
+
+/// Drive a full `add` → `finalize` cycle on a standalone
+/// (`include_sort_keys = false`) [`RemoteCollectReducer`].
+fn run_collect(
+    field_keys: Box<[&RLookupKey<'_>]>,
+    sort_keys: Box<[&RLookupKey<'_>]>,
+    sort_asc_map: u64,
+    limit: Option<(u64, u64)>,
+    rows: Vec<(Vec<SharedValue>, Vec<SharedValue>)>,
+) -> SharedValue {
+    let r = RemoteCollectReducer::new(
+        field_keys.clone(),
+        None,
+        sort_keys.clone(),
+        sort_asc_map,
+        limit,
+        /* include_sort_keys */ false,
+    );
+    let mut ctx = RemoteCollectCtx::new(&r);
+    for (projected, sort_vals) in rows {
+        let row = make_row(&field_keys, &sort_keys, &projected, &sort_vals);
+        ctx.add(&r, &row);
+    }
+    ctx.finalize(&r)
+}
+
+fn extract_num_field(out: &SharedValue, name: &[u8]) -> Vec<f64> {
+    array_entries(out)
+        .iter()
+        .map(|row_sv| {
+            map_entries(row_sv)
+                .get(name)
+                .and_then(|v| v.as_num())
+                .expect("missing or non-numeric field")
+        })
+        .collect()
+}
+
+/// One-column row where the projected and sort slots hold the same value.
+/// Array-path callers pass empty `sort_keys`, leaving the sort slot unused.
+fn num_row(v: f64) -> (Vec<SharedValue>, Vec<SharedValue>) {
+    (vec![SharedValue::new_num(v)], vec![SharedValue::new_num(v)])
+}
+
+// Part A — pre-merge tests, ported onto `RemoteCollectReducer`.
+
+#[test]
+#[cfg_attr(
+    miri,
+    ignore = "reads `ffi::RSGlobalConfig` extern static, unsupported by miri"
+)]
+fn array_no_sortby_no_limit_preserves_insertion_order() {
+    let v = mk_key(c"v", 0);
+    let out = run_collect(
+        vec![&v].into_boxed_slice(),
+        Vec::new().into_boxed_slice(),
+        0,
+        None,
+        vec![num_row(3.0), num_row(1.0), num_row(2.0)],
+    );
+    assert_eq!(extract_num_field(&out, b"v"), vec![3.0, 1.0, 2.0]);
+}
+
+#[test]
+fn array_no_sortby_with_limit_takes_first_k() {
+    let v = mk_key(c"v", 0);
+    let out = run_collect(
+        vec![&v].into_boxed_slice(),
+        Vec::new().into_boxed_slice(),
+        0,
+        Some((0, 3)),
+        (0..5).map(|i| num_row(i as f64)).collect(),
+    );
+    assert_eq!(extract_num_field(&out, b"v"), vec![0.0, 1.0, 2.0]);
+}
+
+#[test]
+fn array_limit_offset_exceeds_len_yields_empty() {
+    let v = mk_key(c"v", 0);
+    let out = run_collect(
+        vec![&v].into_boxed_slice(),
+        Vec::new().into_boxed_slice(),
+        0,
+        Some((10, 5)),
+        (0..3).map(|i| num_row(i as f64)).collect(),
+    );
+    assert!(extract_num_field(&out, b"v").is_empty());
+}
+
+#[test]
+fn array_limit_count_exceeds_remainder_no_padding() {
+    let v = mk_key(c"v", 0);
+    let out = run_collect(
+        vec![&v].into_boxed_slice(),
+        Vec::new().into_boxed_slice(),
+        0,
+        Some((0, 10)),
+        (0..3).map(|i| num_row(i as f64)).collect(),
+    );
+    assert_eq!(extract_num_field(&out, b"v"), vec![0.0, 1.0, 2.0]);
+}
+
+#[test]
+fn array_limit_with_offset_skips_correctly() {
+    let v = mk_key(c"v", 0);
+    let out = run_collect(
+        vec![&v].into_boxed_slice(),
+        Vec::new().into_boxed_slice(),
+        0,
+        Some((2, 10)),
+        (0..5).map(|i| num_row(i as f64)).collect(),
+    );
+    assert_eq!(extract_num_field(&out, b"v"), vec![2.0, 3.0, 4.0]);
+}
+
+#[test]
+fn array_overflow_skips_projection_beyond_cap() {
+    // End-to-end check that the cap holds; the closure-call count itself
+    // is asserted by the storage-layer unit tests.
+    let v = mk_key(c"v", 0);
+    let out = run_collect(
+        vec![&v].into_boxed_slice(),
+        Vec::new().into_boxed_slice(),
+        0,
+        Some((0, 3)),
+        (0..7).map(|i| num_row(i as f64)).collect(),
+    );
+    assert_eq!(extract_num_field(&out, b"v"), vec![0.0, 1.0, 2.0]);
+}
+
+// Part B — internal-mode and Local-reducer coverage on top of Part A.
+
+#[test]
+fn remote_internal_mode_does_not_apply_limit_offset_locally() {
+    // Regression canary for the contract documented on
+    // `RemoteCollectReducer::include_sort_keys`: if a future change rewrites
+    // the shard wire's LIMIT to `(0, offset+count)` without flipping that
+    // gate, the offset gets dropped twice and this test fails.
+    let v = mk_key(c"v", 0);
+    let s = mk_key(c"s", 1);
+    let field_keys: Box<[&RLookupKey]> = vec![&v].into_boxed_slice();
+    let sort_keys: Box<[&RLookupKey]> = vec![&s].into_boxed_slice();
+    let run_with_include_sort_keys = |include_sort_keys: bool| -> Vec<f64> {
+        let r = RemoteCollectReducer::new(
+            field_keys.clone(),
+            None,
+            sort_keys.clone(),
+            0b1, // ASC
+            Some((5, 3)),
+            include_sort_keys,
+        );
+        let mut ctx = RemoteCollectCtx::new(&r);
+        for i in 0..10 {
+            let row = make_row(
+                &field_keys,
+                &sort_keys,
+                &[SharedValue::new_num(i as f64)],
+                &[SharedValue::new_num(i as f64)],
+            );
+            ctx.add(&r, &row);
+        }
+        let out = ctx.finalize(&r);
+        extract_num_field(&out, b"v")
+    };
+
+    let standalone = run_with_include_sort_keys(false);
+    let internal = run_with_include_sort_keys(true);
+
+    assert_eq!(
+        standalone,
+        vec![5.0, 6.0, 7.0],
+        "standalone shard must apply skip(5).take(3) locally"
+    );
+    assert_eq!(
+        internal,
+        vec![0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0],
+        "internal shard must NOT apply skip(offset) locally"
+    );
+}
+
+/// One shard payload (an `Array` of per-row `Map`s) under `input_key`.
+fn local_row_with_payload<'a>(
+    input_key: &'a RLookupKey<'a>,
+    payload: Vec<SharedValue>,
+) -> RLookupRow<'a> {
+    let mut row = RLookupRow::new();
+    row.write_key(input_key, SharedValue::new_array(payload));
+    row
+}
+
+/// One per-row entry in the RESP3 `Map` shape; the RESP2 flat-pair `Array`
+/// shape is exercised by `local_lookup_in_entry_handles_resp2_flat_array`.
+fn shard_map_entry(fields: &[(&[u8], SharedValue)]) -> SharedValue {
+    SharedValue::new_map(
+        fields
+            .iter()
+            .map(|(name, val)| (SharedValue::new_string(name.to_vec()), val.clone()))
+            .collect::<Vec<_>>(),
+    )
+}
+
+#[test]
+fn local_array_limit_concatenates_then_caps() {
+    let input = mk_key(c"__shard_payload", 0);
+    let r = LocalCollectReducer::new(
+        &input,
+        Box::new([b"v".to_vec().into_boxed_slice()]),
+        false,
+        Box::new([]),
+        0,
+        Some((0, 3)),
+    );
+    let mut ctx = LocalCollectCtx::new(&r);
+
+    let shard0 = local_row_with_payload(
+        &input,
+        (0..3)
+            .map(|i| shard_map_entry(&[(b"v", SharedValue::new_num(i as f64))]))
+            .collect(),
+    );
+    let shard1 = local_row_with_payload(
+        &input,
+        (3..5)
+            .map(|i| shard_map_entry(&[(b"v", SharedValue::new_num(i as f64))]))
+            .collect(),
+    );
+    ctx.add(&r, &shard0);
+    ctx.add(&r, &shard1);
+
+    let out = ctx.finalize(&r);
+    assert_eq!(extract_num_field(&out, b"v"), vec![0.0, 1.0, 2.0]);
+}
+
+#[test]
+fn local_lookup_in_entry_handles_resp2_flat_array() {
+    // RESP2 serialises remote rows as flat `[k, v, k, v, …]` arrays.
+    let input = mk_key(c"__shard_payload", 0);
+    let r = LocalCollectReducer::new(
+        &input,
+        Box::new([
+            b"v".to_vec().into_boxed_slice(),
+            // Requested but absent from every payload, so each output row's
+            // `missing` slot must materialise as the static null sentinel.
+            b"missing".to_vec().into_boxed_slice(),
+        ]),
+        false,
+        Box::new([]),
+        0,
+        Some((0, 3)),
+    );
+    let mut ctx = LocalCollectCtx::new(&r);
+
+    let mk_flat = |proj: f64| {
+        SharedValue::new_array([
+            SharedValue::new_string(b"v".to_vec()),
+            SharedValue::new_num(proj),
+        ])
+    };
+    let payload = vec![mk_flat(50.0), mk_flat(10.0), mk_flat(30.0)];
+    let row = local_row_with_payload(&input, payload);
+    ctx.add(&r, &row);
+
+    let out = ctx.finalize(&r);
+    let rows = array_entries(&out);
+    assert_eq!(rows.len(), 3, "first 3 in insertion order");
+
+    let projected_v: Vec<f64> = rows
+        .iter()
+        .map(|sv| map_entries(sv).get(b"v").and_then(|v| v.as_num()).unwrap())
+        .collect();
+    assert_eq!(projected_v, vec![50.0, 10.0, 30.0]);
+
+    for sv in rows {
+        let m = map_entries(sv);
+        let missing = m
+            .get(b"missing")
+            .expect("`missing` key must be present in the output map");
+        assert!(missing.is_null_static());
+    }
 }
