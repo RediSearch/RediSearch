@@ -946,3 +946,43 @@ def test_collect_resp2_sanity():
         collected = row[names_idx]
         env.assertTrue(isinstance(collected, list))
         env.assertEqual(len(collected), 2)
+
+
+# ---------------------------------------------------------------------------
+# APPLY interactions with COLLECT
+#
+# The four tests below pin how APPLY-derived aliases flow through COLLECT:
+#   1. APPLY alias as the GROUPBY key             (upstream rlookup -> grouping)
+#   2. APPLY alias projected by COLLECT FIELDS    (upstream rlookup -> reducer)
+#   3. APPLY over a reducer alias, outer COLLECT  (reducer->APPLY->outer COLLECT)
+#   4. APPLY + outer COLLECT FIELDS *             (wildcard walk picks up APPLY)
+# ---------------------------------------------------------------------------
+def test_collect_apply_alias_as_groupby_key():
+    """APPLY before GROUPBY writes `upper(@color)` into the upstream
+    rlookup; ``GROUPBY @COLOR_UP`` then partitions by the derived alias.
+    COLLECT sees the APPLY alias as a regular group key and projects
+    ``@name`` per row unaffected.
+
+    This pins that APPLY-produced keys are first-class GROUPBY inputs:
+    the grouping step reads them out of the rlookup like any loaded
+    field.
+    """
+    env = Env(protocol=3)
+    _setup_hash(env)
+
+    res = env.cmd(
+        'FT.AGGREGATE', 'idx', '*',
+        'APPLY', 'upper(@color)', 'AS', 'COLOR_UP',
+        'GROUPBY', '1', '@COLOR_UP',
+        'REDUCE', 'COLLECT', '3', 'FIELDS', '1', '@name',
+        'AS', 'names')
+
+    groups = _sort_by(res['results'], 'COLOR_UP')
+    env.assertEqual([g['extra_attributes']['COLOR_UP'] for g in groups],
+                    ['GREEN', 'RED', 'YELLOW'])
+    env.assertEqual(_sort_collected(groups[0]['extra_attributes']['names'], 'name'),
+                    [{'name': 'kiwi'}, {'name': 'lime'}])
+    env.assertEqual(_sort_collected(groups[1]['extra_attributes']['names'], 'name'),
+                    [{'name': 'apple'}, {'name': 'strawberry'}])
+    env.assertEqual(_sort_collected(groups[2]['extra_attributes']['names'], 'name'),
+                    [{'name': 'banana'}, {'name': 'lemon'}])
