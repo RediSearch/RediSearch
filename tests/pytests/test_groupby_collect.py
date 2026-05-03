@@ -986,3 +986,37 @@ def test_collect_apply_alias_as_groupby_key():
                     [{'name': 'apple'}, {'name': 'strawberry'}])
     env.assertEqual(_sort_collected(groups[2]['extra_attributes']['names'], 'name'),
                     [{'name': 'banana'}, {'name': 'lemon'}])
+
+
+def test_collect_apply_alias_as_field():
+    """APPLY-derived alias flows through the upstream rlookup into
+    COLLECT's per-row projection. Each collected map carries exactly
+    the derived key (``@NAME_UP``), not the raw source (``@name``).
+
+    The negative assertion is the real pin here: a COLLECT with a
+    specific ``FIELDS`` list is name-driven, so any hypothetical path
+    that silently rode the raw source through to the wire would be
+    caught.
+    """
+    env = Env(protocol=3)
+    _setup_hash(env)
+
+    res = env.cmd(
+        'FT.AGGREGATE', 'idx', '*',
+        'APPLY', 'upper(@name)', 'AS', 'NAME_UP',
+        'GROUPBY', '1', '@color',
+        'REDUCE', 'COLLECT', '3', 'FIELDS', '1', '@NAME_UP',
+        'AS', 'shouted')
+
+    groups = _sort_by(res['results'], 'color')
+    env.assertEqual(_sort_collected(groups[0]['extra_attributes']['shouted'], 'NAME_UP'),
+                    [{'NAME_UP': 'KIWI'}, {'NAME_UP': 'LIME'}])
+    env.assertEqual(_sort_collected(groups[1]['extra_attributes']['shouted'], 'NAME_UP'),
+                    [{'NAME_UP': 'APPLE'}, {'NAME_UP': 'STRAWBERRY'}])
+    env.assertEqual(_sort_collected(groups[2]['extra_attributes']['shouted'], 'NAME_UP'),
+                    [{'NAME_UP': 'BANANA'}, {'NAME_UP': 'LEMON'}])
+
+    for g in groups:
+        for entry in g['extra_attributes']['shouted']:
+            env.assertNotContains('name', entry)
+            env.assertEqual(set(entry.keys()), {'NAME_UP'})
