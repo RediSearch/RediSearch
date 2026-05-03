@@ -234,7 +234,11 @@ fn remote_finalize_hoists_name_allocations() {
 }
 
 #[test]
-fn local_collect_projects_remote_maps_and_omits_missing_fields() {
+#[cfg_attr(
+    miri,
+    ignore = "reads `ffi::RSGlobalConfig` extern static, unsupported by miri"
+)]
+fn local_collect_projects_remote_maps_and_fills_missing_fields_with_null() {
     let input_key = mk_key(c"generatedalias", 0);
     let reducer = LocalCollectReducer::new(
         &input_key,
