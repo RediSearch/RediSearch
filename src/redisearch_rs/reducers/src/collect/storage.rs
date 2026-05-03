@@ -68,14 +68,17 @@ impl<T> Storage<T> {
     }
 
     /// Drain in insertion order without applying the offset/count slice.
-    /// Used by the remote reducer in `is_internal` mode, where the
+    /// Used by the remote reducer when `include_sort_keys` is set, where the
     /// coordinator owns the global offset.
     pub(crate) fn drain_unlimited(&mut self) -> Vec<T> {
         self.take_buffer()
     }
 
     /// Iterate buffered rows in insertion order, read-only.
-    #[expect(dead_code, reason = "added for upcoming DISTINCT support")]
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "added for upcoming DISTINCT support")
+    )]
     pub(crate) fn iter(&self) -> impl Iterator<Item = &T> + '_ {
         self.buf.iter()
     }
