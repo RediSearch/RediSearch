@@ -599,8 +599,8 @@ def test_collect_internal_load_all_partial_load_emits_only_loaded_fields():
         '_FT.AGGREGATE', 'idx', '*',
         'LOAD', '2', '@name', '@team',
         'GROUPBY', '1', '@team',
-        'REDUCE', 'COLLECT', '3',
-            'FIELDS', '1', '*',
+        'REDUCE', 'COLLECT', '2',
+            'FIELDS', '*',
         'AS', 'info',
         '_SLOTS_INFO', slots_data,
     )
@@ -636,8 +636,8 @@ def test_collect_internal_load_all_emits_dunder_key_when_loaded():
         '_FT.AGGREGATE', 'idx', '*',
         'LOAD', '3', '@name', '@team', '@__key',
         'GROUPBY', '1', '@team',
-        'REDUCE', 'COLLECT', '3',
-            'FIELDS', '1', '*',
+        'REDUCE', 'COLLECT', '2',
+            'FIELDS', '*',
         'AS', 'info',
         '_SLOTS_INFO', slots_data,
     )
@@ -677,8 +677,8 @@ def test_collect_internal_load_all_with_load_star_emits_full_schema():
         '_FT.AGGREGATE', 'idx', '*',
         'LOAD', '*',
         'GROUPBY', '1', '@team',
-        'REDUCE', 'COLLECT', '3',
-            'FIELDS', '1', '*',
+        'REDUCE', 'COLLECT', '2',
+            'FIELDS', '*',
         'AS', 'info',
         '_SLOTS_INFO', slots_data,
     )
@@ -722,8 +722,8 @@ def test_collect_internal_load_all_omits_missing_fields():
         '_FT.AGGREGATE', 'idx', '*',
         'LOAD', '3', '@name', '@team', '@extra',
         'GROUPBY', '1', '@team',
-        'REDUCE', 'COLLECT', '3',
-            'FIELDS', '1', '*',
+        'REDUCE', 'COLLECT', '2',
+            'FIELDS', '*',
         'AS', 'info',
         '_SLOTS_INFO', slots_data,
     )
@@ -792,8 +792,8 @@ def test_collect_internal_load_all_emits_dollar_on_json():
         '_FT.AGGREGATE', 'idx', '*',
         'LOAD', '*',
         'GROUPBY', '1', '@color',
-        'REDUCE', 'COLLECT', '3',
-            'FIELDS', '1', '*',
+        'REDUCE', 'COLLECT', '2',
+            'FIELDS', '*',
         'AS', 'info',
         '_SLOTS_INFO', slots_data,
     )
@@ -857,8 +857,8 @@ def test_collect_internal_no_load_emits_only_groupby_key_on_json():
     internal = env.cmd(
         '_FT.AGGREGATE', 'idx', '*',
         'GROUPBY', '1', '@color',
-        'REDUCE', 'COLLECT', '3',
-            'FIELDS', '1', '*',
+        'REDUCE', 'COLLECT', '2',
+            'FIELDS', '*',
         'AS', 'info',
         '_SLOTS_INFO', slots_data,
     )
@@ -907,7 +907,7 @@ def test_chained_groupby_collect_load_all():
         'REDUCE', 'COUNT', '0', 'AS', 'cnt',
         'REDUCE', 'AVG', '1', '@sweetness', 'AS', 'avg_sweet',
         'GROUPBY', '0',
-        'REDUCE', 'COLLECT', '3', 'FIELDS', '1', '*',
+        'REDUCE', 'COLLECT', '2', 'FIELDS', '*',
         'AS', 'stats')
 
     results = res['results']
