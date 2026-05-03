@@ -21,11 +21,11 @@
 use std::collections::HashSet;
 use std::mem;
 
-use rlookup::{RLookup, RLookupKey, RLookupKeyFlag, RLookupRow};
+use rlookup::{RLookup, RLookupKey, RLookupRow};
 use value::SharedValue;
 
 use crate::Reducer;
-use crate::collect::common::CollectCommon;
+use crate::collect::common::{CollectCommon, for_each_visible_value};
 
 /// Remote COLLECT reducer.
 ///
@@ -40,10 +40,9 @@ pub struct RemoteCollectReducer<'a> {
     ///
     /// In load-all mode both [`RemoteCollectCtx::add`] and
     /// [`RemoteCollectCtx::finalize`] walk this lookup *live* on every
-    /// invocation, filtering tombstones and keys flagged
-    /// [`RLookupKeyFlag::Hidden`]. The
-    /// per-call walk is required because an upstream `LOAD *` may append
-    /// keys mid-pipeline; caching the iteration result would silently lose
+    /// invocation via [`for_each_visible_value`]. The per-call walk is
+    /// required because an upstream `LOAD *` may append keys
+    /// mid-pipeline; caching the iteration result would silently lose
     /// them. This mirrors the per-row `RLOOKUP_FOREACH` pattern in
     /// `aggregate_exec.c`'s load-all reply path.
     ///
@@ -165,16 +164,9 @@ impl<'a> RemoteCollectCtx<'a> {
     pub fn add(&mut self, r: &RemoteCollectReducer<'a>, row: &RLookupRow<'_>) {
         let mut dst = RLookupRow::new();
         if let Some(lookup) = r.srclookup {
-            let mut cursor = lookup.cursor();
-            while let Some(key) = cursor.current() {
-                if !key.is_tombstone()
-                    && !key.flags.contains(RLookupKeyFlag::Hidden)
-                    && let Some(v) = row.get(key)
-                {
-                    dst.write_key(key, v.clone());
-                }
-                cursor.move_next();
-            }
+            for_each_visible_value(lookup, row, |key, v| {
+                dst.write_key(key, v.clone());
+            });
         } else {
             for key in r.field_keys.iter() {
                 if let Some(v) = row.get(key) {
@@ -203,19 +195,12 @@ impl<'a> RemoteCollectCtx<'a> {
             // name might not even be emitted for some rows).
             SharedValue::new_array(rows.into_iter().map(|row| {
                 let mut entries: Vec<(SharedValue, SharedValue)> = Vec::new();
-                let mut cursor = lookup.cursor();
-                while let Some(key) = cursor.current() {
-                    if !key.is_tombstone()
-                        && !key.flags.contains(RLookupKeyFlag::Hidden)
-                        && let Some(v) = row.get(key)
-                    {
-                        entries.push((
-                            SharedValue::new_string(key.name().to_bytes().to_vec()),
-                            v.clone(),
-                        ));
-                    }
-                    cursor.move_next();
-                }
+                for_each_visible_value(lookup, &row, |key, v| {
+                    entries.push((
+                        SharedValue::new_string(key.name().to_bytes().to_vec()),
+                        v.clone(),
+                    ));
+                });
                 SharedValue::new_map(entries)
             }))
         } else {
