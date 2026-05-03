@@ -161,6 +161,14 @@ void SearchCtx_Free(RedisSearchCtx *sctx) {
   rm_free(sctx);
 }
 
+void SearchCtx_FreeNoUnlock(RedisSearchCtx *sctx) {
+  if (sctx->key_) {
+    RedisModule_CloseKey(sctx->key_);
+    sctx->key_ = NULL;
+  }
+  rm_free(sctx);
+}
+
 static InvertedIndex *openIndexKeysDict(IndexSpec *spec, CharBuf *termKey,
                                         bool write, bool *outIsNew) {
   InvertedIndex *idx = dictFetchValue(spec->keysDict, termKey);

@@ -1667,8 +1667,8 @@ static void AREQ_Free(AREQ *req) {
       thctx = sctx->redisCtx;
       sctx->redisCtx = NULL;
     }
-    // Here we unlock the spec
-    SearchCtx_Free(sctx);
+    RS_ASSERT(sctx->flags == RS_CTX_UNSET && "AREQ_Free must not release spec lock");
+    SearchCtx_FreeNoUnlock(sctx);
   }
 
   for (size_t ii = 0; ii < req->nargs; ++ii) {

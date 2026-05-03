@@ -10,6 +10,8 @@ from test_info_modules import (
 )
 import threading
 import psutil
+import redis
+import random
 
 TIMEOUT_ERROR = "Timeout limit was reached"
 TIMEOUT_WARNING = TIMEOUT_ERROR
@@ -2897,6 +2899,102 @@ class TestShardTimeout:
         _verify_metrics_not_changed(env, env, before_info, [TIMEOUT_ERROR_COORD_METRIC])
 
         env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy).ok()
+
+    def test_fail_timeout_aggregate_releases_spec_lock_for_writers(self):
+        """MOD-15364 regression: timed-out shard aggregate must not stall writers.
+
+        This is a deterministic timeout race:
+        1. Arm BeforeAggregateResultsClaim so worker reaches execution after taking
+           request context but before startPipelineCommon.
+        2. Unblock the blocked client with TIMEOUT.
+        3. Signal the sync-point so worker continues and exits timeout path.
+        4. Verify HSET remains responsive.
+        """
+        env = self.env
+        skipIfNoEnableAssert(env)
+
+        prev_on_timeout_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
+
+        base_conn = getConnectionByEnv(env)
+        conn_kwargs = base_conn.connection_pool.connection_kwargs
+        host = conn_kwargs.get('host', '127.0.0.1')
+        port = int(conn_kwargs['port'])
+        db = conn_kwargs.get('db', 0)
+
+        def mk_conn(timeout=5.0):
+            return redis.Redis(host=host, port=port, db=db,
+                               decode_responses=True, socket_timeout=timeout)
+
+        idx_name = 'idx_lock_repro'
+        key_prefix = 'lockdoc:'
+        n_docs = 5000
+        sync_point = 'BeforeAggregateResultsClaim'
+
+        def run_query_expect_timeout():
+            run_cmd_expect_timeout(env, ['FT.AGGREGATE', idx_name, '*', 'LIMIT', '0', '2000'])
+
+        try:
+            env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'fail').ok()
+            try:
+                env.cmd('FT.DROPINDEX', idx_name, 'DD')
+            except Exception:
+                pass
+            env.expect('FT.CREATE', idx_name, 'PREFIX', '1', key_prefix,
+                       'SCHEMA', 'name', 'TEXT').ok()
+
+            for i in range(n_docs):
+                env.cmd('HSET', f'{key_prefix}{i}', 'name', f'hello {i}')
+
+            for i in range(5):
+                env.expect(debug_cmd(), 'SYNC_POINT', 'CLEAR').ok()
+                env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', sync_point).ok()
+
+                t_query = threading.Thread(target=run_query_expect_timeout, daemon=True)
+                t_query.start()
+
+                blocked_client_id = wait_for_blocked_query_client(
+                    env, 'FT.AGGREGATE',
+                    'Client for query FT.AGGREGATE not found')
+
+                wait_for_condition(
+                    lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', sync_point) == 1, {}),
+                    f'worker never reached {sync_point} (iter={i})'
+                )
+
+                env.expect('CLIENT', 'UNBLOCK', blocked_client_id, 'TIMEOUT').equal(1)
+                wait_for_client_unblocked(env, blocked_client_id)
+                env.expect(debug_cmd(), 'SYNC_POINT', 'SIGNAL', sync_point).ok()
+
+                t_query.join(timeout=10)
+                env.assertFalse(t_query.is_alive(), message=f"Query thread should have finished (iter={i})")
+
+                probe = mk_conn(timeout=0.5)
+                probe_err = None
+                deadline = time.time() + 2
+                wrote = False
+                while time.time() < deadline:
+                    try:
+                        probe.execute_command(
+                            'HSET', f'{key_prefix}{i % n_docs}', 'name', f'posttimeout_{i}')
+                        wrote = True
+                        probe_err = None
+                        break
+                    except Exception as e:
+                        probe_err = str(e)
+                        time.sleep(0.03)
+                env.assertIsNone(probe_err,
+                                 message=f'HSET remained unresponsive after timeout/resume cycle (iter={i}): {probe_err}')
+                env.assertTrue(wrote, message=f"HSET did not complete after timeout cycle (iter={i})")
+        finally:
+            try:
+                env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
+            except Exception:
+                pass
+            try:
+                env.cmd('FT.DROPINDEX', idx_name, 'DD')
+            except Exception:
+                pass
+            env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy).ok()
 
     def _test_fail_timeout_before_store_impl(self, query_args, cmd_name=None):
         """Test timeout occurring before storing results (reply_callback path) in standalone."""

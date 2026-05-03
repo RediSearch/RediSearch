@@ -1099,9 +1099,18 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
   RedisModule_EndReply(reply);
 }
 
+static inline void AREQ_UnlockSpecIfNeeded(AREQ *req) {
+  RedisSearchCtx *sctx = AREQ_SearchCtx(req);
+  if (sctx) {
+    RedisSearchCtx_UnlockSpec(sctx);
+  }
+}
+
 void AREQ_Execute(AREQ *req, RedisModuleCtx *ctx) {
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
   sendChunk(req, reply, UINT64_MAX);
+  // Keep lock ownership local to execution. Destruction may happen on a different thread.
+  AREQ_UnlockSpecIfNeeded(req);
   RedisModule_EndReply(reply);
   AREQ_DecrRef(req);
 }
@@ -1231,6 +1240,7 @@ void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
     int rc = AREQ_StartCursor(req, reply, execution_ref, &status, false);
     RedisModule_EndReply(reply);
     if (rc != REDISMODULE_OK) {
+      AREQ_UnlockSpecIfNeeded(req);
       goto error;
     }
   } else {
@@ -1248,7 +1258,8 @@ error:
   AREQ_ReplyOrStoreError(req, outctx, &status);
 
 cleanup:
-  // No need to unlock spec as it was unlocked by `AREQ_Execute` or will be unlocked by `blockedClientReqCtx_destroy`
+  // Spec lock must already be released by execution paths (`AREQ_Execute` / `runCursor`)
+  // or explicit unlock on early failures.
   RedisModule_FreeThreadSafeContext(outctx);
   IndexSpecRef_Release(execution_ref);
   blockedClientReqCtx_destroy(BCRctx);
@@ -1669,10 +1680,12 @@ static int buildPipelineAndExecute(AREQ *r, RedisModuleCtx *ctx, QueryError *sta
     RS_ASSERT(rc == 0);
   } else {
     // Take a read lock on the spec (to avoid conflicts with the GC).
-    // This is released in AREQ_Free or while executing the query.
+    // On success, this is released explicitly by execution paths.
+    // Early failures must unlock explicitly before returning.
     RedisSearchCtx_LockSpecRead(sctx);
 
     if (prepareExecutionPlan(r, status) != REDISMODULE_OK) {
+      AREQ_UnlockSpecIfNeeded(r);
       CurrentThread_ClearIndexSpec();
       return REDISMODULE_ERR;
     }
@@ -1694,6 +1707,7 @@ static int buildPipelineAndExecute(AREQ *r, RedisModuleCtx *ctx, QueryError *sta
       int rc = AREQ_StartCursor(r, reply, spec_ref, status, false);
       RedisModule_EndReply(reply);
       if (rc != REDISMODULE_OK) {
+        AREQ_UnlockSpecIfNeeded(r);
         CurrentThread_ClearIndexSpec();
         return REDISMODULE_ERR;
       }
@@ -1773,14 +1787,15 @@ char *RS_GetExplainOutput(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
   }
   RedisSearchCtx *sctx = AREQ_SearchCtx(r);
   // Take a read lock on the spec (to avoid conflicts with the GC).
-  // released in `AREQ_Free`.
   RedisSearchCtx_LockSpecRead(sctx);
   if (prepareExecutionPlan(r, status) != REDISMODULE_OK) {
+    AREQ_UnlockSpecIfNeeded(r);
     AREQ_DecrRef(r);
     CurrentThread_ClearIndexSpec();
     return NULL;
   }
   char *ret = QAST_DumpExplain(&r->ast, sctx->spec);
+  AREQ_UnlockSpecIfNeeded(r);
   AREQ_DecrRef(r);
   CurrentThread_ClearIndexSpec();
   return ret;
