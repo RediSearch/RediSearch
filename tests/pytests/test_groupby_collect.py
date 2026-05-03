@@ -1060,3 +1060,46 @@ def test_chained_groupby_collect_apply_on_reducer_alias():
         {'color': 'yellow', 'weighted': '6'},
         {'color': 'red',    'weighted': '7'},
     ])
+
+
+def test_chained_groupby_collect_apply_load_all():
+    """Outer ``COLLECT FIELDS *`` after a chained GROUPBY + APPLY
+    projects every key the inner stages placed in the source rlookup:
+    ``@color`` (inner group key), ``@cnt`` and ``@avg_sweet`` (inner
+    reducers), and ``@weighted`` (APPLY).
+
+    This is the APPLY-aware sibling of
+    ``test_chained_groupby_collect_load_all``: the additional APPLY
+    alias must appear in the wildcard projection alongside the reducer
+    aliases, pinning that APPLY-derived keys participate in the
+    rlookup-driven wildcard walk the same way reducer-produced keys
+    do -- the wildcard does not discriminate by producer.
+
+    Fixture math matches the sibling reducer-alias test:
+        green:  cnt=2, avg_sweet=2.5 -> weighted = 5
+        yellow: cnt=2, avg_sweet=3.0 -> weighted = 6
+        red:    cnt=2, avg_sweet=3.5 -> weighted = 7
+    """
+    env = Env(protocol=3)
+    _setup_hash(env)
+
+    res = env.cmd(
+        'FT.AGGREGATE', 'idx', '*',
+        'GROUPBY', '1', '@color',
+        'REDUCE', 'COUNT', '0', 'AS', 'cnt',
+        'REDUCE', 'AVG', '1', '@sweetness', 'AS', 'avg_sweet',
+        'APPLY', '@cnt * @avg_sweet', 'AS', 'weighted',
+        'GROUPBY', '0',
+        'REDUCE', 'COLLECT', '2', 'FIELDS', '*',
+        'AS', 'stats')
+
+    results = res['results']
+    env.assertEqual(len(results), 1)
+
+    stats = sorted(results[0]['extra_attributes']['stats'],
+                   key=lambda e: float(e['weighted']))
+    env.assertEqual(stats, [
+        {'color': 'green',  'cnt': '2', 'avg_sweet': '2.5', 'weighted': '5'},
+        {'color': 'yellow', 'cnt': '2', 'avg_sweet': '3',   'weighted': '6'},
+        {'color': 'red',    'cnt': '2', 'avg_sweet': '3.5', 'weighted': '7'},
+    ])
