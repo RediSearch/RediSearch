@@ -171,7 +171,7 @@ static char *trimField(const ReturnedField *fieldInfo, const char *docStr, size_
 }
 
 static RSValue *summarizeField(const RLookup *lookup, const ReturnedField *fieldInfo,
-                               const char *fieldName, const RSValue *returnedField,
+                               const char *fieldName, const char *docStr, size_t docLen,
                                hlpDocContext *docParams, int options) {
 
   FragmentList frags;
@@ -180,10 +180,6 @@ static RSValue *summarizeField(const RLookup *lookup, const ReturnedField *field
   // Start gathering the terms
   HighlightTags tags = {.openTag = fieldInfo->highlightSettings.openTag,
                         .closeTag = fieldInfo->highlightSettings.closeTag};
-
-  // First actually generate the fragments
-  size_t docLen;
-  const char *docStr = RSValue_StringPtrLen(returnedField, &docLen);
   if (docParams->byteOffsets == NULL ||
       !fragmentizeOffsets(lookup, fieldName, docStr, docLen, docParams->indexResult,
                           docParams->byteOffsets, &frags, options)) {
@@ -266,10 +262,39 @@ static void processField(HlpProcessor *hlpCtx, hlpDocContext *docParams, Returne
   const char *fName = spec->name;
   const RSValue *fieldValue = RLookupRow_Get(spec->lookupKey, docParams->row);
 
-  if (fieldValue == NULL || !RSValue_IsString(fieldValue)) {
+  if (fieldValue == NULL) {
     return;
   }
-  RSValue *v = summarizeField(hlpCtx->lookup, spec, fName, fieldValue, docParams,
+
+  // For JSON documents, a single-value JSONPath (e.g., $.colors) can point to a JSON array.
+  // Array elements are indexed as separate values with independent byte offsets, so
+  // highlighting against a single loaded string would be incorrect.
+  //
+  // DIALECT 1-2: scalars are RSValueType_String, arrays are RSValueType_RedisString
+  //   (serialized JSON). We reject RedisString.
+  // DIALECT 3+: values are wrapped in a Trio. The Trio's right (expanded) array reveals
+  //   the origin: expanded[0] is RSValueType_String for scalars, RSValueType_Array for
+  //   array-at-path. We reject the latter.
+  RSValueType type = RSValue_Type(fieldValue);
+  if (type == RSValueType_RedisString) {
+    return;
+  }
+  if (type == RSValueType_Trio) {
+    const RSValue *expanded = RSValue_Trio_GetRight(fieldValue);
+    if (RSValue_Type(expanded) == RSValueType_Array) {
+      const RSValue *first = RSValue_ArrayItem(expanded, 0);
+      if (RSValue_Type(first) != RSValueType_String) {
+        return;
+      }
+    }
+  }
+
+  size_t fieldLen;
+  const char *fieldStr = RSValue_StringPtrLen(fieldValue, &fieldLen);
+  if (!fieldStr) {
+    return;
+  }
+  RSValue *v = summarizeField(hlpCtx->lookup, spec, fName, fieldStr, fieldLen, docParams,
                               hlpCtx->fragmentizeOptions);
   if (v) {
     RLookup_WriteOwnKey(spec->lookupKey, docParams->row, v);
