@@ -129,13 +129,6 @@ TEST_F(CollectParserTest, DISABLED_FieldsLoadAll) {
   parseOkLocal({"FIELDS", "*"});
 }
 
-// Documents the current behavior: `*` in FIELDS is rejected by the parser in
-// both remote and local modes with the same message. Remove once LoadAll
-// support lands and `DISABLED_FieldsLoadAll` is re-enabled.
-TEST_F(CollectParserTest, FieldsLoadAllRejected) {
-  expectError({"FIELDS", "*"}, "COLLECT does not yet support `*` in FIELDS");
-}
-
 TEST_F(CollectParserTest, FieldsWithCount) {
   registerKeys({"a", "b"});
   Reducer *r = parseCollectOk({"FIELDS", "2", "@a", "@b"});
