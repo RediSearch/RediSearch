@@ -1809,6 +1809,12 @@ static StrongRef IndexSpec_ParseFromArgCursor(RedisModuleCtx *ctx, const HiddenS
   ArgsCursor rule_prefixes = {0};
   int rc = AC_OK;
   ACArgSpec *errarg = NULL;
+  // The prefix list may originate from either an RString or a CString cursor;
+  // SchemaRule_Create needs a const char ** view, so materialize one and
+  // release it as soon as the rule has consumed (and copied) the strings.
+  const char **prefixesBuf = NULL;
+  const char **stopwordsBuf = NULL;
+  StrongRef result = INVALID_STRONG_REF;
   ACArgSpec flex_argopts[] = {
     {.name = "ON", .target = &rule_args.type, .len = &dummy2, .type = AC_ARGTYPE_STRING},
     {.name = "PREFIX", .target = &rule_prefixes, .type = AC_ARGTYPE_SUBARGS},
@@ -1860,10 +1866,6 @@ static StrongRef IndexSpec_ParseFromArgCursor(RedisModuleCtx *ctx, const HiddenS
   }
   spec->timeout = timeout * 1000;  // convert to ms
 
-  // The prefix list may originate from either an RString or a CString cursor;
-  // SchemaRule_Create needs a const char ** view, so materialize one and
-  // release it as soon as the rule has consumed (and copied) the strings.
-  const char **prefixesBuf = NULL;
   if (rule_prefixes.argc > 0) {
     rule_args.nprefixes = rule_prefixes.argc;
     prefixesBuf = ArgsCursor_ToCStringArray(&rule_prefixes);
@@ -1875,7 +1877,6 @@ static StrongRef IndexSpec_ParseFromArgCursor(RedisModuleCtx *ctx, const HiddenS
   }
 
   spec->rule = SchemaRule_Create(&rule_args, spec_ref, status);
-  rm_free(prefixesBuf);
   if (!spec->rule) {
     goto failure;
   }
@@ -1902,9 +1903,8 @@ static StrongRef IndexSpec_ParseFromArgCursor(RedisModuleCtx *ctx, const HiddenS
     }
     // Materialize the stopwords list as a const char ** view so the call works
     // for both RString and CString cursors.
-    const char **stopwordsBuf = ArgsCursor_ToCStringArray(&acStopwords);
+    stopwordsBuf = ArgsCursor_ToCStringArray(&acStopwords);
     spec->stopwords = NewStopWordListCStr(stopwordsBuf, acStopwords.argc);
-    rm_free(stopwordsBuf);
     spec->flags |= Index_HasCustomStopwords;
   }
 
@@ -1931,7 +1931,8 @@ static StrongRef IndexSpec_ParseFromArgCursor(RedisModuleCtx *ctx, const HiddenS
     goto failure;
   }
 
-  return spec_ref;
+  result = spec_ref;
+  goto cleanup;
 
 failure:  // on failure free the spec fields array and return an error
   spec->flags &= ~Index_Temporary;
@@ -1939,7 +1940,12 @@ failure:  // on failure free the spec fields array and return an error
     SearchDisk_UnregisterIndex(ctx, spec->diskSpec);
   }
   IndexSpec_RemoveFromGlobals(spec_ref, false);
-  return INVALID_STRONG_REF;
+
+cleanup:
+  rm_free(stopwordsBuf);
+  rm_free(prefixesBuf);
+
+  return result;
 }
 
 StrongRef IndexSpec_Parse(RedisModuleCtx *ctx, const HiddenString *name, const char **argv, int argc, QueryError *status) {
