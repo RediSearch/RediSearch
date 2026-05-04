@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "cursor.h"
+#include "module.h"
 #include "resp3.h"
 #include <time.h>
 #include <assert.h>
@@ -14,6 +15,8 @@
 #include <err.h>
 
 #define Cursor_IsIdle(cur) ((cur)->pos != -1)
+
+static void Cursors_RescheduleSweepLocked(CursorList *cl);
 
 // coord cursors will have odd ids and regular cursors will have even ids
 CursorList g_CursorsList;
@@ -164,8 +167,69 @@ static int Cursors_GCInternal(CursorList *cl, int force) {
 int Cursors_CollectIdle(CursorList *cl) {
   CursorList_Lock(cl);
   int rc = Cursors_GCInternal(cl, 1);
+  Cursors_RescheduleSweepLocked(cl);
   CursorList_Unlock(cl);
   return rc;
+}
+
+// Walks the idle list to find the earliest `nextTimeoutNs` over all idle
+// cursors. Returns 0 when the idle list is empty. Assumed to be called under
+// the cursor list lock.
+static uint64_t Cursors_FindNextTimeoutNsLocked(const CursorList *cl) {
+  uint64_t min_ns = 0;
+  size_t n = ARRAY_GETSIZE_AS(&cl->idle, Cursor *);
+  for (size_t i = 0; i < n; ++i) {
+    const Cursor *cur = *ARRAY_GETITEM_AS(&cl->idle, i, Cursor **);
+    if (min_ns == 0 || cur->nextTimeoutNs < min_ns) {
+      min_ns = cur->nextTimeoutNs;
+    }
+  }
+  return min_ns;
+}
+
+// Module timer callback: reaps expired idle cursors at MAXIDLE deadlines and
+// re-arms the timer for the next earliest deadline. Runs on the main Redis
+// thread with the GIL held.
+static void cursorIdleSweepTimerCb(RedisModuleCtx *ctx, void *data) {
+  CursorList *cl = data;
+  CursorList_Lock(cl);
+  // The timer ID is consumed when the callback fires.
+  cl->idleSweepTimerSet = false;
+  Cursors_GCInternal(cl, 1);
+  Cursors_RescheduleSweepLocked(cl);
+  CursorList_Unlock(cl);
+}
+
+// Re-arms the per-list idle-sweep timer to fire at the earliest idle cursor
+// deadline. Cancels any previously armed timer first. Skipped when the module
+// timer API is unavailable (e.g. unit tests). Refreshes `nextIdleTimeoutNs`
+// from the live idle list. Assumed to be called under the cursor list lock.
+static void Cursors_RescheduleSweepLocked(CursorList *cl) {
+  if (RS_IsMock) {
+    return;
+  }
+
+  if (cl->idleSweepTimerSet) {
+    RedisModule_StopTimer(RSDummyContext, cl->idleSweepTimerId, NULL);
+    cl->idleSweepTimerSet = false;
+  }
+
+  uint64_t next_ns = Cursors_FindNextTimeoutNsLocked(cl);
+  cl->nextIdleTimeoutNs = next_ns;
+  if (next_ns == 0) {
+    return;
+  }
+
+  uint64_t now_ns = curTimeNs();
+  mstime_t period_ms = 0;
+  if (next_ns > now_ns) {
+    // Round up so we never fire before the deadline.
+    period_ms = (mstime_t)((next_ns - now_ns + 999999) / 1000000);
+  }
+
+  cl->idleSweepTimerId = RedisModule_CreateTimer(RSDummyContext, period_ms,
+                                                 cursorIdleSweepTimerCb, cl);
+  cl->idleSweepTimerSet = true;
 }
 
 CursorsInfoStats Cursors_GetInfoStats(void) {
@@ -290,6 +354,10 @@ int Cursor_Pause(Cursor *cur) {
     /* Add to idle list */
     cur->pos = ARRAY_GETSIZE_AS(&cl->idle, Cursor **);
     *(Cursor **)(ARRAY_ADD_AS(&cl->idle, Cursor *)) = cur;
+
+    // Arm/refresh the idle-sweep timer so that this cursor is reaped at its
+    // MAXIDLE deadline even if no further client traffic arrives.
+    Cursors_RescheduleSweepLocked(cl);
   }
 
   CursorList_Unlock(cl);
@@ -423,6 +491,10 @@ void Cursors_RenderStatsForInfo(CursorList *cl, CursorList *cl_coord, const Inde
 
 void CursorList_Empty(CursorList *cl) {
   CursorList_Lock(cl);
+  if (cl->idleSweepTimerSet) {
+    RedisModule_StopTimer(RSDummyContext, cl->idleSweepTimerId, NULL);
+    cl->idleSweepTimerSet = false;
+  }
   for (khiter_t ii = 0; ii != kh_end(cl->lookup); ++ii) {
     if (!kh_exist(cl->lookup, ii)) {
       continue;

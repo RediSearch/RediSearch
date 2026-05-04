@@ -151,6 +151,26 @@ def testTimeout(env):
             break
     env.assertEqual(0, rv)
 
+@skip(cluster=True)
+def testMaxIdleAutoReap(env):
+    # Regression test for MOD-6430: idle cursors must be reaped at MAXIDLE
+    # without requiring further client traffic (no explicit FT.CURSOR GC).
+    loadDocs(env, idx='idx1')
+    q1 = ['FT.AGGREGATE', 'idx1', '*', 'LOAD', '1', '@f1', 'WITHCURSOR', 'COUNT', 10, 'MAXIDLE', 50]
+    env.cmd(*q1)
+    env.assertEqual(1, getCursorStats(env, 'idx1')['index_total'])
+
+    # Wait comfortably longer than MAXIDLE; the module timer should have
+    # reaped the cursor by now without us issuing any other command.
+    exptime = time() + 2.5
+    rv = 1
+    while time() < exptime:
+        sleep(0.05)
+        rv = getCursorStats(env, 'idx1')['index_total']
+        if not rv:
+            break
+    env.assertEqual(0, rv)
+
 def testLeaked(env):
     # Ensure that sanitizer doesn't report memory leak for idle cursors.
     n_docs = env.shardsCount * 1100
