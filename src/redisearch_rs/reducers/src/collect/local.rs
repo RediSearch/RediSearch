@@ -212,8 +212,7 @@ impl LocalCollectCtx {
     /// explicit-list mode extra fields (e.g. sort keys) are ignored.
     pub fn add(&mut self, r: &LocalCollectReducer, row: &RLookupRow) {
         let Some(Value::Array(items)) = row.get(r.input_key).map(|p| &**p) else {
-            tracing_assert::debug_assert_warn!(
-                false,
+            tracing_assert::debug_warn!(
                 "local COLLECT: input_key must be present and contain an Array"
             );
             return;
@@ -221,8 +220,7 @@ impl LocalCollectCtx {
 
         for item in items.iter() {
             if !matches!(&**item, Value::Map(_) | Value::Array(_)) {
-                tracing_assert::debug_assert_warn!(
-                    false,
+                tracing_assert::debug_warn!(
                     "local COLLECT: shard payload item must be a Map or Array"
                 );
                 continue;

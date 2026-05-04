@@ -13,9 +13,12 @@
 //! a violation panics in debug builds and emits a `tracing::warn` event in
 //! release builds.
 //!
-//! A single macro is provided:
+//! Two macros are provided:
 //!
 //! * [`debug_assert_warn!`] — guards a condition that *should* hold.
+//! * [`debug_warn!`] — fires unconditionally; use it in branches believed
+//!   unreachable but where aborting in production would be worse than
+//!   continuing with degraded behaviour.
 //!
 //! The message tokens are forwarded verbatim and must be valid format-args
 //! input (a literal format string followed by positional/named arguments).
@@ -50,6 +53,41 @@ macro_rules! debug_assert_warn {
     }};
 }
 
+/// Emits a [`tracing::warn`] and, in debug builds, additionally panics.
+///
+/// Use in branches that are believed unreachable but should not abort the
+/// process in release builds. For conditional checks, prefer
+/// [`debug_assert_warn!`].
+///
+/// The message tokens must be valid format-args input — see the
+/// [crate-level docs](crate) for the constraint.
+///
+/// # Example
+///
+/// ```no_runf
+/// # fn handle(payload: Option<&[u8]>) {
+/// let Some(payload) = payload else {
+///     tracing_assert::debug_warn!("payload is required");
+///     return;
+/// };
+/// # let _ = payload;
+/// # }
+/// ```
+#[macro_export]
+macro_rules! debug_warn {
+    ($($arg:tt)+) => {{
+        ::tracing::warn!($($arg)+);
+        // `cfg!` (rather than `#[cfg]`) keeps the panic conditional from the
+        // compiler's control-flow analysis, so callers don't see spurious
+        // "unreachable code" warnings on a `return` / `continue` that follows
+        // a debug-only panic. The branch is still elided at compile time in
+        // release builds.
+        if ::core::cfg!(debug_assertions) {
+            ::core::panic!($($arg)+);
+        }
+    }};
+}
+
 #[cfg(test)]
 mod tests {
     #[test]
@@ -66,17 +104,17 @@ mod tests {
 
     #[cfg(not(debug_assertions))]
     #[test]
-    fn debug_assert_warn_false_only_warns_in_release() {
+    fn debug_warn_only_warns_in_release() {
         // In release builds the macro must not panic; in debug builds the
-        // companion `debug_assert_warn_false_panics_in_debug` test exercises the panic
+        // companion `debug_warn_panics_in_debug` test exercises the panic
         // path instead.
-        crate::debug_assert_warn!(false, "unreachable branch hit");
+        crate::debug_warn!("unreachable branch hit");
     }
 
     #[cfg(debug_assertions)]
     #[test]
     #[should_panic(expected = "unreachable branch hit")]
-    fn debug_assert_warn_false_panics_in_debug() {
-        crate::debug_assert_warn!(false, "unreachable branch hit");
+    fn debug_warn_panics_in_debug() {
+        crate::debug_warn!("unreachable branch hit");
     }
 }
