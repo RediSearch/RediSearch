@@ -313,7 +313,7 @@ bool trieContains(Trie *t, const char *s) {
   if (!runes) {
     return false;
   }
-  TrieNode *node = TrieNode_Get(t->root, runes, len, 0, NULL);
+  TrieNode *node = Trie_GetNode(t, runes, len, 0, NULL);
   runeBufFree(&buf);
   return node != NULL;
 }
@@ -820,7 +820,7 @@ static size_t trieGetNumDocs(Trie *t, const char *s) {
   runeBuf buf;
   size_t runeLen = strlen(s);
   rune *runes = runeBufFill(s, runeLen, &buf, &runeLen);
-  TrieNode *node = TrieNode_Get(t->root, runes, runeLen, true, NULL);
+  TrieNode *node = Trie_GetNode(t, runes, runeLen, true, NULL);
   runeBufFree(&buf);
   if (node == NULL) {
     return 0;

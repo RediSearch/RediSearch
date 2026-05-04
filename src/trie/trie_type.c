@@ -97,6 +97,10 @@ int Trie_DeleteRunes(Trie *t, const rune *runes, size_t len) {
   return rc;
 }
 
+TrieNode *Trie_GetNode(Trie *t, const rune *str, t_len len, bool exact, int *offsetOut) {
+  return TrieNode_Get(t->root, str, len, exact, offsetOut);
+}
+
 // Forward declaration for the internal rune-based function
 static TrieDecrResult Trie_DecrementNumDocsRunes(Trie *t, const rune *runes, size_t len, size_t delta);
 

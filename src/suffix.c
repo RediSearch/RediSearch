@@ -44,7 +44,7 @@ void addSuffixTrie(Trie *trie, const char *str, uint32_t len) {
   runeBuf buf;
   rune *runes = runeBufFill(str, len, &buf, &rlen);
 
-  TrieNode *trienode = TrieNode_Get(trie->root, runes, rlen, 1, NULL);
+  TrieNode *trienode = Trie_GetNode(trie, runes, rlen, true, NULL);
   suffixData *data = NULL;
   if (trienode) {
     // suffixData *node = TrieNode_GetValue(trie->root, runes, rlen, 1);
@@ -71,7 +71,7 @@ void addSuffixTrie(Trie *trie, const char *str, uint32_t len) {
   // Save string copy to all suffixes of it
   // If it exists, move to the next field
   for (int j = 1; j < len - MIN_SUFFIX + 1; ++j) {
-    TrieNode *trienode = TrieNode_Get(trie->root, runes + j, rlen - j, 1, NULL);
+    TrieNode *trienode = Trie_GetNode(trie, runes + j, rlen - j, true, NULL);
 
     data = Suffix_GetData(trienode);
     if (!trienode || !trienode->payload) {
@@ -107,7 +107,7 @@ void deleteSuffixTrie(Trie *trie, const char *str, uint32_t len) {
 
   // iterate all matching terms and remove word
   for (int j = 0; j < len - MIN_SUFFIX + 1; ++j) {
-    TrieNode *node = TrieNode_Get(trie->root, runes + j, rlen - j, 1, NULL);
+    TrieNode *node = Trie_GetNode(trie, runes + j, rlen - j, true, NULL);
     suffixData *data = Suffix_GetData(node);
     // suffix trie is shared between all text fields in index, even if they don't use it.
     // if the trie is owned by other fields and not any one containing this suffix,

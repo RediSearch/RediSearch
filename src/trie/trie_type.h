@@ -62,6 +62,10 @@ void *Trie_GetValueRune(Trie *t, const rune *runes, size_t len, bool exact);
 int Trie_Delete(Trie *t, const char *s, size_t len);
 int Trie_DeleteRunes(Trie *t, const rune *runes, size_t len);
 
+/* Look up a node by rune key. Wraps TrieNode_Get on the trie's root so callers do not
+ * need to reach into Trie internals. See TrieNode_Get for parameter semantics. */
+TrieNode *Trie_GetNode(Trie *t, const rune *str, t_len len, bool exact, int *offsetOut);
+
 /* Result codes for Trie_DecrementNumDocs */
 typedef enum {
   TRIE_DECR_NOT_FOUND = 0,   /* Term not found in trie */

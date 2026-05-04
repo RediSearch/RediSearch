@@ -566,7 +566,7 @@ QueryIterator *Query_EvalTokenNode(QueryEvalCtx *q, QueryNode *qn) {
     size_t rlen = 0;
     runeBuf buf;
     rune *runes = runeBufFill(qn->tn.str, qn->tn.len, &buf, &rlen);
-    TrieNode *trienode = TrieNode_Get(q->sctx->spec->terms->root, runes, rlen, true, NULL);
+    TrieNode *trienode = Trie_GetNode(q->sctx->spec->terms, runes, rlen, true, NULL);
     runeBufFree(&buf);
     size_t numDocsInTerm = trienode ? trienode->numDocs : 0;
     double idf = CalculateIDF(q->sctx->spec->stats.scoring.numDocuments, numDocsInTerm);
@@ -648,7 +648,7 @@ static QueryIterator *iterateExpandedTerms(QueryEvalCtx *q, Trie *terms, const c
     size_t rlen = 0;
     runeBuf buf;
     rune *runes = runeBufFill("", 1, &buf, &rlen);
-    TrieNode *emptyNode = TrieNode_Get(terms->root, runes, rlen, true, NULL);
+    TrieNode *emptyNode = Trie_GetNode(terms, runes, rlen, true, NULL);
     runeBufFree(&buf);
     size_t numDocsInEmpty = emptyNode ? emptyNode->numDocs : 0;
     addTerm("", 0, numDocsInEmpty, q, opts, &its, &itsSz, &itsCap);
@@ -869,7 +869,7 @@ static int charIterCb(const char *s, size_t n, void *p, void *payload) {
     size_t rlen = 0;
     runeBuf buf;
     rune *runes = runeBufFill(tok.str, tok.len, &buf, &rlen);
-    TrieNode *trienode = TrieNode_Get(q->sctx->spec->terms->root, runes, rlen, true, NULL);
+    TrieNode *trienode = Trie_GetNode(q->sctx->spec->terms, runes, rlen, true, NULL);
     runeBufFree(&buf);
     size_t numDocsInTerm = trienode ? trienode->numDocs : 0;
     double idf = CalculateIDF(q->sctx->spec->stats.scoring.numDocuments, numDocsInTerm);
