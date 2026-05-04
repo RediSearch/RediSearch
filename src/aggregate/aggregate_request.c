@@ -1668,7 +1668,8 @@ static void AREQ_Free(AREQ *req) {
       sctx->redisCtx = NULL;
     }
     RS_ASSERT(sctx->flags == RS_CTX_UNSET && "AREQ_Free must not release spec lock");
-    SearchCtx_FreeNoUnlock(sctx);
+    RS_ASSERT(sctx->key_ == NULL && "AREQ_Free expects no open Redis key");
+    rm_free(sctx);
   }
 
   for (size_t ii = 0; ii < req->nargs; ++ii) {

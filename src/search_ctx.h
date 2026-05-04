@@ -75,10 +75,6 @@ void SearchCtx_CleanUp(RedisSearchCtx * sctx);
 
 void SearchCtx_Free(RedisSearchCtx *sctx);
 
-// Close context-owned handles and free without attempting to unlock spec.
-// Callers must ensure the spec lock is already released.
-void SearchCtx_FreeNoUnlock(RedisSearchCtx *sctx);
-
 void RedisSearchCtx_LockSpecRead(RedisSearchCtx *sctx);
 
 int RedisSearchCtx_TryLockSpecRead(RedisSearchCtx *sctx);
