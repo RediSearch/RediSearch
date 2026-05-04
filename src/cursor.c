@@ -17,6 +17,7 @@
 #define Cursor_IsIdle(cur) ((cur)->pos != -1)
 
 static void Cursors_RescheduleSweepLocked(CursorList *cl);
+static void Cursors_RequestRescheduleSweep(CursorList *cl);
 
 // coord cursors will have odd ids and regular cursors will have even ids
 CursorList g_CursorsList;
@@ -164,6 +165,7 @@ static int Cursors_GCInternal(CursorList *cl, int force) {
   return ctx.numCollected;
 }
 
+// Runs on the main Redis thread with the GIL held.
 int Cursors_CollectIdle(CursorList *cl) {
   CursorList_Lock(cl);
   int rc = Cursors_GCInternal(cl, 1);
@@ -203,7 +205,9 @@ static void cursorIdleSweepTimerCb(RedisModuleCtx *ctx, void *data) {
 // Re-arms the per-list idle-sweep timer to fire at the earliest idle cursor
 // deadline. Cancels any previously armed timer first. Skipped when the module
 // timer API is unavailable (e.g. unit tests). Refreshes `nextIdleTimeoutNs`
-// from the live idle list. Assumed to be called under the cursor list lock.
+// from the live idle list. Must be called from the main Redis thread (with
+// the GIL held) and under the cursor list lock, since it manipulates a module
+// timer.
 static void Cursors_RescheduleSweepLocked(CursorList *cl) {
   if (RS_IsMock) {
     return;
@@ -231,6 +235,28 @@ static void Cursors_RescheduleSweepLocked(CursorList *cl) {
   cl->idleSweepTimerId = RedisModule_CreateTimer(RSDummyContext, period_ms,
                                                  cursorIdleSweepTimerCb, cl);
   cl->idleSweepTimerSet = true;
+}
+
+// Event-loop one-shot callback that re-arms the idle-sweep timer on the main
+// thread. Used from contexts that may run on worker threads, where calling
+// the module timer API directly is unsafe.
+static void cursorRescheduleSweepOneShotCb(void *data) {
+  CursorList *cl = data;
+  CursorList_Lock(cl);
+  Cursors_RescheduleSweepLocked(cl);
+  CursorList_Unlock(cl);
+}
+
+// Posts a one-shot job onto the Redis event loop to re-arm the idle-sweep
+// timer on the main thread. Safe to call from any thread; the actual timer
+// manipulation happens later under the GIL. Used from `Cursor_Pause`, which
+// may run on background worker threads (e.g. when FT.CURSOR READ is dispatched
+// to a worker via `cursorRead_ctx`).
+static void Cursors_RequestRescheduleSweep(CursorList *cl) {
+  if (RS_IsMock) {
+    return;
+  }
+  RedisModule_EventLoopAddOneShot(cursorRescheduleSweepOneShotCb, cl);
 }
 
 CursorsInfoStats Cursors_GetInfoStats(void) {
@@ -355,10 +381,10 @@ int Cursor_Pause(Cursor *cur) {
     /* Add to idle list */
     cur->pos = ARRAY_GETSIZE_AS(&cl->idle, Cursor **);
     *(Cursor **)(ARRAY_ADD_AS(&cl->idle, Cursor *)) = cur;
-
-    // Arm/refresh the idle-sweep timer so that this cursor is reaped at its
-    // MAXIDLE deadline even if no further client traffic arrives.
-    Cursors_RescheduleSweepLocked(cl);
+    // `Cursor_Pause` may run on a worker thread (see `cursorRead_ctx`), where
+    // the module timer API is unsafe to call directly. Defer the timer
+    // (re)arm to the main thread via a thread-safe one-shot.
+    Cursors_RequestRescheduleSweep(cl);
   }
 
   CursorList_Unlock(cl);
