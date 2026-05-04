@@ -56,30 +56,28 @@ impl<T> Storage<T> {
         }
     }
 
-    /// Drain in insertion order and apply `skip(offset).take(count)`. In
-    /// the no-`LIMIT` cases the buffered length is already `≤ count`, so
-    /// the slice degenerates to "everything buffered".
-    pub fn drain(&mut self) -> Vec<T> {
-        self.take_buffer()
+    /// Drain in insertion order, optionally applying the offset/count slice.
+    ///
+    /// When `apply_limit` is `true`, the buffered rows are yielded through
+    /// `skip(offset).take(count)`. In the no-`LIMIT` cases the buffered
+    /// length is already `≤ count`, so the slice degenerates to "everything
+    /// buffered". When `apply_limit` is `false`, every buffered row is
+    /// yielded — used by the remote reducer when `is_internal` is set,
+    /// where the coordinator owns the global offset.
+    pub fn drain(&mut self, apply_limit: bool) -> impl Iterator<Item = T> {
+        let (offset, count) = if apply_limit {
+            (self.offset, self.count)
+        } else {
+            (0, usize::MAX)
+        };
+        std::mem::take(&mut self.buf)
             .into_iter()
-            .skip(self.offset)
-            .take(self.count)
-            .collect()
-    }
-
-    /// Drain in insertion order without applying the offset/count slice.
-    /// Used by the remote reducer when `is_internal` is set, where the
-    /// coordinator owns the global offset.
-    pub fn drain_unlimited(&mut self) -> Vec<T> {
-        self.take_buffer()
+            .skip(offset)
+            .take(count)
     }
 
     /// Iterate buffered rows in insertion order, read-only.
     pub fn iter(&self) -> impl Iterator<Item = &T> + '_ {
         self.buf.iter()
-    }
-
-    fn take_buffer(&mut self) -> Vec<T> {
-        std::mem::take(&mut self.buf)
     }
 }

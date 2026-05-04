@@ -40,7 +40,7 @@ fn insert_entry_array_caps_at_len_in_insertion_order() {
     for i in 0..5 {
         s.insert_entry(|| vec![SharedValue::new_num(i as f64)].into_boxed_slice());
     }
-    let drained = s.drain();
+    let drained: Vec<_> = s.drain(true).collect();
     assert_eq!(drained.len(), 3, "array variant must cap at `cap`");
     assert_eq!(drained_nums(&drained), vec![0.0, 1.0, 2.0]);
 }
@@ -51,7 +51,7 @@ fn insert_entry_heap_caps_at_len_in_insertion_order() {
     for i in 0..5 {
         s.insert_entry(|| vec![SharedValue::new_num(i as f64)].into_boxed_slice());
     }
-    let drained = s.drain();
+    let drained: Vec<_> = s.drain(true).collect();
     assert_eq!(drained.len(), 3, "heap variant must cap at `cap`");
     assert_eq!(drained_nums(&drained), vec![0.0, 1.0, 2.0]);
 }
@@ -76,17 +76,17 @@ fn drain_applies_skip_take() {
     for i in 0..5 {
         s.insert_entry(|| vec![SharedValue::new_num(i as f64)].into_boxed_slice());
     }
-    let drained = s.drain();
+    let drained: Vec<_> = s.drain(true).collect();
     assert_eq!(drained_nums(&drained), vec![1.0, 2.0]);
 }
 
 #[test]
-fn drain_unlimited_ignores_stored_limit() {
+fn drain_without_limit_ignores_stored_limit() {
     let mut s = Storage::new(false, Some((1, 2)));
     for i in 0..3 {
         s.insert_entry(|| vec![SharedValue::new_num(i as f64)].into_boxed_slice());
     }
-    let drained = s.drain_unlimited();
+    let drained: Vec<_> = s.drain(false).collect();
     assert_eq!(drained_nums(&drained), vec![0.0, 1.0, 2.0]);
 }
 
@@ -96,7 +96,7 @@ fn insert_entry_heap_uses_default_limit_when_no_explicit_limit() {
     for i in 0..(DEFAULT_LIMIT as usize + 5) {
         s.insert_entry(|| vec![SharedValue::new_num(i as f64)].into_boxed_slice());
     }
-    let drained = s.drain();
+    let drained: Vec<_> = s.drain(true).collect();
     assert_eq!(drained.len(), DEFAULT_LIMIT as usize);
 }
 

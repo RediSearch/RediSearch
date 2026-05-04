@@ -143,22 +143,18 @@ impl LocalCollectCtx {
     /// honoured in distributed mode — see
     /// [`super::remote::RemoteCollectReducer::is_internal`].
     pub fn finalize(&mut self, r: &LocalCollectReducer) -> SharedValue {
-        let drained = self.storage.drain();
-
         let field_names: Vec<SharedValue> = r
             .field_names
             .iter()
             .map(|name| SharedValue::new_string(name.to_vec()))
             .collect();
 
-        let rows: Vec<SharedValue> = drained
-            .into_iter()
+        let rows: Vec<SharedValue> = self
+            .storage
+            .drain(true)
             .map(|projected| {
-                let entries: Vec<(SharedValue, SharedValue)> = field_names
-                    .iter()
-                    .zip(projected.into_vec())
-                    .map(|(name, val)| (name.clone(), val))
-                    .collect();
+                let entries: Vec<(SharedValue, SharedValue)> =
+                    field_names.iter().cloned().zip(projected).collect();
                 SharedValue::new_map(entries)
             })
             .collect();
