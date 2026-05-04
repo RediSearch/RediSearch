@@ -90,11 +90,7 @@ TrieNode *__newTrieNode(const rune *str, t_len offset, t_len len, const char *pa
 #define __trieNode_children(n) \
   ((TrieNode **)((void *)n + sizeof(TrieNode) + ((n->len + 1) + (n->numChildren)) * sizeof(rune)))
 
-#define __trieNode_childKey(n, c) (rune *)((void *)n + sizeof(TrieNode) + (n->len + 1 + c) * sizeof(rune))
-
 #define __trieNode_isTerminal(n) (n->flags & TRIENODE_TERMINAL)
-
-#define __trieNode_isDeleted(n) (n->flags & TRIENODE_DELETED)
 
 typedef enum {
   ADD_REPLACE,

@@ -69,6 +69,10 @@ do {                                                      \
   }                                                       \
 } while(0)
 
+#define __trieNode_childKey(n, c) (rune *)((void *)n + sizeof(TrieNode) + (n->len + 1 + c) * sizeof(rune))
+
+#define __trieNode_isDeleted(n) (n->flags & TRIENODE_DELETED)
+
 /* The byte size of a node, based on its internal string length and number of
  * children */
 static size_t __trieNode_Sizeof(t_len numChildren, t_len slen) {
