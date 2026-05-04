@@ -38,6 +38,7 @@ members = [
     "trie_bencher",
     "top_k",
     "trie_rs",
+    "ttl_table",
     "value",
     "varint",
     "varint_bencher",
@@ -130,6 +131,7 @@ thin_vec = { path = "./thin_vec" }
 top_k = { path = "./top_k" }
 tracing_redismodule = { path = "./tracing_redismodule" }
 trie_rs = { path = "./trie_rs" }
+ttl_table = { path = "./ttl_table" }
 value = { path = "./value" }
 varint = { path = "./varint" }
 wildcard = { path = "./wildcard" }
