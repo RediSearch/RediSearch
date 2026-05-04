@@ -14,9 +14,11 @@ use std::{ffi::c_void, ptr::NonNull};
 mock_or_stub_missing_redis_c_symbols!();
 
 pub use bencher::OperationBencher;
+pub use rune_bencher::{RuneOperationBencher, RustRuneTrieMap};
 
 pub mod bencher;
 pub mod corpus;
+pub mod rune_bencher;
 
 // Convenient aliases for the trie types that are being benchmarked.
 pub type RustTrieMap = trie_rs::TrieMap<NonNull<c_void>>;

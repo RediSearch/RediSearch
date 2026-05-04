@@ -23,6 +23,10 @@ harness = false
 name = "iter"
 harness = false
 
+[[bench]]
+name = "iter_rune"
+harness = false
+
 [dependencies]
 crc32fast.workspace = true
 criterion.workspace = true
