@@ -79,6 +79,12 @@ void Trie_IterateContains(Trie *t, const rune *str, int nstr, bool prefix, bool 
                           TrieRangeCallback callback, void *ctx, struct timespec *timeout,
                           bool skipTimeoutChecks);
 
+/* Iterate all nodes matching a wildcard pattern. Wraps TrieNode_IterateWildcard on the
+ * trie's root. See TrieNode_IterateWildcard for parameter semantics. */
+void Trie_IterateWildcard(Trie *t, const rune *str, int nstr,
+                          TrieRangeCallback callback, void *ctx, struct timespec *timeout,
+                          bool skipTimeoutChecks);
+
 /* Result codes for Trie_DecrementNumDocs */
 typedef enum {
   TRIE_DECR_NOT_FOUND = 0,   /* Term not found in trie */
