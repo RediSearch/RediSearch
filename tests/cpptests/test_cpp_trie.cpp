@@ -895,7 +895,7 @@ TEST_F(TrieTest, testRdbSaveLoadWithNumDocs) {
   EXPECT_EQ(300, trieGetNumDocs(loadedTrie, "ABC"));
 
   // Verify numDocs via iterator as well
-  TrieIterator *it = TrieNode_Iterate(loadedTrie->root, NULL, NULL, NULL);
+  TrieIterator *it = Trie_IterateAll(loadedTrie);
   rune *rstr;
   t_len len;
   float score;

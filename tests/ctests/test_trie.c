@@ -429,7 +429,7 @@ int testNumDocs() {
   ASSERT_EQUAL(1, node->numDocs);
 
   // Verify numDocs via iterator
-  TrieIterator *it = TrieNode_Iterate(t->root, NULL, NULL, NULL);
+  TrieIterator *it = Trie_IterateAll(t);
   rune *s;
   t_len iterLen;
   float score;
