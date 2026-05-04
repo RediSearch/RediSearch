@@ -133,21 +133,15 @@ impl<'a> RLookup<'a> {
             "The NameAlloc flag should have been handled in the FFI function. This is a bug."
         );
 
-        // Manually iterate through all keys including hidden ones
-        let mut c = src.cursor();
-        while let Some(src_key) = c.current() {
-            if !src_key.is_tombstone() {
-                // Combine caller's control flags with source key's persistent properties
-                // Only preserve non-transient flags from source (F_SVSRC, F_HIDDEN, etc.)
-                // while respecting caller's control flags (F_OVERRIDE, F_FORCE_LOAD, etc.)
-                let combined_flags = flags | src_key.flags & !TRANSIENT_FLAGS;
+        for src_key in src.iter() {
+            // Combine caller's control flags with source key's persistent properties
+            // Only preserve non-transient flags from source (F_SVSRC, F_HIDDEN, etc.)
+            // while respecting caller's control flags (F_OVERRIDE, F_FORCE_LOAD, etc.)
+            let combined_flags = flags | src_key.flags & !TRANSIENT_FLAGS;
 
-                // NB: get_key_write returns none if the key already exists and `flags` don't contain `Override`.
-                // In this case, we just want to move on to the next key
-                let _ = self.get_key_write(src_key.name().clone(), combined_flags);
-            }
-
-            c.move_next();
+            // NB: get_key_write returns none if the key already exists and `flags` don't contain `Override`.
+            // In this case, we just want to move on to the next key
+            let _ = self.get_key_write(src_key.name().clone(), combined_flags);
         }
     }
 
