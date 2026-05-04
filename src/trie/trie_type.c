@@ -23,6 +23,15 @@
 #include <string.h>
 #include <limits.h>
 
+struct Trie {
+  TrieNode *root;
+  size_t size;
+  TrieFreeCallback freecb;
+  TrieSortMode sortMode;
+};
+
+size_t Trie_Size(const Trie *t) { return t ? t->size : 0; }
+
 Trie *NewTrie(TrieFreeCallback freecb, TrieSortMode sortMode) {
   Trie *tree = rm_malloc(sizeof(Trie));
   rune *rs = strToRunes("", 0);
