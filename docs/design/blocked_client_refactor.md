@@ -296,8 +296,8 @@ sequenceDiagram
   Main->>Main: BlockedRequest_New(areq)  [refcount=1]
   Main->>Main: BlockedClientCtx_New(spec)
   Note right of Main: Calls RedisModule_BlockClient<br/>OnFree wired<br/>reply_cb may be NULL or set
-  Main->>Main: BlockedQueries_AddQuery(...)  [observer; bcc.registry_node]
-  Main->>Pool: enqueue BlockedRequestTask{request, bcc}
+  Main->>Main: register in BlockedQueries  [observer; sets bcc.registry_node]
+  Main->>Pool: enqueue BlockedRequestTask  [request, bcc]
   Pool->>Worker: dispatch
   Worker->>Worker: SpecReadGuard_Acquire(sctx)
   Worker->>Worker: run pipeline
@@ -350,13 +350,13 @@ of the three exit paths, not a special case.
 sequenceDiagram
   autonumber
   participant Main as Main thread
-  participant W1 as Worker (cycle N, initial query)
-  participant Curs as Cursor (parked between cycles)
-  participant W2 as Worker (cycle N+1, CURSOR READ)
-  participant GC as Cursor GC / DEL (main)
+  participant W1 as Worker cycle N initial query
+  participant Curs as Cursor parked between cycles
+  participant W2 as Worker cycle N+1 CURSOR READ
+  participant GC as Cursor GC or DEL on main
 
   Note over Main: Initial query with WITHCURSOR
-  Main->>W1: enqueue BlockedRequestTask{request(kind=AREQ), bcc}
+  Main->>W1: enqueue BlockedRequestTask  [request kind=AREQ, bcc]
   W1->>W1: SpecReadGuard_Acquire(sctx); run pipeline; SpecReadGuard_Release()
   W1->>W1: Cursor_Pause(req)  [cursor now parked, holds AREQ]
   W1->>Main: UnblockClient(bcc)
@@ -365,7 +365,7 @@ sequenceDiagram
 
   Note over Main: Subsequent CURSOR READ
   Main->>Main: BlockedRequest_NewForCursor(cursor) [borrows cursor's AREQ ref]
-  Main->>W2: enqueue BlockedRequestTask{request(kind=CURSOR_READ), bcc}
+  Main->>W2: enqueue BlockedRequestTask  [request kind=CURSOR_READ, bcc]
   W2->>W2: SpecReadGuard_Acquire(sctx); run pipeline; SpecReadGuard_Release()
   alt iterator exhausted
     W2->>W2: Cursor_Free(cursor)  [returns AREQ ref to request, which OnFree releases]
@@ -454,13 +454,13 @@ may touch in that window, and what synchronizes them.
 ```mermaid
 sequenceDiagram
   autonumber
-  participant Main as Main (timeout_cb)
+  participant Main as Main thread timeout_cb
   participant Sync as RequestSyncCtx
-  participant Worker as Worker (mid-pipeline)
-  participant Reply as bcc.reply (ChunkReplyState)
+  participant Worker as Worker mid-pipeline
+  participant Reply as bcc.reply ChunkReplyState
   participant Redis as Redis core
 
-  Note over Worker: pipeline tick: chunk produced
+  Note over Worker: pipeline tick - chunk produced
   Main->>Sync: store(timedOut = true, release)
   Main->>Main: write timeout reply via ctx (per timeout policy)
   Worker->>Sync: load(timedOut, acquire)
