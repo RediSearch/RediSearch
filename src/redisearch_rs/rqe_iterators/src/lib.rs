@@ -64,8 +64,6 @@ pub use inverted_index::{
     build_geo_numeric_filters, extract_geo_unit_factor, new_geo_range_iterator,
     open_numeric_or_geo_index,
 };
-pub use not::NotIterator;
-pub use optional::OptionalIterator;
 pub use rqe_iterator_type::IteratorType;
 pub use union::{
     Union, UnionFlat, UnionFullFlat, UnionFullHeap, UnionHeap, UnionQuickFlat, UnionQuickHeap,

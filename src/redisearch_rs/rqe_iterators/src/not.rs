@@ -260,25 +260,6 @@ where
     }
 }
 
-/// Trait for NOT iterators ([`Not`] and [`crate::not_optimized::NotOptimized`]).
-pub trait NotIterator<'index>: RQEIterator<'index> {
-    // Those methods are used by profile.c to wrap the child iterator.
-    // They can be removed once this code is ported to Rust.
-    /// Get a shared reference to the child iterator, or `None` if unset.
-    fn child(&self) -> Option<&dyn RQEIterator<'index>>;
-}
-
-impl<'index, TC> NotIterator<'index> for Not<'index, Box<dyn RQEIterator<'index> + 'index>, TC>
-where
-    TC: TimeoutContext,
-{
-    fn child(&self) -> Option<&dyn RQEIterator<'index>> {
-        self.child
-            .as_ref()
-            .map(|c| &**c as &dyn RQEIterator<'index>)
-    }
-}
-
 impl<'index, TC> crate::interop::ProfileChildren<'index>
     for Not<'index, crate::c2rust::CRQEIterator, TC>
 where

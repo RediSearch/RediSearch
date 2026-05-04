@@ -19,49 +19,6 @@ use crate::{
 };
 use index_spec::IndexSpecReadGuard;
 
-/// Trait implemented by all optional iterator variants.
-///
-/// Both [`Optional`] and [`crate::optional_optimized::OptionalOptimized`] implement this,
-/// with the child stored as `Box<dyn RQEIterator>`.
-pub trait OptionalIterator<'index>: RQEIterator<'index> {
-    /// Returns a shared reference to the child iterator, if any.
-    fn child(&self) -> Option<&(dyn RQEIterator<'index> + 'index)>;
-
-    /// Takes ownership of the child iterator, replacing it with an empty state.
-    ///
-    /// Returns `None` if there is no child.
-    fn take_child(&mut self) -> Option<Box<dyn RQEIterator<'index> + 'index>>;
-
-    /// Sets (or overwrites) the child iterator.
-    fn set_child(&mut self, child: Box<dyn RQEIterator<'index> + 'index>);
-
-    /// Unsets the child iterator (makes it `None`).
-    ///
-    /// # Panics
-    ///
-    /// Panics for iterator variants that do not support an absent child
-    /// (e.g. [`crate::optional_optimized::OptionalOptimized`]).
-    fn unset_child(&mut self);
-}
-
-impl<'index> OptionalIterator<'index> for Optional<'index, Box<dyn RQEIterator<'index> + 'index>> {
-    fn child(&self) -> Option<&(dyn RQEIterator<'index> + 'index)> {
-        Optional::child(self).map(|c| c.as_ref())
-    }
-
-    fn take_child(&mut self) -> Option<Box<dyn RQEIterator<'index> + 'index>> {
-        Optional::take_child(self)
-    }
-
-    fn set_child(&mut self, child: Box<dyn RQEIterator<'index> + 'index>) {
-        Optional::set_child(self, child);
-    }
-
-    fn unset_child(&mut self) {
-        Optional::unset_child(self);
-    }
-}
-
 /// An iterator that emits a sequence of results with no gaps, up to a given document id.
 /// Results are pulled from an underlying [`RQEIterator`] instance. If there is no entry
 /// for a given document id, a virtual result is yielded in its place.
@@ -123,23 +80,6 @@ where
     /// wrapped by this [`Optional`] iterator.
     pub const fn child(&self) -> Option<&I> {
         self.child.as_ref()
-    }
-
-    /// Set the child of this [`Optional`] iterator.
-    pub fn set_child(&mut self, new_child: I) {
-        self.child = Some(new_child);
-    }
-
-    /// Unset the child of this [`Optional`] iterator (make it `None`).
-    pub fn unset_child(&mut self) {
-        self.child = None;
-    }
-
-    /// Take the child of this [`Optional`] iterator if it had one.
-    /// After this the child iterator of this [`Optional`] will behave
-    /// as if it was the [`Empty`](crate::Empty) iterator.
-    pub const fn take_child(&mut self) -> Option<I> {
-        self.child.take()
     }
 }
 
