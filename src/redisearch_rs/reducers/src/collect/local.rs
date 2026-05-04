@@ -109,17 +109,16 @@ impl LocalCollectCtx {
     /// merge — one bad shard reply must not poison the rest.
     pub fn add(&mut self, r: &LocalCollectReducer, row: &RLookupRow) {
         let Some(payload) = row.get(r.input_key) else {
-            value::debug_assert_warn!(false, "LocalCollectReducer requires a payload");
+            tracing_assert::debug_warn!("LocalCollectReducer requires a payload");
             return;
         };
         let Value::Array(array) = &**payload else {
-            value::debug_assert_warn!(false, "LocalCollectReducer payload must be an Array");
+            tracing_assert::debug_warn!("LocalCollectReducer payload must be an Array");
             return;
         };
         for entry in array.iter() {
             if !matches!(&**entry, Value::Map(_) | Value::Array(_)) {
-                value::debug_assert_warn!(
-                    false,
+                tracing_assert::debug_warn!(
                     "LocalCollectReducer payload entry must be a Map or Array"
                 );
                 continue;
