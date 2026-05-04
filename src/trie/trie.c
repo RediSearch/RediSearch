@@ -167,7 +167,7 @@ static TrieNode *__trie_SplitNode(TrieNode *n, t_len offset) {
   return n;
 }
 
-/* If a node has a single child after delete, we can merged them. This deletes
+/* If a node has a single child after delete, we can merge them. This deletes
  * the node and returns a newly allocated node */
 static TrieNode *__trieNode_MergeWithSingleChild(TrieNode *n, TrieFreeCallback freecb) {
 
