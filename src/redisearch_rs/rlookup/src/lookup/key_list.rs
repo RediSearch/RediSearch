@@ -418,17 +418,16 @@ impl<'a> Iterator for IterRaw<'a> {
 
     fn next(&mut self) -> Option<Self::Item> {
         let mut curr = self.current.take()?;
-
-        // Safety: The `KeyList` ensures the linked list pointers are valid.
-        while unsafe { curr.as_ref() }.is_tombstone() {
-            // Safety: The `KeyList` ensures the linked list pointers are valid.
-            curr = unsafe { curr.as_ref() }.next()?;
+        loop {
+            // Safety: The `KeyList` ensures the linked list pointers are valid for as long as the
+            // wrapping iterator's borrow lives.
+            let curr_ref = unsafe { curr.as_ref() };
+            if !curr_ref.is_tombstone() {
+                self.current = curr_ref.next();
+                return Some(curr);
+            }
+            curr = curr_ref.next()?;
         }
-
-        // Safety: The `KeyList` ensures the linked list pointers are valid.
-        self.current = unsafe { curr.as_ref() }.next();
-
-        Some(curr)
     }
 }
 
