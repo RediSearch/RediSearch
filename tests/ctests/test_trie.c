@@ -502,7 +502,7 @@ int testDecrementNumDocs() {
   ASSERT_EQUAL(TRIE_DECR_DELETED, rc);
   node = Trie_GetNode(t, helloRunes, helloLen, true, NULL);
   ASSERT(node == NULL);  // Node should be deleted
-  ASSERT_EQUAL(0, t->size);  // Trie size should be 0
+  ASSERT_EQUAL(0, Trie_Size(t));  // Trie size should be 0
 
   // Test 4: Decrement with delta > numDocs (should clamp and delete)
   insertRc = Trie_InsertStringBuffer(t, "world", 5, 1.0, 0, NULL, 5);
@@ -660,7 +660,7 @@ int testDecrementNumDocsComplex() {
                                      1.0, 0, NULL, initialTerms[i].numDocs);
     ASSERT_EQUAL(1, rc);
   }
-  ASSERT_EQUAL(numTerms, t->size);
+  ASSERT_EQUAL(numTerms, Trie_Size(t));
 
   // Verify initial state
   size_t runeLen;
@@ -807,7 +807,7 @@ int testDecrementNumDocsComplex() {
   free(runes);
 
   // Trie size should be numTerms - 3 (bandana, caféine, 東京 were deleted)
-  ASSERT_EQUAL(numTerms - 3, t->size);
+  ASSERT_EQUAL(numTerms - 3, Trie_Size(t));
 
   // ========================================
   // Simulate another GC pass: more aggressive cleanup
@@ -843,7 +843,7 @@ int testDecrementNumDocsComplex() {
   free(runes);
 
   // Trie size should now be numTerms - 6 (3 from first pass + 3 app* terms)
-  ASSERT_EQUAL(numTerms - 6, t->size);
+  ASSERT_EQUAL(numTerms - 6, Trie_Size(t));
 
   // ========================================
   // Test decrementing a non-existent term (already deleted)
@@ -907,7 +907,7 @@ int testDecrementNumDocsNonTerminal() {
   // ========================================
   int insertRc = Trie_InsertStringBuffer(t, "helloworld", 10, 1.0, 0, NULL, 100);
   ASSERT_EQUAL(1, insertRc);
-  ASSERT_EQUAL(1, t->size);
+  ASSERT_EQUAL(1, Trie_Size(t));
 
   // Verify "helloworld" exists and is terminal
   runes = strToRunes("helloworld", &runeLen);
@@ -930,7 +930,7 @@ int testDecrementNumDocsNonTerminal() {
   free(runes);
 
   // Trie size should still be 1
-  ASSERT_EQUAL(1, t->size);
+  ASSERT_EQUAL(1, Trie_Size(t));
 
   // ========================================
   // Test 2: Now insert "hello" as a terminal node
@@ -938,7 +938,7 @@ int testDecrementNumDocsNonTerminal() {
   // ========================================
   insertRc = Trie_InsertStringBuffer(t, "hello", 5, 1.0, 0, NULL, 50);
   ASSERT_EQUAL(1, insertRc);
-  ASSERT_EQUAL(2, t->size);
+  ASSERT_EQUAL(2, Trie_Size(t));
 
   // Verify "hello" is now terminal
   runes = strToRunes("hello", &runeLen);
@@ -971,7 +971,7 @@ int testDecrementNumDocsNonTerminal() {
   // ========================================
   rc = Trie_DecrementNumDocs(t, "hello", 5, 40);
   ASSERT_EQUAL(TRIE_DECR_DELETED, rc);
-  ASSERT_EQUAL(1, t->size);
+  ASSERT_EQUAL(1, Trie_Size(t));
 
   // "hello" should no longer be found (deleted)
   runes = strToRunes("hello", &runeLen);

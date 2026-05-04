@@ -158,7 +158,7 @@ static void Propagate_Dict(RedisModuleCtx* ctx, const char* dictName, Trie* trie
   float score = 0;
   int dist = 0;
 
-  RedisModuleString **terms = rm_malloc(trie->size * sizeof(RedisModuleString*));
+  RedisModuleString **terms = rm_malloc(Trie_Size(trie) * sizeof(RedisModuleString*));
   size_t termsCount = 0;
 
   TrieIterator *it = Trie_Iterate(trie, "", 0, 0, 1);
@@ -169,8 +169,8 @@ static void Propagate_Dict(RedisModuleCtx* ctx, const char* dictName, Trie* trie
   }
   TrieIterator_Free(it);
 
-  RS_ASSERT(termsCount == trie->size);
-  RS_LOG_ASSERT(trie->size != 0, "Empty dictionary should not exist in the dictionary list");
+  RS_ASSERT(termsCount == Trie_Size(trie));
+  RS_LOG_ASSERT(Trie_Size(trie) != 0, "Empty dictionary should not exist in the dictionary list");
   int rc = RedisModule_ClusterPropagateForSlotMigration(ctx, RS_DICT_ADD, "cv", dictName, terms, termsCount);
   if (rc != REDISMODULE_OK) {
     RedisModule_Log(ctx, "warning", "Failed to propagate dictionary '%s' during slot migration. errno: %d", RSGlobalConfig.hideUserDataFromLog ? "****" : dictName, errno);

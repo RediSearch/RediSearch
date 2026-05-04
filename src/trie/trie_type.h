@@ -85,6 +85,9 @@ void Trie_IterateWildcard(Trie *t, const rune *str, int nstr,
                           TrieRangeCallback callback, void *ctx, struct timespec *timeout,
                           bool skipTimeoutChecks);
 
+/* Number of terminal entries in the trie. Wraps the internal size counter. */
+static inline size_t Trie_Size(const Trie *t) { return t ? t->size : 0; }
+
 /* Result codes for Trie_DecrementNumDocs */
 typedef enum {
   TRIE_DECR_NOT_FOUND = 0,   /* Term not found in trie */
