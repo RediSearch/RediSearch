@@ -296,7 +296,7 @@ sequenceDiagram
   Main->>Main: BlockedRequest_New(areq)  [refcount=1]
   Main->>Main: BlockedClientCtx_New(spec)
   Note right of Main: Calls RedisModule_BlockClient<br/>OnFree wired<br/>reply_cb may be NULL or set
-  Main->>Main: register in BlockedQueries  [observer; sets bcc.registry_node]
+  Main->>Main: register in BlockedQueries  [observer, sets bcc.registry_node]
   Main->>Pool: enqueue BlockedRequestTask  [request, bcc]
   Pool->>Worker: dispatch
   Worker->>Worker: SpecReadGuard_Acquire(sctx)
@@ -357,16 +357,16 @@ sequenceDiagram
 
   Note over Main: Initial query with WITHCURSOR
   Main->>W1: enqueue BlockedRequestTask  [request kind=AREQ, bcc]
-  W1->>W1: SpecReadGuard_Acquire(sctx); run pipeline; SpecReadGuard_Release()
+  W1->>W1: SpecReadGuard_Acquire(sctx), run pipeline, SpecReadGuard_Release()
   W1->>W1: Cursor_Pause(req)  [cursor now parked, holds AREQ]
   W1->>Main: UnblockClient(bcc)
   Main->>Main: reply_cb → OnFree → BlockedRequest_DecRef
-  Note over Curs: AREQ ref-held by cursor only;<br/>no lock, no in-flight request, no bcc.
+  Note over Curs: AREQ ref-held by cursor only.<br/>No lock, no in-flight request, no bcc.
 
   Note over Main: Subsequent CURSOR READ
   Main->>Main: BlockedRequest_NewForCursor(cursor) [borrows cursor's AREQ ref]
   Main->>W2: enqueue BlockedRequestTask  [request kind=CURSOR_READ, bcc]
-  W2->>W2: SpecReadGuard_Acquire(sctx); run pipeline; SpecReadGuard_Release()
+  W2->>W2: SpecReadGuard_Acquire(sctx), run pipeline, SpecReadGuard_Release()
   alt iterator exhausted
     W2->>W2: Cursor_Free(cursor)  [returns AREQ ref to request, which OnFree releases]
   else more chunks
@@ -375,7 +375,7 @@ sequenceDiagram
   W2->>Main: UnblockClient(bcc)
 
   Note over GC: Independent: CURSOR DEL or idle GC
-  GC->>Curs: Cursor_Free(cursor)  [main thread; only legal when no in-flight request]
+  GC->>Curs: Cursor_Free(cursor)  [main thread, only legal when no in-flight request]
 ```
 
 Invariants:
@@ -465,14 +465,14 @@ sequenceDiagram
   Main->>Main: write timeout reply via ctx (per timeout policy)
   Worker->>Sync: load(timedOut, acquire)
   alt timedOut == true
-    Worker->>Worker: drop in-progress chunk; do NOT write bcc.reply
+    Worker->>Worker: drop in-progress chunk, do NOT write bcc.reply
   else still running
-    Worker->>Reply: write ChunkReplyState; populated = true
+    Worker->>Reply: write ChunkReplyState, populated = true
   end
   Worker->>Redis: UnblockClient(bcc)
   Note over Redis: reply_cb suppressed (buffer already written by timeout_cb)
   Redis-->>Main: OnFree(bcc)
-  Main->>Main: ChunkReplyState_Destroy (populated or not); DecRef request
+  Main->>Main: ChunkReplyState_Destroy (populated or not), DecRef request
 ```
 
 Allowed shared touches in the window:
