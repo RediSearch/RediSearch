@@ -145,8 +145,11 @@ def test_MOD_865(env):
   env.expect('FT.DROPINDEX', 'idx')
 
 def test_MOD_6411(env):
-  # The argc bound check
-  # should reject the request with the standard schema-limit error.
+  # FT.CREATE used to crash on a stack overflow when the argument list was
+  # large enough (the parser allocated a VLA of `const char *` on the stack).
+  # The parser now consumes RedisModuleString ** directly through ArgsCursor,
+  # so an oversized field list is rejected with the standard schema-limit
+  # error instead of crashing the server.
   args_list = ['FT.CREATE', 'idx', 'SCHEMA']
   for i in range(100000):
     args_list.extend([f'field{i}', 'NUMERIC', 'SORTABLE'])
