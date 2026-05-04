@@ -20,7 +20,6 @@ use index_result::RSIndexResult;
 use crate::{
     RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
     maybe_empty::MaybeEmpty,
-    optional::OptionalIterator,
     profile_print::{ProfilePrint, ProfilePrintCtx},
     wildcard::WildcardIterator,
 };
@@ -69,11 +68,6 @@ where
         self.child.as_ref()
     }
 
-    /// Takes the child iterator out, replacing it with an [`Empty`](crate::Empty) iterator.
-    pub fn take_child(&mut self) -> Option<I> {
-        self.child.take_iterator()
-    }
-
     /// Sets the child iterator.
     pub fn set_child(&mut self, child: I) {
         self.child = MaybeEmpty::new(child);
@@ -99,28 +93,6 @@ where
             last_doc_id: 0,
             at_eof: false,
         }
-    }
-}
-
-impl<'index, W> OptionalIterator<'index>
-    for OptionalOptimized<'index, W, Box<dyn RQEIterator<'index> + 'index>>
-where
-    W: WildcardIterator<'index>,
-{
-    fn child(&self) -> Option<&(dyn RQEIterator<'index> + 'index)> {
-        OptionalOptimized::child(self).map(|c| c.as_ref())
-    }
-
-    fn take_child(&mut self) -> Option<Box<dyn RQEIterator<'index> + 'index>> {
-        self.child.take_iterator()
-    }
-
-    fn set_child(&mut self, child: Box<dyn RQEIterator<'index> + 'index>) {
-        self.child = MaybeEmpty::new(child);
-    }
-
-    fn unset_child(&mut self) {
-        panic!("`unset_child` is not supported for this optional iterator variant");
     }
 }
 

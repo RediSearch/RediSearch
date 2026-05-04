@@ -18,7 +18,6 @@ use crate::{
     IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
     WildcardIterator,
     maybe_empty::MaybeEmpty,
-    not::NotIterator,
     profile_print::{ProfilePrint, ProfilePrintCtx},
     utils::TimeoutContext,
 };
@@ -344,16 +343,6 @@ where
 
     fn intersection_sort_weight(&self, _prioritize_union_children: bool) -> f64 {
         1.0
-    }
-}
-
-impl<'index, W> NotIterator<'index>
-    for NotOptimized<'index, W, Box<dyn RQEIterator<'index> + 'index>>
-where
-    W: crate::WildcardIterator<'index>,
-{
-    fn child(&self) -> Option<&dyn RQEIterator<'index>> {
-        NotOptimized::child(self).map(|c| &**c as &dyn RQEIterator<'index>)
     }
 }
 
