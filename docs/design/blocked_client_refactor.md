@@ -20,7 +20,7 @@ undefined behaviour for `pthread_rwlock_t`. This RFC replaces the implicit
 ownership with three explicit roles:
 
 | Role | Owns | Lives on |
-|---|---|---|
+| --- | --- | --- |
 | **`BlockedRequest`** | The single canonical refcount on `AREQ` / `HybridRequest` / cursor read. | Created on main, executed on worker, freed on main. |
 | **`BlockedClientCtx`** | The `RedisModuleBlockedClient`, the `ChunkReplyState`, and the `BlockedQueries` registry node. | Created on main in `RedisModule_BlockClient`, freed on main in the `bc` free-callback. |
 | **`SpecReadGuard`** | One acquisition of the spec read-lock. | Acquired and released on the **same** thread; never crosses threads. |
@@ -51,7 +51,7 @@ existing `RedisSearchCtx_LockSpecRead` / `_UnlockSpec` pair; and
 The following structs are passed across the main/worker boundary today.
 
 | Struct | Defined in | Carries | Owners (today) |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | `AREQ` | `aggregate/aggregate.h` | Query, pipeline, results, `useReplyCallback`, `storedReplyState`, `sctx` (with spec lock state), refcount. | Worker ctx (`blockedClientReqCtx.req`), `BlockedQueryNode.privdata`, sometimes the cursor. |
 | `HybridRequest` | `hybrid/hybrid_request.h` | Multiple `AREQ`s + tail pipeline. | Same shape as `AREQ`. |
 | `blockedClientReqCtx` | `aggregate/aggregate_exec.c` | `AREQ*`, `RedisModuleBlockedClient*`, `RedisModuleCtx*`. | Allocated on main, consumed on worker. |
@@ -123,7 +123,7 @@ The two failure modes that have bitten us are visible here:
 
 ## 2. Goals and non-goals
 
-**Goals**
+### 2.1 Goals
 
 - A single canonical owner per work item (AREQ / HybridRequest / cursor read).
 - Spec-lock acquire and release on the **same** thread, enforced by a wrapper
@@ -137,7 +137,7 @@ The two failure modes that have bitten us are visible here:
   manual `MeasureTimeEnd` + `UnblockClient` + free-our-wrapper dance at every
   call-site.
 
-**Non-goals**
+### 2.2 Non-goals
 
 - Changing the result-processor pipeline, iterator tree, or the spec rwlock
   semantics themselves.
@@ -196,7 +196,7 @@ This is the safety property the rest of the design rests on. At any instant,
 each cross-thread struct is touched by exactly one thread:
 
 | Struct | Touched by main when… | Touched by worker when… |
-|---|---|---|
+| --- | --- | --- |
 | `AREQ` / `HybridRequest` | Before dispatch (setup), and after `OnFree` (which is the last touch). | Between dispatch and `UnblockClient`. |
 | `BlockedRequest` | Same as above. The refcount uses atomics for `OnFree`'s `DecRef`, but no other field is shared. | Same as above. |
 | `BlockedClientCtx.reply` (the embedded `ChunkReplyState`) | Read by `reply_cb`; freed in `OnFree`. | Written before `UnblockClient`. The `UnblockClient` call is the publish fence; main reads only after it. |
@@ -416,7 +416,7 @@ These translate directly into the `BlockedClientCtx`'s mode field. The mode
 is fixed at `BlockedClientCtx_New` and read-only thereafter:
 
 | Mode | `reply_cb` | BG contract | Main contract |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | **Inline** | `NULL` | Must call `RM_ReplyWith*` via `GetThreadSafeContext(bc)` before `UnblockClient`. Must not write to `bcc.reply`. | Only `OnFree` runs; nothing to serialize. |
 | **Deferred** | non-NULL | Must populate `bcc.reply` (a `ChunkReplyState`) and **not** touch any thread-safe reply context. | `reply_cb(bcc)` reads the reply state and serializes. Then `OnFree`. |
 
@@ -478,7 +478,7 @@ sequenceDiagram
 Allowed shared touches in the window:
 
 | Field | Main may | Worker may | Synchronization |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | `RequestSyncCtx.timedOut` | Store `true` once. | Load each pipeline tick. | Atomic acquire/release. |
 | `bcc.reply` (`ChunkReplyState`) | **Not touch.** Reads only happen in `OnFree` (after `UnblockClient` fence). | Write iff `timedOut == false` after acquire-load. | Publish-via-`UnblockClient`. |
 | `bcc.bc` | Read by `OnFree` only. | Read for `UnblockClient`. | Redis API guarantees `bc` is valid until `OnFree` returns. |
@@ -559,7 +559,7 @@ The eight `RedisModule_BlockClient` call-sites in `src/` (excluding tests and
 `rmutil`) split into three shapes:
 
 | Callsite | Today | After refactor |
-|---|---|---|
+| --- | --- | --- |
 | `info_redis/block_client.c::BlockQueryClientWithTimeout` | Wraps `BlockClient` + adds `BlockedQueryNode` w/ AREQ ref | `BlockedClientCtx_New(spec={ request, reply_cb, timeout_cb, timeout, register=true })`. AREQ ref is **not** taken here. |
 | `info_redis/block_client.c::BlockCursorClientWithTimeout` | Same shape, cursor flavour | Same as above with cursor-flavoured registration. |
 | `coord/rmr/rmr.c::MR_Fanout` (line 359) | `BlockClient(unblockHandler, timeoutHandler, freePrivDataCB, queryTimeout)`; `MRCtx` owns `bc` | `BlockedClientCtx_New` with `register=true` (gain: coord queries visible). `MRCtx` becomes the request payload, `BlockedClientCtx` owns `bc`. |
@@ -778,7 +778,7 @@ Rust types without having to redesign the lifetimes. This section is
 informational for the eventual port; nothing here is committed in this work.
 
 | C concept | Rust analogue |
-|---|---|
+| --- | --- |
 | `BlockedRequest` (refcounted) | `Arc<BlockedRequest>` — `IncRef`/`DecRef` map to `Arc::clone` / `Drop`. |
 | `BlockedClientCtx` | `Box<BlockedClientCtx>` owned by Redis: allocated by Rust, handed to Redis as `*mut c_void`, freed in `OnFree` by reconstructing the `Box`. Exactly one owner at a time. |
 | `ChunkReplyState` (in `bcc.reply`) | `OnceCell<ChunkReplyState>`: single producer (worker) → single consumer (main); written once before `UnblockClient`, taken once in the reply callback. |
