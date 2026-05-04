@@ -215,16 +215,17 @@ static void Cursors_RescheduleSweepLocked(CursorList *cl) {
   }
 
   uint64_t next_ns = Cursors_FindNextTimeoutNsLocked(cl);
-  cl->nextIdleTimeoutNs = next_ns;
   if (next_ns == 0) {
     return;
   }
+  cl->nextIdleTimeoutNs = next_ns;
 
   uint64_t now_ns = curTimeNs();
   mstime_t period_ms = 0;
   if (next_ns > now_ns) {
     // Round up so we never fire before the deadline.
-    period_ms = (mstime_t)((next_ns - now_ns + 999999) / 1000000);
+    const uint64_t NS_PER_MS = 1000000;
+    period_ms = (mstime_t)((next_ns - now_ns + NS_PER_MS - 1) / NS_PER_MS);
   }
 
   cl->idleSweepTimerId = RedisModule_CreateTimer(RSDummyContext, period_ms,
