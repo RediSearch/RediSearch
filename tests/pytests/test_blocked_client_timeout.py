@@ -10,7 +10,6 @@ from test_info_modules import (
 )
 import threading
 import psutil
-import redis
 
 TIMEOUT_ERROR = "Timeout limit was reached"
 TIMEOUT_WARNING = TIMEOUT_ERROR
@@ -3472,12 +3471,6 @@ class TestShardTimeoutLockLeakRegression:
         aggregate_iterations = 5
         sync_point = 'BeforeAggregateResultsClaim'
 
-        base_conn = getConnectionByEnv(env)
-        conn_kwargs = base_conn.connection_pool.connection_kwargs
-        host = conn_kwargs.get('host', '127.0.0.1')
-        port = int(conn_kwargs['port'])
-        db = conn_kwargs.get('db', 0)
-
         try:
             env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'fail').ok()
             try:
@@ -3490,8 +3483,7 @@ class TestShardTimeoutLockLeakRegression:
             for i in range(n_docs):
                 env.cmd('HSET', f'{key_prefix}{i}', 'name', f'hello {i}')
 
-            probe = redis.Redis(host=host, port=port, db=db,
-                                decode_responses=True, socket_timeout=0.5)
+            probe = getConnectionByEnv(env)
             for i in range(aggregate_iterations):
                 env.expect(debug_cmd(), 'SYNC_POINT', 'CLEAR').ok()
                 env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', sync_point).ok()
