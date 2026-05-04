@@ -2204,6 +2204,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "runetriemap_ffi"
+version = "0.0.1"
+dependencies = [
+ "build_utils",
+ "cbindgen",
+ "libc",
+ "redis-module",
+ "redis_mock",
+ "trie_rs",
+ "workspace_hack",
+]
+
+[[package]]
 name = "rustc-demangle"
 version = "0.1.27"
 source = "registry+https://github.com/rust-lang/crates.io-index"
