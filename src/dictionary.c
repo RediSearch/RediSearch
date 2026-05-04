@@ -230,7 +230,7 @@ static void SpellCheckDictAuxSave(RedisModuleIO *rdb, int when) {
   while ((entry = dictNext(iter))) {
     const char *key = dictGetKey(entry);
     Trie *val = dictGetVal(entry);
-    RS_LOG_ASSERT(val->size != 0, "Empty dictionary should not exist in the dictionary list");
+    RS_LOG_ASSERT(Trie_Size(val) != 0, "Empty dictionary should not exist in the dictionary list");
     RedisModule_SaveStringBuffer(rdb, key, strlen(key) + 1 /* we save the /0*/);
     TrieType_GenericSave(rdb, val, false, false);
   }
