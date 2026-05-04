@@ -257,7 +257,7 @@ static void Cursors_RequestRescheduleSweep(CursorList *cl) {
     return;
   }
   // The `cl` pointer outlives any pending one-shot: both `g_CursorsList` and
-  // `g_CursorsListCoord` are global statics with process lifetime, and
+  // `g_CursorsListCoord` are global variables with process lifetime, and
   // `CursorList_Empty` only clears their contents (it never destroys the
   // struct, its mutex, its lookup, or its idle array). If this ever changes
   // (e.g. heap-allocated per-index lists), this call site needs a refcount
