@@ -13,14 +13,13 @@ mod key_list;
 use crate::{
     IndexSpec, RLookupRow,
     bindings::{FieldSpec, FieldSpecOption, FieldSpecOptions, IndexSpecCache},
-    lookup::key_list::{Iter, IterMut},
 };
 use enumflags2::{BitFlags, bitflags};
 use key_list::KeyList;
 use std::{borrow::Cow, ffi::CStr, pin::Pin, ptr};
 
 pub use key::{GET_KEY_FLAGS, RLookupKey, RLookupKeyFlag, RLookupKeyFlags, TRANSIENT_FLAGS};
-pub use key_list::{Cursor, CursorMut};
+pub use key_list::{Cursor, CursorMut, Iter, IterMut};
 
 #[bitflags]
 #[repr(u32)]
