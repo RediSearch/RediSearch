@@ -22,7 +22,7 @@ use rlookup::{RLookup, RLookupKey, RLookupRow};
 use value::SharedValue;
 
 use crate::Reducer;
-use crate::collect::common::{CollectCommon, for_each_visible_value};
+use crate::collect::common::{CollectCommon, visible_keys};
 
 /// Remote COLLECT reducer.
 ///
@@ -36,8 +36,8 @@ pub struct RemoteCollectReducer<'a> {
     /// Source lookup for `FIELDS *` mode (a.k.a. *load-all*).
     ///
     /// `Some` when the user wrote `FIELDS *`; the projection then emits
-    /// every visible key present on the row (see
-    /// [`for_each_visible_value`]), walked per call.
+    /// every visible key present on the row (see [`visible_keys`]), walked
+    /// per call.
     ///
     /// The walk runs per `add()` call rather than once at construction because an
     /// upstream `LOAD *` may append keys mid-pipeline.
@@ -140,6 +140,33 @@ impl<'a> RemoteCollectReducer<'a> {
     }
 }
 
+/// Deduplicate `field_keys ++ sort_extras` by [`RLookupKey::dstidx`],
+/// preserving the chained order. A field referenced by `SORTBY` lands in
+/// both inputs but must be emitted only once.
+fn dedup_by_dstidx<'a>(
+    field_keys: &[&'a RLookupKey<'a>],
+    sort_extras: &[&'a RLookupKey<'a>],
+) -> Vec<&'a RLookupKey<'a>> {
+    let mut seen: HashSet<u16> = HashSet::with_capacity(field_keys.len() + sort_extras.len());
+    field_keys
+        .iter()
+        .copied()
+        .chain(sort_extras.iter().copied())
+        .filter(|k| seen.insert(k.dstidx))
+        .collect()
+}
+
+/// Pair each `key` with its name as a reusable [`SharedValue`], hoisting the
+/// allocation out of the per-row loop in [`RemoteCollectCtx::finalize`].
+fn build_template_for_finalize<'a, I>(keys: I) -> Vec<(&'a RLookupKey<'a>, SharedValue)>
+where
+    I: IntoIterator<Item = &'a RLookupKey<'a>>,
+{
+    keys.into_iter()
+        .map(|k| (k, SharedValue::new_string(k.name().to_bytes().to_vec())))
+        .collect()
+}
+
 impl<'a> RemoteCollectCtx<'a> {
     pub const fn new(_r: &RemoteCollectReducer<'a>) -> Self {
         Self { rows: Vec::new() }
@@ -149,74 +176,47 @@ impl<'a> RemoteCollectCtx<'a> {
     /// [`RLookupRow`].
     pub fn add(&mut self, r: &RemoteCollectReducer<'a>, row: &RLookupRow<'_>) {
         let mut dst = RLookupRow::new();
-        if let Some(lookup) = r.srclookup {
-            for_each_visible_value(lookup, row, |key, v| {
+        let mut write_if_present = |key: &RLookupKey<'a>| {
+            if let Some(v) = row.get(key) {
                 dst.write_key(key, v.clone());
-            });
+            }
+        };
+        if let Some(lookup) = r.srclookup {
+            visible_keys(lookup).for_each(&mut write_if_present);
         } else {
-            for key in r.field_keys.iter() {
-                if let Some(v) = row.get(key) {
-                    dst.write_key(key, v.clone());
-                }
-            }
-            for key in r.sort_keys.iter() {
-                if let Some(v) = row.get(key) {
-                    dst.write_key(key, v.clone());
-                }
-            }
+            r.field_keys
+                .iter()
+                .copied()
+                .chain(r.sort_keys.iter().copied())
+                .for_each(&mut write_if_present);
         }
         self.rows.push(dst);
     }
 
-    /// Serialize the buffered rows into a Map.
+    /// Serialize the buffered rows into an array of maps. Keys absent from a
+    /// row are omitted; on the cluster path
+    /// [`LocalCollectCtx::finalize`][crate::collect::local::LocalCollectCtx::finalize]
+    /// null-fills missing requested fields when reconstructing the
+    /// client-facing result.
     pub fn finalize(&mut self, r: &RemoteCollectReducer<'a>) -> SharedValue {
         let rows = mem::take(&mut self.rows);
-
-        if let Some(lookup) = r.srclookup {
-            SharedValue::new_array(rows.into_iter().map(|row| {
-                let mut entries: Vec<(SharedValue, SharedValue)> = Vec::new();
-                for_each_visible_value(lookup, &row, |key, v| {
-                    entries.push((
-                        SharedValue::new_string(key.name().to_bytes().to_vec()),
-                        v.clone(),
-                    ));
-                });
-                SharedValue::new_map(entries)
-            }))
+        let keys: Vec<&RLookupKey<'a>> = if let Some(lookup) = r.srclookup {
+            visible_keys(lookup).collect()
         } else {
             let sort_extras: &[&RLookupKey<'a>] = if r.include_sort_keys {
                 &r.sort_keys
             } else {
                 &[]
             };
-            let mut seen: HashSet<u16> =
-                HashSet::with_capacity(r.field_keys.len() + sort_extras.len());
-            let template: Vec<(&RLookupKey<'a>, SharedValue)> = r
-                .field_keys
+            dedup_by_dstidx(&r.field_keys, sort_extras)
+        };
+        let template = build_template_for_finalize(keys);
+        SharedValue::new_array(rows.into_iter().map(|row| {
+            let entries: Vec<_> = template
                 .iter()
-                .chain(sort_extras)
-                .filter(|key| seen.insert(key.dstidx))
-                .map(|key| {
-                    (
-                        *key,
-                        SharedValue::new_string(key.name().to_bytes().to_vec()),
-                    )
-                })
+                .filter_map(|(key, name)| row.get(key).map(|v| (name.clone(), v.clone())))
                 .collect();
-
-            SharedValue::new_array(rows.into_iter().map(|row| {
-                let entries: Vec<_> = template
-                    .iter()
-                    .map(|(key, name)| {
-                        let val = row
-                            .get(key)
-                            .cloned()
-                            .unwrap_or_else(SharedValue::null_static);
-                        (name.clone(), val)
-                    })
-                    .collect();
-                SharedValue::new_map(entries)
-            }))
-        }
+            SharedValue::new_map(entries)
+        }))
     }
 }

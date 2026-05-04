@@ -190,7 +190,7 @@ def test_collect_3_fields_hash():
     groups = _sort_by(res['results'], 'color')
     green = _sort_collected(groups[0]['extra_attributes']['info'], 'name')
     env.assertEqual(green, [
-        {'name': 'kiwi', 'sweetness': '3', 'origin': None},
+        {'name': 'kiwi', 'sweetness': '3'},
         {'name': 'lime', 'sweetness': '2', 'origin': 'mexico'},
     ])
 
@@ -203,7 +203,7 @@ def test_collect_3_fields_hash():
     yellow = _sort_collected(groups[2]['extra_attributes']['info'], 'name')
     env.assertEqual(yellow, [
         {'name': 'banana', 'sweetness': '4', 'origin': 'ecuador'},
-        {'name': 'lemon',  'sweetness': '2', 'origin': None},
+        {'name': 'lemon',  'sweetness': '2'},
     ])
 
 
@@ -247,7 +247,7 @@ def test_collect_3_fields_json():
     groups = _sort_by(res['results'], 'color')
     green = _sort_collected(groups[0]['extra_attributes']['info'], 'name')
     env.assertEqual(green, [
-        {'name': 'kiwi', 'sweetness': '3', 'origin': None},
+        {'name': 'kiwi', 'sweetness': '3'},
         {'name': 'lime', 'sweetness': '2', 'origin': 'Mexico'},
     ])
 
@@ -303,13 +303,13 @@ def test_collect_missing_values():
 
     items2 = _sort_collected(groups[0]['extra_attributes']['items'], 'name')
     env.assertEqual(items2, [
-        {'name': 'lemon', 'origin': None},
+        {'name': 'lemon'},
         {'name': 'lime',  'origin': 'mexico'},
     ])
 
     items3 = _sort_collected(groups[1]['extra_attributes']['items'], 'name')
     env.assertEqual(items3, [
-        {'name': 'kiwi',       'origin': None},
+        {'name': 'kiwi'},
         {'name': 'strawberry', 'origin': 'spain'},
     ])
 

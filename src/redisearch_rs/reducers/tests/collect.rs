@@ -154,6 +154,47 @@ fn remote_finalize_dedupes_overlapping_field_and_sort_key() {
 }
 
 #[test]
+fn remote_external_omits_keys_missing_on_row() {
+    let fixture = RemoteCollectFixture::new();
+    let reducer = RemoteCollectReducer::new(
+        Box::new([&fixture.name_key, &fixture.sweetness_key]),
+        None,
+        Box::new([]),
+        0,
+        None,
+        false,
+    );
+    let mut ctx = RemoteCollectCtx::new(&reducer);
+
+    let row_a = fixture.row("apple", 4.0);
+    let mut row_b = RLookupRow::new();
+    row_b.write_key(&fixture.name_key, string_value("lemon"));
+
+    ctx.add(&reducer, &row_a);
+    ctx.add(&reducer, &row_b);
+    let output = ctx.finalize(&reducer);
+    let rows = array_entries(&output);
+    assert_eq!(rows.len(), 2);
+
+    let map_a = map_entries(&rows[0]);
+    assert_eq!(
+        map_a.get(b"name").and_then(|v| v.as_str_bytes()),
+        Some(b"apple".as_slice()),
+    );
+    assert_eq!(map_a.get(b"sweetness").and_then(|v| v.as_num()), Some(4.0));
+
+    let map_b = map_entries(&rows[1]);
+    assert_eq!(
+        map_b.get(b"name").and_then(|v| v.as_str_bytes()),
+        Some(b"lemon".as_slice()),
+    );
+    assert!(
+        map_b.get(b"sweetness").is_none(),
+        "row B was missing `sweetness`; the requested-fields map must omit the entry entirely"
+    );
+}
+
+#[test]
 fn remote_finalize_hoists_name_allocations() {
     let fixture = RemoteCollectFixture::new();
     let reducer = fixture.reducer(false);

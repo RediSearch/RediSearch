@@ -10,8 +10,7 @@
 //! Shared COLLECT reducer state and utilities.
 
 use bumpalo::Bump;
-use rlookup::{RLookup, RLookupKey, RLookupKeyFlag, RLookupRow};
-use value::SharedValue;
+use rlookup::{RLookup, RLookupKey, RLookupKeyFlag};
 
 use crate::Reducer;
 
@@ -42,24 +41,15 @@ impl CollectCommon {
     }
 }
 
-/// Walk `lookup` in insertion order, invoking `f` for every *visible* key
-/// that has a value in `row`.
+/// Walk `lookup` in insertion order, yielding every *visible* key.
 ///
-/// "Visible" means [`RLookupKey::is_tombstone`] is `false` and the key
-/// is not flagged [`RLookupKeyFlag::Hidden`] — the `FIELDS *` projection
-/// rule.
-pub(super) fn for_each_visible_value<'a, F>(lookup: &RLookup<'a>, row: &RLookupRow<'_>, mut f: F)
-where
-    F: FnMut(&RLookupKey<'a>, &SharedValue),
-{
-    let mut cursor = lookup.cursor();
-    while let Some(key) = cursor.current() {
-        if !key.is_tombstone()
-            && !key.flags.contains(RLookupKeyFlag::Hidden)
-            && let Some(v) = row.get(key)
-        {
-            f(key, v);
-        }
-        cursor.move_next();
-    }
+/// "Visible" means the key is not flagged [`RLookupKeyFlag::Hidden`] —
+/// the `FIELDS *` projection rule. Tombstones are already skipped by
+/// [`RLookup::iter`].
+pub(super) fn visible_keys<'l, 'a>(
+    lookup: &'l RLookup<'a>,
+) -> impl Iterator<Item = &'l RLookupKey<'a>> {
+    lookup
+        .iter()
+        .filter(|k| !k.flags.contains(RLookupKeyFlag::Hidden))
 }
