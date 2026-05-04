@@ -168,14 +168,14 @@ static int recursiveAdd(TrieNode *node, SuffixCtx *sufCtx) {
 void Suffix_IterateContains(SuffixCtx *sufCtx) {
   if (sufCtx->type == SUFFIX_TYPE_CONTAINS) {
     // get string from node and children
-    TrieNode *node = Trie_GetNode(sufCtx->root, sufCtx->rune, sufCtx->runelen, false, NULL);
+    TrieNode *node = Trie_GetNode(sufCtx->trie, sufCtx->rune, sufCtx->runelen, false, NULL);
     if (!node) {
       return;
     }
     recursiveAdd(node, sufCtx);
   } else if (sufCtx->type == SUFFIX_TYPE_SUFFIX) {
     // exact match. Get strings from a single node
-    TrieNode *node = Trie_GetNode(sufCtx->root, sufCtx->rune, sufCtx->runelen, true, NULL);
+    TrieNode *node = Trie_GetNode(sufCtx->trie, sufCtx->rune, sufCtx->runelen, true, NULL);
     suffixData *data = Suffix_GetData(node);
     if (data) {
       processSuffixData(data, sufCtx);
@@ -339,7 +339,7 @@ int Suffix_IterateWildcard(SuffixCtx *sufCtx) {
   }
   token[toklen] = (rune)'\0';
 
-  Trie_IterateWildcard(sufCtx->root, token, toklen, Suffix_CB_Wildcard, sufCtx, sufCtx->timeout,
+  Trie_IterateWildcard(sufCtx->trie, token, toklen, Suffix_CB_Wildcard, sufCtx, sufCtx->timeout,
                        sufCtx->skipTimeoutChecks);
   return 1;
 }
