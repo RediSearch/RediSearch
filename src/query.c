@@ -798,8 +798,8 @@ static QueryIterator *Query_EvalWildcardQueryNode(QueryEvalCtx *q, QueryNode *qn
   }
 
   if (!spec->suffix || fallbackBruteForce) {
-    TrieNode_IterateWildcard(t->root, str, nstr, runeIterCb, &ctx, &q->sctx->time.timeout,
-                             q->sctx->time.skipTimeoutChecks);
+    Trie_IterateWildcard(t, str, nstr, runeIterCb, &ctx, &q->sctx->time.timeout,
+                         q->sctx->time.skipTimeoutChecks);
   }
 
   rm_free(str);

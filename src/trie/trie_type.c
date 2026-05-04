@@ -114,6 +114,12 @@ void Trie_IterateContains(Trie *t, const rune *str, int nstr, bool prefix, bool 
                            skipTimeoutChecks);
 }
 
+void Trie_IterateWildcard(Trie *t, const rune *str, int nstr,
+                          TrieRangeCallback callback, void *ctx, struct timespec *timeout,
+                          bool skipTimeoutChecks) {
+  TrieNode_IterateWildcard(t->root, str, nstr, callback, ctx, timeout, skipTimeoutChecks);
+}
+
 // Forward declaration for the internal rune-based function
 static TrieDecrResult Trie_DecrementNumDocsRunes(Trie *t, const rune *runes, size_t len, size_t delta);
 
