@@ -84,17 +84,17 @@ impl<T> RuneTrieMap<T> {
     }
 
     /// Number of unique keys in the trie.
-    pub fn len(&self) -> usize {
+    pub const fn len(&self) -> usize {
         self.inner.n_unique_keys()
     }
 
     /// Whether the trie contains no entries.
-    pub fn is_empty(&self) -> bool {
+    pub const fn is_empty(&self) -> bool {
         self.inner.n_unique_keys() == 0
     }
 
     /// Total memory usage of the trie in bytes (cached, O(1)).
-    pub fn mem_usage(&self) -> usize {
+    pub const fn mem_usage(&self) -> usize {
         self.inner.mem_usage()
     }
 
@@ -283,7 +283,7 @@ fn rune_aligned_match(
         return false;
     }
     let matches_at = |off: usize| {
-        off % 2 == 0
+        off.is_multiple_of(2)
             && off + needle_len <= key_len
             && &key_bytes[off..off + needle_len] == needle_bytes
     };
