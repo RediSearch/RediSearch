@@ -28,6 +28,7 @@ extern "C" {
 Reducer *CollectReducer_CreateLocal(const RLookupKey *input_key,
                                     const char *const *field_names,
                                     uintptr_t field_names_len,
+                                    bool load_all,
                                     const char *const *sort_names,
                                     uintptr_t sort_names_len,
                                     uint64_t sort_asc_map,
@@ -104,7 +105,7 @@ void collectLocalFree(Reducer *r);
  */
 Reducer *CollectReducer_CreateRemote(const RLookupKey *const *field_keys,
                                      uintptr_t field_keys_len,
-                                     bool has_wildcard,
+                                     bool load_all,
                                      const RLookupKey *const *sort_keys,
                                      uintptr_t sort_keys_len,
                                      uint64_t sort_asc_map,
@@ -188,7 +189,7 @@ uintptr_t CollectReducer_GetFieldKeysLen(const Reducer *r);
  * `r` must point to a valid [`RemoteCollectReducer`] originally created by
  * `CollectReducer_CreateRemote`.
  */
-bool CollectReducer_HasWildcard(const Reducer *r);
+bool CollectReducer_HasLoadAll(const Reducer *r);
 
 /**
  * # Safety

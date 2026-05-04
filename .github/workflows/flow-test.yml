@@ -69,7 +69,7 @@ on:
         type: string
         default: QUICK=1
       redis-ref:
-        description: 'Redis version to use (e.g. "7.2.3", "unstable"). Defaults to "unstable"'
+        description: 'Redis version to use (e.g. "7.2.3", "unstable", or a commit sha)'
         type: string
         default: 3cd464263b03b425ffae2e23db24df3dc9346871
       rejson-branch:

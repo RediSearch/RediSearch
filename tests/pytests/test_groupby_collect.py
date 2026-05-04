@@ -493,8 +493,14 @@ def test_collect_internal_without_sortby_equals_external_shape():
 
 @skip(cluster=True)
 def test_collect_internal_duplicate_field_and_sort():
-    """When a field is also the sort key it appears at least once in each row."""
-    env = Env(protocol=3)
+    """When a field is also the sort key, internal mode emits exactly one wire entry per row.
+
+    Uses RESP2 because RESP3 maps are parsed into Python dicts that silently
+    collapse duplicate keys, hiding any wire-level duplication. Under RESP2
+    the map comes back as a flat ``[k, v, k, v, ...]`` list where dup keys
+    survive and can be counted directly.
+    """
+    env = Env(protocol=2)
     _setup_hash(env)
 
     _, slots_data = get_shard_slot_ranges(env)[0]
@@ -511,10 +517,19 @@ def test_collect_internal_duplicate_field_and_sort():
         '_SLOTS_INFO', slots_data,
     )
 
-    for group in internal['results']:
-        rows = group['extra_attributes']['info']
+    # RESP2 shape: [num_groups, group_row, group_row, ...] where each
+    # group_row is a flat [key, val, key, val, ...] list. The 'info' value
+    # is a list of rows, each itself a flat [key, val, ...] list.
+    for group_row in internal[1:]:
+        info_idx = group_row.index('info') + 1
+        rows = group_row[info_idx]
         for row in rows:
-            env.assertIn('sweetness', row, message='sweetness must appear in internal row')
+            env.assertEqual(
+                row.count('sweetness'), 1,
+                message='overlapping field/sort key must appear exactly once on the wire')
+            env.assertEqual(
+                len(row), 2,
+                message='internal row must contain exactly one (key, value) pair')
 
 
 # RESP2 sanity: basic COLLECT works under RESP2

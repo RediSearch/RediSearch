@@ -36,7 +36,7 @@ use std::{
 pub unsafe extern "C" fn CollectReducer_CreateRemote(
     field_keys: *const *const ffi::RLookupKey,
     field_keys_len: usize,
-    has_wildcard: bool,
+    load_all: bool,
     sort_keys: *const *const ffi::RLookupKey,
     sort_keys_len: usize,
     sort_asc_map: u64,
@@ -65,7 +65,7 @@ pub unsafe extern "C" fn CollectReducer_CreateRemote(
 
     let mut cr = Box::new(RemoteCollectReducer::new(
         field_keys,
-        has_wildcard,
+        load_all,
         sort_keys,
         sort_asc_map,
         limit,
@@ -204,10 +204,10 @@ pub const unsafe extern "C" fn CollectReducer_GetFieldKeysLen(r: *const ffi::Red
 /// `r` must point to a valid [`RemoteCollectReducer`] originally created by
 /// `CollectReducer_CreateRemote`.
 #[unsafe(no_mangle)]
-pub const unsafe extern "C" fn CollectReducer_HasWildcard(r: *const ffi::Reducer) -> bool {
+pub const unsafe extern "C" fn CollectReducer_HasLoadAll(r: *const ffi::Reducer) -> bool {
     // SAFETY: ensured by caller.
     let r = unsafe { r.cast::<RemoteCollectReducer>().as_ref().unwrap() };
-    r.has_wildcard()
+    r.load_all()
 }
 
 /// # Safety

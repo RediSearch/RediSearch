@@ -117,3 +117,13 @@ runs:
       run: |
         echo "$PREFIX/bin" >> "$GITHUB_PATH"
         echo "REDIS_SERVER=$PREFIX/bin/redis-server" >> "$GITHUB_ENV"
+        # Some container images (debian via gcc:*-bookworm/trixie, alpine)
+        # ship an /etc/profile that unconditionally rewrites PATH for root,
+        # wiping the GITHUB_PATH addition above when downstream steps run
+        # under `bash -l` (see task-build-artifacts.yml `defaults.run.shell`).
+        # Drop a profile.d snippet so login shells re-prepend the
+        # redis-install bin directory after /etc/profile has been sourced.
+        if [[ -d /etc/profile.d && ( -w /etc/profile.d || $(id -u) -eq 0 ) ]]; then
+          printf 'export PATH="%s:$PATH"\n' "$PREFIX/bin" > /etc/profile.d/redis-prefix.sh
+          chmod 0644 /etc/profile.d/redis-prefix.sh
+        fi

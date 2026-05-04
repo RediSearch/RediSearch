@@ -43,6 +43,7 @@ pub struct LocalCollectReducer<'a> {
     /// Lookup key for the per-remote payload.
     input_key: &'a RLookupKey<'a>,
     field_names: Box<[Box<[u8]>]>,
+    load_all: bool,
     sort_key_names: Box<[Box<[u8]>]>,
 }
 
@@ -69,6 +70,7 @@ impl<'a> LocalCollectReducer<'a> {
     pub fn new(
         input_key: &'a RLookupKey<'a>,
         field_names: Box<[Box<[u8]>]>,
+        load_all: bool,
         sort_key_names: Box<[Box<[u8]>]>,
         sort_asc_map: u64,
         limit: Option<(u64, u64)>,
@@ -77,6 +79,7 @@ impl<'a> LocalCollectReducer<'a> {
             common: CollectCommon::new(sort_asc_map, limit),
             input_key,
             field_names,
+            load_all,
             sort_key_names,
         }
     }

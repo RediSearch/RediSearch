@@ -35,6 +35,7 @@ members = [
     "tools/safety_report",
     "tracing_redismodule",
     "trie_bencher",
+    "top_k",
     "trie_rs",
     "value",
     "varint",
@@ -124,6 +125,7 @@ search_result = { path = "./search_result" }
 slots_tracker = { path = "./slots_tracker" }
 sorting_vector = { path = "./sorting_vector" }
 thin_vec = { path = "./thin_vec" }
+top_k = { path = "./top_k" }
 tracing_redismodule = { path = "./tracing_redismodule" }
 trie_rs = { path = "./trie_rs" }
 value = { path = "./value" }
@@ -175,7 +177,12 @@ triomphe = "0.1.2"
 toml = "0.9"
 tracing = "0.1.44"
 tracing-core = "0.1"
-tracing-subscriber = { version = "0.3.22", default-features = false, features = ["std", "fmt", "ansi", "env-filter"] }
+tracing-subscriber = { version = "0.3.22", default-features = false, features = [
+    "std",
+    "fmt",
+    "ansi",
+    "env-filter",
+] }
 unsafe-tools = "0.1.2"
 ureq = "3.1"
 walkdir = "2"
