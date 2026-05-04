@@ -34,7 +34,12 @@ use std::slice;
 /// Receives the current key (as runes) and the stored payload. Return a
 /// non-zero value to stop iteration early; `0` continues.
 pub type RuneTrieMapRangeCallback = Option<
-    unsafe extern "C" fn(runes: *const rune, len: usize, payload: *mut c_void, ctx: *mut c_void) -> c_int,
+    unsafe extern "C" fn(
+        runes: *const rune,
+        len: usize,
+        payload: *mut c_void,
+        ctx: *mut c_void,
+    ) -> c_int,
 >;
 
 /// Callback signature for the dictionary dump path.
@@ -72,7 +77,10 @@ pub unsafe extern "C" fn RuneTrieMap_IteratePrefixedRune(
     let RuneTrieMap(trie) = unsafe { &*t };
 
     let prefix_slice: &[rune] = if prefix_len > 0 {
-        debug_assert!(!prefix.is_null(), "prefix cannot be NULL when prefix_len > 0");
+        debug_assert!(
+            !prefix.is_null(),
+            "prefix cannot be NULL when prefix_len > 0"
+        );
         // SAFETY: caller guarantees `prefix` is valid for `prefix_len` reads.
         unsafe { slice::from_raw_parts(prefix, prefix_len) }
     } else {
@@ -156,9 +164,7 @@ pub unsafe extern "C" fn RuneTrieMap_IterateWildcardRune(
             // debug builds we check every iteration.
             if counter == 100 || cfg!(debug_assertions) {
                 let now = monotonic_now();
-                if now.tv_sec > d.tv_sec
-                    || (now.tv_sec == d.tv_sec && now.tv_nsec > d.tv_nsec)
-                {
+                if now.tv_sec > d.tv_sec || (now.tv_sec == d.tv_sec && now.tv_nsec > d.tv_nsec) {
                     should_stop = true;
                     return;
                 }
@@ -232,9 +238,8 @@ unsafe fn rm_free(p: *mut c_void) {
     // SAFETY: caller passes a pointer obtained from `rm_malloc` (via
     // `runesToStr`); the Redis allocator must be initialized for the
     // FFI crate to be exercised.
-    let free = unsafe {
-        redis_module::raw::RedisModule_Free.expect("Redis allocator not available")
-    };
+    let free =
+        unsafe { redis_module::raw::RedisModule_Free.expect("Redis allocator not available") };
     // SAFETY: `free` is a valid function pointer if `RedisModule_Free`
     // was initialized; `p` is a valid `rm_malloc`-allocated pointer.
     unsafe { free(p) };

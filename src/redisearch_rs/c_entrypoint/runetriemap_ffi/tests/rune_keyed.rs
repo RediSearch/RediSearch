@@ -44,15 +44,7 @@ fn r(s: &str) -> Vec<u16> {
 }
 
 unsafe fn insert(t: *mut RuneTrieMap, runes: &[u16], payload: usize) -> i32 {
-    unsafe {
-        RuneTrieMap_InsertRune(
-            t,
-            runes.as_ptr(),
-            runes.len(),
-            payload as *mut c_void,
-            None,
-        )
-    }
+    unsafe { RuneTrieMap_InsertRune(t, runes.as_ptr(), runes.len(), payload as *mut c_void, None) }
 }
 
 unsafe fn find(t: *const RuneTrieMap, runes: &[u16]) -> *mut c_void {
@@ -90,10 +82,7 @@ fn insert_find_delete_basic() {
         let nf = RUNETRIEMAP_NOTFOUND;
         assert_eq!(missing, nf);
 
-        assert_eq!(
-            RuneTrieMap_DeleteRune(t, k.as_ptr(), k.len(), None),
-            1
-        );
+        assert_eq!(RuneTrieMap_DeleteRune(t, k.as_ptr(), k.len(), None), 1);
         assert_eq!(RuneTrieMap_Size(t), 0);
 
         RuneTrieMap_Free(t, None);
@@ -129,10 +118,7 @@ fn delete_missing_returns_zero() {
     let t = RuneTrieMap_New();
     let k = r("absent");
     unsafe {
-        assert_eq!(
-            RuneTrieMap_DeleteRune(t, k.as_ptr(), k.len(), None),
-            0
-        );
+        assert_eq!(RuneTrieMap_DeleteRune(t, k.as_ptr(), k.len(), None), 0);
         RuneTrieMap_Free(t, None);
     }
 }
@@ -210,7 +196,10 @@ fn iterate_prefixed_visits_matching_keys() {
         insert(t, &r("apricot"), 2);
         insert(t, &r("banana"), 3);
 
-        let mut cx = CollectCtx { out: Vec::new(), stop_after: None };
+        let mut cx = CollectCtx {
+            out: Vec::new(),
+            stop_after: None,
+        };
         let prefix = r("ap");
         RuneTrieMap_IteratePrefixedRune(
             t,
@@ -236,7 +225,10 @@ fn iterate_prefixed_empty_prefix_visits_all() {
         insert(t, &r("b"), 2);
         insert(t, &r("c"), 3);
 
-        let mut cx = CollectCtx { out: Vec::new(), stop_after: None };
+        let mut cx = CollectCtx {
+            out: Vec::new(),
+            stop_after: None,
+        };
         RuneTrieMap_IteratePrefixedRune(
             t,
             std::ptr::null(),
@@ -256,7 +248,10 @@ fn iterate_prefixed_stops_on_nonzero_callback() {
         for (i, w) in ["a", "b", "c", "d", "e"].iter().enumerate() {
             insert(t, &r(w), i + 1);
         }
-        let mut cx = CollectCtx { out: Vec::new(), stop_after: Some(2) };
+        let mut cx = CollectCtx {
+            out: Vec::new(),
+            stop_after: Some(2),
+        };
         RuneTrieMap_IteratePrefixedRune(
             t,
             std::ptr::null(),
@@ -277,7 +272,10 @@ fn iterate_wildcard_no_timeout_visits_all_matches() {
         insert(t, &r("car"), 2);
         insert(t, &r("dog"), 3);
 
-        let mut cx = CollectCtx { out: Vec::new(), stop_after: None };
+        let mut cx = CollectCtx {
+            out: Vec::new(),
+            stop_after: None,
+        };
         let pattern = r("ca?");
         RuneTrieMap_IterateWildcardRune(
             t,
@@ -303,7 +301,10 @@ fn iterate_wildcard_callback_can_short_circuit() {
         for (i, w) in ["aa", "ab", "ac", "ad", "ae"].iter().enumerate() {
             insert(t, &r(w), i + 1);
         }
-        let mut cx = CollectCtx { out: Vec::new(), stop_after: Some(3) };
+        let mut cx = CollectCtx {
+            out: Vec::new(),
+            stop_after: Some(3),
+        };
         let pattern = r("a*");
         RuneTrieMap_IterateWildcardRune(
             t,

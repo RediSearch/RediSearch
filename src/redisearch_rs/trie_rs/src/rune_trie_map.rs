@@ -390,11 +390,7 @@ mod tests {
         let collected: Vec<_> = t.iter().map(|(k, &v)| (k, v)).collect();
         assert_eq!(
             collected,
-            vec![
-                (r("apple"), 1),
-                (r("banana"), 2),
-                (r("cherry"), 3),
-            ]
+            vec![(r("apple"), 1), (r("banana"), 2), (r("cherry"), 3),]
         );
     }
 
@@ -448,11 +444,7 @@ mod tests {
         );
         assert_eq!(
             hits,
-            vec![
-                (r("bravo"), 1),
-                (r("charlie"), 2),
-                (r("delta"), 3),
-            ]
+            vec![(r("bravo"), 1), (r("charlie"), 2), (r("delta"), 3),]
         );
     }
 

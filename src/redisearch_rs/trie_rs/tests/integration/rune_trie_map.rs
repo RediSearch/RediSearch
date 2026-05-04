@@ -128,7 +128,10 @@ fn range_iter_matches_btreemap_range() {
         |k, &v| hits.push((k.to_vec(), v)),
     );
     let expected: Vec<(Vec<u16>, u32)> = oracle
-        .range((std::ops::Bound::Excluded(lo.clone()), std::ops::Bound::Excluded(hi.clone())))
+        .range((
+            std::ops::Bound::Excluded(lo.clone()),
+            std::ops::Bound::Excluded(hi.clone()),
+        ))
         .map(|(k, &v)| (k.clone(), v))
         .collect();
     assert_eq!(hits, expected);
@@ -160,7 +163,13 @@ fn range_iter_matches_btreemap_range() {
 fn wildcard_combined_question_and_star() {
     let mut trie: RuneTrieMap<u32> = RuneTrieMap::new();
     let words = [
-        "fooXbar", "fooXXbar", "fooXXXbar", "foobar", "fooXbarX", "barfoo", "fobar",
+        "fooXbar",
+        "fooXXbar",
+        "fooXXXbar",
+        "foobar",
+        "fooXbarX",
+        "barfoo",
+        "fobar",
     ];
     for (i, w) in words.iter().enumerate() {
         trie.insert_replace(&utf16(w), i as u32);
@@ -174,7 +183,12 @@ fn wildcard_combined_question_and_star() {
     // `foo*bar` => zero or more runes between foo and bar.
     let mut hits = Vec::new();
     trie.wildcard_iter(&utf16("foo*bar"), |k, _| hits.push(k.to_vec()));
-    let mut expected = vec![utf16("foobar"), utf16("fooXbar"), utf16("fooXXbar"), utf16("fooXXXbar")];
+    let mut expected = vec![
+        utf16("foobar"),
+        utf16("fooXbar"),
+        utf16("fooXXbar"),
+        utf16("fooXXXbar"),
+    ];
     hits.sort();
     expected.sort();
     assert_eq!(hits, expected);
@@ -457,10 +471,7 @@ fn deep_prefix_chain_progressive_lengths() {
     }
     assert_eq!(trie.len(), N);
 
-    let mut keys: Vec<Vec<u16>> = trie
-        .prefixed_iter(&utf16("1"))
-        .map(|(k, _)| k)
-        .collect();
+    let mut keys: Vec<Vec<u16>> = trie.prefixed_iter(&utf16("1")).map(|(k, _)| k).collect();
     assert_eq!(keys.len(), N);
     keys.sort_by_key(Vec::len);
     for (idx, k) in keys.iter().enumerate() {
@@ -476,11 +487,11 @@ fn unicode_runes_preserve_lex_order() {
     // runes — also exercised here as separate keys.
     let mut trie: RuneTrieMap<u32> = RuneTrieMap::new();
     let inputs = [
-        "apple",         // ASCII
-        "\u{00E9}clair", // Latin-1 supplement: rune 0x00E9 (é)
-        "\u{4E2D}\u{6587}",   // CJK: 0x4E2D, 0x6587 ("中文")
+        "apple",            // ASCII
+        "\u{00E9}clair",    // Latin-1 supplement: rune 0x00E9 (é)
+        "\u{4E2D}\u{6587}", // CJK: 0x4E2D, 0x6587 ("中文")
         "z",
-        "\u{FFFF}",      // Top of BMP
+        "\u{FFFF}", // Top of BMP
     ];
     for (i, w) in inputs.iter().enumerate() {
         trie.insert_replace(&utf16(w), i as u32);

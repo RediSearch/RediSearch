@@ -38,10 +38,7 @@ use std::ffi::c_void;
 ///   context.
 /// * `t` must be a valid, non-NULL pointer from `RuneTrieMap_New`.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RuneTrieMap_RdbSaveDict(
-    rdb: *mut RedisModuleIO,
-    t: *const RuneTrieMap,
-) {
+pub unsafe extern "C" fn RuneTrieMap_RdbSaveDict(rdb: *mut RedisModuleIO, t: *const RuneTrieMap) {
     debug_assert!(!t.is_null(), "t cannot be NULL");
     // SAFETY: caller guarantees `t` is a valid pointer to a live trie.
     let RuneTrieMap(trie) = unsafe { &*t };
@@ -52,8 +49,7 @@ pub unsafe extern "C" fn RuneTrieMap_RdbSaveDict(
     // SAFETY: callers exercise this only inside a Redis aux-save hook,
     // where the RDB I/O hooks are populated.
     let save_unsigned = unsafe {
-        redis_module::raw::RedisModule_SaveUnsigned
-            .expect("RedisModule_SaveUnsigned not available")
+        redis_module::raw::RedisModule_SaveUnsigned.expect("RedisModule_SaveUnsigned not available")
     };
     // SAFETY: same justification as `save_unsigned` above.
     let save_string = unsafe {
@@ -62,8 +58,7 @@ pub unsafe extern "C" fn RuneTrieMap_RdbSaveDict(
     };
     // SAFETY: same justification as `save_unsigned` above.
     let save_double = unsafe {
-        redis_module::raw::RedisModule_SaveDouble
-            .expect("RedisModule_SaveDouble not available")
+        redis_module::raw::RedisModule_SaveDouble.expect("RedisModule_SaveDouble not available")
     };
 
     // SAFETY: `rdb` is a valid IO context per caller's contract.
@@ -99,13 +94,10 @@ pub unsafe extern "C" fn RuneTrieMap_RdbSaveDict(
 /// `rdb` must be a valid `RedisModuleIO` pointer for the active load
 /// context.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RuneTrieMap_RdbLoadDict(
-    rdb: *mut RedisModuleIO,
-) -> *mut RuneTrieMap {
+pub unsafe extern "C" fn RuneTrieMap_RdbLoadDict(rdb: *mut RedisModuleIO) -> *mut RuneTrieMap {
     // SAFETY: callers exercise this only inside a Redis aux-load hook.
     let load_unsigned = unsafe {
-        redis_module::raw::RedisModule_LoadUnsigned
-            .expect("RedisModule_LoadUnsigned not available")
+        redis_module::raw::RedisModule_LoadUnsigned.expect("RedisModule_LoadUnsigned not available")
     };
     // SAFETY: same justification as `load_unsigned` above.
     let load_string = unsafe {
@@ -114,8 +106,7 @@ pub unsafe extern "C" fn RuneTrieMap_RdbLoadDict(
     };
     // SAFETY: same justification as `load_unsigned` above.
     let load_double = unsafe {
-        redis_module::raw::RedisModule_LoadDouble
-            .expect("RedisModule_LoadDouble not available")
+        redis_module::raw::RedisModule_LoadDouble.expect("RedisModule_LoadDouble not available")
     };
 
     // SAFETY: `rdb` is a valid IO context per caller's contract.
@@ -155,9 +146,8 @@ pub unsafe extern "C" fn RuneTrieMap_RdbLoadDict(
 unsafe fn rm_free(p: *mut c_void) {
     // SAFETY: caller passes an `rm_malloc`-allocated pointer; the Redis
     // allocator must be initialized for the FFI crate to be exercised.
-    let free = unsafe {
-        redis_module::raw::RedisModule_Free.expect("Redis allocator not available")
-    };
+    let free =
+        unsafe { redis_module::raw::RedisModule_Free.expect("Redis allocator not available") };
     // SAFETY: `free` is non-NULL (checked above); `p` is valid.
     unsafe { free(p) };
 }
