@@ -274,27 +274,18 @@ static bool pipelineCanYieldPartialResults(AREQ *r) {
   // Coordinator pipelines are always rooted at RPNet.
   RS_ASSERT(root->type == RP_NETWORK);
 
-  // Shape 1.
-  if (end == root) {
-    return true;
-  }
-
-  // Optionally peel a single RPPager_Limiter at the very end.
+  // RPPager_Limiter is transparent here: peel it and look at what's beneath.
+  // The pager is never the network root, so it always has an upstream.
   ResultProcessor *rp = end;
   if (rp->type == RP_PAGER_LIMITER) {
     rp = rp->upstream;
-    if (!rp) {
-      return false;
-    }
-    // Shape 2.
-    if (rp == root) {
-      return true;
-    }
+    RS_ASSERT(rp);
   }
 
-  // Shape 3: drain pops from the sorter's heap, so what sits between RPSorter
-  // and RPNet doesn't matter.
-  return rp->type == RP_SORTER;
+  // Accept if what's below the (optional) pager is the RPNet root (shapes 1
+  // and 2) or an RPSorter somewhere above it (shape 3 -- drain pops from the
+  // sorter's heap, so what sits between RPSorter and RPNet doesn't matter).
+  return rp == root || rp->type == RP_SORTER;
 }
 
 static void buildDistRPChain(AREQ *r, MRCommand *xcmd, AREQDIST_UpstreamInfo *us, int (*nextFunc)(ResultProcessor *, SearchResult *)) {
