@@ -107,6 +107,13 @@ void Trie_IterateRange(Trie *t, const rune *min, int minlen, bool includeMin,
   TrieNode_IterateRange(t->root, min, minlen, includeMin, max, maxlen, includeMax, callback, ctx);
 }
 
+void Trie_IterateContains(Trie *t, const rune *str, int nstr, bool prefix, bool suffix,
+                          TrieRangeCallback callback, void *ctx, struct timespec *timeout,
+                          bool skipTimeoutChecks) {
+  TrieNode_IterateContains(t->root, str, nstr, prefix, suffix, callback, ctx, timeout,
+                           skipTimeoutChecks);
+}
+
 // Forward declaration for the internal rune-based function
 static TrieDecrResult Trie_DecrementNumDocsRunes(Trie *t, const rune *runes, size_t len, size_t delta);
 

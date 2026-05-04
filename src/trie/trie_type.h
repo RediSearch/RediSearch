@@ -72,6 +72,13 @@ void Trie_IterateRange(Trie *t, const rune *min, int minlen, bool includeMin,
                        const rune *max, int maxlen, bool includeMax,
                        TrieRangeCallback callback, void *ctx);
 
+/* Iterate all nodes that contain (or begin/end with) the given pattern. Wraps
+ * TrieNode_IterateContains on the trie's root. See TrieNode_IterateContains for
+ * parameter semantics. */
+void Trie_IterateContains(Trie *t, const rune *str, int nstr, bool prefix, bool suffix,
+                          TrieRangeCallback callback, void *ctx, struct timespec *timeout,
+                          bool skipTimeoutChecks);
+
 /* Result codes for Trie_DecrementNumDocs */
 typedef enum {
   TRIE_DECR_NOT_FOUND = 0,   /* Term not found in trie */

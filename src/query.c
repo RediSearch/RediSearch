@@ -733,9 +733,9 @@ static QueryIterator *Query_EvalPrefixNode(QueryEvalCtx *q, QueryNode *qn) {
       QueryError_SetError(q->status, QUERY_ERROR_CODE_GENERIC, "Contains query on fields without WITHSUFFIXTRIE support");
     }
   } else {
-    TrieNode_IterateContains(t->root, str, nstr, qn->pfx.prefix, qn->pfx.suffix,
-                           runeIterCb, &ctx, &q->sctx->time.timeout,
-                           q->sctx->time.skipTimeoutChecks);
+    Trie_IterateContains(t, str, nstr, qn->pfx.prefix, qn->pfx.suffix,
+                         runeIterCb, &ctx, &q->sctx->time.timeout,
+                         q->sctx->time.skipTimeoutChecks);
   }
 
   rm_free(str);
