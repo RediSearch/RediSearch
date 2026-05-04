@@ -89,8 +89,9 @@ void Trie_IterateWildcard(Trie *t, const rune *str, int nstr,
 static inline size_t Trie_Size(const Trie *t) { return t ? t->size : 0; }
 
 /* Iterate every node in the trie with no filter or distance constraint. Wraps
- * TrieNode_Iterate(t->root, NULL, NULL, NULL). Used by debug paths that want raw
- * traversal; production code should prefer Trie_Iterate with a prefix/maxDist. */
+ * TrieNode_Iterate on the trie's root with no filter. Used by debug paths that
+ * want raw traversal; production code should prefer Trie_Iterate with a
+ * prefix/maxDist. */
 TrieIterator *Trie_IterateAll(Trie *t);
 
 /* Result codes for Trie_DecrementNumDocs */
