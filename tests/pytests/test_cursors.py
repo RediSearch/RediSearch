@@ -171,6 +171,40 @@ def testMaxIdleAutoReap(env):
             break
     env.assertEqual(0, rv)
 
+@skip(cluster=True)
+def testDropIndexFreesIdleCursors(env):
+    # Regression test for MOD-6416: idle cursors created by FT.AGGREGATE
+    # WITHCURSOR keep the dropped IndexSpec (and their AREQ) alive until
+    # they are reaped. Without automatic reaping at MAXIDLE, the memory
+    # held by idle cursors persists past FT.DROPINDEX with no further
+    # client traffic. With the timer-based sweep, the cursors expire on
+    # their own and the global cursor count drops to zero.
+    loadDocs(env, idx='idx1')
+    # Second index used only to read FT.INFO after idx1 is dropped, since
+    # the global cursor stats are exposed per-index.
+    loadDocs(env, count=1, idx='idx2')
+
+    n_cursors = 5
+    for _ in range(n_cursors):
+        # Don't read from the cursor: it goes idle immediately.
+        env.cmd('FT.AGGREGATE', 'idx1', '*', 'LOAD', '1', '@f1',
+                'WITHCURSOR', 'COUNT', 1, 'MAXIDLE', 50)
+
+    env.assertEqual(n_cursors, getCursorStats(env, 'idx2')['global_total'])
+
+    env.cmd('FT.DROPINDEX', 'idx1')
+
+    # Wait comfortably longer than MAXIDLE; the module timer must reap
+    # the orphaned idle cursors without any further cursor traffic.
+    exptime = time() + 2.5
+    rv = n_cursors
+    while time() < exptime:
+        sleep(0.05)
+        rv = getCursorStats(env, 'idx2')['global_total']
+        if not rv:
+            break
+    env.assertEqual(0, rv)
+
 def testLeaked(env):
     # Ensure that sanitizer doesn't report memory leak for idle cursors.
     n_docs = env.shardsCount * 1100
