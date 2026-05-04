@@ -8,7 +8,7 @@
 */
 
 use crate::{RLookupKey, RLookupKeyFlags};
-use std::{ffi::CStr, marker::PhantomData, pin::Pin, ptr::NonNull};
+use std::{ffi::CStr, iter::FusedIterator, marker::PhantomData, pin::Pin, ptr::NonNull};
 
 #[cfg(any(debug_assertions, test))]
 use std::ptr;
@@ -457,6 +457,12 @@ impl<'list, 'a> Iterator for IterMut<'list, 'a> {
         Some(unsafe { Pin::new_unchecked(next) })
     }
 }
+
+// Once `IterRaw::next` returns `None`, `self.current` is `None` and stays that way, so all three
+// iterators are naturally fused.
+impl FusedIterator for IterRaw<'_> {}
+impl FusedIterator for Iter<'_, '_> {}
+impl FusedIterator for IterMut<'_, '_> {}
 
 #[cfg(test)]
 mod tests {
