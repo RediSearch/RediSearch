@@ -375,7 +375,7 @@ DEBUG_COMMAND(DumpTerms) {
   int dist = 0;
   size_t termLen;
 
-  RedisModule_ReplyWithArray(ctx, sctx->spec->terms->size);
+  RedisModule_ReplyWithArray(ctx, Trie_Size(sctx->spec->terms));
 
   TrieIterator *it = Trie_Iterate(sctx->spec->terms, "", 0, 0, 1);
   while (TrieIterator_Next(it, &rstr, &slen, NULL, &score, NULL, &dist)) {
@@ -712,7 +712,7 @@ DEBUG_COMMAND(DumpSuffix) {
     long resultSize = 0;
 
     // iterate trie and reply with terms
-    TrieIterator *it = TrieNode_Iterate(suffix->root, NULL, NULL, NULL);
+    TrieIterator *it = Trie_IterateAll(suffix);
     rune *rstr;
     t_len len;
     float score;
