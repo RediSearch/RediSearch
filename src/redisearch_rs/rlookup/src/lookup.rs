@@ -164,13 +164,15 @@ impl<'a> RLookup<'a> {
         self.keys.cursor_front_mut()
     }
 
-    /// Returns an [`Iter`] starting at the first key.
+    /// Returns an iterator over immutable references to keys.
     #[inline(always)]
     pub fn iter(&self) -> Iter<'_, 'a> {
         self.keys.iter()
     }
 
-    /// Returns an [`IterMut`] starting at the first key.
+    /// Returns an iterator over pinned mutable references to keys.
+    ///
+    /// Use [`RLookup::cursor_mut`] to override a key during traversal.
     #[inline(always)]
     pub fn iter_mut(&mut self) -> IterMut<'_, 'a> {
         self.keys.iter_mut()

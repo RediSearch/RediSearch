@@ -38,24 +38,20 @@ pub struct CursorMut<'list, 'a> {
     current: Option<NonNull<RLookupKey<'a>>>,
 }
 
-/// A iterator over an [`RLookup`][crate::RLookup]'s key list.
-///
-/// Skips overriden keys.
+/// Internal iterator yielding raw pointers to keys.
 struct IterRaw<'a> {
     current: Option<NonNull<RLookupKey<'a>>>,
 }
 
-/// A iterator over an [`RLookup`][crate::RLookup]'s key list.
-///
-/// Skips overriden keys.
+/// Iterator over an [`RLookup`][crate::RLookup]'s key list, yielding immutable references to keys.
 pub struct Iter<'list, 'a> {
     _list: PhantomData<&'list KeyList<'a>>,
     raw: IterRaw<'a>,
 }
 
-/// A iterator over an [`RLookup`][crate::RLookup]'s key list with editing operations.
+/// Iterator over an [`RLookup`][crate::RLookup]'s key list, yielding pinned mutable references to keys.
 ///
-/// Skips overriden keys.
+/// Use [`CursorMut`] to override a key during traversal.
 pub struct IterMut<'list, 'a> {
     _list: PhantomData<&'list mut KeyList<'a>>,
     raw: IterRaw<'a>,
@@ -149,7 +145,7 @@ impl<'a> KeyList<'a> {
         }
     }
 
-    /// Return a iterator over an [`crate::RLookup`]'s key list.
+    /// Returns an iterator over immutable references to keys.
     #[cfg_attr(not(debug_assertions), expect(clippy::missing_const_for_fn))]
     pub fn iter(&self) -> Iter<'_, 'a> {
         #[cfg(debug_assertions)]
@@ -161,7 +157,7 @@ impl<'a> KeyList<'a> {
         }
     }
 
-    /// Return a iterator over an [`crate::RLookup`]'s key list with editing operations.
+    /// Returns an iterator over pinned mutable references to keys.
     #[cfg_attr(not(debug_assertions), expect(clippy::missing_const_for_fn))]
     pub fn iter_mut(&mut self) -> IterMut<'_, 'a> {
         #[cfg(debug_assertions)]
