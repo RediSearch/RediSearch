@@ -18,12 +18,13 @@
 #include "trie/levenshtein.h"
 
 static const rune *runenchr(const rune *r, size_t len, rune c) {
-  for (size_t i = 0; i < len; ++i) {
-    if (r[i] == c) {
-      return r + i;
+  size_t i = 0;
+  for (; i < len; ++i) {
+    if (r[i] == (rune)c) {
+      break;
     }
   }
-  return NULL;
+  return i == len ? NULL : r + i;
 }
 
 typedef struct {
