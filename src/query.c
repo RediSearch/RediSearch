@@ -910,8 +910,8 @@ static QueryIterator *Query_EvalLexRangeNode(QueryEvalCtx *q, QueryNode *lx) {
     end = strToLowerRunes(lx->lxrng.end, strlen(lx->lxrng.end), &nend);
   }
 
-  TrieNode_IterateRange(t->root, begin, begin ? nbegin : -1, lx->lxrng.includeBegin, end,
-                        end ? nend : -1, lx->lxrng.includeEnd, runeIterCb, &ctx);
+  Trie_IterateRange(t, begin, begin ? nbegin : -1, lx->lxrng.includeBegin, end,
+                    end ? nend : -1, lx->lxrng.includeEnd, runeIterCb, &ctx);
   rm_free(begin);
   rm_free(end);
 
