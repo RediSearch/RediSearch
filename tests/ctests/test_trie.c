@@ -25,7 +25,7 @@
 
 int count = 0;
 
-static float trie_exact_score(TrieNode *n, rune *str, t_len len) {
+static float trieExactScore(TrieNode *n, rune *str, t_len len) {
   TrieNode *res = TrieNode_Get(n, str, len, true, NULL);
   return res ? res->score : 0;
 }
@@ -177,7 +177,7 @@ int testTrie() {
   __trie_add(&root, "helter skelter", NULL, 3, ADD_REPLACE);
   size_t rlen;
   rune *runes = strToRunes("helter skelter", &rlen);
-  float sc = trie_exact_score(root, runes, rlen);
+  float sc = trieExactScore(root, runes, rlen);
   ASSERT(sc == 3);
 
   __trie_add(&root, "heltar skelter", NULL, 4, ADD_REPLACE);
@@ -186,12 +186,12 @@ int testTrie() {
   // replace the score
   __trie_add(&root, "helter skelter", NULL, 6, ADD_REPLACE);
 
-  sc = trie_exact_score(root, runes, rlen);
+  sc = trieExactScore(root, runes, rlen);
   ASSERT(sc == 6);
 
   /// add with increment
   __trie_add(&root, "helter skelter", NULL, 6, ADD_INCR);
-  sc = trie_exact_score(root, runes, rlen);
+  sc = trieExactScore(root, runes, rlen);
   ASSERT(sc == 12);
 
   TrieNode_Free(root, NULL);
@@ -215,7 +215,7 @@ int testUnicode() {
   ASSERT_EQUAL(0, rc);
   size_t rlen;
   rune *runes = strToRunes(str, &rlen);
-  float sc = trie_exact_score(root, runes, rlen);
+  float sc = trieExactScore(root, runes, rlen);
   free(runes);
   ASSERT(sc == 1);
   TrieNode_Free(root, NULL);
