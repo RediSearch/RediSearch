@@ -324,6 +324,14 @@ arrayof(FieldSpec *) IndexSpec_GetFieldsByMask(const IndexSpec *sp, t_fieldMask 
 StrongRef IndexSpec_ParseRedisArgs(RedisModuleCtx *ctx, const HiddenString *name,
                                     RedisModuleString **argv, int argc, QueryError *status) {
 
+  // Reject grossly oversized argument lists. The exact field-count limit is enforced later in
+  // IndexSpec_AddFieldsInternal (SPEC_MAX_FIELDS). (256KB stack on 64-bit systems)
+  if (argc < 0 || argc > SPEC_MAX_FIELDS * 32) {
+    QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_LIMIT,
+                                     "Schema is limited to %d fields", SPEC_MAX_FIELDS);
+    return INVALID_STRONG_REF;
+  }
+
   const char *args[argc];
   for (int i = 0; i < argc; i++) {
     args[i] = RedisModule_StringPtrLen(argv[i], NULL);

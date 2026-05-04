@@ -144,6 +144,15 @@ def test_MOD_865(env):
   env.expect(*args_list).error().contains('Duplicate field in schema - txt')
   env.expect('FT.DROPINDEX', 'idx')
 
+def test_MOD_6411(env):
+  # The argc bound check
+  # should reject the request with the standard schema-limit error.
+  args_list = ['FT.CREATE', 'idx', 'SCHEMA']
+  for i in range(100000):
+    args_list.extend([f'field{i}', 'NUMERIC', 'SORTABLE'])
+  env.expect(*args_list).error().contains('Schema is limited to 1024 fields')
+  env.expect('FT.DROPINDEX', 'idx')
+
 def test_issue1826(env):
   # Stopword query is case sensitive.
   conn = getConnectionByEnv(env)
