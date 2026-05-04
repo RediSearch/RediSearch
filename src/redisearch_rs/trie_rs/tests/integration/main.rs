@@ -8,4 +8,5 @@
 */
 
 mod iter;
+mod rune_trie_map;
 mod trie;
