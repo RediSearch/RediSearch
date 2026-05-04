@@ -9,8 +9,8 @@
 
 //! End-to-end tests for the COLLECT reducer that drive
 //! [`RemoteCollectReducer`] and [`LocalCollectReducer`] through
-//! `add` → `finalize`. Pure comparator unit tests live inline in
-//! `reducers/src/collect/storage.rs`. The
+//! `add` → `finalize`. Pure comparator unit tests live in
+//! `reducers/tests/storage.rs`. The
 //! `RSGlobalConfig.maxAggregateResults` array-path cap is covered by the
 //! Python E2E tests because mutating the process-global would require
 //! serialising Rust tests.

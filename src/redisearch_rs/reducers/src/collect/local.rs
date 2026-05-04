@@ -124,7 +124,7 @@ impl LocalCollectCtx {
                 );
                 continue;
             }
-            let project = || {
+            self.storage.insert_entry(|| {
                 r.field_names
                     .iter()
                     .map(|name| {
@@ -134,8 +134,7 @@ impl LocalCollectCtx {
                     })
                     .collect::<Vec<_>>()
                     .into_boxed_slice()
-            };
-            self.storage.insert_entry(project);
+            });
         }
     }
 
