@@ -720,7 +720,7 @@ static QueryIterator *Query_EvalPrefixNode(QueryEvalCtx *q, QueryNode *qn) {
     if (qn->opts.fieldMask == RS_FIELDMASK_ALL ||
        (spec->suffixMask & qn->opts.fieldMask) == qn->opts.fieldMask) {
       SuffixCtx sufCtx = {
-        .root = spec->suffix,
+        .trie = spec->suffix,
         .rune = str,
         .runelen = nstr,
         .type = qn->pfx.prefix ? SUFFIX_TYPE_CONTAINS : SUFFIX_TYPE_SUFFIX,
@@ -777,7 +777,7 @@ static QueryIterator *Query_EvalWildcardQueryNode(QueryEvalCtx *q, QueryNode *qn
     if (qn->opts.fieldMask == RS_FIELDMASK_ALL ||
        (spec->suffixMask & qn->opts.fieldMask) == qn->opts.fieldMask) {
       SuffixCtx sufCtx = {
-        .root = spec->suffix,
+        .trie = spec->suffix,
         .rune = str,
         .runelen = nstr,
         .cstr = token->str,
