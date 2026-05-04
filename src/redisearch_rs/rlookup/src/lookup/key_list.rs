@@ -754,6 +754,43 @@ mod tests {
         assert_eq!(names, vec![c"foo".to_owned(), c"bar".to_owned()]);
     }
 
+    // Assert that mutations performed through IterMut are observable on a subsequent iter() pass.
+    #[test]
+    fn iter_mut_mutation_visible() {
+        let mut keylist = KeyList::new();
+
+        keylist.push(RLookupKey::new(c"a", RLookupKeyFlags::empty()));
+        keylist.push(RLookupKey::new(c"b", RLookupKeyFlags::empty()));
+
+        for key in keylist.iter_mut() {
+            key.project().header.flags |= RLookupKeyFlag::ExplicitReturn;
+        }
+
+        for key in keylist.iter() {
+            assert!(key.flags.contains(RLookupKeyFlag::ExplicitReturn));
+        }
+    }
+
+    // Assert that Iter handles a tombstone at the tail with no successor (returns None instead of dereferencing past the end).
+    #[test]
+    fn iter_skips_tail_tombstone() {
+        let mut keylist = KeyList::new();
+
+        keylist.push(RLookupKey::new(c"foo", RLookupKeyFlags::empty()));
+        keylist.push(RLookupKey::new(c"bar", RLookupKeyFlags::empty()));
+
+        // Tombstone the tail without inserting a replacement.
+        let mut cursor = keylist.cursor_front_mut();
+        cursor.move_next(); // now at "bar"
+        cursor.current().unwrap().make_tombstone();
+
+        let names: Vec<_> = keylist
+            .iter()
+            .map(|k| k.name().as_ref().to_owned())
+            .collect();
+        assert_eq!(names, vec![c"foo".to_owned()]);
+    }
+
     #[test]
     fn keylist_override_key_tail_handling() {
         let mut keylist = KeyList::new();

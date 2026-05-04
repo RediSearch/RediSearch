@@ -523,6 +523,36 @@ mod tests {
     #[cfg(not(miri))]
     use proptest::prelude::*;
 
+    // Assert that RLookup::iter and iter_mut yield the keys written via get_key_write,
+    // and that mutations through iter_mut are observable on a subsequent iter pass.
+    #[test]
+    fn rlookup_iter_round_trip() {
+        let mut rlookup = RLookup::new();
+
+        for name in [c"a", c"b", c"c"] {
+            rlookup
+                .get_key_write(name, RLookupKeyFlags::empty())
+                .unwrap();
+        }
+
+        let names: Vec<_> = rlookup
+            .iter()
+            .map(|k| k.name().as_ref().to_owned())
+            .collect();
+        assert_eq!(
+            names,
+            vec![c"a".to_owned(), c"b".to_owned(), c"c".to_owned()]
+        );
+
+        for key in rlookup.iter_mut() {
+            key.project().header.flags |= RLookupKeyFlag::ExplicitReturn;
+        }
+
+        for key in rlookup.iter() {
+            assert!(key.flags.contains(RLookupKeyFlag::ExplicitReturn));
+        }
+    }
+
     // Assert that we can successfully write keys to the rlookup
     #[test]
     fn rlookup_write_new_key() {
