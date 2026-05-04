@@ -100,7 +100,7 @@ void collectLocalFree(Reducer *r);
  *    `sort_keys_len` [valid] `*const RLookupKey` pointers.
  * 3. All [`RLookupKey`][ffi::RLookupKey] pointers must remain valid for the
  *    lifetime of the returned reducer.
- * 4. `srclookup` is either null (no load-all) or a [valid] pointer to a
+ * 4. `srclookup` is either null or a [valid] pointer to a
  *    [`RLookup`][ffi::RLookup] that remains alive for the lifetime of the
  *    returned reducer.
  *

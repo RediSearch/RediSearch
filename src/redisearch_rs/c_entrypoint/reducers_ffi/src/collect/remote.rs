@@ -10,7 +10,7 @@
 //! Remote COLLECT reducer FFI.
 
 use reducers::collect::{RemoteCollectCtx, RemoteCollectReducer};
-use rlookup::{OpaqueRLookup, RLookup, RLookupKey, RLookupRow};
+use rlookup::{RLookup, RLookupKey, RLookupRow};
 use std::{
     ffi::{c_int, c_void},
     ptr, slice,
@@ -30,7 +30,7 @@ use std::{
 ///    `sort_keys_len` [valid] `*const RLookupKey` pointers.
 /// 3. All [`RLookupKey`][ffi::RLookupKey] pointers must remain valid for the
 ///    lifetime of the returned reducer.
-/// 4. `srclookup` is either null (no load-all) or a [valid] pointer to a
+/// 4. `srclookup` is either null or a [valid] pointer to a
 ///    [`RLookup`][ffi::RLookup] that remains alive for the lifetime of the
 ///    returned reducer.
 ///
@@ -64,13 +64,8 @@ pub unsafe extern "C" fn CollectReducer_CreateRemote(
         Box::new([])
     };
 
-    // SAFETY: ensured by caller (4.) — when non-null, `srclookup` outlives
-    // the returned reducer. `from_opaque_ptr` maps null to `None`, so the
-    // pointer's nullness is the load-all-mode signal. The cbindgen rename
-    // `OpaqueRLookup → RLookup` makes `*const ffi::RLookup` and
-    // `*const OpaqueRLookup` interchangeable at the layout level.
-    let srclookup: Option<&RLookup> =
-        unsafe { RLookup::from_opaque_ptr(srclookup.cast::<OpaqueRLookup>()) };
+    // SAFETY: ensured by caller (4.)
+    let srclookup: Option<&RLookup> = unsafe { srclookup.cast::<RLookup>().as_ref() };
 
     let limit = has_limit.then_some((limit_offset, limit_count));
 
@@ -117,10 +112,7 @@ pub unsafe extern "C" fn collectRemoteNewInstance(r: *mut ffi::Reducer) -> *mut 
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn collectRemoteFreeInstance(_r: *mut ffi::Reducer, ctx: *mut c_void) {
-    // SAFETY: ensured by caller (1.) — `ctx` points to a valid, initialized
-    // `RemoteCollectCtx`. After this call the pointee is logically uninitialized,
-    // but the arena memory is freed later when `RemoteCollectReducer` (and its
-    // `Bump`) is dropped.
+    // SAFETY: ensured by caller (1.)
     unsafe { ptr::drop_in_place(ctx.cast::<RemoteCollectCtx>()) }
 }
 
@@ -184,8 +176,7 @@ pub unsafe extern "C" fn collectRemoteFinalize(
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn collectRemoteFree(r: *mut ffi::Reducer) {
-    // SAFETY: ensured by caller (1.); `r` originates from `Box::into_raw` of a
-    // `Box<RemoteCollectReducer>` and is still owned by C, so we can reclaim it here.
+    // SAFETY: ensured by caller (1.)
     drop(unsafe { Box::from_raw(r.cast::<RemoteCollectReducer>()) });
 }
 

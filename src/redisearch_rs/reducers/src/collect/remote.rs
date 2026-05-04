@@ -14,9 +14,6 @@
 //! execution it is used for the shard-side half of the innermost split
 //! `GROUPBY`, where it serializes collected items into a payload for the
 //! coordinator-side COLLECT reducer.
-//!
-//! Coordinator-side outer `GROUPBY` steps also see ordinary rows/items; they are
-//! not this reducer's special merge input.
 
 use std::collections::HashSet;
 use std::mem;
@@ -36,29 +33,21 @@ use crate::collect::common::{CollectCommon, for_each_visible_value};
 pub struct RemoteCollectReducer<'a> {
     common: CollectCommon,
     field_keys: Box<[&'a RLookupKey<'a>]>,
-    /// [`Some`] when `FIELDS *` was specified at parse time.
+    /// Source lookup for `FIELDS *` mode (a.k.a. *load-all*).
     ///
-    /// In load-all mode both [`RemoteCollectCtx::add`] and
-    /// [`RemoteCollectCtx::finalize`] walk this lookup *live* on every
-    /// invocation via [`for_each_visible_value`]. The per-call walk is
-    /// required because an upstream `LOAD *` may append keys
-    /// mid-pipeline; caching the iteration result would silently lose
-    /// them. This mirrors the per-row `RLOOKUP_FOREACH` pattern in
-    /// `aggregate_exec.c`'s load-all reply path.
+    /// `Some` when the user wrote `FIELDS *`; the projection then emits
+    /// every visible key present on the row (see
+    /// [`for_each_visible_value`]), walked per call.
     ///
-    /// The borrow lives for the reducer's full lifetime; both the source
-    /// [`RLookup`] and the reducer outlive every per-group
-    /// [`RemoteCollectCtx`].
+    /// The walk runs per `add()` call rather than once at construction because an
+    /// upstream `LOAD *` may append keys mid-pipeline.
     srclookup: Option<&'a RLookup<'a>>,
     /// Raw sort-key references, including keys not present in `FIELDS`.
     sort_keys: Box<[&'a RLookupKey<'a>]>,
     /// `true` for shard replies dispatched by the coordinator: extra sort-key
     /// columns are emitted alongside the requested fields so the coordinator
     /// can re-order shard rows during merge. `false` for direct execution.
-    /// No-op in load-all mode — the [`srclookup`][Self::srclookup] live walk
-    /// emits whatever is currently in the lookup regardless of this flag,
-    /// since sort keys are always registered in the source lookup at parse
-    /// time.
+    /// No-op when [`srclookup`][Self::srclookup] is `Some`.
     include_sort_keys: bool,
 }
 
@@ -83,14 +72,11 @@ pub struct RemoteCollectCtx<'a> {
 impl<'a> RemoteCollectReducer<'a> {
     /// Create a reducer from C-parsed configuration.
     ///
-    /// `srclookup` is [`Some`] when the user wrote `FIELDS *`;
-    /// see [`Self::srclookup`] for the load-all-mode policy. The borrow ties
-    /// the reducer to the request's source lookup, whose stable address is
-    /// guaranteed by the parser holding `options->srclookup` for the
-    /// reducer's entire lifetime.
+    /// `srclookup` is `Some` when the user wrote `FIELDS *`; see
+    /// [`Self::srclookup`] for the load-all-mode policy.
     #[expect(
         rustdoc::private_intra_doc_links,
-        reason = "links to the private srclookup field per docs guidelines"
+        reason = "links to the private srclookup field"
     )]
     pub fn new(
         field_keys: Box<[&'a RLookupKey<'a>]>,
@@ -187,12 +173,6 @@ impl<'a> RemoteCollectCtx<'a> {
         let rows = mem::take(&mut self.rows);
 
         if let Some(lookup) = r.srclookup {
-            // Each row walks the lookup freshly. The cursor hands out
-            // references borrowed from itself, so the explicit-fields path's
-            // pre-built template (with hoisted name allocations) cannot be
-            // expressed without unsafe — and hoisting matters less here
-            // anyway, since the load-all key set varies per row (a hoisted
-            // name might not even be emitted for some rows).
             SharedValue::new_array(rows.into_iter().map(|row| {
                 let mut entries: Vec<(SharedValue, SharedValue)> = Vec::new();
                 for_each_visible_value(lookup, &row, |key, v| {
