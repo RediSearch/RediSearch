@@ -15,6 +15,7 @@
 //! tests put the rules under combined load.
 
 use std::collections::BTreeMap;
+use std::ops::Bound;
 
 use trie_rs::{RuneBound, RuneTrieMap};
 
@@ -358,6 +359,114 @@ fn prefixed_iter_skips_non_prefix_keys() {
     got.sort();
     expected.sort();
     assert_eq!(got, expected);
+}
+
+#[test]
+fn numeric_range_thousand_entries_matches_btreemap_oracle() {
+    // Ports `testBasicRange` from tests/cpptests/test_cpp_trie.cpp:
+    // 1000 decimal-string keys, several range shapes. The workload is
+    // the historically bug-tickling one — branching at every prefix
+    // depth (1, 10, 100, ...) exercises iteration order, range bounds,
+    // and offset arithmetic together. We assert against a BTreeMap
+    // oracle instead of the C test's magic numbers so the test states
+    // the *property* (range_iter == ordered map range) directly.
+    let mut trie: RuneTrieMap<u32> = RuneTrieMap::new();
+    let mut oracle: BTreeMap<Vec<u16>, u32> = BTreeMap::new();
+    for i in 0u32..1000 {
+        let key = utf16(&i.to_string());
+        trie.insert_replace(&key, i);
+        oracle.insert(key, i);
+    }
+    assert_eq!(trie.len(), 1000);
+
+    // (lo_str, lo_inclusive, hi_str, hi_inclusive). `None` means unbounded.
+    let cases: &[(Option<&str>, bool, Option<&str>, bool)] = &[
+        // [1, 1Z): every key starting with '1' (1, 10..19, 100..199).
+        (Some("1"), true, Some("1Z"), false),
+        // [1, 1]: only the key "1".
+        (Some("1"), true, Some("1"), true),
+        // [10, 11): "10" plus "100".."109".
+        (Some("10"), true, Some("11"), false),
+        // [10, "10\x01"): only "10".
+        (Some("10"), true, Some("10\x01"), false),
+        // (.., 5): everything lex-less than "5".
+        (None, false, Some("5"), false),
+        // (..) — full range.
+        (None, false, None, false),
+    ];
+
+    for &(lo, lo_inc, hi, hi_inc) in cases {
+        let lo_runes = lo.map(utf16);
+        let hi_runes = hi.map(utf16);
+
+        let mut hits: Vec<(Vec<u16>, u32)> = Vec::new();
+        trie.range_iter(
+            lo_runes.as_deref().map(|v| {
+                if lo_inc {
+                    RuneBound::included(v)
+                } else {
+                    RuneBound::excluded(v)
+                }
+            }),
+            hi_runes.as_deref().map(|v| {
+                if hi_inc {
+                    RuneBound::included(v)
+                } else {
+                    RuneBound::excluded(v)
+                }
+            }),
+            |k, &v| hits.push((k.to_vec(), v)),
+        );
+
+        let lo_bound = match (lo_runes.clone(), lo_inc) {
+            (None, _) => Bound::Unbounded,
+            (Some(v), true) => Bound::Included(v),
+            (Some(v), false) => Bound::Excluded(v),
+        };
+        let hi_bound = match (hi_runes, hi_inc) {
+            (None, _) => Bound::Unbounded,
+            (Some(v), true) => Bound::Included(v),
+            (Some(v), false) => Bound::Excluded(v),
+        };
+        let expected: Vec<(Vec<u16>, u32)> = oracle
+            .range::<Vec<u16>, _>((lo_bound, hi_bound))
+            .map(|(k, &v)| (k.clone(), v))
+            .collect();
+
+        assert_eq!(
+            hits, expected,
+            "range mismatch for lo={:?}({}), hi={:?}({})",
+            lo, lo_inc, hi, hi_inc
+        );
+    }
+}
+
+#[test]
+fn deep_prefix_chain_progressive_lengths() {
+    // Ports `testDeepEntry`: insert progressively-longer keys all
+    // composed of the same rune ('1'). The C trie's purpose was a
+    // stack-buffer overflow guard against TRIE_INITIAL_STRING_LEN
+    // recursion depth. The Rust trie heap-allocates its traversal
+    // stack, so the test instead validates that a deep label chain
+    // enumerates every variant cleanly.
+    const N: usize = 255;
+    let mut trie: RuneTrieMap<u32> = RuneTrieMap::new();
+    for k in 1..=N {
+        let key: Vec<u16> = vec![u16::from(b'1'); k];
+        trie.insert_replace(&key, k as u32);
+    }
+    assert_eq!(trie.len(), N);
+
+    let mut keys: Vec<Vec<u16>> = trie
+        .prefixed_iter(&utf16("1"))
+        .map(|(k, _)| k)
+        .collect();
+    assert_eq!(keys.len(), N);
+    keys.sort_by_key(Vec::len);
+    for (idx, k) in keys.iter().enumerate() {
+        assert_eq!(k.len(), idx + 1);
+        assert!(k.iter().all(|&r| r == u16::from(b'1')));
+    }
 }
 
 #[test]
