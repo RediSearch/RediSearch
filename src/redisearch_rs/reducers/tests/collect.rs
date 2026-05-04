@@ -71,14 +71,14 @@ impl RemoteCollectFixture {
     /// REDUCE COLLECT 6
     ///   FIELDS 1 @name
     ///   SORTBY 1 @sweetness
-    fn reducer(&self, include_sort_keys: bool) -> RemoteCollectReducer<'_> {
+    fn reducer(&self, is_internal: bool) -> RemoteCollectReducer<'_> {
         RemoteCollectReducer::new(
             Box::new([&self.name_key]),
             None,
             Box::new([&self.sweetness_key]),
             0,
             None,
-            include_sort_keys,
+            is_internal,
         )
     }
 
@@ -143,7 +143,7 @@ fn remote_finalize_dedupes_overlapping_field_and_sort_key() {
         Box::new([&fixture.name_key]),
         0,
         None,
-        true, // include_sort_keys
+        true, // is_internal
     );
     let mut ctx = RemoteCollectCtx::new(&reducer);
     let row = fixture.row("apple", 10.0);
@@ -481,7 +481,7 @@ fn make_row<'a>(
 }
 
 /// Drive a full `add` → `finalize` cycle on a standalone
-/// (`include_sort_keys = false`) [`RemoteCollectReducer`].
+/// (`is_internal = false`) [`RemoteCollectReducer`].
 fn run_collect(
     field_keys: Box<[&RLookupKey<'_>]>,
     sort_keys: Box<[&RLookupKey<'_>]>,
@@ -495,7 +495,7 @@ fn run_collect(
         sort_keys.clone(),
         sort_asc_map,
         limit,
-        /* include_sort_keys */ false,
+        /* is_internal */ false,
     );
     let mut ctx = RemoteCollectCtx::new(&r);
     for (projected, sort_vals) in rows {
@@ -614,21 +614,21 @@ fn array_overflow_skips_projection_beyond_cap() {
 #[test]
 fn remote_internal_mode_does_not_apply_limit_offset_locally() {
     // Regression canary for the contract documented on
-    // `RemoteCollectReducer::include_sort_keys`: if a future change rewrites
+    // `RemoteCollectReducer::is_internal`: if a future change rewrites
     // the shard wire's LIMIT to `(0, offset+count)` without flipping that
     // gate, the offset gets dropped twice and this test fails.
     let v = mk_key(c"v", 0);
     let s = mk_key(c"s", 1);
     let field_keys: Box<[&RLookupKey]> = vec![&v].into_boxed_slice();
     let sort_keys: Box<[&RLookupKey]> = vec![&s].into_boxed_slice();
-    let run_with_include_sort_keys = |include_sort_keys: bool| -> Vec<f64> {
+    let run_with_is_internal = |is_internal: bool| -> Vec<f64> {
         let r = RemoteCollectReducer::new(
             field_keys.clone(),
             None,
             sort_keys.clone(),
             0b1, // ASC
             Some((5, 3)),
-            include_sort_keys,
+            is_internal,
         );
         let mut ctx = RemoteCollectCtx::new(&r);
         for i in 0..10 {
@@ -644,8 +644,8 @@ fn remote_internal_mode_does_not_apply_limit_offset_locally() {
         extract_num_field(&out, b"v")
     };
 
-    let standalone = run_with_include_sort_keys(false);
-    let internal = run_with_include_sort_keys(true);
+    let standalone = run_with_is_internal(false);
+    let internal = run_with_is_internal(true);
 
     assert_eq!(
         standalone,

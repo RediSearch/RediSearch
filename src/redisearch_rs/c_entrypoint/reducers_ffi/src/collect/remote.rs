@@ -46,7 +46,7 @@ pub unsafe extern "C" fn CollectReducer_CreateRemote(
     has_limit: bool,
     limit_offset: u64,
     limit_count: u64,
-    include_sort_keys: bool,
+    is_internal: bool,
 ) -> *mut ffi::Reducer {
     let field_keys: Box<[&RLookupKey]> = if !field_keys.is_null() && field_keys_len > 0 {
         // SAFETY: ensured by caller (1.)
@@ -75,7 +75,7 @@ pub unsafe extern "C" fn CollectReducer_CreateRemote(
         sort_keys,
         sort_asc_map,
         limit,
-        include_sort_keys,
+        is_internal,
     ));
 
     cr.reducer_mut()

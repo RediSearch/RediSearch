@@ -68,7 +68,7 @@ impl<T> Storage<T> {
     }
 
     /// Drain in insertion order without applying the offset/count slice.
-    /// Used by the remote reducer when `include_sort_keys` is set, where the
+    /// Used by the remote reducer when `is_internal` is set, where the
     /// coordinator owns the global offset.
     pub fn drain_unlimited(&mut self) -> Vec<T> {
         self.take_buffer()

@@ -141,7 +141,7 @@ impl LocalCollectCtx {
     /// Apply the user's global `LIMIT offset count`. The local reducer is the
     /// client-facing terminus, so it is the single point where `LIMIT` is
     /// honoured in distributed mode — see
-    /// [`super::remote::RemoteCollectReducer::include_sort_keys`].
+    /// [`super::remote::RemoteCollectReducer::is_internal`].
     pub fn finalize(&mut self, r: &LocalCollectReducer) -> SharedValue {
         let drained = self.storage.drain();
 

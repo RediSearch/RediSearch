@@ -43,6 +43,11 @@ pub struct RemoteCollectReducer<'a> {
     /// Raw sort-key references, including keys not present in `FIELDS`.
     sort_keys: Box<[&'a RLookupKey<'a>]>,
     limit: Option<(u64, u64)>,
+    /// `true` when this reducer runs on a shard as part of an internal
+    /// coordinator-initiated query (i.e. the upstream call carries the
+    /// `_FT.AGGREGATE` internal command), `false` when the same reducer is
+    /// invoked standalone via the public `FT.AGGREGATE` command.
+    ///
     /// Gates two behaviours of [`RemoteCollectCtx::finalize`]:
     ///
     /// * **Sort-key columns.** When `true`, each emitted row map carries
@@ -62,7 +67,7 @@ pub struct RemoteCollectReducer<'a> {
     /// flag reverts to a pure sort-key-emission gate (eventually renamed
     /// to an explicit `WITHSORTKEYS` argument; see the second TODO in
     /// [`RemoteCollectCtx::finalize`]).
-    include_sort_keys: bool,
+    is_internal: bool,
 }
 
 // Chain through `CollectCommon::reducer` so the assertion still catches a
@@ -93,7 +98,7 @@ impl<'a> RemoteCollectReducer<'a> {
         sort_keys: Box<[&'a RLookupKey<'a>]>,
         sort_asc_map: u64,
         limit: Option<(u64, u64)>,
-        include_sort_keys: bool,
+        is_internal: bool,
     ) -> Self {
         Self {
             common: CollectCommon::new(sort_asc_map),
@@ -101,7 +106,7 @@ impl<'a> RemoteCollectReducer<'a> {
             srclookup,
             sort_keys,
             limit,
-            include_sort_keys,
+            is_internal,
         }
     }
 
@@ -176,10 +181,9 @@ fn build_finalize_template<'a>(
             .iter()
             .filter(|k| !k.flags.contains(RLookupKeyFlag::Hidden))
             .collect()
-    } else if r.include_sort_keys && !r.sort_keys.is_empty() {
-        dedup_by_dstidx(&r.field_keys, &r.sort_keys)
     } else {
-        r.field_keys.to_vec()
+        let sort_extras: &[&RLookupKey<'a>] = if r.is_internal { &r.sort_keys } else { &[] };
+        dedup_by_dstidx(&r.field_keys, sort_extras)
     };
     keys.into_iter()
         .map(|k| (k, SharedValue::new_string(k.name().to_bytes().to_vec())))
@@ -229,11 +233,11 @@ impl<'a> RemoteCollectCtx<'a> {
     /// null-fills missing requested fields when reconstructing the
     /// client-facing result.
     pub fn finalize(&mut self, r: &RemoteCollectReducer<'a>) -> SharedValue {
-        // TODO: drop `limit` and the `include_sort_keys` LIMIT branch once
+        // TODO: drop `limit` and the `is_internal` LIMIT branch once
         // `distributeCollect` switches to the `LIMIT 0 (offset+count)`
         // rewrite that other `distribute*` paths use; the shard would no
         // longer need LIMIT context and `drain` could be unconditional.
-        let rows = if r.include_sort_keys {
+        let rows = if r.is_internal {
             self.storage.drain_unlimited()
         } else {
             self.storage.drain()
