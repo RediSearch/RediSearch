@@ -712,7 +712,7 @@ DEBUG_COMMAND(DumpSuffix) {
     long resultSize = 0;
 
     // iterate trie and reply with terms
-    TrieIterator *it = TrieNode_Iterate(suffix->root, NULL, NULL, NULL);
+    TrieIterator *it = Trie_IterateAll(suffix);
     rune *rstr;
     t_len len;
     float score;

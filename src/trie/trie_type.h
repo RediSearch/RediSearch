@@ -88,6 +88,11 @@ void Trie_IterateWildcard(Trie *t, const rune *str, int nstr,
 /* Number of terminal entries in the trie. Wraps the internal size counter. */
 static inline size_t Trie_Size(const Trie *t) { return t ? t->size : 0; }
 
+/* Iterate every node in the trie with no filter or distance constraint. Wraps
+ * TrieNode_Iterate(t->root, NULL, NULL, NULL). Used by debug paths that want raw
+ * traversal; production code should prefer Trie_Iterate with a prefix/maxDist. */
+TrieIterator *Trie_IterateAll(Trie *t);
+
 /* Result codes for Trie_DecrementNumDocs */
 typedef enum {
   TRIE_DECR_NOT_FOUND = 0,   /* Term not found in trie */

@@ -199,6 +199,10 @@ static int cmpEntries(const void *p1, const void *p2, const void *udata) {
   return 0;
 }
 
+TrieIterator *Trie_IterateAll(Trie *t) {
+  return TrieNode_Iterate(t->root, NULL, NULL, NULL);
+}
+
 TrieIterator *Trie_Iterate(Trie *t, const char *prefix, size_t len, int maxDist, int prefixMode) {
   size_t rlen;
   rune *runes = strToLowerRunes(prefix, len, &rlen);
