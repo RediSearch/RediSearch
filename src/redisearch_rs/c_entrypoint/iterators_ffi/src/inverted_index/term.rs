@@ -122,10 +122,6 @@ impl<'index> TermReader<'index> for TermIndexReader<'index> {
     }
 }
 
-/// Type alias for the Term iterator type used in the FFI wrapper.
-pub(super) type TermIterator<'index> =
-    Term<'index, TermIndexReader<'index>, FieldExpirationChecker>;
-
 /// Creates a new term inverted index iterator for querying term fields.
 ///
 /// # Parameters

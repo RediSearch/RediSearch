@@ -20,45 +20,15 @@ use rqe_iterators::{
 };
 
 /// Wrapper around [`NumericIteratorVariant`].
-/// Needed to keep the `filter` pointer around so it can be returned in
-/// [`NumericInvIndIterator_GetNumericFilter`].
 pub(super) struct NumericIterator<'index> {
-    /// The user numeric filter, or None if no filter was provided.
-    ///
-    /// Kept here (rather than in `rqe_iterators`) solely so that
-    /// `NumericInvIndIterator_GetNumericFilter` can hand the pointer back to C callers.
-    /// Once those callers are ported to Rust, this field and `NumericIterator` itself can be
-    /// removed — callers will use [`NumericIteratorVariant`] directly.
-    filter: Option<NonNull<NumericFilter>>,
     /// The iterator variant (unfiltered, filtered numeric, or geo).
     iterator: NumericIteratorVariant<'index>,
 }
 
 impl<'index> NumericIterator<'index> {
-    /// Wrap a variant with a filter, for use by [`crate::inverted_index::geo`].
-    pub(super) const fn with_filter(
-        filter: NonNull<NumericFilter>,
-        iterator: NumericIteratorVariant<'index>,
-    ) -> Self {
-        Self {
-            filter: Some(filter),
-            iterator,
-        }
-    }
-
-    /// Get the flags from the underlying reader.
-    pub(super) fn flags(&self) -> ffi::IndexFlags {
-        self.iterator.flags()
-    }
-
-    /// Get the range minimum value for profiling.
-    const fn range_min(&self) -> f64 {
-        self.iterator.range_min()
-    }
-
-    /// Get the range maximum value for profiling.
-    const fn range_max(&self) -> f64 {
-        self.iterator.range_max()
+    /// Wrap a variant for use by [`crate::inverted_index::geo`].
+    pub(super) const fn new(iterator: NumericIteratorVariant<'index>) -> Self {
+        Self { iterator }
     }
 }
 
@@ -121,83 +91,6 @@ impl<'index> rqe_iterators::RQEIterator<'index> for NumericIterator<'index> {
     fn intersection_sort_weight(&self, _prioritize_union_children: bool) -> f64 {
         1.0
     }
-}
-
-/// Gets the numeric filter from a numeric inverted index iterator.
-///
-/// # Safety
-///
-/// 1. `it` must be a valid pointer to a `QueryIterator` wrapping a [`NumericIterator`].
-///
-/// # Returns
-///
-/// A pointer to the numeric filter, or NULL if no filter was provided when creating the iterator.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn NumericInvIndIterator_GetNumericFilter(
-    it: *const ffi::QueryIterator,
-) -> *const ffi::NumericFilter {
-    debug_assert!(!it.is_null());
-    // SAFETY: we just checked for NULL and 1 ensure `it` is an iterator.
-    debug_assert!(unsafe { &*it }.type_ == IteratorType::InvIdxNumeric);
-
-    // SAFETY: 1
-    let wrapper =
-        unsafe { RQEIteratorWrapper::<NumericIterator<'static>>::ref_from_header_ptr(it.cast()) };
-
-    // Return a pointer to the pinned filter, or NULL if no filter was provided
-    // SAFETY: The filter is pinned and has a stable address for the lifetime of the iterator
-    // Both types have the same #[repr(C)] layout so we can cast the pointer
-    wrapper
-        .inner
-        .filter
-        .map(|f| f.as_ptr() as *const ffi::NumericFilter)
-        .unwrap_or(std::ptr::null())
-}
-
-/// Gets the minimum range value for profiling a numeric iterator.
-///
-/// # Safety
-///
-/// 1. `it` must be a valid pointer to a `QueryIterator` wrapping a [`NumericIterator`].
-///
-/// # Returns
-///
-/// The minimum range value from the filter, or negative infinity if no filter was provided.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn NumericInvIndIterator_GetProfileRangeMin(
-    it: *const ffi::QueryIterator,
-) -> f64 {
-    debug_assert!(!it.is_null());
-    // SAFETY: we just checked for NULL and 1 ensure `it` is an iterator.
-    debug_assert!(unsafe { &*it }.type_ == IteratorType::InvIdxNumeric);
-
-    // SAFETY: 1
-    let wrapper =
-        unsafe { RQEIteratorWrapper::<NumericIterator<'static>>::ref_from_header_ptr(it.cast()) };
-    wrapper.inner.range_min()
-}
-
-/// Gets the maximum range value for profiling a numeric iterator.
-///
-/// # Safety
-///
-/// 1. `it` must be a valid pointer to a `QueryIterator` wrapping a [`NumericIterator`].
-///
-/// # Returns
-///
-/// The maximum range value from the filter, or positive infinity if no filter was provided.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn NumericInvIndIterator_GetProfileRangeMax(
-    it: *const ffi::QueryIterator,
-) -> f64 {
-    debug_assert!(!it.is_null());
-    // SAFETY: we just checked for NULL and 1 ensure `it` is an iterator.
-    debug_assert!(unsafe { &*it }.type_ == IteratorType::InvIdxNumeric);
-
-    // SAFETY: 1
-    let wrapper =
-        unsafe { RQEIteratorWrapper::<NumericIterator<'static>>::ref_from_header_ptr(it.cast()) };
-    wrapper.inner.range_max()
 }
 
 ///
@@ -271,7 +164,6 @@ pub unsafe extern "C" fn NewNumericFilterIterator(
     // SAFETY: 5. guarantees filter_ctx is valid and non-null.
     let field_ctx = unsafe { &*filter_ctx };
 
-    let filter_nn = NonNull::from(flt_ref);
     let node_type = if flt_ref.is_numeric_filter() {
         QueryNodeType::Numeric
     } else {
@@ -298,10 +190,7 @@ pub unsafe extern "C" fn NewNumericFilterIterator(
     let children: Vec<CRQEIterator> = variants
         .into_iter()
         .map(|iterator| {
-            let ptr = RQEIteratorWrapper::boxed_new(NumericIterator {
-                filter: Some(filter_nn),
-                iterator,
-            });
+            let ptr = RQEIteratorWrapper::boxed_new(NumericIterator::new(iterator));
             // SAFETY: `boxed_new` uses `Box::into_raw`, which is guaranteed non-null.
             let ptr = unsafe { NonNull::new_unchecked(ptr) };
             // SAFETY: `ptr` is a valid, uniquely-owned `QueryIterator`.

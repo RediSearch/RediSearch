@@ -10,7 +10,6 @@
 use std::ptr::NonNull;
 
 use ffi::{QueryIterator, t_docId, timespec};
-use rqe_iterator_type::IteratorType;
 use rqe_iterators::{
     NewWildcardIterator, RQEIterator,
     c2rust::CRQEIterator,
@@ -35,15 +34,6 @@ type NotOptimizedFfi<'index> = NotOptimized<'index, NewWildcardIterator<'index>,
 enum NotIteratorEnum<'index> {
     Not(NotFfi<'index>),
     NotOptimized(NotOptimizedFfi<'index>),
-}
-
-impl<'index> NotIteratorEnum<'index> {
-    const fn child(&self) -> Option<&CRQEIterator> {
-        match self {
-            Self::Not(it) => it.child(),
-            Self::NotOptimized(it) => it.child(),
-        }
-    }
 }
 
 impl rqe_iterators::profile_print::ProfilePrint for NotIteratorEnum<'_> {
@@ -157,12 +147,6 @@ impl<'index> rqe_iterators::interop::ProfileChildren<'index> for NotIteratorEnum
     }
 }
 
-/// FFI wrapper for non-reduced NOT iterators ([`NotIteratorEnum`]).
-///
-/// Used by [`GetNotIteratorChild`] to recover the Rust iterator from a raw
-/// [`QueryIterator`] pointer.
-type NotIteratorWrapper<'index> = RQEIteratorWrapper<NotIteratorEnum<'index>>;
-
 /// Creates a NOT iterator, choosing between non-optimized and optimized based
 /// on the query evaluation context.
 ///
@@ -182,7 +166,7 @@ type NotIteratorWrapper<'index> = RQEIteratorWrapper<NotIteratorEnum<'index>>;
 /// 6. `q.sctx.spec.rule`, when non-null, must point to a valid
 ///    [`SchemaRule`](ffi::SchemaRule).
 /// 7. When the optimized path is taken, the preconditions of
-///    [`crate::wildcard::NewWildcardIterator_Optimized`] must hold.
+///    [`crate::wildcard::NewWildcardIterator`] must hold.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn NewNotIterator(
     child: *mut QueryIterator,
@@ -258,31 +242,4 @@ pub unsafe extern "C" fn NewNotIterator(
             RQEIteratorWrapper::boxed_new_compound(NotIteratorEnum::NotOptimized(iter))
         }
     }
-}
-
-/// Get the child pointer of a NOT iterator, or NULL if there is no child.
-///
-/// # Safety
-///
-/// 1. `it` must be a valid non-null pointer to a non-reduced NOT iterator
-///    created via [`NewNotIterator()`]. Must not be called on a reduced
-///    (wildcard/empty) iterator returned by [`NewNotIterator()`].
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn GetNotIteratorChild(it: *const QueryIterator) -> *const QueryIterator {
-    debug_assert!(!it.is_null());
-    debug_assert!(
-        matches!(
-            // SAFETY: Safe thanks to 1
-            unsafe { (*it).type_ },
-            IteratorType::Not | IteratorType::NotOptimized
-        ),
-        "Expected a NOT or NOT_OPTIMIZED iterator"
-    );
-    // SAFETY: Safe thanks to 1
-    let wrapper = unsafe { NotIteratorWrapper::ref_from_header_ptr(it) };
-    wrapper
-        .inner
-        .child()
-        .map(|c| c.as_ref() as *const _)
-        .unwrap_or(std::ptr::null())
 }
