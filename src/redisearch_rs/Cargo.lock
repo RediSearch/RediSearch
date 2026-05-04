@@ -1887,6 +1887,7 @@ dependencies = [
  "reducers_ffi",
  "result_processor_ffi",
  "rlookup_ffi",
+ "runetriemap_ffi",
  "search_result_ffi",
  "slots_tracker_ffi",
  "sorting_vector_ffi",

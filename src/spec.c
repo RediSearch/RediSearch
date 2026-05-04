@@ -495,7 +495,7 @@ size_t IndexSpec_collect_text_overhead(const IndexSpec *sp) {
   // Collect overhead from sp->suffix
   if (sp->suffix) {
     // TODO: Count the values' memory as well
-    overhead += TrieType_MemUsage(sp->suffix);
+    overhead += RuneTrieMap_MemUsage(sp->suffix);
   }
   return overhead;
 }
@@ -1646,7 +1646,7 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, StrongRef spec_ref, ArgsCu
       sp->suffixMask |= FIELD_BIT(fs);
       if (!sp->suffix) {
         sp->flags |= Index_HasSuffixTrie;
-        sp->suffix = NewTrie(suffixTrie_freeCallback, Trie_Sort_Lex);
+        sp->suffix = RuneTrieMap_New();
       }
     }
   }
@@ -2082,7 +2082,7 @@ static void IndexSpec_FreeUnlinkedData(IndexSpec *spec) {
   }
   // Free suffix trie
   if (spec->suffix) {
-    TrieType_Free(spec->suffix);
+    RuneTrieMap_Free(spec->suffix, suffixTrie_freeCallback);
   }
 
   // Free spec name
@@ -3401,7 +3401,7 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryE
       sp->flags |= Index_HasSuffixTrie;
       sp->suffixMask |= FIELD_BIT(fs);
       if (!sp->suffix) {
-        sp->suffix = NewTrie(suffixTrie_freeCallback, Trie_Sort_Lex);
+        sp->suffix = RuneTrieMap_New();
       }
     }
   }

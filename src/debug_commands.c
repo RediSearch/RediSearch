@@ -693,6 +693,21 @@ end:
   return REDISMODULE_OK;
 }
 
+typedef struct {
+  RedisModuleCtx *redis;
+  long *count;
+} DumpSuffixTrieCtx;
+
+static int dumpSuffixTrieCb(const rune *runes, size_t len, void *payload, void *ctx) {
+  DumpSuffixTrieCtx *c = ctx;
+  size_t slen;
+  char *s = runesToStr(runes, len, &slen);
+  RedisModule_ReplyWithStringBuffer(c->redis, s, slen);
+  rm_free(s);
+  ++(*c->count);
+  return 0;
+}
+
 DEBUG_COMMAND(DumpSuffix) {
   if (!debugCommandsEnabled(ctx)) {
     return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
@@ -702,7 +717,7 @@ DEBUG_COMMAND(DumpSuffix) {
   }
   GET_SEARCH_CTX(argv[2]);
   if (argc == 3) { // suffix trie of global text field
-    Trie *suffix = sctx->spec->suffix;
+    RuneTrieMap *suffix = sctx->spec->suffix;
     if (!suffix) {
       RedisModule_ReplyWithError(ctx, "Index does not have suffix trie");
       goto end;
@@ -711,21 +726,8 @@ DEBUG_COMMAND(DumpSuffix) {
     RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
     long resultSize = 0;
 
-    // iterate trie and reply with terms
-    TrieIterator *it = Trie_IterateAll(suffix);
-    rune *rstr;
-    t_len len;
-    float score;
-
-    while (TrieIterator_Next(it, &rstr, &len, NULL, &score, NULL, NULL)) {
-      size_t slen;
-      char *s = runesToStr(rstr, len, &slen);
-      RedisModule_ReplyWithStringBuffer(ctx, s, slen);
-      rm_free(s);
-      ++resultSize;
-    }
-
-    TrieIterator_Free(it);
+    DumpSuffixTrieCtx cb_ctx = { .redis = ctx, .count = &resultSize };
+    RuneTrieMap_IteratePrefixedRune(suffix, NULL, 0, dumpSuffixTrieCb, &cb_ctx);
 
     RedisModule_ReplySetArrayLength(ctx, resultSize);
 

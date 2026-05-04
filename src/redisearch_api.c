@@ -185,7 +185,7 @@ RSFieldID RediSearch_CreateField(RefManager* rm, const char* name, unsigned type
     if (fs->types == INDEXFLD_T_FULLTEXT) {
       sp->suffixMask |= FIELD_BIT(fs);
       if (!sp->suffix) {
-        sp->suffix = NewTrie(suffixTrie_freeCallback, Trie_Sort_Lex);
+        sp->suffix = RuneTrieMap_New();
         sp->flags |= Index_HasSuffixTrie;
       }
     }

@@ -15,67 +15,50 @@
 #include <string.h>
 #include <strings.h>
 
-#define Suffix_GetData(node) node ? node->payload ? \
-                             (suffixData *)node->payload->data : NULL : NULL
-
-
 /***********************************************************/
-/*****************        Trie          ********************/
+/*****************      RuneTrieMap     ********************/
 /***********************************************************/
 
-
-static suffixData createSuffixNode(char *term, int keepPtr) {
-  suffixData node = { 0 };
-  if (keepPtr) {
-    node.term = term;
+static suffixData *findRuneSuffixData(RuneTrieMap *trie, const rune *runes, size_t rlen) {
+  void *p = RuneTrieMap_FindRune(trie, runes, rlen);
+  if (p == RUNETRIEMAP_NOTFOUND) {
+    return NULL;
   }
-  node.array = array_ensure_append_1(node.array, term);
-  return node;
+  return (suffixData *)p;
 }
 
-static void freeSuffixNode(suffixData *node) {
-  array_free(node->array);
-  rm_free(node->term);
-  rm_free(node);
-}
-
-void addSuffixTrie(Trie *trie, const char *str, uint32_t len) {
+void addSuffixTrie(RuneTrieMap *trie, const char *str, uint32_t len) {
   size_t rlen = 0;
   runeBuf buf;
   rune *runes = runeBufFill(str, len, &buf, &rlen);
 
-  TrieNode *trienode = Trie_GetNode(trie, runes, rlen, true, NULL);
-  suffixData *data = NULL;
-  if (trienode) {
-    data = Suffix_GetData(trienode);
-    // if string was added in the past, skip
-    if (data && data->term) {
-      runeBufFree(&buf);
-      return;
-    }
+  // if string was added in the past, skip
+  suffixData *existing = findRuneSuffixData(trie, runes, rlen);
+  if (existing && existing->term) {
+    runeBufFree(&buf);
+    return;
   }
 
   char *copyStr = rm_strndup(str, len);
-  if (!data) {
-    suffixData newdata = createSuffixNode(copyStr, 1);
-    RSPayload payload = { .data = (char*)&newdata, .len = sizeof(newdata) };
-    Trie_InsertRune(trie, runes, rlen, 1, ADD_REPLACE, &payload, 0);
-  } else {
-    RS_LOG_ASSERT(!data->term, "can't reach here");
+  if (!existing) {
+    suffixData *data = rm_calloc(1, sizeof(*data));
     data->term = copyStr;
     data->array = array_ensure_append_1(data->array, copyStr);
+    RuneTrieMap_InsertRune(trie, runes, rlen, data, NULL);
+  } else {
+    RS_LOG_ASSERT(!existing->term, "can't reach here");
+    existing->term = copyStr;
+    existing->array = array_ensure_append_1(existing->array, copyStr);
   }
 
   // Save string copy to all suffixes of it
   // If it exists, move to the next field
   for (int j = 1; j < len - MIN_SUFFIX + 1; ++j) {
-    TrieNode *trienode = Trie_GetNode(trie, runes + j, rlen - j, true, NULL);
-
-    data = Suffix_GetData(trienode);
-    if (!trienode || !trienode->payload) {
-      suffixData newdata = createSuffixNode(copyStr, 0);
-      RSPayload payload = { .data = (char*)&newdata, .len = sizeof(newdata) };
-      Trie_InsertRune(trie, runes + j, rlen - j, 1, ADD_REPLACE, &payload, 0);
+    suffixData *data = findRuneSuffixData(trie, runes + j, rlen - j);
+    if (!data) {
+      data = rm_calloc(1, sizeof(*data));
+      data->array = array_ensure_append_1(data->array, copyStr);
+      RuneTrieMap_InsertRune(trie, runes + j, rlen - j, data, NULL);
     } else {
       data->array = array_ensure_append_1(data->array, copyStr);
     }
@@ -92,7 +75,7 @@ static void removeSuffix(const char *str, size_t rlen, arrayof(char*) array) {
   }
 }
 
-void deleteSuffixTrie(Trie *trie, const char *str, uint32_t len) {
+void deleteSuffixTrie(RuneTrieMap *trie, const char *str, uint32_t len) {
   size_t rlen = 0;
   runeBuf buf;
   rune *runes = runeBufFill(str, len, &buf, &rlen);
@@ -100,8 +83,7 @@ void deleteSuffixTrie(Trie *trie, const char *str, uint32_t len) {
 
   // iterate all matching terms and remove word
   for (int j = 0; j < len - MIN_SUFFIX + 1; ++j) {
-    TrieNode *node = Trie_GetNode(trie, runes + j, rlen - j, true, NULL);
-    suffixData *data = Suffix_GetData(node);
+    suffixData *data = findRuneSuffixData(trie, runes + j, rlen - j);
     // suffix trie is shared between all text fields in index, even if they don't use it.
     // if the trie is owned by other fields and not any one containing this suffix,
     // then failure to find the suffix is not an error. just move along.
@@ -116,7 +98,7 @@ void deleteSuffixTrie(Trie *trie, const char *str, uint32_t len) {
     // if array is empty, remove the node
     if (array_len(data->array) == 0) {
       RS_LOG_ASSERT(!data->term, "array should contain a pointer to the string");
-      Trie_DeleteRunes(trie, runes + j, rlen - j);
+      RuneTrieMap_DeleteRune(trie, runes + j, rlen - j, suffixTrie_freeCallback);
     }
   }
   rm_free(oldTerm);
@@ -137,39 +119,23 @@ static int processSuffixData(suffixData *data, SuffixCtx *sufCtx) {
   return REDISMODULE_OK;
 }
 
-static int recursiveAdd(TrieNode *node, SuffixCtx *sufCtx) {
-  if (node->payload) {
-    size_t rlen;
-    suffixData *data = Suffix_GetData(node);
-    if (processSuffixData(data, sufCtx) != REDISMODULE_OK) {
-      return REDISMODULE_ERR;
-    }
-  }
-  if (node->numChildren) {
-    TrieNode **children = __trieNode_children(node);
-    for (int i = 0; i < node->numChildren; ++i) {
-      if (recursiveAdd(children[i], sufCtx) != REDISMODULE_OK) {
-        return REDISMODULE_ERR;
-      }
-    }
-  }
-  return REDISMODULE_OK;
+static int suffix_prefixed_cb(const rune *runes, size_t len, void *payload, void *ctx) {
+  // RuneTrieMap iteration stops on non-zero return; processSuffixData
+  // returns REDISEARCH_ERR (=1) to stop and REDISMODULE_OK (=0) to continue,
+  // so the contracts line up exactly.
+  return processSuffixData((suffixData *)payload, (SuffixCtx *)ctx);
 }
 
 void Suffix_IterateContains(SuffixCtx *sufCtx) {
   if (sufCtx->type == SUFFIX_TYPE_CONTAINS) {
-    // get string from node and children
-    TrieNode *node = Trie_GetNode(sufCtx->trie, sufCtx->rune, sufCtx->runelen, false, NULL);
-    if (!node) {
-      return;
-    }
-    recursiveAdd(node, sufCtx);
+    // visit every key with the requested rune prefix
+    RuneTrieMap_IteratePrefixedRune(sufCtx->trie, sufCtx->rune, sufCtx->runelen,
+                                    suffix_prefixed_cb, sufCtx);
   } else if (sufCtx->type == SUFFIX_TYPE_SUFFIX) {
     // exact match. Get strings from a single node
-    TrieNode *node = Trie_GetNode(sufCtx->trie, sufCtx->rune, sufCtx->runelen, true, NULL);
-    suffixData *data = Suffix_GetData(node);
-    if (data) {
-      processSuffixData(data, sufCtx);
+    void *p = RuneTrieMap_FindRune(sufCtx->trie, sufCtx->rune, sufCtx->runelen);
+    if (p != RUNETRIEMAP_NOTFOUND) {
+      processSuffixData((suffixData *)p, sufCtx);
     }
   }
 }
@@ -294,14 +260,13 @@ int Suffix_ChooseToken_rune(const rune *str, size_t len, size_t *tokenIdx, size_
   return retidx;
 }
 
-int Suffix_CB_Wildcard(const rune *rune, size_t len, void *p, void *payload, size_t numDocsInTerm) {
-  SuffixCtx *sufCtx = p;
-  TriePayload *pl = payload;
-  if (!pl) {
+int Suffix_CB_Wildcard(const rune *runes, size_t len, void *payload, void *ctx) {
+  SuffixCtx *sufCtx = ctx;
+  if (!payload) {
     return REDISMODULE_OK;
   }
 
-  suffixData *data = (suffixData *)pl->data;
+  suffixData *data = (suffixData *)payload;
   arrayof(char *) array = data->array;
   for (int i = 0; i < array_len(array); ++i) {
     if (Wildcard_MatchChar(sufCtx->cstr, sufCtx->cstrlen, array[i], strlen(array[i]))
@@ -330,17 +295,16 @@ int Suffix_IterateWildcard(SuffixCtx *sufCtx) {
   }
   token[toklen] = (rune)'\0';
 
-  Trie_IterateWildcard(sufCtx->trie, token, toklen, Suffix_CB_Wildcard, sufCtx, sufCtx->timeout,
-                       sufCtx->skipTimeoutChecks);
+  RuneTrieMap_IterateWildcardRune(sufCtx->trie, token, toklen, Suffix_CB_Wildcard, sufCtx,
+                                  sufCtx->timeout, sufCtx->skipTimeoutChecks);
   return 1;
 }
 
 void suffixTrie_freeCallback(void *payload) {
   suffixData *data = payload;
   array_free(data->array);
-  data->array = NULL;
   rm_free(data->term);
-  data->term = NULL;
+  rm_free(data);
 }
 
 
@@ -401,7 +365,7 @@ void deleteSuffixTrieMap(TrieMap *trie, const char *str, uint32_t len) {
     // if array is empty, remove the node
     if (array_len(data->array) == 0) {
       RS_LOG_ASSERT(!data->term, "array should contain a pointer to the string");
-      TrieMap_Delete(trie, str + j, len - j, (freeCB)freeSuffixNode);
+      TrieMap_Delete(trie, str + j, len - j, suffixTrie_freeCallback);
     }
   }
   rm_free(oldTerm);
@@ -500,7 +464,3 @@ arrayof(char*) GetList_SuffixTrieMap_Wildcard(TrieMap *trie, const char *pattern
   return arr;
 }
 
-void suffixTrieMap_freeCallback(void *payload) {
-  suffixTrie_freeCallback(payload);
-  rm_free(payload);
-}

@@ -15,6 +15,7 @@ extern "C" {
 #include "trie/trie_type.h"
 #include "triemap.h"
 #include "util/arr.h"
+#include "redisearch_rs/headers/runetriemap.h"
 
 #define MIN_SUFFIX 2
 
@@ -25,10 +26,10 @@ typedef enum {
 } SuffixType;
 
 /***********************************************************/
-/*****************        Trie          ********************/
+/*****************      RuneTrieMap     ********************/
 /***********************************************************/
 typedef struct SuffixCtx {
-    Trie *trie;
+    RuneTrieMap *trie;
     rune *rune;
     size_t runelen;
     const char *cstr;
@@ -48,8 +49,8 @@ typedef struct suffixData {
 } suffixData;
 
 
-void addSuffixTrie(Trie *trie, const char *str, uint32_t len);
-void deleteSuffixTrie(Trie *trie, const char *str, uint32_t len);
+void addSuffixTrie(RuneTrieMap *trie, const char *str, uint32_t len);
+void deleteSuffixTrie(RuneTrieMap *trie, const char *str, uint32_t len);
 
 void suffixTrie_freeCallback(void *data);
 
@@ -66,8 +67,6 @@ int Suffix_IterateWildcard(SuffixCtx *sufCtx);
 /***********************************************************/
 void addSuffixTrieMap(TrieMap *trie, const char *str, uint32_t len);
 void deleteSuffixTrieMap(TrieMap *trie, const char *str, uint32_t len);
-
-void suffixTrieMap_freeCallback(void *payload);
 
 /* Return a list of list of terms which match the suffix or contains term */
 arrayof(char**) GetList_SuffixTrieMap(TrieMap *trie, const char *str, uint32_t len,
