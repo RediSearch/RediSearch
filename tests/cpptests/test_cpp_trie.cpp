@@ -66,7 +66,7 @@ static ElemSet trieIterRange(Trie *t, const char *begin, size_t nbegin, const ch
   }
 
   ElemSet foundElements;
-  TrieNode_IterateRange(t->root, r1Ptr, nr1, true, r2Ptr, nr2, false,
+  Trie_IterateRange(t, r1Ptr, nr1, true, r2Ptr, nr2, false,
                         rangeFunc, &foundElements);
   return foundElements;
 }
