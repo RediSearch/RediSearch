@@ -2237,6 +2237,38 @@ DEBUG_COMMAND(getIsRPPaused) {
   return RedisModule_ReplyWithLongLong(ctx, QueryDebugCtx_IsPaused());
 }
 
+
+int parseDebugParamsCount(RedisModuleString **argv, int argc, QueryError *status, unsigned long long *debug_params_count) {
+    // Verify DEBUG_PARAMS_COUNT exists in its expected position (second to last argument)
+    if (argc < 2) {
+      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "DEBUG_PARAMS_COUNT arg is missing");
+      return 1;
+    }
+
+    size_t n;
+    const char *arg = RedisModule_StringPtrLen(argv[argc - 2], &n);
+    if (!(strncasecmp(arg, "DEBUG_PARAMS_COUNT", n) == 0)) {
+      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "DEBUG_PARAMS_COUNT arg is missing or not in the expected position");
+      return 1;
+    }
+
+    // The count of debug params is the last argument in argv
+    unsigned long long count = 0;
+    if (RedisModule_StringToULongLong(argv[argc - 1], &count) != REDISMODULE_OK || count == 0) {
+      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Invalid DEBUG_PARAMS_COUNT count");
+      return 1;
+    }
+
+    if (count > (unsigned long long)(argc - 2)) {
+      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS,
+                          "DEBUG_PARAMS_COUNT exceeds the number of available arguments");
+      return 1;
+    }
+
+    *debug_params_count = count;
+    return 0;
+}
+
 #ifdef ENABLE_ASSERT
 /**
  * FT.DEBUG QUERY_CONTROLLER SET_PAUSE_BEFORE_REDUCE <N>
