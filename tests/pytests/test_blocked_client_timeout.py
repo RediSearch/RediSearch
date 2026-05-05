@@ -1207,7 +1207,7 @@ class TestCoordinatorTimeout:
         base_err_coord = int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC])
 
         # Enable pause before store results
-        setPauseBeforeStoreResults(env, True)
+        setPauseBeforeStoreResults(env, True, internal=False)
 
         t_query = threading.Thread(
             target=run_cmd_expect_timeout,
@@ -1264,7 +1264,7 @@ class TestCoordinatorTimeout:
         base_err_coord = int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC])
 
         # Enable pause after store results
-        setPauseAfterStoreResults(env, True)
+        setPauseAfterStoreResults(env, True, internal=False)
 
         t_query = threading.Thread(
             target=run_cmd_expect_timeout,
@@ -1334,9 +1334,9 @@ class TestCoordinatorTimeout:
         prev_policy, cursor_id, baseline, before_info, base_err_coord = _setup_fail_cursor_state(env)
 
         if before:
-            setPauseBeforeStoreResults(env, True)
+            setPauseBeforeStoreResults(env, True, internal=False)
         else:
-            setPauseAfterStoreResults(env, True)
+            setPauseAfterStoreResults(env, True, internal=False)
 
         try:
             t_query, blocked_client_id = self._start_blocked_cursor_read(cursor_id)
@@ -2533,7 +2533,7 @@ class TestCoordinatorTimeout:
 
         before_info = info_modules_to_dict(env)
 
-        setPauseAfterStoreResults(env, True)
+        setPauseAfterStoreResults(env, True, internal=False)
 
         query_result = []
         t_query = threading.Thread(
@@ -2618,7 +2618,7 @@ class TestCoordinatorTimeout:
 
         before_info = info_modules_to_dict(env)
 
-        setPauseAfterStoreResults(env, True)
+        setPauseAfterStoreResults(env, True, internal=False)
 
         query_result = []
         t_query = threading.Thread(
@@ -3289,7 +3289,7 @@ class TestShardTimeout:
         base_err_coord = int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC])
 
         # Enable pause before store results
-        setPauseBeforeStoreResults(env, True)
+        setPauseBeforeStoreResults(env, True, internal=False)
 
         t_query = threading.Thread(
             target=run_cmd_expect_timeout,
@@ -3342,7 +3342,7 @@ class TestShardTimeout:
         base_err_coord = int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC])
 
         # Enable pause after store results
-        setPauseAfterStoreResults(env, True)
+        setPauseAfterStoreResults(env, True, internal=False)
 
         t_query = threading.Thread(
             target=run_cmd_expect_timeout,

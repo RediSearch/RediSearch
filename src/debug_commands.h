@@ -83,19 +83,30 @@ void CoordReduceDebugCtx_SetPauseBeforeN(int n);
 void CoordReduceDebugCtx_IncrementReduceCount(void);
 int CoordReduceDebugCtx_GetReduceCount(void);
 
+// Scope selector for StoreResults pauses: restricts which AREQ/HybridRequest
+// populations the global pause applies to (matches the INTERNAL_ONLY token
+// convention used in src/aggregate/aggregate_debug.c).
+typedef enum {
+  STORE_RESULTS_SCOPE_BOTH = 0,         // Default: pause for both internal and non-internal requests
+  STORE_RESULTS_SCOPE_INTERNAL_ONLY,    // Pause only for internal (coordinator-dispatched) requests
+  STORE_RESULTS_SCOPE_NON_INTERNAL_ONLY,// Pause only for non-internal (user-facing) requests
+} StoreResultsScope;
+
 // Struct used for debugging store results (pause before/after AREQ_StoreResults and HREQ_StoreResults)
 // Only available in debug builds to avoid affecting release performance
 typedef struct StoreResultsDebugCtx {
   atomic_bool pauseBeforeEnabled;   // Whether pause before StoreResults is enabled
   atomic_bool pauseAfterEnabled;    // Whether pause after StoreResults is enabled
+  atomic_int  scope;                // StoreResultsScope; updated together with the enable flags
   atomic_bool pause;                // Atomic bool to wait for the resume command
 } StoreResultsDebugCtx;
 
 // StoreResultsDebugCtx API function declarations
 bool StoreResultsDebugCtx_IsPauseBeforeEnabled(void);
-void StoreResultsDebugCtx_SetPauseBeforeEnabled(bool enabled);
+void StoreResultsDebugCtx_SetPauseBeforeEnabled(bool enabled, StoreResultsScope scope);
 bool StoreResultsDebugCtx_IsPauseAfterEnabled(void);
-void StoreResultsDebugCtx_SetPauseAfterEnabled(bool enabled);
+void StoreResultsDebugCtx_SetPauseAfterEnabled(bool enabled, StoreResultsScope scope);
+StoreResultsScope StoreResultsDebugCtx_GetScope(void);
 bool StoreResultsDebugCtx_IsPaused(void);
 void StoreResultsDebugCtx_SetPause(bool pause);
 

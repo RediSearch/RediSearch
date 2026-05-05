@@ -99,7 +99,8 @@ bool StoreResultsDebugCtx_IsPauseBeforeEnabled(void) {
   return atomic_load(&globalStoreResultsDebugCtx.pauseBeforeEnabled);
 }
 
-void StoreResultsDebugCtx_SetPauseBeforeEnabled(bool enabled) {
+void StoreResultsDebugCtx_SetPauseBeforeEnabled(bool enabled, StoreResultsScope scope) {
+  atomic_store(&globalStoreResultsDebugCtx.scope, (int)scope);
   atomic_store(&globalStoreResultsDebugCtx.pauseBeforeEnabled, enabled);
   atomic_store(&globalStoreResultsDebugCtx.pause, false);
 }
@@ -108,9 +109,14 @@ bool StoreResultsDebugCtx_IsPauseAfterEnabled(void) {
   return atomic_load(&globalStoreResultsDebugCtx.pauseAfterEnabled);
 }
 
-void StoreResultsDebugCtx_SetPauseAfterEnabled(bool enabled) {
+void StoreResultsDebugCtx_SetPauseAfterEnabled(bool enabled, StoreResultsScope scope) {
+  atomic_store(&globalStoreResultsDebugCtx.scope, (int)scope);
   atomic_store(&globalStoreResultsDebugCtx.pauseAfterEnabled, enabled);
   atomic_store(&globalStoreResultsDebugCtx.pause, false);
+}
+
+StoreResultsScope StoreResultsDebugCtx_GetScope(void) {
+  return (StoreResultsScope)atomic_load(&globalStoreResultsDebugCtx.scope);
 }
 
 bool StoreResultsDebugCtx_IsPaused(void) {
@@ -2314,23 +2320,49 @@ DEBUG_COMMAND(getCoordReduceCount) {
   return RedisModule_ReplyWithLongLong(ctx, CoordReduceDebugCtx_GetReduceCount());
 }
 
+// Parse the optional StoreResults scope token (argv[3], when present).
+// Mirrors the INTERNAL_ONLY token convention used in src/aggregate/aggregate_debug.c.
+// Returns REDISMODULE_OK on success (scope written via *out), REDISMODULE_ERR on
+// unknown token (caller is responsible for replying with the error).
+static int parseStoreResultsScope(RedisModuleString **argv, int argc, StoreResultsScope *out) {
+  if (argc < 4) {
+    *out = STORE_RESULTS_SCOPE_BOTH;
+    return REDISMODULE_OK;
+  }
+  const char *tok = RedisModule_StringPtrLen(argv[3], NULL);
+  if (!strcasecmp(tok, "INTERNAL_ONLY")) {
+    *out = STORE_RESULTS_SCOPE_INTERNAL_ONLY;
+  } else if (!strcasecmp(tok, "NON_INTERNAL_ONLY")) {
+    *out = STORE_RESULTS_SCOPE_NON_INTERNAL_ONLY;
+  } else {
+    return REDISMODULE_ERR;
+  }
+  return REDISMODULE_OK;
+}
+
 /**
- * FT.DEBUG QUERY_CONTROLLER SET_PAUSE_BEFORE_STORE_RESULTS <true/false>
+ * FT.DEBUG QUERY_CONTROLLER SET_PAUSE_BEFORE_STORE_RESULTS <true/false> [INTERNAL_ONLY|NON_INTERNAL_ONLY]
  * Enable/disable pausing before AREQ_StoreResults/HREQ_StoreResults.
+ * The optional scope token restricts the pause to internal (coordinator-dispatched)
+ * or non-internal (user-facing) requests; omitting it applies to both.
  */
 DEBUG_COMMAND(setPauseBeforeStoreResults) {
   if (!debugCommandsEnabled(ctx)) {
     return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
   }
-  if (argc != 3) {
+  if (argc != 3 && argc != 4) {
     return RedisModule_WrongArity(ctx);
+  }
+  StoreResultsScope scope;
+  if (parseStoreResultsScope(argv, argc, &scope) != REDISMODULE_OK) {
+    return RedisModule_ReplyWithError(ctx, "Invalid scope for 'SET_PAUSE_BEFORE_STORE_RESULTS', expected INTERNAL_ONLY or NON_INTERNAL_ONLY");
   }
   const char *op = RedisModule_StringPtrLen(argv[2], NULL);
 
   if (!strcasecmp(op, "true")) {
-    StoreResultsDebugCtx_SetPauseBeforeEnabled(true);
+    StoreResultsDebugCtx_SetPauseBeforeEnabled(true, scope);
   } else if (!strcasecmp(op, "false")) {
-    StoreResultsDebugCtx_SetPauseBeforeEnabled(false);
+    StoreResultsDebugCtx_SetPauseBeforeEnabled(false, scope);
   } else {
     return RedisModule_ReplyWithError(ctx, "Invalid argument for 'SET_PAUSE_BEFORE_STORE_RESULTS'");
   }
@@ -2339,22 +2371,28 @@ DEBUG_COMMAND(setPauseBeforeStoreResults) {
 }
 
 /**
- * FT.DEBUG QUERY_CONTROLLER SET_PAUSE_AFTER_STORE_RESULTS <true/false>
+ * FT.DEBUG QUERY_CONTROLLER SET_PAUSE_AFTER_STORE_RESULTS <true/false> [INTERNAL_ONLY|NON_INTERNAL_ONLY]
  * Enable/disable pausing after AREQ_StoreResults/HREQ_StoreResults.
+ * The optional scope token restricts the pause to internal (coordinator-dispatched)
+ * or non-internal (user-facing) requests; omitting it applies to both.
  */
 DEBUG_COMMAND(setPauseAfterStoreResults) {
   if (!debugCommandsEnabled(ctx)) {
     return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
   }
-  if (argc != 3) {
+  if (argc != 3 && argc != 4) {
     return RedisModule_WrongArity(ctx);
+  }
+  StoreResultsScope scope;
+  if (parseStoreResultsScope(argv, argc, &scope) != REDISMODULE_OK) {
+    return RedisModule_ReplyWithError(ctx, "Invalid scope for 'SET_PAUSE_AFTER_STORE_RESULTS', expected INTERNAL_ONLY or NON_INTERNAL_ONLY");
   }
   const char *op = RedisModule_StringPtrLen(argv[2], NULL);
 
   if (!strcasecmp(op, "true")) {
-    StoreResultsDebugCtx_SetPauseAfterEnabled(true);
+    StoreResultsDebugCtx_SetPauseAfterEnabled(true, scope);
   } else if (!strcasecmp(op, "false")) {
-    StoreResultsDebugCtx_SetPauseAfterEnabled(false);
+    StoreResultsDebugCtx_SetPauseAfterEnabled(false, scope);
   } else {
     return RedisModule_ReplyWithError(ctx, "Invalid argument for 'SET_PAUSE_AFTER_STORE_RESULTS'");
   }

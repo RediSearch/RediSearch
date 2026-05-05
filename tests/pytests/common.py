@@ -1072,22 +1072,38 @@ def resetCoordReduceDebug(env):
         pass  # Ignore error if coordinator is not paused
 
 # Store Results Pause helpers (only available when built with ENABLE_ASSERT)
-def setPauseBeforeStoreResults(env, enabled):
-    """Enable/disable pausing before AREQ_StoreResults/HREQ_StoreResults."""
-    env.expect(debug_cmd(), 'QUERY_CONTROLLER', 'SET_PAUSE_BEFORE_STORE_RESULTS', 'true' if enabled else 'false').ok()
+def setPauseBeforeStoreResults(env, enabled, internal):
+    """Enable/disable pausing before AREQ_StoreResults/HREQ_StoreResults.
 
-def setPauseAfterStoreResults(env, enabled):
-    """Enable/disable pausing after AREQ_StoreResults/HREQ_StoreResults."""
-    env.expect(debug_cmd(), 'QUERY_CONTROLLER', 'SET_PAUSE_AFTER_STORE_RESULTS', 'true' if enabled else 'false').ok()
+    internal: True restricts the pause to internal (coordinator-dispatched)
+    requests; False restricts it to non-internal (user-facing) requests.
+    """
+    scope = 'INTERNAL_ONLY' if internal else 'NON_INTERNAL_ONLY'
+    env.expect(debug_cmd(), 'QUERY_CONTROLLER', 'SET_PAUSE_BEFORE_STORE_RESULTS',
+               'true' if enabled else 'false', scope).ok()
+
+def setPauseAfterStoreResults(env, enabled, internal):
+    """Enable/disable pausing after AREQ_StoreResults/HREQ_StoreResults.
+
+    internal: True restricts the pause to internal (coordinator-dispatched)
+    requests; False restricts it to non-internal (user-facing) requests.
+    """
+    scope = 'INTERNAL_ONLY' if internal else 'NON_INTERNAL_ONLY'
+    env.expect(debug_cmd(), 'QUERY_CONTROLLER', 'SET_PAUSE_AFTER_STORE_RESULTS',
+               'true' if enabled else 'false', scope).ok()
 
 def getIsStoreResultsPaused(env):
     """Check if the query is currently paused during store results."""
     return env.cmd(debug_cmd(), 'QUERY_CONTROLLER', 'GET_IS_STORE_RESULTS_PAUSED')
 
 def resetStoreResultsDebug(env):
-    """Reset the store results debug context (disable pauses and resume)."""
-    setPauseBeforeStoreResults(env, False)
-    setPauseAfterStoreResults(env, False)
+    """Reset the store results debug context (disable pauses and resume).
+
+    Disabling does not depend on the scope (the C-level enable flags gate the
+    pause), so the raw FT.DEBUG commands are sent here without a scope token.
+    """
+    env.expect(debug_cmd(), 'QUERY_CONTROLLER', 'SET_PAUSE_BEFORE_STORE_RESULTS', 'false').ok()
+    env.expect(debug_cmd(), 'QUERY_CONTROLLER', 'SET_PAUSE_AFTER_STORE_RESULTS', 'false').ok()
     try:
         env.cmd(debug_cmd(), 'QUERY_CONTROLLER', 'SET_STORE_RESULTS_RESUME')
     except Exception:

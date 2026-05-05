@@ -381,20 +381,26 @@ bool areq_timed_out(void *arg) {
   return AREQ_TimedOut((AREQ *)arg);
 }
 
-// Helper function to pause before/after store results (for testing timeout during store)
+// Helper function to pause before/after store results (for testing timeout during store).
+// The pause is gated by the global StoreResultsDebugCtx scope: INTERNAL_ONLY skips
+// non-internal (user-facing) AREQs, NON_INTERNAL_ONLY skips internal (coordinator-
+// dispatched) AREQs, and the default (BOTH) applies to all.
 static inline void debugPauseStoreResults(AREQ *req, bool before) {
   bool enabled = before ? StoreResultsDebugCtx_IsPauseBeforeEnabled()
                         : StoreResultsDebugCtx_IsPauseAfterEnabled();
-  if (enabled) {
-    StoreResultsDebugCtx_SetPause(true);
-    while (StoreResultsDebugCtx_IsPaused()) {
-      // Check if timed out - break to avoid deadlock with timeout callback
-      if (AREQ_TimedOut(req)) {
-        StoreResultsDebugCtx_SetPause(false);
-        break;
-      }
-      usleep(1000);  // Spin-wait with 1ms sleep
+  if (!enabled) return;
+  StoreResultsScope scope = StoreResultsDebugCtx_GetScope();
+  bool is_internal = IsInternal(req);
+  if (scope == STORE_RESULTS_SCOPE_INTERNAL_ONLY     && !is_internal) return;
+  if (scope == STORE_RESULTS_SCOPE_NON_INTERNAL_ONLY &&  is_internal) return;
+  StoreResultsDebugCtx_SetPause(true);
+  while (StoreResultsDebugCtx_IsPaused()) {
+    // Check if timed out - break to avoid deadlock with timeout callback
+    if (AREQ_TimedOut(req)) {
+      StoreResultsDebugCtx_SetPause(false);
+      break;
     }
+    usleep(1000);  // Spin-wait with 1ms sleep
   }
 }
 #else
