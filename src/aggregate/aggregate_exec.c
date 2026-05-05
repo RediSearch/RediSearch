@@ -1156,6 +1156,12 @@ void AREQ_ReplyOrStoreError(AREQ *req, RedisModuleCtx *ctx, QueryError *status) 
     QueryError_CloneFrom(status, &req->storedReplyState.err);
     // Clear the original to avoid leaking heap-allocated strings.
     QueryError_ClearError(status);
+    // Wake any RETURN_STRICT timer waiting on aggregateResultsDone. The timer
+    // distinguishes this error-bail from a results-bail by storedReplyState.err
+    // (hasStoredResults stays false). No-op for FAIL callers.
+    if (AREQ_RequiresThreadsSyncResults(req)) {
+      AREQ_SignalAggregateResultsComplete(req);
+    }
   } else {
     QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(status), 1, !IsInternal(req));
     QueryError_ReplyAndClear(ctx, status);
