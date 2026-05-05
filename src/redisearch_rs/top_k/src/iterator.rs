@@ -47,6 +47,18 @@ pub enum TopKMode {
     AdhocBF,
 }
 
+/// Diagnostic counters collected during a single evaluation.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct TopKMetrics {
+    /// Number of batches fetched from the source (Batches mode only).
+    pub num_batches: usize,
+    /// Number of times the collection strategy was switched.
+    pub strategy_switches: usize,
+    /// Number of (batch_doc, child_doc) comparisons performed during
+    /// merge-join intersection (Batches mode only).
+    pub total_comparisons: usize,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Phase {
     /// Collection has not started; the first call to [`read`](TopKIterator::read)
@@ -87,6 +99,8 @@ pub struct TopKIterator<
     current: Option<RSIndexResult<'index>>,
     last_doc_id: t_docId,
     at_eof: bool,
+    /// Diagnostic counters — not reset on [`rewind`](Self::rewind).
+    pub metrics: TopKMetrics,
 }
 
 impl<'index, S: ScoreSource<'index>> TopKIterator<'index, S> {
@@ -134,6 +148,7 @@ impl<'index, S: ScoreSource<'index>, C: RQEIterator<'index> + 'index> TopKIterat
             current: None,
             last_doc_id: 0,
             at_eof: false,
+            metrics: TopKMetrics::default(),
         }
     }
 
@@ -155,6 +170,11 @@ impl<'index, S: ScoreSource<'index>, C: RQEIterator<'index> + 'index> TopKIterat
     /// Returns a reference to the filter child iterator, if present.
     pub fn child(&self) -> Option<&C> {
         self.child.as_ref()
+    }
+
+    /// Returns a reference to the diagnostic counters accumulated so far.
+    pub const fn metrics(&self) -> &TopKMetrics {
+        &self.metrics
     }
 
     /// Drive collection based on the current mode.
@@ -204,22 +224,25 @@ impl<'index, S: ScoreSource<'index>, C: RQEIterator<'index> + 'index> TopKIterat
             let Some(mut batch) = self.source.next_batch()? else {
                 break;
             };
+            self.metrics.num_batches += 1;
 
             // Borrow-checker split: we can't hold `&mut self.child` and call
             // `self.heap.push` at the same time.  Pass fields explicitly.
             if let Some(child) = &mut self.child {
-                intersect_batch_with_child(child, &mut batch, &mut self.heap)?;
+                intersect_batch_with_child(child, &mut batch, &mut self.heap, &mut self.metrics)?;
             }
             match self.source.batch_strategy(self.heap.len(), self.k.get()) {
                 BatchStrategy::Continue => continue,
                 BatchStrategy::Stop => break,
                 BatchStrategy::SwitchToAdhoc => {
+                    self.metrics.strategy_switches += 1;
                     self.mode = TopKMode::AdhocBF;
                     // Fall through to adhoc collection; heap is preserved.
                     self.collect_adhoc()?;
                     return Ok(());
                 }
                 BatchStrategy::SwitchToBatches => {
+                    self.metrics.strategy_switches += 1;
                     // Clear the heap: the source restarts with new parameters
                     // (e.g. expanded numeric range) and will re-emit previously
                     // collected docs. Keeping stale entries would cause duplicates.
@@ -414,6 +437,7 @@ fn intersect_batch_with_child<'index, C: RQEIterator<'index>>(
     child: &mut C,
     batch: &mut impl ScoreBatch,
     heap: &mut TopKHeap,
+    metrics: &mut TopKMetrics,
 ) -> Result<(), RQEIteratorError> {
     child.rewind();
 
@@ -427,6 +451,7 @@ fn intersect_batch_with_child<'index, C: RQEIterator<'index>>(
     let mut child_doc = first.doc_id;
 
     loop {
+        metrics.total_comparisons += 1;
         match batch_doc.cmp(&child_doc) {
             Ordering::Equal => {
                 heap.push(batch_doc, batch_score);
@@ -488,6 +513,7 @@ impl<'index, S: ScoreSource<'index> + 'index> rqe_iterators::interop::ProfileChi
             current: self.current,
             last_doc_id: self.last_doc_id,
             at_eof: self.at_eof,
+            metrics: self.metrics,
         }
     }
 }
