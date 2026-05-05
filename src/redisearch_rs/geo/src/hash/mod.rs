@@ -96,6 +96,46 @@ pub fn decode(hash: GeoHashBits) -> GeoHashArea {
     }
 }
 
+/// Decode the maximum latitude of a geohash cell.
+///
+/// This is cheaper than a full [`decode`] when only one bound is needed.
+fn decode_lat_max(hash: GeoHashBits) -> R64 {
+    let step = hash.step.as_u8();
+    let (ilat, _) = bits::deinterleave64(hash.bits);
+    let step_size = (1u64 << step) as f64;
+    R64::assert(GEO_LAT_MIN + ((ilat as f64 + 1.0) / step_size) * (GEO_LAT_MAX - GEO_LAT_MIN))
+}
+
+/// Decode the minimum latitude of a geohash cell.
+///
+/// This is cheaper than a full [`decode`] when only one bound is needed.
+fn decode_lat_min(hash: GeoHashBits) -> R64 {
+    let step = hash.step.as_u8();
+    let (ilat, _) = bits::deinterleave64(hash.bits);
+    let step_size = (1u64 << step) as f64;
+    R64::assert(GEO_LAT_MIN + (ilat as f64 / step_size) * (GEO_LAT_MAX - GEO_LAT_MIN))
+}
+
+/// Decode the maximum longitude of a geohash cell.
+///
+/// This is cheaper than a full [`decode`] when only one bound is needed.
+fn decode_lon_max(hash: GeoHashBits) -> R64 {
+    let step = hash.step.as_u8();
+    let (_, ilon) = bits::deinterleave64(hash.bits);
+    let step_size = (1u64 << step) as f64;
+    R64::assert(GEO_LONG_MIN + ((ilon as f64 + 1.0) / step_size) * (GEO_LONG_MAX - GEO_LONG_MIN))
+}
+
+/// Decode the minimum longitude of a geohash cell.
+///
+/// This is cheaper than a full [`decode`] when only one bound is needed.
+fn decode_lon_min(hash: GeoHashBits) -> R64 {
+    let step = hash.step.as_u8();
+    let (_, ilon) = bits::deinterleave64(hash.bits);
+    let step_size = (1u64 << step) as f64;
+    R64::assert(GEO_LONG_MIN + (ilon as f64 / step_size) * (GEO_LONG_MAX - GEO_LONG_MIN))
+}
+
 /// Decode a [`GeoHashBits`] to the center `(longitude, latitude)` point.
 ///
 /// Computes the cell center directly from the interleaved bits, avoiding
@@ -228,14 +268,14 @@ pub fn get_areas_by_radius(coords: WGS84Coordinates, radius_meters: f64) -> GeoH
     // Check if the step is sufficient at the limits of the covered area.
     // Sometimes a neighboring cell is too near to cover everything.
     // `neighbors()` always returns all `Some`, so unwrap is safe here.
-    let north = decode(nbrs.north.unwrap());
-    let south = decode(nbrs.south.unwrap());
-    let east = decode(nbrs.east.unwrap());
-    let west = decode(nbrs.west.unwrap());
-    let decrease_step = meridian_distance(latitude, north.latitude.max) < radius_meters
-        || meridian_distance(latitude, south.latitude.min) < radius_meters
-        || parallel_distance(latitude, longitude, east.longitude.max) < radius_meters
-        || parallel_distance(latitude, longitude, west.longitude.min) < radius_meters;
+    // Only decode the single bound needed per direction to avoid full decode.
+    let decrease_step = meridian_distance(latitude, decode_lat_max(nbrs.north.unwrap()))
+        < radius_meters
+        || meridian_distance(latitude, decode_lat_min(nbrs.south.unwrap())) < radius_meters
+        || parallel_distance(latitude, longitude, decode_lon_max(nbrs.east.unwrap()))
+            < radius_meters
+        || parallel_distance(latitude, longitude, decode_lon_min(nbrs.west.unwrap()))
+            < radius_meters;
 
     if steps.as_u8() > 1 && decrease_step {
         // steps is at least 2 here, so steps - 1 is at least 1 — always valid.
