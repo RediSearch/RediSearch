@@ -9,7 +9,10 @@
 #include "misc.h"
 #include <stdlib.h>
 #include <ctype.h>
+#include <limits.h>
 #include <string.h>
+
+#include "rmutil/rm_assert.h"
 
 void GenericAofRewrite_DisabledHandler(RedisModuleIO *aof, RedisModuleString *key, void *value) {
   RedisModule_Log(RedisModule_GetContextFromIO(aof), "error",
@@ -34,4 +37,23 @@ const char *ExtractKeyName(const char *s, size_t *len, QueryError *status, bool 
   } else {
     return s;
   }
+}
+
+bool ValidateLimitBounds(uint64_t offset, uint64_t count,
+                         uint64_t max_results, QueryError *status) {
+  // Precondition: see header. Guarantees `(uint64_t)LLONG_MAX - count`
+  // does not underflow in the overflow check below.
+  RS_ASSERT(max_results <= (uint64_t)LLONG_MAX);
+
+  if (offset > max_results || count > max_results) {
+    QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_LIMIT,
+        "LIMIT exceeds maximum of %llu", (unsigned long long)max_results);
+    return false;
+  }
+  if (offset > (uint64_t)LLONG_MAX - count) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS,
+        "LIMIT offset + count overflow");
+    return false;
+  }
+  return true;
 }

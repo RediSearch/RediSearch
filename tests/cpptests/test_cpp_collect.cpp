@@ -583,12 +583,12 @@ TEST_F(CollectParserTest, LimitCountExceedsAggregateMax) {
   std::string count =
       std::to_string(static_cast<unsigned long long>(MAX_AGGREGATE_REQUEST_RESULTS) + 1ULL);
   expectError({"FIELDS", "1", "@x", "LIMIT", "0", count.c_str()},
-      "LIMIT count exceeds maximum of");
+      "LIMIT exceeds maximum of");
 }
 
 TEST_F(CollectParserTest, LimitOffsetExceedsAggregateMax) {
   registerKeys({"x"});
   expectError({"FIELDS", "1", "@x", "LIMIT", "9999999999", "10"},
-      "LIMIT offset exceeds maximum of");
+      "LIMIT exceeds maximum of");
 }
 

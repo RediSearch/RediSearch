@@ -14,7 +14,6 @@
 #include "config.h"
 #include "reducers_rs.h"
 #include <errno.h>
-#include <limits.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -293,19 +292,7 @@ static void handleCollectLimit(ArgParser *parser, const void *value, void *user_
       "LIMIT count must be a positive integer");
     return;
   }
-  if (offset > MAX_AGGREGATE_REQUEST_RESULTS) {
-    QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_LIMIT,
-      "LIMIT offset exceeds maximum of %llu", MAX_AGGREGATE_REQUEST_RESULTS);
-    return;
-  }
-  if (count > MAX_AGGREGATE_REQUEST_RESULTS) {
-    QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_LIMIT,
-      "LIMIT count exceeds maximum of %llu", MAX_AGGREGATE_REQUEST_RESULTS);
-    return;
-  }
-  if (offset > LLONG_MAX - count) {
-    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS,
-      "Invalid LIMIT offset + count value");
+  if (!ValidateLimitBounds(offset, count, MAX_AGGREGATE_REQUEST_RESULTS, status)) {
     return;
   }
 
