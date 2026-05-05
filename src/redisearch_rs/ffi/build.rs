@@ -67,6 +67,7 @@ fn main() {
         src.join("config.h"),
         src.join("doc_table.h"),
         src.join("fork_gc.h"),
+        src.join("fork_gc").join("pipe.h"),
         src.join("forward_index.h"),
         src.join("geo_index.h"),
         src.join("rs_geo.h"),

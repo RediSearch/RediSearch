@@ -15,7 +15,7 @@
 //! delegates everything else — including Redis-specific failure
 //! handling — to the `fork_gc` crate.
 
-use std::ffi::{c_int, c_void};
+use std::ffi::{c_char, c_int, c_void};
 
 use fork_gc::{ForkGC, io_result_ext::IoResultExt};
 
@@ -164,4 +164,27 @@ pub unsafe extern "C" fn FGC_recvBuffer(
     }
 
     ffi::REDISMODULE_OK as c_int
+}
+
+/// Receive a field header (field name + unique id).
+///
+/// Returns `FGC_COLLECTED` on success, `FGC_DONE` when no more fields remain,
+/// or an error variant on pipe failure.
+///
+/// # Safety
+///
+/// 1. `fgc` must point to a valid `ForkGC` whose `pipe_read_fd` is an open,
+///    readable file descriptor.
+/// 2. `field_name` and `field_name_len` must point to writable `char*` and
+///    `size_t` locations respectively.
+/// 3. `id` must point to a writable `uint64_t` location.
+#[unsafe(no_mangle)]
+#[must_use]
+pub unsafe extern "C" fn recvFieldHeader(
+    fgc: *mut ffi::ForkGC,
+    field_name: *mut *mut c_char,
+    field_name_len: *mut usize,
+    id: *mut u64,
+) -> ffi::FGCError {
+    todo!()
 }

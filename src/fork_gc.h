@@ -127,6 +127,19 @@ void FGC_Apply(ForkGC *gc);
 }
 #endif
 
+typedef enum {
+  // Terms have been collected
+  FGC_COLLECTED,
+  // No more terms remain
+  FGC_DONE,
+  // Pipe error, child probably crashed
+  FGC_CHILD_ERROR,
+  // Error on the parent
+  FGC_PARENT_ERROR,
+  // The spec was deleted
+  FGC_SPEC_DELETED,
+} FGCError;
+
 #include "fork_gc_rs.h"
 
 #endif /* SRC_FORK_GC_H_ */
