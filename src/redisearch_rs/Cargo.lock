@@ -2280,6 +2280,7 @@ dependencies = [
  "rlookup_ffi",
  "search_result",
  "sorting_vector",
+ "tracing",
  "value",
  "value_ffi",
  "workspace_hack",

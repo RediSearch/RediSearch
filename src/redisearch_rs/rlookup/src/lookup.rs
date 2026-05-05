@@ -10,13 +10,20 @@
 mod key;
 mod key_list;
 
+use crate::HashDocumentFormat;
+use crate::JsonDocumentFormat;
+use crate::LoadFieldError;
 use crate::{
     IndexSpec, RLookupRow,
     bindings::{FieldSpec, FieldSpecOption, FieldSpecOptions, IndexSpecCache},
+    load_document,
 };
+use document::DocumentType;
 use enumflags2::{BitFlags, bitflags};
 use key_list::KeyList;
-use std::{borrow::Cow, ffi::CStr, pin::Pin, ptr};
+use redis_json_api::RedisJsonApi;
+use redis_module::RedisString;
+use std::{borrow::Cow, ffi::CStr, pin::Pin, ptr::NonNull};
 
 pub use key::{GET_KEY_FLAGS, RLookupKey, RLookupKeyFlag, RLookupKeyFlags, TRANSIENT_FLAGS};
 pub use key_list::{Cursor, CursorMut, Iter, IterMut};
@@ -397,39 +404,89 @@ impl<'a> RLookup<'a> {
         self.keys.rowlen
     }
 
+    /// Returns the schema-source keys eligible for individual document loading.
+    ///
+    /// Mirrors the C `loadIndividualKeys` selection for the "load every loadable
+    /// key" case (`nkeys == 0`): only keys flagged [`RLookupKeyFlag::SchemaSrc`]
+    /// are considered, and when `cached_only` is set without `force_load` the set
+    /// is further restricted to keys backed by the sorting vector
+    /// ([`RLookupKeyFlag::SvSrc`]).
+    pub fn schema_src_keys(
+        &self,
+        cached_only: bool,
+        force_load: bool,
+    ) -> impl Iterator<Item = &RLookupKey<'a>> {
+        self.iter()
+            .filter(|k| k.flags.contains(RLookupKeyFlag::SchemaSrc))
+            .filter(move |k| !cached_only || force_load || k.flags.contains(RLookupKeyFlag::SvSrc))
+    }
+
+    /// `open_key`, when `Some`, is an already-open handle for `key_name` that the loader
+    /// reuses instead of opening the document by name; it is borrowed, not closed here.
     pub fn load_rule_fields(
         &mut self,
         search_ctx: &mut ffi::RedisSearchCtx,
         dst_row: &mut RLookupRow<'a>,
         index_spec: &'a IndexSpec,
-        key: &CStr,
-        open_key: *mut ffi::RedisModuleKey,
-        status: &mut ffi::QueryError,
-    ) -> i32 {
-        let keys = create_keys_from_spec(index_spec);
-        let pushed_keys = keys.into_iter().map(|k| self.keys.push(k)).collect();
-        load_specific_keys(
-            self,
-            search_ctx,
-            dst_row,
-            index_spec,
-            key,
-            open_key,
-            pushed_keys,
-            status,
-        )
+        key_name: &CStr,
+        open_key: Option<&ffi::RedisModuleKey>,
+    ) -> Result<(), LoadFieldError> {
+        // NB: eagerly consume the entire iterator, so the **side-effect-full* `self.keys.push` happens
+        // for every key.
+        let keys_to_load: Vec<_> = create_keys_from_spec(index_spec)
+            .map(|k| self.keys.push(k))
+            .collect();
+
+        let key_name =
+            RedisString::create_from_slice(search_ctx.redisCtx.cast(), key_name.to_bytes());
+
+        match index_spec.rule().type_() {
+            DocumentType::Hash => {
+                let format =
+                    HashDocumentFormat::new(NonNull::new(search_ctx.redisCtx).unwrap(), false);
+
+                load_document::load_specific_keys(
+                    &format,
+                    dst_row,
+                    &key_name,
+                    keys_to_load,
+                    true,
+                    open_key,
+                )
+            }
+            DocumentType::Json => {
+                // Safety: this function will be called long after module initialization
+                let japi = unsafe { RedisJsonApi::get().ok_or(LoadFieldError::JsonUnsupported) }?;
+
+                let format = JsonDocumentFormat::new(
+                    NonNull::new(search_ctx.redisCtx).unwrap(),
+                    &japi,
+                    search_ctx.apiVersion,
+                );
+
+                load_document::load_specific_keys(
+                    &format,
+                    dst_row,
+                    &key_name,
+                    keys_to_load,
+                    true,
+                    open_key,
+                )
+            }
+            DocumentType::Unsupported => unimplemented!("unsupported document type"),
+        }
     }
 }
 
-fn create_keys_from_spec<'a>(index_spec: &'a IndexSpec) -> Vec<RLookupKey<'a>> {
-    // TODO: Consider returning `impl Iterator` in order to avoid the `collect()` allocation below, refer to Jira ticket MOD-13907.
+fn create_keys_from_spec<'a>(
+    index_spec: &'a IndexSpec,
+) -> impl ExactSizeIterator<Item = RLookupKey<'a>> {
     let rule = index_spec.rule();
     let field_specs = index_spec.field_specs();
     rule.filter_fields_index()
         .iter()
         .zip(rule.filter_fields())
         .map(|(&index, filter_field)| create_key_from_data(index, filter_field, field_specs))
-        .collect::<Vec<_>>()
 }
 
 fn create_key_from_data<'a>(
@@ -448,51 +505,6 @@ fn create_key_from_data<'a>(
 
         RLookupKey::new_with_path(field_name, path, RLookupKeyFlags::empty())
     }
-}
-
-#[expect(
-    clippy::too_many_arguments,
-    reason = "thin wrapper that forwards its distinct inputs into the `RLookupLoadOptions` FFI struct"
-)]
-fn load_specific_keys<'a>(
-    lookup: &mut RLookup<'a>,
-    search_ctx: &mut ffi::RedisSearchCtx,
-    dst_row: &mut RLookupRow<'a>,
-    index_spec: &IndexSpec,
-    key: &CStr,
-    open_key: *mut ffi::RedisModuleKey,
-    keys: Vec<Pin<&mut RLookupKey>>,
-    status: &mut ffi::QueryError,
-) -> i32 {
-    let lookup = lookup.as_opaque_mut_ptr().cast::<ffi::RLookup>();
-    let dst_row = ptr::from_mut(dst_row).cast::<ffi::RLookupRow>();
-
-    let mut keys = keys
-        .into_iter()
-        .map(|k| {
-            // Safety: `ffi::RLookupLoadOptions` requires a mutable pointer to the key array. We have full control over these keys as we handle them in the keylist. The following statements are not optimal, but will have to do for now.
-            let k = unsafe { Pin::into_inner_unchecked(k.into_ref()) };
-            ptr::from_ref(k).cast::<ffi::RLookupKey>()
-        })
-        .collect::<Vec<_>>();
-
-    let mut options = ffi::RLookupLoadOptions {
-        keys: keys.as_mut_ptr(),
-        nkeys: keys.len(),
-        sctx: ptr::from_mut(search_ctx),
-        keyPtr: key.as_ptr(),
-        openKey: open_key,
-        type_: index_spec.rule().type_(),
-        status: ptr::from_mut(status),
-        forceLoad: true,
-        cachedOnly: false,
-        dmd: ptr::null(),
-        forceString: false,
-        profileFields: ptr::null_mut(),
-    };
-
-    // Safety: All pointers passed to this function are non-null and properly aligned since we created them above in this function.
-    unsafe { ffi::loadIndividualKeys(lookup, dst_row, &mut options) }
 }
 
 pub mod opaque {
@@ -1290,19 +1302,22 @@ mod tests {
         let index_spec = unsafe { IndexSpec::from_raw(&raw const index_spec) };
 
         // Act
-        let actual = super::create_keys_from_spec(index_spec);
+        let mut actual = super::create_keys_from_spec(index_spec);
 
         // Assert
         assert_eq!(actual.len(), 3);
 
-        assert_eq!(actual[0].name(), c"ff0");
-        assert_eq!(actual[0].path(), &Some(c"ff0".into()));
+        let key = actual.next().unwrap();
+        assert_eq!(key.name(), c"ff0");
+        assert_eq!(key.path(), &Some(c"ff0".into()));
 
-        assert_eq!(actual[1].name(), c"fn0");
-        assert_eq!(actual[1].path(), &Some(c"fp0".into()));
+        let key = actual.next().unwrap();
+        assert_eq!(key.name(), c"fn0");
+        assert_eq!(key.path(), &Some(c"fp0".into()));
 
-        assert_eq!(actual[2].name(), c"fn1");
-        assert_eq!(actual[2].path(), &Some(c"fp1".into()));
+        let key = actual.next().unwrap();
+        assert_eq!(key.name(), c"fn1");
+        assert_eq!(key.path(), &Some(c"fp1".into()));
 
         // Clean up
         unsafe { ffi::array_free(schema_rule.filter_fields.cast()) };
@@ -1340,5 +1355,80 @@ mod tests {
         res.fieldPath =
             unsafe { ffi::NewHiddenString(field_path.as_ptr(), field_path.count_bytes(), false) };
         res
+    }
+
+    /// Build an [`RLookup`] whose key list mirrors the selection cases exercised by
+    /// `schema_src_keys`: a non-schema key (must never be selected), a schema key
+    /// without a sorting-vector source, and a schema key with one.
+    fn rlookup_with_selection_keys<'a>() -> RLookup<'a> {
+        let mut rlookup = RLookup::new();
+        rlookup.keys.push(RLookupKey::new(
+            c"query_only",
+            make_bitflags!(RLookupKeyFlag::QuerySrc),
+        ));
+        rlookup.keys.push(RLookupKey::new(
+            c"schema_no_sv",
+            make_bitflags!(RLookupKeyFlag::SchemaSrc),
+        ));
+        rlookup.keys.push(RLookupKey::new(
+            c"schema_sv",
+            make_bitflags!(RLookupKeyFlag::{SchemaSrc | SvSrc}),
+        ));
+        rlookup
+    }
+
+    fn selected_names<'a>(
+        rlookup: &'a RLookup<'a>,
+        cached_only: bool,
+        force_load: bool,
+    ) -> Vec<CString> {
+        rlookup
+            .schema_src_keys(cached_only, force_load)
+            .map(|k| k.name().as_ref().to_owned())
+            .collect()
+    }
+
+    // Non-schema keys (e.g. QuerySrc) are never selected for individual loading.
+    #[test]
+    fn schema_src_keys_excludes_non_schema_keys() {
+        let rlookup = rlookup_with_selection_keys();
+        let names = selected_names(&rlookup, false, false);
+        assert_eq!(
+            names,
+            vec![c"schema_no_sv".to_owned(), c"schema_sv".to_owned()]
+        );
+    }
+
+    // `cached_only && !force_load` restricts the selection to sorting-vector-backed keys.
+    #[test]
+    fn schema_src_keys_cached_only_restricts_to_sv_src() {
+        let rlookup = rlookup_with_selection_keys();
+        let names = selected_names(&rlookup, true, false);
+        assert_eq!(names, vec![c"schema_sv".to_owned()]);
+    }
+
+    // `force_load` overrides `cached_only`: all schema keys are selected again.
+    #[test]
+    fn schema_src_keys_force_load_overrides_cached_only() {
+        let rlookup = rlookup_with_selection_keys();
+        let names = selected_names(&rlookup, true, true);
+        assert_eq!(
+            names,
+            vec![c"schema_no_sv".to_owned(), c"schema_sv".to_owned()]
+        );
+    }
+
+    // Without `cached_only`, the SvSrc flag has no effect on the selection.
+    #[test]
+    fn schema_src_keys_not_cached_only_ignores_sv_src() {
+        let rlookup = rlookup_with_selection_keys();
+        assert_eq!(
+            selected_names(&rlookup, false, true),
+            vec![c"schema_no_sv".to_owned(), c"schema_sv".to_owned()]
+        );
+        assert_eq!(
+            selected_names(&rlookup, false, false),
+            vec![c"schema_no_sv".to_owned(), c"schema_sv".to_owned()]
+        );
     }
 }
