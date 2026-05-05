@@ -12,20 +12,10 @@
 
 extern crate redisearch_rs;
 
-use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
-
 use reducers::collect::storage::{DEFAULT_LIMIT, Storage};
 use value::SharedValue;
 
 redis_mock::mock_or_stub_missing_redis_c_symbols!();
-
-/// `project` closure that increments `counter` on each call.
-fn counting_project(counter: &AtomicUsize, tag: f64) -> impl FnOnce() -> Box<[SharedValue]> + '_ {
-    move || {
-        counter.fetch_add(1, AtomicOrdering::Relaxed);
-        vec![SharedValue::new_num(tag)].into_boxed_slice()
-    }
-}
 
 fn drained_nums(drained: &[Box<[SharedValue]>]) -> Vec<f64> {
     drained
@@ -36,7 +26,7 @@ fn drained_nums(drained: &[Box<[SharedValue]>]) -> Vec<f64> {
 
 #[test]
 fn insert_entry_array_caps_at_len_in_insertion_order() {
-    let mut s = Storage::new(/* sortby */ false, Some((0, 3)));
+    let mut s = Storage::new(false, Some((0, 3)));
     for i in 0..5 {
         s.insert_entry(|| vec![SharedValue::new_num(i as f64)].into_boxed_slice());
     }
@@ -47,7 +37,7 @@ fn insert_entry_array_caps_at_len_in_insertion_order() {
 
 #[test]
 fn insert_entry_heap_caps_at_len_in_insertion_order() {
-    let mut s = Storage::new(/* sortby */ true, Some((0, 3)));
+    let mut s = Storage::new(true, Some((0, 3)));
     for i in 0..5 {
         s.insert_entry(|| vec![SharedValue::new_num(i as f64)].into_boxed_slice());
     }
@@ -58,14 +48,16 @@ fn insert_entry_heap_caps_at_len_in_insertion_order() {
 
 #[test]
 fn insert_entry_drops_after_cap_without_calling_project() {
-    let counter = AtomicUsize::new(0);
-    let mut s = Storage::new(/* sortby */ false, Some((0, 2)));
+    let mut counter = 0;
+    let mut s = Storage::new(false, Some((0, 2)));
     for v in [1.0_f64, 2.0, 3.0, 4.0] {
-        s.insert_entry(counting_project(&counter, v));
+        s.insert_entry(|| {
+            counter += 1;
+            vec![SharedValue::new_num(v)].into_boxed_slice()
+        });
     }
     assert_eq!(
-        counter.load(AtomicOrdering::Relaxed),
-        2,
+        counter, 2,
         "`project` must not run for entries beyond the cap"
     );
 }
@@ -92,7 +84,7 @@ fn drain_without_limit_ignores_stored_limit() {
 
 #[test]
 fn insert_entry_heap_uses_default_limit_when_no_explicit_limit() {
-    let mut s = Storage::new(/* sortby */ true, None);
+    let mut s = Storage::new(true, None);
     for i in 0..(DEFAULT_LIMIT as usize + 5) {
         s.insert_entry(|| vec![SharedValue::new_num(i as f64)].into_boxed_slice());
     }
@@ -102,7 +94,7 @@ fn insert_entry_heap_uses_default_limit_when_no_explicit_limit() {
 
 #[test]
 fn iter_yields_buffered_rows_in_insertion_order_under_cap() {
-    let mut s = Storage::new(/* sortby */ false, Some((0, 3)));
+    let mut s = Storage::new(false, Some((0, 3)));
     for i in 0..5 {
         s.insert_entry(|| vec![SharedValue::new_num(i as f64)].into_boxed_slice());
     }

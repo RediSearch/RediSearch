@@ -63,7 +63,7 @@ impl<T> Storage<T> {
     /// buffered". When `apply_limit` is `false`, every buffered row is
     /// yielded — used by the remote reducer when `is_internal` is set,
     /// where the coordinator owns the global offset.
-    pub fn drain(&mut self, apply_limit: bool) -> impl Iterator<Item = T> {
+    pub fn drain(&mut self, apply_limit: bool) -> impl ExactSizeIterator<Item = T> {
         let (offset, count) = if apply_limit {
             (self.offset, self.count)
         } else {

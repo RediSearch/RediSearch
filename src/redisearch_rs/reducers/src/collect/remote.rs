@@ -43,31 +43,6 @@ pub struct RemoteCollectReducer<'a> {
     /// Raw sort-key references, including keys not present in `FIELDS`.
     sort_keys: Box<[&'a RLookupKey<'a>]>,
     limit: Option<(u64, u64)>,
-    /// `true` when this reducer runs on a shard as part of an internal
-    /// coordinator-initiated query (i.e. the upstream call carries the
-    /// `_FT.AGGREGATE` internal command), `false` when the same reducer is
-    /// invoked standalone via the public `FT.AGGREGATE` command.
-    ///
-    /// Gates two behaviours of [`RemoteCollectCtx::finalize`]:
-    ///
-    /// * **Sort-key columns.** When `true`, each emitted row map carries
-    ///   `SORTBY` key columns alongside the requested `FIELDS` so the
-    ///   coordinator can re-order shard rows during merge. When `false`,
-    ///   only `FIELDS` columns are emitted.
-    /// * **LIMIT offset.** When `false`, [`Storage::drain`] is called with
-    ///   `apply_limit = true` and applies `skip(offset).take(count)` to the
-    ///   buffered rows. When `true`, only the cap (`offset + count`) is
-    ///   enforced and every buffered row is forwarded — the coordinator
-    ///   owns the global offset.
-    ///
-    /// The two semantics are bundled today because `distributeCollect`
-    /// forwards `LIMIT offset count` verbatim to the shard rather than
-    /// rewriting it to `LIMIT 0 (offset + count)` like the other
-    /// `distribute*` paths do; see the TODO in `distributeCollect`. Once
-    /// that rewrite lands the LIMIT-offset semantics disappear and this
-    /// flag reverts to a pure sort-key-emission gate (eventually renamed
-    /// to an explicit `WITHSORTKEYS` argument; see the second TODO in
-    /// [`RemoteCollectCtx::finalize`]).
     is_internal: bool,
 }
 
@@ -241,15 +216,12 @@ impl<'a> RemoteCollectCtx<'a> {
         // unconditionally.
         let rows = self.storage.drain(!r.is_internal);
         let template = build_finalize_template(r);
-        let rows: Vec<SharedValue> = rows
-            .map(|row| {
-                let entries: Vec<_> = template
-                    .iter()
-                    .filter_map(|(key, name)| row.get(key).map(|v| (name.clone(), v.clone())))
-                    .collect();
-                SharedValue::new_map(entries)
-            })
-            .collect();
-        SharedValue::new_array(rows)
+        SharedValue::new_array(rows.map(|row| {
+            let entries: Vec<_> = template
+                .iter()
+                .filter_map(|(key, name)| row.get(key).map(|v| (name.clone(), v.clone())))
+                .collect();
+            SharedValue::new_map(entries)
+        }))
     }
 }

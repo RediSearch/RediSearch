@@ -104,41 +104,45 @@ impl LocalCollectCtx {
     /// Push every entry from the merge row's payload through
     /// [`Storage::insert_entry`].
     ///
-    /// Per-entry lookup is delegated to [`lookup_in_entry`]. Missing or
-    /// malformed payloads are skipped defensively rather than aborting the
-    /// merge — one bad shard reply must not poison the rest.
+    /// Remote rows arrive as [`Value::Map`] under RESP3 and as a flat
+    /// `[k, v, k, v, ...]` [`Value::Array`] under RESP2; any other shape is
+    /// treated as "not present". Missing or malformed payloads are skipped
+    /// defensively rather than aborting the merge — one bad shard reply must
+    /// not poison the rest.
     pub fn add(&mut self, r: &LocalCollectReducer, row: &RLookupRow) {
-        let Some(payload) = row.get(r.input_key) else {
-            tracing_assert::debug_warn!("LocalCollectReducer requires a payload");
-            return;
-        };
-        let Value::Array(array) = &**payload else {
-            tracing_assert::debug_warn!("LocalCollectReducer payload must be an Array");
-            return;
-        };
-        for entry in array.iter() {
-            if !matches!(&**entry, Value::Map(_) | Value::Array(_)) {
-                tracing_assert::debug_warn!(
-                    "LocalCollectReducer payload entry must be a Map or Array"
-                );
-                continue;
-            }
-            self.storage.insert_entry(|| {
-                r.field_names
-                    .iter()
-                    .map(|name| {
-                        lookup_in_entry(entry, name)
+        if let Some(payload) = row.get(r.input_key)
+            && let Value::Array(array) = &**payload
+        {
+            for entry in array.iter() {
+                if !matches!(&**entry, Value::Map(_) | Value::Array(_)) {
+                    tracing_assert::debug_warn!(
+                        "LocalCollectReducer payload entry must be a Map or Array"
+                    );
+                    continue;
+                }
+                self.storage.insert_entry(|| {
+                    r.field_names
+                        .iter()
+                        .map(|name| {
+                            match &**entry {
+                                Value::Map(m) => m.get(name),
+                                Value::Array(a) => a.map_get(name),
+                                _ => None,
+                            }
                             .cloned()
                             .unwrap_or_else(SharedValue::null_static)
-                    })
-                    .collect::<Vec<_>>()
-                    .into_boxed_slice()
-            });
+                        })
+                        .collect::<Vec<_>>()
+                        .into_boxed_slice()
+                });
+            }
+        } else {
+            tracing_assert::debug_warn!("LocalCollectReducer requires an array payload");
         }
     }
 
     /// Apply the user's global `LIMIT offset count`. The local reducer is the
-    /// client-facing terminus, so it is the single point where `LIMIT` is
+    /// client-facing terminus, so it is the single point where `OFFSET` is
     /// honoured in distributed mode — see
     /// [`super::remote::RemoteCollectReducer::is_internal`].
     pub fn finalize(&mut self, r: &LocalCollectReducer) -> SharedValue {
@@ -158,16 +162,5 @@ impl LocalCollectCtx {
             })
             .collect();
         SharedValue::new_array(rows)
-    }
-}
-
-/// Resolve a key by name in a remote row entry. Remote rows arrive as
-/// [`Value::Map`] under RESP3 and as a flat `[k, v, k, v, ...]`
-/// [`Value::Array`] under RESP2; any other shape is treated as "not present".
-fn lookup_in_entry<'e>(entry: &'e SharedValue, name: &[u8]) -> Option<&'e SharedValue> {
-    match &**entry {
-        Value::Map(m) => m.get(name),
-        Value::Array(a) => a.map_get(name),
-        _ => None,
     }
 }

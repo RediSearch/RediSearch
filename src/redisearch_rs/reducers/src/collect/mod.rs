@@ -23,7 +23,6 @@
 pub(crate) mod common;
 pub mod local;
 pub mod remote;
-#[doc(hidden)]
 pub mod storage;
 
 pub use local::{LocalCollectCtx, LocalCollectReducer};
