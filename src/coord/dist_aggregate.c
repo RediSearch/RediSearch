@@ -130,29 +130,19 @@ void processResultFormat(uint32_t *flags, MRReply *map) {
 static int rpnetNext_Start(ResultProcessor *rp, SearchResult *r) {
   RPNet *nc = (RPNet *)rp;
 
+#ifdef ENABLE_ASSERT
+  // Sync point (debug): park BG just before the initial timeout check.
+  SyncPoint_WaitUntil(SYNC_POINT_BEFORE_RPNET_START, areq_timed_out, nc->areq);
+#endif
+
+  // Check if the request timed out before starting the iterator
+  if (AREQ_TimedOut(nc->areq)) {
+    return RS_RESULT_TIMEDOUT;
+  }
+
   // Create the iterator context wrapper for privateData
   // This holds both optional barrier (for WITHCOUNT) and optional KNN context (for SHARD_K_RATIO)
   AggregateIteratorContext *iterCtx = rm_calloc(1, sizeof(AggregateIteratorContext));
-
-#ifdef ENABLE_ASSERT
-  // Sync point (debug): park BG just before the initial timeout check.
-  SyncPoint_WaitUntil(SYNC_POINT_BEFORE_RPNET_START, areq_timed_out, nc->areq);
-#endif
-
-  // Check if the request timed out before starting the iterator
-  if (AREQ_TimedOut(nc->areq)) {
-    return RS_RESULT_TIMEDOUT;
-  }
-
-#ifdef ENABLE_ASSERT
-  // Sync point (debug): park BG just before the initial timeout check.
-  SyncPoint_WaitUntil(SYNC_POINT_BEFORE_RPNET_START, areq_timed_out, nc->areq);
-#endif
-
-  // Check if the request timed out before starting the iterator
-  if (AREQ_TimedOut(nc->areq)) {
-    return RS_RESULT_TIMEDOUT;
-  }
 
   // Initialize shard response barrier if WITHCOUNT is enabled.
   // The barrier is owned by iterCtx (and thus by the MRIterator after
