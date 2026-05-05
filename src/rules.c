@@ -127,8 +127,9 @@ static SchemaRule *SchemaRule_CreateInternal(SchemaRuleArgs *args, ArgsCursor *p
     size_t nprefixes = AC_NumRemaining(prefixes_ac);
     rule->prefixes = array_new(HiddenUnicodeString*, nprefixes);
     for (size_t i = 0; i < nprefixes; ++i) {
-      const char *prefix = AC_GetStringNC(prefixes_ac, NULL);
-      array_append(rule->prefixes, NewHiddenUnicodeString(prefix));
+      size_t prefix_len = 0;
+      const char *prefix = AC_GetStringNC(prefixes_ac, &prefix_len);
+      array_append(rule->prefixes, NewHiddenUnicodeStringWithLen(prefix, prefix_len));
     }
   } else {
     rule->prefixes = array_new(HiddenUnicodeString*, args->nprefixes);
