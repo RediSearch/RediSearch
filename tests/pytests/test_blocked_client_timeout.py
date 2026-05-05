@@ -3460,102 +3460,135 @@ class TestShardTimeoutLockLeakRegression:
         skipTest(cluster=True)
         self.env = Env(protocol=3, moduleArgs='WORKERS 1 TIMEOUT 0')
 
-    def test_fail_timeout_releases_spec_lock_for_writers(self):
+    def _prepare_case_index(self, idx_name, key_prefix, n_docs):
+        env = self.env
+        try:
+            env.cmd('FT.DROPINDEX', idx_name, 'DD')
+        except Exception:
+            pass
+
+        env.expect('FT.CREATE', idx_name, 'PREFIX', '1', key_prefix,
+                   'SCHEMA', 'name', 'TEXT').ok()
+        for i in range(n_docs):
+            env.cmd('HSET', f'{key_prefix}{i}', 'name', f'hello {i}')
+
+    def _probe_hset_with_retry(self, probe_conn, key_name, value, context):
+        with TimeLimit(2, f'HSET remained unresponsive after {context}'):
+            while True:
+                try:
+                    probe_conn.execute_command('HSET', key_name, 'name', value)
+                    return
+                except Exception:
+                    time.sleep(0.03)
+
+    def _run_timeout_lock_leak_flow(self, query_name, query_args, blocked_query_cmd, blocked_query_msg,
+                                    key_prefix, n_docs, iterations, per_iter_setup=None,
+                                    pre_unblock=None, per_iter_cleanup=None, post_unblock=None):
+        env = self.env
+        probe_conn = getConnectionByEnv(env)
+        value_suffix = query_name.lower().replace('ft.', '')
+
+        for i in range(iterations):
+            if per_iter_setup:
+                per_iter_setup(i)
+
+            t_query = threading.Thread(
+                target=run_cmd_expect_timeout,
+                args=(env, query_args),
+                daemon=True
+            )
+            t_query.start()
+
+            try:
+                blocked_client_id = wait_for_blocked_query_client(
+                    env, blocked_query_cmd, blocked_query_msg)
+                if pre_unblock:
+                    pre_unblock(i)
+                env.expect('CLIENT', 'UNBLOCK', blocked_client_id, 'TIMEOUT').equal(1)
+                wait_for_client_unblocked(env, blocked_client_id)
+            finally:
+                if per_iter_cleanup:
+                    per_iter_cleanup(i)
+
+            if post_unblock:
+                post_unblock(i)
+
+            t_query.join(timeout=10)
+            env.assertFalse(
+                t_query.is_alive(),
+                message=f"{query_name} query thread should have finished (iter={i})")
+            self._probe_hset_with_retry(
+                probe_conn,
+                f'{key_prefix}{i % n_docs}',
+                f'posttimeout_{value_suffix}_{i}',
+                f'{query_name} timeout (iter={i})'
+            )
+
+    def _run_sync_point_timeout_lock_leak_flow(self, query_name, query_args, blocked_query_cmd,
+                                               blocked_query_msg, key_prefix, n_docs, iterations):
+        env = self.env
+        sync_point = 'BeforeAggregateResultsClaim'
+
+        def per_iter_setup(_):
+            env.expect(debug_cmd(), 'SYNC_POINT', 'CLEAR').ok()
+            env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', sync_point).ok()
+
+        def pre_unblock(i):
+            wait_for_condition(
+                lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', sync_point) == 1, {}),
+                f'worker never reached {sync_point} (iter={i})'
+            )
+
+        def per_iter_cleanup(_):
+            env.expect(debug_cmd(), 'SYNC_POINT', 'SIGNAL', sync_point).ok()
+
+        self._run_timeout_lock_leak_flow(
+            query_name,
+            query_args,
+            blocked_query_cmd,
+            blocked_query_msg,
+            key_prefix,
+            n_docs,
+            iterations,
+            per_iter_setup=per_iter_setup,
+            pre_unblock=pre_unblock,
+            per_iter_cleanup=per_iter_cleanup
+        )
+
+    def _run_lock_leak_case(self, query_name, iterations):
         env = self.env
         skipIfNoEnableAssert(env)
 
         prev_on_timeout_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
-        idx_name = 'idx_lock_repro'
-        key_prefix = 'lockdoc:'
+        idx_name = f'idx_lock_repro_{query_name.lower().replace(".", "_")}'
+        key_prefix = f'lockdoc:{query_name.lower()}:'
         n_docs = 5000
-        aggregate_iterations = 5
-        sync_point = 'BeforeAggregateResultsClaim'
 
         try:
             env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'fail').ok()
-            try:
-                env.cmd('FT.DROPINDEX', idx_name, 'DD')
-            except Exception:
-                pass
+            self._prepare_case_index(idx_name, key_prefix, n_docs)
+            query_cfg = {
+                'FT.AGGREGATE': {
+                    'query_args': ['FT.AGGREGATE', idx_name, '*', 'LIMIT', '0', '2000'],
+                    'blocked_query_cmd': 'FT.AGGREGATE',
+                    'blocked_query_msg': 'Client for query FT.AGGREGATE not found',
+                },
+                'FT.SEARCH': {
+                    'query_args': ['FT.SEARCH', idx_name, '*', 'NOCONTENT'],
+                    'blocked_query_cmd': 'FT.SEARCH',
+                    'blocked_query_msg': 'Client for query FT.SEARCH not found',
+                },
+            }[query_name]
 
-            env.expect('FT.CREATE', idx_name, 'PREFIX', '1', key_prefix,
-                       'SCHEMA', 'name', 'TEXT').ok()
-            for i in range(n_docs):
-                env.cmd('HSET', f'{key_prefix}{i}', 'name', f'hello {i}')
-
-            probe = getConnectionByEnv(env)
-            for i in range(aggregate_iterations):
-                env.expect(debug_cmd(), 'SYNC_POINT', 'CLEAR').ok()
-                env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', sync_point).ok()
-                t_agg = threading.Thread(
-                    target=run_cmd_expect_timeout,
-                    args=(env, ['FT.AGGREGATE', idx_name, '*', 'LIMIT', '0', '2000']),
-                    daemon=True
-                )
-                t_agg.start()
-                try:
-                    blocked_client_id = wait_for_blocked_query_client(
-                        env, 'FT.AGGREGATE', 'Client for query FT.AGGREGATE not found')
-                    wait_for_condition(
-                        lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', sync_point) == 1, {}),
-                        f'worker never reached {sync_point} (iter={i})'
-                    )
-                    env.expect('CLIENT', 'UNBLOCK', blocked_client_id, 'TIMEOUT').equal(1)
-                    wait_for_client_unblocked(env, blocked_client_id)
-                finally:
-                    env.expect(debug_cmd(), 'SYNC_POINT', 'SIGNAL', sync_point).ok()
-
-                t_agg.join(timeout=10)
-                env.assertFalse(t_agg.is_alive(),
-                                message=f"Aggregate query thread should have finished (iter={i})")
-                with TimeLimit(2, f'HSET remained unresponsive after FT.AGGREGATE timeout (iter={i})'):
-                    while True:
-                        try:
-                            probe.execute_command('HSET', f'{key_prefix}{i % n_docs}', 'name',
-                                                  f'posttimeout_aggregate_{i}')
-                            break
-                        except Exception:
-                            time.sleep(0.03)
-
-            search_args = [debug_cmd()] + parseDebugQueryCommandArgs(
-                ['FT.SEARCH', idx_name, '*', 'NOCONTENT'],
-                ['PAUSE_BEFORE_RP_N', 'Index', 0]
+            self._run_sync_point_timeout_lock_leak_flow(
+                query_name,
+                query_cfg['query_args'],
+                query_cfg['blocked_query_cmd'],
+                query_cfg['blocked_query_msg'],
+                key_prefix,
+                n_docs,
+                iterations
             )
-            t_search = threading.Thread(
-                target=run_cmd_expect_timeout,
-                args=(env, search_args),
-                daemon=True
-            )
-            t_search.start()
-            try:
-                blocked_client_id = wait_for_blocked_query_client(
-                    env, f'{debug_cmd()}|FT.SEARCH',
-                    f'Client for query {debug_cmd()}|FT.SEARCH not found')
-                wait_for_condition(
-                    lambda: (getIsRPPaused(env) == 1, {'paused': getIsRPPaused(env)}),
-                    'Timeout while waiting for search query to pause in pipeline'
-                )
-                env.expect('CLIENT', 'UNBLOCK', blocked_client_id, 'TIMEOUT').equal(1)
-                wait_for_client_unblocked(env, blocked_client_id)
-            finally:
-                setPauseRPResume(env)
-
-            wait_for_condition(
-                lambda: (getIsRPPaused(env) == 0, {'paused': getIsRPPaused(env)}),
-                'Timeout while waiting for search query to resume in pipeline'
-            )
-            env.expect(debug_cmd(), 'WORKERS', 'drain').ok()
-            t_search.join(timeout=10)
-            env.assertFalse(t_search.is_alive(), message="Search query thread should have finished")
-
-            with TimeLimit(2, 'HSET remained unresponsive after FT.SEARCH timeout'):
-                while True:
-                    try:
-                        probe.execute_command('HSET', f'{key_prefix}{aggregate_iterations % n_docs}',
-                                              'name', 'posttimeout_search')
-                        break
-                    except Exception:
-                        time.sleep(0.03)
         finally:
             try:
                 env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
@@ -3566,6 +3599,12 @@ class TestShardTimeoutLockLeakRegression:
             except Exception:
                 pass
             env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy).ok()
+
+    def test_fail_timeout_aggregate_releases_spec_lock_for_writers(self):
+        self._run_lock_leak_case('FT.AGGREGATE', iterations=5)
+
+    def test_fail_timeout_search_releases_spec_lock_for_writers(self):
+        self._run_lock_leak_case('FT.SEARCH', iterations=5)
 
 
 class TestShardTimeoutResp2:
