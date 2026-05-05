@@ -7,14 +7,21 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use document_metadata::DocumentMetadata;
+use ffi::DocumentType;
 use libc::size_t;
+use query_error::opaque::OpaqueQueryError;
+use query_error::{QueryError, QueryErrorCode};
+use redis_json_api::RedisJsonApi;
+use rlookup::JsonFormat;
+use rlookup::{DocumentLoader, HashFormat};
 use rlookup::{
     IndexSpec, IndexSpecCache, OpaqueRLookup, OpaqueRLookupRow, RLookup, RLookupKey,
     RLookupKeyFlag, RLookupKeyFlags, RLookupOptions, RLookupRow, SchemaRule,
 };
 use std::{
     borrow::Cow,
-    ffi::{CStr, c_char},
+    ffi::{CStr, c_char, c_int},
     pin::Pin,
     ptr::{self, NonNull},
     slice,
@@ -600,7 +607,7 @@ pub unsafe extern "C" fn RLookup_LoadRuleFields(
     dst_row: Option<NonNull<OpaqueRLookupRow>>,
     index_spec: Option<NonNull<ffi::IndexSpec>>,
     key: *const c_char,
-    status: Option<NonNull<ffi::QueryError>>,
+    status: Option<NonNull<OpaqueQueryError>>,
 ) -> i32 {
     // Safety: ensured by caller (1.)
     let search_ctx = unsafe { search_ctx.unwrap().as_mut() };
@@ -622,9 +629,237 @@ pub unsafe extern "C" fn RLookup_LoadRuleFields(
     let key = unsafe { CStr::from_ptr(key) };
 
     // Safety: ensured by caller (8.)
-    let status = unsafe { status.unwrap().as_mut() };
+    let status = unsafe { QueryError::from_opaque_non_null(status.unwrap()) };
 
-    lookup.load_rule_fields(search_ctx, dst_row, index_spec, key, status)
+    let res = lookup.load_rule_fields(search_ctx, dst_row, index_spec, key);
+
+    match res {
+        Ok(_) => ffi::REDISMODULE_OK as i32,
+        Err(err) => {
+            tracing::error!(
+                lookup = ?lookup,
+                dst_row = ?dst_row,
+                search_ctx = ?search_ctx,
+                "rlookup::load_rule_fields failed with {err:?}"
+            );
+
+            status.set_code(err.to_query_error_code());
+
+            ffi::REDISMODULE_ERR as i32
+        }
+    }
+}
+
+#[repr(C)]
+#[cheadergen::config(export)]
+pub struct RLookupLoadAllOptions {
+    pub sctx: *mut ffi::RedisSearchCtx,
+    pub dmd: *const ffi::RSDocumentMetadata,
+    pub force_string: bool,
+    pub status: *mut OpaqueQueryError,
+}
+
+#[repr(C)]
+#[cheadergen::config(export)]
+pub struct RLookupLoadIndividualOptions {
+    pub sctx: *mut ffi::RedisSearchCtx,
+    pub dmd: *const ffi::RSDocumentMetadata,
+    /// Explicit list of keys to load. If `nkeys == 0`, every loadable schema
+    /// key in the lookup is considered (subject to `force_load` / `cached_only`).
+    pub keys: *const *const ffi::RLookupKey,
+    pub nkeys: libc::size_t,
+    pub force_string: bool,
+    pub force_load: bool,
+    pub cached_only: bool,
+    pub status: *mut OpaqueQueryError,
+}
+
+/// Load values from the document `dmd` into `dst_row`
+///
+/// # Safety
+///
+/// 1. `lookup` must be a [valid], non-null pointer to an `RLookup` that is properly initialized.
+/// 2. `dst_row` must be a [valid], non-null pointer to an `RLookupRow` that is properly initialized.
+/// 3. `opts` must be a [valid], non-null pointer to an `RLookupLoadAllOptions` whose `sctx`,
+///    `dmd`, and `status` fields are themselves [valid], non-null and properly initialized.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RLookup_LoadDocumentAll(
+    lookup: Option<NonNull<OpaqueRLookup>>,
+    dst_row: Option<NonNull<OpaqueRLookupRow>>,
+    opts: Option<NonNull<RLookupLoadAllOptions>>,
+) -> c_int {
+    // Safety: ensured by caller (1.)
+    let lookup = unsafe { RLookup::from_opaque_non_null(lookup.unwrap()) };
+
+    // Safety: ensured by caller (2.)
+    let dst_row = unsafe { RLookupRow::from_opaque_non_null(dst_row.unwrap()) };
+
+    // Safety: ensured by caller (3.)
+    let opts = unsafe { opts.unwrap().as_ref() };
+
+    // Safety: caller (3.) — `opts.dmd` is a borrowed, valid, non-null
+    // `RSDocumentMetadata` that outlives this call. We only borrow it; ownership
+    // (refcount) stays with the caller.
+    let dmd = unsafe { DocumentMetadata::from_ptr(opts.dmd) };
+
+    // Safety: ensured by caller (3.)
+    let search_ctx = unsafe { NonNull::new(opts.sctx).unwrap().as_ref() };
+
+    // Safety: ensured by caller (3.)
+    let status = unsafe { QueryError::from_opaque_non_null(NonNull::new(opts.status).unwrap()) };
+
+    let ctx = NonNull::new(search_ctx.redisCtx).unwrap();
+
+    let res = match dmd.type_() {
+        DocumentType::Hash => {
+            let format = HashFormat::new(ctx, opts.force_string);
+
+            DocumentLoader::new(lookup, dst_row, ctx, dmd, format).load_all()
+        }
+        DocumentType::Json => {
+            // Safety: this function will be called long after module initialization
+            let Some(japi) = (unsafe { RedisJsonApi::get() }) else {
+                status.set_code(QueryErrorCode::UnsuppType);
+                tracing::warn!("cannot operate on a JSON index as RedisJSON is not loaded");
+
+                return ffi::REDISMODULE_ERR as i32;
+            };
+
+            let format = JsonFormat::new(ctx, &japi, search_ctx.apiVersion);
+
+            DocumentLoader::new(lookup, dst_row, ctx, dmd, format).load_all()
+        }
+        DocumentType::Unsupported => unimplemented!("unsupported document type"),
+    };
+
+    match res {
+        Ok(_) => ffi::REDISMODULE_OK as i32,
+        Err(err) => {
+            tracing::error!(
+                lookup = ?lookup,
+                dst_row = ?dst_row,
+                dmd = ?dmd,
+                search_ctx = ?search_ctx,
+                force_string = ?opts.force_string,
+                "rlookup::load_document::load_all_keys failed with {err:?}"
+            );
+
+            ffi::REDISMODULE_ERR as i32
+        }
+    }
+}
+
+/// Load values for all non-present and loadable keys in `rlookup` from the document `dmd` into `dst_row`
+///
+/// # Safety
+///
+/// 1. `lookup` must be a [valid], non-null pointer to an `RLookup` that is properly initialized.
+/// 2. `dst_row` must be a [valid], non-null pointer to an `RLookupRow` that is properly initialized.
+/// 3. `opts` must be a [valid], non-null pointer to an `RLookupLoadIndividualOptions` whose
+///    `sctx`, `dmd`, and `status` fields are themselves [valid], non-null and properly initialized.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RLookup_LoadDocumentIndividual(
+    lookup: Option<NonNull<OpaqueRLookup>>,
+    dst_row: Option<NonNull<OpaqueRLookupRow>>,
+    opts: Option<NonNull<RLookupLoadIndividualOptions>>,
+) -> c_int {
+    // Safety: ensured by caller (1.)
+    let lookup = unsafe { RLookup::from_opaque_non_null(lookup.unwrap()) };
+
+    // Safety: ensured by caller (2.)
+    let dst_row = unsafe { RLookupRow::from_opaque_non_null(dst_row.unwrap()) };
+
+    // Safety: ensured by caller (3.)
+    let opts = unsafe { opts.unwrap().as_ref() };
+
+    // Safety: ensured by caller (3.)
+    let search_ctx = unsafe { NonNull::new(opts.sctx).unwrap().as_ref() };
+
+    // SAFETY: caller (3.) — `opts.dmd` is a borrowed, valid, non-null
+    // `RSDocumentMetadata` that outlives this call. We only borrow it; ownership
+    // (refcount) stays with the caller.
+    let dmd = unsafe { DocumentMetadata::from_ptr(opts.dmd) };
+
+    // Safety: ensured by caller (3.)
+    let status = unsafe { QueryError::from_opaque_non_null(NonNull::new(opts.status).unwrap()) };
+
+    let ctx = NonNull::new(search_ctx.redisCtx).unwrap();
+
+    // Build the list of keys to load, then take it as raw pointers to release
+    // the borrow on `lookup` before constructing the `DocumentLoader` (which
+    // needs `&mut lookup` for the load_all path). The pointees stay valid for
+    // the duration of this call: the lookup outlives us, and `load_specific`
+    // does not mutate the key list.
+    let key_ptrs: Vec<*const RLookupKey<'_>> = if opts.nkeys > 0 {
+        // SAFETY: caller (3.) — `opts.keys` points to `nkeys` valid
+        // `*const ffi::RLookupKey`. `ffi::RLookupKey` and `RLookupKey` share a
+        // layout (cbindgen generates the C mirror from the Rust definition).
+        let raw = unsafe { slice::from_raw_parts(opts.keys, opts.nkeys) };
+        raw.iter().map(|&p| p.cast::<RLookupKey<'_>>()).collect()
+    } else {
+        let iter = lookup
+            .iter()
+            .filter(|k| k.flags.contains(RLookupKeyFlag::SchemaSrc));
+        if opts.cached_only && !opts.force_load {
+            iter.filter(|k| k.flags.contains(RLookupKeyFlag::SvSrc))
+                .map(ptr::from_ref)
+                .collect()
+        } else {
+            iter.map(ptr::from_ref).collect()
+        }
+    };
+    // SAFETY: see comment on `key_ptrs` above — pointees are valid for the
+    // duration of this call.
+    let keys = key_ptrs.iter().map(|&p| unsafe { &*p });
+
+    let res = match dmd.type_() {
+        DocumentType::Hash => {
+            let format = HashFormat::new(ctx, opts.force_string);
+
+            DocumentLoader::new(lookup, dst_row, ctx, dmd, format)
+                .force_load(opts.force_load)
+                .load_specific(keys)
+        }
+        DocumentType::Json => {
+            // Safety: this function will be called long after module initialization
+            let Some(japi) = (unsafe { RedisJsonApi::get() }) else {
+                status.set_code(QueryErrorCode::UnsuppType);
+                tracing::warn!("cannot operate on a JSON index as RedisJSON is not loaded");
+
+                return ffi::REDISMODULE_ERR as i32;
+            };
+
+            let format = JsonFormat::new(ctx, &japi, search_ctx.apiVersion);
+
+            DocumentLoader::new(lookup, dst_row, ctx, dmd, format)
+                .force_load(opts.force_load)
+                .load_specific(keys)
+        }
+        DocumentType::Unsupported => unimplemented!("unsupported document type"),
+    };
+
+    match res {
+        Ok(_) => ffi::REDISMODULE_OK as i32,
+        Err(err) => {
+            tracing::error!(
+                lookup = ?lookup,
+                dst_row = ?dst_row,
+                dmd =?dmd,
+                search_ctx = ?search_ctx,
+                force_load = ?opts.force_load,
+                cached_only = ?opts.cached_only,
+                "rlookup::load_document::load_specific_keys failed with {err:?}"
+            );
+
+            status.set_code(err.to_query_error_code());
+
+            ffi::REDISMODULE_ERR as i32
+        }
+    }
 }
 
 /// Return an iterator over an [`RLookup`]'s key list.

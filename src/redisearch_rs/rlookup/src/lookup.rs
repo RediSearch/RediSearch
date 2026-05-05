@@ -10,13 +10,20 @@
 mod key;
 mod key_list;
 
+use crate::HashFormat;
+use crate::JsonFormat;
+use crate::LoadFieldError;
 use crate::{
     IndexSpec, RLookupRow,
     bindings::{FieldSpec, FieldSpecOption, FieldSpecOptions, IndexSpecCache},
+    load_document,
 };
+use document::DocumentType;
 use enumflags2::{BitFlags, bitflags};
 use key_list::KeyList;
-use std::{borrow::Cow, ffi::CStr, pin::Pin, ptr};
+use redis_json_api::RedisJsonApi;
+use redis_module::RedisString;
+use std::{borrow::Cow, ffi::CStr, pin::Pin, ptr::NonNull};
 
 pub use key::{GET_KEY_FLAGS, RLookupKey, RLookupKeyFlag, RLookupKeyFlags, TRANSIENT_FLAGS};
 pub use key_list::{Cursor, CursorMut, Iter, IterMut};
@@ -409,20 +416,34 @@ impl<'a> RLookup<'a> {
         search_ctx: &mut ffi::RedisSearchCtx,
         dst_row: &mut RLookupRow<'a>,
         index_spec: &'a IndexSpec,
-        key: &CStr,
-        status: &mut ffi::QueryError,
-    ) -> i32 {
+        key_name: &CStr,
+    ) -> Result<(), LoadFieldError> {
         let keys = create_keys_from_spec(index_spec);
-        let pushed_keys = keys.into_iter().map(|k| self.keys.push(k)).collect();
-        load_specific_keys(
-            self,
-            search_ctx,
-            dst_row,
-            index_spec,
-            key,
-            pushed_keys,
-            status,
-        )
+        let keys_to_load = keys.into_iter().map(|k| self.keys.push(k));
+
+        let key_name =
+            RedisString::create_from_slice(search_ctx.redisCtx.cast(), key_name.to_bytes());
+
+        match index_spec.rule().type_() {
+            DocumentType::Hash => {
+                let format = HashFormat::new(NonNull::new(search_ctx.redisCtx).unwrap(), false);
+
+                load_document::load_specific_keys(&format, dst_row, &key_name, keys_to_load, true)
+            }
+            DocumentType::Json => {
+                // Safety: this function will be called long after module initialization
+                let japi = unsafe { RedisJsonApi::get().unwrap() };
+
+                let format = JsonFormat::new(
+                    NonNull::new(search_ctx.redisCtx).unwrap(),
+                    &japi,
+                    search_ctx.apiVersion,
+                );
+
+                load_document::load_specific_keys(&format, dst_row, &key_name, keys_to_load, true)
+            }
+            DocumentType::Unsupported => unimplemented!("unsupported document type"),
+        }
     }
 }
 
@@ -453,44 +474,6 @@ fn create_key_from_data<'a>(
 
         RLookupKey::new_with_path(field_name, path, RLookupKeyFlags::empty())
     }
-}
-
-fn load_specific_keys<'a>(
-    lookup: &mut RLookup<'a>,
-    search_ctx: &mut ffi::RedisSearchCtx,
-    dst_row: &mut RLookupRow<'a>,
-    index_spec: &IndexSpec,
-    key: &CStr,
-    keys: Vec<Pin<&mut RLookupKey>>,
-    status: &mut ffi::QueryError,
-) -> i32 {
-    let lookup = lookup.as_opaque_mut_ptr().cast::<ffi::RLookup>();
-    let dst_row = ptr::from_mut(dst_row).cast::<ffi::RLookupRow>();
-
-    let mut keys = keys
-        .into_iter()
-        .map(|k| {
-            // Safety: `ffi::RLookupLoadOptions` requires a mutable pointer to the key array. We have full control over these keys as we handle them in the keylist. The following statements are not optimal, but will have to do for now.
-            let k = unsafe { Pin::into_inner_unchecked(k.into_ref()) };
-            ptr::from_ref(k).cast::<ffi::RLookupKey>()
-        })
-        .collect::<Vec<_>>();
-
-    let mut options = ffi::RLookupLoadOptions {
-        keys: keys.as_mut_ptr(),
-        nkeys: keys.len(),
-        sctx: ptr::from_mut(search_ctx),
-        keyPtr: key.as_ptr(),
-        type_: index_spec.rule().type_(),
-        status: ptr::from_mut(status),
-        forceLoad: true,
-        cachedOnly: false,
-        dmd: ptr::null(),
-        forceString: false,
-    };
-
-    // Safety: All pointers passed to this function are non-null and properly aligned since we created them above in this function.
-    unsafe { ffi::loadIndividualKeys(lookup, dst_row, &mut options) }
 }
 
 pub mod opaque {
