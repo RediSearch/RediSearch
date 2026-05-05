@@ -18,7 +18,7 @@ use super::helpers::{array_entries, extract_num_field, make_key, map_entries, st
     miri,
     ignore = "reads `ffi::RSGlobalConfig` extern static, unsupported by miri"
 )]
-fn local_collect_projects_remote_maps_and_fills_missing_fields_with_null() {
+fn local_collect_projects_remote_maps_and_omits_missing_fields() {
     let input_key = make_key(c"generatedalias", 0);
     let reducer = LocalCollectReducer::new(
         &input_key,
@@ -51,7 +51,7 @@ fn local_collect_projects_remote_maps_and_fills_missing_fields_with_null() {
         Some(b"apple".as_slice())
     );
     assert!(row.get(b"sweetness").is_none());
-    assert!(row.get(b"missing").unwrap().is_null_static());
+    assert!(row.get(b"missing").is_none());
 }
 
 #[test]
@@ -187,9 +187,6 @@ fn local_lookup_in_entry_handles_resp2_flat_array() {
 
     for sv in rows {
         let m = map_entries(sv);
-        let missing = m
-            .get(b"missing")
-            .expect("`missing` key must be present in the output map");
-        assert!(missing.is_null_static());
+        assert!(m.get(b"missing").is_none());
     }
 }

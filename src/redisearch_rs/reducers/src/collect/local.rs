@@ -61,7 +61,7 @@ const _: () = assert!(
 /// not run destructors), `ptr::drop_in_place` must be called to run
 /// destructors for the inner `Vec` and decrement `SharedValue` refcounts.
 pub struct LocalCollectCtx {
-    storage: Storage<Box<[SharedValue]>>,
+    storage: Storage<Box<[Option<SharedValue>]>>,
 }
 
 impl<'a> LocalCollectReducer<'a> {
@@ -131,7 +131,6 @@ impl LocalCollectCtx {
                                 _ => None,
                             }
                             .cloned()
-                            .unwrap_or_else(SharedValue::null_static)
                         })
                         .collect::<Vec<_>>()
                         .into_boxed_slice()
@@ -160,8 +159,12 @@ impl LocalCollectCtx {
             .storage
             .drain(true)
             .map(|projected| {
-                let entries: Vec<(SharedValue, SharedValue)> =
-                    field_names.iter().cloned().zip(projected).collect();
+                let entries: Vec<(SharedValue, SharedValue)> = field_names
+                    .iter()
+                    .cloned()
+                    .zip(projected)
+                    .filter_map(|(name, v)| v.map(|v| (name, v)))
+                    .collect();
                 SharedValue::new_map(entries)
             })
             .collect();
