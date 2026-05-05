@@ -114,31 +114,29 @@ pub const fn align_52bits(hash: GeoHashBits) -> u64 {
 
 /// Compute the 8 neighboring geohash cells.
 pub const fn neighbors(hash: GeoHashBits) -> GeoHashNeighbors {
+    // Cardinal directions.
     let mut east = hash;
     let mut west = hash;
     let mut north = hash;
     let mut south = hash;
-    let mut north_east = hash;
-    let mut north_west = hash;
-    let mut south_east = hash;
-    let mut south_west = hash;
 
     bits::move_x(&mut east, 1);
     bits::move_x(&mut west, -1);
     bits::move_y(&mut north, 1);
     bits::move_y(&mut south, -1);
 
+    // Diagonal neighbors: move_x and move_y operate on disjoint bit
+    // positions, so we can derive corners from the cardinal neighbors
+    // with a single additional move each.
+    let mut north_east = north;
+    let mut north_west = north;
+    let mut south_east = south;
+    let mut south_west = south;
+
     bits::move_x(&mut north_east, 1);
-    bits::move_y(&mut north_east, 1);
-
     bits::move_x(&mut north_west, -1);
-    bits::move_y(&mut north_west, 1);
-
     bits::move_x(&mut south_east, 1);
-    bits::move_y(&mut south_east, -1);
-
     bits::move_x(&mut south_west, -1);
-    bits::move_y(&mut south_west, -1);
 
     GeoHashNeighbors {
         north: Some(north),
