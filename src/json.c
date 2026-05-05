@@ -383,7 +383,12 @@ switch (params->algo) {
   getElement = VecSimGetJSONCallback(type);
   unsigned char step = VecSimType_sizeof(type);
 
-  if (!(df->blobArr = rm_malloc(fs->vectorOpts.expBlobSize * len))) {
+  size_t alloc_size;
+  if (__builtin_mul_overflow(fs->vectorOpts.expBlobSize, len, &alloc_size)) {
+    QueryError_SetError(status, QUERY_EGENERIC, "Failed to allocate memory for multi-vector field");
+    goto fail;
+  }
+  if (!(df->blobArr = rm_malloc(alloc_size))) {
     goto fail;
   }
   df->blobSize = fs->vectorOpts.expBlobSize;
@@ -461,7 +466,12 @@ RedisJSON JSONIterable_Next(JSONIterable *iterable) {
 }
 
 int JSON_StoreTextInDocField(size_t len, JSONIterable *iterable, struct DocumentField *df, QueryError *status) {
-  df->multiVal = rm_calloc(len , sizeof(*df->multiVal));
+  size_t alloc_size;
+  if (__builtin_mul_overflow(len, sizeof(*df->multiVal), &alloc_size)) {
+    QueryError_SetError(status, QUERY_EGENERIC, "Failed to allocate memory for text field");
+    return REDISMODULE_ERR;
+  }
+  df->multiVal = rm_calloc(1, alloc_size);
   int i = 0, nulls = 0;
   size_t strlen;
   RedisJSON json;

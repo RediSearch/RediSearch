@@ -753,6 +753,20 @@ int RMCK_IsIOError(RedisModuleIO *io) {
   return result;
 }
 
+void RMCK_LogIOError(RedisModuleIO *io, const char *levelstr, const char *fmt, ...) {
+  (void)io;
+  int ilevel = loglevelFromString(levelstr);
+  if (ilevel < RMCK_LogLevel) {
+    return;
+  }
+  va_list ap;
+  va_start(ap, fmt);
+  fprintf(stderr, "[%s] ", levelstr);
+  vfprintf(stderr, fmt, ap);
+  fprintf(stderr, "\n");
+  va_end(ap);
+}
+
 // Track contexts associated with IO objects
 static std::map<RedisModuleIO*, RedisModuleCtx*> io_contexts;
 static std::mutex io_contexts_mutex;
@@ -1403,6 +1417,7 @@ static void registerApis() {
   REGISTER_API(LoadString);
   REGISTER_API(LoadStringBuffer);
   REGISTER_API(IsIOError);
+  REGISTER_API(LogIOError);
   REGISTER_API(GetContextFromIO);
 }
 
