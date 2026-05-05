@@ -1458,7 +1458,7 @@ static int prepareRequest(AREQ **r_ptr, RedisModuleCtx *ctx, RedisModuleString *
 }
 
 // Timeout callback for AREQ execution in Run in Threads mode.
-// Called on the main thread when the blocking client times out (FAIL policy only).
+// Called on the main thread when the blocking client times out (for FAIL policy only).
 // Simply sets the timeout flag and replies with error - no synchronization needed
 // because AREQ uses reply_callback pattern (background thread does not reply directly).
 static int QueryTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
@@ -1481,6 +1481,79 @@ static int QueryTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString **arg
   // Reply with timeout error
   QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, !IsInternal(req));
   RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT));
+
+  return REDISMODULE_OK;
+}
+
+void AREQ_SetCanYieldPartialResults(AREQ *req) {
+  AREQ_QueryProcessingCtx(req)->canYieldPartialResults =
+      pipelineCanYieldPartialResults(req);
+}
+
+// Drain any queued partial results into `storedReplyState.results` on the main
+// thread after the background pipeline has aborted. Shard pipelines need no
+// root-specific pre-drain setup (unlike the coordinator's RPNet drainOnly
+// flip), so this just gates and delegates the actual loop to the shared helper.
+static void drainPartialResultsAfterTimeout(AREQ *req) {
+  QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
+  if (!qctx->canYieldPartialResults) {
+    return;
+  }
+
+  RS_ASSERT(qctx->rootProc->type == RP_INDEX);
+
+  AREQ_DrainStoredResultsAfterTimeout(req);
+}
+
+// Timeout callback for AREQ execution in Run in Threads mode.
+// Called on the main thread when the blocking client times out (RETURN-STRICT
+// policy only). Coordinates with the BG worker via the AREQ aggregate-results
+// claim/signal handshake:
+//   - SetTimedOut so any RP polling AREQ_TimedOut bails on its next read.
+//   - TryClaim wins iff BG has not yet entered the aggregation phase (it
+//     bails in startPipeline). In that case we own the reply and emit empty.
+//   - Otherwise BG owns the buffer; wait for it to finish AREQ_StoreResults,
+//     then drain anything still buffered (RPSorter heap) and reply.
+static int QueryTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+
+  BlockedQueryNode *node = RedisModule_GetBlockedClientPrivateData(ctx);
+  if (!node || !node->privdata) {
+    // Shouldn't happen, but handle gracefully
+    RedisModule_Log(ctx, "warning", "QueryTimeoutReturnStrictCallback: no node or privdata");
+    QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, true);
+    RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT));
+    return REDISMODULE_OK;
+  }
+
+  AREQ *req = (AREQ *)node->privdata;
+
+  // Signal timeout to background thread
+  AREQ_SetTimedOut(req);
+
+  if (AREQ_TryClaimAggregateResults(req)) {
+    // We were able to claim the aggregation results.
+    // That means that the background thread didn't reach the aggregation phase (startPipelineCommon) yet.
+    // Reply with empty results
+    single_shard_common_query_reply_empty(ctx, argv, argc, 0, QUERY_ERROR_CODE_TIMED_OUT);
+    return REDISMODULE_OK;
+  }
+
+  // Sync with the background thread
+  AREQ_WaitForAggregateResultsComplete(req);
+
+  // BG signals only after AREQ_StoreResults
+  RS_ASSERT(req->storedReplyState.hasStoredResults);
+
+  // Drain any results buffered post-timeout (e.g. RPSorter heap).
+  // No-op for shapes that already accumulated their rows in state.results.
+  drainPartialResultsAfterTimeout(req);
+
+  // Rejected pipelines discard their buffer on TIMEDOUT, but RPIndex may have
+  // already accumulated `total_results` while emitting rows that were later
+  // dropped by the pipeline. Zero it for consistency with the empty results.
+  AREQ_MaybeResetTotalResultsAfterDrain(req);
+
+  AREQ_ReplyWithStoredResults(ctx, req);
 
   return REDISMODULE_OK;
 }
@@ -1648,10 +1721,16 @@ static int buildPipelineAndExecute(AREQ *r, RedisModuleCtx *ctx, QueryError *sta
     blockClientCtx.freePrivData = AREQ_DecrRefWrapper;
     blockClientCtx.privdata = r;
     blockClientCtx.ast = &r->ast;
+    RSTimeoutPolicy policy = r->reqConfig.timeoutPolicy;
 
     // Determine timeout and reply callbacks based on policy.
-    if (r->reqConfig.timeoutPolicy == TimeoutPolicy_Fail) {
-      blockClientCtx.timeoutCallback = QueryTimeoutFailCallback;
+    if (policy != TimeoutPolicy_Return) {
+      if (policy == TimeoutPolicy_Fail) {
+        blockClientCtx.timeoutCallback = QueryTimeoutFailCallback;
+      } else {
+        r->syncCtx.requiresAggregateResultsSync = true;
+        blockClientCtx.timeoutCallback = QueryTimeoutReturnStrictCallback;
+      }
       blockClientCtx.replyCallback = QueryReplyCallback;
       blockClientCtx.timeoutMS = r->reqConfig.queryTimeoutMS;
       r->useReplyCallback = true;

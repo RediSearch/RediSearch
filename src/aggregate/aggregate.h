@@ -464,6 +464,13 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status);
  */
 int AREQ_BuildPipeline(AREQ *req, QueryError *status);
 
+/**
+ * Classify the (already-built) shard pipeline as yielding a valid partial
+ * answer on RETURN-STRICT timeout, and store the result on the request's
+ * QueryProcessingCtx. No-op on a request whose pipeline has not been built.
+ */
+void AREQ_SetCanYieldPartialResults(AREQ *req);
+
 static inline QEFlags AREQ_RequestFlags(const AREQ *req) {
   return (QEFlags)req->reqflags;
 }

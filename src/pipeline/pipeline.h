@@ -7,6 +7,8 @@
 extern "C" {
 #endif
 
+struct AREQ;
+
 /**
  * Common parameters shared across different pipeline types in RediSearch.
  * This struct contains the core components needed by all pipeline operations,
@@ -97,6 +99,10 @@ typedef struct QueryPipelineParams {
      *  Determines how the search query behaves under timeout conditions and other
      *  execution constraints like memory limits. */
     RequestConfig *reqConfig;
+
+    /** Borrowed pointer to the request, propagated to the index result
+     *  processor so it can query per-request state (e.g. AREQ_TimedOut). */
+    struct AREQ *areq;
 } QueryPipelineParams;
 
 

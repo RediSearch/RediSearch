@@ -31,6 +31,7 @@
 #include "debug_commands.h"
 #include "coord_request_ctx.h"
 #include "aggregate/reply_empty.h"
+#include "aggregate/aggregate_exec_common.h"
 
 static const RLookupKey *keyForField(RPNet *nc, const char *s) {
   RLOOKUP_FOREACH(kk, nc->lookup, {
@@ -238,54 +239,6 @@ static void buildMRCommand(RedisModuleString **argv, int argc, ProfileOptions pr
 
   rm_free(n_prefixes);
   array_free(tmparr);
-}
-
-// True iff draining endProc->Next after a RETURN-STRICT timeout produces a
-// valid (possibly empty) partial answer.
-//
-// Accepted shapes (top = end of pipeline):
-//   1. RPNet                                  -- bare network root.
-//   2. RPPager_Limiter -> RPNet               -- pager directly above RPNet.
-//   3. [RPPager_Limiter ->] RPSorter -> ...   -- end is RPSorter (optionally
-//                                                under a pager); anything
-//                                                between the sorter and RPNet
-//                                                is allowed.
-//
-// Shape (3) is safe because rpsortNext_Yield (the state RPSorter enters on
-// TIMEDOUT) only pops from the sorter's heap, and drain only invokes
-// endProc->Next -- intermediate RPs are never re-entered after returning
-// TIMEDOUT.
-//
-// Profile is excluded: it wraps every RP and is not yet supported under
-// RETURN-STRICT drain.
-static bool pipelineCanYieldPartialResults(AREQ *r) {
-  if (IsProfile(r)) {
-    return false;
-  }
-
-  QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(r);
-  ResultProcessor *end = qctx->endProc;
-  ResultProcessor *root = qctx->rootProc;
-
-  if (!end || !root) {
-    return false;
-  }
-
-  // Coordinator pipelines are always rooted at RPNet.
-  RS_ASSERT(root->type == RP_NETWORK);
-
-  // RPPager_Limiter is transparent here: peel it and look at what's beneath.
-  // The pager is never the network root, so it always has an upstream.
-  ResultProcessor *rp = end;
-  if (rp->type == RP_PAGER_LIMITER) {
-    rp = rp->upstream;
-    RS_ASSERT(rp);
-  }
-
-  // Accept if what's below the (optional) pager is the RPNet root (shapes 1
-  // and 2) or an RPSorter somewhere above it (shape 3 -- drain pops from the
-  // sorter's heap, so what sits between RPSorter and RPNet doesn't matter).
-  return rp == root || rp->type == RP_SORTER;
 }
 
 static void buildDistRPChain(AREQ *r, MRCommand *xcmd, AREQDIST_UpstreamInfo *us, int (*nextFunc)(ResultProcessor *, SearchResult *)) {
@@ -623,15 +576,9 @@ int DistAggregateTimeoutFailClient(RedisModuleCtx *ctx, RedisModuleString **argv
 }
 
 // Drain any queued partial results into `storedReplyState.results` on the main
-// thread after the background pipeline has aborted. Only safe for pipelines
-// classified as yielding partial results (see pipelineCanYieldPartialResults):
-// endProc->Next either pulls from RPNet in drainOnly mode (shapes 1-2) or pops
-// from the sorter's heap (shape 3).
-//
-// Caller must have already flipped syncCtx.timedOut and waited for BG to exit
-// the pipeline via AREQ_WaitForAggregateResultsComplete. The pager's internal
-// `remaining` and qctx->resultLimit reflect the post-abort budget, so this
-// loop naturally respects the user's LIMIT and terminates at EOF.
+// thread after the background pipeline has aborted. Flips RPNet to drainOnly
+// mode so the post-abort drain only pulls already-buffered shard replies, then
+// delegates the actual loop to the shared helper.
 static void drainPartialResultsAfterTimeout(AREQ *req) {
   QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
   if (!qctx->canYieldPartialResults) {
@@ -639,22 +586,9 @@ static void drainPartialResultsAfterTimeout(AREQ *req) {
   }
 
   RS_ASSERT(qctx->rootProc->type == RP_NETWORK);
-  RPNet *rpnet = (RPNet *)qctx->rootProc;
-  rpnet->drainOnly = true;
+  ((RPNet *)qctx->rootProc)->drainOnly = true;
 
-  ResultProcessor *endProc = qctx->endProc;
-  ChunkReplyState *stored = &req->storedReplyState;
-  if (!stored->results) {
-    stored->results = array_new(SearchResult *, 8);
-  }
-
-  SearchResult r = SearchResult_New();
-  while (qctx->resultLimit && endProc->Next(endProc, &r) == RS_RESULT_OK) {
-    qctx->resultLimit--;
-    array_append(stored->results, SearchResult_AllocateMove(&r));
-    r = SearchResult_New();
-  }
-  SearchResult_Destroy(&r);
+  AREQ_DrainStoredResultsAfterTimeout(req);
 }
 
 // Timeout callback for Coordinator AREQ execution
@@ -704,11 +638,7 @@ int DistAggregateTimeoutReturnStrictClient(RedisModuleCtx *ctx, RedisModuleStrin
   // Rejected pipelines discard their buffer on TIMEDOUT, but RPNet may have
   // already accumulated `total_results` from admitted shard replies. Zero it
   // for consistency with the empty results.
-  ChunkReplyState *stored = &req->storedReplyState;
-  if (!AREQ_QueryProcessingCtx(req)->canYieldPartialResults &&
-      array_len(stored->results) == 0) {
-    AREQ_QueryProcessingCtx(req)->totalResults = 0;
-  }
+  AREQ_MaybeResetTotalResultsAfterDrain(req);
 
   AREQ_ReplyWithStoredResults(ctx, req);
 

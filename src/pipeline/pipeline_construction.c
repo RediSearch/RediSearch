@@ -408,7 +408,7 @@ void Pipeline_BuildQueryPart(Pipeline *pipeline, QueryPipelineParams *params) {
 
   RLookup_SetCache(first, cache);
 
-  ResultProcessor *rp = RPQueryIterator_New(params->rootiter, params->querySlots, params->keySpaceVersion, params->common.sctx);
+  ResultProcessor *rp = RPQueryIterator_New(params->rootiter, params->querySlots, params->keySpaceVersion, params->common.sctx, params->areq);
   params->rootiter = NULL; // Ownership of the root iterator is now with the pipeline.
   params->querySlots = NULL; // Ownership of the slot ranges is now with the pipeline.
   ResultProcessor *rpUpstream = NULL;

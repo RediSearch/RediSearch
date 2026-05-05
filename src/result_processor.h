@@ -83,6 +83,7 @@ typedef enum {
 
 struct ResultProcessor;
 struct RLookup;
+struct AREQ;
 
 // QueryProcessingCtx is defined in Rust (ffi crate) and generated via cbindgen
 // into result_processor_rs.h which is included above.
@@ -146,7 +147,7 @@ typedef struct ResultProcessor {
   void (*Free)(struct ResultProcessor *self);
 } ResultProcessor;
 
-ResultProcessor *RPQueryIterator_New(QueryIterator *itr, const RedisModuleSlotRangeArray *querySlots, uint32_t slotsVersion, RedisSearchCtx *sctx);
+ResultProcessor *RPQueryIterator_New(QueryIterator *itr, const RedisModuleSlotRangeArray *querySlots, uint32_t slotsVersion, RedisSearchCtx *sctx, struct AREQ *areq);
 
 ResultProcessor *RPScorer_New(const ExtScoringFunctionCtx *funcs,
                               const ScoringFunctionArgs *fnargs,
