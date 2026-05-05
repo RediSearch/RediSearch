@@ -24,7 +24,7 @@
 
 use proptest::prelude::{Just, Strategy, any, prop_oneof};
 use proptest::proptest;
-use redis_json_api::mock::with_json_api;
+use redis_json_api::mock::{with_json_api, with_json_api_broken_handle};
 use redis_module::RedisString;
 use rlookup::{
     DocumentFormat, FieldLoader, JsonDocumentFormat, LoadAllError, RLookup, RLookupKeyFlags,
@@ -364,5 +364,34 @@ fn borrow_loads_field_like_open() {
             ffi::japi = saved_api;
             ffi::japi_ver = saved_ver;
         }
+    });
+}
+
+/// When the borrowed handle cannot be resolved to a JSON root, `borrow` must fall
+/// back to opening the document by name.
+#[test]
+#[cfg_attr(miri, ignore)]
+fn borrow_falls_back_to_open_by_name() {
+    redis_mock::init_redis_module_mock();
+    with_json_api_broken_handle(Some(json!({ "name": "alice" })), |japi, ctx| {
+        let format = JsonDocumentFormat::new(ctx, &japi, PRE_MULTI);
+        let key_name = make_redis_string(c"doc:1");
+
+        let mut rlookup = RLookup::new();
+        let key = rlookup
+            .get_key_load(c"$.name", c"$.name", RLookupKeyFlags::empty())
+            .unwrap();
+        let mut row = RLookupRow::new();
+
+        // The mock models the pinned handle by the context pointer.
+        // Safety: the mock resolves the handle to the document root.
+        let open_key = unsafe { ctx.cast::<ffi::RedisModuleKey>().as_ref() };
+        format
+            .borrow(open_key, &key_name)
+            .expect("borrow should fall back to open-by-name")
+            .load_field(key, &mut row)
+            .unwrap();
+
+        assert_eq!(row.get(key).unwrap().as_str_bytes(), Some(&b"alice"[..]));
     });
 }
