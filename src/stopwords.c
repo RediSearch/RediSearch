@@ -71,25 +71,24 @@ int StopWordList_Contains(const StopWordList *sl, const char *term, size_t len) 
 }
 
 // Lowercase `s` and add it to the stopword list's trie. The input is copied,
-// so the caller retains ownership of `s`.
-static void StopWordList_AddInternal(StopWordList *sl, const char *s) {
-  char *t = rm_strdup(s);
+// so the caller retains ownership of `s`. `slen` is the byte length of `s`.
+static void StopWordList_AddInternal(StopWordList *sl, const char *s, size_t slen) {
+  char *t = rm_strndup(s, slen);
   if (t == NULL) {
     return;
   }
-  size_t tlen = strlen(t);
 
   // convert multi-byte characters to lowercase
-  char *dst = unicode_tolower(t, &tlen);
+  char *dst = unicode_tolower(t, &slen);
   if (dst) {
     rm_free(t);
     t = dst;
   } else {
     // No memory allocation, just ensure null termination
-    t[tlen] = '\0';
+    t[slen] = '\0';
   }
 
-  TrieMap_Add(sl->m, t, tlen, NULL, NULL);
+  TrieMap_Add(sl->m, t, slen, NULL, NULL);
   rm_free(t);
 }
 
@@ -115,7 +114,7 @@ StopWordList *NewStopWordListCStr(const char **strs, size_t len) {
     len = MAX_STOPWORDLIST_SIZE;
   }
   for (size_t i = 0; i < len; i++) {
-    StopWordList_AddInternal(sl, strs[i]);
+    StopWordList_AddInternal(sl, strs[i], strlen(strs[i]));
   }
   return sl;
 }
@@ -131,10 +130,11 @@ StopWordList *NewStopWordListAC(ArgsCursor *ac) {
   }
   for (size_t i = 0; i < len; i++) {
     const char *s = NULL;
-    if (AC_GetString(ac, &s, NULL, 0) != AC_OK || s == NULL) {
+    size_t slen = 0;
+    if (AC_GetString(ac, &s, &slen, 0) != AC_OK || s == NULL) {
       break;
     }
-    StopWordList_AddInternal(sl, s);
+    StopWordList_AddInternal(sl, s, slen);
   }
   return sl;
 }
