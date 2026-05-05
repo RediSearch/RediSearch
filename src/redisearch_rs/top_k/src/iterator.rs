@@ -13,9 +13,13 @@ use std::{cmp::Ordering, num::NonZeroUsize};
 
 use index_result::RSIndexResult;
 use index_spec::IndexSpecReadGuard;
+use redis_reply::MapBuilder;
 use rqe_core::DocId;
 use rqe_iterator_type::IteratorType;
-use rqe_iterators::{RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
+use rqe_iterators::{
+    RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
+    profile_print::{ProfilePrint, ProfilePrintCtx},
+};
 
 use crate::{
     heap::{ScoredResult, TopKHeap},
@@ -59,6 +63,18 @@ pub enum TopKMode {
     AdhocBF,
 }
 
+/// Diagnostic counters collected during a single evaluation.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct TopKMetrics {
+    /// Number of batches fetched from the source (Batches mode only).
+    pub num_batches: usize,
+    /// Number of times the collection strategy was switched.
+    pub strategy_switches: usize,
+    /// Number of (batch_doc, child_doc) comparisons performed during
+    /// merge-join intersection (Batches mode only).
+    pub total_comparisons: usize,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Phase {
     /// Collection has not started; the first call to [`read`](TopKIterator::read)
@@ -99,6 +115,8 @@ pub struct TopKIterator<
     current: Option<RSIndexResult<'index>>,
     last_doc_id: DocId,
     at_eof: bool,
+    /// Diagnostic counters — not reset on [`rewind`](Self::rewind).
+    pub metrics: TopKMetrics,
 }
 
 impl<'index, S: ScoreSource + 'index> TopKIterator<'index, S> {
@@ -142,6 +160,7 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index> TopKItera
             current: None,
             last_doc_id: 0,
             at_eof: false,
+            metrics: TopKMetrics::default(),
         }
     }
 
@@ -163,6 +182,11 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index> TopKItera
     /// Returns a reference to the filter child iterator, if present.
     pub fn child(&self) -> Option<&C> {
         self.child.as_ref()
+    }
+
+    /// Returns a reference to the diagnostic counters accumulated so far.
+    pub const fn metrics(&self) -> &TopKMetrics {
+        &self.metrics
     }
 
     /// Drive collection based on the current mode.
@@ -206,11 +230,12 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index> TopKItera
             let Some(mut batch) = self.source.next_batch()? else {
                 break;
             };
+            self.metrics.num_batches += 1;
 
             // Borrow-checker split: we can't hold `&mut self.child` and call
             // `self.heap.push` at the same time.  Pass fields explicitly.
             if let Some(child) = &mut self.child {
-                intersect_batch_with_child(child, &mut batch, &mut self.heap)?;
+                intersect_batch_with_child(child, &mut batch, &mut self.heap, &mut self.metrics)?;
             }
             match self.source.batch_strategy(self.heap.len(), self.k.get()) {
                 BatchStrategy::Continue => continue,
@@ -221,6 +246,7 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index> TopKItera
                         // mid-run.
                         continue;
                     }
+                    self.metrics.strategy_switches += 1;
                     self.mode = TopKMode::AdhocBF;
                     // Clear the heap: collect_adhoc rewinds the child and
                     // rescans every match from scratch, so batch-phase entries
@@ -231,6 +257,7 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index> TopKItera
                     return Ok(());
                 }
                 BatchStrategy::SwitchToBatches => {
+                    self.metrics.strategy_switches += 1;
                     // Clear the heap: the source restarts with new parameters
                     // (e.g. expanded numeric range) and will re-emit previously
                     // collected docs. Keeping stale entries would cause duplicates.
@@ -346,29 +373,51 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index> TopKItera
     fn advance_from_results(
         &mut self,
     ) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
-        loop {
-            let entry = self.results.get(self.yield_pos).copied();
+        // Select the entry to yield. The unfiltered path skips expired entries
+        // here; the filtered path breaks out and yields the child's record below,
+        // keeping the `self.child` borrow out of the loop (a borrow returned from
+        // inside the loop would conflict with the next iteration's re-borrow).
+        let (doc_id, score) = loop {
+            let Some(ScoredResult { doc_id, score }) = self.results.get(self.yield_pos).copied()
+            else {
+                self.at_eof = true;
+                return Ok(None);
+            };
             self.yield_pos += 1;
+            self.last_doc_id = doc_id;
+
+            if self.child.is_some() {
+                break (doc_id, score);
+            }
 
             // Poll once per step, after classifying the entry and before yielding
             // it — gates valid results, EOF, and expired skips alike.
             self.source.check_timeout()?;
-            match entry {
-                None => {
-                    self.at_eof = true;
-                    return Ok(None);
-                }
-                Some(ScoredResult { doc_id, score }) => {
-                    let result = self.source.build_result(doc_id, score);
-                    if self.source.is_expired(&result) {
-                        continue;
-                    }
-                    self.last_doc_id = doc_id;
-                    self.current = Some(result);
-                    return Ok(self.current.as_mut());
-                }
+
+            // Unfiltered (no child): build a fresh result from the source.
+            let result = self.source.build_result(doc_id, score);
+            if self.source.is_expired(&result) {
+                continue;
             }
-        }
+            self.current = Some(result);
+            return Ok(self.current.as_mut());
+        };
+
+        // Filtered mode: yield the child's record so BM25 inputs survive.
+        let child = self.child.as_mut().expect("child present in filtered mode");
+        child.rewind();
+        let cur = match child.skip_to(doc_id)? {
+            Some(SkipToOutcome::Found(r)) => r,
+            Some(SkipToOutcome::NotFound(_)) | None => {
+                // Doc was matched during collection but the child can't find it
+                // now — its state changed between collection and yield. Treat as
+                // EOF rather than panicking; surface via at_eof.
+                self.at_eof = true;
+                return Ok(None);
+            }
+        };
+        self.source.attach_score_metric(cur, score);
+        Ok(Some(cur))
     }
 }
 
@@ -377,6 +426,12 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index> RQEIterat
 {
     #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
+        // In filtered Yielding mode the most recently yielded record lives in
+        // the child iterator (see `advance_from_results`); forward to it so
+        // callers see the same `RSIndexResult` they got back from `read()`.
+        if matches!(self.phase, Phase::Yielding) && self.child.is_some() {
+            return self.child.as_mut().and_then(|c| c.current());
+        }
         self.current.as_mut()
     }
 
@@ -478,6 +533,7 @@ fn intersect_batch_with_child<'index, C: RQEIterator<'index>>(
     child: &mut C,
     batch: &mut impl ScoreBatch,
     heap: &mut TopKHeap,
+    metrics: &mut TopKMetrics,
 ) -> Result<(), RQEIteratorError> {
     child.rewind();
 
@@ -491,6 +547,7 @@ fn intersect_batch_with_child<'index, C: RQEIterator<'index>>(
     let mut child_doc = first.doc_id;
 
     loop {
+        metrics.total_comparisons += 1;
         match batch_doc.cmp(&child_doc) {
             Ordering::Equal => {
                 heap.push(batch_doc, batch_score);
@@ -546,6 +603,29 @@ impl<'a, S: ScoreSource> AdhocScope<'a, S> {
 impl<S: ScoreSource> Drop for AdhocScope<'_, S> {
     fn drop(&mut self) {
         self.0.end_adhoc();
+    }
+}
+
+/// Source-side profile rendering. The blanket [`ProfilePrint`] impl below
+/// forwards [`TopKIterator`] profile output to the source.
+pub trait TopKSourceProfile {
+    fn print_profile(
+        &self,
+        mode: TopKMode,
+        switches: usize,
+        map: &mut MapBuilder<'_>,
+        ctx: &mut ProfilePrintCtx<'_>,
+    );
+}
+
+impl<'index, S, C> ProfilePrint for TopKIterator<'index, S, C>
+where
+    S: ScoreSource + TopKSourceProfile + 'index,
+    C: RQEIterator<'index> + 'index,
+{
+    fn print_profile(&self, map: &mut MapBuilder<'_>, ctx: &mut ProfilePrintCtx<'_>) {
+        self.source
+            .print_profile(self.mode, self.metrics.strategy_switches, map, ctx);
     }
 }
 

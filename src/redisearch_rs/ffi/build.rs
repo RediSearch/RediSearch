@@ -586,12 +586,12 @@ const PERMITTED_GENERATED_HEADERS: &[&str] = &[
     // `RSSortingVector` (a typedef of `ThinVec_SharedValue__u64`) is embedded
     // by value in `RSDocumentMetadata` (src/redisearch.h).
     "sorting_vector.h",
-    // `aggregate.h` includes `value_ffi.h`; reachable via
-    // `optimizer_reader.h` -> `query_optimizer.h` -> `aggregate.h`.
-    "value_ffi.h",
     // `src/search_result.h` includes this for the `IndexResult_DeepCopy`
     // declaration used by the inline `SearchResult_TakeOwnedIndexResult`.
     "types_ffi.h",
+    // `aggregate.h` includes `value_ffi.h`; reachable via
+    // `optimizer_reader.h` -> `query_optimizer.h` -> `aggregate.h`.
+    "value_ffi.h",
     // `src/byte_offsets.h` defines `static inline` functions that call
     // `NewVarintVectorWriter` / `VVW_Free` / `VVW_Write`. The whole file is
     // small (one opaque type + a handful of functions).
