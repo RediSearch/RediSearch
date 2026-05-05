@@ -3888,8 +3888,8 @@ static inline int CursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, i
 
   // On coord+READ, peek the cursor's cached timeout config so coord and shard
   // stay aligned across changes to the `search-on-timeout` config. A valid-format
-  // CID with no registered cursor returns defaults (timeoutMS=0, policy=Return)
-  // and is reported by RSCursorReadCommand on the worker.
+  // CID with no registered cursor short-circuits with "Cursor not found" on the
+  // main thread (no DIST_THPOOL dispatch, no BC arming).
   if (sub == CURSOR_SUBCMD_READ) {
     long long cid;
     if (RedisModule_StringToLongLong(argv[3], &cid) != REDISMODULE_OK) {
@@ -3899,6 +3899,11 @@ static inline int CursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, i
     }
     CursorTimeoutInfo info =
         Cursors_PeekTimeoutInfo(GetGlobalCursor((uint64_t)cid), (uint64_t)cid);
+    if (!info.found) {
+      // Validate the cid before arming the BC so the RETURN_STRICT timer
+      // can trust argv[3] when it replies [empty, cid] without re-peeking.
+      return RedisModule_ReplyWithErrorFormat(ctx, "Cursor not found, id: %lld", cid);
+    }
     if (info.queryTimeoutPolicy == TimeoutPolicy_Fail) {
 #ifdef ENABLE_ASSERT
       // _FT.HYBRID WITHCURSOR is read via _FT.CURSOR READ, bypassing CursorCommand.
