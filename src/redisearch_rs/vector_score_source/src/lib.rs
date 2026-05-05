@@ -32,11 +32,13 @@ pub mod test_utils;
 pub use score_batch::VecSimScoreBatch;
 pub use source::VectorScoreSource;
 
-use std::{cmp::Ordering, num::NonZeroUsize};
+use std::{cmp::Ordering, ffi::CStr, num::NonZeroUsize, ptr::NonNull};
 
 use ffi::{VecSearchMode_HYBRID_ADHOC_BF, VecSearchMode_HYBRID_BATCHES};
+use redis_reply::MapBuilder;
 use rqe_iterators::{ExpirationChecker, FieldExpirationChecker, RQEIterator};
-use top_k::{TopKIterator, TopKMode};
+use rqe_iterators::{c2rust::call_print_profile, profile_print::ProfilePrintCtx};
+use top_k::{TopKIterator, TopKMode, TopKSourceProfile};
 
 /// A [`TopKIterator`] parameterised over [`VectorScoreSource`].
 ///
@@ -119,4 +121,45 @@ pub fn new_vector_top_k_filtered_boxed<'index, E: ExpirationChecker + 'index>(
         }
     };
     TopKIterator::new_with_mode(source, Some(child), k, asc_cmp, mode)
+}
+
+impl TopKSourceProfile for VectorScoreSource<'_> {
+    fn print_profile(
+        &self,
+        mode: TopKMode,
+        switches: usize,
+        map: &mut MapBuilder<'_>,
+        ctx: &mut ProfilePrintCtx<'_>,
+    ) {
+        map.kv_simple_string(c"Type", c"VECTOR");
+        ctx.print_optional_counters(map);
+
+        let mode_cstr: &CStr = match mode {
+            TopKMode::Unfiltered => c"STANDARD_KNN",
+            TopKMode::Batches | TopKMode::ForcedBatches => c"HYBRID_BATCHES",
+            TopKMode::AdhocBF if switches > 0 => c"HYBRID_BATCHES_TO_ADHOC_BF",
+            TopKMode::AdhocBF => c"HYBRID_ADHOC_BF",
+        };
+        map.kv_simple_string(c"Vector search mode", mode_cstr);
+
+        let is_batch_mode = matches!(mode, TopKMode::Batches | TopKMode::ForcedBatches)
+            || (matches!(mode, TopKMode::AdhocBF) && switches > 0);
+        if is_batch_mode {
+            map.kv_long_long(c"Batches number", self.num_iterations as i64);
+            map.kv_long_long(c"Largest batch size", self.max_batch_size as i64);
+            map.kv_long_long(
+                c"Largest batch iteration (zero based)",
+                self.max_batch_iteration as i64,
+            );
+        }
+
+        if let Some(child) = NonNull::new(self.child_raw) {
+            let mut child_map = map.kv_map(c"Child iterator");
+            let mut child_ctx = ctx.child_ctx();
+            // SAFETY: `child_raw` was preserved at construction and points to a
+            // valid `QueryIterator` whose `PrintProfile` vtable entry was set
+            // by `Profile_AddIters` before this call.
+            unsafe { call_print_profile(child, &mut child_map, &mut child_ctx) };
+        }
+    }
 }

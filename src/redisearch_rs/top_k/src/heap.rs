@@ -32,8 +32,7 @@ pub struct ScoredResult {
 /// - `compare(a, b) == Less`  → `a` is **better** than `b`.
 /// - `compare(a, b) == Greater` → `a` is **worse** than `b` (= heap-max, evicted first).
 ///
-/// Tie-breaking: equal scores → higher `doc_id` is considered worse (evicted first),
-/// so lower `doc_id` is kept.
+/// Ties on score are broken by doc id: the lower doc id is **better**.
 struct HeapEntry {
     result: ScoredResult,
     /// Cached comparison function so [`Ord`] can be implemented without extra state.
