@@ -27,3 +27,5 @@ mod limit;
 mod local;
 #[path = "collect/remote.rs"]
 mod remote;
+#[path = "collect/sortby.rs"]
+mod sortby;

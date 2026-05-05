@@ -21,6 +21,8 @@
 //! [`remote`] for per-variant details.
 
 pub(crate) mod common;
+#[doc(hidden)]
+pub mod heap;
 pub mod local;
 pub mod remote;
 pub mod storage;

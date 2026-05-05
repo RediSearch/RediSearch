@@ -183,16 +183,28 @@ fn build_finalize_template<'a>(
 impl<'a> RemoteCollectCtx<'a> {
     pub fn new(r: &RemoteCollectReducer<'a>) -> Self {
         Self {
-            storage: Storage::new(!r.sort_keys.is_empty(), r.limit),
+            storage: Storage::new(!r.sort_keys.is_empty(), r.limit, r.common.sort_asc_map),
         }
     }
 
-    /// Project the relevant fields from `row` into a stored [`RLookupRow`]
-    /// for later serialization by [`Self::finalize`]. Storage caps the buffer
-    /// at `offset + count`; entries past the cap are dropped without
-    /// projection cost.
+    /// Project the source row's field values into a stored [`RLookupRow`]
+    /// and snapshot the sort-key values for the heap comparator.
+    ///
+    /// The array path ignores the snapshot closure entirely. The heap path
+    /// uses the snapshot to drive comparisons, dropping doomed candidates
+    /// without paying the row-projection cost.
     pub fn add(&mut self, r: &RemoteCollectReducer<'a>, row: &RLookupRow<'_>) {
-        self.storage.insert_entry(|| {
+        let sort_vals = || -> Box<[SharedValue]> {
+            r.sort_keys
+                .iter()
+                .map(|key| {
+                    row.get(key)
+                        .cloned()
+                        .unwrap_or_else(SharedValue::null_static)
+                })
+                .collect()
+        };
+        let project = || {
             let mut dst = RLookupRow::new();
             let keys = if let Some(lookup) = r.srclookup {
                 Either::Left(
@@ -214,7 +226,8 @@ impl<'a> RemoteCollectCtx<'a> {
                 }
             }
             dst
-        });
+        };
+        self.storage.insert_entry(sort_vals, project);
     }
 
     /// Serialize the buffered rows into an array of maps. Keys absent from a
@@ -229,7 +242,8 @@ impl<'a> RemoteCollectCtx<'a> {
         // unconditionally.
         let rows = self.storage.drain(!r.is_internal);
         let template = build_finalize_template(r);
-        SharedValue::new_array(rows.map(|row| {
+        SharedValue::new_array(rows.map(|item| {
+            let row = item.projected;
             let entries: Vec<_> = template
                 .iter()
                 .filter_map(|(key, name)| row.get(key).map(|v| (name.clone(), v.clone())))

@@ -65,6 +65,19 @@ fn prepare_row(
     dst
 }
 
+/// Snapshot sort-key values for heap comparison, null-filling absent keys so
+/// comparator code can apply the same missing-value policy as the C sorter.
+fn snapshot_sort_keys(sort_key_names: &[CString], item: &Value) -> Box<[SharedValue]> {
+    sort_key_names
+        .iter()
+        .map(|name| {
+            get_field(item, name.to_bytes())
+                .cloned()
+                .unwrap_or_else(SharedValue::null_static)
+        })
+        .collect()
+}
+
 /// Counterpart of [`write_item_to_row`] for explicit-list mode.
 fn write_requested_fields(
     dst: &mut RLookupRow<'static>,
@@ -201,7 +214,7 @@ impl LocalCollectCtx {
     pub fn new(r: &LocalCollectReducer) -> Self {
         Self {
             lookup: RLookup::new(),
-            storage: Storage::new(!r.sort_key_names.is_empty(), r.limit),
+            storage: Storage::new(!r.sort_key_names.is_empty(), r.limit, r.common.sort_asc_map),
         }
     }
 
@@ -227,8 +240,10 @@ impl LocalCollectCtx {
                 );
                 continue;
             }
-            self.storage
-                .insert_entry(|| prepare_row(&mut self.lookup, r.requested.as_deref(), item));
+            self.storage.insert_entry(
+                || snapshot_sort_keys(&r.sort_key_names, item),
+                || prepare_row(&mut self.lookup, r.requested.as_deref(), item),
+            );
         }
     }
 
@@ -248,7 +263,8 @@ impl LocalCollectCtx {
             .map(|k| (k, SharedValue::new_string(k.name().to_bytes().to_vec())))
             .collect();
 
-        SharedValue::new_array(self.storage.drain(true).map(|row| {
+        SharedValue::new_array(self.storage.drain(true).map(|item| {
+            let row = item.projected;
             SharedValue::new_map(
                 template
                     .iter()
