@@ -26,7 +26,6 @@
 #include "info/info_redis/threads/current_thread.h"
 #include "rpnet.h"
 #include "coord/dist_utils.h"
-#include "debug_commands.h"
 #include "info/global_stats.h"
 #include "search_disk.h"
 #include "debug_commands.h"
