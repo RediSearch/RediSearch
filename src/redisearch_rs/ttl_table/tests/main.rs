@@ -1138,3 +1138,29 @@ fn production_scale_max_size_keeps_cap_proportional_to_use() {
     // The original docId=5 entry must remain distinct from the wrap.
     assert!(!t.verify_doc_and_field(5, 0, FieldExpirationPredicate::Default, &NOW));
 }
+
+#[test]
+fn bitmask_iter_empty_yields_nothing() {
+    assert_eq!(BitU64Iter::new(0u64).next(), None);
+}
+
+#[test]
+fn bitmask_iter_single_bit() {
+    assert_eq!(BitU64Iter::new(1u64 << 0).collect::<Vec<_>>(), vec![0]);
+    assert_eq!(BitU64Iter::new(1u64 << 17).collect::<Vec<_>>(), vec![17]);
+    assert_eq!(BitU64Iter::new(1u64 << 63).collect::<Vec<_>>(), vec![63]);
+}
+
+#[test]
+fn bitmask_iter_multiple_bits_low_to_high() {
+    let mask: u64 = (1 << 0) | (1 << 5) | (1 << 63);
+    assert_eq!(BitU64Iter::new(mask).collect::<Vec<_>>(), vec![0, 5, 63]);
+}
+
+#[test]
+fn bitmask_iter_max_yields_all_indices() {
+    assert_eq!(
+        BitU64Iter::new(u64::MAX).collect::<Vec<_>>(),
+        (0u32..64).collect::<Vec<_>>()
+    );
+}

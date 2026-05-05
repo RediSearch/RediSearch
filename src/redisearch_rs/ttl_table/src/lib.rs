@@ -361,6 +361,98 @@ impl BitMask for u128 {
     }
 }
 
+/// Iterator over the indices of the set bits of a [`u64`], yielded low to high.
+///
+/// Each item is the zero-based position of a `1` bit (`0..64`).
+///
+/// # Example
+///
+/// ```
+/// use ttl_table::BitU64Iter;
+///
+/// let bits: Vec<u32> = BitU64Iter::new(0b1010_u64).collect();
+/// assert_eq!(bits, vec![1, 3]);
+/// ```
+pub struct BitU64Iter {
+    current: u64,
+    base: u32,
+}
+
+impl BitU64Iter {
+    /// Builds an iterator over the set bits of `mask`.
+    #[inline]
+    pub const fn new(mask: u64) -> Self {
+        Self::with_base(mask, 0)
+    }
+
+    #[inline]
+    pub const fn with_base(mask: u64, base: u32) -> Self {
+        Self {
+            current: mask,
+            base,
+        }
+    }
+}
+
+impl Iterator for BitU64Iter {
+    type Item = u32;
+
+    #[inline]
+    fn next(&mut self) -> Option<u32> {
+        if self.current == 0 {
+            return None;
+        }
+        // `bit ∈ [0, 64)`, 64 excluded because `self.current != 0`.
+        let bit = self.current.trailing_zeros();
+        // Clear the lowest set bit.
+        self.current &= self.current - 1;
+        Some(bit + self.base)
+    }
+}
+
+/// Iterator over the indices of the set bits of a [`u128`], yielded low to high.
+///
+/// Each item is the zero-based position of a `1` bit (`0..128`).
+///
+/// # Example
+///
+/// ```
+/// use ttl_table::BitU128Iter;
+///
+/// let bits: Vec<u32> = BitU128Iter::new(0b1010_u128).collect();
+/// assert_eq!(bits, vec![1, 3]);
+/// ```
+pub struct BitU128Iter {
+    first: BitU64Iter,
+    second: BitU64Iter,
+}
+impl BitU128Iter {
+    /// Builds an iterator over the set bits of `mask`.
+    #[inline]
+    pub const fn new(mask: u128) -> Self {
+        let first = mask as u64;
+        let second = (mask >> 64) as u64;
+        Self {
+            // Yield from [0, 64)
+            first: BitU64Iter::with_base(first, 0),
+            // Yield from [64, 127)
+            second: BitU64Iter::with_base(second, 64),
+        }
+    }
+}
+impl Iterator for BitU128Iter {
+    type Item = u32;
+
+    #[inline]
+    fn next(&mut self) -> Option<u32> {
+        // LLVM inlines this `or_else` chain into the caller, lowering it to a
+        // single bit-iteration loop with one half-selector branch — no closure
+        // overhead, no `Option` marshalling on the hot path. `verify_mask::<u128>`
+        // depends on this codegen; re-check the asm before changing.
+        self.first.next().or_else(|| self.second.next())
+    }
+}
+
 fn verify_mask<M: BitMask>(
     entry: Option<&TimeToLiveEntry>,
     mask: M,
@@ -469,20 +561,13 @@ fn verify_mask<M: BitMask>(
     // In fact, we can keep track of `current_field_index` and perform a fast check.
     // NB2: the outer loop is fully unrolled by LLVM.
     'outer: for (half_idx, &half_init) in halves.iter().enumerate() {
-        let mut half = half_init;
-
         // 0 for u64, 0 or 64 for u128
         let bit_offset = (half_idx as u32) * u64::BITS;
 
         // This loop navigates, from lower to higher, each bit set to 1.
         // For each of them, check if ft_id_to_field_index contains that index,
         // and run the expiration logic if found.
-        while half != 0 {
-            // Turn off last 1 bit
-            // `bit_in_half ∈ [0, 64)`, 64 excluded because half != 0.
-            let bit_in_half = half.trailing_zeros();
-            half &= !(1u64 << bit_in_half);
-
+        for bit_in_half in BitU64Iter::new(half_init) {
             // This is the index of mask where the lower bit set to 1 is located.
             // NB: the mask is cleaned up from the lower bit after each iteration.
             // NB2: `bit_index <= highest_bit_plus_one - 1`.
