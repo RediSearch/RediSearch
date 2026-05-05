@@ -28,6 +28,21 @@ use sorting_vector::RSSortingVector;
 
 const UNDERSCORE_KEY: &CStr = c"__key";
 
+/// Per-key load profiling counters, one entry per explicit `LOAD` key.
+///
+/// Populated by [`load_specific_keys`] when profiling is requested,
+/// read back by the `FT.PROFILE` reply in `result_processor.c`.
+/// The array is allocated and owned by C.
+#[repr(C)]
+#[cheadergen::config(export)]
+#[derive(Debug, Default, Clone, Copy)]
+pub struct LoadFieldProfile {
+    /// Accumulated wall-clock time spent loading this field, in nanoseconds.
+    pub load_time_ns: u64,
+    /// Number of times this field was loaded.
+    pub load_count: u64,
+}
+
 /// Equivalent to `DOCUMENT_OPEN_KEY_QUERY_FLAGS` from `document.h`.
 const DOCUMENT_OPEN_KEY_QUERY_FLAGS: KeyFlags = KeyFlags::from_bits_retain(
     KeyFlags::NOEFFECTS.bits()
@@ -172,7 +187,11 @@ impl<'env, 'a, F: DocumentFormat> DocumentLoader<'env, 'a, F> {
     /// Load the given `keys` from the document into `dst_row`.
     ///
     /// By default keys that are already cached are skipped, this can be overridden by setting `Self::force_load`.
-    pub fn load_specific<'k, I>(self, keys: I) -> Result<(), LoadFieldError>
+    pub fn load_specific<'k, I>(
+        self,
+        keys: I,
+        profile: Option<&mut [LoadFieldProfile]>,
+    ) -> Result<(), LoadFieldError>
     where
         I: IntoIterator,
         I::Item: Deref<Target = RLookupKey<'k>>,
@@ -184,6 +203,7 @@ impl<'env, 'a, F: DocumentFormat> DocumentLoader<'env, 'a, F> {
             keys,
             self.force_load,
             None,
+            profile,
         )
     }
 
@@ -210,6 +230,11 @@ impl<'env, 'a, F: DocumentFormat> DocumentLoader<'env, 'a, F> {
 /// across all field loads. The key is closed when dropped at function end.
 ///
 /// `open_key`, when `Some`, is reused instead of opening `key_name` by name.
+///
+/// When `profile` is `Some`, the wall-clock time and count of each load *attempt* —
+/// skips and the lazy open included, see [`profiled`] — is accumulated into the
+/// matching entry (by position in `keys_to_load`); this backs the
+/// `FT.PROFILE ... LOAD` per-field timings.
 pub(crate) fn load_specific_keys<'a, F, I>(
     format: &F,
     dst_row: &mut RLookupRow,
@@ -217,6 +242,7 @@ pub(crate) fn load_specific_keys<'a, F, I>(
     keys_to_load: I,
     force_load: bool,
     open_key: Option<&ffi::RedisModuleKey>,
+    mut profile: Option<&mut [LoadFieldProfile]>,
 ) -> Result<(), LoadFieldError>
 where
     F: DocumentFormat,
@@ -224,26 +250,48 @@ where
     I::Item: std::ops::Deref<Target = RLookupKey<'a>>,
 {
     let mut doc = None;
-    for key_to_load in keys_to_load {
+    for (index, key_to_load) in keys_to_load.into_iter().enumerate() {
         let key_to_load = key_to_load.deref();
 
-        if !force_load && should_skip_load(key_to_load, dst_row) {
-            continue;
-        }
-        let d = match &doc {
-            Some(d) => d,
-            None => {
-                let loader = match open_key {
-                    Some(open_key) => format.borrow(open_key, key_name)?,
-                    None => format.open(key_name)?,
-                };
-                doc = Some(loader);
-                doc.as_ref().unwrap()
+        let entry = profile.as_deref_mut().and_then(|p| p.get_mut(index));
+
+        profiled(entry, || {
+            if !force_load && should_skip_load(key_to_load, dst_row) {
+                return Ok(());
             }
-        };
-        d.load_field(key_to_load, dst_row)?;
+
+            let d = match &doc {
+                Some(d) => d,
+                None => {
+                    let loader = match open_key {
+                        Some(open_key) => format.borrow(open_key, key_name)?,
+                        None => format.open(key_name)?,
+                    };
+                    doc = Some(loader);
+                    doc.as_ref().unwrap()
+                }
+            };
+            d.load_field(key_to_load, dst_row)
+        })?;
     }
     Ok(())
+}
+
+/// Run `load`, accumulating its wall-clock time and bumping its count into `entry`.
+///
+/// Wraps the whole attempt, like the C `getKeyProfiled`. When `entry` is `None` the
+/// clock is never read, keeping the non-profiled path free of timing overhead.
+fn profiled<T>(entry: Option<&mut LoadFieldProfile>, load: impl FnOnce() -> T) -> T {
+    let Some(entry) = entry else {
+        return load();
+    };
+
+    let start = std::time::Instant::now();
+    let res = load();
+
+    entry.load_time_ns += u64::try_from(start.elapsed().as_nanos()).unwrap_or(u64::MAX);
+    entry.load_count += 1;
+    res
 }
 
 /// Returns `true` if we should skip loading the value because it is already available
@@ -256,4 +304,110 @@ fn should_skip_load(kk: &RLookupKey, dst_row: &RLookupRow) -> bool {
         // The key is marked as being in the sorting vector, but the sorting vector doesn't have it.
         // Skip, because loading from the document won't actually help
         (kk.flags.contains(RLookupKeyFlag::SvSrc) && dst_row.get(kk).is_none())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::RLookupKeyFlags;
+    use std::cell::{Cell, RefCell};
+    use std::ffi::CString;
+
+    /// A [`DocumentFormat`] recording which fields were loaded and how often the key
+    /// was opened.
+    #[derive(Default)]
+    struct StubFormat {
+        opens: Cell<usize>,
+        loaded: RefCell<Vec<CString>>,
+    }
+
+    struct StubLoader<'key>(&'key StubFormat);
+
+    impl DocumentFormat for StubFormat {
+        type FieldLoader<'key> = StubLoader<'key>;
+
+        fn open<'key>(
+            &'key self,
+            _key_name: &'key RedisString,
+        ) -> Result<Self::FieldLoader<'key>, LoadFieldError> {
+            self.opens.set(self.opens.get() + 1);
+            Ok(StubLoader(self))
+        }
+
+        fn borrow<'key>(
+            &'key self,
+            _open_key: &'key ffi::RedisModuleKey,
+            _key_name: &'key RedisString,
+        ) -> Result<Self::FieldLoader<'key>, LoadFieldError> {
+            unimplemented!("not exercised by these tests")
+        }
+
+        fn load_all(
+            &self,
+            _rlookup: &mut RLookup,
+            _dst_row: &mut RLookupRow,
+            _key_name: &RedisString,
+        ) -> Result<(), LoadAllError> {
+            unimplemented!("not exercised by these tests")
+        }
+    }
+
+    impl FieldLoader for StubLoader<'_> {
+        fn load_field(
+            &self,
+            kk: &RLookupKey,
+            _dst_row: &mut RLookupRow,
+        ) -> Result<(), LoadFieldError> {
+            self.0
+                .loaded
+                .borrow_mut()
+                .push(kk.name().as_ref().to_owned());
+            Ok(())
+        }
+    }
+
+    // A key skipped because its value is already available must still be tallied as an
+    // attempt, the way the C `getKeyProfiled` wrapper does — `FT.PROFILE` reports the
+    // count as "Results processed".
+    #[test]
+    #[cfg_attr(miri, ignore)] // can't call FFI function RedisModule_CreateString under miri
+    fn profile_tallies_skipped_keys() {
+        redis_mock::init_redis_module_mock();
+
+        let mut rlookup = RLookup::new();
+        for name in [c"cached", c"a", c"b"] {
+            rlookup
+                .get_key_write(name, RLookupKeyFlags::empty())
+                .unwrap();
+        }
+        // `SvSrc` is masked off by `GET_KEY_FLAGS`, so set it directly. With nothing in
+        // the row's (absent) sorting vector, `should_skip_load` then skips `cached`
+        // without ever touching the document.
+        rlookup.iter_mut().next().unwrap().project().header.flags |= RLookupKeyFlag::SvSrc;
+
+        let format = StubFormat::default();
+
+        let key_name = unsafe { RedisString::from_raw_parts(None, c"doc".as_ptr(), 3) };
+        let mut row = RLookupRow::new();
+        let mut profile = [LoadFieldProfile::default(); 3];
+        let keys: Vec<_> = rlookup.iter().collect();
+
+        load_specific_keys(
+            &format,
+            &mut row,
+            &key_name,
+            keys,
+            false,
+            None,
+            Some(&mut profile),
+        )
+        .unwrap();
+
+        assert_eq!(
+            *format.loaded.borrow(),
+            vec![c"a".to_owned(), c"b".to_owned()]
+        );
+        assert_eq!(format.opens.get(), 1);
+        assert_eq!(profile.map(|entry| entry.load_count), [1, 1, 1]);
+    }
 }
