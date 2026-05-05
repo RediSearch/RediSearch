@@ -23,7 +23,7 @@
 #include "indexes_scan.h"
 #include "document.h"
 #include "inverted_index_ffi.h"
-#include "rlookup_load_document.h"
+#include "rlookup.h"
 
 #include "util/logging.h"
 #include "util/likely.h"

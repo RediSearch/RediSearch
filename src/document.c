@@ -12,7 +12,7 @@
 #include <inttypes.h>
 
 #include "document.h"
-#include "rlookup_load_document.h"
+#include "rlookup_ffi.h"
 #include "forward_index.h"
 #include "numeric_filter.h"
 #include "numeric_range_tree.h"
@@ -1016,8 +1016,8 @@ int Document_EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key, const 
   RLookupRow row = RLookupRow_New();;
   RSValue *rv = NULL;
   IndexSpecCache *spcache = NULL;
-  RLookupLoadOptions loadopts = {0};
   ExprEval evaluator = {0};
+  RLookupLoadIndividualOptions opts = {0};
 
   RedisSearchCtx_LockSpecRead(sctx);
   dmd = DocTable_BorrowByKeyR(&sctx->spec->docs, key);
@@ -1038,8 +1038,15 @@ int Document_EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key, const 
     goto done;
   }
 
-  loadopts = (RLookupLoadOptions){.sctx = sctx, .dmd = dmd, .status = status};
-  if (RLookup_LoadDocumentIndividual(&lookup_s, &row, &loadopts) != REDISMODULE_OK) {
+  opts = (RLookupLoadIndividualOptions){
+      .sctx = sctx,
+      .dmd = dmd,
+      .force_string = false,
+      .force_load = false,
+      .cached_only = false,
+      .status = status,
+  };
+  if (RLookup_LoadDocumentIndividual(&lookup_s, &row, &opts) != REDISMODULE_OK) {
      goto done;
   }
 

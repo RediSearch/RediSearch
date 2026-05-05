@@ -53,6 +53,9 @@ pub enum LoadFieldError {
     /// Failed to open the underlying redis key.
     #[error("Redis API error: {0}")]
     Redis(redis_module::RedisError),
+
+    #[error("attempted to load JSON document, but JSON extension was not loaded.")]
+    JsonUnsupported,
 }
 
 // TODO remove once upstream redis_module::RedisError implements std::error::Error
@@ -70,6 +73,7 @@ impl LoadFieldError {
             Self::WrongKeyType => QueryErrorCode::RedisKeyType,
             Self::JsonSerialization(_) => QueryErrorCode::Generic,
             Self::Redis(_) => QueryErrorCode::Generic,
+            Self::JsonUnsupported => QueryErrorCode::UnsuppType,
         }
     }
 }
