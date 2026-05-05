@@ -440,7 +440,7 @@ int DocTable_Replace(DocTable *t, const char *from_str, size_t from_len, const c
   return REDISMODULE_OK;
 }
 
-void DocTable_LegacyRdbLoad(DocTable *t, RedisModuleIO *rdb, int encver) {
+int DocTable_LegacyRdbLoad(DocTable *t, RedisModuleIO *rdb, int encver) {
   long long deletedElements = 0;
   t->size = RedisModule_LoadUnsigned(rdb);
   t->maxDocId = RedisModule_LoadUnsigned(rdb);
@@ -462,6 +462,13 @@ void DocTable_LegacyRdbLoad(DocTable *t, RedisModuleIO *rdb, int encver) {
     t->memsize -= t->cap * sizeof(DMDChain);
     t->cap = t->maxSize;
     rm_free(t->buckets);
+    t->buckets = NULL;
+    size_t alloc_size;
+    if (__builtin_mul_overflow(t->cap, sizeof(DMDChain), &alloc_size)) {
+      RedisModule_LogIOError(rdb, "warning", "DocTable_LegacyRdbLoad: allocation overflow");
+      t->cap = 0;
+      return REDISMODULE_ERR;
+    }
     t->buckets = rm_calloc(t->cap, sizeof(*t->buckets));
     t->memsize += t->cap * sizeof(DMDChain);
   }
@@ -534,6 +541,7 @@ void DocTable_LegacyRdbLoad(DocTable *t, RedisModuleIO *rdb, int encver) {
     }
   }
   t->size -= deletedElements;
+  return REDISMODULE_OK;
 }
 
 t_docId DocTable_GetMaxDocId(const DocTable *t) {
