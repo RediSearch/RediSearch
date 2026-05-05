@@ -2050,24 +2050,20 @@ class TestCoordinatorTimeout:
     def test_return_strict_timeout_channel_drain_aggregate(self):
         """RETURN_STRICT timeout while shard replies are queued in the channel.
 
-        Parks BG at RpnetReplyAdmitted after the first reply is admitted, lets
-        every shard finish so the remaining replies pile up in the channel,
-        then fires the blocked-client timeout. BG breaks out of the
-        interruptible wait via the timedOut flag and drains the queued items
-        (PopWithTimeout returns queued items regardless of the abort flag),
-        then completes the pipeline naturally because MRIterator_GetPending
-        is already 0. The full row count must be present in the reply.
+        Parks BG at RpnetReplyAdmitted after the first reply is admitted, waits
+        until every shard reply has been admitted into the coordinator's
+        channel (FT.DEBUG BG_PENDING_REPLIES == 0), then fires the blocked-client
+        timeout. BG breaks out of the interruptible wait via the timedOut flag
+        and drains the queued items (PopWithTimeout returns queued items
+        regardless of the abort flag), then completes the pipeline naturally
+        because MRIterator_GetPending is already 0. The full row count must be
+        present in the reply.
         """
         env = self.env
         skipIfNoEnableAssert(env)
 
         prev_on_timeout_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
         env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'return-strict')
-
-        shard_conns = [env.getConnection(shardId)
-                       for shardId in range(1, env.shardsCount + 1)]
-        base_jobs_done = [getWorkersThpoolStatsFromShard(c)['totalJobsDone']
-                          for c in shard_conns]
 
         sync_point = 'RpnetReplyAdmitted'
         env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
@@ -2089,17 +2085,15 @@ class TestCoordinatorTimeout:
             f'Timeout waiting for BG to park at {sync_point}'
         )
 
-        # Wait for every shard to complete its _FT.AGGREGATE job so the
-        # remaining replies are pushed into the channel by the IO threads.
+        # Wait until every shard's reply has been admitted into the coordinator
+        # channel. `BG_PENDING_REPLIES` returns the iterator's `pending` counter
+        # (number of shards that have not yet sent EOF). The IO callback
+        # decrements `pending` only after it has called MRChannel_Push on the
+        # reply, so reaching 0 guarantees all replies are physically queued.
         wait_for_condition(
-            lambda: (
-                all(getWorkersThpoolStatsFromShard(c)['totalJobsDone'] >= base + 1
-                    for c, base in zip(shard_conns, base_jobs_done)),
-                {'totalJobsDone': [getWorkersThpoolStatsFromShard(c)['totalJobsDone']
-                                   for c in shard_conns],
-                 'base': base_jobs_done}
-            ),
-            'Timeout waiting for all shards to complete their aggregate jobs'
+            lambda: (env.cmd(debug_cmd(), 'BG_PENDING_REPLIES') == 0,
+                     {'pending': env.cmd(debug_cmd(), 'BG_PENDING_REPLIES')}),
+            'Timeout waiting for all shard replies to be admitted into the coordinator channel'
         )
 
         # Fire the blocked-client timeout while BG is still parked at the sync

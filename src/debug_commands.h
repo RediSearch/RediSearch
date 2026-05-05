@@ -154,6 +154,14 @@ void HybridStoreCursorsDebugCtx_SetPauseAfterEnabled(bool enabled);
 bool HybridStoreCursorsDebugCtx_IsPaused(void);
 void HybridStoreCursorsDebugCtx_SetPause(bool pause);
 
+// Tracks the currently active coordinator MRIterator so tests can poll the
+// `pending` shard counter via FT.DEBUG BG_PENDING_REPLIES. Set after the
+// iterator is created in the RPNet start path; cleared before it is released
+// in rpnetFree. Only one query is expected to be active at a time in tests.
+struct MRIterator;
+void DebugBgIterator_Set(struct MRIterator *it);
+void DebugBgIterator_Clear(struct MRIterator *it);
+
 #endif  // ENABLE_ASSERT
 
 
