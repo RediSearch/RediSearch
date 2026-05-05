@@ -203,6 +203,7 @@ void RSConfig_AddToInfo(RedisModuleInfoCtx *ctx);
 #define MAX_KNN_K (1ULL << 58)
 #define NR_MAX_DEPTH_BALANCE 2
 #define DEFAULT_INDEXER_YIELD_EVERY_OPS 1000
+#define DEFAULT_MAX_INDEXES 200000
 
 // default configuration
 #define RS_DEFAULT_CONFIG                                                                         \

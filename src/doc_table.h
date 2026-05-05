@@ -190,7 +190,10 @@ static inline void DMD_Decref(RSDocumentMetadata *dmd) {
   }
 }
 
-void DocTable_LegacyRdbLoad(DocTable *t, RedisModuleIO *rdb, int encver);
+/* Load the doc table from RDB. This is used for legacy RDB load only.
+ * Returns REDISMODULE_OK on success, REDISMODULE_ERR on allocation failure.
+ */
+int DocTable_LegacyRdbLoad(DocTable *t, RedisModuleIO *rdb, int encver);
 
 #ifdef __cplusplus
 }

@@ -1006,7 +1006,7 @@ DEBUG_COMMAND(YieldCounter) {
   if (argc > 1) {
     return RedisModule_WrongArity(ctx);
   }
-  
+
   // Check if we need to reset the counter
   if (argc == 1) {
     size_t len;
@@ -1018,7 +1018,7 @@ DEBUG_COMMAND(YieldCounter) {
       return RedisModule_ReplyWithError(ctx, "Unknown subcommand");
     }
   }
-  
+
   // Return the current counter value
   return RedisModule_ReplyWithLongLong(ctx, g_yieldCallCounter);
 }
@@ -1027,6 +1027,38 @@ typedef struct DebugCommandType {
   char *name;
   int (*callback)(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 } DebugCommandType;
+
+// Global variable defined in spec.c - maximum number of indexes allowed
+extern uint32_t maxIndexes_g;
+
+/**
+ * FT.DEBUG SET_MAX_INDEXES <value>
+ * Set the maximum number of indexes allowed (for testing only).
+ * Value must be between max(1, current number of indexes) and
+ * DEFAULT_MAX_INDEXES (200000).
+ */
+DEBUG_COMMAND(SetMaxIndexes) {
+  if (argc != 1) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  long long newMaxIndexes;
+  if (RedisModule_StringToLongLong(argv[0], &newMaxIndexes) != REDISMODULE_OK ||
+      newMaxIndexes < 1 || newMaxIndexes > DEFAULT_MAX_INDEXES) {
+    return RedisModule_ReplyWithError(ctx,
+        "Invalid value. Must be between 1 and 200000");
+  }
+
+  // Get current number of indexes
+  size_t numIndexes = Indexes_Count();
+  if (newMaxIndexes < numIndexes) {
+    return RedisModule_ReplyWithError(ctx,
+        "Invalid value. Must be at least current number of indexes");
+  }
+
+  maxIndexes_g = (uint32_t)newMaxIndexes;
+  return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
 
 DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all the inverted index entries.
                                {"DUMP_NUMIDX", DumpNumericIndex}, // Print all the headers (optional) + entries of the numeric tree.
@@ -1051,6 +1083,7 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {"TTL_EXPIRE", ttlExpire},
                                {"VECSIM_INFO", VecsimInfo},
                                {"YIELDS_ON_LOAD_COUNTER", YieldCounter},
+                               {"SET_MAX_INDEXES", SetMaxIndexes},
                                {NULL, NULL}};
 
 int DebugCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
