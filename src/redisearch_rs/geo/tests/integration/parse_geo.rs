@@ -67,8 +67,8 @@ fn exactly_max_length_valid() {
     let s = format!("{lon_part},1.0");
     assert!(s.len() == MAX_GEO_STRING_LEN);
     let result = Coordinates::parse_geo(&s);
-    // Should parse successfully (though the number may be huge)
-    assert!(result.is_ok() || matches!(result, Err(ParseGeoError::Invalid { .. })));
+    // The 124-digit number is finite (~1.11e+123), so parsing succeeds.
+    assert!(result.is_ok(), "expected Ok, got {result:?}");
 }
 
 #[test]
