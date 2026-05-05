@@ -55,16 +55,16 @@ pub fn encode_wgs84(coords: WGS84Coordinates, step: PrecisionStep) -> GeoHashBit
     let lon = coords.longitude().into_inner();
     let lat = coords.latitude().into_inner();
 
-    let step_val = step.as_u8();
     let lon_offset = (lon - GEO_LONG_MIN) / (GEO_LONG_MAX - GEO_LONG_MIN);
     let lat_offset = (lat - GEO_LAT_MIN) / (GEO_LAT_MAX - GEO_LAT_MIN);
 
     // Clamp to the maximum valid fixed-point value. At exact boundary
     // coordinates (e.g. lon=180, lat=85.05112878) the offset is exactly 1.0,
     // producing `1 << step` which overflows the `step*2`-bit hash range.
-    let max_fixed = (1u64 << step_val) - 1;
-    let lat_fixed = ((lat_offset * (1u64 << step_val) as f64) as u64).min(max_fixed) as u32;
-    let lon_fixed = ((lon_offset * (1u64 << step_val) as f64) as u64).min(max_fixed) as u32;
+    let step_size = (1u64 << step.as_u8()) as f64;
+    let max_fixed = step_size as u64 - 1;
+    let lat_fixed = ((lat_offset * step_size) as u64).min(max_fixed) as u32;
+    let lon_fixed = ((lon_offset * step_size) as u64).min(max_fixed) as u32;
 
     GeoHashBits {
         bits: bits::interleave64(lat_fixed, lon_fixed),
