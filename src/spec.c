@@ -10,7 +10,6 @@
 #include "document.h"
 #include "inverted_index_ffi.h"
 #include "numeric_range_tree_ffi.h"
-#include "rlookup_load_document.h"
 
 #include <math.h>
 #include <ctype.h>
