@@ -1,4 +1,4 @@
-[package] # NOSONAR: workspace member; lock lives at src/redisearch_rs/Cargo.lock
+[package]
 name = "tracing_assert"
 version.workspace = true
 edition.workspace = true
