@@ -76,8 +76,8 @@ SchemaRule *SchemaRule_Create(SchemaRuleArgs *args, StrongRef spec_ref, QueryErr
 /* Same as SchemaRule_Create, but the prefixes are read from an ArgsCursor
  * instead of `args->prefixes`/`args->nprefixes`. The cursor must contain at
  * least one prefix. The cursor is consumed (advanced) by this function. */
-SchemaRule *SchemaRule_CreateFromAC(SchemaRuleArgs *args, ArgsCursor *prefixes_ac,
-                                    StrongRef spec_ref, QueryError *status);
+SchemaRule *SchemaRule_CreateWithPrefixesAC(SchemaRuleArgs *args, ArgsCursor *prefixes_ac,
+                                            StrongRef spec_ref, QueryError *status);
 void SchemaRule_FilterFields(struct IndexSpec *sp);
 void SchemaRule_Free(SchemaRule *);
 

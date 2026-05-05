@@ -18,8 +18,8 @@
 
 class SchemaRuleTest : public ::testing::Test {};
 
-// SchemaRule_CreateFromAC reads prefixes from an ArgsCursor and consumes it
-// fully, producing a rule whose prefix list matches the cursor contents.
+// SchemaRule_CreateWithPrefixesAC reads prefixes from an ArgsCursor and consumes
+// it fully, producing a rule whose prefix list matches the cursor contents.
 TEST_F(SchemaRuleTest, testCreateFromACPrefixes) {
   auto ism = RediSearch_CreateIndex("idx_rule_ac", NULL);
   ASSERT_NE(ism, nullptr);
@@ -34,7 +34,7 @@ TEST_F(SchemaRuleTest, testCreateFromACPrefixes) {
   args.type = "HASH";
 
   QueryError status = QueryError_Default();
-  SchemaRule *rule = SchemaRule_CreateFromAC(&args, &ac, {ism}, &status);
+  SchemaRule *rule = SchemaRule_CreateWithPrefixesAC(&args, &ac, {ism}, &status);
   ASSERT_NE(rule, nullptr) << QueryError_GetUserError(&status);
   ASSERT_FALSE(QueryError_HasError(&status));
 
@@ -75,7 +75,7 @@ TEST_F(SchemaRuleTest, testCreateFromACEquivalentToCArray) {
   SchemaRuleArgs args_ac = {0};
   args_ac.type = "HASH";
   QueryError s_ac = QueryError_Default();
-  SchemaRule *rule_ac = SchemaRule_CreateFromAC(&args_ac, &ac, {ism_ac}, &s_ac);
+  SchemaRule *rule_ac = SchemaRule_CreateWithPrefixesAC(&args_ac, &ac, {ism_ac}, &s_ac);
   ASSERT_NE(rule_ac, nullptr) << QueryError_GetUserError(&s_ac);
 
   ASSERT_EQ(array_len(rule_arr->prefixes), array_len(rule_ac->prefixes));
@@ -104,7 +104,7 @@ TEST_F(SchemaRuleTest, testCreateFromACEmpty) {
   args.type = "HASH";
 
   QueryError status = QueryError_Default();
-  SchemaRule *rule = SchemaRule_CreateFromAC(&args, &ac, {ism}, &status);
+  SchemaRule *rule = SchemaRule_CreateWithPrefixesAC(&args, &ac, {ism}, &status);
   ASSERT_NE(rule, nullptr) << QueryError_GetUserError(&status);
   ASSERT_EQ(array_len(rule->prefixes), 0u);
 
@@ -127,7 +127,7 @@ TEST_F(SchemaRuleTest, testCreateFromACInvalidType) {
   args.type = "BOGUS";
 
   QueryError status = QueryError_Default();
-  SchemaRule *rule = SchemaRule_CreateFromAC(&args, &ac, {ism}, &status);
+  SchemaRule *rule = SchemaRule_CreateWithPrefixesAC(&args, &ac, {ism}, &status);
   ASSERT_EQ(rule, nullptr);
   ASSERT_TRUE(QueryError_HasError(&status));
   QueryError_ClearError(&status);
