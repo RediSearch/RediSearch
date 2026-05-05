@@ -16,36 +16,43 @@ that yield when the channel is empty, freeing threads for other queries.
 
 ## Architecture
 
-```mermaid
-sequenceDiagram
-    participant Coord as Coordinator Thread
-    participant Pool as Pool Thread
-    participant IO as IO Thread
-    participant Chan as MRChannel
-
-    Coord->>Coord: ProcessHybridCursorMappings (blocking, unchanged)
-    Coord->>Pool: Submit RPNetAsync(search) + RPNetAsync(vsim)
-    Coord->>Coord: Block on condvar
-
-    loop Phase A - Cooperative I/O drain
-        Pool->>Chan: MRChannel_TryPop
-        alt data available
-            Chan-->>Pool: MRReply
-            Pool->>Pool: deserialize + buffer result
-            Pool->>Pool: MR_ManuallyTriggerNextIfNeeded
-        else empty + shards pending
-            Pool->>Pool: atomic_store(waiting, true)
-            Pool-->>Pool: return (yield thread)
-            IO->>Chan: MRChannel_Push (reply arrives)
-            IO->>Pool: re-dispatch RPNetAsync_Run (if waiting)
-        else all shards EOF
-            Pool->>Coord: signal done_cond
-        end
-    end
-
-    Coord->>Coord: Wake up, both feeders done
-    Coord->>Coord: Patch pipeline: RPBufferedSource replaces RPNet
-    Coord->>Coord: sendChunk_hybrid (Phase B, unchanged)
+```
+  Coordinator Thread          Pool Thread              IO Thread            MRChannel
+        |                         |                       |                    |
+        | ProcessHybridCursorMappings (blocking, unchanged)                    |
+        |------------------------>|                       |                    |
+        | Submit RPNetAsync(search) + RPNetAsync(vsim)   |                    |
+        |                         |                       |                    |
+        | Block on condvar        |                       |                    |
+        |    ...                  |                       |                    |
+        |                         |--- Phase A: Cooperative I/O drain -------->|
+        |                         |                       |                    |
+        |                         | TryPop -------------->|                    |
+        |                         |<-- reply -------------|                    |
+        |                         | deserialize + buffer  |                    |
+        |                         | ManuallyTriggerNext   |                    |
+        |                         |                       |                    |
+        |                         | TryPop -------------->|                    |
+        |                         |<-- NULL (empty) ------|                    |
+        |                         | waiting = true        |                    |
+        |                         | return (yield)        |                    |
+        |                         |                       |                    |
+        |                         |                       | Push(reply) ------>|
+        |                         |                       | if (waiting):      |
+        |                         |<--- re-dispatch ------|  notify            |
+        |                         |                       |                    |
+        |                         | TryPop -------------->|                    |
+        |                         |<-- reply -------------|                    |
+        |                         | deserialize + buffer  |                    |
+        |                         |        ...            |                    |
+        |                         |                       |                    |
+        |                         | all shards EOF        |                    |
+        |<-- signal done_cond ----|                       |                    |
+        |                         |                       |                    |
+        | Wake up                 |                       |                    |
+        | Patch pipeline: RPBufferedSource replaces RPNet |                    |
+        | sendChunk_hybrid (Phase B, unchanged)           |                    |
+        |                         |                       |                    |
 ```
 
 ## Two-Phase Execution
