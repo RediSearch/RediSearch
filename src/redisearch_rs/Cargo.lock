@@ -2275,9 +2275,13 @@ name = "rlookup_ffi"
 version = "0.0.1"
 dependencies = [
  "c_ffi_utils",
+ "cheadergen",
+ "document",
+ "document_metadata",
  "ffi",
  "libc",
  "query_error",
+ "redis_json_api",
  "redis_mock",
  "redisearch_rs",
  "rlookup",
