@@ -11,11 +11,10 @@
 #include "triemap.h"
 #include "rmalloc.h"
 #include "util/strconv.h"
+#include "util/likely.h"
 #include "rmutil/rm_assert.h"
 #include <ctype.h>
 #include "rdb.h"
-
-#define MAX_STOPWORDLIST_SIZE 1024
 
 typedef struct StopWordList {
   TrieMap *m;
@@ -147,6 +146,15 @@ void StopWordList_FreeGlobals(void) {
 StopWordList *StopWordList_RdbLoad(RedisModuleIO *rdb, int encver) {
   StopWordList *sl = NULL;
   uint64_t elements = LoadUnsigned_IOError(rdb, goto cleanup);
+
+  if (unlikely(elements > MAX_STOPWORDLIST_SIZE)) {
+    RedisModule_LogIOError(
+        rdb, "warning",
+        "RDB Load: Stopword list size (%llu) exceeds maximum allowed (%d)",
+        (unsigned long long)elements, MAX_STOPWORDLIST_SIZE);
+    goto cleanup;
+  }
+
   sl = rm_malloc(sizeof(*sl));
   sl->m = NewTrieMap();
   sl->refcount = 1;
