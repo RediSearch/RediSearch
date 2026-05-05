@@ -11,6 +11,7 @@
 #include "util/misc.h"
 #include "util/strconv.h"
 #include "rpnet.h"
+#include "rpnet_async.h"
 
 static bool getCursorCommand(long long cursorId, MRCommand *cmd, MRIteratorCtx *ctx, bool shardTimedOut);
 
@@ -72,6 +73,9 @@ void netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
       barrier->notifyCallback(cmd->targetShardIdx, 0, true, barrier);
     }
     MRIteratorCallback_AddReply(ctx, rep); // to be picked up by getNextReply
+    if (barrier && barrier->asyncWakeCallback) {
+      barrier->asyncWakeCallback(barrier->asyncWakeContext);
+    }
     MRIteratorCallback_Done(ctx, 1);
     return;
   }
@@ -177,6 +181,11 @@ void netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
 
   // Push the reply down the chain, to be picked up by getNextReply
   MRIteratorCallback_AddReply(ctx, rep); // take ownership of the reply
+
+  // Wake async consumer if it's yielded waiting for data
+  if (barrier && barrier->asyncWakeCallback) {
+    barrier->asyncWakeCallback(barrier->asyncWakeContext);
+  }
 
   // rewrite and resend the cursor command if needed
   // should only be determined based on the cursor and not on the set of results we get

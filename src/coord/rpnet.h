@@ -41,6 +41,11 @@ typedef struct ShardResponseBarrier {
   _Atomic(long long) accumulatedTotal;  // Sum of total_results from all shards
   _Atomic(bool) hasShardError;     // Set to true if any shard returns an error
   ReplyNotifyCallback notifyCallback;  // Callback for processing replies (called from IO thread)
+
+  // Async wake: called from IO thread after MRChannel_Push to re-dispatch
+  // a yielded RPNetAsync consumer. NULL when not using async mode.
+  void *asyncWakeContext;
+  void (*asyncWakeCallback)(void *context);
 } ShardResponseBarrier;
 
 typedef struct {
@@ -83,6 +88,13 @@ void RPNet_resetCurrent(RPNet *nc);
 int rpnetNext(ResultProcessor *self, SearchResult *r);
 int rpnetNext_EOF(ResultProcessor *self, SearchResult *r);
 int rpnetNext_StartWithMappings(ResultProcessor *rp, SearchResult *r);
+
+// Initialize the MRIterator on the RPNet from its cursor mappings, without
+// invoking rpnetNext. Used by the async path (RPNetAsync) which handles
+// draining separately.
+// `barrier` is optional private data passed to netCursorCallback (can be NULL).
+// Returns REDISMODULE_OK on success.
+int RPNet_InitIterator(RPNet *nc, ShardResponseBarrier *barrier);
 
 // Get the next reply from the channel.
 // Return RS_RESULT_OK if there is a next reply to process, RS_RESULT_EOF if there are no more replies

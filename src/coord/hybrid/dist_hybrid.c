@@ -18,6 +18,7 @@
 #include "rmutil/util.h"
 #include "commands.h"
 #include "rpnet.h"
+#include "rpnet_async.h"
 #include "hybrid_cursor_mappings.h"
 #include "info/global_stats.h"
 #include "profile/profile.h"
@@ -710,6 +711,12 @@ static void FreeCursorMappings(void *mappings) {
   rm_free(mappings);
 }
 
+// Async wake callback: wraps RPNetAsync_NotifyDataAvailable for use as a
+// generic void(*)(void*) function pointer in ShardResponseBarrier.
+static void asyncWakeCb(void *context) {
+    RPNetAsync_NotifyDataAvailable((RPNetAsync *)context);
+}
+
 static int HybridRequest_executePlan(HybridRequest *hreq, struct ConcurrentCmdCtx *cmdCtx,
                         RedisModule_Reply *reply, QueryError *status) {
 
@@ -753,9 +760,12 @@ static int HybridRequest_executePlan(HybridRequest *hreq, struct ConcurrentCmdCt
     RS_ASSERT(array_len(search->mappings) == array_len(vsim->mappings));
     if (array_len(search->mappings) == 0) {
       // No mappings available - set next function to EOF.
-      // Error handling relies on QueryError status and return codes, not on mapping availability.
       searchRPNet->base.Next = rpnetNext_EOF;
       vsimRPNet->base.Next = rpnetNext_EOF;
+      StrongRef_Release(searchMappingsRef);
+      StrongRef_Release(vsimMappingsRef);
+      // Fall through to Phase B with empty pipeline (EOF immediately)
+      goto phase_b_sync;
     }
 
     // Store mappings in RPNet structures
@@ -764,26 +774,138 @@ static int HybridRequest_executePlan(HybridRequest *hreq, struct ConcurrentCmdCt
     StrongRef_Release(searchMappingsRef);
     StrongRef_Release(vsimMappingsRef);
 
-    bool isCursor = hreq->reqflags & QEXEC_F_IS_CURSOR;
-    if (isCursor) {
-        // // TODO:
-        // // Keep the original concurrent context
-        // ConcurrentCmdCtx_KeepRedisCtx(cmdCtx);
+    {
+        // --- Phase A: Async I/O draining ---
 
-        // StrongRef dummy_spec_ref = {.rm = NULL};
+        // Create async feeders
+        RPNetAsync *searchFeeder = RPNetAsync_New(searchRPNet, searchRPNet->lookup);
+        RPNetAsync *vsimFeeder = RPNetAsync_New(vsimRPNet, vsimRPNet->lookup);
 
-        // if (HybridRequest_StartCursor(hreq, reply, &dummy_spec_ref, status, true) != REDISMODULE_OK) {
-        //     return REDISMODULE_ERR;
-        // }
-    } else {
-        // TODO: Validate cv use
-        AGGPlan *plan = &hreq->tailPipeline->ap;
-        cachedVars cv = {
-            .lastLookup = AGPLN_GetLookup(plan, NULL, AGPLN_GETLOOKUP_LAST),
-            .lastAstp = AGPLN_GetArrangeStep(plan)
-        };
-        sendChunk_hybrid(hreq, reply, UINT64_MAX, cv);
-        HybridRequest_DecrRef(hreq);
+        // Create barriers for async wake notifications
+        ShardResponseBarrier *searchBarrier = shardResponseBarrier_New();
+        searchBarrier->asyncWakeCallback = asyncWakeCb;
+        searchBarrier->asyncWakeContext = searchFeeder;
+
+        ShardResponseBarrier *vsimBarrier = shardResponseBarrier_New();
+        vsimBarrier->asyncWakeCallback = asyncWakeCb;
+        vsimBarrier->asyncWakeContext = vsimFeeder;
+
+        // Initialize the MRIterators (creates the channel, dispatches cursor reads)
+        // The barriers are passed as private data to the IO callbacks.
+        // Ownership of barriers transfers to the MRIterator (freed via shardResponseBarrier_Free).
+        if (RPNet_InitIterator(searchRPNet, searchBarrier) != REDISMODULE_OK ||
+            RPNet_InitIterator(vsimRPNet, vsimBarrier) != REDISMODULE_OK) {
+            RPNetAsync_Free(searchFeeder);
+            RPNetAsync_Free(vsimFeeder);
+            QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_GENERIC,
+                "Failed to initialize MRIterator for async hybrid execution");
+            return REDISMODULE_ERR;
+        }
+
+        // Submit async tasks to the coordinator thread pool
+        RPNetAsync_Start(searchFeeder);
+        RPNetAsync_Start(vsimFeeder);
+
+        // Block until both feeders complete
+        RPNetAsync_WaitForCompletion(searchFeeder);
+        RPNetAsync_WaitForCompletion(vsimFeeder);
+
+        // Check errors from Phase A
+        if (searchFeeder->lastRc == RS_RESULT_ERROR) {
+            QueryError_SetCode(status, QueryError_GetCode(&searchFeeder->error));
+            QueryError_SetDetail(status, QueryError_GetUserError(&searchFeeder->error));
+            RPNetAsync_Free(searchFeeder);
+            RPNetAsync_Free(vsimFeeder);
+            return REDISMODULE_ERR;
+        }
+        if (vsimFeeder->lastRc == RS_RESULT_ERROR) {
+            QueryError_SetCode(status, QueryError_GetCode(&vsimFeeder->error));
+            QueryError_SetDetail(status, QueryError_GetUserError(&vsimFeeder->error));
+            RPNetAsync_Free(searchFeeder);
+            RPNetAsync_Free(vsimFeeder);
+            return REDISMODULE_ERR;
+        }
+
+        // Transfer profile data from feeders to RPNet
+        if (searchFeeder->shardsProfile) {
+            if (searchRPNet->shardsProfile) {
+                array_free(searchRPNet->shardsProfile);
+            }
+            searchRPNet->shardsProfile = searchFeeder->shardsProfile;
+            searchFeeder->shardsProfile = NULL;
+        }
+        if (vsimFeeder->shardsProfile) {
+            if (vsimRPNet->shardsProfile) {
+                array_free(vsimRPNet->shardsProfile);
+            }
+            vsimRPNet->shardsProfile = vsimFeeder->shardsProfile;
+            vsimFeeder->shardsProfile = NULL;
+        }
+
+        // Set total_results from Phase A
+        searchQctx->totalResults = searchFeeder->totalResults;
+        vsimQctx->totalResults = vsimFeeder->totalResults;
+
+        // --- Phase B: Replace RPNet with RPBufferedSource in the pipeline ---
+
+        // Take ownership of buffers from feeders
+        SearchResult **searchBuf = searchFeeder->buffer;
+        size_t searchBufLen = array_len(searchFeeder->buffer);
+        int searchLastRc = searchFeeder->lastRc;
+        searchFeeder->buffer = NULL;
+
+        SearchResult **vsimBuf = vsimFeeder->buffer;
+        size_t vsimBufLen = array_len(vsimFeeder->buffer);
+        int vsimLastRc = vsimFeeder->lastRc;
+        vsimFeeder->buffer = NULL;
+
+        RPNetAsync_Free(searchFeeder);
+        RPNetAsync_Free(vsimFeeder);
+
+        RPBufferedSource *searchSource = RPBufferedSource_New(searchBuf, searchBufLen, searchLastRc);
+        RPBufferedSource *vsimSource = RPBufferedSource_New(vsimBuf, vsimBufLen, vsimLastRc);
+
+        // Patch pipeline roots: replace RPNet with RPBufferedSource
+        // The RPNet is at rootProc; the processor above it has upstream == &rpnet->base
+        searchSource->base.parent = searchQctx;
+        vsimSource->base.parent = vsimQctx;
+
+        // Find the processor that points to RPNet and rewire it
+        for (ResultProcessor *rp = searchQctx->endProc; rp; rp = rp->upstream) {
+            if (rp->upstream == &searchRPNet->base) {
+                rp->upstream = &searchSource->base;
+                break;
+            }
+        }
+        searchQctx->rootProc = &searchSource->base;
+
+        for (ResultProcessor *rp = vsimQctx->endProc; rp; rp = rp->upstream) {
+            if (rp->upstream == &vsimRPNet->base) {
+                rp->upstream = &vsimSource->base;
+                break;
+            }
+        }
+        vsimQctx->rootProc = &vsimSource->base;
+
+        // Free the old RPNet processors (they are no longer in the pipeline)
+        rpnetFree(&searchRPNet->base);
+        rpnetFree(&vsimRPNet->base);
+    }
+
+phase_b_sync:
+    {
+        bool isCursor = hreq->reqflags & QEXEC_F_IS_CURSOR;
+        if (isCursor) {
+            // TODO: cursor support (unchanged placeholder)
+        } else {
+            AGGPlan *plan = &hreq->tailPipeline->ap;
+            cachedVars cv = {
+                .lastLookup = AGPLN_GetLookup(plan, NULL, AGPLN_GETLOOKUP_LAST),
+                .lastAstp = AGPLN_GetArrangeStep(plan)
+            };
+            sendChunk_hybrid(hreq, reply, UINT64_MAX, cv);
+            HybridRequest_DecrRef(hreq);
+        }
     }
     return REDISMODULE_OK;
 }

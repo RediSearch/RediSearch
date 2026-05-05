@@ -472,6 +472,40 @@ int rpnetNext_StartWithMappings(ResultProcessor *rp, SearchResult *r) {
     return rpnetNext(rp, r);
 }
 
+int RPNet_InitIterator(RPNet *nc, ShardResponseBarrier *barrier) {
+    CursorMappings *vsimOrSearch = StrongRef_Get(nc->mappings);
+    if (!vsimOrSearch || array_len(vsimOrSearch->mappings) == 0) {
+        RedisModule_Log(NULL, "error", "No cursor mappings available for RPNet");
+        return REDISMODULE_ERR;
+    }
+
+    size_t idx_len;
+    const char *idx = MRCommand_ArgStringPtrLen(&nc->cmd, 1, &idx_len);
+    char *idx_copy = rm_strndup(idx, idx_len);
+    MRCommand_Free(&nc->cmd);
+
+    nc->cmd = MR_NewCommand(3, "_FT.CURSOR", "READ", idx_copy);
+    nc->cmd.rootCommand = C_READ;
+    nc->cmd.forProfiling = IsProfile(nc->areq);
+    nc->cmd.protocol = 3;
+    nc->cmd.forCursor = true;
+    rm_free(idx_copy);
+
+    // Pass barrier as private data with destructor/init so the IO thread can
+    // use it for async wake notifications. The barrier is freed by MRIterator_Free.
+    nc->it = MR_IterateWithPrivateData(&nc->cmd, netCursorCallback, barrier,
+                                       barrier ? shardResponseBarrier_Free : NULL,
+                                       barrier ? shardResponseBarrier_Init : NULL,
+                                       iterCursorMappingCb, &nc->mappings);
+    if (nc->areq) {
+      RequestSyncCtx_RegisterAbortWakeChannel(&nc->areq->syncCtx, MRIterator_GetChannel(nc->it));
+    }
+    nc->shardResponseBarrier = barrier;
+    nc->base.Next = rpnetNext;
+
+    return REDISMODULE_OK;
+}
+
 void rpnetFree(ResultProcessor *rp) {
   RPNet *nc = (RPNet *)rp;
 
