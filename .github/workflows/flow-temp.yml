@@ -9,12 +9,89 @@ name: temporary testing
 
 on:
   push:
-    branches-ignore: ['**'] # ignore all branches. Comment this line to run your workflow below on every push.
+    # branches-ignore: ['**'] # ignore all branches. Comment this line to run your workflow below on every push.
 
 jobs:
-  test-macos:
-    uses: ./.github/workflows/flow-macos.yml
+  get-latest-7-2-redis-tag:
+    uses: ./.github/workflows/task-get-latest-tag.yml
+    with:
+      repo: redis/redis
+      prefix: '7.2'
+  get-latest-7-0-redis-tag:
+    uses: ./.github/workflows/task-get-latest-tag.yml
+    with:
+      repo: redis/redis
+      prefix: '7.0'
+  get-latest-6-2-redis-tag:
+    uses: ./.github/workflows/task-get-latest-tag.yml
+    with:
+      repo: redis/redis
+      prefix: '6.2'
+  get-latest-6-0-redis-tag:
+    uses: ./.github/workflows/task-get-latest-tag.yml
+    with:
+      repo: redis/redis
+      prefix: '6.0'
+
+  test-linux-x86_64-redis-7-2:
+    name: test-linux-x86_64 (${{ needs.get-latest-7-2-redis-tag.outputs.tag }})
+    needs: [get-latest-7-2-redis-tag]
+    uses: ./.github/workflows/flow-linux-platforms.yml
     secrets: inherit
     with:
-      redis-ref: unstable
-      rejson-branch: master
+      redis-ref: ${{ needs.get-latest-7-2-redis-tag.outputs.tag }}
+      architecture: x86_64
+  test-linux-x86_64-redis-7-0:
+    name: test-linux-x86_64 (${{ needs.get-latest-7-0-redis-tag.outputs.tag }})
+    needs: [get-latest-7-0-redis-tag]
+    uses: ./.github/workflows/flow-linux-platforms.yml
+    secrets: inherit
+    with:
+      redis-ref: ${{ needs.get-latest-7-0-redis-tag.outputs.tag }}
+      architecture: x86_64
+  test-linux-x86_64-redis-6-2:
+    name: test-linux-x86_64 (${{ needs.get-latest-6-2-redis-tag.outputs.tag }})
+    needs: [get-latest-6-2-redis-tag]
+    uses: ./.github/workflows/flow-linux-platforms.yml
+    secrets: inherit
+    with:
+      redis-ref: ${{ needs.get-latest-6-2-redis-tag.outputs.tag }}
+      architecture: x86_64
+  test-linux-x86_64-redis-6-0:
+    name: test-linux-x86_64 (${{ needs.get-latest-6-0-redis-tag.outputs.tag }})
+    needs: [get-latest-6-0-redis-tag]
+    uses: ./.github/workflows/flow-linux-platforms.yml
+    secrets: inherit
+    with:
+      redis-ref: ${{ needs.get-latest-6-0-redis-tag.outputs.tag }}
+      architecture: x86_64
+      rejson-branch: '2.4'
+
+  test-linux-aarch64:
+    needs: [get-latest-7-2-redis-tag]
+    uses: ./.github/workflows/flow-linux-platforms.yml
+    secrets: inherit
+    with:
+      redis-ref: ${{ needs.get-latest-7-2-redis-tag.outputs.tag }}
+      test-config: QUICK=1
+      architecture: aarch64
+
+  coverage:
+    needs: [get-latest-7-2-redis-tag]
+    uses: ./.github/workflows/task-test.yml
+    secrets: inherit
+    with:
+      coverage: true
+      get-redis: ${{ needs.get-latest-7-2-redis-tag.outputs.tag }}
+      rejson-branch: '2.4'
+      test-config: ''
+
+  sanitize:
+    needs: [get-latest-7-2-redis-tag]
+    secrets: inherit
+    uses: ./.github/workflows/task-test.yml
+    with:
+      get-redis: ${{ needs.get-latest-7-2-redis-tag.outputs.tag }}
+      rejson-branch: '2.4'
+      test-config: ''
+      san: address
