@@ -11,12 +11,14 @@ use wildcard::WildcardPattern;
 
 use crate::{
     iter::{
-        ContainsIter, IntoValues, Iter, LendingIter, PrefixesIter, RangeFilter, RangeIter, Values,
-        WildcardIter, filter::VisitAll,
+        Automaton, AutomatonIter, ContainsIter, FixedWildcardIter, IntoValues, Iter, LendingIter,
+        PrefixesIter, RangeFilter, RangeIter, Values, WildcardDfa, WildcardIter, WildcardNfa,
+        WildcardSpecializedIter, filter::VisitAll, pattern_has_star,
     },
     node::Node,
     utils::strip_prefix,
 };
+use wildcard::Token;
 use std::fmt;
 
 #[derive(Clone, PartialEq, Eq)]
@@ -204,6 +206,91 @@ impl<Data> TrieMap<Data> {
     /// Iterate over all trie entries whose key matches the specified pattern.
     pub fn wildcard_iter<'a>(&'a self, pattern: WildcardPattern<'a>) -> WildcardIter<'a, Data> {
         WildcardIter::new(self.root.as_ref(), pattern)
+    }
+
+    /// Iterate over all trie entries whose key matches the specified pattern,
+    /// using NFA-simulation streaming.
+    pub fn wildcard_nfa_iter<'a>(
+        &'a self,
+        pattern: &WildcardPattern<'a>,
+    ) -> AutomatonIter<'a, Data, WildcardNfa> {
+        let nfa = WildcardNfa::compile(pattern);
+        self.automaton_iter_with_prefix_shortcut(pattern.tokens(), nfa)
+    }
+
+    /// Iterate over all trie entries whose key matches the specified pattern,
+    /// using a pre-built DFA.
+    ///
+    /// Returns `None` if DFA construction exceeds the internal state cap;
+    /// callers should fall back to [`Self::wildcard_nfa_iter`] in that case.
+    pub fn wildcard_dfa_iter<'a>(
+        &'a self,
+        pattern: &WildcardPattern<'a>,
+    ) -> Option<AutomatonIter<'a, Data, WildcardDfa>> {
+        let dfa = WildcardDfa::compile(pattern)?;
+        Some(self.automaton_iter_with_prefix_shortcut(pattern.tokens(), dfa))
+    }
+
+    /// Iterate over all trie entries whose key matches the specified pattern,
+    /// auto-selecting between a specialized fixed-length iterator (no `*`)
+    /// and the general NFA-driven iterator.
+    pub fn wildcard_specialized_iter<'a>(
+        &'a self,
+        pattern: &WildcardPattern<'a>,
+    ) -> WildcardSpecializedIter<'a, Data> {
+        if pattern_has_star(pattern) {
+            WildcardSpecializedIter::General(self.wildcard_nfa_iter(pattern))
+        } else {
+            WildcardSpecializedIter::Fixed(self.wildcard_fixed_iter(pattern))
+        }
+    }
+
+    /// Iterate over wildcard matches using the specialized fixed-length
+    /// iterator directly (no dispatching enum).
+    ///
+    /// `pattern` must contain no `*` token; debug-asserts otherwise.
+    pub fn wildcard_fixed_iter<'a>(
+        &'a self,
+        pattern: &WildcardPattern<'a>,
+    ) -> FixedWildcardIter<'a, Data> {
+        let Some(root) = self.root.as_ref() else {
+            return FixedWildcardIter::empty();
+        };
+        // Same literal-prefix shortcut as the automaton path: jump to the
+        // subtree containing every key with that prefix.
+        if let Some(Token::Literal(lit)) = pattern.tokens().first() {
+            match root.find_root_for_prefix(lit) {
+                Some((subroot, subroot_prefix)) => {
+                    FixedWildcardIter::new(Some(subroot), subroot_prefix, pattern)
+                }
+                None => FixedWildcardIter::empty(),
+            }
+        } else {
+            FixedWildcardIter::new(Some(root), Vec::new(), pattern)
+        }
+    }
+
+    fn automaton_iter_with_prefix_shortcut<'a, A: Automaton>(
+        &'a self,
+        tokens: &[Token<'_>],
+        automaton: A,
+    ) -> AutomatonIter<'a, Data, A> {
+        let Some(root) = self.root.as_ref() else {
+            return AutomatonIter::empty(automaton);
+        };
+        // If the pattern starts with a literal, jump straight to the subtree
+        // containing every key with that prefix and let the iterator pick up
+        // from there.
+        if let Some(Token::Literal(lit)) = tokens.first() {
+            match root.find_root_for_prefix(lit) {
+                Some((subroot, subroot_prefix)) => {
+                    AutomatonIter::new(Some(subroot), subroot_prefix, automaton)
+                }
+                None => AutomatonIter::empty(automaton),
+            }
+        } else {
+            AutomatonIter::new(Some(root), Vec::new(), automaton)
+        }
     }
 
     /// Iterate over the entries that start with the given prefix, in lexicographical key order.

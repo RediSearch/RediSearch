@@ -13,7 +13,10 @@ use criterion::{
 };
 use lending_iterator::LendingIterator;
 use std::{ffi::c_void, hint::black_box, ptr::NonNull, time::Duration};
-use trie_rs::iter::{ContainsLendingIter, LendingIter};
+use trie_rs::iter::{
+    AutomatonLendingIter, ContainsLendingIter, FixedWildcardLendingIter, LendingIter,
+    WildcardSpecializedLendingIter, pattern_has_star,
+};
 use trie_rs::iter::{RangeFilter, RangeLendingIter};
 use wildcard::WildcardPattern;
 
@@ -264,6 +267,51 @@ fn wildcard_rust_benchmark<M: Measurement>(
             }
         })
     });
+    c.bench_function("Rust-NFA", |b| {
+        b.iter(|| {
+            let pattern = WildcardPattern::parse(black_box(pattern.as_bytes()));
+            let mut iter: AutomatonLendingIter<_, _> = map.wildcard_nfa_iter(&pattern).into();
+            while let Some(entry) = LendingIterator::next(&mut iter) {
+                black_box(entry);
+            }
+        })
+    });
+    c.bench_function("Rust-DFA", |b| {
+        b.iter(|| {
+            let pattern = WildcardPattern::parse(black_box(pattern.as_bytes()));
+            let iter = map
+                .wildcard_dfa_iter(&pattern)
+                .expect("DFA construction within cap");
+            let mut iter: AutomatonLendingIter<_, _> = iter.into();
+            while let Some(entry) = LendingIterator::next(&mut iter) {
+                black_box(entry);
+            }
+        })
+    });
+    c.bench_function("Rust-Specialized", |b| {
+        b.iter(|| {
+            let pattern = WildcardPattern::parse(black_box(pattern.as_bytes()));
+            let mut iter: WildcardSpecializedLendingIter<_> =
+                map.wildcard_specialized_iter(&pattern).into();
+            while let Some(entry) = LendingIterator::next(&mut iter) {
+                black_box(entry);
+            }
+        })
+    });
+    // Only meaningful on patterns with no `*`. For variable-length patterns
+    // we skip this bench since `wildcard_fixed_iter` would panic.
+    if !pattern_has_star(&WildcardPattern::parse(pattern.as_bytes())) {
+        c.bench_function("Rust-Fixed", |b| {
+            b.iter(|| {
+                let pattern = WildcardPattern::parse(black_box(pattern.as_bytes()));
+                let mut iter: FixedWildcardLendingIter<_> =
+                    map.wildcard_fixed_iter(&pattern).into();
+                while let Some(entry) = LendingIterator::next(&mut iter) {
+                    black_box(entry);
+                }
+            })
+        });
+    }
 }
 
 fn find_prefixes_rust_benchmark<M: Measurement>(

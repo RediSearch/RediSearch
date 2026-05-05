@@ -8,6 +8,7 @@
 */
 
 //! Different iterators to traverse a [`TrieMap`](crate::TrieMap).
+pub mod automaton;
 mod contains;
 pub mod filter;
 mod into_values;
@@ -20,6 +21,11 @@ mod range;
 mod values;
 mod wildcard;
 
+pub use automaton::{
+    Automaton, AutomatonIter, AutomatonLendingIter, FixedWildcardIter, FixedWildcardLendingIter,
+    StateClass, WildcardDfa, WildcardNfa, WildcardSpecializedIter, WildcardSpecializedLendingIter,
+    pattern_has_star,
+};
 pub use contains::ContainsIter;
 pub use into_values::IntoValues;
 pub use iter_::Iter;
