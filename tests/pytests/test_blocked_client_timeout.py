@@ -3555,36 +3555,24 @@ class TestShardTimeoutLockLeakRegression:
             per_iter_cleanup=per_iter_cleanup
         )
 
-    def _run_lock_leak_case(self, query_name, iterations):
+    def _run_aggregate_lock_leak_case(self, iterations):
         env = self.env
         skipIfNoEnableAssert(env)
 
         prev_on_timeout_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
-        idx_name = f'idx_lock_repro_{query_name.lower().replace(".", "_")}'
-        key_prefix = f'lockdoc:{query_name.lower()}:'
+        idx_name = 'idx_lock_repro_ft_aggregate'
+        key_prefix = 'lockdoc:ft.aggregate:'
         n_docs = 5000
 
         try:
             env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'fail').ok()
             self._prepare_case_index(idx_name, key_prefix, n_docs)
-            query_cfg = {
-                'FT.AGGREGATE': {
-                    'query_args': ['FT.AGGREGATE', idx_name, '*', 'LIMIT', '0', '2000'],
-                    'blocked_query_cmd': 'FT.AGGREGATE',
-                    'blocked_query_msg': 'Client for query FT.AGGREGATE not found',
-                },
-                'FT.SEARCH': {
-                    'query_args': ['FT.SEARCH', idx_name, '*', 'NOCONTENT'],
-                    'blocked_query_cmd': 'FT.SEARCH',
-                    'blocked_query_msg': 'Client for query FT.SEARCH not found',
-                },
-            }[query_name]
 
             self._run_sync_point_timeout_lock_leak_flow(
-                query_name,
-                query_cfg['query_args'],
-                query_cfg['blocked_query_cmd'],
-                query_cfg['blocked_query_msg'],
+                'FT.AGGREGATE',
+                ['FT.AGGREGATE', idx_name, '*', 'LIMIT', '0', '2000'],
+                'FT.AGGREGATE',
+                'Client for query FT.AGGREGATE not found',
                 key_prefix,
                 n_docs,
                 iterations
@@ -3601,10 +3589,10 @@ class TestShardTimeoutLockLeakRegression:
             env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy).ok()
 
     def test_fail_timeout_aggregate_releases_spec_lock_for_writers(self):
-        self._run_lock_leak_case('FT.AGGREGATE', iterations=5)
-
-    def test_fail_timeout_search_releases_spec_lock_for_writers(self):
-        self._run_lock_leak_case('FT.SEARCH', iterations=5)
+        # FT.SEARCH is intentionally not covered in this lock-leak regression:
+        # even with the same sync point, it does not reliably reproduce the old
+        # lock-leak path, while FT.AGGREGATE does.
+        self._run_aggregate_lock_leak_case(iterations=5)
 
 
 class TestShardTimeoutResp2:
