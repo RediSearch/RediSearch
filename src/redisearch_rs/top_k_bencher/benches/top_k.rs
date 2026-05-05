@@ -125,15 +125,21 @@ fn bench_intersection_overlap(c: &mut Criterion) {
         let child_ids: Vec<u64> = (0..n as u64).step_by(2).map(|i| i * 2).collect();
 
         group.bench_with_input(BenchmarkId::new("batches_50pct_overlap", n), &n, |b, _| {
-            b.iter(|| {
-                let source = MockScoreSource::new(vec![batch.clone()], vec![], |_, _| {
-                    BatchStrategy::Continue
-                });
-                let child: Box<dyn RQEIterator> =
-                    Box::new(rqe_iterators::IdList::<true>::new(child_ids.clone()));
-                let mut it = TopKIterator::new(source, Some(child), k, asc);
-                while black_box(it.read()).unwrap().is_some() {}
-            })
+            b.iter_batched(
+                || {
+                    let source = MockScoreSource::new(vec![batch.clone()], vec![], |_, _| {
+                        BatchStrategy::Continue
+                    });
+                    let child: Box<dyn RQEIterator> =
+                        Box::new(rqe_iterators::IdList::<true>::new(child_ids.clone()));
+                    (source, child)
+                },
+                |(source, child)| {
+                    let mut it = TopKIterator::new(source, Some(child), k, asc);
+                    while black_box(it.read()).unwrap().is_some() {}
+                },
+                BatchSize::SmallInput,
+            )
         });
     }
     group.finish();
@@ -148,39 +154,81 @@ fn bench_intersection_disjoint(c: &mut Criterion) {
         let child_ids: Vec<u64> = (0..n as u64).map(|i| i * 2 + 1).collect();
 
         group.bench_with_input(BenchmarkId::new("batches_0pct_overlap", n), &n, |b, _| {
-            b.iter(|| {
-                let source = MockScoreSource::new(vec![batch.clone()], vec![], |_, _| {
-                    BatchStrategy::Continue
-                });
-                let child: Box<dyn RQEIterator> =
-                    Box::new(rqe_iterators::IdList::<true>::new(child_ids.clone()));
-                let mut it = TopKIterator::new(source, Some(child), k, asc);
-                while black_box(it.read()).unwrap().is_some() {}
-            })
+            b.iter_batched(
+                || {
+                    let source = MockScoreSource::new(vec![batch.clone()], vec![], |_, _| {
+                        BatchStrategy::Continue
+                    });
+                    let child: Box<dyn RQEIterator> =
+                        Box::new(rqe_iterators::IdList::<true>::new(child_ids.clone()));
+                    (source, child)
+                },
+                |(source, child)| {
+                    let mut it = TopKIterator::new(source, Some(child), k, asc);
+                    while black_box(it.read()).unwrap().is_some() {}
+                },
+                BatchSize::SmallInput,
+            )
         });
     }
     group.finish();
 }
 
-fn bench_adhoc_10k_child(c: &mut Criterion) {
-    let n = 10_000usize;
-    let k = NonZeroUsize::new(100).unwrap();
-    // Every 10th document has a score.
-    let scores: Vec<(u64, f64)> = (0..n as u64).step_by(10).map(|i| (i, i as f64)).collect();
-    let child_ids: Vec<u64> = (0..n as u64).collect();
+fn bench_adhoc_vs_batches(c: &mut Criterion) {
+    // Compare Adhoc-BF and Batches on the same inputs as n_child varies.
+    // Source: 100k scored docs. Child: n_child docs spread evenly across the source.
+    // Adhoc-BF is expected to win for small n_child; Batches for large n_child.
+    let mut group = c.benchmark_group("iterator/adhoc_vs_batches");
+    let n_source = 100_000usize;
+    let k = NonZeroUsize::new(10).unwrap();
+    let source_docs: Vec<(u64, f64)> = (0..n_source as u64).map(|i| (i, i as f64)).collect();
 
-    c.bench_function("iterator/adhoc_10k_child", |b| {
-        b.iter(|| {
-            let source =
-                MockScoreSource::new(vec![], scores.clone(), |_, _| BatchStrategy::Continue);
-            let child: Box<dyn RQEIterator> =
-                Box::new(rqe_iterators::IdList::<true>::new(child_ids.clone()));
-            let mut it =
-                TopKIterator::new_with_mode(source, Some(child), k, asc, TopKMode::AdhocBF);
-            while it.read().unwrap().is_some() {}
-            black_box(it.at_eof())
-        })
-    });
+    for n_child in [100usize, n_source / 2, n_source - 100usize] {
+        let step = n_source / n_child;
+        let child_ids: Vec<u64> = (0..n_source as u64).step_by(step).take(n_child).collect();
+
+        group.bench_with_input(BenchmarkId::new("adhoc", n_child), &n_child, |b, _| {
+            b.iter_batched(
+                || {
+                    let source = MockScoreSource::new(vec![], source_docs.clone(), |_, _| {
+                        BatchStrategy::Continue
+                    });
+                    let child: Box<dyn RQEIterator> =
+                        Box::new(rqe_iterators::IdList::<true>::new(child_ids.clone()));
+                    (source, child)
+                },
+                |(source, child)| {
+                    let mut it =
+                        TopKIterator::new_with_mode(source, Some(child), k, asc, TopKMode::AdhocBF);
+                    while it.read().unwrap().is_some() {}
+                    black_box(it.at_eof())
+                },
+                BatchSize::SmallInput,
+            )
+        });
+
+        group.bench_with_input(BenchmarkId::new("batches", n_child), &n_child, |b, _| {
+            b.iter_batched(
+                || {
+                    let source = MockScoreSource::new(vec![source_docs.clone()], vec![], |_, _| {
+                        BatchStrategy::Continue
+                    });
+                    let child: Box<dyn RQEIterator> =
+                        Box::new(rqe_iterators::IdList::<true>::new(child_ids.clone()));
+                    (source, child)
+                },
+                |(source, child)| {
+                    let mut it =
+                        TopKIterator::new_with_mode(source, Some(child), k, asc, TopKMode::Batches);
+                    while it.read().unwrap().is_some() {}
+                    black_box(it.at_eof())
+                },
+                BatchSize::SmallInput,
+            )
+        });
+    }
+
+    group.finish();
 }
 
 criterion_group!(
@@ -189,6 +237,6 @@ criterion_group!(
     bench_heap_pop_all,
     bench_intersection_overlap,
     bench_intersection_disjoint,
-    bench_adhoc_10k_child,
+    bench_adhoc_vs_batches,
 );
 criterion_main!(benches);
