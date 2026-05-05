@@ -290,19 +290,23 @@ rs_wall_clock_ns_t RPDepleter_GetDepletionTime(const ResultProcessor *depleter);
 int RPDepleter_DepleteAll(arrayof(ResultProcessor*) depleters);
 
 /**
-* Starts the depletion for all the safe depleters in the array, waits until all finished depleting, and returns.
+* Starts depletion jobs for all safe depleters.
+* When configured by the shared sync object, a dedicated snapshot service
+* thread keeps a read-lock snapshot until every depleter signals
+* loader-unlock handoff (or fallback completion).
+* The launching thread returns without waiting for depletion completion.
 * @param safeDepleters Array of safe depleter processors
-* @param status Query error object to populate in case of error
-* @return RS_RESULT_OK if all safe depleters completed successfully, otherwise an error code
+* @param status Query error object to populate in case of startup error
+* @return RS_RESULT_OK if startup succeeded, otherwise an error code
 */
-int RPSafeDepleter_DepleteAll(arrayof(ResultProcessor*) safeDepleters, QueryError *status);
+int RPSafeDepleter_StartDepletions(arrayof(ResultProcessor*) safeDepleters, QueryError *status);
 
 /**
 * Creates a new shared synchronization object for coordinating multiple RPSafeDepleter processors.
 * This is used during pipeline construction to create sync objects that allow multiple
 * safe depleters to coordinate their background threads and wake each other when depleting completes.
-* @param num_depleters Number of RPSafeDepleter processors that will share this sync object
-* @param take_index_lock Whether the safe depleters should participate in index locking coordination
+ * @param num_depleters Number of RPSafeDepleter processors that will share this sync object
+ * @param take_index_lock Whether StartDepletions should acquire a shared spec snapshot for this group
 */
 StrongRef DepleterSync_New(unsigned int num_depleters, bool take_index_lock);
 

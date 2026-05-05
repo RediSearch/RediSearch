@@ -702,7 +702,7 @@ int HybridRequest_StartCursors(StrongRef hybrid_ref, RedisModuleCtx *replyCtx, Q
 
     int rc;
     if (backgroundDepletion) {
-      rc = RPSafeDepleter_DepleteAll(depleters, status);
+      rc = RPSafeDepleter_StartDepletions(depleters, status);
     } else {
       // Foreground depletion for WORKERS == 0
       // Trigger synchronous depletion to read and buffer all results while the spec lock is held.
@@ -1211,8 +1211,8 @@ static void HREQ_Execute_Callback(blockedClientHybridCtx *BCHCtx) {
     RedisSearchCtx_UnlockSpec(sctx);
   } else {
     // buildPipelineAndExecute failed - release the lock if still held.
-    // Note: If failure occurred after RPSafeDepleter_DepleteAll started, the lock
-    // was already released in WaitForDepletionToStart. RedisSearchCtx_UnlockSpec
+    // Note: In background depletion mode, snapshot lock ownership may already
+    // have been handed off to the snapshot service thread. RedisSearchCtx_UnlockSpec
     // safely handles this case by checking sctx->flags before unlocking.
     RedisSearchCtx_UnlockSpec(sctx);
     if (!QueryError_HasError(&status)) {
