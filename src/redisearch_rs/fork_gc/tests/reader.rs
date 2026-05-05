@@ -27,3 +27,12 @@ fn recv_fixed_surfaces_unexpected_eof_on_short_stream() {
     let err = pr.recv_fixed(&mut buf).unwrap_err();
     assert_eq!(err.kind(), io::ErrorKind::UnexpectedEof);
 }
+
+#[test]
+fn recv_fixed_reads_less_bytes_than_are_available() {
+    let mut src = Cursor::new(b"hello world".to_vec());
+    let mut pr = Reader::from_reader(&mut src);
+    let mut buf = [0u8; 5];
+    pr.recv_fixed(&mut buf).unwrap();
+    assert_eq!(&buf, b"hello");
+}
