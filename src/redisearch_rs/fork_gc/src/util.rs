@@ -70,8 +70,25 @@ pub(crate) fn read_with_timeout<R: Read + AsRawFd>(
             0 => return Err(io::Error::new(io::ErrorKind::TimedOut, "read timed out")),
             _ => {
                 if pfd.revents & libc::POLLIN == 0 {
-                    // POLLHUP / POLLERR / POLLNVAL
-                    return Err(io::Error::other("poll error"));
+                    return Err(io::Error::other(format!(
+                        "poll error: revents=0x{:x}{}{}{}",
+                        pfd.revents,
+                        if pfd.revents & libc::POLLHUP != 0 {
+                            " POLLHUP"
+                        } else {
+                            ""
+                        },
+                        if pfd.revents & libc::POLLERR != 0 {
+                            " POLLERR"
+                        } else {
+                            ""
+                        },
+                        if pfd.revents & libc::POLLNVAL != 0 {
+                            " POLLNVAL"
+                        } else {
+                            ""
+                        },
+                    )));
                 }
                 match reader.read(buf) {
                     Err(err) if err.kind() == io::ErrorKind::Interrupted => continue,

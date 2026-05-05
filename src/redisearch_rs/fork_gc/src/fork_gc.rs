@@ -8,10 +8,12 @@
 */
 
 use std::{
+    ffi::c_int,
     io::{self, Read, Write},
     marker::PhantomData,
     mem::ManuallyDrop,
     os::fd::FromRawFd,
+    time::Duration,
 };
 
 use crate::reader::Reader;
@@ -19,7 +21,7 @@ use crate::util::read_with_timeout;
 use crate::writer::Writer;
 
 /// Poll timeout used by the parent-side pipe reader (3 minutes).
-const POLL_TIMEOUT_MS: i32 = 1_000 * 60 * 3;
+const POLL_TIMEOUT: Duration = Duration::from_mins(3);
 
 /// Safe wrapper around [`ffi::ForkGC`].
 #[repr(transparent)]
@@ -92,8 +94,8 @@ impl ForkGC {
         // `Option<ManuallyDrop<io::PipeReader>>`: `Some` for a live pipe
         // (the `ManuallyDrop` keeps `Drop` from closing the caller's
         // fd), `None` to surface `EBADF` on each read. The
-        // `PhantomData<&'a mut ForkGC>` makes the reader borrow the
-        // `ForkGC` for its entire lifetime.
+        // `PhantomData<&'a mut ForkGC>` makes the type system behave
+        // as if the reader borrows `ForkGC` for its entire lifetime.
         struct ForkGCPipeReader<'a> {
             pipe_reader: Option<ManuallyDrop<io::PipeReader>>,
             _borrow: PhantomData<&'a mut ForkGC>,
@@ -102,22 +104,25 @@ impl ForkGC {
         impl Read for ForkGCPipeReader<'_> {
             fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
                 match &mut self.pipe_reader {
-                    Some(pr) => read_with_timeout(&mut **pr, buf, POLL_TIMEOUT_MS),
+                    Some(pr) => {
+                        read_with_timeout(&mut **pr, buf, POLL_TIMEOUT.as_millis() as c_int)
+                    }
                     None => Err(io::Error::from_raw_os_error(libc::EBADF)),
                 }
             }
         }
 
-        // Snapshot the fd: tests close the pipe and assign `-1` from
-        // another thread to simulate pipe failure. Reading once and
-        // validating before constructing `io::PipeReader` avoids an
-        // `fd != -1` panic.
+        // Existing C++ unit tests (`FGCTestTag.testPipeErrorDuringGC` and
+        // `FGCTestTag.testPipeErrorDuringApply`) set `pipe_read_fd` to `-1`
+        // to simulate pipe failure. `io::PipeReader` doesn't allow an fd of
+        // `-1` to be used and panics instead. Work around this for now. When
+        // all of Fork GC (including the tests) are ported over to Rust, use a
+        // better approach to simulate pipe failure.
         let fd = self.0.pipe_read_fd;
         let pipe_reader = (fd >= 0).then(|| {
             // SAFETY: `fd` is non-negative (checked above) and refers to
             // an open readable fd maintained by the C side's Fork GC
-            // state machine; `ManuallyDrop` prevents `File::drop` from
-            // closing it.
+            // state machine.
             ManuallyDrop::new(unsafe { io::PipeReader::from_raw_fd(fd) })
         });
 
