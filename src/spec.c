@@ -1914,15 +1914,11 @@ failure:  // on failure free the spec fields array and return an error
   return INVALID_STRONG_REF;
 }
 
-StrongRef IndexSpec_Parse(RedisModuleCtx *ctx, const HiddenString *name, const char **argv, int argc, QueryError *status) {
-  ArgsCursor ac = {0};
-  ArgsCursor_InitCString(&ac, argv, argc);
-  return IndexSpec_ParseFromArgCursor(ctx, name, &ac, status);
-}
-
 StrongRef IndexSpec_ParseC(RedisModuleCtx *ctx, const char *name, const char **argv, int argc, QueryError *status) {
   HiddenString *hidden = NewHiddenString(name, strlen(name), true);
-  return IndexSpec_Parse(ctx, hidden, argv, argc, status);
+  ArgsCursor ac = {0};
+  ArgsCursor_InitCString(&ac, argv, argc);
+  return IndexSpec_ParseFromArgCursor(ctx, hidden, &ac, status);
 }
 
 static void RSIndexStats_FromScoringStats(const ScoringIndexStats *scoring, RSIndexStats *stats) {
