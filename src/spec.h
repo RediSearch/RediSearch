@@ -106,6 +106,9 @@ struct DocumentIndexer;
 
 #define SPEC_MAX_FIELDS 1024
 #define SPEC_MAX_FIELD_ID (sizeof(t_fieldMask) * 8)
+#define MAX_SCHEMA_PREFIXES 1000000
+#define MAX_SYNONYM_TERMS 1000000     // reasonable limit for synonym map terms
+#define MAX_SYNONYM_GROUP_IDS 4096    // reasonable limit for group IDs per term
 
 // The threshold after which we move to a special encoding for wide fields
 #define SPEC_WIDEFIELD_THRESHOLD 32
@@ -278,8 +281,8 @@ typedef struct IndexSpec {
   size_t nameLen;                 // Index name length
   uint64_t uniqueId;              // Id of index
   FieldSpec *fields;              // Fields in the index schema
-  int16_t numFields;              // Number of fields
-  int16_t numSortableFields;      // Number of sortable fields
+  uint16_t numFields;             // Number of fields
+  uint16_t numSortableFields;     // Number of sortable fields
 
   IndexFlags flags;               // Flags
   IndexStats stats;               // Statistics of memory used and quantities
@@ -593,7 +596,7 @@ void IndexSpec_Free(IndexSpec *spec);
 
 //---------------------------------------------------------------------------------------------
 
-int IndexSpec_AddTerm(IndexSpec *sp, const char *term, size_t len);
+void IndexSpec_AddTerm(IndexSpec *sp, const char *term, size_t len);
 
 /** Returns a string suitable for indexes. This saves on string creation/destruction */
 RedisModuleString *IndexSpec_GetFormattedKey(IndexSpec *sp, const FieldSpec *fs, FieldType forType);
@@ -670,6 +673,7 @@ size_t IndexSpec_TotalMemUsage(IndexSpec *sp, size_t doctable_tm_size, size_t ta
 
 void Indexes_Init(RedisModuleCtx *ctx);
 void Indexes_Free(dict *d);
+size_t Indexes_Count();
 void Indexes_UpdateMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key, DocumentType type,
                                            RedisModuleString **hashFields);
 void Indexes_DeleteMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key,
