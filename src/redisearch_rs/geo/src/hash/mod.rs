@@ -22,6 +22,7 @@ mod distance;
 mod types;
 
 pub use distance::haversine_distance;
+use distance::{meridian_distance, parallel_distance};
 pub use types::{
     GeoHashArea, GeoHashBits, GeoHashNeighbors, GeoHashRadius, GeoHashRange, InvalidPrecisionStep,
     InvalidWGS84Coordinates, PrecisionStep, WGS84Coordinates,
@@ -223,25 +224,15 @@ pub fn get_areas_by_radius(coords: WGS84Coordinates, radius_meters: f64) -> GeoH
 
     // Check if the step is sufficient at the limits of the covered area.
     // Sometimes a neighboring cell is too near to cover everything.
-    let mut decrease_step = false;
-    if let (Some(n), Some(s), Some(e), Some(w)) = (nbrs.north, nbrs.south, nbrs.east, nbrs.west) {
-        let north = decode(n);
-        let south = decode(s);
-        let east = decode(e);
-        let west = decode(w);
-        if haversine_distance(longitude, latitude, longitude, north.latitude.max) < radius_meters {
-            decrease_step = true;
-        }
-        if haversine_distance(longitude, latitude, longitude, south.latitude.min) < radius_meters {
-            decrease_step = true;
-        }
-        if haversine_distance(longitude, latitude, east.longitude.max, latitude) < radius_meters {
-            decrease_step = true;
-        }
-        if haversine_distance(longitude, latitude, west.longitude.min, latitude) < radius_meters {
-            decrease_step = true;
-        }
-    }
+    // `neighbors()` always returns all `Some`, so unwrap is safe here.
+    let north = decode(nbrs.north.unwrap());
+    let south = decode(nbrs.south.unwrap());
+    let east = decode(nbrs.east.unwrap());
+    let west = decode(nbrs.west.unwrap());
+    let decrease_step = meridian_distance(latitude, north.latitude.max) < radius_meters
+        || meridian_distance(latitude, south.latitude.min) < radius_meters
+        || parallel_distance(latitude, longitude, east.longitude.max) < radius_meters
+        || parallel_distance(latitude, longitude, west.longitude.min) < radius_meters;
 
     if steps.as_u8() > 1 && decrease_step {
         // steps is at least 2 here, so steps - 1 is at least 1 — always valid.
