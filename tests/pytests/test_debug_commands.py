@@ -65,6 +65,7 @@ class TestDebugCommands(object):
             'QUERY_CONTROLLER',
             'DUMP_SCHEMA',
             'VECSIM_MOCK_TIMEOUT',
+            'SET_MAX_INDEXES',
             'FT.AGGREGATE',
             '_FT.AGGREGATE',
             'FT.SEARCH',

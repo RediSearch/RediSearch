@@ -13,6 +13,9 @@
 #include "json.h"
 #include "rdb.h"
 #include "fast_float/fast_float_strtod.h"
+#include "util/likely.h"
+#include "spec.h"
+#include "rmutil/rm_assert.h"
 
 TrieMap *SchemaPrefixes_g;
 
@@ -379,7 +382,19 @@ int SchemaRule_RdbLoad(StrongRef ref, RedisModuleIO *rdb, int encver, QueryError
   int ret = REDISMODULE_OK;
   args.type = LoadStringBuffer_IOError(rdb, &len, goto cleanup);
 
-  args.nprefixes = LoadUnsigned_IOError(rdb, goto cleanup);
+  uint64_t nprefixes_u64 = LoadUnsigned_IOError(rdb, goto cleanup);
+
+  RS_ASSERT(MAX_SCHEMA_PREFIXES <= UINT32_MAX);
+  if (unlikely(nprefixes_u64 > MAX_SCHEMA_PREFIXES)) {
+    QueryError_SetWithoutUserDataFmt(
+        status, QUERY_ELIMIT,
+        "RDB Load: Number of prefixes (%llu) exceeds maximum allowed (%d)",
+        (unsigned long long)nprefixes_u64, MAX_SCHEMA_PREFIXES);
+    ret = REDISMODULE_ERR;
+    goto cleanup;
+  }
+
+  args.nprefixes = (unsigned int)nprefixes_u64;
   if (args.nprefixes <= RULEARGS_INITIAL_NUM_PREFIXES_ON_STACK) {
     args.prefixes = (const char **)prefixes;
     memset(args.prefixes, 0, args.nprefixes * sizeof(*args.prefixes));
