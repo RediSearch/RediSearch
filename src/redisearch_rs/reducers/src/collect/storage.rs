@@ -16,9 +16,7 @@
 /// matching the C implementation's `DEFAULT_LIMIT`.
 pub const DEFAULT_LIMIT: u64 = 10;
 
-/// Defense-in-depth cap on the *initial* buffer allocation.
-/// [`Storage::insert_entry`] still bounds the buffer at `offset + count`, so
-/// `Vec` will grow naturally to the real cap if rows actually arrive.
+/// Cap on the *initial* buffer allocation.
 const INITIAL_CAPACITY_CAP: usize = 16_384;
 
 pub struct Storage<T> {
