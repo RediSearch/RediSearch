@@ -75,6 +75,10 @@ typedef struct {
 
   DMDChain *buckets;
   DocIdMap dim;             // Mapping between document name to internal id
+  // Holds field-level expirations only; created lazily on the first HEXPIRE
+  // and destroyed when the last entry is removed. Iterators use a NULL check
+  // on this pointer as their HFE gate, so a NULL `ttl` means no doc in this
+  // index has ever had (or still has) a field-level expiration.
   TimeToLiveTable* ttl;
 } DocTable;
 
@@ -132,7 +136,7 @@ void DocTable_UpdateExpiration(DocTable *t, RSDocumentMetadata* dmd, t_expiratio
 bool DocTable_IsDocExpired(DocTable* t, const RSDocumentMetadata* dmd, struct timespec* expirationPoint);
 
 // Clear all expiration data from this doc table.
-// Clears Document_HasExpiration flags from all documents and destroys the TTL table.
+// Resets `expirationTimeNs` on every DMD and destroys the TTL table.
 // Must be called with the index write lock held.
 void DocTable_ClearExpirationData(DocTable *t);
 

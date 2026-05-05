@@ -15,9 +15,11 @@
 #include "redismock/internal.h"
 #include "spec.h"
 #include "common.h"
+#include "config.h"
 #include "module.h"
 #include "version.h"
 #include "tag_index.h"
+#include "ttl_table.h"
 #include "info/info_redis/threads/current_thread.h"
 
 #include <vector>
@@ -89,3 +91,176 @@ TEST_F(ExpireTest, testSkipTo) {
   args.clear();
   RedisModule_FreeThreadSafeContext(ctx);
 }
+
+// Helper: build a one-entry FieldExpiration array on field index 0. Ownership
+// transfers to the table on TimeToLiveTable_Add.
+static arrayof(FieldExpiration) makeFE(t_expirationTimePoint p) {
+  arrayof(FieldExpiration) fe = array_new(FieldExpiration, 1);
+  FieldExpiration entry = {0, p};
+  array_append(fe, entry);
+  return fe;
+}
+
+// Returns true if field 0 is expired for the given docId. Mirrors what the
+// VerifyDocAndField slow path observes during query iteration.
+static bool fieldExpired(TimeToLiveTable *ttl, t_docId d, const struct timespec *now) {
+  return !TimeToLiveTable_VerifyDocAndField(ttl, d, 0, FIELD_EXPIRATION_PREDICATE_DEFAULT, now);
+}
+
+// Exercises the direct-modulo + contiguous-vec chain implementation of
+// TimeToLiveTable: seed it with more docIds than the bucket cap so every slot
+// carries multiple entries, then verify each docId's expiration state is
+// observed correctly. Also exercises removal from the middle of a chain via
+// the swap-last path.
+TEST_F(ExpireTest, testTTLCollisionChain) {
+  // Force a small cap so the chain path is actually exercised at this size.
+  const size_t savedMax = RSGlobalConfig.maxDocTableSize;
+  const size_t cap = 32;
+  RSGlobalConfig.maxDocTableSize = cap;
+
+  TimeToLiveTable *ttl = nullptr;
+  TimeToLiveTable_VerifyInit(&ttl, cap);
+
+  // Insert 4x the cap so every slot has ~4 entries on average. Alternate
+  // expired/fresh so we can assert the chain walk returns the right entry.
+  const t_docId N = (t_docId)cap * 4;
+  struct timespec past = {1, 0};
+  struct timespec future = {LONG_MAX, LONG_MAX};
+  for (t_docId d = 1; d <= N; ++d) {
+    TimeToLiveTable_Add(ttl, d, makeFE((d & 1) ? past : future));
+  }
+
+  struct timespec now = {2, 0};
+  for (t_docId d = 1; d <= N; ++d) {
+    const bool expected = (d & 1) != 0;
+    ASSERT_EQ(fieldExpired(ttl, d, &now), expected) << "docId=" << d;
+  }
+
+  // Remove every third docId and re-verify. This deletes from arbitrary chain
+  // positions and triggers the swap-last codepath repeatedly.
+  for (t_docId d = 3; d <= N; d += 3) {
+    TimeToLiveTable_Remove(ttl, d);
+  }
+  for (t_docId d = 1; d <= N; ++d) {
+    if (d % 3 == 0) {
+      // Removed entries are absent => VerifyDocAndField treats the field as
+      // valid, i.e. fieldExpired returns false.
+      ASSERT_FALSE(fieldExpired(ttl, d, &now)) << "docId=" << d;
+    } else {
+      const bool expected = (d & 1) != 0;
+      ASSERT_EQ(fieldExpired(ttl, d, &now), expected) << "docId=" << d;
+    }
+  }
+
+  // Drain the rest and verify the table reports empty so the lifecycle
+  // mechanism in DocTable_Pop can destroy it.
+  for (t_docId d = 1; d <= N; ++d) {
+    if (d % 3 != 0) {
+      TimeToLiveTable_Remove(ttl, d);
+    }
+  }
+  ASSERT_TRUE(TimeToLiveTable_IsEmpty(ttl));
+
+  TimeToLiveTable_Destroy(&ttl);
+  ASSERT_EQ(ttl, nullptr);
+  RSGlobalConfig.maxDocTableSize = savedMax;
+}
+
+// Exercises the docId wrap at the cap boundary: docId < cap uses slot = docId,
+// while docId >= cap uses slot = docId % cap. The two branches must land on
+// the same bucket and stay distinguishable from each other.
+TEST_F(ExpireTest, testTTLDocIdWrap) {
+  const size_t savedMax = RSGlobalConfig.maxDocTableSize;
+  const t_docId CAP = 32;
+  RSGlobalConfig.maxDocTableSize = CAP;
+
+  TimeToLiveTable *ttl = nullptr;
+  TimeToLiveTable_VerifyInit(&ttl, CAP);
+  // Collide docId X (fast path) with docId X + CAP and X + 2*CAP (modulo path).
+  struct timespec past = {1, 0};
+  struct timespec future = {LONG_MAX, LONG_MAX};
+  struct timespec now = {2, 0};
+  for (t_docId x = 1; x < 8; ++x) {
+    TimeToLiveTable_Add(ttl, x, makeFE(past));
+    TimeToLiveTable_Add(ttl, x + CAP, makeFE(future));
+    TimeToLiveTable_Add(ttl, x + 2 * CAP, makeFE(past));
+  }
+  for (t_docId x = 1; x < 8; ++x) {
+    ASSERT_TRUE(fieldExpired(ttl, x, &now));
+    ASSERT_FALSE(fieldExpired(ttl, x + CAP, &now));
+    ASSERT_TRUE(fieldExpired(ttl, x + 2 * CAP, &now));
+    // A docId that hashes to the same slot but was never inserted must report
+    // "no TTL" => fieldExpired returns false without matching another entry.
+    ASSERT_FALSE(fieldExpired(ttl, x + 3 * CAP, &now));
+  }
+
+  // Remove the "middle" entries and confirm the remaining two are still
+  // found in both directions (the swap-last must not corrupt the chain).
+  for (t_docId x = 1; x < 8; ++x) {
+    TimeToLiveTable_Remove(ttl, x + CAP);
+  }
+  for (t_docId x = 1; x < 8; ++x) {
+    ASSERT_TRUE(fieldExpired(ttl, x, &now));
+    ASSERT_FALSE(fieldExpired(ttl, x + CAP, &now));
+    ASSERT_TRUE(fieldExpired(ttl, x + 2 * CAP, &now));
+  }
+
+  TimeToLiveTable_Destroy(&ttl);
+  RSGlobalConfig.maxDocTableSize = savedMax;
+}
+
+// Exercises lazy bucket-array growth: with a large configured maxSize, a
+// table that only ever holds a handful of entries must not allocate the
+// full maxSize worth of buckets. Also verifies that the grown `cap` covers
+// every slot that has been written, and that wrap-around docIds are still
+// routed to their correct (already-allocated) slot after growth.
+TEST_F(ExpireTest, testTTLLazyGrowth) {
+  const size_t savedMax = RSGlobalConfig.maxDocTableSize;
+  const size_t MAX = 1000000;  // matches production default
+  RSGlobalConfig.maxDocTableSize = MAX;
+
+  TimeToLiveTable *ttl = nullptr;
+  TimeToLiveTable_VerifyInit(&ttl, MAX);
+  // Init alone must not allocate any buckets.
+  ASSERT_EQ(TimeToLiveTable_DebugAllocatedBuckets(ttl), 0u);
+
+  struct timespec past = {1, 0};
+  struct timespec now = {2, 0};
+
+  // Insert a small, sparse set of low docIds. Growth should stop well below
+  // MAX; concretely, the high-water slot is 100, so cap is bounded by the
+  // geometric growth curve's next step above that, which is a small factor
+  // of 100 — nowhere near MAX.
+  const t_docId small_ids[] = {1, 5, 42, 100};
+  for (t_docId d : small_ids) {
+    TimeToLiveTable_Add(ttl, d, makeFE(past));
+  }
+  const size_t cap_after_small = TimeToLiveTable_DebugAllocatedBuckets(ttl);
+  ASSERT_GE(cap_after_small, 101u);   // must cover slot 100
+  ASSERT_LT(cap_after_small, MAX / 10);  // must be far below maxSize
+
+  // Reads for docIds whose slot is still unallocated must report not-found.
+  ASSERT_FALSE(fieldExpired(ttl, 999999, &now));
+  // Writes must still work for those, and bump cap to cover them.
+  TimeToLiveTable_Add(ttl, 999999, makeFE(past));
+  ASSERT_GE(TimeToLiveTable_DebugAllocatedBuckets(ttl), 999999u + 1);
+  ASSERT_TRUE(fieldExpired(ttl, 999999, &now));
+
+  // Previously-inserted entries must not have moved during the grow.
+  for (t_docId d : small_ids) {
+    ASSERT_TRUE(fieldExpired(ttl, d, &now)) << "docId=" << d;
+  }
+
+  // A wrap-around docId (>= maxSize) routes via modulo into an already-
+  // allocated slot, so it works without further growth.
+  const size_t cap_before_wrap = TimeToLiveTable_DebugAllocatedBuckets(ttl);
+  TimeToLiveTable_Add(ttl, MAX + 5, makeFE(past));  // slot = 5, already in range
+  ASSERT_EQ(TimeToLiveTable_DebugAllocatedBuckets(ttl), cap_before_wrap);
+  ASSERT_TRUE(fieldExpired(ttl, MAX + 5, &now));
+  // The original docId=5 entry must still be distinct from the wrapped one.
+  ASSERT_TRUE(fieldExpired(ttl, 5, &now));
+
+  TimeToLiveTable_Destroy(&ttl);
+  RSGlobalConfig.maxDocTableSize = savedMax;
+}
+

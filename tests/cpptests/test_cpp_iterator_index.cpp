@@ -51,7 +51,7 @@ protected:
         if (withExpiration) {
             // Initialize the TTL table with some expiration data. Results should not be expired so the test passes as expected.
             for (size_t i = 0; i < n_docs; ++i) {
-                q_mock.TTL_Add(resultSet[i]);
+                q_mock.TTL_Add(resultSet[i], t_fieldIndex{0});
             }
         }
 

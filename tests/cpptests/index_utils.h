@@ -105,17 +105,12 @@ public:
     array_free(spec.fieldIdToIndex);
   }
 
-  void TTL_Add(t_docId docId, t_expirationTimePoint expiration = {LONG_MAX, LONG_MAX}) {
-    VerifyTTLInit();
-    TimeToLiveTable_Add(spec.docs.ttl, docId, expiration, NULL);
-  }
-
   void TTL_Add(t_docId docId, t_fieldIndex field, t_expirationTimePoint expiration = {LONG_MAX, LONG_MAX}) {
     VerifyTTLInit();
     arrayof(FieldExpiration) fe = array_new(FieldExpiration, 1);
     FieldExpiration fe_entry = {field, expiration};
     array_append(fe, fe_entry);
-    TimeToLiveTable_Add(spec.docs.ttl, docId, {LONG_MAX, LONG_MAX}, fe);
+    TimeToLiveTable_Add(spec.docs.ttl, docId, fe);
   }
   void TTL_Add(t_docId docId, t_fieldMask fieldMask, t_expirationTimePoint expiration = {LONG_MAX, LONG_MAX}) {
     VerifyTTLInit();
@@ -126,7 +121,7 @@ public:
         array_append(fe, fe_entry);
       }
     }
-    TimeToLiveTable_Add(spec.docs.ttl, docId, {LONG_MAX, LONG_MAX}, fe);
+    TimeToLiveTable_Add(spec.docs.ttl, docId, fe);
   }
 
 private:
@@ -138,6 +133,6 @@ private:
         array_append(spec.fieldIdToIndex, i);
       }
     }
-    TimeToLiveTable_VerifyInit(&spec.docs.ttl);
+    TimeToLiveTable_VerifyInit(&spec.docs.ttl, RSGlobalConfig.maxDocTableSize);
   }
 };
