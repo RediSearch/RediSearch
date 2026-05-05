@@ -115,7 +115,8 @@ impl LocalCollectCtx {
         {
             for entry in array.iter() {
                 if !matches!(&**entry, Value::Map(_) | Value::Array(_)) {
-                    tracing_assert::debug_warn!(
+                    tracing_assert::debug_assert_warn!(
+                        false,
                         "LocalCollectReducer payload entry must be a Map or Array"
                     );
                     continue;
@@ -137,7 +138,10 @@ impl LocalCollectCtx {
                 });
             }
         } else {
-            tracing_assert::debug_warn!("LocalCollectReducer requires an array payload");
+            tracing_assert::debug_assert_warn!(
+                false,
+                "LocalCollectReducer requires an array payload"
+            );
         }
     }
 

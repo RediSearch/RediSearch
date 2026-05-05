@@ -23,6 +23,7 @@ pub struct Storage<T> {
     buf: Vec<T>,
     offset: usize,
     count: usize,
+    cap: usize,
 }
 
 impl<T> Storage<T> {
@@ -36,8 +37,14 @@ impl<T> Storage<T> {
             (false, None) => (0, unsafe { ffi::RSGlobalConfig.maxAggregateResults }),
             (true, None) => (0, DEFAULT_LIMIT as usize),
         };
-        let buf = Vec::with_capacity(offset.saturating_add(count).min(INITIAL_CAPACITY_CAP));
-        Self { buf, offset, count }
+        let cap = offset.saturating_add(count);
+        let buf = Vec::with_capacity(cap.min(INITIAL_CAPACITY_CAP));
+        Self {
+            buf,
+            offset,
+            count,
+            cap,
+        }
     }
 
     /// Insert an entry if there is room under the cap, dropping excess
@@ -47,7 +54,7 @@ impl<T> Storage<T> {
     where
         F: FnOnce() -> T,
     {
-        if self.buf.len() < self.offset.saturating_add(self.count) {
+        if self.buf.len() < self.cap {
             self.buf.push(project());
             true
         } else {
