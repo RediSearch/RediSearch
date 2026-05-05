@@ -38,7 +38,7 @@ jobs:
           private-key: ${{ secrets.GH_PR_APP_PRIVATE_KEY }}
           owner: RediSearch
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           token: ${{ steps.generate-app-token.outputs.token }}
       - name: Create backport pull requests
