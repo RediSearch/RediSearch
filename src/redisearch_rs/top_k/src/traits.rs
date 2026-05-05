@@ -198,10 +198,41 @@ pub trait ScoreSource {
     /// itself, so any borrows the source might embed in the result stay
     /// valid. For `'static` sources, `'r` is unconstrained.
     ///
+    /// Used in [`Unfiltered`](crate::TopKMode::Unfiltered) mode where there is
+    /// no child iterator: the source must produce a complete result on its own.
+    ///
+    /// In filtered modes ([`Batches`](crate::TopKMode::Batches),
+    /// [`AdhocBF`](crate::TopKMode::AdhocBF)) the iterator yields the **child's**
+    /// `RSIndexResult` directly so its scoring inputs (frequency, field mask,
+    /// term records) are preserved, and calls
+    /// [`attach_score_metric`](Self::attach_score_metric) instead.
+    ///
     /// [`TopKIterator`]: crate::TopKIterator
     fn build_result<'r>(&self, doc_id: DocId, score: f64) -> RSIndexResult<'r>
     where
         Self: 'r;
+
+    /// Attach this source's score to the child's result as a metric entry.
+    ///
+    /// Called by [`TopKIterator`] in the filtered yield path: the child's
+    /// `RSIndexResult` is what the relevance scorer will see (so BM25/TFIDF
+    /// can recurse into the term records), and the source's score (e.g. a
+    /// vector distance) is exposed via the metrics channel for output fields
+    /// like `__v_score`.
+    ///
+    /// The default implementation does nothing — sources that don't carry
+    /// a metric (e.g. mocks in tests) can leave it as-is.
+    ///
+    /// Implementations that maintain a stable score key should overwrite an
+    /// existing entry with the same key rather than appending, so repeated
+    /// yields of the same child storage don't leak metrics across docs.
+    ///
+    /// [`TopKIterator`]: crate::TopKIterator
+    fn attach_score_metric<'r>(&self, _result: &mut RSIndexResult<'r>, _score: f64)
+    where
+        Self: 'r,
+    {
+    }
 
     /// Called after each batch (Batches mode only) to decide how collection
     /// should proceed.
