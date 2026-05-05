@@ -14,6 +14,7 @@
 #include "types_rs.h"
 #include "rlookup.h"
 #include "index_result.h"
+#include "doc_table.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -56,9 +57,16 @@ SearchResult* SearchResult_AllocateMove(SearchResult* r);
 
 /**
  * This function resets the search result, so that it may be reused again.
- * Internal caches are reset but not freed
+ * Internal caches are reset but not freed.
+ *
+ * Defined as `inline` (with an `extern inline` definition emitted in
+ * `search_result.c`) so that hot callers in the result-processor pipeline
+ * can inline it. Hidden from `bindgen` to keep the FFI surface stable;
+ * bindgen still sees the plain prototype below.
  */
+#ifdef RS_BINDGEN_GENERATION
 void SearchResult_Clear(SearchResult* r);
+#endif
 
 /**
  * This function clears the search result, also freeing its internals. Internal
@@ -196,6 +204,36 @@ static inline void SearchResult_MergeFlags(SearchResult* res, const SearchResult
   RS_ASSERT(res && other);
   res->flags |= other->flags;
 }
+
+#ifndef RS_BINDGEN_GENERATION
+// Inline definition; the externally-visible symbol is emitted in
+// `search_result.c` via `extern inline`.
+inline void SearchResult_Clear(SearchResult* r) {
+  // This won't affect anything if the result is null
+
+  SearchResult_SetScore(r, 0.0);
+
+  RSScoreExplain *score_explain = SearchResult_GetScoreExplainMut(r);
+  if (score_explain) {
+    SEDestroy(score_explain);
+    SearchResult_SetScoreExplain(r, NULL);
+  }
+
+  const RSIndexResult* index_result = SearchResult_GetIndexResult(r);
+  if (index_result) {
+    SearchResult_SetIndexResult(r, NULL);
+  }
+
+  SearchResult_SetFlags(r, 0);
+  RLookupRow_Wipe(SearchResult_GetRowDataMut(r));
+
+  const RSDocumentMetadata* dmd = SearchResult_GetDocumentMetadata(r);
+  if (dmd) {
+    DMD_Return(dmd);
+    SearchResult_SetDocumentMetadata(r, NULL);
+  }
+}
+#endif
 
 #ifdef __cplusplus
 }
