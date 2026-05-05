@@ -2970,7 +2970,7 @@ DEBUG_COMMAND(SetMaxIndexes) {
   size_t numIndexes = Indexes_Count();
   if (newMaxIndexes < numIndexes) {
     return RedisModule_ReplyWithErrorFormat(ctx,
-        "Invalid value. Must be at least current number of indexes: %d.", numIndexes);
+        "Invalid value. Must be at least current number of indexes: %zu.", numIndexes);
   }
 
   maxIndexes_g = (uint32_t)newMaxIndexes;
