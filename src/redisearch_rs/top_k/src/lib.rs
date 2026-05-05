@@ -33,5 +33,5 @@ redis_mock::mock_or_stub_missing_redis_c_symbols!();
 pub mod mock;
 
 pub use heap::{ScoredResult, TopKHeap};
-pub use iterator::{TopKIterator, TopKMode};
+pub use iterator::{TopKIterator, TopKMode, TopKSourceProfile};
 pub use traits::{BatchStrategy, ScoreBatch, ScoreSource};

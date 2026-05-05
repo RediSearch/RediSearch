@@ -9,13 +9,19 @@
 
 //! [`VectorScoreSource`] — [`ScoreSource`] implementation backed by VecSim.
 
-use std::{ffi::c_void, num::NonZeroUsize, ptr::NonNull};
+use std::{
+    ffi::c_void,
+    num::NonZeroUsize,
+    ptr::{self, NonNull},
+};
 
 use ffi::{
-    RS_VecSimCheckTimeout, TimeoutCtx, VecSearchMode, VecSimIndex, VecSimQueryParams, t_docId,
-    timespec,
+    QueryIterator, RS_VecSimCheckTimeout, TimeoutCtx, VecSearchMode, VecSimIndex,
+    VecSimQueryParams, timespec,
 };
 use index_result::RSIndexResult;
+use rlookup::RLookupKey;
+use rqe_core::DocId;
 use rqe_iterators::{ExpirationChecker, FieldExpirationChecker, RQEIteratorError};
 use top_k::{BatchStrategy, ScoreSource, ScoredResult};
 use vecsim::{
@@ -86,16 +92,31 @@ pub struct VectorScoreSource<'index, E: ExpirationChecker = FieldExpirationCheck
     /// to stay valid for `'index` as well.
     batch_iter: Option<BatchIterator<'index, 'index>>,
     /// Number of batches consumed so far. Reset on rewind.
-    num_iterations: usize,
+    pub num_iterations: usize,
+    /// Largest batch size used so far. Reset on rewind. Read by the
+    /// profile printer.
+    pub max_batch_size: usize,
+    /// Highest `num_iterations` value observed so far. Reset on rewind. Read
+    /// by the profile printer.
+    pub max_batch_iteration: usize,
+    /// Raw child iterator handle exposed to the C profile printer.
+    pub child_raw: *mut QueryIterator,
     /// Rolling estimate of how many child docs pass the filter; seeded from
     /// [`initial_child_num_estimated`](Self::initial_child_num_estimated) and
     /// refined each batch. Reset on rewind.
     child_num_estimated: usize,
     /// `k - heap_count`, updated by `batch_strategy`. Reset on rewind.
     k_remaining: usize,
-
     /// Optional field-expiration filter for the vector field.
     expiration: Option<E>,
+    /// `true` once `next_batch_unfiltered` has been called; subsequent calls
+    /// short-circuit to `Ok(None)` so the source honors the single-shot
+    /// contract without re-issuing the HNSW query (which would also re-poll
+    /// the timeout context and could spuriously fail). Reset by `rewind`.
+    unfiltered_consumed: bool,
+
+    /// Score key for this iterator's metric output; set by the metrics loader.
+    pub own_key: *mut RLookupKey<'idx>,
 }
 
 // SAFETY: VectorScoreSource is used from a single thread (the query execution
@@ -169,10 +190,15 @@ impl<'index, E: ExpirationChecker> VectorScoreSource<'index, E> {
             batch_iter: None,
             fixed_batch_size,
             num_iterations: 0,
+            max_batch_size: 0,
+            max_batch_iteration: 0,
+            child_raw: ptr::null_mut(),
             child_num_estimated,
             initial_child_num_estimated: child_num_estimated,
             k_remaining: k.get(),
             expiration,
+            unfiltered_consumed: false,
+            own_key: ptr::null_mut(),
         }
     }
 
@@ -210,7 +236,7 @@ impl<'index, E: ExpirationChecker> VectorScoreSource<'index, E> {
         let index_size = self.index_size();
         let child_est = self.child_num_estimated;
         let estimate = self.k_remaining * index_size /
-            // guard div-by-zero
+             // guard div-by-zero
             child_est.max(1);
         // The `+ 1` guarantees a non-zero size.
         NonZeroUsize::new(estimate + 1).unwrap()
@@ -222,6 +248,10 @@ impl<'index, E: ExpirationChecker + Clone> ScoreSource for VectorScoreSource<'in
     fn all_results_unfiltered_batch(&mut self) -> Result<Option<Self::Batch>, RQEIteratorError> {
         // Single-shot top-k query for the unfiltered path; called exactly once
         // per evaluation by `prepare_unfiltered_direct`.
+        if self.unfiltered_consumed {
+            return Ok(None);
+        }
+        self.unfiltered_consumed = true;
         self.query_params.timeoutCtx = self.timeout_ctx_ptr();
         let reply = self
             .index
@@ -288,7 +318,7 @@ impl<'index, E: ExpirationChecker + Clone> ScoreSource for VectorScoreSource<'in
             .map(|results| VecSimScoreBatchCursor::new(results, self.expiration.clone())))
     }
 
-    fn lookup_score(&mut self, doc_id: t_docId) -> Option<f64> {
+    fn lookup_score(&mut self, doc_id: DocId) -> Option<f64> {
         if let Some(checker) = self.expiration.as_ref()
             && checker.has_expiration()
         {
@@ -396,16 +426,25 @@ impl<'index, E: ExpirationChecker + Clone> ScoreSource for VectorScoreSource<'in
         self.num_iterations = 0;
         self.k_remaining = self.k.get();
         self.child_num_estimated = self.initial_child_num_estimated;
+        self.unfiltered_consumed = false;
     }
-    fn build_result<'r>(&self, doc_id: t_docId, score: f64) -> RSIndexResult<'r>
+
+    fn build_result<'r>(&self, doc_id: DocId, score: f64) -> RSIndexResult<'r>
     where
         Self: 'r,
     {
-        RSIndexResult::build_metric()
+        let mut result = RSIndexResult::build_metric()
             .doc_id(doc_id)
             .num_value(score)
-            .build()
-        // TODO: MOD-14210: push the score to `result.metrics`. This needs `self` to know its key.
+            .build();
+        if !self.own_key.is_null() {
+            // SAFETY: `own_key` is set by `getAdditionalMetricsRP` in pipeline_construction.c
+            // before any reads occur, and lives for `'idx` (⊇ `'r`). `ffi::RLookupKey` is the
+            // C header that `MetricsVec` stores: the `#[repr(C)]` prefix of `RLookupKey<'idx>`.
+            let key: &'r ffi::RLookupKey = unsafe { &*(self.own_key as *const ffi::RLookupKey) };
+            result.metrics.push_with_key(key, score);
+        }
+        result
     }
 
     fn iterator_type(&self) -> rqe_iterators::IteratorType {
