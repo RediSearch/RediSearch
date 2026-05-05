@@ -97,13 +97,21 @@ pub fn decode(hash: GeoHashBits) -> GeoHashArea {
 }
 
 /// Decode a [`GeoHashBits`] to the center `(longitude, latitude)` point.
+///
+/// Computes the cell center directly from the interleaved bits, avoiding
+/// a full [`decode`] and bound averaging.
 pub fn decode_to_lon_lat(hash: GeoHashBits) -> (R64, R64) {
-    let area = decode(hash);
-    let lon = ((area.longitude.min + area.longitude.max) / 2.0)
-        .clamp(R64::assert(GEO_LONG_MIN), R64::assert(GEO_LONG_MAX));
-    let lat = ((area.latitude.min + area.latitude.max) / 2.0)
-        .clamp(R64::assert(GEO_LAT_MIN), R64::assert(GEO_LAT_MAX));
-    (lon, lat)
+    let step = hash.step.as_u8();
+    let (ilat, ilon) = bits::deinterleave64(hash.bits);
+    let step_size = (1u64 << step) as f64;
+
+    let lon = (GEO_LONG_MIN + ((ilon as f64 + 0.5) / step_size) * (GEO_LONG_MAX - GEO_LONG_MIN))
+        .clamp(GEO_LONG_MIN, GEO_LONG_MAX);
+    let lat = (GEO_LAT_MIN + ((ilat as f64 + 0.5) / step_size) * (GEO_LAT_MAX - GEO_LAT_MIN))
+        .clamp(GEO_LAT_MIN, GEO_LAT_MAX);
+
+    // Both values are finite: bounded arithmetic on clamped integer inputs.
+    (R64::assert(lon), R64::assert(lat))
 }
 
 /// Left-shift a geohash to fill 52 bits, producing a value suitable for use
