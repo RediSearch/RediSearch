@@ -50,6 +50,29 @@ fn get_field<'a>(item: &'a Value, name: &[u8]) -> Option<&'a SharedValue> {
     }
 }
 
+/// Build a [`RLookupRow`] from a single shard-payload item.
+///
+/// When `requested` is `Some`, only the listed fields are written (explicit
+/// field mode). When `None`, every field in `item` is written (LOADALL mode).
+fn prepare_row(
+    lookup: &mut RLookup<'static>,
+    requested: Option<&[CString]>,
+    item: &Value,
+) -> RLookupRow<'static> {
+    let mut dst = RLookupRow::new();
+    match requested {
+        Some(fields) => {
+            for cname in fields {
+                if let Some(v) = get_field(item, cname.to_bytes()) {
+                    dst.write_key_by_name(lookup, cname.clone(), v.clone());
+                }
+            }
+        }
+        None => write_item_to_row(&mut dst, lookup, item),
+    }
+    dst
+}
+
 /// Write every field from `item` into `dst`, interning new names into `lookup`.
 ///
 /// Counterpart to [`get_field`]: used in LOADALL mode where every field is
@@ -181,22 +204,12 @@ impl LocalCollectCtx {
             return;
         };
 
-        if let Some(requested) = &r.requested {
-            for item in items.iter() {
-                let mut dst = RLookupRow::new();
-                for cname in requested.iter() {
-                    if let Some(v) = get_field(&**item, cname.to_bytes()) {
-                        dst.write_key_by_name(&mut self.lookup, cname.clone(), v.clone());
-                    }
-                }
-                self.rows.push(dst);
-            }
-        } else {
-            for item in items.iter() {
-                let mut dst = RLookupRow::new();
-                write_item_to_row(&mut dst, &mut self.lookup, &**item);
-                self.rows.push(dst);
-            }
+        for item in items.iter() {
+            self.rows.push(prepare_row(
+                &mut self.lookup,
+                r.requested.as_deref(),
+                &**item,
+            ));
         }
     }
 
