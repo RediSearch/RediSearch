@@ -3825,6 +3825,202 @@ class TestShardTimeout:
             verify_return_result=verify_return,
         )
 
+    def _run_return_strict_timeout_basic(self, query_args, cmd_name,
+                                         arm, wait_for_park, teardown):
+        """Driver for the three RETURN_STRICT shard scenarios that all
+        produce the same observable reply: empty results + TIMEOUT warning,
+        coord warning metric +1, no other metric movement.
+
+        ``arm(env)`` is called before the query thread is launched: install
+        any pause (sync-point ARM, WORKERS pause, ...) that BG must hit on
+        its way to the target point.
+
+        ``wait_for_park(env)`` is called after the query thread is launched
+        and the client is registered as blocked: block until BG has actually
+        reached the pause installed by ``arm``. Pass ``None`` for pauses
+        that take effect implicitly (e.g. WORKERS pause).
+
+        ``teardown(env, blocked_client_id)`` runs after CLIENT UNBLOCK and
+        wait_for_client_unblocked: release any pause installed by ``arm`` so
+        BG can finish cleanly.
+        """
+        env = self.env
+        skipIfNoEnableAssert(env)
+
+        prev_on_timeout_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
+        env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'return-strict')
+
+        before_info = info_modules_to_dict(env)
+        base_warn_coord = int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_METRIC])
+
+        arm(env)
+
+        query_result = []
+        t_query = threading.Thread(
+            target=call_and_store,
+            args=(env.cmd, list(query_args), query_result),
+            daemon=True,
+        )
+        t_query.start()
+
+        blocked_client_id = wait_for_blocked_query_client(env, cmd_name)
+
+        if wait_for_park is not None:
+            wait_for_park(env)
+
+        # Fire the blocked-client timeout. Depending on where BG is parked,
+        # the callback either wins TryClaim (replies empty directly) or
+        # loses TryClaim and waits for BG to finish + drain.
+        env.cmd('CLIENT', 'UNBLOCK', blocked_client_id, 'TIMEOUT')
+        wait_for_client_unblocked(env, blocked_client_id)
+
+        teardown(env, blocked_client_id)
+
+        t_query.join(timeout=10)
+        env.assertFalse(t_query.is_alive(), message="Query thread should have finished")
+
+        env.assertEqual(len(query_result), 1, message="Expected 1 result from query thread")
+        result = query_result[0]
+        env.assertEqual(result['total_results'], 0,
+                        message=f"Expected 0 total_results, got {result['total_results']}")
+        env.assertEqual(result.get('results', []), [],
+                        message=f"Expected no rows, got {result.get('results')}")
+        env.assertEqual(result.get('warning', []), [TIMEOUT_WARNING],
+                        message=f"Expected TIMEOUT warning, got {result.get('warning', [])}")
+
+        after_info = info_modules_to_dict(env)
+        env.assertEqual(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_METRIC],
+                        str(base_warn_coord + 1),
+                        message=f"Coordinator timeout warning should be +1 after {cmd_name}")
+        _verify_metrics_not_changed(env, env, before_info, [TIMEOUT_WARNING_COORD_METRIC])
+
+        env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy)
+
+    # --- Scenario 1: timeout fires before the worker thread picks up the job ---
+    # WORKERS pause holds the job in the threadpool queue, so BG never reaches
+    # AREQ_TryClaimAggregateResults. Main-thread callback wins TryClaim and
+    # replies empty + warning; BG runs to completion after WORKERS resume,
+    # observes the lost claim in startPipeline, and exits cleanly.
+
+    def _run_return_strict_timeout_before_worker_pickup(self, query_args, cmd_name):
+        def arm(env):
+            env.expect(debug_cmd(), 'WORKERS', 'pause').ok()
+
+        def teardown(env, blocked_client_id):
+            env.expect(debug_cmd(), 'WORKERS', 'resume').ok()
+            env.expect(debug_cmd(), 'WORKERS', 'drain').ok()
+
+        self._run_return_strict_timeout_basic(query_args, cmd_name,
+                                              arm, None, teardown)
+
+    def test_return_strict_timeout_before_worker_pickup_search(self):
+        """RETURN_STRICT shard timeout while the worker thread is paused.
+
+        Pre-claim race: BG never enters startPipeline, the main-thread
+        callback wins AREQ_TryClaimAggregateResults and emits an empty
+        FT.SEARCH reply with the TIMEOUT warning.
+        """
+        self._run_return_strict_timeout_before_worker_pickup(
+            ['FT.SEARCH', 'idx', '*'], 'FT.SEARCH')
+
+    def test_return_strict_timeout_before_worker_pickup_aggregate(self):
+        """RETURN_STRICT shard timeout while the worker thread is paused (FT.AGGREGATE).
+
+        Same pre-claim race as the FT.SEARCH variant; covered separately
+        because FT.AGGREGATE wires a different sorter / pager pipeline on
+        top of RPIndex even for the bare ``*`` case.
+        """
+        self._run_return_strict_timeout_before_worker_pickup(
+            ['FT.AGGREGATE', 'idx', '*'], 'FT.AGGREGATE')
+
+    # --- Scenario 2: timeout fires before AREQ_TryClaimAggregateResults ---
+    # BG is parked at the BeforeAggregateResultsClaim sync point (inside
+    # startPipeline, before the TryClaim race). Main-thread callback wins
+    # TryClaim and replies empty + warning. After CLIENT UNBLOCK we signal
+    # the sync point so BG observes the lost claim and exits startPipeline.
+
+    def _run_return_strict_timeout_at_claim(self, query_args, cmd_name):
+        sync_point = 'BeforeAggregateResultsClaim'
+
+        def arm(env):
+            env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
+            env.cmd(debug_cmd(), 'SYNC_POINT', 'ARM', sync_point)
+
+        def wait_for_park(env):
+            wait_for_condition(
+                lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', sync_point) == 1, {}),
+                f'Timeout waiting for {sync_point} sync point',
+            )
+
+        def teardown(env, blocked_client_id):
+            env.cmd(debug_cmd(), 'SYNC_POINT', 'SIGNAL', sync_point)
+            env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
+
+        self._run_return_strict_timeout_basic(query_args, cmd_name,
+                                              arm, wait_for_park, teardown)
+
+    def test_return_strict_timeout_at_claim_sync_point_search(self):
+        """RETURN_STRICT shard timeout at BeforeAggregateResultsClaim (FT.SEARCH).
+
+        BG parks at the sync point just before AREQ_TryClaimAggregateResults;
+        the main-thread callback always wins the claim and replies empty +
+        TIMEOUT warning. BG observes the lost claim after the sync point is
+        signalled and exits startPipeline cleanly.
+        """
+        self._run_return_strict_timeout_at_claim(
+            ['FT.SEARCH', 'idx', '*'], 'FT.SEARCH')
+
+    def test_return_strict_timeout_at_claim_sync_point_aggregate(self):
+        """RETURN_STRICT shard timeout at BeforeAggregateResultsClaim (FT.AGGREGATE)."""
+        self._run_return_strict_timeout_at_claim(
+            ['FT.AGGREGATE', 'idx', '*'], 'FT.AGGREGATE')
+
+    # --- Scenario 3: timeout fires after BG won TryClaim, before RPIndex's first read ---
+    # BG is parked at the BeforeRPIndexStart sync point (interruptible via
+    # areq_timed_out). The main-thread callback loses TryClaim and waits for
+    # completion; BG breaks out of the WaitUntil as soon as the timedOut
+    # flag is flipped, returns RS_RESULT_TIMEDOUT from rpQueryItNext without
+    # producing any rows, signals completion, and the callback drains the
+    # (empty) buffer and replies empty + warning.
+
+    def _run_return_strict_timeout_at_rpindex_start(self, query_args, cmd_name):
+        sync_point = 'BeforeRPIndexStart'
+
+        def arm(env):
+            env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
+            env.cmd(debug_cmd(), 'SYNC_POINT', 'ARM', sync_point)
+
+        def wait_for_park(env):
+            wait_for_condition(
+                lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', sync_point) == 1, {}),
+                f'Timeout waiting for {sync_point} sync point',
+            )
+
+        def teardown(env, blocked_client_id):
+            # WaitUntil already auto-released when AREQ_TimedOut flipped, but
+            # disarm + clear so the next test starts from a clean slate.
+            env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
+
+        self._run_return_strict_timeout_basic(query_args, cmd_name,
+                                              arm, wait_for_park, teardown)
+
+    def test_return_strict_timeout_at_rpindex_start_sync_point_search(self):
+        """RETURN_STRICT shard timeout at BeforeRPIndexStart (FT.SEARCH).
+
+        BG has already won AREQ_TryClaimAggregateResults and entered
+        rpQueryItNext, but parks at BeforeRPIndexStart before the first
+        iterator read. Main-thread callback loses the claim and waits;
+        BG breaks out of the interruptible wait when timedOut flips,
+        returns TIMEDOUT from RPIndex without producing rows, and the
+        callback replies empty + TIMEOUT warning.
+        """
+        self._run_return_strict_timeout_at_rpindex_start(
+            ['FT.SEARCH', 'idx', '*'], 'FT.SEARCH')
+
+    def test_return_strict_timeout_at_rpindex_start_sync_point_aggregate(self):
+        """RETURN_STRICT shard timeout at BeforeRPIndexStart (FT.AGGREGATE)."""
+        self._run_return_strict_timeout_at_rpindex_start(
+            ['FT.AGGREGATE', 'idx', '*'], 'FT.AGGREGATE')
 
 
 class TestShardTimeoutResp2:

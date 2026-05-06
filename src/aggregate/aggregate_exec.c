@@ -376,9 +376,11 @@ static void startPipeline(AREQ *req, ResultProcessor *rp, SearchResult ***result
 
 #ifdef ENABLE_ASSERT
 // SyncPoint stop predicate: break out of a sync-point wait when the AREQ has
-// been marked as timed out by the main-thread timeout callback.
+// been marked as timed out by the main-thread timeout callback. NULL arg is
+// treated as "never timed out" so callers parking before AREQ wiring (e.g.
+// the optional `areq` field on RPQueryIterator) stay parked until signalled.
 bool areq_timed_out(void *arg) {
-  return AREQ_TimedOut((AREQ *)arg);
+  return arg && AREQ_TimedOut((AREQ *)arg);
 }
 
 // Helper function to pause before/after store results (for testing timeout during store).
