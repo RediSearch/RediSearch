@@ -11,6 +11,7 @@ use redis_module::raw::RedisModule_ExitFromChild;
 use std::{
     io::{self, Read},
     os::fd::AsRawFd,
+    time::Duration,
 };
 
 /// Log a write error and terminate the forked child.
@@ -38,16 +39,17 @@ pub(crate) fn exit_on_write_error(err: io::Error) -> ! {
 /// Read from `reader` with a timeout, returning the number of bytes
 /// actually read.
 ///
-/// Polls the reader's file descriptor for `POLLIN` with `timeout_ms`,
+/// Polls the reader's file descriptor for `POLLIN` with `timeout`,
 /// then delegates to [`Read::read`] when the fd is ready. Surfaces
 /// timeouts as [`io::ErrorKind::TimedOut`] and `POLLHUP` / `POLLERR` /
 /// `POLLNVAL` as [`io::ErrorKind::Other`]. `EINTR` from either `poll`
 /// or the underlying read is handled internally by looping.
-pub(crate) fn read_with_timeout<R: Read + AsRawFd>(
+pub fn read_with_timeout<R: Read + AsRawFd>(
     reader: &mut R,
     buf: &mut [u8],
-    timeout_ms: i32,
+    timeout: Duration,
 ) -> io::Result<usize> {
+    let timeout_ms = timeout.as_millis().min(libc::c_int::MAX as u128) as libc::c_int;
     loop {
         let mut pfd = libc::pollfd {
             fd: reader.as_raw_fd(),
@@ -57,7 +59,7 @@ pub(crate) fn read_with_timeout<R: Read + AsRawFd>(
 
         // SAFETY: `pfd` is a valid pointer to a single pollfd for the
         // duration of the call.
-        let ret = unsafe { libc::poll(&mut pfd, 1, timeout_ms as libc::c_int) };
+        let ret = unsafe { libc::poll(&mut pfd, 1, timeout_ms) };
 
         match ret {
             -1 => {

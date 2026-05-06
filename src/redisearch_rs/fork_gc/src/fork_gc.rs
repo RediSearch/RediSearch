@@ -8,7 +8,6 @@
 */
 
 use std::{
-    ffi::c_int,
     io::{self, Read, Write},
     marker::PhantomData,
     mem::ManuallyDrop,
@@ -105,7 +104,7 @@ impl ForkGC {
             fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
                 match &mut self.pipe_reader {
                     Some(pr) => {
-                        read_with_timeout(&mut **pr, buf, POLL_TIMEOUT.as_millis() as c_int)
+                        read_with_timeout(&mut **pr, buf, POLL_TIMEOUT)
                     }
                     None => Err(io::Error::from_raw_os_error(libc::EBADF)),
                 }
