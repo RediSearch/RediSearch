@@ -125,7 +125,7 @@ fn remote_external_omits_keys_missing_on_row() {
         None,
         Box::new([]),
         0,
-        None,
+        Some((0, 100)),
         false,
     );
     let mut ctx = RemoteCollectCtx::new(&reducer);
@@ -166,7 +166,14 @@ fn remote_load_all_emits_all_lookup_keys_present_on_row() {
     row.write_key_by_name(&mut fixture.lookup, c"color", string_value("red"));
     row.write_key_by_name(&mut fixture.lookup, c"sweetness", SharedValue::new_num(4.0));
 
-    let reducer = fixture.reducer();
+    let reducer = RemoteCollectReducer::new(
+        Box::new([]),
+        Some(&fixture.lookup),
+        Box::new([]),
+        0,
+        Some((0, 100)),
+        false,
+    );
     let mut ctx = RemoteCollectCtx::new(&reducer);
 
     ctx.add(&reducer, &row);
@@ -205,7 +212,14 @@ fn remote_load_all_omits_keys_missing_on_row() {
     row_b.write_key_by_name(&mut fixture.lookup, c"name", string_value("lemon"));
     row_b.write_key_by_name(&mut fixture.lookup, c"sweetness", SharedValue::new_num(2.0));
 
-    let reducer = fixture.reducer();
+    let reducer = RemoteCollectReducer::new(
+        Box::new([]),
+        Some(&fixture.lookup),
+        Box::new([]),
+        0,
+        Some((0, 100)),
+        false,
+    );
     let mut ctx = RemoteCollectCtx::new(&reducer);
 
     ctx.add(&reducer, &row_a);
@@ -242,7 +256,14 @@ fn remote_load_all_skips_hidden_keys_even_when_row_has_value() {
     // lookup-walk level, not at "no value" — the value is present.
     row.write_key_by_name(&mut fixture.lookup, c"__hidden", string_value("internal"));
 
-    let reducer = fixture.reducer();
+    let reducer = RemoteCollectReducer::new(
+        Box::new([]),
+        Some(&fixture.lookup),
+        Box::new([]),
+        0,
+        Some((0, 100)),
+        false,
+    );
     let mut ctx = RemoteCollectCtx::new(&reducer);
 
     ctx.add(&reducer, &row);
