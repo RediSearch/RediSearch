@@ -71,15 +71,18 @@ pub fn read_with_timeout<R: Read + AsRawFd>(
             }
             0 => return Err(io::Error::new(io::ErrorKind::TimedOut, "read timed out")),
             _ => {
-                if pfd.revents & libc::POLLIN == 0 {
+                // Reads from closed empty pipes return only `POLLHUP`, while reads from closed
+                // unix domain sockets return `POLLIN | POLLHUP`. In both cases however, a
+                // subsequent read doesn't block and returns 0, signalling EOF.
+                if pfd.revents & (libc::POLLIN | libc::POLLHUP) != 0 {
+                    match reader.read(buf) {
+                        Err(err) if err.kind() == io::ErrorKind::Interrupted => continue,
+                        result => return result,
+                    }
+                } else {
                     return Err(io::Error::other(format!(
-                        "poll error: revents=0x{:x}{}{}{}",
+                        "poll error: revents=0x{:x}{}{}",
                         pfd.revents,
-                        if pfd.revents & libc::POLLHUP != 0 {
-                            " POLLHUP"
-                        } else {
-                            ""
-                        },
                         if pfd.revents & libc::POLLERR != 0 {
                             " POLLERR"
                         } else {
@@ -91,10 +94,6 @@ pub fn read_with_timeout<R: Read + AsRawFd>(
                             ""
                         },
                     )));
-                }
-                match reader.read(buf) {
-                    Err(err) if err.kind() == io::ErrorKind::Interrupted => continue,
-                    result => return result,
                 }
             }
         }
