@@ -161,27 +161,27 @@ void SearchCtx_Free(RedisSearchCtx *sctx) {
   rm_free(sctx);
 }
 
-static InvertedIndex *openIndexKeysDict(const RedisSearchCtx *ctx, CharBuf *termKey,
+static InvertedIndex *openIndexKeysDict(IndexSpec *spec, CharBuf *termKey,
                                         bool write, bool *outIsNew) {
-  InvertedIndex *idx = dictFetchValue(ctx->spec->keysDict, termKey);
+  InvertedIndex *idx = dictFetchValue(spec->keysDict, termKey);
   if (outIsNew) {
     *outIsNew = idx == NULL;
   }
   if (write && !idx) {
     size_t index_size;
-    idx = NewInvertedIndex(ctx->spec->flags, &index_size);
-    ctx->spec->stats.invertedSize += index_size;
-    dictAdd(ctx->spec->keysDict, termKey, idx);
+    idx = NewInvertedIndex(spec->flags, &index_size);
+    spec->stats.invertedSize += index_size;
+    dictAdd(spec->keysDict, termKey, idx);
   }
   return idx;
 }
 
-InvertedIndex *Redis_OpenInvertedIndex(const RedisSearchCtx *ctx, const char *term, size_t len, bool write, bool *outIsNew) {
+InvertedIndex *Redis_OpenInvertedIndex(IndexSpec *spec, const char *term, size_t len, bool write, bool *outIsNew) {
   CharBuf termKeyBuf = {
       .buf = (char *)term,
       .len = len,
   };
-  InvertedIndex *idx = openIndexKeysDict(ctx, &termKeyBuf, write, outIsNew);
+  InvertedIndex *idx = openIndexKeysDict(spec, &termKeyBuf, write, outIsNew);
   return idx;
 }
 
@@ -190,7 +190,7 @@ QueryIterator *Redis_OpenReader(const RedisSearchCtx *ctx, RSToken *tok, int tok
 
   CharBuf termKey = {.buf = tok->str, .len = tok->len};
 
-  InvertedIndex *idx = openIndexKeysDict(ctx, &termKey, false, NULL);
+  InvertedIndex *idx = openIndexKeysDict(ctx->spec, &termKey, false, NULL);
   if (!idx) {
     return NULL;
   }

@@ -199,6 +199,11 @@ size_t TimeToLiveTable_DebugAllocatedBuckets(const TimeToLiveTable *t) {
   return t ? t->cap : 0;
 }
 
+const arrayof(FieldExpiration) TimeToLiveTable_GetFieldExpirations(const TimeToLiveTable *t, t_docId docId) {
+  const TimeToLiveEntry *e = ttl_find_entry(t, docId);
+  return e ? e->fieldExpirations : NULL;
+}
+
 static inline bool DidExpire(const t_expirationTimePoint* field, const t_expirationTimePoint* now) {
   if (!field->tv_sec && !field->tv_nsec) {
     return false;

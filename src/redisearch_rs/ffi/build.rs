@@ -137,6 +137,11 @@ fn main() {
         // query_node.h. We blocklist the generated header so bindgen
         // doesn't re-parse it, and re-export the Rust type from lib.rs.
         .blocklist_file(".*/query_node_type.h")
+        // QueryProcessingCtx is defined in Rust (ffi crate, lib.rs);
+        // cbindgen generates the C definition into result_processor_rs.h.
+        // Blocklist the type so bindgen doesn't re-parse it from the
+        // generated header (which is included by result_processor.h).
+        .blocklist_type("QueryProcessingCtx")
         .allowlist_file(".*/types_rs.h")
         .generate()
         .expect("Unable to generate bindings")

@@ -9,7 +9,7 @@
 
 use std::ptr::NonNull;
 
-use ffi::{RedisSearchCtx, t_docId};
+use ffi::t_docId;
 use inverted_index::{
     DecodedBy, DocIdsDecoder, IndexReaderCore, RSIndexResult, opaque::OpaqueEncoding,
 };
@@ -37,7 +37,6 @@ use super::core::InvIndIterator;
 /// * `E` - The encoding type for the inverted index. Its decoder must implement [`DocIdsDecoder`].
 pub struct Wildcard<'index, E: DecodedBy> {
     it: InvIndIterator<'index, IndexReaderCore<'index, E>>,
-    context: NonNull<RedisSearchCtx>,
 }
 
 impl<'index, E> Wildcard<'index, E>
@@ -49,20 +48,7 @@ where
     /// inverted index.
     ///
     /// `weight` is the score weight applied to every returned result.
-    ///
-    /// # Safety
-    ///
-    /// 1. `context` must point to a valid [`RedisSearchCtx`].
-    /// 2. `context.spec` must be a non-null pointer to a valid [`IndexSpec`](ffi::IndexSpec).
-    /// 3. Both 1 and 2 must remain valid for the lifetime of the iterator.
-    /// 4. `context.spec.existingDocs`, when non-null, must point to an opaque
-    ///    [`InvertedIndex`](inverted_index::InvertedIndex) whose encoding
-    ///    variant matches `E`.
-    pub unsafe fn new(
-        reader: IndexReaderCore<'index, E>,
-        context: NonNull<RedisSearchCtx>,
-        weight: f64,
-    ) -> Self {
+    pub fn new(reader: IndexReaderCore<'index, E>, weight: f64) -> Self {
         use ffi::RS_FIELDMASK_ALL;
 
         let result = RSIndexResult::build_virt()
@@ -74,7 +60,6 @@ where
         Self {
             // Wildcard iterator does not support expiration check
             it: InvIndIterator::new(reader, result, NoOpChecker),
-            context,
         }
     }
 
@@ -84,12 +69,13 @@ where
     /// collecting all documents) or replace it with a new allocation. In
     /// both cases the reader's pointer is stale and the iterator must
     /// [abort](RQEValidateStatus::Aborted).
-    fn should_abort(&self) -> bool {
-        // SAFETY: 1. and 3. guarantee `context` is valid for the iterator's lifetime.
-        let sctx_ref = unsafe { self.context.as_ref() };
-        // SAFETY: 2. and 3. guarantee `spec` is a valid, non-null pointer for the iterator's lifetime.
-        let spec = unsafe { &*sctx_ref.spec };
-
+    ///
+    /// # Safety
+    ///
+    /// 1. `spec.existingDocs`, when non-null, must point to an opaque
+    ///    [`InvertedIndex`](inverted_index::InvertedIndex) whose encoding
+    ///    variant matches `E`.
+    unsafe fn should_abort(&self, spec: &ffi::IndexSpec) -> bool {
         let existing_docs = spec
             .existingDocs
             .cast::<inverted_index::opaque::InvertedIndex>();
@@ -98,9 +84,9 @@ where
             return true;
         }
 
-        // SAFETY: 4. guarantees `existingDocs` is valid when non-null, and we just checked it's not null.
+        // SAFETY: 1. guarantees `existingDocs` is valid when non-null, and we just checked it's not null.
         let existing_docs = unsafe { &*existing_docs };
-        // SAFETY: 4. guarantees the encoding variant matches E.
+        // SAFETY: 1. guarantees the encoding variant matches E.
         let ii = E::from_opaque(existing_docs);
 
         !self.it.reader.points_to_ii(ii)
@@ -156,12 +142,22 @@ where
     }
 
     #[inline(always)]
-    fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        if self.should_abort() {
+    unsafe fn revalidate(
+        &mut self,
+        spec: NonNull<ffi::IndexSpec>,
+    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
+        // SAFETY: The caller guarantees `spec` points to a valid `IndexSpec`
+        // while the spec read lock is held.
+        let spec_ref = unsafe { spec.as_ref() };
+        // SAFETY: `spec_ref` satisfies `should_abort`'s safety requirements.
+        // The existingDocs encoding match is a structural invariant: the
+        // encoding is determined at index creation and cannot change.
+        if unsafe { self.should_abort(spec_ref) } {
             return Ok(RQEValidateStatus::Aborted);
         }
 
-        self.it.revalidate()
+        // SAFETY: Delegating to inner iterator with the same `spec` passed by our caller.
+        unsafe { self.it.revalidate(spec) }
     }
 
     #[inline(always)]

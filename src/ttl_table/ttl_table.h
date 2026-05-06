@@ -41,6 +41,14 @@ void TimeToLiveTable_Add(TimeToLiveTable *table, t_docId docId, arrayof(FieldExp
 void TimeToLiveTable_Remove(TimeToLiveTable *table, t_docId docId);
 bool TimeToLiveTable_IsEmpty(TimeToLiveTable *table);
 
+// Returns a borrowed, read-only handle to the field-expiration array stored
+// for `docId`, or NULL if the table holds no entry for it. The returned
+// pointer aliases storage owned by the table — it is invalidated by any
+// subsequent `TimeToLiveTable_Add` / `_Remove` / `_Destroy` for this table,
+// and must not be freed by the caller. The array is sorted by field index
+// and is guaranteed to be non-empty.
+const arrayof(FieldExpiration) TimeToLiveTable_GetFieldExpirations(const TimeToLiveTable *table, t_docId docId);
+
 bool TimeToLiveTable_VerifyDocAndField(TimeToLiveTable *table, t_docId docId, t_fieldIndex fieldIndex, enum FieldExpirationPredicate predicate, const struct timespec* expirationPoint);
 bool TimeToLiveTable_VerifyDocAndFieldMask(TimeToLiveTable *table, t_docId docId, uint32_t fieldMask, enum FieldExpirationPredicate predicate, const struct timespec* expirationPoint, const t_fieldIndex* ftIdToFieldIndex);
 bool TimeToLiveTable_VerifyDocAndWideFieldMask(TimeToLiveTable *table, t_docId docId, t_fieldMask fieldMask, enum FieldExpirationPredicate predicate, const struct timespec* expirationPoint, const t_fieldIndex* ftIdToFieldIndex);

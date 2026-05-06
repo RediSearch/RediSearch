@@ -261,7 +261,7 @@ impl TestContext {
         let mut is_new = false;
         let inverted_index = unsafe {
             ffi::Redis_OpenInvertedIndex(
-                sctx.as_ptr(),
+                spec.as_ptr(),
                 term.as_ptr(),
                 term.as_bytes().len(),
                 true, // write mode

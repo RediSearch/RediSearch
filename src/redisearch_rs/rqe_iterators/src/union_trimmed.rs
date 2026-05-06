@@ -230,12 +230,12 @@ where
             match child.read()? {
                 Some(child_result) => {
                     self.result.doc_id = child_result.doc_id;
+                    let drained_metrics = std::mem::take(&mut child_result.metrics);
                     let child_ptr: *const RSIndexResult<'index> = child_result;
                     // SAFETY: child_result and self.result are disjoint fields — no aliasing.
-                    // push_borrowed takes a shared reference, so no mutation through child_ref.
                     // The child is owned by self, so the 'index data remains valid.
                     let child_ref = unsafe { &*child_ptr };
-                    self.result.push_borrowed(child_ref);
+                    self.result.push_borrowed(child_ref, drained_metrics);
                     return Ok(Some(&mut self.result));
                 }
                 None => {
@@ -264,7 +264,10 @@ where
     }
 
     #[inline(always)]
-    fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
+    unsafe fn revalidate(
+        &mut self,
+        _spec: std::ptr::NonNull<ffi::IndexSpec>,
+    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         // Trimmed unions run in a single, short-lived read path that does not
         // interleave with GC cycles, so revalidation should never be called.
         panic!(

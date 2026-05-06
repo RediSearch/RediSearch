@@ -407,6 +407,11 @@ uint64_t SearchDisk_GetVectorIndexTotalMemory(RedisSearchDiskIndexSpec* index) {
   return disk->metrics.getVectorIndexTotalMemory(disk_db, index);
 }
 
+uint64_t SearchDisk_GetNumRecords(RedisSearchDiskIndexSpec* index) {
+  RS_ASSERT(disk && disk_db && index);
+  return disk->metrics.getNumRecords(disk_db, index);
+}
+
 void SearchDisk_OutputInfoMetrics(RedisModuleInfoCtx* ctx) {
   RS_ASSERT(disk && disk_db && ctx);
   disk->metrics.outputInfoMetrics(disk_db, ctx);

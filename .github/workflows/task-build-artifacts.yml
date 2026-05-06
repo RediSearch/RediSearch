@@ -128,7 +128,7 @@ jobs:
         run: ${{ needs.get-config.outputs.post_setup_script }}
 
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           submodules: recursive
           ref: ${{ env.REF }}

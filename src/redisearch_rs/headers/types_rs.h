@@ -8,11 +8,11 @@
 #include <stdlib.h>
 #include "thin_vec.h"
 #include "query_term.h"
+#include "metrics.h"
 /**
  * Forward declarations which will be defined in `redisearch.h`
  */
 typedef struct RSDocumentMetadata_s RSDocumentMetadata;
-typedef struct RSYieldableMetric RSYieldableMetric;
 typedef uint64_t t_docId;
 typedef uint16_t t_fieldIndex;
 
@@ -470,9 +470,12 @@ typedef struct RSIndexResult {
    */
   union RSResultData data;
   /**
-   * Holds an array of metrics yielded by the different iterators in the AST
+   * Holds an array of metrics yielded by the different iterators in the AST.
+   *
+   * Backed by [`ThinVec`](thin_vec::ThinVec) — pointer-sized, no
+   * allocation when empty.
    */
-  RSYieldableMetric *metrics;
+  MetricsVec metrics;
   /**
    * Relative weight for scoring calculations. This is derived from the result's iterator weight
    */
@@ -882,12 +885,17 @@ union RSAggregateResult AggregateResult_New(uintptr_t cap);
 void AggregateResult_Free(union RSAggregateResult agg);
 
 /**
- * Add a child to a result if it is an aggregate result. Note, if `parent` only hold references
- * to results, then it will not take ownership of the `child` and will therefore not free it.
- * Instead, the caller is responsible for managing the memory of the `child` pointer *after* the
- * `parent` has been freed.
+ * Add a child to a result if it is an aggregate result.
  *
  * If the `parent` is not an aggregate kind, then this is a no-op.
+ *
+ * **Owned (copy) aggregates:** When `parent.is_copy()` is true, the parent
+ * takes ownership of `child` (via `Box::from_raw`). The caller must not
+ * access or free `child` afterward.
+ *
+ * **Borrowed aggregates:** When `parent.is_copy()` is false, the parent
+ * stores a borrowed reference to `child`. The caller retains ownership
+ * and must ensure `child` remains valid for the lifetime of `parent`.
  *
  * # Safety
  *

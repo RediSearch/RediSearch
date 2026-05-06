@@ -26,7 +26,7 @@ use thin_vec::SmallThinVec;
 /// [`NewTrieMap`]: crate::NewTrieMap
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn TrieMap_FindPrefixes(
-    t: *mut TrieMap,
+    t: *const TrieMap,
     str: *const c_char,
     len: tm_len_t,
 ) -> TrieMapResultBuf {
@@ -36,7 +36,7 @@ pub unsafe extern "C" fn TrieMap_FindPrefixes(
     // state the caller is to ensure that the pointer `t` is
     // a valid TrieMap obtained from `NewTrieMap` and cannot be NULL.
     // If that invariant is upheld, then the following line is sound.
-    let TrieMap(trie) = unsafe { &mut *t };
+    let TrieMap(trie) = unsafe { &*t };
 
     let prefix: &[u8] = if len > 0 {
         debug_assert!(!str.is_null(), "str cannot be NULL if len > 0");

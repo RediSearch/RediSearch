@@ -9,7 +9,8 @@
 
 use ffi::RS_FIELDMASK_ALL;
 use inverted_index::{
-    RSAggregateResult, RSIndexResult, RSOffsetSlice, RSOffsetVector, RSResultKind, RSResultKindMask,
+    MetricsVec, RSAggregateResult, RSIndexResult, RSOffsetSlice, RSOffsetVector, RSResultKind,
+    RSResultKindMask,
 };
 use query_term::RSQueryTerm;
 
@@ -94,7 +95,7 @@ fn pushing_to_index_result() {
     assert_eq!(ir.freq, 0);
     assert_eq!(ir.field_mask, 0);
 
-    ir.push_borrowed(&result_virt);
+    ir.push_borrowed(&result_virt, MetricsVec::new());
     assert_eq!(ir.doc_id, 2, "should inherit doc id of the child");
     assert_eq!(ir.kind(), RSResultKind::Union);
     assert_eq!(ir.weight, 1.0);
@@ -111,7 +112,7 @@ fn pushing_to_index_result() {
         )
     );
 
-    ir.push_borrowed(&result_with_frequency);
+    ir.push_borrowed(&result_with_frequency, MetricsVec::new());
     assert_eq!(ir.doc_id, 2);
     assert_eq!(ir.kind(), RSResultKind::Union);
     assert_eq!(ir.weight, 1.0);
@@ -127,7 +128,7 @@ fn to_owned_an_aggregate_index_result() {
         .weight(3.0)
         .build();
 
-    ir.push_borrowed(&num_rec);
+    ir.push_borrowed(&num_rec, MetricsVec::new());
 
     let mut ir_copy = ir.to_owned();
 
@@ -276,7 +277,7 @@ fn single_child_aggregate_always_true() {
     // An intersection with a single numeric child — no proximity check needed.
     let child = RSIndexResult::build_numeric(1.0).doc_id(1).build();
     let mut ir = RSIndexResult::build_intersect(1).build();
-    ir.push_borrowed(&child);
+    ir.push_borrowed(&child, MetricsVec::new());
     assert!(ir.is_within_range(Some(0), false));
     assert!(ir.is_within_range(Some(0), true));
 }
@@ -297,8 +298,8 @@ fn in_order_no_slop_succeeds_when_order_exists() {
         .doc_id(1)
         .build();
     let mut ir = RSIndexResult::build_intersect(2).build();
-    ir.push_borrowed(&t1);
-    ir.push_borrowed(&t2);
+    ir.push_borrowed(&t1, MetricsVec::new());
+    ir.push_borrowed(&t2, MetricsVec::new());
     assert!(ir.is_within_range(None, true));
 }
 
@@ -318,8 +319,8 @@ fn in_order_no_slop_fails_when_order_impossible() {
         .doc_id(1)
         .build();
     let mut ir = RSIndexResult::build_intersect(2).build();
-    ir.push_borrowed(&t1);
-    ir.push_borrowed(&t2);
+    ir.push_borrowed(&t1, MetricsVec::new());
+    ir.push_borrowed(&t2, MetricsVec::new());
     assert!(!ir.is_within_range(None, true));
 }
 
@@ -329,8 +330,8 @@ fn purely_numeric_children_always_true() {
     let child1 = RSIndexResult::build_numeric(1.0).doc_id(1).build();
     let child2 = RSIndexResult::build_numeric(2.0).doc_id(1).build();
     let mut ir = RSIndexResult::build_intersect(2).build();
-    ir.push_borrowed(&child1);
-    ir.push_borrowed(&child2);
+    ir.push_borrowed(&child1, MetricsVec::new());
+    ir.push_borrowed(&child2, MetricsVec::new());
     assert!(ir.is_within_range(Some(0), false));
     assert!(ir.is_within_range(Some(0), true));
 }
@@ -356,8 +357,8 @@ fn full_test_mirrors_cpp_testdistance() {
         .build();
 
     let mut ir = RSIndexResult::build_intersect(2).build();
-    ir.push_borrowed(&t1);
-    ir.push_borrowed(&t2);
+    ir.push_borrowed(&t1, MetricsVec::new());
+    ir.push_borrowed(&t2, MetricsVec::new());
 
     // Unordered: slop=1 is true because (vw1=9, vw2=7) has span=1.
     assert!(!ir.is_within_range(Some(0), false));

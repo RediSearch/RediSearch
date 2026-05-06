@@ -65,6 +65,26 @@ pub unsafe extern "C" fn RedisModule_ReplyWithSimpleString(
     ffi::REDISMODULE_OK as c_int
 }
 
+/// Mock implementation of `RedisModule_ReplyWithStringBuffer`.
+///
+/// # Safety
+///
+/// The `buf` pointer must be valid for `len` bytes.
+#[expect(non_snake_case)]
+pub unsafe extern "C" fn RedisModule_ReplyWithStringBuffer(
+    _ctx: *mut RedisModuleCtx,
+    buf: *const c_char,
+    len: usize,
+) -> c_int {
+    // SAFETY: Caller guarantees buf is valid for len bytes.
+    let bytes = unsafe { std::slice::from_raw_parts(buf.cast::<u8>(), len) };
+    let s = String::from_utf8_lossy(bytes).into_owned();
+    CAPTURE_STATE.with(|state| {
+        state.borrow_mut().push_value(ReplyValue::StringBuffer(s));
+    });
+    ffi::REDISMODULE_OK as c_int
+}
+
 /// Mock implementation of `RedisModule_ReplyWithEmptyArray`.
 ///
 /// # Safety

@@ -80,12 +80,15 @@ impl<'index> RQEIterator<'index> for NotIteratorEnum<'index> {
     }
 
     #[inline(always)]
-    fn revalidate(
+    unsafe fn revalidate(
         &mut self,
+        spec: std::ptr::NonNull<ffi::IndexSpec>,
     ) -> Result<rqe_iterators::RQEValidateStatus<'_, 'index>, rqe_iterators::RQEIteratorError> {
         match self {
-            Self::Not(it) => it.revalidate(),
-            Self::NotOptimized(it) => it.revalidate(),
+            // SAFETY: Delegating to variant with the same `spec` passed by our caller.
+            Self::Not(it) => unsafe { it.revalidate(spec) },
+            // SAFETY: Delegating to variant with the same `spec` passed by our caller.
+            Self::NotOptimized(it) => unsafe { it.revalidate(spec) },
         }
     }
 

@@ -28,6 +28,7 @@
 #include "slots_tracker.h"
 #include "asm_state_machine.h"
 #include "coord/rmr/command.h"
+#include "coord/rmr/chan.h"
 #include "search_disk.h"
 #include "search_disk_utils.h"
 #include "doc_id_meta.h"
@@ -822,6 +823,7 @@ static void groupStepFree(PLN_BaseStep *base) {
     for (size_t ii = 0; ii < nreducers; ++ii) {
       PLN_Reducer *gr = g->reducers + ii;
       rm_free(gr->alias);
+      rm_free(gr->inputAlias);
     }
     array_free(g->reducers);
   }
@@ -879,6 +881,8 @@ int PLNGroupStep_AddReducer(PLN_GroupStep *gstp, const char *name, ArgsCursor *a
     gr->alias = rm_strdup(alias);
   }
   gr->isHidden = 0; // By default, reducers are not hidden
+  gr->isLocal = false;
+  gr->inputAlias = NULL;
   return REDISMODULE_OK;
 
 error:
@@ -1104,6 +1108,57 @@ bool AREQ_TimedOut(AREQ *req) {
 
 void AREQ_SetTimedOut(AREQ *req) {
   atomic_store_explicit(&req->syncCtx.timedOut, true, memory_order_release);
+}
+
+bool AREQ_RequiresThreadsSyncResults(const AREQ *req) {
+  return req->syncCtx.requiresAggregateResultsSync;
+}
+
+bool AREQ_TryClaimAggregateResults(AREQ *req) {
+  bool expected = false;
+  return atomic_compare_exchange_strong(&req->syncCtx.aggregatingResults, &expected, true);
+}
+
+void AREQ_SignalAggregateResultsComplete(AREQ *req) {
+  pthread_mutex_lock(&req->syncCtx.aggregateResultsLock);
+  req->syncCtx.aggregateResultsDone = true;
+  pthread_cond_broadcast(&req->syncCtx.aggregateResultsCond);
+  pthread_mutex_unlock(&req->syncCtx.aggregateResultsLock);
+}
+
+void AREQ_WaitForAggregateResultsComplete(AREQ *req) {
+  pthread_mutex_lock(&req->syncCtx.aggregateResultsLock);
+  while (!req->syncCtx.aggregateResultsDone) {
+    pthread_cond_wait(&req->syncCtx.aggregateResultsCond, &req->syncCtx.aggregateResultsLock);
+  }
+  pthread_mutex_unlock(&req->syncCtx.aggregateResultsLock);
+}
+
+void AREQ_ResetAggregateResultsClaim(AREQ *req) {
+  atomic_store_explicit(&req->syncCtx.aggregatingResults, false, memory_order_release);
+  pthread_mutex_lock(&req->syncCtx.aggregateResultsLock);
+  req->syncCtx.aggregateResultsDone = false;
+  pthread_mutex_unlock(&req->syncCtx.aggregateResultsLock);
+}
+
+void RequestSyncCtx_RegisterAbortWakeChannel(RequestSyncCtx *ctx, struct MRChannel *chan) {
+  pthread_mutex_lock(&ctx->abortWakeLock);
+  ctx->abortWakeChannel = chan;
+  pthread_mutex_unlock(&ctx->abortWakeLock);
+}
+
+void RequestSyncCtx_UnregisterAbortWakeChannel(RequestSyncCtx *ctx) {
+  pthread_mutex_lock(&ctx->abortWakeLock);
+  ctx->abortWakeChannel = NULL;
+  pthread_mutex_unlock(&ctx->abortWakeLock);
+}
+
+void RequestSyncCtx_WakeAbortChannel(RequestSyncCtx *ctx) {
+  pthread_mutex_lock(&ctx->abortWakeLock);
+  if (ctx->abortWakeChannel) {
+    MRChannel_WakeAbort(ctx->abortWakeChannel);
+  }
+  pthread_mutex_unlock(&ctx->abortWakeLock);
 }
 
 
@@ -1650,6 +1705,9 @@ static void AREQ_Free(AREQ *req) {
   }
 
   rm_free(req->args);
+
+  RequestSyncCtx_Destroy(&req->syncCtx);
+
   rm_free(req);
 }
 
@@ -1661,6 +1719,14 @@ AREQ *AREQ_IncrRef(AREQ *req) {
 void AREQ_DecrRef(AREQ *req) {
   if (req && !__atomic_sub_fetch(&req->syncCtx.refcount, 1, __ATOMIC_ACQ_REL)) {
     AREQ_Free(req);
+  }
+}
+
+void AREQ_CleanUpStoredCursor(AREQ *req) {
+  if (req->storedReplyState.cursor) {
+    Cursor *cursor = req->storedReplyState.cursor;
+    req->storedReplyState.cursor = NULL;
+    Cursor_Free(cursor);
   }
 }
 

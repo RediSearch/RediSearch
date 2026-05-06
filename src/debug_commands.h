@@ -105,11 +105,15 @@ void StoreResultsDebugCtx_SetPause(bool pause);
 
 // Predefined sync point names for query execution
 // These correspond to specific locations in the query execution path
-#define SYNC_POINT_AFTER_ITERATOR_CREATE            "AfterIteratorCreate"
-#define SYNC_POINT_BEFORE_FIRST_READ                "BeforeFirstRead"
-#define SYNC_POINT_BEFORE_DIST_HYBRID_PROMOTE       "BeforeDistHybridPromote"
-#define SYNC_POINT_BEFORE_SPEC_LOCK                 "BeforeSpecLock"
-#define SYNC_POINT_BEFORE_CURSOR_READ_SEND_CHUNK    "BeforeCursorReadSendChunk"
+#define SYNC_POINT_AFTER_ITERATOR_CREATE                "AfterIteratorCreate"
+#define SYNC_POINT_BEFORE_FIRST_READ                    "BeforeFirstRead"
+#define SYNC_POINT_BEFORE_DIST_HYBRID_PROMOTE           "BeforeDistHybridPromote"
+#define SYNC_POINT_BEFORE_SPEC_LOCK                     "BeforeSpecLock"
+#define SYNC_POINT_BEFORE_CURSOR_READ_SEND_CHUNK        "BeforeCursorReadSendChunk"
+#define SYNC_POINT_BEFORE_AGGREGATE_RESULTS_CLAIM       "BeforeAggregateResultsClaim"
+#define SYNC_POINT_BEFORE_RPNET_START                   "BeforeRPNetStart"
+#define SYNC_POINT_AFTER_ITERATOR_START                 "AfterIteratorStart"
+#define SYNC_POINT_RPNET_REPLY_ADMITTED                 "RpnetReplyAdmitted"
 
 // SyncPoint API function declarations
 // Arm a sync point - subsequent calls to SyncPoint_Wait will block

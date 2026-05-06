@@ -10,6 +10,8 @@
 #pragma once
 
 #include "search_disk_api.h"
+#include "spec.h"
+#include "document.h"
 #include "iterators/iterator_api.h"
 #include "redismodule.h"
 
@@ -511,6 +513,17 @@ uint64_t SearchDisk_GetInvertedIndexTotalMemory(RedisSearchDiskIndexSpec* index)
  * @return Vector index memory in bytes
  */
 uint64_t SearchDisk_GetVectorIndexTotalMemory(RedisSearchDiskIndexSpec* index);
+
+/**
+ * @brief Get the disk-owned total number of records for a disk index
+ *
+ * Returns the disk-side num_records counter used by FT.INFO.
+ * Requires initialized SearchDisk and non-null index (RS_ASSERT).
+ *
+ * @param index Pointer to the disk index spec
+ * @return Number of records in the index
+ */
+uint64_t SearchDisk_GetNumRecords(RedisSearchDiskIndexSpec* index);
 
 /**
  * @brief Output aggregated disk metrics to Redis INFO

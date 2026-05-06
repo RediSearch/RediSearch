@@ -264,3 +264,40 @@ TEST_F(ExpireTest, testTTLLazyGrowth) {
   RSGlobalConfig.maxDocTableSize = savedMax;
 }
 
+// Exercises TimeToLiveTable_GetFieldExpirations, the borrowed read used by
+// the indexer to recover ownership-transferred FieldExpiration arrays after
+// DocTable_UpdateExpiration has consumed the original Document pointer.
+TEST_F(ExpireTest, testTTLGetFieldExpirations) {
+  TimeToLiveTable *ttl = nullptr;
+  TimeToLiveTable_VerifyInit(&ttl, 32);
+
+  // Empty table: any docId returns NULL.
+  ASSERT_EQ(TimeToLiveTable_GetFieldExpirations(ttl, 1), nullptr);
+  ASSERT_EQ(TimeToLiveTable_GetFieldExpirations(ttl, 999999), nullptr);
+
+  // Add an entry and confirm Get returns the same pointer that was inserted,
+  // with the expected length and content. (Add takes ownership; Get returns
+  // a borrowed alias to that same storage.)
+  struct timespec p = {123, 456};
+  arrayof(FieldExpiration) inserted = makeFE(p);
+  const FieldExpiration *insertedPtr = inserted;  // capture before Add transfers
+  TimeToLiveTable_Add(ttl, 7, inserted);
+
+  const arrayof(FieldExpiration) got = TimeToLiveTable_GetFieldExpirations(ttl, 7);
+  ASSERT_EQ(got, insertedPtr);
+  // array_len takes void*; the const-qualified return needs the cast.
+  ASSERT_EQ(array_len((arrayof(FieldExpiration))got), 1u);
+  ASSERT_EQ(got[0].index, 0);
+  ASSERT_EQ(got[0].point.tv_sec, p.tv_sec);
+  ASSERT_EQ(got[0].point.tv_nsec, p.tv_nsec);
+
+  // A docId that was never added must report NULL even when other entries exist.
+  ASSERT_EQ(TimeToLiveTable_GetFieldExpirations(ttl, 8), nullptr);
+
+  // After Remove, Get for that docId returns NULL.
+  TimeToLiveTable_Remove(ttl, 7);
+  ASSERT_EQ(TimeToLiveTable_GetFieldExpirations(ttl, 7), nullptr);
+
+  TimeToLiveTable_Destroy(&ttl);
+}
+

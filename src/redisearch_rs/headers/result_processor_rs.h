@@ -6,11 +6,74 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include "rs_wall_clock.h"
+#include "config.h"
 /**
  * Forward declaration of ResultProcessor. It will be defined in `result_processor.h`
  */
 typedef struct ResultProcessor ResultProcessor;
 
+/**
+ * Forward declaration of QueryError. It will be defined in `query_error.h`
+ */
+typedef struct QueryError QueryError;
+
+
+typedef struct QueryProcessingCtx {
+  /**
+   * First processor in the chain.
+   */
+  ResultProcessor *rootProc;
+  /**
+   * Last processor in the chain.
+   */
+  ResultProcessor *endProc;
+  /**
+   * Used with `clock_gettime(CLOCK_MONOTONIC, ...)`.
+   */
+  rs_wall_clock initTime;
+  /**
+   * Time accumulated in nanoseconds.
+   */
+  rs_wall_clock_ns_t queryGILTime;
+  /**
+   * The minimal score applicable for a result. It can be used to optimize
+   * the scorers.
+   */
+  double minScore;
+  /**
+   * The total results found in the query, incremented by the root
+   * processors and decremented by others who might disqualify results.
+   */
+  uint32_t totalResults;
+  /**
+   * The number of results we requested to return at the current chunk.
+   * This value is meant to be used by the RP to limit the number of results
+   * returned by its upstream RP ONLY.
+   * It should be restored after using it for local aggregation etc., as done
+   * in the Safe-Loader, Sorter, and Pager.
+   */
+  uint32_t resultLimit;
+  /**
+   * Object which contains the error.
+   */
+  QueryError *err;
+  /**
+   * Background indexing OOM warning.
+   */
+  bool bgScanOOM;
+  bool isProfile;
+  RSTimeoutPolicy timeoutPolicy;
+  /**
+   * True iff any prefix of the pipeline's output is a valid (though possibly
+   * incomplete) answer to the query - i.e. the pipeline can yield partial
+   * results on early termination.
+   * Set post-construction on the coordinator AREQ. Used by the
+   * RETURN-STRICT timeout path to drain queued shard replies on the main
+   * thread after the background pipeline has aborted.
+   */
+  bool canYieldPartialResults;
+} QueryProcessingCtx;
 
 #ifdef __cplusplus
 extern "C" {

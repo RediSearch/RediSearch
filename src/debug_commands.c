@@ -26,8 +26,10 @@
 #include "util/workers.h"
 #include "cursor.h"
 #include "module.h"
+#include "aggregate/aggregate.h"
 #include "aggregate/aggregate_debug.h"
 #include "hybrid/hybrid_debug.h"
+#include "hybrid/hybrid_exec.h"
 #include "reply.h"
 #include "reply_macros.h"
 #include "obfuscation/obfuscation_api.h"
@@ -419,7 +421,7 @@ DEBUG_COMMAND(InvertedIndexSummary) {
   }
   GET_SEARCH_CTX(argv[2])
   invIdxName = RedisModule_StringPtrLen(argv[3], &len);
-  invidx = Redis_OpenInvertedIndex(sctx, invIdxName, len, 0, NULL);
+  invidx = Redis_OpenInvertedIndex(sctx->spec, invIdxName, len, 0, NULL);
   if (!invidx) {
     RedisModule_ReplyWithError(sctx->redisCtx, "Can not find the inverted index");
     goto end;
@@ -471,7 +473,7 @@ DEBUG_COMMAND(DumpInvertedIndex) {
   }
   GET_SEARCH_CTX(argv[2])
   invIdxName = RedisModule_StringPtrLen(argv[3], &len);
-  invidx = Redis_OpenInvertedIndex(sctx, invIdxName, len, 0, NULL);
+  invidx = Redis_OpenInvertedIndex(sctx->spec, invIdxName, len, 0, NULL);
   if (!invidx) {
     RedisModule_ReplyWithError(sctx->redisCtx, "Can not find the inverted index");
     goto end;
@@ -1779,11 +1781,45 @@ DEBUG_COMMAND(ProfileCommandCommand_DebugWrapper) {
   return ProfileCommandHandlerImp(ctx, ++argv, --argc, true);
 }
 
+DEBUG_COMMAND(RSShardedHybridCommand_Debug) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc < 9) {
+    return RedisModule_WrongArity(ctx);
+  }
+  // Skip _FT.DEBUG prefix — argv now starts at FT.HYBRID / _FT.HYBRID
+  ++argv; --argc;
+
+  QueryError status = QueryError_Default();
+  HybridDebugParams params = parseHybridDebugParamsCount(argv, argc, &status);
+  if (QueryError_HasError(&status)) {
+    return QueryError_ReplyAndClear(ctx, &status);
+  }
+  if (parseHybridDebugParams(&params, &status) != REDISMODULE_OK) {
+    return QueryError_ReplyAndClear(ctx, &status);
+  }
+
+  // Strip debug params from argc so hybridCommandHandler sees a normal command
+  int stripped_argc = argc - (int)params.debug_params_count - 2;
+  return hybridCommandHandler(ctx, argv, stripped_argc, true, EXEC_NO_FLAGS, &params);
+}
+
 DEBUG_COMMAND(HybridCommand_DebugWrapper) {
   if (!debugCommandsEnabled(ctx)) {
     return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
   }
-  return DEBUG_hybridCommandHandler(ctx, ++argv, --argc);
+  if (argc < 9) {
+    // Minimum: _FT.DEBUG FT.HYBRID idx SEARCH query VSIM field vector DEBUG_PARAMS_COUNT count
+    return RedisModule_WrongArity(ctx);
+  }
+
+  if (GetNumShards_UnSafe() == 1) {
+    // Single shard — use standalone handler (skip _FT.DEBUG)
+    return DEBUG_hybridCommandHandler(ctx, ++argv, --argc);
+  }
+
+  return DistHybridCommandInternal(ctx, ++argv, --argc, true, false /* isProfile */);
 }
 
 /**
@@ -2535,6 +2571,28 @@ DEBUG_COMMAND(syncPoint) {
   }
   return RedisModule_ReplyWithError(ctx, "Unknown SYNC_POINT subcommand. Valid: ARM, SIGNAL, IS_WAITING, IS_ARMED, CLEAR");
 }
+
+/**
+ * FT.DEBUG QUERY_CONTROLLER SET_CURSOR_READ_SIZE <N>
+ * Override RSGlobalConfig.cursorReadSize at runtime. Returns the previous
+ * value so the caller can restore it. N must be >= 1.
+ */
+DEBUG_COMMAND(setCursorReadSize) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc != 3) {
+    return RedisModule_WrongArity(ctx);
+  }
+  long long n;
+  if (RedisModule_StringToLongLong(argv[2], &n) != REDISMODULE_OK || n < 1) {
+    return RedisModule_ReplyWithError(ctx, "Invalid argument for 'SET_CURSOR_READ_SIZE'");
+  }
+
+  long long previous = RSGlobalConfig.cursorReadSize;
+  RSGlobalConfig.cursorReadSize = n;
+  return RedisModule_ReplyWithLongLong(ctx, previous);
+}
 #endif
 
 /**
@@ -2560,6 +2618,9 @@ DEBUG_COMMAND(queryController) {
     return printRPStream(ctx, argv + 1, argc - 1);
   }
 #ifdef ENABLE_ASSERT
+  if (!strcmp("SET_CURSOR_READ_SIZE", op)) {
+    return setCursorReadSize(ctx, argv + 1, argc - 1);
+  }
   // Coordinator reduce pause commands (only available with ENABLE_ASSERT)
   if (!strcmp("SET_PAUSE_BEFORE_REDUCE", op)) {
     return setPauseBeforeReduce(ctx, argv + 1, argc - 1);
@@ -2855,7 +2916,7 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {"FT.SEARCH", DistSearchCommand_DebugWrapper},
                                {"_FT.SEARCH", RSSearchCommandShard}, // internal use only, in SA use FT.SEARCH
                                {"FT.HYBRID", HybridCommand_DebugWrapper},
-                               {"_FT.HYBRID", HybridCommand_DebugWrapper}, // internal use only, in SA use FT.HYBRID
+                               {"_FT.HYBRID", RSShardedHybridCommand_Debug},
                                {"FT.PROFILE", ProfileCommandCommand_DebugWrapper},
                                {"_FT.PROFILE", RSProfileCommandShard},
                                /* IMPORTANT NOTE: Every debug command starts with

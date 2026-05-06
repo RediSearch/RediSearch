@@ -87,7 +87,7 @@ void RS_SuggestionsFree(RS_Suggestions *s) {
  */
 static double SpellCheck_GetScore(SpellCheckCtx *scCtx, char *suggestion, size_t len,
                                   t_fieldMask fieldMask) {
-  InvertedIndex *invidx = Redis_OpenInvertedIndex(scCtx->sctx, suggestion, len, 0, NULL);
+  InvertedIndex *invidx = Redis_OpenInvertedIndex(scCtx->sctx->spec, suggestion, len, 0, NULL);
   double retVal = 0;
   IndexDecoderCtx ctx = {.field_mask_tag = IndexDecoderCtx_FieldMask, .field_mask = fieldMask};
   IndexReader *reader = NULL;

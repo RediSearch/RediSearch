@@ -119,7 +119,7 @@ std::size_t QIter_NumEstimated(const QueryIterator *ctx) {
 void QIter_Rewind(QueryIterator *ctx) {
   reinterpret_cast<CPPQueryIterator *>(ctx)->rewind();
 }
-ValidateStatus QIter_Revalidate(QueryIterator *ctx) {
+ValidateStatus QIter_Revalidate(QueryIterator *ctx, IndexSpec *) {
   auto *qi = reinterpret_cast<CPPQueryIterator *>(ctx);
   qi->check_field_expiration_ =
       CPPQueryIterator::should_check_field_expiration(qi->sctx_, &qi->filterCtx_);
@@ -130,7 +130,7 @@ ValidateStatus QIter_Revalidate(QueryIterator *ctx) {
 
 QueryIterator CPPQueryIterator::init_base() {
   return QueryIterator{
-      .type = ID_LIST_SORTED_ITERATOR,
+      .type = IteratorType_GeoShape,
       .atEOF = false,
       .lastDocId = 0,
       .current = NewVirtualResult(0, RS_FIELDMASK_ALL),

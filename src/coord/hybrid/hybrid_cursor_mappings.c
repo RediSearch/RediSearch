@@ -8,6 +8,7 @@
 */
 
 #include "hybrid_cursor_mappings.h"
+#include "hybrid/hybrid_exec.h"
 #include "redismodule.h"
 #include "rmalloc.h"
 #include "rmutil/rm_assert.h"
@@ -43,6 +44,24 @@ static void processHybridError(processCursorMappingCallbackContext *ctx, MRReply
     ctx->errors = array_ensure_append_1(ctx->errors, error);
 }
 
+// Warning strings use a different format than error strings (no prefix).
+// Map warning codes to error codes for uniform handling in ProcessHybridCursorMappings.
+static void processHybridWarning(processCursorMappingCallbackContext *ctx, const MRReply *rep) {
+    const char *warningMessage = MRReply_String(rep, NULL);
+    QueryWarningCode warningCode = QueryWarningCode_GetCodeFromMessage(warningMessage);
+    QueryError error = QueryError_Default();
+    if (warningCode == QUERY_WARNING_CODE_TIMED_OUT) {
+        QueryError_SetCode(&error, QUERY_ERROR_CODE_TIMED_OUT);
+    } else if (warningCode == QUERY_WARNING_CODE_OUT_OF_MEMORY_SHARD ||
+               warningCode == QUERY_WARNING_CODE_OUT_OF_MEMORY_COORD) {
+        QueryError_SetCode(&error, QUERY_ERROR_CODE_OUT_OF_MEMORY);
+    } else {
+        QueryError_SetCode(&error, QUERY_ERROR_CODE_GENERIC);
+    }
+    QueryError_SetDetail(&error, warningMessage);
+    ctx->errors = array_ensure_append_1(ctx->errors, error);
+}
+
 static void processHybridUnknownReplyType(processCursorMappingCallbackContext *ctx, int replyType) {
     QueryError error = QueryError_Default();
     QueryError_SetWithoutUserDataFmt(&error, QUERY_ERROR_CODE_UNSUPP_TYPE, "Unsupported reply type: %d", replyType);
@@ -66,7 +85,7 @@ static void processHybridResp2(processCursorMappingCallbackContext *ctx, MRReply
         if (strcmp(key, "warnings") == 0) {
             for (size_t j = 0; j < MRReply_Length(value_reply); j++) {
                 MRReply *warningReply = MRReply_ArrayElement(value_reply, j);
-                processHybridError(ctx, warningReply);
+                processHybridWarning(ctx, warningReply);
             }
             continue;
         }
@@ -155,7 +174,7 @@ static void processHybridResp3(processCursorMappingCallbackContext *ctx, MRReply
     if (MRReply_Length(warnings) > 0) {
         for (size_t i = 0; i < MRReply_Length(warnings); i++) {
             MRReply *warningReply = MRReply_ArrayElement(warnings, i);
-            processHybridError(ctx, warningReply);
+            processHybridWarning(ctx, warningReply);
         }
     }
 }
@@ -216,7 +235,7 @@ static inline void cleanupCtx(processCursorMappingCallbackContext *ctx) {
     rm_free(ctx);
 }
 
-bool ProcessHybridCursorMappings(const MRCommand *cmd, StrongRef searchMappingsRef, StrongRef vsimMappingsRef, QueryError *status, const RSOomPolicy oomPolicy, const RSTimeoutPolicy timeoutPolicy) {
+bool ProcessHybridCursorMappings(const MRCommand *cmd, StrongRef searchMappingsRef, StrongRef vsimMappingsRef, QueryError *status, const RSOomPolicy oomPolicy, const RSTimeoutPolicy timeoutPolicy, bool *maxPrefixSearch, bool *maxPrefixVsim) {
     CursorMappings *searchMappings = StrongRef_Get(searchMappingsRef);
     CursorMappings *vsimMappings = StrongRef_Get(vsimMappingsRef);
     RS_ASSERT(array_len(searchMappings->mappings) == 0 && array_len(vsimMappings->mappings) == 0);
@@ -269,12 +288,35 @@ bool ProcessHybridCursorMappings(const MRCommand *cmd, StrongRef searchMappingsR
             if (QueryError_GetCode(&ctx->errors[i]) == QUERY_ERROR_CODE_OUT_OF_MEMORY && oomPolicy == OomPolicy_Return ) {
                 QueryError_SetQueryOOMWarning(status);
             } else if (QueryError_GetCode(&ctx->errors[i]) == QUERY_ERROR_CODE_TIMED_OUT && timeoutPolicy != TimeoutPolicy_Fail) {
+                // RETURN / RETURN-STRICT policy: acknowledge the shard timeout but
+                // don't set it on qctx->err. The timeout will propagate through cursor
+                // reads (RPNet detects it from the depleter's last_rc), and
+                // replyWarningsWithSuffixes emits the properly-suffixed warning
+                // (e.g., "(SEARCH)" / "(VSIM)").
+                // Note: for the _FT.DEBUG FT.HYBRID path, RETURN-STRICT is rejected
+                // earlier in parseHybridDebugParams, so only RETURN reaches here in
+                // debug mode.
+            } else if (QueryError_GetCode(&ctx->errors[i]) == QUERY_ERROR_CODE_TIMED_OUT) {
+                // FAIL policy: forward the standard timeout error directly,
+                // matching the standalone path which uses QueryError_Strerror().
                 QueryError_SetCode(status, QUERY_ERROR_CODE_TIMED_OUT);
-            } else {
-                QueryError_SetWithoutUserDataFmt(status, QueryError_GetCode(&ctx->errors[i]), "Failed to process shard responses, first error: %s, total error count: %zu",
-                    QueryError_GetUserError(&ctx->errors[i]), array_len(ctx->errors));
                 success = false;
                 break;
+            } else {
+                const char *msg = QueryError_GetUserError(&ctx->errors[i]);
+                if (msg && strncmp(msg, QUERY_WMAXPREFIXEXPANSIONS, strlen(QUERY_WMAXPREFIXEXPANSIONS)) == 0) {
+                    if (strstr(msg, SEARCH_SUFFIX)) {
+                        *maxPrefixSearch = true;
+                    } else if (strstr(msg, VSIM_SUFFIX)) {
+                        *maxPrefixVsim = true;
+                    }
+                    continue;
+                } else {
+                    QueryError_SetWithoutUserDataFmt(status, QueryError_GetCode(&ctx->errors[i]), "Failed to process shard responses, first error: %s, total error count: %zu",
+                        msg, array_len(ctx->errors));
+                    success = false;
+                    break;
+                }
             }
         }
     }

@@ -27,7 +27,7 @@ typedef const void* RedisSearchDisk;
 typedef const void* RedisSearchDiskIndexSpec;
 typedef const void* RedisSearchDiskInvertedIndex;
 typedef const void* RedisSearchDiskIterator;
-typedef const void* RedisSearchDiskAsyncReadPool;
+typedef void* RedisSearchDiskAsyncReadPool;
 typedef const void* RedisSearchDiskRdbState;
 
 // Callback function to allocate memory for the key in the scope of the search module memory
@@ -547,6 +547,17 @@ typedef struct MetricsDiskAPI {
    * @return Vector index memory in bytes
    */
   uint64_t (*getVectorIndexTotalMemory)(RedisSearchDisk *disk, RedisSearchDiskIndexSpec *index);
+
+  /**
+   * @brief Get the disk-owned total number of records for a specific index
+   *
+   * Returns the disk-side num_records counter used by FT.INFO.
+   *
+   * @param disk Pointer to the disk context
+   * @param index Pointer to the index spec
+   * @return Number of records in the index
+   */
+  uint64_t (*getNumRecords)(RedisSearchDisk *disk, RedisSearchDiskIndexSpec *index);
 
   /**
    * @brief Output aggregated disk metrics to Redis INFO

@@ -86,10 +86,12 @@ impl<'index> rqe_iterators::RQEIterator<'index> for NumericIterator<'index> {
     }
 
     #[inline(always)]
-    fn revalidate(
+    unsafe fn revalidate(
         &mut self,
+        spec: std::ptr::NonNull<ffi::IndexSpec>,
     ) -> Result<rqe_iterators::RQEValidateStatus<'_, 'index>, rqe_iterators::RQEIteratorError> {
-        self.iterator.revalidate()
+        // SAFETY: Delegating to inner iterator with the same `spec` passed by our caller.
+        unsafe { self.iterator.revalidate(spec) }
     }
 
     #[inline(always)]
