@@ -158,7 +158,7 @@ fn build_finalize_template<'a>(
             .iter()
             .filter(|k| !k.flags.contains(RLookupKeyFlag::Hidden))
             .collect()
-    } else if r.include_sort_keys {
+    } else if r.include_sort_keys && !r.sort_keys.is_empty() {
         dedup_by_dstidx(&r.field_keys, &r.sort_keys)
     } else {
         r.field_keys.to_vec()
