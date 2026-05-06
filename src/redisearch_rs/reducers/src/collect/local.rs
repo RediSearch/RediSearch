@@ -42,6 +42,7 @@ fn get_field<'a>(item: &'a Value, name: &[u8]) -> Option<&'a SharedValue> {
         Value::Map(m) => m.get(name),
         Value::Array(a) => a.map_get(name),
         _ => {
+            // TODO: replace with `debug_assert_warn!` once that macro is accessible from this crate.
             debug_assert!(false, "local COLLECT: shard payload item must be a Map or Array");
             tracing::warn!("local COLLECT: shard payload item is not a Map or Array; skipping");
             None
@@ -51,9 +52,9 @@ fn get_field<'a>(item: &'a Value, name: &[u8]) -> Option<&'a SharedValue> {
 
 /// Write every field from `item` into `dst`, interning new names into `lookup`.
 ///
-/// Counterpart to [`get_field`]: used in LOADALL mode where all fields are
+/// Counterpart to [`get_field`]: used in LOADALL mode where every field is
 /// written rather than only those listed in [`requested`][LocalCollectReducer::requested].
-fn ingest_item(dst: &mut RLookupRow<'static>, lookup: &mut RLookup<'static>, item: &Value) {
+fn write_item_to_row(dst: &mut RLookupRow<'static>, lookup: &mut RLookup<'static>, item: &Value) {
     match item {
         Value::Map(m) => {
             for (k, v) in m.iter() {
@@ -72,6 +73,7 @@ fn ingest_item(dst: &mut RLookupRow<'static>, lookup: &mut RLookup<'static>, ite
             }
         }
         _ => {
+            // TODO: replace with `debug_assert_warn!` once that macro is accessible from this crate.
             debug_assert!(false, "local COLLECT: shard payload item must be a Map or Array");
             tracing::warn!("local COLLECT: shard payload item is not a Map or Array; skipping");
         }
@@ -129,8 +131,7 @@ impl<'a> LocalCollectReducer<'a> {
                 field_names
                     .iter()
                     .filter_map(|name| CString::new(name.as_ref()).ok())
-                    .collect::<Vec<_>>()
-                    .into_boxed_slice(),
+                    .collect::<Box<[_]>>(),
             )
         };
         Self {
@@ -167,11 +168,13 @@ impl LocalCollectCtx {
     /// When [`requested`][LocalCollectReducer::requested] is `Some`, only
     /// those fields are written; extra fields (e.g. sort keys) are ignored.
     pub fn add(&mut self, r: &LocalCollectReducer, row: &RLookupRow) {
+        // TODO: replace with `debug_assert_warn!` once that macro is accessible from this crate.
         let Some(payload) = row.get(r.input_key) else {
             debug_assert!(false, "local COLLECT: input_key must be present in every merge row");
             tracing::warn!("local COLLECT: input_key missing from merge row; skipping row");
             return;
         };
+        // TODO: replace with `debug_assert_warn!` once that macro is accessible from this crate.
         let Value::Array(items) = &**payload else {
             debug_assert!(false, "local COLLECT: input_key payload must be an Array");
             tracing::warn!("local COLLECT: input_key payload is not an Array; skipping row");
@@ -191,7 +194,7 @@ impl LocalCollectCtx {
         } else {
             for item in items.iter() {
                 let mut dst = RLookupRow::new();
-                ingest_item(&mut dst, &mut self.lookup, &**item);
+                write_item_to_row(&mut dst, &mut self.lookup, &**item);
                 self.rows.push(dst);
             }
         }

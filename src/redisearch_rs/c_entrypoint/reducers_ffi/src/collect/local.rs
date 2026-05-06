@@ -35,8 +35,7 @@ unsafe fn copy_c_names(names: *const *const c_char, len: usize) -> Box<[Box<[u8]
             let bytes = unsafe { CStr::from_ptr(p) }.to_bytes();
             bytes.to_vec().into_boxed_slice()
         })
-        .collect::<Vec<_>>()
-        .into_boxed_slice()
+        .collect::<Box<[_]>>()
 }
 
 /// Create a local COLLECT reducer; free it with [`collectLocalFree`].
