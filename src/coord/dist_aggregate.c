@@ -715,9 +715,6 @@ int DistAggregateTimeoutReturnStrictClient(RedisModuleCtx *ctx, RedisModuleStrin
   return REDISMODULE_OK;
 }
 
-// Forward declaration — defined below alongside DistCursorReadTimeoutReturnStrictClient.
-static void coordReleaseParkedCursorAfterReply(CoordRequestCtx *reqCtx, AREQ *req);
-
 // Main-thread reply callback for coord AREQ (FAIL / RETURN-STRICT). Reads results
 // stored by the BG thread in req->storedReplyState. NOT called if timeout fired
 int DistAggregateReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
@@ -757,38 +754,14 @@ int DistAggregateReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, in
     return REDISMODULE_OK;
   }
 
+  // AREQ_ReplyWithStoredResults disposes any cursor stashed in
+  // storedReplyState.cursor by runCursor: Pause when more rows remain,
+  // Free on QEXEC_S_ITERDONE. This covers both coord+FAIL and
+  // coord+RETURN_STRICT FT.CURSOR READ.
   AREQ_ReplyWithStoredResults(ctx, req);
-
-  // For coord FT.CURSOR READ on the RETURN_STRICT path, dispose of the parked
-  // cursor (Pause if more rows remain, Free on EOF). On every other caller
-  // parkedCursor is NULL — the take returns NULL and the helper is a no-op.
-  // The gate documents intent and avoids touching reqCtx for paths that don't
-  // use it. (§3.5 / plan Section 7.)
-  if (CoordRequestCtx_IsCursorReadReturnStrict(CoordReqCtx)) {
-    coordReleaseParkedCursorAfterReply(CoordReqCtx, req);
-  }
 
   // Note: No AREQ_DecrRef here - CoordRequestCtx_Free releases the context's reference.
   return REDISMODULE_OK;
-}
-
-// Dispose of the cursor parked on `reqCtx` by `RSCursorReadCommand`'s take-lock
-// window (§3.5). On QEXEC_S_ITERDONE the cursor is freed; otherwise it is
-// paused so the client can issue the next FT.CURSOR READ on the same cid.
-//
-// Lockless take: this helper runs from the reply callback or the timer (both
-// main thread, mutually exclusive per Redis BC). The BG error sub-path may
-// have already taken + freed the parked cursor before signalling, in which
-// case the take here returns NULL and we no-op. See the `parkedCursor` field
-// comment in coord_request_ctx.h for the full ordering proof.
-static void coordReleaseParkedCursorAfterReply(CoordRequestCtx *reqCtx, AREQ *req) {
-  Cursor *c = CoordRequestCtx_TakeParkedCursor(reqCtx);
-  if (!c) return;                       // already disposed by BG error sub-path
-  if (req->stateflags & QEXEC_S_ITERDONE) {
-    Cursor_Free(c);
-  } else {
-    Cursor_Pause(c);
-  }
 }
 
 // Coordinator FT.CURSOR READ timeout callback for the RETURN_STRICT policy.
@@ -837,17 +810,17 @@ int DistCursorReadTimeoutReturnStrictClient(RedisModuleCtx *ctx, RedisModuleStri
   AREQ_WaitForAggregateResultsComplete(req);
 
   if (req->storedReplyState.hasStoredResults) {
-    // Happy branch: drain anything queued before the deadline, serialize, then
-    // dispose of the parked cursor (Pause if more rows remain, Free on EOF).
+    // Happy branch: drain anything queued before the deadline, serialize, and
+    // dispose of the cursor stashed in storedReplyState.cursor (Pause if more
+    // rows remain, Free on EOF) — handled inside AREQ_ReplyWithStoredResults.
     drainPartialResultsAfterTimeout(req);
     AREQ_ReplyWithStoredResults(ctx, req);
-    coordReleaseParkedCursorAfterReply(reqCtx, req);
   } else {
     // Error branch: BG bailed pre-pipeline through AREQ_ReplyOrStoreError (e.g.
     // spec dropped at cursorRead). The error sits in storedReplyState.err and
-    // the cursor was already taken+freed by the bail path under setRequestLock
-    // (§3.4 cursor-clear obligation), so parkedCursor is NULL here. Flush the
-    // error to the client (mirrors the QueryReplyCallback pattern).
+    // the bail path freed the local cursor handle directly, so
+    // storedReplyState.cursor is NULL here. Flush the error to the client
+    // (mirrors the QueryReplyCallback pattern).
     QueryError *err = &req->storedReplyState.err;
     RS_ASSERT(QueryError_HasError(err));
     QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(err), 1, COORD_ERR_WARN);

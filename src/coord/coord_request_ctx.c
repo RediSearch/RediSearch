@@ -27,22 +27,6 @@ CoordRequestCtx *CoordRequestCtx_New(CommandType type) {
 void CoordRequestCtx_Free(CoordRequestCtx *ctx) {
   if (!ctx) return;
 
-  // Disconnect cleanup for the RETURN_STRICT cursor-read path. The field is
-  // non-NULL here only on client disconnect: in every other case the reply
-  // callback, timer, or BG error sub-path already claimed and disposed of
-  // the cursor and we observe NULL.
-  // No lock needed: free_privdata is invoked by Redis only after BG calls
-  // RM_UnblockClient, on the main thread, after any reply_callback /
-  // timeout_callback for this BC has already run (or been skipped). No
-  // other parkedCursor consumer can be active concurrently with us.
-  // Single-disposal invariant: runCursor skips the storedReplyState.cursor
-  // stash when isCursorReadReturnStrict is set (see aggregate_exec.c), so
-  // on this path the parkedCursor below is the only handle and the
-  // AREQ_CleanUpStoredCursor call further down is a cursor no-op.
-  Cursor *parked = ctx->parkedCursor;
-  ctx->parkedCursor = NULL;
-  if (parked) Cursor_Free(parked);
-
   // Clear pre-request error if set
   QueryError_ClearError(&ctx->preRequestError);
 
@@ -51,9 +35,13 @@ void CoordRequestCtx_Free(CoordRequestCtx *ctx) {
     if (ctx->hreq) HybridRequest_DecrRef(ctx->hreq);
   } else if (ctx->type == COMMAND_AGGREGATE) {
     if (ctx->areq) {
-      // Timeout edge case for cursor queries with useReplyCallback:
-      // When timeout fires before reply_callback runs, but after the cursor was created and
-      // stored in areq->storedReplyState.cursor, the cursor needs to be freed manually.
+      // Disposes any cursor stashed in storedReplyState.cursor by runCursor's
+      // sendChunk store-and-return. Non-NULL only on client disconnect (or a
+      // pre-pipeline error bail before the reply callback ran): in every
+      // other case the reply callback, timer, or BG error sub-path already
+      // cleared and disposed of it. Single-disposal invariant: runCursor
+      // unconditionally writes the slot, and AREQ_CleanUpStoredCursor /
+      // AREQ_ReplyWithStoredResults are mutually exclusive consumers.
       AREQ_CleanUpStoredCursor(ctx->areq);
       AREQ_DecrRef(ctx->areq);
     }
@@ -87,11 +75,6 @@ void CoordRequestCtx_SetRequest(CoordRequestCtx *ctx, void *req) {
     ((HybridRequest *)req)->useReplyCallback = ctx->useReplyCallback;
   } else if (ctx->type == COMMAND_AGGREGATE) {
     ((AREQ *)req)->useReplyCallback = ctx->useReplyCallback;
-    // Mirror the RETURN_STRICT cursor-read flag onto the AREQ so runCursor
-    // can gate the storedReplyState.cursor stash without reaching back into
-    // the CoordRequestCtx. Only applies to AREQ (HybridRequest cursor reads
-    // are out of scope for RETURN_STRICT — see plan §5.10).
-    ((AREQ *)req)->isCursorReadReturnStrict = ctx->isCursorReadReturnStrict;
   } else {
     COORD_REQUEST_CTX_UNSUPPORTED_TYPE();
   }
@@ -150,16 +133,6 @@ void CoordRequestCtx_SetCursorReadReturnStrict(CoordRequestCtx *ctx, bool value)
 
 bool CoordRequestCtx_IsCursorReadReturnStrict(CoordRequestCtx *ctx) {
   return ctx->isCursorReadReturnStrict;
-}
-
-void CoordRequestCtx_SetParkedCursor(CoordRequestCtx *ctx, Cursor *cursor) {
-  ctx->parkedCursor = cursor;
-}
-
-Cursor *CoordRequestCtx_TakeParkedCursor(CoordRequestCtx *ctx) {
-  Cursor *parked = ctx->parkedCursor;
-  ctx->parkedCursor = NULL;
-  return parked;
 }
 
 void CoordRequestCtx_ReplyOrStoreError(CoordRequestCtx *req, RedisModuleCtx *ctx, QueryError *status) {

@@ -48,24 +48,6 @@ typedef struct CoordRequestCtx {
   // reply_callback pattern). Set in CursorCommand before BC arming; never
   // mutated afterwards.
   bool isCursorReadReturnStrict;
-  // Per-read cursor handle parked here while the BG worker drives the chunk.
-  // Set inside RSCursorReadCommand's setRequestLock critical section together
-  // with SetRequest, so any consumer that observes a non-NULL request also
-  // observes the parked cursor (or finds it already taken by a peer consumer).
-  //
-  // Concurrent access is serialized externally — no internal lock required
-  // for the take/null race:
-  //   * BG error sub-path takes + nulls *before* AREQ_SignalAggregateResultsComplete;
-  //     timer's take happens after AREQ_WaitForAggregateResultsComplete returns,
-  //     so the condvar provides happens-before (ordering + memory visibility).
-  //   * Reply callback's take runs after BG calls RM_UnblockClient, which
-  //     happens after BG returns from cursorRead (so after any BG take).
-  //   * Reply and timer callbacks are mutually exclusive per Redis BC pattern.
-  //   * free_privdata runs strictly after exactly one of {reply, timer, neither
-  //     (disconnect)} per Redis BC pattern.
-  // The loser of any apparent race observes NULL and no-ops.
-  // NULL on FAIL and on every non-RETURN_STRICT-cursor-read flow.
-  Cursor *parkedCursor;
 } CoordRequestCtx;
 
 /**
@@ -130,28 +112,6 @@ void CoordRequestCtx_SetUseReplyCallback(CoordRequestCtx *ctx, bool useReplyCall
  */
 void CoordRequestCtx_SetCursorReadReturnStrict(CoordRequestCtx *ctx, bool value);
 bool CoordRequestCtx_IsCursorReadReturnStrict(CoordRequestCtx *ctx);
-
-/**
- * Park a cursor handle on the context. Used inside RSCursorReadCommand's
- * setRequestLock critical section so the parked handle is published
- * atomically with the request pointer — that publication ordering is what
- * later takers rely on, not internal locking on this call.
- */
-void CoordRequestCtx_SetParkedCursor(CoordRequestCtx *ctx, Cursor *cursor);
-
-/**
- * Take ownership of the parked cursor: returns the current handle and clears
- * the field. Idempotent — returns NULL after the first successful take.
- *
- * Lockless. The four consumers (timer reply path, reply callback, BG error
- * sub-path, free_privdata on disconnect) cannot race in practice: their
- * temporal ordering is established by the condvar pair around
- * AREQ_SignalAggregateResultsComplete / AREQ_WaitForAggregateResultsComplete,
- * by RM_UnblockClient happens-before reply dispatch, and by the Redis
- * blocked-client pattern (reply XOR timer, then free_privdata). See the
- * `parkedCursor` field comment in this header for the full ordering proof.
- */
-struct Cursor *CoordRequestCtx_TakeParkedCursor(CoordRequestCtx *ctx);
 
 /**
  * Store error for reply_callback to handle (pre-request errors).
