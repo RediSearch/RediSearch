@@ -44,7 +44,9 @@ const char *ExtractKeyName(const char *s, size_t *len, QueryError *status, bool 
  * Violation is asserted in debug builds.
  *
  * On failure sets `*status` and returns false:
- *   - offset > max OR count > max -> "LIMIT exceeds maximum of <max>"
+ *   - offset > max -> "OFFSET exceeds maximum of <max>"
+ *     with QUERY_ERROR_CODE_LIMIT
+ *   - count > max  -> "LIMIT exceeds maximum of <max>"
  *     with QUERY_ERROR_CODE_LIMIT
  *   - offset + count > LLONG_MAX  -> "LIMIT offset + count overflow"
  *     with QUERY_ERROR_CODE_PARSE_ARGS

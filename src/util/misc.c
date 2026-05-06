@@ -45,7 +45,12 @@ bool ValidateLimitBounds(uint64_t offset, uint64_t count,
   // does not underflow in the overflow check below.
   RS_ASSERT(max_results <= (uint64_t)LLONG_MAX);
 
-  if (offset > max_results || count > max_results) {
+  if (offset > max_results) {
+    QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_LIMIT,
+        "OFFSET exceeds maximum of %llu", (unsigned long long)max_results);
+    return false;
+  }
+  if (count > max_results) {
     QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_LIMIT,
         "LIMIT exceeds maximum of %llu", (unsigned long long)max_results);
     return false;
