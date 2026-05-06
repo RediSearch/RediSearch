@@ -30,7 +30,6 @@ def _setup_hash(env):
         if 'origin' in f:
             args += ['origin', f['origin']]
         conn.execute_command(*args)
-    enable_unstable_features(env)
 
 
 def _setup_json(env):
@@ -43,7 +42,6 @@ def _setup_json(env):
     conn = getConnectionByEnv(env)
     for i, f in enumerate(FRUITS):
         conn.execute_command('JSON.SET', f'doc:{i}', '$', json.dumps(f))
-    enable_unstable_features(env)
 
 
 def _sort_by(results, key):
@@ -152,6 +150,7 @@ def test_collect_cluster_chained_groupby_collect():
 # ---------------------------------------------------------------------------
 def test_collect_1_field_hash():
     env = Env(protocol=3)
+    enable_unstable_features(env)
     _setup_hash(env)
 
     res = env.cmd(
@@ -179,6 +178,7 @@ def test_collect_1_field_hash():
 # ---------------------------------------------------------------------------
 def test_collect_3_fields_hash():
     env = Env(protocol=3)
+    enable_unstable_features(env)
     _setup_hash(env)
 
     res = env.cmd(
@@ -213,6 +213,7 @@ def test_collect_3_fields_hash():
 @skip(no_json=True)
 def test_collect_1_field_json():
     env = Env(protocol=3)
+    enable_unstable_features(env)
     _setup_json(env)
 
     res = env.cmd(
@@ -236,6 +237,7 @@ def test_collect_1_field_json():
 @skip(no_json=True)
 def test_collect_3_fields_json():
     env = Env(protocol=3)
+    enable_unstable_features(env)
     _setup_json(env)
 
     res = env.cmd(
@@ -263,6 +265,7 @@ def test_collect_3_fields_json():
 # ---------------------------------------------------------------------------
 def test_chained_groupby_collect():
     env = Env(protocol=3)
+    enable_unstable_features(env)
     _setup_hash(env)
 
     res = env.cmd(
@@ -291,6 +294,7 @@ def test_chained_groupby_collect():
 # ---------------------------------------------------------------------------
 def test_collect_missing_values():
     env = Env(protocol=3)
+    enable_unstable_features(env)
     _setup_hash(env)
 
     res = env.cmd(
@@ -325,6 +329,7 @@ def test_collect_missing_values():
 # ---------------------------------------------------------------------------
 def test_collect_alias():
     env = Env(protocol=3)
+    enable_unstable_features(env)
     _setup_hash(env)
 
     res = env.cmd(
@@ -343,6 +348,7 @@ def test_collect_alias():
 # ---------------------------------------------------------------------------
 def test_collect_multi_groupby_keys():
     env = Env(protocol=3)
+    enable_unstable_features(env)
     _setup_hash(env)
 
     res = env.cmd(
@@ -365,6 +371,7 @@ def test_collect_multi_groupby_keys():
 # ---------------------------------------------------------------------------
 def test_collect_output_structure():
     env = Env(protocol=3)
+    enable_unstable_features(env)
     _setup_hash(env)
 
     res = env.cmd(
@@ -406,12 +413,12 @@ def test_collect_requires_unstable_features():
 @skip(no_json=True)
 def test_collect_loaded_json_path():
     env = Env(protocol=3)
+    enable_unstable_features(env)
     env.expect('FT.CREATE', 'idx', 'ON', 'JSON',
                'SCHEMA', '$.name', 'AS', 'name', 'TEXT', 'SORTABLE').ok()
     conn = getConnectionByEnv(env)
     for i, f in enumerate(FRUITS):
         conn.execute_command('JSON.SET', f'doc:{i}', '$', json.dumps(f))
-    enable_unstable_features(env)
 
     res = env.cmd(
         'FT.AGGREGATE', 'idx', '*',
@@ -438,6 +445,7 @@ def test_collect_loaded_json_path():
 def test_collect_internal_serializes_sort_fields():
     """In internal mode the shard includes SORTBY fields alongside FIELDS."""
     env = Env(protocol=3)
+    enable_unstable_features(env)
     _setup_hash(env)
 
     _, slots_data = get_shard_slot_ranges(env)[0]
@@ -464,6 +472,7 @@ def test_collect_internal_serializes_sort_fields():
 def test_collect_internal_without_sortby_equals_external_shape():
     """No spurious widening: _FT without SORTBY must match FT output."""
     env = Env(protocol=3)
+    enable_unstable_features(env)
     _setup_hash(env)
 
     _, slots_data = get_shard_slot_ranges(env)[0]
@@ -501,6 +510,7 @@ def test_collect_internal_duplicate_field_and_sort():
     survive and can be counted directly.
     """
     env = Env(protocol=2)
+    enable_unstable_features(env)
     _setup_hash(env)
 
     _, slots_data = get_shard_slot_ranges(env)[0]
@@ -554,6 +564,7 @@ def _collect_load_all_index_with_three_fields(env):
     collected row's wire payload comes from the rlookup not having that
     key — never from the row missing a value.
     """
+    enable_unstable_features(env)
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH',
                'SCHEMA',
                'name', 'TEXT', 'SORTABLE',
@@ -562,7 +573,6 @@ def _collect_load_all_index_with_three_fields(env):
     conn = getConnectionByEnv(env)
     conn.execute_command('HSET', 'doc:alpha', 'name', 'alice', 'team', 't', 'score', '7')
     conn.execute_command('HSET', 'doc:bravo', 'name', 'bob',   'team', 't', 'score', '5')
-    enable_unstable_features(env)
 
 
 def _collect_load_all_extract_rows(internal_resp2):
@@ -705,6 +715,7 @@ def test_collect_internal_load_all_omits_missing_fields():
     without RESP3's silent duplicate-key collapse.
     """
     env = Env(protocol=2)
+    enable_unstable_features(env)
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH',
                'SCHEMA',
                'name', 'TEXT', 'SORTABLE',
@@ -713,7 +724,6 @@ def test_collect_internal_load_all_omits_missing_fields():
     conn = getConnectionByEnv(env)
     conn.execute_command('HSET', 'doc:full',    'name', 'full',    'team', 'g', 'extra', 'set')
     conn.execute_command('HSET', 'doc:partial', 'name', 'partial', 'team', 'g')
-    enable_unstable_features(env)
 
     _, slots_data = get_shard_slot_ranges(env)[0]
     env.cmd('DEBUG', 'MARK-INTERNAL-CLIENT')
@@ -783,6 +793,7 @@ def test_collect_internal_load_all_emits_dollar_on_json():
     `LOAD *` itself (HGETALL fans out fields, JSON_GetAll does not).
     """
     env = Env(protocol=2)
+    enable_unstable_features(env)
     _setup_json(env)
 
     _, slots_data = get_shard_slot_ranges(env)[0]
@@ -849,6 +860,7 @@ def test_collect_internal_no_load_emits_only_groupby_key_on_json():
     explicit `LOAD` is a footgun that emits less than users may expect.
     """
     env = Env(protocol=2)
+    enable_unstable_features(env)
     _setup_json(env)
 
     _, slots_data = get_shard_slot_ranges(env)[0]
@@ -899,6 +911,7 @@ def test_chained_groupby_collect_load_all():
     reducer.
     """
     env = Env(protocol=3)
+    enable_unstable_features(env)
     _setup_hash(env)
 
     res = env.cmd(
@@ -926,6 +939,7 @@ def test_chained_groupby_collect_load_all():
 # ---------------------------------------------------------------------------
 def test_collect_resp2_sanity():
     env = Env(protocol=2)
+    enable_unstable_features(env)
     _setup_hash(env)
 
     res = env.cmd(
@@ -968,6 +982,7 @@ def test_collect_apply_alias_as_groupby_key():
     field.
     """
     env = Env(protocol=3)
+    enable_unstable_features(env)
     _setup_hash(env)
 
     res = env.cmd(
@@ -999,6 +1014,7 @@ def test_collect_apply_alias_as_field():
     caught.
     """
     env = Env(protocol=3)
+    enable_unstable_features(env)
     _setup_hash(env)
 
     res = env.cmd(
@@ -1038,6 +1054,7 @@ def test_chained_groupby_collect_apply_on_reducer_alias():
         red:    cnt=2, avg_sweet=3.5 -> weighted = 7
     """
     env = Env(protocol=3)
+    enable_unstable_features(env)
     _setup_hash(env)
 
     res = env.cmd(
@@ -1081,6 +1098,7 @@ def test_chained_groupby_collect_apply_load_all():
         red:    cnt=2, avg_sweet=3.5 -> weighted = 7
     """
     env = Env(protocol=3)
+    enable_unstable_features(env)
     _setup_hash(env)
 
     res = env.cmd(
@@ -1114,6 +1132,7 @@ def test_chained_groupby_collect_apply_load_all():
 def test_collect_cluster_load_all_merges_per_row_keys_across_shards():
     """FIELDS * in cluster mode: coordinator emits all keys present per row."""
     env = Env(shardsCount=3, protocol=3)
+    enable_unstable_features(env)
 
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH',
                'SCHEMA',
@@ -1135,7 +1154,6 @@ def test_collect_cluster_load_all_merges_per_row_keys_across_shards():
         if origin is not None:
             args += ['origin', origin]
         conn.execute_command(*args)
-    enable_unstable_features(env)
 
     res = env.cmd(
         'FT.AGGREGATE', 'idx', '*',
