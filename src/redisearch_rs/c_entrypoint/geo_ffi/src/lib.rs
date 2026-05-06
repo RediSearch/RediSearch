@@ -57,13 +57,13 @@ pub unsafe extern "C" fn encodeGeo(lon: f64, lat: f64, bits: *mut f64) -> c_int 
 /// Decode a geohash `f64` back into a `[longitude, latitude]` pair.
 ///
 /// Always succeeds — zero is a valid geohash encoding (for the boundary
-/// coordinate -180, -85.05112878). Returns 1 unconditionally.
+/// coordinate -180, -85.05112878).
 ///
 /// # Safety
 ///
 /// - `xy` must be a valid, non-null pointer to a writable `[f64; 2]`.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn decodeGeo(bits: f64, xy: *mut f64) -> c_int {
+pub unsafe extern "C" fn decodeGeo(bits: f64, xy: *mut f64) {
     let raw_bits = bits as u64;
     let hash = geo::hash::GeoHashBits {
         bits: raw_bits,
@@ -80,7 +80,6 @@ pub unsafe extern "C" fn decodeGeo(bits: f64, xy: *mut f64) -> c_int {
     unsafe {
         *xy_lat = lat.into_inner();
     }
-    1
 }
 
 /// Return `true` if the distance between two lon/lat points is within `radius`

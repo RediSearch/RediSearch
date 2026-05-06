@@ -23,9 +23,7 @@ static int parseField(RSValue *argv, double *geo, QueryError *status) {
     rv = parseGeo(p, len, &geo[0], &geo[1], status);
   } else if (RSValue_IsNumber(val)) {
     double dbl = RSValue_Number_Get(val);
-    if (decodeGeo(dbl, geo) == 0) {
-      rv = REDISMODULE_ERR;
-    }
+    decodeGeo(dbl, geo);
   } else {
     rv = REDISEARCH_ERR;
   }

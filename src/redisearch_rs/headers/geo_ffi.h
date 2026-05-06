@@ -39,13 +39,13 @@ int encodeGeo(double lon, double lat, double *bits);
  * Decode a geohash `f64` back into a `[longitude, latitude]` pair.
  *
  * Always succeeds — zero is a valid geohash encoding (for the boundary
- * coordinate -180, -85.05112878). Returns 1 unconditionally.
+ * coordinate -180, -85.05112878).
  *
  * # Safety
  *
  * - `xy` must be a valid, non-null pointer to a writable `[f64; 2]`.
  */
-int decodeGeo(double bits, double *xy);
+void decodeGeo(double bits, double *xy);
 
 /**
  * Return `true` if the distance between two lon/lat points is within `radius`
