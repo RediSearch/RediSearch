@@ -160,5 +160,4 @@ impl RemoteCollectLoadAllFixture {
             .expect("`__hidden` is a fresh key");
         Self { lookup }
     }
-
 }
