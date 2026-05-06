@@ -339,11 +339,27 @@ static int distributeCollect(ReducerDistCtx *rdctx, QueryError *status) {
   const PLN_Reducer *src = rdctx->srcReducer;
   size_t argc = src->args.argc;
 
+  // Validate and parse the LIMIT clause (if any) from the original args.
+  // distributeCollect runs before RDCRCollect_New, so we also validate here to
+  // surface errors immediately rather than after a shard round-trip.
+  bool hasLimit;
+  CollectLimit limit;
+  if (!parseCollectLimit(&src->args, RSGlobalConfig.maxAggregateResults,
+                         &hasLimit, &limit, status)) {
+    return REDISMODULE_ERR;
+  }
+
+  // For the shard request, rewrite LIMIT offset count -> LIMIT 0 (offset+count)
+  ShardCollectLimit shardLimit;
+  if (hasLimit) {
+    shardLimit = rewriteCollectLimit(&limit);
+  }
+
   // Build temporary args, then persist their object arrays with copyArgs.
   std::string remoteCountStr = std::to_string(argc);
   std::vector<void *> remoteObjs(collectObjsBufLen(argc, /*has_alias=*/false));
-  ArgsCursor remoteArgs = buildCollectArgs(remoteObjs.data(), remoteCountStr.c_str(),
-                                           &src->args, nullptr);
+  ArgsCursor remoteArgs = buildRemoteCollectArgs(remoteObjs.data(), remoteCountStr.c_str(),
+                                                &src->args, hasLimit ? &shardLimit : nullptr);
   rdctx->copyArgs(&remoteArgs);
 
   const char *alias;
@@ -353,8 +369,8 @@ static int distributeCollect(ReducerDistCtx *rdctx, QueryError *status) {
 
   std::string localCountStr = std::to_string(argc);
   std::vector<void *> localObjs(collectObjsBufLen(argc, /*has_alias=*/true));
-  ArgsCursor localArgs = buildCollectArgs(localObjs.data(), localCountStr.c_str(),
-                                          &src->args, src->alias);
+  ArgsCursor localArgs = buildLocalCollectArgs(localObjs.data(), localCountStr.c_str(),
+                                               &src->args, src->alias);
   rdctx->copyArgs(&localArgs);
 
   if (!rdctx->add(rdctx->localGroup, "COLLECT", nullptr, status, &localArgs)) {
