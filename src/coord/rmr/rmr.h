@@ -10,7 +10,15 @@
 #pragma once
 
 #include <stdbool.h>
+
+#ifdef __cplusplus
+#include <atomic>
+#define RS_Atomic(T) std::atomic<T>
+extern "C" {
+#else
+#define RS_Atomic(T) _Atomic(T)
 #include <stdatomic.h>
+#endif
 
 #include "reply.h"
 #include "cluster.h"
@@ -146,7 +154,7 @@ MRReply *MRIterator_Next(MRIterator *it);
  * At least one of `abstime` / `abortFlag` must be non-NULL; for an indefinite
  * blocking next, use MRIterator_Next. */
 MRReply *MRIterator_NextWithTimeout(MRIterator *it, const struct timespec *abstime,
-                                    atomic_bool *abortFlag, bool *timedOut);
+                                    RS_Atomic(bool) *abortFlag, bool *timedOut);
 
 /* Return the underlying channel used by the iterator. Intended for callers that need to
  * invoke MRChannel_WakeAbort directly (e.g. from a timeout callback on another thread). */
@@ -189,3 +197,9 @@ short MRIterator_GetPending(MRIterator *it);
 void MRIterator_Release(MRIterator *it);
 
 sds MRCommand_SafeToString(const MRCommand *cmd);
+
+#undef RS_Atomic
+
+#ifdef __cplusplus
+}
+#endif
