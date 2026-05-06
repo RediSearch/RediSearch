@@ -72,14 +72,7 @@ void handleLimit(ArgParser *parser, const void *value, void *user_data) {
         // LIMIT 0 0 - only count
         REQFLAGS_AddFlags(ctx->reqFlags, QEXEC_F_NOROWS);
         REQFLAGS_AddFlags(ctx->reqFlags, QEXEC_F_SEND_NOFIELDS);
-        // TODO: unify if when req holds only maxResults according to the query type.
-        //(SEARCH / AGGREGATE)
-    } else if (num > *ctx->maxResults) {
-        QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_LIMIT, "LIMIT exceeds maximum of %llu",
-                             *ctx->maxResults);
-        return;
-    } else if (offset > LLONG_MAX - num) {
-        QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "LIMIT offset + count overflow");
+    } else if (!ValidateLimitBounds(offset, num, *ctx->maxResults, status)) {
         return;
     }
 

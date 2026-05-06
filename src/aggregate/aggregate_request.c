@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "aggregate.h"
+#include "util/misc.h"
 #include "reducer.h"
 
 #include <cursor.h>
@@ -283,20 +284,12 @@ static int handleCommonArgs(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryEr
       // LIMIT 0 0 - only count
       REQFLAGS_AddFlags(papCtx->reqflags, QEXEC_F_NOROWS);
       REQFLAGS_AddFlags(papCtx->reqflags, QEXEC_F_SEND_NOFIELDS);
-      // TODO: unify if when req holds only maxResults according to the query type.
-      //(SEARCH / AGGREGATE)
-    } else if ((arng->limit > *papCtx->maxSearchResults) && (*papCtx->reqflags & (QEXEC_F_IS_SEARCH))) {
-      QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_LIMIT, "LIMIT exceeds maximum of %llu",
-                             *papCtx->maxSearchResults);
-      return ARG_ERROR;
-    } else if ((arng->limit > *papCtx->maxAggregateResults) && !(*papCtx->reqflags & (QEXEC_F_IS_SEARCH))) {
-      QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_LIMIT, "LIMIT exceeds maximum of %llu",
-                             *papCtx->maxAggregateResults);
-      return ARG_ERROR;
-    } else if (arng->offset > *papCtx->maxSearchResults) {
-      QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_LIMIT, "OFFSET exceeds maximum of %llu",
-                             *papCtx->maxSearchResults);
-      return ARG_ERROR;
+    } else {
+      size_t max = (*papCtx->reqflags & QEXEC_F_IS_SEARCH) ? *papCtx->maxSearchResults
+                                                            : *papCtx->maxAggregateResults;
+      if (!ValidateLimitBounds(arng->offset, arng->limit, max, status)) {
+        return ARG_ERROR;
+      }
     }
   } else if (AC_AdvanceIfMatch(ac, "SORTBY")) {
     const char *firstArg;
