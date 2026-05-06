@@ -4022,6 +4022,112 @@ class TestShardTimeout:
         self._run_return_strict_timeout_at_first_read(
             ['FT.AGGREGATE', 'idx', '*'], 'FT.AGGREGATE')
 
+    # --- Scenario 4: timeout fires mid-iteration on a trivial pipeline ---
+    # Uses AggregateResultsDebugCtx (FT.DEBUG QUERY_CONTROLLER
+    # SET_PAUSE_AFTER_AGGREGATE_RESULT) to park the worker after exactly N
+    # rows have been appended to `state.results`. The driver then fires
+    # CLIENT UNBLOCK ... TIMEOUT (flips AREQ_TimedOut, callback runs and
+    # loses TryClaim) and resumes the loop. The next rp->Next short-circuits
+    # to RS_RESULT_TIMEDOUT in rpQueryItNext (the AREQ_TimedOut check at the
+    # top of the while(1) loop), so AggregateResults exits with N buffered
+    # rows. The callback (loser of TryClaim) waits for completion, skips the
+    # post-timeout drain (canYieldPartialResults == false for the trivial
+    # RPIndex -> RPPager shape), and replies with N harvested rows + the
+    # TIMEOUT warning.
+    #
+    # Trivial shape (RPIndex -> RPPager) is reachable only via FT.AGGREGATE
+    # without SORTBY/GROUPBY/APPLY/FILTER (FT.SEARCH always inserts an
+    # implicit RPSorter, so it lands on shape (3) instead).
+
+    def _run_return_strict_timeout_after_aggregate_result(
+            self, query_args, cmd_name, pause_after_n, expected_rows):
+        env = self.env
+        skipIfNoEnableAssert(env)
+
+        prev_on_timeout_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
+        env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'return-strict')
+
+        before_info = info_modules_to_dict(env)
+        base_warn_coord = int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_METRIC])
+
+        resetAggregateResultsDebug(env)
+        setPauseAfterAggregateResult(env, pause_after_n)
+
+        query_result = []
+        t_query = threading.Thread(
+            target=call_and_store,
+            args=(env.cmd, list(query_args), query_result),
+            daemon=True,
+        )
+        t_query.start()
+
+        blocked_client_id = wait_for_blocked_query_client(env, cmd_name)
+
+        # Wait for the worker to park after the Nth appended row.
+        wait_for_condition(
+            lambda: (getIsAggregateResultsPaused(env) == 1,
+                     {'count': getAggregateResultsCount(env)}),
+            f'Timeout waiting for AggregateResults to pause after {pause_after_n} rows',
+        )
+
+        # Fire the blocked-client timeout. The callback flips AREQ_TimedOut,
+        # loses TryClaim (BG already won), and blocks on
+        # AREQ_WaitForAggregateResultsComplete. The pause loop in
+        # debugCheckAndPauseAfterAggregateResult self-releases when it
+        # observes AREQ_TimedOut, so BG resumes, exits AggregateResults with
+        # N buffered rows, and signals completion -- unblocking the callback
+        # which then replies with the partial results.
+        env.cmd('CLIENT', 'UNBLOCK', blocked_client_id, 'TIMEOUT')
+
+        wait_for_client_unblocked(env, blocked_client_id)
+
+        resetAggregateResultsDebug(env)
+
+        t_query.join(timeout=10)
+        env.assertFalse(t_query.is_alive(), message="Query thread should have finished")
+
+        env.assertEqual(len(query_result), 1, message="Expected 1 result from query thread")
+        result = query_result[0]
+        env.assertEqual(len(result.get('results', [])), expected_rows,
+                        message=f"Expected {expected_rows} harvested row(s), got {result.get('results')}")
+        env.assertEqual(result.get('warning', []), [TIMEOUT_WARNING],
+                        message=f"Expected TIMEOUT warning, got {result.get('warning', [])}")
+
+        after_info = info_modules_to_dict(env)
+        env.assertEqual(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_METRIC],
+                        str(base_warn_coord + 1),
+                        message="Coordinator timeout warning should be +1 after mid-iter harvest")
+        _verify_metrics_not_changed(env, env, before_info, [TIMEOUT_WARNING_COORD_METRIC])
+
+        env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy)
+
+    def test_return_strict_timeout_after_first_result_aggregate(self):
+        """Mid-iteration timeout right after the first appended row.
+
+        LIMIT well above 1 so the pager doesn't EOF before the pause point.
+        Verifies that rows BG accumulated in state.results before the
+        timeout fired are emitted via the buffered-results path
+        (independent of the canYieldPartialResults drain classifier).
+        """
+        self._run_return_strict_timeout_after_aggregate_result(
+            ['FT.AGGREGATE', 'idx', '*', 'LIMIT', '0', '50'], 'FT.AGGREGATE',
+            pause_after_n=1, expected_rows=1)
+
+    def test_return_strict_timeout_after_last_result_aggregate(self):
+        """Mid-iteration timeout right before the last row would be read.
+
+        Pauses after LIMIT-1 buffered rows, then fires the timeout. The
+        next rp->Next sees AREQ_TimedOut and returns RS_RESULT_TIMEDOUT
+        instead of producing the LIMIT-th row, so the reply contains
+        exactly LIMIT-1 rows. Boundary case: confirms the loop exits via
+        the timeout path (not via the pager's EOF) when the timeout fires
+        on the would-be-final iteration.
+        """
+        limit = 5
+        self._run_return_strict_timeout_after_aggregate_result(
+            ['FT.AGGREGATE', 'idx', '*', 'LIMIT', '0', str(limit)], 'FT.AGGREGATE',
+            pause_after_n=limit - 1, expected_rows=limit - 1)
+
 
 class TestShardTimeoutResp2:
     """Tests for shard timeout behavior with RESP2 protocol.

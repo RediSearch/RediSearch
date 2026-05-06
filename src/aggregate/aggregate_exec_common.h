@@ -24,13 +24,19 @@ void ReplyWithTimeoutError(RedisModule_Reply *reply);
 
 void destroyResults(SearchResult **results);
 
-SearchResult **AggregateResults(ResultProcessor *rp, int *rc);
+SearchResult **AggregateResults(ResultProcessor *rp, struct AREQ *areq, int *rc);
 
 typedef struct CommonPipelineCtx {
   RSTimeoutPolicy timeoutPolicy;
   struct timespec *timeout;
   RSOomPolicy oomPolicy;
   bool skipTimeoutChecks;
+
+  // AREQ for the request being executed, used by the debug pause loop in
+  // AggregateResults to self-release when the main-thread timeout callback
+  // flips AREQ_TimedOut. NULL on paths that don't have a single owning AREQ
+  // (e.g. hybrid).
+  struct AREQ *areq;
 } CommonPipelineCtx;
 
 void startPipelineCommon(CommonPipelineCtx *ctx, ResultProcessor *rp, SearchResult ***results, SearchResult *r, int *rc);

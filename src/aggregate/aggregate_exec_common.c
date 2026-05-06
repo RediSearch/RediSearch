@@ -49,7 +49,11 @@
 #ifdef ENABLE_ASSERT
 // Helper function to check and pause after extracting a result from the
 // AggregateResults loop (for testing pipeline state mid-aggregation).
-static inline void debugCheckAndPauseAfterAggregateResult(void) {
+// Self-releases the pause when the request has been marked as timed out by
+// the main-thread timeout callback (RETURN-STRICT path): the callback waits
+// synchronously for BG to signal completion, so the test cannot send a
+// resume command while it is in flight.
+static inline void debugCheckAndPauseAfterAggregateResult(AREQ *areq) {
   int pauseAfterN = AggregateResultsDebugCtx_GetPauseAfterN();
   if (pauseAfterN <= AGGREGATE_RESULTS_NO_PAUSE) {
     return;
@@ -61,15 +65,19 @@ static inline void debugCheckAndPauseAfterAggregateResult(void) {
   // Pause after the Nth result has been extracted (1-based)
   AggregateResultsDebugCtx_SetPause(true);
   while (AggregateResultsDebugCtx_IsPaused()) {
+    if (areq && AREQ_TimedOut(areq)) {
+      AggregateResultsDebugCtx_SetPause(false);
+      break;
+    }
     usleep(1000);  // Spin-wait with 1ms sleep
   }
 }
 #else
 // Compiler eliminates the function completely in release builds - zero overhead
-static inline void debugCheckAndPauseAfterAggregateResult(void) {}
+static inline void debugCheckAndPauseAfterAggregateResult(AREQ *areq) {}
 #endif
 
- SearchResult **AggregateResults(ResultProcessor *rp, int *rc) {
+ SearchResult **AggregateResults(ResultProcessor *rp, AREQ *areq, int *rc) {
    SearchResult **results = array_new(SearchResult *, 8);
    SearchResult r = SearchResult_New();
    while (rp->parent->resultLimit && (*rc = rp->Next(rp, &r)) == RS_RESULT_OK) {
@@ -78,7 +86,7 @@ static inline void debugCheckAndPauseAfterAggregateResult(void) {}
 
      array_append(results, SearchResult_AllocateMove(&r));
 
-     debugCheckAndPauseAfterAggregateResult();
+     debugCheckAndPauseAfterAggregateResult(areq);
 
      // clean the search result
      r = SearchResult_New();
@@ -94,7 +102,7 @@ static inline void debugCheckAndPauseAfterAggregateResult(void) {}
  void startPipelineCommon(CommonPipelineCtx *ctx, ResultProcessor *rp, SearchResult ***results, SearchResult *r, int *rc) {
    if (ctx->timeoutPolicy != TimeoutPolicy_Return || ctx->oomPolicy == OomPolicy_Fail) {
      // Aggregate all results before populating the response
-     *results = AggregateResults(rp, rc);
+     *results = AggregateResults(rp, ctx->areq, rc);
      // Check timeout after aggregation
      if (!ctx->skipTimeoutChecks && TimedOut(ctx->timeout) == TIMED_OUT) {
        *rc = RS_RESULT_TIMEDOUT;

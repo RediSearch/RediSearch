@@ -1071,6 +1071,42 @@ def resetCoordReduceDebug(env):
     except Exception:
         pass  # Ignore error if coordinator is not paused
 
+# AggregateResults loop pause helpers (only available when built with ENABLE_ASSERT).
+# These drive the AggregateResultsDebugCtx in src/debug_commands.{h,c} which the
+# AggregateResults loop in aggregate_exec_common.c consults after each extracted
+# result, busy-spinning until the test calls setAggregateResultsResume.
+def setPauseAfterAggregateResult(env, N):
+    """Pause the AggregateResults loop after the Nth result is extracted.
+
+    N == 0 disables the pause; N > 0 pauses after the Nth result (1-based).
+    Resets the internal results counter so successive tests start from zero.
+    """
+    env.expect(debug_cmd(), 'QUERY_CONTROLLER', 'SET_PAUSE_AFTER_AGGREGATE_RESULT', N).ok()
+
+def getIsAggregateResultsPaused(env):
+    """Check if the AggregateResults loop is currently paused."""
+    return env.cmd(debug_cmd(), 'QUERY_CONTROLLER', 'GET_IS_AGGREGATE_RESULTS_PAUSED')
+
+def setAggregateResultsResume(env):
+    """Resume the AggregateResults loop from a pause."""
+    env.expect(debug_cmd(), 'QUERY_CONTROLLER', 'SET_AGGREGATE_RESULTS_RESUME').ok()
+
+def getAggregateResultsCount(env):
+    """Get the number of results extracted so far by the AggregateResults loop."""
+    return env.cmd(debug_cmd(), 'QUERY_CONTROLLER', 'GET_AGGREGATE_RESULTS_COUNT')
+
+def resetAggregateResultsDebug(env):
+    """Reset the AggregateResults debug context (clear pause point and resume).
+
+    Mirrors resetCoordReduceDebug: tolerates the "not paused" error so cleanup
+    is safe to call regardless of the loop's current state.
+    """
+    setPauseAfterAggregateResult(env, 0)
+    try:
+        env.cmd(debug_cmd(), 'QUERY_CONTROLLER', 'SET_AGGREGATE_RESULTS_RESUME')
+    except Exception:
+        pass  # Ignore error if loop is not paused
+
 # Store Results Pause helpers (only available when built with ENABLE_ASSERT)
 def setPauseBeforeStoreResults(env, enabled, internal):
     """Enable/disable pausing before AREQ_StoreResults/HREQ_StoreResults.
