@@ -715,6 +715,9 @@ int DistAggregateTimeoutReturnStrictClient(RedisModuleCtx *ctx, RedisModuleStrin
   return REDISMODULE_OK;
 }
 
+// Forward declaration — defined below alongside DistCursorReadTimeoutReturnStrictClient.
+static void coordReleaseParkedCursorAfterReply(CoordRequestCtx *reqCtx, AREQ *req);
+
 // Main-thread reply callback for coord AREQ (FAIL / RETURN-STRICT). Reads results
 // stored by the BG thread in req->storedReplyState. NOT called if timeout fired
 int DistAggregateReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
@@ -756,20 +759,31 @@ int DistAggregateReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, in
 
   AREQ_ReplyWithStoredResults(ctx, req);
 
+  // For coord FT.CURSOR READ on the RETURN_STRICT path, dispose of the parked
+  // cursor (Pause if more rows remain, Free on EOF). On every other caller
+  // parkedCursor is NULL — the take returns NULL and the helper is a no-op.
+  // The gate documents intent and avoids touching reqCtx for paths that don't
+  // use it. (§3.5 / plan Section 7.)
+  if (CoordRequestCtx_IsCursorReadReturnStrict(CoordReqCtx)) {
+    coordReleaseParkedCursorAfterReply(CoordReqCtx, req);
+  }
+
   // Note: No AREQ_DecrRef here - CoordRequestCtx_Free releases the context's reference.
   return REDISMODULE_OK;
 }
 
 // Dispose of the cursor parked on `reqCtx` by `RSCursorReadCommand`'s take-lock
-// window (§3.5). Take + null under setRequestLock so concurrent consumers (the
-// timer reply path, the BG error sub-path, and disconnect) observe NULL and
-// no-op. On QEXEC_S_ITERDONE the cursor is freed; otherwise it is paused so
-// the client can issue the next FT.CURSOR READ on the same cid.
+// window (§3.5). On QEXEC_S_ITERDONE the cursor is freed; otherwise it is
+// paused so the client can issue the next FT.CURSOR READ on the same cid.
+//
+// Lockless take: this helper runs from the reply callback or the timer (both
+// main thread, mutually exclusive per Redis BC). The BG error sub-path may
+// have already taken + freed the parked cursor before signalling, in which
+// case the take here returns NULL and we no-op. See the `parkedCursor` field
+// comment in coord_request_ctx.h for the full ordering proof.
 static void coordReleaseParkedCursorAfterReply(CoordRequestCtx *reqCtx, AREQ *req) {
-  CoordRequestCtx_LockSetRequest(reqCtx);
   Cursor *c = CoordRequestCtx_TakeParkedCursor(reqCtx);
-  CoordRequestCtx_UnlockSetRequest(reqCtx);
-  if (!c) return;                       // already disposed by a peer consumer
+  if (!c) return;                       // already disposed by BG error sub-path
   if (req->stateflags & QEXEC_S_ITERDONE) {
     Cursor_Free(c);
   } else {

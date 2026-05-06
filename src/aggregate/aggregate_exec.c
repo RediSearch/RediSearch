@@ -1883,7 +1883,8 @@ static QueryProcessingCtx *prepareForCursorRead(Cursor *cursor, bool *hasLoader,
   return qctx;
 }
 
-static void cursorRead(RedisModuleCtx *ctx, Cursor *cursor, size_t count, bool bg) {
+static void cursorRead(RedisModuleCtx *ctx, Cursor *cursor, size_t count, bool bg,
+                       CoordRequestCtx *reqCtx) {
 
   QueryError status = QueryError_Default();
 
@@ -1899,11 +1900,25 @@ static void cursorRead(RedisModuleCtx *ctx, Cursor *cursor, size_t count, bool b
   if (has_spec) {
     execution_ref = IndexSpecRef_Promote(cursor->spec_ref);
     if (!StrongRef_Get(execution_ref)) {
-      // Index dropped while idle. Emit the error *before* Cursor_Free: on
-      // non-coord+FAIL paths the cursor holds the only AREQ ref, so freeing
-      // first would UAF the req->useReplyCallback read inside AREQ_ReplyOrStoreError.
       QueryError_SetWithoutUserDataFmt(&status, QUERY_ERROR_CODE_DROPPED_BACKGROUND,
                                        "The index was dropped while the cursor was idle");
+      // Cursor disposal ordering: Reply → Free, uniformly across paths.
+      // - Legacy paths (no reqCtx, or reqCtx without parkedCursor — e.g.,
+      //   FAIL): the cursor holds the only AREQ ref. Reply MUST come before
+      //   Free to avoid UAF on req->useReplyCallback.
+      // - Coord RETURN_STRICT path (reqCtx with parkedCursor set): the take
+      //   below clears reqCtx->parkedCursor so a timer waking on the signal
+      //   observes NULL and no-ops on the cursor. The local `parked` handle
+      //   aliases `cursor`, so the trailing Cursor_Free(cursor) disposes of
+      //   it once. Reply→Free is also safe here: reqCtx holds an extra AREQ
+      //   ref via CoordRequestCtx_SetRequest, so the AREQ outlives the
+      //   reply call regardless of free ordering.
+      // Lockless take is safe here: the take happens-before the signal, and
+      // the timer's take happens-after the corresponding wait (condvar
+      // provides ordering + memory visibility). See parkedCursor field comment
+      // in coord_request_ctx.h.
+      Cursor *parked = reqCtx ? CoordRequestCtx_TakeParkedCursor(reqCtx) : NULL;
+      RS_ASSERT(!parked || parked == cursor);
       AREQ_ReplyOrStoreError(req, ctx, &status);
       Cursor_Free(cursor);
       return;
@@ -1958,7 +1973,7 @@ static void cursorRead_ctx(CursorReadCtx *cr_ctx) {
   AREQ *req = cr_ctx->cursor->execState;
   RS_ASSERT(req);
   if (!AREQ_TimedOut(req)) {
-    cursorRead(ctx, cr_ctx->cursor, cr_ctx->count, true);
+    cursorRead(ctx, cr_ctx->cursor, cr_ctx->count, true, NULL);
   } else {
     Cursor_Free(cr_ctx->cursor);
   }
@@ -1997,7 +2012,7 @@ static inline int coordCursorReadReturnStrict(RedisModuleCtx *ctx, CoordRequestC
   CoordRequestCtx_SetRequest(reqCtx, cursor->execState);
   CoordRequestCtx_SetParkedCursor(reqCtx, cursor);
   CoordRequestCtx_UnlockSetRequest(reqCtx);
-  cursorRead(ctx, cursor, count, false);
+  cursorRead(ctx, cursor, count, false, reqCtx);
   return REDISMODULE_OK;
 }
 
@@ -2127,7 +2142,10 @@ int RSCursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
       // Sub-cases (2) and (3): reply inline via ctx; clear stale useReplyCallback.
       cursor->execState->useReplyCallback = false;
     }
-    cursorRead(ctx, cursor, count, false);
+    // parkedCursor is only ever set by coordCursorReadReturnStrict's
+    // take-lock window, so all three sub-cases here have nothing for the
+    // spec-drop bail to take + clear.
+    cursorRead(ctx, cursor, count, false, NULL);
   }
 
   return REDISMODULE_OK;
