@@ -133,7 +133,7 @@ int TrieMap_Add(TrieMap *t,
  * - In case [`TRIEMAP_NOTFOUND`] is returned, the key does not exist in the trie,
  *   and the pointer must not be dereferenced.
  */
-void *TrieMap_Find(TrieMap *t, const char *str, tm_len_t len);
+void *TrieMap_Find(const TrieMap *t, const char *str, tm_len_t len);
 
 /**
  * Mark a node as deleted. It also optimizes the trie by merging nodes if
@@ -179,7 +179,7 @@ uintptr_t TrieMap_MemUsage(TrieMap *t);
  * The following invariants must be upheld when calling this function:
  * - `t` must point to a valid TrieMap obtained from [`NewTrieMap`] and cannot be NULL.
  */
-uintptr_t TrieMap_NUniqueKeys(TrieMap *t);
+uintptr_t TrieMap_NUniqueKeys(const TrieMap *t);
 
 /**
  * The number of nodes stored in the provided triemap.
@@ -191,7 +191,7 @@ uintptr_t TrieMap_NUniqueKeys(TrieMap *t);
  * The following invariants must be upheld when calling this function:
  * - `t` must point to a valid TrieMap obtained from [`NewTrieMap`] and cannot be NULL.
  */
-uintptr_t TrieMap_NNodes(TrieMap *t);
+uintptr_t TrieMap_NNodes(const TrieMap *t);
 
 /**
  * Find nodes that have a given prefix. Results are placed in an array.
@@ -207,7 +207,7 @@ uintptr_t TrieMap_NNodes(TrieMap *t);
  *
  * [`NewTrieMap`]: crate::NewTrieMap
  */
-TrieMapResultBuf TrieMap_FindPrefixes(TrieMap *t, const char *str, tm_len_t len);
+TrieMapResultBuf TrieMap_FindPrefixes(const TrieMap *t, const char *str, tm_len_t len);
 
 /**
  * Free the [`TrieMapResultBuf`] and its contents.
@@ -350,7 +350,7 @@ int TrieMapIterator_Next(struct TrieMapIterator *it,
  *
  * [`NewTrieMap`]: crate::NewTrieMap
  */
-void TrieMap_IterateRange(TrieMap *trie,
+void TrieMap_IterateRange(const TrieMap *trie,
                           const char *min,
                           int minlen,
                           bool includeMin,

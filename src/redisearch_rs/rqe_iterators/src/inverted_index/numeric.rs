@@ -181,12 +181,16 @@ where
     }
 
     #[inline(always)]
-    fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
+    unsafe fn revalidate(
+        &mut self,
+        spec: NonNull<ffi::IndexSpec>,
+    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         if self.should_abort() {
             return Ok(RQEValidateStatus::Aborted);
         }
 
-        self.it.revalidate()
+        // SAFETY: Delegating to inner iterator with the same `spec` passed by our caller.
+        unsafe { self.it.revalidate(spec) }
     }
 
     #[inline(always)]
@@ -503,11 +507,17 @@ impl<'index> RQEIterator<'index> for NumericIteratorVariant<'index> {
     }
 
     #[inline(always)]
-    fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
+    unsafe fn revalidate(
+        &mut self,
+        spec: NonNull<ffi::IndexSpec>,
+    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         match self {
-            Self::Unfiltered(iter) => iter.revalidate(),
-            Self::Filtered(iter) => iter.revalidate(),
-            Self::Geo(iter) => iter.revalidate(),
+            // SAFETY: Delegating to variant with the same `spec` passed by our caller.
+            Self::Unfiltered(iter) => unsafe { iter.revalidate(spec) },
+            // SAFETY: Delegating to variant with the same `spec` passed by our caller.
+            Self::Filtered(iter) => unsafe { iter.revalidate(spec) },
+            // SAFETY: Delegating to variant with the same `spec` passed by our caller.
+            Self::Geo(iter) => unsafe { iter.revalidate(spec) },
         }
     }
 

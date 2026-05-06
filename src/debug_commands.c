@@ -26,6 +26,7 @@
 #include "util/workers.h"
 #include "cursor.h"
 #include "module.h"
+#include "aggregate/aggregate.h"
 #include "aggregate/aggregate_debug.h"
 #include "hybrid/hybrid_debug.h"
 #include "hybrid/hybrid_exec.h"
@@ -420,7 +421,7 @@ DEBUG_COMMAND(InvertedIndexSummary) {
   }
   GET_SEARCH_CTX(argv[2])
   invIdxName = RedisModule_StringPtrLen(argv[3], &len);
-  invidx = Redis_OpenInvertedIndex(sctx, invIdxName, len, 0, NULL);
+  invidx = Redis_OpenInvertedIndex(sctx->spec, invIdxName, len, 0, NULL);
   if (!invidx) {
     RedisModule_ReplyWithError(sctx->redisCtx, "Can not find the inverted index");
     goto end;
@@ -472,7 +473,7 @@ DEBUG_COMMAND(DumpInvertedIndex) {
   }
   GET_SEARCH_CTX(argv[2])
   invIdxName = RedisModule_StringPtrLen(argv[3], &len);
-  invidx = Redis_OpenInvertedIndex(sctx, invIdxName, len, 0, NULL);
+  invidx = Redis_OpenInvertedIndex(sctx->spec, invIdxName, len, 0, NULL);
   if (!invidx) {
     RedisModule_ReplyWithError(sctx->redisCtx, "Can not find the inverted index");
     goto end;
@@ -2575,6 +2576,28 @@ DEBUG_COMMAND(syncPoint) {
   }
   return RedisModule_ReplyWithError(ctx, "Unknown SYNC_POINT subcommand. Valid: ARM, SIGNAL, IS_WAITING, IS_ARMED, CLEAR");
 }
+
+/**
+ * FT.DEBUG QUERY_CONTROLLER SET_CURSOR_READ_SIZE <N>
+ * Override RSGlobalConfig.cursorReadSize at runtime. Returns the previous
+ * value so the caller can restore it. N must be >= 1.
+ */
+DEBUG_COMMAND(setCursorReadSize) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc != 3) {
+    return RedisModule_WrongArity(ctx);
+  }
+  long long n;
+  if (RedisModule_StringToLongLong(argv[2], &n) != REDISMODULE_OK || n < 1) {
+    return RedisModule_ReplyWithError(ctx, "Invalid argument for 'SET_CURSOR_READ_SIZE'");
+  }
+
+  long long previous = RSGlobalConfig.cursorReadSize;
+  RSGlobalConfig.cursorReadSize = n;
+  return RedisModule_ReplyWithLongLong(ctx, previous);
+}
 #endif
 
 /**
@@ -2600,6 +2623,9 @@ DEBUG_COMMAND(queryController) {
     return printRPStream(ctx, argv + 1, argc - 1);
   }
 #ifdef ENABLE_ASSERT
+  if (!strcmp("SET_CURSOR_READ_SIZE", op)) {
+    return setCursorReadSize(ctx, argv + 1, argc - 1);
+  }
   // Coordinator reduce pause commands (only available with ENABLE_ASSERT)
   if (!strcmp("SET_PAUSE_BEFORE_REDUCE", op)) {
     return setPauseBeforeReduce(ctx, argv + 1, argc - 1);

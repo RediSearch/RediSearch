@@ -323,39 +323,30 @@ uv redisbench-admin run-local \
 
 ## Supported Platforms
 
-The following operating systems are supported and tested in CI:
+The following operating systems are supported and tested in CI on both `x86_64` and `aarch64` (with the exception of macOS 14, which is ARM64-only):
 
-* Ubuntu 18.04
-* Ubuntu 20.04
-* Ubuntu 22.04
-* Ubuntu 24.04
-* Debian linux 11
-* Debian linux 12
-* Rocky linux 8
-* Rocky linux 9
-* Amazon linux 2
-* Amazon linux 2023
-* Mariner 2.0
-* Azure linux 3
-* macOS
-* Alpine linux 3
+* Ubuntu 20.04 (Focal)
+* Ubuntu 22.04 (Jammy)
+* Ubuntu 24.04 (Noble)
+* Ubuntu 26.04 (Resolute)
+* Debian 12 (Bookworm)
+* Debian 13 (Trixie)
+* Rocky Linux 8
+* Rocky Linux 9
+* Rocky Linux 10
+* Amazon Linux 2023
+* Azure Linux 3
+* Alpine Linux 3.23
+* macOS 14 (ARM64)
+* macOS 15
+* macOS 26
 
-### Platform-specific compiler requirements
+### Platform-specific notes
 
-- Ubuntu 18.04: GCC 10 (not default, installed via PPA)
-- Ubuntu 20.04: GCC 10 (not default, installed via PPA)
-- Ubuntu 22.04: GCC 12 (not default, PPA not required)
-- Ubuntu 24.04: Default GCC is sufficient
-- Debian 11: Default GCC is sufficient
-- Debian 12: Default GCC is sufficient
-- Rocky Linux 8: GCC 13 (not default, installed via gcc-toolset-13-gcc and gcc-toolset-13-gcc-c++)
-- Rocky Linux 9: GCC 14 (not default, installed via gcc-toolset-14-gcc and gcc-toolset-14-gcc-c++)
-- Amazon Linux 2: GCC 11 (not default, installed via Amazon's SCL)
-- Amazon Linux 2023: Default GCC is sufficient
-- Mariner 2.0: Default GCC is sufficient
-- Azure Linux 3: Default GCC is sufficient
-- macOS: Install llvm@21 via homebrew
-- Alpine Linux 3: Default GCC is sufficient
+`./install_script.sh` covers compiler and build-tool installation on every supported platform. The notes below only flag things the script cannot do for you:
+
+- **macOS**: Homebrew must already be installed. The script will fail fast if `brew` is not on `$PATH`. Install it from https://brew.sh first.
+- **Rocky Linux 8 / 9**: The script installs GCC via `gcc-toolset-13` / `gcc-toolset-14` and registers the toolset under `/etc/profile.d/`, which only takes effect in **new** shells. To use the toolset in your current shell, run `source /opt/rh/gcc-toolset-13/enable` (Rocky 8) or `source /opt/rh/gcc-toolset-14/enable` (Rocky 9).
 
 ## Updating Dependencies
 

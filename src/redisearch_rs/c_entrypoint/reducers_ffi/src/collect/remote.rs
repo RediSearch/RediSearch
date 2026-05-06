@@ -7,18 +7,20 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use reducers::collect::{CollectCtx, CollectReducer};
-use rlookup::{RLookupKey, RLookupRow};
+//! Remote COLLECT reducer FFI.
+
+use reducers::collect::{RemoteCollectCtx, RemoteCollectReducer};
+use rlookup::{RLookup, RLookupKey, RLookupRow};
 use std::{
     ffi::{c_int, c_void},
     ptr, slice,
 };
 
-/// Creates a new [`CollectReducer`] from pre-parsed configuration and returns a
-/// pointer to its base [`ffi::Reducer`] with the vtable fully wired.
+/// Creates a new [`RemoteCollectReducer`] from pre-parsed configuration and
+/// returns a pointer to its base [`ffi::Reducer`] with the vtable fully wired.
 ///
-/// The caller is responsible for eventually calling [`collectFree`] on the
-/// returned pointer.
+/// The caller is responsible for eventually calling [`collectRemoteFree`] on
+/// the returned pointer.
 ///
 /// # Safety
 ///
@@ -28,19 +30,23 @@ use std::{
 ///    `sort_keys_len` [valid] `*const RLookupKey` pointers.
 /// 3. All [`RLookupKey`][ffi::RLookupKey] pointers must remain valid for the
 ///    lifetime of the returned reducer.
+/// 4. `srclookup` is either null or a [valid] pointer to a
+///    [`RLookup`][ffi::RLookup] that remains alive for the lifetime of the
+///    returned reducer.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn CollectReducer_Create(
+pub unsafe extern "C" fn CollectReducer_CreateRemote(
     field_keys: *const *const ffi::RLookupKey,
     field_keys_len: usize,
-    has_wildcard: bool,
+    srclookup: *const ffi::RLookup,
     sort_keys: *const *const ffi::RLookupKey,
     sort_keys_len: usize,
     sort_asc_map: u64,
     has_limit: bool,
     limit_offset: u64,
     limit_count: u64,
+    include_sort_keys: bool,
 ) -> *mut ffi::Reducer {
     let field_keys: Box<[&RLookupKey]> = if !field_keys.is_null() && field_keys_len > 0 {
         // SAFETY: ensured by caller (1.)
@@ -58,77 +64,78 @@ pub unsafe extern "C" fn CollectReducer_Create(
         Box::new([])
     };
 
+    // SAFETY: ensured by caller (4.)
+    let srclookup: Option<&RLookup> = unsafe { srclookup.cast::<RLookup>().as_ref() };
+
     let limit = has_limit.then_some((limit_offset, limit_count));
 
-    let mut cr = Box::new(CollectReducer::new(
+    let mut cr = Box::new(RemoteCollectReducer::new(
         field_keys,
-        has_wildcard,
+        srclookup,
         sort_keys,
         sort_asc_map,
         limit,
+        include_sort_keys,
     ));
 
     cr.reducer_mut()
-        .set_new_instance(collectNewInstance)
-        .set_add(collectAdd)
-        .set_finalize(collectFinalize)
-        .set_free_instance(collectFreeInstance)
-        .set_free(collectFree);
+        .set_new_instance(collectRemoteNewInstance)
+        .set_add(collectRemoteAdd)
+        .set_finalize(collectRemoteFinalize)
+        .set_free_instance(collectRemoteFreeInstance)
+        .set_free(collectRemoteFree);
 
     Box::into_raw(cr).cast()
 }
 
-/// Creates a new per-group collect reducer instance.
+/// Creates a new per-group shard collect reducer instance.
 ///
 /// # Safety
 ///
-/// 1. `r` must point to a [valid] `CollectReducer` masquerading as a `ffi::Reducer`.
+/// 1. `r` must point to a [valid] `ShardCollectReducer` masquerading as a `ffi::Reducer`.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn collectNewInstance(r: *mut ffi::Reducer) -> *mut c_void {
+pub unsafe extern "C" fn collectRemoteNewInstance(r: *mut ffi::Reducer) -> *mut c_void {
     // SAFETY: ensured by caller (1.)
-    let r = unsafe { r.cast::<CollectReducer>().as_mut().unwrap() };
+    let r = unsafe { r.cast::<RemoteCollectReducer>().as_mut().unwrap() };
 
     ptr::from_mut(r.alloc_instance()).cast::<c_void>()
 }
 
-/// Frees a per-group collect reducer instance.
+/// Frees a per-group shard collect reducer instance.
 ///
 /// # Safety
 ///
-/// 1. `ctx` must point to a [valid] `CollectCtx` masquerading as a void pointer.
+/// 1. `ctx` must point to a [valid] `ShardCollectCtx` masquerading as a void pointer.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn collectFreeInstance(_r: *mut ffi::Reducer, ctx: *mut c_void) {
-    // SAFETY: ensured by caller (1.) — `ctx` points to a valid, initialized
-    // `CollectCtx`. After this call the pointee is logically uninitialized,
-    // but the arena memory is freed later when `CollectReducer` (and its
-    // `Bump`) is dropped.
-    unsafe { ptr::drop_in_place(ctx.cast::<CollectCtx>()) }
+pub unsafe extern "C" fn collectRemoteFreeInstance(_r: *mut ffi::Reducer, ctx: *mut c_void) {
+    // SAFETY: ensured by caller (1.)
+    unsafe { ptr::drop_in_place(ctx.cast::<RemoteCollectCtx>()) }
 }
 
-/// Processes the provided [`ffi::RLookupRow`] with the collect reducer
+/// Processes the provided [`ffi::RLookupRow`] with the shard collect reducer
 /// instance.
 ///
 /// # Safety
 ///
-/// 1. `r` must point to a [valid] `CollectReducer` masquerading as a `ffi::Reducer`.
-/// 2. `ctx` must point to a [valid] `CollectCtx` masquerading as a void pointer.
+/// 1. `r` must point to a [valid] `ShardCollectReducer` masquerading as a `ffi::Reducer`.
+/// 2. `ctx` must point to a [valid] `ShardCollectCtx` masquerading as a void pointer.
 /// 3. `srcrow` must point to a [valid] `ffi::RLookupRow`.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn collectAdd(
+pub unsafe extern "C" fn collectRemoteAdd(
     r: *mut ffi::Reducer,
     ctx: *mut c_void,
     srcrow: *const ffi::RLookupRow,
 ) -> c_int {
     // SAFETY: ensured by caller (1.)
-    let r = unsafe { r.cast::<CollectReducer>().as_ref().unwrap() };
+    let r = unsafe { r.cast::<RemoteCollectReducer>().as_ref().unwrap() };
     // SAFETY: ensured by caller (2.)
-    let collect = unsafe { ctx.cast::<CollectCtx>().as_mut().unwrap() };
+    let collect = unsafe { ctx.cast::<RemoteCollectCtx>().as_mut().unwrap() };
     // SAFETY: ensured by caller (3.)
     let srcrow = unsafe { srcrow.cast::<RLookupRow>().as_ref().unwrap() };
 
@@ -137,125 +144,125 @@ pub unsafe extern "C" fn collectAdd(
     1 // C reducer->Add convention: always returns 1
 }
 
-/// Finalizes the collect reducer instance result into an `RSValue`.
+/// Finalizes the shard collect reducer instance result into an `RSValue`.
 ///
 /// # Safety
 ///
-/// 1. `r` must point to a [valid] `CollectReducer` masquerading as a `ffi::Reducer`.
-/// 2. `ctx` must point to a [valid] `CollectCtx` masquerading as a void pointer.
+/// 1. `r` must point to a [valid] `ShardCollectReducer` masquerading as a `ffi::Reducer`.
+/// 2. `ctx` must point to a [valid] `ShardCollectCtx` masquerading as a void pointer.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn collectFinalize(
+pub unsafe extern "C" fn collectRemoteFinalize(
     r: *mut ffi::Reducer,
     ctx: *mut c_void,
 ) -> *mut ffi::RSValue {
     // SAFETY: ensured by caller (1.)
-    let r = unsafe { r.cast::<CollectReducer>().as_ref().unwrap() };
+    let r = unsafe { r.cast::<RemoteCollectReducer>().as_ref().unwrap() };
     // SAFETY: ensured by caller (2.)
-    let collect = unsafe { ctx.cast::<CollectCtx>().as_mut().unwrap() };
+    let collect = unsafe { ctx.cast::<RemoteCollectCtx>().as_mut().unwrap() };
 
     collect.finalize(r).into_raw() as *mut ffi::RSValue
 }
 
-/// Frees the provided collect reducer (the global struct, not a per-group
-/// instance).
+/// Frees the provided shard collect reducer (the global struct, not a
+/// per-group instance).
 ///
 /// # Safety
 ///
-/// 1. `r` must point to a [valid] `CollectReducer` masquerading as a `ffi::Reducer`,
-///    originally created by [`CollectReducer_Create`].
+/// 1. `r` must point to a [valid] `ShardCollectReducer` masquerading as a `ffi::Reducer`,
+///    originally created by [`CollectReducer_CreateRemote`].
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn collectFree(r: *mut ffi::Reducer) {
+pub unsafe extern "C" fn collectRemoteFree(r: *mut ffi::Reducer) {
     // SAFETY: ensured by caller (1.)
-    drop(unsafe { Box::from_raw(r.cast::<CollectReducer>()) });
+    drop(unsafe { Box::from_raw(r.cast::<RemoteCollectReducer>()) });
 }
 
 // --- Accessors for C++ parser tests (temporary) ---
 //
-// These exist solely so `test_cpp_collect.cpp` can inspect `CollectReducer`
+// These exist solely so `test_cpp_collect.cpp` can inspect `ShardCollectReducer`
 // configuration after parsing. The parsing logic lives in C, so we cannot
 // yet test it with Rust flow tests.
 //
 // TODO: migrate the C++ parser tests to Python flow tests
 // (`test_groupby_collect.py`), then delete `test_cpp_collect.cpp`, these
-// FFI accessors, and the corresponding methods in `reducers/src/collect.rs`.
+// FFI accessors, and the corresponding methods in `reducers/src/collect/shard.rs`.
 //
 /// # Safety
 ///
-/// `r` must point to a valid [`CollectReducer`] originally created by
-/// `CollectReducer_Create`.
+/// `r` must point to a valid [`RemoteCollectReducer`] originally created by
+/// `CollectReducer_CreateRemote`.
 #[unsafe(no_mangle)]
 pub const unsafe extern "C" fn CollectReducer_GetFieldKeysLen(r: *const ffi::Reducer) -> usize {
     // SAFETY: ensured by caller.
-    let r = unsafe { r.cast::<CollectReducer>().as_ref().unwrap() };
+    let r = unsafe { r.cast::<RemoteCollectReducer>().as_ref().unwrap() };
     r.field_keys_len()
 }
 
 /// # Safety
 ///
-/// `r` must point to a valid [`CollectReducer`] originally created by
-/// `CollectReducer_Create`.
+/// `r` must point to a valid [`RemoteCollectReducer`] originally created by
+/// `CollectReducer_CreateRemote`.
 #[unsafe(no_mangle)]
-pub const unsafe extern "C" fn CollectReducer_HasWildcard(r: *const ffi::Reducer) -> bool {
+pub const unsafe extern "C" fn CollectReducer_IsLoadAll(r: *const ffi::Reducer) -> bool {
     // SAFETY: ensured by caller.
-    let r = unsafe { r.cast::<CollectReducer>().as_ref().unwrap() };
-    r.has_wildcard()
+    let r = unsafe { r.cast::<RemoteCollectReducer>().as_ref().unwrap() };
+    r.is_load_all()
 }
 
 /// # Safety
 ///
-/// `r` must point to a valid [`CollectReducer`] originally created by
-/// `CollectReducer_Create`.
+/// `r` must point to a valid [`RemoteCollectReducer`] originally created by
+/// `CollectReducer_CreateRemote`.
 #[unsafe(no_mangle)]
 pub const unsafe extern "C" fn CollectReducer_GetSortKeysLen(r: *const ffi::Reducer) -> usize {
     // SAFETY: ensured by caller.
-    let r = unsafe { r.cast::<CollectReducer>().as_ref().unwrap() };
+    let r = unsafe { r.cast::<RemoteCollectReducer>().as_ref().unwrap() };
     r.sort_keys_len()
 }
 
 /// # Safety
 ///
-/// `r` must point to a valid [`CollectReducer`] originally created by
-/// `CollectReducer_Create`.
+/// `r` must point to a valid [`RemoteCollectReducer`] originally created by
+/// `CollectReducer_CreateRemote`.
 #[unsafe(no_mangle)]
 pub const unsafe extern "C" fn CollectReducer_GetSortAscMap(r: *const ffi::Reducer) -> u64 {
     // SAFETY: ensured by caller.
-    let r = unsafe { r.cast::<CollectReducer>().as_ref().unwrap() };
+    let r = unsafe { r.cast::<RemoteCollectReducer>().as_ref().unwrap() };
     r.sort_asc_map()
 }
 
 /// # Safety
 ///
-/// `r` must point to a valid [`CollectReducer`] originally created by
-/// `CollectReducer_Create`.
+/// `r` must point to a valid [`RemoteCollectReducer`] originally created by
+/// `CollectReducer_CreateRemote`.
 #[unsafe(no_mangle)]
 pub const unsafe extern "C" fn CollectReducer_HasLimit(r: *const ffi::Reducer) -> bool {
     // SAFETY: ensured by caller.
-    let r = unsafe { r.cast::<CollectReducer>().as_ref().unwrap() };
+    let r = unsafe { r.cast::<RemoteCollectReducer>().as_ref().unwrap() };
     r.has_limit()
 }
 
 /// # Safety
 ///
-/// `r` must point to a valid [`CollectReducer`] originally created by
-/// `CollectReducer_Create`.
+/// `r` must point to a valid [`RemoteCollectReducer`] originally created by
+/// `CollectReducer_CreateRemote`.
 #[unsafe(no_mangle)]
 pub const unsafe extern "C" fn CollectReducer_GetLimitOffset(r: *const ffi::Reducer) -> u64 {
     // SAFETY: ensured by caller.
-    let r = unsafe { r.cast::<CollectReducer>().as_ref().unwrap() };
+    let r = unsafe { r.cast::<RemoteCollectReducer>().as_ref().unwrap() };
     r.limit_offset()
 }
 
 /// # Safety
 ///
-/// `r` must point to a valid [`CollectReducer`] originally created by
-/// `CollectReducer_Create`.
+/// `r` must point to a valid [`RemoteCollectReducer`] originally created by
+/// `CollectReducer_CreateRemote`.
 #[unsafe(no_mangle)]
 pub const unsafe extern "C" fn CollectReducer_GetLimitCount(r: *const ffi::Reducer) -> u64 {
     // SAFETY: ensured by caller.
-    let r = unsafe { r.cast::<CollectReducer>().as_ref().unwrap() };
+    let r = unsafe { r.cast::<RemoteCollectReducer>().as_ref().unwrap() };
     r.limit_count()
 }

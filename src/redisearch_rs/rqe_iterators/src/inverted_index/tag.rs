@@ -218,12 +218,16 @@ where
     }
 
     #[inline(always)]
-    fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
+    unsafe fn revalidate(
+        &mut self,
+        spec: NonNull<ffi::IndexSpec>,
+    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         if self.should_abort() {
             return Ok(RQEValidateStatus::Aborted);
         }
 
-        self.it.revalidate()
+        // SAFETY: Delegating to inner iterator with the same `spec` passed by our caller.
+        unsafe { self.it.revalidate(spec) }
     }
 
     #[inline(always)]

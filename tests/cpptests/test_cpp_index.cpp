@@ -705,7 +705,7 @@ TEST_F(IndexTest, testHybridVector) {
     ASSERT_EQ(hybridIt->lastDocId, expected_id);
   }
   ASSERT_EQ(hybridIt->lastDocId, max_id - step*((k/2)-1));
-  ASSERT_EQ(hybridIt->Revalidate(hybridIt), VALIDATE_OK);
+  ASSERT_EQ(hybridIt->Revalidate(hybridIt, mockQctx.sctx.spec), VALIDATE_OK);
 
   // Rerun in AD_HOC BF mode.
   hybridIt->Rewind(hybridIt);

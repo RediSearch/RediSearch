@@ -31,6 +31,9 @@ jobs:
       packages: write
     uses: ./.github/workflows/task-lint.yml
     secrets: inherit
+    with:
+      compare-advisories-to-base: true
+      advisories-base-ref: ${{ github.event.merge_group.base_sha }}
 
   test-matrix:
     needs: [get-latest-redis-tag, lint]

@@ -306,6 +306,25 @@ def testProfileGeo(env):
   env.assertContains('GEO', profile_data[3])
 
 @skip(cluster=True)
+def testProfileGeoshape(env):
+  """GEOSHAPE query profile: a geometry query shows GEOSHAPE iterator type."""
+  conn = getConnectionByEnv(env)
+  env.cmd(config_cmd(), 'SET', '_PRINT_PROFILE_CLOCK', 'false')
+
+  env.cmd('ft.create', 'idx', 'SCHEMA', 'g', 'GEOSHAPE', 'FLAT')
+  conn.execute_command('hset', '1', 'g', 'POLYGON((0 0, 1 0, 1 1, 0 1, 0 0))')
+  waitForIndex(env, 'idx')
+
+  actual_res = conn.execute_command(
+    'ft.profile', 'idx', 'search', 'query',
+    '@g:[WITHIN $poly]', 'PARAMS', 2, 'poly', 'POLYGON((-1 -1, 2 -1, 2 2, -1 2, -1 -1))',
+    'nocontent', 'DIALECT', 3)
+  env.assertEqual(actual_res[0], [1, '1'])
+  profile_data = actual_res[1][1][0][3]
+  env.assertEqual(profile_data[0], 'Type')
+  env.assertEqual(profile_data[1], 'GEO-SHAPE')
+
+@skip(cluster=True)
 def testProfileMissingFieldQuery(env):
   conn = getConnectionByEnv(env)
   env.cmd(config_cmd(), 'SET', '_PRINT_PROFILE_CLOCK', 'false')

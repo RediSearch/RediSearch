@@ -22,6 +22,10 @@
 extern "C" {
 #endif
 
+#define SEARCH_SUFFIX "(SEARCH)"
+#define VSIM_SUFFIX "(VSIM)"
+#define POST_PROCESSING_SUFFIX "(POST PROCESSING)"
+
 /**
  * Main command handler for FT.HYBRID command.
  *

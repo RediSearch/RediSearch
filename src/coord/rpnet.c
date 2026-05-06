@@ -13,6 +13,7 @@
 #include "rmr/rmr.h"
 #include "hiredis/sds.h"
 #include "coord/dist_utils.h"
+#include "debug_commands.h"
 
 
 #define CURSOR_EOF 0
@@ -173,8 +174,8 @@ static void shardResponseBarrier_PendingReplies_Free(RPNet *nc) {
   }
 }
 
-// Get absolute timeout for MRIterator_NextWithTimeout
-// Returns pointer to the CLOCK_MONOTONIC_RAW based timeout, or NULL if not available
+// Wall-clock deadline pointer for MRIterator_NextWithTimeout. NULL when
+// AREQ_ShouldCheckTimeout is false (e.g. RETURN-STRICT uses the abort flag).
 static struct timespec *getAbsTimeout(RPNet *nc) {
   if (!nc->areq || !nc->areq->sctx || !AREQ_ShouldCheckTimeout(nc->areq)) {
     return NULL;
@@ -286,11 +287,15 @@ int getNextReply(RPNet *nc) {
         break;
       }
 
-      // Get next reply with timeout (uses CLOCK_MONOTONIC_RAW based timeout)
+      // Pop with deadline + abort flag wired. Deadline breaks stalled shards under
+      // Return; abort flag breaks under FAIL/RETURN-STRICT via MRChannel_WakeAbort.
+      // No areq means no wake mechanism is available — degrade to a blocking pop.
       bool nextTimedOut = false;
-      MRReply *reply = MRIterator_NextWithTimeout(nc->it, getAbsTimeout(nc), &nextTimedOut);
+      MRReply *reply = nc->areq
+        ? MRIterator_NextWithTimeout(nc->it, getAbsTimeout(nc), &nc->areq->syncCtx.timedOut, &nextTimedOut)
+        : MRIterator_Next(nc->it);
       if (reply == NULL) {
-        break;  // No more replies or timed out
+        break;  // No more replies, timed out, or aborted
       }
 
       // Store reply for later processing
@@ -335,11 +340,25 @@ int getNextReply(RPNet *nc) {
         return RS_RESULT_EOF;
       }
     }
-    root = MRIterator_Next(nc->it);
+    // Abort-flag-only pop (no wall-clock deadline). Flipped by the FAIL / RETURN-STRICT
+    // timeout callback via MRChannel_WakeAbort. Under Return the flag is never flipped,
+    // degrading to a blocking pop. No areq means no wake mechanism — use MRIterator_Next.
+    root = nc->areq
+      ? MRIterator_NextWithTimeout(nc->it, NULL, &nc->areq->syncCtx.timedOut, NULL)
+      : MRIterator_Next(nc->it);
   }
 
   if (root == NULL) {
     RPNet_resetCurrent(nc);
+    // Drain-only: empty channel means end of queued replies, not a timeout —
+    // the main-thread timeout callback already observed the deadline and is
+    // now consuming whatever the I/O threads had already pushed.
+    if (nc->drainOnly) {
+      return RS_RESULT_EOF;
+    }
+    if (nc->areq && AREQ_TimedOut(nc->areq)) {
+      return RS_RESULT_TIMEDOUT;
+    }
     return MRIterator_GetPending(nc->it) ? RS_RESULT_OK : RS_RESULT_EOF;
   }
 
@@ -442,6 +461,12 @@ int rpnetNext_StartWithMappings(ResultProcessor *rp, SearchResult *r) {
     rm_free(idx_copy);
 
     nc->it = MR_IterateWithPrivateData(&nc->cmd, netCursorCallback, NULL, NULL, NULL, iterCursorMappingCb, &nc->mappings);
+    // Register the iterator's channel so the main-thread timeout callback can wake a
+    // blocked reader after flipping AREQ's `timedOut` flag. Paired with
+    // RequestSyncCtx_UnregisterAbortWakeChannel in rpnetFree.
+    if (nc->areq) {
+      RequestSyncCtx_RegisterAbortWakeChannel(&nc->areq->syncCtx, MRIterator_GetChannel(nc->it));
+    }
     nc->base.Next = rpnetNext;
 
     return rpnetNext(rp, r);
@@ -458,6 +483,11 @@ void rpnetFree(ResultProcessor *rp) {
   shardResponseBarrier_PendingReplies_Free(nc);
 
   if (nc->it) {
+    // Unregister the abort-wake channel before releasing the iterator, so the main
+    // thread's timeout callback cannot observe a channel that is about to be freed.
+    if (nc->areq) {
+      RequestSyncCtx_UnregisterAbortWakeChannel(&nc->areq->syncCtx);
+    }
     RS_DEBUG_LOG("rpnetFree: calling MRIterator_Release");
     MRIterator_Release(nc->it);
   }
@@ -531,7 +561,10 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
 
   // get the next reply from the channel
   while (!root) {
-    // Check for timeout (respecting skipTimeoutChecks flag)
+    // Check for timeout (respecting skipTimeoutChecks flag). Under RETURN-STRICT
+    // (the only policy that sets drainOnly) shouldCheckInPipelineTimeoutCoord
+    // already forces skipTimeoutChecks=true, so this branch is naturally bypassed
+    // during a drain.
     if (!nc->areq->sctx->time.skipTimeoutChecks && TimedOut(&nc->areq->sctx->time.timeout)) {
       // Set the `timedOut` flag in the MRIteratorCtx, later to be read by the
       // callback so that a `CURSOR DEL` command will be dispatched instead of
@@ -539,8 +572,9 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
       MRIteratorCallback_SetTimedOut(MRIterator_GetCtx(nc->it));
 
       return RS_RESULT_TIMEDOUT;
-    } else if (MRIteratorCallback_GetTimedOut(MRIterator_GetCtx(nc->it))) {
-      // if timeout was set in previous reads, reset it
+    } else if (!nc->drainOnly && MRIteratorCallback_GetTimedOut(MRIterator_GetCtx(nc->it))) {
+      // if timeout was set in previous reads, reset it. Drain-only must keep
+      // the flag set so the post-drain callback dispatches CURSOR DEL.
       MRIteratorCallback_ResetTimedOut(MRIterator_GetCtx(nc->it));
     }
 
@@ -581,6 +615,11 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
 
   // invariant: at least one row exists
   if (new_reply) {
+#ifdef ENABLE_ASSERT
+    // Sync point (debug): park BG after a shard reply has been admitted into the
+    // pipeline (popped from the channel, about to emit its rows).
+    SyncPoint_WaitUntil(SYNC_POINT_RPNET_REPLY_ADMITTED, areq_timed_out, nc->areq);
+#endif
     if (resp3) { // RESP3
       nc->curIdx = 0;
       // Note: For WITHCOUNT in multi-shard aggregate, totalResults is already set

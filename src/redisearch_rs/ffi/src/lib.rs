@@ -47,16 +47,39 @@ pub use rqe_iterator_type::IteratorType;
 #[repr(C)]
 #[derive(Debug)]
 pub struct QueryProcessingCtx {
+    /// First processor in the chain.
     pub rootProc: UnsafeCell<*mut ResultProcessor>,
+    /// Last processor in the chain.
     pub endProc: UnsafeCell<*mut ResultProcessor>,
+    /// Used with `clock_gettime(CLOCK_MONOTONIC, ...)`.
     pub initTime: rs_wall_clock,
-    pub GILTime: rs_wall_clock_ns_t,
+    /// Time accumulated in nanoseconds.
+    pub queryGILTime: rs_wall_clock_ns_t,
+    /// The minimal score applicable for a result. It can be used to optimize
+    /// the scorers.
     pub minScore: f64,
+    /// The total results found in the query, incremented by the root
+    /// processors and decremented by others who might disqualify results.
     pub totalResults: u32,
+    /// The number of results we requested to return at the current chunk.
+    /// This value is meant to be used by the RP to limit the number of results
+    /// returned by its upstream RP ONLY.
+    /// It should be restored after using it for local aggregation etc., as done
+    /// in the Safe-Loader, Sorter, and Pager.
     pub resultLimit: u32,
+    /// Object which contains the error.
     pub err: *mut QueryError,
+    /// Background indexing OOM warning.
+    pub bgScanOOM: bool,
     pub isProfile: bool,
     pub timeoutPolicy: RSTimeoutPolicy,
+    /// True iff any prefix of the pipeline's output is a valid (though possibly
+    /// incomplete) answer to the query - i.e. the pipeline can yield partial
+    /// results on early termination.
+    /// Set post-construction on the coordinator AREQ. Used by the
+    /// RETURN-STRICT timeout path to drain queued shard replies on the main
+    /// thread after the background pipeline has aborted.
+    pub canYieldPartialResults: bool,
 }
 
 impl QueryProcessingCtx {
@@ -68,13 +91,15 @@ impl QueryProcessingCtx {
                 tv_sec: 0,
                 tv_nsec: 0,
             },
-            GILTime: 0,
+            queryGILTime: 0,
             minScore: 0.0,
             totalResults: 0,
             resultLimit: 0,
             err: ptr::null_mut(),
+            bgScanOOM: false,
             isProfile: false,
             timeoutPolicy: 0,
+            canYieldPartialResults: false,
         };
 
         Box::pin(ctx)

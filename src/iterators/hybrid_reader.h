@@ -63,6 +63,14 @@ extern "C" {
 
 QueryIterator *NewHybridVectorIterator(HybridIteratorParams hParams, QueryError *status);
 
+// Accessors for profile printing.
+const QueryIterator *HybridIterator_GetChild(const QueryIterator *it);
+const char *HybridIterator_GetSearchModeString(const QueryIterator *it);
+bool HybridIterator_IsBatchMode(const QueryIterator *it);
+size_t HybridIterator_GetNumIterations(const QueryIterator *it);
+size_t HybridIterator_GetMaxBatchSize(const QueryIterator *it);
+size_t HybridIterator_GetMaxBatchIteration(const QueryIterator *it);
+
 #ifdef __cplusplus
 }
 #endif

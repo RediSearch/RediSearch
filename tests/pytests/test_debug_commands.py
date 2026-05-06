@@ -1312,6 +1312,34 @@ def test_query_controller_add_before_after(env):
         setPauseRPResume(env)
         t_query.join()
 
+@skip(cluster=True)
+def test_query_controller_set_cursor_read_size():
+    """Wrong-args coverage for FT.DEBUG QUERY_CONTROLLER SET_CURSOR_READ_SIZE."""
+    env = Env()
+    skipIfNoEnableAssert(env)
+
+    # Wrong arity: missing N
+    env.expect(debug_cmd(), 'QUERY_CONTROLLER', 'SET_CURSOR_READ_SIZE').error()\
+    .contains('wrong number of arguments')
+    # Wrong arity: extra argument
+    env.expect(debug_cmd(), 'QUERY_CONTROLLER', 'SET_CURSOR_READ_SIZE', '1', 'extra').error()\
+    .contains('wrong number of arguments')
+    # Non-numeric N
+    env.expect(debug_cmd(), 'QUERY_CONTROLLER', 'SET_CURSOR_READ_SIZE', 'abc').error()\
+    .contains("Invalid argument for 'SET_CURSOR_READ_SIZE'")
+    # Zero (rejected: N must be >= 1)
+    env.expect(debug_cmd(), 'QUERY_CONTROLLER', 'SET_CURSOR_READ_SIZE', '0').error()\
+    .contains("Invalid argument for 'SET_CURSOR_READ_SIZE'")
+    # Negative
+    env.expect(debug_cmd(), 'QUERY_CONTROLLER', 'SET_CURSOR_READ_SIZE', '-5').error()\
+    .contains("Invalid argument for 'SET_CURSOR_READ_SIZE'")
+
+    # Sanity: a valid call returns the previous value (a positive int) and
+    # restoring it works.
+    prev = env.cmd(debug_cmd(), 'QUERY_CONTROLLER', 'SET_CURSOR_READ_SIZE', '7')
+    env.assertGreater(int(prev), 0)
+    env.expect(debug_cmd(), 'QUERY_CONTROLLER', 'SET_CURSOR_READ_SIZE', str(int(prev))).equal(7)
+
 @skip(cluster=False)
 def test_cluster_query_controller_pause_and_resume():
     # Set workers to 1 on all shards to make sure queries can be paused

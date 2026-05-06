@@ -572,9 +572,9 @@ static QueryIterator* HybridIteratorReducer(HybridIteratorParams *hParams) {
 // If we already have the results prepared, we are OK, and if not, we didn't execute the query yet so we are also OK.
 // Only if we have a child iterator, and it aborted, we need to abort the hybrid iterator.
 // If the child iterator is OK or MOVED, we are OK whether we have results prepared or not.
-static ValidateStatus HR_Revalidate(QueryIterator *ctx) {
+static ValidateStatus HR_Revalidate(QueryIterator *ctx, struct IndexSpec *spec) {
   HybridIterator *hr = (HybridIterator *)ctx;
-  if (hr->child && hr->child->Revalidate(hr->child) == VALIDATE_ABORTED) {
+  if (hr->child && hr->child->Revalidate(hr->child, spec) == VALIDATE_ABORTED) {
     return VALIDATE_ABORTED;
   }
   hr->checkFieldExpiration = hr->sctx && hr->filterCtx.field.index != RS_INVALID_FIELD_INDEX &&
@@ -676,4 +676,36 @@ QueryIterator *NewHybridVectorIterator(HybridIteratorParams hParams, QueryError 
     ri->Read = HR_ReadHybridUnsorted;
   }
   return ri;
+}
+
+// Accessors for profile printing.
+const QueryIterator *HybridIterator_GetChild(const QueryIterator *it) {
+  const HybridIterator *hi = (const HybridIterator *)it;
+  return hi->child;
+}
+
+const char *HybridIterator_GetSearchModeString(const QueryIterator *it) {
+  const HybridIterator *hi = (const HybridIterator *)it;
+  return VecSimSearchMode_ToString(hi->searchMode);
+}
+
+bool HybridIterator_IsBatchMode(const QueryIterator *it) {
+  const HybridIterator *hi = (const HybridIterator *)it;
+  return hi->searchMode == VECSIM_HYBRID_BATCHES ||
+         hi->searchMode == VECSIM_HYBRID_BATCHES_TO_ADHOC_BF;
+}
+
+size_t HybridIterator_GetNumIterations(const QueryIterator *it) {
+  const HybridIterator *hi = (const HybridIterator *)it;
+  return hi->numIterations;
+}
+
+size_t HybridIterator_GetMaxBatchSize(const QueryIterator *it) {
+  const HybridIterator *hi = (const HybridIterator *)it;
+  return hi->maxBatchSize;
+}
+
+size_t HybridIterator_GetMaxBatchIteration(const QueryIterator *it) {
+  const HybridIterator *hi = (const HybridIterator *)it;
+  return hi->maxBatchIteration;
 }

@@ -117,10 +117,15 @@ where
     }
 
     #[inline(always)]
-    fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
+    unsafe fn revalidate(
+        &mut self,
+        spec: std::ptr::NonNull<ffi::IndexSpec>,
+    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         match &mut self.0 {
-            MaybeEmptyOption::None(empty) => empty.revalidate(),
-            MaybeEmptyOption::Some(it) => it.revalidate(),
+            // SAFETY: Delegating to variant with the same `spec` passed by our caller.
+            MaybeEmptyOption::None(empty) => unsafe { empty.revalidate(spec) },
+            // SAFETY: Delegating to variant with the same `spec` passed by our caller.
+            MaybeEmptyOption::Some(it) => unsafe { it.revalidate(spec) },
         }
     }
 

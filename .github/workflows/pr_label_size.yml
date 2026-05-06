@@ -29,4 +29,3 @@ jobs:
             github_api_url: 'https://api.github.com'
             files_to_ignore: '*.md .gitignore'
             GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-

@@ -40,6 +40,9 @@ extern "C" {
 // Forward declaration for cursor
 struct Cursor;
 
+// Forward declaration for the MR channel used by the abort-wake path.
+struct MRChannel;
+
 /** Cached variables to avoid serializeResult retrieving these each time */
 typedef struct {
   RLookup *lastLookup;
@@ -256,12 +259,45 @@ typedef struct RequestSyncCtx {
   RS_Atomic(bool) timedOut;
   // Reference count for shared ownership between timeout callback (main thread) and background thread
   uint8_t refcount;
+
+  /* Partial-timeout coordination. The CAS claim grants exclusive ownership of
+   * the result-production phase: the BG-thread winner runs AggregateResults
+   * and stores results, while the timeout-callback winner preempts BG (BG
+   * bails at its post-claim check) and replies empty without running the
+   * pipeline. The loser waits for the winner's completion signal.
+   * Gated by `requiresAggregateResultsSync`. */
+  bool requiresAggregateResultsSync;     // Enable CAS/Signal/Wait around AggregateResults
+  RS_Atomic(bool) aggregatingResults;    // CAS claim: BG winner runs the pipeline; timeout-callback winner skips it and replies empty
+  bool aggregateResultsDone;             // Set at completion; guarded by aggregateResultsLock
+  pthread_mutex_t aggregateResultsLock;
+  pthread_cond_t aggregateResultsCond;
+
+  /* Abort-wake registration (single-slot). BG reader registers its blocking MR
+   * channel; timeout callback broadcasts on it after flipping `timedOut`.
+   * `abortWakeLock` serializes register/unregister/wake. */
+  struct MRChannel *abortWakeChannel;
+  pthread_mutex_t abortWakeLock;
 } RequestSyncCtx;
 
 // Initialize a RequestSyncCtx with default values
 static inline void RequestSyncCtx_Init(RequestSyncCtx *ctx) {
   ctx->timedOut = false;
   ctx->refcount = 1;
+  ctx->requiresAggregateResultsSync = false;
+  ctx->aggregatingResults = false;
+  ctx->aggregateResultsDone = false;
+  pthread_mutex_init(&ctx->aggregateResultsLock, NULL);
+  pthread_cond_init(&ctx->aggregateResultsCond, NULL);
+  ctx->abortWakeChannel = NULL;
+  pthread_mutex_init(&ctx->abortWakeLock, NULL);
+}
+
+// Release resources owned by a RequestSyncCtx. Must be called exactly once
+// per successful Init, from the request's free path.
+static inline void RequestSyncCtx_Destroy(RequestSyncCtx *ctx) {
+  pthread_mutex_destroy(&ctx->aggregateResultsLock);
+  pthread_cond_destroy(&ctx->aggregateResultsCond);
+  pthread_mutex_destroy(&ctx->abortWakeLock);
 }
 
 typedef struct AREQ {
@@ -538,6 +574,15 @@ AREQ *AREQ_IncrRef(AREQ *req);
 void AREQ_DecrRef(AREQ *req);
 
 /**
+ * Free a cursor parked in `req->storedReplyState.cursor`, if any.
+ * Used by cleanup paths to release a cursor left behind when the
+ * blocked-client timeout fires before the reply callback runs and
+ * drains it via `AREQ_ReplyWithStoredResults`.
+ * No-op when `storedReplyState.cursor` is NULL.
+ */
+void AREQ_CleanUpStoredCursor(AREQ *req);
+
+/**
  * Start the cursor on the current request
  * @param r the request
  * @param reply the context used for replies (only used in current command)
@@ -580,6 +625,34 @@ int parseProfileArgs(RedisModuleString **argv, int argc, AREQ *r);
 
 bool AREQ_TimedOut(AREQ *req);
 void AREQ_SetTimedOut(AREQ *req);
+#ifdef ENABLE_ASSERT
+// SyncPointStopFn predicate adapter for AREQ_TimedOut. Pass the AREQ as `arg`
+// to SyncPoint_WaitUntil to release the wait when the request is timed out.
+bool areq_timed_out(void *arg);
+#endif
+
+/* True when this AREQ uses the BG-thread / timeout-callback claim handshake
+ * around AggregateResults (TryClaim/Signal/Wait). Currently set only on the
+ * coordinator AREQ under RETURN-STRICT; all other paths skip the protocol. */
+bool AREQ_RequiresThreadsSyncResults(const AREQ *req);
+
+/* TryClaim: atomic CAS on `aggregatingResults`; winner runs AggregateResults.
+ * Signal: called by winner at completion. Wait: called by loser, blocks until Signal.
+ * Exactly one of {BG thread, timeout callback} wins. */
+bool AREQ_TryClaimAggregateResults(AREQ *req);
+void AREQ_SignalAggregateResultsComplete(AREQ *req);
+void AREQ_WaitForAggregateResultsComplete(AREQ *req);
+/* Reset claim+done back to initial state between cursor chunks so the next
+ * startPipeline can re-claim. Caller must ensure no other thread is currently
+ * calling TryClaim/Signal/Wait on this AREQ (true between paused cursor chunks). */
+void AREQ_ResetAggregateResultsClaim(AREQ *req);
+
+/* Abort-wake registration (single-slot). BG reader registers its blocking channel
+ * before reading; timeout callback flips `timedOut` then broadcasts to wake it.
+ * Operates on RequestSyncCtx so AREQ and HybridRequest can share. */
+void RequestSyncCtx_RegisterAbortWakeChannel(RequestSyncCtx *ctx, struct MRChannel *chan);
+void RequestSyncCtx_UnregisterAbortWakeChannel(RequestSyncCtx *ctx);
+void RequestSyncCtx_WakeAbortChannel(RequestSyncCtx *ctx);
 
 static inline bool AREQ_ShouldCheckTimeout(AREQ *req) {
   return !req->skipTimeoutChecks;

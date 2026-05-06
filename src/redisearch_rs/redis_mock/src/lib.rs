@@ -228,6 +228,10 @@ pub fn init_redis_module_mock() {
             Some(RedisModule_ReplyWithSimpleString)
     };
     unsafe {
+        redis_module::raw::RedisModule_ReplyWithStringBuffer =
+            Some(RedisModule_ReplyWithStringBuffer)
+    };
+    unsafe {
         redis_module::raw::RedisModule_ReplyWithEmptyArray = Some(RedisModule_ReplyWithEmptyArray)
     };
     unsafe { redis_module::raw::RedisModule_ReplyWithArray = Some(RedisModule_ReplyWithArray) };

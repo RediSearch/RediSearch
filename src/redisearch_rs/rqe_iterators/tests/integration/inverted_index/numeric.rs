@@ -393,6 +393,7 @@ fn numeric_reader_accessor() {
 /// Test `should_abort` returns false when no range tree is provided.
 #[test]
 fn numeric_no_range_tree_revalidate() {
+    let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
     let mut ii =
         InvertedIndex::<inverted_index::numeric::Numeric>::new(IndexFlags_Index_StoreNumeric);
     let _ = ii.add_record(&RSIndexResult::build_numeric(1.0).doc_id(1).build());
@@ -406,8 +407,9 @@ fn numeric_no_range_tree_revalidate() {
     assert_eq!(record.doc_id, 1);
 
     // Revalidate should succeed (not abort) even though there is no range tree.
+    // SAFETY: test-only call with valid context
     assert_eq!(
-        it.revalidate().expect("revalidate failed"),
+        unsafe { it.revalidate(mock_ctx.spec()) }.expect("revalidate failed"),
         RQEValidateStatus::Ok
     );
 }
@@ -646,8 +648,9 @@ mod from_tree {
         // write does not violate aliasing rules.
         unsafe { (*tree_ptr).increment_revision() };
 
+        // SAFETY: test-only call with valid context
         assert_eq!(
-            iters[0].revalidate().expect("revalidate failed"),
+            unsafe { iters[0].revalidate(ctx.spec()) }.expect("revalidate failed"),
             RQEValidateStatus::Aborted,
         );
         // SAFETY: `tree_ptr` was created by `Box::into_raw` above; `iters` is dropped
@@ -681,8 +684,9 @@ mod from_tree {
         // write does not violate aliasing rules.
         unsafe { (*tree_ptr).increment_revision() };
 
+        // SAFETY: test-only call with valid context
         assert_eq!(
-            iters[0].revalidate().expect("revalidate failed"),
+            unsafe { iters[0].revalidate(ctx.spec()) }.expect("revalidate failed"),
             RQEValidateStatus::Ok,
         );
 
@@ -998,8 +1002,9 @@ mod not_miri {
 
         // Revalidate before any reads. last_doc_id is 0, so even though
         // needs_revalidation is true, we should get Ok.
+        // SAFETY: test-only call with valid context
         assert_eq!(
-            it.revalidate().expect("revalidate failed"),
+            unsafe { it.revalidate(test.test.context.spec) }.expect("revalidate failed"),
             RQEValidateStatus::Ok
         );
 
@@ -1058,15 +1063,18 @@ mod not_miri {
     fn numeric_revalidate_after_index_disappears() {
         let test = NumericRevalidateTest::new(10);
         let mut it = test.create_iterator();
+        let sctx = test.test.context.spec;
 
         // First, verify the iterator works normally and read at least one document
+        // SAFETY: test-only call with valid context
         assert_eq!(
-            it.revalidate().expect("revalidate failed"),
+            unsafe { it.revalidate(sctx) }.expect("revalidate failed"),
             RQEValidateStatus::Ok
         );
         assert!(it.read().expect("failed to read").is_some());
+        // SAFETY: test-only call with valid context
         assert_eq!(
-            it.revalidate().expect("revalidate failed"),
+            unsafe { it.revalidate(sctx) }.expect("revalidate failed"),
             RQEValidateStatus::Ok
         );
 
@@ -1083,8 +1091,9 @@ mod not_miri {
         }
 
         // Now Revalidate should return Aborted because the revision IDs don't match
+        // SAFETY: test-only call with valid context
         assert_eq!(
-            it.revalidate().expect("revalidate failed"),
+            unsafe { it.revalidate(sctx) }.expect("revalidate failed"),
             RQEValidateStatus::Aborted
         );
     }

@@ -309,10 +309,13 @@ fn rewind_resets_state() {
 // Child revalidate Ok: NOT still excludes the child's doc IDs.
 #[test]
 fn revalidate_child_ok_preserves_exclusions() {
+    let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+    let ctx = mock_ctx.spec();
     let child = Mock::new([2, 4]);
     let mut it = Not::new(child, 5, 1.0, Duration::ZERO, true);
 
-    let status = it.revalidate().expect("revalidate() failed");
+    // SAFETY: test-only call with valid context
+    let status = unsafe { it.revalidate(ctx) }.expect("revalidate() failed");
     assert_eq!(status, RQEValidateStatus::Ok);
 
     let mut seen = Vec::new();
@@ -327,12 +330,15 @@ fn revalidate_child_ok_preserves_exclusions() {
 // Child revalidate Aborted: NOT degenerates to wildcard (empty child).
 #[test]
 fn revalidate_child_aborted_replaces_child_with_empty() {
+    let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+    let ctx = mock_ctx.spec();
     let child = Mock::new([2, 4]);
     let mut data = child.data();
     data.set_revalidate_result(MockRevalidateResult::Abort);
     let mut it = Not::new(child, 5, 1.0, Duration::ZERO, true);
 
-    let status = it.revalidate().expect("revalidate() failed");
+    // SAFETY: test-only call with valid context
+    let status = unsafe { it.revalidate(ctx) }.expect("revalidate() failed");
     assert_eq!(status, RQEValidateStatus::Ok);
 
     let mut seen = Vec::new();
@@ -347,13 +353,16 @@ fn revalidate_child_aborted_replaces_child_with_empty() {
 // Child revalidate Moved on fresh iterator: should not panic.
 #[test]
 fn revalidate_child_moved_on_fresh_iterator() {
+    let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+    let ctx = mock_ctx.spec();
     let child = Mock::new([2, 4]);
     let mut data = child.data();
     data.set_revalidate_result(MockRevalidateResult::Move);
     let mut it = Not::new(child, 5, 1.0, Duration::ZERO, true);
 
     // Revalidate before any read/skip_to - both iterators at doc_id = 0
-    let status = it.revalidate().expect("revalidate() failed");
+    // SAFETY: test-only call with valid context
+    let status = unsafe { it.revalidate(ctx) }.expect("revalidate() failed");
     assert_eq!(status, RQEValidateStatus::Ok);
 
     // Iterator should still work correctly after revalidate
@@ -369,6 +378,8 @@ fn revalidate_child_moved_on_fresh_iterator() {
 // Child revalidate Moved after read: child ahead, should not panic.
 #[test]
 fn revalidate_child_moved_after_read_with_child_ahead() {
+    let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+    let ctx = mock_ctx.spec();
     let child = Mock::new([5, 10]);
     let mut data = child.data();
     let mut it = Not::new(child, 15, 1.0, Duration::ZERO, true);
@@ -383,7 +394,8 @@ fn revalidate_child_moved_after_read_with_child_ahead() {
     data.set_revalidate_result(MockRevalidateResult::Move);
 
     // This should not panic - child is ahead of NOT's position
-    let status = it.revalidate().expect("revalidate() failed");
+    // SAFETY: test-only call with valid context
+    let status = unsafe { it.revalidate(ctx) }.expect("revalidate() failed");
     assert_eq!(status, RQEValidateStatus::Ok);
 
     // Continue reading - should still work correctly
@@ -400,6 +412,8 @@ fn revalidate_child_moved_after_read_with_child_ahead() {
 // Child revalidate Moved after skip_to: child ahead, should not panic.
 #[test]
 fn revalidate_child_moved_after_skip_to_with_child_ahead() {
+    let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+    let ctx = mock_ctx.spec();
     let child = Mock::new([8, 15]);
     let mut data = child.data();
     let mut it = Not::new(child, 20, 1.0, Duration::ZERO, true);
@@ -420,7 +434,8 @@ fn revalidate_child_moved_after_skip_to_with_child_ahead() {
     data.set_revalidate_result(MockRevalidateResult::Move);
 
     // This should not panic - child is ahead of NOT's position
-    let status = it.revalidate().expect("revalidate() failed");
+    // SAFETY: test-only call with valid context
+    let status = unsafe { it.revalidate(ctx) }.expect("revalidate() failed");
     assert_eq!(status, RQEValidateStatus::Ok);
 
     // Continue reading - should still work correctly

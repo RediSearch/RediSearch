@@ -18,6 +18,7 @@
 #include "resp3.h"
 #include "coord/config.h"
 #include "rs_wall_clock.h"
+#include "debug_commands.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -804,6 +805,13 @@ void iterStartCb(void *p) {
     }
   }
 
+#ifdef ENABLE_ASSERT
+  // Sync point (debug): park the IO thread after every shard command has been
+  // dispatched so tests can deterministically fire the blocked-client timeout
+  // knowing the fan-out has happened but no reply has been consumed yet.
+  SyncPoint_Wait(SYNC_POINT_AFTER_ITERATOR_START);
+#endif
+
   rm_free(data);
 }
 
@@ -974,8 +982,13 @@ MRReply *MRIterator_Next(MRIterator *it) {
   return MRChannel_Pop(it->ctx.chan);
 }
 
-MRReply *MRIterator_NextWithTimeout(MRIterator *it, const struct timespec *abstime, bool *timedOut) {
-  return MRChannel_PopWithTimeout(it->ctx.chan, abstime, timedOut);
+MRReply *MRIterator_NextWithTimeout(MRIterator *it, const struct timespec *abstime,
+                                    atomic_bool *abortFlag, bool *timedOut) {
+  return MRChannel_PopWithTimeout(it->ctx.chan, abstime, abortFlag, timedOut);
+}
+
+struct MRChannel *MRIterator_GetChannel(MRIterator *it) {
+  return it->ctx.chan;
 }
 
 size_t MRIterator_GetChannelSize(const MRIterator *it) {
