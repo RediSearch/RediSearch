@@ -1157,6 +1157,7 @@ def test_collect_cluster_load_all_merges_per_row_keys_across_shards():
 
     res = env.cmd(
         'FT.AGGREGATE', 'idx', '*',
+        'LOAD', '*',
         'GROUPBY', '1', '@color',
         'REDUCE', 'COLLECT', '2', 'FIELDS', '*',
         'AS', 'info')
@@ -1169,14 +1170,15 @@ def test_collect_cluster_load_all_merges_per_row_keys_across_shards():
     # kiwi has no origin — LOADALL omits the key entirely (no null_static padding).
     env.assertEqual(green[0].get('name'), 'kiwi')
     env.assertFalse('origin' in green[0],
-                    "LOADALL must omit keys not present in a row, not pad with None")
+                    message="LOADALL must omit keys not present in a row, not pad with None")
 
     yellow = _sort_collected(groups[1]['extra_attributes']['info'], 'name')
     env.assertEqual(len(yellow), 2)
     banana = yellow[0]
     lemon  = yellow[1]
+
     env.assertEqual(banana.get('name'), 'banana')
     env.assertEqual(banana.get('origin', '').lower(), 'ecuador')
     env.assertEqual(lemon.get('name'), 'lemon')
     env.assertFalse('origin' in lemon,
-                    "LOADALL must omit keys not present in a row, not pad with None")
+                    message="LOADALL must omit keys not present in a row, not pad with None")
