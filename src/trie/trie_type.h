@@ -53,6 +53,18 @@ int Trie_InsertStringBuffer(Trie *t, const char *s, size_t len, double score, in
 int Trie_InsertRune(Trie *t, const rune *s, size_t len, double score, int incr,
                     RSPayload *payload, size_t numDocs);
 
+/* Insert a rune-keyed entry without updating the trie's size counter. Behaves
+ * exactly like Trie_InsertRune except t->size is left untouched.
+ *
+ * Intended only for the suffix-trie full-word insert in addSuffixTrie(), which
+ * historically called TrieNode_Add directly and therefore never incremented
+ * size. Suffix tries never read ->size, so the omission is harmless there.
+ *
+ * Do not use for new call sites - prefer Trie_InsertRune so size stays in sync
+ * with TrieNode_Add's return value. */
+int Trie_InsertRuneNoSize(Trie *t, const rune *s, size_t len, double score, int incr,
+                          RSPayload *payload, size_t numDocs);
+
 /* Get the payload from the node. if `exact` is 0, the payload is return even if local offset!=len
    Use for debug only! */
 void *Trie_GetValueStringBuffer(Trie *t, const char *s, size_t len, bool exact);

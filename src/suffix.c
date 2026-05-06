@@ -61,7 +61,7 @@ void addSuffixTrie(Trie *trie, const char *str, uint32_t len) {
   if (!data) {
     suffixData newdata = createSuffixNode(copyStr, 1);
     RSPayload payload = { .data = (char*)&newdata, .len = sizeof(newdata) };
-    Trie_InsertRune(trie, runes, rlen, 1, ADD_REPLACE, &payload, 0);
+    Trie_InsertRuneNoSize(trie, runes, rlen, 1, ADD_REPLACE, &payload, 0);
   } else {
     RS_LOG_ASSERT(!data->term, "can't reach here");
     data->term = copyStr;
