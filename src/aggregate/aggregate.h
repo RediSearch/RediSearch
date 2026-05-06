@@ -391,6 +391,13 @@ typedef struct AREQ {
 
   bool useReplyCallback;
 
+  // Mirrored from CoordRequestCtx::isCursorReadReturnStrict in
+  // CoordRequestCtx_SetRequest. True only on the coord RETURN_STRICT
+  // FT.CURSOR READ path, where the cursor handle is parked on the
+  // CoordRequestCtx (not on storedReplyState.cursor) and disposed by the
+  // reply callback / timer / disconnect paths via parkedCursor.
+  bool isCursorReadReturnStrict;
+
   // State for reply_callback path (FAIL policy with workers)
   // Background thread stores results here, then calls UnblockClient.
   // The reply_callback reads from here to build the reply on the main thread.

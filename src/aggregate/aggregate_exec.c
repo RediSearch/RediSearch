@@ -1845,7 +1845,15 @@ static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num) {
     // In reply_callback path, sendChunk returns early after storing results.
     // QEXEC_S_ITERDONE is not set yet (it's set by finishSendChunk in the reply_callback).
     // Store the cursor handle so the reply_callback can pause/free it after finishSendChunk.
-    req->storedReplyState.cursor = cursor;
+    // Skip on the RETURN_STRICT cursor-read path: the cursor is already
+    // parked on reqCtx->parkedCursor (set in coordCursorReadReturnStrict),
+    // and coordReleaseParkedCursorAfterReply disposes it from there. Stashing
+    // it here too would cause AREQ_ReplyWithStoredResults' in-place free and
+    // coordReleaseParkedCursorAfterReply to both try to dispose the same
+    // handle — double free.
+    if (!req->isCursorReadReturnStrict) {
+      req->storedReplyState.cursor = cursor;
+    }
     return;
   }
 

@@ -35,11 +35,10 @@ void CoordRequestCtx_Free(CoordRequestCtx *ctx) {
   // RM_UnblockClient, on the main thread, after any reply_callback /
   // timeout_callback for this BC has already run (or been skipped). No
   // other parkedCursor consumer can be active concurrently with us.
-  // TODO(RETURN_STRICT cursor-read activation): once the new path is wired
-  // (see plan Section 10), `runCursor` must be gated (plan Section 11) so
-  // it does NOT also store this same Cursor* into req->storedReplyState.cursor.
-  // Otherwise AREQ_CleanUpStoredCursor below would Cursor_Free the same
-  // handle a second time on disconnect (double-free / use-after-free).
+  // Single-disposal invariant: runCursor skips the storedReplyState.cursor
+  // stash when isCursorReadReturnStrict is set (see aggregate_exec.c), so
+  // on this path the parkedCursor below is the only handle and the
+  // AREQ_CleanUpStoredCursor call further down is a cursor no-op.
   Cursor *parked = ctx->parkedCursor;
   ctx->parkedCursor = NULL;
   if (parked) Cursor_Free(parked);
@@ -88,6 +87,11 @@ void CoordRequestCtx_SetRequest(CoordRequestCtx *ctx, void *req) {
     ((HybridRequest *)req)->useReplyCallback = ctx->useReplyCallback;
   } else if (ctx->type == COMMAND_AGGREGATE) {
     ((AREQ *)req)->useReplyCallback = ctx->useReplyCallback;
+    // Mirror the RETURN_STRICT cursor-read flag onto the AREQ so runCursor
+    // can gate the storedReplyState.cursor stash without reaching back into
+    // the CoordRequestCtx. Only applies to AREQ (HybridRequest cursor reads
+    // are out of scope for RETURN_STRICT — see plan §5.10).
+    ((AREQ *)req)->isCursorReadReturnStrict = ctx->isCursorReadReturnStrict;
   } else {
     COORD_REQUEST_CTX_UNSUPPORTED_TYPE();
   }

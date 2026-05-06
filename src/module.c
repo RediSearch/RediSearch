@@ -3629,6 +3629,7 @@ int RSAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 int DistAggregateReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 int DistAggregateTimeoutFailClient(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 int DistAggregateTimeoutReturnStrictClient(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
+int DistCursorReadTimeoutReturnStrictClient(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
 // Free privdata callback for distributed aggregate and hybrid query
 static void DistCoordReqFreePrivData(RedisModuleCtx *ctx, void *privdata) {
@@ -3904,7 +3905,8 @@ static inline int CursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, i
       // can trust argv[3] when it replies [empty, cid] without re-peeking.
       return RedisModule_ReplyWithErrorFormat(ctx, "Cursor not found, id: %lld", cid);
     }
-    if (info.queryTimeoutPolicy == TimeoutPolicy_Fail) {
+    if (info.queryTimeoutPolicy == TimeoutPolicy_Fail ||
+        info.queryTimeoutPolicy == TimeoutPolicy_ReturnStrict) {
 #ifdef ENABLE_ASSERT
       // _FT.HYBRID WITHCURSOR is read via _FT.CURSOR READ, bypassing CursorCommand.
       RS_ASSERT(!info.isHybrid);
@@ -3913,9 +3915,14 @@ static inline int CursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, i
       handlerCtx.bcCtx.privdata = reqCtx;
       handlerCtx.bcCtx.free_privdata = DistCoordReqFreePrivData;
       handlerCtx.bcCtx.reply_callback = DistAggregateReplyCallback;
-      handlerCtx.bcCtx.timeout_callback = DistAggregateTimeoutFailClient;
       handlerCtx.bcCtx.timeoutMS = info.queryTimeoutMS;
       CoordRequestCtx_SetUseReplyCallback(reqCtx, true);
+      if (info.queryTimeoutPolicy == TimeoutPolicy_Fail) {
+        handlerCtx.bcCtx.timeout_callback = DistAggregateTimeoutFailClient;
+      } else {
+        handlerCtx.bcCtx.timeout_callback = DistCursorReadTimeoutReturnStrictClient;
+        CoordRequestCtx_SetCursorReadReturnStrict(reqCtx, true);
+      }
     }
   }
 
