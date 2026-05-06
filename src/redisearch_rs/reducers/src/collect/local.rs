@@ -49,6 +49,35 @@ fn get_field<'a>(item: &'a Value, name: &[u8]) -> Option<&'a SharedValue> {
     }
 }
 
+/// Write every field from `item` into `dst`, interning new names into `lookup`.
+///
+/// Counterpart to [`get_field`]: used in LOADALL mode where all fields are
+/// written rather than only those listed in [`requested`][LocalCollectReducer::requested].
+fn ingest_item(dst: &mut RLookupRow<'static>, lookup: &mut RLookup<'static>, item: &Value) {
+    match item {
+        Value::Map(m) => {
+            for (k, v) in m.iter() {
+                let Some(name) = k.as_str_bytes() else { continue };
+                let Ok(cname) = CString::new(name) else { continue };
+                dst.write_key_by_name(lookup, cname, v.clone());
+            }
+        }
+        Value::Array(a) => {
+            let (pairs, remainder) = a.as_chunks::<2>();
+            debug_assert!(remainder.is_empty(), "odd-length RESP2 payload");
+            for [k, v] in pairs {
+                let Some(name) = k.as_str_bytes() else { continue };
+                let Ok(cname) = CString::new(name) else { continue };
+                dst.write_key_by_name(lookup, cname, v.clone());
+            }
+        }
+        _ => {
+            debug_assert!(false, "local COLLECT: shard payload item must be a Map or Array");
+            tracing::warn!("local COLLECT: shard payload item is not a Map or Array; skipping");
+        }
+    }
+}
+
 /// Local COLLECT reducer.
 ///
 /// Must remain `#[repr(C)]` with [`CollectCommon`] at offset 0 so the C layer
@@ -58,15 +87,11 @@ pub struct LocalCollectReducer<'a> {
     common: CollectCommon,
     /// Lookup key for the per-remote payload.
     input_key: &'a RLookupKey<'a>,
-    /// `true` when the user wrote `FIELDS *`; `false` for an explicit field list.
-    ///
-    /// Controls which fields [`LocalCollectCtx::add`] writes into the lookup:
-    /// all fields when `true`, only [`requested`][Self::requested] when `false`.
-    is_load_all: bool,
     /// Requested field names in declaration order.
     ///
-    /// Empty when [`is_load_all`][Self::is_load_all] is `true`.
-    requested: Box<[CString]>,
+    /// `Some` for an explicit field list; `None` when the user wrote `FIELDS *`.
+    /// Controls which fields [`LocalCollectCtx::add`] writes into the lookup.
+    requested: Option<Box<[CString]>>,
 }
 
 // Chain through `CollectCommon::reducer` so the assertion still catches a
@@ -98,18 +123,19 @@ impl<'a> LocalCollectReducer<'a> {
         limit: Option<(u64, u64)>,
     ) -> Self {
         let requested = if is_load_all {
-            Box::default()
+            None
         } else {
-            field_names
-                .iter()
-                .filter_map(|name| CString::new(name.as_ref()).ok())
-                .collect::<Vec<_>>()
-                .into_boxed_slice()
+            Some(
+                field_names
+                    .iter()
+                    .filter_map(|name| CString::new(name.as_ref()).ok())
+                    .collect::<Vec<_>>()
+                    .into_boxed_slice(),
+            )
         };
         Self {
             common: CollectCommon::new(sort_asc_map, limit),
             input_key,
-            is_load_all,
             requested,
         }
     }
@@ -124,7 +150,7 @@ impl<'a> LocalCollectReducer<'a> {
 
     /// Exposed via `CollectReducer_IsLocalLoadAll` for C++ parser tests.
     pub const fn is_load_all(&self) -> bool {
-        self.is_load_all
+        self.requested.is_none()
     }
 }
 
@@ -138,9 +164,8 @@ impl LocalCollectCtx {
 
     /// Deserialize the shard payload carried by `row` into [`RLookupRow`]s.
     ///
-    /// When [`is_load_all`][LocalCollectReducer::is_load_all] is `false`, only
-    /// fields listed in [`requested`][LocalCollectReducer::requested] are
-    /// written; extra fields (e.g. sort keys) are ignored.
+    /// When [`requested`][LocalCollectReducer::requested] is `Some`, only
+    /// those fields are written; extra fields (e.g. sort keys) are ignored.
     pub fn add(&mut self, r: &LocalCollectReducer, row: &RLookupRow) {
         let Some(payload) = row.get(r.input_key) else {
             debug_assert!(false, "local COLLECT: input_key must be present in every merge row");
@@ -153,40 +178,12 @@ impl LocalCollectCtx {
             return;
         };
 
-        if r.is_load_all {
+        if let Some(requested) = &r.requested {
             for item in items.iter() {
                 let mut dst = RLookupRow::new();
-                match &**item {
-                    Value::Map(m) => {
-                        for (k, v) in m.iter() {
-                            let Some(name_bytes) = k.as_str_bytes() else {
-                                continue;
-                            };
-                            let Ok(cname) = CString::new(name_bytes) else {
-                                continue;
-                            };
-                            dst.write_key_by_name(&mut self.lookup, cname, v.clone());
-                        }
-                    }
-                    Value::Array(a) => {
-                        let (pairs, remainder) = a.as_chunks::<2>();
-                        debug_assert!(remainder.is_empty(), "odd-length RESP2 payload");
-                        for [k, v] in pairs {
-                            let Some(name_bytes) = k.as_str_bytes() else {
-                                continue;
-                            };
-                            let Ok(cname) = CString::new(name_bytes) else {
-                                continue;
-                            };
-                            dst.write_key_by_name(&mut self.lookup, cname, v.clone());
-                        }
-                    }
-                    _ => {
-                        debug_assert!(false, "local COLLECT: shard payload item must be a Map or Array");
-                        tracing::warn!(
-                            "local COLLECT: shard payload item is not a Map or Array; skipping"
-                        );
-                        continue;
+                for cname in requested.iter() {
+                    if let Some(v) = get_field(&**item, cname.to_bytes()) {
+                        dst.write_key_by_name(&mut self.lookup, cname.clone(), v.clone());
                     }
                 }
                 self.rows.push(dst);
@@ -194,11 +191,7 @@ impl LocalCollectCtx {
         } else {
             for item in items.iter() {
                 let mut dst = RLookupRow::new();
-                for cname in r.requested.iter() {
-                    if let Some(v) = get_field(&**item, cname.to_bytes()) {
-                        dst.write_key_by_name(&mut self.lookup, cname.clone(), v.clone());
-                    }
-                }
+                ingest_item(&mut dst, &mut self.lookup, &**item);
                 self.rows.push(dst);
             }
         }
