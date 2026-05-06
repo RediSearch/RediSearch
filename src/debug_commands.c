@@ -92,6 +92,35 @@ int CoordReduceDebugCtx_GetReduceCount(void) {
   return atomic_load(&globalCoordReduceDebugCtx.reduceCount);
 }
 
+// Global AggregateResults debug context (separate from DebugCTX since it uses atomics)
+static AggregateResultsDebugCtx globalAggregateResultsDebugCtx = {0};
+
+bool AggregateResultsDebugCtx_IsPaused(void) {
+  return atomic_load(&globalAggregateResultsDebugCtx.pause);
+}
+
+void AggregateResultsDebugCtx_SetPause(bool pause) {
+  atomic_store(&globalAggregateResultsDebugCtx.pause, pause);
+}
+
+int AggregateResultsDebugCtx_GetPauseAfterN(void) {
+  return atomic_load(&globalAggregateResultsDebugCtx.pauseAfterN);
+}
+
+void AggregateResultsDebugCtx_SetPauseAfterN(int n) {
+  atomic_store(&globalAggregateResultsDebugCtx.pauseAfterN, n);
+  // Reset results count when setting a new pause point
+  atomic_store(&globalAggregateResultsDebugCtx.resultsCount, 0);
+}
+
+void AggregateResultsDebugCtx_IncrementResultsCount(void) {
+  atomic_fetch_add(&globalAggregateResultsDebugCtx.resultsCount, 1);
+}
+
+int AggregateResultsDebugCtx_GetResultsCount(void) {
+  return atomic_load(&globalAggregateResultsDebugCtx.resultsCount);
+}
+
 // Global store results debug context
 static StoreResultsDebugCtx globalStoreResultsDebugCtx = {0};
 
@@ -2320,6 +2349,77 @@ DEBUG_COMMAND(getCoordReduceCount) {
   return RedisModule_ReplyWithLongLong(ctx, CoordReduceDebugCtx_GetReduceCount());
 }
 
+/**
+ * FT.DEBUG QUERY_CONTROLLER SET_PAUSE_AFTER_AGGREGATE_RESULT <N>
+ * AGGREGATE_RESULTS_NO_PAUSE (0): no pause
+ * N>0: pause after the Nth result is extracted from the AggregateResults loop
+ */
+DEBUG_COMMAND(setPauseAfterAggregateResult) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc != 3) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  long long n;
+  if (RedisModule_StringToLongLong(argv[2], &n) != REDISMODULE_OK || n < 0) {
+    return RedisModule_ReplyWithError(ctx, "Invalid argument for 'SET_PAUSE_AFTER_AGGREGATE_RESULT'");
+  }
+
+  AggregateResultsDebugCtx_SetPauseAfterN((int)n);
+
+  return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
+
+/**
+ * FT.DEBUG QUERY_CONTROLLER GET_IS_AGGREGATE_RESULTS_PAUSED
+ */
+DEBUG_COMMAND(getIsAggregateResultsPaused) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc != 2) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  return RedisModule_ReplyWithBool(ctx, AggregateResultsDebugCtx_IsPaused());
+}
+
+/**
+ * FT.DEBUG QUERY_CONTROLLER SET_AGGREGATE_RESULTS_RESUME
+ */
+DEBUG_COMMAND(setAggregateResultsResume) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc != 2) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  if (!AggregateResultsDebugCtx_IsPaused()) {
+    return RedisModule_ReplyWithError(ctx, "Aggregate results is not paused");
+  }
+
+  AggregateResultsDebugCtx_SetPause(false);
+
+  return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
+
+/**
+ * FT.DEBUG QUERY_CONTROLLER GET_AGGREGATE_RESULTS_COUNT
+ */
+DEBUG_COMMAND(getAggregateResultsCount) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc != 2) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  return RedisModule_ReplyWithLongLong(ctx, AggregateResultsDebugCtx_GetResultsCount());
+}
+
 // Parse the optional StoreResults scope token (argv[3], when present).
 // Mirrors the INTERNAL_ONLY token convention used in src/aggregate/aggregate_debug.c.
 // Returns REDISMODULE_OK on success (scope written via *out), REDISMODULE_ERR on
@@ -2671,6 +2771,19 @@ DEBUG_COMMAND(queryController) {
   }
   if (!strcmp("GET_COORD_REDUCE_COUNT", op)) {
     return getCoordReduceCount(ctx, argv + 1, argc - 1);
+  }
+  // AggregateResults loop pause commands
+  if (!strcmp("SET_PAUSE_AFTER_AGGREGATE_RESULT", op)) {
+    return setPauseAfterAggregateResult(ctx, argv + 1, argc - 1);
+  }
+  if (!strcmp("GET_IS_AGGREGATE_RESULTS_PAUSED", op)) {
+    return getIsAggregateResultsPaused(ctx, argv + 1, argc - 1);
+  }
+  if (!strcmp("SET_AGGREGATE_RESULTS_RESUME", op)) {
+    return setAggregateResultsResume(ctx, argv + 1, argc - 1);
+  }
+  if (!strcmp("GET_AGGREGATE_RESULTS_COUNT", op)) {
+    return getAggregateResultsCount(ctx, argv + 1, argc - 1);
   }
   // Store results pause commands
   if (!strcmp("SET_PAUSE_BEFORE_STORE_RESULTS", op)) {

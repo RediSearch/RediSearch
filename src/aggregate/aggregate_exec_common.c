@@ -12,6 +12,7 @@
  #include "info/global_stats.h"
  #include "rmalloc.h"
  #include "util/array.h"
+ #include "debug_commands.h"
 
  bool hasTimeoutError(QueryError *err) {
    return QueryError_GetCode(err) == QUERY_ERROR_CODE_TIMED_OUT;
@@ -45,6 +46,29 @@
    }
  }
 
+#ifdef ENABLE_ASSERT
+// Helper function to check and pause after extracting a result from the
+// AggregateResults loop (for testing pipeline state mid-aggregation).
+static inline void debugCheckAndPauseAfterAggregateResult(void) {
+  int pauseAfterN = AggregateResultsDebugCtx_GetPauseAfterN();
+  if (pauseAfterN <= AGGREGATE_RESULTS_NO_PAUSE) {
+    return;
+  }
+  AggregateResultsDebugCtx_IncrementResultsCount();
+  if (AggregateResultsDebugCtx_GetResultsCount() != pauseAfterN) {
+    return;
+  }
+  // Pause after the Nth result has been extracted (1-based)
+  AggregateResultsDebugCtx_SetPause(true);
+  while (AggregateResultsDebugCtx_IsPaused()) {
+    usleep(1000);  // Spin-wait with 1ms sleep
+  }
+}
+#else
+// Compiler eliminates the function completely in release builds - zero overhead
+static inline void debugCheckAndPauseAfterAggregateResult(void) {}
+#endif
+
  SearchResult **AggregateResults(ResultProcessor *rp, int *rc) {
    SearchResult **results = array_new(SearchResult *, 8);
    SearchResult r = SearchResult_New();
@@ -53,6 +77,8 @@
      rp->parent->resultLimit--;
 
      array_append(results, SearchResult_AllocateMove(&r));
+
+     debugCheckAndPauseAfterAggregateResult();
 
      // clean the search result
      r = SearchResult_New();

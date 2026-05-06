@@ -83,6 +83,26 @@ void CoordReduceDebugCtx_SetPauseBeforeN(int n);
 void CoordReduceDebugCtx_IncrementReduceCount(void);
 int CoordReduceDebugCtx_GetReduceCount(void);
 
+// Sentinel for the pauseAfterN field of AggregateResultsDebugCtx
+#define AGGREGATE_RESULTS_NO_PAUSE 0  // Disable pause (no pause point set)
+
+// Struct used for debugging the AggregateResults loop in aggregate_exec_common.c
+// (pause after extracting N results from the pipeline). Only available in debug
+// builds to avoid affecting release performance.
+typedef struct AggregateResultsDebugCtx {
+  atomic_bool pause;          // Atomic bool to wait for the resume command
+  atomic_int  pauseAfterN;    // AGGREGATE_RESULTS_NO_PAUSE, or N>0 to pause after the Nth result is extracted
+  atomic_int  resultsCount;   // Counter of results extracted so far
+} AggregateResultsDebugCtx;
+
+// AggregateResultsDebugCtx API function declarations
+bool AggregateResultsDebugCtx_IsPaused(void);
+void AggregateResultsDebugCtx_SetPause(bool pause);
+int  AggregateResultsDebugCtx_GetPauseAfterN(void);
+void AggregateResultsDebugCtx_SetPauseAfterN(int n);
+void AggregateResultsDebugCtx_IncrementResultsCount(void);
+int  AggregateResultsDebugCtx_GetResultsCount(void);
+
 // Scope selector for StoreResults pauses: restricts which AREQ/HybridRequest
 // populations the global pause applies to (matches the INTERNAL_ONLY token
 // convention used in src/aggregate/aggregate_debug.c).
