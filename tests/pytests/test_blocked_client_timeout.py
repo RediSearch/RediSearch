@@ -3976,15 +3976,15 @@ class TestShardTimeout:
             ['FT.AGGREGATE', 'idx', '*'], 'FT.AGGREGATE')
 
     # --- Scenario 3: timeout fires after BG won TryClaim, before RPIndex's first read ---
-    # BG is parked at the BeforeRPIndexStart sync point (interruptible via
+    # BG is parked at the BeforeFirstRead sync point (interruptible via
     # areq_timed_out). The main-thread callback loses TryClaim and waits for
     # completion; BG breaks out of the WaitUntil as soon as the timedOut
     # flag is flipped, returns RS_RESULT_TIMEDOUT from rpQueryItNext without
     # producing any rows, signals completion, and the callback drains the
     # (empty) buffer and replies empty + warning.
 
-    def _run_return_strict_timeout_at_rpindex_start(self, query_args, cmd_name):
-        sync_point = 'BeforeRPIndexStart'
+    def _run_return_strict_timeout_at_first_read(self, query_args, cmd_name):
+        sync_point = 'BeforeFirstRead'
 
         def arm(env):
             env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
@@ -4004,22 +4004,22 @@ class TestShardTimeout:
         self._run_return_strict_timeout_basic(query_args, cmd_name,
                                               arm, wait_for_park, teardown)
 
-    def test_return_strict_timeout_at_rpindex_start_sync_point_search(self):
-        """RETURN_STRICT shard timeout at BeforeRPIndexStart (FT.SEARCH).
+    def test_return_strict_timeout_at_first_read_sync_point_search(self):
+        """RETURN_STRICT shard timeout at BeforeFirstRead (FT.SEARCH).
 
         BG has already won AREQ_TryClaimAggregateResults and entered
-        rpQueryItNext, but parks at BeforeRPIndexStart before the first
+        rpQueryItNext, but parks at BeforeFirstRead before the first
         iterator read. Main-thread callback loses the claim and waits;
         BG breaks out of the interruptible wait when timedOut flips,
         returns TIMEDOUT from RPIndex without producing rows, and the
         callback replies empty + TIMEOUT warning.
         """
-        self._run_return_strict_timeout_at_rpindex_start(
+        self._run_return_strict_timeout_at_first_read(
             ['FT.SEARCH', 'idx', '*'], 'FT.SEARCH')
 
-    def test_return_strict_timeout_at_rpindex_start_sync_point_aggregate(self):
-        """RETURN_STRICT shard timeout at BeforeRPIndexStart (FT.AGGREGATE)."""
-        self._run_return_strict_timeout_at_rpindex_start(
+    def test_return_strict_timeout_at_first_read_sync_point_aggregate(self):
+        """RETURN_STRICT shard timeout at BeforeFirstRead (FT.AGGREGATE)."""
+        self._run_return_strict_timeout_at_first_read(
             ['FT.AGGREGATE', 'idx', '*'], 'FT.AGGREGATE')
 
 

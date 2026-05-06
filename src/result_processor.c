@@ -261,13 +261,13 @@ static int rpQueryItNext(ResultProcessor *base, SearchResult *res) {
 
 #ifdef ENABLE_ASSERT
   // Make sure MT is enabled and `workers > 0` - deadlock otherwise.
+  // Interruptible wait: existing tests ARM/SIGNAL this point, while
+  // RETURN-STRICT shard-timeout tests rely on the predicate to break out as
+  // soon as the main-thread callback flips AREQ_TimedOut (mirrors the
+  // coordinator's BeforeRPNetStart).
   if (self->firstRead) {
     self->firstRead = false;
-    // Interruptible park for shard-level RETURN-STRICT timeout race tests:
-    // mirrors the coordinator's BeforeRPNetStart so the worker breaks out as
-    // soon as the main-thread timeout callback flips AREQ_TimedOut.
-    SyncPoint_WaitUntil(SYNC_POINT_BEFORE_RP_INDEX_START, areq_timed_out, self->areq);
-    SyncPoint_Wait(SYNC_POINT_BEFORE_FIRST_READ);
+    SyncPoint_WaitUntil(SYNC_POINT_BEFORE_FIRST_READ, areq_timed_out, self->areq);
   }
 #endif
 
@@ -321,11 +321,10 @@ static int rpQueryItNext_AsyncDisk(ResultProcessor *base, SearchResult *res) {
   it = self->iterator;
 
 #ifdef ENABLE_ASSERT
+  // See rpQueryItNext: same interruptible park for the async-disk variant.
   if (self->firstRead) {
     self->firstRead = false;
-    // See rpQueryItNext: same interruptible park for the async-disk variant.
-    SyncPoint_WaitUntil(SYNC_POINT_BEFORE_RP_INDEX_START, areq_timed_out, self->areq);
-    SyncPoint_Wait(SYNC_POINT_BEFORE_FIRST_READ);
+    SyncPoint_WaitUntil(SYNC_POINT_BEFORE_FIRST_READ, areq_timed_out, self->areq);
   }
 #endif
 
