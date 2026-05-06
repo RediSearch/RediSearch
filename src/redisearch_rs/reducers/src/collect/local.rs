@@ -119,20 +119,15 @@ impl LocalCollectCtx {
                     .field_names
                     .iter()
                     .map(|name| {
-                        // Missing field → null. `finalize` is infallible by contract
-                        // (the C caller passes the result straight to `RLookup_WriteOwnKey`
-                        // with no error branch), matching the C convention of
+                        // Missing field → null, matching the C convention of
                         // `RSValue_NullStatic()` for absent fields.
                         let val = match &*entry {
-                            Value::Map(m) => {
-                                m.get(name).cloned().unwrap_or_else(SharedValue::null_static)
-                            }
-                            Value::Array(a) => {
-                                a.map_get(name).cloned().unwrap_or_else(SharedValue::null_static)
-                            }
+                            Value::Map(m) => m.get(name).cloned(),
+                            Value::Array(a) => a.map_get(name).cloned(),
                             // Filtered above; only `Map` and `Array` reach here.
                             _ => unreachable!(),
-                        };
+                        }
+                        .unwrap_or_else(SharedValue::null_static);
                         (SharedValue::new_string(name.to_vec()), val)
                     })
                     .collect();
