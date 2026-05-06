@@ -10,7 +10,6 @@
 //! Shared COLLECT reducer state and utilities.
 
 use bumpalo::Bump;
-use rlookup::{RLookup, RLookupKey, RLookupKeyFlag};
 
 use crate::Reducer;
 
@@ -41,15 +40,3 @@ impl CollectCommon {
     }
 }
 
-/// Walk `lookup` in insertion order, yielding every *visible* key.
-///
-/// "Visible" means the key is not flagged [`RLookupKeyFlag::Hidden`] —
-/// the `FIELDS *` projection rule. Tombstones are already skipped by
-/// [`RLookup::iter`].
-pub(super) fn visible_keys<'l, 'a>(
-    lookup: &'l RLookup<'a>,
-) -> impl Iterator<Item = &'l RLookupKey<'a>> {
-    lookup
-        .iter()
-        .filter(|k| !k.flags.contains(RLookupKeyFlag::Hidden))
-}

@@ -18,36 +18,33 @@
 use std::collections::HashSet;
 use std::mem;
 
-use rlookup::{RLookup, RLookupKey, RLookupRow};
+use itertools::Either;
+use rlookup::{RLookup, RLookupKey, RLookupKeyFlag, RLookupRow};
 use value::SharedValue;
 
 use crate::Reducer;
-use crate::collect::common::{CollectCommon, visible_keys};
+use crate::collect::common::CollectCommon;
 
 /// Remote COLLECT reducer.
 ///
 /// Must remain `#[repr(C)]` with [`CollectCommon`] at offset 0 so the C layer
 /// can downcast this struct to `ffi::Reducer*` and read the vtable directly.
-#[expect(rustdoc::private_intra_doc_links)]
 #[repr(C)]
 pub struct RemoteCollectReducer<'a> {
     common: CollectCommon,
     field_keys: Box<[&'a RLookupKey<'a>]>,
-    /// Source lookup for `FIELDS *` mode (a.k.a. *load-all*).
+    /// Source lookup for `FIELDS *` mode.
     ///
-    /// `Some` when the user wrote `FIELDS *`; the projection then emits
-    /// every visible key present on the row (see [`visible_keys`]), walked
-    /// per call.
-    ///
-    /// The walk runs per `add()` call rather than once at construction because an
-    /// upstream `LOAD *` may append keys mid-pipeline.
+    /// `Some` when the user wrote `FIELDS *`; every key not flagged
+    /// [`RLookupKeyFlag::Hidden`] is emitted. Walked per [`RemoteCollectCtx::add`]
+    /// call rather than once at construction so that keys appended by an
+    /// upstream `LOAD *` mid-pipeline are included.
     srclookup: Option<&'a RLookup<'a>>,
     /// Raw sort-key references, including keys not present in `FIELDS`.
     sort_keys: Box<[&'a RLookupKey<'a>]>,
     /// `true` for shard replies dispatched by the coordinator: extra sort-key
     /// columns are emitted alongside the requested fields so the coordinator
     /// can re-order shard rows during merge. `false` for direct execution.
-    /// No-op when [`srclookup`][Self::srclookup] is `Some`.
     include_sort_keys: bool,
 }
 
@@ -72,12 +69,7 @@ pub struct RemoteCollectCtx<'a> {
 impl<'a> RemoteCollectReducer<'a> {
     /// Create a reducer from C-parsed configuration.
     ///
-    /// `srclookup` is `Some` when the user wrote `FIELDS *`; see
-    /// [`Self::srclookup`] for the load-all-mode policy.
-    #[expect(
-        rustdoc::private_intra_doc_links,
-        reason = "links to the private srclookup field"
-    )]
+    /// `srclookup` is `Some` when the user wrote `FIELDS *`.
     pub fn new(
         field_keys: Box<[&'a RLookupKey<'a>]>,
         srclookup: Option<&'a RLookup<'a>>,
@@ -156,12 +148,21 @@ fn dedup_by_dstidx<'a>(
         .collect()
 }
 
-/// Pair each `key` with its name as a reusable [`SharedValue`], hoisting the
-/// allocation out of the per-row loop in [`RemoteCollectCtx::finalize`].
-fn build_template_for_finalize<'a, I>(keys: I) -> Vec<(&'a RLookupKey<'a>, SharedValue)>
-where
-    I: IntoIterator<Item = &'a RLookupKey<'a>>,
-{
+/// Builds the key→name template once per group so [`RemoteCollectCtx::finalize`]
+/// can clone pre-allocated name [`SharedValue`]s per row rather than re-allocating.
+fn build_finalize_template<'a>(
+    r: &RemoteCollectReducer<'a>,
+) -> Vec<(&'a RLookupKey<'a>, SharedValue)> {
+    let keys: Vec<&RLookupKey<'a>> = if let Some(lookup) = r.srclookup {
+        lookup
+            .iter()
+            .filter(|k| !k.flags.contains(RLookupKeyFlag::Hidden))
+            .collect()
+    } else if r.include_sort_keys {
+        dedup_by_dstidx(&r.field_keys, &r.sort_keys)
+    } else {
+        r.field_keys.to_vec()
+    };
     keys.into_iter()
         .map(|k| (k, SharedValue::new_string(k.name().to_bytes().to_vec())))
         .collect()
@@ -172,23 +173,28 @@ impl<'a> RemoteCollectCtx<'a> {
         Self { rows: Vec::new() }
     }
 
-    /// Project the source row's field-key and sort-key values into a stored
-    /// [`RLookupRow`].
+    /// Project the relevant fields from `row` for later serialization by
+    /// [`Self::finalize`].
     pub fn add(&mut self, r: &RemoteCollectReducer<'a>, row: &RLookupRow<'_>) {
         let mut dst = RLookupRow::new();
-        let mut write_if_present = |key: &RLookupKey<'a>| {
+        let keys = if let Some(lookup) = r.srclookup {
+            Either::Left(
+                lookup
+                    .iter()
+                    .filter(|k| !k.flags.contains(RLookupKeyFlag::Hidden)),
+            )
+        } else {
+            Either::Right(
+                r.field_keys
+                    .iter()
+                    .copied()
+                    .chain(r.sort_keys.iter().copied()),
+            )
+        };
+        for key in keys {
             if let Some(v) = row.get(key) {
                 dst.write_key(key, v.clone());
             }
-        };
-        if let Some(lookup) = r.srclookup {
-            visible_keys(lookup).for_each(&mut write_if_present);
-        } else {
-            r.field_keys
-                .iter()
-                .copied()
-                .chain(r.sort_keys.iter().copied())
-                .for_each(&mut write_if_present);
         }
         self.rows.push(dst);
     }
@@ -200,17 +206,7 @@ impl<'a> RemoteCollectCtx<'a> {
     /// client-facing result.
     pub fn finalize(&mut self, r: &RemoteCollectReducer<'a>) -> SharedValue {
         let rows = mem::take(&mut self.rows);
-        let keys: Vec<&RLookupKey<'a>> = if let Some(lookup) = r.srclookup {
-            visible_keys(lookup).collect()
-        } else {
-            let sort_extras: &[&RLookupKey<'a>] = if r.include_sort_keys {
-                &r.sort_keys
-            } else {
-                &[]
-            };
-            dedup_by_dstidx(&r.field_keys, sort_extras)
-        };
-        let template = build_template_for_finalize(keys);
+        let template = build_finalize_template(r);
         SharedValue::new_array(rows.into_iter().map(|row| {
             let entries: Vec<_> = template
                 .iter()
