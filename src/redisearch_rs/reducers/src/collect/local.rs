@@ -132,8 +132,7 @@ impl LocalCollectCtx {
                             }
                             .cloned()
                         })
-                        .collect::<Vec<_>>()
-                        .into_boxed_slice()
+                        .collect::<Box<[_]>>()
                 });
             }
         } else {
