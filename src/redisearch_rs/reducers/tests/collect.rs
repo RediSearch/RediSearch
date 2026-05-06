@@ -222,7 +222,7 @@ fn remote_finalize_hoists_name_allocations() {
 }
 
 #[test]
-fn local_collect_projects_remote_maps_and_fills_missing_fields_with_null() {
+fn local_collect_projects_remote_maps_and_omits_missing_fields() {
     let input_key = key(c"generatedalias", 0);
     let reducer = LocalCollectReducer::new(
         &input_key,
@@ -255,7 +255,7 @@ fn local_collect_projects_remote_maps_and_fills_missing_fields_with_null() {
         Some(b"apple".as_slice())
     );
     assert!(row.get(b"sweetness").is_none());
-    assert!(row.get(b"missing").unwrap().is_null_static());
+    assert!(row.get(b"missing").is_none());
 }
 
 #[test]
