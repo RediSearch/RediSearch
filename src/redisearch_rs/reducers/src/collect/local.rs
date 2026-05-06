@@ -43,7 +43,10 @@ fn get_field<'a>(item: &'a Value, name: &[u8]) -> Option<&'a SharedValue> {
         Value::Array(a) => a.map_get(name),
         _ => {
             // TODO: replace with `debug_assert_warn!` once that macro is accessible from this crate.
-            debug_assert!(false, "local COLLECT: shard payload item must be a Map or Array");
+            debug_assert!(
+                false,
+                "local COLLECT: shard payload item must be a Map or Array"
+            );
             tracing::warn!("local COLLECT: shard payload item is not a Map or Array; skipping");
             None
         }
@@ -81,8 +84,12 @@ fn write_item_to_row(dst: &mut RLookupRow<'static>, lookup: &mut RLookup<'static
     match item {
         Value::Map(m) => {
             for (k, v) in m.iter() {
-                let Some(name) = k.as_str_bytes() else { continue };
-                let Ok(cname) = CString::new(name) else { continue };
+                let Some(name) = k.as_str_bytes() else {
+                    continue;
+                };
+                let Ok(cname) = CString::new(name) else {
+                    continue;
+                };
                 dst.write_key_by_name(lookup, cname, v.clone());
             }
         }
@@ -90,14 +97,21 @@ fn write_item_to_row(dst: &mut RLookupRow<'static>, lookup: &mut RLookup<'static
             let (pairs, remainder) = a.as_chunks::<2>();
             debug_assert!(remainder.is_empty(), "odd-length RESP2 payload");
             for [k, v] in pairs {
-                let Some(name) = k.as_str_bytes() else { continue };
-                let Ok(cname) = CString::new(name) else { continue };
+                let Some(name) = k.as_str_bytes() else {
+                    continue;
+                };
+                let Ok(cname) = CString::new(name) else {
+                    continue;
+                };
                 dst.write_key_by_name(lookup, cname, v.clone());
             }
         }
         _ => {
             // TODO: replace with `debug_assert_warn!` once that macro is accessible from this crate.
-            debug_assert!(false, "local COLLECT: shard payload item must be a Map or Array");
+            debug_assert!(
+                false,
+                "local COLLECT: shard payload item must be a Map or Array"
+            );
             tracing::warn!("local COLLECT: shard payload item is not a Map or Array; skipping");
         }
     }
@@ -193,7 +207,10 @@ impl LocalCollectCtx {
     pub fn add(&mut self, r: &LocalCollectReducer, row: &RLookupRow) {
         // TODO: replace with `debug_assert_warn!` once that macro is accessible from this crate.
         let Some(payload) = row.get(r.input_key) else {
-            debug_assert!(false, "local COLLECT: input_key must be present in every merge row");
+            debug_assert!(
+                false,
+                "local COLLECT: input_key must be present in every merge row"
+            );
             tracing::warn!("local COLLECT: input_key missing from merge row; skipping row");
             return;
         };
@@ -205,11 +222,8 @@ impl LocalCollectCtx {
         };
 
         for item in items.iter() {
-            self.rows.push(prepare_row(
-                &mut self.lookup,
-                r.requested.as_deref(),
-                &**item,
-            ));
+            self.rows
+                .push(prepare_row(&mut self.lookup, r.requested.as_deref(), item));
         }
     }
 
