@@ -200,28 +200,24 @@ pub const fn neighbors(hash: GeoHashBits) -> GeoHashNeighbors {
 
 /// Estimate the precision step for a radius query at the given latitude.
 fn estimate_steps_by_radius(range_meters: f64, lat: R64) -> PrecisionStep {
-    // Non-positive, NaN, or infinite radius — use finest/coarsest precision.
-    let step = if range_meters.partial_cmp(&0.0) != Some(std::cmp::Ordering::Greater) {
-        GEO_STEP_MAX.as_u8() as i32
-    } else {
-        // step = 1 + ceil(log2(MERCATOR_MAX / range)) - 2
-        //       = ceil(log2(MERCATOR_MAX / range)) - 1
-        // Clamp the f64 result before converting to i32 to avoid overflow
-        // when range_meters is very large or infinite (log2(0) = -inf).
-        ((MERCATOR_MAX / range_meters).log2().ceil() - 1.0).clamp(1.0, GEO_STEP_MAX.as_u8() as f64)
-            as i32
-    };
-
+    if range_meters.partial_cmp(&0.0) != Some(std::cmp::Ordering::Greater) {
+        // Zero, negative, or NaN radius — use finest precision.
+        return GEO_STEP_MAX;
+    }
+    // Smallest n such that range_meters * 2^n >= MERCATOR_MAX, minus 2 to
+    // ensure the range is included in most base cases. Equivalently:
+    //   ceil(log2(MERCATOR_MAX / range_meters)) - 1
+    // The `min` keeps next_power_of_two from overflowing on extreme inputs.
+    let ratio = (MERCATOR_MAX / range_meters).ceil().min(u32::MAX as f64) as u64;
+    let base = ratio.next_power_of_two().ilog2() as i32 - 1;
     // Wider range towards the poles.
-    let lat = lat.into_inner();
-    let polar_adjust = if !(-66.0..=66.0).contains(&lat) {
-        if !(-80.0..=80.0).contains(&lat) { 2 } else { 1 }
-    } else {
-        0
+    let polar_adjust = match lat.into_inner().abs() {
+        a if a > 80.0 => 2,
+        a if a > 66.0 => 1,
+        _ => 0,
     };
-
-    // Clamped to 1..=GEO_STEP_MAX, which is always valid for PrecisionStep.
-    PrecisionStep::new((step - polar_adjust).clamp(1, GEO_STEP_MAX.as_u8() as i32) as u8).unwrap()
+    let step = (base - polar_adjust).clamp(1, GEO_STEP_MAX.as_u8() as i32) as u8;
+    PrecisionStep::new(step).unwrap()
 }
 
 /// Compute the bounding box `[min_lon, min_lat, max_lon, max_lat]` for a
