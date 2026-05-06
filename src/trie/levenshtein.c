@@ -15,11 +15,12 @@
 #include "rmalloc.h"
 
 static rune runeLower(rune r) {
-  const char *map = nu_tolower((uint32_t)r);
+  uint32_t lowered = 0;
+  const char *map = 0;
+  map = nu_tolower((uint32_t)r);
   if (!map) {
     return r;
   }
-  uint32_t lowered;
   nu_casemap_read(map, &lowered);
   return (rune)lowered;
 }
