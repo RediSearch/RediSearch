@@ -29,7 +29,7 @@
 #[cfg(feature = "test-utils")]
 pub mod test_utils;
 
-use std::num::NonZeroUsize;
+use std::{iter::Chain, num::NonZeroUsize};
 
 pub use field::FieldExpirationPredicate;
 use libc::timespec;
@@ -103,16 +103,26 @@ impl TimeToLiveTable {
 
     /// Inserts a document's per-field expirations.
     ///
-    /// `sorted_by_id` must be non-empty and sorted by `index` in ascending
-    /// order. Ownership transfers to the table.
+    /// Ownership of `sorted_by_id` transfers to the table.
     ///
-    /// # Panics
+    /// # Safety
     ///
-    /// Panics if `sorted_by_id` is empty.
-    /// In debug builds, it panics:
-    /// - if `doc_id` is already present in the table
-    /// - if `sorted_by_id` is not sorted by index
-    pub fn add(&mut self, doc_id: t_docId, sorted_by_id: ThinVec<FieldExpiration>) {
+    /// The caller must guarantee:
+    /// - `sorted_by_id` is non-empty.
+    /// - `sorted_by_id` is sorted in ascending order by `index`.
+    /// - `doc_id` is not already present in the table.
+    ///
+    /// These invariants are load-bearing for the lookup hot paths
+    /// ([`verify_doc_and_field`](Self::verify_doc_and_field),
+    /// [`verify_doc_and_field_mask`](Self::verify_doc_and_field_mask),
+    /// [`verify_doc_and_wide_field_mask`](Self::verify_doc_and_wide_field_mask)),
+    /// which assume them when scanning the per-bucket chain and the
+    /// per-entry field-expiration list.
+    ///
+    /// In debug builds these preconditions are checked via `debug_assert!`
+    /// and will panic on violation; in release builds the checks are
+    /// elided.
+    pub unsafe fn add(&mut self, doc_id: t_docId, sorted_by_id: ThinVec<FieldExpiration>) {
         debug_assert!(
             !sorted_by_id.is_empty(),
             "TTL table add requires at least one field expiration"
@@ -242,6 +252,11 @@ impl TimeToLiveTable {
     /// # Panics
     ///
     /// Panics if `ft_id_to_field_index` is shorter than `highest_set_bit + 1`.
+    ///
+    /// Callers must guarantee that `ft_id_to_field_index.len()` is at
+    /// least `highest_set_bit + 1` of `field_mask`. The bit-walk reads
+    /// the translation slice via `_unchecked` once per set bit;
+    /// violating the bound is undefined behavior in release builds.
     pub fn verify_doc_and_field_mask(
         &self,
         doc_id: t_docId,
@@ -265,8 +280,7 @@ impl TimeToLiveTable {
     ///
     /// # Panics
     ///
-    /// Panics if `ft_id_to_field_index` is shorter than
-    /// `highest_set_bit + 1` of `field_mask`.
+    /// See [`TimeToLiveTable::verify_doc_and_field_mask`].
     pub fn verify_doc_and_wide_field_mask(
         &self,
         doc_id: t_docId,
@@ -286,7 +300,6 @@ impl TimeToLiveTable {
 
     /// Direct-modulo slot formula
     const fn slot(&self, doc_id: t_docId) -> usize {
-        // All the casts here are safe because we check the conversion in the constructor
         if doc_id < self.max_size as u64 {
             doc_id as usize
         } else {
@@ -330,34 +343,53 @@ impl TimeToLiveTable {
 }
 
 /// Bit-mask abstraction shared by the 32-bit and wide-mask helpers.
-///
-/// The trait splits the mask into a slice of `u64` halves (low to high)
-/// so [`verify_mask`] can iterate bits with native `u64` ops — single
-/// `rbit`+`clz` for `trailing_zeros`, single `lsl`, single `bic` for the
-/// AND-NOT.
 trait BitMask: Copy {
-    /// Owned array holding the mask split into `u64` halves.
-    type Halves: AsRef<[u64]>;
+    /// Concrete iterator type returned by [`Self::iter`]; yields the
+    /// positions of set bits as [`u32`] values.
+    type Iter: Iterator<Item = u32>;
 
-    /// Splits the mask into a sequence of `u64` halves, low to high.
-    fn halves(self) -> Self::Halves;
+    /// Returns the number of `1` bits in the mask.
+    fn count_ones(self) -> usize;
+
+    /// Returns the highest set-bit position plus one — i.e. the minimum
+    /// number of bits needed to represent the value, or `0` when the mask
+    /// is zero.
+    fn higher_bit_position(self) -> usize;
+
+    /// Returns an iterator over the positions of the set bits, yielded
+    /// low-to-high.
+    fn iter(self) -> Self::Iter;
 }
 
 impl BitMask for u32 {
-    type Halves = [u64; 1];
+    type Iter = BitU64Iter;
 
-    #[inline]
-    fn halves(self) -> Self::Halves {
-        [self as u64]
+    fn iter(self) -> Self::Iter {
+        BitU64Iter::new(self as u64)
+    }
+
+    fn count_ones(self) -> usize {
+        u32::count_ones(self) as usize
+    }
+
+    fn higher_bit_position(self) -> usize {
+        (Self::BITS - self.leading_zeros()) as usize
     }
 }
 
 impl BitMask for u128 {
-    type Halves = [u64; 2];
+    type Iter = BitU128Iter;
 
-    #[inline]
-    fn halves(self) -> Self::Halves {
-        [self as u64, (self >> 64) as u64]
+    fn iter(self) -> Self::Iter {
+        BitU128Iter::new(self)
+    }
+
+    fn count_ones(self) -> usize {
+        u128::count_ones(self) as usize
+    }
+
+    fn higher_bit_position(self) -> usize {
+        (Self::BITS - self.leading_zeros()) as usize
     }
 }
 
@@ -402,7 +434,7 @@ impl Iterator for BitU64Iter {
         if self.current == 0 {
             return None;
         }
-        // `bit ∈ [0, 64)`, 64 excluded because `self.current != 0`.
+        // `bit ∈ [0, 64)`, 64 excluded because of `self.current != 0`.
         let bit = self.current.trailing_zeros();
         // Clear the lowest set bit.
         self.current &= self.current - 1;
@@ -423,21 +455,20 @@ impl Iterator for BitU64Iter {
 /// assert_eq!(bits, vec![1, 3]);
 /// ```
 pub struct BitU128Iter {
-    first: BitU64Iter,
-    second: BitU64Iter,
+    iter: Chain<BitU64Iter, BitU64Iter>,
 }
 impl BitU128Iter {
     /// Builds an iterator over the set bits of `mask`.
     #[inline]
-    pub const fn new(mask: u128) -> Self {
+    pub fn new(mask: u128) -> Self {
         let first = mask as u64;
         let second = (mask >> 64) as u64;
-        Self {
-            // Yield from [0, 64)
-            first: BitU64Iter::with_base(first, 0),
+
+        let iter = // Yield from [0, 64)
+            BitU64Iter::with_base(first, 0)
             // Yield from [64, 127)
-            second: BitU64Iter::with_base(second, 64),
-        }
+            .chain(BitU64Iter::with_base(second, 64));
+        Self { iter }
     }
 }
 impl Iterator for BitU128Iter {
@@ -445,11 +476,7 @@ impl Iterator for BitU128Iter {
 
     #[inline]
     fn next(&mut self) -> Option<u32> {
-        // LLVM inlines this `or_else` chain into the caller, lowering it to a
-        // single bit-iteration loop with one half-selector branch — no closure
-        // overhead, no `Option` marshalling on the hot path. `verify_mask::<u128>`
-        // depends on this codegen; re-check the asm before changing.
-        self.first.next().or_else(|| self.second.next())
+        self.iter.next()
     }
 }
 
@@ -475,9 +502,7 @@ fn verify_mask<M: BitMask>(
     );
     let field_with_expiration_length = field_expirations.len();
 
-    let halves = mask.halves();
-    let halves = halves.as_ref();
-    let field_count: usize = halves.iter().map(|h| h.count_ones() as usize).sum();
+    let field_count: usize = mask.count_ones();
     if field_with_expiration_length < field_count && predicate == FieldExpirationPredicate::Default
     {
         // The document has less fields with expiration times than the fields we are checking.
@@ -485,138 +510,80 @@ fn verify_mask<M: BitMask>(
         return true;
     }
 
-    // Hoisted bounds check on the translation table. The bit indices
-    // we generate are exactly the set bits of the mask, so we only
-    // need the slice to cover the *highest* set bit. Doing the check
-    // once here lets us drop the per-iteration bounds check on
-    // `ft_id_to_field_index` below.
-    let highest_bit_plus_one: usize = halves
-        .iter()
-        .enumerate()
-        .map(|(i, &h)| {
-            if h == 0 {
-                0
-            } else {
-                i * (u64::BITS as usize) + (u64::BITS as usize) - (h.leading_zeros() as usize)
-            }
-        })
-        .max()
-        .unwrap_or(0);
-    // Hoisted bound. The inner loop derives `bit_index` from
-    // `trailing_zeros` over the same halves used to compute
-    // `highest_bit_plus_one`, but LLVM cannot relate those two
-    // bit-manipulation intrinsics on its own — so the per-iteration
-    // bounds check survives without a hint. This assertion both
-    // gives the caller an actionable error message and underwrites
-    // the `unsafe` proof at the call site of `get_field_index`.
-    debug_assert!(
+    // Hoisted bound, so the loop can use `get_unchecked`.
+    let highest_bit_plus_one: usize = mask.higher_bit_position();
+    assert!(
         ft_id_to_field_index.len() >= highest_bit_plus_one,
         "ft_id_to_field_index must cover the highest set bit of the mask"
     );
 
-    /// Reads `ft_id_to_field_index[bit_index]` while telling LLVM the
-    /// bound holds, so the per-call bounds check on the slice indexing
-    /// is elided.
+    /// Reads `&arr[index]`,
     ///
     /// # Safety
     ///
-    /// The caller must guarantee `bit_index < ft_id_to_field_index.len()`.
+    /// The caller must guarantee `index < arr.len()`.
     #[inline]
-    unsafe fn get_field_index_unchecked(ft_id_to_field_index: &[u16], bit_index: usize) -> u16 {
+    unsafe fn get_unchecked<T>(arr: &[T], index: usize) -> &T {
         debug_assert!(
-            bit_index < ft_id_to_field_index.len(),
-            "Safety violation: try to access to an out-of-bounds index, {bit_index}. Length {}",
-            ft_id_to_field_index.len(),
+            index < arr.len(),
+            "Safety violation: try to access to an out-of-bounds index, {index}. Length {}",
+            arr.len(),
         );
         // SAFETY: Function safety guarantees
-        unsafe { *ft_id_to_field_index.get_unchecked(bit_index) }
-    }
-
-    /// Reads `&field_expirations[field_index]` while telling LLVM the
-    /// bound holds, so the per-call bounds check is elided.
-    ///
-    /// # Safety
-    ///
-    /// The caller must guarantee `field_index < field_expirations.len()`.
-    #[inline]
-    unsafe fn get_candidate_field_unchecked(
-        field_expirations: &[FieldExpiration],
-        field_index: usize,
-    ) -> &FieldExpiration {
-        debug_assert!(
-            field_index < field_expirations.len(),
-            "Safety violation: try to access to an out-of-bounds index, {field_index}. Length {}",
-            field_expirations.len(),
-        );
-        // SAFETY: Function safety guarantees
-        unsafe { field_expirations.get_unchecked(field_index) }
+        unsafe { arr.get_unchecked(index) }
     }
 
     let mut predicate_misses: usize = 0;
     let mut current_field_index: usize = 0;
 
-    // Outer loop walks halves. This is known at compile time:
-    // u32 -> `[u64; 1]`, u128 -> `[u64; 2]`.
-    // NB: in case of u128, the order  (lower bits, higher bits) is important.
-    // In fact, we can keep track of `current_field_index` and perform a fast check.
-    // NB2: the outer loop is fully unrolled by LLVM.
-    'outer: for (half_idx, &half_init) in halves.iter().enumerate() {
-        // 0 for u64, 0 or 64 for u128
-        let bit_offset = (half_idx as u32) * u64::BITS;
+    // Visits set bits low-to-high. Order matters: `current_field_index` only
+    // moves forward, so monotonic field indices amortize the cursor walk
+    // across bits (especially across the u128 halves).
+    for bit_index in mask.iter() {
+        // Load-bearing: `bit_index <= highest_bit_plus_one - 1`, which
+        // underwrites the safety proof of `get_unchecked` below.
 
-        // This loop navigates, from lower to higher, each bit set to 1.
-        // For each of them, check if ft_id_to_field_index contains that index,
-        // and run the expiration logic if found.
-        for bit_in_half in BitU64Iter::new(half_init) {
-            // This is the index of mask where the lower bit set to 1 is located.
-            // NB: the mask is cleaned up from the lower bit after each iteration.
-            // NB2: `bit_index <= highest_bit_plus_one - 1`.
-            let bit_index = bit_offset + bit_in_half;
+        // SAFETY: `bit_index` is the position of a set bit in `mask`.
+        // Because:
+        // - `bit_index <= highest_bit_plus_one - 1`
+        // - `highest_bit_plus_one <= ft_id_to_field_index.len()`
+        // hence `bit_index < ft_id_to_field_index.len()`.
+        let field_index_to_check =
+            unsafe { *get_unchecked(ft_id_to_field_index, bit_index as usize) };
 
-            // SAFETY: `bit_index` is the position of a set bit in `mask`.
-            // Because:
-            // - `bit_index <= highest_bit_plus_one - 1`
-            // - `highest_bit_plus_one <= ft_id_to_field_index.len()`
-            // hence `bit_index < ft_id_to_field_index.len()`.
-            let field_index_to_check =
-                unsafe { get_field_index_unchecked(ft_id_to_field_index, bit_index as usize) };
-
-            // Advance the cursor over fields strictly less than the one
-            // we are checking.
-            while current_field_index < field_with_expiration_length {
-                // SAFETY: the `while` condition above proves it
-                let candidate_index = unsafe {
-                    get_candidate_field_unchecked(field_expirations, current_field_index).index
-                };
-                if field_index_to_check <= candidate_index {
-                    break;
-                }
-                current_field_index += 1;
+        // Advance the cursor over fields strictly less than the one
+        // we are checking.
+        while current_field_index < field_with_expiration_length {
+            // SAFETY: the `while` condition above proves it
+            let candidate_index =
+                unsafe { get_unchecked(field_expirations, current_field_index).index };
+            if field_index_to_check <= candidate_index {
+                break;
             }
-            if current_field_index >= field_with_expiration_length {
-                // No more fields with expiration times to check.
-                break 'outer;
-            }
-
-            // SAFETY: the `if … break 'outer` above ensures we only get
-            // here when `current_field_index < field_with_expiration_length`
-            let entry_field =
-                unsafe { get_candidate_field_unchecked(field_expirations, current_field_index) };
-            if field_index_to_check < entry_field.index {
-                // Field not tracked by this entry — treat as absent.
-                continue;
-            }
-            debug_assert_eq!(field_index_to_check, entry_field.index);
-
-            let expired = did_expire(&entry_field.point, expiration_point);
-            if !expired && predicate == FieldExpirationPredicate::Default {
-                return true;
-            }
-            if expired && predicate == FieldExpirationPredicate::Missing {
-                return true;
-            }
-            predicate_misses += 1;
+            current_field_index += 1;
         }
+        if current_field_index >= field_with_expiration_length {
+            // No more fields with expiration times to check.
+            break;
+        }
+
+        // SAFETY: the `if … break` above ensures we only get
+        // here when `current_field_index < field_with_expiration_length`
+        let entry_field = unsafe { get_unchecked(field_expirations, current_field_index) };
+        if field_index_to_check < entry_field.index {
+            // Field not tracked by this entry — treat as absent.
+            continue;
+        }
+        debug_assert_eq!(field_index_to_check, entry_field.index);
+
+        let expired = did_expire(&entry_field.point, expiration_point);
+        if !expired && predicate == FieldExpirationPredicate::Default {
+            return true;
+        }
+        if expired && predicate == FieldExpirationPredicate::Missing {
+            return true;
+        }
+        predicate_misses += 1;
     }
 
     match predicate {
@@ -658,7 +625,9 @@ mod tests {
         // return true.
         const MAX: usize = 8;
         let mut t = TimeToLiveTable::new(NonZeroUsize::new(MAX).unwrap());
-        t.add(DOC_ID_1, thin_vec![fe(FIELD_INDEX_1, PAST)]);
+        // SAFETY: `DOC_ID_1` is fresh; `[fe(FIELD_INDEX_1, PAST)]` is non-empty
+        // and trivially sorted (single element).
+        unsafe { t.add(DOC_ID_1, thin_vec![fe(FIELD_INDEX_1, PAST)]) };
 
         let unknown_collider: u64 = DOC_ID_1 + MAX as u64;
         // Be sure it is a collider
@@ -691,9 +660,11 @@ mod tests {
         assert_eq!(t.slot(DOC_ID_1), t.slot(DOC_ID_1_COLLIDER_1));
         assert_eq!(t.slot(DOC_ID_1), t.slot(DOC_ID_1_COLLIDER_2));
 
-        t.add(DOC_ID_1, thin_vec![fe(FIELD_INDEX_1, FUTURE)]);
-        t.add(DOC_ID_1_COLLIDER_1, thin_vec![fe(FIELD_INDEX_1, PAST)]);
-        t.add(DOC_ID_1_COLLIDER_2, thin_vec![fe(FIELD_INDEX_1, FUTURE)]);
+        // SAFETY (each call below): the `doc_id` is unique across this test
+        // and each single-element vec is non-empty and trivially sorted.
+        unsafe { t.add(DOC_ID_1, thin_vec![fe(FIELD_INDEX_1, FUTURE)]) };
+        unsafe { t.add(DOC_ID_1_COLLIDER_1, thin_vec![fe(FIELD_INDEX_1, PAST)]) };
+        unsafe { t.add(DOC_ID_1_COLLIDER_2, thin_vec![fe(FIELD_INDEX_1, FUTURE)]) };
         t.remove(DOC_ID_1);
         // Doc 9: PAST ⇒ Default false.
         assert!(!t.verify_doc_and_field(
@@ -727,7 +698,9 @@ mod tests {
         const DOC_ID_1_COLLIDER: u64 = DOC_ID_1 + MAX as u64;
 
         let mut t = TimeToLiveTable::new(NonZeroUsize::new(MAX).unwrap());
-        t.add(DOC_ID_1, thin_vec![fe(FIELD_INDEX_1, FUTURE)]);
+        // SAFETY: `DOC_ID_1` is fresh; the single-element vec is non-empty
+        // and trivially sorted.
+        unsafe { t.add(DOC_ID_1, thin_vec![fe(FIELD_INDEX_1, FUTURE)]) };
 
         // Slot collider
         assert_eq!(t.slot(DOC_ID_1), t.slot(DOC_ID_1_COLLIDER));
@@ -746,9 +719,11 @@ mod tests {
     fn max_size_one_collapses_every_doc_to_slot_zero() {
         const MAX: usize = 1;
         let mut t = TimeToLiveTable::new(NonZeroUsize::new(MAX).unwrap());
-        t.add(0, thin_vec![fe(FIELD_INDEX_1, FUTURE)]);
-        t.add(1, thin_vec![fe(FIELD_INDEX_1, PAST)]);
-        t.add(2, thin_vec![fe(FIELD_INDEX_1, FUTURE)]);
+        // SAFETY (each call below): doc_ids 0, 1, 2 are distinct; each
+        // single-element vec is non-empty and trivially sorted.
+        unsafe { t.add(0, thin_vec![fe(FIELD_INDEX_1, FUTURE)]) };
+        unsafe { t.add(1, thin_vec![fe(FIELD_INDEX_1, PAST)]) };
+        unsafe { t.add(2, thin_vec![fe(FIELD_INDEX_1, FUTURE)]) };
         assert_eq!(t.n_allocated_buckets(), 1);
         assert!(t.verify_doc_and_field(0, FIELD_INDEX_1, FieldExpirationPredicate::Default, &NOW,));
         assert!(
@@ -762,7 +737,7 @@ mod tests {
 
     #[test]
     #[should_panic(expected = "field_expirations is guaranteed to not be empty")]
-    fn verify_mask_returns_true_when_entry_has_no_field_expirations() {
+    fn verify_mask_panics_when_entry_has_no_field_expirations() {
         let entry = TimeToLiveEntry {
             doc_id: DOC_ID_1,
             field_expirations: empty_fields(),
@@ -790,9 +765,12 @@ mod tests {
         for x in 1u64..8 {
             assert_eq!(t.slot(x), t.slot(x + CAP));
             assert_eq!(t.slot(x), t.slot(x + 2 * CAP));
-            t.add(x, thin_vec![fe(0, PAST)]);
-            t.add(x + CAP, thin_vec![fe(0, FUTURE)]);
-            t.add(x + 2 * CAP, thin_vec![fe(0, PAST)]);
+            // SAFETY (each call below): `x`, `x + CAP`, `x + 2 * CAP` are
+            // distinct and never repeat across loop iterations; each
+            // single-element vec is non-empty and trivially sorted.
+            unsafe { t.add(x, thin_vec![fe(0, PAST)]) };
+            unsafe { t.add(x + CAP, thin_vec![fe(0, FUTURE)]) };
+            unsafe { t.add(x + 2 * CAP, thin_vec![fe(0, PAST)]) };
         }
         for x in 1u64..8 {
             assert!(!t.verify_doc_and_field(x, 0, FieldExpirationPredicate::Default, &NOW));
