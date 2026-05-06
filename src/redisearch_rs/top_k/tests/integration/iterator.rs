@@ -11,8 +11,95 @@
 
 use std::num::NonZeroUsize;
 
-use rqe_iterators::RQEIterator;
-use top_k::{TopKIterator, mock::MockScoreSource};
+use index_result::RSIndexResult;
+use index_spec::IndexSpecReadGuard;
+use rqe_iterators::{RQEIterator, RQEIteratorError};
+use top_k::{ScoreSource, TopKIterator, mock::MockScoreBatch, mock::MockScoreSource};
+
+// ── Error path stubs ─────────────────────────────────────────────────────────────
+
+/// Child iterator whose `revalidate` unconditionally returns `Aborted`.
+///
+/// The `Ok` delegation path is covered by [`rqe_iterators::Empty`], which
+/// already returns `Ok` from `revalidate`.  This stub only exists for the
+/// case that cannot be expressed with any existing public iterator type.
+struct AbortOnRevalidate;
+
+impl<'index> rqe_iterators::RQEIterator<'index> for AbortOnRevalidate {
+    fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
+        None
+    }
+
+    fn read(
+        &mut self,
+    ) -> Result<Option<&mut RSIndexResult<'index>>, rqe_iterators::RQEIteratorError> {
+        Ok(None)
+    }
+
+    fn skip_to(
+        &mut self,
+        _doc_id: ffi::t_docId,
+    ) -> Result<Option<rqe_iterators::SkipToOutcome<'_, 'index>>, rqe_iterators::RQEIteratorError>
+    {
+        unimplemented!()
+    }
+
+    fn revalidate(
+        &mut self,
+        _spec: &IndexSpecReadGuard,
+    ) -> Result<rqe_iterators::RQEValidateStatus<'_, 'index>, rqe_iterators::RQEIteratorError> {
+        Ok(rqe_iterators::RQEValidateStatus::Aborted)
+    }
+
+    fn rewind(&mut self) {}
+
+    fn num_estimated(&self) -> usize {
+        0
+    }
+
+    fn last_doc_id(&self) -> ffi::t_docId {
+        0
+    }
+
+    fn at_eof(&self) -> bool {
+        true
+    }
+
+    fn type_(&self) -> rqe_iterator_type::IteratorType {
+        rqe_iterator_type::IteratorType::Mock
+    }
+
+    fn intersection_sort_weight(&self, _: bool) -> f64 {
+        1.0
+    }
+}
+
+/// [`ScoreSource`] whose [`ScoreSource::next_batch`] unconditionally returns [`RQEIteratorError::TimedOut`].
+///
+/// Used to verify that timeout errors propagate correctly through [`TopKIterator`].
+struct TimingOutSource;
+
+impl<'index> ScoreSource<'index> for TimingOutSource {
+    type Batch = MockScoreBatch;
+
+    fn next_batch(&mut self) -> Result<Option<Self::Batch>, RQEIteratorError> {
+        Err(RQEIteratorError::TimedOut)
+    }
+
+    fn num_estimated(&self) -> usize {
+        0
+    }
+
+    fn rewind(&mut self) {}
+
+    fn build_result(&self, doc_id: ffi::t_docId, _: f64) -> RSIndexResult<'index> {
+        RSIndexResult::build_virt().doc_id(doc_id).build()
+    }
+
+    fn iterator_type(&self) -> rqe_iterator_type::IteratorType {
+        rqe_iterator_type::IteratorType::Mock
+    }
+}
 
 // ── State machine ─────────────────────────────────────────────────────────────
 
@@ -31,8 +118,9 @@ fn rewind_resets_to_not_started() {
     let mut it = TopKIterator::new(source, None, NonZeroUsize::new(5).unwrap());
     it.read().unwrap();
     it.read().unwrap();
-    it.read().unwrap(); // EOF
+    let eof = it.read().unwrap();
 
+    assert!(eof.is_none());
     assert!(it.at_eof());
     it.rewind();
     assert!(!it.at_eof());
@@ -82,11 +170,10 @@ fn num_estimated_capped_at_k() {
 
 #[test]
 fn unfiltered_yields_batch_in_source_order() {
-    // Unfiltered mode streams directly from the batch without sorting.
-    let source = MockScoreSource::new(vec![vec![(3, 0.1), (1, 0.5), (2, 0.9)]]);
+    let source = MockScoreSource::new(vec![vec![(1, 0.9), (2, 0.5), (3, 0.1)]]);
     let mut it = TopKIterator::new(source, None, NonZeroUsize::new(10).unwrap());
     let ids: Vec<_> = std::iter::from_fn(|| it.read().unwrap().map(|r| r.doc_id)).collect();
-    assert_eq!(ids, vec![3, 1, 2]);
+    assert_eq!(ids, vec![1, 2, 3]);
 }
 
 #[test]
@@ -99,70 +186,12 @@ fn unfiltered_empty_source_is_immediate_eof() {
 
 // ── Revalidation ──────────────────────────────────────────────────────────────
 
-/// Child iterator whose `revalidate` unconditionally returns `Aborted`.
-///
-/// The `Ok` delegation path is covered by [`rqe_iterators::Empty`], which
-/// already returns `Ok` from `revalidate`.  This stub only exists for the
-/// case that cannot be expressed with any existing public iterator type.
-struct AbortOnRevalidate;
-
-impl<'index> rqe_iterators::RQEIterator<'index> for AbortOnRevalidate {
-    fn current(&mut self) -> Option<&mut inverted_index::RSIndexResult<'index>> {
-        None
-    }
-
-    fn read(
-        &mut self,
-    ) -> Result<Option<&mut inverted_index::RSIndexResult<'index>>, rqe_iterators::RQEIteratorError>
-    {
-        Ok(None)
-    }
-
-    fn skip_to(
-        &mut self,
-        _doc_id: ffi::t_docId,
-    ) -> Result<Option<rqe_iterators::SkipToOutcome<'_, 'index>>, rqe_iterators::RQEIteratorError>
-    {
-        unimplemented!()
-    }
-
-    unsafe fn revalidate(
-        &mut self,
-        _spec: std::ptr::NonNull<ffi::IndexSpec>,
-    ) -> Result<rqe_iterators::RQEValidateStatus<'_, 'index>, rqe_iterators::RQEIteratorError> {
-        Ok(rqe_iterators::RQEValidateStatus::Aborted)
-    }
-
-    fn rewind(&mut self) {}
-
-    fn num_estimated(&self) -> usize {
-        0
-    }
-
-    fn last_doc_id(&self) -> ffi::t_docId {
-        0
-    }
-
-    fn at_eof(&self) -> bool {
-        true
-    }
-
-    fn type_(&self) -> rqe_iterator_type::IteratorType {
-        rqe_iterator_type::IteratorType::Mock
-    }
-
-    fn intersection_sort_weight(&self, _: bool) -> f64 {
-        1.0
-    }
-}
-
 #[test]
 fn revalidate_without_child_returns_ok() {
     let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
     let source = MockScoreSource::new(vec![vec![(1, 1.0)]]);
     let mut it = TopKIterator::new(source, None, NonZeroUsize::new(5).unwrap());
-    // SAFETY: child-less path returns Ok unconditionally; spec is never read.
-    let status = unsafe { it.revalidate(mock_ctx.spec()) }.unwrap();
+    let status = it.revalidate(&mock_ctx.spec_read()).unwrap();
     assert_eq!(status, rqe_iterators::RQEValidateStatus::Ok);
 }
 
@@ -174,8 +203,7 @@ fn revalidate_with_child_delegates_ok() {
     let source = MockScoreSource::new(vec![vec![(1, 1.0)]]);
     let child: Box<dyn rqe_iterators::RQEIterator<'_>> = Box::new(rqe_iterators::Empty::default());
     let mut it = TopKIterator::new(source, Some(child), NonZeroUsize::new(5).unwrap());
-    // SAFETY: Empty::revalidate ignores spec; nothing is dereferenced.
-    let status = unsafe { it.revalidate(mock_ctx.spec()) }.unwrap();
+    let status = it.revalidate(&mock_ctx.spec_read()).unwrap();
     assert_eq!(status, rqe_iterators::RQEValidateStatus::Ok);
 }
 
@@ -185,45 +213,12 @@ fn revalidate_with_child_delegates_aborted() {
     let source = MockScoreSource::new(vec![vec![(1, 1.0)]]);
     let child: Box<dyn rqe_iterators::RQEIterator<'_>> = Box::new(AbortOnRevalidate);
     let mut it = TopKIterator::new(source, Some(child), NonZeroUsize::new(5).unwrap());
-    // SAFETY: AbortOnRevalidate::revalidate ignores spec; nothing is dereferenced.
-    let status = unsafe { it.revalidate(mock_ctx.spec()) }.unwrap();
+    let status = it.revalidate(&mock_ctx.spec_read()).unwrap();
     assert_eq!(status, rqe_iterators::RQEValidateStatus::Aborted);
 }
 
 #[test]
 fn unfiltered_timeout_propagated() {
-    use rqe_iterators::RQEIteratorError;
-    use top_k::{ScoreSource, mock::MockScoreBatch};
-
-    struct TimingOutSource;
-    impl<'index> ScoreSource<'index> for TimingOutSource {
-        type Batch = MockScoreBatch;
-
-        fn next_batch(&mut self) -> Result<Option<Self::Batch>, RQEIteratorError> {
-            Err(RQEIteratorError::TimedOut)
-        }
-
-        fn num_estimated(&self) -> usize {
-            0
-        }
-
-        fn rewind(&mut self) {}
-
-        fn build_result(
-            &self,
-            doc_id: ffi::t_docId,
-            _: f64,
-        ) -> inverted_index::RSIndexResult<'index> {
-            inverted_index::RSIndexResult::build_virt()
-                .doc_id(doc_id)
-                .build()
-        }
-
-        fn iterator_type(&self) -> rqe_iterator_type::IteratorType {
-            rqe_iterator_type::IteratorType::Mock
-        }
-    }
-
     let mut it = TopKIterator::new(TimingOutSource, None, NonZeroUsize::new(5).unwrap());
     assert!(matches!(
         it.read().unwrap_err(),

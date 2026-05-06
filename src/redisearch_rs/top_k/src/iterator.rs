@@ -12,13 +12,12 @@
 use std::num::NonZeroUsize;
 
 use ffi::t_docId;
-use inverted_index::RSIndexResult;
+use index_result::RSIndexResult;
+use index_spec::IndexSpecReadGuard;
 use rqe_iterator_type::IteratorType;
 use rqe_iterators::{RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
 
 use crate::traits::{ScoreBatch, ScoreSource};
-
-// ── Public enums ─────────────────────────────────────────────────────────────
 
 /// Determines which collection algorithm [`TopKIterator`] uses.
 ///
@@ -29,10 +28,16 @@ use crate::traits::{ScoreBatch, ScoreSource};
 pub enum TopKMode {
     /// No child filter — stream directly from the source's single batch.
     /// The heap is bypassed entirely.
+    ///
+    /// # Invariants
+    ///
+    /// The [`ScoreSource`] used with this mode **must** produce at most one
+    /// batch (i.e. the first [`ScoreSource::next_batch`] call returns the
+    /// complete result set, and a second call would return `Ok(None)`).
+    /// Any additional batches are not consumed and their results are silently
+    /// lost.  In debug builds, [`TopKIterator`] asserts this invariant.
     Unfiltered,
 }
-
-// ── Private phase enum ────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Phase {
@@ -51,12 +56,9 @@ enum Phase {
     YieldingDirect,
 }
 
-// ── TopKIterator ──────────────────────────────────────────────────────────────
-
 /// A generic top-k iterator parameterized over a [`ScoreSource`].
 ///
-/// Implements the execution mode described in the design doc:
-/// [`Unfiltered`](TopKMode::Unfiltered).
+/// Implements [`Unfiltered`](TopKMode::Unfiltered).
 pub struct TopKIterator<'index, S: ScoreSource<'index>> {
     source: S,
     child: Option<Box<dyn RQEIterator<'index> + 'index>>,
@@ -75,7 +77,7 @@ pub struct TopKIterator<'index, S: ScoreSource<'index>> {
 impl<'index, S: ScoreSource<'index>> TopKIterator<'index, S> {
     /// Create a new [`TopKIterator`].
     ///
-    /// The execution mode is inferred from `child`.
+    /// The execution mode is always Unfiltered.
     ///
     /// For now, only [`TopKMode::Unfiltered`] exists.
     pub fn new(
@@ -108,8 +110,6 @@ impl<'index, S: ScoreSource<'index>> TopKIterator<'index, S> {
         }
     }
 
-    // ── Collection dispatch ───────────────────────────────────────────────────
-
     /// Drive collection based on the current mode.
     fn collect(&mut self) -> Result<(), RQEIteratorError> {
         self.phase = Phase::Collecting;
@@ -117,40 +117,43 @@ impl<'index, S: ScoreSource<'index>> TopKIterator<'index, S> {
             TopKMode::Unfiltered => self.prepare_unfiltered_direct(),
         };
         if result.is_err() {
-            // Restore a stable phase so that a subsequent read() call can retry.
-            // Phase::Collecting is only valid transiently inside this method.
+            // Reset so a retry via read() works: Phase::Collecting has no handler there.
             // TODO: MOD-14209: bubble up errors
             self.phase = Phase::NotStarted;
         }
         result
     }
 
-    // ── Unfiltered path ───────────────────────────────────────────────────────
-
     /// Set up the unfiltered direct-yield path.
     ///
     /// Calls [`ScoreSource::next_batch`] exactly once.  Results are streamed
     /// directly from the batch cursor — no heap is involved.
+    ///
+    /// # Invariants
+    ///
+    /// [`TopKMode::Unfiltered`] requires the source to produce at most one
+    /// batch.  In debug builds this method calls [`ScoreSource::next_batch`] a
+    /// second time and panics if another batch is returned, catching
+    /// misbehaving implementations early.
     fn prepare_unfiltered_direct(&mut self) -> Result<(), RQEIteratorError> {
         self.direct_batch = self.source.next_batch()?;
         if self.direct_batch.is_none() {
             self.at_eof = true;
         }
+        debug_assert!(
+            matches!(self.source.next_batch(), Ok(None)),
+            "ScoreSource did not return Ok(None) in TopKMode::Unfiltered \
+             (extra batch or error); use a batched mode instead"
+        );
         self.phase = Phase::YieldingDirect;
         Ok(())
     }
-
-    // ── Yielding helpers ─────────────────────────────────────────────────────
 
     /// Yield the next result from the unfiltered direct batch.
     fn advance_unfiltered_direct(
         &mut self,
     ) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
-        let item = if let Some(batch) = &mut self.direct_batch {
-            batch.next()
-        } else {
-            None
-        };
+        let item = self.direct_batch.as_mut().and_then(S::Batch::next);
 
         match item {
             Some((doc_id, score)) => {
@@ -161,13 +164,12 @@ impl<'index, S: ScoreSource<'index>> TopKIterator<'index, S> {
             }
             None => {
                 self.at_eof = true;
+                self.current = None;
                 Ok(None)
             }
         }
     }
 }
-
-// ── RQEIterator impl ──────────────────────────────────────────────────────────
 
 impl<'index, S: ScoreSource<'index>> RQEIterator<'index> for TopKIterator<'index, S> {
     #[inline(always)]
@@ -188,7 +190,7 @@ impl<'index, S: ScoreSource<'index>> RQEIterator<'index> for TopKIterator<'index
         match self.phase {
             Phase::YieldingDirect => self.advance_unfiltered_direct(),
             Phase::Yielding => {
-                unreachable!("collect() must set phase to YieldingDirect or Yielding")
+                unreachable!("`Phase::Yielding` is dead code (planned for batches - MOD-14203).")
             }
             Phase::NotStarted | Phase::Collecting => {
                 unreachable!("collect() must set phase to YieldingDirect or Yielding")
@@ -207,13 +209,12 @@ impl<'index, S: ScoreSource<'index>> RQEIterator<'index> for TopKIterator<'index
     }
 
     #[inline(always)]
-    unsafe fn revalidate(
+    fn revalidate(
         &mut self,
-        spec: std::ptr::NonNull<ffi::IndexSpec>,
+        spec: &IndexSpecReadGuard,
     ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         if let Some(child) = &mut self.child {
-            // SAFETY: Delegating to child with the same `spec` passed by our caller.
-            return unsafe { child.revalidate(spec) };
+            return child.revalidate(spec);
         }
         Ok(RQEValidateStatus::Ok)
     }
@@ -230,7 +231,6 @@ impl<'index, S: ScoreSource<'index>> RQEIterator<'index> for TopKIterator<'index
         self.last_doc_id = 0;
         self.at_eof = false;
         self.phase = Phase::NotStarted;
-        // We explicitly do NOT reset self.metrics because they're used for diagnostics.
     }
 
     #[inline(always)]

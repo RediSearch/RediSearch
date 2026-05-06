@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! Micro-benchmarks for [`TopKHeap`] and [`TopKIterator`].
+//! Micro-benchmarks for [`TopKHeap`].
 //!
 //! These benchmarks use mock sources and synthetic data.  They are NOT
 //! comparable to the C iterator numbers — their purpose is to provide a
@@ -22,8 +22,6 @@ use std::{cmp::Ordering, num::NonZeroUsize};
 use criterion::{BatchSize, BenchmarkId, Criterion, criterion_group, criterion_main};
 use rand::{SeedableRng as _, seq::SliceRandom as _};
 use top_k::TopKHeap;
-
-// ── Comparators ───────────────────────────────────────────────────────────────
 
 fn asc(a: f64, b: f64) -> Ordering {
     a.partial_cmp(&b).unwrap_or(Ordering::Equal)

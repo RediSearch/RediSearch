@@ -13,16 +13,14 @@
 //! Gated behind the `test-utils` feature.
 
 use ffi::t_docId;
-use inverted_index::RSIndexResult;
+use index_result::RSIndexResult;
 use rqe_iterators::RQEIteratorError;
 
 use crate::traits::{ScoreBatch, ScoreSource};
 
-// ── MockScoreBatch ────────────────────────────────────────────────────────────
-
 /// A [`ScoreBatch`] backed by a pre-sorted `Vec<(t_docId, f64)>`.
 ///
-/// Doc IDs must be strictly increasing; this is not validated at runtime.
+/// Doc IDs must be strictly increasing; this is validated in debug builds.
 pub struct MockScoreBatch {
     items: Vec<(t_docId, f64)>,
     pos: usize,
@@ -31,8 +29,12 @@ pub struct MockScoreBatch {
 impl MockScoreBatch {
     /// Creates a batch from a vector of `(doc_id, score)` pairs.
     ///
-    /// The pairs must be sorted by `doc_id` in strictly ascending order.
+    /// The pairs must be sorted by `doc_id` in strictly ascending order (asserted in debug builds).
     pub fn new(items: Vec<(t_docId, f64)>) -> Self {
+        debug_assert!(
+            items.windows(2).all(|w| w[0].0 < w[1].0),
+            "MockScoreBatch: doc IDs must be strictly increasing"
+        );
         Self { items, pos: 0 }
     }
 }
@@ -46,8 +48,6 @@ impl ScoreBatch for MockScoreBatch {
         item
     }
 }
-
-// ── MockScoreSource ───────────────────────────────────────────────────────────
 
 /// A [`ScoreSource`] backed by fixed data for use in tests and benchmarks.
 ///
