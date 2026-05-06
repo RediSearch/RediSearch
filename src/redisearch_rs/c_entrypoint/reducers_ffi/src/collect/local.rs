@@ -46,7 +46,8 @@ unsafe fn copy_c_names(names: *const *const c_char, len: usize) -> Box<[Box<[u8]
 /// 1. `input_key` must be a [valid] pointer to an [`RLookupKey`] that remains
 ///    alive for the lifetime of the returned reducer.
 /// 2. If `field_names_len > 0`, `field_names` must point to an array of at
-///    least `field_names_len` valid, NUL-terminated C strings.
+///    least `field_names_len` valid, NUL-terminated C strings. Ignored when
+///    `load_all` is `true`.
 /// 3. If `sort_names_len > 0`, `sort_names` must point to an array of at
 ///    least `sort_names_len` valid, NUL-terminated C strings.
 ///
@@ -70,16 +71,16 @@ pub unsafe extern "C" fn CollectReducer_CreateLocal(
 
     // SAFETY: ensured by caller (2.)
     let field_names = unsafe { copy_c_names(field_names, field_names_len) };
-    // SAFETY: ensured by caller (3.)
-    let sort_key_names = unsafe { copy_c_names(sort_names, sort_names_len) };
+    // SAFETY: ensured by caller (3.) — sort_key_names is a placeholder for
+    // future use; the local reducer does not store it.
+    let _sort_key_names = unsafe { copy_c_names(sort_names, sort_names_len) };
 
     let limit = has_limit.then_some((limit_offset, limit_count));
 
     let mut cr = Box::new(LocalCollectReducer::new(
         input_key,
-        field_names,
+        &field_names,
         load_all,
-        sort_key_names,
         sort_asc_map,
         limit,
     ));
@@ -92,6 +93,17 @@ pub unsafe extern "C" fn CollectReducer_CreateLocal(
         .set_free(collectLocalFree);
 
     Box::into_raw(cr).cast()
+}
+
+/// # Safety
+///
+/// 1. `r` must point to a valid [`LocalCollectReducer`] originally created by
+///    [`CollectReducer_CreateLocal`].
+#[unsafe(no_mangle)]
+pub const unsafe extern "C" fn CollectReducer_IsLocalLoadAll(r: *const ffi::Reducer) -> bool {
+    // SAFETY: ensured by caller (1.)
+    let r = unsafe { r.cast::<LocalCollectReducer>().as_ref().unwrap() };
+    r.is_load_all()
 }
 
 /// # Safety

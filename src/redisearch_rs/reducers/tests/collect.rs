@@ -222,16 +222,15 @@ fn remote_finalize_hoists_name_allocations() {
 }
 
 #[test]
-fn local_collect_projects_remote_maps_and_omits_missing_fields() {
+fn local_collect_projects_only_requested_fields_and_omits_missing() {
     let input_key = key(c"generatedalias", 0);
     let reducer = LocalCollectReducer::new(
         &input_key,
-        Box::new([
+        &[
             b"name".to_vec().into_boxed_slice(),
             b"missing".to_vec().into_boxed_slice(),
-        ]),
-        false,
-        Box::new([]),
+        ],
+        false, // is_load_all
         0,
         None,
     );
@@ -254,7 +253,9 @@ fn local_collect_projects_remote_maps_and_omits_missing_fields() {
         row.get(b"name").and_then(|v| v.as_str_bytes()),
         Some(b"apple".as_slice())
     );
+    // `sweetness` was not requested — must be absent.
     assert!(row.get(b"sweetness").is_none());
+    // `missing` was requested but not in the payload — omitted, not null-padded.
     assert!(row.get(b"missing").is_none());
 }
 
@@ -263,9 +264,8 @@ fn local_collect_accepts_resp2_flat_array_payloads() {
     let input_key = key(c"generatedalias", 0);
     let reducer = LocalCollectReducer::new(
         &input_key,
-        Box::new([b"name".to_vec().into_boxed_slice()]),
-        false,
-        Box::new([]),
+        &[b"name".to_vec().into_boxed_slice()],
+        false, // is_load_all
         0,
         None,
     );
@@ -433,5 +433,127 @@ fn remote_load_all_skips_hidden_keys_even_when_row_has_value() {
     assert!(
         map.get(b"__hidden").is_none(),
         "Hidden keys must be excluded from the load-all emission template"
+    );
+}
+
+/// Fixture for [`LocalCollectCtx`] tests.
+///
+/// Owns the planner-side `input_key` that the C planner would wire up at
+/// parse time. The key represents the slot in the *outer* row where the
+/// shard-collected payload arrives.
+struct LocalCollectFixture {
+    input_key: RLookupKey<'static>,
+}
+
+impl LocalCollectFixture {
+    fn new() -> Self {
+        Self {
+            input_key: key(c"info", 0),
+        }
+    }
+
+    fn load_all_reducer(&self) -> LocalCollectReducer<'_> {
+        LocalCollectReducer::new(&self.input_key, &[], true, 0, None)
+    }
+
+    /// Build an outer `RLookupRow` carrying `payload` under `self.input_key`.
+    fn outer_row(&self, payload: SharedValue) -> RLookupRow<'_> {
+        let mut row = RLookupRow::new();
+        row.write_key(&self.input_key, payload);
+        row
+    }
+}
+
+#[test]
+fn local_load_all_emits_every_key_present_on_row() {
+    let fixture = LocalCollectFixture::new();
+    let reducer = fixture.load_all_reducer();
+    let mut ctx = LocalCollectCtx::new(&reducer);
+
+    let payload = SharedValue::new_array([SharedValue::new_map([
+        (string_value("name"), string_value("apple")),
+        (string_value("color"), string_value("red")),
+        (string_value("sweetness"), SharedValue::new_num(4.0)),
+    ])]);
+    ctx.add(&reducer, &fixture.outer_row(payload));
+
+    let output = ctx.finalize(&reducer);
+    let rows = array_entries(&output);
+    assert_eq!(rows.len(), 1);
+
+    let map = map_entries(&rows[0]);
+    assert_eq!(
+        map.get(b"name").and_then(|v| v.as_str_bytes()),
+        Some(b"apple".as_slice())
+    );
+    assert_eq!(
+        map.get(b"color").and_then(|v| v.as_str_bytes()),
+        Some(b"red".as_slice())
+    );
+    assert_eq!(map.get(b"sweetness").and_then(|v| v.as_num()), Some(4.0));
+}
+
+#[test]
+fn local_load_all_omits_missing_key_across_rows() {
+    let fixture = LocalCollectFixture::new();
+    let reducer = fixture.load_all_reducer();
+    let mut ctx = LocalCollectCtx::new(&reducer);
+
+    let payload = SharedValue::new_array([
+        SharedValue::new_map([
+            (string_value("name"), string_value("apple")),
+            (string_value("color"), string_value("red")),
+        ]),
+        SharedValue::new_map([(string_value("name"), string_value("lemon"))]),
+    ]);
+    ctx.add(&reducer, &fixture.outer_row(payload));
+
+    let output = ctx.finalize(&reducer);
+    let rows = array_entries(&output);
+    assert_eq!(rows.len(), 2);
+
+    let map_a = map_entries(&rows[0]);
+    assert_eq!(
+        map_a.get(b"color").and_then(|v| v.as_str_bytes()),
+        Some(b"red".as_slice()),
+        "row A had `color`; load-all must include it"
+    );
+
+    let map_b = map_entries(&rows[1]);
+    assert!(
+        map_b.get(b"color").is_none(),
+        "row B had no `color`; load-all must omit the entry (no null_static padding)"
+    );
+    assert_eq!(
+        map_b.get(b"name").and_then(|v| v.as_str_bytes()),
+        Some(b"lemon".as_slice())
+    );
+}
+
+#[test]
+fn local_load_all_accepts_resp2_flat_array_payload() {
+    let fixture = LocalCollectFixture::new();
+    let reducer = fixture.load_all_reducer();
+    let mut ctx = LocalCollectCtx::new(&reducer);
+
+    let payload = SharedValue::new_array([SharedValue::new_array([
+        string_value("name"),
+        string_value("banana"),
+        string_value("color"),
+        string_value("yellow"),
+    ])]);
+    ctx.add(&reducer, &fixture.outer_row(payload));
+
+    let output = ctx.finalize(&reducer);
+    let rows = array_entries(&output);
+    assert_eq!(rows.len(), 1);
+    let map = map_entries(&rows[0]);
+    assert_eq!(
+        map.get(b"name").and_then(|v| v.as_str_bytes()),
+        Some(b"banana".as_slice())
+    );
+    assert_eq!(
+        map.get(b"color").and_then(|v| v.as_str_bytes()),
+        Some(b"yellow".as_slice())
     );
 }

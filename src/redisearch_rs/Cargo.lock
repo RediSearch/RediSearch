@@ -1946,6 +1946,7 @@ dependencies = [
  "redisearch_rs",
  "reducers",
  "rlookup",
+ "tracing",
  "value",
  "workspace_hack",
 ]

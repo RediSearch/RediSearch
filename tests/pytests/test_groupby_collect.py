@@ -1103,3 +1103,62 @@ def test_chained_groupby_collect_apply_load_all():
         {'color': 'yellow', 'cnt': '2', 'avg_sweet': '3',   'weighted': '6'},
         {'color': 'red',    'cnt': '2', 'avg_sweet': '3.5', 'weighted': '7'},
     ])
+
+
+# ---------------------------------------------------------------------------
+# COLLECT FIELDS * (LOADALL) in cluster mode: every key observed across all
+# shard payloads is emitted; missing keys for a row are omitted (no padding).
+# ---------------------------------------------------------------------------
+
+@skip(cluster=False)
+def test_collect_cluster_load_all_merges_per_row_keys_across_shards():
+    """FIELDS * in cluster mode: coordinator emits all keys present per row."""
+    env = Env(shardsCount=3, protocol=3)
+
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH',
+               'SCHEMA',
+               'name',      'TEXT',    'SORTABLE',
+               'color',     'TAG',     'SORTABLE',
+               'sweetness', 'NUMERIC', 'SORTABLE',
+               'origin',    'TEXT',    'SORTABLE').ok()
+
+    conn = getConnectionByEnv(env)
+    docs = [
+        # All three have different shard affinity via hash tags.
+        # banana has origin; lemon/kiwi do not.
+        ('doc:1{a}', 'banana', 'yellow', '4', 'Ecuador'),
+        ('doc:2{b}', 'lemon',  'yellow', '2', None),
+        ('doc:3{c}', 'kiwi',   'green',  '3', None),
+    ]
+    for key, name, color, sweetness, origin in docs:
+        args = ['HSET', key, 'name', name, 'color', color, 'sweetness', sweetness]
+        if origin is not None:
+            args += ['origin', origin]
+        conn.execute_command(*args)
+    enable_unstable_features(env)
+
+    res = env.cmd(
+        'FT.AGGREGATE', 'idx', '*',
+        'GROUPBY', '1', '@color',
+        'REDUCE', 'COLLECT', '2', 'FIELDS', '*',
+        'AS', 'info')
+
+    groups = _sort_by(res['results'], 'color')
+    env.assertEqual(len(groups), 2)
+
+    green = groups[0]['extra_attributes']['info']
+    env.assertEqual(len(green), 1)
+    # kiwi has no origin — LOADALL omits the key entirely (no null_static padding).
+    env.assertEqual(green[0].get('name'), 'kiwi')
+    env.assertFalse('origin' in green[0],
+                    "LOADALL must omit keys not present in a row, not pad with None")
+
+    yellow = _sort_collected(groups[1]['extra_attributes']['info'], 'name')
+    env.assertEqual(len(yellow), 2)
+    banana = yellow[0]
+    lemon  = yellow[1]
+    env.assertEqual(banana.get('name'), 'banana')
+    env.assertEqual(banana.get('origin', '').lower(), 'ecuador')
+    env.assertEqual(lemon.get('name'), 'lemon')
+    env.assertFalse('origin' in lemon,
+                    "LOADALL must omit keys not present in a row, not pad with None")

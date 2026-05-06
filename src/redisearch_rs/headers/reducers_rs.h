@@ -19,7 +19,8 @@ extern "C" {
  * 1. `input_key` must be a [valid] pointer to an [`RLookupKey`] that remains
  *    alive for the lifetime of the returned reducer.
  * 2. If `field_names_len > 0`, `field_names` must point to an array of at
- *    least `field_names_len` valid, NUL-terminated C strings.
+ *    least `field_names_len` valid, NUL-terminated C strings. Ignored when
+ *    `load_all` is `true`.
  * 3. If `sort_names_len > 0`, `sort_names` must point to an array of at
  *    least `sort_names_len` valid, NUL-terminated C strings.
  *
@@ -35,6 +36,14 @@ Reducer *CollectReducer_CreateLocal(const RLookupKey *input_key,
                                     bool has_limit,
                                     uint64_t limit_offset,
                                     uint64_t limit_count);
+
+/**
+ * # Safety
+ *
+ * 1. `r` must point to a valid [`LocalCollectReducer`] originally created by
+ *    [`CollectReducer_CreateLocal`].
+ */
+bool CollectReducer_IsLocalLoadAll(const Reducer *r);
 
 /**
  * # Safety
