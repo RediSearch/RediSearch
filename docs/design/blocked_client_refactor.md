@@ -281,8 +281,14 @@ main after `UnblockClient`.
 // touch the wrapper only via IncrRef / DecrRef and the query/timedOut
 // accessors below.
 //
-// The kind discriminator stays inside the wrapper (not on the BCC) because it
-// is a property of the query, not of the cycle. The union is accessed only
+// Step 0 promotes today's embedded `syncCtx` (inside AREQ / HybridRequest) to
+// a heap-allocated wrapper that owns the query. Every existing field migrates
+// verbatim; only the containment direction flips. The partial-timeout
+// coordination (CAS + mutex/cond) and the abort-wake channel are
+// implementation details of the wrapper and are below the §4.2 contract.
+//
+// The kind discriminator lives on the wrapper (not on the BCC) because it is
+// a property of the query, not of the cycle. The union is accessed only
 // through helpers (RequestSyncCtx_AsAREQ, RequestSyncCtx_ForEachAREQ); a
 // future Rust port can replace it with an enum without touching call-sites.
 typedef enum {
@@ -291,13 +297,34 @@ typedef enum {
 } RequestKind;
 
 typedef struct RequestSyncCtx {
-  _Atomic uint32_t  refcount;  // last DecrRef frees the union member below
-  _Atomic bool      timedOut;  // see §4.2 for the cross-thread protocol
-  RequestKind       kind;      // const after construction
+  // ---- Containment inversion (introduced in Step 0) ---------------------
+  RequestKind  kind;            // const after construction
   union {
     AREQ          *areq;
     HybridRequest *hreq;
-  } query;                     // owned; freed when refcount reaches 0
+  } query;                      // owned; freed when refcount reaches 0
+
+  // ---- Existing fields, migrate from the embedded struct as-is ----------
+  RS_Atomic(bool)  timedOut;    // §4.2 cross-thread contract
+  uint8_t          refcount;    // 1-3 in practice; accessed via __atomic_*
+
+  // Partial-timeout coordination, gated by `requiresAggregateResultsSync`.
+  // The CAS claim grants exclusive ownership of the result-production
+  // phase; the BG-thread winner runs AggregateResults, the timeout-cb
+  // winner replies empty. Internal to the wrapper; not part of the §4.2
+  // contract beyond what §4.1's OnFree assertion permits (the timeout-cb
+  // winner produces `populated == false`).
+  bool                requiresAggregateResultsSync;
+  RS_Atomic(bool)     aggregatingResults;
+  bool                aggregateResultsDone;
+  pthread_mutex_t     aggregateResultsLock;
+  pthread_cond_t      aggregateResultsCond;
+
+  // Abort-wake registration. BG reader (coord side) registers its blocking
+  // MR channel; timeout_cb broadcasts on it after flipping `timedOut`.
+  // Internal to the wrapper.
+  struct MRChannel *abortWakeChannel;
+  pthread_mutex_t   abortWakeLock;
 } RequestSyncCtx;
 
 RequestSyncCtx *RequestSyncCtx_NewAREQ(AREQ *areq);            // refcount = 1
@@ -317,10 +344,9 @@ typedef struct BlockedClientCtx {
                                          // mode. See §4.1. Const after init.
   ChunkReplyState           reply;       // populated by worker in deferred mode;
                                          // moved off AREQ.storedReplyState
-  union {                                // diagnostic registry node, or NULL
-    BlockedQueryNode  *query_node;
-    BlockedCursorNode *cursor_node;
-  } registry_node;
+  BlockedNode              *registry_node; // unified node type (§5); NULL for
+                                         // operational paths that skip
+                                         // BlockedQueries registration
 } BlockedClientCtx;
 ```
 
@@ -537,8 +563,12 @@ Two debug-only enforcement hooks make Fact 2 violations crash loudly:
 - `BlockedClientCtx_OnFree` asserts:
   - if `bcc->reply_cb == NULL` then `bcc.reply.populated == false` and the
     inline-reply counter is `> 0`;
-  - if `bcc->reply_cb != NULL` then `bcc.reply.populated == true` *or* a
-    timeout fired (see §4.2), and the inline-reply counter is `0`.
+  - if `bcc->reply_cb != NULL` then `bcc.reply.populated == true` *or* the
+    request bailed without producing results — i.e. a hard timeout fired
+    (`bcc.query->timedOut == true`, see §4.2) *or* the partial-timeout
+    coordination resolved with the timeout-cb winner replying empty (see
+    §3.2's note on `requiresAggregateResultsSync`). The inline-reply counter
+    must be `0`.
 
 Today's `useReplyCallback` field on `AREQ` is **deleted**. Every place that
 reads it switches to `(bcc->reply_cb == NULL)` (via the worker's pointer
@@ -576,7 +606,10 @@ sequenceDiagram
   Main->>Main: ChunkReplyState_Destroy (populated or not), RequestSyncCtx_DecrRef(bcc.query)
 ```
 
-Allowed shared touches in the window:
+Cross-thread synchronization contract in this window. The wrapper may use
+additional internal coordination (the partial-timeout CAS/condvar described
+in §3.2) which is encapsulated inside `RequestSyncCtx` and not part of this
+contract; the table below enumerates only the touches the design relies on:
 
 | Field | Main may | Worker may | Synchronization |
 | --- | --- | --- | --- |
@@ -615,23 +648,44 @@ AREQ owners — the source of the lifetime entanglement. The fix is to make
 the node hold only display-only snapshots, and let the `BlockedClientCtx`
 own all live cross-references.
 
-The `BlockedQueries_AddQuery` / `_AddCursor` API stays; only its parameter
-list shrinks:
+After the refactor, `BlockedQueryNode` and `BlockedCursorNode` collapse into
+a single `BlockedNode` type with a `kind` discriminator. The two DLLISTs
+(`queries` and `cursors`) on `BlockedQueries` stay so `FT.INFO` keeps its
+two sections without scanning, but the node itself is unified:
 
 ```c
-// Before — node carries an AREQ reference + free callback + spec StrongRef:
-BlockedQueryNode *BlockedQueries_AddQuery(BlockedQueries *list, StrongRef spec,
-    QueryAST *ast, void *privdata, BlockedQueryNode_FreePrivData freePrivData);
+typedef enum {
+  BLOCKED_NODE_QUERY,
+  BLOCKED_NODE_CURSOR,
+} BlockedNodeKind;
 
-// After — node carries only owned display strings:
-BlockedQueryNode *BlockedQueries_AddQuery(BlockedQueries *list,
-    const char *index_name, const QueryAST *ast);
+typedef struct BlockedNode {
+  DLLIST_node      llnode;       // node in the queries-or-cursors list
+  BlockedNodeKind  kind;         // which list head am I on
+  time_t           start;        // when registered
+  char            *index_name;   // owned snapshot
+  char            *query;        // owned snapshot
+  // Cursor-only; ignored when kind == BLOCKED_NODE_QUERY
+  uint64_t  cursorId;
+  size_t    count;
+} BlockedNode;
+
+// Unified API — the kind is set by the caller at registration time, which
+// is the same callsite that already chose between query/cursor today.
+BlockedNode *BlockedQueries_AddNode(BlockedQueries *list,
+                                    BlockedNodeKind kind,
+                                    const char *index_name,
+                                    const QueryAST *ast,
+                                    uint64_t cursorId, size_t count);
+void BlockedQueries_RemoveNode(BlockedNode *node);
 ```
 
-The corresponding field changes on `BlockedQueryNode` / `BlockedCursorNode`:
-`privdata`, `freePrivData`, and the spec `StrongRef` are deleted; an owned
-`index_name` string replaces them. `start`, `query`, and the cursor-flavoured
-fields (`cursorId`, `count`) stay.
+For initial-query / hybrid registrations, the caller passes
+`kind=BLOCKED_NODE_QUERY` and `cursorId=0, count=0`. For cursor reads, the
+caller passes `kind=BLOCKED_NODE_CURSOR` with the cursor's id and count.
+`BlockedClientCtx_New` knows which case it is from the same condition that
+selects between today's `BlockQueryClientWithTimeout` and
+`BlockCursorClientWithTimeout`.
 
 Lifetime consequences:
 
@@ -640,7 +694,7 @@ Lifetime consequences:
   reads `node->index_name` / `node->query` directly. An index can be dropped
   while a registered-but-stalled query is still in the list, matching the
   original intent that a pending BG task must not pin its spec.
-- `BlockedQueries_RemoveQuery` / `_RemoveCursor` are called **only** from
+- `BlockedQueries_RemoveNode` is called **only** from
   `BlockedClientCtx_OnFree`, on the main thread. There is no other
   unregister path. The `BlockedClientCtx.registry_node` field (§3.2) caches
   the node pointer so `OnFree` removes in O(1) without a list scan.
@@ -662,8 +716,8 @@ The eight `RedisModule_BlockClient` call-sites in `src/` (excluding tests and
 | --- | --- | --- |
 | `info_redis/block_client.c::BlockQueryClientWithTimeout` | Wraps `BlockClient` + adds `BlockedQueryNode` w/ AREQ ref | `BlockedClientCtx_New(rsc, reply_cb, timeout_cb, timeout, register=true)` where `rsc = RequestSyncCtx_NewAREQ(areq)`. The bcc owns the only ref on the wrapper; no separate registry-side ref. |
 | `info_redis/block_client.c::BlockCursorClientWithTimeout` | Same shape, cursor flavour | Same as above with `rsc = RequestSyncCtx_IncrRef(cursor->query)` (cursor and bcc each hold a ref) and cursor-flavoured registration. |
-| `coord/rmr/rmr.c::MR_Fanout` (line 359) | `BlockClient(unblockHandler, timeoutHandler, freePrivDataCB, queryTimeout)`; `MRCtx` owns `bc` | `BlockedClientCtx_New` with `register=true` (gain: coord queries visible). The coord-side context (`MRCtx`) does not need the `RequestSyncCtx` wrapper (no cursor / shared-owner story); it lives on a coord-private field of the BCC, with `bcc.query == NULL`. `BlockedClientCtx` owns `bc`. |
-| `module.c::DistSearchBlockClientWithTimeout` (line 4412) | `BlockClient(DistSearchUnblockClient, timeoutCallback, freePrivDataCallback, queryTimeout)` | Same as `MR_Fanout`; gain coord visibility. Privdata-smuggling hack removed. |
+| `coord/rmr/rmr.c::MR_Fanout` (line 359) | `BlockClient(unblockHandler, timeoutHandler, freePrivDataCB, queryTimeout)`; `MRCtx` owns `bc` | `BlockedClientCtx_New` with `register=true` (gain: coord queries visible). The coord-side reader is itself an AREQ / HybridRequest with a `syncCtx` (used for `RequestSyncCtx_RegisterAbortWakeChannel`), so `bcc.query` points to the wrapping `RequestSyncCtx` exactly like the shard path. The `MRCtx` lives on a coord-private field of the BCC alongside `bcc.query`, freed from `OnFree` after `RequestSyncCtx_DecrRef`. `BlockedClientCtx` owns `bc`. |
+| `module.c::DistSearchBlockClientWithTimeout` (line 4412) | `BlockClient(DistSearchUnblockClient, timeoutCallback, freePrivDataCallback, queryTimeout)` | Same as `MR_Fanout` — `bcc.query` wraps the coord-side AREQ, `CoordRequestCtx` lives on a coord-private BCC field. Privdata-smuggling hack removed; coord queries gain visibility. |
 | `concurrent_ctx.c:122` (`ConcurrentCmdCtx`) | Generic-shaped block-client via `ConcurrentSearchBlockClientCtx`; no registry | Reuse the existing `ConcurrentSearchBlockClientCtx` machinery as the "operational" path. The only change here is to require a non-NULL `free_privdata` (no semantic shift). |
 | `debug_commands.c:888,986`, `gc.c:107,187`, `rmr.c:539,569` | `BlockClient(NULL/cb, NULL, NULL/cb, 0)` | Migrate to `ConcurrentSearchBlockClientCtx`. The NULL-callbacks fire-and-forget pattern (`rmr.c:569`) folds into here by supplying a `free_privdata` that frees the small ctx struct. |
 
@@ -702,28 +756,36 @@ Step 3 onward removes fields and changes API surface.
 ### Step 0 — Invert `RequestSyncCtx` to wrap the query
 
 - Promote `RequestSyncCtx` (today embedded inside `AREQ` and `HybridRequest`)
-  to a standalone refcounted wrapper that owns the query. Add the
-  `RequestKind` discriminator and the `query` union described in §3.2.
+  to a heap-allocated wrapper that owns the query. Add the `RequestKind`
+  discriminator and the `query` union described in §3.2; every existing
+  field on the embedded struct (`refcount`, `timedOut`, the partial-timeout
+  CAS/condvar set, the abort-wake channel) migrates verbatim.
 - Add `RequestSyncCtx_NewAREQ`, `RequestSyncCtx_NewHybrid`,
   `RequestSyncCtx_IncrRef`, `RequestSyncCtx_DecrRef`. The destructor calls
   `AREQ_Free` / `HybridRequest_Free` on the contained query.
-- Move the existing `refcount` and `timedOut` atomics from `AREQ` /
-  `HybridRequest` onto the wrapper. Rename the existing `AREQ_IncrRef` /
-  `AREQ_DecrRef` (and hybrid equivalents) call-sites to go through
-  `RequestSyncCtx_*`. Where call-sites hold an `AREQ*` and need timeout
-  state, they reach it via the wrapper instead of via the embedded struct.
+- Rewire call-sites that today touch `req->syncCtx.X` to dereference the
+  wrapper instead. Rename the existing `AREQ_IncrRef` / `AREQ_DecrRef` (and
+  hybrid equivalents) callers to go through `RequestSyncCtx_*`.
 - Unify `Cursor.hybrid_ref` (a `StrongRef` to the `HybridRequest`) and
   `Cursor.execState` (the AREQ pointer) into a single `RequestSyncCtx *query`
   field on `Cursor`. `Cursor_Pause` calls `RequestSyncCtx_IncrRef` on
   initial park (the cursor takes its own ref); `Cursor_Free` calls
   `RequestSyncCtx_DecrRef`.
-- The existing `StrongRef` / `FreeHybridRequest` machinery for hybrid is
-  retired in favour of the unified `RequestSyncCtx_DecrRef` path. Audit
-  every `StrongRef` site that referenced the hybrid request to make sure
-  the new ref accounting is exactly equivalent.
+- **Retire `StrongRef` for hybrid.** `Cursor.hybrid_ref` and
+  `FreeHybridRequest` (the `StrongRef` destructor wired in `hybrid_request.h`)
+  are deleted; the unified `RequestSyncCtx_DecrRef` path replaces them.
+  `StrongRef`/`WeakRef` exists for crash-safe access to indexes that may be
+  dropped from under callers — a query's lifetime is bounded (cursor + bcc,
+  ≤2 owners) and lives entirely within paths we control, so the indirection
+  is overkill. Audit every site that referenced the hybrid `StrongRef` to
+  confirm no `WeakRef`-style observer relies on the manager indirection
+  beyond what the new wrapper provides; if any are found they migrate to
+  `RequestSyncCtx*` access in this same step.
 - **Acceptance:** no behaviour change; refcount semantics preserved end-to-
   end (initial query, cursor read across N cycles, hybrid query, timeout);
-  ASAN / TSAN clean. Cursor's old dual-field discriminator is gone.
+  no `StrongRef` references to a hybrid query remain in the codebase
+  (`grep -n hybrid_ref` is empty); ASAN / TSAN clean. Cursor's old
+  dual-field discriminator is gone.
 
 ### Step 1 — Introduce `SpecReadGuard`
 
@@ -775,19 +837,23 @@ Step 3 onward removes fields and changes API surface.
   centralized in `OnFree`; ASM keyspace-version count balanced under the
   existing sanitizer leak check.
 
-### Step 3 — Sever `BlockedQueries` from privdata ownership
+### Step 3 — Sever `BlockedQueries` from privdata ownership and unify nodes
 
-- Replace `BlockedQueryNode.privdata` + `freePrivData` with the owned
-  `index_name` / `query` snapshot fields described in §5. Same change for
-  `BlockedCursorNode`.
-- Change `BlockedQueries_AddQuery` / `_AddCursor` signatures to take the
-  snapshot strings directly (no `privdata`, no `freePrivData`, no spec
-  `StrongRef`).
-- Move `BlockedQueries_AddQuery` / `RemoveQuery` calls into
-  `BlockedClientCtx_New` / `OnFree`. Cache the returned
-  `BlockedQueryNode*` on `bcc.registry_node` so `OnFree` removes in O(1).
+- Collapse `BlockedQueryNode` and `BlockedCursorNode` into the single
+  `BlockedNode` type (with `BlockedNodeKind kind`) described in §5.
+  Replace `privdata` + `freePrivData` + spec `StrongRef` with the owned
+  `index_name` / `query` snapshot fields and the cursor-only `cursorId` /
+  `count` (zeroed for query-kind nodes).
+- Replace `BlockedQueries_AddQuery` / `_AddCursor` /
+  `_RemoveQuery` / `_RemoveCursor` with a single `BlockedQueries_AddNode`
+  (taking `kind`) and `BlockedQueries_RemoveNode`. The two DLLISTs on
+  `BlockedQueries` stay so `FT.INFO` keeps its sections; the kind decides
+  which list head the node is linked to.
+- Move `BlockedQueries_AddNode` / `RemoveNode` calls into
+  `BlockedClientCtx_New` / `OnFree`. Cache the returned `BlockedNode*` on
+  `bcc.registry_node` so `OnFree` removes in O(1).
 - Drop the cloned `StrongRef` on the spec; the registry no longer pins it.
-- Delete `_FreeAREQ` / `FreeQueryNode` shims.
+- Delete `_FreeAREQ` / `FreeQueryNode` / `FreeCursorNode` shims.
 - **Acceptance:** AREQ has exactly one owner (the `BlockedClientCtx` for
   initial query / hybrid; the cursor while parked, lent to the BCC during
   a cursor read); a leak-test under ASAN shows no AREQ outliving its
@@ -819,17 +885,22 @@ Step 3 onward removes fields and changes API surface.
 
 - Convert both coordinator block-client sites to `BlockedClientCtx_New`
   with `register_in_blocked_queries=true`.
-- `MRCtx` / `CoordRequestCtx` are coord-private and do not flow through the
-  `RequestSyncCtx` wrapper (no cursor / shared-owner story applies). Add a
-  separate coord-private field on the BCC (or a small coord-flavoured init
-  helper) that holds the `MRCtx*` / `CoordRequestCtx*`, with `bcc.query`
-  left NULL on coord BCCs. `BlockedClientCtx_OnFree` skips
-  `RequestSyncCtx_DecrRef` when `bcc.query == NULL`.
-- The `BlockedClientCtx` owns `bc`; the coord-side struct frees its own
-  resources from `OnFree` via the existing coord teardown path.
+- The coord-side reader is itself an AREQ / HybridRequest with a `syncCtx`
+  (used today for `RequestSyncCtx_RegisterAbortWakeChannel`), so `bcc.query`
+  points to the wrapping `RequestSyncCtx` exactly like the shard path.
+  `OnFree` always calls `RequestSyncCtx_DecrRef(bcc.query)` — there is no
+  coord-specific skip branch.
+- `MRCtx` / `CoordRequestCtx` (the fan-out / coord-private bag, distinct
+  from the underlying AREQ) lives on a coord-private field of the BCC
+  alongside `bcc.query`. `OnFree` frees it via the existing coord teardown
+  path after `RequestSyncCtx_DecrRef`.
+- The `BlockedClientCtx` owns `bc`.
 - **Acceptance:** a hung coordinator query appears in `FT.INFO`'s blocked-
   query section and in the crash report; coordinator timeout / unblock paths
-  pass tests.
+  pass tests; the abort-wake registration that today goes through
+  `RequestSyncCtx_RegisterAbortWakeChannel(&areq->syncCtx, ...)` now goes
+  through the wrapper without a code change at the call-site (it already
+  accepts `RequestSyncCtx*`).
 
 ### Step 6 — Route remaining call-sites through `ConcurrentSearchBlockClientCtx`
 
@@ -896,14 +967,13 @@ Step 3 onward removes fields and changes API surface.
    measuring on high-rate cursor workloads before declaring step 1 complete.
    If a regression appears, the long-lived-guard follow-up moves up the
    queue.
-7. **Hybrid `StrongRef` retirement (Step 0).** Today
-   `Cursor.hybrid_ref` is a `StrongRef` and `FreeHybridRequest` is wired
-   in as the `StrongRef` destructor (see `hybrid_request.h`). Step 0
-   replaces the `StrongRef` accounting with `RequestSyncCtx` refcounting.
-   Audit every `StrongRef` site that referenced the hybrid request to
-   confirm there is no implicit consumer (weak refs, observer hooks)
-   relying on `StrongRef` semantics beyond what the new wrapper provides.
-   If any are found, the audit becomes a precondition for Step 0 landing.
+7. **Hybrid `StrongRef` retirement is part of Step 0, not a follow-up.**
+   The detail moved into Step 0's body (see §7). The remaining open question
+   is whether any `WeakRef`-style observer of the hybrid request exists
+   beyond the cursor. The acceptance criterion for Step 0 (`grep -n
+   hybrid_ref` empty) makes this falsifiable; if a residual consumer
+   surfaces during the audit, it migrates to `RequestSyncCtx*` access in
+   the same patch.
 
 ---
 
