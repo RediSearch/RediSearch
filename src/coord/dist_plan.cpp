@@ -21,6 +21,9 @@
 #include <sstream>
 #include <algorithm>
 
+constexpr size_t kUint64MaxDecimalLen = 20;  // digits in UINT64_MAX (18446744073709551615)
+constexpr size_t kUint64StrBufSize = kUint64MaxDecimalLen + 1;
+
 static char *getLastAlias(const PLN_GroupStep *gstp) {
   return gstp->reducers[array_len(gstp->reducers) - 1].alias;
 }
@@ -349,17 +352,21 @@ static int distributeCollect(ReducerDistCtx *rdctx, QueryError *status) {
     return REDISMODULE_ERR;
   }
 
-  // For the shard request, rewrite LIMIT offset count -> LIMIT 0 (offset+count)
-  ShardCollectLimit shardLimit;
+  // For the shard request, rewrite LIMIT offset count -> LIMIT 0 (offset+count).
+  // Allocate from the plan's BlkAlloc so the string outlives distributeCollect.
+  const char *shardCount = nullptr;
   if (hasLimit) {
-    shardLimit = rewriteCollectLimit(&limit);
+    std::string s = std::to_string(limit.offset + limit.count);
+    char *buf = (char *)BlkAlloc_Alloc(rdctx->alloc, s.size() + 1, kUint64StrBufSize);
+    memcpy(buf, s.c_str(), s.size() + 1);
+    shardCount = buf;
   }
 
   // Build temporary args, then persist their object arrays with copyArgs.
   std::string remoteCountStr = std::to_string(argc);
   std::vector<void *> remoteObjs(collectObjsBufLen(argc, /*has_alias=*/false));
   ArgsCursor remoteArgs = buildRemoteCollectArgs(remoteObjs.data(), remoteCountStr.c_str(),
-                                                &src->args, hasLimit ? &shardLimit : nullptr);
+                                                &src->args, shardCount);
   rdctx->copyArgs(&remoteArgs);
 
   const char *alias;

@@ -9,7 +9,6 @@
 
 #include "dist_plan_utils.h"
 #include <string.h>
-#include <string>
 
 extern "C" {
 #include "rmutil/rm_assert.h"
@@ -84,31 +83,23 @@ bool parseCollectLimit(const ArgsCursor *src_args, uint64_t max_results, bool *o
   return true;
 }
 
-ShardCollectLimit rewriteCollectLimit(const CollectLimit *limit) {
-  return {"0", std::to_string(limit->offset + limit->count)};
-}
-
 ArgsCursor buildRemoteCollectArgs(void **objs_buf, const char *count_buf,
-                                  const ArgsCursor *src_args,
-                                  const ShardCollectLimit *rewrite) {
-  // Set args count as the first element
+                                  const ArgsCursor *src_args, const char *shard_count) {
   objs_buf[0] = (void *)count_buf;
-  // Copy the remaining args from the source args
   if (src_args->argc)
     memcpy(objs_buf + 1, src_args->objs, src_args->argc * sizeof(void *));
 
-  if (rewrite) {
-    // Scan for LIMIT and patch the offset + count slots.
+  if (shard_count) {
     bool found = false;
     for (size_t i = 0; i + 2 <= src_args->argc; ++i) {
       if (strcasecmp((const char *)src_args->objs[i], "LIMIT") == 0) {
-        objs_buf[1 + i + 1] = (void *)rewrite->offset.c_str();
-        objs_buf[1 + i + 2] = (void *)rewrite->count.c_str();
+        objs_buf[1 + i + 1] = (void *)"0";
+        objs_buf[1 + i + 2] = (void *)shard_count;
         found = true;
         break;
       }
     }
-    RS_ASSERT(found);  // rewrite != NULL implies parseCollectLimit found LIMIT
+    RS_ASSERT(found);  // shard_count != NULL implies parseCollectLimit found LIMIT
   }
 
   ArgsCursor out;

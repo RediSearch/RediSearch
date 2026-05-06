@@ -33,10 +33,10 @@ static void assertArgs(const ArgsCursor &out, std::initializer_list<const char *
 }
 
 static ArgsCursor callRemote(std::vector<void *> &objs, std::string &countStr,
-                              const ArgsCursor &src, const ShardCollectLimit *rewrite) {
+                              const ArgsCursor &src, const char *shard_count) {
   countStr = std::to_string(src.argc);
   objs.assign(collectObjsBufLen(src.argc, /*has_alias=*/false), nullptr);
-  return buildRemoteCollectArgs(objs.data(), countStr.c_str(), &src, rewrite);
+  return buildRemoteCollectArgs(objs.data(), countStr.c_str(), &src, shard_count);
 }
 
 static ArgsCursor callLocal(std::vector<void *> &objs, std::string &countStr,
@@ -60,10 +60,10 @@ TEST(DistPlanUtils, Collect_DistributeWithLimit) {
   ASSERT_TRUE(parseCollectLimit(&srcArgs, 1000, &hasLimit, &limit, &status));
   ASSERT_TRUE(hasLimit);
 
-  ShardCollectLimit shardLimit = rewriteCollectLimit(&limit);
+  std::string shardCountStr = std::to_string(limit.offset + limit.count);
   std::vector<void *> objs;
   std::string countStr;
-  ArgsCursor out = callRemote(objs, countStr, srcArgs, &shardLimit);
+  ArgsCursor out = callRemote(objs, countStr, srcArgs, shardCountStr.c_str());
 
   assertArgs(out,
              {"10", "FIELDS", "1", "@x", "SORTBY", "2", "@x", "ASC", "LIMIT", "0", "15"});

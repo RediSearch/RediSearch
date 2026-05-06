@@ -64,26 +64,6 @@ bool parseCollectLimit(const ArgsCursor *src_args, uint64_t max_results, bool *o
 #ifdef __cplusplus
 }
 
-#include <string>
-
-/**
- * Pre-computed shard-side LIMIT tokens, ready to slot into an objs_buf.
- *
- * The shard request rewrites `LIMIT offset count` to `LIMIT 0 (offset+count)`
- * so the shard streams enough rows for the coordinator to apply the original
- * window. Both members are decimal strings built by rewriteCollectLimit().
- */
-struct ShardCollectLimit {
-  std::string offset;  // always "0"
-  std::string count;   // decimal of original_offset + original_count
-};
-
-/**
- * Build a ShardCollectLimit from a validated CollectLimit.
- * The result is safe to pass to buildRemoteCollectArgs().
- */
-ShardCollectLimit rewriteCollectLimit(const CollectLimit *limit);
-
 /**
  * Build COLLECT args for the coordinator-side (local) reducer.
  *
@@ -103,27 +83,26 @@ ArgsCursor buildLocalCollectArgs(void **objs_buf, const char *count_buf,
 
 /**
  * Build COLLECT args for the shard-side (remote) reducer, optionally rewriting
- * a pre-parsed LIMIT triplet to `LIMIT 0 (offset + count)`.
+ * a pre-parsed LIMIT triplet to `LIMIT 0 shard_count`.
  *
  * Layout: [nargs, original_args...].
  *
- * If `rewrite` is non-NULL, scans `src_args` for the LIMIT keyword (case-
- * insensitive) and patches the corresponding slots in `objs_buf` with
- * `rewrite->offset.c_str()` and `rewrite->count.c_str()`. `rewrite` must
- * outlive the returned ArgsCursor (i.e. until copyArgs() is called to
- * deep-copy the strings into the plan's BlkAlloc).
+ * If `shard_count` is non-NULL, scans `src_args` for the LIMIT keyword (case-
+ * insensitive) and patches the corresponding slots in `objs_buf` with the
+ * literal `"0"` and `shard_count`. The string pointed to by `shard_count` must
+ * outlive the plan (i.e. be allocated from the plan's BlkAlloc).
  *
- * Precondition: if `rewrite` is non-NULL, `src_args` must contain a LIMIT
+ * Precondition: if `shard_count` is non-NULL, `src_args` must contain a LIMIT
  * keyword (guaranteed when the caller used parseCollectLimit() to detect it).
  *
- * @param objs_buf   Caller-provided buffer;
- *                   size = collectObjsBufLen(src_args->argc, false)
- * @param count_buf  Caller-formatted decimal string of src_args->argc.
- * @param src_args   The original reducer's parsed args (without leading nargs).
- * @param rewrite    Pre-computed shard-side LIMIT tokens, or NULL for no rewrite.
+ * @param objs_buf    Caller-provided buffer;
+ *                    size = collectObjsBufLen(src_args->argc, false)
+ * @param count_buf   Caller-formatted decimal string of src_args->argc.
+ * @param src_args    The original reducer's parsed args (without leading nargs).
+ * @param shard_count Decimal string of (offset + count) to use as the shard-side
+ *                    LIMIT count, or NULL for no rewrite.
  */
 ArgsCursor buildRemoteCollectArgs(void **objs_buf, const char *count_buf,
-                                  const ArgsCursor *src_args,
-                                  const ShardCollectLimit *rewrite);
+                                  const ArgsCursor *src_args, const char *shard_count);
 
 #endif
