@@ -760,6 +760,89 @@ int DistAggregateReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, in
   return REDISMODULE_OK;
 }
 
+// Dispose of the cursor parked on `reqCtx` by `RSCursorReadCommand`'s take-lock
+// window (§3.5). Take + null under setRequestLock so concurrent consumers (the
+// timer reply path, the BG error sub-path, and disconnect) observe NULL and
+// no-op. On QEXEC_S_ITERDONE the cursor is freed; otherwise it is paused so
+// the client can issue the next FT.CURSOR READ on the same cid.
+static void coordReleaseParkedCursorAfterReply(CoordRequestCtx *reqCtx, AREQ *req) {
+  CoordRequestCtx_LockSetRequest(reqCtx);
+  Cursor *c = CoordRequestCtx_TakeParkedCursor(reqCtx);
+  CoordRequestCtx_UnlockSetRequest(reqCtx);
+  if (!c) return;                       // already disposed by a peer consumer
+  if (req->stateflags & QEXEC_S_ITERDONE) {
+    Cursor_Free(c);
+  } else {
+    Cursor_Pause(c);
+  }
+}
+
+// Coordinator FT.CURSOR READ timeout callback for the RETURN_STRICT policy.
+// Called on the main thread when the BC times out. Mirrors the structure of
+// `DistAggregateTimeoutReturnStrictClient` but without TryClaim — for the
+// cursor-read path BG's existing `(!TryClaim || TimedOut)` check at
+// startPipelineCommon (aggregate_exec.c:368-369) handles pipeline-side bails,
+// and pre-pipeline bails are signaled via the extended `AREQ_ReplyOrStoreError`
+// (§3.4). The timer waits unconditionally and branches on `hasStoredResults`.
+int DistCursorReadTimeoutReturnStrictClient(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  CoordRequestCtx *reqCtx = RedisModule_GetBlockedClientPrivateData(ctx);
+  if (!reqCtx) {
+    return RedisModule_ReplyWithError(ctx, "Internal error: timeout with no context");
+  }
+  RS_ASSERT(reqCtx->type == COMMAND_AGGREGATE);
+
+  // Set TimedOut and read `req` under the same lock that gates BG's atomic
+  // TakeForExecution + SetRequest critical section (§3.1). This makes
+  // `req == NULL` a reliable proxy for "BG has not yet taken the cursor".
+  CoordRequestCtx_LockSetRequest(reqCtx);
+  CoordRequestCtx_SetTimedOut(reqCtx);
+  AREQ *req = (AREQ *)CoordRequestCtx_GetRequest(reqCtx);
+  CoordRequestCtx_UnlockSetRequest(reqCtx);
+
+  if (!req) {
+    // Scenario 1: BG has NOT taken the cursor. It either hasn't run yet
+    // or hit the early TimedOut check before TakeForExecution and returned.
+    // No condvar signal will arrive — emit cursor-shaped empty + cid directly.
+    // The cursor stays paused at its prior position and is reusable on the
+    // user's next FT.CURSOR READ. Cid is trusted: CursorCommand (main thread)
+    // already verified `info.found` before arming the BC, so argv[3] is a
+    // syntactically and (at-arm-time) semantically valid cursor id.
+    long long cid;
+    int rc = RedisModule_StringToLongLong(argv[3], &cid);
+    RS_ASSERT(rc == REDISMODULE_OK);
+    return coord_cursor_read_reply_timeout_empty(ctx, cid);
+  }
+
+  // Scenarios 2 & 3: BG has taken the cursor and SetRequest. Wake
+  // the abort channel unconditionally — in scenario 3 it unblocks BG from
+  // MRIterator_NextWithTimeout; in scenario 2 it is a no-op (nothing is
+  // waiting on the channel; BG will bail via the TimedOut check instead).
+  RequestSyncCtx_WakeAbortChannel(&req->syncCtx);
+
+  // Sync with BG.
+  AREQ_WaitForAggregateResultsComplete(req);
+
+  if (req->storedReplyState.hasStoredResults) {
+    // Happy branch: drain anything queued before the deadline, serialize, then
+    // dispose of the parked cursor (Pause if more rows remain, Free on EOF).
+    drainPartialResultsAfterTimeout(req);
+    AREQ_ReplyWithStoredResults(ctx, req);
+    coordReleaseParkedCursorAfterReply(reqCtx, req);
+  } else {
+    // Error branch: BG bailed pre-pipeline through AREQ_ReplyOrStoreError (e.g.
+    // spec dropped at cursorRead). The error sits in storedReplyState.err and
+    // the cursor was already taken+freed by the bail path under setRequestLock
+    // (§3.4 cursor-clear obligation), so parkedCursor is NULL here. Flush the
+    // error to the client (mirrors the QueryReplyCallback pattern).
+    QueryError *err = &req->storedReplyState.err;
+    RS_ASSERT(QueryError_HasError(err));
+    QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(err), 1, COORD_ERR_WARN);
+    QueryError_ReplyAndClear(ctx, err);
+  }
+  return REDISMODULE_OK;
+}
+
+
 
 /* ======================= DEBUG ONLY ======================= */
 void DEBUG_RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,

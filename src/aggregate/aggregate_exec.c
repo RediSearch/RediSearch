@@ -1040,7 +1040,7 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
     RedisModule_Reply_MapEnd(reply);
 
     if (AREQ_RequestFlags(req) & QEXEC_F_IS_CURSOR) {
-      RedisModule_Reply_LongLong(reply, 0);
+      RedisModule_Reply_LongLong(reply, req->cursor_id);
       RedisModule_Reply_ArrayEnd(reply);
     }
   } else {
@@ -1084,8 +1084,7 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
     }
 
     if (AREQ_RequestFlags(req) & QEXEC_F_IS_CURSOR) {
-      // Cursor done
-      RedisModule_Reply_LongLong(reply, 0);
+      RedisModule_Reply_LongLong(reply, req->cursor_id);
       if (IsProfile(req)) {
         req->profile(reply, req);
       }

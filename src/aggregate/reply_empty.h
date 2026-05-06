@@ -33,3 +33,12 @@ int common_hybrid_query_reply_empty(RedisModuleCtx *ctx, QueryErrorCode errCode,
 // Handles both RESP2 and RESP3 with command-appropriate formatting.
 // Works for both SEARCH and AGGREGATE by compiling query for format detection.
 int single_shard_common_query_reply_empty(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, int execOptions, QueryErrorCode errCode);
+
+// Coordinator empty cursor-shaped reply for FT.CURSOR READ on the RETURN_STRICT
+// timeout fast-path (timer fires before BG stashed any results -- "scenario 1").
+// Mirrors the cursor envelope of `serializeAndReplyResults_Resp{2,3}` for an
+// empty chunk, but without an AREQ: format defaults to STRING, no profile, no
+// optimizer. Preserves the original `cid` so the client can retry.
+// Always bumps `QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_TIMED_OUT,
+// 1, COORD_ERR_WARN)` for stats parity with `AREQ_ReplyWithStoredResults`.
+int coord_cursor_read_reply_timeout_empty(RedisModuleCtx *ctx, long long cid);
