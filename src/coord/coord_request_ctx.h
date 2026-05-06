@@ -14,6 +14,7 @@
 #include <stdatomic.h>
 #include <pthread.h>
 #include "query_error.h"
+#include "cursor.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -42,6 +43,19 @@ typedef struct CoordRequestCtx {
   // no request object to store them in yet. reply_callback checks this field.
   QueryError preRequestError;
   bool useReplyCallback;
+  // True if this context backs a coordinator FT.CURSOR READ on a RETURN_STRICT
+  // cursor. Distinguishes the new path from FAIL cursor reads (also use the
+  // reply_callback pattern). Set in CursorCommand before BC arming; never
+  // mutated afterwards.
+  bool isCursorReadReturnStrict;
+  // Per-read cursor handle parked here while the BG worker drives the chunk.
+  // Set inside RSCursorReadCommand's setRequestLock critical section together
+  // with SetRequest, so any consumer that observes a non-NULL request also
+  // observes the parked cursor (or finds it already taken by a peer consumer).
+  // Consumers (timer, reply, BG error sub-path, free_privdata) take + null it
+  // under setRequestLock; the loser of the race observes NULL and no-ops.
+  // NULL on FAIL and on every non-RETURN_STRICT-cursor-read flow.
+  Cursor *parkedCursor;
 } CoordRequestCtx;
 
 /**
@@ -97,6 +111,34 @@ bool CoordRequestCtx_TimedOut(CoordRequestCtx *ctx);
 void CoordRequestCtx_SetTimedOut(CoordRequestCtx *ctx);
 
 void CoordRequestCtx_SetUseReplyCallback(CoordRequestCtx *ctx, bool useReplyCallback);
+
+/**
+ * Mark this context as backing a coordinator FT.CURSOR READ on a RETURN_STRICT
+ * cursor. Set once in CursorCommand before BC arming; consulted by the
+ * RSCursorReadCommand take-lock window and the reply / timer / disconnect
+ * cursor-disposition paths.
+ */
+void CoordRequestCtx_SetCursorReadReturnStrict(CoordRequestCtx *ctx, bool value);
+bool CoordRequestCtx_IsCursorReadReturnStrict(CoordRequestCtx *ctx);
+
+/**
+ * Park a cursor handle on the context. Caller MUST hold setRequestLock.
+ * Used inside RSCursorReadCommand's take-lock critical section so the parked
+ * handle is published atomically with the request pointer (see struct field
+ * comment for the consumer race contract).
+ */
+void CoordRequestCtx_SetParkedCursor(CoordRequestCtx *ctx, Cursor *cursor);
+
+/**
+ * Take ownership of the parked cursor: returns the current handle and atomically
+ * (under setRequestLock) clears the field. Idempotent — returns NULL after the
+ * first successful take. Caller MUST hold setRequestLock.
+ *
+ * The four consumers (timer reply, reply callback, BG error sub-path,
+ * free_privdata on disconnect) race on this; whichever wins owns disposal,
+ * the others observe NULL and no-op.
+ */
+struct Cursor *CoordRequestCtx_TakeParkedCursor(CoordRequestCtx *ctx);
 
 /**
  * Store error for reply_callback to handle (pre-request errors).

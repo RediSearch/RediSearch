@@ -1970,6 +1970,38 @@ static void cursorRead_ctx(CursorReadCtx *cr_ctx) {
   rm_free(cr_ctx);
 }
 
+// Coord+RETURN_STRICT cursor read: take + reset + publish under a single
+// setRequestLock window so the timer cannot race with us between take and
+// publication (§3.1, §3.5). Lock-ordering rule: reqCtx -> cursor table; no
+// other path takes the cursor table while holding reqCtx, so no inversion.
+static inline int coordCursorReadReturnStrict(RedisModuleCtx *ctx, CoordRequestCtx *reqCtx,
+                                              long long cid, long long count) {
+  CoordRequestCtx_LockSetRequest(reqCtx);
+  if (CoordRequestCtx_TimedOut(reqCtx)) {
+    // Timer already fired and replied via the RETURN_STRICT timer callback.
+    CoordRequestCtx_UnlockSetRequest(reqCtx);
+    return REDISMODULE_OK;
+  }
+  Cursor *cursor = Cursors_TakeForExecution(GetGlobalCursor(cid), cid);
+  if (!cursor) {
+    // Cursor existed when CursorCommand validated the cid on the main
+    // thread but was destroyed before we took it on the worker -- e.g.
+    // idle timeout, concurrent FT.CURSOR DEL, or spec drop.
+    CoordRequestCtx_UnlockSetRequest(reqCtx);
+    QueryError err = QueryError_Default();
+    QueryError_SetWithoutUserDataFmt(&err, QUERY_ERROR_CODE_GENERIC,
+                                     "Cursor not found, id: %lld", cid);
+    CoordRequestCtx_ReplyOrStoreError(reqCtx, ctx, &err);
+    return REDISMODULE_OK;
+  }
+  AREQ_ResetForCursorReadReturnStrict(cursor->execState);
+  CoordRequestCtx_SetRequest(reqCtx, cursor->execState);
+  CoordRequestCtx_SetParkedCursor(reqCtx, cursor);
+  CoordRequestCtx_UnlockSetRequest(reqCtx);
+  cursorRead(ctx, cursor, count, false);
+  return REDISMODULE_OK;
+}
+
 /**
  * FT.CURSOR READ {index} {CID} {COUNT} [MAXIDLE]
  */
@@ -2026,6 +2058,10 @@ int RSCursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
       }
       return RedisModule_ReplyWithErrorFormat(ctx, "Bad value for COUNT: `%s`", bad);
     }
+  }
+
+  if (reqCtx && CoordRequestCtx_IsCursorReadReturnStrict(reqCtx)) {
+    return coordCursorReadReturnStrict(ctx, reqCtx, cid, count);
   }
 
   Cursor *cursor = Cursors_TakeForExecution(GetGlobalCursor(cid), cid);
