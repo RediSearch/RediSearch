@@ -132,7 +132,7 @@ impl<'a> RemoteCollectReducer<'a> {
     }
 }
 
-/// Deduplicate `field_keys ++ sort_extras` by [`RLookupKey::dstidx`],
+/// Deduplicate `field_keys ++ sort_extras` by `dstidx`,
 /// preserving the chained order. A field referenced by `SORTBY` lands in
 /// both inputs but must be emitted only once.
 fn dedup_by_dstidx<'a>(
