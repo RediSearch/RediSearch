@@ -16,8 +16,6 @@ use inverted_index::RSIndexResult;
 use rqe_iterator_type::IteratorType;
 use rqe_iterators::RQEIteratorError;
 
-// ── ScoreBatch ────────────────────────────────────────────────────────────────
-
 /// A cursor over a single score-ordered batch of `(doc_id, score)` pairs.
 ///
 /// Produced by [`ScoreSource::next_batch`] and streamed by [`TopKIterator`].
@@ -30,8 +28,6 @@ pub trait ScoreBatch {
     /// Returns `None` when the batch is exhausted.
     fn next(&mut self) -> Option<(t_docId, f64)>;
 }
-
-// ── ScoreSource ───────────────────────────────────────────────────────────────
 
 /// The score-producing half of a [`TopKIterator`].
 ///
@@ -52,6 +48,16 @@ pub trait ScoreSource<'index> {
     /// - `Ok(Some(batch))` — a new batch is available.
     /// - `Ok(None)` — the source is exhausted; no more batches.
     /// - `Err(RQEIteratorError::TimedOut)` — the query time limit was reached.
+    ///
+    /// # Multi-batch support
+    ///
+    /// The API allows an implementation to spread results across multiple
+    /// batches (the caller loops until `Ok(None)`). However, [`TopKMode::Unfiltered`]
+    /// only calls this method once; sources used in that mode **must** return
+    /// all their results in the first batch.  Returning a second batch there
+    /// is a logic error — results would be silently lost.
+    ///
+    /// [`TopKMode::Unfiltered`]: crate::TopKMode::Unfiltered
     fn next_batch(&mut self) -> Result<Option<Self::Batch>, RQEIteratorError>;
 
     /// Return an upper-bound estimate for the number of documents this source
