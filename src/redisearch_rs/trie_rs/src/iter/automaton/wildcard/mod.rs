@@ -46,6 +46,7 @@ pub use fixed::{FixedWildcardIter, FixedWildcardLendingIter};
 pub use nfa::WildcardNfa;
 
 use super::AutomatonIter;
+use crate::iter::wildcard::WildcardIter;
 use lending_iterator::prelude::*;
 use wildcard::{Token, WildcardPattern};
 
@@ -55,10 +56,20 @@ pub fn pattern_has_star(pattern: &WildcardPattern<'_>) -> bool {
 }
 
 /// Wildcard iterator that auto-selects between a specialized fixed-length
-/// path and the general NFA path based on whether the pattern contains `*`.
+/// path, the general NFA path, and a filter-based fallback.
+///
+/// The variant chosen depends on the pattern shape:
+///
+/// - [`Fixed`](Self::Fixed) — pattern has no `*` and fits in the bitset cap.
+/// - [`General`](Self::General) — pattern has `*` and fits in the bitset cap.
+/// - [`Fallback`](Self::Fallback) — pattern is too long for the streaming
+///   automaton (more than [`atoms::MAX_ATOMS`] atoms after flattening); we
+///   route through the existing filter-based [`WildcardIter`] to avoid
+///   panicking on otherwise-valid input.
 pub enum WildcardSpecializedIter<'tm, Data> {
     Fixed(FixedWildcardIter<'tm, Data>),
     General(AutomatonIter<'tm, Data, WildcardNfa>),
+    Fallback(WildcardIter<'tm, Data>),
 }
 
 impl<'tm, Data> WildcardSpecializedIter<'tm, Data> {
@@ -66,6 +77,7 @@ impl<'tm, Data> WildcardSpecializedIter<'tm, Data> {
         match self {
             Self::Fixed(it) => it.advance(),
             Self::General(it) => it.advance(),
+            Self::Fallback(it) => it.advance(),
         }
     }
 
@@ -73,6 +85,7 @@ impl<'tm, Data> WildcardSpecializedIter<'tm, Data> {
         match self {
             Self::Fixed(it) => it.key(),
             Self::General(it) => it.key(),
+            Self::Fallback(it) => it.key(),
         }
     }
 }

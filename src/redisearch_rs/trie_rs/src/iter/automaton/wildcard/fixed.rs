@@ -61,12 +61,15 @@ impl<'tm, Data> FixedWildcardIter<'tm, Data> {
     /// See
     /// [`AutomatonIter::new`](super::super::AutomatonIter::new) for the
     /// `start_node` / `key_prefix` contract.
+    ///
+    /// Returns `None` if the pattern exceeds the per-bitset atom cap (see
+    /// [`flatten`]) — callers fall back to the filter-based iterator.
     pub(crate) fn new(
         start_node: Option<&'tm Node<Data>>,
         key_prefix: Vec<u8>,
         pattern: &WildcardPattern<'_>,
-    ) -> Self {
-        let atoms = flatten(pattern);
+    ) -> Option<Self> {
+        let atoms = flatten(pattern)?;
         debug_assert!(
             !atoms.iter().any(|a| matches!(a, Atom::Any)),
             "FixedWildcardIter requires a pattern with no `*` atoms",
@@ -89,7 +92,7 @@ impl<'tm, Data> FixedWildcardIter<'tm, Data> {
                 parent_key_len,
             });
         }
-        iter
+        Some(iter)
     }
 
     pub(crate) fn advance(&mut self) -> Option<&'tm Data> {

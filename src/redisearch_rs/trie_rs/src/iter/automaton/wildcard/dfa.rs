@@ -33,9 +33,12 @@ pub struct WildcardDfa {
 }
 
 impl WildcardDfa {
-    /// Compile to a DFA. Returns `None` if construction exceeds the state cap.
+    /// Compile to a DFA.
+    ///
+    /// Returns `None` if either the pattern exceeds the per-bitset atom cap
+    /// (see [`flatten`]) or subset construction exceeds the DFA state cap.
     pub fn compile(pattern: &WildcardPattern<'_>) -> Option<Self> {
-        let atoms = flatten(pattern);
+        let atoms = flatten(pattern)?;
         let accept = atoms.len();
         let epsilon_table = atoms
             .iter()

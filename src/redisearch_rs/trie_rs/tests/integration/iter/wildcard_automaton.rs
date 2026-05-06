@@ -21,7 +21,10 @@ fn matches_filter<Data>(trie: &TrieMap<Data>, pattern: &str) -> Vec<Vec<u8>> {
 
 fn matches_nfa<Data>(trie: &TrieMap<Data>, pattern: &str) -> Vec<Vec<u8>> {
     let p = WildcardPattern::parse(pattern.as_bytes());
-    trie.wildcard_nfa_iter(&p).map(|(k, _)| k).collect()
+    trie.wildcard_nfa_iter(&p)
+        .expect("test patterns fit in atom cap")
+        .map(|(k, _)| k)
+        .collect()
 }
 
 fn matches_dfa<Data>(trie: &TrieMap<Data>, pattern: &str) -> Vec<Vec<u8>> {
@@ -153,4 +156,46 @@ proptest! {
         let s = matches_specialized(&trie, &pattern);
         prop_assert_eq!(&f, &s, "filter vs specialized (fixed), pattern=`{}`", pattern);
     }
+}
+
+/// Patterns longer than the streaming automaton's atom cap (63 atoms) used
+/// to panic via `flatten`'s assert. They should now fall back transparently
+/// to the filter-based iterator and yield the same matches as
+/// [`TrieMap::wildcard_iter`].
+#[test]
+fn long_literal_pattern_falls_back_correctly() {
+    // A 70-char literal — well over the 63-atom bitset cap.
+    let prefix = "a".repeat(70);
+    let pattern_long_literal = format!("{prefix}*");
+    let pattern_long_fixed = prefix.clone();
+
+    let mut trie = TrieMap::new();
+    let matching_key = format!("{prefix}suffix");
+    trie.insert(matching_key.as_bytes(), 1u32);
+    trie.insert(b"unrelated", 2);
+    trie.insert(prefix.as_bytes(), 3);
+
+    // Variable-length pattern: routes through Fallback (since NFA compile
+    // would fail).
+    let f = matches_filter(&trie, &pattern_long_literal);
+    let s = matches_specialized(&trie, &pattern_long_literal);
+    assert_eq!(f, s, "long literal + `*` should agree via fallback");
+
+    // Fixed-length pattern: also routes through Fallback (since
+    // FixedWildcardIter::new would fail).
+    let f = matches_filter(&trie, &pattern_long_fixed);
+    let s = matches_specialized(&trie, &pattern_long_fixed);
+    assert_eq!(f, s, "long literal alone should agree via fallback");
+
+    // Lower-level methods report the failure explicitly.
+    let p = WildcardPattern::parse(pattern_long_literal.as_bytes());
+    assert!(
+        trie.wildcard_nfa_iter(&p).is_none(),
+        "wildcard_nfa_iter should report None for over-long patterns"
+    );
+    let p = WildcardPattern::parse(pattern_long_fixed.as_bytes());
+    assert!(
+        trie.wildcard_fixed_iter(&p).is_none(),
+        "wildcard_fixed_iter should report None for over-long patterns"
+    );
 }

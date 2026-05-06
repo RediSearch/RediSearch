@@ -87,7 +87,12 @@ pub(super) enum Atom {
 }
 
 /// Compile a parsed wildcard pattern to a flat atom sequence.
-pub(super) fn flatten(pattern: &WildcardPattern<'_>) -> Vec<Atom> {
+///
+/// Returns `None` if the pattern flattens to more than [`MAX_ATOMS`] atoms.
+/// In that case the streaming-automaton machinery can't represent every
+/// position in a single [`StateSet`] bit; callers fall back to the
+/// filter-based wildcard iterator instead.
+pub(super) fn flatten(pattern: &WildcardPattern<'_>) -> Option<Vec<Atom>> {
     let mut atoms = Vec::new();
     for token in pattern.tokens() {
         match token {
@@ -95,10 +100,9 @@ pub(super) fn flatten(pattern: &WildcardPattern<'_>) -> Vec<Atom> {
             Token::One => atoms.push(Atom::One),
             Token::Any => atoms.push(Atom::Any),
         }
+        if atoms.len() > MAX_ATOMS {
+            return None;
+        }
     }
-    assert!(
-        atoms.len() <= MAX_ATOMS,
-        "wildcard pattern exceeds {MAX_ATOMS}-atom limit",
-    );
-    atoms
+    Some(atoms)
 }

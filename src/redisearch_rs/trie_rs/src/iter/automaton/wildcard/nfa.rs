@@ -104,8 +104,10 @@ pub struct WildcardNfa {
 }
 
 impl WildcardNfa {
-    pub fn compile(pattern: &WildcardPattern<'_>) -> Self {
-        let atoms = flatten(pattern);
+    /// Compile a pattern to an NFA. Returns `None` if the pattern exceeds
+    /// the per-bitset atom cap — see [`flatten`].
+    pub fn compile(pattern: &WildcardPattern<'_>) -> Option<Self> {
+        let atoms = flatten(pattern)?;
         let accept = atoms.len();
         let epsilon_table = atoms
             .iter()
@@ -114,14 +116,14 @@ impl WildcardNfa {
         let start_state = initial_state(epsilon_table.as_deref());
         let trailing_star = matches!(atoms.last(), Some(Atom::Any)).then(|| atoms.len() - 1);
         let accept_only = StateSet::singleton(accept);
-        Self {
+        Some(Self {
             atoms,
             accept,
             start_state,
             trailing_star,
             accept_only,
             epsilon_table,
-        }
+        })
     }
 }
 

@@ -210,19 +210,25 @@ impl<Data> TrieMap<Data> {
 
     /// Iterate over all trie entries whose key matches the specified pattern,
     /// using NFA-simulation streaming.
+    ///
+    /// Returns `None` if the pattern exceeds the streaming-automaton's atom
+    /// cap. Callers in that case can fall back to
+    /// [`Self::wildcard_iter`] (the filter-based path).
     pub fn wildcard_nfa_iter<'a>(
         &'a self,
         pattern: &WildcardPattern<'a>,
-    ) -> AutomatonIter<'a, Data, WildcardNfa> {
-        let nfa = WildcardNfa::compile(pattern);
-        self.automaton_iter_with_prefix_shortcut(pattern.tokens(), nfa)
+    ) -> Option<AutomatonIter<'a, Data, WildcardNfa>> {
+        let nfa = WildcardNfa::compile(pattern)?;
+        Some(self.automaton_iter_with_prefix_shortcut(pattern.tokens(), nfa))
     }
 
     /// Iterate over all trie entries whose key matches the specified pattern,
     /// using a pre-built DFA.
     ///
-    /// Returns `None` if DFA construction exceeds the internal state cap;
-    /// callers should fall back to [`Self::wildcard_nfa_iter`] in that case.
+    /// Returns `None` if either the pattern exceeds the streaming-automaton's
+    /// atom cap or DFA construction exceeds the internal state cap. Callers
+    /// in either case can fall back to [`Self::wildcard_nfa_iter`] or, if
+    /// that also fails, [`Self::wildcard_iter`].
     pub fn wildcard_dfa_iter<'a>(
         &'a self,
         pattern: &WildcardPattern<'a>,
@@ -232,29 +238,37 @@ impl<Data> TrieMap<Data> {
     }
 
     /// Iterate over all trie entries whose key matches the specified pattern,
-    /// auto-selecting between a specialized fixed-length iterator (no `*`)
-    /// and the general NFA-driven iterator.
+    /// auto-selecting between a specialized fixed-length iterator (no `*`),
+    /// the general NFA-driven iterator, and the filter-based fallback for
+    /// patterns too long to fit in the streaming automaton.
     pub fn wildcard_specialized_iter<'a>(
         &'a self,
         pattern: &WildcardPattern<'a>,
     ) -> WildcardSpecializedIter<'a, Data> {
         if pattern_has_star(pattern) {
-            WildcardSpecializedIter::General(self.wildcard_nfa_iter(pattern))
-        } else {
-            WildcardSpecializedIter::Fixed(self.wildcard_fixed_iter(pattern))
+            if let Some(iter) = self.wildcard_nfa_iter(pattern) {
+                return WildcardSpecializedIter::General(iter);
+            }
+        } else if let Some(iter) = self.wildcard_fixed_iter(pattern) {
+            return WildcardSpecializedIter::Fixed(iter);
         }
+        // Pattern too long for the streaming automaton — route through the
+        // existing filter-based iterator, which has no length cap.
+        WildcardSpecializedIter::Fallback(self.wildcard_iter(pattern.clone()))
     }
 
     /// Iterate over wildcard matches using the specialized fixed-length
     /// iterator directly (no dispatching enum).
     ///
     /// `pattern` must contain no `*` token; debug-asserts otherwise.
+    /// Returns `None` if the pattern exceeds the streaming-automaton's atom
+    /// cap.
     pub fn wildcard_fixed_iter<'a>(
         &'a self,
         pattern: &WildcardPattern<'a>,
-    ) -> FixedWildcardIter<'a, Data> {
+    ) -> Option<FixedWildcardIter<'a, Data>> {
         let Some(root) = self.root.as_ref() else {
-            return FixedWildcardIter::empty();
+            return Some(FixedWildcardIter::empty());
         };
         // Same literal-prefix shortcut as the automaton path: jump to the
         // subtree containing every key with that prefix.
@@ -263,7 +277,7 @@ impl<Data> TrieMap<Data> {
                 Some((subroot, subroot_prefix)) => {
                     FixedWildcardIter::new(Some(subroot), subroot_prefix, pattern)
                 }
-                None => FixedWildcardIter::empty(),
+                None => Some(FixedWildcardIter::empty()),
             }
         } else {
             FixedWildcardIter::new(Some(root), Vec::new(), pattern)

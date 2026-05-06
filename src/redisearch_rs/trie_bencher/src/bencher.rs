@@ -270,7 +270,10 @@ fn wildcard_rust_benchmark<M: Measurement>(
     c.bench_function("Rust-NFA", |b| {
         b.iter(|| {
             let pattern = WildcardPattern::parse(black_box(pattern.as_bytes()));
-            let mut iter: AutomatonLendingIter<_, _> = map.wildcard_nfa_iter(&pattern).into();
+            let iter = map
+                .wildcard_nfa_iter(&pattern)
+                .expect("pattern fits in atom cap");
+            let mut iter: AutomatonLendingIter<_, _> = iter.into();
             while let Some(entry) = LendingIterator::next(&mut iter) {
                 black_box(entry);
             }
@@ -299,13 +302,15 @@ fn wildcard_rust_benchmark<M: Measurement>(
         })
     });
     // Only meaningful on patterns with no `*`. For variable-length patterns
-    // we skip this bench since `wildcard_fixed_iter` would panic.
+    // we skip this bench since `wildcard_fixed_iter` debug-asserts otherwise.
     if !pattern_has_star(&WildcardPattern::parse(pattern.as_bytes())) {
         c.bench_function("Rust-Fixed", |b| {
             b.iter(|| {
                 let pattern = WildcardPattern::parse(black_box(pattern.as_bytes()));
-                let mut iter: FixedWildcardLendingIter<_> =
-                    map.wildcard_fixed_iter(&pattern).into();
+                let iter = map
+                    .wildcard_fixed_iter(&pattern)
+                    .expect("pattern fits in atom cap");
+                let mut iter: FixedWildcardLendingIter<_> = iter.into();
                 while let Some(entry) = LendingIterator::next(&mut iter) {
                     black_box(entry);
                 }
