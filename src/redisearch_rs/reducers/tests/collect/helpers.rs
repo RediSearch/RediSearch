@@ -161,16 +161,4 @@ impl RemoteCollectLoadAllFixture {
         Self { lookup }
     }
 
-    /// Build a reducer with `srclookup = Some(&self.lookup)` and no explicit
-    /// field/sort keys (matching the parser's "load-all alone" assumption).
-    pub(super) fn reducer(&self) -> RemoteCollectReducer<'_> {
-        RemoteCollectReducer::new(
-            Box::new([]),
-            Some(&self.lookup),
-            Box::new([]),
-            0,
-            None,
-            false,
-        )
-    }
 }
