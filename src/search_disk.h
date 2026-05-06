@@ -518,11 +518,10 @@ uint64_t SearchDisk_GetVectorIndexTotalMemory(RedisSearchDiskIndexSpec* index);
  * @brief Get the disk-owned total number of records for a disk index
  *
  * Returns the disk-side num_records counter used by FT.INFO.
- * This wrapper is safe for read-only callers: if SearchDisk is not initialized,
- * the callback is unavailable, or the index handle is invalid, it returns 0.
+ * Requires initialized SearchDisk and non-null index (RS_ASSERT).
  *
  * @param index Pointer to the disk index spec
- * @return Number of records in the index, or 0 if unavailable
+ * @return Number of records in the index
  */
 uint64_t SearchDisk_GetNumRecords(RedisSearchDiskIndexSpec* index);
 
