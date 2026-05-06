@@ -12,8 +12,6 @@
 
 extern crate redisearch_rs;
 
-use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
-
 use reducers::collect::storage::{DEFAULT_LIMIT, DrainedItem, Storage};
 use value::SharedValue;
 
@@ -29,9 +27,9 @@ fn val(v: f64) -> Box<[SharedValue]> {
 }
 
 /// `project` closure that increments `counter` on each call.
-fn counting_project(counter: &AtomicUsize, tag: f64) -> impl FnOnce() -> Box<[SharedValue]> + '_ {
+fn counting_project(counter: &mut usize, tag: f64) -> impl FnOnce() -> Box<[SharedValue]> + '_ {
     move || {
-        counter.fetch_add(1, AtomicOrdering::Relaxed);
+        *counter += 1;
         val(tag)
     }
 }
@@ -56,14 +54,13 @@ fn insert_entry_array_caps_at_cap_in_insertion_order() {
 
 #[test]
 fn insert_entry_array_drops_excess_without_calling_project() {
-    let counter = AtomicUsize::new(0);
+    let mut counter = 0usize;
     let mut s = Storage::<Box<[SharedValue]>>::new(/* sortby */ false, Some((0, 2)), 0);
     for v in [1.0_f64, 2.0, 3.0, 4.0] {
-        s.insert_entry(|| val(v), counting_project(&counter, v));
+        s.insert_entry(|| val(v), counting_project(&mut counter, v));
     }
     assert_eq!(
-        counter.load(AtomicOrdering::Relaxed),
-        2,
+        counter, 2,
         "`project` must not run for entries beyond the cap"
     );
 }
@@ -92,34 +89,33 @@ fn insert_entry_heap_keeps_top_k_under_desc() {
 
 #[test]
 fn insert_entry_heap_skips_project_for_doomed_candidates() {
-    let counter = AtomicUsize::new(0);
+    let mut counter = 0usize;
     let mut s = Storage::<Box<[SharedValue]>>::new(/* sortby */ true, Some((0, 2)), ASC);
     // Fill with the two best candidates first.
     for v in [0.0_f64, 1.0] {
-        s.insert_entry(|| val(v), counting_project(&counter, v));
+        s.insert_entry(|| val(v), counting_project(&mut counter, v));
     }
     // Each subsequent candidate is worse than the worst survivor (1.0)
     // under ASC, so `project` must not run.
     for v in [2.0_f64, 3.0, 4.0] {
-        s.insert_entry(|| val(v), counting_project(&counter, v));
+        s.insert_entry(|| val(v), counting_project(&mut counter, v));
     }
     assert_eq!(
-        counter.load(AtomicOrdering::Relaxed),
-        2,
+        counter, 2,
         "`project` must not run for candidates worse than the heap's worst"
     );
 }
 
 #[test]
 fn insert_entry_heap_invokes_project_on_eviction() {
-    let counter = AtomicUsize::new(0);
+    let mut counter = 0usize;
     let mut s = Storage::<Box<[SharedValue]>>::new(/* sortby */ true, Some((0, 2)), ASC);
     // Each insert is strictly better than the current worst, so every
     // candidate must be projected.
     for v in [5.0_f64, 3.0, 1.0] {
-        s.insert_entry(|| val(v), counting_project(&counter, v));
+        s.insert_entry(|| val(v), counting_project(&mut counter, v));
     }
-    assert_eq!(counter.load(AtomicOrdering::Relaxed), 3);
+    assert_eq!(counter, 3);
 }
 
 #[test]

@@ -33,7 +33,10 @@ use super::heap::{EntryHeap, EntryKey, HeapEntry};
 /// matching the C implementation's `DEFAULT_LIMIT`.
 pub const DEFAULT_LIMIT: u64 = 10;
 
-/// Cap on the *initial* buffer allocation.
+/// Cap on the *initial* buffer allocation, to keep the up-front cost
+/// bounded when `offset + count` is very large. The buffer/heap is still
+/// allowed to grow past this — it only governs `with_capacity`, not the
+/// number of rows we will retain.
 const INITIAL_CAPACITY_CAP: usize = 16_384;
 
 /// One drained row alongside an optional sort-key snapshot.
@@ -52,12 +55,14 @@ pub enum Storage<T> {
         buf: Vec<T>,
         offset: usize,
         count: usize,
+        max_size: usize,
     },
     Heap {
         heap: EntryHeap<T>,
         sort_asc_map: u64,
         offset: usize,
         count: usize,
+        max_size: usize,
     },
 }
 
@@ -72,19 +77,22 @@ impl<T> Storage<T> {
             (false, None) => (0, unsafe { ffi::RSGlobalConfig.maxAggregateResults }),
             (true, None) => (0, DEFAULT_LIMIT as usize),
         };
-        let cap = offset.saturating_add(count).min(INITIAL_CAPACITY_CAP);
+        let max_size = offset.saturating_add(count);
+        let initial_capacity = max_size.min(INITIAL_CAPACITY_CAP);
         if sortby {
             Self::Heap {
-                heap: EntryHeap::with_capacity(cap),
+                heap: EntryHeap::with_capacity(initial_capacity),
                 sort_asc_map,
                 offset,
                 count,
+                max_size,
             }
         } else {
             Self::Array {
-                buf: Vec::with_capacity(cap),
+                buf: Vec::with_capacity(initial_capacity),
                 offset,
                 count,
+                max_size,
             }
         }
     }
@@ -105,8 +113,8 @@ impl<T> Storage<T> {
         P: FnOnce() -> T,
     {
         match self {
-            Self::Array { buf, offset, count } => {
-                if buf.len() < offset.saturating_add(*count) {
+            Self::Array { buf, max_size, .. } => {
+                if buf.len() < *max_size {
                     buf.push(project());
                     true
                 } else {
@@ -116,11 +124,13 @@ impl<T> Storage<T> {
             Self::Heap {
                 heap,
                 sort_asc_map,
-                offset,
-                count,
+                max_size,
+                ..
             } => {
-                let cap = offset.saturating_add(*count);
-                if heap.len() < cap {
+                if *max_size == 0 {
+                    return false;
+                }
+                if heap.len() < *max_size {
                     let key = EntryKey::new(sort_vals(), *sort_asc_map);
                     heap.push(HeapEntry::new(key, project()));
                     true
@@ -161,18 +171,21 @@ impl<T> Storage<T> {
                 buf: Vec::new(),
                 offset: 0,
                 count: 0,
+                max_size: 0,
             },
         );
         match taken {
-            Self::Array { buf, offset, count } => {
+            Self::Array {
+                buf, offset, count, ..
+            } => {
                 let (offset, count) = limit_window(apply_limit, offset, count);
                 Drain::Array(buf.into_iter().skip(offset).take(count))
             }
             Self::Heap {
                 heap,
-                sort_asc_map: _,
                 offset,
                 count,
+                ..
             } => {
                 let (offset, count) = limit_window(apply_limit, offset, count);
                 Drain::Heap(heap.into_vec_desc().into_iter().skip(offset).take(count))
