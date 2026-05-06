@@ -9,13 +9,17 @@
 
 #pragma once
 
-#include <stdatomic.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
 #ifdef __cplusplus
+#include <atomic>
+#define RS_Atomic(T) std::atomic<T>
 extern "C" {
+#else
+#define RS_Atomic(T) _Atomic(T)
+#include <stdatomic.h>
 #endif
 
 // Forward declaration
@@ -25,8 +29,8 @@ struct MRIterator;
 // Used by FT.AGGREGATE (via ShardResponseBarrier).
 // numShards is set atomically from IO thread when topology is known.
 typedef struct ShardCountBarrier {
-  _Atomic(size_t) numShards;       // Total number of shards (written by IO thread, read by coordinator thread)
-  _Atomic(size_t) numResponded;    // Count of shards that have responded
+  RS_Atomic(size_t) numShards;       // Total number of shards (written by IO thread, read by coordinator thread)
+  RS_Atomic(size_t) numResponded;    // Count of shards that have responded
 } ShardCountBarrier;
 
 // Callback invoked by IO thread for each reply, before pushing to channel
@@ -44,8 +48,8 @@ typedef void (*ReplyNotifyCallback)(uint16_t shardIndex, long long totalResults,
 typedef struct ShardResponseBarrier {
   ShardCountBarrier base;          // Base barrier with numShards and numResponded
   bool *shardResponded;            // Array: has each shard sent its first response? (IO thread only, no atomic needed)
-  _Atomic(long long) accumulatedTotal;  // Sum of total_results from all shards
-  _Atomic(bool) hasShardError;     // Set to true if any shard returns an error
+  RS_Atomic(long long) accumulatedTotal;  // Sum of total_results from all shards
+  RS_Atomic(bool) hasShardError;   // Set to true if any shard returns an error
   ReplyNotifyCallback notifyCallback;  // Callback for processing replies (called from IO thread)
 } ShardResponseBarrier;
 
@@ -62,6 +66,8 @@ void shardResponseBarrier_Free(void *ptr);
 
 // Callback for accumulating total_results from shard replies (called from IO thread)
 void shardResponseBarrier_Notify(uint16_t shardIndex, long long totalResults, bool isError, void *privateData);
+
+#undef RS_Atomic
 
 #ifdef __cplusplus
 }
