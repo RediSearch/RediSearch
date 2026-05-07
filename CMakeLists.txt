@@ -124,6 +124,7 @@ option(VERBOSE_UTESTS "Enable verbose unit tests" OFF)
 option(ENABLE_ASSERT "Enable assertions" OFF)
 set(MAX_WORKER_THREADS "" CACHE STRING "Override the maximum parallel worker threads allowed in thread-pool")
 option(BUILD_TESTING "Enable testing for cpu-features dep" OFF)
+option(EXCLUDE_WIP_FEATURES "Exclude work-in-progress features from the build artifact" OFF)
 
 
 #----------------------------------------------------------------------------------------------
@@ -251,6 +252,10 @@ endif()
 
 if(VERBOSE_UTESTS)
     add_compile_definitions(VERBOSE_UTESTS=1)
+endif()
+
+if(EXCLUDE_WIP_FEATURES)
+    add_compile_definitions(RS_EXCLUDE_WIP_FEATURES=1)
 endif()
 
 # Platform-specific settings
