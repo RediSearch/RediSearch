@@ -690,6 +690,14 @@ def test_search_errors():
     env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b EF_FUNTIME 30]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('SEARCH_OPTION_INVALID Invalid option (Error parsing vector similarity parameters)')
     env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b]=>{$EF_RUNTIME: 5; $EF_RUNTIME: 6;}', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('SEARCH_PARAM_DUP Parameter was specified twice (Error parsing vector similarity parameters)')
 
+    # RERANK is valid only for disk-based HNSW indexes; on a non-disk HNSW index VecSim
+    # rejects it as an unknown parameter, regardless of whether it was provided via the
+    # inline KNN syntax or via the trailing query-attribute syntax.
+    env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b RERANK TRUE]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('SEARCH_OPTION_INVALID Invalid option (Error parsing vector similarity parameters)')
+    env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b]=>{$RERANK: TRUE;}', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('SEARCH_OPTION_INVALID Invalid option (Error parsing vector similarity parameters)')
+    # RERANK is also unknown on FLAT indexes.
+    env.expect('FT.SEARCH', 'idx', f'*=>[KNN 2 @{v_flat} $b]=>{{$RERANK: TRUE;}}', 'PARAMS', '2', 'b', 'abcdefghabcdefgh').error().contains('SEARCH_OPTION_INVALID Invalid option (Error parsing vector similarity parameters)')
+
     # ef_runtime is invalid for FLAT index.
     env.expect('FT.SEARCH', 'idx', f'*=>[KNN 2 @{v_flat} $b EF_RUNTIME 30]', 'PARAMS', '2', 'b', 'abcdefghabcdefgh').error().contains('SEARCH_OPTION_INVALID Invalid option (Error parsing vector similarity parameters)')
 

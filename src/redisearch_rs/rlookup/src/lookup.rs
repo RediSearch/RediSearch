@@ -19,7 +19,7 @@ use key_list::KeyList;
 use std::{borrow::Cow, ffi::CStr, pin::Pin, ptr};
 
 pub use key::{GET_KEY_FLAGS, RLookupKey, RLookupKeyFlag, RLookupKeyFlags, TRANSIENT_FLAGS};
-pub use key_list::{Cursor, CursorMut};
+pub use key_list::{Cursor, CursorMut, Iter, IterMut};
 
 #[bitflags]
 #[repr(u32)]
@@ -133,38 +133,42 @@ impl<'a> RLookup<'a> {
             "The NameAlloc flag should have been handled in the FFI function. This is a bug."
         );
 
-        // Manually iterate through all keys including hidden ones
-        let mut c = src.cursor();
-        while let Some(src_key) = c.current() {
-            if !src_key.is_tombstone() {
-                // Combine caller's control flags with source key's persistent properties
-                // Only preserve non-transient flags from source (F_SVSRC, F_HIDDEN, etc.)
-                // while respecting caller's control flags (F_OVERRIDE, F_FORCE_LOAD, etc.)
-                let combined_flags = flags | src_key.flags & !TRANSIENT_FLAGS;
+        for src_key in src.iter() {
+            // Combine caller's control flags with source key's persistent properties
+            // Only preserve non-transient flags from source (F_SVSRC, F_HIDDEN, etc.)
+            // while respecting caller's control flags (F_OVERRIDE, F_FORCE_LOAD, etc.)
+            let combined_flags = flags | src_key.flags & !TRANSIENT_FLAGS;
 
-                // NB: get_key_write returns none if the key already exists and `flags` don't contain `Override`.
-                // In this case, we just want to move on to the next key
-                let _ = self.get_key_write(src_key.name().clone(), combined_flags);
-            }
-
-            c.move_next();
+            // NB: get_key_write returns none if the key already exists and `flags` don't contain `Override`.
+            // In this case, we just want to move on to the next key
+            let _ = self.get_key_write(src_key.name().clone(), combined_flags);
         }
     }
 
     /// Returns a [`Cursor`] starting at the first key.
-    ///
-    /// The [`Cursor`] type can be used as Iterator over the keys in this lookup.
     #[inline(always)]
     pub fn cursor(&self) -> Cursor<'_, 'a> {
         self.keys.cursor_front()
     }
 
     /// Returns a [`Cursor`] starting at the first key.
-    ///
-    /// The [`Cursor`] type can be used as Iterator over the keys in this lookup.
     #[inline(always)]
     pub fn cursor_mut(&mut self) -> CursorMut<'_, 'a> {
         self.keys.cursor_front_mut()
+    }
+
+    /// Returns an iterator over immutable references to keys.
+    #[inline(always)]
+    pub fn iter(&self) -> Iter<'_, 'a> {
+        self.keys.iter()
+    }
+
+    /// Returns an iterator over pinned mutable references to keys.
+    ///
+    /// Use [`RLookup::cursor_mut`] to override a key during traversal.
+    #[inline(always)]
+    pub fn iter_mut(&mut self) -> IterMut<'_, 'a> {
+        self.keys.iter_mut()
     }
 
     // ===== Get key for reading (create only if in schema and sortable) =====
@@ -512,6 +516,36 @@ mod tests {
 
     #[cfg(not(miri))]
     use proptest::prelude::*;
+
+    // Assert that RLookup::iter and iter_mut yield the keys written via get_key_write,
+    // and that mutations through iter_mut are observable on a subsequent iter pass.
+    #[test]
+    fn rlookup_iter_round_trip() {
+        let mut rlookup = RLookup::new();
+
+        for name in [c"a", c"b", c"c"] {
+            rlookup
+                .get_key_write(name, RLookupKeyFlags::empty())
+                .unwrap();
+        }
+
+        let names: Vec<_> = rlookup
+            .iter()
+            .map(|k| k.name().as_ref().to_owned())
+            .collect();
+        assert_eq!(
+            names,
+            vec![c"a".to_owned(), c"b".to_owned(), c"c".to_owned()]
+        );
+
+        for key in rlookup.iter_mut() {
+            key.project().header.flags |= RLookupKeyFlag::ExplicitReturn;
+        }
+
+        for key in rlookup.iter() {
+            assert!(key.flags.contains(RLookupKeyFlag::ExplicitReturn));
+        }
+    }
 
     // Assert that we can successfully write keys to the rlookup
     #[test]

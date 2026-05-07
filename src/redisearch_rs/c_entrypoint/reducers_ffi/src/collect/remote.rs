@@ -10,7 +10,7 @@
 //! Remote COLLECT reducer FFI.
 
 use reducers::collect::{RemoteCollectCtx, RemoteCollectReducer};
-use rlookup::{RLookupKey, RLookupRow};
+use rlookup::{RLookup, RLookupKey, RLookupRow};
 use std::{
     ffi::{c_int, c_void},
     ptr, slice,
@@ -30,13 +30,16 @@ use std::{
 ///    `sort_keys_len` [valid] `*const RLookupKey` pointers.
 /// 3. All [`RLookupKey`][ffi::RLookupKey] pointers must remain valid for the
 ///    lifetime of the returned reducer.
+/// 4. `srclookup` is either null or a [valid] pointer to a
+///    [`RLookup`][ffi::RLookup] that remains alive for the lifetime of the
+///    returned reducer.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn CollectReducer_CreateRemote(
     field_keys: *const *const ffi::RLookupKey,
     field_keys_len: usize,
-    load_all: bool,
+    srclookup: *const ffi::RLookup,
     sort_keys: *const *const ffi::RLookupKey,
     sort_keys_len: usize,
     sort_asc_map: u64,
@@ -61,11 +64,14 @@ pub unsafe extern "C" fn CollectReducer_CreateRemote(
         Box::new([])
     };
 
+    // SAFETY: ensured by caller (4.)
+    let srclookup: Option<&RLookup> = unsafe { srclookup.cast::<RLookup>().as_ref() };
+
     let limit = has_limit.then_some((limit_offset, limit_count));
 
     let mut cr = Box::new(RemoteCollectReducer::new(
         field_keys,
-        load_all,
+        srclookup,
         sort_keys,
         sort_asc_map,
         limit,
@@ -106,10 +112,7 @@ pub unsafe extern "C" fn collectRemoteNewInstance(r: *mut ffi::Reducer) -> *mut 
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn collectRemoteFreeInstance(_r: *mut ffi::Reducer, ctx: *mut c_void) {
-    // SAFETY: ensured by caller (1.) — `ctx` points to a valid, initialized
-    // `RemoteCollectCtx`. After this call the pointee is logically uninitialized,
-    // but the arena memory is freed later when `RemoteCollectReducer` (and its
-    // `Bump`) is dropped.
+    // SAFETY: ensured by caller (1.)
     unsafe { ptr::drop_in_place(ctx.cast::<RemoteCollectCtx>()) }
 }
 
@@ -173,8 +176,7 @@ pub unsafe extern "C" fn collectRemoteFinalize(
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn collectRemoteFree(r: *mut ffi::Reducer) {
-    // SAFETY: ensured by caller (1.); `r` originates from `Box::into_raw` of a
-    // `Box<RemoteCollectReducer>` and is still owned by C, so we can reclaim it here.
+    // SAFETY: ensured by caller (1.)
     drop(unsafe { Box::from_raw(r.cast::<RemoteCollectReducer>()) });
 }
 
@@ -204,10 +206,10 @@ pub const unsafe extern "C" fn CollectReducer_GetFieldKeysLen(r: *const ffi::Red
 /// `r` must point to a valid [`RemoteCollectReducer`] originally created by
 /// `CollectReducer_CreateRemote`.
 #[unsafe(no_mangle)]
-pub const unsafe extern "C" fn CollectReducer_HasLoadAll(r: *const ffi::Reducer) -> bool {
+pub const unsafe extern "C" fn CollectReducer_IsLoadAll(r: *const ffi::Reducer) -> bool {
     // SAFETY: ensured by caller.
     let r = unsafe { r.cast::<RemoteCollectReducer>().as_ref().unwrap() };
-    r.load_all()
+    r.is_load_all()
 }
 
 /// # Safety

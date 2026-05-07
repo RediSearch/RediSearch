@@ -1081,9 +1081,8 @@ static QueryIterator *Query_EvalVectorNode(QueryEvalCtx *q, QueryNode *qn) {
     handle->is_valid = true;
 
     if (it->type == HYBRID_ITERATOR) {
-      HybridIterator *hybridIt = (HybridIterator *)it;
-      handle->key_ptr = &hybridIt->ownKey;
-      hybridIt->keyHandle = handle; // Set up back-reference
+      handle->key_ptr = HybridIterator_GetOwnKeyRef(it);
+      HybridIterator_SetKeyHandle(it, handle); // Set up back-reference
     } else { // Must be METRIC_ITERATOR due to the condition above
       handle->key_ptr = GetMetricOwnKeyRef(it);
       SetMetricRLookupHandle(it, handle); // Set up back-reference
@@ -2242,7 +2241,8 @@ static int QueryVectorNode_ApplyAttribute(VectorQuery *vq, QueryAttribute *attr,
   } else if (STR_EQCASE(attr->name, attr->namelen, VECSIM_EFRUNTIME) ||
              STR_EQCASE(attr->name, attr->namelen, VECSIM_EPSILON) ||
              STR_EQCASE(attr->name, attr->namelen, VECSIM_HYBRID_POLICY) ||
-             STR_EQCASE(attr->name, attr->namelen, VECSIM_BATCH_SIZE)) {
+             STR_EQCASE(attr->name, attr->namelen, VECSIM_BATCH_SIZE) ||
+             STR_EQCASE(attr->name, attr->namelen, VECSIM_RERANK)) {
     // Move ownership on the value string, so it won't get freed when releasing the QueryAttribute.
     // The name string was not copied by the parser (unlike the value) - so we copy and save it.
     VecSimRawParam param = (VecSimRawParam){ .name = rm_strndup(attr->name, attr->namelen),

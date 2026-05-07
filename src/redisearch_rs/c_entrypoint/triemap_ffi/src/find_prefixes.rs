@@ -26,7 +26,7 @@ use thin_vec::SmallThinVec;
 /// [`NewTrieMap`]: crate::NewTrieMap
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn TrieMap_FindPrefixes(
-    t: *mut TrieMap,
+    t: *const TrieMap,
     str: *const c_char,
     len: tm_len_t,
 ) -> TrieMapResultBuf {
@@ -36,7 +36,7 @@ pub unsafe extern "C" fn TrieMap_FindPrefixes(
     // state the caller is to ensure that the pointer `t` is
     // a valid TrieMap obtained from `NewTrieMap` and cannot be NULL.
     // If that invariant is upheld, then the following line is sound.
-    let TrieMap(trie) = unsafe { &mut *t };
+    let TrieMap(trie) = unsafe { &*t };
 
     let prefix: &[u8] = if len > 0 {
         debug_assert!(!str.is_null(), "str cannot be NULL if len > 0");
@@ -61,24 +61,6 @@ pub struct TrieMapResultBuf(pub SmallThinVec<*mut c_void>);
 #[unsafe(no_mangle)]
 pub extern "C" fn TrieMapResultBuf_Free(buf: TrieMapResultBuf) {
     drop(buf);
-}
-
-/// Get the data from the TrieMapResultBuf as an array of values.
-///
-/// # Safety
-///
-/// The following invariants must be upheld when calling this function:
-/// - `buf` must point to a valid TrieMapResultBuf initialized by [`TrieMap_FindPrefixes`] and cannot be NULL.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn TrieMapResultBuf_Data(buf: *mut TrieMapResultBuf) -> *mut *mut c_void {
-    debug_assert!(!buf.is_null(), "buf cannot be NULL");
-
-    // SAFETY:
-    // As per the safety invariants of this function:
-    // - `buf` is not NULL
-    // - `buf` points to a valid TrieMapResultBuf initialized by [`TrieMap_FindPrefixes`]
-    let TrieMapResultBuf(data) = unsafe { &mut *buf };
-    data.as_mut_ptr()
 }
 
 /// Retrieve an element from the buffer, via a 0-initialized index.

@@ -12,7 +12,7 @@ extern crate redisearch_rs;
 use reducers::collect::{
     LocalCollectCtx, LocalCollectReducer, RemoteCollectCtx, RemoteCollectReducer,
 };
-use rlookup::{RLookupKey, RLookupKeyFlags, RLookupRow};
+use rlookup::{RLookup, RLookupKey, RLookupKeyFlag, RLookupKeyFlags, RLookupRow};
 use value::{Map, SharedValue, Value};
 
 redis_mock::mock_or_stub_missing_redis_c_symbols!();
@@ -62,7 +62,7 @@ impl RemoteCollectFixture {
     fn reducer(&self, include_sort_keys: bool) -> RemoteCollectReducer<'_> {
         RemoteCollectReducer::new(
             Box::new([&self.name_key]),
-            false,
+            None,
             Box::new([&self.sweetness_key]),
             0,
             None,
@@ -127,7 +127,7 @@ fn remote_finalize_dedupes_overlapping_field_and_sort_key() {
     // emission.
     let reducer = RemoteCollectReducer::new(
         Box::new([&fixture.name_key]),
-        false,
+        None,
         Box::new([&fixture.name_key]),
         0,
         None,
@@ -150,6 +150,47 @@ fn remote_finalize_dedupes_overlapping_field_and_sort_key() {
     assert_eq!(
         map.get(b"name").and_then(|v| v.as_str_bytes()),
         Some(b"apple".as_slice())
+    );
+}
+
+#[test]
+fn remote_external_omits_keys_missing_on_row() {
+    let fixture = RemoteCollectFixture::new();
+    let reducer = RemoteCollectReducer::new(
+        Box::new([&fixture.name_key, &fixture.sweetness_key]),
+        None,
+        Box::new([]),
+        0,
+        None,
+        false,
+    );
+    let mut ctx = RemoteCollectCtx::new(&reducer);
+
+    let row_a = fixture.row("apple", 4.0);
+    let mut row_b = RLookupRow::new();
+    row_b.write_key(&fixture.name_key, string_value("lemon"));
+
+    ctx.add(&reducer, &row_a);
+    ctx.add(&reducer, &row_b);
+    let output = ctx.finalize(&reducer);
+    let rows = array_entries(&output);
+    assert_eq!(rows.len(), 2);
+
+    let map_a = map_entries(&rows[0]);
+    assert_eq!(
+        map_a.get(b"name").and_then(|v| v.as_str_bytes()),
+        Some(b"apple".as_slice()),
+    );
+    assert_eq!(map_a.get(b"sweetness").and_then(|v| v.as_num()), Some(4.0));
+
+    let map_b = map_entries(&rows[1]);
+    assert_eq!(
+        map_b.get(b"name").and_then(|v| v.as_str_bytes()),
+        Some(b"lemon".as_slice()),
+    );
+    assert!(
+        map_b.get(b"sweetness").is_none(),
+        "row B was missing `sweetness`; the requested-fields map must omit the entry entirely"
     );
 }
 
@@ -181,7 +222,7 @@ fn remote_finalize_hoists_name_allocations() {
 }
 
 #[test]
-fn local_collect_projects_remote_maps_and_fills_missing_fields_with_null() {
+fn local_collect_projects_remote_maps_and_omits_missing_fields() {
     let input_key = key(c"generatedalias", 0);
     let reducer = LocalCollectReducer::new(
         &input_key,
@@ -214,7 +255,7 @@ fn local_collect_projects_remote_maps_and_fills_missing_fields_with_null() {
         Some(b"apple".as_slice())
     );
     assert!(row.get(b"sweetness").is_none());
-    assert!(row.get(b"missing").unwrap().is_null_static());
+    assert!(row.get(b"missing").is_none());
 }
 
 #[test]
@@ -250,4 +291,147 @@ fn local_collect_accepts_resp2_flat_array_payloads() {
         Some(b"apple".as_slice())
     );
     assert!(row.get(b"sweetness").is_none());
+}
+
+/// Fixture for load-all (`FIELDS *`) tests. Owns a real [`RLookup`] so the
+/// reducer's live walk has something to iterate. Pre-registers three visible
+/// keys (`name`, `color`, `sweetness`) plus one [`RLookupKeyFlag::Hidden`]
+/// key (`__hidden`) so the "skip hidden" assertion has a target.
+struct RemoteCollectLoadAllFixture {
+    lookup: RLookup<'static>,
+}
+
+impl RemoteCollectLoadAllFixture {
+    fn new() -> Self {
+        let mut lookup = RLookup::new();
+        let _ = lookup
+            .get_key_write(c"name", RLookupKeyFlags::empty())
+            .expect("`name` is a fresh key");
+        let _ = lookup
+            .get_key_write(c"color", RLookupKeyFlags::empty())
+            .expect("`color` is a fresh key");
+        let _ = lookup
+            .get_key_write(c"sweetness", RLookupKeyFlags::empty())
+            .expect("`sweetness` is a fresh key");
+        let _ = lookup
+            .get_key_write(c"__hidden", RLookupKeyFlag::Hidden.into())
+            .expect("`__hidden` is a fresh key");
+        Self { lookup }
+    }
+
+    /// Build a reducer with `srclookup = Some(&self.lookup)` and no explicit
+    /// field/sort keys (matching the parser's "load-all alone" assumption).
+    fn reducer(&self) -> RemoteCollectReducer<'_> {
+        RemoteCollectReducer::new(
+            Box::new([]),
+            Some(&self.lookup),
+            Box::new([]),
+            0,
+            None,
+            false,
+        )
+    }
+}
+
+#[test]
+fn remote_load_all_emits_all_lookup_keys_present_on_row() {
+    let mut fixture = RemoteCollectLoadAllFixture::new();
+    let mut row = RLookupRow::new();
+    row.write_key_by_name(&mut fixture.lookup, c"name", string_value("apple"));
+    row.write_key_by_name(&mut fixture.lookup, c"color", string_value("red"));
+    row.write_key_by_name(&mut fixture.lookup, c"sweetness", SharedValue::new_num(4.0));
+
+    let reducer = fixture.reducer();
+    let mut ctx = RemoteCollectCtx::new(&reducer);
+
+    ctx.add(&reducer, &row);
+    let output = ctx.finalize(&reducer);
+    let rows = array_entries(&output);
+    assert_eq!(rows.len(), 1);
+
+    let map = map_entries(&rows[0]);
+    assert_eq!(
+        map.get(b"name").and_then(|v| v.as_str_bytes()),
+        Some(b"apple".as_slice())
+    );
+    assert_eq!(
+        map.get(b"color").and_then(|v| v.as_str_bytes()),
+        Some(b"red".as_slice())
+    );
+    assert_eq!(map.get(b"sweetness").and_then(|v| v.as_num()), Some(4.0));
+    assert!(
+        map.get(b"__hidden").is_none(),
+        "Hidden keys must never be emitted"
+    );
+}
+
+#[test]
+fn remote_load_all_omits_keys_missing_on_row() {
+    let mut fixture = RemoteCollectLoadAllFixture::new();
+
+    let mut row_a = RLookupRow::new();
+    row_a.write_key_by_name(&mut fixture.lookup, c"name", string_value("apple"));
+    row_a.write_key_by_name(&mut fixture.lookup, c"color", string_value("red"));
+    row_a.write_key_by_name(&mut fixture.lookup, c"sweetness", SharedValue::new_num(4.0));
+
+    // Row B is missing `color` entirely — the load-all map must drop the
+    // entry instead of padding with `null_static`.
+    let mut row_b = RLookupRow::new();
+    row_b.write_key_by_name(&mut fixture.lookup, c"name", string_value("lemon"));
+    row_b.write_key_by_name(&mut fixture.lookup, c"sweetness", SharedValue::new_num(2.0));
+
+    let reducer = fixture.reducer();
+    let mut ctx = RemoteCollectCtx::new(&reducer);
+
+    ctx.add(&reducer, &row_a);
+    ctx.add(&reducer, &row_b);
+    let output = ctx.finalize(&reducer);
+    let rows = array_entries(&output);
+    assert_eq!(rows.len(), 2);
+
+    let map_a = map_entries(&rows[0]);
+    assert_eq!(
+        map_a.get(b"color").and_then(|v| v.as_str_bytes()),
+        Some(b"red".as_slice()),
+        "row A had `color`; the load-all map must include it"
+    );
+
+    let map_b = map_entries(&rows[1]);
+    assert!(
+        map_b.get(b"color").is_none(),
+        "row B was missing `color`; the load-all map must omit the entry entirely (no null_static padding)"
+    );
+    assert_eq!(
+        map_b.get(b"name").and_then(|v| v.as_str_bytes()),
+        Some(b"lemon".as_slice())
+    );
+    assert_eq!(map_b.get(b"sweetness").and_then(|v| v.as_num()), Some(2.0));
+}
+
+#[test]
+fn remote_load_all_skips_hidden_keys_even_when_row_has_value() {
+    let mut fixture = RemoteCollectLoadAllFixture::new();
+    let mut row = RLookupRow::new();
+    row.write_key_by_name(&mut fixture.lookup, c"name", string_value("apple"));
+    // Populate the Hidden key on the row to prove the filter happens at the
+    // lookup-walk level, not at "no value" — the value is present.
+    row.write_key_by_name(&mut fixture.lookup, c"__hidden", string_value("internal"));
+
+    let reducer = fixture.reducer();
+    let mut ctx = RemoteCollectCtx::new(&reducer);
+
+    ctx.add(&reducer, &row);
+    let output = ctx.finalize(&reducer);
+    let rows = array_entries(&output);
+    assert_eq!(rows.len(), 1);
+
+    let map = map_entries(&rows[0]);
+    assert_eq!(
+        map.get(b"name").and_then(|v| v.as_str_bytes()),
+        Some(b"apple".as_slice())
+    );
+    assert!(
+        map.get(b"__hidden").is_none(),
+        "Hidden keys must be excluded from the load-all emission template"
+    );
 }

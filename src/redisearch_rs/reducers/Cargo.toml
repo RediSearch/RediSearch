@@ -11,6 +11,7 @@ unittest = []
 [dependencies]
 bumpalo.workspace = true
 ffi.workspace = true
+itertools.workspace = true
 query_error.workspace = true
 rlookup.workspace = true
 value.workspace = true

@@ -502,7 +502,6 @@ PRINT_PROFILE_METRIC(printMetricSortedByScoreIt, "METRIC SORTED BY SCORE");
 
 void PrintIteratorChildProfile(RedisModule_Reply *reply, const QueryIterator *root, const ProfileCounters *counters, double cpuTime,
                   int depth, int limited, PrintProfileConfig *config, const QueryIterator *child, const char *text) {
-  size_t nlen = 0;
   RedisModule_Reply_Map(reply);
     printProfileType(text);
     if (config->printProfileClock) {
@@ -511,19 +510,22 @@ void PrintIteratorChildProfile(RedisModule_Reply *reply, const QueryIterator *ro
     printProfileCounters(counters);
 
     if (root->type == HYBRID_ITERATOR) {
-      const HybridIterator *hi = (const HybridIterator *)root;
-      printProfileVectorSearchMode(hi->searchMode);
-      if (hi->searchMode == VECSIM_HYBRID_BATCHES ||
-          hi->searchMode == VECSIM_HYBRID_BATCHES_TO_ADHOC_BF) {
-        printProfileNumBatches(hi);
-        printProfileMaxBatchSize(hi);
-        printProfileMaxBatchIteration(hi);
+      const char *mode_str = HybridIterator_GetSearchModeString(root);
+      if (mode_str) {
+        RedisModule_ReplyKV_SimpleString(reply, "Vector search mode", mode_str);
+      }
+      if (HybridIterator_IsBatchMode(root)) {
+        RedisModule_ReplyKV_LongLong(reply, "Batches number", HybridIterator_GetNumIterations(root));
+        RedisModule_ReplyKV_LongLong(reply, "Largest batch size", HybridIterator_GetMaxBatchSize(root));
+        RedisModule_ReplyKV_LongLong(reply, "Largest batch iteration (zero based)", HybridIterator_GetMaxBatchIteration(root));
       }
     }
 
     if (root->type == OPTIMUS_ITERATOR) {
-      const OptimizerIterator *oi = (const OptimizerIterator *)root;
-      printProfileOptimizationType(oi);
+      const char *opt_type = OptimizerIterator_GetOptimizationType(root);
+      if (opt_type) {
+        RedisModule_ReplyKV_SimpleString(reply, "Optimizer mode", opt_type);
+      }
     }
 
     if (child) {
@@ -539,19 +541,21 @@ void PrintIteratorChildProfile(RedisModule_Reply *reply, const QueryIterator *ro
       NULL, (text));                                                                   \
   }
 
-#define PRINT_PROFILE_SINGLE(name, IterType, text)                                     \
-  PRINT_PROFILE_FUNC(name) {                                                           \
-    PrintIteratorChildProfile(reply, (root), counters, cpuTime, depth, limited, config, \
-      ((const IterType *)(root))->child, (text));                                      \
-  }
-
 PRINT_PROFILE_SINGLE_NO_CHILD(printWildcardIt,                  "WILDCARD");
 PRINT_PROFILE_SINGLE_NO_CHILD(printIdListSortedIt,              "ID-LIST-SORTED");
 PRINT_PROFILE_SINGLE_NO_CHILD(printIdListUnsortedIt,            "ID-LIST-UNSORTED");
 PRINT_PROFILE_SINGLE_NO_CHILD(printEmptyIt,                     "EMPTY");
 PRINT_PROFILE_SINGLE_NO_CHILD(printGeoShapeIt,                  "GEO-SHAPE");
-PRINT_PROFILE_SINGLE(printHybridIt, HybridIterator,             "VECTOR");
-PRINT_PROFILE_SINGLE(printOptimusIt, OptimizerIterator,         "OPTIMIZER");
+
+PRINT_PROFILE_FUNC(printHybridIt) {
+  PrintIteratorChildProfile(reply, root, counters, cpuTime, depth, limited, config,
+    HybridIterator_GetChild(root), "VECTOR");
+}
+
+PRINT_PROFILE_FUNC(printOptimusIt) {
+  PrintIteratorChildProfile(reply, root, counters, cpuTime, depth, limited, config,
+    OptimizerIterator_GetChild(root), "OPTIMIZER");
+}
 
 PRINT_PROFILE_FUNC(printNotIt) {
   // Cast is safe: PrintIteratorChildProfile only reads from the child iterator.
