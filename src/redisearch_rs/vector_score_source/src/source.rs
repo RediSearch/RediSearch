@@ -22,8 +22,8 @@ use ffi::{
     VecSimIndex_AdhocBfCtx_GetDistanceFrom, VecSimIndex_AdhocBfCtx_New,
     VecSimIndex_GetDistanceFrom_Unsafe, VecSimIndex_IndexSize, VecSimIndex_PreferAdHocSearch,
     VecSimIndex_TopKQuery, VecSimQueryParams, VecSimQueryReply_Code_VecSim_QueryReply_TimedOut,
-    VecSimQueryReply_GetCode, VecSimQueryReply_GetIterator, VecSimQueryReply_Order_BY_ID, t_docId,
-    timespec,
+    VecSimQueryReply_GetCode, VecSimQueryReply_GetIterator, VecSimQueryReply_Order_BY_ID,
+    VecSimQueryReply_Order_BY_SCORE, t_docId, timespec,
 };
 use inverted_index::RSIndexResult;
 use rqe_iterators::RQEIteratorError;
@@ -240,7 +240,7 @@ impl<'index> ScoreSource<'index> for VectorScoreSource {
                 self.query_vector.as_ptr() as *const c_void,
                 self.k.get(),
                 &mut self.query_params,
-                VecSimQueryReply_Order_BY_ID,
+                VecSimQueryReply_Order_BY_SCORE,
             )
         };
         if reply.is_null() {

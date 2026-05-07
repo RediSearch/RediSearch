@@ -38,9 +38,21 @@ pub enum TopKMode {
     /// complete result set, and a second call would return `Ok(None)`).
     /// Any additional batches are not consumed and their results are silently
     /// lost.  In debug builds, [`TopKIterator`] asserts this invariant.
+    ///
+    /// **Order contract:** because the heap is bypassed, the source must
+    /// emit results in best-first order *as defined by the iterator's
+    /// `compare` function*. The `compare` parameter is **not consulted**
+    /// in this mode — it is the source's responsibility to pre-sort.
+    /// Mismatched orderings produce silently wrong rankings (no panic).
     Unfiltered,
-    /// Fetch score-ordered batches from the source and intersect each one
-    /// with the child filter iterator.
+    /// Fetch doc-ID-ordered batches from the source and intersect each one
+    /// with the child filter iterator using a merge-join.
+    ///
+    /// **Order contract:** each batch must yield doc IDs in strictly
+    /// increasing order. The merge-join in [`intersect_batch_with_child`]
+    /// relies on this for its `skip_to` advancement. The score order
+    /// (best-first) is established afterwards by the heap, which uses
+    /// `compare` to keep only the top-k entries.
     Batches,
     /// Walk the child iterator and call [`ScoreSource::lookup_score`] for
     /// each document it yields.
