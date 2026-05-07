@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! Shared COLLECT reducer state.
+//! Shared COLLECT reducer state and utilities.
 
 use bumpalo::Bump;
 

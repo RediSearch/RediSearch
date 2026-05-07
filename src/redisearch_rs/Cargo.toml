@@ -8,6 +8,7 @@ members = [
     "field",
     "fnv",
     "generational_slab",
+    "geo",
     "hyperloglog",
     "inverted_index",
     "inverted_index_bencher",
@@ -98,6 +99,7 @@ field = { path = "./field" }
 field_spec = { path = "./c_wrappers/field_spec" }
 fnv = { path = "./fnv" }
 generational_slab = { path = "./generational_slab" }
+geo = { path = "./geo" }
 hidden_string = { path = "./c_wrappers/hidden_string" }
 hyperloglog = { path = "./hyperloglog" }
 idf = { path = "./idf" }
@@ -146,6 +148,7 @@ cc = "1.2.53"
 crc32fast = "1.5.0"
 criterion = { version = "0.8.1", features = ["html_reports"] }
 csv = "1.4.0"
+decorum = "0.4"
 enumflags2 = "0.7.12"
 fs-err = "3.2.2"
 hash32 = "1"

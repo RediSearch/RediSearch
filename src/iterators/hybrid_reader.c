@@ -677,3 +677,35 @@ QueryIterator *NewHybridVectorIterator(HybridIteratorParams hParams, QueryError 
   }
   return ri;
 }
+
+// Accessors for profile printing.
+const QueryIterator *HybridIterator_GetChild(const QueryIterator *it) {
+  const HybridIterator *hi = (const HybridIterator *)it;
+  return hi->child;
+}
+
+const char *HybridIterator_GetSearchModeString(const QueryIterator *it) {
+  const HybridIterator *hi = (const HybridIterator *)it;
+  return VecSimSearchMode_ToString(hi->searchMode);
+}
+
+bool HybridIterator_IsBatchMode(const QueryIterator *it) {
+  const HybridIterator *hi = (const HybridIterator *)it;
+  return hi->searchMode == VECSIM_HYBRID_BATCHES ||
+         hi->searchMode == VECSIM_HYBRID_BATCHES_TO_ADHOC_BF;
+}
+
+size_t HybridIterator_GetNumIterations(const QueryIterator *it) {
+  const HybridIterator *hi = (const HybridIterator *)it;
+  return hi->numIterations;
+}
+
+size_t HybridIterator_GetMaxBatchSize(const QueryIterator *it) {
+  const HybridIterator *hi = (const HybridIterator *)it;
+  return hi->maxBatchSize;
+}
+
+size_t HybridIterator_GetMaxBatchIteration(const QueryIterator *it) {
+  const HybridIterator *hi = (const HybridIterator *)it;
+  return hi->maxBatchIteration;
+}

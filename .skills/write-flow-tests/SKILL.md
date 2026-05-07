@@ -45,8 +45,9 @@ Tests use the `RLTest` framework. The typical pattern is:
 
 ## Waiting for index
 
-- Only call `waitForIndex(env, 'idx')` when there is data that has been indexed and needs to be queryable.
-- Do not call `waitForIndex` right after `FT.CREATE` with no data — there is nothing to wait for.
+- **Data inserted before `FT.CREATE`**: Background indexing is activated. Call `waitForIndex(env, 'idx')` after `FT.CREATE` to wait for the backfill to complete before querying.
+- **Data inserted after `FT.CREATE`**: Each `HSET`/`JSON.SET` is immediately acknowledged by the index — no `waitForIndex` needed.
+- Do not call `waitForIndex` right after `FT.CREATE` with no pre-existing data — there is nothing to wait for.
 
 ## Assertions
 

@@ -23,7 +23,7 @@
 //!
 //! Remote reducers emit each row as `Map` (RESP3) or flat `[k, v, ...]` `Array`
 //! (RESP2). The local reducer projects only requested field names; extra
-//! internal sort-key values are ignored, and missing fields become nulls.
+//! internal sort-key values are ignored, and missing fields are omitted.
 
 use std::mem;
 
@@ -118,15 +118,14 @@ impl LocalCollectCtx {
                 let row_entries: Vec<_> = r
                     .field_names
                     .iter()
-                    .map(|name| {
+                    .filter_map(|name| {
                         let val = match &*entry {
                             Value::Map(m) => m.get(name).cloned(),
                             Value::Array(a) => a.map_get(name).cloned(),
                             // Filtered above; only `Map` and `Array` reach here.
                             _ => unreachable!(),
-                        }
-                        .unwrap_or_else(SharedValue::null_static);
-                        (SharedValue::new_string(name.to_vec()), val)
+                        }?;
+                        Some((SharedValue::new_string(name.to_vec()), val))
                     })
                     .collect();
                 SharedValue::new_map(row_entries)

@@ -271,3 +271,14 @@ QueryIterator *NewOptimizerIterator(QOptimizer *qOpt, QueryIterator *root, Itera
 
   return &oi->base;
 }
+
+// Accessors for profile printing.
+const QueryIterator *OptimizerIterator_GetChild(const QueryIterator *it) {
+  const OptimizerIterator *oi = (const OptimizerIterator *)it;
+  return oi->child;
+}
+
+const char *OptimizerIterator_GetOptimizationType(const QueryIterator *it) {
+  const OptimizerIterator *oi = (const OptimizerIterator *)it;
+  return QOptimizer_PrintType(oi->optim);
+}
