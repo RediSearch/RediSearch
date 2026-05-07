@@ -3889,10 +3889,11 @@ class TestNoDeadlockQueryWithConcurrentWriter:
          while holding the spec read lock). Both FT.SEARCH and FT.AGGREGATE
          go through `startPipeline` and hit this sync point.
       2. Issue HSET on a separate connection. It parks the main thread on
-         `pthread_rwlock_wrlock` and bumps `IndexStats::pendingWriters`.
-      3. The sync point's stop predicate (`spec_has_pending_writers`) sees
-         the bump and lets the BG worker resume on its own. We can't use
-         a `SIGNAL` here because the main thread is blocked.
+         `pthread_rwlock_wrlock` and bumps the global `PendingSpecWriters`
+         counter (in debug_commands.c).
+      3. The sync point's stop predicate (`PendingSpecWriters_Get() > 0`)
+         sees the bump and lets the BG worker resume on its own. We can't
+         use a `SIGNAL` here because the main thread is blocked.
       4. BG worker finishes the pipeline, hits `cleanup:`, releases the
          read lock (the fix), then calls `RedisModule_UnblockClient`.
       5. Main thread acquires the wrlock, completes HSET, then processes

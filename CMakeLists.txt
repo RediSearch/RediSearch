@@ -275,12 +275,6 @@ set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} ${CMAKE_LD_FLAGS}")
 # On debug artifacts, enable assertions
 if(CMAKE_BUILD_TYPE STREQUAL "Debug" OR ENABLE_ASSERT)
     add_compile_definitions(ENABLE_ASSERT=1)
-    # Propagate to the Rust build so bindgen sees the same `IndexStats` /
-    # `IndexSpec` layout as the C compiler (otherwise fields gated on
-    # ENABLE_ASSERT shift later C fields' offsets vs. Rust's view).
-    set(REDISEARCH_RS_ENABLE_ASSERT "1")
-else()
-    set(REDISEARCH_RS_ENABLE_ASSERT "0")
 endif()
 
 #----------------------------------------------------------------------------------------------

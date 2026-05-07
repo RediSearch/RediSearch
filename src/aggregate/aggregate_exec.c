@@ -357,16 +357,11 @@ bool areq_timed_out(void *arg) {
 }
 
 // SyncPoint stop predicate: break out of a sync-point wait when a writer is
-// parked on the spec rwlock. Used by MOD-15364 tests to release the BG worker
+// parked on a spec rwlock. Used by MOD-15364 tests to release the BG worker
 // from the cleanup sync point without driving the main thread, since the main
 // thread is the one blocked on the writer's `pthread_rwlock_wrlock`.
-static bool spec_has_pending_writers(void *arg) {
-  return IndexSpec_GetPendingWriters((IndexSpec *)arg) > 0;
-}
-
-static bool areq_timeout_or_spec_has_pending_writers(void *arg) {
-  AREQ *req = (AREQ *)arg;
-  return AREQ_TimedOut(req) || spec_has_pending_writers(AREQ_SearchCtx(req)->spec);
+static bool areq_timeout_or_pending_spec_writers(void *arg) {
+  return AREQ_TimedOut((AREQ *)arg) || PendingSpecWriters_Get() > 0;
 }
 
 
@@ -403,7 +398,7 @@ static void startPipeline(AREQ *req, ResultProcessor *rp, SearchResult ***result
 
 #ifdef ENABLE_ASSERT
   // Sync point (debug): pause before the TryClaim race
-  SyncPoint_WaitUntil(SYNC_POINT_BEFORE_AGGREGATE_RESULTS_CLAIM, areq_timeout_or_spec_has_pending_writers, req);
+  SyncPoint_WaitUntil(SYNC_POINT_BEFORE_AGGREGATE_RESULTS_CLAIM, areq_timeout_or_pending_spec_writers, req);
 #endif
 
   // Bail if the RETURN-STRICT timeout callback already claimed (it replies)
