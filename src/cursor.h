@@ -106,13 +106,10 @@ typedef struct CursorList {
 
   /**
    * Module timer that fires at `nextIdleTimeoutNs` to reap expired idle
-   * cursors without requiring further client traffic. Valid iff
-   * `idleSweepTimerSet` is true.
+   * cursors without requiring further client traffic. Equal to
+   * `IDLE_SWEEP_TIMER_NONE` when no timer is currently armed.
    */
   RedisModuleTimerID idleSweepTimerId;
-
-  /** Whether `idleSweepTimerId` currently refers to an armed timer. */
-  bool idleSweepTimerSet;
 
   /** Is it an internal coordinator cursor or a user cursor */
   bool is_coord;

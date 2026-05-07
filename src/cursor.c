@@ -16,6 +16,10 @@
 
 #define Cursor_IsIdle(cur) ((cur)->pos != -1)
 
+// Sentinel `RedisModuleTimerID` value meaning "no idle-sweep timer is armed".
+// Redis assigns timer IDs from a non-zero seed, so `0` is safe to reserve.
+#define IDLE_SWEEP_TIMER_NONE ((RedisModuleTimerID)0)
+
 static void Cursors_RescheduleSweepLocked(CursorList *cl);
 static void Cursors_RequestRescheduleSweep(CursorList *cl);
 
@@ -196,7 +200,7 @@ static void cursorIdleSweepTimerCb(RedisModuleCtx *ctx, void *data) {
   CursorList *cl = data;
   CursorList_Lock(cl);
   // The timer ID is consumed when the callback fires.
-  cl->idleSweepTimerSet = false;
+  cl->idleSweepTimerId = IDLE_SWEEP_TIMER_NONE;
   Cursors_GCInternal(cl, 1);
   Cursors_RescheduleSweepLocked(cl);
   CursorList_Unlock(cl);
@@ -213,9 +217,9 @@ static void Cursors_RescheduleSweepLocked(CursorList *cl) {
     return;
   }
 
-  if (cl->idleSweepTimerSet) {
+  if (cl->idleSweepTimerId != IDLE_SWEEP_TIMER_NONE) {
     RedisModule_StopTimer(RSDummyContext, cl->idleSweepTimerId, NULL);
-    cl->idleSweepTimerSet = false;
+    cl->idleSweepTimerId = IDLE_SWEEP_TIMER_NONE;
   }
 
   uint64_t next_ns = Cursors_FindNextTimeoutNsLocked(cl);
@@ -234,7 +238,6 @@ static void Cursors_RescheduleSweepLocked(CursorList *cl) {
 
   cl->idleSweepTimerId = RedisModule_CreateTimer(RSDummyContext, period_ms,
                                                  cursorIdleSweepTimerCb, cl);
-  cl->idleSweepTimerSet = true;
 }
 
 // Event-loop one-shot callback that re-arms the idle-sweep timer on the main
@@ -382,15 +385,16 @@ int Cursor_Pause(Cursor *cur) {
     cur->nextTimeoutNs = curTimeNs() + ((uint64_t)cur->timeoutIntervalMs * 1000000);
     if (cur->nextTimeoutNs < cl->nextIdleTimeoutNs || cl->nextIdleTimeoutNs == 0) {
       cl->nextIdleTimeoutNs = cur->nextTimeoutNs;
+      // `Cursor_Pause` may run on a worker thread (see `cursorRead_ctx`), where
+      // the module timer API is unsafe to call directly. Defer the timer
+      // (re)arm to the main thread via a thread-safe one-shot. Skip when the
+      // already-armed timer fires no later than this cursor's deadline.
+      Cursors_RequestRescheduleSweep(cl);
     }
 
     /* Add to idle list */
     cur->pos = ARRAY_GETSIZE_AS(&cl->idle, Cursor **);
     *(Cursor **)(ARRAY_ADD_AS(&cl->idle, Cursor *)) = cur;
-    // `Cursor_Pause` may run on a worker thread (see `cursorRead_ctx`), where
-    // the module timer API is unsafe to call directly. Defer the timer
-    // (re)arm to the main thread via a thread-safe one-shot.
-    Cursors_RequestRescheduleSweep(cl);
   }
 
   CursorList_Unlock(cl);
@@ -524,9 +528,9 @@ void Cursors_RenderStatsForInfo(CursorList *cl, CursorList *cl_coord, const Inde
 
 void CursorList_Empty(CursorList *cl) {
   CursorList_Lock(cl);
-  if (cl->idleSweepTimerSet) {
+  if (cl->idleSweepTimerId != IDLE_SWEEP_TIMER_NONE) {
     RedisModule_StopTimer(RSDummyContext, cl->idleSweepTimerId, NULL);
-    cl->idleSweepTimerSet = false;
+    cl->idleSweepTimerId = IDLE_SWEEP_TIMER_NONE;
   }
   for (khiter_t ii = 0; ii != kh_end(cl->lookup); ++ii) {
     if (!kh_exist(cl->lookup, ii)) {

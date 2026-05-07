@@ -1,6 +1,6 @@
 from common import *
 
-from time import sleep, time
+from time import sleep
 from redis import ResponseError
 
 from cmath import inf
@@ -141,15 +141,10 @@ def testTimeout(env):
     # Maximum idle of 1ms
     q1 = ['FT.AGGREGATE', 'idx1', '*', 'LOAD', '1', '@f1', 'WITHCURSOR', 'COUNT', 10, 'MAXIDLE', 1]
     env.cmd(*q1)
-    exptime = time() + 2.5
-    rv = 1
-    while time() < exptime:
-        sleep(0.01)
-        env.cmd('FT.CURSOR', 'GC', 'idx1', '0')
-        rv = getCursorStats(env, 'idx1')['index_total']
-        if not rv:
-            break
-    env.assertEqual(0, rv)
+    with TimeLimit(2.5, "idle cursor was not reaped after MAXIDLE"):
+        while getCursorStats(env, 'idx1')['index_total']:
+            sleep(0.01)
+            env.cmd('FT.CURSOR', 'GC', 'idx1', '0')
 
 @skip(cluster=True)
 def testMaxIdleAutoReap(env):
@@ -162,14 +157,9 @@ def testMaxIdleAutoReap(env):
 
     # Wait comfortably longer than MAXIDLE; the module timer should have
     # reaped the cursor by now without us issuing any other command.
-    exptime = time() + 2.5
-    rv = 1
-    while time() < exptime:
-        sleep(0.05)
-        rv = getCursorStats(env, 'idx1')['index_total']
-        if not rv:
-            break
-    env.assertEqual(0, rv)
+    with TimeLimit(2.5, "idle cursor was not reaped at MAXIDLE"):
+        while getCursorStats(env, 'idx1')['index_total']:
+            sleep(0.05)
 
 @skip(cluster=True)
 def testDropIndexFreesIdleCursors(env):
@@ -196,14 +186,9 @@ def testDropIndexFreesIdleCursors(env):
 
     # Wait comfortably longer than MAXIDLE; the module timer must reap
     # the orphaned idle cursors without any further cursor traffic.
-    exptime = time() + 2.5
-    rv = n_cursors
-    while time() < exptime:
-        sleep(0.05)
-        rv = getCursorStats(env, 'idx2')['global_total']
-        if not rv:
-            break
-    env.assertEqual(0, rv)
+    with TimeLimit(2.5, "orphaned idle cursors were not reaped"):
+        while getCursorStats(env, 'idx2')['global_total']:
+            sleep(0.05)
 
 def testLeaked(env):
     # Ensure that sanitizer doesn't report memory leak for idle cursors.
