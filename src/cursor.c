@@ -178,10 +178,16 @@ int Cursors_CollectIdle(CursorList *cl) {
   return rc;
 }
 
-// Walks the idle list to find the earliest `nextTimeoutNs` over all idle
-// cursors. Returns 0 when the idle list is empty. Assumed to be called under
-// the cursor list lock.
-static uint64_t Cursors_FindNextTimeoutNsLocked(const CursorList *cl) {
+// Returns the earliest `nextTimeoutNs` over all idle cursors, or 0 when the
+// idle list is empty. Uses `cl->nextIdleTimeoutNs` as a cache: if non-zero it
+// is already the minimum (maintained by `Cursor_Pause` and invalidated by
+// `Cursor_RemoveFromIdle` when the minimum-holding cursor is removed), so the
+// scan is skipped. Otherwise the idle list is walked and the result is cached
+// before returning. Assumed to be called under the cursor list lock.
+static uint64_t Cursors_FindNextTimeoutNsLocked(CursorList *cl) {
+  if (cl->nextIdleTimeoutNs != 0) {
+    return cl->nextIdleTimeoutNs;
+  }
   uint64_t min_ns = 0;
   size_t n = ARRAY_GETSIZE_AS(&cl->idle, Cursor *);
   for (size_t i = 0; i < n; ++i) {
@@ -190,6 +196,7 @@ static uint64_t Cursors_FindNextTimeoutNsLocked(const CursorList *cl) {
       min_ns = cur->nextTimeoutNs;
     }
   }
+  cl->nextIdleTimeoutNs = min_ns;
   return min_ns;
 }
 
@@ -226,7 +233,6 @@ static void Cursors_RescheduleSweepLocked(CursorList *cl) {
   if (next_ns == 0) {
     return;
   }
-  cl->nextIdleTimeoutNs = next_ns;
 
   uint64_t now_ns = curTimeNs();
   mstime_t period_ms = 0;
