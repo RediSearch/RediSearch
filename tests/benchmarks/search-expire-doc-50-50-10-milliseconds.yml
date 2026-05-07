@@ -1,0 +1,39 @@
+version: 0.2
+name: "search-expire-doc-50-50-10-milliseconds"
+description: |
+  High write-ratio variant of search-expire-doc-10-milliseconds. Splits load
+  50/50 between FT.SEARCH and PEXPIRE so the doc-expiration fast path
+  dominates the workload — any throughput delta from
+  Indexes_UpdateMatchingDocExpiration (or any regression in the
+  notification-routing branch in OnKeySpaceNotification) shows up well above
+  the variance floor.
+
+  Active expiration is disabled so keys stay in the dataset and every PEXPIRE
+  is a pure TTL-only metadata update. Search side is a deterministic
+  catch-all to keep latency tight and re-triggers stable (>1000 QPS).
+
+metadata:
+  component: "search"
+  group: "expire-persist"
+  use_case: "PEXPIRE fast path under high write ratio (50/50) — signal amplification for regression detection"
+setups:
+  - oss-standalone
+
+dbconfig:
+  - dataset_name: "5200K-docs-union-iterators.idx10-expire-doc-50-50-10ms"
+  - tool: ftsb_redisearch
+  - parameters:
+    - workers: 64
+    - reporting-period: 1s
+    - input: "https://s3.amazonaws.com/benchmarks.redislabs/redisearch/datasets/5200K-docs-union-iterators/5200K-docs-union-iterators.idx10.commands.SETUP.csv"
+  - init_commands:
+      - '"DEBUG" "SET-ACTIVE-EXPIRE" "0"'
+      - '"FT.CREATE" "idx10" "PREFIX" "1" "idx10:" "SCHEMA" "field1" "NUMERIC" "field2" "TEXT" "field3" "TEXT" "field4" "NUMERIC" "field5" "NUMERIC" "field6" "NUMERIC" "field7" "NUMERIC" "field8" "NUMERIC" "field9" "NUMERIC"'
+  - dataset_load_timeout_secs: 180
+  - check:
+      keyspacelen: 5204050
+
+clientconfig:
+  benchmark_type: "mixed"
+  tool: memtier_benchmark
+  arguments: "--test-time 180 -c 16 -t 4 --hide-histogram --key-prefix 'idx10:' --key-minimum 1 --key-maximum 100000 --command 'FT.SEARCH idx10 * NOCONTENT LIMIT 0 1' --command-ratio 50 --command 'PEXPIRE __key__ 10' --command-ratio 50"
