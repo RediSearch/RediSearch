@@ -114,6 +114,10 @@ ifneq ($(REDIS_STANDALONE),)
     BUILD_ARGS += REDIS_STANDALONE=$(REDIS_STANDALONE)
 endif
 
+ifeq ($(WIP_FEATURES),1)
+	BUILD_ARGS += WIP_FEATURES=1
+endif
+
 ifeq ($(LTO),1)
 	BUILD_ARGS += LTO
 endif

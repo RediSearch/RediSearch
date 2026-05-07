@@ -3,6 +3,20 @@ from test_hybrid_internal import get_shard_slot_ranges
 import json
 
 
+def _skip_if_no_collect(env):
+    """Skip when the REDUCE COLLECT reducer was excluded at build time
+    (i.e. WIP_FEATURES=0)."""
+    try:
+        env.cmd('FT.CREATE', '__collect_probe_no_idx__', 'ON', 'HASH',
+               'SCHEMA', 'x', 'TAG', 'y', 'TAG')
+        env.cmd('FT.AGGREGATE', '__collect_probe_no_idx__', '*',
+                'GROUPBY', '1', '@x',
+                    'REDUCE', 'COLLECT', '3', 'FIELDS', '1', '@y')
+    except Exception as e:
+        if 'No such reducer' in str(e):
+            env.skip()
+
+
 # Fixed dataset: 6 fruits with known grouping properties.
 #   color groups: yellow (banana, lemon), red (apple, strawberry), green (kiwi, lime)
 #   sweetness groups: 4 (banana, apple), 2 (lemon, lime), 3 (strawberry, kiwi)
@@ -61,6 +75,7 @@ def _sort_collected(entries, key):
 def test_collect_cluster_merges_same_group_across_shards():
     env = Env(shardsCount=3, protocol=3)
     enable_unstable_features(env)
+    _skip_if_no_collect(env)
 
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH',
                'SCHEMA',
@@ -102,6 +117,7 @@ def test_collect_cluster_merges_same_group_across_shards():
 def test_collect_cluster_chained_groupby_collect():
     env = Env(protocol=3)
     enable_unstable_features(env)
+    _skip_if_no_collect(env)
 
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH',
                'SCHEMA',
@@ -151,6 +167,7 @@ def test_collect_cluster_chained_groupby_collect():
 def test_collect_1_field_hash():
     env = Env(protocol=3)
     enable_unstable_features(env)
+    _skip_if_no_collect(env)
     _setup_hash(env)
 
     res = env.cmd(
@@ -179,6 +196,7 @@ def test_collect_1_field_hash():
 def test_collect_3_fields_hash():
     env = Env(protocol=3)
     enable_unstable_features(env)
+    _skip_if_no_collect(env)
     _setup_hash(env)
 
     res = env.cmd(
@@ -214,6 +232,7 @@ def test_collect_3_fields_hash():
 def test_collect_1_field_json():
     env = Env(protocol=3)
     enable_unstable_features(env)
+    _skip_if_no_collect(env)
     _setup_json(env)
 
     res = env.cmd(
@@ -238,6 +257,7 @@ def test_collect_1_field_json():
 def test_collect_3_fields_json():
     env = Env(protocol=3)
     enable_unstable_features(env)
+    _skip_if_no_collect(env)
     _setup_json(env)
 
     res = env.cmd(
@@ -266,6 +286,7 @@ def test_collect_3_fields_json():
 def test_chained_groupby_collect():
     env = Env(protocol=3)
     enable_unstable_features(env)
+    _skip_if_no_collect(env)
     _setup_hash(env)
 
     res = env.cmd(
@@ -295,6 +316,7 @@ def test_chained_groupby_collect():
 def test_collect_missing_values():
     env = Env(protocol=3)
     enable_unstable_features(env)
+    _skip_if_no_collect(env)
     _setup_hash(env)
 
     res = env.cmd(
@@ -330,6 +352,7 @@ def test_collect_missing_values():
 def test_collect_alias():
     env = Env(protocol=3)
     enable_unstable_features(env)
+    _skip_if_no_collect(env)
     _setup_hash(env)
 
     res = env.cmd(
@@ -349,6 +372,7 @@ def test_collect_alias():
 def test_collect_multi_groupby_keys():
     env = Env(protocol=3)
     enable_unstable_features(env)
+    _skip_if_no_collect(env)
     _setup_hash(env)
 
     res = env.cmd(
@@ -372,6 +396,7 @@ def test_collect_multi_groupby_keys():
 def test_collect_output_structure():
     env = Env(protocol=3)
     enable_unstable_features(env)
+    _skip_if_no_collect(env)
     _setup_hash(env)
 
     res = env.cmd(
@@ -394,6 +419,8 @@ def test_collect_output_structure():
 # ---------------------------------------------------------------------------
 def test_collect_requires_unstable_features():
     env = Env()
+    enable_unstable_features(env)
+    _skip_if_no_collect(env)
     run_command_on_all_shards(env, 'CONFIG', 'SET', 'search-enable-unstable-features', 'no')
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH',
                'SCHEMA', 'name', 'TEXT', 'color', 'TAG').ok()
@@ -414,6 +441,7 @@ def test_collect_requires_unstable_features():
 def test_collect_loaded_json_path():
     env = Env(protocol=3)
     enable_unstable_features(env)
+    _skip_if_no_collect(env)
     env.expect('FT.CREATE', 'idx', 'ON', 'JSON',
                'SCHEMA', '$.name', 'AS', 'name', 'TEXT', 'SORTABLE').ok()
     conn = getConnectionByEnv(env)
@@ -446,6 +474,7 @@ def test_collect_internal_serializes_sort_fields():
     """In internal mode the shard includes SORTBY fields alongside FIELDS."""
     env = Env(protocol=3)
     enable_unstable_features(env)
+    _skip_if_no_collect(env)
     _setup_hash(env)
 
     _, slots_data = get_shard_slot_ranges(env)[0]
@@ -473,6 +502,7 @@ def test_collect_internal_without_sortby_equals_external_shape():
     """No spurious widening: _FT without SORTBY must match FT output."""
     env = Env(protocol=3)
     enable_unstable_features(env)
+    _skip_if_no_collect(env)
     _setup_hash(env)
 
     _, slots_data = get_shard_slot_ranges(env)[0]
@@ -511,6 +541,7 @@ def test_collect_internal_duplicate_field_and_sort():
     """
     env = Env(protocol=2)
     enable_unstable_features(env)
+    _skip_if_no_collect(env)
     _setup_hash(env)
 
     _, slots_data = get_shard_slot_ranges(env)[0]
@@ -600,6 +631,8 @@ def test_collect_internal_load_all_partial_load_emits_only_loaded_fields():
     schema, drives the load-all walk.
     """
     env = Env(protocol=2)
+    enable_unstable_features(env)
+    _skip_if_no_collect(env)
     _collect_load_all_index_with_three_fields(env)
 
     _, slots_data = get_shard_slot_ranges(env)[0]
@@ -637,6 +670,8 @@ def test_collect_internal_load_all_emits_dunder_key_when_loaded():
     to ``@__key``) is emitted.
     """
     env = Env(protocol=2)
+    enable_unstable_features(env)
+    _skip_if_no_collect(env)
     _collect_load_all_index_with_three_fields(env)
 
     _, slots_data = get_shard_slot_ranges(env)[0]
@@ -678,6 +713,8 @@ def test_collect_internal_load_all_with_load_star_emits_full_schema():
     and `@__key` cases above.
     """
     env = Env(protocol=2)
+    enable_unstable_features(env)
+    _skip_if_no_collect(env)
     _collect_load_all_index_with_three_fields(env)
 
     _, slots_data = get_shard_slot_ranges(env)[0]
@@ -716,6 +753,7 @@ def test_collect_internal_load_all_omits_missing_fields():
     """
     env = Env(protocol=2)
     enable_unstable_features(env)
+    _skip_if_no_collect(env)
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH',
                'SCHEMA',
                'name', 'TEXT', 'SORTABLE',
@@ -794,6 +832,7 @@ def test_collect_internal_load_all_emits_dollar_on_json():
     """
     env = Env(protocol=2)
     enable_unstable_features(env)
+    _skip_if_no_collect(env)
     _setup_json(env)
 
     _, slots_data = get_shard_slot_ranges(env)[0]
@@ -861,6 +900,7 @@ def test_collect_internal_no_load_emits_only_groupby_key_on_json():
     """
     env = Env(protocol=2)
     enable_unstable_features(env)
+    _skip_if_no_collect(env)
     _setup_json(env)
 
     _, slots_data = get_shard_slot_ranges(env)[0]
@@ -912,8 +952,9 @@ def test_chained_groupby_collect_load_all():
     """
     env = Env(protocol=3)
     enable_unstable_features(env)
-    _setup_hash(env)
+    _skip_if_no_collect(env)
 
+    _setup_hash(env)
     res = env.cmd(
         'FT.AGGREGATE', 'idx', '*',
         'GROUPBY', '1', '@color',
@@ -940,6 +981,7 @@ def test_chained_groupby_collect_load_all():
 def test_collect_resp2_sanity():
     env = Env(protocol=2)
     enable_unstable_features(env)
+    _skip_if_no_collect(env)
     _setup_hash(env)
 
     res = env.cmd(
@@ -983,6 +1025,7 @@ def test_collect_apply_alias_as_groupby_key():
     """
     env = Env(protocol=3)
     enable_unstable_features(env)
+    _skip_if_no_collect(env)
     _setup_hash(env)
 
     res = env.cmd(
@@ -1015,6 +1058,7 @@ def test_collect_apply_alias_as_field():
     """
     env = Env(protocol=3)
     enable_unstable_features(env)
+    _skip_if_no_collect(env)
     _setup_hash(env)
 
     res = env.cmd(
@@ -1055,6 +1099,7 @@ def test_chained_groupby_collect_apply_on_reducer_alias():
     """
     env = Env(protocol=3)
     enable_unstable_features(env)
+    _skip_if_no_collect(env)
     _setup_hash(env)
 
     res = env.cmd(
@@ -1099,6 +1144,7 @@ def test_chained_groupby_collect_apply_load_all():
     """
     env = Env(protocol=3)
     enable_unstable_features(env)
+    _skip_if_no_collect(env)
     _setup_hash(env)
 
     res = env.cmd(
@@ -1242,6 +1288,7 @@ def _names(entries):
 def test_collect_limit_without_sortby():
     env = Env(protocol=3)
     enable_unstable_features(env)
+    _skip_if_no_collect(env)
     _setup_priced_json(env)
 
     res = env.cmd(
@@ -1343,6 +1390,7 @@ def test_collect_sortby_without_limit_caps_at_default_10():
 def test_collect_array_path_capped_by_max_aggregate_results():
     env = Env(protocol=3)
     enable_unstable_features(env)
+    _skip_if_no_collect(env)
     _setup_priced_json(env)
 
     # Narrow the array-path cap; restore to unlimited at the end.
