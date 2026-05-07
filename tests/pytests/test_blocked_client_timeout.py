@@ -3878,11 +3878,12 @@ class TestShardTimeoutResp2:
 class TestNoDeadlockQueryWithConcurrentWriter:
     """MOD-15364: BG query holds the spec read lock; a concurrent writer
     parks on the spec write lock and blocks the main thread. With the fix,
-    the BG worker releases the read lock in its `cleanup:` label (before
-    `RedisModule_UnblockClient`), so the writer can acquire the write lock
-    and the main thread later runs the unblock callback. Without the fix,
-    the unblock callback never runs (main thread is parked on wrlock), the
-    read lock is never released, and the server deadlocks.
+    the BG worker releases the read lock on the BG thread (inside
+    `AREQ_Execute`, before `AREQ_DecrRef`) prior to `RedisModule_UnblockClient`,
+    so the writer can acquire the write lock and the main thread later runs
+    the unblock callback. Without the fix, the unblock callback never runs
+    (main thread is parked on wrlock), the read lock is never released, and
+    the server deadlocks.
 
     Reproduction sequence (per test):
       1. Pause the BG worker at `BeforeAggregateResultsClaim` (mid-pipeline,
@@ -3894,8 +3895,9 @@ class TestNoDeadlockQueryWithConcurrentWriter:
       3. The sync point's stop predicate (`PendingSpecWriters_Get() > 0`)
          sees the bump and lets the BG worker resume on its own. We can't
          use a `SIGNAL` here because the main thread is blocked.
-      4. BG worker finishes the pipeline, hits `cleanup:`, releases the
-         read lock (the fix), then calls `RedisModule_UnblockClient`.
+      4. BG worker finishes the pipeline; `AREQ_Execute` releases the read
+         lock (the fix) before dropping the worker's ref, then the callback
+         calls `RedisModule_UnblockClient`.
       5. Main thread acquires the wrlock, completes HSET, then processes
          the unblock callback.
     """

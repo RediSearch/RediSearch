@@ -1112,6 +1112,8 @@ void AREQ_Execute(AREQ *req, RedisModuleCtx *ctx) {
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
   sendChunk(req, reply, UINT64_MAX);
   RedisModule_EndReply(reply);
+  // Release the spec read lock before dropping our reference to `req`.
+  RedisSearchCtx_UnlockSpec(AREQ_SearchCtx(req));
   AREQ_DecrRef(req);
 }
 
@@ -1212,7 +1214,7 @@ void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
   SyncPoint_Wait(SYNC_POINT_BEFORE_SPEC_LOCK);
 #endif
 
-  // lock spec
+  // Lock spec. Should be released on the BG thread by every downstream path.
   RedisSearchCtx_LockSpecRead(sctx);
 
   if (prepareExecutionPlan(req, &status) != REDISMODULE_OK) {
@@ -1240,6 +1242,8 @@ void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
     int rc = AREQ_StartCursor(req, reply, execution_ref, &status, false);
     RedisModule_EndReply(reply);
     if (rc != REDISMODULE_OK) {
+      // Cursor reservation failed before runCursor could release the lock.
+      RedisSearchCtx_UnlockSpec(sctx);
       goto error;
     }
   } else {
@@ -1257,10 +1261,6 @@ error:
   AREQ_ReplyOrStoreError(req, outctx, &status);
 
 cleanup:
-  // Release the spec lock here, on the BG thread, before unblocking
-  // the client. Must be done in the BG thread to prevent deadlock with a
-  // concurrent writer (e.g. HSET) that is parked on the spec write lock.
-  RedisSearchCtx_UnlockSpec(AREQ_SearchCtx(req));
   RedisModule_FreeThreadSafeContext(outctx);
   IndexSpecRef_Release(execution_ref);
   blockedClientReqCtx_destroy(BCRctx);
