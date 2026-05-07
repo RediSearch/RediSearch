@@ -206,13 +206,7 @@ impl LocalCollectFixture {
     }
 
     fn load_all_reducer(&self) -> LocalCollectReducer<'_> {
-        LocalCollectReducer::new(
-            &self.input_key,
-            None,
-            Box::new([]),
-            0,
-            None,
-        )
+        LocalCollectReducer::new(&self.input_key, None, Box::new([]), 0, None)
     }
 
     fn outer_row(&self, payload: SharedValue) -> RLookupRow<'_> {
