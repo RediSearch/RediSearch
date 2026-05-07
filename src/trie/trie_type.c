@@ -65,6 +65,12 @@ int Trie_InsertRune(Trie *t, const rune *runes, size_t len, double score, int in
   return rc;
 }
 
+int Trie_InsertRuneNoSize(Trie *t, const rune *runes, size_t len, double score, int incr,
+                          RSPayload *payload, size_t numDocs) {
+  return TrieNode_Add(&t->root, runes, len, payload, (float)score, incr ? ADD_INCR : ADD_REPLACE,
+                      t->freecb, numDocs);
+}
+
 int Trie_Delete(Trie *t, const char *s, size_t len) {
   runeBuf buf;
   rune *runes = runeBufFill(s, len, &buf, &len);
@@ -80,6 +86,29 @@ int Trie_DeleteRunes(Trie *t, const rune *runes, size_t len) {
   int rc = TrieNode_Delete(t->root, runes, len, t->freecb);
   t->size -= rc;
   return rc;
+}
+
+TrieNode *Trie_GetNode(Trie *t, const rune *str, t_len len, bool exact, int *offsetOut) {
+  return TrieNode_Get(t->root, str, len, exact, offsetOut);
+}
+
+void Trie_IterateRange(Trie *t, const rune *min, int minlen, bool includeMin,
+                       const rune *max, int maxlen, bool includeMax,
+                       TrieRangeCallback callback, void *ctx) {
+  TrieNode_IterateRange(t->root, min, minlen, includeMin, max, maxlen, includeMax, callback, ctx);
+}
+
+void Trie_IterateContains(Trie *t, const rune *str, int nstr, bool prefix, bool suffix,
+                          TrieRangeCallback callback, void *ctx, struct timespec *timeout,
+                          bool skipTimeoutChecks) {
+  TrieNode_IterateContains(t->root, str, nstr, prefix, suffix, callback, ctx, timeout,
+                           skipTimeoutChecks);
+}
+
+void Trie_IterateWildcard(Trie *t, const rune *str, int nstr,
+                          TrieRangeCallback callback, void *ctx, struct timespec *timeout,
+                          bool skipTimeoutChecks) {
+  TrieNode_IterateWildcard(t->root, str, nstr, callback, ctx, timeout, skipTimeoutChecks);
 }
 
 // Forward declaration for the internal rune-based function
@@ -159,6 +188,10 @@ static int cmpEntries(const void *p1, const void *p2, const void *udata) {
     return -1;
   }
   return 0;
+}
+
+TrieIterator *Trie_IterateAll(Trie *t) {
+  return TrieNode_Iterate(t->root, NULL, NULL, NULL);
 }
 
 TrieIterator *Trie_Iterate(Trie *t, const char *prefix, size_t len, int maxDist, int prefixMode) {
