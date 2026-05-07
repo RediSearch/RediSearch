@@ -47,9 +47,9 @@ pub struct AutomatonIter<'tm, Data, A: Automaton> {
 ///   [`StateClass::Permanent`] for some ancestor, every descendant in the
 ///   subtree is guaranteed to match. We push these without state and skip
 ///   `classify` on pop, which avoids a `state.clone()` per child
-///   (significant for the wider `InlineStateSet` / `HeapStateSet` bitsets)
-///   and the redundant classify calls that would all return `Permanent`
-///   anyway.
+///   (significant for the wider state representations like `InlineStateSet`
+///   and the sparse-set automaton's `SparseStateSet`) and the redundant
+///   classify calls that would all return `Permanent` anyway.
 enum Frame<'tm, Data, S> {
     Visit {
         node: &'tm Node<Data>,
@@ -137,8 +137,8 @@ impl<'tm, Data, A: Automaton> AutomatonIter<'tm, Data, A> {
                             // automaton work — push them as
                             // `PermanentVisit`, which doesn't carry state
                             // and skips `classify` on pop. Avoids
-                            // `state.clone()` per child (a heap alloc for
-                            // the spilled bitset).
+                            // `state.clone()` per child (potentially a heap
+                            // alloc for the wider state representations).
                             for child in node.children().iter().rev() {
                                 self.stack.push(Frame::PermanentVisit {
                                     node: child,

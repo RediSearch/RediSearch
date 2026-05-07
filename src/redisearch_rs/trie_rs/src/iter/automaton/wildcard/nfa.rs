@@ -184,10 +184,10 @@ impl<S: NfaBitSet> WildcardNfa<S> {
     /// Compile a pattern to an NFA backed by `S`.
     ///
     /// The caller is responsible for picking an `S` whose capacity is large
-    /// enough for the pattern's atom count (≤ 63 for `u64`, ≤ 127 for
-    /// `u128`, ≤ 255 for [`InlineStateSet`](super::atoms::InlineStateSet),
-    /// ≤ `N * 64 - 1` for [`HeapStateSet<N>`](super::atoms::HeapStateSet),
-    /// unlimited for [`LargeHeapStateSet`](super::atoms::LargeHeapStateSet)).
+    /// enough for the pattern's atom count: ≤ 63 for `u64`, ≤ 127 for
+    /// `u128`, ≤ 255 for [`InlineStateSet`](super::atoms::InlineStateSet).
+    /// Patterns past 255 atoms must use the sparse-set automaton in
+    /// [`super::sparse`] instead — the bitset trait can't represent them.
     pub fn compile(pattern: &WildcardPattern<'_>) -> Self {
         let atoms = flatten(pattern);
         let accept = atoms.len();

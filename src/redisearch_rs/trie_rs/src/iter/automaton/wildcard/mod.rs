@@ -103,23 +103,28 @@ impl<'tm, Data> WildcardSpecializedIter<'tm, Data> {
 /// concrete NFA constructors so each variant gets a fully-monomorphized
 /// hot path.
 pub enum BitSetClass {
+    /// `u64` bitset — covers patterns with ≤ 63 atoms.
     U64,
+    /// `u128` bitset — covers patterns with ≤ 127 atoms.
     U128,
+    /// [`InlineStateSet`] (`[u64; 4]` on the stack) — covers patterns with
+    /// ≤ 255 atoms.
     Inline,
     /// [`WildcardSparseNfa`] — sparse-set automaton, used for any pattern
-    /// large enough that a stack bitset wouldn't fit.
+    /// past the largest stack-resident bitset class.
     Sparse,
 }
 
 impl BitSetClass {
     pub fn for_pattern(pattern: &WildcardPattern<'_>) -> Self {
-        // The bitset must hold positions `0..=n_atoms` (n_atoms + 1 bits).
-        let bits_needed = count_atoms(pattern) + 1;
-        if bits_needed <= 64 {
+        // The state must reach position `accept = n_atoms`, so we need
+        // capacity for `n_atoms + 1` distinct positions.
+        let positions_needed = count_atoms(pattern) + 1;
+        if positions_needed <= 64 {
             Self::U64
-        } else if bits_needed <= 128 {
+        } else if positions_needed <= 128 {
             Self::U128
-        } else if bits_needed <= 256 {
+        } else if positions_needed <= 256 {
             Self::Inline
         } else {
             Self::Sparse

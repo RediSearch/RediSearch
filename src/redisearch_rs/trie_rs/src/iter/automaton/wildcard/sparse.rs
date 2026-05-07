@@ -9,46 +9,53 @@
 
 //! Sparse-set wildcard automaton.
 //!
-//! For patterns large enough that a bitset-backed automaton would heap-allocate
-//! per state ([`super::WildcardNfa`] with `Box<[u64; N]>`-style bitsets), we
-//! switch to a sparse representation: each frame on the trie iterator's stack
-//! holds **only** the dense list of currently-active NFA positions, while two
-//! shared "scratch" sparse-sets — one for current, one for next — live in the
-//! automaton itself and are recycled across every `step_all` call via the
+//! Used for patterns past 255 atoms — beyond what the stack-resident
+//! bitsets in [`super::atoms`] cover. Instead of representing each active
+//! state as a wide bitset that would have to live on the heap, we keep the
+//! per-frame state as a short list of active NFA positions and run all
+//! transitions through two shared sparse-set scratches that live inside
+//! the automaton and are recycled across every `step_all` call via the
 //! O(1)-clear trick from [regex-automata]'s `SparseSet`.
 //!
-//! This kills the per-byte malloc that dominated heap-bitset profiles and
-//! turns ε-closure unions from "OR a 64–256-byte buffer" into "iterate a
+//! This kills the per-byte malloc that would otherwise dominate, and
+//! turns ε-closure unions from "OR a 64+ byte bitset" into "iterate a
 //! short list of positions and `insert` each".
 //!
 //! [regex-automata]: https://docs.rs/regex-automata
 //!
 //! ## Layout
 //!
-//! - [`SparseStateSet`] is the per-frame, per-yield state — a
-//!   [`SmallVec<[u32; 4]>`] of active positions in insertion order. Frames
+//! - [`SparseStateSet`] — the per-frame, per-yield state. A `SmallVec` of
+//!   up to 4 inline `u32` positions plus a cached [`StateClass`]. Frames
 //!   on the trie's traversal stack carry one of these; for sparse states
-//!   (the common case) it stays inline at 16 bytes, no heap.
-//! - [`WorkSet`] is the recycled internal scratch — a paired `dense` /
-//!   `sparse` buffer, sized once at compile time to `n_atoms + 1`. The
-//!   `sparse` buffer is *never* zeroed between clears: membership testing
-//!   filters out stale entries via the `sparse[id] < len && dense[…] == id`
+//!   (the common case) it stays inline at ~16 bytes with no heap.
+//! - [`WorkSet`] — the recycled internal scratch. A paired `dense` /
+//!   `sparse` buffer, each sized to `n_atoms + 1`. The `sparse` buffer is
+//!   never zeroed between clears: membership testing filters out stale
+//!   entries via the `sparse[id] < len && dense[sparse[id]] == id`
 //!   invariant.
-//! - [`SparseEpsilonRow`] is the same `Singleton(usize) | Set(small list)`
-//!   row representation [`super::nfa::EpsilonRow`] uses, just with
-//!   position-list rows instead of bitset rows. Most rows are singletons
-//!   for typical patterns.
+//! - [`EpsilonTable`] — the precomputed ε-closure table. Laid out so that
+//!   the dominant "trivial singleton" case (the closure of a non-`Any`
+//!   position is just `{position}`) skips the table lookup entirely; only
+//!   the closures of `Any` atoms get a stored entry, typically a small
+//!   minority of positions for real patterns.
 
 use super::super::{Automaton, StateClass};
 use super::atoms::{Atom, flatten};
 use smallvec::SmallVec;
 use wildcard::WildcardPattern;
 
-/// Per-frame active state — just the dense list of NFA positions currently
-/// active. `Clone` is a `SmallVec` clone (one shallow copy when inline).
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+/// Per-frame active state — the dense list of NFA positions currently
+/// active, plus a precomputed [`StateClass`] so `classify` is a field read
+/// instead of two linear scans over `dense`.
+///
+/// `class` is computed once at snapshot time using the automaton's `work`
+/// scratch (which has an O(1) `contains` via its sparse buffer); the trie
+/// driver then reads it back for free per pop.
+#[derive(Clone, Debug)]
 pub struct SparseStateSet {
     pub(super) dense: SmallVec<[u32; 4]>,
+    pub(super) class: StateClass,
 }
 
 /// Internal recycled scratch implementing regex-automata's sparse-set trick:
@@ -118,14 +125,27 @@ impl WorkSet {
     }
 }
 
-/// One row of the ε-closure table — a position list, mirroring
-/// [`super::nfa::EpsilonRow`] but storing positions rather than bitset
-/// words. Most rows for typical patterns are `Singleton`.
+/// ε-closure table laid out for the common case where most rows are
+/// trivially `{target}`.
+///
+/// `closure_index[target]`:
+/// - `NON_ANY` → `target` is a non-`Any` atom (or the accept position);
+///   the ε-closure is just `{target}`. Skip the table lookup and
+///   `next.insert(target)` directly.
+/// - else → index into `any_closures`; iterate that closure and insert
+///   each position.
+///
+/// Memory cost per pattern: one `u32` per atom + `accept` (the index),
+/// plus one `Box<[u32]>` per `Any` atom. For a 1102-atom pattern with 2
+/// `Any` atoms this is ~4.4 KB total — vs ~35 KB for a per-row enum
+/// representation.
 #[derive(Debug)]
-pub(super) enum SparseEpsilonRow {
-    Singleton(u32),
-    Set(SmallVec<[u32; 4]>),
+pub(super) struct EpsilonTable {
+    closure_index: Box<[u32]>,
+    any_closures: Vec<Box<[u32]>>,
 }
+
+const NON_ANY: u32 = u32::MAX;
 
 /// Sparse-set wildcard automaton.
 ///
@@ -145,10 +165,14 @@ pub struct WildcardSparseNfa {
     accept_pos: u32,
     /// `Some(table)` if the pattern has `Any` atoms; `None` otherwise
     /// (ε-closure would be a no-op in that case and we skip it).
-    epsilon_table: Option<Vec<SparseEpsilonRow>>,
-    /// Working scratch holding the input state of the current step.
+    epsilon_table: Option<EpsilonTable>,
+    /// Working scratch holding the source positions for the current step.
+    /// In `step_all`, the very first byte reads directly from
+    /// `state.dense` (saving an ingest pass); subsequent bytes flow through
+    /// `work` ↔ `next` swaps so we never re-populate from scratch.
     work: WorkSet,
-    /// Working scratch receiving the output of the current step.
+    /// Working scratch receiving the destination positions of the current
+    /// step. Must already be cleared on entry to `transition_into_next`.
     next: WorkSet,
 }
 
@@ -172,10 +196,10 @@ impl WildcardSparseNfa {
             .any(|a| matches!(a, Atom::Any))
             .then(|| build_sparse_epsilon_table(&atoms));
 
-        let start_state = initial_state(accept, epsilon_table.as_deref());
-
         let trailing_star =
             matches!(atoms.last(), Some(Atom::Any)).then(|| (atoms.len() - 1) as u32);
+
+        let start_state = initial_state(accept as u32, trailing_star, epsilon_table.as_ref());
 
         Self {
             atoms,
@@ -188,75 +212,103 @@ impl WildcardSparseNfa {
         }
     }
 
-    /// Populate `work` from a stored frame state.
+    /// Compute one byte transition: read positions from `source`, write the
+    /// resulting positions into `next`. `next` must already be cleared.
+    ///
+    /// Free function (not a method) so callers can split-borrow `self.work`
+    /// and `self.next` — the source is `self.work.dense_slice()` between
+    /// the bytes of a multi-byte label.
     #[inline]
-    fn load_state(&mut self, state: &SparseStateSet) {
-        self.work.clear();
-        for &p in &state.dense {
-            self.work.insert(p as usize);
-        }
-    }
-
-    /// Compute one byte transition: read positions from `self.work`, write
-    /// the resulting positions into `self.next`. `self.next` must already
-    /// be cleared.
-    #[inline]
-    fn transition(&mut self, byte: u8) {
-        match self.epsilon_table.as_deref() {
+    fn transition_into_next(
+        atoms: &[Atom],
+        epsilon_table: Option<&EpsilonTable>,
+        source: &[u32],
+        byte: u8,
+        next: &mut WorkSet,
+    ) {
+        match epsilon_table {
             Some(table) => {
-                let dense = &self.work.dense[..self.work.len];
-                for &pos_u32 in dense {
+                for &pos_u32 in source {
                     let pos = pos_u32 as usize;
                     // Accept position is a sink with no outgoing transition.
-                    if pos >= self.atoms.len() {
+                    if pos >= atoms.len() {
                         continue;
                     }
-                    let target = match self.atoms[pos] {
+                    let target = match atoms[pos] {
                         Atom::Byte(b) if b == byte => pos + 1,
                         Atom::Byte(_) => continue,
                         Atom::One => pos + 1,
                         Atom::Any => pos,
                     };
-                    // SAFETY-by-construction: `target` is in `0..=atoms.len()`,
-                    // matching the table's length `n + 1`.
-                    match &table[target] {
-                        SparseEpsilonRow::Singleton(p) => {
-                            self.next.insert(*p as usize);
-                        }
-                        SparseEpsilonRow::Set(positions) => {
-                            for &p in positions {
-                                self.next.insert(p as usize);
-                            }
+                    // The dominant case is the trivial-singleton row:
+                    // `closure_index[target] == NON_ANY`, meaning the
+                    // ε-closure of `{target}` is just `{target}`. Skip the
+                    // closure lookup entirely and `insert(target)` directly.
+                    let idx = table.closure_index[target];
+                    if idx == NON_ANY {
+                        next.insert(target);
+                    } else {
+                        for &p in &table.any_closures[idx as usize] {
+                            next.insert(p as usize);
                         }
                     }
                 }
             }
             None => {
-                let dense = &self.work.dense[..self.work.len];
-                for &pos_u32 in dense {
+                for &pos_u32 in source {
                     let pos = pos_u32 as usize;
-                    if pos >= self.atoms.len() {
+                    if pos >= atoms.len() {
                         continue;
                     }
-                    let target = match self.atoms[pos] {
+                    let target = match atoms[pos] {
                         Atom::Byte(b) if b == byte => pos + 1,
                         Atom::Byte(_) => continue,
                         Atom::One => pos + 1,
                         // Unreachable: `epsilon_table` is `None` iff no `Any`.
                         Atom::Any => continue,
                     };
-                    self.next.insert(target);
+                    next.insert(target);
                 }
             }
         }
     }
 
+    /// Classify `self.work` using the sparse buffer's O(1) `contains` — much
+    /// cheaper than `state.dense.contains(...)`'s linear scan, which is what
+    /// a naive [`Automaton::classify`] would do on the snapshot. Cached on
+    /// the resulting [`SparseStateSet`].
+    #[inline]
+    fn classify_work(&self) -> StateClass {
+        // Trailing-`*`: once that position is active, every subsequent byte
+        // self-loops and accept stays in via ε-closure.
+        if let Some(pos) = self.trailing_star
+            && self.work.contains(pos as usize)
+        {
+            return StateClass::Permanent;
+        }
+        // `{accept}` and only `{accept}` has no outgoing transitions — the
+        // unique terminal state for fixed-length patterns.
+        let accept = self.accept_pos as usize;
+        if self.work.len == 1 && self.work.dense[0] == self.accept_pos {
+            return StateClass::Terminal;
+        }
+        if self.work.contains(accept) {
+            StateClass::LiveAccepting
+        } else {
+            StateClass::Live
+        }
+    }
+
     /// Snapshot `self.work` into an owned [`SparseStateSet`] for storage in
-    /// a trie frame.
+    /// a trie frame. Uses [`SmallVec::from_slice`] so the inline case is a
+    /// single memcpy, and precomputes the [`StateClass`] using the sparse
+    /// buffer.
     #[inline]
     fn snapshot_work(&self) -> SparseStateSet {
-        let dense: SmallVec<[u32; 4]> = self.work.dense_slice().iter().copied().collect();
-        SparseStateSet { dense }
+        SparseStateSet {
+            dense: SmallVec::from_slice(self.work.dense_slice()),
+            class: self.classify_work(),
+        }
     }
 }
 
@@ -268,9 +320,14 @@ impl Automaton for WildcardSparseNfa {
     }
 
     fn step(&mut self, state: &Self::State, byte: u8) -> Option<Self::State> {
-        self.load_state(state);
         self.next.clear();
-        self.transition(byte);
+        Self::transition_into_next(
+            &self.atoms,
+            self.epsilon_table.as_ref(),
+            &state.dense,
+            byte,
+            &mut self.next,
+        );
         if self.next.is_empty() {
             return None;
         }
@@ -279,45 +336,45 @@ impl Automaton for WildcardSparseNfa {
     }
 
     fn classify(&self, state: &Self::State) -> StateClass {
-        // Trailing-`*`: once that position is active, every subsequent byte
-        // self-loops and accept stays in via ε-closure.
-        if let Some(pos) = self.trailing_star
-            && state.dense.contains(&pos)
-        {
-            return StateClass::Permanent;
-        }
-        // `{accept}` and only `{accept}` has no outgoing transitions — the
-        // unique terminal state for fixed-length patterns.
-        if state.dense.len() == 1 && state.dense[0] == self.accept_pos {
-            return StateClass::Terminal;
-        }
-        if state.dense.contains(&self.accept_pos) {
-            StateClass::LiveAccepting
-        } else {
-            StateClass::Live
-        }
+        // Cached at snapshot time via `classify_work`, which uses
+        // `WorkSet`'s O(1) sparse contains. Reading the field here is
+        // strictly faster than re-scanning `state.dense`.
+        state.class
     }
 
     fn step_all(&mut self, state: &Self::State, bytes: &[u8]) -> Option<Self::State> {
-        // Empty label — the state passes through unchanged. Just hand back a
-        // clone (cheap: short `SmallVec`).
+        // Empty label — the state passes through unchanged.
         let Some((&first, rest)) = bytes.split_first() else {
             return Some(state.clone());
         };
 
-        // Ingest the input state into `work`, then alternate between
-        // `work` (current) and `next` (output) for every byte.
-        self.load_state(state);
+        // First byte: source is `state.dense`. We avoid ingesting it into
+        // `self.work` because the source side never needs `O(1)` contains —
+        // only the destination does.
         self.next.clear();
-        self.transition(first);
+        Self::transition_into_next(
+            &self.atoms,
+            self.epsilon_table.as_ref(),
+            &state.dense,
+            first,
+            &mut self.next,
+        );
         if self.next.is_empty() {
             return None;
         }
+        // Move the result into `self.work` so subsequent bytes can swap
+        // through the work/next pair.
         std::mem::swap(&mut self.work, &mut self.next);
 
         for &byte in rest {
             self.next.clear();
-            self.transition(byte);
+            Self::transition_into_next(
+                &self.atoms,
+                self.epsilon_table.as_ref(),
+                self.work.dense_slice(),
+                byte,
+                &mut self.next,
+            );
             if self.next.is_empty() {
                 return None;
             }
@@ -328,53 +385,91 @@ impl Automaton for WildcardSparseNfa {
     }
 }
 
-/// Build the per-position ε-closure table as a list of position-list rows.
+/// Build the ε-closure table.
 ///
-/// Mirrors the logic of [`super::nfa::build_epsilon_table`] but stores rows
-/// as `Singleton(usize)` (no allocation) for `Byte`/`One` atoms and the
-/// accept row, and `Set(SmallVec<…>)` (small list of positions) for `Any`
-/// atoms.
-fn build_sparse_epsilon_table(atoms: &[Atom]) -> Vec<SparseEpsilonRow> {
+/// Computed right-to-left so each `Any` row can union in whatever the next
+/// row contains. Non-`Any` rows leave `closure_index` at [`NON_ANY`] —
+/// their closure is implicitly `{i}` and the hot loop skips the lookup.
+fn build_sparse_epsilon_table(atoms: &[Atom]) -> EpsilonTable {
     let n = atoms.len();
-    let mut table: Vec<SparseEpsilonRow> = Vec::with_capacity(n + 1);
-    table.push(SparseEpsilonRow::Singleton(n as u32));
+    let mut closure_index = vec![NON_ANY; n + 1].into_boxed_slice();
+    let mut any_closures: Vec<Box<[u32]>> = Vec::new();
+
+    // Walking right-to-left, we need the closure of `i+1` when we build
+    // the closure of `i` for an `Any` atom. That closure is either:
+    //   - `{i+1}` (when `i+1` is non-`Any`) — implicit, just track the
+    //     position in `prev_singleton`.
+    //   - the full closure (when `i+1` is `Any`) — track its index in
+    //     `prev_any_idx` so we can copy its contents.
+    //
+    // The accept position `i = n` is always a non-`Any` singleton `{n}`.
+    let mut prev_any_idx: Option<usize> = None;
+    let mut prev_singleton: u32 = n as u32;
+
     for i in (0..n).rev() {
-        let entry = if matches!(atoms[i], Atom::Any) {
-            // Closure of `{i}` spans more than one position: build a list.
-            let mut positions: SmallVec<[u32; 4]> = SmallVec::new();
+        if matches!(atoms[i], Atom::Any) {
+            let mut positions: Vec<u32> = Vec::with_capacity(2);
             positions.push(i as u32);
-            // SAFETY: `table` has at least the accept row pushed above
-            // plus whatever we've pushed in earlier loop iterations.
-            match table.last().unwrap() {
-                SparseEpsilonRow::Singleton(p) => positions.push(*p),
-                SparseEpsilonRow::Set(others) => {
-                    for &p in others {
-                        positions.push(p);
-                    }
-                }
+            match prev_any_idx {
+                Some(idx) => positions.extend_from_slice(&any_closures[idx]),
+                None => positions.push(prev_singleton),
             }
-            SparseEpsilonRow::Set(positions)
+            let new_idx = any_closures.len();
+            any_closures.push(positions.into_boxed_slice());
+            closure_index[i] = new_idx as u32;
+            prev_any_idx = Some(new_idx);
         } else {
-            SparseEpsilonRow::Singleton(i as u32)
-        };
-        table.push(entry);
+            // Non-`Any`: closure is implicitly `{i}`. Leave
+            // `closure_index[i] == NON_ANY`.
+            prev_any_idx = None;
+            prev_singleton = i as u32;
+        }
     }
-    table.reverse();
-    table
+
+    EpsilonTable {
+        closure_index,
+        any_closures,
+    }
 }
 
 /// The NFA's start state — `{0}`, optionally extended via ε-closure when
-/// the pattern has `Any` atoms.
-fn initial_state(n_atoms: usize, epsilon_table: Option<&[SparseEpsilonRow]>) -> SparseStateSet {
+/// the pattern has `Any` atoms. Computes [`StateClass`] inline for the
+/// initial set so the cached field is always populated.
+fn initial_state(
+    accept_pos: u32,
+    trailing_star: Option<u32>,
+    epsilon_table: Option<&EpsilonTable>,
+) -> SparseStateSet {
     let dense: SmallVec<[u32; 4]> = match epsilon_table {
-        Some(table) => match &table[0] {
-            SparseEpsilonRow::Singleton(p) => SmallVec::from_slice(&[*p]),
-            SparseEpsilonRow::Set(positions) => positions.clone(),
-        },
-        None => {
-            let _ = n_atoms; // silence unused-warning when `Any`-free.
-            SmallVec::from_slice(&[0u32])
+        Some(table) => {
+            let idx = table.closure_index[0];
+            if idx == NON_ANY {
+                SmallVec::from_slice(&[0u32])
+            } else {
+                SmallVec::from_slice(&table.any_closures[idx as usize])
+            }
         }
+        None => SmallVec::from_slice(&[0u32]),
     };
-    SparseStateSet { dense }
+    let class = classify_dense(&dense, accept_pos, trailing_star);
+    SparseStateSet { dense, class }
+}
+
+/// Linear classify over a dense list. Used only for the start state (small,
+/// classified once) — the hot path uses [`WildcardSparseNfa::classify_work`]
+/// which exploits the sparse buffer for O(1) contains.
+fn classify_dense(dense: &[u32], accept_pos: u32, trailing_star: Option<u32>) -> StateClass {
+    if let Some(pos) = trailing_star
+        && dense.contains(&pos)
+    {
+        return StateClass::Permanent;
+    }
+    if dense.len() == 1 && dense[0] == accept_pos {
+        return StateClass::Terminal;
+    }
+    if dense.contains(&accept_pos) {
+        StateClass::LiveAccepting
+    } else {
+        StateClass::Live
+    }
 }

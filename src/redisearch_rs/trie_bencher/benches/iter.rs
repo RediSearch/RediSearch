@@ -25,6 +25,35 @@ fn iter_benches_wiki1k(c: &mut Criterion) {
     bencher.wildcard_group(c, "Ab*");
     // Fixed length.
     bencher.wildcard_group(c, "Apollo ??");
+
+    // Sanity-check benches for the wide-state dispatch on a smaller corpus.
+    // One per `BitSetClass` past `u64`; same pattern shapes as the Gutenberg
+    // benches so the routing is exercised end-to-end on this corpus too.
+    let low_overlap_70: String = std::iter::once('Z')
+        .chain((b'a'..=b'z').map(char::from).cycle().take(69))
+        .collect();
+    bencher.wildcard_group_labeled(
+        c,
+        "*Zabc…×70* (72 atoms, u128)",
+        &format!("*{low_overlap_70}*"),
+    );
+    let low_overlap_130: String = std::iter::once('Z')
+        .chain((b'a'..=b'z').map(char::from).cycle().take(129))
+        .collect();
+    bencher.wildcard_group_labeled(
+        c,
+        "*Zabc…×130* (132 atoms, inline)",
+        &format!("*{low_overlap_130}*"),
+    );
+    let low_overlap_260: String = std::iter::once('Z')
+        .chain((b'a'..=b'z').map(char::from).cycle().take(259))
+        .collect();
+    bencher.wildcard_group_labeled(
+        c,
+        "*Zabc…×260* (262 atoms, sparse)",
+        &format!("*{low_overlap_260}*"),
+    );
+
     bencher.into_values_group(c, "IntoValues iterator");
 }
 
@@ -40,22 +69,22 @@ fn iter_benches_gutenberg(c: &mut Criterion) {
 
     // Patterns that exercise the wide-state paths in the wildcard NFA.
     // The dispatcher picks the most efficient state representation that
-    // fits a pattern's atom count: `u64` covers up to 63 atoms, `u128` up
-    // to 127, `InlineStateSet` (`[u64; 4]` on the stack) up to 255, and
+    // fits a pattern's atom count: `u64` up to 63 atoms, `u128` up to 127,
+    // `InlineStateSet` (`[u64; 4]` on the stack) up to 255, and
     // `WildcardSparseNfa` (a sparse-set automaton with recycled scratches)
     // for anything larger.
     //
-    // For the 72-atom (u128) case we run two shapes back-to-back so the
+    // For the 72-atom (u128) class we run two shapes back-to-back so the
     // contrast is visible:
     //
     // - High self-overlap (`*a×70*`): every position in the literal is a
     //   valid match-start, so the NFA's active set fills the entire bitset
     //   during traversal and `union_in_place` does maximum work per byte.
     // - Low self-overlap (`*Zabc…×70*`): the literal starts with a
-    //   character (`Z`) that doesn't appear in the rest of the body, so the
-    //   active set stays narrow (≈ 3 positions) throughout. This is the
-    //   typical shape for real long patterns — e.g., codepoint-lifted UTF-8
-    //   queries.
+    //   character (`Z`) that doesn't appear in the rest of the body, so
+    //   the active set stays narrow (≈ 3 positions) throughout. This is
+    //   the typical shape for real long patterns — e.g., codepoint-lifted
+    //   UTF-8 queries.
     //
     // Each pattern flattens to `N + 2` atoms (one per literal byte plus
     // the two bookends). The leading `*` defeats the literal-prefix
@@ -63,17 +92,17 @@ fn iter_benches_gutenberg(c: &mut Criterion) {
     let high_overlap_70 = format!("*{}*", "a".repeat(70));
     bencher.wildcard_group_labeled(
         c,
-        "*a×70* (72 atoms, u128 bitset, high self-overlap)",
+        "*a×70* (72 atoms, u128, high self-overlap)",
         &high_overlap_70,
     );
     let low_overlap_70: String = std::iter::once('Z')
         .chain((b'a'..=b'z').map(char::from).cycle().take(69))
         .collect();
-    let pattern_2_words = format!("*{low_overlap_70}*");
+    let pattern_u128_low = format!("*{low_overlap_70}*");
     bencher.wildcard_group_labeled(
         c,
-        "*Zabc…×70* (72 atoms, u128 bitset, low self-overlap)",
-        &pattern_2_words,
+        "*Zabc…×70* (72 atoms, u128, low self-overlap)",
+        &pattern_u128_low,
     );
     let low_overlap_130: String = std::iter::once('Z')
         .chain((b'a'..=b'z').map(char::from).cycle().take(129))
@@ -81,7 +110,7 @@ fn iter_benches_gutenberg(c: &mut Criterion) {
     let pattern_inline = format!("*{low_overlap_130}*");
     bencher.wildcard_group_labeled(
         c,
-        "*Zabc…×130* (132 atoms, inline [u64; 4] bitset)",
+        "*Zabc…×130* (132 atoms, inline)",
         &pattern_inline,
     );
     let low_overlap_260: String = std::iter::once('Z')
@@ -90,7 +119,7 @@ fn iter_benches_gutenberg(c: &mut Criterion) {
     let pattern_sparse_small = format!("*{low_overlap_260}*");
     bencher.wildcard_group_labeled(
         c,
-        "*Zabc…×260* (262 atoms, sparse-set automaton)",
+        "*Zabc…×260* (262 atoms, sparse)",
         &pattern_sparse_small,
     );
     let low_overlap_600: String = std::iter::once('Z')
@@ -99,7 +128,7 @@ fn iter_benches_gutenberg(c: &mut Criterion) {
     let pattern_sparse_medium = format!("*{low_overlap_600}*");
     bencher.wildcard_group_labeled(
         c,
-        "*Zabc…×600* (602 atoms, sparse-set automaton)",
+        "*Zabc…×600* (602 atoms, sparse)",
         &pattern_sparse_medium,
     );
     let low_overlap_1100: String = std::iter::once('Z')
@@ -108,32 +137,32 @@ fn iter_benches_gutenberg(c: &mut Criterion) {
     let pattern_sparse_large = format!("*{low_overlap_1100}*");
     bencher.wildcard_group_labeled(
         c,
-        "*Zabc…×1100* (1102 atoms, sparse-set automaton)",
+        "*Zabc…×1100* (1102 atoms, sparse)",
         &pattern_sparse_large,
     );
 
-    // Prefix-anchored variants for the sparse-set path. Anchoring on a
-    // literal `ev` lets the iterator descend straight to the corresponding
-    // subtree via its literal-prefix shortcut, so the bench measures the
-    // sparse-set's per-byte cost over a bounded subtree rather than over
-    // the whole corpus. Same atom counts as the catch-all variants above
+    // Prefix-anchored variants for the sparse path. Anchoring on a literal
+    // `ev` lets the iterator descend straight to the corresponding subtree
+    // via its literal-prefix shortcut, so the bench measures the
+    // sparse-set's per-byte cost over a bounded subtree rather than the
+    // whole corpus. Same atom counts as the catch-all variants above
     // (modulo the two extra atoms from `ev`).
     let pattern_anchored_small = format!("ev*{low_overlap_260}*");
     bencher.wildcard_group_labeled(
         c,
-        "ev*Zabc…×260* (264 atoms, sparse-set automaton, prefix-anchored)",
+        "ev*Zabc…×260* (264 atoms, sparse, prefix-anchored)",
         &pattern_anchored_small,
     );
     let pattern_anchored_medium = format!("ev*{low_overlap_600}*");
     bencher.wildcard_group_labeled(
         c,
-        "ev*Zabc…×600* (604 atoms, sparse-set automaton, prefix-anchored)",
+        "ev*Zabc…×600* (604 atoms, sparse, prefix-anchored)",
         &pattern_anchored_medium,
     );
     let pattern_anchored_large = format!("ev*{low_overlap_1100}*");
     bencher.wildcard_group_labeled(
         c,
-        "ev*Zabc…×1100* (1104 atoms, sparse-set automaton, prefix-anchored)",
+        "ev*Zabc…×1100* (1104 atoms, sparse, prefix-anchored)",
         &pattern_anchored_large,
     );
 
