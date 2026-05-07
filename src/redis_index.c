@@ -108,7 +108,17 @@ int RedisSearchCtx_TryLockSpecRead(RedisSearchCtx *ctx) {
 
 void RedisSearchCtx_LockSpecWrite(RedisSearchCtx *ctx) {
   RS_ASSERT(ctx->flags == RS_CTX_UNSET);
+#ifdef ENABLE_ASSERT
+  // Bump the pending-writers counter before we may park on the rwlock so that
+  // tests can observe a queued writer via `IndexSpec_GetPendingWriters` without
+  // depending on the main thread (the main thread is exactly what's blocked
+  // here when a BG worker holds the read lock).
+  IndexSpec_IncrPendingWriters(ctx->spec);
+#endif
   pthread_rwlock_wrlock(&ctx->spec->rwlock);
+#ifdef ENABLE_ASSERT
+  IndexSpec_DecrPendingWriters(ctx->spec);
+#endif
   ctx->flags = RS_CTX_READWRITE;
 }
 

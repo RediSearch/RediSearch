@@ -1626,6 +1626,17 @@ void ChunkReplyState_Destroy(ChunkReplyState *state) {
 }
 
 static void AREQ_Free(AREQ *req) {
+  // Release the spec lock as early as possible. AREQ_Execute_Callback already
+  // unlocks before unblocking the client for the BG path (MOD-15364), but
+  // AREQ_Free can also be reached from main-thread paths (e.g. cursor read
+  // teardown, error paths in the parser/pipeline build) where the lock may
+  // still be held. RedisSearchCtx_UnlockSpec is idempotent, so this is safe
+  // even when the lock was already released upstream.
+  RedisSearchCtx *sctx_early = AREQ_SearchCtx(req);
+  if (sctx_early) {
+    RedisSearchCtx_UnlockSpec(sctx_early);
+  }
+
   ChunkReplyState_Destroy(&req->storedReplyState);
 
   // Check if rootiter exists but pipeline was never built (no result processors)
