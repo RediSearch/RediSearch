@@ -11,6 +11,7 @@
 
 #include "redismodule.h"
 
+#include "rmutil/rm_assert.h"
 #include "trie.h"
 #include "levenshtein.h"
 
@@ -98,7 +99,10 @@ void Trie_IterateWildcard(Trie *t, const rune *str, int nstr,
                           bool skipTimeoutChecks);
 
 /* Number of terminal entries in the trie. Wraps the internal size counter. */
-static inline size_t Trie_Size(const Trie *t) { return t->size; }
+static inline size_t Trie_Size(const Trie *t) {
+  RS_ASSERT(t);
+  return t->size;
+}
 
 /* Iterate every node in the trie with no filter or distance constraint. Wraps
  * TrieNode_Iterate on the trie's root with no filter. Used by debug paths that
