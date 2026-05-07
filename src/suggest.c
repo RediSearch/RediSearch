@@ -137,7 +137,7 @@ int RSSuggestLenCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
   }
 
   tree = RedisModule_ModuleTypeGetValue(key);
-  RedisModule_ReplyWithLongLong(ctx, Trie_Size(tree));
+  RedisModule_ReplyWithLongLong(ctx, tree ? tree->size : 0);
 
 end:
   if (key) {
