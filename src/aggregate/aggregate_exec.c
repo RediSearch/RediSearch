@@ -2185,6 +2185,8 @@ int RSCursorProfileCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
   } else {
     QueryError status = QueryError_Default();
     AREQ_QueryProcessingCtx(req)->err = &status;
+    // Cursor is freed below; signal cursor exhaustion to the client.
+    req->cursor_id = 0;
     sendChunk_ReplyOnly_EmptyResults(ctx, req);
     IndexSpecRef_Release(execution_ref);
   }
