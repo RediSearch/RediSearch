@@ -55,11 +55,13 @@ int Trie_InsertRune(Trie *t, const rune *s, size_t len, double score, int incr,
                     RSPayload *payload, size_t numDocs);
 
 /* Insert a rune-keyed entry without updating the trie's size counter. Behaves
- * exactly like Trie_InsertRune except t->size is left untouched.
+ * exactly like calling TrieNode_Add(&t->root, ...) directly: no length guard,
+ * no size bookkeeping.
  *
  * Intended only for the suffix-trie full-word insert in addSuffixTrie(), which
- * historically called TrieNode_Add directly and therefore never incremented
- * size. Suffix tries never read ->size, so the omission is harmless there.
+ * historically called TrieNode_Add directly to bypass both the size update
+ * (suffix tries never read ->size) and Trie_InsertRune's length guard (the
+ * suffix trie's full-word entries are not subject to that guard).
  *
  * Do not use for new call sites - prefer Trie_InsertRune so size stays in sync
  * with TrieNode_Add's return value. */

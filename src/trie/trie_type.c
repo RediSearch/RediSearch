@@ -67,12 +67,9 @@ int Trie_InsertRune(Trie *t, const rune *runes, size_t len, double score, int in
 
 int Trie_InsertRuneNoSize(Trie *t, const rune *runes, size_t len, double score, int incr,
                           RSPayload *payload, size_t numDocs) {
-  int rc = 0;
-  if (runes && len && len < TRIE_INITIAL_STRING_LEN) {
-    rc = TrieNode_Add(&t->root, runes, len, payload, (float)score, incr ? ADD_INCR : ADD_REPLACE,
+  if (!runes || !len) return 0;
+  return TrieNode_Add(&t->root, runes, len, payload, (float)score, incr ? ADD_INCR : ADD_REPLACE,
                       t->freecb, numDocs);
-  }
-  return rc;
 }
 
 void *Trie_GetValueStringBuffer(Trie *t, const char *s, size_t len, bool exact) {
