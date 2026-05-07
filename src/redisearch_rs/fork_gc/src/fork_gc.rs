@@ -73,7 +73,7 @@ impl ForkGC {
         self.reader_with_timeout(POLL_TIMEOUT)
     }
 
-    /// Like [`reader`] but with a caller-supplied poll timeout.
+    /// Like [`Self::reader`] but with a caller-supplied poll timeout.
     ///
     /// Intended for tests where the 3-minute default would be impractical.
     pub fn reader_with_timeout(&mut self, timeout: Duration) -> Reader<impl Read + '_> {
