@@ -31,8 +31,8 @@ pub mod wildcard;
 
 pub use driver::{AutomatonIter, AutomatonLendingIter};
 pub use wildcard::{
-    BitSetClass, FixedWildcardIter, FixedWildcardLendingIter, HeapStateSet, InlineStateSet,
-    LargeHeapStateSet, NfaBitSet, WildcardNfa, WildcardSpecializedIter,
+    BitSetClass, FixedWildcardIter, FixedWildcardLendingIter, InlineStateSet, NfaBitSet,
+    SparseStateSet, WildcardNfa, WildcardSparseNfa, WildcardSpecializedIter,
     WildcardSpecializedLendingIter, pattern_has_star,
 };
 
@@ -69,6 +69,11 @@ impl StateClass {
 /// Implementations advance one byte at a time. The trie iterator carries the
 /// resulting state on its traversal stack, so each byte of stored content is
 /// processed at most once per query.
+///
+/// `step` and `step_all` take `&mut self` so implementations can hold
+/// recycled scratch buffers. The trie iterator never calls these
+/// concurrently for the same automaton (it owns the automaton by value),
+/// so the mutable receiver is not a multi-borrow concern in practice.
 pub trait Automaton {
     /// State carried across byte transitions and trie stack frames.
     type State: Clone;
@@ -80,7 +85,7 @@ pub trait Automaton {
     ///
     /// Returns `None` if the byte transitions into a dead state — the trie
     /// iterator will prune the corresponding subtree.
-    fn step(&self, state: &Self::State, byte: u8) -> Option<Self::State>;
+    fn step(&mut self, state: &Self::State, byte: u8) -> Option<Self::State>;
 
     /// Classify the current iterator state to determine whether:
     /// - The current entry should be yielded.
@@ -89,7 +94,7 @@ pub trait Automaton {
 
     /// Convenience: step through a slice of bytes, returning the final state
     /// or `None` if any byte leads to a dead state.
-    fn step_all(&self, state: &Self::State, bytes: &[u8]) -> Option<Self::State> {
+    fn step_all(&mut self, state: &Self::State, bytes: &[u8]) -> Option<Self::State> {
         let mut s = state.clone();
         for &b in bytes {
             s = self.step(&s, b)?;

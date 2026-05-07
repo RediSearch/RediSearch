@@ -218,7 +218,7 @@ impl<S: NfaBitSet> Automaton for WildcardNfa<S> {
     }
 
     #[inline]
-    fn step(&self, state: &Self::State, byte: u8) -> Option<Self::State> {
+    fn step(&mut self, state: &Self::State, byte: u8) -> Option<Self::State> {
         match self.epsilon_table.as_deref() {
             Some(table) => {
                 // General path: the state set may contain multiple bits and
@@ -265,7 +265,7 @@ impl<S: NfaBitSet> Automaton for WildcardNfa<S> {
     }
 
     #[inline]
-    fn step_all(&self, state: &Self::State, bytes: &[u8]) -> Option<Self::State> {
+    fn step_all(&mut self, state: &Self::State, bytes: &[u8]) -> Option<Self::State> {
         // Fast path for fixed-length patterns: state is always a singleton,
         // so we can pre-extract its position and advance an integer counter
         // per byte instead of going through `step`.

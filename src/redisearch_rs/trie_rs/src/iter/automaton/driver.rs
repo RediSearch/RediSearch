@@ -91,19 +91,24 @@ impl<'tm, Data, A: Automaton> AutomatonIter<'tm, Data, A> {
             automaton,
             key: key_prefix,
         };
-        if let Some(node) = start_node
-            && let Some(pre_node) = iter.automaton.step_all(&iter.automaton.start(), &iter.key)
-            && let Some(state) = iter.automaton.step_all(&pre_node, node.label())
-        {
-            // The first frame's `parent_key_len` is the prefix we already
-            // have — popping it will truncate to that length (a no-op the
-            // first time) and re-extend with `node.label()`.
-            let parent_key_len = iter.key.len() as u32;
-            iter.stack.push(Frame::Visit {
-                node,
-                state,
-                parent_key_len,
-            });
+        if let Some(node) = start_node {
+            // Sequence the calls: `step_all` takes `&mut automaton`, so we
+            // can't chain it with `automaton.start()` (which holds an `&`
+            // borrow on the same field) on a single line.
+            let start = iter.automaton.start();
+            if let Some(pre_node) = iter.automaton.step_all(&start, &iter.key)
+                && let Some(state) = iter.automaton.step_all(&pre_node, node.label())
+            {
+                // The first frame's `parent_key_len` is the prefix we
+                // already have — popping it will truncate to that length
+                // (a no-op the first time) and re-extend with `node.label()`.
+                let parent_key_len = iter.key.len() as u32;
+                iter.stack.push(Frame::Visit {
+                    node,
+                    state,
+                    parent_key_len,
+                });
+            }
         }
         iter
     }

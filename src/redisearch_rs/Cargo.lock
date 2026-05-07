@@ -2805,6 +2805,7 @@ dependencies = [
  "memchr",
  "proptest",
  "proptest-derive",
+ "smallvec",
  "trie_rs",
  "wildcard 0.0.1",
  "workspace_hack",

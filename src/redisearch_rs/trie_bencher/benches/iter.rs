@@ -38,13 +38,12 @@ fn iter_benches_gutenberg(c: &mut Criterion) {
     // Requires backtracking to perform, de facto, suffix matching
     bencher.wildcard_group(c, "*ly");
 
-    // Patterns that exercise the wide-bitset paths in the wildcard NFA.
-    // The dispatcher picks the smallest bitset that fits a pattern's atom
-    // count: `u64` covers up to 63 atoms, `u128` up to 127, then
-    // `InlineStateSet` (`[u64; 4]` on the stack) up to 255, then
-    // `HeapStateSet<N>` (`Box<[u64; N]>` with const-generic N) for the
-    // 256..=1023 range, and finally `LargeHeapStateSet` (`Box<[u64]>` of
-    // dynamic length) for anything larger.
+    // Patterns that exercise the wide-state paths in the wildcard NFA.
+    // The dispatcher picks the most efficient state representation that
+    // fits a pattern's atom count: `u64` covers up to 63 atoms, `u128` up
+    // to 127, `InlineStateSet` (`[u64; 4]` on the stack) up to 255, and
+    // `WildcardSparseNfa` (a sparse-set automaton with recycled scratches)
+    // for anything larger.
     //
     // For the 72-atom (u128) case we run two shapes back-to-back so the
     // contrast is visible:
@@ -88,55 +87,54 @@ fn iter_benches_gutenberg(c: &mut Criterion) {
     let low_overlap_260: String = std::iter::once('Z')
         .chain((b'a'..=b'z').map(char::from).cycle().take(259))
         .collect();
-    let pattern_heap8 = format!("*{low_overlap_260}*");
+    let pattern_sparse_small = format!("*{low_overlap_260}*");
     bencher.wildcard_group_labeled(
         c,
-        "*Zabc…×260* (262 atoms, heap Box<[u64; 8]> bitset)",
-        &pattern_heap8,
+        "*Zabc…×260* (262 atoms, sparse-set automaton)",
+        &pattern_sparse_small,
     );
     let low_overlap_600: String = std::iter::once('Z')
         .chain((b'a'..=b'z').map(char::from).cycle().take(599))
         .collect();
-    let pattern_heap16 = format!("*{low_overlap_600}*");
+    let pattern_sparse_medium = format!("*{low_overlap_600}*");
     bencher.wildcard_group_labeled(
         c,
-        "*Zabc…×600* (602 atoms, heap Box<[u64; 16]> bitset)",
-        &pattern_heap16,
+        "*Zabc…×600* (602 atoms, sparse-set automaton)",
+        &pattern_sparse_medium,
     );
     let low_overlap_1100: String = std::iter::once('Z')
         .chain((b'a'..=b'z').map(char::from).cycle().take(1099))
         .collect();
-    let pattern_heap_large = format!("*{low_overlap_1100}*");
+    let pattern_sparse_large = format!("*{low_overlap_1100}*");
     bencher.wildcard_group_labeled(
         c,
-        "*Zabc…×1100* (1102 atoms, large heap Box<[u64]> bitset)",
-        &pattern_heap_large,
+        "*Zabc…×1100* (1102 atoms, sparse-set automaton)",
+        &pattern_sparse_large,
     );
 
-    // Prefix-anchored variants for the wide-bitset paths. Anchoring on a
+    // Prefix-anchored variants for the sparse-set path. Anchoring on a
     // literal `ev` lets the iterator descend straight to the corresponding
     // subtree via its literal-prefix shortcut, so the bench measures the
-    // bitset's per-byte cost over a bounded subtree rather than over the
-    // whole corpus. Same atom counts as the catch-all variants above (modulo
-    // the two extra atoms from `ev`), so each one falls into the same
-    // [`BitSetClass`].
-    let pattern_anchored_heap8 = format!("ev*{low_overlap_260}*");
+    // sparse-set's per-byte cost over a bounded subtree rather than over
+    // the whole corpus. Same atom counts as the catch-all variants above
+    // (modulo the two extra atoms from `ev`).
+    let pattern_anchored_small = format!("ev*{low_overlap_260}*");
     bencher.wildcard_group_labeled(
         c,
-        "ev*Zabc…×260* (264 atoms, heap Box<[u64; 8]> bitset, prefix-anchored)",
-        &pattern_anchored_heap8,
+        "ev*Zabc…×260* (264 atoms, sparse-set automaton, prefix-anchored)",
+        &pattern_anchored_small,
     );
-    let pattern_anchored_heap16 = format!("ev*{low_overlap_600}*");
+    let pattern_anchored_medium = format!("ev*{low_overlap_600}*");
     bencher.wildcard_group_labeled(
         c,
-        "ev*Zabc…×600* (604 atoms, heap Box<[u64; 16]> bitset, prefix-anchored)",
-        &pattern_anchored_heap16,
+        "ev*Zabc…×600* (604 atoms, sparse-set automaton, prefix-anchored)",
+        &pattern_anchored_medium,
     );
-    let pattern_anchored_heap_large = format!("ev*{low_overlap_1100}*");
+    let pattern_anchored_large = format!("ev*{low_overlap_1100}*");
     bencher.wildcard_group_labeled(
         c,
-        "ev*Zabc…×1100* (1104 atoms, large heap Box<[u64]> bitset, prefix-anchored)",
-        &pattern_anchored_heap_large,
+        "ev*Zabc…×1100* (1104 atoms, sparse-set automaton, prefix-anchored)",
+        &pattern_anchored_large,
     );
 
     bencher.range_group(

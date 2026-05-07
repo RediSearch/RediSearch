@@ -12,11 +12,16 @@
 //! ## Layout
 //!
 //! - [`atoms`] — shared low-level building blocks: the [`NfaBitSet`] trait
-//!   with implementations for `u64`, `u128`, [`InlineStateSet`], and
-//!   [`HeapStateSet`]; the [`Atom`](atoms::Atom) enum; and the `flatten`
-//!   helper that turns a parsed [`WildcardPattern`] into a flat atom slice.
+//!   with implementations for `u64`, `u128`, and [`InlineStateSet`]; the
+//!   [`Atom`](atoms::Atom) enum; and the `flatten` helper that turns a
+//!   parsed [`WildcardPattern`] into a flat atom slice.
 //! - [`nfa`] — generic [`WildcardNfa<S>`] [`Automaton`](super::Automaton)
-//!   implementation parameterized over the bitset.
+//!   implementation parameterized over the bitset; used for the small
+//!   stack-resident bitset classes.
+//! - [`sparse`] — [`WildcardSparseNfa`], a sparse-set automaton used
+//!   instead of bitset variants whenever a bitset would have to live on
+//!   the heap. Recycles two scratch buffers across `step_all` calls so
+//!   per-byte work allocates nothing.
 //! - [`fixed`] — [`FixedWildcardIter`], a concrete iterator that bypasses
 //!   the [`Automaton`](super::Automaton) trait entirely for patterns
 //!   with no `*`.
@@ -30,9 +35,7 @@
 //! - `*` and ≤ 63 atoms → NFA backed by `u64`.
 //! - `*` and 64..=127 atoms → NFA backed by `u128`.
 //! - `*` and 128..=255 atoms → NFA backed by [`InlineStateSet`].
-//! - `*` and 256..=511 atoms → NFA backed by `HeapStateSet<8>`.
-//! - `*` and 512..=1023 atoms → NFA backed by `HeapStateSet<16>`.
-//! - `*` and ≥ 1024 atoms → NFA backed by [`LargeHeapStateSet`].
+//! - `*` and ≥ 256 atoms → [`WildcardSparseNfa`].
 //!
 //! The runtime cost of the dispatch is one loop-invariant branch per
 //! iterator call.
@@ -46,10 +49,12 @@
 pub mod atoms;
 pub mod fixed;
 pub mod nfa;
+pub mod sparse;
 
-pub use atoms::{HeapStateSet, InlineStateSet, LargeHeapStateSet, NfaBitSet};
+pub use atoms::{InlineStateSet, NfaBitSet};
 pub use fixed::{FixedWildcardIter, FixedWildcardLendingIter};
 pub use nfa::WildcardNfa;
+pub use sparse::{SparseStateSet, WildcardSparseNfa};
 
 use super::AutomatonIter;
 use atoms::count_atoms;
@@ -68,9 +73,7 @@ pub enum WildcardSpecializedIter<'tm, Data> {
     GeneralU64(AutomatonIter<'tm, Data, WildcardNfa<u64>>),
     GeneralU128(AutomatonIter<'tm, Data, WildcardNfa<u128>>),
     GeneralInline(AutomatonIter<'tm, Data, WildcardNfa<InlineStateSet>>),
-    GeneralHeap8(AutomatonIter<'tm, Data, WildcardNfa<HeapStateSet<8>>>),
-    GeneralHeap16(AutomatonIter<'tm, Data, WildcardNfa<HeapStateSet<16>>>),
-    GeneralHeapLarge(AutomatonIter<'tm, Data, WildcardNfa<LargeHeapStateSet>>),
+    GeneralSparse(AutomatonIter<'tm, Data, WildcardSparseNfa>),
 }
 
 impl<'tm, Data> WildcardSpecializedIter<'tm, Data> {
@@ -80,9 +83,7 @@ impl<'tm, Data> WildcardSpecializedIter<'tm, Data> {
             Self::GeneralU64(it) => it.advance(),
             Self::GeneralU128(it) => it.advance(),
             Self::GeneralInline(it) => it.advance(),
-            Self::GeneralHeap8(it) => it.advance(),
-            Self::GeneralHeap16(it) => it.advance(),
-            Self::GeneralHeapLarge(it) => it.advance(),
+            Self::GeneralSparse(it) => it.advance(),
         }
     }
 
@@ -92,27 +93,22 @@ impl<'tm, Data> WildcardSpecializedIter<'tm, Data> {
             Self::GeneralU64(it) => it.key(),
             Self::GeneralU128(it) => it.key(),
             Self::GeneralInline(it) => it.key(),
-            Self::GeneralHeap8(it) => it.key(),
-            Self::GeneralHeap16(it) => it.key(),
-            Self::GeneralHeapLarge(it) => it.key(),
+            Self::GeneralSparse(it) => it.key(),
         }
     }
 }
 
-/// Pick the smallest [`NfaBitSet`] that fits the pattern's atom count.
-///
-/// The dispatcher uses this in conjunction with one of several concrete NFA
-/// constructors so each variant gets a fully-monomorphized hot path.
+/// Pick the most efficient state representation that fits the pattern's
+/// atom count. The dispatcher uses this in conjunction with one of the
+/// concrete NFA constructors so each variant gets a fully-monomorphized
+/// hot path.
 pub enum BitSetClass {
     U64,
     U128,
     Inline,
-    /// `HeapStateSet<8>` — covers ≤ 511 atoms.
-    Heap8,
-    /// `HeapStateSet<16>` — covers ≤ 1023 atoms.
-    Heap16,
-    /// `LargeHeapStateSet` — fallback for ≥ 1024 atoms.
-    HeapLarge,
+    /// [`WildcardSparseNfa`] — sparse-set automaton, used for any pattern
+    /// large enough that a stack bitset wouldn't fit.
+    Sparse,
 }
 
 impl BitSetClass {
@@ -125,12 +121,8 @@ impl BitSetClass {
             Self::U128
         } else if bits_needed <= 256 {
             Self::Inline
-        } else if bits_needed <= 8 * 64 {
-            Self::Heap8
-        } else if bits_needed <= 16 * 64 {
-            Self::Heap16
         } else {
-            Self::HeapLarge
+            Self::Sparse
         }
     }
 }

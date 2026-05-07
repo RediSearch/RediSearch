@@ -11,9 +11,9 @@ use wildcard::WildcardPattern;
 
 use crate::{
     iter::{
-        Automaton, AutomatonIter, BitSetClass, ContainsIter, FixedWildcardIter, HeapStateSet,
-        InlineStateSet, IntoValues, Iter, LargeHeapStateSet, LendingIter, NfaBitSet, PrefixesIter,
-        RangeFilter, RangeIter, Values,
+        Automaton, AutomatonIter, BitSetClass, ContainsIter, FixedWildcardIter, InlineStateSet,
+        IntoValues, Iter, LendingIter, NfaBitSet, PrefixesIter, RangeFilter, RangeIter, Values,
+        WildcardSparseNfa,
         WildcardIter, WildcardNfa, WildcardSpecializedIter, filter::VisitAll, pattern_has_star,
     },
     node::Node,
@@ -213,15 +213,27 @@ impl<Data> TrieMap<Data> {
     /// using NFA-simulation streaming with the chosen bitset representation.
     ///
     /// Pick `S` based on the pattern's atom count: `u64` for ≤ 63 atoms,
-    /// `u128` for 64..=127, [`InlineStateSet`] for 128..=255,
-    /// `HeapStateSet<8>` for 256..=511, `HeapStateSet<16>` for 512..=1023,
-    /// and [`LargeHeapStateSet`] for anything larger.
-    /// [`Self::wildcard_specialized_iter`] does this dispatch automatically.
+    /// `u128` for 64..=127, and [`InlineStateSet`] for 128..=255. Patterns
+    /// beyond 255 atoms must use [`Self::wildcard_sparse_iter`] (or, more
+    /// commonly, [`Self::wildcard_specialized_iter`] which dispatches
+    /// automatically).
     pub fn wildcard_nfa_iter<'a, S: NfaBitSet>(
         &'a self,
         pattern: &WildcardPattern<'a>,
     ) -> AutomatonIter<'a, Data, WildcardNfa<S>> {
         let nfa = WildcardNfa::<S>::compile(pattern);
+        self.automaton_iter_with_prefix_shortcut(pattern.tokens(), nfa)
+    }
+
+    /// Iterate over all trie entries whose key matches the specified pattern,
+    /// using the sparse-set automaton. Suitable for any pattern length;
+    /// [`Self::wildcard_specialized_iter`] picks this backend automatically
+    /// when the pattern would overflow the stack-resident bitsets.
+    pub fn wildcard_sparse_iter<'a>(
+        &'a self,
+        pattern: &WildcardPattern<'a>,
+    ) -> AutomatonIter<'a, Data, WildcardSparseNfa> {
+        let nfa = WildcardSparseNfa::compile(pattern);
         self.automaton_iter_with_prefix_shortcut(pattern.tokens(), nfa)
     }
 
@@ -232,9 +244,7 @@ impl<Data> TrieMap<Data> {
     /// - `*` and ≤ 63 atoms → NFA backed by `u64`.
     /// - `*` and 64..=127 atoms → NFA backed by `u128`.
     /// - `*` and 128..=255 atoms → NFA backed by [`InlineStateSet`].
-    /// - `*` and 256..=511 atoms → NFA backed by `HeapStateSet<8>`.
-    /// - `*` and 512..=1023 atoms → NFA backed by `HeapStateSet<16>`.
-    /// - `*` and ≥ 1024 atoms → NFA backed by [`LargeHeapStateSet`].
+    /// - `*` and ≥ 256 atoms → sparse-set automaton ([`WildcardSparseNfa`]).
     pub fn wildcard_specialized_iter<'a>(
         &'a self,
         pattern: &WildcardPattern<'a>,
@@ -252,15 +262,9 @@ impl<Data> TrieMap<Data> {
             BitSetClass::Inline => WildcardSpecializedIter::GeneralInline(
                 self.wildcard_nfa_iter::<InlineStateSet>(pattern),
             ),
-            BitSetClass::Heap8 => WildcardSpecializedIter::GeneralHeap8(
-                self.wildcard_nfa_iter::<HeapStateSet<8>>(pattern),
-            ),
-            BitSetClass::Heap16 => WildcardSpecializedIter::GeneralHeap16(
-                self.wildcard_nfa_iter::<HeapStateSet<16>>(pattern),
-            ),
-            BitSetClass::HeapLarge => WildcardSpecializedIter::GeneralHeapLarge(
-                self.wildcard_nfa_iter::<LargeHeapStateSet>(pattern),
-            ),
+            BitSetClass::Sparse => {
+                WildcardSpecializedIter::GeneralSparse(self.wildcard_sparse_iter(pattern))
+            }
         }
     }
 

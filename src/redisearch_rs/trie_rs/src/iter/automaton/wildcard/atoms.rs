@@ -13,22 +13,19 @@
 //! [`flatten`] and tracks active positions in any type that implements the
 //! [`NfaBitSet`] trait.
 //!
-//! Several concrete bitset implementations exist, sized for different
+//! Three stack-resident bitset implementations exist, sized for different
 //! pattern lengths and selected at NFA compile time so every variant has a
 //! fully monomorphized hot path:
 //!
 //! - [`u64`] — covers up to 63 atoms; single-register operations.
 //! - [`u128`] — covers up to 127 atoms; two-register operations.
 //! - [`InlineStateSet`] — `[u64; 4]` on the stack; up to 255 atoms with no
-//!   heap traffic and no inline-vs-heap branching.
-//! - [`HeapStateSet<N>`] — `Box<[u64; N]>` with the word count fixed at
-//!   compile time. Specialized for `N = 8` (≤ 511 atoms) and `N = 16` (≤
-//!   1023 atoms); the const generic lets the compiler unroll
-//!   `union_in_place` and friends.
-//! - [`LargeHeapStateSet`] — `Box<[u64]>` of dynamic length; the fallback
-//!   for patterns past the largest specialized `N`.
+//!   heap traffic.
 //!
-//! Callers select the variant via [`BitSetClass::for_pattern`].
+//! Patterns beyond 255 atoms switch away from the bitset abstraction
+//! entirely and use the sparse-set automaton in [`super::sparse`].
+//!
+//! Callers select the variant via [`super::BitSetClass::for_pattern`].
 
 use wildcard::{Token, WildcardPattern};
 
@@ -240,171 +237,8 @@ impl NfaBitSet for InlineStateSet {
     }
 }
 
-/// Heap-resident bitset with a compile-time-known word count: `Box<[u64; N]>`.
-/// Used for medium-sized patterns where the fixed `N` lets the compiler
-/// unroll the bit-level loops.
-///
-/// The dispatcher picks `N` to be the smallest power of two that covers the
-/// pattern's atom count — so unused trailing slots stay zeroed and
-/// participate harmlessly in OR / fold operations. Specialized for `N = 8`
-/// (≤ 511 atoms) and `N = 16` (≤ 1023 atoms); patterns past 1023 atoms use
-/// [`LargeHeapStateSet`] instead.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct HeapStateSet<const N: usize>(Box<[u64; N]>);
-
-impl<const N: usize> Default for HeapStateSet<N> {
-    #[inline]
-    fn default() -> Self {
-        Self(Box::new([0u64; N]))
-    }
-}
-
-impl<const N: usize> NfaBitSet for HeapStateSet<N> {
-    #[inline]
-    fn empty(_n_atoms: usize) -> Self {
-        Self::default()
-    }
-
-    #[inline]
-    fn singleton(n_atoms: usize, pos: usize) -> Self {
-        debug_assert!(pos <= n_atoms);
-        debug_assert!(pos / 64 < N);
-        let mut s = <Self as NfaBitSet>::empty(n_atoms);
-        <Self as NfaBitSet>::insert(&mut s, pos);
-        s
-    }
-
-    #[inline]
-    fn clear(&mut self) {
-        // Zero out all N words in place — no realloc, recycling the box.
-        for w in self.0.iter_mut() {
-            *w = 0;
-        }
-    }
-
-    #[inline]
-    fn insert(&mut self, pos: usize) {
-        debug_assert!(pos / 64 < N);
-        self.0[pos / 64] |= 1u64 << (pos % 64);
-    }
-
-    #[inline]
-    fn contains(&self, pos: usize) -> bool {
-        let word = pos / 64;
-        if word >= N {
-            return false;
-        }
-        (self.0[word] >> (pos % 64)) & 1 == 1
-    }
-
-    #[inline]
-    fn is_empty(&self) -> bool {
-        // Fixed-size fold — the compiler turns this into N OR'd loads with
-        // no loop control.
-        self.0.iter().fold(0u64, |a, &b| a | b) == 0
-    }
-
-    #[inline]
-    fn union_in_place(&mut self, other: &Self) {
-        // Const N → the compiler unrolls into N straight-line ORs.
-        for i in 0..N {
-            self.0[i] |= other.0[i];
-        }
-    }
-
-    #[inline]
-    fn singleton_pos(&self) -> usize {
-        for (i, &word) in self.0.iter().enumerate() {
-            if word != 0 {
-                return i * 64 + word.trailing_zeros() as usize;
-            }
-        }
-        debug_assert!(false, "singleton_pos called on empty HeapStateSet");
-        usize::MAX
-    }
-
-    #[inline]
-    fn iter(&self) -> impl Iterator<Item = usize> + '_ {
-        WordIter::new(self.0.as_ref())
-    }
-}
-
-/// Heap-resident bitset with a runtime-determined word count: `Box<[u64]>`.
-/// Fallback for very long patterns past the largest specialized
-/// [`HeapStateSet<N>`] — operations loop over the slice and the compiler
-/// can't unroll, so this trades unrolled hot loops for unbounded length.
-#[derive(Clone, Default, Debug, PartialEq, Eq, Hash)]
-pub struct LargeHeapStateSet(Box<[u64]>);
-
-impl NfaBitSet for LargeHeapStateSet {
-    #[inline]
-    fn empty(n_atoms: usize) -> Self {
-        let n_words = n_atoms / 64 + 1;
-        Self(vec![0u64; n_words].into_boxed_slice())
-    }
-
-    #[inline]
-    fn singleton(n_atoms: usize, pos: usize) -> Self {
-        debug_assert!(pos <= n_atoms);
-        let mut s = <Self as NfaBitSet>::empty(n_atoms);
-        <Self as NfaBitSet>::insert(&mut s, pos);
-        s
-    }
-
-    #[inline]
-    fn clear(&mut self) {
-        for w in self.0.iter_mut() {
-            *w = 0;
-        }
-    }
-
-    #[inline]
-    fn insert(&mut self, pos: usize) {
-        // Bounds check is cheap relative to the heap touch we're about to
-        // do, and `LargeHeapStateSet` is the coldest size class anyway.
-        self.0[pos / 64] |= 1u64 << (pos % 64);
-    }
-
-    #[inline]
-    fn contains(&self, pos: usize) -> bool {
-        self.0
-            .get(pos / 64)
-            .is_some_and(|w| (w >> (pos % 64)) & 1 == 1)
-    }
-
-    #[inline]
-    fn is_empty(&self) -> bool {
-        self.0.iter().fold(0u64, |a, &b| a | b) == 0
-    }
-
-    #[inline]
-    fn union_in_place(&mut self, other: &Self) {
-        debug_assert_eq!(self.0.len(), other.0.len());
-        for (x, y) in self.0.iter_mut().zip(other.0.iter()) {
-            *x |= *y;
-        }
-    }
-
-    #[inline]
-    fn singleton_pos(&self) -> usize {
-        for (i, &word) in self.0.iter().enumerate() {
-            if word != 0 {
-                return i * 64 + word.trailing_zeros() as usize;
-            }
-        }
-        debug_assert!(false, "singleton_pos called on empty LargeHeapStateSet");
-        usize::MAX
-    }
-
-    #[inline]
-    fn iter(&self) -> impl Iterator<Item = usize> + '_ {
-        WordIter::new(&self.0)
-    }
-}
-
 /// Direct struct-based iterator over a slice of bitset words — preferred
 /// over chaining `iter::from_fn` closures because it inlines more cleanly.
-/// Shared between [`InlineStateSet`] and [`HeapStateSet`].
 struct WordIter<'a> {
     current_word: u64,
     current_base: usize,

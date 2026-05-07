@@ -12,7 +12,6 @@
 
 use proptest::prelude::*;
 use trie_rs::TrieMap;
-use trie_rs::iter::LargeHeapStateSet;
 use wildcard::WildcardPattern;
 
 fn matches_filter<Data>(trie: &TrieMap<Data>, pattern: &str) -> Vec<Vec<u8>> {
@@ -21,13 +20,11 @@ fn matches_filter<Data>(trie: &TrieMap<Data>, pattern: &str) -> Vec<Vec<u8>> {
 }
 
 fn matches_nfa<Data>(trie: &TrieMap<Data>, pattern: &str) -> Vec<Vec<u8>> {
-    // Use the dynamic-length heap bitset so this helper works for patterns
-    // of any length; size-dispatch correctness on smaller bitsets is
+    // Use the sparse-set automaton so this helper works for patterns of any
+    // length; size-dispatch correctness on the smaller bitset variants is
     // exercised via `matches_specialized`.
     let p = WildcardPattern::parse(pattern.as_bytes());
-    trie.wildcard_nfa_iter::<LargeHeapStateSet>(&p)
-        .map(|(k, _)| k)
-        .collect()
+    trie.wildcard_sparse_iter(&p).map(|(k, _)| k).collect()
 }
 
 fn matches_specialized<Data>(trie: &TrieMap<Data>, pattern: &str) -> Vec<Vec<u8>> {
