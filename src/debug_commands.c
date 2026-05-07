@@ -38,6 +38,7 @@
 #include "ext/debug_scorers.h"
 #include "query_error.h"
 #include "doc_id_meta.h"
+#include "coord/rmr/rmr.h"
 
 DebugCTX globalDebugCtx = {0};
 
@@ -119,6 +120,23 @@ bool StoreResultsDebugCtx_IsPaused(void) {
 
 void StoreResultsDebugCtx_SetPause(bool pause) {
   atomic_store(&globalStoreResultsDebugCtx.pause, pause);
+}
+
+// Tracks the currently active coordinator MRIterator. Set by RPNet after the
+// iterator is created, cleared before it is released. A simple pointer is
+// sufficient since tests only run one blocked aggregate at a time.
+static _Atomic(struct MRIterator *) globalDebugBgIterator = NULL;
+
+void DebugBgIterator_Set(struct MRIterator *it) {
+  atomic_store_explicit(&globalDebugBgIterator, it, memory_order_release);
+}
+
+void DebugBgIterator_Clear(struct MRIterator *it) {
+  // CAS so a stale clear (if iterators ever overlapped) cannot wipe the
+  // pointer set by a newer iterator.
+  struct MRIterator *expected = it;
+  atomic_compare_exchange_strong_explicit(&globalDebugBgIterator, &expected, NULL,
+                                          memory_order_release, memory_order_relaxed);
 }
 
 // ============================================================================
@@ -2573,6 +2591,22 @@ DEBUG_COMMAND(syncPoint) {
 }
 
 /**
+ * FT.DEBUG BG_PENDING_REPLIES
+ * Returns the `pending` shard counter of the currently active coordinator
+ * MRIterator (the number of shards that have not yet delivered their final
+ * reply / EOF). Returns -1 when no iterator is active. Tests use this to
+ * deterministically wait until every shard reply has been admitted into the
+ * coordinator's channel before firing CLIENT UNBLOCK TIMEOUT.
+ */
+DEBUG_COMMAND(bgPendingReplies) {
+  if (!debugCommandsEnabled(ctx)) return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  if (argc != 2) return RedisModule_WrongArity(ctx);
+  struct MRIterator *it = atomic_load_explicit(&globalDebugBgIterator, memory_order_acquire);
+  long long pending = it ? (long long)MRIterator_GetPending(it) : -1;
+  return RedisModule_ReplyWithLongLong(ctx, pending);
+}
+
+/**
  * FT.DEBUG QUERY_CONTROLLER SET_CURSOR_READ_SIZE <N>
  * Override RSGlobalConfig.cursorReadSize at runtime. Returns the previous
  * value so the caller can restore it. N must be >= 1.
@@ -2931,6 +2965,7 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
 // Add new assert-only commands to this array instead of hard-coding #ifdef blocks
 static DebugCommandType assertOnlyCommands[] = {
     {"SYNC_POINT", syncPoint},
+    {"BG_PENDING_REPLIES", bgPendingReplies},
     {NULL, NULL}};
 #endif
 

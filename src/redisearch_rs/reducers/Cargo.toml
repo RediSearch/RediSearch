@@ -15,6 +15,7 @@ itertools.workspace = true
 query_error.workspace = true
 rlookup.workspace = true
 tracing.workspace = true
+tracing_assert.workspace = true
 value.workspace = true
 workspace_hack.workspace = true
 

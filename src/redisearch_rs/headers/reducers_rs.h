@@ -124,7 +124,7 @@ Reducer *CollectReducer_CreateRemote(const RLookupKey *const *field_keys,
                                      bool has_limit,
                                      uint64_t limit_offset,
                                      uint64_t limit_count,
-                                     bool include_sort_keys);
+                                     bool is_internal);
 
 /**
  * Creates a new per-group shard collect reducer instance.

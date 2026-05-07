@@ -26,13 +26,13 @@
 //! are omitted from the output.
 
 use std::ffi::CString;
-use std::mem;
 
 use rlookup::{RLookup, RLookupKey, RLookupKeyFlag, RLookupRow};
 use value::{SharedValue, Value};
 
 use crate::Reducer;
 use crate::collect::common::CollectCommon;
+use crate::collect::storage::Storage;
 
 /// Look up `name` in a shard-payload item (`Map` or flat `Array`).
 ///
@@ -42,12 +42,10 @@ fn get_field<'a>(item: &'a Value, name: &[u8]) -> Option<&'a SharedValue> {
         Value::Map(m) => m.get(name),
         Value::Array(a) => a.map_get(name),
         _ => {
-            // TODO: replace with `debug_assert_warn!` once that macro is accessible from this crate.
-            debug_assert!(
+            tracing_assert::debug_assert_warn!(
                 false,
                 "local COLLECT: shard payload item must be a Map or Array"
             );
-            tracing::warn!("local COLLECT: shard payload item is not a Map or Array; skipping");
             None
         }
     }
@@ -107,12 +105,10 @@ fn write_item_to_row(dst: &mut RLookupRow<'static>, lookup: &mut RLookup<'static
             }
         }
         _ => {
-            // TODO: replace with `debug_assert_warn!` once that macro is accessible from this crate.
-            debug_assert!(
+            tracing_assert::debug_assert_warn!(
                 false,
                 "local COLLECT: shard payload item must be a Map or Array"
             );
-            tracing::warn!("local COLLECT: shard payload item is not a Map or Array; skipping");
         }
     }
 }
@@ -126,11 +122,15 @@ pub struct LocalCollectReducer<'a> {
     common: CollectCommon,
     /// Lookup key for the per-remote payload.
     input_key: &'a RLookupKey<'a>,
-    /// Requested field names in declaration order.
+    /// Requested field names (CStrings), in declaration order.
     ///
     /// `Some` for an explicit field list; `None` when the user wrote `FIELDS *`.
     /// Controls which fields [`LocalCollectCtx::add`] writes into the lookup.
     requested: Option<Box<[CString]>>,
+    /// Sort-key names. Stored only so [`Storage::new`] can pick the
+    /// `sortby`-aware default LIMIT; the local reducer does not project them.
+    sort_key_names: Box<[Box<[u8]>]>,
+    limit: Option<(u64, u64)>,
 }
 
 // Chain through `CollectCommon::reducer` so the assertion still catches a
@@ -145,23 +145,32 @@ const _: () = assert!(
 ///
 /// Because `LocalCollectCtx` is arena-allocated ([`Bump`][bumpalo::Bump] does
 /// not run destructors), [`drop_in_place`][std::ptr::drop_in_place] must be
-/// called to run destructors for the inner `Vec`s and decrement
+/// called to run destructors for the inner storage and decrement
 /// [`SharedValue`] refcounts.
 pub struct LocalCollectCtx {
     lookup: RLookup<'static>,
-    rows: Vec<RLookupRow<'static>>,
+    storage: Storage<RLookupRow<'static>>,
 }
 
 impl<'a> LocalCollectReducer<'a> {
     /// Create a reducer from C-parsed configuration.
+    ///
+    /// When `load_all` is `false`, `field_names` is converted to a
+    /// `Box<[CString]>` projection list; when `true` it is ignored (the
+    /// reducer ingests every key seen in each shard payload instead).
+    #[expect(
+        clippy::boxed_local,
+        reason = "kept symmetric with `sort_key_names`; FFI hands ownership and future use may store the names directly"
+    )]
     pub fn new(
         input_key: &'a RLookupKey<'a>,
-        field_names: &[Box<[u8]>],
-        is_load_all: bool,
+        field_names: Box<[Box<[u8]>]>,
+        load_all: bool,
+        sort_key_names: Box<[Box<[u8]>]>,
         sort_asc_map: u64,
         limit: Option<(u64, u64)>,
     ) -> Self {
-        let requested = if is_load_all {
+        let requested = if load_all {
             None
         } else {
             Some(
@@ -172,9 +181,11 @@ impl<'a> LocalCollectReducer<'a> {
             )
         };
         Self {
-            common: CollectCommon::new(sort_asc_map, limit),
+            common: CollectCommon::new(sort_asc_map),
             input_key,
             requested,
+            sort_key_names,
+            limit,
         }
     }
 
@@ -193,46 +204,51 @@ impl<'a> LocalCollectReducer<'a> {
 }
 
 impl LocalCollectCtx {
-    pub fn new(_r: &LocalCollectReducer) -> Self {
+    pub fn new(r: &LocalCollectReducer) -> Self {
         Self {
             lookup: RLookup::new(),
-            rows: Vec::new(),
+            storage: Storage::new(!r.sort_key_names.is_empty(), r.limit),
         }
     }
 
-    /// Deserialize the shard payload carried by `row` into [`RLookupRow`]s.
+    /// Deserialize the shard payload carried by `row` into [`RLookupRow`]s,
+    /// honouring the configured `LIMIT` via [`Storage::insert_entry`].
     ///
-    /// When [`requested`][LocalCollectReducer::requested] is `Some`, only
-    /// those fields are written; extra fields (e.g. sort keys) are ignored.
+    /// When [`requested`][LocalCollectReducer::requested] is `Some`, only those
+    /// fields are written; extra fields (e.g. sort keys) are ignored. When
+    /// `None`, every key seen in the shard payload is interned into the lookup
+    /// and written into the row (LOADALL mode).
     pub fn add(&mut self, r: &LocalCollectReducer, row: &RLookupRow) {
-        // TODO: replace with `debug_assert_warn!` once that macro is accessible from this crate.
         let Some(payload) = row.get(r.input_key) else {
-            debug_assert!(
+            tracing_assert::debug_assert_warn!(
                 false,
                 "local COLLECT: input_key must be present in every merge row"
             );
-            tracing::warn!("local COLLECT: input_key missing from merge row; skipping row");
             return;
         };
-        // TODO: replace with `debug_assert_warn!` once that macro is accessible from this crate.
         let Value::Array(items) = &**payload else {
-            debug_assert!(false, "local COLLECT: input_key payload must be an Array");
-            tracing::warn!("local COLLECT: input_key payload is not an Array; skipping row");
+            tracing_assert::debug_assert_warn!(
+                false,
+                "local COLLECT: input_key payload must be an Array"
+            );
             return;
         };
 
         for item in items.iter() {
-            self.rows
-                .push(prepare_row(&mut self.lookup, r.requested.as_deref(), item));
+            self.storage
+                .insert_entry(|| prepare_row(&mut self.lookup, r.requested.as_deref(), item));
         }
     }
 
-    /// Emit buffered rows as a client-facing `[Map, …]` array.
+    /// Emit buffered rows as a client-facing `[Map, …]` array, applying the
+    /// `LIMIT offset count` slice. The local reducer is the client-facing
+    /// terminus, so it is the single point where `OFFSET` is honoured in
+    /// distributed mode — see
+    /// [`super::remote::RemoteCollectReducer::is_internal`].
     ///
     /// [`RLookupKeyFlag::Hidden`] keys are excluded, matching the remote
     /// `FIELDS *` projection rule.
     pub fn finalize(&mut self, _r: &LocalCollectReducer) -> SharedValue {
-        let rows = mem::take(&mut self.rows);
         let template: Vec<(&RLookupKey, SharedValue)> = self
             .lookup
             .iter()
@@ -240,7 +256,7 @@ impl LocalCollectCtx {
             .map(|k| (k, SharedValue::new_string(k.name().to_bytes().to_vec())))
             .collect();
 
-        SharedValue::new_array(rows.into_iter().map(|row| {
+        SharedValue::new_array(self.storage.drain(true).map(|row| {
             let entries: Vec<_> = template
                 .iter()
                 .filter_map(|(key, name)| row.get(key).map(|v| (name.clone(), v.clone())))

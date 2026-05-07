@@ -70,16 +70,16 @@ pub unsafe extern "C" fn CollectReducer_CreateLocal(
 
     // SAFETY: ensured by caller (2.)
     let field_names = unsafe { copy_c_names(field_names, field_names_len) };
-    // SAFETY: ensured by caller (3.) — sort_key_names is a placeholder for
-    // future use; the local reducer does not store it.
-    let _sort_key_names = unsafe { copy_c_names(sort_names, sort_names_len) };
+    // SAFETY: ensured by caller (3.)
+    let sort_key_names = unsafe { copy_c_names(sort_names, sort_names_len) };
 
     let limit = has_limit.then_some((limit_offset, limit_count));
 
     let mut cr = Box::new(LocalCollectReducer::new(
         input_key,
-        &field_names,
+        field_names,
         load_all,
+        sort_key_names,
         sort_asc_map,
         limit,
     ));

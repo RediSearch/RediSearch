@@ -63,24 +63,6 @@ pub extern "C" fn TrieMapResultBuf_Free(buf: TrieMapResultBuf) {
     drop(buf);
 }
 
-/// Get the data from the TrieMapResultBuf as an array of values.
-///
-/// # Safety
-///
-/// The following invariants must be upheld when calling this function:
-/// - `buf` must point to a valid TrieMapResultBuf initialized by [`TrieMap_FindPrefixes`] and cannot be NULL.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn TrieMapResultBuf_Data(buf: *mut TrieMapResultBuf) -> *mut *mut c_void {
-    debug_assert!(!buf.is_null(), "buf cannot be NULL");
-
-    // SAFETY:
-    // As per the safety invariants of this function:
-    // - `buf` is not NULL
-    // - `buf` points to a valid TrieMapResultBuf initialized by [`TrieMap_FindPrefixes`]
-    let TrieMapResultBuf(data) = unsafe { &mut *buf };
-    data.as_mut_ptr()
-}
-
 /// Retrieve an element from the buffer, via a 0-initialized index.
 ///
 /// It returns `NULL` if the index is out of bounds.

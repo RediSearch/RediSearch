@@ -7,5 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-mod hash;
-mod parse_geo;
+mod distance;
+mod encode_decode;
+mod neighbors;
+mod radius;
