@@ -24,6 +24,7 @@ build_utils = { path = "../build_utils" }
 criterion.workspace = true
 rand.workspace = true
 redis_mock.workspace = true
+inverted_index = { workspace = true }
 rqe_iterators = { workspace = true }
 top_k = { workspace = true, features = ["test-utils"] }
 workspace_hack.workspace = true

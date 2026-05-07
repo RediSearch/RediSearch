@@ -20,6 +20,7 @@ use std::hint::black_box;
 use std::{cmp::Ordering, num::NonZeroUsize};
 
 use criterion::{BatchSize, BenchmarkId, Criterion, criterion_group, criterion_main};
+use inverted_index::{RSIndexResult, RSOffsetSlice};
 use rand::{SeedableRng as _, seq::SliceRandom as _};
 use rqe_iterators::RQEIterator;
 use top_k::{BatchStrategy, TopKHeap, TopKIterator, TopKMode, mock::MockScoreSource};
@@ -174,6 +175,85 @@ fn bench_intersection_disjoint(c: &mut Criterion) {
     group.finish();
 }
 
+/// Build a "realistic" child result: an aggregate of 3 term records,
+/// each carrying 128 bytes of owned offset data. Mirrors what a real
+/// text-query subtree (`AND of 3 terms with phrase offsets`) would
+/// hand to its parent.
+///
+/// Used to make the deep-copy / re-walk cost of a hybrid-scoring fix
+/// visible to the benchmark — the default `IdList::new` virt result
+/// is too small to surface that cost.
+fn make_heavy_child_result<'a>() -> RSIndexResult<'a> {
+    // 128 bytes per term × 3 terms ≈ what a typical phrase-query subtree
+    // hands up; large enough that a per-match deep-copy is dominated by
+    // real allocator work rather than constant overhead.
+    const FAKE_OFFSETS: [u8; 128] = [0x42; 128];
+
+    let term = |freq, field_mask| {
+        RSIndexResult::build_term()
+            .frequency(freq)
+            .field_mask(field_mask)
+            .weight(1.0)
+            .owned_record(None, RSOffsetSlice::from_slice(&FAKE_OFFSETS).to_owned())
+            .build()
+    };
+    // `build_hybrid_metric` is an Owned aggregate with capacity 2, which
+    // is the same shape the eventual hybrid-scoring fix will produce
+    // (vector metric child + text child). `build_intersect` would be a
+    // Borrowed aggregate and would reject `push_boxed` at runtime.
+    let mut agg = RSIndexResult::build_hybrid_metric().weight(1.0).build();
+    agg.push_boxed(Box::new(term(3, 0x1)));
+    agg.push_boxed(Box::new(term(2, 0x2)));
+    agg.push_boxed(Box::new(term(1, 0x4)));
+    agg
+}
+
+/// Same shape as [`bench_intersection_overlap`] but the child yields a
+/// representative aggregate `RSIndexResult` (intersection of two term
+/// records with owned offset data) instead of a virtual one.
+///
+/// Today this measures the no-op baseline: the heap drops the child's
+/// result entirely (causing the BM25-becomes-0 bug). When a fix lands
+/// — either deep-copying the child result into the heap, or re-walking
+/// the child with `skip_to` at yield time — the new cost will land here.
+fn bench_intersection_heavy_child(c: &mut Criterion) {
+    let mut group = c.benchmark_group("iterator");
+    let k = NonZeroUsize::new(100).unwrap();
+    // Sized to keep the timed region in the tens-of-µs range so a per-match
+    // allocation regression (~50 ns × thousands of matches) sits well above
+    // Criterion's relative-noise floor.
+    for n in [10_000usize, 100_000] {
+        let batch: Vec<(u64, f64)> = (0..n as u64).map(|i| (i * 2, i as f64)).collect();
+        let child_ids: Vec<u64> = (0..n as u64).step_by(2).map(|i| i * 2).collect();
+
+        group.bench_with_input(
+            BenchmarkId::new("batches_50pct_overlap_heavy_child", n),
+            &n,
+            |b, _| {
+                b.iter_batched(
+                    || {
+                        let source = MockScoreSource::new(vec![batch.clone()], vec![], |_, _| {
+                            BatchStrategy::Continue
+                        });
+                        let child: Box<dyn RQEIterator> =
+                            Box::new(rqe_iterators::IdList::<true>::with_result(
+                                child_ids.clone(),
+                                make_heavy_child_result(),
+                            ));
+                        (source, child)
+                    },
+                    |(source, child)| {
+                        let mut it = TopKIterator::new(source, child, k, asc);
+                        while black_box(it.read()).unwrap().is_some() {}
+                    },
+                    BatchSize::SmallInput,
+                )
+            },
+        );
+    }
+    group.finish();
+}
+
 fn bench_adhoc_vs_batches(c: &mut Criterion) {
     // Compare Adhoc-BF and Batches on the same inputs as n_child varies.
     // Source: 100k scored docs. Child: n_child docs spread evenly across the source.
@@ -237,6 +317,7 @@ criterion_group!(
     bench_heap_pop_all,
     bench_intersection_overlap,
     bench_intersection_disjoint,
+    bench_intersection_heavy_child,
     bench_adhoc_vs_batches,
 );
 criterion_main!(benches);

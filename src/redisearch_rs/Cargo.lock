@@ -2773,6 +2773,7 @@ dependencies = [
  "bindgen",
  "build_utils",
  "criterion",
+ "inverted_index",
  "rand 0.9.4",
  "redis_mock",
  "redisearch_rs",
