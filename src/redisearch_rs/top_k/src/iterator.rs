@@ -335,6 +335,19 @@ impl<'index, S: ScoreSource<'index>, C: RQEIterator<'index> + 'index> TopKIterat
     }
 
     /// Yield the next result from the pre-sorted `results` vec.
+    ///
+    /// In filtered modes ([`Batches`](TopKMode::Batches),
+    /// [`AdhocBF`](TopKMode::AdhocBF)) the heap only carries `(doc_id, score)`,
+    /// so we re-walk the child iterator with `rewind` + `skip_to` to recover
+    /// the child's full `RSIndexResult` (term records, frequency, field mask)
+    /// and yield that directly with the source's score attached as a metric.
+    /// This keeps BM25/TFIDF inputs flowing to the scorer.
+    ///
+    /// Cost: each yield does one `rewind` plus one `skip_to`. With `k`
+    /// surviving results that's `k` extra child traversals per query. The
+    /// alternative — deep-copying the child's record into the heap during
+    /// collection — currently requires widening `inverted_index`'s clone API
+    /// (see `.vscode/docs/top_k/index_result.md`).
     fn advance_from_results(
         &mut self,
     ) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
@@ -344,9 +357,30 @@ impl<'index, S: ScoreSource<'index>, C: RQEIterator<'index> + 'index> TopKIterat
         }
         let ScoredResult { doc_id, score } = self.results[self.yield_pos];
         self.yield_pos += 1;
+        self.last_doc_id = doc_id;
+
+        // Filtered mode: yield the child's record so BM25 inputs survive.
+        if let Some(child) = self.child.as_mut() {
+            child.rewind();
+            let outcome = child.skip_to(doc_id)?;
+            let cur = match outcome {
+                Some(SkipToOutcome::Found(r)) => r,
+                Some(SkipToOutcome::NotFound(_)) | None => {
+                    // Doc was matched during collection but the child can't
+                    // find it now — this would indicate the child's state
+                    // changed between collection and yield. Treat as EOF
+                    // rather than panicking; surface via at_eof.
+                    self.at_eof = true;
+                    return Ok(None);
+                }
+            };
+            self.source.attach_score_metric(cur, score);
+            return Ok(Some(cur));
+        }
+
+        // Unfiltered fallback (no child): build a fresh result from the source.
         let result = self.source.build_result(doc_id, score);
         self.current = Some(result);
-        self.last_doc_id = doc_id;
         Ok(self.current.as_mut())
     }
 }
@@ -356,6 +390,12 @@ impl<'index, S: ScoreSource<'index>, C: RQEIterator<'index> + 'index> RQEIterato
 {
     #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
+        // In filtered Yielding mode the most recently yielded record lives in
+        // the child iterator (see `advance_from_results`); forward to it so
+        // callers see the same `RSIndexResult` they got back from `read()`.
+        if matches!(self.phase, Phase::Yielding) && self.child.is_some() {
+            return self.child.as_mut().and_then(|c| c.current());
+        }
         self.current.as_mut()
     }
 
