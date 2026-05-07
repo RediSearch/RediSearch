@@ -43,7 +43,7 @@ typedef struct RPNetAsync {
   // Buffer: accumulated deserialized results (heap-allocated SearchResults)
   arrayof(struct SearchResult *) buffer;
 
-  // Profile data collected during Phase A (transferred to RPNet after completion)
+  // Profile data collected during async draining (transferred to RPNet after completion)
   arrayof(MRReply *) shardsProfile;
 
   // Accumulated total_results count from shard replies
@@ -65,8 +65,8 @@ typedef struct RPNetAsync {
 } RPNetAsync;
 
 /**
- * Trivial synchronous ResultProcessor for Phase B.
- * Reads from a pre-filled buffer of SearchResults. No blocking, no I/O.
+ * Trivial synchronous ResultProcessor backed by a pre-filled buffer
+ * of SearchResults. No blocking, no I/O.
  */
 typedef struct RPBufferedSource {
   ResultProcessor base;

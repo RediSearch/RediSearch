@@ -82,6 +82,10 @@ typedef struct {
 } RPNet;
 
 
+// Convert an MRReply into an RSValue. Used by both synchronous (rpnet.c) and
+// asynchronous (rpnet_async.c) reply-processing paths.
+RSValue *MRReply_ToValue(MRReply *r);
+
 void rpnetFree(ResultProcessor *rp);
 RPNet *RPNet_New(const MRCommand *cmd, int (*nextFunc)(ResultProcessor *, SearchResult *));
 void RPNet_resetCurrent(RPNet *nc);
@@ -92,7 +96,9 @@ int rpnetNext_StartWithMappings(ResultProcessor *rp, SearchResult *r);
 // Initialize the MRIterator on the RPNet from its cursor mappings, without
 // invoking rpnetNext. Used by the async path (RPNetAsync) which handles
 // draining separately.
-// `barrier` is optional private data passed to netCursorCallback (can be NULL).
+// `barrier` is optional private data passed to netCursorCallback. When NULL,
+// no async wake notifications are issued and the channel operates in
+// synchronous (blocking pop) mode only.
 // Returns REDISMODULE_OK on success.
 int RPNet_InitIterator(RPNet *nc, ShardResponseBarrier *barrier);
 

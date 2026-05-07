@@ -23,65 +23,6 @@
 
 #define CURSOR_EOF 0
 
-// --- Helper: convert MRReply to RSValue (same logic as in rpnet.c) ---
-
-static RSValue *MRReply_ToValue_Async(MRReply *r) {
-  if (!r) return RSValue_NullStatic();
-  RSValue *v = NULL;
-  switch (MRReply_Type(r)) {
-    case MR_REPLY_STATUS:
-    case MR_REPLY_STRING: {
-      size_t l;
-      const char *s = MRReply_String(r, &l);
-      RS_ASSERT(l <= UINT32_MAX);
-      v = RSValue_NewCopiedString(s, l);
-      break;
-    }
-    case MR_REPLY_ERROR: {
-      double d = 42;
-      MRReply_ToDouble(r, &d);
-      v = RSValue_NewNumber(d);
-      break;
-    }
-    case MR_REPLY_INTEGER:
-      v = RSValue_NewNumber((double)MRReply_Integer(r));
-      break;
-    case MR_REPLY_DOUBLE:
-      v = RSValue_NewNumber(MRReply_Double(r));
-      break;
-    case MR_REPLY_MAP: {
-      size_t n = MRReply_Length(r);
-      RS_LOG_ASSERT(n % 2 == 0, "map of odd length");
-      size_t map_len = n / 2;
-      RSValueMapBuilder *map = RSValue_NewMapBuilder(map_len);
-      for (size_t i = 0; i < map_len; i++) {
-        MRReply *e_k = MRReply_ArrayElement(r, i * 2);
-        RS_LOG_ASSERT(MRReply_Type(e_k) == MR_REPLY_STRING, "non-string map key");
-        MRReply *e_v = MRReply_ArrayElement(r, (i * 2) + 1);
-        RSValue_MapBuilderSetEntry(map, i, MRReply_ToValue_Async(e_k), MRReply_ToValue_Async(e_v));
-      }
-      v = RSValue_NewMapFromBuilder(map);
-      break;
-    }
-    case MR_REPLY_ARRAY: {
-      size_t n = MRReply_Length(r);
-      RSValue **arr = RSValue_NewArrayBuilder(n);
-      for (size_t i = 0; i < n; ++i) {
-        arr[i] = MRReply_ToValue_Async(MRReply_ArrayElement(r, i));
-      }
-      v = RSValue_NewArrayFromBuilder(arr, n);
-      break;
-    }
-    case MR_REPLY_NIL:
-      v = RSValue_NullStatic();
-      break;
-    default:
-      v = RSValue_NullStatic();
-      break;
-  }
-  return v;
-}
-
 // --- Helper: deserialize a single row from the reply into a new SearchResult ---
 
 static SearchResult *deserializeRow(RPNetAsync *self, MRReply *rows, size_t idx) {
@@ -112,7 +53,7 @@ static SearchResult *deserializeRow(RPNetAsync *self, MRReply *rows, size_t idx)
     size_t len;
     const char *field = MRReply_String(MRReply_ArrayElement(fields, i), &len);
     MRReply *val = MRReply_ArrayElement(fields, i + 1);
-    RSValue *v = MRReply_ToValue_Async(val);
+    RSValue *v = MRReply_ToValue(val);
     RLookupRow_WriteByNameOwned(self->lookup, field, len, SearchResult_GetRowDataMut(&result), v);
   }
 
@@ -120,6 +61,10 @@ static SearchResult *deserializeRow(RPNetAsync *self, MRReply *rows, size_t idx)
 }
 
 // --- Helper: process a single reply (extract rows, profile, accumulate totals) ---
+// This mirrors the reply-processing logic in rpnetNext() (rpnet.c), adapted for
+// buffered async draining. The core parsing (error handling, profile extraction,
+// RESP2/RESP3 row extraction, warning processing) should be factored into shared
+// helpers — see rpnet.c:getNextReply / rpnetNext for the synchronous counterpart.
 // Returns RS_RESULT_OK on success, RS_RESULT_TIMEDOUT on timeout warning,
 // RS_RESULT_ERROR on error reply.
 

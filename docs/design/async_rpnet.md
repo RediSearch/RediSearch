@@ -35,7 +35,9 @@ that yield when the channel is empty, freeing threads for other queries.
         |                         | TryPop -------------->|                    |
         |                         |<-- NULL (empty) ------|                    |
         |                         | waiting = true        |                    |
-        |                         | return (yield)        |                    |
+        |                         | return (yield to pool)|                    |
+        |                         | (thread is free for   |                    |
+        |                         |  other work items)    |                    |
         |                         |                       |                    |
         |                         |                       | Push(reply) ------>|
         |                         |                       | if (waiting):      |
@@ -51,6 +53,7 @@ that yield when the channel is empty, freeing threads for other queries.
         |                         |                       |                    |
         | Wake up                 |                       |                    |
         | Patch pipeline: RPBufferedSource replaces RPNet |                    |
+        | (PoC shortcut — ideally built with right source)|                    |
         | sendChunk_hybrid (Phase B, unchanged)           |                    |
         |                         |                       |                    |
 ```
@@ -128,25 +131,6 @@ After `MRIteratorCallback_AddReply` pushes a reply to the channel in
 `netCursorCallback`, the barrier's `asyncWakeCallback` is invoked. This performs an
 `atomic_exchange` on the RPNetAsync's `waiting` flag — if it was set, the task is
 re-submitted to the coordinator pool.
-
-## Yield/Resume Protocol
-
-The double-check pattern prevents lost wakeups:
-
-```
-1. TryPop → NULL (empty)
-2. atomic_store(&waiting, true)
-3. TryPop → check again
-   - If data arrived between steps 1 and 2: process it, clear waiting
-   - If still empty: return (yield). IO thread will re-dispatch on next push.
-```
-
-The IO thread side:
-```
-1. MRChannel_Push(reply)
-2. if (atomic_exchange(&waiting, false) == true):
-      re-dispatch RPNetAsync_Run to pool
-```
 
 ## Timeout Handling
 

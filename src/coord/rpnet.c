@@ -19,7 +19,7 @@
 #define CURSOR_EOF 0
 
 
-static RSValue *MRReply_ToValue(MRReply *r) {
+RSValue *MRReply_ToValue(MRReply *r) {
   if (!r) return RSValue_NullStatic();
   RSValue *v = NULL;
   switch (MRReply_Type(r)) {
