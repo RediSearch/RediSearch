@@ -20,13 +20,13 @@ jobs:
     uses: ./.github/workflows/task-build-cached-container.yml
     with:
       container: ubuntu:noble
-      runner-env: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
+      runner-env: ${{ vars.RUNS_ON || 'ubuntu-24.04' }}
 
   lint:
     name: Linting
     needs: build-image
     if: ${{ !cancelled() }}
-    runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
+    runs-on: ${{ vars.RUNS_ON || 'ubuntu-24.04' }}
     defaults:
       run:
         shell: bash -l -eo pipefail {0}
