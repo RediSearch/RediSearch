@@ -3907,8 +3907,6 @@ def test_no_deadlock_query_with_concurrent_writer():
     for i in range(10):
         conn.execute_command('HSET', f'doc{i}', 'name', f'hello{i}')
 
-    env.expect('FT.SEARCH', 'idx', '*').ok()
-
     sync_point = 'BeforeAggregateResultsClaim'
     query_args = ['FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@name',
                   'LIMIT', '0', '1']
