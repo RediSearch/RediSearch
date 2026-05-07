@@ -47,11 +47,9 @@ void addSuffixTrie(Trie *trie, const char *str, uint32_t len) {
   TrieNode *trienode = TrieNode_Get(trie->root, runes, rlen, 1, NULL);
   suffixData *data = NULL;
   if (trienode) {
-    // suffixData *node = TrieNode_GetValue(trie->root, runes, rlen, 1);
     data = Suffix_GetData(trienode);
     // if string was added in the past, skip
     if (data && data->term) {
-      //rm_free(runes);
       runeBufFree(&buf);
       return;
     }
@@ -96,13 +94,8 @@ static void removeSuffix(const char *str, size_t rlen, arrayof(char*) array) {
 
 void deleteSuffixTrie(Trie *trie, const char *str, uint32_t len) {
   size_t rlen = 0;
-  //rune *runes = strToRunesN(str, len, &rlen);
-
   runeBuf buf;
   rune *runes = runeBufFill(str, len, &buf, &rlen);
-
-  //rune runes[len];
-  //size_t rlen = strToRunesN(str, len, &runes);
   char *oldTerm = NULL;
 
   // iterate all matching terms and remove word
@@ -113,8 +106,6 @@ void deleteSuffixTrie(Trie *trie, const char *str, uint32_t len) {
     // if the trie is owned by other fields and not any one containing this suffix,
     // then failure to find the suffix is not an error. just move along.
     if (!data) continue;
-    // RS_LOG_ASSERT(data, "all suffixes must exist");
-    // suffixData *data = TrieMap_Find(trie, str + j, len - j);
     if (j == 0) {
       // keep pointer to word string to free after it was found in al sub tokens.
       oldTerm = data->term;

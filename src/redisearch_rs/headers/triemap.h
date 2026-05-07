@@ -215,16 +215,6 @@ TrieMapResultBuf TrieMap_FindPrefixes(const TrieMap *t, const char *str, tm_len_
 void TrieMapResultBuf_Free(TrieMapResultBuf buf);
 
 /**
- * Get the data from the TrieMapResultBuf as an array of values.
- *
- * # Safety
- *
- * The following invariants must be upheld when calling this function:
- * - `buf` must point to a valid TrieMapResultBuf initialized by [`TrieMap_FindPrefixes`] and cannot be NULL.
- */
-void **TrieMapResultBuf_Data(TrieMapResultBuf *buf);
-
-/**
  * Retrieve an element from the buffer, via a 0-initialized index.
  *
  * It returns `NULL` if the index is out of bounds.
