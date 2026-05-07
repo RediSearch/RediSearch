@@ -7,11 +7,12 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! Cross-check that the streaming-automaton iterators (NFA + DFA) produce
-//! the same matches as the existing [`WildcardIter`].
+//! Cross-check that the streaming-automaton iterators produce the same
+//! matches as the existing filter-based [`WildcardIter`].
 
 use proptest::prelude::*;
 use trie_rs::TrieMap;
+use trie_rs::iter::LargeHeapStateSet;
 use wildcard::WildcardPattern;
 
 fn matches_filter<Data>(trie: &TrieMap<Data>, pattern: &str) -> Vec<Vec<u8>> {
@@ -20,17 +21,11 @@ fn matches_filter<Data>(trie: &TrieMap<Data>, pattern: &str) -> Vec<Vec<u8>> {
 }
 
 fn matches_nfa<Data>(trie: &TrieMap<Data>, pattern: &str) -> Vec<Vec<u8>> {
+    // Use the dynamic-length heap bitset so this helper works for patterns
+    // of any length; size-dispatch correctness on smaller bitsets is
+    // exercised via `matches_specialized`.
     let p = WildcardPattern::parse(pattern.as_bytes());
-    trie.wildcard_nfa_iter(&p)
-        .expect("test patterns fit in atom cap")
-        .map(|(k, _)| k)
-        .collect()
-}
-
-fn matches_dfa<Data>(trie: &TrieMap<Data>, pattern: &str) -> Vec<Vec<u8>> {
-    let p = WildcardPattern::parse(pattern.as_bytes());
-    trie.wildcard_dfa_iter(&p)
-        .expect("DFA construction within cap")
+    trie.wildcard_nfa_iter::<LargeHeapStateSet>(&p)
         .map(|(k, _)| k)
         .collect()
 }
@@ -68,10 +63,8 @@ fn matches_agree_on_seed_patterns() {
     for p in patterns {
         let f = matches_filter(&trie, p);
         let n = matches_nfa(&trie, p);
-        let d = matches_dfa(&trie, p);
         let s = matches_specialized(&trie, p);
         assert_eq!(f, n, "NFA disagrees on `{p}`");
-        assert_eq!(f, d, "DFA disagrees on `{p}`");
         assert_eq!(f, s, "Specialized disagrees on `{p}`");
     }
 }
@@ -82,7 +75,6 @@ fn empty_pattern_matches_empty_key_only() {
     trie.insert(b"", b"".to_vec());
     trie.insert(b"apple", b"apple".to_vec());
     assert_eq!(matches_nfa(&trie, ""), vec![b""]);
-    assert_eq!(matches_dfa(&trie, ""), vec![b""]);
     assert_eq!(matches_specialized(&trie, ""), vec![b""]);
 }
 
@@ -90,7 +82,6 @@ fn empty_pattern_matches_empty_key_only() {
 fn empty_trie_yields_nothing() {
     let trie = TrieMap::<u64>::new();
     assert!(matches_nfa(&trie, "*").is_empty());
-    assert!(matches_dfa(&trie, "*").is_empty());
     assert!(matches_specialized(&trie, "*").is_empty());
 }
 
@@ -100,7 +91,8 @@ proptest! {
         ..Default::default()
     })]
 
-    /// Random ASCII keys + random pattern → all four must agree.
+    /// Random ASCII keys + random pattern → filter, NFA, and specialized
+    /// must agree.
     #[test]
     fn agree_on_random_keys_and_patterns(
         keys in prop::collection::vec("[a-d]{0,6}", 1..30),
@@ -112,10 +104,8 @@ proptest! {
         }
         let f = matches_filter(&trie, &pattern);
         let n = matches_nfa(&trie, &pattern);
-        let d = matches_dfa(&trie, &pattern);
         let s = matches_specialized(&trie, &pattern);
         prop_assert_eq!(&f, &n, "filter vs nfa, pattern=`{}`", pattern);
-        prop_assert_eq!(&f, &d, "filter vs dfa, pattern=`{}`", pattern);
         prop_assert_eq!(&f, &s, "filter vs specialized, pattern=`{}`", pattern);
     }
 
@@ -133,10 +123,8 @@ proptest! {
         }
         let f = matches_filter(&trie, &pattern);
         let n = matches_nfa(&trie, &pattern);
-        let d = matches_dfa(&trie, &pattern);
         let s = matches_specialized(&trie, &pattern);
         prop_assert_eq!(&f, &n, "filter vs nfa, pattern=`{}`", pattern);
-        prop_assert_eq!(&f, &d, "filter vs dfa, pattern=`{}`", pattern);
         prop_assert_eq!(&f, &s, "filter vs specialized, pattern=`{}`", pattern);
     }
 
@@ -158,13 +146,14 @@ proptest! {
     }
 }
 
-/// Patterns longer than the streaming automaton's atom cap (63 atoms) used
-/// to panic via `flatten`'s assert. They should now fall back transparently
-/// to the filter-based iterator and yield the same matches as
-/// [`TrieMap::wildcard_iter`].
+/// Patterns longer than the inline `u64` bitset (63 atoms) exercise the
+/// [`StateSet`]'s heap-spill path. The streaming automaton must yield the
+/// same matches as the filter-based iterator without panicking or losing
+/// correctness.
 #[test]
-fn long_literal_pattern_falls_back_correctly() {
-    // A 70-char literal — well over the 63-atom bitset cap.
+fn long_literal_patterns_via_spilled_bitset() {
+    // A 70-char literal — over the 63-bit inline-bitset cap, so the
+    // underlying StateSet allocates a second word on the heap.
     let prefix = "a".repeat(70);
     let pattern_long_literal = format!("{prefix}*");
     let pattern_long_fixed = prefix.clone();
@@ -175,27 +164,15 @@ fn long_literal_pattern_falls_back_correctly() {
     trie.insert(b"unrelated", 2);
     trie.insert(prefix.as_bytes(), 3);
 
-    // Variable-length pattern: routes through Fallback (since NFA compile
-    // would fail).
+    // Variable-length pattern: NFA path spills the bitset to the heap.
     let f = matches_filter(&trie, &pattern_long_literal);
+    let n = matches_nfa(&trie, &pattern_long_literal);
     let s = matches_specialized(&trie, &pattern_long_literal);
-    assert_eq!(f, s, "long literal + `*` should agree via fallback");
+    assert_eq!(f, n, "filter vs nfa, long literal + `*`");
+    assert_eq!(f, s, "filter vs specialized, long literal + `*`");
 
-    // Fixed-length pattern: also routes through Fallback (since
-    // FixedWildcardIter::new would fail).
+    // Fixed-length pattern: FixedWildcardIter handles arbitrary length too.
     let f = matches_filter(&trie, &pattern_long_fixed);
     let s = matches_specialized(&trie, &pattern_long_fixed);
-    assert_eq!(f, s, "long literal alone should agree via fallback");
-
-    // Lower-level methods report the failure explicitly.
-    let p = WildcardPattern::parse(pattern_long_literal.as_bytes());
-    assert!(
-        trie.wildcard_nfa_iter(&p).is_none(),
-        "wildcard_nfa_iter should report None for over-long patterns"
-    );
-    let p = WildcardPattern::parse(pattern_long_fixed.as_bytes());
-    assert!(
-        trie.wildcard_fixed_iter(&p).is_none(),
-        "wildcard_fixed_iter should report None for over-long patterns"
-    );
+    assert_eq!(f, s, "filter vs specialized, long literal alone");
 }

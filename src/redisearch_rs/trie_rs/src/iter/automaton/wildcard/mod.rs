@@ -11,23 +11,31 @@
 //!
 //! ## Layout
 //!
-//! - [`atoms`] — shared low-level building blocks: the [`StateSet`] bitset,
-//!   the [`Atom`](atoms::Atom) enum, and the `flatten` helper that turns a
-//!   parsed [`WildcardPattern`] into a flat atom slice.
-//! - [`nfa`] — NFA primitives (ε-closure table, `nfa_step`) and the
-//!   [`WildcardNfa`] [`Automaton`](super::Automaton) implementation.
-//! - [`dfa`] — the [`WildcardDfa`] [`Automaton`](super::Automaton)
-//!   implementation, built via subset construction over the NFA primitives.
+//! - [`atoms`] — shared low-level building blocks: the [`NfaBitSet`] trait
+//!   with implementations for `u64`, `u128`, [`InlineStateSet`], and
+//!   [`HeapStateSet`]; the [`Atom`](atoms::Atom) enum; and the `flatten`
+//!   helper that turns a parsed [`WildcardPattern`] into a flat atom slice.
+//! - [`nfa`] — generic [`WildcardNfa<S>`] [`Automaton`](super::Automaton)
+//!   implementation parameterized over the bitset.
 //! - [`fixed`] — [`FixedWildcardIter`], a concrete iterator that bypasses
 //!   the [`Automaton`](super::Automaton) trait entirely for patterns
 //!   with no `*`.
 //!
 //! ## Auto-dispatching wrapper
 //!
-//! [`WildcardSpecializedIter`] picks [`FixedWildcardIter`] when the pattern
-//! has no `*`, otherwise an
-//! [`AutomatonIter`](super::AutomatonIter) driven by [`WildcardNfa`]. The
-//! runtime cost of the dispatch is one loop-invariant branch per call.
+//! [`WildcardSpecializedIter`] picks the most efficient backend at NFA
+//! compile time:
+//!
+//! - No `*` → [`FixedWildcardIter`].
+//! - `*` and ≤ 63 atoms → NFA backed by `u64`.
+//! - `*` and 64..=127 atoms → NFA backed by `u128`.
+//! - `*` and 128..=255 atoms → NFA backed by [`InlineStateSet`].
+//! - `*` and 256..=511 atoms → NFA backed by `HeapStateSet<8>`.
+//! - `*` and 512..=1023 atoms → NFA backed by `HeapStateSet<16>`.
+//! - `*` and ≥ 1024 atoms → NFA backed by [`LargeHeapStateSet`].
+//!
+//! The runtime cost of the dispatch is one loop-invariant branch per
+//! iterator call.
 //!
 //! ## Byte-level semantics
 //!
@@ -36,17 +44,15 @@
 //! require a UTF-8 lifting pass on the underlying automata.
 
 pub mod atoms;
-pub mod dfa;
 pub mod fixed;
 pub mod nfa;
 
-pub use atoms::StateSet;
-pub use dfa::WildcardDfa;
+pub use atoms::{HeapStateSet, InlineStateSet, LargeHeapStateSet, NfaBitSet};
 pub use fixed::{FixedWildcardIter, FixedWildcardLendingIter};
 pub use nfa::WildcardNfa;
 
 use super::AutomatonIter;
-use crate::iter::wildcard::WildcardIter;
+use atoms::count_atoms;
 use lending_iterator::prelude::*;
 use wildcard::{Token, WildcardPattern};
 
@@ -55,37 +61,76 @@ pub fn pattern_has_star(pattern: &WildcardPattern<'_>) -> bool {
     pattern.tokens().iter().any(|t| matches!(t, Token::Any))
 }
 
-/// Wildcard iterator that auto-selects between a specialized fixed-length
-/// path, the general NFA path, and a filter-based fallback.
-///
-/// The variant chosen depends on the pattern shape:
-///
-/// - [`Fixed`](Self::Fixed) — pattern has no `*` and fits in the bitset cap.
-/// - [`General`](Self::General) — pattern has `*` and fits in the bitset cap.
-/// - [`Fallback`](Self::Fallback) — pattern is too long for the streaming
-///   automaton (more than [`atoms::MAX_ATOMS`] atoms after flattening); we
-///   route through the existing filter-based [`WildcardIter`] to avoid
-///   panicking on otherwise-valid input.
+/// Wildcard iterator that auto-selects the most efficient backend at NFA
+/// compile time. See the module documentation for the selection criteria.
 pub enum WildcardSpecializedIter<'tm, Data> {
     Fixed(FixedWildcardIter<'tm, Data>),
-    General(AutomatonIter<'tm, Data, WildcardNfa>),
-    Fallback(WildcardIter<'tm, Data>),
+    GeneralU64(AutomatonIter<'tm, Data, WildcardNfa<u64>>),
+    GeneralU128(AutomatonIter<'tm, Data, WildcardNfa<u128>>),
+    GeneralInline(AutomatonIter<'tm, Data, WildcardNfa<InlineStateSet>>),
+    GeneralHeap8(AutomatonIter<'tm, Data, WildcardNfa<HeapStateSet<8>>>),
+    GeneralHeap16(AutomatonIter<'tm, Data, WildcardNfa<HeapStateSet<16>>>),
+    GeneralHeapLarge(AutomatonIter<'tm, Data, WildcardNfa<LargeHeapStateSet>>),
 }
 
 impl<'tm, Data> WildcardSpecializedIter<'tm, Data> {
     pub(crate) fn advance(&mut self) -> Option<&'tm Data> {
         match self {
             Self::Fixed(it) => it.advance(),
-            Self::General(it) => it.advance(),
-            Self::Fallback(it) => it.advance(),
+            Self::GeneralU64(it) => it.advance(),
+            Self::GeneralU128(it) => it.advance(),
+            Self::GeneralInline(it) => it.advance(),
+            Self::GeneralHeap8(it) => it.advance(),
+            Self::GeneralHeap16(it) => it.advance(),
+            Self::GeneralHeapLarge(it) => it.advance(),
         }
     }
 
     pub(crate) fn key(&self) -> &[u8] {
         match self {
             Self::Fixed(it) => it.key(),
-            Self::General(it) => it.key(),
-            Self::Fallback(it) => it.key(),
+            Self::GeneralU64(it) => it.key(),
+            Self::GeneralU128(it) => it.key(),
+            Self::GeneralInline(it) => it.key(),
+            Self::GeneralHeap8(it) => it.key(),
+            Self::GeneralHeap16(it) => it.key(),
+            Self::GeneralHeapLarge(it) => it.key(),
+        }
+    }
+}
+
+/// Pick the smallest [`NfaBitSet`] that fits the pattern's atom count.
+///
+/// The dispatcher uses this in conjunction with one of several concrete NFA
+/// constructors so each variant gets a fully-monomorphized hot path.
+pub enum BitSetClass {
+    U64,
+    U128,
+    Inline,
+    /// `HeapStateSet<8>` — covers ≤ 511 atoms.
+    Heap8,
+    /// `HeapStateSet<16>` — covers ≤ 1023 atoms.
+    Heap16,
+    /// `LargeHeapStateSet` — fallback for ≥ 1024 atoms.
+    HeapLarge,
+}
+
+impl BitSetClass {
+    pub fn for_pattern(pattern: &WildcardPattern<'_>) -> Self {
+        // The bitset must hold positions `0..=n_atoms` (n_atoms + 1 bits).
+        let bits_needed = count_atoms(pattern) + 1;
+        if bits_needed <= 64 {
+            Self::U64
+        } else if bits_needed <= 128 {
+            Self::U128
+        } else if bits_needed <= 256 {
+            Self::Inline
+        } else if bits_needed <= 8 * 64 {
+            Self::Heap8
+        } else if bits_needed <= 16 * 64 {
+            Self::Heap16
+        } else {
+            Self::HeapLarge
         }
     }
 }

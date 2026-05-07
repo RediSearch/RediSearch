@@ -11,9 +11,10 @@ use wildcard::WildcardPattern;
 
 use crate::{
     iter::{
-        Automaton, AutomatonIter, ContainsIter, FixedWildcardIter, IntoValues, Iter, LendingIter,
-        PrefixesIter, RangeFilter, RangeIter, Values, WildcardDfa, WildcardIter, WildcardNfa,
-        WildcardSpecializedIter, filter::VisitAll, pattern_has_star,
+        Automaton, AutomatonIter, BitSetClass, ContainsIter, FixedWildcardIter, HeapStateSet,
+        InlineStateSet, IntoValues, Iter, LargeHeapStateSet, LendingIter, NfaBitSet, PrefixesIter,
+        RangeFilter, RangeIter, Values,
+        WildcardIter, WildcardNfa, WildcardSpecializedIter, filter::VisitAll, pattern_has_star,
     },
     node::Node,
     utils::strip_prefix,
@@ -209,66 +210,70 @@ impl<Data> TrieMap<Data> {
     }
 
     /// Iterate over all trie entries whose key matches the specified pattern,
-    /// using NFA-simulation streaming.
+    /// using NFA-simulation streaming with the chosen bitset representation.
     ///
-    /// Returns `None` if the pattern exceeds the streaming-automaton's atom
-    /// cap. Callers in that case can fall back to
-    /// [`Self::wildcard_iter`] (the filter-based path).
-    pub fn wildcard_nfa_iter<'a>(
+    /// Pick `S` based on the pattern's atom count: `u64` for ≤ 63 atoms,
+    /// `u128` for 64..=127, [`InlineStateSet`] for 128..=255,
+    /// `HeapStateSet<8>` for 256..=511, `HeapStateSet<16>` for 512..=1023,
+    /// and [`LargeHeapStateSet`] for anything larger.
+    /// [`Self::wildcard_specialized_iter`] does this dispatch automatically.
+    pub fn wildcard_nfa_iter<'a, S: NfaBitSet>(
         &'a self,
         pattern: &WildcardPattern<'a>,
-    ) -> Option<AutomatonIter<'a, Data, WildcardNfa>> {
-        let nfa = WildcardNfa::compile(pattern)?;
-        Some(self.automaton_iter_with_prefix_shortcut(pattern.tokens(), nfa))
+    ) -> AutomatonIter<'a, Data, WildcardNfa<S>> {
+        let nfa = WildcardNfa::<S>::compile(pattern);
+        self.automaton_iter_with_prefix_shortcut(pattern.tokens(), nfa)
     }
 
     /// Iterate over all trie entries whose key matches the specified pattern,
-    /// using a pre-built DFA.
+    /// auto-selecting the most efficient backend at compile time of the NFA:
     ///
-    /// Returns `None` if either the pattern exceeds the streaming-automaton's
-    /// atom cap or DFA construction exceeds the internal state cap. Callers
-    /// in either case can fall back to [`Self::wildcard_nfa_iter`] or, if
-    /// that also fails, [`Self::wildcard_iter`].
-    pub fn wildcard_dfa_iter<'a>(
-        &'a self,
-        pattern: &WildcardPattern<'a>,
-    ) -> Option<AutomatonIter<'a, Data, WildcardDfa>> {
-        let dfa = WildcardDfa::compile(pattern)?;
-        Some(self.automaton_iter_with_prefix_shortcut(pattern.tokens(), dfa))
-    }
-
-    /// Iterate over all trie entries whose key matches the specified pattern,
-    /// auto-selecting between a specialized fixed-length iterator (no `*`),
-    /// the general NFA-driven iterator, and the filter-based fallback for
-    /// patterns too long to fit in the streaming automaton.
+    /// - No `*` → specialized fixed-length iterator.
+    /// - `*` and ≤ 63 atoms → NFA backed by `u64`.
+    /// - `*` and 64..=127 atoms → NFA backed by `u128`.
+    /// - `*` and 128..=255 atoms → NFA backed by [`InlineStateSet`].
+    /// - `*` and 256..=511 atoms → NFA backed by `HeapStateSet<8>`.
+    /// - `*` and 512..=1023 atoms → NFA backed by `HeapStateSet<16>`.
+    /// - `*` and ≥ 1024 atoms → NFA backed by [`LargeHeapStateSet`].
     pub fn wildcard_specialized_iter<'a>(
         &'a self,
         pattern: &WildcardPattern<'a>,
     ) -> WildcardSpecializedIter<'a, Data> {
-        if pattern_has_star(pattern) {
-            if let Some(iter) = self.wildcard_nfa_iter(pattern) {
-                return WildcardSpecializedIter::General(iter);
-            }
-        } else if let Some(iter) = self.wildcard_fixed_iter(pattern) {
-            return WildcardSpecializedIter::Fixed(iter);
+        if !pattern_has_star(pattern) {
+            return WildcardSpecializedIter::Fixed(self.wildcard_fixed_iter(pattern));
         }
-        // Pattern too long for the streaming automaton — route through the
-        // existing filter-based iterator, which has no length cap.
-        WildcardSpecializedIter::Fallback(self.wildcard_iter(pattern.clone()))
+        match BitSetClass::for_pattern(pattern) {
+            BitSetClass::U64 => {
+                WildcardSpecializedIter::GeneralU64(self.wildcard_nfa_iter::<u64>(pattern))
+            }
+            BitSetClass::U128 => {
+                WildcardSpecializedIter::GeneralU128(self.wildcard_nfa_iter::<u128>(pattern))
+            }
+            BitSetClass::Inline => WildcardSpecializedIter::GeneralInline(
+                self.wildcard_nfa_iter::<InlineStateSet>(pattern),
+            ),
+            BitSetClass::Heap8 => WildcardSpecializedIter::GeneralHeap8(
+                self.wildcard_nfa_iter::<HeapStateSet<8>>(pattern),
+            ),
+            BitSetClass::Heap16 => WildcardSpecializedIter::GeneralHeap16(
+                self.wildcard_nfa_iter::<HeapStateSet<16>>(pattern),
+            ),
+            BitSetClass::HeapLarge => WildcardSpecializedIter::GeneralHeapLarge(
+                self.wildcard_nfa_iter::<LargeHeapStateSet>(pattern),
+            ),
+        }
     }
 
     /// Iterate over wildcard matches using the specialized fixed-length
     /// iterator directly (no dispatching enum).
     ///
     /// `pattern` must contain no `*` token; debug-asserts otherwise.
-    /// Returns `None` if the pattern exceeds the streaming-automaton's atom
-    /// cap.
     pub fn wildcard_fixed_iter<'a>(
         &'a self,
         pattern: &WildcardPattern<'a>,
-    ) -> Option<FixedWildcardIter<'a, Data>> {
+    ) -> FixedWildcardIter<'a, Data> {
         let Some(root) = self.root.as_ref() else {
-            return Some(FixedWildcardIter::empty());
+            return FixedWildcardIter::empty();
         };
         // Same literal-prefix shortcut as the automaton path: jump to the
         // subtree containing every key with that prefix.
@@ -277,7 +282,7 @@ impl<Data> TrieMap<Data> {
                 Some((subroot, subroot_prefix)) => {
                     FixedWildcardIter::new(Some(subroot), subroot_prefix, pattern)
                 }
-                None => Some(FixedWildcardIter::empty()),
+                None => FixedWildcardIter::empty(),
             }
         } else {
             FixedWildcardIter::new(Some(root), Vec::new(), pattern)

@@ -7,18 +7,18 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! Specialized iterator for wildcard patterns without `*` (no [`Atom::Any`]).
+//! Specialized iterator for wildcard patterns without `*`.
 //!
 //! Without `Any`, the NFA's active state is provably a singleton: a single
-//! position in the atom list. We can replace the entire [`Automaton`]
-//! machinery (StateSet bitset, ε-closure, trait dispatch, `Option<StateSet>`
-//! packaging) with a `usize` counter and direct integer arithmetic.
+//! position in the atom list. We can replace the entire `Automaton` trait
+//! machinery (bitset, ε-closure, `Option`-wrapped state) with a plain
+//! `usize` counter and direct integer arithmetic.
 //!
-//! Concretely: each byte of input either advances the counter
-//! ([`Atom::Byte`] match / [`Atom::One`]) or kills it ([`Atom::Byte`]
-//! mismatch / past end). At every node visit we check `pos == accept` to
-//! decide whether to yield, and `pos < accept` to decide whether descendants
-//! are still reachable.
+//! Concretely: each byte of input either advances the counter (a literal
+//! byte that matches, or `?`) or kills it (literal mismatch, or running
+//! past the end). At every node visit we check `pos == accept` to decide
+//! whether to yield and `pos < accept` to decide whether descendants are
+//! still reachable.
 
 use super::atoms::{Atom, flatten};
 use crate::node::Node;
@@ -61,15 +61,12 @@ impl<'tm, Data> FixedWildcardIter<'tm, Data> {
     /// See
     /// [`AutomatonIter::new`](super::super::AutomatonIter::new) for the
     /// `start_node` / `key_prefix` contract.
-    ///
-    /// Returns `None` if the pattern exceeds the per-bitset atom cap (see
-    /// [`flatten`]) — callers fall back to the filter-based iterator.
     pub(crate) fn new(
         start_node: Option<&'tm Node<Data>>,
         key_prefix: Vec<u8>,
         pattern: &WildcardPattern<'_>,
-    ) -> Option<Self> {
-        let atoms = flatten(pattern)?;
+    ) -> Self {
+        let atoms = flatten(pattern);
         debug_assert!(
             !atoms.iter().any(|a| matches!(a, Atom::Any)),
             "FixedWildcardIter requires a pattern with no `*` atoms",
@@ -92,7 +89,7 @@ impl<'tm, Data> FixedWildcardIter<'tm, Data> {
                 parent_key_len,
             });
         }
-        Some(iter)
+        iter
     }
 
     pub(crate) fn advance(&mut self) -> Option<&'tm Data> {

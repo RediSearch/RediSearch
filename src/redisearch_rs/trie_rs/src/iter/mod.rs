@@ -22,8 +22,9 @@ mod values;
 mod wildcard;
 
 pub use automaton::{
-    Automaton, AutomatonIter, AutomatonLendingIter, FixedWildcardIter, FixedWildcardLendingIter,
-    StateClass, WildcardDfa, WildcardNfa, WildcardSpecializedIter, WildcardSpecializedLendingIter,
+    Automaton, AutomatonIter, AutomatonLendingIter, BitSetClass, FixedWildcardIter,
+    FixedWildcardLendingIter, HeapStateSet, InlineStateSet, LargeHeapStateSet, NfaBitSet,
+    StateClass, WildcardNfa, WildcardSpecializedIter, WildcardSpecializedLendingIter,
     pattern_has_star,
 };
 pub use contains::ContainsIter;

@@ -42,13 +42,6 @@ impl<'a, Data> WildcardIter<'a, Data> {
         Self(iter)
     }
 
-    pub(crate) fn advance(&mut self) -> Option<&'a Data> {
-        self.0.advance()
-    }
-
-    pub(crate) fn key(&self) -> &[u8] {
-        self.0.key()
-    }
 }
 
 impl<'a, Data> Iterator for WildcardIter<'a, Data> {
