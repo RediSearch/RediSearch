@@ -1,0 +1,46 @@
+version: 0.2
+name: "search-expire-doc-multi-index-10-milliseconds"
+description: |
+  TTL table benchmark for document expiration when multiple indexes share the
+  same key prefix. Three FT indexes on the idx10: prefix all monitor doc-level
+  expiration, so every PEXPIRE notification is fanned out across all three
+  specs.
+
+  Under the old reindex path this means N (=3) full re-tokenizations and
+  inverted-index rewrites per PEXPIRE; under the fast path
+  (Indexes_UpdateMatchingDocExpiration) this collapses to N short
+  DocTable_UpdateExpiration calls. Active expiration is disabled so docs
+  remain in the dataset and the per-spec write-lock fan-out is the dominant
+  observable.
+
+  Search side uses a deterministic catch-all on idx10_a so re-triggers on the
+  same branch produce stable throughput (>1000 QPS); the optimization signal
+  comes from the PEXPIRE × 3-index fan-out.
+
+metadata:
+  component: "search"
+  group: "expire-persist"
+  use_case: "EXPIRE/PEXPIRE fast path with N>1 matching indexes — amplifies the per-spec metadata-update vs full-reindex delta"
+setups:
+  - oss-standalone
+
+dbconfig:
+  - dataset_name: "5200K-docs-union-iterators.idx10-expire-doc-multi-index-10ms"
+  - tool: ftsb_redisearch
+  - parameters:
+    - workers: 64
+    - reporting-period: 1s
+    - input: "https://s3.amazonaws.com/benchmarks.redislabs/redisearch/datasets/5200K-docs-union-iterators/5200K-docs-union-iterators.idx10.commands.SETUP.csv"
+  - init_commands:
+      - '"DEBUG" "SET-ACTIVE-EXPIRE" "0"'
+      - '"FT.CREATE" "idx10_a" "PREFIX" "1" "idx10:" "SCHEMA" "field1" "NUMERIC" "field2" "TEXT" "field3" "TEXT" "field4" "NUMERIC" "field5" "NUMERIC" "field6" "NUMERIC" "field7" "NUMERIC" "field8" "NUMERIC" "field9" "NUMERIC"'
+      - '"FT.CREATE" "idx10_b" "PREFIX" "1" "idx10:" "SCHEMA" "field2" "TEXT" "field3" "TEXT"'
+      - '"FT.CREATE" "idx10_c" "PREFIX" "1" "idx10:" "SCHEMA" "field4" "NUMERIC" "field5" "NUMERIC" "field6" "NUMERIC"'
+  - dataset_load_timeout_secs: 240
+  - check:
+      keyspacelen: 5204050
+
+clientconfig:
+  benchmark_type: "mixed"
+  tool: memtier_benchmark
+  arguments: "--test-time 180 -c 16 -t 4 --hide-histogram --key-prefix 'idx10:' --key-minimum 1 --key-maximum 100000 --command 'FT.SEARCH idx10_a * NOCONTENT LIMIT 0 1' --command-ratio 95 --command 'PEXPIRE __key__ 10' --command-ratio 5"
