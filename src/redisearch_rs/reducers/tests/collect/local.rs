@@ -7,6 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use std::ffi::CString;
+
 use reducers::collect::{LocalCollectCtx, LocalCollectReducer};
 use rlookup::{RLookupKey, RLookupRow};
 use value::SharedValue;
@@ -22,11 +24,10 @@ fn local_collect_projects_remote_maps_and_omits_missing_fields() {
     let input_key = make_key(c"generatedalias", 0);
     let reducer = LocalCollectReducer::new(
         &input_key,
-        Box::new([
-            b"name".to_vec().into_boxed_slice(),
-            b"missing".to_vec().into_boxed_slice(),
-        ]),
-        false,
+        Some(Box::new([
+            CString::new("name").unwrap(),
+            CString::new("missing").unwrap(),
+        ])),
         Box::new([]),
         0,
         None,
@@ -63,8 +64,7 @@ fn local_collect_accepts_resp2_flat_array_payloads() {
     let input_key = make_key(c"generatedalias", 0);
     let reducer = LocalCollectReducer::new(
         &input_key,
-        Box::new([b"name".to_vec().into_boxed_slice()]),
-        false,
+        Some(Box::new([CString::new("name").unwrap()])),
         Box::new([]),
         0,
         None,
@@ -119,8 +119,7 @@ fn local_array_limit_concatenates_then_caps() {
     let input = make_key(c"__shard_payload", 0);
     let r = LocalCollectReducer::new(
         &input,
-        Box::new([b"v".to_vec().into_boxed_slice()]),
-        false,
+        Some(Box::new([CString::new("v").unwrap()])),
         Box::new([]),
         0,
         Some((0, 3)),
@@ -152,13 +151,12 @@ fn local_lookup_in_entry_handles_resp2_flat_array() {
     let input = make_key(c"__shard_payload", 0);
     let r = LocalCollectReducer::new(
         &input,
-        Box::new([
-            b"v".to_vec().into_boxed_slice(),
+        Some(Box::new([
+            CString::new("v").unwrap(),
             // Requested but absent from every payload, so each output row's
             // `missing` slot must materialise as the static null sentinel.
-            b"missing".to_vec().into_boxed_slice(),
-        ]),
-        false,
+            CString::new("missing").unwrap(),
+        ])),
         Box::new([]),
         0,
         Some((0, 3)),
@@ -210,8 +208,7 @@ impl LocalCollectFixture {
     fn load_all_reducer(&self) -> LocalCollectReducer<'_> {
         LocalCollectReducer::new(
             &self.input_key,
-            Box::new([]),
-            /* load_all */ true,
+            None,
             Box::new([]),
             0,
             None,

@@ -12,16 +12,18 @@
 use reducers::collect::{LocalCollectCtx, LocalCollectReducer};
 use rlookup::{RLookupKey, RLookupRow};
 use std::{
-    ffi::{CStr, c_char, c_int, c_void},
+    ffi::{CStr, CString, c_char, c_int, c_void},
     ptr, slice,
 };
 
+/// Copy a C-side name array into owned [`CString`]s.
+///
 /// # Safety
 ///
 /// If `len > 0`, `names` must point to an array of at least `len` valid,
 /// NUL-terminated C strings. Each pointer's pointee must remain valid for
 /// the duration of this call.
-unsafe fn copy_c_names(names: *const *const c_char, len: usize) -> Box<[Box<[u8]>]> {
+unsafe fn copy_c_names(names: *const *const c_char, len: usize) -> Box<[CString]> {
     if names.is_null() || len == 0 {
         return Box::new([]);
     }
@@ -32,10 +34,9 @@ unsafe fn copy_c_names(names: *const *const c_char, len: usize) -> Box<[Box<[u8]
         .map(|&p| {
             // SAFETY: caller guarantees each pointer references a valid
             // NUL-terminated C string.
-            let bytes = unsafe { CStr::from_ptr(p) }.to_bytes();
-            bytes.to_vec().into_boxed_slice()
+            unsafe { CStr::from_ptr(p) }.to_owned()
         })
-        .collect::<Box<[_]>>()
+        .collect()
 }
 
 /// Create a local COLLECT reducer; free it with [`collectLocalFree`].
@@ -68,8 +69,8 @@ pub unsafe extern "C" fn CollectReducer_CreateLocal(
     // `RLookupKey` that outlives the returned reducer.
     let input_key: &RLookupKey = unsafe { &*input_key.cast::<RLookupKey>() };
 
-    // SAFETY: ensured by caller (2.)
-    let field_names = unsafe { copy_c_names(field_names, field_names_len) };
+    // SAFETY: ensured by caller (2.); ignored when `load_all` is `true`.
+    let requested = (!load_all).then(|| unsafe { copy_c_names(field_names, field_names_len) });
     // SAFETY: ensured by caller (3.)
     let sort_key_names = unsafe { copy_c_names(sort_names, sort_names_len) };
 
@@ -77,8 +78,7 @@ pub unsafe extern "C" fn CollectReducer_CreateLocal(
 
     let mut cr = Box::new(LocalCollectReducer::new(
         input_key,
-        field_names,
-        load_all,
+        requested,
         sort_key_names,
         sort_asc_map,
         limit,

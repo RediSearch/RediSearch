@@ -53,8 +53,8 @@ fn get_field<'a>(item: &'a Value, name: &[u8]) -> Option<&'a SharedValue> {
 
 /// Build a [`RLookupRow`] from a single shard-payload item.
 ///
-/// When `requested` is `Some`, only the listed fields are written (explicit
-/// field mode). When `None`, every field in `item` is written (LOADALL mode).
+/// Dispatches by `requested` to [`write_requested_fields`] or
+/// [`write_item_to_row`].
 fn prepare_row(
     lookup: &mut RLookup<'static>,
     requested: Option<&[CString]>,
@@ -62,46 +62,41 @@ fn prepare_row(
 ) -> RLookupRow<'static> {
     let mut dst = RLookupRow::new();
     match requested {
-        Some(fields) => {
-            for cname in fields {
-                if let Some(v) = get_field(item, cname.to_bytes()) {
-                    dst.write_key_by_name(lookup, cname.clone(), v.clone());
-                }
-            }
-        }
+        Some(fields) => write_requested_fields(&mut dst, lookup, fields, item),
         None => write_item_to_row(&mut dst, lookup, item),
     }
     dst
 }
 
-/// Write every field from `item` into `dst`, interning new names into `lookup`.
+/// Counterpart of [`write_item_to_row`] for explicit-list mode.
+fn write_requested_fields(
+    dst: &mut RLookupRow<'static>,
+    lookup: &mut RLookup<'static>,
+    fields: &[CString],
+    item: &Value,
+) {
+    for name in fields {
+        if let Some(v) = get_field(item, name.to_bytes()) {
+            dst.write_key_by_name(lookup, name.clone(), v.clone());
+        }
+    }
+}
+
+/// Counterpart of [`write_requested_fields`] for LOADALL mode.
 ///
-/// Counterpart to [`get_field`]: used in LOADALL mode where every field is
-/// written rather than only those listed in [`requested`][LocalCollectReducer::requested].
+/// Wire-shape violations are a remote-side contract bug and skipped.
 fn write_item_to_row(dst: &mut RLookupRow<'static>, lookup: &mut RLookup<'static>, item: &Value) {
     match item {
         Value::Map(m) => {
             for (k, v) in m.iter() {
-                let Some(name) = k.as_str_bytes() else {
-                    continue;
-                };
-                let Ok(cname) = CString::new(name) else {
-                    continue;
-                };
-                dst.write_key_by_name(lookup, cname, v.clone());
+                write_named_field(dst, lookup, k, v);
             }
         }
         Value::Array(a) => {
             let (pairs, remainder) = a.as_chunks::<2>();
-            debug_assert!(remainder.is_empty(), "odd-length RESP2 payload");
+            tracing_assert::debug_assert_warn!(remainder.is_empty(), "odd-length RESP2 payload");
             for [k, v] in pairs {
-                let Some(name) = k.as_str_bytes() else {
-                    continue;
-                };
-                let Ok(cname) = CString::new(name) else {
-                    continue;
-                };
-                dst.write_key_by_name(lookup, cname, v.clone());
+                write_named_field(dst, lookup, k, v);
             }
         }
         _ => {
@@ -110,6 +105,28 @@ fn write_item_to_row(dst: &mut RLookupRow<'static>, lookup: &mut RLookup<'static
                 "local COLLECT: shard payload item must be a Map or Array"
             );
         }
+    }
+}
+
+/// Materialize `(k, v)` as a typed [`RLookupRow`] entry.
+///
+/// Terminates the wire-side `BString → CString` check; a non-string or
+/// interior-NUL key is a remote-side contract bug and skipped.
+fn write_named_field(
+    dst: &mut RLookupRow<'static>,
+    lookup: &mut RLookup<'static>,
+    k: &SharedValue,
+    v: &SharedValue,
+) {
+    if let Some(name) = k.as_str_bytes()
+        && let Ok(cname) = CString::new(name)
+    {
+        dst.write_key_by_name(lookup, cname, v.clone());
+    } else {
+        tracing_assert::debug_assert_warn!(
+            false,
+            "local COLLECT: shard payload field name must be a NUL-free string"
+        );
     }
 }
 
@@ -122,14 +139,14 @@ pub struct LocalCollectReducer<'a> {
     common: CollectCommon,
     /// Lookup key for the per-remote payload.
     input_key: &'a RLookupKey<'a>,
-    /// Requested field names (CStrings), in declaration order.
+    /// Requested field names, in declaration order.
     ///
     /// `Some` for an explicit field list; `None` when the user wrote `FIELDS *`.
     /// Controls which fields [`LocalCollectCtx::add`] writes into the lookup.
     requested: Option<Box<[CString]>>,
     /// Sort-key names. Stored only so [`Storage::new`] can pick the
     /// `sortby`-aware default LIMIT; the local reducer does not project them.
-    sort_key_names: Box<[Box<[u8]>]>,
+    sort_key_names: Box<[CString]>,
     limit: Option<(u64, u64)>,
 }
 
@@ -155,31 +172,15 @@ pub struct LocalCollectCtx {
 impl<'a> LocalCollectReducer<'a> {
     /// Create a reducer from C-parsed configuration.
     ///
-    /// When `load_all` is `false`, `field_names` is converted to a
-    /// `Box<[CString]>` projection list; when `true` it is ignored (the
-    /// reducer ingests every key seen in each shard payload instead).
-    #[expect(
-        clippy::boxed_local,
-        reason = "kept symmetric with `sort_key_names`; FFI hands ownership and future use may store the names directly"
-    )]
+    /// [`CString`]-typed names move the NUL/encoding check to the FFI
+    /// boundary, where C strings are NUL-terminated by contract.
     pub fn new(
         input_key: &'a RLookupKey<'a>,
-        field_names: Box<[Box<[u8]>]>,
-        load_all: bool,
-        sort_key_names: Box<[Box<[u8]>]>,
+        requested: Option<Box<[CString]>>,
+        sort_key_names: Box<[CString]>,
         sort_asc_map: u64,
         limit: Option<(u64, u64)>,
     ) -> Self {
-        let requested = if load_all {
-            None
-        } else {
-            Some(
-                field_names
-                    .iter()
-                    .filter_map(|name| CString::new(name.as_ref()).ok())
-                    .collect::<Box<[_]>>(),
-            )
-        };
         Self {
             common: CollectCommon::new(sort_asc_map),
             input_key,
@@ -214,24 +215,18 @@ impl LocalCollectCtx {
     /// Deserialize the shard payload carried by `row` into [`RLookupRow`]s,
     /// honouring the configured `LIMIT` via [`Storage::insert_entry`].
     ///
-    /// When [`requested`][LocalCollectReducer::requested] is `Some`, only those
-    /// fields are written; extra fields (e.g. sort keys) are ignored. When
-    /// `None`, every key seen in the shard payload is interned into the lookup
-    /// and written into the row (LOADALL mode).
+    /// Projection follows [`requested`][LocalCollectReducer::requested]; in
+    /// explicit-list mode extra fields (e.g. sort keys) are ignored.
     pub fn add(&mut self, r: &LocalCollectReducer, row: &RLookupRow) {
-        let Some(payload) = row.get(r.input_key) else {
-            tracing_assert::debug_assert_warn!(
-                false,
-                "local COLLECT: input_key must be present in every merge row"
-            );
-            return;
-        };
-        let Value::Array(items) = &**payload else {
-            tracing_assert::debug_assert_warn!(
-                false,
-                "local COLLECT: input_key payload must be an Array"
-            );
-            return;
+        let items = match row.get(r.input_key).map(|p| &**p) {
+            Some(Value::Array(items)) => items,
+            _ => {
+                tracing_assert::debug_assert_warn!(
+                    false,
+                    "local COLLECT: input_key must be present and contain an Array"
+                );
+                return;
+            }
         };
 
         for item in items.iter() {
@@ -257,11 +252,12 @@ impl LocalCollectCtx {
             .collect();
 
         SharedValue::new_array(self.storage.drain(true).map(|row| {
-            let entries: Vec<_> = template
-                .iter()
-                .filter_map(|(key, name)| row.get(key).map(|v| (name.clone(), v.clone())))
-                .collect();
-            SharedValue::new_map(entries)
+            SharedValue::new_map(
+                template
+                    .iter()
+                    .filter_map(|(key, name)| row.get(key).map(|v| (name.clone(), v.clone())))
+                    .collect::<Vec<_>>(),
+            )
         }))
     }
 }
