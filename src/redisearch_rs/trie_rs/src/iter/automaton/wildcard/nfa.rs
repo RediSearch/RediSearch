@@ -14,32 +14,72 @@ use super::super::{Automaton, StateClass};
 use super::atoms::{Atom, NfaBitSet, flatten};
 use wildcard::WildcardPattern;
 
+/// One row of the ε-closure table.
+///
+/// Most rows happen to be one-bit sets — by construction `table[i]` for a
+/// `Byte`/`One` atom is just `{i}`, and the accept row is `{n_atoms}`.
+/// Storing those as a bare position avoids allocating an `S` per row, which
+/// dominates `WildcardNfa::compile`'s allocation profile for the heap-backed
+/// bitsets. Only `Any` rows actually expand to multi-bit sets.
+pub(super) enum EpsilonRow<S> {
+    /// One-bit row at the named position.
+    Singleton(usize),
+    /// Multi-bit row — only constructed for `Any` atoms.
+    Set(S),
+}
+
 /// Build the per-position ε-closure table.
 ///
-/// `epsilon_table[i]` is the set of positions reachable from `{i}` by zero
-/// or more `*`-skip edges. Computed right-to-left so each entry just unions
-/// in the next one when the current atom is `Any`.
-pub(super) fn build_epsilon_table<S: NfaBitSet>(atoms: &[Atom]) -> Vec<S> {
+/// `table[i]` is the set of positions reachable from `{i}` by zero or more
+/// `*`-skip edges. Computed right-to-left so each entry just unions in the
+/// next one when the current atom is `Any`.
+///
+/// Rows for `Byte`/`One` atoms and the accept row come back as
+/// [`EpsilonRow::Singleton`] (no `S` allocated); rows for `Any` atoms come
+/// back as [`EpsilonRow::Set`] with a freshly-allocated `S` containing the
+/// expanded closure.
+pub(super) fn build_epsilon_table<S: NfaBitSet>(atoms: &[Atom]) -> Vec<EpsilonRow<S>> {
     let n = atoms.len();
-    let mut table: Vec<S> = (0..=n).map(|_| S::empty(n)).collect();
-    table[n].insert(n);
+    // Build right-to-left into the table, then reverse in place. Each
+    // iteration only ever reads the most recently pushed entry
+    // (`table[i+1]` in the final index space).
+    let mut table: Vec<EpsilonRow<S>> = Vec::with_capacity(n + 1);
+    table.push(EpsilonRow::Singleton(n));
     for i in (0..n).rev() {
-        let mut s = S::singleton(n, i);
-        if matches!(atoms[i], Atom::Any) {
-            s.union_in_place(&table[i + 1]);
-        }
-        table[i] = s;
+        let entry = if matches!(atoms[i], Atom::Any) {
+            // ε-closure of `{i}` spans more than one position; allocate.
+            let mut s = S::singleton(n, i);
+            // SAFETY: `table` has at least one element (the accept row
+            // pushed above, plus whatever we've pushed in earlier loop
+            // iterations).
+            match table.last().unwrap() {
+                EpsilonRow::Singleton(p) => s.insert(*p),
+                EpsilonRow::Set(other) => s.union_in_place(other),
+            }
+            EpsilonRow::Set(s)
+        } else {
+            EpsilonRow::Singleton(i)
+        };
+        table.push(entry);
     }
+    table.reverse();
     table
 }
 
 /// The NFA's start state — `{0}`, optionally extended via ε-closure when
 /// the pattern has `Any` atoms.
-pub(super) fn initial_state<S: NfaBitSet>(n_atoms: usize, epsilon_table: Option<&[S]>) -> S {
-    // `epsilon_table[0]` is the ε-closure of `{0}` by construction, so we
-    // can return it directly when the table is available.
+pub(super) fn initial_state<S: NfaBitSet>(
+    n_atoms: usize,
+    epsilon_table: Option<&[EpsilonRow<S>]>,
+) -> S {
     match epsilon_table {
-        Some(table) => table[0].clone(),
+        Some(table) => match &table[0] {
+            // The `Singleton` arm covers patterns whose first atom isn't
+            // `Any` (e.g. anchored patterns like `Ab*`). Materialize on
+            // demand — start_state is built once per iterator.
+            EpsilonRow::Singleton(p) => S::singleton(n_atoms, *p),
+            EpsilonRow::Set(s) => s.clone(),
+        },
         None => S::singleton(n_atoms, 0),
     }
 }
@@ -55,14 +95,15 @@ pub(super) fn initial_state<S: NfaBitSet>(n_atoms: usize, epsilon_table: Option<
 /// would be a no-op.
 ///
 /// When the table is present, each per-position transition's target row is
-/// already the full transitive closure, so we OR it into `next` directly
-/// without a separate post-pass. This avoids the snapshot allocation that
-/// a "build, then epsilon-close" structure would require.
+/// the full transitive closure of `{target}`. We dispatch on the row's
+/// shape: a `Singleton(p)` row is just one `next.insert(p)`; a `Set(s)`
+/// row pays the full `union_in_place(&s)`. Most table rows are
+/// singletons, so most active-position iterations take the cheap arm.
 pub(super) fn nfa_step_into<S: NfaBitSet>(
     atoms: &[Atom],
     state: &S,
     byte: u8,
-    epsilon_table: Option<&[S]>,
+    epsilon_table: Option<&[EpsilonRow<S>]>,
     next: &mut S,
 ) {
     debug_assert!(next.is_empty());
@@ -84,7 +125,10 @@ pub(super) fn nfa_step_into<S: NfaBitSet>(
                 // SAFETY: `target` is a valid atom-or-accept index in
                 // `0..=atoms.len()`, matching the table's length `n + 1`.
                 let row = unsafe { table.get_unchecked(target) };
-                next.union_in_place(row);
+                match row {
+                    EpsilonRow::Singleton(p) => next.insert(*p),
+                    EpsilonRow::Set(s) => next.union_in_place(s),
+                }
             }
         }
         None => {
@@ -112,7 +156,7 @@ pub(super) fn nfa_step<S: NfaBitSet>(
     atoms: &[Atom],
     state: &S,
     byte: u8,
-    epsilon_table: Option<&[S]>,
+    epsilon_table: Option<&[EpsilonRow<S>]>,
 ) -> S {
     let mut next = S::empty(atoms.len());
     nfa_step_into(atoms, state, byte, epsilon_table, &mut next);
@@ -133,7 +177,7 @@ pub struct WildcardNfa<S: NfaBitSet> {
     accept_only: S,
     /// `Some(table)` if the pattern has `Any` atoms; `None` otherwise
     /// (ε-closure would be a no-op in that case and we skip it).
-    epsilon_table: Option<Vec<S>>,
+    epsilon_table: Option<Vec<EpsilonRow<S>>>,
 }
 
 impl<S: NfaBitSet> WildcardNfa<S> {
