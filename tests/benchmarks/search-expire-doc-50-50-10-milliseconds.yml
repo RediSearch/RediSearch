@@ -15,7 +15,7 @@ description: |
 metadata:
   component: "search"
   group: "expire-persist"
-  use_case: "PEXPIRE fast path under high write ratio (50/50) — signal amplification for regression detection"
+  use_case: "PEXPIRE fast path under high write ratio 50-50 signal amplification for regression detection"
 setups:
   - oss-standalone
 
