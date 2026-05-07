@@ -61,12 +61,6 @@ else()
     set(RUST_LIB_PATH "${CMAKE_CURRENT_SOURCE_DIR}/target/${RUST_ARTIFACT_DIR}/libredisearch_rs.a")
 endif()
 
-# Mirror the C-side ENABLE_ASSERT flag so bindgen produces structs matching
-# the C ABI. Defaults to "0" when invoked standalone (no parent CMake set it).
-if(NOT DEFINED REDISEARCH_RS_ENABLE_ASSERT)
-    set(REDISEARCH_RS_ENABLE_ASSERT "0")
-endif()
-
 # Check if we're being used as a subdirectory to avoid target conflicts
 if(NOT TARGET redisearch_rs_build)
     # Create the custom target for building Rust code
@@ -74,7 +68,6 @@ if(NOT TARGET redisearch_rs_build)
         COMMAND ${CMAKE_COMMAND} -E env
             "RUSTFLAGS=${RUST_FLAGS}"
             "CARGO_TARGET_DIR=${RUST_TARGET_DIR}"
-            "REDISEARCH_RS_ENABLE_ASSERT=${REDISEARCH_RS_ENABLE_ASSERT}"
             ${CARGO_EXECUTABLE} ${TOOLCHAIN_MODIFIER} ${CARGO_BUILD_FLAGS}
             build
             --package redisearch_rs

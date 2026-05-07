@@ -119,19 +119,6 @@ fn main() {
     // `deps/rmalloc/rmalloc.h`) when bindgen parses the headers with clang.
     bindings = bindings.clang_arg("-D_GNU_SOURCE");
 
-    // Mirror the C build's ENABLE_ASSERT define so bindgen sees the same
-    // struct layouts (e.g. `IndexStats::pendingWriters` is gated on it). The
-    // value is propagated by the parent CMake build via the
-    // `REDISEARCH_RS_ENABLE_ASSERT` env var. Treat anything other than `0`
-    // (or unset) as enabled.
-    println!("cargo:rerun-if-env-changed=REDISEARCH_RS_ENABLE_ASSERT");
-    let enable_assert = env::var("REDISEARCH_RS_ENABLE_ASSERT")
-        .map(|v| v != "0" && !v.is_empty())
-        .unwrap_or(false);
-    if enable_assert {
-        bindings = bindings.clang_arg("-DENABLE_ASSERT=1");
-    }
-
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
     bindings
         .blocklist_file(".*/document_rs.h")

@@ -167,15 +167,6 @@ typedef struct {
   IndexError indexError;
   uint32_t activeQueries;
   uint32_t activeWrites;
-#ifdef ENABLE_ASSERT
-  // Number of writers parked in `RedisSearchCtx_LockSpecWrite` waiting on the
-  // spec rwlock. Bumped before `pthread_rwlock_wrlock` and decremented once the
-  // write lock has been acquired. Used by tests (sync-point stop predicates) to
-  // observe a pending writer without depending on the main thread, since the
-  // main thread is exactly what's blocked on the wrlock in the scenarios these
-  // tests cover (e.g. MOD-15364).
-  uint32_t pendingWriters;
-#endif
 } IndexStats;
 
 typedef enum {
@@ -415,18 +406,6 @@ static inline void IndexSpec_DecrActiveWrites(IndexSpec *sp) {
 static inline uint32_t IndexSpec_GetActiveWrites(IndexSpec *sp) {
   return __atomic_load_n(&sp->stats.activeWrites, __ATOMIC_RELAXED);
 }
-
-#ifdef ENABLE_ASSERT
-static inline void IndexSpec_IncrPendingWriters(IndexSpec *sp) {
-  __atomic_add_fetch(&sp->stats.pendingWriters, 1, __ATOMIC_RELAXED);
-}
-static inline void IndexSpec_DecrPendingWriters(IndexSpec *sp) {
-  __atomic_sub_fetch(&sp->stats.pendingWriters, 1, __ATOMIC_RELAXED);
-}
-static inline uint32_t IndexSpec_GetPendingWriters(IndexSpec *sp) {
-  return __atomic_load_n(&sp->stats.pendingWriters, __ATOMIC_RELAXED);
-}
-#endif
 
 /**
  * This lightweight object contains a COPY of the actual index spec.

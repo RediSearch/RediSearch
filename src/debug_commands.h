@@ -138,6 +138,16 @@ typedef bool (*SyncPointStopFn)(void *arg);
 // true. Lets workers release early when a timeout fires on the main thread.
 void SyncPoint_WaitUntil(const char *name, SyncPointStopFn stop_fn, void *arg);
 
+// Process-wide counter of threads parked in `RedisSearchCtx_LockSpecWrite`
+// waiting on a spec rwlock. Bumped before `pthread_rwlock_wrlock` and
+// decremented once the write lock has been acquired. Used by tests (sync-point
+// stop predicates) to observe a pending writer without depending on the main
+// thread, since the main thread is exactly what's blocked on the wrlock in the
+// scenarios these tests cover.
+void PendingSpecWriters_Incr(void);
+void PendingSpecWriters_Decr(void);
+uint32_t PendingSpecWriters_Get(void);
+
 // Struct used for debugging hybrid cursor storage ONLY (pause before/after cursor creation)
 // Separate from StoreResultsDebugCtx to allow independent control
 typedef struct HybridStoreCursorsDebugCtx {
