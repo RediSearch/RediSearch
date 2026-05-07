@@ -41,7 +41,7 @@ jobs:
       get-redis: unstable
       test-config: QUICK=1
       san: address
-      env: ubuntu-latest
+      env: ubuntu-24.04
 
   notify-failure:
     needs: [test-linux, test-macos, coverage, sanitize]

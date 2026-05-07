@@ -58,7 +58,7 @@ jobs:
       rejson-branch: '8.0'
       test-config: '' # run all tests
       san: address
-      env: ubuntu-latest
+      env: ubuntu-24.04
 
   pr-validation:
     needs:
