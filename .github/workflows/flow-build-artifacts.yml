@@ -57,7 +57,7 @@ jobs:
   setup:
     needs: [get-latest-redis-tag]
     # Sets SHA and Validates the reference Input (branch or tag)
-    runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
+    runs-on: ${{ vars.RUNS_ON || 'ubuntu-24.04' }}
     outputs:
       sha: ${{ steps.set-sha.outputs.sha }}
       redis-ref: ${{ needs.get-latest-redis-tag.outputs.tag }}

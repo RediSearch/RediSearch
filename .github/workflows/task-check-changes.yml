@@ -16,7 +16,7 @@ on:
 
 jobs:
   change-checks:
-    runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
+    runs-on: ${{ vars.RUNS_ON || 'ubuntu-24.04' }}
     outputs: # Make sure to return "true" if any workflow was changed, to make sure the workflow works
       CODE_CHANGED: ${{ steps.check-code.outputs.any_modified == 'true' || steps.check-workflows.outputs.any_modified == 'true' }}
       BENCHMARK_CHANGED: ${{ steps.check-benchmarks.outputs.any_modified == 'true' || steps.check-workflows.outputs.any_modified == 'true' }}

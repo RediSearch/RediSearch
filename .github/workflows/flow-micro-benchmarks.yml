@@ -21,7 +21,7 @@ on:
 
 jobs:
   prepare_runner_configurations:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
     steps:
@@ -78,7 +78,7 @@ jobs:
   compare_micro_benchmarks:
     needs: run_micro_benchmarks
     if: github.event.number
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     env:
       PERFORMANCE_GH_TOKEN: ${{ secrets.PERFORMANCE_GH_TOKEN }}
       PERFORMANCE_WH_TOKEN: ${{ secrets.PERFORMANCE_WH_TOKEN }}

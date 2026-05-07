@@ -15,7 +15,7 @@ on:
 
 jobs:
   link-check:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     # Run if files changed OR if 'check-links' label is added
     if: >
