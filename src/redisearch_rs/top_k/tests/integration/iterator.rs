@@ -684,3 +684,65 @@ fn profile_children_with_no_child_is_identity() {
         std::iter::from_fn(|| profiled.read().unwrap().map(|r| r.doc_id)).collect();
     assert_eq!(doc_ids, vec![1, 2]);
 }
+
+// ── Regression: hybrid scoring drops child's BM25 contribution ───────────────
+
+/// Reproduces test_mod_8142 (Python `tests/pytests/test_issues.py`):
+///
+/// `FT.SEARCH idx 'city=>[KNN 10 @v $BLOB]' WITHSCORES` returns score `0`
+/// because `TopKIterator` (Batches mode) only carries `(doc_id, score)`
+/// through the heap and the source's `build_result` reconstructs a fresh
+/// metric record. The child's scoring inputs (`freq`, `field_mask`,
+/// term records) needed by BM25/TFIDF are dropped between
+/// `intersect_batch_with_child` and `advance_from_results`.
+///
+/// We simulate that here without spinning up Redis: the child yields an
+/// `RSIndexResult` with non-default `freq`/`field_mask` (the BM25 inputs);
+/// after going through `TopKIterator`, the emitted result should still
+/// carry those fields. It currently does not — the assertion below fails.
+#[test]
+fn batches_preserves_child_scoring_fields() {
+    use ffi::RS_FIELDMASK_ALL;
+    use inverted_index::RSIndexResult;
+    use rqe_iterators::IdList;
+
+    // Build a child whose result carries the scoring-relevant fields a
+    // text query would produce (analogous to BM25 inputs from "city").
+    let child_result = RSIndexResult::build_virt()
+        .frequency(7)
+        .field_mask(0xABC)
+        .build();
+    let child = IdList::<true>::with_result(vec![1, 2], child_result);
+
+    // Source emits a single batch containing both doc IDs (analogous to
+    // the KNN batch returned by VecSim).
+    let source = MockScoreSource::new(
+        vec![vec![(1, 0.9), (2, 0.5)]],
+        vec![],
+        |_, _| BatchStrategy::Continue,
+    );
+
+    let mut it = TopKIterator::new(
+        source,
+        Box::new(child) as Box<dyn RQEIterator<'_> + '_>,
+        NonZeroUsize::new(10).unwrap(),
+        asc,
+    );
+
+    let mut emitted = Vec::new();
+    while let Some(r) = it.read().unwrap() {
+        emitted.push((r.doc_id, r.freq, r.field_mask));
+    }
+
+    // Best-first ASC: 2 (0.5), 1 (0.9). Both should still carry the child's
+    // freq=7 and field_mask=0xABC. Currently both come through as freq=0,
+    // field_mask=RS_FIELDMASK_ALL (or 0) because `build_result` rebuilds
+    // a fresh metric/virt record.
+    assert_eq!(
+        emitted,
+        vec![(2, 7, 0xABC), (1, 7, 0xABC)],
+        "child's scoring fields (freq, field_mask) were dropped — \
+         got {emitted:?}; this is the BM25-becomes-0 bug from MOD-8142. \
+         RS_FIELDMASK_ALL = {RS_FIELDMASK_ALL:#x} (just for reference)"
+    );
+}
