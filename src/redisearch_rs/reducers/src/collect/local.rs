@@ -230,6 +230,13 @@ impl LocalCollectCtx {
         };
 
         for item in items.iter() {
+            if !matches!(&**item, Value::Map(_) | Value::Array(_)) {
+                tracing_assert::debug_assert_warn!(
+                    false,
+                    "local COLLECT: shard payload item must be a Map or Array"
+                );
+                continue;
+            }
             self.storage
                 .insert_entry(|| prepare_row(&mut self.lookup, r.requested.as_deref(), item));
         }
