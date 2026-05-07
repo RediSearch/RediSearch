@@ -35,14 +35,20 @@ void CoordRequestCtx_Free(CoordRequestCtx *ctx) {
     if (ctx->hreq) HybridRequest_DecrRef(ctx->hreq);
   } else if (ctx->type == COMMAND_AGGREGATE) {
     if (ctx->areq) {
-      // Disposes any cursor stashed in storedReplyState.cursor by runCursor's
-      // sendChunk store-and-return. Non-NULL only on client disconnect (or a
-      // pre-pipeline error bail before the reply callback ran): in every
-      // other case the reply callback, timer, or BG error sub-path already
-      // cleared and disposed of it. Single-disposal invariant: runCursor
-      // unconditionally writes the slot, and AREQ_CleanUpStoredCursor /
-      // AREQ_ReplyWithStoredResults are mutually exclusive consumers.
-      AREQ_CleanUpStoredCursor(ctx->areq);
+      // Dispose any cursor stashed in storedReplyState.cursor by runCursor.
+      // Skipped for RETURN_STRICT: the cursor survives timeout, so subsequent
+      // reads on the same cursor share this AREQ slot. A delayed free_privdata
+      // for an earlier Read (whose timeout already cleared the slot, but whose
+      // BC was only queued into moduleUnblockedClients after BG finished) can
+      // run after a later Read has parked its own cursor in the same slot,
+      // freeing a cursor that is still in use. The trade-off is that on
+      // client disconnect the stashed cursor leaks; tracked in MOD-15415 as
+      // part of the broader blocked-client disconnect-handling pass.
+      // For FAIL the cursor is destroyed on timeout and the reply path always
+      // clears the slot, so this call remains a safe no-op or correct destroy.
+      if (ctx->areq->reqConfig.timeoutPolicy != TimeoutPolicy_ReturnStrict) {
+        AREQ_CleanUpStoredCursor(ctx->areq);
+      }
       AREQ_DecrRef(ctx->areq);
     }
   } else {
