@@ -3178,8 +3178,16 @@ void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp, bool obfuscate,
   double bytes_per_record_avg = num_records ?
     (float)inverted_size / (float)num_records : NAN;
   RedisModule_InfoAddFieldDouble(ctx, "bytes_per_record_avg", bytes_per_record_avg);
-  RedisModule_InfoAddFieldDouble(ctx, "offsets_per_term_avg",(float)sp->stats.offsetVecRecords / (float)num_records);
-  RedisModule_InfoAddFieldDouble(ctx, "offset_bits_per_record_avg",8.0F * (float)sp->stats.offsetVecsSize / (float)sp->stats.offsetVecRecords);
+  // Disk indexes don't track offset record counts/sizes; report NaN so the
+  // metrics aren't misread as meaningful zeros.
+  size_t offset_vec_records = isDisk ? 0 : sp->stats.offsetVecRecords;
+  size_t offset_vecs_size = isDisk ? 0 : sp->stats.offsetVecsSize;
+  double offsets_per_term_avg = (isDisk || !num_records) ? NAN :
+    (float)offset_vec_records / (float)num_records;
+  double offset_bits_per_record_avg = (isDisk || !offset_vec_records) ? NAN :
+    8.0F * (float)offset_vecs_size / (float)offset_vec_records;
+  RedisModule_InfoAddFieldDouble(ctx, "offsets_per_term_avg", offsets_per_term_avg);
+  RedisModule_InfoAddFieldDouble(ctx, "offset_bits_per_record_avg", offset_bits_per_record_avg);
   RedisModule_InfoEndDictField(ctx);
 
   RedisModule_InfoBeginDictField(ctx, "index_failures");

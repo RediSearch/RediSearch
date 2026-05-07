@@ -297,8 +297,11 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
     (float)inverted_size / (float)num_records : NAN;
   REPLY_KVNUM("bytes_per_record_avg",
               bytes_per_record_avg);
-  REPLY_KVNUM("offsets_per_term_avg",
-              (float)offset_vec_records / (float)num_records);
+  // Disk indexes don't track offset record counts; report NaN rather than 0
+  // (which would falsely imply the metric is meaningful).
+  double offsets_per_term_avg = (isDisk || !num_records) ? NAN :
+    (float)offset_vec_records / (float)num_records;
+  REPLY_KVNUM("offsets_per_term_avg", offsets_per_term_avg);
   REPLY_KVNUM("offset_bits_per_record_avg",
               8.0F * (float)offset_vecs_size / (float)offset_vec_records);
   // TODO: remove this once "hash_indexing_failures" is deprecated
