@@ -3875,19 +3875,28 @@ class TestShardTimeoutResp2:
                     env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'return')
 
 
-
 @skip(cluster=True)
 def test_no_deadlock_query_with_concurrent_writer():
-    """MOD-15364: pin the BG worker mid-cleanup with the spec read lock held,
-    queue a writer that needs the spec write lock, and verify that releasing
-    the lock before unblocking the client (the fix) lets both the writer and
-    the query complete instead of deadlocking the main thread.
+    """MOD-15364: BG query holds the spec read lock; a concurrent writer
+    parks on the spec write lock and blocks the main thread. With the fix,
+    the BG worker releases the read lock in its `cleanup:` label (before
+    `RedisModule_UnblockClient`), so the writer can acquire the write lock
+    and the main thread later runs the unblock callback. Without the fix,
+    the unblock callback never runs (main thread is parked on wrlock), the
+    read lock is never released, and the server deadlocks.
 
-    The BG worker is released via the `spec_has_pending_writers` stop predicate
-    on the `BeforeCleanupUnlock` sync point, which observes the writer's
-    pendingWriters bump from `RedisSearchCtx_LockSpecWrite`. We cannot drive a
-    SIGNAL from the main thread because the main thread is blocked on the
-    writer's wrlock once HSET is queued.
+    Reproduction sequence:
+      1. Pause the BG worker at `BeforeAggregateResultsClaim` (mid-pipeline,
+         while holding the spec read lock).
+      2. Issue HSET on a separate connection. It parks the main thread on
+         `pthread_rwlock_wrlock` and bumps `IndexStats::pendingWriters`.
+      3. The sync point's stop predicate (`spec_has_pending_writers`) sees
+         the bump and lets the BG worker resume on its own. We can't use
+         a `SIGNAL` here because the main thread is blocked.
+      4. BG worker finishes the pipeline, hits `cleanup:`, releases the
+         read lock (the fix), then calls `RedisModule_UnblockClient`.
+      5. Main thread acquires the wrlock, completes HSET, then processes
+         the unblock callback.
     """
     env = Env(protocol=3, moduleArgs='WORKERS 1 TIMEOUT 0')
     skipIfNoEnableAssert(env)
