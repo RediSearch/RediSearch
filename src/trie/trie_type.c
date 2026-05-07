@@ -67,7 +67,6 @@ int Trie_InsertRune(Trie *t, const rune *runes, size_t len, double score, int in
 
 int Trie_InsertRuneNoSize(Trie *t, const rune *runes, size_t len, double score, int incr,
                           RSPayload *payload, size_t numDocs) {
-  if (!runes || !len) return 0;
   return TrieNode_Add(&t->root, runes, len, payload, (float)score, incr ? ADD_INCR : ADD_REPLACE,
                       t->freecb, numDocs);
 }
