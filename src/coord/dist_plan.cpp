@@ -391,7 +391,9 @@ static struct {
     {"STDDEV", distributeStdDev},
     {"COUNT_DISTINCTISH", distributeCountDistinctish},
     {"QUANTILE", distributeQuantile},
+#ifdef RS_WIP_FEATURES
     {"COLLECT", distributeCollect},
+#endif
 
     {NULL, NULL}  // sentinel value
 

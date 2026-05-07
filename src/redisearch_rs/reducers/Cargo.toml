@@ -7,6 +7,8 @@ publish.workspace = true
 
 [features]
 unittest = []
+# Compile in work-in-progress reducers (currently: COLLECT). Off by default.
+wip_features = []
 
 [dependencies]
 bumpalo.workspace = true

@@ -7,6 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+#ifdef RS_WIP_FEATURES
+
 #include "gtest/gtest.h"
 #include "dist_plan_utils.h"
 
@@ -116,3 +118,5 @@ TEST(DistPlanUtils, CoordCollectArgs_EmptyOriginalArgs) {
 
   assertArgs(out, {"0", "AS", "ua"});
 }
+
+#endif // RS_WIP_FEATURES

@@ -23,6 +23,8 @@ bench = false
 [features]
 default = []
 mock_allocator = []
+# Passthrough for work-in-progress features (currently: REDUCE COLLECT). Off by default.
+wip_features = ["reducers_ffi/wip_features"]
 
 [build-dependencies]
 build_utils = { path = "../../build_utils" }
