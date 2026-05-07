@@ -20,7 +20,7 @@ description: |
 metadata:
   component: "search"
   group: "expire-persist"
-  use_case: "EXPIRE/PEXPIRE fast path with N>1 matching indexes — amplifies the per-spec metadata-update vs full-reindex delta"
+  use_case: "EXPIRE PEXPIRE fast path with N greater than 1 matching indexes amplifies the per-spec metadata-update vs full-reindex delta"
 setups:
   - oss-standalone
 

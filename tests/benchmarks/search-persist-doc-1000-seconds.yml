@@ -19,7 +19,7 @@ description: |
 metadata:
   component: "search"
   group: "expire-persist"
-  use_case: "PERSIST keyspace-notification fast path on indexed hashes (in-memory flow)"
+  use_case: "PERSIST keyspace-notification fast path on indexed hashes in-memory flow"
 setups:
   - oss-standalone
 

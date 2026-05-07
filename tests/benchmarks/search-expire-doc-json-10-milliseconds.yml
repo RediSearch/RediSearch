@@ -15,7 +15,7 @@ description: |
 metadata:
   component: "search"
   group: "expire-persist"
-  use_case: "PEXPIRE fast path on JSON documents — covers Document_LoadSchemaFieldJson side of GetKeyExpirationTime"
+  use_case: "PEXPIRE fast path on JSON documents covers Document_LoadSchemaFieldJson side of GetKeyExpirationTime"
 setups:
   - oss-standalone
 
