@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "aggregate_debug.h"
+#include "debug_commands.h"
 #include "module.h"
 #include "result_processor.h"
 
@@ -20,7 +21,7 @@
 
 AREQ_Debug *AREQ_Debug_New(RedisModuleString **argv, int argc, QueryError *status) {
 
-  AREQ_Debug_params debug_params = parseDebugParamsCount(argv, argc, status);
+  AREQ_Debug_params debug_params = parseAggregateDebugParamsCount(argv, argc, status);
   if (debug_params.debug_params_count == 0) {
     return NULL;
   }
@@ -233,21 +234,12 @@ int parseAndCompileDebug(AREQ_Debug *debug_req, QueryError *status) {
   return REDISMODULE_OK;
 }
 
-AREQ_Debug_params parseDebugParamsCount(RedisModuleString **argv, int argc, QueryError *status) {
+AREQ_Debug_params parseAggregateDebugParamsCount(RedisModuleString **argv, int argc, QueryError *status) {
   AREQ_Debug_params debug_params = {0};
-  // Verify DEBUG_PARAMS_COUNT exists in its expected position
-  size_t n;
-  const char *arg = RedisModule_StringPtrLen(argv[argc - 2], &n);
-  if (!(strncasecmp(arg, "DEBUG_PARAMS_COUNT", n) == 0)) {
-    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "DEBUG_PARAMS_COUNT arg is missing or not in the expected position");
-    return debug_params;
-  }
 
-  unsigned long long debug_params_count;
-  // The count of debug params is the last argument in argv
-  if (RedisModule_StringToULongLong(argv[argc - 1], &debug_params_count) != REDISMODULE_OK) {
-    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Invalid DEBUG_PARAMS_COUNT count");
-    return debug_params;
+  unsigned long long debug_params_count = 0;
+  if (parseDebugParamsCount(argv, argc, status, &debug_params_count) != 0) {
+      return debug_params;
   }
 
   debug_params.debug_params_count = debug_params_count;

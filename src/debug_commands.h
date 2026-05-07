@@ -59,6 +59,7 @@ void QueryDebugCtx_SetPause(bool pause);
 ResultProcessor* QueryDebugCtx_GetDebugRP(void);
 void QueryDebugCtx_SetDebugRP(ResultProcessor* debugRP);
 bool QueryDebugCtx_HasDebugRP(void);
+int parseDebugParamsCount(RedisModuleString **argv, int argc, QueryError *status, unsigned long long *debug_params_count);
 
 #ifdef ENABLE_ASSERT
 // Named sentinel values for the pauseBeforeN field of CoordReduceDebugCtx
