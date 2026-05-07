@@ -123,8 +123,7 @@ def test_hybrid_debug_no_component_timeout_sa():
 def test_hybrid_debug_no_component_timeout_cluster():
     """Test error when no component timeout parameter is specified (cluster).
 
-    DEBUG_PARAMS_COUNT of 0 is now rejected by the shared parseDebugParamsCount
-    validator before reaching the hybrid-specific parseHybridDebugParams.
+    DEBUG_PARAMS_COUNT of 0 is now rejected.
     """
     env = Env(enableDebugCommand=True)
     setup_basic_index(env)
