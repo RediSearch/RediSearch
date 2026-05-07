@@ -162,6 +162,49 @@ def testMaxIdleAutoReap(env):
             sleep(0.05)
 
 @skip(cluster=True)
+def testMaxIdleAutoReapAfterCacheInvalidation(env):
+    # Regression test: when the previous minimum-holding idle cursor is
+    # removed (e.g. via FT.CURSOR DEL), the per-list `nextIdleTimeoutNs`
+    # cache is reset. A subsequent FT.AGGREGATE WITHCURSOR with a later
+    # MAXIDLE must not stomp the cache with that later deadline while
+    # another idle cursor (with an earlier deadline) is still present,
+    # otherwise the idle-sweep timer would be armed past the true
+    # minimum and the still-idle cursor would be reaped well after its
+    # MAXIDLE.
+    loadDocs(env, idx='idx1')
+
+    # Three cursors with strictly increasing MAXIDLE values. After
+    # deleting A (the original minimum), B becomes the true minimum,
+    # and C is paused last with a much larger MAXIDLE.
+    q_a = ['FT.AGGREGATE', 'idx1', '*', 'LOAD', '1', '@f1',
+           'WITHCURSOR', 'COUNT', 1, 'MAXIDLE', 500]
+    q_b = ['FT.AGGREGATE', 'idx1', '*', 'LOAD', '1', '@f1',
+           'WITHCURSOR', 'COUNT', 1, 'MAXIDLE', 1500]
+    q_c = ['FT.AGGREGATE', 'idx1', '*', 'LOAD', '1', '@f1',
+           'WITHCURSOR', 'COUNT', 1, 'MAXIDLE', 8000]
+
+    _, cid_a = env.cmd(*q_a)
+    env.cmd(*q_b)
+    env.assertEqual(2, getCursorStats(env, 'idx1')['index_total'])
+
+    # Remove A, the minimum-holding cursor; this resets the cache to 0.
+    env.cmd('FT.CURSOR', 'DEL', 'idx1', cid_a)
+    env.assertEqual(1, getCursorStats(env, 'idx1')['index_total'])
+
+    # Pause C with a deadline far after B's. The cache must be
+    # recomputed against the live idle list (yielding B's deadline);
+    # it must not be set to C's deadline.
+    env.cmd(*q_c)
+    env.assertEqual(2, getCursorStats(env, 'idx1')['index_total'])
+
+    # Within ~B's MAXIDLE, B must be reaped while C remains idle.
+    # If the cache is stale at C's deadline, B's reap is delayed
+    # until C's MAXIDLE (~8s) and the TimeLimit fires.
+    with TimeLimit(4, "B was not reaped at its MAXIDLE (stale cache)"):
+        while getCursorStats(env, 'idx1')['index_total'] != 1:
+            sleep(0.05)
+
+@skip(cluster=True)
 def testDropIndexFreesIdleCursors(env):
     # Regression test for MOD-6416: idle cursors created by FT.AGGREGATE
     # WITHCURSOR keep the dropped IndexSpec (and their AREQ) alive until

@@ -389,12 +389,16 @@ int Cursor_Pause(Cursor *cur) {
 
     // Set the next timeout to be the current time + timeout interval
     cur->nextTimeoutNs = curTimeNs() + ((uint64_t)cur->timeoutIntervalMs * 1000000);
-    if (cur->nextTimeoutNs < cl->nextIdleTimeoutNs || cl->nextIdleTimeoutNs == 0) {
+    // Maintain the `nextIdleTimeoutNs` cache invariant: when non-zero it must
+    // equal the actual minimum deadline among the idle cursors. Only narrow it when
+    // it is already valid; if it has been invalidated (set to 0 by
+    // `Cursor_RemoveFromIdle` because the previous minimum-holding cursor was
+    // removed), leave it 0 so that `Cursors_FindNextTimeoutNsLocked` will
+    // rescan and recompute the true minimum.
+    if (cl->nextIdleTimeoutNs != 0 && cur->nextTimeoutNs < cl->nextIdleTimeoutNs) {
       cl->nextIdleTimeoutNs = cur->nextTimeoutNs;
-      // `Cursor_Pause` may run on a worker thread (see `cursorRead_ctx`), where
-      // the module timer API is unsafe to call directly. Defer the timer
-      // (re)arm to the main thread via a thread-safe one-shot. Skip when the
-      // already-armed timer fires no later than this cursor's deadline.
+      Cursors_RequestRescheduleSweep(cl);
+    } else if (cl->nextIdleTimeoutNs == 0) {
       Cursors_RequestRescheduleSweep(cl);
     }
 
