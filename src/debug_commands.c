@@ -267,6 +267,20 @@ void SyncPoint_WaitUntil(const char *name, SyncPointStopFn stop_fn, void *arg) {
   atomic_fetch_sub(&sp->waiting, 1);
 }
 
+static _Atomic uint32_t g_pendingSpecWriters = 0;
+
+void PendingSpecWriters_Incr(void) {
+  atomic_fetch_add_explicit(&g_pendingSpecWriters, 1, memory_order_relaxed);
+}
+
+void PendingSpecWriters_Decr(void) {
+  atomic_fetch_sub_explicit(&g_pendingSpecWriters, 1, memory_order_relaxed);
+}
+
+uint32_t PendingSpecWriters_Get(void) {
+  return atomic_load_explicit(&g_pendingSpecWriters, memory_order_relaxed);
+}
+
 // Global hybrid store cursors debug context (for HREQ cursor storage only)
 static HybridStoreCursorsDebugCtx globalHybridStoreCursorsDebugCtx = {0};
 
