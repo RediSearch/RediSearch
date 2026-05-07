@@ -36,18 +36,15 @@ use crate::collect::storage::Storage;
 
 /// Look up `name` in a shard-payload item (`Map` or flat `Array`).
 ///
-/// Unexpected shapes are a remote-side contract violation.
+/// # Panics
+///
+/// Panics in debug builds if `item` is not a `Map` or `Array`. Callers must
+/// pre-validate the shape (e.g. with a `matches!` guard) before calling this.
 fn get_field<'a>(item: &'a Value, name: &[u8]) -> Option<&'a SharedValue> {
     match item {
         Value::Map(m) => m.get(name),
         Value::Array(a) => a.map_get(name),
-        _ => {
-            tracing_assert::debug_assert_warn!(
-                false,
-                "local COLLECT: shard payload item must be a Map or Array"
-            );
-            None
-        }
+        _ => unreachable!("shard payload item must be a Map or Array"),
     }
 }
 
@@ -84,7 +81,7 @@ fn write_requested_fields(
 
 /// Counterpart of [`write_requested_fields`] for LOADALL mode.
 ///
-/// Wire-shape violations are a remote-side contract bug and skipped.
+/// Callers must pre-validate that `item` is a `Map` or `Array`.
 fn write_item_to_row(dst: &mut RLookupRow<'static>, lookup: &mut RLookup<'static>, item: &Value) {
     match item {
         Value::Map(m) => {
@@ -99,12 +96,8 @@ fn write_item_to_row(dst: &mut RLookupRow<'static>, lookup: &mut RLookup<'static
                 write_named_field(dst, lookup, k, v);
             }
         }
-        _ => {
-            tracing_assert::debug_assert_warn!(
-                false,
-                "local COLLECT: shard payload item must be a Map or Array"
-            );
-        }
+        // SAFETY: callers validate the shape before calling this function.
+        _ => unreachable!("shard payload item must be a Map or Array"),
     }
 }
 
