@@ -5,7 +5,7 @@ on:
 
 jobs:
   benchmarks:
-    runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
+    runs-on: ${{ vars.RUNS_ON || 'ubuntu-24.04' }}
     env:
       RUST_BACKTRACE: full
     steps:
