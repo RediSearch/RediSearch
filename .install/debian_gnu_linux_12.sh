@@ -1,9 +1,12 @@
-
 #!/usr/bin/env bash
-ARCH=$(uname -m)
+set -eo pipefail
 export DEBIAN_FRONTEND=noninteractive
 MODE=$1 # whether to install using sudo or not
+source "$(dirname "${BASH_SOURCE[0]}")/apt_get_cmd.sh"
 
-$MODE apt update -qq
-$MODE apt install -yqq git wget build-essential lcov openssl libssl-dev \
-        rsync unzip curl libclang-dev gdb
+apt_get_cmd "$MODE" update -qq
+apt_get_cmd "$MODE" install -yqq git wget build-essential lcov openssl libssl-dev \
+        rsync unzip curl gdb
+        
+# Need clang for LTO
+source "$(dirname "${BASH_SOURCE[0]}")/install_llvm.sh" $MODE

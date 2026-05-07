@@ -14,11 +14,12 @@ on:
       rejson_module_path:
         type: string
         default: bin/linux-x64-release/RedisJSON/master/rejson.so
-      profile_env:
-        type: number # for default of 0
       benchmark_glob:
         type: string
         default: "*.yml"
+      benchmark_filter:
+        type: string
+        default: ""
       triggering_env:
         type: string
         default: "circleci" # TODO: change to "github-actions" when ready on grafana
@@ -34,92 +35,188 @@ on:
       benchmark_runner_group_total:
         type: number
         default: 1
+      binary_artifact_name:
+        type: string
+        required: true
+        description: "Name of the artifact (uploaded by flow-build-benchmark-binary.yml) containing the prebuilt redisearch.so"
+      arch:
+        type: string
+        default: x86_64
+        description: "CPU arch the built .so targets. Passed to `redisbench-admin run-remote --architecture <arch>` so terraform picks the matching oss-standalone-redisearch-m7[-aarch64] dir. Valid: `x86_64` | `aarch64`."
 
 jobs:
   benchmark-steps:
-    name: "Benchmark ${{ inputs.allowed_setups }} (${{ inputs.benchmark_runner_group_member_id }}/${{ inputs.benchmark_runner_group_total }}) filter=${{ inputs.benchmark_glob }} "
-    runs-on: ubuntu-24.04  # We need the os to be a match to the base image used in the benchmarks.
+    name: "Benchmark ${{ inputs.arch }} ${{ inputs.allowed_setups }} (${{ inputs.benchmark_runner_group_member_id }}/${{ inputs.benchmark_runner_group_total }}) filter=${{ inputs.benchmark_glob }}${{ inputs.benchmark_filter && format(' narrowed={0}', inputs.benchmark_filter) || '' }}"
+    # Match the orchestrator runner arch to inputs.arch because tests/deps/setup_rejson.sh
+    # builds rejson.so here and it must be ABI-compatible with the target EC2 DB.
+    runs-on: ${{ inputs.arch == 'aarch64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
     defaults:
       run:
         shell: bash -l -eo pipefail {0}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          submodules: recursive
+        uses: actions/checkout@v6
+      - name: Compute effective benchmark filter
+        id: benchmark-filter
+        working-directory: tests/benchmarks
+        env:
+          BENCHMARK_GLOB: ${{ inputs.benchmark_glob }}
+          BENCHMARK_FILTER: ${{ inputs.benchmark_filter }}
+        run: |
+          if [ -n "${BENCHMARK_FILTER}" ]; then
+            effective_files=""
+            echo "Filtering benchmarks: glob='${BENCHMARK_GLOB}' filter='${BENCHMARK_FILTER}'"
+            for f in ${BENCHMARK_GLOB}; do
+              [ -f "$f" ] || continue
+              if [[ "$f" == ${BENCHMARK_FILTER} ]]; then
+                effective_files="${effective_files:+${effective_files} }$f"
+                echo "  + $f"
+              else
+                echo "  - $f (excluded)"
+              fi
+            done
+            if [ -z "$effective_files" ]; then
+              echo "::notice::No benchmarks match both '${BENCHMARK_GLOB}' and '${BENCHMARK_FILTER}'. Skipping."
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            echo "Selected $(echo ${effective_files} | wc -w | tr -d ' ') benchmark(s)"
+            echo "effective_glob=${BENCHMARK_FILTER}" >> "$GITHUB_OUTPUT"
+          else
+            echo "No filter applied, using glob: ${BENCHMARK_GLOB}"
+            echo "effective_glob=${BENCHMARK_GLOB}" >> "$GITHUB_OUTPUT"
+          fi
+          echo "skip=false" >> "$GITHUB_OUTPUT"
       - name: Setup specific
+        if: steps.benchmark-filter.outputs.skip != 'true'
         working-directory: .install
         run: ./install_script.sh sudo
       - name: Setup tests dependencies
+        if: steps.benchmark-filter.outputs.skip != 'true'
         run: .install/test_deps/common_installations.sh sudo
-      - name: Install Boost
-        working-directory: .install
-        run: ./install_boost.sh
-
-      - name: Setup sccache
-        uses: ./.github/actions/setup-sccache
-      - name: Build RediSearch
-        run: make build ${{ inputs.profile_env == 1 && 'PROFILE' || ''}}
-      - name: Show sccache stats
-        run: ${SCCACHE_PATH:-sccache} --show-stats
+      - name: Download prebuilt redisearch.so
+        if: steps.benchmark-filter.outputs.skip != 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.binary_artifact_name }}
+          # Place the .so where `inputs.module_path` expects it, e.g.
+          # bin/linux-x64-release/search-community/redisearch.so on x86_64,
+          # bin/linux-aarch64-release/search-community/redisearch.so on aarch64.
+          path: ${{ format('bin/linux-{0}-release/search-community', inputs.arch == 'aarch64' && 'aarch64' || 'x64') }}
+      - name: Make redisearch.so executable
+        if: steps.benchmark-filter.outputs.skip != 'true'
+        env:
+          MODULE_PATH: ${{ inputs.module_path }}
+        run: chmod +x "../../${MODULE_PATH}"
+        working-directory: tests/benchmarks
       - name: Install Python dependencies
+        if: steps.benchmark-filter.outputs.skip != 'true'
         run: |
           pip3 install --upgrade pip
           python3 -m pip install -r tests/benchmarks/requirements.txt
       - name: install terraform
+        if: steps.benchmark-filter.outputs.skip != 'true'
         uses: hashicorp/setup-terraform@v2
         with:
           terraform_version: 1.11.1
           terraform_wrapper: false
       - name: Prepare ReJSON Module
-        run: REJSON_BRANCH=${{ inputs.rejson_branch }} ./tests/deps/setup_rejson.sh
+        if: steps.benchmark-filter.outputs.skip != 'true'
+        env:
+          REJSON_BRANCH: ${{ inputs.rejson_branch }}
+          # setup_rejson.sh defaults BINROOT to bin/linux-x64-release regardless
+          # of the host arch; on aarch64 runners we must redirect it to the
+          # matching linux-aarch64-release tree so rejson_module_path resolves.
+          BINROOT: ${{ format('{0}/bin/linux-{1}-release', github.workspace, inputs.arch == 'aarch64' && 'aarch64' || 'x64') }}
+        run: ./tests/deps/setup_rejson.sh
 
       - name: Run CI benchmarks on aws for envs ${{ inputs.allowed_envs }}
+        if: steps.benchmark-filter.outputs.skip != 'true'
         timeout-minutes: 360 # timeout for the step
         working-directory: tests/benchmarks
         env:
-          # Hard-coded
-          PERF_CALLGRAPH_MODE: dwarf
-          MAX_PROFILERS: 3
           # Secrets
           AWS_ACCESS_KEY_ID: ${{ secrets.PERFORMANCE_EC2_ACCESS_KEY }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.PERFORMANCE_EC2_SECRET_KEY }}
           AWS_DEFAULT_REGION: ${{ secrets.PERFORMANCE_EC2_REGION }}
           EC2_PRIVATE_PEM: ${{ secrets.PERFORMANCE_EC2_PRIVATE_PEM }}
+          # Polar Signals / parca-agent configuration. Terraform reads these
+          # as `TF_VAR_<name>` env vars when redisbench-admin run-remote
+          # shells out to `terraform apply`. When enable_parca_agent is true
+          # the cloud-init on the DB server installs parca-agent (from the
+          # `edge` snap channel so `remote-store-grpc-headers=projectID=...`
+          # is honored) and streams profile samples to Polar Signals project
+          # $PERFORMANCE_PARCA_AGENT_PROJECT_ID during the benchmark.
+          # redisbench-admin additionally sets `metadata-external-labels`
+          # per-test (test_name, git_hash, tested_commands, ...) so samples
+          # are queryable by the same dimensions as the RTS result.
+          TF_VAR_enable_parca_agent: true
+          TF_VAR_parca_agent_token: ${{ secrets.PERFORMANCE_PARCA_AGENT_TOKEN }}
+          TF_VAR_parca_agent_project_id: ${{ secrets.PERFORMANCE_PARCA_AGENT_PROJECT_ID }}
+          TF_VAR_parca_agent_snap_channel: edge
           # Inputs
-          PROFILE: ${{ inputs.profile_env }}
-          BENCHMARK_GLOB: ${{ inputs.benchmark_glob }}
+          BENCHMARK_GLOB: ${{ steps.benchmark-filter.outputs.effective_glob }}
           BENCHMARK_RUNNER_GROUP_M_ID: ${{ inputs.benchmark_runner_group_member_id }}
           BENCHMARK_RUNNER_GROUP_TOTAL: ${{ inputs.benchmark_runner_group_total }}
           SEARCH_MEMORY_ENABLED: 1
-        run: redisbench-admin run-remote
-              --module_path ../../${{ inputs.module_path }}
-              --required-module search
-              --github_actor ${{ github.triggering_actor }}
-              --github_repo ${{ github.event.repository.name }}
-              --github_org ${{ github.repository_owner }}
-              --module_path ../../${{ inputs.rejson_module_path }}
-              --required-module ReJSON
-              --github_sha ${{ github.sha }}
-              --github_branch ${{ github.head_ref || github.ref_name }}
-              --upload_results_s3
-              --triggering_env ${{ inputs.triggering_env }}
-              --allowed-envs ${{ inputs.allowed_envs }}
-              --allowed-setups ${{ inputs.allowed_setups }}
-              --push_results_redistimeseries
-              --redistimeseries_host ${{ secrets.PERFORMANCE_RTS_HOST }}
-              --redistimeseries_port ${{ secrets.PERFORMANCE_RTS_PORT }}
-              --redistimeseries_pass '${{ secrets.PERFORMANCE_RTS_AUTH }}'
+          MODULE_PATH: ${{ inputs.module_path }}
+          REJSON_MODULE_PATH: ${{ inputs.rejson_module_path }}
+          TRIGGERING_ENV: ${{ inputs.triggering_env }}
+          ALLOWED_ENVS: ${{ inputs.allowed_envs }}
+          ALLOWED_SETUPS: ${{ inputs.allowed_setups }}
+          ARCH: ${{ inputs.arch }}
+          GITHUB_ACTOR_NAME: ${{ github.triggering_actor }}
+          GITHUB_REPO_NAME: ${{ github.event.repository.name }}
+          GITHUB_ORG_NAME: ${{ github.repository_owner }}
+          # on pull_request events github.sha is the ephemeral merge commit,
+          # which is garbage-collected after the PR merges and breaks later
+          # reproducibility. Use the PR head SHA instead; fall back to
+          # github.sha on push events (where it already is the head).
+          GITHUB_SHA_RESOLVED: ${{ github.event.pull_request.head.sha || github.sha }}
+          GITHUB_BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
+          PERFORMANCE_RTS_HOST: ${{ secrets.PERFORMANCE_RTS_HOST }}
+          PERFORMANCE_RTS_PORT: ${{ secrets.PERFORMANCE_RTS_PORT }}
+          PERFORMANCE_RTS_AUTH: ${{ secrets.PERFORMANCE_RTS_AUTH }}
+        run: |
+          redisbench-admin run-remote \
+              --module_path "../../$MODULE_PATH" \
+              --required-module search \
+              --github_actor "$GITHUB_ACTOR_NAME" \
+              --github_repo "$GITHUB_REPO_NAME" \
+              --github_org "$GITHUB_ORG_NAME" \
+              --module_path "../../$REJSON_MODULE_PATH" \
+              --required-module ReJSON \
+              --github_sha "$GITHUB_SHA_RESOLVED" \
+              --github_branch "$GITHUB_BRANCH_NAME" \
+              --architecture "$ARCH" \
+              --upload_results_s3 \
+              --triggering_env "$TRIGGERING_ENV" \
+              --allowed-envs "$ALLOWED_ENVS" \
+              --allowed-setups "$ALLOWED_SETUPS" \
+              --push_results_redistimeseries \
+              --redistimeseries_host "$PERFORMANCE_RTS_HOST" \
+              --redistimeseries_port "$PERFORMANCE_RTS_PORT" \
+              --redistimeseries_pass "$PERFORMANCE_RTS_AUTH" \
               --collect_search_memory True
       - name: Generate Pull Request Performance info
-        if: github.event.number
+        if: github.event.number && steps.benchmark-filter.outputs.skip != 'true'
         env:
           PERFORMANCE_GH_TOKEN: ${{ secrets.PERFORMANCE_GH_TOKEN }}
           PERFORMANCE_WH_TOKEN: ${{ secrets.PERFORMANCE_WH_TOKEN }}
+        # --architectures enables the multi-arch PR comment layout from
+        # redisbench-admin 0.12.25+: one H2 section per arch covering
+        # branch-over-branch, plus a cross-arch delta section on the PR
+        # commit (x86_64 -> aarch64). Each matrix entry's compare call
+        # queries ALL arches from RTS; modules without aarch64 data (e.g.
+        # early in a run, before aarch64 jobs complete) render a warning
+        # block instead of an empty table, and the cross-arch section
+        # auto-suppresses. The last-to-finish upsert wins -- same behavior
+        # as today, but with the richer multi-arch body.
         run: redisbench-admin compare
               --defaults_filename ./tests/benchmarks/defaults.yml
               --comparison-branch ${{ github.event.pull_request.head.ref || github.ref_name }}
               --baseline-branch ${{ github.event.pull_request.base.ref }}
+              --architectures x86_64,aarch64
               --auto-approve
               --pull-request ${{ github.event.number }}
               --redistimeseries_host ${{ secrets.PERFORMANCE_RTS_HOST }}

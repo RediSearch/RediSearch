@@ -40,15 +40,23 @@ static size_t OPT_NumEstimated(const QueryIterator *self) {
 }
 
 // TODO: handle MOVED better
-static ValidateStatus OPT_Validate(QueryIterator *self) {
+static ValidateStatus OPT_Validate(QueryIterator *self, struct IndexSpec *spec) {
   OptimizerIterator *opt = (OptimizerIterator *)self;
-  if (opt->child->Revalidate(opt->child) != VALIDATE_OK) {
+  if (opt->child->Revalidate(opt->child, spec) != VALIDATE_OK) {
     return VALIDATE_ABORTED;
   }
-  if (opt->numericIter->Revalidate(opt->numericIter) != VALIDATE_OK) {
+  if (opt->numericIter->Revalidate(opt->numericIter, spec) != VALIDATE_OK) {
     return VALIDATE_ABORTED;
   }
   return VALIDATE_OK;
+}
+
+static QueryIterator *OPT_ProfileChildren(QueryIterator *base) {
+  OptimizerIterator *oi = (OptimizerIterator *)base;
+  if (oi->child) {
+    oi->child = IntoProfiled(oi->child);
+  }
+  return base;
 }
 
 static void OPT_Rewind(QueryIterator *self) {
@@ -231,7 +239,7 @@ QueryIterator *NewOptimizerIterator(QOptimizer *qOpt, QueryIterator *root, Itera
   const FieldSpec *field = IndexSpec_GetFieldWithLength(qOpt->sctx->spec, qOpt->fieldName, strlen(qOpt->fieldName));
   // if there is no numeric range query but sortby, create a Numeric Filter
   if (!qOpt->nf) {
-    qOpt->nf = NewNumericFilter(-INFINITY, INFINITY, 1, 1, qOpt->asc, field);
+    qOpt->nf = NewNumericFilter(-INFINITY, INFINITY, 1, 1, qOpt->asc, field, NULL);
     oi->flags |= OPTIM_OWN_NF;
   }
   oi->lastLimitEstimate = qOpt->nf->limit =
@@ -258,7 +266,22 @@ QueryIterator *NewOptimizerIterator(QOptimizer *qOpt, QueryIterator *root, Itera
   ri->Revalidate = OPT_Validate;
   ri->SkipTo = NULL;            // The iterator is always on top and and Read() is called
   ri->Read = OPT_Read;
+  ri->ProfileChildren = OPT_ProfileChildren;
   ri->current = NULL;
 
   return &oi->base;
 }
+
+// Accessors for profile printing.
+const QueryIterator *OptimizerIterator_GetChild(const QueryIterator *it) {
+  RS_ASSERT(it->type == OPTIMUS_ITERATOR);
+  const OptimizerIterator *oi = (const OptimizerIterator *)it;
+  return oi->child;
+}
+
+const char *OptimizerIterator_GetOptimizationType(const QueryIterator *it) {
+  RS_ASSERT(it->type == OPTIMUS_ITERATOR);
+  const OptimizerIterator *oi = (const OptimizerIterator *)it;
+  return QOptimizer_PrintType(oi->optim);
+}
+

@@ -88,7 +88,10 @@ pub(crate) mod test {
     use std::iter;
 
     #[test]
-    #[cfg_attr(miri, ignore = "miri does not support FFI functions")]
+    #[cfg_attr(
+        miri,
+        ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
+    )]
     fn basically_works() {
         // Set up the result processor chain
         let mut chain = Chain::new();

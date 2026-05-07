@@ -15,7 +15,9 @@ bench = false
 ffi.workspace = true
 libc.workspace = true
 sorting_vector.workspace = true
-value = { workspace = true, features = ["c_ffi_impl"] }
+thin_vec.workspace = true
+value.workspace = true
+value_ffi = { path = "../value_ffi" }
 workspace_hack.workspace = true
 
 [build-dependencies]

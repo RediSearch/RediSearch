@@ -8,7 +8,8 @@
 */
 
 use rqe_iterators::{
-    RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome, maybe_empty::MaybeEmpty,
+    IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
+    maybe_empty::MaybeEmpty,
 };
 
 #[derive(Default)]
@@ -50,9 +51,33 @@ impl<'index> RQEIterator<'index> for Infinite<'index> {
         false
     }
 
-    fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
+    unsafe fn revalidate(
+        &mut self,
+        _spec: std::ptr::NonNull<ffi::IndexSpec>,
+    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         Ok(RQEValidateStatus::Ok)
     }
+
+    #[inline(always)]
+    fn type_(&self) -> IteratorType {
+        IteratorType::Mock
+    }
+
+    fn intersection_sort_weight(&self, _prioritize_union_children: bool) -> f64 {
+        1.0
+    }
+}
+
+#[test]
+fn type_empty() {
+    let it = MaybeEmpty::<Infinite>::new_empty();
+    assert_eq!(it.type_(), IteratorType::Empty);
+}
+
+#[test]
+fn type_not_empty() {
+    let it = MaybeEmpty::new(Infinite::default());
+    assert_eq!(it.type_(), IteratorType::Mock);
 }
 
 #[test]
@@ -173,14 +198,26 @@ fn rewind_not_empty() {
 
 #[test]
 fn revalidate_empty() {
+    let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+    let ctx = mock_ctx.spec();
     let mut it = MaybeEmpty::<Infinite>::new_empty();
-    assert_eq!(it.revalidate().unwrap(), RQEValidateStatus::Ok);
+    // SAFETY: test-only call with valid context
+    assert_eq!(
+        unsafe { it.revalidate(ctx) }.unwrap(),
+        RQEValidateStatus::Ok
+    );
 }
 
 #[test]
 fn revalidate_not_empty() {
+    let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+    let ctx = mock_ctx.spec();
     let mut it = MaybeEmpty::new(Infinite::default());
-    assert_eq!(it.revalidate().unwrap(), RQEValidateStatus::Ok);
+    // SAFETY: test-only call with valid context
+    assert_eq!(
+        unsafe { it.revalidate(ctx) }.unwrap(),
+        RQEValidateStatus::Ok
+    );
 }
 
 #[test]

@@ -7,8 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-#include "src/stemmer.h"
-#include "src/tokenize.h"
+#include "stemmer.h"
+#include "tokenize.h"
 #include "rmutil/alloc.h"
 #include "test_util.h"
 

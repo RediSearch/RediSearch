@@ -14,7 +14,7 @@
 #include <random>
 #include <vector>
 
-#include "src/iterators/iterator_api.h"
+#include "iterators/iterator_api.h"
 #include "iterators_rs.h"
 
 template <bool yield_metric>

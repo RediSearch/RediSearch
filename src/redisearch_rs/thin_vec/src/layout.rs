@@ -60,7 +60,7 @@ pub(crate) const fn allocation_alignment<T, S: VecCapacity>() -> usize {
 /// This value will be computed at compile time for any `T` and `S` that may end up being used in our
 /// program as types within `ThinVec<T, S>`, since the function is `const`
 /// and takes no runtime arguments.
-pub(crate) const fn header_field_padding<T, S: VecCapacity>() -> usize {
+pub const fn header_field_padding<T, S: VecCapacity>() -> usize {
     let alloc_align = allocation_alignment::<T, S>();
     let header_size = std::mem::size_of::<Header<S>>();
     alloc_align.saturating_sub(header_size)

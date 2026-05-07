@@ -14,8 +14,6 @@ use std::{hint::black_box, time::Duration};
 use criterion::{BenchmarkGroup, Criterion, measurement::WallTime};
 use rqe_iterators::{RQEIterator, empty::Empty, id_list::IdListSorted, not::Not};
 
-use crate::ffi::{IteratorStatus_ITERATOR_OK, QueryIterator};
-
 #[derive(Default)]
 pub struct Bencher;
 
@@ -23,7 +21,6 @@ impl Bencher {
     const MEASUREMENT_TIME: Duration = Duration::from_millis(500);
     const WARMUP_TIME: Duration = Duration::from_millis(200);
 
-    const WEIGHT: f64 = 1.0;
     const MAX_DOC_ID: u64 = 1_000_000;
 
     /// Duration is irrelevant since we skip timeout checks in benchmarks.
@@ -76,22 +73,6 @@ impl Bencher {
             );
         });
 
-        // C implementation (non-optimized)
-        group.bench_function("C", |b| {
-            b.iter_batched_ref(
-                || {
-                    let child = QueryIterator::new_empty();
-                    QueryIterator::new_not_non_optimized(child, Self::MAX_DOC_ID, Self::WEIGHT)
-                },
-                |it| {
-                    while it.read() == IteratorStatus_ITERATOR_OK {
-                        black_box(it.current());
-                    }
-                },
-                criterion::BatchSize::SmallInput,
-            );
-        });
-
         group.finish();
     }
 
@@ -122,23 +103,6 @@ impl Bencher {
             );
         });
 
-        // C implementation (non-optimized)
-        group.bench_function("C", |b| {
-            b.iter_batched_ref(
-                || {
-                    let data = (1..Self::MAX_DOC_ID).filter(|x| x % 100 != 0).collect();
-                    let child = QueryIterator::new_id_list(data);
-                    QueryIterator::new_not_non_optimized(child, Self::MAX_DOC_ID, Self::WEIGHT)
-                },
-                |it| {
-                    while it.read() == IteratorStatus_ITERATOR_OK {
-                        black_box(it.current());
-                    }
-                },
-                criterion::BatchSize::SmallInput,
-            );
-        });
-
         group.finish();
     }
 
@@ -162,22 +126,6 @@ impl Bencher {
                 |it| {
                     while let Ok(Some(current)) = it.skip_to(it.last_doc_id() + step) {
                         black_box(current);
-                    }
-                },
-                criterion::BatchSize::SmallInput,
-            );
-        });
-
-        // C implementation (non-optimized)
-        group.bench_function("C", |b| {
-            b.iter_batched_ref(
-                || {
-                    let child = QueryIterator::new_empty();
-                    QueryIterator::new_not_non_optimized(child, Self::MAX_DOC_ID, Self::WEIGHT)
-                },
-                |it| {
-                    while it.skip_to(it.last_doc_id() + step) == IteratorStatus_ITERATOR_OK {
-                        black_box(it.current());
                     }
                 },
                 criterion::BatchSize::SmallInput,
@@ -214,23 +162,6 @@ impl Bencher {
             );
         });
 
-        // C implementation (non-optimized)
-        group.bench_function("C", |b| {
-            b.iter_batched_ref(
-                || {
-                    let data = (1..Self::MAX_DOC_ID).step_by(100).collect();
-                    let child = QueryIterator::new_id_list(data);
-                    QueryIterator::new_not_non_optimized(child, Self::MAX_DOC_ID, Self::WEIGHT)
-                },
-                |it| {
-                    while it.skip_to(it.last_doc_id() + step) == IteratorStatus_ITERATOR_OK {
-                        black_box(it.current());
-                    }
-                },
-                criterion::BatchSize::SmallInput,
-            );
-        });
-
         group.finish();
     }
 
@@ -255,23 +186,6 @@ impl Bencher {
                 |it| {
                     while let Ok(Some(current)) = it.skip_to(it.last_doc_id() + step) {
                         black_box(current);
-                    }
-                },
-                criterion::BatchSize::SmallInput,
-            );
-        });
-
-        // C implementation (non-optimized)
-        group.bench_function("C", |b| {
-            b.iter_batched_ref(
-                || {
-                    let data = (1..Self::MAX_DOC_ID).filter(|x| x % 100 != 0).collect();
-                    let child = QueryIterator::new_id_list(data);
-                    QueryIterator::new_not_non_optimized(child, Self::MAX_DOC_ID, Self::WEIGHT)
-                },
-                |it| {
-                    while it.skip_to(it.last_doc_id() + step) == IteratorStatus_ITERATOR_OK {
-                        black_box(it.current());
                     }
                 },
                 criterion::BatchSize::SmallInput,

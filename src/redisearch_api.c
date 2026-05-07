@@ -27,6 +27,8 @@
 #include "module.h"
 #include "cursor.h"
 #include "info/indexes_info.h"
+#include "doc_id_meta.h"
+#include "search_disk.h"
 
 /**
  * Most of the spec interaction is done through the RefManager, which is wrapped by a strong or weak reference struct.
@@ -261,6 +263,7 @@ void RediSearch_FreeDocument(RSDoc* doc) {
 }
 
 int RediSearch_DeleteDocument(RefManager* rm, const void* docKey, size_t len) {
+  RS_ASSERT(!SearchDisk_IsEnabled());
   RWLOCK_ACQUIRE_WRITE();
   IndexSpec* sp = __RefManager_Get_Object(rm);
   int rc = REDISMODULE_OK;
@@ -358,8 +361,14 @@ int RediSearch_IndexAddDocument(RefManager* rm, Document* d, int options, char**
   }
   aCtx->donecb = RediSearch_AddDocDone;
   aCtx->donecbData = &err;
-  RedisSearchCtx sctx = {.redisCtx = NULL, .spec = sp};
-  int exists = !!DocTable_GetIdR(&sp->docs, d->docKey);
+  RedisSearchCtx sctx = {.redisCtx = RSDummyContext, .spec = sp};
+  int exists;
+  if (SearchDisk_IsEnabled()) {
+    uint64_t existingDocId;
+    exists = (DocIdMeta_Get(RSDummyContext, d->docKey, sp->specId, &existingDocId) == REDISMODULE_OK);
+  } else {
+    exists = !!DocTable_GetIdR(&sp->docs, d->docKey);
+  }
   if (exists) {
     if (options & REDISEARCH_ADD_REPLACE) {
       options |= DOCUMENT_ADD_REPLACE;
@@ -411,7 +420,7 @@ QueryNode* RediSearch_CreateNumericNode(RefManager* rm, const char* field, doubl
   QueryNode* ret = NewQueryNode(QN_NUMERIC);
   const size_t len = strlen(field);
   const FieldSpec *fs = IndexSpec_GetFieldWithLength(__RefManager_Get_Object(rm), field, len);
-  ret->nn.nf = NewNumericFilter(min, max, includeMin, includeMax, true, fs);
+  ret->nn.nf = NewNumericFilter(min, max, includeMin, includeMax, true, fs, NULL);
   ret->opts.fieldMask = IndexSpec_GetFieldBit(__RefManager_Get_Object(rm), field, len);
   return ret;
 }
@@ -608,10 +617,6 @@ static RS_ApiIter* handleIterCommon(IndexSpec* sp, QueryInput* input, char** err
   /* We might have multiple readers that reads from the index,
    * Avoid rehashing the terms dictionary */
   dictPauseRehashing(sp->keysDict);
-  /* Also pause rehashing on the TTL table if it exists */
-  if (sp->docs.ttl) {
-    dictPauseRehashing(sp->docs.ttl);
-  }
 
   RSSearchOptions options = {0};
   QueryError status = QueryError_Default();
@@ -663,9 +668,6 @@ end:
      * If iter->sp is set, RediSearch_ResultsIteratorFree will handle cleanup. */
     if (!it->sp) {
       dictResumeRehashing(sp->keysDict);
-      if (sp->docs.ttl) {
-        dictResumeRehashing(sp->docs.ttl);
-      }
       pthread_rwlock_unlock(&sp->rwlock);
     }
     RediSearch_ResultsIteratorFree(it);
@@ -679,6 +681,7 @@ end:
 }
 
 int RediSearch_DocumentExists(RefManager* rm, const void* docKey, size_t len) {
+  RS_ASSERT(!SearchDisk_IsEnabled());
   IndexSpec* sp = __RefManager_Get_Object(rm);
   return DocTable_GetId(&sp->docs, docKey, len) != 0;
 }
@@ -744,9 +747,6 @@ void RediSearch_ResultsIteratorFree(RS_ApiIter* iter) {
   if (iter->sp) {
     if (iter->sp->keysDict) {
       dictResumeRehashing(iter->sp->keysDict);
-    }
-    if (iter->sp->docs.ttl) {
-      dictResumeRehashing(iter->sp->docs.ttl);
     }
     pthread_rwlock_unlock(&iter->sp->rwlock);
   }
@@ -902,10 +902,6 @@ int RediSearch_IndexInfo(RSIndex* rm, RSIdxInfo *info) {
   /* We might have multiple readers that reads from the index,
    * Avoid rehashing the terms dictionary */
   dictPauseRehashing(sp->keysDict);
-  /* Also pause rehashing on the TTL table if it exists */
-  if (sp->docs.ttl) {
-    dictPauseRehashing(sp->docs.ttl);
-  }
 
   // Report fork when any GC is present
   info->gcPolicy = sp->gc ? GC_POLICY_FORK : GC_POLICY_NONE;
@@ -949,10 +945,6 @@ int RediSearch_IndexInfo(RSIndex* rm, RSIdxInfo *info) {
   }
 
   dictResumeRehashing(sp->keysDict);
-  /* Also resume rehashing on the TTL table if it exists */
-  if (sp->docs.ttl) {
-    dictResumeRehashing(sp->docs.ttl);
-  }
   /* Release spec read lock */
   pthread_rwlock_unlock(&sp->rwlock);
   RWLOCK_RELEASE();

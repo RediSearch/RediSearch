@@ -9,7 +9,8 @@ search_result_processors = [
     ['Type', 'Index', 'Results processed', ANY],
     ['Type', 'Scorer', 'Results processed', ANY],
     ['Type', 'Sorter', 'Results processed', ANY],
-    ['Type', 'Loader', 'Results processed', ANY]
+    ['Type', 'Loader', 'Results processed', ANY],
+    ['Type', 'Depleter', 'Results processed', ANY],
 ]
 
 search_result_processors_background_depletion = [
@@ -19,77 +20,199 @@ search_result_processors_background_depletion = [
     ['Type', 'Threadsafe-Loader', 'GIL-Time', ANY, 'Results processed', ANY],
     ['Type', 'Threadsafe-Depleter', 'Results processed', ANY]
 ]
-# This is common for all test with `SEARCH hello`, no background depletion
-expected_shard_standalone_profile = [[
-    'SEARCH',
+def _make_shard_standalone_profile(search_rp, vsim_rp):
+    """Build a standalone shard profile for 'SEARCH hello' hybrid queries.
+
+    Args:
+        search_rp: the 'Result processors profile' list for the SEARCH subquery.
+        vsim_rp: the 'Result processors profile' list for the VSIM subquery.
+    """
+    return [[
+        'SEARCH',
+        [
+            'Warning',
+            ['None'],
+            'Iterators profile',
+            [
+                'Type', 'TEXT',
+                'Term', 'hello',
+                'Number of reading operations', 1,
+                'Estimated number of matches', 1
+            ],
+            'Result processors profile',
+            search_rp
+        ],
+        'VSIM',
+        [
+            'Warning',
+            ['None'],
+            'Iterators profile',
+            [
+                'Type', 'VECTOR',
+                'Number of reading operations', 4,
+                'Vector search mode', 'STANDARD_KNN'
+            ],
+            'Result processors profile',
+            vsim_rp
+        ]
+    ]]
+
+
+# This is common for all tests with `SEARCH hello`, no background depletion
+expected_shard_standalone_profile = _make_shard_standalone_profile(
+    search_result_processors,
     [
-        'Warning',
-        ['None'],
-        'Iterators profile',
+        ['Type', 'Index', 'Results processed', ANY],
+        ['Type', 'Metrics Applier', 'Results processed', ANY],
+        ['Type', 'Vector Normalizer', 'Results processed', ANY],
+        ['Type', 'Loader', 'Results processed', ANY],
+        ['Type', 'Depleter', 'Results processed', ANY]
+    ]
+)
+
+expected_shard_standalone_profile_background_depletion = _make_shard_standalone_profile(
+    search_result_processors_background_depletion,
+    [
+        ['Type', 'Index', 'Results processed', ANY],
+        ['Type', 'Metrics Applier', 'Results processed', ANY],
+        ['Type', 'Vector Normalizer', 'Results processed', ANY],
+        ['Type', 'Threadsafe-Loader', 'GIL-Time', ANY, 'Results processed', ANY],
+        ['Type', 'Threadsafe-Depleter', 'Results processed', ANY]
+    ]
+)
+
+# Shared iterator profile for shards searching for 'hello': either the shard
+# has no matching docs (EMPTY) or it has the "hello" term (TEXT).
+_HELLO_TEXT_VALID_VALUES = {
+    # Each shard can have different iterator profile, so we
+    # check that one of the following values is in the profile
+    'Valid Values':
+    [
+        ['Type', 'EMPTY', 'Number of reading operations', 0],
         [
             'Type', 'TEXT',
             'Term', 'hello',
             'Number of reading operations', 1,
             'Estimated number of matches', 1
-        ],
+        ]
+    ]
+}
+
+# Standard VSIM shard profile block reused across multiple test cases.
+# Exceptions are tests that add an extra Loader (e.g. LOAD * or GROUPBY).
+_VSIM_SHARD_CLUSTER_PROFILE = [
+    'Warning', ['None'],
+    'Internal cursor reads', 1,
+    'Iterators profile',
+    [
+        'Type', 'VECTOR',
+        'Number of reading operations', ANY,
+        'Vector search mode', 'STANDARD_KNN'
+    ],
+    'Result processors profile',
+    [
+        ['Type', 'Index', 'Results processed', ANY],
+        ['Type', 'Metrics Applier', 'Results processed', ANY],
+        ['Type', 'Scorer', 'Results processed', ANY],
+        ['Type', 'Vector Normalizer', 'Results processed', ANY],
+        ['Type', 'Loader', 'Results processed', ANY],
+        ['Type', 'Depleter', 'Results processed', ANY]
+    ]
+]
+
+# Full shard cluster profile for queries that match 'hello' with default
+# result processors (no extra Loader or GROUPBY).
+_SHARD_CLUSTER_PROFILE_HELLO = [
+    'Shard ID', ANY,
+    'SEARCH',
+    [
+        'Warning', ['None'],
+        'Internal cursor reads', 1,
+        'Iterators profile',
+        _HELLO_TEXT_VALID_VALUES,
         'Result processors profile',
         search_result_processors
     ],
     'VSIM',
-    [
-        'Warning',
-        ['None'],
-        'Iterators profile',
-        [
-            'Type', 'VECTOR',
-            'Number of reading operations', 4,
-            'Vector search mode', 'STANDARD_KNN'
-        ],
-        'Result processors profile',
-        [
-            ['Type', 'Index', 'Results processed', ANY],
-            ['Type', 'Metrics Applier', 'Results processed', ANY],
-            ['Type', 'Vector Normalizer', 'Results processed', ANY],
-            ['Type', 'Loader', 'Results processed', ANY]
-        ]
-    ]
-]]
+    _VSIM_SHARD_CLUSTER_PROFILE
+]
 
-expected_shard_standalone_profile_background_depletion = [[
-    'SEARCH',
-    [
-        'Warning',
-        ['None'],
-        'Iterators profile',
+def _make_extra_loader_shard_cluster_profile(iterators_profile):
+    """Build a shard cluster profile for tests with an extra Loader (LOAD * / GROUPBY).
+
+    Args:
+        iterators_profile: the SEARCH 'Iterators profile' value (e.g. _HELLO_TEXT_VALID_VALUES or ANY).
+    """
+    return [
+        'Shard ID', ANY,
+        'SEARCH',
         [
-            'Type', 'TEXT',
-            'Term', 'hello',
-            'Number of reading operations', 1,
-            'Estimated number of matches', 1
+            'Warning', ['None'],
+            'Internal cursor reads', 1,
+            'Iterators profile',
+            iterators_profile,
+            'Result processors profile',
+            [
+                ['Type', 'Index', 'Results processed', ANY],
+                ['Type', 'Scorer', 'Results processed', ANY],
+                ['Type', 'Sorter', 'Results processed', ANY],
+                ['Type', 'Loader', 'Results processed', ANY],
+                ['Type', 'Loader', 'Results processed', ANY],
+                ['Type', 'Depleter', 'Results processed', ANY]
+            ]
         ],
-        'Result processors profile',
-        search_result_processors_background_depletion
-    ],
-    'VSIM',
-    [
-        'Warning',
-        ['None'],
-        'Iterators profile',
+        'VSIM',
         [
-            'Type', 'VECTOR',
-            'Number of reading operations', 4,
-            'Vector search mode', 'STANDARD_KNN'
-        ],
-        'Result processors profile',
-        [
-            ['Type', 'Index', 'Results processed', ANY],
-            ['Type', 'Metrics Applier', 'Results processed', ANY],
-            ['Type', 'Vector Normalizer', 'Results processed', ANY],
-            ['Type', 'Threadsafe-Loader', 'GIL-Time', ANY, 'Results processed', ANY],
-            ['Type', 'Threadsafe-Depleter', 'Results processed', ANY]
+            'Warning', ['None'],
+            'Internal cursor reads', 1,
+            'Iterators profile',
+            [
+                'Type', 'VECTOR',
+                'Number of reading operations', ANY,
+                'Vector search mode', 'STANDARD_KNN'
+            ],
+            'Result processors profile',
+            [
+                ['Type', 'Index', 'Results processed', ANY],
+                ['Type', 'Metrics Applier', 'Results processed', ANY],
+                ['Type', 'Scorer', 'Results processed', ANY],
+                ['Type', 'Vector Normalizer', 'Results processed', ANY],
+                ['Type', 'Loader', 'Results processed', ANY],
+                ['Type', 'Loader', 'Results processed', ANY],
+                ['Type', 'Depleter', 'Results processed', ANY]
+            ]
         ]
     ]
-]]
+
+
+def _make_coordinator_cluster_profile(n_search, result_processors):
+    """Build the coordinator cluster profile for a hybrid query.
+
+    Args:
+        n_search: the 'Results processed' count for the SEARCH network processor.
+        result_processors: the 'Result processors profile' list for the coordinator.
+    """
+    return [
+        'Shard ID', ANY,
+        'Warning', ['None'],
+        'Subqueries result processors profile',
+        [
+            'SEARCH',
+            [
+                ['Type', 'Network', 'Results processed', n_search],
+                ['Type', 'Sorter', 'Results processed', n_search],
+                ['Type', 'Threadsafe-Depleter', 'Results processed', ANY]
+            ],
+            'VSIM',
+            [
+                ['Type', 'Network', 'Results processed', 4],
+                ['Type', 'Sorter', 'Results processed', 4],
+                ['Type', 'Threadsafe-Depleter', 'Results processed', ANY]
+            ]
+        ],
+        'Result processors profile',
+        result_processors
+    ]
 
 
 query_and_profile = [
@@ -125,76 +248,13 @@ query_and_profile = [
             ]
         ],
         # expected_shard_cluster_profile
-        [
-            'Shard ID', ANY,
-            'SEARCH',
-            [
-                'Warning', ['None'],
-                'Internal cursor reads', 1,
-                'Iterators profile',
-                {
-                    # Each shard can have different iterator profile, so we
-                    # check that one of the following values is in the profile
-                    'Valid Values':
-                    [
-                        ['Type', 'EMPTY', 'Number of reading operations', 0],
-                        [
-                            'Type', 'TEXT',
-                            'Term', 'hello',
-                            'Number of reading operations', 1,
-                            'Estimated number of matches', 1
-                        ]
-                    ]
-                },
-                'Result processors profile',
-                search_result_processors
-            ],
-            'VSIM',
-            [
-                'Warning', ['None'],
-                'Internal cursor reads', 1,
-                'Iterators profile',
-                [
-                    'Type', 'VECTOR',
-                    'Number of reading operations', ANY,
-                    'Vector search mode', 'STANDARD_KNN'
-                ],
-                'Result processors profile',
-                [
-                    ['Type', 'Index', 'Results processed', ANY],
-                    ['Type', 'Metrics Applier', 'Results processed', ANY],
-                    ['Type', 'Scorer', 'Results processed', ANY],
-                    ['Type', 'Vector Normalizer', 'Results processed', ANY],
-                    ['Type', 'Loader', 'Results processed', ANY]
-                ]
-            ]
-        ],
+        _SHARD_CLUSTER_PROFILE_HELLO,
         # expected_coordinator_cluster_profile
-        [
-            'Shard ID', ANY,
-            'Warning', ['None'],
-            'Subqueries result processors profile',
-            [
-                'SEARCH',
-                [
-                    ['Type', 'Network', 'Results processed', 1],
-                    ['Type', 'Sorter', 'Results processed', 1],
-                    ['Type', 'Threadsafe-Depleter', 'Results processed', ANY]
-                ],
-                'VSIM',
-                [
-                    ['Type', 'Network', 'Results processed', 4],
-                    ['Type', 'Sorter', 'Results processed', 4],
-                    ['Type', 'Threadsafe-Depleter', 'Results processed', ANY]
-                ]
-            ],
-            'Result processors profile',
-            [
-                ['Type', 'Hybrid Merger', 'Results processed', 4],
-                # Sorter is added by default, to sort by score.
-                ['Type', 'Sorter', 'Results processed', 4]
-            ]
-        ]
+        _make_coordinator_cluster_profile(1, [
+            ['Type', 'Hybrid Merger', 'Results processed', 4],
+            # Sorter is added by default, to sort by score.
+            ['Type', 'Sorter', 'Results processed', 4]
+        ])
     ),
     # Test: Hybrid query with LOAD * and NOSORT
     (
@@ -217,83 +277,12 @@ query_and_profile = [
             ]
         ],
         # expected_shard_cluster_profile
-        [
-            'Shard ID', ANY,
-            'SEARCH',
-            [
-                'Warning', ['None'],
-                'Internal cursor reads', 1,
-                'Iterators profile',
-                 {
-                     # Each shard can have different iterator profile, so we
-                    # check that one of the following values is in the profile
-                    'Valid Values':
-                    [
-                        ['Type', 'EMPTY', 'Number of reading operations', 0],
-                        [
-                            'Type', 'TEXT',
-                            'Term', 'hello',
-                            'Number of reading operations', 1,
-                            'Estimated number of matches', 1
-                        ]
-                    ]
-                },
-                'Result processors profile',
-                [
-                    ['Type', 'Index', 'Results processed', ANY],
-                    ['Type', 'Scorer', 'Results processed', ANY],
-                    ['Type', 'Sorter', 'Results processed', ANY],
-                    ['Type', 'Loader', 'Results processed', ANY],
-                    ['Type', 'Loader', 'Results processed', ANY],
-                ]
-            ],
-            'VSIM',
-            [
-                'Warning', ['None'],
-                'Internal cursor reads', 1,
-                'Iterators profile',
-                [
-                    'Type', 'VECTOR',
-                    'Number of reading operations', ANY,
-                    'Vector search mode', 'STANDARD_KNN'
-                ],
-                'Result processors profile',
-                [
-                    ['Type', 'Index', 'Results processed', ANY],
-                    ['Type', 'Metrics Applier', 'Results processed', ANY],
-                    ['Type', 'Scorer', 'Results processed', ANY],
-                    ['Type', 'Vector Normalizer', 'Results processed', ANY],
-                    ['Type', 'Loader', 'Results processed', ANY],
-                    # Additional loader for LOAD *
-                    ['Type', 'Loader', 'Results processed', ANY]
-                ]
-            ]
-        ],
+        _make_extra_loader_shard_cluster_profile(_HELLO_TEXT_VALID_VALUES),
         # expected_coordinator_cluster_profile
-        [
-            'Shard ID', ANY,
-            'Warning', ['None'],
-            'Subqueries result processors profile',
-            [
-                'SEARCH',
-                [
-                    ['Type', 'Network', 'Results processed', 1],
-                    ['Type', 'Sorter', 'Results processed', 1],
-                    ['Type', 'Threadsafe-Depleter', 'Results processed', ANY]
-                ],
-                'VSIM',
-                [
-                    ['Type', 'Network', 'Results processed', 4],
-                    ['Type', 'Sorter', 'Results processed', 4],
-                    ['Type', 'Threadsafe-Depleter', 'Results processed', ANY]
-                ]
-            ],
-            'Result processors profile',
-            [
-                ['Type', 'Hybrid Merger', 'Results processed', 4]
-                # No sorter because of NOSORT
-            ]
-        ]
+        _make_coordinator_cluster_profile(1, [
+            ['Type', 'Hybrid Merger', 'Results processed', 4]
+            # No sorter because of NOSORT
+        ])
     ),
     # Test: Hybrid query with LIMIT
     (
@@ -318,75 +307,12 @@ query_and_profile = [
             ]
         ],
         # expected_shard_cluster_profile
-        [
-            'Shard ID', ANY,
-            'SEARCH',
-            [
-                'Warning', ['None'],
-                'Internal cursor reads', 1,
-                'Iterators profile',
-                 {
-                     # Each shard can have different iterator profile, so we
-                    # check that one of the following values is in the profile
-                    'Valid Values':
-                    [
-                        ['Type', 'EMPTY', 'Number of reading operations', 0],
-                        [
-                            'Type', 'TEXT',
-                            'Term', 'hello',
-                            'Number of reading operations', 1,
-                            'Estimated number of matches', 1
-                        ]
-                    ]
-                },
-                'Result processors profile',
-                search_result_processors
-            ],
-            'VSIM',
-            [
-                'Warning', ['None'],
-                'Internal cursor reads', 1,
-                'Iterators profile',
-                [
-                    'Type', 'VECTOR',
-                    'Number of reading operations', ANY,
-                    'Vector search mode', 'STANDARD_KNN'
-                ],
-                'Result processors profile',
-                [
-                    ['Type', 'Index', 'Results processed', ANY],
-                    ['Type', 'Metrics Applier', 'Results processed', ANY],
-                    ['Type', 'Scorer', 'Results processed', ANY],
-                    ['Type', 'Vector Normalizer', 'Results processed', ANY],
-                    ['Type', 'Loader', 'Results processed', ANY]
-                ]
-            ]
-        ],
+        _SHARD_CLUSTER_PROFILE_HELLO,
         # expected_coordinator_cluster_profile
-        [
-            'Shard ID', ANY,
-            'Warning', ['None'],
-            'Subqueries result processors profile',
-            [
-                'SEARCH',
-                [
-                    ['Type', 'Network', 'Results processed', 1],
-                    ['Type', 'Sorter', 'Results processed', 1],
-                    ['Type', 'Threadsafe-Depleter', 'Results processed', ANY]
-                ],
-                'VSIM',
-                [
-                    ['Type', 'Network', 'Results processed', 4],
-                    ['Type', 'Sorter', 'Results processed', 4],
-                    ['Type', 'Threadsafe-Depleter', 'Results processed', ANY]
-                ]
-            ],
-            'Result processors profile',
-            [
-                ['Type', 'Hybrid Merger', 'Results processed', 4],
-                ['Type', 'Sorter', 'Results processed', 2]
-            ]
-        ]
+        _make_coordinator_cluster_profile(1, [
+            ['Type', 'Hybrid Merger', 'Results processed', 4],
+            ['Type', 'Sorter', 'Results processed', 2]
+        ])
     ),
     # Test: Hybrid query with GROUPBY
     (
@@ -413,70 +339,13 @@ query_and_profile = [
             ]
         ],
         # expected_shard_cluster_profile
-        [
-            'Shard ID', ANY,
-            'SEARCH',
-            [
-                'Warning', ['None'],
-                'Internal cursor reads', 1,
-                'Iterators profile',
-                ANY,
-                'Result processors profile',
-                [
-                    ['Type', 'Index', 'Results processed', ANY],
-                    ['Type', 'Scorer', 'Results processed', ANY],
-                    ['Type', 'Sorter', 'Results processed', ANY],
-                    ['Type', 'Loader', 'Results processed', ANY],
-                    ['Type', 'Loader', 'Results processed', ANY],
-                ]
-            ],
-            'VSIM',
-            [
-                'Warning', ['None'],
-                'Internal cursor reads', 1,
-                'Iterators profile',
-                [
-                    'Type', 'VECTOR',
-                    'Number of reading operations', ANY,
-                    'Vector search mode', 'STANDARD_KNN'
-                ],
-                'Result processors profile',
-                [
-                    ['Type', 'Index', 'Results processed', ANY],
-                    ['Type', 'Metrics Applier', 'Results processed', ANY],
-                    ['Type', 'Scorer', 'Results processed', ANY],
-                    ['Type', 'Vector Normalizer', 'Results processed', ANY],
-                    ['Type', 'Loader', 'Results processed', ANY],
-                    ['Type', 'Loader', 'Results processed', ANY],
-                ]
-            ]
-        ],
+        _make_extra_loader_shard_cluster_profile(ANY),
         # expected_coordinator_cluster_profile
-        [
-            'Shard ID', ANY,
-            'Warning', ['None'],
-            'Subqueries result processors profile',
-            [
-                'SEARCH',
-                [
-                    ['Type', 'Network', 'Results processed', 1],
-                    ['Type', 'Sorter', 'Results processed', 1],
-                    ['Type', 'Threadsafe-Depleter', 'Results processed', ANY]
-                ],
-                'VSIM',
-                [
-                    ['Type', 'Network', 'Results processed', 4],
-                    ['Type', 'Sorter', 'Results processed', 4],
-                    ['Type', 'Threadsafe-Depleter', 'Results processed', ANY]
-                ]
-            ],
-            'Result processors profile',
-            [
-                ['Type', 'Hybrid Merger', 'Results processed', 4],
-                ['Type', 'Grouper', 'Results processed', 4],
-                ['Type', 'Sorter', 'Results processed', 4]
-            ]
-        ]
+        _make_coordinator_cluster_profile(1, [
+            ['Type', 'Hybrid Merger', 'Results processed', 4],
+            ['Type', 'Grouper', 'Results processed', 4],
+            ['Type', 'Sorter', 'Results processed', 4]
+        ])
     ),
     # Test: Hybrid query with wildcard query and fuzzy (without LIMITED)
     (
@@ -521,7 +390,8 @@ query_and_profile = [
                     ['Type', 'Index', 'Results processed', 2],
                     ['Type', 'Scorer', 'Results processed', 2],
                     ['Type', 'Sorter', 'Results processed', 2],
-                    ['Type', 'Loader', 'Results processed', 2]
+                    ['Type', 'Loader', 'Results processed', 2],
+                    ['Type', 'Depleter', 'Results processed', 2]
                 ]
             ],
             'VSIM',
@@ -535,7 +405,8 @@ query_and_profile = [
                     ['Type', 'Index', 'Results processed', 4],
                     ['Type', 'Metrics Applier', 'Results processed', 4],
                     ['Type', 'Vector Normalizer', 'Results processed', 4],
-                    ['Type', 'Loader', 'Results processed', 4]
+                    ['Type', 'Loader', 'Results processed', 4],
+                    ['Type', 'Depleter', 'Results processed', 4]
                 ]
             ]
         ]],
@@ -599,53 +470,17 @@ query_and_profile = [
                     ['Type', 'Scorer', 'Results processed', ANY],
                     ['Type', 'Sorter', 'Results processed', ANY],
                     ['Type', 'Loader', 'Results processed', ANY],
+                    ['Type', 'Depleter', 'Results processed', ANY]
                 ]
             ],
             'VSIM',
-            [
-                'Warning', ['None'],
-                'Internal cursor reads', 1,
-                'Iterators profile',
-                [
-                    'Type', 'VECTOR',
-                    'Number of reading operations', ANY,
-                    'Vector search mode', 'STANDARD_KNN'
-                ],
-                'Result processors profile',
-                [
-                    ['Type', 'Index', 'Results processed', ANY],
-                    ['Type', 'Metrics Applier', 'Results processed', ANY],
-                    ['Type', 'Scorer', 'Results processed', ANY],
-                    ['Type', 'Vector Normalizer', 'Results processed', ANY],
-                    ['Type', 'Loader', 'Results processed', ANY],
-                ]
-            ]
+            _VSIM_SHARD_CLUSTER_PROFILE
         ],
         # expected_coordinator_cluster_profile
-        [
-            'Shard ID', ANY,
-            'Warning', ['None'],
-            'Subqueries result processors profile',
-            [
-                'SEARCH',
-                [
-                    ['Type', 'Network', 'Results processed', 2],
-                    ['Type', 'Sorter', 'Results processed', 2],
-                    ['Type', 'Threadsafe-Depleter', 'Results processed', ANY]
-                ],
-                'VSIM',
-                [
-                    ['Type', 'Network', 'Results processed', 4],
-                    ['Type', 'Sorter', 'Results processed', 4],
-                    ['Type', 'Threadsafe-Depleter', 'Results processed', ANY],
-                ]
-            ],
-            'Result processors profile',
-            [
-                ['Type', 'Hybrid Merger', 'Results processed', 4],
-                ['Type', 'Sorter', 'Results processed', 4]
-            ]
-        ]
+        _make_coordinator_cluster_profile(2, [
+            ['Type', 'Hybrid Merger', 'Results processed', 4],
+            ['Type', 'Sorter', 'Results processed', 4]
+        ])
     ),
     # Test: Hybrid query with wildcard query and fuzzy (LIMITED)
     (
@@ -684,7 +519,8 @@ query_and_profile = [
                     ['Type', 'Index', 'Results processed', 2],
                     ['Type', 'Scorer', 'Results processed', 2],
                     ['Type', 'Sorter', 'Results processed', 2],
-                    ['Type', 'Loader', 'Results processed', 2]
+                    ['Type', 'Loader', 'Results processed', 2],
+                    ['Type', 'Depleter', 'Results processed', 2]
                 ]
             ],
             'VSIM',
@@ -698,7 +534,8 @@ query_and_profile = [
                     ['Type', 'Index', 'Results processed', 4],
                     ['Type', 'Metrics Applier', 'Results processed', 4],
                     ['Type', 'Vector Normalizer', 'Results processed', 4],
-                    ['Type', 'Loader', 'Results processed', 4]
+                    ['Type', 'Loader', 'Results processed', 4],
+                    ['Type', 'Depleter', 'Results processed', 4]
                 ]
             ]
         ]],
@@ -755,53 +592,17 @@ query_and_profile = [
                     ['Type', 'Scorer', 'Results processed', ANY],
                     ['Type', 'Sorter', 'Results processed', ANY],
                     ['Type', 'Loader', 'Results processed', ANY],
+                    ['Type', 'Depleter', 'Results processed', ANY]
                 ]
             ],
             'VSIM',
-            [
-                'Warning', ['None'],
-                'Internal cursor reads', 1,
-                'Iterators profile',
-                [
-                    'Type', 'VECTOR',
-                    'Number of reading operations', ANY,
-                    'Vector search mode', 'STANDARD_KNN'
-                ],
-                'Result processors profile',
-                [
-                    ['Type', 'Index', 'Results processed', ANY],
-                    ['Type', 'Metrics Applier', 'Results processed', ANY],
-                    ['Type', 'Scorer', 'Results processed', ANY],
-                    ['Type', 'Vector Normalizer', 'Results processed', ANY],
-                    ['Type', 'Loader', 'Results processed', ANY],
-                ]
-            ]
+            _VSIM_SHARD_CLUSTER_PROFILE
         ],
         # expected_coordinator_cluster_profile
-        [
-            'Shard ID', ANY,
-            'Warning', ['None'],
-            'Subqueries result processors profile',
-            [
-                'SEARCH',
-                [
-                    ['Type', 'Network', 'Results processed', 2],
-                    ['Type', 'Sorter', 'Results processed', 2],
-                    ['Type', 'Threadsafe-Depleter', 'Results processed', ANY]
-                ],
-                'VSIM',
-                [
-                    ['Type', 'Network', 'Results processed', 4],
-                    ['Type', 'Sorter', 'Results processed', 4],
-                    ['Type', 'Threadsafe-Depleter', 'Results processed', ANY],
-                ]
-            ],
-            'Result processors profile',
-            [
-                ['Type', 'Hybrid Merger', 'Results processed', 4],
-                ['Type', 'Sorter', 'Results processed', 4]
-            ]
-        ]
+        _make_coordinator_cluster_profile(2, [
+            ['Type', 'Hybrid Merger', 'Results processed', 4],
+            ['Type', 'Sorter', 'Results processed', 4]
+        ])
     )
 ]
 
@@ -1049,4 +850,3 @@ def test_profile_errors():
         'VSIM', '@v', '$blob',
         'PARAMS', 2, 'blob', 'aaaaaaaa').error()\
             .contains('SEARCH_INDEX_NOT_FOUND Index not found: nonexistent_idx')
-

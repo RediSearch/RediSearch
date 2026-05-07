@@ -120,6 +120,8 @@ enum QueryErrorCode
   QUERY_ERROR_CODE_FLEX_SEARCH_NOCONTENT_OR_RETURN0_REQUIRED,
   QUERY_ERROR_CODE_FLEX_SEARCH_LOAD_UNSUPPORTED,
   QUERY_ERROR_CODE_FLEX_UNSUPPORTED_ARGUMENT,
+  QUERY_ERROR_CODE_SAFE_DEPLETER_FAILURE,
+  QUERY_ERROR_CODE_FLEX_UNSUPPORTED_QUERY,
 };
 #ifndef __cplusplus
 typedef uint8_t QueryErrorCode;
@@ -227,10 +229,15 @@ uint8_t QueryError_CodeMaxValue(void);
 /**
  * Returns a [`QueryErrorCode`] given an error message.
  *
+ * Matches the message by its prefix (e.g., `"SEARCH_TIMEOUT "`) rather than
+ * exact equality, so that custom messages like `"SEARCH_TIMEOUT Depleting
+ * timed out"` are correctly classified.
+ *
  * This only supports the query error codes [`QueryErrorCode::TimedOut`],
  * [`QueryErrorCode::OutOfMemory`], and [`QueryErrorCode::UnavailableSlots`].
  * If another message is provided, [`QueryErrorCode::Generic`] is returned.
  *
+ * If the message is a null pointer, [`QueryErrorCode::Generic`] is returned.
  *
  * # Safety
  *
@@ -403,6 +410,8 @@ void QueryError_SetQueryOOMWarning(struct QueryError *query_error);
  * This only supports the query error codes [`QueryWarningCode::TimedOut`], [`QueryWarningCode::ReachedMaxPrefixExpansions`],
  * [`QueryWarningCode::OutOfMemoryShard`] and [`QueryWarningCode::OutOfMemoryCoord`]. If another message is provided,
  * [`QueryWarningCode::Ok`] is returned.
+ *
+ * If the message is a null pointer, returns [`QueryWarningCode::Ok`].
  *
  * # Safety
  *

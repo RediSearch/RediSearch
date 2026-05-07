@@ -32,6 +32,17 @@ static bool trieInsert(Trie *t, const std::string &s) {
   return trieInsert(t, s.c_str(), s.size());
 }
 
+static void *triePayload(Trie *t, const char *s, size_t len, bool exact) {
+  if (len > TRIE_INITIAL_STRING_LEN * sizeof(rune)) {
+    return nullptr;
+  }
+  runeBuf buf;
+  rune *runes = runeBufFill(s, len, &buf, &len);
+  TrieNode *node = TrieNode_Get(t->root, runes, len, exact, NULL);
+  runeBufFree(&buf);
+  return (node && node->payload) ? node->payload->data : nullptr;
+}
+
 static int rangeFunc(const rune *u16, size_t nrune, void *ctx, void *payload, size_t numDocsInTerm) {
   size_t n;
   char *s = runesToStr(u16, nrune, &n);
@@ -203,35 +214,35 @@ TEST_F(TrieTest, testPayload) {
 
   // check for prefix of existing term
   // with exact returns null, w/o return load of next term
-  ASSERT_EQ(strncmp((char*)Trie_GetValueStringBuffer(t, buf1, 1, 0), "wo", 2), 0);
-  ASSERT_TRUE((char*)Trie_GetValueStringBuffer(t, buf1, 1, 1) == NULL);
+  ASSERT_EQ(strncmp((char*)triePayload(t, buf1, 1, 0), "wo", 2), 0);
+  ASSERT_TRUE((char*)triePayload(t, buf1, 1, 1) == NULL);
 
-  ASSERT_EQ(strncmp((char*)Trie_GetValueStringBuffer(t, buf1, 2, 1), "wo", 2), 0);
-  ASSERT_EQ(strncmp((char*)Trie_GetValueStringBuffer(t, buf1, 3, 1), "wor", 3), 0);
-  ASSERT_EQ(strncmp((char*)Trie_GetValueStringBuffer(t, buf1, 4, 1), "worl", 4), 0);
-  ASSERT_EQ(strncmp((char*)Trie_GetValueStringBuffer(t, buf1, 5, 1), "world", 5), 0);
-  ASSERT_EQ(strncmp((char*)Trie_GetValueStringBuffer(t, buf2, 4, 1), "work", 4), 0);
+  ASSERT_EQ(strncmp((char*)triePayload(t, buf1, 2, 1), "wo", 2), 0);
+  ASSERT_EQ(strncmp((char*)triePayload(t, buf1, 3, 1), "wor", 3), 0);
+  ASSERT_EQ(strncmp((char*)triePayload(t, buf1, 4, 1), "worl", 4), 0);
+  ASSERT_EQ(strncmp((char*)triePayload(t, buf1, 5, 1), "world", 5), 0);
+  ASSERT_EQ(strncmp((char*)triePayload(t, buf2, 4, 1), "work", 4), 0);
 
   ASSERT_EQ(Trie_Delete(t, buf1, 3), 1);
-  ASSERT_EQ(strncmp((char*)Trie_GetValueStringBuffer(t, buf1, 2, 1), "wo", 2), 0);
-  ASSERT_TRUE((char*)Trie_GetValueStringBuffer(t, buf1, 3, 1) == NULL);
-  ASSERT_EQ(strncmp((char*)Trie_GetValueStringBuffer(t, buf1, 4, 1), "worl", 4), 0);
-  ASSERT_EQ(strncmp((char*)Trie_GetValueStringBuffer(t, buf1, 5, 1), "world", 5), 0);
-  ASSERT_EQ(strncmp((char*)Trie_GetValueStringBuffer(t, buf2, 4, 1), "work", 4), 0);
+  ASSERT_EQ(strncmp((char*)triePayload(t, buf1, 2, 1), "wo", 2), 0);
+  ASSERT_TRUE((char*)triePayload(t, buf1, 3, 1) == NULL);
+  ASSERT_EQ(strncmp((char*)triePayload(t, buf1, 4, 1), "worl", 4), 0);
+  ASSERT_EQ(strncmp((char*)triePayload(t, buf1, 5, 1), "world", 5), 0);
+  ASSERT_EQ(strncmp((char*)triePayload(t, buf2, 4, 1), "work", 4), 0);
 
   ASSERT_EQ(Trie_Delete(t, buf1, 4), 1);
-  ASSERT_EQ(strncmp((char*)Trie_GetValueStringBuffer(t, buf1, 2, 1), "wo", 2), 0);
-  ASSERT_TRUE((char*)Trie_GetValueStringBuffer(t, buf1, 3, 1) == NULL);
-  ASSERT_TRUE((char*)Trie_GetValueStringBuffer(t, buf1, 4, 1) == NULL);
-  ASSERT_EQ(strncmp((char*)Trie_GetValueStringBuffer(t, buf1, 5, 1), "world", 5), 0);
-  ASSERT_EQ(strncmp((char*)Trie_GetValueStringBuffer(t, buf2, 4, 1), "work", 4), 0);
+  ASSERT_EQ(strncmp((char*)triePayload(t, buf1, 2, 1), "wo", 2), 0);
+  ASSERT_TRUE((char*)triePayload(t, buf1, 3, 1) == NULL);
+  ASSERT_TRUE((char*)triePayload(t, buf1, 4, 1) == NULL);
+  ASSERT_EQ(strncmp((char*)triePayload(t, buf1, 5, 1), "world", 5), 0);
+  ASSERT_EQ(strncmp((char*)triePayload(t, buf2, 4, 1), "work", 4), 0);
 
   // testing with exact = 0
   // "wor" node exists with NULL payload.
-  ASSERT_TRUE((char*)Trie_GetValueStringBuffer(t, buf1, 3, 0) == NULL);
+  ASSERT_TRUE((char*)triePayload(t, buf1, 3, 0) == NULL);
   // "worl" does not exist but is partial offset of =>`wor`+`ld`.
   // payload of `ld` is returned.
-  ASSERT_EQ(strncmp((char*)Trie_GetValueStringBuffer(t, buf1, 4, 0), "world", 5), 0);
+  ASSERT_EQ(strncmp((char*)triePayload(t, buf1, 4, 0), "world", 5), 0);
 
   TrieType_Free(t);
 }
@@ -544,9 +555,9 @@ TEST_F(TrieTest, testRdbSaveLoadWithPayloads) {
   EXPECT_TRUE(trieContains(loadedTrie, "runner"));
 
   // Verify specific payloads are preserved
-  void *loadedPayload1 = Trie_GetValueStringBuffer(loadedTrie, "run", 3, true);
-  void *loadedPayload2 = Trie_GetValueStringBuffer(loadedTrie, "running", 7, true);
-  void *loadedPayload3 = Trie_GetValueStringBuffer(loadedTrie, "runner", 6, true);
+  void *loadedPayload1 = triePayload(loadedTrie, "run", 3, true);
+  void *loadedPayload2 = triePayload(loadedTrie, "running", 7, true);
+  void *loadedPayload3 = triePayload(loadedTrie, "runner", 6, true);
 
   ASSERT_TRUE(loadedPayload1 != nullptr);
   ASSERT_TRUE(loadedPayload2 != nullptr);
@@ -610,9 +621,9 @@ TEST_F(TrieTest, testRdbSaveLoadPayloadsNotSerialized) {
   EXPECT_TRUE(trieContains(loadedTrie, "careful"));
 
   // Verify that payloads are NOT preserved (should be null)
-  void *loadedPayload1 = Trie_GetValueStringBuffer(loadedTrie, "car", 3, true);
-  void *loadedPayload2 = Trie_GetValueStringBuffer(loadedTrie, "care", 4, true);
-  void *loadedPayload3 = Trie_GetValueStringBuffer(loadedTrie, "careful", 7, true);
+  void *loadedPayload1 = triePayload(loadedTrie, "car", 3, true);
+  void *loadedPayload2 = triePayload(loadedTrie, "care", 4, true);
+  void *loadedPayload3 = triePayload(loadedTrie, "careful", 7, true);
 
   EXPECT_TRUE(loadedPayload1 == nullptr);  // Payload should not be preserved
   EXPECT_TRUE(loadedPayload2 == nullptr);  // Payload should not be preserved
@@ -672,10 +683,10 @@ TEST_F(TrieTest, testRdbSaveLoadWithoutPayloads) {
   EXPECT_TRUE(trieContains(loadedTrie, "helper"));
 
   // Verify that payloads remain NULL (since none were inserted)
-  void *loadedPayload1 = Trie_GetValueStringBuffer(loadedTrie, "hello", 5, true);
-  void *loadedPayload2 = Trie_GetValueStringBuffer(loadedTrie, "hell", 4, true);
-  void *loadedPayload3 = Trie_GetValueStringBuffer(loadedTrie, "help", 4, true);
-  void *loadedPayload4 = Trie_GetValueStringBuffer(loadedTrie, "helper", 6, true);
+  void *loadedPayload1 = triePayload(loadedTrie, "hello", 5, true);
+  void *loadedPayload2 = triePayload(loadedTrie, "hell", 4, true);
+  void *loadedPayload3 = triePayload(loadedTrie, "help", 4, true);
+  void *loadedPayload4 = triePayload(loadedTrie, "helper", 6, true);
 
   EXPECT_TRUE(loadedPayload1 == nullptr);  // No payload was inserted
   EXPECT_TRUE(loadedPayload2 == nullptr);  // No payload was inserted

@@ -1,15 +1,11 @@
 # Trie Benchmarks
 
-A set of microbenchmarks for the trie data structure.
-It currently compares:
-- the C implementation from `deps/triemap.c`
-- the Rust implementation from `trie_rs`
+A set of microbenchmarks for the Rust trie map implementation in `trie_rs`.
 
-## Building
-
-In order to benchmark the C implementation, you need to build the `libtrie.a`
-static library first.
-It's enough to run `make build` in the root directory of the repository.
+Originally these benchmarks compared the Rust port against the C implementation
+in `deps/triemap.c`. The C implementation was removed in
+[#6087](https://github.com/RediSearch/RediSearch/pull/6087); the suite is now
+kept as a regression gate for `trie_rs`.
 
 ## Memory Usage
 
@@ -25,13 +21,10 @@ You should see output similar to the following:
 
 ```text
 Statistics:
-- Raw text size: 0.558 MBs
-- Number of words (with duplicates): 103366
-- Number of unique words: 15520
-- Rust -> 1.070 MBs
-          23130 nodes
-- C    -> 0.640 MBs
-          23129 nodes
+- Raw text size: 0.114 MBs
+- Number of unique words: 15524
+- Memory 0.469 MBs
+- 18944 nodes
 ```
 
 ## Performance

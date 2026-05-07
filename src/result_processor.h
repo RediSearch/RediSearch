@@ -84,42 +84,8 @@ typedef enum {
 struct ResultProcessor;
 struct RLookup;
 
-// Define our own structures to avoid conflicts with the iterator_api.h QueryIterator
-/// <div rustbindgen hide></div>
-typedef struct QueryProcessingCtx {
-  // First processor
-  struct ResultProcessor *rootProc;
-
-  // Last processor
-  struct ResultProcessor *endProc;
-
-  rs_wall_clock initTime; //used with clock_gettime(CLOCK_MONOTONIC, ...)
-  rs_wall_clock_ns_t queryGILTime;  //Time accumulated in nanoseconds
-
-  // the minimal score applicable for a result. It can be used to optimize the
-  // scorers
-  double minScore;
-
-  // the total results found in the query, incremented by the root processors
-  // and decremented by others who might disqualify results
-  uint32_t totalResults;
-
-  // the number of results we requested to return at the current chunk.
-  // This value is meant to be used by the RP to limit the number of results
-  // returned by its upstream RP ONLY.
-  // It should be restored after using it for local aggregation etc., as done in
-  // the Safe-Loader, Sorter, and Pager.
-  uint32_t resultLimit;
-
-  // Object which contains the error
-  QueryError *err;
-
-  // Background indexing OOM warning
-  bool bgScanOOM;
-
-  bool isProfile;
-  RSTimeoutPolicy timeoutPolicy;
-} QueryProcessingCtx;
+// QueryProcessingCtx is defined in Rust (ffi crate) and generated via cbindgen
+// into result_processor_rs.h which is included above.
 
 QueryIterator *QITR_GetRootFilter(QueryProcessingCtx *it);
 void QITR_PushRP(QueryProcessingCtx *it, struct ResultProcessor *rp);
@@ -239,7 +205,7 @@ ResultProcessor *RPHighlighter_New(RSLanguage language, const FieldList *fields,
  *******************************************************************************************************************/
 ResultProcessor *RPProfile_New(ResultProcessor *rp, QueryProcessingCtx *qctx);
 
-rs_wall_clock_ns_t RPProfile_GetClock(ResultProcessor *rp);
+rs_wall_clock_ns_t RPProfile_GetTime(ResultProcessor *rp);
 uint64_t RPProfile_GetCount(ResultProcessor *rp);
 void RPProfile_IncrementCount(ResultProcessor *rp);
 
@@ -290,20 +256,46 @@ ResultProcessor *RPSafeDepleter_New(StrongRef sync_ref, RedisSearchCtx *depletin
 * @param rp The RPSafeDepleter result processor
 * @return Time in nanoseconds spent depleting
 */
-rs_wall_clock_ns_t RPSafeDepleter_GetDepletionTime(ResultProcessor *rp);
+rs_wall_clock_ns_t RPSafeDepleter_GetDepletionTime(const ResultProcessor *rp);
 
 /**
 * Constructs a new depleter processor that runs in the current thread.
 */
 ResultProcessor *RPDepleter_New();
 
+
+/**
+* Consumes and buffers all upstream results without yielding any to the caller.
+* This is used for foreground depletion in WORKERS == 0 mode to pre-fill
+* the buffer while the spec lock is held.
+* @param base The depleter processor (must be RP_DEPLETER type)
+*/
+void RPDepleter_StartDepletion(ResultProcessor *depleter);
+
+/**
+* Get the depletion time for RPDepleter.
+* This is the time spent depleting upstream results synchronously.
+* @param depleter The depleter processor (must be RP_DEPLETER type)
+* @return The depletion time in nanoseconds
+*/
+rs_wall_clock_ns_t RPDepleter_GetDepletionTime(const ResultProcessor *depleter);
+
+/**
+ * Triggers depletion for all depleters in the array.
+ * Stops on first error and returns the error code.
+ * @param depleters Array of depleter processors (must be RP_DEPLETER type)
+ * @return RS_RESULT_OK if all depleters completed successfully,
+ *         or the error code from the first depleter that failed
+ */
+int RPDepleter_DepleteAll(arrayof(ResultProcessor*) depleters);
+
 /**
 * Starts the depletion for all the safe depleters in the array, waits until all finished depleting, and returns.
 * @param safeDepleters Array of safe depleter processors
-* @param count Number of safe depleter processors in the array
+* @param status Query error object to populate in case of error
 * @return RS_RESULT_OK if all safe depleters completed successfully, otherwise an error code
 */
-int RPSafeDepleter_DepleteAll(arrayof(ResultProcessor*) safeDepleters);
+int RPSafeDepleter_DepleteAll(arrayof(ResultProcessor*) safeDepleters, QueryError *status);
 
 /**
 * Creates a new shared synchronization object for coordinating multiple RPSafeDepleter processors.

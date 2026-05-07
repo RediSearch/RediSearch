@@ -60,19 +60,20 @@ fn main() {
     let deps = root.join("deps");
     let headers = [
         src.join("redismodule.h"),
+        deps.join("hiredis").join("sds.h"),
         deps.join("rmutil").join("vector.h"),
+        src.join("aggregate").join("reducer.h"),
         src.join("buffer/buffer.h"),
         src.join("config.h"),
         src.join("doc_table.h"),
         src.join("forward_index.h"),
+        src.join("geo_index.h"),
+        src.join("rs_geo.h"),
+        deps.join("geohash").join("geohash.h"),
         src.join("index_result").join("index_result.h"),
-        src.join("iterators").join("intersection_iterator.h"),
-        src.join("iterators").join("inverted_index_iterator.h"),
-        src.join("iterators").join("not_iterator.h"),
-        src.join("iterators").join("optional_iterator.h"),
         src.join("json.h"),
-        src.join("numeric_index.h"),
         src.join("obfuscation").join("hidden.h"),
+        src.join("obfuscation").join("obfuscation_api.h"),
         src.join("query.h"),
         src.join("redis_index.h"),
         src.join("redisearch.h"),
@@ -88,6 +89,7 @@ fn main() {
         src.join("sortable.h"),
         src.join("spec.h"),
         src.join("stopwords.h"),
+        src.join("numeric_filter.h"),
         src.join("tag_index.h"),
         src.join("trie").join("trie.h"),
         src.join("trie").join("trie_type.h"),
@@ -95,7 +97,6 @@ fn main() {
         src.join("util").join("arr").join("arr.h"),
         src.join("util").join("dict").join("dict.h"),
         src.join("util").join("references.h"),
-        src.join("value").join("value.h"),
     ];
 
     let mut bindings = bindgen::Builder::default();
@@ -114,6 +115,10 @@ fn main() {
         let _ = rerun_if_c_changes(&include);
     }
 
+    // Required so `<stdio.h>` declares `asprintf`/`vasprintf` (used by
+    // `deps/rmalloc/rmalloc.h`) when bindgen parses the headers with clang.
+    bindings = bindings.clang_arg("-D_GNU_SOURCE");
+
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
     bindings
         .blocklist_file(".*/document_rs.h")
@@ -122,6 +127,21 @@ fn main() {
         .blocklist_file(".*/numeric_range_tree.h")
         // Provided by the query_term_ffi crate, not parsed from C
         .blocklist_file(".*/query_term.h")
+        // IteratorType is defined in Rust (rqe_iterator_type crate);
+        // cbindgen generates iterator_type.h which is included by
+        // iterator_api.h. We blocklist the generated header so bindgen
+        // doesn't re-parse it, and re-export the Rust type from lib.rs.
+        .blocklist_file(".*/iterator_type.h")
+        // QueryNodeType is defined in Rust (query_node_type crate);
+        // cbindgen generates query_node_type.h which is included by
+        // query_node.h. We blocklist the generated header so bindgen
+        // doesn't re-parse it, and re-export the Rust type from lib.rs.
+        .blocklist_file(".*/query_node_type.h")
+        // QueryProcessingCtx is defined in Rust (ffi crate, lib.rs);
+        // cbindgen generates the C definition into result_processor_rs.h.
+        // Blocklist the type so bindgen doesn't re-parse it from the
+        // generated header (which is included by result_processor.h).
+        .blocklist_type("QueryProcessingCtx")
         .allowlist_file(".*/types_rs.h")
         .generate()
         .expect("Unable to generate bindings")

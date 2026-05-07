@@ -73,6 +73,13 @@ macro_rules! opaque {
                 unsafe { opaque.cast::<Self>().as_ref() }
             }
 
+            pub unsafe fn from_opaque_ptr_unchecked<'__lt>(
+                opaque: *const $opaque_ty,
+            ) -> &'__lt Self {
+                // Safety: see trait's safety requirement.
+                unsafe { &*opaque.cast::<Self>() }
+            }
+
             pub unsafe fn from_opaque_mut_ptr<'__lt>(
                 opaque: *mut $opaque_ty,
             ) -> Option<&'__lt mut Self> {

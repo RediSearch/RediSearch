@@ -84,15 +84,16 @@ class TestDebugCommands(object):
         ]
         coord_help_list = ['SHARD_CONNECTION_STATES', 'PAUSE_TOPOLOGY_UPDATER', 'RESUME_TOPOLOGY_UPDATER', 'CLEAR_PENDING_TOPOLOGY']
         help_list.extend(coord_help_list)
-        # SYNC_POINT is only available in ENABLE_ASSERT builds
+        # SYNC_POINT and BG_PENDING_REPLIES are only available in ENABLE_ASSERT builds
         if isEnableAssertEnabled(self.env):
             help_list.append('SYNC_POINT')
+            help_list.append('BG_PENDING_REPLIES')
 
         self.env.expect(debug_cmd(), 'help').equal(help_list)
 
         arity_2_cmds = ['GIT_SHA', 'DUMP_PREFIX_TRIE', 'GC_WAIT_FOR_JOBS', 'DELETE_LOCAL_CURSORS', 'SHARD_CONNECTION_STATES',
                         'PAUSE_TOPOLOGY_UPDATER', 'RESUME_TOPOLOGY_UPDATER', 'CLEAR_PENDING_TOPOLOGY', 'INFO', 'INDEXES', 'GET_HIDE_USER_DATA_FROM_LOGS',
-                        'REGISTER_TEST_SCORERS']
+                        'REGISTER_TEST_SCORERS', 'BG_PENDING_REPLIES']
         for cmd in [c for c in help_list if c not in arity_2_cmds]:
             self.env.expect(debug_cmd(), cmd).error().contains(err_msg)
 
@@ -828,6 +829,32 @@ class TestQueryDebugCommands(object):
         # Restore the default policy
         env.expect(config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN').ok()
 
+    def CoordTimeoutPolicyConstraints(self):
+        """
+        Test TIMEOUT_AFTER_N policy constraints for coordinator-level queries:
+        - ON_TIMEOUT RETURN: always supported
+        - ON_TIMEOUT FAIL: not supported (coordinator only supports RETURN)
+        - ON_TIMEOUT RETURN-STRICT: not supported (coordinator only supports RETURN)
+        """
+        env = self.env
+
+        # Skip for non-cluster - these constraints only apply to coordinator queries
+        if not env.isCluster():
+            return
+
+        # Test ON_TIMEOUT FAIL (not supported for coordinator)
+        env.expect(config_cmd(), 'SET', 'ON_TIMEOUT', 'FAIL').ok()
+        with env.assertResponseError(contained="TIMEOUT_AFTER_N for Coordinator is only supported with ON_TIMEOUT RETURN"):
+            runDebugQueryCommandTimeoutAfterN(env, self.basic_query, 2)
+
+        # Test ON_TIMEOUT RETURN-STRICT (not supported for coordinator)
+        env.expect(config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN-STRICT').ok()
+        with env.assertResponseError(contained="TIMEOUT_AFTER_N for Coordinator is only supported with ON_TIMEOUT RETURN"):
+            runDebugQueryCommandTimeoutAfterN(env, self.basic_query, 2)
+
+        # Restore the default policy
+        env.expect(config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN').ok()
+
     def SearchDebug(self):
         self.setBasicDebugQuery("SEARCH")
         basic_debug_query = self.basic_debug_query
@@ -920,6 +947,7 @@ class TestQueryDebugCommands(object):
             self.verifyResultsResp3(res, 0, message="AggregateDebug: TIMEOUT_AFTER_N 0 INTERNAL_ONLY without WITHCURSOR in cluster:")
 
         self.TimeoutPolicyConstraints()
+        self.CoordTimeoutPolicyConstraints()
 
     def testAggregateDebug(self):
         self.AggregateDebug()
@@ -1284,6 +1312,34 @@ def test_query_controller_add_before_after(env):
         # Resume the query
         setPauseRPResume(env)
         t_query.join()
+
+@skip(cluster=True)
+def test_query_controller_set_cursor_read_size():
+    """Wrong-args coverage for FT.DEBUG QUERY_CONTROLLER SET_CURSOR_READ_SIZE."""
+    env = Env()
+    skipIfNoEnableAssert(env)
+
+    # Wrong arity: missing N
+    env.expect(debug_cmd(), 'QUERY_CONTROLLER', 'SET_CURSOR_READ_SIZE').error()\
+    .contains('wrong number of arguments')
+    # Wrong arity: extra argument
+    env.expect(debug_cmd(), 'QUERY_CONTROLLER', 'SET_CURSOR_READ_SIZE', '1', 'extra').error()\
+    .contains('wrong number of arguments')
+    # Non-numeric N
+    env.expect(debug_cmd(), 'QUERY_CONTROLLER', 'SET_CURSOR_READ_SIZE', 'abc').error()\
+    .contains("Invalid argument for 'SET_CURSOR_READ_SIZE'")
+    # Zero (rejected: N must be >= 1)
+    env.expect(debug_cmd(), 'QUERY_CONTROLLER', 'SET_CURSOR_READ_SIZE', '0').error()\
+    .contains("Invalid argument for 'SET_CURSOR_READ_SIZE'")
+    # Negative
+    env.expect(debug_cmd(), 'QUERY_CONTROLLER', 'SET_CURSOR_READ_SIZE', '-5').error()\
+    .contains("Invalid argument for 'SET_CURSOR_READ_SIZE'")
+
+    # Sanity: a valid call returns the previous value (a positive int) and
+    # restoring it works.
+    prev = env.cmd(debug_cmd(), 'QUERY_CONTROLLER', 'SET_CURSOR_READ_SIZE', '7')
+    env.assertGreater(int(prev), 0)
+    env.expect(debug_cmd(), 'QUERY_CONTROLLER', 'SET_CURSOR_READ_SIZE', str(int(prev))).equal(7)
 
 @skip(cluster=False)
 def test_cluster_query_controller_pause_and_resume():

@@ -1,0 +1,23 @@
+[package]
+name = "index_spec"
+version.workspace = true
+edition.workspace = true
+license-file.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+ffi.workspace = true
+field_spec.workspace = true
+schema_rule.workspace = true
+workspace_hack.workspace = true
+
+[dev-dependencies]
+pretty_assertions.workspace = true
+
+# Crate required to invoke C symbols
+field_spec = { workspace = true, features = ["unittest"] }
+redisearch_rs.workspace = true
+redis_mock.workspace = true

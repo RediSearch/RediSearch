@@ -17,7 +17,7 @@ int MREndpoint_Parse(const char *addr, MREndpoint *ep) {
   memset(ep, 0, sizeof(*ep));
 
   // see if we have an auth password
-  char *at = strchr(addr, '@');
+  const char *at = strchr(addr, '@');
   if (at) {
     ep->password = rm_strndup(addr, at - addr);
     addr = at + 1;
@@ -29,7 +29,7 @@ int MREndpoint_Parse(const char *addr, MREndpoint *ep) {
       ++addr; // skip the ipv6 opener '['
   }
 
-  char *colon = strrchr(addr, ':'); // look for the last colon
+  const char *colon = strrchr(addr, ':'); // look for the last colon
   if (!colon) {
     MREndpoint_Free(ep);
     return REDIS_ERR;
@@ -83,4 +83,19 @@ void MREndpoint_Free(MREndpoint *ep) {
     rm_free(ep->password);
     ep->password = NULL;
   }
+}
+
+static inline bool strEqOrBothNull(const char *a, const char *b) {
+  if (a == b) return true;
+  if (!a || !b) return false;
+  return strcmp(a, b) == 0;
+}
+
+bool MREndpoint_Equal(const MREndpoint *a, const MREndpoint *b) {
+  if (a == b) return true;
+  if (!a || !b) return false;
+  return a->port == b->port
+      && strEqOrBothNull(a->host, b->host)
+      && strEqOrBothNull(a->unixSock, b->unixSock)
+      && strEqOrBothNull(a->password, b->password);
 }

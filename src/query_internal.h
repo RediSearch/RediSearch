@@ -74,7 +74,6 @@ QueryNode *NewGeometryNode_FromWkt_WithParams(struct QueryParseCtx *q, const cha
 QueryNode *NewGeofilterNode(QueryParam *p);
 QueryNode *NewVectorNode_WithParams(struct QueryParseCtx *q, VectorQueryType type, QueryToken *value, QueryToken *vec);
 QueryNode *NewTagNode(const FieldSpec *fs);
-QueryNode *NewVerbatimNode_WithParams(QueryParseCtx *q, QueryToken *qt);
 QueryNode *NewWildcardNode_WithParams(QueryParseCtx *q, QueryToken *qt);
 QueryNode *NewMissingNode(const FieldSpec *fs);
 

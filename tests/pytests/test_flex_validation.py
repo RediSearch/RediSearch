@@ -108,7 +108,7 @@ def test_valid_flex_arguments(env):
                'SCORE', '0.5',
                'SCORE_FIELD', 'score',
                'STOPWORDS', '2', 'the', 'and',
-               'SCHEMA', 'title', 'TEXT', 'body', 'TEXT').ok()
+               'SCHEMA', 'title', 'TEXT', 'body', 'TEXT', 'INDEXEMPTY').ok()
 
     # Verify the index was created successfully
     info_result = env.cmd('FT.INFO', 'flex_args_idx')
@@ -159,9 +159,6 @@ def test_unsupported_schema_options(env):
     env.expect('FT.CREATE', 'idx3', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA', 'field', 'TEXT', 'INDEXMISSING') \
         .error().contains('Disk index does not support INDEXMISSING fields')
 
-    # Test INDEXEMPTY is not supported
-    env.expect('FT.CREATE', 'idx4', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA', 'field', 'TEXT', 'INDEXEMPTY') \
-        .error().contains('Disk index does not support INDEXEMPTY fields')
 
 
 @skip(cluster=True)
@@ -174,10 +171,45 @@ def test_missing_skip_initial_scan(env):
 
 @skip(cluster=True)
 @with_simulate_in_flex(True)
-def test_invalid_on_json(env):
-    """Test that ON JSON fails when search-_simulate-in-flex is true"""
-    env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SKIPINITIALSCAN', 'SCHEMA', 'field', 'TEXT') \
-        .error().contains('Only HASH is supported as index data type for Flex indexes')
+def test_on_json_is_supported(env):
+    """Test that ON JSON is accepted when search-_simulate-in-flex is true"""
+    env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SKIPINITIALSCAN', 'SCHEMA',
+               '$.field', 'AS', 'field', 'TEXT').ok()
+
+
+@skip(cluster=True)
+@with_simulate_in_flex(True)
+def test_disk_json_rejects_multi_value_jsonpath(env):
+    """Test that disk validation rejects non-single JSONPath fields"""
+    env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SKIPINITIALSCAN', 'SCHEMA',
+               '$.field[*]', 'AS', 'field', 'TEXT') \
+        .error().contains('Disk JSON index supports only single-value JSONPath fields')
+
+
+@skip(cluster=True)
+@with_simulate_in_flex(True)
+def test_disk_json_ingestion_rejects_array_payload_for_single_path_field(env):
+    """Valid disk JSON schema should be created, but array payload ingestion should fail."""
+
+    env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SKIPINITIALSCAN', 'PREFIX', '1', 'doc:',
+               'SCHEMA', '$.name', 'AS', 'name', 'TEXT').ok()
+
+    errs = index_errors(env, 'idx')
+    env.assertEqual(int(errs['indexing failures']), 0)
+
+    env.expect('JSON.SET', 'doc:1', '$', '{"name":["a","b"]}').ok()
+
+    errs = index_errors(env, 'idx')
+    env.assertEqual(int(errs['indexing failures']), 1)
+    env.assertContains('Disk JSON index supports JSON array values only for VECTOR fields',
+                       errs['last indexing error'])
+
+    env.expect('FT.SEARCH', 'idx', '@name:a', 'NOCONTENT').equal([0])
+    env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT').equal([0])
+
+    # Valid scalar value should be indexed after the failed attempt.
+    env.expect('JSON.SET', 'doc:1', '$.name', '"alice"').ok()
+    env.expect('FT.SEARCH', 'idx', '@name:alice', 'NOCONTENT').equal([1, 'doc:1'])
 
 
 @skip(cluster=True)
@@ -258,7 +290,7 @@ def test_flex_gc_config_explicit_override(env):
     env.expect(config_cmd(), 'GET', 'FORK_GC_CLEAN_THRESHOLD').equal([['FORK_GC_CLEAN_THRESHOLD', '500']])
 
 
-def _create_flex_search_fixture(env):
+def _create_flex_search(env):
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA', 't', 'TEXT').ok()
     env.expect('HSET', 'doc:1', 't', 'hello world').equal(1)
 
@@ -267,7 +299,7 @@ def _create_flex_search_fixture(env):
 @with_simulate_in_flex(True)
 def test_flex_search_requires_nocontent_or_return_0(env):
     """In Flex mode, FT.SEARCH must use NOCONTENT (explicit) or RETURN 0."""
-    _create_flex_search_fixture(env)
+    _create_flex_search(env)
 
     env.expect('FT.SEARCH', 'idx', 'hello') \
         .error().contains('NOCONTENT or RETURN 0 must be provided in Redis Flex')
@@ -276,7 +308,7 @@ def test_flex_search_requires_nocontent_or_return_0(env):
 @skip(cluster=True)
 @with_simulate_in_flex(True)
 def test_flex_search_allows_nocontent(env):
-    _create_flex_search_fixture(env)
+    _create_flex_search(env)
 
     env.expect('FT.SEARCH', 'idx', 'hello', 'NOCONTENT').equal([1, 'doc:1'])
 
@@ -284,7 +316,7 @@ def test_flex_search_allows_nocontent(env):
 @skip(cluster=True)
 @with_simulate_in_flex(True)
 def test_flex_search_allows_return_0(env):
-    _create_flex_search_fixture(env)
+    _create_flex_search(env)
 
     env.expect('FT.SEARCH', 'idx', 'hello', 'RETURN', '0').equal([1, 'doc:1'])
 
@@ -292,7 +324,7 @@ def test_flex_search_allows_return_0(env):
 @skip(cluster=True)
 @with_simulate_in_flex(True)
 def test_flex_search_allows_nocontent_withscores(env):
-    _create_flex_search_fixture(env)
+    _create_flex_search(env)
 
     res = env.cmd('FT.SEARCH', 'idx', 'hello', 'NOCONTENT', 'WITHSCORES')
     env.assertEqual(res[0], 1)
@@ -303,7 +335,7 @@ def test_flex_search_allows_nocontent_withscores(env):
 @skip(cluster=True)
 @with_simulate_in_flex(True)
 def test_flex_search_rejects_load_with_nocontent_or_return_0(env):
-    _create_flex_search_fixture(env)
+    _create_flex_search(env)
 
     env.expect('FT.SEARCH', 'idx', 'hello', 'NOCONTENT', 'LOAD', '1', '@t') \
         .error().contains('LOAD is not supported in Redis Flex')
@@ -315,7 +347,7 @@ def test_flex_search_rejects_load_with_nocontent_or_return_0(env):
 @skip(cluster=True)
 @with_simulate_in_flex(True)
 def test_flex_blocks_aggregate_and_hybrid_commands(env):
-    _create_flex_search_fixture(env)
+    _create_flex_search(env)
 
     env.expect('FT.AGGREGATE', 'idx', '*') \
         .error().contains('FT.AGGREGATE is not supported in Redis Flex')
@@ -331,7 +363,7 @@ def test_flex_blocks_aggregate_and_hybrid_commands(env):
 @skip(cluster=True)
 @with_simulate_in_flex(True)
 def test_flex_blocks_dict_commands(env):
-    _create_flex_search_fixture(env)
+    _create_flex_search(env)
 
     env.expect('FT.DICTADD', 'dict', 'foo') \
         .error().contains('FT.DICTADD is not supported in Redis Flex')
@@ -452,8 +484,47 @@ def test_disk_vector_query_validation(env: Env):
 
 @skip(cluster=True)
 @with_simulate_in_flex(True)
+def test_flex_ft_info_reports_vector_index_memory(env):
+    """Regression test for MOD-14840.
+
+    HNSW vector indexes are kept in memory even in Flex/ROF mode, so
+    FT.INFO must report a non-zero `vector_index_sz_mb` and the vector
+    memory must be included in `total_index_memory_sz_mb`.
+    """
+    dim = 4
+    env.expect(
+        'FT.CREATE', 'idx', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA',
+        't', 'TEXT',
+        'tag', 'TAG',
+        'v', 'VECTOR', 'HNSW', '14',
+        'TYPE', 'FLOAT32', 'DIM', str(dim), 'DISTANCE_METRIC', 'L2',
+        'M', '16', 'EF_CONSTRUCTION', '100', 'EF_RUNTIME', '10', 'RERANK', 'TRUE',
+    ).ok()
+
+    n_docs = 100
+    with env.getClusterConnectionIfNeeded() as conn:
+        for i in range(n_docs):
+            vector = create_np_array_typed([float(i)] * dim, 'FLOAT32').tobytes()
+            conn.execute_command('HSET', f'doc:{i}', 't', f'hello{i}',
+                                 'tag', f'tag{i}', 'v', vector)
+
+    info = index_info(env, 'idx')
+    vector_size_mb = float(info['vector_index_sz_mb'])
+    total_size_mb = float(info['total_index_memory_sz_mb'])
+
+    env.assertGreater(vector_size_mb, 0,
+                      message=f'Expected vector_index_sz_mb > 0 for HNSW index, got {vector_size_mb}')
+    env.assertGreater(total_size_mb, 0,
+                      message=f'Expected total_index_memory_sz_mb > 0, got {total_size_mb}')
+    env.assertGreaterEqual(total_size_mb, vector_size_mb,
+                           message=f'total_index_memory_sz_mb ({total_size_mb}) must include '
+                                   f'vector_index_sz_mb ({vector_size_mb})')
+
+
+@skip(cluster=True)
+@with_simulate_in_flex(True)
 def test_flex_blocks_alter_command(env):
-    _create_flex_search_fixture(env)
+    _create_flex_search(env)
 
     env.expect('FT.ALTER', 'idx', 'SCHEMA', 'ADD', 't2', 'TEXT') \
         .error().contains('FT.ALTER is not supported in Redis Flex')
@@ -464,7 +535,7 @@ def test_flex_blocks_alter_command(env):
 @skip(cluster=True)
 @with_simulate_in_flex(True)
 def test_flex_blocks_cursor_commands(env):
-    _create_flex_search_fixture(env)
+    _create_flex_search(env)
     env.expect('FT.CURSOR', 'READ', 'idx', '1') \
         .error().contains('FT.CURSOR is not supported in Redis Flex')
     env.expect('FT.CURSOR', 'DEL', 'idx', '1') \
@@ -476,7 +547,7 @@ def test_flex_blocks_cursor_commands(env):
 @skip(cluster=True)
 @with_simulate_in_flex(True)
 def test_flex_blocks_debug_wrappers_for_aggregate_and_hybrid(env):
-    _create_flex_search_fixture(env)
+    _create_flex_search(env)
 
     env.expect(debug_cmd(), 'FT.AGGREGATE', 'idx', '*', 'TIMEOUT_AFTER_N', '1', 'DEBUG_PARAMS_COUNT', '2') \
         .error().contains('FT.AGGREGATE is not supported in Redis Flex')
@@ -494,7 +565,7 @@ def test_flex_blocks_debug_wrappers_for_aggregate_and_hybrid(env):
 @skip(cluster=True)
 @with_simulate_in_flex(True)
 def test_flex_blocks_suggest_commands(env):
-    _create_flex_search_fixture(env)
+    _create_flex_search(env)
 
     env.expect('FT.SUGADD', 'idx', 'foo', '1') \
         .error().contains('FT.SUGADD is not supported in Redis Flex')
@@ -510,7 +581,7 @@ def test_flex_blocks_suggest_commands(env):
 @with_simulate_in_flex(True)
 def test_flex_blocks_slop_argument(env):
     """Test that SLOP argument is blocked in Redis Flex"""
-    _create_flex_search_fixture(env)
+    _create_flex_search(env)
 
     env.expect('FT.SEARCH', 'idx', 'hello world', 'NOCONTENT', 'SLOP', '1') \
         .error().contains('SLOP is not supported in Redis Flex')
@@ -520,7 +591,7 @@ def test_flex_blocks_slop_argument(env):
 @with_simulate_in_flex(True)
 def test_flex_blocks_drop_and_dropindex_dd(env):
     """Test that FT.DROP and FT.DROPINDEX with DD are not supported in Flex mode"""
-    _create_flex_search_fixture(env)
+    _create_flex_search(env)
 
     # FT.DROP is not supported (deprecated command that deletes docs)
     env.expect('FT.DROP', 'idx') \
@@ -538,7 +609,7 @@ def test_flex_blocks_drop_and_dropindex_dd(env):
 @with_simulate_in_flex(True)
 def test_flex_blocks_inorder_argument(env):
     """Test that INORDER argument is blocked in Redis Flex"""
-    _create_flex_search_fixture(env)
+    _create_flex_search(env)
 
     env.expect('FT.SEARCH', 'idx', 'hello world', 'NOCONTENT', 'INORDER') \
         .error().contains('INORDER is not supported in Redis Flex')
@@ -548,7 +619,7 @@ def test_flex_blocks_inorder_argument(env):
 @with_simulate_in_flex(True)
 def test_flex_blocks_highlight_argument(env):
     """Test that HIGHLIGHT argument is blocked in Redis Flex"""
-    _create_flex_search_fixture(env)
+    _create_flex_search(env)
 
     env.expect('FT.SEARCH', 'idx', 'hello', 'NOCONTENT', 'HIGHLIGHT') \
         .error().contains('HIGHLIGHT is not supported in Redis Flex')
@@ -558,7 +629,7 @@ def test_flex_blocks_highlight_argument(env):
 @with_simulate_in_flex(True)
 def test_flex_blocks_summarize_argument(env):
     """Test that SUMMARIZE argument is blocked in Redis Flex"""
-    _create_flex_search_fixture(env)
+    _create_flex_search(env)
 
     env.expect('FT.SEARCH', 'idx', 'hello', 'NOCONTENT', 'SUMMARIZE') \
         .error().contains('SUMMARIZE is not supported in Redis Flex')
@@ -566,42 +637,60 @@ def test_flex_blocks_summarize_argument(env):
 
 @skip(cluster=True)
 @with_simulate_in_flex(True)
-def test_flex_blocks_tfidf_scorer(env):
-    """Test that TFIDF scorer is blocked in Redis Flex"""
-    _create_flex_search_fixture(env)
-
-    env.expect('FT.SEARCH', 'idx', 'hello', 'NOCONTENT', 'SCORER', 'TFIDF') \
-        .error().contains('TFIDF scorer is not supported in Redis Flex')
-
-
-@skip(cluster=True)
-@with_simulate_in_flex(True)
-def test_flex_blocks_tfidf_docnorm_scorer(env):
-    """Test that TFIDF.DOCNORM scorer is blocked in Redis Flex"""
-    _create_flex_search_fixture(env)
-
-    env.expect('FT.SEARCH', 'idx', 'hello', 'NOCONTENT', 'SCORER', 'TFIDF.DOCNORM') \
-        .error().contains('TFIDF.DOCNORM scorer is not supported in Redis Flex')
-
-
-@skip(cluster=True)
-@with_simulate_in_flex(True)
-def test_flex_blocks_bm25_scorer(env):
-    """Test that BM25 (deprecated) scorer is blocked in Redis Flex"""
-    _create_flex_search_fixture(env)
-
-    env.expect('FT.SEARCH', 'idx', 'hello', 'NOCONTENT', 'SCORER', 'BM25') \
-        .error().contains('BM25 scorer is not supported in Redis Flex')
-
-
-@skip(cluster=True)
-@with_simulate_in_flex(True)
-def test_flex_blocks_sortby_argument(env):
-    """Test that SORTBY argument is blocked in Redis Flex"""
-    _create_flex_search_fixture(env)
+def test_flex_blocks_sortby_on_non_vector_fields(env):
+    """Test that SORTBY on non-vector-score fields is blocked in Redis Flex"""
+    _create_flex_search(env)
 
     env.expect('FT.SEARCH', 'idx', 'hello', 'NOCONTENT', 'SORTBY', 't') \
-        .error().contains('SORTBY is not supported in Redis Flex')
+        .error().contains('SORTBY in Redis Flex is restricted to sorting results by vector distance')
+
+
+@skip(cluster=True)
+@with_simulate_in_flex(True)
+def test_flex_allows_sortby_on_vector_distance_fields(env):
+    """Test that SORTBY on vector distance fields (from KNN queries) is allowed in Redis Flex"""
+    # Create index with both text and vector fields
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA',
+               't', 'TEXT',
+               'v', 'VECTOR', 'HNSW', '14',
+               'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2',
+               'M', '16', 'EF_CONSTRUCTION', '100', 'EF_RUNTIME', '10', 'RERANK', 'TRUE',
+    ).ok()
+
+    # Add test documents
+    docs = {
+        'doc:1': ([0.1, 0.1], 'hello world'),
+        'doc:2': ([0.2, 0.2], 'hello again'),
+        'doc:3': ([0.5, 0.5], 'hello there'),
+    }
+
+    with env.getClusterConnectionIfNeeded() as conn:
+        for doc_id, (vector, text) in docs.items():
+            conn.execute_command('HSET', doc_id, 'v', create_np_array_typed(vector, 'FLOAT32').tobytes(), 't', text)
+
+    query_blob = create_np_array_typed([0.0, 0.0], 'FLOAT32').tobytes()
+
+    # SORTBY on default vector distance field (__v_score) should be allowed
+    # Note: Pure KNN queries (with *) don't require HYBRID_POLICY
+    res = env.cmd('FT.SEARCH', 'idx', '*=>[KNN 3 @v $b]', 'NOCONTENT',
+                  'SORTBY', '__v_score', 'ASC',
+                  'PARAMS', '2', 'b', query_blob,
+                  'DIALECT', '2')
+    env.assertEqual(res[0], 3)
+
+    # SORTBY on custom vector distance field (using AS) should be allowed
+    res = env.cmd('FT.SEARCH', 'idx', '*=>[KNN 3 @v $b AS my_dist]', 'NOCONTENT',
+                  'SORTBY', 'my_dist', 'ASC',
+                  'PARAMS', '2', 'b', query_blob,
+                  'DIALECT', '2')
+    env.assertEqual(res[0], 3)
+
+    # SORTBY on non-vector field should still be blocked
+    env.expect('FT.SEARCH', 'idx', '*=>[KNN 3 @v $b]', 'NOCONTENT',
+               'SORTBY', 't', 'ASC',
+               'PARAMS', '2', 'b', query_blob,
+               'DIALECT', '2') \
+        .error().contains('SORTBY in Redis Flex is restricted to sorting results by vector distance')
 
 
 @skip(cluster=True)
@@ -635,7 +724,7 @@ def test_flex_blocks_withsuffixtrie_tag_field(env):
 @with_simulate_in_flex(True)
 def test_flex_blocks_deprecated_add_commands(env):
     """Test that FT.ADD and FT.SAFEADD are blocked in Redis Flex"""
-    _create_flex_search_fixture(env)
+    _create_flex_search(env)
 
     env.expect('FT.ADD', 'idx', 'doc:2', '1.0', 'FIELDS', 't', 'test') \
         .error().contains('FT.ADD is not supported in Redis Flex')
@@ -647,7 +736,7 @@ def test_flex_blocks_deprecated_add_commands(env):
 @with_simulate_in_flex(True)
 def test_flex_blocks_deprecated_del_command(env):
     """Test that FT.DEL is blocked in Redis Flex"""
-    _create_flex_search_fixture(env)
+    _create_flex_search(env)
 
     env.expect('FT.DEL', 'idx', 'doc:1') \
         .error().contains('FT.DEL is not supported in Redis Flex')
@@ -657,7 +746,7 @@ def test_flex_blocks_deprecated_del_command(env):
 @with_simulate_in_flex(True)
 def test_flex_blocks_deprecated_get_commands(env):
     """Test that FT.GET and FT.MGET are blocked in Redis Flex"""
-    _create_flex_search_fixture(env)
+    _create_flex_search(env)
 
     env.expect('FT.GET', 'idx', 'doc:1') \
         .error().contains('FT.GET is not supported in Redis Flex')
@@ -681,7 +770,7 @@ def test_flex_blocks_tagvals_command(env):
 @with_simulate_in_flex(True)
 def test_flex_blocks_spellcheck_command(env):
     """Test that FT.SPELLCHECK is blocked in Redis Flex"""
-    _create_flex_search_fixture(env)
+    _create_flex_search(env)
 
     env.expect('FT.SPELLCHECK', 'idx', 'helo') \
         .error().contains('FT.SPELLCHECK is not supported in Redis Flex')
@@ -689,9 +778,74 @@ def test_flex_blocks_spellcheck_command(env):
 
 @skip(cluster=True)
 @with_simulate_in_flex(True)
+def test_flex_blocks_prefix_query(env):
+    """Test that prefix queries on TEXT fields are blocked in Flex mode"""
+    _create_flex_search(env)
+
+    # Prefix query using `*` suffix
+    env.expect('FT.SEARCH', 'idx', 'hel*', 'NOCONTENT') \
+        .error().contains('Prefix queries are not supported on Flex indexes')
+
+    # Prefix query scoped to a field
+    env.expect('FT.SEARCH', 'idx', '@t:hel*', 'NOCONTENT') \
+        .error().contains('Prefix queries are not supported on Flex indexes')
+
+
+@skip(cluster=True)
+@with_simulate_in_flex(True)
+def test_flex_blocks_wildcard_pattern_query(env):
+    """Test that wildcard-pattern queries on TEXT fields are blocked in Flex mode"""
+    _create_flex_search(env)
+
+    # Wildcard pattern query using w'...' syntax (dialect 2+)
+    env.expect('FT.SEARCH', 'idx', "w'hel*o'", 'NOCONTENT', 'DIALECT', '2') \
+        .error().contains('Wildcard pattern queries are not supported on Flex indexes')
+
+
+@skip(cluster=True)
+@with_simulate_in_flex(True)
+def test_flex_blocks_fuzzy_query(env):
+    """Test that fuzzy queries on TEXT fields are blocked in Flex mode"""
+    _create_flex_search(env)
+
+    # Single-level fuzzy
+    env.expect('FT.SEARCH', 'idx', '%hello%', 'NOCONTENT') \
+        .error().contains('Fuzzy queries are not supported on Flex indexes')
+
+    # Triple-level fuzzy
+    env.expect('FT.SEARCH', 'idx', '%%%hello%%%', 'NOCONTENT') \
+        .error().contains('Fuzzy queries are not supported on Flex indexes')
+
+def _create_flex_tag(env):
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA', 'tag', 'TAG').ok()
+    env.expect('HSET', 'doc:1', 'tag', 'hello').equal(1)
+
+
+@skip(cluster=True)
+@with_simulate_in_flex(True)
+def test_flex_blocks_tag_prefix_query(env):
+    """Test that prefix queries on TAG fields are blocked in Flex mode"""
+    _create_flex_tag(env)
+
+    env.expect('FT.SEARCH', 'idx', '@tag:{hel*}', 'NOCONTENT') \
+        .error().contains('TAG prefix/suffix/infix queries are not supported on Flex indexes')
+
+
+@skip(cluster=True)
+@with_simulate_in_flex(True)
+def test_flex_blocks_tag_wildcard_query(env):
+    """Test that wildcard pattern queries on TAG fields are blocked in Flex mode"""
+    _create_flex_tag(env)
+
+    env.expect('FT.SEARCH', 'idx', "@tag:{w'hel*o'}", 'NOCONTENT', 'DIALECT', '2') \
+        .error().contains('TAG wildcard queries are not supported on Flex indexes')
+
+
+@skip(cluster=True)
+@with_simulate_in_flex(True)
 def test_flex_blocks_synonym_commands(env):
     """Test that FT.SYNUPDATE, FT.SYNDUMP, and FT.SYNADD are blocked in Redis Flex"""
-    _create_flex_search_fixture(env)
+    _create_flex_search(env)
 
     # FT.SYNUPDATE is blocked
     env.expect('FT.SYNUPDATE', 'idx', 'group1', 'hello', 'hi', 'hey') \

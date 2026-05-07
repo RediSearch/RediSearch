@@ -10,10 +10,11 @@
 
 #include "index_utils.h"
 #include "common.h"
-#include "src/forward_index.h"
+#include "forward_index.h"
 #include "inverted_index.h"
-#include "src/redis_index.h"
+#include "redis_index.h"
 #include "numeric_range_tree.h"
+#include "iterators_rs.h"
 
 std::string numToDocStr(unsigned id) {
   return "doc" + std::to_string(id);

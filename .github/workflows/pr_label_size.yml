@@ -7,7 +7,6 @@ jobs:
       permissions:
         pull-requests: write
         contents: read
-        issues: write
       runs-on: ubuntu-latest
       name: Label the PR size
       steps:
@@ -30,4 +29,3 @@ jobs:
             github_api_url: 'https://api.github.com'
             files_to_ignore: '*.md .gitignore'
             GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-

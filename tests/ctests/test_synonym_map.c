@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "test_util.h"
-#include "src/synonym_map.h"
+#include "synonym_map.h"
 #include "rmutil/alloc.h"
 
 int testSynonymMapAddGetId() {

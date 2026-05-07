@@ -17,18 +17,6 @@ mod index_result;
 mod reader;
 
 #[unsafe(no_mangle)]
-pub extern "C" fn ResultMetrics_Free(metrics: *mut ffi::RSYieldableMetric) {
-    if metrics.is_null() {
-        return;
-    }
-
-    panic!(
-        "did not expect any test to set metrics, but got: {:?}",
-        unsafe { *metrics }
-    );
-}
-
-#[unsafe(no_mangle)]
 pub extern "C" fn Term_Free(_t: *mut ffi::RSQueryTerm) {
     panic!("No test created a term record");
 }

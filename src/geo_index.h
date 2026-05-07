@@ -16,7 +16,6 @@
 #include "search_ctx.h"
 #include "query_error.h"
 #include "rs_geo.h"
-#include "numeric_index.h"
 #include "query_node.h"
 #include "obfuscation/hidden.h"
 
@@ -72,7 +71,6 @@ int GeoFilter_Validate(const GeoFilter *gf, QueryError *status);
 int GeoFilter_LegacyParse(LegacyGeoFilter *gf, ArgsCursor *ac, bool *hasEmptyFilterValue, QueryError *status);
 void GeoFilter_Free(GeoFilter *gf);
 void LegacyGeoFilter_Free(LegacyGeoFilter *gf);
-QueryIterator *NewGeoRangeIterator(const RedisSearchCtx *ctx, const GeoFilter *gf, IteratorsConfig *config);
 
 /*****************************************************************************/
 

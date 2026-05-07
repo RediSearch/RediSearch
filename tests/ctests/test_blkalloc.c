@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-#include "src/util/block_alloc.h"
+#include "util/block_alloc.h"
 #include "test_util.h"
 
 #include <stdint.h>

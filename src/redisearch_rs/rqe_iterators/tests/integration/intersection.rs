@@ -11,8 +11,8 @@
 
 use ffi::t_docId;
 use rqe_iterators::{
-    RQEIterator, RQEValidateStatus, SkipToOutcome, id_list::IdListSorted,
-    intersection::Intersection,
+    IteratorType, RQEIterator, RQEValidateStatus, SkipToOutcome, id_list::IdListSorted,
+    intersection::Intersection, profile::Profile,
 };
 
 use crate::utils::{Mock, MockRevalidateResult};
@@ -49,9 +49,15 @@ fn create_children(num_children: usize, result_set: &[t_docId]) -> Vec<IdListSor
     children
 }
 
-// =============================================================================
-// C-Code: Test parameters - matching C++ INSTANTIATE_TEST_SUITE_P
-// =============================================================================
+#[test]
+fn type_() {
+    let children = vec![
+        IdListSorted::new(vec![1, 2, 3]),
+        IdListSorted::new(vec![2, 3, 4]),
+    ];
+    let it = Intersection::new(children, 1.0, false);
+    assert_eq!(it.type_(), IteratorType::Intersect);
+}
 
 /// Number of child iterators to test with
 const NUM_CHILDREN_CASES: &[usize] = &[2, 5, 25];
@@ -69,12 +75,8 @@ const RESULT_SET_CASES: &[&[t_docId]] = &[
     ],
 ];
 
-// =============================================================================
-// C-Code: Read tests - equivalent to TEST_P(IntersectionIteratorCommonTest, Read)
-// =============================================================================
-
 #[test]
-#[cfg_attr(miri, ignore)]
+#[cfg_attr(miri, ignore = "Too slow under miri")]
 fn read_all_combinations() {
     for &num_children in NUM_CHILDREN_CASES {
         for &result_set in RESULT_SET_CASES {
@@ -93,7 +95,7 @@ fn read_test_case(num_children: usize, result_set: &[t_docId]) {
         .min()
         .unwrap_or(0);
 
-    let mut ii = Intersection::new(children);
+    let mut ii = Intersection::new(children, 1.0, false);
 
     // Verify children are sorted by estimated count (optimization check)
     // Note: We can't directly access internal children after construction,
@@ -142,12 +144,8 @@ fn read_test_case(num_children: usize, result_set: &[t_docId]) {
     );
 }
 
-// =============================================================================
-// C-Code: SkipTo tests - equivalent to TEST_P(IntersectionIteratorCommonTest, SkipTo)
-// =============================================================================
-
 #[test]
-#[cfg(not(miri))] // Takes too long with Miri
+#[cfg_attr(miri, ignore = "Takes too long with Miri")]
 fn skip_to_all_combinations() {
     for &num_children in NUM_CHILDREN_CASES {
         for &result_set in RESULT_SET_CASES {
@@ -156,10 +154,9 @@ fn skip_to_all_combinations() {
     }
 }
 
-#[cfg(not(miri))]
 fn skip_to_test_case(num_children: usize, result_set: &[t_docId]) {
     let children = create_children(num_children, result_set);
-    let mut ii = Intersection::new(children);
+    let mut ii = Intersection::new(children, 1.0, false);
 
     // Test skipping to any id between 1 and the last id
     let mut i: t_docId = 1;
@@ -273,12 +270,8 @@ fn skip_to_test_case(num_children: usize, result_set: &[t_docId]) {
     assert!(ii.at_eof());
 }
 
-// =============================================================================
-// C-Code: Rewind tests - equivalent to TEST_P(IntersectionIteratorCommonTest, Rewind)
-// =============================================================================
-
 #[test]
-#[cfg_attr(miri, ignore)]
+#[cfg_attr(miri, ignore = "Too slow under miri")]
 fn rewind_all_combinations() {
     for &num_children in NUM_CHILDREN_CASES {
         for &result_set in RESULT_SET_CASES {
@@ -289,7 +282,7 @@ fn rewind_all_combinations() {
 
 fn rewind_test_case(num_children: usize, result_set: &[t_docId]) {
     let children = create_children(num_children, result_set);
-    let mut ii = Intersection::new(children);
+    let mut ii = Intersection::new(children, 1.0, false);
 
     for i in 0..5 {
         for j in 0..=i {
@@ -323,14 +316,8 @@ fn rewind_test_case(num_children: usize, result_set: &[t_docId]) {
 }
 
 // =============================================================================
-// C-Code: Edge case tests - from IntersectionIteratorTest and IntersectionIteratorReducerTest
+// Edge case tests
 // =============================================================================
-
-// C-Code: Tests for NULL children, empty children, wildcard removal, and single
-// child reduction are constructor-level optimizations that may need to be
-// handled differently in Rust (possibly returning Empty iterator or the
-// single child directly). These tests will be added once the constructor
-// semantics are finalized.
 
 #[test]
 fn empty_result_set() {
@@ -338,7 +325,7 @@ fn empty_result_set() {
     let child1 = IdListSorted::new(vec![1, 2, 3]);
     let child2 = IdListSorted::new(vec![4, 5, 6]);
 
-    let mut ii = Intersection::new(vec![child1, child2]);
+    let mut ii = Intersection::new(vec![child1, child2], 1.0, false);
 
     // Should immediately return EOF since there's no intersection
     assert!(matches!(ii.read(), Ok(None)));
@@ -346,13 +333,12 @@ fn empty_result_set() {
 }
 
 #[test]
-#[cfg_attr(miri, ignore)]
 fn single_element_result_set() {
     let child1 = IdListSorted::new(vec![1, 5, 10]);
     let child2 = IdListSorted::new(vec![5, 15, 20]);
     let child3 = IdListSorted::new(vec![3, 5, 25]);
 
-    let mut ii = Intersection::new(vec![child1, child2, child3]);
+    let mut ii = Intersection::new(vec![child1, child2, child3], 1.0, false);
 
     // Only doc 5 is common to all
     let result = ii.read().expect("read failed");
@@ -365,12 +351,11 @@ fn single_element_result_set() {
 }
 
 #[test]
-#[cfg_attr(miri, ignore)]
 fn skip_to_exact_match() {
     let child1 = IdListSorted::new(vec![10, 20, 30, 40, 50]);
     let child2 = IdListSorted::new(vec![10, 20, 30, 40, 50]);
 
-    let mut ii = Intersection::new(vec![child1, child2]);
+    let mut ii = Intersection::new(vec![child1, child2], 1.0, false);
 
     // Skip to exact match
     let outcome = ii.skip_to(30).expect("skip_to failed");
@@ -384,12 +369,11 @@ fn skip_to_exact_match() {
 }
 
 #[test]
-#[cfg_attr(miri, ignore)]
 fn skip_to_not_found() {
     let child1 = IdListSorted::new(vec![10, 20, 30, 40, 50]);
     let child2 = IdListSorted::new(vec![10, 20, 30, 40, 50]);
 
-    let mut ii = Intersection::new(vec![child1, child2]);
+    let mut ii = Intersection::new(vec![child1, child2], 1.0, false);
 
     // Skip to non-existing ID, should land on next existing
     let outcome = ii.skip_to(25).expect("skip_to failed");
@@ -402,16 +386,11 @@ fn skip_to_not_found() {
     assert_eq!(ii.last_doc_id(), 30);
 }
 
-// =============================================================================
-// C-Code: Additional edge case tests - from IntersectionIteratorReducerTest
-// =============================================================================
-
 /// Test intersection with no children - should behave as empty
-/// C-Code: Equivalent to C++ TestIntersectionWithNoChild
 #[test]
 fn no_children() {
     let children: Vec<IdListSorted<'static>> = vec![];
-    let mut ii = Intersection::new(children);
+    let mut ii = Intersection::new(children, 1.0, false);
 
     // Should immediately return EOF
     assert!(matches!(ii.read(), Ok(None)));
@@ -426,13 +405,11 @@ fn no_children() {
 }
 
 /// Test intersection with a single child - should behave like the child itself
-/// C-Code: Equivalent to C++ TestIntersectionWithSingleChild (without wildcard removal)
 #[test]
-#[cfg_attr(miri, ignore)]
 fn single_child() {
     let doc_ids = vec![10, 20, 30, 40, 50];
     let child = IdListSorted::new(doc_ids.clone());
-    let mut ii = Intersection::new(vec![child]);
+    let mut ii = Intersection::new(vec![child], 1.0, false);
 
     // Should read all documents from the single child
     for &expected_id in &doc_ids {
@@ -454,12 +431,11 @@ fn single_child() {
 
 /// Test that skip_to past EOF stays at EOF
 #[test]
-#[cfg_attr(miri, ignore)]
 fn skip_to_past_eof() {
     let child1 = IdListSorted::new(vec![10, 20, 30]);
     let child2 = IdListSorted::new(vec![10, 20, 30]);
 
-    let mut ii = Intersection::new(vec![child1, child2]);
+    let mut ii = Intersection::new(vec![child1, child2], 1.0, false);
 
     // Skip past the last document
     assert!(matches!(ii.skip_to(100), Ok(None)));
@@ -479,13 +455,12 @@ fn skip_to_past_eof() {
 
 /// Test sequential skip_to through all documents
 #[test]
-#[cfg_attr(miri, ignore)]
 fn skip_to_sequential() {
     let doc_ids = vec![10, 20, 30, 40, 50];
     let child1 = IdListSorted::new(doc_ids.clone());
     let child2 = IdListSorted::new(doc_ids.clone());
 
-    let mut ii = Intersection::new(vec![child1, child2]);
+    let mut ii = Intersection::new(vec![child1, child2], 1.0, false);
 
     // Skip to each document in sequence
     for &id in &doc_ids {
@@ -506,13 +481,12 @@ fn skip_to_sequential() {
 
 /// Test interleaved read and skip_to
 #[test]
-#[cfg_attr(miri, ignore)]
 fn interleaved_read_and_skip_to() {
     let doc_ids = vec![10, 20, 30, 40, 50, 60, 70, 80, 90, 100];
     let child1 = IdListSorted::new(doc_ids.clone());
     let child2 = IdListSorted::new(doc_ids.clone());
 
-    let mut ii = Intersection::new(vec![child1, child2]);
+    let mut ii = Intersection::new(vec![child1, child2], 1.0, false);
 
     // Read first document
     let result = ii.read().expect("read failed").unwrap();
@@ -545,7 +519,6 @@ fn interleaved_read_and_skip_to() {
 
 /// Test many children (stress test)
 #[test]
-#[cfg_attr(miri, ignore)]
 fn many_children() {
     let doc_ids = vec![100, 200, 300, 400, 500];
     let num_children = 50;
@@ -560,7 +533,7 @@ fn many_children() {
         })
         .collect();
 
-    let mut ii = Intersection::new(children);
+    let mut ii = Intersection::new(children, 1.0, false);
 
     // Should find all common documents
     for &expected_id in &doc_ids {
@@ -575,21 +548,14 @@ fn many_children() {
 }
 
 // =============================================================================
-// C-Code: Revalidate tests - from IntersectionIteratorRevalidateTest
+// Revalidate tests - from IntersectionIteratorRevalidateTest
 // =============================================================================
 
-// Note: Mock children for revalidate tests are created inline in each test
-// since the new Mock uses const generics for array sizes.
-// Common docs: [10, 20, 30, 40, 50]
-// Child 0: [10, 15, 20, 25, 30, 35, 40, 45, 50, 55] (10 elements)
-// Child 1: [5, 10, 18, 20, 28, 30, 38, 40, 48, 50, 60] (11 elements)
-// Child 2: [2, 10, 12, 20, 22, 30, 32, 40, 42, 50, 70] (11 elements)
-
 /// Test: All children return VALIDATE_OK
-/// C-Code: Equivalent to C++ TEST_F(IntersectionIteratorRevalidateTest, RevalidateOK)
 #[test]
-#[cfg_attr(miri, ignore)]
 fn revalidate_ok() {
+    let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+    let ctx = mock_ctx.spec();
     // Create mock children with const generic arrays
     let child0: Mock<'static, 10> = Mock::new([10, 15, 20, 25, 30, 35, 40, 45, 50, 55]);
     let child1: Mock<'static, 11> = Mock::new([5, 10, 18, 20, 28, 30, 38, 40, 48, 50, 60]);
@@ -610,7 +576,7 @@ fn revalidate_ok() {
     let children: Vec<Box<dyn RQEIterator<'static> + 'static>> =
         vec![Box::new(child0), Box::new(child1), Box::new(child2)];
 
-    let mut ii = Intersection::new(children);
+    let mut ii = Intersection::new(children, 1.0, false);
 
     // Read a few documents first
     let result = ii.read().expect("read failed").unwrap();
@@ -620,7 +586,8 @@ fn revalidate_ok() {
     assert_eq!(result.doc_id, 20);
 
     // Revalidate should return Ok
-    let status = ii.revalidate().expect("revalidate failed");
+    // SAFETY: test-only call with valid context
+    let status = unsafe { ii.revalidate(ctx) }.expect("revalidate failed");
     assert!(matches!(status, RQEValidateStatus::Ok));
 
     // Should be able to continue reading
@@ -629,10 +596,10 @@ fn revalidate_ok() {
 }
 
 /// Test: One child returns VALIDATE_ABORTED
-/// C-Code: Equivalent to C++ TEST_F(IntersectionIteratorRevalidateTest, RevalidateAborted)
 #[test]
-#[cfg_attr(miri, ignore)]
 fn revalidate_aborted() {
+    let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+    let ctx = mock_ctx.spec();
     let child0: Mock<'static, 10> = Mock::new([10, 15, 20, 25, 30, 35, 40, 45, 50, 55]);
     let child1: Mock<'static, 11> = Mock::new([5, 10, 18, 20, 28, 30, 38, 40, 48, 50, 60]);
     let child2: Mock<'static, 11> = Mock::new([2, 10, 12, 20, 22, 30, 32, 40, 42, 50, 70]);
@@ -651,22 +618,23 @@ fn revalidate_aborted() {
     let children: Vec<Box<dyn RQEIterator<'static> + 'static>> =
         vec![Box::new(child0), Box::new(child1), Box::new(child2)];
 
-    let mut ii = Intersection::new(children);
+    let mut ii = Intersection::new(children, 1.0, false);
 
     // Read a document first
     let result = ii.read().expect("read failed").unwrap();
     assert_eq!(result.doc_id, 10);
 
     // Revalidate should return Aborted since one child aborted
-    let status = ii.revalidate().expect("revalidate failed");
+    // SAFETY: test-only call with valid context
+    let status = unsafe { ii.revalidate(ctx) }.expect("revalidate failed");
     assert!(matches!(status, RQEValidateStatus::Aborted));
 }
 
 /// Test: All children return VALIDATE_MOVED
-/// C-Code: Equivalent to C++ TEST_F(IntersectionIteratorRevalidateTest, RevalidateMoved)
 #[test]
-#[cfg_attr(miri, ignore)]
 fn revalidate_moved() {
+    let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+    let ctx = mock_ctx.spec();
     let child0: Mock<'static, 10> = Mock::new([10, 15, 20, 25, 30, 35, 40, 45, 50, 55]);
     let child1: Mock<'static, 11> = Mock::new([5, 10, 18, 20, 28, 30, 38, 40, 48, 50, 60]);
     let child2: Mock<'static, 11> = Mock::new([2, 10, 12, 20, 22, 30, 32, 40, 42, 50, 70]);
@@ -685,14 +653,15 @@ fn revalidate_moved() {
     let children: Vec<Box<dyn RQEIterator<'static> + 'static>> =
         vec![Box::new(child0), Box::new(child1), Box::new(child2)];
 
-    let mut ii = Intersection::new(children);
+    let mut ii = Intersection::new(children, 1.0, false);
 
     // Read first document
     let result = ii.read().expect("read failed").unwrap();
     assert_eq!(result.doc_id, 10);
 
     // Revalidate should return Moved
-    let status = ii.revalidate().expect("revalidate failed");
+    // SAFETY: test-only call with valid context
+    let status = unsafe { ii.revalidate(ctx) }.expect("revalidate failed");
     assert!(
         matches!(status, RQEValidateStatus::Moved { current: Some(_) }),
         "Expected Moved with current, got {:?}",
@@ -708,10 +677,10 @@ fn revalidate_moved() {
 }
 
 /// Test: Mix of OK and MOVED results
-/// C-Code: Equivalent to C++ TEST_F(IntersectionIteratorRevalidateTest, RevalidateMixedResults)
 #[test]
-#[cfg_attr(miri, ignore)]
 fn revalidate_mixed_results() {
+    let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+    let ctx = mock_ctx.spec();
     let child0: Mock<'static, 10> = Mock::new([10, 15, 20, 25, 30, 35, 40, 45, 50, 55]);
     let child1: Mock<'static, 11> = Mock::new([5, 10, 18, 20, 28, 30, 38, 40, 48, 50, 60]);
     let child2: Mock<'static, 11> = Mock::new([2, 10, 12, 20, 22, 30, 32, 40, 42, 50, 70]);
@@ -730,23 +699,24 @@ fn revalidate_mixed_results() {
     let children: Vec<Box<dyn RQEIterator<'static> + 'static>> =
         vec![Box::new(child0), Box::new(child1), Box::new(child2)];
 
-    let mut ii = Intersection::new(children);
+    let mut ii = Intersection::new(children, 1.0, false);
 
     // Read first document
     let result = ii.read().expect("read failed").unwrap();
     assert_eq!(result.doc_id, 10);
 
     // Revalidate should return Moved (if any child moved)
-    let status = ii.revalidate().expect("revalidate failed");
+    // SAFETY: test-only call with valid context
+    let status = unsafe { ii.revalidate(ctx) }.expect("revalidate failed");
     assert!(matches!(status, RQEValidateStatus::Moved { .. }));
     assert_eq!(ii.last_doc_id(), 20);
 }
 
 /// Test: Revalidate after EOF - should return OK even if children moved
-/// C-Code: Equivalent to C++ TEST_F(IntersectionIteratorRevalidateTest, RevalidateAfterEOF)
 #[test]
-#[cfg_attr(miri, ignore)]
 fn revalidate_after_eof() {
+    let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+    let ctx = mock_ctx.spec();
     // Pre-set children to return MOVE on revalidate
     let child0: Mock<'static, 10> = Mock::new([10, 15, 20, 25, 30, 35, 40, 45, 50, 55]);
     let child1: Mock<'static, 11> = Mock::new([5, 10, 18, 20, 28, 30, 38, 40, 48, 50, 60]);
@@ -765,14 +735,15 @@ fn revalidate_after_eof() {
     let children: Vec<Box<dyn RQEIterator<'static> + 'static>> =
         vec![Box::new(child0), Box::new(child1), Box::new(child2)];
 
-    let mut ii = Intersection::new(children);
+    let mut ii = Intersection::new(children, 1.0, false);
 
     // Advance to EOF
     while ii.read().expect("read failed").is_some() {}
     assert!(ii.at_eof());
 
     // Revalidate should return OK when already at EOF
-    let status = ii.revalidate().expect("revalidate failed");
+    // SAFETY: test-only call with valid context
+    let status = unsafe { ii.revalidate(ctx) }.expect("revalidate failed");
     assert!(
         matches!(status, RQEValidateStatus::Ok),
         "Revalidate after EOF should return OK, got {:?}",
@@ -785,14 +756,14 @@ fn revalidate_after_eof() {
 }
 
 /// Test: Some children move to EOF during revalidate
-/// C-Code: Equivalent to C++ TEST_F(IntersectionIteratorRevalidateTest, RevalidateSomeChildrenMovedToEOF)
 ///
-/// Note: The new Mock doesn't have a MovedToEof variant. Instead, we simulate
+/// Note: Mock doesn't have a MovedToEof variant. Instead, we simulate
 /// this by using a child that has only 2 elements - after reading doc 10, there's only
 /// one element left (20), so when Move is called during revalidate, it reaches EOF.
 #[test]
-#[cfg_attr(miri, ignore)]
 fn revalidate_some_children_moved_to_eof() {
+    let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+    let ctx = mock_ctx.spec();
     // Child 0 and 2 have normal data, child 1 is small (only 2 elements: [10, 20])
     // When we read doc 10 and then call Move, child 1 moves to 20 and the next Move
     // would go to EOF
@@ -815,7 +786,7 @@ fn revalidate_some_children_moved_to_eof() {
     let children: Vec<Box<dyn RQEIterator<'static> + 'static>> =
         vec![Box::new(child0), Box::new(child1), Box::new(child2)];
 
-    let mut ii = Intersection::new(children);
+    let mut ii = Intersection::new(children, 1.0, false);
 
     // Read first document
     let result = ii.read().expect("read failed").unwrap();
@@ -823,7 +794,8 @@ fn revalidate_some_children_moved_to_eof() {
 
     // Revalidate should return Moved with current=None (EOF)
     // because child 1 moves to EOF (it only had 1 element which was already read)
-    let status = ii.revalidate().expect("revalidate failed");
+    // SAFETY: test-only call with valid context
+    let status = unsafe { ii.revalidate(ctx) }.expect("revalidate failed");
     assert!(
         matches!(status, RQEValidateStatus::Moved { current: None }),
         "Expected Moved to EOF, got {:?}",
@@ -844,12 +816,11 @@ fn revalidate_some_children_moved_to_eof() {
 
 /// Test: current() returns correct state after various operations
 #[test]
-#[cfg_attr(miri, ignore)]
 fn current_after_operations() {
     let child1 = IdListSorted::new(vec![10, 20, 30, 40, 50]);
     let child2 = IdListSorted::new(vec![10, 20, 30, 40, 50]);
 
-    let mut ii = Intersection::new(vec![child1, child2]);
+    let mut ii = Intersection::new(vec![child1, child2], 1.0, false);
 
     // Before any read, current() returns Some (the result buffer exists),
     // but last_doc_id is 0 since we haven't read anything yet
@@ -900,13 +871,12 @@ fn current_after_operations() {
 
 /// Test: Large gaps between document IDs
 #[test]
-#[cfg_attr(miri, ignore)]
 fn large_doc_id_gaps() {
     let sparse_ids = vec![1, 1_000_000, 2_000_000, 10_000_000];
     let child1 = IdListSorted::new(sparse_ids.clone());
     let child2 = IdListSorted::new(sparse_ids.clone());
 
-    let mut ii = Intersection::new(vec![child1, child2]);
+    let mut ii = Intersection::new(vec![child1, child2], 1.0, false);
 
     // Read all documents
     for &expected_id in &sparse_ids {
@@ -937,14 +907,13 @@ fn large_doc_id_gaps() {
 
 /// Test: Children with overlapping unique IDs don't cause issues
 #[test]
-#[cfg_attr(miri, ignore)]
 fn overlapping_children_ids() {
     // Create children with significant overlap but different unique IDs
     let child1 = IdListSorted::new(vec![1, 2, 3, 5, 10, 15, 20, 25, 30]);
     let child2 = IdListSorted::new(vec![2, 3, 5, 7, 10, 12, 15, 20, 30, 35]);
     let child3 = IdListSorted::new(vec![3, 5, 8, 10, 15, 18, 20, 30, 40]);
 
-    let mut ii = Intersection::new(vec![child1, child2, child3]);
+    let mut ii = Intersection::new(vec![child1, child2, child3], 1.0, false);
 
     // Common to all: 3, 5, 10, 15, 20, 30
     let expected = vec![3, 5, 10, 15, 20, 30];
@@ -961,8 +930,9 @@ fn overlapping_children_ids() {
 
 /// Test: Revalidate immediately after construction (without reading first)
 #[test]
-#[cfg_attr(miri, ignore)]
 fn revalidate_before_read() {
+    let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+    let ctx = mock_ctx.spec();
     let child0: Mock<'static, 10> = Mock::new([10, 15, 20, 25, 30, 35, 40, 45, 50, 55]);
     let child1: Mock<'static, 11> = Mock::new([5, 10, 18, 20, 28, 30, 38, 40, 48, 50, 60]);
     let child2: Mock<'static, 11> = Mock::new([2, 10, 12, 20, 22, 30, 32, 40, 42, 50, 70]);
@@ -981,10 +951,11 @@ fn revalidate_before_read() {
     let children: Vec<Box<dyn RQEIterator<'static> + 'static>> =
         vec![Box::new(child0), Box::new(child1), Box::new(child2)];
 
-    let mut ii = Intersection::new(children);
+    let mut ii = Intersection::new(children, 1.0, false);
 
     // Revalidate before any read
-    let status = ii.revalidate().expect("revalidate failed");
+    // SAFETY: test-only call with valid context
+    let status = unsafe { ii.revalidate(ctx) }.expect("revalidate failed");
     assert!(
         matches!(status, RQEValidateStatus::Ok),
         "Revalidate before read should return Ok"
@@ -997,8 +968,9 @@ fn revalidate_before_read() {
 
 /// Test: Revalidate with Move before first read
 #[test]
-#[cfg_attr(miri, ignore)]
 fn revalidate_move_before_read() {
+    let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+    let ctx = mock_ctx.spec();
     let child0: Mock<'static, 10> = Mock::new([10, 15, 20, 25, 30, 35, 40, 45, 50, 55]);
     let child1: Mock<'static, 11> = Mock::new([5, 10, 18, 20, 28, 30, 38, 40, 48, 50, 60]);
     let child2: Mock<'static, 11> = Mock::new([2, 10, 12, 20, 22, 30, 32, 40, 42, 50, 70]);
@@ -1017,10 +989,11 @@ fn revalidate_move_before_read() {
     let children: Vec<Box<dyn RQEIterator<'static> + 'static>> =
         vec![Box::new(child0), Box::new(child1), Box::new(child2)];
 
-    let mut ii = Intersection::new(children);
+    let mut ii = Intersection::new(children, 1.0, false);
 
     // Revalidate before any read - children will move
-    let status = ii.revalidate().expect("revalidate failed");
+    // SAFETY: test-only call with valid context
+    let status = unsafe { ii.revalidate(ctx) }.expect("revalidate failed");
 
     // Since we haven't read anything yet, and children moved,
     // the result depends on implementation. The iterator should
@@ -1043,7 +1016,7 @@ fn num_estimated_is_minimum() {
     let child2 = IdListSorted::new(vec![1, 2, 3]); // 3 elements (smallest)
     let child3 = IdListSorted::new(vec![1, 2, 3, 4, 5, 6, 7]); // 7 elements
 
-    let ii = Intersection::new(vec![child1, child2, child3]);
+    let ii = Intersection::new(vec![child1, child2, child3], 1.0, false);
 
     // num_estimated should be the minimum (3)
     assert_eq!(
@@ -1065,7 +1038,8 @@ fn num_estimated_is_minimum_in_order() {
     let child2 = IdListSorted::new(vec![1, 2, 3]); // 3 elements — minimum
     let child3 = IdListSorted::new(vec![1, 2, 3, 4]); // 4 elements
 
-    let ii = Intersection::new_with_slop_order(vec![child1, child2, child3], None, true);
+    let ii =
+        Intersection::new_with_slop_order(vec![child1, child2, child3], 1.0, false, None, true);
 
     assert_eq!(
         ii.num_estimated(),
@@ -1077,7 +1051,6 @@ fn num_estimated_is_minimum_in_order() {
 /// Test: Children are processed in order of estimated count (smallest first)
 /// We can infer this indirectly by checking behavior with asymmetric children
 #[test]
-#[cfg_attr(miri, ignore)]
 fn children_sorted_by_estimated() {
     // Create children where the smallest (by count) would lead to fastest termination
     // Large child: has docs 1-1000
@@ -1092,7 +1065,7 @@ fn children_sorted_by_estimated() {
     let child2 = IdListSorted::new(small_child);
     let child3 = IdListSorted::new(medium_child);
 
-    let mut ii = Intersection::new(vec![child1, child2, child3]);
+    let mut ii = Intersection::new(vec![child1, child2, child3], 1.0, false);
 
     // The only common document is 500
     let result = ii.read().expect("read failed");
@@ -1117,8 +1090,9 @@ fn children_sorted_by_estimated() {
 ///
 /// The expected result is `RQEValidateStatus::Moved { current: None }`
 #[test]
-#[cfg_attr(miri, ignore)]
 fn revalidate_moved_skip_to_returns_none() {
+    let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+    let ctx = mock_ctx.spec();
     // Set up children where:
     // - They share doc 10 (will read this first)
     // - After Move, child0 goes to doc 15, child1 goes to doc 18, child2 goes to doc 22
@@ -1150,7 +1124,7 @@ fn revalidate_moved_skip_to_returns_none() {
     let children: Vec<Box<dyn RQEIterator<'static> + 'static>> =
         vec![Box::new(child0), Box::new(child1), Box::new(child2)];
 
-    let mut ii = Intersection::new(children);
+    let mut ii = Intersection::new(children, 1.0, false);
 
     // Read first document (10 is common to all)
     let result = ii.read().expect("read failed").unwrap();
@@ -1162,7 +1136,8 @@ fn revalidate_moved_skip_to_returns_none() {
     // skip_to(22) will fail because:
     // - child0 has no doc >= 22 (only has [10, 15]), goes EOF
     // - Result: Moved { current: None }
-    let status = ii.revalidate().expect("revalidate failed");
+    // SAFETY: test-only call with valid context
+    let status = unsafe { ii.revalidate(ctx) }.expect("revalidate failed");
     assert!(
         matches!(status, RQEValidateStatus::Moved { current: None }),
         "Expected Moved {{ current: None }} when skip_to cannot find consensus, got {:?}",
@@ -1180,14 +1155,12 @@ fn revalidate_moved_skip_to_returns_none() {
 }
 
 // =============================================================================
-// C-Code: Slop and InOrder tests - from IntersectionIteratorTest
+// Slop and InOrder tests
 // (Slop, InOrder, SlopAndOrder test cases)
 // =============================================================================
 
 /// Tests for the intersection iterator's `max_slop` and `in_order` proximity constraints.
 ///
-/// C-Code: These tests are ported from `IntersectionIteratorTest` in
-/// `tests/cpptests/test_cpp_iterator_intersection.cpp`.
 // Because of `ffi::IndexResult_IsWithinRange`
 #[cfg(not(miri))]
 mod slop_and_order {
@@ -1208,7 +1181,13 @@ mod slop_and_order {
     ) -> Intersection<'static, Box<dyn RQEIterator<'static> + 'static>> {
         let foo: Mock<'static, 4> = Mock::new_with_positions([1, 2, 3, 4], [1, 1, 2, 1]);
         let bar: Mock<'static, 3> = Mock::new_with_positions([1, 3, 4], [2, 1, 3]);
-        Intersection::new_with_slop_order(vec![Box::new(foo), Box::new(bar)], max_slop, in_order)
+        Intersection::new_with_slop_order(
+            vec![Box::new(foo), Box::new(bar)],
+            1.0,
+            false,
+            max_slop,
+            in_order,
+        )
     }
 
     /// max_slop=0, in_order=false: only documents where foo and bar appear adjacent
@@ -1265,8 +1244,6 @@ mod slop_and_order {
         assert!(ii.at_eof());
     }
 
-    /// C-Code: Equivalent to C++ `TEST_F(IntersectionIteratorTest, InOrder)`
-    ///
     /// max_slop=None, in_order=true: only documents where foo appears before bar
     /// (any distance) are returned.
     ///
@@ -1315,8 +1292,6 @@ mod slop_and_order {
         assert!(ii.at_eof());
     }
 
-    /// C-Code: Equivalent to C++ `TEST_F(IntersectionIteratorTest, SlopAndOrder)`
-    ///
     /// max_slop=0, in_order=true: only documents where foo immediately precedes
     /// bar (adjacent and in order) are returned.
     ///
@@ -1378,6 +1353,8 @@ mod slop_and_order {
                 Box::new(foo) as Box<dyn RQEIterator<'static> + 'static>,
                 Box::new(bar),
             ],
+            1.0,
+            false,
             None,
             true,
         );
@@ -1385,5 +1362,167 @@ mod slop_and_order {
         // No doc satisfies in_order: doc 1 fails (bar@1 < foo@3), doc 2 is only in foo.
         assert!(matches!(ii.read(), Ok(None)));
         assert!(ii.at_eof());
+    }
+}
+
+/// Same as [`sort_weight_nested_intersection_sorts_first`] but the inner `Intersection` is wrapped
+/// in a [`Profile`].
+///
+/// [`Profile`] forwards [`RQEIterator::intersection_sort_weight`] to its child, so the
+/// reduced `1/num_children` weight is preserved even through the wrapper.
+#[test]
+fn sort_weight_profile_wrapped_nested_intersection_sorts_first() {
+    let docs: Vec<t_docId> = (1..=10).collect();
+
+    // Inner intersection: 5 children, num_estimated = 10 → sort key 10 * (1/5) = 2.0.
+    // Wrapped in Profile → intersection_sort_weight forwards to child, so sort key is still 2.0.
+    let inner_children_count = 5;
+    let inner_children: Vec<Box<dyn RQEIterator<'static> + 'static>> = (0..inner_children_count)
+        .map(|_| {
+            Box::new(IdListSorted::new(docs.clone())) as Box<dyn RQEIterator<'static> + 'static>
+        })
+        .collect();
+    let inner = Profile::new(Intersection::new(inner_children, 1.0, false));
+
+    // Plain child: num_estimated = 10 → sort key 10 * 1.0 = 10.0.
+    let plain = IdListSorted::new(docs);
+
+    // Pass plain first — the Profile-wrapped inner intersection sorts to index 0
+    // because its sort weight (0.2) is lower than the plain child's (1.0).
+    let outer = Intersection::new(
+        vec![
+            Box::new(plain) as Box<dyn RQEIterator<'static> + 'static>,
+            Box::new(inner),
+        ],
+        1.0,
+        false,
+    );
+    assert!(
+        outer.child_at(0).intersection_sort_weight(false) < 1.0,
+        "Profile-wrapped Intersection (sort key 2.0) must sort before plain child (sort key 10.0)"
+    );
+}
+
+/// A nested `Intersection` child (sort key `num_estimated * 1/num_children`) must sort before a
+/// plain child with equal `num_estimated` (sort key `num_estimated * 1.0`).
+#[test]
+fn sort_weight_nested_intersection_sorts_first() {
+    let docs: Vec<t_docId> = (1..=10).collect();
+
+    // Inner intersection: 5 children, num_estimated = 10 → sort key 10 * (1/5) = 2.0.
+    let inner_children_count = 5;
+    let inner_children: Vec<Box<dyn RQEIterator<'static> + 'static>> = (0..inner_children_count)
+        .map(|_| {
+            Box::new(IdListSorted::new(docs.clone())) as Box<dyn RQEIterator<'static> + 'static>
+        })
+        .collect();
+    let inner = Intersection::new(inner_children, 1.0, false);
+
+    // Plain child: num_estimated = 10 → sort key 10 * 1.0 = 10.0.
+    let plain = IdListSorted::new(docs);
+
+    // Pass plain first — after construction the inner must sort to index 0.
+    let outer = Intersection::new(
+        vec![
+            Box::new(plain) as Box<dyn RQEIterator<'static> + 'static>,
+            Box::new(inner),
+        ],
+        1.0,
+        false,
+    );
+    assert!(
+        outer.child_at(0).intersection_sort_weight(false) < 1.0,
+        "nested Intersection (sort key 2.0) must sort before plain child (sort key 10.0)"
+    );
+}
+
+// =============================================================================
+// Tests for `new_intersection_iterator()` — one test per reduction rule.
+// =============================================================================
+
+mod reducer {
+    use rqe_iterators::{
+        Empty, RQEIterator, Wildcard,
+        intersection::{NewIntersectionIterator, new_intersection_iterator},
+    };
+
+    use crate::utils::Mock;
+
+    /// Heap-erased iterator, required to mix `Mock<N>`, `Empty`, and `Wildcard`
+    /// in a single `Vec` passed to `new_intersection_iterator`.
+    type DynIter = Box<dyn RQEIterator<'static> + 'static>;
+
+    // Rule 0: an empty child list is trivially empty.
+    #[test]
+    fn no_children_yields_empty() {
+        let children: Vec<DynIter> = vec![];
+        assert!(matches!(
+            new_intersection_iterator(children),
+            NewIntersectionIterator::Empty
+        ));
+    }
+
+    // Rule 2: any child that reports `is_empty()` forces the whole intersection
+    // to be empty, even when the other children are non-empty.
+    #[test]
+    fn empty_child_yields_empty() {
+        let children: Vec<DynIter> = vec![
+            Box::new(Mock::new([1u64, 2, 3])),
+            Box::new(Empty),
+            Box::new(Mock::new([1u64, 2, 3, 4, 5])),
+        ];
+        assert!(matches!(
+            new_intersection_iterator(children),
+            NewIntersectionIterator::Empty
+        ));
+    }
+
+    // Rule 1 + Rule 4: wildcard children are stripped; the two remaining real
+    // children proceed to a full intersection.
+    #[test]
+    fn wildcard_children_are_removed() {
+        let children: Vec<DynIter> = vec![
+            Box::new(Mock::new([1u64, 2, 3])),
+            Box::new(Wildcard::new(30, 1.0)),
+            Box::new(Mock::new([1u64, 2, 3])),
+            Box::new(Wildcard::new(1000, 1.0)),
+        ];
+        let NewIntersectionIterator::Proceed(cs) = new_intersection_iterator(children) else {
+            panic!("expected Proceed, got a different variant");
+        };
+        assert_eq!(cs.len(), 2);
+    }
+
+    // Rule 1: when every child is a wildcard the last one is returned as `Single`.
+    // Each wildcard is given a distinct `top_id` so that `num_estimated()` can
+    // identify which instance survived.
+    #[test]
+    fn all_wildcard_children_returns_last() {
+        let children: Vec<DynIter> = vec![
+            Box::new(Wildcard::new(10, 1.0)),
+            Box::new(Wildcard::new(20, 1.0)),
+            Box::new(Wildcard::new(30, 1.0)),
+            Box::new(Wildcard::new(40, 1.0)), // last — expected to survive
+        ];
+        let NewIntersectionIterator::Single(iter) = new_intersection_iterator(children) else {
+            panic!("expected Single, got a different variant");
+        };
+        // `Wildcard::num_estimated` returns `top_id`, so 40 identifies the last child.
+        assert_eq!(iter.num_estimated(), 40);
+    }
+
+    // Rule 1 + Rule 3: wildcards are stripped, leaving exactly one real child
+    // which is returned directly as `Single`.
+    #[test]
+    fn single_real_child_yields_single() {
+        let children: Vec<DynIter> = vec![
+            Box::new(Mock::new([1u64, 2, 3])),
+            Box::new(Wildcard::new(30, 1.0)),
+            Box::new(Wildcard::new(30, 1.0)),
+        ];
+        assert!(matches!(
+            new_intersection_iterator(children),
+            NewIntersectionIterator::Single(_)
+        ));
     }
 }

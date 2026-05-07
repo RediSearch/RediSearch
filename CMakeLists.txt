@@ -18,6 +18,21 @@ elseif(UNIX)
 endif()
 message(STATUS "OS detected: ${OS}")
 
+# Suppress 'has no symbols' warnings from ranlib on macOS.
+# Cross-platform deps (cpu_features, hiredis) compile platform stubs that are
+# empty on irrelevant architectures, producing harmless noise.
+# CMake may pick up LLVM's llvm-ranlib from PATH, which doesn't support
+# -no_warning_for_no_symbols. Use xcrun to locate Apple's native ranlib.
+if(APPLE)
+    execute_process(
+        COMMAND xcrun --find ranlib
+        OUTPUT_VARIABLE APPLE_RANLIB
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+    )
+    set(CMAKE_C_ARCHIVE_FINISH "${APPLE_RANLIB} -no_warning_for_no_symbols <TARGET>")
+    set(CMAKE_CXX_ARCHIVE_FINISH "${APPLE_RANLIB} -no_warning_for_no_symbols <TARGET>")
+endif()
+
 # Always use .so extension even on macOS
 set(CMAKE_SHARED_LIBRARY_SUFFIX ".so")
 # Export the underlying compiler invocations in a compile_commands.json, located in the bin directory.
@@ -28,21 +43,50 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 function(setup_cc_options)
     message("# CMAKE_C_COMPILER_ID: " ${CMAKE_C_COMPILER_ID})
 
-    # Common compiler flags
-    set(CMAKE_C_FLAGS "-fPIC -g -pthread -fno-strict-aliasing -Wno-unused-function -Wno-unused-variable -Wno-sign-compare -fcommon -funsigned-char" PARENT_SCOPE)
-    set(CMAKE_CXX_FLAGS "-fPIC -g -pthread -fno-strict-aliasing -Wno-unused-function -Wno-unused-variable -Wno-sign-compare" PARENT_SCOPE)
+    # Accumulate C/CXX flags locally and publish once. set(... PARENT_SCOPE)
+    # does NOT update the function-local variable, so a later read of
+    # ${CMAKE_C_FLAGS} would miss earlier additions (MOD-14916).
+    set(_common_c_flags "${CMAKE_C_FLAGS} -fPIC -g -pthread -fno-strict-aliasing -Wno-unused-function -Wno-unused-variable -Wno-sign-compare -fcommon -funsigned-char")
+    set(_common_cxx_flags "${CMAKE_CXX_FLAGS} -fPIC -g -pthread -fno-strict-aliasing -Wno-unused-function -Wno-unused-variable -Wno-sign-compare")
     set(CMAKE_CXX_STANDARD 20)
-    # Release/Debug/Profile specific flags
+
+    # MOD-14916: inline LSE atomics on Linux AArch64 -- avoid libgcc
+    # __aarch64_* outline-atomics helpers on every atomic RMW.
+    #   -march=armv8-a+lse   adds LSE without raising -march, so deps that
+    #                        probe `-march=armv8-a` (e.g. VecSim's CXX_ARMV8A
+    #                        gate on NEON_HP.cpp) still pass.
+    #   -mno-outline-atomics canonical disable spelling (the "=no" form is
+    #                        silently ignored by GCC).
+    # Apple excluded: Apple clang rejects -mno-outline-atomics and Apple
+    # Silicon already emits inline LSE.
+    if(NOT APPLE AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64)$")
+        include(CheckCCompilerFlag)
+        include(CheckCXXCompilerFlag)
+        set(_aarch64_lse_flags "-march=armv8-a+lse -mtune=neoverse-n1 -mno-outline-atomics")
+        check_c_compiler_flag("${_aarch64_lse_flags}" _c_lse_ok)
+        check_cxx_compiler_flag("${_aarch64_lse_flags}" _cxx_lse_ok)
+        if(_c_lse_ok AND _cxx_lse_ok)
+            set(_common_c_flags   "${_common_c_flags} ${_aarch64_lse_flags}")
+            set(_common_cxx_flags "${_common_cxx_flags} ${_aarch64_lse_flags}")
+        else()
+            message(WARNING "AArch64 LSE build flags not accepted by compiler; "
+                            "outline atomics will remain in the .so")
+        endif()
+    endif()
+
+    set(CMAKE_C_FLAGS   "${_common_c_flags}"   PARENT_SCOPE)
+    set(CMAKE_CXX_FLAGS "${_common_cxx_flags}" PARENT_SCOPE)
+
+    # Config-specific flags only — CMake appends these to CMAKE_C/CXX_FLAGS automatically
     if(CMAKE_BUILD_TYPE STREQUAL "Debug")
-        set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS} -O0 -fno-omit-frame-pointer -ggdb" PARENT_SCOPE)
-        set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS} -O0 -fno-omit-frame-pointer -ggdb" PARENT_SCOPE)
+        set(CMAKE_C_FLAGS_DEBUG "-O0 -fno-omit-frame-pointer -ggdb" PARENT_SCOPE)
+        set(CMAKE_CXX_FLAGS_DEBUG "-O0 -fno-omit-frame-pointer -ggdb" PARENT_SCOPE)
     elseif(PROFILE)
-        set(CMAKE_C_FLAGS_RELWITHDEBINFO "${CMAKE_C_FLAGS} -O2 -fno-omit-frame-pointer" PARENT_SCOPE)
-        set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "${CMAKE_CXX_FLAGS} -O2 -fno-omit-frame-pointer" PARENT_SCOPE)
+        set(CMAKE_C_FLAGS_RELWITHDEBINFO "-O2 -fno-omit-frame-pointer" PARENT_SCOPE)
+        set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "-O2 -fno-omit-frame-pointer" PARENT_SCOPE)
     else()
-        # Default to Release flags
-        set(CMAKE_C_FLAGS_RELWITHDEBINFO "${CMAKE_C_FLAGS} -O3" PARENT_SCOPE)
-        set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "${CMAKE_CXX_FLAGS} -O3" PARENT_SCOPE)
+        set(CMAKE_C_FLAGS_RELWITHDEBINFO "-O3" PARENT_SCOPE)
+        set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "-O3" PARENT_SCOPE)
     endif()
 endfunction()
 
@@ -55,7 +99,7 @@ function(setup_shared_object_target target)
     else()
         # We are building a shared library and want to verify that any reference to a symbol within the library will resolve to
         # the library's own definition, rather than to a definition in another shared library or the main executable.
-        set_target_properties(${target} PROPERTIES LINK_FLAGS "-pthread -shared -Bsymbolic -Bsymbolic-functions")
+        set_target_properties(${target} PROPERTIES LINK_FLAGS "-pthread -shared -Wl,-Bsymbolic,-Bsymbolic-functions")
     endif()
     set_target_properties(${target} PROPERTIES PREFIX "")
 endfunction()
@@ -78,7 +122,7 @@ option(USE_REDIS_ALLOCATOR "Use redis allocator" ON)
 option(BUILD_SEARCH_UNIT_TESTS "Build unit tests" OFF)
 option(VERBOSE_UTESTS "Enable verbose unit tests" OFF)
 option(ENABLE_ASSERT "Enable assertions" OFF)
-option(MAX_WORKER_THREADS "Override them maximum parallel worker threads allowed in thread-pool" "")
+set(MAX_WORKER_THREADS "" CACHE STRING "Override the maximum parallel worker threads allowed in thread-pool")
 option(BUILD_TESTING "Enable testing for cpu-features dep" OFF)
 
 
@@ -124,6 +168,7 @@ endif()
 message(STATUS "COV: ${COV}")
 if (COV)
     set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} --coverage")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} --coverage")
     set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} --coverage")
     set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} --coverage")
     add_compile_definitions(COVERAGE=1)
@@ -153,6 +198,12 @@ set(CMAKE_LINKER_FLAGS "${CMAKE_LINKER_FLAGS} ${CMAKE_LD_FLAGS}")
 set(CMAKE_C_FLAGS   "${CMAKE_C_FLAGS} -Wformat")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wformat")
 
+# Promote specific warnings to errors. These use add_compile_options() which
+# propagates to ALL subdirectories, including deps (libuv, VectorSimilarity, etc.).
+# Each flag is compiler-specific (gcc vs clang), so if a dep needs an override
+# (e.g. -Wno-error=X via target_compile_options), guard it with the same
+# compiler check or a $<C_COMPILER_ID:...> generator expression.
+
 # gcc
 check_c_compiler_flag("-Werror=discarded-qualifiers" HAS_DISCARDED_QUALIFIERS)
 if(HAS_DISCARDED_QUALIFIERS)
@@ -178,6 +229,11 @@ if(HAS_SOMETIMES_UNINITIALIZED)
     add_compile_options($<$<COMPILE_LANGUAGE:C>:-Werror=sometimes-uninitialized>)
 endif()
 
+check_c_compiler_flag("-Werror=implicit-function-declaration" HAS_IMPLICIT_FUNCTION_DECLARATION)
+if(HAS_IMPLICIT_FUNCTION_DECLARATION)
+    add_compile_options($<$<COMPILE_LANGUAGE:C>:-Werror=implicit-function-declaration>)
+endif()
+
 add_compile_definitions(
     "REDISEARCH_MODULE_NAME=\"${MODULE_NAME}\""
     "GIT_VERSPEC=\"${GIT_VERSPEC}\""
@@ -187,10 +243,6 @@ add_compile_definitions(
 
 if(BUILD_INTEL_SVS_OPT)
     add_compile_definitions("BUILD_INTEL_SVS_OPT=1")
-endif()
-
-if(MAX_WORKER_THREADS)
-    set_source_files_properties(src/config.c PROPERTIES COMPILE_DEFINITIONS MAX_WORKER_THREADS=${MAX_WORKER_THREADS})
 endif()
 
 if(USE_REDIS_ALLOCATOR)
@@ -314,6 +366,11 @@ add_dependencies(redisearch redisearch_rs)
 # Unit tests configuration
 if(BUILD_SEARCH_UNIT_TESTS)
     enable_testing()
+
+    # Disable coverage on C++ tests/benchmarks to avoid geninfo mismatch errors
+    if (COV)
+        string(REPLACE "--coverage" "" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
+    endif()
 
     add_subdirectory(tests/cpptests/redismock)
 

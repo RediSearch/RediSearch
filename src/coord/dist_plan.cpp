@@ -12,7 +12,9 @@
 #include "pipeline/pipeline_construction.h"
 #include "aggregate/reducer.h"
 #include "util/arr.h"
+#include "util/stringify.h"
 #include "dist_plan.h"
+#include "dist_plan_utils.h"
 
 #include <vector>
 #include <string>
@@ -61,6 +63,7 @@ struct ReducerDistCtx {
     if (PLNGroupStep_AddReducer(gstp, name, cargs, status) != REDISMODULE_OK) {
       return false;
     }
+    array_tail(gstp->reducers).isLocal = (gstp == this->localGroup);
     if (alias) {
       *alias = getLastAlias(gstp);
     }
@@ -240,9 +243,7 @@ static int distributeSingleArgSelf(ReducerDistCtx *rdctx, QueryError *status) {
 
 #define RANDOM_SAMPLE_SIZE 500
 
-#define STRINGIFY_(a) STRINGIFY__(a)
-#define STRINGIFY__(a) #a
-#define RANDOM_SAMPLE_SIZE_STR STRINGIFY_(RANDOM_SAMPLE_SIZE)
+#define RANDOM_SAMPLE_SIZE_STR STRINGIFY(RANDOM_SAMPLE_SIZE)
 
 /* Distribute QUANTILE into remote RANDOM_SAMPLE and local QUANTILE */
 static int distributeQuantile(ReducerDistCtx *rdctx, QueryError *status) {
@@ -333,6 +334,49 @@ static int distributeAvg(ReducerDistCtx *rdctx, QueryError *status) {
   return REDISMODULE_OK;
 }
 
+/* Remote COLLECT emits array-of-maps; local COLLECT consumes the remote alias.
+ *
+ * Note: this rewriter currently forwards the user's `LIMIT offset count` to
+ * the shard verbatim (via `buildCollectArgs`), unlike `serializeArrange` in
+ * `aggregate_plan.c` which rewrites `LIMIT offset count` to
+ * `LIMIT 0 (offset+count)`. Because of that, the shard reducer needs LIMIT
+ * context and an `is_internal` flag so it skips the local `skip(offset)` and
+ * lets the coordinator apply the global offset.
+ *
+ * TODO: reconsider switching to the `LIMIT 0 (offset+count)` rewrite pattern.
+ * It would let the shard COLLECT reducer drop both its `limit` and
+ * `is_internal` fields.
+ */
+static int distributeCollect(ReducerDistCtx *rdctx, QueryError *status) {
+  const PLN_Reducer *src = rdctx->srcReducer;
+  size_t argc = src->args.argc;
+
+  // Build temporary args, then persist their object arrays with copyArgs.
+  std::string remoteCountStr = std::to_string(argc);
+  std::vector<void *> remoteObjs(collectObjsBufLen(argc, /*has_alias=*/false));
+  ArgsCursor remoteArgs = buildCollectArgs(remoteObjs.data(), remoteCountStr.c_str(),
+                                           &src->args, nullptr);
+  rdctx->copyArgs(&remoteArgs);
+
+  const char *alias;
+  if (!rdctx->add(rdctx->remoteGroup, "COLLECT", &alias, status, &remoteArgs)) {
+    return REDISMODULE_ERR;
+  }
+
+  std::string localCountStr = std::to_string(argc);
+  std::vector<void *> localObjs(collectObjsBufLen(argc, /*has_alias=*/true));
+  ArgsCursor localArgs = buildCollectArgs(localObjs.data(), localCountStr.c_str(),
+                                          &src->args, src->alias);
+  rdctx->copyArgs(&localArgs);
+
+  if (!rdctx->add(rdctx->localGroup, "COLLECT", nullptr, status, &localArgs)) {
+    return REDISMODULE_ERR;
+  }
+  array_tail(rdctx->localGroup->reducers).inputAlias = rm_strdup(alias);
+
+  return REDISMODULE_OK;
+}
+
 // Registry of available distribution functions
 static struct {
   const char *key;
@@ -347,6 +391,7 @@ static struct {
     {"STDDEV", distributeStdDev},
     {"COUNT_DISTINCTISH", distributeCountDistinctish},
     {"QUANTILE", distributeQuantile},
+    {"COLLECT", distributeCollect},
 
     {NULL, NULL}  // sentinel value
 

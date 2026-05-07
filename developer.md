@@ -265,20 +265,22 @@ To start the external redis-server instance:
 
 #### Full-Text Search Benchmark (FTSB)
 
-Ensure you have Full-Text Search Benchmark (FTSB) installed. See installation instructions here: https://github.com/RediSearch/ftsb
+Install Full-Text Search Benchmark (FTSB) as per the instructions on https://github.com/RediSearch/ftsb
 
 Make sure you have the `ftsb_redisearch` binary available in your `$PATH`.
 
 #### memtier_benchmark
 
-Also ensure you have `memtier_benchmark` installed. See installation instructions here: https://github.com/redis/memtier_benchmark
+Install `memtier_benchmark` as per the instructions on https://github.com/redis/memtier_benchmark
+
+Make sure you have the `memtier_benchmark` binary available in your `$PATH`.
 
 #### Python packages
 
 Install necessary python packages:
 
 ```sh
-pip3 install -r ./tests/benchmarks/requirements.txt
+uv pip install -r ./tests/benchmarks/requirements.txt
 ```
 
 ### Run benchmarks
@@ -286,51 +288,89 @@ pip3 install -r ./tests/benchmarks/requirements.txt
 To run a specific benchmark, use the following command:
 
 ```sh
-redisbench-admin run-local \
+uv redisbench-admin run-local \
     --module_path $(find $(pwd)/bin -name "redisearch.so" | head -1) \
     --required-module search \
     --allowed-setups oss-standalone \
     --allowed-envs oss-standalone \
-    --skip-redis-spin True \
     --test tests/benchmarks/<benchmark>.yml
 ```
 
 Replace `<benchmark>` in the `--test` argument with the desired benchmark file. Look in `tests/benchmarks` for all available benchmarks.
 
-Use `--skip-redis-spin True` to skip spinning up a Redis instance.
+#### Profiling benchmarks with Samply
+
+Install `samply` as per the instructions on https://github.com/mstange/samply
+
+Make sure you have the `samply` binary available in your `$PATH`.
+
+In one terminal panel run:
+
+```sh
+samply record redis-server --loadmodule $(find $(pwd)/bin -name "redisearch.so" | head -1)
+```
+
+In the other terminal panel run:
+
+```sh
+uv redisbench-admin run-local \
+    --skip-redis-spin True \
+    --required-module search \
+    --allowed-setups oss-standalone \
+    --allowed-envs oss-standalone \
+    --test tests/benchmarks/<benchmark>.yml
+```
 
 ## Supported Platforms
 
-The following operating systems are supported and tested in CI:
+The following operating systems are supported and tested in CI on both `x86_64` and `aarch64` (with the exception of macOS 14, which is ARM64-only):
 
-* Ubuntu 18.04
-* Ubuntu 20.04
-* Ubuntu 22.04
-* Ubuntu 24.04
-* Debian linux 11
-* Debian linux 12
-* Rocky linux 8
-* Rocky linux 9
-* Amazon linux 2
-* Amazon linux 2023
-* Mariner 2.0
-* Azure linux 3
-* macOS
-* Alpine linux 3
+* Ubuntu 20.04 (Focal)
+* Ubuntu 22.04 (Jammy)
+* Ubuntu 24.04 (Noble)
+* Ubuntu 26.04 (Resolute)
+* Debian 12 (Bookworm)
+* Debian 13 (Trixie)
+* Rocky Linux 8
+* Rocky Linux 9
+* Rocky Linux 10
+* Amazon Linux 2023
+* Azure Linux 3
+* Alpine Linux 3.23
+* macOS 14 (ARM64)
+* macOS 15
+* macOS 26
 
-### Platform-specific compiler requirements
+### Platform-specific notes
 
-- Ubuntu 18.04: GCC 10 (not default, installed via PPA)
-- Ubuntu 20.04: GCC 10 (not default, installed via PPA)
-- Ubuntu 22.04: GCC 12 (not default, PPA not required)
-- Ubuntu 24.04: Default GCC is sufficient
-- Debian 11: Default GCC is sufficient
-- Debian 12: Default GCC is sufficient
-- Rocky Linux 8: GCC 13 (not default, installed via gcc-toolset-13-gcc and gcc-toolset-13-gcc-c++)
-- Rocky Linux 9: GCC 14 (not default, installed via gcc-toolset-14-gcc and gcc-toolset-14-gcc-c++)
-- Amazon Linux 2: GCC 11 (not default, installed via Amazon's SCL)
-- Amazon Linux 2023: Default GCC is sufficient
-- Mariner 2.0: Default GCC is sufficient
-- Azure Linux 3: Default GCC is sufficient
-- macOS: Install llvm@21 via homebrew
-- Alpine Linux 3: Default GCC is sufficient
+`./install_script.sh` covers compiler and build-tool installation on every supported platform. The notes below only flag things the script cannot do for you:
+
+- **macOS**: Homebrew must already be installed. The script will fail fast if `brew` is not on `$PATH`. Install it from https://brew.sh first.
+- **Rocky Linux 8 / 9**: The script installs GCC via `gcc-toolset-13` / `gcc-toolset-14` and registers the toolset under `/etc/profile.d/`, which only takes effect in **new** shells. To use the toolset in your current shell, run `source /opt/rh/gcc-toolset-13/enable` (Rocky 8) or `source /opt/rh/gcc-toolset-14/enable` (Rocky 9).
+
+## Updating Dependencies
+
+### Snowball Stemmer
+
+The snowball stemmer lives in `deps/snowball` as a git submodule. During the
+build, CMake compiles the snowball compiler, runs it on the `.sbl` algorithm
+files, and generates a C registry header (`modules.h`) that wires up every
+stemmer.
+
+The registry generation is handled by `cmake/generate_snowball_modules_h.cmake`,
+which parses `deps/snowball/libstemmer/modules.txt` and emits the include
+directives, encoding enum, module lookup table, and algorithm name list. It
+replaces the upstream `libstemmer/mkmodules.pl` Perl script and filters to
+UTF-8 encodings only.
+
+When pulling in a new snowball revision:
+
+1. Update the submodule: `git -C deps/snowball checkout <new-rev> && git add deps/snowball`
+2. Check whether `libstemmer/modules.txt` has changed (new languages, renamed
+   algorithms, new encodings). If the only changes are new algorithms with
+   `UTF_8` encoding, the CMake script picks them up automatically.
+3. If upstream added a new encoding beyond `UTF_8` that we need to support, or
+   changed the format of `modules.txt`, update
+   `cmake/generate_snowball_modules_h.cmake` to match.
+4. Build with `./build.sh FORCE` and verify the generated
+   `bin/<arch>/search-community/src/snowball/libstemmer/modules.h` looks correct.

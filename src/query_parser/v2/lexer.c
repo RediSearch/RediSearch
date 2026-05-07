@@ -37,11 +37,11 @@ int RSQuery_ParseNumericOp_v2(void* pParser, int OperatorType, QueryToken tok,
     tok.s = ts + 1;
 
     // Find the position before the operator
-    char *end1 = strchr(tok.s, c1) - 1;
+    const char *end1 = strchr(tok.s, c1) - 1;
     // Find the position after the operator
-    char *start2 = end1 + opLen + 1;
+    const char *start2 = end1 + opLen + 1;
     // Remove unescaped spaces at the end of the modifier
-    char *m = (char*)(tok.s);
+    const char *m = tok.s;
     int escaped = (*m == '\\');
     while (m < end1) {
       if (isspace(*(m + 1)) && !escaped) {

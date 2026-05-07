@@ -10,6 +10,7 @@
 #pragma once
 
 #include <stdbool.h>
+#include <stdatomic.h>
 
 #include "reply.h"
 #include "cluster.h"
@@ -33,6 +34,7 @@ void iterCursorMappingCb(void *p);
 
 /* Prototype for all reduce functions */
 typedef int (*MRReduceFunc)(struct MRCtx *ctx, int count, MRReply **replies);
+typedef void (*MRCtxFreePrivDataCB)(struct MRCtx *ctx);
 
 /* Fanout map - send the same command to all the shards, sending the collective
  * reply to the reducer callback */
@@ -85,7 +87,6 @@ void *MRCtx_GetPrivData(struct MRCtx *ctx);
 
 struct RedisModuleCtx *MRCtx_GetRedisCtx(struct MRCtx *ctx);
 int MRCtx_GetNumReplied(struct MRCtx *ctx);
-void MRCtx_RequestCompleted(struct MRCtx *ctx);
 MRReply** MRCtx_GetReplies(struct MRCtx *ctx);
 RedisModuleBlockedClient *MRCtx_GetBlockedClient(struct MRCtx *ctx);
 void MRCtx_SetReduceFunction(struct MRCtx *ctx, MRReduceFunc fn);
@@ -93,6 +94,9 @@ void MRCtx_SetReduceFunction(struct MRCtx *ctx, MRReduceFunc fn);
 int MRCtx_GetCommandProtocol(struct MRCtx *ctx);
 
 QueryError *MRCtx_GetStatus(struct MRCtx *ctx);
+void MRCtx_IncrRef(struct MRCtx *ctx);
+void MRCtx_DecrRef(struct MRCtx *ctx);
+void MRCtx_SetFreePrivDataCB(struct MRCtx *ctx, MRCtxFreePrivDataCB cb);
 
 /* Set the blocked client for the context (used when MRCtx is created before blocking) */
 void MRCtx_SetBlockedClient(struct MRCtx *ctx, RedisModuleBlockedClient *bc);
@@ -104,8 +108,8 @@ bool MRCtx_TryClaimReducing(struct MRCtx *ctx);
 void MRCtx_SignalReducerComplete(struct MRCtx *ctx);
 void MRCtx_WaitForReducerComplete(struct MRCtx *ctx);
 
-/* Free the MapReduce context */
-void MRCtx_Free(struct MRCtx *ctx);
+void MRCtx_SetValidateConnections(struct MRCtx *ctx, bool validateConnections);
+bool MRCtx_GetValidateConnections(struct MRCtx *ctx);
 
 /* Create a new MapReduce context with a given private data. In a redis module
  * this should be the RedisModuleCtx */
@@ -123,13 +127,16 @@ bool MR_ManuallyTriggerNextIfNeeded(MRIterator *it, size_t channelThreshold);
 
 MRReply *MRIterator_Next(MRIterator *it);
 
-/* Get the next reply from the iterator with a timeout.
- * Parameters:
- *   - it: the iterator
- *   - abstime: absolute time (CLOCK_MONOTONIC) when the timeout expires. If NULL, behaves like MRIterator_Next.
- *   - timedOut: output parameter, set to true if the function returned due to timeout
- * Returns: the next reply, or NULL if no more replies or timed out */
-MRReply *MRIterator_NextWithTimeout(MRIterator *it, const struct timespec *abstime, bool *timedOut);
+/* Get next reply, with optional CLOCK_MONOTONIC_RAW deadline (`abstime`) and/or
+ * abort flag (pair with MRChannel_WakeAbort). `timedOut` set if deadline expired.
+ * At least one of `abstime` / `abortFlag` must be non-NULL; for an indefinite
+ * blocking next, use MRIterator_Next. */
+MRReply *MRIterator_NextWithTimeout(MRIterator *it, const struct timespec *abstime,
+                                    atomic_bool *abortFlag, bool *timedOut);
+
+/* Return the underlying channel used by the iterator. Intended for callers that need to
+ * invoke MRChannel_WakeAbort directly (e.g. from a timeout callback on another thread). */
+struct MRChannel *MRIterator_GetChannel(MRIterator *it);
 
 MRIterator *MR_Iterate(const MRCommand *cmd, MRIteratorCallback cb);
 

@@ -10,7 +10,6 @@
 #include "doc_table.h"
 #include "redismodule.h"
 #include "inverted_index.h"
-#include "iterators/inverted_index_iterator.h"
 #include "iterators_rs.h"
 #include "rmutil/strings.h"
 #include "rmutil/util.h"
@@ -90,12 +89,21 @@ void RedisSearchCtx_LockSpecRead(RedisSearchCtx *ctx) {
   // pause rehashing while we're using the dict for reads only
   // Assert that the pause value before we pause is valid.
   RS_ASSERT_ALWAYS(dictPauseRehashing(ctx->spec->keysDict));
-  // Also pause rehashing on the TTL table if it exists, to avoid concurrent
-  // rehash steps from multiple query threads corrupting the dict during reads.
-  if (ctx->spec->docs.ttl) {
-    RS_ASSERT_ALWAYS(dictPauseRehashing(ctx->spec->docs.ttl));
-  }
   ctx->flags = RS_CTX_READONLY;
+}
+
+int RedisSearchCtx_TryLockSpecRead(RedisSearchCtx *ctx) {
+  RS_ASSERT(ctx->flags == RS_CTX_UNSET);
+  int rc = pthread_rwlock_tryrdlock(&ctx->spec->rwlock);
+  if (rc != 0) {
+    // Lock is busy (EBUSY) or other error
+    return REDISMODULE_ERR;
+  }
+  // pause rehashing while we're using the dict for reads only
+  // Assert that the pause value before we pause is valid.
+  RS_ASSERT_ALWAYS(dictPauseRehashing(ctx->spec->keysDict));
+  ctx->flags = RS_CTX_READONLY;
+  return REDISMODULE_OK;
 }
 
 void RedisSearchCtx_LockSpecWrite(RedisSearchCtx *ctx) {
@@ -131,10 +139,6 @@ void RedisSearchCtx_UnlockSpec(RedisSearchCtx *sctx) {
     // We paused rehashing when we locked the spec for read. Now we can resume it.
     // Assert that it was actually previously paused
     RS_ASSERT_ALWAYS(dictResumeRehashing(sctx->spec->keysDict));
-    // Also resume rehashing on the TTL table if it exists
-    if (sctx->spec->docs.ttl) {
-      RS_ASSERT_ALWAYS(dictResumeRehashing(sctx->spec->docs.ttl));
-    }
   }
   pthread_rwlock_unlock(&sctx->spec->rwlock);
   sctx->flags = RS_CTX_UNSET;
@@ -157,27 +161,27 @@ void SearchCtx_Free(RedisSearchCtx *sctx) {
   rm_free(sctx);
 }
 
-static InvertedIndex *openIndexKeysDict(const RedisSearchCtx *ctx, CharBuf *termKey,
+static InvertedIndex *openIndexKeysDict(IndexSpec *spec, CharBuf *termKey,
                                         bool write, bool *outIsNew) {
-  InvertedIndex *idx = dictFetchValue(ctx->spec->keysDict, termKey);
+  InvertedIndex *idx = dictFetchValue(spec->keysDict, termKey);
   if (outIsNew) {
     *outIsNew = idx == NULL;
   }
   if (write && !idx) {
     size_t index_size;
-    idx = NewInvertedIndex(ctx->spec->flags, &index_size);
-    ctx->spec->stats.invertedSize += index_size;
-    dictAdd(ctx->spec->keysDict, termKey, idx);
+    idx = NewInvertedIndex(spec->flags, &index_size);
+    spec->stats.invertedSize += index_size;
+    dictAdd(spec->keysDict, termKey, idx);
   }
   return idx;
 }
 
-InvertedIndex *Redis_OpenInvertedIndex(const RedisSearchCtx *ctx, const char *term, size_t len, bool write, bool *outIsNew) {
+InvertedIndex *Redis_OpenInvertedIndex(IndexSpec *spec, const char *term, size_t len, bool write, bool *outIsNew) {
   CharBuf termKeyBuf = {
       .buf = (char *)term,
       .len = len,
   };
-  InvertedIndex *idx = openIndexKeysDict(ctx, &termKeyBuf, write, outIsNew);
+  InvertedIndex *idx = openIndexKeysDict(spec, &termKeyBuf, write, outIsNew);
   return idx;
 }
 
@@ -186,7 +190,7 @@ QueryIterator *Redis_OpenReader(const RedisSearchCtx *ctx, RSToken *tok, int tok
 
   CharBuf termKey = {.buf = tok->str, .len = tok->len};
 
-  InvertedIndex *idx = openIndexKeysDict(ctx, &termKey, false, NULL);
+  InvertedIndex *idx = openIndexKeysDict(ctx->spec, &termKey, false, NULL);
   if (!idx) {
     return NULL;
   }

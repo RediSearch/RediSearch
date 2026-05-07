@@ -18,8 +18,10 @@ on:
       coverage:
         type: boolean
         default: false
-      get-redis:
+      redis-ref:
+        description: 'Redis version to use (e.g. "7.2.3", "unstable")'
         type: string
+        default: 3cd464263b03b425ffae2e23db24df3dc9346871
       test-config:
         description: 'Test configuration environment variable (e.g. "CONFIG=tls" or "QUICK=1")'
         required: true
@@ -43,7 +45,7 @@ on:
         description: "Branch to use when building RedisJSON for tests"
       test-timeout:
         type: number
-        default: 50
+        default: 120
       fail-fast:
         type: boolean
         default: false
@@ -133,7 +135,7 @@ jobs:
 
   common-flow:
     needs: [get-config, build-image, start-runner]
-    name: Test ${{ needs.get-config.outputs.name }}, Redis ${{ inputs.get-redis || 'unstable' }}
+    name: Test ${{ needs.get-config.outputs.name }}, Redis ${{ inputs.redis-ref }}
     # Run if get-config succeeded and at least one test type is enabled
     if: |
       !cancelled() &&
@@ -146,7 +148,7 @@ jobs:
         && fromJSON(
           format('{{"image":"{0}","options":"--user root -v /usr/share/dotnet:/host_usr/dotnet -v /usr/local/lib/android:/host_usr/android -v /opt/ghc:/host_opt/ghc -v /opt/hostedtoolcache:/host_opt/hostedtoolcache {1}"}}',
             needs.build-image.outputs.succeeded == 'true' && needs.build-image.outputs.image || needs.get-config.outputs.container,
-            needs.get-config.outputs.container == 'alpine:3.22' && '-v /opt:/opt:rw,rshared -v /opt:/__e/node20:ro,rshared -v /opt:/__e/node24:ro,rshared' || '')
+            startsWith(needs.get-config.outputs.container, 'alpine:') && '-v /opt:/opt:rw,rshared -v /opt:/__e/node20:ro,rshared -v /opt:/__e/node24:ro,rshared' || '')
         )
       || null }}
 
@@ -159,7 +161,7 @@ jobs:
         shell: bash -l -eo pipefail {0}
     steps:
       - name: Install bash
-        if: needs.get-config.outputs.container == 'alpine:3.22'
+        if: startsWith(needs.get-config.outputs.container, 'alpine:')
         shell: sh -l -eo pipefail {0}
         run: ${{ format(env.SETUP_RETRY_LOOP, 'apk add bash') }}
 
@@ -232,47 +234,10 @@ jobs:
           ${{ needs.get-config.outputs.install_mode }} rm -rf /opt/ghc || true
           ${{ needs.get-config.outputs.install_mode }} rm -rf /opt/hostedtoolcache/CodeQL || true
           df -h
-      - name: Full checkout (node20)
-        if: needs.get-config.outputs.node20_supported == 'true'
-        uses: actions/checkout@v4
+      - name: Full checkout
+        uses: actions/checkout@v6
         with:
           submodules: recursive
-      - name: Full checkout (legacy)
-        # Manual checkout path for platforms where Node 20-based actions are unavailable.
-        if: needs.get-config.outputs.node20_supported != 'true'
-        env:
-          GITHUB_REF: ${{ github.ref }}
-          GITHUB_REPO: ${{ github.repository }}
-        run: |
-          CONTAINER="${{ needs.get-config.outputs.container }}"
-          echo "Detected platform: $CONTAINER"
-          case "$CONTAINER" in
-            amazonlinux:2)
-              # Configure the safe directory.
-              git config --global --add safe.directory "/__w/$GITHUB_REPO"
-
-              # Checkout.
-              REPO_URL="https://github.com/$GITHUB_REPO.git"
-
-              # Initialize a Git repository.
-              git init
-              git remote add origin "$REPO_URL"
-
-              # Fetch the requested ref, then check it out and initialize submodules.
-              git fetch origin "$GITHUB_REF" || {
-                echo "Failed to fetch ref: '$GITHUB_REF'";
-                exit 1;
-              }
-              # Check out the fetched ref.
-              git checkout FETCH_HEAD
-              # Update submodules.
-              git submodule update --init --recursive
-              ;;
-            *)
-              echo "Unsupported platform: '$CONTAINER'"
-              exit 1
-              ;;
-          esac
       - name: Print CPU information
         env:
           RUNNER_ARCH: ${{ runner.arch }}
@@ -296,8 +261,6 @@ jobs:
           echo "Runner Architecture: $RUNNER_ARCH"
           echo "========================"
       - name: Setup sccache
-        # sccache-action is a JavaScript action requiring Node.js 20+
-        if: needs.get-config.outputs.node20_supported == 'true'
         uses: ./.github/actions/setup-sccache
       - name: Setup
         if: needs.build-image.outputs.succeeded != 'true'
@@ -308,7 +271,6 @@ jobs:
 
       # Cache Rust packages
       - uses: Swatinem/rust-cache@v2
-        if: needs.get-config.outputs.node20_supported == 'true'
         with:
           prefix-key: "v2-rust"
           key: ${{ inputs.platform }}-${{ inputs.architecture }}-${{ inputs.san }}-${{ inputs.coverage && 'cov' || '' }}
@@ -318,8 +280,17 @@ jobs:
           # relative to the `$workspace` and defaults to "target" if not explicitly given.
           # default: ". -> target"
           workspaces: "src/redisearch_rs -> ../../bin/redisearch_rs"
+          # Save cache even when the job fails, so subsequent runs can reuse
+          # compiled artifacts. Without this, cache is never populated on
+          # platforms with high failure rates (e.g. macOS x86_64).
+          cache-on-failure: true
       - name: Setup Rust test dependencies
         if: needs.build-image.outputs.succeeded != 'true' # Only run if NOT using custom container
+        # GITHUB_TOKEN lets cargo-binstall use authenticated GitHub API calls
+        # (5000 req/hr vs 60/hr unauthenticated), avoiding 403 rate-limit errors
+        # that force ~18 min source compilations on macOS Intel runners.
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: .install/test_deps/install_rust_deps.sh ${{ needs.get-config.outputs.install_mode }}
 
       - name: Setup Python test dependencies
@@ -346,18 +317,13 @@ jobs:
           echo "CXX=$(dirname $CLANG_BIN)/clang++-$CLANG_VERSION" >> $GITHUB_ENV
           echo "LD=$CLANG_BIN" >> $GITHUB_ENV
           echo "ASAN_SYMBOLIZER_PATH=/usr/lib/llvm-$CLANG_VERSION/bin/llvm-symbolizer" >> $GITHUB_ENV
-      - name: Get Redis
-        uses: ./.github/actions/get-redis
+      - name: Build Redis (cached)
+        uses: ./.github/actions/build-redis
         with:
-          ref: ${{ inputs.get-redis }}
-          node20_supported: ${{ needs.get-config.outputs.node20_supported }}
-
-      - name: Build Redis
-        working-directory: redis
-        run:  ${{ needs.get-config.outputs.install_mode }} make install
-              BUILD_TLS=yes
-              ${{ inputs.coverage && 'REDIS_CFLAGS=-DCOVERAGE_TEST' || '' }}
-              SANITIZER=${{ inputs.san }}
+          ref: ${{ inputs.redis-ref }}
+          san: ${{ inputs.san }}
+          coverage: ${{ inputs.coverage }}
+          cache_platform_id: ${{ needs.get-config.outputs.container || needs.get-config.outputs.env }}
 
       - name: Set Artifact Names
         # Artifact names have to be unique, so we base them on the environment.
@@ -368,7 +334,7 @@ jobs:
           COV_LABEL: ${{ inputs.coverage && 'coverage test' || '' }}
           PLATFORM: ${{ needs.get-config.outputs.container || needs.get-config.outputs.env }}
           ARCH: ${{ runner.arch }}
-          REDIS_VERSION: ${{ inputs.get-redis || 'unstable' }}
+          REDIS_VERSION: ${{ inputs.redis-ref }}
         run:
           | # Invalid characters include: Double quote ", Colon :, Less than <, Greater than >, Vertical bar |, Asterisk *, Question mark ?
           UNIQUE_ID="$RANDOM$RANDOM"
@@ -379,9 +345,12 @@ jobs:
       - name: Build
         env:
           SAN: ${{ inputs.san }}
-          REDIS_VER: ${{ inputs.get-redis }}
+          REDIS_VER: ${{ inputs.redis-ref }}
           ENABLE_ASSERT: 1
         run: make build TESTS=1
+      - name: Validate glibc version
+        if: runner.os == 'Linux' && inputs.platform != 'ubuntu:focal'
+        uses: ./.github/actions/validate-glibc-version
       - name: Check disk space after build
         run: |
           echo "Disk space after build:"
@@ -423,7 +392,8 @@ jobs:
           REJSON: ${{ env.REJSON }}
           REJSON_BRANCH: ${{ inputs.rejson-branch }}
           ENABLE_ASSERT: 1
-        run: make pytest ${{ inputs.test-config }}
+          TEST_CONFIG: ${{ inputs.test-config }}
+        run: make pytest $TEST_CONFIG
 
       - name: Flow tests (coordinator)
         timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
@@ -438,7 +408,8 @@ jobs:
           REJSON: ${{ env.REJSON }}
           REJSON_BRANCH: ${{ inputs.rejson-branch }}
           ENABLE_ASSERT: 1
-        run: make pytest ${{ inputs.test-config }}
+          TEST_CONFIG: ${{ inputs.test-config }}
+        run: make pytest $TEST_CONFIG
 
       - name: Rust tests (MIRI)
         if: inputs.san == 'address' && inputs.unit-tests
@@ -453,7 +424,6 @@ jobs:
         run: make rust-tests
 
       - name: Show sccache stats
-        if: needs.get-config.outputs.node20_supported == 'true'
         run: ${SCCACHE_PATH:-sccache} --show-stats
 
       - name: Check test logs folder size
@@ -510,11 +480,9 @@ jobs:
           fi
           echo "=========================="
 
-      # Using version 4 if node20 is supported, since it is MUCH faster (15m vs 25s)
-      - name: Upload Artifacts (node20)
-        # Upload artifacts only if node20 is supported and tests failed (including sanitizer failures)
+      - name: Upload Artifacts
+        # Upload artifacts if tests failed (including sanitizer failures)
         if: >
-          needs.get-config.outputs.node20_supported == 'true' &&
           failure() || (
             (steps.rust_unit_tests_miri.outcome == 'failure') ||
             steps.rust_unit_tests.outcome == 'failure' ||
@@ -531,19 +499,6 @@ jobs:
             bin/**/redisearch.so.debug
 
           if-no-files-found: ignore
-      # If node20 is not supported, we can only use version 3.
-      # Here we only upload the artifacts if the tests had failed, since it is very slow
-      - name: Upload Artifacts (node20 not supported) (temporarily disabled)
-        if: >
-          needs.get-config.outputs.node20_supported != 'true' &&
-          failure() || (
-            (steps.rust_unit_tests_miri.outcome == 'failure') ||
-            steps.rust_unit_tests.outcome == 'failure' ||
-            steps.c_unit_tests.outcome == 'failure' ||
-            steps.standalone_tests.outcome == 'failure' ||
-            steps.coordinator_tests.outcome == 'failure'
-          )
-        run: echo "Currently not available..."
 
       - name: Fail flow if tests failed
         # due to continue-on-error, we need to check failure() explicitly for step to run
@@ -568,7 +523,7 @@ jobs:
         run: gpg --import .github/codecov_gpg.pub
       - name: Upload flow coverage (combined)
         if: inputs.coverage && inputs.standalone && inputs.coordinator
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v6 # NOSONAR
         with:
           files: bin/flow_standalone.info,bin/flow_coordinator.info
           disable_search: true
@@ -577,7 +532,7 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
       - name: Upload flow coverage (standalone)
         if: inputs.coverage && inputs.standalone && !inputs.coordinator
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v6 # NOSONAR
         with:
           files: bin/flow_standalone.info
           disable_search: true
@@ -586,7 +541,7 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
       - name: Upload flow coverage (coordinator)
         if: inputs.coverage && !inputs.standalone && inputs.coordinator
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v6 # NOSONAR
         with:
           files: bin/flow_coordinator.info
           disable_search: true
@@ -595,7 +550,7 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
       - name: Upload unit coverage
         if: inputs.coverage && inputs.unit-tests
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v6 # NOSONAR
         with:
           files: bin/unit.info,bin/rust_cov.info
           disable_search: true

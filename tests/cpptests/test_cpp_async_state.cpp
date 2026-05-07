@@ -165,6 +165,7 @@ TEST_F(AsyncStateTest, testPendingToReady) {
 
     // Create mock DMD
     RSDocumentMetadata *dmd = (RSDocumentMetadata *)rm_calloc(1, sizeof(RSDocumentMetadata));
+    dmd->sortVector = RSSortingVector_Empty();
     dmd->ref_count = 1;
     dmd->id = docId;
     dmd->keyPtr = sdsnewlen("key", 3);
@@ -202,6 +203,7 @@ TEST_F(AsyncStateTest, testReadyToConsumed) {
     AsyncReadResult *result = &state.readyResults[docId - 1];
 
     RSDocumentMetadata *dmd = (RSDocumentMetadata *)rm_calloc(1, sizeof(RSDocumentMetadata));
+    dmd->sortVector = RSSortingVector_Empty();
     dmd->ref_count = 1;
     dmd->id = docId;
     dmd->keyPtr = sdsnewlen("key", 3);
@@ -272,6 +274,7 @@ TEST_F(AsyncStateTest, testFullLifecycle) {
     AsyncReadResult *result = &state.readyResults[docId - 100];
 
     RSDocumentMetadata *dmd = (RSDocumentMetadata *)rm_calloc(1, sizeof(RSDocumentMetadata));
+    dmd->sortVector = RSSortingVector_Empty();
     dmd->ref_count = 1;
     dmd->id = docId;
     dmd->keyPtr = sdsnewlen("key", 3);
@@ -395,6 +398,7 @@ TEST_F(AsyncStateTest, testFailedReads) {
       // Success
       AsyncReadResult *result = &state.readyResults[resultIdx++];
       RSDocumentMetadata *dmd = (RSDocumentMetadata *)rm_calloc(1, sizeof(RSDocumentMetadata));
+      dmd->sortVector = RSSortingVector_Empty();
       dmd->ref_count = 1;
       dmd->id = docId;
       dmd->keyPtr = sdsnewlen("key", 3);
@@ -453,6 +457,7 @@ TEST_F(AsyncStateTest, testSingleResultLifecycle) {
   IndexResultNode *node = (IndexResultNode *)state.pendingResults.next;
 
   RSDocumentMetadata *dmd = (RSDocumentMetadata *)rm_calloc(1, sizeof(RSDocumentMetadata));
+  dmd->sortVector = RSSortingVector_Empty();
   dmd->ref_count = 1;
   dmd->id = 42;
   dmd->keyPtr = sdsnewlen("key42", 5);

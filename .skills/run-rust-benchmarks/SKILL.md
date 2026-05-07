@@ -26,6 +26,7 @@ Arguments provided: `$ARGUMENTS`
      ```
 2. **Run benchmarks only once.** If the output is too large or truncated, extract the timing data from the saved output file rather than re-running the benchmarks.
 3. Once the benchmarks are complete, generate a summary comparing the average run times between the Rust and C implementations.
+4. Ask the user: "Would you like a copyable markdown version for your PR description?" If yes, re-emit the summary table inside a fenced ` ```markdown ` code block so it can be pasted directly.
 
 ## Common Benchmark Commands
 

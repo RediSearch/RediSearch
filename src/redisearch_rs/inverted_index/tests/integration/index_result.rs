@@ -9,7 +9,8 @@
 
 use ffi::RS_FIELDMASK_ALL;
 use inverted_index::{
-    RSAggregateResult, RSIndexResult, RSOffsetSlice, RSResultKind, RSResultKindMask,
+    MetricsVec, RSAggregateResult, RSIndexResult, RSOffsetSlice, RSOffsetVector, RSResultKind,
+    RSResultKindMask,
 };
 use query_term::RSQueryTerm;
 
@@ -94,7 +95,7 @@ fn pushing_to_index_result() {
     assert_eq!(ir.freq, 0);
     assert_eq!(ir.field_mask, 0);
 
-    ir.push_borrowed(&result_virt);
+    ir.push_borrowed(&result_virt, MetricsVec::new());
     assert_eq!(ir.doc_id, 2, "should inherit doc id of the child");
     assert_eq!(ir.kind(), RSResultKind::Union);
     assert_eq!(ir.weight, 1.0);
@@ -111,7 +112,7 @@ fn pushing_to_index_result() {
         )
     );
 
-    ir.push_borrowed(&result_with_frequency);
+    ir.push_borrowed(&result_with_frequency, MetricsVec::new());
     assert_eq!(ir.doc_id, 2);
     assert_eq!(ir.kind(), RSResultKind::Union);
     assert_eq!(ir.weight, 1.0);
@@ -127,7 +128,7 @@ fn to_owned_an_aggregate_index_result() {
         .weight(3.0)
         .build();
 
-    ir.push_borrowed(&num_rec);
+    ir.push_borrowed(&num_rec, MetricsVec::new());
 
     let mut ir_copy = ir.to_owned();
 
@@ -255,4 +256,213 @@ fn to_owned_a_term_index_result() {
         1,
         "cloned offsets should not have changed"
     );
+}
+
+// ── is_within_range — trivial paths ──────────────────────────────────────
+
+#[test]
+fn non_aggregate_always_true() {
+    // A term result (not an aggregate) → trivially within range.
+    static BYTES: [u8; 1] = [5];
+    let ir = RSIndexResult::build_term()
+        .borrowed_record(None, RSOffsetSlice::from_slice(&BYTES))
+        .doc_id(1)
+        .build();
+    assert!(ir.is_within_range(Some(0), false));
+    assert!(ir.is_within_range(Some(0), true));
+}
+
+#[test]
+fn single_child_aggregate_always_true() {
+    // An intersection with a single numeric child — no proximity check needed.
+    let child = RSIndexResult::build_numeric(1.0).doc_id(1).build();
+    let mut ir = RSIndexResult::build_intersect(1).build();
+    ir.push_borrowed(&child, MetricsVec::new());
+    assert!(ir.is_within_range(Some(0), false));
+    assert!(ir.is_within_range(Some(0), true));
+}
+
+// ── is_within_range — max_slop=None + in_order=true ─────────────────────
+
+#[test]
+fn in_order_no_slop_succeeds_when_order_exists() {
+    // t1 at pos 3, t2 at pos 7: ordered with any gap → true.
+    static T1: [u8; 1] = [3];
+    static T2: [u8; 1] = [7];
+    let t1: RSIndexResult<'static> = RSIndexResult::build_term()
+        .borrowed_record(None, RSOffsetSlice::from_slice(&T1))
+        .doc_id(1)
+        .build();
+    let t2: RSIndexResult<'static> = RSIndexResult::build_term()
+        .borrowed_record(None, RSOffsetSlice::from_slice(&T2))
+        .doc_id(1)
+        .build();
+    let mut ir = RSIndexResult::build_intersect(2).build();
+    ir.push_borrowed(&t1, MetricsVec::new());
+    ir.push_borrowed(&t2, MetricsVec::new());
+    assert!(ir.is_within_range(None, true));
+}
+
+#[test]
+fn in_order_no_slop_fails_when_order_impossible() {
+    // t1 is only at position 10, t2 is only at position 5.
+    // With in_order=true there is no pair (t1_pos, t2_pos) where t1_pos < t2_pos,
+    // so the check must fail regardless of max_slop=None.
+    static T1: [u8; 1] = [10]; // pos 10
+    static T2: [u8; 1] = [5]; // pos 5 — cannot follow 10
+    let t1: RSIndexResult<'static> = RSIndexResult::build_term()
+        .borrowed_record(None, RSOffsetSlice::from_slice(&T1))
+        .doc_id(1)
+        .build();
+    let t2: RSIndexResult<'static> = RSIndexResult::build_term()
+        .borrowed_record(None, RSOffsetSlice::from_slice(&T2))
+        .doc_id(1)
+        .build();
+    let mut ir = RSIndexResult::build_intersect(2).build();
+    ir.push_borrowed(&t1, MetricsVec::new());
+    ir.push_borrowed(&t2, MetricsVec::new());
+    assert!(!ir.is_within_range(None, true));
+}
+
+#[test]
+fn purely_numeric_children_always_true() {
+    // An intersection of two numeric results has no offsets → trivially within range.
+    let child1 = RSIndexResult::build_numeric(1.0).doc_id(1).build();
+    let child2 = RSIndexResult::build_numeric(2.0).doc_id(1).build();
+    let mut ir = RSIndexResult::build_intersect(2).build();
+    ir.push_borrowed(&child1, MetricsVec::new());
+    ir.push_borrowed(&child2, MetricsVec::new());
+    assert!(ir.is_within_range(Some(0), false));
+    assert!(ir.is_within_range(Some(0), true));
+}
+
+// ── is_within_range — full integration ───────────────────────────────────
+
+/// vw1 = {1, 9, 13, 16, 22}, vw2 = {4, 7, 32}
+#[test]
+fn full_test_mirrors_cpp_testdistance() {
+    // vw1 = {1, 9, 13, 16, 22} → deltas [1, 8, 4, 3, 6]
+    // vw2 = {4, 7, 32}          → deltas [4, 3, 25]
+    // Since all values < 128, varint bytes equal the delta values.
+    static VW1_BYTES: [u8; 5] = [1, 8, 4, 3, 6];
+    static VW2_BYTES: [u8; 3] = [4, 3, 25];
+
+    let t1: RSIndexResult<'static> = RSIndexResult::build_term()
+        .borrowed_record(None, RSOffsetSlice::from_slice(&VW1_BYTES))
+        .doc_id(1)
+        .build();
+    let t2: RSIndexResult<'static> = RSIndexResult::build_term()
+        .borrowed_record(None, RSOffsetSlice::from_slice(&VW2_BYTES))
+        .doc_id(1)
+        .build();
+
+    let mut ir = RSIndexResult::build_intersect(2).build();
+    ir.push_borrowed(&t1, MetricsVec::new());
+    ir.push_borrowed(&t2, MetricsVec::new());
+
+    // Unordered: slop=1 is true because (vw1=9, vw2=7) has span=1.
+    assert!(!ir.is_within_range(Some(0), false));
+    assert!(ir.is_within_range(Some(1), false));
+    assert!(ir.is_within_range(Some(2), false));
+    assert!(ir.is_within_range(Some(3), false));
+    assert!(ir.is_within_range(Some(4), false));
+
+    // In-order:
+    assert!(!ir.is_within_range(Some(0), true));
+    assert!(!ir.is_within_range(Some(1), true));
+    assert!(ir.is_within_range(Some(2), true));
+    assert!(ir.is_within_range(Some(3), true));
+    assert!(ir.is_within_range(Some(4), true));
+    assert!(ir.is_within_range(Some(5), true));
+}
+
+// ── RSTermRecord::FullyOwned ─────────────────────────────────────────────
+//
+// The `FullyOwned` variant owns both the query term (via `Box`) and the
+// offsets (via `RSOffsetVector`), so the resulting `RSIndexResult` is
+// independent of the original offset byte source.
+
+/// Build a `FullyOwned`-backed result, drop the source bytes, and verify the
+/// record still reads back correctly. Also exercises the `is_copy`,
+/// `offsets`, and `query_term` match arms for the `FullyOwned` variant.
+#[test]
+fn fully_owned_term_result_is_independent_of_source_bytes() {
+    let term = RSQueryTerm::new("abc", 1, 0);
+
+    // Allocate the offset bytes on a temporary buffer, copy them into an
+    // owned vector, and then explicitly drop the source buffer so any
+    // subsequent read must go through the record's own allocation.
+    let transient: Vec<u8> = vec![1, 4, 9];
+    let offsets_vec = RSOffsetSlice::from_slice(&transient).to_owned();
+    drop(transient);
+
+    let ir = RSIndexResult::build_term()
+        .fully_owned_record(Some(term), offsets_vec)
+        .doc_id(42)
+        .field_mask(7)
+        .frequency(2)
+        .weight(1.5)
+        .build();
+
+    let term_rec = ir.as_term().expect("term record");
+    assert!(term_rec.is_copy(), "FullyOwned is a copy variant");
+    assert!(ir.is_copy(), "FullyOwned bubbles up through RSIndexResult");
+    assert_eq!(term_rec.offsets(), &[1, 4, 9]);
+    assert_eq!(
+        term_rec.query_term().and_then(|t| t.as_bytes()),
+        Some(b"abc".as_ref())
+    );
+    assert_eq!(ir.doc_id, 42);
+    assert_eq!(ir.field_mask, 7);
+    assert_eq!(ir.freq, 2);
+    assert_eq!(ir.weight, 1.5);
+}
+
+/// `set_offsets` on a `FullyOwned` record copies the input slice into the
+/// record's own allocation (exercising the `FullyOwned` match arm of
+/// `set_offsets`, distinct from the `Borrowed` arm covered elsewhere).
+#[test]
+fn set_offsets_on_fully_owned_copies_slice() {
+    static INITIAL: [u8; 2] = [1, 2];
+    static REPLACEMENT: [u8; 3] = [9, 8, 7];
+    let term = RSQueryTerm::new("t", 1, 0);
+    let mut ir = RSIndexResult::build_term()
+        .fully_owned_record(Some(term), RSOffsetSlice::from_slice(&INITIAL).to_owned())
+        .build();
+
+    ir.as_term_mut()
+        .unwrap()
+        .set_offsets(RSOffsetSlice::from_slice(&REPLACEMENT));
+
+    assert_eq!(ir.as_term().unwrap().offsets(), &REPLACEMENT);
+}
+
+/// `set_offsets_owned` must also work on the `Owned` variant, replacing its
+/// offset vector in place.
+#[test]
+fn set_offsets_owned_on_owned_replaces_data() {
+    // Build an `Owned` record via `to_owned()` from a `Borrowed` one.
+    let source = RSIndexResult::build_term()
+        .borrowed_record(None, RSOffsetSlice::from_slice(&[1u8]))
+        .build();
+    let mut owned = source.to_owned();
+    assert!(owned.is_copy(), "to_owned produces a copy variant");
+
+    let replacement = RSOffsetSlice::from_slice(&[42u8, 43]).to_owned();
+    owned.as_term_mut().unwrap().set_offsets_owned(replacement);
+
+    assert_eq!(owned.as_term().unwrap().offsets(), &[42, 43]);
+}
+
+/// Calling `set_offsets_owned` on a `Borrowed` record is a programming error:
+/// the variant has no home for an owned vector. It must panic.
+#[test]
+#[should_panic(expected = "set_offsets_owned called on RSTermRecord::Borrowed")]
+fn set_offsets_owned_on_borrowed_panics() {
+    let mut ir = RSIndexResult::build_term()
+        .borrowed_record(None, RSOffsetSlice::empty())
+        .build();
+    ir.as_term_mut()
+        .unwrap()
+        .set_offsets_owned(RSOffsetVector::empty());
 }

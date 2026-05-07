@@ -10,7 +10,7 @@ jobs:
       RUST_BACKTRACE: full
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           submodules: recursive
       - name: Setup specific
@@ -19,7 +19,7 @@ jobs:
       - name: Setup sccache
         uses: ./.github/actions/setup-sccache
       - name: Build RediSearch
-        run: make build
+        run: make build LTO=1
       - name: Download Latest Baseline Artifact from master
         id: get-artifact
         if: github.event_name == 'pull_request'

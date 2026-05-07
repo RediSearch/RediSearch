@@ -16,8 +16,6 @@ use inverted_index::{RSQueryTerm, doc_ids_only::DocIdsOnly, opaque::OpaqueEncodi
 use rqe_iterators::{RQEIterator, SkipToOutcome, inverted_index::Tag};
 use rqe_iterators_test_utils::TestContext;
 
-use crate::ffi as bench_ffi;
-
 use super::{INDEX_SIZE, SKIP_TO_STEP, SPARSE_DELTA, benchmark_group};
 
 pub struct TagBencher {
@@ -46,65 +44,20 @@ impl TagBencher {
 
     fn read_dense(&self, c: &mut Criterion) {
         let mut group = benchmark_group(c, "Tag", "Read Dense");
-        self.c_read(&mut group, &self.context_dense);
         self.rust_read(&mut group, &self.context_dense);
         group.finish();
     }
 
     fn skip_to_dense(&self, c: &mut Criterion) {
         let mut group = benchmark_group(c, "Tag", "SkipTo Dense");
-        self.c_skip_to(&mut group, &self.context_dense);
         self.rust_skip_to(&mut group, &self.context_dense);
         group.finish();
     }
 
     fn skip_to_sparse(&self, c: &mut Criterion) {
         let mut group = benchmark_group(c, "Tag", "SkipTo Sparse");
-        self.c_skip_to(&mut group, &self.context_sparse);
         self.rust_skip_to(&mut group, &self.context_sparse);
         group.finish();
-    }
-
-    fn c_read<M: Measurement>(&self, group: &mut BenchmarkGroup<'_, M>, context: &TestContext) {
-        let idx = context.tag_index_ptr();
-        let tag_idx = context.tag_index().as_ptr();
-        let sctx = context.sctx.as_ptr();
-        group.bench_function("C", |b| {
-            b.iter(|| {
-                let term = Box::into_raw(RSQueryTerm::new("test_tag", 0, 0));
-                // SAFETY: `context` provides valid pointers with a valid
-                // `spec` and `TagIndex` that outlive the iterator.
-                // `term` is heap-allocated via `Box::into_raw`.
-                let it =
-                    unsafe { bench_ffi::QueryIterator::new_tag(idx, tag_idx, sctx, term, 0.0) };
-                while it.read() == ::ffi::IteratorStatus_ITERATOR_OK {
-                    black_box(it.current());
-                }
-                it.free();
-            });
-        });
-    }
-
-    fn c_skip_to<M: Measurement>(&self, group: &mut BenchmarkGroup<'_, M>, context: &TestContext) {
-        let idx = context.tag_index_ptr();
-        let tag_idx = context.tag_index().as_ptr();
-        let sctx = context.sctx.as_ptr();
-        group.bench_function("C", |b| {
-            b.iter(|| {
-                let term = Box::into_raw(RSQueryTerm::new("test_tag", 0, 0));
-                // SAFETY: `context` provides valid pointers with a valid
-                // `spec` and `TagIndex` that outlive the iterator.
-                // `term` is heap-allocated via `Box::into_raw`.
-                let it =
-                    unsafe { bench_ffi::QueryIterator::new_tag(idx, tag_idx, sctx, term, 0.0) };
-                while it.skip_to(it.last_doc_id() + SKIP_TO_STEP)
-                    != ::ffi::IteratorStatus_ITERATOR_EOF
-                {
-                    black_box(it.current());
-                }
-                it.free();
-            });
-        });
     }
 
     fn rust_read<M: Measurement>(&self, group: &mut BenchmarkGroup<'_, M>, context: &TestContext) {

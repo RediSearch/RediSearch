@@ -24,10 +24,10 @@ int coord_search_query_reply_empty(RedisModuleCtx *ctx, RedisModuleString **argv
 // Requires command arguments to extract formatting requirements.
 int coord_aggregate_query_reply_empty(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, QueryErrorCode errCode);
 
-// Empty reply for hybrid queries.
-// Uses RESP3 map structure with proper hybrid result formatting.
-// Works for both coordinator and single-shard hybrid queries.
-int common_hybrid_query_reply_empty(RedisModuleCtx *ctx, QueryErrorCode errCode, bool internal);
+// Empty reply for hybrid queries. Currently used during OOM conditions and pre-execution timeouts.
+// Creates QueryError with OOM/timeout warning and uses sendChunk_ReplyOnly_HybridEmptyResults.
+// When isProfile is true, wraps the reply with profile structure.
+int common_hybrid_query_reply_empty(RedisModuleCtx *ctx, QueryErrorCode errCode, bool internal, bool isProfile);
 
 // Single-shard empty reply for SEARCH and AGGREGATE commands.
 // Handles both RESP2 and RESP3 with command-appropriate formatting.

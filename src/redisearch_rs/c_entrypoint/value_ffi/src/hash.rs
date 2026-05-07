@@ -7,20 +7,22 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use crate::RSValue;
 use crate::util::expect_value;
 use fnv::Fnv64;
 use std::hash::Hasher;
-use value::RsValue;
 
-/// Computes a 64-bit FNV-1a hash of an [`RsValue`], using `hval` as the initial offset basis.
+/// Computes a 64-bit FNV-1a hash of an [`RSValue`], using `hval` as the initial offset basis.
 ///
 /// The hashing is recursive for composite types (arrays, maps, references, trios).
 ///
 /// # Safety
 ///
-/// 1. `value` must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
+/// 1. `value` must be a [valid], non-null pointer to an [`RSValue`].
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RSValue_Hash(value: *const RsValue, hval: u64) -> u64 {
+pub unsafe extern "C" fn RSValue_Hash(value: *const RSValue, hval: u64) -> u64 {
     // Safety: ensured by caller (1.)
     let value = unsafe { expect_value(value) };
 

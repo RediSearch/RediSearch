@@ -7,8 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-#include "src/redisearch.h"
-#include "src/spec.h"
+#include "redisearch.h"
+#include "spec.h"
 #include "query_test_utils.h"
 
 #include "gtest/gtest.h"

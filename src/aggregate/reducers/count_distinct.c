@@ -126,8 +126,9 @@ static RSValue *hllFinalize(Reducer *parent, void *ctx) {
 
   // Serialize field map.
   HLLSerializedHeader hdr = {.flags = 0, .bits = ctr->hll.bits};
-  char *str = rm_malloc(sizeof(hdr) + ctr->hll.size);
   size_t hdrsize = sizeof(hdr);
+  char *str = rm_malloc(hdrsize + ctr->hll.size + 1);
+  str[hdrsize + ctr->hll.size] = 0; // Null termination
   memcpy(str, &hdr, hdrsize);
   memcpy(str + hdrsize, ctr->hll.registers, ctr->hll.size);
   RSValue *ret = RSValue_NewString(str, sizeof(hdr) + ctr->hll.size);

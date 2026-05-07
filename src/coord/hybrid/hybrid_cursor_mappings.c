@@ -8,6 +8,7 @@
 */
 
 #include "hybrid_cursor_mappings.h"
+#include "hybrid/hybrid_exec.h"
 #include "redismodule.h"
 #include "rmalloc.h"
 #include "rmutil/rm_assert.h"
@@ -26,6 +27,7 @@ typedef struct {
     pthread_mutex_t *mutex;           // Mutex for array access and completion tracking
     pthread_cond_t *completionCond;   // Condition variable for completion signaling
     int numShards;                    // Total number of expected shards
+    bool initialized;                 // Whether numShards has been set by the IO thread
 } processCursorMappingCallbackContext;
 
 void CursorMapping_Release(CursorMapping *mapping) {
@@ -39,6 +41,24 @@ static void processHybridError(processCursorMappingCallbackContext *ctx, MRReply
     // Shard reply already contains the prefixed error string — set directly.
     QueryError_SetCode(&error, errCode);
     QueryError_SetDetail(&error, errorMessage);
+    ctx->errors = array_ensure_append_1(ctx->errors, error);
+}
+
+// Warning strings use a different format than error strings (no prefix).
+// Map warning codes to error codes for uniform handling in ProcessHybridCursorMappings.
+static void processHybridWarning(processCursorMappingCallbackContext *ctx, const MRReply *rep) {
+    const char *warningMessage = MRReply_String(rep, NULL);
+    QueryWarningCode warningCode = QueryWarningCode_GetCodeFromMessage(warningMessage);
+    QueryError error = QueryError_Default();
+    if (warningCode == QUERY_WARNING_CODE_TIMED_OUT) {
+        QueryError_SetCode(&error, QUERY_ERROR_CODE_TIMED_OUT);
+    } else if (warningCode == QUERY_WARNING_CODE_OUT_OF_MEMORY_SHARD ||
+               warningCode == QUERY_WARNING_CODE_OUT_OF_MEMORY_COORD) {
+        QueryError_SetCode(&error, QUERY_ERROR_CODE_OUT_OF_MEMORY);
+    } else {
+        QueryError_SetCode(&error, QUERY_ERROR_CODE_GENERIC);
+    }
+    QueryError_SetDetail(&error, warningMessage);
     ctx->errors = array_ensure_append_1(ctx->errors, error);
 }
 
@@ -65,7 +85,7 @@ static void processHybridResp2(processCursorMappingCallbackContext *ctx, MRReply
         if (strcmp(key, "warnings") == 0) {
             for (size_t j = 0; j < MRReply_Length(value_reply); j++) {
                 MRReply *warningReply = MRReply_ArrayElement(value_reply, j);
-                processHybridError(ctx, warningReply);
+                processHybridWarning(ctx, warningReply);
             }
             continue;
         }
@@ -154,7 +174,7 @@ static void processHybridResp3(processCursorMappingCallbackContext *ctx, MRReply
     if (MRReply_Length(warnings) > 0) {
         for (size_t i = 0; i < MRReply_Length(warnings); i++) {
             MRReply *warningReply = MRReply_ArrayElement(warnings, i);
-            processHybridError(ctx, warningReply);
+            processHybridWarning(ctx, warningReply);
         }
     }
 }
@@ -191,6 +211,19 @@ static void processCursorMappingCallback(MRIteratorCallbackCtx *ctx, MRReply *re
     MRReply_Free(rep);
 }
 
+// Init callback for the private data, so that numShards is set to the actual number of shards in the cluster, and the expected responses.
+static void processCursorMappingInit(void *privateData, MRIterator *it) {
+    processCursorMappingCallbackContext *ctx = (processCursorMappingCallbackContext *)privateData;
+    int actualNumShards = (int)MRIterator_GetNumShards(it);
+    pthread_mutex_lock(ctx->mutex);
+    ctx->numShards = actualNumShards;
+    ctx->initialized = true;
+    ctx->errors = array_new(QueryError, actualNumShards);
+    // Signal so the coordinator can re-check the wait condition.
+    pthread_cond_signal(ctx->completionCond);
+    pthread_mutex_unlock(ctx->mutex);
+}
+
 static inline void cleanupCtx(processCursorMappingCallbackContext *ctx) {
     pthread_mutex_destroy(ctx->mutex);
     pthread_cond_destroy(ctx->completionCond);
@@ -202,7 +235,7 @@ static inline void cleanupCtx(processCursorMappingCallbackContext *ctx) {
     rm_free(ctx);
 }
 
-bool ProcessHybridCursorMappings(const MRCommand *cmd, int numShards, StrongRef searchMappingsRef, StrongRef vsimMappingsRef, QueryError *status, const RSOomPolicy oomPolicy) {
+bool ProcessHybridCursorMappings(const MRCommand *cmd, StrongRef searchMappingsRef, StrongRef vsimMappingsRef, QueryError *status, const RSOomPolicy oomPolicy, const RSTimeoutPolicy timeoutPolicy, bool *maxPrefixSearch, bool *maxPrefixVsim) {
     CursorMappings *searchMappings = StrongRef_Get(searchMappingsRef);
     CursorMappings *vsimMappings = StrongRef_Get(vsimMappingsRef);
     RS_ASSERT(array_len(searchMappings->mappings) == 0 && array_len(vsimMappings->mappings) == 0);
@@ -217,18 +250,22 @@ bool ProcessHybridCursorMappings(const MRCommand *cmd, int numShards, StrongRef 
     pthread_cond_init(ctx->completionCond, NULL);
 
     // Setup callback context
-    *ctx = (processCursorMappingCallbackContext){
+    *ctx = (processCursorMappingCallbackContext) {
         .searchMappings = StrongRef_Clone(searchMappingsRef),
         .vsimMappings = StrongRef_Clone(vsimMappingsRef),
-        .errors = array_new(QueryError, numShards),
+        .errors = NULL,
         .responseCount = 0,
         .mutex = ctx->mutex,
         .completionCond = ctx->completionCond,
-        .numShards = numShards
-    };
+        .numShards = 0,
+        .initialized = false
+      };
 
     // Start iteration (ctx is cleaned up manually in cleanupCtx, no destructor needed)
-    MRIterator *it = MR_IterateWithPrivateData(cmd, processCursorMappingCallback, ctx, NULL, NULL, iterStartCb, NULL);
+    // processCursorMappingInit is called from iterStartCb to update ctx->numShards
+    // with the actual shard count from the live topology, preventing use-after-free
+    // when topology changes during shard migration.
+    MRIterator *it = MR_IterateWithPrivateData(cmd, processCursorMappingCallback, ctx, NULL, processCursorMappingInit, iterStartCb, NULL);
     if (!it) {
         // Cleanup on error
         QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_GENERIC, "Failed to communicate with shards");
@@ -237,8 +274,11 @@ bool ProcessHybridCursorMappings(const MRCommand *cmd, int numShards, StrongRef 
     }
     // Wait for all callbacks to complete
     pthread_mutex_lock(ctx->mutex);
-    // initialize count with response counts in case some shards already sent a response
-    for (size_t count = ctx->responseCount; count < numShards; count = ctx->responseCount) {
+    // Wait until either:
+    // 1. Normal completion: IO thread initialized numShards and all responses arrived
+    // 2. Early failure: We got a response before initialization (e.g., connection validation failed)
+    //    In this case, responseCount > 0 but initialized is false - we should unblock.
+    while (ctx->responseCount == 0 || (ctx->initialized && ctx->responseCount < ctx->numShards)) {
         pthread_cond_wait(ctx->completionCond, ctx->mutex);
     }
     pthread_mutex_unlock(ctx->mutex);
@@ -247,11 +287,36 @@ bool ProcessHybridCursorMappings(const MRCommand *cmd, int numShards, StrongRef 
         for (size_t i = 0; i < array_len(ctx->errors); i++) {
             if (QueryError_GetCode(&ctx->errors[i]) == QUERY_ERROR_CODE_OUT_OF_MEMORY && oomPolicy == OomPolicy_Return ) {
                 QueryError_SetQueryOOMWarning(status);
-            } else {
-                QueryError_SetWithoutUserDataFmt(status, QueryError_GetCode(&ctx->errors[i]), "Failed to process shard responses, first error: %s, total error count: %zu",
-                    QueryError_GetUserError(&ctx->errors[i]), array_len(ctx->errors));
+            } else if (QueryError_GetCode(&ctx->errors[i]) == QUERY_ERROR_CODE_TIMED_OUT && timeoutPolicy != TimeoutPolicy_Fail) {
+                // RETURN / RETURN-STRICT policy: acknowledge the shard timeout but
+                // don't set it on qctx->err. The timeout will propagate through cursor
+                // reads (RPNet detects it from the depleter's last_rc), and
+                // replyWarningsWithSuffixes emits the properly-suffixed warning
+                // (e.g., "(SEARCH)" / "(VSIM)").
+                // Note: for the _FT.DEBUG FT.HYBRID path, RETURN-STRICT is rejected
+                // earlier in parseHybridDebugParams, so only RETURN reaches here in
+                // debug mode.
+            } else if (QueryError_GetCode(&ctx->errors[i]) == QUERY_ERROR_CODE_TIMED_OUT) {
+                // FAIL policy: forward the standard timeout error directly,
+                // matching the standalone path which uses QueryError_Strerror().
+                QueryError_SetCode(status, QUERY_ERROR_CODE_TIMED_OUT);
                 success = false;
                 break;
+            } else {
+                const char *msg = QueryError_GetUserError(&ctx->errors[i]);
+                if (msg && strncmp(msg, QUERY_WMAXPREFIXEXPANSIONS, strlen(QUERY_WMAXPREFIXEXPANSIONS)) == 0) {
+                    if (strstr(msg, SEARCH_SUFFIX)) {
+                        *maxPrefixSearch = true;
+                    } else if (strstr(msg, VSIM_SUFFIX)) {
+                        *maxPrefixVsim = true;
+                    }
+                    continue;
+                } else {
+                    QueryError_SetWithoutUserDataFmt(status, QueryError_GetCode(&ctx->errors[i]), "Failed to process shard responses, first error: %s, total error count: %zu",
+                        msg, array_len(ctx->errors));
+                    success = false;
+                    break;
+                }
             }
         }
     }

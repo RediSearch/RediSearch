@@ -51,6 +51,12 @@ impl ArrayBuilder<'_> {
         self.len += 1;
     }
 
+    /// Add a string buffer (bulk string) to the array.
+    pub fn string_buffer(&mut self, buf: &[u8]) {
+        self.replier.string_buffer(buf);
+        self.len += 1;
+    }
+
     /// Add an empty array to the array.
     pub fn empty_array(&mut self) {
         self.replier.empty_array();

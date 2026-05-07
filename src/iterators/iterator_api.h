@@ -13,6 +13,7 @@
 #include <stdint.h>
 #include "redisearch.h"
 #include "index_result.h" // IWYU pragma: keep
+#include "iterator_type.h"
 
 struct RLookupKey; // Forward declaration
 
@@ -30,30 +31,6 @@ typedef enum ValidateStatus {
                     // at EOF. If not at EOF, the `current` result should be used before the next read, or it will be overwritten.
   VALIDATE_ABORTED, // The iterator is no longer valid, and should not be used or rewound. Should be freed.
 } ValidateStatus;
-
-enum IteratorType {
-  INV_IDX_NUMERIC_ITERATOR,
-  INV_IDX_TERM_ITERATOR,
-  INV_IDX_WILDCARD_ITERATOR,
-  INV_IDX_MISSING_ITERATOR,
-  INV_IDX_TAG_ITERATOR,
-  HYBRID_ITERATOR,
-  UNION_ITERATOR,
-  INTERSECT_ITERATOR,
-  NOT_ITERATOR,
-  NOT_ITERATOR_OPTIMIZED,
-  OPTIONAL_ITERATOR,
-  OPTIONAL_OPTIMIZED_ITERATOR,
-  WILDCARD_ITERATOR,
-  EMPTY_ITERATOR,
-  ID_LIST_SORTED_ITERATOR,
-  ID_LIST_UNSORTED_ITERATOR,
-  METRIC_SORTED_BY_ID_ITERATOR,
-  METRIC_SORTED_BY_SCORE_ITERATOR,
-  PROFILE_ITERATOR,
-  OPTIMUS_ITERATOR,
-  MAX_ITERATOR,
-};
 
 /* An abstract interface used by readers / intersectors / uniones etc.
 Basically query execution creates a tree of iterators that activate each other
@@ -98,20 +75,26 @@ typedef struct QueryIterator {
    * Called when the iterator is being revalidated after a concurrent index change.
    * The iterator should check if it is still valid.
    *
+   * @param spec The index spec, provided by the caller (result processor).
    * @return VALIDATE_OK if the iterator is still valid
    * @return VALIDATE_MOVED if the iterator is still valid, but the lastDocId has changed (moved forward)
    * @return VALIDATE_ABORTED if the iterator is no longer valid
    */
-  ValidateStatus (*Revalidate)(struct QueryIterator *self);
+  ValidateStatus (*Revalidate)(struct QueryIterator *self, struct IndexSpec *spec);
 
   /* release the iterator's context and free everything needed */
   void (*Free)(struct QueryIterator *self);
 
   /* Rewind the iterator to the beginning and reset its state (including `atEOF` and `lastDocId`) */
   void (*Rewind)(struct QueryIterator *self);
+
+  /* Recursively wrap every child iterator with a Profile layer.
+   * Composite iterators call IntoProfiled() on each child and return `self`.
+   * Leaf iterators leave this as NULL (no children to profile). */
+  QueryIterator* (*ProfileChildren)(struct QueryIterator *self);
 } QueryIterator;
 
-static inline ValidateStatus Default_Revalidate(struct QueryIterator *base) {
+static inline ValidateStatus Default_Revalidate(struct QueryIterator *base, struct IndexSpec *spec) {
   // Default implementation does nothing.
   return VALIDATE_OK;
 }

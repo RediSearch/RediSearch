@@ -26,6 +26,35 @@ typedef enum JSONType {
   JSONType__EOF
 } JSONType;
 
+typedef enum JSONArrayType {
+  /// Array contains heterogeneous IValue objects
+  JSONArrayType_Heterogeneous = 0,
+  /// Array contains i8 values
+  JSONArrayType_I8 = 1,
+  /// Array contains u8 values
+  JSONArrayType_U8 = 2,
+  /// Array contains i16 values
+  JSONArrayType_I16 = 3,
+  /// Array contains u16 values
+  JSONArrayType_U16 = 4,
+  /// Array contains f16 values
+  JSONArrayType_F16 = 5,
+  /// Array contains bf16 values
+  JSONArrayType_BF16 = 6,
+  /// Array contains i32 values
+  JSONArrayType_I32 = 7,
+  /// Array contains u32 values
+  JSONArrayType_U32 = 8,
+  /// Array contains f32 values
+  JSONArrayType_F32 = 9,
+  /// Array contains i64 values
+  JSONArrayType_I64 = 10,
+  /// Array contains u64 values
+  JSONArrayType_U64 = 11,
+  /// Array contains f64 values
+  JSONArrayType_F64 = 12,
+} JSONArrayType;
+
 typedef const void* RedisJSON;
 typedef RedisJSON* RedisJSONPtr;
 typedef const void* JSONResultsIterator;
@@ -133,9 +162,18 @@ typedef struct RedisJSONAPI {
 
   void (*freeJson)(RedisJSONPtr ptr);
 
+  ////////////////
+  // V7 entries //
+  ////////////////
+  // Return a pointer to the array and the length of the array
+  // If `json` is not an array, return NULL and set len to 0
+  // If type is JSONArrayType::JSONArrayType_Heterogeneous, do not use the returned buffer,
+  // use the previous array API to get the values(e.g. getAt, etc.)
+  const void* (*getArray)(RedisJSON json, size_t *len, JSONArrayType *type);
+
 } RedisJSONAPI;
 
-#define RedisJSONAPI_LATEST_API_VER 6
+#define RedisJSONAPI_LATEST_API_VER 7
 #ifdef __cplusplus
 }
 #endif

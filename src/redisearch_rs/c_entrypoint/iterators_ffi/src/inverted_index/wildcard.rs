@@ -7,13 +7,12 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::{fmt::Debug, ptr::NonNull};
+use std::fmt::Debug;
 
 use inverted_index::{
     RSIndexResult, doc_ids_only::DocIdsOnly, raw_doc_ids_only::RawDocIdsOnly, t_docId,
 };
-use rqe_iterators::interop::RQEIteratorWrapper;
-use rqe_iterators::inverted_index::Wildcard;
+use rqe_iterators::{IteratorType, interop::RQEIteratorWrapper, inverted_index::Wildcard};
 
 /// Wrapper around different II wildcard iterator encoding types to avoid generics in FFI code.
 ///
@@ -98,18 +97,25 @@ impl<'index> rqe_iterators::RQEIterator<'index> for WildcardIterator<'index> {
     }
 
     #[inline(always)]
-    fn revalidate(
+    unsafe fn revalidate(
         &mut self,
+        spec: std::ptr::NonNull<ffi::IndexSpec>,
     ) -> Result<rqe_iterators::RQEValidateStatus<'_, 'index>, rqe_iterators::RQEIteratorError> {
         match self {
-            WildcardIterator::Encoded(w) => w.revalidate(),
-            WildcardIterator::Raw(w) => w.revalidate(),
+            // SAFETY: Delegating to variant with the same `spec` passed by our caller.
+            WildcardIterator::Encoded(w) => unsafe { w.revalidate(spec) },
+            // SAFETY: Delegating to variant with the same `spec` passed by our caller.
+            WildcardIterator::Raw(w) => unsafe { w.revalidate(spec) },
         }
     }
 
     #[inline(always)]
-    fn is_wildcard(&self) -> bool {
-        true
+    fn type_(&self) -> IteratorType {
+        IteratorType::InvIdxWildcard
+    }
+
+    fn intersection_sort_weight(&self, _prioritize_union_children: bool) -> f64 {
+        1.0
     }
 }
 
@@ -149,18 +155,14 @@ pub unsafe extern "C" fn NewInvIndIterator_WildcardQuery(
     let ii_ref = unsafe { &*idx_ffi };
 
     debug_assert!(!sctx.is_null(), "sctx must not be null");
-    // SAFETY: 3. guarantees sctx is valid and non-null
-    let sctx = unsafe { NonNull::new_unchecked(sctx as *mut _) };
 
     // Create the appropriate wildcard iterator variant based on the encoding type
     let iterator = match ii_ref {
         inverted_index_ffi::InvertedIndex::DocIdsOnly(ii) => {
-            // SAFETY: 3. and 4. guarantee `sctx` and `sctx.spec` validity for the iterator's lifetime.
-            WildcardIterator::Encoded(unsafe { Wildcard::new(ii.reader(), sctx, weight) })
+            WildcardIterator::Encoded(Wildcard::new(ii.reader(), weight))
         }
         inverted_index_ffi::InvertedIndex::RawDocIdsOnly(ii) => {
-            // SAFETY: 3. and 4. guarantee `sctx` and `sctx.spec` validity for the iterator's lifetime.
-            WildcardIterator::Raw(unsafe { Wildcard::new(ii.reader(), sctx, weight) })
+            WildcardIterator::Raw(Wildcard::new(ii.reader(), weight))
         }
         _ => panic!(
             "Wildcard iterator requires a DocIdsOnly or RawDocIdsOnly inverted index, got: {:?}",
@@ -168,5 +170,5 @@ pub unsafe extern "C" fn NewInvIndIterator_WildcardQuery(
         ),
     };
 
-    RQEIteratorWrapper::boxed_new(ffi::IteratorType_INV_IDX_WILDCARD_ITERATOR, iterator)
+    RQEIteratorWrapper::boxed_new(iterator)
 }

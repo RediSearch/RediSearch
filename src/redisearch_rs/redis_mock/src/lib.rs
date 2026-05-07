@@ -228,6 +228,10 @@ pub fn init_redis_module_mock() {
             Some(RedisModule_ReplyWithSimpleString)
     };
     unsafe {
+        redis_module::raw::RedisModule_ReplyWithStringBuffer =
+            Some(RedisModule_ReplyWithStringBuffer)
+    };
+    unsafe {
         redis_module::raw::RedisModule_ReplyWithEmptyArray = Some(RedisModule_ReplyWithEmptyArray)
     };
     unsafe { redis_module::raw::RedisModule_ReplyWithArray = Some(RedisModule_ReplyWithArray) };
@@ -337,6 +341,12 @@ macro_rules! mock_or_stub_missing_redis_c_symbols {
             SSL_set_fd,
             SSL_write,
             TLS_client_method,
+            // DocIdMeta symbols used by RediSearch C code
+            DocIdMeta_Get,
+            DocIdMeta_Set,
+            DocIdMeta_Delete,
+            DocIdMeta_Init,
+            DocIdMeta_SetPersistenceInProgress,
         }
     };
 }

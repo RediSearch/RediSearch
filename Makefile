@@ -350,7 +350,7 @@ pack: build
 		$(ROOT)/sbin/pack.sh "$$MODULE_PATH"; \
 	else \
 		echo "RAMP not available, skipping RAMP package creation..."; \
-		echo "To install RAMP: pip install -r ./.install/build_package_requirments.txt"; \
+		echo "To install RAMP: pip install -r ./.install/build_package_requirements.txt"; \
 	fi
 
 upload-artifacts:

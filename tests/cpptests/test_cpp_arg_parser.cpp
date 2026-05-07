@@ -471,3 +471,74 @@ TEST_F(ArgParserTest, AllowedValuesInvalid) {
     ASSERT_FALSE(result.success) << "Parse should fail for invalid value";
     ASSERT_STREQ(result.error_arg, "FORMAT");
 }
+
+// Positional arg error preservation: when a positional arg's value parsing
+// fails, the specific error must not be overwritten by the generic "missing
+// positional" check that runs afterwards.
+
+TEST_F(ArgParserTest, PositionalFirstBadSecondGood) {
+    SetupCustomArgs({"COMMAND", "FIRST", "not_a_number", "SECOND", "42"});
+
+    long long first_val = 0;
+    long long second_val = 0;
+
+    ArgParser_AddLongLongV(parser, "FIRST", "First positional", &first_val,
+                           ARG_OPT_REQUIRED,
+                           ARG_OPT_POSITION, 1,
+                           ARG_OPT_END);
+
+    ArgParser_AddLongLongV(parser, "SECOND", "Second positional", &second_val,
+                           ARG_OPT_REQUIRED,
+                           ARG_OPT_POSITION, 2,
+                           ARG_OPT_END);
+
+    ArgParseResult result = ArgParser_Parse(parser);
+    ASSERT_FALSE(result.success);
+    ASSERT_STREQ(result.error_arg, "FIRST");
+    ASSERT_STREQ(result.error_message, "Could not convert argument to expected type");
+}
+
+TEST_F(ArgParserTest, PositionalFirstGoodSecondBad) {
+    SetupCustomArgs({"COMMAND", "FIRST", "10", "SECOND", "not_a_number"});
+
+    long long first_val = 0;
+    long long second_val = 0;
+
+    ArgParser_AddLongLongV(parser, "FIRST", "First positional", &first_val,
+                           ARG_OPT_REQUIRED,
+                           ARG_OPT_POSITION, 1,
+                           ARG_OPT_END);
+
+    ArgParser_AddLongLongV(parser, "SECOND", "Second positional", &second_val,
+                           ARG_OPT_REQUIRED,
+                           ARG_OPT_POSITION, 2,
+                           ARG_OPT_END);
+
+    ArgParseResult result = ArgParser_Parse(parser);
+    ASSERT_FALSE(result.success);
+    ASSERT_STREQ(result.error_arg, "SECOND");
+    ASSERT_EQ(first_val, 10LL) << "First positional should have been parsed";
+    ASSERT_STREQ(result.error_message, "Could not convert argument to expected type");
+}
+
+TEST_F(ArgParserTest, PositionalBothBad) {
+    SetupCustomArgs({"COMMAND", "FIRST", "bad1", "SECOND", "bad2"});
+
+    long long first_val = 0;
+    long long second_val = 0;
+
+    ArgParser_AddLongLongV(parser, "FIRST", "First positional", &first_val,
+                           ARG_OPT_REQUIRED,
+                           ARG_OPT_POSITION, 1,
+                           ARG_OPT_END);
+
+    ArgParser_AddLongLongV(parser, "SECOND", "Second positional", &second_val,
+                           ARG_OPT_REQUIRED,
+                           ARG_OPT_POSITION, 2,
+                           ARG_OPT_END);
+
+    ArgParseResult result = ArgParser_Parse(parser);
+    ASSERT_FALSE(result.success);
+    ASSERT_STREQ(result.error_arg, "FIRST") << "Should report first failure";
+    ASSERT_STREQ(result.error_message, "Could not convert argument to expected type");
+}

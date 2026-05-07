@@ -297,7 +297,7 @@ fn test_trie_iter_wildcard() {
 }
 
 #[test]
-#[cfg(not(miri))]
+#[cfg_attr(miri, ignore = "Miri does not support the system monotonic clock")]
 fn test_trie_iter_timeout() {
     with_trie_map(|t| {
         let pattern = b"";

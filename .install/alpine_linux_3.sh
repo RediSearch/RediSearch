@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 MODE=$1 # whether to install using sudo or not
-set -e
+set -eo pipefail
 
 $MODE apk update
 
 $MODE apk add --no-cache build-base gcc g++ make linux-headers openblas-dev \
     xsimd curl wget git openssl openssl-dev \
-    tar xz which rsync bsd-compat-headers clang clang17-libclang curl \
+    tar xz which rsync bsd-compat-headers clang curl \
     clang-static ncurses-dev llvm-dev bash
 
 # We must install Python via the package manager until
@@ -22,3 +22,6 @@ else
     # in version 6.w.z.
     $MODE apk add --no-cache python3-dev
 fi
+
+# Need clang for LTO
+source "$(dirname "${BASH_SOURCE[0]}")/install_llvm.sh" $MODE

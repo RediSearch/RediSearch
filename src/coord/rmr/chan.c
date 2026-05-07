@@ -28,6 +28,7 @@ struct MRChannel {
 
 #include "chan.h"
 #include "rmalloc.h"
+#include "rmutil/rm_assert.h"
 #include "search_ctx.h"
 #include "util/timeout.h"
 
@@ -131,20 +132,21 @@ void *MRChannel_Pop(MRChannel *chan) {
   return popHeadAndUnlock(chan);
 }
 
-// Platform-specific timed wait on condition variable
-// Returns: true if timed out, false if signaled (or spurious wakeup)
-// abstimeMono is an absolute time in CLOCK_MONOTONIC_RAW
-// macOS: uses pthread_cond_timedwait_relative_np with relative timeout
-// Linux/FreeBSD: converts to CLOCK_MONOTONIC for pthread_cond_timedwait
-static bool condTimedWait(pthread_cond_t *cond, pthread_mutex_t *lock,
-                          const struct timespec *abstimeMono) {
-  // Calculate remaining time from CLOCK_MONOTONIC_RAW
+// Wait for chan->cond, optionally bounded by a CLOCK_MONOTONIC_RAW absolute deadline.
+// Returns true if the deadline expired, false if signaled (or spurious wakeup).
+// macOS: uses pthread_cond_timedwait_relative_np with a relative timeout.
+// Linux/FreeBSD: converts to CLOCK_MONOTONIC for pthread_cond_timedwait.
+static bool waitForCond(pthread_cond_t *cond, pthread_mutex_t *lock,
+                        const struct timespec *abstimeMono) {
+  if (!abstimeMono) {
+    pthread_cond_wait(cond, lock);
+    return false;
+  }
   struct timespec nowRaw, remaining;
   clock_gettime(CLOCK_MONOTONIC_RAW, &nowRaw);
   rs_timerremaining((struct timespec *)abstimeMono, &nowRaw, &remaining);
-  // Check if already past deadline
   if (remaining.tv_sec == 0 && remaining.tv_nsec == 0) {
-    return true;  // timed out
+    return true;  // already past the deadline
   }
 #if defined(__APPLE__) && defined(__MACH__)
   return pthread_cond_timedwait_relative_np(cond, lock, &remaining) == ETIMEDOUT;
@@ -157,30 +159,35 @@ static bool condTimedWait(pthread_cond_t *cond, pthread_mutex_t *lock,
 #endif
 }
 
-void *MRChannel_PopWithTimeout(MRChannel *chan, const struct timespec *abstimeMono, bool *timedOut) {
-  *timedOut = false;
-
-  // If no timeout specified, behave like regular Pop
-  if (!abstimeMono) {
-    return MRChannel_Pop(chan);
-  }
+void *MRChannel_PopWithTimeout(MRChannel *chan, const struct timespec *abstimeMono,
+                               atomic_bool *abortFlag, bool *timedOut) {
+  // At least one wake mechanism must be provided; callers without either should use MRChannel_Pop.
+  RS_ASSERT(abstimeMono || abortFlag);
+  if (timedOut) *timedOut = false;
 
   pthread_mutex_lock(&chan->lock);
   while (!chan->size) {
-    if (!chan->wait) {
-      chan->wait = true;  // reset the flag
-      pthread_mutex_unlock(&chan->lock);
-      return NULL;
-    }
-
-    if (condTimedWait(&chan->cond, &chan->lock, abstimeMono)) {
-      *timedOut = true;
-      pthread_mutex_unlock(&chan->lock);
-      return NULL;
+    // Sticky abort flipped by another thread (e.g. timeout callback + MRChannel_WakeAbort).
+    if (abortFlag && atomic_load_explicit(abortFlag, memory_order_acquire)) goto aborted;
+    // One-shot unblock via MRChannel_Unblock; reset for the next pop.
+    if (!chan->wait) { chan->wait = true; goto aborted; }
+    // Park until pushed/broadcast/deadline. Re-checks all conditions on wake.
+    if (waitForCond(&chan->cond, &chan->lock, abstimeMono)) {
+      if (timedOut) *timedOut = true;
+      goto aborted;
     }
   }
-
   return popHeadAndUnlock(chan);
+
+aborted:
+  pthread_mutex_unlock(&chan->lock);
+  return NULL;
+}
+
+void MRChannel_WakeAbort(MRChannel *chan) {
+  pthread_mutex_lock(&chan->lock);
+  pthread_cond_broadcast(&chan->cond);
+  pthread_mutex_unlock(&chan->lock);
 }
 
 void MRChannel_Unblock(MRChannel *chan) {

@@ -7,8 +7,6 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-#![expect(dead_code)]
-
 use std::{fmt::Debug, ptr::NonNull};
 
 use field::{FieldExpirationPredicate, FieldFilterContext, FieldMaskOrIndex};
@@ -16,8 +14,9 @@ use inverted_index::{
     IndexReader, RSIndexResult, RSQueryTerm, doc_ids_only::DocIdsOnly,
     raw_doc_ids_only::RawDocIdsOnly, t_docId,
 };
-use rqe_iterators::interop::RQEIteratorWrapper;
-use rqe_iterators::{FieldExpirationChecker, inverted_index::Tag};
+use rqe_iterators::{
+    FieldExpirationChecker, IteratorType, interop::RQEIteratorWrapper, inverted_index::Tag,
+};
 
 /// Wrapper around different tag iterator encoding types to avoid generics in FFI code.
 ///
@@ -102,10 +101,21 @@ impl<'index> rqe_iterators::RQEIterator<'index> for TagIterator<'index> {
     }
 
     #[inline(always)]
-    fn revalidate(
+    unsafe fn revalidate(
         &mut self,
+        spec: std::ptr::NonNull<ffi::IndexSpec>,
     ) -> Result<rqe_iterators::RQEValidateStatus<'_, 'index>, rqe_iterators::RQEIteratorError> {
-        tag_it_dispatch!(self, revalidate)
+        // SAFETY: Delegating to variant with the same `spec` passed by our caller.
+        unsafe { tag_it_dispatch!(self, revalidate, spec) }
+    }
+
+    #[inline(always)]
+    fn type_(&self) -> IteratorType {
+        IteratorType::InvIdxTag
+    }
+
+    fn intersection_sort_weight(&self, _prioritize_union_children: bool) -> f64 {
+        1.0
     }
 }
 
@@ -143,7 +153,7 @@ impl<'index> rqe_iterators::RQEIterator<'index> for TagIterator<'index> {
 /// 7. `term` must be a valid pointer to a heap-allocated [`RSQueryTerm`] (e.g. created by
 ///    `NewQueryTerm`) and cannot be NULL. Ownership is transferred to the iterator.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn NewInvIndIterator_TagQuery_Rs(
+pub unsafe extern "C" fn NewInvIndIterator_TagQuery(
     idx: *const ffi::InvertedIndex,
     tag_idx: *const ffi::TagIndex,
     sctx: *const ffi::RedisSearchCtx,
@@ -212,5 +222,5 @@ pub unsafe extern "C" fn NewInvIndIterator_TagQuery_Rs(
         ),
     };
 
-    RQEIteratorWrapper::boxed_new(ffi::IteratorType_INV_IDX_TAG_ITERATOR, iterator)
+    RQEIteratorWrapper::boxed_new(iterator)
 }

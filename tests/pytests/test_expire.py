@@ -41,6 +41,32 @@ def testExpireIndex(env):
             # `assertContains` expects (expected_substring, actual_string)
             env.assertContains('SEARCH_INDEX_NOT_FOUND Index not found', str(e))
 
+@skip(cluster=True, redis_less_than="7.4")
+def test_MOD_14800_persist_clears_expiration_metadata(env: Env):
+    # Regression for MOD-14800:
+    # Verify that persisting a hash key or an indexed hash field clears the
+    # corresponding expiration metadata from the index, so the document remains
+    # searchable after the original expiration deadline would have passed.
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 't', 'TEXT').ok()
+    env.expect('HSET', 'doc:1', 't', 'hello').equal(1)
+    env.expect('FT.SEARCH', 'idx', 'hello').equal([1, 'doc:1', ['t', 'hello']])
+
+    env.expect('PEXPIRE', 'doc:1', '100').equal(1)
+    env.expect('PERSIST', 'doc:1').equal(1)
+
+    time.sleep(0.2)
+
+    env.expect('EXISTS', 'doc:1').equal(1)
+    env.expect('FT.SEARCH', 'idx', 'hello').equal([1, 'doc:1', ['t', 'hello']])
+
+    env.expect('HPEXPIRE', 'doc:1', '100', 'FIELDS', '1', 't').equal([1])
+    env.expect('HPERSIST', 'doc:1', 'FIELDS', '1', 't').equal([1])
+
+    time.sleep(0.2)
+
+    env.expect('HGET', 'doc:1', 't').equal('hello')
+    env.expect('FT.SEARCH', 'idx', 'hello').equal([1, 'doc:1', ['t', 'hello']])
+
 res_score_and_explanation = ['1', ['Final TFIDF : words TFIDF 1.00 * document score 1.00 / norm 1 / slop 1',
                                     ['(TFIDF 1.00 = Weight 1.00 * Frequency 1)']]]
 both_docs_no_sortby = "both_docs_no_sortby"
@@ -657,3 +683,98 @@ def test_background_index_no_lazy_expiration_json(env):
     # Accessing doc:1 directly should cause lazy expire and its removal from the DB.
     env.expect('JSON.GET', 'doc:1', "$").equal(None)
     env.expect('DBSIZE').equal(1)
+
+
+@skip(cluster=True, redis_less_than='7.4')
+def test_ttl_table_collision_chain():
+    # Regression for the direct-modulo TTL table: seed the index with far more
+    # HEXPIRE-covered docs than the TTL bucket cap, so every slot must carry
+    # a collision chain. Then query for fresh and expired entries and verify
+    # the chain walk returns the right ones.
+    env = Env(moduleArgs='MAXDOCTABLESIZE 4')
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH',
+               'SCHEMA', 'n', 'NUMERIC', 't', 'TAG').ok()
+
+    # Docs 1..odd are long-lived; docs 1..even get a fast HPEXPIRE so they
+    # will be reported as expired at query time.
+    N = 64  # > 16x the bucket cap => many collisions per slot
+    for d in range(1, N + 1):
+        env.expect('HSET', f'doc:{d}', 'n', str(d), 't', 'tag').equal(2)
+        if d % 2 == 0:
+            env.expect('HPEXPIRE', f'doc:{d}', '1', 'FIELDS', '2', 'n', 't').equal([1, 1])
+
+    time.sleep(0.050)
+
+    # Tag filter should still find every odd doc; evens are all expired.
+    res = env.cmd('FT.SEARCH', 'idx', '@t:{tag}', 'NOCONTENT', 'LIMIT', '0', str(N))
+    returned = sorted(int(d.split(':')[1]) for d in res[1:])
+    expected = list(range(1, N + 1, 2))
+    env.assertEqual(returned, expected)
+
+    # Numeric filter over the full range: same expectation.
+    res = env.cmd('FT.SEARCH', 'idx', f'@n:[1 {N}]', 'NOCONTENT', 'LIMIT', '0', str(N))
+    returned = sorted(int(d.split(':')[1]) for d in res[1:])
+    env.assertEqual(returned, expected)
+
+@skip(cluster=True, redis_less_than='7.4')
+def test_wide_schema_field_expiration(env):
+    # Indexes with >32 text fields are auto-promoted to wide schema encoding.
+    # We use also field index >= 64 to trigger high half loop iteration
+    N_FIELDS = 70
+
+    conn = getConnectionByEnv(env)
+    conn.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '0')
+
+    schema = list(chain.from_iterable((f'f{i}', 'TEXT') for i in range(N_FIELDS)))
+    conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', *schema)
+
+    hello_kv = list(chain.from_iterable((f'f{i}', 'hello') for i in range(N_FIELDS)))
+    conn.execute_command('HSET', 'doc:plain', *hello_kv)
+    conn.execute_command('HSET', 'doc:short', *hello_kv)
+    conn.execute_command('HPEXPIRE', 'doc:short', '1', 'FIELDS', '1', 'f5')
+
+    kv_scan = list(chain.from_iterable(
+        (f'f{i}', 'needle' if i in (3, 67) else 'filler') for i in range(N_FIELDS)))
+    conn.execute_command('HSET', 'doc:scan', *kv_scan)
+    conn.execute_command('HPEXPIRE', 'doc:scan', '1', 'FIELDS', '2', 'f3', 'f67')
+
+    conn.execute_command('HSET', 'doc:docexp', *hello_kv)
+    conn.execute_command('EXPIRE', 'doc:docexp', '30000')
+
+    kv_lowexp = list(chain.from_iterable(
+        (f'f{i}', 'tophalf' if i == 67 else 'other') for i in range(N_FIELDS)))
+    conn.execute_command('HSET', 'doc:lowexp', *kv_lowexp)
+    conn.execute_command('HPEXPIRE', 'doc:lowexp', '1', 'FIELDS', '1', 'f5')
+
+    kv_below = list(chain.from_iterable(
+        (f'f{i}', 'below' if i == 3 else 'other') for i in range(N_FIELDS)))
+    conn.execute_command('HSET', 'doc:below', *kv_below)
+    conn.execute_command('HPEXPIRE', 'doc:below', '1', 'FIELDS', '1', 'f50')
+
+    kv_live = list(chain.from_iterable(
+        (f'f{i}', 'alive' if i == 3 else 'other') for i in range(N_FIELDS)))
+    conn.execute_command('HSET', 'doc:live', *kv_live)
+    conn.execute_command('HEXPIRE', 'doc:live', '30000', 'FIELDS', '1', 'f3')
+
+    waitForIndex(env, 'idx')
+
+    time.sleep(0.050)
+
+    # Match because:
+    # - "doc:plain" has no expiration
+    # - "doc:docexp" has a long doc expiration time
+    # - "doc:short" has f5 expired but not the others
+    env.expect('FT.SEARCH', 'idx', 'hello', 'NOCONTENT').apply(sort_document_names) \
+        .equal([3, 'doc:docexp', 'doc:plain', 'doc:short'])
+    # Not match because:
+    # - "doc:scan" f3 and f67 were expired
+    env.expect('FT.SEARCH', 'idx', 'needle', 'NOCONTENT').equal([0])
+    # Match because:
+    # - "doc:lowexp" f67 matches so the f5 expiration is not considered
+    env.expect('FT.SEARCH', 'idx', 'tophalf', 'NOCONTENT').equal([1, 'doc:lowexp'])
+    # Match because:
+    # - "doc:below" f3 matches so the f50 expiration is not considered
+    env.expect('FT.SEARCH', 'idx', 'below', 'NOCONTENT').equal([1, 'doc:below'])
+    # Match because:
+    # - "doc:live" f3 matches and it is not expired yet
+    env.expect('FT.SEARCH', 'idx', 'alive', 'NOCONTENT').equal([1, 'doc:live'])

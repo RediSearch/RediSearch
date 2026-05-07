@@ -690,6 +690,14 @@ def test_search_errors():
     env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b EF_FUNTIME 30]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('SEARCH_OPTION_INVALID Invalid option (Error parsing vector similarity parameters)')
     env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b]=>{$EF_RUNTIME: 5; $EF_RUNTIME: 6;}', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('SEARCH_PARAM_DUP Parameter was specified twice (Error parsing vector similarity parameters)')
 
+    # RERANK is valid only for disk-based HNSW indexes; on a non-disk HNSW index VecSim
+    # rejects it as an unknown parameter, regardless of whether it was provided via the
+    # inline KNN syntax or via the trailing query-attribute syntax.
+    env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b RERANK TRUE]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('SEARCH_OPTION_INVALID Invalid option (Error parsing vector similarity parameters)')
+    env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b]=>{$RERANK: TRUE;}', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('SEARCH_OPTION_INVALID Invalid option (Error parsing vector similarity parameters)')
+    # RERANK is also unknown on FLAT indexes.
+    env.expect('FT.SEARCH', 'idx', f'*=>[KNN 2 @{v_flat} $b]=>{{$RERANK: TRUE;}}', 'PARAMS', '2', 'b', 'abcdefghabcdefgh').error().contains('SEARCH_OPTION_INVALID Invalid option (Error parsing vector similarity parameters)')
+
     # ef_runtime is invalid for FLAT index.
     env.expect('FT.SEARCH', 'idx', f'*=>[KNN 2 @{v_flat} $b EF_RUNTIME 30]', 'PARAMS', '2', 'b', 'abcdefghabcdefgh').error().contains('SEARCH_OPTION_INVALID Invalid option (Error parsing vector similarity parameters)')
 
@@ -717,6 +725,12 @@ def test_search_errors():
     env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b AS $score_1]=>{$yield_distance_as:$score_2;}', 'PARAMS', '6', 'b', 'abcdefgh', 'score_1', 'score_1_val', 'score_2', 'score_2_val').error().contains('Distance field was specified twice for vector query: score_1_val and score_2_val')
     env.expect('FT.SEARCH', 'idx', 'hello=>[KNN 2 @v $b AS score]=>{$yield_distance_as:__v_score;}', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Distance field was specified twice for vector query: score and __v_score')
     env.expect('FT.SEARCH', 'idx', 'hello=>[KNN 2 @v $b AS score]=>{$yield_distance_as:score;}', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Distance field was specified twice for vector query: score and score')
+
+    # Invalid shard_k_ratio via query attribute syntax.
+    env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b]=>{$shard_k_ratio: invalid;}', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Invalid shard k ratio value')
+
+    # Unrecognized vector attribute via query attribute syntax.
+    env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b]=>{$bogus_vec_param: 42;}', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Invalid attribute')
 
     # Invalid range queries
     env.expect('FT.SEARCH', 'idx', '@v:[vector_range 0.1 $b]', 'PARAMS', '2', 'b', 'abcdefg').error().contains('Error parsing vector similarity query: query vector blob size (7) does not match index\'s expected size (8).')
@@ -886,7 +900,9 @@ def test_hybrid_query_with_text_vamana():
     create_vector_index(env, dim, datatype=data_type, alg='SVS-VAMANA', additional_schema_args=['t', 'TEXT'])
 
     load_vectors_with_texts_into_redis(conn, DEFAULT_FIELD_NAME, dim, index_size, data_type)
+    start_time = time.time()
     wait_for_background_indexing(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME)
+    env.debugPrint("wait_for_background_indexing took {} seconds".format(time.time() - start_time), force=True)
     index_size = get_tiered_backend_debug_info(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME)['INDEX_SIZE']
     env.debugPrint(f"svs index size: {index_size}", force=True)
 

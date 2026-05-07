@@ -212,7 +212,6 @@ int Document_LoadSchemaFieldJson(Document *doc, RedisSearchCtx *sctx, QueryError
 int Document_LoadAllFields(Document *doc, RedisModuleCtx *ctx);
 
 void Document_LoadPairwiseArgs(Document *doc, RedisModuleString **args, size_t nargs);
-void Document_LoadHSetParams(Document *d, const AddDocumentOptions *opts);
 
 /**
  * Free any copied data within the document. anyCtx is any non-NULL
@@ -274,7 +273,7 @@ typedef struct RSAddDocumentCtx {
 
   // Sorting vector for the document. If the document has sortable fields, they
   // are added to here as well
-  RSSortingVector *sv;
+  RSSortingVector sv;
 
   // Byte offsets for highlighting. If term offsets are stored, this contains
   // the field byte offset for each term.
@@ -376,9 +375,6 @@ size_t DocumentField_GetArrayValueCStrTotalLen(const DocumentField *df);
 
 // Document add functions:
 int RSAddDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
-int RSAddHashCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
-int RSSafeAddHashCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
-
 int RS_AddDocument(RedisSearchCtx *sctx, RedisModuleString *name, const AddDocumentOptions *opts,
                    QueryError *status);
 

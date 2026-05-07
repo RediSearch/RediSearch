@@ -15,7 +15,7 @@
 
 use std::time::{Duration, Instant};
 
-use crate::{RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
+use crate::{IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
 use ffi::t_docId;
 use inverted_index::RSIndexResult;
 
@@ -132,11 +132,21 @@ impl<'index, I: RQEIterator<'index>> RQEIterator<'index> for Profile<'index, I> 
         self.child.at_eof()
     }
 
-    fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        self.child.revalidate()
+    unsafe fn revalidate(
+        &mut self,
+        spec: std::ptr::NonNull<ffi::IndexSpec>,
+    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
+        // SAFETY: Delegating to child with the same `spec` passed by our caller.
+        unsafe { self.child.revalidate(spec) }
     }
 
-    fn is_wildcard(&self) -> bool {
-        self.child.is_wildcard()
+    #[inline(always)]
+    fn type_(&self) -> IteratorType {
+        IteratorType::Profile
+    }
+
+    fn intersection_sort_weight(&self, prioritize_union_children: bool) -> f64 {
+        self.child
+            .intersection_sort_weight(prioritize_union_children)
     }
 }

@@ -7,10 +7,10 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-#include "src/trie/trie.h"
-#include "src/trie/trie_type.h"
-#include "src/trie/levenshtein.h"
-#include "src/trie/rune_util.h"
+#include "trie/trie.h"
+#include "trie/trie_type.h"
+#include "trie/levenshtein.h"
+#include "trie/rune_util.h"
 #include "libnu/libnu.h"
 #include "rmutil/alloc.h"
 #include "test_util.h"
@@ -24,6 +24,11 @@
 #include <time.h>
 
 int count = 0;
+
+static float trieExactScore(TrieNode *n, rune *str, t_len len) {
+  TrieNode *res = TrieNode_Get(n, str, len, true, NULL);
+  return res ? res->score : 0;
+}
 
 FilterCode stepFilter(unsigned char b, void *ctx, int *matched, void *matchCtx) {
   return F_CONTINUE;
@@ -172,7 +177,7 @@ int testTrie() {
   __trie_add(&root, "helter skelter", NULL, 3, ADD_REPLACE);
   size_t rlen;
   rune *runes = strToRunes("helter skelter", &rlen);
-  float sc = TrieNode_Find(root, runes, rlen);
+  float sc = trieExactScore(root, runes, rlen);
   ASSERT(sc == 3);
 
   __trie_add(&root, "heltar skelter", NULL, 4, ADD_REPLACE);
@@ -181,12 +186,12 @@ int testTrie() {
   // replace the score
   __trie_add(&root, "helter skelter", NULL, 6, ADD_REPLACE);
 
-  sc = TrieNode_Find(root, runes, rlen);
+  sc = trieExactScore(root, runes, rlen);
   ASSERT(sc == 6);
 
   /// add with increment
   __trie_add(&root, "helter skelter", NULL, 6, ADD_INCR);
-  sc = TrieNode_Find(root, runes, rlen);
+  sc = trieExactScore(root, runes, rlen);
   ASSERT(sc == 12);
 
   TrieNode_Free(root, NULL);
@@ -210,7 +215,7 @@ int testUnicode() {
   ASSERT_EQUAL(0, rc);
   size_t rlen;
   rune *runes = strToRunes(str, &rlen);
-  float sc = TrieNode_Find(root, runes, rlen);
+  float sc = trieExactScore(root, runes, rlen);
   free(runes);
   ASSERT(sc == 1);
   TrieNode_Free(root, NULL);

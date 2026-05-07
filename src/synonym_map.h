@@ -92,15 +92,6 @@ TermData* SynonymMap_GetIdsBySynonym(SynonymMap* smap, const char* synonym, size
 TermData** SynonymMap_DumpAllTerms(SynonymMap* smap, size_t* size);
 
 /**
- * Return an str representation of the given id
- * id - the id
- * buff - buffer to put the str representation
- * len - the buff len
- * return the size of the str written to buff
- */
-size_t SynonymMap_IdToStr(uint32_t id, char* buff, size_t len);
-
-/**
  * Return a read only copy of the given smap.
  * The read only copy is used in indexing to allow thread safe access to the synonym data structure
  * The read only copy is manage with ref count. The smap contains a reference to its read only copy

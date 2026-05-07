@@ -8,8 +8,8 @@
 */
 
 #include "test_util.h"
-#include "src/query_node.h"
-#include "src/obfuscation/obfuscation_api.h"
+#include "query_node.h"
+#include "obfuscation/obfuscation_api.h"
 
 #include <stdlib.h>
 #include <string.h>

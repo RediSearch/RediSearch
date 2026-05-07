@@ -8,7 +8,7 @@
 */
 
 #include "test_util.h"
-#include "src/util/misc.h"
+#include "util/misc.h"
 #include <string.h>
 
 int testErrorCodeLengthExtraction() {

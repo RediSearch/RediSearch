@@ -49,7 +49,7 @@ typedef uint64_t t_fieldMask;
 #define RS_FIELDMASK_ALL 0xFFFFFFFFFFFFFFFF
 #endif
 
-struct RSSortingVector;
+#include "sorting_vector.h"
 
 #define REDISEARCH_ERR 1
 #define REDISEARCH_OK 0
@@ -127,12 +127,16 @@ typedef struct RSDocumentMetadata_s {
 
   uint16_t ref_count;
 
-  struct RSSortingVector *sortVector;
+  /* Document-level expiration time in nanoseconds since the epoch (0 = none).
+   * Inlined to avoid a TTL-table lookup on the result-processor hot path. */
+  int64_t expirationTimeNs;
+
+  struct RSSortingVector sortVector;
   /* Offsets of all terms in the document (in bytes). Used by highlighter */
   struct RSByteOffsets *byteOffsets;
   struct RSDocumentMetadata_s *nextInChain;
 
-  /* Optional user payload */
+  /* Optional user payload. Must remain last for DocTable_Put's lean alloc. */
   RSPayload *payload;
 
 } RSDocumentMetadata;
@@ -234,17 +238,6 @@ typedef struct {
 
 
 #define RS_RESULT_NUMERIC (RSResultData_Numeric | RSResultData_Metric)
-
-// Forward declaration of needed structs
-struct RLookupKey;
-struct RSValue;
-
-// Holds a key-value pair of an `RSValue` and the `RLookupKey` to add it into.
-// A result processor will write the value into the key if the result passed the AST.
-typedef struct RSYieldableMetric{
-  struct RLookupKey *key;
-  struct RSValue *value;
-} RSYieldableMetric;
 
 #pragma pack()
 

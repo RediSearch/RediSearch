@@ -216,6 +216,8 @@ typedef struct {
   bool monitorExpiration;
   // Percentage of available memory to use for disk write buffer (0-100).
   uint8_t diskBufferPercentage;
+  // If true, fallback to main thread when BlockClient is unavailable.
+  bool fallbackToMainThreadWhenBlockClientUnavailable;
 } RSConfig;
 
 typedef enum {
@@ -268,6 +270,11 @@ void RSConfigExternalTrigger_Register(RSConfigExternalTrigger trigger, const cha
  * REDISMODULE_ERR and sets an error message if something is invalid */
 int ReadConfig(RedisModuleString **argv, int argc, char **err);
 
+/* Returns the dynamic default number of worker threads:
+ * min(MAX_WORKER_THREADS, number of CPU cores).
+ * Falls back to MAX_WORKER_THREADS if CPU count cannot be determined. */
+size_t GetDefaultWorkerThreads(void);
+
 /* Register module configuration parameters using Module Configuration API */
 int RegisterModuleConfig_Local(RedisModuleCtx *ctx);
 
@@ -291,11 +298,26 @@ int RSConfig_SetOption(RSConfig *config, RSConfigOptions *options, const char *n
 
 sds RSConfig_GetInfoString(const RSConfig *config);
 
-void RSConfig_AddToInfo(RedisModuleInfoCtx *ctx);
-
 void UpgradeDeprecatedMTConfigs();
 
-char *getRedisConfigValue(RedisModuleCtx *ctx, const char* confName);
+/*
+ * Get the value of a Redis config as a `RedisModuleString`. Returns NULL if the
+ * config does not exist. The caller is responsible for freeing the returned
+ * string using `RedisModule_FreeString`.
+ */
+RedisModuleString *getRedisConfigValue(RedisModuleCtx *ctx, const char *confName);
+
+/*
+ * Get the boolean value of a Redis config. Returns `defaultValue` if the
+ * config does not exist or isn't a boolean config.
+ */
+bool getRedisConfigBool(RedisModuleCtx *ctx, const char *confName, bool defaultValue);
+
+/*
+ * Get the numeric value of a Redis config. Returns `defaultValue` if the
+ * config does not exist or isn't a numeric config.
+ */
+long long getRedisConfigNumeric(RedisModuleCtx *ctx, const char *confName, long long defaultValue);
 
 // We limit the number of worker threads to limit the amount of memory used by the thread pool
 // and to prevent the system from running out of resources.
@@ -328,7 +350,7 @@ char *getRedisConfigValue(RedisModuleCtx *ctx, const char* confName);
 #define DEFAULT_QUERY_TIMEOUT_MS 500
 #define DEFAULT_UNION_ITERATOR_HEAP 20
 #define DEFAULT_VSS_MAX_RESIZE 0
-#define DEFAULT_WORKER_THREADS 0
+
 #define MIN_WORKER_THREADS_FLEX 1
 #define DEFAULT_WORKER_THREADS_FLEX MIN_WORKER_THREADS_FLEX
 #define MAX_DOC_TABLE_SIZE 100000000
@@ -365,7 +387,7 @@ char *getRedisConfigValue(RedisModuleCtx *ctx, const char* confName);
     .cursorReadSize = 1000,                                                    \
     .cursorMaxIdle = DEFAULT_MAX_CURSOR_IDLE,                                  \
     .maxDocTableSize = DEFAULT_DOC_TABLE_SIZE,                                 \
-    .numWorkerThreads = DEFAULT_WORKER_THREADS,                                \
+    .numWorkerThreads = 0, /* overwritten at runtime by GetDefaultWorkerThreads() */ \
     .minOperationWorkers = MIN_OPERATION_WORKERS,                              \
     .tieredVecSimIndexBufferLimit = DEFAULT_BLOCK_SIZE,                        \
     .highPriorityBiasNum = DEFAULT_HIGH_PRIORITY_BIAS_THRESHOLD,               \
@@ -408,6 +430,7 @@ char *getRedisConfigValue(RedisModuleCtx *ctx, const char* confName);
     .simulateInFlex = false,                                                   \
     .monitorExpiration = true,                                                 \
     .diskBufferPercentage = DEFAULT_DISK_BUFFER_PERCENTAGE,                    \
+    .fallbackToMainThreadWhenBlockClientUnavailable = true,                    \
   }
 
 #define REDIS_ARRAY_LIMIT 7

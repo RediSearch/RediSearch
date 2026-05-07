@@ -57,7 +57,7 @@ jobs:
       - name: Pre checkout deps
         run:  sudo apt-get update && sudo apt-get -y --no-install-recommends install git
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           submodules: recursive
       - name: Print runner info
@@ -68,7 +68,7 @@ jobs:
           printf "Runner uname:\n$(uname -a)\n"
           printf "Runner arch:\n$(arch)\n"
       - name: Install python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v6
         with:
           python-version: 3.11
       - name: Setup sccache
@@ -80,12 +80,13 @@ jobs:
           ./install_script.sh sudo
           cd ..
           # Then install Python dependencies
-          pip3 install --upgrade pip PyYAML setuptools redisbench-admin==0.12.9
+          pip3 install --upgrade pip PyYAML setuptools redisbench-admin==0.12.14
         env:
           DEBIAN_FRONTEND: noninteractive
       - name: Run Micro Benchmark
         env:
           ARCH: ${{ inputs.architecture }}
+          LTO: 1
         timeout-minutes: 300
         run: |
           export HOME=/home/ubuntu
@@ -94,6 +95,8 @@ jobs:
       - name: Show sccache stats
         run: ${SCCACHE_PATH:-sccache} --show-stats
       - name: Collect results
+        env:
+          INPUT_ARCHITECTURE: ${{ inputs.architecture }}
         run: |
           # Determine OS name
           OS_NAME=$(uname | tr '[:upper:]' '[:lower:]')
@@ -152,7 +155,7 @@ jobs:
               --results-format google.benchmark \
               --benchmark-result-file "$file" \
               --triggering_env redisearch-micro-benchmarks \
-              --architecture ${{ inputs.architecture }}
+              --architecture $INPUT_ARCHITECTURE
           done
 
   stop-runner:

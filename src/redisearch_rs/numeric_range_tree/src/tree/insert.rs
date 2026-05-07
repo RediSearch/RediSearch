@@ -16,7 +16,7 @@
 use ffi::t_docId;
 use inverted_index::{IndexReader as _, RSIndexResult};
 
-use super::{AddResult, NumericRangeTree, apply_signed_delta};
+use super::{AddResult, CheckedCount, NumericRangeTree};
 use crate::arena::{NodeArena, NodeIndex};
 use crate::{InternalNode, NumericRange, NumericRangeNode};
 
@@ -117,13 +117,17 @@ impl NumericRangeTree {
             self.revision_id = self.revision_id.wrapping_add(1);
         }
 
-        self.stats.num_ranges =
-            apply_signed_delta(self.stats.num_ranges, rv.num_ranges_delta as i64);
-        self.stats.num_leaves =
-            apply_signed_delta(self.stats.num_leaves, rv.num_leaves_delta as i64);
+        self.stats.num_ranges = self
+            .stats
+            .num_ranges
+            .apply_delta(rv.num_ranges_delta as i64);
+        self.stats.num_leaves = self
+            .stats
+            .num_leaves
+            .apply_delta(rv.num_leaves_delta as i64);
         self.stats.num_entries += 1;
         self.stats.inverted_indexes_size =
-            apply_signed_delta(self.stats.inverted_indexes_size, rv.size_delta);
+            self.stats.inverted_indexes_size.apply_delta(rv.size_delta);
 
         rv
     }
@@ -158,7 +162,7 @@ impl NumericRangeTree {
         depth: usize,
         max_depth_range: usize,
         compress_floats: bool,
-        empty_leaves: &mut usize,
+        empty_leaves: &mut CheckedCount,
     ) -> AddResult {
         match &nodes[node_idx] {
             NumericRangeNode::Internal(_) => {
@@ -219,7 +223,7 @@ impl NumericRangeTree {
                 // If this leaf was emptied (e.g. by the GC) and is about to be re-populated,
                 // update the empty_leaves counter.
                 if leaf.range.num_docs() == 0 {
-                    *empty_leaves = empty_leaves.checked_sub(1).expect("Underflow!");
+                    *empty_leaves -= 1;
                 }
 
                 let size = leaf.range.add(doc_id, value);

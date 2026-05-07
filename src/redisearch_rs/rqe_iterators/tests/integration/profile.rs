@@ -9,9 +9,16 @@
 
 use std::time::Duration;
 
-use rqe_iterators::{RQEIterator, Wildcard, profile::Profile};
+use rqe_iterators::{IteratorType, RQEIterator, Wildcard, profile::Profile};
 
 use crate::utils::{Mock, MockIteratorError};
+
+#[test]
+fn type_() {
+    let child = Wildcard::new(10, 1.0);
+    let it = Profile::new(child);
+    assert_eq!(it.type_(), IteratorType::Profile);
+}
 
 #[test]
 fn initial_state() {
@@ -146,6 +153,8 @@ fn profile_rewind() {
 
 #[test]
 fn profile_revalidate() {
+    let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+    let ctx = mock_ctx.spec();
     let child = Wildcard::new(10, 1.0);
     let mut profile = Profile::new(child);
 
@@ -153,7 +162,8 @@ fn profile_revalidate() {
     let _ = profile.read(); // doc 2
 
     // Revalidate (Wildcard returns OK)
-    let status = profile.revalidate();
+    // SAFETY: test-only call with valid context
+    let status = unsafe { profile.revalidate(ctx) };
     assert!(status.is_ok());
 
     // Verify delegation still works

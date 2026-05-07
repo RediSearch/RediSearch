@@ -8,7 +8,6 @@
 */
 #include "indexer.h"
 #include "forward_index.h"
-#include "numeric_index.h"
 #include "inverted_index.h"
 #include "geo_index.h"
 #include "vector_index.h"
@@ -23,6 +22,7 @@
 #include "search_disk.h"
 #include "info/global_stats.h"
 #include "gc.h"
+#include "doc_id_meta.h"
 
 extern RedisModuleCtx *RSDummyContext;
 
@@ -103,12 +103,19 @@ static void writeCurEntries(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
 
   while (entry != NULL) {
     if (spec->diskSpec) {
-      if (SearchDisk_IndexTerm(spec->diskSpec, entry->term, entry->len, aCtx->doc->docId, entry->fieldMask, entry->freq)) {
+      // Get offset data if available (when Index_StoreTermOffsets flag is set)
+      const uint8_t *offsets = NULL;
+      size_t offsetsLen = 0;
+      if ((spec->flags & Index_StoreTermOffsets) && entry->vw) {
+        offsets = VVW_GetByteData(entry->vw);
+        offsetsLen = VVW_GetByteLength(entry->vw);
+      }
+      if (SearchDisk_IndexTerm(spec->diskSpec, entry->term, entry->len, aCtx->doc->docId, entry->fieldMask, entry->freq, offsets, offsetsLen)) {
         IndexSpec_AddTerm(spec, entry->term, entry->len);
       }
     } else {
       bool isNew;
-      InvertedIndex *invidx = Redis_OpenInvertedIndex(ctx, entry->term, entry->len, 1, &isNew);
+      InvertedIndex *invidx = Redis_OpenInvertedIndex(ctx->spec, entry->term, entry->len, 1, &isNew);
       if (isNew && strlen(entry->term) != 0) {
         IndexSpec_AddTerm(spec, entry->term, entry->len);
       }
@@ -195,7 +202,8 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
 
     RS_ASSERT(cur->doc);
     bool updated = false;
-    if (spec->diskSpec) {
+    if (SearchDisk_IsEnabled()) {
+      RS_ASSERT(spec->diskSpec);
       size_t len;
       const char *key = RedisModule_StringPtrLen(cur->doc->docKey, &len);
       uint32_t oldLen = 0;
@@ -204,11 +212,20 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
       if (cur->doc->docExpirationTime.tv_sec || cur->doc->docExpirationTime.tv_nsec) {
         cur->docFlags |= Document_HasExpiration;
       }
+
+      // Get old docId from key metadata (if document already exists)
+      // TODO: Consider calling this from SearchDisk_PutDocument
+      uint64_t oldDocId = 0;
+      DocIdMeta_Get(ctx->redisCtx, cur->doc->docKey, spec->specId, &oldDocId);
+
       // Put the document and get a new doc-id, and remove the old id->dmd entry
       // if it existed.
       t_docId docId = SearchDisk_PutDocument(spec->diskSpec, key, len,
         cur->doc->score, cur->docFlags, cur->fwIdx->maxTermFreq,
-        cur->fwIdx->totalFreq, &oldLen, cur->doc->docExpirationTime);
+        cur->fwIdx->totalFreq, &oldLen, cur->doc->docExpirationTime, oldDocId);
+
+      bool failure = docId == 0;
+
       if (oldLen > 0) {
         // We deleted a document in the above call, update the stats accordingly
         RS_ASSERT(spec->stats.scoring.numDocuments > 0);
@@ -217,11 +234,23 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
         spec->stats.scoring.totalDocsLen -= oldLen;
         updated = docId != 0; // If docId is 0, the document was not added
       }
-      if (docId) {
+
+      if (!failure) {
         cur->doc->docId = docId;
-        spec->stats.scoring.totalDocsLen += cur->fwIdx->totalFreq;
-        ++spec->stats.scoring.numDocuments;
-      } else {
+        // Store docId in key metadata for fast lookup
+        int rc = DocIdMeta_Set(ctx->redisCtx, cur->doc->docKey, spec->specId, docId);
+        failure = rc != REDISMODULE_OK;
+
+        if (failure) {
+          uint32_t docLen = 0;
+          SearchDisk_DeleteDocumentById(spec->diskSpec, docId, &docLen);
+        } else {
+          spec->stats.scoring.totalDocsLen += cur->fwIdx->totalFreq;
+          ++spec->stats.scoring.numDocuments;
+        }
+      }
+
+      if (failure) {
         cur->stateFlags |= ACTX_F_ERRORED;
         RS_LOG_ASSERT(false, "Unexpected: Failed to add document to disk index");
         continue;
@@ -239,9 +268,9 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
       md->docLen = cur->fwIdx->totalFreq;
       spec->stats.scoring.totalDocsLen += md->docLen;
 
-      if (cur->sv) {
+      if (RSSortingVector_Length(&cur->sv)) {
         DocTable_SetSortingVector(&spec->docs, md, cur->sv);
-        cur->sv = NULL;
+        cur->sv = RSSortingVector_Empty();
       }
 
       if (cur->byteOffsets) {
@@ -252,8 +281,13 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
       Document* doc = cur->doc;
       const bool hasExpiration = doc->docExpirationTime.tv_sec || doc->docExpirationTime.tv_nsec || doc->fieldExpirations;
       if (hasExpiration) {
-        md->flags |= Document_HasExpiration;
+        // No need to mark the DMD with Document_HasExpiration: the result
+        // processor already fetches the DMD from the doc table on every hit,
+        // so it can read `expirationTimeNs` directly without going through
+        // a flag-gated branch.
         DocTable_UpdateExpiration(&ctx->spec->docs, md, doc->docExpirationTime, doc->fieldExpirations);
+
+        doc->fieldExpirations = NULL; // Moved to DocTable (TTL table actually)
       }
       DMD_Return(md);
     }
@@ -421,8 +455,17 @@ static void Indexer_Process(RSAddDocumentCtx *aCtx) {
   // Index the document in the `existing docs` inverted index
   writeExistingDocs(aCtx, &ctx);
 
-  // Handle missing values indexing
-  writeMissingFieldDocs(aCtx, &ctx, doc->fieldExpirations);
+  // On the non-disk path, `doc->fieldExpirations` ownership has already been
+  // moved into the TTL table by `doAssignIds` on success. On failure (e.g.
+  // `makeDocumentId` returned NULL), the array stays attached to `doc` so
+  // `Document_Free` can release it.
+  arrayof(FieldExpiration) fes;
+  if (SearchDisk_IsEnabled()) {
+    fes = doc->fieldExpirations;
+  } else {
+    fes = (arrayof(FieldExpiration))DocTable_GetFieldExpirations(&ctx.spec->docs, doc->docId);
+  }
+  writeMissingFieldDocs(aCtx, &ctx, fes);
 
   // Handle FULLTEXT indexes
   if ((aCtx->fwIdx && (aCtx->stateFlags & ACTX_F_ERRORED) == 0)) {

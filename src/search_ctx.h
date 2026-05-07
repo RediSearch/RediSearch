@@ -77,6 +77,8 @@ void SearchCtx_Free(RedisSearchCtx *sctx);
 
 void RedisSearchCtx_LockSpecRead(RedisSearchCtx *sctx);
 
+int RedisSearchCtx_TryLockSpecRead(RedisSearchCtx *sctx);
+
 void RedisSearchCtx_LockSpecWrite(RedisSearchCtx *sctx);
 
 void RedisSearchCtx_UnlockSpec(RedisSearchCtx *sctx);

@@ -15,6 +15,8 @@
 #include <string.h>
 #include <stdlib.h>
 #include <limits.h>
+#include <unistd.h>
+#include "util/minmax.h"
 #include "rmalloc.h"
 #include "rules.h"
 #include "spec.h"
@@ -24,9 +26,6 @@
 #include "util/workers.h"
 #include "module.h"
 #include "search_disk.h"
-
-#define __STRINGIFY(x) #x
-#define STRINGIFY(x) __STRINGIFY(x)
 
 #define DEFAULT_UNSTABLE_FEATURES_ENABLE false
 
@@ -48,6 +47,7 @@ configPair_t __configPairs[] = {
   {"_PRIORITIZE_INTERSECT_UNION_CHILDREN", "search-_prioritize-intersect-union-children"},
   {"_BG_INDEX_MEM_PCT_THR",           "search-_bg-index-mem-pct-thr"},
   {"BG_INDEX_SLEEP_GAP",              "search-bg-index-sleep-gap"},
+  {"CONNECT_TIMEOUT",                 "search-connect-timeout"},
   {"CONN_PER_SHARD",                  "search-conn-per-shard"},
   {"CURSOR_MAX_IDLE",                 "search-cursor-max-idle"},
   {"CURSOR_REPLY_THRESHOLD",          "search-cursor-reply-threshold"},
@@ -1724,25 +1724,26 @@ void UpgradeDeprecatedMTConfigs() {
   }
 }
 
-char *getRedisConfigValue(RedisModuleCtx *ctx, const char* confName) {
-  RedisModuleCallReply *rep = RedisModule_Call(ctx, "config", "cc", "get", confName);
-  RS_ASSERT(RedisModule_CallReplyType(rep) == REDISMODULE_REPLY_ARRAY);
-  if (RedisModule_CallReplyLength(rep) == 0){
-    RedisModule_FreeCallReply(rep);
-    return NULL;
+RedisModuleString *getRedisConfigValue(RedisModuleCtx *ctx, const char *confName) {
+  RedisModuleString *valueStr = NULL;
+  RedisModule_ConfigGet(ctx, confName, &valueStr);
+  return valueStr; // Unset on error, caller should check for NULL
+}
+
+bool getRedisConfigBool(RedisModuleCtx *ctx, const char *confName, bool defaultValue) {
+  int value = 0;
+  if (RedisModule_ConfigGetBool(ctx, confName, &value) != REDISMODULE_OK) {
+    return defaultValue;
   }
-  RS_ASSERT(RedisModule_CallReplyLength(rep) == 2);
-  RedisModuleCallReply *valueRep = RedisModule_CallReplyArrayElement(rep, 1);
-  RS_ASSERT(RedisModule_CallReplyType(valueRep) == REDISMODULE_REPLY_STRING);
-  size_t len;
-  const char* valueRepCStr = RedisModule_CallReplyStringPtr(valueRep, &len);
+  return value != 0;
+}
 
-  char* res = rm_calloc(1, len + 1);
-  memcpy(res, valueRepCStr, len);
-
-  RedisModule_FreeCallReply(rep);
-
-  return res;
+long long getRedisConfigNumeric(RedisModuleCtx *ctx, const char *confName, long long defaultValue) {
+  long long value = 0;
+  if (RedisModule_ConfigGetNumeric(ctx, confName, &value) != REDISMODULE_OK) {
+    return defaultValue;
+  }
+  return value;
 }
 
 sds RSConfig_GetInfoString(const RSConfig *config) {
@@ -1894,6 +1895,18 @@ void iteratorsConfig_init(IteratorsConfig *config) {
   *config = RSGlobalConfig.iteratorsConfigParams;
 }
 
+
+size_t GetDefaultWorkerThreads(void) {
+  if (IsEnterprise()) return 0;  // Keep default 0 for Redis Enterprise
+  long nprocs = sysconf(_SC_NPROCESSORS_ONLN);
+  if (nprocs <= 0) {
+    RedisModule_Log(RSDummyContext, "warning",
+      "sysconf(_SC_NPROCESSORS_ONLN) failed or returned %ld, falling back to MAX_WORKER_THREADS (%d)",
+      nprocs, MAX_WORKER_THREADS);
+    return MAX_WORKER_THREADS;
+  }
+  return MIN(MAX_WORKER_THREADS, (size_t)nprocs);
+}
 
 int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
   // Numeric parameters
@@ -2109,9 +2122,14 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
     )
   )
 
+  size_t defaultWorkers = GetDefaultWorkerThreads();
+  RedisModule_Log(ctx, "notice",
+    "search-workers default: %zu (min of MAX_WORKER_THREADS=%d and CPU cores)",
+    defaultWorkers, MAX_WORKER_THREADS);
+  RSGlobalConfig.numWorkerThreads = defaultWorkers;
   RM_TRY(
     RedisModule_RegisterNumericConfig(
-      ctx, "search-workers", DEFAULT_WORKER_THREADS,
+      ctx, "search-workers", (long long)defaultWorkers,
       REDISMODULE_CONFIG_UNPREFIXED, 0,
       MAX_WORKER_THREADS, get_workers, set_workers, NULL,
       (void *)&RSGlobalConfig
@@ -2368,6 +2386,15 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
       REDISMODULE_CONFIG_UNPREFIXED, 0,
       100, get_uint8_numeric_config, set_search_disk_buffer_percentage_config, NULL,
       (void *)&(RSGlobalConfig.diskBufferPercentage)
+    )
+  )
+
+  RM_TRY(
+    RedisModule_RegisterBoolConfig(
+      ctx, "search-_fallback-to-main-thread-when-block-client-unavailable", 1,
+      REDISMODULE_CONFIG_UNPREFIXED,
+      get_bool_config, set_bool_config, NULL,
+      (void *)&(RSGlobalConfig.fallbackToMainThreadWhenBlockClientUnavailable)
     )
   )
 

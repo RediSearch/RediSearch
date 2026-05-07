@@ -1,0 +1,60 @@
+name: Build RediSearch Binary for Benchmarks
+
+# Builds RediSearch once and uploads the resulting redisearch.so as an artifact
+# so that downstream benchmark jobs can download it instead of rebuilding.
+
+on:
+  workflow_call:
+    inputs:
+      artifact_name:
+        type: string
+        required: true
+        description: "Name of the artifact to upload the built redisearch.so under"
+      arch:
+        type: string
+        default: x86_64
+        description: "CPU arch to build for. `x86_64` (default) runs on GitHub's ubuntu-24.04; `aarch64` runs on ubuntu-24.04-arm. Must match the target EC2 DB architecture at benchmark time."
+
+jobs:
+  build:
+    name: "Build RediSearch ${{ inputs.arch }}"
+    # Runner matches inputs.arch so the produced .so is ABI-compatible with
+    # the target EC2 instance. build.sh derives the output dir from `uname -m`,
+    # so we run the build natively on the matching-arch runner instead of
+    # cross-compiling.
+    runs-on: ${{ inputs.arch == 'aarch64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
+    defaults:
+      run:
+        shell: bash -l -eo pipefail {0}
+    env:
+      # build.sh maps `uname -m == x86_64` -> `x64` and `uname -m == aarch64` -> `aarch64`;
+      # BUILD_DIR mirrors that so the upload step finds the .so.
+      BUILD_DIR: ${{ format('bin/linux-{0}-release/search-community', inputs.arch == 'aarch64' && 'aarch64' || 'x64') }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          submodules: recursive
+      - name: Setup specific
+        working-directory: .install
+        run: ./install_script.sh sudo
+      - name: Setup tests dependencies
+        run: .install/test_deps/common_installations.sh sudo
+      - name: Install Boost
+        working-directory: .install
+        run: ./install_boost.sh
+      - name: Setup sccache
+        uses: ./.github/actions/setup-sccache
+      - name: Build RediSearch
+        run: make build LTO=1
+      - name: Show sccache stats
+        run: ${SCCACHE_PATH:-sccache} --show-stats
+      - name: Upload redisearch.so artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.artifact_name }}
+          path: |
+            ${{ env.BUILD_DIR }}/redisearch.so
+            ${{ env.BUILD_DIR }}/redisearch.so.debug
+          if-no-files-found: error
+          retention-days: 1

@@ -61,11 +61,17 @@ void QueryDebugCtx_SetDebugRP(ResultProcessor* debugRP);
 bool QueryDebugCtx_HasDebugRP(void);
 
 #ifdef ENABLE_ASSERT
+// Named sentinel values for the pauseBeforeN field of CoordReduceDebugCtx
+#define COORD_REDUCE_NO_PAUSE                0   // Disable pause (no pause point set)
+#define COORD_REDUCE_PAUSE_AFTER_LAST_RESULT (-1) // Pause after the last result is reduced
+#define COORD_REDUCE_PAUSE_BEFORE_REDUCER_INIT (-2) // Pause after claiming reducing but before reducer context init
+
 // Struct used for debugging coordinator reduction (pause mid-reduce)
 // Only available in debug builds to avoid affecting release performance
 typedef struct CoordReduceDebugCtx {
   atomic_bool pause;           // Atomic bool to wait for the resume command
-  atomic_int pauseBeforeN;     // N value: 0=no pause, -1=pause after last, N>0=pause before Nth result
+  atomic_int pauseBeforeN;     // COORD_REDUCE_NO_PAUSE, COORD_REDUCE_PAUSE_BEFORE_REDUCER_INIT,
+                               // COORD_REDUCE_PAUSE_AFTER_LAST_RESULT, or N>0 to pause before the Nth result
   atomic_int reduceCount;      // Counter of results reduced so far
 } CoordReduceDebugCtx;
 
@@ -99,8 +105,15 @@ void StoreResultsDebugCtx_SetPause(bool pause);
 
 // Predefined sync point names for query execution
 // These correspond to specific locations in the query execution path
-#define SYNC_POINT_AFTER_ITERATOR_CREATE  "AfterIteratorCreate"
-#define SYNC_POINT_BEFORE_FIRST_READ      "BeforeFirstRead"
+#define SYNC_POINT_AFTER_ITERATOR_CREATE                "AfterIteratorCreate"
+#define SYNC_POINT_BEFORE_FIRST_READ                    "BeforeFirstRead"
+#define SYNC_POINT_BEFORE_DIST_HYBRID_PROMOTE           "BeforeDistHybridPromote"
+#define SYNC_POINT_BEFORE_SPEC_LOCK                     "BeforeSpecLock"
+#define SYNC_POINT_BEFORE_CURSOR_READ_SEND_CHUNK        "BeforeCursorReadSendChunk"
+#define SYNC_POINT_BEFORE_AGGREGATE_RESULTS_CLAIM       "BeforeAggregateResultsClaim"
+#define SYNC_POINT_BEFORE_RPNET_START                   "BeforeRPNetStart"
+#define SYNC_POINT_AFTER_ITERATOR_START                 "AfterIteratorStart"
+#define SYNC_POINT_RPNET_REPLY_ADMITTED                 "RpnetReplyAdmitted"
 
 // SyncPoint API function declarations
 // Arm a sync point - subsequent calls to SyncPoint_Wait will block
@@ -119,7 +132,38 @@ void SyncPoint_ClearAll(void);
 // If the named point is armed, blocks until signaled
 void SyncPoint_Wait(const char *name);
 
+// Predicate callback type for SyncPoint_WaitUntil
+typedef bool (*SyncPointStopFn)(void *arg);
+// Like SyncPoint_Wait, but also exits the wait loop when `stop_fn(arg)` returns
+// true. Lets workers release early when a timeout fires on the main thread.
+void SyncPoint_WaitUntil(const char *name, SyncPointStopFn stop_fn, void *arg);
+
+// Struct used for debugging hybrid cursor storage ONLY (pause before/after cursor creation)
+// Separate from StoreResultsDebugCtx to allow independent control
+typedef struct HybridStoreCursorsDebugCtx {
+  atomic_bool pauseBeforeEnabled;   // Whether pause before cursor storage is enabled
+  atomic_bool pauseAfterEnabled;    // Whether pause after cursor storage is enabled
+  atomic_bool pause;                // Atomic bool to wait for the resume command
+} HybridStoreCursorsDebugCtx;
+
+// HybridStoreCursorsDebugCtx API function declarations
+bool HybridStoreCursorsDebugCtx_IsPauseBeforeEnabled(void);
+void HybridStoreCursorsDebugCtx_SetPauseBeforeEnabled(bool enabled);
+bool HybridStoreCursorsDebugCtx_IsPauseAfterEnabled(void);
+void HybridStoreCursorsDebugCtx_SetPauseAfterEnabled(bool enabled);
+bool HybridStoreCursorsDebugCtx_IsPaused(void);
+void HybridStoreCursorsDebugCtx_SetPause(bool pause);
+
+// Tracks the currently active coordinator MRIterator so tests can poll the
+// `pending` shard counter via FT.DEBUG BG_PENDING_REPLIES. Set after the
+// iterator is created in the RPNet start path; cleared before it is released
+// in rpnetFree. Only one query is expected to be active at a time in tests.
+struct MRIterator;
+void DebugBgIterator_Set(struct MRIterator *it);
+void DebugBgIterator_Clear(struct MRIterator *it);
+
 #endif  // ENABLE_ASSERT
+
 
 // Yield counter functions
 void IncrementLoadYieldCounter(void);

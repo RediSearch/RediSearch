@@ -8,11 +8,11 @@
 #include <stdlib.h>
 #include "thin_vec.h"
 #include "query_term.h"
+#include "metrics.h"
 /**
  * Forward declarations which will be defined in `redisearch.h`
  */
 typedef struct RSDocumentMetadata_s RSDocumentMetadata;
-typedef struct RSYieldableMetric RSYieldableMetric;
 typedef uint64_t t_docId;
 typedef uint16_t t_fieldIndex;
 
@@ -322,6 +322,7 @@ enum RSTermRecord_Tag
  {
   RSTermRecord_Borrowed,
   RSTermRecord_Owned,
+  RSTermRecord_FullyOwned,
 };
 #ifndef __cplusplus
 typedef uint8_t RSTermRecord_Tag;
@@ -364,10 +365,31 @@ typedef struct RSTermRecord_Owned_Body {
   RSOffsetVector offsets;
 } RSTermRecord_Owned_Body;
 
+typedef struct RSTermRecord_FullyOwned_Body {
+  RSTermRecord_Tag tag;
+  /**
+   * The term that brought up this record.
+   *
+   * The term is owned by the record (wrapped in a `Box`), same as in the
+   * `Borrowed` variant.
+   */
+  RSQueryTerm *term;
+  /**
+   * The encoded offsets in which the term appeared in the document.
+   *
+   * Unlike `Borrowed`, the offsets are owned by the record as well and
+   * therefore do not tie the record to an external lifetime. Used when
+   * the decoded record must outlive the source of the offset bytes
+   * (e.g. reading from a disk page that may be evicted).
+   */
+  RSOffsetVector offsets;
+} RSTermRecord_FullyOwned_Body;
+
 typedef union RSTermRecord {
   RSTermRecord_Tag tag;
   RSTermRecord_Borrowed_Body borrowed;
   RSTermRecord_Owned_Body owned;
+  RSTermRecord_FullyOwned_Body fully_owned;
 } RSTermRecord;
 
 /**
@@ -448,9 +470,12 @@ typedef struct RSIndexResult {
    */
   union RSResultData data;
   /**
-   * Holds an array of metrics yielded by the different iterators in the AST
+   * Holds an array of metrics yielded by the different iterators in the AST.
+   *
+   * Backed by [`ThinVec`](thin_vec::ThinVec) — pointer-sized, no
+   * allocation when empty.
    */
-  RSYieldableMetric *metrics;
+  MetricsVec metrics;
   /**
    * Relative weight for scoring calculations. This is derived from the result's iterator weight
    */
@@ -579,16 +604,6 @@ typedef struct FieldFilterContext {
 #ifdef __cplusplus
 extern "C" {
 #endif // __cplusplus
-
-/**
- * Check if this is a numeric filter and not a geo filter
- *
- * # Safety
- *
- * The following invariant must be upheld when calling this function:
- * - `filter` must point to a valid `NumericFilter` and cannot be NULL.
- */
-bool NumericFilter_IsNumeric(const struct NumericFilter *filter);
 
 /**
  * Check if the given value matches the numeric filter.
@@ -870,12 +885,17 @@ union RSAggregateResult AggregateResult_New(uintptr_t cap);
 void AggregateResult_Free(union RSAggregateResult agg);
 
 /**
- * Add a child to a result if it is an aggregate result. Note, if `parent` only hold references
- * to results, then it will not take ownership of the `child` and will therefore not free it.
- * Instead, the caller is responsible for managing the memory of the `child` pointer *after* the
- * `parent` has been freed.
+ * Add a child to a result if it is an aggregate result.
  *
  * If the `parent` is not an aggregate kind, then this is a no-op.
+ *
+ * **Owned (copy) aggregates:** When `parent.is_copy()` is true, the parent
+ * takes ownership of `child` (via `Box::from_raw`). The caller must not
+ * access or free `child` afterward.
+ *
+ * **Borrowed aggregates:** When `parent.is_copy()` is false, the parent
+ * stores a borrowed reference to `child`. The caller retains ownership
+ * and must ensure `child` remains valid for the lifetime of `parent`.
  *
  * # Safety
  *

@@ -167,3 +167,87 @@ def testGeoOnReopen(env:Env):
     checkResults(res)
 
   env.assertEqual(len(ids), n)
+
+@skip(cluster=True)
+def testGeoLargeRadiusDecreaseStep(env):
+  """Exercise the decrease_step path in geohashGetAreasByRadius.
+  At high latitudes, longitude cells are physically compressed
+  (cos(85°) ≈ 0.087), so a 620 km radius at lat=85 exceeds the
+  east/west neighbor cell boundaries at step 3 (~45° cells =
+  ~556 km physical width), triggering the step decrease."""
+  conn = getConnectionByEnv(env)
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'g', 'GEO').ok()
+
+  points = [
+    ('doc1', '30.0,85.0'),   # at the query center
+    ('doc2', '31.0,84.5'),   # very close to center
+    ('doc3', '0.0,85.0'),    # ~288 km west, within radius
+    ('doc4', '0.0,0.0'),     # equator, well outside radius
+  ]
+  for name, loc in points:
+    conn.execute_command('HSET', name, 'g', loc)
+  waitForIndex(env, 'idx')
+
+  # 620 km radius at (30, 85): at step 3 (313-626 km range), east neighbor
+  # far edge at 90° lon is ~556 km from center — less than 620 km radius,
+  # so decrease_step triggers.
+  res = env.cmd('FT.SEARCH', 'idx', '@g:[30.0 85.0 620 km]', 'NOCONTENT')
+  env.assertGreaterEqual(res[0], 2, message=res)
+  env.assertNotContains('doc4', res)
+
+@skip(cluster=True)
+def testGeoParseNaN(env):
+  """NaN passes C parseGeo (fast_float v7 parses it) and slips through
+  geohashEncode (NaN comparisons are always false), so the document
+  indexes with garbage geohash data.
+
+  TODO: Once the Rust parseGeo replacement is active, NaN will be
+  rejected at parse time and these documents should fail to index.
+  Flip assertions to expect hash_indexing_failures."""
+  conn = getConnectionByEnv(env)
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'g', 'GEO').ok()
+
+  conn.execute_command('HSET', 'nan_lon', 'g', 'NaN,1.0')
+  conn.execute_command('HSET', 'nan_lat', 'g', '1.0,NaN')
+  conn.execute_command('HSET', 'nan_both', 'g', 'NaN,NaN')
+
+  # Currently no indexing failures — NaN sneaks through the C path.
+  assertInfoField(env, 'idx', 'hash_indexing_failures', 0)
+
+@skip(cluster=True)
+def testGeoParseInfinity(env):
+  """inf/-inf/infinity pass C parseGeo (fast_float v7 parses them) but
+  are caught by geohashEncode bounds checking (inf > 180 is true), so
+  they fail to index with 'Invalid geo coordinates'.
+
+  TODO: Once the Rust parseGeo replacement is active, these will be
+  rejected earlier at parse time. The end-to-end behavior (indexing
+  failure) stays the same, but the error reason changes."""
+  conn = getConnectionByEnv(env)
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'g', 'GEO').ok()
+
+  conn.execute_command('HSET', 'inf_lon', 'g', 'inf,1.0')
+  conn.execute_command('HSET', 'neg_inf_lon', 'g', '-inf,1.0')
+  conn.execute_command('HSET', 'inf_lat', 'g', '1.0,inf')
+  conn.execute_command('HSET', 'infinity_lon', 'g', 'infinity,1.0')
+
+  # All four fail to index (caught by encodeGeo bounds check).
+  assertInfoField(env, 'idx', 'hash_indexing_failures', 4)
+
+@skip(cluster=True)
+def testGeoParseTrailingWhitespace(env):
+  """Trailing whitespace after a coordinate value: fast_float parses the
+  number but leaves the end pointer at the space, so the C check
+  `if (*end1 || *end2)` triggers and parseGeo rejects the input.
+
+  TODO: Once the Rust parseGeo replacement is active, trim() strips
+  trailing whitespace before parsing, so these inputs will index
+  successfully. Flip assertions to expect hash_indexing_failures == 0."""
+  conn = getConnectionByEnv(env)
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'g', 'GEO').ok()
+
+  conn.execute_command('HSET', 'ws1', 'g', '1.23,4.56 ')
+  conn.execute_command('HSET', 'ws2', 'g', '1.23, 4.56 ')
+
+  # Both fail to index under the C path: trailing whitespace in lat.
+  assertInfoField(env, 'idx', 'hash_indexing_failures', 2)

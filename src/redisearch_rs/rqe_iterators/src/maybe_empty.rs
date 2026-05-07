@@ -12,7 +12,9 @@
 use ffi::t_docId;
 use inverted_index::RSIndexResult;
 
-use crate::{RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome, empty::Empty};
+use crate::{
+    IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome, empty::Empty,
+};
 
 /// An iterator that is either [`Empty`] or the provided [`RQEIterator`].
 pub struct MaybeEmpty<I>(MaybeEmptyOption<I>);
@@ -39,6 +41,17 @@ where
         match &self.0 {
             MaybeEmptyOption::None(_) => None,
             MaybeEmptyOption::Some(it) => Some(it),
+        }
+    }
+
+    /// Transform the inner iterator (if present) into a new type.
+    pub fn map<'b, J>(self, f: impl FnOnce(I) -> J) -> MaybeEmpty<J>
+    where
+        J: RQEIterator<'b>,
+    {
+        match self.0 {
+            MaybeEmptyOption::None(_) => MaybeEmpty(MaybeEmptyOption::None(Empty)),
+            MaybeEmptyOption::Some(it) => MaybeEmpty(MaybeEmptyOption::Some(f(it))),
         }
     }
 
@@ -104,10 +117,15 @@ where
     }
 
     #[inline(always)]
-    fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
+    unsafe fn revalidate(
+        &mut self,
+        spec: std::ptr::NonNull<ffi::IndexSpec>,
+    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         match &mut self.0 {
-            MaybeEmptyOption::None(empty) => empty.revalidate(),
-            MaybeEmptyOption::Some(it) => it.revalidate(),
+            // SAFETY: Delegating to variant with the same `spec` passed by our caller.
+            MaybeEmptyOption::None(empty) => unsafe { empty.revalidate(spec) },
+            // SAFETY: Delegating to variant with the same `spec` passed by our caller.
+            MaybeEmptyOption::Some(it) => unsafe { it.revalidate(spec) },
         }
     }
 
@@ -140,6 +158,23 @@ where
         match &self.0 {
             MaybeEmptyOption::None(empty) => empty.at_eof(),
             MaybeEmptyOption::Some(it) => it.at_eof(),
+        }
+    }
+
+    #[inline(always)]
+    fn type_(&self) -> IteratorType {
+        match &self.0 {
+            MaybeEmptyOption::None(empty) => empty.type_(),
+            MaybeEmptyOption::Some(it) => it.type_(),
+        }
+    }
+
+    fn intersection_sort_weight(&self, prioritize_union_children: bool) -> f64 {
+        match &self.0 {
+            MaybeEmptyOption::None(empty) => {
+                empty.intersection_sort_weight(prioritize_union_children)
+            }
+            MaybeEmptyOption::Some(it) => it.intersection_sort_weight(prioritize_union_children),
         }
     }
 }

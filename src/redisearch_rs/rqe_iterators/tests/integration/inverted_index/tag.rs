@@ -12,7 +12,7 @@
 use ffi::{IndexFlags_Index_DocIdsOnly, RS_FIELDMASK_ALL, t_docId};
 use inverted_index::{RSIndexResult, doc_ids_only::DocIdsOnly};
 use query_term::RSQueryTerm;
-use rqe_iterators::{NoOpChecker, RQEIterator, inverted_index::Tag};
+use rqe_iterators::{IteratorType, NoOpChecker, RQEIterator, inverted_index::Tag};
 use rqe_iterators_test_utils::MockContext;
 
 use crate::inverted_index::utils::BaseTest;
@@ -61,6 +61,13 @@ impl TagBaseTest {
             )
         }
     }
+}
+
+#[test]
+fn tag_type() {
+    let test = TagBaseTest::new(10);
+    let it = test.create_iterator();
+    assert_eq!(it.type_(), IteratorType::InvIdxTag);
 }
 
 #[test]
@@ -170,15 +177,18 @@ mod not_miri {
     fn tag_revalidate_after_index_disappears() {
         let test = TagRevalidateTest::new(10);
         let mut it = test.create_iterator();
+        let sctx = test.test.context.spec;
 
         // Verify the iterator works normally and read at least one document
+        // SAFETY: test-only call with valid context
         assert_eq!(
-            it.revalidate().expect("revalidate failed"),
+            unsafe { it.revalidate(sctx) }.expect("revalidate failed"),
             RQEValidateStatus::Ok
         );
         assert!(it.read().expect("failed to read").is_some());
+        // SAFETY: test-only call with valid context
         assert_eq!(
-            it.revalidate().expect("revalidate failed"),
+            unsafe { it.revalidate(sctx) }.expect("revalidate failed"),
             RQEValidateStatus::Ok
         );
 
@@ -209,8 +219,9 @@ mod not_miri {
 
         // Revalidate should return Aborted because the tag II no longer
         // points to the same index the reader was created from.
+        // SAFETY: test-only call with valid context
         assert_eq!(
-            it.revalidate().expect("revalidate failed"),
+            unsafe { it.revalidate(sctx) }.expect("revalidate failed"),
             RQEValidateStatus::Aborted
         );
 
@@ -239,8 +250,10 @@ mod not_miri {
 
         // Read at least one document so the iterator has a position.
         assert!(it.read().expect("failed to read").is_some());
+        let sctx = test.test.context.spec;
+        // SAFETY: test-only call with valid context
         assert_eq!(
-            it.revalidate().expect("revalidate failed"),
+            unsafe { it.revalidate(sctx) }.expect("revalidate failed"),
             RQEValidateStatus::Ok
         );
 
@@ -259,8 +272,9 @@ mod not_miri {
         assert!(old_val.is_some(), "test_tag should exist in the TrieMap");
 
         // `should_abort` sees the tag value is missing and returns true.
+        // SAFETY: test-only call with valid context
         assert_eq!(
-            it.revalidate().expect("revalidate failed"),
+            unsafe { it.revalidate(sctx) }.expect("revalidate failed"),
             RQEValidateStatus::Aborted
         );
 

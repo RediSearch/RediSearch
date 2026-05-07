@@ -308,7 +308,8 @@ end_group() {
 prepare_coverage_capture() {
   start_group "Code Coverage Preparation"
   lcov --zerocounters      --directory $BINROOT --base-directory $ROOT
-  lcov --capture --initial --directory $BINROOT --base-directory $ROOT -o $BINROOT/base.info
+  lcov --capture --initial --directory $BINROOT --base-directory $ROOT -o $BINROOT/base.info \
+    --exclude '*/_deps/*'
   end_group
 }
 
@@ -322,7 +323,8 @@ capture_coverage() {
   start_group "Code Coverage Capture ($NAME)"
 
   # Capture coverage collected while running tests previously
-  lcov --capture --directory $BINROOT --base-directory $ROOT -o $BINROOT/test.info
+  lcov --capture --directory $BINROOT --base-directory $ROOT -o $BINROOT/test.info \
+    --exclude '*/_deps/*'
 
   # Accumulate results with the baseline captured before the test
   lcov --add-tracefile $BINROOT/base.info --add-tracefile $BINROOT/test.info -o $BINROOT/full.info
@@ -436,9 +438,92 @@ prepare_cmake_arguments() {
     fi
 
     echo "Enabling C/Rust LTO"
-    CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DCMAKE_C_COMPILER=$C_COMPILER -DCMAKE_CXX_COMPILER=$CXX_COMPILER -DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=$LINKER -DCMAKE_SHARED_LINKER_FLAGS=-fuse-ld=$LINKER -DCMAKE_MODULE_LINKER_FLAGS=-fuse-ld=$LINKER -DCMAKE_INTERPROCEDURAL_OPTIMIZATION=true"
+
+    # LLVM version alignment with the Rust compiler forces us to build with
+    # a rather recent version of clang (>=21.x.y).
+    # This can cause issues on older Linux distributions: if we're not careful,
+    # the .so we produce may rely on C++ symbols that don't exist in the
+    # C++ header files available at runtime (i.e. the ones provided by the
+    # system-level `gcc`/`g++` toolchain).
+    # To prevent this compile-time/runtime header mismatch, we force clang
+    # to use the C++ headers provided by the system's `g++` installation.
+    # This requires us to combine a few different flags and guardrails:
+    # * `--gcc-install-dir`, to point `clang` at artefacts (crtbegin.o, libgcc, etc.)
+    #   for a _specific_ version of `gcc`
+    # * `-nostdinc++`, to disable standard `#include` directives for the C++
+    #   standard library
+    # * `-isystem <dir>`, to control what paths are included in search space for
+    #   C++ standard headers
+    # * An after-the-fact check to ensure we haven't included unwanted headers in
+    #   the search
+    GCC_COMMON_FLAGS=""
+    GCC_CXX_FLAGS=""
+    if command -v g++ &>/dev/null; then
+        # Extract the C++ include paths that system g++ actually uses.
+        _cxx_includes=$(g++ -E -x c++ -v /dev/null 2>&1 | \
+            sed -n '/#include <\.\.\.>/,/^End/{ /^ /p }' | \
+            sed 's/^ *//' | \
+            grep -E '(/c\+\+/|/backward)') || true
+
+        # Point clang at g++'s include paths, disabling its default `#include`s
+        if [[ -n "$_cxx_includes" ]]; then
+            GCC_CXX_FLAGS="-nostdinc++"
+            while IFS= read -r dir; do
+                GCC_CXX_FLAGS+=" -isystem ${dir}"
+            done <<< "$_cxx_includes"
+        else
+            echo "Error: failed to extract C++ include paths from the system g++" >&2
+            exit 1
+        fi
+
+        # Pin `gcc`'s internal library dir (for crtbegin.o, libgcc, etc.)
+        GCC_INSTALL_DIR=$(gcc -print-search-dirs | sed -n 's/^install: //p')
+        if [[ -n "$GCC_INSTALL_DIR" ]]; then
+            GCC_COMMON_FLAGS="--gcc-install-dir=${GCC_INSTALL_DIR}"
+        fi
+
+        # --- Diagnostic: verify C++ header pinning ---
+        echo ">>> GCC common flags: ${GCC_COMMON_FLAGS}"
+        echo ">>> GCC C++ flags: ${GCC_CXX_FLAGS}"
+        echo ">>> Installed C++ header directories:"
+        ls -d /usr/include/c++/*/ 2>/dev/null || echo "  (none found)"
+        echo ">>> Clang C++ include search paths:"
+        _search_paths=$($CXX_COMPILER ${GCC_COMMON_FLAGS} ${GCC_CXX_FLAGS} -x c++ -v -fsyntax-only /dev/null 2>&1 \
+            | sed -n '/#include <\.\.\.>/,/^End/p')
+        echo "$_search_paths"
+        # Fail if clang's actual search paths include C++ headers from a GCC other than system
+        _sys_gcc_major=$(gcc -dumpversion | cut -d. -f1)
+        _bad_paths=$(echo "$_search_paths" | grep -E "/c\+\+/[0-9]+" | grep -vE "/c\+\+/${_sys_gcc_major}(\.[0-9]+){0,2}(/|$)" || true)
+        if [[ -n "$_bad_paths" ]]; then
+            echo "ERROR: Clang sees C++ headers from a GCC version other than system GCC ${_sys_gcc_major}:"
+            echo "$_bad_paths"
+            echo "       C++ header pinning is not working correctly."
+            echo "       This will cause GLIBCXX symbol mismatch at link time."
+            exit 1
+        fi
+    fi
+
+    # Pass LTO C/CXX flags to CMake via CFLAGS/CXXFLAGS env vars so CMake picks them
+    # up without word-splitting issues.
+    # Note: we assume there are no spaces in system C++ include paths.
+    export CFLAGS="${CFLAGS:+${CFLAGS} }${GCC_COMMON_FLAGS}"
+    export CXXFLAGS="${CXXFLAGS:+${CXXFLAGS} }${GCC_COMMON_FLAGS}${GCC_CXX_FLAGS:+ ${GCC_CXX_FLAGS}}"
+    # Export CC/CXX so that Rust's cc crate also uses clang, matching the
+    # clang-specific flags in CFLAGS/CXXFLAGS (e.g. --gcc-install-dir).
+    export CC="$C_COMPILER"
+    export CXX="$CXX_COMPILER"
+    CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS \
+        -DCMAKE_C_COMPILER=$C_COMPILER \
+        -DCMAKE_CXX_COMPILER=$CXX_COMPILER \
+        -DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=$LINKER \
+        -DCMAKE_SHARED_LINKER_FLAGS=-fuse-ld=$LINKER \
+        -DCMAKE_MODULE_LINKER_FLAGS=-fuse-ld=$LINKER \
+        -DCMAKE_INTERPROCEDURAL_OPTIMIZATION=true"
     # Include LLVM bitcode information for cross-language LTO
     RUSTFLAGS="${RUSTFLAGS:+${RUSTFLAGS} }-C linker-plugin-lto -C linker=$C_COMPILER -C link-arg=-fuse-ld=$LINKER"
+    if [[ -n "$GCC_INSTALL_DIR" ]]; then
+      RUSTFLAGS="$RUSTFLAGS -C link-arg=--gcc-install-dir=${GCC_INSTALL_DIR}"
+    fi
   fi
 
   if [[ "$BUILD_TESTS" == "1" ]]; then
@@ -500,6 +585,14 @@ prepare_cmake_arguments() {
     # Add the dynamic C runtime flag to RUSTFLAGS
     RUSTFLAGS="${RUSTFLAGS:+${RUSTFLAGS} }-C target-feature=-crt-static"
   fi
+  # MOD-14916: inline LSE atomics for Rust on AArch64. `-C target-cpu=neoverse-n1`
+  # implies +lse so rustc emits LDADDH/LDADD instead of an ldxrh/stxrh LL/SC loop.
+  # macOS is excluded to match the CMake NOT APPLE gate: Apple Silicon's default
+  # target-cpu (apple-m1) is already ≥Armv8.5-a with inline LSE, so overriding it
+  # with neoverse-n1 would only downgrade scheduling.
+  if [[ "$ARCH" == "aarch64" && "$OS_NAME" != "macos" ]]; then
+    RUSTFLAGS="${RUSTFLAGS:+${RUSTFLAGS} }-C target-cpu=neoverse-n1"
+  fi
   # Set up RUSTFLAGS for warnings
   if [[ "$RUST_DENY_WARNS" == "1" ]]; then
     RUSTFLAGS="${RUSTFLAGS:+${RUSTFLAGS} }-D warnings"
@@ -508,11 +601,35 @@ prepare_cmake_arguments() {
   if [[ $OS_NAME != "macos" && $COV == "1" ]]; then
     # Needs the C code to link on gcov
     RUSTFLAGS="${RUSTFLAGS:+${RUSTFLAGS} } -C link-args=-lgcov"
+    # Doctests are compiled by rustdoc, which uses RUSTDOCFLAGS rather than
+    # RUSTFLAGS for its link step. Without this, doctests that pull in
+    # gcov-instrumented C objects (via transitive deps on FFI crates) fail
+    # to link with undefined `__gcov_*` symbols.
+    RUSTDOCFLAGS="${RUSTDOCFLAGS:+${RUSTDOCFLAGS} }-C link-args=-lgcov"
+    export RUSTDOCFLAGS
   fi
   if [[ $SAN == "address" ]]; then
     # Add ASAN flags to RUSTFLAGS (following RedisJSON pattern)
     # -Zsanitizer=address enables ASAN in Rust
     RUSTFLAGS="${RUSTFLAGS:+${RUSTFLAGS} }-Zsanitizer=address"
+  fi
+
+  # Workaround for macOS 14:
+  # Apple's ld (through Apple clang 16 / Xcode 16.2) has an ARM64 bug that
+  # misaligns symbols, causing "not 8-byte aligned" LDR/STR errors. Fixed in
+  # Apple clang 17 (Xcode 16.4+). Use LLVM's lld as a workaround when needed.
+  if [[ "$OS_NAME" == "macos" ]]; then
+    APPLE_CLANG_MAJOR=$(cc --version 2>/dev/null | head -1 | grep -oE 'version [0-9]+' | grep -oE '[0-9]+')
+    if [[ -n "$APPLE_CLANG_MAJOR" && "$APPLE_CLANG_MAJOR" -lt 17 ]]; then
+      # llvm@17 provides ld64.lld; the project's llvm@21 doesn't include lld.
+      local lld_path="$(brew --prefix)/opt/llvm@17/bin/ld64.lld"
+      if [[ -x "$lld_path" ]]; then
+        echo "Apple clang $APPLE_CLANG_MAJOR < 17: using llvm@17's ld64.lld to work around ARM64 alignment bug"
+        RUSTFLAGS="${RUSTFLAGS:+${RUSTFLAGS} }-C link-arg=-fuse-ld=${lld_path}"
+      else
+        echo "WARNING: Apple clang $APPLE_CLANG_MAJOR has a known ARM64 linker bug but ld64.lld is not installed at ${lld_path}"
+      fi
+    fi
   fi
 
   # Export RUSTFLAGS so it's available to the Rust build process

@@ -8,7 +8,7 @@
 */
 
 #include "gtest/gtest.h"
-#include "src/redisearch_rs/headers/query_error.h"
+#include "query_error.h"
 #include "rmalloc.h"
 #include <string.h>
 #include <string>

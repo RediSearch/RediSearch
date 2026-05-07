@@ -24,8 +24,8 @@ pub use value::{JsonType, JsonValue, JsonValueRef};
 /// Minimum supported API version.
 pub const MIN_API_VERSION: i32 = ffi::RedisJSONAPI_MIN_API_VER as i32;
 
-/// Latest API version (V6).
-pub const LATEST_API_VERSION: i32 = 6;
+/// Latest API version (V7).
+pub const LATEST_API_VERSION: i32 = 7;
 
 /// The root JSON path.
 pub const JSON_ROOT: &CStr = c"$";

@@ -75,6 +75,10 @@ typedef struct {
 
   DMDChain *buckets;
   DocIdMap dim;             // Mapping between document name to internal id
+  // Holds field-level expirations only; created lazily on the first HEXPIRE
+  // and destroyed when the last entry is removed. Iterators use a NULL check
+  // on this pointer as their HFE gate, so a NULL `ttl` means no doc in this
+  // index has ever had (or still has) a field-level expiration.
   TimeToLiveTable* ttl;
 } DocTable;
 
@@ -120,7 +124,7 @@ bool DocTable_Exists(const DocTable *t, t_docId docId);
 
 /* Set the sorting vector for a document. If the vector is NULL we mark the doc as not having a
  * vector. Returns 1 on success, 0 if the document does not exist. No further validation is done */
-int DocTable_SetSortingVector(DocTable *t, RSDocumentMetadata *dmd, RSSortingVector *v);
+int DocTable_SetSortingVector(DocTable *t, RSDocumentMetadata *dmd, RSSortingVector v);
 
 /* Set the offset vector for a document. This contains the byte offsets of each token found in
  * the document. This is used for highlighting
@@ -132,7 +136,7 @@ void DocTable_UpdateExpiration(DocTable *t, RSDocumentMetadata* dmd, t_expiratio
 bool DocTable_IsDocExpired(DocTable* t, const RSDocumentMetadata* dmd, struct timespec* expirationPoint);
 
 // Clear all expiration data from this doc table.
-// Clears Document_HasExpiration flags from all documents and destroys the TTL table.
+// Resets `expirationTimeNs` on every DMD and destroys the TTL table.
 // Must be called with the index write lock held.
 void DocTable_ClearExpirationData(DocTable *t);
 
@@ -152,6 +156,15 @@ static inline bool DocTable_CheckFieldMaskExpirationPredicate(const DocTable *t,
 static inline bool DocTable_CheckWideFieldMaskExpirationPredicate(const DocTable *t, t_docId docId, t_fieldMask fieldMask, enum FieldExpirationPredicate predicate, const struct timespec* expirationPoint, const t_fieldIndex* ftIdToFieldIndex) {
   if (!t->ttl) return true;
   return TimeToLiveTable_VerifyDocAndWideFieldMask(t->ttl, docId, fieldMask, predicate, expirationPoint, ftIdToFieldIndex);
+}
+
+// Borrowed read of the field-expiration array for `docId`. Returns NULL if
+// this index has never registered any field-level TTLs (`t->ttl == NULL`)
+// or if `docId` has no field-level entry. See
+// TimeToLiveTable_GetFieldExpirations for lifetime / aliasing rules.
+static inline const arrayof(FieldExpiration) DocTable_GetFieldExpirations(const DocTable *t, t_docId docId) {
+  if (!t->ttl) return NULL;
+  return TimeToLiveTable_GetFieldExpirations(t->ttl, docId);
 }
 
 
