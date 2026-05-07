@@ -10,6 +10,7 @@
 //! Helper wrapping either [`Empty`] or the provided [`RQEIterator`].
 
 use ffi::t_docId;
+use index_spec::IndexSpec;
 use inverted_index::RSIndexResult;
 
 use crate::{
@@ -117,15 +118,13 @@ where
     }
 
     #[inline(always)]
-    unsafe fn revalidate(
+    fn revalidate(
         &mut self,
-        spec: std::ptr::NonNull<ffi::IndexSpec>,
+        spec: &mut IndexSpec,
     ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         match &mut self.0 {
-            // SAFETY: Delegating to variant with the same `spec` passed by our caller.
-            MaybeEmptyOption::None(empty) => unsafe { empty.revalidate(spec) },
-            // SAFETY: Delegating to variant with the same `spec` passed by our caller.
-            MaybeEmptyOption::Some(it) => unsafe { it.revalidate(spec) },
+            MaybeEmptyOption::None(empty) => empty.revalidate(spec),
+            MaybeEmptyOption::Some(it) => it.revalidate(spec),
         }
     }
 

@@ -37,6 +37,22 @@ impl SchemaRule {
         unsafe { ptr.cast::<Self>().as_ref().unwrap() }
     }
 
+    /// Create a mutable `SchemaRule` wrapper from a non-null pointer.
+    ///
+    /// # Safety
+    ///
+    /// 1. `ptr` must be a [valid], non-null pointer to an `IndexSpec` that is properly initialized.
+    ///    This also applies to any of its subfields. Specifically:
+    ///    1. If `lang_field` is non-null, it points to a valid C string.
+    ///    2. If `score_field` is non-null, it points to a valid C string.
+    ///    3. If `payload_field` is non-null, it points to a valid C string.
+    ///
+    /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+    pub const unsafe fn from_raw_mut<'a>(ptr: *mut ffi::SchemaRule) -> &'a mut Self {
+        // Safety: ensured by caller (1.)
+        unsafe { ptr.cast::<Self>().as_mut().unwrap() }
+    }
+
     /// Get the language field [`CStr`], if present.
     pub const fn lang_field(&self) -> Option<&CStr> {
         // Safety: (1.) due to creation with `SchemaRule::from_raw`
@@ -88,6 +104,11 @@ impl SchemaRule {
     /// Get the underlying `type_`.
     pub const fn type_(&self) -> DocumentType {
         self.0.type_
+    }
+
+    /// Get the underlying `index_all` flag.
+    pub const fn set_index_all(&mut self, value: bool) {
+        self.0.index_all = value;
     }
 }
 

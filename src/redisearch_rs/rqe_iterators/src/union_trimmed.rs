@@ -49,6 +49,7 @@ use ffi::t_docId;
 use inverted_index::RSIndexResult;
 
 use crate::{IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
+use index_spec::IndexSpec;
 
 /// Union iterator that drains children sequentially in reverse order.
 ///
@@ -264,9 +265,9 @@ where
     }
 
     #[inline(always)]
-    unsafe fn revalidate(
+    fn revalidate(
         &mut self,
-        _spec: std::ptr::NonNull<ffi::IndexSpec>,
+        _spec: &mut IndexSpec,
     ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         // Trimmed unions run in a single, short-lived read path that does not
         // interleave with GC cycles, so revalidation should never be called.

@@ -154,7 +154,6 @@ fn profile_rewind() {
 #[test]
 fn profile_revalidate() {
     let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-    let ctx = mock_ctx.spec();
     let child = Wildcard::new(10, 1.0);
     let mut profile = Profile::new(child);
 
@@ -163,7 +162,7 @@ fn profile_revalidate() {
 
     // Revalidate (Wildcard returns OK)
     // SAFETY: test-only call with valid context
-    let status = unsafe { profile.revalidate(ctx) };
+    let status = profile.revalidate(unsafe { mock_ctx.spec_mut() });
     assert!(status.is_ok());
 
     // Verify delegation still works

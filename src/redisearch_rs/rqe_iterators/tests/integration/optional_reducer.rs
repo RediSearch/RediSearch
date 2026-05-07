@@ -195,7 +195,7 @@ mod optional_reducer_tests {
         let mut disk_spec_storage: ffi::RedisSearchDiskIndexSpec = std::ptr::null();
         // SAFETY: no iterator from `ctx` is alive at this point, and
         // `disk_spec_storage` outlives all iterators created below.
-        unsafe { ctx.set_disk_spec(&mut disk_spec_storage) };
+        unsafe { ctx.spec_mut().set_disk_spec(&mut disk_spec_storage) };
 
         let child = Mock::new(DOCS);
 
@@ -229,7 +229,7 @@ mod optional_reducer_tests {
 
         let ctx = MockContext::new(MAX_DOC_ID, 0);
         // SAFETY: no iterator from `ctx` is alive at this point.
-        unsafe { ctx.set_index_all(true) };
+        unsafe { ctx.spec_mut().rule_mut().set_index_all(true) };
 
         let child = Mock::new(DOCS);
 

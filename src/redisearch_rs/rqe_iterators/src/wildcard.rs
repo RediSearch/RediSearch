@@ -12,6 +12,7 @@
 use std::ptr::NonNull;
 
 use ffi::{RS_FIELDMASK_ALL, t_docId};
+use index_spec::IndexSpec;
 use inverted_index::codec::{doc_ids_only::DocIdsOnly, raw_doc_ids_only::RawDocIdsOnly};
 use inverted_index::{DocIdsDecoder, RSIndexResult, opaque};
 
@@ -95,9 +96,9 @@ impl<'index> RQEIterator<'index> for Wildcard<'index> {
         self.result.doc_id >= self.top_id
     }
 
-    unsafe fn revalidate(
+    fn revalidate(
         &mut self,
-        _spec: std::ptr::NonNull<ffi::IndexSpec>,
+        _spec: &mut IndexSpec,
     ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         Ok(RQEValidateStatus::Ok)
     }
@@ -156,12 +157,11 @@ impl<'index> RQEIterator<'index> for Box<dyn WildcardIterator<'index> + 'index> 
         (**self).skip_to(doc_id)
     }
 
-    unsafe fn revalidate(
+    fn revalidate(
         &mut self,
-        spec: std::ptr::NonNull<ffi::IndexSpec>,
+        spec: &mut IndexSpec,
     ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        // SAFETY: Delegating to inner iterator with the same `spec` passed by our caller.
-        unsafe { (**self).revalidate(spec) }
+        (**self).revalidate(spec)
     }
 
     fn rewind(&mut self) {
@@ -263,12 +263,11 @@ impl<'index> RQEIterator<'index> for OptimizedWildcard<'index> {
         delegate_rqe_iterator!(self, at_eof)
     }
 
-    unsafe fn revalidate(
+    fn revalidate(
         &mut self,
-        spec: std::ptr::NonNull<ffi::IndexSpec>,
+        spec: &mut IndexSpec,
     ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        // SAFETY: Delegating to variant with the same `spec` passed by our caller.
-        unsafe { delegate_rqe_iterator!(self, revalidate, spec) }
+        delegate_rqe_iterator!(self, revalidate, spec)
     }
 
     #[inline(always)]
@@ -328,12 +327,11 @@ impl<'index> RQEIterator<'index> for NewWildcardIterator<'index> {
         delegate_wildcard_iterator!(self, at_eof)
     }
 
-    unsafe fn revalidate(
+    fn revalidate(
         &mut self,
-        spec: std::ptr::NonNull<ffi::IndexSpec>,
+        spec: &mut IndexSpec,
     ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        // SAFETY: Delegating to variant with the same `spec` passed by our caller.
-        unsafe { delegate_wildcard_iterator!(self, revalidate, spec) }
+        delegate_wildcard_iterator!(self, revalidate, spec)
     }
 
     #[inline(always)]
@@ -539,12 +537,11 @@ impl<'index> RQEIterator<'index> for DiskWildcardIterator<'index> {
         self.0.skip_to(doc_id)
     }
 
-    unsafe fn revalidate(
+    fn revalidate(
         &mut self,
-        spec: std::ptr::NonNull<ffi::IndexSpec>,
+        spec: &mut IndexSpec,
     ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        // SAFETY: Delegating to inner iterator with the same `spec` passed by our caller.
-        unsafe { self.0.revalidate(spec) }
+        self.0.revalidate(spec)
     }
 
     fn rewind(&mut self) {

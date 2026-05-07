@@ -10,6 +10,7 @@
 use std::ptr::NonNull;
 
 use ffi::{RS_FIELDMASK_ALL, RedisSearchCtx, TagIndex, t_docId};
+use index_spec::IndexSpec;
 use inverted_index::{
     DecodedBy, DocIdsDecoder, IndexReader, IndexReaderCore, RSIndexResult, RSOffsetSlice,
     opaque::OpaqueEncoding,
@@ -218,16 +219,15 @@ where
     }
 
     #[inline(always)]
-    unsafe fn revalidate(
+    fn revalidate(
         &mut self,
-        spec: NonNull<ffi::IndexSpec>,
+        spec: &mut IndexSpec,
     ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         if self.should_abort() {
             return Ok(RQEValidateStatus::Aborted);
         }
 
-        // SAFETY: Delegating to inner iterator with the same `spec` passed by our caller.
-        unsafe { self.it.revalidate(spec) }
+        self.it.revalidate(spec)
     }
 
     #[inline(always)]

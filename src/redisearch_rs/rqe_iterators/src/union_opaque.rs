@@ -31,6 +31,7 @@ use crate::{
     UnionFullHeap, UnionQuickFlat, UnionQuickHeap, UnionTrimmed,
 };
 
+use index_spec::IndexSpec;
 /// Enum holding all possible union iterator variants.
 pub enum UnionVariant<'index, I> {
     FlatFull(UnionFullFlat<'index, I>),
@@ -166,12 +167,11 @@ impl<'index, I: RQEIterator<'index>> RQEIterator<'index> for UnionOpaque<'index,
     }
 
     #[inline(always)]
-    unsafe fn revalidate(
+    fn revalidate(
         &mut self,
-        spec: std::ptr::NonNull<ffi::IndexSpec>,
+        spec: &mut IndexSpec,
     ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        // SAFETY: Delegating to variant with the same `spec` passed by our caller.
-        unsafe { delegate_variant_ref_mut!(self, revalidate, spec) }
+        delegate_variant_ref_mut!(self, revalidate, spec)
     }
 
     #[inline(always)]

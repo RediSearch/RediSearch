@@ -50,6 +50,12 @@ impl IndexSpec {
         unsafe { SchemaRule::from_raw(self.0.rule) }
     }
 
+    /// Get a mutable reference to the underlying schema rule.
+    pub const fn rule_mut(&mut self) -> &mut SchemaRule {
+        // Safety: (1.) due to creation with `IndexSpec::from_raw`
+        unsafe { SchemaRule::from_raw_mut(self.0.rule) }
+    }
+
     /// Get the underlying field specs as a slice of `FieldSpec`s.
     pub fn field_specs(&self) -> &[FieldSpec] {
         debug_assert!(!self.0.fields.is_null(), "fields must not be null");
@@ -67,6 +73,116 @@ impl IndexSpec {
     /// modifications to the index spec, such as applying deltas from compaction.
     pub fn lock(&mut self) -> IndexSpecLockGuard<'_> {
         IndexSpecLockGuard::new(&mut self.0)
+    }
+
+    /// Checks if the keys dictionary is available.
+    ///
+    /// The keys dictionary maps TEXT terms to their inverted indexes.
+    /// It may be null in test scenarios where a full spec is not set up.
+    ///
+    /// # Concurrency
+    ///
+    /// Caller must hold at least a read lock on the IndexSpec.
+    pub const fn has_keys_dict(&self) -> bool {
+        !self.0.keysDict.is_null()
+    }
+
+    /// Returns a pointer to the existing documents inverted index.
+    ///
+    /// Used by wildcard queries to match all documents.
+    /// May be null if all documents have been garbage collected.
+    ///
+    /// # Concurrency
+    ///
+    /// Caller must hold at least a read lock on the IndexSpec.
+    pub const fn existing_docs(&self) -> *mut ffi::InvertedIndex {
+        self.0.existingDocs
+    }
+
+    /// Returns the document table.
+    ///
+    /// # Concurrency
+    ///
+    /// Caller must hold at least a read lock on the IndexSpec.
+    pub const fn doc_table(&self) -> ffi::DocTable {
+        self.0.docs
+    }
+
+    /// Returns a const raw pointer to the underlying `ffi::IndexSpec`.
+    ///
+    /// # Safety
+    ///
+    /// The returned pointer is valid as long as the wrapper reference is valid.
+    /// Do not dereference the pointer after the wrapper goes out of scope.
+    pub const fn as_raw_ptr(&self) -> *const ffi::IndexSpec {
+        &self.0 as *const ffi::IndexSpec
+    }
+
+    /// Returns a mutable raw pointer to the underlying `ffi::IndexSpec`.
+    ///
+    /// # Safety
+    ///
+    /// The returned pointer is valid as long as the wrapper reference is valid.
+    /// Do not dereference the pointer after the wrapper goes out of scope.
+    pub const fn as_mut_raw_ptr(&mut self) -> *mut ffi::IndexSpec {
+        &mut self.0 as *mut ffi::IndexSpec
+    }
+
+    /// Returns a mutable reference to the underlying `ffi::IndexSpec`.
+    ///
+    /// This is useful for test code that needs direct mutable access to fields
+    /// that don't have dedicated accessor methods.
+    pub const fn as_ffi_mut(&mut self) -> &mut ffi::IndexSpec {
+        &mut self.0
+    }
+
+    /// Returns a pointer to the missing field dictionary.
+    ///
+    /// This dictionary maps field names to their missing-value inverted indexes.
+    ///
+    /// # Concurrency
+    ///
+    /// Caller must hold at least a read lock on the IndexSpec.
+    pub const fn missing_field_dict(&self) -> *mut ffi::dict {
+        self.0.missingFieldDict
+    }
+
+    /// Returns a pointer to the fields array.
+    ///
+    /// # Concurrency
+    ///
+    /// Caller must hold at least a read lock on the IndexSpec.
+    pub const fn fields_ptr(&self) -> *mut ffi::FieldSpec {
+        self.0.fields
+    }
+
+    /// Returns the number of strong references to this index spec
+    ///
+    /// # Concurrency
+    ///
+    /// Caller must hold at least a read lock on the IndexSpec.
+    pub const fn own_ref(&self) -> ffi::StrongRef {
+        self.0.own_ref
+    }
+
+    /// Sets the disk index spec pointer.
+    pub const fn set_disk_spec(&mut self, disk_spec: *mut ffi::RedisSearchDiskIndexSpec) {
+        self.0.diskSpec = disk_spec;
+    }
+
+    /// Sets the existing documents inverted index pointer.
+    pub const fn set_existing_docs(&mut self, existing_docs: *mut ffi::InvertedIndex) {
+        self.0.existingDocs = existing_docs;
+    }
+
+    /// Sets whether documents expiration should be monitored.
+    pub const fn set_monitor_document_expiration(&mut self, monitor: bool) {
+        self.0.monitorDocumentExpiration = monitor;
+    }
+
+    /// Sets whether field expiration should be monitored.
+    pub const fn set_monitor_field_expiration(&mut self, monitor: bool) {
+        self.0.monitorFieldExpiration = monitor;
     }
 }
 

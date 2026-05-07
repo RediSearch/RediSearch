@@ -528,9 +528,8 @@ macro_rules! union_common_tests {
             assert_eq!(result.doc_id, 15);
 
             let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-            let ctx = mock_ctx.spec();
             // SAFETY: test-only call with valid context
-            let status = unsafe { union_iter.revalidate(ctx) }.expect("revalidate failed");
+            let status = union_iter.revalidate(unsafe { mock_ctx.spec_mut() }).expect("revalidate failed");
             assert!(matches!(status, RQEValidateStatus::Ok));
 
             let result = union_iter.read().expect("read failed").unwrap();
@@ -559,9 +558,8 @@ macro_rules! union_common_tests {
             assert_eq!(result.doc_id, 10);
 
             let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-            let ctx = mock_ctx.spec();
             // SAFETY: test-only call with valid context
-            let status = unsafe { union_iter.revalidate(ctx) }.expect("revalidate failed");
+            let status = union_iter.revalidate(unsafe { mock_ctx.spec_mut() }).expect("revalidate failed");
             assert!(
                 matches!(status, RQEValidateStatus::Moved { current: Some(_) }),
                 "Expected Moved with current, got {:?}",
@@ -591,9 +589,8 @@ macro_rules! union_common_tests {
             assert!(union_iter.at_eof());
 
             let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-            let ctx = mock_ctx.spec();
             // SAFETY: test-only call with valid context
-            let status = unsafe { union_iter.revalidate(ctx) }.expect("revalidate failed");
+            let status = union_iter.revalidate(unsafe { mock_ctx.spec_mut() }).expect("revalidate failed");
             assert!(matches!(status, RQEValidateStatus::Ok));
             assert!(union_iter.at_eof());
         }
@@ -624,9 +621,8 @@ macro_rules! union_common_tests {
             assert_eq!(result.doc_id, 10);
 
             let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-            let ctx = mock_ctx.spec();
             // SAFETY: test-only call with valid context
-            let status = unsafe { union_iter.revalidate(ctx) }.expect("revalidate failed");
+            let status = union_iter.revalidate(unsafe { mock_ctx.spec_mut() }).expect("revalidate failed");
             assert!(
                 !matches!(status, RQEValidateStatus::Aborted),
                 "Union should not abort when only one child aborts"
@@ -655,9 +651,8 @@ macro_rules! union_common_tests {
             assert_eq!(result.doc_id, 10);
 
             let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-            let ctx = mock_ctx.spec();
             // SAFETY: test-only call with valid context
-            let status = unsafe { union_iter.revalidate(ctx) }.expect("revalidate failed");
+            let status = union_iter.revalidate(unsafe { mock_ctx.spec_mut() }).expect("revalidate failed");
             assert!(
                 matches!(status, RQEValidateStatus::Aborted),
                 "Union should abort when all children abort"
@@ -694,9 +689,8 @@ macro_rules! union_common_tests {
             assert_eq!(result.doc_id, 20);
 
             let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-            let ctx = mock_ctx.spec();
             // SAFETY: test-only call with valid context
-            let status = unsafe { union_iter.revalidate(ctx) }.expect("revalidate failed");
+            let status = union_iter.revalidate(unsafe { mock_ctx.spec_mut() }).expect("revalidate failed");
             assert!(matches!(status, RQEValidateStatus::Ok));
 
             assert!(!union_iter.at_eof());
@@ -730,9 +724,8 @@ macro_rules! union_common_tests {
             assert_eq!(result.doc_id, 10);
 
             let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-            let ctx = mock_ctx.spec();
             // SAFETY: test-only call with valid context
-            let status = unsafe { union_iter.revalidate(ctx) }.expect("revalidate failed");
+            let status = union_iter.revalidate(unsafe { mock_ctx.spec_mut() }).expect("revalidate failed");
             assert!(
                 !matches!(status, RQEValidateStatus::Aborted),
                 "Union should not abort when some children are still Ok"
@@ -762,9 +755,8 @@ macro_rules! union_common_tests {
             assert!(union_iter.at_eof());
 
             let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-            let ctx = mock_ctx.spec();
             // SAFETY: test-only call with valid context
-            let status = unsafe { union_iter.revalidate(ctx) }.expect("revalidate failed");
+            let status = union_iter.revalidate(unsafe { mock_ctx.spec_mut() }).expect("revalidate failed");
             assert!(matches!(status, RQEValidateStatus::Ok));
         }
         #[test]
@@ -818,9 +810,8 @@ macro_rules! union_common_tests {
             assert_eq!(read_docs, vec![10, 20, 30]);
             assert!(quick_iter.at_eof());
             let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-            let ctx = mock_ctx.spec();
             // SAFETY: test-only call with valid context
-            let status = unsafe { quick_iter.revalidate(ctx) }.expect("revalidate failed");
+            let status = quick_iter.revalidate(unsafe { mock_ctx.spec_mut() }).expect("revalidate failed");
             assert!(matches!(status, RQEValidateStatus::Ok));
         }
 
@@ -848,9 +839,8 @@ macro_rules! union_common_tests {
                 data1.set_revalidate_result(MockRevalidateResult::Move);
 
                 let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-                let ctx = mock_ctx.spec();
                 // SAFETY: test-only call with valid context
-            let status = unsafe { union_iter.revalidate(ctx) }.expect("revalidate failed");
+                let status = union_iter.revalidate(unsafe { mock_ctx.spec_mut() }).expect("revalidate failed");
                 assert!(matches!(
                     status,
                     RQEValidateStatus::Moved { current: Some(_) }
@@ -877,9 +867,8 @@ macro_rules! union_common_tests {
                 data2.set_revalidate_result(MockRevalidateResult::Move);
 
                 let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-                let ctx = mock_ctx.spec();
                 // SAFETY: test-only call with valid context
-            let status = unsafe { union_iter.revalidate(ctx) }.expect("revalidate failed");
+                let status = union_iter.revalidate(unsafe { mock_ctx.spec_mut() }).expect("revalidate failed");
                 assert!(matches!(status, RQEValidateStatus::Moved { current: None }));
                 assert!(union_iter.at_eof());
             }
@@ -909,9 +898,8 @@ macro_rules! union_common_tests {
             data2.set_revalidate_result(MockRevalidateResult::Ok);
 
             let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-            let ctx = mock_ctx.spec();
             // SAFETY: test-only call with valid context
-            let status = unsafe { quick_iter.revalidate(ctx) }.expect("revalidate failed");
+            let status = quick_iter.revalidate(unsafe { mock_ctx.spec_mut() }).expect("revalidate failed");
             assert!(matches!(
                 status,
                 RQEValidateStatus::Moved { current: Some(_) }
@@ -941,9 +929,8 @@ macro_rules! union_common_tests {
             data0.set_revalidate_result(MockRevalidateResult::Move);
 
             let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-            let ctx = mock_ctx.spec();
             // SAFETY: test-only call with valid context
-            let _status = unsafe { union.revalidate(ctx) }.expect("revalidate failed");
+            let _status = union.revalidate(unsafe { mock_ctx.spec_mut() }).expect("revalidate failed");
 
             let mut remaining = Vec::new();
             while let Some(result) = union.read().expect("read failed") {
@@ -986,9 +973,8 @@ macro_rules! union_common_tests {
 
             // Revalidate — nothing moved, nothing aborted.
             let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-            let ctx = mock_ctx.spec();
             // SAFETY: test-only call with valid context
-            let status = unsafe { union.revalidate(ctx) }.expect("revalidate failed");
+            let status = union.revalidate(unsafe { mock_ctx.spec_mut() }).expect("revalidate failed");
             assert!(
                 matches!(status, RQEValidateStatus::Ok),
                 "Expected Ok when minimum doc_id is unchanged, got {:?}",
@@ -1033,9 +1019,8 @@ macro_rules! union_common_tests {
             data1.set_revalidate_result(MockRevalidateResult::Move);
 
             let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-            let ctx = mock_ctx.spec();
             // SAFETY: test-only call with valid context
-            let status = unsafe { union.revalidate(ctx) }.expect("revalidate failed");
+            let status = union.revalidate(unsafe { mock_ctx.spec_mut() }).expect("revalidate failed");
             assert!(
                 matches!(status, RQEValidateStatus::Moved { current: Some(_) }),
                 "Expected Moved with a current result, got {status:?}",

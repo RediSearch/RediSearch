@@ -16,6 +16,7 @@
 use crate::{IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
 
 use ffi::t_docId;
+use index_spec::IndexSpec;
 use inverted_index::RSIndexResult;
 
 /// Yields documents appearing in ALL child iterators using a merge (AND) algorithm.
@@ -515,17 +516,16 @@ where
         self.is_eof
     }
 
-    unsafe fn revalidate(
+    fn revalidate(
         &mut self,
-        spec: std::ptr::NonNull<ffi::IndexSpec>,
+        spec: &mut IndexSpec,
     ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         let mut any_child_moved = false;
         let mut max_child_doc_id: t_docId = 0;
         let mut moved_to_eof = false;
 
         for child in &mut self.children {
-            // SAFETY: Delegating to child with the same `spec` passed by our caller.
-            match unsafe { child.revalidate(spec) }? {
+            match child.revalidate(spec)? {
                 RQEValidateStatus::Aborted => return Ok(RQEValidateStatus::Aborted),
                 RQEValidateStatus::Moved { current } => {
                     any_child_moved = true;

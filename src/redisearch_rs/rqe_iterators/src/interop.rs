@@ -7,8 +7,6 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::ptr::NonNull;
-
 use ffi::{
     IteratorStatus, IteratorStatus_ITERATOR_EOF, IteratorStatus_ITERATOR_NOTFOUND,
     IteratorStatus_ITERATOR_OK, IteratorStatus_ITERATOR_TIMEOUT, QueryIterator, ValidateStatus,
@@ -286,14 +284,15 @@ extern "C" fn revalidate<'index, I: RQEIterator<'index> + 'index>(
     debug_assert!(!base.is_null());
     debug_assert!(base.is_aligned());
     debug_assert!(!spec.is_null());
+
     // SAFETY: Guaranteed by invariant 1. in [`RQEIteratorWrapper`].
     let wrapper = unsafe { RQEIteratorWrapper::<I>::mut_ref_from_header_ptr(base) };
-    // SAFETY: The caller guarantees `spec` is a valid, non-null pointer to an `IndexSpec`
-    // while the spec read lock is held.
-    let spec = unsafe { NonNull::new_unchecked(spec) };
-    // SAFETY: `spec` points to a valid `IndexSpec` while the spec read lock is held,
-    // satisfying the safety requirements of `RQEIterator::revalidate`.
-    match unsafe { wrapper.inner.revalidate(spec) } {
+
+    // SAFETY: The caller (result processor) guarantees `spec` is valid
+    // and holds the spec read lock for the duration of this call.
+    let spec_wrapper = unsafe { index_spec::IndexSpec::from_raw_mut(spec) };
+
+    match wrapper.inner.revalidate(spec_wrapper) {
         Ok(RQEValidateStatus::Ok) => ValidateStatus_VALIDATE_OK,
         Ok(RQEValidateStatus::Moved { current }) => {
             if let Some(result) = current {

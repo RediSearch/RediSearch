@@ -310,12 +310,13 @@ fn rewind_resets_state() {
 #[test]
 fn revalidate_child_ok_preserves_exclusions() {
     let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-    let ctx = mock_ctx.spec();
     let child = Mock::new([2, 4]);
     let mut it = Not::new(child, 5, 1.0, Duration::ZERO, true);
 
     // SAFETY: test-only call with valid context
-    let status = unsafe { it.revalidate(ctx) }.expect("revalidate() failed");
+    let status = it
+        .revalidate(unsafe { mock_ctx.spec_mut() })
+        .expect("revalidate() failed");
     assert_eq!(status, RQEValidateStatus::Ok);
 
     let mut seen = Vec::new();
@@ -331,14 +332,15 @@ fn revalidate_child_ok_preserves_exclusions() {
 #[test]
 fn revalidate_child_aborted_replaces_child_with_empty() {
     let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-    let ctx = mock_ctx.spec();
     let child = Mock::new([2, 4]);
     let mut data = child.data();
     data.set_revalidate_result(MockRevalidateResult::Abort);
     let mut it = Not::new(child, 5, 1.0, Duration::ZERO, true);
 
     // SAFETY: test-only call with valid context
-    let status = unsafe { it.revalidate(ctx) }.expect("revalidate() failed");
+    let status = it
+        .revalidate(unsafe { mock_ctx.spec_mut() })
+        .expect("revalidate() failed");
     assert_eq!(status, RQEValidateStatus::Ok);
 
     let mut seen = Vec::new();
@@ -354,7 +356,6 @@ fn revalidate_child_aborted_replaces_child_with_empty() {
 #[test]
 fn revalidate_child_moved_on_fresh_iterator() {
     let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-    let ctx = mock_ctx.spec();
     let child = Mock::new([2, 4]);
     let mut data = child.data();
     data.set_revalidate_result(MockRevalidateResult::Move);
@@ -362,7 +363,9 @@ fn revalidate_child_moved_on_fresh_iterator() {
 
     // Revalidate before any read/skip_to - both iterators at doc_id = 0
     // SAFETY: test-only call with valid context
-    let status = unsafe { it.revalidate(ctx) }.expect("revalidate() failed");
+    let status = it
+        .revalidate(unsafe { mock_ctx.spec_mut() })
+        .expect("revalidate() failed");
     assert_eq!(status, RQEValidateStatus::Ok);
 
     // Iterator should still work correctly after revalidate
@@ -379,7 +382,6 @@ fn revalidate_child_moved_on_fresh_iterator() {
 #[test]
 fn revalidate_child_moved_after_read_with_child_ahead() {
     let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-    let ctx = mock_ctx.spec();
     let child = Mock::new([5, 10]);
     let mut data = child.data();
     let mut it = Not::new(child, 15, 1.0, Duration::ZERO, true);
@@ -395,7 +397,9 @@ fn revalidate_child_moved_after_read_with_child_ahead() {
 
     // This should not panic - child is ahead of NOT's position
     // SAFETY: test-only call with valid context
-    let status = unsafe { it.revalidate(ctx) }.expect("revalidate() failed");
+    let status = it
+        .revalidate(unsafe { mock_ctx.spec_mut() })
+        .expect("revalidate() failed");
     assert_eq!(status, RQEValidateStatus::Ok);
 
     // Continue reading - should still work correctly
@@ -413,7 +417,6 @@ fn revalidate_child_moved_after_read_with_child_ahead() {
 #[test]
 fn revalidate_child_moved_after_skip_to_with_child_ahead() {
     let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-    let ctx = mock_ctx.spec();
     let child = Mock::new([8, 15]);
     let mut data = child.data();
     let mut it = Not::new(child, 20, 1.0, Duration::ZERO, true);
@@ -435,7 +438,9 @@ fn revalidate_child_moved_after_skip_to_with_child_ahead() {
 
     // This should not panic - child is ahead of NOT's position
     // SAFETY: test-only call with valid context
-    let status = unsafe { it.revalidate(ctx) }.expect("revalidate() failed");
+    let status = it
+        .revalidate(unsafe { mock_ctx.spec_mut() })
+        .expect("revalidate() failed");
     assert_eq!(status, RQEValidateStatus::Ok);
 
     // Continue reading - should still work correctly

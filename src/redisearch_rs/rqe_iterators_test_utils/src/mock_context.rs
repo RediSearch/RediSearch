@@ -7,9 +7,10 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use std::cell::UnsafeCell;
 use std::ptr::NonNull;
 
-use ffi::{IndexSpec, QueryEvalCtx, RedisSearchCtx, SchemaRule, t_docId};
+use ffi::{QueryEvalCtx, RedisSearchCtx, SchemaRule, t_docId};
 use numeric_range_tree::NumericRangeTree;
 
 /// Mock search context creating fake objects for testing.
@@ -23,7 +24,7 @@ use numeric_range_tree::NumericRangeTree;
 /// with the library's reference creation.
 pub struct MockContext {
     rule: *mut SchemaRule,
-    spec: *mut IndexSpec,
+    spec: UnsafeCell<&'static mut index_spec::IndexSpec>,
     sctx: *mut RedisSearchCtx,
     qctx: *mut QueryEvalCtx,
     numeric_range_tree: *mut NumericRangeTree,
@@ -41,7 +42,10 @@ impl Drop for MockContext {
                 self.rule as *mut u8,
                 std::alloc::Layout::new::<SchemaRule>(),
             );
-            std::alloc::dealloc(self.spec as *mut u8, std::alloc::Layout::new::<IndexSpec>());
+            std::alloc::dealloc(
+                (*self.spec.get()).as_mut_raw_ptr() as *mut u8,
+                std::alloc::Layout::new::<ffi::IndexSpec>(),
+            );
             std::alloc::dealloc(
                 self.sctx as *mut u8,
                 std::alloc::Layout::new::<RedisSearchCtx>(),
@@ -68,7 +72,7 @@ impl MockContext {
 
         // Create boxes and immediately convert to raw pointers
         let rule_ptr = Box::into_raw(Box::new(unsafe { std::mem::zeroed::<SchemaRule>() }));
-        let spec_ptr = Box::into_raw(Box::new(unsafe { std::mem::zeroed::<IndexSpec>() }));
+        let spec_ptr = Box::into_raw(Box::new(unsafe { std::mem::zeroed::<ffi::IndexSpec>() }));
         let sctx_ptr = Box::into_raw(Box::new(unsafe { std::mem::zeroed::<RedisSearchCtx>() }));
         let qctx_ptr = Box::into_raw(Box::new(unsafe { std::mem::zeroed::<QueryEvalCtx>() }));
         let numeric_range_tree_ptr = Box::into_raw(Box::new(NumericRangeTree::new(false)));
@@ -103,10 +107,14 @@ impl MockContext {
             (*qctx_ptr).sctx = sctx_ptr;
             (*qctx_ptr).docTable = std::ptr::addr_of_mut!((*spec_ptr).docs);
 
+            // Convert spec raw pointer to wrapper reference for better type safety
+            let spec: &'static mut index_spec::IndexSpec =
+                index_spec::IndexSpec::from_raw_mut(spec_ptr);
+
             // Store raw pointers directly (don't convert back to Box)
             Self {
                 rule: rule_ptr,
-                spec: spec_ptr,
+                spec: UnsafeCell::new(spec),
                 sctx: sctx_ptr,
                 qctx: qctx_ptr,
                 numeric_range_tree: numeric_range_tree_ptr,
@@ -124,43 +132,63 @@ impl MockContext {
         NonNull::new(self.sctx).expect("RedisSearchCtx should not be null")
     }
 
-    /// Get the index spec pointer from the [`MockContext`].
-    pub const fn spec(&self) -> NonNull<ffi::IndexSpec> {
-        NonNull::new(self.spec).expect("IndexSpec should not be null")
+    /// Get an immutable reference to the index spec wrapper.
+    ///
+    /// This method provides safe read-only access to the [`index_spec::IndexSpec`]
+    /// through the [`UnsafeCell`]. Multiple immutable references can coexist safely.
+    ///
+    /// # Interior Mutability
+    ///
+    /// The spec is stored in an [`UnsafeCell`] to enable interior mutability.
+    /// This allows tests to temporarily mutate the spec (e.g., to simulate
+    /// garbage collection) while iterators are active, which is necessary for
+    /// testing revalidation logic.
+    pub fn spec_ref(&self) -> &index_spec::IndexSpec {
+        // SAFETY: UnsafeCell allows interior mutability. We return an immutable
+        // reference, which is safe as long as no mutable reference is active.
+        unsafe { &**self.spec.get() }
+    }
+
+    /// Get a mutable reference to the index spec wrapper.
+    ///
+    /// This method enables mutation of the [`index_spec::IndexSpec`] through the [`UnsafeCell`],
+    /// bypassing Rust's normal borrow checking. This is used in tests to simulate
+    /// concurrent modifications (e.g., garbage collection updating spec fields)
+    /// while iterators are alive.
+    ///
+    /// # Safety
+    ///
+    /// Caller must ensure:
+    /// 1. No other references (mutable or immutable) to the spec are active when
+    ///    calling this method
+    /// 2. The returned mutable reference does not alias with any other references
+    /// 3. Mutations do not violate iterator invariants in unexpected ways
+    ///
+    /// Violating these requirements leads to undefined behavior.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Create iterator (borrows spec immutably through UnsafeCell)
+    /// let mut it = mock_ctx.create_iterator();
+    ///
+    /// // Mutate spec to test revalidation (bypasses borrow checker)
+    /// unsafe {
+    ///     mock_ctx.spec_mut().some_mut_method();
+    /// }
+    ///
+    /// // Iterator can still be used
+    /// it.revalidate(...);
+    /// ```
+    #[expect(clippy::mut_from_ref)]
+    pub unsafe fn spec_mut(&self) -> &mut index_spec::IndexSpec {
+        // SAFETY: Caller guarantees exclusive access.
+        unsafe { &mut **self.spec.get() }
     }
 
     /// Get the query evaluation context from the [`MockContext`].
     pub const fn qctx(&self) -> NonNull<ffi::QueryEvalCtx> {
         NonNull::new(self.qctx).expect("QueryEvalCtx should not be null")
-    }
-
-    /// Set [`SchemaRule::index_all`]
-    ///
-    /// # Safety
-    ///
-    /// Must not be called while any iterator created from this context is
-    /// still alive, as it mutates the spec through a raw pointer.
-    pub unsafe fn set_index_all(&self, value: bool) {
-        // SAFETY: Caller guarantees no iterators from this context are alive,
-        // so the write does not race.
-        unsafe { (*self.rule).index_all = value };
-    }
-
-    /// Set [`IndexSpec::diskSpec`] to point to the given disk index spec.
-    ///
-    /// Pass `std::ptr::null_mut()` to clear the field (making the spec appear
-    /// to have no disk index).
-    ///
-    /// # Safety
-    ///
-    /// 1. Must not be called while any iterator created from this context is
-    ///    still alive, as it mutates the spec through a raw pointer.
-    /// 2. `disk_spec`, when non-null, must remain valid for as long as
-    ///    iterators created from this context are alive.
-    pub unsafe fn set_disk_spec(&self, disk_spec: *mut ffi::RedisSearchDiskIndexSpec) {
-        // SAFETY: Caller guarantees no iterators from this context are alive (1),
-        // so the write does not race.
-        unsafe { (*self.spec).diskSpec = disk_spec };
     }
 
     /// Get a zeroed [`TagIndex`](ffi::TagIndex) pointer for basic (non-revalidation) tests.

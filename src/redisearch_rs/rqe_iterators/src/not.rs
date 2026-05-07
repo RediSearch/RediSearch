@@ -19,6 +19,7 @@ use crate::{
     maybe_empty::MaybeEmpty, utils::TimeoutContext,
 };
 
+use index_spec::IndexSpec;
 /// An iterator that negates the results of its child iterator.
 ///
 /// Yields all document IDs from 1 to `max_doc_id` (inclusive) that are **not**
@@ -227,13 +228,12 @@ where
     }
 
     #[inline(always)]
-    unsafe fn revalidate(
+    fn revalidate(
         &mut self,
-        spec: std::ptr::NonNull<ffi::IndexSpec>,
+        spec: &mut IndexSpec,
     ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         // Get child status
-        // SAFETY: Delegating to child with the same `spec` passed by our caller.
-        match unsafe { self.child.revalidate(spec) }? {
+        match self.child.revalidate(spec)? {
             RQEValidateStatus::Aborted => {
                 self.child = MaybeEmpty::new_empty();
                 Ok(RQEValidateStatus::Ok)

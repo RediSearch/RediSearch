@@ -22,6 +22,7 @@ use crate::{
     optional::OptionalIterator, wildcard::WildcardIterator,
 };
 
+use index_spec::IndexSpec;
 /// An iterator that emits results for all document IDs present in the index,
 /// driven by a [wildcard iterator](crate::wildcard) over the existing-documents inverted index.
 ///
@@ -243,9 +244,9 @@ where
         }
     }
 
-    unsafe fn revalidate(
+    fn revalidate(
         &mut self,
-        spec: std::ptr::NonNull<ffi::IndexSpec>,
+        spec: &mut IndexSpec,
     ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         // Simple enum to avoid holding a borrow through the match.
         enum ValidateOutcome {
@@ -254,8 +255,7 @@ where
         }
 
         // Step 1: Revalidate wcii. If it aborts or is at EOF, we can return immediately.
-        // SAFETY: Delegating to children with the same `spec` passed by our caller.
-        let wcii_outcome = match unsafe { self.wcii.revalidate(spec) }? {
+        let wcii_outcome = match self.wcii.revalidate(spec)? {
             RQEValidateStatus::Ok => ValidateOutcome::Ok,
             RQEValidateStatus::Moved { current: Some(_) } => ValidateOutcome::Moved,
             RQEValidateStatus::Moved { current: None } => {
@@ -273,8 +273,7 @@ where
 
         // Step 2: Revalidate child. If it aborts, replace with an empty iterator.
         // Abort is treated as Moved: child's state changed, so we must re-evaluate.
-        // SAFETY: Delegating to child with the same `spec` passed by our caller.
-        let child_outcome = match unsafe { self.child.revalidate(spec) }? {
+        let child_outcome = match self.child.revalidate(spec)? {
             RQEValidateStatus::Ok => ValidateOutcome::Ok,
             RQEValidateStatus::Moved { .. } => ValidateOutcome::Moved,
             RQEValidateStatus::Aborted => {

@@ -14,6 +14,7 @@ use inverted_index::RSIndexResult;
 use std::cmp;
 
 use crate::{IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
+use index_spec::IndexSpec;
 
 /// Trait implemented by all optional iterator variants.
 ///
@@ -225,9 +226,9 @@ where
         Ok(Some(SkipToOutcome::Found(&mut self.result)))
     }
 
-    unsafe fn revalidate(
+    fn revalidate(
         &mut self,
-        spec: std::ptr::NonNull<ffi::IndexSpec>,
+        spec: &mut IndexSpec,
     ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         let Some(ref mut child) = self.child else {
             return Ok(RQEValidateStatus::Ok);
@@ -235,8 +236,7 @@ where
         let last_child_doc_id = child.last_doc_id();
 
         // Revalidate the child iterator
-        // SAFETY: Delegating to child with the same `spec` passed by our caller.
-        match unsafe { child.revalidate(spec) }? {
+        match child.revalidate(spec)? {
             // Abort: Handle child validation results (but continue processing)
             status @ (RQEValidateStatus::Aborted | RQEValidateStatus::Moved { .. }) => {
                 if matches!(status, RQEValidateStatus::Aborted) {

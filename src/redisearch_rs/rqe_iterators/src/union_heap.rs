@@ -14,6 +14,7 @@ use inverted_index::RSIndexResult;
 
 use crate::utils::DocIdMinHeap;
 use crate::{IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
+use index_spec::IndexSpec;
 
 /// Yields documents appearing in ANY child iterator using a binary heap.
 ///
@@ -418,9 +419,9 @@ where
         self.is_eof
     }
 
-    unsafe fn revalidate(
+    fn revalidate(
         &mut self,
-        spec: std::ptr::NonNull<ffi::IndexSpec>,
+        spec: &mut IndexSpec,
     ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         if self.is_eof {
             return Ok(RQEValidateStatus::Ok);
@@ -432,8 +433,7 @@ where
         // Index-based iteration: swap_remove may reorder elements.
         let mut i = 0;
         while i < self.children.len() {
-            // SAFETY: Delegating to child with the same `spec` passed by our caller.
-            match unsafe { self.children[i].revalidate(spec) }? {
+            match self.children[i].revalidate(spec)? {
                 RQEValidateStatus::Aborted => {
                     self.children.swap_remove(i);
                     any_change = true;

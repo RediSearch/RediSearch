@@ -10,6 +10,7 @@
 use std::{fmt::Debug, ptr::NonNull};
 
 use field::{FieldExpirationPredicate, FieldFilterContext, FieldMaskOrIndex};
+use index_spec::IndexSpec;
 use inverted_index::{
     IndexReader, RSIndexResult, doc_ids_only::DocIdsOnly, raw_doc_ids_only::RawDocIdsOnly, t_docId,
 };
@@ -106,12 +107,11 @@ impl<'index> rqe_iterators::RQEIterator<'index> for MissingIterator<'index> {
     }
 
     #[inline(always)]
-    unsafe fn revalidate(
+    fn revalidate(
         &mut self,
-        spec: std::ptr::NonNull<ffi::IndexSpec>,
+        spec: &mut IndexSpec,
     ) -> Result<rqe_iterators::RQEValidateStatus<'_, 'index>, rqe_iterators::RQEIteratorError> {
-        // SAFETY: Delegating to variant with the same `spec` passed by our caller.
-        unsafe { dispatch!(self, revalidate, spec) }
+        dispatch!(self, revalidate, spec)
     }
 
     #[inline(always)]

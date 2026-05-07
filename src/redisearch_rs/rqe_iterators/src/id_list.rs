@@ -10,6 +10,7 @@
 //! Supporting types for [`IdList`].
 
 use ffi::t_docId;
+use index_spec::IndexSpec;
 use inverted_index::RSIndexResult;
 use std::cmp::Ordering;
 
@@ -241,9 +242,9 @@ impl<'index, const SORTED_BY_ID: bool> RQEIterator<'index> for IdList<'index, SO
     }
 
     #[inline(always)]
-    unsafe fn revalidate(
+    fn revalidate(
         &mut self,
-        _spec: std::ptr::NonNull<ffi::IndexSpec>,
+        _spec: &mut IndexSpec,
     ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         Ok(RQEValidateStatus::Ok)
     }
