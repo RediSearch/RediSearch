@@ -7,6 +7,10 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+// All tests exercise `read_with_timeout`, which relies on the `poll` syscall
+// that miri does not support.
+#![cfg(not(miri))]
+
 use fork_gc::ForkGC;
 use std::{io, mem, os::fd::AsRawFd, time::Duration};
 
