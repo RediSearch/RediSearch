@@ -360,11 +360,11 @@ bool areq_timed_out(void *arg) {
 // parked on the spec rwlock. Used by MOD-15364 tests to release the BG worker
 // from the cleanup sync point without driving the main thread, since the main
 // thread is the one blocked on the writer's `pthread_rwlock_wrlock`.
-bool spec_has_pending_writers(void *arg) {
+static bool spec_has_pending_writers(void *arg) {
   return IndexSpec_GetPendingWriters((IndexSpec *)arg) > 0;
 }
 
-bool areq_timeout_or_spec_has_pending_writers(void *arg) {
+static bool areq_timeout_or_spec_has_pending_writers(void *arg) {
   AREQ *req = (AREQ *)arg;
   return AREQ_TimedOut(req) || spec_has_pending_writers(AREQ_SearchCtx(req)->spec);
 }
@@ -1262,17 +1262,9 @@ error:
   AREQ_ReplyOrStoreError(req, outctx, &status);
 
 cleanup:
-  // Release the spec lock here, on the background thread, before unblocking
-  // the client. The pipeline's iterator normally releases the lock on EOF /
-  // TIMEDOUT, but processors that short-circuit upstream (e.g. RPPager hitting
-  // LIMIT, or an early error before AREQ_Execute) leave the read lock held.
-  // If we deferred the release to AREQ_Free on the main thread (via the
-  // BlockedClient privdata callback), a concurrent write command (e.g. HSET)
-  // waiting on the spec write lock would block the main thread, the unblock
-  // callback would never run, and we'd deadlock (MOD-15364).
-  // RedisSearchCtx_UnlockSpec is idempotent (no-op if the lock was already
-  // released), so this is safe on every path. The AREQ is still alive here
-  // because the BlockedClient privdata holds an additional ref.
+  // Release the spec lock here, on the BG thread, before unblocking
+  // the client. Must be done in the BG thread to prevent deadlock with a
+  // concurrent writer (e.g. HSET) that is parked on the spec write lock.
   RedisSearchCtx_UnlockSpec(AREQ_SearchCtx(req));
   RedisModule_FreeThreadSafeContext(outctx);
   IndexSpecRef_Release(execution_ref);
@@ -1854,7 +1846,7 @@ static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num) {
   // has marked the AREQ as timed out.
   if (req->useReplyCallback) {
     SyncPoint_WaitUntil(SYNC_POINT_BEFORE_CURSOR_READ_SEND_CHUNK,
-                        areq_timeout_or_spec_has_pending_writers, req);
+                        areq_timed_out, req);
   }
 #endif
 

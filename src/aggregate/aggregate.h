@@ -629,12 +629,6 @@ void AREQ_SetTimedOut(AREQ *req);
 // SyncPointStopFn predicate adapter for AREQ_TimedOut. Pass the AREQ as `arg`
 // to SyncPoint_WaitUntil to release the wait when the request is timed out.
 bool areq_timed_out(void *arg);
-// SyncPointStopFn predicate adapter for `IndexSpec_GetPendingWriters`. Pass the
-// IndexSpec as `arg` to SyncPoint_WaitUntil to release the wait when a writer
-// is parked on the spec rwlock (e.g. an HSET-driven IndexSpec_UpdateDoc on the
-// main thread). This lets MOD-15364 tests release the BG worker without help
-// from the main thread, which is exactly what's blocked on the wrlock.
-bool spec_has_pending_writers(void *arg);
 #endif
 
 /* True when this AREQ uses the BG-thread / timeout-callback claim handshake
