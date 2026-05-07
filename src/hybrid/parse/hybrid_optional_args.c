@@ -157,11 +157,7 @@ int HybridParseOptionalArgs(HybridParseContext *ctx, ArgsCursor *ac, bool intern
 
     // Local variable to store the selected method for the lifetime of this function
     const char *methodTarget = NULL;
-#ifdef RS_EXCLUDE_WIP_FEATURES
-    static const char *allowedCombineMethods[] = {"RRF", NULL};
-#else
     static const char *allowedCombineMethods[] = {"RRF", "LINEAR", NULL};
-#endif
     // COMBINE [RRF [K k] [WINDOW window]] | [LINEAR count ALPHA alpha BETA beta] - hybrid fusion method
     ArgParser_AddStringV(parser, "COMBINE", "Fusion method for hybrid search",
                          &methodTarget, 1, -1,
