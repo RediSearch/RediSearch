@@ -145,7 +145,7 @@ if (reqCtx && CoordRequestCtx_IsCursorReadReturnStrict(reqCtx)) {
   }
   // Reset per-read sync state before publishing `req` to the timer.
   // This must happen under setRequestLock; see §5.5.2.
-  AREQ_ResetAggregateResultsClaim(cursor->execState); // extended per §5.5.1
+  AREQ_ResetForCursorReadReturnStrict(cursor->execState); // see §5.5.1 / §5.5.4
   CoordRequestCtx_SetRequest(reqCtx, cursor->execState);
   // Park the cursor handle on the per-read reqCtx (see §3.5 for ownership
   // rules and consumer table). Done inside the same critical section so
@@ -402,7 +402,7 @@ Set inside `RSCursorReadCommand`'s take-lock critical section (§3.1),
 | Timer callback (`hasStoredResults == true`) | After BG signals via TIMEDOUT bail | Same as reply: take + null under lock; pause/free per `QEXEC_S_ITERDONE` |
 | Timer callback (`hasStoredResults == false`) | After BG signals via `AREQ_ReplyOrStoreError` | `parkedCursor == NULL` (BG already cleared + freed in its bail-out, see §3.4) — no-op |
 | BG error sub-path (§3.4) | Spec drop, etc., before reaching pipeline | Take + null + `Cursor_Free` *before* signaling |
-| `free_privdata` (disconnect) | After BG calls `RM_UnblockClient` and reply was skipped | Take + null under lock; `Cursor_Free` (see §3.6) |
+| `free_privdata` (disconnect) | After BG calls `RM_UnblockClient` and reply was skipped | Take + null **without lock** — Redis serializes `free_privdata` after BG's `RM_UnblockClient` and after any reply/timer for this BC, so no concurrent consumer exists; `Cursor_Free` (see §3.6) |
 
 Whichever consumer wins races on the lock; the others find
 `parkedCursor == NULL` and no-op. This eliminates Issue A (parking happens
@@ -465,12 +465,13 @@ risk of the user merging stale results into a complete-looking output.
 static void coordRequestCtxFreePrivData(RedisModuleCtx *ctx, void *privdata) {
   CoordRequestCtx *reqCtx = privdata;
 
-  // Disconnect-cleanup: if a cursor is still parked, the reply/timer
-  // path never ran for this request (or the disconnect outraced it).
-  // Free the cursor — see §3.6 for the data-integrity rationale.
-  CoordRequestCtx_LockSetRequest(reqCtx);
-  Cursor *parked = CoordRequestCtx_TakeParkedCursor(reqCtx); // returns + NULLs
-  CoordRequestCtx_UnlockSetRequest(reqCtx);
+  // Disconnect cleanup: parkedCursor is non-NULL here only on client
+  // disconnect; in every other case an earlier consumer (reply callback,
+  // timer, or BG error sub-path) already claimed and disposed of it and
+  // we observe NULL.
+  // No setRequestLock needed here -- see "Why no lock" below.
+  Cursor *parked = reqCtx->parkedCursor;
+  reqCtx->parkedCursor = NULL;
   if (parked) Cursor_Free(parked);
 
   // existing reqCtx teardown ...
@@ -480,8 +481,36 @@ static void coordRequestCtxFreePrivData(RedisModuleCtx *ctx, void *privdata) {
 **Timing.** Because BG always calls `RM_UnblockClient` after returning
 from `runCursor` (via `concurrent_ctx.c:88` or the equivalent dispatch
 wrapper), `free_privdata` runs strictly *after* BG is done with the
-cursor — there is no "BG mid-execution" race. The take-under-lock
-guarantees no consumer (timer / reply / BG error bail) double-frees.
+cursor — there is no "BG mid-execution" race.
+
+**Why no lock in `free_privdata`.** Unlike the other three consumers
+(timer reply, reply callback, BG error sub-path), which can race against
+each other and must take + null `parkedCursor` under `setRequestLock`,
+the `free_privdata` callback runs at a serialization point established
+by Redis itself:
+
+| Consumer | Thread | When |
+|---|---|---|
+| BG error sub-path (§3.4) | worker | strictly before `RM_UnblockClient` |
+| Reply callback | main | inside `moduleHandleBlockedClients`, immediately before `free_privdata` |
+| Timer callback | main | from `moduleBlockedClientTimedOut`, mutually exclusive with reply (Redis won't dispatch a reply for a timed-out BC) |
+| `free_privdata` | main | after exactly one of {reply, timer, neither (disconnect)} has run |
+
+By the time `free_privdata` executes:
+- BG has already called `RM_UnblockClient`, so it cannot touch
+  `parkedCursor` again.
+- Whichever of {reply, timer} ran for this BC has already returned —
+  on the same main thread, immediately before us in
+  `moduleHandleBlockedClients`. Neither can run again for this BC.
+
+So `parkedCursor` is observed without a concurrent reader/writer; the
+lock acquisition would guard nothing. The other consumers still take
+under the lock — they have real concurrency to coordinate. The
+`Take`/`Set` helpers' "caller must hold setRequestLock" precondition
+remains; `free_privdata` is the one site where that precondition is
+satisfied by Redis's invocation contract rather than by the lock.
+Documented inline at the call site so a future reader doesn't see the
+unlocked access and panic.
 
 ---
 
@@ -579,7 +608,7 @@ int DistCursorReadTimeoutReturnStrictClient(RedisModuleCtx *ctx,
   `parkedCursor` under the lock and freed it before signaling
   (`cursorRead:1903`, §3.4). Timer just flushes the error string.
 - Disconnect (no callback ran): `coordRequestCtxFreePrivData` takes
-  `parkedCursor` under the lock and `Cursor_Free`s it (§3.6).
+  `parkedCursor` (no lock — see §3.6 "Why no lock") and `Cursor_Free`s it.
 
 **`AREQ_ReplyWithStoredResults` extension.** Today it both serializes
 results *and* pauses/frees the cursor from `req->storedReplyState.cursor`
@@ -686,16 +715,22 @@ explicit happens-before. **Not needed for this design.**
 
 ### 5.5 Per-execution state that must be reset between cursor reads
 
-Each new FT.CURSOR READ enters `cursorRead` and currently calls
-`AREQ_ResetAggregateResultsClaim` (`aggregate_exec.c:1939`). The
-`RS_ASSERT(req->reqConfig.timeoutPolicy != TimeoutPolicy_ReturnStrict)`
-guard at line 1936 must be removed.
+The previous `AREQ_ResetAggregateResultsClaim` call at `cursorRead:1939`
+(and the `RS_ASSERT(req->reqConfig.timeoutPolicy != TimeoutPolicy_ReturnStrict)`
+guard at line 1936) are removed entirely as a prep step. That call was a
+no-op on every existing path: the only sites that set
+`syncCtx.aggregatingResults` / `aggregateResultsDone` (via `TryClaim` /
+`Signal`) are gated by `requiresAggregateResultsSync`, which is `true` only
+on the coord FT.AGGREGATE RETURN_STRICT path — and that path does not go
+through `cursorRead`. The new RETURN_STRICT cursor-read path needs its own
+dedicated reset (`AREQ_ResetForCursorReadReturnStrict`) at a different
+placement (under `setRequestLock`), so reusing the old helper would have
+either been misleading or required a confusing gate. See §5.5.4 for the
+factoring decision.
 
-`AREQ_ResetAggregateResultsClaim` today only clears the claim handshake
-(`syncCtx.aggregatingResults`, `syncCtx.aggregateResultsDone`). For the new
-RETURN_STRICT cursor-read path, two more pieces of per-execution state
-get latched on a timed-out read and would otherwise poison the next read
-on the same cursor.
+For the new RETURN_STRICT cursor-read path, four pieces of per-execution
+state get latched on a timed-out read and would otherwise poison the next
+read on the same cursor.
 
 #### 5.5.1 Fields requiring reset
 
@@ -726,18 +761,18 @@ on the same cursor.
 
 #### 5.5.2 Placement — must be inside the `setReqLock` critical section
 
-The current `AREQ_ResetAggregateResultsClaim` call at `cursorRead:1939` runs
-on DIST_THPOOL **after** `RSCursorReadCommand` released `setRequestLock` and
-**after** the new BC for this read has been armed on the main thread. That
-position is race-prone for RETURN_STRICT:
+A naïve placement that ran the reset on DIST_THPOOL **after**
+`RSCursorReadCommand` released `setRequestLock` and **after** the new BC for
+this read had been armed on the main thread would be race-prone for
+RETURN_STRICT:
 
 ```
 T0  Main:  CursorCommand arms new BC → dispatches to DIST_THPOOL
 T1  DIST:  RSCursorReadCommand → setReqLock → early TimedOut check (false:
            timer hasn't fired yet) → TakeForExecution → SetRequest → unlock
 T2  Main:  BC timer fires → setReqLock → SetTimedOut(true) → unlock
-T3  DIST:  cursorRead → AREQ_ResetAggregateResultsClaim clears
-           syncCtx.timedOut (!!) → BG runs the pipeline as if no timeout
+T3  DIST:  cursorRead → reset clears syncCtx.timedOut (!!) → BG runs the
+           pipeline as if no timeout
 T4  DIST:  BG drains a full chunk normally, advances the cursor, calls
            AREQ_StoreResults + Signal
 T5  Main:  timer's wait completes, sees hasStoredResults=true → emits a
@@ -745,7 +780,7 @@ T5  Main:  timer's wait completes, sees hasStoredResults=true → emits a
            consumed → next read won't see them → silent data loss
 ```
 
-The reset must therefore move **into** the §3.1 `setReqLock` critical
+The reset must therefore live **inside** the §3.1 `setReqLock` critical
 section. It happens immediately after a successful `Cursors_TakeForExecution`
 (the AREQ lives on `cursor->execState`, so we cannot reset before the take)
 and before `CoordRequestCtx_SetRequest` publishes `req` to the timer:
@@ -768,22 +803,16 @@ if (!cursor) {
   // store/reply "Cursor not found"
   return REDISMODULE_OK;
 }
-AREQ_ResetAggregateResultsClaim(cursor->execState); // extended per 5.5.1
+AREQ_ResetForCursorReadReturnStrict(cursor->execState); // see §5.5.1 / §5.5.4
 CoordRequestCtx_SetRequest(reqCtx, cursor->execState);
 CoordRequestCtx_SetParkedCursor(reqCtx, cursor);    // §3.5
 CoordRequestCtx_UnlockSetRequest(reqCtx);
 ```
 
-The existing call at `cursorRead:1939` is then guarded so the FAIL /
-non-coord paths keep the in-place reset (their cursor reads have no
-concurrent timer that could clobber it):
-
-```c
-// cursorRead:1939
-if (!req->useReplyCallback) {
-  AREQ_ResetAggregateResultsClaim(req);
-}
-```
+The previous unconditional call at `cursorRead:1939` (`AREQ_ResetAggregateResultsClaim`)
+is removed entirely — see §5.5 prelude. FAIL / non-coord cursor paths never
+exercised any of the fields the helper used to reset, so dropping it is a
+no-op for them.
 
 #### 5.5.3 Why each reset is race-free at the new placement
 
@@ -801,22 +830,33 @@ if (!req->useReplyCallback) {
 
 #### 5.5.4 Where to put the new resets
 
-Two viable factorings:
+**Decision: a new dedicated helper `AREQ_ResetForCursorReadReturnStrict`.**
 
-- **Inline in `AREQ_ResetAggregateResultsClaim`** — extend the existing
-  helper to also walk to `qctx->rootProc` and clear `RPNet::drainOnly`.
-- **Split** — keep `AREQ_ResetAggregateResultsClaim` for the `syncCtx`
-  fields and add `pipelineResetForNextCursorRead(qctx)` that resets
-  `RPNet::drainOnly` (and is the natural extension point if a future
-  yielding-shape adds another resettable RP-chain field — though see
-  §5.5.5 for why "yielding shapes that re-accumulate across reads" is
-  load-bearing-incompatible with sort/group ordering and probably means
-  no such field will ever exist for the sortby class).
+Rationale:
 
-**Recommendation**: inline for now. The original split rationale assumed
-`RPSorter::base.Next` would also need resetting; once §5.5.5 establishes
-that it must NOT be reset, only `drainOnly` remains on the RP-chain side
-— a single-field walk that doesn't justify a separate helper.
+- The pre-existing `AREQ_ResetAggregateResultsClaim` was a no-op on every
+  caller path that survived to a follow-up cursor read (the only writers of
+  the claim handshake fields live on the FT.AGGREGATE coord RETURN_STRICT
+  path, which never goes through `cursorRead`). Removing it as a prep step
+  rather than extending it avoids carrying a misleading helper forward.
+- Extending the old helper and then gating its call site on
+  `!useReplyCallback` would have lumped the new RETURN_STRICT cursor-read
+  path together with FAIL by accident of flag, not by intent: the gate
+  reads "skip when the reset is either redundant or scheduled to happen
+  earlier under setRequestLock", which is two distinct rationales sharing
+  one boolean.
+- A dedicated helper makes both the call site (under `setRequestLock` in
+  `RSCursorReadCommand`) and the field set (claim handshake +
+  `syncCtx.timedOut` + `RPNet::drainOnly`) speak for themselves: it is
+  *the* reset for the new path, called from *the* one site that needs it.
+
+The helper is defined in `aggregate/aggregate_request.c` (alongside the
+other AREQ methods) and is named `AREQ_ResetForCursorReadReturnStrict` to
+encode both the entry-point context (cursor read) and the policy (RETURN_STRICT).
+It documents in its preamble that the caller MUST hold `setRequestLock`.
+
+`RPSorter::base.Next` is intentionally outside the helper's surface — see
+§5.5.5 for why the Yield latch is load-bearing rather than poisonous.
 
 #### 5.5.5 Why `RPSorter::base.Next` must NOT be reset (snapshot-pop semantics)
 
@@ -903,9 +943,44 @@ the wasted dispatches matter.
 
 ### 5.6 Lock-ordering invariant introduced by §3.1
 
-New rule: hold `reqCtx`'s `setRequestLock` *before* any cursor-table
-operation. Verify by inspection that no existing code path acquires the
-cursor-table lock while holding any `CoordRequestCtx` lock.
+**Rule (no-inversion):** never acquire `CoordRequestCtx::setRequestLock`
+while holding the cursor-table lock (`CursorList::lock`). Equivalently:
+the only permitted nesting is `setRequestLock` (outer) → `CursorList::lock`
+(inner). Helpers that need to dispose a cursor (`Cursor_Pause` /
+`Cursor_Free`) **release** `setRequestLock` first and then call the
+disposer — so they don't actually nest the locks at all (this is what
+`coordReleaseParkedCursorAfterReply` (§4) and `coordRequestCtxFreePrivData`
+(§3.6) do).
+
+**Verified:** no inversion exists in the current codebase.
+
+- `CursorList::lock` is acquired exclusively through the `static` helpers
+  `CursorList_Lock` / `CursorList_TryLock` / `CursorList_Unlock` in
+  `src/cursor.c`. No external translation unit can take the lock.
+- The complete set of cursor-table acquisition sites is therefore the
+  public API in `src/cursor.c`: `Cursors_Reserve`, `Cursors_TakeForExecution`,
+  `Cursors_PeekTimeoutInfo`, `Cursors_Purge`, `Cursors_CollectIdle`,
+  `Cursors_GetInfoStats`, `Cursors_RenderStats`, `Cursors_RenderStatsForInfo`
+  (try-lock), `Cursor_Pause`, `Cursor_Free`, `CursorList_MarkASMInaccuracy`,
+  `CursorList_Empty`.
+- None of these functions reach back into `CoordRequestCtx_LockSetRequest`.
+  The only outbound calls from the cursor-table critical sections are
+  `Cursor_FreeInternal` (kh table + idle-array manipulation),
+  `AREQ_DecrRef` (AREQ ref-count drop; AREQ destruction tears down the
+  AREQ's own state and never touches `CoordRequestCtx`, which holds only a
+  non-owning `req` pointer), and `StrongRef_Release` (spec-ref drop).
+  Verified by `grep -rn "CoordRequestCtx_LockSetRequest"` returning no
+  hits in `src/cursor.c` or anywhere downstream of these calls.
+- The only nesting introduced by this design is in `RSCursorReadCommand`:
+  `setRequestLock` outer, `Cursors_TakeForExecution` inner — i.e. the
+  permitted direction. `Cursors_TakeForExecution` is pure data
+  manipulation (kh_get, Array ops) with no callbacks and no further locks,
+  so it cannot block on anything that needs `setRequestLock`.
+
+**Maintenance hook for future changes:** if a new caller is added that
+takes `CursorList::lock` directly (i.e. outside the `Cursors_*` API), or
+if any of the existing `Cursors_*` functions grow a callback that could
+acquire `setRequestLock`, the inversion rule above must be re-verified.
 
 ### 5.7 Scenario 2 — wait worst-case after `SetRequest`
 
@@ -957,17 +1032,17 @@ RETURN_STRICT applies to hybrid cursors at all.
 | `CursorTimeoutInfo::found` | `cursor.h` | **new field** (`bool`); set by `Cursors_PeekTimeoutInfo` from the `kh_get` result. Existing callers ignore it; `CursorCommand` consumes it to validate the cid up-front. Update the doc comment on `queryTimeoutMS` (the "0 = not found OR TIMEOUT 0" overload is replaced by "use `info.found`"). |
 | `CoordRequestCtx::isCursorReadReturnStrict` | `coord/dist_aggregate.h` | new field + setter/getter |
 | `CoordRequestCtx::parkedCursor` | `coord/coord_request_ctx.{h,c}` | **new field** (`Cursor *`); written/read under `setRequestLock`. Per-read ownership of the cursor handle for the RETURN_STRICT cursor-read path (§3.5). NULL on FAIL and non-cursor-read flows. |
-| `CoordRequestCtx_SetParkedCursor` / `CoordRequestCtx_TakeParkedCursor` | `coord/coord_request_ctx.{h,c}` | **new helpers**. `Set` writes the field (caller must hold `setRequestLock`). `Take` returns the current value and NULLs the field atomically with respect to the lock; idempotent — returns NULL after first call. Consumers: timer reply path (§4), reply callback (success), BG error sub-path (§3.4), `coordRequestCtxFreePrivData` (§3.6). |
-| `coordRequestCtxFreePrivData` (cursor-cleanup extension) | `coord/coord_request_ctx.c` | extend the existing `free_privdata` callback to take + free `parkedCursor` under `setRequestLock` *before* the rest of the reqCtx teardown (§3.6). Handles the disconnect case where reply / timer never ran. **Free, not Pause** — see §3.6 rationale. |
+| `CoordRequestCtx_SetParkedCursor` / `CoordRequestCtx_TakeParkedCursor` | `coord/coord_request_ctx.{h,c}` | **new helpers**. `Set` writes the field (caller must hold `setRequestLock`). `Take` returns the current value and NULLs the field atomically with respect to the lock; idempotent — returns NULL after first call. Consumers that take under the lock: timer reply path (§4), reply callback (success), BG error sub-path (§3.4). `coordRequestCtxFreePrivData` (§3.6) inlines the take **without the lock** — Redis-level serialization makes the lock redundant there. |
+| `coordRequestCtxFreePrivData` (cursor-cleanup extension) | `coord/coord_request_ctx.c` | extend the existing `free_privdata` callback to take + free `parkedCursor` *before* the rest of the reqCtx teardown (§3.6). Inlines the take + null without `setRequestLock` — see §3.6 "Why no lock" for the Redis-serialization argument. Handles the disconnect case where reply / timer never ran. **Free, not Pause** — see §3.6 rationale. |
 | `coordReleaseParkedCursorAfterReply` | `coord/dist_aggregate.c` | **new helper** invoked from `DistCursorReadTimeoutReturnStrictClient` and the reply callback after `AREQ_ReplyWithStoredResults`. Takes `parkedCursor` under the lock and `Cursor_Free`s it on `QEXEC_S_ITERDONE` else `Cursor_Pause`s (§4 cursor-lifecycle block). |
 | `DistCursorReadTimeoutReturnStrictClient` | `coord/dist_aggregate.c` | new function (sibling of `DistAggregateTimeoutReturnStrictClient`) |
 | `DistCursorReadReplyCallback` | `coord/dist_aggregate.c` | likely a thin wrapper — or reuse `DistAggregateReplyCallback` if it Just Works (TBD: verify). Whichever is chosen, it **must** invoke `coordReleaseParkedCursorAfterReply` after `AREQ_ReplyWithStoredResults` for the new RETURN_STRICT cursor-read path (§3.5 / §4). |
 | `coord_cursor_read_reply_timeout_empty(ctx, cid)` | `aggregate/reply_empty.{c,h}` | new helper |
 | `CursorCommand` (cid validation + RETURN_STRICT branch) | `module.c:3893-3914` | (a) early bail using `info.found` *before* the policy branch (applies to both FAIL and RETURN_STRICT); (b) new RETURN_STRICT branch alongside the existing `TimeoutPolicy_Fail` branch |
-| `RSCursorReadCommand` (early TimedOut check + take + reset + park) | `aggregate/aggregate_exec.c:2080-2099` | gated insertion before `TakeForExecution` (§3.1). Inside the same `setRequestLock` critical section, in order: (i) early TimedOut check; (ii) `Cursors_TakeForExecution`; (iii) `AREQ_ResetAggregateResultsClaim` (§5.5.2); (iv) `CoordRequestCtx_SetRequest`; (v) **`CoordRequestCtx_SetParkedCursor` (§3.5)**. This is the only race-free placement for both `parkedCursor` set and `syncCtx.timedOut` reset on the RETURN_STRICT path. (Functionally, all five steps run under the same lock, so any total order in which the reset and the two `Set*` calls precede the unlock is race-free; the order above is canonical for the doc and matches the §3.1 / §5.5.2 snippets.) |
+| `RSCursorReadCommand` (early TimedOut check + take + reset + park) | `aggregate/aggregate_exec.c:2080-2099` | gated insertion before `TakeForExecution` (§3.1). Inside the same `setRequestLock` critical section, in order: (i) early TimedOut check; (ii) `Cursors_TakeForExecution`; (iii) `AREQ_ResetForCursorReadReturnStrict` (§5.5.2); (iv) `CoordRequestCtx_SetRequest`; (v) **`CoordRequestCtx_SetParkedCursor` (§3.5)**. This is the only race-free placement for both `parkedCursor` set and `syncCtx.timedOut` reset on the RETURN_STRICT path. (Functionally, all five steps run under the same lock, so any total order in which the reset and the two `Set*` calls precede the unlock is race-free; the order above is canonical for the doc and matches the §3.1 / §5.5.2 snippets.) |
 | `runCursor` (cursor-stash gating) | `aggregate/aggregate_exec.c:1839` | for the RETURN_STRICT cursor-read path the cursor is already parked on `reqCtx` (§3.5), so the existing `req->storedReplyState.cursor = cursor` assignment is unnecessary. Either gate it (`useReplyCallback && !isCursorReadReturnStrict`) or leave it and have the reply path ignore the AREQ field on the new path. FAIL behavior is unchanged. |
 | `cursorRead` BG error sub-path (`aggregate_exec.c:1896-1905`) | `aggregate/aggregate_exec.c` | before calling `Cursor_Free(cursor)`, take + clear `parkedCursor` under `setRequestLock` so later consumers (timer / `free_privdata`) observe NULL and do not double-free (§3.4 cursor-clear obligation). |
-| `AREQ_ResetAggregateResultsClaim` | `aggregate/aggregate_request.c:1137` | (a) reset `syncCtx.timedOut` to `false` (release-store); (b) reset `RPNet::drainOnly` to `false` on the root RP (`qctx->rootProc`); (c) remove the `RS_ASSERT(timeoutPolicy != ReturnStrict)` guard at `aggregate_exec.c:1936`; (d) at `cursorRead:1939`, gate the existing call with `if (!req->useReplyCallback)` so only the FAIL / non-coord cursor paths keep the original placement — the RETURN_STRICT path now resets earlier, inside `RSCursorReadCommand`'s `setRequestLock` critical section (§5.5.2). **Does NOT touch `RPSorter::base.Next`**: the Yield latch is load-bearing for snapshot-pop semantics, see §5.5.5. |
+| `AREQ_ResetForCursorReadReturnStrict` (NEW) | `aggregate/aggregate_request.c` | new dedicated reset for the coord+RETURN_STRICT cursor-read path. Resets `syncCtx.aggregatingResults`, `syncCtx.aggregateResultsDone`, `syncCtx.timedOut` (release-store), and `RPNet::drainOnly` on the root RP (`qctx->rootProc`) when it is `RP_NETWORK`. Called from `RSCursorReadCommand`'s `setRequestLock` critical section (§5.5.2) — caller must hold the lock. The previous `AREQ_ResetAggregateResultsClaim` is removed: it was a no-op on every existing path (the only field-setters live on the new RETURN_STRICT path itself). **Does NOT touch `RPSorter::base.Next`**: the Yield latch is load-bearing for snapshot-pop semantics, see §5.5.5. |
 | `AREQ_ReplyOrStoreError` | `aggregate/aggregate_exec.c:1150` | extend the `useReplyCallback` branch to call `AREQ_SignalAggregateResultsComplete` when `RequiresThreadsSyncResults` — closes the BG-bail hang for the new RETURN_STRICT cursor-read timer (§3.4). Pre-existing FAIL callers are unaffected (no-op when `RequiresThreadsSyncResults` is false). |
 
 **Not modified** — relying on existing behavior:
@@ -1071,16 +1146,20 @@ In addition to existing FT.CURSOR READ + FAIL coverage:
    parked cursor is disposed on the success path; the existing in-place
    pause/free inside `AREQ_ReplyWithStoredResults` runs against
    `req->storedReplyState.cursor`, which is NULL on the new path.
-3. **`AREQ_ResetAggregateResultsClaim` factoring** — **Decided: inline.**
-   Reset surface is `syncCtx.aggregatingResults`, `aggregateResultsDone`,
-   `syncCtx.timedOut`, and `RPNet::drainOnly` (single field on the root
-   RP, located via `qctx->rootProc`). `RPSorter::base.Next` is **not**
-   in the reset surface — see §5.5.5 for why the Yield latch is
-   load-bearing rather than poisonous. With only one RP-chain field
-   left, a separate `pipelineResetForNextCursorRead` helper isn't
-   justified; extend `AREQ_ResetAggregateResultsClaim` in place. Called
-   from the `setRequestLock` critical section in `RSCursorReadCommand`
-   (§5.5.2).
+3. **Per-read reset factoring** — **Decided: new dedicated helper
+   `AREQ_ResetForCursorReadReturnStrict`; the legacy
+   `AREQ_ResetAggregateResultsClaim` is removed.** Reset surface is
+   `syncCtx.aggregatingResults`, `aggregateResultsDone`, `syncCtx.timedOut`
+   (release-store), and `RPNet::drainOnly` on the root RP (located via
+   `qctx->rootProc` when it is `RP_NETWORK`). `RPSorter::base.Next` is
+   **not** in the reset surface — see §5.5.5 for why the Yield latch is
+   load-bearing rather than poisonous. The legacy helper was a no-op on
+   every path that survived to a follow-up cursor read, so extending +
+   gating it would have produced a misleading boolean (FAIL and the new
+   RETURN_STRICT path sharing one negative flag for two unrelated
+   reasons). The new helper is called from the `setRequestLock` critical
+   section in `RSCursorReadCommand` (§5.5.2) — the caller MUST hold the
+   lock. See §5.5.4 for the full rationale.
 4. **Apply scenario 1's BG-side early-check to FAIL too?** **Decided: no.**
    Rationale: FAIL semantics make the cursor unusable post-timeout. The existing
    "take then `Cursor_Free`" path correctly tears the cursor down. The residual
@@ -1115,9 +1194,12 @@ In addition to existing FT.CURSOR READ + FAIL coverage:
    onto a new `CoordRequestCtx::parkedCursor`, written under the take-lock
    alongside `Cursors_TakeForExecution` and `CoordRequestCtx_SetRequest` (§3.1).
    This eliminates both the signal-before-park race (Issue A) and the
-   shared-field-across-reads race (Issue B). All four consumers (timer, reply,
-   BG error sub-path, `free_privdata`) take + clear under the same lock and
-   no-op on NULL. The `AREQ` parked field stays in place for FAIL.
+   shared-field-across-reads race (Issue B). The three concurrent consumers
+   (timer, reply, BG error sub-path) take + clear under the same lock and
+   no-op on NULL. `free_privdata` runs after Redis-level serialization
+   (post-`RM_UnblockClient`, after any reply/timer on the same main thread)
+   so it inlines the take without the lock — see §3.6. The `AREQ` parked
+   field stays in place for FAIL.
 8. **Disconnect handling** — **Decided: `free_privdata` reaps the cursor with
    `Cursor_Free` (§3.6).** No `RedisModule_SetDisconnectCallback` is registered
    — verified against Redis source that `free_privdata` always runs on
