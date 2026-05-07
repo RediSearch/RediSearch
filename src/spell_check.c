@@ -160,7 +160,7 @@ static void SpellCheck_FindSuggestions(SpellCheckCtx *scCtx, Trie *t, const char
 
 RS_Suggestion **spellCheck_GetSuggestions(RS_Suggestions *s) {
   TrieIterator *iter = Trie_Iterate(s->suggestionsTrie, "", 0, 0, 1);
-  RS_Suggestion **ret = array_new(RS_Suggestion *, s->suggestionsTrie->size);
+  RS_Suggestion **ret = array_new(RS_Suggestion *, Trie_Size(s->suggestionsTrie));
   rune *rstr = NULL;
   t_len slen = 0;
   float score = 0;

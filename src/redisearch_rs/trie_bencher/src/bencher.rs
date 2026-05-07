@@ -64,6 +64,16 @@ impl CorpusMeasurementTime {
             mutable: mutable_measurement_time,
         }
     }
+
+    /// Measurement window for immutable operations (find, iter).
+    pub const fn immutable(&self) -> Duration {
+        self.immutable
+    }
+
+    /// Measurement window for mutable operations (insert, remove).
+    pub const fn mutable(&self) -> Duration {
+        self.mutable
+    }
 }
 
 impl Default for CorpusMeasurementTime {

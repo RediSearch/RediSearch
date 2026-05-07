@@ -44,9 +44,6 @@ typedef rune (*runeTransform)(rune r);
 /* fold rune: assumes rune is of the correct size */
 rune runeFold(rune r);
 
-/* Convert rune to lowercase */
-rune runeLower(rune r);
-
 /* Convert a rune string to utf-8 characters */
 char *runesToStr(const rune *in, size_t len, size_t *utflen);
 
@@ -73,9 +70,6 @@ rune *strToRunes(const char *str, size_t *len);
 
 /* Decode a string to a rune in-place */
 size_t strToRunesN(const char *s, size_t slen, rune *outbuf);
-
-/* similar to strchr */
-const rune *runenchr(const rune *r, size_t len, rune c);
 
 static inline rune *runeBufFill(const char *s, size_t n, runeBuf *buf, size_t *len) {
   /**

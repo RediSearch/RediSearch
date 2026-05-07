@@ -16,6 +16,7 @@
 #include "config.h"
 #include "doc_table.h"
 #include "trie/trie_type.h"
+#include "redisearch_rs/headers/runetriemap.h"
 #include "sortable.h"
 #include "stopwords.h"
 #include "gc.h"
@@ -310,7 +311,7 @@ typedef struct IndexSpec {
   IndexStats stats;               // Statistics of memory used and quantities
 
   Trie *terms;                    // Trie of all TEXT terms. Used for GC and fuzzy queries
-  Trie *suffix;                   // Trie of TEXT suffix tokens of terms. Used for contains queries
+  RuneTrieMap *suffix;            // Trie of TEXT suffix tokens of terms. Used for contains queries
   t_fieldMask suffixMask;         // Mask of all fields that support contains query
   dict *keysDict;                 // Inverted indexes dictionary of all TEXT terms
 

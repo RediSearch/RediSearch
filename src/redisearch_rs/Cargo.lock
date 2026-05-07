@@ -1920,6 +1920,7 @@ dependencies = [
  "reducers_ffi",
  "result_processor_ffi",
  "rlookup_ffi",
+ "runetriemap_ffi",
  "search_result_ffi",
  "slots_tracker_ffi",
  "sorting_vector_ffi",
@@ -2235,6 +2236,19 @@ dependencies = [
  "quote 1.0.44",
  "rand 0.8.5",
  "syn 2.0.117",
+]
+
+[[package]]
+name = "runetriemap_ffi"
+version = "0.0.1"
+dependencies = [
+ "build_utils",
+ "cbindgen",
+ "libc",
+ "redis-module",
+ "redis_mock",
+ "trie_rs",
+ "workspace_hack",
 ]
 
 [[package]]

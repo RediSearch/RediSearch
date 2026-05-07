@@ -7,7 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! Opaque FFI wrapper around [`TrieMap`](crate::TrieMap) for use with C code.
+//! Opaque FFI wrappers around [`TrieMap`](crate::TrieMap) and
+//! [`RuneTrieMap`](crate::RuneTrieMap) for use with C code.
 
 use std::{ffi::c_void, ptr::NonNull};
 
@@ -17,6 +18,15 @@ use std::{ffi::c_void, ptr::NonNull};
 /// pointer. It can be instantiated with `TrieMap(crate::TrieMap::new())` and
 /// the inner [`crate::TrieMap`] can be accessed via the public field.
 pub struct TrieMap(pub crate::TrieMap<*mut c_void>);
+
+/// Opaque type wrapping a [`RuneTrieMap<*mut c_void>`](crate::RuneTrieMap)
+/// for FFI use.
+///
+/// Like [`TrieMap`], this is meant to be passed across the FFI boundary as
+/// an opaque pointer. The payload type is uniformly `*mut c_void`; the
+/// concrete meaning (e.g. `Box<f32>` score for the dictionary path,
+/// `suffixData *` for the suffix path) is owned by the caller.
+pub struct RuneTrieMap(pub crate::RuneTrieMap<*mut c_void>);
 
 impl TrieMap {
     /// Find the value associated with a key in the trie.

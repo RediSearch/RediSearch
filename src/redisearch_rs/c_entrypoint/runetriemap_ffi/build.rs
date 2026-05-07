@@ -7,6 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-mod iter;
-mod rune_trie_map;
-mod trie;
+use build_utils::run_cbindgen;
+
+fn main() {
+    run_cbindgen("../../headers/runetriemap.h").unwrap();
+}

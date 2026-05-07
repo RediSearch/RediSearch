@@ -339,7 +339,7 @@ void TagIndex_Free(TagIndex *idx) {
   // In memory mode, values are InvertedIndex pointers
   freeCB valueFree = idx->diskSpec ? NULL : (freeCB)InvertedIndex_Free;
   TrieMap_Free(idx->values, valueFree);
-  TrieMap_Free(idx->suffix, suffixTrieMap_freeCallback);
+  TrieMap_Free(idx->suffix, suffixTrie_freeCallback);
   rm_free(idx);
 }
 
