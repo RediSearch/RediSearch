@@ -8,7 +8,7 @@ description: |
 metadata:
   component: "search"
   group: "expire-persist"
-  use_case: "Field-level HEXPIRE (HEXPIRE_CMD path, long TTL) — negative control for the doc-expiration fast-path PR"
+  use_case: "Field-level HEXPIRE HEXPIRE_CMD path long TTL negative control for the doc-expiration fast-path PR"
 setups:
   - oss-standalone
   - oss-cluster-02-primaries

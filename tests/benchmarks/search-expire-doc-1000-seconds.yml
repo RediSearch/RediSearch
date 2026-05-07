@@ -8,7 +8,7 @@ description: |
 metadata:
   component: "search"
   group: "expire-persist"
-  use_case: "EXPIRE fast path on indexed hashes (10/90 write ratio, long TTL — keys never actually expire)"
+  use_case: "EXPIRE fast path on indexed hashes 10-90 write ratio long TTL keys never actually expire"
 setups:
   - oss-standalone
   - oss-cluster-02-primaries
