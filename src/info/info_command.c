@@ -260,7 +260,7 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
   REPLY_KVINT("num_terms", sp->stats.scoring.numTerms);
 
   const bool isDisk = sp->diskSpec != NULL;
-  size_t num_records = isDisk ? 0 : sp->stats.numRecords;
+  size_t num_records = isDisk ? SearchDisk_GetNumRecords(sp->diskSpec) : sp->stats.numRecords;
   // Vector indexes (e.g. HNSW) remain in memory even when the rest of the
   // index is stored on disk, so their memory must always be reported.
   size_t vector_indexes_size = IndexSpec_VectorIndexesSize(specForOpeningIndexes);
@@ -293,8 +293,6 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
   REPLY_KVNUM("geoshapes_sz_mb", geoshapes_size / (float)0x100000);
   REPLY_KVNUM("records_per_doc_avg",
               (float)num_records / (float)sp->stats.scoring.numDocuments);
-  // Disk metrics expose inverted size but not posting record count yet; keep NaN
-  // when denominator is unavailable to avoid returning +/-inf.
   double bytes_per_record_avg = num_records ?
     (float)inverted_size / (float)num_records : NAN;
   REPLY_KVNUM("bytes_per_record_avg",
