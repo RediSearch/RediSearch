@@ -291,7 +291,7 @@ jobs:
       - benchmark-vecsim-oss-standalone-profiler
       - benchmark-msmarco-oss-cluster-08-primaries-250gb-threads-8
     if: ${{ always() && contains(needs.*.result, 'failure') && inputs.notify_failure }}
-    runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
+    runs-on: ${{ vars.RUNS_ON || 'ubuntu-24.04' }}
     steps:
       - name: Notify Failure
         uses: slackapi/slack-github-action@v1
@@ -307,7 +307,7 @@ jobs:
     needs:
       - benchmark-msmarco-oss-cluster-08-primaries-250gb-threads-8
     if: ${{ always() && needs.benchmark-msmarco-oss-cluster-08-primaries-250gb-threads-8.result == 'failure' && inputs.notify_failure }}
-    runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
+    runs-on: ${{ vars.RUNS_ON || 'ubuntu-24.04' }}
     steps:
       - name: Notify MSMARCO Benchmark Failure
         uses: slackapi/slack-github-action@v1
