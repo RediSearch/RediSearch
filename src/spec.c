@@ -4186,21 +4186,26 @@ void Indexes_UpdateMatchingDocExpiration(RedisModuleCtx *ctx, RedisModuleString 
     return;
   }
 
-  // Read the new absolute expiration once for all matching specs. After
-  // EXPIRE/PERSIST has fired the new TTL is already
-  // installed on the key.
+  // Find all indexes that match the key's name prefix. runFilters=false:
+  // EXPIRE/PERSIST do not change field values, so a doc's schema-rule FILTER
+  // outcome cannot have flipped since the last write. The DocTable lookup
+  // below (DocTable_BorrowByKeyR) is the only discriminator we need — it
+  // returns the existing DMD when the doc is currently indexed, and NULL
+  // otherwise. Re-evaluating the filter here would re-read hash/JSON fields
+  // on the main thread for a result the loop would ignore.
+  SpecOpIndexingCtx *specs = Indexes_FindMatchingSchemaRules(ctx, key, type, false, NULL);
+
+  // EXPIRE/PERSIST notifications fire for every key in the keyspace. When no
+  // spec prefix matches we have nothing to update, so skip the OpenKey/TTL
+  // read entirely — that overhead would otherwise be paid on every event.
+  if (array_len(specs->specsOps) == 0) {
+    goto cleanup;
+  }
+
   RedisModuleKey *kp = RedisModule_OpenKey(ctx, key, DOCUMENT_OPEN_KEY_INDEXING_FLAGS);
   RS_ASSERT(kp);
   t_expirationTimePoint ttl = GetKeyExpirationTime(kp);
   RedisModule_CloseKey(kp);
-
-  // Find all indexes that match the key's name prefix. runFilters=true so
-  // SpecOp_Del is set for keys that fail the schema-rule FILTER — those
-  // are skipped below: EXPIRE/PERSIST does not change field values, so a
-  // filter-failing doc cannot be in the index (any prior HSET that made
-  // the filter fail already removed it via Indexes_UpdateMatchingWithSchemaRules).
-  // Same pattern as Indexes_ReplaceMatchingWithSchemaRules (RENAME).
-  SpecOpIndexingCtx *specs = Indexes_FindMatchingSchemaRules(ctx, key, type, true, NULL);
 
   for (size_t i = 0; i < array_len(specs->specsOps); ++i) {
     SpecOpCtx *specOp = &specs->specsOps[i];
@@ -4219,11 +4224,6 @@ void Indexes_UpdateMatchingDocExpiration(RedisModuleCtx *ctx, RedisModuleString 
     if (!spec->monitorDocumentExpiration) {
       continue;
     }
-    // FILTER fails: doc cannot be in the index here (see comment above the
-    // Indexes_FindMatchingSchemaRules call), so nothing to do.
-    if (specOp->op == SpecOp_Del) {
-      continue;
-    }
     RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, spec);
     RedisSearchCtx_LockSpecWrite(&sctx);
     const RSDocumentMetadata *cdmd = DocTable_BorrowByKeyR(&spec->docs, key);
@@ -4238,6 +4238,8 @@ void Indexes_UpdateMatchingDocExpiration(RedisModuleCtx *ctx, RedisModuleString 
     }
     RedisSearchCtx_UnlockSpec(&sctx);
   }
+
+cleanup:
 
   Indexes_SpecOpsIndexingCtxFree(specs);
 }
