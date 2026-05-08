@@ -4225,7 +4225,16 @@ void Indexes_UpdateMatchingDocExpiration(RedisModuleCtx *ctx, RedisModuleString 
       continue;
     }
     RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, spec);
-    RedisSearchCtx_LockSpecWrite(&sctx);
+    // Read lock is sufficient: the only mutation is the relaxed atomic store on
+    // `dmd->expirationTimeNs` inside DocTable_UpdateExpiration (paired with a
+    // relaxed atomic load in DocTable_IsDocExpired). The DMD chain traversal
+    // and refcount manipulation in DocTable_BorrowByKeyR / DMD_Return are
+    // explicitly documented as safe under either lock mode (doc_table.c, near
+    // DocTable_GetOwn). Concurrent writers cannot race here because keyspace
+    // notifications all dispatch on the Redis main thread, so this callback is
+    // serialized against itself and against other notification-driven writers
+    // by the event loop, not by the spec lock.
+    RedisSearchCtx_LockSpecRead(&sctx);
     const RSDocumentMetadata *cdmd = DocTable_BorrowByKeyR(&spec->docs, key);
     if (cdmd) {
       // Reuse the canonical setter so the doc-level write goes through the
