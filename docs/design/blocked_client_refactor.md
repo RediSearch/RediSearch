@@ -17,7 +17,7 @@ refcount split across three independent owners (blocked-client privdata,
 `BlockedQueries` node, worker context). The spec read-lock can be acquired
 on a worker and released on the main thread via `AREQ_Free`, which is
 undefined behaviour for `pthread_rwlock_t`. This RFC replaces the implicit
-ownership with two explicit roles plus one unified refcounted wrapper:
+ownership with two explicit roles plus one single-owner wrapper:
 
 | Role | Owns | Lives on |
 | --- | --- | --- |
@@ -25,14 +25,17 @@ ownership with two explicit roles plus one unified refcounted wrapper:
 | **`SpecLockState`** (enum field on `sctx`) | The spec-lock state (replaces today's `RSContextFlags flags`). Stateful — supports multiple acquire/release per cycle, queryable mid-pipeline. **No new struct type — just a renamed enum field on `RedisSearchCtx`.** | Reached as `req->sctx->lock_state`. Whichever thread is currently driving the request owns it. For BCC-mediated shard / hybrid cycles the BG thread is the sole accessor for the duration of the cycle (enforced by the `runRequestCycle` wrapper); for synchronous main-thread commands (e.g. `FT.EXPLAIN`) main is the sole accessor. |
 
 `RequestSyncCtx` is the existing per-request struct (today embedded inside
-`AREQ` / `HybridRequest`, holding `refcount` and `timedOut`). Step 0
-**inverts** that containment: the wrapper becomes the top-level refcounted
-container that owns the `AREQ` / `HybridRequest`. Both the cursor (while
-parked) and the `BlockedClientCtx` (while in flight) hold a ref to the
-**same** `RequestSyncCtx`; the last ref dropped frees the underlying
-query. This is the only refcount in the system, replacing the three
-independent `AREQ` refcounts and the `Cursor.hybrid_ref` / `execState`
-duality.
+`AREQ` / `HybridRequest`, holding `refcount`, `timedOut`, and the
+partial-timeout coordination state). Step 0 **inverts** that containment:
+the wrapper becomes the top-level container that owns the `AREQ` /
+`HybridRequest`. Ownership of the wrapper is single-owner with explicit
+transfer: `bcc->query` owns it during a cycle, `cursor->query` owns it
+between cycles, and the transfer happens on main under the cursor mutex
+at `BCC_New` and `OnFree`. The `refcount` field is dropped — the
+cross-thread invariants it used to guarantee are now provided by the
+Redis BlockedClient API's BCC-lifetime guarantee (BG borrows during the
+cycle) plus the existing `Cursor.delete_mark` mechanism (handles
+`CURSOR DEL` / GC during in-flight). See §3.1.1.
 
 `BlockedQueries` becomes a pure non-owning observer, registered/unregistered
 through the `BlockedClientCtx`. `useReplyCallback` and `storedReplyState`
@@ -138,10 +141,13 @@ The two failure modes that have bitten us are visible here:
 
 ### 2.1 Goals
 
-- A single canonical refcount per query (`RequestSyncCtx`). Both the cursor
-  (between cycles) and the `BlockedClientCtx` (during a cycle) hold a ref to
-  the same wrapper; the last ref dropped frees the underlying AREQ /
-  HybridRequest. No more "transfer the ref by NULL-ing the source" pattern.
+- A single-owner `RequestSyncCtx` per query, with ownership held by
+  exactly one of `bcc->query` or `cursor->query` at any instant.
+  Transfers happen on main, under the cursor mutex, at exactly two
+  sites (`BCC_New` and `OnFree`). The unconstrained "transfer the ref
+  by NULL-ing the source" pattern — scattered across many call-sites
+  today — is replaced by a constrained two-site transfer. No
+  refcounting on the wrapper.
 - Spec-lock acquire and release on the **same** thread, enforced by a wrapper
   with a debug-only thread-id assertion. Cursor handoff is explicit, not implicit.
 - One uniform path to `RedisModule_BlockClient` for query-shaped work, with
@@ -190,7 +196,7 @@ flowchart LR
     EXEC[BG work: shard pipeline OR hybrid pipeline (wrapped) / coord fan-out (unwrapped);<br/>reads bcc.query and timedOut,<br/>acquires/releases sctx->lock_state N times (shard/hybrid only),<br/>writes bcc.reply (incl. cursor field), calls UnblockClient]:::bg
   end
 
-  RSC[(RequestSyncCtx<br/>refcount + timedOut +<br/>owned AREQ/HReq)]:::shared
+  RSC[(RequestSyncCtx<br/>timedOut + partial-timeout coord +<br/>owned AREQ/HReq)]:::shared
   STATE[(req->sctx->lock_state<br/>BG-exclusive per cycle (shard/hybrid);<br/>untouched by coord)]:::bg
 
   REG -.observes.-> BCC
@@ -232,81 +238,70 @@ flowchart LR
   is the legitimate accessor; the design imposes no thread-id check,
   only the cycle invariant.
 
-#### 3.1.1 Cursors and the BCC share a `RequestSyncCtx` ref
+#### 3.1.1 Single-owner ownership of the `RequestSyncCtx`
 
-`RequestSyncCtx` is the only refcounted handle on the underlying query.
-Between cycles a cursor holds one ref (and is the sole owner). Each
-`CURSOR READ` constructs a *fresh* `BlockedClientCtx` that takes its own
-ref on the same wrapper:
+`RequestSyncCtx` is **not** refcounted. At any instant exactly one
+holder owns it, and ownership is transferred at well-defined
+main-thread sites under the cursor mutex. The two possible holders:
 
-- `BlockedClientCtx_New` calls `RequestSyncCtx_IncrRef` for the cursor case
-  (or constructs a brand-new wrapper for an initial query / hybrid query,
-  starting at refcount 1).
-- During the cycle both owners hold a ref: cursor (parked) + bcc
-  (in-flight) for cursor reads, or bcc only for non-cursor work. The worker
-  reads the underlying AREQ/HReq through `bcc.query` without touching the
-  refcount.
-- The pipeline decides whether to re-park (`Cursor_Pause` keeps the
-  cursor's ref alive) or to exhaust (`Cursor_Free` drops the cursor's
-  ref). The call happens on whichever thread is convenient: inline mode
-  → BG calls it directly at end of `runCursor`; deferred mode → BG
-  stashes the cursor in `bcc.reply.cursor` and main calls it from
-  `reply_cb` after finishing the reply. The cursor list `pthread_mutex`
-  serializes registry mutation regardless of caller thread (§3.4).
-- `BlockedClientCtx_OnFree` calls `RequestSyncCtx_DecrRef` unconditionally.
-  Whichever side dropped the last ref runs the AREQ/HReq destructor: for
-  initial-query / hybrid cycles the bcc is the last owner and frees the
-  query; for a cursor cycle that re-parked, the cursor outlives the bcc
-  and keeps the query alive; for a cursor cycle that exhausted,
-  `Cursor_Free` already ran (on BG in inline mode, on main in deferred
-  mode) so the bcc's `DecrRef` is the one that frees.
+- `bcc->query` — set during a cycle (lifetime guaranteed by the Redis
+  BlockedClient API).
+- `cursor->query` — set between cycles (lifetime managed by the cursor
+  table and its `pthread_mutex`).
 
-There is no `kind`-based branch in `OnFree`, no special "skip free for
-cursor" code path, and no "transfer the ref by NULL-ing the source"
-pattern. The refcount on the wrapper is the single source of truth.
+Why no refcount works: each cross-thread concern that *might* require
+shared ownership turns out to be solved by an existing primitive.
 
-##### Why is a refcount needed at all? The BG thread doesn't hold one
+| Concern | What handles it |
+| --- | --- |
+| BG ↔ main lifetime during a cycle | Redis BlockedClient API guarantees BCC alive until `OnFree` returns. The BG dereferences `bcc->query` freely; no ref needed. |
+| Cursor ↔ BCC ownership across cycles | Single-owner-with-transfer at `BCC_New` and `OnFree`. Cursor mutex serializes the transfer block against `Cursor_Free`. |
+| `CURSOR DEL` / GC during in-flight cycle | The existing `delete_mark` flag on `Cursor` ([cursor.c:352](../../src/cursor.c#L352)). `Cursors_Purge` sets it when the cursor isn't idle; `OnFree`'s park branch checks it and converts to free if set. No new mechanism. |
+| timeout_cb ↔ BG concurrent AREQ access | BCC lifetime guarantee covers timeout_cb too (it reaches AREQ via `bcc->query`). The partial-timeout CAS / condvar coordinates *who writes the reply*, not lifetime. |
 
-A natural question: if main and BG already coordinate via the
-`UnblockClient` publish fence, why does `RequestSyncCtx` need a
-refcount at all? Doesn't the BG thread need its own ref?
+**Ownership transfers** happen at exactly two sites, both on main,
+both inside the cursor mutex:
 
-**The BG thread does not hold a ref.** The Redis blocked-client API
-guarantees that `bc->privdata` (the BCC) is alive from
-`RM_BlockClient` until `OnFree` returns. That window covers every BG
-access — dispatch, the entire pipeline, `UnblockClient`, and the
-post-`UnblockClient` reply path. The BG just dereferences `bcc.query`
-freely; main's BCC ref keeps the wrapper alive across the fence. No
-BG ref is needed.
+```c
+// Inside BlockedClientCtx_New (cursor read path):
+bcc->query = cursor->query;
+cursor->query = NULL;     // single-owner: cursor relinquishes during cycle
 
-**The refcount exists for the cursor ↔ BCC overlap**, where the two
-holders have **independent lifetimes**:
+// Inside BlockedClientCtx_OnFree:
+if (cursor && !cursor->delete_mark
+           && !(bcc->query->areq->stateflags & QEXEC_S_ITERDONE)) {
+  cursor->query = bcc->query;     // transfer back to cursor (park)
+  bcc->query   = NULL;
+  Cursor_Pause(cursor);
+} else {
+  RequestSyncCtx_Free(bcc->query);   // free path: destroys AREQ + wrapper
+  bcc->query = NULL;
+  if (cursor) Cursor_Free(cursor);   // remove from registry
+}
+```
 
-- A cycle that exhausts the iterator drops the cursor's ref while the
-  BCC is still in flight.
-- `CURSOR DEL` or idle GC can drop the cursor's ref while a deferred-
-  mode `reply_cb` is still mid-execution.
-- A non-final cycle's BCC drops while the cursor stays parked for the
-  next read.
+For initial WITHCURSOR queries: `Cursors_Reserve` (main, before
+dispatch) creates the cursor entry with `cursor->query = NULL` —
+the cursor exists in the registry but doesn't own anything yet. BCC
+owns from `BCC_New` through `OnFree`'s park branch, which is when the
+cursor first acquires `query`. CURSOR DEL during this initial cycle
+just sets `delete_mark`; OnFree converts park to free.
 
-Without refcounting, this falls back to today's "transfer the ref by
-NULL-ing the source" pattern — exactly what the refactor removes.
-With refcounting, each holder drops independently and the last
-`DecrRef` runs `AREQ_Free`:
+For standalone queries / hybrid-without-cursor: BCC owns from `New`
+through `OnFree`; the free branch always runs. `cursor` is NULL.
 
-| State | RSC.refcount | Holders |
-| --- | --- | --- |
-| Standalone query, in flight | 1 | BCC |
-| Cursor parked between cycles | 1 | Cursor |
-| Cursor read in flight | 2 | Cursor + BCC |
+For coord BCCs: same as standalone — BCC owns; OnFree always frees.
 
-In this post-refactor design only values 1 and 2 are ever used. The
-`uint8_t refcount` field's "1–3 in practice" comment in §3.2 reflects
-historical headroom — Step 3 removes the third holder
-(`BlockedQueryNode.privdata`).
+The "transfer the ref by NULL-ing the source" pattern that the refactor
+retires is the *unconstrained* version — transfers scattered across
+many call-sites, easy to miss or double-transfer. The two transfers
+above are constrained: always main, always under the cursor mutex,
+always at `BCC_New` or `OnFree`. That's a state machine you can audit
+by reading two functions.
 
-So: BG borrows; main owns one ref through the BCC; cursor owns one ref
-between cycles. Refcount tracks the **two owners**, not three.
+So: BG borrows, main owns (via BCC during cycle, via cursor between
+cycles), and the AREQ is freed when `OnFree`'s free branch runs
+`RequestSyncCtx_Free`.
 
 #### 3.1.2 Single-writer invariant
 
@@ -315,9 +310,8 @@ each cross-thread struct is touched by exactly one thread:
 
 | Struct / field | Touched by main when… | Touched by worker when… |
 | --- | --- | --- |
-| `AREQ` / `HybridRequest` (owned by `RequestSyncCtx`) | Before dispatch (setup); and after `BlockedClientCtx_OnFree` returns iff the bcc dropped the last ref (the destructor runs from `RequestSyncCtx_DecrRef`). | Between dispatch and `UnblockClient`. Reached via `bcc.query->areq` / `->hreq`. |
-| `bcc.query` (the `RequestSyncCtx*` pointer) | Read in `OnFree` to call `DecrRef`. | Read each pipeline tick to reach the AREQ/HReq and to load `timedOut`. Never written. |
-| `RequestSyncCtx.refcount` | Atomic decrement in `OnFree` (always); atomic increment in `New` for the cursor-borrow case. Cursor-side `IncrRef` / `DecrRef` calls also happen on main. | Never. |
+| `AREQ` / `HybridRequest` (owned by `RequestSyncCtx`) | Before dispatch (setup); and after `BlockedClientCtx_OnFree` returns iff `OnFree`'s free branch ran (the destructor runs inside `RequestSyncCtx_Free`). | Between dispatch and `UnblockClient`. Reached via `bcc.query->areq` / `->hreq`. |
+| `bcc.query` (the `RequestSyncCtx*` pointer) | Read at `New` (to set), read/written in `OnFree` to either transfer to `cursor->query` (park) or call `RequestSyncCtx_Free` (free). All under the cursor mutex. | Read each pipeline tick to reach the AREQ/HReq and to load `timedOut`. Never written. |
 | `RequestSyncCtx.timedOut` | Atomic store in `timeout_cb` (see §4.2). | Atomic load each pipeline tick. |
 | `bcc.reply` (embedded `ChunkReplyState`) | Read by `reply_cb`; freed in `OnFree`. | Written before `UnblockClient`. The `UnblockClient` call is the publish fence; main reads only after it. |
 | `bcc.bc`, `bcc.registry_node`, `bcc.reply_cb` | Written only in `New`; read in `reply_cb` and `OnFree`. | Reads `bc` (for `UnblockClient`) and `reply_cb` (to decide whether to write `reply` inline or defer). Writes nothing. |
@@ -340,18 +334,24 @@ main after `UnblockClient`.
 
 ```c
 // --- RequestSyncCtx ---------------------------------------------------------
-// Refcounted wrapper around an AREQ or a HybridRequest. Owns the underlying
-// query: the destructor (RequestSyncCtx_DecrRef when refcount reaches 0) calls
-// AREQ_Free / HybridRequest_Free on the contained query. Holders today are
-// the cursor (between cycles) and the BlockedClientCtx (during a cycle); both
-// touch the wrapper only via IncrRef / DecrRef and the query/timedOut
-// accessors below.
+// Single-owner wrapper around an AREQ or a HybridRequest. Owns the underlying
+// query: RequestSyncCtx_Free destroys both the contained query (via AREQ_Free
+// / HybridRequest_Free) and the wrapper itself.
+//
+// Ownership is held by exactly one of two pointers at any instant:
+//   - bcc->query (during a cycle), or
+//   - cursor->query (between cycles).
+// Transfers happen on main under the cursor mutex at BCC_New (cursor read)
+// and OnFree (park or free). See §3.1.1.
 //
 // Step 0 promotes today's embedded `syncCtx` (inside AREQ / HybridRequest) to
-// a heap-allocated wrapper that owns the query. Every existing field migrates
-// verbatim; only the containment direction flips. The partial-timeout
-// coordination (CAS + mutex/cond) and the abort-wake channel are
-// implementation details of the wrapper and are below the §4.2 contract.
+// a heap-allocated wrapper that owns the query. The `refcount` field on the
+// embedded struct is dropped — the cross-thread invariants the refcount used
+// to guarantee are now provided by the BCC lifetime guarantee plus the
+// cursor-mutex-serialized ownership transfer (§3.1.1). The partial-timeout
+// coordination (CAS + mutex/cond) and the abort-wake channel migrate
+// verbatim; they're independent of lifetime and stay as the §4.2 contract's
+// internal coordination.
 //
 // The kind discriminator lives on the wrapper (not on the BCC) because it is
 // a property of the query, not of the cycle. The union is accessed only
@@ -368,11 +368,10 @@ typedef struct RequestSyncCtx {
   union {
     AREQ          *areq;
     HybridRequest *hreq;
-  } query;                      // owned; freed when refcount reaches 0
+  } query;                      // owned; freed by RequestSyncCtx_Free
 
   // ---- Existing fields, migrate from the embedded struct as-is ----------
   RS_Atomic(bool)  timedOut;    // §4.2 cross-thread contract
-  uint8_t          refcount;    // 1-3 in practice; accessed via __atomic_*
 
   // Partial-timeout coordination, gated by `requiresAggregateResultsSync`.
   // The CAS claim grants exclusive ownership of the result-production
@@ -393,10 +392,9 @@ typedef struct RequestSyncCtx {
   pthread_mutex_t   abortWakeLock;
 } RequestSyncCtx;
 
-RequestSyncCtx *RequestSyncCtx_NewAREQ(AREQ *areq);            // refcount = 1
-RequestSyncCtx *RequestSyncCtx_NewHybrid(HybridRequest *hreq); // refcount = 1
-RequestSyncCtx *RequestSyncCtx_IncrRef(RequestSyncCtx *rsc);
-void            RequestSyncCtx_DecrRef(RequestSyncCtx *rsc);
+RequestSyncCtx *RequestSyncCtx_NewAREQ(AREQ *areq);
+RequestSyncCtx *RequestSyncCtx_NewHybrid(HybridRequest *hreq);
+void            RequestSyncCtx_Free(RequestSyncCtx *rsc);   // destroys query + wrapper
 
 // --- BlockedClientCtx -------------------------------------------------------
 // Singly-owned context for one cross-thread unit of query work. Allocated
@@ -405,7 +403,9 @@ void            RequestSyncCtx_DecrRef(RequestSyncCtx *rsc);
 // BlockedClientCtx_OnFree (the registered free_privdata callback).
 typedef struct BlockedClientCtx {
   RedisModuleBlockedClient *bc;          // Redis-owned; valid until OnFree returns
-  RequestSyncCtx           *query;       // owns one ref; DecrRef in OnFree
+  RequestSyncCtx           *query;       // single-owner ptr; transferred to
+                                         // cursor->query (park) or freed via
+                                         // RequestSyncCtx_Free (free) in OnFree.
   const RedisModuleCmdFunc  reply_cb;    // NULL ⇒ inline mode; non-NULL ⇒ deferred
                                          // mode. See §4.1. Const after init.
   ChunkReplyState           reply;       // populated by BG in deferred mode;
@@ -429,8 +429,10 @@ separate task-wrapper struct. The worker only ever touches
 `bcc->query` (to reach the underlying AREQ/HReq and to poll
 `timedOut`), `bcc->reply` (to publish results in deferred mode),
 `bcc->reply_cb` (to decide between inline and deferred), and `bcc->bc` (to
-call `UnblockClient`). It does not read `registry_node`, does not call
-`IncrRef` / `DecrRef`, and never touches `bcc` after `UnblockClient`.
+call `UnblockClient`). It does not read `registry_node`, does not
+mutate the wrapper's ownership pointer (no `IncrRef` / `DecrRef`
+exist; transfers happen on main), and never touches `bcc` after
+`UnblockClient`.
 
 ```c
 // --- SpecLockState ----------------------------------------------------------
@@ -466,8 +468,8 @@ sequenceDiagram
   participant Worker as Worker thread
   participant Redis as Redis core
 
-  Main->>Main: RequestSyncCtx_NewAREQ(areq)  [refcount = 1; rsc owns the AREQ]
-  Main->>Main: BlockedClientCtx_New(rsc, ...)  [bcc.query = rsc; calls RM_BlockClient]
+  Main->>Main: RequestSyncCtx_NewAREQ(areq)  [rsc owns the AREQ]
+  Main->>Main: BlockedClientCtx_New(rsc, ...)  [bcc.query = rsc; sole owner; calls RM_BlockClient]
   Note right of Main: free_privdata wired to BlockedClientCtx_OnFree<br/>reply_cb may be NULL inline or set deferred
   Main->>Main: register in BlockedQueries  [observer, caches bcc.registry_node]
   Main->>Pool: enqueue bcc
@@ -483,7 +485,7 @@ sequenceDiagram
   Redis-->>Main: BlockedClientCtx_OnFree(bcc)  [free_privdata]
   Main->>Main: BlockedQueries_RemoveNode(bcc.registry_node)
   Main->>Main: ChunkReplyState_Destroy(&bcc.reply)
-  Main->>Main: RequestSyncCtx_DecrRef(bcc.query)  [refcount → 0; AREQ_Free runs]
+  Main->>Main: RequestSyncCtx_Free(bcc.query)  [destroys AREQ + wrapper]
   Main->>Main: free(bcc)
 ```
 
@@ -500,26 +502,49 @@ The two key invariants visible above:
   is the legitimate accessor for synchronous commands.
 - **`BlockedClientCtx_OnFree` is the single, deterministic, last-touch on
   the main thread.** Everything that needs to be freed on main is freed
-  there. The bcc always calls `RequestSyncCtx_DecrRef(bcc.query)`; the
-  underlying `AREQ` / `HybridRequest` is freed iff the bcc held the last
-  ref. For initial-query / hybrid cycles the bcc *is* the only owner so the
-  ref count drops to 0 here; for cursor cycles the cursor may still hold a
-  ref (see §3.4).
+  there. For non-cursor cycles `OnFree`'s free branch always runs:
+  `RequestSyncCtx_Free(bcc.query)` destroys both the AREQ/HReq and the
+  wrapper. For cursor cycles `OnFree` either transfers `bcc.query` to
+  `cursor->query` (park) or runs `RequestSyncCtx_Free` (free). The
+  decision is made under the cursor mutex (see §3.4).
 
 ### 3.4 Lifetime / ownership of a cursor read
 
 A cursor outlives many `CURSOR READ` cycles. Between cycles the cursor
-holds **one ref** on the `RequestSyncCtx` wrapping the parked `AREQ`;
-there is no `BlockedClientCtx`, no in-flight BG, and no spec lock. Each
-`CURSOR READ` cycle constructs a fresh `BlockedClientCtx` on main that
-takes its **own** ref on the same wrapper (refcount goes from 1 to 2 for
-the duration of the cycle).
+**owns** the `RequestSyncCtx` via `cursor->query` (a single-owner
+pointer); there is no `BlockedClientCtx`, no in-flight BG, and no spec
+lock. Each `CURSOR READ` cycle starts on main with an ownership
+transfer:
 
-There is no separate "borrow" or "lend" — main and BG each hold an
-independent ref. Whichever side drops the last ref runs the AREQ
-destructor. `BlockedClientCtx_OnFree` always calls
-`RequestSyncCtx_DecrRef(bcc.query)` unconditionally; no `kind`-based
-branching, no "skip free for cursor" code path.
+```c
+// Inside BlockedClientCtx_New, under the cursor mutex:
+bcc->query     = cursor->query;
+cursor->query  = NULL;     // cursor relinquishes for the cycle
+```
+
+The cycle runs. `OnFree` on main, also under the cursor mutex,
+transfers ownership back to the cursor (park) or frees it (exhaust):
+
+```c
+// Inside BlockedClientCtx_OnFree:
+if (cursor && !cursor->delete_mark
+           && !(bcc->query->areq->stateflags & QEXEC_S_ITERDONE)) {
+  cursor->query = bcc->query;          // park
+  bcc->query    = NULL;
+  Cursor_Pause(cursor);
+} else {
+  RequestSyncCtx_Free(bcc->query);     // free; destroys wrapper + AREQ
+  bcc->query = NULL;
+  if (cursor) Cursor_Free(cursor);
+}
+```
+
+Both transfers run on main under the cursor mutex. The pre-existing
+`Cursor.delete_mark` flag is what handles `CURSOR DEL` / GC firing
+during an in-flight cycle: `Cursors_Purge` ([cursor.c:352](../../src/cursor.c#L352))
+sets `delete_mark` when the cursor is not idle; `OnFree`'s park branch
+checks it and falls through to free. No new defensive mechanism is
+needed.
 
 The spec read-lock is acquired and released **independently** in each
 cycle, just like the no-cursor path in §3.3. This matches the current
@@ -532,32 +557,24 @@ The cursor itself can disappear in three ways:
 1. The reading client issues `CURSOR DEL` (explicit free) — main.
 2. The cursor's idle timeout fires and the cursor GC frees it — main.
 3. A `CURSOR READ` cycle determines that the iterator is exhausted and
-   the cursor is freed at the end of that cycle.
+   the cursor is freed at the end of that cycle (`OnFree`'s free
+   branch).
 
-Today's path 3 is split between BG and main:
-- **Inline mode** (no deferred reply): BG calls `Cursor_Pause` /
-  `Cursor_Free` directly at the end of `runCursor`. Safe because the
-  cursor list uses a `pthread_mutex` ([cursor.c:29](../../src/cursor.c#L29))
-  that serializes registry mutation regardless of caller thread, and
-  the spec lock is released before the cursor mutex is acquired (no
-  deadlock).
-- **Deferred mode**: BG stashes the cursor pointer in
-  `storedReplyState.cursor` (becomes `bcc.reply.cursor` after Step 4);
-  main's reply callback calls `Cursor_Pause` / `Cursor_Free` after
-  finishing the reply, based on `QEXEC_S_ITERDONE`.
-
-Both modes survive the refactor unchanged. **The refactor does not
-move cursor mutations to main.** What makes BG-side `Cursor_Free`
-ownership-safe (independent of the cursor mutex) is that the cursor's
-RSC ref and the BCC's RSC ref are independent: BG dropping the
-cursor's ref via `Cursor_Free` doesn't pull the AREQ out from under
-main, because main's BCC ref keeps it alive past `UnblockClient`.
+Cases 1 and 2 between cycles: cursor owns RSC; `Cursor_Free` runs
+`RequestSyncCtx_Free(cursor->query)` and removes the cursor from the
+registry. Cases 1 and 2 *during* an in-flight cycle: BCC owns RSC,
+cursor's `query` is NULL; `Cursors_Purge` sets `delete_mark` and the
+cursor's registry entry stays until `OnFree` cleans it up. Case 3 is
+the `OnFree` free branch above.
 
 For initial WITHCURSOR queries, today's `AREQ_StartCursor`
 ([aggregate_exec.c:1790](../../src/aggregate/aggregate_exec.c#L1790))
 calls `Cursors_Reserve` on **main** before dispatching to BG, so
-`r->cursor_id` is set on main before the cycle starts. The reply path
-already has the ID; nothing new is needed.
+`r->cursor_id` is set on main before the cycle starts. The cursor
+exists in the registry from that point with `cursor->query == NULL`
+(BCC owns); the first ownership transfer to the cursor happens at the
+first `OnFree` park branch. CURSOR DEL during the initial cycle just
+sets `delete_mark`; OnFree converts park to free.
 
 ```mermaid
 sequenceDiagram
@@ -569,49 +586,54 @@ sequenceDiagram
   participant GC as Cursor GC or DEL on main
 
   Note over Main: Initial query with WITHCURSOR
-  Main->>Main: RequestSyncCtx_NewAREQ(areq)  [refcount = 1]
-  Main->>Main: Cursors_Reserve → cursor exists, IncrRef(rsc) for cursor  [refcount = 2; cursor.id known]
-  Main->>Main: BCC_New(rsc)  [BCC takes the original ref; refcount stays 2]
+  Main->>Main: RequestSyncCtx_NewAREQ(areq)  [bcc will own]
+  Main->>Main: Cursors_Reserve → cursor exists in registry with cursor.query = NULL  [cursor.id known]
+  Main->>Main: BCC_New(rsc)  [bcc.query = rsc; sole owner]
   Main->>W1: enqueue bcc
   W1->>W1: runRequestCycle: pre-assert UNSET, run pipeline, post-assert UNSET
-  W1->>W1: pipeline observes !ITERDONE; in deferred mode stashes cursor in bcc.reply.cursor
+  W1->>W1: pipeline observes !ITERDONE; stashes cursor in bcc.reply.cursor for deferred-mode reply_cb
   W1->>Main: UnblockClient(bcc)
-  Main->>Main: reply_cb: serialize bcc.reply (with cursor.id), then Cursor_Pause(bcc.reply.cursor)
-  Main->>Main: OnFree: RequestSyncCtx_DecrRef(bcc.query)  [BCC's ref; refcount = 1; cursor still owns]
-  Note over Curs: Wrapper held by cursor only.<br/>refcount = 1, no lock, no in-flight bcc.
+  Main->>Main: reply_cb: serialize bcc.reply (with cursor.id)
+  Main->>Main: OnFree (under cursor mutex): cursor.query = bcc.query; bcc.query = NULL; Cursor_Pause(cursor)
+  Note over Curs: Cursor owns rsc via cursor.query.<br/>No lock, no in-flight bcc.
 
   Note over Main: Subsequent CURSOR READ
-  Main->>Main: BCC_New(IncrRef(cursor.query))  [refcount = 2]
+  Main->>Main: BCC_New (under cursor mutex): bcc.query = cursor.query; cursor.query = NULL
   Main->>W2: enqueue bcc
   W2->>W2: runRequestCycle: pre-assert UNSET, run pipeline, post-assert UNSET
-  W2->>W2: pipeline observes ITERDONE iff exhausted; stashes cursor in bcc.reply.cursor (deferred) or calls Cursor_Pause/Free directly (inline)
+  W2->>W2: pipeline observes ITERDONE iff exhausted; stashes cursor in bcc.reply.cursor for deferred-mode reply_cb
   W2->>Main: UnblockClient(bcc)
-  Main->>Main: reply_cb (deferred): based on ITERDONE on AREQ, calls Cursor_Pause or Cursor_Free
-  Main->>Main: OnFree: RequestSyncCtx_DecrRef(bcc.query)  [BCC's ref; AREQ_Free iff last]
+  Main->>Main: reply_cb: serialize bcc.reply
+  alt iterator exhausted (or delete_mark set)
+    Main->>Main: OnFree (free branch): RequestSyncCtx_Free(bcc.query); Cursor_Free(cursor)
+  else more chunks
+    Main->>Main: OnFree (park branch): cursor.query = bcc.query; Cursor_Pause(cursor)
+  end
 
   Note over GC: Independent: CURSOR DEL or idle GC
-  GC->>Curs: Cursor_Free(cursor)  [DecrRefs the wrapper; cursor mutex serializes]
-  Note right of GC: If a bcc is concurrently in flight its ref keeps the wrapper alive.
+  GC->>Curs: Cursor_Free(cursor) when parked  [RequestSyncCtx_Free(cursor.query); cursor mutex serializes]
+  Note right of GC: If a bcc is concurrently in flight, cursor.query is NULL there;<br/>Cursors_Purge sets delete_mark instead, OnFree handles the free.
 ```
 
 Mechanically:
 
 - **The cursor list `pthread_mutex` is what makes registry mutation
-  thread-safe**, not main-thread exclusivity. Any thread (main, BG,
-  GC) that holds the mutex can add/remove a cursor. The refactor does
-  not change this.
-- **Refs are independent.** Cursor holds its own RSC ref; BCC holds
-  its own. Either side dropping its ref leaves the other intact. The
-  last drop runs `AREQ_Free` — always on main: BCC's ref drops in
-  `OnFree`, cursor's ref drops via `Cursor_Free` (called from main in
-  GC/DEL, from main in deferred-mode reply_cb, or from BG in
-  inline-mode `runCursor`; the actual `AREQ_Free` deferred to the
-  refcount-zero call site, which is whichever happens last).
-- **`bcc.query` pointer never gets reassigned.** Cursor's IncrRef
-  happens once (at `Cursors_Reserve` time on main); BCC's DecrRef
-  happens once (in `OnFree` on main); cursor's DecrRef happens once
-  (when `Cursor_Free` runs, mutex-protected). The wrapper's refcount
-  is the single rule that decides when the underlying AREQ is freed.
+  thread-safe.** Any thread (main, BG, GC) that holds the mutex can
+  add/remove a cursor. `BCC_New`'s and `OnFree`'s ownership-transfer
+  blocks both run inside that mutex.
+- **Single-owner invariant.** At any instant either `bcc->query` or
+  `cursor->query` points at the wrapper (not both, not neither while
+  the cursor exists). Transfers happen at `BCC_New` (cursor → BCC)
+  and `OnFree` (BCC → cursor or destroy). Both on main, both
+  mutex-protected.
+- **`delete_mark` handles the in-flight CURSOR DEL race.** Set by
+  `Cursors_Purge` when the cursor isn't idle; checked by `OnFree`'s
+  park branch and by `Cursor_Pause` ([cursor.c:278-280](../../src/cursor.c#L278-L280)).
+  If set, the cursor entry is freed instead of parked.
+- **`AREQ_Free` runs from inside `RequestSyncCtx_Free`**, which is
+  called from exactly two places: `OnFree`'s free branch (BCC owned)
+  and `Cursor_Free` for a parked cursor (cursor owned). Either way,
+  always main, always after the cycle's publish fence.
 
 Invariants:
 
@@ -620,19 +642,19 @@ Invariants:
   pipeline acquires and releases as needed inside the cycle. The lock
   is never held across cycles.
 - **At most one `BlockedClientCtx` per cursor is in flight at a time.**
-  The cursor's parked/in-flight state is tracked by the existing cursor
-  mutex (still main-only); main only constructs a cursor-cycle BCC when
-  the cursor is parked. `Cursor_Free` from GC/DEL is safe regardless: if
-  a bcc happens to be in flight, its ref on the wrapper keeps the AREQ
-  alive past the cursor's `DecrRef`, and the bcc's own `OnFree` runs
-  the destructor.
+  The cursor's parked/in-flight state is determined by `cursor->query`:
+  non-NULL means parked (cursor owns the wrapper); NULL means a BCC is
+  in flight. `BCC_New` only runs the transfer when the cursor is parked
+  (`cursor->query` non-NULL), serialized by the cursor mutex.
+  `CURSOR DEL` / GC during in-flight see `cursor->query == NULL` and
+  set `delete_mark`; `OnFree` resolves it.
 - **`AREQ_Free` does not touch the spec lock.** The lock is always
   released by the BG thread that took it, before unblocking — enforced
   by the `runRequestCycle` post-assertion. `AREQ_Free` runs only inside
-  `RequestSyncCtx_DecrRef` when the refcount reaches 0 — which always
-  happens on main (either in `OnFree`, or in `Cursor_Free` invoked from
-  GC/DEL when no bcc is in flight). It asserts `lock_state == UNSET`
-  and otherwise never touches `lock_state`. The
+  `RequestSyncCtx_Free`, which is called from exactly two places —
+  `OnFree`'s free branch and `Cursor_Free` on a parked cursor — both
+  on main, both after the cycle's publish fence. It asserts
+  `lock_state == UNSET` and otherwise never touches `lock_state`. The
   silent "if locked, unlock" branch in today's `AREQ_Free` is deleted.
 
 > **Future improvement (out of scope).** If profiling shows that the
@@ -722,9 +744,10 @@ What the wrapper does **not** require:
   state-flags. Main reads those in `reply_cb` / `OnFree` to decide
   pause-vs-free. Cursor table mutations remain free to happen on
   whichever thread is convenient: the cursor list's `pthread_mutex`
-  serializes registry access, and refcounting (cursor's RSC ref + BCC's
-  RSC ref, independent) ensures BG-side `Cursor_Free` doesn't pull the
-  query out from under main.
+  serializes registry access, and the single-owner-with-transfer
+  model (cursor owns when parked, BCC owns during cycle, transfer at
+  `BCC_New` and `OnFree` under the mutex; `delete_mark` for in-flight
+  CURSOR DEL) handles ownership end-to-end.
 
 ---
 
@@ -807,7 +830,7 @@ sequenceDiagram
   Worker->>Redis: UnblockClient(bcc)
   Note over Redis: reply_cb suppressed (buffer already written by timeout_cb)
   Redis-->>Main: BlockedClientCtx_OnFree(bcc)
-  Main->>Main: ChunkReplyState_Destroy (populated or not), RequestSyncCtx_DecrRef(bcc.query)
+  Main->>Main: ChunkReplyState_Destroy (populated or not), then OnFree resolves park-vs-free as in §3.4
 ```
 
 Cross-thread synchronization contract in this window. The wrapper may use
@@ -995,8 +1018,8 @@ The eight `RedisModule_BlockClient` call-sites in `src/` (excluding tests and
 | Callsite | Today | After refactor |
 | --- | --- | --- |
 | `info_redis/block_client.c::BlockQueryClientWithTimeout` | Wraps `BlockClient` + adds `BlockedQueryNode` w/ AREQ ref | `BlockedClientCtx_New(rsc, reply_cb, timeout_cb, timeout, register=true)` where `rsc = RequestSyncCtx_NewAREQ(areq)`. The bcc owns the only ref on the wrapper; no separate registry-side ref. |
-| `info_redis/block_client.c::BlockCursorClientWithTimeout` | Same shape, cursor flavour | Same as above with `rsc = RequestSyncCtx_IncrRef(cursor->query)` (cursor and bcc each hold a ref) and cursor-flavoured registration. |
-| `coord/rmr/rmr.c::MR_Fanout` (line 359) | `BlockClient(unblockHandler, timeoutHandler, freePrivDataCB, queryTimeout)`; `MRCtx` owns `bc` | `BlockedClientCtx_New` with `register=true` (gain: coord queries visible). The coord-side reader is itself an AREQ / HybridRequest with a `syncCtx` (used for `RequestSyncCtx_RegisterAbortWakeChannel`), so `bcc.query` points to the wrapping `RequestSyncCtx` exactly like the shard path. The `MRCtx` lives on a coord-private field of the BCC alongside `bcc.query`, freed from `OnFree` after `RequestSyncCtx_DecrRef`. `BlockedClientCtx` owns `bc`. |
+| `info_redis/block_client.c::BlockCursorClientWithTimeout` | Same shape, cursor flavour | Same as above with the ownership transfer `bcc.query = cursor->query; cursor->query = NULL;` (under cursor mutex) and cursor-flavoured registration. |
+| `coord/rmr/rmr.c::MR_Fanout` (line 359) | `BlockClient(unblockHandler, timeoutHandler, freePrivDataCB, queryTimeout)`; `MRCtx` owns `bc` | `BlockedClientCtx_New` with `register=true` (gain: coord queries visible). The coord-side reader is itself an AREQ / HybridRequest with a `syncCtx` (used for `RequestSyncCtx_RegisterAbortWakeChannel`), so `bcc.query` points to the wrapping `RequestSyncCtx` exactly like the shard path. The `MRCtx` lives on a coord-private field of the BCC alongside `bcc.query`, freed from `OnFree` after `RequestSyncCtx_Free`. `BlockedClientCtx` owns `bc`. |
 | `module.c::DistSearchBlockClientWithTimeout` (line 4412) | `BlockClient(DistSearchUnblockClient, timeoutCallback, freePrivDataCallback, queryTimeout)` | Same as `MR_Fanout` — `bcc.query` wraps the coord-side AREQ, `CoordRequestCtx` lives on a coord-private BCC field. Privdata-smuggling hack removed; coord queries gain visibility. |
 | `concurrent_ctx.c:122` (`ConcurrentCmdCtx`) | Generic-shaped block-client via `ConcurrentSearchBlockClientCtx`; no registry | Reuse the existing `ConcurrentSearchBlockClientCtx` machinery as the "operational" path. The only change here is to require a non-NULL `free_privdata` (no semantic shift). |
 | `debug_commands.c:888,986`, `gc.c:107,187`, `rmr.c:539,569` | `BlockClient(NULL/cb, NULL, NULL/cb, 0)` | Migrate to `ConcurrentSearchBlockClientCtx`. The NULL-callbacks fire-and-forget pattern (`rmr.c:569`) folds into here by supplying a `free_privdata` that frees the small ctx struct. |
@@ -1027,43 +1050,57 @@ the deletion rather than by an intermediate rename.
 
 Each step is a self-contained PR; downstream steps assume previous ones merged
 unless noted. **Steps 0 and 1 are independent and can ship in parallel** —
-Step 0 touches the request-side refcount machinery, Step 1 touches the
-spec-lock discipline; they don't share files or invariants. Step 2 picks up
-both as prerequisites. Steps 0–2 are pure refactors with no behaviour change.
-Step 3 onward removes fields and changes API surface.
+Step 0 touches the request-side ownership / wrapper machinery, Step 1 touches
+the spec-lock discipline; they don't share files or invariants. Step 2 picks
+up both as prerequisites. Steps 0–2 are pure refactors with no behaviour
+change. Step 3 onward removes fields and changes API surface.
 
-### Step 0 — Invert `RequestSyncCtx` to wrap the query
+### Step 0 — Invert `RequestSyncCtx` to wrap the query (single-owner)
 
 - Promote `RequestSyncCtx` (today embedded inside `AREQ` and `HybridRequest`)
   to a heap-allocated wrapper that owns the query. Add the `RequestKind`
-  discriminator and the `query` union described in §3.2; every existing
-  field on the embedded struct (`refcount`, `timedOut`, the partial-timeout
-  CAS/condvar set, the abort-wake channel) migrates verbatim.
+  discriminator and the `query` union described in §3.2. Every existing
+  field on the embedded struct migrates **except `refcount`**: the
+  partial-timeout coord (CAS + mutex/cond), the abort-wake channel, and
+  `timedOut` all stay. `refcount` is dropped — see §3.1.1 for why
+  single-owner-with-transfer is sufficient.
 - Add `RequestSyncCtx_NewAREQ`, `RequestSyncCtx_NewHybrid`,
-  `RequestSyncCtx_IncrRef`, `RequestSyncCtx_DecrRef`. The destructor calls
-  `AREQ_Free` / `HybridRequest_Free` on the contained query.
+  `RequestSyncCtx_Free`. `_Free` runs the partial-timeout/abort-wake
+  destructors, calls `AREQ_Free` / `HybridRequest_Free` on the contained
+  query, and frees the wrapper. **No `_IncrRef` / `_DecrRef`.**
 - Rewire call-sites that today touch `req->syncCtx.X` to dereference the
-  wrapper instead. Rename the existing `AREQ_IncrRef` / `AREQ_DecrRef` (and
-  hybrid equivalents) callers to go through `RequestSyncCtx_*`.
+  wrapper instead. Replace `AREQ_IncrRef` / `AREQ_DecrRef` callers (and
+  hybrid equivalents) with the appropriate single-owner operation:
+  - Construction site (initial query): `RequestSyncCtx_NewAREQ` /
+    `_NewHybrid` and store in `bcc->query`.
+  - Destruction site (the old `AREQ_DecrRef → 0` path): becomes
+    `RequestSyncCtx_Free(...)` at one of the two call sites
+    described in §3.1.1 (`OnFree`'s free branch, or `Cursor_Free` for a
+    parked cursor). Other historical `DecrRef` call-sites are deleted
+    (they were holders that this refactor retires).
 - Unify `Cursor.hybrid_ref` (a `StrongRef` to the `HybridRequest`) and
-  `Cursor.execState` (the AREQ pointer) into a single `RequestSyncCtx *query`
-  field on `Cursor`. `Cursor_Pause` and `Cursor_Free` (both main-only —
-  see §3.6) call `RequestSyncCtx_IncrRef` / `_DecrRef` on the cursor's
-  ref. The BG side never touches the cursor.
+  `Cursor.execState` (the AREQ pointer) into a single `RequestSyncCtx
+  *query` field on `Cursor`. The field is non-NULL when the cursor is
+  parked (cursor owns) and NULL during an in-flight cycle (BCC owns).
+  Mutated only on main, only inside `BCC_New` / `OnFree` / `Cursor_Free`,
+  always under the cursor mutex. The BG side never touches `cursor->query`.
 - **Retire `StrongRef` for hybrid.** `Cursor.hybrid_ref` and
   `FreeHybridRequest` (the `StrongRef` destructor wired in `hybrid_request.h`)
-  are deleted; the unified `RequestSyncCtx_DecrRef` path replaces them.
+  are deleted; the wrapper's `RequestSyncCtx_Free` path replaces them.
   `StrongRef`/`WeakRef` exists for crash-safe access to indexes that may be
-  dropped from under callers — a query's lifetime is bounded (cursor + bcc,
-  ≤2 owners) and lives entirely within paths we control, so the indirection
-  is overkill. Audit every site that referenced the hybrid `StrongRef` to
-  confirm no `WeakRef`-style observer relies on the manager indirection
-  beyond what the new wrapper provides; if any are found they migrate to
-  `RequestSyncCtx*` access in this same step.
-- **Acceptance:** no behaviour change; refcount semantics preserved end-to-
-  end (initial query, cursor read across N cycles, hybrid query, timeout);
-  no `StrongRef` references to a hybrid query remain in the codebase
-  (`grep -n hybrid_ref` is empty); ASAN / TSAN clean. Cursor's old
+  dropped from under callers — a query's lifetime is bounded (one owner
+  at a time: cursor or BCC) and lives entirely within paths we control,
+  so the indirection is overkill. Audit every site that referenced the
+  hybrid `StrongRef` to confirm no `WeakRef`-style observer relies on
+  the manager indirection beyond what the new wrapper provides; if any
+  are found they migrate to direct `RequestSyncCtx*` access in this
+  same step.
+- **Acceptance:** no behaviour change; ownership semantics preserved
+  end-to-end (initial query, cursor read across N cycles, hybrid query,
+  timeout, CURSOR DEL during in-flight via the existing `delete_mark`
+  flag); no `StrongRef` references to a hybrid query remain in the
+  codebase (`grep -n hybrid_ref` is empty); no `RequestSyncCtx_IncrRef`
+  / `_DecrRef` symbols exist; ASAN / TSAN clean. Cursor's old
   dual-field discriminator is gone.
 
 ### Step 1 — Rename `flags` to `lock_state`; install the `runRequestCycle` wrapper
@@ -1107,14 +1144,15 @@ Step 3 onward removes fields and changes API surface.
   it (`BlockQueryClientWithTimeout`, `BlockCursorClientWithTimeout`,
   hybrid equivalent) switch to `BlockedClientCtx_New`. No intermediate
   rename: the init-bag has no remaining users after this step.
-- Convert `BlockQueryClientWithTimeout`, `BlockCursorClientWithTimeout`, and
-  the hybrid block-client wrapper to call `BlockedClientCtx_New` internally.
-  Initial-query / hybrid sites construct a fresh `RequestSyncCtx` and hand
-  it to the BCC (refcount=1). Cursor-read sites call
-  `RequestSyncCtx_IncrRef(cursor->query)` and pass the result. The BCC
-  always owns exactly one ref on the wrapper. Mode is derived from the
-  existing `useReplyCallback` field for now (still mutable; tightened in
-  step 4).
+- Convert `BlockQueryClientWithTimeout`, `BlockCursorClientWithTimeout`,
+  and the hybrid block-client wrapper to call `BlockedClientCtx_New`
+  internally. Initial-query / hybrid sites construct a fresh
+  `RequestSyncCtx` and hand it to the BCC (BCC becomes sole owner).
+  Cursor-read sites perform the ownership transfer
+  `bcc->query = cursor->query; cursor->query = NULL;` under the cursor
+  mutex. The BCC always holds exactly one (single-owner) reference to
+  the wrapper. Mode is derived from the existing `useReplyCallback`
+  field for now (still mutable; tightened in step 4).
 - Move per-callsite teardown — `MeasureTimeEnd`, the privdata free,
   `RM_UnblockClient` follow-ups, and the existing `ASM_AccountRequestFinished`
   call — into `BlockedClientCtx_OnFree`. ASM accounting is internal to its
@@ -1193,8 +1231,9 @@ Step 3 onward removes fields and changes API surface.
 - The coord-side reader is itself an AREQ / HybridRequest with a `syncCtx`
   (used today for `RequestSyncCtx_RegisterAbortWakeChannel`), so `bcc.query`
   points to the wrapping `RequestSyncCtx` exactly like the shard path.
-  `OnFree` always calls `RequestSyncCtx_DecrRef(bcc.query)` — there is no
-  coord-specific skip branch.
+  `OnFree` always calls `RequestSyncCtx_Free(bcc.query)` — there is no
+  coord-specific skip branch (and no cursor parking, since coord BCCs
+  don't host shard-style cursors).
 - **Coord queries do not go through `runRequestCycle`.** Coord-side BG
   work doesn't touch `sctx->lock_state` (no local pipeline → no lock to
   acquire), so the wrapper's pre/post assertions would be trivially
@@ -1202,11 +1241,11 @@ Step 3 onward removes fields and changes API surface.
   as it does today. The only changes vs. today are: the privdata
   becomes a `BlockedClientCtx*`; `OnFree` is the registered
   `free_privdata`; teardown of `MRCtx` / `CoordRequestCtx` happens in
-  `OnFree` after `RequestSyncCtx_DecrRef`.
+  `OnFree` after `RequestSyncCtx_Free`.
 - `MRCtx` / `CoordRequestCtx` (the fan-out / coord-private bag, distinct
   from the underlying AREQ) lives on a coord-private field of the BCC
   alongside `bcc.query`. `OnFree` frees it via the existing coord teardown
-  path after `RequestSyncCtx_DecrRef`.
+  path after `RequestSyncCtx_Free`.
 - The `BlockedClientCtx` owns `bc`.
 - **Acceptance:** a hung coordinator query appears in `FT.INFO`'s blocked-
   query section and in the crash report; coordinator timeout / unblock paths
@@ -1318,22 +1357,25 @@ informational for the eventual port; nothing here is committed in this work.
 | C concept | Rust analogue |
 | --- | --- |
 | `BlockedClientCtx` | `Box<BlockedClientCtx>` owned by Redis: allocated by Rust, handed to Redis as `*mut c_void`, freed in `free_privdata` by reconstructing the `Box`. Exactly one owner at a time. |
-| `RequestSyncCtx` | `Arc<RequestSyncCtx>`: the cursor (between cycles) and the `BlockedClientCtx` (during a cycle) each hold a clone. Last `Drop` runs the AREQ/HReq destructor. The `query` union becomes `enum { AREQ(Box<AREQ>), Hybrid(Box<HybridRequest>) }`. The C `kind` discriminator and ref/deref helpers fall away. |
-| `bcc.query` | `Arc<RequestSyncCtx>` field on the BCC. No `LentByCursor` variant or borrow lifetime needed — `Arc` already encodes "one or more owners, last drop wins". |
+| `RequestSyncCtx` | `Box<RequestSyncCtx>` — single-owner heap allocation, no `Arc`. Held by `Option<Box<RequestSyncCtx>>` on either the `BlockedClientCtx` or the `Cursor`; ownership transfers between them are `Option::take` + assignment, performed under the cursor mutex at `BCC_New` and `OnFree`. The `query` union becomes `enum { AREQ(Box<AREQ>), Hybrid(Box<HybridRequest>) }`. The C `kind` discriminator falls away (matched on the enum). |
+| `bcc.query` | `Option<Box<RequestSyncCtx>>` field on the BCC. `None` after the `OnFree`-time transfer to the cursor (park) or after `RequestSyncCtx_Free` (free). |
+| `cursor.query` | Symmetric `Option<Box<RequestSyncCtx>>` on `Cursor`. `Some` between cycles, `None` while a BCC is in flight. |
 | `ChunkReplyState` (in `bcc.reply`) | `OnceCell<ChunkReplyState>`: single producer (worker) → single consumer (main); written once before `UnblockClient`, taken once in the reply callback. |
 | `SpecLockState` | A `Cell<SpecLockState>` field on the `RedisSearchCtx` analogue (just a renamed `flags`; the multi-acquire/release-per-cycle pattern doesn't fit a single RAII guard, so the Rust port keeps the plain enum field). The `runRequestCycle` wrapper becomes a method on the worker-pool entry point that asserts `lock_state == UNSET` at cycle entry and exit. The single-BG-thread invariant is enforced at the cycle boundary, not inside any holder type. |
-| `RequestSyncCtx.timedOut` | `AtomicBool` with `Acquire`/`Release` ordering as in §4.2. Lives on the wrapper, shared transparently across all holders. |
+| `RequestSyncCtx.timedOut` | `AtomicBool` with `Acquire`/`Release` ordering as in §4.2. Lives on the wrapper; reachable from main (timeout_cb) and from BG via the BCC's `Option<Box<...>>` while it holds ownership. |
 | `BlockedQueries` registry | Per-thread snapshot list; entries are `Send` because they own only strings (§5). |
 | Inline-vs-deferred mode | `match bcc.reply_cb` — `None` means inline, `Some(cb)` means deferred; fixed at construction (§4.1). |
 
 Three design choices in the C version are specifically there to keep the
 Rust port cheap:
 
-1. **Refcounted wrapper instead of "transfer the ref by NULL-ing the
-   source".** The C `RequestSyncCtx_IncrRef` / `_DecrRef` pair maps directly
-   onto `Arc::clone` / `Drop`. Without the wrapper, the cursor / bcc
-   ownership story would force one of `Arc<Mutex<Option<AREQ>>>`,
-   custom unsafe code, or a redesign of the C side first.
+1. **Single-owner wrapper with constrained-site transfer instead of
+   refcounting.** The C `RequestSyncCtx*` ownership lives in either
+   `bcc->query` or `cursor->query`, never both, with transfer only at
+   `BCC_New` and `OnFree` under the cursor mutex. In Rust this maps
+   directly onto `Option<Box<RequestSyncCtx>>` + `Option::take`. An
+   `Arc` would also work but isn't needed — the C design proves single
+   ownership is enough, so the Rust port can stay on `Box`.
 2. **Single-writer invariant on the AREQ.** Without this, a Rust port would
    have to wrap the AREQ in `Mutex<AREQ>` or `RwLock<AREQ>`. With it, the
    AREQ stays a plain `&mut` borrow inside the worker and a plain `&` borrow
