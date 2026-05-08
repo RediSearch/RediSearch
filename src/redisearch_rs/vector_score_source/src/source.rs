@@ -19,11 +19,12 @@ use ffi::{
     QueryIterator, RLookupKey, RLookupKeyHandle, TimeoutCtx, VecSearchMode, VecSimBatchIterator,
     VecSimBatchIterator_Free, VecSimBatchIterator_HasNext, VecSimBatchIterator_New,
     VecSimBatchIterator_Next, VecSimIndex, VecSimIndex_AdhocBfCtx_Free,
-    VecSimIndex_AdhocBfCtx_GetDistanceFrom, VecSimIndex_AdhocBfCtx_New,
+    VecSimIndex_AdhocBfCtx_GetDistanceFrom, VecSimIndex_AdhocBfCtx_New, VecSimIndex_BasicInfo,
     VecSimIndex_GetDistanceFrom_Unsafe, VecSimIndex_IndexSize, VecSimIndex_PreferAdHocSearch,
-    VecSimIndex_TopKQuery, VecSimQueryParams, VecSimQueryReply_Code_VecSim_QueryReply_TimedOut,
-    VecSimQueryReply_GetCode, VecSimQueryReply_GetIterator, VecSimQueryReply_Order_BY_ID,
-    VecSimQueryReply_Order_BY_SCORE, t_docId, timespec,
+    VecSimIndex_TopKQuery, VecSimMetric_VecSimMetric_Cosine, VecSimParams_GetQueryBlobSize,
+    VecSimQueryParams, VecSimQueryReply_Code_VecSim_QueryReply_TimedOut, VecSimQueryReply_GetCode,
+    VecSimQueryReply_GetIterator, VecSimQueryReply_Order_BY_ID, VecSimQueryReply_Order_BY_SCORE,
+    VecSim_Normalize, t_docId, timespec,
 };
 use inverted_index::RSIndexResult;
 use rqe_iterators::RQEIteratorError;
@@ -45,8 +46,20 @@ use crate::batch_cursor::VecSimScoreBatchCursor;
 pub struct VectorScoreSource {
     /// Non-owning; the C caller retains the index lifetime.
     index: *mut VecSimIndex,
-    /// Byte blob of the query vector (f32 elements).
+    /// Byte blob of the query vector (raw, as supplied by the caller).
+    /// Passed to `VecSimIndex_TopKQuery` and `VecSimBatchIterator_New`, both of
+    /// which apply metric-specific preprocessing (e.g. cosine normalization)
+    /// internally.
     query_vector: Vec<u8>,
+    /// Byte blob used for the RAM Adhoc-BF distance lookup
+    /// ([`VecSimIndex_GetDistanceFrom_Unsafe`]).
+    ///
+    /// The `_Unsafe` variant trusts the caller to have already preprocessed the
+    /// query, so for cosine metric we hold a normalized copy here. For other
+    /// metrics this is `None` and `lookup_score_ram` falls back to
+    /// `query_vector` (matching `hybrid_reader.c`'s `computeDistances_RAM`,
+    /// which only normalizes for `VecSimMetric_Cosine`).
+    lookup_query_vector: Option<Vec<u8>>,
     query_params: VecSimQueryParams,
     k: NonZeroUsize,
     /// Heap-allocated timeout context passed to VecSim as a `*mut c_void`.
@@ -134,9 +147,40 @@ impl VectorScoreSource {
             counter: if skip_timeout_checks { u32::MAX } else { 0 },
         });
         query_params.timeoutCtx = timeout_ctx.as_mut() as *mut TimeoutCtx as *mut c_void;
+
+        // For cosine indexes, the RAM Adhoc-BF path calls
+        // `VecSimIndex_GetDistanceFrom_Unsafe`, which assumes the query has
+        // already been normalized — see `hybrid_reader.c::computeDistances_RAM`.
+        // Pre-build the normalized blob once. `VecSimParams_GetQueryBlobSize`
+        // sizes the buffer correctly for INT8/UINT8 cosine, where
+        // `VecSim_Normalize` appends a norm float past `dim*sizeof(type)`.
+        // SAFETY: `index` is valid per caller's contract.
+        let lookup_query_vector = if is_disk {
+            // Disk path uses `VecSimIndex_AdhocBfCtx_New`, which preprocesses
+            // the query internally; nothing to do here.
+            None
+        } else {
+            let info = unsafe { VecSimIndex_BasicInfo(index) };
+            if info.metric == VecSimMetric_VecSimMetric_Cosine {
+                // SAFETY: `info.type_`, `info.dim`, `info.metric` are valid.
+                let blob_size =
+                    unsafe { VecSimParams_GetQueryBlobSize(info.type_, info.dim, info.metric) };
+                let mut blob = vec![0u8; blob_size];
+                let copy_len = query_vector.len().min(blob_size);
+                blob[..copy_len].copy_from_slice(&query_vector[..copy_len]);
+                // SAFETY: `blob` is `blob_size` bytes, matching what
+                // `VecSim_Normalize` expects for the given (type, dim, cosine).
+                unsafe { VecSim_Normalize(blob.as_mut_ptr() as *mut c_void, info.dim, info.type_) };
+                Some(blob)
+            } else {
+                None
+            }
+        };
+
         Self {
             index,
             query_vector,
+            lookup_query_vector,
             query_params,
             k,
             timeout_ctx,
@@ -192,13 +236,20 @@ impl VectorScoreSource {
     /// Acquires/releases tiered-index shared locks around the call per the VecSim
     /// contract for `VecSimIndex_GetDistanceFrom_Unsafe`.
     fn lookup_score_ram(&self, doc_id: t_docId) -> Option<f64> {
-        // SAFETY: `self.index` and `self.query_vector` are valid.
+        // For cosine, use the pre-normalized blob built in `new`; the `_Unsafe`
+        // variant doesn't normalize for us. Other metrics use the raw query.
+        let blob = self
+            .lookup_query_vector
+            .as_deref()
+            .unwrap_or(&self.query_vector);
+        // SAFETY: `self.index` is valid; `blob` is non-null and sized for
+        // the index's (type, dim, metric).
         let distance = unsafe {
             VecSimTieredIndex_AcquireSharedLocks(self.index);
             let d = VecSimIndex_GetDistanceFrom_Unsafe(
                 self.index,
                 doc_id as usize,
-                self.query_vector.as_ptr() as *const c_void,
+                blob.as_ptr() as *const c_void,
             );
             VecSimTieredIndex_ReleaseSharedLocks(self.index);
             d
