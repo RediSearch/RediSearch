@@ -172,7 +172,9 @@ QueryIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, QueryIterator
                                    child_it,
                                    q->sctx->time.timeout,
                                    q->sctx->time.skipTimeoutChecks,
-                                   q->sctx->spec->diskSpec != NULL);
+                                   q->sctx->spec->diskSpec != NULL,
+                                   q->sctx,
+                                   &filterCtx);
     }
     case VECSIM_QT_RANGE: {
       if ((dim * VecSimType_sizeof(type)) != vq->range.vecLen) {

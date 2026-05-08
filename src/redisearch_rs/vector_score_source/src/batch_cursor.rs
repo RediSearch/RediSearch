@@ -14,6 +14,8 @@ use ffi::{
     VecSimQueryReply_IteratorFree, VecSimQueryReply_IteratorNext, VecSimQueryResult_GetId,
     VecSimQueryResult_GetScore, t_docId,
 };
+use inverted_index::RSIndexResult;
+use rqe_iterators::expiration_checker::{ExpirationChecker, FieldExpirationChecker};
 use top_k::ScoreBatch;
 
 /// A [`ScoreBatch`] cursor over a single VecSim batch reply.
@@ -26,6 +28,9 @@ pub struct VecSimScoreBatchCursor {
     reply: *mut VecSimQueryReply,
     /// Owned; freed on [`Drop`] (before `reply`).
     iter: *mut VecSimQueryReply_Iterator,
+    /// Optional per-doc field-expiration filter; when present, expired docs
+    /// are skipped during iteration so they never reach the heap or yield path.
+    expiration: Option<FieldExpirationChecker>,
 }
 
 impl VecSimScoreBatchCursor {
@@ -41,8 +46,13 @@ impl VecSimScoreBatchCursor {
     pub(crate) unsafe fn new(
         reply: *mut VecSimQueryReply,
         iter: *mut VecSimQueryReply_Iterator,
+        expiration: Option<FieldExpirationChecker>,
     ) -> Self {
-        Self { reply, iter }
+        Self {
+            reply,
+            iter,
+            expiration,
+        }
     }
 }
 
@@ -61,15 +71,28 @@ impl Drop for VecSimScoreBatchCursor {
 
 impl ScoreBatch for VecSimScoreBatchCursor {
     fn next(&mut self) -> Option<(t_docId, f64)> {
-        // SAFETY: `self.iter` is valid until dropped.
-        let result = unsafe { VecSimQueryReply_IteratorNext(self.iter) };
-        if result.is_null() {
-            return None;
+        loop {
+            // SAFETY: `self.iter` is valid until dropped.
+            let result = unsafe { VecSimQueryReply_IteratorNext(self.iter) };
+            if result.is_null() {
+                return None;
+            }
+            // SAFETY: `result` is a valid pointer returned by IteratorNext.
+            let id = unsafe { VecSimQueryResult_GetId(result) } as t_docId;
+            let score = unsafe { VecSimQueryResult_GetScore(result) };
+            if let Some(checker) = self.expiration.as_ref()
+                && checker.has_expiration()
+            {
+                // Mirror the C `HybridIterator`'s post-yield expiration check:
+                // drop docs whose vector field has expired so they don't enter
+                // the heap or unfiltered output.
+                let probe = RSIndexResult::build_virt().doc_id(id).build();
+                if checker.is_expired(&probe) {
+                    continue;
+                }
+            }
+            return Some((id, score));
         }
-        // SAFETY: `result` is a valid pointer returned by IteratorNext.
-        let id = unsafe { VecSimQueryResult_GetId(result) } as t_docId;
-        let score = unsafe { VecSimQueryResult_GetScore(result) };
-        Some((id, score))
     }
 
     fn skip_to(&mut self, target: t_docId) -> Option<(t_docId, f64)> {

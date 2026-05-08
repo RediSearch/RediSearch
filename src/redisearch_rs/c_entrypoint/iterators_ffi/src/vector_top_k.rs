@@ -16,11 +16,13 @@
 use std::{ffi::c_void, num::NonZeroUsize, ptr::NonNull};
 
 use ffi::{
-    IteratorType, QueryIterator, RLookupKey, RLookupKeyHandle, VecSimIndex, VecSimQueryParams,
-    VecSimSearchMode_VECSIM_HYBRID_ADHOC_BF, VecSimSearchMode_VECSIM_HYBRID_BATCHES,
-    VecSimSearchMode_VECSIM_HYBRID_BATCHES_TO_ADHOC_BF, VecSimSearchMode_VECSIM_STANDARD_KNN,
-    timespec,
+    IteratorType, QueryIterator, RLookupKey, RLookupKeyHandle, RedisSearchCtx, VecSimIndex,
+    VecSimQueryParams, VecSimSearchMode_VECSIM_HYBRID_ADHOC_BF,
+    VecSimSearchMode_VECSIM_HYBRID_BATCHES, VecSimSearchMode_VECSIM_HYBRID_BATCHES_TO_ADHOC_BF,
+    VecSimSearchMode_VECSIM_STANDARD_KNN, timespec,
 };
+use field::FieldFilterContext;
+use rqe_iterators::expiration_checker::FieldExpirationChecker;
 use rqe_iterators::{RQEIterator, c2rust::CRQEIterator, interop::RQEIteratorWrapper};
 use top_k::TopKMode;
 use vector_score_source::{
@@ -69,6 +71,8 @@ pub unsafe extern "C" fn NewVectorTopKIterator(
     timeout: timespec,
     skip_timeout_checks: bool,
     is_disk: bool,
+    sctx: *mut RedisSearchCtx,
+    filter_ctx: *const FieldFilterContext,
 ) -> *mut QueryIterator {
     // SAFETY: valid for `vector_byte_len` bytes per caller's contract.
     let query_bytes =
@@ -108,6 +112,21 @@ pub unsafe extern "C" fn NewVectorTopKIterator(
         return std::ptr::null_mut();
     };
 
+    // Build the per-field expiration checker when caller supplied an `sctx` and
+    // `filter_ctx`. Mirrors the C `HybridIterator`'s post-yield check on
+    // `filterCtx.field.value.index`.
+    let expiration = match (NonNull::new(sctx), filter_ctx.is_null()) {
+        (Some(sctx_nn), false) => {
+            // SAFETY: caller's contract guarantees `filter_ctx` is valid when non-null.
+            let filter_ctx_val = unsafe { *filter_ctx };
+            // Wide-schema flag is irrelevant here: the vector field expiration
+            // check uses `FieldMaskOrIndex::Index`, not the mask path.
+            // SAFETY: caller's contract guarantees `sctx` and `sctx.spec` are valid.
+            Some(unsafe { FieldExpirationChecker::new(sctx_nn, filter_ctx_val, 0) })
+        }
+        _ => None,
+    };
+
     if child.is_null() {
         // SAFETY: `index` is valid per caller's contract.
         let source = unsafe {
@@ -121,6 +140,7 @@ pub unsafe extern "C" fn NewVectorTopKIterator(
                 is_disk,
                 0, // no child
                 0, // dynamic batch size
+                expiration,
             )
         };
         RQEIteratorWrapper::boxed_new(new_vector_top_k_unfiltered(source, k))
@@ -144,6 +164,7 @@ pub unsafe extern "C" fn NewVectorTopKIterator(
                 is_disk,
                 child_est,
                 0, // dynamic batch size
+                expiration,
             )
         };
         source.child_raw = child_raw;

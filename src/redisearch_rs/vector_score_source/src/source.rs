@@ -27,6 +27,7 @@ use ffi::{
 };
 use inverted_index::RSIndexResult;
 use rqe_iterators::RQEIteratorError;
+use rqe_iterators::expiration_checker::{ExpirationChecker, FieldExpirationChecker};
 use top_k::{AdhocStrategy, BatchStrategy, ScoreSource};
 
 use crate::batch_cursor::VecSimScoreBatchCursor;
@@ -78,6 +79,12 @@ pub struct VectorScoreSource {
     /// the timeout context and could spuriously fail). Reset by `rewind`.
     unfiltered_consumed: bool,
 
+    /// Optional field-expiration filter for the vector field. Mirrors the C
+    /// `HybridIterator`'s post-yield `DocTable_VerifyFieldExpirationPredicate`
+    /// check: docs whose vector field has expired are dropped from each path
+    /// (cursor batch yield + Adhoc-BF lookup).
+    expiration: Option<FieldExpirationChecker>,
+
     // ── FFI-specific fields (set by C callers via accessor functions) ────────
     /// Score key for this iterator's metric output; set by the metrics loader.
     pub own_key: *mut RLookupKey,
@@ -116,6 +123,7 @@ impl VectorScoreSource {
         is_disk: bool,
         child_num_estimated: usize,
         fixed_batch_size: usize,
+        expiration: Option<FieldExpirationChecker>,
     ) -> Self {
         // Allocate the timeout context before building the struct so we can
         // bake the stable heap pointer into `query_params.timeoutCtx` once.
@@ -142,6 +150,7 @@ impl VectorScoreSource {
             initial_child_num_estimated: child_num_estimated,
             k_remaining: k.get(),
             unfiltered_consumed: false,
+            expiration,
             own_key: ptr::null_mut(),
             key_handle: ptr::null_mut(),
             child_raw: ptr::null_mut(),
@@ -256,7 +265,7 @@ impl<'index> ScoreSource<'index> for VectorScoreSource {
         // SAFETY: `reply` is valid.
         let iter = unsafe { VecSimQueryReply_GetIterator(reply) };
         // SAFETY: Ownership of both `reply` and `iter` is passed to the cursor.
-        let cursor = unsafe { VecSimScoreBatchCursor::new(reply, iter) };
+        let cursor = unsafe { VecSimScoreBatchCursor::new(reply, iter, self.expiration) };
         Ok(Some(cursor))
     }
 
@@ -314,11 +323,21 @@ impl<'index> ScoreSource<'index> for VectorScoreSource {
         // SAFETY: `reply` is valid.
         let iter = unsafe { VecSimQueryReply_GetIterator(reply) };
         // SAFETY: Ownership of both `reply` and `iter` is passed to the cursor.
-        let cursor = unsafe { VecSimScoreBatchCursor::new(reply, iter) };
+        let cursor = unsafe { VecSimScoreBatchCursor::new(reply, iter, self.expiration) };
         Ok(Some(cursor))
     }
 
     fn lookup_score(&mut self, doc_id: t_docId) -> Option<f64> {
+        if let Some(checker) = self.expiration.as_ref()
+            && checker.has_expiration()
+        {
+            // Mirror the C `HybridIterator`'s post-yield expiration check:
+            // expired docs are excluded from the Adhoc-BF result set.
+            let probe = RSIndexResult::build_virt().doc_id(doc_id).build();
+            if checker.is_expired(&probe) {
+                return None;
+            }
+        }
         if self.is_disk {
             self.lookup_score_disk(doc_id)
         } else {

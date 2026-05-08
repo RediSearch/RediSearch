@@ -728,7 +728,9 @@ QueryIterator *NewVectorTopKIterator(VecSimIndex *index,
                                      QueryIterator *child,
                                      timespec timeout,
                                      bool skip_timeout_checks,
-                                     bool is_disk);
+                                     bool is_disk,
+                                     RedisSearchCtx *sctx,
+                                     const FieldFilterContext *filter_ctx);
 
 /**
  * Return a mutable reference to the `RLookupKey *` stored inside this iterator.

@@ -53,6 +53,7 @@ impl ExpirationChecker for NoOpChecker {
 /// Field-level expiration checker using TTL table.
 ///
 /// This checker uses the in-memory TTL table to determine if a document's field has expired.
+#[derive(Clone, Copy)]
 pub struct FieldExpirationChecker {
     /// The search context used to check for expiration.
     sctx: NonNull<RedisSearchCtx>,
