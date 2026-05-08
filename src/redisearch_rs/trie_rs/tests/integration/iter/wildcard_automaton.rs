@@ -144,7 +144,7 @@ proptest! {
 }
 
 /// Patterns longer than the inline `u64` bitset (63 atoms) exercise the
-/// [`StateSet`]'s heap-spill path. The streaming automaton must yield the
+/// wider state representations. The streaming automaton must yield the
 /// same matches as the filter-based iterator without panicking or losing
 /// correctness.
 #[test]
@@ -172,4 +172,73 @@ fn long_literal_patterns_via_spilled_bitset() {
     let f = matches_filter(&trie, &pattern_long_fixed);
     let s = matches_specialized(&trie, &pattern_long_fixed);
     assert_eq!(f, s, "filter vs specialized, long literal alone");
+}
+
+/// Patterns past 255 atoms route through [`BitSetClass::Sparse`] in the
+/// dispatcher, exercising both the [`WildcardSparseNfa`] code path itself
+/// at the sparse-class atom count and the
+/// [`WildcardSpecializedIter::GeneralSparse`] dispatcher arm — the latter
+/// of which the proptest cases (≤ 8 atoms) don't reach.
+#[test]
+fn long_patterns_route_to_sparse_specialized() {
+    // 260-char literal pushes us into the sparse class:
+    //   1 (leading `*`) + 260 + 1 (trailing `*`) + 1 (accept) = 263
+    //   positions, comfortably above the 256-position InlineStateSet cap.
+    let literal: String = "abcdefghij".repeat(26);
+    assert_eq!(literal.len(), 260);
+    let star_pattern = format!("*{literal}*");
+    let prefix_pattern = format!("ab*{literal}*");
+
+    // Mix of keys: some that match, some that don't, varying lengths,
+    // including descendants under literal prefixes that the
+    // prefix-anchored pattern's literal-prefix shortcut walks.
+    let mut trie = TrieMap::new();
+    let direct_match = format!("xxx{literal}yyy");
+    trie.insert(direct_match.as_bytes(), 1u32);
+    trie.insert(format!("ab{literal}").as_bytes(), 2);
+    trie.insert(format!("abc{literal}post").as_bytes(), 3);
+    trie.insert(b"ab", 4);
+    trie.insert(b"abc", 5);
+    trie.insert(b"unrelated", 6);
+    trie.insert(b"", 7);
+
+    for pattern in [&star_pattern, &prefix_pattern] {
+        let f = matches_filter(&trie, pattern);
+        let n = matches_nfa(&trie, pattern);
+        let s = matches_specialized(&trie, pattern);
+        assert_eq!(
+            f, n,
+            "filter vs nfa, sparse-class pattern (len={})",
+            pattern.len(),
+        );
+        assert_eq!(
+            f, s,
+            "filter vs specialized → GeneralSparse, pattern (len={})",
+            pattern.len(),
+        );
+    }
+}
+
+/// Patterns with multiple `Any` atoms produce ε-closures with more than
+/// one position per `Any` row. Combined with sparse-class atom counts,
+/// this exercises [`WildcardSparseNfa`]'s multi-element closure expansion
+/// in the hot loop.
+#[test]
+fn many_any_atoms_in_sparse_pattern() {
+    // 50 `*the*` segments → ~250 atoms after the parser collapses
+    // consecutive `*`s, sitting just inside the sparse class.
+    let pattern: String = std::iter::repeat_n("*the", 50).collect::<String>() + "*";
+
+    let mut trie = TrieMap::new();
+    trie.insert(b"thethethe", 1u32);
+    trie.insert(b"the_in_middle_the", 2);
+    trie.insert(b"the", 3);
+    trie.insert(b"unrelated", 4);
+    trie.insert(b"", 5);
+
+    let f = matches_filter(&trie, &pattern);
+    let n = matches_nfa(&trie, &pattern);
+    let s = matches_specialized(&trie, &pattern);
+    assert_eq!(f, n, "filter vs nfa, many-`Any` sparse pattern");
+    assert_eq!(f, s, "filter vs specialized, many-`Any` sparse pattern");
 }
