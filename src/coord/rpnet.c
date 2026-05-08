@@ -527,6 +527,28 @@ void RPNet_resetCurrent(RPNet *nc) {
 
 int rpnetNext(ResultProcessor *self, SearchResult *r) {
   RPNet *nc = (RPNet *)self;
+  AREQ *areq = nc->areq;
+
+#ifdef ENABLE_ASSERT
+  // Sync point (debug): park BG at the top of rpnetNext. Unlike
+  // BeforeRPNetStart (rpnetNext_Start), this fires on every call, so it can be
+  // armed by a test before issuing an FT.CURSOR READ that reuses an AREQ whose
+  // pipeline has already swapped Next to rpnetNext.
+  if (areq) {
+    SyncPoint_WaitUntil(SYNC_POINT_BEFORE_RPNET_NEXT, areq_timed_out, areq);
+  }
+#endif
+
+  // Short-circuit if the RETURN_STRICT timer has flagged this request as
+  // timed-out. On a follow-up cursor read the channel may already have a
+  // buffered reply, in which case the NULL-reply check below would not fire
+  // and we would silently return rows without surfacing the timeout. Skipped
+  // during the timer's own drain (drainOnly=true) so it can pop the buffered
+  // prefix.
+  if (areq && areq->useReplyCallback && !nc->drainOnly && AREQ_TimedOut(nc->areq)) {
+    return RS_RESULT_TIMEDOUT;
+  }
+
   MRReply *root = nc->current.root, *rows = nc->current.rows;
   const bool resp3 = nc->cmd.protocol == 3;
 
