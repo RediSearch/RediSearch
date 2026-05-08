@@ -6,6 +6,10 @@
 
 ## 1. Ownership graph
 
+Trimmed to the cross-thread structures. Pipeline-internal state
+(`QueryProcessingCtx`, the RP chain) lives inside AREQ but is not part
+of the cross-thread story — single-thread access during a cycle.
+
 ```mermaid
 flowchart TD
   classDef redis fill:#1e3a5f,stroke:#5a8dc7,color:#e8f1ff
@@ -15,66 +19,52 @@ flowchart TD
   classDef shared fill:#3a3a1e,stroke:#c7c75a,color:#fffbe8
 
   Redis[Redis core<br/>owns RedisModuleBlockedClient]:::redis
-  BC[RedisModuleBlockedClient<br/>privdata = BCC]:::redis
+  BC[RedisModuleBlockedClient<br/>privdata = BCC<br/>API guarantees BCC alive<br/>until OnFree returns]:::redis
   Redis -->|until OnFree returns| BC
 
   BC -->|privdata| BCC
   BCC[BlockedClientCtx<br/>per-cycle bag<br/>holds: bc, query ref, reply,<br/>registry_node, optional coord-ctx]:::perCycle
   BCC -.holds 1 ref.-> RSC
+  BCC -->|owns single slot| BCCREPLY
 
   CURS[Cursor<br/>between cycles only<br/>cursor list mutex protects]:::perQuery
   CURS -.holds 1 ref.-> RSC
 
-  RSC[RequestSyncCtx<br/>refcount + timedOut +<br/>partial-timeout coord +<br/>abort-wake]:::perQuery
+  RSC[RequestSyncCtx<br/>refcount: 1 parked / 2 in flight<br/>+ timedOut + partial-timeout coord<br/>+ abort-wake]:::perQuery
   RSC ---|owns: union AREQ vs HReq| AREQ
   RSC ---|or| HREQ
 
-  AREQ[AREQ<br/>query, args, reqflags, profileCtx,<br/>cursor_id, optimizer, ...]:::perQuery
-  HREQ[HybridRequest<br/>sub-AREQs, tail pipeline,<br/>cursors-array, cursorMutex]:::perQuery
+  AREQ[AREQ<br/>query, args, reqflags,<br/>cursor_id, sctx, ...]:::perQuery
+  HREQ[HybridRequest<br/>sub-AREQs, tail pipeline,<br/>shared sctx]:::perQuery
 
-  AREQ -->|owns| SCTX
-  HREQ -->|owns| SCTX
-  HREQ -->|owns N| AREQSUB[Sub-AREQ N<br/>each with own pipeline<br/>NO ChunkReplyState]:::perQuery
+  BCCREPLY[ChunkReplyState<br/>BG writes; main reads after UnblockClient.<br/>cursor field signals pause-or-free]:::shared
 
-  SCTX[RedisSearchCtx<br/>redisCtx, spec, time,<br/>apiVersion, expanded, lock_state]:::perQuery
-  SCTX -.lock_state field<br/>renamed from flags.-> STATE
-  STATE[(SpecLockState enum<br/>UNSET / READ / WRITE)]:::bg
-
-  AREQ -->|inline qiter| QPC
-  QPC[QueryProcessingCtx<br/>rootProc, endProc,<br/>totalResults, minScore,<br/>queryGILTime, err, ...]:::bg
-  QPC -.parent ptr from each RP.-> RPCH
-
-  AREQ -->|inline pipeline| PIPE
-  PIPE[Pipeline<br/>RP chain root]:::bg
-  PIPE --> RPCH[ResultProcessor chain<br/>each holds parent QPC*<br/>upstream RP*]:::bg
-
-  BCC -->|owns ChunkReplyState SINGLE slot| BCCREPLY
-  BCCREPLY[ChunkReplyState<br/>BG-produced results, error copy,<br/>cursor field signaling park-or-free.<br/>One per cycle, AREQ + Hybrid]:::shared
-
-  BCC -->|cached pointer| BNODE
-  REG[BlockedQueries TLS list]:::redis
-  REG -.observes.-> BNODE
-  BNODE[BlockedNode<br/>kind + owned snapshots:<br/>index_name, query, cursorId, count]:::redis
+  BCC -->|cached pointer for O 1 removal| BNODE
+  REG[BlockedQueries<br/>process-wide list,<br/>main-thread-only via TLS sentinel]:::redis
+  REG ---|contains| BNODE
+  BNODE[BlockedNode<br/>kind + owned snapshots:<br/>index_name, query, cursorId, count.<br/>NO pointer back to BCC.]:::redis
 ```
 
 **Color key:**
 
-- 🟦 **Blue (Redis-owned)** — the lifetime is dictated by Redis core or
-  the Redis API: `RedisModuleBlockedClient`, the `BlockedQueries` TLS
-  list, the `BlockedNode` it observes.
-- 🟥 **Red (per-cycle)** — exists for exactly one cross-thread cycle:
-  `BlockedClientCtx`. Created on main, freed on main, in flight on a BG
-  thread for the duration of one cycle.
-- 🟩 **Green (per-query)** — exists for the lifetime of the query
-  (potentially many cursor cycles): `RequestSyncCtx`, `AREQ`,
-  `HybridRequest`, `RedisSearchCtx`, sub-AREQs, and the parked `Cursor`.
-- 🟧 **Orange (BG-thread state during a cycle)** — accessed by the BG
-  thread between `runRequestCycle` entry and exit: `SpecLockState` (a
-  field on `sctx`), `QueryProcessingCtx`, `Pipeline`, the RP chain.
-- 🟨 **Yellow (shared with explicit fence)** — `ChunkReplyState`:
-  written by BG before `UnblockClient`, read by main in `reply_cb` /
-  `OnFree`. Its `cursor` field doubles as the BG → main signal for
-  pause-or-free.
+- 🟦 **Blue (Redis-owned)** — `RedisModuleBlockedClient` (BCC's
+  privdata), the `BlockedQueries` list, the `BlockedNode` entries it
+  contains.
+- 🟥 **Red (per-cycle)** — `BlockedClientCtx`. Created on main, freed
+  on main via `OnFree`, BG-accessible in between.
+- 🟩 **Green (per-query)** — `RequestSyncCtx`, `AREQ`, `HybridRequest`,
+  parked `Cursor`. Lifetime ≥ a single cycle.
+- 🟨 **Yellow (shared with explicit fence)** — `ChunkReplyState`. BG
+  writes before `UnblockClient`; main reads after.
+
+`SpecLockState` (a field inside `RedisSearchCtx`, which lives at
+`AREQ::sctx`) is omitted from the diagram — it's purely BG-local
+during a shard/hybrid cycle and the `runRequestCycle` wrapper is what
+enforces its boundary. See §4.
+
+`QueryProcessingCtx`, the `Pipeline`, and the RP chain are AREQ-internal
+and BG-local during a cycle. They never cross threads, so they don't
+appear in this graph.
 
 ## 2. Per-struct table
 
@@ -169,6 +159,12 @@ For non-BCC main-thread paths (synchronous `FT.EXPLAIN`, etc.) main is
 the legitimate accessor. For coord BCCs the lock is never acquired at
 all. The design imposes no thread-id check; the cycle-boundary
 invariant carries the safety property.
+
+For why refcounting is needed (and why the BG thread doesn't hold a
+ref), see [`blocked_client_refactor.md` §3.1.1](./blocked_client_refactor.md).
+For the `BlockedQueries` ↔ BCC observer relationship and why the list
+uses a `pthread_key_t` sentinel today, see §5.1 and §5.2 of the same
+document.
 
 ## 5. The cycle wrapper
 

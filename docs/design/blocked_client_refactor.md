@@ -265,6 +265,49 @@ There is no `kind`-based branch in `OnFree`, no special "skip free for
 cursor" code path, and no "transfer the ref by NULL-ing the source"
 pattern. The refcount on the wrapper is the single source of truth.
 
+##### Why is a refcount needed at all? The BG thread doesn't hold one
+
+A natural question: if main and BG already coordinate via the
+`UnblockClient` publish fence, why does `RequestSyncCtx` need a
+refcount at all? Doesn't the BG thread need its own ref?
+
+**The BG thread does not hold a ref.** The Redis blocked-client API
+guarantees that `bc->privdata` (the BCC) is alive from
+`RM_BlockClient` until `OnFree` returns. That window covers every BG
+access — dispatch, the entire pipeline, `UnblockClient`, and the
+post-`UnblockClient` reply path. The BG just dereferences `bcc.query`
+freely; main's BCC ref keeps the wrapper alive across the fence. No
+BG ref is needed.
+
+**The refcount exists for the cursor ↔ BCC overlap**, where the two
+holders have **independent lifetimes**:
+
+- A cycle that exhausts the iterator drops the cursor's ref while the
+  BCC is still in flight.
+- `CURSOR DEL` or idle GC can drop the cursor's ref while a deferred-
+  mode `reply_cb` is still mid-execution.
+- A non-final cycle's BCC drops while the cursor stays parked for the
+  next read.
+
+Without refcounting, this falls back to today's "transfer the ref by
+NULL-ing the source" pattern — exactly what the refactor removes.
+With refcounting, each holder drops independently and the last
+`DecrRef` runs `AREQ_Free`:
+
+| State | RSC.refcount | Holders |
+| --- | --- | --- |
+| Standalone query, in flight | 1 | BCC |
+| Cursor parked between cycles | 1 | Cursor |
+| Cursor read in flight | 2 | Cursor + BCC |
+
+In this post-refactor design only values 1 and 2 are ever used. The
+`uint8_t refcount` field's "1–3 in practice" comment in §3.2 reflects
+historical headroom — Step 3 removes the third holder
+(`BlockedQueryNode.privdata`).
+
+So: BG borrows; main owns one ref through the BCC; cursor owns one ref
+between cycles. Refcount tracks the **two owners**, not three.
+
 #### 3.1.2 Single-writer invariant
 
 This is the safety property the rest of the design rests on. At any instant,
@@ -876,6 +919,71 @@ Lifetime consequences:
 
 The `_FreeAREQ` / `FreeQueryNode` shim functions in `block_client.c` and
 `aggregate_exec.c` are deleted — there is no privdata for them to free.
+
+### 5.1 BCC ↔ BlockedNode: an observer relationship, not an owner
+
+After the refactor, the registry stops being an owner. The relationship is:
+
+- **BCC → BlockedNode (cached pointer for removal).** `BlockedClientCtx_New`
+  on main calls `BlockedQueries_AddNode`, gets a `BlockedNode*`, and
+  stashes it in `bcc.registry_node`. `OnFree` on main calls
+  `BlockedQueries_RemoveNode(bcc.registry_node)` — O(1) removal, no
+  list scan.
+- **BlockedNode → ∅.** The node owns only its snapshot strings
+  (`index_name`, `query`, plus cursor-only `cursorId`/`count`). It
+  does **not** point back to the BCC, the AREQ, the spec, or any
+  other live struct. After this step removes `privdata` /
+  `freePrivData`, the node has no live cross-references at all.
+- **`BlockedQueries` → contains BlockedNodes.** A doubly-linked list
+  (two heads — queries and cursors — for FT.INFO's two output
+  sections). Pure storage, no pointers out into BCC/AREQ-land.
+
+This separation is what lets an `IndexSpec` be dropped while a
+registered-but-stalled query is still in the list: the snapshots keep
+`FT.INFO` and the crash-report walker correct without dereferencing
+anything that might be gone.
+
+### 5.2 Why a `pthread_key_t` for `BlockedQueries` today?
+
+The list is conceptually process-wide — there's logically one list of
+all in-flight queries. But it's stored under a `pthread_key_t` (see
+[main_thread.c:21-46](../../src/info/info_redis/threads/main_thread.c#L21-L46)),
+not in a plain global. The TLS isn't there to give each thread its
+own list; it's a **main-thread-only sentinel**:
+
+- Only the main thread calls `MainThread_InitBlockedQueries()` (which
+  does `pthread_setspecific`). The actual list lives in *that* TLS
+  slot.
+- Any other thread calling `MainThread_GetBlockedQueries()` gets
+  `NULL` (because no other thread ever set its TLS slot).
+
+That NULL-on-non-main behavior is then exploited as a thread-discrimination
+guard in [block_client.c:43-44](../../src/info/info_redis/block_client.c#L43-L44):
+
+```c
+BlockedQueries *blockedQueries = MainThread_GetBlockedQueries();
+RS_LOG_ASSERT(blockedQueries, "MainThread_InitBlockedQueries was not called, or function not called from main thread");
+```
+
+It's effectively `static BlockedQueries *list` with a built-in "you're
+not allowed to touch this from BG" assertion. Three properties fall
+out:
+
+1. **No mutex on the list itself.** Only main writes/reads, so no
+   serialization is needed.
+2. **Cheap thread-discrimination** for `Add` / `Remove` / `AddToInfo`
+   call-sites — they crash loudly if invoked off main, instead of
+   silently corrupting the list.
+3. **Crash-safe iteration.** A watchdog signal handler runs in the
+   main thread context after a fatal signal and can walk the list
+   without locking — locking inside a signal handler would be unsafe.
+   The TLS guarantees the list pointer matches what the main thread
+   was using.
+
+The refactor preserves this pattern. Registration and removal stay
+main-only; the BG thread never touches `BlockedQueries`. Coord BCCs
+get registered on main before the libuv fan-out is dispatched — the
+coord IO thread doesn't reach the registry either.
 
 ---
 
