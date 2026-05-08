@@ -312,6 +312,10 @@ arrayof(FieldSpec *) IndexSpec_GetFieldsByMask(const IndexSpec *sp, t_fieldMask 
 
 //---------------------------------------------------------------------------------------------
 
+// Forward declaration
+static StrongRef IndexSpec_ParseFromArgCursor(RedisModuleCtx *ctx, const HiddenString *name,
+                                           ArgsCursor *ac_in, QueryError *status);
+
 /*
 * Parse an index spec from redis command arguments.
 * Returns REDISMODULE_ERR if there's a parsing error.
@@ -322,13 +326,9 @@ arrayof(FieldSpec *) IndexSpec_GetFieldsByMask(const IndexSpec *sp, t_fieldMask 
 */
 StrongRef IndexSpec_ParseRedisArgs(RedisModuleCtx *ctx, const HiddenString *name,
                                     RedisModuleString **argv, int argc, QueryError *status) {
-
-  const char *args[argc];
-  for (int i = 0; i < argc; i++) {
-    args[i] = RedisModule_StringPtrLen(argv[i], NULL);
-  }
-
-  return IndexSpec_Parse(ctx, name, args, argc, status);
+  ArgsCursor ac = {0};
+  ArgsCursor_InitRString(&ac, argv, argc);
+  return IndexSpec_ParseFromArgCursor(ctx, name, &ac, status);
 }
 
 arrayof(FieldSpec *) getFieldsByType(IndexSpec *spec, FieldType type) {
@@ -1744,17 +1744,17 @@ void handleBadArguments(IndexSpec *spec, const char *badarg, QueryError *status,
 /* The format currently is FT.CREATE {index} [NOOFFSETS] [NOFIELDS]
     SCHEMA {field} [TEXT [WEIGHT {weight}]] | [NUMERIC]
   */
-StrongRef IndexSpec_Parse(RedisModuleCtx *ctx, const HiddenString *name, const char **argv, int argc, QueryError *status) {
+
+static StrongRef IndexSpec_ParseFromArgCursor(RedisModuleCtx *ctx, const HiddenString *name,
+                                           ArgsCursor *ac, QueryError *status) {
   IndexSpec *spec = NewIndexSpec(name);
   StrongRef spec_ref = StrongRef_New(spec, (RefManager_Free)IndexSpec_Free);
   spec->own_ref = spec_ref;
 
   IndexSpec_MakeKeyless(spec);
 
-  ArgsCursor ac = {0};
   ArgsCursor acStopwords = {0};
 
-  ArgsCursor_InitCString(&ac, argv, argc);
   long long timeout = -1;
   int dummy;
   size_t dummy2;
@@ -1794,7 +1794,7 @@ StrongRef IndexSpec_Parse(RedisModuleCtx *ctx, const HiddenString *name, const c
     {.name = NULL}
   };
   ACArgSpec *argopts = isSpecOnDiskForValidation(spec) ? flex_argopts : non_flex_argopts;
-  rc = AC_ParseArgSpec(&ac, argopts, &errarg);
+  rc = AC_ParseArgSpec(ac, argopts, &errarg);
   invalid_flex_on_type = isSpecOnDiskForValidation(spec) && rule_args.type && (strcasecmp(rule_args.type, RULE_TYPE_HASH) != 0);
   if (rc != AC_OK) {
     if (rc != AC_ERR_ENOENT) {
@@ -1820,15 +1820,13 @@ StrongRef IndexSpec_Parse(RedisModuleCtx *ctx, const HiddenString *name, const c
   spec->timeout = timeout * 1000;  // convert to ms
 
   if (rule_prefixes.argc > 0) {
-    rule_args.nprefixes = rule_prefixes.argc;
-    rule_args.prefixes = (const char **)rule_prefixes.objs;
+    spec->rule = SchemaRule_CreateWithPrefixesAC(&rule_args, &rule_prefixes, spec_ref, status);
   } else {
     rule_args.nprefixes = 1;
     static const char *empty_prefix[] = {""};
     rule_args.prefixes = empty_prefix;
+    spec->rule = SchemaRule_Create(&rule_args, spec_ref, status);
   }
-
-  spec->rule = SchemaRule_Create(&rule_args, spec_ref, status);
   if (!spec->rule) {
     goto failure;
   }
@@ -1855,13 +1853,13 @@ StrongRef IndexSpec_Parse(RedisModuleCtx *ctx, const HiddenString *name, const c
     if (spec->stopwords) {
       StopWordList_Unref(spec->stopwords);
     }
-    spec->stopwords = NewStopWordListCStr((const char **)acStopwords.objs, acStopwords.argc);
+    spec->stopwords = NewStopWordListAC(&acStopwords);
     spec->flags |= Index_HasCustomStopwords;
   }
 
-  if (!AC_AdvanceIfMatch(&ac, SPEC_SCHEMA_STR)) {
-    if (AC_NumRemaining(&ac)) {
-      const char *badarg = AC_GetStringNC(&ac, NULL);
+  if (!AC_AdvanceIfMatch(ac, SPEC_SCHEMA_STR)) {
+    if (AC_NumRemaining(ac)) {
+      const char *badarg = AC_GetStringNC(ac, NULL);
       handleBadArguments(spec, badarg, status, non_flex_argopts);
     } else {
       QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "No schema found");
@@ -1869,7 +1867,7 @@ StrongRef IndexSpec_Parse(RedisModuleCtx *ctx, const HiddenString *name, const c
     goto failure;
   }
 
-  if (!IndexSpec_AddFieldsInternal(spec, spec_ref, &ac, status, 1)) {
+  if (!IndexSpec_AddFieldsInternal(spec, spec_ref, ac, status, 1)) {
     goto failure;
   }
 
@@ -1892,7 +1890,9 @@ failure:  // on failure free the spec fields array and return an error
 
 StrongRef IndexSpec_ParseC(RedisModuleCtx *ctx, const char *name, const char **argv, int argc, QueryError *status) {
   HiddenString *hidden = NewHiddenString(name, strlen(name), true);
-  return IndexSpec_Parse(ctx, hidden, argv, argc, status);
+  ArgsCursor ac = {0};
+  ArgsCursor_InitCString(&ac, argv, argc);
+  return IndexSpec_ParseFromArgCursor(ctx, hidden, &ac, status);
 }
 
 static void RSIndexStats_FromScoringStats(const ScoringIndexStats *scoring, RSIndexStats *stats) {
