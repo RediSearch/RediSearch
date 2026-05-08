@@ -1947,11 +1947,11 @@ ResultProcessor *RPSafeDepleter_New(StrongRef sync_ref, RedisSearchCtx *depletin
 }
 
 /**
- * Pre-submit this depleter to its thread pool. After this call, subsequent
+ * Schedule this depleter to its thread pool. After this call, subsequent
  * Next() calls will skip the lazy-start branch and proceed directly to the
  * wait-for-completion path. Used by the coordinator's split pipeline so that
  * depleter jobs are queued ahead of the tail continuation, ensuring FIFO
- * ordering on the shared coord pool.
+ * ordering on the shared coord pool. (See scheduleDepleters and scheduleHybridMerger.)
  */
 void RPSafeDepleter_StartDepletion(ResultProcessor *base) {
   RS_ASSERT(base->type == RP_SAFE_DEPLETER);

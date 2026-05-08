@@ -588,10 +588,8 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq,
         size_t numShards, QueryError *status,
         const HybridDebugParams *debugParams) {
 
-    // Point the tail-pipeline qctx error at hreq's own storage, not the
-    // dispatcher's stack-local `status`. The tail continuation runs on a
-    // different coord-pool worker after the dispatcher has returned; the
-    // qctx->err must live for hreq's lifetime, not the dispatcher's stack.
+    // Point the tail-pipeline qctx error at hreq's own storage. The
+    // qctx->err must live for hreq's lifetime.
     QueryError_ClearError(&hreq->tailPipelineError);
     hreq->tailPipeline->qctx.err = &hreq->tailPipelineError;
     hreq->profile = printDistHybridProfile;
@@ -719,13 +717,9 @@ static void FreeCursorMappings(void *mappings) {
 }
 
 // Sets up RPNet cursor mappings on the coordinator. Blocks the calling thread
-// until all shards have replied with their cursor IDs (cv-wait inside
-// ProcessHybridCursorMappings).
+// until all shards have replied with their cursor IDs.
 //
-// Note: this previously also ran the merger and reply via sendChunk_hybrid on
-// the same thread. That step is now split off into a tail continuation
-// (HybridDispatchCtx_Tail) submitted to the coordinator thread pool by the
-// caller.
+// This does not run the hybrid merger part of the pipeline - see submitHybridTail.
 static int HybridRequest_executePlan(HybridRequest *hreq, struct ConcurrentCmdCtx *cmdCtx,
                         QueryError *status) {
 
@@ -788,23 +782,23 @@ static int HybridRequest_executePlan(HybridRequest *hreq, struct ConcurrentCmdCt
 
 // Heap context handed off from the dispatcher coord-pool worker to the tail
 // continuation. The dispatcher fans out to shards and waits for cursor IDs;
-// once mappings are configured, it pre-submits the depleter jobs and then this
+// once mappings are configured, it submits the depleter jobs and then this
 // tail to the coord pool. The tail runs the hybrid merger, writes the reply,
 // and unblocks the client. Submitting depleters before the tail (FIFO on the
 // shared pool) guarantees the merger's cv-wait can always make progress.
-//
-// `qctxErr` is the storage that `hreq->tailPipeline->qctx.err` points to during
-// tail execution. We deliberately keep this distinct from
-// `hreq->tailPipelineError`: the merger writes runtime conditions (e.g.
-// VALUE_NOT_FOUND in an APPLY) into qctx->err so finishSendChunkReply_hybrid
-// can emit them as warnings, but those should NOT be treated as fatal pipeline
-// errors by HybridRequest_GetError (which would force a hard error reply).
+
 typedef struct {
     HybridRequest *hreq;
     StrongRef strong_ref;
     WeakRef weak_ref;
     RedisModuleBlockedClient *bc;
     RedisModuleCtx *ctx;
+    // `qctxErr` is the storage that `hreq->tailPipeline->qctx.err` points to during
+    // tail execution. We deliberately keep this distinct from
+    // `hreq->tailPipelineError`: the merger writes runtime conditions (e.g.
+    // VALUE_NOT_FOUND in an APPLY) into qctx->err so finishSendChunkReply_hybrid
+    // can emit them as warnings, but those should NOT be treated as fatal pipeline
+    // errors by HybridRequest_GetError (which would force a hard error reply).
     QueryError qctxErr;
 } HybridDispatchCtx;
 
@@ -858,11 +852,12 @@ static void HybridDispatchCtx_Tail(void *arg) {
     HybridDispatchCtx_Free(dispatch);
 }
 
-// Pre-submit each subquery's RPSafeDepleter to the coordinator thread pool so
-// they are queued ahead of the tail continuation. FIFO ordering on the pool
-// then guarantees depleters get a worker before any tail that cv-waits on
-// their completion.
-static void prestartDepleters(HybridRequest *hreq) {
+// Schedule each subquery's RPSafeDepleter to the coordinator thread pool.
+//
+// NOTE: FIFO ordering on the pool must guarantees depleters get a worker before
+// the tail hybrid merger job that cv-waits on their completion or this will
+// deadlock (see submitHybridTail).
+static void scheduleDepleters(HybridRequest *hreq) {
     for (size_t i = 0; i < hreq->nrequests; i++) {
         ResultProcessor *rp = AREQ_QueryProcessingCtx(hreq->requests[i])->endProc;
         while (rp && rp->type != RP_SAFE_DEPLETER) {
@@ -878,7 +873,7 @@ static void prestartDepleters(HybridRequest *hreq) {
 // threadHandleCommand stops auto-unblocking the client, and submit the tail
 // continuation to the coord pool. Caller must not touch any of the moved
 // resources after this returns.
-static void submitHybridTail(HybridRequest *hreq, StrongRef strong_ref,
+static void scheduleHybridTail(HybridRequest *hreq, StrongRef strong_ref,
                              struct ConcurrentCmdCtx *cmdCtx, RedisModuleCtx *ctx) {
     HybridDispatchCtx *dispatch = rm_calloc(1, sizeof(*dispatch));
     dispatch->hreq = hreq;
@@ -1005,11 +1000,11 @@ void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     // Close the unused dispatcher reply object; the tail will open its own.
     RedisModule_EndReply(reply);
 
-    // Pre-submit depleter jobs to the coord pool, then submit the tail. FIFO
+    // Schedule depleter jobs to the coord pool, then schedule the tail. FIFO
     // ordering ensures depleters are picked up first; the tail's cv-wait on
     // their completion can therefore always make progress.
-    prestartDepleters(hreq);
-    submitHybridTail(hreq, strong_ref, cmdCtx, ctx);
+    scheduleDepleters(hreq);
+    scheduleHybridTail(hreq, strong_ref, cmdCtx, ctx);
 }
 
 void DEBUG_RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
