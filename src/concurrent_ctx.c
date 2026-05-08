@@ -57,6 +57,12 @@ void ConcurrentSearch_ThreadPoolRun(void (*func)(void *), void *arg, int type) {
   redisearch_thpool_add_work(p, func, arg, THPOOL_PRIORITY_HIGH);
 }
 
+redisearch_thpool_t *ConcurrentSearch_GetPool(int type) {
+  RS_ASSERT(threadpools_g);
+  RS_ASSERT(type < (int)array_len(threadpools_g));
+  return threadpools_g[type];
+}
+
 /* return number of currently working threads */
 size_t ConcurrentSearchPool_WorkingThreadCount() {
   RS_ASSERT(threadpools_g);
@@ -81,17 +87,22 @@ static void threadHandleCommand(void *p) {
     RedisModule_FreeThreadSafeContext(ctx->ctx);
   }
 
-  RedisModule_BlockedClientMeasureTimeEnd(ctx->bc);
+  if (!(ctx->options & CMDCTX_KEEP_BC)) {
+    RedisModule_BlockedClientMeasureTimeEnd(ctx->bc);
+    void *privdata = RedisModule_BlockClientGetPrivateData(ctx->bc);
+    RedisModule_UnblockClient(ctx->bc, privdata);
+  }
 
-  void *privdata = RedisModule_BlockClientGetPrivateData(ctx->bc);
-
-  RedisModule_UnblockClient(ctx->bc, privdata);
   rm_free(ctx->argv);
   rm_free(p);
 }
 
 void ConcurrentCmdCtx_KeepRedisCtx(ConcurrentCmdCtx *cctx) {
   cctx->options |= CMDCTX_KEEP_RCTX;
+}
+
+void ConcurrentCmdCtx_KeepBlockedClient(ConcurrentCmdCtx *cctx) {
+  cctx->options |= CMDCTX_KEEP_BC;
 }
 
 WeakRef ConcurrentCmdCtx_GetWeakRef(ConcurrentCmdCtx *cctx) {

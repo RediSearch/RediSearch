@@ -1628,6 +1628,7 @@ typedef struct {
   bool first_call;                     // Whether the first call to Next has been made
   StrongRef sync_ref;                  // Reference to shared synchronization object (DepleterSync)
   rs_wall_clock_ns_t depletionTime;    // Time spent depleting in the background thread (nanoseconds)
+  redisearch_thpool_t *pool;           // Thread pool used for depletion jobs
 } RPSafeDepleter;
 
 /*
@@ -1814,10 +1815,10 @@ static int RPSafeDepleter_Next_Yield(ResultProcessor *base, SearchResult *r) {
   return RS_RESULT_OK;
 }
 
-// Adds a depletion job to the depleters thread pool
+// Adds a depletion job to the configured thread pool
 static inline void RPSafeDepleter_StartDepletionThread(RPSafeDepleter *self) {
   // Submit the job to the thread pool
-  int rc = redisearch_thpool_add_work(depleterPool, RPSafeDepleter_Deplete, self, THPOOL_PRIORITY_HIGH);
+  int rc = redisearch_thpool_add_work(self->pool, RPSafeDepleter_Deplete, self, THPOOL_PRIORITY_HIGH);
   RS_ASSERT_ALWAYS(rc == 0);
 }
 
@@ -1925,8 +1926,9 @@ static int RPSafeDepleter_Next_Dispatch(ResultProcessor *base, SearchResult *r) 
 
 /**
  * Constructs a new RPSafeDepleter processor. Consumes the StrongRef given.
+ * The pool argument selects which thread pool depletion jobs are submitted to.
  */
-ResultProcessor *RPSafeDepleter_New(StrongRef sync_ref, RedisSearchCtx *depletingThreadCtx, RedisSearchCtx *nextThreadCtx) {
+ResultProcessor *RPSafeDepleter_New(StrongRef sync_ref, RedisSearchCtx *depletingThreadCtx, RedisSearchCtx *nextThreadCtx, redisearch_thpool_t *pool) {
   RPSafeDepleter *ret = rm_calloc(1, sizeof(*ret));
   ret->results = array_new(SearchResult*, 0);
   ret->base.Next = RPSafeDepleter_Next_Dispatch;
@@ -1937,9 +1939,26 @@ ResultProcessor *RPSafeDepleter_New(StrongRef sync_ref, RedisSearchCtx *depletin
   ret->depletingThreadCtx = depletingThreadCtx;
   ret->nextThreadCtx = nextThreadCtx;
   ret->depletionTime = 0;  // Initialize depletion time to 0
+  ret->pool = pool;
   // Make sure the sync reference is valid
   RS_LOG_ASSERT(StrongRef_Get(sync_ref), "Invalid sync reference");
+  RS_LOG_ASSERT(pool, "Invalid thread pool");
   return &ret->base;
+}
+
+/**
+ * Pre-submit this depleter to its thread pool. After this call, subsequent
+ * Next() calls will skip the lazy-start branch and proceed directly to the
+ * wait-for-completion path. Used by the coordinator's split pipeline so that
+ * depleter jobs are queued ahead of the tail continuation, ensuring FIFO
+ * ordering on the shared coord pool.
+ */
+void RPSafeDepleter_StartDepletion(ResultProcessor *base) {
+  RS_ASSERT(base->type == RP_SAFE_DEPLETER);
+  RPSafeDepleter *self = (RPSafeDepleter *)base;
+  RS_ASSERT(self->first_call);
+  self->first_call = false;
+  RPSafeDepleter_StartDepletionThread(self);
 }
 
 static inline bool verifyInvariants(arrayof(ResultProcessor*) safeDepleters, DepleterSync** outSync, RedisSearchCtx** outSearchCtx) {

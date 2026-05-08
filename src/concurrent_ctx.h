@@ -34,6 +34,9 @@ int ConcurrentSearch_CreatePool(int numThreads);
 /* Run a function on the concurrent thread pool */
 void ConcurrentSearch_ThreadPoolRun(void (*func)(void *), void *arg, int type);
 
+/* Return the underlying thread pool for direct submission. */
+redisearch_thpool_t *ConcurrentSearch_GetPool(int type);
+
 /* return number of currently working threads */
 size_t ConcurrentSearchPool_WorkingThreadCount();
 
@@ -72,6 +75,7 @@ static inline void ConcurrentSearchHandlerCtx_Init(ConcurrentSearchHandlerCtx *c
 }
 
 #define CMDCTX_KEEP_RCTX 0x01
+#define CMDCTX_KEEP_BC   0x02
 
 /**
  * Take ownership of the underlying Redis command context. Once ownership is
@@ -85,6 +89,15 @@ static inline void ConcurrentSearchHandlerCtx_Init(ConcurrentSearchHandlerCtx *c
  * would result in an error rather than simply using a dangling pointer.
  */
 void ConcurrentCmdCtx_KeepRedisCtx(struct ConcurrentCmdCtx *ctx);
+
+/**
+ * Take ownership of the BlockedClient. After calling this, the handler is
+ * responsible for calling RedisModule_BlockedClientMeasureTimeEnd and
+ * RedisModule_UnblockClient itself (typically from a continuation). The
+ * default behavior (without this call) is for threadHandleCommand to unblock
+ * the client immediately after the handler returns.
+ */
+void ConcurrentCmdCtx_KeepBlockedClient(struct ConcurrentCmdCtx *ctx);
 
 // Returns the WeakRef held in the context.
 WeakRef ConcurrentCmdCtx_GetWeakRef(struct ConcurrentCmdCtx *cctx);

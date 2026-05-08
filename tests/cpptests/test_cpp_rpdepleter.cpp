@@ -13,6 +13,7 @@
 #include "search_ctx.h"
 #include "rmalloc.h"
 #include "common.h"
+#include "module.h"
 #include <thread>
 #include <chrono>
 #include "redismock/redismock.h"
@@ -122,7 +123,7 @@ TEST_P(RPSafeDepleterTest, RPSafeDepleter_Basic) {
   MockUpstream mockUpstream(n_docs, RS_RESULT_EOF);
 
   // Create safe depleter processor with new sync reference
-  ResultProcessor *depleter = RPSafeDepleter_New(DepleterSync_New(1, take_index_lock), &searchContexts[0], &searchContexts[1]);
+  ResultProcessor *depleter = RPSafeDepleter_New(DepleterSync_New(1, take_index_lock), &searchContexts[0], &searchContexts[1], depleterPool);
 
   QITR_PushRP(&qitr, &mockUpstream);
   QITR_PushRP(&qitr, depleter);
@@ -167,7 +168,7 @@ TEST_P(RPSafeDepleterTest, RPSafeDepleter_Timeout) {
   MockUpstream mockUpstream(n_docs, RS_RESULT_TIMEDOUT);
 
   // Create safe depleter processor with new sync reference
-  ResultProcessor *depleter = RPSafeDepleter_New(DepleterSync_New(1, take_index_lock), &searchContexts[0], &searchContexts[1]);
+  ResultProcessor *depleter = RPSafeDepleter_New(DepleterSync_New(1, take_index_lock), &searchContexts[0], &searchContexts[1], depleterPool);
 
   QITR_PushRP(&qitr, &mockUpstream);
   QITR_PushRP(&qitr, depleter);
@@ -220,8 +221,8 @@ TEST_P(RPSafeDepleterTest, RPSafeDepleter_CrossWakeup) {
 
   // Create shared sync reference and two safe depleters sharing it
   StrongRef sync_ref = DepleterSync_New(2, take_index_lock);
-  ResultProcessor *fastDepleter = RPSafeDepleter_New(StrongRef_Clone(sync_ref), &searchContexts[0], &searchContexts[2]);
-  ResultProcessor *slowDepleter = RPSafeDepleter_New(StrongRef_Clone(sync_ref), &searchContexts[1], &searchContexts[2]);
+  ResultProcessor *fastDepleter = RPSafeDepleter_New(StrongRef_Clone(sync_ref), &searchContexts[0], &searchContexts[2], depleterPool);
+  ResultProcessor *slowDepleter = RPSafeDepleter_New(StrongRef_Clone(sync_ref), &searchContexts[1], &searchContexts[2], depleterPool);
   StrongRef_Release(sync_ref);  // Release our reference
 
   // Set up pipelines
@@ -293,7 +294,7 @@ TEST_P(RPSafeDepleterTest, RPSafeDepleter_Error) {
   MockUpstream mockUpstream(0, RS_RESULT_ERROR);
 
   // Create safe depleter processor with new sync reference
-  ResultProcessor *depleter = RPSafeDepleter_New(DepleterSync_New(1, take_index_lock), &searchContexts[0], &searchContexts[1]);
+  ResultProcessor *depleter = RPSafeDepleter_New(DepleterSync_New(1, take_index_lock), &searchContexts[0], &searchContexts[1], depleterPool);
 
   QITR_PushRP(&qitr, &mockUpstream);
   QITR_PushRP(&qitr, depleter);

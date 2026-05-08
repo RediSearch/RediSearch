@@ -10,6 +10,8 @@
 #include "dist_hybrid_plan.h"
 #include "hybrid/hybrid_request.h"
 #include "hybrid/hybrid_lookup_context.h"
+#include "concurrent_ctx.h"
+#include "module.h"
 
 
 static void pushResultProcessor(QueryProcessingCtx *qctx, ResultProcessor *rp) {
@@ -50,7 +52,11 @@ int HybridRequest_BuildDistributedDepletionPipeline(HybridRequest *req, const Hy
       // The depleter will feed results to the hybrid merger
       RedisSearchCtx *nextThread = params->aggregationParams.common.sctx; // We will use the context provided in the params
       RedisSearchCtx *depletingThread = AREQ_SearchCtx(areq); // when constructing the AREQ a new context should have been created
-      ResultProcessor *depleter = RPSafeDepleter_New(StrongRef_Clone(sync_ref), depletingThread, nextThread);
+      // Submit depletion to the coordinator pool. The dispatcher pre-submits
+      // depleters before the tail continuation so FIFO ordering ensures the
+      // tail's cv-wait can always make progress.
+      ResultProcessor *depleter = RPSafeDepleter_New(StrongRef_Clone(sync_ref), depletingThread, nextThread,
+                                                     ConcurrentSearch_GetPool(DIST_THREADPOOL));
       pushResultProcessor(qctx, depleter);
       if (qctx->isProfile) {
         pushResultProcessor(qctx, RPProfile_New(qctx->endProc, qctx));

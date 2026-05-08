@@ -26,6 +26,9 @@
 #include "config.h"
 #include "coord/coord_request_ctx.h"
 #include "debug_commands.h"
+#include "result_processor.h"
+#include "concurrent_ctx.h"
+#include "module.h"
 
 // We mainly need the resp protocol to be three in order to easily extract the "score" key from the response
 #define HYBRID_RESP_PROTOCOL_VERSION 3
@@ -585,7 +588,12 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq,
         size_t numShards, QueryError *status,
         const HybridDebugParams *debugParams) {
 
-    hreq->tailPipeline->qctx.err = status;
+    // Point the tail-pipeline qctx error at hreq's own storage, not the
+    // dispatcher's stack-local `status`. The tail continuation runs on a
+    // different coord-pool worker after the dispatcher has returned; the
+    // qctx->err must live for hreq's lifetime, not the dispatcher's stack.
+    QueryError_ClearError(&hreq->tailPipelineError);
+    hreq->tailPipeline->qctx.err = &hreq->tailPipelineError;
     hreq->profile = printDistHybridProfile;
 
     // Parse the hybrid command (equivalent to AREQ_Compile)
@@ -710,8 +718,16 @@ static void FreeCursorMappings(void *mappings) {
   rm_free(mappings);
 }
 
+// Sets up RPNet cursor mappings on the coordinator. Blocks the calling thread
+// until all shards have replied with their cursor IDs (cv-wait inside
+// ProcessHybridCursorMappings).
+//
+// Note: this previously also ran the merger and reply via sendChunk_hybrid on
+// the same thread. That step is now split off into a tail continuation
+// (HybridDispatchCtx_Tail) submitted to the coordinator thread pool by the
+// caller.
 static int HybridRequest_executePlan(HybridRequest *hreq, struct ConcurrentCmdCtx *cmdCtx,
-                        RedisModule_Reply *reply, QueryError *status) {
+                        QueryError *status) {
 
     // Get RPNet structures from query context
     QueryProcessingCtx *searchQctx = AREQ_QueryProcessingCtx(hreq->requests[0]);
@@ -735,7 +751,10 @@ static int HybridRequest_executePlan(HybridRequest *hreq, struct ConcurrentCmdCt
     const RSTimeoutPolicy timeoutPolicy = hreq->reqConfig.timeoutPolicy;
     bool maxPrefixSearch = false;
     bool maxPrefixVsim = false;
-    if (!ProcessHybridCursorMappings(cmd, searchMappingsRef, vsimMappingsRef, hreq->tailPipeline->qctx.err, oomPolicy, timeoutPolicy, &maxPrefixSearch, &maxPrefixVsim)) {
+    // Errors from cursor establishment go into the dispatcher's `status` so
+    // DistHybridCleanups can reply with them. The tail-pipeline qctx->err is
+    // reserved for errors observed during merger/reply on the tail thread.
+    if (!ProcessHybridCursorMappings(cmd, searchMappingsRef, vsimMappingsRef, status, oomPolicy, timeoutPolicy, &maxPrefixSearch, &maxPrefixVsim)) {
         // Handle error
         StrongRef_Release(searchMappingsRef);
         StrongRef_Release(vsimMappingsRef);
@@ -764,28 +783,120 @@ static int HybridRequest_executePlan(HybridRequest *hreq, struct ConcurrentCmdCt
     StrongRef_Release(searchMappingsRef);
     StrongRef_Release(vsimMappingsRef);
 
-    bool isCursor = hreq->reqflags & QEXEC_F_IS_CURSOR;
-    if (isCursor) {
-        // // TODO:
-        // // Keep the original concurrent context
-        // ConcurrentCmdCtx_KeepRedisCtx(cmdCtx);
+    return REDISMODULE_OK;
+}
 
-        // StrongRef dummy_spec_ref = {.rm = NULL};
+// Heap context handed off from the dispatcher coord-pool worker to the tail
+// continuation. The dispatcher fans out to shards and waits for cursor IDs;
+// once mappings are configured, it pre-submits the depleter jobs and then this
+// tail to the coord pool. The tail runs the hybrid merger, writes the reply,
+// and unblocks the client. Submitting depleters before the tail (FIFO on the
+// shared pool) guarantees the merger's cv-wait can always make progress.
+//
+// `qctxErr` is the storage that `hreq->tailPipeline->qctx.err` points to during
+// tail execution. We deliberately keep this distinct from
+// `hreq->tailPipelineError`: the merger writes runtime conditions (e.g.
+// VALUE_NOT_FOUND in an APPLY) into qctx->err so finishSendChunkReply_hybrid
+// can emit them as warnings, but those should NOT be treated as fatal pipeline
+// errors by HybridRequest_GetError (which would force a hard error reply).
+typedef struct {
+    HybridRequest *hreq;
+    StrongRef strong_ref;
+    WeakRef weak_ref;
+    RedisModuleBlockedClient *bc;
+    RedisModuleCtx *ctx;
+    QueryError qctxErr;
+} HybridDispatchCtx;
 
-        // if (HybridRequest_StartCursor(hreq, reply, &dummy_spec_ref, status, true) != REDISMODULE_OK) {
-        //     return REDISMODULE_ERR;
-        // }
-    } else {
-        // TODO: Validate cv use
-        AGGPlan *plan = &hreq->tailPipeline->ap;
-        cachedVars cv = {
-            .lastLookup = AGPLN_GetLookup(plan, NULL, AGPLN_GETLOOKUP_LAST),
-            .lastAstp = AGPLN_GetArrangeStep(plan)
-        };
-        sendChunk_hybrid(hreq, reply, UINT64_MAX, cv);
+static void HybridDispatchCtx_Free(HybridDispatchCtx *dispatch) {
+    HybridRequest *hreq = dispatch->hreq;
+    StrongRef strong_ref = dispatch->strong_ref;
+    WeakRef weak_ref = dispatch->weak_ref;
+    RedisModuleBlockedClient *bc = dispatch->bc;
+    RedisModuleCtx *redisCtx = dispatch->ctx;
+    QueryError_ClearError(&dispatch->qctxErr);
+    rm_free(dispatch);
+
+    if (hreq) {
         HybridRequest_DecrRef(hreq);
     }
-    return REDISMODULE_OK;
+    IndexSpecRef_Release(strong_ref);
+    WeakRef_Release(weak_ref);
+
+    // Free the thread-safe context first; it's tied to the BC and must be
+    // released before UnblockClient runs the reply_callback / tears down the BC.
+    RedisModule_FreeThreadSafeContext(redisCtx);
+
+    RedisModule_BlockedClientMeasureTimeEnd(bc);
+    void *privdata = RedisModule_BlockClientGetPrivateData(bc);
+    RedisModule_UnblockClient(bc, privdata);
+}
+
+static void HybridDispatchCtx_Tail(void *arg) {
+    HybridDispatchCtx *dispatch = (HybridDispatchCtx *)arg;
+    HybridRequest *hreq = dispatch->hreq;
+    CoordRequestCtx *reqCtx = RedisModule_BlockClientGetPrivateData(dispatch->bc);
+
+    // If timeout fired between dispatch and tail pickup, the timeout callback
+    // already replied. Tear down without writing another reply.
+    if (CoordRequestCtx_TimedOut(reqCtx)) {
+        HybridDispatchCtx_Free(dispatch);
+        return;
+    }
+
+    RedisModule_Reply _reply = RedisModule_NewReply(dispatch->ctx);
+    RedisModule_Reply *reply = &_reply;
+
+    AGGPlan *plan = &hreq->tailPipeline->ap;
+    cachedVars cv = {
+        .lastLookup = AGPLN_GetLookup(plan, NULL, AGPLN_GETLOOKUP_LAST),
+        .lastAstp = AGPLN_GetArrangeStep(plan)
+    };
+    sendChunk_hybrid(hreq, reply, UINT64_MAX, cv);
+    RedisModule_EndReply(reply);
+
+    HybridDispatchCtx_Free(dispatch);
+}
+
+// Pre-submit each subquery's RPSafeDepleter to the coordinator thread pool so
+// they are queued ahead of the tail continuation. FIFO ordering on the pool
+// then guarantees depleters get a worker before any tail that cv-waits on
+// their completion.
+static void prestartDepleters(HybridRequest *hreq) {
+    for (size_t i = 0; i < hreq->nrequests; i++) {
+        ResultProcessor *rp = AREQ_QueryProcessingCtx(hreq->requests[i])->endProc;
+        while (rp && rp->type != RP_SAFE_DEPLETER) {
+            rp = rp->upstream;
+        }
+        RS_ASSERT(rp);
+        RPSafeDepleter_StartDepletion(rp);
+    }
+}
+
+// Hand off ownership of dispatcher-owned state (hreq pin, spec strong_ref,
+// weak_ref, BC, thread-safe ctx) to a heap dispatch context, mark cmdCtx so
+// threadHandleCommand stops auto-unblocking the client, and submit the tail
+// continuation to the coord pool. Caller must not touch any of the moved
+// resources after this returns.
+static void submitHybridTail(HybridRequest *hreq, StrongRef strong_ref,
+                             struct ConcurrentCmdCtx *cmdCtx, RedisModuleCtx *ctx) {
+    HybridDispatchCtx *dispatch = rm_calloc(1, sizeof(*dispatch));
+    dispatch->hreq = hreq;
+    dispatch->strong_ref = strong_ref;
+    dispatch->weak_ref = ConcurrentCmdCtx_GetWeakRef(cmdCtx);
+    dispatch->bc = ConcurrentCmdCtx_GetBlockedClient(cmdCtx);
+    dispatch->ctx = ctx;
+    dispatch->qctxErr = QueryError_Default();
+
+    // Re-point qctx->err at the dispatch context's own QueryError so the tail
+    // pipeline can write runtime warnings (e.g. APPLY missing-field) without
+    // those being picked up by HybridRequest_GetError as fatal errors.
+    hreq->tailPipeline->qctx.err = &dispatch->qctxErr;
+
+    ConcurrentCmdCtx_KeepRedisCtx(cmdCtx);
+    ConcurrentCmdCtx_KeepBlockedClient(cmdCtx);
+
+    ConcurrentSearch_ThreadPoolRun(HybridDispatchCtx_Tail, dispatch, DIST_THREADPOOL);
 }
 
 static void DistHybridCleanups(RedisModuleCtx *ctx,
@@ -886,13 +997,19 @@ void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
       return;
     }
 
-    if (HybridRequest_executePlan(hreq, cmdCtx, reply, &status) != REDISMODULE_OK) {
+    if (HybridRequest_executePlan(hreq, cmdCtx, &status) != REDISMODULE_OK) {
         DistHybridCleanups(ctx, cmdCtx, sp, &strong_ref, hreq, reply, &status);
         return;
     }
-    WeakRef_Release(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
-    IndexSpecRef_Release(strong_ref);
+
+    // Close the unused dispatcher reply object; the tail will open its own.
     RedisModule_EndReply(reply);
+
+    // Pre-submit depleter jobs to the coord pool, then submit the tail. FIFO
+    // ordering ensures depleters are picked up first; the tail's cv-wait on
+    // their completion can therefore always make progress.
+    prestartDepleters(hreq);
+    submitHybridTail(hreq, strong_ref, cmdCtx, ctx);
 }
 
 void DEBUG_RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
@@ -962,13 +1079,14 @@ void DEBUG_RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int a
       return;
     }
 
-    if (HybridRequest_executePlan(hreq, cmdCtx, reply, &status) != REDISMODULE_OK) {
+    if (HybridRequest_executePlan(hreq, cmdCtx, &status) != REDISMODULE_OK) {
         DistHybridCleanups(ctx, cmdCtx, sp, &strong_ref, hreq, reply, &status);
         return;
     }
-    WeakRef_Release(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
-    IndexSpecRef_Release(strong_ref);
+
     RedisModule_EndReply(reply);
+    prestartDepleters(hreq);
+    submitHybridTail(hreq, strong_ref, cmdCtx, ctx);
 }
 
 // Timeout callback for Coordinator HybridRequest execution

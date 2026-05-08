@@ -42,6 +42,9 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx);
 
 extern redisearch_thpool_t *depleterPool;
 
+// Coordinator distributed-command thread pool ID, set during init.
+extern int DIST_THREADPOOL;
+
 int IsMaster();
 bool IsEnterprise();
 
