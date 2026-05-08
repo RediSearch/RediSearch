@@ -259,6 +259,14 @@ ResultProcessor *RPSafeDepleter_New(StrongRef sync_ref, RedisSearchCtx *depletin
 void RPSafeDepleter_StartDepletion(ResultProcessor *base);
 
 /**
+* Block until this depleter's background depletion job (if any) has completed.
+* Idempotent on never-started or already-completed depleters. Does not advance
+* the depleter's state. Used to ensure no background depletion is still in
+* flight before tearing down resources the depleter may be touching.
+*/
+void RPSafeDepleter_WaitForCompletion(ResultProcessor *base);
+
+/**
 * Get the depletion time for RPSafeDepleter.
 * This is the time spent in the background thread depleting upstream results.
 * @param rp The RPSafeDepleter result processor

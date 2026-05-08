@@ -1961,6 +1961,37 @@ void RPSafeDepleter_StartDepletion(ResultProcessor *base) {
   RPSafeDepleter_StartDepletionThread(self);
 }
 
+/**
+ * Block until this depleter's background depletion job has signaled completion.
+ *
+ * Idempotent and side-effect-free with respect to the result-processor state:
+ * does not flip `Next` to Yield, does not consume results. Safe to call:
+ *   - after `RPSafeDepleter_StartDepletion` to wait for that scheduled job; or
+ *   - on a depleter that was never started (returns immediately); or
+ *   - on a depleter that has already completed (returns immediately).
+ *
+ * Used by callers that need to ensure no background depletion is still in
+ * flight before tearing down resources the depleter may be touching (e.g. the
+ * parent HybridRequest and its RPNet upstream).
+ */
+void RPSafeDepleter_WaitForCompletion(ResultProcessor *base) {
+  RS_ASSERT(base->type == RP_SAFE_DEPLETER);
+  RPSafeDepleter *self = (RPSafeDepleter *)base;
+  // Never started: nothing in flight.
+  if (self->first_call) {
+    return;
+  }
+  DepleterSync *sync = (DepleterSync *)StrongRef_Get(self->sync_ref);
+  RS_ASSERT(sync);
+  pthread_mutex_lock(&sync->mutex);
+  while (!self->done_depleting) {
+    // Broadcast wakes us up on every depleter's completion; loop until ours
+    // is the one that finished.
+    pthread_cond_wait(&sync->cond, &sync->mutex);
+  }
+  pthread_mutex_unlock(&sync->mutex);
+}
+
 static inline bool verifyInvariants(arrayof(ResultProcessor*) safeDepleters, DepleterSync** outSync, RedisSearchCtx** outSearchCtx) {
   DepleterSync *sync = NULL;
   RedisSearchCtx *searchCtx = NULL;

@@ -826,14 +826,53 @@ static void HybridDispatchCtx_Free(HybridDispatchCtx *dispatch) {
     RedisModule_UnblockClient(bc, privdata);
 }
 
+// Locate the RPSafeDepleter in the i-th subquery's pipeline. The depleter is
+// always present (built by HybridRequest_BuildDepletionPipeline) but its
+// position relative to endProc may vary, so walk upstream until we find it.
+static ResultProcessor *findSafeDepleter(HybridRequest *hreq, size_t i) {
+    ResultProcessor *rp = AREQ_QueryProcessingCtx(hreq->requests[i])->endProc;
+    while (rp && rp->type != RP_SAFE_DEPLETER) {
+        rp = rp->upstream;
+    }
+    RS_ASSERT(rp);
+    return rp;
+}
+
+// Schedule each subquery's RPSafeDepleter to the coordinator thread pool.
+//
+// NOTE: FIFO ordering on the pool must guarantees depleters get a worker before
+// the tail hybrid merger job that cv-waits on their completion or this will
+// deadlock (see submitHybridTail).
+static void scheduleDepleters(HybridRequest *hreq) {
+    for (size_t i = 0; i < hreq->nrequests; i++) {
+        RPSafeDepleter_StartDepletion(findSafeDepleter(hreq, i));
+    }
+}
+
+// Block until every depleter scheduled by scheduleDepleters has signaled
+// completion. Required before the tail tears down `hreq`: the merger's
+// cv-wait normally drains depleters during startPipelineHybrid, but
+// early-bailout paths in sendChunk_hybrid (e.g. timeout-already-fired)
+// skip the merger. Without this, a depleter still running on a coord-pool
+// worker would race with HybridRequest_Free → rpnetFree, leading to
+// use-after-free on the RPNet's iterator and cursor mappings.
+static void waitForDepleters(HybridRequest *hreq) {
+    for (size_t i = 0; i < hreq->nrequests; i++) {
+        RPSafeDepleter_WaitForCompletion(findSafeDepleter(hreq, i));
+    }
+}
+
 static void HybridDispatchCtx_Tail(void *arg) {
     HybridDispatchCtx *dispatch = (HybridDispatchCtx *)arg;
     HybridRequest *hreq = dispatch->hreq;
     CoordRequestCtx *reqCtx = RedisModule_BlockClientGetPrivateData(dispatch->bc);
 
     // If timeout fired between dispatch and tail pickup, the timeout callback
-    // already replied. Tear down without writing another reply.
+    // already replied. We still must drain depleters before teardown — they
+    // were submitted by scheduleDepleters and are running on coord-pool workers
+    // that touch hreq's pipeline.
     if (CoordRequestCtx_TimedOut(reqCtx)) {
+        waitForDepleters(hreq);
         HybridDispatchCtx_Free(dispatch);
         return;
     }
@@ -849,23 +888,14 @@ static void HybridDispatchCtx_Tail(void *arg) {
     sendChunk_hybrid(hreq, reply, UINT64_MAX, cv);
     RedisModule_EndReply(reply);
 
-    HybridDispatchCtx_Free(dispatch);
-}
+    // Belt-and-braces: sendChunk_hybrid normally drains depleters via the
+    // merger's cv-wait, but its own internal early-bailout paths
+    // (HybridRequest_TimedOut checks before/after startPipelineHybrid) can
+    // skip the merger. Wait here so HybridDispatchCtx_Free can safely tear
+    // down hreq.
+    waitForDepleters(hreq);
 
-// Schedule each subquery's RPSafeDepleter to the coordinator thread pool.
-//
-// NOTE: FIFO ordering on the pool must guarantees depleters get a worker before
-// the tail hybrid merger job that cv-waits on their completion or this will
-// deadlock (see submitHybridTail).
-static void scheduleDepleters(HybridRequest *hreq) {
-    for (size_t i = 0; i < hreq->nrequests; i++) {
-        ResultProcessor *rp = AREQ_QueryProcessingCtx(hreq->requests[i])->endProc;
-        while (rp && rp->type != RP_SAFE_DEPLETER) {
-            rp = rp->upstream;
-        }
-        RS_ASSERT(rp);
-        RPSafeDepleter_StartDepletion(rp);
-    }
+    HybridDispatchCtx_Free(dispatch);
 }
 
 // Hand off ownership of dispatcher-owned state (hreq pin, spec strong_ref,
