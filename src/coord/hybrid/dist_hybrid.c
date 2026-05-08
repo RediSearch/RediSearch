@@ -1080,8 +1080,8 @@ void DEBUG_RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int a
     }
 
     RedisModule_EndReply(reply);
-    prestartDepleters(hreq);
-    submitHybridTail(hreq, strong_ref, cmdCtx, ctx);
+    scheduleDepleters(hreq);
+    scheduleHybridTail(hreq, strong_ref, cmdCtx, ctx);
 }
 
 // Timeout callback for Coordinator HybridRequest execution
