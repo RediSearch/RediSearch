@@ -36,7 +36,7 @@ flowchart TD
 
   BCCREPLY[ChunkReplyState<br/>BG writes; main reads after UnblockClient.<br/>cursor field signals pause-or-free]:::shared
 
-  REG[BlockedQueries<br/>main-only TLS list of RSCs<br/>(via rsc.blocked_node)]:::redis
+  REG["BlockedQueries<br/>main-only TLS list of RSCs<br/>(via rsc.blocked_node)"]:::redis
   REG -.->|"contains rsc.blocked_node"| RSC
 ```
 
