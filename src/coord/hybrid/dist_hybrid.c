@@ -809,11 +809,14 @@ static void HybridDispatchCtx_Free(HybridDispatchCtx *dispatch) {
     RedisModuleBlockedClient *bc = dispatch->bc;
     RedisModuleCtx *redisCtx = dispatch->ctx;
     QueryError_ClearError(&dispatch->qctxErr);
-    rm_free(dispatch);
 
+    // DecrRef may run Pipeline_Clean → QITR_FreeChain on the tail pipeline,
+    // whose qctx->err still points into dispatch->qctxErr. Free dispatch only
+    // after teardown so that storage outlives any RP Free that reads err.
     if (hreq) {
         HybridRequest_DecrRef(hreq);
     }
+    rm_free(dispatch);
     IndexSpecRef_Release(strong_ref);
     WeakRef_Release(weak_ref);
 
