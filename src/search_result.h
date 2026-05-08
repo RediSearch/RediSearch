@@ -9,6 +9,7 @@
 
 #pragma once
 
+#include <stdio.h>  // TEMP: for the take-owned diagnostic trace; remove with the trace.
 #include "score_explain.h"
 #include "redisearch.h"
 #include "types_rs.h"
@@ -203,6 +204,19 @@ static inline void SearchResult_SetIndexResult(SearchResult *res, const RSIndexR
  *    (either a live borrow or an already-owned copy).
  */
 static inline void SearchResult_TakeOwnedIndexResult(SearchResult *res) {
+  // TEMP DIAGNOSTIC: trace entry conditions for the SUMMARIZE-after-sorter bug.
+  // Remove once test_summarize_contract_after_sorter is diagnosed.
+  {
+    FILE *_tf = fopen("/tmp/rs-summarize-trace.log", "a");
+    if (_tf) {
+      fprintf(_tf,
+              "[take-owned-trace] doc_id=%llu has_ir=%d already_owns=%d\n",
+              (unsigned long long)res->_doc_id,
+              res->_index_result != NULL,
+              (res->_flags & Result_OwnsIndexResult) != 0);
+      fclose(_tf);
+    }
+  }
   if (!res->_index_result) return;
   if (res->_flags & Result_OwnsIndexResult) return;
   res->_index_result = IndexResult_DeepCopy(res->_index_result);

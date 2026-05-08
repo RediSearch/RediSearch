@@ -156,6 +156,26 @@ pub unsafe extern "C" fn IndexResult_DeepCopy(source: *const RSIndexResult) -> *
     // SAFETY: caller is to ensure `source` points to a valid RSIndexResult
     let source = unsafe { &*source };
 
+    // TEMP DIAGNOSTIC: trace what kind of result is being deep-copied and whether
+    // term records carry offsets. Remove once the SUMMARIZE-after-sorter bug is
+    // diagnosed (see test_summarize_contract_after_sorter).
+    {
+        use std::io::Write as _;
+        let kind = source.kind();
+        let term_offsets_len = source.as_term().map(|t| t.offsets().len());
+        if let Ok(mut f) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open("/tmp/rs-summarize-trace.log")
+        {
+            let _ = writeln!(
+                f,
+                "[deepcopy-trace] doc_id={} kind={:?} freq={} field_mask={:#x} term_offsets_len={:?}",
+                source.doc_id, kind, source.freq, source.field_mask, term_offsets_len,
+            );
+        }
+    }
+
     let copy = source.to_owned();
     let copy = Box::new(copy);
 
