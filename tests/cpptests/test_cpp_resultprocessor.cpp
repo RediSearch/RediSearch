@@ -115,3 +115,27 @@ TEST_F(ResultProcessorTest, testmergeFlags_ExpiredDoc) {
   SearchResult_MergeFlags(&a, &b);
   EXPECT_TRUE(SearchResult_GetFlags(&a) & Result_ExpiredDoc);
 }
+
+/*
+ * Test that SearchResult_MergeFlags does NOT propagate the ownership flag
+ * `Result_OwnsIndexResult` from `other` into `res`. This flag is a per-result
+ * memory-management property (it tracks whether *this* result's `_index_result`
+ * was deep-copied and therefore must be freed by `SearchResult_Clear`).
+ * Inheriting it from a sibling would cause `clear()` to free a borrowed
+ * (or NULL) pointer.
+ */
+TEST_F(ResultProcessorTest, testmergeFlags_OwnsIndexResultNotPropagated) {
+  SearchResult a = SearchResult_New();
+  SearchResult b = SearchResult_New();
+  // `b` "owns" its index result; `a` does not.
+  SearchResult_SetFlags(&b, Result_OwnsIndexResult | Result_ExpiredDoc);
+
+  SearchResult_MergeFlags(&a, &b);
+
+  // Document-semantic flag should propagate.
+  EXPECT_TRUE(SearchResult_GetFlags(&a) & Result_ExpiredDoc);
+  // Ownership flag must NOT propagate — `a` did not perform a deep copy.
+  EXPECT_FALSE(SearchResult_GetFlags(&a) & Result_OwnsIndexResult);
+  // `b`'s flags must be left untouched by the merge.
+  EXPECT_TRUE(SearchResult_GetFlags(&b) & Result_OwnsIndexResult);
+}

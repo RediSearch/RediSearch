@@ -273,7 +273,13 @@ static inline void SearchResult_SetFlags(SearchResult *res, uint8_t flags) {
 }
 
 /**
- * Merge the flags (union) `other` into `res`
+ * Merge the flags (union) of `other` into `res`.
+ *
+ * Only document-semantic flags are propagated. Ownership/lifecycle flags
+ * (e.g. `Result_OwnsIndexResult`) describe a property of *this* `SearchResult`'s
+ * own allocations and must never be inherited from another result — doing so
+ * would cause `SearchResult_Clear` / `SearchResult_Destroy` to free memory
+ * that `res` does not actually own.
  *
  * # Safety
  *
@@ -284,7 +290,9 @@ static inline void SearchResult_SetFlags(SearchResult *res, uint8_t flags) {
  */
 static inline void SearchResult_MergeFlags(SearchResult *res, const SearchResult *other)  {
   RS_ASSERT(res && other);
-  res->_flags |= other->_flags;
+  // Flags that describe per-result memory ownership — must NOT be merged.
+  const uint8_t ownership_flags = Result_OwnsIndexResult;
+  res->_flags |= (other->_flags & ~ownership_flags);
 }
 
 #ifdef __cplusplus
