@@ -202,7 +202,7 @@ flowchart LR
   RSC["RequestSyncCtx<br/>per-query: kind, query (AREQ/HReq), timedOut,<br/>partial-timeout coord, abort-wake<br/>per-cycle: bc, reply_cb, reply, coord_ctx,<br/>cycle_start, blocked_node (linked into BlockedQueries)"]:::shared
   STATE[("req->sctx->lock_state<br/>BG-exclusive per cycle — shard/hybrid;<br/>untouched by coord")]:::bg
 
-  REG -.contains rsc.blocked_node.-> RSC
+  REG -.->|"contains rsc.blocked_node"| RSC
   RSC -->|enqueued onto worker pool| CYCLE
   CYCLE -->|invokes| EXEC
   EXEC -->|operates on| RSC

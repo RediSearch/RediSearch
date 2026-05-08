@@ -22,9 +22,9 @@ flowchart TD
   BC["RedisModuleBlockedClient<br/>privdata = RequestSyncCtx*<br/>API guarantees privdata alive<br/>until OnFree returns"]:::redis
   Redis -->|until OnFree returns| BC
 
-  BC -.privdata = RSC during cycle.-> RSC
+  BC -.->|"privdata = RSC during cycle"| RSC
   CURS[Cursor<br/>between cycles only<br/>cursor list mutex protects]:::perQuery
-  CURS -.cursor.query = RSC between cycles.-> RSC
+  CURS -.->|"cursor.query = RSC between cycles"| RSC
 
   RSC["RequestSyncCtx<br/>per-query: kind, query (AREQ/HReq),<br/>timedOut, partial-timeout coord, abort-wake.<br/>per-cycle: bc, reply_cb, reply, coord_ctx,<br/>cycle_start, blocked_node<br/>(set in BeginCycle, cleared in EndCycle)"]:::perQuery
   RSC ---|owns: union AREQ vs HReq| AREQ
@@ -37,7 +37,7 @@ flowchart TD
   BCCREPLY[ChunkReplyState<br/>BG writes; main reads after UnblockClient.<br/>cursor field signals pause-or-free]:::shared
 
   REG[BlockedQueries<br/>main-only TLS list of RSCs<br/>(via rsc.blocked_node)]:::redis
-  REG -.contains rsc.blocked_node.-> RSC
+  REG -.->|"contains rsc.blocked_node"| RSC
 ```
 
 **Color key:**
