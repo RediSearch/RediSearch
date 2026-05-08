@@ -517,18 +517,18 @@ sequenceDiagram
   participant Worker as Worker thread
   participant Redis as Redis core
 
-  Main->>Main: RequestSyncCtx_NewAREQ(areq)  [rsc owns the AREQ; per-cycle fields zero]
+  Main->>Main: RequestSyncCtx_NewAREQ(areq)  [rsc owns the AREQ, per-cycle fields zero]
   Main->>Main: register in BlockedQueries → blocked_node
   Main->>Main: RSC_BeginCycle(rsc, bc, reply_cb, blocked_node)  [per-cycle fields bound]
   Main->>Redis: RM_BlockClient(... privdata = rsc, free_privdata = RequestSyncCtx_OnFree ...)
   Main->>Pool: enqueue rsc
   Pool->>Worker: dispatch
   Worker->>Worker: runRequestCycle entry: assert sctx->lock_state == UNSET
-  Worker->>Worker: run pipeline on rsc->query.areq  [pipeline acquires/releases sctx->lock_state N times; writes rsc.reply incl. cursor field if deferred]
+  Worker->>Worker: run pipeline on rsc->query.areq  [pipeline acquires/releases sctx->lock_state N times — writes rsc.reply incl. cursor field if deferred]
   Worker->>Worker: runRequestCycle exit: assert lock_state == UNSET (force-unlock-on-worker if violated)
   Worker->>Redis: RedisModule_UnblockClient(rsc->bc, rsc)
   Note right of Worker: BG drops its rsc pointer here.<br/>rsc still alive, held by Redis as bc->privdata.
-  Redis-->>Main: reply_cb(rsc)  [iff reply_cb != NULL; reads rsc.reply, writes the wire reply]
+  Redis-->>Main: reply_cb(rsc)  [iff reply_cb != NULL — reads rsc.reply, writes the wire reply]
   Redis-->>Main: RequestSyncCtx_OnFree(rsc)  [free_privdata]
   Main->>Main: RSC_EndCycle(rsc) — DLLIST_REMOVE(blocked_node), ChunkReplyState_Destroy, clear bc / reply_cb / coord_ctx
   Main->>Main: cursor == NULL → RequestSyncCtx_Free(rsc)  [destroys AREQ + wrapper]
@@ -645,30 +645,30 @@ sequenceDiagram
   Main->>Main: RM_BlockClient(privdata = rsc, free_privdata = RequestSyncCtx_OnFree)
   Main->>W1: enqueue rsc
   W1->>W1: runRequestCycle: pre-assert UNSET, run pipeline, post-assert UNSET
-  W1->>W1: pipeline observes !ITERDONE; stashes cursor in rsc.reply.cursor for deferred-mode reply_cb
+  W1->>W1: pipeline observes !ITERDONE — stashes cursor in rsc.reply.cursor for deferred-mode reply_cb
   W1->>Main: UnblockClient(rsc)
   Main->>Main: reply_cb: serialize rsc.reply (with cursor.id)
-  Main->>Main: OnFree (under cursor mutex): RSC_EndCycle; cursor.query = rsc; Cursor_Pause(cursor)
+  Main->>Main: OnFree (under cursor mutex) — RSC_EndCycle, cursor.query = rsc, Cursor_Pause(cursor)
   Note over Curs: Cursor owns rsc via cursor.query.<br/>Per-cycle fields zero. No lock, no in-flight cycle.
 
   Note over Main: Subsequent CURSOR READ
-  Main->>Main: rsc = cursor.query; cursor.query = NULL  [under cursor mutex]
+  Main->>Main: rsc = cursor.query, then cursor.query = NULL  [under cursor mutex]
   Main->>Main: RSC_BeginCycle(rsc, bc, reply_cb, blocked_node, ...)
   Main->>Main: RM_BlockClient(privdata = rsc, ...)
   Main->>W2: enqueue rsc
   W2->>W2: runRequestCycle: pre-assert UNSET, run pipeline, post-assert UNSET
-  W2->>W2: pipeline observes ITERDONE iff exhausted; stashes cursor in rsc.reply.cursor
+  W2->>W2: pipeline observes ITERDONE iff exhausted — stashes cursor in rsc.reply.cursor
   W2->>Main: UnblockClient(rsc)
   Main->>Main: reply_cb: serialize rsc.reply
   alt iterator exhausted (or delete_mark set)
-    Main->>Main: OnFree (free branch): RSC_EndCycle; RequestSyncCtx_Free(rsc); Cursor_Free(cursor)
+    Main->>Main: OnFree (free branch) — RSC_EndCycle, RequestSyncCtx_Free(rsc), Cursor_Free(cursor)
   else more chunks
-    Main->>Main: OnFree (park branch): RSC_EndCycle; cursor.query = rsc; Cursor_Pause(cursor)
+    Main->>Main: OnFree (park branch) — RSC_EndCycle, cursor.query = rsc, Cursor_Pause(cursor)
   end
 
   Note over GC: Independent: CURSOR DEL or idle GC
-  GC->>Curs: Cursor_Free(cursor) when parked  [RequestSyncCtx_Free(cursor.query); cursor mutex serializes]
-  Note right of GC: If a cycle is concurrently in flight, cursor.query is NULL there;<br/>Cursors_Purge sets delete_mark instead, OnFree handles the free.
+  GC->>Curs: Cursor_Free(cursor) when parked  [RequestSyncCtx_Free(cursor.query) — cursor mutex serializes]
+  Note right of GC: If a cycle is concurrently in flight, cursor.query is NULL there —<br/>Cursors_Purge sets delete_mark instead, OnFree handles the free.
 ```
 
 Invariants:
