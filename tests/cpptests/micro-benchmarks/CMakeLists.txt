@@ -26,9 +26,12 @@ include_directories("${googlebench_SOURCE_DIR}/include")
 # being standardized in C2y (the C standard after C23). googlebench uses -pedantic-errors
 # and -Werror, turning this into a fatal error. __COUNTER__ has been a de facto compiler
 # extension so is fine to use it, but we need to suppress the warning now that clang 22+
-# is more strict.
-target_compile_options(benchmark PRIVATE $<$<CXX_COMPILER_ID:Clang>:-Wno-c2y-extensions>)
-target_compile_options(benchmark_main PRIVATE $<$<CXX_COMPILER_ID:Clang>:-Wno-c2y-extensions>)
+# is more strict. Earlier clang versions don't know -Wno-c2y-extensions, so we also pass
+# -Wno-unknown-warning-option to keep the unknown-flag diagnostic from being fatal there.
+target_compile_options(benchmark PRIVATE
+  $<$<CXX_COMPILER_ID:Clang>:-Wno-unknown-warning-option -Wno-c2y-extensions>)
+target_compile_options(benchmark_main PRIVATE
+  $<$<CXX_COMPILER_ID:Clang>:-Wno-unknown-warning-option -Wno-c2y-extensions>)
 
 file(GLOB BENCHMARK_ITER_SOURCES "benchmark_*_iterator.cpp")
 foreach(benchmark_file ${BENCHMARK_ITER_SOURCES})

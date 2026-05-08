@@ -22,6 +22,7 @@
 #include "obfuscation/obfuscation_api.h"
 #include "obfuscation/hidden.h"
 #include "util/redis_mem_info.h"
+#include "util/timeout.h"
 
 #define GC_WRITERFD 1
 #define GC_READERFD 0
@@ -91,6 +92,23 @@ static inline bool isOutOfMemory(RedisModuleCtx *ctx) {
   RedisModule_Log(ctx, "debug", "ForkGC - used memory ratio: %f", used_memory_ratio);
 
   return used_memory_ratio > 1;
+}
+
+// Waits up to timeout_sec for cpid to be reaped, polling every 1.5ms (via nanosleep). Called when
+// KillForkChild was a no-op, meaning Redis never waited on this pid.
+static void reap_child_blocking(RedisModuleCtx *ctx, pid_t cpid, int timeout_sec) {
+  struct timespec deadline;
+  clock_gettime(CLOCK_MONOTONIC_RAW, &deadline);
+  deadline.tv_sec += timeout_sec;
+
+  struct timespec poll_interval = {.tv_sec = 0, .tv_nsec = 1500000};
+  while (waitpid(cpid, NULL, WNOHANG) == 0) {
+    if (TimedOut(&deadline)) {
+      RedisModule_Log(ctx, "warning", "ForkGC - timed out waiting for child %d to exit", cpid);
+      break;
+    }
+    nanosleep(&poll_interval, NULL);
+  }
 }
 
 static bool periodicCb(void *privdata, bool force) {
@@ -219,8 +237,11 @@ static bool periodicCb(void *privdata, bool force) {
     // otherwise it might cause a pipe leak and eventually run
     // out of file descriptor
     RedisModule_ThreadSafeContextLock(ctx);
-    RedisModule_KillForkChild(cpid);
+    int kill_rv = RedisModule_KillForkChild(cpid);
     RedisModule_ThreadSafeContextUnlock(ctx);
+    if (kill_rv != REDISMODULE_OK) {
+      reap_child_blocking(ctx, cpid, RSGlobalConfig.gcConfigParams.gcSettings.forkGcRunIntervalSec);
+    }
 
     if (gcrv) {
       gcrv = VecSim_CallTieredIndexesGC(gc->index);

@@ -123,24 +123,17 @@ protected:
 // `if (data.load_all)` branch).
 TEST_F(CollectParserTest, DISABLED_FieldsLoadAll) {
   parseOkRemote({"FIELDS", "*"}, [](Reducer *r) {
-    EXPECT_TRUE(CollectReducer_HasLoadAll(r));
+    EXPECT_TRUE(CollectReducer_IsLoadAll(r));
     EXPECT_EQ(CollectReducer_GetFieldKeysLen(r), 0u);
   });
   parseOkLocal({"FIELDS", "*"});
-}
-
-// Documents the current behavior: `*` in FIELDS is rejected by the parser in
-// both remote and local modes with the same message. Remove once LoadAll
-// support lands and `DISABLED_FieldsLoadAll` is re-enabled.
-TEST_F(CollectParserTest, FieldsLoadAllRejected) {
-  expectError({"FIELDS", "*"}, "COLLECT does not yet support `*` in FIELDS");
 }
 
 TEST_F(CollectParserTest, FieldsWithCount) {
   registerKeys({"a", "b"});
   Reducer *r = parseCollectOk({"FIELDS", "2", "@a", "@b"});
   ASSERT_NE(r, nullptr);
-  EXPECT_FALSE(CollectReducer_HasLoadAll(r));
+  EXPECT_FALSE(CollectReducer_IsLoadAll(r));
   EXPECT_EQ(CollectReducer_GetFieldKeysLen(r), 2u);
   r->Free(r);
 }
@@ -154,7 +147,7 @@ TEST_F(CollectParserTest, DISABLED_FieldsLoadAllWithSortBy) {
       "SORTBY", "1", "@price",
   });
   ASSERT_NE(r, nullptr);
-  EXPECT_TRUE(CollectReducer_HasLoadAll(r));
+  EXPECT_TRUE(CollectReducer_IsLoadAll(r));
   EXPECT_EQ(CollectReducer_GetSortKeysLen(r), 1u);
   r->Free(r);
 }
@@ -339,7 +332,7 @@ TEST_F(CollectParserTest, JsonPathField) {
   Reducer *r = parseCollectOk({"FIELDS", "1", "$..price"});
   ASSERT_NE(r, nullptr);
   EXPECT_EQ(CollectReducer_GetFieldKeysLen(r), 1u);
-  EXPECT_FALSE(CollectReducer_HasLoadAll(r));
+  EXPECT_FALSE(CollectReducer_IsLoadAll(r));
   r->Free(r);
 }
 

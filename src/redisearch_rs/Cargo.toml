@@ -34,6 +34,7 @@ members = [
     "tools/license_header_linter",
     "tools/ffi_geiger",
     "tools/safety_report",
+    "tracing_assert",
     "tracing_redismodule",
     "trie_bencher",
     "top_k",
@@ -132,6 +133,7 @@ sorting_vector = { path = "./sorting_vector" }
 thin_vec = { path = "./thin_vec" }
 top_k = { path = "./top_k" }
 vector_score_source = { path = "./vector_score_source" }
+tracing_assert = { path = "./tracing_assert" }
 tracing_redismodule = { path = "./tracing_redismodule" }
 trie_rs = { path = "./trie_rs" }
 value = { path = "./value" }

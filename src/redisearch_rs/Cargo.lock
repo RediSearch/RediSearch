@@ -1948,11 +1948,14 @@ dependencies = [
  "build_utils",
  "bumpalo",
  "ffi",
+ "itertools 0.14.0",
  "query_error",
  "redis_mock",
  "redisearch_rs",
  "reducers",
  "rlookup",
+ "tracing",
+ "tracing_assert",
  "value",
  "workspace_hack",
 ]
@@ -2831,6 +2834,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "tracing_assert"
+version = "0.0.1"
+dependencies = [
+ "tracing",
+ "workspace_hack",
+]
+
+[[package]]
 name = "tracing_redismodule"
 version = "0.0.1"
 dependencies = [
@@ -3031,6 +3042,7 @@ dependencies = [
  "redisearch_rs",
  "thiserror",
  "tracing",
+ "tracing_assert",
  "triomphe",
  "workspace_hack",
 ]
