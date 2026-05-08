@@ -192,12 +192,12 @@ flowchart LR
   end
 
   subgraph "Worker thread (execution)"
-    CYCLE[runRequestCycle wrapper (shard/hybrid)<br/>pre-asserts lock_state UNSET<br/>post-asserts lock_state UNSET<br/>force-unlocks on BG thread as safety net]:::bg
-    EXEC[BG work: shard pipeline OR hybrid pipeline (wrapped) / coord fan-out (unwrapped);<br/>reads bcc.query and timedOut,<br/>acquires/releases sctx->lock_state N times (shard/hybrid only),<br/>writes bcc.reply (incl. cursor field), calls UnblockClient]:::bg
+    CYCLE["runRequestCycle wrapper — shard/hybrid<br/>pre-asserts lock_state UNSET<br/>post-asserts lock_state UNSET<br/>force-unlocks on BG thread as safety net"]:::bg
+    EXEC["BG work: shard pipeline OR hybrid pipeline [wrapped] / coord fan-out [unwrapped];<br/>reads bcc.query and timedOut,<br/>acquires/releases sctx->lock_state N times — shard/hybrid only,<br/>writes bcc.reply incl. cursor field, calls UnblockClient"]:::bg
   end
 
   RSC[(RequestSyncCtx<br/>timedOut + partial-timeout coord +<br/>owned AREQ/HReq)]:::shared
-  STATE[(req->sctx->lock_state<br/>BG-exclusive per cycle (shard/hybrid);<br/>untouched by coord)]:::bg
+  STATE[("req->sctx->lock_state<br/>BG-exclusive per cycle — shard/hybrid;<br/>untouched by coord")]:::bg
 
   REG -.observes.-> BCC
   BCC -->|holds 1 ref| RSC

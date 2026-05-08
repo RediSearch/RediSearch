@@ -30,7 +30,7 @@ flowchart TD
   CURS[Cursor<br/>between cycles only<br/>cursor list mutex protects]:::perQuery
   CURS -.owns between cycles.-> RSC
 
-  RSC[RequestSyncCtx<br/>single-owner (bcc.query OR cursor.query)<br/>+ timedOut + partial-timeout coord<br/>+ abort-wake]:::perQuery
+  RSC["RequestSyncCtx<br/>single-owner: bcc.query OR cursor.query<br/>+ timedOut + partial-timeout coord<br/>+ abort-wake"]:::perQuery
   RSC ---|owns: union AREQ vs HReq| AREQ
   RSC ---|or| HREQ
 
