@@ -873,8 +873,14 @@ static void scheduleDepleters(HybridRequest *hreq) {
 // threadHandleCommand stops auto-unblocking the client, and submit the tail
 // continuation to the coord pool. Caller must not touch any of the moved
 // resources after this returns.
+//
+// `dispatcherStatus` is the dispatcher-thread QueryError that ProcessHybridCursorMappings
+// may have stamped non-fatal warnings onto (e.g. COORD OOM under OomPolicy_Return).
+// We forward those warning bits into the tail's qctxErr so finishSendChunkReply_hybrid
+// can emit them.
 static void scheduleHybridTail(HybridRequest *hreq, StrongRef strong_ref,
-                             struct ConcurrentCmdCtx *cmdCtx, RedisModuleCtx *ctx) {
+                             struct ConcurrentCmdCtx *cmdCtx, RedisModuleCtx *ctx,
+                             const QueryError *dispatcherStatus) {
     HybridDispatchCtx *dispatch = rm_calloc(1, sizeof(*dispatch));
     dispatch->hreq = hreq;
     dispatch->strong_ref = strong_ref;
@@ -882,6 +888,13 @@ static void scheduleHybridTail(HybridRequest *hreq, StrongRef strong_ref,
     dispatch->bc = ConcurrentCmdCtx_GetBlockedClient(cmdCtx);
     dispatch->ctx = ctx;
     dispatch->qctxErr = QueryError_Default();
+
+    // Carry forward any non-fatal warnings the dispatcher recorded during cursor
+    // establishment. Without this, the warning is lost when `dispatcherStatus`
+    // (a stack QueryError on RSExecDistHybrid) goes out of scope.
+    if (QueryError_HasQueryOOMWarning(dispatcherStatus)) {
+        QueryError_SetQueryOOMWarning(&dispatch->qctxErr);
+    }
 
     // Re-point qctx->err at the dispatch context's own QueryError so the tail
     // pipeline can write runtime warnings (e.g. APPLY missing-field) without
@@ -1004,7 +1017,7 @@ void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     // ordering ensures depleters are picked up first; the tail's cv-wait on
     // their completion can therefore always make progress.
     scheduleDepleters(hreq);
-    scheduleHybridTail(hreq, strong_ref, cmdCtx, ctx);
+    scheduleHybridTail(hreq, strong_ref, cmdCtx, ctx, &status);
 }
 
 void DEBUG_RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
@@ -1081,7 +1094,7 @@ void DEBUG_RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int a
 
     RedisModule_EndReply(reply);
     scheduleDepleters(hreq);
-    scheduleHybridTail(hreq, strong_ref, cmdCtx, ctx);
+    scheduleHybridTail(hreq, strong_ref, cmdCtx, ctx, &status);
 }
 
 // Timeout callback for Coordinator HybridRequest execution
