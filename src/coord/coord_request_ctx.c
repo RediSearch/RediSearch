@@ -11,6 +11,9 @@
 #include "rmalloc.h"
 #include "info/global_stats.h"
 #include "cursor.h"
+#ifdef ENABLE_ASSERT
+#include "debug_commands.h"
+#endif
 
 #define COORD_REQUEST_CTX_UNSUPPORTED_TYPE() \
   RS_LOG_ASSERT(false, "CoordRequestCtx only supports COMMAND_AGGREGATE and COMMAND_HYBRID")
@@ -26,6 +29,10 @@ CoordRequestCtx *CoordRequestCtx_New(CommandType type) {
 
 void CoordRequestCtx_Free(CoordRequestCtx *ctx) {
   if (!ctx) return;
+
+#ifdef ENABLE_ASSERT
+  CoordReqCtxFreeDebug_Increment();
+#endif
 
   // Clear pre-request error if set
   QueryError_ClearError(&ctx->preRequestError);

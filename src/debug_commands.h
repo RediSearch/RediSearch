@@ -110,8 +110,10 @@ void StoreResultsDebugCtx_SetPause(bool pause);
 #define SYNC_POINT_BEFORE_DIST_HYBRID_PROMOTE           "BeforeDistHybridPromote"
 #define SYNC_POINT_BEFORE_SPEC_LOCK                     "BeforeSpecLock"
 #define SYNC_POINT_BEFORE_CURSOR_READ_SEND_CHUNK        "BeforeCursorReadSendChunk"
+#define SYNC_POINT_BEFORE_CURSOR_READ_SPEC_PROMOTE      "BeforeCursorReadSpecPromote"
 #define SYNC_POINT_BEFORE_AGGREGATE_RESULTS_CLAIM       "BeforeAggregateResultsClaim"
 #define SYNC_POINT_BEFORE_RPNET_START                   "BeforeRPNetStart"
+#define SYNC_POINT_BEFORE_RPNET_NEXT                    "BeforeRPNetNext"
 #define SYNC_POINT_AFTER_ITERATOR_START                 "AfterIteratorStart"
 #define SYNC_POINT_RPNET_REPLY_ADMITTED                 "RpnetReplyAdmitted"
 
@@ -153,6 +155,12 @@ bool HybridStoreCursorsDebugCtx_IsPauseAfterEnabled(void);
 void HybridStoreCursorsDebugCtx_SetPauseAfterEnabled(bool enabled);
 bool HybridStoreCursorsDebugCtx_IsPaused(void);
 void HybridStoreCursorsDebugCtx_SetPause(bool pause);
+
+// Coord request ctx free counter. Bumped on every CoordRequestCtx_Free so
+// tests can deterministically observe that free_privdata has fired without
+// blocking the main thread inside the callback.
+void CoordReqCtxFreeDebug_Increment(void);
+uint64_t CoordReqCtxFreeDebug_GetCount(void);
 
 #endif  // ENABLE_ASSERT
 

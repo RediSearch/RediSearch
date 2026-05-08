@@ -671,7 +671,8 @@ done_2:
 
     state->cursor_done = (rc != RS_RESULT_OK
                           && !(rc == RS_RESULT_TIMEDOUT
-                               && req->reqConfig.timeoutPolicy == TimeoutPolicy_Return));
+                               && (req->reqConfig.timeoutPolicy == TimeoutPolicy_Return
+                                   || req->reqConfig.timeoutPolicy == TimeoutPolicy_ReturnStrict)));
 
     trackWarnings_Resp2(req, qctx, rc);
     finishSendChunkReply_Resp2(req, reply, state->cursor_done);
@@ -880,7 +881,8 @@ static int serializeAndReplyResults_Resp3(AREQ *req, RedisModule_Reply *reply, R
 done_3:
     state->cursor_done = (rc != RS_RESULT_OK
                           && !(rc == RS_RESULT_TIMEDOUT
-                               && req->reqConfig.timeoutPolicy == TimeoutPolicy_Return));
+                               && (req->reqConfig.timeoutPolicy == TimeoutPolicy_Return
+                                   || req->reqConfig.timeoutPolicy == TimeoutPolicy_ReturnStrict)));
 
     finishSendChunkReply_Resp3(req, reply, qctx, rc, state->cursor_done);
 
@@ -1158,6 +1160,10 @@ void AREQ_ReplyOrStoreError(AREQ *req, RedisModuleCtx *ctx, QueryError *status) 
     // Wake any RETURN_STRICT timer waiting on aggregateResultsDone. The timer
     // distinguishes this error-bail from a results-bail by storedReplyState.err
     // (hasStoredResults stays false). No-op for FAIL callers.
+    // Currently unreachable: no coordinator caller of AREQ_ReplyOrStoreError
+    // reaches a point where the timer is actually waiting on the signal.
+    // Kept as a defensive invariant for any future coordinator error path
+    // that bails after the timer has begun waiting.
     if (AREQ_RequiresThreadsSyncResults(req)) {
       AREQ_SignalAggregateResultsComplete(req);
     }
@@ -1904,8 +1910,24 @@ static void cursorRead(RedisModuleCtx *ctx, Cursor *cursor, size_t count, bool b
   QueryProcessingCtx *qctx = prepareForCursorRead(cursor, &hasLoader, &initClock, &reqFlags, &status);
   StrongRef execution_ref;
   bool has_spec = cursor_HasSpecWeakRef(cursor);
+#ifdef ENABLE_ASSERT
+  RedisModule_Log(ctx, "warning",
+                  "DEBUG cursorRead: useReplyCallback=%d has_spec=%d bg=%d",
+                  req->useReplyCallback, has_spec, bg);
+#endif
   // If the cursor is associated with a spec, e.g a coordinator ctx.
   if (has_spec) {
+#ifdef ENABLE_ASSERT
+    // Sync point (debug): park BG between SetRequest and the spec promote.
+    // Lets a test deterministically race a concurrent FT.DROPINDEX with the
+    // RETURN_STRICT timer's wait on aggregateResultsDone, exercising the
+    // signal-on-error path in AREQ_ReplyOrStoreError. Uses areq_timed_out so
+    // BG auto-releases once the timer flips TimedOut.
+    if (req->useReplyCallback) {
+      SyncPoint_WaitUntil(SYNC_POINT_BEFORE_CURSOR_READ_SPEC_PROMOTE,
+                          areq_timed_out, req);
+    }
+#endif
     execution_ref = IndexSpecRef_Promote(cursor->spec_ref);
     if (!StrongRef_Get(execution_ref)) {
       QueryError_SetWithoutUserDataFmt(&status, QUERY_ERROR_CODE_DROPPED_BACKGROUND,
