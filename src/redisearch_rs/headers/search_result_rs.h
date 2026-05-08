@@ -16,6 +16,7 @@ typedef const RSDocumentMetadata * Option_DocumentMetadata;
 
 /* SearchResult flags */
 static const uint8_t Result_ExpiredDoc = 1 << 0;
+static const uint8_t Result_OwnsIndexResult = 1 << 1;
 
 
 /**
