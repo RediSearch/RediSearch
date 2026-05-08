@@ -50,13 +50,14 @@ pub fn read_with_timeout<R: Read + AsRawFd>(
     timeout: Duration,
 ) -> io::Result<usize> {
     let timeout_ms = timeout.as_millis().min(libc::c_int::MAX as u128) as libc::c_int;
-    loop {
-        let mut pfd = libc::pollfd {
-            fd: reader.as_raw_fd(),
-            events: libc::POLLIN,
-            revents: 0,
-        };
 
+    let mut pfd = libc::pollfd {
+        fd: reader.as_raw_fd(),
+        events: libc::POLLIN,
+        revents: 0,
+    };
+
+    loop {
         // SAFETY: `pfd` is a valid pointer to a single pollfd for the
         // duration of the call.
         let ret = unsafe { libc::poll(&mut pfd, 1, timeout_ms) };
