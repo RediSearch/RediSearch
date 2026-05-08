@@ -103,6 +103,33 @@ fn test_replier_simple_string_empty() {
 }
 
 #[test]
+fn test_replier_string_buffer() {
+    let mut replier = init();
+    let reply = capture_single_reply(|| {
+        replier.string_buffer(b"hello world");
+    });
+    insta::assert_debug_snapshot!(reply, @r#"b"hello world""#);
+}
+
+#[test]
+fn test_replier_string_buffer_empty() {
+    let mut replier = init();
+    let reply = capture_single_reply(|| {
+        replier.string_buffer(b"");
+    });
+    insta::assert_debug_snapshot!(reply, @r#"b"""#);
+}
+
+#[test]
+fn test_replier_string_buffer_binary() {
+    let mut replier = init();
+    let reply = capture_single_reply(|| {
+        replier.string_buffer(b"\x00\x01\x02");
+    });
+    insta::assert_debug_snapshot!(reply, @r#"b"\0\u{1}\u{2}""#);
+}
+
+#[test]
 fn test_replier_empty_array() {
     let mut replier = init();
     let reply = capture_single_reply(|| {

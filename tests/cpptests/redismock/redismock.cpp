@@ -1693,7 +1693,7 @@ void RMCK_Bootstrap(RMCKModuleLoadFunction fn, const char **s, size_t n) {
   // Create the context:
   RedisModuleCtx ctxTmp;
   RMCK::ArgvList args(&ctxTmp, s, n);
-  fn(&ctxTmp, &args[0], args.size());
+  fn(&ctxTmp, args.data(), args.size());
 }
 
 void RMCK_Shutdown(void) {

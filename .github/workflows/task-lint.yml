@@ -4,6 +4,15 @@ name: Lint for warnings, missing license headers and check that code is well-for
 
 on:
   workflow_call:
+    inputs:
+      compare-advisories-to-base:
+        description: 'Only fail cargo-deny advisories when findings are new compared to advisories-base-ref.'
+        type: boolean
+        default: false
+      advisories-base-ref:
+        description: 'Git ref or SHA to compare advisory findings against when compare-advisories-to-base is true.'
+        type: string
+        default: ''
 
 jobs:
   build-image:
@@ -18,13 +27,14 @@ jobs:
     needs: build-image
     if: ${{ !cancelled() }}
     runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
+    defaults:
+      run:
+        shell: bash -l -eo pipefail {0}
     container: ${{
       needs.build-image.outputs.succeeded == 'true'
         && fromJSON(format('{{"image":"{0}","options":"--user root"}}', needs.build-image.outputs.image))
       || null }}
-    defaults:
-      run:
-        shell: bash -l -eo pipefail {0}
+
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -72,6 +82,8 @@ jobs:
           workspaces: "src/redisearch_rs -> ../../bin/redisearch_rs"
       - name: Hakari
         run: cargo install cargo-hakari --locked
+      - name: Cargo deny
+        run: cargo install cargo-deny --locked
       - name: Lint
         id: lint
         continue-on-error: true
@@ -93,13 +105,21 @@ jobs:
         id: fmt
         continue-on-error: true
         run: make fmt CHECK=1
-      - uses: EmbarkStudios/cargo-deny-action@v2
+      - name: Security advisories
         id: advisories
         continue-on-error: true
-        with:
-          command: check advisories
-          arguments: --all-features
-          manifest-path: src/redisearch_rs/Cargo.toml
+        env:
+          COMPARE_ADVISORIES_TO_BASE: ${{ inputs.compare-advisories-to-base }}
+          ADVISORIES_BASE_REF: ${{ inputs.advisories-base-ref }}
+          MANIFEST_PATH: src/redisearch_rs/Cargo.toml
+        run: |
+          ARGS=()
+          if [[ "$COMPARE_ADVISORIES_TO_BASE" == "true" ]]; then
+            ARGS+=(--compare-to-base --base-ref "$ADVISORIES_BASE_REF")
+          fi
+          python3 scripts/cargo_deny_advisory_gate.py \
+            --manifest-path "$MANIFEST_PATH" \
+            "${ARGS[@]}"
       - uses: EmbarkStudios/cargo-deny-action@v2
         id: dep-licenses
         continue-on-error: true

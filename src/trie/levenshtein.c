@@ -14,6 +14,17 @@
 #include "rune_util.h"
 #include "rmalloc.h"
 
+static rune runeLower(rune r) {
+  uint32_t lowered = 0;
+  const char *map = 0;
+  map = nu_tolower((uint32_t)r);
+  if (!map) {
+    return r;
+  }
+  nu_casemap_read(map, &lowered);
+  return (rune)lowered;
+}
+
 // NewSparseAutomaton creates a new automaton for the string s, with a given max
 // edit distance check
 SparseAutomaton NewSparseAutomaton(const rune *s, size_t len, int maxEdits) {

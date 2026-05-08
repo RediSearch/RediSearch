@@ -11,7 +11,7 @@ use std::ptr::NonNull;
 
 use ffi::{QueryIterator, t_docId};
 use rqe_iterator_type::IteratorType;
-use rqe_iterators::{Wildcard, interop::RQEIteratorWrapper};
+use rqe_iterators::{NewWildcardIterator, Wildcard, interop::RQEIteratorWrapper};
 
 /// Creates a new non-optimized wildcard iterator over the `[0, max_id]` document id range.
 #[unsafe(no_mangle)]
@@ -19,7 +19,8 @@ pub extern "C" fn NewWildcardIterator_NonOptimized(
     max_id: t_docId,
     weight: f64,
 ) -> *mut QueryIterator {
-    RQEIteratorWrapper::boxed_new(Wildcard::new(max_id, weight))
+    let it = NewWildcardIterator::NotOptimized(Wildcard::new(max_id, weight));
+    RQEIteratorWrapper::boxed_new(it)
 }
 
 /// Returns `true` if `it` is a wildcard iterator (either optimized or non-optimized).

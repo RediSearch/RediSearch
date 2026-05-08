@@ -30,6 +30,9 @@ jobs:
       packages: write
     uses: ./.github/workflows/task-lint.yml
     secrets: inherit
+    with:
+      compare-advisories-to-base: true
+      advisories-base-ref: ${{ github.event.pull_request.base.sha }}
 
   spellcheck:
     uses: ./.github/workflows/task-spellcheck.yml

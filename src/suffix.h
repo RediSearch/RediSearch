@@ -28,7 +28,7 @@ typedef enum {
 /*****************        Trie          ********************/
 /***********************************************************/
 typedef struct SuffixCtx {
-    TrieNode *root;
+    Trie *trie;
     rune *rune;
     size_t runelen;
     const char *cstr;
