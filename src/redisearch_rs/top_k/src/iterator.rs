@@ -249,7 +249,11 @@ impl<'index, S: ScoreSource<'index>, C: RQEIterator<'index> + 'index> TopKIterat
                 BatchStrategy::SwitchToAdhoc => {
                     self.metrics.strategy_switches += 1;
                     self.mode = TopKMode::AdhocBF;
-                    // Fall through to adhoc collection; heap is preserved.
+                    // Clear the heap: ad-hoc walks the full child and re-scores
+                    // every doc, so any entry pushed during the batch phase would
+                    // be re-inserted, producing duplicates. Mirrors the C
+                    // implementation's `mmh_clear` on policy switch.
+                    self.heap = TopKHeap::new(self.k, self.compare, true);
                     self.collect_adhoc()?;
                     return Ok(());
                 }
