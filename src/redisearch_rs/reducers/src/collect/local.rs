@@ -211,15 +211,12 @@ impl LocalCollectCtx {
     /// Projection follows [`requested`][LocalCollectReducer::requested]; in
     /// explicit-list mode extra fields (e.g. sort keys) are ignored.
     pub fn add(&mut self, r: &LocalCollectReducer, row: &RLookupRow) {
-        let items = match row.get(r.input_key).map(|p| &**p) {
-            Some(Value::Array(items)) => items,
-            _ => {
-                tracing_assert::debug_assert_warn!(
-                    false,
-                    "local COLLECT: input_key must be present and contain an Array"
-                );
-                return;
-            }
+        let Some(Value::Array(items)) = row.get(r.input_key).map(|p| &**p) else {
+            tracing_assert::debug_assert_warn!(
+                false,
+                "local COLLECT: input_key must be present and contain an Array"
+            );
+            return;
         };
 
         for item in items.iter() {

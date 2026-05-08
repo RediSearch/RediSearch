@@ -1213,7 +1213,6 @@ def _setup_priced_json(env):
     conn = getConnectionByEnv(env)
     for i, item in enumerate(PRICED):
         conn.execute_command('JSON.SET', f'doc:{i}', '$', json.dumps(item))
-    enable_unstable_features(env)
 
 
 def _names(entries):
@@ -1227,6 +1226,7 @@ def _names(entries):
 @skip(no_json=True)
 def test_collect_limit_without_sortby():
     env = Env(protocol=3)
+    enable_unstable_features(env)
     _setup_priced_json(env)
 
     res = env.cmd(
@@ -1251,6 +1251,7 @@ def test_collect_limit_without_sortby():
 @skip(no_json=True)
 def test_collect_array_path_capped_by_max_aggregate_results():
     env = Env(protocol=3)
+    enable_unstable_features(env)
     _setup_priced_json(env)
 
     # Narrow the array-path cap; restore to unlimited at the end.
