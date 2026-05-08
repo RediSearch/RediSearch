@@ -78,7 +78,11 @@ void LegacySchemaRulesArgs_Free(RedisModuleCtx *ctx) {
   legacySpecRules = NULL;
 }
 
-SchemaRule *SchemaRule_Create(SchemaRuleArgs *args, StrongRef ref, QueryError *status) {
+// Shared body for SchemaRule_Create / SchemaRule_CreateWithPrefixesAC. The
+// prefix list is taken from `prefixes_ac` if non-NULL, otherwise from
+// `args->prefixes` (count `args->nprefixes`). The cursor, if used, is consumed.
+static SchemaRule *SchemaRule_CreateInternal(SchemaRuleArgs *args, ArgsCursor *prefixes_ac,
+                                             StrongRef ref, QueryError *status) {
   SchemaRule *rule = rm_calloc(1, sizeof(*rule));
 
   if (DocumentType_Parse(args->type, &rule->type, status) == REDISMODULE_ERR) {
@@ -114,10 +118,20 @@ SchemaRule *SchemaRule_Create(SchemaRuleArgs *args, StrongRef ref, QueryError *s
     rule->lang_default = DEFAULT_LANGUAGE;
   }
 
-  rule->prefixes = array_new(sds, args->nprefixes);
-  for (int i = 0; i < args->nprefixes; ++i) {
-    sds p = sdsnew(args->prefixes[i]);
-    array_append(rule->prefixes, p);
+  if (prefixes_ac) {
+    size_t nprefixes = AC_NumRemaining(prefixes_ac);
+    rule->prefixes = array_new(sds, nprefixes);
+    for (size_t i = 0; i < nprefixes; ++i) {
+      size_t prefix_len = 0;
+      const char *prefix = AC_GetStringNC(prefixes_ac, &prefix_len);
+      array_append(rule->prefixes, sdsnewlen(prefix, prefix_len));
+    }
+  } else {
+    rule->prefixes = array_new(sds, args->nprefixes);
+    for (int i = 0; i < args->nprefixes; ++i) {
+      sds p = sdsnew(args->prefixes[i]);
+      array_append(rule->prefixes, p);
+    }
   }
 
   if (rule->filter_exp_str) {
@@ -137,6 +151,15 @@ SchemaRule *SchemaRule_Create(SchemaRuleArgs *args, StrongRef ref, QueryError *s
 error:
   SchemaRule_Free(rule);
   return NULL;
+}
+
+SchemaRule *SchemaRule_Create(SchemaRuleArgs *args, StrongRef ref, QueryError *status) {
+  return SchemaRule_CreateInternal(args, NULL, ref, status);
+}
+
+SchemaRule *SchemaRule_CreateWithPrefixesAC(SchemaRuleArgs *args, ArgsCursor *prefixes_ac,
+                                            StrongRef ref, QueryError *status) {
+  return SchemaRule_CreateInternal(args, prefixes_ac, ref, status);
 }
 
 /*.
