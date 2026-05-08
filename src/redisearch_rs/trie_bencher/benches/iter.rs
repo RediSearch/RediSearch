@@ -26,25 +26,10 @@ fn iter_benches_wiki1k(c: &mut Criterion) {
     // Fixed length.
     bencher.wildcard_group(c, "Apollo ??");
 
-    // Sanity-check benches for the wide-state dispatch on a smaller corpus.
-    // One per `BitSetClass` past `u64`; same pattern shapes as the Gutenberg
-    // benches so the routing is exercised end-to-end on this corpus too.
-    let low_overlap_70: String = std::iter::once('Z')
-        .chain((b'a'..=b'z').map(char::from).cycle().take(69))
-        .collect();
-    bencher.wildcard_group_labeled(
-        c,
-        "*Zabc…×70* (72 atoms, u128)",
-        &format!("*{low_overlap_70}*"),
-    );
-    let low_overlap_130: String = std::iter::once('Z')
-        .chain((b'a'..=b'z').map(char::from).cycle().take(129))
-        .collect();
-    bencher.wildcard_group_labeled(
-        c,
-        "*Zabc…×130* (132 atoms, inline)",
-        &format!("*{low_overlap_130}*"),
-    );
+    // Cross-corpus sanity check that the wide-state dispatch routes
+    // correctly on a smaller trie too. One representative pattern at the
+    // sparse class is enough — the per-class scaling story is exercised on
+    // Gutenberg.
     let low_overlap_260: String = std::iter::once('Z')
         .chain((b'a'..=b'z').map(char::from).cycle().take(259))
         .collect();
@@ -74,8 +59,12 @@ fn iter_benches_gutenberg(c: &mut Criterion) {
     // `WildcardSparseNfa` (a sparse-set automaton with recycled scratches)
     // for anything larger.
     //
-    // For the 72-atom (u128) class we run two shapes back-to-back so the
-    // contrast is visible:
+    // One catch-all bench per non-`u64` size class. Atom-count scaling
+    // within each class moves the timings within noise once the class is
+    // fixed, so the largest representative is enough.
+    //
+    // For the `u128` class we run two shapes back-to-back so the contrast
+    // is visible:
     //
     // - High self-overlap (`*a×70*`): every position in the literal is a
     //   valid match-start, so the NFA's active set fills the entire bitset
@@ -86,9 +75,8 @@ fn iter_benches_gutenberg(c: &mut Criterion) {
     //   the typical shape for real long patterns — e.g., codepoint-lifted
     //   UTF-8 queries.
     //
-    // Each pattern flattens to `N + 2` atoms (one per literal byte plus
-    // the two bookends). The leading `*` defeats the literal-prefix
-    // shortcut, so the iterator walks the entire trie.
+    // The leading `*` defeats the literal-prefix shortcut, so the iterator
+    // walks the entire trie.
     let high_overlap_70 = format!("*{}*", "a".repeat(70));
     bencher.wildcard_group_labeled(
         c,
@@ -98,72 +86,52 @@ fn iter_benches_gutenberg(c: &mut Criterion) {
     let low_overlap_70: String = std::iter::once('Z')
         .chain((b'a'..=b'z').map(char::from).cycle().take(69))
         .collect();
-    let pattern_u128_low = format!("*{low_overlap_70}*");
     bencher.wildcard_group_labeled(
         c,
         "*Zabc…×70* (72 atoms, u128, low self-overlap)",
-        &pattern_u128_low,
+        &format!("*{low_overlap_70}*"),
     );
     let low_overlap_130: String = std::iter::once('Z')
         .chain((b'a'..=b'z').map(char::from).cycle().take(129))
         .collect();
-    let pattern_inline = format!("*{low_overlap_130}*");
     bencher.wildcard_group_labeled(
         c,
         "*Zabc…×130* (132 atoms, inline)",
-        &pattern_inline,
-    );
-    let low_overlap_260: String = std::iter::once('Z')
-        .chain((b'a'..=b'z').map(char::from).cycle().take(259))
-        .collect();
-    let pattern_sparse_small = format!("*{low_overlap_260}*");
-    bencher.wildcard_group_labeled(
-        c,
-        "*Zabc…×260* (262 atoms, sparse)",
-        &pattern_sparse_small,
-    );
-    let low_overlap_600: String = std::iter::once('Z')
-        .chain((b'a'..=b'z').map(char::from).cycle().take(599))
-        .collect();
-    let pattern_sparse_medium = format!("*{low_overlap_600}*");
-    bencher.wildcard_group_labeled(
-        c,
-        "*Zabc…×600* (602 atoms, sparse)",
-        &pattern_sparse_medium,
+        &format!("*{low_overlap_130}*"),
     );
     let low_overlap_1100: String = std::iter::once('Z')
         .chain((b'a'..=b'z').map(char::from).cycle().take(1099))
         .collect();
-    let pattern_sparse_large = format!("*{low_overlap_1100}*");
     bencher.wildcard_group_labeled(
         c,
-        "*Zabc…×1100* (1102 atoms, sparse)",
-        &pattern_sparse_large,
+        "*Zabc…×1100* (1102 atoms, sparse, single literal)",
+        &format!("*{low_overlap_1100}*"),
     );
 
-    // Prefix-anchored variants for the sparse path. Anchoring on a literal
-    // `ev` lets the iterator descend straight to the corresponding subtree
-    // via its literal-prefix shortcut, so the bench measures the
-    // sparse-set's per-byte cost over a bounded subtree rather than the
-    // whole corpus. Same atom counts as the catch-all variants above
-    // (modulo the two extra atoms from `ev`).
-    let pattern_anchored_small = format!("ev*{low_overlap_260}*");
+    // Multi-literal variant at the same atom count: `*the*and*of*` repeated
+    // 100 times (with consecutive `**` collapsed by the parser, each
+    // repetition adds 11 atoms for a total of 1101). Same `BitSetClass` as
+    // the previous bench, different shape — every `*` is a backtrack
+    // point on the filter side, so this measures whether shape changes the
+    // gap meaningfully on a non-`*L*` pattern.
+    //
+    // The literals are short common English fragments and may match real
+    // Gutenberg keys in places, so this also exercises the yield path.
+    let multi_literal = "*the*and*of*".repeat(100);
     bencher.wildcard_group_labeled(
         c,
-        "ev*Zabc…×260* (264 atoms, sparse, prefix-anchored)",
-        &pattern_anchored_small,
+        "*the*and*of*×100 (1101 atoms, sparse, multi-literal)",
+        &multi_literal,
     );
-    let pattern_anchored_medium = format!("ev*{low_overlap_600}*");
-    bencher.wildcard_group_labeled(
-        c,
-        "ev*Zabc…×600* (604 atoms, sparse, prefix-anchored)",
-        &pattern_anchored_medium,
-    );
-    let pattern_anchored_large = format!("ev*{low_overlap_1100}*");
+
+    // Prefix-anchored variant. The literal-prefix shortcut sends the
+    // iterator straight to the `ev` subtree, so the trie traversal is
+    // bounded; what dominates is `WildcardSparseNfa::compile` itself. The
+    // 1100-atom case is the most demanding for construction.
     bencher.wildcard_group_labeled(
         c,
         "ev*Zabc…×1100* (1104 atoms, sparse, prefix-anchored)",
-        &pattern_anchored_large,
+        &format!("ev*{low_overlap_1100}*"),
     );
 
     bencher.range_group(
