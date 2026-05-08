@@ -57,11 +57,8 @@ flips (see §3.2 and Step 0).
 > **Note on the existing `BlockClientCtx`.** Today's `BlockClientCtx`
 > (the init-parameter bag in `info_redis/block_client.h`) is deleted
 > in step 2 — `RequestSyncCtx_New` + `RSC_BeginCycle` take their
-> arguments directly, so the init-bag has no remaining users and
-> there's no need for an intermediate rename. (The previous draft of
-> this RFC introduced a `BlockedClientCtx` type as a separate
-> per-cycle struct; that type was folded into `RequestSyncCtx` itself,
-> see §3.2.)
+> arguments directly. The per-cycle fields it carried now live on
+> `RequestSyncCtx` (§3.2).
 
 ---
 
@@ -213,13 +210,11 @@ flowchart LR
   EXEC -->|UnblockClient publish fence| OF
 ```
 
-- **`RequestSyncCtx`** is the singly-owned per-query context. It absorbs
-  what the previous draft of this RFC called `BlockedClientCtx` — there
+- **`RequestSyncCtx`** is the singly-owned per-query context — there
   is no separate per-cycle struct. Redis holds the `RequestSyncCtx*`
-  directly as `bc->privdata`; it exists from `RequestSyncCtx_New` (or
-  `RSC_BeginCycle` for a cursor read) through the
-  `RequestSyncCtx_OnFree` (`free_privdata`) callback. Both endpoints
-  run on the main thread.
+  directly as `bc->privdata`; it exists from `RequestSyncCtx_New`
+  through the `RequestSyncCtx_OnFree` (`free_privdata`) callback.
+  Both endpoints run on the main thread.
 
   The struct has two field-validity classes (see §3.2):
 
@@ -458,6 +453,19 @@ void RSC_BeginCycle(RequestSyncCtx *rsc, RedisModuleBlockedClient *bc,
 // before deciding what to do with the wrapper.
 void RSC_EndCycle(RequestSyncCtx *rsc);
 
+// Kind-dispatching accessors. Most call-sites don't need to know whether
+// a given RSC wraps an AREQ or a HybridRequest — they reach the AREQ via
+// these helpers. Future Rust port replaces them with `match`.
+static inline RedisSearchCtx *RSC_SearchCtx(RequestSyncCtx *rsc) {
+  return rsc->kind == REQUEST_KIND_AREQ
+         ? rsc->query.areq->sctx
+         : rsc->query.hreq->sctx;
+}
+AREQ *RSC_AsAREQ(RequestSyncCtx *rsc);                 // NULL if hybrid
+void  RSC_ForEachAREQ(RequestSyncCtx *rsc,             // dispatches over
+                      void (*fn)(AREQ *, void *ud),    // sub-AREQs for hybrid;
+                      void *ud);                       // single AREQ otherwise
+
 // Destroys per-query state + AREQ/HReq + wrapper. Called only from
 // OnFree's free branch (or Cursor_Free for a parked cursor).
 void RequestSyncCtx_Free(RequestSyncCtx *rsc);
@@ -687,6 +695,12 @@ Invariants:
   `Cursor_Free` on a parked cursor — both on main, after the publish
   fence, with `lock_state == UNSET` already guaranteed. The silent
   "if locked, unlock" branch in today's `AREQ_Free` is deleted.
+
+The cursor mechanics above apply uniformly whether the wrapped
+request is a shard query, a hybrid query, or a coord-side query
+(`_FT.HYBRID WITHCURSOR` and similar coord cursors flow through the
+same `cursor->query` ↔ `bc->privdata` transfer; the `lock_state`
+piece is simply trivial for coord since the lock is never acquired).
 
 > **Future improvement (out of scope).** If profiling shows that the
 > revalidate cost between consecutive cursor reads is significant, a separate
@@ -925,14 +939,20 @@ const char *blocked_format_index_name(const RequestSyncCtx *rsc) {
 }
 ```
 
-The walker's safety hinges on two facts that already hold:
+The walker's safety rests on two claims, the first of which already
+holds and the second of which Step 3 must verify:
 
-- The RSC is in the list only between `RSC_BeginCycle` and
-  `RSC_EndCycle`. During that window the AREQ and its `sctx` are
-  intact (`RequestSyncCtx_Free` runs *after* `EndCycle`).
-- The spec-drop path NULLs `sctx->spec` (via the StrongRef destructor)
-  before the underlying memory is freed. A plain pointer read with a
-  NULL check is safe even from a signal handler.
+- **The RSC is in the list only between `RSC_BeginCycle` and
+  `RSC_EndCycle`.** During that window the AREQ and its `sctx` are
+  intact — `RequestSyncCtx_Free` runs *after* `EndCycle`.
+- **`sctx->spec` is either alive or NULL.** Today
+  `RedisSearchCtx::spec` is a plain `IndexSpec*` and the spec-drop
+  path doesn't necessarily NULL it. Step 3's acceptance must
+  confirm one of: (a) the existing ref machinery (StrongRef on the
+  AREQ / sctx) keeps `sctx->spec` valid for the in-flight RSC's
+  whole lifetime, or (b) we add an explicit NULL'ing of
+  `sctx->spec` in the spec-drop path. The fallback is benign only
+  if reads cannot dereference freed memory.
 
 Coord-side RSCs register too, so coordinator queries become visible
 to the watchdog — a functional gain.
@@ -974,7 +994,7 @@ The eight `RedisModule_BlockClient` call-sites in `src/` (excluding tests and
 
 | Callsite | Today | After refactor |
 | --- | --- | --- |
-| `info_redis/block_client.c::BlockQueryClientWithTimeout` | Wraps `BlockClient` + adds `BlockedQueryNode` w/ AREQ ref | `rsc = RequestSyncCtx_NewAREQ(areq); RSC_BeginCycle(rsc, bc, reply_cb, blocked_node, NULL); RM_BlockClient(... privdata=rsc, free_privdata=RequestSyncCtx_OnFree ...)`. The RSC is the single context — no separate `BlockedClientCtx` allocation. |
+| `info_redis/block_client.c::BlockQueryClientWithTimeout` | Wraps `BlockClient` + adds `BlockedQueryNode` w/ AREQ ref | `rsc = RequestSyncCtx_NewAREQ(areq); RSC_BeginCycle(rsc, bc, reply_cb, NULL /*coord_ctx*/); RM_BlockClient(... privdata=rsc, free_privdata=RequestSyncCtx_OnFree ...)`. `BeginCycle` links `&rsc->blocked_node` into `BlockedQueries.queries` itself. |
 | `info_redis/block_client.c::BlockCursorClientWithTimeout` | Same shape, cursor flavour | `rsc = cursor->query; cursor->query = NULL;` (under cursor mutex), then `RSC_BeginCycle(...)` and `RM_BlockClient(...)` as above. `BeginCycle` links `&rsc->blocked_node` into `BlockedQueries.cursors`. |
 | `coord/rmr/rmr.c::MR_Fanout` (line 359) | `BlockClient(unblockHandler, timeoutHandler, freePrivDataCB, queryTimeout)`; `MRCtx` owns `bc` | `RequestSyncCtx_NewAREQ` + `RSC_BeginCycle` + `RM_BlockClient`. The coord-side reader is itself an AREQ / HybridRequest with a `syncCtx` (used for `RequestSyncCtx_RegisterAbortWakeChannel`), so the same RSC wraps it just like the shard path. The `MRCtx` lives on `rsc->coord_ctx`, freed from `OnFree` after `RequestSyncCtx_Free`. Coord queries gain `BlockedQueries` visibility. |
 | `module.c::DistSearchBlockClientWithTimeout` (line 4412) | `BlockClient(DistSearchUnblockClient, timeoutCallback, freePrivDataCallback, queryTimeout)` | Same as `MR_Fanout` — RSC wraps the coord-side AREQ, `CoordRequestCtx` lives on `rsc->coord_ctx`. Privdata-smuggling hack removed; coord queries gain visibility. |
@@ -1007,12 +1027,16 @@ per-cycle fields live on `RequestSyncCtx` itself (§3.2).
 
 ## 7. Migration plan
 
-Each step is a self-contained PR; downstream steps assume previous ones merged
-unless noted. **Steps 0 and 1 are independent and can ship in parallel** —
-Step 0 touches the request-side ownership / wrapper machinery, Step 1 touches
-the spec-lock discipline; they don't share files or invariants. Step 2 picks
-up both as prerequisites. Steps 0–2 are pure refactors with no behaviour
-change. Step 3 onward removes fields and changes API surface.
+Each step is a self-contained PR; downstream steps assume previous ones
+merged unless noted. **Steps 0 and 1 are independent and can ship in
+parallel** — Step 0 touches the request-side ownership / wrapper
+machinery, Step 1 touches the spec-lock discipline; they don't share
+files or invariants. **Step 2 is the heaviest step**: it depends on
+both 0 and 1, introduces the per-cycle fields and the
+`New` / `BeginCycle` / `EndCycle` / `OnFree` API, and migrates the
+helper call-sites in one go. Steps 0–2 are pure refactors with no
+behaviour change. Step 3 onward removes fields and changes API
+surface.
 
 ### Step 0 — Invert `RequestSyncCtx` to wrap the query (single-owner)
 
@@ -1085,10 +1109,12 @@ change. Step 3 onward removes fields and changes API surface.
   locally.
 - Delete the "if locked, unlock" branch from `AREQ_Free`. Replace with
   `RS_ASSERT(req->sctx->lock_state == SPEC_LOCK_UNSET)`.
-- **Acceptance:** standalone tests pass; `tsan` / `helgrind` runs of the
-  cursor read suite pass; the cross-thread unlock UB warning is gone; a
-  deliberate "pipeline returns with lock held" violation trips the
-  `runRequestCycle` post-assertion.
+- **Acceptance:** standalone tests pass; `tsan` / `helgrind` runs of
+  the cursor read suite pass; the cross-thread unlock UB warning is
+  gone; a deliberate "pipeline returns with lock held" violation
+  trips the `runRequestCycle` post-assertion;
+  `grep -n RSContextFlags\\\|RS_CTX_ src/` is empty (only
+  `SpecLockState` / `SPEC_LOCK_*` remain).
 - **Note:** if profiling later shows the per-cycle revalidate cost on cursor
   reads is significant, a follow-up can introduce an opt-in "hold lock
   across reads" mode. That is explicitly out of scope here (see §3.4).
@@ -1136,8 +1162,11 @@ change. Step 3 onward removes fields and changes API surface.
 - **Acceptance:** standalone query, cursor read, hybrid query, and
   timeout paths exercise the merged RSC; `bc` destroy / privdata code
   is centralized in `OnFree`; ASM keyspace-version count balanced
-  under the existing sanitizer leak check; no separate
-  `BlockedClientCtx` type exists.
+  under the existing sanitizer leak check;
+  `grep -n 'BlockClientCtx\\b' src/` returns no struct definitions
+  or fields (only the function-name forms `BlockedClientCtx_*`
+  may match references in comments, which Step 7 cleans up); no
+  `BlockedClientCtx` type is defined.
 
 ### Step 3 — Link `RequestSyncCtx` directly into `BlockedQueries`
 
@@ -1161,12 +1190,19 @@ change. Step 3 onward removes fields and changes API surface.
   query string via `areq->query`, cursor id via `areq->cursor_id`.
 - Drop the cloned `StrongRef` on the spec; the registry no longer
   pins it.
+- **Verify the spec-drop safety story (§5.1).** Confirm that
+  `sctx->spec` is either a live spec or NULL for the entire window
+  the RSC is in `BlockedQueries`. If existing ref machinery doesn't
+  already give this, add an explicit NULL'ing of `sctx->spec` in
+  the spec-drop path before any spec memory is freed. The
+  `<DELETED>` fallback is only safe under this property.
 - **Acceptance:** AREQ has exactly one owner (the in-flight cycle's
   RSC for initial query / hybrid; the cursor while parked); a
   leak-test under ASAN shows no AREQ outliving its `OnFree` free
-  branch; FT.INFO + crash report on a dropped-mid-flight spec print
-  `<DELETED>` and don't crash; the crash-report walk in a signal
-  handler is lock-free.
+  branch; `grep -n BlockedQueryNode\\\|BlockedCursorNode\\\|BlockedQueries_Add\\\|BlockedQueries_Remove src/`
+  is empty; FT.INFO + crash report on a dropped-mid-flight spec
+  print `<DELETED>` and don't crash; the crash-report walk in a
+  signal handler is lock-free.
 
 ### Step 4 — Collapse `useReplyCallback` and `storedReplyState` onto the RSC's per-cycle slot
 
@@ -1231,12 +1267,15 @@ change. Step 3 onward removes fields and changes API surface.
   coord teardown that today frees these structs runs from `OnFree`
   before `RequestSyncCtx_Free`.
 - `rsc->bc` holds the `RedisModuleBlockedClient*`.
-- **Acceptance:** a hung coordinator query appears in `FT.INFO`'s blocked-
-  query section and in the crash report; coordinator timeout / unblock paths
-  pass tests; the abort-wake registration that today goes through
-  `RequestSyncCtx_RegisterAbortWakeChannel(&areq->syncCtx, ...)` now goes
-  through the wrapper without a code change at the call-site (it already
-  accepts `RequestSyncCtx*`).
+- **Acceptance:** a hung coordinator query appears in `FT.INFO`'s
+  blocked-query section and in the crash report; coordinator timeout
+  / unblock paths pass tests; the abort-wake registration that today
+  goes through `RequestSyncCtx_RegisterAbortWakeChannel(&areq->syncCtx, ...)`
+  now goes through the wrapper without a code change at the
+  call-site (it already accepts `RequestSyncCtx*`);
+  `grep -n 'RedisModule_BlockClient' src/coord/` shows zero direct
+  callers outside the new `RequestSyncCtx_New` + `RSC_BeginCycle`
+  helpers.
 
 ### Step 6 — Route remaining call-sites through `ConcurrentSearchBlockClientCtx`
 
@@ -1248,15 +1287,23 @@ change. Step 3 onward removes fields and changes API surface.
   free.
 - Tighten `ConcurrentSearchBlockClientCtx` to require a non-NULL
   `free_privdata`.
-- **Acceptance:** `RedisModule_BlockClient` is no longer called
-  directly outside the `RequestSyncCtx_New` + `RSC_BeginCycle` path
-  and `ConcurrentSearchBlockClientCtx` (search by grep).
+- **Acceptance:** `grep -n 'RedisModule_BlockClient' src/` shows
+  callers only inside `info_redis/block_client.c` (the
+  `RequestSyncCtx_New` + `RSC_BeginCycle` helpers), the coord-side
+  helpers from Step 5, and `concurrent_ctx.c`
+  (`ConcurrentSearchBlockClientCtx`); zero direct callers in
+  `gc.c`, `debug_commands.c`, or operational `rmr.c` sites.
 
 ### Step 7 — Clean up
 
 - Delete `blockedClientReqCtx`, `blockedClientHybridCtx`, and the manual
   `MeasureTimeEnd` / `UnblockClient` / `free` sequences they implemented.
 - Tighten asserts where steps 0–6 left them temporarily lax.
+- **Acceptance:**
+  `grep -n 'blockedClientReqCtx\\\|blockedClientHybridCtx\\\|BlockClientCtx\\b' src/`
+  is empty; `grep -n 'AREQ_IncrRef\\\|AREQ_DecrRef' src/` is empty;
+  `grep -n 'storedReplyState\\\|useReplyCallback' src/` is empty;
+  `grep -n 'BlockedQueryNode\\\|BlockedCursorNode' src/` is empty.
 
 ---
 
