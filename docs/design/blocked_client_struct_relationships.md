@@ -19,43 +19,43 @@ flowchart TD
   classDef shared fill:#3a3a1e,stroke:#c7c75a,color:#fffbe8
 
   Redis[Redis core<br/>owns RedisModuleBlockedClient]:::redis
-  BC[RedisModuleBlockedClient<br/>privdata = BCC<br/>API guarantees BCC alive<br/>until OnFree returns]:::redis
+  BC["RedisModuleBlockedClient<br/>privdata = RequestSyncCtx*<br/>API guarantees privdata alive<br/>until OnFree returns"]:::redis
   Redis -->|until OnFree returns| BC
 
-  BC -->|privdata| BCC
-  BCC[BlockedClientCtx<br/>per-cycle bag<br/>holds: bc, query, reply,<br/>registry_node, optional coord-ctx]:::perCycle
-  BCC -.owns during cycle.-> RSC
-  BCC -->|owns single slot| BCCREPLY
-
+  BC -.privdata = RSC during cycle.-> RSC
   CURS[Cursor<br/>between cycles only<br/>cursor list mutex protects]:::perQuery
-  CURS -.owns between cycles.-> RSC
+  CURS -.cursor.query = RSC between cycles.-> RSC
 
-  RSC["RequestSyncCtx<br/>single-owner: bcc.query OR cursor.query<br/>+ timedOut + partial-timeout coord<br/>+ abort-wake"]:::perQuery
+  RSC["RequestSyncCtx<br/>per-query: kind, query (AREQ/HReq),<br/>timedOut, partial-timeout coord, abort-wake.<br/>per-cycle: bc, reply_cb, reply,<br/>registry_node, coord_ctx<br/>(set in BeginCycle, cleared in EndCycle)"]:::perQuery
   RSC ---|owns: union AREQ vs HReq| AREQ
   RSC ---|or| HREQ
+  RSC -->|per-cycle slot, destroyed in EndCycle| BCCREPLY
+  RSC -->|cached pointer for O 1 removal| BNODE
 
   AREQ[AREQ<br/>query, args, reqflags,<br/>cursor_id, sctx, ...]:::perQuery
   HREQ[HybridRequest<br/>sub-AREQs, tail pipeline,<br/>shared sctx]:::perQuery
 
   BCCREPLY[ChunkReplyState<br/>BG writes; main reads after UnblockClient.<br/>cursor field signals pause-or-free]:::shared
 
-  BCC -->|cached pointer for O 1 removal| BNODE
   REG[BlockedQueries<br/>process-wide list,<br/>main-thread-only via TLS sentinel]:::redis
   REG ---|contains| BNODE
-  BNODE[BlockedNode<br/>kind + owned snapshots:<br/>index_name, query, cursorId, count.<br/>NO pointer back to BCC.]:::redis
+  BNODE[BlockedNode<br/>kind + owned snapshots:<br/>index_name, query, cursorId, count.<br/>NO pointer back to RSC.]:::redis
 ```
 
 **Color key:**
 
-- 🟦 **Blue (Redis-owned)** — `RedisModuleBlockedClient` (BCC's
-  privdata), the `BlockedQueries` list, the `BlockedNode` entries it
-  contains.
-- 🟥 **Red (per-cycle)** — `BlockedClientCtx`. Created on main, freed
-  on main via `OnFree`, BG-accessible in between.
-- 🟩 **Green (per-query)** — `RequestSyncCtx`, `AREQ`, `HybridRequest`,
-  parked `Cursor`. Lifetime ≥ a single cycle.
+- 🟦 **Blue (Redis-owned)** — `RedisModuleBlockedClient` (holds the
+  RSC pointer as privdata during a cycle), the `BlockedQueries` list,
+  the `BlockedNode` entries it contains.
+- 🟩 **Green (per-query)** — `RequestSyncCtx`, `AREQ`,
+  `HybridRequest`, parked `Cursor`. Lifetime ≥ a single cycle. Note
+  that RSC's per-cycle fields (`bc`, `reply_cb`, `reply`,
+  `registry_node`, `coord_ctx`) are bound only between
+  `RSC_BeginCycle` and `RSC_EndCycle` — outside that window they are
+  NULL/zero.
 - 🟨 **Yellow (shared with explicit fence)** — `ChunkReplyState`. BG
-  writes before `UnblockClient`; main reads after.
+  writes before `UnblockClient`; main reads after; destroyed in
+  `RSC_EndCycle`.
 
 `SpecLockState` (a field inside `RedisSearchCtx`, which lives at
 `AREQ::sctx`) is omitted from the diagram — it's purely BG-local
@@ -71,17 +71,16 @@ appear in this graph.
 | Struct | Owner | Lifetime | Read / written by | Sync mechanism |
 |---|---|---|---|---|
 | **`RedisModuleBlockedClient` (`bc`)** | Redis core | From `RM_BlockClient` until `OnFree` returns | BG (`UnblockClient` only); main (`OnFree`); Redis dispatcher | Redis API guarantees |
-| **`BlockedClientCtx` (BCC)** | Redis (via `bc->privdata`) — singly owned | Per-cycle: `New` on main → `OnFree` on main, after `UnblockClient` | Main: write at `New`, read in `reply_cb` / `OnFree`. BG: reads `query` / `reply_cb` / `bc`, writes `reply` (deferred mode) | Single-writer per phase; `UnblockClient` is the publish fence |
-| **`RequestSyncCtx` (RSC)** | Single-owner; `bcc->query` (during cycle) or `cursor->query` (between cycles) | Span of the underlying query (one or many cycles) | Main: ownership transfer at `BCC_New` / `OnFree` under cursor mutex; `timedOut` store. BG: read access via `bcc->query`; `timedOut` load; partial-timeout CAS / condvar | `timedOut`: `__atomic_*`. Partial-timeout CAS / mutex / condvar: internal to the wrapper. Abort-wake channel: own mutex. No refcount. |
+| **`RequestSyncCtx` (RSC)** | Single-owner; `bc->privdata` (during cycle) or `cursor->query` (between cycles) | Span of the underlying query (one or many cycles) | Main: `New` / `BeginCycle` / `EndCycle` / `OnFree` (transfers under cursor mutex; `timedOut` store). BG: read access via `bc->privdata`; `timedOut` load; partial-timeout CAS / condvar; writes `rsc->reply` (deferred mode). | `timedOut`: `__atomic_*`. Partial-timeout CAS / mutex / condvar: internal to the wrapper. Abort-wake channel: own mutex. Per-cycle fields (`bc`, `reply_cb`, `reply`, `registry_node`, `coord_ctx`) are publish-via-`UnblockClient`. No refcount. |
 | **`AREQ` / `HybridRequest`** | `RSC` (via union); destroyed inside `RequestSyncCtx_Free` | Same as RSC | Main: setup before dispatch + destruction inside `OnFree`'s free branch (or `Cursor_Free` for a parked cursor). BG: free use during cycle | Single-writer invariant (one accessor at a time, with `UnblockClient` as the fence) |
 | **`RedisSearchCtx` (`sctx`)** | `AREQ` / `HybridRequest` (via `req->sctx`, heap-alloc; unchanged from today) | Same as the request | Same access discipline as AREQ — pipeline reads `spec`, `redisCtx`, `time`. Cursor mode swaps `redisCtx` per cycle (existing hack, unchanged) | Single-writer (BG during cycle) |
-| **`SpecLockState`** (enum field on `sctx`, replaces today's `RSContextFlags flags`) | The enclosing `sctx` | Same as `sctx` (state transitions are per-cycle, not per-lifetime) | **For shard/hybrid BCC cycles: BG thread only.** Acquire / release / state queries during pipeline; the existing patterns — `handleSpecLockAndRevalidate`, `UnlockSpec_and_ReturnRPResult`, safe-loader — all operate on this field. **For coord BCCs: never touched** (no local pipeline). **For non-BCC paths (synchronous `FT.EXPLAIN`, etc.): main is the legitimate accessor.** | The `runRequestCycle` wrapper (shard/hybrid only) pre/post-asserts `state == UNSET` at cycle entry and exit. The post-cycle force-unlock safety net catches leaks on the same BG thread that took the lock. No struct, no API surface beyond the existing four lock primitives. |
+| **`SpecLockState`** (enum field on `sctx`, replaces today's `RSContextFlags flags`) | The enclosing `sctx` | Same as `sctx` (state transitions are per-cycle, not per-lifetime) | **For shard/hybrid cycles: BG thread only.** Acquire / release / state queries during pipeline; the existing patterns — `handleSpecLockAndRevalidate`, `UnlockSpec_and_ReturnRPResult`, safe-loader — all operate on this field. **For coord cycles: never touched** (no local pipeline). **For synchronous main-thread commands (`FT.EXPLAIN`, etc.) outside any blocked-client cycle: main is the legitimate accessor.** | The `runRequestCycle` wrapper (shard/hybrid only) pre/post-asserts `state == UNSET` at cycle entry and exit. The post-cycle force-unlock safety net catches leaks on the same BG thread that took the lock. No struct, no API surface beyond the existing four lock primitives. |
 | **`QueryProcessingCtx` (`qiter`)** (inline on AREQ) | AREQ | Same as AREQ | BG only (during cycle). All RPs in the pipeline reach it via `rp->parent`; they read `endProc`, `err`, `totalResults`, `minScore`, etc., and write `totalResults` / `err` | Single-writer (BG). Shared *between RPs on the same thread* — no cross-thread issue. RPs run serially within the pipeline. |
 | **`Pipeline` / `ResultProcessor` chain** (inline on AREQ; each RP heap-alloc, owned by AREQ via the chain) | AREQ | Same as AREQ | BG only | Single-writer; RPs run serially within the pipeline |
-| **`ChunkReplyState`** (in `bcc.reply` post-Step 4) | BCC | Per-cycle | BG writes (deferred mode) before `UnblockClient`; main reads in `reply_cb` then frees in `OnFree`. **One slot for AREQ and Hybrid alike** — sub-AREQs do not carry one. The `cursor` field signals "main, pause/free this after the reply". | Publish-via-`UnblockClient` fence |
-| **`BlockedNode`** (registry entry, unified query/cursor) | `BlockedQueries` TLS list | `New` → `OnFree` (main only); cached on `bcc.registry_node` | Main only — registry add / remove, watchdog snapshot reads | Main-thread TLS list; no cross-thread access. The node owns string snapshots so it's `Send`-able if a future port wants. |
-| **`Cursor`** | Cursors registry | Cursor's existence (across many cycles) | `Cursor_Pause` / `Cursor_Free` callable from any thread (cursor list `pthread_mutex` serializes registry mutation). Inline-mode BG calls them directly; deferred-mode BG stashes the cursor pointer in `bcc.reply.cursor` and main calls them from `reply_cb`. The cursor's `query` field owns the RSC between cycles (NULL during in-flight). | Cursor list `pthread_mutex` for registry access; single-owner-with-transfer for AREQ ownership; `delete_mark` flag handles `CURSOR DEL` during in-flight |
-| **`MRCtx` / `CoordRequestCtx`** (coord only) | BCC (coord-private field) | Same as BCC | libuv IO threads (BG) + main; uses RSC's abort-wake for unblocking. **Coord BCCs do not go through `runRequestCycle`** — they don't touch `sctx->lock_state`. | Existing rmr / coord protocols (untouched) |
+| **`ChunkReplyState`** (in `rsc->reply` post-Step 4) | RSC's per-cycle slot | Per-cycle: zero/empty between cycles; populated by BG; destroyed in `RSC_EndCycle` | BG writes (deferred mode) before `UnblockClient`; main reads in `reply_cb` then `RSC_EndCycle` calls `ChunkReplyState_Destroy`. **One slot for AREQ and Hybrid alike** — sub-AREQs do not carry one. The `cursor` field signals "main, pause/free this after the reply". | Publish-via-`UnblockClient` fence |
+| **`BlockedNode`** (registry entry, unified query/cursor) | `BlockedQueries` TLS list | `BeginCycle` → `EndCycle` (main only); cached on `rsc->registry_node` | Main only — registry add / remove, watchdog snapshot reads | Main-thread TLS list; no cross-thread access. The node owns string snapshots so it's `Send`-able if a future port wants. |
+| **`Cursor`** | Cursors registry | Cursor's existence (across many cycles) | `Cursor_Pause` / `Cursor_Free` callable from any thread (cursor list `pthread_mutex` serializes registry mutation). Inline-mode BG calls them directly; deferred-mode BG stashes the cursor pointer in `rsc->reply.cursor` and main calls them from `reply_cb`. The cursor's `query` field owns the RSC between cycles (NULL during in-flight). | Cursor list `pthread_mutex` for registry access; single-owner-with-transfer for RSC ownership; `delete_mark` flag handles `CURSOR DEL` during in-flight |
+| **`MRCtx` / `CoordRequestCtx`** (coord only) | RSC's per-cycle `coord_ctx` field | Per-cycle | libuv IO threads (BG) + main; uses RSC's abort-wake for unblocking. **Coord-side cycles do not go through `runRequestCycle`** — they don't touch `sctx->lock_state`. | Existing rmr / coord protocols (untouched) |
 | **`RedisModuleCtx redisCtx`** (inside `sctx`) | `sctx` | Cursor cycles: per-cycle thread-safe ctx, swapped each cycle (existing hack). Initial / one-shot: per-query | BG (during cycle). The cursor swap-out is a single mutation in `AREQ_Free` / cycle exit | Single-writer per cycle |
 
 ## 3. Three classes of "shared", each with its own discipline
@@ -94,8 +93,13 @@ them is the source of every bug this refactor fixes.
 Real synchronization required.
 
 - `RequestSyncCtx.timedOut` — `__atomic_*` with acquire/release ordering.
-- `bcc.reply` (`ChunkReplyState`, including its `cursor` field) —
-  published via `UnblockClient`; main reads only after the fence.
+- `rsc->reply` (`ChunkReplyState`, including its `cursor` field) —
+  published via `UnblockClient`; main reads only after the fence;
+  destroyed in `RSC_EndCycle`.
+- The other per-cycle fields on RSC (`bc`, `reply_cb`, `registry_node`,
+  `coord_ctx`) — written once at `RSC_BeginCycle` (main, pre-dispatch),
+  read by BG, cleared at `RSC_EndCycle` (main, post-`UnblockClient`).
+  Publish-via-`UnblockClient`.
 - Partial-timeout coordination (`aggregatingResults` CAS,
   `aggregateResultsCond` mutex/condvar) — internal to `RequestSyncCtx`;
   preserved verbatim from today's code.
@@ -107,23 +111,24 @@ No synchronization needed beyond ordinary single-threaded discipline.
 
 - `QueryProcessingCtx`
 - The RP chain (`base->parent`, `base->upstream`)
-- `sctx->lock_state` (during a shard/hybrid BCC cycle) — multiple
+- `sctx->lock_state` (during a shard/hybrid cycle) — multiple
   acquire/release transitions per cycle, all on the same BG thread.
 - AREQ pipeline state generally.
 
 The single rule: **main must not touch any of these *during a
-shard/hybrid BCC cycle*.** The `runRequestCycle` wrapper enforces it
-for `lock_state` via the entry/exit assertions; the others are guarded
-by the more general single-writer invariant on AREQ. Outside BCC
-cycles (synchronous main-thread queries), main is the legitimate
-accessor. Coord BCCs don't apply — they don't touch any of this.
+shard/hybrid cycle*.** The `runRequestCycle` wrapper enforces it for
+`lock_state` via the entry/exit assertions; the others are guarded by
+the more general single-writer invariant on AREQ. Outside cycles
+(synchronous main-thread queries), main is the legitimate accessor.
+Coord-side cycles don't apply — they don't touch any of this.
 
 ### 3.3 Main-thread shared (across callbacks)
 
 No synchronization needed; serial within main.
 
 - `BlockedQueries` registry (TLS list)
-- `BlockedClientCtx` fields (read by `reply_cb`, then `OnFree`)
+- The RSC's per-cycle fields, post-`UnblockClient` (read by
+  `reply_cb`, cleared by `RSC_EndCycle` inside `OnFree`)
 
 ### 3.4 Cursor list — its own thread-safe registry
 
@@ -132,17 +137,18 @@ The cursor list is **not** main-only TLS; it's protected by a
 thread that holds the mutex. BG-side calls in inline mode use this; GC
 and CURSOR DEL use this from main; deferred-mode reply_cb uses this
 from main. The mutex is what makes cross-thread cursor-table access
-safe; the single-owner-with-transfer model (BCC owns RSC during cycle,
-cursor owns between cycles, transfer at `BCC_New` / `OnFree` under the
-same mutex; `delete_mark` for `CURSOR DEL` during in-flight) is what
-makes RSC ownership safe across all paths.
+safe; the single-owner-with-transfer model (the cycle owns RSC via
+`bc->privdata` during a cycle, cursor owns between cycles, transfer
+at `RSC_BeginCycle` / `OnFree` under the same mutex; `delete_mark`
+for `CURSOR DEL` during in-flight) is what makes RSC ownership safe
+across all paths.
 
 ## 4. Why `lock_state` doesn't need cross-thread sync
 
 The lock state lives on `sctx`, which lives on `AREQ`, which is
 reachable from main during cycle setup and teardown. So *physically*
 main can reach it. The design forbids it from doing so during a
-shard/hybrid BCC cycle:
+shard/hybrid cycle:
 
 - `timeout_cb` (main, may run mid-cycle) explicitly does not call any
   lock primitive. It only sets `timedOut`, optionally writes the reply
@@ -156,16 +162,17 @@ shard/hybrid BCC cycle:
   handles the leak runs on the **same BG thread that acquired** — so
   even the recovery path is sound.
 
-For non-BCC main-thread paths (synchronous `FT.EXPLAIN`, etc.) main is
-the legitimate accessor. For coord BCCs the lock is never acquired at
-all. The design imposes no thread-id check; the cycle-boundary
-invariant carries the safety property.
+For synchronous main-thread paths (`FT.EXPLAIN`, etc.) outside any
+blocked-client cycle, main is the legitimate accessor. For coord
+cycles the lock is never acquired at all. The design imposes no
+thread-id check; the cycle-boundary invariant carries the safety
+property.
 
 For why the wrapper has **no refcount** (single-owner-with-transfer
-between `bcc->query` and `cursor->query`, with the existing
+between `bc->privdata` and `cursor->query`, with the existing
 `delete_mark` flag handling `CURSOR DEL` during in-flight), see
 [`blocked_client_refactor.md` §3.1.1](./blocked_client_refactor.md).
-For the `BlockedQueries` ↔ BCC observer relationship and why the list
+For the `BlockedQueries` ↔ RSC observer relationship and why the list
 uses a `pthread_key_t` sentinel today, see §5.1 and §5.2 of the same
 document.
 
@@ -174,8 +181,9 @@ document.
 `runRequestCycle` is a narrow construct: it wraps the BG work for
 shard and hybrid pipelines with `lock_state == UNSET` assertions
 before and after, plus a same-thread force-unlock safety net. It
-doesn't manage outcomes, doesn't write `bcc` fields, doesn't call
-`UnblockClient` (the BG work does that itself, as today).
+doesn't manage outcomes, doesn't write `rsc` fields beyond what the
+pipeline already does, and doesn't call `UnblockClient` (the BG work
+does that itself, as today).
 
 | Kind | BG thread | BG work | Wrapped? |
 | --- | --- | --- | --- |
@@ -192,8 +200,11 @@ Each shard/hybrid cycle:
 4. Post-assert `lock_state == SPEC_LOCK_UNSET` (force-unlock safety net
    on violation).
 
-Main then runs `reply_cb` (deferred mode) and `OnFree`. The cursor
-"park or free" decision is signaled by `bcc.reply.cursor` (today's
+Main then runs `reply_cb` (deferred mode) and `OnFree`. `OnFree`
+calls `RSC_EndCycle` first (`ChunkReplyState_Destroy`,
+`BlockedQueries_RemoveNode`, clear per-cycle fields), then resolves
+park-vs-free under the cursor mutex. The cursor "park or free"
+decision is signaled by `rsc->reply.cursor` (today's
 `storedReplyState.cursor` pattern) plus `QEXEC_S_ITERDONE` on AREQ —
 no separate outcome enum is needed.
 
@@ -209,10 +220,10 @@ For quick reference against the current code:
 | `Cursor.hybrid_ref` (`StrongRef`) + `Cursor.execState` (`AREQ*`) | Two parallel mechanisms | Single `RequestSyncCtx *query` field |
 | `BlockedQueryNode.privdata` (AREQ ref) + `freePrivData` | Registry owns an AREQ ref | Deleted; node carries only owned string snapshots |
 | `BlockedQueryNode` + `BlockedCursorNode` (two types) | Two structs, two AddX / RemoveX APIs | Single `BlockedNode` with `kind` discriminator; single AddNode / RemoveNode API |
-| AREQ `useReplyCallback` + `storedReplyState` | Two fields on AREQ; `useReplyCallback` mutated by `RSCursorReadCommand` | Encoded as `bcc.reply_cb == NULL` (immutable per cycle); `ChunkReplyState` lives on `bcc.reply` |
-| HybridRequest `useReplyCallback` + `storedReplyState` | Duplicated on HybridRequest | **Deleted.** Single `bcc.reply` slot covers AREQ and Hybrid alike. Sub-AREQs don't carry `ChunkReplyState`. |
-| BG-side `Cursor_Pause` / `Cursor_Free` | Inline mode: BG calls directly. Deferred mode: BG stashes cursor in `storedReplyState.cursor`, main acts in reply_cb. | Unchanged — cursor list mutex makes this thread-safe; single-owner-with-transfer on RSC (`bcc->query` ↔ `cursor->query`) plus the existing `delete_mark` flag for in-flight CURSOR DEL make it ownership-safe. No refcounting on the wrapper. |
+| AREQ `useReplyCallback` + `storedReplyState` | Two fields on AREQ; `useReplyCallback` mutated by `RSCursorReadCommand` | Encoded as `rsc->reply_cb == NULL` (fixed per cycle, set in `RSC_BeginCycle`); `ChunkReplyState` lives on `rsc->reply` |
+| HybridRequest `useReplyCallback` + `storedReplyState` | Duplicated on HybridRequest | **Deleted.** Single `rsc->reply` slot covers AREQ and Hybrid alike. Sub-AREQs don't carry `ChunkReplyState`. |
+| BG-side `Cursor_Pause` / `Cursor_Free` | Inline mode: BG calls directly. Deferred mode: BG stashes cursor in `storedReplyState.cursor`, main acts in reply_cb. | Unchanged — cursor list mutex makes this thread-safe; single-owner-with-transfer on RSC (`bc->privdata` ↔ `cursor->query`) plus the existing `delete_mark` flag for in-flight CURSOR DEL make it ownership-safe. No refcounting on the wrapper. |
 | `runRequestCycle` wrapper | (no equivalent; per-call-site teardown) | Shard + hybrid only. Coord paths skip the wrapper (no lock to assert about). |
 | `AREQ_Free`'s "if locked, unlock" branch | Present (silent UB if cross-thread) | Deleted; replaced by `RS_ASSERT(lock_state == UNSET)`. The actual safety net moved to `runRequestCycle` on the BG side. |
-| Coord BCCs in `BlockedQueries` | Not registered (invisible to FT.INFO) | Registered like shard BCCs (visible to watchdog) |
-| `BlockClientCtx` init-bag | Per-call-site init parameter struct | Deleted in Step 2 (no intermediate rename); `BlockedClientCtx_New` takes args directly |
+| Coord-side cycles in `BlockedQueries` | Not registered (invisible to FT.INFO) | Registered like shard cycles (visible to watchdog) |
+| `BlockClientCtx` init-bag | Per-call-site init parameter struct | Deleted in Step 2 (no intermediate rename); `RSC_BeginCycle` takes args directly. **No separate `BlockedClientCtx` type either** — per-cycle fields live on `RequestSyncCtx` itself. |
