@@ -754,10 +754,6 @@ int DistAggregateReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, in
     return REDISMODULE_OK;
   }
 
-  // AREQ_ReplyWithStoredResults disposes any cursor stashed in
-  // storedReplyState.cursor by runCursor: Pause when more rows remain,
-  // Free on QEXEC_S_ITERDONE. This covers both coord+FAIL and
-  // coord+RETURN_STRICT FT.CURSOR READ.
   AREQ_ReplyWithStoredResults(ctx, req);
 
   // Note: No AREQ_DecrRef here - CoordRequestCtx_Free releases the context's reference.
@@ -816,11 +812,18 @@ int DistCursorReadTimeoutReturnStrictClient(RedisModuleCtx *ctx, RedisModuleStri
     drainPartialResultsAfterTimeout(req);
     AREQ_ReplyWithStoredResults(ctx, req);
   } else {
-    // Error branch: BG bailed pre-pipeline through AREQ_ReplyOrStoreError (e.g.
-    // spec dropped at cursorRead). The error sits in storedReplyState.err and
-    // the bail path freed the local cursor handle directly, so
-    // storedReplyState.cursor is NULL here. Flush the error to the client
-    // (mirrors the QueryReplyCallback pattern).
+    // Error branch: BG signaled completion without storing results, i.e. it
+    // bailed pre-pipeline through AREQ_ReplyOrStoreError. The only such bail
+    // in cursorRead is the spec-dropped check guarded by
+    // `cursor_HasSpecWeakRef(cursor)` (aggregate_exec.c) — and coordinator
+    // cursors are created with a NULL spec_ref (see executePlan in this file:
+    // `StrongRef dummy_spec_ref = {.rm = NULL}` passed to AREQ_StartCursor),
+    // so on today's code paths this branch is unreachable for coord+
+    // RETURN_STRICT cursor reads. Kept for forward-compatibility: if a future
+    // change attaches a real WeakRef to coordinator cursors (or adds another
+    // pre-pipeline bail), the error sits in storedReplyState.err and the bail
+    // path freed the local cursor handle directly, so storedReplyState.cursor
+    // is NULL here. Mirrors the QueryReplyCallback error-flush pattern.
     QueryError *err = &req->storedReplyState.err;
     RS_ASSERT(QueryError_HasError(err));
     QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(err), 1, COORD_ERR_WARN);
