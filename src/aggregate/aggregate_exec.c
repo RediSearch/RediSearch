@@ -1168,13 +1168,9 @@ void AREQ_ReplyOrStoreError(AREQ *req, RedisModuleCtx *ctx, QueryError *status) 
     QueryError_CloneFrom(status, &req->storedReplyState.err);
     // Clear the original to avoid leaking heap-allocated strings.
     QueryError_ClearError(status);
-    // Wake any RETURN_STRICT timer waiting on aggregateResultsDone. The timer
-    // distinguishes this error-bail from a results-bail by storedReplyState.err
-    // (hasStoredResults stays false). No-op for FAIL callers.
-    // Currently unreachable: no coordinator caller of AREQ_ReplyOrStoreError
-    // reaches a point where the timer is actually waiting on the signal.
-    // Kept as a defensive invariant for any future coordinator error path
-    // that bails after the timer has begun waiting.
+    // Defensive: wake any RETURN_STRICT timer waiting on aggregateResultsDone.
+    // No current coord caller reaches here while a timer is waiting; kept as a
+    // forward-compat invariant for future error paths. No-op for FAIL callers.
     if (AREQ_RequiresThreadsSyncResults(req)) {
       AREQ_SignalAggregateResultsComplete(req);
     }
@@ -1857,12 +1853,8 @@ static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num) {
 #endif
 
   if (req->useReplyCallback) {
-    // Stash the cursor handle BEFORE sendChunk. sendChunk -> AREQ_StoreResults ->
-    // AREQ_SignalAggregateResultsComplete wakes the timeout_callback, which then
-    // calls AREQ_ReplyWithStoredResults and reads storedReplyState.cursor to
-    // pause/free the cursor. Stashing after sendChunk would expose a window in
-    // which the timer wakes from the signal, observes a NULL cursor handle, and
-    // skips disposal — leaving the still-checked-out cursor unpaused.
+    // Stash the cursor BEFORE sendChunk: sendChunk's signal can wake the
+    // timeout_callback, which reads storedReplyState.cursor to pause/free it.
     req->storedReplyState.cursor = cursor;
   }
 
@@ -1870,9 +1862,7 @@ static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num) {
   RedisSearchCtx_UnlockSpec(AREQ_SearchCtx(req)); // Verify that we release the spec lock
 
   if (req->useReplyCallback) {
-    // sendChunk returns early after storing results; QEXEC_S_ITERDONE is set by
-    // finishSendChunk inside the reply_callback. Disposal of the stashed cursor
-    // is owned by AREQ_ReplyWithStoredResults (reply / timeout paths).
+    // Disposal of the stashed cursor is owned by AREQ_ReplyWithStoredResults.
     return;
   }
 
@@ -1928,13 +1918,9 @@ static void cursorRead(RedisModuleCtx *ctx, Cursor *cursor, size_t count, bool b
     if (!StrongRef_Get(execution_ref)) {
       QueryError_SetWithoutUserDataFmt(&status, QUERY_ERROR_CODE_DROPPED_BACKGROUND,
                                        "The index was dropped while the cursor was idle");
-      // Cursor disposal ordering: Reply → Free. The cursor handle is local to
-      // this call (not yet stashed in storedReplyState.cursor — the stash
-      // happens after sendChunk in runCursor), so freeing it here doesn't
-      // race with any reply / timer consumer. AREQ_ReplyOrStoreError drops a
-      // partial-results / pre-pipeline error onto the reply path; Reply must
-      // come before Free since on legacy non-reqCtx paths the cursor holds
-      // the only AREQ ref and freeing first would UAF on req->useReplyCallback.
+      // Reply before Free: on non-reqCtx paths the cursor holds the
+      // only AREQ ref, so freeing first would UAF the req->useReplyCallback
+      // read inside AREQ_ReplyOrStoreError.
       AREQ_ReplyOrStoreError(req, ctx, &status);
       Cursor_Free(cursor);
       return;
@@ -2002,24 +1988,19 @@ static void cursorRead_ctx(CursorReadCtx *cr_ctx) {
 
 // Coord+RETURN_STRICT cursor read: take + reset + publish AREQ under a
 // single setRequestLock window so the timer can't observe a half-installed
-// state (§3.1). The cursor handle itself stays as a local until cursorRead
-// stashes it in storedReplyState.cursor after sendChunk; the timer only
-// reaches the cursor indirectly via AREQ_WaitForAggregateResultsComplete +
-// AREQ_ReplyWithStoredResults. Lock-ordering rule: reqCtx -> cursor table;
-// no other path takes the cursor table while holding reqCtx, so no inversion.
+// state. Lock-ordering rule: reqCtx -> cursor table; no other path takes
+// the cursor table while holding reqCtx.
 static inline int coordCursorReadReturnStrict(RedisModuleCtx *ctx, CoordRequestCtx *reqCtx,
                                               long long cid, long long count) {
   CoordRequestCtx_LockSetRequest(reqCtx);
   if (CoordRequestCtx_TimedOut(reqCtx)) {
-    // Timer already fired and replied via the RETURN_STRICT timer callback.
+    // Timer already fired and replied.
     CoordRequestCtx_UnlockSetRequest(reqCtx);
     return REDISMODULE_OK;
   }
   Cursor *cursor = Cursors_TakeForExecution(GetGlobalCursor(cid), cid);
   if (!cursor) {
-    // Cursor existed when CursorCommand validated the cid on the main
-    // thread but was destroyed before we took it on the worker -- e.g.
-    // idle timeout, concurrent FT.CURSOR DEL, or spec drop.
+    // Cursor was destroyed between CursorCommand's peek and our take
     CoordRequestCtx_UnlockSetRequest(reqCtx);
     QueryError err = QueryError_Default();
     QueryError_SetWithoutUserDataFmt(&err, QUERY_ERROR_CODE_GENERIC,

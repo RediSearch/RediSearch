@@ -765,12 +765,11 @@ int DistAggregateReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, in
 }
 
 // Coordinator FT.CURSOR READ timeout callback for the RETURN_STRICT policy.
-// Called on the main thread when the BC times out. Mirrors the structure of
-// `DistAggregateTimeoutReturnStrictClient` but without TryClaim — for the
-// cursor-read path BG's existing `(!TryClaim || TimedOut)` check at
-// startPipelineCommon (aggregate_exec.c:368-369) handles pipeline-side bails,
-// and pre-pipeline bails are signaled via the extended `AREQ_ReplyOrStoreError`
-// (§3.4). The timer waits unconditionally and branches on `hasStoredResults`.
+// Runs on the main thread when the BC times out. Unlike the FT.AGGREGATE
+// RETURN_STRICT path, no TryClaim here: BG's existing `(!TryClaim || TimedOut)`
+// check at startPipelineCommon handles pipeline-side bails, and pre-pipeline
+// bails are signaled via AREQ_ReplyOrStoreError. The timer waits and branches
+// on `hasStoredResults`.
 int DistCursorReadTimeoutReturnStrictClient(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   CoordRequestCtx *reqCtx = RedisModule_GetBlockedClientPrivateData(ctx);
   if (!reqCtx) {
@@ -778,56 +777,42 @@ int DistCursorReadTimeoutReturnStrictClient(RedisModuleCtx *ctx, RedisModuleStri
   }
   RS_ASSERT(reqCtx->type == COMMAND_AGGREGATE);
 
-  // Set TimedOut and read `req` under the same lock that gates BG's atomic
-  // TakeForExecution + SetRequest critical section (§3.1). This makes
-  // `req == NULL` a reliable proxy for "BG has not yet taken the cursor".
+  // Read `req` under the same lock that gates BG's TakeForExecution +
+  // SetRequest, so `req == NULL` reliably proxies "BG has not yet taken
+  // the cursor".
   CoordRequestCtx_LockSetRequest(reqCtx);
   CoordRequestCtx_SetTimedOut(reqCtx);
   AREQ *req = (AREQ *)CoordRequestCtx_GetRequest(reqCtx);
   CoordRequestCtx_UnlockSetRequest(reqCtx);
 
   if (!req) {
-    // Scenario 1: BG has NOT taken the cursor. It either hasn't run yet
-    // or hit the early TimedOut check before TakeForExecution and returned.
-    // No condvar signal will arrive — emit cursor-shaped empty + cid directly.
-    // The cursor stays paused at its prior position and is reusable on the
-    // user's next FT.CURSOR READ. Cid is trusted: CursorCommand (main thread)
-    // already verified `info.found` before arming the BC, so argv[3] is a
-    // syntactically and (at-arm-time) semantically valid cursor id.
+    // BG never took the cursor (or hit the early TimedOut check and bailed
+    // before taking). No condvar signal will arrive; reply directly with
+    // cursor-shaped empty + cid. Cid was validated by CursorCommand on the
+    // main thread before BC arming, so argv[3] is trusted.
     long long cid;
     int rc = RedisModule_StringToLongLong(argv[3], &cid);
     RS_ASSERT(rc == REDISMODULE_OK);
     return coord_cursor_read_reply_timeout_empty(ctx, cid);
   }
 
-  // Scenarios 2 & 3: BG has taken the cursor and SetRequest. Wake
-  // the abort channel unconditionally — in scenario 3 it unblocks BG from
-  // MRIterator_NextWithTimeout; in scenario 2 it is a no-op (nothing is
-  // waiting on the channel; BG will bail via the TimedOut check instead).
+  // BG has taken the cursor. Wake the abort channel — unblocks BG from
+  // MRIterator_NextWithTimeout if it's mid-pipeline; no-op otherwise.
   RequestSyncCtx_WakeAbortChannel(&req->syncCtx);
 
   // Sync with BG.
   AREQ_WaitForAggregateResultsComplete(req);
 
   if (req->storedReplyState.hasStoredResults) {
-    // Happy branch: drain anything queued before the deadline, serialize, and
-    // dispose of the cursor stashed in storedReplyState.cursor (Pause if more
-    // rows remain, Free on EOF) — handled inside AREQ_ReplyWithStoredResults.
+    // Drain anything queued before the deadline, then serialize and dispose
+    // the stashed cursor (Pause if more rows remain, Free on EOF) inside
+    // AREQ_ReplyWithStoredResults.
     drainPartialResultsAfterTimeout(req);
     AREQ_ReplyWithStoredResults(ctx, req);
   } else {
-    // Error branch: BG signaled completion without storing results, i.e. it
-    // bailed pre-pipeline through AREQ_ReplyOrStoreError. The only such bail
-    // in cursorRead is the spec-dropped check guarded by
-    // `cursor_HasSpecWeakRef(cursor)` (aggregate_exec.c) — and coordinator
-    // cursors are created with a NULL spec_ref (see executePlan in this file:
-    // `StrongRef dummy_spec_ref = {.rm = NULL}` passed to AREQ_StartCursor),
-    // so on today's code paths this branch is unreachable for coord+
-    // RETURN_STRICT cursor reads. Kept for forward-compatibility: if a future
-    // change attaches a real WeakRef to coordinator cursors (or adds another
-    // pre-pipeline bail), the error sits in storedReplyState.err and the bail
-    // path freed the local cursor handle directly, so storedReplyState.cursor
-    // is NULL here. Mirrors the QueryReplyCallback error-flush pattern.
+    // Pre-pipeline bail through AREQ_ReplyOrStoreError. Currently unreachable
+    // on coord+RETURN_STRICT (coordinator cursors have a NULL spec_ref so the
+    // only such bail in cursorRead can't fire); kept for forward-compat.
     QueryError *err = &req->storedReplyState.err;
     RS_ASSERT(QueryError_HasError(err));
     QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(err), 1, COORD_ERR_WARN);
@@ -835,8 +820,6 @@ int DistCursorReadTimeoutReturnStrictClient(RedisModuleCtx *ctx, RedisModuleStri
   }
   return REDISMODULE_OK;
 }
-
-
 
 /* ======================= DEBUG ONLY ======================= */
 void DEBUG_RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,

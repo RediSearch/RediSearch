@@ -197,16 +197,14 @@ Cursor *Cursors_TakeForExecution(CursorList *cl, uint64_t cid);
 typedef struct {
   /** Cached `queryTimeoutMS`. 0 means `TIMEOUT 0` on the originating
    * FT.AGGREGATE; maps to `RedisModule_BlockClient(timeoutMS=0)`. Use
-   * `found` to distinguish "no cursor" from "cursor exists with TIMEOUT 0";
-   * when `found == false` this field is 0. */
+   * `found` to distinguish "no cursor" from "cursor exists with TIMEOUT 0". */
   size_t queryTimeoutMS;
   /** Cached `timeoutPolicy`. Defaults to `TimeoutPolicy_Return` when the
    * cursor was not found (safe: the coord FAIL branch is then skipped). */
   RSTimeoutPolicy queryTimeoutPolicy;
-  /** True if the cursor was present in the lookup table at peek time.
-   * When false, all other fields hold their default values. Lets callers
-   * validate the cid up-front instead of deferring the "Cursor not found"
-   * report to the worker. */
+  /** True if the cursor was present in the lookup table at peek time; when
+   * false the other fields hold their defaults. Lets callers validate the
+   * cid up-front instead of deferring "Cursor not found" to the worker. */
   bool found;
 #ifdef ENABLE_ASSERT
   /** Today no hybrid cursor reaches this peek:

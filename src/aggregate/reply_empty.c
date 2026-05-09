@@ -211,10 +211,6 @@ int single_shard_common_query_reply_empty(RedisModuleCtx *ctx, RedisModuleString
     return ret;
 }
 
-
-// Coordinator empty cursor-shaped reply for FT.CURSOR READ on the RETURN_STRICT
-// timeout fast-path. Reuses `sendChunk_ReplyOnly_EmptyResults` via a minimal
-// AREQ scaffold; the original `cid` is preserved by setting `req->cursor_id`.
 int coord_cursor_read_reply_timeout_empty(RedisModuleCtx *ctx, long long cid) {
     AREQ *req = AREQ_New();
     QueryError status = QueryError_Default();

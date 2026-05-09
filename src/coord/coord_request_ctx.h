@@ -43,10 +43,8 @@ typedef struct CoordRequestCtx {
   // no request object to store them in yet. reply_callback checks this field.
   QueryError preRequestError;
   bool useReplyCallback;
-  // True if this context backs a coordinator FT.CURSOR READ on a RETURN_STRICT
-  // cursor. Distinguishes the new path from FAIL cursor reads (also use the
-  // reply_callback pattern). Set in CursorCommand before BC arming; never
-  // mutated afterwards.
+  // Distinguishes coord FT.CURSOR READ on a RETURN_STRICT. Set in
+  // CursorCommand before BC arming; never mutated afterwards.
   bool isCursorReadReturnStrict;
 } CoordRequestCtx;
 
@@ -105,10 +103,8 @@ void CoordRequestCtx_SetTimedOut(CoordRequestCtx *ctx);
 void CoordRequestCtx_SetUseReplyCallback(CoordRequestCtx *ctx, bool useReplyCallback);
 
 /**
- * Mark this context as backing a coordinator FT.CURSOR READ on a RETURN_STRICT
- * cursor. Set once in CursorCommand before BC arming; consulted by the
- * RSCursorReadCommand take-lock window and the reply / timer / disconnect
- * cursor-disposition paths.
+ * Mark/query this context as backing a coordinator FT.CURSOR READ on a
+ * RETURN_STRICT cursor. Set once in CursorCommand before BC arming.
  */
 void CoordRequestCtx_SetCursorReadReturnStrict(CoordRequestCtx *ctx, bool value);
 bool CoordRequestCtx_IsCursorReadReturnStrict(CoordRequestCtx *ctx);
