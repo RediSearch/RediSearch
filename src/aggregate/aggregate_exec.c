@@ -1910,24 +1910,8 @@ static void cursorRead(RedisModuleCtx *ctx, Cursor *cursor, size_t count, bool b
   QueryProcessingCtx *qctx = prepareForCursorRead(cursor, &hasLoader, &initClock, &reqFlags, &status);
   StrongRef execution_ref;
   bool has_spec = cursor_HasSpecWeakRef(cursor);
-#ifdef ENABLE_ASSERT
-  RedisModule_Log(ctx, "warning",
-                  "DEBUG cursorRead: useReplyCallback=%d has_spec=%d bg=%d",
-                  req->useReplyCallback, has_spec, bg);
-#endif
   // If the cursor is associated with a spec, e.g a coordinator ctx.
   if (has_spec) {
-#ifdef ENABLE_ASSERT
-    // Sync point (debug): park BG between SetRequest and the spec promote.
-    // Lets a test deterministically race a concurrent FT.DROPINDEX with the
-    // RETURN_STRICT timer's wait on aggregateResultsDone, exercising the
-    // signal-on-error path in AREQ_ReplyOrStoreError. Uses areq_timed_out so
-    // BG auto-releases once the timer flips TimedOut.
-    if (req->useReplyCallback) {
-      SyncPoint_WaitUntil(SYNC_POINT_BEFORE_CURSOR_READ_SPEC_PROMOTE,
-                          areq_timed_out, req);
-    }
-#endif
     execution_ref = IndexSpecRef_Promote(cursor->spec_ref);
     if (!StrongRef_Get(execution_ref)) {
       QueryError_SetWithoutUserDataFmt(&status, QUERY_ERROR_CODE_DROPPED_BACKGROUND,

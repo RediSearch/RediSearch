@@ -3146,11 +3146,12 @@ class TestCoordinatorTimeout:
 class TestCoordinatorTimeoutCursorReadResp2:
     """RESP2 coverage for RETURN_STRICT FT.CURSOR READ timeout reply shape.
 
-    Mirrors test_return_strict_timeout_in_pipeline_cursor_read but on a RESP2
-    connection: the empty cursor-read timeout reply is an outer two-element
+    Mirrors ``test_return_strict_timeout_in_pipeline_cursor_read_observed`` on
+    a RESP2 connection: the cursor-read timeout reply is an outer two-element
     array ``[results_array, cid]`` where ``results_array[0]`` is the
-    total_results long (0). RESP2 has no warnings array in the reply itself —
-    timeout is tracked only in the global warning metric.
+    total_results long, followed by the drained per-doc payloads. RESP2 has
+    no per-reply warnings array — timeout is tracked only in the global
+    warning metric.
     """
 
     def __init__(self):
@@ -3183,11 +3184,11 @@ class TestCoordinatorTimeoutCursorReadResp2:
         env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
         env.cmd(debug_cmd(), 'SYNC_POINT', 'ARM', sync_point)
 
-        result = []
+        replies = []
         try:
             t_query = threading.Thread(
                 target=call_and_store,
-                args=(env.cmd, ['FT.CURSOR', 'READ', 'idx', str(cursor_id)], result),
+                args=(env.cmd, ['FT.CURSOR', 'READ', 'idx', str(cursor_id)], replies),
                 daemon=True
             )
             t_query.start()
@@ -3204,20 +3205,24 @@ class TestCoordinatorTimeoutCursorReadResp2:
 
         t_query.join(timeout=10)
         env.assertFalse(t_query.is_alive(), message="Cursor read thread should have finished")
-        env.assertEqual(len(result), 1, message="Expected one reply collected")
+        env.assertEqual(len(replies), 1, message="Expected one reply collected")
+        reply = replies[0]
 
-        # RESP2 cursor reply: [results_array, cid]; results_array[0] is the
-        # total_results long. There is no per-reply warnings array.
-        outer = result[0]
-        env.assertEqual(len(outer), 2,
-                        message=f"Expected RESP2 [results, cid] tuple, got {outer!r}")
-        results_array, cid = outer[0], outer[1]
+        # RESP2 cursor reply: [results_array, cid];
+        env.assertEqual(len(reply), 2,
+                        message=f"reply={reply!r}")
+        env.debugPrint(f"{replies[0]}", force=True)
+        results_array, cid = reply[0], reply[1]
         env.assertEqual(cid, cursor_id,
-                        message=f"RESP2 cursor id should be preserved on timeout, got {cid}")
-        # The short-circuit at the top of rpnetNext bypasses any buffered rows,
-        # so the timed-out reply is the empty RESP2 envelope: [[0], cid].
-        env.assertEqual(results_array, [0],
-                        message=f"RESP2 results_array must be [0] on timeout, got {results_array}")
+                        message=f"reply={reply!r}")
+        # BG parked at BeforeRPNetNext returns TIMEDOUT before emitting rows
+        # itself, but ``drainPartialResultsAfterTimeout`` then pops up to
+        # ``chunk_size`` rows out of the channel/sorter buffer into the
+        # timed-out reply. RESP2 envelope is [total_results, *doc_payloads]
+        # so the total length is 1 + chunk_size.
+        chunk_size = 10  # matches _setup_return_strict_cursor_state default
+        env.assertEqual(len(results_array), 1 + chunk_size,
+                        message=f"reply={reply!r}")
 
         # Coord-side warning metric still bumps under RESP2.
         after_info = info_modules_to_dict(env)
