@@ -38,6 +38,7 @@
 #include "ext/debug_scorers.h"
 #include "query_error.h"
 #include "doc_id_meta.h"
+#include "coord/rmr/rmr.h"
 
 DebugCTX globalDebugCtx = {0};
 
@@ -119,6 +120,23 @@ bool StoreResultsDebugCtx_IsPaused(void) {
 
 void StoreResultsDebugCtx_SetPause(bool pause) {
   atomic_store(&globalStoreResultsDebugCtx.pause, pause);
+}
+
+// Tracks the currently active coordinator MRIterator. Set by RPNet after the
+// iterator is created, cleared before it is released. A simple pointer is
+// sufficient since tests only run one blocked aggregate at a time.
+static _Atomic(struct MRIterator *) globalDebugBgIterator = NULL;
+
+void DebugBgIterator_Set(struct MRIterator *it) {
+  atomic_store_explicit(&globalDebugBgIterator, it, memory_order_release);
+}
+
+void DebugBgIterator_Clear(struct MRIterator *it) {
+  // CAS so a stale clear (if iterators ever overlapped) cannot wipe the
+  // pointer set by a newer iterator.
+  struct MRIterator *expected = it;
+  atomic_compare_exchange_strong_explicit(&globalDebugBgIterator, &expected, NULL,
+                                          memory_order_release, memory_order_relaxed);
 }
 
 // ============================================================================
@@ -247,6 +265,20 @@ void SyncPoint_WaitUntil(const char *name, SyncPointStopFn stop_fn, void *arg) {
     usleep(1000);
   }
   atomic_fetch_sub(&sp->waiting, 1);
+}
+
+static _Atomic uint32_t g_pendingSpecWriters = 0;
+
+void PendingSpecWriters_Incr(void) {
+  atomic_fetch_add_explicit(&g_pendingSpecWriters, 1, memory_order_relaxed);
+}
+
+void PendingSpecWriters_Decr(void) {
+  atomic_fetch_sub_explicit(&g_pendingSpecWriters, 1, memory_order_relaxed);
+}
+
+uint32_t PendingSpecWriters_Get(void) {
+  return atomic_load_explicit(&g_pendingSpecWriters, memory_order_relaxed);
 }
 
 // Global hybrid store cursors debug context (for HREQ cursor storage only)
@@ -385,7 +417,7 @@ DEBUG_COMMAND(DumpTerms) {
   int dist = 0;
   size_t termLen;
 
-  RedisModule_ReplyWithArray(ctx, sctx->spec->terms->size);
+  RedisModule_ReplyWithArray(ctx, Trie_Size(sctx->spec->terms));
 
   TrieIterator *it = Trie_Iterate(sctx->spec->terms, "", 0, 0, 1);
   while (TrieIterator_Next(it, &rstr, &slen, NULL, &score, NULL, &dist)) {
@@ -722,7 +754,7 @@ DEBUG_COMMAND(DumpSuffix) {
     long resultSize = 0;
 
     // iterate trie and reply with terms
-    TrieIterator *it = TrieNode_Iterate(suffix->root, NULL, NULL, NULL);
+    TrieIterator *it = Trie_IterateAll(suffix);
     rune *rstr;
     t_len len;
     float score;
@@ -2247,6 +2279,38 @@ DEBUG_COMMAND(getIsRPPaused) {
   return RedisModule_ReplyWithLongLong(ctx, QueryDebugCtx_IsPaused());
 }
 
+
+int parseDebugParamsCount(RedisModuleString **argv, int argc, QueryError *status, unsigned long long *debug_params_count) {
+    // Verify DEBUG_PARAMS_COUNT exists in its expected position (second to last argument)
+    if (argc < 2) {
+      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "DEBUG_PARAMS_COUNT arg is missing");
+      return 1;
+    }
+
+    size_t n;
+    const char *arg = RedisModule_StringPtrLen(argv[argc - 2], &n);
+    if (!(strncasecmp(arg, "DEBUG_PARAMS_COUNT", n) == 0)) {
+      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "DEBUG_PARAMS_COUNT arg is missing or not in the expected position");
+      return 1;
+    }
+
+    // The count of debug params is the last argument in argv
+    unsigned long long count = 0;
+    if (RedisModule_StringToULongLong(argv[argc - 1], &count) != REDISMODULE_OK || count == 0) {
+      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Invalid DEBUG_PARAMS_COUNT count");
+      return 1;
+    }
+
+    if (count > (unsigned long long)(argc - 2)) {
+      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS,
+                          "DEBUG_PARAMS_COUNT exceeds the number of available arguments");
+      return 1;
+    }
+
+    *debug_params_count = count;
+    return 0;
+}
+
 #ifdef ENABLE_ASSERT
 /**
  * FT.DEBUG QUERY_CONTROLLER SET_PAUSE_BEFORE_REDUCE <N>
@@ -2594,6 +2658,22 @@ DEBUG_COMMAND(syncPoint) {
     return RedisModule_ReplyWithSimpleString(ctx, "OK");
   }
   return RedisModule_ReplyWithError(ctx, "Unknown SYNC_POINT subcommand. Valid: ARM, SIGNAL, IS_WAITING, IS_ARMED, CLEAR");
+}
+
+/**
+ * FT.DEBUG BG_PENDING_REPLIES
+ * Returns the `pending` shard counter of the currently active coordinator
+ * MRIterator (the number of shards that have not yet delivered their final
+ * reply / EOF). Returns -1 when no iterator is active. Tests use this to
+ * deterministically wait until every shard reply has been admitted into the
+ * coordinator's channel before firing CLIENT UNBLOCK TIMEOUT.
+ */
+DEBUG_COMMAND(bgPendingReplies) {
+  if (!debugCommandsEnabled(ctx)) return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  if (argc != 2) return RedisModule_WrongArity(ctx);
+  struct MRIterator *it = atomic_load_explicit(&globalDebugBgIterator, memory_order_acquire);
+  long long pending = it ? (long long)MRIterator_GetPending(it) : -1;
+  return RedisModule_ReplyWithLongLong(ctx, pending);
 }
 
 /**
@@ -2958,6 +3038,7 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
 // Add new assert-only commands to this array instead of hard-coding #ifdef blocks
 static DebugCommandType assertOnlyCommands[] = {
     {"SYNC_POINT", syncPoint},
+    {"BG_PENDING_REPLIES", bgPendingReplies},
     {NULL, NULL}};
 #endif
 

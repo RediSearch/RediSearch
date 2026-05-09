@@ -100,6 +100,10 @@ static int rpnetNext_Start(ResultProcessor *rp, SearchResult *r) {
   // this reader if it blocks in MRIterator_NextWithTimeout after AREQ timed out.
   // Paired with RequestSyncCtx_UnregisterAbortWakeChannel in rpnetFree.
   RequestSyncCtx_RegisterAbortWakeChannel(&nc->areq->syncCtx, MRIterator_GetChannel(it));
+#ifdef ENABLE_ASSERT
+  // Expose the iterator to FT.DEBUG BG_PENDING_REPLIES; cleared in rpnetFree.
+  DebugBgIterator_Set(it);
+#endif
   nc->base.Next = rpnetNext;
   return rpnetNext(rp, r);
 }

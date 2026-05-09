@@ -11,6 +11,7 @@
 
 #include <unistd.h>
 #include <pthread.h>
+#include "redismodule.h"
 #include "util/khash.h"
 #include "util/array.h"
 #include "search_ctx.h"
@@ -102,6 +103,13 @@ typedef struct CursorList {
    * This is used as a hint to avoid excessive sweeps.
    */
   uint64_t nextIdleTimeoutNs;
+
+  /**
+   * Module timer that fires at `nextIdleTimeoutNs` to reap expired idle
+   * cursors without requiring further client traffic. Equal to
+   * `IDLE_SWEEP_TIMER_NONE` when no timer is currently armed.
+   */
+  RedisModuleTimerID idleSweepTimerId;
 
   /** Is it an internal coordinator cursor or a user cursor */
   bool is_coord;

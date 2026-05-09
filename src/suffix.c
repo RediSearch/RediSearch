@@ -44,14 +44,12 @@ void addSuffixTrie(Trie *trie, const char *str, uint32_t len) {
   runeBuf buf;
   rune *runes = runeBufFill(str, len, &buf, &rlen);
 
-  TrieNode *trienode = TrieNode_Get(trie->root, runes, rlen, 1, NULL);
+  TrieNode *trienode = Trie_GetNode(trie, runes, rlen, true, NULL);
   suffixData *data = NULL;
   if (trienode) {
-    // suffixData *node = TrieNode_GetValue(trie->root, runes, rlen, 1);
     data = Suffix_GetData(trienode);
     // if string was added in the past, skip
     if (data && data->term) {
-      //rm_free(runes);
       runeBufFree(&buf);
       return;
     }
@@ -61,7 +59,7 @@ void addSuffixTrie(Trie *trie, const char *str, uint32_t len) {
   if (!data) {
     suffixData newdata = createSuffixNode(copyStr, 1);
     RSPayload payload = { .data = (char*)&newdata, .len = sizeof(newdata) };
-    TrieNode_Add(&trie->root, runes, rlen, &payload, 1, ADD_REPLACE, trie->freecb, 0);
+    Trie_InsertRuneNoSize(trie, runes, rlen, 1, ADD_REPLACE, &payload, 0);
   } else {
     RS_LOG_ASSERT(!data->term, "can't reach here");
     data->term = copyStr;
@@ -71,7 +69,7 @@ void addSuffixTrie(Trie *trie, const char *str, uint32_t len) {
   // Save string copy to all suffixes of it
   // If it exists, move to the next field
   for (int j = 1; j < len - MIN_SUFFIX + 1; ++j) {
-    TrieNode *trienode = TrieNode_Get(trie->root, runes + j, rlen - j, 1, NULL);
+    TrieNode *trienode = Trie_GetNode(trie, runes + j, rlen - j, true, NULL);
 
     data = Suffix_GetData(trienode);
     if (!trienode || !trienode->payload) {
@@ -96,25 +94,18 @@ static void removeSuffix(const char *str, size_t rlen, arrayof(char*) array) {
 
 void deleteSuffixTrie(Trie *trie, const char *str, uint32_t len) {
   size_t rlen = 0;
-  //rune *runes = strToRunesN(str, len, &rlen);
-
   runeBuf buf;
   rune *runes = runeBufFill(str, len, &buf, &rlen);
-
-  //rune runes[len];
-  //size_t rlen = strToRunesN(str, len, &runes);
   char *oldTerm = NULL;
 
   // iterate all matching terms and remove word
   for (int j = 0; j < len - MIN_SUFFIX + 1; ++j) {
-    TrieNode *node = TrieNode_Get(trie->root, runes + j, rlen - j, 1, NULL);
+    TrieNode *node = Trie_GetNode(trie, runes + j, rlen - j, true, NULL);
     suffixData *data = Suffix_GetData(node);
     // suffix trie is shared between all text fields in index, even if they don't use it.
     // if the trie is owned by other fields and not any one containing this suffix,
     // then failure to find the suffix is not an error. just move along.
     if (!data) continue;
-    // RS_LOG_ASSERT(data, "all suffixes must exist");
-    // suffixData *data = TrieMap_Find(trie, str + j, len - j);
     if (j == 0) {
       // keep pointer to word string to free after it was found in al sub tokens.
       oldTerm = data->term;
@@ -168,14 +159,14 @@ static int recursiveAdd(TrieNode *node, SuffixCtx *sufCtx) {
 void Suffix_IterateContains(SuffixCtx *sufCtx) {
   if (sufCtx->type == SUFFIX_TYPE_CONTAINS) {
     // get string from node and children
-    TrieNode *node = TrieNode_Get(sufCtx->root, sufCtx->rune, sufCtx->runelen, 0, NULL);
+    TrieNode *node = Trie_GetNode(sufCtx->trie, sufCtx->rune, sufCtx->runelen, false, NULL);
     if (!node) {
       return;
     }
     recursiveAdd(node, sufCtx);
   } else if (sufCtx->type == SUFFIX_TYPE_SUFFIX) {
     // exact match. Get strings from a single node
-    TrieNode *node = TrieNode_Get(sufCtx->root, sufCtx->rune, sufCtx->runelen, 1, NULL);
+    TrieNode *node = Trie_GetNode(sufCtx->trie, sufCtx->rune, sufCtx->runelen, true, NULL);
     suffixData *data = Suffix_GetData(node);
     if (data) {
       processSuffixData(data, sufCtx);
@@ -339,8 +330,8 @@ int Suffix_IterateWildcard(SuffixCtx *sufCtx) {
   }
   token[toklen] = (rune)'\0';
 
-  TrieNode_IterateWildcard(sufCtx->root, token, toklen, Suffix_CB_Wildcard, sufCtx, sufCtx->timeout,
-                           sufCtx->skipTimeoutChecks);
+  Trie_IterateWildcard(sufCtx->trie, token, toklen, Suffix_CB_Wildcard, sufCtx, sufCtx->timeout,
+                       sufCtx->skipTimeoutChecks);
   return 1;
 }
 

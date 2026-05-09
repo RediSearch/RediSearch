@@ -143,7 +143,7 @@ pub unsafe extern "C" fn TrieMap_Add(
 ///   and the pointer must not be dereferenced.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn TrieMap_Find(
-    t: *mut TrieMap,
+    t: *const TrieMap,
     str: *const c_char,
     len: tm_len_t,
 ) -> *mut c_void {
@@ -153,7 +153,7 @@ pub unsafe extern "C" fn TrieMap_Find(
     // state the caller is to ensure that the pointer `t` is
     // a valid TrieMap obtained from `NewTrieMap` and cannot be NULL.
     // If that invariant is upheld, then the following line is sound.
-    let TrieMap(trie) = unsafe { &mut *t };
+    let TrieMap(trie) = unsafe { &*t };
 
     let key: &[u8] = if len > 0 {
         debug_assert!(!str.is_null(), "str cannot be NULL if len > 0");
@@ -324,14 +324,14 @@ pub unsafe extern "C" fn TrieMap_MemUsage(t: *mut TrieMap) -> usize {
 ///
 /// The following invariants must be upheld when calling this function:
 /// - `t` must point to a valid TrieMap obtained from [`NewTrieMap`] and cannot be NULL.
-pub unsafe extern "C" fn TrieMap_NUniqueKeys(t: *mut TrieMap) -> usize {
+pub unsafe extern "C" fn TrieMap_NUniqueKeys(t: *const TrieMap) -> usize {
     debug_assert!(!t.is_null(), "t cannot be NULL");
 
     // SAFETY: The safety requirements of this function
     // state the caller is to ensure that the pointer `t` is
     // a valid TrieMap obtained from `NewTrieMap` and cannot be NULL.
     // If that invariant is upheld, then the following line is sound.
-    let TrieMap(trie) = unsafe { &mut *t };
+    let TrieMap(trie) = unsafe { &*t };
     trie.n_unique_keys()
 }
 
@@ -344,13 +344,13 @@ pub unsafe extern "C" fn TrieMap_NUniqueKeys(t: *mut TrieMap) -> usize {
 ///
 /// The following invariants must be upheld when calling this function:
 /// - `t` must point to a valid TrieMap obtained from [`NewTrieMap`] and cannot be NULL.
-pub unsafe extern "C" fn TrieMap_NNodes(t: *mut TrieMap) -> usize {
+pub unsafe extern "C" fn TrieMap_NNodes(t: *const TrieMap) -> usize {
     debug_assert!(!t.is_null(), "t cannot be NULL");
 
     // SAFETY: The safety requirements of this function
     // state the caller is to ensure that the pointer `t` is
     // a valid TrieMap obtained from `NewTrieMap` and cannot be NULL.
     // If that invariant is upheld, then the following line is sound.
-    let TrieMap(trie) = unsafe { &mut *t };
+    let TrieMap(trie) = unsafe { &*t };
     trie.n_nodes()
 }

@@ -4505,7 +4505,7 @@ int DistSearchCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   // and must be excluded from the search query parsing to avoid false keyword matches.
   int parse_argc = argc;
   if (isDebug) {
-    AREQ_Debug_params debug_params = parseDebugParamsCount(argv, argc, &status);
+    AREQ_Debug_params debug_params = parseAggregateDebugParamsCount(argv, argc, &status);
     if (QueryError_HasError(&status)) {
       QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&status), 1, COORD_ERR_WARN);
       return QueryError_ReplyAndClear(ctx, &status);
@@ -4947,7 +4947,7 @@ static int DEBUG_FlatSearchCommandHandler(struct MRCtx *mrctx, RedisModuleBlocke
   req->coordQueueTime = handlerCtx->coordQueueTime;
 
   // Parse debug params to extract the debug argument count
-  AREQ_Debug_params debug_params = parseDebugParamsCount(argv, argc, &status);
+  AREQ_Debug_params debug_params = parseAggregateDebugParamsCount(argv, argc, &status);
 
   if (QueryError_HasError(&status)) {
     RS_ASSERT(debug_params.debug_params_count == 0);

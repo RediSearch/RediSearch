@@ -116,46 +116,47 @@ protected:
 
 // ====== Happy path tests ======
 
-// TODO: Re-enable (drop the `DISABLED_` prefix) and remove the companion
-// `FieldsLoadAllRejected` test below once `*` in FIELDS is supported by the
-// COLLECT parser. Today the parser unconditionally rejects `*` in FIELDS in
-// both modes (see `src/aggregate/reducers/collect.c`, the
-// `if (data.load_all)` branch).
-TEST_F(CollectParserTest, DISABLED_FieldsLoadAll) {
+TEST_F(CollectParserTest, FieldsLoadAll) {
   parseOkRemote({"FIELDS", "*"}, [](Reducer *r) {
-    EXPECT_TRUE(CollectReducer_HasLoadAll(r));
+    EXPECT_TRUE(CollectReducer_IsLoadAll(r));
     EXPECT_EQ(CollectReducer_GetFieldKeysLen(r), 0u);
   });
   parseOkLocal({"FIELDS", "*"});
-}
-
-// Documents the current behavior: `*` in FIELDS is rejected by the parser in
-// both remote and local modes with the same message. Remove once LoadAll
-// support lands and `DISABLED_FieldsLoadAll` is re-enabled.
-TEST_F(CollectParserTest, FieldsLoadAllRejected) {
-  expectError({"FIELDS", "*"}, "COLLECT does not yet support `*` in FIELDS");
 }
 
 TEST_F(CollectParserTest, FieldsWithCount) {
   registerKeys({"a", "b"});
   Reducer *r = parseCollectOk({"FIELDS", "2", "@a", "@b"});
   ASSERT_NE(r, nullptr);
-  EXPECT_FALSE(CollectReducer_HasLoadAll(r));
+  EXPECT_FALSE(CollectReducer_IsLoadAll(r));
   EXPECT_EQ(CollectReducer_GetFieldKeysLen(r), 2u);
   r->Free(r);
 }
 
-// TODO: Re-enable (drop the `DISABLED_` prefix) once `*` in FIELDS is supported
-// by the COLLECT parser.
-TEST_F(CollectParserTest, DISABLED_FieldsLoadAllWithSortBy) {
+TEST_F(CollectParserTest, FieldsLoadAllWithSortBy) {
   registerKeys({"price"});
   Reducer *r = parseCollectOk({
       "FIELDS", "*",
       "SORTBY", "1", "@price",
   });
   ASSERT_NE(r, nullptr);
-  EXPECT_TRUE(CollectReducer_HasLoadAll(r));
+  EXPECT_TRUE(CollectReducer_IsLoadAll(r));
   EXPECT_EQ(CollectReducer_GetSortKeysLen(r), 1u);
+  r->Free(r);
+}
+
+TEST_F(CollectParserTest, LocalLoadAllAccepted) {
+  const RLookupKey *inputKey = RLookup_GetKey_Write(&lk, "remote_collect", RLOOKUP_F_NOFLAGS);
+  std::vector<const char *> args = {"FIELDS", "*"};
+  QueryError status = QueryError_Default();
+
+  Reducer *r = parseCollect(args, &status, true, inputKey);
+
+  ASSERT_NE(r, nullptr) << QueryError_GetUserError(&status);
+  // Use the local-side accessor; the remote `CollectReducer_IsLoadAll` would
+  // read the wrong struct offset for a local reducer.
+  EXPECT_TRUE(CollectReducer_IsLocalLoadAll(r));
+  QueryError_ClearError(&status);
   r->Free(r);
 }
 
@@ -339,7 +340,7 @@ TEST_F(CollectParserTest, JsonPathField) {
   Reducer *r = parseCollectOk({"FIELDS", "1", "$..price"});
   ASSERT_NE(r, nullptr);
   EXPECT_EQ(CollectReducer_GetFieldKeysLen(r), 1u);
-  EXPECT_FALSE(CollectReducer_HasLoadAll(r));
+  EXPECT_FALSE(CollectReducer_IsLoadAll(r));
   r->Free(r);
 }
 
