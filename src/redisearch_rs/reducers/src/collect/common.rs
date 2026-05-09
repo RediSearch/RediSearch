@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! Shared COLLECT reducer state.
+//! Shared COLLECT reducer state and utilities.
 
 use bumpalo::Bump;
 
@@ -26,16 +26,14 @@ pub struct CollectCommon {
     pub(super) arena: Bump,
     /// Bit `i` is 0 for DESC and 1 for ASC, matching `SORTASCMAP_INIT`.
     pub(super) sort_asc_map: u64,
-    pub(super) limit: Option<(u64, u64)>,
 }
 
 impl CollectCommon {
-    pub fn new(sort_asc_map: u64, limit: Option<(u64, u64)>) -> Self {
+    pub fn new(sort_asc_map: u64) -> Self {
         Self {
             reducer: Reducer::new(),
             arena: Bump::new(),
             sort_asc_map,
-            limit,
         }
     }
 }

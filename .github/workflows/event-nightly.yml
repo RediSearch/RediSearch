@@ -10,6 +10,13 @@ on:
 # TODO: Use RedisJSON's `master` branch when testing on nightly
 
 jobs:
+  lint:
+    permissions:
+      contents: read
+      packages: write
+    uses: ./.github/workflows/task-lint.yml
+    secrets: inherit
+
   test-all-platforms:
     permissions:
       contents: read
@@ -29,7 +36,7 @@ jobs:
 
 
   notify-failure:
-    needs: [test-all-platforms, micro-benchmarks]
+    needs: [lint, test-all-platforms, micro-benchmarks]
     if: failure()
     runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
     steps:

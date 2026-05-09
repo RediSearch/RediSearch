@@ -32,10 +32,11 @@
 // Exactly one population pattern is used per parse, selected by
 // `options->is_local`:
 //   - is_local == true  : `field_names`, `sort_names`, `input_key` are set;
-//                          `field_keys`, `sort_keys`, `load_all` are not.
-//   - is_local == false : `field_keys`, `sort_keys`, `load_all` are set;
+//                          `field_keys`, `sort_keys` are not.
+//   - is_local == false : `field_keys`, `sort_keys` are set;
 //                          `field_names`, `sort_names`, `input_key` are not.
-// `sortAscMap` and the `limit_*` triple are shared across both modes.
+// `load_all`, `sortAscMap`, and the `limit_*` triple are shared across
+// both modes.
 typedef struct {
   arrayof(const RLookupKey *) field_keys;   // remote-only
   arrayof(const RLookupKey *) sort_keys;    // remote-only
@@ -392,13 +393,6 @@ Reducer *RDCRCollect_New(const ReducerOptions *options) {
     data.input_key = options->input_key;
   }
 
-  if (data.load_all) {
-    QueryError_SetError(options->status, QUERY_ERROR_CODE_PARSE_ARGS,
-      "COLLECT does not yet support `*` in FIELDS");
-    CollectParseData_Free(&data);
-    return NULL;
-  }
-
   // Rust copies the mode-specific parsed data and wires the vtable.
   Reducer *rbase;
   if (options->is_local) {
@@ -418,7 +412,7 @@ Reducer *RDCRCollect_New(const ReducerOptions *options) {
     rbase = CollectReducer_CreateRemote(
       data.field_keys,
       data.field_keys ? array_len(data.field_keys) : 0,
-      data.load_all,
+      data.load_all ? options->srclookup : NULL,
       data.sort_keys,
       data.sort_keys ? array_len(data.sort_keys) : 0,
       data.sortAscMap,

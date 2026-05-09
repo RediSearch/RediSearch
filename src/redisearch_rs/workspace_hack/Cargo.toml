@@ -70,6 +70,7 @@ regex-syntax = { version = "0.8" }
 semver = { version = "1", features = ["serde"] }
 serde = { version = "1", features = ["alloc", "derive"] }
 serde_core = { version = "1", features = ["alloc"] }
+serde_derive = { version = "1" }
 serde_json = { version = "1", features = ["unbounded_depth"] }
 stable_deref_trait = { version = "1", default-features = false, features = ["alloc"] }
 syn-dff4ba8e3ae991db = { package = "syn", version = "1", features = ["extra-traits", "full", "visit-mut"] }
