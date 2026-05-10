@@ -14,23 +14,6 @@
 //! comparator only reads the [`EntryKey`] half. The split lets the heap
 //! defer payload projection until a candidate's survival is confirmed.
 //!
-//! ## "Best = max" convention
-//!
-//! `cmp_fields` returns [`Ordering::Greater`] for the side that should appear
-//! *first* in the result (matching `SearchResult_CmpByFields` and the C
-//! `RPSorter`'s `mmh_pop_max` consumer). [`EntryKey`] delegates directly,
-//! so under [`MinMaxHeap`]:
-//!
-//! - [`peek_max`][min_max_heap::MinMaxHeap::peek_max] returns the *best*
-//!   surviving candidate.
-//! - [`peek_min`][min_max_heap::MinMaxHeap::peek_min] returns the *worst*
-//!   surviving candidate (the one to evict next).
-//! - [`push_pop_min`][min_max_heap::MinMaxHeap::push_pop_min] is the
-//!   bounded skip-or-replace primitive.
-//! - [`drain_desc`][min_max_heap::MinMaxHeap::drain_desc] yields entries
-//!   best→worst, matching the SORTBY result order.
-//! - [`iter`][min_max_heap::MinMaxHeap::iter] gives an unsorted view
-//!
 //! ## Deferred projection
 //!
 //! [`EntryKey`] owns a *snapshot* of the sort-key values, severed from the
