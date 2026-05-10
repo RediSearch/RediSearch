@@ -48,9 +48,31 @@ jobs:
           import subprocess
 
           WORKFLOW_FILE = "event-periodic-master-validation.yml"
+          VALIDATION_JOB_PREFIX = "test-selected-platforms"
 
           def gh_api(path):
               return json.loads(subprocess.check_output(["gh", "api", path], text=True))
+
+          def validation_passed(run):
+              jobs = gh_api(
+                  f"/repos/{repository}/actions/runs/{run['id']}/jobs"
+                  "?per_page=100"
+              ).get("jobs", [])
+              return any(
+                  job.get("name", "").startswith(VALIDATION_JOB_PREFIX)
+                  and job.get("conclusion") == "success"
+                  for job in jobs
+              )
+
+          def last_validated_sha():
+              runs = gh_api(
+                  f"/repos/{repository}/actions/workflows/{WORKFLOW_FILE}/runs"
+                  "?branch=master&status=success&per_page=20"
+              ).get("workflow_runs", [])
+              for run in runs:
+                  if validation_passed(run):
+                      return run.get("head_sha", "")
+              return ""
 
           def decide(value, message, covered_prs):
               covered = ", ".join(f"#{pr}" for pr in covered_prs) if covered_prs else "none"
@@ -69,11 +91,7 @@ jobs:
           max_merged_prs = int(os.environ["MAX_MERGED_PRS"])
           nightly_sweep = os.environ["NIGHTLY_SWEEP"].lower() == "true"
 
-          last_runs = gh_api(
-              f"/repos/{repository}/actions/workflows/{WORKFLOW_FILE}/runs"
-              "?branch=master&status=success&per_page=1"
-          ).get("workflow_runs", [])
-          last_successful_sha = last_runs[0].get("head_sha", "") if last_runs else ""
+          last_successful_sha = last_validated_sha()
 
           if last_successful_sha == current_sha and not force:
               decide(False, "Master has not changed since the last successful periodic validation.", [])
