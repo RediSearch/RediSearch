@@ -34,24 +34,26 @@ int GetRedisErrorCodeLength(const char* error);
 const char *ExtractKeyName(const char *s, size_t *len, QueryError *status, bool strictPrefix, const char *context);
 
 /**
- * Validate `(offset, count)` against `max_results` and check that
+ * Validate `(offset, count)` against independent caps and check that
  * `offset + count` does not overflow.
  *
- * Precondition: `max_results <= LLONG_MAX`. The overflow check below relies
- * on this so that `(uint64_t)LLONG_MAX - count` does not underflow when
- * `count > LLONG_MAX`. All current callers cap `max_results` at
+ * Precondition: both `max_offset` and `max_count` must be <= LLONG_MAX.
+ * The overflow check relies on `max_count <= LLONG_MAX` so that
+ * `(uint64_t)LLONG_MAX - count` does not underflow after the count guard
+ * passes. All current callers cap their maxima at
  * `MAX_AGGREGATE_REQUEST_RESULTS` (= 1ULL << 31), well within the bound.
- * Violation is asserted in debug builds.
+ * Violations are asserted in debug builds.
  *
  * On failure sets `*status` and returns false:
- *   - offset > max -> "OFFSET exceeds maximum of <max>"
+ *   - offset > max_offset -> "OFFSET exceeds maximum of <max_offset>"
  *     with QUERY_ERROR_CODE_LIMIT
- *   - count > max  -> "LIMIT exceeds maximum of <max>"
+ *   - count > max_count   -> "LIMIT exceeds maximum of <max_count>"
  *     with QUERY_ERROR_CODE_LIMIT
- *   - offset + count > LLONG_MAX  -> "LIMIT offset + count overflow"
+ *   - offset + count > LLONG_MAX -> "LIMIT offset + count overflow"
  *     with QUERY_ERROR_CODE_PARSE_ARGS
  */
 bool ValidateLimitBounds(uint64_t offset, uint64_t count,
-                         uint64_t max_results, QueryError *status);
+                         uint64_t max_offset, uint64_t max_count,
+                         QueryError *status);
 
 #endif

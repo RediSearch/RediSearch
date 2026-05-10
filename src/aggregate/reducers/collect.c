@@ -292,7 +292,7 @@ static void handleCollectLimit(ArgParser *parser, const void *value, void *user_
       "LIMIT count must be a positive integer");
     return;
   }
-  if (!ValidateLimitBounds(offset, count, MAX_AGGREGATE_REQUEST_RESULTS, status)) {
+  if (!ValidateLimitBounds(offset, count, MAX_AGGREGATE_REQUEST_RESULTS, MAX_AGGREGATE_REQUEST_RESULTS, status)) {
     return;
   }
 

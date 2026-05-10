@@ -285,9 +285,10 @@ static int handleCommonArgs(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryEr
       REQFLAGS_AddFlags(papCtx->reqflags, QEXEC_F_NOROWS);
       REQFLAGS_AddFlags(papCtx->reqflags, QEXEC_F_SEND_NOFIELDS);
     } else {
-      size_t max = (*papCtx->reqflags & QEXEC_F_IS_SEARCH) ? *papCtx->maxSearchResults
-                                                            : *papCtx->maxAggregateResults;
-      if (!ValidateLimitBounds(arng->offset, arng->limit, max, status)) {
+      size_t max_count = (*papCtx->reqflags & QEXEC_F_IS_SEARCH) ? *papCtx->maxSearchResults
+                                                                  : *papCtx->maxAggregateResults;
+      if (!ValidateLimitBounds(arng->offset, arng->limit,
+                               *papCtx->maxSearchResults, max_count, status)) {
         return ARG_ERROR;
       }
     }

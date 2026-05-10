@@ -40,21 +40,24 @@ const char *ExtractKeyName(const char *s, size_t *len, QueryError *status, bool 
 }
 
 bool ValidateLimitBounds(uint64_t offset, uint64_t count,
-                         uint64_t max_results, QueryError *status) {
-  // Precondition: see header. Guarantees `(uint64_t)LLONG_MAX - count`
-  // does not underflow in the overflow check below.
-  RS_ASSERT(max_results <= (uint64_t)LLONG_MAX);
+                         uint64_t max_offset, uint64_t max_count,
+                         QueryError *status) {
+  // Preconditions: see header. `max_count <= LLONG_MAX` guarantees that
+  // `(uint64_t)LLONG_MAX - count` does not underflow in the overflow check.
+  RS_ASSERT(max_offset <= (uint64_t)LLONG_MAX);
+  RS_ASSERT(max_count  <= (uint64_t)LLONG_MAX);
 
-  if (offset > max_results) {
+  if (offset > max_offset) {
     QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_LIMIT,
-        "OFFSET exceeds maximum of %llu", (unsigned long long)max_results);
+        "OFFSET exceeds maximum of %llu", (unsigned long long)max_offset);
     return false;
   }
-  if (count > max_results) {
+  if (count > max_count) {
     QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_LIMIT,
-        "LIMIT exceeds maximum of %llu", (unsigned long long)max_results);
+        "LIMIT exceeds maximum of %llu", (unsigned long long)max_count);
     return false;
   }
+  // count <= max_count <= LLONG_MAX, so the subtraction below cannot underflow.
   if (offset > (uint64_t)LLONG_MAX - count) {
     QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS,
         "LIMIT offset + count overflow");

@@ -72,7 +72,7 @@ void handleLimit(ArgParser *parser, const void *value, void *user_data) {
         // LIMIT 0 0 - only count
         REQFLAGS_AddFlags(ctx->reqFlags, QEXEC_F_NOROWS);
         REQFLAGS_AddFlags(ctx->reqFlags, QEXEC_F_SEND_NOFIELDS);
-    } else if (!ValidateLimitBounds(offset, num, *ctx->maxResults, status)) {
+    } else if (!ValidateLimitBounds(offset, num, *ctx->maxResults, *ctx->maxResults, status)) {
         return;
     }
 
