@@ -37,7 +37,7 @@ function(setup_cc_options)
     #                        silently ignored by GCC).
     # Apple excluded: Apple clang rejects -mno-outline-atomics and Apple
     # Silicon already emits inline LSE.
-    if(NOT APPLE AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64)$")
+    if(NOT APPLE AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64)$" AND INLINE_LSE_ATOMICS)
         include(CheckCCompilerFlag)
         include(CheckCXXCompilerFlag)
         set(_aarch64_lse_flags "-march=armv8-a+lse -mtune=neoverse-n1 -mno-outline-atomics")
@@ -103,6 +103,9 @@ option(VERBOSE_UTESTS "Enable verbose unit tests" OFF)
 option(ENABLE_ASSERT "Enable assertions" OFF)
 option(MAX_WORKER_THREADS "Override them maximum parallel worker threads allowed in thread-pool" "")
 option(BUILD_TESTING "Enable testing for cpu-features dep" OFF)
+# Inline LSE atomics on Linux AArch64 (Armv8.1-a+). Disable for pre-Armv8.1-a
+# cores (Cortex-A72, AWS Graviton1, Raspberry Pi 4) to avoid SIGILL on load.
+option(INLINE_LSE_ATOMICS "Inline LSE atomics on Linux AArch64 (Armv8.1-a+)" ON)
 
 
 #----------------------------------------------------------------------------------------------
