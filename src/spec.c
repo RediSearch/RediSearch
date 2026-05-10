@@ -11,6 +11,7 @@
 
 #include <math.h>
 #include <ctype.h>
+#include <limits.h>
 
 #include "triemap.h"
 #include "util/logging.h"
@@ -3185,7 +3186,7 @@ void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp, bool obfuscate,
   double offsets_per_term_avg = (isDisk || !num_records) ? NAN :
     (float)offset_vec_records / (float)num_records;
   double offset_bits_per_record_avg = (isDisk || !offset_vec_records) ? NAN :
-    8.0F * (float)offset_vecs_size / (float)offset_vec_records;
+    (float)CHAR_BIT * (float)offset_vecs_size / (float)offset_vec_records;
   RedisModule_InfoAddFieldDouble(ctx, "offsets_per_term_avg", offsets_per_term_avg);
   RedisModule_InfoAddFieldDouble(ctx, "offset_bits_per_record_avg", offset_bits_per_record_avg);
   RedisModule_InfoEndDictField(ctx);

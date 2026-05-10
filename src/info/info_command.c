@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include <math.h>
+#include <limits.h>
 
 #include "spec.h"
 #include "inverted_index.h"
@@ -303,7 +304,7 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
     (float)offset_vec_records / (float)num_records;
   REPLY_KVNUM("offsets_per_term_avg", offsets_per_term_avg);
   REPLY_KVNUM("offset_bits_per_record_avg",
-              8.0F * (float)offset_vecs_size / (float)offset_vec_records);
+              (float)CHAR_BIT * (float)offset_vecs_size / (float)offset_vec_records);
   // TODO: remove this once "hash_indexing_failures" is deprecated
   // Legacy for not breaking changes
   REPLY_KVINT("hash_indexing_failures", sp->stats.indexError.error_count);
