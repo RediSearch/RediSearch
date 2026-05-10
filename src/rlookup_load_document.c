@@ -51,6 +51,9 @@ static inline bool isValueAvailable(const RLookupKey *kk, const RLookupRow *dst,
 
 static int getKeyCommonHash(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOptions *options,
                         RedisModuleKey **keyobj) {
+  if (!kk) {
+    return REDISMODULE_ERR;
+  }
   if (isValueAvailable(kk, dst, options)) {
     return REDISMODULE_OK;
   }
