@@ -94,7 +94,7 @@ jobs:
     needs: get-config
     name: Start self-hosted EC2 runner
     if: ${{ needs.get-config.outputs.ec2_image_id }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-slim
     env:
       TAGS: | # Make sure there is no trailing comma!
         [
@@ -567,7 +567,7 @@ jobs:
     name: Stop self-hosted EC2 runner
     needs: [start-runner, common-flow]
     if: ${{ always() && needs.start-runner.outputs.ec2-instance-id != '' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-slim
     steps:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
