@@ -6,7 +6,7 @@ on:
 
 jobs:
   check-release-notes:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-slim
     steps:
       - name: Check release notes checkbox
         env:
