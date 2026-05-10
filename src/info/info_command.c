@@ -303,8 +303,9 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
   double offsets_per_term_avg = (isDisk || !num_records) ? NAN :
     (float)offset_vec_records / (float)num_records;
   REPLY_KVNUM("offsets_per_term_avg", offsets_per_term_avg);
-  REPLY_KVNUM("offset_bits_per_record_avg",
-              (float)CHAR_BIT * (float)offset_vecs_size / (float)offset_vec_records);
+  double offset_bits_per_record_avg = (isDisk || !offset_vec_records) ? NAN :
+    (float)CHAR_BIT * (float)offset_vecs_size / (float)offset_vec_records;
+  REPLY_KVNUM("offset_bits_per_record_avg", offset_bits_per_record_avg);
   // TODO: remove this once "hash_indexing_failures" is deprecated
   // Legacy for not breaking changes
   REPLY_KVINT("hash_indexing_failures", sp->stats.indexError.error_count);
