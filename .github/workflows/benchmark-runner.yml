@@ -263,7 +263,7 @@ jobs:
       - benchmark-search-oss-standalone-profiler
       - benchmark-vecsim-oss-standalone-profiler
     if: ${{ failure() && inputs.notify_failure }}
-    runs-on: ${{ vars.RUNS_ON || 'ubuntu-24.04' }}
+    runs-on: ubuntu-slim
     steps:
       - name: Notify Failure
         uses: slackapi/slack-github-action@v1
