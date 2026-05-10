@@ -507,6 +507,17 @@ Code that today reads `sctx->flags == RS_CTX_UNSET` reads
 lock APIs and the ~225 `->sctx` field accesses are not churned beyond
 this rename.
 
+#### File organization for the new types
+
+| Symbol | Lives in |
+| --- | --- |
+| `RequestSyncCtx` (struct + `New` / `Free` / `BeginCycle` / `EndCycle` / `OnFree` / kind-dispatch accessors / abort-wake API) | `src/info_redis/request_sync_ctx.{h,c}` (new) — alongside `block_client.{h,c}`. The struct is shared by AREQ and HReq, so it doesn't belong inside `aggregate/`; it pairs naturally with the existing `info_redis/block_client.{h,c}` helpers that consume it. The current declaration in `aggregate/aggregate.h` (the embedded `syncCtx` field on AREQ) moves out as part of Step 0. |
+| `runRequestCycle` wrapper | `src/aggregate/aggregate_exec.c` — next to `runPipeline` and `AREQ_Execute_Callback`. The hybrid wrapper sits in `src/hybrid/hybrid_exec.c` next to the hybrid BG entry. |
+| Coord BG shim (`coord_bg`, post-Step-6 dispatch) | Stays alongside the existing handlers — `src/coord/dist_aggregate.c` for AREQ coord, `src/coord/hybrid/dist_hybrid.c` for hybrid coord. |
+| `OpBlockClientCtx` (Step 7 replacement for `ConcurrentSearchBlockClientCtx`) | `src/info_redis/block_client.{h,c}` — next to `BlockQueryClientWithTimeout`. |
+| `SpecLockState` enum + lock APIs | Unchanged: `src/redisearch_ctx.{h,c}` (just renamed from `RSContextFlags`). |
+| `concurrent_ctx.{h,c}` | Survives, but slimmed to the thread-pool primitive (Step 6). The "ConcurrentSearch" naming is anachronistic post-refactor; an optional rename to `coord_pool.{h,c}` is in Step 8. |
+
 ### 3.3 Lifetime / ownership of one cycle (no cursor)
 
 ```mermaid
@@ -1414,6 +1425,20 @@ privdata) and is **out of scope** — see §9 follow-up.
 - Delete `blockedClientReqCtx`, `blockedClientHybridCtx`, and the manual
   `MeasureTimeEnd` / `UnblockClient` / `free` sequences they implemented.
 - Prune `rsc->coord_ctx` if no caller sets it after Step 6.
+- Unify the duplicate
+  `BlockedClientTimeoutCB` / `BlockedClientFreePrivDataCB` typedefs
+  ([info_redis/block_client.h:21-23](../../src/info/info_redis/block_client.h#L21-L23)
+  vs. [module.c:4286-4287](../../src/module.c#L4286-L4287); the
+  `block_client.h` `free_privdata` typedef has the wrong signature
+  — single-arg, but Redis's API is `(RedisModuleCtx*, void*)`). Keep
+  the correct two-arg shape and delete the module.c local copies.
+- *(Optional rename)* `concurrent_ctx.{h,c}` → `coord_pool.{h,c}`.
+  Post-Step-6 the file is purely the coord thread-pool primitive
+  (`_CreatePool`, `_ThreadPoolDestroy`, `_ThreadPoolRun`,
+  `_WorkingThreadCount`, `_HighPriorityPendingJobsCount`, plus four
+  debug helpers); the "ConcurrentSearch" naming is left over from
+  when it carried per-command context. Skip if churn outweighs
+  clarity.
 - Tighten asserts where steps 0–7 left them temporarily lax.
 - **Acceptance:**
   `grep -n 'blockedClientReqCtx\\\|blockedClientHybridCtx\\\|BlockClientCtx\\b' src/`
