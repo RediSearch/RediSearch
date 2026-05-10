@@ -51,7 +51,12 @@ git pull origin <branch>
 
 ### 3. Cherry-pick
 
-For each target branch, in order from newest to oldest:
+For each target release line, start with the newest version closest to master and
+work backward. For example, process `8.8` before `8.6`, `8.6` before `8.4`,
+and `8.4` before `8.2`.
+
+Treat same-version variants such as `8.6` and `8.6-rse` as peers; process them
+in whichever order is more practical for the backport or follows team convention.
 
 ```bash
 cd .worktrees/backport-<branch>
@@ -116,9 +121,9 @@ gh pr create \
 
 ### 7. Multi-branch backports
 
-When backporting to multiple branches, start with the newest branch (closest to master)
-and work backward. Conflicts tend to be simpler on newer branches, and the resolution
-strategy from a newer branch often applies to older branches too.
+When backporting to multiple branches, use the same newest-to-oldest release-line
+order described above. Conflicts tend to be simpler on newer branches, and the
+resolution strategy from a newer branch often applies to older branches too.
 
 Report a summary for each target branch:
 - Clean cherry-pick or conflicts resolved
