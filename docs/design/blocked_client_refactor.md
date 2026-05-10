@@ -1165,7 +1165,7 @@ surface.
   under the existing sanitizer leak check;
   `grep -n 'BlockClientCtx\\b' src/` returns no struct definitions
   or fields (only the function-name forms `BlockedClientCtx_*`
-  may match references in comments, which Step 7 cleans up); no
+  may match references in comments, which Step 8 cleans up); no
   `BlockedClientCtx` type is defined.
 
 ### Step 3 — Link `RequestSyncCtx` directly into `BlockedQueries`
@@ -1259,13 +1259,13 @@ surface.
   trivially no-ops. The libuv reply handler calls `UnblockClient`
   directly, just as it does today. The only changes vs. today are:
   the privdata becomes a `RequestSyncCtx*`; `RequestSyncCtx_OnFree`
-  is the registered `free_privdata`; teardown of `MRCtx` /
-  `CoordRequestCtx` happens in
-  `OnFree` after `RequestSyncCtx_Free`.
+  is the registered `free_privdata`; teardown of any coord-private
+  bag happens in `OnFree` after `RequestSyncCtx_Free`.
 - `MRCtx` / `CoordRequestCtx` (the fan-out / coord-private bag,
-  distinct from the underlying AREQ) lives on `rsc->coord_ctx`. The
-  coord teardown that today frees these structs runs from `OnFree`
-  before `RequestSyncCtx_Free`.
+  distinct from the underlying AREQ) lives on `rsc->coord_ctx` for
+  the duration of this step. Step 6 retires `CoordRequestCtx`
+  entirely once the AREQ-creation move-to-main lands; this step
+  preserves it as-is to keep the privdata change focused.
 - `rsc->bc` holds the `RedisModuleBlockedClient*`.
 - **Acceptance:** a hung coordinator query appears in `FT.INFO`'s
   blocked-query section and in the crash report; coordinator timeout
@@ -1277,28 +1277,134 @@ surface.
   callers outside the new `RequestSyncCtx_New` + `RSC_BeginCycle`
   helpers.
 
-### Step 6 — Route remaining call-sites through `ConcurrentSearchBlockClientCtx`
+### Step 6 — Retire `ConcurrentCmdCtx`, `CoordRequestCtx`, and `_HandleRedisCommandEx` (AREQ-shaped coord paths)
+
+Once Step 5 routes the coord-side privdata through `RequestSyncCtx`,
+the per-cycle bags around it (`ConcurrentCmdCtx` for the worker job,
+`CoordRequestCtx` for the timeout/AREQ glue) become redundant — every
+field they carry is reachable through the RSC, the AREQ, or the kind
+discriminator. This step deletes them and aligns the AREQ-shaped coord
+paths with the same dispatch model used by shard pipelines.
+
+**Scope: AREQ/HReq-shaped coord paths only** —
+`DistAggregate`, `DistHybrid`, and the `_FT.DEBUG` variants. The
+`FT.SEARCH` coord path (`DistSearch` + `SearchCmdCtx`) is non-AREQ
+shaped (uses the legacy `searchRequestCtx` reducer, with `MRCtx` as
+privdata) and is **out of scope** — see §9 follow-up.
+
+- **Move `AREQ_New` + `AREQ_Compile` from BG to main** for
+  `DistAggregateCommandImp` / `DistHybridCommandInternal`. Today the
+  AREQ is created on the worker thread inside `RSExecDistAggregate` /
+  `HybridRequest_executePlan` and bound to `CoordRequestCtx` under
+  `setReqLock`. After this step the AREQ is created on main alongside
+  `RequestSyncCtx_NewAREQ` / `_NewHybrid`. Compile-time errors
+  (today reported on BG via `CoordRequestCtx_ReplyOrStoreError`) are
+  returned synchronously from the command handler before any
+  `RM_BlockClient` call, mirroring how shard paths handle them.
+- **Replace each `ConcurrentSearch_HandleRedisCommandEx` call** with:
+  - `rsc = RequestSyncCtx_NewAREQ(areq)` (or `_NewHybrid(hreq)`)
+  - `bc = RM_BlockClient(... privdata = rsc, free_privdata =
+    RequestSyncCtx_OnFree, ...)`
+  - `RSC_BeginCycle(rsc, bc, reply_cb, NULL /*coord_ctx*/)`
+  - `ConcurrentSearch_ThreadPoolRun(coord_bg, rsc, DIST_THREADPOOL)`
+
+  The thread pool primitive itself stays. `coord_bg` is a tiny shim
+  that calls the rewritten BG handler with `rsc`.
+- **Rewrite the BG handlers** (`RSExecDistAggregate`,
+  `HybridRequest_executePlan`, the `_FT.DEBUG` shims) to take a
+  `RequestSyncCtx*` argument instead of
+  `(RedisModuleCtx*, RedisModuleString**, int, ConcurrentCmdCtx*)`.
+  Each cmdCtx field read changes shape:
+
+  | Today (`ConcurrentCmdCtx_*`) | After Step 6 |
+  | --- | --- |
+  | `_GetBlockedClient(cmdCtx)` | `rsc->bc` |
+  | `_GetWeakRef(cmdCtx)` + `IndexSpecRef_Promote` | gone — coord-side AREQ holds `sctx->spec->own_ref` (StrongRef) end-to-end; `CurrentThread` slot still populated via `IndexSpecRef_Promote(sctx->spec->own_ref ↦ WeakRef)` if needed |
+  | `_GetCoordStartTime(cmdCtx)` | `areq->profileClocks.coordStartTime`, stamped on main at `_NewAREQ` time |
+  | `_GetNumShards(cmdCtx)` | stamped on AREQ/HReq from main; coord BG reads it from there |
+  | argv copies in `cmdCtx` | `rsc->query.areq->args` (the AREQ already owns its argv copy; the §9 `RM_HoldString` follow-up further reduces this to a refcount bump) |
+  | `_KeepRedisCtx(cmdCtx)` (used in cursor branch of coord `executePlan`) | replaced by the cursor-cycle ownership transfer (§3.4): the cursor parks the RSC, the next read binds a fresh `bc` and thread-safe `ctx` |
+
+- **Retire `CoordRequestCtx` entirely** — every field migrates:
+  - `type`, `areq`/`hreq` union ⇒ `rsc->kind` + `rsc->query`.
+  - `_Atomic(bool) timedOut` ⇒ `rsc->timedOut` (already exists per
+    §3.2 / §4.2).
+  - `setReqLock` + `Lock`/`Unlock`/`SetRequest`/`HasRequest`/
+    `GetRequest` ⇒ unnecessary: the AREQ is bound at
+    `RSC_BeginCycle` *before* `RM_BlockClient`, so `timeout_cb`
+    can always read `rsc->query.areq` non-NULL. The CAS in §3.2
+    (`requiresAggregateResultsSync` / `aggregatingResults`) covers
+    the partial-timeout race that the SetRequest mutex previously
+    covered indirectly.
+  - `preRequestError` + `_ReplyOrStoreError` ⇒ unnecessary after the
+    AREQ-on-main move: parse / compile errors are returned
+    synchronously from the command handler.
+  - `useReplyCallback` ⇒ `rsc->reply_cb == NULL` (per §4.1; the
+    AREQ-side `useReplyCallback` already retired in Step 4).
+  - `DistCoordReqFreePrivData` ⇒ deleted; `RequestSyncCtx_OnFree` is
+    the registered `free_privdata`.
+
+  The header `coord/coord_request_ctx.h` and its `.c` file are
+  deleted.
+- **Delete from `concurrent_ctx.{h,c}`:** `ConcurrentCmdCtx` struct
+  and all `_*` accessors, `ConcurrentSearch_HandleRedisCommandEx`,
+  `ConcurrentSearchHandlerCtx` + `_Init`,
+  `ConcurrentSearchBlockClientCtx`, the `ConcurrentCmdHandler`
+  typedef, the `CMDCTX_KEEP_RCTX` macro, and the unused
+  `ConcurrentReopenCallback` typedef. What remains is the thread-pool
+  primitive: `_CreatePool`, `_ThreadPoolDestroy`, `_ThreadPoolRun`,
+  `_WorkingThreadCount`, `_HighPriorityPendingJobsCount`, plus the
+  four debug helpers (`_isPaused`, `_pause`, `_resume`, `_getStats`).
+- **`coord_ctx` slot on RSC** ends up NULL for AREQ/HReq coord
+  paths (their bag was just `CoordRequestCtx`, now retired). The
+  field stays as a typed `void *` because non-AREQ coord paths
+  (`DistSearch` follow-up) may eventually populate it; if no caller
+  sets it after this step, Step 8 prunes the field.
+- **Acceptance:**
+  `grep -n 'ConcurrentCmdCtx\|ConcurrentSearchHandlerCtx\|ConcurrentSearchBlockClientCtx\|ConcurrentSearch_HandleRedisCommandEx\|ConcurrentCmdHandler\|CMDCTX_KEEP_RCTX\|ConcurrentReopenCallback' src/`
+  is empty;
+  `grep -rn 'CoordRequestCtx' src/` is empty;
+  `grep -n 'AREQ_New\b\|HybridRequest_New' src/coord/dist_aggregate.c src/coord/hybrid/dist_hybrid.c`
+  shows no construction sites (creation moved to `module.c`); a tsan
+  run of the coord query suite is clean (the AREQ-binding race that
+  `setReqLock` guarded is structurally impossible after the
+  before-`BlockClient` bind).
+
+### Step 7 — Route remaining call-sites through `ConcurrentSearchBlockClientCtx`
+
+> **Note:** Step 6 retires `ConcurrentSearchBlockClientCtx` along with
+> the rest of the `_HandleRedisCommandEx` machinery. This step needs to
+> introduce a replacement helper for the operational paths it covers
+> (or migrate them to a different shape). Concretely: define a small
+> `OpBlockClientCtx { reply_cb, timeout_cb, free_privdata, privdata,
+> timeout_ms }` in `info_redis/block_client.h` (next to the existing
+> query-side helpers) and route the operational sites through it. The
+> structural goal — a single typed entry point for non-RSC blocked
+> clients with a mandatory `free_privdata` — is unchanged from the
+> previous Step 6.
 
 - Migrate `gc.c`, `debug_commands.c`, and the two non-query `rmr.c` sites
-  to allocate / wire a `ConcurrentSearchBlockClientCtx` (the existing
-  operational helper) instead of calling `RedisModule_BlockClient` directly.
+  to allocate / wire the new `OpBlockClientCtx` instead of calling
+  `RedisModule_BlockClient` directly.
 - The fire-and-forget `MR_uvReplyClusterInfo` call-site gets a `free_privdata`
   that frees its small ctx struct, instead of `NULL` callbacks plus manual
   free.
-- Tighten `ConcurrentSearchBlockClientCtx` to require a non-NULL
-  `free_privdata`.
+- Tighten the helper to require a non-NULL `free_privdata`.
 - **Acceptance:** `grep -n 'RedisModule_BlockClient' src/` shows
   callers only inside `info_redis/block_client.c` (the
-  `RequestSyncCtx_New` + `RSC_BeginCycle` helpers), the coord-side
-  helpers from Step 5, and `concurrent_ctx.c`
-  (`ConcurrentSearchBlockClientCtx`); zero direct callers in
-  `gc.c`, `debug_commands.c`, or operational `rmr.c` sites.
+  `RequestSyncCtx_New` + `RSC_BeginCycle` helpers, plus the new
+  `OpBlockClientCtx` helper), the coord command handlers in
+  `module.c` for AREQ-shaped paths (Step 6), and the
+  `DistSearchBlockClientWithTimeout` site for the non-AREQ
+  `FT.SEARCH` coord path; zero direct callers in `gc.c`,
+  `debug_commands.c`, or operational `rmr.c` sites.
 
-### Step 7 — Clean up
+### Step 8 — Clean up
 
 - Delete `blockedClientReqCtx`, `blockedClientHybridCtx`, and the manual
   `MeasureTimeEnd` / `UnblockClient` / `free` sequences they implemented.
-- Tighten asserts where steps 0–6 left them temporarily lax.
+- Prune `rsc->coord_ctx` if no caller sets it after Step 6.
+- Tighten asserts where steps 0–7 left them temporarily lax.
 - **Acceptance:**
   `grep -n 'blockedClientReqCtx\\\|blockedClientHybridCtx\\\|BlockClientCtx\\b' src/`
   is empty; `grep -n 'AREQ_IncrRef\\\|AREQ_DecrRef' src/` is empty;
@@ -1333,11 +1439,18 @@ surface.
    4 without going through `rsc->reply`. **Proposed:** profile state
    stays on AREQ (it's pipeline-internal), reply path reaches it via
    `rsc->query.areq`.
-3. **`concurrent_ctx.c` callers that *are* queries.** The dispatcher
-   is used today for some commands that block on a query path. Audit
-   before step 6 whether any of them should migrate to the
-   `RequestSyncCtx_New` + `RSC_BeginCycle` path instead of staying on
-   `ConcurrentSearchBlockClientCtx`.
+3. **`concurrent_ctx.c` query-shaped callers — audit complete.** The
+   AREQ/HReq-shaped coord callers (`DistAggregate`, `DistHybrid`)
+   migrate to `RequestSyncCtx_New` + `RSC_BeginCycle` in Step 6, which
+   also retires `ConcurrentCmdCtx`, `CoordRequestCtx`, and the
+   `_HandleRedisCommandEx` wrapper. The non-AREQ coord caller
+   (`DistSearch`, which uses the legacy `searchRequestCtx` reducer
+   with `MRCtx` as privdata, dispatched via `SearchCmdCtx`) stays on
+   the existing direct-`ThreadPoolRun` path — it doesn't fit the
+   AREQ-RSC shape. The remaining `concurrent_ctx.c` thread-pool
+   primitive (`_ThreadPoolRun`, pool stats, debug pause/resume) keeps
+   serving both the new RSC-based dispatch and the `SearchCmdCtx`
+   path unchanged.
 4. **TLS-list crash safety on coordinator threads.** `BlockedQueries` is
    currently main-thread TLS. Coordinator queries created on the main thread
    are fine, but verify with the rmr team that no fan-out path
@@ -1380,6 +1493,38 @@ surface.
 
 ### Follow-up enabled by this refactor
 
+- **Slim `SearchCmdCtx` for the `FT.SEARCH` coord path.** Step 6
+  retires the AREQ-shaped coord bags but leaves
+  `SearchCmdCtx` (in
+  [module.c:4184](../../src/module.c#L4184)) intact because that
+  path uses `searchRequestCtx` + `MRCtx` (legacy non-AREQ reducer),
+  not an AREQ. Most of `SearchCmdCtx`'s fields can still move
+  closer to their natural owners — `coordStartTime` and
+  `coordQueueTime` onto `MRCtx` or `searchRequestCtx`, the argv
+  copy retired via `RM_HoldString` (same follow-up as below),
+  `bc` reachable from the existing `MRCtx_GetBlockedClient` /
+  `MRCtx_SetBlockedClient` accessors. A future pass can either
+  collapse the bag entirely or, more ambitiously, migrate the
+  coord `FT.SEARCH` path onto AREQ so it shares the RSC dispatch
+  with `DistAggregate`. Out of scope here because either route
+  touches the shard-reply parsing / reduce / formatter pipeline.
+- **`CurrentThread` slot cleanup (deferred).** Today's `IndexSpecRef_Promote`
+  / `_Release` pair bundles a `WeakRef_Promote` null-check with
+  `CurrentThread_SetIndexSpec` for BG paths
+  ([spec.c:4357-4369](../../src/spec.c#L4357-L4369)). After this refactor,
+  the null-check on **query / cursor / hybrid** BG paths becomes dead
+  code — the in-flight `RequestSyncCtx` holds a `StrongRef` to the spec
+  end-to-end, so the promotion always succeeds. A follow-up can split the
+  bundled call on those paths (drop the `QUERY_ERROR_CODE_DROPPED_BACKGROUND`
+  bailout, set/clear the slot directly via `runRequestCycle`) and
+  optionally inline the `SpecInfo` heap struct into a TLS slot of
+  `{ StrongRef, rs_wall_clock }`. Non-query BG callers (GC, scanner,
+  the prefix helper at [module.c:4117](../../src/module.c#L4117),
+  `threadpool_api.c`) keep `IndexSpecRef_Promote/_Release` — they
+  schedule against a stored `WeakRef` with no surrounding RSC, so they
+  still need both jobs the wrapper does. Out of scope here because the
+  current mechanism already produces correct watchdog output; this is
+  a tidy-up, not a correctness fix.
 - **Replace `AREQ.args` per-arg `sds` copies with `RedisModule_HoldString`.**
   Today `AREQ_Compile` does `sdsnewlen` for every `argv[i]` and pairs each
   with a matching `sdsfree` in `AREQ_Free`. The copy is historical (a
