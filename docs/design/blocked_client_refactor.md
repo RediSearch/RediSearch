@@ -1292,15 +1292,21 @@ paths with the same dispatch model used by shard pipelines.
 shaped (uses the legacy `searchRequestCtx` reducer, with `MRCtx` as
 privdata) and is **out of scope** — see §9 follow-up.
 
-- **Move `AREQ_New` + `AREQ_Compile` from BG to main** for
-  `DistAggregateCommandImp` / `DistHybridCommandInternal`. Today the
-  AREQ is created on the worker thread inside `RSExecDistAggregate` /
-  `HybridRequest_executePlan` and bound to `CoordRequestCtx` under
-  `setReqLock`. After this step the AREQ is created on main alongside
-  `RequestSyncCtx_NewAREQ` / `_NewHybrid`. Compile-time errors
-  (today reported on BG via `CoordRequestCtx_ReplyOrStoreError`) are
-  returned synchronously from the command handler before any
-  `RM_BlockClient` call, mirroring how shard paths handle them.
+- **Move `AREQ_New` from BG to main; `AREQ_Compile` stays on BG.**
+  Today the AREQ is allocated on the worker thread inside
+  `RSExecDistAggregate` / `HybridRequest_executePlan` and bound to
+  `CoordRequestCtx` under `setReqLock`. After this step `AREQ_New` runs
+  on main so the AREQ pointer is live in `rsc->query.areq` before
+  `RM_BlockClient` — that's what removes the AREQ-binding race the
+  `setReqLock` mutex guarded. Parse/plan work (`AREQ_Compile`,
+  `prepareForExecution`) stays on the worker, preserving today's
+  coord-side latency profile. argv lifetime is the only ripple:
+  today's `cmdCtx` argv copy moves onto the AREQ at `AREQ_New` time
+  on main (a slot on the AREQ holds the captured args until Compile
+  consumes them; the §9 `RM_HoldString` follow-up makes this a
+  refcount bump rather than a per-string copy). Compile errors land
+  on the existing `areq->status` slot and flow through the reply_cb
+  path — the same path today's `useReplyCallback` mode already uses.
 - **Replace each `ConcurrentSearch_HandleRedisCommandEx` call** with:
   - `rsc = RequestSyncCtx_NewAREQ(areq)` (or `_NewHybrid(hreq)`)
   - `bc = RM_BlockClient(... privdata = rsc, free_privdata =
@@ -1336,9 +1342,12 @@ privdata) and is **out of scope** — see §9 follow-up.
     (`requiresAggregateResultsSync` / `aggregatingResults`) covers
     the partial-timeout race that the SetRequest mutex previously
     covered indirectly.
-  - `preRequestError` + `_ReplyOrStoreError` ⇒ unnecessary after the
-    AREQ-on-main move: parse / compile errors are returned
-    synchronously from the command handler.
+  - `preRequestError` + `_ReplyOrStoreError` ⇒ unnecessary because
+    Compile errors now land on `areq->status` (the AREQ exists from
+    `AREQ_New` on main onward, so there's no "no request yet" window
+    for errors to fall into). The reply_cb reads `areq->status`
+    on main and formats the error reply, the same path today's
+    `useReplyCallback` mode already uses.
   - `useReplyCallback` ⇒ `rsc->reply_cb == NULL` (per §4.1; the
     AREQ-side `useReplyCallback` already retired in Step 4).
   - `DistCoordReqFreePrivData` ⇒ deleted; `RequestSyncCtx_OnFree` is
@@ -1365,10 +1374,11 @@ privdata) and is **out of scope** — see §9 follow-up.
   is empty;
   `grep -rn 'CoordRequestCtx' src/` is empty;
   `grep -n 'AREQ_New\b\|HybridRequest_New' src/coord/dist_aggregate.c src/coord/hybrid/dist_hybrid.c`
-  shows no construction sites (creation moved to `module.c`); a tsan
-  run of the coord query suite is clean (the AREQ-binding race that
-  `setReqLock` guarded is structurally impossible after the
-  before-`BlockClient` bind).
+  shows no construction sites (allocation moved to `module.c`;
+  `AREQ_Compile` callsites stay where they are on the worker);
+  a tsan run of the coord query suite is clean (the AREQ-binding
+  race that `setReqLock` guarded is structurally impossible after
+  the AREQ is bound to the RSC before `BlockClient`).
 
 ### Step 7 — Route remaining call-sites through `ConcurrentSearchBlockClientCtx`
 
