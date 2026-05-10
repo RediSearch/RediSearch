@@ -20,11 +20,7 @@ use super::helpers::{
     array_entries, extract_num_field, make_key, make_row, map_entries, num_row, run_collect,
     string_value,
 };
-
-/// Bit `i` set = ASC for sort key `i`. Single-key ASC.
-const SORT_ASC: u64 = 0b1;
-/// Bit `i` clear = DESC for sort key `i`. Single-key DESC.
-const SORT_DESC: u64 = 0b0;
+use crate::common::{SORT_ASC, SORT_DESC};
 
 #[test]
 fn remote_sortby_asc_keeps_smallest_top_k() {
@@ -192,7 +188,7 @@ fn local_sortby_keeps_top_k_across_shards() {
         row.write_key(&input, SharedValue::new_array(payload));
         row
     };
-    let mk_payload = |entries: &[(f64, f64)]| -> Vec<SharedValue> {
+    let make_payload = |entries: &[(f64, f64)]| -> Vec<SharedValue> {
         entries
             .iter()
             .map(|(vv, sv)| {
@@ -206,8 +202,8 @@ fn local_sortby_keeps_top_k_across_shards() {
     // Shard 0: (v=40,s=4), (v=10,s=1), (v=50,s=5)
     // Shard 1: (v=20,s=2), (v=00,s=0), (v=30,s=3)
     // Combined top-3 ASC by s: s=0 (v=00), s=1 (v=10), s=2 (v=20).
-    let shard0 = local_row_with_payload(mk_payload(&[(40.0, 4.0), (10.0, 1.0), (50.0, 5.0)]));
-    let shard1 = local_row_with_payload(mk_payload(&[(20.0, 2.0), (0.0, 0.0), (30.0, 3.0)]));
+    let shard0 = local_row_with_payload(make_payload(&[(40.0, 4.0), (10.0, 1.0), (50.0, 5.0)]));
+    let shard1 = local_row_with_payload(make_payload(&[(20.0, 2.0), (0.0, 0.0), (30.0, 3.0)]));
     ctx.add(&r, &shard0);
     ctx.add(&r, &shard1);
 

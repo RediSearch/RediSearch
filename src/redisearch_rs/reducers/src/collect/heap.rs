@@ -23,9 +23,8 @@
 //! see [`super::storage`].
 //!
 
-use std::cmp::Ordering;
-
 use min_max_heap::MinMaxHeap;
+use std::cmp::Ordering;
 use value::comparison::cmp_fields;
 use value::{SharedValue, Value};
 
@@ -45,12 +44,6 @@ impl EntryKey {
             sort_vals,
             sort_asc_map,
         }
-    }
-
-    /// Decompose into the underlying snapshot, releasing the comparator
-    /// configuration (which lives once per heap, not once per entry).
-    pub fn into_sort_vals(self) -> Box<[SharedValue]> {
-        self.sort_vals
     }
 }
 
@@ -109,7 +102,7 @@ impl<T> HeapEntry<T> {
     /// Decompose into `(sort_vals, projected)` — used by `Storage::Heap`'s
     /// finalize drain to surface SORTBY columns alongside the projection.
     pub fn into_parts(self) -> (Box<[SharedValue]>, T) {
-        (self.key.into_sort_vals(), self.projected)
+        (self.key.sort_vals, self.projected)
     }
 }
 

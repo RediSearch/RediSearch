@@ -124,15 +124,6 @@ fn heap_entry_ord_delegates_to_key() {
 }
 
 #[test]
-fn entry_key_into_sort_vals_returns_snapshot() {
-    let k = key(&[3.0, 4.0], asc(0));
-    let snapshot = k.into_sort_vals();
-    assert_eq!(snapshot.len(), 2);
-    assert_eq!(snapshot[0].as_num(), Some(3.0));
-    assert_eq!(snapshot[1].as_num(), Some(4.0));
-}
-
-#[test]
 fn heap_entry_into_parts_decomposes() {
     let e = HeapEntry::new(key(&[7.0], asc(0)), 42u64);
     let (sort_vals, projected) = e.into_parts();

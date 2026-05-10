@@ -17,10 +17,9 @@ use value::SharedValue;
 
 redis_mock::mock_or_stub_missing_redis_c_symbols!();
 
-/// `sort_asc_map` with bit 0 set: single ASC sort key.
-const ASC: u64 = 0b1;
-/// `sort_asc_map` with bit 0 clear: single DESC sort key.
-const DESC: u64 = 0b0;
+mod common;
+
+use common::{SORT_ASC, SORT_DESC};
 
 fn val(v: f64) -> Box<[SharedValue]> {
     vec![SharedValue::new_num(v)].into_boxed_slice()
@@ -43,7 +42,7 @@ fn drained_nums(drained: &[DrainedItem<Box<[SharedValue]>>]) -> Vec<f64> {
 
 #[test]
 fn insert_entry_array_caps_at_cap_in_insertion_order() {
-    let mut s = Storage::<Box<[SharedValue]>>::new(/* sortby */ false, Some((0, 3)), 0);
+    let mut s = Storage::<Box<[SharedValue]>>::new(false, Some((0, 3)), 0);
     for i in 0..5 {
         s.insert_entry(|| val(i as f64), || val(i as f64));
     }
@@ -54,8 +53,8 @@ fn insert_entry_array_caps_at_cap_in_insertion_order() {
 
 #[test]
 fn insert_entry_array_drops_excess_without_calling_project() {
-    let mut counter = 0usize;
-    let mut s = Storage::<Box<[SharedValue]>>::new(/* sortby */ false, Some((0, 2)), 0);
+    let mut counter = 0;
+    let mut s = Storage::<Box<[SharedValue]>>::new(false, Some((0, 2)), 0);
     for v in [1.0_f64, 2.0, 3.0, 4.0] {
         s.insert_entry(|| val(v), counting_project(&mut counter, v));
     }
@@ -67,7 +66,7 @@ fn insert_entry_array_drops_excess_without_calling_project() {
 
 #[test]
 fn insert_entry_heap_keeps_top_k_under_asc() {
-    let mut s = Storage::<Box<[SharedValue]>>::new(/* sortby */ true, Some((0, 3)), ASC);
+    let mut s = Storage::<Box<[SharedValue]>>::new(true, Some((0, 3)), SORT_ASC);
     for i in [4.0_f64, 1.0, 5.0, 2.0, 0.0, 3.0] {
         s.insert_entry(|| val(i), || val(i));
     }
@@ -78,7 +77,7 @@ fn insert_entry_heap_keeps_top_k_under_asc() {
 
 #[test]
 fn insert_entry_heap_keeps_top_k_under_desc() {
-    let mut s = Storage::<Box<[SharedValue]>>::new(/* sortby */ true, Some((0, 3)), DESC);
+    let mut s = Storage::<Box<[SharedValue]>>::new(true, Some((0, 3)), SORT_DESC);
     for i in [4.0_f64, 1.0, 5.0, 2.0, 0.0, 3.0] {
         s.insert_entry(|| val(i), || val(i));
     }
@@ -89,8 +88,8 @@ fn insert_entry_heap_keeps_top_k_under_desc() {
 
 #[test]
 fn insert_entry_heap_skips_project_for_doomed_candidates() {
-    let mut counter = 0usize;
-    let mut s = Storage::<Box<[SharedValue]>>::new(/* sortby */ true, Some((0, 2)), ASC);
+    let mut counter = 0;
+    let mut s = Storage::<Box<[SharedValue]>>::new(true, Some((0, 2)), SORT_ASC);
     // Fill with the two best candidates first.
     for v in [0.0_f64, 1.0] {
         s.insert_entry(|| val(v), counting_project(&mut counter, v));
@@ -108,8 +107,8 @@ fn insert_entry_heap_skips_project_for_doomed_candidates() {
 
 #[test]
 fn insert_entry_heap_invokes_project_on_eviction() {
-    let mut counter = 0usize;
-    let mut s = Storage::<Box<[SharedValue]>>::new(/* sortby */ true, Some((0, 2)), ASC);
+    let mut counter = 0;
+    let mut s = Storage::<Box<[SharedValue]>>::new(true, Some((0, 2)), SORT_ASC);
     // Each insert is strictly better than the current worst, so every
     // candidate must be projected.
     for v in [5.0_f64, 3.0, 1.0] {
@@ -140,7 +139,7 @@ fn drain_without_limit_ignores_stored_limit() {
 
 #[test]
 fn drain_heap_applies_skip_take_after_best_first_order() {
-    let mut s = Storage::<Box<[SharedValue]>>::new(/* sortby */ true, Some((1, 2)), ASC);
+    let mut s = Storage::<Box<[SharedValue]>>::new(true, Some((1, 2)), SORT_ASC);
     for i in [4.0_f64, 1.0, 5.0, 2.0, 0.0, 3.0] {
         s.insert_entry(|| val(i), || val(i));
     }
@@ -151,7 +150,7 @@ fn drain_heap_applies_skip_take_after_best_first_order() {
 
 #[test]
 fn drain_heap_carries_sort_vals_snapshot() {
-    let mut s = Storage::<Box<[SharedValue]>>::new(/* sortby */ true, Some((0, 2)), ASC);
+    let mut s = Storage::<Box<[SharedValue]>>::new(true, Some((0, 2)), SORT_ASC);
     for v in [3.0_f64, 1.0, 2.0] {
         s.insert_entry(|| val(v), || val(v));
     }
@@ -171,7 +170,7 @@ fn drain_heap_carries_sort_vals_snapshot() {
 
 #[test]
 fn drain_array_does_not_carry_sort_vals_snapshot() {
-    let mut s = Storage::<Box<[SharedValue]>>::new(/* sortby */ false, Some((0, 2)), 0);
+    let mut s = Storage::<Box<[SharedValue]>>::new(false, Some((0, 2)), 0);
     s.insert_entry(|| val(0.0), || val(0.0));
     let drained: Vec<_> = s.drain(true).collect();
     assert!(drained.iter().all(|item| item.sort_vals.is_none()));
@@ -179,7 +178,7 @@ fn drain_array_does_not_carry_sort_vals_snapshot() {
 
 #[test]
 fn insert_entry_heap_uses_default_limit_when_no_explicit_limit() {
-    let mut s = Storage::<Box<[SharedValue]>>::new(/* sortby */ true, None, ASC);
+    let mut s = Storage::<Box<[SharedValue]>>::new(true, None, SORT_ASC);
     for i in 0..(DEFAULT_LIMIT as usize + 5) {
         s.insert_entry(|| val(i as f64), || val(i as f64));
     }
