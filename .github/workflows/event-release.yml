@@ -99,7 +99,7 @@ jobs:
 
   update-version:
     # Generate a PR to bump the version for the next patch (if releasing from a version branch)
-    runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
+    runs-on: ubuntu-slim
     needs: validate-tag
     if: needs.validate-tag.outputs.should_bump == 'true'
     env:
