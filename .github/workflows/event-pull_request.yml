@@ -28,11 +28,7 @@ jobs:
 
   coverage:
     needs: [get-latest-redis-tag]
-    if: >
-      (
-        vars.ENABLE_CODE_COVERAGE != 'false' &&
-        (!github.event.pull_request.draft || contains(github.event.pull_request.labels.*.name, 'enforce:coverage'))
-      )
+    if: ${{ vars.ENABLE_CODE_COVERAGE != 'false' && !github.event.pull_request.draft && contains(github.event.pull_request.labels.*.name, 'enforce:coverage') }}
     uses: ./.github/workflows/task-test.yml
     with:
       coverage: true
@@ -43,10 +39,7 @@ jobs:
 
   sanitize:
     needs: [get-latest-redis-tag]
-    if: >
-      (
-        (!github.event.pull_request.draft || contains(github.event.pull_request.labels.*.name, 'enforce:sanitize'))
-      )
+    if: ${{ !github.event.pull_request.draft && contains(github.event.pull_request.labels.*.name, 'enforce:sanitize') }}
     secrets: inherit
     uses: ./.github/workflows/task-test.yml
     with:
