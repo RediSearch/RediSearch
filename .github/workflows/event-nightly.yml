@@ -7,8 +7,6 @@ on:
   schedule:
     - cron: "20 20 * * *"
 
-# TODO: Use RedisJSON's `master` branch when testing on nightly
-
 jobs:
   lint:
     permissions:
@@ -26,9 +24,11 @@ jobs:
     with:
       platform: all
       architecture: all
+      # TODO: switch back to Redis unstable once the current unstable build issue is fixed.
       redis-ref: 3cd464263b03b425ffae2e23db24df3dc9346871
-      job-test-config: '{"test": "QUICK=1", "coverage": "QUICK=1", "sanitize": "QUICK=1"}'
+      job-test-config: '{"test": "", "coverage": "", "sanitize": ""}'
       options: ${{ vars.ENABLE_CODE_COVERAGE != 'false' && 'unit-tests,coordinator,standalone,rejson,coverage,sanitize' || 'unit-tests,coordinator,standalone,rejson,sanitize' }}
+      rejson-branch: master
 
   micro-benchmarks:
     uses: ./.github/workflows/flow-micro-benchmarks.yml

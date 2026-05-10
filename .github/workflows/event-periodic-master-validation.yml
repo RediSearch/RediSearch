@@ -1,0 +1,140 @@
+name: Periodic Master Validation
+
+# Runs broad validation on master against stable dependencies. Busy-day runs
+# start after enough PRs land; the daily sweep covers low-traffic leftovers.
+
+on:
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "Run validation even if master has not changed"
+        required: false
+        type: boolean
+        default: false
+  schedule:
+    - cron: "17 */3 * * *"
+    - cron: "47 21 * * *"
+
+concurrency:
+  group: master-periodic-validation
+  cancel-in-progress: false
+
+jobs:
+  should-run:
+    runs-on: ubuntu-slim
+    outputs:
+      run-validation: ${{ steps.check.outputs.run-validation }}
+    steps:
+      - name: Check latest successful validation
+        id: check
+        shell: python3 {0}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FORCE: ${{ inputs.force || false }}
+          CURRENT_SHA: ${{ github.sha }}
+          REPOSITORY: ${{ github.repository }}
+          MIN_MERGED_PRS: 3
+          NIGHTLY_SWEEP: ${{ github.event.schedule == '47 21 * * *' }}
+        run: |
+          import json
+          import os
+          import re
+          import subprocess
+
+          WORKFLOW_FILE = "event-periodic-master-validation.yml"
+
+          def gh_api(path):
+              return json.loads(subprocess.check_output(["gh", "api", path], text=True))
+
+          def decide(value, message):
+              print(message)
+              with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+                  output.write(f"run-validation={str(value).lower()}\n")
+              raise SystemExit
+
+          force = os.environ["FORCE"].lower() == "true"
+          current_sha = os.environ["CURRENT_SHA"]
+          repository = os.environ["REPOSITORY"]
+          min_merged_prs = int(os.environ["MIN_MERGED_PRS"])
+          nightly_sweep = os.environ["NIGHTLY_SWEEP"].lower() == "true"
+
+          if force:
+              decide(True, "Manual dispatch forced validation.")
+
+          last_runs = gh_api(
+              f"/repos/{repository}/actions/workflows/{WORKFLOW_FILE}/runs"
+              "?branch=master&status=success&per_page=1"
+          ).get("workflow_runs", [])
+          last_successful_sha = runs[0].get("head_sha", "") if runs else ""
+
+          if last_successful_sha == current_sha:
+              decide(False, "Master has not changed since the last successful periodic validation.")
+
+          if nightly_sweep:
+              decide(True, "Daily sweep: master changed since the last successful periodic validation.")
+
+          if not last_successful_sha:
+              decide(True, "No previous successful periodic validation found.")
+
+          comparison = gh_api(f"/repos/{repository}/compare/{last_successful_sha}...{current_sha}")
+          merged_prs = {
+              match.group(1)
+              for commit in comparison.get("commits", [])
+              if (message := commit.get("commit", {}).get("message", ""))
+              for match in re.finditer(r"\(#([0-9]+)\)", message)
+          }
+          merged_pr_count = len(merged_prs)
+
+          print(f"Merged PRs since last successful periodic validation: {merged_pr_count}")
+          if merged_pr_count >= min_merged_prs:
+              decide(True, f"At least {min_merged_prs} PRs merged; running periodic validation.")
+
+          decide(False, f"Fewer than {min_merged_prs} PRs merged; daily sweep will cover these changes.")
+
+  get-latest-redis-tag:
+    needs: should-run
+    if: ${{ needs.should-run.outputs.run-validation == 'true' }}
+    uses: ./.github/workflows/task-get-latest-tag.yml
+    with:
+      repo: redis/redis
+
+  lint:
+    needs: should-run
+    if: ${{ needs.should-run.outputs.run-validation == 'true' }}
+    permissions:
+      contents: read
+      packages: write
+    uses: ./.github/workflows/task-lint.yml
+    secrets: inherit
+
+  test-selected-platforms:
+    needs: [should-run, get-latest-redis-tag]
+    if: ${{ needs.should-run.outputs.run-validation == 'true' }}
+    permissions:
+      contents: read
+      packages: write
+    uses: ./.github/workflows/flow-test.yml
+    secrets: inherit
+    with:
+      platform: 'ubuntu:noble,macos-26,alpine:3.23,intel'
+      architecture: all
+      redis-ref: ${{ needs.get-latest-redis-tag.outputs.tag }}
+      job-test-config: '{"test": "", "coverage": "", "sanitize": ""}'
+      options: ${{ vars.ENABLE_CODE_COVERAGE != 'false' && 'unit-tests,coordinator,standalone,rejson,coverage,sanitize' || 'unit-tests,coordinator,standalone,rejson,sanitize' }}
+      rejson-branch: master
+
+  notify-failure:
+    needs: [get-latest-redis-tag, lint, test-selected-platforms]
+    if: failure()
+    runs-on: ubuntu-slim
+    steps:
+      - name: Notify Failure
+        uses: slackapi/slack-github-action@v3
+        with:
+          webhook: ${{ secrets.SLACK_WEBHOOK_URL_NIGHTLY_FAILED }}
+          webhook-type: incoming-webhook
+          payload: |
+            {
+              "failed_workflow": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}",
+              "repository": "${{ github.repository }}"
+            }
