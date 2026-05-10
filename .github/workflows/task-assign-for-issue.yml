@@ -9,7 +9,7 @@ on:
 jobs:
   Assign:
     if: ${{ !contains(github.event.issue.labels.*.name, 'feature') }}
-    runs-on: ${{ vars.RUNS_ON || 'ubuntu-24.04' }}
+    runs-on: ubuntu-slim
     env:
       GH_TOKEN: ${{ github.token }}
       GITHUB_REPOSITORY: ${{ github.repository }}
