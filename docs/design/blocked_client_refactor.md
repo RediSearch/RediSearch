@@ -516,7 +516,7 @@ this rename.
 | Coord BG shim (`coord_bg`, post-Step-6 dispatch) | Stays alongside the existing handlers — `src/coord/dist_aggregate.c` for AREQ coord, `src/coord/hybrid/dist_hybrid.c` for hybrid coord. |
 | `OpBlockClientCtx` (Step 7 replacement for `ConcurrentSearchBlockClientCtx`) | `src/info_redis/block_client.{h,c}` — next to `BlockQueryClientWithTimeout`. |
 | `SpecLockState` enum + lock APIs | Unchanged: `src/redisearch_ctx.{h,c}` (just renamed from `RSContextFlags`). |
-| `concurrent_ctx.{h,c}` | Survives, but slimmed to the thread-pool primitive (Step 6). The "ConcurrentSearch" naming is anachronistic post-refactor; an optional rename to `coord_pool.{h,c}` is in Step 8. |
+| `concurrent_ctx.{h,c}` | Survives as the coord thread-pool primitive (Step 6 deletes everything else from it). Renamed to `coord_pool.{h,c}` in Step 8 to match its post-refactor purpose. |
 
 ### 3.3 Lifetime / ownership of one cycle (no cursor)
 
@@ -1432,13 +1432,18 @@ privdata) and is **out of scope** — see §9 follow-up.
   `block_client.h` `free_privdata` typedef has the wrong signature
   — single-arg, but Redis's API is `(RedisModuleCtx*, void*)`). Keep
   the correct two-arg shape and delete the module.c local copies.
-- *(Optional rename)* `concurrent_ctx.{h,c}` → `coord_pool.{h,c}`.
+- Rename `concurrent_ctx.{h,c}` → `coord_pool.{h,c}` and rename the
+  surviving symbols accordingly (`ConcurrentSearch_*` →
+  `CoordPool_*`, `ConcurrentSearchPool_*` → `CoordPool_*`).
   Post-Step-6 the file is purely the coord thread-pool primitive
-  (`_CreatePool`, `_ThreadPoolDestroy`, `_ThreadPoolRun`,
-  `_WorkingThreadCount`, `_HighPriorityPendingJobsCount`, plus four
+  (`CreatePool`, `ThreadPoolDestroy`, `ThreadPoolRun`,
+  `WorkingThreadCount`, `HighPriorityPendingJobsCount`, plus four
   debug helpers); the "ConcurrentSearch" naming is left over from
-  when it carried per-command context. Skip if churn outweighs
-  clarity.
+  when the file carried per-command context state and is now
+  misleading. The callers are few — `module.c` (init / destroy /
+  3 dispatch sites), `info/global_stats.c` (2 stat reads),
+  `debug_commands.c` (4 debug helpers) — so the rename is a
+  bounded mechanical change.
 - Tighten asserts where steps 0–7 left them temporarily lax.
 - **Acceptance:**
   `grep -n 'blockedClientReqCtx\\\|blockedClientHybridCtx\\\|BlockClientCtx\\b' src/`
