@@ -54,7 +54,7 @@ Changes to the coordinator (`src/coord/`), distributed hybrid (`src/coord/hybrid
 the Map-Reduce layer (`src/coord/rmr/`) must be tested in a clustered environment:
 
 ```bash
-./build.sh RUN_PYTEST ENABLE_ASSERT=1 COORD=1 SHARDS=3
+./build.sh RUN_PYTEST ENABLE_ASSERT=1 REDIS_STANDALONE=0 SHARDS=3
 ```
 
 This spins up a 3-shard cluster and runs the full test suite against it.
