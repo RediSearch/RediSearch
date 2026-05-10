@@ -1378,6 +1378,22 @@ surface.
 - Long-lived leases held across cursor reads (see §3.4 future-improvement
   note and §8 risk 6).
 
+### Follow-up enabled by this refactor
+
+- **Replace `AREQ.args` per-arg `sds` copies with `RedisModule_HoldString`.**
+  Today `AREQ_Compile` does `sdsnewlen` for every `argv[i]` and pairs each
+  with a matching `sdsfree` in `AREQ_Free`. The copy is historical (a
+  pre-Redis-6 interop pattern), not load-bearing. With this refactor's
+  guarantee that `AREQ_Free` runs only on main (from `RequestSyncCtx_Free`,
+  which is called from `OnFree` or `Cursor_Free` — both main-only), we
+  can switch to `HoldString` in `Compile` and `RedisModule_FreeString` in
+  `Free`. Zero copy, refcount bump only. The conversion ripples through
+  the ~3–5 readers that treat `req->args[i]` as `sds`/`char*`; they
+  switch to `RedisModule_StringPtrLen` at use. The parser already has an
+  `RString` mode (`ArgsCursor_InitRString`). Same conversion applies to
+  `HybridRequest.args`. Worth its own bounded PR; orthogonal to the
+  cross-thread ownership cleanup.
+
 ---
 
 ## 10. Rust port notes
