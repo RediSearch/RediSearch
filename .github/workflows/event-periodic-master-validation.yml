@@ -4,6 +4,9 @@ name: Periodic Master Validation
 # start after enough PRs land; the daily sweep covers low-traffic leftovers.
 
 on:
+  push:
+    branches:
+      - master
   workflow_dispatch:
     inputs:
       force:
@@ -24,6 +27,7 @@ jobs:
     runs-on: ubuntu-slim
     outputs:
       run-validation: ${{ steps.check.outputs.run-validation }}
+      covered-prs: ${{ steps.check.outputs.covered-prs }}
     steps:
       - name: Check latest successful validation
         id: check
@@ -32,8 +36,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           FORCE: ${{ inputs.force || false }}
           CURRENT_SHA: ${{ github.sha }}
+          EVENT_NAME: ${{ github.event_name }}
           REPOSITORY: ${{ github.repository }}
           MIN_MERGED_PRS: 3
+          MAX_MERGED_PRS: 5
           NIGHTLY_SWEEP: ${{ github.event.schedule == '47 21 * * *' }}
         run: |
           import json
@@ -46,20 +52,22 @@ jobs:
           def gh_api(path):
               return json.loads(subprocess.check_output(["gh", "api", path], text=True))
 
-          def decide(value, message):
+          def decide(value, message, covered_prs):
+              covered = ", ".join(f"#{pr}" for pr in covered_prs) if covered_prs else "none"
               print(message)
+              print(f"Covered PRs: {covered}")
               with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
                   output.write(f"run-validation={str(value).lower()}\n")
+                  output.write(f"covered-prs={covered}\n")
               raise SystemExit
 
           force = os.environ["FORCE"].lower() == "true"
           current_sha = os.environ["CURRENT_SHA"]
+          event_name = os.environ["EVENT_NAME"]
           repository = os.environ["REPOSITORY"]
           min_merged_prs = int(os.environ["MIN_MERGED_PRS"])
+          max_merged_prs = int(os.environ["MAX_MERGED_PRS"])
           nightly_sweep = os.environ["NIGHTLY_SWEEP"].lower() == "true"
-
-          if force:
-              decide(True, "Manual dispatch forced validation.")
 
           last_runs = gh_api(
               f"/repos/{repository}/actions/workflows/{WORKFLOW_FILE}/runs"
@@ -67,29 +75,43 @@ jobs:
           ).get("workflow_runs", [])
           last_successful_sha = last_runs[0].get("head_sha", "") if last_runs else ""
 
-          if last_successful_sha == current_sha:
-              decide(False, "Master has not changed since the last successful periodic validation.")
+          if last_successful_sha == current_sha and not force:
+              decide(False, "Master has not changed since the last successful periodic validation.", [])
+
+          if last_successful_sha:
+              comparison = gh_api(f"/repos/{repository}/compare/{last_successful_sha}...{current_sha}")
+              covered_prs = sorted({
+                  int(match.group(1))
+                  for commit in comparison.get("commits", [])
+                  if (message := commit.get("commit", {}).get("message", ""))
+                  for match in re.finditer(r"\(#([0-9]+)\)", message)
+              })
+          else:
+              covered_prs = []
+
+          if force:
+              decide(True, "Manual dispatch forced validation.", covered_prs)
 
           if nightly_sweep:
-              decide(True, "Daily sweep: master changed since the last successful periodic validation.")
+              decide(True, "Daily sweep: master changed since the last successful periodic validation.", covered_prs)
 
           if not last_successful_sha:
-              decide(True, "No previous successful periodic validation found.")
+              decide(True, "No previous successful periodic validation found.", covered_prs)
 
-          comparison = gh_api(f"/repos/{repository}/compare/{last_successful_sha}...{current_sha}")
-          merged_prs = {
-              match.group(1)
-              for commit in comparison.get("commits", [])
-              if (message := commit.get("commit", {}).get("message", ""))
-              for match in re.finditer(r"\(#([0-9]+)\)", message)
-          }
-          merged_pr_count = len(merged_prs)
+          threshold = max_merged_prs if event_name == "push" else min_merged_prs
+          reason = "Push threshold" if event_name == "push" else "Periodic threshold"
+          merged_pr_count = len(covered_prs)
 
           print(f"Merged PRs since last successful periodic validation: {merged_pr_count}")
-          if merged_pr_count >= min_merged_prs:
-              decide(True, f"At least {min_merged_prs} PRs merged; running periodic validation.")
+          if merged_pr_count >= threshold:
+              decide(True, f"{reason} reached: at least {threshold} PRs merged.", covered_prs)
 
-          decide(False, f"Fewer than {min_merged_prs} PRs merged; daily sweep will cover these changes.")
+          decide(False, f"Fewer than {threshold} PRs merged; daily sweep will cover these changes.", covered_prs)
+
+      - name: Log covered PRs
+        if: ${{ steps.check.outputs.run-validation == 'true' }}
+        run: |
+          echo "Covered PRs: ${{ steps.check.outputs.covered-prs }}"
 
   get-latest-redis-tag:
     needs: should-run
