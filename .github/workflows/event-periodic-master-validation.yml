@@ -65,7 +65,7 @@ jobs:
               f"/repos/{repository}/actions/workflows/{WORKFLOW_FILE}/runs"
               "?branch=master&status=success&per_page=1"
           ).get("workflow_runs", [])
-          last_successful_sha = runs[0].get("head_sha", "") if runs else ""
+          last_successful_sha = last_runs[0].get("head_sha", "") if last_runs else ""
 
           if last_successful_sha == current_sha:
               decide(False, "Master has not changed since the last successful periodic validation.")
