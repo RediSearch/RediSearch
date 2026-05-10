@@ -73,7 +73,7 @@ bool parseCollectLimit(const ArgsCursor *src_args, uint64_t max_results, bool *o
     return false;
   }
 
-  if (!ValidateLimitBounds(offset, count, max_results, status)) {
+  if (!ValidateLimitBounds(offset, count, max_results, max_results, status)) {
     return false;
   }
 

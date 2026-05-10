@@ -589,6 +589,6 @@ TEST_F(CollectParserTest, LimitCountExceedsAggregateMax) {
 TEST_F(CollectParserTest, LimitOffsetExceedsAggregateMax) {
   registerKeys({"x"});
   expectError({"FIELDS", "1", "@x", "LIMIT", "9999999999", "10"},
-      "LIMIT exceeds maximum of");
+      "OFFSET exceeds maximum of");
 }
 
