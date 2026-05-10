@@ -8,83 +8,98 @@
 */
 #pragma once
 
+#include <stdbool.h>
 
-// Write commands - define both internal (_FT) and public (FT) variants
-// The appropriate variant is selected at runtime based on IsEnterprise()
-// - Enterprise: uses public "FT" prefix (DMC handles routing)
-// - OSS: uses internal "_FT" prefix (coordinator registers public FT commands separately)
+// Forward declaration to keep this header self-contained.
+// `IsEnterprise()` is defined in module.c (declared in module.h).
+bool IsEnterprise();
+
+// Write commands - define both public (FT) and internal (_FT) variants.
+// The appropriate variant is selected at runtime via `CMD_FOR_ENV(...)` based
+// on `IsEnterprise()`:
+//   - Enterprise: uses public "FT" prefix (DMC handles routing)
+//   - OSS:        uses internal "_FT" prefix (coordinator registers public FT
+//                 commands separately)
+//
+// Each pair is defined so that the INTERNAL variant is derived from the PUBLIC
+// one by prepending "_". This guarantees the two strings always agree.
 
 // RS_CREATE_CMD
-#define RS_CREATE_CMD_INTERNAL "_FT.CREATE"
-#define RS_CREATE_CMD_PUBLIC "FT.CREATE"
+#define RS_CREATE_CMD_PUBLIC   "FT.CREATE"
+#define RS_CREATE_CMD_INTERNAL "_" RS_CREATE_CMD_PUBLIC
 
 // RS_CREATE_IF_NX_CMD (for replica of support)
-#define RS_CREATE_IF_NX_CMD_INTERNAL "_FT._CREATEIFNX"
-#define RS_CREATE_IF_NX_CMD_PUBLIC "FT._CREATEIFNX"
+#define RS_CREATE_IF_NX_CMD_PUBLIC   "FT._CREATEIFNX"
+#define RS_CREATE_IF_NX_CMD_INTERNAL "_" RS_CREATE_IF_NX_CMD_PUBLIC
 
 // RS_SETPAYLOAD_CMD
-#define RS_SETPAYLOAD_CMD_INTERNAL "_FT.SETPAYLOAD"
-#define RS_SETPAYLOAD_CMD_PUBLIC "FT.SETPAYLOAD"
+#define RS_SETPAYLOAD_CMD_PUBLIC   "FT.SETPAYLOAD"
+#define RS_SETPAYLOAD_CMD_INTERNAL "_" RS_SETPAYLOAD_CMD_PUBLIC
 
 // RS_DROP_CMD
-#define RS_DROP_CMD_INTERNAL "_FT.DROP"
-#define RS_DROP_CMD_PUBLIC "FT.DROP"
+#define RS_DROP_CMD_PUBLIC   "FT.DROP"
+#define RS_DROP_CMD_INTERNAL "_" RS_DROP_CMD_PUBLIC
 
 // RS_DROP_INDEX_CMD
-#define RS_DROP_INDEX_CMD_INTERNAL "_FT.DROPINDEX"
-#define RS_DROP_INDEX_CMD_PUBLIC "FT.DROPINDEX"
+#define RS_DROP_INDEX_CMD_PUBLIC   "FT.DROPINDEX"
+#define RS_DROP_INDEX_CMD_INTERNAL "_" RS_DROP_INDEX_CMD_PUBLIC
 
 // RS_DROP_IF_X_CMD (for replica of support)
-#define RS_DROP_IF_X_CMD_INTERNAL "_FT._DROPIFX"
-#define RS_DROP_IF_X_CMD_PUBLIC "FT._DROPIFX"
+#define RS_DROP_IF_X_CMD_PUBLIC   "FT._DROPIFX"
+#define RS_DROP_IF_X_CMD_INTERNAL "_" RS_DROP_IF_X_CMD_PUBLIC
 
 // RS_DROP_INDEX_IF_X_CMD (for replica of support)
-#define RS_DROP_INDEX_IF_X_CMD_INTERNAL "_FT._DROPINDEXIFX"
-#define RS_DROP_INDEX_IF_X_CMD_PUBLIC "FT._DROPINDEXIFX"
+#define RS_DROP_INDEX_IF_X_CMD_PUBLIC   "FT._DROPINDEXIFX"
+#define RS_DROP_INDEX_IF_X_CMD_INTERNAL "_" RS_DROP_INDEX_IF_X_CMD_PUBLIC
 
 // RS_SYNUPDATE_CMD
-#define RS_SYNUPDATE_CMD_INTERNAL "_FT.SYNUPDATE"
-#define RS_SYNUPDATE_CMD_PUBLIC "FT.SYNUPDATE"
+#define RS_SYNUPDATE_CMD_PUBLIC   "FT.SYNUPDATE"
+#define RS_SYNUPDATE_CMD_INTERNAL "_" RS_SYNUPDATE_CMD_PUBLIC
 
 // RS_ALTER_CMD
-#define RS_ALTER_CMD_INTERNAL "_FT.ALTER"
-#define RS_ALTER_CMD_PUBLIC "FT.ALTER"
+#define RS_ALTER_CMD_PUBLIC   "FT.ALTER"
+#define RS_ALTER_CMD_INTERNAL "_" RS_ALTER_CMD_PUBLIC
 
 // RS_ALTER_IF_NX_CMD (for replica of support)
-#define RS_ALTER_IF_NX_CMD_INTERNAL "_FT._ALTERIFNX"
-#define RS_ALTER_IF_NX_CMD_PUBLIC "FT._ALTERIFNX"
+#define RS_ALTER_IF_NX_CMD_PUBLIC   "FT._ALTERIFNX"
+#define RS_ALTER_IF_NX_CMD_INTERNAL "_" RS_ALTER_IF_NX_CMD_PUBLIC
 
 // RS_DICT_ADD
-#define RS_DICT_ADD_INTERNAL "_FT.DICTADD"
-#define RS_DICT_ADD_PUBLIC "FT.DICTADD"
+#define RS_DICT_ADD_PUBLIC   "FT.DICTADD"
+#define RS_DICT_ADD_INTERNAL "_" RS_DICT_ADD_PUBLIC
 
 // RS_DICT_DEL
-#define RS_DICT_DEL_INTERNAL "_FT.DICTDEL"
-#define RS_DICT_DEL_PUBLIC "FT.DICTDEL"
+#define RS_DICT_DEL_PUBLIC   "FT.DICTDEL"
+#define RS_DICT_DEL_INTERNAL "_" RS_DICT_DEL_PUBLIC
 
 // RS_ALIASADD
-#define RS_ALIASADD_INTERNAL "_FT.ALIASADD"
-#define RS_ALIASADD_PUBLIC "FT.ALIASADD"
+#define RS_ALIASADD_PUBLIC   "FT.ALIASADD"
+#define RS_ALIASADD_INTERNAL "_" RS_ALIASADD_PUBLIC
 
 // RS_ALIASADD_IF_NX (for replica of support)
-#define RS_ALIASADD_IF_NX_INTERNAL "_FT._ALIASADDIFNX"
-#define RS_ALIASADD_IF_NX_PUBLIC "FT._ALIASADDIFNX"
+#define RS_ALIASADD_IF_NX_PUBLIC   "FT._ALIASADDIFNX"
+#define RS_ALIASADD_IF_NX_INTERNAL "_" RS_ALIASADD_IF_NX_PUBLIC
 
 // RS_ALIASDEL
-#define RS_ALIASDEL_INTERNAL "_FT.ALIASDEL"
-#define RS_ALIASDEL_PUBLIC "FT.ALIASDEL"
+#define RS_ALIASDEL_PUBLIC   "FT.ALIASDEL"
+#define RS_ALIASDEL_INTERNAL "_" RS_ALIASDEL_PUBLIC
 
-// RS_ALIASDEL_IF_EX (for replica of support)
-#define RS_ALIASDEL_IF_EX_INTERNAL "_FT._ALIASDELIFX"
-#define RS_ALIASDEL_IF_EX_PUBLIC "FT._ALIASDELIFX"
+// RS_ALIASDEL_IF_X (for replica of support)
+#define RS_ALIASDEL_IF_X_PUBLIC   "FT._ALIASDELIFX"
+#define RS_ALIASDEL_IF_X_INTERNAL "_" RS_ALIASDEL_IF_X_PUBLIC
 
 // RS_ALIASUPDATE
-#define RS_ALIASUPDATE_INTERNAL "_FT.ALIASUPDATE"
-#define RS_ALIASUPDATE_PUBLIC "FT.ALIASUPDATE"
+#define RS_ALIASUPDATE_PUBLIC   "FT.ALIASUPDATE"
+#define RS_ALIASUPDATE_INTERNAL "_" RS_ALIASUPDATE_PUBLIC
 
 // RS_RESTORE_IF_NX (for replica of support - Currently there is no FT.RESTORE command)
-#define RS_RESTORE_IF_NX_INTERNAL "_FT._RESTOREIFNX"
-#define RS_RESTORE_IF_NX_PUBLIC "FT._RESTOREIFNX"
+#define RS_RESTORE_IF_NX_PUBLIC   "FT._RESTOREIFNX"
+#define RS_RESTORE_IF_NX_INTERNAL "_" RS_RESTORE_IF_NX_PUBLIC
+
+// Selects the runtime-appropriate variant of a write command name. `cmd` must
+// be the bare RS_*_CMD identifier; the macro appends `_PUBLIC` or `_INTERNAL`
+// via token concatenation. Example: `CMD_FOR_ENV(RS_CREATE_CMD)`.
+#define CMD_FOR_ENV(cmd) (IsEnterprise() ? cmd##_PUBLIC : cmd##_INTERNAL)
 
 // Legacy write commands that are key-bounded (+ extra legacy commands that have to be registered for enterprise)
 #define RS_ADD_CMD "FT.ADD"
