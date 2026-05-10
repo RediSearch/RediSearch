@@ -342,12 +342,10 @@ static int distributeCollect(ReducerDistCtx *rdctx, QueryError *status) {
   const PLN_Reducer *src = rdctx->srcReducer;
   size_t argc = src->args.argc;
 
-  // Validate and parse the LIMIT clause (if any) from the original args.
-  // distributeCollect runs before RDCRCollect_New, so we also validate here to
-  // surface errors immediately rather than after a shard round-trip.
+  // Pre-parse LIMIT to compute the shard rewrite `LIMIT 0 (offset+count)`;
   bool hasLimit;
   CollectLimit limit;
-  if (!parseCollectLimit(&src->args, RSGlobalConfig.maxAggregateResults,
+  if (!parseCollectLimit(&src->args, MAX_AGGREGATE_REQUEST_RESULTS,
                          &hasLimit, &limit, status)) {
     return REDISMODULE_ERR;
   }
