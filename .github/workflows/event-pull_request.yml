@@ -48,7 +48,7 @@ jobs:
     needs:
       - get-latest-redis-tag
       - test-matrix
-    runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
+    runs-on: ${{ vars.RUNS_ON || 'ubuntu-24.04' }}
     if: ${{ !cancelled() }}
     steps:
       - if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')

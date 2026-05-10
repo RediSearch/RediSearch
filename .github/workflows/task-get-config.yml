@@ -33,7 +33,7 @@ on:
 
 jobs:
   get-config:
-    runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
+    runs-on: ${{ vars.RUNS_ON || 'ubuntu-24.04' }}
     outputs:
       env: ${{ steps.get-config.outputs.env }}
       container: ${{ steps.get-config.outputs.container }}
@@ -56,7 +56,7 @@ jobs:
 
           # Default environment per architecture
           # Use GitHub variables if available, otherwise use fallback values
-          runs_on = "${{ vars.RUNS_ON || 'ubuntu-latest' }}"
+          runs_on = "${{ vars.RUNS_ON || 'ubuntu-24.04' }}"
           runs_on_arm = "${{ vars.RUNS_ON_ARM || 'ubuntu24-arm64-2-8' }}"
 
           default_env = {
