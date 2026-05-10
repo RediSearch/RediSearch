@@ -26,7 +26,7 @@ env:
 jobs:
   start-runner:
     name: Start self-hosted EC2 runner
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       runner_label: ${{ steps.start-ec2-runner.outputs.label }}
       ec2_instance_id: ${{ steps.start-ec2-runner.outputs.ec2-instance-id }}
@@ -157,7 +157,7 @@ jobs:
     needs:
       - start-runner # required to get output from the start-runner job
       - micro-benchmark # required to wait when the main job is done
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     if: ${{ always() }} # required to stop the runner even if the error happened in the previous jobs
     steps:
       - name: Configure AWS credentials

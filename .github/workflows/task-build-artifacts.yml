@@ -47,7 +47,7 @@ jobs:
     uses: ./.github/workflows/task-build-cached-container.yml
     with:
       container: ${{ needs.get-config.outputs.container }}
-      runner-env: ${{ needs.get-config.outputs.env || vars.RUNS_ON || 'ubuntu-latest' }}
+      runner-env: ${{ needs.get-config.outputs.env || vars.RUNS_ON || 'ubuntu-24.04' }}
       checkout-ref: ${{ inputs.sha || inputs.ref || github.sha }}
 
   build:
@@ -56,7 +56,7 @@ jobs:
     if: |
       !cancelled() &&
       needs.get-config.result == 'success'
-    runs-on: ${{ needs.get-config.outputs.env || vars.RUNS_ON || 'ubuntu-latest' }}
+    runs-on: ${{ needs.get-config.outputs.env || vars.RUNS_ON || 'ubuntu-24.04' }}
     permissions:
       id-token: write # Required for OIDC role assumption during upload
       contents: read  # Required for actions/checkout

@@ -37,7 +37,7 @@ jobs:
   notify-failure:
     needs: [lint, test-all-platforms, micro-benchmarks]
     if: failure()
-    runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
+    runs-on: ${{ vars.RUNS_ON || 'ubuntu-24.04' }}
     steps:
       - name: Notify Failure
         uses: slackapi/slack-github-action@v1
