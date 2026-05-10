@@ -143,6 +143,50 @@ def test_hybrid_groupby_large():
     expected_categories = Counter(doc['category'] for doc in test_docs.values() if l2_from_bytes(doc['embedding'], query_vector)**2 <= radius)
     env.assertEqual(Counter(results), expected_categories)
 
+def test_hybrid_groupby_collect_yielded_scores():
+    """Two COLLECT reducers in one GROUPBY, each projecting a YIELD_SCORE_AS alias from a different subquery"""
+    env = Env(protocol=3)
+    enable_unstable_features(env)
+    test_docs = setup_hybrid_groupby_index(env)
+
+    query_vector = np.array([0.0, 0.0]).astype(np.float32).tobytes()
+    radius = 2**2  # vector subset = docs at L2 distance <= 2 (6 of 9 docs)
+
+    response = env.cmd('FT.HYBRID', 'idx',
+                            'SEARCH', 'red', 'YIELD_SCORE_AS', 'search_score',
+                            'VSIM', '@embedding', '$BLOB', 'RANGE', '2', 'RADIUS', str(radius),
+                                'YIELD_SCORE_AS', 'vector_score',
+                       'LOAD', '1', '@__key',
+                       'GROUPBY', '1', '@category',
+                            'REDUCE', 'COLLECT', '4', 'FIELDS', '2', '@__key', '@vector_score', 'AS', 'vector_results',
+                            'REDUCE', 'COLLECT', '4', 'FIELDS', '2', '@__key', '@search_score', 'AS', 'search_results',
+                       'PARAMS', '2', 'BLOB', query_vector)
+
+    in_vector = {k for k, d in test_docs.items() if l2_from_bytes(d['embedding'], query_vector)**2 <= radius}
+    expected = {cat: {k for k, d in test_docs.items() if d['category'] == cat}
+                for cat in {d['category'] for d in test_docs.values()}}
+
+    groups = {row['category']: row for row in response['results']}
+    env.assertEqual(set(groups), set(expected))
+
+    for category, keys in expected.items():
+        search = groups[category]['search_results']
+        env.assertEqual({e['__key'] for e in search}, keys)
+        for e in search:
+            env.assertEqual(set(e), {'__key', 'search_score'})
+            env.assertGreater(float(e['search_score']), 0.0)
+
+        vector = groups[category]['vector_results']
+        env.assertEqual({e['__key'] for e in vector}, keys)
+        for e in vector:
+            if e['__key'] in in_vector:
+                env.assertEqual(set(e), {'__key', 'vector_score'})
+                expected_score = 1.0 / (1.0 + l2_from_bytes(test_docs[e['__key']]['embedding'], query_vector)**2)
+                env.assertAlmostEqual(float(e['vector_score']), expected_score, delta=1e-6)
+            else:
+                env.assertEqual(set(e), {'__key'})
+
+
 def test_hybrid_groupby_with_filter():
     """Test hybrid search with groupby + filter to verify result count consistency"""
     env = Env()
