@@ -3819,8 +3819,6 @@ class TestShardTimeout:
             verify_return_result=verify_return,
         )
 
-
-
 class TestShardTimeoutResp2:
     """Tests for shard timeout behavior with RESP2 protocol.
 
@@ -3869,3 +3867,101 @@ class TestShardTimeoutResp2:
                                         message=f"Expected 0 total results in RESP2 {cmd_type}, got: {res}")
                 finally:
                     env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'return')
+
+
+class TestNoDeadlockQueryWithConcurrentWriter:
+    """MOD-15364: BG query holds the spec read lock; a concurrent writer
+    parks on the spec write lock and blocks the main thread. With the fix,
+    the BG worker releases the read lock on the BG thread (inside
+    `AREQ_Execute`, before `AREQ_DecrRef`) prior to `RedisModule_UnblockClient`,
+    so the writer can acquire the write lock and the main thread later runs
+    the unblock callback. Without the fix, the unblock callback never runs
+    (main thread is parked on wrlock), the read lock is never released, and
+    the server deadlocks.
+
+    Reproduction sequence (per test):
+      1. Pause the BG worker at `BeforeAggregateResultsClaim` (mid-pipeline,
+         while holding the spec read lock). Both FT.SEARCH and FT.AGGREGATE
+         go through `startPipeline` and hit this sync point.
+      2. Issue HSET on a separate connection. It parks the main thread on
+         `pthread_rwlock_wrlock` and bumps the global `PendingSpecWriters`
+         counter (in debug_commands.c).
+      3. The sync point's stop predicate (`PendingSpecWriters_Get() > 0`)
+         sees the bump and lets the BG worker resume on its own. We can't
+         use a `SIGNAL` here because the main thread is blocked.
+      4. BG worker finishes the pipeline; `AREQ_Execute` releases the read
+         lock (the fix) before dropping the worker's ref, then the callback
+         calls `RedisModule_UnblockClient`.
+      5. Main thread acquires the wrlock, completes HSET, then processes
+         the unblock callback.
+    """
+
+    SYNC_POINT = 'BeforeAggregateResultsClaim'
+
+    def __init__(self):
+        skipTest(cluster=True)
+
+        self.env = Env(protocol=3, moduleArgs='WORKERS 1 TIMEOUT 0')
+        skipIfNoEnableAssert(self.env)
+
+        conn = getConnectionByEnv(self.env)
+        self.env.expect('FT.CREATE', 'idx', 'PREFIX', '1', 'doc', 'SCHEMA',
+                        'name', 'TEXT').ok()
+        for i in range(10):
+            conn.execute_command('HSET', f'doc{i}', 'name', f'hello{i}')
+
+        self.env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'fail').ok()
+
+    def _run(self, query_args):
+        env = self.env
+        env.expect(debug_cmd(), 'SYNC_POINT', 'CLEAR').ok()
+        env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', self.SYNC_POINT).ok()
+        try:
+            query_conn = env.getConnection()
+            writer_conn = env.getConnection()
+
+            query_result = []
+            t_query = threading.Thread(
+                target=call_and_store,
+                args=(query_conn.execute_command, list(query_args), query_result),
+                daemon=True,
+            )
+            t_query.start()
+
+            wait_for_condition(
+                lambda: (env.cmd(debug_cmd(), 'SYNC_POINT',
+                                 'IS_WAITING', self.SYNC_POINT) == 1, {}),
+                f'BG worker never reached {self.SYNC_POINT}',
+            )
+
+            writer_result = []
+            t_writer = threading.Thread(
+                target=call_and_store,
+                args=(writer_conn.execute_command,
+                      ['HSET', 'doc:mod15364', 'name', 'concurrent-write'],
+                      writer_result),
+                daemon=True,
+            )
+            t_writer.start()
+
+            t_writer.join(timeout=15)
+            env.assertFalse(t_writer.is_alive(),
+                            message='Writer (HSET) hung - main thread is blocked '
+                                    'on the spec write lock; BG worker did not '
+                                    'release the spec read lock before unblocking '
+                                    'the client (MOD-15364)')
+
+            t_query.join(timeout=15)
+            env.assertFalse(t_query.is_alive(),
+                            message=f'{query_args[0]} thread hung - blocked-client '
+                                    'unblock callback never ran (MOD-15364)')
+        finally:
+            env.expect(debug_cmd(), 'SYNC_POINT', 'SIGNAL', self.SYNC_POINT).ok()
+            env.expect(debug_cmd(), 'SYNC_POINT', 'CLEAR').ok()
+
+    def test_aggregate(self):
+        self._run(['FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@name',
+                   'LIMIT', '0', '1'])
+
+    def test_search(self):
+        self._run(['FT.SEARCH', 'idx', '*', 'LIMIT', '0', '1'])

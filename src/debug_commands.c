@@ -267,6 +267,20 @@ void SyncPoint_WaitUntil(const char *name, SyncPointStopFn stop_fn, void *arg) {
   atomic_fetch_sub(&sp->waiting, 1);
 }
 
+static _Atomic uint32_t g_pendingSpecWriters = 0;
+
+void PendingSpecWriters_Incr(void) {
+  atomic_fetch_add_explicit(&g_pendingSpecWriters, 1, memory_order_relaxed);
+}
+
+void PendingSpecWriters_Decr(void) {
+  atomic_fetch_sub_explicit(&g_pendingSpecWriters, 1, memory_order_relaxed);
+}
+
+uint32_t PendingSpecWriters_Get(void) {
+  return atomic_load_explicit(&g_pendingSpecWriters, memory_order_relaxed);
+}
+
 // Global hybrid store cursors debug context (for HREQ cursor storage only)
 static HybridStoreCursorsDebugCtx globalHybridStoreCursorsDebugCtx = {0};
 
@@ -393,7 +407,7 @@ DEBUG_COMMAND(DumpTerms) {
   int dist = 0;
   size_t termLen;
 
-  RedisModule_ReplyWithArray(ctx, sctx->spec->terms->size);
+  RedisModule_ReplyWithArray(ctx, Trie_Size(sctx->spec->terms));
 
   TrieIterator *it = Trie_Iterate(sctx->spec->terms, "", 0, 0, 1);
   while (TrieIterator_Next(it, &rstr, &slen, NULL, &score, NULL, &dist)) {
@@ -730,7 +744,7 @@ DEBUG_COMMAND(DumpSuffix) {
     long resultSize = 0;
 
     // iterate trie and reply with terms
-    TrieIterator *it = TrieNode_Iterate(suffix->root, NULL, NULL, NULL);
+    TrieIterator *it = Trie_IterateAll(suffix);
     rune *rstr;
     t_len len;
     float score;
@@ -2253,6 +2267,38 @@ DEBUG_COMMAND(getIsRPPaused) {
   }
 
   return RedisModule_ReplyWithLongLong(ctx, QueryDebugCtx_IsPaused());
+}
+
+
+int parseDebugParamsCount(RedisModuleString **argv, int argc, QueryError *status, unsigned long long *debug_params_count) {
+    // Verify DEBUG_PARAMS_COUNT exists in its expected position (second to last argument)
+    if (argc < 2) {
+      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "DEBUG_PARAMS_COUNT arg is missing");
+      return 1;
+    }
+
+    size_t n;
+    const char *arg = RedisModule_StringPtrLen(argv[argc - 2], &n);
+    if (!(strncasecmp(arg, "DEBUG_PARAMS_COUNT", n) == 0)) {
+      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "DEBUG_PARAMS_COUNT arg is missing or not in the expected position");
+      return 1;
+    }
+
+    // The count of debug params is the last argument in argv
+    unsigned long long count = 0;
+    if (RedisModule_StringToULongLong(argv[argc - 1], &count) != REDISMODULE_OK || count == 0) {
+      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Invalid DEBUG_PARAMS_COUNT count");
+      return 1;
+    }
+
+    if (count > (unsigned long long)(argc - 2)) {
+      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS,
+                          "DEBUG_PARAMS_COUNT exceeds the number of available arguments");
+      return 1;
+    }
+
+    *debug_params_count = count;
+    return 0;
 }
 
 #ifdef ENABLE_ASSERT

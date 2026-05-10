@@ -59,6 +59,7 @@ void QueryDebugCtx_SetPause(bool pause);
 ResultProcessor* QueryDebugCtx_GetDebugRP(void);
 void QueryDebugCtx_SetDebugRP(ResultProcessor* debugRP);
 bool QueryDebugCtx_HasDebugRP(void);
+int parseDebugParamsCount(RedisModuleString **argv, int argc, QueryError *status, unsigned long long *debug_params_count);
 
 #ifdef ENABLE_ASSERT
 // Named sentinel values for the pauseBeforeN field of CoordReduceDebugCtx
@@ -137,6 +138,16 @@ typedef bool (*SyncPointStopFn)(void *arg);
 // Like SyncPoint_Wait, but also exits the wait loop when `stop_fn(arg)` returns
 // true. Lets workers release early when a timeout fires on the main thread.
 void SyncPoint_WaitUntil(const char *name, SyncPointStopFn stop_fn, void *arg);
+
+// Process-wide counter of threads parked in `RedisSearchCtx_LockSpecWrite`
+// waiting on a spec rwlock. Bumped before `pthread_rwlock_wrlock` and
+// decremented once the write lock has been acquired. Used by tests (sync-point
+// stop predicates) to observe a pending writer without depending on the main
+// thread, since the main thread is exactly what's blocked on the wrlock in the
+// scenarios these tests cover.
+void PendingSpecWriters_Incr(void);
+void PendingSpecWriters_Decr(void);
+uint32_t PendingSpecWriters_Get(void);
 
 // Struct used for debugging hybrid cursor storage ONLY (pause before/after cursor creation)
 // Separate from StoreResultsDebugCtx to allow independent control

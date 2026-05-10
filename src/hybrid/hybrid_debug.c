@@ -8,6 +8,7 @@
  */
 
 #include "hybrid_debug.h"
+#include "debug_commands.h"
 #include "config.h"
 #include "hybrid_exec.h"
 #include "hybrid_request.h"
@@ -26,30 +27,9 @@ typedef struct {
 HybridDebugParams parseHybridDebugParamsCount(RedisModuleString **argv, int argc, QueryError *status) {
   HybridDebugParams debug_params = {0};
 
-  // Verify DEBUG_PARAMS_COUNT exists in its expected position (second to last argument)
-  if (argc < 2) {
-    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "DEBUG_PARAMS_COUNT arg is missing");
-    return debug_params;
-  }
-
-  size_t n;
-  const char *arg = RedisModule_StringPtrLen(argv[argc - 2], &n);
-  if (!(strncasecmp(arg, "DEBUG_PARAMS_COUNT", n) == 0)) {
-    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "DEBUG_PARAMS_COUNT arg is missing or not in the expected position");
-    return debug_params;
-  }
-
-  unsigned long long debug_params_count;
-  // The count of debug params is the last argument in argv
-  if (RedisModule_StringToULongLong(argv[argc - 1], &debug_params_count) != REDISMODULE_OK) {
-    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Invalid DEBUG_PARAMS_COUNT count");
-    return debug_params;
-  }
-
-  if (debug_params_count > (unsigned long long)(argc - 2)) {
-    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS,
-                        "DEBUG_PARAMS_COUNT exceeds the number of available arguments");
-    return debug_params;
+  unsigned long long debug_params_count = 0;
+  if (parseDebugParamsCount(argv, argc, status, &debug_params_count) != 0) {
+      return debug_params;
   }
 
   debug_params.debug_params_count = debug_params_count;
