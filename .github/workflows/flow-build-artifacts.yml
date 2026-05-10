@@ -45,7 +45,7 @@ jobs:
 
   setup:
     # Sets SHA and Validates the reference Input (branch or tag)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [get-latest-redis-tag]
     outputs:
       sha: ${{ steps.set-sha.outputs.sha }}
