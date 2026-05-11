@@ -98,6 +98,8 @@ Invoke [/jj-fix-conflicts](.skills/jj-fix-conflicts/SKILL.md) to resolve conflic
 - Once a branch has an open pull request, do not amend, rebase, squash, or force-push it unless the user explicitly asks for history rewriting.
 - Address review feedback with normal follow-up commits and regular pushes.
 - Before opening a pull request, history cleanup is acceptable when it is useful and does not discard user work.
+- When opening a pull request, use `.github/PULL_REQUEST_TEMPLATE.md` for the description and keep all template sections.
+- Write PR titles as concise user-facing summaries; if release notes are required, describe the user impact in the title as requested by the template.
 
 ## License Header (Required)
 ```
