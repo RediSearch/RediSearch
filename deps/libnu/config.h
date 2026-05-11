@@ -1,6 +1,7 @@
 #ifndef NU_BUILD_CONFIG_H
 #define NU_BUILD_CONFIG_H
 #define NU_WITH_EVERYTHING
+
 /** @file config.h
  *
  * This file list available build options and provide some shortcuts,
@@ -22,6 +23,9 @@
  *
  * NU_DISABLE_CONTRACTIONS: disables forward-reading during collation,
  * only weights of a single codepoints will be compared (enabled in release build)
+ *
+ * NU_WITH_BMP_ONLY: build collations variant with BMP codepoints only
+ * http://unicode.org/roadmaps/bmp/
  */
 
 /* Enable everything, see below for details on a specific option */
@@ -146,14 +150,12 @@
 /* Requirements for collation functions on 0-terminated strings */
 #ifdef NU_WITH_Z_COLLATION
 # define NU_WITH_Z_STRINGS
-# define NU_WITH_TOUPPER /* nu_toupper() */
 #endif
 
 /* Requirements for collation functions
  * on unterminated strings */
 #ifdef NU_WITH_N_COLLATION
 # define NU_WITH_N_STRINGS
-# define NU_WITH_TOUPPER
 #endif
 
 /* Requirements for casemap functions */

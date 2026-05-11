@@ -17,7 +17,7 @@ extern "C" {
 /** Return unaccented value of codepoint. If codepoint is
  * accent (disacritic) itself, returns empty string.
  *
- * @note This is nunicode extenstion.
+ * @note This is nunicode extension.
  *
  * @ingroup transformations
  * @param codepoint unicode codepoint
