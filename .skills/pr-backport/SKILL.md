@@ -33,21 +33,31 @@ git log --oneline --grep="#<number>" master
 
 Read the PR description to understand the change and any compatibility considerations.
 
-### 2. Set up worktrees
+### 2. Set up worktrees and backport branches
 
-For each target branch, create a worktree if one doesn't already exist:
+For each target branch, create a worktree if one doesn't already exist, then create
+a dedicated backport branch. Do not cherry-pick directly on the release branch.
+The worktree keeps each target release checkout isolated; the dedicated backport
+branch is what makes the final push and PR safe.
 
 ```bash
-git worktree add .worktrees/backport-<branch> <branch>
+git fetch origin <branch>
+git worktree add .worktrees/backport-<branch> origin/<branch>
+cd .worktrees/backport-<branch>
+git checkout -b backport/pr-<number>-to-<branch>
 ```
 
-If a worktree already exists for that branch, reuse it:
+If a worktree already exists for that branch, reuse it after confirming it is clean:
 
 ```bash
 cd .worktrees/backport-<branch>
-git checkout <branch>
-git pull origin <branch>
+git status --short
+git fetch origin <branch>
+git checkout -b backport/pr-<number>-to-<branch> origin/<branch>
 ```
+
+If the backport branch already exists, check it out instead and verify it is based
+on the updated target branch before cherry-picking.
 
 ### 3. Cherry-pick
 
@@ -60,6 +70,7 @@ in whichever order is more practical for the backport or follows team convention
 
 ```bash
 cd .worktrees/backport-<branch>
+git branch --show-current  # should be backport/pr-<number>-to-<branch>
 git cherry-pick <sha>
 ```
 
@@ -105,9 +116,10 @@ If the original PR includes specific test files, run those:
 
 ```bash
 cd .worktrees/backport-<branch>
-git push -u origin HEAD
+git push -u origin backport/pr-<number>-to-<branch>
 gh pr create \
   --base <branch> \
+  --head backport/pr-<number>-to-<branch> \
   --title "[<branch>] <original PR title>" \
   --body "Backport of #<original PR number> to <branch>.
 
