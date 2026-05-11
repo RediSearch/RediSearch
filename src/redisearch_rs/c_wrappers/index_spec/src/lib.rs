@@ -68,41 +68,6 @@ impl IndexSpec {
     pub fn write_lock(&mut self) -> IndexSpecWriteGuard<'_> {
         IndexSpecWriteGuard::new(&mut self.0)
     }
-
-    /// Returns a const raw pointer to the underlying `ffi::IndexSpec`.
-    ///
-    /// # Safety
-    ///
-    /// The returned pointer is valid as long as the wrapper reference is valid.
-    /// Do not dereference the pointer after the wrapper goes out of scope.
-    pub const fn as_ptr(&self) -> *const ffi::IndexSpec {
-        &self.0 as *const ffi::IndexSpec
-    }
-
-    /// Returns a mutable raw pointer to the underlying `ffi::IndexSpec`.
-    ///
-    /// # Safety
-    ///
-    /// The returned pointer is valid as long as the wrapper reference is valid.
-    /// Do not dereference the pointer after the wrapper goes out of scope.
-    pub const fn as_mut_ptr(&mut self) -> *mut ffi::IndexSpec {
-        &mut self.0 as *mut ffi::IndexSpec
-    }
-
-    /// Returns a reference to the underlying `ffi::IndexSpec`.
-    ///
-    /// This is useful for test code that needs direct access to fields that don't have dedicated accessor methods.
-    pub const fn as_ffi(&self) -> &ffi::IndexSpec {
-        &self.0
-    }
-
-    /// Returns a mutable reference to the underlying `ffi::IndexSpec`.
-    ///
-    /// This is useful for test code that needs direct mutable access to fields
-    /// that don't have dedicated accessor methods.
-    pub const fn as_ffi_mut(&mut self) -> &mut ffi::IndexSpec {
-        &mut self.0
-    }
 }
 
 /// A guard that holds the IndexSpec write lock and releases it on drop.
@@ -251,7 +216,9 @@ impl<'lock> IndexSpecReadGuard<'lock> {
     /// // guard is ManuallyDrop, won't release lock on drop
     /// iterator.revalidate(&mut *guard)?;
     /// ```
-    pub const unsafe fn from_locked(index_spec: &'lock ffi::IndexSpec) -> std::mem::ManuallyDrop<Self> {
+    pub const unsafe fn from_locked(
+        index_spec: &'lock ffi::IndexSpec,
+    ) -> std::mem::ManuallyDrop<Self> {
         std::mem::ManuallyDrop::new(Self(index_spec))
     }
 
