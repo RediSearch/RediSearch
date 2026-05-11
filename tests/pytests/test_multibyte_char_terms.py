@@ -1594,33 +1594,36 @@ def test_utf8_lowercase_longer_than_uppercase_texts(env):
             'FT.SEARCH', 'idx', f'@t:({t1_lower})', 'NOCONTENT', 'DIALECT', dialect)
         env.assertEqual(res, expected_2, message=f'Dialect: {dialect}')
 
-# The following code points are not supported by Unicode 9.0.0
-# Reference https://www.unicode.org/Public/9.0.0/ucd/UnicodeData.txt
-UNSUPPORTED_UNICODE_9_0_0_CODEPOINTS = set(range(0x1C90, 0x1D00))
-UNSUPPORTED_UNICODE_9_0_0_CODEPOINTS.add(0x1C89)  # Cyrillic Capital Letter TJE (post-9.0)
-UNSUPPORTED_UNICODE_9_0_0_CODEPOINTS.add(0x2C2F)
-UNSUPPORTED_UNICODE_9_0_0_CODEPOINTS.update(range(0xA7B8, 0xA7F7))
+# The following code points are not supported by Unicode 11.0.0
+# (the version shipped by libnu 1.9).
+# Reference https://www.unicode.org/Public/11.0.0/ucd/UnicodeData.txt
+UNSUPPORTED_UNICODE_11_0_0_CODEPOINTS = {0x1CBB, 0x1CBC}  # Mtavruli gaps (unassigned)
+UNSUPPORTED_UNICODE_11_0_0_CODEPOINTS.add(0x1C89)  # Cyrillic Capital Letter TJE (post-9.0)
+UNSUPPORTED_UNICODE_11_0_0_CODEPOINTS.add(0x2C2F)
+UNSUPPORTED_UNICODE_11_0_0_CODEPOINTS.update(range(0xA7B9, 0xA7F7))
 # Surrogate pairs (always invalid in Unicode)
-UNSUPPORTED_UNICODE_9_0_0_CODEPOINTS.update(range(0xD800, 0xE000))
+UNSUPPORTED_UNICODE_11_0_0_CODEPOINTS.update(range(0xD800, 0xE000))
 
 # Noncharacters in BMP
-UNSUPPORTED_UNICODE_9_0_0_CODEPOINTS.update(range(0xFDD0, 0xFDF0))
-UNSUPPORTED_UNICODE_9_0_0_CODEPOINTS.add(0xFFFE)
-UNSUPPORTED_UNICODE_9_0_0_CODEPOINTS.add(0xFFFF)
+UNSUPPORTED_UNICODE_11_0_0_CODEPOINTS.update(range(0xFDD0, 0xFDF0))
+UNSUPPORTED_UNICODE_11_0_0_CODEPOINTS.add(0xFFFE)
+UNSUPPORTED_UNICODE_11_0_0_CODEPOINTS.add(0xFFFF)
 
-UNSUPPORTED_UNICODE_9_0_0_CODEPOINTS.update(range(0x10570, 0x10600))
-UNSUPPORTED_UNICODE_9_0_0_CODEPOINTS.update(range(0x10D40, 0x10D90))  # Garay script (Unicode 16.0)
-UNSUPPORTED_UNICODE_9_0_0_CODEPOINTS.update(range(0x16B90, 0x16F00))
+UNSUPPORTED_UNICODE_11_0_0_CODEPOINTS.update(range(0x10570, 0x10600))
+UNSUPPORTED_UNICODE_11_0_0_CODEPOINTS.update(range(0x10D40, 0x10D90))  # Garay script (Unicode 16.0)
+# Tangut Components, Khitan Small, etc. minus Medefaidrin upper (0x16E40..0x16E5F, Unicode 11.0)
+UNSUPPORTED_UNICODE_11_0_0_CODEPOINTS.update(range(0x16B90, 0x16E40))
+UNSUPPORTED_UNICODE_11_0_0_CODEPOINTS.update(range(0x16E60, 0x16F00))
 
 # Noncharacters in each plane
 for plane in range(0x10000, 0x110000, 0x10000):
-    UNSUPPORTED_UNICODE_9_0_0_CODEPOINTS.add(plane + 0xFFFE)
-    UNSUPPORTED_UNICODE_9_0_0_CODEPOINTS.add(plane + 0xFFFF)
+    UNSUPPORTED_UNICODE_11_0_0_CODEPOINTS.add(plane + 0xFFFE)
+    UNSUPPORTED_UNICODE_11_0_0_CODEPOINTS.add(plane + 0xFFFF)
 
-# Unassigned supplementary planes (as of Unicode 9.0.0)
-UNSUPPORTED_UNICODE_9_0_0_CODEPOINTS.update(range(0x2FA1E, 0xE0000))
-UNSUPPORTED_UNICODE_9_0_0_CODEPOINTS.update(range(0xE0080, 0xE0100))
-UNSUPPORTED_UNICODE_9_0_0_CODEPOINTS.update(range(0xE01F0, 0x10FFFE))
+# Unassigned supplementary planes (as of Unicode 11.0.0)
+UNSUPPORTED_UNICODE_11_0_0_CODEPOINTS.update(range(0x2FA1E, 0xE0000))
+UNSUPPORTED_UNICODE_11_0_0_CODEPOINTS.update(range(0xE0080, 0xE0100))
+UNSUPPORTED_UNICODE_11_0_0_CODEPOINTS.update(range(0xE01F0, 0x10FFFE))
 
 
 @skip(cluster=True)
@@ -1662,7 +1665,7 @@ def testToLowerConversionExactMatch(env):
                 query_u = f'@t:{{{upper_term}}}'
                 query_l = f'@t:{{{lower_term}}}'
 
-            if codepoint in UNSUPPORTED_UNICODE_9_0_0_CODEPOINTS:
+            if codepoint in UNSUPPORTED_UNICODE_11_0_0_CODEPOINTS:
                 # For unsupported codepoints, different terms are created
                 # for upper and lower case, so the search will return
                 # a single result for each case.
@@ -1684,7 +1687,7 @@ def testToLowerConversionExactMatch(env):
 def testTagToLowerConversionSimilarMatch(env):
     '''Test that tolower conversion works correctly for all unicode characters
     when using TAG fields and running a query with a prefix, infix or suffix.
-    This test skips characters not supported by Unicode 9.0.0.
+    This test skips characters not supported by Unicode 11.0.0.
     It also skips lowercase characters, because the tolower conversion
     is not expected to change them.
     The test creates a document with a term that contains a single unicode
@@ -1698,7 +1701,7 @@ def testTagToLowerConversionSimilarMatch(env):
     idx = 'idx_tag'
     error = False
     for codepoint in range(0x110000):  # Unicode range from U+0000 to U+10FFFF
-        if codepoint in UNSUPPORTED_UNICODE_9_0_0_CODEPOINTS:
+        if codepoint in UNSUPPORTED_UNICODE_11_0_0_CODEPOINTS:
             # Skip unsupported codepoints:
             continue
 
@@ -1739,7 +1742,7 @@ def testTagToLowerConversionSimilarMatch(env):
 def testTextToLowerConversionSimilarMatch(env):
     '''Test that tolower conversion works correctly for all unicode characters
     when using TEXT fields and running a query with a prefix, infix or suffix.
-    This test skips characters not supported by Unicode 9.0.0..
+    This test skips characters not supported by Unicode 11.0.0.
     It also skips lowercase characters, because the tolower conversion
     is not expected to change them.
     The test creates a document with a term that contains a single unicode
@@ -1752,7 +1755,7 @@ def testTextToLowerConversionSimilarMatch(env):
     idx = 'idx_txt'
     for codepoint in range(0x110000):  # Unicode range from U+0000 to U+10FFFF
         # Skip unsupported codepoints:
-        if codepoint in UNSUPPORTED_UNICODE_9_0_0_CODEPOINTS:
+        if codepoint in UNSUPPORTED_UNICODE_11_0_0_CODEPOINTS:
             continue
 
         char = chr(codepoint)
