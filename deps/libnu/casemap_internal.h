@@ -8,7 +8,7 @@
 
 /** Casemap codepoint
  *
- * @ingroup transformations
+ * @ingroup transformations_internal
  */
 static inline
 const char* _nu_to_something(uint32_t codepoint,

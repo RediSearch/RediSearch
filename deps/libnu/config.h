@@ -25,7 +25,6 @@
  */
 
 /* Enable everything, see below for details on a specific option */
-
 #ifdef NU_WITH_EVERYTHING
 # define NU_WITH_UTF8
 # define NU_WITH_CESU8
@@ -39,6 +38,7 @@
 # define NU_WITH_VALIDATION
 # define NU_WITH_COLLATION
 # define NU_WITH_CASEMAP
+# define NU_WITH_UNACCENT
 #endif /* NU_WITH_EVERYTHING */
 
 /* Enable UTF-8 decoding and encoding */
@@ -173,7 +173,8 @@
 
 /* All collation and casemapping functions depends on NU_WITH_UDB */
 #if (defined NU_WITH_Z_COLLATION) || (defined NU_WITH_N_COLLATION) \
-|| (defined NU_WITH_TOLOWER) || (defined NU_WITH_TOUPPER) || (defined NU_WITH_TOFOLD)
+|| (defined NU_WITH_TOLOWER) || (defined NU_WITH_TOUPPER) || (defined NU_WITH_TOFOLD) \
+|| (defined NU_WITH_UNACCENT)
 # ifndef NU_WITH_UDB
 #  define NU_WITH_UDB /* nu_udb_* functions, pretty much internal stuff */
 # endif /* NU_WITH_UDB */
