@@ -18,9 +18,9 @@ jobs:
   change-checks:
     runs-on: ubuntu-slim
     outputs: # Make sure to return "true" if any workflow was changed, to make sure the workflow works
-      CODE_CHANGED: ${{ steps.check-code.outputs.any_modified == 'true' || steps.check-workflows.outputs.any_modified == 'true' }}
-      BENCHMARK_CHANGED: ${{ steps.check-code.outputs.any_modified == 'true' || steps.check-benchmarks.outputs.any_modified == 'true' || steps.check-workflows.outputs.any_modified == 'true' }}
-      RUST_CODE_CHANGED: ${{ steps.check-micro-benchmarks.outputs.any_modified == 'true' || steps.check-workflows.outputs.any_modified == 'true' }}
+      CODE_CHANGED: ${{ steps.check-code.outputs.any_modified == 'true' || steps.check-cmake.outputs.any_modified == 'true' || steps.check-workflows.outputs.any_modified == 'true' }}
+      BENCHMARK_CHANGED: ${{ steps.check-code.outputs.any_modified == 'true' || steps.check-cmake.outputs.any_modified == 'true' || steps.check-benchmarks.outputs.any_modified == 'true' || steps.check-workflows.outputs.any_modified == 'true' }}
+      RUST_CODE_CHANGED: ${{ steps.check-micro-benchmarks.outputs.any_modified == 'true' || steps.check-rust-cmake.outputs.any_modified == 'true' || steps.check-workflows.outputs.any_modified == 'true' }}
       TESTS_CHANGED: ${{ steps.check-tests.outputs.any_modified == 'true' || steps.check-workflows.outputs.any_modified == 'true' }}
     steps:
       - name: Checkout
@@ -40,6 +40,8 @@ jobs:
         uses: tj-actions/changed-files@v47.0.6
         with:
           files: |
+                *
+                .*
                 src/**
                 deps/**
                 build/**
@@ -49,29 +51,16 @@ jobs:
                 scripts/**
                 pack/**
                 .install/**
-                .clang-format
                 .codespell/**
                 .devcontainer/**
-                .dockerignore
-                .gitignore
-                .gitmodules
-                .python-version
-                .rust-nightly
-                CMakeLists.txt
-                Makefile
-                Dockerfile
-                build.sh
-                commands.json
-                module.conf
-                pyproject.toml
-                rust-toolchain.toml
-                uv.lock
           files_ignore: |
+                .github/**
                 .skills/**
                 docs/**
                 tests/**
                 **/*.md
                 **/*.markdown
+                **/*.txt
                 **/README
                 **/LICENSE
                 **/NOTICE
@@ -87,6 +76,12 @@ jobs:
                 **/*.ico
                 **/*.pdf
           fetch_additional_submodule_history: true
+      - name: Check if CMake files were changed
+        id: check-cmake
+        uses: tj-actions/changed-files@v47.0.6
+        with:
+          files: |
+                **/CMakeLists.txt
       - name: Check if benchmark files were changed
         id: check-benchmarks
         uses: tj-actions/changed-files@v47.0.6
@@ -126,3 +121,9 @@ jobs:
               **/*.webp
               **/*.ico
               **/*.pdf
+      - name: Check if Rust CMake files were changed
+        id: check-rust-cmake
+        uses: tj-actions/changed-files@v47.0.6
+        with:
+          files: |
+              src/redisearch_rs/CMakeLists.txt
