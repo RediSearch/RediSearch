@@ -26,6 +26,7 @@ use std::ffi::CStr;
 use std::fmt::Write as _;
 
 use icu_casemap::CaseMapper;
+use rayon::prelude::*;
 
 mod libnu_ffi;
 
@@ -225,6 +226,40 @@ impl Report {
         }
     }
 
+    /// Merge `other` into `self`. Used by the rayon fold/reduce pipeline:
+    /// each worker accumulates into a thread-local `Report` and the reduce
+    /// step folds them together into a single combined report.
+    fn merge(&mut self, other: Self) {
+        self.total += other.total;
+        self.matched += other.matched;
+        self.diverged += other.diverged;
+
+        for (delta, count) in other.byte_len_histogram {
+            *self.byte_len_histogram.entry(delta).or_default() += count;
+        }
+
+        for (name, stats) in other.block_breakdown {
+            let entry = self.block_breakdown.entry(name).or_default();
+            entry.total += stats.total;
+            entry.diverged += stats.diverged;
+        }
+
+        // The codepoint table is keyed by a unique codepoint, so collisions
+        // are only possible when the same single-codepoint input shows up in
+        // both halves — and in that case both halves produced identical
+        // (libnu, icu) tuples, so first-wins is correct.
+        for (cp, mappings) in other.codepoint_table {
+            self.codepoint_table.entry(cp).or_insert(mappings);
+        }
+
+        for sample in other.diff_samples {
+            if self.diff_samples.len() >= Self::SAMPLE_CAP {
+                break;
+            }
+            self.diff_samples.push(sample);
+        }
+    }
+
     /// Render the aggregate report as human-readable text.
     pub fn render(&self) -> String {
         let mut out = String::new();
@@ -302,13 +337,33 @@ fn bucket_byte_delta(delta: i64) -> i64 {
     delta.clamp(-2, 4)
 }
 
-/// Compare every input in `inputs` and return an aggregate [`Report`].
-pub fn run_corpus<I: IntoIterator<Item = String>>(inputs: I) -> Report {
-    let mut report = Report::default();
-    for input in inputs {
-        report.record(compare(&input));
-    }
-    report
+/// Compare every input in `inputs` (in parallel via rayon) and return an
+/// aggregate [`Report`].
+///
+/// The pipeline is a classic fold/reduce: each rayon worker maintains a
+/// thread-local [`Report`] that absorbs results via [`Report::record`], and
+/// the reduce step folds the per-thread reports together via
+/// [`Report::merge`]. This keeps the worker hot path lock-free.
+///
+/// The input is materialised into a `Vec<String>` before parallel splitting
+/// because rayon needs random-access access to balance work across cores. For
+/// streaming use cases this is the wrong fit, but for the comparison harness
+/// the corpora are already finite and fit comfortably in memory.
+pub fn run_corpus<I>(inputs: I) -> Report
+where
+    I: IntoParallelIterator<Item = String>,
+{
+    inputs
+        .into_par_iter()
+        .map(|s| compare(&s))
+        .fold(Report::default, |mut acc, diff| {
+            acc.record(diff);
+            acc
+        })
+        .reduce(Report::default, |mut a, b| {
+            a.merge(b);
+            a
+        })
 }
 
 /// Return a coarse Unicode-block name for `cp`. Covers the blocks that

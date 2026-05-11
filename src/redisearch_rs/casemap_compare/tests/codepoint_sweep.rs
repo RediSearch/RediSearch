@@ -18,11 +18,15 @@ use casemap_compare::run_corpus;
 
 #[test]
 fn sweep_all_codepoints() {
-    let inputs = (0u32..=0x10FFFFu32)
+    // Materialise the codepoint list to a Vec<String> so rayon can balance
+    // work across cores. ~1.1M short strings ≈ a few tens of MB — well within
+    // memory budget for a test.
+    let inputs: Vec<String> = (0u32..=0x10FFFFu32)
         // Skip UTF-16 surrogate range; these are not valid Rust `char`s.
         .filter(|cp| !(0xD800..=0xDFFF).contains(cp))
         .filter_map(char::from_u32)
-        .map(|c| c.to_string());
+        .map(|c| c.to_string())
+        .collect();
 
     let report = run_corpus(inputs);
 

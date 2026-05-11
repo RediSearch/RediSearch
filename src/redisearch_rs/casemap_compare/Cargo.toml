@@ -16,6 +16,7 @@ bench = false
 [dependencies]
 anyhow.workspace = true
 icu_casemap.workspace = true
+rayon.workspace = true
 
 [dev-dependencies]
 crc32fast.workspace = true

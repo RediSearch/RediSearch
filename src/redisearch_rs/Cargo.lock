@@ -282,6 +282,7 @@ dependencies = [
  "fs-err",
  "icu_casemap",
  "proptest",
+ "rayon",
  "ureq",
 ]
 

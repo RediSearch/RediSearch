@@ -48,7 +48,10 @@ fn print_known_divergences() {
 
 #[test]
 fn aggregate_known_cases() {
-    let inputs = known_cases().into_iter().map(|(_, s)| s.to_owned());
+    let inputs: Vec<String> = known_cases()
+        .into_iter()
+        .map(|(_, s)| s.to_owned())
+        .collect();
     let report = run_corpus(inputs);
     print!("{}", report.render());
 }
