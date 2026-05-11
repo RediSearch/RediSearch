@@ -999,6 +999,7 @@ run_python_tests() {
   export FULL_VARIANT
   export BINDIR
   export REJSON="${REJSON:-1}"
+  export WIP_FEATURES
   export REJSON_BRANCH="${REJSON_BRANCH:-master}"
   export REJSON_PATH
   export REJSON_ARGS
