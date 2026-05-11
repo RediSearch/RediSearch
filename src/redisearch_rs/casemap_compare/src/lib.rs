@@ -15,7 +15,12 @@
 //! mappings. This crate is a test utility, not a production component:
 //! it exists only to characterise where, and how, the two folders disagree.
 //!
-//! - [`fold_libnu`]: mirrors `normalizeStr()` in `src/sortable.c` exactly.
+//! - [`fold_libnu`]: per-codepoint `nu_tofold` loop, matching the fold
+//!   semantics RediSearch exposes via `runeFold` in `src/trie/rune_util.c`.
+//!   (RediSearch no longer routes folded codepoints back through
+//!   `nu_utf8_write` end-to-end — the historical `normalizeStr` wrapper in
+//!   `src/sortable.c` was removed as dead code in #9538 — but the libnu
+//!   fold tables themselves are still in production via the trie path.)
 //! - [`fold_icu`]: mirrors `try_insert_string_normalize()` in
 //!   `src/redisearch_rs/sorting_vector/src/lib.rs`.
 //! - [`compare`]: fold a single string with both and produce a [`Diff`].
@@ -32,16 +37,19 @@ mod libnu_ffi;
 
 /// Fold `s` using libnu's per-codepoint `nu_tofold`.
 ///
-/// This is a faithful Rust mirror of the loop in `normalizeStr` at
-/// `src/sortable.c:21-47`. For each input codepoint:
+/// For each input codepoint:
 ///
 /// - If `nu_tofold(cp)` returns non-NULL, the result is a null-terminated
 ///   UTF-8 string of zero or more codepoints which replaces the input.
 /// - Otherwise (no mapping), the codepoint is copied verbatim.
 ///
-/// The C version decodes the input via `nu_utf8_read` and re-encodes via
-/// `nu_utf8_write`. We use Rust's native UTF-8 handling for both, which is
-/// semantically equivalent.
+/// This exercises libnu's fold tables (the same tables `runeFold` in
+/// `src/trie/rune_util.c` uses) but skips the buggy `nu_utf8_write`
+/// re-encode — we use Rust's native UTF-8 handling instead so that
+/// divergence numbers reflect *fold-table* differences against ICU and
+/// are not contaminated by the `b4_utf8` encoder bug. Use
+/// [`fold_libnu_raw`] or [`encode_codepoint_with_libnu`] to observe the
+/// encoder bug directly.
 pub fn fold_libnu(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for ch in s.chars() {
@@ -104,9 +112,18 @@ pub fn fold_libnu_raw(s: &str) -> Vec<u8> {
 ///
 /// `nu_utf8_write` dispatches to `b{1..4}_utf8` based on the codepoint's
 /// natural UTF-8 length. The 4-byte path (`b4_utf8` in
-/// `deps/libnu/utf8_internal.h`) is what RediSearch's `normalizeStr` invokes
-/// for any fold result in a supplementary plane, so its correctness gates
-/// production output. This is the function to sweep when asking
+/// `deps/libnu/utf8_internal.h`) is what RediSearch invokes for any
+/// supplementary-plane codepoint via two live call sites:
+///
+/// - `unicode_tolower()` in `src/util/strconv.h` — lowercases a UTF-8
+///   string in place, re-encoding each lowered codepoint through
+///   `nu_utf8_write` (used during query/document text normalisation).
+/// - `runesToStr()` in `src/trie/rune_util.c` — converts a trie rune
+///   array back to UTF-8 via `nu_writestr`/`nu_utf8_write` (used when
+///   returning matched terms from the trie).
+///
+/// Both paths produce corrupted bytes for every supplementary-plane
+/// codepoint with bit 12 set. This is the function to sweep when asking
 /// "does libnu *ever* emit invalid UTF-8 from its runtime encoder?".
 pub fn encode_codepoint_with_libnu(cp: u32) -> Vec<u8> {
     let mut buf = [0u8; 4];

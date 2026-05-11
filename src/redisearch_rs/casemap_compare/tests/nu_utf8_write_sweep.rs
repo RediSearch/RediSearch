@@ -13,9 +13,17 @@
 //!
 //! This complements the earlier `libnu_invalid_utf8` test, which only
 //! exercised `nu_tofold`'s pre-baked static table bytes. RediSearch's
-//! production path (`normalizeStr` in `src/sortable.c`) re-encodes each
-//! folded codepoint via `nu_utf8_write`, so this is the encoder that
-//! actually ships in user output.
+//! live production paths invoke `nu_utf8_write` from two places:
+//!
+//! - `unicode_tolower()` in `src/util/strconv.h` — re-encodes each
+//!   lowercased codepoint during text normalisation.
+//! - `runesToStr()` in `src/trie/rune_util.c` — converts trie rune
+//!   arrays back to UTF-8 for returned terms.
+//!
+//! So this is the encoder that actually ships in user output. (The old
+//! `normalizeStr` wrapper in `src/sortable.c` that combined fold +
+//! re-encode was removed as dead code in #9538; the encoder bug remains
+//! reachable through the two call sites above.)
 //!
 //! # The bug this test documents
 //!
