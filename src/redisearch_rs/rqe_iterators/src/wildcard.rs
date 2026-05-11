@@ -98,7 +98,7 @@ impl<'index> RQEIterator<'index> for Wildcard<'index> {
 
     fn revalidate(
         &mut self,
-        _spec: &mut IndexSpecReadGuard,
+        _spec: &IndexSpecReadGuard,
     ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         Ok(RQEValidateStatus::Ok)
     }
@@ -159,7 +159,7 @@ impl<'index> RQEIterator<'index> for Box<dyn WildcardIterator<'index> + 'index> 
 
     fn revalidate(
         &mut self,
-        spec: &mut IndexSpecReadGuard,
+        spec: &IndexSpecReadGuard,
     ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         (**self).revalidate(spec)
     }
@@ -265,7 +265,7 @@ impl<'index> RQEIterator<'index> for OptimizedWildcard<'index> {
 
     fn revalidate(
         &mut self,
-        spec: &mut IndexSpecReadGuard,
+        spec: &IndexSpecReadGuard,
     ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         delegate_rqe_iterator!(self, revalidate, spec)
     }
@@ -329,7 +329,7 @@ impl<'index> RQEIterator<'index> for NewWildcardIterator<'index> {
 
     fn revalidate(
         &mut self,
-        spec: &mut IndexSpecReadGuard,
+        spec: &IndexSpecReadGuard,
     ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         delegate_wildcard_iterator!(self, revalidate, spec)
     }
@@ -539,7 +539,7 @@ impl<'index> RQEIterator<'index> for DiskWildcardIterator<'index> {
 
     fn revalidate(
         &mut self,
-        spec: &mut IndexSpecReadGuard,
+        spec: &IndexSpecReadGuard,
     ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         self.0.revalidate(spec)
     }

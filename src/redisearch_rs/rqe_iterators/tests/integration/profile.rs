@@ -161,8 +161,8 @@ fn profile_revalidate() {
     let _ = profile.read(); // doc 2
 
     // Revalidate (Wildcard returns OK)
-    let mut guard = mock_ctx.spec_read_guard();
-    let status = profile.revalidate(&mut *guard);
+    let guard = mock_ctx.spec_read_guard();
+    let status = profile.revalidate(&*guard);
     assert!(status.is_ok());
 
     // Verify delegation still works

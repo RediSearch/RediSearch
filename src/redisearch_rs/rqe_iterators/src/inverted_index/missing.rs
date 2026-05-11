@@ -134,7 +134,7 @@ where
     ///    when non-null, must point to an opaque
     ///    [`InvertedIndex`](inverted_index::opaque::InvertedIndex) whose encoding
     ///    variant matches `E`.
-    fn should_abort(&self, spec: &mut IndexSpecReadGuard) -> bool {
+    fn should_abort(&self, spec: &IndexSpecReadGuard) -> bool {
         debug_assert!(
             !spec.missing_field_dict().is_null(),
             "spec.missing_field_dict() must be non-null",
@@ -218,7 +218,7 @@ where
     #[inline(always)]
     fn revalidate(
         &mut self,
-        spec: &mut IndexSpecReadGuard,
+        spec: &IndexSpecReadGuard,
     ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         // Conditions (field_index validity, missingFieldDict, encoding
         // match) are structural invariants guaranteed by the constructor's

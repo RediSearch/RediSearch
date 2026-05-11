@@ -100,7 +100,7 @@ where
     ///
     /// The raw pointers inside `spec` (e.g. `keysDict`) must be valid and
     /// dereferenceable for the duration of the call.
-    fn should_abort(&self, spec: &mut IndexSpecReadGuard) -> bool {
+    fn should_abort(&self, spec: &IndexSpecReadGuard) -> bool {
         // Redis_OpenInvertedIndex() relies on keysDict to open the II.
         // It should always be set in production flows but some tests do not set up a full spec.
         if !spec.has_keys_dict() {
@@ -203,7 +203,7 @@ where
     #[inline(always)]
     fn revalidate(
         &mut self,
-        spec: &mut IndexSpecReadGuard,
+        spec: &IndexSpecReadGuard,
     ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         if self.should_abort(spec) {
             return Ok(RQEValidateStatus::Aborted);

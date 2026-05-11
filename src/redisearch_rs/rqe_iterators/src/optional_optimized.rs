@@ -246,7 +246,7 @@ where
 
     fn revalidate(
         &mut self,
-        spec: &mut IndexSpecReadGuard,
+        spec: &IndexSpecReadGuard,
     ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         // Simple enum to avoid holding a borrow through the match.
         enum ValidateOutcome {

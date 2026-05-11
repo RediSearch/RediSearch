@@ -120,7 +120,7 @@ where
     #[inline(always)]
     fn revalidate(
         &mut self,
-        spec: &mut IndexSpecReadGuard,
+        spec: &IndexSpecReadGuard,
     ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         match &mut self.0 {
             MaybeEmptyOption::None(empty) => empty.revalidate(spec),

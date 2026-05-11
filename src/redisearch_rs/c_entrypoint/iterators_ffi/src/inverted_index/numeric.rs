@@ -88,7 +88,7 @@ impl<'index> rqe_iterators::RQEIterator<'index> for NumericIterator<'index> {
     #[inline(always)]
     fn revalidate(
         &mut self,
-        spec: &mut index_spec::IndexSpecReadGuard,
+        spec: &index_spec::IndexSpecReadGuard,
     ) -> Result<rqe_iterators::RQEValidateStatus<'_, 'index>, rqe_iterators::RQEIteratorError> {
         self.iterator.revalidate(spec)
     }

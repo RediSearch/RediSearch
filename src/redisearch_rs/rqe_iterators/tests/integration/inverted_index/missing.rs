@@ -151,16 +151,16 @@ mod not_miri {
         let test = MissingRevalidateTest::new(10);
         let mut it = test.create_iterator();
         // Verify the iterator works normally and read at least one document
-        let mut guard = test.test.context.spec_read_guard();
+        let guard = test.test.context.spec_read_guard();
         assert_eq!(
-            it.revalidate(&mut *guard)
+            it.revalidate(&*guard)
                 .expect("revalidate failed"),
             RQEValidateStatus::Ok
         );
         assert!(it.read().expect("failed to read").is_some());
-        let mut guard = test.test.context.spec_read_guard();
+        let guard = test.test.context.spec_read_guard();
         assert_eq!(
-            it.revalidate(&mut *guard)
+            it.revalidate(&*guard)
                 .expect("revalidate failed"),
             RQEValidateStatus::Ok
         );
@@ -190,9 +190,9 @@ mod not_miri {
 
         // Revalidate should return Aborted because the missing II no longer
         // points to the same index the reader was created from.
-        let mut guard = test.test.context.spec_read_guard();
+        let guard = test.test.context.spec_read_guard();
         assert_eq!(
-            it.revalidate(&mut *guard)
+            it.revalidate(&*guard)
                 .expect("revalidate failed"),
             RQEValidateStatus::Aborted
         );
@@ -220,9 +220,9 @@ mod not_miri {
 
         // Read at least one document so the iterator has a position.
         assert!(it.read().expect("failed to read").is_some());
-        let mut guard = test.test.context.spec_read_guard();
+        let guard = test.test.context.spec_read_guard();
         assert_eq!(
-            it.revalidate(&mut *guard)
+            it.revalidate(&*guard)
                 .expect("revalidate failed"),
             RQEValidateStatus::Ok
         );
@@ -238,9 +238,9 @@ mod not_miri {
         }
 
         // `should_abort` sees NULL from `dictFetchValue` and returns true.
-        let mut guard = test.test.context.spec_read_guard();
+        let guard = test.test.context.spec_read_guard();
         assert_eq!(
-            it.revalidate(&mut *guard)
+            it.revalidate(&*guard)
                 .expect("revalidate failed"),
             RQEValidateStatus::Aborted
         );

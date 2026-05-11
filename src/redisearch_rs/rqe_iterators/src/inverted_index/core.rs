@@ -289,7 +289,7 @@ where
 
     fn revalidate(
         &mut self,
-        _spec: &mut IndexSpecReadGuard,
+        _spec: &IndexSpecReadGuard,
     ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         if !self.reader.needs_revalidation() {
             return Ok(RQEValidateStatus::Ok);

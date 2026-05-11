@@ -600,8 +600,8 @@ mod revalidate {
         it.read().unwrap().unwrap();
         let original = it.last_doc_id();
 
-        let mut guard = context.spec_read_guard();
-        let status = it.revalidate(&mut *guard).unwrap();
+        let guard = context.spec_read_guard();
+        let status = it.revalidate(&*guard).unwrap();
         assert_eq!(status, RQEValidateStatus::Ok);
         assert_eq!(child_data.revalidate_count(), 1);
         assert_eq!(it.last_doc_id(), original);
@@ -618,8 +618,8 @@ mod revalidate {
         it.read().unwrap().unwrap();
         let original = it.last_doc_id();
 
-        let mut guard = context.spec_read_guard();
-        let status = it.revalidate(&mut *guard).unwrap();
+        let guard = context.spec_read_guard();
+        let status = it.revalidate(&*guard).unwrap();
         assert_eq!(status, RQEValidateStatus::Ok);
         assert_eq!(it.last_doc_id(), original);
         it.read().unwrap().unwrap();
@@ -635,8 +635,8 @@ mod revalidate {
         it.read().unwrap().unwrap();
         let original = it.last_doc_id();
 
-        let mut guard = context.spec_read_guard();
-        let status = it.revalidate(&mut *guard).unwrap();
+        let guard = context.spec_read_guard();
+        let status = it.revalidate(&*guard).unwrap();
         assert_eq!(status, RQEValidateStatus::Ok);
         assert_eq!(child_data.revalidate_count(), 1);
         assert_eq!(it.last_doc_id(), original);
@@ -665,8 +665,8 @@ mod revalidate {
             guard.set_existing_docs(new_ii.cast());
         }
 
-        let mut guard = context.spec_read_guard();
-        let status = it.revalidate(&mut *guard).unwrap();
+        let guard = context.spec_read_guard();
+        let status = it.revalidate(&*guard).unwrap();
         assert_eq!(status, RQEValidateStatus::Aborted);
 
         // Restoring the original `existingDocs` pointer and dropping
@@ -696,8 +696,8 @@ mod revalidate {
         // GC doc_id=1 from the wildcard inverted index to trigger Moved.
         gc_document(&context, 1);
 
-        let mut guard = context.spec_read_guard();
-        let status = it.revalidate(&mut *guard).unwrap();
+        let guard = context.spec_read_guard();
+        let status = it.revalidate(&*guard).unwrap();
         assert!(matches!(status, RQEValidateStatus::Moved { .. }));
         // Wildcard moved past 1 → iterator advanced.
         assert!(it.last_doc_id() > original);
@@ -716,8 +716,8 @@ mod revalidate {
 
         gc_document(&context, 1);
 
-        let mut guard = context.spec_read_guard();
-        let status = it.revalidate(&mut *guard).unwrap();
+        let guard = context.spec_read_guard();
+        let status = it.revalidate(&*guard).unwrap();
         assert!(matches!(status, RQEValidateStatus::Moved { .. }));
         assert!(it.last_doc_id() > original);
     }
@@ -735,8 +735,8 @@ mod revalidate {
 
         gc_document(&context, 1);
 
-        let mut guard = context.spec_read_guard();
-        let status = it.revalidate(&mut *guard).unwrap();
+        let guard = context.spec_read_guard();
+        let status = it.revalidate(&*guard).unwrap();
         assert!(matches!(status, RQEValidateStatus::Moved { .. }));
         assert!(it.last_doc_id() > original);
         it.read().unwrap().unwrap();
@@ -758,8 +758,8 @@ mod revalidate {
         // Since child is also at 10, read_inner should advance past it.
         gc_document(&context, 5);
 
-        let mut guard = context.spec_read_guard();
-        let status = it.revalidate(&mut *guard).unwrap();
+        let guard = context.spec_read_guard();
+        let status = it.revalidate(&*guard).unwrap();
         assert!(matches!(status, RQEValidateStatus::Moved { .. }));
         assert!(!it.at_eof());
         // Wildcard moved to 10 which matches child → read_inner → 15.
@@ -789,8 +789,8 @@ mod revalidate {
         // GC the only document so wildcard becomes empty on revalidation.
         gc_document(&context, 1);
 
-        let mut guard = context.spec_read_guard();
-        let status = it.revalidate(&mut *guard).unwrap();
+        let guard = context.spec_read_guard();
+        let status = it.revalidate(&*guard).unwrap();
         assert!(
             matches!(status, RQEValidateStatus::Moved { current: None }),
             "Expected Moved {{ current: None }}, got {status:?}"

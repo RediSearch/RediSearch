@@ -53,7 +53,7 @@ impl<'index> RQEIterator<'index> for Infinite<'index> {
 
     fn revalidate(
         &mut self,
-        _spec: &mut index_spec::IndexSpecReadGuard,
+        _spec: &index_spec::IndexSpecReadGuard,
     ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         Ok(RQEValidateStatus::Ok)
     }
@@ -200,9 +200,9 @@ fn rewind_not_empty() {
 fn revalidate_empty() {
     let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
     let mut it = MaybeEmpty::<Infinite>::new_empty();
-    let mut guard = mock_ctx.spec_read_guard();
+    let guard = mock_ctx.spec_read_guard();
     assert_eq!(
-        it.revalidate(&mut *guard).unwrap(),
+        it.revalidate(&*guard).unwrap(),
         RQEValidateStatus::Ok
     );
 }
@@ -211,9 +211,9 @@ fn revalidate_empty() {
 fn revalidate_not_empty() {
     let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
     let mut it = MaybeEmpty::new(Infinite::default());
-    let mut guard = mock_ctx.spec_read_guard();
+    let guard = mock_ctx.spec_read_guard();
     assert_eq!(
-        it.revalidate(&mut *guard).unwrap(),
+        it.revalidate(&*guard).unwrap(),
         RQEValidateStatus::Ok
     );
 }

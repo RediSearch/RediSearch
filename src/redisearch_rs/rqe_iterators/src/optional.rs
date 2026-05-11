@@ -228,7 +228,7 @@ where
 
     fn revalidate(
         &mut self,
-        spec: &mut IndexSpecReadGuard,
+        spec: &IndexSpecReadGuard,
     ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         let Some(ref mut child) = self.child else {
             return Ok(RQEValidateStatus::Ok);

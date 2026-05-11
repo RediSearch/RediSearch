@@ -269,7 +269,7 @@ where
     #[inline(always)]
     fn revalidate(
         &mut self,
-        spec: &mut IndexSpecReadGuard,
+        spec: &IndexSpecReadGuard,
     ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         // 1. Revalidate the wildcard iterator first.
         let wcii_status = self.wcii.revalidate(spec)?;

@@ -244,7 +244,7 @@ impl<'index, const SORTED_BY_ID: bool> RQEIterator<'index> for IdList<'index, SO
     #[inline(always)]
     fn revalidate(
         &mut self,
-        _spec: &mut IndexSpecReadGuard,
+        _spec: &IndexSpecReadGuard,
     ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         Ok(RQEValidateStatus::Ok)
     }

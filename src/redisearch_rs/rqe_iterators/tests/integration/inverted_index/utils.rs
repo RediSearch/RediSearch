@@ -498,16 +498,16 @@ impl RevalidateTest {
     {
         assert_eq!(
             {
-                let mut guard = self.context.spec_read_guard();
-                it.revalidate(&mut *guard).expect("revalidate failed")
+                let guard = self.context.spec_read_guard();
+                it.revalidate(&*guard).expect("revalidate failed")
             },
             RQEValidateStatus::Ok
         );
         assert!(matches!(it.read(), Ok(Some(_))));
         assert_eq!(
             {
-                let mut guard = self.context.spec_read_guard();
-                it.revalidate(&mut *guard).expect("revalidate failed")
+                let guard = self.context.spec_read_guard();
+                it.revalidate(&*guard).expect("revalidate failed")
             },
             RQEValidateStatus::Ok
         );
@@ -523,8 +523,8 @@ impl RevalidateTest {
         assert!(it.at_eof());
         assert_eq!(
             {
-                let mut guard = self.context.spec_read_guard();
-                it.revalidate(&mut *guard).expect("revalidate failed")
+                let guard = self.context.spec_read_guard();
+                it.revalidate(&*guard).expect("revalidate failed")
             },
             RQEValidateStatus::Ok
         );
@@ -583,8 +583,8 @@ impl RevalidateTest {
     {
         assert_eq!(
             {
-                let mut guard = self.context.spec_read_guard();
-                it.revalidate(&mut *guard).expect("revalidate failed")
+                let guard = self.context.spec_read_guard();
+                it.revalidate(&*guard).expect("revalidate failed")
             },
             RQEValidateStatus::Ok
         );
@@ -614,8 +614,8 @@ impl RevalidateTest {
         // Nothing changed in the index so revalidate does nothing
         assert_eq!(
             {
-                let mut guard = self.context.spec_read_guard();
-                it.revalidate(&mut *guard).expect("revalidate failed")
+                let guard = self.context.spec_read_guard();
+                it.revalidate(&*guard).expect("revalidate failed")
             },
             RQEValidateStatus::Ok
         );
@@ -624,8 +624,8 @@ impl RevalidateTest {
         self.remove_document(ii, self.doc_ids[0]);
         assert_eq!(
             {
-                let mut guard = self.context.spec_read_guard();
-                it.revalidate(&mut *guard).expect("revalidate failed")
+                let guard = self.context.spec_read_guard();
+                it.revalidate(&*guard).expect("revalidate failed")
             },
             RQEValidateStatus::Ok
         );
@@ -634,9 +634,9 @@ impl RevalidateTest {
 
         // Remove an element after the current iteration position.
         self.remove_document(ii, self.doc_ids[4]);
-        let mut guard = self.context.spec_read_guard();
+        let guard = self.context.spec_read_guard();
         assert_eq!(
-            it.revalidate(&mut *guard).expect("revalidate failed"),
+            it.revalidate(&*guard).expect("revalidate failed"),
             RQEValidateStatus::Ok
         );
         assert_eq!(it.last_doc_id(), self.doc_ids[2]);
@@ -645,8 +645,8 @@ impl RevalidateTest {
         // Remove the element at the current position of the iterator.
         // When validating we won't be able to skip to this element, so we should get RQEValidateStatus::Moved.
         self.remove_document(ii, self.doc_ids[2]);
-        let mut guard = self.context.spec_read_guard();
-        let res = it.revalidate(&mut *guard).expect("revalidate failed");
+        let guard = self.context.spec_read_guard();
+        let res = it.revalidate(&*guard).expect("revalidate failed");
         let current_doc = match res {
             RQEValidateStatus::Moved {
                 current: Some(current),
@@ -680,8 +680,8 @@ impl RevalidateTest {
 
         self.remove_document(ii, last_doc_id);
         // revalidate should return Moved without current doc and be at EOF.
-        let mut guard = self.context.spec_read_guard();
-        let res = it.revalidate(&mut *guard).expect("revalidate failed");
+        let guard = self.context.spec_read_guard();
+        let res = it.revalidate(&*guard).expect("revalidate failed");
         assert!(matches!(res, RQEValidateStatus::Moved { current: None }));
         assert!(it.at_eof());
     }

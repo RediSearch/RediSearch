@@ -407,9 +407,9 @@ fn numeric_no_range_tree_revalidate() {
     assert_eq!(record.doc_id, 1);
 
     // Revalidate should succeed (not abort) even though there is no range tree.
-    let mut guard = mock_ctx.spec_read_guard();
+    let guard = mock_ctx.spec_read_guard();
     assert_eq!(
-        it.revalidate(&mut *guard).expect("revalidate failed"),
+        it.revalidate(&*guard).expect("revalidate failed"),
         RQEValidateStatus::Ok
     );
 }
@@ -648,9 +648,9 @@ mod from_tree {
         // write does not violate aliasing rules.
         unsafe { (*tree_ptr).increment_revision() };
 
-        let mut guard = ctx.spec_read_guard();
+        let guard = ctx.spec_read_guard();
         assert_eq!(
-            iters[0].revalidate(&mut *guard).expect("revalidate failed"),
+            iters[0].revalidate(&*guard).expect("revalidate failed"),
             RQEValidateStatus::Aborted,
         );
         // SAFETY: `tree_ptr` was created by `Box::into_raw` above; `iters` is dropped
@@ -684,9 +684,9 @@ mod from_tree {
         // write does not violate aliasing rules.
         unsafe { (*tree_ptr).increment_revision() };
 
-        let mut guard = ctx.spec_read_guard();
+        let guard = ctx.spec_read_guard();
         assert_eq!(
-            iters[0].revalidate(&mut *guard).expect("revalidate failed"),
+            iters[0].revalidate(&*guard).expect("revalidate failed"),
             RQEValidateStatus::Ok,
         );
 
@@ -1002,9 +1002,9 @@ mod not_miri {
 
         // Revalidate before any reads. last_doc_id is 0, so even though
         // needs_revalidation is true, we should get Ok.
-        let mut guard = test.test.context.spec_read_guard();
+        let guard = test.test.context.spec_read_guard();
         assert_eq!(
-            it.revalidate(&mut *guard).expect("revalidate failed"),
+            it.revalidate(&*guard).expect("revalidate failed"),
             RQEValidateStatus::Ok
         );
 
@@ -1065,15 +1065,15 @@ mod not_miri {
         let mut it = test.create_iterator();
 
         // First, verify the iterator works normally and read at least one document
-        let mut guard = test.test.context.spec_read_guard();
+        let guard = test.test.context.spec_read_guard();
         assert_eq!(
-            it.revalidate(&mut *guard).expect("revalidate failed"),
+            it.revalidate(&*guard).expect("revalidate failed"),
             RQEValidateStatus::Ok
         );
         assert!(it.read().expect("failed to read").is_some());
-        let mut guard = test.test.context.spec_read_guard();
+        let guard = test.test.context.spec_read_guard();
         assert_eq!(
-            it.revalidate(&mut *guard).expect("revalidate failed"),
+            it.revalidate(&*guard).expect("revalidate failed"),
             RQEValidateStatus::Ok
         );
 
@@ -1090,9 +1090,9 @@ mod not_miri {
         }
 
         // Now Revalidate should return Aborted because the revision IDs don't match
-        let mut guard = test.test.context.spec_read_guard();
+        let guard = test.test.context.spec_read_guard();
         assert_eq!(
-            it.revalidate(&mut *guard).expect("revalidate failed"),
+            it.revalidate(&*guard).expect("revalidate failed"),
             RQEValidateStatus::Aborted
         );
     }

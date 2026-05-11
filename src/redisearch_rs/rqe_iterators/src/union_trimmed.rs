@@ -267,7 +267,7 @@ where
     #[inline(always)]
     fn revalidate(
         &mut self,
-        _spec: &mut IndexSpecReadGuard,
+        _spec: &IndexSpecReadGuard,
     ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         // Trimmed unions run in a single, short-lived read path that does not
         // interleave with GC cycles, so revalidation should never be called.

@@ -421,7 +421,7 @@ where
 
     fn revalidate(
         &mut self,
-        spec: &mut IndexSpecReadGuard,
+        spec: &IndexSpecReadGuard,
     ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         if self.is_eof {
             return Ok(RQEValidateStatus::Ok);

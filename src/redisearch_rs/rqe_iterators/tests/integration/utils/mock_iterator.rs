@@ -387,7 +387,7 @@ impl<'index, const N: usize> RQEIterator<'index> for Mock<'index, N> {
 
     fn revalidate(
         &mut self,
-        _spec: &mut index_spec::IndexSpecReadGuard,
+        _spec: &index_spec::IndexSpecReadGuard,
     ) -> Result<rqe_iterators::RQEValidateStatus<'_, 'index>, rqe_iterators::RQEIteratorError> {
         let revalidate_result = {
             let mut data = self.data.0.borrow_mut();
@@ -555,7 +555,7 @@ impl<'index> RQEIterator<'index> for MockVec<'index> {
 
     fn revalidate(
         &mut self,
-        _spec: &mut index_spec::IndexSpecReadGuard,
+        _spec: &index_spec::IndexSpecReadGuard,
     ) -> Result<rqe_iterators::RQEValidateStatus<'_, 'index>, rqe_iterators::RQEIteratorError> {
         let revalidate_result = {
             let mut data = self.data.0.borrow_mut();

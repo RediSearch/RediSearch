@@ -262,7 +262,7 @@ impl<'index> RQEIterator<'index> for CRQEIterator {
 
     fn revalidate(
         &mut self,
-        spec: &mut IndexSpecReadGuard,
+        spec: &IndexSpecReadGuard,
     ) -> Result<crate::RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         // SAFETY: Safe thanks to invariant 3. of [`CRQEIterator::header`].
         let callback = unsafe { self.Revalidate.unwrap_unchecked() };
