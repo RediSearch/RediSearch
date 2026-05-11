@@ -10,7 +10,6 @@
 //! Test context for creating search contexts with proper FFI setup.
 
 use std::{
-    cell::UnsafeCell,
     ffi::CString,
     ptr::{self, NonNull},
     sync::{
@@ -90,7 +89,7 @@ impl Drop for ModuleCtx {
 pub struct TestContext {
     _ctx: ModuleCtx,
     pub sctx: ptr::NonNull<ffi::RedisSearchCtx>,
-    pub spec: UnsafeCell<&'static mut index_spec::IndexSpec>,
+    pub spec: *mut ffi::IndexSpec,
 
     inner: TestContextInner,
 }
@@ -124,7 +123,7 @@ fn create_spec_sctx(
     schema: &str,
     index_name: &str,
 ) -> (
-    &'static mut index_spec::IndexSpec,
+    *mut ffi::IndexSpec,
     ptr::NonNull<ffi::RedisSearchCtx>,
 ) {
     let args = schema
@@ -159,10 +158,7 @@ fn create_spec_sctx(
     let sctx = unsafe { ffi::NewSearchCtxC(ctx.as_ptr(), index_name.as_ptr(), false) };
     let sctx = ptr::NonNull::new(sctx).expect("RedisSearchCtx should not be null");
 
-    // Convert spec to wrapper reference for better type safety
-    let spec_ref = unsafe { index_spec::IndexSpec::from_raw_mut(spec.as_ptr()) };
-
-    (spec_ref, sctx)
+    (spec.as_ptr(), sctx)
 }
 
 impl TestContext {
@@ -178,7 +174,7 @@ impl TestContext {
     pub fn spec_read_guard(&self) -> std::mem::ManuallyDrop<index_spec::IndexSpecReadGuard<'_>> {
         // SAFETY: The underlying spec exists and is valid. In test contexts,
         // no lock is needed for safe access.
-        unsafe { index_spec::IndexSpecReadGuard::from_locked((*self.spec.get()).as_ffi()) }
+        unsafe { index_spec::IndexSpecReadGuard::from_locked(&*self.spec) }
     }
 
     /// Creates a write lock guard for testing.
@@ -196,7 +192,7 @@ impl TestContext {
     pub fn spec_write_guard(&self) -> std::mem::ManuallyDrop<index_spec::IndexSpecWriteGuard<'_>> {
         // SAFETY: The underlying spec exists and is valid. In test contexts,
         // no lock is needed. Caller guarantees exclusive access.
-        unsafe { index_spec::IndexSpecWriteGuard::from_locked_mut((*self.spec.get()).as_ffi_mut()) }
+        unsafe { index_spec::IndexSpecWriteGuard::from_locked_mut(&mut *self.spec) }
     }
 
     /// Create a new [`TestContext`] with a numeric inverted index having the given records.
@@ -221,7 +217,7 @@ impl TestContext {
         let field_name = CString::new("num_field").unwrap();
         let fs = unsafe {
             ffi::IndexSpec_GetFieldWithLength(
-                spec.as_ptr(),
+                spec,
                 field_name.as_ptr(),
                 field_name.as_bytes().len(),
             )
@@ -230,7 +226,7 @@ impl TestContext {
 
         // Create the numeric range tree through the proper API
         let numeric_range_tree = unsafe {
-            rqe_iterators::open_numeric_or_geo_index(spec.as_ffi_mut(), fs.as_mut(), true, true)
+            rqe_iterators::open_numeric_or_geo_index(&mut *spec, fs.as_mut(), true, true)
         }
         .expect("NumericRangeTree should not be None");
 
@@ -247,7 +243,7 @@ impl TestContext {
         Self {
             _ctx: ctx,
             sctx,
-            spec: UnsafeCell::new(spec),
+            spec,
             inner: TestContextInner::Numeric {
                 field_spec: fs,
                 numeric_range_tree: NonNull::from_mut(numeric_range_tree),
@@ -285,7 +281,7 @@ impl TestContext {
         let field_name = CString::new("text_field").unwrap();
         let fs = unsafe {
             ffi::IndexSpec_GetFieldWithLength(
-                spec.as_ptr(),
+                spec,
                 field_name.as_ptr(),
                 field_name.as_bytes().len(),
             )
@@ -298,7 +294,7 @@ impl TestContext {
         let mut is_new = false;
         let inverted_index = unsafe {
             ffi::Redis_OpenInvertedIndex(
-                spec.as_mut_ptr(),
+                spec,
                 term.as_ptr(),
                 term.as_bytes().len(),
                 true, // write mode
@@ -319,7 +315,7 @@ impl TestContext {
         Self {
             _ctx: ctx,
             sctx,
-            spec: UnsafeCell::new(spec),
+            spec,
             inner: TestContextInner::Term {
                 field_spec,
                 inverted_index,
@@ -366,12 +362,14 @@ impl TestContext {
 
         // Set spec.existingDocs so Wildcard::should_abort() can find the index
         // during revalidation (it compares spec.existingDocs with the reader's index).
-        spec.as_ffi_mut().existingDocs = ii_ptr.cast();
+        unsafe {
+            (&mut *spec).existingDocs = ii_ptr.cast();
+        }
 
         Self {
             _ctx: ctx,
             sctx,
-            spec: UnsafeCell::new(spec),
+            spec,
             inner: TestContextInner::Wildcard { inverted_index: ii },
         }
     }
@@ -396,7 +394,7 @@ impl TestContext {
         let field_name = std::ffi::CString::new("text_field").unwrap();
         let fs = unsafe {
             ffi::IndexSpec_GetFieldWithLength(
-                spec.as_ptr(),
+                spec,
                 field_name.as_ptr(),
                 field_name.as_bytes().len(),
             )
@@ -431,7 +429,7 @@ impl TestContext {
         unsafe {
             let field_name_key = (*field_spec.as_ptr()).fieldName;
             let rc = ffi::RS_dictAdd(
-                spec.as_ffi().missingFieldDict,
+                (&*spec).missingFieldDict,
                 field_name_key as *mut _,
                 ii_ptr as *mut _,
             );
@@ -441,7 +439,7 @@ impl TestContext {
         Self {
             _ctx: ctx,
             sctx,
-            spec: UnsafeCell::new(spec),
+            spec,
             inner: TestContextInner::Missing {
                 field_spec,
                 inverted_index: ii,
@@ -472,7 +470,7 @@ impl TestContext {
         let field_name = CString::new("tag_field").unwrap();
         let fs = unsafe {
             ffi::IndexSpec_GetFieldWithLength(
-                spec.as_ptr(),
+                spec,
                 field_name.as_ptr(),
                 field_name.as_bytes().len(),
             )
@@ -519,7 +517,7 @@ impl TestContext {
         Self {
             _ctx: ctx,
             sctx,
-            spec: UnsafeCell::new(spec),
+            spec,
             inner: TestContextInner::Tag {
                 field_spec,
                 tag_index,

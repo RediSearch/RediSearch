@@ -7,7 +7,6 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::cell::UnsafeCell;
 use std::ptr::NonNull;
 
 use ffi::{QueryEvalCtx, RedisSearchCtx, SchemaRule, t_docId};
@@ -24,7 +23,7 @@ use numeric_range_tree::NumericRangeTree;
 /// with the library's reference creation.
 pub struct MockContext {
     rule: *mut SchemaRule,
-    spec: UnsafeCell<&'static mut index_spec::IndexSpec>,
+    spec: *mut ffi::IndexSpec,
     sctx: *mut RedisSearchCtx,
     qctx: *mut QueryEvalCtx,
     numeric_range_tree: *mut NumericRangeTree,
@@ -43,7 +42,7 @@ impl Drop for MockContext {
                 std::alloc::Layout::new::<SchemaRule>(),
             );
             std::alloc::dealloc(
-                (*self.spec.get()).as_mut_ptr() as *mut u8,
+                self.spec as *mut u8,
                 std::alloc::Layout::new::<ffi::IndexSpec>(),
             );
             std::alloc::dealloc(
@@ -107,14 +106,10 @@ impl MockContext {
             (*qctx_ptr).sctx = sctx_ptr;
             (*qctx_ptr).docTable = std::ptr::addr_of_mut!((*spec_ptr).docs);
 
-            // Convert spec raw pointer to wrapper reference for better type safety
-            let spec: &'static mut index_spec::IndexSpec =
-                index_spec::IndexSpec::from_raw_mut(spec_ptr);
-
-            // Store raw pointers directly (don't convert back to Box)
+            // Store raw pointers directly (don't convert to references)
             Self {
                 rule: rule_ptr,
-                spec: UnsafeCell::new(spec),
+                spec: spec_ptr,
                 sctx: sctx_ptr,
                 qctx: qctx_ptr,
                 numeric_range_tree: numeric_range_tree_ptr,
@@ -144,7 +139,7 @@ impl MockContext {
     pub fn spec_read_guard(&self) -> std::mem::ManuallyDrop<index_spec::IndexSpecReadGuard<'_>> {
         // SAFETY: The underlying spec exists and is valid. In test contexts,
         // no lock is needed for safe access.
-        unsafe { index_spec::IndexSpecReadGuard::from_locked((*self.spec.get()).as_ffi()) }
+        unsafe { index_spec::IndexSpecReadGuard::from_locked(&*self.spec) }
     }
 
     /// Creates a write lock guard for testing.
@@ -162,7 +157,7 @@ impl MockContext {
     pub fn spec_write_guard(&self) -> std::mem::ManuallyDrop<index_spec::IndexSpecWriteGuard<'_>> {
         // SAFETY: The underlying spec exists and is valid. In test contexts,
         // no lock is needed. Caller guarantees exclusive access.
-        unsafe { index_spec::IndexSpecWriteGuard::from_locked_mut((*self.spec.get()).as_ffi_mut()) }
+        unsafe { index_spec::IndexSpecWriteGuard::from_locked_mut(&mut *self.spec) }
     }
 
     /// Get the query evaluation context from the [`MockContext`].
