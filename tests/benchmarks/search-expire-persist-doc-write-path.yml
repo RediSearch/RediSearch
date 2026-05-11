@@ -1,5 +1,5 @@
 version: 0.2
-name: "search-expire-doc-1000-seconds"
+name: "search-expire-persist-doc-write-path"
 description: |
   TTL table benchmark for document expiration and persist notifications.
   This variant covers the write path (EXPIRE/PERSIST), not the read path.s
