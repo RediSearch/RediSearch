@@ -127,7 +127,7 @@ jobs:
       # - test-macos
       - coverage
       - sanitize
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-slim
     if: ${{ !cancelled() }}
     env:
       RESULTS: ${{ toJson(needs.*.result) }} # For debugging purposes
