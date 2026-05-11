@@ -93,6 +93,12 @@ Invoke [/write-rust-tests](.skills/write-rust-tests/SKILL.md) to add tests to Ru
 Invoke [/verify](.skills/verify/SKILL.md) to verify the correctness of your work before wrapping up.
 Invoke [/jj-fix-conflicts](.skills/jj-fix-conflicts/SKILL.md) to resolve conflicts in a jj changes.
 
+## Pull Request Workflow
+
+- Once a branch has an open pull request, do not amend, rebase, squash, or force-push it unless the user explicitly asks for history rewriting.
+- Address review feedback with normal follow-up commits and regular pushes.
+- Before opening a pull request, history cleanup is acceptable when it is useful and does not discard user work.
+
 ## License Header (Required)
 ```
 /*
