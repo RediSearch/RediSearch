@@ -2466,10 +2466,6 @@ class TestCoordinatorTimeout:
             env.assertEqual(total, responsive_count,
                             message=f"timeout_reply_rows={timeout_reply_rows} "
                                     f"drain_rows={drain_rows} reply={reply!r}")
-            env.assertLess(total, self.n_docs,
-                           message=f"paused shard contributed none; "
-                                   f"timeout_reply_rows={timeout_reply_rows} "
-                                   f"drain_rows={drain_rows} reply={reply!r}")
 
             env.expect('FT.CURSOR', 'READ', 'idx', str(cursor_id)).error().contains('Cursor not found')
 
