@@ -150,11 +150,11 @@ jobs:
           steps.dep-licenses.outcome == 'failure' ||
           steps.workspace_hack.outcome == 'failure'
         run: |
-          echo "Linting: ${{ steps.lint.outcome }}"
-          echo "License header: ${{ steps.license-header.outcome }}"
+          echo "Lint: ${{ steps.lint.outcome }}"
           echo "Generated files: ${{ steps.git-diff.outcome }}"
-          echo "Formatting: ${{ steps.fmt.outcome }}"
+          echo "License header: ${{ steps.license-header.outcome }}"
+          echo "Format check: ${{ steps.fmt.outcome }}"
           echo "Security advisories: ${{ steps.advisories.outcome }}"
           echo "Dependency licenses: ${{ steps.dep-licenses.outcome }}"
-          echo "Workspace hack: ${{ steps.workspace_hack.outcome }}"
+          echo "Workspace hack check: ${{ steps.workspace_hack.outcome }}"
           exit 1
