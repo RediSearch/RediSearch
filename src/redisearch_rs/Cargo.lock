@@ -2881,6 +2881,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "ttl_table"
+version = "0.0.1"
+dependencies = [
+ "ffi",
+ "field",
+ "libc",
+ "thin_vec",
+ "ttl_table",
+ "workspace_hack",
+]
+
+[[package]]
 name = "types_ffi"
 version = "0.0.1"
 dependencies = [

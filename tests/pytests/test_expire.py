@@ -589,7 +589,6 @@ def testLastFieldNoExpiration(env):
     # this should lead to the line being hit
     env.expect('FT.SEARCH', 'idx', 'hello', 'NOCONTENT').apply(sort_document_names).equal([2, 'doc:1', 'doc:2'])
 
-
 def testDocWithLongExpiration(env):
     # We want to cover this snippet of code:
     # if (ttlEntry->fieldExpirations == NULL || array_len(ttlEntry->fieldExpirations) == 0) {
