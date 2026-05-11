@@ -19,7 +19,8 @@ extern "C" {
  * 1. `input_key` must be a [valid] pointer to an [`RLookupKey`] that remains
  *    alive for the lifetime of the returned reducer.
  * 2. If `field_names_len > 0`, `field_names` must point to an array of at
- *    least `field_names_len` valid, NUL-terminated C strings.
+ *    least `field_names_len` valid, NUL-terminated C strings. Ignored when
+ *    `load_all` is `true`.
  * 3. If `sort_names_len > 0`, `sort_names` must point to an array of at
  *    least `sort_names_len` valid, NUL-terminated C strings.
  *
@@ -35,6 +36,14 @@ Reducer *CollectReducer_CreateLocal(const RLookupKey *input_key,
                                     bool has_limit,
                                     uint64_t limit_offset,
                                     uint64_t limit_count);
+
+/**
+ * # Safety
+ *
+ * 1. `r` must point to a valid [`LocalCollectReducer`] originally created by
+ *    [`CollectReducer_CreateLocal`].
+ */
+bool CollectReducer_IsLocalLoadAll(const Reducer *r);
 
 /**
  * # Safety
@@ -100,19 +109,22 @@ void collectLocalFree(Reducer *r);
  *    `sort_keys_len` [valid] `*const RLookupKey` pointers.
  * 3. All [`RLookupKey`][ffi::RLookupKey] pointers must remain valid for the
  *    lifetime of the returned reducer.
+ * 4. `srclookup` is either null or a [valid] pointer to a
+ *    [`RLookup`][ffi::RLookup] that remains alive for the lifetime of the
+ *    returned reducer.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 Reducer *CollectReducer_CreateRemote(const RLookupKey *const *field_keys,
                                      uintptr_t field_keys_len,
-                                     bool load_all,
+                                     const RLookup *srclookup,
                                      const RLookupKey *const *sort_keys,
                                      uintptr_t sort_keys_len,
                                      uint64_t sort_asc_map,
                                      bool has_limit,
                                      uint64_t limit_offset,
                                      uint64_t limit_count,
-                                     bool include_sort_keys);
+                                     bool is_internal);
 
 /**
  * Creates a new per-group shard collect reducer instance.
@@ -189,7 +201,7 @@ uintptr_t CollectReducer_GetFieldKeysLen(const Reducer *r);
  * `r` must point to a valid [`RemoteCollectReducer`] originally created by
  * `CollectReducer_CreateRemote`.
  */
-bool CollectReducer_HasLoadAll(const Reducer *r);
+bool CollectReducer_IsLoadAll(const Reducer *r);
 
 /**
  * # Safety

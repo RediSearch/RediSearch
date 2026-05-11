@@ -11,6 +11,7 @@
 
 #include <math.h>
 #include <ctype.h>
+#include <limits.h>
 
 #include "triemap.h"
 #include "util/logging.h"
@@ -313,6 +314,10 @@ arrayof(FieldSpec *) IndexSpec_GetFieldsByMask(const IndexSpec *sp, t_fieldMask 
 
 //---------------------------------------------------------------------------------------------
 
+// Forward declaration
+static StrongRef IndexSpec_ParseFromArgCursor(RedisModuleCtx *ctx, const HiddenString *name,
+                                           ArgsCursor *ac_in, QueryError *status);
+
 /*
 * Parse an index spec from redis command arguments.
 * Returns REDISMODULE_ERR if there's a parsing error.
@@ -323,13 +328,9 @@ arrayof(FieldSpec *) IndexSpec_GetFieldsByMask(const IndexSpec *sp, t_fieldMask 
 */
 StrongRef IndexSpec_ParseRedisArgs(RedisModuleCtx *ctx, const HiddenString *name,
                                     RedisModuleString **argv, int argc, QueryError *status) {
-
-  const char *args[argc];
-  for (int i = 0; i < argc; i++) {
-    args[i] = RedisModule_StringPtrLen(argv[i], NULL);
-  }
-
-  return IndexSpec_Parse(ctx, name, args, argc, status);
+  ArgsCursor ac = {0};
+  ArgsCursor_InitRString(&ac, argv, argc);
+  return IndexSpec_ParseFromArgCursor(ctx, name, &ac, status);
 }
 
 arrayof(FieldSpec *) getFieldsByType(IndexSpec *spec, FieldType type) {
@@ -389,7 +390,7 @@ static void IndexSpec_TimedOutProc(RedisModuleCtx *ctx, WeakRef w_ref) {
   } else {
     // called on master shard for temporary indexes and deletes all documents by defaults
     // pass FT.DROPINDEX with "DD" flag to self.
-    RedisModuleCallReply *rep = RedisModule_Call(RSDummyContext, RS_DROP_INDEX_CMD, "cc!", HiddenString_GetUnsafe(sp->specName, NULL), "DD");
+    RedisModuleCallReply *rep = RedisModule_Call(RSDummyContext, CMD_FOR_ENV(RS_DROP_INDEX_CMD), "cc!", HiddenString_GetUnsafe(sp->specName, NULL), "DD");
     if (rep) {
       RedisModule_FreeCallReply(rep);
     }
@@ -1775,17 +1776,17 @@ void handleBadArguments(IndexSpec *spec, const char *badarg, QueryError *status,
 /* The format currently is FT.CREATE {index} [NOOFFSETS] [NOFIELDS]
     SCHEMA {field} [TEXT [WEIGHT {weight}]] | [NUMERIC]
   */
-StrongRef IndexSpec_Parse(RedisModuleCtx *ctx, const HiddenString *name, const char **argv, int argc, QueryError *status) {
+
+static StrongRef IndexSpec_ParseFromArgCursor(RedisModuleCtx *ctx, const HiddenString *name,
+                                           ArgsCursor *ac, QueryError *status) {
   IndexSpec *spec = NewIndexSpec(name);
   StrongRef spec_ref = StrongRef_New(spec, (RefManager_Free)IndexSpec_Free);
   spec->own_ref = spec_ref;
 
   IndexSpec_MakeKeyless(spec);
 
-  ArgsCursor ac = {0};
   ArgsCursor acStopwords = {0};
 
-  ArgsCursor_InitCString(&ac, argv, argc);
   long long timeout = -1;
   int dummy;
   size_t dummy2;
@@ -1824,7 +1825,7 @@ StrongRef IndexSpec_Parse(RedisModuleCtx *ctx, const HiddenString *name, const c
     {.name = NULL}
   };
   ACArgSpec *argopts = isSpecOnDiskForValidation(spec) ? flex_argopts : non_flex_argopts;
-  rc = AC_ParseArgSpec(&ac, argopts, &errarg);
+  rc = AC_ParseArgSpec(ac, argopts, &errarg);
   if (rc != AC_OK) {
     if (rc != AC_ERR_ENOENT) {
       QERR_MKBADARGS_AC(status, errarg->name, rc);
@@ -1845,15 +1846,13 @@ StrongRef IndexSpec_Parse(RedisModuleCtx *ctx, const HiddenString *name, const c
   spec->timeout = timeout * 1000;  // convert to ms
 
   if (rule_prefixes.argc > 0) {
-    rule_args.nprefixes = rule_prefixes.argc;
-    rule_args.prefixes = (const char **)rule_prefixes.objs;
+    spec->rule = SchemaRule_CreateWithPrefixesAC(&rule_args, &rule_prefixes, spec_ref, status);
   } else {
     rule_args.nprefixes = 1;
     static const char *empty_prefix[] = {""};
     rule_args.prefixes = empty_prefix;
+    spec->rule = SchemaRule_Create(&rule_args, spec_ref, status);
   }
-
-  spec->rule = SchemaRule_Create(&rule_args, spec_ref, status);
   if (!spec->rule) {
     goto failure;
   }
@@ -1878,13 +1877,13 @@ StrongRef IndexSpec_Parse(RedisModuleCtx *ctx, const HiddenString *name, const c
     if (spec->stopwords) {
       StopWordList_Unref(spec->stopwords);
     }
-    spec->stopwords = NewStopWordListCStr((const char **)acStopwords.objs, acStopwords.argc);
+    spec->stopwords = NewStopWordListAC(&acStopwords);
     spec->flags |= Index_HasCustomStopwords;
   }
 
-  if (!AC_AdvanceIfMatch(&ac, SPEC_SCHEMA_STR)) {
-    if (AC_NumRemaining(&ac)) {
-      const char *badarg = AC_GetStringNC(&ac, NULL);
+  if (!AC_AdvanceIfMatch(ac, SPEC_SCHEMA_STR)) {
+    if (AC_NumRemaining(ac)) {
+      const char *badarg = AC_GetStringNC(ac, NULL);
       handleBadArguments(spec, badarg, status, non_flex_argopts);
     } else {
       QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "No schema found");
@@ -1892,7 +1891,7 @@ StrongRef IndexSpec_Parse(RedisModuleCtx *ctx, const HiddenString *name, const c
     goto failure;
   }
 
-  if (!IndexSpec_AddFieldsInternal(spec, spec_ref, &ac, status, 1)) {
+  if (!IndexSpec_AddFieldsInternal(spec, spec_ref, ac, status, 1)) {
     goto failure;
   }
 
@@ -1918,7 +1917,9 @@ failure:  // on failure free the spec fields array and return an error
 
 StrongRef IndexSpec_ParseC(RedisModuleCtx *ctx, const char *name, const char **argv, int argc, QueryError *status) {
   HiddenString *hidden = NewHiddenString(name, strlen(name), true);
-  return IndexSpec_Parse(ctx, hidden, argv, argc, status);
+  ArgsCursor ac = {0};
+  ArgsCursor_InitCString(&ac, argv, argc);
+  return IndexSpec_ParseFromArgCursor(ctx, hidden, &ac, status);
 }
 
 static void RSIndexStats_FromScoringStats(const ScoringIndexStats *scoring, RSIndexStats *stats) {
@@ -3139,20 +3140,27 @@ void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp, bool obfuscate,
   // More properties
   RedisModule_InfoAddFieldLongLong(ctx, "number_of_docs", sp->stats.scoring.numDocuments);
 
+  const bool isDisk = sp->diskSpec != NULL;
+  size_t num_records = isDisk ? SearchDisk_GetNumRecords(sp->diskSpec) : sp->stats.numRecords;
+  size_t inverted_size = isDisk ? SearchDisk_GetInvertedIndexTotalMemory(sp->diskSpec) :
+    sp->stats.invertedSize;
+  size_t doc_table_size = isDisk ? SearchDisk_GetDocTableTotalMemory(sp->diskSpec) :
+    sp->docs.memsize;
+
   RedisModule_InfoBeginDictField(ctx, "index_properties");
   RedisModule_InfoAddFieldULongLong(ctx, "max_doc_id", sp->docs.maxDocId);
   RedisModule_InfoAddFieldLongLong(ctx, "num_terms", sp->stats.scoring.numTerms);
-  RedisModule_InfoAddFieldLongLong(ctx, "num_records", sp->stats.numRecords);
+  RedisModule_InfoAddFieldLongLong(ctx, "num_records", num_records);
   RedisModule_InfoEndDictField(ctx);
 
   RedisModule_InfoBeginDictField(ctx, "index_properties_in_mb");
-  RedisModule_InfoAddFieldDouble(ctx, "inverted_size", sp->stats.invertedSize / (float)0x100000);
+  RedisModule_InfoAddFieldDouble(ctx, "inverted_size", inverted_size / (float)0x100000);
   if (!skip_unsafe_ops) {
     // Skip when unsafe - calls dictFetchValue which can trigger dict rehashing with rm_free
     RedisModule_InfoAddFieldDouble(ctx, "vector_index_size", IndexSpec_VectorIndexesSize(sp) / (float)0x100000);
   }
   RedisModule_InfoAddFieldDouble(ctx, "offset_vectors_size", sp->stats.offsetVecsSize / (float)0x100000);
-  RedisModule_InfoAddFieldDouble(ctx, "doc_table_size", sp->docs.memsize / (float)0x100000);
+  RedisModule_InfoAddFieldDouble(ctx, "doc_table_size", doc_table_size / (float)0x100000);
   RedisModule_InfoAddFieldDouble(ctx, "sortable_values_size", sp->docs.sortablesSize / (float)0x100000);
   RedisModule_InfoAddFieldDouble(ctx, "key_table_size", TrieMap_MemUsage(sp->docs.dim.tm) / (float)0x100000);
   if (!skip_unsafe_ops) {
@@ -3167,10 +3175,20 @@ void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp, bool obfuscate,
   RedisModule_InfoAddFieldULongLong(ctx, "total_inverted_index_blocks", TotalIIBlocks());
 
   RedisModule_InfoBeginDictField(ctx, "index_properties_averages");
-  RedisModule_InfoAddFieldDouble(ctx, "records_per_doc_avg",(float)sp->stats.numRecords / (float)sp->stats.scoring.numDocuments);
-  RedisModule_InfoAddFieldDouble(ctx, "bytes_per_record_avg",(float)sp->stats.invertedSize / (float)sp->stats.numRecords);
-  RedisModule_InfoAddFieldDouble(ctx, "offsets_per_term_avg",(float)sp->stats.offsetVecRecords / (float)sp->stats.numRecords);
-  RedisModule_InfoAddFieldDouble(ctx, "offset_bits_per_record_avg",8.0F * (float)sp->stats.offsetVecsSize / (float)sp->stats.offsetVecRecords);
+  RedisModule_InfoAddFieldDouble(ctx, "records_per_doc_avg",(float)num_records / (float)sp->stats.scoring.numDocuments);
+  double bytes_per_record_avg = num_records ?
+    (float)inverted_size / (float)num_records : NAN;
+  RedisModule_InfoAddFieldDouble(ctx, "bytes_per_record_avg", bytes_per_record_avg);
+  // Disk indexes don't track offset record counts/sizes; report NaN so the
+  // metrics aren't misread as meaningful zeros.
+  size_t offset_vec_records = isDisk ? 0 : sp->stats.offsetVecRecords;
+  size_t offset_vecs_size = isDisk ? 0 : sp->stats.offsetVecsSize;
+  double offsets_per_term_avg = (isDisk || !num_records) ? NAN :
+    (float)offset_vec_records / (float)num_records;
+  double offset_bits_per_record_avg = (isDisk || !offset_vec_records) ? NAN :
+    (float)CHAR_BIT * (float)offset_vecs_size / (float)offset_vec_records;
+  RedisModule_InfoAddFieldDouble(ctx, "offsets_per_term_avg", offsets_per_term_avg);
+  RedisModule_InfoAddFieldDouble(ctx, "offset_bits_per_record_avg", offset_bits_per_record_avg);
   RedisModule_InfoEndDictField(ctx);
 
   RedisModule_InfoBeginDictField(ctx, "index_failures");
@@ -3792,7 +3810,7 @@ void Indexes_Propagate(RedisModuleCtx *ctx) {
     RS_ASSERT(sp != NULL);
     RedisModuleString *serialized = IndexSpec_Serialize(sp);
     RS_ASSERT(serialized != NULL);
-    int rc = RedisModule_ClusterPropagateForSlotMigration(ctx, RS_RESTORE_IF_NX, "cls", SPEC_SCHEMA_STR, INDEX_CURRENT_VERSION, serialized);
+    int rc = RedisModule_ClusterPropagateForSlotMigration(ctx, CMD_FOR_ENV(RS_RESTORE_IF_NX), "cls", SPEC_SCHEMA_STR, INDEX_CURRENT_VERSION, serialized);
     if (rc != REDISMODULE_OK) {
       RedisModule_Log(ctx, "warning", "Failed to propagate index '%s' during slot migration. errno: %d", IndexSpec_FormatName(sp, RSGlobalConfig.hideUserDataFromLog), errno);
     }

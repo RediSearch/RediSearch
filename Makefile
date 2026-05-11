@@ -114,6 +114,10 @@ ifeq ($(LTO),1)
 	BUILD_ARGS += LTO
 endif
 
+ifneq ($(INLINE_LSE_ATOMICS),)
+	BUILD_ARGS += INLINE_LSE_ATOMICS=$(INLINE_LSE_ATOMICS)
+endif
+
 # Package variables (used by pack target)
 MODULE_NAME := search
 PACKAGE_NAME ?=
@@ -154,6 +158,10 @@ Build:
     RUST_DYN_CRT=1     Use dynamic C runtime linking (for Alpine Linux)
     VERBOSE=1          Verbose build output
     LTO=1              Enable Rust/C LTO
+    INLINE_LSE_ATOMICS=0|1
+                       Inline LSE atomics on Linux AArch64 (default: 1).
+                       Set to 0 on pre-Armv8.1-a cores (Cortex-A72,
+                       Graviton1, Raspberry Pi 4) to avoid SIGILL on load.
 
   make clean         Remove build artifacts
     ALL=1              Remove entire artifacts directory

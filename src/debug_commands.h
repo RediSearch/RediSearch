@@ -59,6 +59,7 @@ void QueryDebugCtx_SetPause(bool pause);
 ResultProcessor* QueryDebugCtx_GetDebugRP(void);
 void QueryDebugCtx_SetDebugRP(ResultProcessor* debugRP);
 bool QueryDebugCtx_HasDebugRP(void);
+int parseDebugParamsCount(RedisModuleString **argv, int argc, QueryError *status, unsigned long long *debug_params_count);
 
 #ifdef ENABLE_ASSERT
 // Named sentinel values for the pauseBeforeN field of CoordReduceDebugCtx
@@ -170,6 +171,16 @@ typedef bool (*SyncPointStopFn)(void *arg);
 // true. Lets workers release early when a timeout fires on the main thread.
 void SyncPoint_WaitUntil(const char *name, SyncPointStopFn stop_fn, void *arg);
 
+// Process-wide counter of threads parked in `RedisSearchCtx_LockSpecWrite`
+// waiting on a spec rwlock. Bumped before `pthread_rwlock_wrlock` and
+// decremented once the write lock has been acquired. Used by tests (sync-point
+// stop predicates) to observe a pending writer without depending on the main
+// thread, since the main thread is exactly what's blocked on the wrlock in the
+// scenarios these tests cover.
+void PendingSpecWriters_Incr(void);
+void PendingSpecWriters_Decr(void);
+uint32_t PendingSpecWriters_Get(void);
+
 // Struct used for debugging hybrid cursor storage ONLY (pause before/after cursor creation)
 // Separate from StoreResultsDebugCtx to allow independent control
 typedef struct HybridStoreCursorsDebugCtx {
@@ -185,6 +196,14 @@ bool HybridStoreCursorsDebugCtx_IsPauseAfterEnabled(void);
 void HybridStoreCursorsDebugCtx_SetPauseAfterEnabled(bool enabled);
 bool HybridStoreCursorsDebugCtx_IsPaused(void);
 void HybridStoreCursorsDebugCtx_SetPause(bool pause);
+
+// Tracks the currently active coordinator MRIterator so tests can poll the
+// `pending` shard counter via FT.DEBUG BG_PENDING_REPLIES. Set after the
+// iterator is created in the RPNet start path; cleared before it is released
+// in rpnetFree. Only one query is expected to be active at a time in tests.
+struct MRIterator;
+void DebugBgIterator_Set(struct MRIterator *it);
+void DebugBgIterator_Clear(struct MRIterator *it);
 
 #endif  // ENABLE_ASSERT
 

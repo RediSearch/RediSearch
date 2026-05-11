@@ -349,32 +349,6 @@ static size_t getResultsFactor(AREQ *req) {
   return count;
 }
 
-static void startPipeline(AREQ *req, ResultProcessor *rp, SearchResult ***results, SearchResult *r, int *rc) {
-  CommonPipelineCtx ctx = {
-    .timeoutPolicy = req->reqConfig.timeoutPolicy,
-    .timeout = &req->sctx->time.timeout,
-    .oomPolicy = req->reqConfig.oomPolicy,
-    .skipTimeoutChecks = req->sctx->time.skipTimeoutChecks,
-    .areq = req,
-  };
-
-#ifdef ENABLE_ASSERT
-  // Sync point (debug): pause before the TryClaim race
-  SyncPoint_Wait(SYNC_POINT_BEFORE_AGGREGATE_RESULTS_CLAIM);
-#endif
-
-  // Bail if the RETURN-STRICT timeout callback already claimed (it replies)
-  // or if it signaled timeout in parallel after we won (it will reply with
-  // our stored zero-result state).
-  if (AREQ_RequiresThreadsSyncResults(req) &&
-      (!AREQ_TryClaimAggregateResults(req) || AREQ_TimedOut(req))) {
-    *rc = RS_RESULT_TIMEDOUT;
-    return;
-  }
-
-  startPipelineCommon(&ctx, rp, results, r, rc);
-}
-
 #ifdef ENABLE_ASSERT
 // SyncPoint stop predicate: break out of a sync-point wait when the AREQ has
 // been marked as timed out by the main-thread timeout callback. NULL arg is
@@ -383,6 +357,15 @@ static void startPipeline(AREQ *req, ResultProcessor *rp, SearchResult ***result
 bool areq_timed_out(void *arg) {
   return arg && AREQ_TimedOut((AREQ *)arg);
 }
+
+// SyncPoint stop predicate: break out of a sync-point wait when a writer is
+// parked on a spec rwlock. Used by MOD-15364 tests to release the BG worker
+// from the cleanup sync point without driving the main thread, since the main
+// thread is the one blocked on the writer's `pthread_rwlock_wrlock`.
+static bool areq_timeout_or_pending_spec_writers(void *arg) {
+  return AREQ_TimedOut((AREQ *)arg) || PendingSpecWriters_Get() > 0;
+}
+
 
 // Helper function to pause before/after store results (for testing timeout during store).
 // The pause is gated by the global StoreResultsDebugCtx scope: INTERNAL_ONLY skips
@@ -413,6 +396,32 @@ static inline void debugPauseStoreResults(AREQ *req, bool before) {
   UNUSED(before);
 }
 #endif
+static void startPipeline(AREQ *req, ResultProcessor *rp, SearchResult ***results, SearchResult *r, int *rc) {
+  CommonPipelineCtx ctx = {
+    .timeoutPolicy = req->reqConfig.timeoutPolicy,
+    .timeout = &req->sctx->time.timeout,
+    .oomPolicy = req->reqConfig.oomPolicy,
+    .skipTimeoutChecks = req->sctx->time.skipTimeoutChecks,
+    .areq = req,
+  };
+
+#ifdef ENABLE_ASSERT
+  // Sync point (debug): pause before the TryClaim race
+  SyncPoint_WaitUntil(SYNC_POINT_BEFORE_AGGREGATE_RESULTS_CLAIM, areq_timeout_or_pending_spec_writers, req);
+#endif
+
+  // Bail if the RETURN-STRICT timeout callback already claimed (it replies)
+  // or if it signaled timeout in parallel after we won (it will reply with
+  // our stored zero-result state).
+  if (AREQ_RequiresThreadsSyncResults(req) &&
+      (!AREQ_TryClaimAggregateResults(req) || AREQ_TimedOut(req))) {
+    *rc = RS_RESULT_TIMEDOUT;
+    return;
+  }
+
+  startPipelineCommon(&ctx, rp, results, r, rc);
+}
+
 
 /**
  * Store pipeline results for reply_callback path.
@@ -1112,6 +1121,8 @@ void AREQ_Execute(AREQ *req, RedisModuleCtx *ctx) {
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
   sendChunk(req, reply, UINT64_MAX);
   RedisModule_EndReply(reply);
+  // Release the spec read lock before dropping our reference to `req`.
+  RedisSearchCtx_UnlockSpec(AREQ_SearchCtx(req));
   AREQ_DecrRef(req);
 }
 
@@ -1212,7 +1223,7 @@ void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
   SyncPoint_Wait(SYNC_POINT_BEFORE_SPEC_LOCK);
 #endif
 
-  // lock spec
+  // Lock spec. Should be released on the BG thread by every downstream path.
   RedisSearchCtx_LockSpecRead(sctx);
 
   if (prepareExecutionPlan(req, &status) != REDISMODULE_OK) {
@@ -1240,6 +1251,8 @@ void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
     int rc = AREQ_StartCursor(req, reply, execution_ref, &status, false);
     RedisModule_EndReply(reply);
     if (rc != REDISMODULE_OK) {
+      // Cursor reservation failed before runCursor could release the lock.
+      RedisSearchCtx_UnlockSpec(sctx);
       goto error;
     }
   } else {
@@ -1257,7 +1270,6 @@ error:
   AREQ_ReplyOrStoreError(req, outctx, &status);
 
 cleanup:
-  // No need to unlock spec as it was unlocked by `AREQ_Execute` or will be unlocked by `blockedClientReqCtx_destroy`
   RedisModule_FreeThreadSafeContext(outctx);
   IndexSpecRef_Release(execution_ref);
   blockedClientReqCtx_destroy(BCRctx);
