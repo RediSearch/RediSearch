@@ -43,7 +43,7 @@ impl Drop for MockContext {
                 std::alloc::Layout::new::<SchemaRule>(),
             );
             std::alloc::dealloc(
-                (*self.spec.get()).as_mut_raw_ptr() as *mut u8,
+                (*self.spec.get()).as_mut_ptr() as *mut u8,
                 std::alloc::Layout::new::<ffi::IndexSpec>(),
             );
             std::alloc::dealloc(
@@ -162,9 +162,7 @@ impl MockContext {
     pub fn spec_write_guard(&self) -> std::mem::ManuallyDrop<index_spec::IndexSpecWriteGuard<'_>> {
         // SAFETY: The underlying spec exists and is valid. In test contexts,
         // no lock is needed. Caller guarantees exclusive access.
-        unsafe {
-            index_spec::IndexSpecWriteGuard::from_locked_mut((*self.spec.get()).as_ffi_mut())
-        }
+        unsafe { index_spec::IndexSpecWriteGuard::from_locked_mut((*self.spec.get()).as_ffi_mut()) }
     }
 
     /// Get the query evaluation context from the [`MockContext`].

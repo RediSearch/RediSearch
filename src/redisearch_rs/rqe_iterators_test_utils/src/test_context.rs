@@ -196,9 +196,7 @@ impl TestContext {
     pub fn spec_write_guard(&self) -> std::mem::ManuallyDrop<index_spec::IndexSpecWriteGuard<'_>> {
         // SAFETY: The underlying spec exists and is valid. In test contexts,
         // no lock is needed. Caller guarantees exclusive access.
-        unsafe {
-            index_spec::IndexSpecWriteGuard::from_locked_mut((*self.spec.get()).as_ffi_mut())
-        }
+        unsafe { index_spec::IndexSpecWriteGuard::from_locked_mut((*self.spec.get()).as_ffi_mut()) }
     }
 
     /// Create a new [`TestContext`] with a numeric inverted index having the given records.
@@ -223,7 +221,7 @@ impl TestContext {
         let field_name = CString::new("num_field").unwrap();
         let fs = unsafe {
             ffi::IndexSpec_GetFieldWithLength(
-                spec.as_raw_ptr(),
+                spec.as_ptr(),
                 field_name.as_ptr(),
                 field_name.as_bytes().len(),
             )
@@ -287,7 +285,7 @@ impl TestContext {
         let field_name = CString::new("text_field").unwrap();
         let fs = unsafe {
             ffi::IndexSpec_GetFieldWithLength(
-                spec.as_raw_ptr(),
+                spec.as_ptr(),
                 field_name.as_ptr(),
                 field_name.as_bytes().len(),
             )
@@ -300,7 +298,7 @@ impl TestContext {
         let mut is_new = false;
         let inverted_index = unsafe {
             ffi::Redis_OpenInvertedIndex(
-                spec.as_mut_raw_ptr(),
+                spec.as_mut_ptr(),
                 term.as_ptr(),
                 term.as_bytes().len(),
                 true, // write mode
@@ -398,7 +396,7 @@ impl TestContext {
         let field_name = std::ffi::CString::new("text_field").unwrap();
         let fs = unsafe {
             ffi::IndexSpec_GetFieldWithLength(
-                spec.as_raw_ptr(),
+                spec.as_ptr(),
                 field_name.as_ptr(),
                 field_name.as_bytes().len(),
             )
@@ -474,7 +472,7 @@ impl TestContext {
         let field_name = CString::new("tag_field").unwrap();
         let fs = unsafe {
             ffi::IndexSpec_GetFieldWithLength(
-                spec.as_raw_ptr(),
+                spec.as_ptr(),
                 field_name.as_ptr(),
                 field_name.as_bytes().len(),
             )

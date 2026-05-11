@@ -75,7 +75,7 @@ impl IndexSpec {
     ///
     /// The returned pointer is valid as long as the wrapper reference is valid.
     /// Do not dereference the pointer after the wrapper goes out of scope.
-    pub const fn as_raw_ptr(&self) -> *const ffi::IndexSpec {
+    pub const fn as_ptr(&self) -> *const ffi::IndexSpec {
         &self.0 as *const ffi::IndexSpec
     }
 
@@ -85,7 +85,7 @@ impl IndexSpec {
     ///
     /// The returned pointer is valid as long as the wrapper reference is valid.
     /// Do not dereference the pointer after the wrapper goes out of scope.
-    pub const fn as_mut_raw_ptr(&mut self) -> *mut ffi::IndexSpec {
+    pub const fn as_mut_ptr(&mut self) -> *mut ffi::IndexSpec {
         &mut self.0 as *mut ffi::IndexSpec
     }
 
