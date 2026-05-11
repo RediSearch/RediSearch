@@ -916,6 +916,10 @@ run_rust_tests() {
     RUST_TEST_OPTIONS="--cargo-profile=$RUST_PROFILE"
   fi
 
+  if [[ "$WIP_FEATURES" == "1" ]]; then
+    RUST_TEST_OPTIONS="$RUST_TEST_OPTIONS --features wip_features"
+  fi
+
   # Run cargo test with the appropriate filter
   cd "$RUST_DIR"
   RUSTFLAGS="${RUSTFLAGS}" cargo $RUST_TOOLCHAIN_MODIFIER $CARGO_BUILD_FLAGS $RUST_TEST_COMMAND $RUST_TEST_OPTIONS --workspace $TEST_FILTER
