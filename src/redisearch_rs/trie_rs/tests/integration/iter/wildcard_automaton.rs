@@ -12,7 +12,6 @@
 //! three backends it dispatches into (`u64` NFA, `u128` NFA, and the
 //! filter fallback at ≥ 128 atoms).
 
-use proptest::prelude::*;
 use trie_rs::TrieMap;
 use wildcard::WildcardPattern;
 
@@ -72,61 +71,67 @@ fn empty_trie_yields_nothing() {
     assert!(matches_specialized(&trie, "*").is_empty());
 }
 
-proptest! {
-    #![proptest_config(ProptestConfig {
-        cases: 256,
-        ..Default::default()
-    })]
+#[cfg(not(miri))]
+mod property_based {
+    use super::*;
+    use proptest::prelude::*;
 
-    /// Random ASCII keys + random pattern → filter and specialized must
-    /// agree. Pattern lengths stay ≤ 8 atoms so the dispatcher routes
-    /// through the `u64` NFA branch.
-    #[test]
-    fn agree_on_random_keys_and_patterns(
-        keys in prop::collection::vec("[a-d]{0,6}", 1..30),
-        pattern in "[a-d?*]{0,8}",
-    ) {
-        let mut trie = TrieMap::new();
-        for k in &keys {
-            trie.insert(k.as_bytes(), ());
-        }
-        let f = matches_filter(&trie, &pattern);
-        let s = matches_specialized(&trie, &pattern);
-        prop_assert_eq!(&f, &s, "filter vs specialized, pattern=`{}`", pattern);
-    }
+    proptest! {
+        #![proptest_config(ProptestConfig {
+            cases: 256,
+            ..Default::default()
+        })]
 
-    /// Patterns with literals — exercise the prefix-shortcut path.
-    #[test]
-    fn agree_with_literal_prefixes(
-        keys in prop::collection::vec("[a-z]{0,6}", 1..30),
-        prefix in "[a-z]{1,3}",
-        suffix in "[a-z?*]{0,4}",
-    ) {
-        let pattern = format!("{prefix}{suffix}");
-        let mut trie = TrieMap::new();
-        for k in &keys {
-            trie.insert(k.as_bytes(), ());
+        /// Random ASCII keys + random pattern → filter and specialized must
+        /// agree. Pattern lengths stay ≤ 8 atoms so the dispatcher routes
+        /// through the `u64` NFA branch.
+        #[test]
+        fn agree_on_random_keys_and_patterns(
+            keys in prop::collection::vec("[a-d]{0,6}", 1..30),
+            pattern in "[a-d?*]{0,8}",
+        ) {
+            let mut trie = TrieMap::new();
+            for k in &keys {
+                trie.insert(k.as_bytes(), ());
+            }
+            let f = matches_filter(&trie, &pattern);
+            let s = matches_specialized(&trie, &pattern);
+            prop_assert_eq!(&f, &s, "filter vs specialized, pattern=`{}`", pattern);
         }
-        let f = matches_filter(&trie, &pattern);
-        let s = matches_specialized(&trie, &pattern);
-        prop_assert_eq!(&f, &s, "filter vs specialized, pattern=`{}`", pattern);
-    }
 
-    /// Patterns with no `*` — the dispatcher still routes by atom count,
-    /// so these go through the `u64` NFA's `epsilon_table.is_none()`
-    /// fixed-length fast path.
-    #[test]
-    fn fixed_length_patterns_agree(
-        keys in prop::collection::vec("[a-d]{0,6}", 1..30),
-        pattern in "[a-d?]{1,8}",
-    ) {
-        let mut trie = TrieMap::new();
-        for k in &keys {
-            trie.insert(k.as_bytes(), ());
+        /// Patterns with literals — exercise the prefix-shortcut path.
+        #[test]
+        fn agree_with_literal_prefixes(
+            keys in prop::collection::vec("[a-z]{0,6}", 1..30),
+            prefix in "[a-z]{1,3}",
+            suffix in "[a-z?*]{0,4}",
+        ) {
+            let pattern = format!("{prefix}{suffix}");
+            let mut trie = TrieMap::new();
+            for k in &keys {
+                trie.insert(k.as_bytes(), ());
+            }
+            let f = matches_filter(&trie, &pattern);
+            let s = matches_specialized(&trie, &pattern);
+            prop_assert_eq!(&f, &s, "filter vs specialized, pattern=`{}`", pattern);
         }
-        let f = matches_filter(&trie, &pattern);
-        let s = matches_specialized(&trie, &pattern);
-        prop_assert_eq!(&f, &s, "filter vs specialized (fixed), pattern=`{}`", pattern);
+
+        /// Patterns with no `*` — the dispatcher still routes by atom count,
+        /// so these go through the `u64` NFA's `epsilon_table.is_none()`
+        /// fixed-length fast path.
+        #[test]
+        fn fixed_length_patterns_agree(
+            keys in prop::collection::vec("[a-d]{0,6}", 1..30),
+            pattern in "[a-d?]{1,8}",
+        ) {
+            let mut trie = TrieMap::new();
+            for k in &keys {
+                trie.insert(k.as_bytes(), ());
+            }
+            let f = matches_filter(&trie, &pattern);
+            let s = matches_specialized(&trie, &pattern);
+            prop_assert_eq!(&f, &s, "filter vs specialized (fixed), pattern=`{}`", pattern);
+        }
     }
 }
 
