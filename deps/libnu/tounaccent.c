@@ -5,7 +5,14 @@
 #ifdef NU_WITH_UNACCENT
 
 #include "casemap_internal.h"
-#include "gen/_tounaccent.c"
+#ifndef NU_WITH_BMP_ONLY
+# include "gen/_tounaccent.c"
+#else
+# include "gen/_tounaccent_compact.c"
+#endif /* NU_WITH_BMP_ONLY */
+
+/* in nu_casemap_read (UTF-8), zero-terminated */
+static const char *__nu_empty_string = "";
 
 const char* nu_tounaccent(uint32_t codepoint) {
 	typedef struct {
@@ -23,11 +30,10 @@ const char* nu_tounaccent(uint32_t codepoint) {
 
 	/* check if codepoint itself is a diacritic,
 	 * return empty string in that case
-	 * (transform into empty string */
-	assert(nu_casemap_read == nu_utf8_read);
+	 * (transform into empty string) */
 	for (size_t i = 0; i < blocks_count; ++i) {
 		if (codepoint >= blocks[i].block_start && codepoint <= blocks[i].block_end) {
-			return ""; /* return zero-terminated empty string in nu_casemap_read (utf-8) */
+			return __nu_empty_string;
 		}
 	}
 
