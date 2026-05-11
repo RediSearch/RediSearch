@@ -544,7 +544,7 @@ int DistCursorReadTimeoutReturnStrictClient(RedisModuleCtx *ctx,
     // semantically valid cursor id. RS_ASSERT the StringToLongLong succeeds.
     long long cid;
     RS_ASSERT(RedisModule_StringToLongLong(argv[3], &cid) == REDISMODULE_OK);
-    return coord_cursor_read_reply_timeout_empty(ctx, cid);
+    return coord_cursor_read_empty_reply_timeout(ctx, cid);
   }
 
   // req != NULL ⇒ BG has taken the cursor and called SetRequest (atomically
@@ -632,7 +632,7 @@ expects FT.AGGREGATE-shaped argv (`<index> <query> [args…]`). FT.CURSOR READ
 argv is `FT.CURSOR READ <index> <cid> [COUNT n]` — no query string. Calling
 the existing helper would error out.
 
-**Required:** new helper `coord_cursor_read_reply_timeout_empty(ctx, cid)`
+**Required:** new helper `coord_cursor_read_empty_reply_timeout(ctx, cid)`
 (or similar) that emits the cursor-envelope shape. **To decide:**
 
 - **Outer wrapping**: `[<empty_results_payload>, <cid>]`? Or `[<empty>, 0]`
@@ -1037,7 +1037,7 @@ RETURN_STRICT applies to hybrid cursors at all.
 | `coordReleaseParkedCursorAfterReply` | `coord/dist_aggregate.c` | **new helper** invoked from `DistCursorReadTimeoutReturnStrictClient` and the reply callback after `AREQ_ReplyWithStoredResults`. Takes `parkedCursor` under the lock and `Cursor_Free`s it on `QEXEC_S_ITERDONE` else `Cursor_Pause`s (§4 cursor-lifecycle block). |
 | `DistCursorReadTimeoutReturnStrictClient` | `coord/dist_aggregate.c` | new function (sibling of `DistAggregateTimeoutReturnStrictClient`) |
 | `DistCursorReadReplyCallback` | `coord/dist_aggregate.c` | likely a thin wrapper — or reuse `DistAggregateReplyCallback` if it Just Works (TBD: verify). Whichever is chosen, it **must** invoke `coordReleaseParkedCursorAfterReply` after `AREQ_ReplyWithStoredResults` for the new RETURN_STRICT cursor-read path (§3.5 / §4). |
-| `coord_cursor_read_reply_timeout_empty(ctx, cid)` | `aggregate/reply_empty.{c,h}` | new helper |
+| `coord_cursor_read_empty_reply_timeout(ctx, cid)` | `aggregate/reply_empty.{c,h}` | new helper |
 | `CursorCommand` (cid validation + RETURN_STRICT branch) | `module.c:3893-3914` | (a) early bail using `info.found` *before* the policy branch (applies to both FAIL and RETURN_STRICT); (b) new RETURN_STRICT branch alongside the existing `TimeoutPolicy_Fail` branch |
 | `RSCursorReadCommand` (early TimedOut check + take + reset + park) | `aggregate/aggregate_exec.c:2080-2099` | gated insertion before `TakeForExecution` (§3.1). Inside the same `setRequestLock` critical section, in order: (i) early TimedOut check; (ii) `Cursors_TakeForExecution`; (iii) `AREQ_ResetForCursorReadReturnStrict` (§5.5.2); (iv) `CoordRequestCtx_SetRequest`; (v) **`CoordRequestCtx_SetParkedCursor` (§3.5)**. This is the only race-free placement for both `parkedCursor` set and `syncCtx.timedOut` reset on the RETURN_STRICT path. (Functionally, all five steps run under the same lock, so any total order in which the reset and the two `Set*` calls precede the unlock is race-free; the order above is canonical for the doc and matches the §3.1 / §5.5.2 snippets.) |
 | `runCursor` (cursor-stash gating) | `aggregate/aggregate_exec.c:1839` | for the RETURN_STRICT cursor-read path the cursor is already parked on `reqCtx` (§3.5), so the existing `req->storedReplyState.cursor = cursor` assignment is unnecessary. Either gate it (`useReplyCallback && !isCursorReadReturnStrict`) or leave it and have the reply path ignore the AREQ field on the new path. FAIL behavior is unchanged. |

@@ -2840,7 +2840,7 @@ class TestCoordinatorTimeout:
         The coord threadpool is paused so the worker never enters
         ``coordCursorReadReturnStrict`` before the deadline. The timer callback
         observes ``req == NULL`` (BG hasn't called ``SetRequest``), and replies
-        directly via ``coord_cursor_read_reply_timeout_empty`` with the cursor
+        directly via ``coord_cursor_read_empty_reply_timeout`` with the cursor
         shape ``({empty results, TIMEOUT warning}, cid)``. The cursor stays
         paused and is reusable on the next FT.CURSOR READ.
         """

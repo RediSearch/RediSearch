@@ -793,7 +793,7 @@ int DistCursorReadTimeoutReturnStrictClient(RedisModuleCtx *ctx, RedisModuleStri
     long long cid;
     int rc = RedisModule_StringToLongLong(argv[3], &cid);
     RS_ASSERT(rc == REDISMODULE_OK);
-    return coord_cursor_read_reply_timeout_empty(ctx, cid);
+    return coord_cursor_read_empty_reply_timeout(ctx, cid);
   }
 
   // BG has taken the cursor. Wake the abort channel — unblocks BG from
