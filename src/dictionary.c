@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include <errno.h>
+#include <assert.h>
 #include "dictionary.h"
 #include "redismodule.h"
 #include "rmalloc.h"
@@ -18,27 +19,70 @@
 #include "config.h"
 #include "module.h"
 #include "util/likely.h"
+#include "trie_lex.h"
+
+/* Spike: each spellcheck dict holds two synchronized stores.
+ *   - `lex` is the Rust-backed lex-mode wrapper. Authoritative for size,
+ *     iteration (Dump/Propagate), and RDB save/load. Insert/Delete return
+ *     values come from this store.
+ *   - `legacy` is the original C trie kept in lock-step so spell_check.c can
+ *     continue running Levenshtein queries through `SpellCheck_OpenDict`.
+ *     A follow-up branch is expected to port the Levenshtein consumer and
+ *     retire `legacy`. */
+typedef struct {
+  TrieLex *lex;
+  Trie *legacy;
+} SpellDictEntry;
+
+/* rune/trie_lex_rune are both uint16_t; spike assumes default rune width. */
+_Static_assert(sizeof(rune) == sizeof(trie_lex_rune),
+               "trie_lex spike requires 16-bit runes");
+_Static_assert(sizeof(t_len) == sizeof(trie_lex_t_len),
+               "trie_lex spike requires t_len == uint16_t");
 
 dict *spellCheckDicts = NULL;
 
-Trie *SpellCheck_OpenDict(RedisModuleCtx *ctx, const char *dictName, int mode) {
-  Trie *t = dictFetchValue(spellCheckDicts, dictName);
-  if (!t && mode == REDISMODULE_WRITE) {
-    t = NewTrie(NULL, Trie_Sort_Lex);
-    dictAdd(spellCheckDicts, (char *)dictName, t);
+static SpellDictEntry *NewSpellDictEntry(void) {
+  SpellDictEntry *e = rm_malloc(sizeof(*e));
+  e->lex = TrieLex_New();
+  e->legacy = NewTrie(NULL, Trie_Sort_Lex);
+  return e;
+}
+
+static void FreeSpellDictEntry(SpellDictEntry *e) {
+  if (!e) return;
+  TrieLex_Free(e->lex);
+  TrieType_Free(e->legacy);
+  rm_free(e);
+}
+
+static SpellDictEntry *OpenSpellDictEntry(const char *dictName, int mode) {
+  SpellDictEntry *e = dictFetchValue(spellCheckDicts, dictName);
+  if (!e && mode == REDISMODULE_WRITE) {
+    e = NewSpellDictEntry();
+    dictAdd(spellCheckDicts, (char *)dictName, e);
   }
-  return t;
+  return e;
+}
+
+Trie *SpellCheck_OpenDict(RedisModuleCtx *ctx, const char *dictName, int mode) {
+  SpellDictEntry *e = OpenSpellDictEntry(dictName, mode);
+  return e ? e->legacy : NULL;
 }
 
 int Dictionary_Add(RedisModuleCtx *ctx, const char *dictName, RedisModuleString **values, int len) {
   int valuesAdded = 0;
-  Trie *t = SpellCheck_OpenDict(ctx, dictName, REDISMODULE_WRITE);
-  RS_LOG_ASSERT_ALWAYS(t != NULL, "Failed to open dictionary in write mode");
+  SpellDictEntry *e = OpenSpellDictEntry(dictName, REDISMODULE_WRITE);
+  RS_LOG_ASSERT_ALWAYS(e != NULL, "Failed to open dictionary in write mode");
 
   for (int i = 0; i < len; ++i) {
-    // Payload is NULL so TRIE_ERR_PAYLOAD_OVERFLOW cannot occur
-    int rc = Trie_Insert(t, values[i], 1, 1, NULL, 0);
-    if (likely(rc == TRIE_OK_NEW)) {
+    size_t vlen;
+    const char *vstr = RedisModule_StringPtrLen(values[i], &vlen);
+    int rc = TrieLex_InsertStringBuffer(e->lex, vstr, vlen, 1.0, 1);
+    /* Mirror into the legacy trie. Always incr/score=1 to match prior
+     * behavior of `Trie_Insert(t, values[i], 1, 1, NULL, 0)`. */
+    Trie_InsertStringBuffer(e->legacy, vstr, vlen, 1, 1, NULL, 0);
+    if (likely(rc == 1)) {
       valuesAdded++;
     }
   }
@@ -48,48 +92,48 @@ int Dictionary_Add(RedisModuleCtx *ctx, const char *dictName, RedisModuleString 
 
 int Dictionary_Del(RedisModuleCtx *ctx, const char *dictName, RedisModuleString **values, int len) {
   int valuesDeleted = 0;
-  Trie *t = SpellCheck_OpenDict(ctx, dictName, REDISMODULE_READ);
-  if (t == NULL) {
+  SpellDictEntry *e = OpenSpellDictEntry(dictName, REDISMODULE_READ);
+  if (e == NULL) {
     return 0;
   }
 
   for (int i = 0; i < len; ++i) {
-    size_t valLen;
-    const char *val = RedisModule_StringPtrLen(values[i], &valLen);
-    valuesDeleted += Trie_Delete(t, val, valLen);
+    size_t vlen;
+    const char *val = RedisModule_StringPtrLen(values[i], &vlen);
+    int rc = TrieLex_Delete(e->lex, val, vlen);
+    Trie_Delete(e->legacy, val, vlen);
+    valuesDeleted += rc;
   }
 
-  // Delete the dictionary if it's empty
-  if (Trie_Size(t) == 0) {
+  // Delete the dictionary if it's empty (per TrieLex, the authoritative size).
+  if (TrieLex_Size(e->lex) == 0) {
     dictDelete(spellCheckDicts, dictName);
-    TrieType_Free(t);
+    FreeSpellDictEntry(e);
   }
 
   return valuesDeleted;
 }
 
 void Dictionary_Dump(RedisModuleCtx *ctx, const char *dictName) {
-  Trie *t = SpellCheck_OpenDict(ctx, dictName, REDISMODULE_READ);
-  if (t == NULL) {
+  SpellDictEntry *e = OpenSpellDictEntry(dictName, REDISMODULE_READ);
+  if (e == NULL) {
     RedisModule_ReplyWithSet(ctx, 0);
     return;
   }
 
-  rune *rstr = NULL;
-  t_len slen = 0;
-  float score = 0;
-  int dist = 0;
+  trie_lex_rune *rstr = NULL;
+  trie_lex_t_len slen = 0;
   size_t termLen;
 
-  RedisModule_ReplyWithSet(ctx, Trie_Size(t));
+  RedisModule_ReplyWithSet(ctx, TrieLex_Size(e->lex));
 
-  TrieIterator *it = Trie_Iterate(t, "", 0, 0, 1);
-  while (TrieIterator_Next(it, &rstr, &slen, NULL, &score, NULL, &dist)) {
-    char *res = runesToStr(rstr, slen, &termLen);
+  TrieLexIterator *it = TrieLex_IterateAll(e->lex);
+  while (TrieLexIterator_Next(it, &rstr, &slen, NULL)) {
+    char *res = runesToStr((rune *)rstr, slen, &termLen);
     RedisModule_ReplyWithStringBuffer(ctx, res, termLen);
     rm_free(res);
   }
-  TrieIterator_Free(it);
+  TrieLexIterator_Free(it);
 }
 
 int DictDumpCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
@@ -138,8 +182,8 @@ void Dictionary_Clear() {
     dictIterator *iter = dictGetIterator(spellCheckDicts);
     dictEntry *entry;
     while ((entry = dictNext(iter))) {
-      Trie *val = dictGetVal(entry);
-      TrieType_Free(val);
+      SpellDictEntry *val = dictGetVal(entry);
+      FreeSpellDictEntry(val);
     }
     dictReleaseIterator(iter);
     dictEmpty(spellCheckDicts, NULL);
@@ -157,26 +201,25 @@ size_t Dictionary_Size() {
   return dictSize(spellCheckDicts);
 }
 
-static void Propagate_Dict(RedisModuleCtx* ctx, const char* dictName, Trie* trie) {
+static void Propagate_Dict(RedisModuleCtx* ctx, const char* dictName, SpellDictEntry* e) {
   size_t termLen;
-  rune *rstr = NULL;
-  t_len slen = 0;
-  float score = 0;
-  int dist = 0;
+  trie_lex_rune *rstr = NULL;
+  trie_lex_t_len slen = 0;
 
-  RedisModuleString **terms = rm_malloc(Trie_Size(trie) * sizeof(RedisModuleString*));
+  size_t size = TrieLex_Size(e->lex);
+  RedisModuleString **terms = rm_malloc(size * sizeof(RedisModuleString*));
   size_t termsCount = 0;
 
-  TrieIterator *it = Trie_Iterate(trie, "", 0, 0, 1);
-  while (TrieIterator_Next(it, &rstr, &slen, NULL, &score, NULL, &dist)) {
-    char *res = runesToStr(rstr, slen, &termLen);
+  TrieLexIterator *it = TrieLex_IterateAll(e->lex);
+  while (TrieLexIterator_Next(it, &rstr, &slen, NULL)) {
+    char *res = runesToStr((rune *)rstr, slen, &termLen);
     terms[termsCount++] = RedisModule_CreateString(NULL, res, termLen);
     rm_free(res);
   }
-  TrieIterator_Free(it);
+  TrieLexIterator_Free(it);
 
-  RS_ASSERT(termsCount == Trie_Size(trie));
-  RS_LOG_ASSERT(Trie_Size(trie) != 0, "Empty dictionary should not exist in the dictionary list");
+  RS_ASSERT(termsCount == size);
+  RS_LOG_ASSERT(size != 0, "Empty dictionary should not exist in the dictionary list");
   int rc = RedisModule_ClusterPropagateForSlotMigration(ctx, CMD_FOR_ENV(RS_DICT_ADD), "cv", dictName, terms, termsCount);
   if (rc != REDISMODULE_OK) {
     RedisModule_Log(ctx, "warning", "Failed to propagate dictionary '%s' during slot migration. errno: %d", RSGlobalConfig.hideUserDataFromLog ? "****" : dictName, errno);
@@ -193,10 +236,28 @@ void Dictionary_Propagate(RedisModuleCtx* ctx) {
   dictEntry *entry;
   while ((entry = dictNext(iter))) {
     const char *dictName = dictGetKey(entry);
-    Trie *trie = dictGetVal(entry);
-    Propagate_Dict(ctx, dictName, trie);
+    SpellDictEntry *e = dictGetVal(entry);
+    Propagate_Dict(ctx, dictName, e);
   }
   dictReleaseIterator(iter);
+}
+
+/* Rebuild the legacy `Trie *` shadow from the freshly-loaded TrieLex. We
+ * iterate the lex store and reinsert each term into a fresh legacy trie so
+ * Levenshtein consumers (`spell_check.c`) keep working unchanged. */
+static Trie *RebuildLegacyFromLex(TrieLex *lex) {
+  Trie *legacy = NewTrie(NULL, Trie_Sort_Lex);
+  trie_lex_rune *rstr = NULL;
+  trie_lex_t_len slen = 0;
+  size_t termLen;
+  TrieLexIterator *it = TrieLex_IterateAll(lex);
+  while (TrieLexIterator_Next(it, &rstr, &slen, NULL)) {
+    char *utf = runesToStr((rune *)rstr, slen, &termLen);
+    Trie_InsertStringBuffer(legacy, utf, termLen, 1, 1, NULL, 0);
+    rm_free(utf);
+  }
+  TrieLexIterator_Free(it);
+  return legacy;
 }
 
 static int SpellCheckDictAuxLoad(RedisModuleIO *rdb, int encver, int when) {
@@ -207,15 +268,18 @@ static int SpellCheckDictAuxLoad(RedisModuleIO *rdb, int encver, int when) {
   size_t len = LoadUnsigned_IOError(rdb, goto cleanup);
   for (size_t i = 0; i < len; i++) {
     char *key = LoadStringBuffer_IOError(rdb, NULL, goto cleanup);
-    Trie *val = TrieType_GenericLoad(rdb, false, false);
-    if (val == NULL) {
+    TrieLex *lex = TrieLex_RdbLoad(rdb);
+    if (lex == NULL) {
       RedisModule_Free(key);
       goto cleanup;
     }
-    if (Trie_Size(val)) {
-      dictAdd(spellCheckDicts, key, val);
+    if (TrieLex_Size(lex)) {
+      SpellDictEntry *e = rm_malloc(sizeof(*e));
+      e->lex = lex;
+      e->legacy = RebuildLegacyFromLex(lex);
+      dictAdd(spellCheckDicts, key, e);
     } else {
-      TrieType_Free(val);
+      TrieLex_Free(lex);
     }
     RedisModule_Free(key);
   }
@@ -235,10 +299,10 @@ static void SpellCheckDictAuxSave(RedisModuleIO *rdb, int when) {
   dictEntry *entry;
   while ((entry = dictNext(iter))) {
     const char *key = dictGetKey(entry);
-    Trie *val = dictGetVal(entry);
-    RS_LOG_ASSERT(Trie_Size(val) != 0, "Empty dictionary should not exist in the dictionary list");
+    SpellDictEntry *e = dictGetVal(entry);
+    RS_LOG_ASSERT(TrieLex_Size(e->lex) != 0, "Empty dictionary should not exist in the dictionary list");
     RedisModule_SaveStringBuffer(rdb, key, strlen(key) + 1 /* we save the /0*/);
-    TrieType_GenericSave(rdb, val, false, false);
+    TrieLex_RdbSave(rdb, e->lex);
   }
   dictReleaseIterator(iter);
 }

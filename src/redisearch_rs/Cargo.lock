@@ -1863,6 +1863,7 @@ dependencies = [
  "sorting_vector_ffi",
  "syn 2.0.117",
  "toml",
+ "trie_lex_ffi",
  "triemap_ffi",
  "types_ffi",
  "value_ffi",
@@ -2755,6 +2756,20 @@ dependencies = [
  "trie_rs",
  "ureq",
  "wildcard 0.0.1",
+ "workspace_hack",
+]
+
+[[package]]
+name = "trie_lex_ffi"
+version = "0.0.1"
+dependencies = [
+ "build_utils",
+ "cbindgen",
+ "lending-iterator",
+ "libc",
+ "redis-module",
+ "redis_mock",
+ "trie_rs",
  "workspace_hack",
 ]
 
