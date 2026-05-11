@@ -33,7 +33,7 @@ on:
 
 jobs:
   get-config:
-    runs-on: ${{ vars.RUNS_ON || 'ubuntu-24.04' }}
+    runs-on: ubuntu-slim
     outputs:
       env: ${{ steps.get-config.outputs.env }}
       container: ${{ steps.get-config.outputs.container }}
