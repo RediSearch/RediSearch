@@ -514,9 +514,9 @@ jobs:
         run: |
           echo "C/C++ tests: ${{ steps.c_unit_tests.outcome }}"
           echo "Rust tests: ${{ steps.rust_unit_tests.outcome }}"
-          echo "Rust tests (MIRI): ${{ steps.rust_unit_tests_miri.outcome }}"
           echo "Flow tests (standalone): ${{ steps.standalone_tests.outcome }}"
           echo "Flow tests (coordinator): ${{ steps.coordinator_tests.outcome }}"
+          echo "Rust tests (MIRI): ${{ steps.rust_unit_tests_miri.outcome }}"
           exit 1
       - name: Import Codecov GPG public key
         if: inputs.coverage
