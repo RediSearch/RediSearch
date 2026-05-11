@@ -4802,6 +4802,16 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     DocIdMeta_Init(ctx);
   }
 
+  // POC: Keyspace Loading Phase 1 hook. Disposable; on a paired throwaway branch.
+  // Symbol provided by redisearch_disk (Rust) when linked into redisearch.so;
+  // weak-undefined here so OSS builds without the Rust static lib still link.
+  // The symbol itself is a no-op unless RS_POC_KEYSPACE_LOADER=1. Must be
+  // called from OnLoad because RM_CreateCommand only accepts the OnLoad ctx.
+  extern int SearchDiskPOC_RegisterCommands(RedisModuleCtx *ctx) __attribute__((weak));
+  if (SearchDiskPOC_RegisterCommands) {
+    SearchDiskPOC_RegisterCommands(ctx);
+  }
+
   // Check if we are actually in cluster mode
   const bool isClusterEnabled = checkClusterEnabled(ctx);
 
