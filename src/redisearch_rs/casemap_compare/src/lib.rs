@@ -99,6 +99,30 @@ pub fn fold_libnu_raw(s: &str) -> Vec<u8> {
     out
 }
 
+/// Encode `cp` to UTF-8 using libnu's *runtime* encoder (`nu_utf8_write`),
+/// returning whatever bytes libnu wrote without any validation.
+///
+/// `nu_utf8_write` dispatches to `b{1..4}_utf8` based on the codepoint's
+/// natural UTF-8 length. The 4-byte path (`b4_utf8` in
+/// `deps/libnu/utf8_internal.h`) is what RediSearch's `normalizeStr` invokes
+/// for any fold result in a supplementary plane, so its correctness gates
+/// production output. This is the function to sweep when asking
+/// "does libnu *ever* emit invalid UTF-8 from its runtime encoder?".
+pub fn encode_codepoint_with_libnu(cp: u32) -> Vec<u8> {
+    let mut buf = [0u8; 4];
+    // SAFETY: `nu_utf8_write` writes at most 4 bytes (the UTF-8 maximum for
+    // any codepoint <= U+10FFFF) and returns a pointer to one past the last
+    // byte written. The buffer is exactly 4 bytes, so the writer cannot
+    // overrun. We do not validate the bytes — the whole point is to capture
+    // whatever libnu emits.
+    let written = unsafe {
+        let begin = buf.as_mut_ptr() as *mut std::ffi::c_char;
+        let end = libnu_ffi::nu_utf8_write(cp, begin);
+        end.offset_from(begin) as usize
+    };
+    buf[..written].to_vec()
+}
+
 /// Fold `s` using ICU4X's full Unicode case folding (`icu_casemap::CaseMapper`).
 ///
 /// This mirrors `try_insert_string_normalize()` at
