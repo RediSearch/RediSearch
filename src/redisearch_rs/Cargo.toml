@@ -3,6 +3,7 @@ members = [
     "build_utils",
     "c_entrypoint/*",
     "c_wrappers/*",
+    "casemap_compare",
     "document",
     "ffi",
     "field",
