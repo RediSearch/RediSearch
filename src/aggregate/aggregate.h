@@ -465,9 +465,10 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status);
 int AREQ_BuildPipeline(AREQ *req, QueryError *status);
 
 /**
- * Classify the (already-built) shard pipeline as yielding a valid partial
- * answer on RETURN-STRICT timeout, and store the result on the request's
- * QueryProcessingCtx. No-op on a request whose pipeline has not been built.
+ * Classify the request's (already-built) pipeline as yielding a valid partial
+ * answer on RETURN-STRICT timeout and store the result on the request's
+ * QueryProcessingCtx. Writes `false` if the pipeline has no end/root processor
+ * yet (e.g. called before the pipeline is built).
  */
 void AREQ_SetCanYieldPartialResults(AREQ *req);
 

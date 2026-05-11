@@ -284,7 +284,7 @@ static void buildDistRPChain(AREQ *r, MRCommand *xcmd, AREQDIST_UpstreamInfo *us
     }
   }
 
-  qctx->canYieldPartialResults = pipelineCanYieldPartialResults(r);
+  AREQ_SetCanYieldPartialResults(r);
 }
 
 void PrintShardProfile(RedisModule_Reply *reply, void *ctx);
