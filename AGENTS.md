@@ -99,7 +99,9 @@ Invoke [/jj-fix-conflicts](.skills/jj-fix-conflicts/SKILL.md) to resolve conflic
 - Address review feedback with normal follow-up commits and regular pushes.
 - Before opening a pull request, history cleanup is acceptable when it is useful and does not discard user work.
 - When opening a pull request, use `.github/PULL_REQUEST_TEMPLATE.md` for the description and keep all template sections.
-- Write PR titles as concise user-facing summaries; if release notes are required, describe the user impact in the title as requested by the template.
+- For normal PRs to `master` or another primary target branch, use the title format `[MOD-xyz] concise user-facing summary` when a Jira ticket exists. If no ticket is known, ask the user whether one should be opened before choosing the title.
+- For backport PRs, use the title format `[x.y] original title`, where `x.y` is the target branch. In the PR description, link back to the original PR.
+- If release notes are required, make sure the title describes the user impact as requested by the PR template.
 
 ## License Header (Required)
 ```
