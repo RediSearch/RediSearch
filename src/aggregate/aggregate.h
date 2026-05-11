@@ -651,8 +651,8 @@ void AREQ_WaitForAggregateResultsComplete(AREQ *req);
  *   - RPNet::drainOnly on the root proc when it is RP_NETWORK (so the next
  *     read does not short-circuit to EOF on the first empty-channel observation).
  * Caller MUST hold the per-request setRequestLock so the timer cannot publish a
- * fresh TimedOut between the reset and SetRequest (see §5.5.2). Does NOT reset
- * RPSorter::base.Next: the Yield latch is load-bearing across reads (§5.5.5). */
+ * fresh TimedOut between the reset and SetRequest. Does NOT reset
+ * RPSorter::base.Next: the Yield latch is load-bearing across reads. */
 void AREQ_ResetForCursorReadReturnStrict(AREQ *req);
 
 /* Abort-wake registration (single-slot). BG reader registers its blocking channel

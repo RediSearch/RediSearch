@@ -211,7 +211,7 @@ int single_shard_common_query_reply_empty(RedisModuleCtx *ctx, RedisModuleString
     return ret;
 }
 
-int coord_cursor_read_reply_timeout_empty(RedisModuleCtx *ctx, long long cid) {
+int coord_cursor_read_empty_reply_timeout(RedisModuleCtx *ctx, long long cid) {
     AREQ *req = AREQ_New();
     QueryError status = QueryError_Default();
     AREQ_QueryProcessingCtx(req)->err = &status;

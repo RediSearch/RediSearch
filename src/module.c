@@ -3901,8 +3901,7 @@ static inline int CursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, i
     if (!info.found) {
       return RedisModule_ReplyWithErrorFormat(ctx, "Cursor not found, id: %lld", cid);
     }
-    if (info.queryTimeoutPolicy == TimeoutPolicy_Fail ||
-        info.queryTimeoutPolicy == TimeoutPolicy_ReturnStrict) {
+    if (info.queryTimeoutPolicy != TimeoutPolicy_Return) {
 #ifdef ENABLE_ASSERT
       // _FT.HYBRID WITHCURSOR is read via _FT.CURSOR READ, bypassing CursorCommand.
       RS_ASSERT(!info.isHybrid);

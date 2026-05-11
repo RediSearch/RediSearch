@@ -680,8 +680,7 @@ done_2:
 
     state->cursor_done = (rc != RS_RESULT_OK
                           && !(rc == RS_RESULT_TIMEDOUT
-                               && (req->reqConfig.timeoutPolicy == TimeoutPolicy_Return
-                                   || req->reqConfig.timeoutPolicy == TimeoutPolicy_ReturnStrict)));
+                               && req->reqConfig.timeoutPolicy != TimeoutPolicy_Fail));
 
     trackWarnings_Resp2(req, qctx, rc);
     finishSendChunkReply_Resp2(req, reply, state->cursor_done);
@@ -890,8 +889,7 @@ static int serializeAndReplyResults_Resp3(AREQ *req, RedisModule_Reply *reply, R
 done_3:
     state->cursor_done = (rc != RS_RESULT_OK
                           && !(rc == RS_RESULT_TIMEDOUT
-                               && (req->reqConfig.timeoutPolicy == TimeoutPolicy_Return
-                                   || req->reqConfig.timeoutPolicy == TimeoutPolicy_ReturnStrict)));
+                               && req->reqConfig.timeoutPolicy != TimeoutPolicy_Fail));
 
     finishSendChunkReply_Resp3(req, reply, qctx, rc, state->cursor_done);
 
