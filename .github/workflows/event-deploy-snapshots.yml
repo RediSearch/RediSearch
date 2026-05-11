@@ -24,7 +24,7 @@ jobs:
   notify-failure:
     needs: deploy-snapshots
     if: failure()
-    runs-on: ${{ vars.RUNS_ON || 'ubuntu-24.04' }}
+    runs-on: ubuntu-slim
     steps:
       - name: Notify Failure
         uses: slackapi/slack-github-action@v1

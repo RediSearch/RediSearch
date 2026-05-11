@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   detect-resubmit:
-    runs-on: ${{ vars.RUNS_ON || 'ubuntu-24.04' }}
+    runs-on: ubuntu-slim
     steps:
       - name: Check for resubmission without new commits
         id: check
