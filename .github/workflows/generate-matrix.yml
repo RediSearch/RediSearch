@@ -36,7 +36,7 @@ on:
 
 jobs:
   generate:
-    runs-on: ${{ vars.RUNS_ON || 'ubuntu-24.04' }}
+    runs-on: ubuntu-slim
     outputs:
       matrix: ${{ steps.generate-matrix.outputs.matrix }}
       has-jobs: ${{ steps.generate-matrix.outputs.has-jobs }}
