@@ -21,19 +21,16 @@
 //! - [`driver`] hosts [`AutomatonIter`] (and its lending variant), the
 //!   generic iterator that drives any `Automaton` over a trie.
 //! - [`wildcard`] hosts the wildcard NFA
-//!   ([`WildcardNfa`](wildcard::WildcardNfa)), the specialized fixed-length
-//!   iterator ([`FixedWildcardIter`](wildcard::FixedWildcardIter)), and the
-//!   auto-dispatching wrapper
-//!   ([`WildcardSpecializedIter`](wildcard::WildcardSpecializedIter)).
+//!   ([`WildcardNfa`](wildcard::WildcardNfa)) and the auto-dispatching
+//!   wrapper ([`WildcardSpecializedIter`](wildcard::WildcardSpecializedIter)).
 
 pub mod driver;
 pub mod wildcard;
 
 pub use driver::{AutomatonIter, AutomatonLendingIter};
 pub use wildcard::{
-    BitSetClass, FixedWildcardIter, FixedWildcardLendingIter, InlineStateSet, NfaBitSet,
-    SparseStateSet, WildcardNfa, WildcardSparseNfa, WildcardSpecializedIter,
-    WildcardSpecializedLendingIter, pattern_has_star,
+    NfaBitSet, WildcardBackend, WildcardNfa, WildcardSpecializedIter,
+    WildcardSpecializedLendingIter,
 };
 
 /// What the iterator should do at the current state.

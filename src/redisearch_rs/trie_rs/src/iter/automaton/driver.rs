@@ -46,10 +46,8 @@ pub struct AutomatonIter<'tm, Data, A: Automaton> {
 /// - [`Frame::PermanentVisit`] — once the automaton has reported
 ///   [`StateClass::Permanent`] for some ancestor, every descendant in the
 ///   subtree is guaranteed to match. We push these without state and skip
-///   `classify` on pop, which avoids a `state.clone()` per child
-///   (significant for the wider state representations like `InlineStateSet`
-///   and the sparse-set automaton's `SparseStateSet`) and the redundant
-///   classify calls that would all return `Permanent` anyway.
+///   `classify` on pop, which avoids a `state.clone()` per child and the
+///   redundant classify calls that would all return `Permanent` anyway.
 enum Frame<'tm, Data, S> {
     Visit {
         node: &'tm Node<Data>,

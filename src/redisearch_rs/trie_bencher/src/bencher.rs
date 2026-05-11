@@ -13,9 +13,7 @@ use criterion::{
 };
 use lending_iterator::LendingIterator;
 use std::{ffi::c_void, hint::black_box, ptr::NonNull, time::Duration};
-use trie_rs::iter::{
-    ContainsLendingIter, LendingIter, WildcardSpecializedLendingIter,
-};
+use trie_rs::iter::{ContainsLendingIter, LendingIter, WildcardSpecializedLendingIter};
 use trie_rs::iter::{RangeFilter, RangeLendingIter};
 use wildcard::WildcardPattern;
 

@@ -185,9 +185,9 @@ impl<S: NfaBitSet> WildcardNfa<S> {
     ///
     /// The caller is responsible for picking an `S` whose capacity is large
     /// enough for the pattern's atom count: ≤ 63 for `u64`, ≤ 127 for
-    /// `u128`, ≤ 255 for [`InlineStateSet`](super::atoms::InlineStateSet).
-    /// Patterns past 255 atoms must use the sparse-set automaton in
-    /// [`super::sparse`] instead — the bitset trait can't represent them.
+    /// `u128`. Patterns past 127 atoms must use the filter-based
+    /// [`crate::iter::wildcard::WildcardIter`] — the dispatcher
+    /// [`super::WildcardSpecializedIter`] picks it automatically.
     pub fn compile(pattern: &WildcardPattern<'_>) -> Self {
         let atoms = flatten(pattern);
         let accept = atoms.len();

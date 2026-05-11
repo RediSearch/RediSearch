@@ -22,9 +22,8 @@ mod values;
 mod wildcard;
 
 pub use automaton::{
-    Automaton, AutomatonIter, AutomatonLendingIter, BitSetClass, FixedWildcardIter,
-    FixedWildcardLendingIter, InlineStateSet, NfaBitSet, SparseStateSet, StateClass, WildcardNfa,
-    WildcardSparseNfa, WildcardSpecializedIter, WildcardSpecializedLendingIter, pattern_has_star,
+    Automaton, AutomatonIter, AutomatonLendingIter, NfaBitSet, StateClass, WildcardBackend,
+    WildcardNfa, WildcardSpecializedIter, WildcardSpecializedLendingIter,
 };
 pub use contains::ContainsIter;
 pub use into_values::IntoValues;

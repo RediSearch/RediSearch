@@ -7,8 +7,10 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! Cross-check that the streaming-automaton iterators produce the same
-//! matches as the existing filter-based [`WildcardIter`].
+//! Cross-check that [`TrieMap::wildcard_specialized_iter`] produces the
+//! same matches as the filter-based [`TrieMap::wildcard_iter`] across the
+//! three backends it dispatches into (`u64` NFA, `u128` NFA, and the
+//! filter fallback at ≥ 128 atoms).
 
 use proptest::prelude::*;
 use trie_rs::TrieMap;
@@ -17,14 +19,6 @@ use wildcard::WildcardPattern;
 fn matches_filter<Data>(trie: &TrieMap<Data>, pattern: &str) -> Vec<Vec<u8>> {
     let p = WildcardPattern::parse(pattern.as_bytes());
     trie.wildcard_iter(p).map(|(k, _)| k).collect()
-}
-
-fn matches_nfa<Data>(trie: &TrieMap<Data>, pattern: &str) -> Vec<Vec<u8>> {
-    // Use the sparse-set automaton so this helper works for patterns of any
-    // length; size-dispatch correctness on the smaller bitset variants is
-    // exercised via `matches_specialized`.
-    let p = WildcardPattern::parse(pattern.as_bytes());
-    trie.wildcard_sparse_iter(&p).map(|(k, _)| k).collect()
 }
 
 fn matches_specialized<Data>(trie: &TrieMap<Data>, pattern: &str) -> Vec<Vec<u8>> {
@@ -59,9 +53,7 @@ fn matches_agree_on_seed_patterns() {
     ];
     for p in patterns {
         let f = matches_filter(&trie, p);
-        let n = matches_nfa(&trie, p);
         let s = matches_specialized(&trie, p);
-        assert_eq!(f, n, "NFA disagrees on `{p}`");
         assert_eq!(f, s, "Specialized disagrees on `{p}`");
     }
 }
@@ -71,14 +63,12 @@ fn empty_pattern_matches_empty_key_only() {
     let mut trie = TrieMap::new();
     trie.insert(b"", b"".to_vec());
     trie.insert(b"apple", b"apple".to_vec());
-    assert_eq!(matches_nfa(&trie, ""), vec![b""]);
     assert_eq!(matches_specialized(&trie, ""), vec![b""]);
 }
 
 #[test]
 fn empty_trie_yields_nothing() {
     let trie = TrieMap::<u64>::new();
-    assert!(matches_nfa(&trie, "*").is_empty());
     assert!(matches_specialized(&trie, "*").is_empty());
 }
 
@@ -88,8 +78,9 @@ proptest! {
         ..Default::default()
     })]
 
-    /// Random ASCII keys + random pattern → filter, NFA, and specialized
-    /// must agree.
+    /// Random ASCII keys + random pattern → filter and specialized must
+    /// agree. Pattern lengths stay ≤ 8 atoms so the dispatcher routes
+    /// through the `u64` NFA branch.
     #[test]
     fn agree_on_random_keys_and_patterns(
         keys in prop::collection::vec("[a-d]{0,6}", 1..30),
@@ -100,9 +91,7 @@ proptest! {
             trie.insert(k.as_bytes(), ());
         }
         let f = matches_filter(&trie, &pattern);
-        let n = matches_nfa(&trie, &pattern);
         let s = matches_specialized(&trie, &pattern);
-        prop_assert_eq!(&f, &n, "filter vs nfa, pattern=`{}`", pattern);
         prop_assert_eq!(&f, &s, "filter vs specialized, pattern=`{}`", pattern);
     }
 
@@ -119,15 +108,13 @@ proptest! {
             trie.insert(k.as_bytes(), ());
         }
         let f = matches_filter(&trie, &pattern);
-        let n = matches_nfa(&trie, &pattern);
         let s = matches_specialized(&trie, &pattern);
-        prop_assert_eq!(&f, &n, "filter vs nfa, pattern=`{}`", pattern);
         prop_assert_eq!(&f, &s, "filter vs specialized, pattern=`{}`", pattern);
     }
 
-    /// Patterns with no `*` — exercise the fixed-length specialization
-    /// dominantly. Pattern grammar excludes `*` so the specialized iter
-    /// always takes its `Fixed` branch.
+    /// Patterns with no `*` — the dispatcher still routes by atom count,
+    /// so these go through the `u64` NFA's `epsilon_table.is_none()`
+    /// fixed-length fast path.
     #[test]
     fn fixed_length_patterns_agree(
         keys in prop::collection::vec("[a-d]{0,6}", 1..30),
@@ -143,14 +130,11 @@ proptest! {
     }
 }
 
-/// Patterns longer than the inline `u64` bitset (63 atoms) exercise the
-/// wider state representations. The streaming automaton must yield the
-/// same matches as the filter-based iterator without panicking or losing
-/// correctness.
+/// Long literal pattern (70 chars) — atom count exceeds the `u64` cap so
+/// the dispatcher routes through the `u128` NFA. Cross-check correctness
+/// against the filter.
 #[test]
-fn long_literal_patterns_via_spilled_bitset() {
-    // A 70-char literal — over the 63-bit inline-bitset cap, so the
-    // underlying StateSet allocates a second word on the heap.
+fn long_literal_patterns_route_to_u128() {
     let prefix = "a".repeat(70);
     let pattern_long_literal = format!("{prefix}*");
     let pattern_long_fixed = prefix.clone();
@@ -161,37 +145,29 @@ fn long_literal_patterns_via_spilled_bitset() {
     trie.insert(b"unrelated", 2);
     trie.insert(prefix.as_bytes(), 3);
 
-    // Variable-length pattern: NFA path spills the bitset to the heap.
     let f = matches_filter(&trie, &pattern_long_literal);
-    let n = matches_nfa(&trie, &pattern_long_literal);
     let s = matches_specialized(&trie, &pattern_long_literal);
-    assert_eq!(f, n, "filter vs nfa, long literal + `*`");
     assert_eq!(f, s, "filter vs specialized, long literal + `*`");
 
-    // Fixed-length pattern: FixedWildcardIter handles arbitrary length too.
     let f = matches_filter(&trie, &pattern_long_fixed);
     let s = matches_specialized(&trie, &pattern_long_fixed);
     assert_eq!(f, s, "filter vs specialized, long literal alone");
 }
 
-/// Patterns past 255 atoms route through [`BitSetClass::Sparse`] in the
-/// dispatcher, exercising both the [`WildcardSparseNfa`] code path itself
-/// at the sparse-class atom count and the
-/// [`WildcardSpecializedIter::GeneralSparse`] dispatcher arm — the latter
-/// of which the proptest cases (≤ 8 atoms) don't reach.
+/// Patterns past 127 atoms route to the filter-based fallback in the
+/// dispatcher. This exercises the `WildcardBackend::Filter` arm of
+/// [`WildcardSpecializedIter`] and confirms the dispatcher wraps
+/// [`WildcardIter`] correctly through its lending interface.
 #[test]
-fn long_patterns_route_to_sparse_specialized() {
-    // 260-char literal pushes us into the sparse class:
-    //   1 (leading `*`) + 260 + 1 (trailing `*`) + 1 (accept) = 263
-    //   positions, comfortably above the 256-position InlineStateSet cap.
+fn long_patterns_route_to_filter_specialized() {
+    // 260-char literal pushes us past the `u128` boundary into the
+    // filter fallback (1 leading `*` + 260 + 1 trailing `*` + 1 accept
+    // = 263 positions).
     let literal: String = "abcdefghij".repeat(26);
     assert_eq!(literal.len(), 260);
     let star_pattern = format!("*{literal}*");
     let prefix_pattern = format!("ab*{literal}*");
 
-    // Mix of keys: some that match, some that don't, varying lengths,
-    // including descendants under literal prefixes that the
-    // prefix-anchored pattern's literal-prefix shortcut walks.
     let mut trie = TrieMap::new();
     let direct_match = format!("xxx{literal}yyy");
     trie.insert(direct_match.as_bytes(), 1u32);
@@ -204,29 +180,21 @@ fn long_patterns_route_to_sparse_specialized() {
 
     for pattern in [&star_pattern, &prefix_pattern] {
         let f = matches_filter(&trie, pattern);
-        let n = matches_nfa(&trie, pattern);
         let s = matches_specialized(&trie, pattern);
         assert_eq!(
-            f, n,
-            "filter vs nfa, sparse-class pattern (len={})",
-            pattern.len(),
-        );
-        assert_eq!(
-            f, s,
-            "filter vs specialized → GeneralSparse, pattern (len={})",
+            f,
+            s,
+            "filter vs specialized → Filter, pattern (len={})",
             pattern.len(),
         );
     }
 }
 
-/// Patterns with multiple `Any` atoms produce ε-closures with more than
-/// one position per `Any` row. Combined with sparse-class atom counts,
-/// this exercises [`WildcardSparseNfa`]'s multi-element closure expansion
-/// in the hot loop.
+/// Patterns with many `Any` atoms — the parser collapses consecutive `*`
+/// into one, so 50 `*the` segments produce ~250 atoms, comfortably in
+/// the filter-fallback range under the new dispatcher.
 #[test]
-fn many_any_atoms_in_sparse_pattern() {
-    // 50 `*the*` segments → ~250 atoms after the parser collapses
-    // consecutive `*`s, sitting just inside the sparse class.
+fn many_any_atoms_route_to_filter() {
     let pattern: String = std::iter::repeat_n("*the", 50).collect::<String>() + "*";
 
     let mut trie = TrieMap::new();
@@ -237,8 +205,6 @@ fn many_any_atoms_in_sparse_pattern() {
     trie.insert(b"", 5);
 
     let f = matches_filter(&trie, &pattern);
-    let n = matches_nfa(&trie, &pattern);
     let s = matches_specialized(&trie, &pattern);
-    assert_eq!(f, n, "filter vs nfa, many-`Any` sparse pattern");
-    assert_eq!(f, s, "filter vs specialized, many-`Any` sparse pattern");
+    assert_eq!(f, s, "filter vs specialized, many-`Any` pattern");
 }

@@ -13,19 +13,19 @@
 //! [`flatten`] and tracks active positions in any type that implements the
 //! [`NfaBitSet`] trait.
 //!
-//! Three stack-resident bitset implementations exist, sized for different
+//! Two stack-resident bitset implementations exist, sized for different
 //! pattern lengths and selected at NFA compile time so every variant has a
 //! fully monomorphized hot path:
 //!
 //! - [`u64`] — covers up to 63 atoms; single-register operations.
 //! - [`u128`] — covers up to 127 atoms; two-register operations.
-//! - [`InlineStateSet`] — `[u64; 4]` on the stack; up to 255 atoms with no
-//!   heap traffic.
 //!
-//! Patterns beyond 255 atoms switch away from the bitset abstraction
-//! entirely and use the sparse-set automaton in [`super::sparse`].
+//! Patterns beyond 127 atoms fall back to the per-key
+//! [`crate::iter::wildcard::WildcardIter`] — its SIMD `memcmp` over each
+//! literal token beats the wider NFA state representations once the
+//! pattern's atom count outgrows a single register pair.
 //!
-//! Callers select the variant via [`super::BitSetClass::for_pattern`].
+//! Callers select the backend via [`super::WildcardBackend::for_pattern`].
 
 use wildcard::{Token, WildcardPattern};
 
@@ -164,117 +164,6 @@ impl NfaBitSet for u128 {
                 Some(pos)
             }
         })
-    }
-}
-
-/// Stack-resident bitset: a flat `[u64; 4]` of 64-bit words covering atom
-/// positions `0..256`. Used for patterns with 128..=255 atoms.
-///
-/// All operations are constant-size over the four words — no inline-vs-heap
-/// branch, no length tracking. Words past the active range stay zeroed and
-/// participate harmlessly in OR / fold operations.
-#[derive(Clone, Default, Debug, PartialEq, Eq, Hash)]
-pub struct InlineStateSet([u64; 4]);
-
-impl NfaBitSet for InlineStateSet {
-    #[inline]
-    fn empty(_n_atoms: usize) -> Self {
-        Self([0; 4])
-    }
-
-    #[inline]
-    fn singleton(_n_atoms: usize, pos: usize) -> Self {
-        debug_assert!(pos < 256);
-        let mut words = [0u64; 4];
-        words[pos / 64] |= 1u64 << (pos % 64);
-        Self(words)
-    }
-
-    #[inline]
-    fn clear(&mut self) {
-        self.0 = [0; 4];
-    }
-
-    #[inline]
-    fn insert(&mut self, pos: usize) {
-        debug_assert!(pos < 256);
-        self.0[pos / 64] |= 1u64 << (pos % 64);
-    }
-
-    #[inline]
-    fn contains(&self, pos: usize) -> bool {
-        debug_assert!(pos < 256);
-        (self.0[pos / 64] >> (pos % 64)) & 1 == 1
-    }
-
-    #[inline]
-    fn is_empty(&self) -> bool {
-        (self.0[0] | self.0[1] | self.0[2] | self.0[3]) == 0
-    }
-
-    #[inline]
-    fn union_in_place(&mut self, other: &Self) {
-        self.0[0] |= other.0[0];
-        self.0[1] |= other.0[1];
-        self.0[2] |= other.0[2];
-        self.0[3] |= other.0[3];
-    }
-
-    #[inline]
-    fn singleton_pos(&self) -> usize {
-        for (i, &word) in self.0.iter().enumerate() {
-            if word != 0 {
-                return i * 64 + word.trailing_zeros() as usize;
-            }
-        }
-        debug_assert!(false, "singleton_pos called on empty InlineStateSet");
-        usize::MAX
-    }
-
-    #[inline]
-    fn iter(&self) -> impl Iterator<Item = usize> + '_ {
-        WordIter::new(&self.0)
-    }
-}
-
-/// Direct struct-based iterator over a slice of bitset words — preferred
-/// over chaining `iter::from_fn` closures because it inlines more cleanly.
-struct WordIter<'a> {
-    current_word: u64,
-    current_base: usize,
-    remaining: &'a [u64],
-}
-
-impl<'a> WordIter<'a> {
-    #[inline]
-    fn new(words: &'a [u64]) -> Self {
-        // Pre-load word 0 so the iterator's `current_base` cleanly bumps
-        // by 64 each time we pull the next word.
-        let (&first, rest) = words.split_first().unwrap_or((&0, &[]));
-        Self {
-            current_word: first,
-            current_base: 0,
-            remaining: rest,
-        }
-    }
-}
-
-impl Iterator for WordIter<'_> {
-    type Item = usize;
-
-    #[inline]
-    fn next(&mut self) -> Option<usize> {
-        loop {
-            if self.current_word != 0 {
-                let bit = self.current_word.trailing_zeros() as usize;
-                self.current_word &= self.current_word - 1;
-                return Some(self.current_base + bit);
-            }
-            let (&next_word, rest) = self.remaining.split_first()?;
-            self.current_base += 64;
-            self.current_word = next_word;
-            self.remaining = rest;
-        }
     }
 }
 

@@ -11,16 +11,15 @@ use wildcard::WildcardPattern;
 
 use crate::{
     iter::{
-        Automaton, AutomatonIter, BitSetClass, ContainsIter, FixedWildcardIter, InlineStateSet,
-        IntoValues, Iter, LendingIter, NfaBitSet, PrefixesIter, RangeFilter, RangeIter, Values,
-        WildcardSparseNfa,
-        WildcardIter, WildcardNfa, WildcardSpecializedIter, filter::VisitAll, pattern_has_star,
+        Automaton, AutomatonIter, ContainsIter, IntoValues, Iter, LendingIter, NfaBitSet,
+        PrefixesIter, RangeFilter, RangeIter, Values, WildcardBackend, WildcardIter, WildcardNfa,
+        WildcardSpecializedIter, filter::VisitAll,
     },
     node::Node,
     utils::strip_prefix,
 };
-use wildcard::Token;
 use std::fmt;
+use wildcard::Token;
 
 #[derive(Clone, PartialEq, Eq)]
 /// A trie data structure that maps keys of type `&[u8]` to values.
@@ -212,11 +211,10 @@ impl<Data> TrieMap<Data> {
     /// Iterate over all trie entries whose key matches the specified pattern,
     /// using NFA-simulation streaming with the chosen bitset representation.
     ///
-    /// Pick `S` based on the pattern's atom count: `u64` for ≤ 63 atoms,
-    /// `u128` for 64..=127, and [`InlineStateSet`] for 128..=255. Patterns
-    /// beyond 255 atoms must use [`Self::wildcard_sparse_iter`] (or, more
-    /// commonly, [`Self::wildcard_specialized_iter`] which dispatches
-    /// automatically).
+    /// Pick `S` based on the pattern's atom count: `u64` for ≤ 63 atoms and
+    /// `u128` for 64..=127. Patterns beyond 127 atoms should route through
+    /// [`Self::wildcard_specialized_iter`], which falls back to the
+    /// filter-based [`WildcardIter`] for those sizes.
     pub fn wildcard_nfa_iter<'a, S: NfaBitSet>(
         &'a self,
         pattern: &WildcardPattern<'a>,
@@ -226,70 +224,31 @@ impl<Data> TrieMap<Data> {
     }
 
     /// Iterate over all trie entries whose key matches the specified pattern,
-    /// using the sparse-set automaton. Suitable for any pattern length;
-    /// [`Self::wildcard_specialized_iter`] picks this backend automatically
-    /// when the pattern would overflow the stack-resident bitsets.
-    pub fn wildcard_sparse_iter<'a>(
-        &'a self,
-        pattern: &WildcardPattern<'a>,
-    ) -> AutomatonIter<'a, Data, WildcardSparseNfa> {
-        let nfa = WildcardSparseNfa::compile(pattern);
-        self.automaton_iter_with_prefix_shortcut(pattern.tokens(), nfa)
-    }
-
-    /// Iterate over all trie entries whose key matches the specified pattern,
-    /// auto-selecting the most efficient backend at compile time of the NFA:
+    /// auto-selecting the most efficient backend at NFA compile time:
     ///
-    /// - No `*` → specialized fixed-length iterator.
-    /// - `*` and ≤ 63 atoms → NFA backed by `u64`.
-    /// - `*` and 64..=127 atoms → NFA backed by `u128`.
-    /// - `*` and 128..=255 atoms → NFA backed by [`InlineStateSet`].
-    /// - `*` and ≥ 256 atoms → sparse-set automaton ([`WildcardSparseNfa`]).
+    /// - ≤ 63 atoms → NFA backed by `u64`.
+    /// - 64..=127 atoms → NFA backed by `u128`.
+    /// - ≥ 128 atoms → filter-based [`WildcardIter`]. The wider bitset
+    ///   representations and a sparse-set automaton were tried for this
+    ///   range, but neither beat the filter's SIMD-`memcmp`-per-literal
+    ///   approach on real workloads.
     pub fn wildcard_specialized_iter<'a>(
         &'a self,
         pattern: &WildcardPattern<'a>,
     ) -> WildcardSpecializedIter<'a, Data> {
-        if !pattern_has_star(pattern) {
-            return WildcardSpecializedIter::Fixed(self.wildcard_fixed_iter(pattern));
-        }
-        match BitSetClass::for_pattern(pattern) {
-            BitSetClass::U64 => {
+        match WildcardBackend::for_pattern(pattern) {
+            WildcardBackend::U64 => {
                 WildcardSpecializedIter::GeneralU64(self.wildcard_nfa_iter::<u64>(pattern))
             }
-            BitSetClass::U128 => {
+            WildcardBackend::U128 => {
                 WildcardSpecializedIter::GeneralU128(self.wildcard_nfa_iter::<u128>(pattern))
             }
-            BitSetClass::Inline => WildcardSpecializedIter::GeneralInline(
-                self.wildcard_nfa_iter::<InlineStateSet>(pattern),
-            ),
-            BitSetClass::Sparse => {
-                WildcardSpecializedIter::GeneralSparse(self.wildcard_sparse_iter(pattern))
+            WildcardBackend::Filter => {
+                // `WildcardIter::new` takes the pattern by value; clone is
+                // shallow (the parsed tokens borrow from the caller's
+                // slice).
+                WildcardSpecializedIter::Filter(self.wildcard_iter(pattern.clone()))
             }
-        }
-    }
-
-    /// Iterate over wildcard matches using the specialized fixed-length
-    /// iterator directly (no dispatching enum).
-    ///
-    /// `pattern` must contain no `*` token; debug-asserts otherwise.
-    pub fn wildcard_fixed_iter<'a>(
-        &'a self,
-        pattern: &WildcardPattern<'a>,
-    ) -> FixedWildcardIter<'a, Data> {
-        let Some(root) = self.root.as_ref() else {
-            return FixedWildcardIter::empty();
-        };
-        // Same literal-prefix shortcut as the automaton path: jump to the
-        // subtree containing every key with that prefix.
-        if let Some(Token::Literal(lit)) = pattern.tokens().first() {
-            match root.find_root_for_prefix(lit) {
-                Some((subroot, subroot_prefix)) => {
-                    FixedWildcardIter::new(Some(subroot), subroot_prefix, pattern)
-                }
-                None => FixedWildcardIter::empty(),
-            }
-        } else {
-            FixedWildcardIter::new(Some(root), Vec::new(), pattern)
         }
     }
 
