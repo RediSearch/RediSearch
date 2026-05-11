@@ -20,7 +20,7 @@ static int parseField(RSValue *argv, double *geo, QueryError *status) {
   if (RSValue_IsString(val)) {
     size_t len;
     const char *p = RSValue_StringPtrLen(val, &len);
-    rv = parseGeo(p, len, &geo[0], &geo[1], status);
+    rv = parseGeo((const uint8_t *)p, len, &geo[0], &geo[1], status);
   } else if (RSValue_IsNumber(val)) {
     double dbl = RSValue_Number_Get(val);
     decodeGeo(dbl, geo);

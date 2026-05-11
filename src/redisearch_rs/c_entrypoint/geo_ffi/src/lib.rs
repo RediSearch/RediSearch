@@ -13,7 +13,7 @@
 //! module), providing the same C API that was previously in `src/rs_geo.c`.
 
 use std::{
-    ffi::{CString, c_char, c_int},
+    ffi::{CString, c_int},
     ptr::NonNull,
 };
 
@@ -164,14 +164,14 @@ unsafe fn set_parse_error(status: *mut OpaqueQueryError, err: ParseGeoError) {
 ///   created by `QueryError_Default`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn parseGeo(
-    c: *const c_char,
+    c: *const u8,
     len: usize,
     lon: *mut f64,
     lat: *mut f64,
     status: *mut OpaqueQueryError,
 ) -> c_int {
     // SAFETY: caller guarantees `c` points to at least `len` bytes.
-    let bytes = unsafe { std::slice::from_raw_parts(c.cast::<u8>(), len) };
+    let bytes = unsafe { std::slice::from_raw_parts(c, len) };
     let s = match std::str::from_utf8(bytes) {
         Ok(s) => s,
         Err(_) => {

@@ -81,7 +81,7 @@ bool isWithinRadiusLonLat(double lon1, double lat1, double lon2, double lat2, do
  * - `status` must be a valid, non-null pointer to an [`OpaqueQueryError`]
  *   created by `QueryError_Default`.
  */
-int parseGeo(const char *c, size_t len, double *lon, double *lat, struct QueryError *status);
+int parseGeo(const uint8_t *c, size_t len, double *lon, double *lat, struct QueryError *status);
 
 #ifdef __cplusplus
 }  // extern "C"
