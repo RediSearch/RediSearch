@@ -54,11 +54,7 @@ impl IndexSpec {
     pub fn field_specs(&self) -> &[FieldSpec] {
         debug_assert!(!self.0.fields.is_null(), "fields must not be null");
         let data = self.0.fields.cast::<FieldSpec>();
-        let len = self
-            .0
-            .numFields
-            .try_into()
-            .expect("numFields must fit into usize");
+        let len = self.0.numFields.into();
         // Safety: (1.) due to creation with `IndexSpec::from_raw`
         unsafe { slice::from_raw_parts(data, len) }
     }
