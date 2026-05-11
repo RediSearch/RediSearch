@@ -65,6 +65,40 @@ pub fn fold_libnu(s: &str) -> String {
     out
 }
 
+/// Like [`fold_libnu`] but returns the raw bytes copied out of libnu's
+/// `nu_tofold` table, without any UTF-8 validation.
+///
+/// [`fold_libnu`] silently substitutes U+FFFD when libnu hands back bytes that
+/// don't decode as UTF-8, which is the wrong behaviour for the question
+/// "does libnu ever emit invalid UTF-8?". This function preserves whatever
+/// libnu actually wrote, so callers can validate it explicitly with
+/// `std::str::from_utf8`.
+///
+/// Passthrough codepoints (those where `nu_tofold` returns NULL) are
+/// re-encoded with Rust's standard UTF-8 encoder, which is by construction
+/// valid — any invalid bytes in the result therefore came from libnu's
+/// folding tables.
+pub fn fold_libnu_raw(s: &str) -> Vec<u8> {
+    let mut out = Vec::with_capacity(s.len());
+    for ch in s.chars() {
+        let cp = ch as u32;
+        // SAFETY: see `fold_libnu` — `nu_tofold` is a pure function and the
+        // returned pointer is either NULL or points to a static,
+        // null-terminated buffer owned by libnu.
+        let encoded = unsafe { libnu_ffi::nu_tofold(cp) };
+        if encoded.is_null() {
+            let mut buf = [0u8; 4];
+            out.extend_from_slice(ch.encode_utf8(&mut buf).as_bytes());
+            continue;
+        }
+        // SAFETY: `encoded` is non-NULL and points to a null-terminated byte
+        // sequence inside libnu's static data.
+        let cstr = unsafe { CStr::from_ptr(encoded) };
+        out.extend_from_slice(cstr.to_bytes());
+    }
+    out
+}
+
 /// Fold `s` using ICU4X's full Unicode case folding (`icu_casemap::CaseMapper`).
 ///
 /// This mirrors `try_insert_string_normalize()` at
