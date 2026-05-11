@@ -4211,17 +4211,17 @@ void Indexes_UpdateMatchingDocExpiration(RedisModuleCtx *ctx, RedisModuleString 
   // returns the existing DMD when the doc is currently indexed, and NULL
   // otherwise. Re-evaluating the filter here would re-read hash/JSON fields
   // on the main thread for a result the loop would ignore.
-  RedisModuleKey *kp = NULL;
   SpecOpIndexingCtx *specs = Indexes_FindMatchingSchemaRules(ctx, key, type, false, NULL);
 
   // EXPIRE/PERSIST notifications fire for every key in the keyspace. When no
   // spec prefix matches we have nothing to update, so skip the OpenKey/TTL
   // read entirely — that overhead would otherwise be paid on every event.
   if (array_len(specs->specsOps) == 0) {
-    goto cleanup;
+    Indexes_SpecOpsIndexingCtxFree(specs);
+    return;
   }
 
-  kp = RedisModule_OpenKey(ctx, key, DOCUMENT_OPEN_KEY_INDEXING_FLAGS);
+  RedisModuleKey *kp = RedisModule_OpenKey(ctx, key, DOCUMENT_OPEN_KEY_INDEXING_FLAGS);
   RS_ASSERT(kp);
   t_expirationTimePoint ttl = GetKeyExpirationTime(kp);
   RedisModule_CloseKey(kp);
@@ -4266,8 +4266,6 @@ void Indexes_UpdateMatchingDocExpiration(RedisModuleCtx *ctx, RedisModuleString 
     }
     RedisSearchCtx_UnlockSpec(&sctx);
   }
-
-cleanup:
 
   Indexes_SpecOpsIndexingCtxFree(specs);
 }
