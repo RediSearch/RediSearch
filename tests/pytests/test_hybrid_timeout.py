@@ -116,20 +116,20 @@ def test_hybrid_debug_no_component_timeout_sa():
     """
     env = Env(enableDebugCommand=True)
     setup_basic_index(env)
-    env.expect(*_base_hybrid_debug_cmd(), 'DEBUG_PARAMS_COUNT', '0').error()
+    env.expect(*_base_hybrid_debug_cmd(), 'DEBUG_PARAMS_COUNT', '0').error().contains('Invalid DEBUG_PARAMS_COUNT count')
+
 
 @skip(cluster=False)
 def test_hybrid_debug_no_component_timeout_cluster():
     """Test error when no component timeout parameter is specified (cluster).
 
-    In cluster mode, RSShardedHybridCommand_Debug calls parseHybridDebugParams
-    which validates that at least one component timeout is present.
+    DEBUG_PARAMS_COUNT of 0 is now rejected.
     """
     env = Env(enableDebugCommand=True)
     setup_basic_index(env)
     env.expect(*_base_hybrid_debug_cmd(),
                'DEBUG_PARAMS_COUNT', '0') \
-        .error().contains('At least one component timeout parameter')
+        .error().contains('Invalid DEBUG_PARAMS_COUNT count')
 
 def test_hybrid_debug_invalid_timeout_values():
     """Test error when timeout count values are invalid."""

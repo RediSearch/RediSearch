@@ -467,6 +467,9 @@ int rpnetNext_StartWithMappings(ResultProcessor *rp, SearchResult *r) {
     if (nc->areq) {
       RequestSyncCtx_RegisterAbortWakeChannel(&nc->areq->syncCtx, MRIterator_GetChannel(nc->it));
     }
+#ifdef ENABLE_ASSERT
+    DebugBgIterator_Set(nc->it);
+#endif
     nc->base.Next = rpnetNext;
 
     return rpnetNext(rp, r);
@@ -488,6 +491,10 @@ void rpnetFree(ResultProcessor *rp) {
     if (nc->areq) {
       RequestSyncCtx_UnregisterAbortWakeChannel(&nc->areq->syncCtx);
     }
+#ifdef ENABLE_ASSERT
+    // Drop the FT.DEBUG BG_PENDING_REPLIES handle before releasing the iterator.
+    DebugBgIterator_Clear(nc->it);
+#endif
     RS_DEBUG_LOG("rpnetFree: calling MRIterator_Release");
     MRIterator_Release(nc->it);
   }

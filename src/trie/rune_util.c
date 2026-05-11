@@ -29,21 +29,6 @@ rune runeFold(rune r) {
   return __fold((uint32_t)r);
 }
 
-static uint32_t __lower(uint32_t runelike) {
-  uint32_t lowered = 0;
-  const char *map = 0;
-  map = nu_tolower(runelike);
-  if (!map) {
-    return runelike;
-  }
-  nu_casemap_read(map, &lowered);
-  return lowered;
-}
-
-rune runeLower(rune r) {
-  return __lower((uint32_t)r);
-}
-
 char *runesToStr(const rune *in, size_t len, size_t *utflen) {
   if (len > MAX_RUNESTR_LEN) {
     if (utflen) *utflen = 0;
@@ -183,14 +168,4 @@ size_t strToRunesN(const char *src, size_t slen, rune *out) {
     out[nout++] = (rune)cp;
   }
   return nout;
-}
-
-const rune *runenchr(const rune *r, size_t len, rune c) {
-  size_t i = 0;
-  for (; i < len; ++i) {
-    if (r[i] == (rune)c) {
-      break;
-    }
-  }
-  return i == len ? NULL : r + i;
 }

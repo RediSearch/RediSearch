@@ -26,10 +26,6 @@ typedef uint16_t t_len;
 #define TRIENODE_TERMINAL 0x1
 #define TRIENODE_DELETED 0x2
 
-#define TRIENODE_SORTED_NONE 0
-#define TRIENODE_SORTED_SCORE 1
-#define TRIENODE_SORTED_LEX 2
-
 typedef enum {
   Trie_Sort_Lex = 0,
   Trie_Sort_Score = 1,
@@ -44,9 +40,6 @@ typedef struct {
   char data[];   // this means the data will not take an extra pointer.
 } TriePayload;
 #pragma pack()
-
-/* The byte size of a TriePayload, based on its internal data length */
-size_t __triePayload_Sizeof(uint32_t len);
 
 #pragma pack(1)
 /* TrieNode represents a single node in a trie. The actual size of it is bigger,
@@ -85,10 +78,6 @@ typedef struct {
 } TrieNode;
 #pragma pack()
 
-/* The byte size of a node, based on its internal string length and number of
- * children */
-size_t __trieNode_Sizeof(t_len numChildren, t_len slen);
-
 /* Create a new trie node. str is a string to be copied into the node, starting
  * from offset up until
  * len. numChildren is the initial number of allocated child nodes */
@@ -101,22 +90,7 @@ TrieNode *__newTrieNode(const rune *str, t_len offset, t_len len, const char *pa
 #define __trieNode_children(n) \
   ((TrieNode **)((void *)n + sizeof(TrieNode) + ((n->len + 1) + (n->numChildren)) * sizeof(rune)))
 
-#define __trieNode_childKey(n, c) (rune *)((void *)n + sizeof(TrieNode) + (n->len + 1 + c) * sizeof(rune))
-
 #define __trieNode_isTerminal(n) (n->flags & TRIENODE_TERMINAL)
-
-#define __trieNode_isDeleted(n) (n->flags & TRIENODE_DELETED)
-
-/* Add a child node to the parent node n, with a string str starting at offset
-up until len, and a
-given score */
-TrieNode *__trie_AddChild(TrieNode *n, const rune *str, t_len offset, t_len len, RSPayload *payload,
-                          float score);
-
-/* Split node n at string offset n. This returns a new node which has a string
- * up until offset, and
- * a single child holding The old score of n, and its score */
-TrieNode *__trie_SplitNode(TrieNode *n, t_len offset);
 
 typedef enum {
   ADD_REPLACE,
@@ -131,16 +105,8 @@ int TrieNode_Add(TrieNode **n, const rune *str, t_len len, RSPayload *payload,
                  float score, TrieAddOp op, TrieFreeCallback freecb,
                  size_t numDocs);
 
-/* Find the entry with a given string and length, and return its score. Returns
- * 0 if the entry was
- * not found.
- * Note that you cannot put entries with zero score */
-float TrieNode_Find(TrieNode *n, rune *str, t_len len);
-
 /* Find the entry with a given string and length, and return it. */
 TrieNode *TrieNode_Get(TrieNode *n, const rune *str, t_len len, bool exact, int *offsetOut);
-/* Returns the payload of the node. */
-void *TrieNode_GetValue(TrieNode *n, const rune *str, t_len len, bool exact);
 
 /* Mark a node as deleted. For simplicity for now we don't actually delete
  * anything,
