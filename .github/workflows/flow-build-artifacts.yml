@@ -85,7 +85,7 @@ jobs:
       architecture: ${{ inputs.architecture }}
 
   decide-macos:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     if: ${{ contains(fromJson('["macos", "all"]'), inputs.platform) }}
     outputs:
       platforms: ${{ steps.decide.outputs.platforms }}

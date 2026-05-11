@@ -25,7 +25,7 @@ env:
 jobs:
   validate-tag:
     # Verify that the tag matches the version in src/version.h
-    runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
+    runs-on: ${{ vars.RUNS_ON || 'ubuntu-24.04' }}
     outputs:
       cur_version: ${{ steps.verify.outputs.cur_version }}
       next_version: ${{ steps.verify.outputs.next_version }}
@@ -165,7 +165,7 @@ jobs:
 
   set-artifacts:
     needs: [validate-tag, generate-matrix]
-    runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
+    runs-on: ${{ vars.RUNS_ON || 'ubuntu-24.04' }}
     steps:
       - name: Configure AWS Credentials Using Role
         if: vars.USE_AWS_ROLE == 'true'
