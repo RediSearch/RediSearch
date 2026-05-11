@@ -122,10 +122,7 @@ fn create_spec_sctx(
     ctx: &ModuleCtx,
     schema: &str,
     index_name: &str,
-) -> (
-    *mut ffi::IndexSpec,
-    ptr::NonNull<ffi::RedisSearchCtx>,
-) {
+) -> (*mut ffi::IndexSpec, ptr::NonNull<ffi::RedisSearchCtx>) {
     let args = schema
         .split(" ")
         .map(|s| CString::new(s).expect("Failed to create CString"))

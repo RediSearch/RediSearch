@@ -235,8 +235,7 @@ fn revalidate() {
     let mut it = IdListSorted::new(vec![1, 2, 3]);
     let guard = mock_ctx.spec_read_guard();
     assert_eq!(
-        it.revalidate(&*guard)
-            .expect("revalidate failed"),
+        it.revalidate(&*guard).expect("revalidate failed"),
         RQEValidateStatus::Ok
     );
 }

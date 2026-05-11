@@ -685,9 +685,7 @@ mod optional_iterator_revalidate_test {
 
         // Revalidate should return VALIDATE_OK
         let guard = mock_ctx.spec_read_guard();
-        let status = it
-            .revalidate(&*guard)
-            .expect("revalidate without error");
+        let status = it.revalidate(&*guard).expect("revalidate without error");
         assert!(matches!(status, RQEValidateStatus::Ok));
 
         // Verify child was revalidated
@@ -716,9 +714,7 @@ mod optional_iterator_revalidate_test {
 
         // Optional iterator handles child abort gracefully by replacing with empty iterator
         let guard = mock_ctx.spec_read_guard();
-        let status = it
-            .revalidate(&*guard)
-            .expect("revalidate without error");
+        let status = it.revalidate(&*guard).expect("revalidate without error");
         assert!(matches!(status, RQEValidateStatus::Ok)); // Optional iterator continues even when child is aborted
 
         // Should be able to continue reading (now all virtual hits)
@@ -754,9 +750,7 @@ mod optional_iterator_revalidate_test {
 
         // Revalidate should handle child movement
         let guard = mock_ctx.spec_read_guard();
-        let status = it
-            .revalidate(&*guard)
-            .expect("revalidate without error");
+        let status = it.revalidate(&*guard).expect("revalidate without error");
         // Should be MOVED (as real result was affected)
         assert!(matches!(status, RQEValidateStatus::Moved { .. }));
 
@@ -793,9 +787,7 @@ mod optional_iterator_revalidate_test {
 
         // Since current result is virtual, revalidate should return OK
         let guard = mock_ctx.spec_read_guard();
-        let status = it
-            .revalidate(&*guard)
-            .expect("revalidate without error");
+        let status = it.revalidate(&*guard).expect("revalidate without error");
         assert!(matches!(status, RQEValidateStatus::Ok));
 
         // Should be able to continue reading

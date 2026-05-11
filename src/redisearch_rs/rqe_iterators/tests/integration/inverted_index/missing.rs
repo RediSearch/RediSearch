@@ -153,15 +153,13 @@ mod not_miri {
         // Verify the iterator works normally and read at least one document
         let guard = test.test.context.spec_read_guard();
         assert_eq!(
-            it.revalidate(&*guard)
-                .expect("revalidate failed"),
+            it.revalidate(&*guard).expect("revalidate failed"),
             RQEValidateStatus::Ok
         );
         assert!(it.read().expect("failed to read").is_some());
         let guard = test.test.context.spec_read_guard();
         assert_eq!(
-            it.revalidate(&*guard)
-                .expect("revalidate failed"),
+            it.revalidate(&*guard).expect("revalidate failed"),
             RQEValidateStatus::Ok
         );
 
@@ -192,8 +190,7 @@ mod not_miri {
         // points to the same index the reader was created from.
         let guard = test.test.context.spec_read_guard();
         assert_eq!(
-            it.revalidate(&*guard)
-                .expect("revalidate failed"),
+            it.revalidate(&*guard).expect("revalidate failed"),
             RQEValidateStatus::Aborted
         );
 
@@ -222,8 +219,7 @@ mod not_miri {
         assert!(it.read().expect("failed to read").is_some());
         let guard = test.test.context.spec_read_guard();
         assert_eq!(
-            it.revalidate(&*guard)
-                .expect("revalidate failed"),
+            it.revalidate(&*guard).expect("revalidate failed"),
             RQEValidateStatus::Ok
         );
 
@@ -240,8 +236,7 @@ mod not_miri {
         // `should_abort` sees NULL from `dictFetchValue` and returns true.
         let guard = test.test.context.spec_read_guard();
         assert_eq!(
-            it.revalidate(&*guard)
-                .expect("revalidate failed"),
+            it.revalidate(&*guard).expect("revalidate failed"),
             RQEValidateStatus::Aborted
         );
 

@@ -69,8 +69,7 @@ fn revalidate() {
     let mut it = Empty::default();
     let guard = mock_ctx.spec_read_guard();
     assert_eq!(
-        it.revalidate(&*guard)
-            .expect("revalidate failed"),
+        it.revalidate(&*guard).expect("revalidate failed"),
         RQEValidateStatus::Ok
     );
 }

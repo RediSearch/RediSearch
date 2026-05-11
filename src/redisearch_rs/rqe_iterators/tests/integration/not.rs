@@ -314,9 +314,7 @@ fn revalidate_child_ok_preserves_exclusions() {
     let mut it = Not::new(child, 5, 1.0, Duration::ZERO, true);
 
     let guard = mock_ctx.spec_read_guard();
-    let status = it
-        .revalidate(&*guard)
-        .expect("revalidate() failed");
+    let status = it.revalidate(&*guard).expect("revalidate() failed");
     assert_eq!(status, RQEValidateStatus::Ok);
 
     let mut seen = Vec::new();
@@ -338,9 +336,7 @@ fn revalidate_child_aborted_replaces_child_with_empty() {
     let mut it = Not::new(child, 5, 1.0, Duration::ZERO, true);
 
     let guard = mock_ctx.spec_read_guard();
-    let status = it
-        .revalidate(&*guard)
-        .expect("revalidate() failed");
+    let status = it.revalidate(&*guard).expect("revalidate() failed");
     assert_eq!(status, RQEValidateStatus::Ok);
 
     let mut seen = Vec::new();
@@ -363,9 +359,7 @@ fn revalidate_child_moved_on_fresh_iterator() {
 
     // Revalidate before any read/skip_to - both iterators at doc_id = 0
     let guard = mock_ctx.spec_read_guard();
-    let status = it
-        .revalidate(&*guard)
-        .expect("revalidate() failed");
+    let status = it.revalidate(&*guard).expect("revalidate() failed");
     assert_eq!(status, RQEValidateStatus::Ok);
 
     // Iterator should still work correctly after revalidate
@@ -397,9 +391,7 @@ fn revalidate_child_moved_after_read_with_child_ahead() {
 
     // This should not panic - child is ahead of NOT's position
     let guard = mock_ctx.spec_read_guard();
-    let status = it
-        .revalidate(&*guard)
-        .expect("revalidate() failed");
+    let status = it.revalidate(&*guard).expect("revalidate() failed");
     assert_eq!(status, RQEValidateStatus::Ok);
 
     // Continue reading - should still work correctly
@@ -438,9 +430,7 @@ fn revalidate_child_moved_after_skip_to_with_child_ahead() {
 
     // This should not panic - child is ahead of NOT's position
     let guard = mock_ctx.spec_read_guard();
-    let status = it
-        .revalidate(&*guard)
-        .expect("revalidate() failed");
+    let status = it.revalidate(&*guard).expect("revalidate() failed");
     assert_eq!(status, RQEValidateStatus::Ok);
 
     // Continue reading - should still work correctly

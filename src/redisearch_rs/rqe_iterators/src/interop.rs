@@ -295,9 +295,7 @@ extern "C" fn revalidate<'index, I: RQEIterator<'index> + 'index>(
     // - C has already acquired the read lock (see handleSpecLockAndRevalidate in result_processor.c)
     // - from_locked() returns ManuallyDrop to prevent lock release on drop
     //   (C is responsible for lock lifecycle via RedisSearchCtx_UnlockSpec)
-    let guard = unsafe {
-        index_spec::IndexSpecReadGuard::from_locked(spec_ref)
-    };
+    let guard = unsafe { index_spec::IndexSpecReadGuard::from_locked(spec_ref) };
 
     match wrapper.inner.revalidate(&guard) {
         Ok(RQEValidateStatus::Ok) => ValidateStatus_VALIDATE_OK,

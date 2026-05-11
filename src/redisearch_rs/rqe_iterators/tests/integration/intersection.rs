@@ -586,9 +586,7 @@ fn revalidate_ok() {
 
     // Revalidate should return Ok
     let guard = mock_ctx.spec_read_guard();
-    let status = ii
-        .revalidate(&*guard)
-        .expect("revalidate failed");
+    let status = ii.revalidate(&*guard).expect("revalidate failed");
     assert!(matches!(status, RQEValidateStatus::Ok));
 
     // Should be able to continue reading
@@ -626,9 +624,7 @@ fn revalidate_aborted() {
 
     // Revalidate should return Aborted since one child aborted
     let guard = mock_ctx.spec_read_guard();
-    let status = ii
-        .revalidate(&*guard)
-        .expect("revalidate failed");
+    let status = ii.revalidate(&*guard).expect("revalidate failed");
     assert!(matches!(status, RQEValidateStatus::Aborted));
 }
 
@@ -662,9 +658,7 @@ fn revalidate_moved() {
 
     // Revalidate should return Moved
     let guard = mock_ctx.spec_read_guard();
-    let status = ii
-        .revalidate(&*guard)
-        .expect("revalidate failed");
+    let status = ii.revalidate(&*guard).expect("revalidate failed");
     assert!(
         matches!(status, RQEValidateStatus::Moved { current: Some(_) }),
         "Expected Moved with current, got {:?}",
@@ -709,9 +703,7 @@ fn revalidate_mixed_results() {
 
     // Revalidate should return Moved (if any child moved)
     let guard = mock_ctx.spec_read_guard();
-    let status = ii
-        .revalidate(&*guard)
-        .expect("revalidate failed");
+    let status = ii.revalidate(&*guard).expect("revalidate failed");
     assert!(matches!(status, RQEValidateStatus::Moved { .. }));
     assert_eq!(ii.last_doc_id(), 20);
 }
@@ -746,9 +738,7 @@ fn revalidate_after_eof() {
 
     // Revalidate should return OK when already at EOF
     let guard = mock_ctx.spec_read_guard();
-    let status = ii
-        .revalidate(&*guard)
-        .expect("revalidate failed");
+    let status = ii.revalidate(&*guard).expect("revalidate failed");
     assert!(
         matches!(status, RQEValidateStatus::Ok),
         "Revalidate after EOF should return OK, got {:?}",
@@ -799,9 +789,7 @@ fn revalidate_some_children_moved_to_eof() {
     // Revalidate should return Moved with current=None (EOF)
     // because child 1 moves to EOF (it only had 1 element which was already read)
     let guard = mock_ctx.spec_read_guard();
-    let status = ii
-        .revalidate(&*guard)
-        .expect("revalidate failed");
+    let status = ii.revalidate(&*guard).expect("revalidate failed");
     assert!(
         matches!(status, RQEValidateStatus::Moved { current: None }),
         "Expected Moved to EOF, got {:?}",
@@ -960,9 +948,7 @@ fn revalidate_before_read() {
 
     // Revalidate before any read
     let guard = mock_ctx.spec_read_guard();
-    let status = ii
-        .revalidate(&*guard)
-        .expect("revalidate failed");
+    let status = ii.revalidate(&*guard).expect("revalidate failed");
     assert!(
         matches!(status, RQEValidateStatus::Ok),
         "Revalidate before read should return Ok"
@@ -999,9 +985,7 @@ fn revalidate_move_before_read() {
 
     // Revalidate before any read - children will move
     let guard = mock_ctx.spec_read_guard();
-    let status = ii
-        .revalidate(&*guard)
-        .expect("revalidate failed");
+    let status = ii.revalidate(&*guard).expect("revalidate failed");
 
     // Since we haven't read anything yet, and children moved,
     // the result depends on implementation. The iterator should
@@ -1144,9 +1128,7 @@ fn revalidate_moved_skip_to_returns_none() {
     // - child0 has no doc >= 22 (only has [10, 15]), goes EOF
     // - Result: Moved { current: None }
     let guard = mock_ctx.spec_read_guard();
-    let status = ii
-        .revalidate(&*guard)
-        .expect("revalidate failed");
+    let status = ii.revalidate(&*guard).expect("revalidate failed");
     assert!(
         matches!(status, RQEValidateStatus::Moved { current: None }),
         "Expected Moved {{ current: None }} when skip_to cannot find consensus, got {:?}",
