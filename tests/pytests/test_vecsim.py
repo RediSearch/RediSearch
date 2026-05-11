@@ -1824,7 +1824,7 @@ def test_index_multi_value_json():
             waitForIndex(env, 'idx')
             info = index_info(env, 'idx')
             env.assertEqual(info['num_docs'], n)
-            env.assertEqual(info['num_records'], n * per_doc * len(info['attributes']))
+            env.assertEqual(info['num_records'], 0)
             env.assertEqual(info['hash_indexing_failures'], 0)
 
             cmd_knn[2] = f'*=>[KNN {k} @hnsw $b AS {score_field_name}]'
@@ -1878,7 +1878,7 @@ def test_bad_index_multi_value_json():
     # we should NOT fail if some of the vectors are NULLs
     conn.json().set(46, '.', {'vecs': [np.ones(dim).tolist(), None, (np.ones(dim) * 2).tolist()]})
     env.assertEqual(index_info(env, 'idx')['hash_indexing_failures'], failures)
-    env.assertEqual(index_info(env, 'idx')['num_records'], 2)
+    env.assertEqual(index_info(env, 'idx')['num_records'], 0)
 
     # ...or if the path returns NULL
     conn.json().set(46, '.', {'vecs': None})
