@@ -63,6 +63,9 @@ impl RSQueryTerm {
     /// byte sequences that are not valid UTF-8 (e.g. after case-folding
     /// applied to some Unicode codepoints).
     pub fn new_bytes(s: &[u8], id: i32, flags: RSTokenFlags) -> Box<Self> {
+        // Trying to force out a bug.
+        std::str::from_utf8(s).expect("new_bytes: invalid UTF-8");
+
         let mut buf = Vec::with_capacity(s.len() + 1);
         buf.extend_from_slice(s);
         buf.push(0); // add nul-terminator because this string ends up in RsValue which requires that.
