@@ -10,7 +10,7 @@
 use std::sync::OnceLock;
 
 use ffi::t_docId;
-use index_spec::IndexSpec;
+use index_spec::IndexSpecReadGuard;
 use thiserror::Error;
 
 use ::inverted_index::{RSIndexResult, t_fieldMask};
@@ -138,11 +138,13 @@ pub trait RQEIterator<'index> {
     /// The iterator should check if it is still valid by comparing its stored state
     /// against the current index state.
     ///
-    /// The caller (result processor) holds the spec read lock during this call,
-    /// ensuring that `spec` remains valid and unchanged.
+    /// # Locking
+    ///
+    /// The caller must hold the spec read lock, represented by [`IndexSpecReadGuard`].
+    /// The lock ensures the spec remains valid and unchanged during this call.
     fn revalidate(
         &mut self,
-        spec: &mut IndexSpec,
+        spec: &mut IndexSpecReadGuard,
     ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError>;
 
     /// Rewind the iterator to the beginning and reset its properties.
@@ -205,7 +207,7 @@ impl<'index, I: RQEIterator<'index> + 'index> RQEIterator<'index> for Box<I> {
 
     fn revalidate(
         &mut self,
-        spec: &mut IndexSpec,
+        spec: &mut IndexSpecReadGuard,
     ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         (**self).revalidate(spec)
     }
@@ -262,7 +264,7 @@ impl<'index> RQEIterator<'index> for Box<dyn RQEIterator<'index> + 'index> {
 
     fn revalidate(
         &mut self,
-        spec: &mut IndexSpec,
+        spec: &mut IndexSpecReadGuard,
     ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         (**self).revalidate(spec)
     }

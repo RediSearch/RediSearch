@@ -14,7 +14,7 @@ use crate::{
     utils::OwnedSlice,
 };
 use ffi::{RLookupKey, RLookupKeyHandle, t_docId};
-use index_spec::IndexSpec;
+use index_spec::IndexSpecReadGuard;
 use inverted_index::RSIndexResult;
 
 /// The different types of metrics.
@@ -188,7 +188,7 @@ impl<'index, const SORTED_BY_ID: bool> RQEIterator<'index> for Metric<'index, SO
     #[inline(always)]
     fn revalidate(
         &mut self,
-        spec: &mut IndexSpec,
+        spec: &mut IndexSpecReadGuard,
     ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         self.base.revalidate(spec)
     }

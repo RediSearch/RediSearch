@@ -19,7 +19,7 @@ use crate::{
     maybe_empty::MaybeEmpty, utils::TimeoutContext,
 };
 
-use index_spec::IndexSpec;
+use index_spec::IndexSpecReadGuard;
 /// An iterator that negates the results of its child iterator.
 ///
 /// Yields all document IDs from 1 to `max_doc_id` (inclusive) that are **not**
@@ -230,7 +230,7 @@ where
     #[inline(always)]
     fn revalidate(
         &mut self,
-        spec: &mut IndexSpec,
+        spec: &mut IndexSpecReadGuard,
     ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         // Get child status
         match self.child.revalidate(spec)? {

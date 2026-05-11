@@ -11,7 +11,6 @@ use std::ptr::{self, NonNull};
 
 use ffi::{FieldSpec, RSGlobalConfig};
 use field::FieldFilterContext;
-use index_spec::IndexSpec;
 use inverted_index::NumericFilter;
 use query_node_type::QueryNodeType;
 use rqe_iterator_type::IteratorType;
@@ -89,7 +88,7 @@ impl<'index> rqe_iterators::RQEIterator<'index> for NumericIterator<'index> {
     #[inline(always)]
     fn revalidate(
         &mut self,
-        spec: &mut IndexSpec,
+        spec: &mut index_spec::IndexSpecReadGuard,
     ) -> Result<rqe_iterators::RQEValidateStatus<'_, 'index>, rqe_iterators::RQEIteratorError> {
         self.iterator.revalidate(spec)
     }

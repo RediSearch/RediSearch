@@ -151,16 +151,16 @@ mod not_miri {
         let test = MissingRevalidateTest::new(10);
         let mut it = test.create_iterator();
         // Verify the iterator works normally and read at least one document
-        // SAFETY: test-only call with valid context
+        let mut guard = test.test.context.spec_read_guard();
         assert_eq!(
-            it.revalidate(unsafe { test.test.context.spec_mut() })
+            it.revalidate(&mut *guard)
                 .expect("revalidate failed"),
             RQEValidateStatus::Ok
         );
         assert!(it.read().expect("failed to read").is_some());
-        // SAFETY: test-only call with valid context
+        let mut guard = test.test.context.spec_read_guard();
         assert_eq!(
-            it.revalidate(unsafe { test.test.context.spec_mut() })
+            it.revalidate(&mut *guard)
                 .expect("revalidate failed"),
             RQEValidateStatus::Ok
         );
@@ -180,8 +180,9 @@ mod not_miri {
         // Note: the iterator's reader holds a (now-dangling) pointer to the
         // original II, but `should_abort` only compares pointers via
         // `is_index` without dereferencing it, so this is safe.
+        let guard = test.test.context.spec_read_guard();
         unsafe {
-            let dict = (*test.test.context.spec_ref().as_raw_ptr()).missingFieldDict;
+            let dict = (*guard.as_ptr()).missingFieldDict;
             ffi::RS_dictDelete(dict, field_name as *mut _);
             let rc = ffi::RS_dictAdd(dict, field_name as *mut _, new_ii as *mut _);
             assert_eq!(rc, 0, "dictAdd failed");
@@ -189,9 +190,9 @@ mod not_miri {
 
         // Revalidate should return Aborted because the missing II no longer
         // points to the same index the reader was created from.
-        // SAFETY: test-only call with valid context
+        let mut guard = test.test.context.spec_read_guard();
         assert_eq!(
-            it.revalidate(unsafe { test.test.context.spec_mut() })
+            it.revalidate(&mut *guard)
                 .expect("revalidate failed"),
             RQEValidateStatus::Aborted
         );
@@ -219,9 +220,9 @@ mod not_miri {
 
         // Read at least one document so the iterator has a position.
         assert!(it.read().expect("failed to read").is_some());
-        // SAFETY: test-only call with valid context
+        let mut guard = test.test.context.spec_read_guard();
         assert_eq!(
-            it.revalidate(unsafe { test.test.context.spec_mut() })
+            it.revalidate(&mut *guard)
                 .expect("revalidate failed"),
             RQEValidateStatus::Ok
         );
@@ -230,15 +231,16 @@ mod not_miri {
         // by deleting the dict entry. `dictDelete` calls the value destructor
         // which frees the inverted index.
         let field_name = test.test.context.field_spec().fieldName;
+        let guard = test.test.context.spec_read_guard();
         unsafe {
-            let dict = test.test.context.spec_ref().missing_field_dict();
+            let dict = guard.missing_field_dict();
             ffi::RS_dictDelete(dict, field_name as *mut _);
         }
 
         // `should_abort` sees NULL from `dictFetchValue` and returns true.
-        // SAFETY: test-only call with valid context
+        let mut guard = test.test.context.spec_read_guard();
         assert_eq!(
-            it.revalidate(unsafe { test.test.context.spec_mut() })
+            it.revalidate(&mut *guard)
                 .expect("revalidate failed"),
             RQEValidateStatus::Aborted
         );

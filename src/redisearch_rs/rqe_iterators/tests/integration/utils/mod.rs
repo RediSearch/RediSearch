@@ -14,7 +14,6 @@ pub(crate) use mock_enterprise_iterators::{MOCK_DISK_WILDCARD_TOP_ID, init_enter
 pub(crate) use mock_iterator::{Mock, MockData, MockIteratorError, MockRevalidateResult, MockVec};
 pub(crate) use wildcard_helper::WildcardHelper;
 
-use index_spec::IndexSpec;
 use inverted_index::RSIndexResult;
 use rqe_iterators::{IteratorType, RQEIterator, RQEIteratorError, SkipToOutcome};
 
@@ -78,7 +77,7 @@ impl RQEIterator<'static> for FieldMaskMock {
 
     fn revalidate(
         &mut self,
-        _spec: &mut IndexSpec,
+        _spec: &mut index_spec::IndexSpecReadGuard,
     ) -> Result<rqe_iterators::RQEValidateStatus<'_, 'static>, RQEIteratorError> {
         Ok(rqe_iterators::RQEValidateStatus::Ok)
     }

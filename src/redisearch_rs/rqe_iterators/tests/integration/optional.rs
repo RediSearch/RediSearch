@@ -8,7 +8,6 @@
 */
 
 use ffi::{RS_FIELDMASK_ALL, t_docId};
-use index_spec::IndexSpec;
 use rqe_iterators::{
     IteratorType, RQEIterator, RQEValidateStatus, SkipToOutcome, empty::Empty, optional::Optional,
     wildcard::Wildcard,
@@ -685,9 +684,9 @@ mod optional_iterator_revalidate_test {
             .expect("read some result, be it virtual or real");
 
         // Revalidate should return VALIDATE_OK
-        // SAFETY: test-only call with valid context
+        let mut guard = mock_ctx.spec_read_guard();
         let status = it
-            .revalidate(unsafe { mock_ctx.spec_mut() })
+            .revalidate(&mut *guard)
             .expect("revalidate without error");
         assert!(matches!(status, RQEValidateStatus::Ok));
 
@@ -716,9 +715,9 @@ mod optional_iterator_revalidate_test {
             .expect("read some result, be it virtual or real");
 
         // Optional iterator handles child abort gracefully by replacing with empty iterator
-        // SAFETY: test-only call with valid context
+        let mut guard = mock_ctx.spec_read_guard();
         let status = it
-            .revalidate(unsafe { mock_ctx.spec_mut() })
+            .revalidate(&mut *guard)
             .expect("revalidate without error");
         assert!(matches!(status, RQEValidateStatus::Ok)); // Optional iterator continues even when child is aborted
 
@@ -754,9 +753,9 @@ mod optional_iterator_revalidate_test {
         assert_eq!(it.last_doc_id(), DOC_ID);
 
         // Revalidate should handle child movement
-        // SAFETY: test-only call with valid context
+        let mut guard = mock_ctx.spec_read_guard();
         let status = it
-            .revalidate(unsafe { mock_ctx.spec_mut() })
+            .revalidate(&mut *guard)
             .expect("revalidate without error");
         // Should be MOVED (as real result was affected)
         assert!(matches!(status, RQEValidateStatus::Moved { .. }));
@@ -793,9 +792,9 @@ mod optional_iterator_revalidate_test {
         assert_eq!(it.last_doc_id(), DOC_ID);
 
         // Since current result is virtual, revalidate should return OK
-        // SAFETY: test-only call with valid context
+        let mut guard = mock_ctx.spec_read_guard();
         let status = it
-            .revalidate(unsafe { mock_ctx.spec_mut() })
+            .revalidate(&mut *guard)
             .expect("revalidate without error");
         assert!(matches!(status, RQEValidateStatus::Ok));
 
@@ -829,13 +828,13 @@ mod optional_iterator_revalidate_after_abort {
 
         // First revalidate with abort: child is dropped
         data.set_revalidate_result(utils::MockRevalidateResult::Abort);
-        // SAFETY: test-only call with valid context
-        let status = it.revalidate(unsafe { mock_ctx.spec_mut() }).unwrap();
+        let mut guard = mock_ctx.spec_read_guard();
+        let status = it.revalidate(&mut *guard).unwrap();
         assert!(matches!(status, RQEValidateStatus::Ok));
 
         // Second revalidate: child is None, should return Ok immediately
-        // SAFETY: test-only call with valid context
-        let status = it.revalidate(unsafe { mock_ctx.spec_mut() }).unwrap();
+        let mut guard = mock_ctx.spec_read_guard();
+        let status = it.revalidate(&mut *guard).unwrap();
         assert!(matches!(status, RQEValidateStatus::Ok));
 
         // Should still be able to read (all virtual)
@@ -859,8 +858,8 @@ mod optional_iterator_revalidate_after_abort {
 
         // Abort the child
         data.set_revalidate_result(utils::MockRevalidateResult::Abort);
-        // SAFETY: test-only call with valid context
-        let _ = it.revalidate(unsafe { mock_ctx.spec_mut() }).unwrap();
+        let mut guard = mock_ctx.spec_read_guard();
+        let _ = it.revalidate(&mut *guard).unwrap();
 
         // skip_to with child=None should yield a virtual Found result
         match it.skip_to(8).unwrap().unwrap() {
@@ -893,8 +892,8 @@ mod optional_iterator_revalidate_after_abort {
 
         // Abort the child
         data.set_revalidate_result(utils::MockRevalidateResult::Abort);
-        // SAFETY: test-only call with valid context
-        let _ = it.revalidate(unsafe { mock_ctx.spec_mut() }).unwrap();
+        let mut guard = mock_ctx.spec_read_guard();
+        let _ = it.revalidate(&mut *guard).unwrap();
 
         // Rewind with child=None
         it.rewind();
@@ -982,7 +981,7 @@ mod optional_iterator_non_sequential_reads {
 
         fn revalidate(
             &mut self,
-            _spec: &mut IndexSpec,
+            _spec: &mut index_spec::IndexSpecReadGuard,
         ) -> Result<RQEValidateStatus<'_, 'index>, rqe_iterators::RQEIteratorError> {
             Ok(RQEValidateStatus::Ok)
         }

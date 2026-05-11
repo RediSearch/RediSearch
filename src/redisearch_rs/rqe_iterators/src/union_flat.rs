@@ -13,7 +13,7 @@ use ffi::t_docId;
 use inverted_index::RSIndexResult;
 
 use crate::{IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
-use index_spec::IndexSpec;
+use index_spec::IndexSpecReadGuard;
 
 /// A child iterator paired with its original insertion index.
 ///
@@ -508,7 +508,7 @@ where
 
     fn revalidate(
         &mut self,
-        spec: &mut IndexSpec,
+        spec: &mut IndexSpecReadGuard,
     ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         // Already at EOF - nothing to do
         if self.is_eof {

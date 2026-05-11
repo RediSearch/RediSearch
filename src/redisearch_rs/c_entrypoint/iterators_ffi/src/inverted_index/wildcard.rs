@@ -9,7 +9,6 @@
 
 use std::fmt::Debug;
 
-use index_spec::IndexSpec;
 use inverted_index::{
     RSIndexResult, doc_ids_only::DocIdsOnly, raw_doc_ids_only::RawDocIdsOnly, t_docId,
 };
@@ -100,7 +99,7 @@ impl<'index> rqe_iterators::RQEIterator<'index> for WildcardIterator<'index> {
     #[inline(always)]
     fn revalidate(
         &mut self,
-        spec: &mut IndexSpec,
+        spec: &mut index_spec::IndexSpecReadGuard,
     ) -> Result<rqe_iterators::RQEValidateStatus<'_, 'index>, rqe_iterators::RQEIteratorError> {
         match self {
             WildcardIterator::Encoded(w) => w.revalidate(spec),

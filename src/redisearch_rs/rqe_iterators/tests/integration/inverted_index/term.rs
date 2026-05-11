@@ -356,16 +356,16 @@ mod not_miri {
         let mut it = test.create_iterator();
 
         // First, verify the iterator works normally and read at least one document
-        // SAFETY: test-only call with valid context
+        let mut guard = test.test.context.spec_read_guard();
         assert_eq!(
-            it.revalidate(unsafe { test.test.context.spec_mut() })
+            it.revalidate(&mut *guard)
                 .expect("revalidate failed"),
             RQEValidateStatus::Ok
         );
         assert!(it.read().expect("failed to read").is_some());
-        // SAFETY: test-only call with valid context
+        let mut guard = test.test.context.spec_read_guard();
         assert_eq!(
-            it.revalidate(unsafe { test.test.context.spec_mut() })
+            it.revalidate(&mut *guard)
                 .expect("revalidate failed"),
             RQEValidateStatus::Ok
         );
@@ -382,9 +382,9 @@ mod not_miri {
 
         it.swap_index(&mut dummy_ref);
 
-        // SAFETY: test-only call with valid context
+        let mut guard = test.test.context.spec_read_guard();
         assert_eq!(
-            it.revalidate(unsafe { test.test.context.spec_mut() })
+            it.revalidate(&mut *guard)
                 .expect("revalidate failed"),
             RQEValidateStatus::Aborted
         );
@@ -429,9 +429,9 @@ mod not_miri {
         // Revalidation calls should_abort which looks up "gc_collected" in
         // keysDict. The term is not there so Redis_OpenInvertedIndex returns
         // null, triggering the abort path.
-        // SAFETY: test-only call with valid context
+        let mut guard = test.test.context.spec_read_guard();
         assert_eq!(
-            unsafe { it.revalidate(test.test.context.spec_mut()) }.expect("revalidate failed"),
+            it.revalidate(&mut *guard).expect("revalidate failed"),
             RQEValidateStatus::Aborted
         );
     }

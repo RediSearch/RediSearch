@@ -13,7 +13,7 @@ use std::{
 };
 
 use ffi::{RedisSearchCtx, t_docId, t_fieldIndex};
-use index_spec::IndexSpec;
+use index_spec::IndexSpecReadGuard;
 use inverted_index::{
     DecodedBy, DocIdsDecoder, IndexReaderCore, RSIndexResult, opaque::OpaqueEncoding,
 };
@@ -134,7 +134,7 @@ where
     ///    when non-null, must point to an opaque
     ///    [`InvertedIndex`](inverted_index::opaque::InvertedIndex) whose encoding
     ///    variant matches `E`.
-    fn should_abort(&self, spec: &mut IndexSpec) -> bool {
+    fn should_abort(&self, spec: &mut IndexSpecReadGuard) -> bool {
         debug_assert!(
             !spec.missing_field_dict().is_null(),
             "spec.missing_field_dict() must be non-null",
@@ -218,7 +218,7 @@ where
     #[inline(always)]
     fn revalidate(
         &mut self,
-        spec: &mut IndexSpec,
+        spec: &mut IndexSpecReadGuard,
     ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         // Conditions (field_index validity, missingFieldDict, encoding
         // match) are structural invariants guaranteed by the constructor's

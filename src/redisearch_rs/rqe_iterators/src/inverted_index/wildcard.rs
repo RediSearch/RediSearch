@@ -8,7 +8,7 @@
 */
 
 use ffi::t_docId;
-use index_spec::IndexSpec;
+use index_spec::IndexSpecReadGuard;
 use inverted_index::{
     DecodedBy, DocIdsDecoder, IndexReaderCore, RSIndexResult, opaque::OpaqueEncoding,
 };
@@ -74,7 +74,7 @@ where
     /// 1. `spec.existingDocs`, when non-null, must point to an opaque
     ///    [`InvertedIndex`](inverted_index::InvertedIndex) whose encoding
     ///    variant matches `E`.
-    fn should_abort(&self, spec: &mut IndexSpec) -> bool {
+    fn should_abort(&self, spec: &mut IndexSpecReadGuard) -> bool {
         let existing_docs = spec
             .existing_docs()
             .cast::<inverted_index::opaque::InvertedIndex>();
@@ -143,7 +143,7 @@ where
     #[inline(always)]
     fn revalidate(
         &mut self,
-        spec: &mut IndexSpec,
+        spec: &mut IndexSpecReadGuard,
     ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         // The existingDocs encoding match is a structural invariant: the
         // encoding is determined at index creation and cannot change.

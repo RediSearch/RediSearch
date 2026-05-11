@@ -600,8 +600,8 @@ mod revalidate {
         it.read().unwrap().unwrap();
         let original = it.last_doc_id();
 
-        // SAFETY: test-only call with valid context
-        let status = unsafe { it.revalidate(context.spec_mut()) }.unwrap();
+        let mut guard = context.spec_read_guard();
+        let status = it.revalidate(&mut *guard).unwrap();
         assert_eq!(status, RQEValidateStatus::Ok);
         assert_eq!(child_data.revalidate_count(), 1);
         assert_eq!(it.last_doc_id(), original);
@@ -618,8 +618,8 @@ mod revalidate {
         it.read().unwrap().unwrap();
         let original = it.last_doc_id();
 
-        // SAFETY: test-only call with valid context
-        let status = unsafe { it.revalidate(context.spec_mut()) }.unwrap();
+        let mut guard = context.spec_read_guard();
+        let status = it.revalidate(&mut *guard).unwrap();
         assert_eq!(status, RQEValidateStatus::Ok);
         assert_eq!(it.last_doc_id(), original);
         it.read().unwrap().unwrap();
@@ -635,8 +635,8 @@ mod revalidate {
         it.read().unwrap().unwrap();
         let original = it.last_doc_id();
 
-        // SAFETY: test-only call with valid context
-        let status = unsafe { it.revalidate(context.spec_mut()) }.unwrap();
+        let mut guard = context.spec_read_guard();
+        let status = it.revalidate(&mut *guard).unwrap();
         assert_eq!(status, RQEValidateStatus::Ok);
         assert_eq!(child_data.revalidate_count(), 1);
         assert_eq!(it.last_doc_id(), original);
@@ -657,21 +657,26 @@ mod revalidate {
             InvertedIndex::<DocIdsOnly>::new(IndexFlags_Index_DocIdsOnly),
         )));
         // We temporarily swap `existingDocs` to trigger a wildcard abort.
-        let old_existing_docs = context.spec_ref().existing_docs();
+        let guard = context.spec_read_guard();
+        let old_existing_docs = guard.existing_docs();
 
-        // SAFETY: `context.spec` is a valid, test-owned `IndexSpec` pointer.
-        unsafe {
-            context.spec_mut().set_existing_docs(new_ii.cast());
+        {
+            let mut guard = context.spec_write_guard();
+            guard.set_existing_docs(new_ii.cast());
         }
 
-        // SAFETY: test-only call with valid context
-        let status = unsafe { it.revalidate(context.spec_mut()) }.unwrap();
+        let mut guard = context.spec_read_guard();
+        let status = it.revalidate(&mut *guard).unwrap();
         assert_eq!(status, RQEValidateStatus::Aborted);
 
-        // SAFETY: Restoring the original `existingDocs` pointer and dropping
+        // Restoring the original `existingDocs` pointer and dropping
         // `new_ii` which was created via `Box::into_raw` above.
+        {
+            let mut guard = context.spec_write_guard();
+            guard.set_existing_docs(old_existing_docs);
+        }
+        // SAFETY: Dropping Box from raw pointer.
         unsafe {
-            context.spec_mut().set_existing_docs(old_existing_docs);
             drop(Box::from_raw(new_ii));
         }
     }
@@ -691,8 +696,8 @@ mod revalidate {
         // GC doc_id=1 from the wildcard inverted index to trigger Moved.
         gc_document(&context, 1);
 
-        // SAFETY: test-only call with valid context
-        let status = unsafe { it.revalidate(context.spec_mut()) }.unwrap();
+        let mut guard = context.spec_read_guard();
+        let status = it.revalidate(&mut *guard).unwrap();
         assert!(matches!(status, RQEValidateStatus::Moved { .. }));
         // Wildcard moved past 1 → iterator advanced.
         assert!(it.last_doc_id() > original);
@@ -711,8 +716,8 @@ mod revalidate {
 
         gc_document(&context, 1);
 
-        // SAFETY: test-only call with valid context
-        let status = unsafe { it.revalidate(context.spec_mut()) }.unwrap();
+        let mut guard = context.spec_read_guard();
+        let status = it.revalidate(&mut *guard).unwrap();
         assert!(matches!(status, RQEValidateStatus::Moved { .. }));
         assert!(it.last_doc_id() > original);
     }
@@ -730,8 +735,8 @@ mod revalidate {
 
         gc_document(&context, 1);
 
-        // SAFETY: test-only call with valid context
-        let status = unsafe { it.revalidate(context.spec_mut()) }.unwrap();
+        let mut guard = context.spec_read_guard();
+        let status = it.revalidate(&mut *guard).unwrap();
         assert!(matches!(status, RQEValidateStatus::Moved { .. }));
         assert!(it.last_doc_id() > original);
         it.read().unwrap().unwrap();
@@ -753,8 +758,8 @@ mod revalidate {
         // Since child is also at 10, read_inner should advance past it.
         gc_document(&context, 5);
 
-        // SAFETY: test-only call with valid context
-        let status = unsafe { it.revalidate(context.spec_mut()) }.unwrap();
+        let mut guard = context.spec_read_guard();
+        let status = it.revalidate(&mut *guard).unwrap();
         assert!(matches!(status, RQEValidateStatus::Moved { .. }));
         assert!(!it.at_eof());
         // Wildcard moved to 10 which matches child → read_inner → 15.
@@ -784,8 +789,8 @@ mod revalidate {
         // GC the only document so wildcard becomes empty on revalidation.
         gc_document(&context, 1);
 
-        // SAFETY: test-only call with valid context
-        let status = unsafe { it.revalidate(context.spec_mut()) }.unwrap();
+        let mut guard = context.spec_read_guard();
+        let status = it.revalidate(&mut *guard).unwrap();
         assert!(
             matches!(status, RQEValidateStatus::Moved { current: None }),
             "Expected Moved {{ current: None }}, got {status:?}"

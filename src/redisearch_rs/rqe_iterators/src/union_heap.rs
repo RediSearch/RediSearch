@@ -14,7 +14,7 @@ use inverted_index::RSIndexResult;
 
 use crate::utils::DocIdMinHeap;
 use crate::{IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
-use index_spec::IndexSpec;
+use index_spec::IndexSpecReadGuard;
 
 /// Yields documents appearing in ANY child iterator using a binary heap.
 ///
@@ -421,7 +421,7 @@ where
 
     fn revalidate(
         &mut self,
-        spec: &mut IndexSpec,
+        spec: &mut IndexSpecReadGuard,
     ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         if self.is_eof {
             return Ok(RQEValidateStatus::Ok);

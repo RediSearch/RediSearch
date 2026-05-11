@@ -10,7 +10,6 @@
 use std::{fmt::Debug, ptr::NonNull};
 
 use field::{FieldExpirationPredicate, FieldFilterContext, FieldMaskOrIndex};
-use index_spec::IndexSpec;
 use inverted_index::{
     IndexReader, RSIndexResult, doc_ids_only::DocIdsOnly, raw_doc_ids_only::RawDocIdsOnly, t_docId,
 };
@@ -109,7 +108,7 @@ impl<'index> rqe_iterators::RQEIterator<'index> for MissingIterator<'index> {
     #[inline(always)]
     fn revalidate(
         &mut self,
-        spec: &mut IndexSpec,
+        spec: &mut index_spec::IndexSpecReadGuard,
     ) -> Result<rqe_iterators::RQEValidateStatus<'_, 'index>, rqe_iterators::RQEIteratorError> {
         dispatch!(self, revalidate, spec)
     }

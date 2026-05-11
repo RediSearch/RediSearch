@@ -585,9 +585,9 @@ fn revalidate_ok() {
     assert_eq!(result.doc_id, 20);
 
     // Revalidate should return Ok
-    // SAFETY: test-only call with valid context
+    let mut guard = mock_ctx.spec_read_guard();
     let status = ii
-        .revalidate(unsafe { mock_ctx.spec_mut() })
+        .revalidate(&mut *guard)
         .expect("revalidate failed");
     assert!(matches!(status, RQEValidateStatus::Ok));
 
@@ -625,9 +625,9 @@ fn revalidate_aborted() {
     assert_eq!(result.doc_id, 10);
 
     // Revalidate should return Aborted since one child aborted
-    // SAFETY: test-only call with valid context
+    let mut guard = mock_ctx.spec_read_guard();
     let status = ii
-        .revalidate(unsafe { mock_ctx.spec_mut() })
+        .revalidate(&mut *guard)
         .expect("revalidate failed");
     assert!(matches!(status, RQEValidateStatus::Aborted));
 }
@@ -661,9 +661,9 @@ fn revalidate_moved() {
     assert_eq!(result.doc_id, 10);
 
     // Revalidate should return Moved
-    // SAFETY: test-only call with valid context
+    let mut guard = mock_ctx.spec_read_guard();
     let status = ii
-        .revalidate(unsafe { mock_ctx.spec_mut() })
+        .revalidate(&mut *guard)
         .expect("revalidate failed");
     assert!(
         matches!(status, RQEValidateStatus::Moved { current: Some(_) }),
@@ -708,9 +708,9 @@ fn revalidate_mixed_results() {
     assert_eq!(result.doc_id, 10);
 
     // Revalidate should return Moved (if any child moved)
-    // SAFETY: test-only call with valid context
+    let mut guard = mock_ctx.spec_read_guard();
     let status = ii
-        .revalidate(unsafe { mock_ctx.spec_mut() })
+        .revalidate(&mut *guard)
         .expect("revalidate failed");
     assert!(matches!(status, RQEValidateStatus::Moved { .. }));
     assert_eq!(ii.last_doc_id(), 20);
@@ -745,9 +745,9 @@ fn revalidate_after_eof() {
     assert!(ii.at_eof());
 
     // Revalidate should return OK when already at EOF
-    // SAFETY: test-only call with valid context
+    let mut guard = mock_ctx.spec_read_guard();
     let status = ii
-        .revalidate(unsafe { mock_ctx.spec_mut() })
+        .revalidate(&mut *guard)
         .expect("revalidate failed");
     assert!(
         matches!(status, RQEValidateStatus::Ok),
@@ -798,9 +798,9 @@ fn revalidate_some_children_moved_to_eof() {
 
     // Revalidate should return Moved with current=None (EOF)
     // because child 1 moves to EOF (it only had 1 element which was already read)
-    // SAFETY: test-only call with valid context
+    let mut guard = mock_ctx.spec_read_guard();
     let status = ii
-        .revalidate(unsafe { mock_ctx.spec_mut() })
+        .revalidate(&mut *guard)
         .expect("revalidate failed");
     assert!(
         matches!(status, RQEValidateStatus::Moved { current: None }),
@@ -959,9 +959,9 @@ fn revalidate_before_read() {
     let mut ii = Intersection::new(children, 1.0, false);
 
     // Revalidate before any read
-    // SAFETY: test-only call with valid context
+    let mut guard = mock_ctx.spec_read_guard();
     let status = ii
-        .revalidate(unsafe { mock_ctx.spec_mut() })
+        .revalidate(&mut *guard)
         .expect("revalidate failed");
     assert!(
         matches!(status, RQEValidateStatus::Ok),
@@ -998,9 +998,9 @@ fn revalidate_move_before_read() {
     let mut ii = Intersection::new(children, 1.0, false);
 
     // Revalidate before any read - children will move
-    // SAFETY: test-only call with valid context
+    let mut guard = mock_ctx.spec_read_guard();
     let status = ii
-        .revalidate(unsafe { mock_ctx.spec_mut() })
+        .revalidate(&mut *guard)
         .expect("revalidate failed");
 
     // Since we haven't read anything yet, and children moved,
@@ -1143,9 +1143,9 @@ fn revalidate_moved_skip_to_returns_none() {
     // skip_to(22) will fail because:
     // - child0 has no doc >= 22 (only has [10, 15]), goes EOF
     // - Result: Moved { current: None }
-    // SAFETY: test-only call with valid context
+    let mut guard = mock_ctx.spec_read_guard();
     let status = ii
-        .revalidate(unsafe { mock_ctx.spec_mut() })
+        .revalidate(&mut *guard)
         .expect("revalidate failed");
     assert!(
         matches!(status, RQEValidateStatus::Moved { current: None }),

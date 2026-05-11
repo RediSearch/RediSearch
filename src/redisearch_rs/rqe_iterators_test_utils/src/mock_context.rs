@@ -132,58 +132,39 @@ impl MockContext {
         NonNull::new(self.sctx).expect("RedisSearchCtx should not be null")
     }
 
-    /// Get an immutable reference to the index spec wrapper.
+    /// Creates a read lock guard for testing.
     ///
-    /// This method provides safe read-only access to the [`index_spec::IndexSpec`]
-    /// through the [`UnsafeCell`]. Multiple immutable references can coexist safely.
+    /// Returns `ManuallyDrop<IndexSpecReadGuard>` since tests don't use real locks
+    /// and don't need/want the drop behavior.
     ///
-    /// # Interior Mutability
-    ///
-    /// The spec is stored in an [`UnsafeCell`] to enable interior mutability.
-    /// This allows tests to temporarily mutate the spec (e.g., to simulate
-    /// garbage collection) while iterators are active, which is necessary for
-    /// testing revalidation logic.
-    pub fn spec_ref(&self) -> &index_spec::IndexSpec {
-        // SAFETY: UnsafeCell allows interior mutability. We return an immutable
-        // reference, which is safe as long as no mutable reference is active.
-        unsafe { &**self.spec.get() }
+    /// This is for test-only use. Tests don't use real locks, so this creates
+    /// a guard without actually acquiring a lock. All safety requirements are
+    /// upheld internally - the spec is valid and accessible without a lock in
+    /// test contexts.
+    pub fn spec_read_guard(&self) -> std::mem::ManuallyDrop<index_spec::IndexSpecReadGuard<'_>> {
+        // SAFETY: The underlying spec exists and is valid. In test contexts,
+        // no lock is needed for safe access.
+        unsafe { index_spec::IndexSpecReadGuard::from_locked((*self.spec.get()).as_ffi()) }
     }
 
-    /// Get a mutable reference to the index spec wrapper.
+    /// Creates a write lock guard for testing.
     ///
-    /// This method enables mutation of the [`index_spec::IndexSpec`] through the [`UnsafeCell`],
-    /// bypassing Rust's normal borrow checking. This is used in tests to simulate
-    /// concurrent modifications (e.g., garbage collection updating spec fields)
-    /// while iterators are alive.
+    /// Returns `ManuallyDrop<IndexSpecWriteGuard>` since tests don't use real locks
+    /// and don't need/want the drop behavior.
     ///
-    /// # Safety
+    /// This is for test-only use for simulating spec mutations (e.g., garbage
+    /// collection). Tests don't use real locks, so this creates a guard without
+    /// actually acquiring a lock. All safety requirements are upheld internally.
     ///
-    /// Caller must ensure:
-    /// 1. No other references (mutable or immutable) to the spec are active when
-    ///    calling this method
-    /// 2. The returned mutable reference does not alias with any other references
-    /// 3. Mutations do not violate iterator invariants in unexpected ways
-    ///
-    /// Violating these requirements leads to undefined behavior.
-    ///
-    /// # Example
-    ///
-    /// ```ignore
-    /// // Create iterator (borrows spec immutably through UnsafeCell)
-    /// let mut it = mock_ctx.create_iterator();
-    ///
-    /// // Mutate spec to test revalidation (bypasses borrow checker)
-    /// unsafe {
-    ///     mock_ctx.spec_mut().some_mut_method();
-    /// }
-    ///
-    /// // Iterator can still be used
-    /// it.revalidate(...);
-    /// ```
-    #[expect(clippy::mut_from_ref)]
-    pub unsafe fn spec_mut(&self) -> &mut index_spec::IndexSpec {
-        // SAFETY: Caller guarantees exclusive access.
-        unsafe { &mut **self.spec.get() }
+    /// **Note:** While this provides mutable access to the spec, it's the test's
+    /// responsibility to ensure this is used appropriately (e.g., not while other
+    /// references are actively being used).
+    pub fn spec_write_guard(&self) -> std::mem::ManuallyDrop<index_spec::IndexSpecWriteGuard<'_>> {
+        // SAFETY: The underlying spec exists and is valid. In test contexts,
+        // no lock is needed. Caller guarantees exclusive access.
+        unsafe {
+            index_spec::IndexSpecWriteGuard::from_locked_mut((*self.spec.get()).as_ffi_mut())
+        }
     }
 
     /// Get the query evaluation context from the [`MockContext`].

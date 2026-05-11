@@ -7,7 +7,6 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use index_spec::IndexSpec;
 use rqe_iterators::{
     IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
     maybe_empty::MaybeEmpty,
@@ -54,7 +53,7 @@ impl<'index> RQEIterator<'index> for Infinite<'index> {
 
     fn revalidate(
         &mut self,
-        _spec: &mut IndexSpec,
+        _spec: &mut index_spec::IndexSpecReadGuard,
     ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         Ok(RQEValidateStatus::Ok)
     }
@@ -201,9 +200,9 @@ fn rewind_not_empty() {
 fn revalidate_empty() {
     let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
     let mut it = MaybeEmpty::<Infinite>::new_empty();
-    // SAFETY: test-only call with valid context
+    let mut guard = mock_ctx.spec_read_guard();
     assert_eq!(
-        it.revalidate(unsafe { mock_ctx.spec_mut() }).unwrap(),
+        it.revalidate(&mut *guard).unwrap(),
         RQEValidateStatus::Ok
     );
 }
@@ -212,9 +211,9 @@ fn revalidate_empty() {
 fn revalidate_not_empty() {
     let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
     let mut it = MaybeEmpty::new(Infinite::default());
-    // SAFETY: test-only call with valid context
+    let mut guard = mock_ctx.spec_read_guard();
     assert_eq!(
-        it.revalidate(unsafe { mock_ctx.spec_mut() }).unwrap(),
+        it.revalidate(&mut *guard).unwrap(),
         RQEValidateStatus::Ok
     );
 }

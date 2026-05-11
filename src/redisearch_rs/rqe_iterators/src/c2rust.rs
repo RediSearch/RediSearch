@@ -18,7 +18,7 @@ use crate::{
     RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome, interop::RQEIteratorWrapper,
     intersection::Intersection,
 };
-use index_spec::IndexSpec;
+use index_spec::IndexSpecReadGuard;
 use inverted_index::RSIndexResult;
 use std::{
     mem::ManuallyDrop,
@@ -262,7 +262,7 @@ impl<'index> RQEIterator<'index> for CRQEIterator {
 
     fn revalidate(
         &mut self,
-        spec: &mut IndexSpec,
+        spec: &mut IndexSpecReadGuard,
     ) -> Result<crate::RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         // SAFETY: Safe thanks to invariant 3. of [`CRQEIterator::header`].
         let callback = unsafe { self.Revalidate.unwrap_unchecked() };
@@ -270,8 +270,8 @@ impl<'index> RQEIterator<'index> for CRQEIterator {
         // - We have a unique handle over this iterator.
         // - The C code must guarantee, by constructor, that callbacks
         //   can be called on types that implement its C iterator API.
-        // - spec.as_mut_raw_ptr() is valid for the duration of this call.
-        let status = unsafe { callback(self.header.as_ptr(), spec.as_mut_raw_ptr()) };
+        // - spec.as_mut_ptr() is valid for the duration of this call.
+        let status = unsafe { callback(self.header.as_ptr(), spec.as_mut_ptr()) };
         #[expect(non_upper_case_globals)]
         let status = match status {
             ValidateStatus_VALIDATE_ABORTED => RQEValidateStatus::Aborted,

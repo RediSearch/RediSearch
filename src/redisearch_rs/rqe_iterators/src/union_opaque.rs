@@ -31,7 +31,7 @@ use crate::{
     UnionFullHeap, UnionQuickFlat, UnionQuickHeap, UnionTrimmed,
 };
 
-use index_spec::IndexSpec;
+use index_spec::IndexSpecReadGuard;
 /// Enum holding all possible union iterator variants.
 pub enum UnionVariant<'index, I> {
     FlatFull(UnionFullFlat<'index, I>),
@@ -169,7 +169,7 @@ impl<'index, I: RQEIterator<'index>> RQEIterator<'index> for UnionOpaque<'index,
     #[inline(always)]
     fn revalidate(
         &mut self,
-        spec: &mut IndexSpec,
+        spec: &mut IndexSpecReadGuard,
     ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         delegate_variant_ref_mut!(self, revalidate, spec)
     }

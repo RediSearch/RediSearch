@@ -161,8 +161,8 @@ fn profile_revalidate() {
     let _ = profile.read(); // doc 2
 
     // Revalidate (Wildcard returns OK)
-    // SAFETY: test-only call with valid context
-    let status = profile.revalidate(unsafe { mock_ctx.spec_mut() });
+    let mut guard = mock_ctx.spec_read_guard();
+    let status = profile.revalidate(&mut *guard);
     assert!(status.is_ok());
 
     // Verify delegation still works

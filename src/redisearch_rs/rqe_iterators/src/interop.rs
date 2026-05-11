@@ -288,11 +288,18 @@ extern "C" fn revalidate<'index, I: RQEIterator<'index> + 'index>(
     // SAFETY: Guaranteed by invariant 1. in [`RQEIteratorWrapper`].
     let wrapper = unsafe { RQEIteratorWrapper::<I>::mut_ref_from_header_ptr(base) };
 
-    // SAFETY: The caller (result processor) guarantees `spec` is valid
-    // and holds the spec read lock for the duration of this call.
-    let spec_wrapper = unsafe { index_spec::IndexSpec::from_raw_mut(spec) };
+    // SAFETY: spec is a valid pointer (guaranteed by C caller)
+    let spec_ref = unsafe { &*spec };
 
-    match wrapper.inner.revalidate(spec_wrapper) {
+    // SAFETY:
+    // - C has already acquired the read lock (see handleSpecLockAndRevalidate in result_processor.c)
+    // - from_locked() returns ManuallyDrop to prevent lock release on drop
+    //   (C is responsible for lock lifecycle via RedisSearchCtx_UnlockSpec)
+    let mut guard = unsafe {
+        index_spec::IndexSpecReadGuard::from_locked(spec_ref)
+    };
+
+    match wrapper.inner.revalidate(&mut guard) {
         Ok(RQEValidateStatus::Ok) => ValidateStatus_VALIDATE_OK,
         Ok(RQEValidateStatus::Moved { current }) => {
             if let Some(result) = current {

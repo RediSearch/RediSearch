@@ -10,7 +10,6 @@
 use std::{cell::RefCell, rc::Rc, time::Duration};
 
 use ffi::{RS_FIELDMASK_ALL, t_docId};
-use index_spec::IndexSpec;
 use inverted_index::{RSIndexResult, RSOffsetSlice};
 use rqe_iterators::{IteratorType, RQEIterator, WildcardIterator};
 
@@ -388,7 +387,7 @@ impl<'index, const N: usize> RQEIterator<'index> for Mock<'index, N> {
 
     fn revalidate(
         &mut self,
-        _spec: &mut IndexSpec,
+        _spec: &mut index_spec::IndexSpecReadGuard,
     ) -> Result<rqe_iterators::RQEValidateStatus<'_, 'index>, rqe_iterators::RQEIteratorError> {
         let revalidate_result = {
             let mut data = self.data.0.borrow_mut();
@@ -556,7 +555,7 @@ impl<'index> RQEIterator<'index> for MockVec<'index> {
 
     fn revalidate(
         &mut self,
-        _spec: &mut IndexSpec,
+        _spec: &mut index_spec::IndexSpecReadGuard,
     ) -> Result<rqe_iterators::RQEValidateStatus<'_, 'index>, rqe_iterators::RQEIteratorError> {
         let revalidate_result = {
             let mut data = self.data.0.borrow_mut();

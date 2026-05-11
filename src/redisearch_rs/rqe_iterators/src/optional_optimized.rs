@@ -22,7 +22,7 @@ use crate::{
     optional::OptionalIterator, wildcard::WildcardIterator,
 };
 
-use index_spec::IndexSpec;
+use index_spec::IndexSpecReadGuard;
 /// An iterator that emits results for all document IDs present in the index,
 /// driven by a [wildcard iterator](crate::wildcard) over the existing-documents inverted index.
 ///
@@ -246,7 +246,7 @@ where
 
     fn revalidate(
         &mut self,
-        spec: &mut IndexSpec,
+        spec: &mut IndexSpecReadGuard,
     ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         // Simple enum to avoid holding a borrow through the match.
         enum ValidateOutcome {

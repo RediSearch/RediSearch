@@ -166,63 +166,39 @@ fn create_spec_sctx(
 }
 
 impl TestContext {
-    /// Get an immutable reference to the index spec wrapper.
+    /// Creates a read lock guard for testing.
     ///
-    /// This method provides safe read-only access to the [`index_spec::IndexSpec`]
-    /// through the [`UnsafeCell`]. Multiple immutable references can coexist safely.
+    /// Returns `ManuallyDrop<IndexSpecReadGuard>` since tests don't use real locks
+    /// and don't need/want the drop behavior.
     ///
-    /// Most test code should use this method to access the spec when passing it
-    /// to iterator operations like `revalidate()`.
-    ///
-    /// # Interior Mutability
-    ///
-    /// The spec is stored in an [`UnsafeCell`] to enable interior mutability.
-    /// This allows tests to temporarily mutate the spec (e.g., to simulate
-    /// garbage collection) while iterators are active, which is necessary for
-    /// testing revalidation abort conditions.
-    pub fn spec_ref(&self) -> &index_spec::IndexSpec {
-        // SAFETY: UnsafeCell allows interior mutability. We return an immutable
-        // reference, which is safe as long as no mutable reference is active.
-        unsafe { &**self.spec.get() }
+    /// This is for test-only use. Tests don't use real locks, so this creates
+    /// a guard without actually acquiring a lock. All safety requirements are
+    /// upheld internally - the spec is valid and accessible without a lock in
+    /// test contexts.
+    pub fn spec_read_guard(&self) -> std::mem::ManuallyDrop<index_spec::IndexSpecReadGuard<'_>> {
+        // SAFETY: The underlying spec exists and is valid. In test contexts,
+        // no lock is needed for safe access.
+        unsafe { index_spec::IndexSpecReadGuard::from_locked((*self.spec.get()).as_ffi()) }
     }
 
-    /// Get a mutable reference to the index spec wrapper.
+    /// Creates a write lock guard for testing.
     ///
-    /// This method enables mutation of the [`index_spec::IndexSpec`] through the [`UnsafeCell`],
-    /// bypassing Rust's normal borrow checking. This is used in tests to simulate
-    /// concurrent modifications (e.g., garbage collection replacing `existingDocs`)
-    /// while iterators are alive, enabling tests to verify that revalidation
-    /// correctly detects and aborts when the index state changes.
+    /// Returns `ManuallyDrop<IndexSpecWriteGuard>` since tests don't use real locks
+    /// and don't need/want the drop behavior.
     ///
-    /// # Safety
+    /// This is for test-only use for simulating spec mutations (e.g., garbage
+    /// collection). Tests don't use real locks, so this creates a guard without
+    /// actually acquiring a lock. All safety requirements are upheld internally.
     ///
-    /// Caller must ensure:
-    /// 1. No other references (mutable or immutable) to the spec are active when
-    ///    calling this method
-    /// 2. The returned mutable reference does not alias with any other references
-    /// 3. Mutations are only used to test revalidation behavior, not to corrupt
-    ///    the spec state in ways that would cause undefined behavior
-    ///
-    /// Violating these requirements leads to undefined behavior.
-    ///
-    /// # Example
-    ///
-    /// ```ignore
-    /// // Create iterator (borrows spec immutably through UnsafeCell)
-    /// let mut it = test.create_iterator();
-    ///
-    /// // Mutate spec to simulate garbage collection
-    /// unsafe {
-    ///     test.context.spec_mut().set_existing_docs(new_ptr);
-    /// }
-    ///
-    /// // Revalidation should detect the change and abort
-    /// assert_eq!(it.revalidate(...), RQEValidateStatus::Aborted);
-    /// ```
-    #[expect(clippy::mut_from_ref)]
-    pub unsafe fn spec_mut(&self) -> &mut index_spec::IndexSpec {
-        // SAFETY: Caller guarantees exclusive access.
-        unsafe { &mut **self.spec.get() }
+    /// **Note:** While this provides mutable access to the spec, it's the test's
+    /// responsibility to ensure this is used appropriately (e.g., not while other
+    /// references are actively being used).
+    pub fn spec_write_guard(&self) -> std::mem::ManuallyDrop<index_spec::IndexSpecWriteGuard<'_>> {
+        // SAFETY: The underlying spec exists and is valid. In test contexts,
+        // no lock is needed. Caller guarantees exclusive access.
+        unsafe {
+            index_spec::IndexSpecWriteGuard::from_locked_mut((*self.spec.get()).as_ffi_mut())
+        }
     }
 
     /// Create a new [`TestContext`] with a numeric inverted index having the given records.
@@ -392,7 +368,7 @@ impl TestContext {
 
         // Set spec.existingDocs so Wildcard::should_abort() can find the index
         // during revalidation (it compares spec.existingDocs with the reader's index).
-        spec.set_existing_docs(ii_ptr.cast());
+        spec.as_ffi_mut().existingDocs = ii_ptr.cast();
 
         Self {
             _ctx: ctx,
@@ -457,7 +433,7 @@ impl TestContext {
         unsafe {
             let field_name_key = (*field_spec.as_ptr()).fieldName;
             let rc = ffi::RS_dictAdd(
-                spec.missing_field_dict(),
+                spec.as_ffi().missingFieldDict,
                 field_name_key as *mut _,
                 ii_ptr as *mut _,
             );
@@ -772,14 +748,11 @@ impl TestContext {
 
     /// Initialize the TTL table if not already initialized.
     fn verify_ttl_init(&mut self) {
-        // SAFETY: self.spec is a valid pointer created via IndexSpec_ParseC.
-        // We own the TestContext and ensure exclusive access.
-        let spec = unsafe { self.spec_mut() };
+        let mut guard = self.spec_write_guard();
+        guard.set_monitor_document_expiration(true);
+        guard.set_monitor_field_expiration(true);
 
-        spec.set_monitor_document_expiration(true);
-        spec.set_monitor_field_expiration(true);
-
-        let mut doc_table = spec.doc_table();
+        let mut doc_table = guard.doc_table();
 
         // SAFETY: doc_table is a valid pointer to the spec's document table, and maxSize is properly initialized.
         unsafe {
@@ -840,8 +813,9 @@ impl TestContext {
         };
 
         // SAFETY: self.spec is valid, TTL table is initialized, fe is a valid array
+        let guard = self.spec_read_guard();
         unsafe {
-            ffi::TimeToLiveTable_Add(self.spec_ref().doc_table().ttl, doc_id, fe as _);
+            ffi::TimeToLiveTable_Add(guard.doc_table().ttl, doc_id, fe as _);
         }
     }
 
@@ -890,8 +864,9 @@ impl Drop for TestContext {
         }
 
         // Remove spec from globals (this may free associated indices)
+        let guard = self.spec_read_guard();
         unsafe {
-            ffi::IndexSpec_RemoveFromGlobals(self.spec_ref().own_ref(), false);
+            ffi::IndexSpec_RemoveFromGlobals(guard.own_ref(), false);
         }
     }
 }

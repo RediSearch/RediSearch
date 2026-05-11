@@ -10,7 +10,6 @@
 use std::ptr::NonNull;
 
 use ffi::{QueryIterator, t_docId, timespec};
-use index_spec::IndexSpec;
 use rqe_iterator_type::IteratorType;
 use rqe_iterators::{
     NewWildcardIterator, RQEIterator,
@@ -83,7 +82,7 @@ impl<'index> RQEIterator<'index> for NotIteratorEnum<'index> {
     #[inline(always)]
     fn revalidate(
         &mut self,
-        spec: &mut IndexSpec,
+        spec: &mut index_spec::IndexSpecReadGuard,
     ) -> Result<rqe_iterators::RQEValidateStatus<'_, 'index>, rqe_iterators::RQEIteratorError> {
         match self {
             Self::Not(it) => it.revalidate(spec),

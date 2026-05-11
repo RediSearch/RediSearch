@@ -10,7 +10,7 @@
 use std::ptr::NonNull;
 
 use ffi::{RS_FIELDMASK_ALL, RedisSearchCtx, t_docId};
-use index_spec::IndexSpec;
+use index_spec::IndexSpecReadGuard;
 use inverted_index::{RSIndexResult, RSOffsetSlice, TermReader};
 use query_term::RSQueryTerm;
 
@@ -100,7 +100,7 @@ where
     ///
     /// The raw pointers inside `spec` (e.g. `keysDict`) must be valid and
     /// dereferenceable for the duration of the call.
-    fn should_abort(&self, spec: &mut IndexSpec) -> bool {
+    fn should_abort(&self, spec: &mut IndexSpecReadGuard) -> bool {
         // Redis_OpenInvertedIndex() relies on keysDict to open the II.
         // It should always be set in production flows but some tests do not set up a full spec.
         if !spec.has_keys_dict() {
@@ -119,12 +119,12 @@ where
             .as_bytes()
             .map_or(std::ptr::null(), |b| b.as_ptr().cast());
 
-        // SAFETY: spec.as_mut_raw_ptr() points to a valid IndexSpec for the duration
+        // SAFETY: spec.as_mut_ptr() points to a valid IndexSpec for the duration
         // of this call, guaranteed by the caller holding the spec read lock.
         // `str_ptr` is a valid byte slice of `term.len()` bytes.
         let idx = unsafe {
             ffi::Redis_OpenInvertedIndex(
-                spec.as_mut_raw_ptr(),
+                spec.as_mut_ptr(),
                 str_ptr,
                 term.len(),
                 false,
@@ -203,7 +203,7 @@ where
     #[inline(always)]
     fn revalidate(
         &mut self,
-        spec: &mut IndexSpec,
+        spec: &mut IndexSpecReadGuard,
     ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         if self.should_abort(spec) {
             return Ok(RQEValidateStatus::Aborted);
