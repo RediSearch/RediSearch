@@ -7,61 +7,60 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! Shared low-level building blocks for wildcard automata.
+//! Low-level building blocks for the wildcard NFA: the [`Atom`] enum, the
+//! [`NfaBitSet`] trait, and the `flatten` helper that turns a parsed
+//! pattern into an atom slice. See the [parent module
+//! doc](super) for the NFA primer this fits into.
 //!
-//! [`super::nfa`] consumes a flat sequence of [`Atom`]s produced by
-//! [`flatten`] and tracks active positions in any type that implements the
-//! [`NfaBitSet`] trait.
-//!
-//! Two stack-resident bitset implementations exist, sized for different
-//! pattern lengths and selected at NFA compile time so every variant has a
-//! fully monomorphized hot path:
-//!
-//! - [`u64`] — covers up to 63 atoms; single-register operations.
-//! - [`u128`] — covers up to 127 atoms; two-register operations.
-//!
-//! Patterns beyond 127 atoms fall back to the per-key
-//! [`crate::iter::wildcard::WildcardIter`] — its SIMD `memcmp` over each
-//! literal token beats the wider NFA state representations once the
-//! pattern's atom count outgrows a single register pair.
-//!
-//! Callers select the backend via [`super::WildcardBackend::for_pattern`].
+//! The bitset is monomorphised twice — once for `u64` (≤ 63 atoms) and
+//! once for `u128` (≤ 127 atoms). Each `NfaBitSet` impl is a few
+//! single-register operations, so every method on
+//! [`super::nfa::WildcardNfa<S>`] inlines into a tight bitwise hot loop.
+//! [`super::WildcardBackend::for_pattern`] picks the width; patterns
+//! past 127 atoms skip the NFA entirely and route to
+//! [`crate::iter::WildcardIter`].
 
 use wildcard::{Token, WildcardPattern};
 
-/// A bitset of NFA active positions.
+/// Bitmask of active NFA positions, with bit *i* set iff position *i*
+/// (in the sense documented on the [parent module](super)) is in the
+/// current active set. The full set must fit in the type — implementers
+/// reserve capacity for positions `0..=n_atoms` (the `+1` is the accept
+/// position).
 ///
-/// Implementations track which atom positions are currently active during
-/// NFA simulation. Positions are `0..=n_atoms` where `n_atoms` is the accept
-/// position, so capacity must be at least `n_atoms + 1` bits.
+/// Methods mirror standard set operations. Width-specific implementations
+/// are provided for `u64` and `u128`.
 pub trait NfaBitSet: Clone + Eq {
-    /// Empty state pre-sized to hold positions `0..=n_atoms`.
+    /// Empty set, sized for positions `0..=n_atoms`.
     fn empty(n_atoms: usize) -> Self;
 
-    /// State with only `pos` active, sized to hold positions `0..=n_atoms`.
+    /// Set containing only `pos`, sized for positions `0..=n_atoms`.
     fn singleton(n_atoms: usize, pos: usize) -> Self;
 
-    /// Reset every bit to zero, keeping the storage layout. Used to recycle
-    /// a scratch buffer across calls to [`super::nfa::nfa_step_into`].
+    /// Reset every bit to zero. Used to recycle a scratch set across
+    /// successive transitions inside [`super::nfa::nfa_step_into`].
     fn clear(&mut self);
 
-    /// Set bit `pos`.
+    /// Add `pos` to the set.
     fn insert(&mut self, pos: usize);
 
-    /// Whether bit `pos` is set.
+    /// Whether `pos` is in the set.
     fn contains(&self, pos: usize) -> bool;
 
-    /// Whether no bits are set.
+    /// Whether the set is empty (the NFA has died and the subtree can
+    /// be pruned).
     fn is_empty(&self) -> bool;
 
-    /// Union `other` into `self` in place. Both must have the same width.
+    /// `self |= other` (set union). Both operands must be the same width.
     fn union_in_place(&mut self, other: &Self);
 
-    /// Position of the single set bit, assuming exactly one is set. Used by
-    /// the fixed-length-pattern fast path.
+    /// Position of the lone set bit. Caller must guarantee the set has
+    /// exactly one element; used by the no-`*` (fixed-length) fast path
+    /// in [`super::nfa::WildcardNfa`], where the active set is always a
+    /// singleton.
     fn singleton_pos(&self) -> usize;
 
-    /// Iterate over the positions of every set bit, in ascending order.
+    /// Iterate active positions in ascending order.
     fn iter(&self) -> impl Iterator<Item = usize> + '_;
 }
 
@@ -167,19 +166,26 @@ impl NfaBitSet for u128 {
     }
 }
 
-/// Flattened pattern atom — one byte of input is consumed per atom (except
-/// [`Atom::Any`] which can self-loop or skip).
+/// One position in the pattern. Each atom consumes exactly one input
+/// byte, *except* [`Atom::Any`] which can self-loop on input or be
+/// skipped via an ε-transition (see the [parent module
+/// doc](super)). Atoms are laid out flat in a `Vec<Atom>`; position `i`
+/// is "currently looking at atom `i`".
 #[derive(Clone, Copy, Debug)]
 pub(super) enum Atom {
-    /// Literal byte that must match exactly.
+    /// Literal byte; the input must match exactly to advance.
     Byte(u8),
-    /// Any single byte (`?`).
+    /// `?` — matches any single input byte.
     One,
-    /// Zero-or-more bytes (`*`).
+    /// `*` — matches zero or more bytes; can self-loop or be skipped.
     Any,
 }
 
-/// Compile a parsed wildcard pattern to a flat atom sequence.
+/// Flatten a parsed pattern into a contiguous atom sequence.
+///
+/// A literal token expands to one [`Atom::Byte`] per byte (so the
+/// per-byte hot loop just indexes `atoms[pos]` to know whether to
+/// match); `?` and `*` become one atom each.
 pub(super) fn flatten(pattern: &WildcardPattern<'_>) -> Vec<Atom> {
     let mut atoms = Vec::new();
     for token in pattern.tokens() {
@@ -192,8 +198,8 @@ pub(super) fn flatten(pattern: &WildcardPattern<'_>) -> Vec<Atom> {
     atoms
 }
 
-/// Count atoms a pattern would produce without allocating — used by the
-/// dispatcher to pick the right [`NfaBitSet`] size.
+/// Count the atoms a pattern would produce without allocating — used by
+/// [`super::WildcardBackend::for_pattern`] to pick the right backend.
 pub(super) fn count_atoms(pattern: &WildcardPattern<'_>) -> usize {
     let mut n = 0;
     for token in pattern.tokens() {

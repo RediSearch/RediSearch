@@ -7,8 +7,20 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! NFA-simulation wildcard automaton, generic over the [`NfaBitSet`]
-//! representation.
+//! [`WildcardNfa<S>`]: the wildcard NFA, generic over the [`NfaBitSet`]
+//! width. The [parent module doc](super) walks through positions,
+//! ε-closure, and the worked `*ab*` example this code implements.
+//!
+//! Two preprocessing steps run once per pattern at
+//! [`WildcardNfa::compile`]:
+//!
+//! 1. [`flatten`] turns the parsed pattern into a flat
+//!    [`Atom`] sequence.
+//! 2. [`build_epsilon_table`] precomputes, for each position, the full
+//!    ε-closure of that position. After a per-byte transition lands the
+//!    NFA on a position `target`, the hot loop reads `table[target]`
+//!    and unions it into the destination set — no recursive ε-walk at
+//!    run time.
 
 use super::super::{Automaton, StateClass};
 use super::atoms::{Atom, NfaBitSet, flatten};
@@ -16,28 +28,28 @@ use wildcard::WildcardPattern;
 
 /// One row of the ε-closure table.
 ///
-/// Most rows happen to be one-bit sets — by construction `table[i]` for a
-/// `Byte`/`One` atom is just `{i}`, and the accept row is `{n_atoms}`.
-/// Storing those as a bare position avoids allocating an `S` per row, which
-/// dominates `WildcardNfa::compile`'s allocation profile for the heap-backed
-/// bitsets. Only `Any` rows actually expand to multi-bit sets.
+/// In a typical pattern most rows are one-bit sets: the ε-closure of a
+/// non-`*` position is just `{i}` itself (no ε-moves emanate from a
+/// `Byte` or `One` atom), and the accept row is just `{n_atoms}`. Only
+/// `*` positions ε-close into a multi-element set. Encoding the cheap
+/// case inline keeps the table compact (one `usize` per row, not one
+/// `S`) and lets [`nfa_step_into`] pick the cheap `Singleton` arm in
+/// the dominant case.
 pub(super) enum EpsilonRow<S> {
-    /// One-bit row at the named position.
+    /// One-bit row at the named position — the ε-closure is `{p}`.
     Singleton(usize),
-    /// Multi-bit row — only constructed for `Any` atoms.
+    /// Multi-bit row, constructed only for `*` positions.
     Set(S),
 }
 
-/// Build the per-position ε-closure table.
+/// Precompute the ε-closure of every position.
 ///
-/// `table[i]` is the set of positions reachable from `{i}` by zero or more
-/// `*`-skip edges. Computed right-to-left so each entry just unions in the
-/// next one when the current atom is `Any`.
-///
-/// Rows for `Byte`/`One` atoms and the accept row come back as
-/// [`EpsilonRow::Singleton`] (no `S` allocated); rows for `Any` atoms come
-/// back as [`EpsilonRow::Set`] with a freshly-allocated `S` containing the
-/// expanded closure.
+/// Walked right-to-left so the closure of position `i` (when atom `i`
+/// is a `*`) is just `{i}` unioned with whatever the closure of `i + 1`
+/// already says. Non-`*` positions get [`EpsilonRow::Singleton`]
+/// with no `S` allocated; `*` positions get [`EpsilonRow::Set`] with a
+/// freshly built `S`. The trailing accept row (index `n`) is the
+/// singleton `{n}`.
 pub(super) fn build_epsilon_table<S: NfaBitSet>(atoms: &[Atom]) -> Vec<EpsilonRow<S>> {
     let n = atoms.len();
     // Build right-to-left into the table, then reverse in place. Each
@@ -66,39 +78,41 @@ pub(super) fn build_epsilon_table<S: NfaBitSet>(atoms: &[Atom]) -> Vec<EpsilonRo
     table
 }
 
-/// The NFA's start state — `{0}`, optionally extended via ε-closure when
-/// the pattern has `Any` atoms.
+/// The start state: the ε-closure of `{0}`. Built once at compile time
+/// and cloned at the top of every traversal.
 pub(super) fn initial_state<S: NfaBitSet>(
     n_atoms: usize,
     epsilon_table: Option<&[EpsilonRow<S>]>,
 ) -> S {
     match epsilon_table {
         Some(table) => match &table[0] {
-            // The `Singleton` arm covers patterns whose first atom isn't
-            // `Any` (e.g. anchored patterns like `Ab*`). Materialize on
-            // demand — start_state is built once per iterator.
+            // First atom isn't `*` — ε-closure is just `{0}`. Build it
+            // on demand; this runs once per iterator.
             EpsilonRow::Singleton(p) => S::singleton(n_atoms, *p),
             EpsilonRow::Set(s) => s.clone(),
         },
+        // No `*` anywhere → no ε-closure to apply.
         None => S::singleton(n_atoms, 0),
     }
 }
 
-/// Step an NFA state by one input byte, applying ε-closure inline. Writes
-/// the result into the caller-provided `next`, which **must already be
-/// empty** — this is the recycled-scratch entrypoint, used by
-/// [`WildcardNfa::step_all`] when iterating over a multi-byte label so the
-/// per-byte allocation budget doesn't include a fresh `S::empty(...)`.
+/// Advance the NFA by one input byte, writing the resulting active set
+/// into `next`. `next` must already be empty on entry — the caller owns
+/// it and recycles it across the bytes of a multi-byte label, which is
+/// where the no-per-byte-allocation property comes from.
 ///
-/// `epsilon_table` may be `None` for patterns with no `Any` atoms — in that
-/// case the byte transition target is inserted directly because ε-closure
-/// would be a no-op.
+/// For every active position in `state`, the body matches on
+/// `atoms[pos]` to compute the next-position `target` (or kills the
+/// branch on a literal mismatch), then unions in `target`'s ε-closure
+/// from `epsilon_table`. The two arms differ only in whether the
+/// ε-closure step is needed:
 ///
-/// When the table is present, each per-position transition's target row is
-/// the full transitive closure of `{target}`. We dispatch on the row's
-/// shape: a `Singleton(p)` row is just one `next.insert(p)`; a `Set(s)`
-/// row pays the full `union_in_place(&s)`. Most table rows are
-/// singletons, so most active-position iterations take the cheap arm.
+/// - `Some(table)` — pattern contains at least one `*`. The hot loop
+///   dispatches on each closure row: singletons are one `insert`, the
+///   rarer multi-bit rows pay one `union_in_place`. Most patterns hit
+///   the cheap arm overwhelmingly often.
+/// - `None` — no `*` in the pattern, so ε-closure is the identity and
+///   we just `next.insert(target)` directly.
 pub(super) fn nfa_step_into<S: NfaBitSet>(
     atoms: &[Atom],
     state: &S,
@@ -149,9 +163,10 @@ pub(super) fn nfa_step_into<S: NfaBitSet>(
     }
 }
 
-/// Allocating wrapper around [`nfa_step_into`] for one-off byte transitions
-/// (e.g., the `Automaton::step` impl and the first byte of `step_all`),
-/// where there's no scratch buffer to recycle.
+/// Allocating wrapper around [`nfa_step_into`] for one-off transitions
+/// where there's no scratch buffer to recycle (the
+/// [`Automaton::step`] impl and the first byte of
+/// [`WildcardNfa::step_all`]).
 pub(super) fn nfa_step<S: NfaBitSet>(
     atoms: &[Atom],
     state: &S,
@@ -163,31 +178,43 @@ pub(super) fn nfa_step<S: NfaBitSet>(
     next
 }
 
-/// NFA-simulation wildcard automaton, parameterized over the bitset.
+/// Wildcard NFA, parameterised over the [`NfaBitSet`] width.
+///
+/// Holds the flattened atom sequence, the precomputed ε-closure table
+/// (absent if the pattern has no `*`), and a couple of cached
+/// bit-patterns that let [`Self::classify`] short-circuit the two
+/// special accept shapes (permanent, terminal).
 pub struct WildcardNfa<S: NfaBitSet> {
     atoms: Vec<Atom>,
+    /// The accept position — atoms.len(). A state set containing this
+    /// position means the whole pattern has matched.
     accept: usize,
+    /// Cached ε-closure of `{0}`. Cloned at the top of every traversal.
     start_state: S,
-    /// If the pattern ends with `*`, this is the position of that trailing
-    /// `Any` atom. Once a state contains this position it self-loops on
-    /// every byte and `classify` reports [`StateClass::Permanent`].
+    /// Position of the trailing `*` if the pattern ends in one. Once a
+    /// state set contains this position the NFA self-loops forever and
+    /// every descendant in the trie is a match —
+    /// [`Self::classify`] reports [`StateClass::Permanent`] in that case.
     trailing_star: Option<usize>,
-    /// Bit pattern that represents `{accept}` — the unique terminal state
-    /// for fixed-length patterns.
+    /// Pre-built `{accept}` singleton — the unique terminal state for
+    /// patterns with no `*` (fixed-length matches). Compared against by
+    /// equality in [`Self::classify`].
     accept_only: S,
-    /// `Some(table)` if the pattern has `Any` atoms; `None` otherwise
-    /// (ε-closure would be a no-op in that case and we skip it).
+    /// Precomputed ε-closure rows, one per atom plus the accept row.
+    /// `None` for patterns with no `*` — ε-closure would be the
+    /// identity and the per-byte loop takes a singleton fast path.
     epsilon_table: Option<Vec<EpsilonRow<S>>>,
 }
 
 impl<S: NfaBitSet> WildcardNfa<S> {
-    /// Compile a pattern to an NFA backed by `S`.
+    /// Compile a pattern into an NFA backed by `S`.
     ///
-    /// The caller is responsible for picking an `S` whose capacity is large
-    /// enough for the pattern's atom count: ≤ 63 for `u64`, ≤ 127 for
-    /// `u128`. Patterns past 127 atoms must use the filter-based
-    /// [`crate::iter::wildcard::WildcardIter`] — the dispatcher
-    /// [`super::WildcardSpecializedIter`] picks it automatically.
+    /// Callers should match the width to the atom count: `S = u64` for
+    /// ≤ 63 atoms, `S = u128` for ≤ 127. Past 127 the NFA backends lose
+    /// to the per-key [`crate::iter::wildcard::WildcardIter`], so route
+    /// through [`super::WildcardSpecializedIter`] (or
+    /// [`crate::TrieMap::wildcard_specialized_iter`]) — they pick the
+    /// right backend automatically.
     pub fn compile(pattern: &WildcardPattern<'_>) -> Self {
         let atoms = flatten(pattern);
         let accept = atoms.len();
@@ -298,9 +325,8 @@ impl<S: NfaBitSet> Automaton for WildcardNfa<S> {
         //
         // For multi-byte labels (common with edge-compressed trie edges),
         // allocate one scratch `next` upfront and swap with `s` between
-        // bytes. This recycles the bitset's storage instead of allocating
-        // a fresh `S::empty(...)` per byte — important for the heap-backed
-        // bitsets where every empty is a `Box::new` malloc.
+        // bytes. This recycles the bitset's storage instead of producing
+        // a fresh `S::empty(...)` per byte.
         let Some((&first, rest)) = bytes.split_first() else {
             return Some(state.clone());
         };

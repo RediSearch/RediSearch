@@ -9,20 +9,44 @@
 
 //! Streaming-automaton trie traversal.
 //!
-//! An alternative to [`TraversalFilter`](super::filter::TraversalFilter) that
-//! consumes the trie one byte at a time, carrying state across edges instead
-//! of re-evaluating a predicate against the full accumulated key at every
-//! node. Each byte of stored content is processed at most once per query.
+//! Walks a trie under the control of a byte-streaming state machine —
+//! the [`Automaton`] — instead of materialising each candidate key and
+//! re-testing it against a predicate (the
+//! [`TraversalFilter`](super::filter::TraversalFilter) approach). The
+//! payoff is *shared-prefix reuse*: the automaton state at any trie
+//! node is computed once, then reused for every descendant, so each
+//! byte of stored content costs at most one transition per query.
+//!
+//! ## How it works
+//!
+//! The [`Automaton`] trait abstracts the state machine. An
+//! implementation gives the driver three things —
+//!
+//! - [`start`](Automaton::start): the initial state.
+//! - [`step`](Automaton::step) / [`step_all`](Automaton::step_all):
+//!   advance the state by one byte or by a slice (a trie edge label).
+//!   Returning `None` from `step_all` tells the driver the subtree is
+//!   dead and can be pruned.
+//! - [`classify`](Automaton::classify): tag the current state with a
+//!   [`StateClass`] that tells the driver whether to yield the current
+//!   key and whether to keep recursing.
+//!
+//! [`driver::AutomatonIter`] is the generic iterator that drives any
+//! `Automaton` over a trie via a DFS that carries the post-edge state
+//! on its stack.
+//!
+//! The only `Automaton` implementation today is the wildcard NFA in
+//! [`wildcard`]. **Start there for a worked NFA primer** — the module
+//! doc on [`wildcard`] explains positions, ε-closure, and the bitset
+//! state encoding with a concrete `*ab*` against `xaab` trace.
 //!
 //! ## Layout
 //!
-//! - This module defines the [`Automaton`] trait and the [`StateClass`]
-//!   enum that drives iterator behavior.
-//! - [`driver`] hosts [`AutomatonIter`] (and its lending variant), the
-//!   generic iterator that drives any `Automaton` over a trie.
-//! - [`wildcard`] hosts the wildcard NFA
-//!   ([`WildcardNfa`](wildcard::WildcardNfa)) and the auto-dispatching
-//!   wrapper ([`WildcardSpecializedIter`](wildcard::WildcardSpecializedIter)).
+//! - This module: the [`Automaton`] trait and the [`StateClass`] enum.
+//! - [`driver`]: [`AutomatonIter`] and its lending variant.
+//! - [`wildcard`]: the wildcard NFA, atom encoding, and the
+//!   pattern-size-based backend dispatcher
+//!   ([`WildcardSpecializedIter`]).
 
 pub mod driver;
 pub mod wildcard;
@@ -33,64 +57,73 @@ pub use wildcard::{
     WildcardSpecializedLendingIter,
 };
 
-/// What the iterator should do at the current state.
+/// Tells the driver what to do at the current trie node.
 ///
-/// Returned from [`Automaton::classify`] once per node visit; the iterator
-/// branches on the variant to decide whether to yield the current entry and
-/// how to traverse the subtree.
+/// Returned from [`Automaton::classify`] once per node visit. The two
+/// non-`Live*` variants are *short-circuits*: they let the automaton
+/// tell the driver "I already know what every descendant of this node
+/// will look like, you don't need to step them through me."
 #[derive(Clone, Copy, Eq, PartialEq, Debug)]
 pub enum StateClass {
-    /// Not accepting. Step children through the automaton; prune dead ones.
+    /// Not accepting (no full match here). Step each child's edge label
+    /// through the automaton and recurse into the survivors; prune dead
+    /// children.
     Live,
-    /// Accepting now. Step children normally — descendants may also match.
+    /// Accepting (the current key matches the pattern). Yield it, then
+    /// continue stepping children normally — descendants may also match.
     LiveAccepting,
-    /// Accepting now and stays accepting on every future input. Every
-    /// descendant is guaranteed to match, so the iterator pushes them all
-    /// without stepping. Example: a wildcard pattern ending in `*`.
+    /// Accepting *and* every descendant is also guaranteed to match
+    /// regardless of label content. The driver yields the current key
+    /// and pushes every descendant without further `step_all` calls.
+    /// Example: a wildcard pattern ending in `*`, after the trailing
+    /// `*`'s position has become permanently active.
     Permanent,
-    /// Accepting now but no transition is live — no descendant can match.
-    /// The iterator yields the current value and skips the subtree. Example:
-    /// the accept state of a fixed-length pattern (a sink).
+    /// Accepting but no outgoing transition is live — the state is a
+    /// sink. The driver yields the current key and prunes the whole
+    /// subtree. Example: the accept state of a fixed-length pattern.
     Terminal,
 }
 
 impl StateClass {
-    /// Whether this class represents an accepting state.
+    /// Whether this class represents an accepting state (a hit to yield).
     pub const fn is_accepting(self) -> bool {
         matches!(self, Self::LiveAccepting | Self::Permanent | Self::Terminal)
     }
 }
 
-/// A byte-streaming state machine.
+/// A byte-streaming state machine that the trie driver can run.
 ///
-/// Implementations advance one byte at a time. The trie iterator carries the
-/// resulting state on its traversal stack, so each byte of stored content is
-/// processed at most once per query.
+/// Implementations expose a `start` state and a single-byte transition;
+/// the driver advances the state along each trie edge and asks
+/// [`Self::classify`] what to do at each node. See the module doc for
+/// how this fits with [`AutomatonIter`].
 ///
-/// `step` and `step_all` take `&mut self` so implementations can hold
-/// recycled scratch buffers. The trie iterator never calls these
-/// concurrently for the same automaton (it owns the automaton by value),
-/// so the mutable receiver is not a multi-borrow concern in practice.
+/// `step` / `step_all` take `&mut self` so implementations can recycle
+/// scratch buffers across transitions. The driver owns the automaton by
+/// value and never calls these concurrently, so the mutable receiver
+/// isn't a multi-borrow concern in practice.
 pub trait Automaton {
-    /// State carried across byte transitions and trie stack frames.
+    /// State carried across byte transitions and trie stack frames. The
+    /// driver clones it at branch points, so keep it cheap to clone.
     type State: Clone;
 
     /// The starting state, before any bytes have been consumed.
     fn start(&self) -> Self::State;
 
-    /// Advance the state by one byte.
-    ///
-    /// Returns `None` if the byte transitions into a dead state — the trie
-    /// iterator will prune the corresponding subtree.
+    /// Advance the state by one byte. `None` means the transition died
+    /// — the driver prunes the subtree.
     fn step(&mut self, state: &Self::State, byte: u8) -> Option<Self::State>;
 
-    /// Classify the current iterator state to determine whether:
-    /// - The current entry should be yielded.
-    /// - Its descendants should be examined.
+    /// Tag `state` with how the driver should proceed at this node. See
+    /// [`StateClass`].
     fn classify(&self, state: &Self::State) -> StateClass;
 
-    /// Convenience: step through a slice of bytes, returning the final state
-    /// or `None` if any byte leads to a dead state.
+    /// Step through a slice of bytes (a trie edge label), returning the
+    /// final state or `None` if any byte kills the transition.
+    ///
+    /// The default impl walks bytes through [`Self::step`]; implementers
+    /// can override to recycle scratch buffers across the bytes of a
+    /// multi-byte label.
     fn step_all(&mut self, state: &Self::State, bytes: &[u8]) -> Option<Self::State> {
         let mut s = state.clone();
         for &b in bytes {

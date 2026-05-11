@@ -19,7 +19,6 @@ test_utils = []
 lending-iterator.workspace = true
 libc.workspace = true
 memchr.workspace = true
-smallvec = { workspace = true, features = ["union"] }
 wildcard.workspace = true
 workspace_hack.workspace = true
 

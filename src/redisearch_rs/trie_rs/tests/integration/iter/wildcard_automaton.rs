@@ -49,7 +49,7 @@ fn matches_agree_on_seed_patterns() {
     let trie = build_trie();
     let patterns = [
         "", "*", "ap*", "*an*", "apricot", "peach", "?ci", "ban*", "*", "ba?", "ba??", "*a*",
-        "*a*a*", "c*t", "?", "??", "*ar*", "ban?", "*ot",
+        "*a*a*", "c*t", "?", "??", "*ar*", "ban?", "*cot",
     ];
     for p in patterns {
         let f = matches_filter(&trie, p);

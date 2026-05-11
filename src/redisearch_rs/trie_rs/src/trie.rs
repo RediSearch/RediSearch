@@ -224,24 +224,25 @@ impl<Data> TrieMap<Data> {
     }
 
     /// Iterate over all trie entries whose key matches the specified pattern,
-    /// auto-selecting the most efficient backend at NFA compile time:
+    /// auto-selecting the most efficient backend for the pattern's atom
+    /// count:
     ///
     /// - ≤ 63 atoms → NFA backed by `u64`.
     /// - 64..=127 atoms → NFA backed by `u128`.
-    /// - ≥ 128 atoms → filter-based [`WildcardIter`]. The wider bitset
-    ///   representations and a sparse-set automaton were tried for this
-    ///   range, but neither beat the filter's SIMD-`memcmp`-per-literal
-    ///   approach on real workloads.
+    /// - ≥ 128 atoms → filter-based [`WildcardIter`]. Wider bitset
+    ///   representations and a sparse-set automaton were prototyped for
+    ///   this range; neither beat the filter's
+    ///   SIMD-`memcmp`-per-literal approach on real workloads.
     pub fn wildcard_specialized_iter<'a>(
         &'a self,
         pattern: &WildcardPattern<'a>,
     ) -> WildcardSpecializedIter<'a, Data> {
         match WildcardBackend::for_pattern(pattern) {
             WildcardBackend::U64 => {
-                WildcardSpecializedIter::GeneralU64(self.wildcard_nfa_iter::<u64>(pattern))
+                WildcardSpecializedIter::U64(self.wildcard_nfa_iter::<u64>(pattern))
             }
             WildcardBackend::U128 => {
-                WildcardSpecializedIter::GeneralU128(self.wildcard_nfa_iter::<u128>(pattern))
+                WildcardSpecializedIter::U128(self.wildcard_nfa_iter::<u128>(pattern))
             }
             WildcardBackend::Filter => {
                 // `WildcardIter::new` takes the pattern by value; clone is

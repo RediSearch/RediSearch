@@ -7,7 +7,12 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! The generic iterator that drives an [`Automaton`] over a trie.
+//! Generic iterator that drives an [`Automaton`] over a trie.
+//!
+//! Depth-first walk that carries the post-edge automaton state on its
+//! stack. At each node the driver consults [`Automaton::classify`] and
+//! branches on the returned [`StateClass`]; see that enum's doc for the
+//! four cases.
 
 use super::{Automaton, StateClass};
 use crate::node::Node;
@@ -16,38 +21,37 @@ use lending_iterator::prelude::*;
 /// Iterator that traverses a trie under the control of a streaming
 /// [`Automaton`].
 ///
-/// Unlike [`Iter`](crate::iter::Iter) +
-/// [`TraversalFilter`](crate::iter::filter::TraversalFilter), the automaton's
-/// state is advanced byte-by-byte as the iterator descends each edge. The trie
-/// iterator carries the post-edge state on its stack, so shared prefixes are
-/// processed once per query rather than re-walked at every descendant.
+/// At each branch the automaton state is *cloned* once per surviving
+/// child, then stepped through the child's edge label. The resulting
+/// state is either pushed onto the stack (live) or dropped (dead). Net
+/// effect: every byte stored in the trie is run through the automaton
+/// at most once per query, no matter how many keys share that byte.
 pub struct AutomatonIter<'tm, Data, A: Automaton> {
     stack: Vec<Frame<'tm, Data, A::State>>,
     automaton: A,
-    /// Concatenated labels from root to the current node.
+    /// Concatenated labels from the trie root to the current node. The
+    /// driver truncates and re-extends this in place as it descends and
+    /// backtracks, instead of allocating a fresh `Vec` per yield.
     key: Vec<u8>,
 }
 
-/// One pending visit.
+/// One pending visit on the traversal stack.
 ///
-/// `parent_key_len` is what the iterator's `key` length should be just
-/// before this node is processed — popping a frame truncates `key` to that
-/// length before extending it with `node.label()`. This replaces the
-/// explicit "revisit" frames a tree DFS would otherwise need.
+/// `parent_key_len` is the length the iterator's `key` should have just
+/// before this node is processed — popping a frame truncates `key` to
+/// that length and then re-extends with `node.label()`. That folds DFS
+/// backtracking into the same `pop` that pulls the next frame, so we
+/// don't need separate "go back up" frames. (Stored as `u32` rather
+/// than `usize` to keep the frame compact; caps key length at 4 GiB.)
 ///
-/// `parent_key_len` is `u32` rather than `usize` to keep the frame compact;
-/// this caps total key length at 4 GiB, which is fine for any realistic
-/// wildcard workload.
+/// Two variants encode whether the automaton is still consulted at
+/// each descendant ([`Visit`]) or whether the subtree has already been
+/// declared a universal match by [`StateClass::Permanent`] on some
+/// ancestor ([`PermanentVisit`], no state carried — saves a clone per
+/// descendant and skips redundant `classify` calls).
 ///
-/// Two variants:
-///
-/// - [`Frame::Visit`] — the standard case: carries automaton state, classify
-///   on pop to decide how to traverse children.
-/// - [`Frame::PermanentVisit`] — once the automaton has reported
-///   [`StateClass::Permanent`] for some ancestor, every descendant in the
-///   subtree is guaranteed to match. We push these without state and skip
-///   `classify` on pop, which avoids a `state.clone()` per child and the
-///   redundant classify calls that would all return `Permanent` anyway.
+/// [`Visit`]: Frame::Visit
+/// [`PermanentVisit`]: Frame::PermanentVisit
 enum Frame<'tm, Data, S> {
     Visit {
         node: &'tm Node<Data>,
@@ -134,9 +138,9 @@ impl<'tm, Data, A: Automaton> AutomatonIter<'tm, Data, A> {
                             // Every descendant matches without further
                             // automaton work — push them as
                             // `PermanentVisit`, which doesn't carry state
-                            // and skips `classify` on pop. Avoids
-                            // `state.clone()` per child (potentially a heap
-                            // alloc for the wider state representations).
+                            // and skips `classify` on pop. Avoids both
+                            // the `state.clone()` per child and the
+                            // redundant classify calls.
                             for child in node.children().iter().rev() {
                                 self.stack.push(Frame::PermanentVisit {
                                     node: child,
