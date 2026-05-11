@@ -619,7 +619,6 @@ FIELD_BULK_INDEXER(vectorIndexer) {
     ctx->spec->stats.vectorIndexSize +=  VecSimIndex_AddVector(rt, curr_vec, aCtx->doc->docId);
     curr_vec += fdata->vecLen;
   }
-  ctx->spec->stats.numRecords += fdata->numVec;
   return 0;
 }
 
