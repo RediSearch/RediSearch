@@ -40,17 +40,38 @@ jobs:
         uses: tj-actions/changed-files@v47.0.6
         with:
           files: |
-                **
-                .*
-                .*/**
+                src/**
+                deps/**
+                build/**
+                cmake/**
+                srcutil/**
+                sbin/**
+                scripts/**
+                pack/**
+                .install/**
+                .clang-format
+                .codespell/**
+                .devcontainer/**
+                .dockerignore
+                .gitignore
+                .gitmodules
+                .python-version
+                .rust-nightly
+                CMakeLists.txt
+                Makefile
+                Dockerfile
+                build.sh
+                commands.json
+                module.conf
+                pyproject.toml
+                rust-toolchain.toml
+                uv.lock
           files_ignore: |
-                .github/**
                 .skills/**
                 docs/**
                 tests/**
                 **/*.md
                 **/*.markdown
-                **/*.txt
                 **/README
                 **/LICENSE
                 **/NOTICE
@@ -91,7 +112,6 @@ jobs:
           files_ignore: |
               **/*.md
               **/*.markdown
-              **/*.txt
               **/README
               **/LICENSE
               **/NOTICE
