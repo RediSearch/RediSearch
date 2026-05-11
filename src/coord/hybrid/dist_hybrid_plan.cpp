@@ -11,7 +11,6 @@
 #include "hybrid/hybrid_request.h"
 #include "hybrid/hybrid_lookup_context.h"
 #include "concurrent_ctx.h"
-#include "module.h"
 
 
 static void pushResultProcessor(QueryProcessingCtx *qctx, ResultProcessor *rp) {
@@ -56,7 +55,7 @@ int HybridRequest_BuildDistributedDepletionPipeline(HybridRequest *req, const Hy
       // depleters before the tail continuation so FIFO ordering ensures the
       // tail's cv-wait can always make progress.
       ResultProcessor *depleter = RPSafeDepleter_New(StrongRef_Clone(sync_ref), depletingThread, nextThread,
-                                                     ConcurrentSearch_GetPool(DIST_THREADPOOL));
+                                                     ConcurrentSearch_GetPool(req->poolId));
       pushResultProcessor(qctx, depleter);
       if (qctx->isProfile) {
         pushResultProcessor(qctx, RPProfile_New(qctx->endProc, qctx));

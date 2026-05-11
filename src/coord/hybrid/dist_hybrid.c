@@ -29,6 +29,7 @@
 #include "result_processor.h"
 #include "concurrent_ctx.h"
 #include "module.h"
+#include "info/info_redis/threads/current_thread.h"
 
 // We mainly need the resp protocol to be three in order to easily extract the "score" key from the response
 #define HYBRID_RESP_PROTOCOL_VERSION 3
@@ -720,7 +721,7 @@ static void FreeCursorMappings(void *mappings) {
 // until all shards have replied with their cursor IDs.
 //
 // This does not run the hybrid merger part of the pipeline - see submitHybridTail.
-static int HybridRequest_executePlan(HybridRequest *hreq, struct ConcurrentCmdCtx *cmdCtx,
+static int HybridRequest_prepareCursors(HybridRequest *hreq, struct ConcurrentCmdCtx *cmdCtx,
                         QueryError *status) {
 
     // Get RPNet structures from query context
@@ -817,7 +818,9 @@ static void HybridDispatchCtx_Free(HybridDispatchCtx *dispatch) {
         HybridRequest_DecrRef(hreq);
     }
     rm_free(dispatch);
-    IndexSpecRef_Release(strong_ref);
+    // The dispatcher thread already called CurrentThread_ClearIndexSpec() after
+    // transferring strong_ref ownership here, so only release the strong ref.
+    StrongRef_Release(strong_ref);
     WeakRef_Release(weak_ref);
 
     // Free the thread-safe context first; it's tied to the BC and must be
@@ -937,7 +940,7 @@ static void scheduleHybridTail(HybridRequest *hreq, StrongRef strong_ref,
     ConcurrentCmdCtx_KeepRedisCtx(cmdCtx);
     ConcurrentCmdCtx_KeepBlockedClient(cmdCtx);
 
-    ConcurrentSearch_ThreadPoolRun(HybridDispatchCtx_Tail, dispatch, DIST_THREADPOOL);
+    ConcurrentSearch_ThreadPoolRun(HybridDispatchCtx_Tail, dispatch, hreq->poolId);
 }
 
 static void DistHybridCleanups(RedisModuleCtx *ctx,
@@ -1027,6 +1030,7 @@ void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     CoordRequestCtx_SetRequest(reqCtx, hreq);
     CoordRequestCtx_UnlockSetRequest(reqCtx);
 
+    hreq->poolId = ConcurrentCmdCtx_GetPoolId(cmdCtx);
     // Store coordinator start time for dispatch time tracking
     hreq->profileClocks.coordStartTime = ConcurrentCmdCtx_GetCoordStartTime(cmdCtx);
 
@@ -1038,7 +1042,7 @@ void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
       return;
     }
 
-    if (HybridRequest_executePlan(hreq, cmdCtx, &status) != REDISMODULE_OK) {
+    if (HybridRequest_prepareCursors(hreq, cmdCtx, &status) != REDISMODULE_OK) {
         DistHybridCleanups(ctx, cmdCtx, sp, &strong_ref, hreq, reply, &status);
         return;
     }
@@ -1051,6 +1055,11 @@ void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     // their completion can therefore always make progress.
     scheduleDepleters(hreq);
     scheduleHybridTail(hreq, strong_ref, cmdCtx, ctx, &status);
+
+    // IndexSpecRef_Promote set the TLS on this (dispatcher) thread.
+    // scheduleHybridTail transferred strong_ref ownership to the tail, so we
+    // only clear the TLS here without releasing the StrongRef.
+    CurrentThread_ClearIndexSpec();
 }
 
 void DEBUG_RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
@@ -1109,6 +1118,7 @@ void DEBUG_RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int a
     CoordRequestCtx_SetRequest(reqCtx, hreq);
     CoordRequestCtx_UnlockSetRequest(reqCtx);
 
+    hreq->poolId = ConcurrentCmdCtx_GetPoolId(cmdCtx);
     hreq->profileClocks.coordStartTime = ConcurrentCmdCtx_GetCoordStartTime(cmdCtx);
     size_t numShards = ConcurrentCmdCtx_GetNumShards(cmdCtx);
 
@@ -1120,7 +1130,7 @@ void DEBUG_RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int a
       return;
     }
 
-    if (HybridRequest_executePlan(hreq, cmdCtx, &status) != REDISMODULE_OK) {
+    if (HybridRequest_prepareCursors(hreq, cmdCtx, &status) != REDISMODULE_OK) {
         DistHybridCleanups(ctx, cmdCtx, sp, &strong_ref, hreq, reply, &status);
         return;
     }
@@ -1128,6 +1138,7 @@ void DEBUG_RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int a
     RedisModule_EndReply(reply);
     scheduleDepleters(hreq);
     scheduleHybridTail(hreq, strong_ref, cmdCtx, ctx, &status);
+    CurrentThread_ClearIndexSpec();
 }
 
 // Timeout callback for Coordinator HybridRequest execution

@@ -46,6 +46,7 @@ typedef struct ConcurrentCmdCtx {
   RedisModuleString **argv;
   int argc;
   int options;
+  int poolId;
   WeakRef spec_ref;
   rs_wall_clock_ns_t coordStartTime;  // Time when command was received on coordinator
   size_t numShards;                   // Number of shards in the cluster (captured from main thread)
@@ -121,6 +122,10 @@ RedisModuleBlockedClient *ConcurrentCmdCtx_GetBlockedClient(ConcurrentCmdCtx *cc
   return cctx->bc;
 }
 
+int ConcurrentCmdCtx_GetPoolId(ConcurrentCmdCtx *cctx) {
+  return cctx->poolId;
+}
+
 int ConcurrentSearch_HandleRedisCommandEx(int poolType, ConcurrentCmdHandler handler,
                                           RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                                           ConcurrentSearchHandlerCtx *handlerCtx) {
@@ -144,6 +149,7 @@ int ConcurrentSearch_HandleRedisCommandEx(int poolType, ConcurrentCmdHandler han
   RS_AutoMemory(cmdCtx->ctx);
   cmdCtx->handler = handler;
   cmdCtx->options = 0;
+  cmdCtx->poolId = poolType;
   // Copy command arguments so they can be released by the calling thread
   cmdCtx->argv = rm_calloc(argc, sizeof(RedisModuleString *));
   for (int i = 0; i < argc; i++) {
