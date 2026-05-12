@@ -134,6 +134,11 @@ jobs:
           ref: ${{ env.REF }}
       - name: Setup sccache
         uses: ./.github/actions/setup-sccache
+        with:
+          aws-role: ${{ vars.SCCACHE_AWS_ROLE_TO_ASSUME }}
+          s3-bucket: ${{ vars.SCCACHE_S3_BUCKET }}
+          s3-region: ${{ vars.SCCACHE_S3_REGION }}
+          s3-key-prefix: ${{ vars.SCCACHE_S3_KEY_PREFIX }}
       - name: Setup
         if: needs.build-image.outputs.succeeded != 'true'
         uses: ./.github/actions/retry-command
