@@ -8,6 +8,7 @@
 */
 
 mod str_to_lower_runes;
+mod tag_strtolower;
 mod wildcard_remove_escape;
 
 /// Codepoints where libnu (Unicode 9.0) and Rust (Unicode 17.0)
