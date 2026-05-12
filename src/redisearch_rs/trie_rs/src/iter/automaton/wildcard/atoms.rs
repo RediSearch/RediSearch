@@ -185,9 +185,11 @@ pub(super) enum Atom {
 ///
 /// A literal token expands to one [`Atom::Byte`] per byte (so the
 /// per-byte hot loop just indexes `atoms[pos]` to know whether to
-/// match); `?` and `*` become one atom each.
+/// match); `?` and `*` become one atom each. The final length is
+/// [`WildcardPattern::atom_count`], which we use to size the `Vec`
+/// up front.
 pub(super) fn flatten(pattern: &WildcardPattern<'_>) -> Vec<Atom> {
-    let mut atoms = Vec::new();
+    let mut atoms = Vec::with_capacity(pattern.atom_count());
     for token in pattern.tokens() {
         match token {
             Token::Literal(bytes) => atoms.extend(bytes.iter().copied().map(Atom::Byte)),
@@ -196,17 +198,4 @@ pub(super) fn flatten(pattern: &WildcardPattern<'_>) -> Vec<Atom> {
         }
     }
     atoms
-}
-
-/// Count the atoms a pattern would produce without allocating — used by
-/// [`super::WildcardBackend::for_pattern`] to pick the right backend.
-pub(super) fn count_atoms(pattern: &WildcardPattern<'_>) -> usize {
-    let mut n = 0;
-    for token in pattern.tokens() {
-        n += match token {
-            Token::Literal(bytes) => bytes.len(),
-            Token::One | Token::Any => 1,
-        };
-    }
-    n
 }
