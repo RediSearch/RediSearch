@@ -254,6 +254,12 @@ const HEADERS: &[HeaderAllowlist] = &[
         vars: &[],
     },
     HeaderAllowlist {
+        path: "src/trie/rune_util.h",
+        fns: &["strToLowerRunes"],
+        types: &[],
+        vars: &[],
+    },
+    HeaderAllowlist {
         path: "src/trie/trie.h",
         fns: &["Trie_DecrementNumDocs"],
         types: &[],
