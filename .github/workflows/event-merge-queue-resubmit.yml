@@ -195,10 +195,10 @@ jobs:
 
       - name: Notify Slack about unchanged merge queue resubmission
         if: steps.check.outputs.resubmit == 'true'
-        uses: slackapi/slack-github-action@v1
-        env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL_RQE_CI_ISSUES }}
+        uses: slackapi/slack-github-action@v3
         with:
+          webhook: ${{ secrets.SLACK_WEBHOOK_URL_RQE_CI_ISSUES }}
+          webhook-type: webhook-trigger
           payload: |
             {
               "repository": "${{ github.repository }}",
