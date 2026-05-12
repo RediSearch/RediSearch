@@ -1,0 +1,1 @@
+Scenario 1: second queued PR should advance after the first PR fails.
