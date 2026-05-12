@@ -22,6 +22,8 @@ use fork_gc::{ForkGC, io_result_ext::IoResultExt};
 use tracing::Level;
 use tracing_log_error::log_error;
 
+mod util;
+
 /// Write exactly `len` bytes from `buff` to the FGC pipe.
 ///
 /// On error, logs the failure and terminates the child process via
@@ -120,4 +122,48 @@ pub unsafe extern "C" fn FGC_recvFixed(
             ffi::REDISMODULE_ERR as c_int
         }
     }
+}
+
+/// Read a length-prefixed buffer frame from the FGC pipe.
+///
+/// On receipt of a `SIZE_MAX` length prefix, writes `SIZE_MAX` to
+/// `*len` and the `RECV_BUFFER_EMPTY` sentinel pointer to `*buf`. On a
+/// zero-length prefix, writes `0` and a null pointer. Otherwise
+/// allocates `len + 1` bytes (NUL-terminated) via the module allocator,
+/// reads the payload, and stores the pointer in `*buf`; the caller is
+/// responsible for releasing it with `rm_free`.
+///
+/// On read error (timeout, short stream, ...), returns `REDISMODULE_ERR`
+/// and leaves `*buf` / `*len` unchanged.
+///
+/// # Safety
+///
+/// 1. `fgc` must point to a valid `ForkGC` whose `pipe_read_fd` is an
+///    open, readable file descriptor.
+/// 2. `buf` and `len` must point to writable `void*` and `size_t`
+///    locations respectively.
+#[unsafe(no_mangle)]
+#[must_use]
+pub unsafe extern "C" fn FGC_recvBuffer(
+    fgc: *mut ffi::ForkGC,
+    buf: *mut *mut c_void,
+    len: *mut usize,
+) -> c_int {
+    // SAFETY: caller guarantees (1).
+    let fgc = unsafe { ForkGC::from_ptr_mut(fgc) };
+
+    let frame = match fgc.reader().recv_buffer() {
+        Ok(frame) => frame,
+        Err(_) => return ffi::REDISMODULE_ERR as c_int,
+    };
+
+    let (ptr, payload_len) = util::frame_into_c_buffer(frame);
+
+    // SAFETY: caller guarantees (2).
+    unsafe {
+        *buf = ptr;
+        *len = payload_len;
+    }
+
+    ffi::REDISMODULE_OK as c_int
 }
