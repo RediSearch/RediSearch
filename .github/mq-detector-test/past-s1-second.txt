@@ -1,1 +1,2 @@
 Scenario 1 with history: second PR gets a past removal, then later passes.
+New commit after the past removal; this PR should pass after the first PR is kicked.
