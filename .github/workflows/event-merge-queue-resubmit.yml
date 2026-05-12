@@ -1,66 +1,41 @@
-name: Detect Merge Queue Removal
+name: Detect Merge Queue Resubmission Without New Commits
 
 on:
-  workflow_run:
-    workflows: ["Merge a pull request"]
-    types: [completed]
+  merge_group:
+    types: [checks_requested]
 
 permissions:
-  actions: read
   contents: read
   issues: read
   pull-requests: read
 
 jobs:
-  detect-removal:
-    name: Detect pull request removal from merge queue
+  detect-resubmit:
+    name: Detect resubmission after merge queue removal
     runs-on: ubuntu-slim
-    if: >
-      github.event.workflow_run.event == 'merge_group' &&
-      github.event.workflow_run.conclusion != 'success'
     steps:
-      - name: Check whether GitHub removed the pull request from the queue
+      - name: Check whether this is an unchanged resubmission
         id: check
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
-          HEAD_REF: ${{ github.event.workflow_run.head_branch }}
-          VALIDATION_RUN_CREATED_AT: ${{ github.event.workflow_run.created_at }}
-          VALIDATION_RUN_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
-          VALIDATION_RUN_URL: ${{ github.event.workflow_run.html_url }}
+          HEAD_REF: ${{ github.event.merge_group.head_ref }}
         run: |
           if [[ "$HEAD_REF" =~ (^|/)pr-([0-9]+)- ]]; then
             PR_NUM="${BASH_REMATCH[2]}"
           else
             echo "Could not extract PR number from merge queue ref: $HEAD_REF"
-            echo "removed=false" >> "$GITHUB_OUTPUT"
+            echo "resubmit=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
           OWNER="${REPO%/*}"
           REPO_NAME="${REPO#*/}"
+          RESPONSE_FILE="$RUNNER_TEMP/pr-merge-queue-events.json"
 
-          echo "Checking PR #$PR_NUM for a merge queue removal event"
-          echo "Validation run conclusion: $VALIDATION_RUN_CONCLUSION"
-          echo "Validation run URL: $VALIDATION_RUN_URL"
+          echo "Checking whether PR #$PR_NUM was resubmitted without new commits"
 
-          append_output() {
-            local name="$1"
-            local value="$2"
-            local delimiter="EOF_${name}_${RANDOM}_${RANDOM}"
-
-            {
-              echo "$name<<$delimiter"
-              echo "$value"
-              echo "$delimiter"
-            } >> "$GITHUB_OUTPUT"
-          }
-
-          # GitHub records the removal after it consumes the required-check result.
-          # Give the PR timeline a short window to catch up before querying it.
-          sleep 60
-
-          RESPONSE=$(gh api graphql \
+          gh api graphql \
             -f owner="$OWNER" \
             -f repo="$REPO_NAME" \
             -F number="$PR_NUM" \
@@ -70,12 +45,12 @@ jobs:
                   pullRequest(number: $number) {
                     title
                     url
-                    isInMergeQueue
+                    headRefOid
                     author {
                       login
                     }
                     timelineItems(
-                      last: 20
+                      last: 50
                       itemTypes: [
                         ADDED_TO_MERGE_QUEUE_EVENT
                         REMOVED_FROM_MERGE_QUEUE_EVENT
@@ -106,61 +81,85 @@ jobs:
                     }
                   }
                 }
-              }')
+              }' > "$RESPONSE_FILE"
 
-          PR_DATA=$(echo "$RESPONSE" | jq -c '.data.repository.pullRequest')
-          LATEST_ADD_AT=$(echo "$PR_DATA" | jq -r '
-            [.timelineItems.nodes[] | select(.__typename == "AddedToMergeQueueEvent")]
-            | max_by(.createdAt).createdAt // empty')
-          LATEST_REMOVAL=$(echo "$PR_DATA" | jq -c '
-            [.timelineItems.nodes[] | select(.__typename == "RemovedFromMergeQueueEvent")]
-            | max_by(.createdAt) // empty')
+          python3 - "$RESPONSE_FILE" <<'PY'
+          import json
+          import os
+          import sys
+          import uuid
 
-          if [[ -z "$LATEST_REMOVAL" ]]; then
-            echo "No merge queue removal event found for PR #$PR_NUM"
-            echo "removed=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
 
-          REMOVED_AT=$(echo "$LATEST_REMOVAL" | jq -r '.createdAt')
-          if [[ -n "$LATEST_ADD_AT" && "$REMOVED_AT" < "$LATEST_ADD_AT" ]]; then
-            echo "Latest merge queue event is an add, not a removal"
-            echo "removed=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
+          def append_output(name, value):
+              delimiter = f"EOF_{name}_{uuid.uuid4().hex}"
+              with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+                  output.write(f"{name}<<{delimiter}\n{value or ''}\n{delimiter}\n")
 
-          if [[ "$REMOVED_AT" < "$VALIDATION_RUN_CREATED_AT" ]]; then
-            echo "Latest removal predates this validation run"
-            echo "removed=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
 
-          PR_TITLE=$(echo "$PR_DATA" | jq -r '.title')
-          PR_URL=$(echo "$PR_DATA" | jq -r '.url')
-          PR_AUTHOR=$(echo "$PR_DATA" | jq -r '.author.login // empty')
-          REASON=$(echo "$LATEST_REMOVAL" | jq -r '.reason // "No reason provided"')
-          ACTOR=$(echo "$LATEST_REMOVAL" | jq -r '.actor.login // empty')
-          ENQUEUER=$(echo "$LATEST_REMOVAL" | jq -r '.enqueuer.login // empty')
-          BEFORE_COMMIT=$(echo "$LATEST_REMOVAL" | jq -r '.beforeCommit.oid // empty')
+          def latest(events, event_type):
+              matching = [event for event in events if event["__typename"] == event_type]
+              return max(matching, key=lambda event: event["createdAt"], default=None)
 
-          echo "GitHub removed PR #$PR_NUM from the merge queue"
-          echo "Removal reason: $REASON"
-          echo "Removal time: $REMOVED_AT"
-          echo "removed=true" >> "$GITHUB_OUTPUT"
-          append_output "pr_number" "$PR_NUM"
-          append_output "pr_title" "$PR_TITLE"
-          append_output "pr_url" "$PR_URL"
-          append_output "pr_author" "$PR_AUTHOR"
-          append_output "reason" "$REASON"
-          append_output "actor" "$ACTOR"
-          append_output "enqueuer" "$ENQUEUER"
-          append_output "removed_at" "$REMOVED_AT"
-          append_output "before_commit" "$BEFORE_COMMIT"
-          append_output "validation_run_url" "$VALIDATION_RUN_URL"
-          append_output "validation_run_conclusion" "$VALIDATION_RUN_CONCLUSION"
 
-      - name: Notify Slack about merge queue removal
-        if: steps.check.outputs.removed == 'true'
+          with open(sys.argv[1], encoding="utf-8") as response_file:
+              response = json.load(response_file)
+
+          pull_request = response["data"]["repository"]["pullRequest"]
+          events = pull_request["timelineItems"]["nodes"]
+          latest_add = latest(events, "AddedToMergeQueueEvent")
+          latest_removal = latest(events, "RemovedFromMergeQueueEvent")
+
+          if not latest_add:
+              print("No merge queue add event found for this submission")
+              append_output("resubmit", "false")
+              sys.exit(0)
+
+          if not latest_removal:
+              print("No previous merge queue removal event found")
+              append_output("resubmit", "false")
+              sys.exit(0)
+
+          if latest_removal["createdAt"] > latest_add["createdAt"]:
+              print("The latest merge queue event is a removal, not this submission")
+              append_output("resubmit", "false")
+              sys.exit(0)
+
+          current_head = pull_request["headRefOid"]
+          removed_head = (latest_removal.get("beforeCommit") or {}).get("oid")
+          if not removed_head:
+              print("The latest removal event does not include the PR head commit")
+              append_output("resubmit", "false")
+              sys.exit(0)
+
+          if current_head != removed_head:
+              print("The PR head changed since the last merge queue removal")
+              print(f"Current head: {current_head}")
+              print(f"Removed head: {removed_head}")
+              append_output("resubmit", "false")
+              sys.exit(0)
+
+          reason = latest_removal.get("reason") or "No reason provided"
+          actor = latest_removal.get("actor") or {}
+          enqueuer = latest_add.get("enqueuer") or latest_removal.get("enqueuer") or {}
+
+          print("PR was resubmitted after removal without new commits")
+          print(f"Removal reason: {reason}")
+          print(f"Head commit: {current_head}")
+
+          append_output("resubmit", "true")
+          append_output("pr_title", pull_request["title"])
+          append_output("pr_url", pull_request["url"])
+          append_output("pr_author", (pull_request.get("author") or {}).get("login"))
+          append_output("reason", reason)
+          append_output("removed_by", actor.get("login"))
+          append_output("enqueued_by", enqueuer.get("login"))
+          append_output("removed_at", latest_removal["createdAt"])
+          append_output("resubmitted_at", latest_add["createdAt"])
+          append_output("head_commit", current_head)
+          PY
+
+      - name: Notify Slack about unchanged merge queue resubmission
+        if: steps.check.outputs.resubmit == 'true'
         uses: slackapi/slack-github-action@v1
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL_RQE_CI_ISSUES }}
@@ -173,8 +172,9 @@ jobs:
               "Author": ${{ toJson(steps.check.outputs.pr_author) }},
               "Reason": ${{ toJson(steps.check.outputs.reason) }},
               "Removed At": ${{ toJson(steps.check.outputs.removed_at) }},
-              "Removed By": ${{ toJson(steps.check.outputs.actor) }},
-              "Enqueued By": ${{ toJson(steps.check.outputs.enqueuer) }},
-              "Validation Conclusion": ${{ toJson(steps.check.outputs.validation_run_conclusion) }},
-              "Validation Workflow": ${{ toJson(steps.check.outputs.validation_run_url) }}
+              "Resubmitted At": ${{ toJson(steps.check.outputs.resubmitted_at) }},
+              "Removed By": ${{ toJson(steps.check.outputs.removed_by) }},
+              "Enqueued By": ${{ toJson(steps.check.outputs.enqueued_by) }},
+              "Head Commit": ${{ toJson(steps.check.outputs.head_commit) }},
+              "Workflow": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
             }
