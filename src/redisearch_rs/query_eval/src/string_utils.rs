@@ -16,6 +16,9 @@
 
 use std::borrow::Cow;
 
+/// Maximum number of runes allowed in a single trie key.
+pub const MAX_RUNESTR_LEN: usize = 1024;
+
 /// Remove backslash escape sequences from a wildcard pattern.
 ///
 /// Returns [`Cow::Borrowed`] when no escapes are present (zero-copy fast
@@ -45,4 +48,25 @@ pub fn wildcard_remove_escape(s: &str) -> Cow<'_, str> {
     // another byte cannot break a multi-byte UTF-8 sequence, so the
     // output is valid UTF-8 whenever the input is.
     Cow::Owned(unsafe { String::from_utf8_unchecked(result) })
+}
+
+/// Convert a UTF-8 string to a lowercase array of runes (`u16`) for trie
+/// lookups.
+///
+/// Each Unicode codepoint is lowercased and then truncated to `u16`.
+///
+/// Returns [`None`] if the resulting rune count exceeds
+/// [`MAX_RUNESTR_LEN`].
+pub fn str_to_lower_runes(s: &str) -> Option<Vec<u16>> {
+    let cap = s.len().min(MAX_RUNESTR_LEN);
+    let mut runes = Vec::with_capacity(cap);
+    for c in s.chars() {
+        for lc in c.to_lowercase() {
+            runes.push(lc as u16);
+            if runes.len() > MAX_RUNESTR_LEN {
+                return None;
+            }
+        }
+    }
+    Some(runes)
 }
