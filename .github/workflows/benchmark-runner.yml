@@ -129,7 +129,8 @@ jobs:
       test_regex: ${{ inputs.test_regex }}
 
   benchmark-search-oss-standalone-threads-6:
-    if: ${{ (inputs.benchmark_groups == '' || contains(format(',{0},', inputs.benchmark_groups), ',search,')) && (inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-standalone-threads-6') }}
+    # TODO: Temporarily disabled - Redis becomes unavailable after ~3 hours of data loading.
+    if: false # ${{ inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-standalone-threads-6' }}
     needs: build-redisearch
     strategy:
       fail-fast: false

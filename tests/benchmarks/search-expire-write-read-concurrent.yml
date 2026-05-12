@@ -11,6 +11,7 @@ setups:
   - oss-standalone-threads-6
   - oss-cluster-02-primaries
   - oss-cluster-04-primaries
+  - oss-cluster-04-primaries-threads-6
   - oss-cluster-08-primaries
   - oss-cluster-16-primaries
   - oss-cluster-20-primaries
