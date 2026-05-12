@@ -60,7 +60,9 @@ int Trie_InsertRune(Trie *t, const rune *runes, size_t len, double score, int in
   if (runes && len && len < TRIE_INITIAL_STRING_LEN) {
     rc = TrieNode_Add(&t->root, runes, len, payload, (float)score, incr ? ADD_INCR : ADD_REPLACE,
                       t->freecb, numDocs);
-    t->size += rc;
+    if (rc == TRIE_OK_NEW) {
+      t->size += rc;
+    }
   }
   return rc;
 }
@@ -381,6 +383,7 @@ void *TrieType_GenericLoad(RedisModuleIO *rdb, bool loadPayloads, bool loadNumDo
   Trie *tree = NULL;
   char *str = NULL;
   uint64_t elements = LoadUnsigned_IOError(rdb, goto cleanup);
+
   tree = NewTrie(NULL, Trie_Sort_Score);
 
   while (elements--) {
@@ -397,9 +400,19 @@ void *TrieType_GenericLoad(RedisModuleIO *rdb, bool loadPayloads, bool loadNumDo
     if (loadNumDocs) {
       numDocs = LoadUnsigned_IOError(rdb, goto cleanup);
     }
-    Trie_InsertStringBuffer(tree, str, len - 1, score, 0, payload.len ? &payload : NULL, numDocs);
+    int rc = Trie_InsertStringBuffer(tree, str, len - 1, score, 0, payload.len ? &payload : NULL, numDocs);
     RedisModule_Free(str);
-    if (payload.data != NULL) RedisModule_Free(payload.data);
+    str = NULL;
+    if (payload.data != NULL) {
+      RedisModule_Free(payload.data);
+      payload.data = NULL;
+    }
+    if (rc == TRIE_ERR_PAYLOAD_OVERFLOW) {
+      RedisModule_LogIOError(
+          rdb, "warning",
+          "RDB Load: Failed to insert trie entry (payload overflow)");
+      goto cleanup;
+    }
   }
   return tree;
 

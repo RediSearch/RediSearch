@@ -14,6 +14,9 @@
 #include "json.h"
 #include "rdb.h"
 #include "fast_float/fast_float_strtod.h"
+#include "util/likely.h"
+#include "spec.h"
+#include "rmutil/rm_assert.h"
 
 
 TrieMap *SchemaPrefixes_g = NULL;
@@ -424,6 +427,7 @@ int SchemaRule_RdbLoad(StrongRef ref, RedisModuleIO *rdb, int encver, QueryError
 #define RULEARGS_INITIAL_NUM_PREFIXES_ON_STACK 32
   char *prefixes[RULEARGS_INITIAL_NUM_PREFIXES_ON_STACK];
   uint64_t exist = 0;
+  uint64_t nprefixes_u64 = 0;
   double score_default = 0.0;
   RSLanguage lang_default = DEFAULT_LANGUAGE;
   bool index_all = false;
@@ -433,7 +437,8 @@ int SchemaRule_RdbLoad(StrongRef ref, RedisModuleIO *rdb, int encver, QueryError
   int ret = REDISMODULE_OK;
   args.type = LoadStringBuffer_IOError(rdb, &len, goto cleanup);
 
-  uint64_t nprefixes_u64 = LoadUnsigned_IOError(rdb, goto cleanup);
+  nprefixes_u64 = LoadUnsigned_IOError(rdb, goto cleanup);
+
   RS_ASSERT(MAX_SCHEMA_PREFIXES <= UINT32_MAX);
   if (unlikely(nprefixes_u64 > MAX_SCHEMA_PREFIXES)) {
     QueryError_SetWithoutUserDataFmt(

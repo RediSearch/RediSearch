@@ -53,11 +53,7 @@ part of the document,
 indexing. Defaults to
 English.
    If an unsupported language is sent, the command returns an error.
-   The supported languages are:
-
-   > "arabic",  "armenian",  "danish",    "dutch",     "english",   "finnish",    "french",
-   > "german",  "hindi",     "hungarian", "italian",   "norwegian", "portuguese", "romanian",
-   > "russian", "serbian",   "spanish",   "swedish",   "tamil",     "turkish",    "yiddish"
+   The supported languages are defined in RSLanguage in "src/language.h".
 
 
 Returns OK on success, NOADD if the document was not added due to an IF expression not evaluating to
