@@ -2305,9 +2305,12 @@ dependencies = [
 name = "rqe_wildcard"
 version = "0.0.1"
 dependencies = [
+ "build_utils",
  "criterion",
+ "ffi",
  "memchr",
  "proptest",
+ "rqe_wildcard",
  "wildcard",
  "workspace_hack",
 ]
@@ -3602,7 +3605,6 @@ dependencies = [
  "stable_deref_trait",
  "syn 1.0.109",
  "syn 2.0.117",
- "thiserror",
  "tracing-core",
  "zerocopy",
 ]
