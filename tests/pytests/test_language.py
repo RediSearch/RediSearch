@@ -544,22 +544,6 @@ def testJsonIndexLanguageField(env):
                       'SORTBY', 'word', 'DESC')
         env.assertEqual(res2, res1)
 
-def testMalayLanguage(env):
-    conn = getConnectionByEnv(env)
-
-    conn.execute_command('HSET', '{ms}:1', 'word', 'berlari')
-    conn.execute_command('HSET', '{ms}:2', 'word', 'lari')
-
-    env.cmd('FT.CREATE', 'idx_ms', 'ON', 'HASH', 'PREFIX', '1', '{ms}:',
-            'LANGUAGE', 'malay', 'SCHEMA', 'word', 'TEXT')
-    waitForIndex(env, 'idx_ms')
-
-    res = env.cmd('FT.SEARCH', 'idx_ms', 'berlari', 'SORTBY', 'word', 'ASC')
-    env.assertEqual(res[0], 2)
-
-    res = env.cmd('FT.SEARCH', 'idx_ms', 'lari', 'SORTBY', 'word', 'ASC')
-    env.assertEqual(res[0], 2)
-
 def testTagalogLanguage(env):
     conn = getConnectionByEnv(env)
 
@@ -579,7 +563,7 @@ def testTagalogLanguage(env):
 def testLanguageInfo(env):
     languages = ['arabic', 'armenian', 'basque', 'catalan', 'danish', 'dutch',
                  'finnish', 'french', 'german', 'greek', 'hindi', 'hungarian',
-                 'indonesian', 'irish', 'italian', 'lithuanian', 'malay',
+                 'indonesian', 'irish', 'italian', 'lithuanian',
                  'nepali', 'norwegian', 'portuguese', 'romanian', 'russian',
                  'serbian', 'spanish', 'swedish', 'tagalog', 'tamil',
                  'turkish', 'yiddish', 'chinese']
