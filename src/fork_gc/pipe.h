@@ -43,8 +43,6 @@ extern void *RECV_BUFFER_EMPTY;
 
 #define FGC_SEND_VAR(fgc, v) FGC_sendFixed(fgc, &v, sizeof v)
 
-int __attribute__((warn_unused_result)) FGC_recvBuffer(ForkGC *fgc, void **buf, size_t *len);
-
 //------------------------------------------------------------------------------
 // Pipe read/write callbacks for II GC
 //------------------------------------------------------------------------------
