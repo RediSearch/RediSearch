@@ -430,11 +430,12 @@ int SchemaRule_RdbLoad(StrongRef ref, RedisModuleIO *rdb, int encver, QueryError
   bool index_all = false;
   SchemaRule *rule = NULL;
   IndexSpec *sp = NULL;
+  uint64_t nprefixes_u64 = 0;
 
   int ret = REDISMODULE_OK;
   args.type = LoadStringBuffer_IOError(rdb, &len, goto cleanup);
 
-  uint64_t nprefixes_u64 = LoadUnsigned_IOError(rdb, goto cleanup);
+  nprefixes_u64 = LoadUnsigned_IOError(rdb, goto cleanup);
   RS_ASSERT(MAX_SCHEMA_PREFIXES <= UINT32_MAX);
   if (unlikely(nprefixes_u64 > MAX_SCHEMA_PREFIXES)) {
     QueryError_SetWithoutUserDataFmt(
