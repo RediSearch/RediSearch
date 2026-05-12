@@ -5,12 +5,11 @@
  */
 
 #include "rules.h"
+#include "util/likely.h"
 #include "aggregate/expr/expression.h"
 #include "aggregate/expr/exprast.h"
 #include "json.h"
 #include "rdb.h"
-#include "util/likely.h"
-#include "spec.h"
 #include "rmutil/rm_assert.h"
 
 TrieMap *SchemaPrefixes_g;
@@ -120,6 +119,14 @@ static SchemaRule *SchemaRule_CreateInternal(SchemaRuleArgs *args, ArgsCursor *p
 
   if (prefixes_ac) {
     size_t nprefixes = AC_NumRemaining(prefixes_ac);
+    RS_ASSERT(MAX_SCHEMA_PREFIXES <= SIZE_MAX);
+    if (unlikely(nprefixes > MAX_SCHEMA_PREFIXES)) {
+      QueryError_SetErrorFmt(
+          status, QUERY_ELIMIT,
+          "Number of prefixes (%zu) exceeds maximum allowed (%d)",
+          nprefixes, MAX_SCHEMA_PREFIXES);
+      goto error;
+    }
     rule->prefixes = array_new(sds, nprefixes);
     for (size_t i = 0; i < nprefixes; ++i) {
       size_t prefix_len = 0;
@@ -127,6 +134,13 @@ static SchemaRule *SchemaRule_CreateInternal(SchemaRuleArgs *args, ArgsCursor *p
       array_append(rule->prefixes, sdsnewlen(prefix, prefix_len));
     }
   } else {
+    if (unlikely(args->nprefixes > MAX_SCHEMA_PREFIXES)) {
+      QueryError_SetErrorFmt(
+          status, QUERY_ELIMIT,
+          "Number of prefixes (%d) exceeds maximum allowed (%d)",
+          args->nprefixes, MAX_SCHEMA_PREFIXES);
+      goto error;
+    }
     rule->prefixes = array_new(sds, args->nprefixes);
     for (int i = 0; i < args->nprefixes; ++i) {
       sds p = sdsnew(args->prefixes[i]);
