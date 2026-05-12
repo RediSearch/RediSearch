@@ -35,6 +35,9 @@ jobs:
       options: ${{ vars.ENABLE_CODE_COVERAGE != 'false' && 'unit-tests,coordinator,standalone,rejson,coverage,sanitize' || 'unit-tests,coordinator,standalone,rejson,sanitize' }}
 
   micro-benchmarks:
+    permissions:
+      contents: read
+      id-token: write # OIDC role assumption for sccache S3 (used inside flow-micro-benchmarks-runner.yml)
     uses: ./.github/workflows/flow-micro-benchmarks.yml
     secrets: inherit
 
