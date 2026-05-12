@@ -1,0 +1,1 @@
+Scenario 1 with history: first PR gets a past removal, then later fails again.
