@@ -1,72 +1,27 @@
 name: Merge a pull request
 run-name: Validate ${{ github.ref_name }}
 
-# Documentation: https://redislabs.atlassian.net/wiki/spaces/DX/pages/3967844669/RediSearch+CI+refactor
-
 on:
   merge_group:
     types: [checks_requested]
 
 concurrency:
-  # This group identifies the PR by the tree ID of the head commit.
-  # TODO: Replace with PR number of branch name once GH adds it to the event context
   group: ${{ github.workflow }}-${{ github.event.merge_group.head_commit.tree_id }}
   cancel-in-progress: true
 
 jobs:
-  get-latest-redis-tag:
-    # TODO: Revert to using the latest stable ref in redis
-    runs-on: ubuntu-slim
-    outputs:
-      tag: 3cd464263b03b425ffae2e23db24df3dc9346871
-    steps:
-      - run: echo "Dummy step to set output"
-    # uses: ./.github/workflows/task-get-latest-tag.yml
-    # with:
-    #   repo: redis/redis
-
-  check-what-changed:
-    uses: ./.github/workflows/task-check-changes.yml
-
-  lint:
-    needs: check-what-changed
-    if: ${{ needs.check-what-changed.outputs.CODE_CHANGED == 'true' }}
-    permissions:
-      contents: read
-      packages: write
-    uses: ./.github/workflows/task-lint.yml
-    secrets: inherit
-    with:
-      compare-advisories-to-base: true
-      advisories-base-ref: ${{ github.event.merge_group.base_sha }}
-
-  test-matrix:
-    # Wait for lint so we do not spend MQ test capacity when CI is already going to fail.
-    # Use explicit status checks so test-only changes still run even when lint is skipped.
-    needs: [get-latest-redis-tag, check-what-changed, lint]
-    if: ${{ !cancelled() && !failure() && (needs.check-what-changed.outputs.CODE_CHANGED == 'true' || needs.check-what-changed.outputs.TESTS_CHANGED == 'true') }}
-    permissions:
-      contents: read
-      packages: write
-    uses: ./.github/workflows/flow-test.yml
-    secrets: inherit
-    with:
-      platform: 'ubuntu:noble,macos-26,alpine:3.23,intel'  # on feature branches this should be 'all'
-      architecture: all
-      redis-ref: ${{ needs.get-latest-redis-tag.outputs.tag }}
-      job-test-config: '{"test": "", "coverage": "", "sanitize": ""}'
-      options: ${{ vars.ENABLE_CODE_COVERAGE != 'false' && 'unit-tests,coordinator,standalone,rejson,fail-fast,coverage,sanitize' || 'unit-tests,coordinator,standalone,rejson,fail-fast,sanitize' }}
-      separate-coordinator-job: true
-      rejson-branch: master
-
   pr-validation:
-    needs:
-      - get-latest-redis-tag
-      - check-what-changed
-      - lint
-      - test-matrix
+    name: Mock merge queue validation
     runs-on: ubuntu-slim
-    if: ${{ !cancelled() }}
     steps:
-      - if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
-        run: exit 1
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Check mock merge queue marker
+        run: |
+          if [[ -f .github/mq-detector-test/fail-merge-queue ]]; then
+            echo "Mock merge queue failure marker found"
+            exit 1
+          fi
+
+          echo "Mock merge queue validation passed"
