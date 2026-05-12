@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "spell_check.h"
+#include "types_ffi.h"
 #include "util/arr.h"
 #include "dictionary.h"
 #include "reply.h"

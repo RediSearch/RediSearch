@@ -10,6 +10,7 @@
 #define BYTE_OFFSETS_H
 
 #include "redisearch.h"
+#include "inverted_index.h"
 #include "varint_ffi.h"
 #include "rmalloc.h"
 

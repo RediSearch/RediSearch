@@ -18,6 +18,8 @@
 #include "util/references.h"
 #include <unistd.h>
 
+typedef struct QueryError QueryError;
+
 
 struct MRCtx;
 struct RedisModuleCtx;

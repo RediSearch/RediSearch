@@ -7,6 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "aggregate/aggregate.h"
+#include "types_ffi.h"
+#include "value_ffi.h"
 #include "result_processor.h"
 #include "query.h"
 #include "extension.h"
@@ -34,6 +36,7 @@
 #include "search_disk.h"
 #include "debug_commands.h"
 #include "search_result.h"
+#include "search_result_ffi.h"
 #include "redisearch.h"
 #include "asm_state_machine.h"
 #include "index_result.h"

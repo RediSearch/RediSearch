@@ -8,7 +8,6 @@
 */
 #pragma once
 
-#include "triemap_ffi.h"
 #include "hiredis/hiredis.h"
 #include "hiredis/async.h"
 #include "conn.h"

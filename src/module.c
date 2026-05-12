@@ -9,6 +9,7 @@
 #define REDISMODULE_MAIN
 
 #include <assert.h>
+#include "triemap_ffi.h"
 #include <stdio.h>
 #include <string.h>
 #include <sys/param.h>
