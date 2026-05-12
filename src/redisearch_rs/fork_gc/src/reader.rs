@@ -35,8 +35,8 @@ impl<R: Read> Reader<R> {
 
     /// Read a length-prefixed buffer frame.
     ///
-    /// Counterpart of [`PipeWriter::send_buffer`] and
-    /// [`PipeWriter::send_terminator`]. Reads a native-endian `size_t`
+    /// Counterpart of [`Writer::send_buffer`](crate::writer::Writer::send_buffer) and
+    /// [`Writer::send_terminator`](crate::writer::Writer::send_terminator). Reads a native-endian `size_t`
     /// prefix, then:
     ///
     /// - `usize::MAX` → [`RecvFrame::Terminator`] (end-of-stream
@@ -62,7 +62,7 @@ impl<R: Read> Reader<R> {
     }
 }
 
-/// A frame decoded by [`PipeReader::recv_buffer`].
+/// A frame decoded by [`Reader::recv_buffer`].
 ///
 /// The three variants correspond to the three possible length prefixes
 /// of the Fork GC buffer protocol: `usize::MAX` (end of stream), `0`
@@ -70,10 +70,10 @@ impl<R: Read> Reader<R> {
 #[derive(Debug)]
 pub enum RecvFrame {
     /// End-of-stream sentinel — the writer called
-    /// [`PipeWriter::send_terminator`].
+    /// [`Writer::send_terminator`](crate::writer::Writer::send_terminator).
     Terminator,
     /// Zero-length frame — the writer called
-    /// [`PipeWriter::send_buffer`] with an empty slice.
+    /// [`Writer::send_buffer`](crate::writer::Writer::send_buffer) with an empty slice.
     Empty,
     /// A frame carrying `data.len()` payload bytes.
     Data(Box<[u8]>),

@@ -45,7 +45,7 @@ fn recv_buffer_reads_length_prefixed_payload() {
     bytes.extend_from_slice(b"hello");
     let mut pr = Reader::from_reader(Cursor::new(bytes));
     match pr.recv_buffer().unwrap() {
-        RecvFrame::Data(d) => assert_eq!(d, b"hello"),
+        RecvFrame::Data(d) => assert_eq!(&*d, b"hello"),
         other => panic!("expected Data, got {other:?}"),
     }
 }
@@ -75,7 +75,7 @@ fn recv_buffer_roundtrips_through_send_buffer() {
     }
     let mut pr = Reader::from_reader(Cursor::new(sink));
     match pr.recv_buffer().unwrap() {
-        RecvFrame::Data(d) => assert_eq!(d, b"round trip"),
+        RecvFrame::Data(d) => assert_eq!(&*d, b"round trip"),
         other => panic!("expected Data, got {other:?}"),
     }
 }
