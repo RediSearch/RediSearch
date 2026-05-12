@@ -15,12 +15,14 @@ use super::{
 };
 use rqe_wildcard::{MatchOutcome, WildcardPattern};
 
-/// An iterator over all entries that match the given wildcard pattern.
-///
-/// It can be instantiated by calling [`TrieMap::wildcard_iter`](crate::TrieMap::wildcard_iter).
-pub struct WildcardIter<'tm, 'p, Data>(Iter<'tm, Data, WildcardFilter<'p>>);
+/// Per-key filter-based wildcard iterator. Public-named because it
+/// appears as the inner value of
+/// [`WildcardIter::Filter`](super::automaton::WildcardIter::Filter),
+/// but it can only be obtained through that dispatcher — the direct
+/// constructor on [`TrieMap`](crate::TrieMap) is crate-private.
+pub struct WildcardFilterIter<'tm, 'p, Data>(Iter<'tm, Data, WildcardFilter<'p>>);
 
-impl<'tm, 'p, Data> WildcardIter<'tm, 'p, Data> {
+impl<'tm, 'p, Data> WildcardFilterIter<'tm, 'p, Data> {
     pub(crate) fn new(root: Option<&'tm Node<Data>>, pattern: WildcardPattern<'p>) -> Self {
         let iter = match root {
             Some(root) => {
@@ -46,7 +48,7 @@ impl<'tm, 'p, Data> WildcardIter<'tm, 'p, Data> {
     ///
     /// Mirrors [`super::automaton::AutomatonIter::advance`] so that the
     /// auto-dispatching
-    /// [`super::automaton::WildcardSpecializedIter`] can plug a filter-based
+    /// [`super::automaton::WildcardIter`] can plug a filter-based
     /// fallback into its `advance` / `key` interface without special-casing.
     pub(crate) fn advance(&mut self) -> Option<&'tm Data> {
         self.0.advance()
@@ -59,7 +61,7 @@ impl<'tm, 'p, Data> WildcardIter<'tm, 'p, Data> {
     }
 }
 
-impl<'tm, 'p, Data> Iterator for WildcardIter<'tm, 'p, Data> {
+impl<'tm, 'p, Data> Iterator for WildcardFilterIter<'tm, 'p, Data> {
     type Item = (Vec<u8>, &'tm Data);
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -67,10 +69,10 @@ impl<'tm, 'p, Data> Iterator for WildcardIter<'tm, 'p, Data> {
     }
 }
 
-impl<'tm, 'p, Data> From<WildcardIter<'tm, 'p, Data>>
+impl<'tm, 'p, Data> From<WildcardFilterIter<'tm, 'p, Data>>
     for LendingIter<'tm, Data, WildcardFilter<'p>>
 {
-    fn from(iter: WildcardIter<'tm, 'p, Data>) -> Self {
+    fn from(iter: WildcardFilterIter<'tm, 'p, Data>) -> Self {
         iter.0.into()
     }
 }

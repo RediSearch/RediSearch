@@ -9,7 +9,7 @@
 
 use lending_iterator::{lending_iterator::adapters::Filter, prelude::*};
 use std::ffi::c_void;
-use trie_rs::iter::{WildcardFilter, filter::VisitAll};
+use trie_rs::iter::{WildcardLendingIter, filter::VisitAll};
 
 pub type BoxedPredicate = Box<dyn Fn(&(&[u8], &*mut c_void)) -> bool>;
 
@@ -24,7 +24,7 @@ pub enum TrieMapIteratorImpl<'tm> {
     // trie reference and the target byte slice originate from the same
     // C-side scope.
     Contains(Box<trie_rs::iter::ContainsLendingIter<'tm, 'tm, *mut c_void>>),
-    Wildcard(trie_rs::iter::LendingIter<'tm, *mut c_void, WildcardFilter<'tm>>),
+    Wildcard(WildcardLendingIter<'tm, 'tm, *mut c_void>),
 }
 
 #[gat]
