@@ -14,6 +14,8 @@
 //! You can create a [`WildcardPattern`] from a pattern using [`WildcardPattern::parse`] and
 //! then rely on [`WildcardPattern::matches`] to determine if a string matches the pattern.
 
+use std::borrow::Cow;
+
 use memchr::arch::all::is_prefix;
 
 mod fmt;
@@ -303,4 +305,35 @@ impl<'pattern> WildcardPattern<'pattern> {
     pub fn tokens(&self) -> &[Token<'pattern>] {
         &self.tokens
     }
+}
+
+/// Remove backslash escape sequences from a wildcard pattern.
+///
+/// Returns [`Cow::Borrowed`] when no escapes are present (zero-copy fast
+/// path), or [`Cow::Owned`] with escapes removed.
+pub fn remove_escape(s: &str) -> Cow<'_, str> {
+    let bytes = s.as_bytes();
+    let Some(first_escape) = bytes.iter().position(|&b| b == b'\\') else {
+        return Cow::Borrowed(s);
+    };
+
+    let mut result = Vec::with_capacity(bytes.len() - 1);
+    result.extend_from_slice(&bytes[..first_escape]);
+
+    let mut read = first_escape;
+    while read < bytes.len() {
+        if bytes[read] == b'\\' {
+            read += 1;
+            if read >= bytes.len() {
+                break;
+            }
+        }
+        result.push(bytes[read]);
+        read += 1;
+    }
+
+    // SAFETY: removing `\` (0x5C, a single-byte ASCII character) before
+    // another byte cannot break a multi-byte UTF-8 sequence, so the
+    // output is valid UTF-8 whenever the input is.
+    Cow::Owned(unsafe { String::from_utf8_unchecked(result) })
 }

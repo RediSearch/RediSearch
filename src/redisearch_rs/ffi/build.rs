@@ -294,6 +294,12 @@ const HEADERS: &[HeaderAllowlist] = &[
         types: &[],
         vars: &[],
     },
+    HeaderAllowlist {
+        path: "src/wildcard/wildcard.h",
+        fns: &["Wildcard_RemoveEscape"],
+        types: &[],
+        vars: &[],
+    },
 ];
 
 /// Generated headers (from `src/redisearch_rs/headers/`) that bindgen is allowed
