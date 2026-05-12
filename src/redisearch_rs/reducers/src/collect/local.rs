@@ -172,7 +172,7 @@ const _: () = assert!(
 /// [`SharedValue`] refcounts.
 pub struct LocalCollectCtx {
     lookup: RLookup<'static>,
-    storage: Storage<RLookupRow<'static>>,
+    storage: Storage,
 }
 
 impl<'a> LocalCollectReducer<'a> {

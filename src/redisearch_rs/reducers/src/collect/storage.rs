@@ -21,6 +21,7 @@ use std::cmp::Ordering;
 
 use itertools::Either;
 use min_max_heap::MinMaxHeap;
+use rlookup::RLookupRow;
 use value::SharedValue;
 
 use super::heap::{EntryKey, HeapEntry};
@@ -35,21 +36,21 @@ pub const DEFAULT_LIMIT: u64 = 10;
 /// number of rows we will retain.
 const INITIAL_CAPACITY_CAP: usize = 16_384;
 
-pub enum Storage<T> {
+pub enum Storage {
     Array {
-        buf: Vec<T>,
+        buf: Vec<RLookupRow<'static>>,
         offset: usize,
         count: usize,
     },
     Heap {
-        heap: MinMaxHeap<HeapEntry<T>>,
+        heap: MinMaxHeap<HeapEntry<RLookupRow<'static>>>,
         sort_asc_map: u64,
         offset: usize,
         count: usize,
     },
 }
 
-impl<T> Storage<T> {
+impl Storage {
     /// Resolve `(offset, count)` and pre-size the buffer/heap.
     pub fn new(sortby: bool, limit: Option<(u64, u64)>, sort_asc_map: u64) -> Self {
         let (offset, count) = match (sortby, limit) {
@@ -90,7 +91,7 @@ impl<T> Storage<T> {
     pub fn insert_entry<S, P>(&mut self, sort_vals: S, project: P) -> bool
     where
         S: FnOnce() -> Box<[SharedValue]>,
-        P: FnOnce() -> T,
+        P: FnOnce() -> RLookupRow<'static>,
     {
         match self {
             Self::Array {
@@ -146,7 +147,10 @@ impl<T> Storage<T> {
     /// `skip(offset).take(count)`. When `false`, every buffered row is
     /// yielded — used by the remote reducer when `is_internal` is set,
     /// where the coordinator owns the global offset.
-    pub fn drain(&mut self, apply_limit: bool) -> impl ExactSizeIterator<Item = T> {
+    pub fn drain(
+        &mut self,
+        apply_limit: bool,
+    ) -> impl ExactSizeIterator<Item = RLookupRow<'static>> {
         // Sentinel left in place of `*self`. Empty Array, no allocation.
         let taken = std::mem::replace(
             self,

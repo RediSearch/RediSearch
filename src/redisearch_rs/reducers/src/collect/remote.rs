@@ -60,8 +60,8 @@ const _: () = assert!(
 /// destructors — [`ptr::drop_in_place`][std::ptr::drop_in_place] must be
 /// called to release the stored [`RLookupRow`]s and decrement
 /// [`SharedValue`] refcounts.
-pub struct RemoteCollectCtx<'a> {
-    storage: Storage<RLookupRow<'a>>,
+pub struct RemoteCollectCtx {
+    storage: Storage,
 }
 
 impl<'a> RemoteCollectReducer<'a> {
@@ -90,7 +90,7 @@ impl<'a> RemoteCollectReducer<'a> {
         &mut self.common.reducer
     }
 
-    pub fn alloc_instance(&self) -> &mut RemoteCollectCtx<'a> {
+    pub fn alloc_instance(&self) -> &mut RemoteCollectCtx {
         self.common.arena.alloc(RemoteCollectCtx::new(self))
     }
 
@@ -166,8 +166,8 @@ fn build_finalize_template<'a>(
         .collect()
 }
 
-impl<'a> RemoteCollectCtx<'a> {
-    pub fn new(r: &RemoteCollectReducer<'a>) -> Self {
+impl RemoteCollectCtx {
+    pub fn new(r: &RemoteCollectReducer<'_>) -> Self {
         Self {
             storage: Storage::new(!r.sort_keys.is_empty(), r.limit, r.common.sort_asc_map),
         }
@@ -179,7 +179,7 @@ impl<'a> RemoteCollectCtx<'a> {
     /// The array path ignores the snapshot closure entirely. The heap path
     /// uses the snapshot to drive comparisons, dropping doomed candidates
     /// without paying the row-projection cost.
-    pub fn add(&mut self, r: &RemoteCollectReducer<'a>, row: &RLookupRow<'_>) {
+    pub fn add(&mut self, r: &RemoteCollectReducer<'_>, row: &RLookupRow<'_>) {
         let sort_vals = || -> Box<[SharedValue]> {
             r.sort_keys
                 .iter()
@@ -220,7 +220,7 @@ impl<'a> RemoteCollectCtx<'a> {
     /// row are omitted; on the cluster path
     /// [`LocalCollectCtx::finalize`][crate::collect::local::LocalCollectCtx::finalize]
     /// reconstructs the client-facing result from the emitted payload.
-    pub fn finalize(&mut self, r: &RemoteCollectReducer<'a>) -> SharedValue {
+    pub fn finalize(&mut self, r: &RemoteCollectReducer<'_>) -> SharedValue {
         // TODO: drop `limit` and the `apply_limit` argument to `drain` once
         // `distributeCollect` switches to the `LIMIT 0 (offset+count)`
         // rewrite that other `distribute*` paths use; the shard would no
