@@ -7,23 +7,31 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! Cross-check that [`TrieMap::wildcard_specialized_iter`] produces the
-//! same matches as the filter-based [`TrieMap::wildcard_iter`] across the
-//! three backends it dispatches into (`u64` NFA, `u128` NFA, and the
-//! filter fallback at ≥ 128 atoms).
+//! Cross-check that [`TrieMap::wildcard_iter`] yields the same matches
+//! as a naive reference oracle (`trie.iter()` filtered by
+//! [`WildcardPattern::matches`]) across the three backends the
+//! dispatcher routes to (`u64` NFA, `u128` NFA, and the per-key filter
+//! fallback at ≥ 128 atoms).
 
 use proptest::prelude::*;
 use trie_rs::TrieMap;
-use wildcard::WildcardPattern;
+use wildcard::{MatchOutcome, WildcardPattern};
 
-fn matches_filter<Data>(trie: &TrieMap<Data>, pattern: &str) -> Vec<Vec<u8>> {
+/// Independent oracle: walk every entry in the trie and keep those that
+/// the parsed pattern accepts when applied to the full key. This is the
+/// slowest possible implementation and therefore the most trustworthy
+/// for cross-checking the optimised iterator.
+fn matches_reference<Data>(trie: &TrieMap<Data>, pattern: &str) -> Vec<Vec<u8>> {
     let p = WildcardPattern::parse(pattern.as_bytes());
-    trie.wildcard_iter(p).map(|(k, _)| k).collect()
+    trie.iter()
+        .filter(|(k, _)| matches!(p.matches(k), MatchOutcome::Match))
+        .map(|(k, _)| k)
+        .collect()
 }
 
 fn matches_specialized<Data>(trie: &TrieMap<Data>, pattern: &str) -> Vec<Vec<u8>> {
     let p = WildcardPattern::parse(pattern.as_bytes());
-    trie.wildcard_specialized_iter(&p).map(|(k, _)| k).collect()
+    trie.wildcard_iter(p).map(|(k, _)| k).collect()
 }
 
 fn build_trie() -> TrieMap<Vec<u8>> {
@@ -52,7 +60,7 @@ fn matches_agree_on_seed_patterns() {
         "*a*a*", "c*t", "?", "??", "*ar*", "ban?", "*cot",
     ];
     for p in patterns {
-        let f = matches_filter(&trie, p);
+        let f = matches_reference(&trie, p);
         let s = matches_specialized(&trie, p);
         assert_eq!(f, s, "Specialized disagrees on `{p}`");
     }
@@ -97,7 +105,7 @@ mod property_based {
             for k in &keys {
                 trie.insert(k.as_bytes(), ());
             }
-            let f = matches_filter(&trie, &pattern);
+            let f = matches_reference(&trie, &pattern);
             let s = matches_specialized(&trie, &pattern);
             prop_assert_eq!(&f, &s, "filter vs specialized, pattern=`{}`", pattern);
         }
@@ -114,7 +122,7 @@ mod property_based {
             for k in &keys {
                 trie.insert(k.as_bytes(), ());
             }
-            let f = matches_filter(&trie, &pattern);
+            let f = matches_reference(&trie, &pattern);
             let s = matches_specialized(&trie, &pattern);
             prop_assert_eq!(&f, &s, "filter vs specialized, pattern=`{}`", pattern);
         }
@@ -131,7 +139,7 @@ mod property_based {
             for k in &keys {
                 trie.insert(k.as_bytes(), ());
             }
-            let f = matches_filter(&trie, &pattern);
+            let f = matches_reference(&trie, &pattern);
             let s = matches_specialized(&trie, &pattern);
             prop_assert_eq!(&f, &s, "filter vs specialized (fixed), pattern=`{}`", pattern);
         }
@@ -153,19 +161,19 @@ fn long_literal_patterns_route_to_u128() {
     trie.insert(b"unrelated", 2);
     trie.insert(prefix.as_bytes(), 3);
 
-    let f = matches_filter(&trie, &pattern_long_literal);
+    let f = matches_reference(&trie, &pattern_long_literal);
     let s = matches_specialized(&trie, &pattern_long_literal);
     assert_eq!(f, s, "filter vs specialized, long literal + `*`");
 
-    let f = matches_filter(&trie, &pattern_long_fixed);
+    let f = matches_reference(&trie, &pattern_long_fixed);
     let s = matches_specialized(&trie, &pattern_long_fixed);
     assert_eq!(f, s, "filter vs specialized, long literal alone");
 }
 
 /// Patterns past 127 atoms route to the filter-based fallback in the
 /// dispatcher. This exercises the `WildcardBackend::Filter` arm of
-/// [`WildcardSpecializedIter`] and confirms the dispatcher wraps
-/// [`WildcardIter`] correctly through its lending interface.
+/// [`WildcardIter`] and confirms the dispatcher wraps
+/// [`WildcardFilterIter`] correctly through its lending interface.
 #[test]
 fn long_patterns_route_to_filter_specialized() {
     // 260-char literal pushes us past the `u128` boundary into the
@@ -187,7 +195,7 @@ fn long_patterns_route_to_filter_specialized() {
     trie.insert(b"", 7);
 
     for pattern in [&star_pattern, &prefix_pattern] {
-        let f = matches_filter(&trie, pattern);
+        let f = matches_reference(&trie, pattern);
         let s = matches_specialized(&trie, pattern);
         assert_eq!(
             f,
@@ -212,7 +220,7 @@ fn many_any_atoms_route_to_filter() {
     trie.insert(b"unrelated", 4);
     trie.insert(b"", 5);
 
-    let f = matches_filter(&trie, &pattern);
+    let f = matches_reference(&trie, &pattern);
     let s = matches_specialized(&trie, &pattern);
     assert_eq!(f, s, "filter vs specialized, many-`Any` pattern");
 }

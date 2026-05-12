@@ -13,7 +13,7 @@ use criterion::{
 };
 use lending_iterator::LendingIterator;
 use std::{ffi::c_void, hint::black_box, ptr::NonNull, time::Duration};
-use trie_rs::iter::{ContainsLendingIter, LendingIter, WildcardSpecializedLendingIter};
+use trie_rs::iter::{ContainsLendingIter, WildcardLendingIter};
 use trie_rs::iter::{RangeFilter, RangeLendingIter};
 use wildcard::WildcardPattern;
 
@@ -262,18 +262,8 @@ fn wildcard_rust_benchmark<M: Measurement>(
 ) {
     c.bench_function("Rust", |b| {
         b.iter(|| {
-            let filter = WildcardPattern::parse(black_box(pattern.as_bytes()));
-            let mut iter: LendingIter<'_, _, _> = map.wildcard_iter(filter).into();
-            while let Some(entry) = LendingIterator::next(&mut iter) {
-                black_box(entry);
-            }
-        })
-    });
-    c.bench_function("Rust-Specialized", |b| {
-        b.iter(|| {
             let pattern = WildcardPattern::parse(black_box(pattern.as_bytes()));
-            let mut iter: WildcardSpecializedLendingIter<_> =
-                map.wildcard_specialized_iter(&pattern).into();
+            let mut iter: WildcardLendingIter<_> = map.wildcard_iter(pattern).into();
             while let Some(entry) = LendingIterator::next(&mut iter) {
                 black_box(entry);
             }

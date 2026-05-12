@@ -211,10 +211,10 @@ impl<S: NfaBitSet> WildcardNfa<S> {
     ///
     /// Callers should match the width to the atom count: `S = u64` for
     /// ≤ 63 atoms, `S = u128` for ≤ 127. Past 127 the NFA backends lose
-    /// to the per-key [`crate::iter::wildcard::WildcardIter`], so route
-    /// through [`super::WildcardSpecializedIter`] (or
-    /// [`crate::TrieMap::wildcard_specialized_iter`]) — they pick the
-    /// right backend automatically.
+    /// to the per-key [`crate::iter::wildcard::WildcardFilterIter`], so
+    /// route through [`super::WildcardIter`] (or
+    /// [`crate::TrieMap::wildcard_iter`]) — they pick the right backend
+    /// automatically.
     pub fn compile(pattern: &WildcardPattern<'_>) -> Self {
         let atoms = flatten(pattern);
         let accept = atoms.len();

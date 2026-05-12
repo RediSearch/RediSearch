@@ -23,7 +23,7 @@ mod wildcard;
 
 pub use automaton::{
     Automaton, AutomatonIter, AutomatonLendingIter, NfaBitSet, StateClass, WildcardBackend,
-    WildcardNfa, WildcardSpecializedIter, WildcardSpecializedLendingIter,
+    WildcardIter, WildcardLendingIter, WildcardNfa,
 };
 pub use contains::ContainsIter;
 pub use into_values::IntoValues;
@@ -34,4 +34,4 @@ pub use lending_range::RangeLendingIter;
 pub use prefixes::PrefixesIter;
 pub use range::{RangeBoundary, RangeFilter, RangeIter};
 pub use values::Values;
-pub use wildcard::{WildcardFilter, WildcardIter};
+pub use wildcard::{WildcardFilter, WildcardFilterIter};
