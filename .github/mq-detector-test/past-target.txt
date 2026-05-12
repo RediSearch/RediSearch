@@ -1,1 +1,2 @@
 Past-removal target PR. It will later be placed behind a failing PR.
+New commit after the past removal; this PR should now pass mock MQ validation.
