@@ -1,0 +1,1 @@
+Scenario 2: first queued PR should not notify when another PR jumps ahead.
