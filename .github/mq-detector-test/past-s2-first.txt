@@ -1,0 +1,1 @@
+Scenario 2 with history: first PR gets a past removal, then later participates in jump test.
