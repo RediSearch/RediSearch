@@ -206,7 +206,7 @@ jobs:
       # Get Redis
       - name: Get Redis (node20)
         if: steps.node20.outputs.supported == 'true'
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: redis/redis
           ref: ${{ inputs.redis-ref }}
