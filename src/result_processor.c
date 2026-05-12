@@ -1021,10 +1021,13 @@ typedef struct RPSafeLoader {
 
 /************************* Safe Loader private functions *************************/
 
-static void SetResult(SearchResult *buffered_result,  SearchResult *result_output) {
-  // Free the RLookup row before overriding it.
-  RLookupRow_Reset(SearchResult_GetRowDataMut(result_output));
-  *result_output = *buffered_result;
+static void SetResult(SearchResult *buffered_result, SearchResult *result_output) {
+  // Move ownership from the buffer slot into result_output, dropping result_output's
+  // old resources (RLookupRow, owned _index_result) in the process.
+  SearchResult_Override(result_output, buffered_result);
+  // Reinitialize the now-consumed buffer slot so rpSafeLoaderFree (or any future
+  // traversal) never sees a dangling owned _index_result pointer there.
+  *buffered_result = SearchResult_New();
 }
 
 static SearchResult *GetResultsBlock(RPSafeLoader *self, size_t idx) {
@@ -1147,6 +1150,9 @@ static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res) {
   while (rp->parent->resultLimit && ((result_status = rp->upstream->Next(rp->upstream, &resToBuffer)) == RS_RESULT_OK)) {
     // Decrease the result limit after getting a result from the upstream
     rp->parent->resultLimit--;
+    // Buffered SearchResults outlive the source iterator's `it->current` slot;
+    // promote any borrowed RSIndexResult to an owned copy before storing.
+    SearchResult_TakeOwnedIndexResult(&resToBuffer);
     // Buffer the result.
     currBlock = InsertResult(self, &resToBuffer, currBlock);
 

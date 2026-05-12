@@ -112,7 +112,7 @@ impl<'index> SearchResult<'index> {
             // dropping the box reverses that allocation. The reference
             // is unaliased because the SearchResult is the unique holder
             // while the flag is set.
-            let _ = unsafe { Box::from_raw(ir as *const _ as *mut RSIndexResult) };
+            drop(unsafe { Box::from_raw(std::ptr::from_ref(ir).cast_mut()) });
         }
         self._index_result = None;
 
