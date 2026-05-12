@@ -343,11 +343,16 @@ jobs:
           echo "Artifact name: ${ARTIFACT_NAME}"
           echo "name=${ARTIFACT_NAME}" >> $GITHUB_OUTPUT
       - name: Build
+        # Wrapped in retry-on-sccache-timeout so that transient sccache server
+        # startup failures (GHA cache backend briefly unreachable) do not fail
+        # the whole merge queue job. See MOD-15568.
+        uses: ./.github/actions/retry-on-sccache-timeout
         env:
           SAN: ${{ inputs.san }}
           REDIS_VER: ${{ inputs.redis-ref }}
           ENABLE_ASSERT: 1
-        run: make build TESTS=1
+        with:
+          command: make build TESTS=1
       - name: Validate glibc version
         if: runner.os == 'Linux' && inputs.platform != 'ubuntu:focal'
         uses: ./.github/actions/validate-glibc-version

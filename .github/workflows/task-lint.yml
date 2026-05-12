@@ -87,7 +87,12 @@ jobs:
       - name: Lint
         id: lint
         continue-on-error: true
-        run: make lint
+        # Wrapped in retry-on-sccache-timeout so that transient sccache server
+        # startup failures (GHA cache backend briefly unreachable) do not fail
+        # the whole merge queue job. See MOD-15568.
+        uses: ./.github/actions/retry-on-sccache-timeout
+        with:
+          command: make lint
 
       - name: Generated files
         id: git-diff
