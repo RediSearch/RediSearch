@@ -7,6 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "rules.h"
+#include "spec.h"
+#include "util/likely.h"
 #include "rlookup_load_document.h"
 #include "aggregate/expr/expression.h"
 #include "aggregate/expr/exprast.h"
@@ -125,6 +127,14 @@ static SchemaRule *SchemaRule_CreateInternal(SchemaRuleArgs *args, ArgsCursor *p
 
   if (prefixes_ac) {
     size_t nprefixes = AC_NumRemaining(prefixes_ac);
+    RS_ASSERT(MAX_SCHEMA_PREFIXES <= SIZE_MAX);
+    if (unlikely(nprefixes > MAX_SCHEMA_PREFIXES)) {
+      QueryError_SetWithoutUserDataFmt(
+          status, QUERY_ERROR_CODE_LIMIT,
+          "Number of prefixes (%zu) exceeds maximum allowed (%d)",
+          nprefixes, MAX_SCHEMA_PREFIXES);
+      goto error;
+    }
     rule->prefixes = array_new(HiddenUnicodeString*, nprefixes);
     for (size_t i = 0; i < nprefixes; ++i) {
       size_t prefix_len = 0;
@@ -132,6 +142,13 @@ static SchemaRule *SchemaRule_CreateInternal(SchemaRuleArgs *args, ArgsCursor *p
       array_append(rule->prefixes, NewHiddenUnicodeStringWithLen(prefix, prefix_len));
     }
   } else {
+    if (unlikely(args->nprefixes > MAX_SCHEMA_PREFIXES)) {
+      QueryError_SetWithoutUserDataFmt(
+          status, QUERY_ERROR_CODE_LIMIT,
+          "Number of prefixes (%d) exceeds maximum allowed (%d)",
+          args->nprefixes, MAX_SCHEMA_PREFIXES);
+      goto error;
+    }
     rule->prefixes = array_new(HiddenUnicodeString*, args->nprefixes);
     for (int i = 0; i < args->nprefixes; ++i) {
       array_append(rule->prefixes, NewHiddenUnicodeString(args->prefixes[i]));
@@ -417,7 +434,17 @@ int SchemaRule_RdbLoad(StrongRef ref, RedisModuleIO *rdb, int encver, QueryError
   int ret = REDISMODULE_OK;
   args.type = LoadStringBuffer_IOError(rdb, &len, goto cleanup);
 
-  args.nprefixes = LoadUnsigned_IOError(rdb, goto cleanup);
+  uint64_t nprefixes_u64 = LoadUnsigned_IOError(rdb, goto cleanup);
+  RS_ASSERT(MAX_SCHEMA_PREFIXES <= UINT32_MAX);
+  if (unlikely(nprefixes_u64 > MAX_SCHEMA_PREFIXES)) {
+    QueryError_SetWithoutUserDataFmt(
+        status, QUERY_ERROR_CODE_LIMIT,
+        "RDB Load: Number of prefixes (%llu) exceeds maximum allowed (%d)",
+        (unsigned long long)nprefixes_u64, MAX_SCHEMA_PREFIXES);
+    ret = REDISMODULE_ERR;
+    goto cleanup;
+  }
+  args.nprefixes = (unsigned int)nprefixes_u64;
   if (args.nprefixes <= RULEARGS_INITIAL_NUM_PREFIXES_ON_STACK) {
     args.prefixes = (const char **)prefixes;
     memset(args.prefixes, 0, args.nprefixes * sizeof(*args.prefixes));

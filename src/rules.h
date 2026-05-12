@@ -28,6 +28,9 @@ extern "C" {
 #define RULE_TYPE_HASH "HASH"
 #define RULE_TYPE_JSON "JSON"
 
+#define MAX_SCHEMA_PREFIXES 1000000
+
+
 struct RSExpr;
 struct IndexSpec;
 
