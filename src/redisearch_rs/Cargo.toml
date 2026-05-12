@@ -148,7 +148,7 @@ bindgen = { version = "0.72", default-features = false }
 cargo_metadata = "0.19"
 bytecount = "0.6.9"
 cc = "1.2.53"
-cheadergen = { git = "https://github.com/LukeMathWalker/cheadergen.git" }
+cheadergen = { version = "0.2.0" }
 crc32fast = "1.5.0"
 criterion = { version = "0.8.1", features = ["html_reports"] }
 csv = "1.4.0"
