@@ -1,0 +1,1 @@
+Scenario 1: first queued PR intentionally fails mock merge queue validation.
