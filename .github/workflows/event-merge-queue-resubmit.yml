@@ -20,74 +20,59 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           HEAD_REF: ${{ github.event.merge_group.head_ref }}
+        shell: python
         run: |
-          if [[ "$HEAD_REF" =~ (^|/)pr-([0-9]+)- ]]; then
-            PR_NUM="${BASH_REMATCH[2]}"
-          else
-            echo "Could not extract PR number from merge queue ref: $HEAD_REF"
-            echo "resubmit=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
+          import json
+          import os
+          import re
+          import subprocess
+          import sys
+          import uuid
 
-          OWNER="${REPO%/*}"
-          REPO_NAME="${REPO#*/}"
-          RESPONSE_FILE="$RUNNER_TEMP/pr-merge-queue-events.json"
-
-          echo "Checking whether PR #$PR_NUM was resubmitted without new commits"
-
-          gh api graphql \
-            -f owner="$OWNER" \
-            -f repo="$REPO_NAME" \
-            -F number="$PR_NUM" \
-            -f query='
-              query($owner: String!, $repo: String!, $number: Int!) {
-                repository(owner: $owner, name: $repo) {
-                  pullRequest(number: $number) {
-                    title
-                    url
-                    headRefOid
-                    author {
-                      login
+          QUERY = """
+          query($owner: String!, $repo: String!, $number: Int!) {
+            repository(owner: $owner, name: $repo) {
+              pullRequest(number: $number) {
+                title
+                url
+                headRefOid
+                author {
+                  login
+                }
+                timelineItems(
+                  last: 50
+                  itemTypes: [
+                    ADDED_TO_MERGE_QUEUE_EVENT
+                    REMOVED_FROM_MERGE_QUEUE_EVENT
+                  ]
+                ) {
+                  nodes {
+                    __typename
+                    ... on AddedToMergeQueueEvent {
+                      createdAt
+                      enqueuer {
+                        login
+                      }
                     }
-                    timelineItems(
-                      last: 50
-                      itemTypes: [
-                        ADDED_TO_MERGE_QUEUE_EVENT
-                        REMOVED_FROM_MERGE_QUEUE_EVENT
-                      ]
-                    ) {
-                      nodes {
-                        __typename
-                        ... on AddedToMergeQueueEvent {
-                          createdAt
-                          enqueuer {
-                            login
-                          }
-                        }
-                        ... on RemovedFromMergeQueueEvent {
-                          createdAt
-                          reason
-                          actor {
-                            login
-                          }
-                          enqueuer {
-                            login
-                          }
-                          beforeCommit {
-                            oid
-                          }
-                        }
+                    ... on RemovedFromMergeQueueEvent {
+                      createdAt
+                      reason
+                      actor {
+                        login
+                      }
+                      enqueuer {
+                        login
+                      }
+                      beforeCommit {
+                        oid
                       }
                     }
                   }
                 }
-              }' > "$RESPONSE_FILE"
-
-          python3 - "$RESPONSE_FILE" <<'PY'
-          import json
-          import os
-          import sys
-          import uuid
+              }
+            }
+          }
+          """
 
 
           def append_output(name, value):
@@ -96,47 +81,73 @@ jobs:
                   output.write(f"{name}<<{delimiter}\n{value or ''}\n{delimiter}\n")
 
 
+          def finish_without_alert(message):
+              print(message)
+              append_output("resubmit", "false")
+              sys.exit(0)
+
+
+          def query_pull_request(owner, repo, number):
+              result = subprocess.run(
+                  [
+                      "gh",
+                      "api",
+                      "graphql",
+                      "-f",
+                      f"owner={owner}",
+                      "-f",
+                      f"repo={repo}",
+                      "-F",
+                      f"number={number}",
+                      "-f",
+                      f"query={QUERY}",
+                  ],
+                  check=True,
+                  capture_output=True,
+                  text=True,
+              )
+              return json.loads(result.stdout)["data"]["repository"]["pullRequest"]
+
+
           def latest(events, event_type):
               matching = [event for event in events if event["__typename"] == event_type]
               return max(matching, key=lambda event: event["createdAt"], default=None)
 
 
-          with open(sys.argv[1], encoding="utf-8") as response_file:
-              response = json.load(response_file)
+          repo = os.environ["REPO"]
+          owner, repo_name = repo.split("/", maxsplit=1)
+          head_ref = os.environ["HEAD_REF"]
+          match = re.search(r"(^|/)pr-(\d+)-", head_ref)
+          if not match:
+              finish_without_alert(f"Could not extract PR number from merge queue ref: {head_ref}")
 
-          pull_request = response["data"]["repository"]["pullRequest"]
+          pr_number = int(match.group(2))
+          print(f"Checking whether PR #{pr_number} was resubmitted without new commits")
+
+          pull_request = query_pull_request(owner, repo_name, pr_number)
           events = pull_request["timelineItems"]["nodes"]
           latest_add = latest(events, "AddedToMergeQueueEvent")
           latest_removal = latest(events, "RemovedFromMergeQueueEvent")
 
           if not latest_add:
-              print("No merge queue add event found for this submission")
-              append_output("resubmit", "false")
-              sys.exit(0)
+              finish_without_alert("No merge queue add event found for this submission")
 
           if not latest_removal:
-              print("No previous merge queue removal event found")
-              append_output("resubmit", "false")
-              sys.exit(0)
+              finish_without_alert("No previous merge queue removal event found")
 
           if latest_removal["createdAt"] > latest_add["createdAt"]:
-              print("The latest merge queue event is a removal, not this submission")
-              append_output("resubmit", "false")
-              sys.exit(0)
+              finish_without_alert("The latest merge queue event is a removal, not this submission")
 
           current_head = pull_request["headRefOid"]
           removed_head = (latest_removal.get("beforeCommit") or {}).get("oid")
           if not removed_head:
-              print("The latest removal event does not include the PR head commit")
-              append_output("resubmit", "false")
-              sys.exit(0)
+              finish_without_alert("The latest removal event does not include the PR head commit")
 
           if current_head != removed_head:
               print("The PR head changed since the last merge queue removal")
               print(f"Current head: {current_head}")
               print(f"Removed head: {removed_head}")
-              append_output("resubmit", "false")
-              sys.exit(0)
+              finish_without_alert("No unchanged resubmission detected")
 
           reason = latest_removal.get("reason") or "No reason provided"
           actor = latest_removal.get("actor") or {}
@@ -156,7 +167,6 @@ jobs:
           append_output("removed_at", latest_removal["createdAt"])
           append_output("resubmitted_at", latest_add["createdAt"])
           append_output("head_commit", current_head)
-          PY
 
       - name: Notify Slack about unchanged merge queue resubmission
         if: steps.check.outputs.resubmit == 'true'
