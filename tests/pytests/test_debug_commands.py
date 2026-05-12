@@ -73,6 +73,7 @@ class TestDebugCommands(object):
             'DUMP_DELETED_IDS',
             'DISK_IO_CONTROL',
             'REGISTER_TEST_SCORERS',
+            'SET_MAX_INDEXES',
             'FT.AGGREGATE',
             '_FT.AGGREGATE',
             'FT.SEARCH',
