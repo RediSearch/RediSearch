@@ -53,10 +53,13 @@ pub(crate) fn frame_into_c_buffer(frame: RecvFrame) -> (*mut c_void, usize) {
             // SAFETY: `ptr` is non-null and points to `len + 1` writable
             // bytes we just allocated; `data` is a valid slice of `len`
             // bytes; the regions do not overlap.
-            unsafe {
-                ptr::copy_nonoverlapping(data.as_ptr(), ptr, len);
-                ptr.add(len).write(0);
-            }
+            unsafe { ptr::copy_nonoverlapping(data.as_ptr(), ptr, len) };
+            // SAFETY: `ptr` points to `len + 1` bytes; `len` is a valid
+            // offset into that allocation.
+            let nul = unsafe { ptr.add(len) };
+            // SAFETY: `nul` points to the byte just past the payload,
+            // which is within the allocation.
+            unsafe { nul.write(0) };
             (ptr.cast(), len)
         }
     }

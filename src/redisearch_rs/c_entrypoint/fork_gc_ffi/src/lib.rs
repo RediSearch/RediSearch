@@ -180,10 +180,9 @@ pub unsafe extern "C" fn FGC_recvBuffer(
     let (ptr, payload_len) = util::frame_into_c_buffer(frame);
 
     // SAFETY: caller guarantees (2).
-    unsafe {
-        *buf = ptr;
-        *len = payload_len;
-    }
+    unsafe { *buf = ptr };
+    // SAFETY: caller guarantees (2).
+    unsafe { *len = payload_len };
 
     ffi::REDISMODULE_OK as c_int
 }
@@ -227,11 +226,11 @@ pub unsafe extern "C" fn recvFieldHeader(
     }
 
     let (name_ptr, name_len) = util::frame_into_c_buffer(frame);
-    // SAFETY: caller guarantees (2) and (3).
-    unsafe {
-        *field_name = name_ptr.cast();
-        *field_name_len = name_len;
-        *id = u64::from_ne_bytes(id_bytes);
-    }
+    // SAFETY: caller guarantees (2).
+    unsafe { *field_name = name_ptr.cast() };
+    // SAFETY: caller guarantees (2).
+    unsafe { *field_name_len = name_len };
+    // SAFETY: caller guarantees (3).
+    unsafe { *id = u64::from_ne_bytes(id_bytes) };
     FGCError::FGC_COLLECTED
 }
