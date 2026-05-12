@@ -180,7 +180,7 @@ mod not_miri {
         // `is_index` without dereferencing it, so this is safe.
         let guard = test.test.context.spec_read_guard();
         unsafe {
-            let dict = (*guard.as_ptr()).missingFieldDict;
+            let dict = guard.missing_field_dict();
             ffi::RS_dictDelete(dict, field_name as *mut _);
             let rc = ffi::RS_dictAdd(dict, field_name as *mut _, new_ii as *mut _);
             assert_eq!(rc, 0, "dictAdd failed");
