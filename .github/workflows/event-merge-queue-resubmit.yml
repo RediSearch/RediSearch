@@ -210,7 +210,7 @@ jobs:
               "Resubmitted At": ${{ toJson(steps.check.outputs.resubmitted_at) }},
               "Removed By": ${{ toJson(steps.check.outputs.removed_by) }},
               "Enqueued By": ${{ toJson(steps.check.outputs.enqueued_by) }},
-              "Enqueued By Mention": ${{ toJson(steps.check.outputs.enqueued_by_mention) }},
+              "Enqueued_By_Mention": ${{ toJson(steps.check.outputs.enqueued_by_mention) }},
               "Head Commit": ${{ toJson(steps.check.outputs.head_commit) }},
               "Head Committed At": ${{ toJson(steps.check.outputs.head_committed_at) }},
               "Workflow": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
