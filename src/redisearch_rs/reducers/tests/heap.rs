@@ -12,9 +12,9 @@
 
 extern crate redisearch_rs;
 
-use std::cmp::Ordering;
 use min_max_heap::MinMaxHeap;
 use reducers::collect::heap::{EntryKey, HeapEntry};
+use std::cmp::Ordering;
 use value::SharedValue;
 
 redis_mock::mock_or_stub_missing_redis_c_symbols!();

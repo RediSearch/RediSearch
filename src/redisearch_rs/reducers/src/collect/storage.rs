@@ -50,14 +50,12 @@ pub enum Storage<T> {
         buf: Vec<T>,
         offset: usize,
         count: usize,
-        max_size: usize,
     },
     Heap {
         heap: MinMaxHeap<HeapEntry<T>>,
         sort_asc_map: u64,
         offset: usize,
         count: usize,
-        max_size: usize,
     },
 }
 
@@ -72,22 +70,19 @@ impl<T> Storage<T> {
             (false, None) => (0, unsafe { ffi::RSGlobalConfig.maxAggregateResults }),
             (true, None) => (0, DEFAULT_LIMIT as usize),
         };
-        let max_size = offset.saturating_add(count);
-        let initial_capacity = max_size.min(INITIAL_CAPACITY_CAP);
+        let initial_capacity = offset.saturating_add(count).min(INITIAL_CAPACITY_CAP);
         if sortby {
             Self::Heap {
                 heap: MinMaxHeap::with_capacity(initial_capacity),
                 sort_asc_map,
                 offset,
                 count,
-                max_size,
             }
         } else {
             Self::Array {
                 buf: Vec::with_capacity(initial_capacity),
                 offset,
                 count,
-                max_size,
             }
         }
     }
@@ -108,8 +103,11 @@ impl<T> Storage<T> {
         P: FnOnce() -> T,
     {
         match self {
-            Self::Array { buf, max_size, .. } => {
-                if buf.len() < *max_size {
+            Self::Array {
+                buf, offset, count, ..
+            } => {
+                let max_size = offset.saturating_add(*count);
+                if buf.len() < max_size {
                     buf.push(project());
                     true
                 } else {
@@ -119,13 +117,14 @@ impl<T> Storage<T> {
             Self::Heap {
                 heap,
                 sort_asc_map,
-                max_size,
-                ..
+                offset,
+                count,
             } => {
-                if *max_size == 0 {
+                let max_size = offset.saturating_add(*count);
+                if max_size == 0 {
                     return false;
                 }
-                if heap.len() < *max_size {
+                if heap.len() < max_size {
                     let key = EntryKey::new(sort_vals(), *sort_asc_map);
                     heap.push(HeapEntry::new(key, project()));
                     true
@@ -166,7 +165,6 @@ impl<T> Storage<T> {
                 buf: Vec::new(),
                 offset: 0,
                 count: 0,
-                max_size: 0,
             },
         );
         match taken {

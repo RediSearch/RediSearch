@@ -134,4 +134,3 @@ fn strip_null(v: &SharedValue) -> Option<&Value> {
         other => Some(other),
     }
 }
-
