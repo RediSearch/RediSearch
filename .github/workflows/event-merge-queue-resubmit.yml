@@ -20,6 +20,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           HEAD_REF: ${{ github.event.merge_group.head_ref }}
+          GH_HANDLE_TO_SLACK_JSON: ${{ secrets.GH_HANDLE_TO_SLACK_JSON }}
         shell: python
         run: |
           import json
@@ -158,6 +159,21 @@ jobs:
           reason = latest_removal.get("reason") or "No reason provided"
           actor = latest_removal.get("actor") or {}
           enqueuer = latest_add.get("enqueuer") or latest_removal.get("enqueuer") or {}
+          enqueuer_login = enqueuer.get("login") or ""
+
+          try:
+              raw_mapping = json.loads(os.environ.get("GH_HANDLE_TO_SLACK_JSON") or "{}")
+              slack_mapping = {str(k).lower(): str(v) for k, v in raw_mapping.items()}
+          except (json.JSONDecodeError, AttributeError):
+              slack_mapping = {}
+
+          slack_id = slack_mapping.get(enqueuer_login.lower())
+          if slack_id:
+              enqueued_by_mention = f"<@{slack_id}>"
+          elif enqueuer_login:
+              enqueued_by_mention = f"@{enqueuer_login}"
+          else:
+              enqueued_by_mention = ""
 
           print("PR was resubmitted after removal without new commits")
           print(f"Removal reason: {reason}")
@@ -170,7 +186,8 @@ jobs:
           append_output("pr_author", (pull_request.get("author") or {}).get("login"))
           append_output("reason", reason)
           append_output("removed_by", actor.get("login"))
-          append_output("enqueued_by", enqueuer.get("login"))
+          append_output("enqueued_by", enqueuer_login)
+          append_output("enqueued_by_mention", enqueued_by_mention)
           append_output("removed_at", latest_removal["createdAt"])
           append_output("resubmitted_at", latest_add["createdAt"])
           append_output("head_commit", current_head)
@@ -193,6 +210,7 @@ jobs:
               "Resubmitted At": ${{ toJson(steps.check.outputs.resubmitted_at) }},
               "Removed By": ${{ toJson(steps.check.outputs.removed_by) }},
               "Enqueued By": ${{ toJson(steps.check.outputs.enqueued_by) }},
+              "Enqueued By Mention": ${{ toJson(steps.check.outputs.enqueued_by_mention) }},
               "Head Commit": ${{ toJson(steps.check.outputs.head_commit) }},
               "Head Committed At": ${{ toJson(steps.check.outputs.head_committed_at) }},
               "Workflow": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
