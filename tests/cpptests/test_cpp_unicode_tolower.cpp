@@ -154,7 +154,7 @@ TEST_F(UnicodeToLowerTest, testSupplementaryPlaneBit12) {
   // U+118C0 (WARANG CITI SMALL NGAA,   F0 91 A3 80). Both have codepoint
   // bit 12 set, so this exercises the previously buggy path.
   char str[] = "\xF0\x91\xA2\xA0";
-  char *dst = NULL;
+  char *dst = nullptr;
   size_t newLen = strlen(str);
 
   dst = unicode_tolower(str, &newLen);
@@ -171,7 +171,7 @@ TEST_F(UnicodeToLowerTest, testSupplementaryPlaneNoBit12) {
   // U+10400 (DESERET CAPITAL LONG I, F0 90 90 80) lowercases to
   // U+10428 (DESERET SMALL LONG I,   F0 90 90 A8).
   char str[] = "\xF0\x90\x90\x80";
-  char *dst = NULL;
+  char *dst = nullptr;
   size_t newLen = strlen(str);
 
   dst = unicode_tolower(str, &newLen);
