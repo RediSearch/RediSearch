@@ -9,25 +9,20 @@
 
 //! Bounded storage shared by the COLLECT reducer variants. Two modes:
 //!
-//! - [`Storage::Array`] — used when `SORTBY` is *not* requested. Holds rows
-//!   in arrival order under an `offset + count` cap. Excess inserts are
-//!   dropped in O(1) without paying any projection cost.
-//! - [`Storage::Heap`] — used when `SORTBY` is requested. Wraps the
-//!   [`MinMaxHeap`]-backed primitive defined in [`super::heap`] and keeps
-//!   the top-`(offset + count)` survivors under the comparator driven by
-//!   `sort_asc_map`. Drains best→worst.
-//!
-//! The effective `(offset, count)` is resolved once by [`Storage::new`],
-//! with defaults filling in for a missing `LIMIT`. The maximum number of
-//! buffered rows is `offset + count`, enforced on each insert.
-//!
-//! [`MinMaxHeap`]: min_max_heap::MinMaxHeap
+//! - [`Storage::Array`] — preserves arrival order under an `offset + count`
+//!   cap and drops excess inserts in O(1) without paying any projection
+//!   cost. Suitable when ranking is not needed.
+//! - [`Storage::Heap`] — retains the top-`(offset + count)` survivors under
+//!   a comparator driven by `sort_asc_map`, wrapping the [`MinMaxHeap`]
+//!   primitive defined in [`super::heap`] and draining best→worst.
+//!   Suitable when a ranked top-K is needed.
 
 use std::cmp::Ordering;
 
+use min_max_heap::MinMaxHeap;
 use value::SharedValue;
 
-use super::heap::{EntryHeap, EntryKey, HeapEntry};
+use super::heap::{EntryKey, HeapEntry};
 
 /// Default count for `SORTBY` results when no explicit `LIMIT` is provided,
 /// matching the C implementation's `DEFAULT_LIMIT`.
@@ -58,7 +53,7 @@ pub enum Storage<T> {
         max_size: usize,
     },
     Heap {
-        heap: EntryHeap<T>,
+        heap: MinMaxHeap<HeapEntry<T>>,
         sort_asc_map: u64,
         offset: usize,
         count: usize,
@@ -81,7 +76,7 @@ impl<T> Storage<T> {
         let initial_capacity = max_size.min(INITIAL_CAPACITY_CAP);
         if sortby {
             Self::Heap {
-                heap: EntryHeap::with_capacity(initial_capacity),
+                heap: MinMaxHeap::with_capacity(initial_capacity),
                 sort_asc_map,
                 offset,
                 count,

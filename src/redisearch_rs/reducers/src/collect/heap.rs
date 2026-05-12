@@ -23,7 +23,6 @@
 //! see [`super::storage`].
 //!
 
-use min_max_heap::MinMaxHeap;
 use std::cmp::Ordering;
 use value::comparison::cmp_fields;
 use value::{SharedValue, Value};
@@ -136,9 +135,3 @@ fn strip_null(v: &SharedValue) -> Option<&Value> {
     }
 }
 
-/// Convenience type alias: a [`MinMaxHeap`] of [`HeapEntry<T>`].
-///
-/// The wrapper is a type alias rather than a newtype so callers retain
-/// the full [`MinMaxHeap`] surface (`peek_min`/`peek_max`, `push_pop_min`,
-/// `iter`, `drain_desc`, `with_capacity`).
-pub type EntryHeap<T> = MinMaxHeap<HeapEntry<T>>;

@@ -13,8 +13,8 @@
 extern crate redisearch_rs;
 
 use std::cmp::Ordering;
-
-use reducers::collect::heap::{EntryHeap, EntryKey, HeapEntry};
+use min_max_heap::MinMaxHeap;
+use reducers::collect::heap::{EntryKey, HeapEntry};
 use value::SharedValue;
 
 redis_mock::mock_or_stub_missing_redis_c_symbols!();
@@ -136,9 +136,9 @@ fn heap_entry_into_parts_decomposes() {
 /// (`peek_min`, `peek_max`, `push_pop_min`, `iter`, `drain_desc`).
 #[test]
 fn min_max_heap_top_k_under_asc() {
-    let mut heap: EntryHeap<u64> = EntryHeap::with_capacity(3);
+    let mut heap: MinMaxHeap<HeapEntry<u64>> = MinMaxHeap::with_capacity(3);
     // ASC bit 0 set → smaller is better. Top-3 of {5,1,4,2,3} = {1,2,3}.
-    let push = |heap: &mut EntryHeap<u64>, v: f64| {
+    let push = |heap: &mut MinMaxHeap<HeapEntry<u64>>, v: f64| {
         heap.push(HeapEntry::new(key(&[v], asc(0)), v as u64));
     };
     push(&mut heap, 5.0);
