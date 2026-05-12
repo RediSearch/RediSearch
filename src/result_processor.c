@@ -1522,8 +1522,9 @@ static int RPMaxScoreNormalizerNext_innerLoop(ResultProcessor *rp, SearchResult 
   }
 
   self->maxValue = MAX(self->maxValue, SearchResult_GetScore(self->pooledResult));
-  // copy the index result to make it thread safe - but only if it is pushed to the heap
-  SearchResult_SetBorrowedIndexResult(self->pooledResult, NULL);
+  // The pooled result outlives the upstream iterator's `it->current` slot;
+  // promote the borrow to an owned deep copy before storing in the pool.
+  SearchResult_DeepCopyAndOwnIndexResult(self->pooledResult);
   array_ensure_append_1(self->pool, self->pooledResult);
 
   // we need to allocate a new result for the next iteration
