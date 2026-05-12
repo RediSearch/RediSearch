@@ -9,7 +9,7 @@
 
 use lending_iterator::{lending_iterator::adapters::Filter, prelude::*};
 use std::ffi::c_void;
-use trie_rs::iter::{WildcardFilter, filter::VisitAll};
+use trie_rs::iter::{WildcardLendingIter, filter::VisitAll};
 
 pub type BoxedPredicate = Box<dyn Fn(&(&[u8], &*mut c_void)) -> bool>;
 
@@ -20,7 +20,7 @@ pub enum TrieMapIteratorImpl<'tm> {
     // is much larger than the others due to how much space `memchr::memmem::Finder`
     // takes on the stack.
     Contains(Box<trie_rs::iter::ContainsLendingIter<'tm, *mut c_void>>),
-    Wildcard(trie_rs::iter::LendingIter<'tm, *mut c_void, WildcardFilter<'tm>>),
+    Wildcard(WildcardLendingIter<'tm, *mut c_void>),
 }
 
 #[gat]

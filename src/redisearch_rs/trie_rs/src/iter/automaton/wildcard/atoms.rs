@@ -18,7 +18,7 @@
 //! [`super::nfa::WildcardNfa<S>`] inlines into a tight bitwise hot loop.
 //! [`super::WildcardBackend::for_pattern`] picks the width; patterns
 //! past 127 atoms skip the NFA entirely and route to
-//! [`crate::iter::WildcardIter`].
+//! [`crate::iter::WildcardFilterIter`].
 
 use wildcard::{Token, WildcardPattern};
 

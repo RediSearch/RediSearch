@@ -12,8 +12,8 @@ use wildcard::WildcardPattern;
 use crate::{
     iter::{
         Automaton, AutomatonIter, ContainsIter, IntoValues, Iter, LendingIter, NfaBitSet,
-        PrefixesIter, RangeFilter, RangeIter, Values, WildcardBackend, WildcardIter, WildcardNfa,
-        WildcardSpecializedIter, filter::VisitAll,
+        PrefixesIter, RangeFilter, RangeIter, Values, WildcardBackend, WildcardFilterIter,
+        WildcardIter, WildcardNfa, filter::VisitAll,
     },
     node::Node,
     utils::strip_prefix,
@@ -203,19 +203,22 @@ impl<Data> TrieMap<Data> {
         PrefixesIter::new(self.root.as_ref(), target)
     }
 
-    /// Iterate over all trie entries whose key matches the specified pattern.
-    pub fn wildcard_iter<'a>(&'a self, pattern: WildcardPattern<'a>) -> WildcardIter<'a, Data> {
-        WildcardIter::new(self.root.as_ref(), pattern)
+    /// Filter-based wildcard iterator. Internal — the only public
+    /// wildcard entry point is [`Self::wildcard_iter`], which routes
+    /// here for patterns past 127 atoms.
+    pub(crate) fn wildcard_filter_iter<'a>(
+        &'a self,
+        pattern: WildcardPattern<'a>,
+    ) -> WildcardFilterIter<'a, Data> {
+        WildcardFilterIter::new(self.root.as_ref(), pattern)
     }
 
-    /// Iterate over all trie entries whose key matches the specified pattern,
-    /// using NFA-simulation streaming with the chosen bitset representation.
-    ///
-    /// Pick `S` based on the pattern's atom count: `u64` for ≤ 63 atoms and
-    /// `u128` for 64..=127. Patterns beyond 127 atoms should route through
-    /// [`Self::wildcard_specialized_iter`], which falls back to the
-    /// filter-based [`WildcardIter`] for those sizes.
-    pub fn wildcard_nfa_iter<'a, S: NfaBitSet>(
+    /// NFA-based wildcard iterator for a specific bitset width.
+    /// Internal — used by [`Self::wildcard_iter`] to construct the `u64`
+    /// and `u128` arms. `S` must have capacity for
+    /// `pattern.atom_count() + 1` positions: `u64` covers ≤ 63 atoms,
+    /// `u128` covers ≤ 127.
+    pub(crate) fn wildcard_nfa_iter<'a, S: NfaBitSet>(
         &'a self,
         pattern: &WildcardPattern<'a>,
     ) -> AutomatonIter<'a, Data, WildcardNfa<S>> {
@@ -229,27 +232,19 @@ impl<Data> TrieMap<Data> {
     ///
     /// - ≤ 63 atoms → NFA backed by `u64`.
     /// - 64..=127 atoms → NFA backed by `u128`.
-    /// - ≥ 128 atoms → filter-based [`WildcardIter`]. Wider bitset
-    ///   representations and a sparse-set automaton were prototyped for
-    ///   this range; neither beat the filter's
-    ///   SIMD-`memcmp`-per-literal approach on real workloads.
-    pub fn wildcard_specialized_iter<'a>(
-        &'a self,
-        pattern: &WildcardPattern<'a>,
-    ) -> WildcardSpecializedIter<'a, Data> {
-        match WildcardBackend::for_pattern(pattern) {
-            WildcardBackend::U64 => {
-                WildcardSpecializedIter::U64(self.wildcard_nfa_iter::<u64>(pattern))
-            }
-            WildcardBackend::U128 => {
-                WildcardSpecializedIter::U128(self.wildcard_nfa_iter::<u128>(pattern))
-            }
-            WildcardBackend::Filter => {
-                // `WildcardIter::new` takes the pattern by value; clone is
-                // shallow (the parsed tokens borrow from the caller's
-                // slice).
-                WildcardSpecializedIter::Filter(self.wildcard_iter(pattern.clone()))
-            }
+    /// - ≥ 128 atoms → per-key filter. Wider bitset representations and a
+    ///   sparse-set automaton were prototyped for this range; neither
+    ///   beat the filter's SIMD-`memcmp`-per-literal approach on real
+    ///   workloads.
+    pub fn wildcard_iter<'a>(&'a self, pattern: WildcardPattern<'a>) -> WildcardIter<'a, Data> {
+        // The NFA arms only borrow `pattern` to compile into a
+        // `Vec<Atom>`; the filter arm needs to own it. Taking the
+        // pattern by value lets the filter arm move it in for free
+        // while the NFA arms simply drop it on return.
+        match WildcardBackend::for_pattern(&pattern) {
+            WildcardBackend::U64 => WildcardIter::U64(self.wildcard_nfa_iter::<u64>(&pattern)),
+            WildcardBackend::U128 => WildcardIter::U128(self.wildcard_nfa_iter::<u128>(&pattern)),
+            WildcardBackend::Filter => WildcardIter::Filter(self.wildcard_filter_iter(pattern)),
         }
     }
 

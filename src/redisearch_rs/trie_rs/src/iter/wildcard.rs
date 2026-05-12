@@ -15,12 +15,14 @@ use super::{
 };
 use wildcard::{MatchOutcome, WildcardPattern};
 
-/// An iterator over all entries that match the given wildcard pattern.
-///
-/// It can be instantiated by calling [`TrieMap::wildcard_iter`](crate::TrieMap::wildcard_iter).
-pub struct WildcardIter<'a, Data>(Iter<'a, Data, WildcardFilter<'a>>);
+/// Per-key filter-based wildcard iterator. Public-named because it
+/// appears as the inner value of
+/// [`WildcardIter::Filter`](super::automaton::WildcardIter::Filter),
+/// but it can only be obtained through that dispatcher — the direct
+/// constructor on [`TrieMap`](crate::TrieMap) is crate-private.
+pub struct WildcardFilterIter<'a, Data>(Iter<'a, Data, WildcardFilter<'a>>);
 
-impl<'a, Data> WildcardIter<'a, Data> {
+impl<'a, Data> WildcardFilterIter<'a, Data> {
     pub(crate) fn new(root: Option<&'a Node<Data>>, pattern: WildcardPattern<'a>) -> Self {
         let iter = match root {
             Some(root) => {
@@ -46,7 +48,7 @@ impl<'a, Data> WildcardIter<'a, Data> {
     ///
     /// Mirrors [`super::automaton::AutomatonIter::advance`] so that the
     /// auto-dispatching
-    /// [`super::automaton::WildcardSpecializedIter`] can plug a filter-based
+    /// [`super::automaton::WildcardIter`] can plug a filter-based
     /// fallback into its `advance` / `key` interface without special-casing.
     pub(crate) fn advance(&mut self) -> Option<&'a Data> {
         self.0.advance()
@@ -59,7 +61,7 @@ impl<'a, Data> WildcardIter<'a, Data> {
     }
 }
 
-impl<'a, Data> Iterator for WildcardIter<'a, Data> {
+impl<'a, Data> Iterator for WildcardFilterIter<'a, Data> {
     type Item = (Vec<u8>, &'a Data);
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -67,8 +69,10 @@ impl<'a, Data> Iterator for WildcardIter<'a, Data> {
     }
 }
 
-impl<'tm, Data> From<WildcardIter<'tm, Data>> for LendingIter<'tm, Data, WildcardFilter<'tm>> {
-    fn from(iter: WildcardIter<'tm, Data>) -> Self {
+impl<'tm, Data> From<WildcardFilterIter<'tm, Data>>
+    for LendingIter<'tm, Data, WildcardFilter<'tm>>
+{
+    fn from(iter: WildcardFilterIter<'tm, Data>) -> Self {
         iter.0.into()
     }
 }
