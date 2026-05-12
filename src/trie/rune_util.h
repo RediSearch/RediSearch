@@ -15,13 +15,10 @@
 extern "C" {
 #endif
 
-/* Internally, the trie works with 16/32 bit "Runes", i.e. fixed width unicode
- * characters. 16 bit should be fine for most use cases */
-#ifdef TRIE_32BIT_RUNES
-typedef uint32_t rune;
-#else  // default - 16 bit runes
+/* Internally, the trie works with 16-bit "Runes", i.e. fixed-width Unicode
+ * characters limited to the Basic Multilingual Plane (U+0000..U+FFFF).
+ * Codepoints above U+FFFF are truncated on conversion. */
 typedef uint16_t rune;
-#endif
 
 #define RUNE_STATIC_ALLOC_SIZE 127
 typedef struct {
