@@ -269,16 +269,18 @@ checksum = "9330f8b2ff13f34540b44e946ef35111825727b38d33286ef986142615121801"
 
 [[package]]
 name = "cheadergen"
-version = "0.1.0"
-source = "git+https://github.com/LukeMathWalker/cheadergen.git#362e526df5ec4e2b58987ddca91faf8c8aa5881f"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8c489360a41c5b9ba9d12166115e69c4cc673532bf2a27e669a748e1bc817517"
 dependencies = [
  "cheadergen_macros",
 ]
 
 [[package]]
 name = "cheadergen_macros"
-version = "0.1.0"
-source = "git+https://github.com/LukeMathWalker/cheadergen.git#362e526df5ec4e2b58987ddca91faf8c8aa5881f"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d2bb0af411ea4a9eb4c793cdca7b9679810dd351e09f827da40f8eacbc0f5ee6"
 dependencies = [
  "proc-macro2",
  "quote 1.0.44",

@@ -32,7 +32,7 @@ fn is_special_key(rule: &SchemaRule, key: &RLookupKey) -> bool {
 /// being reached by value through `SearchResult._row_data` — both names emit
 /// to the same C tag, and the wrapper provides the actual layout.
 #[derive(Debug)]
-#[cheadergen::config(export(opaque))]
+#[cheadergen::config(export, opaque)]
 pub struct RLookupRow<'a> {
     /// A reference to the sorting vector.
     sorting_vector: RSSortingVectorRef<'a>,
