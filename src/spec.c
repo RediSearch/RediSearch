@@ -1623,13 +1623,6 @@ static StrongRef IndexSpec_ParseFromArgCursor(const HiddenString *name, ArgsCurs
   spec->timeout = timeout * 1000;  // convert to ms
 
   if (rule_prefixes.argc > 0) {
-    if (rule_prefixes.argc > MAX_SCHEMA_PREFIXES) {
-      QueryError_SetWithoutUserDataFmt(
-          status, QUERY_ELIMIT,
-          "Number of prefixes (%zu) exceeds maximum allowed (%d)",
-          rule_prefixes.argc, MAX_SCHEMA_PREFIXES);
-      goto failure;
-    }
     spec->rule = SchemaRule_CreateWithPrefixesAC(&rule_args, &rule_prefixes, spec_ref, status);
   } else {
     rule_args.nprefixes = 1;
