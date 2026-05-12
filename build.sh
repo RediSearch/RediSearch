@@ -34,7 +34,7 @@ REDISEARCH_GENERATE_HEADERS=${REDISEARCH_GENERATE_HEADERS:-1}
 # Inline LSE atomics on Linux AArch64 (Armv8.1-a+). Set to 0 on pre-Armv8.1-a
 # cores (Cortex-A72, AWS Graviton1, Raspberry Pi 4) to avoid SIGILL on load.
 INLINE_LSE_ATOMICS=${INLINE_LSE_ATOMICS:-1}
-WIP_FEATURES=0   # Compile in work-in-progress features (off by default; CI on master enables it)
+WIP_FEATURES=1   # Compile in work-in-progress features
 
 # Test configuration (0=disabled, 1=enabled)
 BUILD_TESTS=0          # Build test binaries
