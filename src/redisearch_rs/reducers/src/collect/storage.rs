@@ -17,8 +17,6 @@
 //!   primitive defined in [`super::heap`] and draining best→worst.
 //!   Suitable when a ranked top-K is needed.
 
-use std::cmp::Ordering;
-
 use itertools::Either;
 use min_max_heap::MinMaxHeap;
 use rlookup::RLookupRow;
@@ -125,8 +123,8 @@ impl Storage {
                     // under the "best = max" convention (see `heap`).
                     // The unwrap is sound: `cap > 0` implies the heap is
                     // non-empty once we've reached the cap.
-                    let worst = heap.peek_min().expect("heap at cap is non-empty");
-                    if cand.cmp(worst.key()) == Ordering::Greater {
+                    let worst_key = heap.peek_min().expect("heap at cap is non-empty").key();
+                    if cand > *worst_key {
                         heap.push_pop_min(HeapEntry::new(cand, project()));
                         true
                     } else {

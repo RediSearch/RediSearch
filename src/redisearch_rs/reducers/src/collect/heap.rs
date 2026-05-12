@@ -63,6 +63,11 @@ impl PartialOrd for EntryKey {
 
 impl Ord for EntryKey {
     fn cmp(&self, other: &Self) -> Ordering {
+        debug_assert_eq!(
+            self.sort_vals.len(),
+            other.sort_vals.len(),
+            "EntryKey sort_vals length mismatch"
+        );
         let pairs = self
             .sort_vals
             .iter()
