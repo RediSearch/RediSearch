@@ -26,8 +26,6 @@ typedef struct IndexRepairParams IndexRepairParams;
  */
 typedef struct IndexReader IndexReader;
 
-typedef size_t c_size_t;
-
 /**
  * A writer that calls a C function to write data.
  */
@@ -39,7 +37,7 @@ typedef struct II_GCWriter {
   /**
    * Function pointer to the write function.
    */
-  void (*write)(void *ctx, const void *buf, c_size_t len);
+  void (*write)(void *ctx, const void *buf, size_t len);
 } II_GCWriter;
 
 /**
@@ -53,7 +51,7 @@ typedef struct II_GCReader {
   /**
    * Function pointer to the read function.
    */
-  int (*read)(void *ctx, void *buf, c_size_t len);
+  int (*read)(void *ctx, void *buf, size_t len);
 } II_GCReader;
 
 /**

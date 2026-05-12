@@ -1055,6 +1055,7 @@ dependencies = [
  "cheadergen",
  "ffi",
  "inverted_index",
+ "libc",
  "rmp-serde",
  "serde",
  "workspace_hack",
