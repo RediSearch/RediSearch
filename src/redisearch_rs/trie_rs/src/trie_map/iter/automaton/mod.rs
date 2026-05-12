@@ -45,16 +45,13 @@
 //! - [`driver`]: [`AutomatonIter`] and its lending variant.
 //! - [`wildcard`]: the wildcard NFA, atom encoding, and the
 //!   pattern-size-based backend dispatcher
-//!   ([`WildcardSpecializedIter`]).
+//!   ([`WildcardIter`]).
 
 pub mod driver;
 pub mod wildcard;
 
 pub use driver::{AutomatonIter, AutomatonLendingIter};
-pub use wildcard::{
-    NfaBitSet, WildcardBackend, WildcardNfa, WildcardSpecializedIter,
-    WildcardSpecializedLendingIter,
-};
+pub use wildcard::{NfaBitSet, WildcardBackend, WildcardIter, WildcardLendingIter, WildcardNfa};
 
 /// Tells the driver what to do at the current trie node.
 ///

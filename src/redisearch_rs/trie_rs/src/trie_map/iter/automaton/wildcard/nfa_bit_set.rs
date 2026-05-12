@@ -27,7 +27,7 @@ pub trait NfaBitSet: Clone + Eq {
     /// Number of distinct positions this bitset can hold. A pattern with
     /// `n` atoms uses positions `0..=n` (accept included), so the backend
     /// is only sound when `n < CAPACITY`. [`super::nfa::WildcardNfa::compile`]
-    /// enforces this; the dispatcher in [`super::WildcardSpecializedIter`]
+    /// enforces this; the dispatcher in [`super::WildcardIter`]
     /// picks the narrowest width that fits.
     const CAPACITY: usize;
 
