@@ -1594,20 +1594,23 @@ def test_utf8_lowercase_longer_than_uppercase_texts(env):
             'FT.SEARCH', 'idx', f'@t:({t1_lower})', 'NOCONTENT', 'DIALECT', dialect)
         env.assertEqual(res, expected_2, message=f'Dialect: {dialect}')
 
-# The following code points are not supported by Unicode 12.0.0
-# (the version shipped by libnu 1.10).
-# Reference https://www.unicode.org/Public/12.0.0/ucd/UnicodeData.txt
+# The following code points are not supported by Unicode 13.0.0
+# (the version shipped by libnu 1.11).
+# Reference https://www.unicode.org/Public/13.0.0/ucd/UnicodeData.txt
 UNSUPPORTED_UNICODE_12_0_0_CODEPOINTS = {0x1CBB, 0x1CBC}  # Mtavruli gaps (unassigned)
 UNSUPPORTED_UNICODE_12_0_0_CODEPOINTS.add(0x1C89)  # Cyrillic Capital Letter TJE (post-9.0)
 UNSUPPORTED_UNICODE_12_0_0_CODEPOINTS.add(0x2C2F)
 UNSUPPORTED_UNICODE_12_0_0_CODEPOINTS.update(range(0xA7B9, 0xA7F7))
-# Latin Extended-D pairs gained casemapping in Unicode 12.0 (libnu 1.10):
-# Glottal A/I/U pairs (A7BA-A7BF), Anglicana W pair (A7C2/A7C3),
-# and three more capitals whose lowercase live elsewhere (A7C4/A7C5/A7C6).
-# A7C0/A7C1 and A7C7 are Unicode 14.0+ and remain unsupported by libnu 1.10.
+# Latin Extended-D pairs gained casemapping across libnu releases:
+#   libnu 1.10 (Unicode 12.0): Glottal A/I/U pairs (A7BA-A7BF), Anglicana W
+#   pair (A7C2/A7C3), and three more capitals whose lowercase live elsewhere
+#   (A7C4/A7C5/A7C6).
+#   libnu 1.11 (Unicode 13.0): adds A7C7, A7C9, A7F5.
+# A7C0/A7C1 are Unicode 14.0+ and remain unsupported by libnu 1.11.
 UNSUPPORTED_UNICODE_12_0_0_CODEPOINTS.difference_update(
     {0xA7BA, 0xA7BB, 0xA7BC, 0xA7BD, 0xA7BE, 0xA7BF,
-     0xA7C2, 0xA7C3, 0xA7C4, 0xA7C5, 0xA7C6})
+     0xA7C2, 0xA7C3, 0xA7C4, 0xA7C5, 0xA7C6,
+     0xA7C7, 0xA7C9, 0xA7F5})
 # Surrogate pairs (always invalid in Unicode)
 UNSUPPORTED_UNICODE_12_0_0_CODEPOINTS.update(range(0xD800, 0xE000))
 
