@@ -15,8 +15,6 @@
 #include "rdb.h"
 #include "fast_float/fast_float_strtod.h"
 
-#define MAX_SCHEMA_PREFIXES 1000000
-
 
 TrieMap *SchemaPrefixes_g = NULL;
 
