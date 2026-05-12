@@ -36,11 +36,18 @@ runs:
     - name: Configure sccache environment
       # Use --noprofile --norc to avoid Alpine's /etc/profile resetting PATH,
       # which would hide the sccache binary installed by the previous step.
+      # Input values are passed via env (not interpolated into the script)
+      # to satisfy scanners that flag ${{ inputs.* }} inside `run:` blocks
+      # as script-injection sinks.
       shell: bash --noprofile --norc -eo pipefail {0}
+      env:
+        INPUT_S3_BUCKET: ${{ inputs.s3-bucket }}
+        INPUT_S3_REGION: ${{ inputs.s3-region }}
+        INPUT_S3_KEY_PREFIX: ${{ inputs.s3-key-prefix }}
       run: |
-        echo "SCCACHE_BUCKET=${{ inputs.s3-bucket }}" >> "$GITHUB_ENV"
-        echo "SCCACHE_REGION=${{ inputs.s3-region }}" >> "$GITHUB_ENV"
-        echo "SCCACHE_S3_KEY_PREFIX=${{ inputs.s3-key-prefix }}" >> "$GITHUB_ENV"
+        echo "SCCACHE_BUCKET=$INPUT_S3_BUCKET" >> "$GITHUB_ENV"
+        echo "SCCACHE_REGION=$INPUT_S3_REGION" >> "$GITHUB_ENV"
+        echo "SCCACHE_S3_KEY_PREFIX=$INPUT_S3_KEY_PREFIX" >> "$GITHUB_ENV"
         echo "SCCACHE_S3_USE_SSL=true" >> "$GITHUB_ENV"
         # Disable idle timeout so the sccache server stays alive for the
         # entire job, otherwise stats are lost if it shuts down between steps.
