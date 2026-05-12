@@ -10,7 +10,6 @@ concurrency:
 
 jobs:
   pr-validation:
-    name: Mock pull request validation
     runs-on: ubuntu-slim
     steps:
       - name: Pass mock pull request validation
