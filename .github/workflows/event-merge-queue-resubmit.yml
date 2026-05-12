@@ -206,12 +206,12 @@ jobs:
               "Title": ${{ toJson(steps.check.outputs.pr_title) }},
               "Author": ${{ toJson(steps.check.outputs.pr_author) }},
               "Reason": ${{ toJson(steps.check.outputs.reason) }},
-              "Removed At": ${{ toJson(steps.check.outputs.removed_at) }},
-              "Resubmitted At": ${{ toJson(steps.check.outputs.resubmitted_at) }},
-              "Removed By": ${{ toJson(steps.check.outputs.removed_by) }},
-              "Enqueued By": ${{ toJson(steps.check.outputs.enqueued_by) }},
+              "Removed_At": ${{ toJson(steps.check.outputs.removed_at) }},
+              "Resubmitted_At": ${{ toJson(steps.check.outputs.resubmitted_at) }},
+              "Removed_By": ${{ toJson(steps.check.outputs.removed_by) }},
+              "Enqueued_By": ${{ toJson(steps.check.outputs.enqueued_by) }},
               "Enqueued_By_Mention": ${{ toJson(steps.check.outputs.enqueued_by_mention) }},
-              "Head Commit": ${{ toJson(steps.check.outputs.head_commit) }},
-              "Head Committed At": ${{ toJson(steps.check.outputs.head_committed_at) }},
+              "Head_Commit": ${{ toJson(steps.check.outputs.head_commit) }},
+              "Head_Committed_At": ${{ toJson(steps.check.outputs.head_committed_at) }},
               "Workflow": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
             }
