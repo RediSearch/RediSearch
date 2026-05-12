@@ -8,6 +8,7 @@
 */
 
 mod str_to_lower_runes;
+mod tag_strtolower;
 mod unicode_tolower;
 
 /// Codepoints where libnu and Rust's [`str::to_lowercase`] disagree on

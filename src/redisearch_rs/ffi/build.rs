@@ -115,7 +115,7 @@ const HEADERS: &[HeaderAllowlist] = &[
     },
     HeaderAllowlist {
         path: "src/query.h",
-        fns: &[],
+        fns: &["tag_strtolower"],
         types: &["QueryEvalCtx"],
         vars: &[],
     },
