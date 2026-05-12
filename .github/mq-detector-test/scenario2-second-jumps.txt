@@ -1,0 +1,1 @@
+Scenario 2: second queued PR jumps ahead and should not notify either PR.
