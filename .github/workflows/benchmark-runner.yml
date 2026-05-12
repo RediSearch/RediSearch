@@ -235,8 +235,7 @@ jobs:
       test_regex: ${{ inputs.test_regex }}
 
   benchmark-search-oss-cluster-04-primaries-threads-6:
-    # TODO: Temporarily disabled - Redis becomes unavailable after ~3 hours of data loading.
-    if: false # if: ${{ inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-cluster-04-primaries-threads-6' }}
+    if: ${{ (inputs.benchmark_groups == '' || contains(format(',{0},', inputs.benchmark_groups), ',search,')) && (inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-cluster-04-primaries-threads-6') }}
     needs: build-redisearch
     strategy:
       fail-fast: false
