@@ -150,7 +150,6 @@ pub use nfa::WildcardNfa;
 
 use super::AutomatonIter;
 use crate::iter::wildcard::WildcardIter;
-use atoms::count_atoms;
 use lending_iterator::prelude::*;
 use wildcard::WildcardPattern;
 
@@ -199,10 +198,10 @@ pub enum WildcardBackend {
 }
 
 impl WildcardBackend {
-    pub fn for_pattern(pattern: &WildcardPattern<'_>) -> Self {
+    pub const fn for_pattern(pattern: &WildcardPattern<'_>) -> Self {
         // The state must reach position `accept = n_atoms`, so we need
         // capacity for `n_atoms + 1` distinct positions.
-        let positions_needed = count_atoms(pattern) + 1;
+        let positions_needed = pattern.atom_count() + 1;
         if positions_needed <= 64 {
             Self::U64
         } else if positions_needed <= 128 {
