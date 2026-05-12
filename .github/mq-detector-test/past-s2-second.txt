@@ -1,1 +1,2 @@
 Scenario 2 with history: jumping PR gets a past removal before the jump test.
+New commit after the past removal; this PR should not notify when it jumps.
