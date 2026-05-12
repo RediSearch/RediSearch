@@ -27,6 +27,11 @@ jobs:
     needs: build-image
     if: ${{ !cancelled() }}
     runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
+    permissions:
+      contents: read  # actions/checkout
+      id-token: write # OIDC role assumption for sccache S3
+      packages: read  # pull container image from GHCR
+      actions: write  # Swatinem/rust-cache read/write of GH cache
     defaults:
       run:
         shell: bash -l -eo pipefail {0}
@@ -66,6 +71,11 @@ jobs:
           fi
       - name: Setup sccache
         uses: ./.github/actions/setup-sccache
+        with:
+          aws-role: ${{ vars.SCCACHE_AWS_ROLE_TO_ASSUME }}
+          s3-bucket: ${{ vars.SCCACHE_S3_BUCKET }}
+          s3-region: ${{ vars.SCCACHE_S3_REGION }}
+          s3-key-prefix: ${{ vars.SCCACHE_S3_KEY_PREFIX }}
       - name: Setup
         if: needs.build-image.outputs.succeeded != 'true'
         working-directory: .install
