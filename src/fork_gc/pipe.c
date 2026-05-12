@@ -47,21 +47,3 @@ void sendHeaderString(void* ptrCtx) {
   FGC_sendBuffer(ctx->gc, iov->iov_base, iov->iov_len);
 }
 
-// If anything other than FGC_COLLECTED is returned, it is an error or done
-FGCError recvFieldHeader(ForkGC *fgc, char **fieldName, size_t *fieldNameLen,
-                         uint64_t *id) {
-  if (FGC_recvBuffer(fgc, (void **)fieldName, fieldNameLen) != REDISMODULE_OK) {
-    return FGC_PARENT_ERROR;
-  }
-  if (*fieldName == RECV_BUFFER_EMPTY) {
-    *fieldName = NULL;
-    return FGC_DONE;
-  }
-
-  if (FGC_recvFixed(fgc, id, sizeof(*id)) != REDISMODULE_OK) {
-    rm_free(*fieldName);
-    *fieldName = NULL;
-    return FGC_PARENT_ERROR;
-  }
-  return FGC_COLLECTED;
-}

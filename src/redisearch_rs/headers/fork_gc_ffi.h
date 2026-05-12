@@ -9,6 +9,32 @@
 #include <stdlib.h>
 #include "fork_gc.h"
 
+/**
+ * Status code returned by Fork GC parent-side pipe-receive operations.
+ */
+typedef enum FGCError {
+  /**
+   * Data has been collected; more may follow.
+   */
+  FGC_COLLECTED = 0,
+  /**
+   * No more data remains; iteration is complete.
+   */
+  FGC_DONE = 1,
+  /**
+   * Pipe error — the child process likely crashed.
+   */
+  FGC_CHILD_ERROR = 2,
+  /**
+   * Error on the parent side.
+   */
+  FGC_PARENT_ERROR = 3,
+  /**
+   * The index spec was deleted.
+   */
+  FGC_SPEC_DELETED = 4,
+} FGCError;
+
 #ifdef __cplusplus
 extern "C" {
 #endif // __cplusplus
@@ -95,6 +121,22 @@ int FGC_recvFixed(ForkGC *fgc, void *buf, size_t len);
  *    locations respectively.
  */
 int FGC_recvBuffer(ForkGC *fgc, void * *buf, size_t *len);
+
+/**
+ * Receive a field header (field name + unique id).
+ *
+ * Returns `FGC_COLLECTED` on success, `FGC_DONE` when no more fields remain,
+ * or an error variant on pipe failure.
+ *
+ * # Safety
+ *
+ * 1. `fgc` must point to a valid `ForkGC` whose `pipe_read_fd` is an open,
+ *    readable file descriptor.
+ * 2. `field_name` and `field_name_len` must point to writable `char*` and
+ *    `size_t` locations respectively.
+ * 3. `id` must point to a writable `uint64_t` location.
+ */
+enum FGCError recvFieldHeader(ForkGC *fgc, char * *field_name, size_t *field_name_len, uint64_t *id);
 
 #ifdef __cplusplus
 }  // extern "C"
