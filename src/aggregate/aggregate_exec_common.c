@@ -90,6 +90,14 @@ static inline void debugCheckAndPauseAfterAggregateResult(AREQ *areq) {}
 
      // clean the search result
      r = SearchResult_New();
+
+     // Honour a main-thread timeout flag at the row boundary: buffering
+     // stages (safe loader, sorter yield) can keep emitting from internal
+     // buffers without re-touching upstream's per-row timeout check.
+     if (areq && AREQ_TimedOut(areq)) {
+       *rc = RS_RESULT_TIMEDOUT;
+       break;
+     }
    }
 
    if (*rc != RS_RESULT_OK) {
@@ -213,15 +221,21 @@ static inline void debugCheckAndPauseAfterAggregateResult(AREQ *areq) {}
  }
 
  /**
-  * Reset `qctx->totalResults` to zero when the pipeline cannot yield partial
-  * results and no rows were stored. Keeps the reply consistent (no rows ->
-  * count == 0) for shapes that admit rows into the root processor only to
-  * have them dropped further up the chain on TIMEDOUT.
+  * Normalize `qctx->totalResults` to the number of rows the strict-bail
+  * reply will actually emit when the pipeline cannot yield partial results.
+  * Without this, the wire `total_results` count would still reflect the
+  * pre-bail upstream cardinality (e.g. RPIndex's row counter, or RPNet's
+  * accumulated per-shard sums) while the reply only ships the rows that
+  * happened to be buffered before the abort, producing an inconsistent
+  * "X of N matched" reply for X rows.
+  *
+  * Pipelines classified as yielding partial results are left untouched:
+  * their drain matches whatever the buffer already counts.
   */
- void AREQ_MaybeResetTotalResultsAfterDrain(AREQ *req) {
+ void AREQ_NormalizeTotalResultsAfterDrain(AREQ *req) {
    QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
    ChunkReplyState *stored = &req->storedReplyState;
-   if (!qctx->canYieldPartialResults && array_len(stored->results) == 0) {
-     qctx->totalResults = 0;
+   if (!qctx->canYieldPartialResults) {
+     qctx->totalResults = array_len(stored->results);
    }
  }

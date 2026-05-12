@@ -639,10 +639,11 @@ int DistAggregateTimeoutReturnStrictClient(RedisModuleCtx *ctx, RedisModuleStrin
   // No-op for already-complete runs.
   drainPartialResultsAfterTimeout(req);
 
-  // Rejected pipelines discard their buffer on TIMEDOUT, but RPNet may have
-  // already accumulated `total_results` from admitted shard replies. Zero it
-  // for consistency with the empty results.
-  AREQ_MaybeResetTotalResultsAfterDrain(req);
+  // Rejected pipelines do not drain post-deadline shard replies, but RPNet
+  // already accumulated `total_results` from per-shard sums for every reply
+  // pulled from the channel before the deadline. Normalize the count to
+  // the rows the reply will actually emit.
+  AREQ_NormalizeTotalResultsAfterDrain(req);
 
   AREQ_ReplyWithStoredResults(ctx, req);
 
@@ -688,6 +689,15 @@ int DistAggregateReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, in
     return REDISMODULE_OK;
   }
 
+  // Under RETURN-STRICT, a shard's TIMEDOUT warning does not abort the coord
+  // pipeline (see processWarningsAndCleanup in src/coord/rpnet.c): RPNet keeps
+  // draining the remaining shards and the warning is surfaced via the
+  // QEXEC_S_SHARD_TIMED_OUT_WARNING flag. The only RETURN-STRICT path that
+  // still produces rc=TIMEDOUT is the coord's own deadline firing, which
+  // routes through DistAggregateTimeoutReturnStrictClient -- not this
+  // callback. Under FAIL, a shard timeout still bails the coord pipeline
+  // early; the BG thread stores the resulting error in storedReplyState.err
+  // and the early-error branch above replies with it.
   AREQ_ReplyWithStoredResults(ctx, req);
 
   // Note: No AREQ_DecrRef here - CoordRequestCtx_Free releases the context's reference.

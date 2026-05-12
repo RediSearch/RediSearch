@@ -1075,37 +1075,55 @@ def resetCoordReduceDebug(env):
 # These drive the AggregateResultsDebugCtx in src/debug_commands.{h,c} which the
 # AggregateResults loop in aggregate_exec_common.c consults after each extracted
 # result, busy-spinning until the test calls setAggregateResultsResume.
-def setPauseAfterAggregateResult(env, N):
+# `target` may be an Env (uses .expect().ok() / .cmd()) or a raw connection
+# (uses .execute_command()), so per-shard tests can drive the same hooks on
+# a specific shard's process.
+def _qc_set(target, *args):
+    cmd = (debug_cmd(), 'QUERY_CONTROLLER') + args
+    if hasattr(target, 'expect'):
+        target.expect(*cmd).ok()
+    else:
+        target.execute_command(*cmd)
+
+def _qc_get(target, *args):
+    cmd = (debug_cmd(), 'QUERY_CONTROLLER') + args
+    if hasattr(target, 'cmd'):
+        return target.cmd(*cmd)
+    return target.execute_command(*cmd)
+
+def setPauseAfterAggregateResult(target, N):
     """Pause the AggregateResults loop after the Nth result is extracted.
 
     N == 0 disables the pause; N > 0 pauses after the Nth result (1-based).
     Resets the internal results counter so successive tests start from zero.
     """
-    env.expect(debug_cmd(), 'QUERY_CONTROLLER', 'SET_PAUSE_AFTER_AGGREGATE_RESULT', N).ok()
+    _qc_set(target, 'SET_PAUSE_AFTER_AGGREGATE_RESULT', N)
 
-def getIsAggregateResultsPaused(env):
+def getIsAggregateResultsPaused(target):
     """Check if the AggregateResults loop is currently paused."""
-    return env.cmd(debug_cmd(), 'QUERY_CONTROLLER', 'GET_IS_AGGREGATE_RESULTS_PAUSED')
+    return _qc_get(target, 'GET_IS_AGGREGATE_RESULTS_PAUSED')
 
-def setAggregateResultsResume(env):
+def setAggregateResultsResume(target):
     """Resume the AggregateResults loop from a pause."""
-    env.expect(debug_cmd(), 'QUERY_CONTROLLER', 'SET_AGGREGATE_RESULTS_RESUME').ok()
+    _qc_set(target, 'SET_AGGREGATE_RESULTS_RESUME')
 
-def getAggregateResultsCount(env):
+def getAggregateResultsCount(target):
     """Get the number of results extracted so far by the AggregateResults loop."""
-    return env.cmd(debug_cmd(), 'QUERY_CONTROLLER', 'GET_AGGREGATE_RESULTS_COUNT')
+    return _qc_get(target, 'GET_AGGREGATE_RESULTS_COUNT')
 
-def resetAggregateResultsDebug(env):
+def resetAggregateResultsDebug(target):
     """Reset the AggregateResults debug context (clear pause point and resume).
 
-    Mirrors resetCoordReduceDebug: tolerates the "not paused" error so cleanup
-    is safe to call regardless of the loop's current state.
+    Mirrors resetCoordReduceDebug: tolerates the "not paused" state so cleanup
+    is safe to call regardless of the loop's current state. The pause loop in
+    debugCheckAndPauseAfterAggregateResult self-releases when AREQ_TimedOut is
+    observed, so by the time tests reach cleanup the loop may already be
+    unpaused -- in that case SET_AGGREGATE_RESULTS_RESUME would error, which
+    must not be surfaced as a test failure.
     """
-    setPauseAfterAggregateResult(env, 0)
-    try:
-        env.cmd(debug_cmd(), 'QUERY_CONTROLLER', 'SET_AGGREGATE_RESULTS_RESUME')
-    except Exception:
-        pass  # Ignore error if loop is not paused
+    setPauseAfterAggregateResult(target, 0)
+    if getIsAggregateResultsPaused(target) == 1:
+        _qc_set(target, 'SET_AGGREGATE_RESULTS_RESUME')
 
 # Store Results Pause helpers (only available when built with ENABLE_ASSERT)
 def setPauseBeforeStoreResults(env, enabled, internal):

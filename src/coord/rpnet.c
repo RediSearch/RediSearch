@@ -228,9 +228,18 @@ static bool shardResponseBarrier_HandleError(RPNet *nc) {
 
 // Process warnings from nc->current.meta (RESP3 only), then free reply and reset state.
 // Warning handling requires nc->current.meta to be set. Cleanup is done regardless of protocol.
-// Returns RS_RESULT_TIMEDOUT if timeout warning found, RS_RESULT_OK otherwise.
+//
+// Shard warnings are always recorded on the AREQ / QueryError so the reply
+// emitter can surface them. A shard's TIMEDOUT warning additionally controls
+// whether the coord pipeline should keep draining:
+//   - TimeoutPolicy_ReturnStrict: keep draining the remaining shards. The
+//     warning flag is forwarded via QEXEC_S_SHARD_TIMED_OUT_WARNING; the
+//     coord's own deadline (handled by the strict timeout callback) is the
+//     authoritative stop signal.
+//   - TimeoutPolicy_Return / TimeoutPolicy_Fail: a shard timeout
+//     bails the coord pipeline early by returning RS_RESULT_TIMEDOUT.
 static int processWarningsAndCleanup(RPNet *nc, bool is_resp3) {
-  bool timed_out = false;
+  bool shard_timed_out = false;
   // Check for warnings (resp3 only)
   if (is_resp3) {
     RS_ASSERT(nc->current.meta);
@@ -241,7 +250,9 @@ static int processWarningsAndCleanup(RPNet *nc, bool is_resp3) {
       const char *warning_str = MRReply_String(MRReply_ArrayElement(warning, i), NULL);
       // Set an error to be later picked up and sent as a warning
       if (!strcmp(warning_str, QueryWarning_Strwarning(QUERY_WARNING_CODE_TIMED_OUT))) {
-        timed_out = true;
+        RS_ASSERT(nc->areq);
+        shard_timed_out = true;
+        nc->areq->stateflags |= QEXEC_S_SHARD_TIMED_OUT_WARNING;
       } else if (!strcmp(warning_str, QUERY_WMAXPREFIXEXPANSIONS)) {
         QueryError_SetReachedMaxPrefixExpansionsWarning(AREQ_QueryProcessingCtx(nc->areq)->err);
       } else if (!strcmp(warning_str, QUERY_WOOM_SHARD)) {
@@ -259,7 +270,7 @@ static int processWarningsAndCleanup(RPNet *nc, bool is_resp3) {
   MRReply_Free(nc->current.root);
   RPNet_resetCurrent(nc);
 
-  if (timed_out) {
+  if (shard_timed_out && nc->areq->reqConfig.timeoutPolicy != TimeoutPolicy_ReturnStrict) {
     return RS_RESULT_TIMEDOUT;
   }
 

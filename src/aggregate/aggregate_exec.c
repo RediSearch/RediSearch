@@ -591,7 +591,12 @@ static long prepareSendChunkReply_Resp2(AREQ *req, RedisModule_Reply *reply,
  * Tracks warnings in global statistics and profile context.
  */
 static void trackWarnings_Resp2(AREQ *req, QueryProcessingCtx *qctx, int rc) {
-  bool has_timedout = (rc == RS_RESULT_TIMEDOUT) || hasTimeoutError(qctx->err);
+  // The shard-timed-out flag is set by the coord-side RPNet when a shard reply
+  // carries a TIMEDOUT warning; the coord pipeline keeps draining other shards
+  // and rc stays !=TIMEDOUT, so the flag is the only path through which the
+  // user-visible TIMEOUT warning is surfaced in that case.
+  bool has_timedout = (rc == RS_RESULT_TIMEDOUT) || hasTimeoutError(qctx->err)
+                      || (req->stateflags & QEXEC_S_SHARD_TIMED_OUT_WARNING);
   if (has_timedout) {
     QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_TIMED_OUT, 1, !IsInternal(req));
     ProfileWarnings_Add(&req->profileCtx.warnings, PROFILE_WARNING_TYPE_TIMEOUT);
@@ -760,7 +765,12 @@ static void _replyWarnings(AREQ *req, RedisModule_Reply *reply, int rc) {
     RedisModule_Reply_SimpleString(reply, QUERY_WOOM_COORD);
     ProfileWarnings_Add(&profileCtx->warnings, PROFILE_WARNING_TYPE_QUERY_OOM);
   }
-  if (rc == RS_RESULT_TIMEDOUT) {
+  // The shard-timed-out flag is set by the coord-side RPNet when a shard reply
+  // carries a TIMEDOUT warning; the coord pipeline keeps draining other shards
+  // and rc stays !=TIMEDOUT, so the flag is the only path through which the
+  // user-visible TIMEOUT warning is surfaced in that case.
+  if (rc == RS_RESULT_TIMEDOUT
+      || (req->stateflags & QEXEC_S_SHARD_TIMED_OUT_WARNING)) {
     // Track warnings in global statistics
     QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_TIMED_OUT, 1, !IsInternal(req));
     RedisModule_Reply_SimpleString(reply, QueryWarning_Strwarning(QUERY_WARNING_CODE_TIMED_OUT));
@@ -828,7 +838,8 @@ static void finishSendChunkReply_Resp3(AREQ *req, RedisModule_Reply *reply,
   // <error>
   _replyWarnings(req, reply, rc);
 
-  bool has_timedout = (rc == RS_RESULT_TIMEDOUT) || hasTimeoutError(qctx->err);
+  bool has_timedout = (rc == RS_RESULT_TIMEDOUT) || hasTimeoutError(qctx->err)
+                      || (req->stateflags & QEXEC_S_SHARD_TIMED_OUT_WARNING);
 
   if (IsProfile(req)) {
     if (has_timedout) {
@@ -1536,7 +1547,6 @@ static void drainPartialResultsAfterTimeout(AREQ *req) {
 //   - Otherwise BG owns the buffer; wait for it to finish AREQ_StoreResults,
 //     then drain anything still buffered (RPSorter heap) and reply.
 static int QueryTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-
   BlockedQueryNode *node = RedisModule_GetBlockedClientPrivateData(ctx);
   if (!node || !node->privdata) {
     // Shouldn't happen, but handle gracefully
@@ -1569,10 +1579,11 @@ static int QueryTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleStri
   // No-op for shapes that already accumulated their rows in state.results.
   drainPartialResultsAfterTimeout(req);
 
-  // Rejected pipelines discard their buffer on TIMEDOUT, but RPIndex may have
-  // already accumulated `total_results` while emitting rows that were later
-  // dropped by the pipeline. Zero it for consistency with the empty results.
-  AREQ_MaybeResetTotalResultsAfterDrain(req);
+  // Rejected pipelines do not drain their post-park buffer, but RPIndex
+  // already accumulated `total_results` for every doc the index iterator
+  // visited (including rows that were later dropped or never reached the
+  // sink). Normalize the count to the rows the reply will actually emit.
+  AREQ_NormalizeTotalResultsAfterDrain(req);
 
   AREQ_ReplyWithStoredResults(ctx, req);
 
