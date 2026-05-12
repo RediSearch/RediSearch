@@ -42,9 +42,7 @@ fn sweep_for_invalid_libnu_output() {
         offenders.len()
     );
     for (cp, bytes, err) in &offenders {
-        println!(
-            "  U+{cp:06X}  raw_bytes={bytes:02X?}  utf8_error={err}"
-        );
+        println!("  U+{cp:06X}  raw_bytes={bytes:02X?}  utf8_error={err}");
     }
 
     assert!(

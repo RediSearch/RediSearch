@@ -127,16 +127,16 @@ pub fn fold_libnu_raw(s: &str) -> Vec<u8> {
 /// "does libnu *ever* emit invalid UTF-8 from its runtime encoder?".
 pub fn encode_codepoint_with_libnu(cp: u32) -> Vec<u8> {
     let mut buf = [0u8; 4];
+    let begin = buf.as_mut_ptr() as *mut std::ffi::c_char;
     // SAFETY: `nu_utf8_write` writes at most 4 bytes (the UTF-8 maximum for
-    // any codepoint <= U+10FFFF) and returns a pointer to one past the last
-    // byte written. The buffer is exactly 4 bytes, so the writer cannot
-    // overrun. We do not validate the bytes — the whole point is to capture
-    // whatever libnu emits.
-    let written = unsafe {
-        let begin = buf.as_mut_ptr() as *mut std::ffi::c_char;
-        let end = libnu_ffi::nu_utf8_write(cp, begin);
-        end.offset_from(begin) as usize
-    };
+    // any codepoint <= U+10FFFF) into the buffer at `begin` and returns a
+    // pointer to one past the last byte written. The buffer is exactly 4
+    // bytes, so the writer cannot overrun.
+    let end = unsafe { libnu_ffi::nu_utf8_write(cp, begin) };
+    // SAFETY: `end` is derived from `begin` (returned by `nu_utf8_write`
+    // pointing into the same 4-byte allocation), so both pointers share an
+    // origin and the difference fits in `isize`.
+    let written = unsafe { end.offset_from(begin) } as usize;
     buf[..written].to_vec()
 }
 
