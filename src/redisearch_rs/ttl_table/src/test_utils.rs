@@ -16,8 +16,12 @@ use thin_vec::ThinVec;
 use crate::FieldExpiration;
 
 pub const fn ts(sec: i64, nsec: i64) -> timespec {
+    // `libc::time_t` is deprecated on musl (musl 1.2 changed it to 64-bit,
+    // and the libc crate will follow suit — see libc#1848).
+    #[cfg_attr(target_env = "musl", expect(deprecated))]
+    let tv_sec = sec as libc::time_t;
     timespec {
-        tv_sec: sec as libc::time_t,
+        tv_sec,
         tv_nsec: nsec as libc::c_long,
     }
 }
