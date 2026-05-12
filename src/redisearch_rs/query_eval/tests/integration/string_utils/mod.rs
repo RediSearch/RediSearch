@@ -8,3 +8,4 @@
 */
 
 mod str_to_lower_runes;
+mod unicode_tolower;

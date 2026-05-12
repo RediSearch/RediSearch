@@ -12,6 +12,16 @@
 //! These are pure-Rust replacements for C helpers that were previously
 //! implemented using `libnu` for Unicode operations.
 
+/// Convert a UTF-8 string to lowercase per-character, without
+/// context-dependent casing rules.
+///
+/// Unlike [`str::to_lowercase`], this lowercases each [`char`] independently
+/// (via [`char::to_lowercase`]), which matches the behaviour of the C
+/// `unicode_tolower` function backed by libnu.
+pub fn unicode_tolower(s: &str) -> String {
+    s.chars().flat_map(char::to_lowercase).collect()
+}
+
 /// Maximum number of runes (lowercased codepoints) allowed in a single
 /// conversion, matching the C `MAX_RUNESTR_LEN` constant.
 pub const MAX_RUNE_STR_LEN: usize = 1024;
