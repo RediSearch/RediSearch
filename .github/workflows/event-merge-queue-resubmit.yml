@@ -39,6 +39,14 @@ jobs:
                 author {
                   login
                 }
+                commits(last: 1) {
+                  nodes {
+                    commit {
+                      oid
+                      committedDate
+                    }
+                  }
+                }
                 timelineItems(
                   last: 50
                   itemTypes: [
@@ -62,9 +70,6 @@ jobs:
                       }
                       enqueuer {
                         login
-                      }
-                      beforeCommit {
-                        oid
                       }
                     }
                   }
@@ -139,14 +144,15 @@ jobs:
               finish_without_alert("The latest merge queue event is a removal, not this submission")
 
           current_head = pull_request["headRefOid"]
-          removed_head = (latest_removal.get("beforeCommit") or {}).get("oid")
-          if not removed_head:
-              finish_without_alert("The latest removal event does not include the PR head commit")
+          head_commit = pull_request["commits"]["nodes"][0]["commit"]
+          if current_head != head_commit["oid"]:
+              finish_without_alert("Could not confirm the PR head commit from the commit list")
 
-          if current_head != removed_head:
-              print("The PR head changed since the last merge queue removal")
+          if head_commit["committedDate"] > latest_removal["createdAt"]:
+              print("The PR head commit is newer than the last merge queue removal")
               print(f"Current head: {current_head}")
-              print(f"Removed head: {removed_head}")
+              print(f"Head committed at: {head_commit['committedDate']}")
+              print(f"Removed at: {latest_removal['createdAt']}")
               finish_without_alert("No unchanged resubmission detected")
 
           reason = latest_removal.get("reason") or "No reason provided"
@@ -156,6 +162,7 @@ jobs:
           print("PR was resubmitted after removal without new commits")
           print(f"Removal reason: {reason}")
           print(f"Head commit: {current_head}")
+          print(f"Head committed at: {head_commit['committedDate']}")
 
           append_output("resubmit", "true")
           append_output("pr_title", pull_request["title"])
@@ -167,6 +174,7 @@ jobs:
           append_output("removed_at", latest_removal["createdAt"])
           append_output("resubmitted_at", latest_add["createdAt"])
           append_output("head_commit", current_head)
+          append_output("head_committed_at", head_commit["committedDate"])
 
       - name: Notify Slack about unchanged merge queue resubmission
         if: steps.check.outputs.resubmit == 'true'
@@ -186,5 +194,6 @@ jobs:
               "Removed By": ${{ toJson(steps.check.outputs.removed_by) }},
               "Enqueued By": ${{ toJson(steps.check.outputs.enqueued_by) }},
               "Head Commit": ${{ toJson(steps.check.outputs.head_commit) }},
+              "Head Committed At": ${{ toJson(steps.check.outputs.head_committed_at) }},
               "Workflow": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
             }
