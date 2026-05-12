@@ -1782,7 +1782,7 @@ StrongRef IndexSpec_ParseC(const char *name, const char **argv, int argc, QueryE
   HiddenString *hidden = NewHiddenString(name, strlen(name), true);
   ArgsCursor ac = {0};
   ArgsCursor_InitCString(&ac, argv, argc);
-  return IndexSpec_ParseFromArgCursor(ctx, hidden, &ac, status);
+  return IndexSpec_ParseFromArgCursor(NULL, hidden, &ac, status);
 }
 
 /* Initialize some index stats that might be useful for scoring functions */

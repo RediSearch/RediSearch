@@ -533,7 +533,7 @@ void IndexSpec_StartGCFromSpec(StrongRef spec_ref, IndexSpec *sp, uint32_t gcPol
  * internally. Intended for unit tests only.
  * Do not use in production or new code: the wrapping requires an extra strlen() over the name,
  * which IndexSpec_Parse avoids by taking a HiddenString directly. */
-StrongRef IndexSpec_ParseC(RedisModuleCtx *ctx, const char *name, const char **argv, int argc, QueryError *status);
+StrongRef IndexSpec_ParseC(const char *name, const char **argv, int argc, QueryError *status);
 
 FieldSpec *IndexSpec_CreateField(IndexSpec *sp, const char *name, const char *path);
 
