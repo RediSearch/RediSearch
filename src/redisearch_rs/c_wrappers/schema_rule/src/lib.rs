@@ -106,7 +106,7 @@ impl SchemaRule {
         self.0.type_
     }
 
-    /// Get the underlying `index_all` flag.
+    /// Set the underlying `index_all` flag.
     pub const fn set_index_all(&mut self, value: bool) {
         self.0.index_all = value;
     }
