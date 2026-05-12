@@ -1,28 +1,27 @@
 name: Retry on sccache timeout
 description: |
-  Run a command, retrying only when it fails with a transient sccache server
-  startup timeout (e.g. when the GitHub Actions cache backend is briefly
-  unreachable). On the final attempt, sccache is configured with verbose
-  logging (`SCCACHE_LOG=debug`) and run without its background daemon
-  (`SCCACHE_NO_DAEMON=1`) so that any persistent failure surfaces with
-  maximum diagnostic information.
-
-  See MOD-15568.
+  Runs a command with retry logic, but only retries when the failure matches a
+  transient sccache server startup timeout (the GitHub Actions cache backend
+  briefly unreachable). Any other failure is surfaced immediately so real
+  errors are not masked. On the final attempt, sccache is configured with
+  verbose logging (SCCACHE_LOG=debug) and run without its background daemon
+  (SCCACHE_NO_DAEMON=1) so that a persistent failure surfaces with maximum
+  diagnostic information.
 
 inputs:
   command:
-    description: "The command to run."
+    description: "The command to run"
     required: true
   working_directory:
-    description: "Working directory to run the command from."
+    description: "Working directory to run the command from"
     required: false
     default: "."
-  max_attempts:
-    description: "Maximum number of attempts (initial run + retries)."
+  max_retries:
+    description: "Maximum number of retry attempts"
     required: false
     default: "3"
   retry_delay:
-    description: "Delay in seconds between attempts."
+    description: "Delay in seconds between retries"
     required: false
     default: "30"
 
@@ -33,36 +32,35 @@ runs:
       working-directory: ${{ inputs.working_directory }}
       env:
         COMMAND: ${{ inputs.command }}
-        MAX_ATTEMPTS: ${{ inputs.max_attempts }}
+        MAX_RETRIES: ${{ inputs.max_retries }}
         RETRY_DELAY: ${{ inputs.retry_delay }}
       run: |
-        # Pattern that identifies a transient sccache backend startup failure
-        # that is safe to retry. Keep narrow: any other failure is treated as
-        # a real error and surfaced immediately.
+        # Narrow pattern: only retry on this exact transient error.
         SCCACHE_TIMEOUT_PATTERN='sccache: error: Timed out waiting for server startup'
 
         LOG_FILE=$(mktemp)
         trap 'rm -f "$LOG_FILE"' EXIT
 
+        SUCCESS=0
         EXIT_CODE=0
-        for attempt in $(seq 1 "$MAX_ATTEMPTS"); do
-          echo "::group::Attempt $attempt of $MAX_ATTEMPTS"
+        for i in $(seq 1 "$MAX_RETRIES"); do
+          echo "::group::Attempt $i of $MAX_RETRIES"
 
           # Last attempt: enable verbose sccache logging and disable the
-          # background server so that any persistent failure is captured with
-          # maximum diagnostic information (per MOD-15568 review feedback).
-          if [ "$attempt" -eq "$MAX_ATTEMPTS" ] && [ "$MAX_ATTEMPTS" -gt 1 ]; then
+          # background server so that any persistent failure surfaces with
+          # maximum diagnostic information.
+          if [ "$i" -eq "$MAX_RETRIES" ] && [ "$MAX_RETRIES" -gt 1 ]; then
             echo "Final attempt: enabling SCCACHE_LOG=debug and SCCACHE_NO_DAEMON=1"
             export SCCACHE_LOG=debug
             export SCCACHE_NO_DAEMON=1
-            # Stop any sccache server already started by previous attempts so
-            # the no-daemon mode actually takes effect for child processes.
+            # Stop any sccache server started by earlier attempts so no-daemon
+            # mode actually takes effect for child processes.
             "${SCCACHE_PATH:-sccache}" --stop-server >/dev/null 2>&1 || true
           fi
 
-          # Run the command, mirroring its output to a log file so we can
-          # inspect it afterwards for known transient error patterns.
-          # Use `set +e` so we can capture the exit code without aborting.
+          # Mirror output to a log file so we can inspect it afterwards for
+          # the known transient pattern. `set +e` lets us capture the exit
+          # code of the eval without aborting under `set -e`.
           set +e
           eval "$COMMAND" 2>&1 | tee "$LOG_FILE"
           EXIT_CODE=${PIPESTATUS[0]}
@@ -71,24 +69,17 @@ runs:
           echo "::endgroup::"
 
           if [ "$EXIT_CODE" -eq 0 ]; then
-            echo "Command succeeded on attempt $attempt"
-            exit 0
-          fi
-
-          echo "Command failed on attempt $attempt with exit code $EXIT_CODE"
-
-          if [ "$attempt" -ge "$MAX_ATTEMPTS" ]; then
-            echo "Reached maximum attempts ($MAX_ATTEMPTS); giving up."
+            echo "Command succeeded"
+            SUCCESS=1
             break
           fi
 
-          if grep -qF "$SCCACHE_TIMEOUT_PATTERN" "$LOG_FILE"; then
-            echo "Detected transient sccache startup timeout; retrying in $RETRY_DELAY seconds..."
+          if [ "$i" -lt "$MAX_RETRIES" ] && grep -qF "$SCCACHE_TIMEOUT_PATTERN" "$LOG_FILE"; then
+            echo "Command failed with transient sccache startup timeout, retrying in $RETRY_DELAY seconds..."
             sleep "$RETRY_DELAY"
           else
-            echo "Failure does not match a known transient sccache pattern; not retrying."
             break
           fi
         done
 
-        exit "$EXIT_CODE"
+        [ $SUCCESS -eq 1 ] || exit "$EXIT_CODE"
