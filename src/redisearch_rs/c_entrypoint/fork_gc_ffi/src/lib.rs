@@ -15,14 +15,34 @@
 //! delegates everything else — including Redis-specific failure
 //! handling — to the `fork_gc` crate.
 
-use std::ffi::{c_int, c_void};
+use std::ffi::{c_char, c_int, c_void};
 
-use fork_gc::{ForkGC, io_result_ext::IoResultExt};
+use fork_gc::{ForkGC, io_result_ext::IoResultExt, reader::RecvFrame};
 
 use tracing::Level;
 use tracing_log_error::log_error;
 
 mod util;
+
+/// Status code returned by Fork GC parent-side pipe-receive operations.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[expect(
+    non_camel_case_types,
+    reason = "variant names must match the C enum constants"
+)]
+pub enum FGCError {
+    /// Data has been collected; more may follow.
+    FGC_COLLECTED = 0,
+    /// No more data remains; iteration is complete.
+    FGC_DONE = 1,
+    /// Pipe error — the child process likely crashed.
+    FGC_CHILD_ERROR = 2,
+    /// Error on the parent side.
+    FGC_PARENT_ERROR = 3,
+    /// The index spec was deleted.
+    FGC_SPEC_DELETED = 4,
+}
 
 /// Write exactly `len` bytes from `buff` to the FGC pipe.
 ///
@@ -166,4 +186,52 @@ pub unsafe extern "C" fn FGC_recvBuffer(
     }
 
     ffi::REDISMODULE_OK as c_int
+}
+
+/// Receive a field header (field name + unique id).
+///
+/// Returns `FGC_COLLECTED` on success, `FGC_DONE` when no more fields remain,
+/// or an error variant on pipe failure.
+///
+/// # Safety
+///
+/// 1. `fgc` must point to a valid `ForkGC` whose `pipe_read_fd` is an open,
+///    readable file descriptor.
+/// 2. `field_name` and `field_name_len` must point to writable `char*` and
+///    `size_t` locations respectively.
+/// 3. `id` must point to a writable `uint64_t` location.
+#[unsafe(no_mangle)]
+#[must_use]
+pub unsafe extern "C" fn recvFieldHeader(
+    fgc: *mut ffi::ForkGC,
+    field_name: *mut *mut c_char,
+    field_name_len: *mut usize,
+    id: *mut u64,
+) -> FGCError {
+    // SAFETY: caller guarantees (1).
+    let fgc = unsafe { ForkGC::from_ptr_mut(fgc) };
+    let mut reader = fgc.reader();
+
+    let frame = match reader.recv_buffer() {
+        Ok(frame) => frame,
+        Err(_) => return FGCError::FGC_PARENT_ERROR,
+    };
+
+    if matches!(frame, RecvFrame::Terminator) {
+        return FGCError::FGC_DONE;
+    }
+
+    let mut id_bytes = [0u8; size_of::<u64>()];
+    if reader.recv_fixed(&mut id_bytes).is_err() {
+        return FGCError::FGC_PARENT_ERROR;
+    }
+
+    let (name_ptr, name_len) = util::frame_into_c_buffer(frame);
+    // SAFETY: caller guarantees (2) and (3).
+    unsafe {
+        *field_name = name_ptr.cast();
+        *field_name_len = name_len;
+        *id = u64::from_ne_bytes(id_bytes);
+    }
+    FGCError::FGC_COLLECTED
 }
