@@ -1,5 +1,5 @@
 version: 0.2
-name: "search-expire-doc-1000-seconds"
+name: "search-expire-write-read-concurrent"
 description: |
   TTL table benchmark for document expiration and persist notifications.
   This variant covers the write path (EXPIRE/PERSIST), not the read path.s
@@ -32,4 +32,4 @@ dbconfig:
 clientconfig:
   benchmark_type: "mixed"
   tool: memtier_benchmark
-  arguments: "--test-time 180 -c 8 -t 4 --hide-histogram --key-prefix 'idx10:' --key-minimum 1 --key-maximum 100000 --command 'EXPIRE __key__ 1000000' --command-ratio 90 --command 'PERSIST __key__' --command-ratio 10"
+  arguments: "--test-time 180 -c 16 -t 16 --hide-histogram --key-prefix 'idx10:' --key-minimum 1 --key-maximum 100000 --command 'EXPIRE __key__ 1000000' --command-ratio 30 --command 'PERSIST __key__' --command-ratio 30 --command 'FT.SEARCH idx10 \"(( @field3: (1) @field6: [-inf 76.761 ] @field7: [76.761 +inf ] @field4: [-inf 35323000 ] @field5: [35323000 +inf ] @field8: [-inf 1864.5 ] @field9:[1864.5 +inf ] )| ( @field3: (2) @field6: [-inf 137.894 ] @field7: [137.894 +inf ] @field4: [-inf 35323000 ] @field5: [35323000 +inf ] @field8: [-inf 1864.5 ] @field9:[1864.5 +inf ] ))\"' --command-ratio 40"
