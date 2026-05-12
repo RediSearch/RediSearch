@@ -228,8 +228,7 @@ impl<'a> RemoteCollectCtx<'a> {
         // unconditionally.
         let rows = self.storage.drain(!r.is_internal);
         let template = build_finalize_template(r);
-        SharedValue::new_array(rows.map(|item| {
-            let row = item.projected;
+        SharedValue::new_array(rows.map(|row| {
             let entries: Vec<_> = template
                 .iter()
                 .filter_map(|(key, name)| row.get(key).map(|v| (name.clone(), v.clone())))

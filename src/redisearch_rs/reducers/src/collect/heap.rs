@@ -10,9 +10,10 @@
 //! Min-max heap building blocks for the bounded `COLLECT … SORTBY [LIMIT]`
 //! top-K path.
 //!
-//! Wraps an `Ord`-driven [`MinMaxHeap`] over [`HeapEntry<T>`], where the
-//! comparator only reads the [`EntryKey`] half. The split lets the heap
-//! defer payload projection until a candidate's survival is confirmed.
+//! Wraps an `Ord`-driven [`MinMaxHeap`][min_max_heap::MinMaxHeap] over
+//! [`HeapEntry<T>`], where the comparator only reads the [`EntryKey`] half. The
+//! split lets the heap defer payload projection until a candidate's survival is
+//! confirmed.
 //!
 //! ## Deferred projection
 //!
@@ -98,8 +99,7 @@ impl<T> HeapEntry<T> {
         &self.projected
     }
 
-    /// Decompose into `(sort_vals, projected)` — used by `Storage::Heap`'s
-    /// finalize drain to surface SORTBY columns alongside the projection.
+    /// Decompose into `(sort_vals, projected)`.
     pub fn into_parts(self) -> (Box<[SharedValue]>, T) {
         (self.key.sort_vals, self.projected)
     }

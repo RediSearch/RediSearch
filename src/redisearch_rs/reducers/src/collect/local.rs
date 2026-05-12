@@ -263,8 +263,7 @@ impl LocalCollectCtx {
             .map(|k| (k, SharedValue::new_string(k.name().to_bytes().to_vec())))
             .collect();
 
-        SharedValue::new_array(self.storage.drain(true).map(|item| {
-            let row = item.projected;
+        SharedValue::new_array(self.storage.drain(true).map(|row| {
             SharedValue::new_map(
                 template
                     .iter()

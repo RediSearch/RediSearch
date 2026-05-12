@@ -12,7 +12,7 @@
 
 extern crate redisearch_rs;
 
-use reducers::collect::storage::{DEFAULT_LIMIT, DrainedItem, Storage};
+use reducers::collect::storage::{DEFAULT_LIMIT, Storage};
 use value::SharedValue;
 
 redis_mock::mock_or_stub_missing_redis_c_symbols!();
@@ -33,10 +33,10 @@ fn counting_project(counter: &mut usize, tag: f64) -> impl FnOnce() -> Box<[Shar
     }
 }
 
-fn drained_nums(drained: &[DrainedItem<Box<[SharedValue]>>]) -> Vec<f64> {
+fn drained_nums(drained: &[Box<[SharedValue]>]) -> Vec<f64> {
     drained
         .iter()
-        .map(|item| item.projected[0].as_num().expect("expected num"))
+        .map(|row| row[0].as_num().expect("expected num"))
         .collect()
 }
 
@@ -146,34 +146,6 @@ fn drain_heap_applies_skip_take_after_best_first_order() {
     // Top-3 under ASC = [0, 1, 2] best→worst; offset 1, count 2 → [1, 2].
     let drained: Vec<_> = s.drain(true).collect();
     assert_eq!(drained_nums(&drained), vec![1.0, 2.0]);
-}
-
-#[test]
-fn drain_heap_carries_sort_vals_snapshot() {
-    let mut s = Storage::<Box<[SharedValue]>>::new(true, Some((0, 2)), SORT_ASC);
-    for v in [3.0_f64, 1.0, 2.0] {
-        s.insert_entry(|| val(v), || val(v));
-    }
-    let drained: Vec<_> = s.drain(true).collect();
-    let snapshot_nums: Vec<f64> = drained
-        .iter()
-        .map(|item| {
-            item.sort_vals
-                .as_ref()
-                .expect("heap drain must carry sort_vals")[0]
-                .as_num()
-                .expect("expected num")
-        })
-        .collect();
-    assert_eq!(snapshot_nums, vec![1.0, 2.0]);
-}
-
-#[test]
-fn drain_array_does_not_carry_sort_vals_snapshot() {
-    let mut s = Storage::<Box<[SharedValue]>>::new(false, Some((0, 2)), 0);
-    s.insert_entry(|| val(0.0), || val(0.0));
-    let drained: Vec<_> = s.drain(true).collect();
-    assert!(drained.iter().all(|item| item.sort_vals.is_none()));
 }
 
 #[test]

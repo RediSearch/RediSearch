@@ -19,6 +19,7 @@
 
 use std::cmp::Ordering;
 
+use itertools::Either;
 use min_max_heap::MinMaxHeap;
 use value::SharedValue;
 
@@ -33,17 +34,6 @@ pub const DEFAULT_LIMIT: u64 = 10;
 /// allowed to grow past this — it only governs `with_capacity`, not the
 /// number of rows we will retain.
 const INITIAL_CAPACITY_CAP: usize = 16_384;
-
-/// One drained row alongside an optional sort-key snapshot.
-///
-/// `sort_vals` is `Some` only on the heap path: the comparator owns the
-/// snapshot anyway, so the consumer can recover SORTBY columns at finalize
-/// without a second `row.get` lookup. The array path returns `None` and
-/// expects the caller to read sort columns straight from `projected`.
-pub struct DrainedItem<T> {
-    pub projected: T,
-    pub sort_vals: Option<Box<[SharedValue]>>,
-}
 
 pub enum Storage<T> {
     Array {
@@ -150,14 +140,13 @@ impl<T> Storage<T> {
     ///
     /// - **Array path** yields rows in insertion order.
     /// - **Heap path** yields rows best→worst (matching the SORTBY result
-    ///   order), with each item carrying its sort-key snapshot so the
-    ///   caller can re-emit SORTBY columns without a second lookup.
+    ///   order).
     ///
     /// When `apply_limit` is `true`, the yielded sequence is sliced as
     /// `skip(offset).take(count)`. When `false`, every buffered row is
     /// yielded — used by the remote reducer when `is_internal` is set,
     /// where the coordinator owns the global offset.
-    pub fn drain(&mut self, apply_limit: bool) -> Drain<T> {
+    pub fn drain(&mut self, apply_limit: bool) -> impl ExactSizeIterator<Item = T> {
         // Sentinel left in place of `*self`. Empty Array, no allocation.
         let taken = std::mem::replace(
             self,
@@ -172,7 +161,7 @@ impl<T> Storage<T> {
                 buf, offset, count, ..
             } => {
                 let (offset, count) = limit_window(apply_limit, offset, count);
-                Drain::Array(buf.into_iter().skip(offset).take(count))
+                Either::Left(buf.into_iter().skip(offset).take(count))
             }
             Self::Heap {
                 heap,
@@ -181,7 +170,13 @@ impl<T> Storage<T> {
                 ..
             } => {
                 let (offset, count) = limit_window(apply_limit, offset, count);
-                Drain::Heap(heap.into_vec_desc().into_iter().skip(offset).take(count))
+                Either::Right(
+                    heap.into_vec_desc()
+                        .into_iter()
+                        .skip(offset)
+                        .take(count)
+                        .map(|e| e.into_parts().1),
+                )
             }
         }
     }
@@ -192,40 +187,5 @@ const fn limit_window(apply_limit: bool, offset: usize, count: usize) -> (usize,
         (offset, count)
     } else {
         (0, usize::MAX)
-    }
-}
-
-/// Drain iterator over a [`Storage<T>`]. Yields [`DrainedItem<T>`].
-pub enum Drain<T> {
-    Array(std::iter::Take<std::iter::Skip<std::vec::IntoIter<T>>>),
-    Heap(std::iter::Take<std::iter::Skip<std::vec::IntoIter<HeapEntry<T>>>>),
-}
-
-impl<T> Iterator for Drain<T> {
-    type Item = DrainedItem<T>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        match self {
-            Self::Array(it) => it.next().map(|projected| DrainedItem {
-                projected,
-                sort_vals: None,
-            }),
-            Self::Heap(it) => it.next().map(|entry| {
-                let (sort_vals, projected) = entry.into_parts();
-                DrainedItem {
-                    projected,
-                    sort_vals: Some(sort_vals),
-                }
-            }),
-        }
-    }
-}
-
-impl<T> ExactSizeIterator for Drain<T> {
-    fn len(&self) -> usize {
-        match self {
-            Self::Array(it) => it.len(),
-            Self::Heap(it) => it.len(),
-        }
     }
 }
