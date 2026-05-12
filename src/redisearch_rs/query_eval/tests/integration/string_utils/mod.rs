@@ -8,3 +8,14 @@
 */
 
 mod str_to_lower_runes;
+mod unicode_tolower;
+
+/// Codepoints where libnu and Rust's [`str::to_lowercase`] disagree on
+/// lowercasing despite both targeting Unicode 17.0. The only remaining
+/// cause is context-dependent casing: Rust applies the Greek final
+/// sigma rule (Σ→ς at word end) while libnu lowercases per-character
+/// (Σ→σ always).
+#[cfg(not(miri))]
+const LIBNU_DIVERGENT: &[u32] = &[
+    0x03A3, // Greek capital sigma: Rust uses context-dependent final sigma (ς vs σ)
+];

@@ -301,6 +301,12 @@ const HEADERS: &[HeaderAllowlist] = &[
         vars: &[],
     },
     HeaderAllowlist {
+        path: "src/util/strconv.h",
+        fns: &["unicode_tolower_fn"],
+        types: &[],
+        vars: &[],
+    },
+    HeaderAllowlist {
         path: "src/wildcard/wildcard.h",
         fns: &["Wildcard_RemoveEscape"],
         types: &[],
