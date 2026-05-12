@@ -25,18 +25,20 @@
 //! re-encode was removed as dead code in #9538; the encoder bug remains
 //! reachable through the two call sites above.)
 //!
-//! # The bug this test documents
+//! # Regression guard
 //!
-//! `b4_utf8` in `deps/libnu/utf8_internal.h:116` uses the wrong bit masks
-//! for byte 2 and byte 3 of a 4-byte UTF-8 sequence. Byte 2 uses mask
-//! `0x03E000` (missing bit 12); byte 3 uses mask `0x001F00` (which includes
-//! bit 12 and overflows it into bit 6 of the continuation byte, corrupting
-//! the `10xxxxxx` framing into `11xxxxxx`).
+//! Upstream libnu's `b4_utf8` (in `deps/libnu/utf8_internal.h`) historically
+//! shipped with wrong bit masks for byte 2 and byte 3 of a 4-byte UTF-8
+//! sequence: byte 2 used `0x03E000` (missing bit 12) and byte 3 used
+//! `0x001F00` (overflowing bit 12 into bit 6 of the continuation byte,
+//! corrupting the `10xxxxxx` framing into `11xxxxxx`). Every supplementary-
+//! plane codepoint with bit 12 set — 524,288 codepoints, half of planes
+//! 1..=16 — encoded to invalid UTF-8.
 //!
-//! The bug fires for every codepoint with bit 12 set in any supplementary
-//! plane — exactly half of `U+10000..=U+10FFFF`, i.e. 524,288 codepoints.
-//! The test asserts this exact count so a fix (or a *different* bug) is
-//! noticed immediately.
+//! Our local patch in `deps/libnu/utf8_internal.h` corrects the masks. This
+//! test sweeps every Unicode scalar through `nu_utf8_write` and asserts the
+//! output is valid UTF-8 for every input, plus spot-checks the correct
+//! encoding of U+11004 so a *partial* regression doesn't slip through.
 
 use casemap_compare::encode_codepoint_with_libnu;
 
@@ -72,27 +74,20 @@ fn sweep_nu_utf8_write_validity() {
         println!("  ... ({} more)", offenders.len() - PREVIEW);
     }
 
-    // Exactly half of the supplementary-plane codepoints have bit 12 set:
-    // planes 1..=16 contain 0x100000 codepoints, half is 0x80000.
-    const EXPECTED_OFFENDERS: usize = 0x80000;
-
-    assert_eq!(
-        offenders.len(),
-        EXPECTED_OFFENDERS,
-        "b4_utf8 bug behaviour changed: expected {EXPECTED_OFFENDERS} invalid \
-         outputs (every supplementary-plane codepoint with bit 12 set), got {}. \
-         If the upstream encoder was patched this test should be deleted or \
-         the assertion flipped to `offenders.is_empty()`.",
+    assert!(
+        offenders.is_empty(),
+        "nu_utf8_write produced invalid UTF-8 for {} codepoint(s); \
+         the b4_utf8 mask fix in deps/libnu/utf8_internal.h may have regressed",
         offenders.len()
     );
 
-    // Spot-check: the bug pattern says byte 2 drops bit 12 and byte 3's bit 6
-    // gets set. U+11004 should produce `F0 90 C0 84` (bug) instead of the
-    // correct `F0 91 80 84`.
+    // Spot-check that U+11004 round-trips to the canonical 4-byte encoding.
+    // The pre-fix b4_utf8 produced `F0 90 C0 84` (bit 12 dropped from byte 2,
+    // leaked into byte 3's framing); the correct encoding is `F0 91 80 84`.
     let sample = encode_codepoint_with_libnu(0x11004);
     assert_eq!(
         sample,
-        vec![0xF0, 0x90, 0xC0, 0x84],
-        "expected the known b4_utf8 bug signature for U+11004"
+        vec![0xF0, 0x91, 0x80, 0x84],
+        "U+11004 mis-encoded — expected canonical UTF-8 bytes for the codepoint"
     );
 }
