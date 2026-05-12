@@ -11,3 +11,14 @@
 //!
 //! These are pure-Rust replacements for C helpers that were previously
 //! implemented using `libnu` for Unicode operations.
+
+/// Convert a UTF-8 string to a lowercase array of runes ([`u16`]) for trie
+/// lookups.
+///
+/// Each Unicode codepoint is lowercased and then truncated to [`u16`].
+pub fn str_to_lower_runes(s: &str) -> Vec<u16> {
+    s.chars()
+        .flat_map(char::to_lowercase)
+        .map(|c| c as u16)
+        .collect()
+}
