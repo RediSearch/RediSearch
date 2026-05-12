@@ -1181,7 +1181,7 @@ static QueryIterator *Query_EvalUnionNode(QueryEvalCtx *q, QueryNode *qn) {
  * @param caseSensitive A flag indicating whether the conversion to lowercase
  * should be performed. If true, the string remains case-sensitive.
  */
-static void tag_strtolower(char **pstr, size_t *len, int caseSensitive) {
+void tag_strtolower(char **pstr, size_t *len, int caseSensitive) {
   size_t length = *len;
   char *str = *pstr;
   char *origStr = str;
