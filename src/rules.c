@@ -7,14 +7,13 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "rules.h"
+#include "util/likely.h"
 #include "aggregate/expr/expression.h"
 #include "aggregate/expr/exprast.h"
 #include "document.h"
 #include "json.h"
 #include "rdb.h"
 #include "fast_float/fast_float_strtod.h"
-#include "util/likely.h"
-#include "spec.h"
 #include "rmutil/rm_assert.h"
 
 TrieMap *SchemaPrefixes_g;
@@ -85,7 +84,11 @@ void LegacySchemaRulesArgs_Free(RedisModuleCtx *ctx) {
   legacySpecRules = NULL;
 }
 
-SchemaRule *SchemaRule_Create(SchemaRuleArgs *args, StrongRef ref, QueryError *status) {
+// Shared body for SchemaRule_Create / SchemaRule_CreateWithPrefixesAC. The
+// prefix list is taken from `prefixes_ac` if non-NULL, otherwise from
+// `args->prefixes` (count `args->nprefixes`). The cursor, if used, is consumed.
+static SchemaRule *SchemaRule_CreateInternal(SchemaRuleArgs *args, ArgsCursor *prefixes_ac,
+                                             StrongRef ref, QueryError *status) {
   SchemaRule *rule = rm_calloc(1, sizeof(*rule));
 
   if (DocumentType_Parse(args->type, &rule->type, status) == REDISMODULE_ERR) {
@@ -121,10 +124,33 @@ SchemaRule *SchemaRule_Create(SchemaRuleArgs *args, StrongRef ref, QueryError *s
     rule->lang_default = DEFAULT_LANGUAGE;
   }
 
-  rule->prefixes = array_new(HiddenUnicodeString*, args->nprefixes);
-  for (int i = 0; i < args->nprefixes; ++i) {
-    HiddenUnicodeString* p = NewHiddenUnicodeString(args->prefixes[i]);
-    array_append(rule->prefixes, p);
+  if (prefixes_ac) {
+    size_t nprefixes = AC_NumRemaining(prefixes_ac);
+    if (unlikely(nprefixes > MAX_SCHEMA_PREFIXES)) {
+      QueryError_SetWithoutUserDataFmt(
+          status, QUERY_ELIMIT,
+          "Number of prefixes (%zu) exceeds maximum allowed (%d)",
+          nprefixes, MAX_SCHEMA_PREFIXES);
+      goto error;
+    }
+    rule->prefixes = array_new(HiddenUnicodeString*, nprefixes);
+    for (size_t i = 0; i < nprefixes; ++i) {
+      size_t prefix_len = 0;
+      const char *prefix = AC_GetStringNC(prefixes_ac, &prefix_len);
+      array_append(rule->prefixes, NewHiddenUnicodeStringWithLen(prefix, prefix_len));
+    }
+  } else {
+    if (unlikely(args->nprefixes > MAX_SCHEMA_PREFIXES)) {
+      QueryError_SetWithoutUserDataFmt(
+          status, QUERY_ELIMIT,
+          "Number of prefixes (%d) exceeds maximum allowed (%d)",
+          args->nprefixes, MAX_SCHEMA_PREFIXES);
+      goto error;
+    }
+    rule->prefixes = array_new(HiddenUnicodeString*, args->nprefixes);
+    for (int i = 0; i < args->nprefixes; ++i) {
+      array_append(rule->prefixes, NewHiddenUnicodeString(args->prefixes[i]));
+    }
   }
 
   if (rule->filter_exp_str) {
@@ -156,6 +182,15 @@ SchemaRule *SchemaRule_Create(SchemaRuleArgs *args, StrongRef ref, QueryError *s
 error:
   SchemaRule_Free(rule);
   return NULL;
+}
+
+SchemaRule *SchemaRule_Create(SchemaRuleArgs *args, StrongRef ref, QueryError *status) {
+  return SchemaRule_CreateInternal(args, NULL, ref, status);
+}
+
+SchemaRule *SchemaRule_CreateWithPrefixesAC(SchemaRuleArgs *args, ArgsCursor *prefixes_ac,
+                                            StrongRef ref, QueryError *status) {
+  return SchemaRule_CreateInternal(args, prefixes_ac, ref, status);
 }
 
 /*.
