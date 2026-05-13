@@ -150,6 +150,33 @@ pub fn encode_codepoint_with_libnu(cp: u32) -> Vec<u8> {
     buf[..written].to_vec()
 }
 
+/// Decode the first UTF-8 codepoint at the start of `bytes` using libnu's
+/// `nu_utf8_read` (via the in-crate `nu_utf8_read_shim` wrapper around the
+/// `static inline` upstream symbol).
+///
+/// Returns `(codepoint, advance)` where `codepoint` is the decoded scalar
+/// (as `u32`, since the caller may want to inspect malformed values that
+/// don't fit `char`) and `advance` is the number of bytes consumed.
+///
+/// `bytes` must be non-empty. The function inspects the lead byte to decide
+/// how many bytes to read (1–4) and only touches that many — `nu_utf8_read`
+/// does no bounds checking, so the caller must ensure the slice has enough
+/// content for the lead byte's class. For the round-trip sweep this is
+/// trivially true because we always feed it a canonical encoding.
+pub fn decode_codepoint_with_libnu(bytes: &[u8]) -> (u32, usize) {
+    let mut decoded: u32 = 0;
+    let begin = bytes.as_ptr() as *const std::ffi::c_char;
+    // SAFETY: `nu_utf8_read` reads 1–4 bytes from `begin` depending on the
+    // lead byte's range and writes one `u32` to `&mut decoded`. The caller
+    // contract requires `bytes` to hold a full codepoint, so the read stays
+    // in bounds.
+    let end = unsafe { libnu_ffi::nu_utf8_read_shim(begin, &mut decoded) };
+    // SAFETY: `end` is derived from `begin` (both point into `bytes`), so
+    // they share an origin and the difference fits in `isize`.
+    let consumed = unsafe { end.offset_from(begin) } as usize;
+    (decoded, consumed)
+}
+
 /// Fold `s` using ICU4X's full Unicode case folding (`icu_casemap::CaseMapper`).
 ///
 /// This mirrors `try_insert_string_normalize()` at

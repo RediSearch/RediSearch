@@ -18,6 +18,11 @@
 //! - `nu_utf8_write` is libnu's runtime UTF-8 encoder; for 4-byte codepoints
 //!   it routes through `b4_utf8` in `deps/libnu/utf8_internal.h`, which is
 //!   the suspected source of malformed-bytes bugs.
+//! - `nu_utf8_read_shim` is the in-crate wrapper around libnu's `nu_utf8_read`
+//!   decoder (the upstream symbol is `static inline`, so we expose it via
+//!   `csrc/nu_utf8_read_shim.c`). The decoder shares the mask-and-shift
+//!   idiom with `b4_utf8` (in `utf8_2b/3b/4b` at `utf8_internal.h`), so the
+//!   round-trip sweep treats it as a similar regression-prone surface.
 //!
 //! See `deps/libnu/casemap.h` and `deps/libnu/utf8.h` for the upstream
 //! declarations.
@@ -41,4 +46,14 @@ unsafe extern "C" {
     /// buffer has at least 4 bytes available (the maximum UTF-8 codepoint
     /// length).
     pub fn nu_utf8_write(unicode: u32, utf8: *mut c_char) -> *mut c_char;
+
+    /// Decode one UTF-8 codepoint starting at `utf8`. Writes the decoded
+    /// codepoint into `*unicode` (if non-NULL) and returns a pointer to the
+    /// byte after the consumed codepoint.
+    ///
+    /// This is the in-crate wrapper around libnu's `static inline`
+    /// `nu_utf8_read`, defined in `csrc/nu_utf8_read_shim.c`. The wrapper
+    /// just delegates — all decode logic stays inside libnu's `utf8_2b` /
+    /// `utf8_3b` / `utf8_4b` helpers in `deps/libnu/utf8_internal.h`.
+    pub fn nu_utf8_read_shim(utf8: *const c_char, unicode: *mut u32) -> *const c_char;
 }
