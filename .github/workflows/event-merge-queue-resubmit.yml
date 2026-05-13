@@ -5,6 +5,7 @@ on:
     types: [checks_requested]
 
 permissions:
+  actions: read
   contents: read
   issues: read
   pull-requests: read
@@ -21,6 +22,8 @@ jobs:
           REPO: ${{ github.repository }}
           HEAD_REF: ${{ github.event.merge_group.head_ref }}
           GH_HANDLE_TO_SLACK_JSON: ${{ secrets.GH_HANDLE_TO_SLACK_JSON }}
+          CURRENT_RUN_ID: ${{ github.run_id }}
+          SERVER_URL: ${{ github.server_url }}
         shell: python
         run: |
           import json
@@ -115,6 +118,48 @@ jobs:
               return json.loads(result.stdout)["data"]["repository"]["pullRequest"]
 
 
+          def query_previous_merge_group_run(repo, pr_number, removed_at):
+              result = subprocess.run(
+                  [
+                      "gh",
+                      "api",
+                      f"/repos/{repo}/actions/runs?event=merge_group&per_page=100",
+                  ],
+                  check=True,
+                  capture_output=True,
+                  text=True,
+              )
+
+              current_run_id = int(os.environ["CURRENT_RUN_ID"])
+              pr_ref_pattern = re.compile(rf"(^|/)pr-{pr_number}-")
+              candidates = []
+              for run in json.loads(result.stdout)["workflow_runs"]:
+                  if run["id"] == current_run_id:
+                      continue
+
+                  head_branch = run.get("head_branch") or ""
+                  if not pr_ref_pattern.search(head_branch):
+                      continue
+
+                  if run.get("created_at", "") > removed_at:
+                      continue
+
+                  if run.get("name") == "Detect Merge Queue Resubmission Without New Commits":
+                      continue
+
+                  candidates.append(run)
+
+              failed_candidates = [
+                  run
+                  for run in candidates
+                  if run.get("conclusion") in {"failure", "cancelled", "timed_out", "action_required"}
+              ]
+              if failed_candidates:
+                  return max(failed_candidates, key=lambda run: run["created_at"])
+
+              return max(candidates, key=lambda run: run["created_at"], default=None)
+
+
           def latest(events, event_type):
               matching = [event for event in events if event["__typename"] == event_type]
               return max(matching, key=lambda event: event["createdAt"], default=None)
@@ -160,6 +205,9 @@ jobs:
           actor = latest_removal.get("actor") or {}
           enqueuer = latest_add.get("enqueuer") or latest_removal.get("enqueuer") or {}
           enqueuer_login = enqueuer.get("login") or ""
+          detector_workflow_url = f"{os.environ['SERVER_URL']}/{repo}/actions/runs/{os.environ['CURRENT_RUN_ID']}"
+          previous_run = query_previous_merge_group_run(repo, pr_number, latest_removal["createdAt"])
+          previous_run_url = (previous_run or {}).get("html_url") or detector_workflow_url
 
           try:
               raw_mapping = json.loads(os.environ.get("GH_HANDLE_TO_SLACK_JSON") or "{}")
@@ -192,11 +240,15 @@ jobs:
           append_output("resubmitted_at", latest_add["createdAt"])
           append_output("head_commit", current_head)
           append_output("head_committed_at", head_commit["committedDate"])
+          append_output("previous_merge_queue_run", previous_run_url)
+          append_output("detector_workflow", detector_workflow_url)
 
       - name: Notify Slack about unchanged merge queue resubmission
         if: steps.check.outputs.resubmit == 'true'
         uses: slackapi/slack-github-action@v3
         with:
+          errors: true
+          payload-delimiter: "_"
           webhook: ${{ secrets.SLACK_WEBHOOK_URL_RQE_CI_ISSUES }}
           webhook-type: webhook-trigger
           payload: |
@@ -213,5 +265,7 @@ jobs:
               "Enqueued_By_Mention": ${{ toJson(steps.check.outputs.enqueued_by_mention) }},
               "Head_Commit": ${{ toJson(steps.check.outputs.head_commit) }},
               "Head_Committed_At": ${{ toJson(steps.check.outputs.head_committed_at) }},
-              "Workflow": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+              "Workflow": ${{ toJson(steps.check.outputs.previous_merge_queue_run) }},
+              "Previous_Merge_Queue_Run": ${{ toJson(steps.check.outputs.previous_merge_queue_run) }},
+              "Detector_Workflow": ${{ toJson(steps.check.outputs.detector_workflow) }}
             }
