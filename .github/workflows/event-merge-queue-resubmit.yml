@@ -226,18 +226,7 @@ jobs:
               return normalize_slack_id(slack_mapping.get(login.lower())) if login else ""
 
 
-          def slack_mention_for(login):
-              slack_id = slack_id_for(login)
-              if slack_id:
-                  return f"<@{slack_id}>"
-              if login:
-                  return f"@{login}"
-              return ""
-
-
           author_login = (pull_request.get("author") or {}).get("login") or ""
-          author_slack_id = slack_id_for(author_login)
-          enqueued_by_slack_id = slack_id_for(enqueuer_login)
 
           print("PR was resubmitted after removal without new commits")
           print(f"Removal reason: {reason}")
@@ -248,13 +237,11 @@ jobs:
           append_output("pr_title", pull_request["title"])
           append_output("pr_url", pull_request["url"])
           append_output("pr_author", author_login)
-          append_output("author_slack_id", author_slack_id)
-          append_output("author_mention", slack_mention_for(author_login))
+          append_output("author_mention", slack_id_for(author_login))
           append_output("reason", reason)
           append_output("removed_by", actor.get("login"))
           append_output("enqueued_by", enqueuer_login)
-          append_output("enqueued_by_slack_id", enqueued_by_slack_id)
-          append_output("enqueued_by_mention", slack_mention_for(enqueuer_login))
+          append_output("enqueued_by_mention", slack_id_for(enqueuer_login))
           append_output("removed_at", latest_removal["createdAt"])
           append_output("resubmitted_at", latest_add["createdAt"])
           append_output("head_commit", current_head)
@@ -276,14 +263,12 @@ jobs:
               "PR": ${{ toJson(steps.check.outputs.pr_url) }},
               "Title": ${{ toJson(steps.check.outputs.pr_title) }},
               "Author": ${{ toJson(steps.check.outputs.pr_author) }},
-              "Author_Slack_ID": ${{ toJson(steps.check.outputs.author_slack_id) }},
               "Author_Mention": ${{ toJson(steps.check.outputs.author_mention) }},
               "Reason": ${{ toJson(steps.check.outputs.reason) }},
               "Removed_At": ${{ toJson(steps.check.outputs.removed_at) }},
               "Resubmitted_At": ${{ toJson(steps.check.outputs.resubmitted_at) }},
               "Removed_By": ${{ toJson(steps.check.outputs.removed_by) }},
               "Enqueued_By": ${{ toJson(steps.check.outputs.enqueued_by) }},
-              "Enqueued_By_Slack_ID": ${{ toJson(steps.check.outputs.enqueued_by_slack_id) }},
               "Enqueued_By_Mention": ${{ toJson(steps.check.outputs.enqueued_by_mention) }},
               "Head_Commit": ${{ toJson(steps.check.outputs.head_commit) }},
               "Head_Committed_At": ${{ toJson(steps.check.outputs.head_committed_at) }},
