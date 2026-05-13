@@ -67,10 +67,7 @@ void FGC_childCollectTags(ForkGC *gc, RedisSearchCtx *sctx) {
 
         II_GCWriter wr = { .ctx = gc, .write = pipe_write_cb };
 
-        InvertedIndex_GcDelta_Scan(
-            &wr, sctx, value,
-            &cb, NULL
-        );
+        InvertedIndex_GcDelta_Scan(&wr, sctx, value, &cb);
       }
 
       // we are done with the current field
