@@ -65,6 +65,9 @@ jobs:
   run_micro_benchmarks:
     name: Run ${{ matrix.architecture }} micro-benchmarks
     needs: prepare_runner_configurations
+    permissions:
+      contents: read
+      id-token: write # OIDC role assumption for sccache S3 (used inside flow-micro-benchmarks-runner.yml)
     uses: ./.github/workflows/flow-micro-benchmarks-runner.yml
     secrets: inherit
     strategy:

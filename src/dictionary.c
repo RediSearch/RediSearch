@@ -17,6 +17,7 @@
 #include "commands.h"
 #include "config.h"
 #include "module.h"
+#include "util/likely.h"
 
 dict *spellCheckDicts = NULL;
 
@@ -35,7 +36,11 @@ int Dictionary_Add(RedisModuleCtx *ctx, const char *dictName, RedisModuleString 
   RS_LOG_ASSERT_ALWAYS(t != NULL, "Failed to open dictionary in write mode");
 
   for (int i = 0; i < len; ++i) {
-    valuesAdded += Trie_Insert(t, values[i], 1, 1, NULL, 0);
+    // Payload is NULL so TRIE_ERR_PAYLOAD_OVERFLOW cannot occur
+    int rc = Trie_Insert(t, values[i], 1, 1, NULL, 0);
+    if (likely(rc == TRIE_OK_NEW)) {
+      valuesAdded++;
+    }
   }
 
   return valuesAdded;
@@ -231,7 +236,7 @@ static void SpellCheckDictAuxSave(RedisModuleIO *rdb, int when) {
   while ((entry = dictNext(iter))) {
     const char *key = dictGetKey(entry);
     Trie *val = dictGetVal(entry);
-    RS_LOG_ASSERT(val->size != 0, "Empty dictionary should not exist in the dictionary list");
+    RS_LOG_ASSERT(Trie_Size(val) != 0, "Empty dictionary should not exist in the dictionary list");
     RedisModule_SaveStringBuffer(rdb, key, strlen(key) + 1 /* we save the /0*/);
     TrieType_GenericSave(rdb, val, false, false);
   }

@@ -25,12 +25,7 @@ extern RedisModuleType *TrieType;
 #define TRIE_ENCVER_NUMDOCS 2
 #define TRIE_ENCVER_PAYLOADS 1
 
-typedef struct {
-  TrieNode *root;
-  size_t size;
-  TrieFreeCallback freecb;
-  TrieSortMode sortMode;
-} Trie;
+typedef struct Trie Trie;
 
 typedef struct {
   char *str;
@@ -96,10 +91,7 @@ void Trie_IterateWildcard(Trie *t, const rune *str, int nstr,
                           bool skipTimeoutChecks);
 
 /* Number of terminal entries in the trie. Wraps the internal size counter. */
-static inline size_t Trie_Size(const Trie *t) {
-  RS_ASSERT(t);
-  return t->size;
-}
+size_t Trie_Size(const Trie *t);
 
 /* Iterate every node in the trie with no filter or distance constraint. Wraps
  * TrieNode_Iterate on the trie's root with no filter. Used by debug paths that

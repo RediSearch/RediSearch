@@ -22,6 +22,7 @@ langPair_t __langPairs[] = {
   { "armenian",   RS_LANG_ARMENIAN },
   { "basque",     RS_LANG_BASQUE },
   { "catalan",    RS_LANG_CATALAN },
+  { "chinese",    RS_LANG_CHINESE },
   { "danish",     RS_LANG_DANISH },
   { "dutch",      RS_LANG_DUTCH },
   { "english",    RS_LANG_ENGLISH },
@@ -43,10 +44,10 @@ langPair_t __langPairs[] = {
   { "serbian",    RS_LANG_SERBIAN },
   { "spanish",    RS_LANG_SPANISH },
   { "swedish",    RS_LANG_SWEDISH },
+  { "tagalog",    RS_LANG_TAGALOG },
   { "tamil",      RS_LANG_TAMIL },
   { "turkish",    RS_LANG_TURKISH },
   { "yiddish",    RS_LANG_YIDDISH },
-  { "chinese",    RS_LANG_CHINESE },
   { NULL,         RS_LANG_UNSUPPORTED }
 };
 
@@ -57,6 +58,7 @@ const char *RSLanguage_ToString(RSLanguage language) {
     case  RS_LANG_ARMENIAN:    ret = "armenian";   break;
     case  RS_LANG_BASQUE:      ret = "basque";     break;
     case  RS_LANG_CATALAN:     ret = "catalan";    break;
+    case  RS_LANG_CHINESE:     ret = "chinese";    break;
     case  RS_LANG_DANISH:      ret = "danish";     break;
     case  RS_LANG_DUTCH:       ret = "dutch";      break;
     case  RS_LANG_ENGLISH:     ret = "english";    break;
@@ -78,10 +80,10 @@ const char *RSLanguage_ToString(RSLanguage language) {
     case  RS_LANG_SERBIAN:     ret = "serbian";    break;
     case  RS_LANG_SPANISH:     ret = "spanish";    break;
     case  RS_LANG_SWEDISH:     ret = "swedish";    break;
+    case  RS_LANG_TAGALOG:     ret = "tagalog";    break;
     case  RS_LANG_TAMIL:       ret = "tamil";      break;
     case  RS_LANG_TURKISH:     ret = "turkish";    break;
     case  RS_LANG_YIDDISH:     ret = "yiddish";    break;
-    case  RS_LANG_CHINESE:     ret = "chinese";    break;
     case  RS_LANG_UNSUPPORTED:
     default: break;
   }

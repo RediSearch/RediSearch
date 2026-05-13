@@ -6,6 +6,10 @@ on:
 jobs:
   benchmarks:
     runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
+    permissions:
+      contents: read  # actions/checkout
+      id-token: write # OIDC role assumption for sccache S3
+      actions: read   # dawidd6/action-download-artifact (cross-workflow)
     env:
       RUST_BACKTRACE: full
     steps:
@@ -18,6 +22,11 @@ jobs:
         run: ./install_script.sh sudo
       - name: Setup sccache
         uses: ./.github/actions/setup-sccache
+        with:
+          aws-role: ${{ vars.SCCACHE_AWS_ROLE_TO_ASSUME }}
+          s3-bucket: ${{ vars.SCCACHE_S3_BUCKET }}
+          s3-region: ${{ vars.SCCACHE_S3_REGION }}
+          s3-key-prefix: ${{ vars.SCCACHE_S3_KEY_PREFIX }}
       - name: Build RediSearch
         run: make build LTO=1
       - name: Download Latest Baseline Artifact from master

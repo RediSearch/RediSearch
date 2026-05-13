@@ -348,14 +348,7 @@ impl<'a> RLookupKey<'a> {
         // step stores a key pointer, then an APPLY with the same name overrides/tombstones it).
         // Those callers still need a valid path string to continue working (e.g. to load the
         // field value from the document before the APPLY overwrites it).
-        //
-        // The backing memory for `header.path` transfers to the new key's `_name` or `_path`
-        // via `override_current`, and both the tombstone and the new key share the same
-        // `RLookup` lifetime, so the pointer remains valid.
-        //
-        // This mirrors the original C behaviour: `overrideKey` never cleared `_path`.
-
-        let path = mem::take(me._path.deref_mut());
+        let path = me._path.clone();
 
         // this will exclude it from iteration
         me.header.flags |= RLookupKeyFlag::Hidden;
