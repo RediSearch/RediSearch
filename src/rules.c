@@ -119,7 +119,6 @@ static SchemaRule *SchemaRule_CreateInternal(SchemaRuleArgs *args, ArgsCursor *p
 
   if (prefixes_ac) {
     size_t nprefixes = AC_NumRemaining(prefixes_ac);
-    RS_ASSERT(MAX_SCHEMA_PREFIXES <= SIZE_MAX);
     if (unlikely(nprefixes > MAX_SCHEMA_PREFIXES)) {
       QueryError_SetErrorFmt(
           status, QUERY_ELIMIT,

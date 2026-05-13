@@ -63,14 +63,8 @@ static void StopWordList_AddInternal(StopWordList *sl, const char *s, size_t sle
   RS_ASSERT(t);
 
   // convert multi-byte characters to lowercase
-  char *dst = unicode_tolower(t, &slen);
-  if (dst) {
-    rm_free(t);
-    t = dst;
-  } else {
-    // No memory allocation, just ensure null termination
-    t[slen] = '\0';
-  }
+  slen = unicode_tolower(t, slen);
+  t[slen] = '\0';
 
   TrieMap_Add(sl->m, t, slen, NULL, NULL);
   rm_free(t);
