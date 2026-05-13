@@ -19,11 +19,6 @@
 typedef struct RSIndexResult RSIndexResult;
 
 /**
- * Setting to pass to the GC scan function
- */
-typedef struct IndexRepairParams IndexRepairParams;
-
-/**
  * An opaque inverted index reader structure. The actual implementation is determined at runtime
  * based on the index type and filter provided when creating the reader. This allows us to have a
  * single interface for all index reader types while still being able to optimize the storage
@@ -284,11 +279,10 @@ void InvertedIndex_GcMarkerInc(struct InvertedIndex *ii);
  * - `sctx` must be a valid, non NULL, pointer to a `RedisSearchCtx` instance.
  * - `idx` must be a valid, non NULL, pointer to an `InvertedIndex` instance.
  * - `cb` must be a valid, non NULL, pointer to an `InvertedIndexGCCallback` instance.
- * - `params` must be a valid, NULLable, pointer to an `IndexRepairParams` instance.
  * - The `spec` field of the `RedisSearchCtx` must be a valid, non NULL, pointer to an
  *   `IndexSpec` instance.
  */
-bool InvertedIndex_GcDelta_Scan(struct II_GCWriter *wr, RedisSearchCtx *sctx, struct InvertedIndex *idx, struct II_GCCallback *cb, struct IndexRepairParams *params);
+bool InvertedIndex_GcDelta_Scan(struct II_GCWriter *wr, RedisSearchCtx *sctx, struct InvertedIndex *idx, struct II_GCCallback *cb);
 
 /**
  * Read a GC delta from the provided reader. The returned pointer must be freed using
