@@ -67,40 +67,67 @@ int StopWordList_Contains(const StopWordList *sl, const char *term, size_t len) 
   return ret;
 }
 
-StopWordList *NewStopWordListCStr(const char **strs, size_t len) {
-  if (len == 0 && __empty_stopwords) {
-    return __empty_stopwords;
+// Lowercase `s` and add it to the stopword list's trie. The input is copied,
+// so the caller retains ownership of `s`. `slen` is the byte length of `s`.
+static void StopWordList_AddInternal(StopWordList *sl, const char *s, size_t slen) {
+  char *t = rm_strndup(s, slen);
+  RS_ASSERT(t);
+
+  // convert multi-byte characters to lowercase
+  char *dst = unicode_tolower(t, &slen);
+  if (dst) {
+    rm_free(t);
+    t = dst;
+  } else {
+    // No memory allocation, just ensure null termination
+    t[slen] = '\0';
   }
-  if (len > MAX_STOPWORDLIST_SIZE) {
-    len = MAX_STOPWORDLIST_SIZE;
+
+  TrieMap_Add(sl->m, t, slen, NULL, NULL);
+  rm_free(t);
+}
+
+static StopWordList *StopWordList_NewEmpty(size_t expected_len) {
+  if (expected_len == 0 && __empty_stopwords) {
+    return __empty_stopwords;
   }
   StopWordList *sl = rm_malloc(sizeof(*sl));
   sl->refcount = 1;
   sl->m = NewTrieMap();
+  if (expected_len == 0) {
+    __empty_stopwords = sl;
+  }
+  return sl;
+}
+
+StopWordList *NewStopWordListCStr(const char **strs, size_t len) {
+  if (len > MAX_STOPWORDLIST_SIZE) {
+    len = MAX_STOPWORDLIST_SIZE;
+  }
+  StopWordList *sl = StopWordList_NewEmpty(len);
+  if (len == 0) {
+    return sl;
+  }
 
   for (size_t i = 0; i < len; i++) {
-
-    char *t = rm_strdup(strs[i]);
-    if (t == NULL) {
-      break;
-    }
-    size_t tlen = strlen(t);
-
-    // convert multi-byte characters to lowercase
-    char *dst = unicode_tolower(t, &tlen);
-    if (dst) {
-        rm_free(t);
-        t = dst;
-    } else {
-      // No memory allocation, just ensure null termination
-      t[tlen] = '\0';
-    }
-
-    TrieMap_Add(sl->m, t, tlen, NULL, NULL);
-    rm_free(t);
+    StopWordList_AddInternal(sl, strs[i], strlen(strs[i]));
   }
+  return sl;
+}
+
+StopWordList *NewStopWordListAC(ArgsCursor *ac) {
+  size_t len = AC_NumRemaining(ac);
+  if (len > MAX_STOPWORDLIST_SIZE) {
+    len = MAX_STOPWORDLIST_SIZE;
+  }
+  StopWordList *sl = StopWordList_NewEmpty(len);
   if (len == 0) {
-    __empty_stopwords = sl;
+    return sl;
+  }
+  for (size_t i = 0; i < len; i++) {
+    size_t slen = 0;
+    const char *s = AC_GetStringNC(ac, &slen);
+    StopWordList_AddInternal(sl, s, slen);
   }
   return sl;
 }

@@ -7,6 +7,7 @@
 #include "test_util.h"
 #include <rmalloc.h>
 #include <stopwords.h>
+#include <rmutil/args.h>
 
 void RMUTil_InitAlloc();
 
@@ -49,9 +50,48 @@ int testDefaultStopwords() {
   return 0;
 }
 
+int testStopwordListAC() {
+
+  // Same inputs as testStopwordList, but consumed via an ArgsCursor.
+  const char *terms[] = {"foo", "bar", "שלום", "Hello", "WORLD"};
+  const char *test_terms[] = {"foo", "bar", "שלום", "hello", "world"};
+  const size_t nterms = sizeof(terms) / sizeof(const char *);
+
+  ArgsCursor ac;
+  ArgsCursor_InitCString(&ac, terms, nterms);
+
+  StopWordList *sl = NewStopWordListAC(&ac);
+  ASSERT(sl != NULL);
+  // The cursor should have been fully consumed.
+  ASSERT_EQUAL(0, AC_NumRemaining(&ac));
+
+  for (int i = 0; i < sizeof(test_terms) / sizeof(const char *); i++) {
+    ASSERT(StopWordList_Contains(sl, test_terms[i], strlen(test_terms[i])));
+  }
+
+  ASSERT(!StopWordList_Contains(sl, "asdfasdf", strlen("asdfasdf")));
+  StopWordList_Free(sl);
+  return 0;
+}
+
+int testStopwordListACEmpty() {
+
+  // An empty cursor should produce a non-NULL (cached, empty) list.
+  ArgsCursor ac;
+  ArgsCursor_InitCString(&ac, NULL, 0);
+
+  StopWordList *sl = NewStopWordListAC(&ac);
+  ASSERT(sl != NULL);
+  ASSERT(!StopWordList_Contains(sl, "foo", 3));
+  StopWordList_Free(sl);
+  return 0;
+}
+
 TEST_MAIN({
   RMUTil_InitAlloc();
   TESTFUNC(testStopwordList);
+  TESTFUNC(testStopwordListAC);
+  TESTFUNC(testStopwordListACEmpty);
   TESTFUNC(testDefaultStopwords);
   StopWordList_FreeGlobals();
 });
