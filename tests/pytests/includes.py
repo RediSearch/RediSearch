@@ -9,7 +9,7 @@ if sys.version_info > (3, 0):
 
 
 UNSTABLE = os.getenv('UNSTABLE', '0') == '1'
-WIP_FEATURES = os.getenv('WIP_FEATURES', '0') == '1'
+WIP_FEATURES = os.getenv('WIP_FEATURES', '1') == '1'
 SANITIZER = os.getenv('SANITIZER', '')
 CLUSTER = os.getenv('REDIS_STANDALONE', '1') == '0'
 VALGRIND = os.getenv('VALGRIND', '0') == '1'

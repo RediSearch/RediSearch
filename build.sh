@@ -34,7 +34,7 @@ REDISEARCH_GENERATE_HEADERS=${REDISEARCH_GENERATE_HEADERS:-1}
 # Inline LSE atomics on Linux AArch64 (Armv8.1-a+). Set to 0 on pre-Armv8.1-a
 # cores (Cortex-A72, AWS Graviton1, Raspberry Pi 4) to avoid SIGILL on load.
 INLINE_LSE_ATOMICS=${INLINE_LSE_ATOMICS:-1}
-WIP_FEATURES=1   # Compile in work-in-progress features
+WIP_FEATURES=${WIP_FEATURES:-1}   # Compile in work-in-progress features
 
 # Test configuration (0=disabled, 1=enabled)
 BUILD_TESTS=0          # Build test binaries
@@ -558,6 +558,9 @@ prepare_cmake_arguments() {
   if [[ "$WIP_FEATURES" == "1" ]]; then
     CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DRS_WIP_FEATURES_ENABLED=ON"
     echo "WIP features ENABLED (RS_WIP_FEATURES defined; cargo feature 'wip_features' on)"
+  else
+    CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DRS_WIP_FEATURES_ENABLED=OFF"
+    echo "WIP features DISABLED"
   fi
 
   if [[ -n "$SAN" ]]; then
