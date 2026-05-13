@@ -25,23 +25,25 @@ use tracing_log_error::log_error;
 mod util;
 
 /// Status code returned by Fork GC parent-side pipe-receive operations.
+#[cheadergen::config(export)]
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[expect(
-    non_camel_case_types,
-    reason = "variant names must match the C enum constants"
-)]
 pub enum FGCError {
     /// Data has been collected; more may follow.
-    FGC_COLLECTED = 0,
+    #[cheadergen(rename = "FGC_COLLECTED")]
+    Collected = 0,
     /// No more data remains; iteration is complete.
-    FGC_DONE = 1,
+    #[cheadergen(rename = "FGC_DONE")]
+    Done = 1,
     /// Pipe error — the child process likely crashed.
-    FGC_CHILD_ERROR = 2,
+    #[cheadergen(rename = "FGC_CHILD_ERROR")]
+    ChildError = 2,
     /// Error on the parent side.
-    FGC_PARENT_ERROR = 3,
+    #[cheadergen(rename = "FGC_PARENT_ERROR")]
+    ParentError = 3,
     /// The index spec was deleted.
-    FGC_SPEC_DELETED = 4,
+    #[cheadergen(rename = "FGC_SPEC_DELETED")]
+    SpecDeleted = 4,
 }
 
 /// Write exactly `len` bytes from `buff` to the FGC pipe.
@@ -213,16 +215,16 @@ pub unsafe extern "C" fn recvFieldHeader(
 
     let frame = match reader.recv_buffer() {
         Ok(frame) => frame,
-        Err(_) => return FGCError::FGC_PARENT_ERROR,
+        Err(_) => return FGCError::ParentError,
     };
 
     if matches!(frame, RecvFrame::Terminator) {
-        return FGCError::FGC_DONE;
+        return FGCError::Done;
     }
 
     let mut id_bytes = [0u8; size_of::<u64>()];
     if reader.recv_fixed(&mut id_bytes).is_err() {
-        return FGCError::FGC_PARENT_ERROR;
+        return FGCError::ParentError;
     }
 
     let (name_ptr, name_len) = util::frame_into_c_buffer(frame);
@@ -232,5 +234,6 @@ pub unsafe extern "C" fn recvFieldHeader(
     unsafe { *field_name_len = name_len };
     // SAFETY: caller guarantees (3).
     unsafe { *id = u64::from_ne_bytes(id_bytes) };
-    FGCError::FGC_COLLECTED
+
+    FGCError::Collected
 }
