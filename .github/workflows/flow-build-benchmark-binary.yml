@@ -81,16 +81,22 @@ jobs:
         working-directory: .install
         run: ./install_boost.sh
       # The local composite action `./.github/actions/setup-sccache` is a
-      # recent master addition. When git_ref points at an older ref (e.g. a
-      # release branch like 2.10 / 8.4) the action.yml isn't there and the
-      # workflow fails before the build even runs. Gate sccache on its
-      # presence in the checked-out tree so the historical-ref path doesn't
-      # require backporting CI tooling. Builds without sccache are slower
-      # but functionally equivalent.
+      # recent master addition. Two gotchas with historical refs:
+      #   1. Older refs (e.g. 2.10 / 8.4) don't have action.yml at all.
+      #   2. Newer refs (e.g. v8.7.91) ship a different action signature
+      #      that requires inputs (aws-role / s3-bucket / s3-region /
+      #      s3-key-prefix) the calling `uses:` here doesn't pass.
+      # In either historical case the bare `uses: ./.github/actions/setup-sccache`
+      # call fails before `make build` runs. Simpler than schema-detecting:
+      # whenever git_ref is set, skip sccache entirely. Builds without
+      # sccache are slower but functionally equivalent.
       - name: Detect setup-sccache action
         id: sccache_check
         run: |
-          if [ -f .github/actions/setup-sccache/action.yml ]; then
+          if [ -n "${{ inputs.git_ref }}" ]; then
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::historical git_ref set; skipping sccache (action signature not guaranteed to match across refs)"
+          elif [ -f .github/actions/setup-sccache/action.yml ]; then
             echo "available=true" >> "$GITHUB_OUTPUT"
           else
             echo "available=false" >> "$GITHUB_OUTPUT"
