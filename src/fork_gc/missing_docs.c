@@ -12,33 +12,6 @@
 #include "rmutil/rm_assert.h"
 #include "obfuscation/hidden.h"
 
-void FGC_childCollectMissingDocs(ForkGC *gc, RedisSearchCtx *sctx) {
-  IndexSpec *spec = sctx->spec;
-
-  dictIterator* iter = dictGetIterator(spec->missingFieldDict);
-  dictEntry* entry = NULL;
-  while ((entry = dictNext(iter))) {
-    const HiddenString *hiddenFieldName = dictGetKey(entry);
-    InvertedIndex *idx = dictGetVal(entry);
-    if(idx) {
-      size_t length;
-      const char* fieldName = HiddenString_GetUnsafe(hiddenFieldName, &length);
-      struct iovec iov = {.iov_base = (void *)fieldName, length};
-
-      CTX_II_GC_Callback cbCtx = { .gc = gc, .hdrarg = &iov };
-      II_GCCallback cb = { .ctx = &cbCtx, .call = sendHeaderString };
-
-      II_GCWriter wr = { .ctx = gc, .write = pipe_write_cb };
-
-      InvertedIndex_GcDelta_Scan(&wr, sctx, idx, &cb);
-    }
-  }
-  dictReleaseIterator(iter);
-
-  // we are done with missing field docs inverted indexes
-  FGC_sendTerminator(gc);
-}
-
 FGCError FGC_parentHandleMissingDocs(ForkGC *gc) {
   FGCError status = FGC_COLLECTED;
   size_t fieldNameLen = 0;
