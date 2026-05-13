@@ -131,6 +131,7 @@ rqe_iterator_type = { path = "./rqe_iterator_type" }
 rqe_iterators = { path = "./rqe_iterators" }
 rqe_iterators_test_utils = { path = "./rqe_iterators_test_utils" }
 schema_rule = { path = "./c_wrappers/schema_rule" }
+search_ctx = { path = "./c_wrappers/search_ctx" }
 search_result = { path = "./search_result" }
 slots_tracker = { path = "./slots_tracker" }
 sorting_vector = { path = "./sorting_vector" }

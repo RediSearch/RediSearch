@@ -37,7 +37,7 @@ includes = ["geohash/geohash_helper.h"]
 includes = ["redisearch_types.h"]
 
 [header.fork_gc_ffi]
-includes = ["fork_gc.h"]
+includes = ["fork_gc.h", "search_ctx.h"]
 
 [header.inverted_index]
 # `index_result_rs.h` carries the types historically defined in this header

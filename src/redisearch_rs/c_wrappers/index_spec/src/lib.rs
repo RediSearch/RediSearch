@@ -9,9 +9,10 @@
 
 //! Safe wrapper around [`ffi::IndexSpec`].
 
-use std::{ffi::c_char, slice};
+use std::{ffi::c_char, ptr::NonNull, slice};
 
 use field_spec::FieldSpec;
+use inverted_index::opaque::InvertedIndex;
 use schema_rule::SchemaRule;
 
 /// A safe wrapper around an `ffi::IndexSpec`.
@@ -57,6 +58,23 @@ impl IndexSpec {
         let len = self.0.numFields.into();
         // Safety: (1.) due to creation with `IndexSpec::from_raw`
         unsafe { slice::from_raw_parts(data, len) }
+    }
+
+    /// Check whether the document with the given id exists in this spec's document table.
+    pub fn doc_exists(&self, id: ffi::t_docId) -> bool {
+        // SAFETY: docs is a valid DocTable for a properly initialised IndexSpec.
+        unsafe { ffi::DocTable_Exists(&self.0.docs, id) }
+    }
+
+    /// Return the inverted index tracking all existing (live) document IDs, if present.
+    ///
+    /// This index is only populated when the spec's schema rule has
+    /// [`index_all`](ffi::SchemaRule::index_all) set.
+    pub fn existing_docs(&self) -> Option<&InvertedIndex> {
+        NonNull::new(self.0.existingDocs).map(|existing_docs| {
+            // SAFETY: existingDocs is a valid, non-null pointer to an opaque InvertedIndex.
+            unsafe { existing_docs.cast::<InvertedIndex>().as_ref() }
+        })
     }
 
     /// Acquire the write lock for this `IndexSpec`. This is required before performing any
