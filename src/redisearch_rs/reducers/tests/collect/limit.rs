@@ -12,6 +12,7 @@ use rlookup::RLookupKey;
 use value::SharedValue;
 
 use super::helpers::{extract_num_field, make_key, make_row, num_row, run_collect};
+use crate::common::SORT_ASC;
 
 #[test]
 #[cfg_attr(
@@ -112,7 +113,7 @@ fn remote_internal_mode_does_not_apply_limit_offset_locally() {
             field_keys.clone(),
             None,
             sort_keys.clone(),
-            0b1, // ASC
+            SORT_ASC,
             Some((5, 3)),
             is_internal,
         );
