@@ -601,7 +601,7 @@ mod revalidate {
         let original = it.last_doc_id();
 
         let status = {
-            let guard = context.spec_read_guard();
+            let guard = context.spec_read();
             it.revalidate(&*guard).unwrap()
         };
         assert_eq!(status, RQEValidateStatus::Ok);
@@ -621,7 +621,7 @@ mod revalidate {
         let original = it.last_doc_id();
 
         let status = {
-            let guard = context.spec_read_guard();
+            let guard = context.spec_read();
             it.revalidate(&*guard).unwrap()
         };
         assert_eq!(status, RQEValidateStatus::Ok);
@@ -640,7 +640,7 @@ mod revalidate {
         let original = it.last_doc_id();
 
         let status = {
-            let guard = context.spec_read_guard();
+            let guard = context.spec_read();
             it.revalidate(&*guard).unwrap()
         };
         assert_eq!(status, RQEValidateStatus::Ok);
@@ -664,17 +664,17 @@ mod revalidate {
         )));
         // We temporarily swap `existingDocs` to trigger a wildcard abort.
         let old_existing_docs = {
-            let guard = context.spec_read_guard();
+            let guard = context.spec_read();
             guard.existing_docs()
         };
 
         {
-            let mut guard = context.spec_write_guard();
+            let mut guard = context.spec_write();
             guard.set_existing_docs(new_ii.cast());
         }
 
         let status = {
-            let guard = context.spec_read_guard();
+            let guard = context.spec_read();
             it.revalidate(&*guard).unwrap()
         };
         assert_eq!(status, RQEValidateStatus::Aborted);
@@ -682,7 +682,7 @@ mod revalidate {
         // Restoring the original `existingDocs` pointer and dropping
         // `new_ii` which was created via `Box::into_raw` above.
         {
-            let mut guard = context.spec_write_guard();
+            let mut guard = context.spec_write();
             guard.set_existing_docs(old_existing_docs);
         }
         // SAFETY: Dropping Box from raw pointer.
@@ -707,7 +707,7 @@ mod revalidate {
         gc_document(&context, 1);
 
         let status = {
-            let guard = context.spec_read_guard();
+            let guard = context.spec_read();
             it.revalidate(&*guard).unwrap()
         };
         assert!(matches!(status, RQEValidateStatus::Moved { .. }));
@@ -729,7 +729,7 @@ mod revalidate {
         gc_document(&context, 1);
 
         let status = {
-            let guard = context.spec_read_guard();
+            let guard = context.spec_read();
             it.revalidate(&*guard).unwrap()
         };
         assert!(matches!(status, RQEValidateStatus::Moved { .. }));
@@ -750,7 +750,7 @@ mod revalidate {
         gc_document(&context, 1);
 
         let status = {
-            let guard = context.spec_read_guard();
+            let guard = context.spec_read();
             it.revalidate(&*guard).unwrap()
         };
         assert!(matches!(status, RQEValidateStatus::Moved { .. }));
@@ -775,7 +775,7 @@ mod revalidate {
         gc_document(&context, 5);
 
         let status = {
-            let guard = context.spec_read_guard();
+            let guard = context.spec_read();
             it.revalidate(&*guard).unwrap()
         };
         assert!(matches!(status, RQEValidateStatus::Moved { .. }));
@@ -808,7 +808,7 @@ mod revalidate {
         gc_document(&context, 1);
 
         let status = {
-            let guard = context.spec_read_guard();
+            let guard = context.spec_read();
             it.revalidate(&*guard).unwrap()
         };
         assert!(

@@ -408,7 +408,7 @@ fn numeric_no_range_tree_revalidate() {
 
     // Revalidate should succeed (not abort) even though there is no range tree.
     let status = {
-        let guard = mock_ctx.spec_read_guard();
+        let guard = mock_ctx.spec_read();
         it.revalidate(&*guard).expect("revalidate failed")
     };
     assert_eq!(status, RQEValidateStatus::Ok);
@@ -649,7 +649,7 @@ mod from_tree {
         unsafe { (*tree_ptr).increment_revision() };
 
         let status = {
-            let guard = ctx.spec_read_guard();
+            let guard = ctx.spec_read();
             iters[0].revalidate(&*guard).expect("revalidate failed")
         };
         assert_eq!(status, RQEValidateStatus::Aborted);
@@ -685,7 +685,7 @@ mod from_tree {
         unsafe { (*tree_ptr).increment_revision() };
 
         let status = {
-            let guard = ctx.spec_read_guard();
+            let guard = ctx.spec_read();
             iters[0].revalidate(&*guard).expect("revalidate failed")
         };
         assert_eq!(status, RQEValidateStatus::Ok);
@@ -1003,7 +1003,7 @@ mod not_miri {
         // Revalidate before any reads. last_doc_id is 0, so even though
         // needs_revalidation is true, we should get Ok.
         let status = {
-            let guard = test.test.context.spec_read_guard();
+            let guard = test.test.context.spec_read();
             it.revalidate(&*guard).expect("revalidate failed")
         };
         assert_eq!(status, RQEValidateStatus::Ok);
@@ -1066,13 +1066,13 @@ mod not_miri {
 
         // First, verify the iterator works normally and read at least one document
         let status = {
-            let guard = test.test.context.spec_read_guard();
+            let guard = test.test.context.spec_read();
             it.revalidate(&*guard).expect("revalidate failed")
         };
         assert_eq!(status, RQEValidateStatus::Ok);
         assert!(it.read().expect("failed to read").is_some());
         let status = {
-            let guard = test.test.context.spec_read_guard();
+            let guard = test.test.context.spec_read();
             it.revalidate(&*guard).expect("revalidate failed")
         };
         assert_eq!(status, RQEValidateStatus::Ok);
@@ -1091,7 +1091,7 @@ mod not_miri {
 
         // Now Revalidate should return Aborted because the revision IDs don't match
         let status = {
-            let guard = test.test.context.spec_read_guard();
+            let guard = test.test.context.spec_read();
             it.revalidate(&*guard).expect("revalidate failed")
         };
         assert_eq!(status, RQEValidateStatus::Aborted);

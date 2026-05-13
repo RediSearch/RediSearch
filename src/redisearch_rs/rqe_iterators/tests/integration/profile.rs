@@ -162,7 +162,7 @@ fn profile_revalidate() {
 
     // Revalidate (Wildcard returns OK)
     let status = {
-        let guard = mock_ctx.spec_read_guard();
+        let guard = mock_ctx.spec_read();
         profile.revalidate(&*guard)
     };
     assert!(status.is_ok());

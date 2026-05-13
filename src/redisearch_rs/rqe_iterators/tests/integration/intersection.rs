@@ -586,7 +586,7 @@ fn revalidate_ok() {
 
     // Revalidate should return Ok
     let status = {
-        let guard = mock_ctx.spec_read_guard();
+        let guard = mock_ctx.spec_read();
         ii.revalidate(&*guard).expect("revalidate failed")
     };
     assert!(matches!(status, RQEValidateStatus::Ok));
@@ -626,7 +626,7 @@ fn revalidate_aborted() {
 
     // Revalidate should return Aborted since one child aborted
     let status = {
-        let guard = mock_ctx.spec_read_guard();
+        let guard = mock_ctx.spec_read();
         ii.revalidate(&*guard).expect("revalidate failed")
     };
     assert!(matches!(status, RQEValidateStatus::Aborted));
@@ -662,7 +662,7 @@ fn revalidate_moved() {
 
     // Revalidate should return Moved
     let status = {
-        let guard = mock_ctx.spec_read_guard();
+        let guard = mock_ctx.spec_read();
         ii.revalidate(&*guard).expect("revalidate failed")
     };
     assert!(
@@ -709,7 +709,7 @@ fn revalidate_mixed_results() {
 
     // Revalidate should return Moved (if any child moved)
     let status = {
-        let guard = mock_ctx.spec_read_guard();
+        let guard = mock_ctx.spec_read();
         ii.revalidate(&*guard).expect("revalidate failed")
     };
     assert!(matches!(status, RQEValidateStatus::Moved { .. }));
@@ -746,7 +746,7 @@ fn revalidate_after_eof() {
 
     // Revalidate should return OK when already at EOF
     let status = {
-        let guard = mock_ctx.spec_read_guard();
+        let guard = mock_ctx.spec_read();
         ii.revalidate(&*guard).expect("revalidate failed")
     };
     assert!(
@@ -799,7 +799,7 @@ fn revalidate_some_children_moved_to_eof() {
     // Revalidate should return Moved with current=None (EOF)
     // because child 1 moves to EOF (it only had 1 element which was already read)
     let status = {
-        let guard = mock_ctx.spec_read_guard();
+        let guard = mock_ctx.spec_read();
         ii.revalidate(&*guard).expect("revalidate failed")
     };
     assert!(
@@ -960,7 +960,7 @@ fn revalidate_before_read() {
 
     // Revalidate before any read
     let status = {
-        let guard = mock_ctx.spec_read_guard();
+        let guard = mock_ctx.spec_read();
         ii.revalidate(&*guard).expect("revalidate failed")
     };
     assert!(
@@ -999,7 +999,7 @@ fn revalidate_move_before_read() {
 
     // Revalidate before any read - children will move
     let status = {
-        let guard = mock_ctx.spec_read_guard();
+        let guard = mock_ctx.spec_read();
         ii.revalidate(&*guard).expect("revalidate failed")
     };
 
@@ -1144,7 +1144,7 @@ fn revalidate_moved_skip_to_returns_none() {
     // - child0 has no doc >= 22 (only has [10, 15]), goes EOF
     // - Result: Moved { current: None }
     let status = {
-        let guard = mock_ctx.spec_read_guard();
+        let guard = mock_ctx.spec_read();
         ii.revalidate(&*guard).expect("revalidate failed")
     };
     assert!(

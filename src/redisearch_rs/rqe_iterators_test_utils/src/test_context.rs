@@ -159,7 +159,7 @@ fn create_spec_sctx(
 }
 
 impl TestContext {
-    /// Creates a read lock guard for testing.
+    /// Returns a read guard for the spec.
     ///
     /// Returns `ManuallyDrop<IndexSpecReadGuard>` since tests don't use real locks
     /// and don't need/want the drop behavior.
@@ -168,13 +168,13 @@ impl TestContext {
     /// a guard without actually acquiring a lock. All safety requirements are
     /// upheld internally - the spec is valid and accessible without a lock in
     /// test contexts.
-    pub fn spec_read_guard(&self) -> std::mem::ManuallyDrop<index_spec::IndexSpecReadGuard<'_>> {
+    pub fn spec_read(&self) -> std::mem::ManuallyDrop<index_spec::IndexSpecReadGuard<'_>> {
         // SAFETY: The underlying spec exists and is valid. In test contexts,
         // no lock is needed for safe access.
         unsafe { index_spec::IndexSpecReadGuard::from_locked(&*self.spec) }
     }
 
-    /// Creates a write lock guard for testing.
+    /// Returns a write guard for the spec.
     ///
     /// Returns `ManuallyDrop<IndexSpecWriteGuard>` since tests don't use real locks
     /// and don't need/want the drop behavior.
@@ -186,7 +186,7 @@ impl TestContext {
     /// **Note:** While this provides mutable access to the spec, it's the test's
     /// responsibility to ensure this is used appropriately (e.g., not while other
     /// references are actively being used).
-    pub fn spec_write_guard(&self) -> std::mem::ManuallyDrop<index_spec::IndexSpecWriteGuard<'_>> {
+    pub fn spec_write(&self) -> std::mem::ManuallyDrop<index_spec::IndexSpecWriteGuard<'_>> {
         // SAFETY: The underlying spec exists and is valid. In test contexts,
         // no lock is needed. Caller guarantees exclusive access.
         unsafe { index_spec::IndexSpecWriteGuard::from_locked_mut(&mut *self.spec) }
@@ -741,7 +741,7 @@ impl TestContext {
 
     /// Initialize the TTL table if not already initialized.
     fn verify_ttl_init(&mut self) {
-        let mut guard = self.spec_write_guard();
+        let mut guard = self.spec_write();
         guard.set_monitor_document_expiration(true);
         guard.set_monitor_field_expiration(true);
 
@@ -806,7 +806,7 @@ impl TestContext {
         };
 
         // SAFETY: self.spec is valid, TTL table is initialized, fe is a valid array
-        let guard = self.spec_read_guard();
+        let guard = self.spec_read();
         unsafe {
             ffi::TimeToLiveTable_Add(guard.doc_table().ttl, doc_id, fe as _);
         }
@@ -857,7 +857,7 @@ impl Drop for TestContext {
         }
 
         // Remove spec from globals (this may free associated indices)
-        let guard = self.spec_read_guard();
+        let guard = self.spec_read();
         unsafe {
             ffi::IndexSpec_RemoveFromGlobals(guard.own_ref(), false);
         }

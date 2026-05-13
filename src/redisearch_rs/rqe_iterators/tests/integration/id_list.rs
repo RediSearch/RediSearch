@@ -234,7 +234,7 @@ fn revalidate() {
     let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
     let mut it = IdListSorted::new(vec![1, 2, 3]);
     let status = {
-        let guard = mock_ctx.spec_read_guard();
+        let guard = mock_ctx.spec_read();
         it.revalidate(&*guard).expect("revalidate failed")
     };
     assert_eq!(status, RQEValidateStatus::Ok);

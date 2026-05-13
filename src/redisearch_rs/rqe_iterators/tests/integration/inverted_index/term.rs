@@ -357,13 +357,13 @@ mod not_miri {
 
         // First, verify the iterator works normally and read at least one document
         let status = {
-            let guard = test.test.context.spec_read_guard();
+            let guard = test.test.context.spec_read();
             it.revalidate(&*guard).expect("revalidate failed")
         };
         assert_eq!(status, RQEValidateStatus::Ok);
         assert!(it.read().expect("failed to read").is_some());
         let status = {
-            let guard = test.test.context.spec_read_guard();
+            let guard = test.test.context.spec_read();
             it.revalidate(&*guard).expect("revalidate failed")
         };
         assert_eq!(status, RQEValidateStatus::Ok);
@@ -381,7 +381,7 @@ mod not_miri {
         it.swap_index(&mut dummy_ref);
 
         let status = {
-            let guard = test.test.context.spec_read_guard();
+            let guard = test.test.context.spec_read();
             it.revalidate(&*guard).expect("revalidate failed")
         };
         assert_eq!(status, RQEValidateStatus::Aborted);
@@ -427,7 +427,7 @@ mod not_miri {
         // keysDict. The term is not there so Redis_OpenInvertedIndex returns
         // null, triggering the abort path.
         let status = {
-            let guard = test.test.context.spec_read_guard();
+            let guard = test.test.context.spec_read();
             it.revalidate(&*guard).expect("revalidate failed")
         };
         assert_eq!(status, RQEValidateStatus::Aborted);

@@ -65,7 +65,7 @@ impl IndexSpec {
 
     /// Acquire the write lock for this `IndexSpec`. This is required before performing any
     /// modifications to the index spec, such as applying deltas from compaction.
-    pub fn write_lock(&mut self) -> IndexSpecWriteGuard<'_> {
+    pub fn write(&mut self) -> IndexSpecWriteGuard<'_> {
         IndexSpecWriteGuard::new(&mut self.0)
     }
 }

@@ -42,9 +42,9 @@ impl Default for Bencher {
         let context_sparse =
             TestContext::wildcard((1..=Self::MAX_DOC_ID).step_by(Self::SPARSE_STEP));
         {
-            let mut guard = context.spec_write_guard();
+            let mut guard = context.spec_write();
             guard.rule_mut().set_index_all(true);
-            let mut guard_sparse = context_sparse.spec_write_guard();
+            let mut guard_sparse = context_sparse.spec_write();
             guard_sparse.rule_mut().set_index_all(true);
         }
         Self {

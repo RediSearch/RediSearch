@@ -158,7 +158,7 @@ fn optimized_path_returns_not_optimized_iterator() {
     let ctx = MockContext::new(10, 10);
     // SAFETY: No iterators have been created from this context yet.
     {
-        let mut guard = ctx.spec_write_guard();
+        let mut guard = ctx.spec_write();
         guard.rule_mut().set_index_all(true);
     }
 
@@ -196,7 +196,7 @@ fn not_child_access_optimized() {
     let ctx = MockContext::new(10, 10);
     // SAFETY: No iterators have been created from this context yet.
     {
-        let mut guard = ctx.spec_write_guard();
+        let mut guard = ctx.spec_write();
         guard.rule_mut().set_index_all(true);
     }
 

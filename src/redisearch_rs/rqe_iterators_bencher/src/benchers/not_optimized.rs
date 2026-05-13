@@ -30,9 +30,9 @@ impl Default for Bencher {
         // We set index_all=true so the wildcard iterator returns all doc IDs up to MAX_DOC_ID
         // rather than consulting existingDocs.
         {
-            let mut guard_all = context_all.spec_write_guard();
+            let mut guard_all = context_all.spec_write();
             guard_all.rule_mut().set_index_all(true);
-            let mut guard_sparse = context_sparse.spec_write_guard();
+            let mut guard_sparse = context_sparse.spec_write();
             guard_sparse.rule_mut().set_index_all(true);
         }
 

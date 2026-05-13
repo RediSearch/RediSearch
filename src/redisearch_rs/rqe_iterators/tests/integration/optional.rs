@@ -685,7 +685,7 @@ mod optional_iterator_revalidate_test {
 
         // Revalidate should return VALIDATE_OK
         let status = {
-            let guard = mock_ctx.spec_read_guard();
+            let guard = mock_ctx.spec_read();
             it.revalidate(&*guard).expect("revalidate without error")
         };
         assert!(matches!(status, RQEValidateStatus::Ok));
@@ -716,7 +716,7 @@ mod optional_iterator_revalidate_test {
 
         // Optional iterator handles child abort gracefully by replacing with empty iterator
         let status = {
-            let guard = mock_ctx.spec_read_guard();
+            let guard = mock_ctx.spec_read();
             it.revalidate(&*guard).expect("revalidate without error")
         };
         assert!(matches!(status, RQEValidateStatus::Ok)); // Optional iterator continues even when child is aborted
@@ -754,7 +754,7 @@ mod optional_iterator_revalidate_test {
 
         // Revalidate should handle child movement
         let status = {
-            let guard = mock_ctx.spec_read_guard();
+            let guard = mock_ctx.spec_read();
             it.revalidate(&*guard).expect("revalidate without error")
         };
         // Should be MOVED (as real result was affected)
@@ -793,7 +793,7 @@ mod optional_iterator_revalidate_test {
 
         // Since current result is virtual, revalidate should return OK
         let status = {
-            let guard = mock_ctx.spec_read_guard();
+            let guard = mock_ctx.spec_read();
             it.revalidate(&*guard).expect("revalidate without error")
         };
         assert!(matches!(status, RQEValidateStatus::Ok));
@@ -829,14 +829,14 @@ mod optional_iterator_revalidate_after_abort {
         // First revalidate with abort: child is dropped
         data.set_revalidate_result(utils::MockRevalidateResult::Abort);
         let status = {
-            let guard = mock_ctx.spec_read_guard();
+            let guard = mock_ctx.spec_read();
             it.revalidate(&*guard).unwrap()
         };
         assert!(matches!(status, RQEValidateStatus::Ok));
 
         // Second revalidate: child is None, should return Ok immediately
         let status = {
-            let guard = mock_ctx.spec_read_guard();
+            let guard = mock_ctx.spec_read();
             it.revalidate(&*guard).unwrap()
         };
         assert!(matches!(status, RQEValidateStatus::Ok));
@@ -863,7 +863,7 @@ mod optional_iterator_revalidate_after_abort {
         // Abort the child
         data.set_revalidate_result(utils::MockRevalidateResult::Abort);
         let _ = {
-            let guard = mock_ctx.spec_read_guard();
+            let guard = mock_ctx.spec_read();
             it.revalidate(&*guard).unwrap()
         };
 
@@ -899,7 +899,7 @@ mod optional_iterator_revalidate_after_abort {
         // Abort the child
         data.set_revalidate_result(utils::MockRevalidateResult::Abort);
         let _ = {
-            let guard = mock_ctx.spec_read_guard();
+            let guard = mock_ctx.spec_read();
             it.revalidate(&*guard).unwrap()
         };
 
