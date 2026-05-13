@@ -14,7 +14,8 @@ use ffi::{
     t_docId, t_fieldMask,
 };
 use field::FieldMaskOrIndex;
-use inverted_index::{FilterMaskReader, RSIndexResult, RSOffsetSlice, full::Full};
+use index_result::{RSIndexResult, RSOffsetSlice};
+use inverted_index::{FilterMaskReader, full::Full};
 use query_term::RSQueryTerm;
 use rqe_iterators::{IteratorType, NoOpChecker, RQEIterator, inverted_index::Term};
 

@@ -64,14 +64,14 @@ impl<'index> NumericIterator<'index> {
 
 impl<'index> rqe_iterators::RQEIterator<'index> for NumericIterator<'index> {
     #[inline(always)]
-    fn current(&mut self) -> Option<&mut inverted_index::RSIndexResult<'index>> {
+    fn current(&mut self) -> Option<&mut index_result::RSIndexResult<'index>> {
         self.iterator.current()
     }
 
     #[inline(always)]
     fn read(
         &mut self,
-    ) -> Result<Option<&mut inverted_index::RSIndexResult<'index>>, rqe_iterators::RQEIteratorError>
+    ) -> Result<Option<&mut index_result::RSIndexResult<'index>>, rqe_iterators::RQEIteratorError>
     {
         self.iterator.read()
     }

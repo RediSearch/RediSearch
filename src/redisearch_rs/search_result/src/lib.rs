@@ -8,7 +8,7 @@
 */
 
 use enumflags2::{BitFlags, bitflags};
-use inverted_index::RSIndexResult;
+use index_result::RSIndexResult;
 use rlookup::RLookupRow;
 use std::ptr::NonNull;
 

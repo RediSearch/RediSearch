@@ -1088,6 +1088,7 @@ dependencies = [
  "buffer",
  "criterion",
  "ffi",
+ "index_result",
  "inverted_index",
  "itertools 0.14.0",
  "query_term",
@@ -1102,6 +1103,7 @@ version = "0.0.1"
 dependencies = [
  "cheadergen",
  "ffi",
+ "index_result",
  "inverted_index",
  "libc",
  "rmp-serde",
@@ -1115,6 +1117,7 @@ version = "0.0.1"
 dependencies = [
  "ffi",
  "field",
+ "index_result",
  "index_spec",
  "inverted_index",
  "inverted_index_ffi",
@@ -1295,6 +1298,7 @@ name = "metrics_ffi"
 version = "0.0.1"
 dependencies = [
  "ffi",
+ "index_result",
  "inverted_index",
  "workspace_hack",
 ]
@@ -1416,6 +1420,7 @@ dependencies = [
  "ffi",
  "generational_slab",
  "hyperloglog",
+ "index_result",
  "insta",
  "inverted_index",
  "numeric_range_tree",
@@ -2110,6 +2115,7 @@ dependencies = [
  "field",
  "geo",
  "idf",
+ "index_result",
  "index_spec",
  "inverted_index",
  "libc",
@@ -2145,6 +2151,7 @@ dependencies = [
  "criterion",
  "ffi",
  "field",
+ "index_result",
  "inverted_index",
  "inverted_index_ffi",
  "iterators_ffi",
@@ -2164,6 +2171,7 @@ version = "0.0.1"
 dependencies = [
  "ffi",
  "field",
+ "index_result",
  "index_spec",
  "inverted_index",
  "inverted_index_ffi",
@@ -2334,6 +2342,7 @@ dependencies = [
  "document_metadata",
  "enumflags2",
  "ffi",
+ "index_result",
  "inverted_index",
  "rlookup",
  "workspace_hack",
@@ -2862,6 +2871,7 @@ name = "types_ffi"
 version = "0.0.1"
 dependencies = [
  "field",
+ "index_result",
  "inverted_index",
  "workspace_hack",
 ]

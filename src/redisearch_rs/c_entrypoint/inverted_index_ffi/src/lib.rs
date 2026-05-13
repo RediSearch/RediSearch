@@ -21,11 +21,12 @@ use ffi::{
 };
 
 use fork_gc::{InvertedIndexGCCallback, InvertedIndexGCReader, InvertedIndexGCWriter};
+use index_result::RSIndexResult;
 pub use inverted_index::opaque::InvertedIndex;
 use inverted_index::{
     EntriesTrackingIndex, FieldMaskTrackingIndex, FilterGeoReader, FilterMaskReader,
     FilterNumericReader, GcApplyInfo, GcScanDelta, IndexBlock, IndexReader as _, NumericFilter,
-    RSIndexResult, ReadFilter,
+    ReadFilter,
     debug::{BlockSummary, Summary},
     doc_ids_only::DocIdsOnly,
     fields_offsets::{FieldsOffsets, FieldsOffsetsWide},

@@ -13,7 +13,8 @@ use ffi::{t_docId, t_fieldMask};
 use qint::{qint_decode, qint_encode};
 use varint::VarintEncode;
 
-use crate::{Decoder, Encoder, RSIndexResult, TermDecoder};
+use crate::{Decoder, Encoder, TermDecoder};
+use index_result::RSIndexResult;
 
 /// Encode and decode the delta, frequency and field mask of a record.
 ///

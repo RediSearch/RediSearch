@@ -8,7 +8,7 @@
 */
 
 use crate::id_cases;
-use inverted_index::RSResultKind;
+use index_result::RSResultKind;
 use rqe_iterators::{
     IteratorType, RQEIterator, RQEValidateStatus, SkipToOutcome,
     id_list::{IdListSorted, IdListUnsorted},

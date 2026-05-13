@@ -13,16 +13,16 @@ use rqe_iterators::{
 };
 
 #[derive(Default)]
-struct Infinite<'index>(inverted_index::RSIndexResult<'index>);
+struct Infinite<'index>(index_result::RSIndexResult<'index>);
 
 impl<'index> RQEIterator<'index> for Infinite<'index> {
-    fn current(&mut self) -> Option<&mut inverted_index::RSIndexResult<'index>> {
+    fn current(&mut self) -> Option<&mut index_result::RSIndexResult<'index>> {
         Some(&mut self.0)
     }
 
     fn read(
         &mut self,
-    ) -> Result<Option<&mut inverted_index::RSIndexResult<'index>>, RQEIteratorError> {
+    ) -> Result<Option<&mut index_result::RSIndexResult<'index>>, RQEIteratorError> {
         self.0.doc_id += 1;
         Ok(Some(&mut self.0))
     }
@@ -145,9 +145,7 @@ fn skip_to_not_empty() {
         assert_eq!(
             outcome,
             Some(SkipToOutcome::Found(
-                &mut inverted_index::RSIndexResult::build_virt()
-                    .doc_id(id)
-                    .build()
+                &mut index_result::RSIndexResult::build_virt().doc_id(id).build()
             ))
         );
         assert_eq!(it.last_doc_id(), id);

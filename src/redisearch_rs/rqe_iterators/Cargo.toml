@@ -20,6 +20,7 @@ geo.workspace = true
 rqe_iterator_type.workspace = true
 field.workspace = true
 idf.workspace = true
+index_result.workspace = true
 index_spec.workspace = true
 inverted_index.workspace = true
 libc.workspace = true

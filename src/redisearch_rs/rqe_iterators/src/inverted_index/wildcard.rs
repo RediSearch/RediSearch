@@ -8,10 +8,9 @@
 */
 
 use ffi::t_docId;
+use index_result::RSIndexResult;
 use index_spec::IndexSpecReadGuard;
-use inverted_index::{
-    DecodedBy, DocIdsDecoder, IndexReaderCore, RSIndexResult, opaque::OpaqueEncoding,
-};
+use inverted_index::{DecodedBy, DocIdsDecoder, IndexReaderCore, opaque::OpaqueEncoding};
 
 use crate::{
     IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,

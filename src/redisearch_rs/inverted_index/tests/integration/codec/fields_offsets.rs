@@ -10,8 +10,9 @@
 use std::io::Cursor;
 
 use ffi::t_fieldMask;
+use index_result::RSIndexResult;
 use inverted_index::{
-    Decoder, Encoder, RSIndexResult,
+    Decoder, Encoder,
     fields_offsets::{FieldsOffsets, FieldsOffsetsWide},
     test_utils::{TermRecordCompare, TestTermRecord},
 };
@@ -163,7 +164,7 @@ fn test_encode_fields_offsets_field_mask_overflow() {
     let buf = [0u8; 100];
     let mut cursor = Cursor::new(buf);
 
-    let record = inverted_index::RSIndexResult::build_term()
+    let record = index_result::RSIndexResult::build_term()
         .field_mask(u32::MAX as t_fieldMask + 1)
         .build();
     let _res = FieldsOffsets::encode(&mut cursor, 0, &record);
@@ -174,7 +175,7 @@ fn test_encode_fields_offsets_output_too_small() {
     // Not enough space in the buffer to write the encoded data.
     let buf = [0u8; 3];
     let mut cursor = Cursor::new(buf);
-    let record = inverted_index::RSIndexResult::build_term().build();
+    let record = index_result::RSIndexResult::build_term().build();
 
     let res = FieldsOffsets::encode(&mut cursor, 0, &record);
     assert_eq!(res.is_err(), true);

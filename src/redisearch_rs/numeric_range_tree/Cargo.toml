@@ -25,6 +25,7 @@ build_utils = { path = "../build_utils" }
 cheadergen.workspace = true
 ffi.workspace = true
 hyperloglog.workspace = true
+index_result.workspace = true
 inverted_index.workspace = true
 redis_reply.workspace = true
 generational_slab.workspace = true

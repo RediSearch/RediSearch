@@ -9,7 +9,8 @@
 
 use std::ptr;
 
-use crate::{FilterNumericReader, IndexReader, NumericFilter, RSIndexResult};
+use crate::{FilterNumericReader, IndexReader, NumericFilter};
+use index_result::RSIndexResult;
 use pretty_assertions::assert_eq;
 
 #[test]
