@@ -273,6 +273,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "casemap_bench"
+version = "0.0.1"
+dependencies = [
+ "casemap_compare",
+ "criterion",
+ "workspace_hack",
+]
+
+[[package]]
 name = "casemap_compare"
 version = "0.0.1"
 dependencies = [

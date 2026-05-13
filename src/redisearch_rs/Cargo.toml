@@ -3,6 +3,7 @@ members = [
     "build_utils",
     "c_entrypoint/*",
     "c_wrappers/*",
+    "casemap_bench",
     "casemap_compare",
     "document",
     "ffi",
@@ -95,6 +96,7 @@ buffer = { path = "./c_wrappers/buffer" }
 build_utils = { path = "./build_utils" }
 c_ffi_utils = { path = "./c_entrypoint/c_ffi_utils" }
 c_trie = { path = "./c_wrappers/c_trie" }
+casemap_compare = { path = "./casemap_compare" }
 document = { path = "./document" }
 document_metadata = { path = "./c_wrappers/document_metadata" }
 ffi = { path = "./ffi", default-features = false }

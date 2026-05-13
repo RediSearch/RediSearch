@@ -1,0 +1,22 @@
+[package]
+name = "casemap_bench"
+version.workspace = true
+edition.workspace = true
+license-file.workspace = true
+publish.workspace = true
+
+[lib]
+# See https://bheisler.github.io/criterion.rs/book/faq.html#cargo-bench-gives-unrecognized-option-errors-for-valid-command-line-options
+bench = false
+
+[[bench]]
+name = "casemap"
+harness = false
+
+[dependencies]
+casemap_compare.workspace = true
+criterion.workspace = true
+workspace_hack.workspace = true
+
+[lints]
+workspace = true
