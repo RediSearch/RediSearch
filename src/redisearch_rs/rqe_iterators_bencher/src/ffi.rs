@@ -182,7 +182,7 @@ impl QueryIterator {
     #[inline(always)]
     pub fn current(&self) -> Option<&RSIndexResult<'static>> {
         let current = unsafe { (*self.0).current };
-        unsafe { current.cast::<RSIndexResult>().as_ref() }
+        unsafe { current.cast::<RSIndexResult<'static>>().as_ref() }
     }
 }
 

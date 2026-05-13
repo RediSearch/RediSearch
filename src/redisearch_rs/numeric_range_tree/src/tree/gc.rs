@@ -91,7 +91,7 @@ impl NumericRangeNode {
         let mut majority_hll = Hll::new();
         let mut last_block_hll = Hll::new();
 
-        let mut repair_fn = |res: &RSIndexResult<'_>, block: &IndexBlock| {
+        let mut repair_fn = |res: &RSIndexResult, block: &IndexBlock| {
             // SAFETY: We know this is a numeric index result
             let value = unsafe { res.as_numeric_unchecked() };
             let target = if std::ptr::eq(block, last_block_ptr) {

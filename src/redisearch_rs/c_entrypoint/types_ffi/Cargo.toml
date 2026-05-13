@@ -16,7 +16,10 @@ workspace = true
 
 
 [dependencies]
+cheadergen.workspace = true
+ffi.workspace = true
 field.workspace = true
 index_result.workspace = true
 inverted_index.workspace = true
+ref_mode.workspace = true
 workspace_hack.workspace = true

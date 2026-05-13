@@ -1055,6 +1055,7 @@ dependencies = [
  "enumflags2",
  "ffi",
  "query_term",
+ "ref_mode",
  "thin_vec",
  "varint",
  "workspace_hack",
@@ -1503,6 +1504,7 @@ dependencies = [
  "ffi",
  "generational_slab",
  "hyperloglog",
+ "index_result",
  "inverted_index",
  "inverted_index_ffi",
  "numeric_range_tree",
@@ -3053,9 +3055,12 @@ dependencies = [
 name = "types_ffi"
 version = "0.0.1"
 dependencies = [
+ "cheadergen",
+ "ffi",
  "field",
  "index_result",
  "inverted_index",
+ "ref_mode",
  "workspace_hack",
 ]
 

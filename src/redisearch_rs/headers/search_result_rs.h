@@ -21,9 +21,12 @@ typedef const RSDocumentMetadata *OwnedDocumentMetadata;
 
 
 /**
- * The result of an inverted index
+ * The [`Active`] instantiation of [`RawIndexResult`].
+ *
+ * This is the only mode that crosses the C boundary today; the suspended
+ * counterpart is forthcoming.
  */
-typedef struct RSIndexResult RSIndexResult;
+typedef struct RawIndexResult_Active RSIndexResult;
 
 #ifndef BITFLAGS_SEARCHRESULTFLAG__U8_DEFINED
 #define BITFLAGS_SEARCHRESULTFLAG__U8_DEFINED
@@ -165,7 +168,7 @@ typedef struct SearchResult {
    */
   RSScoreExplain *_score_explain;
   OwnedDocumentMetadata _document_metadata;
-  const struct RSIndexResult *_index_result;
+  const RSIndexResult *_index_result;
   struct RLookupRow _row_data;
   SearchResultFlags _flags;
 } SearchResult;

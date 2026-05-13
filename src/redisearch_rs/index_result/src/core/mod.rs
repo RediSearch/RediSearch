@@ -13,50 +13,51 @@ use std::ptr;
 
 use ffi::{FieldMask, RS_FIELDMASK_ALL, RSDocumentMetadata, t_docId, t_fieldMask};
 use query_term::RSQueryTerm;
+use ref_mode::{Active, Ref, SharedPtr};
 
-use super::aggregate::RSAggregateResult;
+use super::aggregate::RawAggregateResult;
 use super::kind::RSResultKind;
-use super::metrics::MetricsVec;
-use super::offsets::{RSOffsetSlice, RSOffsetVector};
-use super::result_data::RSResultData;
-use super::term_record::RSTermRecord;
+use super::metrics::{MetricsVec, RawMetricsVec};
+use super::offsets::{RSOffsetVector, RawOffsetSlice};
+use super::result_data::RawResultData;
+use super::term_record::RawTermRecord;
 
-/// Builder for creating [`RSIndexResult`] instances.
+/// Builder for creating [`RawIndexResult`] instances.
 ///
-/// Constructed via `RSIndexResult::build_*` methods. For the
-/// [`RSResultKind::Term`] kind, [`RSIndexResult::build_term`] returns a
-/// specialized [`RSTermResultBuilder`] with additional setters for
+/// Constructed via `RawIndexResult::build_*` methods. For the
+/// [`RSResultKind::Term`] kind, [`RawIndexResult::build_term`] returns a
+/// specialized [`RawTermResultBuilder`] with additional setters for
 /// term-specific fields.
-pub struct RSIndexResultBuilder<'index> {
+pub struct RawIndexResultBuilder<R: Ref> {
     doc_id: t_docId,
     field_mask: t_fieldMask,
     freq: u32,
-    data: RSResultData<'index>,
+    data: RawResultData<R>,
     weight: f64,
 }
 
-/// Specialized builder for creating [`RSIndexResult`] instances of the
+/// Specialized builder for creating [`RawIndexResult`] instances of the
 /// [`RSResultKind::Term`] kind.
 ///
-/// Created via [`RSIndexResult::build_term`]. Use [`Self::borrowed_record`]
+/// Created via [`RawIndexResult::build_term`]. Use [`Self::borrowed_record`]
 /// or [`Self::owned_record`] to set the term record data before calling
 /// [`Self::build`].
-pub struct RSTermResultBuilder<'index> {
+pub struct RawTermResultBuilder<R: Ref> {
     doc_id: t_docId,
     field_mask: t_fieldMask,
     freq: u32,
     weight: f64,
-    record: TermBuilderRecord<'index>,
+    record: TermBuilderRecord<R>,
 }
 
 /// Internal enum holding the term record data for the builder.
-enum TermBuilderRecord<'index> {
+enum TermBuilderRecord<R: Ref> {
     Borrowed {
         term: Option<Box<RSQueryTerm>>,
-        offsets: RSOffsetSlice<'index>,
+        offsets: RawOffsetSlice<R>,
     },
     Owned {
-        term: Option<&'index RSQueryTerm>,
+        term: Option<SharedPtr<R, RSQueryTerm>>,
         offsets: RSOffsetVector,
     },
     FullyOwned {
@@ -65,7 +66,7 @@ enum TermBuilderRecord<'index> {
     },
 }
 
-impl<'index> RSIndexResultBuilder<'index> {
+impl<R: Ref> RawIndexResultBuilder<R> {
     /// Set the document ID of this record
     pub const fn doc_id(mut self, doc_id: t_docId) -> Self {
         self.doc_id = doc_id;
@@ -96,7 +97,7 @@ impl<'index> RSIndexResultBuilder<'index> {
             doc_id: 0,
             field_mask: 0,
             freq: 0,
-            data: RSResultData::Virtual,
+            data: RawResultData::Virtual,
             weight: 0.0,
         }
     }
@@ -107,7 +108,7 @@ impl<'index> RSIndexResultBuilder<'index> {
             doc_id: 0,
             field_mask: RS_FIELDMASK_ALL,
             freq: 1,
-            data: RSResultData::Numeric(num),
+            data: RawResultData::Numeric(num),
             weight: 1.0,
         }
     }
@@ -118,7 +119,7 @@ impl<'index> RSIndexResultBuilder<'index> {
             doc_id: 0,
             field_mask: RS_FIELDMASK_ALL,
             freq: 0,
-            data: RSResultData::Metric(0f64),
+            data: RawResultData::Metric(0f64),
             weight: 1.0,
         }
     }
@@ -129,7 +130,7 @@ impl<'index> RSIndexResultBuilder<'index> {
             doc_id: 0,
             field_mask: 0,
             freq: 0,
-            data: RSResultData::Intersection(RSAggregateResult::borrowed_with_capacity(cap)),
+            data: RawResultData::Intersection(RawAggregateResult::borrowed_with_capacity(cap)),
             weight: 0.0,
         }
     }
@@ -140,7 +141,7 @@ impl<'index> RSIndexResultBuilder<'index> {
             doc_id: 0,
             field_mask: 0,
             freq: 0,
-            data: RSResultData::Union(RSAggregateResult::borrowed_with_capacity(cap)),
+            data: RawResultData::Union(RawAggregateResult::borrowed_with_capacity(cap)),
             weight: 0.0,
         }
     }
@@ -151,27 +152,27 @@ impl<'index> RSIndexResultBuilder<'index> {
             doc_id: 0,
             field_mask: 0,
             freq: 0,
-            data: RSResultData::HybridMetric(RSAggregateResult::owned_with_capacity(2)),
+            data: RawResultData::HybridMetric(RawAggregateResult::owned_with_capacity(2)),
             weight: 1.0,
         }
     }
 
-    /// Build the final [`RSIndexResult`]
+    /// Build the final [`RawIndexResult`]
     #[inline]
-    pub fn build(self) -> RSIndexResult<'index> {
-        RSIndexResult {
+    pub fn build(self) -> RawIndexResult<R> {
+        RawIndexResult {
             doc_id: self.doc_id,
             dmd: ptr::null(),
             field_mask: self.field_mask,
             freq: self.freq,
             data: self.data,
-            metrics: MetricsVec::new(),
+            metrics: RawMetricsVec::new(),
             weight: self.weight,
         }
     }
 }
 
-impl<'index> RSTermResultBuilder<'index> {
+impl<R: Ref> RawTermResultBuilder<R> {
     /// Create a new term result builder
     const fn new() -> Self {
         Self {
@@ -181,7 +182,7 @@ impl<'index> RSTermResultBuilder<'index> {
             weight: 0.0,
             record: TermBuilderRecord::Borrowed {
                 term: None,
-                offsets: RSOffsetSlice::empty(),
+                offsets: RawOffsetSlice::empty(),
             },
         }
     }
@@ -212,12 +213,12 @@ impl<'index> RSTermResultBuilder<'index> {
 
     /// Set the term record data with borrowed offsets and an optional query term.
     ///
-    /// Produces an [`RSTermRecord::Borrowed`] variant.
+    /// Produces an [`RawTermRecord::Borrowed`] variant.
     #[inline]
     pub fn borrowed_record(
         mut self,
         term: Option<Box<RSQueryTerm>>,
-        offsets: RSOffsetSlice<'index>,
+        offsets: RawOffsetSlice<R>,
     ) -> Self {
         self.record = TermBuilderRecord::Borrowed { term, offsets };
         self
@@ -225,12 +226,12 @@ impl<'index> RSTermResultBuilder<'index> {
 
     /// Set the term record data with owned offsets and an optional borrowed query term.
     ///
-    /// Produces an [`RSTermRecord::Owned`] variant. Use this when the offset
+    /// Produces an [`RawTermRecord::Owned`] variant. Use this when the offset
     /// data does not live long enough to be borrowed by the result.
     #[inline]
     pub fn owned_record(
         mut self,
-        term: Option<&'index RSQueryTerm>,
+        term: Option<SharedPtr<R, RSQueryTerm>>,
         offsets: RSOffsetVector,
     ) -> Self {
         self.record = TermBuilderRecord::Owned { term, offsets };
@@ -240,7 +241,7 @@ impl<'index> RSTermResultBuilder<'index> {
     /// Set the term record data with an owned query term (wrapped in a
     /// [`Box`]) and owned offsets.
     ///
-    /// Produces an [`RSTermRecord::FullyOwned`] variant. Use this when the
+    /// Produces an [`RawTermRecord::FullyOwned`] variant. Use this when the
     /// offsets do not live long enough to be borrowed by the result, but the
     /// caller still wants the record to own the query term (as with
     /// [`Self::borrowed_record`]). This is the right choice for readers that
@@ -255,37 +256,43 @@ impl<'index> RSTermResultBuilder<'index> {
         self
     }
 
-    /// Build the final [`RSIndexResult`]
+    /// Build the final [`RawIndexResult`]
     #[inline]
-    pub fn build(self) -> RSIndexResult<'index> {
+    pub fn build(self) -> RawIndexResult<R> {
         let data = match self.record {
             TermBuilderRecord::Borrowed { term, offsets } => {
-                RSResultData::Term(RSTermRecord::Borrowed { term, offsets })
+                RawResultData::Term(RawTermRecord::Borrowed { term, offsets })
             }
             TermBuilderRecord::Owned { term, offsets } => {
-                RSResultData::Term(RSTermRecord::Owned { term, offsets })
+                RawResultData::Term(RawTermRecord::Owned { term, offsets })
             }
             TermBuilderRecord::FullyOwned { term, offsets } => {
-                RSResultData::Term(RSTermRecord::FullyOwned { term, offsets })
+                RawResultData::Term(RawTermRecord::FullyOwned { term, offsets })
             }
         };
-        RSIndexResult {
+        RawIndexResult {
             doc_id: self.doc_id,
             dmd: ptr::null(),
             field_mask: self.field_mask,
             freq: self.freq,
             data,
-            metrics: MetricsVec::new(),
+            metrics: RawMetricsVec::new(),
             weight: self.weight,
         }
     }
 }
 
 /// The result of an inverted index
+///
+/// The `R: Ref` parameter selects between [`Active<'index>`] mode (the
+/// data references inside this result are valid for `'index` and the
+/// inverted index read lock is held) and [`ref_mode::Suspended`] mode
+/// (the data references are inert raw pointers that survive lock
+/// release/reacquire cycles).
+#[cheadergen::config(rename_all = "camelCase")]
+#[derive(Debug)]
 #[repr(C)]
-#[derive(Debug, PartialEq)]
-#[cheadergen::config(export, rename_all = "camelCase")]
-pub struct RSIndexResult<'index> {
+pub struct RawIndexResult<R: Ref> {
     /// The document ID of the result
     pub doc_id: t_docId,
 
@@ -299,48 +306,100 @@ pub struct RSIndexResult<'index> {
     pub freq: u32,
 
     /// The actual data of the result
-    data: RSResultData<'index>,
+    pub(super) data: RawResultData<R>,
 
     /// Holds an array of metrics yielded by the different iterators in the AST.
     ///
     /// Backed by [`ThinVec`](thin_vec::ThinVec) — pointer-sized, no
     /// allocation when empty.
-    pub metrics: MetricsVec<'index>,
+    pub metrics: RawMetricsVec<R>,
 
     /// Relative weight for scoring calculations. This is derived from the result's iterator weight
     pub weight: f64,
 }
 
-impl Default for RSIndexResult<'_> {
+/// The [`Active`] instantiation of [`RawIndexResult`].
+///
+/// This is the only mode that crosses the C boundary today; the suspended
+/// counterpart is forthcoming.
+#[cheadergen::config(export)]
+pub type RSIndexResult<'a> = RawIndexResult<Active<'a>>;
+
+impl<'a> PartialEq for RSIndexResult<'a> {
+    fn eq(&self, other: &Self) -> bool {
+        let Self {
+            doc_id,
+            dmd,
+            field_mask,
+            freq,
+            data,
+            metrics,
+            weight,
+        } = self;
+        let Self {
+            doc_id: o_doc_id,
+            dmd: o_dmd,
+            field_mask: o_field_mask,
+            freq: o_freq,
+            data: o_data,
+            metrics: o_metrics,
+            weight: o_weight,
+        } = other;
+        doc_id == o_doc_id
+            && dmd == o_dmd
+            && field_mask == o_field_mask
+            && freq == o_freq
+            && data == o_data
+            && metrics == o_metrics
+            && weight == o_weight
+    }
+}
+
+impl<'a> Default for RSIndexResult<'a> {
     fn default() -> Self {
         Self::build_virt().build()
     }
 }
 
-impl<'index> RSIndexResult<'index> {
+impl<R: Ref> RawIndexResult<R> {
     /// Create a builder for a virtual index result
-    pub const fn build_virt() -> RSIndexResultBuilder<'index> {
-        RSIndexResultBuilder::virt()
+    pub const fn build_virt() -> RawIndexResultBuilder<R> {
+        RawIndexResultBuilder::virt()
     }
 
     /// Create a builder for a numeric index result with the given number
-    pub const fn build_numeric(num: f64) -> RSIndexResultBuilder<'index> {
-        RSIndexResultBuilder::numeric(num)
+    pub const fn build_numeric(num: f64) -> RawIndexResultBuilder<R> {
+        RawIndexResultBuilder::numeric(num)
     }
 
     /// Create a builder for a metric index result
-    pub const fn build_metric() -> RSIndexResultBuilder<'index> {
-        RSIndexResultBuilder::metric()
+    pub const fn build_metric() -> RawIndexResultBuilder<R> {
+        RawIndexResultBuilder::metric()
     }
 
     /// Create a builder for an intersection index result with the given capacity
-    pub fn build_intersect(cap: usize) -> RSIndexResultBuilder<'index> {
-        RSIndexResultBuilder::intersect(cap)
+    pub fn build_intersect(cap: usize) -> RawIndexResultBuilder<R> {
+        RawIndexResultBuilder::intersect(cap)
     }
 
     /// Create a builder for a union index result with the given capacity
-    pub fn build_union(cap: usize) -> RSIndexResultBuilder<'index> {
-        RSIndexResultBuilder::union(cap)
+    pub fn build_union(cap: usize) -> RawIndexResultBuilder<R> {
+        RawIndexResultBuilder::union(cap)
+    }
+
+    /// Create a builder for a hybrid metric index result
+    pub fn build_hybrid_metric() -> RawIndexResultBuilder<R> {
+        RawIndexResultBuilder::hybrid_metric()
+    }
+
+    /// Create a specialized builder for a term index result
+    pub const fn build_term() -> RawTermResultBuilder<R> {
+        RawTermResultBuilder::new()
+    }
+
+    /// Get the kind of this index result
+    pub const fn kind(&self) -> RSResultKind {
+        self.data.kind()
     }
 
     /// Reset an aggregate result for reuse, clearing children, frequency,
@@ -349,25 +408,16 @@ impl<'index> RSIndexResult<'index> {
         self.doc_id = 0;
         self.freq = 0;
         self.field_mask = 0;
-        if let Some(agg) = self.as_aggregate_mut() {
-            agg.reset();
+        match &mut self.data {
+            RawResultData::Union(agg)
+            | RawResultData::Intersection(agg)
+            | RawResultData::HybridMetric(agg) => agg.reset(),
+            RawResultData::Term(_)
+            | RawResultData::Virtual
+            | RawResultData::Numeric(_)
+            | RawResultData::Metric(_) => {}
         }
         self.metrics.reset();
-    }
-
-    /// Create a builder for a hybrid metric index result
-    pub fn build_hybrid_metric() -> RSIndexResultBuilder<'index> {
-        RSIndexResultBuilder::hybrid_metric()
-    }
-
-    /// Create a specialized builder for a term index result
-    pub const fn build_term() -> RSTermResultBuilder<'index> {
-        RSTermResultBuilder::new()
-    }
-
-    /// Get the kind of this index result
-    pub const fn kind(&self) -> RSResultKind {
-        self.data.kind()
     }
 
     /// Get the numeric value of this record without checking its kind. The caller must ensure
@@ -379,18 +429,18 @@ impl<'index> RSIndexResult<'index> {
     pub unsafe fn as_numeric_unchecked(&self) -> f64 {
         debug_assert!(
             self.is_numeric(),
-            "Invariant violation: `as_numeric_unchecked` was invoked on a non-numeric `RSIndexResult` \
+            "Invariant violation: `as_numeric_unchecked` was invoked on a non-numeric `RawIndexResult` \
              instance that didn't actually contain a numeric. It was a {}",
             self.kind()
         );
 
         match &self.data {
-            RSResultData::Numeric(numeric) | RSResultData::Metric(numeric) => *numeric,
-            RSResultData::Union(_)
-            | RSResultData::Intersection(_)
-            | RSResultData::Term(_)
-            | RSResultData::Virtual
-            | RSResultData::HybridMetric(_) => {
+            RawResultData::Numeric(numeric) | RawResultData::Metric(numeric) => *numeric,
+            RawResultData::Union(_)
+            | RawResultData::Intersection(_)
+            | RawResultData::Term(_)
+            | RawResultData::Virtual
+            | RawResultData::HybridMetric(_) => {
                 // SAFETY: unreachable because of safety condition 1
                 unsafe { std::hint::unreachable_unchecked() }
             }
@@ -407,18 +457,18 @@ impl<'index> RSIndexResult<'index> {
     pub unsafe fn as_numeric_unchecked_mut(&mut self) -> &mut f64 {
         debug_assert!(
             self.is_numeric(),
-            "Invariant violation: `as_numeric_unchecked_mut` was invoked on a non-numeric `RSIndexResult` \
+            "Invariant violation: `as_numeric_unchecked_mut` was invoked on a non-numeric `RawIndexResult` \
              instance that didn't actually contain a numeric. It was a {}",
             self.kind()
         );
 
         match &mut self.data {
-            RSResultData::Numeric(numeric) | RSResultData::Metric(numeric) => numeric,
-            RSResultData::Union(_)
-            | RSResultData::Intersection(_)
-            | RSResultData::Term(_)
-            | RSResultData::Virtual
-            | RSResultData::HybridMetric(_) => {
+            RawResultData::Numeric(numeric) | RawResultData::Metric(numeric) => numeric,
+            RawResultData::Union(_)
+            | RawResultData::Intersection(_)
+            | RawResultData::Term(_)
+            | RawResultData::Virtual
+            | RawResultData::HybridMetric(_) => {
                 // SAFETY: unreachable because of safety condition 1
                 unsafe { std::hint::unreachable_unchecked() }
             }
@@ -429,12 +479,12 @@ impl<'index> RSIndexResult<'index> {
     /// `None`.
     pub const fn as_numeric(&self) -> Option<f64> {
         match &self.data {
-            RSResultData::Numeric(numeric) | RSResultData::Metric(numeric) => Some(*numeric),
-            RSResultData::HybridMetric(_)
-            | RSResultData::Union(_)
-            | RSResultData::Intersection(_)
-            | RSResultData::Term(_)
-            | RSResultData::Virtual => None,
+            RawResultData::Numeric(numeric) | RawResultData::Metric(numeric) => Some(*numeric),
+            RawResultData::HybridMetric(_)
+            | RawResultData::Union(_)
+            | RawResultData::Intersection(_)
+            | RawResultData::Term(_)
+            | RawResultData::Virtual => None,
         }
     }
 
@@ -442,12 +492,12 @@ impl<'index> RSIndexResult<'index> {
     /// returns `None`.
     pub const fn as_numeric_mut(&mut self) -> Option<&mut f64> {
         match &mut self.data {
-            RSResultData::Numeric(numeric) | RSResultData::Metric(numeric) => Some(numeric),
-            RSResultData::HybridMetric(_)
-            | RSResultData::Union(_)
-            | RSResultData::Intersection(_)
-            | RSResultData::Term(_)
-            | RSResultData::Virtual => None,
+            RawResultData::Numeric(numeric) | RawResultData::Metric(numeric) => Some(numeric),
+            RawResultData::HybridMetric(_)
+            | RawResultData::Union(_)
+            | RawResultData::Intersection(_)
+            | RawResultData::Term(_)
+            | RawResultData::Virtual => None,
         }
     }
 
@@ -458,22 +508,22 @@ impl<'index> RSIndexResult<'index> {
     /// # Safety
     ///
     /// 1. `Self::is_term()` must return `true` for `self`.
-    pub unsafe fn as_term_unchecked_mut(&mut self) -> &mut RSTermRecord<'index> {
+    pub unsafe fn as_term_unchecked_mut(&mut self) -> &mut RawTermRecord<R> {
         debug_assert!(
             self.is_term(),
-            "Invariant violation: `as_term_unchecked_mut` was invoked on a non-term `RSIndexResult` \
+            "Invariant violation: `as_term_unchecked_mut` was invoked on a non-term `RawIndexResult` \
              instance that didn't actually contain a term. It was a {}",
             self.kind()
         );
 
         match &mut self.data {
-            RSResultData::Term(term) => term,
-            RSResultData::Union(_)
-            | RSResultData::Intersection(_)
-            | RSResultData::Virtual
-            | RSResultData::Numeric(_)
-            | RSResultData::Metric(_)
-            | RSResultData::HybridMetric(_) => {
+            RawResultData::Term(term) => term,
+            RawResultData::Union(_)
+            | RawResultData::Intersection(_)
+            | RawResultData::Virtual
+            | RawResultData::Numeric(_)
+            | RawResultData::Metric(_)
+            | RawResultData::HybridMetric(_) => {
                 // SAFETY: unreachable because of safety condition 1
                 unsafe { std::hint::unreachable_unchecked() }
             }
@@ -482,29 +532,29 @@ impl<'index> RSIndexResult<'index> {
 
     /// Get this record as a term record if possible. If the record is not term, returns
     /// `None`.
-    pub const fn as_term(&self) -> Option<&RSTermRecord<'index>> {
+    pub const fn as_term(&self) -> Option<&RawTermRecord<R>> {
         match &self.data {
-            RSResultData::Term(term) => Some(term),
-            RSResultData::Union(_)
-            | RSResultData::Intersection(_)
-            | RSResultData::Virtual
-            | RSResultData::Numeric(_)
-            | RSResultData::Metric(_)
-            | RSResultData::HybridMetric(_) => None,
+            RawResultData::Term(term) => Some(term),
+            RawResultData::Union(_)
+            | RawResultData::Intersection(_)
+            | RawResultData::Virtual
+            | RawResultData::Numeric(_)
+            | RawResultData::Metric(_)
+            | RawResultData::HybridMetric(_) => None,
         }
     }
 
     /// Get this record as a mutable term record if possible. If the record is not term, returns
     /// `None`.
-    pub const fn as_term_mut(&mut self) -> Option<&mut RSTermRecord<'index>> {
+    pub const fn as_term_mut(&mut self) -> Option<&mut RawTermRecord<R>> {
         match &mut self.data {
-            RSResultData::Term(term) => Some(term),
-            RSResultData::Union(_)
-            | RSResultData::Intersection(_)
-            | RSResultData::Virtual
-            | RSResultData::Numeric(_)
-            | RSResultData::Metric(_)
-            | RSResultData::HybridMetric(_) => None,
+            RawResultData::Term(term) => Some(term),
+            RawResultData::Union(_)
+            | RawResultData::Intersection(_)
+            | RawResultData::Virtual
+            | RawResultData::Numeric(_)
+            | RawResultData::Metric(_)
+            | RawResultData::HybridMetric(_) => None,
         }
     }
 
@@ -514,7 +564,7 @@ impl<'index> RSIndexResult<'index> {
     /// # Safety
     ///
     /// 1. `Self::is_aggregate` must return `true` for `self`.
-    pub unsafe fn as_aggregate_unchecked(&self) -> Option<&RSAggregateResult<'index>> {
+    pub unsafe fn as_aggregate_unchecked(&self) -> Option<&RawAggregateResult<R>> {
         debug_assert!(
             self.is_aggregate(),
             "Invariant violation: `as_aggregate_unchecked` was invoked on an `IndexResult` \
@@ -522,13 +572,13 @@ impl<'index> RSIndexResult<'index> {
             self.kind()
         );
         match &self.data {
-            RSResultData::Union(agg)
-            | RSResultData::Intersection(agg)
-            | RSResultData::HybridMetric(agg) => Some(agg),
-            RSResultData::Term(_)
-            | RSResultData::Virtual
-            | RSResultData::Numeric(_)
-            | RSResultData::Metric(_) => {
+            RawResultData::Union(agg)
+            | RawResultData::Intersection(agg)
+            | RawResultData::HybridMetric(agg) => Some(agg),
+            RawResultData::Term(_)
+            | RawResultData::Virtual
+            | RawResultData::Numeric(_)
+            | RawResultData::Metric(_) => {
                 // SAFETY:
                 // - Thanks to safety precondition 1., we'll never reach this statement.
                 unsafe { std::hint::unreachable_unchecked() }
@@ -538,29 +588,29 @@ impl<'index> RSIndexResult<'index> {
 
     /// Get this record as an aggregate result if possible. If the record is not an aggregate,
     /// returns `None`.
-    pub const fn as_aggregate(&self) -> Option<&RSAggregateResult<'index>> {
+    pub const fn as_aggregate(&self) -> Option<&RawAggregateResult<R>> {
         match &self.data {
-            RSResultData::Union(agg)
-            | RSResultData::Intersection(agg)
-            | RSResultData::HybridMetric(agg) => Some(agg),
-            RSResultData::Term(_)
-            | RSResultData::Virtual
-            | RSResultData::Numeric(_)
-            | RSResultData::Metric(_) => None,
+            RawResultData::Union(agg)
+            | RawResultData::Intersection(agg)
+            | RawResultData::HybridMetric(agg) => Some(agg),
+            RawResultData::Term(_)
+            | RawResultData::Virtual
+            | RawResultData::Numeric(_)
+            | RawResultData::Metric(_) => None,
         }
     }
 
     /// Get this record as a mutable aggregate result if possible. If the record is not an
     /// aggregate, returns `None`.
-    pub const fn as_aggregate_mut(&mut self) -> Option<&mut RSAggregateResult<'index>> {
+    pub const fn as_aggregate_mut(&mut self) -> Option<&mut RawAggregateResult<R>> {
         match &mut self.data {
-            RSResultData::Union(agg)
-            | RSResultData::Intersection(agg)
-            | RSResultData::HybridMetric(agg) => Some(agg),
-            RSResultData::Term(_)
-            | RSResultData::Virtual
-            | RSResultData::Numeric(_)
-            | RSResultData::Metric(_) => None,
+            RawResultData::Union(agg)
+            | RawResultData::Intersection(agg)
+            | RawResultData::HybridMetric(agg) => Some(agg),
+            RawResultData::Term(_)
+            | RawResultData::Virtual
+            | RawResultData::Numeric(_)
+            | RawResultData::Metric(_) => None,
         }
     }
 
@@ -570,7 +620,7 @@ impl<'index> RSIndexResult<'index> {
     /// # Safety
     ///
     /// 1. `Self::is_aggregate` must return `true` for `self`.
-    pub unsafe fn as_aggregate_mut_unchecked(&mut self) -> Option<&mut RSAggregateResult<'index>> {
+    pub unsafe fn as_aggregate_mut_unchecked(&mut self) -> Option<&mut RawAggregateResult<R>> {
         debug_assert!(
             self.is_aggregate(),
             "Invariant violation: `as_aggregate_mut_unchecked` was invoked on an `IndexResult` \
@@ -578,13 +628,13 @@ impl<'index> RSIndexResult<'index> {
             self.kind()
         );
         match &mut self.data {
-            RSResultData::Union(agg)
-            | RSResultData::Intersection(agg)
-            | RSResultData::HybridMetric(agg) => Some(agg),
-            RSResultData::Term(_)
-            | RSResultData::Virtual
-            | RSResultData::Numeric(_)
-            | RSResultData::Metric(_) => {
+            RawResultData::Union(agg)
+            | RawResultData::Intersection(agg)
+            | RawResultData::HybridMetric(agg) => Some(agg),
+            RawResultData::Term(_)
+            | RawResultData::Virtual
+            | RawResultData::Numeric(_)
+            | RawResultData::Metric(_) => {
                 // SAFETY:
                 // - Thanks to safety precondition 1., we'll never reach this statement.
                 unsafe { std::hint::unreachable_unchecked() }
@@ -596,7 +646,9 @@ impl<'index> RSIndexResult<'index> {
     pub const fn is_aggregate(&self) -> bool {
         matches!(
             self.data,
-            RSResultData::Intersection(_) | RSResultData::Union(_) | RSResultData::HybridMetric(_)
+            RawResultData::Intersection(_)
+                | RawResultData::Union(_)
+                | RawResultData::HybridMetric(_)
         )
     }
 
@@ -604,15 +656,45 @@ impl<'index> RSIndexResult<'index> {
     const fn is_numeric(&self) -> bool {
         matches!(
             self.data,
-            RSResultData::Numeric(_) | RSResultData::Metric(_)
+            RawResultData::Numeric(_) | RawResultData::Metric(_)
         )
     }
 
     /// True if this is a term kind
     pub const fn is_term(&self) -> bool {
-        matches!(self.data, RSResultData::Term(_))
+        matches!(self.data, RawResultData::Term(_))
     }
 
+    /// Returns a mutable reference to the metrics collection.
+    pub const fn metrics_mut(&mut self) -> &mut RawMetricsVec<R> {
+        &mut self.metrics
+    }
+
+    /// Returns a reference to the metrics collection.
+    pub const fn metrics_ref(&self) -> &RawMetricsVec<R> {
+        &self.metrics
+    }
+
+    /// Is this result some copy type
+    pub const fn is_copy(&self) -> bool {
+        match self.data {
+            RawResultData::Union(RawAggregateResult::Owned { .. })
+            | RawResultData::Intersection(RawAggregateResult::Owned { .. })
+            | RawResultData::HybridMetric(RawAggregateResult::Owned { .. })
+            | RawResultData::Term(RawTermRecord::Owned { .. })
+            | RawResultData::Term(RawTermRecord::FullyOwned { .. }) => true,
+            RawResultData::Union(RawAggregateResult::Borrowed { .. })
+            | RawResultData::Intersection(RawAggregateResult::Borrowed { .. })
+            | RawResultData::HybridMetric(RawAggregateResult::Borrowed { .. })
+            | RawResultData::Term(RawTermRecord::Borrowed { .. })
+            | RawResultData::Virtual
+            | RawResultData::Numeric(_)
+            | RawResultData::Metric(_) => false,
+        }
+    }
+}
+
+impl<'a> RSIndexResult<'a> {
     /// Returns `true` when the term positions in this result satisfy the given
     /// proximity constraints.
     ///
@@ -642,24 +724,6 @@ impl<'index> RSIndexResult<'index> {
         debug_assert_eq!(self.data, other.data);
     }
 
-    /// Is this result some copy type
-    pub const fn is_copy(&self) -> bool {
-        match self.data {
-            RSResultData::Union(RSAggregateResult::Owned { .. })
-            | RSResultData::Intersection(RSAggregateResult::Owned { .. })
-            | RSResultData::HybridMetric(RSAggregateResult::Owned { .. })
-            | RSResultData::Term(RSTermRecord::Owned { .. })
-            | RSResultData::Term(RSTermRecord::FullyOwned { .. }) => true,
-            RSResultData::Union(RSAggregateResult::Borrowed { .. })
-            | RSResultData::Intersection(RSAggregateResult::Borrowed { .. })
-            | RSResultData::HybridMetric(RSAggregateResult::Borrowed { .. })
-            | RSResultData::Term(RSTermRecord::Borrowed { .. })
-            | RSResultData::Virtual
-            | RSResultData::Numeric(_)
-            | RSResultData::Metric(_) => false,
-        }
-    }
-
     /// If this is an aggregate result, then add a child to it. Also updates the following of this
     /// record:
     /// - `doc_id` is set to the child's doc_id (inherits, not accumulated)
@@ -679,8 +743,8 @@ impl<'index> RSIndexResult<'index> {
     /// from this result will cause undefined behaviour.
     pub fn push_borrowed(
         &mut self,
-        child: &'index RSIndexResult<'index>,
-        mut child_metrics: MetricsVec<'index>,
+        child: &'a RSIndexResult<'a>,
+        mut child_metrics: MetricsVec<'a>,
     ) {
         debug_assert!(
             child.metrics.is_empty(),
@@ -705,23 +769,23 @@ impl<'index> RSIndexResult<'index> {
 
     /// Get a child at the given index if this is an aggregate record. Returns `None` if this is not
     /// an aggregate record or if the index is out-of-bounds.
-    pub fn get(&self, index: usize) -> Option<&RSIndexResult<'index>> {
+    pub fn get(&self, index: usize) -> Option<&RSIndexResult<'a>> {
         match &self.data {
-            RSResultData::Union(agg)
-            | RSResultData::Intersection(agg)
-            | RSResultData::HybridMetric(agg) => agg.get(index),
-            RSResultData::Term(_)
-            | RSResultData::Virtual
-            | RSResultData::Numeric(_)
-            | RSResultData::Metric(_) => None,
+            RawResultData::Union(agg)
+            | RawResultData::Intersection(agg)
+            | RawResultData::HybridMetric(agg) => agg.get(index),
+            RawResultData::Term(_)
+            | RawResultData::Virtual
+            | RawResultData::Numeric(_)
+            | RawResultData::Metric(_) => None,
         }
     }
 
     /// Create an owned copy of this index result, allocating new memory for the contained data.
     ///
     /// The returned result may borrow the term data from the original result.
-    pub fn to_owned<'a>(&'a self) -> RSIndexResult<'a> {
-        RSIndexResult {
+    pub fn to_owned(&'a self) -> RSIndexResult<'a> {
+        RawIndexResult {
             doc_id: self.doc_id,
             dmd: self.dmd,
             field_mask: self.field_mask,
@@ -741,7 +805,7 @@ impl<'index> RSIndexResult<'index> {
     ///
     /// If this is not an aggregate result, then nothing happens. Use [`Self::is_aggregate()`] first
     /// to make sure this is an aggregate result.
-    pub fn push_boxed(&mut self, mut child: Box<RSIndexResult<'index>>) {
+    pub fn push_boxed(&mut self, mut child: Box<RSIndexResult<'a>>) {
         if !self.is_aggregate() {
             return;
         }
@@ -760,27 +824,17 @@ impl<'index> RSIndexResult<'index> {
         }
     }
 
-    /// Returns a mutable reference to the metrics collection.
-    pub const fn metrics_mut(&mut self) -> &mut MetricsVec<'index> {
-        &mut self.metrics
-    }
-
-    /// Returns a reference to the metrics collection.
-    pub const fn metrics_ref(&self) -> &MetricsVec<'index> {
-        &self.metrics
-    }
-
     /// Get a mutable reference to the child at the given index, if it is an aggregate record.
     /// `None` is returned if this is not an aggregate record or if the index is out-of-bounds.
     pub fn get_mut(&mut self, index: usize) -> Option<&mut Self> {
         match &mut self.data {
-            RSResultData::Union(agg)
-            | RSResultData::Intersection(agg)
-            | RSResultData::HybridMetric(agg) => agg.get_mut(index),
-            RSResultData::Term(_)
-            | RSResultData::Virtual
-            | RSResultData::Numeric(_)
-            | RSResultData::Metric(_) => None,
+            RawResultData::Union(agg)
+            | RawResultData::Intersection(agg)
+            | RawResultData::HybridMetric(agg) => agg.get_mut(index),
+            RawResultData::Term(_)
+            | RawResultData::Virtual
+            | RawResultData::Numeric(_)
+            | RawResultData::Metric(_) => None,
         }
     }
 }
