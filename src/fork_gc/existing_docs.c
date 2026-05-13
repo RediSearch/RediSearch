@@ -23,10 +23,7 @@ void FGC_childCollectExistingDocs(ForkGC *gc, RedisSearchCtx *sctx) {
 
     II_GCWriter wr = { .ctx = gc, .write = pipe_write_cb };
 
-    InvertedIndex_GcDelta_Scan(
-        &wr, sctx, idx,
-        &cb, NULL
-    );
+    InvertedIndex_GcDelta_Scan(&wr, sctx, idx, &cb);
   }
 
   // we are done with existing docs inverted index
