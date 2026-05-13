@@ -511,15 +511,14 @@ static void ServerReadyEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t
   REDISMODULE_NOT_USED(eid);
   REDISMODULE_NOT_USED(subevent);
   REDISMODULE_NOT_USED(data);
+  RS_ASSERT(SearchDisk_IsEnabled());
   RedisModule_Log(ctx, "notice", "Got Server ready event.");
-  if (SearchDisk_IsEnabled()) {
-    bool disk_initialized = SearchDisk_Initialize(ctx);
-    RS_LOG_ASSERT(disk_initialized, "Search Disk is enabled but could not be initialized")
-    if (RSGlobalConfig.numWorkerThreads == 0) {
-      RSGlobalConfig.numWorkerThreads = DEFAULT_WORKER_THREADS_FLEX;
-      workersThreadPool_SetNumWorkers();
-      RedisModule_Log(ctx, "notice", "WORKERS set to 1 (Flex mode default)");
-    }
+  bool disk_initialized = SearchDisk_Initialize(ctx);
+  RS_LOG_ASSERT(disk_initialized, "Search Disk is enabled but could not be initialized")
+  if (RSGlobalConfig.numWorkerThreads == 0) {
+    RSGlobalConfig.numWorkerThreads = DEFAULT_WORKER_THREADS_FLEX;
+    workersThreadPool_SetNumWorkers();
+    RedisModule_Log(ctx, "notice", "WORKERS set to 1 (Flex mode default)");
   }
 }
 
@@ -612,17 +611,30 @@ static void ForEachDiskIndex(void (*fn)(IndexSpec *)) {
   dictReleaseIterator(iter);
 }
 
+// Forward declarations from vecsim_disk's global consistency lock. Declared
+// locally to avoid pulling in the full vecsim header (which depends on C++
+// types); resolved at link time.
+extern void VecSimDisk_AcquireConsistencyLock(void);
+extern void VecSimDisk_ReleaseConsistencyLock(void);
+
+// Tracks whether this process currently holds the vecsim_disk consistency
+// lock for an in-progress SST replication cycle. Set on PRE_FORK; cleared on
+// POST_FORK or ABORT. The ABORT path needs this so it can tell whether to
+// release - abort may fire after PRE_CHECKPOINT (lock NOT held) or after
+// PRE_FORK (lock held). All replication events run on the Redis main thread,
+// so this flag does not need atomic access.
+static bool sst_consistency_lock_held = false;
+
 // SST replication event handler.
 //
 // Dispatches each replication sub-event to the matching per-spec wrapper in
-// search_disk.h, which is responsible for the OSS-side lock management and
-// for invoking the disk-side hook.
+// search_disk.h
 //
-// See docs/design/replication_implementation_plan.md.
 static void SSTReplicationEvent(RedisModuleCtx *ctx, RedisModuleEvent eid,
                                 uint64_t subevent, void *data) {
   REDISMODULE_NOT_USED(eid);
   REDISMODULE_NOT_USED(data);
+  RS_ASSERT(SearchDisk_IsEnabled());
 
   if (!SearchDisk_IsInitialized()) {
     return;
@@ -639,15 +651,24 @@ static void SSTReplicationEvent(RedisModuleCtx *ctx, RedisModuleEvent eid,
       break;
     case REDISMODULE_SUBEVENT_SST_REPL_PRE_FORK:
       RedisModule_Log(ctx, "notice", "SST replication: PRE_FORK");
+      VecSimDisk_AcquireConsistencyLock();
+      sst_consistency_lock_held = true;
       ForEachDiskIndex(SearchDisk_PreFork);
       break;
     case REDISMODULE_SUBEVENT_SST_REPL_POST_FORK:
       RedisModule_Log(ctx, "notice", "SST replication: POST_FORK");
       ForEachDiskIndex(SearchDisk_PostFork);
+      RS_ASSERT(sst_consistency_lock_held);
+      VecSimDisk_ReleaseConsistencyLock();
+      sst_consistency_lock_held = false;
       break;
     case REDISMODULE_SUBEVENT_SST_REPL_ABORT:
       RedisModule_Log(ctx, "notice", "SST replication: ABORT");
       ForEachDiskIndex(SearchDisk_ReplicationAbort);
+      if (sst_consistency_lock_held) {
+        VecSimDisk_ReleaseConsistencyLock();
+        sst_consistency_lock_held = false;
+      }
       break;
     default:
       RedisModule_Log(ctx, "warning",
@@ -663,6 +684,7 @@ static void PersistenceEvent(RedisModuleCtx *ctx, RedisModuleEvent eid,
                              uint64_t subevent, void *data) {
   REDISMODULE_NOT_USED(eid);
   REDISMODULE_NOT_USED(data);
+  RS_ASSERT(SearchDisk_IsEnabled());
 
   switch (subevent) {
   case REDISMODULE_SUBEVENT_PERSISTENCE_RDB_START:
