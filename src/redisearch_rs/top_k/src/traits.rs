@@ -35,16 +35,20 @@ pub trait ScoreBatch {
     fn skip_to(&mut self, target: t_docId) -> Option<(t_docId, f64)>;
 }
 
-// ── CollectionStrategy ────────────────────────────────────────────────────────
-
-/// Decision returned by [`ScoreSource::collection_strategy`] after each batch,
-/// telling [`TopKIterator`] how to proceed.
+/// Decision returned by [`ScoreSource::batch_strategy`] after each batch,
+/// telling [`TopKIterator`] how to proceed in Batches mode.
 ///
 /// [`TopKIterator`]: crate::TopKIterator
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum CollectionStrategy {
-    /// Keep iterating — fetch the next batch.
+pub enum BatchStrategy {
+    /// Keep fetching batches.
     Continue,
+
+    /// Switch from Batches mode to Adhoc-BF mode.
+    ///
+    /// The iterator will rewind the child and start calling
+    /// [`ScoreSource::lookup_score`] for each document the child yields.
+    SwitchToAdhoc,
 
     /// Restart batch collection (e.g. after the source has expanded its range).
     ///
@@ -56,36 +60,70 @@ pub enum CollectionStrategy {
     Stop,
 }
 
+/// Decision returned by [`ScoreSource::adhoc_strategy`] after each adhoc
+/// lookup, telling [`TopKIterator`] whether to keep walking the child iterator.
+///
+/// [`TopKIterator`]: crate::TopKIterator
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AdhocStrategy {
+    /// Keep walking the child iterator.
+    Continue,
+
+    /// Collection is complete — stop and yield whatever is in the heap.
+    Stop,
+}
+
 /// The score-producing half of a [`TopKIterator`].
 ///
 /// A [`ScoreSource`] knows how to:
 /// 1. Produce score-ordered batches ([`next_batch`]).
-/// 2. Build the final [`RSIndexResult`] for a `(doc_id, score)` pair ([`build_result`]).
+/// 2. Produce all results in a single shot ([`next_batch_unfiltered`]), used in Unfiltered mode.
+/// 3. Look up the score for an individual document ([`lookup_score`]), used in Adhoc-BF mode.
+/// 4. Build the final [`RSIndexResult`] for a `(doc_id, score)` pair ([`build_result`]).
+/// 5. Decide, after each batch, whether to continue or switch strategy ([`batch_strategy`]).
+/// 6. Decide, after each adhoc lookup, whether to keep walking the child ([`adhoc_strategy`]).
 ///
 /// [`TopKIterator`]: crate::TopKIterator
 /// [`next_batch`]: ScoreSource::next_batch
+/// [`next_batch_unfiltered`]: ScoreSource::next_batch_unfiltered
+/// [`lookup_score`]: ScoreSource::lookup_score
 /// [`build_result`]: ScoreSource::build_result
+/// [`batch_strategy`]: ScoreSource::batch_strategy
+/// [`adhoc_strategy`]: ScoreSource::adhoc_strategy
 pub trait ScoreSource<'index> {
     /// The type of batch cursor this source produces.
     type Batch: ScoreBatch;
 
     /// Fetch the next score-ordered batch.
     ///
+    /// Called repeatedly by [`TopKIterator`] in Batches mode.
+    ///
     /// Returns:
     /// - `Ok(Some(batch))` — a new batch is available.
     /// - `Ok(None)` — the source is exhausted; no more batches.
     /// - `Err(RQEIteratorError::TimedOut)` — the query time limit was reached.
     ///
-    /// # Multi-batch support
-    ///
-    /// The API allows an implementation to spread results across multiple
-    /// batches (the caller loops until `Ok(None)`). However, [`TopKMode::Unfiltered`]
-    /// only calls this method once; sources used in that mode **must** return
-    /// all their results in the first batch.  Returning a second batch there
-    /// is a logic error — results would be silently lost.
-    ///
     /// [`TopKMode::Unfiltered`]: crate::TopKMode::Unfiltered
+    /// [`TopKIterator`]: crate::TopKIterator
     fn next_batch(&mut self) -> Result<Option<Self::Batch>, RQEIteratorError>;
+
+    /// Single-shot query returning all results directly, without a heap.
+    ///
+    /// Called exactly once by [`TopKIterator`] in [`Unfiltered`](crate::TopKMode::Unfiltered)
+    /// mode. Implementations that can answer the full query in one call (e.g.
+    /// `VecSimIndex_TopKQuery`) should override this; the default delegates to
+    /// [`next_batch`](Self::next_batch).
+    ///
+    /// [`TopKIterator`]: crate::TopKIterator
+    fn next_batch_unfiltered(&mut self) -> Result<Option<Self::Batch>, RQEIteratorError> {
+        self.next_batch()
+    }
+
+    /// Return the score for `doc_id`, or `None` if the document is not in
+    /// the source's index.
+    ///
+    /// Used in Adhoc-BF mode where the child iterator drives traversal.
+    fn lookup_score(&mut self, doc_id: t_docId) -> Option<f64>;
 
     /// Return an upper-bound estimate for the number of documents this source
     /// can produce.
@@ -100,11 +138,36 @@ pub trait ScoreSource<'index> {
     /// [`TopKIterator`]: crate::TopKIterator
     fn build_result(&self, doc_id: t_docId, score: f64) -> RSIndexResult<'index>;
 
-    /// Called after each batch to decide how collection should proceed.
+    /// Called after each batch (Batches mode only) to decide how collection
+    /// should proceed.
+    ///
+    /// May update internal estimates as a side effect (e.g., refine child
+    /// selectivity). Must **not** be called from Adhoc-BF mode.
     ///
     /// - `heap_count` — number of results currently in the heap.
     /// - `k` — the target number of results.
-    fn collection_strategy(&mut self, heap_count: usize, k: usize) -> CollectionStrategy;
+    fn batch_strategy(&mut self, heap_count: usize, k: usize) -> BatchStrategy;
+
+    /// Called after each adhoc lookup (Adhoc-BF mode only) to decide whether
+    /// collection should continue.
+    ///
+    /// The default implementation always returns [`AdhocStrategy::Continue`]
+    /// because child iterators yield documents in doc-ID order, not score
+    /// order — early termination would produce an incorrect top-k.  Override
+    /// to implement early-stop heuristics when the caller can guarantee
+    /// correctness (e.g., after accumulating enough high-scoring results).
+    ///
+    /// Must **not** be called from Batches mode.
+    ///
+    /// - `heap_count` — number of results currently in the heap.
+    /// - `k` — the target number of results.
+    fn adhoc_strategy(&mut self, _heap_count: usize, _k: usize) -> AdhocStrategy {
+        // The child yields documents in doc-ID order, not score order, so we
+        // must scan every match to guarantee a correct top-k — stopping when
+        // the heap fills would freeze the answer at the first k child docs.
+        // The bounded `TopKHeap` keeps the result set at k entries regardless.
+        AdhocStrategy::Continue
+    }
 
     /// The [`IteratorType`] that the wrapping [`TopKIterator`] should report.
     ///
