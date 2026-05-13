@@ -138,15 +138,6 @@ jobs:
     with:
       repo: redis/redis
 
-  lint:
-    needs: should-run
-    if: ${{ needs.should-run.outputs.run-validation == 'true' }}
-    permissions:
-      contents: read
-      packages: write
-    uses: ./.github/workflows/task-lint.yml
-    secrets: inherit
-
   test-selected-platforms:
     needs: [should-run, get-latest-redis-tag]
     if: ${{ needs.should-run.outputs.run-validation == 'true' }}
@@ -164,10 +155,69 @@ jobs:
       rejson-branch: master
 
   notify-cie-failure:
-    needs: [get-latest-redis-tag, lint, test-selected-platforms]
+    needs: [should-run, get-latest-redis-tag, test-selected-platforms]
     if: failure()
     runs-on: ubuntu-slim
+    permissions:
+      actions: read
+      contents: read
     steps:
+      - name: Prepare failure details
+        id: failure-details
+        shell: python3 {0}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}
+          SERVER_URL: ${{ github.server_url }}
+          COVERED_PRS: ${{ needs.should-run.outputs.covered-prs }}
+        run: |
+          import json
+          import os
+          import re
+          import subprocess
+          import uuid
+
+          FAILED_CONCLUSIONS = {"failure", "cancelled", "timed_out", "action_required"}
+
+          def append_output(name, value):
+              delimiter = f"EOF_{name}_{uuid.uuid4().hex}"
+              with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+                  output.write(f"{name}<<{delimiter}\n{value}\n{delimiter}\n")
+
+          def gh_api(path):
+              return json.loads(subprocess.check_output(["gh", "api", path], text=True))
+
+          repository = os.environ["REPOSITORY"]
+          run_id = os.environ["RUN_ID"]
+          jobs = gh_api(f"/repos/{repository}/actions/runs/{run_id}/jobs?per_page=100").get("jobs", [])
+          failed_jobs = [
+              job for job in jobs
+              if (job.get("conclusion") or "").lower() in FAILED_CONCLUSIONS
+          ]
+
+          if failed_jobs:
+              failed_jobs_text = "\n".join(
+                  f"<{job.get('html_url')}|{job.get('name')}> ({job.get('conclusion')})"
+                  for job in failed_jobs
+              )
+          else:
+              failed_jobs_text = f"No failed jobs were available yet. See {os.environ['RUN_URL']}"
+
+          covered_prs = os.environ.get("COVERED_PRS", "").strip()
+          if not covered_prs or covered_prs == "none":
+              covered_prs_text = "none"
+          else:
+              pr_links = []
+              for pr_number in re.findall(r"#([0-9]+)", covered_prs):
+                  pr_url = f"{os.environ['SERVER_URL']}/{repository}/pull/{pr_number}"
+                  pr_links.append(f"<{pr_url}|#{pr_number}>")
+              covered_prs_text = ", ".join(pr_links) if pr_links else covered_prs
+
+          append_output("failed_jobs", failed_jobs_text)
+          append_output("covered_prs", covered_prs_text)
+
       - name: Notify CIE failure triage
         uses: slackapi/slack-github-action@v3
         with:
@@ -177,6 +227,8 @@ jobs:
             {
               "failed_workflow": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}",
               "repository": "${{ github.repository }}",
+              "covered_prs": ${{ toJson(steps.failure-details.outputs.covered_prs) }},
+              "failed_jobs": ${{ toJson(steps.failure-details.outputs.failed_jobs) }},
               "owner": "CIE",
-              "expectation": "Post-merge OS matrix failure requires CIE triage"
+              "expectation": "Post-merge selected-platform validation failure requires CIE triage"
             }
