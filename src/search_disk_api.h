@@ -336,14 +336,10 @@ typedef struct IndexDiskAPI {
   /**
    * @brief Master-side SST replication PRE_CHECKPOINT hook.
    *
-   * Called on the master before SpeedB takes the consistency checkpoint that
-   * will be shipped to a replica. Implementations should:
-   *   - flush the memtables so the checkpoint captures everything,
-   *   - disallow new compactions and cancel any in-flight compaction.
+   * Called once per index before the replication checkpoint is taken.
+   * OSS holds the IndexSpec read lock for the duration of this call.
    *
-   * Note: there is no matching POST_CHECKPOINT disk hook. POST_CHECKPOINT is
-   * handled entirely on the OSS side (release of the consistency lock); the
-   * disk layer has no per-spec work to do at that point.
+   * POST_CHECKPOINT has no matching disk hook - OSS handles it on its own.
    *
    * @param index Pointer to the disk index spec
    */
@@ -352,13 +348,9 @@ typedef struct IndexDiskAPI {
   /**
    * @brief Master-side SST replication PRE_FORK hook.
    *
-   * Called on the master immediately before Flex forks the snapshot child.
-   * Implementations should drain in-flight tiered jobs and flush the memtable
-   * so any writes that happened since POST_CHECKPOINT land as L0 files that
-   * Flex's L0 tracking will pick up.
-   *
-   * Note: the caller (OSS) is expected to acquire the per-spec fork lock
-   * before calling this entrypoint and release it after postFork/forkDied.
+   * Called once per index before the replication snapshot fork. OSS holds
+   * both the per-spec fork lock and the IndexSpec read lock for the duration
+   * of this call.
    *
    * @param index Pointer to the disk index spec
    */
@@ -367,8 +359,8 @@ typedef struct IndexDiskAPI {
   /**
    * @brief Master-side SST replication POST_FORK hook.
    *
-   * Called on the master after the snapshot child has been forked. Implementations
-   * should re-enable compactions; the fork lock is released by the caller.
+   * Called once per index after the snapshot fork. OSS releases the fork lock
+   * and the read lock after this call returns.
    *
    * @param index Pointer to the disk index spec
    */
@@ -377,16 +369,10 @@ typedef struct IndexDiskAPI {
   /**
    * @brief Master-side SST replication ABORT hook.
    *
-   * Called on the master when the SST replication cycle is aborted at any
-   * point between PRE_CHECKPOINT and POST_FORK (for example: the snapshot
-   * child died, the replica disconnected, or Flex cancelled the replication).
-   * Implementations should undo any state changes left in place by the
-   * preceding pre* hooks - re-enable compactions, drop any pending checkpoint
-   * artefacts, and bring the index back to its steady-state.
-   *
-   * Note: the caller (OSS) is responsible for releasing any locks it acquired
-   * for this cycle (write lock / consistency lock) regardless of whether
-   * abort or postFork ran.
+   * Called once per index when the replication cycle is aborted at any point
+   * between PRE_CHECKPOINT and POST_FORK. The disk implementation is free to
+   * undo whatever state it set up in the preceding `pre*` hook. OSS releases
+   * any locks still held for the cycle after this call returns.
    *
    * @param index Pointer to the disk index spec
    */

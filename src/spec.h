@@ -15,6 +15,7 @@
 #include "redismodule.h"
 #include "config.h"
 #include "doc_table.h"
+#include "fork_lock.h"
 #include "trie/trie_type.h"
 #include "sortable.h"
 #include "stopwords.h"
@@ -372,6 +373,18 @@ typedef struct IndexSpec {
 
   // Disk index handle (NULL for memory-only indexes)
   RedisSearchDiskIndexSpec *diskSpec;
+
+  // Primitive that helps syncinc fork with operations that may update state in another thread
+  ForkLock fork_lock;
+
+  // Whether the rwlock is currently held as a read lock for an in-progress
+  // SST replication cycle (set in SearchDisk_PreCheckpoint / SearchDisk_PreFork
+  // and cleared in their matching Post* / ReplicationAbort wrappers).
+  bool repl_read_lock_held;
+
+  // Whether fork_lock is currently held for an in-progress SST replication
+  // cycle (set in SearchDisk_PreFork, cleared in PostFork / ReplicationAbort).
+  bool repl_fork_lock_held;
 } IndexSpec;
 
 typedef enum SpecOp { SpecOp_Add, SpecOp_Del } SpecOp;
@@ -796,6 +809,42 @@ void IndexSpec_AcquireWriteLock(IndexSpec* sp);
  * @param sp Pointer to the IndexSpec
  */
 void IndexSpec_ReleaseWriteLock(IndexSpec* sp);
+
+/**
+ * @brief Acquire the IndexSpec read lock (shared with other readers, blocks writers).
+ *
+ * Used during the SST replication PRE_CHECKPOINT / PRE_FORK window so that
+ * queries can continue but document writes (which take the wrlock) are paused.
+ *
+ * @param sp Pointer to the IndexSpec
+ */
+void IndexSpec_AcquireReadLock(IndexSpec *sp);
+
+/**
+ * @brief Release the IndexSpec read lock.
+ * @param sp Pointer to the IndexSpec
+ */
+void IndexSpec_ReleaseReadLock(IndexSpec *sp);
+
+/**
+ * @brief Acquire the per-spec fork lock.
+ *
+ * Used to gate the SST replication PRE_FORK / POST_FORK window against any
+ * critical sections that must be ordered with respect to the snapshot fork.
+ * Binary-semaphore semantics - see fork_lock.h.
+ *
+ * Lock order: fork_lock must be acquired before the IndexSpec rwlock by any
+ * caller that takes both.
+ *
+ * @param sp Pointer to the IndexSpec
+ */
+void IndexSpec_AcquireForkLock(IndexSpec *sp);
+
+/**
+ * @brief Release the per-spec fork lock.
+ * @param sp Pointer to the IndexSpec
+ */
+void IndexSpec_ReleaseForkLock(IndexSpec *sp);
 
 /**
  * @brief Update a term's document count in the Serving Trie

@@ -210,6 +210,11 @@ QueryIterator* SearchDisk_NewTagIterator(RedisSearchDiskIndexSpec *index, const 
 static void* Compaction_BeginUpdate(void *private_data) {
     IndexSpec *sp = private_data;
     RS_ASSERT(sp);
+    // Lock order: fork_lock then wrlock - must match the order in
+    // SearchDisk_PreFork (fork_lock then rdlock).
+    // TODO: move the fork lock acquisition to a pre-commit callback once
+    // that exists so the lock covers the disk-commit window as well.
+    IndexSpec_AcquireForkLock(sp);
     IndexSpec_AcquireWriteLock(sp);
     return sp;
 }
@@ -235,7 +240,9 @@ static void Compaction_EndUpdate(void *update_ctx) {
     IndexSpec *sp = update_ctx;
     RS_ASSERT(sp);
 
+    // Release in reverse order of acquisition (wrlock first, then fork lock).
     IndexSpec_ReleaseWriteLock(sp);
+    IndexSpec_ReleaseForkLock(sp);
 }
 size_t SearchDisk_RunGC(RedisSearchDiskIndexSpec *index, IndexSpec *spec) {
     RS_ASSERT(disk && index && spec);
@@ -427,38 +434,59 @@ void SearchDisk_Flush(RedisSearchDiskIndexSpec* index) {
   disk->index.flush(index);
 }
 
-void SearchDisk_PreCheckpoint(RedisSearchDiskIndexSpec *index) {
-  RS_ASSERT(disk && index);
-  // Need to take read lock to avoid any new writes
-  disk->index.preCheckpoint(index);
+void SearchDisk_PreCheckpoint(IndexSpec *sp) {
+  RS_ASSERT(disk && sp && sp->diskSpec);
+  // Block new writes while keeping queries served.
+  IndexSpec_AcquireReadLock(sp);
+  sp->repl_read_lock_held = true;
+  disk->index.preCheckpoint(sp->diskSpec);
 }
 
-void SearchDisk_PostCheckpoint(RedisSearchDiskIndexSpec *index) {
-  RS_ASSERT(disk && index);
-  // Need to release read lock to enable new writes
+void SearchDisk_PostCheckpoint(IndexSpec *sp) {
+  RS_ASSERT(sp);
+  // POST_CHECKPOINT must always pair with a prior PRE_CHECKPOINT.
+  RS_ASSERT(sp->repl_read_lock_held);
+  // Release the rdlock taken in PreCheckpoint. No disk dispatch.
+  sp->repl_read_lock_held = false;
+  IndexSpec_ReleaseReadLock(sp);
 }
 
-void SearchDisk_PreFork(RedisSearchDiskIndexSpec *index) {
-  RS_ASSERT(disk && index);
-  // Take read lock to avoid new writes
-  // Take consistency lock (For GC consistency)
-  // Wait for or cancel vec in-flight operations to finish
-  disk->index.preFork(index);
+void SearchDisk_PreFork(IndexSpec *sp) {
+  RS_ASSERT(disk && sp && sp->diskSpec);
+  // Lock order: fork_lock then rdlock. The disk side must use the same
+  // ordering for any critical section that takes the fork lock to avoid
+  // deadlock with this handler.
+  IndexSpec_AcquireForkLock(sp);
+  sp->repl_fork_lock_held = true;
+  IndexSpec_AcquireReadLock(sp);
+  sp->repl_read_lock_held = true;
+  disk->index.preFork(sp->diskSpec);
 }
 
-void SearchDisk_PostFork(RedisSearchDiskIndexSpec *index) {
-  RS_ASSERT(disk && index);
-  // Need to release read lock to enable new writes
-  // Release consistency lock (For GC Consistency)
-  // Reenable async operations (vec ops)
-  disk->index.postFork(index);
+void SearchDisk_PostFork(IndexSpec *sp) {
+  RS_ASSERT(disk && sp && sp->diskSpec);
+  RS_ASSERT(sp->repl_read_lock_held);
+  RS_ASSERT(sp->repl_fork_lock_held);
+  disk->index.postFork(sp->diskSpec);
+  IndexSpec_ReleaseReadLock(sp);
+  IndexSpec_ReleaseForkLock(sp);
+  sp->repl_read_lock_held = false;
+  sp->repl_fork_lock_held = false;
 }
 
-void SearchDisk_ReplicationAbort(RedisSearchDiskIndexSpec *index) {
-  RS_ASSERT(disk && index);
-  // Undo any state changes left in place by preCheckpoint / preFork / postCheckpoint.
-  // Need to make sure all the potential locks are released.
-  disk->index.replicationAbort(index);
+void SearchDisk_ReplicationAbort(IndexSpec *sp) {
+  RS_ASSERT(disk && sp && sp->diskSpec);
+  // Release whichever subset of locks is still held for this cycle, then let
+  // the disk side run its abort cleanup.
+  if (sp->repl_read_lock_held) {
+    sp->repl_read_lock_held = false;
+    IndexSpec_ReleaseReadLock(sp);
+  }
+  if (sp->repl_fork_lock_held) {
+    sp->repl_fork_lock_held = false;
+    IndexSpec_ReleaseForkLock(sp);
+  }
+  disk->index.replicationAbort(sp->diskSpec);
 }
 
 void SearchDisk_UpdateBufferBudget(RedisModuleCtx *ctx, int percentage) {

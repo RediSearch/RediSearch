@@ -558,53 +558,52 @@ void SearchDisk_Flush(RedisSearchDiskIndexSpec* index);
 /**
  * @brief Master-side SST replication PRE_CHECKPOINT hook for a single index.
  *
- * Takes the per-spec write lock and dispatches to IndexDiskAPI.preCheckpoint.
+ * Acquires the IndexSpec read lock (blocks writes, allows queries) and
+ * dispatches to the disk-side preCheckpoint hook.
  *
- * @param index Pointer to the disk index spec
+ * @param sp Pointer to the IndexSpec (must have a non-NULL diskSpec)
  */
-void SearchDisk_PreCheckpoint(RedisSearchDiskIndexSpec *index);
+void SearchDisk_PreCheckpoint(IndexSpec *sp);
 
 /**
  * @brief Master-side SST replication POST_CHECKPOINT hook for a single index.
  *
- * Releases the per-spec write lock taken in SearchDisk_PreCheckpoint. There is
- * no matching disk-side hook - the disk layer has no per-spec work to do at
- * POST_CHECKPOINT.
+ * Releases the IndexSpec read lock acquired in SearchDisk_PreCheckpoint.
+ * No disk-side hook is invoked.
  *
- * @param index Pointer to the disk index spec
+ * @param sp Pointer to the IndexSpec
  */
-void SearchDisk_PostCheckpoint(RedisSearchDiskIndexSpec *index);
+void SearchDisk_PostCheckpoint(IndexSpec *sp);
 
 /**
  * @brief Master-side SST replication PRE_FORK hook for a single index.
  *
- * Wraps IndexDiskAPI.preFork. The caller is responsible for holding the
- * per-spec fork lock across the PRE_FORK / POST_FORK window.
+ * Acquires the per-spec fork lock, then the IndexSpec read lock, then
+ * dispatches to the disk-side preFork hook.
  *
- * @param index Pointer to the disk index spec
+ * @param sp Pointer to the IndexSpec (must have a non-NULL diskSpec)
  */
-void SearchDisk_PreFork(RedisSearchDiskIndexSpec *index);
+void SearchDisk_PreFork(IndexSpec *sp);
 
 /**
  * @brief Master-side SST replication POST_FORK hook for a single index.
  *
- * Wraps IndexDiskAPI.postFork.
+ * Dispatches to the disk-side postFork hook, then releases the read lock and
+ * the fork lock acquired in SearchDisk_PreFork.
  *
- * @param index Pointer to the disk index spec
+ * @param sp Pointer to the IndexSpec
  */
-void SearchDisk_PostFork(RedisSearchDiskIndexSpec *index);
+void SearchDisk_PostFork(IndexSpec *sp);
 
 /**
  * @brief Master-side SST replication ABORT hook for a single index.
  *
- * Wraps IndexDiskAPI.replicationAbort. Called on the failure path of an
- * SST replication cycle to let the disk layer undo any state set up by
- * preCheckpoint / preFork (e.g. re-enable compactions). The OSS caller is
- * still responsible for releasing locks taken for this cycle.
+ * Dispatches to the disk-side replicationAbort hook, then releases whichever
+ * subset of locks (fork lock, read lock) is currently held for this cycle.
  *
- * @param index Pointer to the disk index spec
+ * @param sp Pointer to the IndexSpec
  */
-void SearchDisk_ReplicationAbort(RedisSearchDiskIndexSpec *index);
+void SearchDisk_ReplicationAbort(IndexSpec *sp);
 
 /**
  * @brief Update the buffer budget and WBM in response to RAM configuration changes

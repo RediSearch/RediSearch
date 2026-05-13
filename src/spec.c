@@ -2112,6 +2112,7 @@ static void IndexSpec_FreeUnlinkedData(IndexSpec *spec) {
 
   // Destroy the spec's lock
   pthread_rwlock_destroy(&spec->rwlock);
+  ForkLock_Destroy(&spec->fork_lock);
 
   if (spec->diskSpec) SearchDisk_CloseIndex(spec->diskSpec);
 
@@ -2363,6 +2364,10 @@ static void IndexSpec_InitLock(IndexSpec *sp) {
 #endif
 
   pthread_rwlock_init(&sp->rwlock, &attr);
+
+  ForkLock_Init(&sp->fork_lock);
+  sp->repl_read_lock_held = false;
+  sp->repl_fork_lock_held = false;
 }
 
 // Helper function for initializing a field spec
@@ -4503,6 +4508,27 @@ void IndexSpec_AcquireWriteLock(IndexSpec* sp) {
 // Release IndexSpec write lock
 void IndexSpec_ReleaseWriteLock(IndexSpec* sp) {
   pthread_rwlock_unlock(&sp->rwlock);
+}
+
+// Acquire IndexSpec read lock
+void IndexSpec_AcquireReadLock(IndexSpec *sp) {
+  pthread_rwlock_rdlock(&sp->rwlock);
+}
+
+// Release IndexSpec read lock
+void IndexSpec_ReleaseReadLock(IndexSpec *sp) {
+  pthread_rwlock_unlock(&sp->rwlock);
+}
+
+// Acquire the per-spec fork lock - safe to release from a thread other than
+// the one that acquired it (see fork_lock.h for the rationale).
+void IndexSpec_AcquireForkLock(IndexSpec *sp) {
+  ForkLock_Acquire(&sp->fork_lock);
+}
+
+// Release the per-spec fork lock.
+void IndexSpec_ReleaseForkLock(IndexSpec *sp) {
+  ForkLock_Release(&sp->fork_lock);
 }
 
 // Update a term's document count in the Serving Trie
