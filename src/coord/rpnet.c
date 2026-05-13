@@ -343,6 +343,14 @@ int getNextReply(RPNet *nc) {
     // Abort-flag-only pop (no wall-clock deadline). Flipped by the FAIL / RETURN-STRICT
     // timeout callback via MRChannel_WakeAbort. Under Return the flag is never flipped,
     // degrading to a blocking pop. No areq means no wake mechanism — use MRIterator_Next.
+#ifdef ENABLE_ASSERT
+    // Sync point (debug): park BG when it is about to wait for the next shard
+    // reply. Reaching this site implies any previously admitted reply has been
+    // fully drained downstream.
+    if (nc->areq) {
+      SyncPoint_WaitUntil(SYNC_POINT_RPNET_WAITING_FOR_REPLY, areq_timed_out, nc->areq);
+    }
+#endif
     root = nc->areq
       ? MRIterator_NextWithTimeout(nc->it, NULL, &nc->areq->syncCtx.timedOut, NULL)
       : MRIterator_Next(nc->it);

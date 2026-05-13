@@ -1855,6 +1855,14 @@ class TestCoordinatorTimeout:
         Determinism comes from never having more than one reply in flight:
         between SIGNAL and the next resume, BG is guaranteed to be parked
         in `MRIterator_PopWithTimeout` with an empty channel.
+
+        Pipeline shape is RPNet (or RPPager_Limiter -> RPNet), so even if
+        BG were interrupted mid-batch by the timeout, the main thread's
+        `drainPartialResultsAfterTimeout` would re-enter `rpnetNext` with
+        `drainOnly=true` and yield the rest of the in-flight batch from
+        `nc->current.rows`. The race that bites the sortby variants
+        (where the drain pops from RPSorter's heap and never re-enters
+        RPNet) cannot drop rows here.
         """
         env = self.env
         skipIfNoEnableAssert(env)
@@ -2216,10 +2224,10 @@ class TestCoordinatorTimeout:
         Configures ``return-strict``, pauses every shard's worker pool,
         starts ``FT.AGGREGATE idx * <agg_steps>`` on a thread, then
         resumes responsive shards one at a time while parking BG at the
-        ``RpnetReplyAdmitted`` sync point between admissions so each
-        reply is fully admitted into the coord pipeline before the next
-        one is in flight. Once every responsive reply has been admitted,
-        fires ``CLIENT UNBLOCK ... TIMEOUT`` and joins the query thread.
+        ``RpnetWaitingForReply`` sync point between iterations so each
+        reply is fully drained into the sorter before the next one is in
+        flight. Once every responsive reply has been drained, fires
+        ``CLIENT UNBLOCK ... TIMEOUT`` and joins the query thread.
 
         ``assert_reply(result, responsive_count)`` is invoked inside the
         try block after the reply has been parsed; it must assert the
@@ -2251,7 +2259,12 @@ class TestCoordinatorTimeout:
         # Pause workers on every shard so no `_FT.AGGREGATE` job can run.
         verify_command_OK_on_all_shards(env, debug_cmd(), 'WORKERS', 'pause')
 
-        sync_point = 'RpnetReplyAdmitted'
+        # `RpnetWaitingForReply` parks BG in `getNextReply` immediately
+        # before the channel pop, i.e. AFTER any previously admitted reply
+        # has been fully drained downstream. That gives an exact post-drain
+        # checkpoint, unlike `RpnetReplyAdmitted` which parks BG mid-batch
+        # before its rows are yielded.
+        sync_point = 'RpnetWaitingForReply'
         env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
         env.cmd(debug_cmd(), 'SYNC_POINT', 'ARM', sync_point)
 
@@ -2267,15 +2280,32 @@ class TestCoordinatorTimeout:
 
         blocked_client_id = wait_for_blocked_query_client(env, 'FT.AGGREGATE')
 
+        # BG enters `getNextReply` for the very first time and parks at the
+        # sync point with no previous batch to drain.
+        wait_for_condition(
+            lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', sync_point) == 1, {}),
+            f'Timeout waiting for BG to park at {sync_point} initially'
+        )
+
         try:
             for c in responsive_conns:
                 base_jobs = getWorkersThpoolStatsFromShard(c)['totalJobsDone']
-                c.execute_command(debug_cmd(), 'WORKERS', 'resume')
 
-                # Wait for the shard to run its `_FT.AGGREGATE` job (so
-                # the reply has been sent), then for BG to park at the
-                # sync point (so the reply has been admitted on the
-                # coord and merged into upstream-RP state).
+                # Release BG into the channel pop, then re-arm BEFORE
+                # resuming the worker so BG re-parks after fully draining
+                # this shard's reply (rather than racing past the disarmed
+                # sync point into the next pop).
+                env.cmd(debug_cmd(), 'SYNC_POINT', 'SIGNAL', sync_point)
+                wait_for_condition(
+                    lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', sync_point) == 0, {}),
+                    f'Timeout waiting for BG to exit {sync_point}'
+                )
+                env.cmd(debug_cmd(), 'SYNC_POINT', 'ARM', sync_point)
+
+                # Resume the worker. BG: pops the reply, drains every row
+                # into the sorter via repeated `rpnetNext` calls, re-enters
+                # `getNextReply`, parks at the sync point.
+                c.execute_command(debug_cmd(), 'WORKERS', 'resume')
                 wait_for_condition(
                     lambda c=c, base_jobs=base_jobs: (
                         getWorkersThpoolStatsFromShard(c)['totalJobsDone'] > base_jobs,
@@ -2285,23 +2315,13 @@ class TestCoordinatorTimeout:
                 )
                 wait_for_condition(
                     lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', sync_point) == 1, {}),
-                    f'Timeout waiting for BG to park at {sync_point} after resuming a shard'
+                    f'Timeout waiting for BG to re-park at {sync_point} after draining'
                 )
 
-                # Release BG, then wait for it to fully exit the
-                # sync-point spin loop before re-arming. Once IS_WAITING
-                # is 0, BG is back in MRIterator_PopWithTimeout with an
-                # empty channel (the next responsive shard's workers are
-                # still paused), so the next ARM cannot race with an
-                # in-flight reply.
-                env.cmd(debug_cmd(), 'SYNC_POINT', 'SIGNAL', sync_point)
-                wait_for_condition(
-                    lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', sync_point) == 0, {}),
-                    f'Timeout waiting for BG to exit {sync_point}'
-                )
-                env.cmd(debug_cmd(), 'SYNC_POINT', 'ARM', sync_point)
-
-            # All responsive replies are admitted. Fire the timeout.
+            # All responsive replies are fully drained into the heap and BG
+            # is parked at the sync point. Fire the timeout: BG breaks out
+            # of the spin loop via `areq_timed_out` and the channel pop
+            # returns NULL because `syncCtx.timedOut` was set first.
             env.cmd('CLIENT', 'UNBLOCK', blocked_client_id, 'TIMEOUT')
             wait_for_client_unblocked(env, blocked_client_id)
 
@@ -2383,9 +2403,10 @@ class TestCoordinatorTimeout:
         AggregateResults pops the buffered prefix and stores it for the
         main-thread reply.
 
-        Uses the RpnetReplyAdmitted sync point to park BG after each
-        responsive shard's reply is admitted into the pipeline (and thus
-        merged into the sorter's heap), so the partial-row count is exact.
+        Uses the RpnetWaitingForReply sync point to park BG after each
+        responsive shard's reply is fully drained into the pipeline (and
+        thus merged into the sorter's heap), so the partial-row count is
+        exact.
         """
         self._run_return_strict_timeout_sortby_one_shard_paused_aggregate(
             agg_steps=['SORTBY', '1', '@name', 'LIMIT', '0', str(self.n_docs)],
