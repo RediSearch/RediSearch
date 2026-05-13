@@ -216,7 +216,7 @@ jobs:
               slack_mapping = {}
 
           def slack_id_for(login):
-              return slack_mapping.get(login.lower(), "") if login else ""
+              return slack_mapping.get(login.lower(), login) if login else ""
 
 
           author_login = (pull_request.get("author") or {}).get("login") or ""
