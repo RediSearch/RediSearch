@@ -31,6 +31,7 @@ jobs:
           import re
           import subprocess
           import sys
+          import urllib.parse
           import uuid
 
           QUERY = """
@@ -118,12 +119,13 @@ jobs:
               return json.loads(result.stdout)["data"]["repository"]["pullRequest"]
 
 
-          def query_previous_merge_group_run(repo, pr_number, removed_at):
+          def query_previous_merge_group_run(repo, queue_branch, removed_at):
+              encoded_branch = urllib.parse.quote(queue_branch, safe="")
               result = subprocess.run(
                   [
                       "gh",
                       "api",
-                      f"/repos/{repo}/actions/runs?event=merge_group&per_page=100",
+                      f"/repos/{repo}/actions/runs?event=merge_group&branch={encoded_branch}&per_page=20",
                   ],
                   check=True,
                   capture_output=True,
@@ -131,14 +133,9 @@ jobs:
               )
 
               current_run_id = int(os.environ["CURRENT_RUN_ID"])
-              pr_ref_pattern = re.compile(rf"(^|/)pr-{pr_number}-")
               candidates = []
               for run in json.loads(result.stdout)["workflow_runs"]:
                   if run["id"] == current_run_id:
-                      continue
-
-                  head_branch = run.get("head_branch") or ""
-                  if not pr_ref_pattern.search(head_branch):
                       continue
 
                   if run.get("created_at", "") > removed_at:
@@ -168,6 +165,7 @@ jobs:
           repo = os.environ["REPO"]
           owner, repo_name = repo.split("/", maxsplit=1)
           head_ref = os.environ["HEAD_REF"]
+          queue_branch = head_ref.removeprefix("refs/heads/")
           match = re.search(r"(^|/)pr-(\d+)-", head_ref)
           if not match:
               finish_without_alert(f"Could not extract PR number from merge queue ref: {head_ref}")
@@ -206,7 +204,7 @@ jobs:
           enqueuer = latest_add.get("enqueuer") or latest_removal.get("enqueuer") or {}
           enqueuer_login = enqueuer.get("login") or ""
           detector_workflow_url = f"{os.environ['SERVER_URL']}/{repo}/actions/runs/{os.environ['CURRENT_RUN_ID']}"
-          previous_run = query_previous_merge_group_run(repo, pr_number, latest_removal["createdAt"])
+          previous_run = query_previous_merge_group_run(repo, queue_branch, latest_removal["createdAt"])
           previous_run_url = (previous_run or {}).get("html_url") or detector_workflow_url
 
           try:
@@ -247,7 +245,6 @@ jobs:
         uses: slackapi/slack-github-action@v3
         with:
           errors: true
-          payload-delimiter: "_"
           webhook: ${{ secrets.SLACK_WEBHOOK_URL_RQE_CI_ISSUES }}
           webhook-type: webhook-trigger
           payload: |
