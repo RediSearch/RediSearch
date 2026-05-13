@@ -50,7 +50,7 @@ typedef uint64_t t_fieldMask;
 [header.field]
 
 [header.fork_gc_ffi]
-includes = ["fork_gc.h"]
+includes = ["fork_gc.h", "search_ctx.h"]
 
 [header.inverted_index]
 # `index_result_rs.h` carries the types historically defined in this header
