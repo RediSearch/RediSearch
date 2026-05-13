@@ -25,12 +25,7 @@ jobs:
     # with:
     #   repo: redis/redis
 
-  check-what-changed:
-    uses: ./.github/workflows/task-check-changes.yml
-
   lint:
-    needs: check-what-changed
-    if: ${{ needs.check-what-changed.outputs.CODE_CHANGED == 'true' }}
     permissions:
       contents: read
       packages: write
@@ -43,10 +38,7 @@ jobs:
       advisories-base-ref: ${{ github.event.merge_group.base_sha }}
 
   build-unique-oses:
-    # Wait for lint so we do not spend MQ test capacity when CI is already going to fail.
-    # Use explicit status checks so MQ validation still runs when lint is skipped.
-    needs: [get-latest-redis-tag, check-what-changed, lint]
-    if: ${{ !cancelled() && !failure() }}
+    needs: get-latest-redis-tag
     permissions:
       contents: read
       packages: write
@@ -55,7 +47,7 @@ jobs:
     uses: ./.github/workflows/flow-test.yml
     secrets: inherit
     with:
-      platform: 'ubuntu:noble,macos-26,alpine:3.23,intel'  # on feature branches this should be 'all'
+      platform: 'macos-26,alpine:3.23,intel'  # on feature branches this should be 'all,!ubuntu:noble'
       architecture: all
       redis-ref: ${{ needs.get-latest-redis-tag.outputs.tag }}
       options: skip-tests,fail-fast
@@ -63,8 +55,7 @@ jobs:
 
   test-ubuntu:
     # Always run tests for merge queue submissions, including text-only PRs.
-    needs: [get-latest-redis-tag, check-what-changed, lint]
-    if: ${{ !cancelled() && !failure() }}
+    needs: get-latest-redis-tag
     permissions:
       contents: read
       packages: write
@@ -73,7 +64,7 @@ jobs:
     uses: ./.github/workflows/flow-test.yml
     secrets: inherit
     with:
-      platform: ubuntu:latest
+      platform: ubuntu:noble
       architecture: x86_64
       redis-ref: ${{ needs.get-latest-redis-tag.outputs.tag }}
       job-test-config: '{"test": "QUICK=1", "coverage": "QUICK=1", "sanitize": "QUICK=1"}'
@@ -83,7 +74,6 @@ jobs:
   pr-validation:
     needs:
       - get-latest-redis-tag
-      - check-what-changed
       - lint
       - build-unique-oses
       - test-ubuntu
