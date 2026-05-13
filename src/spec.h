@@ -115,7 +115,6 @@ struct IndexesScanner;
 
 #define SPEC_MAX_FIELDS 1024
 #define SPEC_MAX_FIELD_ID (sizeof(t_fieldMask) * 8)
-#define MAX_SCHEMA_PREFIXES 1000000
 #define MAX_SYNONYM_TERMS 1000000     // reasonable limit for synonym map terms
 #define MAX_SYNONYM_GROUP_IDS 4096    // reasonable limit for group IDs per term
 
@@ -528,9 +527,10 @@ int IndexSpec_Deserialize(const RedisModuleString *serialized, int encver);
 void IndexSpec_StartGC(StrongRef spec_ref, IndexSpec *sp);
 void IndexSpec_StartGCFromSpec(StrongRef spec_ref, IndexSpec *sp, uint32_t gcPolicy);
 
-/* Same as above but with ordinary strings, to allow unit testing */
-StrongRef IndexSpec_Parse(const HiddenString *name, const char **argv, int argc, QueryError *status);
-// Calls IndexSpec_Parse after wrapping name with a hidden string
+/* Same as IndexSpec_Parse, but takes a NUL-terminated C-string name and wraps it in a HiddenString
+ * internally. Intended for unit tests only.
+ * Do not use in production or new code: the wrapping requires an extra strlen() over the name,
+ * which IndexSpec_Parse avoids by taking a HiddenString directly. */
 StrongRef IndexSpec_ParseC(const char *name, const char **argv, int argc, QueryError *status);
 
 FieldSpec *IndexSpec_CreateField(IndexSpec *sp, const char *name, const char *path);
