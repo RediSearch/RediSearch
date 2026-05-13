@@ -48,7 +48,7 @@ jobs:
           import subprocess
 
           WORKFLOW_FILE = "event-periodic-master-validation.yml"
-          VALIDATION_JOB_PREFIX = "test-os-matrix"
+          VALIDATION_JOB_PREFIX = "test-selected-platforms"
 
           def gh_api(path):
               return json.loads(subprocess.check_output(["gh", "api", path], text=True))
@@ -147,8 +147,8 @@ jobs:
     uses: ./.github/workflows/task-lint.yml
     secrets: inherit
 
-  test-os-matrix:
-    needs: [should-run, get-latest-redis-tag, lint]
+  test-selected-platforms:
+    needs: [should-run, get-latest-redis-tag]
     if: ${{ needs.should-run.outputs.run-validation == 'true' }}
     permissions:
       contents: read
@@ -156,7 +156,7 @@ jobs:
     uses: ./.github/workflows/flow-test.yml
     secrets: inherit
     with:
-      platform: all
+      platform: 'ubuntu:noble,macos-26,alpine:3.23,intel'
       architecture: all
       redis-ref: ${{ needs.get-latest-redis-tag.outputs.tag }}
       job-test-config: '{"test": "", "coverage": "", "sanitize": ""}'
@@ -164,7 +164,7 @@ jobs:
       rejson-branch: master
 
   notify-cie-failure:
-    needs: [get-latest-redis-tag, lint, test-os-matrix]
+    needs: [get-latest-redis-tag, lint, test-selected-platforms]
     if: failure()
     runs-on: ubuntu-slim
     steps:
