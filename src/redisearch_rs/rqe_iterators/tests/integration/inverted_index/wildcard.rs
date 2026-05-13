@@ -150,14 +150,11 @@ mod not_miri {
         let new_ii = Box::into_raw(Box::new(inverted_index::opaque::InvertedIndex::DocIdsOnly(
             inverted_index::InvertedIndex::<DocIdsOnly>::new(IndexFlags_Index_DocIdsOnly),
         )));
-        let old_existing_docs = {
-            let guard = test.test.context.spec_read();
-            guard.existing_docs()
-        };
-        {
-            let mut guard = test.test.context.spec_write();
-            guard.set_existing_docs(new_ii.cast());
-        }
+        let old_existing_docs = test.test.context.spec_read().existing_docs();
+        test.test
+            .context
+            .spec_write()
+            .set_existing_docs(new_ii.cast());
 
         // Revalidate should return Aborted because existingDocs no longer
         // points to the same index the reader was created from.
@@ -168,10 +165,10 @@ mod not_miri {
 
         // Restore original existingDocs and free the temporary index for
         // proper cleanup.
-        {
-            let mut guard = test.test.context.spec_write();
-            guard.set_existing_docs(old_existing_docs);
-        }
+        test.test
+            .context
+            .spec_write()
+            .set_existing_docs(old_existing_docs);
         unsafe {
             drop(Box::from_raw(new_ii));
         }
@@ -202,14 +199,11 @@ mod not_miri {
 
         // Simulate the garbage collector setting existingDocs to NULL after
         // collecting all documents.
-        let old_existing_docs = {
-            let guard = test.test.context.spec_read();
-            guard.existing_docs()
-        };
-        {
-            let mut guard = test.test.context.spec_write();
-            guard.set_existing_docs(std::ptr::null_mut());
-        }
+        let old_existing_docs = test.test.context.spec_read().existing_docs();
+        test.test
+            .context
+            .spec_write()
+            .set_existing_docs(std::ptr::null_mut());
 
         let status = it
             .revalidate(&*test.test.context.spec_read())
@@ -217,10 +211,10 @@ mod not_miri {
         assert_eq!(status, RQEValidateStatus::Aborted);
 
         // Restore for proper cleanup.
-        {
-            let mut guard = test.test.context.spec_write();
-            guard.set_existing_docs(old_existing_docs);
-        }
+        test.test
+            .context
+            .spec_write()
+            .set_existing_docs(old_existing_docs);
     }
 
     /// Test that `reader()` returns a reference to the underlying reader.

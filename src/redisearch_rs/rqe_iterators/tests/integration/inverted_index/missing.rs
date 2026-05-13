@@ -176,14 +176,11 @@ mod not_miri {
         // Note: the iterator's reader holds a (now-dangling) pointer to the
         // original II, but `should_abort` only compares pointers via
         // `is_index` without dereferencing it, so this is safe.
-        {
-            let guard = test.test.context.spec_read();
-            unsafe {
-                let dict = guard.missing_field_dict();
-                ffi::RS_dictDelete(dict, field_name as *mut _);
-                let rc = ffi::RS_dictAdd(dict, field_name as *mut _, new_ii as *mut _);
-                assert_eq!(rc, 0, "dictAdd failed");
-            }
+        let dict = test.test.context.spec_read().missing_field_dict();
+        unsafe {
+            ffi::RS_dictDelete(dict, field_name as *mut _);
+            let rc = ffi::RS_dictAdd(dict, field_name as *mut _, new_ii as *mut _);
+            assert_eq!(rc, 0, "dictAdd failed");
         }
 
         // Revalidate should return Aborted because the missing II no longer
@@ -225,13 +222,9 @@ mod not_miri {
         // by deleting the dict entry. `dictDelete` calls the value destructor
         // which frees the inverted index.
         let field_name = test.test.context.field_spec().fieldName;
-        {
-            let guard = test.test.context.spec_read();
-            let dict = guard.missing_field_dict();
-
-            unsafe {
-                ffi::RS_dictDelete(dict, field_name as *mut _);
-            }
+        let dict = test.test.context.spec_read().missing_field_dict();
+        unsafe {
+            ffi::RS_dictDelete(dict, field_name as *mut _);
         }
 
         // `should_abort` sees NULL from `dictFetchValue` and returns true.
