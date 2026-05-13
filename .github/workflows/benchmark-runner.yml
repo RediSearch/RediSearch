@@ -25,6 +25,10 @@ on:
         type: string
         description: "Optional: build RediSearch at this git ref instead of the dispatch ref. Accepts a branch name, a tag name, or a FULL 40-char commit SHA (actions/checkout rejects short SHAs). Benchmark specs and orchestration still come from the dispatch ref. Results get tagged with the resolved historical SHA and labeled `historical-<short-sha>` so they don't collide with master's series. Empty = today's behavior."
         default: ""
+      lto:
+        type: string
+        default: "1"
+        description: "Pass-through to `make build LTO=...`. Default `1` matches today's behavior. Set to `0` when building historical refs that predate the LTO toolchain (rustc LLVM-21 / clang-18 mismatch fails the build for older sources)."
       benchmark_groups:
         type: string
         description: "Optional comma-list to gate which benchmark groups run. Valid tokens: `search`, `vecsim`, `hybrid`, `msmarco`. Example: `search,vecsim` skips hybrid and msmarco even if their setup gate would otherwise match. Empty = all groups allowed (today's behavior). Skipped jobs still appear in the run UI as gray 'Skipped' but consume no compute."
@@ -53,6 +57,10 @@ on:
         type: string
         default: ""
         description: "Optional historical git ref to build instead of the dispatch ref."
+      lto:
+        type: string
+        default: "1"
+        description: "Pass-through to `make build LTO=...`. Set to `0` for historical refs predating the LTO toolchain."
       benchmark_groups:
         type: string
         default: ""
@@ -71,6 +79,7 @@ jobs:
       arch: x86_64
       artifact_name: redisearch-bin-${{ github.run_id }}-${{ github.run_attempt }}
       git_ref: ${{ inputs.git_ref }}
+      lto: ${{ inputs.lto }}
 
   build-redisearch-aarch64:
     uses: ./.github/workflows/flow-build-benchmark-binary.yml
@@ -78,6 +87,7 @@ jobs:
       arch: aarch64
       artifact_name: redisearch-bin-aarch64-${{ github.run_id }}-${{ github.run_attempt }}
       git_ref: ${{ inputs.git_ref }}
+      lto: ${{ inputs.lto }}
 
   benchmark-search-oss-standalone:
     if: ${{ (inputs.benchmark_groups == '' || contains(format(',{0},', inputs.benchmark_groups), ',search,')) && (inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-standalone') }}

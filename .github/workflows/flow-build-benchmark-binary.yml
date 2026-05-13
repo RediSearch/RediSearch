@@ -18,6 +18,10 @@ on:
         type: string
         default: ""
         description: "Optional: build at this git ref (sha/tag/branch) instead of the dispatch ref. Empty = checkout default (today's behavior)."
+      lto:
+        type: string
+        default: "1"
+        description: "Pass-through to `make build LTO=...`. Default `1` matches today's behavior. Set to `0` when building historical refs that predate the LTO-required toolchain (rustc LLVM-21 vs clang-18 mismatch fails the build for older sources)."
     outputs:
       resolved_sha:
         description: "Full SHA of the commit that was actually checked out and built"
@@ -96,7 +100,7 @@ jobs:
         if: steps.sccache_check.outputs.available == 'true'
         uses: ./.github/actions/setup-sccache
       - name: Build RediSearch
-        run: make build LTO=1
+        run: make build LTO=${{ inputs.lto }}
       - name: Show sccache stats
         if: steps.sccache_check.outputs.available == 'true'
         run: ${SCCACHE_PATH:-sccache} --show-stats
