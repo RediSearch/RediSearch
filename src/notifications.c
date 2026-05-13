@@ -611,12 +611,6 @@ static void ForEachDiskIndex(void (*fn)(IndexSpec *)) {
   dictReleaseIterator(iter);
 }
 
-// Forward declarations from vecsim_disk's global consistency lock. Declared
-// locally to avoid pulling in the full vecsim header (which depends on C++
-// types); resolved at link time.
-extern void VecSimDisk_AcquireConsistencyLock(void);
-extern void VecSimDisk_ReleaseConsistencyLock(void);
-
 // Tracks whether this process currently holds the vecsim_disk consistency
 // lock for an in-progress SST replication cycle. Set on PRE_FORK; cleared on
 // POST_FORK or ABORT. The ABORT path needs this so it can tell whether to

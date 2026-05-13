@@ -623,6 +623,12 @@ typedef struct RedisSearchDiskAPI {
   MetricsDiskAPI metrics;
 } RedisSearchDiskAPI;
 
+// Forward declarations from vecsim_disk's global consistency lock. Declared
+// here to avoid pulling in the full vecsim header (which depends on C++
+// types); resolved at link time.
+extern void VecSimDisk_AcquireConsistencyLock(void);
+extern void VecSimDisk_ReleaseConsistencyLock(void);
+
 #ifdef __cplusplus
 }
 #endif

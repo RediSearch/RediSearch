@@ -41,6 +41,12 @@ void SearchDisk_SetAPI() {
   return;
 }
 
+__attribute__((weak))
+void VecSimDisk_AcquireConsistencyLock(void) {}
+
+__attribute__((weak))
+void VecSimDisk_ReleaseConsistencyLock(void) {}
+
 bool SearchDisk_Initialize(RedisModuleCtx *ctx) {
   if (!SearchDisk_HasAPI()) {
     RedisModule_Log(ctx, "notice", "RediSearch_Disk API not available");
