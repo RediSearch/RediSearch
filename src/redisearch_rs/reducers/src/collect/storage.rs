@@ -88,7 +88,7 @@ impl Storage {
     /// Returns `true` if the entry was buffered, `false` if it was dropped.
     pub fn insert_entry<S, P>(&mut self, sort_vals: S, project: P) -> bool
     where
-        S: FnOnce() -> Box<[SharedValue]>,
+        S: FnOnce() -> Box<[Option<SharedValue>]>,
         P: FnOnce() -> RLookupRow<'static>,
     {
         match self {
@@ -177,7 +177,7 @@ impl Storage {
                         .into_iter()
                         .skip(offset)
                         .take(count)
-                        .map(|e| e.into_parts().1),
+                        .map(HeapEntry::into_projected),
                 )
             }
         }

@@ -26,8 +26,8 @@ fn make_key() -> RLookupKey<'static> {
     RLookupKey::new(c"v", RLookupKeyFlags::empty())
 }
 
-fn sort_vals(v: f64) -> Box<[SharedValue]> {
-    vec![SharedValue::new_num(v)].into_boxed_slice()
+fn sort_vals(v: f64) -> Box<[Option<SharedValue>]> {
+    vec![Some(SharedValue::new_num(v))].into_boxed_slice()
 }
 
 fn row(key: &RLookupKey<'_>, v: f64) -> RLookupRow<'static> {

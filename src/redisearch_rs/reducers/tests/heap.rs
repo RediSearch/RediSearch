@@ -19,16 +19,16 @@ use value::SharedValue;
 
 redis_mock::mock_or_stub_missing_redis_c_symbols!();
 
-/// Builds an [`EntryKey`] from `f64`s — `f64::NAN` projects to
-/// [`Value::Null`] so tests can exercise the missing-worst policy.
+/// Builds an [`EntryKey`] from `f64`s — `f64::NAN` projects to `None` so tests
+/// can exercise the missing-worst policy.
 fn key(vals: &[f64], asc: u64) -> EntryKey {
-    let snapshot: Box<[SharedValue]> = vals
+    let snapshot: Box<[Option<SharedValue>]> = vals
         .iter()
         .map(|v| {
             if v.is_nan() {
-                SharedValue::null_static()
+                None
             } else {
-                SharedValue::new_num(*v)
+                Some(SharedValue::new_num(*v))
             }
         })
         .collect();
@@ -124,16 +124,11 @@ fn heap_entry_ord_delegates_to_key() {
 }
 
 #[test]
-fn heap_entry_into_parts_decomposes() {
+fn heap_entry_into_projected_returns_payload() {
     let e = HeapEntry::new(key(&[7.0], asc(0)), 42u64);
-    let (sort_vals, projected) = e.into_parts();
-    assert_eq!(sort_vals[0].as_num(), Some(7.0));
-    assert_eq!(projected, 42);
+    assert_eq!(e.into_projected(), 42);
 }
 
-/// Smoke test: drive the wrapped [`MinMaxHeap<HeapEntry<T>>`][min_max_heap::MinMaxHeap]
-/// through the operations [`reducers::collect::storage::Storage::Heap`] needs
-/// (`peek_min`, `peek_max`, `push_pop_min`, `iter`, `drain_desc`).
 #[test]
 fn min_max_heap_top_k_under_asc() {
     let mut heap: MinMaxHeap<HeapEntry<u64>> = MinMaxHeap::with_capacity(3);
@@ -164,6 +159,6 @@ fn min_max_heap_top_k_under_asc() {
     assert_eq!(members, vec![1, 2, 3]);
 
     // Sorted drain best→worst = ASC top-K = 1,2,3.
-    let drained: Vec<u64> = heap.drain_desc().map(|e| e.into_parts().1).collect();
+    let drained: Vec<u64> = heap.drain_desc().map(HeapEntry::into_projected).collect();
     assert_eq!(drained, vec![1, 2, 3]);
 }

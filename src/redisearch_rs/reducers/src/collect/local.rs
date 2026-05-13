@@ -65,16 +65,13 @@ fn prepare_row(
     dst
 }
 
-/// Snapshot sort-key values for heap comparison, null-filling absent keys so
-/// comparator code can apply the same missing-value policy as the C sorter.
-fn snapshot_sort_keys(sort_key_names: &[CString], item: &Value) -> Box<[SharedValue]> {
+/// Snapshot sort-key values for heap comparison, preserving absent keys as
+/// `None` so [`cmp_fields`][value::comparison::cmp_fields] can apply its
+/// missing-worst policy.
+fn snapshot_sort_keys(sort_key_names: &[CString], item: &Value) -> Box<[Option<SharedValue>]> {
     sort_key_names
         .iter()
-        .map(|name| {
-            get_field(item, name.to_bytes())
-                .cloned()
-                .unwrap_or_else(SharedValue::null_static)
-        })
+        .map(|name| get_field(item, name.to_bytes()).cloned())
         .collect()
 }
 

@@ -19,14 +19,13 @@
 //!
 //! [`EntryKey`] owns a *snapshot* of the sort-key values, severed from the
 //! reused upstream [`RLookupRow`][rlookup::RLookupRow] buffer. The payload
-//! `T` (e.g. an `RLookupRow<'a>` or a `Box<[SharedValue]>`) is materialised
-//! by the caller only after the candidate has beaten the current worst —
-//! see [`super::storage`].
+//! `T` is materialised by the caller only after the candidate has beaten the
+//! current worst — see [`super::storage`].
 //!
 
 use std::cmp::Ordering;
+use value::SharedValue;
 use value::comparison::cmp_fields;
-use value::{SharedValue, Value};
 
 /// Sort-key snapshot plus the ASC/DESC bitmap, owning everything the
 /// comparator is allowed to read.
@@ -34,12 +33,12 @@ use value::{SharedValue, Value};
 /// Bit `i` of `sort_asc_map` (LSB-first) selects ASC for the `i`-th key
 /// (set) or DESC (clear), matching `SORTASCMAP_GETASC` / `cmp_fields`.
 pub struct EntryKey {
-    sort_vals: Box<[SharedValue]>,
+    sort_vals: Box<[Option<SharedValue>]>,
     sort_asc_map: u64,
 }
 
 impl EntryKey {
-    pub const fn new(sort_vals: Box<[SharedValue]>, sort_asc_map: u64) -> Self {
+    pub const fn new(sort_vals: Box<[Option<SharedValue>]>, sort_asc_map: u64) -> Self {
         Self {
             sort_vals,
             sort_asc_map,
@@ -72,7 +71,7 @@ impl Ord for EntryKey {
             .sort_vals
             .iter()
             .zip(other.sort_vals.iter())
-            .map(|(a, b)| (strip_null(a), strip_null(b)));
+            .map(|(a, b)| (a.as_deref(), b.as_deref()));
         // Direct delegation: `cmp_fields` already returns
         // `Ordering::Greater` for the "better" side, matching the
         // "best = max" convention in `SearchResult_CmpByFields` and the
@@ -104,9 +103,9 @@ impl<T> HeapEntry<T> {
         &self.projected
     }
 
-    /// Decompose into `(sort_vals, projected)`.
-    pub fn into_parts(self) -> (Box<[SharedValue]>, T) {
-        (self.key.sort_vals, self.projected)
+    /// Return the projected payload.
+    pub fn into_projected(self) -> T {
+        self.projected
     }
 }
 
@@ -127,15 +126,5 @@ impl<T> PartialOrd for HeapEntry<T> {
 impl<T> Ord for HeapEntry<T> {
     fn cmp(&self, other: &Self) -> Ordering {
         self.key.cmp(&other.key)
-    }
-}
-
-/// Map the stored `Value::Null` sentinel (used for missing sort keys) back
-/// to `None` so [`cmp_fields`] applies its missing-worst policy instead
-/// of `Value::Null`'s natural ordering.
-fn strip_null(v: &SharedValue) -> Option<&Value> {
-    match &**v {
-        Value::Null => None,
-        other => Some(other),
     }
 }

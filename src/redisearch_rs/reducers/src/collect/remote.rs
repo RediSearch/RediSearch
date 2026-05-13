@@ -180,14 +180,10 @@ impl RemoteCollectCtx {
     /// uses the snapshot to drive comparisons, dropping doomed candidates
     /// without paying the row-projection cost.
     pub fn add(&mut self, r: &RemoteCollectReducer<'_>, row: &RLookupRow<'_>) {
-        let sort_vals = || -> Box<[SharedValue]> {
+        let sort_vals = || -> Box<[Option<SharedValue>]> {
             r.sort_keys
                 .iter()
-                .map(|key| {
-                    row.get(key)
-                        .cloned()
-                        .unwrap_or_else(SharedValue::null_static)
-                })
+                .map(|key| row.get(key).cloned())
                 .collect()
         };
         let project = || {
