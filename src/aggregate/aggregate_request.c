@@ -1749,7 +1749,7 @@ int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
     };
     req->rootiter = NULL; // Ownership of the root iterator is now with the params.
     req->querySlots = NULL; // Ownership of the slot ranges is now with the params.
-    Pipeline_BuildQueryPart(&req->pipeline, &params);
+    Pipeline_BuildQueryPart(&req->pipeline, &params, status);
     if (QueryError_HasError(status)) {
       return REDISMODULE_ERR;
     }
@@ -1766,5 +1766,5 @@ int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
     .maxResultsLimit = IsSearch(req) ? req->maxSearchResults : req->maxAggregateResults,
     .language = req->searchopts.language,
   };
-  return Pipeline_BuildAggregationPart(&req->pipeline, &params, &req->stateflags);
+  return Pipeline_BuildAggregationPart(&req->pipeline, &params, &req->stateflags, status);
 }

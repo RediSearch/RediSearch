@@ -401,7 +401,7 @@ ResultProcessor *processLoadStep(PLN_LoadStep *loadStep, RLookup *lookup,
  * This creates the initial pipeline components that find matching documents and calculate
  * their relevance scores, providing the foundation for subsequent aggregation and filtering stages.
  */
-void Pipeline_BuildQueryPart(Pipeline *pipeline, QueryPipelineParams *params) {
+void Pipeline_BuildQueryPart(Pipeline *pipeline, QueryPipelineParams *params, QueryError *status) {
   IndexSpecCache *cache = IndexSpec_GetSpecCache(params->common.sctx->spec);
   RS_LOG_ASSERT(cache, "IndexSpec_GetSpecCache failed")
   RLookup *first = AGPLN_GetLookup(&pipeline->ap, NULL, AGPLN_GETLOOKUP_FIRST);
@@ -418,7 +418,7 @@ void Pipeline_BuildQueryPart(Pipeline *pipeline, QueryPipelineParams *params) {
   // Load results metrics according to their RLookup key.
   // We need this RP only if metricRequests is not empty.
   if (params->ast->metricRequests) {
-    rp = getAdditionalMetricsRP(params->common.sctx, params->ast, first, pipeline->qctx.err);
+    rp = getAdditionalMetricsRP(params->common.sctx, params->ast, first, status);
     if (!rp) {
       return;
     }
@@ -455,7 +455,7 @@ void Pipeline_BuildQueryPart(Pipeline *pipeline, QueryPipelineParams *params) {
       if (params->common.scoreAlias) {
         scoreKey = RLookup_GetKey_Write(first, params->common.scoreAlias, RLOOKUP_F_NOFLAGS);
         if (!scoreKey) {
-          QueryError_SetWithUserDataFmt(pipeline->qctx.err, QUERY_ERROR_CODE_DUP_FIELD, "Could not create score alias, name already exists in query", "%s", params->common.scoreAlias);
+          QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_DUP_FIELD, "Could not create score alias, name already exists in query", "%s", params->common.scoreAlias);
           return;
         }
       } else {
@@ -536,12 +536,11 @@ error:
   return REDISMODULE_ERR;
 }
 
-int Pipeline_BuildAggregationPart(Pipeline *pipeline, const AggregationPipelineParams *params, uint32_t *outStateFlags) {
+int Pipeline_BuildAggregationPart(Pipeline *pipeline, const AggregationPipelineParams *params, uint32_t *outStateFlags, QueryError *status) {
   AGGPlan *pln = &pipeline->ap;
   ResultProcessor *rp = NULL, *rpUpstream = pipeline->qctx.endProc;
   RedisSearchCtx *sctx = params->common.sctx;
   int requestFlags = params->common.reqflags;
-  QueryError *status = pipeline->qctx.err;
 
   // If we have a JSON spec, and an "old" API version (DIALECT < 3), we don't store all the data of a multi-value field
   // in the SV as we want to return it, so we need to load and override all requested return fields that are SV source.

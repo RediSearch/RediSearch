@@ -203,9 +203,10 @@ void HybridRequest_SynchronizeLookupKeys(HybridRequest *req);
  * @param req The HybridRequest containing the tail pipeline for merging
  * @param scoreKey The score key to use for writing the final score, could be null - won't write score in this case to the rlookup
  * @param params Pipeline parameters including aggregation settings and scoring context, this function takes ownership of the scoring context
+ * @param status Query error status to report any construction errors
  * @return REDISMODULE_OK on success, REDISMODULE_ERR on failure
  */
-int HybridRequest_BuildMergePipeline(HybridRequest *req, const RLookupKey *scoreKey, HybridPipelineParams *params);
+int HybridRequest_BuildMergePipeline(HybridRequest *req, const RLookupKey *scoreKey, HybridPipelineParams *params, QueryError *status);
 
 /**
  * Build the complete hybrid search pipeline.
@@ -214,9 +215,10 @@ int HybridRequest_BuildMergePipeline(HybridRequest *req, const RLookupKey *score
  * @param req The HybridRequest to build the pipeline for
  * @param params Pipeline parameters including aggregation settings and scoring context, this function takes ownership of the scoring context
  * @param depleteInBackground Whether the pipeline should be built for asynchronous depletion
+ * @param status Query error status to report any construction errors
  * @return REDISMODULE_OK on success, REDISMODULE_ERR on failure
  */
-int HybridRequest_BuildPipeline(HybridRequest *req, HybridPipelineParams *params, bool depleteInBackground);
+int HybridRequest_BuildPipeline(HybridRequest *req, HybridPipelineParams *params, bool depleteInBackground, QueryError *status);
 
 /**
  * Increment the reference count of the HybridRequest.
