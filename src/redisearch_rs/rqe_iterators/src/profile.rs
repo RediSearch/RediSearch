@@ -17,6 +17,7 @@ use std::time::{Duration, Instant};
 
 use crate::{IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
 use ffi::t_docId;
+use index_spec::IndexSpecReadGuard;
 use inverted_index::RSIndexResult;
 
 /// Profile counters collected during query execution.
@@ -132,12 +133,11 @@ impl<'index, I: RQEIterator<'index>> RQEIterator<'index> for Profile<'index, I> 
         self.child.at_eof()
     }
 
-    unsafe fn revalidate(
+    fn revalidate(
         &mut self,
-        spec: std::ptr::NonNull<ffi::IndexSpec>,
+        spec: &IndexSpecReadGuard,
     ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        // SAFETY: Delegating to child with the same `spec` passed by our caller.
-        unsafe { self.child.revalidate(spec) }
+        self.child.revalidate(spec)
     }
 
     #[inline(always)]

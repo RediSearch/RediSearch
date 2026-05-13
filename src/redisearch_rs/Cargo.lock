@@ -1137,6 +1137,7 @@ dependencies = [
  "cbindgen",
  "ffi",
  "field",
+ "index_spec",
  "inverted_index",
  "inverted_index_ffi",
  "libc",
@@ -2138,6 +2139,7 @@ dependencies = [
  "ffi",
  "field",
  "idf",
+ "index_spec",
  "inverted_index",
  "libc",
  "numeric_range_tree",
@@ -2191,6 +2193,7 @@ version = "0.0.1"
 dependencies = [
  "ffi",
  "field",
+ "index_spec",
  "inverted_index",
  "inverted_index_ffi",
  "libc",
