@@ -14,6 +14,11 @@
 #include "inverted_index.h"
 
 /**
+ * The result of an inverted index
+ */
+typedef struct RSIndexResult RSIndexResult;
+
+/**
  * Setting to pass to the GC scan function
  */
 typedef struct IndexRepairParams IndexRepairParams;

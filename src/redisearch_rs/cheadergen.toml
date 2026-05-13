@@ -19,6 +19,10 @@ types = "skip"
 # Avoid a name conflict with the pre-existing `document.h` header file.
 header_name = "document_rs"
 
+[package.index_result]
+# Avoid a name conflict with the pre-existing `index_result.h` header file.
+header_name = "index_result_rs"
+
 [package.search_result]
 # Avoid a name conflict with the pre-existing `search_result.h` header file.
 header_name = "search_result_rs"
@@ -30,12 +34,23 @@ cpp_compat = true
 includes = ["redisearch_types.h"]
 
 [header.inverted_index]
-includes = ["redisearch_types.h"]
+# `index_result_rs.h` carries the types historically defined in this header
+# (RSIndexResult and friends, now in their own crate). Pull it in so C
+# consumers of `inverted_index.h` keep getting the full set.
+includes = ["redisearch_types.h", "index_result_rs.h"]
 after_includes = """
 // Forward declarations of C types defined in redisearch.h and elsewhere.
 // We can't include redisearch.h directly: it transitively includes inverted_index.h.
 typedef struct RSDocumentMetadata_s RSDocumentMetadata;
 typedef struct FieldSpec FieldSpec;
+"""
+
+[header.index_result_rs]
+includes = ["redisearch_types.h"]
+after_includes = """
+// Forward declaration of `RSDocumentMetadata`, defined in `redisearch.h`.
+// We can't include redisearch.h directly: it transitively includes this header.
+typedef struct RSDocumentMetadata_s RSDocumentMetadata;
 """
 
 [header.inverted_index_ffi]
@@ -234,7 +249,10 @@ typedef struct timespec timespec;
 """
 
 [header.types_ffi]
-includes = ["redisearch_types.h"]
+# Pull in `inverted_index.h` so consumers see the full `NumericFilter`
+# body (embedded by value in `LegacyNumericFilter` and friends on the C
+# side).
+includes = ["redisearch_types.h", "inverted_index.h"]
 
 [header.numeric_range_tree_ffi]
 includes = ["redisearch.h", "redismodule.h"]

@@ -10,6 +10,7 @@ members = [
     "generational_slab",
     "geo",
     "hyperloglog",
+    "index_result",
     "inverted_index",
     "inverted_index_bencher",
     "numeric_range_tree",
@@ -106,6 +107,7 @@ hidden_string = { path = "./c_wrappers/hidden_string" }
 hyperloglog = { path = "./hyperloglog" }
 idf = { path = "./idf" }
 index_spec = { path = "./c_wrappers/index_spec" }
+index_result = { path = "./index_result" }
 index_spec_cache = { path = "./c_wrappers/index_spec_cache" }
 inverted_index = { path = "./inverted_index" }
 numeric_range_tree = { path = "./numeric_range_tree" }

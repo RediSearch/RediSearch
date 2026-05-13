@@ -9,6 +9,12 @@
 #include <stdlib.h>
 #include "redisearch_types.h"
 #include "inverted_index.h"
+#include "index_result_rs.h"
+
+/**
+ * Filter details to apply to numeric values
+ */
+typedef struct NumericFilter NumericFilter;
 
 /**
  * A single term being evaluated at query time.

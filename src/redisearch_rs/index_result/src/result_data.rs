@@ -16,7 +16,8 @@ use super::term_record::RSTermRecord;
 /// These enum values should stay in sync with [`RSResultKind`], so that the C union generated matches
 /// the bitflags on [`super::kind::RSResultKindMask`]
 ///
-/// The `'index` lifetime is linked to the [`crate::IndexBlock`] when decoding borrows from the block.
+/// The `'index` lifetime is linked to the `IndexBlock` (in the `inverted_index` crate) when
+/// decoding borrows from the block.
 #[repr(u8)]
 #[derive(Debug, PartialEq)]
 #[cheadergen::config(prefix_with_name)]

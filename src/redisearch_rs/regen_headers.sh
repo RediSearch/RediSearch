@@ -31,6 +31,7 @@ exec env -u CARGO_BUILD_TARGET RUSTFLAGS= cheadergen generate \
     --exclude=c_ffi_utils \
     --package=document \
     --package=field \
+    --package=index_result \
     --package=query_term \
     --package=inverted_index \
     --package=rlookup \
