@@ -273,7 +273,7 @@ static int rpQueryItNext(ResultProcessor *base, SearchResult *res) {
 
   while (1) {
     if ((TimedOut_WithCounter(&sctx->time.timeout, &self->timeoutLimiter) == TIMED_OUT) ||
-        (self->areq && AREQ_TimedOut(self->areq))) {
+        (self->areq && AREQ_TimedOutRelaxed(self->areq))) {
       return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_TIMEDOUT);
     }
 

@@ -29,10 +29,12 @@
 #ifdef __cplusplus
 #include <atomic>
 #define RS_Atomic(T) std::atomic<T>
+#define RS_MEMORY_ORDER(o) std::memory_order_##o
 extern "C" {
 #else
 #define RS_Atomic(T) _Atomic(T)
 #include <stdatomic.h>
+#define RS_MEMORY_ORDER(o) memory_order_##o
 #endif
 
 #define DEFAULT_LIMIT 10
@@ -636,8 +638,21 @@ void SetSearchCtx(RedisSearchCtx *sctx, const AREQ *req);
 // Allows calling parseProfileArgs from reply_empty.c
 int parseProfileArgs(RedisModuleString **argv, int argc, AREQ *r);
 
-bool AREQ_TimedOut(AREQ *req);
-void AREQ_SetTimedOut(AREQ *req);
+/* Default timeout check. Use everywhere except tight per-row / per-document loops. */
+static inline bool AREQ_TimedOut(AREQ *req) {
+  return atomic_load_explicit(&req->syncCtx.timedOut, RS_MEMORY_ORDER(acquire));
+}
+
+/* Cheaper variant for hot loops. Safe when the caller
+ * only reacts to the flag itself and does not read other shared state. */
+static inline bool AREQ_TimedOutRelaxed(AREQ *req) {
+  return atomic_load_explicit(&req->syncCtx.timedOut, RS_MEMORY_ORDER(relaxed));
+}
+
+static inline void AREQ_SetTimedOut(AREQ *req) {
+  atomic_store_explicit(&req->syncCtx.timedOut, true, RS_MEMORY_ORDER(release));
+}
+
 #ifdef ENABLE_ASSERT
 // SyncPointStopFn predicate adapter for AREQ_TimedOut. Pass the AREQ as `arg`
 // to SyncPoint_WaitUntil to release the wait when the request is timed out.
