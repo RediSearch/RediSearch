@@ -73,7 +73,11 @@ def get_tiered_backend_debug_info(env, index_name, field_name) -> dict:
     return to_dict(tiered_index_info['BACKEND_INDEX'])
 
 def get_vecsim_memory(env, index_key, field_name):
-    return float(to_dict(env.cmd(debug_cmd(), "VECSIM_INFO", index_key, field_name))["MEMORY"])/0x100000
+    # Returns the total vector-related memory for this field in MB: the per-index
+    # allocator (MEMORY) plus the process-wide VecSim global memory.
+    info = to_dict(env.cmd(debug_cmd(), "VECSIM_INFO", index_key, field_name))
+    total = float(info["MEMORY"]) + float(info.get("GLOBAL_MEMORY", 0))
+    return total / 0x100000
 
 def get_vecsim_index_size(env, index_key, field_name):
     return int(to_dict(env.cmd(debug_cmd(), "VECSIM_INFO", index_key, field_name))["INDEX_SIZE"])

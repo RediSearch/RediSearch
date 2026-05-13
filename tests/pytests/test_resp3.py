@@ -472,7 +472,9 @@ def test_info():
       'sortable_values_size_mb': 0.0,
       'geoshapes_sz_mb': 0.0,
       'total_inverted_index_blocks': ANY,
-      'vector_index_sz_mb': 0.0,
+      # vector_index_sz_mb folds in the process-wide shared SVS thread pool memory,
+      # which has a small non-zero baseline once the pool singleton is initialized.
+      'vector_index_sz_mb': ANY,
       'Index Errors': {
           'indexing failures': 0,
           'last indexing error': 'N/A',
@@ -1276,9 +1278,18 @@ def test_ft_info():
       initial_doc_table_size_mb = 8072 / (1024 * 1024)
       # Size of an empty TrieMap
       key_table_sz_mb = 24 / (1024 * 1024)
-      total_index_memory_sz_mb = initial_doc_table_size_mb + key_table_sz_mb
+      per_node_index_memory_sz_mb = initial_doc_table_size_mb + key_table_sz_mb
 
       res = order_dict(r.execute_command('ft.info', 'idx'))
+
+      # The FT.INFO vector_index_sz_mb field folds in VecSim_GetGlobalMemory()
+      # (process-wide vector allocations not tied to any single index). For an
+      # index without vector fields IndexSpec_VectorIndexesSize() is 0, so
+      # vector_index_sz_mb is exactly that global overhead. In cluster mode it's
+      # already aggregated across shards. We pin to the response value so
+      # total_index_memory_sz_mb stays exact (rather than an ANY match).
+      global_vector_mem_mb = res['vector_index_sz_mb']
+      total_index_memory_sz_mb = per_node_index_memory_sz_mb + global_vector_mem_mb
 
       exp = {
         'attributes': [
@@ -1353,7 +1364,7 @@ def test_ft_info():
         'geoshapes_sz_mb': 0.0,
         'total_indexing_time': 0.0,
         'total_inverted_index_blocks': 0.0,
-        'vector_index_sz_mb': 0.0,
+        'vector_index_sz_mb': global_vector_mem_mb,
         'Index Errors': {
               'indexing failures': 0,
               'last indexing error': 'N/A',
@@ -1418,7 +1429,10 @@ def test_ft_info():
         'key_table_size_mb': nodes * key_table_sz_mb,
         'tag_overhead_sz_mb': 0.0,
         'text_overhead_sz_mb': 0.0,
-        'total_index_memory_sz_mb': nodes * total_index_memory_sz_mb,
+        # global_vector_mem_mb is already aggregated across shards (FT.INFO sums
+        # vector_index_sz_mb from each shard), so it's added once — not multiplied
+        # by `nodes` — to the per-node base * nodes.
+        'total_index_memory_sz_mb': nodes * per_node_index_memory_sz_mb + global_vector_mem_mb,
         'max_doc_id': 0,
         'num_docs': 0,
         'num_records': 0,
@@ -1432,7 +1446,7 @@ def test_ft_info():
         'sortable_values_size_mb': 0.0,
         'geoshapes_sz_mb': 0.0,
         'total_inverted_index_blocks': 0,
-        'vector_index_sz_mb': 0.0,
+        'vector_index_sz_mb': global_vector_mem_mb,
         'Index Errors': {
               'indexing failures': 0,
               'last indexing error': 'N/A',

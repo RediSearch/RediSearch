@@ -3149,7 +3149,8 @@ void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp, bool obfuscate,
   RedisModule_InfoAddFieldDouble(ctx, "inverted_size", sp->stats.invertedSize / (float)0x100000);
   if (!skip_unsafe_ops) {
     // Skip when unsafe - calls dictFetchValue which can trigger dict rehashing with rm_free
-    RedisModule_InfoAddFieldDouble(ctx, "vector_index_size", IndexSpec_VectorIndexesSize(sp) / (float)0x100000);
+    RedisModule_InfoAddFieldDouble(ctx, "vector_index_size",
+      (IndexSpec_VectorIndexesSize(sp) + VecSim_GetGlobalMemory()) / (float)0x100000);
   }
   RedisModule_InfoAddFieldDouble(ctx, "offset_vectors_size", sp->stats.offsetVecsSize / (float)0x100000);
   RedisModule_InfoAddFieldDouble(ctx, "doc_table_size", sp->docs.memsize / (float)0x100000);
