@@ -54,10 +54,6 @@ on:
         type: boolean
         default: false
         description: "If true, build the module for this platform but skip all test steps."
-      anti-flaky:
-        type: boolean
-        default: false
-        description: "If true, run Python flow tests serially to reduce queue-time flakes."
 
 env:
   REJSON: ${{ inputs.rejson && 1 || 0 }} # convert the boolean input to numeric
@@ -400,7 +396,6 @@ jobs:
           REJSON: ${{ env.REJSON }}
           REJSON_BRANCH: ${{ inputs.rejson-branch }}
           ENABLE_ASSERT: 1
-          PARALLEL: ${{ inputs.anti-flaky && '0' || '1' }}
           TEST_CONFIG: ${{ inputs.test-config }}
         run: make pytest $TEST_CONFIG
 
@@ -417,7 +412,6 @@ jobs:
           REJSON: ${{ env.REJSON }}
           REJSON_BRANCH: ${{ inputs.rejson-branch }}
           ENABLE_ASSERT: 1
-          PARALLEL: ${{ inputs.anti-flaky && '0' || '1' }}
           TEST_CONFIG: ${{ inputs.test-config }}
         run: make pytest $TEST_CONFIG
 

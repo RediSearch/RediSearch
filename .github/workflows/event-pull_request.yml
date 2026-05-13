@@ -76,7 +76,6 @@ jobs:
       coverage: ${{ (matrix.job-type || 'test') == 'coverage' }}
       san: ${{ (matrix.job-type || 'test') == 'sanitize' && 'address' || '' }}
       rejson-branch: master
-      anti-flaky: ${{ (matrix.job-type || 'test') == 'basic-test' }}
 
   pr-validation:
     needs:
