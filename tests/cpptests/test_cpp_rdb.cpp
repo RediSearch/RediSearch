@@ -574,7 +574,7 @@ TEST_F(RdbMockTest, testTrieRdbLoadMoreThan65535Elements) {
         Trie_InsertStringBuffer(originalTrie, buf, strlen(buf), 1.0, 0, NULL, 0);
     }
 
-    ASSERT_EQ(NUM_ELEMENTS, originalTrie->size);
+    ASSERT_EQ(NUM_ELEMENTS, Trie_Size(originalTrie));
 
     // Create RDB IO context
     RedisModuleIO *io = RMCK_CreateRdbIO();
@@ -599,7 +599,7 @@ TEST_F(RdbMockTest, testTrieRdbLoadMoreThan65535Elements) {
     EXPECT_EQ(0, RMCK_IsIOError(io));
 
     // Verify the loaded trie has the correct size
-    EXPECT_EQ(NUM_ELEMENTS, loadedTrie->size);
+    EXPECT_EQ(NUM_ELEMENTS, Trie_Size(loadedTrie));
 }
 
 TEST_F(RdbMockTest, testTriePayloadNoOverflow) {
@@ -627,7 +627,7 @@ TEST_F(RdbMockTest, testTriePayloadNoOverflow) {
         io->read_pos = 0;
         Trie *trie = (Trie *)TrieType_GenericLoad(io, 1, false);  // loadPayloads = 1
         ASSERT_TRUE(trie != nullptr) << "Failed to load trie with normal payload";
-        EXPECT_EQ(1, trie->size);
+        EXPECT_EQ(1, Trie_Size(trie));
         TrieType_Free(trie);
     }
 
@@ -647,7 +647,7 @@ TEST_F(RdbMockTest, testTriePayloadNoOverflow) {
         io->read_pos = 0;
         Trie *trie = (Trie *)TrieType_GenericLoad(io, 1, false);  // loadPayloads = 1
         ASSERT_TRUE(trie != nullptr) << "Failed to load trie with 1MB payload";
-        EXPECT_EQ(1, trie->size);
+        EXPECT_EQ(1, Trie_Size(trie));
         TrieType_Free(trie);
     }
 
@@ -713,7 +713,7 @@ TEST_F(RdbMockTest, testTriePayloadOverflowDirectInsert) {
 
         int rc = Trie_InsertStringBuffer(trie, key, strlen(key), 1.0, 0, &payload, 0);
         EXPECT_EQ(TRIE_OK_NEW, rc) << "Normal payload insertion should succeed";
-        EXPECT_EQ(1, trie->size);
+        EXPECT_EQ(1, Trie_Size(trie));
     }
 
     // Test 2: Payload with length that would overflow uint32_t should fail
@@ -731,7 +731,7 @@ TEST_F(RdbMockTest, testTriePayloadOverflowDirectInsert) {
 
         int rc = Trie_InsertStringBuffer(trie, key, strlen(key), 1.0, 0, &payload, 0);
         EXPECT_EQ(TRIE_ERR_PAYLOAD_OVERFLOW, rc) << "Payload overflow should be detected";
-        EXPECT_EQ(1, trie->size) << "Trie size should not change on failed insert";
+        EXPECT_EQ(1, Trie_Size(trie)) << "Trie size should not change on failed insert";
     }
 
     // Test 3: Payload with SIZE_MAX length should also fail (extreme case)
@@ -745,7 +745,7 @@ TEST_F(RdbMockTest, testTriePayloadOverflowDirectInsert) {
 
         int rc = Trie_InsertStringBuffer(trie, key, strlen(key), 1.0, 0, &payload, 0);
         EXPECT_EQ(TRIE_ERR_PAYLOAD_OVERFLOW, rc) << "SIZE_MAX payload should trigger overflow";
-        EXPECT_EQ(1, trie->size) << "Trie size should not change on failed insert";
+        EXPECT_EQ(1, Trie_Size(trie)) << "Trie size should not change on failed insert";
     }
 
 }
