@@ -274,12 +274,13 @@ def test_memory_info():
 
 
 func_gen = lambda tn, comp, dt, dist, wr: lambda: queries_sanity(tn, comp, dt, dist, wr)
-# (compression_type, data_type, metric, workers) tuples that are flaky on coverage Coordinator
-# and are temporarily skipped via skip_until. See MOD-15569 / MOD-15570.
+# (compression_type, data_type, metric, workers) tuples that are flaky on the
+# coverage (Coordinator-only) job and are temporarily skipped via skip_until.
+# Only applied when running under coverage; see MOD-15569 / MOD-15570.
 QUERIES_SANITY_SKIP_UNTIL = {
-    ('LVQ8', 'FLOAT16', 'IP', 0): ('2026-06-12', 'Flaky test, see MOD-15570'),
-    ('LVQ8', 'FLOAT16', 'IP', 4): ('2026-06-12', 'Flaky test, see MOD-15569'),
-}
+    ('LVQ8', 'FLOAT16', 'IP', 0): ('2026-06-12', 'Flaky test under coverage, see MOD-15570'),
+    ('LVQ8', 'FLOAT16', 'IP', 4): ('2026-06-12', 'Flaky test under coverage, see MOD-15569'),
+} if CODE_COVERAGE else {}
 for workers in [0, 4]:
     name_suffix = "_async" if workers else ""
     # Create SVS VAMANA index with all compression flavors
