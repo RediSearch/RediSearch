@@ -20,9 +20,6 @@ typedef struct HiddenUnicodeString HiddenUnicodeString;
 // Creates a new hidden unicode string from a sds string
 // name must have been created using sdsnew, takes ownership by default
 HiddenUnicodeString *NewHiddenUnicodeString(const char *name);
-// Creates a new hidden unicode string from a buffer of known length, avoiding
-// a strlen scan when the caller already knows the length
-HiddenUnicodeString *NewHiddenUnicodeStringWithLen(const char *name, size_t len);
 // Freeds a hidden unicode string
 void HiddenUnicodeString_Free(const HiddenUnicodeString *value);
 // Compares two hidden unicode strings
