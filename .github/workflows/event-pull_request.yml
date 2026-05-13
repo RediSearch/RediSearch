@@ -41,7 +41,7 @@ jobs:
     needs: [check-what-changed]
     uses: ./.github/workflows/generate-basic-matrix.yml
     with:
-      include-basic-test: ${{ needs.check-what-changed.outputs.CODE_CHANGED == 'true' || needs.check-what-changed.outputs.TESTS_CHANGED == 'true' || contains(github.event.pull_request.labels.*.name, 'enforce:test') }}
+      include-basic-test: true
       include-coverage: ${{ vars.ENABLE_CODE_COVERAGE != 'false' && ((!github.event.pull_request.draft && needs.check-what-changed.outputs.CODE_CHANGED == 'true') || (!github.event.pull_request.draft && needs.check-what-changed.outputs.TESTS_CHANGED == 'true') || contains(github.event.pull_request.labels.*.name, 'enforce:coverage')) }}
       include-sanitize: ${{ (!github.event.pull_request.draft && needs.check-what-changed.outputs.CODE_CHANGED == 'true') || (!github.event.pull_request.draft && needs.check-what-changed.outputs.TESTS_CHANGED == 'true') || contains(github.event.pull_request.labels.*.name, 'enforce:sanitize') }}
       separate-coordinator-job: true
@@ -76,6 +76,7 @@ jobs:
       coverage: ${{ (matrix.job-type || 'test') == 'coverage' }}
       san: ${{ (matrix.job-type || 'test') == 'sanitize' && 'address' || '' }}
       rejson-branch: master
+      anti-flaky: ${{ (matrix.job-type || 'test') == 'basic-test' }}
 
   pr-validation:
     needs:

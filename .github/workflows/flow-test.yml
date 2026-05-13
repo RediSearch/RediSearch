@@ -26,7 +26,7 @@ on:
       options:
         type: string
         default: coordinator,standalone,unit-tests,rejson,fail-fast
-        description: 'Comma-separated list of options: coordinator, standalone, unit-tests, rejson, fail-fast, coverage, sanitize, skip-tests'
+        description: 'Comma-separated list of options: coordinator, standalone, unit-tests, rejson, fail-fast, coverage, sanitize, skip-tests, anti-flaky'
       separate-coordinator-job:
         type: boolean
         default: false
@@ -140,3 +140,4 @@ jobs:
       san: ${{ matrix.job-type == 'sanitize' && 'address' || '' }}
       fail-fast: ${{ contains(inputs.options, 'fail-fast') || inputs.fail-fast == true }}
       skip-tests: ${{ contains(inputs.options, 'skip-tests') }}
+      anti-flaky: ${{ contains(inputs.options, 'anti-flaky') }}

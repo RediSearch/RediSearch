@@ -48,7 +48,7 @@ jobs:
           import subprocess
 
           WORKFLOW_FILE = "event-periodic-master-validation.yml"
-          VALIDATION_JOB_PREFIX = "test-selected-platforms"
+          VALIDATION_JOB_PREFIX = "test-os-matrix"
 
           def gh_api(path):
               return json.loads(subprocess.check_output(["gh", "api", path], text=True))
@@ -147,8 +147,8 @@ jobs:
     uses: ./.github/workflows/task-lint.yml
     secrets: inherit
 
-  test-selected-platforms:
-    needs: [should-run, get-latest-redis-tag]
+  test-os-matrix:
+    needs: [should-run, get-latest-redis-tag, lint]
     if: ${{ needs.should-run.outputs.run-validation == 'true' }}
     permissions:
       contents: read
@@ -156,19 +156,19 @@ jobs:
     uses: ./.github/workflows/flow-test.yml
     secrets: inherit
     with:
-      platform: 'ubuntu:noble,macos-26,alpine:3.23,intel'
+      platform: all
       architecture: all
       redis-ref: ${{ needs.get-latest-redis-tag.outputs.tag }}
       job-test-config: '{"test": "", "coverage": "", "sanitize": ""}'
       options: ${{ vars.ENABLE_CODE_COVERAGE != 'false' && 'unit-tests,coordinator,standalone,rejson,coverage,sanitize' || 'unit-tests,coordinator,standalone,rejson,sanitize' }}
       rejson-branch: master
 
-  notify-failure:
-    needs: [get-latest-redis-tag, lint, test-selected-platforms]
+  notify-cie-failure:
+    needs: [get-latest-redis-tag, lint, test-os-matrix]
     if: failure()
     runs-on: ubuntu-slim
     steps:
-      - name: Notify Failure
+      - name: Notify CIE failure triage
         uses: slackapi/slack-github-action@v3
         with:
           webhook: ${{ secrets.SLACK_WEBHOOK_URL_NIGHTLY_FAILED }}
@@ -176,5 +176,7 @@ jobs:
           payload: |
             {
               "failed_workflow": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}",
-              "repository": "${{ github.repository }}"
+              "repository": "${{ github.repository }}",
+              "owner": "CIE",
+              "expectation": "Post-merge OS matrix failure requires CIE triage"
             }
