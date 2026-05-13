@@ -1067,6 +1067,7 @@ version = "0.0.1"
 dependencies = [
  "ffi",
  "field_spec",
+ "inverted_index",
  "pretty_assertions",
  "redis_mock",
  "redisearch_rs",

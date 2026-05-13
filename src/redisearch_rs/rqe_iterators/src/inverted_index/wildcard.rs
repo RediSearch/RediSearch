@@ -74,16 +74,11 @@ where
     ///    [`InvertedIndex`](inverted_index::InvertedIndex) whose encoding
     ///    variant matches `E`.
     fn should_abort(&self, spec: &IndexSpecReadGuard) -> bool {
-        let existing_docs = spec
-            .existing_docs()
-            .cast::<inverted_index::opaque::InvertedIndex>();
-        if existing_docs.is_null() {
-            // the garbage collector may set existing_docs to NULL after garbage collecting all documents
+        // the garbage collector may set existing_docs to NULL after garbage collecting all documents
+        let Some(existing_docs) = spec.existing_docs() else {
             return true;
-        }
+        };
 
-        // SAFETY: spec.existing_docs() returns a valid pointer when non-null, and we just checked it's not null.
-        let existing_docs = unsafe { &*existing_docs };
         // SAFETY: The encoding variant matches E (structural invariant).
         let ii = E::from_opaque(existing_docs);
 
