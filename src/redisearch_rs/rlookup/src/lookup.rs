@@ -441,7 +441,7 @@ fn create_key_from_data<'a>(
 ) -> RLookupKey<'a> {
     const NO_MATCH: i32 = -1;
     if NO_MATCH == index {
-        RLookupKey::new(filter_field, RLookupKeyFlags::empty())
+        RLookupKey::new_with_path(filter_field, filter_field, RLookupKeyFlags::empty())
     } else {
         let index = usize::try_from(index).expect("index must be positive and fit into usize");
         let field_spec = &field_specs[index];
@@ -1290,7 +1290,7 @@ mod tests {
         assert_eq!(actual.len(), 3);
 
         assert_eq!(actual[0].name(), c"ff0");
-        assert_eq!(actual[0].path(), &None);
+        assert_eq!(actual[0].path(), &Some(c"ff0".into()));
 
         assert_eq!(actual[1].name(), c"fn0");
         assert_eq!(actual[1].path(), &Some(c"fp0".into()));

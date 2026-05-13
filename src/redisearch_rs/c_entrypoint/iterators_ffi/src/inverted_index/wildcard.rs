@@ -97,15 +97,13 @@ impl<'index> rqe_iterators::RQEIterator<'index> for WildcardIterator<'index> {
     }
 
     #[inline(always)]
-    unsafe fn revalidate(
+    fn revalidate(
         &mut self,
-        spec: std::ptr::NonNull<ffi::IndexSpec>,
+        spec: &index_spec::IndexSpecReadGuard,
     ) -> Result<rqe_iterators::RQEValidateStatus<'_, 'index>, rqe_iterators::RQEIteratorError> {
         match self {
-            // SAFETY: Delegating to variant with the same `spec` passed by our caller.
-            WildcardIterator::Encoded(w) => unsafe { w.revalidate(spec) },
-            // SAFETY: Delegating to variant with the same `spec` passed by our caller.
-            WildcardIterator::Raw(w) => unsafe { w.revalidate(spec) },
+            WildcardIterator::Encoded(w) => w.revalidate(spec),
+            WildcardIterator::Raw(w) => w.revalidate(spec),
         }
     }
 

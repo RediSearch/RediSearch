@@ -23,6 +23,7 @@
 #include "info/global_stats.h"
 #include "gc.h"
 #include "doc_id_meta.h"
+#include "metrics.h"
 
 extern RedisModuleCtx *RSDummyContext;
 
@@ -386,7 +387,8 @@ static void writeMissingFieldDocs(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx, 
     }
     // Add docId to inverted index
     t_docId docId = aCtx->doc->docId;
-    RSIndexResult rec = {.data.tag = RSResultData_Virtual, .docId = docId, .freq = 0};
+    RSIndexResult rec = {.data.tag = RSResultData_Virtual, .docId = docId, .freq = 0,
+                         .metrics = MetricsVec_New()};
     aCtx->spec->stats.invertedSize +=InvertedIndex_WriteEntryGeneric(iiMissingDocs, &rec);
   }
   dictReleaseIterator(iter);
@@ -406,7 +408,8 @@ static void writeExistingDocs(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
   }
 
   t_docId docId = aCtx->doc->docId;
-  RSIndexResult rec = {.data.tag = RSResultData_Virtual, .docId = docId, .freq = 0};
+  RSIndexResult rec = {.data.tag = RSResultData_Virtual, .docId = docId, .freq = 0,
+                       .metrics = MetricsVec_New()};
   aCtx->spec->stats.invertedSize += InvertedIndex_WriteEntryGeneric(sctx->spec->existingDocs, &rec);
 }
 

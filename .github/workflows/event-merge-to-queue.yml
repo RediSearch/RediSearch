@@ -25,10 +25,17 @@ jobs:
     # with:
     #   repo: redis/redis
 
+  check-what-changed:
+    uses: ./.github/workflows/task-check-changes.yml
+
   lint:
+    needs: check-what-changed
+    if: ${{ needs.check-what-changed.outputs.CODE_CHANGED == 'true' }}
     permissions:
       contents: read
       packages: write
+      id-token: write # OIDC role assumption for sccache S3 (used inside task-lint.yml)
+      actions: write  # Swatinem/rust-cache read/write of GH cache (used inside task-lint.yml)
     uses: ./.github/workflows/task-lint.yml
     secrets: inherit
     with:
@@ -36,10 +43,15 @@ jobs:
       advisories-base-ref: ${{ github.event.merge_group.base_sha }}
 
   build-unique-oses:
-    needs: [get-latest-redis-tag, lint]
+    # Wait for lint so we do not spend MQ test capacity when CI is already going to fail.
+    # Use explicit status checks so MQ validation still runs when lint is skipped.
+    needs: [get-latest-redis-tag, check-what-changed, lint]
+    if: ${{ !cancelled() && !failure() }}
     permissions:
       contents: read
       packages: write
+      id-token: write # OIDC role assumption for sccache S3 (used inside task-test.yml)
+      actions: write  # Swatinem/rust-cache read/write of GH cache (used inside task-test.yml)
     uses: ./.github/workflows/flow-test.yml
     secrets: inherit
     with:
@@ -50,10 +62,14 @@ jobs:
       rejson-branch: master
 
   test-ubuntu:
-    needs: [get-latest-redis-tag, lint]
+    # Always run tests for merge queue submissions, including text-only PRs.
+    needs: [get-latest-redis-tag, check-what-changed, lint]
+    if: ${{ !cancelled() && !failure() }}
     permissions:
       contents: read
       packages: write
+      id-token: write # OIDC role assumption for sccache S3 (used inside task-test.yml)
+      actions: write  # Swatinem/rust-cache read/write of GH cache (used inside task-test.yml)
     uses: ./.github/workflows/flow-test.yml
     secrets: inherit
     with:
@@ -67,6 +83,7 @@ jobs:
   pr-validation:
     needs:
       - get-latest-redis-tag
+      - check-what-changed
       - lint
       - build-unique-oses
       - test-ubuntu

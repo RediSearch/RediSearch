@@ -12,6 +12,8 @@ jobs:
     permissions:
       contents: read
       packages: write
+      id-token: write # OIDC role assumption for sccache S3 (used inside task-lint.yml)
+      actions: write  # Swatinem/rust-cache read/write of GH cache (used inside task-lint.yml)
     uses: ./.github/workflows/task-lint.yml
     secrets: inherit
 
@@ -19,6 +21,8 @@ jobs:
     permissions:
       contents: read
       packages: write
+      id-token: write # OIDC role assumption for sccache S3 (used inside task-test.yml)
+      actions: write  # Swatinem/rust-cache read/write of GH cache (used inside task-test.yml)
     uses: ./.github/workflows/flow-test.yml
     secrets: inherit
     with:
@@ -31,6 +35,9 @@ jobs:
       rejson-branch: master
 
   micro-benchmarks:
+    permissions:
+      contents: read
+      id-token: write # OIDC role assumption for sccache S3 (used inside flow-micro-benchmarks-runner.yml)
     uses: ./.github/workflows/flow-micro-benchmarks.yml
     secrets: inherit
 

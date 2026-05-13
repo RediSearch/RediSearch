@@ -15,6 +15,19 @@
 use ffi::RLookupKey;
 use inverted_index::{MetricsSlice, MetricsVec, RSIndexResult};
 
+/// Creates an empty metrics collection. Does not allocate.
+///
+/// Use this to initialize the `metrics` field when constructing an
+/// `RSIndexResult` in place on the C side. Zero-initialization (e.g.
+/// designated initializers, `memset`, `calloc`) produces an invalid
+/// `MetricsVec` because the underlying `ThinVec` represents the empty
+/// state with a non-null sentinel pointer to a static header — not
+/// `NULL`.
+#[unsafe(no_mangle)]
+pub const extern "C" fn MetricsVec_New() -> MetricsVec<'static> {
+    MetricsVec::new()
+}
+
 /// Moves all metrics from `child` into `parent`, leaving `child` empty.
 ///
 /// # Safety

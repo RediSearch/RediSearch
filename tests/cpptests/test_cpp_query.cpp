@@ -136,14 +136,11 @@ TEST_F(QueryTest, testDiskVectorQueryRestrictions) {
       "@title:hello=>[KNN 2 @vec_field $BLOB]=>{$HYBRID_POLICY:BATCHES;}";
 
   {
-    // Disk-backed specs reject VECTOR_RANGE during parsing.
+    // Disk-backed specs accept VECTOR_RANGE during parsing.
     QASTCXX ast;
     ast.setContext(&ctx);
-    ASSERT_FALSE(ast.parse(range_query, version));
-    ASSERT_NE(ast.getError(), nullptr);
-    ASSERT_NE(strstr(ast.getError(), "vector range queries are currently not supported in Redis Flex"),
-              nullptr)
-        << ast.getError();
+    ASSERT_TRUE(ast.parse(range_query, version))
+        << (ast.getError() ? ast.getError() : "");
   }
 
   SearchOptionsCXX opts;

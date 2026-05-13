@@ -42,12 +42,18 @@ jobs:
   # Build RediSearch ONCE per-arch. Every benchmark job below downloads the
   # resulting redisearch.so as an artifact instead of rebuilding it.
   build-redisearch:
+    permissions:
+      contents: read
+      id-token: write # OIDC role assumption for sccache S3 (used inside flow-build-benchmark-binary.yml)
     uses: ./.github/workflows/flow-build-benchmark-binary.yml
     with:
       arch: x86_64
       artifact_name: redisearch-bin-${{ github.run_id }}-${{ github.run_attempt }}
 
   build-redisearch-aarch64:
+    permissions:
+      contents: read
+      id-token: write # OIDC role assumption for sccache S3 (used inside flow-build-benchmark-binary.yml)
     uses: ./.github/workflows/flow-build-benchmark-binary.yml
     with:
       arch: aarch64

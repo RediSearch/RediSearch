@@ -15,6 +15,7 @@
 
 #include "triemap.h"
 #include "util/logging.h"
+#include "util/likely.h"
 #include "util/misc.h"
 #include "rmutil/vector.h"
 #include "rmutil/util.h"
@@ -63,6 +64,11 @@ RedisModuleType *IndexSpecType;
 dict *specDict_g = NULL;
 dict *specIdDict_g = NULL;
 IndexesScanner *global_spec_scanner = NULL;
+
+// Maximum number of indexes that can be created.
+// Can be modified via FT.DEBUG for testing.
+uint32_t maxIndexes_g = DEFAULT_MAX_INDEXES;
+
 size_t pending_global_indexing_ops = 0;
 dict *legacySpecDict;
 dict *legacySpecRules;
@@ -390,7 +396,7 @@ static void IndexSpec_TimedOutProc(RedisModuleCtx *ctx, WeakRef w_ref) {
   } else {
     // called on master shard for temporary indexes and deletes all documents by defaults
     // pass FT.DROPINDEX with "DD" flag to self.
-    RedisModuleCallReply *rep = RedisModule_Call(RSDummyContext, RS_DROP_INDEX_CMD, "cc!", HiddenString_GetUnsafe(sp->specName, NULL), "DD");
+    RedisModuleCallReply *rep = RedisModule_Call(RSDummyContext, CMD_FOR_ENV(RS_DROP_INDEX_CMD), "cc!", HiddenString_GetUnsafe(sp->specName, NULL), "DD");
     if (rep) {
       RedisModule_FreeCallReply(rep);
     }
@@ -555,6 +561,12 @@ IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, in
   setMemoryInfo(ctx);
   if (checkIfSpecExists(rawSpecName)) {
     QueryError_SetCode(status, QUERY_ERROR_CODE_INDEX_EXISTS);
+    return NULL;
+  }
+  if (dictSize(specDict_g) >= maxIndexes_g) {
+    QueryError_SetWithoutUserDataFmt(
+      status, QUERY_ERROR_CODE_LIMIT,
+      "Maximum number of indexes (%u) reached", maxIndexes_g);
     return NULL;
   }
   size_t nameLen;
@@ -1846,6 +1858,13 @@ static StrongRef IndexSpec_ParseFromArgCursor(RedisModuleCtx *ctx, const HiddenS
   spec->timeout = timeout * 1000;  // convert to ms
 
   if (rule_prefixes.argc > 0) {
+    if (rule_prefixes.argc > MAX_SCHEMA_PREFIXES) {
+      QueryError_SetWithoutUserDataFmt(
+          status, QUERY_ERROR_CODE_LIMIT,
+          "Number of prefixes (%zu) exceeds maximum allowed (%d)",
+          rule_prefixes.argc, MAX_SCHEMA_PREFIXES);
+      goto failure;
+    }
     spec->rule = SchemaRule_CreateWithPrefixesAC(&rule_args, &rule_prefixes, spec_ref, status);
   } else {
     rule_args.nprefixes = 1;
@@ -1940,8 +1959,9 @@ size_t IndexSpec_GetIndexErrorCount(const IndexSpec *sp) {
 
 // Assuming the spec is properly locked for writing before calling this function.
 void IndexSpec_AddTerm(IndexSpec *sp, const char *term, size_t len) {
+  // Payload is NULL so TRIE_ERR_PAYLOAD_OVERFLOW cannot occur
   int isNew = Trie_InsertStringBuffer(sp->terms, (char *)term, len, 1, 1, NULL, 1);
-  if (isNew) {
+  if (isNew == TRIE_OK_NEW) {
     sp->stats.scoring.numTerms++;
     sp->stats.termsSize += len;
   }
@@ -2354,7 +2374,7 @@ static void initializeFieldSpec(FieldSpec *fs, t_fieldIndex index) {
 // Helper function for initializing an index spec
 // Solves issues where a field is initialized in index creation but not when loading from RDB
 static void initializeIndexSpec(IndexSpec *sp, const HiddenString *name, IndexFlags flags,
-                                int16_t numFields) {
+                                uint16_t numFields) {
   sp->flags = flags;
   sp->numFields = numFields;
   sp->fields = rm_calloc(numFields, sizeof(FieldSpec));
@@ -3373,6 +3393,7 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryE
   StrongRef spec_ref = {0};
   IndexFlags flags = 0;
   int16_t numFields = 0;
+  uint64_t numFields_u64 = 0;
   size_t narr = 0;
   char *rawName = NULL;
   size_t len = 0;
@@ -3395,9 +3416,16 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryE
     flags |= Index_StoreFreqs;
   }
   IndexSpec_NormalizeStorageFlagsOnLoad(&flags);
-  numFields = LoadUnsigned_IOError(rdb, goto cleanup);
+  numFields_u64 = LoadUnsigned_IOError(rdb, goto cleanup);
 
-  initializeIndexSpec(sp, specName, flags, numFields);
+  if (unlikely(numFields_u64 > SPEC_MAX_FIELDS)) {
+    QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_LIMIT,
+                           "RDB Load: Schema is limited to %d fields",
+                           SPEC_MAX_FIELDS);
+    goto cleanup;
+  }
+
+  initializeIndexSpec(sp, specName, flags, numFields_u64);
 
   sp->isDuplicate = dictFetchValue(specDict_g, sp->specName) != NULL;
 
@@ -3593,7 +3621,17 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   }
   IndexSpec_NormalizeStorageFlagsOnLoad(&sp->flags);
 
-  sp->numFields = RedisModule_LoadUnsigned(rdb);
+  uint64_t numFields_u64 = RedisModule_LoadUnsigned(rdb);
+
+  if (unlikely(numFields_u64 > SPEC_MAX_FIELDS)) {
+    RedisModule_LogIOError(
+        rdb, "warning", "RDB Load: Schema is limited to %d fields",
+        SPEC_MAX_FIELDS);
+    StrongRef_Release(spec_ref);
+    return NULL;
+  }
+
+  sp->numFields = (uint16_t)numFields_u64;
   sp->fields = rm_calloc(sp->numFields, sizeof(FieldSpec));
   int maxSortIdx = -1;
   for (int i = 0; i < sp->numFields; i++) {
@@ -3609,16 +3647,27 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
 
   IndexStats_RdbLoad(rdb, &sp->stats, encver);
 
-  DocTable_LegacyRdbLoad(&sp->docs, rdb, encver);
+  if (DocTable_LegacyRdbLoad(&sp->docs, rdb, encver) != REDISMODULE_OK) {
+    StrongRef_Release(spec_ref);
+    return NULL;
+  }
   /* For version 3 or up - load the generic trie */
   if (encver >= 3) {
     sp->terms = TrieType_GenericLoad(rdb, false, false);
+    if (sp->terms == NULL) {
+      StrongRef_Release(spec_ref);
+      return NULL;
+    }
   } else {
     sp->terms = NewTrie(NULL, Trie_Sort_Lex);
   }
 
   if (sp->flags & Index_HasCustomStopwords) {
     sp->stopwords = StopWordList_RdbLoad(rdb, encver);
+    if (sp->stopwords == NULL) {
+      StrongRef_Release(spec_ref);
+      return NULL;
+    }
   } else {
     sp->stopwords = DefaultStopWordList();
   }
@@ -3626,6 +3675,10 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   sp->smap = NULL;
   if (sp->flags & Index_HasSmap) {
     sp->smap = SynonymMap_RdbLoad(rdb, encver);
+    if (sp->smap == NULL) {
+      StrongRef_Release(spec_ref);
+      return NULL;
+    }
   }
   if (encver < INDEX_MIN_EXPIRE_VERSION) {
     sp->timeout = -1;
@@ -3693,6 +3746,14 @@ int Indexes_RdbLoad(RedisModuleIO *rdb, int encver, int when) {
   }
 
   nIndexes = LoadUnsigned_IOError(rdb, goto cleanup);
+
+  if (unlikely(nIndexes > maxIndexes_g)) {
+    RedisModule_LogIOError(
+        rdb, "warning",
+        "RDB Load: Number of indexes (%zu) exceeds maximum allowed (%u)",
+        nIndexes, maxIndexes_g);
+    return REDISMODULE_ERR;
+  }
   if (!SearchDisk_CheckLimitNumberOfIndexes(nIndexes)) {
     RedisModule_LogIOError(rdb, "warning", "Too many indexes for flex. Having %zu indexes, but flex only supports %d.", nIndexes, FLEX_MAX_INDEX_COUNT);
     return REDISMODULE_ERR;
@@ -3810,7 +3871,7 @@ void Indexes_Propagate(RedisModuleCtx *ctx) {
     RS_ASSERT(sp != NULL);
     RedisModuleString *serialized = IndexSpec_Serialize(sp);
     RS_ASSERT(serialized != NULL);
-    int rc = RedisModule_ClusterPropagateForSlotMigration(ctx, RS_RESTORE_IF_NX, "cls", SPEC_SCHEMA_STR, INDEX_CURRENT_VERSION, serialized);
+    int rc = RedisModule_ClusterPropagateForSlotMigration(ctx, CMD_FOR_ENV(RS_RESTORE_IF_NX), "cls", SPEC_SCHEMA_STR, INDEX_CURRENT_VERSION, serialized);
     if (rc != REDISMODULE_OK) {
       RedisModule_Log(ctx, "warning", "Failed to propagate index '%s' during slot migration. errno: %d", IndexSpec_FormatName(sp, RSGlobalConfig.hideUserDataFromLog), errno);
     }

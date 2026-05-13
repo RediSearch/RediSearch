@@ -20,6 +20,9 @@ jobs:
     concurrency:
       group: ${{ github.workflow }}-${{ github.event.number }}-benchmark
       cancel-in-progress: true
+    permissions:
+      contents: read
+      id-token: write # OIDC role assumption for sccache S3 (used inside flow-build-benchmark-binary.yml)
     uses: ./.github/workflows/benchmark-runner.yml
     secrets: inherit
 
@@ -36,6 +39,9 @@ jobs:
     concurrency:
       group: ${{ github.workflow }}-${{ github.event.number }}-msmarco-benchmark
       cancel-in-progress: true
+    permissions:
+      contents: read
+      id-token: write # OIDC role assumption for sccache S3 (used inside flow-build-benchmark-binary.yml)
     uses: ./.github/workflows/benchmark-runner.yml
     secrets: inherit
     with:
@@ -60,6 +66,10 @@ jobs:
     concurrency:
       group: ${{ github.workflow }}-${{ github.event.number }}-rust-micro-benchmark
       cancel-in-progress: true
+    permissions:
+      contents: read
+      id-token: write # OIDC role assumption for sccache S3 (used inside flow-rust-micro-benchmarks.yml)
+      actions: read   # dawidd6/action-download-artifact reads cross-workflow artifacts (used inside flow-rust-micro-benchmarks.yml)
     uses: ./.github/workflows/flow-rust-micro-benchmarks.yml
     secrets: inherit
 
@@ -82,5 +92,8 @@ jobs:
     concurrency:
       group: ${{ github.workflow }}-${{ github.event.number }}-micro-benchmark
       cancel-in-progress: true
+    permissions:
+      contents: read
+      id-token: write # OIDC role assumption for sccache S3 (used inside flow-micro-benchmarks-runner.yml)
     uses: ./.github/workflows/flow-micro-benchmarks.yml
     secrets: inherit
