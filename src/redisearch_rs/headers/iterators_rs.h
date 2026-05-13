@@ -22,6 +22,20 @@ typedef enum MetricType {
 } MetricType;
 
 /**
+ * Nullable C callback used by [`NewNotIterator`] to select the timeout
+ * source.
+ *
+ * `None` (NULL on the C side) selects the legacy clock-based path; a
+ * non-null callback selects the blocked-client path and is invoked on
+ * every iterator timeout probe (see `MOD-15397-design.md` D2).
+ *
+ * The alias wraps `Option<unsafe extern "C" fn>` so that cbindgen recognizes
+ * the null-pointer optimization and emits a plain nullable function pointer
+ * typedef (rather than an opaque struct).
+ */
+typedef bool (*NotIteratorTimeoutCallback)(void *user_data);
+
+/**
  * Profile counters collected during query execution.
  *
  * This struct is `#[repr(C)]` so that C code can access its fields directly.
@@ -479,6 +493,14 @@ enum MetricType GetMetricType(const QueryIterator *header);
  * If the child is trivially reducible (empty or wildcard), a simplified
  * iterator is returned directly.
  *
+ * `timeout_callback` selects the timeout source. When non-null, it is
+ * invoked on every iterator timeout probe and `timeout` / the
+ * `skipTimeoutChecks` field are ignored — the callback is expected to
+ * fold those into its own return value (see `MOD-15397-design.md` D2).
+ * When null, the legacy clock-based path is used: `timeout` is the
+ * deadline and `skipTimeoutChecks` (read from `q.sctx.time`) disables
+ * the check entirely.
+ *
  * # Safety
  *
  * 1. `child` must be null or a valid pointer to a [`QueryIterator`].
@@ -493,11 +515,17 @@ enum MetricType GetMetricType(const QueryIterator *header);
  *    [`SchemaRule`](ffi::SchemaRule).
  * 7. When the optimized path is taken, the preconditions of
  *    [`crate::wildcard::NewWildcardIterator_Optimized`] must hold.
+ * 8. When `timeout_callback` is non-null, the caller must uphold the
+ *    [`TimeoutCallback`] safety contract: the callback must be
+ *    thread-safe, must not unwind, and `timeout_user_data` must remain
+ *    valid for the lifetime of the returned iterator.
  */
 QueryIterator *NewNotIterator(QueryIterator *child,
                               t_docId max_doc_id,
                               double weight,
                               timespec timeout,
+                              NotIteratorTimeoutCallback timeout_callback,
+                              void *timeout_user_data,
                               QueryEvalCtx *q);
 
 /**

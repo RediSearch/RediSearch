@@ -976,7 +976,11 @@ static QueryIterator *Query_EvalNotNode(QueryEvalCtx *q, QueryNode *qn) {
   q->notSubtree = currently_notSubtree;
 
   t_docId maxDocId = q->sctx->spec->diskSpec ? SearchDisk_GetMaxDocId(q->sctx->spec->diskSpec) : q->docTable->maxDocId;
-  return NewNotIterator(child, maxDocId, qn->opts.weight, q->sctx->time.timeout, q);
+  // MOD-15397: blocked-client timeout callback is wired in a follow-up step
+  // (action item 4); pass NULL/NULL until then to keep the legacy clock-based
+  // timeout path active.
+  return NewNotIterator(child, maxDocId, qn->opts.weight, q->sctx->time.timeout,
+                        NULL, NULL, q);
 }
 
 static QueryIterator *Query_EvalOptionalNode(QueryEvalCtx *q, QueryNode *qn) {
