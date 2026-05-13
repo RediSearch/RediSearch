@@ -492,6 +492,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "dict"
+version = "0.0.1"
+dependencies = [
+ "ffi",
+ "hidden_string",
+ "workspace_hack",
+]
+
+[[package]]
 name = "diff"
 version = "0.1.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1052,9 +1061,11 @@ dependencies = [
 name = "index_spec"
 version = "0.0.1"
 dependencies = [
+ "dict",
  "document",
  "ffi",
  "field_spec",
+ "hidden_string",
  "inverted_index",
  "pretty_assertions",
  "redis_mock",

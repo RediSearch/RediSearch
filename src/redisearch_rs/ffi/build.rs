@@ -487,10 +487,14 @@ const HEADERS: &[HeaderAllowlist] = &[
     HeaderAllowlist {
         path: "src/util/dict/dict.h",
         fns: &[
+            "dictIterator",
             "RS_dictAdd",
             "RS_dictDelete",
             "RS_dictFetchValue",
+            "RS_dictGetIterator",
+            "RS_dictNext",
             "RS_dictRelease",
+            "RS_dictReleaseIterator",
         ],
         types: &[],
         vars: &[],
