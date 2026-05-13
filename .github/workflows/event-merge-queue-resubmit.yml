@@ -138,23 +138,25 @@ jobs:
                   if run["id"] == current_run_id:
                       continue
 
-                  if run.get("created_at", "") > removed_at:
-                      continue
-
                   if run.get("name") == "Detect Merge Queue Resubmission Without New Commits":
                       continue
 
                   candidates.append(run)
 
+              current_queue_runs = [run for run in candidates if run.get("created_at", "") > removed_at]
+              if current_queue_runs:
+                  return min(current_queue_runs, key=lambda run: run["created_at"])
+
+              previous_queue_runs = [run for run in candidates if run.get("created_at", "") <= removed_at]
               failed_candidates = [
                   run
-                  for run in candidates
+                  for run in previous_queue_runs
                   if run.get("conclusion") in {"failure", "cancelled", "timed_out", "action_required"}
               ]
               if failed_candidates:
                   return max(failed_candidates, key=lambda run: run["created_at"])
 
-              return max(candidates, key=lambda run: run["created_at"], default=None)
+              return max(previous_queue_runs, key=lambda run: run["created_at"], default=None)
 
 
           def latest(events, event_type):
