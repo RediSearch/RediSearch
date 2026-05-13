@@ -1855,14 +1855,6 @@ class TestCoordinatorTimeout:
         Determinism comes from never having more than one reply in flight:
         between SIGNAL and the next resume, BG is guaranteed to be parked
         in `MRIterator_PopWithTimeout` with an empty channel.
-
-        Pipeline shape is RPNet (or RPPager_Limiter -> RPNet), so even if
-        BG were interrupted mid-batch by the timeout, the main thread's
-        `drainPartialResultsAfterTimeout` would re-enter `rpnetNext` with
-        `drainOnly=true` and yield the rest of the in-flight batch from
-        `nc->current.rows`. The race that bites the sortby variants
-        (where the drain pops from RPSorter's heap and never re-enters
-        RPNet) cannot drop rows here.
         """
         env = self.env
         skipIfNoEnableAssert(env)
