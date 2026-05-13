@@ -29,6 +29,8 @@ const PERMITTED_GENERATED_HEADERS: &[&str] = &[
     // `RSOffsetVector` is embedded by value in `RSByteOffsets`
     // (src/byte_offsets.h) — the struct body is required.
     "inverted_index.h",
+    // Required by `inverted_index.h`.
+    "index_result_rs.h",
     // Carries `QueryError`'s actual struct body (kept separate from
     // `query_error_ffi.h` only because cheadergen emits the type and the
     // function surface in two files).
