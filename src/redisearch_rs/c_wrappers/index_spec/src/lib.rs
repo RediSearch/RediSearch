@@ -19,7 +19,9 @@ use std::{
     sync::atomic::{AtomicUsize, Ordering},
 };
 
+use dict::Dict;
 use field_spec::FieldSpec;
+use hidden_string::HiddenStringRef;
 use inverted_index::opaque::InvertedIndex;
 use schema_rule::SchemaRule;
 
@@ -295,6 +297,20 @@ impl<'lock> IndexSpecReadGuard<'lock> {
             // SAFETY: existingDocs is a valid, non-null pointer to an opaque InvertedIndex.
             unsafe { existing_docs.cast::<InvertedIndex>().as_ref() }
         })
+    }
+
+    /// Return the dict of inverted indexes for fields that are missing from a document.
+    ///
+    /// Keys are [`HiddenStringRef`] wrappers; values are `Option<&InvertedIndex>`,
+    /// where `None` indicates the field has no recorded missing-doc index.
+    pub fn missing_field_dict2(&self) -> &Dict<HiddenStringRef<'_>, Option<&'_ InvertedIndex>> {
+        debug_assert!(
+            !self.0.missingFieldDict.is_null(),
+            "missingFieldDict must not be null"
+        );
+        // SAFETY: missingFieldDict is a valid non-null dict* for a properly
+        // initialised IndexSpec (invariant upheld by construction).
+        unsafe { Dict::from_raw(self.0.missingFieldDict) }
     }
 
     /// Returns whether the keys dictionary is available.

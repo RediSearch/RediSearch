@@ -26,6 +26,7 @@ use tracing::Level;
 use tracing_log_error::log_error;
 
 mod existing_docs;
+mod missing_docs;
 mod util;
 
 // Sentinel pointer defined in `src/fork_gc/pipe.c`, compared by pointer

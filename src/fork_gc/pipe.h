@@ -71,7 +71,7 @@ FGCError FGC_parentHandleNumeric(ForkGC *gc);
 void FGC_childCollectTags(ForkGC *gc, RedisSearchCtx *sctx);
 FGCError FGC_parentHandleTags(ForkGC *gc);
 
-void FGC_childCollectMissingDocs(ForkGC *gc, RedisSearchCtx *sctx);
+// void FGC_childCollectMissingDocs(ForkGC *gc, RedisSearchCtx *sctx);
 FGCError FGC_parentHandleMissingDocs(ForkGC *gc);
 
 FGCError FGC_parentHandleExistingDocs(ForkGC *gc);
