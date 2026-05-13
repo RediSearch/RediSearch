@@ -356,17 +356,17 @@ mod not_miri {
         let mut it = test.create_iterator();
 
         // First, verify the iterator works normally and read at least one document
-        let guard = test.test.context.spec_read_guard();
-        assert_eq!(
-            it.revalidate(&*guard).expect("revalidate failed"),
-            RQEValidateStatus::Ok
-        );
+        let status = {
+            let guard = test.test.context.spec_read_guard();
+            it.revalidate(&*guard).expect("revalidate failed")
+        };
+        assert_eq!(status, RQEValidateStatus::Ok);
         assert!(it.read().expect("failed to read").is_some());
-        let guard = test.test.context.spec_read_guard();
-        assert_eq!(
-            it.revalidate(&*guard).expect("revalidate failed"),
-            RQEValidateStatus::Ok
-        );
+        let status = {
+            let guard = test.test.context.spec_read_guard();
+            it.revalidate(&*guard).expect("revalidate failed")
+        };
+        assert_eq!(status, RQEValidateStatus::Ok);
 
         // Simulate the term's inverted index being garbage collected and
         // replaced by swapping the reader's stored index pointer to a
@@ -380,11 +380,11 @@ mod not_miri {
 
         it.swap_index(&mut dummy_ref);
 
-        let guard = test.test.context.spec_read_guard();
-        assert_eq!(
-            it.revalidate(&*guard).expect("revalidate failed"),
-            RQEValidateStatus::Aborted
-        );
+        let status = {
+            let guard = test.test.context.spec_read_guard();
+            it.revalidate(&*guard).expect("revalidate failed")
+        };
+        assert_eq!(status, RQEValidateStatus::Aborted);
 
         // Swap back and free the dummy for proper cleanup.
         it.swap_index(&mut dummy_ref);
@@ -426,11 +426,11 @@ mod not_miri {
         // Revalidation calls should_abort which looks up "gc_collected" in
         // keysDict. The term is not there so Redis_OpenInvertedIndex returns
         // null, triggering the abort path.
-        let guard = test.test.context.spec_read_guard();
-        assert_eq!(
-            it.revalidate(&*guard).expect("revalidate failed"),
-            RQEValidateStatus::Aborted
-        );
+        let status = {
+            let guard = test.test.context.spec_read_guard();
+            it.revalidate(&*guard).expect("revalidate failed")
+        };
+        assert_eq!(status, RQEValidateStatus::Aborted);
     }
 
     #[test]

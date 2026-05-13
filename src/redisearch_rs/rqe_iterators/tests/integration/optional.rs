@@ -684,8 +684,10 @@ mod optional_iterator_revalidate_test {
             .expect("read some result, be it virtual or real");
 
         // Revalidate should return VALIDATE_OK
-        let guard = mock_ctx.spec_read_guard();
-        let status = it.revalidate(&*guard).expect("revalidate without error");
+        let status = {
+            let guard = mock_ctx.spec_read_guard();
+            it.revalidate(&*guard).expect("revalidate without error")
+        };
         assert!(matches!(status, RQEValidateStatus::Ok));
 
         // Verify child was revalidated
@@ -713,8 +715,10 @@ mod optional_iterator_revalidate_test {
             .expect("read some result, be it virtual or real");
 
         // Optional iterator handles child abort gracefully by replacing with empty iterator
-        let guard = mock_ctx.spec_read_guard();
-        let status = it.revalidate(&*guard).expect("revalidate without error");
+        let status = {
+            let guard = mock_ctx.spec_read_guard();
+            it.revalidate(&*guard).expect("revalidate without error")
+        };
         assert!(matches!(status, RQEValidateStatus::Ok)); // Optional iterator continues even when child is aborted
 
         // Should be able to continue reading (now all virtual hits)
@@ -749,8 +753,10 @@ mod optional_iterator_revalidate_test {
         assert_eq!(it.last_doc_id(), DOC_ID);
 
         // Revalidate should handle child movement
-        let guard = mock_ctx.spec_read_guard();
-        let status = it.revalidate(&*guard).expect("revalidate without error");
+        let status = {
+            let guard = mock_ctx.spec_read_guard();
+            it.revalidate(&*guard).expect("revalidate without error")
+        };
         // Should be MOVED (as real result was affected)
         assert!(matches!(status, RQEValidateStatus::Moved { .. }));
 
@@ -786,8 +792,10 @@ mod optional_iterator_revalidate_test {
         assert_eq!(it.last_doc_id(), DOC_ID);
 
         // Since current result is virtual, revalidate should return OK
-        let guard = mock_ctx.spec_read_guard();
-        let status = it.revalidate(&*guard).expect("revalidate without error");
+        let status = {
+            let guard = mock_ctx.spec_read_guard();
+            it.revalidate(&*guard).expect("revalidate without error")
+        };
         assert!(matches!(status, RQEValidateStatus::Ok));
 
         // Should be able to continue reading
@@ -820,13 +828,17 @@ mod optional_iterator_revalidate_after_abort {
 
         // First revalidate with abort: child is dropped
         data.set_revalidate_result(utils::MockRevalidateResult::Abort);
-        let guard = mock_ctx.spec_read_guard();
-        let status = it.revalidate(&*guard).unwrap();
+        let status = {
+            let guard = mock_ctx.spec_read_guard();
+            it.revalidate(&*guard).unwrap()
+        };
         assert!(matches!(status, RQEValidateStatus::Ok));
 
         // Second revalidate: child is None, should return Ok immediately
-        let guard = mock_ctx.spec_read_guard();
-        let status = it.revalidate(&*guard).unwrap();
+        let status = {
+            let guard = mock_ctx.spec_read_guard();
+            it.revalidate(&*guard).unwrap()
+        };
         assert!(matches!(status, RQEValidateStatus::Ok));
 
         // Should still be able to read (all virtual)
@@ -850,8 +862,10 @@ mod optional_iterator_revalidate_after_abort {
 
         // Abort the child
         data.set_revalidate_result(utils::MockRevalidateResult::Abort);
-        let guard = mock_ctx.spec_read_guard();
-        let _ = it.revalidate(&*guard).unwrap();
+        let _ = {
+            let guard = mock_ctx.spec_read_guard();
+            it.revalidate(&*guard).unwrap()
+        };
 
         // skip_to with child=None should yield a virtual Found result
         match it.skip_to(8).unwrap().unwrap() {
@@ -884,8 +898,10 @@ mod optional_iterator_revalidate_after_abort {
 
         // Abort the child
         data.set_revalidate_result(utils::MockRevalidateResult::Abort);
-        let guard = mock_ctx.spec_read_guard();
-        let _ = it.revalidate(&*guard).unwrap();
+        let _ = {
+            let guard = mock_ctx.spec_read_guard();
+            it.revalidate(&*guard).unwrap()
+        };
 
         // Rewind with child=None
         it.rewind();

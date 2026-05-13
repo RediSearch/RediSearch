@@ -233,9 +233,9 @@ fn rewind(#[case] case: &[u64]) {
 fn revalidate() {
     let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
     let mut it = IdListSorted::new(vec![1, 2, 3]);
-    let guard = mock_ctx.spec_read_guard();
-    assert_eq!(
-        it.revalidate(&*guard).expect("revalidate failed"),
-        RQEValidateStatus::Ok
-    );
+    let status = {
+        let guard = mock_ctx.spec_read_guard();
+        it.revalidate(&*guard).expect("revalidate failed")
+    };
+    assert_eq!(status, RQEValidateStatus::Ok);
 }

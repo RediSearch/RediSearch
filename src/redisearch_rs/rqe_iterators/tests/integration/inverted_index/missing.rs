@@ -151,17 +151,17 @@ mod not_miri {
         let test = MissingRevalidateTest::new(10);
         let mut it = test.create_iterator();
         // Verify the iterator works normally and read at least one document
-        let guard = test.test.context.spec_read_guard();
-        assert_eq!(
-            it.revalidate(&*guard).expect("revalidate failed"),
-            RQEValidateStatus::Ok
-        );
+        let status = {
+            let guard = test.test.context.spec_read_guard();
+            it.revalidate(&*guard).expect("revalidate failed")
+        };
+        assert_eq!(status, RQEValidateStatus::Ok);
         assert!(it.read().expect("failed to read").is_some());
-        let guard = test.test.context.spec_read_guard();
-        assert_eq!(
-            it.revalidate(&*guard).expect("revalidate failed"),
-            RQEValidateStatus::Ok
-        );
+        let status = {
+            let guard = test.test.context.spec_read_guard();
+            it.revalidate(&*guard).expect("revalidate failed")
+        };
+        assert_eq!(status, RQEValidateStatus::Ok);
 
         // Simulate the missing-field inverted index being garbage collected and
         // recreated by replacing the dict entry with a new inverted index.
@@ -178,21 +178,23 @@ mod not_miri {
         // Note: the iterator's reader holds a (now-dangling) pointer to the
         // original II, but `should_abort` only compares pointers via
         // `is_index` without dereferencing it, so this is safe.
-        let guard = test.test.context.spec_read_guard();
-        unsafe {
-            let dict = guard.missing_field_dict();
-            ffi::RS_dictDelete(dict, field_name as *mut _);
-            let rc = ffi::RS_dictAdd(dict, field_name as *mut _, new_ii as *mut _);
-            assert_eq!(rc, 0, "dictAdd failed");
+        {
+            let guard = test.test.context.spec_read_guard();
+            unsafe {
+                let dict = guard.missing_field_dict();
+                ffi::RS_dictDelete(dict, field_name as *mut _);
+                let rc = ffi::RS_dictAdd(dict, field_name as *mut _, new_ii as *mut _);
+                assert_eq!(rc, 0, "dictAdd failed");
+            }
         }
 
         // Revalidate should return Aborted because the missing II no longer
         // points to the same index the reader was created from.
-        let guard = test.test.context.spec_read_guard();
-        assert_eq!(
-            it.revalidate(&*guard).expect("revalidate failed"),
-            RQEValidateStatus::Aborted
-        );
+        let status = {
+            let guard = test.test.context.spec_read_guard();
+            it.revalidate(&*guard).expect("revalidate failed")
+        };
+        assert_eq!(status, RQEValidateStatus::Aborted);
 
         // No restore needed: the new II will be freed by `dictRelease` during
         // `IndexSpec_RemoveFromGlobals` in `TestContext::drop`.
@@ -217,28 +219,31 @@ mod not_miri {
 
         // Read at least one document so the iterator has a position.
         assert!(it.read().expect("failed to read").is_some());
-        let guard = test.test.context.spec_read_guard();
-        assert_eq!(
-            it.revalidate(&*guard).expect("revalidate failed"),
-            RQEValidateStatus::Ok
-        );
+        let status = {
+            let guard = test.test.context.spec_read_guard();
+            it.revalidate(&*guard).expect("revalidate failed")
+        };
+        assert_eq!(status, RQEValidateStatus::Ok);
 
         // Simulate the garbage collector removing the missing-field index
         // by deleting the dict entry. `dictDelete` calls the value destructor
         // which frees the inverted index.
         let field_name = test.test.context.field_spec().fieldName;
-        let guard = test.test.context.spec_read_guard();
-        unsafe {
+        {
+            let guard = test.test.context.spec_read_guard();
             let dict = guard.missing_field_dict();
-            ffi::RS_dictDelete(dict, field_name as *mut _);
+
+            unsafe {
+                ffi::RS_dictDelete(dict, field_name as *mut _);
+            }
         }
 
         // `should_abort` sees NULL from `dictFetchValue` and returns true.
-        let guard = test.test.context.spec_read_guard();
-        assert_eq!(
-            it.revalidate(&*guard).expect("revalidate failed"),
-            RQEValidateStatus::Aborted
-        );
+        let status = {
+            let guard = test.test.context.spec_read_guard();
+            it.revalidate(&*guard).expect("revalidate failed")
+        };
+        assert_eq!(status, RQEValidateStatus::Aborted);
 
         // No restore needed: the entry was properly freed by `dictDelete`.
         // `TestContext::drop` calls `dictRelease` which is fine with a

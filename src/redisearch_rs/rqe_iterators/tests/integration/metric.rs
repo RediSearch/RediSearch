@@ -284,8 +284,11 @@ fn revalidate() {
     let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
     let metric_data = vec![0.1, 0.2, 0.3];
     let mut it = MetricSortedById::new(vec![1, 2, 3], metric_data);
-    let guard = mock_ctx.spec_read_guard();
-    assert_eq!(it.revalidate(&*guard).unwrap(), RQEValidateStatus::Ok);
+    let status = {
+        let guard = mock_ctx.spec_read_guard();
+        it.revalidate(&*guard).unwrap()
+    };
+    assert_eq!(status, RQEValidateStatus::Ok);
 }
 
 #[test]

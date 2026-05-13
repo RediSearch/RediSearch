@@ -407,11 +407,11 @@ fn numeric_no_range_tree_revalidate() {
     assert_eq!(record.doc_id, 1);
 
     // Revalidate should succeed (not abort) even though there is no range tree.
-    let guard = mock_ctx.spec_read_guard();
-    assert_eq!(
-        it.revalidate(&*guard).expect("revalidate failed"),
-        RQEValidateStatus::Ok
-    );
+    let status = {
+        let guard = mock_ctx.spec_read_guard();
+        it.revalidate(&*guard).expect("revalidate failed")
+    };
+    assert_eq!(status, RQEValidateStatus::Ok);
 }
 
 /// A [`GeoFilter`] with a non-null address so `is_numeric_filter()` returns `false`.
@@ -648,11 +648,11 @@ mod from_tree {
         // write does not violate aliasing rules.
         unsafe { (*tree_ptr).increment_revision() };
 
-        let guard = ctx.spec_read_guard();
-        assert_eq!(
-            iters[0].revalidate(&*guard).expect("revalidate failed"),
-            RQEValidateStatus::Aborted,
-        );
+        let status = {
+            let guard = ctx.spec_read_guard();
+            iters[0].revalidate(&*guard).expect("revalidate failed")
+        };
+        assert_eq!(status, RQEValidateStatus::Aborted);
         // SAFETY: `tree_ptr` was created by `Box::into_raw` above; `iters` is dropped
         // before this point and holds only a `NonNull` (not ownership), so no double-free.
         unsafe { drop(Box::from_raw(tree_ptr)) };
@@ -684,11 +684,11 @@ mod from_tree {
         // write does not violate aliasing rules.
         unsafe { (*tree_ptr).increment_revision() };
 
-        let guard = ctx.spec_read_guard();
-        assert_eq!(
-            iters[0].revalidate(&*guard).expect("revalidate failed"),
-            RQEValidateStatus::Ok,
-        );
+        let status = {
+            let guard = ctx.spec_read_guard();
+            iters[0].revalidate(&*guard).expect("revalidate failed")
+        };
+        assert_eq!(status, RQEValidateStatus::Ok);
 
         // SAFETY: `tree_ptr` was created by `Box::into_raw` above; `iters` is dropped
         // before this point and holds only a `NonNull` (not ownership), so no double-free.
@@ -1002,11 +1002,11 @@ mod not_miri {
 
         // Revalidate before any reads. last_doc_id is 0, so even though
         // needs_revalidation is true, we should get Ok.
-        let guard = test.test.context.spec_read_guard();
-        assert_eq!(
-            it.revalidate(&*guard).expect("revalidate failed"),
-            RQEValidateStatus::Ok
-        );
+        let status = {
+            let guard = test.test.context.spec_read_guard();
+            it.revalidate(&*guard).expect("revalidate failed")
+        };
+        assert_eq!(status, RQEValidateStatus::Ok);
 
         // The iterator should still work — doc 1 was removed, so first doc is 3.
         let record = it.read().expect("read failed").expect("expected a result");
@@ -1065,17 +1065,17 @@ mod not_miri {
         let mut it = test.create_iterator();
 
         // First, verify the iterator works normally and read at least one document
-        let guard = test.test.context.spec_read_guard();
-        assert_eq!(
-            it.revalidate(&*guard).expect("revalidate failed"),
-            RQEValidateStatus::Ok
-        );
+        let status = {
+            let guard = test.test.context.spec_read_guard();
+            it.revalidate(&*guard).expect("revalidate failed")
+        };
+        assert_eq!(status, RQEValidateStatus::Ok);
         assert!(it.read().expect("failed to read").is_some());
-        let guard = test.test.context.spec_read_guard();
-        assert_eq!(
-            it.revalidate(&*guard).expect("revalidate failed"),
-            RQEValidateStatus::Ok
-        );
+        let status = {
+            let guard = test.test.context.spec_read_guard();
+            it.revalidate(&*guard).expect("revalidate failed")
+        };
+        assert_eq!(status, RQEValidateStatus::Ok);
 
         // For numeric iterators, we can simulate index disappearance by
         // manipulating the revision ID. check_abort() compares the stored
@@ -1090,11 +1090,11 @@ mod not_miri {
         }
 
         // Now Revalidate should return Aborted because the revision IDs don't match
-        let guard = test.test.context.spec_read_guard();
-        assert_eq!(
-            it.revalidate(&*guard).expect("revalidate failed"),
-            RQEValidateStatus::Aborted
-        );
+        let status = {
+            let guard = test.test.context.spec_read_guard();
+            it.revalidate(&*guard).expect("revalidate failed")
+        };
+        assert_eq!(status, RQEValidateStatus::Aborted);
     }
 
     #[test]
