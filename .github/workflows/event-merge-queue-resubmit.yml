@@ -31,6 +31,7 @@ jobs:
           import re
           import subprocess
           import sys
+          import time
           import uuid
           from datetime import datetime, timezone
 
@@ -127,45 +128,51 @@ jobs:
               return json.loads(result.stdout)["data"]["repository"]["pullRequest"]
 
 
-          def query_merge_queue_workflow_run(repo, pr_number, queue_branch, removed_at):
-              result = subprocess.run(
-                  [
-                      "gh",
-                      "api",
-                      f"/repos/{repo}/actions/runs?event=merge_group&per_page=100",
-                  ],
-                  check=True,
-                  capture_output=True,
-                  text=True,
-              )
-
+          def query_merge_queue_workflow_runs(repo, pr_number, queue_branch):
               pr_ref_pattern = re.compile(rf"(^|/)pr-{pr_number}-")
               candidates = []
-              for run in json.loads(result.stdout)["workflow_runs"]:
-                  if run.get("path") != ".github/workflows/event-merge-to-queue.yml":
-                      continue
+              for attempt in range(5):
+                  result = subprocess.run(
+                      [
+                          "gh",
+                          "api",
+                          f"/repos/{repo}/actions/runs?event=merge_group&per_page=100",
+                      ],
+                      check=True,
+                      capture_output=True,
+                      text=True,
+                  )
 
-                  head_branch = run.get("head_branch") or ""
-                  if not pr_ref_pattern.search(head_branch):
-                      continue
+                  candidates = []
+                  for run in json.loads(result.stdout)["workflow_runs"]:
+                      if run.get("path") != ".github/workflows/event-merge-to-queue.yml":
+                          continue
 
-                  candidates.append(run)
+                      head_branch = run.get("head_branch") or ""
+                      if not pr_ref_pattern.search(head_branch):
+                          continue
 
-              candidates.sort(key=lambda run: run["created_at"], reverse=True)
+                      candidates.append(run)
 
-              current_queue_run_index = next(
-                  (
-                      index
-                      for index, run in enumerate(candidates)
-                      if run.get("head_branch") == queue_branch
-                  ),
-                  None,
-              )
-              if current_queue_run_index is not None and current_queue_run_index + 1 < len(candidates):
-                  return candidates[current_queue_run_index + 1]
+                  candidates.sort(key=lambda run: run["created_at"], reverse=True)
+                  current_queue_run_index = next(
+                      (
+                          index
+                          for index, run in enumerate(candidates)
+                          if run.get("head_branch") == queue_branch
+                      ),
+                      None,
+                  )
+                  if current_queue_run_index is not None:
+                      previous_queue_run = None
+                      if current_queue_run_index + 1 < len(candidates):
+                          previous_queue_run = candidates[current_queue_run_index + 1]
+                      return candidates[current_queue_run_index], previous_queue_run
 
-              previous_queue_runs = [run for run in candidates if run.get("created_at", "") <= removed_at]
-              return max(previous_queue_runs, key=lambda run: run["created_at"], default=None)
+                  if attempt < 4:
+                      time.sleep(2)
+
+              return None, None
 
 
           def latest(events, event_type):
@@ -215,8 +222,24 @@ jobs:
           enqueuer = latest_add.get("enqueuer") or latest_removal.get("enqueuer") or {}
           enqueuer_login = enqueuer.get("login") or ""
           detector_workflow_url = f"{os.environ['SERVER_URL']}/{repo}/actions/runs/{os.environ['CURRENT_RUN_ID']}"
-          merge_queue_run = query_merge_queue_workflow_run(repo, pr_number, queue_branch, latest_removal["createdAt"])
-          merge_queue_run_url = (merge_queue_run or {}).get("html_url") or detector_workflow_url
+          current_merge_queue_run, previous_merge_queue_run = query_merge_queue_workflow_runs(
+              repo, pr_number, queue_branch
+          )
+          if not current_merge_queue_run:
+              finish_without_alert("Could not find the current merge queue workflow run")
+
+          if (
+              previous_merge_queue_run
+              and previous_merge_queue_run.get("created_at", "") > latest_add["createdAt"]
+          ):
+              print("Previous merge queue workflow run is newer than the latest queue add event")
+              print(f"Latest queue add: {latest_add['createdAt']}")
+              print(f"Previous merge queue workflow run: {previous_merge_queue_run['created_at']}")
+              finish_without_alert(
+                  "This merge_group run is a queue revalidation for an existing queue add event"
+              )
+
+          merge_queue_run_url = (previous_merge_queue_run or {}).get("html_url") or detector_workflow_url
           head_commit_url = f"{os.environ['SERVER_URL']}/{repo}/commit/{current_head}"
 
           try:
