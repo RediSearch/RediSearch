@@ -1918,6 +1918,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "ref_mode"
+version = "0.0.1"
+dependencies = [
+ "workspace_hack",
+]
+
+[[package]]
 name = "regex"
 version = "1.12.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
