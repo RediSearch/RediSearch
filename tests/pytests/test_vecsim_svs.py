@@ -8,6 +8,7 @@ from vecsim_utils import *
 from common import (
     getConnectionByEnv,
     skip,
+    skip_until,
     assertInfoField,
     index_info,
     to_dict,
@@ -267,6 +268,13 @@ def test_memory_info():
 
 
 func_gen = lambda tn, comp, dt, dist, wr: lambda: queries_sanity(tn, comp, dt, dist, wr)
+# (compression_type, data_type, metric, workers) tuples that are flaky on the
+# coverage (Coordinator-only) job and are temporarily skipped via skip_until.
+# Only applied when running under coverage; see MOD-15569 / MOD-15570.
+QUERIES_SANITY_SKIP_UNTIL = {
+    ('LVQ8', 'FLOAT16', 'IP', 0): ('2026-06-12', 'Flaky test under coverage, see MOD-15570'),
+    ('LVQ8', 'FLOAT16', 'IP', 4): ('2026-06-12', 'Flaky test under coverage, see MOD-15569'),
+} if CODE_COVERAGE else {}
 for workers in [0, 4]:
     name_suffix = "_async" if workers else ""
     # Create SVS VAMANA index with all compression flavors
@@ -277,7 +285,12 @@ for workers in [0, 4]:
             metrics = VECSIM_DISTANCE_METRICS if EXTENDED_PYTESTS else ['IP']
             for metric in metrics:
                 test_name = f"test_queries_sanity_{compression_type}_{data_type}_{metric}" + name_suffix
-                globals()[test_name] = func_gen(test_name, compression_type, data_type, metric, workers)
+                test_func = func_gen(test_name, compression_type, data_type, metric, workers)
+                skip_spec = QUERIES_SANITY_SKIP_UNTIL.get((compression_type, data_type, metric, workers))
+                if skip_spec is not None:
+                    skip_date, skip_reason = skip_spec
+                    test_func = skip_until(skip_date, reason=skip_reason)(test_func)
+                globals()[test_name] = test_func
 
 '''
 This test validates SVS-VAMANA tiered indexing across all datatype, metric, and compression combinations.
