@@ -8,7 +8,8 @@
 */
 
 use ffi::{IndexFlags_Index_DocIdsOnly, RS_FIELDMASK_ALL, t_docId};
-use inverted_index::{InvertedIndex, RSIndexResult, RSResultKind, doc_ids_only::DocIdsOnly};
+use index_result::{RSIndexResult, RSResultKind};
+use inverted_index::{InvertedIndex, doc_ids_only::DocIdsOnly};
 use rqe_iterators::{
     RQEIterator, RQEValidateStatus, SkipToOutcome, empty::Empty, inverted_index::Wildcard,
     optional_optimized::OptionalOptimized,

@@ -39,7 +39,7 @@ fn unique_index_name(prefix: &str) -> String {
     format!("{prefix}_{id}")
 }
 use field::FieldMaskOrIndex;
-use inverted_index::RSIndexResult;
+use index_result::RSIndexResult;
 use numeric_range_tree::{NumericIndex, NumericRangeTree};
 use query_error::QueryError;
 

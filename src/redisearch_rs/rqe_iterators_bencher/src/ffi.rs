@@ -13,7 +13,7 @@ pub use ffi::{
     IndexFlags_Index_StoreTermOffsets, IteratorStatus, IteratorStatus_ITERATOR_OK,
     RedisModule_Alloc, RedisModule_Free, ValidateStatus, t_docId,
 };
-use inverted_index::{RSIndexResult, RSQueryTerm};
+use index_result::{RSIndexResult, RSQueryTerm};
 use iterators_ffi::intersection::NewIntersectionIterator;
 use std::{ffi::c_void, ptr};
 
@@ -257,7 +257,7 @@ impl InvertedIndex {
         term: Option<Box<RSQueryTerm>>,
         offsets: &[u8],
     ) {
-        let offsets = inverted_index::RSOffsetSlice::from_slice(offsets);
+        let offsets = index_result::RSOffsetSlice::from_slice(offsets);
         let record = RSIndexResult::build_term()
             .borrowed_record(term, offsets)
             .doc_id(doc_id)

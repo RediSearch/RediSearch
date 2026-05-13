@@ -10,7 +10,8 @@
 use std::ptr::NonNull;
 
 use ffi::t_docId;
-use inverted_index::{IndexReader, RSIndexResult};
+use index_result::RSIndexResult;
+use inverted_index::IndexReader;
 
 use crate::{
     IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,

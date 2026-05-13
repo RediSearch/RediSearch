@@ -10,7 +10,7 @@
 //! Supporting types for [`Empty`].
 
 use ffi::t_docId;
-use inverted_index::RSIndexResult;
+use index_result::RSIndexResult;
 
 use crate::{IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
 

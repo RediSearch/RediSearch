@@ -10,10 +10,11 @@
 use std::ptr::NonNull;
 
 use field::{FieldExpirationPredicate, FieldFilterContext, FieldMaskOrIndex};
+use index_result::{RSIndexResult, RSQueryTerm};
 use inverted_index::{
-    FilterMaskReader, IndexReader, IndexReaderCore, RSIndexResult, RSQueryTerm, TermReader,
-    doc_ids_only::DocIdsOnly, fields_offsets, fields_only, freqs_fields, freqs_offsets, freqs_only,
-    full, offsets_only, raw_doc_ids_only::RawDocIdsOnly, t_docId,
+    FilterMaskReader, IndexReader, IndexReaderCore, TermReader, doc_ids_only::DocIdsOnly,
+    fields_offsets, fields_only, freqs_fields, freqs_offsets, freqs_only, full, offsets_only,
+    raw_doc_ids_only::RawDocIdsOnly, t_docId,
 };
 use rqe_iterators::interop::RQEIteratorWrapper;
 use rqe_iterators::{FieldExpirationChecker, inverted_index::Term};

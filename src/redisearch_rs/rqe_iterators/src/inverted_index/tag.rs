@@ -10,9 +10,9 @@
 use std::ptr::NonNull;
 
 use ffi::{RS_FIELDMASK_ALL, RedisSearchCtx, TagIndex, t_docId};
+use index_result::{RSIndexResult, RSOffsetSlice};
 use inverted_index::{
-    DecodedBy, DocIdsDecoder, IndexReader, IndexReaderCore, RSIndexResult, RSOffsetSlice,
-    opaque::OpaqueEncoding,
+    DecodedBy, DocIdsDecoder, IndexReader, IndexReaderCore, opaque::OpaqueEncoding,
 };
 use query_term::RSQueryTerm;
 

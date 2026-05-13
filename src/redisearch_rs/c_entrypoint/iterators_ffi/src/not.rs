@@ -49,7 +49,7 @@ impl<'index> NotIteratorEnum<'index> {
 // Delegate `RQEIterator` to the inner variant.
 impl<'index> RQEIterator<'index> for NotIteratorEnum<'index> {
     #[inline(always)]
-    fn current(&mut self) -> Option<&mut inverted_index::RSIndexResult<'index>> {
+    fn current(&mut self) -> Option<&mut index_result::RSIndexResult<'index>> {
         match self {
             Self::Not(it) => it.current(),
             Self::NotOptimized(it) => it.current(),
@@ -59,7 +59,7 @@ impl<'index> RQEIterator<'index> for NotIteratorEnum<'index> {
     #[inline(always)]
     fn read(
         &mut self,
-    ) -> Result<Option<&mut inverted_index::RSIndexResult<'index>>, rqe_iterators::RQEIteratorError>
+    ) -> Result<Option<&mut index_result::RSIndexResult<'index>>, rqe_iterators::RQEIteratorError>
     {
         match self {
             Self::Not(it) => it.read(),

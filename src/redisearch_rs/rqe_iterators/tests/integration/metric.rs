@@ -64,7 +64,7 @@ fn score_variant_cannot_skip() {
 
 mod metrics_tests {
     use crate::id_cases;
-    use inverted_index::RSResultKind;
+    use index_result::RSResultKind;
     use rqe_iterators::{RQEIterator, SkipToOutcome, metric::MetricSortedById};
     use rstest_reuse::apply;
 

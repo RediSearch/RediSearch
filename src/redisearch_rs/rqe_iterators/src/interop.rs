@@ -15,7 +15,7 @@ use ffi::{
     ValidateStatus_VALIDATE_ABORTED, ValidateStatus_VALIDATE_MOVED, ValidateStatus_VALIDATE_OK,
     t_docId,
 };
-use inverted_index::RSIndexResult;
+use index_result::RSIndexResult;
 
 use crate::{RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
 

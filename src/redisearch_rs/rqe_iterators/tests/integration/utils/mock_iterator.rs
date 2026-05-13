@@ -10,7 +10,7 @@
 use std::{cell::RefCell, rc::Rc, time::Duration};
 
 use ffi::{RS_FIELDMASK_ALL, t_docId};
-use inverted_index::{RSIndexResult, RSOffsetSlice};
+use index_result::{RSIndexResult, RSOffsetSlice};
 use rqe_iterators::{IteratorType, RQEIterator, WildcardIterator};
 
 /// Test iterator used in unit tests that expect an [`RQEIterator`]

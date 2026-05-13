@@ -10,8 +10,9 @@
 use std::ptr::{self, NonNull};
 
 use ffi::{GeoDistance_GEO_DISTANCE_M, GeoFilter, IndexFlags_Index_StoreNumeric, t_docId};
+use index_result::RSIndexResult;
 use inverted_index::{
-    FilterNumericReader, IndexReader, InvertedIndex, NumericFilter, NumericReader, RSIndexResult,
+    FilterNumericReader, IndexReader, InvertedIndex, NumericFilter, NumericReader,
 };
 use rqe_iterators::{
     IteratorType, NoOpChecker, RQEIterator, RQEValidateStatus, SkipToOutcome,
@@ -706,7 +707,8 @@ mod from_tree {
 mod variant {
     use ffi::IndexFlags_Index_StoreNumeric;
     use field::{FieldExpirationPredicate, FieldFilterContext, FieldMaskOrIndex};
-    use inverted_index::{NumericFilter, RSIndexResult};
+    use index_result::RSIndexResult;
+    use inverted_index::NumericFilter;
     use numeric_range_tree::NumericIndex;
     use rqe_iterators::{FieldExpirationChecker, NumericIteratorVariant};
     use rqe_iterators_test_utils::MockContext;

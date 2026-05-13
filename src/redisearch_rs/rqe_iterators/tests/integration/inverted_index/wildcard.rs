@@ -10,7 +10,8 @@
 //! Tests for the wildcard inverted index iterator.
 
 use ffi::{IndexFlags_Index_DocIdsOnly, RS_FIELDMASK_ALL, t_docId};
-use inverted_index::{RSIndexResult, doc_ids_only::DocIdsOnly};
+use index_result::RSIndexResult;
+use inverted_index::doc_ids_only::DocIdsOnly;
 use rqe_iterators::{IteratorType, RQEIterator, inverted_index::Wildcard};
 
 use crate::inverted_index::utils::BaseTest;

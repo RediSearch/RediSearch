@@ -15,8 +15,9 @@ use crate::{
     expiration_checker::{ExpirationChecker, NoOpChecker},
 };
 use ffi::{FieldType_INDEXFLD_T_GEO, FieldType_INDEXFLD_T_NUMERIC, IndexFlags, t_docId};
+use index_result::RSIndexResult;
 use inverted_index::{
-    FilterGeoReader, FilterNumericReader, IndexReader, NumericFilter, NumericReader, RSIndexResult,
+    FilterGeoReader, FilterNumericReader, IndexReader, NumericFilter, NumericReader,
 };
 use numeric_range_tree::{NumericIndexReader, NumericRangeTree};
 

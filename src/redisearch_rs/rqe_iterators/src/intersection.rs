@@ -16,7 +16,7 @@
 use crate::{IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
 
 use ffi::t_docId;
-use inverted_index::RSIndexResult;
+use index_result::RSIndexResult;
 
 /// Yields documents appearing in ALL child iterators using a merge (AND) algorithm.
 ///
@@ -293,7 +293,7 @@ where
     /// Explore removing the unsafe code by using one of the following alternatives (as suggested in the PR):
     ///
     /// - Store owned copies instead of borrowed references (memory/perf tradeoff)
-    /// - Restructure [`RSAggregateResult`](inverted_index::RSAggregateResult) to not require `'index` on stored references
+    /// - Restructure [`RSAggregateResult`](index_result::RSAggregateResult) to not require `'index` on stored references
     /// - Use a different aggregate pattern that doesn't store child references
     fn build_aggregate_result(&mut self, doc_id: t_docId) {
         // Reset all per-document accumulating fields before building the new aggregate.

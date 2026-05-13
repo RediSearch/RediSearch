@@ -13,9 +13,10 @@ use ffi::t_docId;
 use qint::{qint_decode, qint_encode};
 
 use crate::{
-    Decoder, Encoder, RSIndexResult, TermDecoder,
+    Decoder, Encoder, TermDecoder,
     full::{decode_term_record_offsets, offsets},
 };
+use index_result::RSIndexResult;
 
 /// Encode and decode the offsets of a term record.
 ///

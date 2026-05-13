@@ -14,7 +14,7 @@ use crate::{
     utils::OwnedSlice,
 };
 use ffi::{RLookupKey, RLookupKeyHandle, t_docId};
-use inverted_index::RSIndexResult;
+use index_result::RSIndexResult;
 
 /// The different types of metrics.
 /// At the moment, only vector distance is supported.

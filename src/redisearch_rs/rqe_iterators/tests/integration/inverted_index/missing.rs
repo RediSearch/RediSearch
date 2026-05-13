@@ -10,7 +10,8 @@
 //! Tests for the missing-field inverted index iterator.
 
 use ffi::{IndexFlags_Index_DocIdsOnly, RS_FIELDMASK_ALL, t_docId};
-use inverted_index::{RSIndexResult, doc_ids_only::DocIdsOnly};
+use index_result::RSIndexResult;
+use inverted_index::doc_ids_only::DocIdsOnly;
 use rqe_iterators::{IteratorType, NoOpChecker, RQEIterator, inverted_index::Missing};
 use rqe_iterators_test_utils::MockContext;
 

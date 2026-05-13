@@ -10,7 +10,7 @@
 use std::time::Duration;
 
 use ffi::t_docId;
-use inverted_index::RSIndexResult;
+use index_result::RSIndexResult;
 use rqe_iterators::{RQEIterator, RQEIteratorError, SkipToOutcome, not_optimized::NotOptimized};
 
 use crate::utils::{Mock, MockIteratorError, MockVec, WildcardHelper};

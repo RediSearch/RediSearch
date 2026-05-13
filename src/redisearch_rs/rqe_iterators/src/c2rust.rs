@@ -18,7 +18,7 @@ use crate::{
     RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome, interop::RQEIteratorWrapper,
     intersection::Intersection,
 };
-use inverted_index::RSIndexResult;
+use index_result::RSIndexResult;
 use std::{
     mem::ManuallyDrop,
     ops::{Deref, DerefMut},

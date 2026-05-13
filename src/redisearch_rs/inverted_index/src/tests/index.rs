@@ -11,7 +11,7 @@ use std::io::Cursor;
 
 use crate::{
     Decoder, Encoder, EntriesTrackingIndex, FieldMaskTrackingIndex, GcScanDelta, IdDelta,
-    IndexBlock, InvertedIndex, RSIndexResult,
+    IndexBlock, InvertedIndex,
     debug::{BlockSummary, Summary},
     gc::BlockGcScanResult,
     gc::RepairType,
@@ -20,6 +20,7 @@ use ffi::{
     IndexFlags_Index_DocIdsOnly, IndexFlags_Index_HasMultiValue, IndexFlags_Index_StoreFieldFlags,
     IndexFlags_Index_StoreNumeric, t_docId,
 };
+use index_result::RSIndexResult;
 use pretty_assertions::assert_eq;
 
 use super::Dummy;

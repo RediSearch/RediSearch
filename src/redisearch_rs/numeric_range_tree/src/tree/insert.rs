@@ -14,7 +14,8 @@
 //! splitting and AVL-like rebalancing on the way back up.
 
 use ffi::t_docId;
-use inverted_index::{IndexReader as _, RSIndexResult};
+use index_result::RSIndexResult;
+use inverted_index::IndexReader as _;
 
 use super::{AddResult, CheckedCount, NumericRangeTree};
 use crate::arena::{NodeArena, NodeIndex};
@@ -317,7 +318,7 @@ impl NumericRangeTree {
 
         // Redistribute entries to children
         let mut reader = parent_range.reader();
-        let mut result = inverted_index::RSIndexResult::build_numeric(0.0).build();
+        let mut result = index_result::RSIndexResult::build_numeric(0.0).build();
         while reader.next_record(&mut result).unwrap_or(false) {
             // SAFETY: We know the result contains numeric data
             let entry_value = unsafe { result.as_numeric_unchecked() };

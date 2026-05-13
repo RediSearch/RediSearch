@@ -10,9 +10,8 @@
 use std::ptr::NonNull;
 
 use ffi::t_docId;
-use inverted_index::{
-    DecodedBy, DocIdsDecoder, IndexReaderCore, RSIndexResult, opaque::OpaqueEncoding,
-};
+use index_result::RSIndexResult;
+use inverted_index::{DecodedBy, DocIdsDecoder, IndexReaderCore, opaque::OpaqueEncoding};
 
 use crate::{
     IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,

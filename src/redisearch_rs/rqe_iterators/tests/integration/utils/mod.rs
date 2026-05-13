@@ -14,7 +14,7 @@ pub(crate) use mock_enterprise_iterators::{MOCK_DISK_WILDCARD_TOP_ID, init_enter
 pub(crate) use mock_iterator::{Mock, MockData, MockIteratorError, MockRevalidateResult, MockVec};
 pub(crate) use wildcard_helper::WildcardHelper;
 
-use inverted_index::RSIndexResult;
+use index_result::RSIndexResult;
 use rqe_iterators::{IteratorType, RQEIterator, RQEIteratorError, SkipToOutcome};
 
 /// A mock iterator that produces results with a specific `t_fieldMask`.

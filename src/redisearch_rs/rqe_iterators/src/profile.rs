@@ -17,7 +17,7 @@ use std::time::{Duration, Instant};
 
 use crate::{IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
 use ffi::t_docId;
-use inverted_index::RSIndexResult;
+use index_result::RSIndexResult;
 
 /// Profile counters collected during query execution.
 ///

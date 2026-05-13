@@ -13,9 +13,8 @@ use std::{
 };
 
 use ffi::{RedisSearchCtx, t_docId, t_fieldIndex};
-use inverted_index::{
-    DecodedBy, DocIdsDecoder, IndexReaderCore, RSIndexResult, opaque::OpaqueEncoding,
-};
+use index_result::RSIndexResult;
+use inverted_index::{DecodedBy, DocIdsDecoder, IndexReaderCore, opaque::OpaqueEncoding};
 
 use crate::{
     ExpirationChecker, IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus,

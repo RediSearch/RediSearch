@@ -13,9 +13,8 @@ use ffi::{
     t_docId,
 };
 use field::FieldMaskOrIndex;
-use inverted_index::{
-    DecodedBy, Encoder, InvertedIndex, RSIndexResult, RSResultKind, test_utils::TermRecordCompare,
-};
+use index_result::{RSIndexResult, RSResultKind};
+use inverted_index::{DecodedBy, Encoder, InvertedIndex, test_utils::TermRecordCompare};
 use numeric_range_tree::NumericIndex;
 use rqe_iterators::{ExpirationChecker, RQEIterator, RQEValidateStatus, SkipToOutcome};
 use rqe_iterators_test_utils::MockContext;

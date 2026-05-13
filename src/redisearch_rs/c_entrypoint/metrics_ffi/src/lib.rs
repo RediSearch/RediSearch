@@ -13,7 +13,7 @@
 //! `headers/metrics_ffi.h`.
 
 use ffi::RLookupKey;
-use inverted_index::{MetricsSlice, MetricsVec, RSIndexResult};
+use index_result::{MetricsSlice, MetricsVec, RSIndexResult};
 
 /// Moves all metrics from `child` into `parent`, leaving `child` empty.
 ///
