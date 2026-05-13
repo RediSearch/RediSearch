@@ -16,6 +16,7 @@ bench = false
 [dependencies]
 anyhow.workspace = true
 icu_casemap.workspace = true
+icu_locale_core.workspace = true
 rayon.workspace = true
 
 [dev-dependencies]

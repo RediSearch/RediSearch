@@ -8,13 +8,17 @@
 */
 
 //! Compiles the minimum libnu translation units required to expose
-//! `nu_tofold` (case-fold table lookup) and `nu_utf8_write` (runtime UTF-8
-//! encoder, which routes 4-byte codepoints through the suspect `b4_utf8`
-//! helper in `utf8_internal.h`).
+//! `nu_tofold` (case-fold table lookup), `nu_tolower` (lowercase table
+//! lookup, the production text-normalisation path used by `unicode_tolower`
+//! in `src/util/strconv.h`), and `nu_utf8_write` (runtime UTF-8 encoder,
+//! which routes 4-byte codepoints through the suspect `b4_utf8` helper in
+//! `utf8_internal.h`).
 //!
 //! The fold helpers are `static inline` and inline directly into the
-//! `nu_tofold` symbol. `nu_utf8_write` requires `NU_WITH_UTF8_WRITER` to
-//! be defined for its body to compile.
+//! `nu_tofold`/`nu_tolower` symbols. `nu_utf8_write` requires
+//! `NU_WITH_UTF8_WRITER` to be defined for its body to compile;
+//! `deps/libnu/config.h` defines `NU_WITH_EVERYTHING` unconditionally so
+//! `NU_WITH_TOFOLD`/`NU_WITH_TOLOWER` are already on.
 
 use std::path::PathBuf;
 
@@ -22,9 +26,10 @@ fn main() {
     let root = repository_root().expect("could not locate repository root");
     let libnu_dir = root.join("deps").join("libnu");
     let tofold = libnu_dir.join("tofold.c");
+    let tolower = libnu_dir.join("tolower.c");
     let utf8 = libnu_dir.join("utf8.c");
 
-    for src in [&tofold, &utf8] {
+    for src in [&tofold, &tolower, &utf8] {
         println!("cargo::rerun-if-changed={}", src.display());
     }
     for hdr in [
@@ -38,13 +43,16 @@ fn main() {
     ] {
         println!("cargo::rerun-if-changed={}", libnu_dir.join(hdr).display());
     }
-    println!(
-        "cargo::rerun-if-changed={}",
-        libnu_dir.join("gen").join("_tofold.c").display()
-    );
+    for table in ["_tofold.c", "_tolower.c"] {
+        println!(
+            "cargo::rerun-if-changed={}",
+            libnu_dir.join("gen").join(table).display()
+        );
+    }
 
     cc::Build::new()
         .file(&tofold)
+        .file(&tolower)
         .file(&utf8)
         .define("NU_WITH_UTF8_WRITER", None)
         .include(&libnu_dir)

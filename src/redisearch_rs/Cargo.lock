@@ -281,6 +281,7 @@ dependencies = [
  "crc32fast",
  "fs-err",
  "icu_casemap",
+ "icu_locale_core",
  "proptest",
  "rayon",
  "ureq",

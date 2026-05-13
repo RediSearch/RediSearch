@@ -7,30 +7,40 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! Side-by-side case-fold comparison between libnu (used by RediSearch's C
-//! code) and icu_casemap (used by the Rust sorting vector).
+//! Side-by-side case-mapping comparison between libnu (used by RediSearch's
+//! C code) and icu_casemap (used by the Rust sorting vector).
+//!
+//! Two operations are exposed, each as a pair of mappers + a [`compare`]-shape
+//! wrapper:
+//!
+//! - **Case folding** ([`fold_libnu`], [`fold_icu`], [`compare`], [`run_corpus`]):
+//!   matches RediSearch's `runeFold` in `src/trie/rune_util.c` against
+//!   `CaseMapper::fold_string` (used by `try_insert_string_normalize` in
+//!   `src/redisearch_rs/sorting_vector/src/lib.rs`).
+//! - **Lowercase** ([`lower_libnu`], [`lower_icu`], [`compare_lower`],
+//!   [`run_corpus_lower`]): matches RediSearch's `unicode_tolower` in
+//!   `src/util/strconv.h` (the hot path for indexed/queried text — every
+//!   token flows through `nu_tolower` + `nu_casemap_read`) against
+//!   `CaseMapper::lowercase_to_string` at the root locale ("und").
 //!
 //! The two libraries are known to diverge on full Unicode case folding
 //! (e.g. ß → "ss"), final sigma, Turkish I, and many script-specific
 //! mappings. This crate is a test utility, not a production component:
-//! it exists only to characterise where, and how, the two folders disagree.
+//! it exists only to characterise where, and how, the two implementations
+//! disagree.
 //!
-//! - [`fold_libnu`]: per-codepoint `nu_tofold` loop, matching the fold
-//!   semantics RediSearch exposes via `runeFold` in `src/trie/rune_util.c`.
-//!   (RediSearch no longer routes folded codepoints back through
-//!   `nu_utf8_write` end-to-end — the historical `normalizeStr` wrapper in
-//!   `src/sortable.c` was removed as dead code in #9538 — but the libnu
-//!   fold tables themselves are still in production via the trie path.)
-//! - [`fold_icu`]: mirrors `try_insert_string_normalize()` in
-//!   `src/redisearch_rs/sorting_vector/src/lib.rs`.
-//! - [`compare`]: fold a single string with both and produce a [`Diff`].
-//! - [`run_corpus`]: fold many strings and aggregate a [`Report`].
+//! Note: libnu's `nu_tolower` is unconditional (no context-sensitivity),
+//! while ICU's `lowercase_to_string` at root locale *is* context-sensitive
+//! for Greek final sigma. The lowercase comparison therefore surfaces both
+//! table-content divergences and the structural gap that libnu's `_nu_tolower`
+//! variant would close but which RediSearch does not currently call.
 
 use std::collections::{BTreeMap, HashMap};
 use std::ffi::CStr;
 use std::fmt::Write as _;
 
 use icu_casemap::CaseMapper;
+use icu_locale_core::LanguageIdentifier;
 use rayon::prelude::*;
 
 mod libnu_ffi;
@@ -148,6 +158,56 @@ pub fn fold_icu(s: &str) -> String {
     CaseMapper::new().fold_string(s).into_owned()
 }
 
+/// Lowercase `s` using libnu's per-codepoint `nu_tolower`.
+///
+/// This mirrors the production text-normalisation path in
+/// `unicode_tolower()` at `src/util/strconv.h:121` and `strToLowerRunes()`
+/// at `src/trie/rune_util.c:65`: for each input codepoint, `nu_tolower`
+/// returns either NULL (passthrough) or a null-terminated UTF-8 mapping
+/// that may be longer than one codepoint (e.g. multi-codepoint expansions
+/// in some scripts). We iterate the mapping by decoding it natively as
+/// UTF-8, which is equivalent to the `nu_casemap_read` loop in production
+/// (`nu_casemap_read` aliases `nu_utf8_read`).
+///
+/// Unlike production, this function does *not* re-encode the result via
+/// `nu_utf8_write`. That isolates lowercase-table divergence from the
+/// `b4_utf8` encoder concerns covered by [`encode_codepoint_with_libnu`].
+pub fn lower_libnu(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for ch in s.chars() {
+        let cp = ch as u32;
+        // SAFETY: `nu_tolower` is a pure function; any u32 input is accepted
+        // and the returned pointer is either NULL or points to a static,
+        // null-terminated UTF-8 buffer owned by libnu's data tables.
+        let encoded = unsafe { libnu_ffi::nu_tolower(cp) };
+        if encoded.is_null() {
+            out.push(ch);
+            continue;
+        }
+        // SAFETY: `encoded` is non-NULL and points to a null-terminated
+        // UTF-8 byte sequence inside libnu's static data.
+        let cstr = unsafe { CStr::from_ptr(encoded) };
+        match cstr.to_str() {
+            Ok(mapped) => out.push_str(mapped),
+            Err(_) => out.push('\u{FFFD}'),
+        }
+    }
+    out
+}
+
+/// Lowercase `s` using ICU4X (`CaseMapper::lowercase_to_string`) at the
+/// root locale ("und").
+///
+/// The root locale gives the spec-default behaviour: context-sensitive
+/// (Greek final sigma) but not language-specific (no Turkish dotless-I).
+/// That makes it the right reference point for a non-locale-aware C library
+/// like libnu.
+pub fn lower_icu(s: &str) -> String {
+    CaseMapper::new()
+        .lowercase_to_string(s, &LanguageIdentifier::UNKNOWN)
+        .into_owned()
+}
+
 /// Per-codepoint divergence record, used when both folders happen to produce
 /// outputs of the same codepoint count.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -209,8 +269,22 @@ fn codepoints(s: &str) -> Vec<String> {
 
 /// Fold `s` with both folders and produce a [`Diff`].
 pub fn compare(s: &str) -> Diff {
-    let libnu = fold_libnu(s);
-    let icu = fold_icu(s);
+    diff_from_outputs(s.to_owned(), fold_libnu(s), fold_icu(s))
+}
+
+/// Lowercase `s` with both implementations and produce a [`Diff`].
+///
+/// Mirrors [`compare`] but uses [`lower_libnu`] / [`lower_icu`] instead of
+/// the fold variants. This is the comparison that matches production text
+/// normalisation (`unicode_tolower` in `src/util/strconv.h`).
+pub fn compare_lower(s: &str) -> Diff {
+    diff_from_outputs(s.to_owned(), lower_libnu(s), lower_icu(s))
+}
+
+/// Build a [`Diff`] from already-computed libnu / ICU outputs. Shared between
+/// [`compare`] (fold) and [`compare_lower`] (lowercase) so the codepoint-diff
+/// logic and the [`Report`] aggregator stay operation-agnostic.
+fn diff_from_outputs(input: String, libnu: String, icu: String) -> Diff {
     let differs = libnu != icu;
 
     let codepoint_diff = if differs && libnu.chars().count() == icu.chars().count() {
@@ -231,7 +305,7 @@ pub fn compare(s: &str) -> Diff {
     };
 
     Diff {
-        input: s.to_owned(),
+        input,
         libnu,
         icu,
         differs,
@@ -412,8 +486,8 @@ fn bucket_byte_delta(delta: i64) -> i64 {
     delta.clamp(-2, 4)
 }
 
-/// Compare every input in `inputs` (in parallel via rayon) and return an
-/// aggregate [`Report`].
+/// Compare every input in `inputs` (in parallel via rayon) under the fold
+/// operation and return an aggregate [`Report`].
 ///
 /// The pipeline is a classic fold/reduce: each rayon worker maintains a
 /// thread-local [`Report`] that absorbs results via [`Report::record`], and
@@ -428,9 +502,27 @@ pub fn run_corpus<I>(inputs: I) -> Report
 where
     I: IntoParallelIterator<Item = String>,
 {
+    run_corpus_with(inputs, compare)
+}
+
+/// Compare every input in `inputs` under the lowercase operation and return
+/// an aggregate [`Report`]. See [`run_corpus`] for the pipeline shape; this
+/// variant differs only in the per-input comparison ([`compare_lower`]).
+pub fn run_corpus_lower<I>(inputs: I) -> Report
+where
+    I: IntoParallelIterator<Item = String>,
+{
+    run_corpus_with(inputs, compare_lower)
+}
+
+fn run_corpus_with<I, F>(inputs: I, compare_fn: F) -> Report
+where
+    I: IntoParallelIterator<Item = String>,
+    F: Fn(&str) -> Diff + Sync + Send,
+{
     inputs
         .into_par_iter()
-        .map(|s| compare(&s))
+        .map(|s| compare_fn(&s))
         .fold(Report::default, |mut acc, diff| {
             acc.record(diff);
             acc
