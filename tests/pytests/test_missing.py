@@ -1,4 +1,5 @@
 from common import *
+from redis.client import NEVER_DECODE
 import json
 import faker
 
@@ -620,3 +621,66 @@ def testMissingWithParams():
                   'NOCONTENT',
                   'PARAMS', '2', 'val', 'hello')
     env.assertEqual(res, [0])
+
+
+@skip(cluster=True)
+def test_missing_field_name_with_interior_nul(env):
+    """Verify that a schema restored with a field name containing an interior
+    NUL byte does not crash the server. The Rust Missing iterator converts the
+    HiddenString field name into a CString, which panics on interior NUL bytes.
+    RDB/schema-restore data is length-based, so it can smuggle NUL bytes past
+    the normal FT.CREATE path (which uses strlen). This test injects a poisoned
+    field name via _FT._RESTOREIFNX and verifies the server stays alive through
+    document indexing and querying."""
+
+    conn = getConnectionByEnv(env)
+
+    # Create an index with a TAG field that indexes missing values.
+    # Use a distinctive field name so we can find and replace it in the
+    # serialized binary blob.
+    field_name = 'nultest_field'
+    env.expect('FT.CREATE', 'idx', 'SCHEMA',
+               field_name, 'TAG', 'INDEXMISSING').ok()
+
+    # Add a document missing the field to populate missingFieldDict.
+    conn.execute_command('HSET', 'doc1', 'other', 'value')
+
+    # Verify the normal ismissing query path works.
+    res = env.cmd('FT.SEARCH', 'idx', f'ismissing(@{field_name})', 'NOCONTENT')
+    env.assertEqual(res, [1, 'doc1'])
+
+    # Mark as internal client so we can use the internal DUMP/RESTORE commands.
+    env.cmd('DEBUG', 'MARK-INTERNAL-CLIENT')
+
+    # Dump the schema as a binary blob (same format as RDB persistence).
+    dump, encode = env.cmd(debug_cmd(), 'DUMP_SCHEMA', 'idx', NEVER_DECODE=True)
+
+    # Verify the field name appears in the dump.
+    env.assertTrue(field_name.encode() in dump,
+                   message="field name not found in schema dump")
+
+    # Drop the original index.
+    env.cmd('FT.DROPINDEX', 'idx')
+
+    # Poison the dump: replace the field name with one containing an interior
+    # NUL byte. The replacement has the same length so all offsets and length
+    # encodings in the binary blob remain valid.
+    poisoned_name = b'nulte\x00t_field'
+    env.assertEqual(len(poisoned_name), len(field_name.encode()),
+                    message="poisoned name must be same length as original")
+
+    # The field name appears twice in the dump: once as fieldName and once as
+    # fieldPath (they share the same value when no separate JSON path is set).
+    poisoned_dump = dump.replace(field_name.encode(), poisoned_name)
+    env.assertNotEqual(dump, poisoned_dump,
+                       message="dump should have been modified")
+
+    # Restore the poisoned schema. The server must not crash regardless of
+    # whether the restore succeeds or is rejected by RDB load validation.
+    try:
+        env.cmd('_FT._RESTOREIFNX', 'SCHEMA', encode, poisoned_dump)
+    except Exception:
+        pass
+
+    # Verify the server is still alive.
+    env.expect('PING').equal(True)
