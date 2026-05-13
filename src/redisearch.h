@@ -20,7 +20,7 @@
 #include "stemmer.h"
 
 typedef struct RSQueryTerm RSQueryTerm;
-typedef struct RSIndexResult RSIndexResult;
+typedef struct RawIndexResult_Active RSIndexResult;
 typedef struct RSOffsetVector RSOffsetVector;
 typedef uint32_t RSTokenFlags;
 
