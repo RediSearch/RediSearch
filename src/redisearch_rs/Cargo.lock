@@ -740,11 +740,13 @@ dependencies = [
 name = "geo_ffi"
 version = "0.0.1"
 dependencies = [
+ "cheadergen",
  "decorum",
  "ffi",
  "geo",
  "query_error",
  "tracing",
+ "tracing_log_error",
  "workspace_hack",
 ]
 
@@ -2741,6 +2743,15 @@ version = "0.0.1"
 dependencies = [
  "tracing",
  "workspace_hack",
+]
+
+[[package]]
+name = "tracing_log_error"
+version = "0.1.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "acc88373b516b143fd79ef5109b9c077ade5bfcbdc566d63e2d827fb951b6849"
+dependencies = [
+ "tracing",
 ]
 
 [[package]]

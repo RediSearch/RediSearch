@@ -8,9 +8,6 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include "geohash/geohash_helper.h"
-// cheadergen does not export Rust `pub const` items; mirror the value manually.
-#define GEO_RANGE_COUNT 9
-
 
 /**
  * An opaque query error which can be passed by value to C.
@@ -19,6 +16,11 @@
  * structure exactly.
  */
 typedef struct QueryError QueryError;
+
+/**
+ * The number of geohash ranges: the center cell plus its 8 neighbors.
+ */
+#define GEO_RANGE_COUNT 9
 
 #ifdef __cplusplus
 extern "C" {

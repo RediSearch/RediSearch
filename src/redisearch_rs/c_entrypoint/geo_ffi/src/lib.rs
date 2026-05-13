@@ -20,13 +20,11 @@ use std::{
 use decorum::R64;
 use geo::ParseGeoError;
 use query_error::{QueryError, QueryErrorCode, opaque::OpaqueQueryError};
+use tracing_log_error::log_error;
 
 /// The number of geohash ranges: the center cell plus its 8 neighbors.
-// This is a literal rather than `geo::GEO_RANGE_COUNT` because cbindgen cannot
-// resolve cross-crate const references and would omit the `#define` from the
-// generated C header.
-pub const GEO_RANGE_COUNT: usize = 9;
-const _: () = assert!(GEO_RANGE_COUNT == geo::GEO_RANGE_COUNT);
+#[cheadergen::config(export)]
+pub const GEO_RANGE_COUNT: usize = geo::GEO_RANGE_COUNT;
 
 /// Encode longitude and latitude into a single `f64` geohash value.
 ///
@@ -40,7 +38,7 @@ pub unsafe extern "C" fn encodeGeo(lon: f64, lat: f64, bits: *mut f64) -> c_int 
     let coords = match geo::hash::WGS84Coordinates::from_f64(lon, lat) {
         Ok(coords) => coords,
         Err(err) => {
-            tracing::warn!(%err, lon, lat, "encodeGeo: invalid WGS-84 coordinates");
+            log_error!(err, level: tracing::Level::WARN, "encodeGeo: invalid WGS-84 coordinates");
             // SAFETY: caller guarantees `bits` is valid.
             unsafe { *bits = 0.0 };
             return 0;
@@ -131,6 +129,7 @@ pub unsafe extern "C" fn isWithinRadiusLonLat(
 /// - `status` must be a valid pointer to an [`OpaqueQueryError`] created by
 ///   `QueryError_Default`.
 unsafe fn set_parse_error(status: *mut OpaqueQueryError, err: ParseGeoError) {
+    log_error!(err, level: tracing::Level::WARN, "parseGeo: failed to parse geo string");
     let msg = err.to_string();
     // SAFETY: caller guarantees `status` is valid.
     let query_error = unsafe { QueryError::from_opaque_mut_ptr(status) }.expect("status is null");

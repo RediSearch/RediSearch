@@ -28,10 +28,6 @@ cpp_compat = true
 
 [header.geo_ffi]
 includes = ["geohash/geohash_helper.h"]
-after_includes = """
-// cheadergen does not export Rust `pub const` items; mirror the value manually.
-#define GEO_RANGE_COUNT 9
-"""
 
 [header.field]
 includes = ["redisearch_types.h"]
