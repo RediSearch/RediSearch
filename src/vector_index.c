@@ -8,7 +8,6 @@
 */
 #include "vector_index.h"
 #include "VecSim/query_results.h"
-#include "iterators/hybrid_reader.h"
 #include "iterators_rs.h"
 #include "query_param.h"
 #include "rdb.h"
@@ -165,20 +164,17 @@ QueryIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, QueryIterator
                                                "Error parsing vector similarity query: query " VECSIM_KNN_K_TOO_LARGE_ERR_MSG ", must not exceed %zu", MAX_KNN_K);
         return NULL;
       }
-      HybridIteratorParams hParams = {.index = vecsim,
-                                      .dim = dim,
-                                      .elementType = type,
-                                      .spaceMetric = metric,
-                                      .query = vq->knn,
-                                      .qParams = qParams,
-                                      .vectorScoreField = vq->scoreField,
-                                      .canTrimDeepResults = q->opts->flags & Search_CanSkipRichResults,
-                                      .childIt = child_it,
-                                      .timeout = q->sctx->time.timeout,
-                                      .sctx = q->sctx,
-                                      .filterCtx = &filterCtx,
-      };
-      return NewHybridVectorIterator(hParams, q->status);
+      return NewVectorTopKIterator(vecsim,
+                                   vq->knn.vector,
+                                   dim * VecSimType_sizeof(type),
+                                   &qParams,
+                                   vq->knn.k,
+                                   child_it,
+                                   q->sctx->time.timeout,
+                                   q->sctx->time.skipTimeoutChecks,
+                                   q->sctx->spec->diskSpec != NULL,
+                                   q->sctx,
+                                   &filterCtx);
     }
     case VECSIM_QT_RANGE: {
       if ((dim * VecSimType_sizeof(type)) != vq->range.vecLen) {

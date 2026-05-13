@@ -13,66 +13,66 @@
 #include "util/minmax_heap.h"
 #include "util/timeout.h"
 
-typedef struct {
-  RedisSearchCtx *sctx;
-  VecSimIndex *index;
-  size_t dim;
-  VecSimType elementType;
-  VecSimMetric spaceMetric;
-  KNNVectorQuery query;
-  VecSimQueryParams qParams;
-  char *vectorScoreField;
-  bool canTrimDeepResults; // If true, no need to deep copy the results before adding them to the heap.
-  QueryIterator *childIt;
-  struct timespec timeout;
-  const FieldFilterContext* filterCtx;
-} HybridIteratorParams;
+// typedef struct {
+//   RedisSearchCtx *sctx;
+//   VecSimIndex *index;
+//   size_t dim;
+//   VecSimType elementType;
+//   VecSimMetric spaceMetric;
+//   KNNVectorQuery query;
+//   VecSimQueryParams qParams;
+//   char *vectorScoreField;
+//   bool canTrimDeepResults; // If true, no need to deep copy the results before adding them to the heap.
+//   QueryIterator *childIt;
+//   struct timespec timeout;
+//   const FieldFilterContext* filterCtx;
+// } HybridIteratorParams;
 
-typedef struct {
-  QueryIterator base;
-  RedisSearchCtx *sctx;
-  VecSimIndex *index;
-  size_t dimension;                // index dimension
-  VecSimType vecType;              // index data type
-  VecSimMetric indexMetric;        // index distance metric
-  KNNVectorQuery query;
-  VecSimQueryParams runtimeParams; // Evaluated runtime params.
-  QueryIterator *child;
-  VecSimSearchMode searchMode;
-  bool resultsPrepared;            // Indicates if the results were already processed
-                                   // (should occur in the first call to Read)
-  VecSimQueryReply *reply;
-  VecSimQueryReply_Iterator *iter;
-  RLookupKey *ownKey;              // To be used if the iterator has to yield the vector scores
-  struct RLookupKeyHandle *keyHandle; // Back-reference to the handle that points to this iterator's ownKey
+// typedef struct {
+//   QueryIterator base;
+//   RedisSearchCtx *sctx;
+//   VecSimIndex *index;
+//   size_t dimension;                // index dimension
+//   VecSimType vecType;              // index data type
+//   VecSimMetric indexMetric;        // index distance metric
+//   KNNVectorQuery query;
+//   VecSimQueryParams runtimeParams; // Evaluated runtime params.
+//   QueryIterator *child;
+//   VecSimSearchMode searchMode;
+//   bool resultsPrepared;            // Indicates if the results were already processed
+//                                    // (should occur in the first call to Read)
+//   VecSimQueryReply *reply;
+//   VecSimQueryReply_Iterator *iter;
+//   RLookupKey *ownKey;              // To be used if the iterator has to yield the vector scores
+//   struct RLookupKeyHandle *keyHandle; // Back-reference to the handle that points to this iterator's ownKey
   
-  char *scoreField;                // To use by the sorter, for distinguishing between different vector fields.
-  mm_heap_t *topResults;           // Sorted by score (min-max heap).
-  size_t numIterations;
-  size_t maxBatchSize;             // Maximum batch size used during batches mode
-  size_t maxBatchIteration;        // Iteration (zero-based) where the maximum batch size occurred
-  bool canTrimDeepResults;         // Ignore the document scores, only vector score matters. No need to deep copy the results from the child iterator.
-  bool checkFieldExpiration;       // Hoisted gate; refreshed in HR_Revalidate.
-  TimeoutCtx timeoutCtx;           // Timeout parameters
-  FieldFilterContext filterCtx;
-} HybridIterator;
+//   char *scoreField;                // To use by the sorter, for distinguishing between different vector fields.
+//   mm_heap_t *topResults;           // Sorted by score (min-max heap).
+//   size_t numIterations;
+//   size_t maxBatchSize;             // Maximum batch size used during batches mode
+//   size_t maxBatchIteration;        // Iteration (zero-based) where the maximum batch size occurred
+//   bool canTrimDeepResults;         // Ignore the document scores, only vector score matters. No need to deep copy the results from the child iterator.
+//   bool checkFieldExpiration;       // Hoisted gate; refreshed in HR_Revalidate.
+//   TimeoutCtx timeoutCtx;           // Timeout parameters
+//   FieldFilterContext filterCtx;
+// } HybridIterator;
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-QueryIterator *NewHybridVectorIterator(HybridIteratorParams hParams, QueryError *status);
+// QueryIterator *NewHybridVectorIterator(HybridIteratorParams hParams, QueryError *status);
 
-RLookupKey    **HybridIterator_GetOwnKeyRef(QueryIterator *it);
-void            HybridIterator_SetKeyHandle(QueryIterator *it, struct RLookupKeyHandle *h);
+// RLookupKey    **HybridIterator_GetOwnKeyRef(QueryIterator *it);
+// void            HybridIterator_SetKeyHandle(QueryIterator *it, struct RLookupKeyHandle *h);
 
-// Accessors for profile printing.
-const QueryIterator *HybridIterator_GetChild(const QueryIterator *it);
-const char *HybridIterator_GetSearchModeString(const QueryIterator *it);
-bool HybridIterator_IsBatchMode(const QueryIterator *it);
-size_t HybridIterator_GetNumIterations(const QueryIterator *it);
-size_t HybridIterator_GetMaxBatchSize(const QueryIterator *it);
-size_t HybridIterator_GetMaxBatchIteration(const QueryIterator *it);
+// // Accessors for profile printing.
+// const QueryIterator *HybridIterator_GetChild(const QueryIterator *it);
+// const char *HybridIterator_GetSearchModeString(const QueryIterator *it);
+// bool HybridIterator_IsBatchMode(const QueryIterator *it);
+// size_t HybridIterator_GetNumIterations(const QueryIterator *it);
+// size_t HybridIterator_GetMaxBatchSize(const QueryIterator *it);
+// size_t HybridIterator_GetMaxBatchIteration(const QueryIterator *it);
 
 
 

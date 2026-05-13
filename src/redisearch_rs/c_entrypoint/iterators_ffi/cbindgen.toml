@@ -7,6 +7,8 @@ after_includes = """
 #include "tag_index.h"
 #include "numeric_range_tree.h"
 #include "query.h"
+#include "vector_index.h"
+#include "util/timeout.h"
 """
 usize_is_size_t = true
 

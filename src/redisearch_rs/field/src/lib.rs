@@ -52,7 +52,7 @@ impl FieldExpirationPredicate {
 }
 
 /// Field filter context used when querying fields.
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 #[repr(C)]
 pub struct FieldFilterContext {
     /// the field mask or index to filter on.

@@ -682,8 +682,12 @@ static int rpsortNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
   // If the queue is not full - we just push the result into it
   if (self->pq->count < self->pq->size) {
 
-    // copy the index result to make it thread safe - but only if it is pushed to the heap
-    SearchResult_SetIndexResult(self->pooledResult, NULL);
+    // The pooled result currently borrows `it->current` from the source
+    // iterator; the next Read() overwrites that slot, so the borrow would
+    // dangle once the SearchResult lives in the heap across reads. Promote
+    // the borrow to an owned deep copy; the SearchResult will free it on
+    // Clear/Destroy via the Result_OwnsIndexResult flag.
+    SearchResult_TakeOwnedIndexResult(self->pooledResult);
     mmh_insert(self->pq, self->pooledResult);
     if (SearchResult_GetScore(self->pooledResult) < rp->parent->minScore) {
       rp->parent->minScore = SearchResult_GetScore(self->pooledResult);
@@ -702,7 +706,9 @@ static int rpsortNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
 
     // if needed - pop it and insert a new result
     if (self->cmp(self->pooledResult, minh, self->cmpCtx) > 0) {
-      SearchResult_SetIndexResult(self->pooledResult, NULL);
+      // Take ownership of the deep copy before the SearchResult enters the heap;
+      // see the matching insert path above for the lifetime rationale.
+      SearchResult_TakeOwnedIndexResult(self->pooledResult);
       self->pooledResult = mmh_exchange_min(self->pq, self->pooledResult);
     }
     // clear the result in preparation for the next iteration
@@ -1738,6 +1744,9 @@ static void RPSafeDepleter_DepleteFromUpstream(RPSafeDepleter *self, DepleterSyn
   SearchResult *r = rm_calloc(1, sizeof(*r));
   *r = SearchResult_New();
   while ((rc = self->base.upstream->Next(self->base.upstream, r)) == RS_RESULT_OK) {
+    // Buffered SearchResults outlive the source iterator's `it->current`
+    // slot; promote any borrowed RSIndexResult to an owned copy.
+    SearchResult_TakeOwnedIndexResult(r);
     array_append(self->results, r);
     r = rm_calloc(1, sizeof(*r));
     *r = SearchResult_New();
@@ -2150,6 +2159,9 @@ static inline bool RPHybridMerger_Error(const RPHybridMerger *self) {
   }
 
    SearchResult_SetScore(r, score);
+   // The merger holds `r` in its dictionary across further upstream Reads;
+   // promote any borrowed RSIndexResult to an owned copy so it survives.
+   SearchResult_TakeOwnedIndexResult(r);
    HybridSearchResult_StoreResult(hybridResult, r, upstreamIndex);
    return true;
  }
@@ -2691,6 +2703,9 @@ static void RPDepleter_Deplete(RPDepleter *self) {
 
   // Deplete all results from upstream
   while ((rc = self->base.upstream->Next(self->base.upstream, r)) == RS_RESULT_OK) {
+    // Buffered SearchResults outlive the source iterator's `it->current`
+    // slot; promote any borrowed RSIndexResult to an owned copy.
+    SearchResult_TakeOwnedIndexResult(r);
     array_append(self->results, r);
     r = rm_calloc(1, sizeof(*r));
     *r = SearchResult_New();

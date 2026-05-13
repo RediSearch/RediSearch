@@ -59,6 +59,14 @@ fn main() {
     let src = root.join("src");
     let deps = root.join("deps");
     let headers = [
+        deps.join("VectorSimilarity")
+            .join("src")
+            .join("VecSim")
+            .join("vec_sim.h"),
+        deps.join("VectorSimilarity")
+            .join("src")
+            .join("VecSim")
+            .join("query_results.h"),
         src.join("redismodule.h"),
         deps.join("hiredis").join("sds.h"),
         deps.join("rmutil").join("vector.h"),
@@ -94,6 +102,8 @@ fn main() {
         src.join("trie").join("trie.h"),
         src.join("trie").join("trie_type.h"),
         src.join("ttl_table").join("ttl_table.h"),
+        src.join("util").join("timeout.h"),
+        src.join("vector_index.h"),
         src.join("util").join("arr").join("arr.h"),
         src.join("util").join("dict").join("dict.h"),
         src.join("util").join("references.h"),

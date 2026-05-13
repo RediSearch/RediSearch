@@ -13,6 +13,8 @@
 #include "util/minmax.h"
 #include "toksep.h"
 #include <ctype.h>
+#include <stdbool.h>
+#include <stdio.h>
 
 typedef struct {
   ResultProcessor base;
@@ -307,7 +309,21 @@ static int hlpNext(ResultProcessor *rbase, SearchResult *r) {
 
   // Get the index result for the current document from the root iterator.
   // The current result should not contain an index result
-  const RSIndexResult *ir = SearchResult_HasIndexResult(r) ? SearchResult_GetIndexResult(r) : getIndexResult(rbase, SearchResult_GetDocId(r));
+  bool had_ir_on_result = SearchResult_HasIndexResult(r);
+  const RSIndexResult *ir = had_ir_on_result ? SearchResult_GetIndexResult(r) : getIndexResult(rbase, SearchResult_GetDocId(r));
+  // TEMP DIAGNOSTIC: trace what the highlighter sees for SUMMARIZE-after-sorter.
+  {
+    FILE *_tf = fopen("/tmp/rs-summarize-trace.log", "a");
+    if (_tf) {
+      fprintf(_tf,
+              "[hlp-trace] doc_id=%llu had_ir_on_result=%d fallback_ir=%p flags=%u\n",
+              (unsigned long long)SearchResult_GetDocId(r),
+              had_ir_on_result,
+              (const void *)ir,
+              (unsigned)SearchResult_GetFlags(r));
+      fclose(_tf);
+    }
+  }
 
   // we can't work without the index result, just return QUEUED
   if (!ir) {

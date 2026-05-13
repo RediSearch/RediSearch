@@ -9,6 +9,7 @@
 
 #pragma once
 
+#include <stdio.h>  // TEMP: for the take-owned diagnostic trace; remove with the trace.
 #include "score_explain.h"
 #include "redisearch.h"
 #include "types_rs.h"
@@ -184,6 +185,45 @@ static inline void SearchResult_SetIndexResult(SearchResult *res, const RSIndexR
 }
 
 /**
+ * Promote the borrowed `_index_result` of `res` to an owned deep copy.
+ *
+ * Idempotent: if `res` has no `_index_result`, or it already owns one
+ * (`Result_OwnsIndexResult` is set), this is a no-op. Otherwise the existing
+ * borrow is replaced with `IndexResult_DeepCopy(borrow)` and the
+ * `Result_OwnsIndexResult` flag is set so that `SearchResult_Clear` /
+ * `SearchResult_Destroy` will free the copy.
+ *
+ * Call this in any pipeline stage that buffers a `SearchResult` across an
+ * iterator advance — the borrow into `it->current` will dangle once the
+ * iterator is read again.
+ *
+ * # Safety
+ *
+ * 1. `res` must be a valid, non-null pointer to a `SearchResult`.
+ * 2. If `_index_result` is non-NULL it must currently be a valid pointer
+ *    (either a live borrow or an already-owned copy).
+ */
+static inline void SearchResult_TakeOwnedIndexResult(SearchResult *res) {
+  // TEMP DIAGNOSTIC: trace entry conditions for the SUMMARIZE-after-sorter bug.
+  // Remove once test_summarize_contract_after_sorter is diagnosed.
+  {
+    FILE *_tf = fopen("/tmp/rs-summarize-trace.log", "a");
+    if (_tf) {
+      fprintf(_tf,
+              "[take-owned-trace] doc_id=%llu has_ir=%d already_owns=%d\n",
+              (unsigned long long)res->_doc_id,
+              res->_index_result != NULL,
+              (res->_flags & Result_OwnsIndexResult) != 0);
+      fclose(_tf);
+    }
+  }
+  if (!res->_index_result) return;
+  if (res->_flags & Result_OwnsIndexResult) return;
+  res->_index_result = IndexResult_DeepCopy(res->_index_result);
+  res->_flags |= Result_OwnsIndexResult;
+}
+
+/**
  * Returns an immutable pointer to the [`RLookupRow`][ffi::RLookupRow] of `res`.
  *
  * # Safety
@@ -247,7 +287,13 @@ static inline void SearchResult_SetFlags(SearchResult *res, uint8_t flags) {
 }
 
 /**
- * Merge the flags (union) `other` into `res`
+ * Merge the flags (union) of `other` into `res`.
+ *
+ * Only document-semantic flags are propagated. Ownership/lifecycle flags
+ * (e.g. `Result_OwnsIndexResult`) describe a property of *this* `SearchResult`'s
+ * own allocations and must never be inherited from another result — doing so
+ * would cause `SearchResult_Clear` / `SearchResult_Destroy` to free memory
+ * that `res` does not actually own.
  *
  * # Safety
  *
@@ -258,7 +304,9 @@ static inline void SearchResult_SetFlags(SearchResult *res, uint8_t flags) {
  */
 static inline void SearchResult_MergeFlags(SearchResult *res, const SearchResult *other)  {
   RS_ASSERT(res && other);
-  res->_flags |= other->_flags;
+  // Flags that describe per-result memory ownership — must NOT be merged.
+  const uint8_t ownership_flags = Result_OwnsIndexResult;
+  res->_flags |= (other->_flags & ~ownership_flags);
 }
 
 #ifdef __cplusplus

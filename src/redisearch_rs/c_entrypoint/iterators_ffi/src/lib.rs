@@ -18,4 +18,5 @@ pub mod not;
 pub mod optional;
 pub mod profile;
 pub mod union;
+pub mod vector_top_k;
 pub mod wildcard;
