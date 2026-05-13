@@ -31,7 +31,6 @@ jobs:
           import re
           import subprocess
           import sys
-          import urllib.parse
           import uuid
 
           QUERY = """
@@ -119,33 +118,29 @@ jobs:
               return json.loads(result.stdout)["data"]["repository"]["pullRequest"]
 
 
-          def query_previous_merge_group_run(repo, queue_branch, removed_at):
-              encoded_branch = urllib.parse.quote(queue_branch, safe="")
+          def query_merge_queue_workflow_run(repo, pr_number, queue_branch, removed_at):
               result = subprocess.run(
                   [
                       "gh",
                       "api",
-                      f"/repos/{repo}/actions/runs?event=merge_group&branch={encoded_branch}&per_page=20",
+                      f"/repos/{repo}/actions/runs?event=merge_group&per_page=100",
                   ],
                   check=True,
                   capture_output=True,
                   text=True,
               )
 
-              current_run_id = int(os.environ["CURRENT_RUN_ID"])
+              pr_ref_pattern = re.compile(rf"(^|/)pr-{pr_number}-")
               candidates = []
               for run in json.loads(result.stdout)["workflow_runs"]:
-                  if run["id"] == current_run_id:
+                  if run.get("path") != ".github/workflows/event-merge-to-queue.yml":
                       continue
 
-                  if run.get("name") == "Detect Merge Queue Resubmission Without New Commits":
+                  head_branch = run.get("head_branch") or ""
+                  if not pr_ref_pattern.search(head_branch):
                       continue
 
                   candidates.append(run)
-
-              current_queue_runs = [run for run in candidates if run.get("created_at", "") > removed_at]
-              if current_queue_runs:
-                  return min(current_queue_runs, key=lambda run: run["created_at"])
 
               previous_queue_runs = [run for run in candidates if run.get("created_at", "") <= removed_at]
               failed_candidates = [
@@ -156,7 +151,14 @@ jobs:
               if failed_candidates:
                   return max(failed_candidates, key=lambda run: run["created_at"])
 
-              return max(previous_queue_runs, key=lambda run: run["created_at"], default=None)
+              if previous_queue_runs:
+                  return max(previous_queue_runs, key=lambda run: run["created_at"])
+
+              current_queue_runs = [run for run in candidates if run.get("head_branch") == queue_branch]
+              if current_queue_runs:
+                  return min(current_queue_runs, key=lambda run: run["created_at"])
+
+              return max(candidates, key=lambda run: run["created_at"], default=None)
 
 
           def latest(events, event_type):
@@ -206,8 +208,8 @@ jobs:
           enqueuer = latest_add.get("enqueuer") or latest_removal.get("enqueuer") or {}
           enqueuer_login = enqueuer.get("login") or ""
           detector_workflow_url = f"{os.environ['SERVER_URL']}/{repo}/actions/runs/{os.environ['CURRENT_RUN_ID']}"
-          previous_run = query_previous_merge_group_run(repo, queue_branch, latest_removal["createdAt"])
-          previous_run_url = (previous_run or {}).get("html_url") or detector_workflow_url
+          merge_queue_run = query_merge_queue_workflow_run(repo, pr_number, queue_branch, latest_removal["createdAt"])
+          merge_queue_run_url = (merge_queue_run or {}).get("html_url") or detector_workflow_url
 
           try:
               raw_mapping = json.loads(os.environ.get("GH_HANDLE_TO_SLACK_JSON") or "{}")
@@ -239,7 +241,7 @@ jobs:
           append_output("resubmitted_at", latest_add["createdAt"])
           append_output("head_commit", current_head)
           append_output("head_committed_at", head_commit["committedDate"])
-          append_output("previous_merge_queue_run", previous_run_url)
+          append_output("merge_queue_workflow", merge_queue_run_url)
           append_output("detector_workflow", detector_workflow_url)
 
       - name: Notify Slack about unchanged merge queue resubmission
@@ -264,7 +266,7 @@ jobs:
               "Enqueued_By_Mention": ${{ toJson(steps.check.outputs.enqueued_by_mention) }},
               "Head_Commit": ${{ toJson(steps.check.outputs.head_commit) }},
               "Head_Committed_At": ${{ toJson(steps.check.outputs.head_committed_at) }},
-              "Workflow": ${{ toJson(steps.check.outputs.previous_merge_queue_run) }},
-              "Previous_Merge_Queue_Run": ${{ toJson(steps.check.outputs.previous_merge_queue_run) }},
+              "Workflow": ${{ toJson(steps.check.outputs.detector_workflow) }},
+              "Previous_Merge_Queue_Run": ${{ toJson(steps.check.outputs.merge_queue_workflow) }},
               "Detector_Workflow": ${{ toJson(steps.check.outputs.detector_workflow) }}
             }
