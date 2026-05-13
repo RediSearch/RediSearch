@@ -129,7 +129,6 @@ static SchemaRule *SchemaRule_CreateInternal(SchemaRuleArgs *args, ArgsCursor *p
 
   if (prefixes_ac) {
     size_t nprefixes = AC_NumRemaining(prefixes_ac);
-    RS_ASSERT(MAX_SCHEMA_PREFIXES <= SIZE_MAX);
     if (unlikely(nprefixes > MAX_SCHEMA_PREFIXES)) {
       QueryError_SetWithoutUserDataFmt(
           status, QUERY_ERROR_CODE_LIMIT,
@@ -448,7 +447,7 @@ int SchemaRule_RdbLoad(StrongRef ref, RedisModuleIO *rdb, int encver, QueryError
     ret = REDISMODULE_ERR;
     goto cleanup;
   }
-  args.nprefixes = (int)nprefixes_u64;
+  args.nprefixes = (unsigned int)nprefixes_u64;
   if (args.nprefixes <= RULEARGS_INITIAL_NUM_PREFIXES_ON_STACK) {
     args.prefixes = (const char **)prefixes;
     memset(args.prefixes, 0, args.nprefixes * sizeof(*args.prefixes));
