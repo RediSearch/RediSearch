@@ -215,15 +215,8 @@ jobs:
           except (json.JSONDecodeError, AttributeError):
               slack_mapping = {}
 
-          def normalize_slack_id(value):
-              value = str(value or "").strip()
-              if value.startswith("<@") and value.endswith(">"):
-                  value = value[2:-1]
-              return value.removeprefix("@")
-
-
           def slack_id_for(login):
-              return normalize_slack_id(slack_mapping.get(login.lower())) if login else ""
+              return slack_mapping.get(login.lower(), "") if login else ""
 
 
           author_login = (pull_request.get("author") or {}).get("login") or ""
