@@ -151,16 +151,14 @@ mod not_miri {
         let test = MissingRevalidateTest::new(10);
         let mut it = test.create_iterator();
         // Verify the iterator works normally and read at least one document
-        let status = {
-            let guard = test.test.context.spec_read();
-            it.revalidate(&*guard).expect("revalidate failed")
-        };
+        let status = it
+            .revalidate(&*test.test.context.spec_read())
+            .expect("revalidate failed");
         assert_eq!(status, RQEValidateStatus::Ok);
         assert!(it.read().expect("failed to read").is_some());
-        let status = {
-            let guard = test.test.context.spec_read();
-            it.revalidate(&*guard).expect("revalidate failed")
-        };
+        let status = it
+            .revalidate(&*test.test.context.spec_read())
+            .expect("revalidate failed");
         assert_eq!(status, RQEValidateStatus::Ok);
 
         // Simulate the missing-field inverted index being garbage collected and
@@ -190,10 +188,9 @@ mod not_miri {
 
         // Revalidate should return Aborted because the missing II no longer
         // points to the same index the reader was created from.
-        let status = {
-            let guard = test.test.context.spec_read();
-            it.revalidate(&*guard).expect("revalidate failed")
-        };
+        let status = it
+            .revalidate(&*test.test.context.spec_read())
+            .expect("revalidate failed");
         assert_eq!(status, RQEValidateStatus::Aborted);
 
         // No restore needed: the new II will be freed by `dictRelease` during
@@ -219,10 +216,9 @@ mod not_miri {
 
         // Read at least one document so the iterator has a position.
         assert!(it.read().expect("failed to read").is_some());
-        let status = {
-            let guard = test.test.context.spec_read();
-            it.revalidate(&*guard).expect("revalidate failed")
-        };
+        let status = it
+            .revalidate(&*test.test.context.spec_read())
+            .expect("revalidate failed");
         assert_eq!(status, RQEValidateStatus::Ok);
 
         // Simulate the garbage collector removing the missing-field index
@@ -239,10 +235,9 @@ mod not_miri {
         }
 
         // `should_abort` sees NULL from `dictFetchValue` and returns true.
-        let status = {
-            let guard = test.test.context.spec_read();
-            it.revalidate(&*guard).expect("revalidate failed")
-        };
+        let status = it
+            .revalidate(&*test.test.context.spec_read())
+            .expect("revalidate failed");
         assert_eq!(status, RQEValidateStatus::Aborted);
 
         // No restore needed: the entry was properly freed by `dictDelete`.

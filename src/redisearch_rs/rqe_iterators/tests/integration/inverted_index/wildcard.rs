@@ -135,16 +135,14 @@ mod not_miri {
         let mut it = test.create_iterator();
 
         // Verify the iterator works normally and read at least one document
-        let status = {
-            let guard = test.test.context.spec_read();
-            it.revalidate(&*guard).expect("revalidate failed")
-        };
+        let status = it
+            .revalidate(&*test.test.context.spec_read())
+            .expect("revalidate failed");
         assert_eq!(status, RQEValidateStatus::Ok);
         assert!(it.read().expect("failed to read").is_some());
-        let status = {
-            let guard = test.test.context.spec_read();
-            it.revalidate(&*guard).expect("revalidate failed")
-        };
+        let status = it
+            .revalidate(&*test.test.context.spec_read())
+            .expect("revalidate failed");
         assert_eq!(status, RQEValidateStatus::Ok);
 
         // Simulate existingDocs being garbage collected and recreated by
@@ -163,10 +161,9 @@ mod not_miri {
 
         // Revalidate should return Aborted because existingDocs no longer
         // points to the same index the reader was created from.
-        let status = {
-            let guard = test.test.context.spec_read();
-            it.revalidate(&*guard).expect("revalidate failed")
-        };
+        let status = it
+            .revalidate(&*test.test.context.spec_read())
+            .expect("revalidate failed");
         assert_eq!(status, RQEValidateStatus::Aborted);
 
         // Restore original existingDocs and free the temporary index for
@@ -198,10 +195,9 @@ mod not_miri {
 
         // Read at least one document so the iterator has a position.
         assert!(it.read().expect("failed to read").is_some());
-        let status = {
-            let guard = test.test.context.spec_read();
-            it.revalidate(&*guard).expect("revalidate failed")
-        };
+        let status = it
+            .revalidate(&*test.test.context.spec_read())
+            .expect("revalidate failed");
         assert_eq!(status, RQEValidateStatus::Ok);
 
         // Simulate the garbage collector setting existingDocs to NULL after
@@ -215,10 +211,9 @@ mod not_miri {
             guard.set_existing_docs(std::ptr::null_mut());
         }
 
-        let status = {
-            let guard = test.test.context.spec_read();
-            it.revalidate(&*guard).expect("revalidate failed")
-        };
+        let status = it
+            .revalidate(&*test.test.context.spec_read())
+            .expect("revalidate failed");
         assert_eq!(status, RQEValidateStatus::Aborted);
 
         // Restore for proper cleanup.

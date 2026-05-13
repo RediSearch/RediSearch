@@ -200,10 +200,7 @@ fn rewind_not_empty() {
 fn revalidate_empty() {
     let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
     let mut it = MaybeEmpty::<Infinite>::new_empty();
-    let status = {
-        let guard = mock_ctx.spec_read();
-        it.revalidate(&*guard).unwrap()
-    };
+    let status = it.revalidate(&*mock_ctx.spec_read()).unwrap();
     assert_eq!(status, RQEValidateStatus::Ok);
 }
 
@@ -211,10 +208,7 @@ fn revalidate_empty() {
 fn revalidate_not_empty() {
     let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
     let mut it = MaybeEmpty::new(Infinite::default());
-    let status = {
-        let guard = mock_ctx.spec_read();
-        it.revalidate(&*guard).unwrap()
-    };
+    let status = it.revalidate(&*mock_ctx.spec_read()).unwrap();
     assert_eq!(status, RQEValidateStatus::Ok);
 }
 

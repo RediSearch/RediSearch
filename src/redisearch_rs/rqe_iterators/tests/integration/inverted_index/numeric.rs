@@ -407,10 +407,9 @@ fn numeric_no_range_tree_revalidate() {
     assert_eq!(record.doc_id, 1);
 
     // Revalidate should succeed (not abort) even though there is no range tree.
-    let status = {
-        let guard = mock_ctx.spec_read();
-        it.revalidate(&*guard).expect("revalidate failed")
-    };
+    let status = it
+        .revalidate(&*mock_ctx.spec_read())
+        .expect("revalidate failed");
     assert_eq!(status, RQEValidateStatus::Ok);
 }
 
@@ -648,10 +647,9 @@ mod from_tree {
         // write does not violate aliasing rules.
         unsafe { (*tree_ptr).increment_revision() };
 
-        let status = {
-            let guard = ctx.spec_read();
-            iters[0].revalidate(&*guard).expect("revalidate failed")
-        };
+        let status = iters[0]
+            .revalidate(&*ctx.spec_read())
+            .expect("revalidate failed");
         assert_eq!(status, RQEValidateStatus::Aborted);
         // SAFETY: `tree_ptr` was created by `Box::into_raw` above; `iters` is dropped
         // before this point and holds only a `NonNull` (not ownership), so no double-free.
@@ -684,10 +682,9 @@ mod from_tree {
         // write does not violate aliasing rules.
         unsafe { (*tree_ptr).increment_revision() };
 
-        let status = {
-            let guard = ctx.spec_read();
-            iters[0].revalidate(&*guard).expect("revalidate failed")
-        };
+        let status = iters[0]
+            .revalidate(&*ctx.spec_read())
+            .expect("revalidate failed");
         assert_eq!(status, RQEValidateStatus::Ok);
 
         // SAFETY: `tree_ptr` was created by `Box::into_raw` above; `iters` is dropped
@@ -1002,10 +999,9 @@ mod not_miri {
 
         // Revalidate before any reads. last_doc_id is 0, so even though
         // needs_revalidation is true, we should get Ok.
-        let status = {
-            let guard = test.test.context.spec_read();
-            it.revalidate(&*guard).expect("revalidate failed")
-        };
+        let status = it
+            .revalidate(&*test.test.context.spec_read())
+            .expect("revalidate failed");
         assert_eq!(status, RQEValidateStatus::Ok);
 
         // The iterator should still work — doc 1 was removed, so first doc is 3.
@@ -1065,16 +1061,14 @@ mod not_miri {
         let mut it = test.create_iterator();
 
         // First, verify the iterator works normally and read at least one document
-        let status = {
-            let guard = test.test.context.spec_read();
-            it.revalidate(&*guard).expect("revalidate failed")
-        };
+        let status = it
+            .revalidate(&*test.test.context.spec_read())
+            .expect("revalidate failed");
         assert_eq!(status, RQEValidateStatus::Ok);
         assert!(it.read().expect("failed to read").is_some());
-        let status = {
-            let guard = test.test.context.spec_read();
-            it.revalidate(&*guard).expect("revalidate failed")
-        };
+        let status = it
+            .revalidate(&*test.test.context.spec_read())
+            .expect("revalidate failed");
         assert_eq!(status, RQEValidateStatus::Ok);
 
         // For numeric iterators, we can simulate index disappearance by
@@ -1090,10 +1084,9 @@ mod not_miri {
         }
 
         // Now Revalidate should return Aborted because the revision IDs don't match
-        let status = {
-            let guard = test.test.context.spec_read();
-            it.revalidate(&*guard).expect("revalidate failed")
-        };
+        let status = it
+            .revalidate(&*test.test.context.spec_read())
+            .expect("revalidate failed");
         assert_eq!(status, RQEValidateStatus::Aborted);
     }
 

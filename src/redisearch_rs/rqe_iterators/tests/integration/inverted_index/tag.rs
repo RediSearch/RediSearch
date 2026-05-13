@@ -179,16 +179,14 @@ mod not_miri {
         let mut it = test.create_iterator();
 
         // Verify the iterator works normally and read at least one document
-        let status = {
-            let guard = test.test.context.spec_read();
-            it.revalidate(&*guard).expect("revalidate failed")
-        };
+        let status = it
+            .revalidate(&*test.test.context.spec_read())
+            .expect("revalidate failed");
         assert_eq!(status, RQEValidateStatus::Ok);
         assert!(it.read().expect("failed to read").is_some());
-        let status = {
-            let guard = test.test.context.spec_read();
-            it.revalidate(&*guard).expect("revalidate failed")
-        };
+        let status = it
+            .revalidate(&*test.test.context.spec_read())
+            .expect("revalidate failed");
         assert_eq!(status, RQEValidateStatus::Ok);
 
         // Simulate the tag's inverted index being garbage collected and
@@ -218,10 +216,9 @@ mod not_miri {
 
         // Revalidate should return Aborted because the tag II no longer
         // points to the same index the reader was created from.
-        let status = {
-            let guard = test.test.context.spec_read();
-            it.revalidate(&*guard).expect("revalidate failed")
-        };
+        let status = it
+            .revalidate(&*test.test.context.spec_read())
+            .expect("revalidate failed");
         assert_eq!(status, RQEValidateStatus::Aborted);
 
         // SAFETY: `old_ii` was allocated by `NewInvertedIndex_Ex` (via `Box::new`)
@@ -249,10 +246,9 @@ mod not_miri {
 
         // Read at least one document so the iterator has a position.
         assert!(it.read().expect("failed to read").is_some());
-        let status = {
-            let guard = test.test.context.spec_read();
-            it.revalidate(&*guard).expect("revalidate failed")
-        };
+        let status = it
+            .revalidate(&*test.test.context.spec_read())
+            .expect("revalidate failed");
         assert_eq!(status, RQEValidateStatus::Ok);
 
         // Save the old II pointer so we can free it after the test.
@@ -270,10 +266,9 @@ mod not_miri {
         assert!(old_val.is_some(), "test_tag should exist in the TrieMap");
 
         // `should_abort` sees the tag value is missing and returns true.
-        let status = {
-            let guard = test.test.context.spec_read();
-            it.revalidate(&*guard).expect("revalidate failed")
-        };
+        let status = it
+            .revalidate(&*test.test.context.spec_read())
+            .expect("revalidate failed");
         assert_eq!(status, RQEValidateStatus::Aborted);
 
         // SAFETY: `old_ii` was allocated by `NewInvertedIndex_Ex` (via `Box::new`)

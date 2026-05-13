@@ -284,10 +284,7 @@ fn revalidate_panics() {
     let mut union = UnionTrimmed::new(children, usize::MAX, true);
 
     let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-    let _ = {
-        let guard = mock_ctx.spec_read();
-        union.revalidate(&*guard)
-    };
+    let _ = union.revalidate(&*mock_ctx.spec_read());
 }
 
 // =============================================================================

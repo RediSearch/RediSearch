@@ -635,10 +635,7 @@ mod optional_optimized_iterator_revalidate_tests {
             let _ = it.read().expect("read").expect("result");
             let _ = it.read().expect("read").expect("result");
 
-            let status = {
-                let guard = test_ctx.spec_read();
-                it.revalidate(&*guard).expect("revalidate")
-            };
+            let status = it.revalidate(&*test_ctx.spec_read()).expect("revalidate");
             assert!(matches!(status, RQEValidateStatus::Ok));
             assert_eq!(data.revalidate_count(), 1);
 
@@ -658,10 +655,7 @@ mod optional_optimized_iterator_revalidate_tests {
             let r = it.read().expect("read").expect("result");
             assert_eq!(r.doc_id, 1);
 
-            let status = {
-                let guard = test_ctx.spec_read();
-                it.revalidate(&*guard).expect("revalidate")
-            };
+            let status = it.revalidate(&*test_ctx.spec_read()).expect("revalidate");
             // Child aborted while on a virtual result → Ok (no state change needed)
             assert!(matches!(status, RQEValidateStatus::Ok));
             assert!(
@@ -688,10 +682,7 @@ mod optional_optimized_iterator_revalidate_tests {
             }
 
             data.set_revalidate_result(utils::MockRevalidateResult::Move);
-            let status = {
-                let guard = test_ctx.spec_read();
-                it.revalidate(&*guard).expect("revalidate")
-            };
+            let status = it.revalidate(&*test_ctx.spec_read()).expect("revalidate");
             // Child moved while on a real result → Moved
             assert!(matches!(status, RQEValidateStatus::Moved { .. }));
             assert_eq!(data.revalidate_count(), 1);
@@ -710,10 +701,7 @@ mod optional_optimized_iterator_revalidate_tests {
             }
 
             data.set_revalidate_result(utils::MockRevalidateResult::Move);
-            let status = {
-                let guard = test_ctx.spec_read();
-                it.revalidate(&*guard).expect("revalidate")
-            };
+            let status = it.revalidate(&*test_ctx.spec_read()).expect("revalidate");
             // Child moved while on a virtual result → Ok
             assert!(matches!(status, RQEValidateStatus::Ok));
             assert_eq!(data.revalidate_count(), 1);
@@ -735,10 +723,7 @@ mod optional_optimized_iterator_revalidate_tests {
 
         wcii_data.set_revalidate_result(utils::MockRevalidateResult::Abort);
         let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-        let status = {
-            let guard = mock_ctx.spec_read();
-            it.revalidate(&*guard).expect("revalidate")
-        };
+        let status = it.revalidate(&*mock_ctx.spec_read()).expect("revalidate");
         assert!(matches!(status, RQEValidateStatus::Aborted));
     }
 
@@ -759,10 +744,7 @@ mod optional_optimized_iterator_revalidate_tests {
 
         wcii_data.set_revalidate_result(utils::MockRevalidateResult::Move);
         let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-        let status = {
-            let guard = mock_ctx.spec_read();
-            it.revalidate(&*guard).expect("revalidate")
-        };
+        let status = it.revalidate(&*mock_ctx.spec_read()).expect("revalidate");
         match status {
             RQEValidateStatus::Moved { current: Some(r) } => {
                 assert_eq!(r.doc_id, 20);
@@ -790,10 +772,7 @@ mod optional_optimized_iterator_revalidate_tests {
 
         wcii_data.set_revalidate_result(utils::MockRevalidateResult::Move);
         let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-        let status = {
-            let guard = mock_ctx.spec_read();
-            it.revalidate(&*guard).expect("revalidate")
-        };
+        let status = it.revalidate(&*mock_ctx.spec_read()).expect("revalidate");
         match status {
             RQEValidateStatus::Moved { current: Some(r) } => {
                 assert_eq!(r.doc_id, 20);
@@ -821,10 +800,7 @@ mod optional_optimized_iterator_revalidate_tests {
 
         wcii_data.set_revalidate_result(utils::MockRevalidateResult::Move);
         let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-        let status = {
-            let guard = mock_ctx.spec_read();
-            it.revalidate(&*guard).expect("revalidate")
-        };
+        let status = it.revalidate(&*mock_ctx.spec_read()).expect("revalidate");
         match status {
             RQEValidateStatus::Moved { current: None } => {}
             other => panic!("expected Moved{{None}}, got {other:?}"),
@@ -856,10 +832,7 @@ mod optional_optimized_iterator_revalidate_tests {
         // wcii is at EOF; Move revalidation returns Moved { current: None }.
         wcii_data.set_revalidate_result(utils::MockRevalidateResult::Move);
         let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-        let status = {
-            let guard = mock_ctx.spec_read();
-            it.revalidate(&*guard).expect("revalidate")
-        };
+        let status = it.revalidate(&*mock_ctx.spec_read()).expect("revalidate");
         match status {
             RQEValidateStatus::Moved { current: None } => {}
             other => panic!("expected Moved{{None}}, got {other:?}"),
@@ -888,10 +861,7 @@ mod optional_optimized_iterator_revalidate_tests {
 
         // wcii moves to 20; child aborts → replaced by Empty → virtual hit at 20.
         let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-        let status = {
-            let guard = mock_ctx.spec_read();
-            it.revalidate(&*guard).expect("revalidate")
-        };
+        let status = it.revalidate(&*mock_ctx.spec_read()).expect("revalidate");
         match status {
             RQEValidateStatus::Moved { current: Some(r) } => {
                 assert_eq!(r.doc_id, 20);
@@ -924,10 +894,7 @@ mod optional_optimized_iterator_revalidate_tests {
         child_data.set_revalidate_result(utils::MockRevalidateResult::Move);
 
         let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-        let status = {
-            let guard = mock_ctx.spec_read();
-            it.revalidate(&*guard).expect("revalidate")
-        };
+        let status = it.revalidate(&*mock_ctx.spec_read()).expect("revalidate");
         assert!(matches!(status, RQEValidateStatus::Aborted));
         // wcii was checked; child must NOT have been revalidated (short-circuit).
         assert_eq!(wcii_data.revalidate_count(), 1);
@@ -954,10 +921,7 @@ mod optional_optimized_iterator_revalidate_tests {
 
         // wcii moves to 20; child moves to 25 — no child hit at 20 → virtual.
         let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-        let status = {
-            let guard = mock_ctx.spec_read();
-            it.revalidate(&*guard).expect("revalidate")
-        };
+        let status = it.revalidate(&*mock_ctx.spec_read()).expect("revalidate");
         match status {
             RQEValidateStatus::Moved { current: Some(r) } => {
                 assert_eq!(r.doc_id, 20);
