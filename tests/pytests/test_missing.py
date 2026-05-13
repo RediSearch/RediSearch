@@ -675,12 +675,13 @@ def test_missing_field_name_with_interior_nul(env):
     env.assertNotEqual(dump, poisoned_dump,
                        message="dump should have been modified")
 
-    # Restore the poisoned schema. The server must not crash regardless of
-    # whether the restore succeeds or is rejected by RDB load validation.
-    try:
-        env.cmd('_FT._RESTOREIFNX', 'SCHEMA', encode, poisoned_dump)
-    except Exception:
-        pass
+    # Restore the poisoned schema. The RDB loader rejects field names with
+    # interior NUL bytes.
+    env.expect('_FT._RESTOREIFNX', 'SCHEMA', encode, poisoned_dump).error().contains('Failed to deserialize schema')
+
+    # Verify no index was created from the poisoned dump.
+    idx_list = env.cmd('FT._LIST')
+    env.assertEqual(idx_list, [])
 
     # Verify the server is still alive.
     env.expect('PING').equal(True)
