@@ -4223,8 +4223,7 @@ void Indexes_UpdateMatchingHashFieldExpiration(RedisModuleCtx *ctx, RedisModuleS
   RedisModuleKey *k = RedisModule_OpenKey(ctx, key, DOCUMENT_OPEN_KEY_INDEXING_FLAGS);
   RS_ASSERT(k);
 
-  // runFilters=true so SpecOp_Del is set for keys that fail the FILTER —
-  SpecOpIndexingCtx *specs = Indexes_FindMatchingSchemaRules(ctx, key, DocumentType_Hash, true, NULL);
+  SpecOpIndexingCtx *specs = Indexes_FindMatchingSchemaRules(ctx, key, DocumentType_Hash, false, NULL);
 
   for (size_t i = 0; i < array_len(specs->specsOps); ++i) {
     SpecOpCtx *specOp = &specs->specsOps[i];
@@ -4238,12 +4237,6 @@ void Indexes_UpdateMatchingHashFieldExpiration(RedisModuleCtx *ctx, RedisModuleS
     // serializes them. The spec write lock guards index data against
     // background workers, not main-thread config flags.
     if (!spec->monitorFieldExpiration) {
-      continue;
-    }
-
-    // FILTER fails: doc cannot be in the index here (see comment above the
-    // Indexes_FindMatchingSchemaRules call), so nothing to do.
-    if (specOp->op == SpecOp_Del) {
       continue;
     }
 
