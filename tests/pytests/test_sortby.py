@@ -171,3 +171,39 @@ def testSortby(env):
     compare_asc_desc(env, ['ft.search', 'idx', 'foo @n:[-inf inf]', 'SORTBY', 'n'], params)
     compare_asc_desc(env, ['ft.search', 'idx', '@n:[-inf inf]', 'SORTBY', 'n'], params)
 
+@skip(cluster=True)
+def testSortableInvalidUtf8DoesNotCrash(env):
+    # regression test for denial-of-service report
+    # a schema that is TEXT SORTABLE _must_ be UTF8 for searching to work correctly
+    # and storing malformed document is technically user-error, but it may happen in practice
+    # and we must make sure to not crash because of it
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'SORTABLE').ok()
+    conn.execute_command('HSET', 'doc1', 't', 'foo')
+    conn.execute_command('HSET', 'doc2', 't', b'\xff')
+
+    # the malformed input will result in an indexing error
+    errors = index_errors(env, 'idx')
+    env.assertEqual(errors['indexing failures'], 1)
+    env.assertContains('Invalid UTF8', errors['last indexing error'])
+    env.assertEqual(errors['last indexing error key'], 'doc2')
+
+    # and the offeding document is not included in search results
+    env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT').equal([1, 'doc1'])
+
+
+@skip(cluster=True)
+def testSortableTagInvalidUtf8DoesNotCrash(env):
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx_tag', 'SCHEMA', 'tag', 'TAG', 'SORTABLE').ok()
+    conn.execute_command('HSET', 'doc1', 'tag', 'foo')
+    conn.execute_command('HSET', 'doc2', 'tag', b'\xff')
+
+    # the malformed input will result in an indexing error
+    errors = index_errors(env, 'idx_tag')
+    env.assertEqual(errors['indexing failures'], 1)
+    env.assertContains('Invalid UTF8', errors['last indexing error'])
+    env.assertEqual(errors['last indexing error key'], 'doc2')
+
+    # and the offeding document is not included in search results
+    env.expect('FT.SEARCH', 'idx_tag', '*', 'NOCONTENT').equal([1, 'doc1'])

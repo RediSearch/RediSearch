@@ -50,7 +50,10 @@ static inline RSValue *RSSortingVector_Get(const RSSortingVector *v, size_t idx)
 
 [parse]
 parse_deps = true
-include = []
+include = ["query_error"]
 
 [export]
 exclude = ["RSSortingVector"]
+
+[export.rename]
+"OpaqueQueryError" = "QueryError"

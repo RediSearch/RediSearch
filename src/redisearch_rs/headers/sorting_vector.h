@@ -22,6 +22,14 @@ typedef struct RSSortingVector {
 
 #define RS_SORTABLES_MAX 1024
 
+/**
+ * An opaque query error which can be passed by value to C.
+ *
+ * The size and alignment of this struct must match the Rust `QueryError`
+ * structure exactly.
+ */
+typedef struct QueryError QueryError;
+
 #ifdef __cplusplus
 extern "C" {
 #endif // __cplusplus
@@ -82,21 +90,25 @@ void RSSortingVector_PutStr(RSSortingVector *vec,
 /**
  * Puts a string at the given index in the sorting vector, the string is normalized before being set.
  *
+ * Returns `true` if the string was successfully normalized and added to the sorting vector.
+ * If `false` is returned the string was malformed and was not inserted; the `QueryError` has been set to reflect this.
+ *
  * # Panics
  *
- * - Panics if the provided string is invalid UTF-8
  * - Panics if the `idx` is out of bounds for the vector.
  *
  * # Safety
  *
  * 1. `vec` must be a [valid], non-null pointer to an [`RSSortingVector`] created by [`RSSortingVector_New`] or equivalent.
  * 2. `str` must be a [valid], non-null pointer to a C string (null-terminated).
+ * 3. `status` must have been created by [`QueryError_Default`].
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-void RSSortingVector_PutStrNormalize(RSSortingVector *vec,
+bool RSSortingVector_PutStrNormalize(RSSortingVector *vec,
                                      size_t idx,
-                                     const char *str);
+                                     const char *str,
+                                     struct QueryError *status);
 
 /**
  * Puts a value at the given index in the sorting vector. If a out of bounds occurs it returns silently.
