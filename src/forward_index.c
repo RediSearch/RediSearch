@@ -13,6 +13,7 @@
 #include <stdio.h>
 #include <sys/param.h>
 #include "rmalloc.h"
+#include "metrics.h"
 
 typedef struct {
   KHTableEntry khBase;
@@ -286,7 +287,8 @@ size_t InvertedIndex_WriteForwardIndexEntry(InvertedIndex *idx, ForwardIndexEntr
                        .data.term.borrowed.tag = RSTermRecord_Borrowed,
                        .docId = ent->docId,
                        .freq = ent->freq,
-                       .fieldMask = ent->fieldMask};
+                       .fieldMask = ent->fieldMask,
+                       .metrics = MetricsVec_New()};
 
   if (ent->vw) {
     rec.data.term.borrowed.offsets.data = VVW_GetByteData(ent->vw);
