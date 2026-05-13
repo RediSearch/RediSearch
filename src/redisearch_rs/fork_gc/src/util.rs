@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use nix::poll::{PollFd, PollFlags};
 use redis_module::raw::RedisModule_ExitFromChild;
 use std::{
     io::{self, Read},
@@ -49,52 +50,26 @@ pub fn read_with_timeout<R: Read + AsRawFd>(
     buf: &mut [u8],
     timeout: Duration,
 ) -> io::Result<usize> {
-    let timeout_ms = timeout.as_millis().min(libc::c_int::MAX as u128) as libc::c_int;
-
-    let mut pfd = libc::pollfd {
-        fd: reader.as_raw_fd(),
-        events: libc::POLLIN,
-        revents: 0,
-    };
+    let timeout_ms = timeout.as_millis().min(i32::MAX as u128) as i32;
+    let mut pfd = PollFd::new(reader.as_raw_fd(), PollFlags::POLLIN);
 
     loop {
-        // SAFETY: `pfd` is a valid pointer to a single pollfd for the
-        // duration of the call.
-        let ret = unsafe { libc::poll(&mut pfd, 1, timeout_ms) };
-
-        match ret {
-            -1 => {
-                let err = io::Error::last_os_error();
-                if err.kind() == io::ErrorKind::Interrupted {
-                    continue;
-                }
-                return Err(err);
-            }
-            0 => return Err(io::Error::new(io::ErrorKind::TimedOut, "read timed out")),
-            _ => {
+        match nix::poll::poll(std::slice::from_mut(&mut pfd), timeout_ms) {
+            Err(nix::errno::Errno::EINTR) => continue,
+            Err(e) => return Err(io::Error::from(e)),
+            Ok(0) => return Err(io::Error::new(io::ErrorKind::TimedOut, "read timed out")),
+            Ok(_) => {
+                let revents = pfd.revents().expect("poll returned unknown bits in revents");
                 // Reads from closed empty pipes return only `POLLHUP`, while reads from closed
                 // unix domain sockets return `POLLIN | POLLHUP`. In both cases however, a
                 // subsequent read doesn't block and returns 0, signalling EOF.
-                if pfd.revents & (libc::POLLIN | libc::POLLHUP) != 0 {
+                if revents.intersects(PollFlags::POLLIN | PollFlags::POLLHUP) {
                     match reader.read(buf) {
                         Err(err) if err.kind() == io::ErrorKind::Interrupted => continue,
                         result => return result,
                     }
                 } else {
-                    return Err(io::Error::other(format!(
-                        "poll error: revents=0x{:x}{}{}",
-                        pfd.revents,
-                        if pfd.revents & libc::POLLERR != 0 {
-                            " POLLERR"
-                        } else {
-                            ""
-                        },
-                        if pfd.revents & libc::POLLNVAL != 0 {
-                            " POLLNVAL"
-                        } else {
-                            ""
-                        },
-                    )));
+                    return Err(io::Error::other(format!("poll error: revents={revents:?}")));
                 }
             }
         }

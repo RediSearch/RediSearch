@@ -192,8 +192,5 @@ fn returns_error_on_pollnval() {
     let mut buf = [0u8; 4];
     let err = read_with_timeout(&mut reader, &mut buf, Duration::from_millis(1)).unwrap_err();
     assert_eq!(err.kind(), io::ErrorKind::Other);
-    assert_eq!(
-        err.to_string(),
-        format!("poll error: revents=0x{:x} POLLNVAL", libc::POLLNVAL)
-    );
+    assert_eq!(err.to_string(), "poll error: revents=POLLNVAL");
 }
