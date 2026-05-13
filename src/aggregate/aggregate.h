@@ -29,10 +29,12 @@
 #ifdef __cplusplus
 #include <atomic>
 #define RS_Atomic(T) std::atomic<T>
+#define RS_MEMORY_ORDER(o) std::memory_order_##o
 extern "C" {
 #else
 #define RS_Atomic(T) _Atomic(T)
 #include <stdatomic.h>
+#define RS_MEMORY_ORDER(o) memory_order_##o
 #endif
 
 #define DEFAULT_LIMIT 10
@@ -245,6 +247,11 @@ typedef enum {
   QEXEC_S_ITERDONE = 0x02,
   /* ASM trimming delay timeout */
   QEXEC_S_ASM_TRIMMING_DELAY_TIMEOUT = 0x04,
+  /* A shard reply carried a TIMEDOUT warning. Set by the coord-side RPNet
+   * when it observes a shard's TIMEDOUT warning meta entry; the coord pipeline
+   * keeps draining other shards (the coord has its own deadline check) and the
+   * reply emitters surface the TIMEOUT warning to the user via this flag. */
+  QEXEC_S_SHARD_TIMED_OUT_WARNING = 0x08,
 } QEStateFlags;
 
 
@@ -464,6 +471,14 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status);
  */
 int AREQ_BuildPipeline(AREQ *req, QueryError *status);
 
+/**
+ * Classify the request's (already-built) pipeline as yielding a valid partial
+ * answer on RETURN-STRICT timeout and store the result on the request's
+ * QueryProcessingCtx. Writes `false` if the pipeline has no end/root processor
+ * yet (e.g. called before the pipeline is built).
+ */
+void AREQ_SetCanYieldPartialResults(AREQ *req);
+
 static inline QEFlags AREQ_RequestFlags(const AREQ *req) {
   return (QEFlags)req->reqflags;
 }
@@ -623,8 +638,21 @@ void SetSearchCtx(RedisSearchCtx *sctx, const AREQ *req);
 // Allows calling parseProfileArgs from reply_empty.c
 int parseProfileArgs(RedisModuleString **argv, int argc, AREQ *r);
 
-bool AREQ_TimedOut(AREQ *req);
-void AREQ_SetTimedOut(AREQ *req);
+/* Default timeout check. Use everywhere except tight per-row / per-document loops. */
+static inline bool AREQ_TimedOut(AREQ *req) {
+  return atomic_load_explicit(&req->syncCtx.timedOut, RS_MEMORY_ORDER(acquire));
+}
+
+/* Cheaper variant for hot loops. Safe when the caller
+ * only reacts to the flag itself and does not read other shared state. */
+static inline bool AREQ_TimedOutRelaxed(AREQ *req) {
+  return atomic_load_explicit(&req->syncCtx.timedOut, RS_MEMORY_ORDER(relaxed));
+}
+
+static inline void AREQ_SetTimedOut(AREQ *req) {
+  atomic_store_explicit(&req->syncCtx.timedOut, true, RS_MEMORY_ORDER(release));
+}
+
 #ifdef ENABLE_ASSERT
 // SyncPointStopFn predicate adapter for AREQ_TimedOut. Pass the AREQ as `arg`
 // to SyncPoint_WaitUntil to release the wait when the request is timed out.

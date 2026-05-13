@@ -1071,23 +1071,93 @@ def resetCoordReduceDebug(env):
     except Exception:
         pass  # Ignore error if coordinator is not paused
 
-# Store Results Pause helpers (only available when built with ENABLE_ASSERT)
-def setPauseBeforeStoreResults(env, enabled):
-    """Enable/disable pausing before AREQ_StoreResults/HREQ_StoreResults."""
-    env.expect(debug_cmd(), 'QUERY_CONTROLLER', 'SET_PAUSE_BEFORE_STORE_RESULTS', 'true' if enabled else 'false').ok()
+# AggregateResults loop pause helpers (only available when built with ENABLE_ASSERT).
+# These drive the AggregateResultsDebugCtx in src/debug_commands.{h,c} which the
+# AggregateResults loop in aggregate_exec_common.c consults after each extracted
+# result, busy-spinning until the test calls setAggregateResultsResume.
+# `target` may be an Env (uses .expect().ok() / .cmd()) or a raw connection
+# (uses .execute_command()), so per-shard tests can drive the same hooks on
+# a specific shard's process.
+def _qc_set(target, *args):
+    cmd = (debug_cmd(), 'QUERY_CONTROLLER') + args
+    if hasattr(target, 'expect'):
+        target.expect(*cmd).ok()
+    else:
+        target.execute_command(*cmd)
 
-def setPauseAfterStoreResults(env, enabled):
-    """Enable/disable pausing after AREQ_StoreResults/HREQ_StoreResults."""
-    env.expect(debug_cmd(), 'QUERY_CONTROLLER', 'SET_PAUSE_AFTER_STORE_RESULTS', 'true' if enabled else 'false').ok()
+def _qc_get(target, *args):
+    cmd = (debug_cmd(), 'QUERY_CONTROLLER') + args
+    if hasattr(target, 'cmd'):
+        return target.cmd(*cmd)
+    return target.execute_command(*cmd)
+
+def setPauseAfterAggregateResult(target, N):
+    """Pause the AggregateResults loop after the Nth result is extracted.
+
+    N == 0 disables the pause; N > 0 pauses after the Nth result (1-based).
+    Resets the internal results counter so successive tests start from zero.
+    """
+    _qc_set(target, 'SET_PAUSE_AFTER_AGGREGATE_RESULT', N)
+
+def getIsAggregateResultsPaused(target):
+    """Check if the AggregateResults loop is currently paused."""
+    return _qc_get(target, 'GET_IS_AGGREGATE_RESULTS_PAUSED')
+
+def setAggregateResultsResume(target):
+    """Resume the AggregateResults loop from a pause."""
+    _qc_set(target, 'SET_AGGREGATE_RESULTS_RESUME')
+
+def getAggregateResultsCount(target):
+    """Get the number of results extracted so far by the AggregateResults loop."""
+    return _qc_get(target, 'GET_AGGREGATE_RESULTS_COUNT')
+
+def resetAggregateResultsDebug(target):
+    """Reset the AggregateResults debug context (clear pause point and resume).
+
+    Mirrors resetCoordReduceDebug: tolerates the "not paused" state so cleanup
+    is safe to call regardless of the loop's current state. The pause loop in
+    debugCheckAndPauseAfterAggregateResult self-releases when AREQ_TimedOut is
+    observed, so by the time tests reach cleanup the loop may already be
+    unpaused -- in that case SET_AGGREGATE_RESULTS_RESUME would error, which
+    must not be surfaced as a test failure.
+    """
+    setPauseAfterAggregateResult(target, 0)
+    if getIsAggregateResultsPaused(target) == 1:
+        _qc_set(target, 'SET_AGGREGATE_RESULTS_RESUME')
+
+# Store Results Pause helpers (only available when built with ENABLE_ASSERT)
+def setPauseBeforeStoreResults(env, enabled, internal):
+    """Enable/disable pausing before AREQ_StoreResults/HREQ_StoreResults.
+
+    internal: True restricts the pause to internal (coordinator-dispatched)
+    requests; False restricts it to non-internal (user-facing) requests.
+    """
+    scope = 'INTERNAL_ONLY' if internal else 'NON_INTERNAL_ONLY'
+    env.expect(debug_cmd(), 'QUERY_CONTROLLER', 'SET_PAUSE_BEFORE_STORE_RESULTS',
+               'true' if enabled else 'false', scope).ok()
+
+def setPauseAfterStoreResults(env, enabled, internal):
+    """Enable/disable pausing after AREQ_StoreResults/HREQ_StoreResults.
+
+    internal: True restricts the pause to internal (coordinator-dispatched)
+    requests; False restricts it to non-internal (user-facing) requests.
+    """
+    scope = 'INTERNAL_ONLY' if internal else 'NON_INTERNAL_ONLY'
+    env.expect(debug_cmd(), 'QUERY_CONTROLLER', 'SET_PAUSE_AFTER_STORE_RESULTS',
+               'true' if enabled else 'false', scope).ok()
 
 def getIsStoreResultsPaused(env):
     """Check if the query is currently paused during store results."""
     return env.cmd(debug_cmd(), 'QUERY_CONTROLLER', 'GET_IS_STORE_RESULTS_PAUSED')
 
 def resetStoreResultsDebug(env):
-    """Reset the store results debug context (disable pauses and resume)."""
-    setPauseBeforeStoreResults(env, False)
-    setPauseAfterStoreResults(env, False)
+    """Reset the store results debug context (disable pauses and resume).
+
+    Disabling does not depend on the scope (the C-level enable flags gate the
+    pause), so the raw FT.DEBUG commands are sent here without a scope token.
+    """
+    env.expect(debug_cmd(), 'QUERY_CONTROLLER', 'SET_PAUSE_BEFORE_STORE_RESULTS', 'false').ok()
+    env.expect(debug_cmd(), 'QUERY_CONTROLLER', 'SET_PAUSE_AFTER_STORE_RESULTS', 'false').ok()
     try:
         env.cmd(debug_cmd(), 'QUERY_CONTROLLER', 'SET_STORE_RESULTS_RESUME')
     except Exception:

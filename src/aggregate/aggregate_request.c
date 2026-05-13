@@ -1102,14 +1102,6 @@ AREQ *AREQ_New(void) {
   return req;
 }
 
-bool AREQ_TimedOut(AREQ *req) {
-  return atomic_load_explicit(&req->syncCtx.timedOut, memory_order_acquire);
-}
-
-void AREQ_SetTimedOut(AREQ *req) {
-  atomic_store_explicit(&req->syncCtx.timedOut, true, memory_order_release);
-}
-
 bool AREQ_RequiresThreadsSyncResults(const AREQ *req) {
   return req->syncCtx.requiresAggregateResultsSync;
 }
@@ -1746,6 +1738,7 @@ int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
       .scorerName = req->searchopts.scorerName,
       .reqConfig = &req->reqConfig,
       .keySpaceVersion = req->keySpaceVersion,
+      .areq = req,
     };
     req->rootiter = NULL; // Ownership of the root iterator is now with the params.
     req->querySlots = NULL; // Ownership of the slot ranges is now with the params.
@@ -1766,5 +1759,9 @@ int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
     .maxResultsLimit = IsSearch(req) ? req->maxSearchResults : req->maxAggregateResults,
     .language = req->searchopts.language,
   };
-  return Pipeline_BuildAggregationPart(&req->pipeline, &params, &req->stateflags);
+  int rc = Pipeline_BuildAggregationPart(&req->pipeline, &params, &req->stateflags);
+  if (rc == REDISMODULE_OK) {
+    AREQ_SetCanYieldPartialResults(req);
+  }
+  return rc;
 }
