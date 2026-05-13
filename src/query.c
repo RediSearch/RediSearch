@@ -967,6 +967,14 @@ static QueryIterator *Query_EvalWildcardNode(QueryEvalCtx *q, QueryNode *qn) {
   return NewWildcardIterator(q, qn->opts.weight);
 }
 
+// MOD-15397: per-iterator timeout callback that consults the AREQ atomic
+// flag set by the blocked-client timeout main-thread callback. Uses the
+// relaxed load (matches `rpQueryItNext`'s hot-path usage) since the callback
+// is invoked on every iterator timeout probe.
+static bool not_iterator_timeout_cb(void *user_data) {
+  return AREQ_TimedOutRelaxed((AREQ *)user_data);
+}
+
 static QueryIterator *Query_EvalNotNode(QueryEvalCtx *q, QueryNode *qn) {
   RS_LOG_ASSERT(qn->type == QN_NOT, "query node type should be not")
   QueryIterator *child = NULL;
@@ -976,11 +984,17 @@ static QueryIterator *Query_EvalNotNode(QueryEvalCtx *q, QueryNode *qn) {
   q->notSubtree = currently_notSubtree;
 
   t_docId maxDocId = q->sctx->spec->diskSpec ? SearchDisk_GetMaxDocId(q->sctx->spec->diskSpec) : q->docTable->maxDocId;
-  // MOD-15397: blocked-client timeout callback is wired in a follow-up step
-  // (action item 4); pass NULL/NULL until then to keep the legacy clock-based
-  // timeout path active.
+  // When an AREQ is available, install the blocked-client callback variant; the
+  // iterator then ignores `timeout` / `skipTimeoutChecks` and the callback owns
+  // the decision (see `MOD-15397-design.md` D2). `skipTimeoutChecks` only
+  // suppresses clock-based checks and is orthogonal to the blocked-client
+  // signal — under FAIL/RETURN-STRICT with workers the flag is set true and
+  // the callback is the *only* timeout source. When no AREQ is available we
+  // fall back to the clock-based path (which itself honours `skipTimeoutChecks`).
+  NotIteratorTimeoutCallback cb = q->areq ? not_iterator_timeout_cb : NULL;
+  void *cb_user_data = q->areq;
   return NewNotIterator(child, maxDocId, qn->opts.weight, q->sctx->time.timeout,
-                        NULL, NULL, q);
+                        cb, cb_user_data, q);
 }
 
 static QueryIterator *Query_EvalOptionalNode(QueryEvalCtx *q, QueryNode *qn) {
@@ -1604,7 +1618,7 @@ int QAST_Parse(QueryAST *dst, const RedisSearchCtx *sctx, const RSSearchOptions 
 }
 
 QueryIterator *QAST_Iterate(QueryAST *qast, const RSSearchOptions *opts, RedisSearchCtx *sctx,
-                            uint32_t reqflags, QueryError *status) {
+                            uint32_t reqflags, struct AREQ *areq, QueryError *status) {
   QueryEvalCtx qectx = {
       .opts = opts,
       .numTokens = qast->numTokens,
@@ -1615,6 +1629,7 @@ QueryIterator *QAST_Iterate(QueryAST *qast, const RSSearchOptions *opts, RedisSe
       .reqFlags = reqflags,
       .config = &qast->config,
       .notSubtree = false,
+      .areq = areq,
   };
   QueryIterator *root = Query_EvalNode(&qectx, qast->root);
   if (!root) {

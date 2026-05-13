@@ -130,11 +130,16 @@ void SetFilterNode(QueryAST *q, QueryNode *filterNode);
  * @param sctx the search context. Note that this may be retained by the iterators
  *  for the remainder of the query.
  * @param reqflags Request (AGG/SEARCH) flags
+ * @param areq optional borrowed pointer to the owning request, used by iterator
+ *  constructors that wire the blocked-client timeout callback (MOD-15397). May
+ *  be NULL on paths without an AREQ; in that case the clock-based timeout is
+ *  used.
  * @param status error detail
  * @return an iterator.
  */
 QueryIterator *QAST_Iterate(QueryAST *ast, const RSSearchOptions *options,
-                            RedisSearchCtx *sctx, uint32_t reqflags, QueryError *status);
+                            RedisSearchCtx *sctx, uint32_t reqflags,
+                            struct AREQ *areq, QueryError *status);
 
 /**
  * Expand the query using a pre-registered expander. Query expansion possibly

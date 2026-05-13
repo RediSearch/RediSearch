@@ -495,11 +495,13 @@ enum MetricType GetMetricType(const QueryIterator *header);
  *
  * `timeout_callback` selects the timeout source. When non-null, it is
  * invoked on every iterator timeout probe and `timeout` / the
- * `skipTimeoutChecks` field are ignored — the callback is expected to
- * fold those into its own return value (see `MOD-15397-design.md` D2).
- * When null, the legacy clock-based path is used: `timeout` is the
- * deadline and `skipTimeoutChecks` (read from `q.sctx.time`) disables
- * the check entirely.
+ * `skipTimeoutChecks` field are ignored. The callback monitors an
+ * independent signal (the AREQ atomic flag set from the main thread)
+ * and is orthogonal to `skipTimeoutChecks`, which only suppresses
+ * clock-based checks (see `MOD-15397-design.md` D2). When null, the
+ * legacy clock-based path is used: `timeout` is the deadline and
+ * `skipTimeoutChecks` (read from `q.sctx.time`) disables the check
+ * entirely.
  *
  * # Safety
  *

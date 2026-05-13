@@ -12,6 +12,7 @@
 #include "util/timeout.h"
 
 struct MetricRequest;
+struct AREQ;
 
 typedef struct QueryEvalCtx {
   RedisSearchCtx *sctx;
@@ -24,4 +25,9 @@ typedef struct QueryEvalCtx {
   uint32_t reqFlags;
   IteratorsConfig *config;
   bool notSubtree;
+  // Borrowed pointer to the owning request, when one exists. Used by
+  // iterator constructors that need to wire the blocked-client timeout
+  // callback (MOD-15397). NULL on paths without an AREQ (low-level C
+  // API and some tests); those fall back to the clock-based timeout.
+  struct AREQ *areq;
 } QueryEvalCtx;

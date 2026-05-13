@@ -172,8 +172,10 @@ type NotIteratorWrapper<'index> = RQEIteratorWrapper<NotIteratorEnum<'index>>;
 /// Selection rules:
 ///
 /// * If `timeout_callback` is non-null, the blocked-client callback path is
-///   used regardless of `timeout` / `skipTimeoutChecks` (the callback owns
-///   the skip-flag logic, see `MOD-15397-design.md` D2).
+///   used and `timeout` / `skipTimeoutChecks` are ignored. The callback
+///   monitors an independent signal (the AREQ atomic flag set from the
+///   main thread) and is orthogonal to `skipTimeoutChecks`, which only
+///   suppresses clock-based checks (see `MOD-15397-design.md` D2).
 /// * Else if `skipTimeoutChecks` is set or `timeout` is the Redis sentinel
 ///   (no deadline), no timeout context is installed.
 /// * Otherwise the legacy clock-based context is used.
@@ -218,11 +220,13 @@ unsafe fn build_timeout_context(
 ///
 /// `timeout_callback` selects the timeout source. When non-null, it is
 /// invoked on every iterator timeout probe and `timeout` / the
-/// `skipTimeoutChecks` field are ignored — the callback is expected to
-/// fold those into its own return value (see `MOD-15397-design.md` D2).
-/// When null, the legacy clock-based path is used: `timeout` is the
-/// deadline and `skipTimeoutChecks` (read from `q.sctx.time`) disables
-/// the check entirely.
+/// `skipTimeoutChecks` field are ignored. The callback monitors an
+/// independent signal (the AREQ atomic flag set from the main thread)
+/// and is orthogonal to `skipTimeoutChecks`, which only suppresses
+/// clock-based checks (see `MOD-15397-design.md` D2). When null, the
+/// legacy clock-based path is used: `timeout` is the deadline and
+/// `skipTimeoutChecks` (read from `q.sctx.time`) disables the check
+/// entirely.
 ///
 /// # Safety
 ///
