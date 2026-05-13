@@ -26,6 +26,7 @@ criterion.workspace = true
 ffi.workspace = true
 index_result.workspace = true
 inverted_index.workspace = true
+ref_mode.workspace = true
 query_term.workspace = true
 itertools.workspace = true
 redis_mock.workspace = true

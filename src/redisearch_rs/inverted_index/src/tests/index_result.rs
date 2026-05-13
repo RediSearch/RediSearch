@@ -8,11 +8,13 @@
 */
 
 use index_result::{RSAggregateResult, RSResultData, RSResultKind, RSTermRecord};
+
+use crate::Active;
 use pretty_assertions::assert_eq;
 
 #[test]
 fn synced_discriminants() {
-    let tests = [
+    let tests: [(RSResultData<'_>, RSResultKind); 7] = [
         (
             RSResultData::Union(RSAggregateResult::borrowed_with_capacity(0)),
             RSResultKind::Union,

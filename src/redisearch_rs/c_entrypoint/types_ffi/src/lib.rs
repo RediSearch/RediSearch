@@ -9,17 +9,47 @@
 
 //! This module contains pure Rust types that we want to expose to C code.
 
+use ref_mode::{Active, Ptr};
+
 use std::{ffi::c_char, mem, ptr};
 
+use ffi::t_fieldMask;
 use index_result::{
     RSAggregateResult, RSIndexResult, RSOffsetSlice, RSOffsetVector, RSQueryTerm, RSTermRecord,
+    RawAggregateResult, RawIndexResult, RawMetricEntry, RawOffsetSlice, RawResultData,
+    RawTermRecord,
 };
-use inverted_index::{NumericFilter, t_fieldMask};
+use inverted_index::NumericFilter;
 
 pub use inverted_index::{
     ReadFilter,
     debug::{BlockSummary, Summary},
 };
+
+// Type aliases for the `Active<'_>` instantiation — the only mode that
+// crosses the C boundary. cheadergen processes `#[cheadergen::config]`
+// annotations on a generic type's *base* form, which never matches the
+// canonical *instantiated* form it tracks downstream, so the directives
+// never take effect on `RawIndexResult<Active<'_>>` directly. The aliases
+// below give cheadergen a non-generic name to attach `export` to so the
+// full struct body is emitted in the generated C headers.
+#[cheadergen::config(export)]
+pub type ActiveRSIndexResult<'a> = RawIndexResult<Active<'a>>;
+
+#[cheadergen::config(export)]
+pub type ActiveRSAggregateResult<'a> = RawAggregateResult<Active<'a>>;
+
+#[cheadergen::config(export)]
+pub type ActiveRSResultData<'a> = RawResultData<Active<'a>>;
+
+#[cheadergen::config(export)]
+pub type ActiveRSTermRecord<'a> = RawTermRecord<Active<'a>>;
+
+#[cheadergen::config(export)]
+pub type ActiveRSOffsetSlice<'a> = RawOffsetSlice<Active<'a>>;
+
+#[cheadergen::config(export)]
+pub type ActiveMetricEntry<'a> = RawMetricEntry<Active<'a>>;
 
 /// Check if the given value matches the numeric filter.
 ///
@@ -135,7 +165,7 @@ pub unsafe extern "C" fn NewTokenRecord<'result>(
 ///   - [`NewTokenRecord`]
 ///   - [`IndexResult_DeepCopy`]
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn IndexResult_Free(result: *mut RSIndexResult) {
+pub unsafe extern "C" fn IndexResult_Free(result: *mut RSIndexResult<'_>) {
     debug_assert!(!result.is_null(), "result cannot be NULL");
 
     // SAFETY: caller is to ensure `result` points to a valid RSIndexResult created by one of the
@@ -152,7 +182,9 @@ pub unsafe extern "C" fn IndexResult_Free(result: *mut RSIndexResult) {
 /// The following invariant must be upheld when calling this function:
 /// - `result` must point to a valid `RSIndexResult` and cannot be NULL.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn IndexResult_DeepCopy(source: *const RSIndexResult) -> *mut RSIndexResult {
+pub unsafe extern "C" fn IndexResult_DeepCopy(
+    source: *const RSIndexResult<'_>,
+) -> *mut RSIndexResult<'_> {
     // SAFETY: caller is to ensure `source` points to a valid RSIndexResult
     let source = unsafe { &*source };
 
@@ -169,7 +201,7 @@ pub unsafe extern "C" fn IndexResult_DeepCopy(source: *const RSIndexResult) -> *
 /// The following invariants must be upheld when calling this function:
 /// - `result` must point to a valid `RSIndexResult` and cannot be NULL.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn IndexResult_IsAggregate(result: *const RSIndexResult) -> bool {
+pub unsafe extern "C" fn IndexResult_IsAggregate(result: *const RSIndexResult<'_>) -> bool {
     debug_assert!(!result.is_null(), "result must not be null");
 
     // SAFETY: Caller is to ensure that the pointer `result` is a valid, non-null pointer to
@@ -187,7 +219,7 @@ pub unsafe extern "C" fn IndexResult_IsAggregate(result: *const RSIndexResult) -
 /// The following invariant must be upheld when calling this function:
 /// - `result` must point to a valid `RSIndexResult` and cannot be NULL.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn IndexResult_NumValue(result: *const RSIndexResult) -> f64 {
+pub unsafe extern "C" fn IndexResult_NumValue(result: *const RSIndexResult<'_>) -> f64 {
     debug_assert!(!result.is_null(), "result must not be null");
 
     // SAFETY: Caller is to ensure that the pointer `result` is a valid, non-null pointer to
@@ -205,7 +237,7 @@ pub unsafe extern "C" fn IndexResult_NumValue(result: *const RSIndexResult) -> f
 /// The following invariant must be upheld when calling this function:
 /// - `result` must point to a valid `RSIndexResult` and cannot be NULL.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn IndexResult_SetNumValue(result: *mut RSIndexResult, value: f64) {
+pub unsafe extern "C" fn IndexResult_SetNumValue(result: *mut RSIndexResult<'_>, value: f64) {
     debug_assert!(!result.is_null(), "result must not be null");
 
     // SAFETY: Caller is to ensure that the pointer `result` is a valid, non-null pointer to
@@ -350,7 +382,7 @@ pub unsafe extern "C" fn IndexResult_AggregateRefMutUnchecked<'result, 'index>(
 /// The following invariant must be upheld when calling this function:
 /// - `result` must point to a valid `RSIndexResult` and cannot be NULL.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn IndexResult_AggregateReset(result: *mut RSIndexResult) {
+pub unsafe extern "C" fn IndexResult_AggregateReset(result: *mut RSIndexResult<'_>) {
     debug_assert!(!result.is_null(), "result must not be null");
 
     // SAFETY: Caller is to ensure that the pointer `result` is a valid, non-null pointer to
@@ -438,7 +470,7 @@ pub unsafe extern "C" fn AggregateResult_GetMutUnchecked<'result, 'index>(
 /// The following invariants must be upheld when calling this function:
 /// - `agg` must point to a valid `RSAggregateResult` and cannot be NULL.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn AggregateResult_NumChildren(agg: *const RSAggregateResult) -> usize {
+pub unsafe extern "C" fn AggregateResult_NumChildren(agg: *const RSAggregateResult<'_>) -> usize {
     debug_assert!(!agg.is_null(), "agg must not be null");
 
     // SAFETY: Caller is to ensure that the pointer `agg` is a valid, non-null pointer to
@@ -455,7 +487,7 @@ pub unsafe extern "C" fn AggregateResult_NumChildren(agg: *const RSAggregateResu
 /// The following invariants must be upheld when calling this function:
 /// - `agg` must point to a valid `RSAggregateResult` and cannot be NULL.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn AggregateResult_Capacity(agg: *const RSAggregateResult) -> usize {
+pub unsafe extern "C" fn AggregateResult_Capacity(agg: *const RSAggregateResult<'_>) -> usize {
     debug_assert!(!agg.is_null(), "agg must not be null");
 
     // SAFETY: Caller is to ensure that the pointer `agg` is a valid, non-null pointer to
@@ -472,7 +504,7 @@ pub unsafe extern "C" fn AggregateResult_Capacity(agg: *const RSAggregateResult)
 /// The following invariants must be upheld when calling this function:
 /// - `agg` must point to a valid `RSAggregateResult` and cannot be NULL.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn AggregateResult_KindMask(agg: *const RSAggregateResult) -> u8 {
+pub unsafe extern "C" fn AggregateResult_KindMask(agg: *const RSAggregateResult<'_>) -> u8 {
     debug_assert!(!agg.is_null(), "agg must not be null");
 
     // SAFETY: Caller is to ensure that the pointer `agg` is a valid, non-null pointer to
@@ -497,7 +529,7 @@ pub extern "C" fn AggregateResult_New(cap: usize) -> RSAggregateResult<'static> 
 ///
 /// The `agg` parameter should have been created with [`AggregateResult_New`].
 #[unsafe(no_mangle)]
-pub extern "C" fn AggregateResult_Free(agg: RSAggregateResult) {
+pub extern "C" fn AggregateResult_Free(agg: RSAggregateResult<'_>) {
     match agg {
         RSAggregateResult::Borrowed { .. } => {}
         RSAggregateResult::Owned { records, .. } => {
@@ -565,11 +597,11 @@ pub unsafe extern "C" fn AggregateResult_GetRecordsSlice(
     let agg = unsafe { &*agg };
     match agg {
         RSAggregateResult::Borrowed { records, .. } => AggregateRecordsSlice {
-            ptr: records.as_slice().as_ptr() as *const *const RSIndexResult,
+            ptr: records.as_slice().as_ptr() as *const *const RSIndexResult<'_>,
             len: records.len(),
         },
         RSAggregateResult::Owned { records, .. } => AggregateRecordsSlice {
-            ptr: records.as_slice().as_ptr() as *const *const RSIndexResult,
+            ptr: records.as_slice().as_ptr() as *const *const RSIndexResult<'_>,
             len: records.len(),
         },
     }
@@ -610,7 +642,10 @@ pub unsafe extern "C" fn RSOffsetVector_GetData(
 
     // SAFETY: Caller is to ensure `len` is non-null and point to a valid u32 memory.
     unsafe { len.write(offsets.len) };
-    offsets.data.cast::<c_char>()
+    offsets
+        .data
+        .map_or(ptr::null(), |p| p.as_raw())
+        .cast::<c_char>()
 }
 
 /// Set the offsets array on an offset vector.
@@ -640,7 +675,12 @@ pub unsafe extern "C" fn RSOffsetVector_SetData(
     // SAFETY: Caller is to ensure `offsets` is non-null and point to a valid offset vector.
     let offsets = unsafe { &mut *offsets };
 
-    offsets.data = data.cast::<u8>();
+    // SAFETY: Caller guarantees `data` points to a valid array of `len` bytes
+    // for the lifetime of the offset slice (or `data` is null and `len == 0`).
+    offsets.data = std::ptr::NonNull::new(data.cast::<u8>() as *mut u8).map(|nn| {
+        // SAFETY: caller guarantees the buffer is alive for the lifetime of `offsets`.
+        unsafe { Ptr::from_non_null(nn) }
+    });
     offsets.len = len;
 }
 

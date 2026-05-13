@@ -7,6 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use ref_mode::Active;
+
 use std::io::{Cursor, Read};
 
 use ::index_result::RSIndexResult;
@@ -33,7 +35,7 @@ impl Encoder for Dummy {
     fn encode<W: std::io::Write + std::io::Seek>(
         mut writer: W,
         delta: Self::Delta,
-        _record: &RSIndexResult,
+        _record: &RSIndexResult<'_>,
     ) -> std::io::Result<usize> {
         writer.write_all(&delta.to_be_bytes())?;
 

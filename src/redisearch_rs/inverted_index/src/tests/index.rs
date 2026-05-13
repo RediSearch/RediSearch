@@ -7,6 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use ref_mode::Active;
+
 use std::io::Cursor;
 
 use crate::{
@@ -114,7 +116,7 @@ fn adding_same_record_twice() {
         fn encode<W: std::io::Write + std::io::Seek>(
             mut writer: W,
             _delta: Self::Delta,
-            _record: &RSIndexResult,
+            _record: &RSIndexResult<'_>,
         ) -> std::io::Result<usize> {
             writer.write_all(&[255])?;
 
@@ -166,7 +168,7 @@ fn adding_creates_new_blocks_when_entries_is_reached() {
         fn encode<W: std::io::Write + std::io::Seek>(
             mut writer: W,
             _delta: Self::Delta,
-            _record: &RSIndexResult,
+            _record: &RSIndexResult<'_>,
         ) -> std::io::Result<usize> {
             writer.write_all(&[1])?;
 
@@ -283,7 +285,7 @@ fn adding_ii_blocks_growth_strategy() {
         fn encode<W: std::io::Write + std::io::Seek>(
             mut writer: W,
             _delta: Self::Delta,
-            _record: &RSIndexResult,
+            _record: &RSIndexResult<'_>,
         ) -> std::io::Result<usize> {
             writer.write_all(&[1])?;
 
@@ -530,7 +532,7 @@ fn blocks_summary() {
         fn encode<W: std::io::Write + std::io::Seek>(
             mut writer: W,
             _delta: Self::Delta,
-            _record: &RSIndexResult,
+            _record: &RSIndexResult<'_>,
         ) -> std::io::Result<usize> {
             writer.write_all(&[1])?;
 
@@ -584,7 +586,7 @@ fn blocks_summary_store_numeric() {
         fn encode<W: std::io::Write + std::io::Seek>(
             mut writer: W,
             _delta: Self::Delta,
-            _record: &RSIndexResult,
+            _record: &RSIndexResult<'_>,
         ) -> std::io::Result<usize> {
             writer.write_all(&[1])?;
 

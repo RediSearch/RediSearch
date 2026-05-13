@@ -253,6 +253,37 @@ typedef struct timespec timespec;
 # body (embedded by value in `LegacyNumericFilter` and friends on the C
 # side).
 includes = ["redisearch_types.h", "inverted_index.h"]
+after_includes = """
+/* `Active<'_>` aliases for the names the existing C codebase uses.
+ * Bodies for all of these are emitted by cheadergen in `index_result.h`
+ * (from the `ActiveRS*` type aliases defined in the `types_ffi` crate). */
+typedef struct RawIndexResult_Active RSIndexResult;
+typedef union RawAggregateResult_Active RSAggregateResult;
+typedef union RawResultData_Active RSResultData;
+typedef union RawTermRecord_Active RSTermRecord;
+typedef struct RawMetricEntry_Active RSYieldableMetric;
+typedef struct RawMetricEntry_Active MetricEntry;
+typedef RawMetricsVec_Active MetricsVec;
+typedef struct RawMetricsSlice_Active MetricsSlice;
+
+/* Backward-compatible aliases for the variant tag enumerators. cheadergen
+ * mangles them with the underlying generic+instantiation name; the C codebase
+ * uses the unsuffixed forms. */
+#define RSResultData_Union        RawResultData_Active_Union
+#define RSResultData_Intersection RawResultData_Active_Intersection
+#define RSResultData_Term         RawResultData_Active_Term
+#define RSResultData_Virtual      RawResultData_Active_Virtual
+#define RSResultData_Numeric      RawResultData_Active_Numeric
+#define RSResultData_Metric       RawResultData_Active_Metric
+#define RSResultData_HybridMetric RawResultData_Active_HybridMetric
+
+#define RSAggregateResult_Borrowed RawAggregateResult_Active_Borrowed
+#define RSAggregateResult_Owned    RawAggregateResult_Active_Owned
+
+#define RSTermRecord_Borrowed   RawTermRecord_Active_Borrowed
+#define RSTermRecord_Owned      RawTermRecord_Active_Owned
+#define RSTermRecord_FullyOwned RawTermRecord_Active_FullyOwned
+"""
 
 [header.numeric_range_tree_ffi]
 includes = ["redisearch.h", "redismodule.h"]

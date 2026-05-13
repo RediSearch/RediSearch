@@ -34,7 +34,7 @@ impl Encoder for FieldsOnly {
     fn encode<W: Write + Seek>(
         mut writer: W,
         delta: Self::Delta,
-        record: &RSIndexResult,
+        record: &RSIndexResult<'_>,
     ) -> std::io::Result<usize> {
         let field_mask = record
                 .field_mask
@@ -109,7 +109,7 @@ impl Encoder for FieldsOnlyWide {
     fn encode<W: Write + Seek>(
         mut writer: W,
         delta: Self::Delta,
-        record: &RSIndexResult,
+        record: &RSIndexResult<'_>,
     ) -> std::io::Result<usize> {
         let mut bytes_written = delta.write_as_varint(&mut writer)?;
         bytes_written += record.field_mask.write_as_varint(&mut writer)?;

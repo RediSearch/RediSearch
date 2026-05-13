@@ -7,6 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use ref_mode::Active;
+
 use std::ptr::{self, NonNull};
 
 use ffi::{GeoDistance_GEO_DISTANCE_M, GeoFilter, IndexFlags_Index_StoreNumeric, t_docId};

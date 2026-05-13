@@ -10,6 +10,36 @@
 #include "redisearch_types.h"
 #include "inverted_index.h"
 #include "index_result_rs.h"
+/* `Active<'_>` aliases for the names the existing C codebase uses.
+ * Bodies for all of these are emitted by cheadergen in `index_result.h`
+ * (from the `ActiveRS*` type aliases defined in the `types_ffi` crate). */
+typedef struct RawIndexResult_Active RSIndexResult;
+typedef union RawAggregateResult_Active RSAggregateResult;
+typedef union RawResultData_Active RSResultData;
+typedef union RawTermRecord_Active RSTermRecord;
+typedef struct RawMetricEntry_Active RSYieldableMetric;
+typedef struct RawMetricEntry_Active MetricEntry;
+typedef RawMetricsVec_Active MetricsVec;
+typedef struct RawMetricsSlice_Active MetricsSlice;
+
+/* Backward-compatible aliases for the variant tag enumerators. cheadergen
+ * mangles them with the underlying generic+instantiation name; the C codebase
+ * uses the unsuffixed forms. */
+#define RSResultData_Union        RawResultData_Active_Union
+#define RSResultData_Intersection RawResultData_Active_Intersection
+#define RSResultData_Term         RawResultData_Active_Term
+#define RSResultData_Virtual      RawResultData_Active_Virtual
+#define RSResultData_Numeric      RawResultData_Active_Numeric
+#define RSResultData_Metric       RawResultData_Active_Metric
+#define RSResultData_HybridMetric RawResultData_Active_HybridMetric
+
+#define RSAggregateResult_Borrowed RawAggregateResult_Active_Borrowed
+#define RSAggregateResult_Owned    RawAggregateResult_Active_Owned
+
+#define RSTermRecord_Borrowed   RawTermRecord_Active_Borrowed
+#define RSTermRecord_Owned      RawTermRecord_Active_Owned
+#define RSTermRecord_FullyOwned RawTermRecord_Active_FullyOwned
+
 
 /**
  * Filter details to apply to numeric values
@@ -26,6 +56,452 @@ typedef struct NumericFilter NumericFilter;
  */
 typedef struct RSQueryTerm RSQueryTerm;
 
+typedef struct RLookupKey RLookupKey;
+
+typedef struct RSOffsetVector ActiveRSOffsetSlice;
+
+#ifndef PTR_ACTIVE__RLOOKUPKEY_DEFINED
+#define PTR_ACTIVE__RLOOKUPKEY_DEFINED
+/**
+ * A pointer to `T` whose validity semantics depend on the [`Ref`] mode `Rf`.
+ *
+ * Internally this is a [`NonNull<T>`]. The `Rf` type parameter controls
+ * which methods are available:
+ *
+ * - [`Active<'a>`]: constructed from `&'a T`, safe access via [`Ptr::get`].
+ * - [`Suspended`]: inert — no safe access, pointer may be stale.
+ *
+ * `#[repr(transparent)]` ensures `Ptr<Rf, T>` has the same layout as
+ * `NonNull<T>` regardless of `Rf`, enabling zero-cost transmutation
+ * between `Active` and `Suspended` instantiations of containing
+ * `#[repr(C)]` structs. The `NonNull<T>` niche makes
+ * `Option<Ptr<Rf, T>>` pointer-sized as well.
+ */
+typedef RLookupKey *Ptr_Active__RLookupKey;
+#endif /* PTR_ACTIVE__RLOOKUPKEY_DEFINED */
+
+#ifndef RAWMETRICENTRY_ACTIVE_DEFINED
+#define RAWMETRICENTRY_ACTIVE_DEFINED
+/**
+ * A single metric: a borrowed key and a numeric value.
+ *
+ * The `R: Ref` parameter controls how the key reference is stored:
+ * in [`Active<'a>`] mode it is a valid `&'a RLookupKey`, in
+ * [`ref_mode::Suspended`] mode it is an inert raw pointer.
+ *
+ * `key` is `Option<Ptr<R, RLookupKey>>` so "no key" is encoded as
+ * `None`. `Ptr` wraps `NonNull` so the niche optimization keeps the C
+ * ABI as a nullable `RLookupKey *`.
+ */
+typedef struct RawMetricEntry_Active {
+  /**
+   * Borrowed reference to the lookup key that identifies this metric,
+   * or `None` when the metric has no associated key.
+   */
+  Ptr_Active__RLookupKey key;
+  /**
+   * The metric value (e.g. vector distance, score).
+   */
+  double value;
+} RawMetricEntry_Active;
+#endif /* RAWMETRICENTRY_ACTIVE_DEFINED */
+
+typedef struct RawMetricEntry_Active ActiveMetricEntry;
+
+#ifndef PTR_ACTIVE__RSQUERYTERM_DEFINED
+#define PTR_ACTIVE__RSQUERYTERM_DEFINED
+/**
+ * A pointer to `T` whose validity semantics depend on the [`Ref`] mode `Rf`.
+ *
+ * Internally this is a [`NonNull<T>`]. The `Rf` type parameter controls
+ * which methods are available:
+ *
+ * - [`Active<'a>`]: constructed from `&'a T`, safe access via [`Ptr::get`].
+ * - [`Suspended`]: inert — no safe access, pointer may be stale.
+ *
+ * `#[repr(transparent)]` ensures `Ptr<Rf, T>` has the same layout as
+ * `NonNull<T>` regardless of `Rf`, enabling zero-cost transmutation
+ * between `Active` and `Suspended` instantiations of containing
+ * `#[repr(C)]` structs. The `NonNull<T>` niche makes
+ * `Option<Ptr<Rf, T>>` pointer-sized as well.
+ */
+typedef struct RSQueryTerm *Ptr_Active__RSQueryTerm;
+#endif /* PTR_ACTIVE__RSQUERYTERM_DEFINED */
+
+#ifndef PTR_ACTIVE__U8_DEFINED
+#define PTR_ACTIVE__U8_DEFINED
+/**
+ * A pointer to `T` whose validity semantics depend on the [`Ref`] mode `Rf`.
+ *
+ * Internally this is a [`NonNull<T>`]. The `Rf` type parameter controls
+ * which methods are available:
+ *
+ * - [`Active<'a>`]: constructed from `&'a T`, safe access via [`Ptr::get`].
+ * - [`Suspended`]: inert — no safe access, pointer may be stale.
+ *
+ * `#[repr(transparent)]` ensures `Ptr<Rf, T>` has the same layout as
+ * `NonNull<T>` regardless of `Rf`, enabling zero-cost transmutation
+ * between `Active` and `Suspended` instantiations of containing
+ * `#[repr(C)]` structs. The `NonNull<T>` niche makes
+ * `Option<Ptr<Rf, T>>` pointer-sized as well.
+ */
+typedef uint8_t *Ptr_Active__u8;
+#endif /* PTR_ACTIVE__U8_DEFINED */
+
+#ifndef RSOFFSETVECTOR_DEFINED
+#define RSOFFSETVECTOR_DEFINED
+/**
+ * Borrowed view of the encoded offsets of a term in a document. You can read the offsets by
+ * iterating over it with RSIndexResult_IterateOffsets.
+ *
+ * This is a borrowed, `Copy` type — it does not own the data and will not free it on drop.
+ * Use [`RSOffsetVector`] for owned offset data.
+ *
+ * The `R: Ref` parameter selects between [`Active<'index>`] mode (the data
+ * pointer is a valid `&'index [u8]`) and [`ref_mode::Suspended`] mode (the
+ * data pointer may be stale).
+ *
+ * `data` is `Option<Ptr<R, u8>>` so the empty slice can be represented
+ * with a null pointer. Thanks to `NonNull`'s niche, the in-memory layout
+ * is still a bare `*const u8` followed by a `u32`.
+ */
+typedef struct RSOffsetVector {
+  /**
+   * Pointer to the borrowed offset data, or `None` for the empty slice.
+   */
+  Ptr_Active__u8 data;
+  uint32_t len;
+} RSOffsetVector;
+#endif /* RSOFFSETVECTOR_DEFINED */
+
+#ifndef RAWTERMRECORD_ACTIVE_DEFINED
+#define RAWTERMRECORD_ACTIVE_DEFINED
+/**
+ * Represents a single record of a document inside a term in the inverted index
+ */
+enum RawTermRecord_Active_Tag
+#ifdef __cplusplus
+  : uint8_t
+#endif // __cplusplus
+ {
+  RawTermRecord_Active_Borrowed,
+  RawTermRecord_Active_Owned,
+  RawTermRecord_Active_FullyOwned,
+};
+#ifndef __cplusplus
+typedef uint8_t RawTermRecord_Active_Tag;
+#endif // __cplusplus
+
+typedef struct RawTermRecord_Active_Borrowed_Body {
+  RawTermRecord_Active_Tag tag;
+  /**
+   * The term that brought up this record.
+   *
+   * The term is owned by the record. The name of the variant, `Borrowed`,
+   * refers to the `offsets` field.
+   *
+   * The term is wrapped in a `Box` to ensure that both `Owned` and `Borrowed`
+   * variants have the same memory layout.
+   */
+  struct RSQueryTerm *term;
+  /**
+   * The encoded offsets in which the term appeared in the document
+   *
+   * A decoder can choose to borrow this data from the index block, hence the `R`
+   * parameter (which carries the index lifetime in [`Active`] mode).
+   */
+  struct RSOffsetVector offsets;
+} RawTermRecord_Active_Borrowed_Body;
+
+typedef struct RawTermRecord_Active_Owned_Body {
+  RawTermRecord_Active_Tag tag;
+  /**
+   * The term that brought up this record.
+   *
+   * It borrows the term from another record. `None` encodes "no
+   * term"; thanks to `NonNull`'s niche, `Option<Ptr<R, RSQueryTerm>>`
+   * has the same C ABI as a nullable `*const RSQueryTerm`.
+   */
+  Ptr_Active__RSQueryTerm term;
+  /**
+   * The encoded offsets in which the term appeared in the document
+   *
+   * The owned version owns a copy of the offsets data, which is freed on drop.
+   */
+  RSOffsetVector offsets;
+} RawTermRecord_Active_Owned_Body;
+
+typedef struct RawTermRecord_Active_FullyOwned_Body {
+  RawTermRecord_Active_Tag tag;
+  /**
+   * The term that brought up this record.
+   *
+   * The term is owned by the record (wrapped in a `Box`), same as in the
+   * `Borrowed` variant.
+   */
+  struct RSQueryTerm *term;
+  /**
+   * The encoded offsets in which the term appeared in the document.
+   *
+   * Unlike `Borrowed`, the offsets are owned by the record as well and
+   * therefore do not tie the record to an external lifetime. Used when
+   * the decoded record must outlive the source of the offset bytes
+   * (e.g. reading from a disk page that may be evicted).
+   */
+  RSOffsetVector offsets;
+} RawTermRecord_Active_FullyOwned_Body;
+
+typedef union RawTermRecord_Active {
+  RawTermRecord_Active_Tag tag;
+  struct RawTermRecord_Active_Borrowed_Body borrowed;
+  struct RawTermRecord_Active_Owned_Body owned;
+  struct RawTermRecord_Active_FullyOwned_Body fullyowned;
+} RawTermRecord_Active;
+#endif /* RAWTERMRECORD_ACTIVE_DEFINED */
+
+typedef union RawTermRecord_Active ActiveRSTermRecord;
+
+#ifndef THINVEC_BOX_RAWINDEXRESULT_ACTIVE__U16_DEFINED
+#define THINVEC_BOX_RAWINDEXRESULT_ACTIVE__U16_DEFINED
+/**
+ * See the crate's top level documentation for a description of this type.
+ */
+typedef struct ThinVec_Box_RawIndexResult_Active__u16 {
+  struct Header_u16 *ptr;
+} ThinVec_Box_RawIndexResult_Active__u16;
+#endif /* THINVEC_BOX_RAWINDEXRESULT_ACTIVE__U16_DEFINED */
+
+#ifndef THINVEC_PTR_ACTIVE__RAWINDEXRESULT_ACTIVE__U16_DEFINED
+#define THINVEC_PTR_ACTIVE__RAWINDEXRESULT_ACTIVE__U16_DEFINED
+/**
+ * See the crate's top level documentation for a description of this type.
+ */
+typedef struct ThinVec_Ptr_Active__RawIndexResult_Active__u16 {
+  struct Header_u16 *ptr;
+} ThinVec_Ptr_Active__RawIndexResult_Active__u16;
+#endif /* THINVEC_PTR_ACTIVE__RAWINDEXRESULT_ACTIVE__U16_DEFINED */
+
+#ifndef THINVEC_RAWMETRICENTRY_ACTIVE__U64_DEFINED
+#define THINVEC_RAWMETRICENTRY_ACTIVE__U64_DEFINED
+/**
+ * See the crate's top level documentation for a description of this type.
+ */
+typedef struct ThinVec_RawMetricEntry_Active__u64 {
+  struct Header_u64 *ptr;
+} ThinVec_RawMetricEntry_Active__u64;
+#endif /* THINVEC_RAWMETRICENTRY_ACTIVE__U64_DEFINED */
+
+#ifndef RAWMETRICSVEC_ACTIVE_DEFINED
+#define RAWMETRICSVEC_ACTIVE_DEFINED
+/**
+ * A dynamically-sized collection of [`MetricEntry`] values.
+ *
+ * Backed by a [`ThinVec`] — a single-pointer vec that stores len/cap in
+ * the allocation header. `MetricsVec::new()` does not allocate.
+ *
+ * `repr(transparent)` over `ThinVec` means this type is pointer-sized
+ * and can be embedded directly in `repr(C)` structs.
+ */
+typedef struct ThinVec_RawMetricEntry_Active__u64 RawMetricsVec_Active;
+#endif /* RAWMETRICSVEC_ACTIVE_DEFINED */
+
+#ifndef SMALLTHINVEC_BOX_RAWINDEXRESULT_ACTIVE_DEFINED
+#define SMALLTHINVEC_BOX_RAWINDEXRESULT_ACTIVE_DEFINED
+/**
+ * A [`ThinVec`] with `u16` capacity, supporting up to 65,535 elements.
+ *
+ * This is useful when you know the vector will never exceed 65,535 elements
+ * and want to minimize header overhead (4 bytes instead of 16).
+ */
+typedef struct ThinVec_Box_RawIndexResult_Active__u16 SmallThinVec_Box_RawIndexResult_Active;
+#endif /* SMALLTHINVEC_BOX_RAWINDEXRESULT_ACTIVE_DEFINED */
+
+#ifndef SMALLTHINVEC_PTR_ACTIVE__RAWINDEXRESULT_ACTIVE_DEFINED
+#define SMALLTHINVEC_PTR_ACTIVE__RAWINDEXRESULT_ACTIVE_DEFINED
+/**
+ * A [`ThinVec`] with `u16` capacity, supporting up to 65,535 elements.
+ *
+ * This is useful when you know the vector will never exceed 65,535 elements
+ * and want to minimize header overhead (4 bytes instead of 16).
+ */
+typedef struct ThinVec_Ptr_Active__RawIndexResult_Active__u16 SmallThinVec_Ptr_Active__RawIndexResult_Active;
+#endif /* SMALLTHINVEC_PTR_ACTIVE__RAWINDEXRESULT_ACTIVE_DEFINED */
+
+#ifndef RAWAGGREGATERESULT_ACTIVE_DEFINED
+#define RAWAGGREGATERESULT_ACTIVE_DEFINED
+/**
+ * Represents an aggregate array of values in an index record.
+ *
+ * The C code should always use `AggregateResult_New` to construct a new instance of this type
+ * using Rust since the internals cannot be constructed directly in C. The reason is because of
+ * the `ThinVec` which needs to exist in Rust's memory space to ensure its memory is
+ * managed correctly.
+ */
+enum RawAggregateResult_Active_Tag
+#ifdef __cplusplus
+  : uint8_t
+#endif // __cplusplus
+ {
+  RawAggregateResult_Active_Borrowed,
+  RawAggregateResult_Active_Owned,
+};
+#ifndef __cplusplus
+typedef uint8_t RawAggregateResult_Active_Tag;
+#endif // __cplusplus
+
+typedef struct RawAggregateResult_Active_Borrowed_Body {
+  RawAggregateResult_Active_Tag tag;
+  /**
+   * The records making up this aggregate result
+   *
+   * The `RawAggregateResult` is part of a union in [`super::result_data::RawResultData`], so
+   * it needs to have a known size. The std `Vec` won't have this since it is not
+   * `#[repr(C)]`, so we use our own `ThinVec` type which is `#[repr(C)]` and has a known
+   * size instead.
+   *
+   * Each child is stored as a [`Ptr<R, RawIndexResult<R>>`]. In [`Active`] mode this is
+   * equivalent to a `&'a RSIndexResult<'a>`; in [`ref_mode::Suspended`] mode it is
+   * an inert raw pointer that survives lock release/reacquire cycles.
+   */
+  SmallThinVec_Ptr_Active__RawIndexResult_Active records;
+  /**
+   * A map of the aggregate kind of the underlying records
+   */
+  RSResultKindMask kind_mask;
+} RawAggregateResult_Active_Borrowed_Body;
+
+typedef struct RawAggregateResult_Active_Owned_Body {
+  RawAggregateResult_Active_Tag tag;
+  /**
+   * The records making up this aggregate result
+   *
+   * The `RawAggregateResult` is part of a union in [`super::result_data::RawResultData`], so it needs to have a
+   * known size. The std `Vec` won't have this since it is not `#[repr(C)]`, so we use our
+   * own `ThinVec` type which is `#[repr(C)]` and has a known size instead.
+   */
+  SmallThinVec_Box_RawIndexResult_Active records;
+  /**
+   * A map of the aggregate kind of the underlying records
+   */
+  RSResultKindMask kind_mask;
+} RawAggregateResult_Active_Owned_Body;
+
+typedef union RawAggregateResult_Active {
+  RawAggregateResult_Active_Tag tag;
+  struct RawAggregateResult_Active_Borrowed_Body borrowed;
+  struct RawAggregateResult_Active_Owned_Body owned;
+} RawAggregateResult_Active;
+#endif /* RAWAGGREGATERESULT_ACTIVE_DEFINED */
+
+#ifndef RAWRESULTDATA_ACTIVE_DEFINED
+#define RAWRESULTDATA_ACTIVE_DEFINED
+/**
+ * Holds the actual data of an ['IndexResult']
+ *
+ * These enum values should stay in sync with [`RSResultKind`], so that the C union generated matches
+ * the bitflags on [`super::kind::RSResultKindMask`]
+ *
+ * The `R: Ref` parameter selects between [`Active<'index>`] mode (data references are valid for
+ * `'index`) and [`ref_mode::Suspended`] mode (data references are inert raw pointers).
+ */
+enum RawResultData_Active_Tag
+#ifdef __cplusplus
+  : uint8_t
+#endif // __cplusplus
+ {
+  RawResultData_Active_Union = 1,
+  RawResultData_Active_Intersection = 2,
+  RawResultData_Active_Term = 4,
+  RawResultData_Active_Virtual = 8,
+  RawResultData_Active_Numeric = 16,
+  RawResultData_Active_Metric = 32,
+  RawResultData_Active_HybridMetric = 64,
+};
+#ifndef __cplusplus
+typedef uint8_t RawResultData_Active_Tag;
+#endif // __cplusplus
+
+typedef union RawResultData_Active {
+  RawResultData_Active_Tag tag;
+  struct {
+    RawResultData_Active_Tag union__tag;
+    union RawAggregateResult_Active union_;
+  };
+  struct {
+    RawResultData_Active_Tag intersection_tag;
+    union RawAggregateResult_Active intersection;
+  };
+  struct {
+    RawResultData_Active_Tag term_tag;
+    union RawTermRecord_Active term;
+  };
+  struct {
+    RawResultData_Active_Tag numeric_tag;
+    double numeric;
+  };
+  struct {
+    RawResultData_Active_Tag metric_tag;
+    double metric;
+  };
+  struct {
+    RawResultData_Active_Tag hybridmetric_tag;
+    union RawAggregateResult_Active hybridmetric;
+  };
+} RawResultData_Active;
+#endif /* RAWRESULTDATA_ACTIVE_DEFINED */
+
+typedef union RawAggregateResult_Active ActiveRSAggregateResult;
+
+typedef union RawResultData_Active ActiveRSResultData;
+
+#ifndef RAWINDEXRESULT_ACTIVE_DEFINED
+#define RAWINDEXRESULT_ACTIVE_DEFINED
+/**
+ * The result of an inverted index
+ *
+ * The `R: Ref` parameter selects between [`Active<'index>`] mode (the
+ * data references inside this result are valid for `'index` and the
+ * inverted index read lock is held) and [`ref_mode::Suspended`] mode
+ * (the data references are inert raw pointers that survive lock
+ * release/reacquire cycles).
+ */
+typedef struct RawIndexResult_Active {
+  /**
+   * The document ID of the result
+   */
+  t_docId docId;
+  /**
+   * Some metadata about the result document
+   */
+  const RSDocumentMetadata *dmd;
+  /**
+   * The aggregate field mask of all the records in this result
+   */
+  t_fieldMask fieldMask;
+  /**
+   * The total frequency of all the records in this result
+   */
+  uint32_t freq;
+  /**
+   * The actual data of the result
+   */
+  union RawResultData_Active data;
+  /**
+   * Holds an array of metrics yielded by the different iterators in the AST.
+   *
+   * Backed by [`ThinVec`](thin_vec::ThinVec) — pointer-sized, no
+   * allocation when empty.
+   */
+  RawMetricsVec_Active metrics;
+  /**
+   * Relative weight for scoring calculations. This is derived from the result's iterator weight
+   */
+  double weight;
+} RawIndexResult_Active;
+#endif /* RAWINDEXRESULT_ACTIVE_DEFINED */
+
+typedef struct RawIndexResult_Active ActiveRSIndexResult;
+
 /**
  * A view over the records stored inside an [`RSAggregateResult`].
  *
@@ -34,7 +510,7 @@ typedef struct RSQueryTerm RSQueryTerm;
  * C->Rust FFI calls.
  */
 typedef struct AggregateRecordsSlice {
-  const struct RSIndexResult *const *ptr;
+  const RSIndexResult *const *ptr;
   size_t len;
 } AggregateRecordsSlice;
 
@@ -56,29 +532,29 @@ bool NumericFilter_Match(const struct NumericFilter *filter, double value);
  * Allocate a new intersect result with a given capacity and weight. This result should be freed
  * using [`IndexResult_Free`].
  */
-struct RSIndexResult *NewIntersectResult(size_t cap, double weight);
+RSIndexResult *NewIntersectResult(size_t cap, double weight);
 
 /**
  * Allocate a new union result with a given capacity and weight. This result should be freed using
  * [`IndexResult_Free`].
  */
-struct RSIndexResult *NewUnionResult(size_t cap, double weight);
+RSIndexResult *NewUnionResult(size_t cap, double weight);
 
 /**
  * Allocate a new virtual result with a given weight and field mask. This result should be freed
  * using [`IndexResult_Free`].
  */
-struct RSIndexResult *NewVirtualResult(double weight, t_fieldMask field_mask);
+RSIndexResult *NewVirtualResult(double weight, t_fieldMask field_mask);
 
 /**
  * Allocate a new numeric result. This result should be freed using [`IndexResult_Free`].
  */
-struct RSIndexResult *NewNumericResult(void);
+RSIndexResult *NewNumericResult(void);
 
 /**
  * Allocate a new metric result. This result should be freed using [`IndexResult_Free`].
  */
-struct RSIndexResult *NewMetricResult(void);
+RSIndexResult *NewMetricResult(void);
 
 /**
  * Allocate a new hybrid result. This result should be freed using [`IndexResult_Free`].
@@ -86,7 +562,7 @@ struct RSIndexResult *NewMetricResult(void);
  * This constructor is only used by the hydrid reader which will pushed owned copies to it.
  * Therefore, this also returns an owned `RSIndexResult`.
  */
-struct RSIndexResult *NewHybridResult(void);
+RSIndexResult *NewHybridResult(void);
 
 /**
  * Allocate a new token record with a given term and weight. This result should be freed using
@@ -97,7 +573,7 @@ struct RSIndexResult *NewHybridResult(void);
  * `term` must be a heap-allocated `RSQueryTerm` (e.g. created by `NewQueryTerm`) and the
  * caller transfers ownership — it must not be freed separately.
  */
-struct RSIndexResult *NewTokenRecord(struct RSQueryTerm *term, double weight);
+RSIndexResult *NewTokenRecord(struct RSQueryTerm *term, double weight);
 
 /**
  * Free an index result's internal allocations and also free the result itself.
@@ -115,7 +591,7 @@ struct RSIndexResult *NewTokenRecord(struct RSQueryTerm *term, double weight);
  *   - [`NewTokenRecord`]
  *   - [`IndexResult_DeepCopy`]
  */
-void IndexResult_Free(struct RSIndexResult *result);
+void IndexResult_Free(RSIndexResult *result);
 
 /**
  * Create a deep copy of the results that is totally thread safe. This is very slow so use it with
@@ -127,7 +603,7 @@ void IndexResult_Free(struct RSIndexResult *result);
  * The following invariant must be upheld when calling this function:
  * - `result` must point to a valid `RSIndexResult` and cannot be NULL.
  */
-struct RSIndexResult *IndexResult_DeepCopy(const struct RSIndexResult *source);
+RSIndexResult *IndexResult_DeepCopy(const RSIndexResult *source);
 
 /**
  * Check if the result is an aggregate result.
@@ -137,7 +613,7 @@ struct RSIndexResult *IndexResult_DeepCopy(const struct RSIndexResult *source);
  * The following invariants must be upheld when calling this function:
  * - `result` must point to a valid `RSIndexResult` and cannot be NULL.
  */
-bool IndexResult_IsAggregate(const struct RSIndexResult *result);
+bool IndexResult_IsAggregate(const RSIndexResult *result);
 
 /**
  * Get the numeric value of the result if it is a numeric result. If the result is not numeric,
@@ -148,7 +624,7 @@ bool IndexResult_IsAggregate(const struct RSIndexResult *result);
  * The following invariant must be upheld when calling this function:
  * - `result` must point to a valid `RSIndexResult` and cannot be NULL.
  */
-double IndexResult_NumValue(const struct RSIndexResult *result);
+double IndexResult_NumValue(const RSIndexResult *result);
 
 /**
  * Set the numeric value of the result if it is a numeric result. If the result is not numeric,
@@ -159,7 +635,7 @@ double IndexResult_NumValue(const struct RSIndexResult *result);
  * The following invariant must be upheld when calling this function:
  * - `result` must point to a valid `RSIndexResult` and cannot be NULL.
  */
-void IndexResult_SetNumValue(struct RSIndexResult *result, double value);
+void IndexResult_SetNumValue(RSIndexResult *result, double value);
 
 /**
  * Get the query term from a result if it is a term result. If the result is not a term, then
@@ -170,7 +646,7 @@ void IndexResult_SetNumValue(struct RSIndexResult *result, double value);
  * The following invariant must be upheld when calling this function:
  * - `result` must point to a valid `RSIndexResult` and cannot be NULL.
  */
-struct RSQueryTerm *IndexResult_QueryTermRef(const struct RSIndexResult *result);
+struct RSQueryTerm *IndexResult_QueryTermRef(const RSIndexResult *result);
 
 /**
  * Get the term offsets from a result if it is a term result. If the result is not a term, then
@@ -181,7 +657,7 @@ struct RSQueryTerm *IndexResult_QueryTermRef(const struct RSIndexResult *result)
  * The following invariant must be upheld when calling this function:
  * - `result` must point to a valid `RSIndexResult` and cannot be NULL.
  */
-const struct RSOffsetVector *IndexResult_TermOffsetsRef(const struct RSIndexResult *result);
+const RSOffsetSlice *IndexResult_TermOffsetsRef(const RSIndexResult *result);
 
 /**
  * Get the aggregate result reference if the result is an aggregate result. If the result is
@@ -192,7 +668,7 @@ const struct RSOffsetVector *IndexResult_TermOffsetsRef(const struct RSIndexResu
  * The following invariant must be upheld when calling this function:
  * - `result` must point to a valid `RSIndexResult` and cannot be NULL.
  */
-const union RSAggregateResult *IndexResult_AggregateRef(const struct RSIndexResult *result);
+const RSAggregateResult *IndexResult_AggregateRef(const RSIndexResult *result);
 
 /**
  * Get the aggregate result reference without performing a runtime check
@@ -208,7 +684,7 @@ const union RSAggregateResult *IndexResult_AggregateRef(const struct RSIndexResu
  * 1. `result` must point to a valid `RSIndexResult` and cannot be NULL.
  * 2. `result`'s data payload must be of the aggregate kind
  */
-const union RSAggregateResult *IndexResult_AggregateRefUnchecked(const struct RSIndexResult *result);
+const RSAggregateResult *IndexResult_AggregateRefUnchecked(const RSIndexResult *result);
 
 /**
  * Get a mutable aggregate result reference without performing a runtime check
@@ -224,7 +700,7 @@ const union RSAggregateResult *IndexResult_AggregateRefUnchecked(const struct RS
  * 1. `result` must point to a valid `RSIndexResult` and cannot be NULL.
  * 2. `result`'s data payload must be of the aggregate kind
  */
-union RSAggregateResult *IndexResult_AggregateRefMutUnchecked(struct RSIndexResult *result);
+RSAggregateResult *IndexResult_AggregateRefMutUnchecked(RSIndexResult *result);
 
 /**
  * Reset the result if it is an aggregate result. This will clear the children vector
@@ -235,7 +711,7 @@ union RSAggregateResult *IndexResult_AggregateRefMutUnchecked(struct RSIndexResu
  * The following invariant must be upheld when calling this function:
  * - `result` must point to a valid `RSIndexResult` and cannot be NULL.
  */
-void IndexResult_AggregateReset(struct RSIndexResult *result);
+void IndexResult_AggregateReset(RSIndexResult *result);
 
 /**
  * Get the result at the specified index in the aggregate result. This will return a `NULL` pointer
@@ -246,7 +722,7 @@ void IndexResult_AggregateReset(struct RSIndexResult *result);
  * The following invariants must be upheld when calling this function:
  * - `agg` must point to a valid `RSAggregateResult` and cannot be NULL.
  */
-const struct RSIndexResult *AggregateResult_Get(const union RSAggregateResult *agg, size_t index);
+const RSIndexResult *AggregateResult_Get(const RSAggregateResult *agg, size_t index);
 
 /**
  * Get the result at the specified index in the aggregate result, without checking bounds.
@@ -257,7 +733,7 @@ const struct RSIndexResult *AggregateResult_Get(const union RSAggregateResult *a
  * 1. `agg` must point to a valid `RSAggregateResult` and cannot be NULL.
  * 2. `index` must be lower than the length of the aggregate result children vector.
  */
-const struct RSIndexResult *AggregateResult_GetUnchecked(const union RSAggregateResult *agg, size_t index);
+const RSIndexResult *AggregateResult_GetUnchecked(const RSAggregateResult *agg, size_t index);
 
 /**
  * Get a mutable result at the specified index in the aggregate result, without checking bounds.
@@ -269,7 +745,7 @@ const struct RSIndexResult *AggregateResult_GetUnchecked(const union RSAggregate
  * 2. `index` must be lower than the length of the aggregate result children vector.
  * 3. `agg` must be of the `Owned` variant.
  */
-struct RSIndexResult *AggregateResult_GetMutUnchecked(union RSAggregateResult *agg, size_t index);
+RSIndexResult *AggregateResult_GetMutUnchecked(RSAggregateResult *agg, size_t index);
 
 /**
  * Get the element count of the aggregate result.
@@ -279,7 +755,7 @@ struct RSIndexResult *AggregateResult_GetMutUnchecked(union RSAggregateResult *a
  * The following invariants must be upheld when calling this function:
  * - `agg` must point to a valid `RSAggregateResult` and cannot be NULL.
  */
-size_t AggregateResult_NumChildren(const union RSAggregateResult *agg);
+size_t AggregateResult_NumChildren(const RSAggregateResult *agg);
 
 /**
  * Get the capacity of the aggregate result.
@@ -289,7 +765,7 @@ size_t AggregateResult_NumChildren(const union RSAggregateResult *agg);
  * The following invariants must be upheld when calling this function:
  * - `agg` must point to a valid `RSAggregateResult` and cannot be NULL.
  */
-size_t AggregateResult_Capacity(const union RSAggregateResult *agg);
+size_t AggregateResult_Capacity(const RSAggregateResult *agg);
 
 /**
  * Get the kind mask of the aggregate result.
@@ -299,14 +775,14 @@ size_t AggregateResult_Capacity(const union RSAggregateResult *agg);
  * The following invariants must be upheld when calling this function:
  * - `agg` must point to a valid `RSAggregateResult` and cannot be NULL.
  */
-uint8_t AggregateResult_KindMask(const union RSAggregateResult *agg);
+uint8_t AggregateResult_KindMask(const RSAggregateResult *agg);
 
 /**
  * Create a new aggregate result with the specified capacity. This function will make the result
  * in Rust memory, but the ownership ends up being transferred to C's memory space. This ownership
  * should return to Rust to free up any heap memory using [`AggregateResult_Free`].
  */
-union RSAggregateResult AggregateResult_New(size_t cap);
+RSAggregateResult AggregateResult_New(size_t cap);
 
 /**
  * Take ownership of a `RSAggregateResult` to free any heap memory it owns. This function will not
@@ -316,7 +792,7 @@ union RSAggregateResult AggregateResult_New(size_t cap);
  *
  * The `agg` parameter should have been created with [`AggregateResult_New`].
  */
-void AggregateResult_Free(union RSAggregateResult agg);
+void AggregateResult_Free(RSAggregateResult agg);
 
 /**
  * Add a child to a result if it is an aggregate result.
@@ -337,7 +813,7 @@ void AggregateResult_Free(union RSAggregateResult agg);
  * - `parent` must point to a valid `RSIndexResult` and cannot be NULL.
  * - `child` must point to a valid `RSIndexResult` and cannot be NULL.
  */
-void AggregateResult_AddChild(struct RSIndexResult *parent, struct RSIndexResult *child);
+void AggregateResult_AddChild(RSIndexResult *parent, RSIndexResult *child);
 
 /**
  * Get a view of the records stored inside the aggregate result.
@@ -346,7 +822,7 @@ void AggregateResult_AddChild(struct RSIndexResult *parent, struct RSIndexResult
  * The following invariants must be upheld when calling this function:
  * - `agg` must point to a valid `RSAggregateResult` and cannot be NULL.
  */
-struct AggregateRecordsSlice AggregateResult_GetRecordsSlice(const union RSAggregateResult *agg);
+struct AggregateRecordsSlice AggregateResult_GetRecordsSlice(const RSAggregateResult *agg);
 
 /**
  * Retrieve the offsets array from an offset vector.
@@ -361,7 +837,7 @@ struct AggregateRecordsSlice AggregateResult_GetRecordsSlice(const union RSAggre
  *   and cannot be NULL.
  * - `len` cannot be NULL and must point to an allocated memory big enough to hold an u32.
  */
-const char *RSOffsetVector_GetData(const struct RSOffsetVector *offsets, uint32_t *len);
+const char *RSOffsetVector_GetData(const RSOffsetSlice *offsets, uint32_t *len);
 
 /**
  * Set the offsets array on an offset vector.
@@ -377,7 +853,7 @@ const char *RSOffsetVector_GetData(const struct RSOffsetVector *offsets, uint32_
  * - `data` must point to an array of `len` offsets.
  * - if `data` is NULL then `len` should be 0.
  */
-void RSOffsetVector_SetData(struct RSOffsetVector *offsets, const char *data, uint32_t len);
+void RSOffsetVector_SetData(RSOffsetSlice *offsets, const char *data, uint32_t len);
 
 /**
  * Free the data inside an offset vector.
@@ -405,7 +881,7 @@ void RSOffsetVector_FreeData(RSOffsetVector *offsets);
  *   and cannot be NULL.
  * - `src` data should point to a valid array of `src.len` offsets.
  */
-void RSOffsetVector_CopyData(RSOffsetVector *dest, const struct RSOffsetVector *src);
+void RSOffsetVector_CopyData(RSOffsetVector *dest, const RSOffsetSlice *src);
 
 /**
  * Retrieve the number of offsets in an offset vector.
@@ -416,7 +892,7 @@ void RSOffsetVector_CopyData(RSOffsetVector *dest, const struct RSOffsetVector *
  * - `offsets` must point to a valid offset vector (either [`RSOffsetSlice`] or [`RSOffsetVector`])
  *   and cannot be NULL.
  */
-uint32_t RSOffsetVector_Len(const struct RSOffsetVector *offsets);
+uint32_t RSOffsetVector_Len(const RSOffsetSlice *offsets);
 
 #ifdef __cplusplus
 }  // extern "C"

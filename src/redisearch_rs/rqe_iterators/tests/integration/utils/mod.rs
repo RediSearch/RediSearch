@@ -15,6 +15,7 @@ pub(crate) use mock_iterator::{Mock, MockData, MockIteratorError, MockRevalidate
 pub(crate) use wildcard_helper::WildcardHelper;
 
 use index_result::RSIndexResult;
+use ref_mode::Active;
 use rqe_iterators::{IteratorType, RQEIterator, RQEIteratorError, SkipToOutcome};
 
 /// A mock iterator that produces results with a specific `t_fieldMask`.

@@ -16,26 +16,54 @@
 //! `MetricsVec` is `repr(transparent)` and can be embedded directly in
 //! `repr(C)` structs like [`super::RSIndexResult`].
 use ffi::RLookupKey;
+use ref_mode::{Active, Ptr, Ref};
+use std::ptr;
 use thin_vec::ThinVec;
 
 /// A single metric: a borrowed key and a numeric value.
+///
+/// The `R: Ref` parameter controls how the key reference is stored:
+/// in [`Active<'a>`] mode it is a valid `&'a RLookupKey`, in
+/// [`ref_mode::Suspended`] mode it is an inert raw pointer.
+///
+/// `key` is `Option<Ptr<R, RLookupKey>>` so "no key" is encoded as
+/// `None`. `Ptr` wraps `NonNull` so the niche optimization keeps the C
+/// ABI as a nullable `RLookupKey *`.
 #[repr(C)]
-#[derive(Clone, Copy, Debug)]
-#[cheadergen::config(export)]
-pub struct MetricEntry<'a> {
-    /// Borrowed reference to the lookup key that identifies this metric.
-    /// `None` when the metric has no associated key.
-    pub key: Option<&'a RLookupKey>,
+pub struct RawMetricEntry<R: Ref> {
+    /// Borrowed reference to the lookup key that identifies this metric,
+    /// or `None` when the metric has no associated key.
+    pub key: Option<Ptr<R, RLookupKey>>,
 
     /// The metric value (e.g. vector distance, score).
     pub value: f64,
+}
+
+/// The [`Active`] instantiation of [`RawMetricEntry`].
+pub type MetricEntry<'a> = RawMetricEntry<Active<'a>>;
+
+impl<R: Ref> Copy for RawMetricEntry<R> {}
+
+impl<R: Ref> Clone for RawMetricEntry<R> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<R: Ref> std::fmt::Debug for RawMetricEntry<R> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MetricEntry")
+            .field("key", &self.key.map(|p| p.as_raw()))
+            .field("value", &self.value)
+            .finish()
+    }
 }
 
 impl<'a> MetricEntry<'a> {
     /// Creates a metric entry with an associated key.
     pub const fn with_key(key: &'a RLookupKey, value: f64) -> Self {
         Self {
-            key: Some(key),
+            key: Some(Ptr::new(key)),
             value,
         }
     }
@@ -47,9 +75,14 @@ impl<'a> MetricEntry<'a> {
 
     /// Returns the key reference, or `None` if the metric has no key.
     pub const fn key(&self) -> Option<&'a RLookupKey> {
-        self.key
+        match self.key {
+            Some(k) => Some(k.get()),
+            None => None,
+        }
     }
+}
 
+impl<R: Ref> RawMetricEntry<R> {
     /// Returns the metric value.
     pub const fn value(&self) -> f64 {
         self.value
@@ -61,12 +94,11 @@ impl<'a> MetricEntry<'a> {
     }
 }
 
-impl PartialEq for MetricEntry<'_> {
+impl<R: Ref> PartialEq for RawMetricEntry<R> {
     fn eq(&self, other: &Self) -> bool {
-        std::ptr::eq(
-            self.key.map_or(std::ptr::null(), |k| k as *const _),
-            other.key.map_or(std::ptr::null(), |k| k as *const _),
-        ) && self.value == other.value
+        let lhs = self.key.map_or(ptr::null(), |p| p.as_raw());
+        let rhs = other.key.map_or(ptr::null(), |p| p.as_raw());
+        ptr::eq(lhs, rhs) && self.value == other.value
     }
 }
 
@@ -78,9 +110,33 @@ impl PartialEq for MetricEntry<'_> {
 /// `repr(transparent)` over `ThinVec` means this type is pointer-sized
 /// and can be embedded directly in `repr(C)` structs.
 #[repr(transparent)]
-#[derive(Clone, PartialEq, Debug)]
-pub struct MetricsVec<'a> {
-    inner: ThinVec<MetricEntry<'a>>,
+pub struct RawMetricsVec<R: Ref> {
+    inner: ThinVec<RawMetricEntry<R>>,
+}
+
+/// The [`Active`] instantiation of [`RawMetricsVec`].
+pub type MetricsVec<'a> = RawMetricsVec<Active<'a>>;
+
+impl<R: Ref> Clone for RawMetricsVec<R> {
+    fn clone(&self) -> Self {
+        Self {
+            inner: self.inner.clone(),
+        }
+    }
+}
+
+impl<R: Ref> std::fmt::Debug for RawMetricsVec<R> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MetricsVec")
+            .field("inner", &self.inner.as_slice())
+            .finish()
+    }
+}
+
+impl<R: Ref> PartialEq for RawMetricsVec<R> {
+    fn eq(&self, other: &Self) -> bool {
+        self.inner.as_slice() == other.inner.as_slice()
+    }
 }
 
 /// A read-only, C-visible slice view over the entries of a [`MetricsVec`].
@@ -89,31 +145,24 @@ pub struct MetricsVec<'a> {
 /// from C. The pointed-to data is valid as long as the originating
 /// [`MetricsVec`] is not mutated or dropped.
 #[repr(C)]
-pub struct MetricsSlice<'a> {
+pub struct RawMetricsSlice<R: Ref> {
     /// Pointer to the first [`MetricEntry`].  May be dangling (but not null)
     /// when `len == 0`.
-    pub data: *const MetricEntry<'a>,
+    pub data: *const RawMetricEntry<R>,
 
     /// Number of entries.
     pub len: usize,
 }
 
-impl<'a> MetricsVec<'a> {
+/// The [`Active`] instantiation of [`RawMetricsSlice`].
+pub type MetricsSlice<'a> = RawMetricsSlice<Active<'a>>;
+
+impl<R: Ref> RawMetricsVec<R> {
     /// Creates an empty metrics collection. Does not allocate.
     pub const fn new() -> Self {
         Self {
             inner: ThinVec::new(),
         }
-    }
-
-    /// Appends a metric entry with an associated key.
-    pub fn push_with_key(&mut self, key: &'a RLookupKey, value: f64) {
-        self.inner.push(MetricEntry::with_key(key, value));
-    }
-
-    /// Appends a metric entry without an associated key.
-    pub fn push_without_key(&mut self, value: f64) {
-        self.inner.push(MetricEntry::without_key(value));
     }
 
     /// Moves all entries from `other` into `self`, leaving `other` empty.
@@ -137,9 +186,9 @@ impl<'a> MetricsVec<'a> {
     }
 
     /// Returns a C-compatible slice view for zero-copy iteration.
-    pub fn as_metrics_slice(&self) -> MetricsSlice<'a> {
+    pub fn as_metrics_slice(&self) -> RawMetricsSlice<R> {
         let slice = self.inner.as_slice();
-        MetricsSlice {
+        RawMetricsSlice {
             data: slice.as_ptr(),
             len: slice.len(),
         }
@@ -147,32 +196,45 @@ impl<'a> MetricsVec<'a> {
 
     /// Returns a reference to the entry at `index`, or `None` if out of
     /// bounds.
-    pub fn get(&self, index: usize) -> Option<&MetricEntry<'a>> {
+    pub fn get(&self, index: usize) -> Option<&RawMetricEntry<R>> {
         self.inner.as_slice().get(index)
     }
 
     /// Returns a mutable reference to the entry at `index`, or `None` if
     /// out of bounds.
-    pub fn get_mut(&mut self, index: usize) -> Option<&mut MetricEntry<'a>> {
+    pub fn get_mut(&mut self, index: usize) -> Option<&mut RawMetricEntry<R>> {
         self.inner.as_mut_slice().get_mut(index)
     }
 
     /// Returns an iterator over the entries.
-    pub fn iter(&self) -> impl Iterator<Item = &MetricEntry<'a>> {
+    pub fn iter(&self) -> impl Iterator<Item = &RawMetricEntry<R>> {
         self.inner.as_slice().iter()
     }
 
     /// Finds the first entry whose key matches `key` (pointer equality)
     /// and returns a mutable reference to it.
-    pub fn find_by_key_mut(&mut self, key: &RLookupKey) -> Option<&mut MetricEntry<'a>> {
+    pub fn find_by_key_mut(&mut self, key: &RLookupKey) -> Option<&mut RawMetricEntry<R>> {
+        let needle = key as *const RLookupKey;
         self.inner
             .as_mut_slice()
             .iter_mut()
-            .find(|e| e.key.is_some_and(|k| std::ptr::eq(k, key)))
+            .find(|e| e.key.is_some_and(|p| ptr::eq(p.as_raw(), needle)))
     }
 }
 
-impl Default for MetricsVec<'_> {
+impl<'a> MetricsVec<'a> {
+    /// Appends a metric entry with an associated key.
+    pub fn push_with_key(&mut self, key: &'a RLookupKey, value: f64) {
+        self.inner.push(MetricEntry::with_key(key, value));
+    }
+
+    /// Appends a metric entry without an associated key.
+    pub fn push_without_key(&mut self, value: f64) {
+        self.inner.push(MetricEntry::without_key(value));
+    }
+}
+
+impl<R: Ref> Default for RawMetricsVec<R> {
     fn default() -> Self {
         Self::new()
     }

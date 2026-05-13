@@ -7,6 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use ref_mode::Active;
+
 use ffi::RS_FIELDMASK_ALL;
 use index_result::{
     MetricsVec, RSAggregateResult, RSIndexResult, RSOffsetSlice, RSOffsetVector, RSResultKind,

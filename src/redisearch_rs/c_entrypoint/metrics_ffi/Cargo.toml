@@ -13,6 +13,7 @@ bench = false
 ffi.workspace = true
 index_result.workspace = true
 inverted_index.workspace = true
+ref_mode.workspace = true
 workspace_hack.workspace = true
 
 [lints]

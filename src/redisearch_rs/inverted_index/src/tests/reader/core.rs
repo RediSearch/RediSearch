@@ -7,6 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use ref_mode::Active;
+
 use std::io::{Cursor, Read};
 use std::sync::atomic;
 
@@ -256,7 +258,7 @@ fn reader_has_duplicates() {
         fn encode<W: std::io::Write + std::io::Seek>(
             mut writer: W,
             _delta: Self::Delta,
-            _record: &RSIndexResult,
+            _record: &RSIndexResult<'_>,
         ) -> std::io::Result<usize> {
             writer.write_all(&[255])?;
 
@@ -417,7 +419,7 @@ fn read_using_the_first_block_id_as_the_base() {
         fn encode<W: std::io::Write + std::io::Seek>(
             _writer: W,
             _delta: Self::Delta,
-            _record: &RSIndexResult,
+            _record: &RSIndexResult<'_>,
         ) -> std::io::Result<usize> {
             panic!("This test won't encode anything")
         }

@@ -48,7 +48,7 @@ impl Encoder for Full {
     fn encode<W: Write + Seek>(
         mut writer: W,
         delta: Self::Delta,
-        record: &RSIndexResult,
+        record: &RSIndexResult<'_>,
     ) -> std::io::Result<usize> {
         assert!(record.is_term());
 
@@ -197,7 +197,7 @@ impl Encoder for FullWide {
     fn encode<W: Write + Seek>(
         mut writer: W,
         delta: Self::Delta,
-        record: &RSIndexResult,
+        record: &RSIndexResult<'_>,
     ) -> std::io::Result<usize> {
         assert!(record.is_term());
 

@@ -40,7 +40,7 @@ impl<E: Encoder> EntriesTrackingIndex<E> {
     /// the document ID of the record is greater than or equal the last document ID in the index.
     ///
     /// The total number of entries in the index is incremented by one.
-    pub fn add_record(&mut self, record: &RSIndexResult) -> std::io::Result<usize> {
+    pub fn add_record(&mut self, record: &RSIndexResult<'_>) -> std::io::Result<usize> {
         let mem_growth = self.index.add_record(record)?;
 
         self.number_of_entries += 1;

@@ -216,7 +216,7 @@ impl Encoder for Numeric {
     fn encode<W: Write + std::io::Seek>(
         writer: W,
         delta: Self::Delta,
-        record: &RSIndexResult,
+        record: &RSIndexResult<'_>,
     ) -> std::io::Result<usize> {
         encode(writer, delta, record, false)
     }
@@ -230,7 +230,7 @@ impl Encoder for NumericFloatCompression {
     fn encode<W: Write + std::io::Seek>(
         writer: W,
         delta: Self::Delta,
-        record: &RSIndexResult,
+        record: &RSIndexResult<'_>,
     ) -> std::io::Result<usize> {
         encode(writer, delta, record, true)
     }
@@ -239,7 +239,7 @@ impl Encoder for NumericFloatCompression {
 fn encode<W: Write + std::io::Seek>(
     mut writer: W,
     delta: NumericDelta,
-    record: &RSIndexResult,
+    record: &RSIndexResult<'_>,
     compress_floats: bool,
 ) -> std::io::Result<usize> {
     let num_record = record

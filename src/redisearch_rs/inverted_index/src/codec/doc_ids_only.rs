@@ -28,7 +28,7 @@ impl Encoder for DocIdsOnly {
     fn encode<W: Write + Seek>(
         mut writer: W,
         delta: Self::Delta,
-        _record: &RSIndexResult,
+        _record: &RSIndexResult<'_>,
     ) -> std::io::Result<usize> {
         let bytes_written = delta.write_as_varint(&mut writer)?;
         Ok(bytes_written)

@@ -7,6 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use ref_mode::Active;
+
 use ffi::{IndexFlags_Index_DocIdsOnly, t_docId};
 use index_result::RSIndexResult;
 use inverted_index::{IndexBlock, IndexReader, InvertedIndex, doc_ids_only::DocIdsOnly};
@@ -60,7 +62,7 @@ fn test_inverted_index_usage() {
     let delta = ii
         .scan_gc(
             |doc_id| doc_id >= 2_000,
-            None::<fn(&RSIndexResult, &IndexBlock)>,
+            None::<fn(&RSIndexResult<'_>, &IndexBlock)>,
         )
         .unwrap()
         .unwrap();
@@ -87,7 +89,7 @@ fn test_inverted_index_usage() {
     let delta = ii
         .scan_gc(
             |doc_id| doc_id < 3_000,
-            None::<fn(&RSIndexResult, &IndexBlock)>,
+            None::<fn(&RSIndexResult<'_>, &IndexBlock)>,
         )
         .unwrap()
         .unwrap();
@@ -101,7 +103,7 @@ fn test_inverted_index_usage() {
 
     // Remove all the records and check that the index can still be used
     let delta = ii
-        .scan_gc(|_| false, None::<fn(&RSIndexResult, &IndexBlock)>)
+        .scan_gc(|_| false, None::<fn(&RSIndexResult<'_>, &IndexBlock)>)
         .unwrap()
         .unwrap();
     let apply_info = ii.apply_gc(delta);
@@ -137,7 +139,7 @@ fn test_inverted_index_usage() {
     let delta = ii
         .scan_gc(
             |doc_id| doc_id % (u32::MAX as t_docId * 2) == 0,
-            None::<fn(&RSIndexResult, &IndexBlock)>,
+            None::<fn(&RSIndexResult<'_>, &IndexBlock)>,
         )
         .unwrap()
         .unwrap();

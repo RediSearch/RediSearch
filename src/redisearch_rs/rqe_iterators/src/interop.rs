@@ -65,7 +65,7 @@ where
         if let Some(current) = wrapper
             .inner
             .current()
-            .map(|c| c as *mut RSIndexResult as *mut ffi::RSIndexResult)
+            .map(|c| c as *mut RSIndexResult<'_> as *mut ffi::RSIndexResult)
         {
             wrapper.header.current = current;
         }
@@ -173,7 +173,7 @@ where
         self.header.current = self
             .inner
             .current()
-            .map(|c| c as *mut RSIndexResult as *mut ffi::RSIndexResult)
+            .map(|c| c as *mut RSIndexResult<'_> as *mut ffi::RSIndexResult)
             .unwrap_or(std::ptr::null_mut());
     }
 
@@ -230,7 +230,7 @@ extern "C" fn read<'index, I: RQEIterator<'index> + 'index>(
     let wrapper = unsafe { RQEIteratorWrapper::<I>::mut_ref_from_header_ptr(base) };
     match wrapper.inner.read() {
         Ok(Some(result)) => {
-            wrapper.header.current = result as *mut RSIndexResult as *mut ffi::RSIndexResult;
+            wrapper.header.current = result as *mut RSIndexResult<'_> as *mut ffi::RSIndexResult;
             wrapper.header.lastDocId = result.doc_id;
             IteratorStatus_ITERATOR_OK
         }
@@ -257,12 +257,12 @@ extern "C" fn skip_to<'index, I: RQEIterator<'index> + 'index>(
     let wrapper = unsafe { RQEIteratorWrapper::<I>::mut_ref_from_header_ptr(base) };
     match wrapper.inner.skip_to(doc_id) {
         Ok(Some(SkipToOutcome::Found(result))) => {
-            wrapper.header.current = result as *mut RSIndexResult as *mut ffi::RSIndexResult;
+            wrapper.header.current = result as *mut RSIndexResult<'_> as *mut ffi::RSIndexResult;
             wrapper.header.lastDocId = result.doc_id;
             IteratorStatus_ITERATOR_OK
         }
         Ok(Some(SkipToOutcome::NotFound(result))) => {
-            wrapper.header.current = result as *mut RSIndexResult as *mut ffi::RSIndexResult;
+            wrapper.header.current = result as *mut RSIndexResult<'_> as *mut ffi::RSIndexResult;
             wrapper.header.lastDocId = result.doc_id;
             IteratorStatus_ITERATOR_NOTFOUND
         }
@@ -297,7 +297,8 @@ extern "C" fn revalidate<'index, I: RQEIterator<'index> + 'index>(
         Ok(RQEValidateStatus::Ok) => ValidateStatus_VALIDATE_OK,
         Ok(RQEValidateStatus::Moved { current }) => {
             if let Some(result) = current {
-                wrapper.header.current = result as *mut RSIndexResult as *mut ffi::RSIndexResult;
+                wrapper.header.current =
+                    result as *mut RSIndexResult<'_> as *mut ffi::RSIndexResult;
                 wrapper.header.lastDocId = result.doc_id;
             } else {
                 wrapper.header.atEOF = true;
@@ -320,7 +321,7 @@ extern "C" fn rewind<'index, I: RQEIterator<'index> + 'index>(base: *mut QueryIt
     wrapper.header.current = wrapper
         .inner
         .current()
-        .map(|c| c as *mut RSIndexResult as *mut ffi::RSIndexResult)
+        .map(|c| c as *mut RSIndexResult<'_> as *mut ffi::RSIndexResult)
         .unwrap_or(std::ptr::null_mut());
 }
 

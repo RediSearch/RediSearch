@@ -104,7 +104,7 @@ pub unsafe extern "C" fn IndexResult_ResetAggregate(r: *mut RSIndexResult<'_>) {
 /// 2. The returned slice borrows from the `MetricsVec`; the caller must
 ///    not mutate or free the `MetricsVec` while the slice is in use.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn MetricsVec_AsSlice(metrics: *const MetricsVec) -> MetricsSlice {
+pub unsafe extern "C" fn MetricsVec_AsSlice(metrics: *const MetricsVec<'_>) -> MetricsSlice<'_> {
     debug_assert!(!metrics.is_null(), "metrics must not be null");
 
     // SAFETY: caller guarantees validity (1).
@@ -121,7 +121,7 @@ pub unsafe extern "C" fn MetricsVec_AsSlice(metrics: *const MetricsVec) -> Metri
 /// 2. `key` must point to a valid `RLookupKey`. Compared by pointer identity.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn MetricsVec_UpdateValue(
-    metrics: *mut MetricsVec,
+    metrics: *mut MetricsVec<'_>,
     key: *const RLookupKey,
     new_value: f64,
 ) {

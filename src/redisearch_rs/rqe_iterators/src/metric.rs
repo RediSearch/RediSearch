@@ -62,7 +62,7 @@ impl<'index, const SORTED_BY_ID: bool> Drop for Metric<'index, SORTED_BY_ID> {
 }
 
 #[inline(always)]
-fn set_result_metrics(result: &mut RSIndexResult, val: f64, key: *mut RLookupKey) {
+fn set_result_metrics(result: &mut RSIndexResult<'_>, val: f64, key: *mut RLookupKey) {
     if let Some(num) = result.as_numeric_mut() {
         *num = val;
     } else {

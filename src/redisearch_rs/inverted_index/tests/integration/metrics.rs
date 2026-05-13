@@ -15,6 +15,8 @@
 //! therefore use stack-allocated POD `RLookupKey` values whose contents are
 //! irrelevant — only their addresses matter.
 
+use ref_mode::Active;
+
 use ffi::RLookupKey;
 use index_result::{MetricEntry, MetricsVec};
 use std::ptr;

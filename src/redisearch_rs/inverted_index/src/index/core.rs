@@ -221,7 +221,7 @@ impl<E: Encoder> InvertedIndex<E> {
 
     /// Add a new record to the index and return by how much memory grew. It is expected that
     /// the document ID of the record is greater than or equal the last document ID in the index.
-    pub fn add_record(&mut self, record: &RSIndexResult) -> std::io::Result<usize> {
+    pub fn add_record(&mut self, record: &RSIndexResult<'_>) -> std::io::Result<usize> {
         let doc_id = record.doc_id;
 
         let same_doc = match (

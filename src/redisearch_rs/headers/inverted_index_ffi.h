@@ -14,11 +14,6 @@
 #include "inverted_index.h"
 
 /**
- * The result of an inverted index
- */
-typedef struct RSIndexResult RSIndexResult;
-
-/**
  * Setting to pass to the GC scan function
  */
 typedef struct IndexRepairParams IndexRepairParams;
@@ -74,6 +69,14 @@ typedef struct II_GCCallback {
    */
   void (*call)(void *ctx);
 } II_GCCallback;
+
+/**
+ * The [`Active`] instantiation of [`RawIndexResult`].
+ *
+ * This is the only mode that crosses the C boundary today; the suspended
+ * counterpart is forthcoming.
+ */
+typedef struct RawIndexResult_Active RSIndexResult;
 
 /**
  * The mask of flags that determine the index storage type. This includes all flags that affect
@@ -155,7 +158,7 @@ size_t InvertedIndex_WriteNumericEntry(struct InvertedIndex *ii, t_docId doc_id,
  * - `ii` must be a valid pointer to an `InvertedIndex` instance and cannot be NULL.
  * - `record` must be a valid pointer to an `RSIndexResult` instance and cannot be NULL.
  */
-size_t InvertedIndex_WriteEntryGeneric(struct InvertedIndex *ii, const struct RSIndexResult *record);
+size_t InvertedIndex_WriteEntryGeneric(struct InvertedIndex *ii, const RSIndexResult *record);
 
 /**
  * Return the number of blocks in the inverted index.
@@ -450,7 +453,7 @@ bool IndexReader_IsIndex(const struct IndexReader *ir, const struct InvertedInde
  * - `ir` must be a valid, non NULL, pointer to an `IndexReader` instance.
  * - `res` must be a valid pointer to an `RSIndexResult` instance.
  */
-bool IndexReader_Next(struct IndexReader *ir, struct RSIndexResult *res);
+bool IndexReader_Next(struct IndexReader *ir, RSIndexResult *res);
 
 /**
  * Skip the internal block of the inverted index reader to the block that may contain the given
@@ -477,7 +480,7 @@ bool IndexReader_SkipTo(struct IndexReader *ir, t_docId doc_id);
  * - `ir` must be a valid, non NULL, pointer to an `IndexReader` instance.
  * - `res` must be a valid pointer to an `RSIndexResult` instance.
  */
-bool IndexReader_Seek(struct IndexReader *ir, t_docId doc_id, struct RSIndexResult *res);
+bool IndexReader_Seek(struct IndexReader *ir, t_docId doc_id, RSIndexResult *res);
 
 /**
  * Check if the index reader can return multiple entries for the same document ID.

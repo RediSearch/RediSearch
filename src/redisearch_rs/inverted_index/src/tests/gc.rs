@@ -7,6 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use ref_mode::Active;
+
 use std::{
     io::{Cursor, Read},
     marker::PhantomData,
@@ -41,7 +43,7 @@ fn index_block_repair_delete() {
     let repair_status = block
         .repair(
             cb,
-            None::<fn(&RSIndexResult, &IndexBlock)>,
+            None::<fn(&RSIndexResult<'_>, &IndexBlock)>,
             PhantomData::<Dummy>::default(),
         )
         .unwrap();
@@ -71,7 +73,7 @@ fn index_block_repair_unchanged() {
     let repair_status = block
         .repair(
             cb,
-            None::<fn(&RSIndexResult, &IndexBlock)>,
+            None::<fn(&RSIndexResult<'_>, &IndexBlock)>,
             PhantomData::<Dummy>::default(),
         )
         .unwrap();
@@ -96,7 +98,7 @@ fn index_block_repair_some_deletions() {
     let repair_status = block
         .repair(
             cb,
-            None::<fn(&RSIndexResult, &IndexBlock)>,
+            None::<fn(&RSIndexResult<'_>, &IndexBlock)>,
             PhantomData::<Dummy>::default(),
         )
         .unwrap();
@@ -142,7 +144,7 @@ fn index_block_repair_delta_too_big() {
         fn encode<W: std::io::Write + std::io::Seek>(
             mut writer: W,
             delta: Self::Delta,
-            _record: &RSIndexResult,
+            _record: &RSIndexResult<'_>,
         ) -> std::io::Result<usize> {
             writer.write_all(&delta.0.to_be_bytes())?;
 
@@ -205,7 +207,7 @@ fn index_block_repair_delta_too_big() {
     let repair_status = block
         .repair(
             cb,
-            None::<fn(&RSIndexResult, &IndexBlock)>,
+            None::<fn(&RSIndexResult<'_>, &IndexBlock)>,
             PhantomData::<SmallDeltaDummy>::default(),
         )
         .unwrap();
@@ -293,7 +295,7 @@ fn ii_scan_gc() {
     }
 
     let gc_result = ii
-        .scan_gc(cb, None::<fn(&RSIndexResult, &IndexBlock)>)
+        .scan_gc(cb, None::<fn(&RSIndexResult<'_>, &IndexBlock)>)
         .unwrap()
         .unwrap();
 
@@ -350,7 +352,7 @@ fn ii_scan_gc_no_change() {
     }
 
     let gc_result = ii
-        .scan_gc(cb, None::<fn(&RSIndexResult, &IndexBlock)>)
+        .scan_gc(cb, None::<fn(&RSIndexResult<'_>, &IndexBlock)>)
         .unwrap();
 
     assert_eq!(gc_result, None, "there should be no changes");
@@ -685,7 +687,7 @@ fn ii_apply_gc_entries_tracking_index() {
         fn encode<W: std::io::Write + std::io::Seek>(
             mut writer: W,
             delta: Self::Delta,
-            _record: &RSIndexResult,
+            _record: &RSIndexResult<'_>,
         ) -> std::io::Result<usize> {
             writer.write_all(&delta.to_be_bytes())?;
 
@@ -753,7 +755,7 @@ fn ii_apply_gc_entries_tracking_index() {
 
     let mut repaired = Vec::new();
 
-    let repair = |result: &RSIndexResult, _ib: &IndexBlock| repaired.push(result.doc_id);
+    let repair = |result: &RSIndexResult<'_>, _ib: &IndexBlock| repaired.push(result.doc_id);
 
     assert_eq!(
         ii.scan_gc(doc_exist, Some(repair)).unwrap().unwrap(),

@@ -973,6 +973,7 @@ dependencies = [
  "enumflags2",
  "ffi",
  "query_term",
+ "ref_mode",
  "thin_vec",
  "varint",
 ]
@@ -1039,6 +1040,7 @@ dependencies = [
  "qint",
  "query_term",
  "redis_reply",
+ "ref_mode",
  "serde",
  "smallvec",
  "thin_vec",
@@ -1059,6 +1061,7 @@ dependencies = [
  "query_term",
  "redis-module",
  "redis_mock",
+ "ref_mode",
  "workspace_hack",
 ]
 
@@ -1070,6 +1073,7 @@ dependencies = [
  "ffi",
  "index_result",
  "inverted_index",
+ "ref_mode",
  "rmp-serde",
  "serde",
  "workspace_hack",
@@ -1088,6 +1092,7 @@ dependencies = [
  "numeric_range_tree",
  "numeric_range_tree_ffi",
  "query_node_type",
+ "ref_mode",
  "rqe_iterator_type",
  "rqe_iterators",
  "workspace_hack",
@@ -1263,6 +1268,7 @@ dependencies = [
  "ffi",
  "index_result",
  "inverted_index",
+ "ref_mode",
  "workspace_hack",
 ]
 
@@ -1386,6 +1392,7 @@ dependencies = [
  "redis_mock",
  "redis_reply",
  "redisearch_rs",
+ "ref_mode",
  "rstest",
  "tracing",
  "workspace_hack",
@@ -1399,6 +1406,7 @@ dependencies = [
  "ffi",
  "generational_slab",
  "hyperloglog",
+ "index_result",
  "inverted_index",
  "inverted_index_ffi",
  "numeric_range_tree",
@@ -2079,6 +2087,7 @@ dependencies = [
  "query_term_ffi",
  "redis_mock",
  "redisearch_rs",
+ "ref_mode",
  "rqe_iterator_type",
  "rqe_iterators",
  "rqe_iterators_test_utils",
@@ -2112,6 +2121,7 @@ dependencies = [
  "rand 0.9.3",
  "redis_mock",
  "redisearch_rs",
+ "ref_mode",
  "rqe_iterators",
  "rqe_iterators_test_utils",
  "workspace_hack",
@@ -2131,6 +2141,7 @@ dependencies = [
  "numeric_range_tree_ffi",
  "query_error",
  "redis_mock",
+ "ref_mode",
  "rqe_iterators",
  "varint_ffi",
  "workspace_hack",
@@ -2295,6 +2306,7 @@ dependencies = [
  "ffi",
  "index_result",
  "inverted_index",
+ "ref_mode",
  "rlookup",
  "workspace_hack",
 ]
@@ -2812,9 +2824,12 @@ dependencies = [
 name = "types_ffi"
 version = "0.0.1"
 dependencies = [
+ "cheadergen",
+ "ffi",
  "field",
  "index_result",
  "inverted_index",
+ "ref_mode",
  "workspace_hack",
 ]
 

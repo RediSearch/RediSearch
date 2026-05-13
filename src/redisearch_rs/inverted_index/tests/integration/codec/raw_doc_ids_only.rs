@@ -7,6 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use ref_mode::Active;
+
 use std::io::Cursor;
 
 use index_result::RSIndexResult;
@@ -160,7 +162,7 @@ fn test_inverted_index_raw_doc_ids_gc() {
     let delta = ii
         .scan_gc(
             |doc_id| doc_id >= 2_000,
-            None::<fn(&RSIndexResult, &IndexBlock)>,
+            None::<fn(&RSIndexResult<'_>, &IndexBlock)>,
         )
         .expect("scan_gc should not fail for valid index")
         .expect("scan_gc should return Some delta when entries are removed");
@@ -187,7 +189,7 @@ fn test_inverted_index_raw_doc_ids_gc() {
     let delta = ii
         .scan_gc(
             |doc_id| doc_id < 3_000,
-            None::<fn(&RSIndexResult, &IndexBlock)>,
+            None::<fn(&RSIndexResult<'_>, &IndexBlock)>,
         )
         .expect("scan_gc should not fail for valid index")
         .expect("scan_gc should return Some delta when entries are removed");
@@ -198,7 +200,7 @@ fn test_inverted_index_raw_doc_ids_gc() {
 
     // Test GC: Remove all remaining records
     let delta = ii
-        .scan_gc(|_| false, None::<fn(&RSIndexResult, &IndexBlock)>)
+        .scan_gc(|_| false, None::<fn(&RSIndexResult<'_>, &IndexBlock)>)
         .expect("scan_gc should not fail for valid index")
         .expect("scan_gc should return Some delta when entries are removed");
     let apply_info = ii.apply_gc(delta);
@@ -234,7 +236,7 @@ fn test_inverted_index_raw_doc_ids_gc() {
     let delta = ii
         .scan_gc(
             |doc_id| doc_id % (u32::MAX as t_docId * 2) == 0,
-            None::<fn(&RSIndexResult, &IndexBlock)>,
+            None::<fn(&RSIndexResult<'_>, &IndexBlock)>,
         )
         .expect("scan_gc should not fail for valid index")
         .expect("scan_gc should return Some delta when entries are removed");

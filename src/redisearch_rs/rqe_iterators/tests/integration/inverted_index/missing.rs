@@ -9,6 +9,8 @@
 
 //! Tests for the missing-field inverted index iterator.
 
+use ref_mode::Active;
+
 use ffi::{IndexFlags_Index_DocIdsOnly, RS_FIELDMASK_ALL, t_docId};
 use index_result::RSIndexResult;
 use inverted_index::doc_ids_only::DocIdsOnly;

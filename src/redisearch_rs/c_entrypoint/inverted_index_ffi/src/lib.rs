@@ -256,7 +256,7 @@ pub unsafe extern "C" fn InvertedIndex_WriteNumericEntry(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn InvertedIndex_WriteEntryGeneric(
     ii: *mut InvertedIndex,
-    record: *const RSIndexResult,
+    record: *const RSIndexResult<'_>,
 ) -> usize {
     debug_assert!(!ii.is_null(), "ii must not be null");
     debug_assert!(!record.is_null(), "record must not be null");
@@ -509,7 +509,7 @@ pub unsafe extern "C" fn InvertedIndex_GcMarkerInc(ii: *mut InvertedIndex) {
 pub struct IndexRepairParams {
     /// Callback to call for each entry that is still valid
     pub repair_callback:
-        Option<extern "C" fn(res: *const RSIndexResult, ib: *const IndexBlock, *mut c_void)>,
+        Option<extern "C" fn(res: *const RSIndexResult<'_>, ib: *const IndexBlock, *mut c_void)>,
 
     /// Argument to pass to the repair callback
     pub repair_arg: *mut c_void,
@@ -560,9 +560,9 @@ pub unsafe extern "C" fn InvertedIndex_GcDelta_Scan(
         // SAFETY: The caller must ensure `params` is a valid pointer to a `IndexRepairParams` and
         // we just checked it is not NULL
         let params = unsafe { &*params };
-        params
-            .repair_callback
-            .map(|cb| move |res: &RSIndexResult, ib: &IndexBlock| cb(res, ib, params.repair_arg))
+        params.repair_callback.map(|cb| {
+            move |res: &RSIndexResult<'_>, ib: &IndexBlock| cb(res, ib, params.repair_arg)
+        })
     };
 
     // SAFETY: The caller must ensure `idx` is a valid pointer to an `InvertedIndex`

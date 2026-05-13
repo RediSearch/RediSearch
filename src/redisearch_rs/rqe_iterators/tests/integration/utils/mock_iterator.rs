@@ -7,6 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use ref_mode::{Active, Ptr};
+
 use std::{cell::RefCell, rc::Rc, time::Duration};
 
 use ffi::{RS_FIELDMASK_ALL, t_docId};

@@ -7,6 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use ref_mode::Active;
+
 use ffi::{
     IndexFlags, IndexFlags_Index_StoreByteOffsets, IndexFlags_Index_StoreFieldFlags,
     IndexFlags_Index_StoreFreqs, IndexFlags_Index_StoreTermOffsets, IndexFlags_Index_WideSchema,
@@ -32,7 +34,7 @@ pub(super) struct BaseTest<E> {
 }
 
 /// assert that both records are equal
-pub fn check_record(record: &RSIndexResult, expected: &RSIndexResult) {
+pub fn check_record(record: &RSIndexResult<'_>, expected: &RSIndexResult<'_>) {
     if record.kind() == RSResultKind::Term {
         // the term record is not encoded in the II so we can't compare it directly
         assert_eq!(TermRecordCompare(record), TermRecordCompare(expected));
@@ -213,7 +215,7 @@ impl ExpirationChecker for MockExpirationChecker {
         !self.expired_docs.is_empty()
     }
 
-    fn is_expired(&self, result: &RSIndexResult) -> bool {
+    fn is_expired(&self, result: &RSIndexResult<'_>) -> bool {
         self.expired_docs.contains(&result.doc_id)
     }
 }
@@ -532,7 +534,7 @@ impl RevalidateTest {
         let scan_delta = ii
             .scan_gc(
                 |d| d != doc_id,
-                None::<fn(&RSIndexResult, &inverted_index::IndexBlock)>,
+                None::<fn(&RSIndexResult<'_>, &inverted_index::IndexBlock)>,
             )
             .expect("scan GC failed")
             .expect("no GC scan delta");

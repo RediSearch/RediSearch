@@ -74,7 +74,7 @@ pub trait Encoder {
     fn encode<W: Write + Seek>(
         writer: W,
         delta: Self::Delta,
-        record: &RSIndexResult,
+        record: &RSIndexResult<'_>,
     ) -> std::io::Result<usize>;
 
     /// Returns the base value that should be used for any delta calculations

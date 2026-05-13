@@ -7,6 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use ref_mode::Active;
+
 use approx::assert_abs_diff_eq;
 use ffi::{
     IndexFlags_Index_StoreByteOffsets, IndexFlags_Index_StoreFieldFlags,

@@ -7,6 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use ref_mode::Active;
+
 use rqe_iterators::{
     IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
     maybe_empty::MaybeEmpty,

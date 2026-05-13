@@ -29,7 +29,7 @@ impl Encoder for RawDocIdsOnly {
     fn encode<W: Write + Seek>(
         mut writer: W,
         delta: Self::Delta,
-        _record: &RSIndexResult,
+        _record: &RSIndexResult<'_>,
     ) -> std::io::Result<usize> {
         writer.write_all(&delta.to_ne_bytes())?;
         // Wrote delta as raw 4-bytes word

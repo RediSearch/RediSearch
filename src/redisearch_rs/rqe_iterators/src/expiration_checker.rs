@@ -29,7 +29,7 @@ pub trait ExpirationChecker {
     fn has_expiration(&self) -> bool;
 
     /// Returns `true` if the document in the result is expired.
-    fn is_expired(&self, result: &RSIndexResult) -> bool;
+    fn is_expired(&self, result: &RSIndexResult<'_>) -> bool;
 }
 
 /// A no-op expiration checker that never considers documents expired.
@@ -45,7 +45,7 @@ impl ExpirationChecker for NoOpChecker {
     }
 
     #[inline(always)]
-    fn is_expired(&self, _result: &RSIndexResult) -> bool {
+    fn is_expired(&self, _result: &RSIndexResult<'_>) -> bool {
         false
     }
 }
@@ -110,7 +110,7 @@ impl ExpirationChecker for FieldExpirationChecker {
         }
     }
 
-    fn is_expired(&self, result: &RSIndexResult) -> bool {
+    fn is_expired(&self, result: &RSIndexResult<'_>) -> bool {
         // SAFETY: Guaranteed by the safety contract of `new`.
         let sctx = unsafe { self.sctx.as_ref() };
         // SAFETY: Guaranteed by the safety contract of `new`.

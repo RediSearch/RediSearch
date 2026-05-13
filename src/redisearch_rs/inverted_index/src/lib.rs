@@ -34,5 +34,8 @@ pub use reader::{FilterGeoReader, FilterMaskReader, FilterNumericReader, ReadFil
 // Re-export FFI types.
 pub use ffi::{t_docId, t_fieldMask};
 
+// Re-export reference-mode markers used by index result types.
+pub use ref_mode::{Active, Ptr, Ref, Suspended};
+
 #[cfg(test)]
 mod tests;

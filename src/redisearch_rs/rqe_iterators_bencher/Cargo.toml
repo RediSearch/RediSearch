@@ -27,6 +27,7 @@ field.workspace = true
 index_result.workspace = true
 query_term.workspace = true
 inverted_index.workspace = true
+ref_mode.workspace = true
 inverted_index_ffi = { version = "0.0.1", path = "../c_entrypoint/inverted_index_ffi" }
 iterators_ffi = { path = "../c_entrypoint/iterators_ffi" }
 itertools.workspace = true

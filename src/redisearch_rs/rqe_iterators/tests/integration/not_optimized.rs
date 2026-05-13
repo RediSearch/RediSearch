@@ -7,6 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use ref_mode::Active;
+
 use std::time::Duration;
 
 use ffi::t_docId;
@@ -582,7 +584,7 @@ mod revalidate {
         let scan_delta = ii
             .scan_gc(
                 |d| d != doc_id,
-                None::<fn(&RSIndexResult, &inverted_index::IndexBlock)>,
+                None::<fn(&RSIndexResult<'_>, &inverted_index::IndexBlock)>,
             )
             .expect("scan GC failed")
             .expect("no GC scan delta");

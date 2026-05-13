@@ -34,7 +34,7 @@ impl Encoder for FreqsFields {
     fn encode<W: Write + Seek>(
         mut writer: W,
         delta: Self::Delta,
-        record: &RSIndexResult,
+        record: &RSIndexResult<'_>,
     ) -> std::io::Result<usize> {
         let field_mask = record
                 .field_mask
@@ -114,7 +114,7 @@ impl Encoder for FreqsFieldsWide {
     fn encode<W: Write + Seek>(
         mut writer: W,
         delta: Self::Delta,
-        record: &RSIndexResult,
+        record: &RSIndexResult<'_>,
     ) -> std::io::Result<usize> {
         let mut bytes_written = qint_encode(&mut writer, [delta, record.freq])?;
         bytes_written += record.field_mask.write_as_varint(&mut writer)?;
