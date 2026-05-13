@@ -591,6 +591,77 @@ void Initialize_KeyspaceNotifications() {
   }
 }
 
+// Iterate every live IndexSpec with a disk-backed companion and invoke `fn`
+// against its diskSpec. Used by the SST replication event handler so each
+// sub-event (PRE_CHECKPOINT / POST_CHECKPOINT / PRE_FORK / POST_FORK /
+// FORK_DIED-aka-ABORT) hits every index exactly once.
+static void ForEachDiskIndex(void (*fn)(RedisSearchDiskIndexSpec *)) {
+  if (!specDict_g) {
+    return;
+  }
+  dictIterator *iter = dictGetIterator(specDict_g);
+  dictEntry *entry = NULL;
+  while ((entry = dictNext(iter))) {
+    StrongRef spec_ref = dictGetRef(entry);
+    IndexSpec *sp = StrongRef_Get(spec_ref);
+    if (sp && sp->diskSpec) {
+      fn(sp->diskSpec);
+    }
+  }
+  dictReleaseIterator(iter);
+}
+
+// SST replication event handler.
+//
+// Drives the master-side SST replication state machine:
+//   PRE_CHECKPOINT  -> flush + block writes + cancel compactions
+//   POST_CHECKPOINT -> unblock writes (compactions remain disallowed)
+//   PRE_FORK        -> drain tiered jobs + flush so post-checkpoint writes
+//                      land as L0 files captured by Flex's L0 tracking
+//   POST_FORK       -> re-enable compactions
+//   ABORT           -> failure path: same cleanup as POST_FORK
+//
+// Stage 1 only wires the event -> per-spec FFI entrypoint plumbing. The
+// disk-side implementations are no-op stubs until Stage 2 lands.
+// See docs/design/replication_implementation_plan.md.
+static void SSTReplicationEvent(RedisModuleCtx *ctx, RedisModuleEvent eid,
+                                uint64_t subevent, void *data) {
+  REDISMODULE_NOT_USED(eid);
+  REDISMODULE_NOT_USED(data);
+
+  if (!SearchDisk_IsInitialized()) {
+    return;
+  }
+
+  switch (subevent) {
+    case REDISMODULE_SUBEVENT_SST_REPL_PRE_CHECKPOINT:
+      RedisModule_Log(ctx, "notice", "SST replication: PRE_CHECKPOINT");
+      ForEachDiskIndex(SearchDisk_PreCheckpoint);
+      break;
+    case REDISMODULE_SUBEVENT_SST_REPL_POST_CHECKPOINT:
+      RedisModule_Log(ctx, "notice", "SST replication: POST_CHECKPOINT");
+      ForEachDiskIndex(SearchDisk_PostCheckpoint);
+      break;
+    case REDISMODULE_SUBEVENT_SST_REPL_PRE_FORK:
+      RedisModule_Log(ctx, "notice", "SST replication: PRE_FORK");
+      ForEachDiskIndex(SearchDisk_PreFork);
+      break;
+    case REDISMODULE_SUBEVENT_SST_REPL_POST_FORK:
+      RedisModule_Log(ctx, "notice", "SST replication: POST_FORK");
+      ForEachDiskIndex(SearchDisk_PostFork);
+      break;
+    case REDISMODULE_SUBEVENT_SST_REPL_ABORT:
+      RedisModule_Log(ctx, "notice", "SST replication: ABORT");
+      ForEachDiskIndex(SearchDisk_ReplicationAbort);
+      break;
+    default:
+      RedisModule_Log(ctx, "warning",
+                      "SST replication: unknown sub-event %llu",
+                      (unsigned long long)subevent);
+      break;
+  }
+}
+
 // Persistence event handler.
 // Called on BGSAVE/AOF rewrite start and end.
 static void PersistenceEvent(RedisModuleCtx *ctx, RedisModuleEvent eid,
@@ -648,6 +719,9 @@ void Initialize_ServerEventNotifications(RedisModuleCtx *ctx) {
 
     RedisModule_Log(ctx, "notice", "Subscribe to persistence events");
     RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_Persistence, PersistenceEvent);
+
+    RedisModule_Log(ctx, "notice", "Subscribe to SST replication events");
+    RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_SSTReplication, SSTReplicationEvent);
   }
 }
 

@@ -332,6 +332,65 @@ typedef struct IndexDiskAPI {
    * @param new_budget New total buffer budget in bytes (will be divided internally)
    */
   void (*updateWriteBufferSize)(RedisSearchDiskIndexSpec *index, size_t new_budget);
+
+  /**
+   * @brief Master-side SST replication PRE_CHECKPOINT hook.
+   *
+   * Called on the master before SpeedB takes the consistency checkpoint that
+   * will be shipped to a replica. Implementations should:
+   *   - flush the memtables so the checkpoint captures everything,
+   *   - disallow new compactions and cancel any in-flight compaction.
+   *
+   * Note: there is no matching POST_CHECKPOINT disk hook. POST_CHECKPOINT is
+   * handled entirely on the OSS side (release of the consistency lock); the
+   * disk layer has no per-spec work to do at that point.
+   *
+   * @param index Pointer to the disk index spec
+   */
+  void (*preCheckpoint)(RedisSearchDiskIndexSpec *index);
+
+  /**
+   * @brief Master-side SST replication PRE_FORK hook.
+   *
+   * Called on the master immediately before Flex forks the snapshot child.
+   * Implementations should drain in-flight tiered jobs and flush the memtable
+   * so any writes that happened since POST_CHECKPOINT land as L0 files that
+   * Flex's L0 tracking will pick up.
+   *
+   * Note: the caller (OSS) is expected to acquire the per-spec fork lock
+   * before calling this entrypoint and release it after postFork/forkDied.
+   *
+   * @param index Pointer to the disk index spec
+   */
+  void (*preFork)(RedisSearchDiskIndexSpec *index);
+
+  /**
+   * @brief Master-side SST replication POST_FORK hook.
+   *
+   * Called on the master after the snapshot child has been forked. Implementations
+   * should re-enable compactions; the fork lock is released by the caller.
+   *
+   * @param index Pointer to the disk index spec
+   */
+  void (*postFork)(RedisSearchDiskIndexSpec *index);
+
+  /**
+   * @brief Master-side SST replication ABORT hook.
+   *
+   * Called on the master when the SST replication cycle is aborted at any
+   * point between PRE_CHECKPOINT and POST_FORK (for example: the snapshot
+   * child died, the replica disconnected, or Flex cancelled the replication).
+   * Implementations should undo any state changes left in place by the
+   * preceding pre* hooks - re-enable compactions, drop any pending checkpoint
+   * artefacts, and bring the index back to its steady-state.
+   *
+   * Note: the caller (OSS) is responsible for releasing any locks it acquired
+   * for this cycle (write lock / consistency lock) regardless of whether
+   * abort or postFork ran.
+   *
+   * @param index Pointer to the disk index spec
+   */
+  void (*replicationAbort)(RedisSearchDiskIndexSpec *index);
 } IndexDiskAPI;
 
 typedef struct DocTableDiskAPI {

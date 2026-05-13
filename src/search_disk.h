@@ -556,6 +556,57 @@ uint64_t SearchDisk_GetDiskUsage(RedisSearchDiskIndexSpec* index);
 void SearchDisk_Flush(RedisSearchDiskIndexSpec* index);
 
 /**
+ * @brief Master-side SST replication PRE_CHECKPOINT hook for a single index.
+ *
+ * Takes the per-spec write lock and dispatches to IndexDiskAPI.preCheckpoint.
+ *
+ * @param index Pointer to the disk index spec
+ */
+void SearchDisk_PreCheckpoint(RedisSearchDiskIndexSpec *index);
+
+/**
+ * @brief Master-side SST replication POST_CHECKPOINT hook for a single index.
+ *
+ * Releases the per-spec write lock taken in SearchDisk_PreCheckpoint. There is
+ * no matching disk-side hook - the disk layer has no per-spec work to do at
+ * POST_CHECKPOINT.
+ *
+ * @param index Pointer to the disk index spec
+ */
+void SearchDisk_PostCheckpoint(RedisSearchDiskIndexSpec *index);
+
+/**
+ * @brief Master-side SST replication PRE_FORK hook for a single index.
+ *
+ * Wraps IndexDiskAPI.preFork. The caller is responsible for holding the
+ * per-spec fork lock across the PRE_FORK / POST_FORK window.
+ *
+ * @param index Pointer to the disk index spec
+ */
+void SearchDisk_PreFork(RedisSearchDiskIndexSpec *index);
+
+/**
+ * @brief Master-side SST replication POST_FORK hook for a single index.
+ *
+ * Wraps IndexDiskAPI.postFork.
+ *
+ * @param index Pointer to the disk index spec
+ */
+void SearchDisk_PostFork(RedisSearchDiskIndexSpec *index);
+
+/**
+ * @brief Master-side SST replication ABORT hook for a single index.
+ *
+ * Wraps IndexDiskAPI.replicationAbort. Called on the failure path of an
+ * SST replication cycle to let the disk layer undo any state set up by
+ * preCheckpoint / preFork (e.g. re-enable compactions). The OSS caller is
+ * still responsible for releasing locks taken for this cycle.
+ *
+ * @param index Pointer to the disk index spec
+ */
+void SearchDisk_ReplicationAbort(RedisSearchDiskIndexSpec *index);
+
+/**
  * @brief Update the buffer budget and WBM in response to RAM configuration changes
  *
  * This function requests a new buffer budget from Redis via BigWriteBufferBudgetInit

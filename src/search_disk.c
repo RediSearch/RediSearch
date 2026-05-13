@@ -427,6 +427,40 @@ void SearchDisk_Flush(RedisSearchDiskIndexSpec* index) {
   disk->index.flush(index);
 }
 
+void SearchDisk_PreCheckpoint(RedisSearchDiskIndexSpec *index) {
+  RS_ASSERT(disk && index);
+  // Need to take read lock to avoid any new writes
+  disk->index.preCheckpoint(index);
+}
+
+void SearchDisk_PostCheckpoint(RedisSearchDiskIndexSpec *index) {
+  RS_ASSERT(disk && index);
+  // Need to release read lock to enable new writes
+}
+
+void SearchDisk_PreFork(RedisSearchDiskIndexSpec *index) {
+  RS_ASSERT(disk && index);
+  // Take read lock to avoid new writes
+  // Wait for or cancel vec in-flight operations to finish
+  // Take consistency lock (For GC consistency)
+  disk->index.preFork(index);
+}
+
+void SearchDisk_PostFork(RedisSearchDiskIndexSpec *index) {
+  RS_ASSERT(disk && index);
+  // Need to release read lock to enable new writes
+  // Reenable async operations (vec ops)
+  // Release consistency lock (For GC Consistency)
+  disk->index.postFork(index);
+}
+
+void SearchDisk_ReplicationAbort(RedisSearchDiskIndexSpec *index) {
+  RS_ASSERT(disk && index);
+  // Undo any state changes left in place by preCheckpoint / preFork.
+  // Lock release is handled by the OSS caller regardless of abort vs postFork.
+  disk->index.replicationAbort(index);
+}
+
 void SearchDisk_UpdateBufferBudget(RedisModuleCtx *ctx, int percentage) {
   RS_ASSERT(disk && disk_db);
 
