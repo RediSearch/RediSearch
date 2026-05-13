@@ -118,14 +118,14 @@ impl Storage {
                     heap.push(HeapEntry::new(key, project()));
                     true
                 } else {
-                    let cand = EntryKey::new(sort_vals(), *sort_asc_map);
+                    let cand_key = EntryKey::new(sort_vals(), *sort_asc_map);
                     // `peek_min` returns the worst surviving candidate
                     // under the "best = max" convention (see `heap`).
                     // The unwrap is sound: `cap > 0` implies the heap is
                     // non-empty once we've reached the cap.
-                    let worst_key = heap.peek_min().expect("heap at cap is non-empty").key();
-                    if cand > *worst_key {
-                        heap.push_pop_min(HeapEntry::new(cand, project()));
+                    let worst = heap.peek_min().expect("heap at cap is non-empty");
+                    if cand_key > *worst.key() {
+                        heap.push_pop_min(HeapEntry::new(cand_key, project()));
                         true
                     } else {
                         false

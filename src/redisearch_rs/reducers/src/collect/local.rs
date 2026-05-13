@@ -69,6 +69,7 @@ fn prepare_row(
 /// `None` so [`cmp_fields`][value::comparison::cmp_fields] can apply its
 /// missing-worst policy.
 fn snapshot_sort_keys(sort_key_names: &[CString], item: &Value) -> Box<[Option<SharedValue>]> {
+    debug_assert!(matches!(item, Value::Map(_) | Value::Array(_)));
     sort_key_names
         .iter()
         .map(|name| get_field(item, name.to_bytes()).cloned())
