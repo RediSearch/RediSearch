@@ -333,6 +333,104 @@ pub fn lower_icu(s: &str) -> String {
         .into_owned()
 }
 
+/// Which libnu case-mapping table to look up — `nu_tofold` or `nu_tolower`.
+///
+/// Both tables are read via the same `nu_casemap_read` loop in production
+/// (`src/trie/rune_util.c:97` and `src/util/strconv.h:160`), so the
+/// terminator-walk logic is identical; only the head-lookup function differs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CaseMapTable {
+    /// `nu_tofold` — full case-folding table (`deps/libnu/gen/_tofold.c`).
+    Fold,
+    /// `nu_tolower` — lowercase table (`deps/libnu/gen/_tolower.c`). This is
+    /// the production text-normalisation path.
+    Lower,
+}
+
+/// Outcome of walking a `nu_tofold` / `nu_tolower` mapping via the
+/// `nu_casemap_read` loop.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CasemapWalk {
+    /// The head-lookup function (`nu_tofold` / `nu_tolower`) returned NULL —
+    /// the codepoint has no mapping and is its own fold/lowercase.
+    NoMapping,
+    /// The loop read the codepoint-0 terminator within the allowed
+    /// iteration budget. Inner [`Vec`] is the decoded expansion sequence
+    /// (zero or more codepoints, terminator excluded).
+    Terminated(Vec<u32>),
+    /// The loop hit the iteration cap before finding a terminator. The
+    /// inner [`Vec`] holds the first `cap` codepoints that were read. This
+    /// is the signal of a malformed entry in libnu's generated data
+    /// (`deps/libnu/gen/_tofold.c` or `_tolower.c`); in production the
+    /// equivalent C loop has no cap and would read out-of-bounds past the
+    /// static table.
+    CapReached(Vec<u32>),
+}
+
+/// Look up `cp` in the chosen libnu casemap table and walk the resulting
+/// multi-codepoint expansion via `nu_casemap_read` until a 0 codepoint is
+/// read or `cap` iterations have elapsed.
+///
+/// This mirrors the production C loop verbatim:
+///
+/// ```text
+/// const char *map = nu_tolower(cp);              // or nu_tofold(cp)
+/// if (map != NULL) {
+///     uint32_t mu;
+///     while (1) {
+///         map = nu_casemap_read(map, &mu);
+///         if (mu == 0) break;
+///         // ...use mu...
+///     }
+/// }
+/// ```
+///
+/// Call sites: `__fold` and `strToLowerRunes` in `src/trie/rune_util.c`,
+/// `unicode_tolower` in `src/util/strconv.h`.
+///
+/// `nu_casemap_read` is a `#define` alias for `nu_utf8_read`, so each
+/// iteration decodes one UTF-8 codepoint from libnu's static mapping bytes.
+/// A well-formed table entry is a null-terminated UTF-8 string, so the loop
+/// reaches the codepoint-0 terminator within (mapping_length + 1) reads.
+/// The `cap` is defensive: if a table is malformed (missing terminator),
+/// the production loop would read OOB into adjacent static memory; this
+/// helper instead returns [`CasemapWalk::CapReached`].
+pub fn walk_casemap_expansion(cp: u32, table: CaseMapTable, cap: usize) -> CasemapWalk {
+    let head = match table {
+        // SAFETY: `nu_tofold` is a pure table lookup; any `u32` input is
+        // accepted and the returned pointer is either NULL or points into
+        // libnu's static null-terminated mapping data.
+        CaseMapTable::Fold => unsafe { libnu_ffi::nu_tofold(cp) },
+        // SAFETY: `nu_tolower` is a pure table lookup; any `u32` input is
+        // accepted and the returned pointer is either NULL or points into
+        // libnu's static null-terminated mapping data.
+        CaseMapTable::Lower => unsafe { libnu_ffi::nu_tolower(cp) },
+    };
+    if head.is_null() {
+        return CasemapWalk::NoMapping;
+    }
+
+    let mut codepoints = Vec::new();
+    let mut ptr = head;
+    for _ in 0..cap {
+        let mut decoded: u32 = 0;
+        // SAFETY: `ptr` starts inside libnu's static mapping data (returned
+        // by `nu_tofold` / `nu_tolower`) and advances by one codepoint per
+        // iteration via `nu_utf8_read`. As long as the table entry contains
+        // a 0 byte within `cap` codepoints (the well-formed invariant), the
+        // read stays inside that entry. If the invariant is violated the
+        // cap bounds the read to `cap` codepoints' worth of bytes past the
+        // start — same as the production C loop would do under the same
+        // assumption, except production has no cap at all.
+        ptr = unsafe { libnu_ffi::nu_utf8_read_shim(ptr, &mut decoded) };
+        if decoded == 0 {
+            return CasemapWalk::Terminated(codepoints);
+        }
+        codepoints.push(decoded);
+    }
+    CasemapWalk::CapReached(codepoints)
+}
+
 /// Per-codepoint divergence record, used when both folders happen to produce
 /// outputs of the same codepoint count.
 #[derive(Debug, Clone, PartialEq, Eq)]
