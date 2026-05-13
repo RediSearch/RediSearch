@@ -33,7 +33,7 @@ TEST_F(SchemaRuleTest, testCreateFromACPrefixes) {
   SchemaRuleArgs args = {0};
   args.type = "HASH";
 
-  QueryError status = QueryError_Default();
+  QueryError status; QueryError_Init(&status);
   SchemaRule *rule = SchemaRule_CreateWithPrefixesAC(&args, &ac, {ism}, &status);
   ASSERT_NE(rule, nullptr) << QueryError_GetUserError(&status);
   ASSERT_FALSE(QueryError_HasError(&status));
@@ -64,7 +64,7 @@ TEST_F(SchemaRuleTest, testCreateFromACEquivalentToCArray) {
   args_arr.type = "HASH";
   args_arr.prefixes = prefix_strs;
   args_arr.nprefixes = nprefixes;
-  QueryError s_arr = QueryError_Default();
+  QueryError s_arr; QueryError_Init(&s_arr);
   SchemaRule *rule_arr = SchemaRule_Create(&args_arr, {ism_arr}, &s_arr);
   ASSERT_NE(rule_arr, nullptr) << QueryError_GetUserError(&s_arr);
 
@@ -74,7 +74,7 @@ TEST_F(SchemaRuleTest, testCreateFromACEquivalentToCArray) {
   ArgsCursor_InitCString(&ac, prefix_strs, nprefixes);
   SchemaRuleArgs args_ac = {0};
   args_ac.type = "HASH";
-  QueryError s_ac = QueryError_Default();
+  QueryError s_ac; QueryError_Init(&s_ac);
   SchemaRule *rule_ac = SchemaRule_CreateWithPrefixesAC(&args_ac, &ac, {ism_ac}, &s_ac);
   ASSERT_NE(rule_ac, nullptr) << QueryError_GetUserError(&s_ac);
 
@@ -103,7 +103,7 @@ TEST_F(SchemaRuleTest, testCreateFromACEmpty) {
   SchemaRuleArgs args = {0};
   args.type = "HASH";
 
-  QueryError status = QueryError_Default();
+  QueryError status; QueryError_Init(&status);
   SchemaRule *rule = SchemaRule_CreateWithPrefixesAC(&args, &ac, {ism}, &status);
   ASSERT_NE(rule, nullptr) << QueryError_GetUserError(&status);
   ASSERT_EQ(array_len(rule->prefixes), 0u);
@@ -125,7 +125,7 @@ TEST_F(SchemaRuleTest, testCreateFromACTooManyPrefixes) {
   SchemaRuleArgs args = {0};
   args.type = "HASH";
 
-  QueryError status = QueryError_Default();
+  QueryError status; QueryError_Init(&status);
   SchemaRule *rule = SchemaRule_CreateWithPrefixesAC(&args, &ac, {ism}, &status);
   ASSERT_EQ(rule, nullptr);
   ASSERT_TRUE(QueryError_HasError(&status));
@@ -146,7 +146,7 @@ TEST_F(SchemaRuleTest, testCreateFromCArrayTooManyPrefixes) {
   args.nprefixes = MAX_SCHEMA_PREFIXES + 1;  // check fires before iteration
   args.prefixes = nullptr;
 
-  QueryError status = QueryError_Default();
+  QueryError status; QueryError_Init(&status);
   SchemaRule *rule = SchemaRule_Create(&args, {ism}, &status);
   ASSERT_EQ(rule, nullptr);
   ASSERT_TRUE(QueryError_HasError(&status));
@@ -169,7 +169,7 @@ TEST_F(SchemaRuleTest, testCreateFromACInvalidType) {
   SchemaRuleArgs args = {0};
   args.type = "BOGUS";
 
-  QueryError status = QueryError_Default();
+  QueryError status; QueryError_Init(&status);
   SchemaRule *rule = SchemaRule_CreateWithPrefixesAC(&args, &ac, {ism}, &status);
   ASSERT_EQ(rule, nullptr);
   ASSERT_TRUE(QueryError_HasError(&status));
