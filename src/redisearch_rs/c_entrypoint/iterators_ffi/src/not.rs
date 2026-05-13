@@ -18,10 +18,12 @@ use rqe_iterators::{
     not::Not,
     not_optimized::NotOptimized,
     not_reducer::{NewNotIterator, new_not_iterator},
+    utils::TimeoutContextClock,
 };
 
-type NotFfi<'index> = Not<'index, CRQEIterator>;
-type NotOptimizedFfi<'index> = NotOptimized<'index, NewWildcardIterator<'index>, CRQEIterator>;
+type NotFfi<'index> = Not<'index, CRQEIterator, TimeoutContextClock>;
+type NotOptimizedFfi<'index> =
+    NotOptimized<'index, NewWildcardIterator<'index>, CRQEIterator, TimeoutContextClock>;
 
 /// Enum holding both NOT iterator variants with concrete [`CRQEIterator`] child.
 ///

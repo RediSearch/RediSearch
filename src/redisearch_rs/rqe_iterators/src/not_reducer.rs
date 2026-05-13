@@ -18,10 +18,18 @@ use crate::{
     Empty, IteratorType, NewWildcardIterator, RQEIterator,
     not::Not,
     not_optimized::NotOptimized,
+    utils::TimeoutContextClock,
     wildcard::{
         new_wildcard_iterator, new_wildcard_iterator_on_disk, new_wildcard_iterator_optimized,
     },
 };
+
+/// Check the clock every this many loop iterations to amortize syscall cost.
+///
+/// Used by both [`Not`] and [`NotOptimized`] when constructed with a
+/// [`TimeoutContextClock`]. Higher values reduce per-call overhead at the
+/// cost of larger overshoots past the deadline.
+const TIMEOUT_CHECK_GRANULARITY: u32 = 5_000;
 
 /// The result of [`not_iterator_reducer`].
 ///
@@ -85,15 +93,19 @@ where
 }
 
 /// The result of [`new_not_iterator`].
+///
+/// The Rust-side reducer currently only constructs the clock-based timeout
+/// variant ([`TimeoutContextClock`]); the callback-based variant is wired up
+/// in a follow-up step (see `MOD-15397-design.md` action item 3).
 pub enum NewNotIterator<'index, I> {
     /// The child is empty → NOT matches everything → wildcard.
     ReducedWildcard(NewWildcardIterator<'index>),
     /// The child is a wildcard → NOT matches nothing → empty.
     ReducedEmpty(Empty),
     /// Non-optimized path: sequential NOT iterator.
-    Not(Not<'index, I>),
+    Not(Not<'index, I, TimeoutContextClock>),
     /// Optimized path (`index_all` or disk index): wildcard-backed NOT iterator.
-    NotOptimized(NotOptimized<'index, NewWildcardIterator<'index>, I>),
+    NotOptimized(NotOptimized<'index, NewWildcardIterator<'index>, I, TimeoutContextClock>),
 }
 
 /// Construct a NOT iterator, choosing between [`Not`] (sequential) and
@@ -157,6 +169,12 @@ where
     let disk_index_available = !spec.diskSpec.is_null();
     let optimized = index_all || disk_index_available;
 
+    let timeout_ctx = if skip_timeout_checks {
+        None
+    } else {
+        Some(TimeoutContextClock::new(timeout, TIMEOUT_CHECK_GRANULARITY))
+    };
+
     if optimized {
         let wcii = if disk_index_available {
             // SAFETY: Caller guarantees `spec.diskSpec` is valid, non-null and
@@ -174,19 +192,9 @@ where
             child,
             max_doc_id,
             weight,
-            if skip_timeout_checks {
-                None
-            } else {
-                Some(timeout)
-            },
+            timeout_ctx,
         ))
     } else {
-        NewNotIterator::Not(Not::new(
-            child,
-            max_doc_id,
-            weight,
-            timeout,
-            skip_timeout_checks,
-        ))
+        NewNotIterator::Not(Not::new(child, max_doc_id, weight, timeout_ctx))
     }
 }

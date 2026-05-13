@@ -16,4 +16,4 @@ mod timeout;
 #[doc(inline)]
 pub use self::owned_slice::OwnedSlice;
 pub use min_heap::{DocIdMinHeap, HeapEntry};
-pub use timeout::TimeoutContext;
+pub use timeout::{TimeoutContext, TimeoutContextClock};

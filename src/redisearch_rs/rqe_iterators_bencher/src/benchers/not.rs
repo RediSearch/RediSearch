@@ -12,7 +12,9 @@
 use std::{hint::black_box, time::Duration};
 
 use criterion::{BenchmarkGroup, Criterion, measurement::WallTime};
-use rqe_iterators::{RQEIterator, empty::Empty, id_list::IdListSorted, not::Not};
+use rqe_iterators::{
+    RQEIterator, empty::Empty, id_list::IdListSorted, not::Not, utils::TimeoutContextClock,
+};
 
 #[derive(Default)]
 pub struct Bencher;
@@ -23,11 +25,9 @@ impl Bencher {
 
     const MAX_DOC_ID: u64 = 1_000_000;
 
-    /// Duration is irrelevant since we skip timeout checks in benchmarks.
-    const NOT_ITERATOR_TIMEOUT: Duration = Duration::ZERO;
-
-    /// Skip timeout checks in benchmarks to avoid any overhead.
-    const SKIP_TIMEOUT_CHECKS: bool = true;
+    /// Disable timeout checks in benchmarks: passing `None` skips all
+    /// per-call overhead in the iterator's `check_timeout` path.
+    const TIMEOUT_CTX: Option<TimeoutContextClock> = None;
 
     fn benchmark_group<'a>(
         &self,
@@ -55,15 +55,7 @@ impl Bencher {
         // Rust implementation
         group.bench_function("Rust", |b| {
             b.iter_batched_ref(
-                || {
-                    Not::new(
-                        Empty,
-                        Self::MAX_DOC_ID,
-                        1.0,
-                        Self::NOT_ITERATOR_TIMEOUT,
-                        Self::SKIP_TIMEOUT_CHECKS,
-                    )
-                },
+                || Not::new(Empty, Self::MAX_DOC_ID, 1.0, Self::TIMEOUT_CTX),
                 |it| {
                     while let Ok(Some(current)) = it.read() {
                         black_box(current);
@@ -90,8 +82,7 @@ impl Bencher {
                         IdListSorted::new(data),
                         Self::MAX_DOC_ID,
                         1.0,
-                        Self::NOT_ITERATOR_TIMEOUT,
-                        Self::SKIP_TIMEOUT_CHECKS,
+                        Self::TIMEOUT_CTX,
                     )
                 },
                 |it| {
@@ -114,15 +105,7 @@ impl Bencher {
         // Rust implementation
         group.bench_function("Rust", |b| {
             b.iter_batched_ref(
-                || {
-                    Not::new(
-                        Empty,
-                        Self::MAX_DOC_ID,
-                        1.0,
-                        Self::NOT_ITERATOR_TIMEOUT,
-                        Self::SKIP_TIMEOUT_CHECKS,
-                    )
-                },
+                || Not::new(Empty, Self::MAX_DOC_ID, 1.0, Self::TIMEOUT_CTX),
                 |it| {
                     while let Ok(Some(current)) = it.skip_to(it.last_doc_id() + step) {
                         black_box(current);
@@ -149,8 +132,7 @@ impl Bencher {
                         IdListSorted::new(data),
                         Self::MAX_DOC_ID,
                         1.0,
-                        Self::NOT_ITERATOR_TIMEOUT,
-                        Self::SKIP_TIMEOUT_CHECKS,
+                        Self::TIMEOUT_CTX,
                     )
                 },
                 |it| {
@@ -179,8 +161,7 @@ impl Bencher {
                         IdListSorted::new(data),
                         Self::MAX_DOC_ID,
                         1.0,
-                        Self::NOT_ITERATOR_TIMEOUT,
-                        Self::SKIP_TIMEOUT_CHECKS,
+                        Self::TIMEOUT_CTX,
                     )
                 },
                 |it| {
