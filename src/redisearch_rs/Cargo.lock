@@ -1324,6 +1324,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "min-max-heap"
+version = "1.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2687e6cf9c00f48e9284cf9fd15f2ef341d03cc7743abf9df4c5f07fdee50b18"
+
+[[package]]
 name = "minimal-lexical"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1943,6 +1949,7 @@ dependencies = [
  "bumpalo",
  "ffi",
  "itertools 0.14.0",
+ "min-max-heap",
  "query_error",
  "redis_mock",
  "redisearch_rs",
