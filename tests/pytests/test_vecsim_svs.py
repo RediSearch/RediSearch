@@ -259,6 +259,83 @@ def test_memory_info():
 
         env.execute_command('FLUSHALL')
 
+@skip(cluster=True)
+def test_svs_shared_threadpool_memory_info():
+    """Verify shared SVS thread pool memory accounting:
+      * FT.DEBUG VECSIM_INFO exposes it as SHARED_SVS_THREADPOOL_MEMORY inside
+        the SVS section (BACKEND_INDEX for a tiered SVS index, top level for a
+        non-tiered SVS index).
+      * FT.INFO vector_index_sz_mb folds it in once per call (per-spec scope).
+      * INFO MODULES search_used_memory_vector_index folds it in once per call
+        (process-wide scope).
+      * For a single SVS index, both FT.INFO and INFO MODULES report the same
+        bytes — vector field memory + pool memory.
+      * Pool memory is added once per call regardless of the number of vector
+        fields in the spec or specs in the process — no double-counting.
+
+    All observations are validated before and after growing the worker pool, which
+    physically resizes the shared SVS pool.
+    """
+    initial_workers = 1
+    grown_workers = 4
+    env = Env(moduleArgs=f'DEFAULT_DIALECT 2 WORKERS {initial_workers}')
+    dim = 2
+    debug_svs_pool_mem_field = 'SHARED_SVS_THREADPOOL_MEMORY'
+
+    # The shared SVS pool singleton is initialized at module init via
+    # workersThreadPool_CreatePool -> VecSim_UpdateThreadPoolSize, so the field is
+    # always present in the debug info once any SVS index exists.
+    create_vector_index(env, dim, alg='SVS-VAMANA')
+
+    def measure():
+        debug_info = get_tiered_debug_info(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME)
+        backend_info = get_tiered_backend_debug_info(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME)
+        env.assertTrue(debug_svs_pool_mem_field in backend_info,
+                       message=f"BACKEND_INDEX debug info missing '{debug_svs_pool_mem_field}': {backend_info}")
+        info_modules = env.cmd('INFO', 'MODULES')
+        return {
+            'debug_svs_pool_mem': int(backend_info[debug_svs_pool_mem_field]),
+            'debug_per_index_mem': int(debug_info['MEMORY']),
+            'info_modules_vec_mem': int(info_modules['search_used_memory_vector_index']),
+            'ft_info_vec_bytes': int(float(index_info(env, DEFAULT_INDEX_NAME)['vector_index_sz_mb']) * 0x100000),
+        }
+
+    def assert_invariants(label, m):
+        # FT.INFO and INFO MODULES report the same total for a single SVS field:
+        # per-index memory + pool memory, both folded once.
+        expected = m['debug_per_index_mem'] + m['debug_svs_pool_mem']
+        env.assertEqual(m['ft_info_vec_bytes'], expected,
+                        message=f"[{label}] FT.INFO vector_index_sz_mb should equal per-index + pool: {m}")
+        env.assertEqual(m['info_modules_vec_mem'], expected,
+                        message=f"[{label}] INFO MODULES search_used_memory_vector_index should equal per-index + pool: {m}")
+        env.assertEqual(m['ft_info_vec_bytes'], m['info_modules_vec_mem'],
+                        message=f"[{label}] FT.INFO vector_index_sz_mb should match INFO MODULES "
+                                f"search_used_memory_vector_index: {m}")
+
+    # ---- Initial state ----
+    before = measure()
+    env.assertGreater(before['debug_svs_pool_mem'], 0, message="shared pool memory should be > 0 after pool initialization")
+    assert_invariants('before resize', before)
+
+    # ---- Grow the worker pool ----
+    # CONFIG SET WORKERS triggers VecSim_UpdateThreadPoolSize, which physically
+    # resizes the shared SVS pool (synchronous when no jobs are pending).
+    env.execute_command(config_cmd(), 'SET', 'WORKERS', grown_workers)
+
+    after = measure()
+    env.assertGreater(after['debug_svs_pool_mem'], before['debug_svs_pool_mem'],
+                      message=f"SHARED_SVS_THREADPOOL_MEMORY should grow when workers go from "
+                              f"{initial_workers} to {grown_workers}: before={before}, after={after}")
+    assert_invariants('after resize', after)
+
+    # Both FT.INFO and INFO MODULES vector memory grow by exactly the pool growth
+    # (per-index memory is unchanged by the pool resize).
+    pool_growth = after['debug_svs_pool_mem'] - before['debug_svs_pool_mem']
+    env.assertEqual(after['ft_info_vec_bytes'] - before['ft_info_vec_bytes'], pool_growth,
+                    message=f"FT.INFO vector_index_sz_mb growth should match pool growth: before={before}, after={after}")
+    env.assertEqual(after['info_modules_vec_mem'] - before['info_modules_vec_mem'], pool_growth,
+                    message=f"INFO MODULES search_used_memory_vector_index growth should match pool growth: before={before}, after={after}")
+
 
 func_gen = lambda tn, comp, dt, dist, wr: lambda: queries_sanity(tn, comp, dt, dist, wr)
 for workers in [0, 4]:
