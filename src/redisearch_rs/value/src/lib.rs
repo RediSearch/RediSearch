@@ -53,17 +53,21 @@ pub enum Value {
 
 impl Value {
     pub fn fully_dereferenced_ref(&self) -> &Self {
-        match self {
-            Value::Ref(ref_value) => ref_value.fully_dereferenced_ref(),
-            _ => self,
+        let mut value = self;
+        while let Value::Ref(ref_value) = value {
+            value = ref_value;
         }
+        value
     }
 
     pub fn fully_dereferenced_ref_and_trio(&self) -> &Self {
-        match self {
-            Value::Ref(ref_value) => ref_value.fully_dereferenced_ref_and_trio(),
-            Value::Trio(trio) => trio.left().fully_dereferenced_ref_and_trio(),
-            _ => self,
+        let mut value = self;
+        loop {
+            match value {
+                Value::Ref(ref_value) => value = ref_value,
+                Value::Trio(trio) => value = trio.left(),
+                _ => return value,
+            }
         }
     }
 
@@ -105,3 +109,5 @@ impl Value {
         }
     }
 }
+
+

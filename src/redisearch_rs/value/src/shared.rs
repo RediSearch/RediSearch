@@ -197,17 +197,44 @@ impl Clone for SharedValue {
 
 impl Drop for SharedValue {
     fn drop(&mut self) {
-        if !self.is_null_static() {
-            // SAFETY: `self.ptr` was obtained from `Arc::into_raw` and is not static (checked above).
-            // Reconstructing the `Arc` decrements the reference count.
-            let arc = unsafe { Arc::from_raw(self.ptr) };
+        if self.is_null_static() {
+            return;
+        }
 
-            // Convert this Arc into a UniqueArc if the Arc has exactly one strong reference,
-            // otherwise None is returned and the Arc is dropped reducing its reference count.
-            if let Some(unique_arc) = Arc::into_unique(arc) {
-                // Release the UniqueArc to the pool to be recycled.
-                crate::pool::pool_release(unique_arc);
+        // SAFETY: `self.ptr` was obtained from `Arc::into_raw` and is not static (checked above).
+        // Reconstructing the `Arc` takes ownership; the refcount is unchanged.
+        let mut arc = unsafe { Arc::from_raw(self.ptr) };
+
+        loop {
+            // Attempt to take exclusive ownership of the Arc.
+            // If the Arc is shared (refcount > 1), `Arc::into_unique` returns `None`
+            // and drops the Arc, decrementing the refcount. We're done.
+            let Some(mut unique) = Arc::into_unique(arc) else {
+                return;
+            };
+
+            // We are the sole owner. If the inner value is not a `Ref` there is
+            // no chain to unwind — release normally and return.
+            let Value::Ref(_) = &*unique else {
+                crate::pool::pool_release(unique);
+                return;
+            };
+
+            // Replace the inner `Value::Ref` with `Value::Null` so that
+            // releasing `unique` is O(1) (dropping Null has no further drops).
+            // Then continue the loop with the extracted `SharedValue`.
+            let next_sv = match std::mem::replace(&mut *unique, Value::Null) {
+                Value::Ref(sv) => sv,
+                _ => unreachable!(),
+            };
+            crate::pool::pool_release(unique);
+
+            if next_sv.is_null_static() {
+                return;
             }
+            // SAFETY: `next_sv.ptr` was obtained from `Arc::into_raw`.
+            // `into_raw` transfers ownership without decrementing the refcount.
+            arc = unsafe { Arc::from_raw(next_sv.into_raw()) };
         }
     }
 }

@@ -179,6 +179,38 @@ fn set_value_changes_variant() {
     assert!(matches!(*v, Value::Number(99.0)));
 }
 
+// Regression test: fully_dereferenced_ref must be iterative, not recursive.
+// A recursive implementation overflows the stack on deep Ref chains reachable
+// via FT.AGGREGATE APPLY alias chaining (CVE-candidate, security report
+// 6dac72f8). We reproduce the condition by running on a 64 KiB thread —
+// matching the PoC — with a 10,000-deep chain. cargo-nextest isolates each
+// test in its own subprocess, so a stack-overflow abort is reported as a test
+// failure without corrupting the rest of the suite.
+// mem::forget prevents the recursive Drop that would otherwise overflow the
+// same small stack on the way out.
+#[test]
+fn fully_dereferenced_ref_is_iterative() {
+    const DEPTH: usize = 10_000;
+    const STACK_SIZE: usize = 64 * 1024;
+
+    std::thread::Builder::new()
+        .stack_size(STACK_SIZE)
+        .spawn(|| {
+            let mut value = Value::Number(42.0);
+            for _ in 0..DEPTH {
+                value = Value::Ref(SharedValue::new(value));
+            }
+            let result = match value.fully_dereferenced_ref() {
+                Value::Number(n) => *n,
+                other => panic!("expected Number, got {:?}", other),
+            };
+            assert_eq!(result, 42.0_f64);
+        })
+        .unwrap()
+        .join()
+        .unwrap();
+}
+
 #[test]
 #[should_panic(expected = "Cannot change the value of static NULL")]
 fn set_value_panics_on_static() {

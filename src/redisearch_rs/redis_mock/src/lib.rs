@@ -347,6 +347,38 @@ macro_rules! mock_or_stub_missing_redis_c_symbols {
             DocIdMeta_Delete,
             DocIdMeta_Init,
             DocIdMeta_SetPersistenceInProgress,
+            // RediSearch C symbols pulled in transitively by the value integration test binary
+            SEDestroy,
+            TimeToLiveTable_VerifyDocAndField,
+            TimeToLiveTable_VerifyDocAndFieldMask,
+            TimeToLiveTable_VerifyDocAndWideFieldMask,
+            array_len_func,
+            calcRanges,
+            isWithinRadius,
+            loadIndividualKeys,
+            sdscatlen,
+            Buffer_Grow,
+            DMD_Free,
+            DocTable_Exists,
+            HiddenString_CompareC,
+            HiddenString_GetUnsafe,
+            IndexSpecCache_Decref,
+            NewNumericFilter,
+            Obfuscate_Number,
+            Obfuscate_Text,
+            Redis_OpenInvertedIndex,
+            RPProfile_IncrementCount,
+            RS_dictFetchValue,
         }
+
+        // RSDummyContext is a RedisModuleCtx* global used by the C module.
+        #[unsafe(no_mangle)]
+        pub static mut RSDummyContext: *mut std::ffi::c_void = std::ptr::null_mut();
+
+        // RSGlobalConfig is the RSConfig global struct. We provide a zeroed
+        // placeholder large enough to cover the struct layout so the linker
+        // resolves the symbol without needing the actual C definition.
+        #[unsafe(no_mangle)]
+        pub static mut RSGlobalConfig: [u8; 2048] = [0u8; 2048];
     };
 }
