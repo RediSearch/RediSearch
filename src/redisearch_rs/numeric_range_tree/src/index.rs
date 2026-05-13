@@ -49,7 +49,7 @@ impl NumericIndex {
     ///
     /// Panics if the underlying write fails. This should never happen with
     /// in-memory inverted indexes, so a panic indicates a bug.
-    pub fn add_record(&mut self, record: &RSIndexResult<'_>) -> usize {
+    pub fn add_record(&mut self, record: &RSIndexResult) -> usize {
         let result = match self {
             NumericIndex::Uncompressed(idx) => idx.add_record(record),
             NumericIndex::Compressed(idx) => idx.add_record(record),
