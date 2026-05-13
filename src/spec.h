@@ -374,16 +374,9 @@ typedef struct IndexSpec {
   // Disk index handle (NULL for memory-only indexes)
   RedisSearchDiskIndexSpec *diskSpec;
 
-  // Primitive that helps syncinc fork with operations that may update state in another thread
+  // Primitive that helps syncing fork with operations that may update state in another thread
   ForkLock fork_lock;
-
-  // Whether the rwlock is currently held as a read lock for an in-progress
-  // SST replication cycle (set in SearchDisk_PreCheckpoint / SearchDisk_PreFork
-  // and cleared in their matching Post* / ReplicationAbort wrappers).
   bool repl_read_lock_held;
-
-  // Whether fork_lock is currently held for an in-progress SST replication
-  // cycle (set in SearchDisk_PreFork, cleared in PostFork / ReplicationAbort).
   bool repl_fork_lock_held;
 } IndexSpec;
 
