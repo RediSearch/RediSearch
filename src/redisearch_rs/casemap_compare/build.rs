@@ -16,13 +16,23 @@
 //! `csrc/nu_utf8_read_shim.c` (the upstream declaration is `static inline`,
 //! so it produces no callable symbol without a wrapper TU).
 //!
+//! Also compiles `strings.c` and `extra.c` for the length-prediction APIs
+//! (`nu_strlen`, `nu_strnlen`, `nu_bytelen`, `nu_bytenlen`,
+//! `nu_strtransformnlen`, `nu_writestr`, `nu_writenstr`), exposed to Rust
+//! through `csrc/length_prediction_shim.c`. The shim bakes the production
+//! iterator/transform pair into fixed-signature symbols because the
+//! upstream functions take `static inline` `nu_utf8_read` /
+//! `nu_casemap_read` as pointer arguments which Rust cannot supply
+//! directly.
+//!
 //! The fold helpers are `static inline` and inline directly into the
 //! `nu_tofold`/`nu_tolower` symbols. `nu_utf8_write` requires
 //! `NU_WITH_UTF8_WRITER` to be defined for its body to compile;
 //! `nu_utf8_read` is gated on `NU_WITH_UTF8_READER`. `deps/libnu/config.h`
-//! defines `NU_WITH_EVERYTHING` unconditionally so `NU_WITH_TOFOLD` and
-//! `NU_WITH_TOLOWER` are already on — but the explicit reader/writer
-//! defines below keep this build self-describing.
+//! defines `NU_WITH_EVERYTHING` unconditionally so `NU_WITH_TOFOLD`,
+//! `NU_WITH_TOLOWER`, `NU_WITH_Z_STRINGS`, `NU_WITH_N_STRINGS`,
+//! `NU_WITH_Z_EXTRA`, and `NU_WITH_N_EXTRA` are already on — but the
+//! explicit reader/writer defines below keep this build self-describing.
 
 use std::path::PathBuf;
 
@@ -32,11 +42,21 @@ fn main() {
     let tofold = libnu_dir.join("tofold.c");
     let tolower = libnu_dir.join("tolower.c");
     let utf8 = libnu_dir.join("utf8.c");
-    let read_shim = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("csrc")
-        .join("nu_utf8_read_shim.c");
+    let strings = libnu_dir.join("strings.c");
+    let extra = libnu_dir.join("extra.c");
+    let csrc = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("csrc");
+    let read_shim = csrc.join("nu_utf8_read_shim.c");
+    let length_shim = csrc.join("length_prediction_shim.c");
 
-    for src in [&tofold, &tolower, &utf8, &read_shim] {
+    for src in [
+        &tofold,
+        &tolower,
+        &utf8,
+        &strings,
+        &extra,
+        &read_shim,
+        &length_shim,
+    ] {
         println!("cargo::rerun-if-changed={}", src.display());
     }
     for hdr in [
@@ -47,6 +67,9 @@ fn main() {
         "config.h",
         "utf8.h",
         "utf8_internal.h",
+        "strings.h",
+        "extra.h",
+        "defines.h",
     ] {
         println!("cargo::rerun-if-changed={}", libnu_dir.join(hdr).display());
     }
@@ -61,7 +84,10 @@ fn main() {
         .file(&tofold)
         .file(&tolower)
         .file(&utf8)
+        .file(&strings)
+        .file(&extra)
         .file(&read_shim)
+        .file(&length_shim)
         .define("NU_WITH_UTF8_READER", None)
         .define("NU_WITH_UTF8_WRITER", None)
         .include(&libnu_dir)

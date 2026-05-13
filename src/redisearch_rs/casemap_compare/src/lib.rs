@@ -177,6 +177,104 @@ pub fn decode_codepoint_with_libnu(bytes: &[u8]) -> (u32, usize) {
     (decoded, consumed)
 }
 
+/// Predicted codepoint count after lowercasing `bytes` via libnu's
+/// `nu_strtransformnlen` with `nu_tolower` + `nu_casemap_read`. Mirrors
+/// the `nu_strtransformnlen` call at `src/util/strconv.h:132` and
+/// `src/trie/rune_util.c:68`.
+pub fn predict_lower_len(bytes: &[u8]) -> isize {
+    let begin = bytes.as_ptr() as *const std::ffi::c_char;
+    // SAFETY: libnu reads up to `bytes.len()` bytes starting at `begin` and
+    // stops at the first NUL byte. The slice provides exactly that much
+    // valid memory.
+    unsafe { libnu_ffi::nu_strtransformnlen_lower_shim(begin, bytes.len()) }
+}
+
+/// Predicted codepoint count for the NUL-terminated UTF-8 buffer `s` via
+/// libnu's `nu_strlen`.
+///
+/// `s` must end with a NUL byte. The function reads codepoints until the
+/// NUL terminator.
+pub fn predict_strlen(s: &[u8]) -> isize {
+    debug_assert!(
+        s.contains(&0),
+        "predict_strlen requires NUL-terminated input"
+    );
+    let begin = s.as_ptr() as *const std::ffi::c_char;
+    // SAFETY: libnu reads codepoints starting at `begin` until it hits a
+    // NUL byte; the caller-provided NUL terminator within `s` guarantees a
+    // bounded read.
+    unsafe { libnu_ffi::nu_strlen_shim(begin) }
+}
+
+/// Predicted codepoint count for the first `bytes.len()` bytes of `bytes`
+/// via libnu's `nu_strnlen` (stops early at NUL).
+pub fn predict_strnlen(bytes: &[u8]) -> isize {
+    let begin = bytes.as_ptr() as *const std::ffi::c_char;
+    // SAFETY: libnu reads at most `bytes.len()` bytes starting at `begin`.
+    unsafe { libnu_ffi::nu_strnlen_shim(begin, bytes.len()) }
+}
+
+/// Predicted UTF-8 byte count to encode the NUL-terminated `unicode` array
+/// via libnu's `nu_bytelen` with `nu_utf8_write`.
+pub fn predict_bytelen(unicode: &[u32]) -> isize {
+    debug_assert!(
+        unicode.contains(&0),
+        "predict_bytelen requires a NUL-terminated codepoint slice"
+    );
+    // SAFETY: libnu reads codepoints starting at `unicode.as_ptr()` until
+    // it hits a 0 sentinel; the caller-provided 0 within `unicode`
+    // guarantees a bounded read.
+    unsafe { libnu_ffi::nu_bytelen_shim(unicode.as_ptr()) }
+}
+
+/// Predicted UTF-8 byte count to encode the first `unicode.len()` codepoints
+/// of `unicode` via libnu's `nu_bytenlen` (stops early at NUL).
+pub fn predict_bytenlen(unicode: &[u32]) -> isize {
+    // SAFETY: libnu reads at most `unicode.len()` codepoints from
+    // `unicode.as_ptr()`.
+    unsafe { libnu_ffi::nu_bytenlen_shim(unicode.as_ptr(), unicode.len()) }
+}
+
+/// Sum the per-codepoint UTF-8 byte counts that libnu's `nu_utf8_write`
+/// would emit for `unicode`, stopping at the first 0 codepoint (the same
+/// terminator semantics `nu_bytelen` / `nu_bytenlen` use).
+///
+/// This is the "actual" byte count to compare against `predict_bytelen` /
+/// `predict_bytenlen`: both predictors compute the same value by invoking
+/// the write iterator once per codepoint internally, so the sum here is the
+/// reference value the predictors must agree with.
+pub fn actual_encoded_byte_count(unicode: &[u32]) -> usize {
+    let mut total = 0usize;
+    for &cp in unicode {
+        if cp == 0 {
+            break;
+        }
+        total += encode_codepoint_with_libnu(cp).len();
+    }
+    total
+}
+
+/// Encode the first `unicode.len()` codepoints of `unicode` into a freshly
+/// allocated UTF-8 buffer via libnu's `nu_writenstr`. Stops at the first 0
+/// codepoint. The buffer is sized from [`actual_encoded_byte_count`] rather
+/// than from the predictor under test, so a buggy predictor cannot trigger
+/// an out-of-bounds write.
+pub fn write_with_libnu(unicode: &[u32]) -> Vec<u8> {
+    let expected = actual_encoded_byte_count(unicode);
+    let mut buf = vec![0u8; expected];
+    if expected == 0 {
+        return buf;
+    }
+    let dst = buf.as_mut_ptr() as *mut std::ffi::c_char;
+    // SAFETY: `buf` has `expected` bytes, sized from
+    // `actual_encoded_byte_count` (independent of `nu_writenstr`). The
+    // writer emits exactly that many bytes because both routines invoke
+    // `nu_utf8_write` per codepoint and stop at the first 0.
+    let rc = unsafe { libnu_ffi::nu_writenstr_shim(unicode.as_ptr(), unicode.len(), dst) };
+    debug_assert_eq!(rc, 0, "nu_writenstr returned non-zero status: {rc}");
+    buf
+}
+
 /// Fold `s` using ICU4X's full Unicode case folding (`icu_casemap::CaseMapper`).
 ///
 /// This mirrors `try_insert_string_normalize()` at
