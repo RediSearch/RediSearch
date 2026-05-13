@@ -128,11 +128,12 @@ option(BUILD_TESTING "Enable testing for cpu-features dep" OFF)
 # cores (Cortex-A72, AWS Graviton1, Raspberry Pi 4) to avoid SIGILL on load.
 option(INLINE_LSE_ATOMICS "Inline LSE atomics on Linux AArch64 (Armv8.1-a+)" ON)
 
-# Work-in-progress features. Off by default so release artifacts never ship them.
+# Work-in-progress features. On by default for development and master CI;
+# release/version-branch builds must opt out explicitly.
 # When ON: defines RS_WIP_FEATURES for C/C++ and forwards `--features wip_features`
-# to the cargo build of the Rust workspace. Gate WIP code at module/registration
-# boundaries — not around every line — so it's compiled out cleanly when OFF.
-option(RS_WIP_FEATURES_ENABLED "Compile in work-in-progress features" OFF)
+# to the cargo build of the Rust workspace. Gate WIP entry points at registration
+# boundaries so they are disabled when OFF while implementation code can still compile.
+option(RS_WIP_FEATURES_ENABLED "Compile in work-in-progress features" ON)
 
 # Regenerate Rust→C FFI headers via cheadergen during the build.
 # Default: ON when RediSearch is the top-level project, OFF when consumed as a
