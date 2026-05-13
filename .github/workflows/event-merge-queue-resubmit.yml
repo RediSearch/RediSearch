@@ -32,6 +32,7 @@ jobs:
           import subprocess
           import sys
           import uuid
+          from datetime import datetime, timezone
 
           QUERY = """
           query($owner: String!, $repo: String!, $number: Int!) {
@@ -96,6 +97,14 @@ jobs:
               sys.exit(0)
 
 
+          def format_timestamp(value):
+              return (
+                  datetime.fromisoformat(value.replace("Z", "+00:00"))
+                  .astimezone(timezone.utc)
+                  .strftime("%Y %m %d %H:%M:%S UTC")
+              )
+
+
           def query_pull_request(owner, repo, number):
               result = subprocess.run(
                   [
@@ -142,23 +151,21 @@ jobs:
 
                   candidates.append(run)
 
+              candidates.sort(key=lambda run: run["created_at"], reverse=True)
+
+              current_queue_run_index = next(
+                  (
+                      index
+                      for index, run in enumerate(candidates)
+                      if run.get("head_branch") == queue_branch
+                  ),
+                  None,
+              )
+              if current_queue_run_index is not None and current_queue_run_index + 1 < len(candidates):
+                  return candidates[current_queue_run_index + 1]
+
               previous_queue_runs = [run for run in candidates if run.get("created_at", "") <= removed_at]
-              failed_candidates = [
-                  run
-                  for run in previous_queue_runs
-                  if run.get("conclusion") in {"failure", "cancelled", "timed_out", "action_required"}
-              ]
-              if failed_candidates:
-                  return max(failed_candidates, key=lambda run: run["created_at"])
-
-              if previous_queue_runs:
-                  return max(previous_queue_runs, key=lambda run: run["created_at"])
-
-              current_queue_runs = [run for run in candidates if run.get("head_branch") == queue_branch]
-              if current_queue_runs:
-                  return min(current_queue_runs, key=lambda run: run["created_at"])
-
-              return max(candidates, key=lambda run: run["created_at"], default=None)
+              return max(previous_queue_runs, key=lambda run: run["created_at"], default=None)
 
 
           def latest(events, event_type):
@@ -210,6 +217,7 @@ jobs:
           detector_workflow_url = f"{os.environ['SERVER_URL']}/{repo}/actions/runs/{os.environ['CURRENT_RUN_ID']}"
           merge_queue_run = query_merge_queue_workflow_run(repo, pr_number, queue_branch, latest_removal["createdAt"])
           merge_queue_run_url = (merge_queue_run or {}).get("html_url") or detector_workflow_url
+          head_commit_url = f"{os.environ['SERVER_URL']}/{repo}/commit/{current_head}"
 
           try:
               raw_mapping = json.loads(os.environ.get("GH_HANDLE_TO_SLACK_JSON") or "{}")
@@ -237,10 +245,11 @@ jobs:
           append_output("removed_by", actor.get("login"))
           append_output("enqueued_by", enqueuer_login)
           append_output("enqueued_by_mention", slack_id_for(enqueuer_login))
-          append_output("removed_at", latest_removal["createdAt"])
-          append_output("resubmitted_at", latest_add["createdAt"])
+          append_output("removed_at", format_timestamp(latest_removal["createdAt"]))
+          append_output("resubmitted_at", format_timestamp(latest_add["createdAt"]))
           append_output("head_commit", current_head)
-          append_output("head_committed_at", head_commit["committedDate"])
+          append_output("head_commit_url", head_commit_url)
+          append_output("head_committed_at", format_timestamp(head_commit["committedDate"]))
           append_output("merge_queue_workflow", merge_queue_run_url)
           append_output("detector_workflow", detector_workflow_url)
 
@@ -264,7 +273,8 @@ jobs:
               "Removed_By": ${{ toJson(steps.check.outputs.removed_by) }},
               "Enqueued_By": ${{ toJson(steps.check.outputs.enqueued_by) }},
               "Enqueued_By_Mention": ${{ toJson(steps.check.outputs.enqueued_by_mention) }},
-              "Head_Commit": ${{ toJson(steps.check.outputs.head_commit) }},
+              "Head_Commit": ${{ toJson(steps.check.outputs.head_commit_url) }},
+              "Head_Commit_SHA": ${{ toJson(steps.check.outputs.head_commit) }},
               "Head_Committed_At": ${{ toJson(steps.check.outputs.head_committed_at) }},
               "Workflow": ${{ toJson(steps.check.outputs.detector_workflow) }},
               "Previous_Merge_Queue_Run": ${{ toJson(steps.check.outputs.merge_queue_workflow) }},
