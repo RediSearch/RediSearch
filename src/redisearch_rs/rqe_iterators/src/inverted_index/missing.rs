@@ -13,6 +13,7 @@ use std::{
 };
 
 use ffi::{RedisSearchCtx, t_docId, t_fieldIndex};
+use index_spec::IndexSpecReadGuard;
 use inverted_index::{
     DecodedBy, DocIdsDecoder, IndexReaderCore, RSIndexResult, opaque::OpaqueEncoding,
 };
@@ -133,19 +134,19 @@ where
     ///    when non-null, must point to an opaque
     ///    [`InvertedIndex`](inverted_index::opaque::InvertedIndex) whose encoding
     ///    variant matches `E`.
-    unsafe fn should_abort(&self, spec: &ffi::IndexSpec) -> bool {
+    fn should_abort(&self, spec: &IndexSpecReadGuard) -> bool {
         debug_assert!(
-            !spec.missingFieldDict.is_null(),
-            "spec.missingFieldDict must be non-null",
+            !spec.missing_field_dict().is_null(),
+            "spec.missing_field_dict() must be non-null",
         );
 
-        // SAFETY: 1. guarantees `field_index` is a valid index into `spec.fields`.
-        let field_ptr = unsafe { spec.fields.offset(self.field_index as isize) };
+        // SAFETY: field_index is a valid index into spec.fields (guaranteed by constructor pre-conditions).
+        let field_ptr = unsafe { spec.fields_ptr().offset(self.field_index as isize) };
         // SAFETY: the pointer is valid per the above.
         let field = unsafe { &*field_ptr };
-        // SAFETY: 2. guarantees the dict is non-null and valid.
+        // SAFETY: The dict is non-null and valid (guaranteed by constructor pre-conditions).
         let missing_ii_ptr =
-            unsafe { ffi::RS_dictFetchValue(spec.missingFieldDict, field.fieldName as *mut _) };
+            unsafe { ffi::RS_dictFetchValue(spec.missing_field_dict(), field.fieldName as *mut _) };
 
         if missing_ii_ptr.is_null() {
             // The inverted index was removed from the dict (garbage collected).
@@ -215,23 +216,18 @@ where
     }
 
     #[inline(always)]
-    unsafe fn revalidate(
+    fn revalidate(
         &mut self,
-        spec: NonNull<ffi::IndexSpec>,
+        spec: &IndexSpecReadGuard,
     ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        // SAFETY: The caller guarantees `spec` points to a valid `IndexSpec`
-        // while the spec read lock is held.
-        let spec_ref = unsafe { spec.as_ref() };
-        // SAFETY: `spec_ref` satisfies `should_abort`'s safety requirements.
-        // Conditions 1-3 (field_index validity, missingFieldDict, encoding
+        // Conditions (field_index validity, missingFieldDict, encoding
         // match) are structural invariants guaranteed by the constructor's
         // pre-conditions.
-        if unsafe { self.should_abort(spec_ref) } {
+        if self.should_abort(spec) {
             return Ok(RQEValidateStatus::Aborted);
         }
 
-        // SAFETY: Delegating to inner iterator with the same `spec` passed by our caller.
-        unsafe { self.it.revalidate(spec) }
+        self.it.revalidate(spec)
     }
 
     #[inline(always)]

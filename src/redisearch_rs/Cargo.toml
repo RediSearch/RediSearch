@@ -39,6 +39,7 @@ members = [
     "trie_bencher",
     "top_k",
     "trie_rs",
+    "ttl_table",
     "value",
     "varint",
     "varint_bencher",
@@ -132,6 +133,7 @@ top_k = { path = "./top_k" }
 tracing_assert = { path = "./tracing_assert" }
 tracing_redismodule = { path = "./tracing_redismodule" }
 trie_rs = { path = "./trie_rs" }
+ttl_table = { path = "./ttl_table" }
 value = { path = "./value" }
 varint = { path = "./varint" }
 wildcard = { path = "./wildcard" }
@@ -154,7 +156,7 @@ decorum = "0.4"
 enumflags2 = "0.7.12"
 fs-err = "3.2.2"
 hash32 = "1"
-icu_casemap = "2.1.1"
+icu_casemap = "2.2.0"
 insta = "1.46.1"
 itertools = "0.14.0"
 lending-iterator = "0.1.7"
