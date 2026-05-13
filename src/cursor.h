@@ -11,6 +11,7 @@
 
 #include <unistd.h>
 #include <pthread.h>
+#include "redismodule.h"
 #include "util/khash.h"
 #include "util/array.h"
 #include "search_ctx.h"
@@ -47,6 +48,17 @@ typedef struct Cursor {
 
   /** Initial timeout interval */
   unsigned timeoutIntervalMs;
+
+  /** Query-deadline timeout (ms) copied from the originating AREQ at cursor
+   * creation. Write-once before the first Cursor_Pause; read under the
+   * cursor-list lock (see Cursors_PeekTimeoutInfo). */
+  size_t queryTimeoutMS;
+
+  /** Timeout policy copied from the originating AREQ at cursor creation.
+   * Frozen for the life of the cursor: changes to the `search-on-timeout`
+   * config between commands do not affect in-flight cursors. Same access
+   * pattern as queryTimeoutMS. */
+  RSTimeoutPolicy queryTimeoutPolicy;
 
   /** Position within idle list.
    * Should only be accessed under cursor list lock */
@@ -91,6 +103,13 @@ typedef struct CursorList {
    * This is used as a hint to avoid excessive sweeps.
    */
   uint64_t nextIdleTimeoutNs;
+
+  /**
+   * Module timer that fires at `nextIdleTimeoutNs` to reap expired idle
+   * cursors without requiring further client traffic. Equal to
+   * `IDLE_SWEEP_TIMER_NONE` when no timer is currently armed.
+   */
+  RedisModuleTimerID idleSweepTimerId;
 
   /** Is it an internal coordinator cursor or a user cursor */
   bool is_coord;
@@ -170,6 +189,39 @@ Cursor *Cursors_Reserve(CursorList *cl, StrongRef global_spec_ref, unsigned time
  * from the idle list, and returns it
  */
 Cursor *Cursors_TakeForExecution(CursorList *cl, uint64_t cid);
+
+/**
+ * Snapshot of an idle cursor's timeout configuration, returned by
+ * Cursors_PeekTimeoutInfo without taking ownership of the cursor.
+ */
+typedef struct {
+  /** Cached `queryTimeoutMS`. 0 means "no timer": cursor not found, or
+   * `TIMEOUT 0` on the originating FT.AGGREGATE. Maps to
+   * `RedisModule_BlockClient(timeoutMS=0)`. */
+  size_t queryTimeoutMS;
+  /** Cached `timeoutPolicy`. Defaults to `TimeoutPolicy_Return` when the
+   * cursor was not found (safe: the coord FAIL branch is then skipped). */
+  RSTimeoutPolicy queryTimeoutPolicy;
+#ifdef ENABLE_ASSERT
+  /** Today no hybrid cursor reaches this peek:
+   * `_FT.HYBRID WITHCURSOR` cursors live on the shard cursor list and are
+   * read via `_FT.CURSOR READ` which goes directly to RSCursorReadCommand,
+   * bypassing CursorCommand (the only caller of Cursors_PeekTimeoutInfo).
+   * User-facing `FT.HYBRID WITHCURSOR` is not supported. */
+  bool isHybrid;
+#endif
+} CursorTimeoutInfo;
+
+/**
+ * Peek at an idle cursor's cached query-timeout and timeout-policy without
+ * taking ownership. Values are captured at AREQ creation and frozen onto the
+ * cursor at AREQ_StartCursor; reading them here (instead of live RSGlobalConfig)
+ * keeps the cursor's timeout configuration frozen for the life of the cursor.
+ *
+ * Concurrency: the cursor-list lock is held only for the khash lookup and a
+ * single scalar read of each write-once field.
+ */
+CursorTimeoutInfo Cursors_PeekTimeoutInfo(CursorList *cl, uint64_t cid);
 
 /**
  * Pause a cursor, setting it to idle and placing it back in the cursor

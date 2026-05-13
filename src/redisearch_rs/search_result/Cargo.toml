@@ -11,6 +11,7 @@ inverted_index.workspace = true
 rlookup.workspace = true
 enumflags2.workspace = true
 workspace_hack.workspace = true
+document_metadata.workspace = true
 
 [lints]
 workspace = true

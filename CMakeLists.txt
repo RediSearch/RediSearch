@@ -18,6 +18,21 @@ elseif(UNIX)
 endif()
 message(STATUS "OS detected: ${OS}")
 
+# Suppress 'has no symbols' warnings from ranlib on macOS.
+# Cross-platform deps (cpu_features, hiredis) compile platform stubs that are
+# empty on irrelevant architectures, producing harmless noise.
+# CMake may pick up LLVM's llvm-ranlib from PATH, which doesn't support
+# -no_warning_for_no_symbols. Use xcrun to locate Apple's native ranlib.
+if(APPLE)
+    execute_process(
+        COMMAND xcrun --find ranlib
+        OUTPUT_VARIABLE APPLE_RANLIB
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+    )
+    set(CMAKE_C_ARCHIVE_FINISH "${APPLE_RANLIB} -no_warning_for_no_symbols <TARGET>")
+    set(CMAKE_CXX_ARCHIVE_FINISH "${APPLE_RANLIB} -no_warning_for_no_symbols <TARGET>")
+endif()
+
 # Always use .so extension even on macOS
 set(CMAKE_SHARED_LIBRARY_SUFFIX ".so")
 # Export the underlying compiler invocations in a compile_commands.json, located in the bin directory.
@@ -28,10 +43,39 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 function(setup_cc_options)
     message("# CMAKE_C_COMPILER_ID: " ${CMAKE_C_COMPILER_ID})
 
-    # Common compiler flags — append to any user/cache-provided flags
-    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fPIC -g -pthread -fno-strict-aliasing -Wno-unused-function -Wno-unused-variable -Wno-sign-compare -fcommon -funsigned-char" PARENT_SCOPE)
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fPIC -g -pthread -fno-strict-aliasing -Wno-unused-function -Wno-unused-variable -Wno-sign-compare" PARENT_SCOPE)
+    # Accumulate C/CXX flags locally and publish once. set(... PARENT_SCOPE)
+    # does NOT update the function-local variable, so a later read of
+    # ${CMAKE_C_FLAGS} would miss earlier additions (MOD-14916).
+    set(_common_c_flags "${CMAKE_C_FLAGS} -fPIC -g -pthread -fno-strict-aliasing -Wno-unused-function -Wno-unused-variable -Wno-sign-compare -fcommon -funsigned-char")
+    set(_common_cxx_flags "${CMAKE_CXX_FLAGS} -fPIC -g -pthread -fno-strict-aliasing -Wno-unused-function -Wno-unused-variable -Wno-sign-compare")
     set(CMAKE_CXX_STANDARD 20)
+
+    # MOD-14916: inline LSE atomics on Linux AArch64 -- avoid libgcc
+    # __aarch64_* outline-atomics helpers on every atomic RMW.
+    #   -march=armv8-a+lse   adds LSE without raising -march, so deps that
+    #                        probe `-march=armv8-a` (e.g. VecSim's CXX_ARMV8A
+    #                        gate on NEON_HP.cpp) still pass.
+    #   -mno-outline-atomics canonical disable spelling (the "=no" form is
+    #                        silently ignored by GCC).
+    # Apple excluded: Apple clang rejects -mno-outline-atomics and Apple
+    # Silicon already emits inline LSE.
+    if(NOT APPLE AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64)$" AND INLINE_LSE_ATOMICS)
+        include(CheckCCompilerFlag)
+        include(CheckCXXCompilerFlag)
+        set(_aarch64_lse_flags "-march=armv8-a+lse -mtune=neoverse-n1 -mno-outline-atomics")
+        check_c_compiler_flag("${_aarch64_lse_flags}" _c_lse_ok)
+        check_cxx_compiler_flag("${_aarch64_lse_flags}" _cxx_lse_ok)
+        if(_c_lse_ok AND _cxx_lse_ok)
+            set(_common_c_flags   "${_common_c_flags} ${_aarch64_lse_flags}")
+            set(_common_cxx_flags "${_common_cxx_flags} ${_aarch64_lse_flags}")
+        else()
+            message(WARNING "AArch64 LSE build flags not accepted by compiler; "
+                            "outline atomics will remain in the .so")
+        endif()
+    endif()
+
+    set(CMAKE_C_FLAGS   "${_common_c_flags}"   PARENT_SCOPE)
+    set(CMAKE_CXX_FLAGS "${_common_cxx_flags}" PARENT_SCOPE)
 
     # Config-specific flags only — CMake appends these to CMAKE_C/CXX_FLAGS automatically
     if(CMAKE_BUILD_TYPE STREQUAL "Debug")
@@ -55,7 +99,7 @@ function(setup_shared_object_target target)
     else()
         # We are building a shared library and want to verify that any reference to a symbol within the library will resolve to
         # the library's own definition, rather than to a definition in another shared library or the main executable.
-        set_target_properties(${target} PROPERTIES LINK_FLAGS "-pthread -shared -Bsymbolic -Bsymbolic-functions")
+        set_target_properties(${target} PROPERTIES LINK_FLAGS "-pthread -shared -Wl,-Bsymbolic,-Bsymbolic-functions")
     endif()
     set_target_properties(${target} PROPERTIES PREFIX "")
 endfunction()
@@ -80,6 +124,9 @@ option(VERBOSE_UTESTS "Enable verbose unit tests" OFF)
 option(ENABLE_ASSERT "Enable assertions" OFF)
 set(MAX_WORKER_THREADS "" CACHE STRING "Override the maximum parallel worker threads allowed in thread-pool")
 option(BUILD_TESTING "Enable testing for cpu-features dep" OFF)
+# Inline LSE atomics on Linux AArch64 (Armv8.1-a+). Disable for pre-Armv8.1-a
+# cores (Cortex-A72, AWS Graviton1, Raspberry Pi 4) to avoid SIGILL on load.
+option(INLINE_LSE_ATOMICS "Inline LSE atomics on Linux AArch64 (Armv8.1-a+)" ON)
 
 
 #----------------------------------------------------------------------------------------------
@@ -124,6 +171,7 @@ endif()
 message(STATUS "COV: ${COV}")
 if (COV)
     set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} --coverage")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} --coverage")
     set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} --coverage")
     set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} --coverage")
     add_compile_definitions(COVERAGE=1)
@@ -321,6 +369,11 @@ add_dependencies(redisearch redisearch_rs)
 # Unit tests configuration
 if(BUILD_SEARCH_UNIT_TESTS)
     enable_testing()
+
+    # Disable coverage on C++ tests/benchmarks to avoid geninfo mismatch errors
+    if (COV)
+        string(REPLACE "--coverage" "" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
+    endif()
 
     add_subdirectory(tests/cpptests/redismock)
 

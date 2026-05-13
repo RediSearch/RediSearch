@@ -233,7 +233,7 @@ static bool handleSpecLockAndRevalidate(RPQueryIterator *self) {
 
   RedisSearchCtx_LockSpecRead(sctx);
 
-  ValidateStatus rc = it->Revalidate(it);
+  ValidateStatus rc = it->Revalidate(it, sctx->spec);
 
   if (rc == VALIDATE_ABORTED) {
     self->iterator->Free(self->iterator);
@@ -549,9 +549,9 @@ static int rpMetricsNext(ResultProcessor *base, SearchResult *res) {
     return rc;
   }
 
-  arrayof(RSYieldableMetric) arr = SearchResult_GetIndexResult(res)->metrics;
-  for (size_t i = 0; i < array_len(arr); i++) {
-    RLookup_WriteKey(arr[i].key, SearchResult_GetRowDataMut(res), arr[i].value);
+  RSYieldableMetricSlice slice = MetricsVec_AsSlice(&SearchResult_GetIndexResult(res)->metrics);
+  for (size_t i = 0; i < slice.len; i++) {
+    RLookup_WriteOwnKey(slice.data[i].key, SearchResult_GetRowDataMut(res), RSValue_NewNumber(slice.data[i].value));
   }
 
   return rc;
@@ -657,10 +657,23 @@ static int rpsortNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
   if (rc == RS_RESULT_EOF) {
     rp->Next = rpsortNext_Yield;
     return rpsortNext_Yield(rp, r);
-  } else if (rc == RS_RESULT_TIMEDOUT && (rp->parent->timeoutPolicy == TimeoutPolicy_Return)) {
-    self->timedOut = true;
+  } else if (rc == RS_RESULT_TIMEDOUT) {
+    RSTimeoutPolicy policy = rp->parent->timeoutPolicy;
+
+    if (policy == TimeoutPolicy_Fail) {
+      return rc;
+    }
+    // Both Return and ReturnStrict switch to Yield mode (so subsequent Next
+    // calls pop the buffered, sorted prefix from the heap). They differ in
+    // who drives that draining: Return surfaces a row inline now, while
+    // ReturnStrict returns TIMEDOUT immediately so the BG unwinds promptly,
+    // and the main-thread drain pops the heap.
     rp->Next = rpsortNext_Yield;
-    return rpsortNext_Yield(rp, r);
+    if (policy == TimeoutPolicy_Return) {
+      self->timedOut = true;
+      return rpsortNext_Yield(rp, r);
+    }
+    return rc;
   } else if (rc != RS_RESULT_OK) {
     // whoops!
     return rc;
@@ -2017,13 +2030,22 @@ int RPSafeDepleter_DepleteAll(arrayof(ResultProcessor*) safeDepleters, QueryErro
   // after all depleters acquired their locks (or when any failed).
   // This early release prevents deadlock with SafeLoader GIL acquisition.
 
-  // Check if any depleter skipped the lock phase (timeout before start or lock failure)
-  int num_skipped_lock = atomic_load(&sync->num_skipped_lock);
-  if (num_skipped_lock > 0) {
-    // At least one depleter skipped the lock phase
-    QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_SAFE_DEPLETER_FAILURE,
-      "Failed to acquire index lock for background depletion. A write operation may be in progress. Please retry.");
-    return RS_RESULT_ERROR;
+  // Check each depleter's final status for errors or timeouts.
+  // Errors (lock failures) take priority over timeouts.
+  bool anyTimedOut = false;
+  for (size_t i = 0; i < count; i++) {
+    const RPSafeDepleter *safeDepleter = (RPSafeDepleter *)safeDepleters[i];
+    if (safeDepleter->last_rc == RS_RESULT_ERROR) {
+      QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_SAFE_DEPLETER_FAILURE,
+        "Failed to acquire index lock for background depletion. A write operation may be in progress. Please retry.");
+      return RS_RESULT_ERROR;
+    } else if (safeDepleter->last_rc == RS_RESULT_TIMEDOUT) {
+      anyTimedOut = true;
+    }
+  }
+
+  if (anyTimedOut) {
+    return RS_RESULT_TIMEDOUT;
   }
 
   return RS_RESULT_OK;
@@ -2716,6 +2738,15 @@ static int RPDepleter_Next_Accumulate(ResultProcessor *base, SearchResult *r) {
   // Call the sync depletion function directly
   RPDepleter_Deplete(self);
 
+  // Only TimeoutPolicy_Return yields buffered results on timeout; FAIL and
+  // RETURN-STRICT propagate TIMEDOUT immediately since the buffer will be
+  // discarded by the serializer anyway.
+  if (self->last_rc == RS_RESULT_TIMEDOUT &&
+      base->parent->timeoutPolicy != TimeoutPolicy_Return) {
+    self->last_rc = RS_RESULT_EOF;
+    return RS_RESULT_TIMEDOUT;
+  }
+
   // Switch to yield mode
   self->base.Next = RPDepleter_Next_Yield;
 
@@ -2758,13 +2789,16 @@ rs_wall_clock_ns_t RPDepleter_GetDepletionTime(const ResultProcessor *base) {
 }
 
 int RPDepleter_DepleteAll(arrayof(ResultProcessor*) depleters) {
+  bool anyTimedOut = false;
   for (size_t i = 0; i < array_len(depleters); i++) {
     RS_ASSERT(depleters[i]->type == RP_DEPLETER);
     RPDepleter_StartDepletion(depleters[i]);
     const RPDepleter *depleter = (const RPDepleter *)depleters[i];
-    if (depleter->last_rc != RS_RESULT_EOF) {
-      return depleter->last_rc;
+    if (depleter->last_rc == RS_RESULT_ERROR) {
+      return RS_RESULT_ERROR;
+    } else if (depleter->last_rc == RS_RESULT_TIMEDOUT) {
+      anyTimedOut = true;
     }
   }
-  return RS_RESULT_OK;
+  return anyTimedOut ? RS_RESULT_TIMEDOUT : RS_RESULT_OK;
 }

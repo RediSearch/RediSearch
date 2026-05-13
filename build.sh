@@ -28,6 +28,9 @@ BUILD_INTEL_SVS_OPT=${BUILD_INTEL_SVS_OPT:-0} # Use SVS pre-compiled library
 # Clang needs to have the same version as the LLVM version used by Rust.
 # Check using `clang --version` and `rustc --version --verbose`.
 LTO=0
+# Inline LSE atomics on Linux AArch64 (Armv8.1-a+). Set to 0 on pre-Armv8.1-a
+# cores (Cortex-A72, AWS Graviton1, Raspberry Pi 4) to avoid SIGILL on load.
+INLINE_LSE_ATOMICS=${INLINE_LSE_ATOMICS:-1}
 
 # Test configuration (0=disabled, 1=enabled)
 BUILD_TESTS=0          # Build test binaries
@@ -151,6 +154,9 @@ parse_arguments() {
         ;;
       LTO?(=1))
         LTO=1
+        ;;
+      INLINE_LSE_ATOMICS=*)
+        INLINE_LSE_ATOMICS="${arg#*=}"
         ;;
       *)
         # Pass all other arguments directly to CMake
@@ -308,7 +314,8 @@ end_group() {
 prepare_coverage_capture() {
   start_group "Code Coverage Preparation"
   lcov --zerocounters      --directory $BINROOT --base-directory $ROOT
-  lcov --capture --initial --directory $BINROOT --base-directory $ROOT -o $BINROOT/base.info
+  lcov --capture --initial --directory $BINROOT --base-directory $ROOT -o $BINROOT/base.info \
+    --exclude '*/_deps/*'
   end_group
 }
 
@@ -322,7 +329,8 @@ capture_coverage() {
   start_group "Code Coverage Capture ($NAME)"
 
   # Capture coverage collected while running tests previously
-  lcov --capture --directory $BINROOT --base-directory $ROOT -o $BINROOT/test.info
+  lcov --capture --directory $BINROOT --base-directory $ROOT -o $BINROOT/test.info \
+    --exclude '*/_deps/*'
 
   # Accumulate results with the baseline captured before the test
   lcov --add-tracefile $BINROOT/base.info --add-tracefile $BINROOT/test.info -o $BINROOT/full.info
@@ -578,10 +586,26 @@ prepare_cmake_arguments() {
     CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DSVS_SHARED_LIB=OFF"
   fi
 
+  # Forward INLINE_LSE_ATOMICS to CMake (controls the C/C++ side).
+  if [[ "$INLINE_LSE_ATOMICS" == "1" ]]; then
+    CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DINLINE_LSE_ATOMICS=ON"
+  else
+    CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DINLINE_LSE_ATOMICS=OFF"
+  fi
+
   # Handle RUST_DYN_CRT flag for Alpine Linux compatibility
   if [[ "$RUST_DYN_CRT" == "1" ]]; then
     # Add the dynamic C runtime flag to RUSTFLAGS
     RUSTFLAGS="${RUSTFLAGS:+${RUSTFLAGS} }-C target-feature=-crt-static"
+  fi
+  # MOD-14916: inline LSE atomics for Rust on AArch64. `-C target-cpu=neoverse-n1`
+  # implies +lse so rustc emits LDADDH/LDADD instead of an ldxrh/stxrh LL/SC loop.
+  # macOS is excluded to match the CMake NOT APPLE gate: Apple Silicon's default
+  # target-cpu (apple-m1) is already ≥Armv8.5-a with inline LSE, so overriding it
+  # with neoverse-n1 would only downgrade scheduling. Gated by INLINE_LSE_ATOMICS
+  # so users on pre-Armv8.1-a cores (Cortex-A72, Graviton1, RPi4) can opt out.
+  if [[ "$ARCH" == "aarch64" && "$OS_NAME" != "macos" && "$INLINE_LSE_ATOMICS" == "1" ]]; then
+    RUSTFLAGS="${RUSTFLAGS:+${RUSTFLAGS} }-C target-cpu=neoverse-n1"
   fi
   # Set up RUSTFLAGS for warnings
   if [[ "$RUST_DENY_WARNS" == "1" ]]; then
@@ -591,6 +615,12 @@ prepare_cmake_arguments() {
   if [[ $OS_NAME != "macos" && $COV == "1" ]]; then
     # Needs the C code to link on gcov
     RUSTFLAGS="${RUSTFLAGS:+${RUSTFLAGS} } -C link-args=-lgcov"
+    # Doctests are compiled by rustdoc, which uses RUSTDOCFLAGS rather than
+    # RUSTFLAGS for its link step. Without this, doctests that pull in
+    # gcov-instrumented C objects (via transitive deps on FFI crates) fail
+    # to link with undefined `__gcov_*` symbols.
+    RUSTDOCFLAGS="${RUSTDOCFLAGS:+${RUSTDOCFLAGS} }-C link-args=-lgcov"
+    export RUSTDOCFLAGS
   fi
   if [[ $SAN == "address" ]]; then
     # Add ASAN flags to RUSTFLAGS (following RedisJSON pattern)

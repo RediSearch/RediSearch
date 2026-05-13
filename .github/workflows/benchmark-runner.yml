@@ -9,10 +9,6 @@ on:
         type: boolean
         description: "Run extended benchmarks"
         default: false
-      profiler:
-        type: boolean
-        description: "Run profiler on standalone benchmarks"
-        default: false
       allowed_setup:
         type: string
         description: "if empty allows all setups. if not, will only trigger for a specific setup"
@@ -30,9 +26,6 @@ on:
       extended:
         type: boolean
         default: false
-      profiler:
-        type: boolean
-        default: false
       allowed_setup:
         type: string
         description: "if empty allows all setups. if not, will only trigger for a specific setup"
@@ -46,21 +39,25 @@ on:
         description: "if true, will notify failure on slack"
 
 jobs:
-  # Build RediSearch ONCE here. Every benchmark job below downloads the
+  # Build RediSearch ONCE per-arch. Every benchmark job below downloads the
   # resulting redisearch.so as an artifact instead of rebuilding it.
   build-redisearch:
+    permissions:
+      contents: read
+      id-token: write # OIDC role assumption for sccache S3 (used inside flow-build-benchmark-binary.yml)
     uses: ./.github/workflows/flow-build-benchmark-binary.yml
     with:
-      profile_env: 0
+      arch: x86_64
       artifact_name: redisearch-bin-${{ github.run_id }}-${{ github.run_attempt }}
 
-  # Profile build is only needed when profiler benchmarks are enabled.
-  build-redisearch-profile:
-    if: ${{ inputs.profiler }}
+  build-redisearch-aarch64:
+    permissions:
+      contents: read
+      id-token: write # OIDC role assumption for sccache S3 (used inside flow-build-benchmark-binary.yml)
     uses: ./.github/workflows/flow-build-benchmark-binary.yml
     with:
-      profile_env: 1
-      artifact_name: redisearch-bin-profile-${{ github.run_id }}-${{ github.run_attempt }}
+      arch: aarch64
+      artifact_name: redisearch-bin-aarch64-${{ github.run_id }}-${{ github.run_attempt }}
 
   benchmark-search-oss-standalone:
     if: ${{ inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-standalone' }}
@@ -76,9 +73,34 @@ jobs:
       benchmark_filter: ${{ inputs.benchmark_filter }}
       allowed_envs: oss-standalone
       allowed_setups: oss-standalone
+      arch: x86_64
       benchmark_runner_group_member_id: ${{ matrix.member_id }}
       benchmark_runner_group_total: ${{ strategy.job-total }}
       binary_artifact_name: redisearch-bin-${{ github.run_id }}-${{ github.run_attempt }}
+
+  # aarch64 sibling of benchmark-search-oss-standalone. Targets the
+  # oss-standalone-redisearch-m7-aarch64 terraform dir (m7g.8xlarge DB +
+  # m7g.4xlarge client, matched AMI/installer scripts to the x86 m7 pair).
+  benchmark-search-oss-standalone-aarch64:
+    if: ${{ inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-standalone' }}
+    needs: build-redisearch-aarch64
+    strategy:
+      fail-fast: false
+      matrix:
+        member_id: [1, 2, 3]
+    uses: ./.github/workflows/benchmark-flow.yml
+    secrets: inherit
+    with:
+      benchmark_glob: "search*.yml"
+      benchmark_filter: ${{ inputs.benchmark_filter }}
+      allowed_envs: oss-standalone
+      allowed_setups: oss-standalone
+      arch: aarch64
+      module_path: bin/linux-aarch64-release/search-community/redisearch.so
+      rejson_module_path: bin/linux-aarch64-release/RedisJSON/master/rejson.so
+      benchmark_runner_group_member_id: ${{ matrix.member_id }}
+      benchmark_runner_group_total: ${{ strategy.job-total }}
+      binary_artifact_name: redisearch-bin-aarch64-${{ github.run_id }}-${{ github.run_attempt }}
 
   benchmark-search-oss-standalone-threads-6:
     # TODO: Temporarily disabled - Redis becomes unavailable after ~3 hours of data loading.
@@ -274,53 +296,28 @@ jobs:
       benchmark_runner_group_total: ${{ strategy.job-total }}
       binary_artifact_name: redisearch-bin-${{ github.run_id }}-${{ github.run_attempt }}
 
-  benchmark-search-oss-standalone-profiler:
-    if: ${{ inputs.profiler && (inputs.allowed_setup == '' || inputs.allowed_setup == 'standalone') }}
-    needs: build-redisearch-profile
+  benchmark-hybrid-oss-standalone:
+    if: ${{ inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-standalone' }}
+    needs: build-redisearch
     strategy:
       fail-fast: false
       matrix:
-        member_id: [1, 2, 3]
+        member_id: [1]
     uses: ./.github/workflows/benchmark-flow.yml
     secrets: inherit
     with:
-      profile_env: 1
-      # TODO: change to "github-actions.profilers" when ready on grafana
-      triggering_env: "circleci.profilers" # results generated with profilers attached are not mixed with the ones without it
-      module_path: bin/linux-x64-release-profile/search-community/redisearch.so
-      benchmark_glob: "search*.yml"
+      benchmark_glob: "hybrid*.yml"
       benchmark_filter: ${{ inputs.benchmark_filter }}
       allowed_envs: oss-standalone
       allowed_setups: oss-standalone
       benchmark_runner_group_member_id: ${{ matrix.member_id }}
       benchmark_runner_group_total: ${{ strategy.job-total }}
-      binary_artifact_name: redisearch-bin-profile-${{ github.run_id }}-${{ github.run_attempt }}
-
-  benchmark-vecsim-oss-standalone-profiler:
-    if: ${{ inputs.profiler && (inputs.allowed_setup == '' || inputs.allowed_setup == 'standalone') }}
-    needs: build-redisearch-profile
-    strategy:
-      fail-fast: false
-      matrix:
-        member_id: [1, 2]
-    uses: ./.github/workflows/benchmark-flow.yml
-    secrets: inherit
-    with:
-      profile_env: 1
-      # TODO: change to "github-actions.profilers" when ready on grafana
-      triggering_env: "circleci.profilers" # results generated with profilers attached are not mixed with the ones without it
-      module_path: bin/linux-x64-release-profile/search-community/redisearch.so
-      benchmark_glob: "vecsim*.yml"
-      benchmark_filter: ${{ inputs.benchmark_filter }}
-      allowed_envs: oss-standalone
-      allowed_setups: oss-standalone
-      benchmark_runner_group_member_id: ${{ matrix.member_id }}
-      benchmark_runner_group_total: ${{ strategy.job-total }}
-      binary_artifact_name: redisearch-bin-profile-${{ github.run_id }}-${{ github.run_attempt }}
+      binary_artifact_name: redisearch-bin-${{ github.run_id }}-${{ github.run_attempt }}
 
   notify-failure:
     needs:
       - benchmark-search-oss-standalone
+      - benchmark-search-oss-standalone-aarch64
       - benchmark-search-oss-standalone-threads-6
       - benchmark-vecsim-oss-standalone
       - benchmark-vecsim-oss-standalone-threads-6
@@ -331,11 +328,10 @@ jobs:
       - benchmark-search-oss-cluster-16-primaries
       - benchmark-search-oss-cluster-20-primaries
       - benchmark-search-oss-cluster-24-primaries
-      - benchmark-search-oss-standalone-profiler
-      - benchmark-vecsim-oss-standalone-profiler
       - benchmark-msmarco-oss-cluster-08-primaries-250gb-threads-8
+      - benchmark-hybrid-oss-standalone
     if: ${{ always() && contains(needs.*.result, 'failure') && inputs.notify_failure }}
-    runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
+    runs-on: ubuntu-slim
     steps:
       - name: Notify Failure
         uses: slackapi/slack-github-action@v1
@@ -351,7 +347,7 @@ jobs:
     needs:
       - benchmark-msmarco-oss-cluster-08-primaries-250gb-threads-8
     if: ${{ always() && needs.benchmark-msmarco-oss-cluster-08-primaries-250gb-threads-8.result == 'failure' && inputs.notify_failure }}
-    runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
+    runs-on: ubuntu-slim
     steps:
       - name: Notify MSMARCO Benchmark Failure
         uses: slackapi/slack-github-action@v1

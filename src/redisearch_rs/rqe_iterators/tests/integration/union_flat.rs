@@ -19,8 +19,8 @@ mod common {
     union_common_tests!(UnionFullFlat, UnionQuickFlat);
 }
 
-use crate::utils::create_mock_2;
-use rqe_iterators::{RQEIterator, UnionQuickFlat};
+use crate::utils::{create_mock_2, create_mock_3};
+use rqe_iterators::{RQEIterator, UnionFullFlat, UnionQuickFlat};
 
 // =============================================================================
 // Implementation-specific tests (read_count assertions differ between Flat and Heap)
@@ -76,4 +76,60 @@ fn reuse_results_optimization_quick_mode() {
         2,
         "child1 should now be read to discover EOF"
     );
+}
+
+// =============================================================================
+// into_trimmed
+// =============================================================================
+
+/// `into_children` returns all children that were passed to the constructor.
+#[test]
+fn into_children_returns_all_children() {
+    let (children, _data) = create_mock_3([1, 2], [3, 4], [5, 6]);
+    let mut recovered = UnionFullFlat::new(children).into_children();
+    assert_eq!(recovered.len(), 3);
+
+    let mut docs: Vec<Vec<u64>> = recovered
+        .iter_mut()
+        .map(|c| std::iter::from_fn(|| c.read().unwrap().map(|r| r.doc_id)).collect::<Vec<_>>())
+        .collect();
+    // The order is not a strong contract so we sort again.
+    docs.sort_unstable();
+    assert_eq!(docs, [[1, 2], [3, 4], [5, 6]]);
+}
+
+/// `into_trimmed` on a `UnionFullFlat` produces a working `UnionTrimmed` that
+/// yields all children in reverse order when the limit is large enough.
+#[test]
+#[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
+fn into_trimmed_full_flat_yields_all_children() {
+    let (children, _data) = create_mock_3([1, 2], [3, 4], [5, 6]);
+    let union = UnionFullFlat::new(children);
+    let mut trimmed = union.into_trimmed(usize::MAX, true).unwrap();
+
+    // UnionTrimmed drains children last-to-first.
+    let mut docs = Vec::new();
+    while let Some(r) = trimmed.read().unwrap() {
+        docs.push(r.doc_id);
+    }
+    assert_eq!(docs, [5, 6, 3, 4, 1, 2]);
+}
+
+/// `into_trimmed` on a `UnionQuickFlat` applies trimming correctly.
+#[test]
+#[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
+fn into_trimmed_quick_flat_trims_asc() {
+    // 3 children with est [2, 2, 2], limit=1.
+    // Asc scan from child[1]: child[1].est=2 > 1 → keep=2.
+    let (children, _data) = create_mock_3([1, 2], [3, 4], [5, 6]);
+    let union = UnionQuickFlat::new(children);
+    let mut trimmed = union.into_trimmed(1, true).unwrap();
+
+    assert_eq!(trimmed.num_children_total(), 3, "all children stay alive");
+    let mut docs = Vec::new();
+    while let Some(r) = trimmed.read().unwrap() {
+        docs.push(r.doc_id);
+    }
+    // Active window [0..2), reads in reverse: child[1] then child[0].
+    assert_eq!(docs, [3, 4, 1, 2]);
 }

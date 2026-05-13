@@ -303,7 +303,7 @@ static void HybridRequest_Free(HybridRequest *req) {
         RedisModuleCtx *thctx = areq->sctx->redisCtx;
         RedisSearchCtx *sctx = areq->sctx;
 
-        if (RunInThread()) {
+        if (areq->reqflags & QEXEC_F_RUN_IN_BACKGROUND) {
           // Background thread: schedule async cleanup
           ScheduleContextCleanup(thctx, sctx);
         } else {
@@ -346,6 +346,10 @@ static void HybridRequest_Free(HybridRequest *req) {
 
     // Destroy the cursor mutex
     pthread_mutex_destroy(&req->cursorMutex);
+
+    rm_free(req->debugParams);
+
+    RequestSyncCtx_Destroy(&req->syncCtx);
 
     if (req->args) {
       for (size_t ii = 0; ii < req->nargs; ++ii) {

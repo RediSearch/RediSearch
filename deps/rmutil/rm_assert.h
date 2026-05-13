@@ -32,6 +32,7 @@ extern RedisModuleCtx *RSDummyContext;
 #define RS_LOG_ASSERT(condition, str) RS_LOG_ASSERT_FMT(condition, str "%s", "")
 #define RS_ASSERT(condition) RS_LOG_ASSERT_FMT(condition, "Assertion failed: %s", #condition)
 #define RS_ABORT(str) RS_LOG_ASSERT_FMT(0, "Aborting: %s", str)
+#define RS_ABORT_FMT(fmt, ...) RS_LOG_ASSERT_FMT(0, "Aborting: " fmt, __VA_ARGS__)
 
 // Assertions that we want to keep in production artifacts.
 #define RS_LOG_ASSERT_FMT_ALWAYS(condition, fmt, ...) _RS_LOG_ASSERT_FMT(condition, fmt, __VA_ARGS__)

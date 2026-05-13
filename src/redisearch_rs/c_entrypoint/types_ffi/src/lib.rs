@@ -21,23 +21,6 @@ pub use inverted_index::{
     debug::{BlockSummary, Summary},
 };
 
-/// Check if this is a numeric filter and not a geo filter
-///
-/// # Safety
-///
-/// The following invariant must be upheld when calling this function:
-/// - `filter` must point to a valid `NumericFilter` and cannot be NULL.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn NumericFilter_IsNumeric(filter: *const NumericFilter) -> bool {
-    debug_assert!(!filter.is_null(), "filter must not be null");
-
-    // SAFETY: Caller is to ensure that the pointer `filter` is a valid, non-null pointer to
-    // a `NumericFilter`.
-    let filter = unsafe { &*filter };
-
-    filter.is_numeric_filter()
-}
-
 /// Check if the given value matches the numeric filter.
 ///
 /// # Safety
@@ -276,7 +259,7 @@ pub unsafe extern "C" fn IndexResult_TermOffsetsRef<'result, 'index>(
 
     result.as_term().map(move |term| match term {
         RSTermRecord::Borrowed { offsets, .. } => offsets,
-        RSTermRecord::Owned { offsets, .. } => {
+        RSTermRecord::Owned { offsets, .. } | RSTermRecord::FullyOwned { offsets, .. } => {
             // SAFETY: `RSOffsetVector` and `RSOffsetSlice` have identical `#[repr(C)]` layout.
             // The inner lifetime parameter is a zero-sized `PhantomData` marker. The owned data
             // lives as long as the `RSIndexResult`.
@@ -526,12 +509,17 @@ pub extern "C" fn AggregateResult_Free(agg: RSAggregateResult) {
     }
 }
 
-/// Add a child to a result if it is an aggregate result. Note, if `parent` only hold references
-/// to results, then it will not take ownership of the `child` and will therefore not free it.
-/// Instead, the caller is responsible for managing the memory of the `child` pointer *after* the
-/// `parent` has been freed.
+/// Add a child to a result if it is an aggregate result.
 ///
 /// If the `parent` is not an aggregate kind, then this is a no-op.
+///
+/// **Owned (copy) aggregates:** When `parent.is_copy()` is true, the parent
+/// takes ownership of `child` (via `Box::from_raw`). The caller must not
+/// access or free `child` afterward.
+///
+/// **Borrowed aggregates:** When `parent.is_copy()` is false, the parent
+/// stores a borrowed reference to `child`. The caller retains ownership
+/// and must ensure `child` remains valid for the lifetime of `parent`.
 ///
 /// # Safety
 ///
@@ -555,8 +543,9 @@ pub unsafe extern "C" fn AggregateResult_AddChild(
         parent.push_boxed(child);
     } else {
         // SAFETY: Caller is to ensure that `child` is a valid, non-null pointer to an `RSIndexResult`
-        let child = unsafe { &*child };
-        parent.push_borrowed(child);
+        let child = unsafe { &mut *child };
+        let drained_metrics = std::mem::take(&mut child.metrics);
+        parent.push_borrowed(child, drained_metrics);
     }
 }
 

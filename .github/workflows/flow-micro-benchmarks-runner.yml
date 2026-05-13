@@ -53,11 +53,14 @@ jobs:
     name: Run micro-benchmarks on runner
     needs: start-runner
     runs-on: ${{ needs.start-runner.outputs.runner_label }}
+    permissions:
+      contents: read  # actions/checkout
+      id-token: write # OIDC role assumption for sccache S3
     steps:
       - name: Pre checkout deps
         run:  sudo apt-get update && sudo apt-get -y --no-install-recommends install git
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           submodules: recursive
       - name: Print runner info
@@ -68,11 +71,16 @@ jobs:
           printf "Runner uname:\n$(uname -a)\n"
           printf "Runner arch:\n$(arch)\n"
       - name: Install python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v6
         with:
           python-version: 3.11
       - name: Setup sccache
         uses: ./.github/actions/setup-sccache
+        with:
+          aws-role: ${{ vars.SCCACHE_AWS_ROLE_TO_ASSUME }}
+          s3-bucket: ${{ vars.SCCACHE_S3_BUCKET }}
+          s3-region: ${{ vars.SCCACHE_S3_REGION }}
+          s3-key-prefix: ${{ vars.SCCACHE_S3_KEY_PREFIX }}
       - name: Install benchmark dependencies
         run: |
           export HOME=/home/ubuntu

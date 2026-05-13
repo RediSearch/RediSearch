@@ -12,6 +12,7 @@
 #include "rmutil/args.h"
 #include "trie/trie_type.h"
 #include "query_error.h"
+#include "util/likely.h"
 
 extern bool isCrdt;
 
@@ -75,6 +76,7 @@ int RSSuggestAddCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
   RedisModuleString *val = NULL;
   double score = 0.0;
   Trie *tree = NULL;
+  int rc = 0;
 
   RedisModuleKey *key = RedisModule_OpenKey(ctx, argv[1], REDISMODULE_READ | REDISMODULE_WRITE);
   int type = RedisModule_KeyType(key);
@@ -98,9 +100,13 @@ int RSSuggestAddCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
   }
 
   /* Insert the new element. */
-  Trie_Insert(tree, val, score, incr, &payload, 0);
+  rc = Trie_Insert(tree, val, score, incr, &payload, 0);
+  if (unlikely(rc == TRIE_ERR_PAYLOAD_OVERFLOW)) {
+    RedisModule_ReplyWithError(ctx, "Payload too large");
+    goto end;
+  }
 
-  RedisModule_ReplyWithLongLong(ctx, tree->size);
+  RedisModule_ReplyWithLongLong(ctx, Trie_Size(tree));
   RedisModule_ReplicateVerbatim(ctx);
 
 end:
@@ -186,7 +192,7 @@ int RSSuggestDelCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
   str = RedisModule_StringPtrLen(argv[2], &len);
   RedisModule_ReplyWithLongLong(ctx, Trie_Delete(tree, str, len));
 
-  if (tree->size == 0) {
+  if (Trie_Size(tree) == 0) {
     RedisModule_DeleteKey(key);
   }
 

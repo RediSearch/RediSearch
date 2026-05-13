@@ -406,3 +406,19 @@ def testMOD7453():
     # the text wildcard doesn't match the result correctly.
     res = env.cmd('FT.SEARCH', 'idx', "@tag:{w'*a*?'} | @text:w'*a*?'")
     env.assertEqual(res, [1, 'doc1', ['tag', 'ba*cl', 'text', 'ba*cl']])
+
+@skip(cluster=True)
+def testWildcardOnFieldWithoutSuffixTrie():
+    """Wildcard query on a TEXT field without WITHSUFFIXTRIE errors when spec has a suffix trie."""
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    conn = getConnectionByEnv(env)
+
+    # t1 has WITHSUFFIXTRIE, t2 does not
+    env.expect('FT.CREATE', 'idx', 'SCHEMA',
+               't1', 'TEXT', 'WITHSUFFIXTRIE',
+               't2', 'TEXT').ok()
+    conn.execute_command('HSET', 'doc1', 't1', 'hello', 't2', 'world')
+
+    # Wildcard on t2 should error: spec->suffix exists (from t1) but t2 is not in suffixMask
+    env.expect('FT.SEARCH', 'idx', "@t2:w'hel*o'").error() \
+        .contains('WITHSUFFIXTRIE')

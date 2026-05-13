@@ -15,7 +15,6 @@
 #include "redis_index.h"
 #include "redisearch_rs/headers/numeric_range_tree.h"
 #include "tag_index.h"
-#include "numeric_index.h"
 #include "redisearch_rs/headers/iterators_rs.h"
 #include "geometry/geometry_api.h"
 #include "geometry_index.h"
@@ -27,8 +26,10 @@
 #include "util/workers.h"
 #include "cursor.h"
 #include "module.h"
+#include "aggregate/aggregate.h"
 #include "aggregate/aggregate_debug.h"
 #include "hybrid/hybrid_debug.h"
+#include "hybrid/hybrid_exec.h"
 #include "reply.h"
 #include "reply_macros.h"
 #include "obfuscation/obfuscation_api.h"
@@ -37,6 +38,7 @@
 #include "ext/debug_scorers.h"
 #include "query_error.h"
 #include "doc_id_meta.h"
+#include "coord/rmr/rmr.h"
 
 DebugCTX globalDebugCtx = {0};
 
@@ -118,6 +120,23 @@ bool StoreResultsDebugCtx_IsPaused(void) {
 
 void StoreResultsDebugCtx_SetPause(bool pause) {
   atomic_store(&globalStoreResultsDebugCtx.pause, pause);
+}
+
+// Tracks the currently active coordinator MRIterator. Set by RPNet after the
+// iterator is created, cleared before it is released. A simple pointer is
+// sufficient since tests only run one blocked aggregate at a time.
+static _Atomic(struct MRIterator *) globalDebugBgIterator = NULL;
+
+void DebugBgIterator_Set(struct MRIterator *it) {
+  atomic_store_explicit(&globalDebugBgIterator, it, memory_order_release);
+}
+
+void DebugBgIterator_Clear(struct MRIterator *it) {
+  // CAS so a stale clear (if iterators ever overlapped) cannot wipe the
+  // pointer set by a newer iterator.
+  struct MRIterator *expected = it;
+  atomic_compare_exchange_strong_explicit(&globalDebugBgIterator, &expected, NULL,
+                                          memory_order_release, memory_order_relaxed);
 }
 
 // ============================================================================
@@ -234,6 +253,32 @@ void SyncPoint_Wait(const char *name) {
     usleep(1000);  // Spin-wait with 1ms sleep (matches existing pattern)
   }
   atomic_fetch_sub(&sp->waiting, 1);  // Decrement waiting counter
+}
+
+void SyncPoint_WaitUntil(const char *name, SyncPointStopFn stop_fn, void *arg) {
+  SyncPointState *sp = SyncPoint_FindByName(name);
+  if (!sp || !atomic_load(&sp->armed)) return;
+
+  atomic_fetch_add(&sp->waiting, 1);
+  while (atomic_load(&sp->armed)) {
+    if (stop_fn && stop_fn(arg)) break;
+    usleep(1000);
+  }
+  atomic_fetch_sub(&sp->waiting, 1);
+}
+
+static _Atomic uint32_t g_pendingSpecWriters = 0;
+
+void PendingSpecWriters_Incr(void) {
+  atomic_fetch_add_explicit(&g_pendingSpecWriters, 1, memory_order_relaxed);
+}
+
+void PendingSpecWriters_Decr(void) {
+  atomic_fetch_sub_explicit(&g_pendingSpecWriters, 1, memory_order_relaxed);
+}
+
+uint32_t PendingSpecWriters_Get(void) {
+  return atomic_load_explicit(&g_pendingSpecWriters, memory_order_relaxed);
 }
 
 // Global hybrid store cursors debug context (for HREQ cursor storage only)
@@ -362,7 +407,7 @@ DEBUG_COMMAND(DumpTerms) {
   int dist = 0;
   size_t termLen;
 
-  RedisModule_ReplyWithArray(ctx, sctx->spec->terms->size);
+  RedisModule_ReplyWithArray(ctx, Trie_Size(sctx->spec->terms));
 
   TrieIterator *it = Trie_Iterate(sctx->spec->terms, "", 0, 0, 1);
   while (TrieIterator_Next(it, &rstr, &slen, NULL, &score, NULL, &dist)) {
@@ -408,7 +453,7 @@ DEBUG_COMMAND(InvertedIndexSummary) {
   }
   GET_SEARCH_CTX(argv[2])
   invIdxName = RedisModule_StringPtrLen(argv[3], &len);
-  invidx = Redis_OpenInvertedIndex(sctx, invIdxName, len, 0, NULL);
+  invidx = Redis_OpenInvertedIndex(sctx->spec, invIdxName, len, 0, NULL);
   if (!invidx) {
     RedisModule_ReplyWithError(sctx->redisCtx, "Can not find the inverted index");
     goto end;
@@ -460,7 +505,7 @@ DEBUG_COMMAND(DumpInvertedIndex) {
   }
   GET_SEARCH_CTX(argv[2])
   invIdxName = RedisModule_StringPtrLen(argv[3], &len);
-  invidx = Redis_OpenInvertedIndex(sctx, invIdxName, len, 0, NULL);
+  invidx = Redis_OpenInvertedIndex(sctx->spec, invIdxName, len, 0, NULL);
   if (!invidx) {
     RedisModule_ReplyWithError(sctx->redisCtx, "Can not find the inverted index");
     goto end;
@@ -699,7 +744,7 @@ DEBUG_COMMAND(DumpSuffix) {
     long resultSize = 0;
 
     // iterate trie and reply with terms
-    TrieIterator *it = TrieNode_Iterate(suffix->root, NULL, NULL, NULL);
+    TrieIterator *it = Trie_IterateAll(suffix);
     rune *rstr;
     t_len len;
     float score;
@@ -1768,11 +1813,45 @@ DEBUG_COMMAND(ProfileCommandCommand_DebugWrapper) {
   return ProfileCommandHandlerImp(ctx, ++argv, --argc, true);
 }
 
+DEBUG_COMMAND(RSShardedHybridCommand_Debug) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc < 9) {
+    return RedisModule_WrongArity(ctx);
+  }
+  // Skip _FT.DEBUG prefix — argv now starts at FT.HYBRID / _FT.HYBRID
+  ++argv; --argc;
+
+  QueryError status = QueryError_Default();
+  HybridDebugParams params = parseHybridDebugParamsCount(argv, argc, &status);
+  if (QueryError_HasError(&status)) {
+    return QueryError_ReplyAndClear(ctx, &status);
+  }
+  if (parseHybridDebugParams(&params, &status) != REDISMODULE_OK) {
+    return QueryError_ReplyAndClear(ctx, &status);
+  }
+
+  // Strip debug params from argc so hybridCommandHandler sees a normal command
+  int stripped_argc = argc - (int)params.debug_params_count - 2;
+  return hybridCommandHandler(ctx, argv, stripped_argc, true, EXEC_NO_FLAGS, &params);
+}
+
 DEBUG_COMMAND(HybridCommand_DebugWrapper) {
   if (!debugCommandsEnabled(ctx)) {
     return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
   }
-  return DEBUG_hybridCommandHandler(ctx, ++argv, --argc);
+  if (argc < 9) {
+    // Minimum: _FT.DEBUG FT.HYBRID idx SEARCH query VSIM field vector DEBUG_PARAMS_COUNT count
+    return RedisModule_WrongArity(ctx);
+  }
+
+  if (GetNumShards_UnSafe() == 1) {
+    // Single shard — use standalone handler (skip _FT.DEBUG)
+    return DEBUG_hybridCommandHandler(ctx, ++argv, --argc);
+  }
+
+  return DistHybridCommandInternal(ctx, ++argv, --argc, true, false /* isProfile */);
 }
 
 /**
@@ -2190,6 +2269,38 @@ DEBUG_COMMAND(getIsRPPaused) {
   return RedisModule_ReplyWithLongLong(ctx, QueryDebugCtx_IsPaused());
 }
 
+
+int parseDebugParamsCount(RedisModuleString **argv, int argc, QueryError *status, unsigned long long *debug_params_count) {
+    // Verify DEBUG_PARAMS_COUNT exists in its expected position (second to last argument)
+    if (argc < 2) {
+      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "DEBUG_PARAMS_COUNT arg is missing");
+      return 1;
+    }
+
+    size_t n;
+    const char *arg = RedisModule_StringPtrLen(argv[argc - 2], &n);
+    if (!(strncasecmp(arg, "DEBUG_PARAMS_COUNT", n) == 0)) {
+      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "DEBUG_PARAMS_COUNT arg is missing or not in the expected position");
+      return 1;
+    }
+
+    // The count of debug params is the last argument in argv
+    unsigned long long count = 0;
+    if (RedisModule_StringToULongLong(argv[argc - 1], &count) != REDISMODULE_OK || count == 0) {
+      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Invalid DEBUG_PARAMS_COUNT count");
+      return 1;
+    }
+
+    if (count > (unsigned long long)(argc - 2)) {
+      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS,
+                          "DEBUG_PARAMS_COUNT exceeds the number of available arguments");
+      return 1;
+    }
+
+    *debug_params_count = count;
+    return 0;
+}
+
 #ifdef ENABLE_ASSERT
 /**
  * FT.DEBUG QUERY_CONTROLLER SET_PAUSE_BEFORE_REDUCE <N>
@@ -2524,6 +2635,44 @@ DEBUG_COMMAND(syncPoint) {
   }
   return RedisModule_ReplyWithError(ctx, "Unknown SYNC_POINT subcommand. Valid: ARM, SIGNAL, IS_WAITING, IS_ARMED, CLEAR");
 }
+
+/**
+ * FT.DEBUG BG_PENDING_REPLIES
+ * Returns the `pending` shard counter of the currently active coordinator
+ * MRIterator (the number of shards that have not yet delivered their final
+ * reply / EOF). Returns -1 when no iterator is active. Tests use this to
+ * deterministically wait until every shard reply has been admitted into the
+ * coordinator's channel before firing CLIENT UNBLOCK TIMEOUT.
+ */
+DEBUG_COMMAND(bgPendingReplies) {
+  if (!debugCommandsEnabled(ctx)) return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  if (argc != 2) return RedisModule_WrongArity(ctx);
+  struct MRIterator *it = atomic_load_explicit(&globalDebugBgIterator, memory_order_acquire);
+  long long pending = it ? (long long)MRIterator_GetPending(it) : -1;
+  return RedisModule_ReplyWithLongLong(ctx, pending);
+}
+
+/**
+ * FT.DEBUG QUERY_CONTROLLER SET_CURSOR_READ_SIZE <N>
+ * Override RSGlobalConfig.cursorReadSize at runtime. Returns the previous
+ * value so the caller can restore it. N must be >= 1.
+ */
+DEBUG_COMMAND(setCursorReadSize) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc != 3) {
+    return RedisModule_WrongArity(ctx);
+  }
+  long long n;
+  if (RedisModule_StringToLongLong(argv[2], &n) != REDISMODULE_OK || n < 1) {
+    return RedisModule_ReplyWithError(ctx, "Invalid argument for 'SET_CURSOR_READ_SIZE'");
+  }
+
+  long long previous = RSGlobalConfig.cursorReadSize;
+  RSGlobalConfig.cursorReadSize = n;
+  return RedisModule_ReplyWithLongLong(ctx, previous);
+}
 #endif
 
 /**
@@ -2549,6 +2698,9 @@ DEBUG_COMMAND(queryController) {
     return printRPStream(ctx, argv + 1, argc - 1);
   }
 #ifdef ENABLE_ASSERT
+  if (!strcmp("SET_CURSOR_READ_SIZE", op)) {
+    return setCursorReadSize(ctx, argv + 1, argc - 1);
+  }
   // Coordinator reduce pause commands (only available with ENABLE_ASSERT)
   if (!strcmp("SET_PAUSE_BEFORE_REDUCE", op)) {
     return setPauseBeforeReduce(ctx, argv + 1, argc - 1);
@@ -2790,6 +2942,41 @@ DEBUG_COMMAND(RegisterTestScorers) {
   }
 }
 
+// Global variable defined in spec.c - maximum number of indexes allowed
+extern uint32_t maxIndexes_g;
+
+/**
+ * FT.DEBUG SET_MAX_INDEXES <value>
+ * Set the maximum number of indexes allowed (for testing only).
+ * Value must be between max(1, current number of indexes) and
+ * DEFAULT_MAX_INDEXES (200000).
+ */
+DEBUG_COMMAND(SetMaxIndexes) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc != 3) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  long long newMaxIndexes;
+  if (RedisModule_StringToLongLong(argv[2], &newMaxIndexes) != REDISMODULE_OK ||
+      newMaxIndexes < 1 || newMaxIndexes > DEFAULT_MAX_INDEXES) {
+    return RedisModule_ReplyWithErrorFormat(ctx,
+        "Invalid value. Must be between 1 and %d.", DEFAULT_MAX_INDEXES);
+  }
+
+  // Get current number of indexes
+  size_t numIndexes = Indexes_Count();
+  if (newMaxIndexes < numIndexes) {
+    return RedisModule_ReplyWithErrorFormat(ctx,
+        "Invalid value. Must be at least current number of indexes: %zu.", numIndexes);
+  }
+
+  maxIndexes_g = (uint32_t)newMaxIndexes;
+  return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
+
 DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all the inverted index entries.
                                {"DUMP_NUMIDX", DumpNumericIndex}, // Print all the headers (optional) + entries of the numeric tree.
                                {"DUMP_NUMIDXTREE", DumpNumericIndexTree}, // Print tree general info, all leaves + nodes + stats
@@ -2835,7 +3022,8 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {"GET_MAX_DOC_ID", GetMaxDocId},
                                {"DUMP_DELETED_IDS", DumpDeletedIds},
                                {"DISK_IO_CONTROL", DiskIOControl},
-                               {"REGISTER_TEST_SCORERS", RegisterTestScorers}, // Register test scorers
+                               {"REGISTER_TEST_SCORERS", RegisterTestScorers},
+                               {"SET_MAX_INDEXES", SetMaxIndexes},
                                /**
                                 * The following commands are for debugging distributed search/aggregation.
                                 */
@@ -2844,7 +3032,7 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {"FT.SEARCH", DistSearchCommand_DebugWrapper},
                                {"_FT.SEARCH", RSSearchCommandShard}, // internal use only, in SA use FT.SEARCH
                                {"FT.HYBRID", HybridCommand_DebugWrapper},
-                               {"_FT.HYBRID", HybridCommand_DebugWrapper}, // internal use only, in SA use FT.HYBRID
+                               {"_FT.HYBRID", RSShardedHybridCommand_Debug},
                                {"FT.PROFILE", ProfileCommandCommand_DebugWrapper},
                                {"_FT.PROFILE", RSProfileCommandShard},
                                /* IMPORTANT NOTE: Every debug command starts with
@@ -2859,6 +3047,7 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
 // Add new assert-only commands to this array instead of hard-coding #ifdef blocks
 static DebugCommandType assertOnlyCommands[] = {
     {"SYNC_POINT", syncPoint},
+    {"BG_PENDING_REPLIES", bgPendingReplies},
     {NULL, NULL}};
 #endif
 

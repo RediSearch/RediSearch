@@ -21,7 +21,7 @@ on:
       redis-ref:
         description: 'Redis version to use (e.g. "7.2.3", "unstable")'
         type: string
-        required: true
+        default: 3cd464263b03b425ffae2e23db24df3dc9346871
       test-config:
         description: 'Test configuration environment variable (e.g. "CONFIG=tls" or "QUICK=1")'
         required: true
@@ -90,7 +90,7 @@ jobs:
     needs: get-config
     name: Start self-hosted EC2 runner
     if: ${{ needs.get-config.outputs.ec2_image_id }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-slim
     env:
       TAGS: | # Make sure there is no trailing comma!
         [
@@ -135,7 +135,7 @@ jobs:
 
   common-flow:
     needs: [get-config, build-image, start-runner]
-    name: Test ${{ needs.get-config.outputs.name }}, Redis ${{ inputs.redis-ref || '3cd464263b03b425ffae2e23db24df3dc9346871' }}
+    name: Test ${{ needs.get-config.outputs.name }}, Redis ${{ inputs.redis-ref }}
     # Run if get-config succeeded and at least one test type is enabled
     if: |
       !cancelled() &&
@@ -151,6 +151,12 @@ jobs:
             startsWith(needs.get-config.outputs.container, 'alpine:') && '-v /opt:/opt:rw,rshared -v /opt:/__e/node20:ro,rshared -v /opt:/__e/node24:ro,rshared' || '')
         )
       || null }}
+
+    permissions:
+      contents: read  # actions/checkout
+      id-token: write # OIDC role assumption for sccache S3
+      packages: read  # pull container image from GHCR
+      actions: write  # Swatinem/rust-cache read/write of GH cache
 
     env:
       # LTO is disabled on coverage and sanitizer tasks
@@ -235,7 +241,7 @@ jobs:
           ${{ needs.get-config.outputs.install_mode }} rm -rf /opt/hostedtoolcache/CodeQL || true
           df -h
       - name: Full checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           submodules: recursive
       - name: Print CPU information
@@ -262,6 +268,11 @@ jobs:
           echo "========================"
       - name: Setup sccache
         uses: ./.github/actions/setup-sccache
+        with:
+          aws-role: ${{ vars.SCCACHE_AWS_ROLE_TO_ASSUME }}
+          s3-bucket: ${{ vars.SCCACHE_S3_BUCKET }}
+          s3-region: ${{ vars.SCCACHE_S3_REGION }}
+          s3-key-prefix: ${{ vars.SCCACHE_S3_KEY_PREFIX }}
       - name: Setup
         if: needs.build-image.outputs.succeeded != 'true'
         uses: ./.github/actions/retry-command
@@ -280,8 +291,17 @@ jobs:
           # relative to the `$workspace` and defaults to "target" if not explicitly given.
           # default: ". -> target"
           workspaces: "src/redisearch_rs -> ../../bin/redisearch_rs"
+          # Save cache even when the job fails, so subsequent runs can reuse
+          # compiled artifacts. Without this, cache is never populated on
+          # platforms with high failure rates (e.g. macOS x86_64).
+          cache-on-failure: true
       - name: Setup Rust test dependencies
         if: needs.build-image.outputs.succeeded != 'true' # Only run if NOT using custom container
+        # GITHUB_TOKEN lets cargo-binstall use authenticated GitHub API calls
+        # (5000 req/hr vs 60/hr unauthenticated), avoiding 403 rate-limit errors
+        # that force ~18 min source compilations on macOS Intel runners.
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: .install/test_deps/install_rust_deps.sh ${{ needs.get-config.outputs.install_mode }}
 
       - name: Setup Python test dependencies
@@ -308,19 +328,13 @@ jobs:
           echo "CXX=$(dirname $CLANG_BIN)/clang++-$CLANG_VERSION" >> $GITHUB_ENV
           echo "LD=$CLANG_BIN" >> $GITHUB_ENV
           echo "ASAN_SYMBOLIZER_PATH=/usr/lib/llvm-$CLANG_VERSION/bin/llvm-symbolizer" >> $GITHUB_ENV
-      - name: Get Redis
-        uses: ./.github/actions/get-redis
+      - name: Build Redis (cached)
+        uses: ./.github/actions/build-redis
         with:
           ref: ${{ inputs.redis-ref }}
-
-      - name: Build Redis
-        working-directory: redis
-        env:
-          SAN: ${{ inputs.san }}
-        run:  ${{ needs.get-config.outputs.install_mode }} make install
-              BUILD_TLS=yes
-              ${{ inputs.coverage && 'REDIS_CFLAGS=-DCOVERAGE_TEST' || '' }}
-              SANITIZER=$SAN
+          san: ${{ inputs.san }}
+          coverage: ${{ inputs.coverage }}
+          cache_platform_id: ${{ needs.get-config.outputs.container || needs.get-config.outputs.env }}
 
       - name: Set Artifact Names
         # Artifact names have to be unique, so we base them on the environment.
@@ -331,7 +345,7 @@ jobs:
           COV_LABEL: ${{ inputs.coverage && 'coverage test' || '' }}
           PLATFORM: ${{ needs.get-config.outputs.container || needs.get-config.outputs.env }}
           ARCH: ${{ runner.arch }}
-          REDIS_VERSION: ${{ inputs.redis-ref || '3cd464263b03b425ffae2e23db24df3dc9346871' }}
+          REDIS_VERSION: ${{ inputs.redis-ref }}
         run:
           | # Invalid characters include: Double quote ", Colon :, Less than <, Greater than >, Vertical bar |, Asterisk *, Question mark ?
           UNIQUE_ID="$RANDOM$RANDOM"
@@ -509,18 +523,18 @@ jobs:
             steps.coordinator_tests.outcome == 'failure'
           )
         run: |
-          echo "C Unit Tests: ${{ steps.c_unit_tests.outcome }}"
-          echo "Rust Unit Tests: ${{ steps.rust_unit_tests.outcome }}"
-          echo "Rust Unit Tests(Miri): ${{ steps.rust_unit_tests_miri.outcome }}"
-          echo "Standalone: ${{ steps.standalone_tests.outcome }}"
-          echo "Coordinator: ${{ steps.coordinator_tests.outcome }}"
+          echo "C/C++ tests: ${{ steps.c_unit_tests.outcome }}"
+          echo "Rust tests: ${{ steps.rust_unit_tests.outcome }}"
+          echo "Flow tests (standalone): ${{ steps.standalone_tests.outcome }}"
+          echo "Flow tests (coordinator): ${{ steps.coordinator_tests.outcome }}"
+          echo "Rust tests (MIRI): ${{ steps.rust_unit_tests_miri.outcome }}"
           exit 1
       - name: Import Codecov GPG public key
         if: inputs.coverage
         run: gpg --import .github/codecov_gpg.pub
       - name: Upload flow coverage (combined)
         if: inputs.coverage && inputs.standalone && inputs.coordinator
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v6 # NOSONAR
         with:
           files: bin/flow_standalone.info,bin/flow_coordinator.info
           disable_search: true
@@ -529,7 +543,7 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
       - name: Upload flow coverage (standalone)
         if: inputs.coverage && inputs.standalone && !inputs.coordinator
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v6 # NOSONAR
         with:
           files: bin/flow_standalone.info
           disable_search: true
@@ -538,7 +552,7 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
       - name: Upload flow coverage (coordinator)
         if: inputs.coverage && !inputs.standalone && inputs.coordinator
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v6 # NOSONAR
         with:
           files: bin/flow_coordinator.info
           disable_search: true
@@ -547,7 +561,7 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
       - name: Upload unit coverage
         if: inputs.coverage && inputs.unit-tests
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v6 # NOSONAR
         with:
           files: bin/unit.info,bin/rust_cov.info
           disable_search: true
@@ -560,7 +574,7 @@ jobs:
     name: Stop self-hosted EC2 runner
     needs: [start-runner, common-flow]
     if: ${{ always() && needs.start-runner.outputs.ec2-instance-id != '' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-slim
     steps:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4

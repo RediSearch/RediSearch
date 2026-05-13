@@ -13,7 +13,9 @@ libc.workspace = true
 query_error.workspace = true
 workspace_hack.workspace = true
 thiserror.workspace = true
+tracing.workspace = true
 triomphe.workspace = true
+tracing_assert.workspace = true
 
 [dev-dependencies]
 redisearch_rs = { workspace = true, features = ["mock_allocator"] }

@@ -59,6 +59,7 @@ void QueryDebugCtx_SetPause(bool pause);
 ResultProcessor* QueryDebugCtx_GetDebugRP(void);
 void QueryDebugCtx_SetDebugRP(ResultProcessor* debugRP);
 bool QueryDebugCtx_HasDebugRP(void);
+int parseDebugParamsCount(RedisModuleString **argv, int argc, QueryError *status, unsigned long long *debug_params_count);
 
 #ifdef ENABLE_ASSERT
 // Named sentinel values for the pauseBeforeN field of CoordReduceDebugCtx
@@ -105,9 +106,15 @@ void StoreResultsDebugCtx_SetPause(bool pause);
 
 // Predefined sync point names for query execution
 // These correspond to specific locations in the query execution path
-#define SYNC_POINT_AFTER_ITERATOR_CREATE       "AfterIteratorCreate"
-#define SYNC_POINT_BEFORE_FIRST_READ           "BeforeFirstRead"
-#define SYNC_POINT_BEFORE_DIST_HYBRID_PROMOTE  "BeforeDistHybridPromote"
+#define SYNC_POINT_AFTER_ITERATOR_CREATE                "AfterIteratorCreate"
+#define SYNC_POINT_BEFORE_FIRST_READ                    "BeforeFirstRead"
+#define SYNC_POINT_BEFORE_DIST_HYBRID_PROMOTE           "BeforeDistHybridPromote"
+#define SYNC_POINT_BEFORE_SPEC_LOCK                     "BeforeSpecLock"
+#define SYNC_POINT_BEFORE_CURSOR_READ_SEND_CHUNK        "BeforeCursorReadSendChunk"
+#define SYNC_POINT_BEFORE_AGGREGATE_RESULTS_CLAIM       "BeforeAggregateResultsClaim"
+#define SYNC_POINT_BEFORE_RPNET_START                   "BeforeRPNetStart"
+#define SYNC_POINT_AFTER_ITERATOR_START                 "AfterIteratorStart"
+#define SYNC_POINT_RPNET_REPLY_ADMITTED                 "RpnetReplyAdmitted"
 
 // SyncPoint API function declarations
 // Arm a sync point - subsequent calls to SyncPoint_Wait will block
@@ -126,6 +133,22 @@ void SyncPoint_ClearAll(void);
 // If the named point is armed, blocks until signaled
 void SyncPoint_Wait(const char *name);
 
+// Predicate callback type for SyncPoint_WaitUntil
+typedef bool (*SyncPointStopFn)(void *arg);
+// Like SyncPoint_Wait, but also exits the wait loop when `stop_fn(arg)` returns
+// true. Lets workers release early when a timeout fires on the main thread.
+void SyncPoint_WaitUntil(const char *name, SyncPointStopFn stop_fn, void *arg);
+
+// Process-wide counter of threads parked in `RedisSearchCtx_LockSpecWrite`
+// waiting on a spec rwlock. Bumped before `pthread_rwlock_wrlock` and
+// decremented once the write lock has been acquired. Used by tests (sync-point
+// stop predicates) to observe a pending writer without depending on the main
+// thread, since the main thread is exactly what's blocked on the wrlock in the
+// scenarios these tests cover.
+void PendingSpecWriters_Incr(void);
+void PendingSpecWriters_Decr(void);
+uint32_t PendingSpecWriters_Get(void);
+
 // Struct used for debugging hybrid cursor storage ONLY (pause before/after cursor creation)
 // Separate from StoreResultsDebugCtx to allow independent control
 typedef struct HybridStoreCursorsDebugCtx {
@@ -141,6 +164,14 @@ bool HybridStoreCursorsDebugCtx_IsPauseAfterEnabled(void);
 void HybridStoreCursorsDebugCtx_SetPauseAfterEnabled(bool enabled);
 bool HybridStoreCursorsDebugCtx_IsPaused(void);
 void HybridStoreCursorsDebugCtx_SetPause(bool pause);
+
+// Tracks the currently active coordinator MRIterator so tests can poll the
+// `pending` shard counter via FT.DEBUG BG_PENDING_REPLIES. Set after the
+// iterator is created in the RPNet start path; cleared before it is released
+// in rpnetFree. Only one query is expected to be active at a time in tests.
+struct MRIterator;
+void DebugBgIterator_Set(struct MRIterator *it);
+void DebugBgIterator_Clear(struct MRIterator *it);
 
 #endif  // ENABLE_ASSERT
 

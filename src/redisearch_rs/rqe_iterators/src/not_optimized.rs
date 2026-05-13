@@ -26,7 +26,7 @@ const TIMEOUT_CHECK_GRANULARITY: u32 = 5_000;
 ///
 /// Unlike [`Not`](super::not::Not) which iterates sequentially from 1 to
 /// `max_doc_id`, this variant uses a
-/// [`WildcardIterator`] that reads from the existing-documents inverted
+/// [wildcard iterator](crate::wildcard) that reads from the existing-documents inverted
 /// index. It yields all documents present in the wildcard iterator that
 /// are **not** present in the child iterator.
 ///
@@ -266,15 +266,24 @@ where
     }
 
     #[inline(always)]
-    fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
+    unsafe fn revalidate(
+        &mut self,
+        spec: std::ptr::NonNull<ffi::IndexSpec>,
+    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         // 1. Revalidate the wildcard iterator first.
-        let wcii_status = self.wcii.revalidate()?;
+        // SAFETY: Delegating to children with the same `spec` passed by our caller.
+        let wcii_status = unsafe { self.wcii.revalidate(spec) }?;
         if matches!(wcii_status, RQEValidateStatus::Aborted) {
             return Ok(RQEValidateStatus::Aborted);
         }
 
         // 2. Revalidate the child iterator.
-        if matches!(self.child.revalidate()?, RQEValidateStatus::Aborted) {
+        let child_aborted = matches!(
+            // SAFETY: Delegating to child with the same `spec` passed by our caller.
+            unsafe { self.child.revalidate(spec) }?,
+            RQEValidateStatus::Aborted
+        );
+        if child_aborted {
             // When child is aborted, NOT becomes "NOT nothing" = everything
             // from the wildcard iterator.
             self.child = MaybeEmpty::new_empty();

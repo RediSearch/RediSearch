@@ -12,7 +12,7 @@ use std::ffi::CStr;
 use ffi::{
     REDISMODULE_POSTPONED_ARRAY_LEN, REDISMODULE_POSTPONED_LEN, RedisModule_ReplyWithArray,
     RedisModule_ReplyWithDouble, RedisModule_ReplyWithEmptyArray, RedisModule_ReplyWithLongLong,
-    RedisModule_ReplyWithMap, RedisModule_ReplyWithSimpleString,
+    RedisModule_ReplyWithMap, RedisModule_ReplyWithSimpleString, RedisModule_ReplyWithStringBuffer,
 };
 
 pub use ffi::RedisModuleCtx;
@@ -62,6 +62,18 @@ impl Replier {
             RedisModule_ReplyWithSimpleString.expect("RedisModule_ReplyWithSimpleString")(
                 self.ctx,
                 s.as_ptr(),
+            );
+        }
+    }
+
+    /// Reply with a string buffer (bulk string).
+    pub fn string_buffer(&mut self, buf: &[u8]) {
+        // SAFETY: ctx is validated at construction
+        unsafe {
+            RedisModule_ReplyWithStringBuffer.expect("RedisModule_ReplyWithStringBuffer")(
+                self.ctx,
+                buf.as_ptr().cast(),
+                buf.len(),
             );
         }
     }

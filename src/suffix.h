@@ -28,7 +28,7 @@ typedef enum {
 /*****************        Trie          ********************/
 /***********************************************************/
 typedef struct SuffixCtx {
-    TrieNode *root;
+    Trie *trie;
     rune *rune;
     size_t runelen;
     const char *cstr;
@@ -48,6 +48,10 @@ typedef struct suffixData {
 } suffixData;
 
 
+/* Add string to suffix trie. If string already exists, do nothing.
+ * In case of allocation overflow in TrieNode_Add, log error and return without
+ * adding the string.
+ */
 void addSuffixTrie(Trie *trie, const char *str, uint32_t len);
 void deleteSuffixTrie(Trie *trie, const char *str, uint32_t len);
 

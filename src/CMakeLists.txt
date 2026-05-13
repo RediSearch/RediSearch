@@ -61,10 +61,8 @@ endif()
 add_subdirectory(geometry)
 add_subdirectory(buffer)
 add_subdirectory(iterators)
-add_subdirectory(wildcard)
 add_subdirectory(index_result)
 add_subdirectory(util/mempool)
-add_subdirectory(util/arr)
 add_subdirectory(util/dict)
 add_subdirectory(util/hash)
 add_subdirectory(coord)
@@ -88,6 +86,8 @@ file(GLOB SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/query_parser/v1/*.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/query_parser/v2/*.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/util/*.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/util/arr/*.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/wildcard/*.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/trie/*.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/info/*.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/info/info_redis/*.c"
@@ -114,11 +114,9 @@ endif()
 
 # Collect all object files
 set(FINAL_OBJECTS
-    $<TARGET_OBJECTS:arr>
     $<TARGET_OBJECTS:buffer>
     $<TARGET_OBJECTS:dict>
     $<TARGET_OBJECTS:iterators>
-    $<TARGET_OBJECTS:wildcard>
     $<TARGET_OBJECTS:index_result>
     $<TARGET_OBJECTS:mempool>
     $<TARGET_OBJECTS:rscore>
@@ -276,7 +274,7 @@ if(APPLE)
     # macOS: use libtool to merge static libraries
     add_custom_command(
         OUTPUT ${REDISEARCH_ALL_OUTPUT}
-        COMMAND libtool -static -o ${REDISEARCH_ALL_OUTPUT} ${LIBS_TO_MERGE}
+        COMMAND libtool -static -no_warning_for_no_symbols -o ${REDISEARCH_ALL_OUTPUT} ${LIBS_TO_MERGE}
         DEPENDS ${MERGE_DEPENDS}
         COMMENT "Creating unified libredisearch_all.a with libtool"
         VERBATIM

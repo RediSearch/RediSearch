@@ -12,31 +12,43 @@ Run this skill after making code changes to verify they compile.
 
 ## Instructions
 
-1. For a full build (C + Rust):
-   ```bash
-   ./build.sh
-   ```
+### Full Build (C + Rust)
+```bash
+./build.sh
+```
+Use this when you modified C code, or when building for the first time.
 
-2. For Rust-only build (faster iteration):
-   ```bash
-   cd src/redisearch_rs && cargo build
-   ```
-   Always build the C code at least **once** before running the Rust-only build.
+### Debug Build (recommended for development)
+```bash
+./build.sh DEBUG=1
+```
+Enables debug symbols and additional assertions. Use this when developing or debugging.
 
-3. If build fails:
-   - Read the compiler errors carefully
-   - Fix the issues
-   - Re-run the build
+### Rust-Only Build (faster iteration)
+```bash
+cd src/redisearch_rs && cargo build
+```
+Only use after the C code has been built at least **once** with `./build.sh`.
+If you update C code, run `./build.sh` again before the Rust-only build.
 
-4. If you update C code, re-build the C code before running the Rust-only build:
-   ```bash
-   ./build.sh
-   cd src/redisearch_rs && cargo build
-   ```
+### Build with Tests
+```bash
+./build.sh TESTS
+```
+Compiles test binaries (C/C++ unit tests) alongside the module. Required before
+running individual test binaries directly (e.g., `rstest --gtest_filter=...`).
+
+### If Build Fails
+
+- Read the compiler errors carefully.
+- C errors: check for missing includes, incompatible pointer types, implicit function
+  declarations (all promoted to errors).
+- Rust errors: check for FFI signature mismatches if C headers changed.
+- Fix the issues and re-run the build.
 
 ## Clean Build
 
-If you encounter strange build errors:
+If you encounter strange build errors (stale artifacts, CMake cache issues):
 ```bash
 ./build.sh FORCE
 ```

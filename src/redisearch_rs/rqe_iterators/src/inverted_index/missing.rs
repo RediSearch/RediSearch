@@ -7,7 +7,10 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::ptr::NonNull;
+use std::{
+    ffi::{CString, c_char},
+    ptr::NonNull,
+};
 
 use ffi::{RedisSearchCtx, t_docId, t_fieldIndex};
 use inverted_index::{
@@ -38,8 +41,12 @@ use super::InvIndIterator;
 /// * `C` - The expiration checker type.
 pub struct Missing<'index, E: DecodedBy, C = crate::expiration_checker::NoOpChecker> {
     it: InvIndIterator<'index, IndexReaderCore<'index, E>, C>,
-    context: NonNull<RedisSearchCtx>,
     field_index: t_fieldIndex,
+    /// Owned copy of the field name, extracted from the spec at construction
+    /// time. Owning the string means the iterator no longer borrows from
+    /// `spec.fields`, therefore `context`/`spec` only need to be valid at
+    /// construction time (not for the iterator's entire lifetime).
+    field_name: CString,
 }
 
 impl<'index, E, C> Missing<'index, E, C>
@@ -57,10 +64,9 @@ where
     ///
     /// 1. `context` must point to a valid [`RedisSearchCtx`].
     /// 2. `context.spec` must be a non-null pointer to a valid `IndexSpec`.
-    /// 3. Both 1 and 2 must remain valid for the lifetime of the iterator.
-    /// 4. `field_index` must be a valid index into `context.spec.fields`.
-    /// 5. `context.spec.missingFieldDict` must be a non-null, valid dict pointer.
-    /// 6. The entry in `missingFieldDict` for `spec.fields[field_index].fieldName`,
+    /// 3. `field_index` must be a valid index into `context.spec.fields`.
+    /// 4. `context.spec.missingFieldDict` must be a non-null, valid dict pointer.
+    /// 5. The entry in `missingFieldDict` for `spec.fields[field_index].fieldName`,
     ///    when non-null, must point to an opaque
     ///    [`InvertedIndex`](inverted_index::opaque::InvertedIndex) whose encoding
     ///    variant matches `E`.
@@ -81,10 +87,34 @@ where
             .frequency(1)
             .build();
 
+        // Copy the field name into an owned CString so the iterator does not
+        // borrow into spec.fields beyond construction.
+        // SAFETY: pre-conditions 1, 2, and 3 guarantee context, spec, and field_index validity.
+        let field_name = {
+            // SAFETY: pre-condition 1 guarantees `context` points to a valid `RedisSearchCtx`.
+            let sctx = unsafe { context.as_ref() };
+            // SAFETY: pre-condition 2 guarantees `spec` is non-null and valid.
+            let spec = unsafe { &*sctx.spec };
+            if spec.fields.is_null() {
+                CString::default()
+            } else {
+                // SAFETY: pre-condition 3 guarantees `field_index` is in bounds.
+                let field_ptr = unsafe { spec.fields.add(field_index as usize) };
+                // SAFETY: `field_ptr` is valid per the above bounds guarantee.
+                let field = unsafe { &*field_ptr };
+                let mut len = 0;
+                // SAFETY: `field.fieldName` is valid per spec field validity.
+                let name = unsafe { ffi::HiddenString_GetUnsafe(field.fieldName, &mut len) };
+                // SAFETY: `name` points to `len` valid bytes (per HiddenString contract).
+                let bytes = unsafe { std::slice::from_raw_parts(name.cast::<u8>(), len) };
+                CString::new(bytes).expect("field name contains interior nul byte")
+            }
+        };
+
         Self {
             it: InvIndIterator::new(reader, result, expiration_checker),
-            context,
             field_index,
+            field_name,
         }
     }
 
@@ -94,22 +124,26 @@ where
     /// inverted index or replace it with a new allocation. In both cases the
     /// reader's pointer is stale and the iterator must
     /// [abort](RQEValidateStatus::Aborted).
-    fn should_abort(&self) -> bool {
-        // SAFETY: 1. and 3. guarantee `context` is valid for the iterator's lifetime.
-        let sctx_ref = unsafe { self.context.as_ref() };
-        // SAFETY: 2. and 3. guarantee `spec` is a valid, non-null pointer for the iterator's lifetime.
-        let spec = unsafe { &*sctx_ref.spec };
-
+    ///
+    /// # Safety
+    ///
+    /// 1. `self.field_index` must be a valid index into `spec.fields`.
+    /// 2. `spec.missingFieldDict` must be a non-null, valid dict pointer.
+    /// 3. The entry in `missingFieldDict` for `spec.fields[field_index].fieldName`,
+    ///    when non-null, must point to an opaque
+    ///    [`InvertedIndex`](inverted_index::opaque::InvertedIndex) whose encoding
+    ///    variant matches `E`.
+    unsafe fn should_abort(&self, spec: &ffi::IndexSpec) -> bool {
         debug_assert!(
             !spec.missingFieldDict.is_null(),
             "spec.missingFieldDict must be non-null",
         );
 
-        // SAFETY: 4. guarantees `field_index` is a valid index into `spec.fields`.
+        // SAFETY: 1. guarantees `field_index` is a valid index into `spec.fields`.
         let field_ptr = unsafe { spec.fields.offset(self.field_index as isize) };
         // SAFETY: the pointer is valid per the above.
         let field = unsafe { &*field_ptr };
-        // SAFETY: 5. guarantees the dict is valid.
+        // SAFETY: 2. guarantees the dict is non-null and valid.
         let missing_ii_ptr =
             unsafe { ffi::RS_dictFetchValue(spec.missingFieldDict, field.fieldName as *mut _) };
 
@@ -119,7 +153,7 @@ where
         }
 
         let missing_ii = missing_ii_ptr.cast::<inverted_index::opaque::InvertedIndex>();
-        // SAFETY: 6. guarantees the encoding variant matches E.
+        // SAFETY: 3. guarantees the encoding variant matches E.
         let ii = E::from_opaque(unsafe { &*missing_ii });
 
         !self.it.reader.points_to_ii(ii)
@@ -131,19 +165,8 @@ where
     }
 
     /// Get the field name tracked by this missing-field iterator.
-    pub fn field_name(&self) -> (*const std::ffi::c_char, usize) {
-        // SAFETY: the constructor guarantees `context` is valid for the iterator lifetime.
-        let sctx = unsafe { self.context.as_ref() };
-        // SAFETY: the constructor guarantees `spec` is non-null and valid.
-        let spec = unsafe { &*sctx.spec };
-        // SAFETY: the constructor guarantees `field_index` indexes `spec.fields`.
-        let field_ptr = unsafe { spec.fields.add(self.field_index as usize) };
-        // SAFETY: `field_ptr` was derived from a valid `spec.fields` base and an in-bounds index.
-        let field = unsafe { &*field_ptr };
-        let mut len = 0;
-        // SAFETY: `field.fieldName` belongs to the spec and remains valid while the spec lives.
-        let name = unsafe { ffi::HiddenString_GetUnsafe(field.fieldName, &mut len) };
-        (name, len)
+    pub fn field_name(&self) -> (*const c_char, usize) {
+        (self.field_name.as_ptr(), self.field_name.as_bytes().len())
     }
 }
 
@@ -192,12 +215,23 @@ where
     }
 
     #[inline(always)]
-    fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        if self.should_abort() {
+    unsafe fn revalidate(
+        &mut self,
+        spec: NonNull<ffi::IndexSpec>,
+    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
+        // SAFETY: The caller guarantees `spec` points to a valid `IndexSpec`
+        // while the spec read lock is held.
+        let spec_ref = unsafe { spec.as_ref() };
+        // SAFETY: `spec_ref` satisfies `should_abort`'s safety requirements.
+        // Conditions 1-3 (field_index validity, missingFieldDict, encoding
+        // match) are structural invariants guaranteed by the constructor's
+        // pre-conditions.
+        if unsafe { self.should_abort(spec_ref) } {
             return Ok(RQEValidateStatus::Aborted);
         }
 
-        self.it.revalidate()
+        // SAFETY: Delegating to inner iterator with the same `spec` passed by our caller.
+        unsafe { self.it.revalidate(spec) }
     }
 
     #[inline(always)]

@@ -14,6 +14,7 @@
 #include "inverted_index.h"
 #include "redis_index.h"
 #include "numeric_range_tree.h"
+#include "iterators_rs.h"
 
 std::string numToDocStr(unsigned id) {
   return "doc" + std::to_string(id);

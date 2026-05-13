@@ -10,7 +10,7 @@
 //! Supporting types for [`OptionalOptimized`].
 //!
 //! This is the optimized variant of the optional iterator. Instead of scanning
-//! all doc IDs from 1 to `maxDocId`, it uses a [`WildcardIterator`] over
+//! all doc IDs from 1 to `maxDocId`, it uses a [wildcard iterator](crate::wildcard) over
 //! `spec.existingDocs` to visit only real document IDs, yielding real or virtual
 //! results accordingly.
 
@@ -23,7 +23,7 @@ use crate::{
 };
 
 /// An iterator that emits results for all document IDs present in the index,
-/// driven by a [`WildcardIterator`] over the existing-documents inverted index.
+/// driven by a [wildcard iterator](crate::wildcard) over the existing-documents inverted index.
 ///
 /// For each doc ID that `wcii` yields:
 /// - If the query child also has a hit at that doc ID, a **real** result is
@@ -63,6 +63,16 @@ where
     /// Returns a reference to the child iterator, if any.
     pub const fn child(&self) -> Option<&I> {
         self.child.as_ref()
+    }
+
+    /// Takes the child iterator out, replacing it with an [`Empty`](crate::Empty) iterator.
+    pub fn take_child(&mut self) -> Option<I> {
+        self.child.take_iterator()
+    }
+
+    /// Sets the child iterator.
+    pub fn set_child(&mut self, child: I) {
+        self.child = MaybeEmpty::new(child);
     }
 
     /// Creates a new [`OptionalOptimized`] iterator.
@@ -233,7 +243,10 @@ where
         }
     }
 
-    fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
+    unsafe fn revalidate(
+        &mut self,
+        spec: std::ptr::NonNull<ffi::IndexSpec>,
+    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         // Simple enum to avoid holding a borrow through the match.
         enum ValidateOutcome {
             Ok,
@@ -241,7 +254,8 @@ where
         }
 
         // Step 1: Revalidate wcii. If it aborts or is at EOF, we can return immediately.
-        let wcii_outcome = match self.wcii.revalidate()? {
+        // SAFETY: Delegating to children with the same `spec` passed by our caller.
+        let wcii_outcome = match unsafe { self.wcii.revalidate(spec) }? {
             RQEValidateStatus::Ok => ValidateOutcome::Ok,
             RQEValidateStatus::Moved { current: Some(_) } => ValidateOutcome::Moved,
             RQEValidateStatus::Moved { current: None } => {
@@ -259,7 +273,8 @@ where
 
         // Step 2: Revalidate child. If it aborts, replace with an empty iterator.
         // Abort is treated as Moved: child's state changed, so we must re-evaluate.
-        let child_outcome = match self.child.revalidate()? {
+        // SAFETY: Delegating to child with the same `spec` passed by our caller.
+        let child_outcome = match unsafe { self.child.revalidate(spec) }? {
             RQEValidateStatus::Ok => ValidateOutcome::Ok,
             RQEValidateStatus::Moved { .. } => ValidateOutcome::Moved,
             RQEValidateStatus::Aborted => {
@@ -350,5 +365,21 @@ where
 
     fn intersection_sort_weight(&self, _prioritize_union_children: bool) -> f64 {
         1.0
+    }
+}
+
+impl<'index, W: WildcardIterator<'index> + 'index> crate::interop::ProfileChildren<'index>
+    for OptionalOptimized<'index, W, crate::c2rust::CRQEIterator>
+{
+    fn profile_children(self) -> Self {
+        OptionalOptimized {
+            max_doc_id: self.max_doc_id,
+            weight: self.weight,
+            child: self.child.map(crate::c2rust::CRQEIterator::into_profiled),
+            wcii: self.wcii,
+            virt: self.virt,
+            last_doc_id: self.last_doc_id,
+            at_eof: self.at_eof,
+        }
     }
 }

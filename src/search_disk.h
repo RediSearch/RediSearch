@@ -10,6 +10,8 @@
 #pragma once
 
 #include "search_disk_api.h"
+#include "spec.h"
+#include "document.h"
 #include "iterators/iterator_api.h"
 #include "redismodule.h"
 
@@ -47,7 +49,7 @@ bool SearchDisk_IsInitialized();
  * Registers a getDiskUsage callback with Redis that iterates over all
  * disk-based indexes and returns the total disk usage.
  *
- * @param ctx Redis module context
+ * @param ctx Redis module context for BigModule APIs
  * @return true if registration succeeded, false otherwise
  */
 bool SearchDisk_RegisterBigModuleCallbacks(RedisModuleCtx *ctx);
@@ -57,19 +59,24 @@ bool SearchDisk_RegisterBigModuleCallbacks(RedisModuleCtx *ctx);
  */
 void SearchDisk_Close(RedisModuleCtx *ctx);
 
+/**
+ * @brief Update the log obfuscation setting for the search disk module
+ */
+void SearchDisk_UpdateLogObfuscation();
+
 // Basic API wrappers
 
 /**
  * @brief Open an index, **Important** must be called once and only once for every index
- * @param ctx Redis module context for BigModule APIs (may be NULL)
+ * @param ctx Redis module context for BigModule APIs
  * @param indexName Name of the index to open
- * @param indexNameLen Length of the index name
+ * @param obfuscatedName Obfuscated name of the index (for logging)
  * @param type Document type
  * @param deleteBeforeOpen If true, delete any existing data before opening (used when loading
  *        without SST persistence to ensure stale data is cleared)
  * @return Pointer to the index, or NULL if it does not exist
  */
-RedisSearchDiskIndexSpec* SearchDisk_OpenIndex(RedisModuleCtx *ctx, const char *indexName, size_t indexNameLen, DocumentType type, bool deleteBeforeOpen);
+RedisSearchDiskIndexSpec* SearchDisk_OpenIndex(RedisModuleCtx *ctx, const HiddenString *indexName, const char *obfuscatedName, DocumentType type, bool deleteBeforeOpen);
 
 /**
  * @brief Mark an index for deletion, the index will be deleted from the disk only after SearchDisk_CloseIndex is called
@@ -117,14 +124,44 @@ void SearchDisk_CloseIndex(RedisSearchDiskIndexSpec *index);
 void SearchDisk_IndexSpecRdbSave(RedisModuleIO *rdb, RedisSearchDiskIndexSpec *index);
 
 /**
- * @brief Load the disk-related data of the index from the rdb file
+ * @brief Load disk-related RDB data into a temporary in-memory object.
+ *
+ * Called during RDB load when the IndexSpec cannot be created yet (e.g., during replication
+ * before SST files arrive). The returned state must later be passed to
+ * SearchDisk_OpenIndexWithRdbState or freed with SearchDisk_FreeRdbState.
  *
  * @param rdb Redis module rdb file
- * @param index Pointer to the index. If NULL, the RDB section related to the
- * index is consumed only.
- * @return true if successful, false otherwise
+ * @return Pointer to temporary RDB state, or NULL on error
  */
-int SearchDisk_IndexSpecRdbLoad(RedisModuleIO *rdb, RedisSearchDiskIndexSpec *index);
+RedisSearchDiskRdbState* SearchDisk_LoadRdbToTempObject(RedisModuleIO *rdb);
+
+/**
+ * @brief Create an IndexSpec and restore state from a previously loaded RDB state.
+ *
+ * Called after SST files are ready (e.g., after FULL_REPLICATION_FINISHED event).
+ * Takes ownership of rdbState - it will be consumed and freed.
+ *
+* @param ctx Redis module context for BigModule APIs
+ * @param indexName Name of the index
+ * @param obfuscatedName Obfuscated name of the index (for logging)
+ * @param type Document type for this index
+ * @param rdbState Temporary RDB state from SearchDisk_LoadRdbToTempObject (will be consumed)
+ * @return Pointer to the created IndexSpec, or NULL on error
+ */
+RedisSearchDiskIndexSpec* SearchDisk_OpenIndexWithRdbState(RedisModuleCtx *ctx,
+                                                            const HiddenString *indexName,  
+                                                            const char *obfuscatedName,
+                                                            DocumentType type,
+                                                            RedisSearchDiskRdbState *rdbState);
+
+/**
+ * @brief Free a temporary RDB state object without creating an IndexSpec.
+ *
+ * Use if index creation fails or is cancelled.
+ *
+ * @param rdbState The temporary RDB state to free (may be NULL)
+ */
+void SearchDisk_FreeRdbState(RedisSearchDiskRdbState *rdbState);
 
 // Index API wrappers
 
@@ -137,13 +174,16 @@ int SearchDisk_IndexSpecRdbLoad(RedisModuleIO *rdb, RedisSearchDiskIndexSpec *in
  * @param docId Document ID to index
  * @param fieldMask Field mask indicating which fields are present
  * @param freq Frequency of the term in the document
+ * @param offsets Pointer to varint-encoded term offset data (can be NULL)
+ * @param offsetsLen Length of the offsets data in bytes
  * @return true if successful, false otherwise
  */
-bool SearchDisk_IndexTerm(RedisSearchDiskIndexSpec *index, const char *term, size_t termLen, t_docId docId, t_fieldMask fieldMask, uint32_t freq);
+bool SearchDisk_IndexTerm(RedisSearchDiskIndexSpec *index, const char *term, size_t termLen, t_docId docId, t_fieldMask fieldMask, uint32_t freq, const uint8_t *offsets, size_t offsetsLen);
 
 /**
  * @brief Index multiple tag values for a document
  *
+ * @param ctx Redis module context for BigModule APIs
  * @param index Pointer to the index
  * @param values Array of tag values to associate the document with
  * @param numValues Number of tag values in the array
@@ -170,10 +210,11 @@ bool SearchDisk_DeleteDocumentById(RedisSearchDiskIndexSpec *handle, t_docId doc
  *
  * Synchronously runs a full compaction on the inverted index column family,
  * removing entries for deleted documents. Applies the compaction delta to
- * update in-memory structures via FFI calls to the provided C IndexSpec.
+ * update in-memory structures via callbacks derived from the provided C
+ * IndexSpec, taking the IndexSpec write lock while those updates are applied.
  *
  * @param index Pointer to the disk index
- * @param c_index_spec Pointer to the C IndexSpec (for FFI callbacks to update memory structures)
+ * @param c_index_spec Pointer to the C IndexSpec used as private callback data
  * @return Number of deleted document IDs removed from the disk index
  */
 size_t SearchDisk_RunGC(RedisSearchDiskIndexSpec *index, IndexSpec *c_index_spec);
@@ -192,9 +233,10 @@ size_t SearchDisk_RunGC(RedisSearchDiskIndexSpec *index, IndexSpec *c_index_spec
  * @param weight Weight for the term (used in scoring)
  * @param idf Inverse document frequency for the term
  * @param bm25_idf BM25 inverse document frequency for the term
+ * @param needsOffsets Whether the query needs term offset data (for scoring or phrase matching)
  * @return Pointer to the IndexIterator, or NULL on error
  */
-QueryIterator* SearchDisk_NewTermIterator(RedisSearchDiskIndexSpec *index, RSToken *tok, int tokenId, t_fieldMask fieldMask, double weight, double idf, double bm25_idf);
+QueryIterator* SearchDisk_NewTermIterator(RedisSearchDiskIndexSpec *index, RSToken *tok, int tokenId, t_fieldMask fieldMask, double weight, double idf, double bm25_idf, bool needsOffsets);
 
 /**
  * @brief Create a tag IndexIterator for a specific tag value
@@ -209,18 +251,6 @@ QueryIterator* SearchDisk_NewTermIterator(RedisSearchDiskIndexSpec *index, RSTok
  * @return Pointer to the IndexIterator, or NULL on error
  */
 QueryIterator* SearchDisk_NewTagIterator(RedisSearchDiskIndexSpec *index, const RSToken *tok, t_fieldIndex fieldIndex, double weight);
-
-/**
- * @brief Create an IndexIterator for all the existing documents
- *
- * This function creates a full IndexIterator that wraps the disk API and can be used
- * in RediSearch query execution pipelines.
- *
- * @param index Pointer to the index
- * @param weight Weight for the term (used in scoring)
- * @return Pointer to the IndexIterator, or NULL on error
- */
-QueryIterator* SearchDisk_NewWildcardIterator(RedisSearchDiskIndexSpec *index, double weight);
 
 // DocTable API wrappers
 
@@ -382,7 +412,7 @@ bool SearchDisk_GetAsyncIOEnabled();
 /**
  * @brief Check if the search disk module is enabled from configuration
  *
- * @param ctx Redis module context
+ * @param ctx Redis module context for BigModule APIs
  * @return true if enabled, false otherwise
  */
 bool SearchDisk_CheckEnableConfiguration(RedisModuleCtx *ctx);
@@ -390,7 +420,6 @@ bool SearchDisk_CheckEnableConfiguration(RedisModuleCtx *ctx);
 /**
  * @brief Check if the search disk module is enabled
  *
- * @param ctx Redis module context
  * @return true if enabled, false otherwise
  */
 bool SearchDisk_IsEnabled();
@@ -429,6 +458,12 @@ void SearchDisk_FreeVectorIndex(void *vecIndex);
 
 // Metrics API wrappers
 
+/*
+ * FT.INFO disk usage:
+ * 1) SearchDisk_CollectIndexMetrics(index)
+ * 2) Read the per-component getters below
+ */
+
 /**
  * @brief Collect metrics for an index and store them in the disk context
  *
@@ -439,6 +474,56 @@ void SearchDisk_FreeVectorIndex(void *vecIndex);
  * @return The total memory used by this index's disk components
  */
 uint64_t SearchDisk_CollectIndexMetrics(RedisSearchDiskIndexSpec* index);
+
+/**
+ * @brief Get doc table memory for a disk index
+ *
+ * Returns disk-side doc table memory in bytes from the latest collected snapshot.
+ * Does not include RAM-only accounting from non-disk paths.
+ * Call SearchDisk_CollectIndexMetrics(index) before this getter.
+ * Requires initialized SearchDisk and non-null index (RS_ASSERT).
+ *
+ * @param index Pointer to the disk index spec
+ * @return Doc table memory in bytes
+ */
+uint64_t SearchDisk_GetDocTableTotalMemory(RedisSearchDiskIndexSpec* index);
+
+/**
+ * @brief Get inverted index memory for a disk index
+ *
+ * Returns disk-side inverted index memory in bytes from the latest collected snapshot.
+ * Does not include RAM-only accounting from non-disk paths.
+ * Call SearchDisk_CollectIndexMetrics(index) before this getter.
+ * Requires initialized SearchDisk and non-null index (RS_ASSERT).
+ *
+ * @param index Pointer to the disk index spec
+ * @return Inverted index memory in bytes
+ */
+uint64_t SearchDisk_GetInvertedIndexTotalMemory(RedisSearchDiskIndexSpec* index);
+
+/**
+ * @brief Get vector index memory for a disk index
+ *
+ * Returns disk-side vector index memory in bytes from the latest collected snapshot.
+ * Does not include RAM-only accounting from non-disk paths.
+ * Call SearchDisk_CollectIndexMetrics(index) before this getter.
+ * Requires initialized SearchDisk and non-null index (RS_ASSERT).
+ *
+ * @param index Pointer to the disk index spec
+ * @return Vector index memory in bytes
+ */
+uint64_t SearchDisk_GetVectorIndexTotalMemory(RedisSearchDiskIndexSpec* index);
+
+/**
+ * @brief Get the disk-owned total number of records for a disk index
+ *
+ * Returns the disk-side num_records counter used by FT.INFO.
+ * Requires initialized SearchDisk and non-null index (RS_ASSERT).
+ *
+ * @param index Pointer to the disk index spec
+ * @return Number of records in the index
+ */
+uint64_t SearchDisk_GetNumRecords(RedisSearchDiskIndexSpec* index);
 
 /**
  * @brief Output aggregated disk metrics to Redis INFO

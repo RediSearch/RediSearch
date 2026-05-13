@@ -9,64 +9,8 @@
 
 #include "query_optimizer.h"
 #include "iterators/optimizer_reader.h"
-#include "numeric_index.h"
 #include "ext/default.h"
-#include "iterators/union_iterator.h"
-#include "iterators/intersection_iterator.h"
 #include "iterators_rs.h"
-
-/********************* Horrific hacks moved from index.c *********************/
-
-static inline IteratorStatus UI_ReadUnsorted(QueryIterator *ctx) {
-  UnionIterator *ui = (UnionIterator*)ctx;
-
-  IndexResult_ResetAggregate(ui->base.current);
-  while (ui->num > 0) {
-    if (ui->its[ui->num - 1]->Read(ui->its[ui->num - 1]) == ITERATOR_OK) {
-      AggregateResult_AddChild(ui->base.current, ui->its[ui->num - 1]->current);
-      ui->base.lastDocId = ui->base.current->docId;
-      return ITERATOR_OK;
-    }
-    ui->num--;
-  }
-  return ITERATOR_EOF;
-}
-
-void trimUnionIterator(QueryIterator *iter, size_t limit, bool asc) {
-  RS_LOG_ASSERT(iter->type == UNION_ITERATOR, "trim applies to union iterators only");
-  UnionIterator *ui = (UnionIterator *)iter;
-  if (ui->num_orig <= 2) { // nothing to trim
-    return;
-  }
-
-  size_t curTotal = 0;
-  int i;
-  if (asc) {
-    for (i = 1; i < ui->num; ++i) {
-      QueryIterator *it = ui->its_orig[i];
-      curTotal += it->NumEstimated(it);
-      if (curTotal > limit) {
-        ui->num = i + 1;
-        memset(ui->its + ui->num, 0, (ui->num_orig - ui->num) * sizeof(*ui->its));
-        break;
-      }
-    }
-  } else {  //desc
-    for (i = ui->num - 2; i > 0; --i) {
-      QueryIterator *it = ui->its_orig[i];
-      curTotal += it->NumEstimated(it);
-      if (curTotal > limit) {
-        ui->num -= i;
-        memmove(ui->its, ui->its + i, ui->num * sizeof(*ui->its));
-        memset(ui->its + ui->num, 0, (ui->num_orig - ui->num) * sizeof(*ui->its));
-        break;
-      }
-    }
-  }
-  iter->Read = UI_ReadUnsorted;
-}
-
-/********************* End of horrific hacks moved from index.c *********************/
 
 QOptimizer *QOptimizer_New() {
   return rm_calloc(1, sizeof(QOptimizer));
@@ -282,7 +226,7 @@ static void updateRootIter(AREQ *req, QueryIterator *root, QueryIterator *new) {
   }
 }
 
-void QOptimizer_Iterators(AREQ *req, QOptimizer *opt) {
+int QOptimizer_Iterators(AREQ *req, QOptimizer *opt, QueryError *status) {
   IndexSpec *spec = AREQ_SearchCtx(req)->spec;
   QueryIterator *root = req->rootiter;
 
@@ -294,21 +238,31 @@ void QOptimizer_Iterators(AREQ *req, QOptimizer *opt) {
     case Q_OPT_NO_SORTER:
     case Q_OPT_NONE:
     case Q_OPT_FILTER:
-      return;
+      return REDISMODULE_OK;
 
     // limit range to number of required LIMIT
     case Q_OPT_PARTIAL_RANGE: {
       if (root->type == WILDCARD_ITERATOR) {
         req->rootiter = NewOptimizerIterator(opt, root, &req->ast.config);
+        if (!req->rootiter) {
+          req->rootiter = root;
+          QueryError_SetError(status, QUERY_ERROR_CODE_LIMIT, "OFFSET/LIMIT too large for optimizer allocation");
+          return REDISMODULE_ERR;
+        }
       } else if (req->ast.root->type == QN_NUMERIC) {
         // trim the union numeric iterator to have the minimal number of ranges
         if (root->type == UNION_ITERATOR) {
-          trimUnionIterator(root, opt->limit, opt->asc);
+          TrimUnionIterator(root, opt->limit, opt->asc);
         }
       } else {
         req->rootiter = NewOptimizerIterator(opt, root, &req->ast.config);
+        if (!req->rootiter) {
+          req->rootiter = root;
+          QueryError_SetError(status, QUERY_ERROR_CODE_LIMIT, "OFFSET/LIMIT too large for optimizer allocation");
+          return REDISMODULE_ERR;
+        }
       }
-      return;
+      return REDISMODULE_OK;
     }
     case Q_OPT_UNDECIDED: {
       if (!opt->field) {
@@ -319,13 +273,19 @@ void QOptimizer_Iterators(AREQ *req, QOptimizer *opt) {
         QueryIterator *numericIter = NewNumericFilterIterator(AREQ_SearchCtx(req), opt->sortbyNode->nn.nf, INDEXFLD_T_NUMERIC,
                                                               &req->ast.config, &filterCtx);
         updateRootIter(req, root, numericIter);
-        return;
+        return REDISMODULE_OK;
       }
       opt->type = Q_OPT_HYBRID;
       // replace root with OptimizerIterator
       req->rootiter = NewOptimizerIterator(opt, root, &req->ast.config);
+      if (!req->rootiter) {
+        req->rootiter = root;
+        QueryError_SetError(status, QUERY_ERROR_CODE_LIMIT, "OFFSET/LIMIT too large for optimizer allocation");
+        return REDISMODULE_ERR;
+      }
     }
   }
+  return REDISMODULE_OK;
 }
 
 void QOptimizer_UpdateTotalResults(AREQ *req) {

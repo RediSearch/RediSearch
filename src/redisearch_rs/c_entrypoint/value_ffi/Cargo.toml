@@ -9,11 +9,9 @@ publish.workspace = true
 workspace = true
 
 [build-dependencies]
-cbindgen.workspace = true
-build_utils = { path = "../../build_utils" }
+build_utils.workspace = true
 
 [dependencies]
-c_ffi_utils.workspace = true
 ffi.workspace = true
 fnv.workspace = true
 libc.workspace = true

@@ -6,9 +6,4 @@ includes = ["redismodule.h", "query_error.h"]
 
 [parse]
 parse_deps = true
-include = ["c_ffi_utils", "value"]
-
-[export.rename]
-"RsValue" = "RSValue"
-"RsValueType" = "RSValueType"
-"RsValueMap" = "RSValueMap"
+include = ["value"]

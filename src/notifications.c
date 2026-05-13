@@ -126,9 +126,19 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
     case hincrby_cmd:
     case hincrbyfloat_cmd:
     case hdel_cmd:
-    case hexpired_cmd:
       if (!IS_SST_RDB_IN_PROCESS(ctx)) {
         Indexes_UpdateMatchingWithSchemaRules(ctx, key, DocumentType_Hash, hashFields);
+      }
+      break;
+    case hexpired_cmd:
+      if (!SearchDisk_IsEnabled()) {
+        Indexes_UpdateMatchingWithSchemaRules(ctx, key, DocumentType_Hash, hashFields);
+      } else {
+        static bool hexpired_warned = false;
+        if (!hexpired_warned && Indexes_Count() > 0) {
+          RedisModule_Log(ctx, "warning", "HEXPIRED event is not supported on Search when Flex is enabled. Ignoring HEXPIRED on Search");
+          hexpired_warned = true;
+        }
       }
       break;
 
@@ -167,6 +177,12 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
       // We do not support field-TTL metadata changes in the disk flow.
       if (!SearchDisk_IsEnabled()) {
         Indexes_UpdateMatchingWithSchemaRules(ctx, key, getDocTypeFromString(key), hashFields);
+      } else {
+        static bool hpexpire_warned = false;
+        if (!hpexpire_warned && Indexes_Count() > 0) {
+          RedisModule_Log(ctx, "warning", "Field-level expiration is not supported on Search when Flex is enabled. Ignoring HPEXPIRE/HPERSIST on Search");
+          hpexpire_warned = true;
+        }
       }
       break;
 
@@ -523,15 +539,12 @@ void ShutdownDiskClose(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subev
 #define BIGREDIS_MAX_RAM "bigredis-max-ram"
 
 bool getHideUserDataFromLogs() {
-  char *value = getRedisConfigValue(RSDummyContext, HIDE_USER_DATA_FROM_LOGS);
-  RedisModule_Assert(value);
-  const bool hideUserData = !strcasecmp(value, "yes");
-  rm_free(value);
-  return hideUserData;
+  return getRedisConfigBool(RSDummyContext, HIDE_USER_DATA_FROM_LOGS, false);
 }
 
 void onUpdatedHideUserDataFromLogs(RedisModuleCtx *ctx) {
   RSGlobalConfig.hideUserDataFromLog = getHideUserDataFromLogs();
+  SearchDisk_UpdateLogObfuscation();
   if (RSGlobalConfig.hideUserDataFromLog) {
     RedisModule_Log(ctx, "notice", "Hide user data from search logs is now enabled, "
                    "search entity names (such as indexes and fields) in the logs will now be obfuscated");

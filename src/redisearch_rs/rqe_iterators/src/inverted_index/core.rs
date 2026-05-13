@@ -7,6 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use std::ptr::NonNull;
+
 use ffi::t_docId;
 use inverted_index::{IndexReader, RSIndexResult};
 
@@ -286,7 +288,10 @@ where
         self.at_eos
     }
 
-    fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
+    unsafe fn revalidate(
+        &mut self,
+        _spec: NonNull<ffi::IndexSpec>,
+    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         if !self.reader.needs_revalidation() {
             return Ok(RQEValidateStatus::Ok);
         }

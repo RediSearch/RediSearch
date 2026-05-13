@@ -32,6 +32,17 @@ static bool trieInsert(Trie *t, const std::string &s) {
   return trieInsert(t, s.c_str(), s.size());
 }
 
+static void *triePayload(Trie *t, const char *s, size_t len, bool exact) {
+  if (len > TRIE_INITIAL_STRING_LEN * sizeof(rune)) {
+    return nullptr;
+  }
+  runeBuf buf;
+  rune *runes = runeBufFill(s, len, &buf, &len);
+  TrieNode *node = TrieNode_Get(t->root, runes, len, exact, NULL);
+  runeBufFree(&buf);
+  return (node && node->payload) ? node->payload->data : nullptr;
+}
+
 static int rangeFunc(const rune *u16, size_t nrune, void *ctx, void *payload, size_t numDocsInTerm) {
   size_t n;
   char *s = runesToStr(u16, nrune, &n);
@@ -66,7 +77,7 @@ static ElemSet trieIterRange(Trie *t, const char *begin, size_t nbegin, const ch
   }
 
   ElemSet foundElements;
-  TrieNode_IterateRange(t->root, r1Ptr, nr1, true, r2Ptr, nr2, false,
+  Trie_IterateRange(t, r1Ptr, nr1, true, r2Ptr, nr2, false,
                         rangeFunc, &foundElements);
   return foundElements;
 }
@@ -93,7 +104,7 @@ TEST_F(TrieTest, testBasicRange) {
 
   // What does a NULL range return? the entire trie
   ret = trieIterRange(t, NULL, NULL);
-  ASSERT_EQ(t->size, ret.size());
+  ASSERT_EQ(Trie_Size(t), ret.size());
 
   // Min and max the same- should return only one value
   ret = trieIterRange(t, "1", "1");
@@ -131,7 +142,7 @@ TEST_F(TrieTest, testBasicRangeWithScore) {
 
   // What does a NULL range return? the entire trie
   ret = trieIterRange(t, NULL, NULL);
-  ASSERT_EQ(t->size, ret.size());
+  ASSERT_EQ(Trie_Size(t), ret.size());
 
   // Min and max the same- should return only one value
   ret = trieIterRange(t, "1", "1");
@@ -203,35 +214,35 @@ TEST_F(TrieTest, testPayload) {
 
   // check for prefix of existing term
   // with exact returns null, w/o return load of next term
-  ASSERT_EQ(strncmp((char*)Trie_GetValueStringBuffer(t, buf1, 1, 0), "wo", 2), 0);
-  ASSERT_TRUE((char*)Trie_GetValueStringBuffer(t, buf1, 1, 1) == NULL);
+  ASSERT_EQ(strncmp((char*)triePayload(t, buf1, 1, 0), "wo", 2), 0);
+  ASSERT_TRUE((char*)triePayload(t, buf1, 1, 1) == NULL);
 
-  ASSERT_EQ(strncmp((char*)Trie_GetValueStringBuffer(t, buf1, 2, 1), "wo", 2), 0);
-  ASSERT_EQ(strncmp((char*)Trie_GetValueStringBuffer(t, buf1, 3, 1), "wor", 3), 0);
-  ASSERT_EQ(strncmp((char*)Trie_GetValueStringBuffer(t, buf1, 4, 1), "worl", 4), 0);
-  ASSERT_EQ(strncmp((char*)Trie_GetValueStringBuffer(t, buf1, 5, 1), "world", 5), 0);
-  ASSERT_EQ(strncmp((char*)Trie_GetValueStringBuffer(t, buf2, 4, 1), "work", 4), 0);
+  ASSERT_EQ(strncmp((char*)triePayload(t, buf1, 2, 1), "wo", 2), 0);
+  ASSERT_EQ(strncmp((char*)triePayload(t, buf1, 3, 1), "wor", 3), 0);
+  ASSERT_EQ(strncmp((char*)triePayload(t, buf1, 4, 1), "worl", 4), 0);
+  ASSERT_EQ(strncmp((char*)triePayload(t, buf1, 5, 1), "world", 5), 0);
+  ASSERT_EQ(strncmp((char*)triePayload(t, buf2, 4, 1), "work", 4), 0);
 
   ASSERT_EQ(Trie_Delete(t, buf1, 3), 1);
-  ASSERT_EQ(strncmp((char*)Trie_GetValueStringBuffer(t, buf1, 2, 1), "wo", 2), 0);
-  ASSERT_TRUE((char*)Trie_GetValueStringBuffer(t, buf1, 3, 1) == NULL);
-  ASSERT_EQ(strncmp((char*)Trie_GetValueStringBuffer(t, buf1, 4, 1), "worl", 4), 0);
-  ASSERT_EQ(strncmp((char*)Trie_GetValueStringBuffer(t, buf1, 5, 1), "world", 5), 0);
-  ASSERT_EQ(strncmp((char*)Trie_GetValueStringBuffer(t, buf2, 4, 1), "work", 4), 0);
+  ASSERT_EQ(strncmp((char*)triePayload(t, buf1, 2, 1), "wo", 2), 0);
+  ASSERT_TRUE((char*)triePayload(t, buf1, 3, 1) == NULL);
+  ASSERT_EQ(strncmp((char*)triePayload(t, buf1, 4, 1), "worl", 4), 0);
+  ASSERT_EQ(strncmp((char*)triePayload(t, buf1, 5, 1), "world", 5), 0);
+  ASSERT_EQ(strncmp((char*)triePayload(t, buf2, 4, 1), "work", 4), 0);
 
   ASSERT_EQ(Trie_Delete(t, buf1, 4), 1);
-  ASSERT_EQ(strncmp((char*)Trie_GetValueStringBuffer(t, buf1, 2, 1), "wo", 2), 0);
-  ASSERT_TRUE((char*)Trie_GetValueStringBuffer(t, buf1, 3, 1) == NULL);
-  ASSERT_TRUE((char*)Trie_GetValueStringBuffer(t, buf1, 4, 1) == NULL);
-  ASSERT_EQ(strncmp((char*)Trie_GetValueStringBuffer(t, buf1, 5, 1), "world", 5), 0);
-  ASSERT_EQ(strncmp((char*)Trie_GetValueStringBuffer(t, buf2, 4, 1), "work", 4), 0);
+  ASSERT_EQ(strncmp((char*)triePayload(t, buf1, 2, 1), "wo", 2), 0);
+  ASSERT_TRUE((char*)triePayload(t, buf1, 3, 1) == NULL);
+  ASSERT_TRUE((char*)triePayload(t, buf1, 4, 1) == NULL);
+  ASSERT_EQ(strncmp((char*)triePayload(t, buf1, 5, 1), "world", 5), 0);
+  ASSERT_EQ(strncmp((char*)triePayload(t, buf2, 4, 1), "work", 4), 0);
 
   // testing with exact = 0
   // "wor" node exists with NULL payload.
-  ASSERT_TRUE((char*)Trie_GetValueStringBuffer(t, buf1, 3, 0) == NULL);
+  ASSERT_TRUE((char*)triePayload(t, buf1, 3, 0) == NULL);
   // "worl" does not exist but is partial offset of =>`wor`+`ld`.
   // payload of `ld` is returned.
-  ASSERT_EQ(strncmp((char*)Trie_GetValueStringBuffer(t, buf1, 4, 0), "world", 5), 0);
+  ASSERT_EQ(strncmp((char*)triePayload(t, buf1, 4, 0), "world", 5), 0);
 
   TrieType_Free(t);
 }
@@ -313,7 +324,7 @@ bool trieContains(Trie *t, const char *s) {
   if (!runes) {
     return false;
   }
-  TrieNode *node = TrieNode_Get(t->root, runes, len, 0, NULL);
+  TrieNode *node = Trie_GetNode(t, runes, len, 0, NULL);
   runeBufFree(&buf);
   return node != NULL;
 }
@@ -366,7 +377,7 @@ TEST_F(TrieTest, testbenchmark) {
 
 // Helper function to compare two tries for equality
 static bool compareTrieContents(Trie *original, Trie *loaded) {
-  if (original->size != loaded->size) {
+  if (Trie_Size(original) != Trie_Size(loaded)) {
     return false;
   }
 
@@ -453,7 +464,7 @@ TEST_F(TrieTest, testBasicRdbSaveLoad) {
   trieInsertByScore(originalTrie, "books", 8.0);       // Extension of "book"
   trieInsertByScore(originalTrie, "booking", 2.0);     // Extension of "book"
 
-  ASSERT_EQ(8, originalTrie->size);
+  ASSERT_EQ(8, Trie_Size(originalTrie));
 
   // Create RDB IO context
   RedisModuleIO *io = RMCK_CreateRdbIO();
@@ -478,7 +489,7 @@ TEST_F(TrieTest, testBasicRdbSaveLoad) {
   EXPECT_EQ(0, RMCK_IsIOError(io));
 
   // Compare the original and loaded tries
-  EXPECT_EQ(originalTrie->size, loadedTrie->size);
+  EXPECT_EQ(Trie_Size(originalTrie), Trie_Size(loadedTrie));
 
   // Verify all entries are present in the loaded trie
   EXPECT_TRUE(trieContains(loadedTrie, "app"));
@@ -511,7 +522,7 @@ TEST_F(TrieTest, testRdbSaveLoadWithPayloads) {
   bool r2 = Trie_InsertStringBuffer(originalTrie, "running", 7, 3.0, 0, &p2, 0);    // Extension with payload
   bool r3 = Trie_InsertStringBuffer(originalTrie, "runner", 6, 4.0, 0, &p3, 0);     // Extension with payload
 
-  EXPECT_EQ(3, originalTrie->size);
+  EXPECT_EQ(3, Trie_Size(originalTrie));
 
   // Create RDB IO context
   RedisModuleIO *io = RMCK_CreateRdbIO();
@@ -536,7 +547,7 @@ TEST_F(TrieTest, testRdbSaveLoadWithPayloads) {
   EXPECT_EQ(0, RMCK_IsIOError(io));
 
   // Compare the original and loaded tries
-  EXPECT_EQ(originalTrie->size, loadedTrie->size);
+  EXPECT_EQ(Trie_Size(originalTrie), Trie_Size(loadedTrie));
 
   // Verify all entries are present in the loaded trie
   EXPECT_TRUE(trieContains(loadedTrie, "run"));
@@ -544,9 +555,9 @@ TEST_F(TrieTest, testRdbSaveLoadWithPayloads) {
   EXPECT_TRUE(trieContains(loadedTrie, "runner"));
 
   // Verify specific payloads are preserved
-  void *loadedPayload1 = Trie_GetValueStringBuffer(loadedTrie, "run", 3, true);
-  void *loadedPayload2 = Trie_GetValueStringBuffer(loadedTrie, "running", 7, true);
-  void *loadedPayload3 = Trie_GetValueStringBuffer(loadedTrie, "runner", 6, true);
+  void *loadedPayload1 = triePayload(loadedTrie, "run", 3, true);
+  void *loadedPayload2 = triePayload(loadedTrie, "running", 7, true);
+  void *loadedPayload3 = triePayload(loadedTrie, "runner", 6, true);
 
   ASSERT_TRUE(loadedPayload1 != nullptr);
   ASSERT_TRUE(loadedPayload2 != nullptr);
@@ -577,7 +588,7 @@ TEST_F(TrieTest, testRdbSaveLoadPayloadsNotSerialized) {
   Trie_InsertStringBuffer(originalTrie, "care", 4, 6.0, 0, &p2, 0);       // Extension with payload
   Trie_InsertStringBuffer(originalTrie, "careful", 7, 4.0, 0, &p3, 0);    // Extension with payload
 
-  EXPECT_EQ(3, originalTrie->size);
+  EXPECT_EQ(3, Trie_Size(originalTrie));
 
   // Create RDB IO context
   RedisModuleIO *io = RMCK_CreateRdbIO();
@@ -602,7 +613,7 @@ TEST_F(TrieTest, testRdbSaveLoadPayloadsNotSerialized) {
   EXPECT_EQ(0, RMCK_IsIOError(io));
 
   // Compare the original and loaded tries - sizes should match
-  EXPECT_EQ(originalTrie->size, loadedTrie->size);
+  EXPECT_EQ(Trie_Size(originalTrie), Trie_Size(loadedTrie));
 
   // Verify all entries are present in the loaded trie
   EXPECT_TRUE(trieContains(loadedTrie, "car"));
@@ -610,9 +621,9 @@ TEST_F(TrieTest, testRdbSaveLoadPayloadsNotSerialized) {
   EXPECT_TRUE(trieContains(loadedTrie, "careful"));
 
   // Verify that payloads are NOT preserved (should be null)
-  void *loadedPayload1 = Trie_GetValueStringBuffer(loadedTrie, "car", 3, true);
-  void *loadedPayload2 = Trie_GetValueStringBuffer(loadedTrie, "care", 4, true);
-  void *loadedPayload3 = Trie_GetValueStringBuffer(loadedTrie, "careful", 7, true);
+  void *loadedPayload1 = triePayload(loadedTrie, "car", 3, true);
+  void *loadedPayload2 = triePayload(loadedTrie, "care", 4, true);
+  void *loadedPayload3 = triePayload(loadedTrie, "careful", 7, true);
 
   EXPECT_TRUE(loadedPayload1 == nullptr);  // Payload should not be preserved
   EXPECT_TRUE(loadedPayload2 == nullptr);  // Payload should not be preserved
@@ -638,7 +649,7 @@ TEST_F(TrieTest, testRdbSaveLoadWithoutPayloads) {
   Trie_InsertStringBuffer(originalTrie, "help", 4, 7.0, 0, NULL, 0);      // Related word without payload
   Trie_InsertStringBuffer(originalTrie, "helper", 6, 5.0, 0, &p2, 0);    // Extension with payload
 
-  EXPECT_EQ(4, originalTrie->size);
+  EXPECT_EQ(4, Trie_Size(originalTrie));
 
   // Create RDB IO context
   RedisModuleIO *io = RMCK_CreateRdbIO();
@@ -663,7 +674,7 @@ TEST_F(TrieTest, testRdbSaveLoadWithoutPayloads) {
   EXPECT_EQ(0, RMCK_IsIOError(io));
 
   // Compare sizes - entries should be preserved
-  EXPECT_EQ(originalTrie->size, loadedTrie->size);
+  EXPECT_EQ(Trie_Size(originalTrie), Trie_Size(loadedTrie));
 
   // Verify all entries are present in the loaded trie
   EXPECT_TRUE(trieContains(loadedTrie, "hello"));
@@ -672,10 +683,10 @@ TEST_F(TrieTest, testRdbSaveLoadWithoutPayloads) {
   EXPECT_TRUE(trieContains(loadedTrie, "helper"));
 
   // Verify that payloads remain NULL (since none were inserted)
-  void *loadedPayload1 = Trie_GetValueStringBuffer(loadedTrie, "hello", 5, true);
-  void *loadedPayload2 = Trie_GetValueStringBuffer(loadedTrie, "hell", 4, true);
-  void *loadedPayload3 = Trie_GetValueStringBuffer(loadedTrie, "help", 4, true);
-  void *loadedPayload4 = Trie_GetValueStringBuffer(loadedTrie, "helper", 6, true);
+  void *loadedPayload1 = triePayload(loadedTrie, "hello", 5, true);
+  void *loadedPayload2 = triePayload(loadedTrie, "hell", 4, true);
+  void *loadedPayload3 = triePayload(loadedTrie, "help", 4, true);
+  void *loadedPayload4 = triePayload(loadedTrie, "helper", 6, true);
 
   EXPECT_TRUE(loadedPayload1 == nullptr);  // No payload was inserted
   EXPECT_TRUE(loadedPayload2 == nullptr);  // No payload was inserted
@@ -690,7 +701,7 @@ TEST_F(TrieTest, testRdbSaveLoadEmptyTrie) {
     TrieType_Free(trie);
   });
 
-  ASSERT_EQ(0, originalTrie->size);
+  ASSERT_EQ(0, Trie_Size(originalTrie));
 
   // Create RDB IO context
   RedisModuleIO *io = RMCK_CreateRdbIO();
@@ -715,8 +726,8 @@ TEST_F(TrieTest, testRdbSaveLoadEmptyTrie) {
   EXPECT_EQ(0, RMCK_IsIOError(io));
 
   // Compare the original and loaded tries
-  EXPECT_EQ(0, loadedTrie->size);
-  EXPECT_EQ(originalTrie->size, loadedTrie->size);
+  EXPECT_EQ(0, Trie_Size(loadedTrie));
+  EXPECT_EQ(Trie_Size(originalTrie), Trie_Size(loadedTrie));
 }
 
 TEST_F(TrieTest, testRdbSaveLoadLexSortedTrie) {
@@ -743,7 +754,7 @@ TEST_F(TrieTest, testRdbSaveLoadLexSortedTrie) {
   trieInsertByScore(originalTrie, "careful", 13.0);    // Extension of "care"
   trieInsertByScore(originalTrie, "carefully", 14.0);  // Extension of "careful"
 
-  ASSERT_EQ(14, originalTrie->size);
+  ASSERT_EQ(14, Trie_Size(originalTrie));
 
   // Verify all entries exist in the original trie
   EXPECT_TRUE(trieContains(originalTrie, "test"));
@@ -784,7 +795,7 @@ TEST_F(TrieTest, testRdbSaveLoadLexSortedTrie) {
   EXPECT_EQ(0, RMCK_IsIOError(io));
 
   // Compare the original and loaded tries
-  EXPECT_EQ(originalTrie->size, loadedTrie->size);
+  EXPECT_EQ(Trie_Size(originalTrie), Trie_Size(loadedTrie));
 
   // Note: The loaded trie will have Trie_Sort_Score (default from TrieType_GenericLoad)
   // but all the entries should still be present, even though the sorting mode changed
@@ -820,7 +831,7 @@ static size_t trieGetNumDocs(Trie *t, const char *s) {
   runeBuf buf;
   size_t runeLen = strlen(s);
   rune *runes = runeBufFill(s, runeLen, &buf, &runeLen);
-  TrieNode *node = TrieNode_Get(t->root, runes, runeLen, true, NULL);
+  TrieNode *node = Trie_GetNode(t, runes, runeLen, true, NULL);
   runeBufFree(&buf);
   if (node == NULL) {
     return 0;
@@ -843,7 +854,7 @@ TEST_F(TrieTest, testRdbSaveLoadWithNumDocs) {
   trieInsertWithNumDocs(originalTrie, "AB", 5.0, 200);      // numDocs = 200
   trieInsertWithNumDocs(originalTrie, "ABC", 6.0, 300);     // numDocs = 300
 
-  ASSERT_EQ(6, originalTrie->size);
+  ASSERT_EQ(6, Trie_Size(originalTrie));
 
   // Verify original numDocs values
   EXPECT_EQ(10, trieGetNumDocs(originalTrie, "help"));
@@ -876,7 +887,7 @@ TEST_F(TrieTest, testRdbSaveLoadWithNumDocs) {
   EXPECT_EQ(0, RMCK_IsIOError(io));
 
   // Verify the loaded trie has the same size
-  EXPECT_EQ(originalTrie->size, loadedTrie->size);
+  EXPECT_EQ(Trie_Size(originalTrie), Trie_Size(loadedTrie));
 
   // Verify all entries are present
   EXPECT_TRUE(trieContains(loadedTrie, "help"));
@@ -895,7 +906,7 @@ TEST_F(TrieTest, testRdbSaveLoadWithNumDocs) {
   EXPECT_EQ(300, trieGetNumDocs(loadedTrie, "ABC"));
 
   // Verify numDocs via iterator as well
-  TrieIterator *it = TrieNode_Iterate(loadedTrie->root, NULL, NULL, NULL);
+  TrieIterator *it = Trie_IterateAll(loadedTrie);
   rune *rstr;
   t_len len;
   float score;

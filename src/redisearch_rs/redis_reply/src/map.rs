@@ -35,6 +35,20 @@ pub struct MapBuilder<'a> {
 }
 
 impl MapBuilder<'_> {
+    /// Add a key-value pair where the value is a simple string.
+    pub fn kv_simple_string(&mut self, key: &CStr, value: &CStr) {
+        self.replier.simple_string(key);
+        self.replier.simple_string(value);
+        self.len += 1;
+    }
+
+    /// Add a key-value pair where the value is a string buffer (bulk string).
+    pub fn kv_string_buffer(&mut self, key: &CStr, value: &[u8]) {
+        self.replier.simple_string(key);
+        self.replier.string_buffer(value);
+        self.len += 1;
+    }
+
     /// Add a key-value pair where the value is a 64-bit signed integer.
     pub fn kv_long_long(&mut self, key: &CStr, value: i64) {
         self.replier.simple_string(key);

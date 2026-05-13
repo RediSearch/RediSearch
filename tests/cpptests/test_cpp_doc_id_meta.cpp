@@ -522,6 +522,40 @@ TEST_F(DocIdMetaTest, TestRdbSaveSkipsDeletedEntries) {
   RedisModule_FreeString(ctx, newKeyName);
 }
 
+// When persistence is in progress at load time, the load callback must still
+// consume every byte that the save callback wrote, so that the key-meta
+// framework's trailing EOF marker stays aligned. The callback is expected to
+// return SKIP (0) and leave the output meta untouched (0).
+TEST_F(DocIdMetaTest, TestRdbLoadDuringPersistenceConsumesBytesAndSkips) {
+  addTestSpec("spec1", SPEC1_ID);
+  addTestSpec("spec2", SPEC2_ID);
+
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, 1001), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC2_ID, 2002), REDISMODULE_OK);
+
+  // Save while persistence is NOT in progress, so bytes are actually written.
+  rdbSave(getKeyMeta(testKeyName));
+  const size_t bytesWritten = rdbIO->buffer.size();
+  EXPECT_GT(bytesWritten, 0u);
+
+  // Simulate persistence in progress during the load.
+  DocIdMeta_SetPersistenceInProgress(true);
+
+  rdbIO->read_pos = 0;
+  uint64_t loadedMeta = 0xDEADBEEF; // sentinel; load must overwrite to 0
+  int result = RMCK_KeyMetaRdbLoad(getDocIdMetaClassId(), rdbIO, &loadedMeta, 1);
+
+  DocIdMeta_SetPersistenceInProgress(false);
+
+  // Return value is SKIP (0): do not attach the meta to the key.
+  EXPECT_EQ(result, 0);
+  // Meta is not filled.
+  EXPECT_EQ(loadedMeta, 0u);
+  // No I/O error occurred and exactly all the saved bytes were consumed.
+  EXPECT_EQ(RMCK_IsIOError(rdbIO), 0);
+  EXPECT_EQ(rdbIO->read_pos, bytesWritten);
+}
+
 ///////////////////////////////////////////////////////////////////////////////////////////////
 // Unlink callback tests
 //

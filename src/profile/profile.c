@@ -8,9 +8,6 @@
 */
 #include "profile.h"
 #include "iterators/iterator_api.h"
-#include "iterators/optional_iterator.h"
-#include "iterators/intersection_iterator.h"
-#include "iterators/union_iterator.h"
 #include "iterators/hybrid_reader.h"
 #include "iterators/optimizer_reader.h"
 #include "iterators_rs.h"
@@ -40,38 +37,49 @@ static void printInvIdxIteratorCounters(RedisModule_Reply *reply, const QueryIte
 }
 
 void printInvIdxIt(RedisModule_Reply *reply, const QueryIterator *root, const ProfileCounters *counters, double cpuTime, PrintProfileConfig *config) {
-  IndexFlags readerFlags = InvIndIterator_GetReaderFlags(root);
-
   RedisModule_Reply_Map(reply);
-  if (readerFlags == Index_DocIdsOnly) {
-    RSQueryTerm *term = IndexResult_QueryTermRef(root->current);
-    if (term != NULL) {
-      printProfileType("TAG");
+
+  switch (root->type) {
+    case INV_IDX_TAG_ITERATOR: {
+      RSQueryTerm *term = IndexResult_QueryTermRef(root->current);
+      if (term != NULL) {
+        printProfileType("TAG");
+        size_t term_len = 0;
+        const char *term_str = QueryTerm_GetStrAndLen(term, &term_len);
+        RedisModule_ReplyKV_StringBuffer(reply, "Term", term_str, term_len);
+      }
+      break;
+    }
+
+    case INV_IDX_NUMERIC_ITERATOR: {
+      const NumericFilter *flt = NumericInvIndIterator_GetNumericFilter(root);
+      if (!flt || flt->geoFilter == NULL) {
+        printProfileType("NUMERIC");
+        RedisModule_Reply_SimpleString(reply, "Term");
+        RedisModule_Reply_SimpleStringf(reply, "%g - %g", NumericInvIndIterator_GetProfileRangeMin(root), NumericInvIndIterator_GetProfileRangeMax(root));
+      } else {
+        printProfileType("GEO");
+        RedisModule_Reply_SimpleString(reply, "Term");
+        double se[2];
+        double nw[2];
+        decodeGeo(NumericInvIndIterator_GetProfileRangeMin(root), se);
+        decodeGeo(NumericInvIndIterator_GetProfileRangeMax(root), nw);
+        RedisModule_Reply_SimpleStringf(reply, "%g,%g - %g,%g", se[0], se[1], nw[0], nw[1]);
+      }
+      break;
+    }
+
+    case INV_IDX_TERM_ITERATOR: {
+      printProfileType("TEXT");
+      RSQueryTerm *term = IndexResult_QueryTermRef(root->current);
       size_t term_len = 0;
       const char *term_str = QueryTerm_GetStrAndLen(term, &term_len);
       RedisModule_ReplyKV_StringBuffer(reply, "Term", term_str, term_len);
+      break;
     }
-  } else if (readerFlags & Index_StoreNumeric) {
-    const NumericFilter *flt = NumericInvIndIterator_GetNumericFilter(root);
-    if (!flt || flt->geoFilter == NULL) {
-      printProfileType("NUMERIC");
-      RedisModule_Reply_SimpleString(reply, "Term");
-      RedisModule_Reply_SimpleStringf(reply, "%g - %g", NumericInvIndIterator_GetProfileRangeMin(root), NumericInvIndIterator_GetProfileRangeMax(root));
-    } else {
-      printProfileType("GEO");
-      RedisModule_Reply_SimpleString(reply, "Term");
-      double se[2];
-      double nw[2];
-      decodeGeo(NumericInvIndIterator_GetProfileRangeMin(root), se);
-      decodeGeo(NumericInvIndIterator_GetProfileRangeMax(root), nw);
-      RedisModule_Reply_SimpleStringf(reply, "%g,%g - %g,%g", se[0], se[1], nw[0], nw[1]);
-    }
-  } else {
-    printProfileType("TEXT");
-    RSQueryTerm *term = IndexResult_QueryTermRef(root->current);
-    size_t term_len = 0;
-    const char *term_str = QueryTerm_GetStrAndLen(term, &term_len);
-    RedisModule_ReplyKV_StringBuffer(reply, "Term", term_str, term_len);
+
+    default:
+      RS_ABORT("unsupported inverted index iterator type");
   }
 
   printInvIdxIteratorCounters(reply, root, counters, cpuTime, config);
@@ -135,9 +143,10 @@ static double _recursiveProfilePrint(RedisModule_Reply *reply, ResultProcessor *
         printProfileGILTime(rs_wall_clock_convert_ns_to_ms_d(rp->rpGILTime));
         break;
 
-      default:
+      default: // LCOV_EXCL_START — defensive: all valid RPType values are handled above
         RS_ABORT("RPType error");
         break;
+      // LCOV_EXCL_STOP
     }
 
     return upstreamTime;
@@ -493,7 +502,6 @@ PRINT_PROFILE_METRIC(printMetricSortedByScoreIt, "METRIC SORTED BY SCORE");
 
 void PrintIteratorChildProfile(RedisModule_Reply *reply, const QueryIterator *root, const ProfileCounters *counters, double cpuTime,
                   int depth, int limited, PrintProfileConfig *config, const QueryIterator *child, const char *text) {
-  size_t nlen = 0;
   RedisModule_Reply_Map(reply);
     printProfileType(text);
     if (config->printProfileClock) {
@@ -502,19 +510,22 @@ void PrintIteratorChildProfile(RedisModule_Reply *reply, const QueryIterator *ro
     printProfileCounters(counters);
 
     if (root->type == HYBRID_ITERATOR) {
-      const HybridIterator *hi = (const HybridIterator *)root;
-      printProfileVectorSearchMode(hi->searchMode);
-      if (hi->searchMode == VECSIM_HYBRID_BATCHES ||
-          hi->searchMode == VECSIM_HYBRID_BATCHES_TO_ADHOC_BF) {
-        printProfileNumBatches(hi);
-        printProfileMaxBatchSize(hi);
-        printProfileMaxBatchIteration(hi);
+      const char *mode_str = HybridIterator_GetSearchModeString(root);
+      if (mode_str) {
+        RedisModule_ReplyKV_SimpleString(reply, "Vector search mode", mode_str);
+      }
+      if (HybridIterator_IsBatchMode(root)) {
+        RedisModule_ReplyKV_LongLong(reply, "Batches number", HybridIterator_GetNumIterations(root));
+        RedisModule_ReplyKV_LongLong(reply, "Largest batch size", HybridIterator_GetMaxBatchSize(root));
+        RedisModule_ReplyKV_LongLong(reply, "Largest batch iteration (zero based)", HybridIterator_GetMaxBatchIteration(root));
       }
     }
 
     if (root->type == OPTIMUS_ITERATOR) {
-      const OptimizerIterator *oi = (const OptimizerIterator *)root;
-      printProfileOptimizationType(oi);
+      const char *opt_type = OptimizerIterator_GetOptimizationType(root);
+      if (opt_type) {
+        RedisModule_ReplyKV_SimpleString(reply, "Optimizer mode", opt_type);
+      }
     }
 
     if (child) {
@@ -530,18 +541,21 @@ void PrintIteratorChildProfile(RedisModule_Reply *reply, const QueryIterator *ro
       NULL, (text));                                                                   \
   }
 
-#define PRINT_PROFILE_SINGLE(name, IterType, text)                                     \
-  PRINT_PROFILE_FUNC(name) {                                                           \
-    PrintIteratorChildProfile(reply, (root), counters, cpuTime, depth, limited, config, \
-      ((const IterType *)(root))->child, (text));                                      \
-  }
-
 PRINT_PROFILE_SINGLE_NO_CHILD(printWildcardIt,                  "WILDCARD");
 PRINT_PROFILE_SINGLE_NO_CHILD(printIdListSortedIt,              "ID-LIST-SORTED");
 PRINT_PROFILE_SINGLE_NO_CHILD(printIdListUnsortedIt,            "ID-LIST-UNSORTED");
 PRINT_PROFILE_SINGLE_NO_CHILD(printEmptyIt,                     "EMPTY");
-PRINT_PROFILE_SINGLE(printHybridIt, HybridIterator,             "VECTOR");
-PRINT_PROFILE_SINGLE(printOptimusIt, OptimizerIterator,         "OPTIMIZER");
+PRINT_PROFILE_SINGLE_NO_CHILD(printGeoShapeIt,                  "GEO-SHAPE");
+
+PRINT_PROFILE_FUNC(printHybridIt) {
+  PrintIteratorChildProfile(reply, root, counters, cpuTime, depth, limited, config,
+    HybridIterator_GetChild(root), "VECTOR");
+}
+
+PRINT_PROFILE_FUNC(printOptimusIt) {
+  PrintIteratorChildProfile(reply, root, counters, cpuTime, depth, limited, config,
+    OptimizerIterator_GetChild(root), "OPTIMIZER");
+}
 
 PRINT_PROFILE_FUNC(printNotIt) {
   // Cast is safe: PrintIteratorChildProfile only reads from the child iterator.
@@ -589,6 +603,8 @@ void printIteratorProfile(RedisModule_Reply *reply, const QueryIterator *root, c
     case METRIC_SORTED_BY_ID_ITERATOR:      { printMetricSortedByIdIt(reply, root, counters, cpuTime, depth, limited, config);      break; }
     case METRIC_SORTED_BY_SCORE_ITERATOR:   { printMetricSortedByScoreIt(reply, root, counters, cpuTime, depth, limited, config);   break; }
     case OPTIMUS_ITERATOR:                  { printOptimusIt(reply, root, counters, cpuTime, depth, limited, config);               break; }
+    case IteratorType_GeoShape:             { printGeoShapeIt(reply, root, counters, cpuTime, depth, limited, config);              break; }
+    case IteratorType_Mock:                 { RS_ABORT("mock iterator cannot be profiled");                                         break; } // LCOV_EXCL_LINE
     case MAX_ITERATOR:                      { RS_ABORT("nope");                                                                     break; } // LCOV_EXCL_LINE
   }
 }
