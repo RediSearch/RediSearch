@@ -3398,7 +3398,6 @@ static void IndexSpec_NormalizeStorageFlagsOnLoad(IndexFlags *flags) {
 
 IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryError *status) {
   IndexSpec *sp = NULL;
-  RedisSearchDiskRdbState *diskRdbState = NULL;
   StrongRef spec_ref = {0};
   IndexFlags flags = 0;
   int16_t numFields = 0;
@@ -3414,7 +3413,11 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryE
   specName = NewHiddenString(rawName, len, true);
   RedisModule_Free(rawName);
 
+  //TODO: Should this call NewIndexSpec(specName)?
   sp = rm_calloc(1, sizeof(IndexSpec));
+  sp->diskSpec = NULL;
+  sp->pendingDiskRdbState = NULL;
+  sp->diskRegistered = false;
   spec_ref = StrongRef_New(sp, (RefManager_Free)IndexSpec_Free);
   sp->own_ref = spec_ref;
 
@@ -3511,9 +3514,11 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryE
     sp->terms = TrieType_GenericLoad(rdb, false, true);
     RS_LOG_ASSERT(sp->terms, "Failed to load terms trie");
 
-    // Load disk metadata (max_doc_id, deleted_ids) into temporary object
-    diskRdbState = SearchDisk_LoadRdbToTempObject(rdb);
-    if (!diskRdbState) {
+    // Load disk metadata (max_doc_id, deleted_ids) into the spec. Stashed
+    // here directly; consumed at LOADING_SST_ENDED (SST flow) or freed by
+    // the spec destructor (duplicate / cleanup / abort).
+    sp->pendingDiskRdbState = SearchDisk_LoadRdbToTempObject(rdb);
+    if (!sp->pendingDiskRdbState) {
       goto cleanup;
     }
   }
@@ -3521,42 +3526,24 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryE
   // Open the index on disk only if we are on Flex, and this is not a duplicate.
   if (isSpecOnDisk(sp) && !sp->isDuplicate) {
     RS_ASSERT(disk_db);
-    // Under SST replication, Flex has not yet placed the SST files on the
-    // replica's filesystem at this point in RDB load. Stash the disk RDB
-    // state on the spec and defer opening (and registering) the disk index
-    // until Indexes_FinishSSTReplication runs at REDISMODULE_SUBEVENT_LOADING_ENDED.
-    if (diskRdbState && IS_SST_RDB_IN_PROCESS(ctx)) {
-      sp->pendingDiskRdbState = diskRdbState;
-      diskRdbState = NULL; // Ownership transferred to sp; consumed at LOADING_SST_ENDED.
-    } else {
-      if (diskRdbState) {
-        // Use the new API that applies the RDB state during index opening
-        sp->diskSpec = SearchDisk_OpenIndexWithRdbState(ctx, sp->specName, sp->obfuscatedName, sp->rule->type, diskRdbState);
-        diskRdbState = NULL; // Ownership transferred
-      } else {
-        // No RDB state (non-SST flow), just open the index normally
-        sp->diskSpec = SearchDisk_OpenIndex(ctx, sp->specName, sp->obfuscatedName, sp->rule->type, false);
-      }
+    RS_LOG_ASSERT((sp->pendingDiskRdbState != NULL) == IS_SST_RDB_IN_PROCESS(ctx),
+                  "pendingDiskRdbState / SST_RDB context flag out of sync");
 
-      IndexSpec_PopulateVectorDiskParams(sp);
+    if (!sp->pendingDiskRdbState) {
+      // Non-SST RDB path (e.g. pre-INDEX_DISK_VERSION on-disk RDB): no
+      // RDB-side disk state to apply, open the index eagerly.
+      sp->diskSpec = SearchDisk_OpenIndex(ctx, sp->specName, sp->obfuscatedName, sp->rule->type, false);
       if (!sp->diskSpec) {
         goto cleanup;
       }
+      IndexSpec_PopulateVectorDiskParams(sp);
       SearchDisk_RegisterIndex(ctx, sp);
     }
-  } else if (diskRdbState) {
-    // Duplicate case: we loaded the RDB state but won't create diskSpec
-    // Free the RDB state since it won't be used
-    SearchDisk_FreeRdbState(diskRdbState);
-    diskRdbState = NULL;
   }
 
   return sp;
 
 cleanup:
-  if (diskRdbState) {
-    SearchDisk_FreeRdbState(diskRdbState);
-  }
   if (sp && sp->diskSpec) {
     // Idempotent — no-op if registration never happened on this path.
     SearchDisk_UnregisterIndex(ctx, sp);
@@ -4509,25 +4496,7 @@ void Indexes_EndLoading() {
   g_isLoading = false;
 }
 
-// Replica-side SST replication: open every staged disk index and register it
-// with Flex.
-//
-// Walks specDict_g. For each spec whose pendingDiskRdbState is non-NULL
-// (stashed by IndexSpec_RdbLoad under REDISMODULE_CTX_FLAGS_SST_RDB), opens
-// the SpeedB database via SearchDisk_OpenIndexWithRdbState — which resolves
-// the on-disk path through BigGetDbPath — populates vector disk params, and
-// registers the spec with Flex via SearchDisk_RegisterIndex (BigRegisterDb).
-//
-// Called from the REDISMODULE_SUBEVENT_LOADING_ENDED handler. This is the
-// only event that guarantees both the RDB stream and the SST ingestion have
-// completed: in Flex the two phases run on independent channels (main
-// channel and SST channel), so LOADING_SST_ENDED can fire before the RDB
-// stream has been parsed — at which point pendingDiskRdbState would not
-// yet have been stashed.
-//
-// Specs with a NULL pendingDiskRdbState are skipped — they are either
-// already-opened non-SST specs (eagerly opened by IndexSpec_RdbLoad) or
-// memory-only specs.
+// Replica-side SST replication: Open with the pending RDB State every spec
 void Indexes_FinishSSTReplication(RedisModuleCtx *ctx) {
   RS_ASSERT(SearchDisk_IsEnabled());
 
