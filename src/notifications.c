@@ -741,9 +741,25 @@ void RDB_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subeve
     workersThreadPool_OnEventStart();
     RedisModule_Log(RSDummyContext, "notice", "Loading event started");
     break;
+  case REDISMODULE_SUBEVENT_LOADING_SST_START:
+    // Flex is about to inject SST files into the replica's filesystem. The
+    // module has nothing to do on the disk side here — by contract no SpeedB
+    // database has been opened yet for the staged indexes (IndexSpec_RdbLoad
+    // deferred the open under REDISMODULE_CTX_FLAGS_SST_RDB). Logged for
+    // diagnostics and so the LOADING_SST_ENDED transition is observable.
+    RedisModule_Log(RSDummyContext, "notice", "SST ingestion started");
+    break;
+  case REDISMODULE_SUBEVENT_LOADING_SST_ENDED:
+    // Flex has placed SST files on disk; open the staged indexes now.
+    Indexes_FinishSstLoading(ctx);
+    RedisModule_Log(RSDummyContext, "notice", "SST ingestion ended");
+    break;
   case REDISMODULE_SUBEVENT_LOADING_ENDED:
     Indexes_EndRDBLoadingEvent(ctx);
     workersThreadPool_OnEventEnd(true);
+    // Register the (now-opened) disk indexes with Flex for L0 tracking. No-op
+    // for the non-SST RDB path since those specs are already registered.
+    Indexes_FinishReplication(ctx);
     Indexes_EndLoading();
     RedisModule_Log(RSDummyContext, "notice", "Loading event ended successfully");
     break;
@@ -754,6 +770,32 @@ void RDB_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subeve
     break;
   default:
     RS_LOG_ASSERT_FMT(0, "Unknown sub-event %d", subevent);
+    break;
+  }
+}
+
+// Replica-side handler for REDISMODULE_EVENT_SST_REPLICATION. Only the ABORT
+// subevent is handled here; the PRE_CHECKPOINT / POST_CHECKPOINT / PRE_FORK /
+// POST_FORK subevents are master-side concerns and are wired up in a separate
+// change. ABORT fires when Flex tears down the in-progress replication round,
+// and the module's job is to drop everything it staged for it.
+void SstReplicationEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data) {
+  REDISMODULE_NOT_USED(eid);
+  REDISMODULE_NOT_USED(data);
+  switch (subevent) {
+  case REDISMODULE_SUBEVENT_SST_REPL_ABORT:
+    Indexes_AbortSstReplication(ctx);
+    RedisModule_Log(RSDummyContext, "notice", "SST replication aborted");
+    break;
+  case REDISMODULE_SUBEVENT_SST_REPL_PRE_CHECKPOINT:
+  case REDISMODULE_SUBEVENT_SST_REPL_POST_CHECKPOINT:
+  case REDISMODULE_SUBEVENT_SST_REPL_PRE_FORK:
+  case REDISMODULE_SUBEVENT_SST_REPL_POST_FORK:
+    // Master-side subevents — handled in a separate change.
+    break;
+  default:
+    RedisModule_Log(RSDummyContext, "warning",
+                    "SST replication: unhandled sub-event %lu", (unsigned long)subevent);
     break;
   }
 }

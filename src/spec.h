@@ -372,6 +372,26 @@ typedef struct IndexSpec {
 
   // Disk index handle (NULL for memory-only indexes)
   RedisSearchDiskIndexSpec *diskSpec;
+
+  // Replica-side SST replication staging state.
+  //
+  // When the RDB stream is loaded under REDISMODULE_CTX_FLAGS_SST_RDB, the disk
+  // index cannot be opened during RDB load because the SST files have not yet
+  // been injected by Flex. The disk RDB state is stashed here and the open is
+  // deferred to LOADING_SST_ENDED. diskRegistered tracks whether the spec has
+  // been handed back to Flex via SearchDisk_RegisterIndex (BigRegisterDb).
+  //
+  // State during the replica load:
+  //   after RDB aux load:   pendingDiskRdbState != NULL, diskSpec == NULL,
+  //                         diskRegistered == false
+  //   after LOADING_SST_ENDED: pendingDiskRdbState == NULL, diskSpec != NULL,
+  //                            diskRegistered == false
+  //   after LOADING_ENDED:    pendingDiskRdbState == NULL, diskSpec != NULL,
+  //                            diskRegistered == true
+  // The non-SST RDB path skips both intermediates and lands directly at the
+  // final state during IndexSpec_RdbLoad.
+  RedisSearchDiskRdbState *pendingDiskRdbState;
+  bool diskRegistered;
 } IndexSpec;
 
 typedef enum SpecOp { SpecOp_Add, SpecOp_Del } SpecOp;
@@ -780,6 +800,34 @@ void Indexes_EndRDBLoadingEvent(RedisModuleCtx *ctx);
 
 // This function is to be called when loading finishes (failed or not)
 void Indexes_EndLoading();
+
+// Replica-side SST replication loading.
+//
+// Open the SpeedB databases for every IndexSpec that was staged during RDB
+// load under REDISMODULE_CTX_FLAGS_SST_RDB. Called from the
+// REDISMODULE_SUBEVENT_LOADING_SST_ENDED handler, after Flex has finished
+// placing SST files on the replica's filesystem. Walks specDict_g; for every
+// spec with pendingDiskRdbState != NULL, opens the disk index via
+// SearchDisk_OpenIndexWithRdbState and clears pendingDiskRdbState. The disk
+// spec is held but not yet registered with Flex.
+void Indexes_FinishSstLoading(RedisModuleCtx *ctx);
+
+// Replica-side SST replication completion.
+//
+// Register every opened-but-unregistered disk spec with Flex
+// (SearchDisk_RegisterIndex / BigRegisterDb). Called from the
+// REDISMODULE_SUBEVENT_LOADING_ENDED handler, after both RDB and SST loading
+// have completed. Marks each successfully registered spec as diskRegistered.
+void Indexes_FinishReplication(RedisModuleCtx *ctx);
+
+// Replica-side SST replication abort.
+//
+// Tear down everything staged for SST replication. Frees any pending disk RDB
+// state, closes any opened-but-unregistered disk specs, and unregisters +
+// closes any specs that had already been registered. Removes the affected
+// specs from specDict_g. Called from the REDISMODULE_SUBEVENT_SST_REPL_ABORT
+// handler.
+void Indexes_AbortSstReplication(RedisModuleCtx *ctx);
 
 // =============================================================================
 // Compaction FFI Functions (called by Rust during GC)

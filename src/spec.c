@@ -2114,6 +2114,13 @@ static void IndexSpec_FreeUnlinkedData(IndexSpec *spec) {
   pthread_rwlock_destroy(&spec->rwlock);
 
   if (spec->diskSpec) SearchDisk_CloseIndex(spec->diskSpec);
+  // Replica-side SST replication may have stashed a disk RDB state on the spec
+  // and then been aborted before LOADING_SST_ENDED consumed it. Free it here so
+  // we don't leak.
+  if (spec->pendingDiskRdbState) {
+    SearchDisk_FreeRdbState(spec->pendingDiskRdbState);
+    spec->pendingDiskRdbState = NULL;
+  }
 
   // Free spec struct
   rm_free(spec);
@@ -3512,21 +3519,31 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryE
   // Open the index on disk only if we are on Flex, and this is not a duplicate.
   if (isSpecOnDisk(sp) && !sp->isDuplicate) {
     RS_ASSERT(disk_db);
-    if (diskRdbState) {
-      // Use the new API that applies the RDB state during index opening
-      sp->diskSpec = SearchDisk_OpenIndexWithRdbState(ctx, sp->specName, sp->obfuscatedName, sp->rule->type, diskRdbState);
-      diskRdbState = NULL; // Ownership transferred
+    // Under SST replication, Flex has not yet placed the SST files on the
+    // replica's filesystem at this point in RDB load. Stash the disk RDB
+    // state on the spec and defer opening (and registering) the disk index
+    // until Indexes_FinishSstLoading runs at REDISMODULE_SUBEVENT_LOADING_SST_ENDED.
+    if (diskRdbState && IS_SST_RDB_IN_PROCESS(ctx)) {
+      sp->pendingDiskRdbState = diskRdbState;
+      diskRdbState = NULL; // Ownership transferred to sp; consumed at LOADING_SST_ENDED.
     } else {
-      // No RDB state (non-SST flow), just open the index normally
-      sp->diskSpec = SearchDisk_OpenIndex(ctx, sp->specName, sp->obfuscatedName, sp->rule->type, false);
-    }
+      if (diskRdbState) {
+        // Use the new API that applies the RDB state during index opening
+        sp->diskSpec = SearchDisk_OpenIndexWithRdbState(ctx, sp->specName, sp->obfuscatedName, sp->rule->type, diskRdbState);
+        diskRdbState = NULL; // Ownership transferred
+      } else {
+        // No RDB state (non-SST flow), just open the index normally
+        sp->diskSpec = SearchDisk_OpenIndex(ctx, sp->specName, sp->obfuscatedName, sp->rule->type, false);
+      }
 
-    IndexSpec_PopulateVectorDiskParams(sp);
-    if (!sp->diskSpec) {
-      goto cleanup;
+      IndexSpec_PopulateVectorDiskParams(sp);
+      if (!sp->diskSpec) {
+        goto cleanup;
+      }
+      SearchDisk_RegisterIndex(ctx, sp->diskSpec);
+      sp->diskRegistered = true;
+      indexRegistered = true;
     }
-    SearchDisk_RegisterIndex(ctx, sp->diskSpec);
-    indexRegistered = true;
   } else if (diskRdbState) {
     // Duplicate case: we loaded the RDB state but won't create diskSpec
     // Free the RDB state since it won't be used
@@ -4489,6 +4506,109 @@ void Indexes_EndRDBLoadingEvent(RedisModuleCtx *ctx) {
 
 void Indexes_EndLoading() {
   g_isLoading = false;
+}
+
+// Replica-side SST replication: drain the per-spec staged disk RDB state by
+// opening each disk index now that Flex has finished placing SST files.
+//
+// Iterates specDict_g. For each spec whose pendingDiskRdbState is non-NULL,
+// resolves the on-disk path (inside SearchDisk_OpenIndexWithRdbState, via
+// BigGetDbPath), opens the SpeedB database with the staged RDB state applied,
+// and stores the result in sp->diskSpec. The disk spec is not yet registered
+// with Flex — that happens in Indexes_FinishReplication at LOADING_ENDED.
+//
+// Specs are left in specDict_g whether the open succeeds or fails; failures
+// log a warning and Flex is expected to fire SST_REPL_ABORT, which will tear
+// the round down via Indexes_AbortSstReplication.
+void Indexes_FinishSstLoading(RedisModuleCtx *ctx) {
+  if (!SearchDisk_IsEnabled()) return;
+
+  dictIterator *iter = dictGetIterator(specDict_g);
+  dictEntry *entry = NULL;
+  while ((entry = dictNext(iter))) {
+    StrongRef spec_ref = dictGetRef(entry);
+    IndexSpec *sp = StrongRef_Get(spec_ref);
+    if (!sp || !sp->pendingDiskRdbState) continue;
+    RS_ASSERT(sp->diskSpec == NULL);
+    RS_ASSERT(!sp->diskRegistered);
+    RS_ASSERT(disk_db);
+
+    sp->diskSpec = SearchDisk_OpenIndexWithRdbState(ctx, sp->specName, sp->obfuscatedName,
+                                                    sp->rule->type, sp->pendingDiskRdbState);
+    // SearchDisk_OpenIndexWithRdbState takes ownership of the RDB state; clear our pointer
+    // regardless of success so we don't double-free.
+    sp->pendingDiskRdbState = NULL;
+
+    if (!sp->diskSpec) {
+      RedisModule_Log(ctx, "warning",
+                      "SST replication: failed to open disk index for spec during LOADING_SST_ENDED");
+      continue;
+    }
+    IndexSpec_PopulateVectorDiskParams(sp);
+  }
+  dictReleaseIterator(iter);
+}
+
+// Replica-side SST replication: register every opened-but-unregistered disk
+// spec with Flex (SearchDisk_RegisterIndex / BigRegisterDb).
+//
+// Called from the LOADING_ENDED handler after both RDB and SST loading have
+// completed. Required so Flex tracks future L0 flushes for these databases —
+// without it, this replica cannot itself act as a source for SST replication
+// if later promoted to master. The deferral from LOADING_SST_ENDED avoids
+// registering a DB that we would have to tear down because a sibling index
+// failed to open in the same round.
+void Indexes_FinishReplication(RedisModuleCtx *ctx) {
+  if (!SearchDisk_IsEnabled()) return;
+
+  dictIterator *iter = dictGetIterator(specDict_g);
+  dictEntry *entry = NULL;
+  while ((entry = dictNext(iter))) {
+    StrongRef spec_ref = dictGetRef(entry);
+    IndexSpec *sp = StrongRef_Get(spec_ref);
+    if (!sp || !sp->diskSpec || sp->diskRegistered) continue;
+    SearchDisk_RegisterIndex(ctx, sp->diskSpec);
+    sp->diskRegistered = true;
+  }
+  dictReleaseIterator(iter);
+}
+
+// Replica-side SST replication: abort the in-progress replication round.
+//
+// Drops every spec that was built or staged in this round, freeing any
+// pending disk RDB state and closing or unregistering+closing the disk index
+// as appropriate. Specs at every replication phase are torn down — the
+// replica is left as if replication had never started, and Flex will retry
+// from scratch on the next attempt.
+void Indexes_AbortSstReplication(RedisModuleCtx *ctx) {
+  if (!SearchDisk_IsEnabled()) return;
+  if (dictSize(specDict_g) == 0) return;
+
+  RedisModule_Log(ctx, "warning",
+                  "SST replication aborted; tearing down %lu staged index(es)",
+                  (unsigned long)dictSize(specDict_g));
+
+  // Snapshot the refs first since IndexSpec_RemoveFromGlobals mutates specDict_g.
+  arrayof(StrongRef) specs = array_new(StrongRef, dictSize(specDict_g));
+  dictIterator *iter = dictGetIterator(specDict_g);
+  dictEntry *entry = NULL;
+  while ((entry = dictNext(iter))) {
+    array_append(specs, (StrongRef)dictGetRef(entry));
+  }
+  dictReleaseIterator(iter);
+
+  for (size_t i = 0; i < array_len(specs); ++i) {
+    IndexSpec *spec = StrongRef_Get(specs[i]);
+    if (!spec) continue;
+    // Already-registered specs must be unregistered before close (same invariant as Indexes_Free).
+    if (spec->diskSpec && spec->diskRegistered) {
+      SearchDisk_UnregisterIndex(ctx, spec->diskSpec);
+      spec->diskRegistered = false;
+    }
+    // pendingDiskRdbState (if any) and diskSpec (if any) are cleaned up by IndexSpec_FreeUnlinkedData.
+    IndexSpec_RemoveFromGlobals(specs[i], false);
+  }
+  array_free(specs);
 }
 
 // =============================================================================
