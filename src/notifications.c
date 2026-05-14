@@ -169,7 +169,7 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
       // in-memory flow we only need to refresh the doc-level expiration on
       // the matching DMDs. Disk-backed indexes still take the full reindex
       // path until they grow an equivalent fast path.
-      if (SearchDisk_IsEnabled()) {
+      if (SearchDisk_IsEnabled(ctx)) {
         Indexes_UpdateMatchingWithSchemaRules(ctx, key, getDocTypeFromString(key), hashFields);
       } else {
         Indexes_UpdateMatchingDocExpiration(ctx, key, getDocTypeFromString(key));
