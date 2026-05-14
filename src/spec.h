@@ -375,20 +375,19 @@ typedef struct IndexSpec {
 
   // Replica-side SST replication staging state.
   //
-  // When the RDB stream is loaded under REDISMODULE_CTX_FLAGS_SST_RDB, the disk
-  // index cannot be opened during RDB load because the SST files have not yet
-  // been injected by Flex. The disk RDB state is stashed here and the open is
-  // deferred to LOADING_SST_ENDED. diskRegistered tracks whether the spec has
-  // been handed back to Flex via SearchDisk_RegisterIndex (BigRegisterDb).
+  // When the RDB stream is loaded under REDISMODULE_CTX_FLAGS_SST_RDB, the
+  // disk index cannot be opened during RDB load because Flex may not yet
+  // have placed the SST files on the replica's filesystem (the SST channel
+  // and the RDB channel run concurrently). The disk RDB state is stashed
+  // here and the open + register is deferred to LOADING_ENDED, which is the
+  // only event that fires after both phases have completed.
   //
   // State during the replica load:
-  //   after RDB aux load:   pendingDiskRdbState != NULL, diskSpec == NULL,
-  //                         diskRegistered == false
-  //   after LOADING_SST_ENDED: pendingDiskRdbState == NULL, diskSpec != NULL,
-  //                            diskRegistered == false
-  //   after LOADING_ENDED:    pendingDiskRdbState == NULL, diskSpec != NULL,
-  //                            diskRegistered == true
-  // The non-SST RDB path skips both intermediates and lands directly at the
+  //   after RDB aux load:  pendingDiskRdbState != NULL, diskSpec == NULL,
+  //                        diskRegistered == false
+  //   after LOADING_ENDED: pendingDiskRdbState == NULL, diskSpec != NULL,
+  //                        diskRegistered == true
+  // The non-SST RDB path skips the intermediate and lands directly at the
   // final state during IndexSpec_RdbLoad.
   RedisSearchDiskRdbState *pendingDiskRdbState;
   bool diskRegistered;
@@ -801,24 +800,20 @@ void Indexes_EndRDBLoadingEvent(RedisModuleCtx *ctx);
 // This function is to be called when loading finishes (failed or not)
 void Indexes_EndLoading();
 
-// Replica-side SST replication loading.
-//
-// Open the SpeedB databases for every IndexSpec that was staged during RDB
-// load under REDISMODULE_CTX_FLAGS_SST_RDB. Called from the
-// REDISMODULE_SUBEVENT_LOADING_SST_ENDED handler, after Flex has finished
-// placing SST files on the replica's filesystem. Walks specDict_g; for every
-// spec with pendingDiskRdbState != NULL, opens the disk index via
-// SearchDisk_OpenIndexWithRdbState and clears pendingDiskRdbState. The disk
-// spec is held but not yet registered with Flex.
-void Indexes_FinishSstLoading(RedisModuleCtx *ctx);
-
 // Replica-side SST replication completion.
 //
-// Register every opened-but-unregistered disk spec with Flex
-// (SearchDisk_RegisterIndex / BigRegisterDb). Called from the
-// REDISMODULE_SUBEVENT_LOADING_ENDED handler, after both RDB and SST loading
-// have completed. Marks each successfully registered spec as diskRegistered.
-void Indexes_FinishReplication(RedisModuleCtx *ctx);
+// For every IndexSpec that was staged during RDB load under
+// REDISMODULE_CTX_FLAGS_SST_RDB, open the SpeedB database (with the staged
+// RDB state applied) and register it with Flex (BigRegisterDb). Called from
+// the REDISMODULE_SUBEVENT_LOADING_ENDED handler — the only event that
+// guarantees both the RDB stream and the SST ingestion have completed. The
+// SST channel and the main (RDB) channel run concurrently in Flex, so
+// LOADING_SST_ENDED alone is not a safe trigger: the pending disk RDB state
+// may not yet have been parsed when SST ingestion finishes.
+//
+// No-op for the non-SST RDB path, where IndexSpec_RdbLoad already opened and
+// registered each spec eagerly.
+void Indexes_FinishSstReplication(RedisModuleCtx *ctx);
 
 // Replica-side SST replication abort.
 //

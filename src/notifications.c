@@ -742,24 +742,23 @@ void RDB_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subeve
     RedisModule_Log(RSDummyContext, "notice", "Loading event started");
     break;
   case REDISMODULE_SUBEVENT_LOADING_SST_START:
-    // Flex is about to inject SST files into the replica's filesystem. The
-    // module has nothing to do on the disk side here — by contract no SpeedB
-    // database has been opened yet for the staged indexes (IndexSpec_RdbLoad
-    // deferred the open under REDISMODULE_CTX_FLAGS_SST_RDB). Logged for
-    // diagnostics and so the LOADING_SST_ENDED transition is observable.
-    RedisModule_Log(RSDummyContext, "notice", "SST ingestion started");
-    break;
   case REDISMODULE_SUBEVENT_LOADING_SST_ENDED:
-    // Flex has placed SST files on disk; open the staged indexes now.
-    Indexes_FinishSstLoading(ctx);
-    RedisModule_Log(RSDummyContext, "notice", "SST ingestion ended");
+  case REDISMODULE_SUBEVENT_LOADING_RDB_ENDED:
+    // Per-phase milestones during SST replication. The module does no disk
+    // work on these — the SST channel and the main (RDB) channel run
+    // concurrently in Flex, so neither phase end alone guarantees that the
+    // matching staged state from the other phase is in place yet. Logged
+    // only as diagnostics; all the real work happens at LOADING_ENDED.
+    RedisModule_Log(RSDummyContext, "notice", "SST replication phase event %lu",
+                    (unsigned long)subevent);
     break;
   case REDISMODULE_SUBEVENT_LOADING_ENDED:
     Indexes_EndRDBLoadingEvent(ctx);
     workersThreadPool_OnEventEnd(true);
-    // Register the (now-opened) disk indexes with Flex for L0 tracking. No-op
-    // for the non-SST RDB path since those specs are already registered.
-    Indexes_FinishReplication(ctx);
+    // Open and register the disk indexes that were staged during RDB load
+    // under REDISMODULE_CTX_FLAGS_SST_RDB. No-op for the non-SST RDB path
+    // since IndexSpec_RdbLoad opens and registers eagerly there.
+    Indexes_FinishSstReplication(ctx);
     Indexes_EndLoading();
     RedisModule_Log(RSDummyContext, "notice", "Loading event ended successfully");
     break;

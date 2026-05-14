@@ -3522,7 +3522,7 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryE
     // Under SST replication, Flex has not yet placed the SST files on the
     // replica's filesystem at this point in RDB load. Stash the disk RDB
     // state on the spec and defer opening (and registering) the disk index
-    // until Indexes_FinishSstLoading runs at REDISMODULE_SUBEVENT_LOADING_SST_ENDED.
+    // until Indexes_FinishSstReplication runs at REDISMODULE_SUBEVENT_LOADING_ENDED.
     if (diskRdbState && IS_SST_RDB_IN_PROCESS(ctx)) {
       sp->pendingDiskRdbState = diskRdbState;
       diskRdbState = NULL; // Ownership transferred to sp; consumed at LOADING_SST_ENDED.
@@ -4508,27 +4508,35 @@ void Indexes_EndLoading() {
   g_isLoading = false;
 }
 
-// Replica-side SST replication: drain the per-spec staged disk RDB state by
-// opening each disk index now that Flex has finished placing SST files.
+// Replica-side SST replication: open every staged disk index and register it
+// with Flex.
 //
-// Iterates specDict_g. For each spec whose pendingDiskRdbState is non-NULL,
-// resolves the on-disk path (inside SearchDisk_OpenIndexWithRdbState, via
-// BigGetDbPath), opens the SpeedB database with the staged RDB state applied,
-// and stores the result in sp->diskSpec. The disk spec is not yet registered
-// with Flex — that happens in Indexes_FinishReplication at LOADING_ENDED.
+// Walks specDict_g. For each spec whose pendingDiskRdbState is non-NULL
+// (stashed by IndexSpec_RdbLoad under REDISMODULE_CTX_FLAGS_SST_RDB), opens
+// the SpeedB database via SearchDisk_OpenIndexWithRdbState — which resolves
+// the on-disk path through BigGetDbPath — populates vector disk params, and
+// registers the spec with Flex via SearchDisk_RegisterIndex (BigRegisterDb).
 //
-// Specs are left in specDict_g whether the open succeeds or fails; failures
-// log a warning and Flex is expected to fire SST_REPL_ABORT, which will tear
-// the round down via Indexes_AbortSstReplication.
-void Indexes_FinishSstLoading(RedisModuleCtx *ctx) {
-  if (!SearchDisk_IsEnabled()) return;
+// Called from the REDISMODULE_SUBEVENT_LOADING_ENDED handler. This is the
+// only event that guarantees both the RDB stream and the SST ingestion have
+// completed: in Flex the two phases run on independent channels (main
+// channel and SST channel), so LOADING_SST_ENDED can fire before the RDB
+// stream has been parsed — at which point pendingDiskRdbState would not
+// yet have been stashed.
+//
+// Specs with a NULL pendingDiskRdbState are skipped — they are either
+// already-opened non-SST specs (eagerly opened by IndexSpec_RdbLoad) or
+// memory-only specs.
+void Indexes_FinishSstReplication(RedisModuleCtx *ctx) {
+  RS_ASSERT(SearchDisk_IsEnabled());
 
   dictIterator *iter = dictGetIterator(specDict_g);
   dictEntry *entry = NULL;
   while ((entry = dictNext(iter))) {
     StrongRef spec_ref = dictGetRef(entry);
     IndexSpec *sp = StrongRef_Get(spec_ref);
-    if (!sp || !sp->pendingDiskRdbState) continue;
+    RS_ASSERT(sp);
+    RS_ASSERT(sp->pendingDiskRdbState);
     RS_ASSERT(sp->diskSpec == NULL);
     RS_ASSERT(!sp->diskRegistered);
     RS_ASSERT(disk_db);
@@ -4541,32 +4549,10 @@ void Indexes_FinishSstLoading(RedisModuleCtx *ctx) {
 
     if (!sp->diskSpec) {
       RedisModule_Log(ctx, "warning",
-                      "SST replication: failed to open disk index for spec during LOADING_SST_ENDED");
+                      "SST replication: failed to open disk index for spec during LOADING_ENDED");
       continue;
     }
     IndexSpec_PopulateVectorDiskParams(sp);
-  }
-  dictReleaseIterator(iter);
-}
-
-// Replica-side SST replication: register every opened-but-unregistered disk
-// spec with Flex (SearchDisk_RegisterIndex / BigRegisterDb).
-//
-// Called from the LOADING_ENDED handler after both RDB and SST loading have
-// completed. Required so Flex tracks future L0 flushes for these databases —
-// without it, this replica cannot itself act as a source for SST replication
-// if later promoted to master. The deferral from LOADING_SST_ENDED avoids
-// registering a DB that we would have to tear down because a sibling index
-// failed to open in the same round.
-void Indexes_FinishReplication(RedisModuleCtx *ctx) {
-  if (!SearchDisk_IsEnabled()) return;
-
-  dictIterator *iter = dictGetIterator(specDict_g);
-  dictEntry *entry = NULL;
-  while ((entry = dictNext(iter))) {
-    StrongRef spec_ref = dictGetRef(entry);
-    IndexSpec *sp = StrongRef_Get(spec_ref);
-    if (!sp || !sp->diskSpec || sp->diskRegistered) continue;
     SearchDisk_RegisterIndex(ctx, sp->diskSpec);
     sp->diskRegistered = true;
   }
