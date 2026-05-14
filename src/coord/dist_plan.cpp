@@ -11,10 +11,10 @@
 #include "aggregate/aggregate_plan.h"
 #include "pipeline/pipeline_construction.h"
 #include "aggregate/reducer.h"
+#include "aggregate/reducers/collect_parse.h"
 #include "util/arr.h"
 #include "util/stringify.h"
 #include "dist_plan.h"
-#include "dist_plan_utils.h"
 #include "config.h"
 
 #include <vector>
@@ -345,45 +345,156 @@ static int distributeAvg(ReducerDistCtx *rdctx, QueryError *status) {
   return REDISMODULE_OK;
 }
 
-/* Remote COLLECT emits array-of-maps; local COLLECT consumes the remote alias.
+/* Distribute COLLECT.
  *
- * Note: this rewriter currently forwards the user's `LIMIT offset count` to
- * the shard verbatim (via `buildCollectArgs`), unlike `serializeArrange` in
- * `aggregate_plan.c` which rewrites `LIMIT offset count` to
- * `LIMIT 0 (offset+count)`. Because of that, the shard reducer needs LIMIT
- * context and an `is_internal` flag so it skips the local `skip(offset)` and
- * lets the coordinator apply the global offset.
+ * Both halves of the split GROUPBY are emitted from the parsed `CollectArgs`
+ * struct rather than from the raw argv. The remote command is reconstructed
+ * from scratch — FIELDS, optional SORTBY, optional LIMIT — and the local
+ * command is reconstructed the same way and decorated with `AS <alias>`.
  *
- * TODO: reconsider switching to the `LIMIT 0 (offset+count)` rewrite pattern.
- * It would let the shard COLLECT reducer drop both its `limit` and
- * `is_internal` fields.
+ * Limited path: whenever the user supplied `LIMIT offset count`, the remote
+ * `LIMIT` is rewritten to `0 (offset+count)` so each shard returns enough rows
+ * for the coordinator to perform the final offset/count trim. The local
+ * COLLECT keeps the original offset/count. This mirrors `serializeArrange`'s
+ * behavior for top-level LIMIT and concentrates offset semantics at the
+ * coordinator — internal shards never see a non-zero offset.
  */
 static int distributeCollect(ReducerDistCtx *rdctx, QueryError *status) {
   const PLN_Reducer *src = rdctx->srcReducer;
-  size_t argc = src->args.argc;
 
-  // Build temporary remote args; `addRemote` lazily persists them only on a miss.
-  std::string remoteCountStr = std::to_string(argc);
-  std::vector<void *> remoteObjs(collectObjsBufLen(argc, /*has_alias=*/false));
-  ArgsCursor remoteArgs = buildCollectArgs(remoteObjs.data(), remoteCountStr.c_str(),
-                                           &src->args, nullptr);
-
-  const char *alias;
-  if (!rdctx->addRemote("COLLECT", &alias, status, &remoteArgs)) {
+  // Parse the original COLLECT args into a pure data struct. No keys are
+  // opened; the parse cursor uses a synthesized lookup-less `ReducerOptions`.
+  ArgsCursor parseAc = src->args;
+  ReducerOptions opts = REDUCEROPTS_INIT(src->name, &parseAc, /*srclookup*/nullptr,
+                                         /*loadKeys*/nullptr, status, /*strictPrefix*/false,
+                                         /*is_local*/false, /*input_key*/nullptr,
+                                         /*reqflags*/0);
+  CollectArgs args = {0};
+  if (!CollectArgs_Parse(&opts, &args)) {
+    CollectArgs_Free(&args);
     return REDISMODULE_ERR;
   }
 
-  std::string localCountStr = std::to_string(argc);
-  std::vector<void *> localObjs(collectObjsBufLen(argc, /*has_alias=*/true));
-  ArgsCursor localArgs = buildCollectArgs(localObjs.data(), localCountStr.c_str(),
-                                          &src->args, src->alias);
-  rdctx->copyArgs(&localArgs);
+  auto dupCStr = [&](const char *s) -> const char * {
+    size_t n = strlen(s) + 1;
+    char *p = (char *)BlkAlloc_Alloc(rdctx->alloc, n, std::max(n, size_t(32)));
+    memcpy(p, s, n);
+    return p;
+  };
+  auto allocU64Str = [&](uint64_t v) -> const char * {
+    char buf[32];
+    int n = snprintf(buf, sizeof(buf), "%llu", (unsigned long long)v);
+    char *p = (char *)BlkAlloc_Alloc(rdctx->alloc, (size_t)n + 1,
+                                     std::max(size_t(n + 1), size_t(32)));
+    memcpy(p, buf, (size_t)n + 1);
+    return p;
+  };
+  auto allocAtName = [&](const char *stripped) -> const char * {
+    size_t n = strlen(stripped);
+    char *p = (char *)BlkAlloc_Alloc(rdctx->alloc, n + 2, std::max(n + 2, size_t(32)));
+    p[0] = '@';
+    memcpy(p + 1, stripped, n + 1);
+    return p;
+  };
+
+  // ---- Build the FIELDS section (shared between remote and local). ----
+  // Layout: ["FIELDS", "*"]  OR  ["FIELDS", <n>, "@f1", "@f2", ...].
+  std::vector<const char *> fieldsTokens;
+  fieldsTokens.push_back(dupCStr("FIELDS"));
+  if (args.load_all) {
+    fieldsTokens.push_back(dupCStr("*"));
+  } else {
+    size_t n = args.field_names ? array_len(args.field_names) : 0;
+    fieldsTokens.push_back(allocU64Str(n));
+    for (size_t i = 0; i < n; i++) {
+      fieldsTokens.push_back(allocAtName(args.field_names[i]));
+    }
+  }
+
+  // ---- Build the SORTBY section (shared between remote and local). ----
+  // Each sort key is emitted with an explicit ASC/DESC token; the resulting
+  // count is `2 * sort_names_len`.
+  std::vector<const char *> sortbyTokens;
+  const bool has_sortby = (args.sort_names != nullptr);
+  if (has_sortby) {
+    size_t m = array_len(args.sort_names);
+    sortbyTokens.push_back(dupCStr("SORTBY"));
+    sortbyTokens.push_back(allocU64Str(m * 2));
+    for (size_t i = 0; i < m; i++) {
+      sortbyTokens.push_back(allocAtName(args.sort_names[i]));
+      sortbyTokens.push_back(dupCStr(SORTASCMAP_GETASC(args.sortAscMap, i) ? "ASC" : "DESC"));
+    }
+  }
+
+  // ---- Helper: materialize a tokens vector into a BlkAlloc-backed argv,
+  //     prefixed with the `<nargs>` count expected by PLNGroupStep_AddReducer.
+  auto materialize = [&](const std::vector<const char *> &tokens) -> ArgsCursor {
+    size_t n = tokens.size();
+    const char **objs = (const char **)BlkAlloc_Alloc(
+        rdctx->alloc, sizeof(const char *) * (n + 1),
+        std::max(sizeof(const char *) * (n + 1), size_t(32)));
+    objs[0] = allocU64Str(n);  // leading <nargs>
+    for (size_t i = 0; i < n; i++) {
+      objs[i + 1] = tokens[i];
+    }
+    ArgsCursor out;
+    ArgsCursor_InitCString(&out, objs, (int)(n + 1));
+    return out;
+  };
+
+  // ---- Remote argv: FIELDS [SORTBY ...] [LIMIT 0 (offset+count)]
+  std::vector<const char *> remoteTokens = fieldsTokens;
+  remoteTokens.insert(remoteTokens.end(), sortbyTokens.begin(), sortbyTokens.end());
+  if (args.has_limit) {
+    remoteTokens.push_back(dupCStr("LIMIT"));
+    remoteTokens.push_back(allocU64Str(0));
+    remoteTokens.push_back(allocU64Str(args.limit_offset + args.limit_count));
+  }
+  ArgsCursor remoteArgs = materialize(remoteTokens);
+
+  const char *alias = nullptr;
+  if (!rdctx->addRemote("COLLECT", &alias, status, &remoteArgs)) {
+    CollectArgs_Free(&args);
+    return REDISMODULE_ERR;
+  }
+
+  // ---- Local argv: same shape as remote, but with the original LIMIT preserved
+  //     and an `AS <user_alias>` suffix.
+  std::vector<const char *> localTokens = fieldsTokens;
+  localTokens.insert(localTokens.end(), sortbyTokens.begin(), sortbyTokens.end());
+  if (args.has_limit) {
+    localTokens.push_back(dupCStr("LIMIT"));
+    localTokens.push_back(allocU64Str(args.limit_offset));
+    localTokens.push_back(allocU64Str(args.limit_count));
+  }
+  ArgsCursor localArgs = materialize(localTokens);
+  // PLNGroupStep_AddReducer consumes the trailing `AS <alias>` after the args
+  // slice. Construct a separate argv: <args... AS user_alias>.
+  // The cleanest path is to append AS/<alias> to localTokens before materialize
+  // — but materialize prepends <nargs> only over `tokens.size()` which would
+  // wrongly count AS/<alias>. Instead, build a fresh argv with the AS suffix
+  // appended *after* the materialized count slot.
+  {
+    size_t n = localTokens.size();
+    const char **objs = (const char **)BlkAlloc_Alloc(
+        rdctx->alloc, sizeof(const char *) * (n + 3),
+        std::max(sizeof(const char *) * (n + 3), size_t(32)));
+    objs[0] = allocU64Str(n);
+    for (size_t i = 0; i < n; i++) {
+      objs[i + 1] = localTokens[i];
+    }
+    objs[n + 1] = dupCStr("AS");
+    objs[n + 2] = dupCStr(src->alias);
+    ArgsCursor_InitCString(&localArgs, objs, (int)(n + 3));
+  }
 
   if (!rdctx->add(rdctx->localGroup, "COLLECT", nullptr, status, &localArgs)) {
+    CollectArgs_Free(&args);
     return REDISMODULE_ERR;
   }
   array_tail(rdctx->localGroup->reducers).inputAlias = rm_strdup(alias);
 
+  CollectArgs_Free(&args);
   return REDISMODULE_OK;
 }
 

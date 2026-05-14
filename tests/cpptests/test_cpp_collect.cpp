@@ -593,3 +593,14 @@ TEST_F(CollectParserTest, LimitOffsetExceedsAggregateMax) {
       "LIMIT offset exceeds maximum of");
 }
 
+TEST_F(CollectParserTest, LimitOffsetPlusCountExceedsAggregateMax) {
+  // Each individual value fits under the cap, but their sum overshoots it.
+  // The coordinator's wire rewrite would otherwise smuggle this past the
+  // parser and have the shard reject it; the combined check forces a clean
+  // parse-time error here.
+  registerKeys({"x"});
+  std::string offset = std::to_string(static_cast<unsigned long long>(MAX_AGGREGATE_REQUEST_RESULTS));
+  expectError({"FIELDS", "1", "@x", "LIMIT", offset.c_str(), "1"},
+      "LIMIT offset + count exceeds maximum of");
+}
+
