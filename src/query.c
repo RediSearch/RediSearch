@@ -40,6 +40,7 @@
 #include "geometry/geometry_api.h"
 #include "iterators_rs.h"
 #include "iterators/hybrid_reader.h"
+#include "debug_commands.h"
 #include "iterators/optimizer_reader.h"
 #include "search_disk.h"
 #include "shard_window_ratio.h"
@@ -971,7 +972,24 @@ static QueryIterator *Query_EvalWildcardNode(QueryEvalCtx *q, QueryNode *qn) {
 // flag set by the blocked-client timeout main-thread callback. Uses the
 // relaxed load (matches `rpQueryItNext`'s hot-path usage) since the callback
 // is invoked on every iterator timeout probe.
+//
+// Under ENABLE_ASSERT the callback first parks at SYNC_POINT_BEFORE_QI_TIMEOUT_CHECK
+// when armed, releasing either via SyncPoint_Signal or when the AREQ is marked
+// timed-out by the main-thread blocked-client callback. Flow tests use this to
+// deterministically prove that a CLIENT UNBLOCK ... TIMEOUT propagates into the
+// iterator's check_timeout path. In release builds the wrap collapses to nothing.
+#ifdef ENABLE_ASSERT
+// SyncPointStopFn predicate adapter for AREQ_TimedOut. Duplicated locally so
+// query.c stays self-contained (mirrors `areq_timed_out` in aggregate_exec.c).
+static bool not_iter_areq_timed_out(void *arg) {
+  return arg && AREQ_TimedOut((AREQ *)arg);
+}
+#endif
+
 static bool not_iterator_timeout_cb(void *user_data) {
+#ifdef ENABLE_ASSERT
+  SyncPoint_WaitUntil(SYNC_POINT_BEFORE_QI_TIMEOUT_CHECK, not_iter_areq_timed_out, user_data);
+#endif
   return AREQ_TimedOutRelaxed((AREQ *)user_data);
 }
 
