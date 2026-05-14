@@ -36,9 +36,9 @@ extern "C" {
 /**
  * Allocate a new [`RSQueryTerm`] from an [`RSToken`](ffi::RSToken).
  *
- * The term string is copied into a Rust-owned allocation (`Box<[u8]>`).
- * Bytes are stored as-is without any UTF-8 conversion.
- * The returned pointer must be freed with [`Term_Free`].
+ * The token bytes are validated as UTF-8 and copied into a Rust-owned
+ * allocation (`Box<str>`). The returned pointer must be freed with
+ * [`Term_Free`].
  *
  * # Safety
  *
@@ -48,6 +48,12 @@ extern "C" {
  * - If not NULL, `tok->str` must be a valid byte slice of `tok->len` bytes.
  * - The returned pointer is heap-allocated and must be freed with
  *   [`Term_Free`].
+ *
+ * # Panics
+ *
+ * Panics if `tok->str` is non-NULL and the byte slice is not valid UTF-8.
+ * The tokenizer pipeline (including libnu case-folding) is expected to
+ * always produce valid UTF-8.
  */
 struct RSQueryTerm *NewQueryTerm(const RSToken *tok, int id);
 
