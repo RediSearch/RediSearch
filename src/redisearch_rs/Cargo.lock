@@ -3436,6 +3436,7 @@ dependencies = [
  "libc",
  "memchr",
  "miniz_oxide",
+ "nix",
  "num-traits 0.2.19",
  "ppv-lite86",
  "proc-macro2",
