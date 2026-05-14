@@ -3413,11 +3413,7 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryE
   specName = NewHiddenString(rawName, len, true);
   RedisModule_Free(rawName);
 
-  //TODO: Should this call NewIndexSpec(specName)?
   sp = rm_calloc(1, sizeof(IndexSpec));
-  sp->diskSpec = NULL;
-  sp->pendingDiskRdbState = NULL;
-  sp->diskRegistered = false;
   spec_ref = StrongRef_New(sp, (RefManager_Free)IndexSpec_Free);
   sp->own_ref = spec_ref;
 
