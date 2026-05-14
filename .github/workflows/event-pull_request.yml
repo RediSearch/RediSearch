@@ -12,8 +12,7 @@ concurrency:
 
 jobs:
   get-latest-redis-tag:
-    # TODO: Revert when 8.4 is released. Track unstable so PRs catch
-    # upstream breakage early.
+    # Track unstable so PRs catch upstream breakage early.
     runs-on: ubuntu-slim
     outputs:
       tag: unstable
