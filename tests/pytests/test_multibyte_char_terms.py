@@ -744,6 +744,27 @@ def testLongTerms(env):
         res = env.cmd(debug_cmd(), 'DUMP_TERMS', 'idx2')
         env.assertEqual(res, [f'+{long_term_lower[:148]}', long_term_lower])
 
+@skip(cluster=True)
+def testLongTermWildcardQuery(env):
+    '''Test that a wildcard (contains) query with >128 runes exercises the heap
+    allocation path in strToLowerRunes.'''
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH',
+               'SCHEMA', 't', 'TEXT', 'NOSTEM', 'WITHSUFFIXTRIE').ok()
+    conn = getConnectionByEnv(env)
+
+    # 'б' is a single Cyrillic rune; 130 repetitions > SSO_MAX_LENGTH (128)
+    long_term = 'б' * 130
+    conn.execute_command('HSET', 'doc:1', 't', long_term)
+
+    # Contains query (*term*) calls strToLowerRunes at query time
+    res = env.cmd('FT.SEARCH', 'idx', f'@t:*{long_term}*', 'NOCONTENT', 'DIALECT', 2)
+    env.assertEqual(res, [1, 'doc:1'])
+
+    # Uppercase query — verifies case folding on the heap path
+    res = env.cmd('FT.SEARCH', 'idx', f'@t:*{long_term.upper()}*', 'NOCONTENT', 'DIALECT', 2)
+    env.assertEqual(res, [1, 'doc:1'])
+
+
 def testMultibyteTag(env):
     '''Test that multibyte characters are correctly converted to lowercase and
     that queries are case-insensitive using TAG fields'''
