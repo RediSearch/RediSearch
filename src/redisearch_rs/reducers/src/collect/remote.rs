@@ -25,6 +25,72 @@ use value::SharedValue;
 use crate::Reducer;
 use crate::collect::storage::Storage;
 
+/// Field-selection state: `FIELDS *` vs explicit list.
+///
+/// Sort keys live in both variants; they feed the heap comparator and, in
+/// [`Fields::Specific`] mode, append to the per-row projection.
+enum Fields<'a> {
+    /// `FIELDS *` mode. Non-[`RLookupKeyFlag::Hidden`] keys in `src_lookup`
+    /// are emitted; the lookup is re-walked per call so an upstream
+    /// `LOAD *` mid-pipeline is picked up.
+    All {
+        src_lookup: &'a RLookup<'a>,
+        sort_keys: Box<[&'a RLookupKey<'a>]>,
+    },
+    /// Explicit field list. `field_keys` may overlap with `sort_keys`;
+    /// dedup is the consumer's job (see [`dedup_by_dstidx`]).
+    Specific {
+        field_keys: Box<[&'a RLookupKey<'a>]>,
+        sort_keys: Box<[&'a RLookupKey<'a>]>,
+    },
+}
+
+impl<'a> Fields<'a> {
+    fn sort_keys(&self) -> &[&'a RLookupKey<'a>] {
+        match self {
+            Self::All { sort_keys, .. } | Self::Specific { sort_keys, .. } => sort_keys,
+        }
+    }
+
+    /// Keys to project per row in [`RemoteCollectCtx::add`].
+    fn get_keys_add(&self) -> impl Iterator<Item = &'a RLookupKey<'a>> + '_ {
+        match self {
+            Self::All { src_lookup, .. } => Either::Left(
+                src_lookup
+                    .iter()
+                    .filter(|k| !k.flags.contains(RLookupKeyFlag::Hidden)),
+            ),
+            Self::Specific {
+                field_keys,
+                sort_keys,
+            } => Either::Right(field_keys.iter().copied().chain(sort_keys.iter().copied())),
+        }
+    }
+
+    /// Key→name template for [`RemoteCollectCtx::finalize`].
+    ///
+    /// `include_sort_extras` extends the [`Fields::Specific`] projection
+    /// with sort keys (shard path: `true`; client-facing: `false`).
+    fn build_template(&self, include_sort_extras: bool) -> Vec<(&'a RLookupKey<'a>, SharedValue)> {
+        let keys: Vec<&RLookupKey<'a>> = match self {
+            Self::All { src_lookup, .. } => src_lookup
+                .iter()
+                .filter(|k| !k.flags.contains(RLookupKeyFlag::Hidden))
+                .collect(),
+            Self::Specific {
+                field_keys,
+                sort_keys,
+            } => {
+                let extras: &[&RLookupKey<'a>] = if include_sort_extras { sort_keys } else { &[] };
+                dedup_by_dstidx(field_keys, extras)
+            }
+        };
+        keys.into_iter()
+            .map(|k| (k, SharedValue::new_string(k.name().to_bytes().to_vec())))
+            .collect()
+    }
+}
+
 /// Remote COLLECT reducer.
 ///
 /// Must remain `#[repr(C)]` with [`Reducer`] at offset 0 so the C layer
@@ -38,16 +104,7 @@ pub struct RemoteCollectReducer<'a> {
     arena: Bump,
     /// Bit `i` is 0 for DESC and 1 for ASC, matching `SORTASCMAP_INIT`.
     sort_asc_map: u64,
-    field_keys: Box<[&'a RLookupKey<'a>]>,
-    /// Source lookup for `FIELDS *` mode.
-    ///
-    /// `Some` when the user wrote `FIELDS *`; every key not flagged
-    /// [`RLookupKeyFlag::Hidden`] is emitted. Walked per [`RemoteCollectCtx::add`]
-    /// call rather than once at construction so that keys appended by an
-    /// upstream `LOAD *` mid-pipeline are included.
-    srclookup: Option<&'a RLookup<'a>>,
-    /// Raw sort-key references, including keys not present in `FIELDS`.
-    sort_keys: Box<[&'a RLookupKey<'a>]>,
+    fields: Fields<'a>,
     limit: Option<(u64, u64)>,
     is_internal: bool,
 }
@@ -66,7 +123,8 @@ pub struct RemoteCollectCtx {
 impl<'a> RemoteCollectReducer<'a> {
     /// Create a reducer from C-parsed configuration.
     ///
-    /// `srclookup` is `Some` when the user wrote `FIELDS *`.
+    /// `srclookup` is `Some` for `FIELDS *`; when both `srclookup` and
+    /// `field_keys` are supplied, `srclookup` wins.
     pub fn new(
         field_keys: Box<[&'a RLookupKey<'a>]>,
         srclookup: Option<&'a RLookup<'a>>,
@@ -75,13 +133,21 @@ impl<'a> RemoteCollectReducer<'a> {
         limit: Option<(u64, u64)>,
         is_internal: bool,
     ) -> Self {
+        let fields = match srclookup {
+            Some(src_lookup) => Fields::All {
+                src_lookup,
+                sort_keys,
+            },
+            None => Fields::Specific {
+                field_keys,
+                sort_keys,
+            },
+        };
         Self {
             reducer: Reducer::new(),
             arena: Bump::new(),
             sort_asc_map,
-            field_keys,
-            srclookup,
-            sort_keys,
+            fields,
             limit,
             is_internal,
         }
@@ -98,15 +164,20 @@ impl<'a> RemoteCollectReducer<'a> {
     // Temporary C++ parser-test accessors, exposed through `reducers_ffi`.
 
     pub const fn field_keys_len(&self) -> usize {
-        self.field_keys.len()
+        match &self.fields {
+            Fields::Specific { field_keys, .. } => field_keys.len(),
+            Fields::All { .. } => 0,
+        }
     }
 
     pub const fn is_load_all(&self) -> bool {
-        self.srclookup.is_some()
+        matches!(self.fields, Fields::All { .. })
     }
 
     pub const fn sort_keys_len(&self) -> usize {
-        self.sort_keys.len()
+        match &self.fields {
+            Fields::All { sort_keys, .. } | Fields::Specific { sort_keys, .. } => sort_keys.len(),
+        }
     }
 
     pub const fn sort_asc_map(&self) -> u64 {
@@ -148,29 +219,10 @@ fn dedup_by_dstidx<'a>(
         .collect()
 }
 
-/// Builds the key→name template once per group so [`RemoteCollectCtx::finalize`]
-/// can clone pre-allocated name [`SharedValue`]s per row rather than re-allocating.
-fn build_finalize_template<'a>(
-    r: &RemoteCollectReducer<'a>,
-) -> Vec<(&'a RLookupKey<'a>, SharedValue)> {
-    let keys: Vec<&RLookupKey<'a>> = if let Some(lookup) = r.srclookup {
-        lookup
-            .iter()
-            .filter(|k| !k.flags.contains(RLookupKeyFlag::Hidden))
-            .collect()
-    } else {
-        let sort_extras: &[&RLookupKey<'a>] = if r.is_internal { &r.sort_keys } else { &[] };
-        dedup_by_dstidx(&r.field_keys, sort_extras)
-    };
-    keys.into_iter()
-        .map(|k| (k, SharedValue::new_string(k.name().to_bytes().to_vec())))
-        .collect()
-}
-
 impl RemoteCollectCtx {
     pub fn new(r: &RemoteCollectReducer<'_>) -> Self {
         Self {
-            storage: Storage::new(!r.sort_keys.is_empty(), r.limit, r.sort_asc_map),
+            storage: Storage::new(!r.fields.sort_keys().is_empty(), r.limit, r.sort_asc_map),
         }
     }
 
@@ -182,28 +234,15 @@ impl RemoteCollectCtx {
     /// without paying the row-projection cost.
     pub fn add(&mut self, r: &RemoteCollectReducer<'_>, row: &RLookupRow<'_>) {
         let sort_vals = || -> Box<[Option<SharedValue>]> {
-            r.sort_keys
+            r.fields
+                .sort_keys()
                 .iter()
                 .map(|key| row.get(key).cloned())
                 .collect()
         };
         let project = || {
             let mut dst = RLookupRow::new();
-            let keys = if let Some(lookup) = r.srclookup {
-                Either::Left(
-                    lookup
-                        .iter()
-                        .filter(|k| !k.flags.contains(RLookupKeyFlag::Hidden)),
-                )
-            } else {
-                Either::Right(
-                    r.field_keys
-                        .iter()
-                        .copied()
-                        .chain(r.sort_keys.iter().copied()),
-                )
-            };
-            for key in keys {
+            for key in r.fields.get_keys_add() {
                 if let Some(v) = row.get(key) {
                     dst.write_key(key, v.clone());
                 }
@@ -224,7 +263,7 @@ impl RemoteCollectCtx {
         // longer need LIMIT context and `drain` could be called
         // unconditionally.
         let rows = self.storage.drain(!r.is_internal);
-        let template = build_finalize_template(r);
+        let template = r.fields.build_template(r.is_internal);
         SharedValue::new_array(rows.map(|row| {
             let entries: Vec<_> = template
                 .iter()
