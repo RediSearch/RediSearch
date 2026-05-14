@@ -25,9 +25,9 @@ typedef enum MetricType {
  * Nullable C callback used by [`NewNotIterator`] to select the timeout
  * source.
  *
- * `None` (NULL on the C side) selects the legacy clock-based path; a
- * non-null callback selects the blocked-client path and is invoked on
- * every iterator timeout probe (see `MOD-15397-design.md` D2).
+ * `None` (NULL on the C side) selects the Clock Based Timeout path; a
+ * non-null callback selects the Blocked Client Timeout path and is invoked
+ * on every iterator timeout probe.
  *
  * The alias wraps `Option<unsafe extern "C" fn>` so that cbindgen recognizes
  * the null-pointer optimization and emits a plain nullable function pointer
@@ -493,15 +493,12 @@ enum MetricType GetMetricType(const QueryIterator *header);
  * If the child is trivially reducible (empty or wildcard), a simplified
  * iterator is returned directly.
  *
- * `timeout_callback` selects the timeout source. When non-null, it is
- * invoked on every iterator timeout probe and `timeout` / the
- * `skipTimeoutChecks` field are ignored. The callback monitors an
- * independent signal (the AREQ atomic flag set from the main thread)
- * and is orthogonal to `skipTimeoutChecks`, which only suppresses
- * clock-based checks (see `MOD-15397-design.md` D2). When null, the
- * legacy clock-based path is used: `timeout` is the deadline and
- * `skipTimeoutChecks` (read from `q.sctx.time`) disables the check
- * entirely.
+ * `timeout_callback` selects the timeout source. When non-null, the
+ * Blocked Client Timeout path is used: the callback is invoked on every
+ * iterator timeout probe and `timeout` / `skipTimeoutChecks` are ignored.
+ * When null, the Clock Based Timeout path is used: `timeout` is the
+ * deadline and `skipTimeoutChecks` (read from `q.sctx.time`) disables the
+ * check entirely.
  *
  * # Safety
  *

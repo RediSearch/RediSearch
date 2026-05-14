@@ -968,19 +968,9 @@ static QueryIterator *Query_EvalWildcardNode(QueryEvalCtx *q, QueryNode *qn) {
   return NewWildcardIterator(q, qn->opts.weight);
 }
 
-// MOD-15397: per-iterator timeout callback that consults the AREQ atomic
-// flag set by the blocked-client timeout main-thread callback. Uses the
-// relaxed load (matches `rpQueryItNext`'s hot-path usage) since the callback
-// is invoked on every iterator timeout probe.
-//
-// Under ENABLE_ASSERT the callback first parks at SYNC_POINT_BEFORE_QI_TIMEOUT_CHECK
-// when armed, releasing either via SyncPoint_Signal or when the AREQ is marked
-// timed-out by the main-thread blocked-client callback. Flow tests use this to
-// deterministically prove that a CLIENT UNBLOCK ... TIMEOUT propagates into the
-// iterator's check_timeout path. In release builds the wrap collapses to nothing.
+// Blocked Client Timeout callback for the NOT iterator: relaxed read of the
+// AREQ timed-out flag.
 #ifdef ENABLE_ASSERT
-// SyncPointStopFn predicate adapter for AREQ_TimedOut. Duplicated locally so
-// query.c stays self-contained (mirrors `areq_timed_out` in aggregate_exec.c).
 static bool not_iter_areq_timed_out(void *arg) {
   return arg && AREQ_TimedOut((AREQ *)arg);
 }
@@ -1002,13 +992,8 @@ static QueryIterator *Query_EvalNotNode(QueryEvalCtx *q, QueryNode *qn) {
   q->notSubtree = currently_notSubtree;
 
   t_docId maxDocId = q->sctx->spec->diskSpec ? SearchDisk_GetMaxDocId(q->sctx->spec->diskSpec) : q->docTable->maxDocId;
-  // When an AREQ is available, install the blocked-client callback variant; the
-  // iterator then ignores `timeout` / `skipTimeoutChecks` and the callback owns
-  // the decision (see `MOD-15397-design.md` D2). `skipTimeoutChecks` only
-  // suppresses clock-based checks and is orthogonal to the blocked-client
-  // signal — under FAIL/RETURN-STRICT with workers the flag is set true and
-  // the callback is the *only* timeout source. When no AREQ is available we
-  // fall back to the clock-based path (which itself honours `skipTimeoutChecks`).
+  // When an AREQ is available, use the Blocked Client Timeout callback;
+  // otherwise fall back to the Clock Based Timeout.
   NotIteratorTimeoutCallback cb = q->areq ? not_iterator_timeout_cb : NULL;
   void *cb_user_data = q->areq;
   return NewNotIterator(child, maxDocId, qn->opts.weight, q->sctx->time.timeout,

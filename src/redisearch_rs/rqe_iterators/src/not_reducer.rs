@@ -25,10 +25,6 @@ use crate::{
 };
 
 /// Check the clock every this many loop iterations to amortize syscall cost.
-///
-/// Used by callers that build a [`TimeoutContextClock`](crate::utils::TimeoutContextClock)
-/// to hand to [`Not`] / [`NotOptimized`]. Higher values reduce per-call
-/// overhead at the cost of larger overshoots past the deadline.
 pub const TIMEOUT_CHECK_GRANULARITY: u32 = 5_000;
 
 /// The result of [`not_iterator_reducer`].
@@ -117,11 +113,10 @@ pub enum NewNotIterator<'index, I, TC> {
 /// [`NewNotIterator::ReducedWildcard`] or [`NewNotIterator::ReducedEmpty`].
 ///
 /// `timeout_ctx` selects the timeout source: [`None`] disables timeout
-/// checks entirely (matches the legacy `skipTimeoutChecks` behavior),
-/// [`Some`] hands the supplied context to the iterator unchanged. The
-/// caller is responsible for picking the right concrete type (typically
-/// [`AnyTimeoutContext`](crate::utils::AnyTimeoutContext) at the FFI
-/// boundary).
+/// checks entirely, [`Some`] hands the supplied context to the iterator
+/// unchanged. The caller is responsible for picking the right concrete
+/// type (typically [`AnyTimeoutContext`](crate::utils::AnyTimeoutContext)
+/// at the FFI boundary).
 ///
 /// # Safety
 ///

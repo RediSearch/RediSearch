@@ -15,12 +15,12 @@ use crate::RQEIteratorError;
 /// Abstraction over the different ways a query iterator can detect that the
 /// surrounding query has run out of time.
 ///
-/// Two implementations exist (see `MOD-15397-design.md`):
-/// * [`TimeoutContextClock`] — the original amortized clock-based check used
-///   when no Redis blocked-client timeout is in play.
-/// * [`TimeoutContextBlockedClientCallback`] — delegates the decision to a C
-///   callback that reads the AREQ atomic flag set by the blocked-client
-///   timeout main-thread callback.
+/// Two implementations exist:
+/// * [`TimeoutContextClock`] — Clock Based Timeout: amortized clock check
+///   used when no Blocked Client Timeout is in play.
+/// * [`TimeoutContextBlockedClientCallback`] — Blocked Client Timeout:
+///   delegates the decision to a C callback that reads the AREQ atomic
+///   flag set by the Blocked Client Timeout main-thread callback.
 ///
 /// Iterators are generic over this trait so the dispatch is monomorphized
 /// in the hot path.
@@ -120,22 +120,17 @@ impl TimeoutContext for TimeoutContextClock {
 ///   undefined behavior.
 /// * It treats `user_data` as an opaque pointer and must not retain it past
 ///   the call.
-/// * The pointer kept in `user_data` (typically the AREQ pointer set up by
-///   MOD-15396 alongside `RPQueryIterator->areq`) outlives every iterator
-///   that holds the context.
-///
-/// The skip-flag logic intentionally lives **inside the C callback**: the
-/// Rust side only sees a `bool`. This keeps the iterators agnostic of which
-/// timeout path is in effect.
+/// * The pointer kept in `user_data` (typically the AREQ pointer alongside
+///   `RPQueryIterator->areq`) outlives every iterator that holds the context.
 pub type TimeoutCallback = unsafe extern "C" fn(user_data: *mut c_void) -> bool;
 
-/// Callback-driven [`TimeoutContext`] used when a Redis blocked-client
-/// timeout is in play.
+/// Callback-driven [`TimeoutContext`] used for the Blocked Client Timeout
+/// path.
 ///
 /// The struct stores a C function pointer plus an opaque user-data pointer
-/// (typically the AREQ established by MOD-15396). Each call to
-/// [`TimeoutContext::check_timeout`] forwards directly to the callback and
-/// returns [`RQEIteratorError::TimedOut`] when it reports a timeout.
+/// (typically the AREQ). Each call to [`TimeoutContext::check_timeout`]
+/// forwards directly to the callback and returns
+/// [`RQEIteratorError::TimedOut`] when it reports a timeout.
 ///
 /// Unlike [`TimeoutContextClock`] this variant does **not** amortize calls:
 /// the cost of probing the AREQ atomic flag through the callback is already
@@ -190,9 +185,9 @@ impl TimeoutContext for TimeoutContextBlockedClientCallback {
 ///
 /// [`check_timeout`]: TimeoutContext::check_timeout
 pub enum AnyTimeoutContext {
-    /// Amortized clock-based check (default for the legacy timeout path).
+    /// Clock Based Timeout: amortized clock check.
     Clock(TimeoutContextClock),
-    /// Blocked-client callback check (new MOD-15397 path).
+    /// Blocked Client Timeout: callback-driven check.
     BlockedClient(TimeoutContextBlockedClientCallback),
 }
 

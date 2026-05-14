@@ -146,10 +146,6 @@ void StoreResultsDebugCtx_SetPause(bool pause);
 #define SYNC_POINT_BEFORE_RPNET_START                   "BeforeRPNetStart"
 #define SYNC_POINT_AFTER_ITERATOR_START                 "AfterIteratorStart"
 #define SYNC_POINT_RPNET_REPLY_ADMITTED                 "RpnetReplyAdmitted"
-// MOD-15397: parks the per-iterator timeout-check callback so flow tests can
-// assert that the timeout signal travelled through the QI path. The wait is
-// released either by SyncPoint_Signal or by the AREQ being marked timed-out
-// (predicate exit), letting the iterator's check_timeout return Timeout.
 #define SYNC_POINT_BEFORE_QI_TIMEOUT_CHECK              "BeforeQITimeoutCheck"
 
 // SyncPoint API function declarations
