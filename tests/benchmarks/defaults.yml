@@ -101,6 +101,30 @@ spec:
         cpus: "2"
         memory: "10g"
 
+  # Same shape as oss-cluster-02-primaries but pins WORKERS=0 to bypass the
+  # search-workers dispatch path (block-client + reply-callback + SafeLoader).
+  # PR #8876 flipped the default from 0 to min(16, CPU count); this setup
+  # lets us isolate the WORKERS-path overhead on workloads dominated by
+  # cheap sub-ms queries.
+  - name: oss-cluster-02-primaries-workers-0
+    type: oss-cluster
+    redis_topology:
+      primaries: 2
+      replicas: 0
+      placement: "sparse"
+    resources:
+      requests:
+        cpus: "2"
+        memory: "10g"
+    dbconfig:
+      module-configuration-parameters:
+        redisearch:
+          WORKERS: 0
+          MIN_OPERATION_WORKERS: 0
+        module-oss:
+          WORKERS: 0
+          MIN_OPERATION_WORKERS: 0
+
   - name: oss-cluster-03-primaries
     type: oss-cluster
     redis_topology:

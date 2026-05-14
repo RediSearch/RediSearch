@@ -223,6 +223,30 @@ jobs:
       github_branch_override: ${{ inputs.git_ref != '' && needs.build-redisearch.outputs.branch_label || '' }}
       test_regex: ${{ inputs.test_regex }}
 
+  # Mirror of oss-cluster-02-primaries that pins WORKERS=0 — isolates the
+  # search-workers dispatch overhead introduced when PR #8876 flipped the
+  # default away from 0.
+  benchmark-search-oss-cluster-02-primaries-workers-0:
+    if: ${{ (inputs.benchmark_groups == '' || contains(format(',{0},', inputs.benchmark_groups), ',search,')) && (inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-cluster-02-primaries-workers-0') }}
+    needs: build-redisearch
+    strategy:
+      fail-fast: false
+      matrix:
+        member_id: [1, 2, 3]
+    uses: ./.github/workflows/benchmark-flow.yml
+    secrets: inherit
+    with:
+      benchmark_glob: "search*.yml"
+      benchmark_filter: ${{ inputs.benchmark_filter }}
+      allowed_envs: oss-cluster
+      allowed_setups: oss-cluster-02-primaries-workers-0
+      benchmark_runner_group_member_id: ${{ matrix.member_id }}
+      benchmark_runner_group_total: ${{ strategy.job-total }}
+      binary_artifact_name: redisearch-bin-${{ github.run_id }}-${{ github.run_attempt }}
+      github_sha_override: ${{ inputs.git_ref != '' && needs.build-redisearch.outputs.resolved_sha || '' }}
+      github_branch_override: ${{ inputs.git_ref != '' && needs.build-redisearch.outputs.branch_label || '' }}
+      test_regex: ${{ inputs.test_regex }}
+
   benchmark-search-oss-cluster-04-primaries:
     if: ${{ (inputs.benchmark_groups == '' || contains(format(',{0},', inputs.benchmark_groups), ',search,')) && (inputs.extended && (inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-cluster-04-primaries')) }}
     needs: build-redisearch

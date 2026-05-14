@@ -6,6 +6,7 @@ metadata:
 setups:
   - oss-standalone
   - oss-cluster-02-primaries
+  - oss-cluster-02-primaries-workers-0
   - oss-cluster-04-primaries
   - oss-cluster-08-primaries
   - oss-cluster-16-primaries
