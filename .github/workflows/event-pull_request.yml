@@ -12,10 +12,14 @@ concurrency:
 
 jobs:
   get-latest-redis-tag:
-    # TODO: Revert when 8.4 is released
+    # Track redis/unstable so PRs exercise the current upstream Redis; this
+    # is what surfaces issues like MOD-14918 (libstdc++ removed from Redis,
+    # ASAN __cxa_throw interceptor wired to NULL) before they reach a
+    # release. The previous SHA pin (3cd4642...) was a temporary workaround
+    # waiting for 8.4 and predates the C++-removal commit.
     runs-on: ubuntu-slim
     outputs:
-      tag: 3cd464263b03b425ffae2e23db24df3dc9346871
+      tag: unstable
     steps:
       - run: echo "Dummy step to set output"
 
