@@ -945,8 +945,7 @@ static void scheduleHybridTail(HybridRequest *hreq, StrongRef strong_ref,
 
 static void DistHybridCleanups(RedisModuleCtx *ctx,
     struct ConcurrentCmdCtx *cmdCtx, IndexSpec *sp, StrongRef *strong_ref,
-    HybridRequest *hreq, RedisModule_Reply *reply,
-    QueryError *status) {
+    HybridRequest *hreq, QueryError *status) {
 
     CoordRequestCtx *reqCtx = RedisModule_BlockClientGetPrivateData(ConcurrentCmdCtx_GetBlockedClient(cmdCtx));
 
@@ -972,8 +971,6 @@ static void DistHybridCleanups(RedisModuleCtx *ctx,
     if (hreq) {
       HybridRequest_DecrRef(hreq);
     }
-
-    RedisModule_EndReply(reply);
 }
 
 void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
@@ -986,7 +983,6 @@ void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
       return;
     }
 
-    RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
     QueryError status = QueryError_Default();
 
     // CMD, index, expr, args...
@@ -994,8 +990,7 @@ void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     RedisSearchCtx *sctx = NewSearchCtxC(ctx, indexname, true);
     if (!sctx) {
         QueryError_SetWithUserDataFmt(&status, QUERY_ERROR_CODE_NO_INDEX, "Index not found", ": %s", indexname);
-        // return QueryError_ReplyAndClear(ctx, &status);
-        DistHybridCleanups(ctx, cmdCtx, NULL, NULL, NULL, reply, &status);
+        DistHybridCleanups(ctx, cmdCtx, NULL, NULL, NULL, &status);
         return;
     }
 
@@ -1009,7 +1004,7 @@ void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     if (!sp) {
         SearchCtx_Free(sctx);
         QueryError_SetCode(&status, QUERY_ERROR_CODE_DROPPED_BACKGROUND);
-        DistHybridCleanups(ctx, cmdCtx, sp, &strong_ref, NULL, reply, &status);
+        DistHybridCleanups(ctx, cmdCtx, sp, &strong_ref, NULL, &status);
         return;
     }
 
@@ -1021,7 +1016,7 @@ void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
         // Timeout callback will handle reply - just unlock and cleanup
         CoordRequestCtx_UnlockSetRequest(reqCtx);
         SearchCtx_Free(sctx);
-        DistHybridCleanups(ctx, cmdCtx, sp, &strong_ref, NULL, reply, &status);
+        DistHybridCleanups(ctx, cmdCtx, sp, &strong_ref, NULL, &status);
         return;
     }
 
@@ -1038,17 +1033,14 @@ void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     size_t numShards = ConcurrentCmdCtx_GetNumShards(cmdCtx);
 
     if (HybridRequest_prepareForExecution(hreq, ctx, argv, argc, sp, numShards, &status, NULL) != REDISMODULE_OK) {
-      DistHybridCleanups(ctx, cmdCtx, sp, &strong_ref, hreq, reply, &status);
+      DistHybridCleanups(ctx, cmdCtx, sp, &strong_ref, hreq, &status);
       return;
     }
 
     if (HybridRequest_prepareCursors(hreq, cmdCtx, &status) != REDISMODULE_OK) {
-        DistHybridCleanups(ctx, cmdCtx, sp, &strong_ref, hreq, reply, &status);
+        DistHybridCleanups(ctx, cmdCtx, sp, &strong_ref, hreq, &status);
         return;
     }
-
-    // Close the unused dispatcher reply object; the tail will open its own.
-    RedisModule_EndReply(reply);
 
     // Schedule depleter jobs to the coord pool, then schedule the tail. FIFO
     // ordering ensures depleters are picked up first; the tail's cv-wait on
@@ -1071,18 +1063,16 @@ void DEBUG_RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int a
       return;
     }
 
-    RedisModule_Reply _reply = RedisModule_NewReply(ctx);
-    RedisModule_Reply *reply = &_reply;
     QueryError status = QueryError_Default();
 
     // Parse debug params from the end of argv
     HybridDebugParams debugParams = parseHybridDebugParamsCount(argv, argc, &status);
     if (QueryError_HasError(&status)) {
-      DistHybridCleanups(ctx, cmdCtx, NULL, NULL, NULL, reply, &status);
+      DistHybridCleanups(ctx, cmdCtx, NULL, NULL, NULL, &status);
       return;
     }
     if (parseHybridDebugParams(&debugParams, &status) != REDISMODULE_OK) {
-      DistHybridCleanups(ctx, cmdCtx, NULL, NULL, NULL, reply, &status);
+      DistHybridCleanups(ctx, cmdCtx, NULL, NULL, NULL, &status);
       return;
     }
 
@@ -1093,7 +1083,7 @@ void DEBUG_RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int a
     RedisSearchCtx *sctx = NewSearchCtxC(ctx, indexname, true);
     if (!sctx) {
         QueryError_SetWithUserDataFmt(&status, QUERY_ERROR_CODE_NO_INDEX, "Index not found", ": %s", indexname);
-        DistHybridCleanups(ctx, cmdCtx, NULL, NULL, NULL, reply, &status);
+        DistHybridCleanups(ctx, cmdCtx, NULL, NULL, NULL, &status);
         return;
     }
 
@@ -1102,7 +1092,7 @@ void DEBUG_RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int a
     if (!sp) {
         SearchCtx_Free(sctx);
         QueryError_SetCode(&status, QUERY_ERROR_CODE_DROPPED_BACKGROUND);
-        DistHybridCleanups(ctx, cmdCtx, sp, &strong_ref, NULL, reply, &status);
+        DistHybridCleanups(ctx, cmdCtx, sp, &strong_ref, NULL, &status);
         return;
     }
 
@@ -1110,7 +1100,7 @@ void DEBUG_RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int a
     if (CoordRequestCtx_TimedOut(reqCtx)) {
         CoordRequestCtx_UnlockSetRequest(reqCtx);
         SearchCtx_Free(sctx);
-        DistHybridCleanups(ctx, cmdCtx, sp, &strong_ref, NULL, reply, &status);
+        DistHybridCleanups(ctx, cmdCtx, sp, &strong_ref, NULL, &status);
         return;
     }
 
@@ -1126,16 +1116,15 @@ void DEBUG_RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int a
     // pass debugParams so the MR command gets _FT.DEBUG prefix + debug args.
     if (HybridRequest_prepareForExecution(hreq, ctx, argv, stripped_argc, sp, numShards,
                                           &status, &debugParams) != REDISMODULE_OK) {
-      DistHybridCleanups(ctx, cmdCtx, sp, &strong_ref, hreq, reply, &status);
+      DistHybridCleanups(ctx, cmdCtx, sp, &strong_ref, hreq, &status);
       return;
     }
 
     if (HybridRequest_prepareCursors(hreq, cmdCtx, &status) != REDISMODULE_OK) {
-        DistHybridCleanups(ctx, cmdCtx, sp, &strong_ref, hreq, reply, &status);
+        DistHybridCleanups(ctx, cmdCtx, sp, &strong_ref, hreq, &status);
         return;
     }
 
-    RedisModule_EndReply(reply);
     scheduleDepleters(hreq);
     scheduleHybridTail(hreq, strong_ref, cmdCtx, ctx, &status);
     CurrentThread_ClearIndexSpec();
