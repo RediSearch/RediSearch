@@ -155,3 +155,34 @@ impl Debug for InvertedIndex {
         }
     }
 }
+
+/// Dispatch a method call to the inner index of an [`InvertedIndex`] variant.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// let usage: usize = ii_dispatch!(ii, memory_usage);
+/// let result = ii_dispatch!(ii, add_record, &record);
+/// ```
+#[macro_export]
+macro_rules! ii_dispatch {
+    ($self:expr, $method:ident $(, $args:expr)*) => {
+        match $self {
+            $crate::opaque::InvertedIndex::Full(ii) => ii.$method($($args),*),
+            $crate::opaque::InvertedIndex::FullWide(ii) => ii.$method($($args),*),
+            $crate::opaque::InvertedIndex::FreqsFields(ii) => ii.$method($($args),*),
+            $crate::opaque::InvertedIndex::FreqsFieldsWide(ii) => ii.$method($($args),*),
+            $crate::opaque::InvertedIndex::FreqsOnly(ii) => ii.$method($($args),*),
+            $crate::opaque::InvertedIndex::FieldsOnly(ii) => ii.$method($($args),*),
+            $crate::opaque::InvertedIndex::FieldsOnlyWide(ii) => ii.$method($($args),*),
+            $crate::opaque::InvertedIndex::FieldsOffsets(ii) => ii.$method($($args),*),
+            $crate::opaque::InvertedIndex::FieldsOffsetsWide(ii) => ii.$method($($args),*),
+            $crate::opaque::InvertedIndex::OffsetsOnly(ii) => ii.$method($($args),*),
+            $crate::opaque::InvertedIndex::FreqsOffsets(ii) => ii.$method($($args),*),
+            $crate::opaque::InvertedIndex::DocIdsOnly(ii) => ii.$method($($args),*),
+            $crate::opaque::InvertedIndex::RawDocIdsOnly(ii) => ii.$method($($args),*),
+            $crate::opaque::InvertedIndex::Numeric(ii) => ii.$method($($args),*),
+            $crate::opaque::InvertedIndex::NumericFloatCompression(ii) => ii.$method($($args),*),
+        }
+    };
+}
