@@ -40,6 +40,7 @@
 #include "geometry/geometry_api.h"
 #include "iterators_rs.h"
 #include "iterators/hybrid_reader.h"
+#include "debug_commands.h"
 #include "iterators/optimizer_reader.h"
 #include "search_disk.h"
 #include "shard_window_ratio.h"
@@ -967,6 +968,21 @@ static QueryIterator *Query_EvalWildcardNode(QueryEvalCtx *q, QueryNode *qn) {
   return NewWildcardIterator(q, qn->opts.weight);
 }
 
+// Blocked Client Timeout callback for the NOT iterator: relaxed read of the
+// AREQ timed-out flag.
+#ifdef ENABLE_ASSERT
+static bool not_iter_areq_timed_out(void *arg) {
+  return arg && AREQ_TimedOut((AREQ *)arg);
+}
+#endif
+
+static bool not_iterator_timeout_cb(void *user_data) {
+#ifdef ENABLE_ASSERT
+  SyncPoint_WaitUntil(SYNC_POINT_BEFORE_QI_TIMEOUT_CHECK, not_iter_areq_timed_out, user_data);
+#endif
+  return AREQ_TimedOutRelaxed((AREQ *)user_data);
+}
+
 static QueryIterator *Query_EvalNotNode(QueryEvalCtx *q, QueryNode *qn) {
   RS_LOG_ASSERT(qn->type == QN_NOT, "query node type should be not")
   QueryIterator *child = NULL;
@@ -976,7 +992,12 @@ static QueryIterator *Query_EvalNotNode(QueryEvalCtx *q, QueryNode *qn) {
   q->notSubtree = currently_notSubtree;
 
   t_docId maxDocId = q->sctx->spec->diskSpec ? SearchDisk_GetMaxDocId(q->sctx->spec->diskSpec) : q->docTable->maxDocId;
-  return NewNotIterator(child, maxDocId, qn->opts.weight, q->sctx->time.timeout, q);
+  // When an AREQ is available, use the Blocked Client Timeout callback;
+  // otherwise fall back to the Clock Based Timeout.
+  NotIteratorTimeoutCallback cb = q->areq ? not_iterator_timeout_cb : NULL;
+  void *cb_user_data = q->areq;
+  return NewNotIterator(child, maxDocId, qn->opts.weight, q->sctx->time.timeout,
+                        cb, cb_user_data, q);
 }
 
 static QueryIterator *Query_EvalOptionalNode(QueryEvalCtx *q, QueryNode *qn) {
@@ -1600,7 +1621,7 @@ int QAST_Parse(QueryAST *dst, const RedisSearchCtx *sctx, const RSSearchOptions 
 }
 
 QueryIterator *QAST_Iterate(QueryAST *qast, const RSSearchOptions *opts, RedisSearchCtx *sctx,
-                            uint32_t reqflags, QueryError *status) {
+                            uint32_t reqflags, struct AREQ *areq, QueryError *status) {
   QueryEvalCtx qectx = {
       .opts = opts,
       .numTokens = qast->numTokens,
@@ -1611,6 +1632,7 @@ QueryIterator *QAST_Iterate(QueryAST *qast, const RSSearchOptions *opts, RedisSe
       .reqFlags = reqflags,
       .config = &qast->config,
       .notSubtree = false,
+      .areq = areq,
   };
   QueryIterator *root = Query_EvalNode(&qectx, qast->root);
   if (!root) {

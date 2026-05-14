@@ -43,7 +43,7 @@ int HybridRequest_BuildDepletionPipeline(HybridRequest *req, const HybridPipelin
         }
 
         // Parse subquery: Convert AST to iterator tree
-        areq->rootiter = QAST_Iterate(&areq->ast, &areq->searchopts, AREQ_SearchCtx(areq), areq->reqflags, &req->errors[i]);
+        areq->rootiter = QAST_Iterate(&areq->ast, &areq->searchopts, AREQ_SearchCtx(areq), areq->reqflags, areq, &req->errors[i]);
 
         rs_wall_clock parseClock;
         if (isProfile) {

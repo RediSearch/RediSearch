@@ -647,7 +647,8 @@ static RS_ApiIter* handleIterCommon(IndexSpec* sp, QueryInput* input, char** err
     goto end;
   }
 
-  it->internal = QAST_Iterate(&it->qast, &options, &it->sctx, 0, &status);
+  // Low-level C API has no AREQ; fall back to clock-based timeout.
+  it->internal = QAST_Iterate(&it->qast, &options, &it->sctx, 0, NULL, &status);
   RS_ASSERT(it->internal);
 
   IndexSpec_GetStats(sp, &it->scargs.indexStats);
