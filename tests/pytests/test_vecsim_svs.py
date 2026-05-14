@@ -272,6 +272,63 @@ def test_memory_info():
         env.execute_command('FLUSHALL')
 
 @skip(cluster=True)
+def test_svs_threadpool_lazy_init():
+    """Verify the shared SVS thread pool is not allocated until an SVS index is created.
+
+    With lazy init, VecSim_UpdateThreadPoolSize (called at module init via
+    workersThreadPool_CreatePool, and on every CONFIG SET WORKERS) only records
+    the requested size — OS threads are spawned on the first SVS index attach.
+
+    Observed via the GLOBAL_MEMORY field in FT.DEBUG VECSIM_INFO, which mirrors
+    VecSim_GetGlobalMemory() — currently sourced exclusively from the shared SVS
+    thread pool's allocation size.
+    """
+    workers = 4
+    env = Env(moduleArgs=f'DEFAULT_DIALECT 2 WORKERS {workers}')
+
+    # Create a non-SVS index — exercises FT.DEBUG VECSIM_INFO without involving
+    # SVS at all. GLOBAL_MEMORY (== shared SVS pool allocation) must equal the
+    # allocator's self-accounting baseline (sizeof(VecSimAllocator) — a single
+    # std::atomic_uint64_t, 8 bytes on standard platforms, see
+    # VecSimAllocator() ctor); no ThreadSlot allocations have happened yet.
+    # Threshold of 32 bytes leaves headroom for platform variation in
+    # sizeof(VecSimAllocator) but is well below the smallest realistic single
+    # ThreadSlot allocation (sizeof(svs::threads::Thread) + atomic<bool> +
+    # shared_ptr control block + allocation header).
+    create_vector_index(env, dim=4, alg='HNSW')
+    hnsw_info = get_tiered_debug_info(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME)
+    env.assertTrue('GLOBAL_MEMORY' in hnsw_info,
+                   message=f"GLOBAL_MEMORY field must be present in VECSIM_INFO: {hnsw_info}")
+    hnsw_baseline = int(hnsw_info['GLOBAL_MEMORY'])
+    env.assertLess(hnsw_baseline, 32,
+                   message=f"GLOBAL_MEMORY exceeds the allocator self-accounting baseline — "
+                           f"suggests SVS thread slots were allocated despite no SVS index: "
+                           f"got {hnsw_baseline}, info={hnsw_info}")
+    env.execute_command('FT.DROPINDEX', DEFAULT_INDEX_NAME)
+
+    # Create an SVS index — first attach triggers the lazy thread spawn. The
+    # SHARED_SVS_THREADPOOL_MEMORY field appears in BACKEND_INDEX debug info
+    # and grows GLOBAL_MEMORY by the per-slot allocation tracked by the pool
+    # (workers - 1 ThreadSlots + the slots_ vector capacity).
+    create_vector_index(env, dim=4, alg='SVS-VAMANA')
+    debug_info = get_tiered_debug_info(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME)
+    backend_info = get_tiered_backend_debug_info(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME)
+    env.assertTrue('SHARED_SVS_THREADPOOL_MEMORY' in backend_info,
+                   message=f"BACKEND_INDEX debug info missing 'SHARED_SVS_THREADPOOL_MEMORY': "
+                           f"{backend_info}")
+    env.assertTrue('GLOBAL_MEMORY' in debug_info,
+                   message=f"GLOBAL_MEMORY field must be present in VECSIM_INFO: {debug_info}")
+    svs_pool_mem = int(backend_info['SHARED_SVS_THREADPOOL_MEMORY'])
+    env.assertGreater(svs_pool_mem, hnsw_baseline,
+                      message=f"SHARED_SVS_THREADPOOL_MEMORY should grow above the pre-attach "
+                              f"baseline ({hnsw_baseline}) after first SVS index creation with "
+                              f"WORKERS={workers}: got {svs_pool_mem}, backend_info={backend_info}")
+    env.assertEqual(int(debug_info['GLOBAL_MEMORY']), svs_pool_mem,
+                    message=f"GLOBAL_MEMORY should match SHARED_SVS_THREADPOOL_MEMORY: "
+                            f"debug_info={debug_info}")
+
+
+@skip(cluster=True)
 def test_svs_shared_threadpool_memory_info():
     """Verify shared SVS thread pool memory accounting:
       * FT.DEBUG VECSIM_INFO exposes it as SHARED_SVS_THREADPOOL_MEMORY inside
@@ -288,15 +345,18 @@ def test_svs_shared_threadpool_memory_info():
     All observations are validated before and after growing the worker pool, which
     physically resizes the shared SVS pool.
     """
-    initial_workers = 1
+    # Use 2+ initial workers so the first SVS index allocates at least one worker
+    # slot (pool size 1 = zero worker slots = zero allocator-tracked bytes, which
+    # would make 'pool memory > 0' assertions vacuous).
+    initial_workers = 2
     grown_workers = 4
     env = Env(moduleArgs=f'DEFAULT_DIALECT 2 WORKERS {initial_workers}')
     dim = 2
     debug_svs_pool_mem_field = 'SHARED_SVS_THREADPOOL_MEMORY'
 
-    # The shared SVS pool singleton is initialized at module init via
-    # workersThreadPool_CreatePool -> VecSim_UpdateThreadPoolSize, so the field is
-    # always present in the debug info once any SVS index exists.
+    # The shared SVS pool spawns OS threads lazily on first SVS index creation,
+    # using the size most recently passed to VecSim_UpdateThreadPoolSize (set at
+    # module init by workersThreadPool_CreatePool).
     create_vector_index(env, dim, alg='SVS-VAMANA')
 
     def measure():
