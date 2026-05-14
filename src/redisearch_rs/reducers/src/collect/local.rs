@@ -48,21 +48,65 @@ fn get_field<'a>(item: &'a Value, name: &[u8]) -> Option<&'a SharedValue> {
     }
 }
 
-/// Build a [`RLookupRow`] from a single shard-payload item.
+/// Field-selection state: `FIELDS *` vs explicit list.
 ///
-/// Dispatches by `requested` to [`write_requested_fields`] or
-/// [`write_item_to_row`].
-fn prepare_row(
-    lookup: &mut RLookup<'static>,
-    requested: Option<&[CString]>,
-    item: &Value,
-) -> RLookupRow<'static> {
-    let mut dst = RLookupRow::new();
-    match requested {
-        Some(fields) => write_requested_fields(&mut dst, lookup, fields, item),
-        None => write_item_to_row(&mut dst, lookup, item),
+/// Both variants carry `sort_key_names`; the names feed the heap
+/// comparator and the per-item sort snapshot regardless of mode.
+enum Fields {
+    /// `FIELDS *` mode. Every key observed in a shard payload is written
+    /// into the per-group lookup at ingestion time.
+    All { sort_key_names: Box<[CString]> },
+    /// Explicit field list. Only `requested` names are written into the
+    /// lookup; extra payload fields are ignored.
+    Specific {
+        requested: Box<[CString]>,
+        sort_key_names: Box<[CString]>,
+    },
+}
+
+impl Fields {
+    fn sort_key_names(&self) -> &[CString] {
+        match self {
+            Self::All { sort_key_names } | Self::Specific { sort_key_names, .. } => sort_key_names,
+        }
     }
-    dst
+
+    /// Build a row from one shard-payload item; consumed by
+    /// [`LocalCollectCtx::add`].
+    ///
+    /// Callers must pre-validate that `item` is a [`Value::Map`] or
+    /// [`Value::Array`].
+    fn prepare_row(&self, item: &Value, lookup: &mut RLookup<'static>) -> RLookupRow<'static> {
+        let mut dst = RLookupRow::new();
+        match self {
+            Self::All { .. } => match item {
+                Value::Map(m) => {
+                    for (k, v) in m.iter() {
+                        write_named_field(&mut dst, lookup, k, v);
+                    }
+                }
+                Value::Array(a) => {
+                    let (pairs, remainder) = a.as_chunks::<2>();
+                    tracing_assert::debug_assert_warn!(
+                        remainder.is_empty(),
+                        "odd-length RESP2 payload"
+                    );
+                    for [k, v] in pairs {
+                        write_named_field(&mut dst, lookup, k, v);
+                    }
+                }
+                _ => unreachable!("shard payload item must be a Map or Array"),
+            },
+            Self::Specific { requested, .. } => {
+                for name in requested {
+                    if let Some(v) = get_field(item, name.to_bytes()) {
+                        dst.write_key_by_name(lookup, name.clone(), v.clone());
+                    }
+                }
+            }
+        }
+        dst
+    }
 }
 
 /// Snapshot sort-key values for heap comparison, preserving absent keys as
@@ -74,42 +118,6 @@ fn snapshot_sort_keys(sort_key_names: &[CString], item: &Value) -> Box<[Option<S
         .iter()
         .map(|name| get_field(item, name.to_bytes()).cloned())
         .collect()
-}
-
-/// Counterpart of [`write_item_to_row`] for explicit-list mode.
-fn write_requested_fields(
-    dst: &mut RLookupRow<'static>,
-    lookup: &mut RLookup<'static>,
-    fields: &[CString],
-    item: &Value,
-) {
-    for name in fields {
-        if let Some(v) = get_field(item, name.to_bytes()) {
-            dst.write_key_by_name(lookup, name.clone(), v.clone());
-        }
-    }
-}
-
-/// Counterpart of [`write_requested_fields`] for LOADALL mode.
-///
-/// Callers must pre-validate that `item` is a `Map` or `Array`.
-fn write_item_to_row(dst: &mut RLookupRow<'static>, lookup: &mut RLookup<'static>, item: &Value) {
-    match item {
-        Value::Map(m) => {
-            for (k, v) in m.iter() {
-                write_named_field(dst, lookup, k, v);
-            }
-        }
-        Value::Array(a) => {
-            let (pairs, remainder) = a.as_chunks::<2>();
-            tracing_assert::debug_assert_warn!(remainder.is_empty(), "odd-length RESP2 payload");
-            for [k, v] in pairs {
-                write_named_field(dst, lookup, k, v);
-            }
-        }
-        // SAFETY: callers validate the shape before calling this function.
-        _ => unreachable!("shard payload item must be a Map or Array"),
-    }
 }
 
 /// Materialize `(k, v)` as a typed [`RLookupRow`] entry.
@@ -149,14 +157,7 @@ pub struct LocalCollectReducer<'a> {
     sort_asc_map: u64,
     /// Lookup key for the per-remote payload.
     input_key: &'a RLookupKey<'a>,
-    /// Requested field names, in declaration order.
-    ///
-    /// `Some` for an explicit field list; `None` when the user wrote `FIELDS *`.
-    /// Controls which fields [`LocalCollectCtx::add`] writes into the lookup.
-    requested: Option<Box<[CString]>>,
-    /// Sort-key names. Stored only so [`Storage::new`] can pick the
-    /// `sortby`-aware default LIMIT; the local reducer does not project them.
-    sort_key_names: Box<[CString]>,
+    fields: Fields,
     limit: Option<(u64, u64)>,
 }
 
@@ -185,13 +186,19 @@ impl<'a> LocalCollectReducer<'a> {
         sort_asc_map: u64,
         limit: Option<(u64, u64)>,
     ) -> Self {
+        let fields = match requested {
+            Some(requested) => Fields::Specific {
+                requested,
+                sort_key_names,
+            },
+            None => Fields::All { sort_key_names },
+        };
         Self {
             reducer: Reducer::new(),
             arena: Bump::new(),
             sort_asc_map,
             input_key,
-            requested,
-            sort_key_names,
+            fields,
             limit,
         }
     }
@@ -206,7 +213,7 @@ impl<'a> LocalCollectReducer<'a> {
 
     /// Exposed via `CollectReducer_IsLocalLoadAll` for C++ parser tests.
     pub const fn is_load_all(&self) -> bool {
-        self.requested.is_none()
+        matches!(self.fields, Fields::All { .. })
     }
 }
 
@@ -214,15 +221,16 @@ impl LocalCollectCtx {
     pub fn new(r: &LocalCollectReducer) -> Self {
         Self {
             lookup: RLookup::new(),
-            storage: Storage::new(!r.sort_key_names.is_empty(), r.limit, r.sort_asc_map),
+            storage: Storage::new(
+                !r.fields.sort_key_names().is_empty(),
+                r.limit,
+                r.sort_asc_map,
+            ),
         }
     }
 
     /// Deserialize the shard payload carried by `row` into [`RLookupRow`]s,
-    /// honouring the configured `LIMIT` via [`Storage::insert_entry`].
-    ///
-    /// Projection follows [`requested`][LocalCollectReducer::requested]; in
-    /// explicit-list mode extra fields (e.g. sort keys) are ignored.
+    /// honouring `LIMIT` via [`Storage::insert_entry`].
     pub fn add(&mut self, r: &LocalCollectReducer, row: &RLookupRow) {
         let Some(Value::Array(items)) = row.get(r.input_key).map(|p| &**p) else {
             tracing_assert::debug_assert_warn!(
@@ -241,8 +249,8 @@ impl LocalCollectCtx {
                 continue;
             }
             self.storage.insert_entry(
-                || snapshot_sort_keys(&r.sort_key_names, item),
-                || prepare_row(&mut self.lookup, r.requested.as_deref(), item),
+                || snapshot_sort_keys(r.fields.sort_key_names(), item),
+                || r.fields.prepare_row(item, &mut self.lookup),
             );
         }
     }
