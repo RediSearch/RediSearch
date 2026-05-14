@@ -4490,6 +4490,14 @@ void Indexes_EndLoading() {
 }
 
 // Replica-side SST replication: Open with the pending RDB State every spec
+// that was staged in this round. Per-spec gate on pendingDiskRdbState: specs
+// loaded via the non-SST RDB path (e.g. a Flex server loading a
+// pre-INDEX_DISK_VERSION RDB on restart) were already opened eagerly in
+// IndexSpec_RdbLoad with diskSpec/diskRegistered set and pendingDiskRdbState
+// NULL, so they must be skipped here. We cannot trust
+// IS_SST_RDB_IN_PROCESS(ctx) at LOADING_ENDED time — Redis clears the backing
+// server fields before firing the event, so the flag reads false for both
+// SST and non-SST loads.
 void Indexes_FinishSSTReplication(RedisModuleCtx *ctx) {
   RS_ASSERT(SearchDisk_IsEnabled());
 
@@ -4499,7 +4507,15 @@ void Indexes_FinishSSTReplication(RedisModuleCtx *ctx) {
     StrongRef spec_ref = dictGetRef(entry);
     IndexSpec *sp = StrongRef_Get(spec_ref);
     RS_ASSERT(sp);
-    RS_ASSERT(sp->pendingDiskRdbState);
+
+    if (!sp->pendingDiskRdbState) {
+      // Spec was loaded via the non-SST RDB path and is already fully opened
+      // and registered. Nothing to finalize here.
+      RS_ASSERT(sp->diskSpec != NULL);
+      RS_ASSERT(sp->diskRegistered);
+      continue;
+    }
+
     RS_ASSERT(sp->diskSpec == NULL);
     RS_ASSERT(!sp->diskRegistered);
 

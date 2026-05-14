@@ -751,6 +751,12 @@ void RDB_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subeve
     RedisModule_Log(RSDummyContext, "notice", "Loading RDB event ended");
     break;
   case REDISMODULE_SUBEVENT_LOADING_ENDED:
+    // We cannot trust IS_SST_RDB_IN_PROCESS(ctx) here: Redis clears all the
+    // server fields backing REDISMODULE_CTX_FLAGS_SST_RDB (handling_partial_rdb_with_sst,
+    // handling_sst_rdb_repl_loading) before firing LOADING_ENDED, so the flag
+    // reads false for both SST and non-SST loads at this point. Indexes_FinishSSTReplication
+    // therefore decides per-spec based on pendingDiskRdbState (the invariant
+    // established in IndexSpec_RdbLoad) and is a no-op for non-SST loads.
     if (!SearchDisk_IsEnabled()) {
       // This only handles legacy indices that are not available in disk
       Indexes_EndRDBLoadingEvent(ctx);
