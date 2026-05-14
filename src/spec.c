@@ -2114,9 +2114,6 @@ static void IndexSpec_FreeUnlinkedData(IndexSpec *spec) {
   pthread_rwlock_destroy(&spec->rwlock);
 
   if (spec->diskSpec) SearchDisk_CloseIndex(spec->diskSpec);
-  // Replica-side SST replication may have stashed a disk RDB state on the spec
-  // and then been aborted before LOADING_SST_ENDED consumed it. Free it here so
-  // we don't leak.
   if (spec->pendingDiskRdbState) {
     SearchDisk_FreeRdbState(spec->pendingDiskRdbState);
     spec->pendingDiskRdbState = NULL;

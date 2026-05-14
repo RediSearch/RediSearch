@@ -373,26 +373,7 @@ typedef struct IndexSpec {
   // Disk index handle (NULL for memory-only indexes)
   RedisSearchDiskIndexSpec *diskSpec;
 
-  // Replica-side SST replication staging state.
-  //
-  // When the RDB stream is loaded under REDISMODULE_CTX_FLAGS_SST_RDB, the
-  // disk index cannot be opened during RDB load because Flex may not yet
-  // have placed the SST files on the replica's filesystem (the SST channel
-  // and the RDB channel run concurrently). The disk RDB state is stashed
-  // here and the open + register is deferred to LOADING_ENDED, which is the
-  // only event that fires after both phases have completed.
-  //
-  // State during the replica load:
-  //   after RDB aux load:  pendingDiskRdbState != NULL, diskSpec == NULL,
-  //                        diskRegistered == false
-  //   after LOADING_ENDED: pendingDiskRdbState == NULL, diskSpec != NULL,
-  //                        diskRegistered == true
-  // The non-SST RDB path skips the intermediate and lands directly at the
-  // final state during IndexSpec_RdbLoad.
-  //
-  // diskRegistered is maintained by SearchDisk_RegisterIndex /
-  // SearchDisk_UnregisterIndex themselves — callers must not toggle it
-  // directly and may call those wrappers idempotently.
+  // Disk RDB state (NULL for memory-only indexes), pending to be applied at replication ending
   RedisSearchDiskRdbState *pendingDiskRdbState;
   bool diskRegistered;
 } IndexSpec;
@@ -806,17 +787,7 @@ void Indexes_EndLoading();
 
 // Replica-side SST replication completion.
 //
-// For every IndexSpec that was staged during RDB load under
-// REDISMODULE_CTX_FLAGS_SST_RDB, open the SpeedB database (with the staged
-// RDB state applied) and register it with Flex (BigRegisterDb). Called from
-// the REDISMODULE_SUBEVENT_LOADING_ENDED handler — the only event that
-// guarantees both the RDB stream and the SST ingestion have completed. The
-// SST channel and the main (RDB) channel run concurrently in Flex, so
-// LOADING_SST_ENDED alone is not a safe trigger: the pending disk RDB state
-// may not yet have been parsed when SST ingestion finishes.
-//
-// No-op for the non-SST RDB path, where IndexSpec_RdbLoad already opened and
-// registered each spec eagerly.
+// Upon SST and RDB replication ending, complete the binding
 void Indexes_FinishSSTReplication(RedisModuleCtx *ctx);
 
 // Replica-side SST replication abort.
