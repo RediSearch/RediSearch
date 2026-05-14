@@ -154,6 +154,24 @@ setup_clang_sanitizer() {
 		export ASAN_OPTIONS="detect_odr_violation=0:halt_on_error=0:detect_leaks=1:verbosity=0"
 		export LSAN_OPTIONS="suppressions=$ROOT/tests/memcheck/asan.supp:print_suppressions=0:verbosity=0"
 		# :use_tls=0
+
+		# Preload libstdc++ so ASAN's __cxa_throw interceptor can resolve the
+		# real symbol at process init. Redis no longer links libstdc++ (upstream
+		# commit 670993a, "Replace fast_float C++ library with pure C
+		# implementation"), so ASAN's interceptor lookup runs before any C++
+		# runtime is mapped and stores NULL. The RediSearch module brings
+		# libstdc++ in via dlopen, but by then the interceptor has already
+		# captured NULL, and the first C++ throw aborts the process with:
+		#   AddressSanitizer: CHECK failed: asan_interceptors.cpp:458
+		#   "((__interception::real___cxa_throw)) != (0)"
+		# See MOD-14918.
+		if [[ $OS != macos ]] && command -v g++ &> /dev/null; then
+			local libstdcxx
+			libstdcxx=$(g++ -print-file-name=libstdc++.so.6 2> /dev/null)
+			if [[ -n $libstdcxx && -e $libstdcxx ]]; then
+				export LD_PRELOAD="${libstdcxx}${LD_PRELOAD:+:$LD_PRELOAD}"
+			fi
+		fi
 	fi
 }
 
