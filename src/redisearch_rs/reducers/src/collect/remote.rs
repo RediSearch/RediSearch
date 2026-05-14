@@ -257,12 +257,11 @@ impl RemoteCollectCtx {
     /// [`LocalCollectCtx::finalize`][crate::collect::local::LocalCollectCtx::finalize]
     /// reconstructs the client-facing result from the emitted payload.
     pub fn finalize(&mut self, r: &RemoteCollectReducer<'_>) -> SharedValue {
-        // TODO: drop `limit` and the `apply_limit` argument to `drain` once
-        // `distributeCollect` switches to the `LIMIT 0 (offset+count)`
-        // rewrite that other `distribute*` paths use; the shard would no
-        // longer need LIMIT context and `drain` could be called
-        // unconditionally.
-        let rows = self.storage.drain(!r.is_internal);
+        // `distributeCollect` rewrites the shard wire's LIMIT to
+        // `(0, offset+count)`, so an internal shard's stored offset is
+        // always 0 and offset semantics are owned exclusively by the
+        // coordinator-local reducer.
+        let rows = self.storage.drain();
         let template = r.fields.build_template(r.is_internal);
         SharedValue::new_array(rows.map(|row| {
             let entries: Vec<_> = template
