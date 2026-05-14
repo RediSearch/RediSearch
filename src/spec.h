@@ -376,6 +376,9 @@ typedef struct IndexSpec {
   pthread_rwlock_t disk_fork_rwlock;
   bool repl_read_lock_held;
   bool repl_disk_fork_protected;
+  // Disk RDB state (NULL for memory-only indexes), pending to be applied at replication ending
+  RedisSearchDiskRdbState *pendingDiskRdbState;
+  bool diskRegistered;
 } IndexSpec;
 
 typedef enum SpecOp { SpecOp_Add, SpecOp_Del } SpecOp;
@@ -784,6 +787,20 @@ void Indexes_EndRDBLoadingEvent(RedisModuleCtx *ctx);
 
 // This function is to be called when loading finishes (failed or not)
 void Indexes_EndLoading();
+
+// Replica-side SST replication completion.
+//
+// Upon SST and RDB replication ending, complete the binding
+void Indexes_FinishSSTReplication(RedisModuleCtx *ctx);
+
+// Replica-side SST replication abort.
+//
+// Tear down everything staged for SST replication. Frees any pending disk RDB
+// state, closes any opened-but-unregistered disk specs, and unregisters +
+// closes any specs that had already been registered. Removes the affected
+// specs from specDict_g. Called from the REDISMODULE_SUBEVENT_SST_REPL_ABORT
+// handler.
+void Indexes_AbortSSTReplicationLoading(RedisModuleCtx *ctx);
 
 // =============================================================================
 // Compaction FFI Functions (called by Rust during GC)

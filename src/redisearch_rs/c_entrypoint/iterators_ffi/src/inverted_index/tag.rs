@@ -101,12 +101,11 @@ impl<'index> rqe_iterators::RQEIterator<'index> for TagIterator<'index> {
     }
 
     #[inline(always)]
-    unsafe fn revalidate(
+    fn revalidate(
         &mut self,
-        spec: std::ptr::NonNull<ffi::IndexSpec>,
+        spec: &index_spec::IndexSpecReadGuard,
     ) -> Result<rqe_iterators::RQEValidateStatus<'_, 'index>, rqe_iterators::RQEIteratorError> {
-        // SAFETY: Delegating to variant with the same `spec` passed by our caller.
-        unsafe { tag_it_dispatch!(self, revalidate, spec) }
+        tag_it_dispatch!(self, revalidate, spec)
     }
 
     #[inline(always)]

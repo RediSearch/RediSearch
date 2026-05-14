@@ -816,15 +816,47 @@ void RDB_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subeve
   case REDISMODULE_SUBEVENT_LOADING_REPL_START:
     Indexes_StartRDBLoadingEvent(ctx);
     workersThreadPool_OnEventStart();
-    RedisModule_Log(RSDummyContext, "notice", "Loading event started");
+    RedisModule_Log(RSDummyContext, "notice", "Loading RDB event started");
+    break;
+  case REDISMODULE_SUBEVENT_LOADING_SST_START:
+    RedisModule_Log(RSDummyContext, "notice", "Loading SST event started");
+    break;
+  case REDISMODULE_SUBEVENT_LOADING_SST_ENDED:
+    RedisModule_Log(RSDummyContext, "notice", "Loading SST event ended");
+    break;
+  case REDISMODULE_SUBEVENT_LOADING_RDB_ENDED:
+    RedisModule_Log(RSDummyContext, "notice", "Loading RDB event ended");
     break;
   case REDISMODULE_SUBEVENT_LOADING_ENDED:
-    Indexes_EndRDBLoadingEvent(ctx);
+    // We cannot trust IS_SST_RDB_IN_PROCESS(ctx) here: Redis clears all the
+    // server fields backing REDISMODULE_CTX_FLAGS_SST_RDB (handling_partial_rdb_with_sst,
+    // handling_sst_rdb_repl_loading) before firing LOADING_ENDED, so the flag
+    // reads false for both SST and non-SST loads at this point. Indexes_FinishSSTReplication
+    // therefore decides per-spec based on pendingDiskRdbState (the invariant
+    // established in IndexSpec_RdbLoad) and is a no-op for non-SST loads.
+    if (!SearchDisk_IsEnabled()) {
+      // This only handles legacy indices that are not available in disk
+      Indexes_EndRDBLoadingEvent(ctx);
+    } else {
+      RedisModule_Log(RSDummyContext, "notice", "Loading event ended (SST + RDB ready). Finish loading");
+      Indexes_FinishSSTReplication(ctx);
+    }
     workersThreadPool_OnEventEnd(true);
     Indexes_EndLoading();
-    RedisModule_Log(RSDummyContext, "notice", "Loading event ended successfully");
+    if (!SearchDisk_IsEnabled()) {
+      RedisModule_Log(RSDummyContext, "notice", "Loading event ended successfully");
+    } else {
+      RedisModule_Log(RSDummyContext, "notice", "Loading event ended successfully (SST + RDB ready). Finished loading successfully");
+    }
     break;
   case REDISMODULE_SUBEVENT_LOADING_FAILED:
+    // If the failure happens in the middle of an SST replication round (master
+    // aborted, network dropped, validation rejected, etc.) Redis fires LOADING_FAILED. Tear down anything we
+    // staged for the round so the next attempt starts from a clean slate.
+    // No-op when no specs are staged.
+    if (SearchDisk_IsEnabled()) {
+      Indexes_AbortSSTReplicationLoading(ctx);
+    }
     workersThreadPool_OnEventEnd(true);
     Indexes_EndLoading();
     RedisModule_Log(RSDummyContext, "notice", "Loading event failed");

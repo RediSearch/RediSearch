@@ -157,7 +157,7 @@ fn non_optimized_skip_to_works() {
 fn optimized_path_returns_not_optimized_iterator() {
     let ctx = MockContext::new(10, 10);
     // SAFETY: No iterators have been created from this context yet.
-    unsafe { ctx.set_index_all(true) };
+    ctx.spec_write().rule_mut().set_index_all(true);
 
     let child = Mock::new([2, 5, 8]);
     let result = call_new_not_iterator(child, 10, &ctx);
@@ -192,7 +192,7 @@ fn not_child_access() {
 fn not_child_access_optimized() {
     let ctx = MockContext::new(10, 10);
     // SAFETY: No iterators have been created from this context yet.
-    unsafe { ctx.set_index_all(true) };
+    ctx.spec_write().rule_mut().set_index_all(true);
 
     let child = Mock::new([3, 6]);
     let result = call_new_not_iterator(child, 10, &ctx);

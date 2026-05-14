@@ -14,6 +14,7 @@
 #include <stdatomic.h>
 #include <pthread.h>
 #include "query_error.h"
+#include "cursor.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -42,6 +43,9 @@ typedef struct CoordRequestCtx {
   // no request object to store them in yet. reply_callback checks this field.
   QueryError preRequestError;
   bool useReplyCallback;
+  // Distinguishes coord FT.CURSOR READ on a RETURN_STRICT. Set in
+  // CursorCommand before BC arming; never mutated afterwards.
+  bool isCursorReadReturnStrict;
 } CoordRequestCtx;
 
 /**
@@ -97,6 +101,13 @@ bool CoordRequestCtx_TimedOut(CoordRequestCtx *ctx);
 void CoordRequestCtx_SetTimedOut(CoordRequestCtx *ctx);
 
 void CoordRequestCtx_SetUseReplyCallback(CoordRequestCtx *ctx, bool useReplyCallback);
+
+/**
+ * Mark/query this context as backing a coordinator FT.CURSOR READ on a
+ * RETURN_STRICT cursor. Set once in CursorCommand before BC arming.
+ */
+void CoordRequestCtx_SetCursorReadReturnStrict(CoordRequestCtx *ctx, bool value);
+bool CoordRequestCtx_IsCursorReadReturnStrict(CoordRequestCtx *ctx);
 
 /**
  * Store error for reply_callback to handle (pre-request errors).
