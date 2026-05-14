@@ -25,7 +25,6 @@ jobs:
           private-key: ${{ secrets.GH_PR_APP_PRIVATE_KEY }}
           owner: ${{ github.repository_owner }}
           repositories: ${{ github.event.repository.name }}
-          permission-administration: write
 
       - name: Verify self-hosted runner token permissions
         env:
