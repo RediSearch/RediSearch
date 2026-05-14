@@ -150,9 +150,20 @@ jobs:
             --reviewer "$TEAM_LEADERS,$ISSUES_SHIFT_ASSIGNEE,$GITHUB_ACTOR" \
             --draft
 
+      - name: Generate GitHub App token
+        id: generate-app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ vars.GH_PR_APP_ID }}
+          private-key: ${{ secrets.GH_PR_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+          permission-pull-requests: write
+
       - name: Trigger CI
         env:
-          GH_TOKEN: ${{ secrets.CI_GH_P_TOKEN }}
+          GH_TOKEN: ${{ steps.generate-app-token.outputs.token }}
         run: |
           gh pr ready "$BRANCH" -R "$GITHUB_REPOSITORY"
           gh pr merge "$BRANCH" -R "$GITHUB_REPOSITORY" --auto
