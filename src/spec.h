@@ -389,6 +389,10 @@ typedef struct IndexSpec {
   //                        diskRegistered == true
   // The non-SST RDB path skips the intermediate and lands directly at the
   // final state during IndexSpec_RdbLoad.
+  //
+  // diskRegistered is maintained by SearchDisk_RegisterIndex /
+  // SearchDisk_UnregisterIndex themselves — callers must not toggle it
+  // directly and may call those wrappers idempotently.
   RedisSearchDiskRdbState *pendingDiskRdbState;
   bool diskRegistered;
 } IndexSpec;
@@ -813,7 +817,7 @@ void Indexes_EndLoading();
 //
 // No-op for the non-SST RDB path, where IndexSpec_RdbLoad already opened and
 // registered each spec eagerly.
-void Indexes_FinishSstReplication(RedisModuleCtx *ctx);
+void Indexes_FinishSSTReplication(RedisModuleCtx *ctx);
 
 // Replica-side SST replication abort.
 //
@@ -822,7 +826,7 @@ void Indexes_FinishSstReplication(RedisModuleCtx *ctx);
 // closes any specs that had already been registered. Removes the affected
 // specs from specDict_g. Called from the REDISMODULE_SUBEVENT_SST_REPL_ABORT
 // handler.
-void Indexes_AbortSstReplication(RedisModuleCtx *ctx);
+void Indexes_AbortSSTReplicationLoading(RedisModuleCtx *ctx);
 
 // =============================================================================
 // Compaction FFI Functions (called by Rust during GC)

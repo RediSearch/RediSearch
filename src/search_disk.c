@@ -144,14 +144,22 @@ void SearchDisk_MarkIndexForDeletion(RedisSearchDiskIndexSpec *index) {
     disk->index.markToBeDeleted(index);
 }
 
-void SearchDisk_RegisterIndex(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index) {
-    RS_ASSERT(disk_db && index && ctx);
-    disk->basic.registerIndex(ctx, index);
+void SearchDisk_RegisterIndex(RedisModuleCtx *ctx, IndexSpec *spec) {
+    RS_ASSERT(disk_db && spec && spec->diskSpec && ctx);
+    if (spec->diskRegistered) {
+        return;
+    }
+    disk->basic.registerIndex(ctx, spec->diskSpec);
+    spec->diskRegistered = true;
 }
 
-void SearchDisk_UnregisterIndex(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index) {
-    RS_ASSERT(disk_db && index && ctx);
-    disk->basic.unregisterIndex(ctx, index);
+void SearchDisk_UnregisterIndex(RedisModuleCtx *ctx, IndexSpec *spec) {
+    RS_ASSERT(disk_db && spec && spec->diskSpec && ctx);
+    if (!spec->diskRegistered) {
+        return;
+    }
+    disk->basic.unregisterIndex(ctx, spec->diskSpec);
+    spec->diskRegistered = false;
 }
 
 void SearchDisk_CloseIndex(RedisSearchDiskIndexSpec *index) {

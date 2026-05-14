@@ -739,36 +739,40 @@ void RDB_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subeve
   case REDISMODULE_SUBEVENT_LOADING_REPL_START:
     Indexes_StartRDBLoadingEvent(ctx);
     workersThreadPool_OnEventStart();
-    RedisModule_Log(RSDummyContext, "notice", "Loading event started");
+    RedisModule_Log(RSDummyContext, "notice", "Loading RDB event started");
     break;
   case REDISMODULE_SUBEVENT_LOADING_SST_START:
+    RedisModule_Log(RSDummyContext, "notice", "Loading SST event started");
+    break;
   case REDISMODULE_SUBEVENT_LOADING_SST_ENDED:
+    RedisModule_Log(RSDummyContext, "notice", "Loading SST event ended");
+    break;
   case REDISMODULE_SUBEVENT_LOADING_RDB_ENDED:
-    // Per-phase milestones during SST replication. The module does no disk
-    // work on these — the SST channel and the main (RDB) channel run
-    // concurrently in Flex, so neither phase end alone guarantees that the
-    // matching staged state from the other phase is in place yet. Logged
-    // only as diagnostics; all the real work happens at LOADING_ENDED.
-    RedisModule_Log(RSDummyContext, "notice", "SST replication phase event %lu",
-                    (unsigned long)subevent);
+    RedisModule_Log(RSDummyContext, "notice", "Loading RDB event ended");
     break;
   case REDISMODULE_SUBEVENT_LOADING_ENDED:
-    Indexes_EndRDBLoadingEvent(ctx);
+    RedisModule_Log(RSDummyContext, "notice", "Loading event ended (SST + RDB ready). Finish loading");
+    if (!SearchDisk_IsEnabled()) {
+      // This only handles legacy indices that are not available in disk
+      Indexes_EndRDBLoadingEvent(ctx);
+    } else {
+      // Open and register the disk indexes that were staged during RDB load
+      // under REDISMODULE_CTX_FLAGS_SST_RDB. No-op for the non-SST RDB path
+      // since IndexSpec_RdbLoad opens and registers eagerly there.
+      Indexes_FinishSSTReplication(ctx);
+    }
     workersThreadPool_OnEventEnd(true);
-    // Open and register the disk indexes that were staged during RDB load
-    // under REDISMODULE_CTX_FLAGS_SST_RDB. No-op for the non-SST RDB path
-    // since IndexSpec_RdbLoad opens and registers eagerly there.
-    Indexes_FinishSstReplication(ctx);
     Indexes_EndLoading();
-    RedisModule_Log(RSDummyContext, "notice", "Loading event ended successfully");
+    RedisModule_Log(RSDummyContext, "notice", "Loading event ended successfully (SST + RDB ready). Finished loading successfully");
     break;
   case REDISMODULE_SUBEVENT_LOADING_FAILED:
     // If the failure happens in the middle of an SST replication round (master
-    // aborted, network dropped, validation rejected, etc.) Flex disconnects
-    // the replica and Redis fires LOADING_FAILED. Tear down anything we
+    // aborted, network dropped, validation rejected, etc.) Redis fires LOADING_FAILED. Tear down anything we
     // staged for the round so the next attempt starts from a clean slate.
     // No-op when no specs are staged.
-    Indexes_AbortSstReplication(ctx);
+    if (SearchDisk_IsEnabled()) {
+      Indexes_AbortSSTReplicationLoading(ctx);
+    }
     workersThreadPool_OnEventEnd(true);
     Indexes_EndLoading();
     RedisModule_Log(RSDummyContext, "notice", "Loading event failed");

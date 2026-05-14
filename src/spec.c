@@ -1889,7 +1889,7 @@ static StrongRef IndexSpec_ParseFromArgCursor(RedisModuleCtx *ctx, const HiddenS
       QueryError_SetError(status, QUERY_ERROR_CODE_DISK_CREATION, "Could not open disk index");
       goto failure;
     }
-    SearchDisk_RegisterIndex(ctx, spec->diskSpec);
+    SearchDisk_RegisterIndex(ctx, spec);
   }
 
   if (AC_IsInitialized(&acStopwords)) {
@@ -1928,7 +1928,7 @@ static StrongRef IndexSpec_ParseFromArgCursor(RedisModuleCtx *ctx, const HiddenS
 failure:  // on failure free the spec fields array and return an error
   spec->flags &= ~Index_Temporary;
   if (spec->diskSpec) {
-    SearchDisk_UnregisterIndex(ctx, spec->diskSpec);
+    SearchDisk_UnregisterIndex(ctx, spec);
   }
   IndexSpec_RemoveFromGlobals(spec_ref, false);
   return INVALID_STRONG_REF;
@@ -2252,7 +2252,7 @@ void Indexes_Free(RedisModuleCtx *ctx, dict *d, bool deleteDiskData) {
     IndexSpec *spec = StrongRef_Get(specs[i]);
     if (spec && spec->diskSpec) {
       // Unregister must always precede close (triggered by IndexSpec_RemoveFromGlobals)
-      SearchDisk_UnregisterIndex(ctx, spec->diskSpec);
+      SearchDisk_UnregisterIndex(ctx, spec);
       if (deleteDiskData) {
         SearchDisk_MarkIndexForDeletion(spec->diskSpec);
       }
@@ -2404,6 +2404,9 @@ static void initializeIndexSpec(IndexSpec *sp, const HiddenString *name, IndexFl
 
   sp->scanner = NULL;
   sp->scan_in_progress = false;
+  sp->diskSpec = NULL;
+  sp->pendingDiskRdbState = NULL;
+  sp->diskRegistered = false;
   sp->monitorDocumentExpiration = RSGlobalConfig.monitorExpiration;
   sp->monitorFieldExpiration = RSGlobalConfig.monitorExpiration &&
                                RedisModule_HashFieldMinExpire != NULL;
@@ -3396,7 +3399,6 @@ static void IndexSpec_NormalizeStorageFlagsOnLoad(IndexFlags *flags) {
 IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryError *status) {
   IndexSpec *sp = NULL;
   RedisSearchDiskRdbState *diskRdbState = NULL;
-  bool indexRegistered = false;
   StrongRef spec_ref = {0};
   IndexFlags flags = 0;
   int16_t numFields = 0;
@@ -3522,7 +3524,7 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryE
     // Under SST replication, Flex has not yet placed the SST files on the
     // replica's filesystem at this point in RDB load. Stash the disk RDB
     // state on the spec and defer opening (and registering) the disk index
-    // until Indexes_FinishSstReplication runs at REDISMODULE_SUBEVENT_LOADING_ENDED.
+    // until Indexes_FinishSSTReplication runs at REDISMODULE_SUBEVENT_LOADING_ENDED.
     if (diskRdbState && IS_SST_RDB_IN_PROCESS(ctx)) {
       sp->pendingDiskRdbState = diskRdbState;
       diskRdbState = NULL; // Ownership transferred to sp; consumed at LOADING_SST_ENDED.
@@ -3540,9 +3542,7 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryE
       if (!sp->diskSpec) {
         goto cleanup;
       }
-      SearchDisk_RegisterIndex(ctx, sp->diskSpec);
-      sp->diskRegistered = true;
-      indexRegistered = true;
+      SearchDisk_RegisterIndex(ctx, sp);
     }
   } else if (diskRdbState) {
     // Duplicate case: we loaded the RDB state but won't create diskSpec
@@ -3557,8 +3557,9 @@ cleanup:
   if (diskRdbState) {
     SearchDisk_FreeRdbState(diskRdbState);
   }
-  if (indexRegistered) {
-    SearchDisk_UnregisterIndex(ctx, sp->diskSpec);
+  if (sp && sp->diskSpec) {
+    // Idempotent — no-op if registration never happened on this path.
+    SearchDisk_UnregisterIndex(ctx, sp);
   }
   StrongRef_Release(spec_ref);
 cleanup_no_index:
@@ -4527,7 +4528,7 @@ void Indexes_EndLoading() {
 // Specs with a NULL pendingDiskRdbState are skipped — they are either
 // already-opened non-SST specs (eagerly opened by IndexSpec_RdbLoad) or
 // memory-only specs.
-void Indexes_FinishSstReplication(RedisModuleCtx *ctx) {
+void Indexes_FinishSSTReplication(RedisModuleCtx *ctx) {
   RS_ASSERT(SearchDisk_IsEnabled());
 
   dictIterator *iter = dictGetIterator(specDict_g);
@@ -4539,7 +4540,6 @@ void Indexes_FinishSstReplication(RedisModuleCtx *ctx) {
     RS_ASSERT(sp->pendingDiskRdbState);
     RS_ASSERT(sp->diskSpec == NULL);
     RS_ASSERT(!sp->diskRegistered);
-    RS_ASSERT(disk_db);
 
     sp->diskSpec = SearchDisk_OpenIndexWithRdbState(ctx, sp->specName, sp->obfuscatedName,
                                                     sp->rule->type, sp->pendingDiskRdbState);
@@ -4553,8 +4553,7 @@ void Indexes_FinishSstReplication(RedisModuleCtx *ctx) {
       continue;
     }
     IndexSpec_PopulateVectorDiskParams(sp);
-    SearchDisk_RegisterIndex(ctx, sp->diskSpec);
-    sp->diskRegistered = true;
+    SearchDisk_RegisterIndex(ctx, sp);
   }
   dictReleaseIterator(iter);
 }
@@ -4566,8 +4565,8 @@ void Indexes_FinishSstReplication(RedisModuleCtx *ctx) {
 // as appropriate. Specs at every replication phase are torn down — the
 // replica is left as if replication had never started, and Flex will retry
 // from scratch on the next attempt.
-void Indexes_AbortSstReplication(RedisModuleCtx *ctx) {
-  if (!SearchDisk_IsEnabled()) return;
+void Indexes_AbortSSTReplicationLoading(RedisModuleCtx *ctx) {
+  RS_ASSERT(SearchDisk_IsEnabled());
   if (dictSize(specDict_g) == 0) return;
 
   RedisModule_Log(ctx, "warning",
@@ -4586,12 +4585,17 @@ void Indexes_AbortSstReplication(RedisModuleCtx *ctx) {
   for (size_t i = 0; i < array_len(specs); ++i) {
     IndexSpec *spec = StrongRef_Get(specs[i]);
     if (!spec) continue;
-    // Already-registered specs must be unregistered before close (same invariant as Indexes_Free).
-    if (spec->diskSpec && spec->diskRegistered) {
-      SearchDisk_UnregisterIndex(ctx, spec->diskSpec);
-      spec->diskRegistered = false;
+    // Unregister here (not in the destructor) because the destructor may run
+    // on a background thread when the last StrongRef drops, and unregister
+    // needs the main-thread RedisModuleCtx. Must precede the close that
+    // IndexSpec_FreeUnlinkedData performs. SearchDisk_UnregisterIndex is
+    // idempotent, so it safely handles specs aborted before LOADING_SST_ENDED
+    // registered them.
+    if (spec->diskSpec) {
+      SearchDisk_UnregisterIndex(ctx, spec);
     }
-    // pendingDiskRdbState (if any) and diskSpec (if any) are cleaned up by IndexSpec_FreeUnlinkedData.
+    // pendingDiskRdbState and diskSpec are freed by IndexSpec_FreeUnlinkedData
+    // once the last StrongRef is dropped below.
     IndexSpec_RemoveFromGlobals(specs[i], false);
   }
   array_free(specs);
