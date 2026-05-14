@@ -187,3 +187,71 @@ def test_hybrid_groupby_with_filter():
     sum_of_counts = sum(results.values())
     expected_sum = 8  # 2+2+2+2 (fitness with count=1 is filtered out)
     env.assertEqual(sum_of_counts, expected_sum)
+
+
+def test_hybrid_groupby_multiple_collect_reducers():
+    """FT.HYBRID with two COLLECT reducers in one GROUPBY, each producing a
+    'top hits' collection per group ordered by a different yielded score
+    (vector_score vs search_score)."""
+    env = Env(protocol=3)
+    enable_unstable_features(env)
+    setup_hybrid_groupby_index(env)
+
+    # All 9 docs contain "red", while VSIM RADIUS 2**2 covers doc:1..doc:6.
+    # FT.HYBRID returns the union of both subqueries, so doc:7..doc:9 are
+    # present too, but they do not carry vector_score.
+    query_vector = np.array([0.0, 0.0]).astype(np.float32).tobytes()
+    radius = 2**2
+
+    res = env.cmd(
+        'FT.HYBRID', 'idx',
+        'SEARCH', '@description:(red)',
+            'YIELD_SCORE_AS', 'search_score',
+        'VSIM', '@embedding', '$BLOB',
+            'RANGE', '2', 'RADIUS', str(radius),
+            'YIELD_SCORE_AS', 'vector_score',
+        'GROUPBY', '1', '@category',
+            'REDUCE', 'COLLECT', '7',
+                'FIELDS', '2', '@__key', '@vector_score',
+                'SORTBY', '1', '@vector_score',
+                'AS', 'top_vector_results',
+            'REDUCE', 'COLLECT', '7',
+                'FIELDS', '2', '@__key', '@search_score',
+                'SORTBY', '1', '@search_score',
+                'AS', 'top_search_results',
+        'SORTBY', '2', '@category', 'ASC',
+        'PARAMS', '2', 'BLOB', query_vector)
+
+    expected_by_category = {
+        'automotive': {'doc:1', 'doc:2'},
+        'clothing':   {'doc:3', 'doc:4'},
+        'footwear':   {'doc:5', 'doc:6'},
+        'food':       {'doc:7', 'doc:8'},
+        'fitness':    {'doc:9'},
+    }
+    vector_scored_categories = {'automotive', 'clothing', 'footwear'}
+
+    results = res['results']
+    env.assertEqual(len(results), len(expected_by_category))
+
+    for r in results:
+        attrs = r.get('extra_attributes', r)
+        cat = attrs['category']
+        env.assertTrue(cat in expected_by_category,
+                       message=f"Unexpected category: {cat}")
+        expected_keys = expected_by_category[cat]
+
+        # Both reducers should see the same set of docs per group; only the
+        # ordering induced by SORTBY differs.
+        vec_entries = attrs['top_vector_results']
+        srch_entries = attrs['top_search_results']
+        env.assertEqual({e['__key'] for e in vec_entries}, expected_keys)
+        env.assertEqual({e['__key'] for e in srch_entries}, expected_keys)
+
+        # Every doc has search_score. Only doc:1..doc:6 also have vector_score,
+        # so vector sort order can only be asserted for those categories.
+        srch_scores = [float(e['search_score']) for e in srch_entries]
+        env.assertEqual(srch_scores, sorted(srch_scores))
+        if cat in vector_scored_categories:
+            vec_scores = [float(e['vector_score']) for e in vec_entries]
+            env.assertEqual(vec_scores, sorted(vec_scores))
