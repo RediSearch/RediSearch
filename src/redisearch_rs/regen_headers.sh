@@ -5,7 +5,7 @@
 #   - the `cheadergen_generate` CMake custom target in this directory's
 #     CMakeLists.txt
 #
-# `env -u CARGO_BUILD_TARGET RUSTFLAGS=` scrubs parent-build env so flags
+# `env -u CARGO_BUILD_TARGET RUSTFLAGS=...` scrubs parent-build env so flags
 # set for the main Rust build don't leak into cheadergen's internal
 # `cargo metadata` / `cargo doc` invocations:
 #   - RUSTFLAGS may contain nightly-only flags (e.g. `-Zsanitizer=address`
@@ -17,13 +17,24 @@
 #     or directory" failure. Empty `CARGO_BUILD_TARGET=` is NOT ok — cargo
 #     aborts with "error: target was empty". Must be truly unset; POSIX
 #     `env -u` does that on this Unix-only build.
+#
+# We do, however, propagate `RUST_DYN_CRT=1` (set by `build.sh` on Alpine
+# musl): without `-C target-feature=-crt-static`, build-script crates that
+# pull in `bindgen` (and therefore libclang/libLLVM/libncursesw/libz) try
+# to link statically and fail because the static versions of those system
+# libraries are not installed in the Alpine CI image.
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
-exec env -u CARGO_BUILD_TARGET RUSTFLAGS= cheadergen generate \
+rustflags=
+if [[ "${RUST_DYN_CRT:-}" == "1" ]]; then
+    rustflags="-C target-feature=-crt-static"
+fi
+
+exec env -u CARGO_BUILD_TARGET RUSTFLAGS="${rustflags}" cheadergen generate \
     --lang c \
     --prune-orphans \
     --skip-empty \

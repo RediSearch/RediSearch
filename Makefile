@@ -79,6 +79,10 @@ endif
 
 ifeq ($(RUST_DYN_CRT),1)
 	BUILD_ARGS += RUST_DYN_CRT=1
+	# Export so the `generate-rust-headers` recipe (which invokes
+	# regen_headers.sh directly, bypassing build.sh) can apply
+	# `-C target-feature=-crt-static` to its cargo invocations.
+	export RUST_DYN_CRT
 endif
 
 ifeq ($(RUN_MIRI),1)

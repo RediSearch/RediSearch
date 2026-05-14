@@ -597,6 +597,9 @@ prepare_cmake_arguments() {
   if [[ "$RUST_DYN_CRT" == "1" ]]; then
     # Add the dynamic C runtime flag to RUSTFLAGS
     RUSTFLAGS="${RUSTFLAGS:+${RUSTFLAGS} }-C target-feature=-crt-static"
+    # Export so child processes (CMake → regen_headers.sh) can apply the
+    # same flag to their own cargo invocations. See regen_headers.sh.
+    export RUST_DYN_CRT
   fi
   # MOD-14916: inline LSE atomics for Rust on AArch64. `-C target-cpu=neoverse-n1`
   # implies +lse so rustc emits LDADDH/LDADD instead of an ldxrh/stxrh LL/SC loop.
