@@ -12,7 +12,7 @@
 #include "redismodule.h"
 
 #include "rmutil/rm_assert.h"
-#include "trie.h"
+#include "trie_node.h"
 #include "levenshtein.h"
 
 #ifdef __cplusplus

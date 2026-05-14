@@ -163,7 +163,7 @@ fn main() {
         src.join("stopwords.h"),
         src.join("numeric_filter.h"),
         src.join("tag_index.h"),
-        src.join("trie").join("trie.h"),
+        src.join("trie").join("trie_node.h"),
         src.join("trie").join("trie_type.h"),
         src.join("ttl_table").join("ttl_table.h"),
         src.join("util").join("arr").join("arr.h"),

@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include <sys/param.h>
-#include "trie.h"
+#include "trie_node.h"
 #include "util/bsearch.h"
 #include "sparse_vector.h"
 #include "redisearch.h"
