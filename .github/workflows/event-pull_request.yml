@@ -12,12 +12,9 @@ concurrency:
 
 jobs:
   get-latest-redis-tag:
-    # Track unstable so PRs catch upstream breakage early.
-    runs-on: ubuntu-slim
-    outputs:
-      tag: unstable
-    steps:
-      - run: echo "Dummy step to set output"
+    uses: ./.github/workflows/task-get-latest-tag.yml
+    with:
+      repo: redis/redis
 
   check-what-changed:
     uses: ./.github/workflows/task-check-changes.yml
