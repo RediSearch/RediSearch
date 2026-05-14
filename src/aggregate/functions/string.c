@@ -44,7 +44,9 @@ static int func_matchedTerms(ExprEval *ctx, RSValue **argv, size_t argc, RSValue
         size_t len;
         const char *str = QueryTerm_GetStrAndLen(terms[i], &len);
         RS_ASSERT(len <= UINT32_MAX);
-        arr[i] = RSValue_NewBorrowedString(str, len);
+        // Copy: RSQueryTerm storage is not nul-terminated, so the
+        // borrowed-string contract (nul at str+len) doesn't hold.
+        arr[i] = RSValue_NewCopiedString(str, len);
       }
       RSValue *v = RSValue_NewArrayFromBuilder(arr, n);
       RSValue_MakeOwnReference(result, v);

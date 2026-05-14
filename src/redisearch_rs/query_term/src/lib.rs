@@ -33,11 +33,6 @@ pub type RSTokenFlags = u32;
 #[derive(PartialEq)]
 pub struct RSQueryTerm {
     /// The term string, or `None` if the token had a null string pointer.
-    ///
-    /// Storage includes a trailing nul byte so the pointer can be handed
-    /// directly to C consumers that expect a nul-terminated string (e.g.
-    /// `RSValue_NewBorrowedString`). The trailing nul is sliced off by
-    /// [`as_str`](RSQueryTerm::as_str) / [`as_bytes`](RSQueryTerm::as_bytes).
     str_: Option<Box<str>>,
     /// Inverse document frequency of the term in the index.
     ///
@@ -57,12 +52,8 @@ impl RSQueryTerm {
     ///
     /// The resulting term has `idf = 1.0` and `bm25_idf = 0.0`.
     pub fn new(s: &str, id: i32, flags: RSTokenFlags) -> Box<Self> {
-        let mut buf = String::with_capacity(s.len() + 1);
-        buf.push_str(s);
-        buf.push('\0'); // nul-terminator: term string is handed to C consumers (RSValue_NewBorrowedString).
-
         Box::new(Self {
-            str_: Some(buf.into_boxed_str()),
+            str_: Some(Box::from(s)),
             idf: 1.0,
             id,
             flags,
@@ -137,9 +128,7 @@ impl RSQueryTerm {
 
     /// Get the term as a string slice, if the string is non-null.
     pub fn as_str(&self) -> Option<&str> {
-        // The trailing byte is always `\0` (a single-byte UTF-8 scalar), so
-        // `len() - 1` is guaranteed to be a valid char boundary.
-        self.str_.as_deref().map(|s| &s[0..(s.len() - 1)])
+        self.str_.as_deref()
     }
 
     /// Get the term as a byte slice, if the string is non-null.
@@ -233,8 +222,7 @@ mod tests {
     }
 
     #[test]
-    fn nul_terminator_not_included_in_accessors() {
-        // The trailing \0 is for C consumers — Rust accessors must hide it.
+    fn storage_has_no_trailing_nul() {
         let term = RSQueryTerm::new("abc", 1, 0);
         assert_eq!(term.len(), 3);
         assert_eq!(term.as_str(), Some("abc"));
