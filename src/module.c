@@ -1734,12 +1734,6 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx) {
 
   RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_Loading, RDB_LoadingEvent);
   RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_LoadingProgress, LoadingProgressCallback);
-  if (SearchDisk_IsEnabled()) {
-    // Replica-side: the ABORT subevent tears down anything we staged during
-    // an in-progress SST replication round. Master-side subevents are wired
-    // up in a separate change.
-    RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_SSTReplication, SstReplicationEvent);
-  }
 
   // Create the `search` ACL command category
   if (RedisModule_AddACLCategory(ctx, SEARCH_ACL_CATEGORY) == REDISMODULE_ERR) {

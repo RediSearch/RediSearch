@@ -764,38 +764,18 @@ void RDB_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subeve
     RedisModule_Log(RSDummyContext, "notice", "Loading event ended successfully");
     break;
   case REDISMODULE_SUBEVENT_LOADING_FAILED:
+    // If the failure happens in the middle of an SST replication round (master
+    // aborted, network dropped, validation rejected, etc.) Flex disconnects
+    // the replica and Redis fires LOADING_FAILED. Tear down anything we
+    // staged for the round so the next attempt starts from a clean slate.
+    // No-op when no specs are staged.
+    Indexes_AbortSstReplication(ctx);
     workersThreadPool_OnEventEnd(true);
     Indexes_EndLoading();
     RedisModule_Log(RSDummyContext, "notice", "Loading event failed");
     break;
   default:
     RS_LOG_ASSERT_FMT(0, "Unknown sub-event %d", subevent);
-    break;
-  }
-}
-
-// Replica-side handler for REDISMODULE_EVENT_SST_REPLICATION. Only the ABORT
-// subevent is handled here; the PRE_CHECKPOINT / POST_CHECKPOINT / PRE_FORK /
-// POST_FORK subevents are master-side concerns and are wired up in a separate
-// change. ABORT fires when Flex tears down the in-progress replication round,
-// and the module's job is to drop everything it staged for it.
-void SstReplicationEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data) {
-  REDISMODULE_NOT_USED(eid);
-  REDISMODULE_NOT_USED(data);
-  switch (subevent) {
-  case REDISMODULE_SUBEVENT_SST_REPL_ABORT:
-    Indexes_AbortSstReplication(ctx);
-    RedisModule_Log(RSDummyContext, "notice", "SST replication aborted");
-    break;
-  case REDISMODULE_SUBEVENT_SST_REPL_PRE_CHECKPOINT:
-  case REDISMODULE_SUBEVENT_SST_REPL_POST_CHECKPOINT:
-  case REDISMODULE_SUBEVENT_SST_REPL_PRE_FORK:
-  case REDISMODULE_SUBEVENT_SST_REPL_POST_FORK:
-    // Master-side subevents — handled in a separate change.
-    break;
-  default:
-    RedisModule_Log(RSDummyContext, "warning",
-                    "SST replication: unhandled sub-event %lu", (unsigned long)subevent);
     break;
   }
 }
