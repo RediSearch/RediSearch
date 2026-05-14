@@ -11,6 +11,9 @@
 
 use std::fmt::Debug;
 
+use ffi::t_docId;
+
+use crate::ii_dispatch;
 use crate::{
     EntriesTrackingIndex, FieldMaskTrackingIndex, InvertedIndex as InvertedIndexInner,
     doc_ids_only::DocIdsOnly,
@@ -132,6 +135,18 @@ pub enum InvertedIndex {
     NumericFloatCompression(EntriesTrackingIndex<NumericFloatCompression>),
 }
 
+impl InvertedIndex {
+    /// Scan the index for blocks that can be garbage collected.
+    ///
+    /// This is a dispatch wrapper around the typed [`InvertedIndex::scan_gc`].
+    pub fn scan_gc(
+        &self,
+        doc_exist: impl Fn(t_docId) -> bool,
+    ) -> std::io::Result<Option<crate::GcScanDelta>> {
+        ii_dispatch!(self, scan_gc, doc_exist, None::<fn(&_, &_)>)
+    }
+}
+
 impl Debug for InvertedIndex {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -154,4 +169,35 @@ impl Debug for InvertedIndex {
             }
         }
     }
+}
+
+/// Dispatch a method call to the inner index of an [`InvertedIndex`] variant.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// let usage: usize = ii_dispatch!(ii, memory_usage);
+/// let result = ii_dispatch!(ii, add_record, &record);
+/// ```
+#[macro_export]
+macro_rules! ii_dispatch {
+    ($self:expr, $method:ident $(, $args:expr)*) => {
+        match $self {
+            $crate::opaque::InvertedIndex::Full(ii) => ii.$method($($args),*),
+            $crate::opaque::InvertedIndex::FullWide(ii) => ii.$method($($args),*),
+            $crate::opaque::InvertedIndex::FreqsFields(ii) => ii.$method($($args),*),
+            $crate::opaque::InvertedIndex::FreqsFieldsWide(ii) => ii.$method($($args),*),
+            $crate::opaque::InvertedIndex::FreqsOnly(ii) => ii.$method($($args),*),
+            $crate::opaque::InvertedIndex::FieldsOnly(ii) => ii.$method($($args),*),
+            $crate::opaque::InvertedIndex::FieldsOnlyWide(ii) => ii.$method($($args),*),
+            $crate::opaque::InvertedIndex::FieldsOffsets(ii) => ii.$method($($args),*),
+            $crate::opaque::InvertedIndex::FieldsOffsetsWide(ii) => ii.$method($($args),*),
+            $crate::opaque::InvertedIndex::OffsetsOnly(ii) => ii.$method($($args),*),
+            $crate::opaque::InvertedIndex::FreqsOffsets(ii) => ii.$method($($args),*),
+            $crate::opaque::InvertedIndex::DocIdsOnly(ii) => ii.$method($($args),*),
+            $crate::opaque::InvertedIndex::RawDocIdsOnly(ii) => ii.$method($($args),*),
+            $crate::opaque::InvertedIndex::Numeric(ii) => ii.$method($($args),*),
+            $crate::opaque::InvertedIndex::NumericFloatCompression(ii) => ii.$method($($args),*),
+        }
+    };
 }
