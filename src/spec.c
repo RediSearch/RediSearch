@@ -263,6 +263,10 @@ const FieldSpec *IndexSpec_GetFieldByBit(const IndexSpec *sp, t_fieldMask id) {
 
 //---------------------------------------------------------------------------------------------
 
+// Forward declaration
+static StrongRef IndexSpec_ParseFromArgCursor(const char *name, ArgsCursor *ac,
+                                           QueryError *status);
+
 /*
 * Parse an index spec from redis command arguments.
 * Returns REDISMODULE_ERR if there's a parsing error.
@@ -273,13 +277,9 @@ const FieldSpec *IndexSpec_GetFieldByBit(const IndexSpec *sp, t_fieldMask id) {
 */
 StrongRef IndexSpec_ParseRedisArgs(RedisModuleCtx *ctx, RedisModuleString *name,
                                     RedisModuleString **argv, int argc, QueryError *status) {
-
-  const char *args[argc];
-  for (int i = 0; i < argc; i++) {
-    args[i] = RedisModule_StringPtrLen(argv[i], NULL);
-  }
-
-  return IndexSpec_Parse(RedisModule_StringPtrLen(name, NULL), args, argc, status);
+  ArgsCursor ac = {0};
+  ArgsCursor_InitRString(&ac, argv, argc);
+  return IndexSpec_ParseFromArgCursor(RedisModule_StringPtrLen(name, NULL), &ac, status);
 }
 
 arrayof(FieldSpec *) getFieldsByType(IndexSpec *spec, FieldType type) {
@@ -1235,17 +1235,16 @@ int IndexSpec_AddFields(StrongRef spec_ref, IndexSpec *sp, RedisModuleCtx *ctx, 
 /* The format currently is FT.CREATE {index} [NOOFFSETS] [NOFIELDS]
     SCHEMA {field} [TEXT [WEIGHT {weight}]] | [NUMERIC]
   */
-StrongRef IndexSpec_Parse(const char *name, const char **argv, int argc, QueryError *status) {
+static StrongRef IndexSpec_ParseFromArgCursor(const char *name, ArgsCursor *ac,
+                                           QueryError *status) {
   IndexSpec *spec = NewIndexSpec(name);
   StrongRef spec_ref = StrongRef_New(spec, (RefManager_Free)IndexSpec_Free);
   spec->own_ref = spec_ref;
 
   IndexSpec_MakeKeyless(spec);
 
-  ArgsCursor ac = {0};
   ArgsCursor acStopwords = {0};
 
-  ArgsCursor_InitCString(&ac, argv, argc);
   long long timeout = -1;
   int dummy;
   size_t dummy2;
@@ -1271,7 +1270,7 @@ StrongRef IndexSpec_Parse(const char *name, const char **argv, int argc, QueryEr
       {.name = NULL}};
 
   ACArgSpec *errarg = NULL;
-  int rc = AC_ParseArgSpec(&ac, argopts, &errarg);
+  int rc = AC_ParseArgSpec(ac, argopts, &errarg);
   if (rc != AC_OK) {
     if (rc != AC_ERR_ENOENT) {
       QERR_MKBADARGS_AC(status, errarg->name, rc);
@@ -1290,22 +1289,13 @@ StrongRef IndexSpec_Parse(const char *name, const char **argv, int argc, QueryEr
   spec->timeout = timeout * 1000;  // convert to ms
 
   if (rule_prefixes.argc > 0) {
-    if (rule_prefixes.argc > MAX_SCHEMA_PREFIXES) {
-      QueryError_SetErrorFmt(
-          status, QUERY_ELIMIT,
-          "Number of prefixes (%zu) exceeds maximum allowed (%d)",
-          rule_prefixes.argc, MAX_SCHEMA_PREFIXES);
-      goto failure;
-    }
-    rule_args.nprefixes = (unsigned int)rule_prefixes.argc;
-    rule_args.prefixes = (const char **)rule_prefixes.objs;
+    spec->rule = SchemaRule_CreateWithPrefixesAC(&rule_args, &rule_prefixes, spec_ref, status);
   } else {
     rule_args.nprefixes = 1;
     static const char *empty_prefix[] = {""};
     rule_args.prefixes = empty_prefix;
+    spec->rule = SchemaRule_Create(&rule_args, spec_ref, status);
   }
-
-  spec->rule = SchemaRule_Create(&rule_args, spec_ref, status);
   if (!spec->rule) {
     goto failure;
   }
@@ -1314,13 +1304,13 @@ StrongRef IndexSpec_Parse(const char *name, const char **argv, int argc, QueryEr
     if (spec->stopwords) {
       StopWordList_Unref(spec->stopwords);
     }
-    spec->stopwords = NewStopWordListCStr((const char **)acStopwords.objs, acStopwords.argc);
+    spec->stopwords = NewStopWordListAC(&acStopwords);
     spec->flags |= Index_HasCustomStopwords;
   }
 
-  if (!AC_AdvanceIfMatch(&ac, SPEC_SCHEMA_STR)) {
-    if (AC_NumRemaining(&ac)) {
-      const char *badarg = AC_GetStringNC(&ac, NULL);
+  if (!AC_AdvanceIfMatch(ac, SPEC_SCHEMA_STR)) {
+    if (AC_NumRemaining(ac)) {
+      const char *badarg = AC_GetStringNC(ac, NULL);
       QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "Unknown argument `%s`", badarg);
     } else {
       QueryError_SetError(status, QUERY_EPARSEARGS, "No schema found");
@@ -1328,7 +1318,7 @@ StrongRef IndexSpec_Parse(const char *name, const char **argv, int argc, QueryEr
     goto failure;
   }
 
-  if (!IndexSpec_AddFieldsInternal(spec, spec_ref, &ac, status, 1)) {
+  if (!IndexSpec_AddFieldsInternal(spec, spec_ref, ac, status, 1)) {
     goto failure;
   }
 
@@ -1343,6 +1333,13 @@ failure:  // on failure free the spec fields array and return an error
   IndexSpec_RemoveFromGlobals(spec_ref);
   return INVALID_STRONG_REF;
 }
+
+StrongRef IndexSpec_Parse(const char *name, const char **argv, int argc, QueryError *status) {
+  ArgsCursor ac = {0};
+  ArgsCursor_InitCString(&ac, argv, argc);
+  return IndexSpec_ParseFromArgCursor(name, &ac, status);
+}
+
 
 /* Initialize some index stats that might be useful for scoring functions */
 // Assuming the spec is properly locked before calling this function
