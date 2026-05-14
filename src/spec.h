@@ -15,7 +15,6 @@
 #include "redismodule.h"
 #include "config.h"
 #include "doc_table.h"
-#include "fork_lock.h"
 #include "trie/trie_type.h"
 #include "sortable.h"
 #include "stopwords.h"
@@ -374,10 +373,14 @@ typedef struct IndexSpec {
   // Disk index handle (NULL for memory-only indexes)
   RedisSearchDiskIndexSpec *diskSpec;
 
-  // Primitive that helps syncing fork with operations that may update state in another thread
-  ForkLock fork_lock;
+  // Per-spec rwlock that gates the SST replication fork window against
+  // critical sections that must be ordered with respect to the snapshot fork.
+  // Readers ("blockers") prevent the fork from starting; the writer is the
+  // fork itself, which excludes all blockers for the duration of PRE_FORK /
+  // POST_FORK. See IndexSpec_BlockDiskFork / IndexSpec_ProtectDiskFork.
+  pthread_rwlock_t disk_fork_rwlock;
   bool repl_read_lock_held;
-  bool repl_fork_lock_held;
+  bool repl_disk_fork_protected;
 } IndexSpec;
 
 typedef enum SpecOp { SpecOp_Add, SpecOp_Del } SpecOp;
@@ -820,24 +823,54 @@ void IndexSpec_AcquireReadLock(IndexSpec *sp);
 void IndexSpec_ReleaseReadLock(IndexSpec *sp);
 
 /**
- * @brief Acquire the per-spec fork lock.
+ * @brief Block the SST replication snapshot fork from starting.
  *
- * Used to gate the SST replication PRE_FORK / POST_FORK window against any
- * critical sections that must be ordered with respect to the snapshot fork.
- * Binary-semaphore semantics - see fork_lock.h.
+ * Takes a shared (read) lock on the per-spec fork rwlock. Multiple callers
+ * may block the fork concurrently; the fork can proceed only once every
+ * blocker has released via IndexSpec_EnableDiskForkIfPossible. Used by
+ * critical sections (e.g. compaction) that must be ordered with respect to
+ * the snapshot fork.
  *
- * Lock order: fork_lock must be acquired before the IndexSpec rwlock by any
- * caller that takes both.
+ * Lock order: must be acquired before the IndexSpec rwlock by any caller
+ * that takes both.
  *
  * @param sp Pointer to the IndexSpec
  */
-void IndexSpec_AcquireForkLock(IndexSpec *sp);
+void IndexSpec_BlockDiskFork(IndexSpec *sp);
 
 /**
- * @brief Release the per-spec fork lock.
+ * @brief Release a prior IndexSpec_BlockDiskFork.
+ *
+ * The fork becomes eligible to start only after the last outstanding blocker
+ * releases — hence "IfPossible".
+ *
  * @param sp Pointer to the IndexSpec
  */
-void IndexSpec_ReleaseForkLock(IndexSpec *sp);
+void IndexSpec_EnableDiskForkIfPossible(IndexSpec *sp);
+
+/**
+ * @brief Enter the protected fork window.
+ *
+ * Takes an exclusive (write) lock on the per-spec fork rwlock and blocks
+ * until every outstanding IndexSpec_BlockDiskFork blocker has released.
+ * Used by the SST replication PRE_FORK callback.
+ *
+ * Lock order: must be acquired before the IndexSpec rwlock by any caller
+ * that takes both.
+ *
+ * @param sp Pointer to the IndexSpec
+ */
+void IndexSpec_ProtectDiskFork(IndexSpec *sp);
+
+/**
+ * @brief Leave the protected fork window.
+ *
+ * Releases the exclusive lock taken by IndexSpec_ProtectDiskFork, allowing
+ * pending blockers to proceed.
+ *
+ * @param sp Pointer to the IndexSpec
+ */
+void IndexSpec_UnProtectDiskFork(IndexSpec *sp);
 
 /**
  * @brief Update a term's document count in the Serving Trie

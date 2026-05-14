@@ -337,7 +337,7 @@ typedef struct IndexDiskAPI {
    * @brief Master-side SST replication PRE_CHECKPOINT hook.
    *
    * Called once per index before the replication checkpoint is taken.
-   * OSS holds the IndexSpec read lock for the duration of this call.
+   * Caller holds the IndexSpec read lock for the duration of this call.
    *
    * POST_CHECKPOINT has no matching disk hook - OSS handles it on its own.
    *
@@ -348,7 +348,7 @@ typedef struct IndexDiskAPI {
   /**
    * @brief Master-side SST replication PRE_FORK hook.
    *
-   * Called once per index before the replication snapshot fork. OSS holds
+   * Called once per index before the replication snapshot fork. Caller holds
    * both the per-spec fork lock and the IndexSpec read lock for the duration
    * of this call.
    *
@@ -359,7 +359,7 @@ typedef struct IndexDiskAPI {
   /**
    * @brief Master-side SST replication POST_FORK hook.
    *
-   * Called once per index after the snapshot fork. OSS releases the fork lock
+   * Called once per index after the snapshot fork. Caller releases the fork lock
    * and the read lock after this call returns.
    *
    * @param index Pointer to the disk index spec
@@ -371,7 +371,7 @@ typedef struct IndexDiskAPI {
    *
    * Called once per index when the replication cycle is aborted at any point
    * between PRE_CHECKPOINT and POST_FORK. The disk implementation is free to
-   * undo whatever state it set up in the preceding `pre*` hook. OSS releases
+   * undo whatever state it set up in the preceding `pre*` hook. Caller releases
    * any locks still held for the cycle after this call returns.
    *
    * @param index Pointer to the disk index spec

@@ -216,11 +216,10 @@ QueryIterator* SearchDisk_NewTagIterator(RedisSearchDiskIndexSpec *index, const 
 static void* Compaction_BeginUpdate(void *private_data) {
     IndexSpec *sp = private_data;
     RS_ASSERT(sp);
-    // Lock order: fork_lock then wrlock - must match the order in
-    // SearchDisk_PreFork (fork_lock then rdlock).
-    // TODO: move the fork lock acquisition to a pre-commit callback once
-    // that exists so the lock covers the disk-commit window as well.
-    IndexSpec_AcquireForkLock(sp);
+    // Lock order: block-fork then wrlock - must match the order in
+    // SearchDisk_PreFork (protect-fork then rdlock).
+    // TODO: move the block-fork acquisition to a start callback once the Job-ID based compaction is there.
+    IndexSpec_BlockDiskFork(sp);
     IndexSpec_AcquireWriteLock(sp);
     return sp;
 }
@@ -246,9 +245,9 @@ static void Compaction_EndUpdate(void *update_ctx) {
     IndexSpec *sp = update_ctx;
     RS_ASSERT(sp);
 
-    // Release in reverse order of acquisition (wrlock first, then fork lock).
+    // Release in reverse order of acquisition (wrlock first, then fork gate).
     IndexSpec_ReleaseWriteLock(sp);
-    IndexSpec_ReleaseForkLock(sp);
+    IndexSpec_EnableDiskForkIfPossible(sp);
 }
 size_t SearchDisk_RunGC(RedisSearchDiskIndexSpec *index, IndexSpec *spec) {
     RS_ASSERT(disk && index && spec);
@@ -459,11 +458,11 @@ void SearchDisk_PostCheckpoint(IndexSpec *sp) {
 
 void SearchDisk_PreFork(IndexSpec *sp) {
   RS_ASSERT(disk && sp && sp->diskSpec);
-  // Lock order: fork_lock then rdlock. The disk side must use the same
-  // ordering for any critical section that takes the fork lock to avoid
-  // deadlock with this handler.
-  IndexSpec_AcquireForkLock(sp);
-  sp->repl_fork_lock_held = true;
+  // Lock order: protect-fork then rdlock. The disk side must use the same
+  // ordering for any critical section that gates the fork to avoid deadlock
+  // with this handler.
+  IndexSpec_ProtectDiskFork(sp);
+  sp->repl_disk_fork_protected = true;
   IndexSpec_AcquireReadLock(sp);
   sp->repl_read_lock_held = true;
   disk->index.preFork(sp->diskSpec);
@@ -472,12 +471,12 @@ void SearchDisk_PreFork(IndexSpec *sp) {
 void SearchDisk_PostFork(IndexSpec *sp) {
   RS_ASSERT(disk && sp && sp->diskSpec);
   RS_ASSERT(sp->repl_read_lock_held);
-  RS_ASSERT(sp->repl_fork_lock_held);
+  RS_ASSERT(sp->repl_disk_fork_protected);
   disk->index.postFork(sp->diskSpec);
   IndexSpec_ReleaseReadLock(sp);
-  IndexSpec_ReleaseForkLock(sp);
+  IndexSpec_UnProtectDiskFork(sp);
   sp->repl_read_lock_held = false;
-  sp->repl_fork_lock_held = false;
+  sp->repl_disk_fork_protected = false;
 }
 
 void SearchDisk_ReplicationAbort(IndexSpec *sp) {
@@ -488,9 +487,9 @@ void SearchDisk_ReplicationAbort(IndexSpec *sp) {
     sp->repl_read_lock_held = false;
     IndexSpec_ReleaseReadLock(sp);
   }
-  if (sp->repl_fork_lock_held) {
-    sp->repl_fork_lock_held = false;
-    IndexSpec_ReleaseForkLock(sp);
+  if (sp->repl_disk_fork_protected) {
+    sp->repl_disk_fork_protected = false;
+    IndexSpec_UnProtectDiskFork(sp);
   }
   disk->index.replicationAbort(sp->diskSpec);
 }
