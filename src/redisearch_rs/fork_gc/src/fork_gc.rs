@@ -19,7 +19,7 @@ use crate::reader::Reader;
 use crate::util::read_with_timeout;
 use crate::writer::Writer;
 
-/// Poll timeout used by the parent-side pipe reader (3 minutes).
+/// Poll timeout used by the parent-side pipe reader.
 const POLL_TIMEOUT: Duration = Duration::from_mins(3);
 
 /// Safe wrapper around [`ffi::ForkGC`].
@@ -62,7 +62,7 @@ impl ForkGC {
     /// Return a readable handle to the GC pipe.
     ///
     /// Each call to [`Reader::recv_fixed`] delegates to
-    /// [`read_with_timeout`] with a 3-minute poll timeout and retries on
+    /// [`read_with_timeout`] with `POLL_TIMEOUT` and retries on
     /// `EINTR`. On timeout or pipe error the error is surfaced.
     ///
     /// When `pipe_read_fd` is negative — tests deliberately set it to

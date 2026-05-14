@@ -59,7 +59,9 @@ pub fn read_with_timeout<R: Read + AsRawFd>(
             Err(e) => return Err(io::Error::from(e)),
             Ok(0) => return Err(io::Error::new(io::ErrorKind::TimedOut, "read timed out")),
             Ok(_) => {
-                let revents = pfd.revents().expect("poll returned unknown bits in revents");
+                let revents = pfd
+                    .revents()
+                    .expect("poll returned unknown bits in revents");
                 // Reads from closed empty pipes return only `POLLHUP`, while reads from closed
                 // unix domain sockets return `POLLIN | POLLHUP`. In both cases however, a
                 // subsequent read doesn't block and returns 0, signalling EOF.
