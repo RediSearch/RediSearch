@@ -7,122 +7,299 @@ on:
 permissions:
   actions: read
   contents: read
+  issues: read
+  pull-requests: read
 
 jobs:
   detect-resubmit:
+    name: Detect resubmission after merge queue removal
     runs-on: ubuntu-slim
     steps:
-      - name: Check for resubmission without new commits
+      - name: Check whether this is an unchanged resubmission
         id: check
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
-          HEAD_SHA: ${{ github.event.merge_group.head_sha }}
-          BASE_SHA: ${{ github.event.merge_group.base_sha }}
-          PR_NUMBER: ${{ github.event.merge_group.head_ref }}
+          HEAD_REF: ${{ github.event.merge_group.head_ref }}
+          GH_HANDLE_TO_SLACK_JSON: ${{ secrets.GH_HANDLE_TO_SLACK_JSON }}
           CURRENT_RUN_ID: ${{ github.run_id }}
+          SERVER_URL: ${{ github.server_url }}
+        shell: python
         run: |
-          # Extract PR number from head_ref (format: refs/pull/NUMBER/merge or gh-readonly-queue/main/pr-NUMBER-...)
-          if [[ "$PR_NUMBER" =~ refs/pull/([0-9]+)/merge ]]; then
-            PR_NUM="${BASH_REMATCH[1]}"
-          elif [[ "$PR_NUMBER" =~ pr-([0-9]+)- ]]; then
-            PR_NUM="${BASH_REMATCH[1]}"
-          else
-            echo "Could not extract PR number from: $PR_NUMBER"
-            echo "resubmit=false" >> $GITHUB_OUTPUT
-            exit 0
-          fi
+          import json
+          import os
+          import re
+          import subprocess
+          import sys
+          import time
+          import uuid
+          from datetime import datetime, timezone
 
-          echo "Checking PR #$PR_NUM"
-          echo "Current HEAD SHA: $HEAD_SHA"
-          echo "Current BASE SHA: $BASE_SHA"
+          QUERY = """
+          query($owner: String!, $repo: String!, $number: Int!) {
+            repository(owner: $owner, name: $repo) {
+              pullRequest(number: $number) {
+                title
+                url
+                headRefOid
+                author {
+                  login
+                }
+                commits(last: 1) {
+                  nodes {
+                    commit {
+                      oid
+                      committedDate
+                    }
+                  }
+                }
+                timelineItems(
+                  last: 50
+                  itemTypes: [
+                    ADDED_TO_MERGE_QUEUE_EVENT
+                    REMOVED_FROM_MERGE_QUEUE_EVENT
+                  ]
+                ) {
+                  nodes {
+                    __typename
+                    ... on AddedToMergeQueueEvent {
+                      createdAt
+                      enqueuer {
+                        login
+                      }
+                    }
+                    ... on RemovedFromMergeQueueEvent {
+                      createdAt
+                      reason
+                      actor {
+                        login
+                      }
+                      enqueuer {
+                        login
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+          """
 
-          # The merge queue creates a NEW temporary merge commit each time,
-          # so head_sha will be different even for the same PR commits.
-          # Hence, we should check the PR's actual head commit (before merge).
 
-          # Get the PR's actual head SHA (the last commit on the PR branch)
-          PR_HEAD_SHA=$(gh api "/repos/$REPO/pulls/$PR_NUM" --jq '.head.sha')
-          echo "PR's actual HEAD SHA: $PR_HEAD_SHA"
+          def append_output(name, value):
+              delimiter = f"EOF_{name}_{uuid.uuid4().hex}"
+              with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+                  output.write(f"{name}<<{delimiter}\n{value or ''}\n{delimiter}\n")
 
-          # Get the list of previous workflow runs for this merge queue workflow
-          # Look for runs from the same PR that have failed/cancelled
-          echo "Searching for previous merge_group runs for PR #$PR_NUM..."
 
-          ALL_RUNS=$(gh api \
-            -H "Accept: application/vnd.github+json" \
-            -H "X-GitHub-Api-Version: 2022-11-28" \
-            "/repos/$REPO/actions/runs?event=merge_group&per_page=100" \
-            --jq ".workflow_runs[] | select(.id != $CURRENT_RUN_ID) | {id: .id, head_sha: .head_sha, conclusion: .conclusion, head_ref: .head_branch}" | jq -s '.')
+          def finish_without_alert(message):
+              print(message)
+              append_output("resubmit", "false")
+              sys.exit(0)
 
-          echo "Recent merge_group runs:"
-          echo "$ALL_RUNS" | jq -c '.[]'
 
-          # Look for previous runs from the same PR (by matching PR number in head_ref)
-          # Use regex anchors to ensure exact PR number match (e.g., pr-12- won't match pr-123-)
-          PREVIOUS_RUN_DATA=$(echo "$ALL_RUNS" | jq -c ".[] | select(.head_ref | test(\"(^|/)pr-${PR_NUM}-\")) | select(.conclusion == \"failure\" or .conclusion == \"cancelled\")" | head -1)
+          def format_timestamp(value):
+              return (
+                  datetime.fromisoformat(value.replace("Z", "+00:00"))
+                  .astimezone(timezone.utc)
+                  .strftime("%Y-%m-%d %H:%M:%S UTC")
+              )
 
-          if [[ -z "$PREVIOUS_RUN_DATA" ]]; then
-            echo "No previous failed/cancelled runs found for PR #$PR_NUM"
-            echo "resubmit=false" >> $GITHUB_OUTPUT
-            exit 0
-          fi
 
-          PREVIOUS_RUN_ID=$(echo "$PREVIOUS_RUN_DATA" | jq -r '.id // empty')
-          echo "Found previous failed/cancelled run ID: $PREVIOUS_RUN_ID"
+          def query_pull_request(owner, repo, number):
+              result = subprocess.run(
+                  [
+                      "gh",
+                      "api",
+                      "graphql",
+                      "-f",
+                      f"owner={owner}",
+                      "-f",
+                      f"repo={repo}",
+                      "-F",
+                      f"number={number}",
+                      "-f",
+                      f"query={QUERY}",
+                  ],
+                  check=True,
+                  capture_output=True,
+                  text=True,
+              )
+              return json.loads(result.stdout)["data"]["repository"]["pullRequest"]
 
-          # Now check if the PR's head SHA has changed since that previous run
-          # Get the PR's head SHA at the time of the previous run by fetching the run details
-          PREVIOUS_RUN_DETAILS=$(gh api \
-            -H "Accept: application/vnd.github+json" \
-            -H "X-GitHub-Api-Version: 2022-11-28" \
-            "/repos/$REPO/actions/runs/$PREVIOUS_RUN_ID")
 
-          # Extract the PR head SHA from the previous run's jobs
-          # The merge queue creates a merge commit, but we need to check the actual PR commits
-          # We'll get the commit list from the previous run and find the PR's head commit
-          PREVIOUS_RUN_CREATED_AT=$(echo "$PREVIOUS_RUN_DETAILS" | jq -r '.created_at')
-          echo "Previous run was created at: $PREVIOUS_RUN_CREATED_AT"
+          def query_merge_queue_workflow_runs(repo, pr_number, queue_branch):
+              pr_ref_pattern = re.compile(rf"(^|/)pr-{pr_number}-")
+              candidates = []
+              for attempt in range(5):
+                  result = subprocess.run(
+                      [
+                          "gh",
+                          "api",
+                          f"/repos/{repo}/actions/runs?event=merge_group&per_page=100",
+                      ],
+                      check=True,
+                      capture_output=True,
+                      text=True,
+                  )
 
-          # Get the PR's commit history and find what the head SHA was at the time of the previous run
-          # We'll check if the current PR head SHA existed before the previous run
-          COMMIT_DATE=$(gh api "/repos/$REPO/commits/$PR_HEAD_SHA" --jq '.commit.committer.date')
-          echo "Current PR HEAD commit date: $COMMIT_DATE"
+                  candidates = []
+                  for run in json.loads(result.stdout)["workflow_runs"]:
+                      if run.get("path") != ".github/workflows/event-merge-to-queue.yml":
+                          continue
 
-          # Compare dates: if the current PR head commit is newer than the previous run, there were new commits
-          if [[ "$COMMIT_DATE" > "$PREVIOUS_RUN_CREATED_AT" ]]; then
-            echo "New commits detected! Current HEAD ($PR_HEAD_SHA) was committed after the previous run."
-            echo "resubmit=false" >> $GITHUB_OUTPUT
-            exit 0
-          fi
+                      head_branch = run.get("head_branch") or ""
+                      if not pr_ref_pattern.search(head_branch):
+                          continue
 
-          echo "Found previous failed/cancelled run for PR #$PR_NUM"
-          echo "Previous run ID: $PREVIOUS_RUN_ID"
-          echo "No new commits detected since the previous run!"
-          echo "This is a resubmission without new commits!"
-          echo "resubmit=true" >> $GITHUB_OUTPUT
-          echo "pr_number=$PR_NUM" >> $GITHUB_OUTPUT
+                      candidates.append(run)
 
-          # Get PR details for the notification
-          PR_TITLE=$(gh api "/repos/$REPO/pulls/$PR_NUM" --jq '.title')
-          PR_URL=$(gh api "/repos/$REPO/pulls/$PR_NUM" --jq '.html_url')
-          PR_AUTHOR=$(gh api "/repos/$REPO/pulls/$PR_NUM" --jq '.user.login')
+                  candidates.sort(key=lambda run: run["created_at"], reverse=True)
+                  current_queue_run_index = next(
+                      (
+                          index
+                          for index, run in enumerate(candidates)
+                          if run.get("head_branch") == queue_branch
+                      ),
+                      None,
+                  )
+                  if current_queue_run_index is not None:
+                      previous_queue_run = None
+                      if current_queue_run_index + 1 < len(candidates):
+                          previous_queue_run = candidates[current_queue_run_index + 1]
+                      return candidates[current_queue_run_index], previous_queue_run
 
-          echo "pr_title=$PR_TITLE" >> $GITHUB_OUTPUT
-          echo "pr_url=$PR_URL" >> $GITHUB_OUTPUT
-          echo "pr_author=$PR_AUTHOR" >> $GITHUB_OUTPUT
+                  if attempt < 4:
+                      time.sleep(2)
 
-      - name: Notify Slack about resubmission
+              return None, None
+
+
+          def latest(events, event_type):
+              matching = [event for event in events if event["__typename"] == event_type]
+              return max(matching, key=lambda event: event["createdAt"], default=None)
+
+
+          repo = os.environ["REPO"]
+          owner, repo_name = repo.split("/", maxsplit=1)
+          head_ref = os.environ["HEAD_REF"]
+          queue_branch = head_ref.removeprefix("refs/heads/")
+          match = re.search(r"(^|/)pr-(\d+)-", head_ref)
+          if not match:
+              finish_without_alert(f"Could not extract PR number from merge queue ref: {head_ref}")
+
+          pr_number = int(match.group(2))
+          print(f"Checking whether PR #{pr_number} was resubmitted without new commits")
+
+          pull_request = query_pull_request(owner, repo_name, pr_number)
+          events = pull_request["timelineItems"]["nodes"]
+          latest_add = latest(events, "AddedToMergeQueueEvent")
+          latest_removal = latest(events, "RemovedFromMergeQueueEvent")
+
+          if not latest_add:
+              finish_without_alert("No merge queue add event found for this submission")
+
+          if not latest_removal:
+              finish_without_alert("No previous merge queue removal event found")
+
+          if latest_removal["createdAt"] > latest_add["createdAt"]:
+              finish_without_alert("The latest merge queue event is a removal, not this submission")
+
+          current_head = pull_request["headRefOid"]
+          head_commit = pull_request["commits"]["nodes"][0]["commit"]
+          if current_head != head_commit["oid"]:
+              finish_without_alert("Could not confirm the PR head commit from the commit list")
+
+          if head_commit["committedDate"] > latest_removal["createdAt"]:
+              print("The PR head commit is newer than the last merge queue removal")
+              print(f"Current head: {current_head}")
+              print(f"Head committed at: {head_commit['committedDate']}")
+              print(f"Removed at: {latest_removal['createdAt']}")
+              finish_without_alert("No unchanged resubmission detected")
+
+          reason = latest_removal.get("reason") or "No reason provided"
+          actor = latest_removal.get("actor") or {}
+          enqueuer = latest_add.get("enqueuer") or latest_removal.get("enqueuer") or {}
+          enqueuer_login = enqueuer.get("login") or ""
+          detector_workflow_url = f"{os.environ['SERVER_URL']}/{repo}/actions/runs/{os.environ['CURRENT_RUN_ID']}"
+          current_merge_queue_run, previous_merge_queue_run = query_merge_queue_workflow_runs(
+              repo, pr_number, queue_branch
+          )
+          if not current_merge_queue_run:
+              finish_without_alert("Could not find the current merge queue workflow run")
+
+          if (
+              previous_merge_queue_run
+              and previous_merge_queue_run.get("created_at", "") > latest_add["createdAt"]
+          ):
+              print("Previous merge queue workflow run is newer than the latest queue add event")
+              print(f"Latest queue add: {latest_add['createdAt']}")
+              print(f"Previous merge queue workflow run: {previous_merge_queue_run['created_at']}")
+              finish_without_alert(
+                  "This merge_group run is a queue revalidation for an existing queue add event"
+              )
+
+          merge_queue_run_url = (previous_merge_queue_run or {}).get("html_url") or detector_workflow_url
+          head_commit_url = f"{os.environ['SERVER_URL']}/{repo}/commit/{current_head}"
+
+          try:
+              raw_mapping = json.loads(os.environ.get("GH_HANDLE_TO_SLACK_JSON") or "{}")
+              slack_mapping = {str(k).lower(): str(v) for k, v in raw_mapping.items()}
+          except (json.JSONDecodeError, AttributeError):
+              slack_mapping = {}
+
+          def slack_id_for(login):
+              return slack_mapping.get(login.lower(), login) if login else ""
+
+
+          author_login = (pull_request.get("author") or {}).get("login") or ""
+
+          print("PR was resubmitted after removal without new commits")
+          print(f"Removal reason: {reason}")
+          print(f"Head commit: {current_head}")
+          print(f"Head committed at: {head_commit['committedDate']}")
+
+          append_output("resubmit", "true")
+          append_output("pr_title", pull_request["title"])
+          append_output("pr_url", pull_request["url"])
+          append_output("pr_author", author_login)
+          append_output("author_mention", slack_id_for(author_login))
+          append_output("reason", reason)
+          append_output("removed_by", actor.get("login"))
+          append_output("enqueued_by", enqueuer_login)
+          append_output("enqueued_by_mention", slack_id_for(enqueuer_login))
+          append_output("removed_at", format_timestamp(latest_removal["createdAt"]))
+          append_output("resubmitted_at", format_timestamp(latest_add["createdAt"]))
+          append_output("head_commit", current_head)
+          append_output("head_commit_url", head_commit_url)
+          append_output("head_committed_at", format_timestamp(head_commit["committedDate"]))
+          append_output("merge_queue_workflow", merge_queue_run_url)
+          append_output("detector_workflow", detector_workflow_url)
+
+      - name: Notify Slack about unchanged merge queue resubmission
         if: steps.check.outputs.resubmit == 'true'
-        uses: slackapi/slack-github-action@v1
-        env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL_RQE_CI_ISSUES }}
+        uses: slackapi/slack-github-action@v3
         with:
+          errors: true
+          webhook: ${{ secrets.SLACK_WEBHOOK_URL_RQE_CI_ISSUES }}
+          webhook-type: webhook-trigger
           payload: |
             {
               "repository": "${{ github.repository }}",
               "PR": ${{ toJson(steps.check.outputs.pr_url) }},
               "Title": ${{ toJson(steps.check.outputs.pr_title) }},
               "Author": ${{ toJson(steps.check.outputs.pr_author) }},
-              "Workflow": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+              "Author_Mention": ${{ toJson(steps.check.outputs.author_mention) }},
+              "Reason": ${{ toJson(steps.check.outputs.reason) }},
+              "Removed_At": ${{ toJson(steps.check.outputs.removed_at) }},
+              "Resubmitted_At": ${{ toJson(steps.check.outputs.resubmitted_at) }},
+              "Removed_By": ${{ toJson(steps.check.outputs.removed_by) }},
+              "Enqueued_By": ${{ toJson(steps.check.outputs.enqueued_by) }},
+              "Enqueued_By_Mention": ${{ toJson(steps.check.outputs.enqueued_by_mention) }},
+              "Head_Commit": ${{ toJson(steps.check.outputs.head_commit_url) }},
+              "Head_Commit_SHA": ${{ toJson(steps.check.outputs.head_commit) }},
+              "Head_Committed_At": ${{ toJson(steps.check.outputs.head_committed_at) }},
+              "Workflow": ${{ toJson(steps.check.outputs.detector_workflow) }},
+              "Previous_Merge_Queue_Run": ${{ toJson(steps.check.outputs.merge_queue_workflow) }},
+              "Detector_Workflow": ${{ toJson(steps.check.outputs.detector_workflow) }}
             }
