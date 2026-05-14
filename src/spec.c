@@ -22,7 +22,7 @@
 #include "rmutil/vector.h"
 #include "rmutil/util.h"
 #include "rmutil/rm_assert.h"
-#include "trie/trie_type.h"
+#include "trie/trie.h"
 #include "rmalloc.h"
 #include "config.h"
 #include "cursor.h"

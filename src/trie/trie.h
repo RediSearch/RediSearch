@@ -6,8 +6,8 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#ifndef __TRIE_TYPE_H__
-#define __TRIE_TYPE_H__
+#ifndef __TRIE_H__
+#define __TRIE_H__
 
 #include "redismodule.h"
 

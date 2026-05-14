@@ -15,7 +15,7 @@
 #include "redismodule.h"
 #include "config.h"
 #include "doc_table.h"
-#include "trie/trie_type.h"
+#include "trie/trie.h"
 #include "sortable.h"
 #include "stopwords.h"
 #include "gc.h"

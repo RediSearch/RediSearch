@@ -13,7 +13,7 @@
 #include "util/heap.h"
 #include "util/misc.h"
 #include "rune_util.h"
-#include "trie_type.h"
+#include "trie.h"
 #include "rmalloc.h"
 #include "rdb.h"
 

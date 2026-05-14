@@ -12,7 +12,7 @@
 extern "C" {
 #endif
 
-#include "trie/trie_type.h"
+#include "trie/trie.h"
 #include "util/arr.h"
 
 typedef struct TrieMap TrieMap;
