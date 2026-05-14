@@ -164,6 +164,18 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
  ********************************************************/
     case expire_cmd:
     case persist_cmd:
+      // EXPIRE/PERSIST only change the key's TTL; the document content,
+      // schema-rule filters and inverted indexes are all unaffected. In the
+      // in-memory flow we only need to refresh the doc-level expiration on
+      // the matching DMDs. Disk-backed indexes still take the full reindex
+      // path until they grow an equivalent fast path.
+      if (SearchDisk_IsEnabled()) {
+        Indexes_UpdateMatchingWithSchemaRules(ctx, key, getDocTypeFromString(key), hashFields);
+      } else {
+        Indexes_UpdateMatchingDocExpiration(ctx, key, getDocTypeFromString(key));
+      }
+      break;
+
     case hexpire_cmd:
     case hpersist_cmd:
     case restore_cmd:

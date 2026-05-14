@@ -277,10 +277,11 @@ def test_expire_aggregate(env):
     # This test ensures that the flag indicating expiration is cleared and the search result struct is ready to be reused.
     res = conn.execute_command('FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@t')
     # The result count is not accurate in aggregation, because WITHOUTCOUNT is the default
-    env.assertEqual(res, [1, ['t', 'arr'], ['t', 'bar']])
+    # Accept both orders, since docID did not advance
+    env.assertEqual([res[0], sorted(res[1:])], [1, sorted([['t', 'arr'], ['t', 'bar']])])
     # Test using WITHCOUNT
     res = conn.execute_command('FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LOAD', 1, '@t')
-    env.assertEqual(res, [2, ['t', 'arr'], ['t', 'bar']])
+    env.assertEqual([res[0], sorted(res[1:])], [2, sorted([['t', 'arr'], ['t', 'bar']])])
 
 
 
@@ -568,6 +569,126 @@ def testLazyVectorFieldExpiration(env):
     # also we expect that the ismissing inverted index to contain document 1 since it had an active expiration
     env.expect('FT.SEARCH', 'idx', 'ismissing(@v)', 'NOCONTENT', 'DIALECT', '3').equal([1, 'doc:1'])
 
+def _setup_non_matching_indexes(env):
+    # Shared setup for the EXPIRE/PEXPIRE/PERSIST scenarios. Three distinct
+    # ways an index can fail to match the key are exercised:
+    #   - idx_other_prefix: PREFIX excludes the key entirely, so the spec is
+    #                       not returned by FindMatchingSchemaRules.
+    #   - idx_filter_skip:  PREFIX matches but the FILTER excludes the doc, so
+    #                       FindMatchingSchemaRules tags the op as SpecOp_Del.
+    #   - idx_no_monitor:   PREFIX matches but monitorDocumentExpiration is
+    #                       disabled, so the spec is skipped on the fast path.
+    # Only idx_match should reflect TTL changes via DocTable_UpdateExpiration.
+    conn = getConnectionByEnv(env)
+    conn.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '0')
+
+    env.expect('FT.CREATE', 'idx_match', 'ON', 'HASH',
+               'PREFIX', '1', 'doc:',
+               'SCHEMA', 'x', 'TEXT').ok()
+    env.expect('FT.CREATE', 'idx_other_prefix', 'ON', 'HASH',
+               'PREFIX', '1', 'other:',
+               'SCHEMA', 'x', 'TEXT').ok()
+    env.expect('FT.CREATE', 'idx_filter_skip', 'ON', 'HASH',
+               'PREFIX', '1', 'doc:',
+               'FILTER', '@n == 100',
+               'SCHEMA', 'x', 'TEXT', 'n', 'NUMERIC').ok()
+    env.expect('FT.CREATE', 'idx_no_monitor', 'ON', 'HASH',
+               'PREFIX', '1', 'doc:',
+               'SCHEMA', 'x', 'TEXT').ok()
+
+    # Disable doc-level expiration tracking on idx_no_monitor; the other specs
+    # keep the default monitorDocumentExpiration=true.
+    env.cmd(debug_cmd(), 'SET_MONITOR_EXPIRATION', 'idx_no_monitor', 'not-documents')
+
+    # n=1 fails the FILTER on idx_filter_skip but the PREFIX still selects
+    # these hashes for the keyspace-notification path.
+    conn.execute_command('HSET', 'doc:1', 'x', 'hello', 'n', '1')
+    conn.execute_command('HSET', 'doc:2', 'x', 'hello', 'n', '1')
+    # other:1 belongs only to idx_other_prefix.
+    conn.execute_command('HSET', 'other:1', 'x', 'hello')
+
+    # Sanity check: every index returns the docs it is supposed to before
+    # any TTL command fires.
+    env.expect('FT.SEARCH', 'idx_match', '@x:hello', 'NOCONTENT') \
+        .apply(sort_document_names).equal([2, 'doc:1', 'doc:2'])
+    env.expect('FT.SEARCH', 'idx_no_monitor', '@x:hello', 'NOCONTENT') \
+        .apply(sort_document_names).equal([2, 'doc:1', 'doc:2'])
+    env.expect('FT.SEARCH', 'idx_other_prefix', '@x:hello', 'NOCONTENT') \
+        .equal([1, 'other:1'])
+    env.expect('FT.SEARCH', 'idx_filter_skip', '*', 'NOCONTENT').equal([0])
+
+    return conn
+
+
+def _assert_non_matching_indexes_unchanged(env):
+    # Indexes that did not match doc:1 must keep their pre-TTL view of the
+    # data regardless of which TTL command fired.
+    #
+    # idx_no_monitor: spec opted out, so the fast path skipped it and the
+    # DocTable entry for doc:1 was never tagged. Active expiration is off,
+    # so the underlying hash is still present and doc:1 remains visible.
+    env.expect('FT.SEARCH', 'idx_no_monitor', '@x:hello', 'NOCONTENT') \
+        .apply(sort_document_names).equal([2, 'doc:1', 'doc:2'])
+    # idx_other_prefix: doc:1 was never selected by this index's PREFIX, and
+    # other:1 has no TTL of its own.
+    env.expect('FT.SEARCH', 'idx_other_prefix', '@x:hello', 'NOCONTENT') \
+        .equal([1, 'other:1'])
+    # idx_filter_skip: the FILTER excludes every doc, so the index stays
+    # empty and the SpecOp_Del branch in the fast path is exercised.
+    env.expect('FT.SEARCH', 'idx_filter_skip', '*', 'NOCONTENT').equal([0])
+
+
+def _run_key_expiration_with_non_matching_indexes(env, expire_cmd, ttl_arg, sleep_secs):
+    # Cover the full-key TTL case when several indexes coexist but only
+    # idx_match is affected by an EXPIRE/PEXPIRE notification.
+    conn = _setup_non_matching_indexes(env)
+
+    conn.execute_command(expire_cmd, 'doc:1', ttl_arg)
+    # https://www.kernel.org/doc/html/latest/core-api/timekeeping.html (CLOCK_REALTIME_COARSE may be off by 10ms)
+    time.sleep(sleep_secs)
+
+    # idx_match: monitorDocumentExpiration=true, so DocTable_UpdateExpiration
+    # ran for doc:1 and DocTable_IsDocExpired now filters it out at search.
+    env.expect('FT.SEARCH', 'idx_match', '@x:hello', 'NOCONTENT').equal([1, 'doc:2'])
+
+    _assert_non_matching_indexes_unchanged(env)
+
+
+@skip(cluster=True, redis_less_than='8.0')
+def testKeyExpirationWithNonMatchingIndexes(env):
+    # PEXPIRE granularity: TTL of 1ms, expires almost immediately.
+    _run_key_expiration_with_non_matching_indexes(env, 'PEXPIRE', '1', 0.015)
+
+
+@skip(cluster=True, redis_less_than='8.0')
+def testKeyExpirationWithNonMatchingIndexesExpire(env):
+    # EXPIRE (seconds) granularity: same scenario, but the keyspace
+    # notification arrives via the seconds-based path.
+    _run_key_expiration_with_non_matching_indexes(env, 'EXPIRE', '1', 1.05)
+
+
+@skip(cluster=True, redis_less_than='8.0')
+def testKeyPersistWithNonMatchingIndexes(env):
+    # PERSIST shares the expire_cmd branch in src/notifications.c, so it
+    # also flows through Indexes_UpdateMatchingDocExpiration. Verify that
+    # clearing the TTL on doc:1 propagates to idx_match's DocTable entry
+    # so the doc remains visible past the original PEXPIRE deadline, while
+    # the non-matching indexes keep their pre-TTL view.
+    conn = _setup_non_matching_indexes(env)
+
+    conn.execute_command('PEXPIRE', 'doc:1', '1')
+    # PERSIST runs synchronously on the main thread before the sleep, so it
+    # clears the DocTable expiration recorded by the PEXPIRE notification.
+    conn.execute_command('PERSIST', 'doc:1')
+    time.sleep(0.015)
+
+    # idx_match: PERSIST cleared the DocTable TTL, so DocTable_IsDocExpired
+    # returns false and doc:1 is still visible.
+    env.expect('FT.SEARCH', 'idx_match', '@x:hello', 'NOCONTENT') \
+        .apply(sort_document_names).equal([2, 'doc:1', 'doc:2'])
+
+    _assert_non_matching_indexes_unchanged(env)
+
 
 @skip(redis_less_than='7.3')
 def testLastFieldNoExpiration(env):
@@ -714,3 +835,82 @@ def test_ttl_table_collision_chain():
     res = env.cmd('FT.SEARCH', 'idx', f'@n:[1 {N}]', 'NOCONTENT', 'LIMIT', '0', str(N))
     returned = sorted(int(d.split(':')[1]) for d in res[1:])
     env.assertEqual(returned, expected)
+
+@skip(cluster=True, redis_less_than='7.4')
+def test_wide_schema_field_expiration(env):
+    # Indexes with >32 text fields are auto-promoted to wide schema encoding.
+    # We use also field index >= 64 to trigger high half loop iteration
+    N_FIELDS = 70
+
+    conn = getConnectionByEnv(env)
+    conn.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '0')
+
+    schema = list(chain.from_iterable((f'f{i}', 'TEXT') for i in range(N_FIELDS)))
+    conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', *schema)
+
+    hello_kv = list(chain.from_iterable((f'f{i}', 'hello') for i in range(N_FIELDS)))
+    conn.execute_command('HSET', 'doc:plain', *hello_kv)
+    conn.execute_command('HSET', 'doc:short', *hello_kv)
+    conn.execute_command('HPEXPIRE', 'doc:short', '1', 'FIELDS', '1', 'f5')
+
+    kv_scan = list(chain.from_iterable(
+        (f'f{i}', 'needle' if i in (3, 67) else 'filler') for i in range(N_FIELDS)))
+    conn.execute_command('HSET', 'doc:scan', *kv_scan)
+    conn.execute_command('HPEXPIRE', 'doc:scan', '1', 'FIELDS', '2', 'f3', 'f67')
+
+    conn.execute_command('HSET', 'doc:docexp', *hello_kv)
+    conn.execute_command('EXPIRE', 'doc:docexp', '30000')
+
+    kv_lowexp = list(chain.from_iterable(
+        (f'f{i}', 'tophalf' if i == 67 else 'other') for i in range(N_FIELDS)))
+    conn.execute_command('HSET', 'doc:lowexp', *kv_lowexp)
+    conn.execute_command('HPEXPIRE', 'doc:lowexp', '1', 'FIELDS', '1', 'f5')
+
+    kv_below = list(chain.from_iterable(
+        (f'f{i}', 'below' if i == 3 else 'other') for i in range(N_FIELDS)))
+    conn.execute_command('HSET', 'doc:below', *kv_below)
+    conn.execute_command('HPEXPIRE', 'doc:below', '1', 'FIELDS', '1', 'f50')
+
+    kv_live = list(chain.from_iterable(
+        (f'f{i}', 'alive' if i == 3 else 'other') for i in range(N_FIELDS)))
+    conn.execute_command('HSET', 'doc:live', *kv_live)
+    conn.execute_command('HEXPIRE', 'doc:live', '30000', 'FIELDS', '1', 'f3')
+
+    waitForIndex(env, 'idx')
+
+    time.sleep(0.050)
+
+    # Match because:
+    # - "doc:plain" has no expiration
+    # - "doc:docexp" has a long doc expiration time
+    # - "doc:short" has f5 expired but not the others
+    env.expect('FT.SEARCH', 'idx', 'hello', 'NOCONTENT').apply(sort_document_names) \
+        .equal([3, 'doc:docexp', 'doc:plain', 'doc:short'])
+    # Not match because:
+    # - "doc:scan" f3 and f67 were expired
+    env.expect('FT.SEARCH', 'idx', 'needle', 'NOCONTENT').equal([0])
+    # Match because:
+    # - "doc:lowexp" f67 matches so the f5 expiration is not considered
+    env.expect('FT.SEARCH', 'idx', 'tophalf', 'NOCONTENT').equal([1, 'doc:lowexp'])
+    # Match because:
+    # - "doc:below" f3 matches so the f50 expiration is not considered
+    env.expect('FT.SEARCH', 'idx', 'below', 'NOCONTENT').equal([1, 'doc:below'])
+    # Match because:
+    # - "doc:live" f3 matches and it is not expired yet
+    env.expect('FT.SEARCH', 'idx', 'alive', 'NOCONTENT').equal([1, 'doc:live'])
+
+@skip(cluster=True)
+def test_expire_past_timestamp_removes_doc(env):
+    env.cmd('DEBUG', 'SET-ACTIVE-EXPIRE', '0')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+    env.expect('HSET', 'doc:1', 't', 'hello').equal(1)
+    env.expect('HSET', 'doc:2', 't', 'world').equal(1)
+    waitForIndex(env, 'idx')
+
+    env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT').apply(sort_document_names).equal(
+        [2, 'doc:1', 'doc:2'])
+
+    env.expect('EXPIREAT', 'doc:1', '1').equal(1)
+
+    env.expect('EXISTS', 'doc:1').equal(0)
+    env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT').equal([1, 'doc:2'])
