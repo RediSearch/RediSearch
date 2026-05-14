@@ -297,6 +297,29 @@ def testTagCaseSensitive(env):
     env.expect('FT.SEARCH', 'idx4', r'@t:{f\ o}')         \
         .equal([1, 'doc3', ['t', 'f o']])
 
+def testTagCaseSensitiveBinaryBytes(env):
+    """Drive raw, non-UTF-8 bytes through the case-sensitive tag path so that
+    NewQueryTerm receives them verbatim. With CASESENSITIVE set, indexing skips
+    unicode_tolower (see tag_index.c tokenizeTagString) and the bytes are stored
+    as-is in the tag trie. At query time, TagIndex_GetReader passes those bytes
+    straight into NewQueryTerm. Using PARAMS substitution avoids any lexer
+    interpretation of the bytes in the query string."""
+    conn = getConnectionByEnv(env)
+
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG', 'CASESENSITIVE').ok()
+
+    binary_tag = b'\xff\xfe'  # not valid UTF-8
+    conn.execute_command('HSET', 'doc1', 't', binary_tag)
+
+    waitForIndex(env, 'idx')
+
+    res = conn.execute_command(
+        'FT.SEARCH', 'idx', '@t:{$tag}',
+        'PARAMS', '2', 'tag', binary_tag,
+        'NOCONTENT')
+    env.assertEqual(res[0], 1)
+    env.assertEqual(res[1], b'doc1' if isinstance(res[1], bytes) else 'doc1')
+
 @skip(cluster=True)
 def testTagGCClearEmpty(env):
 
