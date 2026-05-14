@@ -14,6 +14,7 @@
 #define FORK_GC_PIPE_H_
 
 #include "fork_gc.h"
+#include "fork_gc_ffi.h"
 #include "search_ctx.h"
 #include "inverted_index.h"
 #include <stddef.h>

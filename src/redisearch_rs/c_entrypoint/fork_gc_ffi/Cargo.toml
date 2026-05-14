@@ -14,11 +14,8 @@ bench = false
 [lints]
 workspace = true
 
-[build-dependencies]
-cbindgen.workspace = true
-build_utils = { path = "../../build_utils" }
-
 [dependencies]
+cheadergen.workspace = true
 ffi = { workspace = true }
 fork_gc = { workspace = true }
 workspace_hack.workspace = true

@@ -704,8 +704,7 @@ dependencies = [
 name = "fork_gc_ffi"
 version = "0.0.1"
 dependencies = [
- "build_utils",
- "cbindgen",
+ "cheadergen",
  "ffi",
  "fork_gc",
  "workspace_hack",
