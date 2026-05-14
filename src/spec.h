@@ -701,6 +701,12 @@ void Indexes_Free(dict *d);
 size_t Indexes_Count();
 void Indexes_UpdateMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key, DocumentType type,
                                            RedisModuleString **hashFields);
+// Fast path for keyspace events that only change the document-level TTL
+// (EXPIRE/PERSIST): re-reads the key's absolute expiration and writes it
+// directly onto the matching DMDs, without re-running schema-rule filters or
+// re-indexing the document. In-memory flow only; callers must fall back to
+// Indexes_UpdateMatchingWithSchemaRules for disk-backed indexes.
+void Indexes_UpdateMatchingDocExpiration(RedisModuleCtx *ctx, RedisModuleString *key, DocumentType type);
 void Indexes_DeleteMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key,
                                            DocumentType type,
                                            RedisModuleString **hashFields);
