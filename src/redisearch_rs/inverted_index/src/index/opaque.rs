@@ -145,6 +145,34 @@ impl InvertedIndex {
     ) -> std::io::Result<Option<crate::GcScanDelta>> {
         ii_dispatch!(self, scan_gc, doc_exist, None::<fn(&_, &_)>)
     }
+
+    /// Apply the deltas of a garbage collection scan to the index.
+    ///
+    /// This is a dispatch wrapper around the typed [`InvertedIndex::apply_gc`].
+    pub fn apply_gc(&mut self, delta: crate::GcScanDelta) -> crate::GcApplyInfo {
+        ii_dispatch!(self, apply_gc, delta)
+    }
+
+    /// Return the number of unique documents in the index.
+    ///
+    /// This is a dispatch wrapper around the typed `InvertedIndex::unique_docs`.
+    pub const fn unique_docs(&self) -> u32 {
+        ii_dispatch!(self, unique_docs)
+    }
+
+    /// Return the memory usage of the index in bytes.
+    ///
+    /// This is a dispatch wrapper around the typed `InvertedIndex::memory_usage`.
+    pub fn memory_usage(&self) -> usize {
+        ii_dispatch!(self, memory_usage)
+    }
+
+    /// Return the number of blocks in the index.
+    ///
+    /// This is a dispatch wrapper around the typed `InvertedIndex::number_of_blocks`.
+    pub fn number_of_blocks(&self) -> usize {
+        ii_dispatch!(self, number_of_blocks)
+    }
 }
 
 impl Debug for InvertedIndex {
