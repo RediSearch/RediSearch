@@ -3591,7 +3591,17 @@ static int IndexSpec_StoreAfterRdbLoad(IndexSpec *sp) {
     addPendingIndexDrop();
     StrongRef_Release(spec_ref);
   } else {
-    IndexSpec_StartGC(spec_ref, sp, sp->diskSpec ? GCPolicy_Disk : GCPolicy_Fork);
+    // In the SST replication path diskSpec is still NULL here — it's opened
+    // later by Indexes_FinishSSTReplication, which also starts the Disk GC.
+    // Start GC eagerly only when the spec is fully ready: memory mode, or a
+    // disk spec whose diskSpec was opened during IndexSpec_RdbLoad (non-SST
+    // RDB path).
+    if (!SearchDisk_IsEnabled()) {
+      IndexSpec_StartGC(spec_ref, sp, GCPolicy_Fork);
+    } else if (sp->diskSpec) {
+      RS_ASSERT(!IS_SST_RDB_IN_PROCESS(RSDummyContext));
+      IndexSpec_StartGC(spec_ref, sp, GCPolicy_Disk);
+    }
     dictAdd(specDict_g, (void*)sp->specName, spec_ref.rm);
     dictAdd(specIdDict_g, (void*)(uintptr_t)sp->specId, spec_ref.rm);
 
@@ -4551,6 +4561,9 @@ void Indexes_FinishSSTReplication(RedisModuleCtx *ctx) {
     }
     IndexSpec_PopulateVectorDiskParams(sp);
     SearchDisk_RegisterIndex(ctx, sp);
+    // GC start was deferred by IndexSpec_StoreAfterRdbLoad for the SST path
+    // (diskSpec was NULL there); start it now that the disk handle exists.
+    IndexSpec_StartGC(spec_ref, sp, GCPolicy_Disk);
   }
   dictReleaseIterator(iter);
 }
