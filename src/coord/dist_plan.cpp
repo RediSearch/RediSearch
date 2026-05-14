@@ -415,19 +415,28 @@ static int distributeCollect(ReducerDistCtx *rdctx, QueryError *status) {
     }
   }
 
-  // ---- Helper: materialize a tokens vector into a BlkAlloc-backed argv,
-  //     prefixed with the `<nargs>` count expected by PLNGroupStep_AddReducer.
-  auto materialize = [&](const std::vector<const char *> &tokens) -> ArgsCursor {
+  // ---- Helper: build the argv shape that `PLNGroupStep_AddReducer` expects.
+  //   Output layout: <nargs=tokens.size()> <tokens...> [<trailing...>]
+  // Trailing tokens sit *outside* the counted slice — used by the local path
+  // to append `AS <user_alias>`, which `PLNGroupStep_AddReducer` consumes
+  // after the args slice.
+  auto buildReducerArgv = [&](const std::vector<const char *> &tokens,
+                              std::initializer_list<const char *> trailing = {}) -> ArgsCursor {
     size_t n = tokens.size();
+    size_t total = n + 1 + trailing.size();
     const char **objs = (const char **)BlkAlloc_Alloc(
-        rdctx->alloc, sizeof(const char *) * (n + 1),
-        std::max(sizeof(const char *) * (n + 1), size_t(32)));
+        rdctx->alloc, sizeof(const char *) * total,
+        std::max(sizeof(const char *) * total, size_t(32)));
     objs[0] = allocU64Str(n);  // leading <nargs>
     for (size_t i = 0; i < n; i++) {
       objs[i + 1] = tokens[i];
     }
+    size_t k = n + 1;
+    for (const char *t : trailing) {
+      objs[k++] = t;
+    }
     ArgsCursor out;
-    ArgsCursor_InitCString(&out, objs, (int)(n + 1));
+    ArgsCursor_InitCString(&out, objs, (int)total);
     return out;
   };
 
@@ -439,7 +448,7 @@ static int distributeCollect(ReducerDistCtx *rdctx, QueryError *status) {
     remoteTokens.push_back(allocU64Str(0));
     remoteTokens.push_back(allocU64Str(args.limit_offset + args.limit_count));
   }
-  ArgsCursor remoteArgs = materialize(remoteTokens);
+  ArgsCursor remoteArgs = buildReducerArgv(remoteTokens);
 
   const char *alias = nullptr;
   if (!rdctx->add(rdctx->remoteGroup, "COLLECT", &alias, status, &remoteArgs)) {
@@ -456,26 +465,8 @@ static int distributeCollect(ReducerDistCtx *rdctx, QueryError *status) {
     localTokens.push_back(allocU64Str(args.limit_offset));
     localTokens.push_back(allocU64Str(args.limit_count));
   }
-  ArgsCursor localArgs = materialize(localTokens);
-  // PLNGroupStep_AddReducer consumes the trailing `AS <alias>` after the args
-  // slice. Construct a separate argv: <args... AS user_alias>.
-  // The cleanest path is to append AS/<alias> to localTokens before materialize
-  // — but materialize prepends <nargs> only over `tokens.size()` which would
-  // wrongly count AS/<alias>. Instead, build a fresh argv with the AS suffix
-  // appended *after* the materialized count slot.
-  {
-    size_t n = localTokens.size();
-    const char **objs = (const char **)BlkAlloc_Alloc(
-        rdctx->alloc, sizeof(const char *) * (n + 3),
-        std::max(sizeof(const char *) * (n + 3), size_t(32)));
-    objs[0] = allocU64Str(n);
-    for (size_t i = 0; i < n; i++) {
-      objs[i + 1] = localTokens[i];
-    }
-    objs[n + 1] = dupCStr("AS");
-    objs[n + 2] = dupCStr(src->alias);
-    ArgsCursor_InitCString(&localArgs, objs, (int)(n + 3));
-  }
+  ArgsCursor localArgs = buildReducerArgv(localTokens,
+                                          {dupCStr("AS"), dupCStr(src->alias)});
 
   if (!rdctx->add(rdctx->localGroup, "COLLECT", nullptr, status, &localArgs)) {
     CollectArgs_Free(&args);
