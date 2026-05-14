@@ -29,6 +29,7 @@
 #include "asm_state_machine.h"
 #include "coord/rmr/command.h"
 #include "coord/rmr/chan.h"
+#include "coord/rpnet.h"
 #include "search_disk.h"
 #include "search_disk_utils.h"
 #include "doc_id_meta.h"
@@ -1134,11 +1135,16 @@ void AREQ_WaitForAggregateResultsComplete(AREQ *req) {
   pthread_mutex_unlock(&req->syncCtx.aggregateResultsLock);
 }
 
-void AREQ_ResetAggregateResultsClaim(AREQ *req) {
+void AREQ_ResetForCursorReadReturnStrict(AREQ *req) {
   atomic_store_explicit(&req->syncCtx.aggregatingResults, false, memory_order_release);
   pthread_mutex_lock(&req->syncCtx.aggregateResultsLock);
   req->syncCtx.aggregateResultsDone = false;
   pthread_mutex_unlock(&req->syncCtx.aggregateResultsLock);
+  atomic_store_explicit(&req->syncCtx.timedOut, false, memory_order_release);
+  ResultProcessor *root = AREQ_QueryProcessingCtx(req)->rootProc;
+  if (root && root->type == RP_NETWORK) {
+    ((RPNet *)root)->drainOnly = false;
+  }
 }
 
 void RequestSyncCtx_RegisterAbortWakeChannel(RequestSyncCtx *ctx, struct MRChannel *chan) {

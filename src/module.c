@@ -3644,6 +3644,7 @@ int RSAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 int DistAggregateReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 int DistAggregateTimeoutFailClient(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 int DistAggregateTimeoutReturnStrictClient(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
+int DistCursorReadTimeoutReturnStrictClient(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
 // Free privdata callback for distributed aggregate and hybrid query
 static void DistCoordReqFreePrivData(RedisModuleCtx *ctx, void *privdata) {
@@ -3902,19 +3903,20 @@ static inline int CursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, i
   handlerCtx.spec_ref = (WeakRef){0};
 
   // On coord+READ, peek the cursor's cached timeout config so coord and shard
-  // stay aligned across changes to the `search-on-timeout` config. A valid-format
-  // CID with no registered cursor returns defaults (timeoutMS=0, policy=Return)
-  // and is reported by RSCursorReadCommand on the worker.
+  // stay aligned across changes to the `search-on-timeout` config. Reject
+  // malformed/unknown CIDs on the main thread so the RETURN_STRICT timer can
+  // later trust argv[3] without re-peeking.
   if (sub == CURSOR_SUBCMD_READ) {
     long long cid;
     if (RedisModule_StringToLongLong(argv[3], &cid) != REDISMODULE_OK) {
-      // Reject malformed CID on the main thread so the worker never hits
-      // "Bad cursor ID" with a reply_callback armed.
       return RedisModule_ReplyWithError(ctx, "Bad cursor ID");
     }
     CursorTimeoutInfo info =
         Cursors_PeekTimeoutInfo(GetGlobalCursor((uint64_t)cid), (uint64_t)cid);
-    if (info.queryTimeoutPolicy == TimeoutPolicy_Fail) {
+    if (!info.found) {
+      return RedisModule_ReplyWithErrorFormat(ctx, "Cursor not found, id: %lld", cid);
+    }
+    if (info.queryTimeoutPolicy != TimeoutPolicy_Return) {
 #ifdef ENABLE_ASSERT
       // _FT.HYBRID WITHCURSOR is read via _FT.CURSOR READ, bypassing CursorCommand.
       RS_ASSERT(!info.isHybrid);
@@ -3923,9 +3925,14 @@ static inline int CursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, i
       handlerCtx.bcCtx.privdata = reqCtx;
       handlerCtx.bcCtx.free_privdata = DistCoordReqFreePrivData;
       handlerCtx.bcCtx.reply_callback = DistAggregateReplyCallback;
-      handlerCtx.bcCtx.timeout_callback = DistAggregateTimeoutFailClient;
       handlerCtx.bcCtx.timeoutMS = info.queryTimeoutMS;
       CoordRequestCtx_SetUseReplyCallback(reqCtx, true);
+      if (info.queryTimeoutPolicy == TimeoutPolicy_Fail) {
+        handlerCtx.bcCtx.timeout_callback = DistAggregateTimeoutFailClient;
+      } else {
+        handlerCtx.bcCtx.timeout_callback = DistCursorReadTimeoutReturnStrictClient;
+        CoordRequestCtx_SetCursorReadReturnStrict(reqCtx, true);
+      }
     }
   }
 

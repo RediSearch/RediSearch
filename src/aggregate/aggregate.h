@@ -642,10 +642,18 @@ bool AREQ_RequiresThreadsSyncResults(const AREQ *req);
 bool AREQ_TryClaimAggregateResults(AREQ *req);
 void AREQ_SignalAggregateResultsComplete(AREQ *req);
 void AREQ_WaitForAggregateResultsComplete(AREQ *req);
-/* Reset claim+done back to initial state between cursor chunks so the next
- * startPipeline can re-claim. Caller must ensure no other thread is currently
- * calling TryClaim/Signal/Wait on this AREQ (true between paused cursor chunks). */
-void AREQ_ResetAggregateResultsClaim(AREQ *req);
+
+/* Reset the per-cursor-read sync state on a coordinator RETURN_STRICT cursor
+ * read so the next chunk starts from a clean slate. Resets:
+ *   - syncCtx.aggregatingResults (CAS claim)
+ *   - syncCtx.aggregateResultsDone (signal latch)
+ *   - syncCtx.timedOut (timer latch from the previous chunk's timer)
+ *   - RPNet::drainOnly on the root proc when it is RP_NETWORK (so the next
+ *     read does not short-circuit to EOF on the first empty-channel observation).
+ * Caller MUST hold the per-request setRequestLock so the timer cannot publish a
+ * fresh TimedOut between the reset and SetRequest. Does NOT reset
+ * RPSorter::base.Next: the Yield latch is load-bearing across reads. */
+void AREQ_ResetForCursorReadReturnStrict(AREQ *req);
 
 /* Abort-wake registration (single-slot). BG reader registers its blocking channel
  * before reading; timeout callback flips `timedOut` then broadcasts to wake it.

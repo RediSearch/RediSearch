@@ -56,6 +56,7 @@ class TestDebugCommands(object):
             "TTL_EXPIRE",
             "VECSIM_INFO",
             "DELETE_LOCAL_CURSORS",
+            "DELETE_LOCAL_COORD_CURSORS",
             "DUMP_HNSW",
             "SET_MONITOR_EXPIRATION",
             "WORKERS",
@@ -92,7 +93,8 @@ class TestDebugCommands(object):
 
         self.env.expect(debug_cmd(), 'help').equal(help_list)
 
-        arity_2_cmds = ['GIT_SHA', 'DUMP_PREFIX_TRIE', 'GC_WAIT_FOR_JOBS', 'DELETE_LOCAL_CURSORS', 'SHARD_CONNECTION_STATES',
+        arity_2_cmds = ['GIT_SHA', 'DUMP_PREFIX_TRIE', 'GC_WAIT_FOR_JOBS', 'DELETE_LOCAL_CURSORS',
+                        'DELETE_LOCAL_COORD_CURSORS', 'SHARD_CONNECTION_STATES',
                         'PAUSE_TOPOLOGY_UPDATER', 'RESUME_TOPOLOGY_UPDATER', 'CLEAR_PENDING_TOPOLOGY', 'INFO', 'INDEXES', 'GET_HIDE_USER_DATA_FROM_LOGS',
                         'REGISTER_TEST_SCORERS', 'BG_PENDING_REPLIES']
         for cmd in [c for c in help_list if c not in arity_2_cmds]:
