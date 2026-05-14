@@ -843,12 +843,13 @@ run_unit_tests() {
   UNIT_TEST_RESULT=$?
   if [[ $UNIT_TEST_RESULT -eq 0 ]]; then
     echo "All unit tests passed!"
-    if [[ $COV == 1 ]]; then
-      capture_coverage unit
-    fi
   else
     echo "Some unit tests failed. Check the test logs above for details."
     HAS_FAILURES=1
+  fi
+
+  if [[ $COV == 1 ]]; then
+    capture_coverage unit
   fi
 }
 
@@ -1035,17 +1036,18 @@ run_python_tests() {
   PYTHON_TEST_RESULT=$?
   if [[ $PYTHON_TEST_RESULT -eq 0 ]]; then
     echo "All Python tests passed!"
-    if [[ $COV == 1 ]]; then
-      if [[ "$REDIS_STANDALONE" == "1" ]]; then
-        DEPLOYMENT_TYPE="standalone"
-      else
-        DEPLOYMENT_TYPE="coordinator"
-      fi
-      capture_coverage flow_$DEPLOYMENT_TYPE
-    fi
   else
     echo "Some Python tests failed. Check the test logs above for details."
     HAS_FAILURES=1
+  fi
+
+  if [[ $COV == 1 ]]; then
+    if [[ "$REDIS_STANDALONE" == "1" ]]; then
+      DEPLOYMENT_TYPE="standalone"
+    else
+      DEPLOYMENT_TYPE="coordinator"
+    fi
+    capture_coverage flow_$DEPLOYMENT_TYPE
   fi
 }
 
