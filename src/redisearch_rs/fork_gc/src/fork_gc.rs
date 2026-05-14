@@ -17,6 +17,8 @@ use std::{
 
 use crate::util::read_with_timeout;
 
+use index_spec::IndexSpecWeakRefMut;
+
 /// Poll timeout used by the parent-side pipe reader.
 const POLL_TIMEOUT: Duration = Duration::from_mins(3);
 
@@ -91,6 +93,31 @@ impl ForkGC {
             timeout,
             _borrow: PhantomData,
         }
+    }
+
+    /// Return a weak reference to the GC's index spec.
+    ///
+    /// Takes `&mut self` so that the returned [`IndexSpecWeakRefMut`] (and any
+    /// [`IndexSpecStrongRefMut`] promoted from it) carries an exclusive borrow
+    /// of this `ForkGC`, preventing a second strong reference from being
+    /// created while the first is still alive.
+    pub const fn index_spec(&mut self) -> IndexSpecWeakRefMut<'_> {
+        // SAFETY: `self.0.index` is a valid WeakRef for the lifetime of this ForkGC.
+        unsafe { IndexSpecWeakRefMut::from_raw(self.0.index) }
+    }
+
+    /// Update the GC-level statistics after applying a garbage collection delta.
+    ///
+    /// This is the GC-side half of `FGC_updateStats`.
+    pub const fn update_gc_stats(
+        &mut self,
+        bytes_collected: usize,
+        bytes_allocated: usize,
+        ignored_last_block: bool,
+    ) {
+        self.0.stats.totalCollected += bytes_collected as isize;
+        self.0.stats.totalCollected -= bytes_allocated as isize;
+        self.0.stats.gcBlocksDenied += ignored_last_block as u64;
     }
 }
 

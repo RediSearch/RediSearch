@@ -9,7 +9,15 @@
 
 //! Safe wrapper around [`ffi::IndexSpec`].
 
-use std::{ffi::c_char, ptr::NonNull, slice};
+use std::{
+    ffi::c_char,
+    marker::PhantomData,
+    ops::{Deref, DerefMut},
+    ptr,
+    ptr::NonNull,
+    slice,
+    sync::atomic::{AtomicUsize, Ordering},
+};
 
 use field_spec::FieldSpec;
 use inverted_index::opaque::InvertedIndex;
@@ -167,6 +175,59 @@ impl<'lock> IndexSpecWriteGuard<'lock> {
     pub const fn doc_table(&self) -> ffi::DocTable {
         self.0.docs
     }
+
+    /// Return a mutable reference to the `existingDocs` inverted index, if present.
+    pub fn existing_docs_mut(&mut self) -> Option<&mut InvertedIndex> {
+        if self.0.existingDocs.is_null() {
+            return None;
+        }
+        // SAFETY: We hold the write lock and the pointer is non-null. existingDocs
+        // is a valid Box<InvertedIndex> allocated by NewInvertedIndex_Ex.
+        Some(unsafe { &mut *self.0.existingDocs.cast::<InvertedIndex>() })
+    }
+
+    /// Free the `existingDocs` inverted index and set the field to null.
+    ///
+    /// No-op if `existingDocs` is already null.
+    pub fn clear_existing_docs(&mut self) {
+        if !self.0.existingDocs.is_null() {
+            // SAFETY: existingDocs was allocated as a Box<InvertedIndex> by
+            // NewInvertedIndex_Ex. We hold the write lock and are the sole owner.
+            unsafe { drop(Box::from_raw(self.0.existingDocs.cast::<InvertedIndex>())) };
+            self.0.existingDocs = ptr::null_mut();
+        }
+    }
+
+    /// Apply a signed delta to the spec's `totalInvertedIndexBlocks` counter.
+    ///
+    /// Uses a relaxed atomic add, matching `IndexStats_BlockCountAdd` in C.
+    /// Negative deltas work via two's-complement wrapping of the `usize` field.
+    /// No-op when `delta` is zero.
+    pub fn add_block_count(&mut self, delta: i64) {
+        if delta != 0 {
+            // SAFETY: totalInvertedIndexBlocks is documented in spec.h to require
+            // atomic access (relaxed writes, relaxed reads). We hold the write lock
+            // so we are the only writer; concurrent readers use atomic loads.
+            let atomic = unsafe {
+                &*(&self.0.stats.totalInvertedIndexBlocks as *const usize as *const AtomicUsize)
+            };
+            atomic.fetch_add(delta as usize, Ordering::Relaxed);
+        }
+    }
+
+    /// Update the spec-level statistics after applying a GC delta.
+    ///
+    /// Must be called while holding the write lock.
+    pub const fn update_gc_stats(
+        &mut self,
+        entries_removed: usize,
+        bytes_freed: usize,
+        bytes_allocated: usize,
+    ) {
+        self.0.stats.numRecords -= entries_removed;
+        self.0.stats.invertedSize += bytes_allocated;
+        self.0.stats.invertedSize -= bytes_freed;
+    }
 }
 
 impl Drop for IndexSpecWriteGuard<'_> {
@@ -311,5 +372,91 @@ impl Drop for IndexSpecReadGuard<'_> {
             "IndexSpecReadGuard::drop() should never run. \
              This guard must be wrapped in ManuallyDrop at FFI boundaries."
         );
+    }
+}
+
+/// A weak reference to an [`IndexSpec`] that carries an exclusive borrow of
+/// its owner for lifetime `'a`.
+///
+/// Does not prevent the spec from being deleted. Call [`promote`](Self::promote)
+/// to attempt promotion to an [`IndexSpecStrongRefMut`], which keeps the spec
+/// alive. The exclusive borrow is passed through to the strong ref, ensuring
+/// at most one [`IndexSpecStrongRefMut`] can exist from a given owner at a time.
+pub struct IndexSpecWeakRefMut<'a>(ffi::WeakRef, PhantomData<&'a mut ()>);
+
+impl<'a> IndexSpecWeakRefMut<'a> {
+    /// Wrap a raw [`ffi::WeakRef`], tying it to the exclusive borrow `'a` of
+    /// its owner.
+    ///
+    /// # Safety
+    ///
+    /// `weak` must be a valid weak reference whose owner is exclusively borrowed
+    /// for `'a`.
+    pub const unsafe fn from_raw(weak: ffi::WeakRef) -> Self {
+        Self(weak, PhantomData)
+    }
+
+    /// Attempt to promote to a strong reference.
+    ///
+    /// Returns `None` if the spec has been deleted since the weak ref was
+    /// obtained. The returned [`IndexSpecStrongRefMut`] inherits `'a`, keeping
+    /// the exclusive borrow active and preventing a second promotion.
+    pub fn promote(self) -> Option<IndexSpecStrongRefMut<'a>> {
+        // SAFETY: self.0 is a valid WeakRef (guaranteed by from_raw's caller).
+        let strong_ref = unsafe { ffi::IndexSpecRef_Promote(self.0) };
+        // SAFETY: StrongRef_Get is always safe to call on a valid StrongRef.
+        let raw = unsafe { ffi::StrongRef_Get(strong_ref).cast::<ffi::IndexSpec>() };
+
+        // When promotion fails, IndexSpecRef_Promote returns StrongRef { rm: NULL } —
+        // no reference was acquired, so there is nothing to release.
+        NonNull::new(raw).map(|spec| IndexSpecStrongRefMut {
+            strong_ref,
+            spec,
+            _phantom: PhantomData,
+        })
+    }
+}
+
+/// A promoted strong reference to an [`IndexSpec`] that carries an exclusive
+/// borrow of its owner for lifetime `'a`.
+///
+/// Obtained via [`IndexSpecWeakRefMut::promote`]. Keeps the spec alive for the
+/// duration of this value and releases the strong reference on drop. The
+/// exclusive borrow prevents a second strong ref from being created from the
+/// same owner while this one is alive.
+///
+/// Derefs to [`IndexSpec`] for read-only access. Mutable access requires
+/// acquiring the write lock via [`lock`](Self::lock).
+pub struct IndexSpecStrongRefMut<'a> {
+    strong_ref: ffi::StrongRef,
+    spec: NonNull<ffi::IndexSpec>,
+    _phantom: PhantomData<&'a mut ()>,
+}
+
+impl Deref for IndexSpecStrongRefMut<'_> {
+    type Target = IndexSpec;
+
+    fn deref(&self) -> &IndexSpec {
+        // SAFETY: We hold a strong reference so the spec is alive for at least
+        // as long as `self`, and the pointer is non-null (checked in promote).
+        unsafe { IndexSpec::from_raw(self.spec.as_ptr()) }
+    }
+}
+
+impl DerefMut for IndexSpecStrongRefMut<'_> {
+    fn deref_mut(&mut self) -> &mut IndexSpec {
+        // SAFETY: We hold a strong reference so the spec is alive, the pointer
+        // is non-null, and the phantom lifetime `'a` guarantees no other
+        // IndexSpecStrongRefMut exists for the same owner — so this is the only
+        // &mut IndexSpec to this object that can exist.
+        unsafe { IndexSpec::from_raw_mut(self.spec.as_ptr()) }
+    }
+}
+
+impl Drop for IndexSpecStrongRefMut<'_> {
+    fn drop(&mut self) {
+        // SAFETY: strong_ref was obtained from IndexSpecRef_Promote and has
+        // not yet been released.
+        unsafe { ffi::IndexSpecRef_Release(self.strong_ref) };
     }
 }
