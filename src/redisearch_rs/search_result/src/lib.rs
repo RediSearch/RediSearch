@@ -19,6 +19,11 @@ use document_metadata::DocumentMetadata;
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum SearchResultFlag {
     ExpiredDoc = 1,
+    /// `_index_result` owns its `RSIndexResult` allocation (created via
+    /// `IndexResult_DeepCopy` or equivalent). When set, `clear()` reconstitutes
+    /// the `Box` and drops it. When unset, `_index_result` is a borrow into an
+    /// iterator-owned slot and must not be freed here.
+    OwnsIndexResult = 1 << 1,
 }
 
 pub type SearchResultFlags = enumflags2::BitFlags<SearchResultFlag>;
@@ -97,6 +102,18 @@ impl<'index> SearchResult<'index> {
             }
         }
 
+        // If we own the index_result, reclaim and drop the Box.
+        if self._flags.contains(SearchResultFlag::OwnsIndexResult)
+            && let Some(ir) = self._index_result.take()
+        {
+            // SAFETY: `OwnsIndexResult` is set iff `_index_result` was
+            // populated from a `Box<RSIndexResult>` (via
+            // `IndexResult_DeepCopy` or equivalent). Reconstituting and
+            // dropping the box reverses that allocation. The reference
+            // is unaliased because the SearchResult is the unique holder
+            // while the flag is set.
+            drop(unsafe { Box::from_raw(std::ptr::from_ref(ir).cast_mut()) });
+        }
         self._index_result = None;
 
         self._flags = SearchResultFlags::empty();
