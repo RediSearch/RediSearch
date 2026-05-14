@@ -4530,6 +4530,13 @@ void Indexes_EndLoading() {
 void Indexes_FinishSSTReplication(RedisModuleCtx *ctx) {
   RS_ASSERT(SearchDisk_IsEnabled());
 
+  // Specs whose disk open failed are collected here and dropped after the
+  // iterator is released, since IndexSpec_RemoveFromGlobals mutates specDict_g.
+  // Leaving a failed spec in specDict_g would be visible to subsequent
+  // operations (e.g. IndexSpec_DeleteDocById) while diskSpec is NULL, tripping
+  // the disk-path assertions.
+  arrayof(StrongRef) failed = NULL;
+
   dictIterator *iter = dictGetIterator(specDict_g);
   dictEntry *entry = NULL;
   while ((entry = dictNext(iter))) {
@@ -4557,6 +4564,8 @@ void Indexes_FinishSSTReplication(RedisModuleCtx *ctx) {
     if (!sp->diskSpec) {
       RedisModule_Log(ctx, "warning",
                       "SST replication: failed to open disk index for spec during LOADING_ENDED");
+      if (!failed) failed = array_new(StrongRef, 1);
+      array_append(failed, spec_ref);
       continue;
     }
     IndexSpec_PopulateVectorDiskParams(sp);
@@ -4566,6 +4575,16 @@ void Indexes_FinishSSTReplication(RedisModuleCtx *ctx) {
     IndexSpec_StartGC(spec_ref, sp, GCPolicy_Disk);
   }
   dictReleaseIterator(iter);
+
+  if (failed) {
+    // diskRegistered is false and diskSpec is NULL on these specs, so
+    // SearchDisk_UnregisterIndex is not needed; IndexSpec_FreeUnlinkedData
+    // performs final cleanup when the last StrongRef is dropped.
+    for (size_t i = 0; i < array_len(failed); ++i) {
+      IndexSpec_RemoveFromGlobals(failed[i], false);
+    }
+    array_free(failed);
+  }
 }
 
 // Replica-side SST replication: abort the in-progress replication round.
