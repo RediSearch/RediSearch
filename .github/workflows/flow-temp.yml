@@ -9,16 +9,35 @@ name: temporary testing
 
 on:
   push:
-    branches-ignore: ['**'] # ignore all branches. Comment this line to run your workflow below on every push.
+    # branches-ignore: ['**'] # ignore all branches. Comment this line to run your workflow below on every push.
 
 jobs:
-
-  alpine-test:
+  github-app-permissions:
+    runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
     permissions:
       contents: read
-      packages: write
-    uses: ./.github/workflows/flow-test.yml
-    secrets: inherit
-    with:
-      platform: alpine:3.23
-      redis-ref: unstable
+    steps:
+      - name: Generate GitHub App token
+        id: generate-app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ vars.GH_PR_APP_ID }}
+          private-key: ${{ secrets.GH_PR_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-administration: write
+
+      - name: Verify self-hosted runner token permissions
+        env:
+          GH_TOKEN: ${{ steps.generate-app-token.outputs.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          gh api \
+            --method POST \
+            "/repos/${GITHUB_REPOSITORY}/actions/runners/registration-token" \
+            --jq '"created registration token expiring at \(.expires_at)"'
+          gh api \
+            --method POST \
+            "/repos/${GITHUB_REPOSITORY}/actions/runners/remove-token" \
+            --jq '"created remove token expiring at \(.expires_at)"'
