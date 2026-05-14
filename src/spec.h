@@ -373,11 +373,6 @@ typedef struct IndexSpec {
   // Disk index handle (NULL for memory-only indexes)
   RedisSearchDiskIndexSpec *diskSpec;
 
-  // Per-spec rwlock that gates the SST replication fork window against
-  // critical sections that must be ordered with respect to the snapshot fork.
-  // Readers ("blockers") prevent the fork from starting; the writer is the
-  // fork itself, which excludes all blockers for the duration of PRE_FORK /
-  // POST_FORK. See IndexSpec_BlockDiskFork / IndexSpec_ProtectDiskFork.
   pthread_rwlock_t disk_fork_rwlock;
   bool repl_read_lock_held;
   bool repl_disk_fork_protected;

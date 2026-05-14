@@ -591,10 +591,7 @@ void Initialize_KeyspaceNotifications() {
 }
 
 // Iterate every live IndexSpec with a disk-backed companion and invoke `fn`
-// against the IndexSpec. The hook is responsible for reaching `sp->diskSpec`
-// when it needs to dispatch into the disk layer. Used by the SST replication
-// event handler so each sub-event (PRE_CHECKPOINT / POST_CHECKPOINT /
-// PRE_FORK / POST_FORK / ABORT) hits every index exactly once.
+// against the IndexSpec.
 static void ForEachDiskIndex(void (*fn)(IndexSpec *)) {
   if (!specDict_g) {
     return;
@@ -604,20 +601,15 @@ static void ForEachDiskIndex(void (*fn)(IndexSpec *)) {
   while ((entry = dictNext(iter))) {
     StrongRef spec_ref = dictGetRef(entry);
     IndexSpec *sp = StrongRef_Get(spec_ref);
-    if (sp && sp->diskSpec) {
+    if (sp) {
+      RS_ASSERT(sp->diskSpec);
       fn(sp);
     }
   }
   dictReleaseIterator(iter);
 }
 
-// Tracks whether this process currently holds the vecsim_disk consistency
-// lock for an in-progress SST replication cycle. Set on PRE_FORK; cleared on
-// POST_FORK or ABORT. The ABORT path needs this so it can tell whether to
-// release - abort may fire after PRE_CHECKPOINT (lock NOT held) or after
-// PRE_FORK (lock held). All replication events run on the Redis main thread,
-// so this flag does not need atomic access.
-static bool sst_consistency_lock_held = false;
+static bool vecsimdisk_sst_consistency_lock_held = false;
 
 // SST replication event handler.
 //
@@ -646,22 +638,22 @@ static void SSTReplicationEvent(RedisModuleCtx *ctx, RedisModuleEvent eid,
     case REDISMODULE_SUBEVENT_SST_REPL_PRE_FORK:
       RedisModule_Log(ctx, "notice", "SST replication: PRE_FORK");
       VecSimDisk_AcquireConsistencyLock();
-      sst_consistency_lock_held = true;
+      vecsimdisk_sst_consistency_lock_held = true;
       ForEachDiskIndex(SearchDisk_PreFork);
       break;
     case REDISMODULE_SUBEVENT_SST_REPL_POST_FORK:
       RedisModule_Log(ctx, "notice", "SST replication: POST_FORK");
       ForEachDiskIndex(SearchDisk_PostFork);
-      RS_ASSERT(sst_consistency_lock_held);
+      RS_ASSERT(vecsimdisk_sst_consistency_lock_held);
       VecSimDisk_ReleaseConsistencyLock();
-      sst_consistency_lock_held = false;
+      vecsimdisk_sst_consistency_lock_held = false;
       break;
     case REDISMODULE_SUBEVENT_SST_REPL_ABORT:
       RedisModule_Log(ctx, "notice", "SST replication: ABORT");
       ForEachDiskIndex(SearchDisk_ReplicationAbort);
-      if (sst_consistency_lock_held) {
+      if (vecsimdisk_sst_consistency_lock_held) {
         VecSimDisk_ReleaseConsistencyLock();
-        sst_consistency_lock_held = false;
+        vecsimdisk_sst_consistency_lock_held = false;
       }
       break;
     default:
