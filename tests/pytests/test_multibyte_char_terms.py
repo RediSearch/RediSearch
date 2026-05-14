@@ -764,6 +764,31 @@ def testLongTermWildcardQuery(env):
     res = env.cmd('FT.SEARCH', 'idx', f'@t:*{long_term.upper()}*', 'NOCONTENT', 'DIALECT', 2)
     env.assertEqual(res, [1, 'doc:1'])
 
+@skip(cluster=True)
+def testSingleRuneMultibyteSuffixTrie(env):
+    '''Test that a single multi-byte rune (rlen=1, len=3) is correctly
+    inserted and deleted from the suffix trie without leaking memory.
+    addSuffixTrie inserts the full-word entry unconditionally, so
+    deleteSuffixTrie must handle it even when rlen < MIN_SUFFIX.'''
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH',
+               'SCHEMA', 't', 'TEXT', 'NOSTEM', 'WITHSUFFIXTRIE').ok()
+    conn = getConnectionByEnv(env)
+
+    # '中' is a single CJK rune (3 bytes UTF-8, 1 rune)
+    conn.execute_command('HSET', 'doc:1', 't', '中')
+
+    res = env.cmd('FT.SEARCH', 'idx', '中', 'NOCONTENT', 'DIALECT', 2)
+    env.assertEqual(res, [1, 'doc:1'])
+
+    # Delete the document; the suffix trie entry must be cleaned up
+    conn.execute_command('DEL', 'doc:1')
+
+    # Trigger GC to exercise deleteSuffixTrie on the single-rune term
+    forceInvokeGC(env, 'idx')
+
+    res = env.cmd('FT.SEARCH', 'idx', '中', 'NOCONTENT', 'DIALECT', 2)
+    env.assertEqual(res, [0])
+
 
 def testMultibyteTag(env):
     '''Test that multibyte characters are correctly converted to lowercase and
