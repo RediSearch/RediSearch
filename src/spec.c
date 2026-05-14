@@ -7,13 +7,15 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "spec.h"
+#include "inverted_index_ffi.h"
+#include "numeric_range_tree_ffi.h"
 #include "rlookup_load_document.h"
 
 #include <math.h>
 #include <ctype.h>
 #include <limits.h>
 
-#include "triemap.h"
+#include "triemap_ffi.h"
 #include "util/logging.h"
 #include "util/likely.h"
 #include "util/misc.h"
@@ -51,7 +53,7 @@
 #include "util/redis_mem_info.h"
 #include "search_disk.h"
 #include "search_disk_utils.h"
-#include "iterators_rs.h"
+#include "iterators_ffi.h"
 
 #define INITIAL_DOC_TABLE_SIZE 1000
 

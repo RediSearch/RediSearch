@@ -25,7 +25,14 @@ fn is_special_key(rule: &SchemaRule, key: &RLookupKey) -> bool {
 
 /// Row data for a lookup key. This abstracts the question of if the data comes from a borrowed sorting vector slice
 /// or from dynamic values stored in the row during processing.
+///
+/// The C-visible layout comes from the `OpaqueRLookupRow` wrapper (which is
+/// `#[repr(C, align(8))]` and `#[cheadergen::config(rename = "RLookupRow")]`).
+/// Force this internal type to opaque so cheadergen does not warn about it
+/// being reached by value through `SearchResult._row_data` — both names emit
+/// to the same C tag, and the wrapper provides the actual layout.
 #[derive(Debug)]
+#[cheadergen::config(export, opaque)]
 pub struct RLookupRow<'a> {
     /// A reference to the sorting vector.
     sorting_vector: RSSortingVectorRef<'a>,
@@ -390,6 +397,7 @@ pub mod opaque {
     ///
     /// The size and alignment of this struct must match the Rust `RLookupRow`
     /// structure exactly.
+    #[cheadergen::config(rename = "RLookupRow")]
     #[repr(C, align(8))]
     pub struct OpaqueRLookupRow(Size<24>);
 

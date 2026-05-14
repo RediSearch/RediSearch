@@ -21,7 +21,7 @@ use inverted_index::RSIndexResult;
 /// At the moment, only vector distance is supported.
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-/// cbindgen:rename-all=ScreamingSnakeCase
+#[cheadergen::config(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum MetricType {
     VectorDistance,
 }

@@ -10,7 +10,7 @@
 #include "redismodule.h"
 #include "spell_check.h"
 #include "util/arr.h"
-#include "query_error.h"
+#include "query_error_ffi.h"
 
 #include <stdbool.h>
 #include <stddef.h>

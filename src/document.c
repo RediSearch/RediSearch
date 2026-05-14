@@ -13,7 +13,9 @@
 #include "rlookup_load_document.h"
 #include "forward_index.h"
 #include "numeric_filter.h"
-#include "redisearch_rs/headers/numeric_range_tree.h"
+#include "numeric_range_tree.h"
+#include "numeric_range_tree_ffi.h"
+#include "sorting_vector_ffi.h"
 #include "rmutil/strings.h"
 #include "rmutil/util.h"
 #include "util/mempool.h"
@@ -31,9 +33,8 @@
 #include "obfuscation/obfuscation_api.h"
 #include "search_disk.h"
 #include "info/global_stats.h"
-#include "sorting_vector.h"
 #include "doc_id_meta.h"
-#include "iterators_rs.h"
+#include "iterators_ffi.h"
 
 // Memory pool for RSAddDocumentContext contexts
 static mempool_t *actxPool_g = NULL;

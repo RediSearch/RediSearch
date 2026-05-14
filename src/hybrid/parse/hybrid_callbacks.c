@@ -15,7 +15,7 @@
 #include <limits.h>
 #include "util/misc.h"
 #include "slot_ranges.h"
-#include "slots_tracker.h"
+#include "slots_tracker_ffi.h"
 #include "hybrid/vector_query_utils.h"
 #include "vector_index.h"
 #include "rmalloc.h"

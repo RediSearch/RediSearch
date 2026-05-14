@@ -48,6 +48,7 @@ pub unsafe extern "C" fn NumericRangeTree_CompactIfSparse(
 ///
 /// The `data` pointer points into the scanner's internal buffer and is valid
 /// until the next call to [`NumericGcScanner_Next`] or [`NumericGcScanner_Free`].
+#[cheadergen::config(export)]
 #[repr(C)]
 pub struct NumericGcNodeEntry {
     /// The node's slab position.

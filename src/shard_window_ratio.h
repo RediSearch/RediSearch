@@ -17,7 +17,7 @@
 #include "coord/special_case_ctx.h"
 #include "config.h"
 #include "vector_index.h"
-#include "query_error.h"
+#include "query_error_ffi.h"
 
 #ifdef __cplusplus
 extern "C" {

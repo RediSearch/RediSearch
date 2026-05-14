@@ -23,6 +23,7 @@ use inverted_index::RSIndexResult;
 /// Profile counters collected during query execution.
 ///
 /// This struct is `#[repr(C)]` so that C code can access its fields directly.
+#[cheadergen::config(export)]
 #[derive(Debug, Default, Clone)]
 #[repr(C)]
 pub struct ProfileCounters {

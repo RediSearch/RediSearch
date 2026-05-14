@@ -20,7 +20,7 @@
 #include "stopwords.h"
 #include "gc.h"
 #include "synonym_map.h"
-#include "query_error.h"
+#include "query_error_ffi.h"
 #include "field_spec.h"
 #include "util/dict.h"
 #include "util/references.h"
@@ -227,10 +227,6 @@ typedef uint16_t FieldSpecDedupeArray[SPEC_MAX_FIELDS];
 
 #define INDEX_DEFAULT_FLAGS \
   Index_StoreFreqs | Index_StoreTermOffsets | Index_StoreFieldFlags | Index_StoreByteOffsets
-
-#define INDEX_STORAGE_MASK                                                                  \
-  (Index_StoreFreqs | Index_StoreFieldFlags | Index_StoreTermOffsets | Index_StoreNumeric | \
-   Index_WideSchema)
 
 #define INDEX_CURRENT_VERSION 26
 #define INDEX_DISK_VERSION 26

@@ -12,7 +12,7 @@
 #include "redisearch.h"
 #include "result_processor.h"
 #include "util/block_alloc.h"
-#include "query_error.h"
+#include "query_error_ffi.h"
 
 #ifdef __cplusplus
 extern "C" {

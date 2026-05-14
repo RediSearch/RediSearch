@@ -9,7 +9,7 @@
 
 #pragma once
 #include "redismodule.h"
-#include "query_error.h"
+#include "query_error_ffi.h"
 #include "result_processor.h"
 
 bool hasTimeoutError(QueryError *err);
