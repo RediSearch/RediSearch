@@ -751,19 +751,20 @@ void RDB_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subeve
     RedisModule_Log(RSDummyContext, "notice", "Loading RDB event ended");
     break;
   case REDISMODULE_SUBEVENT_LOADING_ENDED:
-    RedisModule_Log(RSDummyContext, "notice", "Loading event ended (SST + RDB ready). Finish loading");
     if (!SearchDisk_IsEnabled()) {
       // This only handles legacy indices that are not available in disk
       Indexes_EndRDBLoadingEvent(ctx);
     } else {
-      // Open and register the disk indexes that were staged during RDB load
-      // under REDISMODULE_CTX_FLAGS_SST_RDB. No-op for the non-SST RDB path
-      // since IndexSpec_RdbLoad opens and registers eagerly there.
+      RedisModule_Log(RSDummyContext, "notice", "Loading event ended (SST + RDB ready). Finish loading");
       Indexes_FinishSSTReplication(ctx);
     }
     workersThreadPool_OnEventEnd(true);
     Indexes_EndLoading();
-    RedisModule_Log(RSDummyContext, "notice", "Loading event ended successfully (SST + RDB ready). Finished loading successfully");
+    if (!SearchDisk_IsEnabled()) {
+      RedisModule_Log(RSDummyContext, "notice", "Loading event ended successfully");
+    } else {
+      RedisModule_Log(RSDummyContext, "notice", "Loading event ended successfully (SST + RDB ready). Finished loading successfully");
+    }
     break;
   case REDISMODULE_SUBEVENT_LOADING_FAILED:
     // If the failure happens in the middle of an SST replication round (master
