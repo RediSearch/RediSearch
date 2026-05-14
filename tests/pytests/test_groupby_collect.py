@@ -55,6 +55,31 @@ def _sort_collected(entries, key):
 
 
 # ---------------------------------------------------------------------------
+# COLLECT should fail when WIP is disabled
+# ---------------------------------------------------------------------------
+def test_collect_wip_disabled(env):
+    if WIP_FEATURES:
+        env.skip()
+
+    enable_unstable_features(env)
+    try:
+        env.cmd('FT.CREATE', '__collect_probe_no_idx__', 'ON', 'HASH',
+               'SCHEMA', 'x', 'TAG', 'y', 'TAG')
+        env.cmd('HSET', 'doc1', 'x', 'hello')
+        res = env.cmd('FT.AGGREGATE', '__collect_probe_no_idx__', '*',
+                'GROUPBY', '1', '@x',
+                    'REDUCE', 'COLLECT', '3', 'FIELDS', '1', '@y')
+        print(res)
+        env.assertTrue(False)
+    except Exception as e:
+        print('exception', str(e))
+        if not 'No such reducer: COLLECT' in str(e):
+            print('COLLECT supported')
+            env.assertEqual(False, 'COLLECT should fail')
+        else:
+            print('NO COLLECT')
+
+# ---------------------------------------------------------------------------
 # COLLECT coordinator merge across shards, HASH
 # ---------------------------------------------------------------------------
 @wip
