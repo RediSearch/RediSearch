@@ -603,4 +603,3 @@ TEST_F(CollectParserTest, LimitOffsetPlusCountExceedsAggregateMax) {
   expectError({"FIELDS", "1", "@x", "LIMIT", offset.c_str(), "1"},
       "LIMIT offset + count exceeds maximum of");
 }
-

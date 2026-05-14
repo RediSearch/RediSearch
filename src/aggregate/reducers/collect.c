@@ -114,7 +114,7 @@ static void handleCollectSortDirection(ArgsCursor *ac, uint64_t *sortAscMap, siz
 // Parses: SORTBY nargs <@field [ASC|DESC]> [<@field [ASC|DESC]> ...]
 //   nargs: 1..COLLECT_MAX_SORT_KEYS*2
 //   Direction defaults to ASC when omitted.
-static void handleCollectSortBy(ArgParser *parser, const void *value, void *user_data) {
+static void handleCollectSortBy(const ArgParser *parser, const void *value, void *user_data) {
   (void)parser;
   CollectParseCtx *pctx = (CollectParseCtx *)user_data;
   CollectArgs *args = pctx->args;
@@ -163,7 +163,7 @@ static void handleCollectSortBy(ArgParser *parser, const void *value, void *user
 //   is what the coordinator-side `distributeCollect` will encode on the shard
 //   wire (`LIMIT 0 (offset+count)`); rejecting it here at the user-facing
 //   parser produces a clean error instead of a shard-side rejection.
-static void handleCollectLimit(ArgParser *parser, const void *value, void *user_data) {
+static void handleCollectLimit(const ArgParser *parser, const void *value, void *user_data) {
   (void)parser;
   CollectParseCtx *pctx = (CollectParseCtx *)user_data;
   CollectArgs *args = pctx->args;

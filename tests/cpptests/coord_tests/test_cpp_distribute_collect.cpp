@@ -39,16 +39,17 @@
 namespace {
 
 class DistributeCollectTest : public ::testing::Test {
-protected:
+private:
   RedisModuleCtx *ctx = nullptr;
   bool previousEnableUnstableFeatures = false;
 
+protected:
   // `AREQ_Compile` + `AGGPLN_Distribute` are purely syntactic — neither
   // resolves keys against an `IndexSpec`, so no `FT.CREATE` is needed here.
   // The only required global state is the unstable-features gate that
   // `CollectArgs_Parse` consults.
   void SetUp() override {
-    ctx = RedisModule_GetThreadSafeContext(NULL);
+    ctx = RedisModule_GetThreadSafeContext(nullptr);
     previousEnableUnstableFeatures = RSGlobalConfig.enableUnstableFeatures;
     RSGlobalConfig.enableUnstableFeatures = true;
   }
@@ -71,8 +72,8 @@ protected:
                                      "REDUCE", "COLLECT",
                                      std::to_string(collectTokens.size())};
     argv.insert(argv.end(), collectTokens.begin(), collectTokens.end());
-    argv.push_back("AS");
-    argv.push_back("payload");
+    argv.emplace_back("AS");
+    argv.emplace_back("payload");
     return argv;
   }
 
@@ -122,7 +123,7 @@ protected:
     return nullptr;
   }
 
-  static CollectPair locateCollectPair(AGGPlan *plan) {
+  static CollectPair locateCollectPair(const AGGPlan *plan) {
     CollectPair p;
     const PLN_BaseStep *distStep =
         AGPLN_FindStep(plan, nullptr, nullptr, PLN_T_DISTRIBUTE);
@@ -136,7 +137,7 @@ protected:
       p.local = findCollectReducer((const PLN_GroupStep *)localGroup);
     }
 
-    const PLN_DistributeStep *dstp = (const PLN_DistributeStep *)distStep;
+    auto dstp = (const PLN_DistributeStep *)distStep;
     const PLN_BaseStep *remoteGroup =
         AGPLN_FindStep(dstp->plan, nullptr, nullptr, PLN_T_GROUP);
     EXPECT_NE(remoteGroup, nullptr) << "remote GROUPBY missing";
