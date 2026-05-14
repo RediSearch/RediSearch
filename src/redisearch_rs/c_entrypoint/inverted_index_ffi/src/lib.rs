@@ -36,34 +36,12 @@ use inverted_index::{
     freqs_offsets::FreqsOffsets,
     freqs_only::FreqsOnly,
     full::{Full, FullWide},
+    ii_dispatch,
     numeric::{Numeric, NumericFloatCompression},
     offsets_only::OffsetsOnly,
     raw_doc_ids_only::RawDocIdsOnly,
 };
 use serde::{Deserialize, Serialize};
-
-// Macro to make calling the methods on the inner index easier
-macro_rules! ii_dispatch {
-    ($self:expr, $method:ident $(, $args:expr)*) => {
-        match $self {
-            InvertedIndex::Full(ii) => ii.$method($($args),*),
-            InvertedIndex::FullWide(ii) => ii.$method($($args),*),
-            InvertedIndex::FreqsFields(ii) => ii.$method($($args),*),
-            InvertedIndex::FreqsFieldsWide(ii) => ii.$method($($args),*),
-            InvertedIndex::FreqsOnly(ii) => ii.$method($($args),*),
-            InvertedIndex::FieldsOnly(ii) => ii.$method($($args),*),
-            InvertedIndex::FieldsOnlyWide(ii) => ii.$method($($args),*),
-            InvertedIndex::FieldsOffsets(ii) => ii.$method($($args),*),
-            InvertedIndex::FieldsOffsetsWide(ii) => ii.$method($($args),*),
-            InvertedIndex::OffsetsOnly(ii) => ii.$method($($args),*),
-            InvertedIndex::FreqsOffsets(ii) => ii.$method($($args),*),
-            InvertedIndex::DocIdsOnly(ii) => ii.$method($($args),*),
-            InvertedIndex::RawDocIdsOnly(ii) => ii.$method($($args),*),
-            InvertedIndex::Numeric(ii) => ii.$method($($args),*),
-            InvertedIndex::NumericFloatCompression(ii) => ii.$method($($args),*),
-        }
-    };
-}
 
 /// The mask of flags that determine the index storage type. This includes all flags that affect
 /// the storage format of the index.
@@ -537,7 +515,7 @@ pub unsafe extern "C" fn InvertedIndex_GcDelta_Scan(
     // SAFETY: The caller must ensure `idx` is a valid pointer to an `InvertedIndex`
     let ii = unsafe { &*idx };
 
-    let Ok(deltas) = ii_dispatch!(ii, scan_gc, doc_exists, None::<fn(&_, &_)>) else {
+    let Ok(deltas) = ii.scan_gc(doc_exists) else {
         return false;
     };
 
