@@ -17,21 +17,27 @@
 
 use std::collections::HashSet;
 
+use bumpalo::Bump;
 use itertools::Either;
 use rlookup::{RLookup, RLookupKey, RLookupKeyFlag, RLookupRow};
 use value::SharedValue;
 
 use crate::Reducer;
-use crate::collect::common::CollectCommon;
 use crate::collect::storage::Storage;
 
 /// Remote COLLECT reducer.
 ///
-/// Must remain `#[repr(C)]` with [`CollectCommon`] at offset 0 so the C layer
+/// Must remain `#[repr(C)]` with [`Reducer`] at offset 0 so the C layer
 /// can downcast this struct to `ffi::Reducer*` and read the vtable directly.
 #[repr(C)]
 pub struct RemoteCollectReducer<'a> {
-    common: CollectCommon,
+    /// C-visible vtable header. Pinned to offset 0 by `#[repr(C)]` so the
+    /// C layer can downcast `RemoteCollectReducer*` to `ffi::Reducer*`.
+    reducer: Reducer,
+    /// Arena for per-group contexts; destructors still need explicit calls.
+    arena: Bump,
+    /// Bit `i` is 0 for DESC and 1 for ASC, matching `SORTASCMAP_INIT`.
+    sort_asc_map: u64,
     field_keys: Box<[&'a RLookupKey<'a>]>,
     /// Source lookup for `FIELDS *` mode.
     ///
@@ -46,20 +52,13 @@ pub struct RemoteCollectReducer<'a> {
     is_internal: bool,
 }
 
-// Chain through `CollectCommon::reducer` so the assertion still catches a
-// reordering inside `CollectCommon`, not just inside the outer struct.
-const _: () = assert!(
-    core::mem::offset_of!(RemoteCollectReducer<'_>, common)
-        + core::mem::offset_of!(CollectCommon, reducer)
-        == 0
-);
+const _: () = assert!(core::mem::offset_of!(RemoteCollectReducer<'_>, reducer) == 0);
 
 /// Per-group instance of [`RemoteCollectReducer`].
 ///
-/// Arena-allocated under [`Bump`][bumpalo::Bump], which does not run
-/// destructors — [`ptr::drop_in_place`][std::ptr::drop_in_place] must be
-/// called to release the stored [`RLookupRow`]s and decrement
-/// [`SharedValue`] refcounts.
+/// Arena-allocated under [`Bump`], which does not run destructors —
+/// [`ptr::drop_in_place`][std::ptr::drop_in_place] must be called to release
+/// the stored [`RLookupRow`]s and decrement [`SharedValue`] refcounts.
 pub struct RemoteCollectCtx {
     storage: Storage,
 }
@@ -77,7 +76,9 @@ impl<'a> RemoteCollectReducer<'a> {
         is_internal: bool,
     ) -> Self {
         Self {
-            common: CollectCommon::new(sort_asc_map),
+            reducer: Reducer::new(),
+            arena: Bump::new(),
+            sort_asc_map,
             field_keys,
             srclookup,
             sort_keys,
@@ -87,11 +88,11 @@ impl<'a> RemoteCollectReducer<'a> {
     }
 
     pub const fn reducer_mut(&mut self) -> &mut Reducer {
-        &mut self.common.reducer
+        &mut self.reducer
     }
 
     pub fn alloc_instance(&self) -> &mut RemoteCollectCtx {
-        self.common.arena.alloc(RemoteCollectCtx::new(self))
+        self.arena.alloc(RemoteCollectCtx::new(self))
     }
 
     // Temporary C++ parser-test accessors, exposed through `reducers_ffi`.
@@ -109,7 +110,7 @@ impl<'a> RemoteCollectReducer<'a> {
     }
 
     pub const fn sort_asc_map(&self) -> u64 {
-        self.common.sort_asc_map
+        self.sort_asc_map
     }
 
     pub const fn has_limit(&self) -> bool {
@@ -169,7 +170,7 @@ fn build_finalize_template<'a>(
 impl RemoteCollectCtx {
     pub fn new(r: &RemoteCollectReducer<'_>) -> Self {
         Self {
-            storage: Storage::new(!r.sort_keys.is_empty(), r.limit, r.common.sort_asc_map),
+            storage: Storage::new(!r.sort_keys.is_empty(), r.limit, r.sort_asc_map),
         }
     }
 

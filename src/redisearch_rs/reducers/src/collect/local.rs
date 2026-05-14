@@ -27,11 +27,11 @@
 
 use std::ffi::CString;
 
+use bumpalo::Bump;
 use rlookup::{RLookup, RLookupKey, RLookupKeyFlag, RLookupRow};
 use value::{SharedValue, Value};
 
 use crate::Reducer;
-use crate::collect::common::CollectCommon;
 use crate::collect::storage::Storage;
 
 /// Look up `name` in a shard-payload item (`Map` or flat `Array`).
@@ -136,11 +136,17 @@ fn write_named_field(
 
 /// Local COLLECT reducer.
 ///
-/// Must remain `#[repr(C)]` with [`CollectCommon`] at offset 0 so the C layer
+/// Must remain `#[repr(C)]` with [`Reducer`] at offset 0 so the C layer
 /// can downcast this struct to `ffi::Reducer*` and read the vtable directly.
 #[repr(C)]
 pub struct LocalCollectReducer<'a> {
-    common: CollectCommon,
+    /// C-visible vtable header. Pinned to offset 0 by `#[repr(C)]` so the
+    /// C layer can downcast `LocalCollectReducer*` to `ffi::Reducer*`.
+    reducer: Reducer,
+    /// Arena for per-group contexts; destructors still need explicit calls.
+    arena: Bump,
+    /// Bit `i` is 0 for DESC and 1 for ASC, matching `SORTASCMAP_INIT`.
+    sort_asc_map: u64,
     /// Lookup key for the per-remote payload.
     input_key: &'a RLookupKey<'a>,
     /// Requested field names, in declaration order.
@@ -154,18 +160,12 @@ pub struct LocalCollectReducer<'a> {
     limit: Option<(u64, u64)>,
 }
 
-// Chain through `CollectCommon::reducer` so the assertion still catches a
-// reordering inside `CollectCommon`, not just inside the outer struct.
-const _: () = assert!(
-    core::mem::offset_of!(LocalCollectReducer<'_>, common)
-        + core::mem::offset_of!(CollectCommon, reducer)
-        == 0
-);
+const _: () = assert!(core::mem::offset_of!(LocalCollectReducer<'_>, reducer) == 0);
 
 /// Per-group instance of [`LocalCollectReducer`].
 ///
-/// Because `LocalCollectCtx` is arena-allocated ([`Bump`][bumpalo::Bump] does
-/// not run destructors), [`drop_in_place`][std::ptr::drop_in_place] must be
+/// Because `LocalCollectCtx` is arena-allocated ([`Bump`] does not run
+/// destructors), [`drop_in_place`][std::ptr::drop_in_place] must be
 /// called to run destructors for the inner storage and decrement
 /// [`SharedValue`] refcounts.
 pub struct LocalCollectCtx {
@@ -186,7 +186,9 @@ impl<'a> LocalCollectReducer<'a> {
         limit: Option<(u64, u64)>,
     ) -> Self {
         Self {
-            common: CollectCommon::new(sort_asc_map),
+            reducer: Reducer::new(),
+            arena: Bump::new(),
+            sort_asc_map,
             input_key,
             requested,
             sort_key_names,
@@ -195,11 +197,11 @@ impl<'a> LocalCollectReducer<'a> {
     }
 
     pub const fn reducer_mut(&mut self) -> &mut Reducer {
-        &mut self.common.reducer
+        &mut self.reducer
     }
 
     pub fn alloc_instance(&self) -> &mut LocalCollectCtx {
-        self.common.arena.alloc(LocalCollectCtx::new(self))
+        self.arena.alloc(LocalCollectCtx::new(self))
     }
 
     /// Exposed via `CollectReducer_IsLocalLoadAll` for C++ parser tests.
@@ -212,7 +214,7 @@ impl LocalCollectCtx {
     pub fn new(r: &LocalCollectReducer) -> Self {
         Self {
             lookup: RLookup::new(),
-            storage: Storage::new(!r.sort_key_names.is_empty(), r.limit, r.common.sort_asc_map),
+            storage: Storage::new(!r.sort_key_names.is_empty(), r.limit, r.sort_asc_map),
         }
     }
 
