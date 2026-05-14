@@ -481,8 +481,7 @@ void SearchDisk_PostFork(IndexSpec *sp) {
 
 void SearchDisk_ReplicationAbort(IndexSpec *sp) {
   RS_ASSERT(disk && sp && sp->diskSpec);
-  // Release whichever subset of locks is still held for this cycle, then let
-  // the disk side run its abort cleanup.
+  disk->index.replicationAbort(sp->diskSpec);
   if (sp->repl_read_lock_held) {
     sp->repl_read_lock_held = false;
     IndexSpec_ReleaseReadLock(sp);
@@ -491,7 +490,6 @@ void SearchDisk_ReplicationAbort(IndexSpec *sp) {
     sp->repl_disk_fork_protected = false;
     IndexSpec_UnProtectDiskFork(sp);
   }
-  disk->index.replicationAbort(sp->diskSpec);
 }
 
 void SearchDisk_UpdateBufferBudget(RedisModuleCtx *ctx, int percentage) {
