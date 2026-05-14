@@ -1395,6 +1395,119 @@
                     "name": "random_sample",
                     "type": "pure-token",
                     "token": "RANDOM_SAMPLE"
+                  },
+                  {
+                    "name": "collect",
+                    "type": "block",
+                    "since": "8.8.0",
+                    "arguments": [
+                      {
+                        "name": "collect_token",
+                        "type": "pure-token",
+                        "token": "COLLECT"
+                      },
+                      {
+                        "name": "fields",
+                        "type": "block",
+                        "arguments": [
+                          {
+                            "name": "fields_token",
+                            "type": "pure-token",
+                            "token": "FIELDS"
+                          },
+                          {
+                            "name": "fields_spec",
+                            "type": "oneof",
+                            "arguments": [
+                              {
+                                "name": "all",
+                                "type": "pure-token",
+                                "token": "*"
+                              },
+                              {
+                                "name": "explicit",
+                                "type": "block",
+                                "arguments": [
+                                  {
+                                    "name": "num_fields",
+                                    "type": "integer"
+                                  },
+                                  {
+                                    "name": "field",
+                                    "type": "string",
+                                    "multiple": true
+                                  }
+                                ]
+                              }
+                            ]
+                          }
+                        ]
+                      },
+                      {
+                        "name": "sortby",
+                        "type": "block",
+                        "optional": true,
+                        "arguments": [
+                          {
+                            "name": "sortby_token",
+                            "type": "pure-token",
+                            "token": "SORTBY"
+                          },
+                          {
+                            "name": "nargs",
+                            "type": "integer"
+                          },
+                          {
+                            "name": "key",
+                            "type": "block",
+                            "multiple": true,
+                            "arguments": [
+                              {
+                                "name": "field",
+                                "type": "string"
+                              },
+                              {
+                                "name": "order",
+                                "type": "oneof",
+                                "optional": true,
+                                "arguments": [
+                                  {
+                                    "name": "asc",
+                                    "type": "pure-token",
+                                    "token": "ASC"
+                                  },
+                                  {
+                                    "name": "desc",
+                                    "type": "pure-token",
+                                    "token": "DESC"
+                                  }
+                                ]
+                              }
+                            ]
+                          }
+                        ]
+                      },
+                      {
+                        "name": "limit",
+                        "type": "block",
+                        "optional": true,
+                        "arguments": [
+                          {
+                            "name": "limit_token",
+                            "type": "pure-token",
+                            "token": "LIMIT"
+                          },
+                          {
+                            "name": "offset",
+                            "type": "integer"
+                          },
+                          {
+                            "name": "count",
+                            "type": "integer"
+                          }
+                        ]
+                      }
+                    ]
                   }
                 ]
               },
@@ -2471,6 +2584,120 @@
                     "name": "random_sample",
                     "type": "pure-token",
                     "token": "RANDOM_SAMPLE"
+                  },
+                  {
+                    "name": "collect",
+                    "type": "block",
+                    "since": "8.8.0",
+                    "summary": "Collects values from grouped documents into a structured list. Requires `search-enable-unstable-features` to be enabled.",
+                    "arguments": [
+                      {
+                        "name": "collect_token",
+                        "type": "pure-token",
+                        "token": "COLLECT"
+                      },
+                      {
+                        "name": "fields",
+                        "type": "block",
+                        "arguments": [
+                          {
+                            "name": "fields_token",
+                            "type": "pure-token",
+                            "token": "FIELDS"
+                          },
+                          {
+                            "name": "fields_spec",
+                            "type": "oneof",
+                            "arguments": [
+                              {
+                                "name": "all",
+                                "type": "pure-token",
+                                "token": "*"
+                              },
+                              {
+                                "name": "explicit",
+                                "type": "block",
+                                "arguments": [
+                                  {
+                                    "name": "num_fields",
+                                    "type": "integer"
+                                  },
+                                  {
+                                    "name": "field",
+                                    "type": "string",
+                                    "multiple": true
+                                  }
+                                ]
+                              }
+                            ]
+                          }
+                        ]
+                      },
+                      {
+                        "name": "sortby",
+                        "type": "block",
+                        "optional": true,
+                        "arguments": [
+                          {
+                            "name": "sortby_token",
+                            "type": "pure-token",
+                            "token": "SORTBY"
+                          },
+                          {
+                            "name": "nargs",
+                            "type": "integer"
+                          },
+                          {
+                            "name": "key",
+                            "type": "block",
+                            "multiple": true,
+                            "arguments": [
+                              {
+                                "name": "field",
+                                "type": "string"
+                              },
+                              {
+                                "name": "order",
+                                "type": "oneof",
+                                "optional": true,
+                                "arguments": [
+                                  {
+                                    "name": "asc",
+                                    "type": "pure-token",
+                                    "token": "ASC"
+                                  },
+                                  {
+                                    "name": "desc",
+                                    "type": "pure-token",
+                                    "token": "DESC"
+                                  }
+                                ]
+                              }
+                            ]
+                          }
+                        ]
+                      },
+                      {
+                        "name": "limit",
+                        "type": "block",
+                        "optional": true,
+                        "arguments": [
+                          {
+                            "name": "limit_token",
+                            "type": "pure-token",
+                            "token": "LIMIT"
+                          },
+                          {
+                            "name": "offset",
+                            "type": "integer"
+                          },
+                          {
+                            "name": "count",
+                            "type": "integer"
+                          }
+                        ]
+                      }
+                    ]
                   }
                 ]
               },
