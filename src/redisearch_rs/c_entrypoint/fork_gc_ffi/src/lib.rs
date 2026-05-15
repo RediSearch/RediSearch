@@ -15,9 +15,12 @@
 //! delegates everything else — including Redis-specific failure
 //! handling — to the `fork_gc` crate.
 
-use std::ffi::{c_char, c_int, c_void};
+use std::{
+    ffi::{c_char, c_int, c_void},
+    io::{Read, Write},
+};
 
-use fork_gc::{ForkGC, io_result_ext::IoResultExt, reader::RecvFrame};
+use fork_gc::{ForkGC, Frame, io_result_ext::IoResultExt};
 
 use tracing::Level;
 use tracing_log_error::log_error;
@@ -73,7 +76,7 @@ pub unsafe extern "C" fn FGC_sendFixed(fgc: *mut ffi::ForkGC, buff: *const c_voi
     // SAFETY: caller guarantees (2).
     let slice = unsafe { std::slice::from_raw_parts(buff.cast::<u8>(), len) };
 
-    fgc.writer().send_fixed(slice).unwrap_or_exit();
+    fgc.writer().write_all(slice).unwrap_or_exit();
 }
 
 /// Write a length-prefixed buffer frame: a native-endian `size_t` header
@@ -101,7 +104,9 @@ pub unsafe extern "C" fn FGC_sendBuffer(fgc: *mut ffi::ForkGC, buff: *const c_vo
         &[]
     };
 
-    fgc.writer().send_buffer(slice).unwrap_or_exit();
+    fgc.writer()
+        .write_frame(Frame::Data(slice))
+        .unwrap_or_exit();
 }
 
 /// Write the end-of-stream sentinel, signalling to the parent reader
@@ -119,7 +124,7 @@ pub unsafe extern "C" fn FGC_sendTerminator(fgc: *mut ffi::ForkGC) {
     // SAFETY: caller guarantees (1).
     let fgc = unsafe { ForkGC::from_ptr_mut(fgc) };
 
-    fgc.writer().send_terminator().unwrap_or_exit();
+    fgc.writer().write_frame(Frame::Terminator).unwrap_or_exit();
 }
 
 /// Read exactly `len` bytes from the FGC pipe into `buf`.
@@ -144,7 +149,7 @@ pub unsafe extern "C" fn FGC_recvFixed(
     // SAFETY: caller guarantees (2).
     let slice = unsafe { std::slice::from_raw_parts_mut(buf.cast::<u8>(), len) };
 
-    match fgc.reader().recv_fixed(slice) {
+    match fgc.reader().read_exact(slice) {
         Ok(()) => ffi::REDISMODULE_OK as c_int,
         Err(e) => {
             log_error!(e, level: Level::WARN, "ForkGC pipe read error");
@@ -180,7 +185,7 @@ pub unsafe extern "C" fn FGC_recvBuffer(
     // SAFETY: caller guarantees (1).
     let fgc = unsafe { ForkGC::from_ptr_mut(fgc) };
 
-    let frame = match fgc.reader().recv_buffer() {
+    let frame = match fgc.reader().read_frame() {
         Ok(frame) => frame,
         Err(e) => {
             log_error!(e, level: Level::WARN, "ForkGC pipe read error: failed to read frame");
@@ -222,7 +227,7 @@ pub unsafe extern "C" fn recvFieldHeader(
     let fgc = unsafe { ForkGC::from_ptr_mut(fgc) };
     let mut reader = fgc.reader();
 
-    let frame = match reader.recv_buffer() {
+    let frame = match reader.read_frame() {
         Ok(frame) => frame,
         Err(e) => {
             log_error!(e, level: Level::WARN, "ForkGC pipe read error: failed to read frame for field header");
@@ -230,12 +235,12 @@ pub unsafe extern "C" fn recvFieldHeader(
         }
     };
 
-    if matches!(frame, RecvFrame::Terminator) {
+    if matches!(frame, Frame::Terminator) {
         return FGCError::Done;
     }
 
     let mut id_bytes = [0u8; size_of::<u64>()];
-    if let Err(e) = reader.recv_fixed(&mut id_bytes) {
+    if let Err(e) = reader.read_exact(&mut id_bytes) {
         log_error!(e, level: Level::WARN, "ForkGC pipe read error: failed to read id for field header");
         return FGCError::ParentError;
     };
