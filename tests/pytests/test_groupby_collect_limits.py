@@ -114,13 +114,11 @@ def test_collect_fields_sparse_docs():
 
     env.assertEqual(len(res['results']), 1)
     collected = res['results'][0]['extra_attributes']['rows']
-    print(collected)
     env.assertEqual(len(collected), SPEC_MAX_FIELDS)
     expected = sorted(
         ({f'f{i}': _field_value(i)} for i in range(SPEC_MAX_FIELDS)),
         key=lambda d: next(iter(d)))
     got = sorted(collected, key=lambda d: next(iter(d)))
-    print(got)
     env.assertEqual(got, expected)
 
 
