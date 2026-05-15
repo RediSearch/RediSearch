@@ -555,7 +555,6 @@ fn many_children() {
 #[test]
 fn revalidate_ok() {
     let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-    let ctx = mock_ctx.spec();
     // Create mock children with const generic arrays
     let child0: Mock<'static, 10> = Mock::new([10, 15, 20, 25, 30, 35, 40, 45, 50, 55]);
     let child1: Mock<'static, 11> = Mock::new([5, 10, 18, 20, 28, 30, 38, 40, 48, 50, 60]);
@@ -586,8 +585,9 @@ fn revalidate_ok() {
     assert_eq!(result.doc_id, 20);
 
     // Revalidate should return Ok
-    // SAFETY: test-only call with valid context
-    let status = unsafe { ii.revalidate(ctx) }.expect("revalidate failed");
+    let status = ii
+        .revalidate(&*mock_ctx.spec_read())
+        .expect("revalidate failed");
     assert!(matches!(status, RQEValidateStatus::Ok));
 
     // Should be able to continue reading
@@ -599,7 +599,6 @@ fn revalidate_ok() {
 #[test]
 fn revalidate_aborted() {
     let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-    let ctx = mock_ctx.spec();
     let child0: Mock<'static, 10> = Mock::new([10, 15, 20, 25, 30, 35, 40, 45, 50, 55]);
     let child1: Mock<'static, 11> = Mock::new([5, 10, 18, 20, 28, 30, 38, 40, 48, 50, 60]);
     let child2: Mock<'static, 11> = Mock::new([2, 10, 12, 20, 22, 30, 32, 40, 42, 50, 70]);
@@ -625,8 +624,9 @@ fn revalidate_aborted() {
     assert_eq!(result.doc_id, 10);
 
     // Revalidate should return Aborted since one child aborted
-    // SAFETY: test-only call with valid context
-    let status = unsafe { ii.revalidate(ctx) }.expect("revalidate failed");
+    let status = ii
+        .revalidate(&*mock_ctx.spec_read())
+        .expect("revalidate failed");
     assert!(matches!(status, RQEValidateStatus::Aborted));
 }
 
@@ -634,7 +634,6 @@ fn revalidate_aborted() {
 #[test]
 fn revalidate_moved() {
     let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-    let ctx = mock_ctx.spec();
     let child0: Mock<'static, 10> = Mock::new([10, 15, 20, 25, 30, 35, 40, 45, 50, 55]);
     let child1: Mock<'static, 11> = Mock::new([5, 10, 18, 20, 28, 30, 38, 40, 48, 50, 60]);
     let child2: Mock<'static, 11> = Mock::new([2, 10, 12, 20, 22, 30, 32, 40, 42, 50, 70]);
@@ -660,8 +659,9 @@ fn revalidate_moved() {
     assert_eq!(result.doc_id, 10);
 
     // Revalidate should return Moved
-    // SAFETY: test-only call with valid context
-    let status = unsafe { ii.revalidate(ctx) }.expect("revalidate failed");
+    let status = ii
+        .revalidate(&*mock_ctx.spec_read())
+        .expect("revalidate failed");
     assert!(
         matches!(status, RQEValidateStatus::Moved { current: Some(_) }),
         "Expected Moved with current, got {:?}",
@@ -680,7 +680,6 @@ fn revalidate_moved() {
 #[test]
 fn revalidate_mixed_results() {
     let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-    let ctx = mock_ctx.spec();
     let child0: Mock<'static, 10> = Mock::new([10, 15, 20, 25, 30, 35, 40, 45, 50, 55]);
     let child1: Mock<'static, 11> = Mock::new([5, 10, 18, 20, 28, 30, 38, 40, 48, 50, 60]);
     let child2: Mock<'static, 11> = Mock::new([2, 10, 12, 20, 22, 30, 32, 40, 42, 50, 70]);
@@ -706,8 +705,9 @@ fn revalidate_mixed_results() {
     assert_eq!(result.doc_id, 10);
 
     // Revalidate should return Moved (if any child moved)
-    // SAFETY: test-only call with valid context
-    let status = unsafe { ii.revalidate(ctx) }.expect("revalidate failed");
+    let status = ii
+        .revalidate(&*mock_ctx.spec_read())
+        .expect("revalidate failed");
     assert!(matches!(status, RQEValidateStatus::Moved { .. }));
     assert_eq!(ii.last_doc_id(), 20);
 }
@@ -716,7 +716,6 @@ fn revalidate_mixed_results() {
 #[test]
 fn revalidate_after_eof() {
     let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-    let ctx = mock_ctx.spec();
     // Pre-set children to return MOVE on revalidate
     let child0: Mock<'static, 10> = Mock::new([10, 15, 20, 25, 30, 35, 40, 45, 50, 55]);
     let child1: Mock<'static, 11> = Mock::new([5, 10, 18, 20, 28, 30, 38, 40, 48, 50, 60]);
@@ -742,8 +741,9 @@ fn revalidate_after_eof() {
     assert!(ii.at_eof());
 
     // Revalidate should return OK when already at EOF
-    // SAFETY: test-only call with valid context
-    let status = unsafe { ii.revalidate(ctx) }.expect("revalidate failed");
+    let status = ii
+        .revalidate(&*mock_ctx.spec_read())
+        .expect("revalidate failed");
     assert!(
         matches!(status, RQEValidateStatus::Ok),
         "Revalidate after EOF should return OK, got {:?}",
@@ -763,7 +763,6 @@ fn revalidate_after_eof() {
 #[test]
 fn revalidate_some_children_moved_to_eof() {
     let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-    let ctx = mock_ctx.spec();
     // Child 0 and 2 have normal data, child 1 is small (only 2 elements: [10, 20])
     // When we read doc 10 and then call Move, child 1 moves to 20 and the next Move
     // would go to EOF
@@ -794,8 +793,9 @@ fn revalidate_some_children_moved_to_eof() {
 
     // Revalidate should return Moved with current=None (EOF)
     // because child 1 moves to EOF (it only had 1 element which was already read)
-    // SAFETY: test-only call with valid context
-    let status = unsafe { ii.revalidate(ctx) }.expect("revalidate failed");
+    let status = ii
+        .revalidate(&*mock_ctx.spec_read())
+        .expect("revalidate failed");
     assert!(
         matches!(status, RQEValidateStatus::Moved { current: None }),
         "Expected Moved to EOF, got {:?}",
@@ -932,7 +932,6 @@ fn overlapping_children_ids() {
 #[test]
 fn revalidate_before_read() {
     let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-    let ctx = mock_ctx.spec();
     let child0: Mock<'static, 10> = Mock::new([10, 15, 20, 25, 30, 35, 40, 45, 50, 55]);
     let child1: Mock<'static, 11> = Mock::new([5, 10, 18, 20, 28, 30, 38, 40, 48, 50, 60]);
     let child2: Mock<'static, 11> = Mock::new([2, 10, 12, 20, 22, 30, 32, 40, 42, 50, 70]);
@@ -954,8 +953,9 @@ fn revalidate_before_read() {
     let mut ii = Intersection::new(children, 1.0, false);
 
     // Revalidate before any read
-    // SAFETY: test-only call with valid context
-    let status = unsafe { ii.revalidate(ctx) }.expect("revalidate failed");
+    let status = ii
+        .revalidate(&*mock_ctx.spec_read())
+        .expect("revalidate failed");
     assert!(
         matches!(status, RQEValidateStatus::Ok),
         "Revalidate before read should return Ok"
@@ -970,7 +970,6 @@ fn revalidate_before_read() {
 #[test]
 fn revalidate_move_before_read() {
     let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-    let ctx = mock_ctx.spec();
     let child0: Mock<'static, 10> = Mock::new([10, 15, 20, 25, 30, 35, 40, 45, 50, 55]);
     let child1: Mock<'static, 11> = Mock::new([5, 10, 18, 20, 28, 30, 38, 40, 48, 50, 60]);
     let child2: Mock<'static, 11> = Mock::new([2, 10, 12, 20, 22, 30, 32, 40, 42, 50, 70]);
@@ -992,8 +991,9 @@ fn revalidate_move_before_read() {
     let mut ii = Intersection::new(children, 1.0, false);
 
     // Revalidate before any read - children will move
-    // SAFETY: test-only call with valid context
-    let status = unsafe { ii.revalidate(ctx) }.expect("revalidate failed");
+    let status = ii
+        .revalidate(&*mock_ctx.spec_read())
+        .expect("revalidate failed");
 
     // Since we haven't read anything yet, and children moved,
     // the result depends on implementation. The iterator should
@@ -1092,7 +1092,6 @@ fn children_sorted_by_estimated() {
 #[test]
 fn revalidate_moved_skip_to_returns_none() {
     let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-    let ctx = mock_ctx.spec();
     // Set up children where:
     // - They share doc 10 (will read this first)
     // - After Move, child0 goes to doc 15, child1 goes to doc 18, child2 goes to doc 22
@@ -1136,8 +1135,9 @@ fn revalidate_moved_skip_to_returns_none() {
     // skip_to(22) will fail because:
     // - child0 has no doc >= 22 (only has [10, 15]), goes EOF
     // - Result: Moved { current: None }
-    // SAFETY: test-only call with valid context
-    let status = unsafe { ii.revalidate(ctx) }.expect("revalidate failed");
+    let status = ii
+        .revalidate(&*mock_ctx.spec_read())
+        .expect("revalidate failed");
     assert!(
         matches!(status, RQEValidateStatus::Moved { current: None }),
         "Expected Moved {{ current: None }} when skip_to cannot find consensus, got {:?}",

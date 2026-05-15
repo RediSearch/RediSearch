@@ -9,6 +9,7 @@
 #pragma once
 
 #include "../iterators/iterator_api.h"
+#include "field.h"
 #include "allocator/tracking_allocator.hpp"
 
 #include <vector>     // std::vector

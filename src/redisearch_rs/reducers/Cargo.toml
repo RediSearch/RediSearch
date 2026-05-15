@@ -12,8 +12,11 @@ unittest = []
 bumpalo.workspace = true
 ffi.workspace = true
 itertools.workspace = true
+min-max-heap = "1.3.0"
 query_error.workspace = true
 rlookup.workspace = true
+tracing.workspace = true
+tracing_assert.workspace = true
 value.workspace = true
 workspace_hack.workspace = true
 

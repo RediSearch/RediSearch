@@ -17,7 +17,8 @@
 #include "coord/special_case_ctx.h"
 #include "config.h"
 #include "vector_index.h"
-#include "query_error.h"
+
+typedef struct QueryError QueryError;
 
 #ifdef __cplusplus
 extern "C" {

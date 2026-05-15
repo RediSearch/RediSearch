@@ -95,7 +95,7 @@ jobs:
 
   update-version:
     # Generate a PR to bump the version for the next patch (if releasing from a version branch)
-    runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
+    runs-on: ubuntu-slim
     needs: validate-tag
     if: needs.validate-tag.outputs.should_bump == 'true'
     env:
@@ -150,9 +150,20 @@ jobs:
             --reviewer "$REVIEWERS" \
             --draft
 
+      - name: Generate GitHub App token
+        id: generate-app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ vars.GH_PR_APP_ID }}
+          private-key: ${{ secrets.GH_PR_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+          permission-pull-requests: write
+
       - name: Trigger CI
         env:
-          GH_TOKEN: ${{ secrets.CI_GH_P_TOKEN }}
+          GH_TOKEN: ${{ steps.generate-app-token.outputs.token }}
         run: |
           gh pr ready "$BRANCH" -R "$GITHUB_REPOSITORY"
           gh pr merge "$BRANCH" -R "$GITHUB_REPOSITORY" --auto

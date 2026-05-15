@@ -11,6 +11,7 @@
 
 #include <unistd.h>
 #include <pthread.h>
+#include "redismodule.h"
 #include "util/khash.h"
 #include "util/array.h"
 #include "search_ctx.h"
@@ -103,6 +104,13 @@ typedef struct CursorList {
    */
   uint64_t nextIdleTimeoutNs;
 
+  /**
+   * Module timer that fires at `nextIdleTimeoutNs` to reap expired idle
+   * cursors without requiring further client traffic. Equal to
+   * `IDLE_SWEEP_TIMER_NONE` when no timer is currently armed.
+   */
+  RedisModuleTimerID idleSweepTimerId;
+
   /** Is it an internal coordinator cursor or a user cursor */
   bool is_coord;
 } CursorList;
@@ -187,13 +195,17 @@ Cursor *Cursors_TakeForExecution(CursorList *cl, uint64_t cid);
  * Cursors_PeekTimeoutInfo without taking ownership of the cursor.
  */
 typedef struct {
-  /** Cached `queryTimeoutMS`. 0 means "no timer": cursor not found, or
-   * `TIMEOUT 0` on the originating FT.AGGREGATE. Maps to
-   * `RedisModule_BlockClient(timeoutMS=0)`. */
+  /** Cached `queryTimeoutMS`. 0 means `TIMEOUT 0` on the originating
+   * FT.AGGREGATE; maps to `RedisModule_BlockClient(timeoutMS=0)`. Use
+   * `found` to distinguish "no cursor" from "cursor exists with TIMEOUT 0". */
   size_t queryTimeoutMS;
   /** Cached `timeoutPolicy`. Defaults to `TimeoutPolicy_Return` when the
    * cursor was not found (safe: the coord FAIL branch is then skipped). */
   RSTimeoutPolicy queryTimeoutPolicy;
+  /** True if the cursor was present in the lookup table at peek time; when
+   * false the other fields hold their defaults. Lets callers validate the
+   * cid up-front instead of deferring "Cursor not found" to the worker. */
+  bool found;
 #ifdef ENABLE_ASSERT
   /** Today no hybrid cursor reaches this peek:
    * `_FT.HYBRID WITHCURSOR` cursors live on the shard cursor list and are

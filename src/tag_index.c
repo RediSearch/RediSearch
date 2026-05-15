@@ -13,12 +13,15 @@
 #include "inverted_index.h"
 #include "redis_index.h"
 #include "rmutil/util.h"
-#include "triemap.h"
+#include "triemap_ffi.h"
 #include "util/misc.h"
 #include "util/arr.h"
 #include "rmutil/rm_assert.h"
 #include "resp3.h"
-#include "redisearch_rs/headers/iterators_rs.h"
+#include "iterators_ffi.h"
+#include "inverted_index_ffi.h"
+#include "metrics_ffi.h"
+#include "query_term_ffi.h"
 #include "search_disk.h"
 #include "spec.h"
 
@@ -206,7 +209,8 @@ struct InvertedIndex *TagIndex_OpenIndex(const TagIndex *idx, const char *value,
 // the inverted index (if a new inverted index was created)
 static inline size_t tagIndex_Put(TagIndex *idx, const char *value, size_t len, t_docId docId) {
   size_t sz;
-  RSIndexResult rec = {.data.tag = RSResultData_Virtual, .docId = docId, .freq = 0};
+  RSIndexResult rec = {.data.tag = RSResultData_Virtual, .docId = docId, .freq = 0,
+                       .metrics = MetricsVec_New()};
   InvertedIndex *iv = TagIndex_OpenIndex(idx, value, len, CREATE_INDEX, &sz);
   return InvertedIndex_WriteEntryGeneric(iv, &rec) + sz;
 }

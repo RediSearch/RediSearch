@@ -12,7 +12,7 @@
 #include "redismodule.h"
 #include "rmalloc.h"
 #include "rmutil/rm_assert.h"
-#include "query_error.h"
+#include "query_error_ffi.h"
 #include <string.h>
 #include "info/global_stats.h"
 

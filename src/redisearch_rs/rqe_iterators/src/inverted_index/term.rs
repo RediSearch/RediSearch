@@ -11,6 +11,7 @@ use std::ptr::NonNull;
 
 use ffi::{RS_FIELDMASK_ALL, RedisSearchCtx, t_docId};
 use inverted_index::{RSIndexResult, RSOffsetSlice, TermReader, block_max_score::BlockScorer};
+use index_spec::IndexSpecReadGuard;
 use query_term::RSQueryTerm;
 
 use crate::{
@@ -99,10 +100,10 @@ where
     ///
     /// The raw pointers inside `spec` (e.g. `keysDict`) must be valid and
     /// dereferenceable for the duration of the call.
-    unsafe fn should_abort(&self, spec: &ffi::IndexSpec) -> bool {
+    fn should_abort(&self, spec: &IndexSpecReadGuard) -> bool {
         // Redis_OpenInvertedIndex() relies on keysDict to open the II.
         // It should always be set in production flows but some tests do not set up a full spec.
-        if spec.keysDict.is_null() {
+        if !spec.has_keys_dict() {
             return false;
         }
 
@@ -118,11 +119,12 @@ where
             .as_bytes()
             .map_or(std::ptr::null(), |b| b.as_ptr().cast());
 
-        // SAFETY: `spec` is a valid `IndexSpec` and
+        // SAFETY: spec.as_mut_ptr() points to a valid IndexSpec for the duration
+        // of this call, guaranteed by the caller holding the spec read lock.
         // `str_ptr` is a valid byte slice of `term.len()` bytes.
         let idx = unsafe {
             ffi::Redis_OpenInvertedIndex(
-                spec as *const ffi::IndexSpec as *mut ffi::IndexSpec,
+                spec.as_mut_ptr(),
                 str_ptr,
                 term.len(),
                 false,
@@ -199,20 +201,15 @@ where
     }
 
     #[inline(always)]
-    unsafe fn revalidate(
+    fn revalidate(
         &mut self,
-        spec: NonNull<ffi::IndexSpec>,
+        spec: &IndexSpecReadGuard,
     ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        // SAFETY: The caller guarantees `spec` points to a valid `IndexSpec`
-        // while the spec read lock is held.
-        let spec_ref = unsafe { spec.as_ref() };
-        // SAFETY: `spec_ref` satisfies `should_abort`'s safety requirements.
-        if unsafe { self.should_abort(spec_ref) } {
+        if self.should_abort(spec) {
             return Ok(RQEValidateStatus::Aborted);
         }
 
-        // SAFETY: Delegating to inner iterator with the same `spec` passed by our caller.
-        unsafe { self.it.revalidate(spec) }
+        self.it.revalidate(spec)
     }
 
     #[inline(always)]

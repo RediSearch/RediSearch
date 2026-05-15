@@ -36,7 +36,7 @@ on:
 
 jobs:
   generate:
-    runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
+    runs-on: ubuntu-slim
     outputs:
       matrix: ${{ steps.generate-matrix.outputs.matrix }}
       has-jobs: ${{ steps.generate-matrix.outputs.has-jobs }}
@@ -78,6 +78,7 @@ jobs:
               ('azurelinux:3', 'aarch64'),
               ('alpine:3.23', 'x86_64'),
               ('alpine:3.23', 'aarch64'),
+              ('macos-14', 'x86_64'),
               ('macos-14', 'aarch64'),
               ('macos-15', 'x86_64'),
               ('macos-15', 'aarch64'),

@@ -54,6 +54,12 @@ int JSON_LoadDocumentField(JSONResultsIterator jsonIter, size_t len, FieldSpec *
                            struct DocumentField *df, RedisModuleCtx *ctx, bool rejectMultiValue,
                            QueryError *status);
 
+/* Stores text values from a JSON iterable into a document field */
+int JSON_StoreTextInDocField(size_t len, JSONIterable *iterable, struct DocumentField *df, QueryError *status);
+
+/* Stores multi-vector values from a JSON iterable into a document field */
+int JSON_StoreMultiVectorInDocField(FieldSpec *fs, JSONIterable *itr, size_t len, struct DocumentField *df, QueryError *status);
+
 /* Checks if JSONType fits the FieldType */
 int FieldSpec_CheckJsonType(FieldType fieldType, JSONType type, QueryError *status);
 

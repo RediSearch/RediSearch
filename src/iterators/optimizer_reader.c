@@ -7,7 +7,9 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "iterators/optimizer_reader.h"
-#include "iterators_rs.h"
+#include "iterators_ffi.h"
+#include "rqe_iterator_type.h"
+#include "types_ffi.h"
 
 int cmpAsc(const void *v1, const void *v2, const void *udata) {
   RSIndexResult *res1 = (RSIndexResult *)v1;
@@ -223,12 +225,32 @@ IteratorStatus OPT_Read(QueryIterator *self) {
 }
 
 QueryIterator *NewOptimizerIterator(QOptimizer *qOpt, QueryIterator *root, IteratorsConfig *config) {
+  // Check for overflow in result array allocation: (limit + 1) * sizeof(RSIndexResult)
+  size_t resArr_alloc_size;
+  if (__builtin_add_overflow(qOpt->limit, 1, &resArr_alloc_size)) {
+    return NULL;
+  }
+  if (__builtin_mul_overflow(resArr_alloc_size, sizeof(RSIndexResult), &resArr_alloc_size)) {
+    return NULL;
+  }
+
+  // Check for overflow in heap allocation: (limit * sizeof(void*)) + sizeof(heap_t)
+  // Note: We only check the multiplication overflow.
+  // The test for overflow due to the addition of sizeof(heap_t) is not needed
+  // because sizeof(RSIndexResult) > sizeof(void*), so any limit that would
+  // cause the heap addition to overflow would have already triggered the resArr
+  // multiplication overflow check above.
+  size_t heap_array_size;
+  if (__builtin_mul_overflow((size_t)qOpt->limit, sizeof(void *), &heap_array_size)) {
+    return NULL;
+  }
+
   OptimizerIterator *oi = rm_calloc(1, sizeof(*oi));
   oi->child = root;
   oi->optim = qOpt;
 
   oi->cmp = qOpt->asc ? cmpAsc : cmpDesc;
-  oi->resArr = rm_malloc((qOpt->limit + 1) * sizeof(RSIndexResult));
+  oi->resArr = rm_malloc(resArr_alloc_size);
   oi->pooledResult = oi->resArr;
   oi->heap = rm_malloc(heap_sizeof(qOpt->limit));
   heap_init(oi->heap, oi->cmp, NULL, qOpt->limit);
@@ -274,11 +296,14 @@ QueryIterator *NewOptimizerIterator(QOptimizer *qOpt, QueryIterator *root, Itera
 
 // Accessors for profile printing.
 const QueryIterator *OptimizerIterator_GetChild(const QueryIterator *it) {
+  RS_ASSERT(it->type == OPTIMUS_ITERATOR);
   const OptimizerIterator *oi = (const OptimizerIterator *)it;
   return oi->child;
 }
 
 const char *OptimizerIterator_GetOptimizationType(const QueryIterator *it) {
+  RS_ASSERT(it->type == OPTIMUS_ITERATOR);
   const OptimizerIterator *oi = (const OptimizerIterator *)it;
   return QOptimizer_PrintType(oi->optim);
 }
+

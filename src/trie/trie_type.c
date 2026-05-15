@@ -23,6 +23,18 @@
 #include <string.h>
 #include <limits.h>
 
+struct Trie {
+  TrieNode *root;
+  size_t size;
+  TrieFreeCallback freecb;
+  TrieSortMode sortMode;
+};
+
+size_t Trie_Size(const Trie *t) {
+  RS_ASSERT(t);
+  return t->size;
+}
+
 Trie *NewTrie(TrieFreeCallback freecb, TrieSortMode sortMode) {
   Trie *tree = rm_malloc(sizeof(Trie));
   rune *rs = strToRunes("", 0);
@@ -60,24 +72,17 @@ int Trie_InsertRune(Trie *t, const rune *runes, size_t len, double score, int in
   if (runes && len && len < TRIE_INITIAL_STRING_LEN) {
     rc = TrieNode_Add(&t->root, runes, len, payload, (float)score, incr ? ADD_INCR : ADD_REPLACE,
                       t->freecb, numDocs);
-    t->size += rc;
+    if (rc == TRIE_OK_NEW) {
+      t->size += rc;
+    }
   }
   return rc;
 }
 
-void *Trie_GetValueStringBuffer(Trie *t, const char *s, size_t len, bool exact) {
-  if (len > TRIE_INITIAL_STRING_LEN * sizeof(rune)) {
-    return 0;
-  }
-  runeBuf buf;
-  rune *runes = runeBufFill(s, len, &buf, &len);
-  void *val = Trie_GetValueRune(t, runes, len, exact);
-  runeBufFree(&buf);
-  return val;
-}
-
-void *Trie_GetValueRune(Trie *t, const rune *runes, size_t len, bool exact) {
-  return TrieNode_GetValue(t->root, runes, len, exact);
+int Trie_InsertRuneNoSize(Trie *t, const rune *runes, size_t len, double score, int incr,
+                          RSPayload *payload, size_t numDocs) {
+  return TrieNode_Add(&t->root, runes, len, payload, (float)score, incr ? ADD_INCR : ADD_REPLACE,
+                      t->freecb, numDocs);
 }
 
 int Trie_Delete(Trie *t, const char *s, size_t len) {
@@ -95,6 +100,29 @@ int Trie_DeleteRunes(Trie *t, const rune *runes, size_t len) {
   int rc = TrieNode_Delete(t->root, runes, len, t->freecb);
   t->size -= rc;
   return rc;
+}
+
+TrieNode *Trie_GetNode(Trie *t, const rune *str, t_len len, bool exact, int *offsetOut) {
+  return TrieNode_Get(t->root, str, len, exact, offsetOut);
+}
+
+void Trie_IterateRange(Trie *t, const rune *min, int minlen, bool includeMin,
+                       const rune *max, int maxlen, bool includeMax,
+                       TrieRangeCallback callback, void *ctx) {
+  TrieNode_IterateRange(t->root, min, minlen, includeMin, max, maxlen, includeMax, callback, ctx);
+}
+
+void Trie_IterateContains(Trie *t, const rune *str, int nstr, bool prefix, bool suffix,
+                          TrieRangeCallback callback, void *ctx, struct timespec *timeout,
+                          bool skipTimeoutChecks) {
+  TrieNode_IterateContains(t->root, str, nstr, prefix, suffix, callback, ctx, timeout,
+                           skipTimeoutChecks);
+}
+
+void Trie_IterateWildcard(Trie *t, const rune *str, int nstr,
+                          TrieRangeCallback callback, void *ctx, struct timespec *timeout,
+                          bool skipTimeoutChecks) {
+  TrieNode_IterateWildcard(t->root, str, nstr, callback, ctx, timeout, skipTimeoutChecks);
 }
 
 // Forward declaration for the internal rune-based function
@@ -174,6 +202,10 @@ static int cmpEntries(const void *p1, const void *p2, const void *udata) {
     return -1;
   }
   return 0;
+}
+
+TrieIterator *Trie_IterateAll(Trie *t) {
+  return TrieNode_Iterate(t->root, NULL, NULL, NULL);
 }
 
 TrieIterator *Trie_Iterate(Trie *t, const char *prefix, size_t len, int maxDist, int prefixMode) {
@@ -363,6 +395,7 @@ void *TrieType_GenericLoad(RedisModuleIO *rdb, bool loadPayloads, bool loadNumDo
   Trie *tree = NULL;
   char *str = NULL;
   uint64_t elements = LoadUnsigned_IOError(rdb, goto cleanup);
+
   tree = NewTrie(NULL, Trie_Sort_Score);
 
   while (elements--) {
@@ -379,9 +412,19 @@ void *TrieType_GenericLoad(RedisModuleIO *rdb, bool loadPayloads, bool loadNumDo
     if (loadNumDocs) {
       numDocs = LoadUnsigned_IOError(rdb, goto cleanup);
     }
-    Trie_InsertStringBuffer(tree, str, len - 1, score, 0, payload.len ? &payload : NULL, numDocs);
+    int rc = Trie_InsertStringBuffer(tree, str, len - 1, score, 0, payload.len ? &payload : NULL, numDocs);
     RedisModule_Free(str);
-    if (payload.data != NULL) RedisModule_Free(payload.data);
+    str = NULL;
+    if (payload.data != NULL) {
+      RedisModule_Free(payload.data);
+      payload.data = NULL;
+    }
+    if (rc == TRIE_ERR_PAYLOAD_OVERFLOW) {
+      RedisModule_LogIOError(
+          rdb, "warning",
+          "RDB Load: Failed to insert trie entry (payload overflow)");
+      goto cleanup;
+    }
   }
   return tree;
 

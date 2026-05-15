@@ -13,7 +13,7 @@
 #include "redismock/util.h"
 #include "redismock/internal.h"
 #include "slot_ranges.h"
-#include "query_error.h"
+#include "query_error_ffi.h"
 #include "rmalloc.h"
 #include "module.h"
 #include "redismodule.h"

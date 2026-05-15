@@ -334,7 +334,19 @@ static int distributeAvg(ReducerDistCtx *rdctx, QueryError *status) {
   return REDISMODULE_OK;
 }
 
-/* Remote COLLECT emits array-of-maps; local COLLECT consumes the remote alias. */
+/* Remote COLLECT emits array-of-maps; local COLLECT consumes the remote alias.
+ *
+ * Note: this rewriter currently forwards the user's `LIMIT offset count` to
+ * the shard verbatim (via `buildCollectArgs`), unlike `serializeArrange` in
+ * `aggregate_plan.c` which rewrites `LIMIT offset count` to
+ * `LIMIT 0 (offset+count)`. Because of that, the shard reducer needs LIMIT
+ * context and an `is_internal` flag so it skips the local `skip(offset)` and
+ * lets the coordinator apply the global offset.
+ *
+ * TODO: reconsider switching to the `LIMIT 0 (offset+count)` rewrite pattern.
+ * It would let the shard COLLECT reducer drop both its `limit` and
+ * `is_internal` fields.
+ */
 static int distributeCollect(ReducerDistCtx *rdctx, QueryError *status) {
   const PLN_Reducer *src = rdctx->srcReducer;
   size_t argc = src->args.argc;

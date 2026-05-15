@@ -7,4 +7,5 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+mod hash;
 mod parse_geo;

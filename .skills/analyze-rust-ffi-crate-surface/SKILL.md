@@ -32,5 +32,5 @@ Emit a report that lists, for each symbol, the following information:
 
 ## Auto-generated header files
 
-Each `*_ffi` Rust crate has a corresponding auto-generated header file in `src/redisearch_rs/headers`, created by the `build.rs` script via `cbindgen`.
+Each `*_ffi` Rust crate has a corresponding auto-generated header file in `src/redisearch_rs/headers`, generated from rustdoc by the `cheadergen` CLI (configured in `src/redisearch_rs/cheadergen.toml`, invoked from `src/redisearch_rs/CMakeLists.txt`).
 The auto-generated header file includes all the FFI symbols defined by the Rust crate, no matter the sub-module they are defined in.

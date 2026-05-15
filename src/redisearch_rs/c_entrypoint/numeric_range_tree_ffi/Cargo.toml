@@ -14,11 +14,9 @@ bench = false
 [lints]
 workspace = true
 
-[build-dependencies]
-cbindgen.workspace = true
-build_utils = { path = "../../build_utils" }
 
 [dependencies]
+cheadergen.workspace = true
 numeric_range_tree.workspace = true
 inverted_index.workspace = true
 inverted_index_ffi = { path = "../inverted_index_ffi" }

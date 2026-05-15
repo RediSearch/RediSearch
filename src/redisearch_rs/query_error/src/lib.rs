@@ -29,8 +29,7 @@ pub const fn query_error_code_max_value() -> u8 {
 /// `error_code_full_msg_equals_prefix_plus_default_msg` validates this by iterating
 /// all codes and will panic if gaps are introduced.
 ///
-/// cbindgen:prefix-with-name
-/// cbindgen:rename-all=ScreamingSnakeCase
+#[cheadergen::config(export, prefix_with_name, rename_all = "SCREAMING_SNAKE_CASE")]
 #[derive(Clone, Copy, Default, EnumCount, FromRepr, PartialEq, Eq)]
 #[repr(u8)]
 pub enum QueryErrorCode {
@@ -604,8 +603,7 @@ impl QueryError {
 // Unlike QueryErrorCode, this enum is not tied to any API or string mapping.
 // Its current purpose is only to serve as a lightweight identifier that can
 // be passed to functions and easily handled via switch/case logic.
-/// cbindgen:prefix-with-name
-/// cbindgen:rename-all=ScreamingSnakeCase
+#[cheadergen::config(export, prefix_with_name, rename_all = "SCREAMING_SNAKE_CASE")]
 #[derive(Clone, Copy, Debug, Default, FromRepr, PartialEq, Eq)]
 #[repr(u8)]
 pub enum QueryWarningCode {
@@ -674,6 +672,7 @@ pub mod opaque {
     ///
     /// The size and alignment of this struct must match the Rust `QueryError`
     /// structure exactly.
+    #[cheadergen::config(rename = "QueryError")]
     #[repr(C, align(8))]
     pub struct OpaqueQueryError(Size<38>);
 

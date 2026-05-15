@@ -7,9 +7,10 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::{ptr::NonNull, sync::OnceLock};
+use std::sync::OnceLock;
 
-use ffi::{IndexSpec, t_docId};
+use ffi::t_docId;
+use index_spec::IndexSpecReadGuard;
 use thiserror::Error;
 
 use ::inverted_index::RSIndexResult;
@@ -136,13 +137,16 @@ pub trait RQEIterator<'index> {
 
     /// Called when the iterator is being revalidated after a concurrent index change.
     ///
-    /// The iterator should check if it is still valid.
+    /// The iterator should check if it is still valid by comparing its stored state
+    /// against the current index state.
     ///
-    /// # Safety
-    /// `spec` must point to a valid [`IndexSpec`] for the duration of the call.
-    unsafe fn revalidate(
+    /// # Locking
+    ///
+    /// The caller must hold the spec read lock, represented by [`IndexSpecReadGuard`].
+    /// The lock ensures the spec remains valid and unchanged during this call.
+    fn revalidate(
         &mut self,
-        spec: NonNull<IndexSpec>,
+        spec: &IndexSpecReadGuard,
     ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError>;
 
     /// Rewind the iterator to the beginning and reset its properties.
@@ -238,12 +242,11 @@ impl<'index, I: RQEIterator<'index> + 'index> RQEIterator<'index> for Box<I> {
         (**self).skip_to(doc_id)
     }
 
-    unsafe fn revalidate(
+    fn revalidate(
         &mut self,
-        spec: NonNull<IndexSpec>,
+        spec: &IndexSpecReadGuard,
     ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        // SAFETY: Delegating to inner iterator with the same `spec` passed by our caller.
-        unsafe { (**self).revalidate(spec) }
+        (**self).revalidate(spec)
     }
 
     fn rewind(&mut self) {
@@ -296,12 +299,11 @@ impl<'index> RQEIterator<'index> for Box<dyn RQEIterator<'index> + 'index> {
         (**self).skip_to(doc_id)
     }
 
-    unsafe fn revalidate(
+    fn revalidate(
         &mut self,
-        spec: NonNull<IndexSpec>,
+        spec: &IndexSpecReadGuard,
     ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        // SAFETY: Delegating to inner iterator with the same `spec` passed by our caller.
-        unsafe { (**self).revalidate(spec) }
+        (**self).revalidate(spec)
     }
 
     fn rewind(&mut self) {

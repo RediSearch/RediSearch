@@ -35,6 +35,7 @@ pub(crate) enum RepairType {
 }
 
 /// Result of scanning the index for garbage collection
+#[cheadergen::config(rename = "InvertedIndexGcDelta")]
 #[derive(Debug, Eq, PartialEq, Deserialize, Serialize)]
 pub struct GcScanDelta {
     /// The index of the last block in the index at the time of the scan. This is used to ensure
@@ -70,6 +71,7 @@ pub(crate) struct BlockGcScanResult {
 }
 
 /// Information about the result of applying a garbage collection scan to the index
+#[cheadergen::config(rename = "II_GCScanStats")]
 #[derive(Debug, Eq, PartialEq, Copy, Clone, Default)]
 #[repr(C)]
 pub struct GcApplyInfo {

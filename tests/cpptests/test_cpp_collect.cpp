@@ -14,7 +14,7 @@
 #include "gtest/gtest.h"
 
 #include "aggregate/reducer.h"
-#include "reducers_rs.h"
+#include "reducers_ffi.h"
 #include "spec.h"
 #include "config.h"
 #include "result_processor.h"
@@ -116,12 +116,7 @@ protected:
 
 // ====== Happy path tests ======
 
-// TODO: Re-enable (drop the `DISABLED_` prefix) and remove the companion
-// `FieldsLoadAllRejected` test below once `*` in FIELDS is supported by the
-// COLLECT parser. Today the parser unconditionally rejects `*` in FIELDS in
-// both modes (see `src/aggregate/reducers/collect.c`, the
-// `if (data.load_all)` branch).
-TEST_F(CollectParserTest, DISABLED_FieldsLoadAll) {
+TEST_F(CollectParserTest, FieldsLoadAll) {
   parseOkRemote({"FIELDS", "*"}, [](Reducer *r) {
     EXPECT_TRUE(CollectReducer_IsLoadAll(r));
     EXPECT_EQ(CollectReducer_GetFieldKeysLen(r), 0u);
@@ -138,9 +133,7 @@ TEST_F(CollectParserTest, FieldsWithCount) {
   r->Free(r);
 }
 
-// TODO: Re-enable (drop the `DISABLED_` prefix) once `*` in FIELDS is supported
-// by the COLLECT parser.
-TEST_F(CollectParserTest, DISABLED_FieldsLoadAllWithSortBy) {
+TEST_F(CollectParserTest, FieldsLoadAllWithSortBy) {
   registerKeys({"price"});
   Reducer *r = parseCollectOk({
       "FIELDS", "*",
@@ -149,6 +142,21 @@ TEST_F(CollectParserTest, DISABLED_FieldsLoadAllWithSortBy) {
   ASSERT_NE(r, nullptr);
   EXPECT_TRUE(CollectReducer_IsLoadAll(r));
   EXPECT_EQ(CollectReducer_GetSortKeysLen(r), 1u);
+  r->Free(r);
+}
+
+TEST_F(CollectParserTest, LocalLoadAllAccepted) {
+  const RLookupKey *inputKey = RLookup_GetKey_Write(&lk, "remote_collect", RLOOKUP_F_NOFLAGS);
+  std::vector<const char *> args = {"FIELDS", "*"};
+  QueryError status = QueryError_Default();
+
+  Reducer *r = parseCollect(args, &status, true, inputKey);
+
+  ASSERT_NE(r, nullptr) << QueryError_GetUserError(&status);
+  // Use the local-side accessor; the remote `CollectReducer_IsLoadAll` would
+  // read the wrong struct offset for a local reducer.
+  EXPECT_TRUE(CollectReducer_IsLocalLoadAll(r));
+  QueryError_ClearError(&status);
   r->Free(r);
 }
 

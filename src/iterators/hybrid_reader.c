@@ -10,7 +10,10 @@
 #include "hybrid_reader.h"
 #include "VecSim/vec_sim.h"
 #include "VecSim/query_results.h"
-#include "iterators_rs.h"
+#include "iterators_ffi.h"
+#include "metrics_ffi.h"
+#include "rqe_iterator_type.h"
+#include "types_ffi.h"
 #include "query.h"
 
 #define VECTOR_SCORE(p) (p->data.tag == RSResultData_Metric ? IndexResult_NumValue(p) : IndexResult_NumValue(AggregateResult_GetUnchecked(IndexResult_AggregateRefUnchecked(p), 0)))
@@ -93,7 +96,7 @@ static void insertResultToHeap_Aggregate(HybridIterator *hr, RSIndexResult *chil
   RSIndexResult *res = NewHybridResult();
   AggregateResult_AddChild(res, IndexResult_DeepCopy(vec_res));
   AggregateResult_AddChild(res, IndexResult_DeepCopy(child_res));
-  res->data.hybrid_metric.tag = RSAggregateResult_Owned; // Mark as copy, so when we free it, it will also free its children.
+  res->data.hybridmetric.tag = RSAggregateResult_Owned; // Mark as copy, so when we free it, it will also free its children.
   ResultMetrics_Add(res, hr->ownKey, IndexResult_NumValue(vec_res));
 
   if (hr->topResults->count < hr->query.k) {
@@ -678,34 +681,50 @@ QueryIterator *NewHybridVectorIterator(HybridIteratorParams hParams, QueryError 
   return ri;
 }
 
+RLookupKey **HybridIterator_GetOwnKeyRef(QueryIterator *it) {
+  RS_ASSERT(it->type == HYBRID_ITERATOR);
+  return &((HybridIterator *)it)->ownKey;
+}
+
+void HybridIterator_SetKeyHandle(QueryIterator *it, struct RLookupKeyHandle *h) {
+  RS_ASSERT(it->type == HYBRID_ITERATOR);
+  ((HybridIterator *)it)->keyHandle = h;
+}
+
 // Accessors for profile printing.
 const QueryIterator *HybridIterator_GetChild(const QueryIterator *it) {
+  RS_ASSERT(it->type == HYBRID_ITERATOR);
   const HybridIterator *hi = (const HybridIterator *)it;
   return hi->child;
 }
 
 const char *HybridIterator_GetSearchModeString(const QueryIterator *it) {
+  RS_ASSERT(it->type == HYBRID_ITERATOR);
   const HybridIterator *hi = (const HybridIterator *)it;
   return VecSimSearchMode_ToString(hi->searchMode);
 }
 
 bool HybridIterator_IsBatchMode(const QueryIterator *it) {
+  RS_ASSERT(it->type == HYBRID_ITERATOR);
   const HybridIterator *hi = (const HybridIterator *)it;
   return hi->searchMode == VECSIM_HYBRID_BATCHES ||
          hi->searchMode == VECSIM_HYBRID_BATCHES_TO_ADHOC_BF;
 }
 
 size_t HybridIterator_GetNumIterations(const QueryIterator *it) {
+  RS_ASSERT(it->type == HYBRID_ITERATOR);
   const HybridIterator *hi = (const HybridIterator *)it;
   return hi->numIterations;
 }
 
 size_t HybridIterator_GetMaxBatchSize(const QueryIterator *it) {
+  RS_ASSERT(it->type == HYBRID_ITERATOR);
   const HybridIterator *hi = (const HybridIterator *)it;
   return hi->maxBatchSize;
 }
 
 size_t HybridIterator_GetMaxBatchIteration(const QueryIterator *it) {
+  RS_ASSERT(it->type == HYBRID_ITERATOR);
   const HybridIterator *hi = (const HybridIterator *)it;
   return hi->maxBatchIteration;
 }

@@ -16,11 +16,11 @@ on:
 
 jobs:
   change-checks:
-    runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
+    runs-on: ubuntu-slim
     outputs: # Make sure to return "true" if any workflow was changed, to make sure the workflow works
-      CODE_CHANGED: ${{ steps.check-code.outputs.any_modified == 'true' || steps.check-workflows.outputs.any_modified == 'true' }}
-      BENCHMARK_CHANGED: ${{ steps.check-benchmarks.outputs.any_modified == 'true' || steps.check-workflows.outputs.any_modified == 'true' }}
-      RUST_CODE_CHANGED: ${{ steps.check-micro-benchmarks.outputs.any_modified == 'true' || steps.check-workflows.outputs.any_modified == 'true' }}
+      CODE_CHANGED: ${{ steps.check-code.outputs.any_modified == 'true' || steps.check-cmake.outputs.any_modified == 'true' || steps.check-workflows.outputs.any_modified == 'true' }}
+      BENCHMARK_CHANGED: ${{ steps.check-code.outputs.any_modified == 'true' || steps.check-cmake.outputs.any_modified == 'true' || steps.check-benchmarks.outputs.any_modified == 'true' || steps.check-workflows.outputs.any_modified == 'true' }}
+      RUST_CODE_CHANGED: ${{ steps.check-micro-benchmarks.outputs.any_modified == 'true' || steps.check-rust-cmake.outputs.any_modified == 'true' || steps.check-workflows.outputs.any_modified == 'true' }}
       TESTS_CHANGED: ${{ steps.check-tests.outputs.any_modified == 'true' || steps.check-workflows.outputs.any_modified == 'true' }}
     steps:
       - name: Checkout
@@ -35,27 +35,60 @@ jobs:
           files: |
                 .github/workflows/**
                 .github/actions/**
-      - name: Check if code were changed
+      - name: Check if code was changed
         id: check-code
         uses: tj-actions/changed-files@v47.0.6
-        with: # Only run on changes to these paths (code, deps)
+        with:
           files: |
+                *
+                .*
                 src/**
                 deps/**
-                **/CMakeLists.txt
-                **/Makefile
+                build/**
+                cmake/**
+                srcutil/**
+                sbin/**
+                scripts/**
+                pack/**
+                .install/**
+                .codespell/**
+                .devcontainer/**
+          files_ignore: |
+                .github/**
+                .skills/**
+                docs/**
+                tests/**
+                **/*.md
+                **/*.markdown
+                **/*.txt
+                **/README
+                **/LICENSE
+                **/NOTICE
+                **/CHANGELOG
+                **/*.adoc
+                **/*.rst
+                **/*.svg
+                **/*.png
+                **/*.jpg
+                **/*.jpeg
+                **/*.gif
+                **/*.webp
+                **/*.ico
+                **/*.pdf
           fetch_additional_submodule_history: true
-      - name: Check if benchmarks or code were changed
+      - name: Check if CMake files were changed
+        id: check-cmake
+        uses: tj-actions/changed-files@v47.0.6
+        with:
+          files: |
+                **/CMakeLists.txt
+      - name: Check if benchmark files were changed
         id: check-benchmarks
         uses: tj-actions/changed-files@v47.0.6
-        with: # Only run on changes to these paths (code, deps, and benchmarks related changes)
+        with:
           files: |
-                src/**
-                deps/**
                 tests/benchmarks/**
                 .github/workflows/benchmark-*.yml
-                **/CMakeLists.txt
-                **/Makefile
           fetch_additional_submodule_history: true
       - name: Check if tests were changed
         id: check-tests
@@ -71,3 +104,26 @@ jobs:
         with: # Only run on changes to these paths (redisearch_rs)
           files: |
               src/redisearch_rs/**
+          files_ignore: |
+              **/*.md
+              **/*.markdown
+              **/README
+              **/LICENSE
+              **/NOTICE
+              **/CHANGELOG
+              **/*.adoc
+              **/*.rst
+              **/*.svg
+              **/*.png
+              **/*.jpg
+              **/*.jpeg
+              **/*.gif
+              **/*.webp
+              **/*.ico
+              **/*.pdf
+      - name: Check if Rust CMake files were changed
+        id: check-rust-cmake
+        uses: tj-actions/changed-files@v47.0.6
+        with:
+          files: |
+              src/redisearch_rs/CMakeLists.txt

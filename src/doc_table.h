@@ -11,13 +11,14 @@
 #include <stdlib.h>
 #include <string.h>
 #include "redismodule.h"
-#include "triemap.h"
 #include "redisearch.h"
 #include "sortable.h"
 #include "byte_offsets.h"
 #include "hiredis/sds.h"
 #include "rmutil/rm_assert.h"
 #include "ttl_table.h"
+
+typedef struct TrieMap TrieMap;
 
 #ifdef __cplusplus
 extern "C" {
@@ -223,7 +224,10 @@ static inline void DMD_Return(const RSDocumentMetadata *cdmd) {
   }
 }
 
-void DocTable_LegacyRdbLoad(DocTable *t, RedisModuleIO *rdb, int encver);
+/* Load the doc table from RDB. This is used for legacy RDB load only.
+ * Returns REDISMODULE_OK on success, REDISMODULE_ERR on allocation failure.
+ */
+int DocTable_LegacyRdbLoad(DocTable *t, RedisModuleIO *rdb, int encver);
 
 t_docId DocTable_GetMaxDocId(const DocTable *t);
 

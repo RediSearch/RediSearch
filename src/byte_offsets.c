@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "byte_offsets.h"
+#include "types_ffi.h"
 #include <arpa/inet.h>
 
 RSByteOffsets *NewByteOffsets() {

@@ -10,13 +10,16 @@
 #include "doc_table.h"
 #include "redismodule.h"
 #include "inverted_index.h"
-#include "iterators_rs.h"
+#include "iterators_ffi.h"
+#include "inverted_index_ffi.h"
+#include "query_term_ffi.h"
 #include "rmutil/strings.h"
 #include "rmutil/util.h"
 #include "util/logging.h"
 #include "util/misc.h"
 #include "tag_index.h"
 #include "rmalloc.h"
+#include "debug_commands.h"
 #include <stdio.h>
 
 static inline void updateTime(SearchTime *searchTime, int32_t durationNS) {
@@ -108,7 +111,17 @@ int RedisSearchCtx_TryLockSpecRead(RedisSearchCtx *ctx) {
 
 void RedisSearchCtx_LockSpecWrite(RedisSearchCtx *ctx) {
   RS_ASSERT(ctx->flags == RS_CTX_UNSET);
+#ifdef ENABLE_ASSERT
+  // Bump the pending-writers counter before we may park on the rwlock so that
+  // tests can observe a queued writer via `PendingSpecWriters_Get` without
+  // depending on the main thread (the main thread is exactly what's blocked
+  // here when a BG worker holds the read lock).
+  PendingSpecWriters_Incr();
+#endif
   pthread_rwlock_wrlock(&ctx->spec->rwlock);
+#ifdef ENABLE_ASSERT
+  PendingSpecWriters_Decr();
+#endif
   ctx->flags = RS_CTX_READWRITE;
 }
 

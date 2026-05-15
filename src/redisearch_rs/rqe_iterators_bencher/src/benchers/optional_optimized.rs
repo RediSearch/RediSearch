@@ -41,11 +41,8 @@ impl Default for Bencher {
         let context = TestContext::wildcard(1..=Self::MAX_DOC_ID);
         let context_sparse =
             TestContext::wildcard((1..=Self::MAX_DOC_ID).step_by(Self::SPARSE_STEP));
-        // SAFETY: no iterators have been created from these contexts yet.
-        unsafe {
-            context.set_index_all(true);
-            context_sparse.set_index_all(true);
-        }
+        context.spec_write().rule_mut().set_index_all(true);
+        context_sparse.spec_write().rule_mut().set_index_all(true);
         Self {
             context,
             context_sparse,

@@ -10,7 +10,8 @@
 #define BYTE_OFFSETS_H
 
 #include "redisearch.h"
-#include "varint.h"
+#include "inverted_index.h"
+#include "varint_ffi.h"
 #include "rmalloc.h"
 
 typedef struct __attribute__((packed)) RSByteOffsetMap {

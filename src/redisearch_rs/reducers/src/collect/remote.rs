@@ -16,7 +16,6 @@
 //! coordinator-side COLLECT reducer.
 
 use std::collections::HashSet;
-use std::mem;
 
 use itertools::Either;
 use rlookup::{RLookup, RLookupKey, RLookupKeyFlag, RLookupRow};
@@ -24,6 +23,7 @@ use value::SharedValue;
 
 use crate::Reducer;
 use crate::collect::common::CollectCommon;
+use crate::collect::storage::Storage;
 
 /// Remote COLLECT reducer.
 ///
@@ -42,10 +42,8 @@ pub struct RemoteCollectReducer<'a> {
     srclookup: Option<&'a RLookup<'a>>,
     /// Raw sort-key references, including keys not present in `FIELDS`.
     sort_keys: Box<[&'a RLookupKey<'a>]>,
-    /// `true` for shard replies dispatched by the coordinator: extra sort-key
-    /// columns are emitted alongside the requested fields so the coordinator
-    /// can re-order shard rows during merge. `false` for direct execution.
-    include_sort_keys: bool,
+    limit: Option<(u64, u64)>,
+    is_internal: bool,
 }
 
 // Chain through `CollectCommon::reducer` so the assertion still catches a
@@ -62,8 +60,8 @@ const _: () = assert!(
 /// destructors — [`ptr::drop_in_place`][std::ptr::drop_in_place] must be
 /// called to release the stored [`RLookupRow`]s and decrement
 /// [`SharedValue`] refcounts.
-pub struct RemoteCollectCtx<'a> {
-    rows: Vec<RLookupRow<'a>>,
+pub struct RemoteCollectCtx {
+    storage: Storage,
 }
 
 impl<'a> RemoteCollectReducer<'a> {
@@ -76,14 +74,15 @@ impl<'a> RemoteCollectReducer<'a> {
         sort_keys: Box<[&'a RLookupKey<'a>]>,
         sort_asc_map: u64,
         limit: Option<(u64, u64)>,
-        include_sort_keys: bool,
+        is_internal: bool,
     ) -> Self {
         Self {
-            common: CollectCommon::new(sort_asc_map, limit),
+            common: CollectCommon::new(sort_asc_map),
             field_keys,
             srclookup,
             sort_keys,
-            include_sort_keys,
+            limit,
+            is_internal,
         }
     }
 
@@ -91,7 +90,7 @@ impl<'a> RemoteCollectReducer<'a> {
         &mut self.common.reducer
     }
 
-    pub fn alloc_instance(&self) -> &mut RemoteCollectCtx<'a> {
+    pub fn alloc_instance(&self) -> &mut RemoteCollectCtx {
         self.common.arena.alloc(RemoteCollectCtx::new(self))
     }
 
@@ -114,18 +113,18 @@ impl<'a> RemoteCollectReducer<'a> {
     }
 
     pub const fn has_limit(&self) -> bool {
-        self.common.limit.is_some()
+        self.limit.is_some()
     }
 
     pub const fn limit_offset(&self) -> u64 {
-        match self.common.limit {
+        match self.limit {
             Some((offset, _)) => offset,
             None => 0,
         }
     }
 
     pub const fn limit_count(&self) -> u64 {
-        match self.common.limit {
+        match self.limit {
             Some((_, count)) => count,
             None => 0,
         }
@@ -158,56 +157,74 @@ fn build_finalize_template<'a>(
             .iter()
             .filter(|k| !k.flags.contains(RLookupKeyFlag::Hidden))
             .collect()
-    } else if r.include_sort_keys && !r.sort_keys.is_empty() {
-        dedup_by_dstidx(&r.field_keys, &r.sort_keys)
     } else {
-        r.field_keys.to_vec()
+        let sort_extras: &[&RLookupKey<'a>] = if r.is_internal { &r.sort_keys } else { &[] };
+        dedup_by_dstidx(&r.field_keys, sort_extras)
     };
     keys.into_iter()
         .map(|k| (k, SharedValue::new_string(k.name().to_bytes().to_vec())))
         .collect()
 }
 
-impl<'a> RemoteCollectCtx<'a> {
-    pub const fn new(_r: &RemoteCollectReducer<'a>) -> Self {
-        Self { rows: Vec::new() }
+impl RemoteCollectCtx {
+    pub fn new(r: &RemoteCollectReducer<'_>) -> Self {
+        Self {
+            storage: Storage::new(!r.sort_keys.is_empty(), r.limit, r.common.sort_asc_map),
+        }
     }
 
-    /// Project the relevant fields from `row` for later serialization by
-    /// [`Self::finalize`].
-    pub fn add(&mut self, r: &RemoteCollectReducer<'a>, row: &RLookupRow<'_>) {
-        let mut dst = RLookupRow::new();
-        let keys = if let Some(lookup) = r.srclookup {
-            Either::Left(
-                lookup
-                    .iter()
-                    .filter(|k| !k.flags.contains(RLookupKeyFlag::Hidden)),
-            )
-        } else {
-            Either::Right(
-                r.field_keys
-                    .iter()
-                    .copied()
-                    .chain(r.sort_keys.iter().copied()),
-            )
+    /// Project the source row's field values into a stored [`RLookupRow`]
+    /// and snapshot the sort-key values for the heap comparator.
+    ///
+    /// The array path ignores the snapshot closure entirely. The heap path
+    /// uses the snapshot to drive comparisons, dropping doomed candidates
+    /// without paying the row-projection cost.
+    pub fn add(&mut self, r: &RemoteCollectReducer<'_>, row: &RLookupRow<'_>) {
+        let sort_vals = || -> Box<[Option<SharedValue>]> {
+            r.sort_keys
+                .iter()
+                .map(|key| row.get(key).cloned())
+                .collect()
         };
-        for key in keys {
-            if let Some(v) = row.get(key) {
-                dst.write_key(key, v.clone());
+        let project = || {
+            let mut dst = RLookupRow::new();
+            let keys = if let Some(lookup) = r.srclookup {
+                Either::Left(
+                    lookup
+                        .iter()
+                        .filter(|k| !k.flags.contains(RLookupKeyFlag::Hidden)),
+                )
+            } else {
+                Either::Right(
+                    r.field_keys
+                        .iter()
+                        .copied()
+                        .chain(r.sort_keys.iter().copied()),
+                )
+            };
+            for key in keys {
+                if let Some(v) = row.get(key) {
+                    dst.write_key(key, v.clone());
+                }
             }
-        }
-        self.rows.push(dst);
+            dst
+        };
+        self.storage.insert_entry(sort_vals, project);
     }
 
     /// Serialize the buffered rows into an array of maps. Keys absent from a
     /// row are omitted; on the cluster path
     /// [`LocalCollectCtx::finalize`][crate::collect::local::LocalCollectCtx::finalize]
-    /// null-fills missing requested fields when reconstructing the
-    /// client-facing result.
-    pub fn finalize(&mut self, r: &RemoteCollectReducer<'a>) -> SharedValue {
-        let rows = mem::take(&mut self.rows);
+    /// reconstructs the client-facing result from the emitted payload.
+    pub fn finalize(&mut self, r: &RemoteCollectReducer<'_>) -> SharedValue {
+        // TODO: drop `limit` and the `apply_limit` argument to `drain` once
+        // `distributeCollect` switches to the `LIMIT 0 (offset+count)`
+        // rewrite that other `distribute*` paths use; the shard would no
+        // longer need LIMIT context and `drain` could be called
+        // unconditionally.
+        let rows = self.storage.drain(!r.is_internal);
         let template = build_finalize_template(r);
-        SharedValue::new_array(rows.into_iter().map(|row| {
+        SharedValue::new_array(rows.map(|row| {
             let entries: Vec<_> = template
                 .iter()
                 .filter_map(|(key, name)| row.get(key).map(|v| (name.clone(), v.clone())))

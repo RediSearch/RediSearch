@@ -22,6 +22,7 @@ workspace = true
 build_utils = { path = "../build_utils" }
 
 [dependencies]
+cheadergen.workspace = true
 ffi.workspace = true
 hyperloglog.workspace = true
 inverted_index.workspace = true

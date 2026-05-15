@@ -14,6 +14,8 @@ jobs:
     permissions:
       contents: read
       packages: write
+      id-token: write # OIDC role assumption for sccache S3 (used inside task-lint.yml)
+      actions: write  # Swatinem/rust-cache read/write of GH cache (used inside task-lint.yml)
     uses: ./.github/workflows/task-lint.yml
     secrets: inherit
 
@@ -21,6 +23,8 @@ jobs:
     permissions:
       contents: read
       packages: write
+      id-token: write # OIDC role assumption for sccache S3 (used inside task-test.yml)
+      actions: write  # Swatinem/rust-cache read/write of GH cache (used inside task-test.yml)
     uses: ./.github/workflows/flow-test.yml
     secrets: inherit
     with:
@@ -31,6 +35,9 @@ jobs:
       options: ${{ vars.ENABLE_CODE_COVERAGE != 'false' && 'unit-tests,coordinator,standalone,rejson,coverage,sanitize' || 'unit-tests,coordinator,standalone,rejson,sanitize' }}
 
   micro-benchmarks:
+    permissions:
+      contents: read
+      id-token: write # OIDC role assumption for sccache S3 (used inside flow-micro-benchmarks-runner.yml)
     uses: ./.github/workflows/flow-micro-benchmarks.yml
     secrets: inherit
 
@@ -38,7 +45,7 @@ jobs:
   notify-failure:
     needs: [lint, test-all-platforms, micro-benchmarks]
     if: failure()
-    runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
+    runs-on: ubuntu-slim
     steps:
       - name: Notify Failure
         uses: slackapi/slack-github-action@v1

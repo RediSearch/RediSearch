@@ -12,8 +12,9 @@
 #include <stdio.h>
 #include "redismodule.h"
 #include "util/fnv.h"
-#include "triemap.h"
+#include "triemap_ffi.h"
 #include "sortable.h"
+#include "sorting_vector_ffi.h"
 #include "rmalloc.h"
 #include "spec.h"
 #include "config.h"
@@ -242,8 +243,16 @@ static inline int64_t expirationTimePointToNs(t_expirationTimePoint t) {
 // iterators use `t->ttl == NULL` as their per-spec gate. Takes ownership of
 // `sortedFieldWithExpiration` either by handing it to the table or freeing it
 // when there are no field-level entries to register.
+//
+// The store on `expirationTimeNs` is a relaxed atomic so the EXPIRE/PERSIST
+// fast path in `Indexes_UpdateMatchingDocExpiration` can run under the spec
+// read lock concurrently with FT.SEARCH workers; readers in
+// `DocTable_IsDocExpired` pair it with a relaxed atomic load. Callers that
+// pass a non-empty `sortedFieldWithExpiration` (e.g. `Indexer_Add`) still
+// hold the write lock — the atomic store is a no-op in that case but keeps
+// a single source of truth for the field write.
 void DocTable_UpdateExpiration(DocTable *t, RSDocumentMetadata* dmd, t_expirationTimePoint ttl, arrayof(FieldExpiration) sortedFieldWithExpiration) {
-  dmd->expirationTimeNs = expirationTimePointToNs(ttl);
+  __atomic_store_n(&dmd->expirationTimeNs, expirationTimePointToNs(ttl), __ATOMIC_RELAXED);
   if (array_len(sortedFieldWithExpiration) > 0) {
     TimeToLiveTable_VerifyInit(&t->ttl, t->maxSize);
     TimeToLiveTable_Add(t->ttl, dmd->id, sortedFieldWithExpiration);
@@ -253,18 +262,24 @@ void DocTable_UpdateExpiration(DocTable *t, RSDocumentMetadata* dmd, t_expiratio
 }
 
 bool DocTable_IsDocExpired(DocTable* t, const RSDocumentMetadata* dmd, struct timespec* expirationPoint) {
-  if (dmd->expirationTimeNs == 0) {
+  // Relaxed atomic load: pairs with the relaxed store in DocTable_UpdateExpiration
+  // so reader/writer concurrency under the spec read lock is well-defined under
+  // the C abstract machine. Ordering relative to other index mutations is not
+  // required — the value is a self-contained timestamp compared against `now`.
+  int64_t exp = __atomic_load_n(&dmd->expirationTimeNs, __ATOMIC_RELAXED);
+  if (exp == 0) {
     return false;
   }
-  return dmd->expirationTimeNs <= expirationTimePointToNs(*expirationPoint);
+  return exp <= expirationTimePointToNs(*expirationPoint);
 }
 
 void DocTable_ClearExpirationData(DocTable *t) {
   // Walk every DMD: doc-level TTL lives inline on the DMD (not in the TTL
   // table), and field-level TTL is only present for docs that are also in
   // the table. Either may be set, so a single sweep over all DMDs is the
-  // simplest correct path.
-  DOCTABLE_FOREACH(t, dmd->expirationTimeNs = 0);
+  // simplest correct path. Caller holds the write lock (see header), but use
+  // the relaxed atomic store to match the access pattern everywhere else.
+  DOCTABLE_FOREACH(t, __atomic_store_n(&dmd->expirationTimeNs, 0, __ATOMIC_RELAXED));
   TimeToLiveTable_Destroy(&t->ttl);
 }
 
@@ -440,7 +455,7 @@ int DocTable_Replace(DocTable *t, const char *from_str, size_t from_len, const c
   return REDISMODULE_OK;
 }
 
-void DocTable_LegacyRdbLoad(DocTable *t, RedisModuleIO *rdb, int encver) {
+int DocTable_LegacyRdbLoad(DocTable *t, RedisModuleIO *rdb, int encver) {
   long long deletedElements = 0;
   t->size = RedisModule_LoadUnsigned(rdb);
   t->maxDocId = RedisModule_LoadUnsigned(rdb);
@@ -462,6 +477,13 @@ void DocTable_LegacyRdbLoad(DocTable *t, RedisModuleIO *rdb, int encver) {
     t->memsize -= t->cap * sizeof(DMDChain);
     t->cap = t->maxSize;
     rm_free(t->buckets);
+    t->buckets = NULL;
+    size_t alloc_size;
+    if (__builtin_mul_overflow(t->cap, sizeof(DMDChain), &alloc_size)) {
+      RedisModule_LogIOError(rdb, "warning", "DocTable_LegacyRdbLoad: allocation overflow");
+      t->cap = 0;
+      return REDISMODULE_ERR;
+    }
     t->buckets = rm_calloc(t->cap, sizeof(*t->buckets));
     t->memsize += t->cap * sizeof(DMDChain);
   }
@@ -534,6 +556,7 @@ void DocTable_LegacyRdbLoad(DocTable *t, RedisModuleIO *rdb, int encver) {
     }
   }
   t->size -= deletedElements;
+  return REDISMODULE_OK;
 }
 
 t_docId DocTable_GetMaxDocId(const DocTable *t) {

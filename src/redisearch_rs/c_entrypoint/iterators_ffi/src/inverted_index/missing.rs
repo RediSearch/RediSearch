@@ -106,12 +106,11 @@ impl<'index> rqe_iterators::RQEIterator<'index> for MissingIterator<'index> {
     }
 
     #[inline(always)]
-    unsafe fn revalidate(
+    fn revalidate(
         &mut self,
-        spec: std::ptr::NonNull<ffi::IndexSpec>,
+        spec: &index_spec::IndexSpecReadGuard,
     ) -> Result<rqe_iterators::RQEValidateStatus<'_, 'index>, rqe_iterators::RQEIteratorError> {
-        // SAFETY: Delegating to variant with the same `spec` passed by our caller.
-        unsafe { dispatch!(self, revalidate, spec) }
+        dispatch!(self, revalidate, spec)
     }
 
     #[inline(always)]

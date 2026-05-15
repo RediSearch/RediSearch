@@ -27,6 +27,11 @@ jobs:
     needs: build-image
     if: ${{ !cancelled() }}
     runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
+    permissions:
+      contents: read  # actions/checkout
+      id-token: write # OIDC role assumption for sccache S3
+      packages: read  # pull container image from GHCR
+      actions: write  # Swatinem/rust-cache read/write of GH cache
     defaults:
       run:
         shell: bash -l -eo pipefail {0}
@@ -66,10 +71,24 @@ jobs:
           fi
       - name: Setup sccache
         uses: ./.github/actions/setup-sccache
+        with:
+          aws-role: ${{ vars.SCCACHE_AWS_ROLE_TO_ASSUME }}
+          s3-bucket: ${{ vars.SCCACHE_S3_BUCKET }}
+          s3-region: ${{ vars.SCCACHE_S3_REGION }}
+          s3-key-prefix: ${{ vars.SCCACHE_S3_KEY_PREFIX }}
       - name: Setup
         if: needs.build-image.outputs.succeeded != 'true'
         working-directory: .install
         run: ./install_script.sh ${{ steps.mode.outputs.mode }}
+      - name: Setup Rust test dependencies
+        # Required so the cached-container fallback path also has the pinned
+        # nightly + `rust-docs-json` component + cheadergen binary that the
+        # `Stale headers check` step below needs. The cached container image
+        # already runs this script in its Dockerfile.
+        if: needs.build-image.outputs.succeeded != 'true'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: .install/test_deps/install_rust_deps.sh ${{ steps.mode.outputs.mode }}
       # Cache Rust packages and binaries
       - uses: Swatinem/rust-cache@v2
         with:
@@ -94,7 +113,7 @@ jobs:
         continue-on-error: true
         run: |
           if ! git diff --exit-code; then
-            echo "Uncommitted changes found. This is likely because of automatically generated code which has not been committed."
+            echo "Uncommitted changes found. Likely causes: stale Rust → C FFI headers under src/redisearch_rs/headers/ (run 'make generate-rust-headers' and commit) or other auto-generated artifacts produced by 'make lint'."
             exit 1
           fi
       - name: License header
@@ -150,11 +169,11 @@ jobs:
           steps.dep-licenses.outcome == 'failure' ||
           steps.workspace_hack.outcome == 'failure'
         run: |
-          echo "Linting: ${{ steps.lint.outcome }}"
-          echo "License header: ${{ steps.license-header.outcome }}"
+          echo "Lint: ${{ steps.lint.outcome }}"
           echo "Generated files: ${{ steps.git-diff.outcome }}"
-          echo "Formatting: ${{ steps.fmt.outcome }}"
+          echo "License header: ${{ steps.license-header.outcome }}"
+          echo "Format check: ${{ steps.fmt.outcome }}"
           echo "Security advisories: ${{ steps.advisories.outcome }}"
           echo "Dependency licenses: ${{ steps.dep-licenses.outcome }}"
-          echo "Workspace hack: ${{ steps.workspace_hack.outcome }}"
+          echo "Workspace hack check: ${{ steps.workspace_hack.outcome }}"
           exit 1

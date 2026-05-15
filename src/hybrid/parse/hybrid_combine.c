@@ -8,7 +8,7 @@
 */
 #include "hybrid_callbacks.h"
 #include "hybrid/hybrid_scoring.h"
-#include "query_error.h"
+#include "query_error_ffi.h"
 #include "util/arg_parser.h"
 #include <string.h>
 
