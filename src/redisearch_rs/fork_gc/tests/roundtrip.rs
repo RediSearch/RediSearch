@@ -17,7 +17,7 @@ fn send_buffer_roundtrips_to_recv_buffer_data_frame() {
     let mut sink: Vec<u8> = Vec::new();
     {
         let mut pw = Writer::from_writer(&mut sink);
-        pw.write_frame(Frame::Data(b"round trip")).unwrap();
+        pw.write_frame(Frame::data(b"round trip")).unwrap();
     }
     let mut pr = Reader::from_reader(Cursor::new(sink));
     match pr.read_frame().unwrap() {

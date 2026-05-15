@@ -45,7 +45,7 @@ fn send_buffer_writes_length_prefix_then_payload() {
     let mut sink: Vec<u8> = Vec::new();
     {
         let mut pw = Writer::from_writer(&mut sink);
-        pw.write_frame(Frame::Data(b"hello")).unwrap();
+        pw.write_frame(Frame::data(b"hello")).unwrap();
     }
 
     let mut expected = Vec::new();
@@ -59,7 +59,7 @@ fn send_buffer_empty_writes_zero_length_only() {
     let mut sink: Vec<u8> = Vec::new();
     {
         let mut pw = Writer::from_writer(&mut sink);
-        pw.write_frame(Frame::Data(&[])).unwrap();
+        pw.write_frame(Frame::data(&[])).unwrap();
     }
     assert_eq!(sink, 0usize.to_ne_bytes());
 }

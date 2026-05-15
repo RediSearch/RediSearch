@@ -11,7 +11,7 @@
 
 use std::io::{self, Write};
 
-use crate::{EMPTY, Frame, TERMINATOR};
+use crate::frame::{EMPTY, Frame, TERMINATOR};
 
 /// Writer over a Fork GC pipe endpoint.
 ///
@@ -43,7 +43,7 @@ impl<W: Write> Writer<W> {
             Frame::Empty => self.write_all(&EMPTY.to_ne_bytes()),
             Frame::Data(data) => {
                 self.write_all(&data.len().to_ne_bytes())?;
-                self.write_all(data)
+                self.write_all(&data)
             }
         }
     }

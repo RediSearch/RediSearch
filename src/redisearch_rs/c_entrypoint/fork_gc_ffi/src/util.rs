@@ -29,7 +29,7 @@ pub(crate) fn frame_into_c_buffer(frame: Frame<Box<[u8]>>) -> (*mut c_void, usiz
         Frame::Empty => (ptr::null_mut(), 0),
         Frame::Data(data) => {
             let len = data.len();
-            let ptr = Box::into_raw(data) as *mut u8;
+            let ptr = Box::into_raw(data.into_inner()) as *mut u8;
             (ptr.cast(), len)
         }
     }
