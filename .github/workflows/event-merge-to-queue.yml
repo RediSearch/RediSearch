@@ -42,6 +42,21 @@ jobs:
       compare-advisories-to-base: true
       advisories-base-ref: ${{ github.event.merge_group.base_sha }}
 
+  pr-design-check:
+    name: PR Design Files Check
+    runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Check for PR design files
+        run: |
+          if find .pr-design -type f ! -name 'README.md' 2>/dev/null | grep -q .; then
+            echo "❌ .pr-design/ contains files that must be cleaned up before merging."
+            echo "Either delete them or move valuable docs to docs/design/"
+            find .pr-design -type f ! -name 'README.md'
+            exit 1
+          fi
+
   test-matrix:
     # Wait for lint so we do not spend MQ test capacity when CI is already going to fail.
     # Use explicit status checks so test-only changes still run even when lint is skipped.
@@ -68,6 +83,7 @@ jobs:
       - get-latest-redis-tag
       - check-what-changed
       - lint
+      - pr-design-check
       - test-matrix
     runs-on: ubuntu-slim
     if: ${{ !cancelled() }}
