@@ -4367,6 +4367,13 @@ void Indexes_UpdateMatchingHashFieldExpiration(RedisModuleCtx *ctx, RedisModuleS
 
   SpecOpIndexingCtx *specs = Indexes_FindMatchingSchemaRules(ctx, key, DocumentType_Hash, false, NULL);
 
+  // Hash-level gate: if no field on this hash has a TTL, every per-spec
+  // FieldExpiration array is empty, so we can skip the per-field HashGet
+  // pass entirely. The Redis hash is owned by the main thread, so this read
+  // is safe without the spec lock.
+  const bool hashHasAnyFieldExpire =
+      (RedisModule_HashFieldMinExpire(k) != REDISMODULE_NO_EXPIRE);
+
   for (size_t i = 0; i < array_len(specs->specsOps); ++i) {
     SpecOpCtx *specOp = &specs->specsOps[i];
     IndexSpec *spec = specOp->spec;
@@ -4390,32 +4397,40 @@ void Indexes_UpdateMatchingHashFieldExpiration(RedisModuleCtx *ctx, RedisModuleS
       continue;
     }
 
-    RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, spec);
-    RedisSearchCtx_LockSpecWrite(&sctx);
-
-    const RSDocumentMetadata *cdmd = DocTable_BorrowByKeyR(&spec->docs, key);
-    if (!cdmd) {
-      // Doc not in this index (filter failed or never indexed). Nothing to
-      // refresh on the fast path.
-      RedisSearchCtx_UnlockSpec(&sctx);
-      continue;
-    }
-
-    // Build the FieldExpiration array using the same per-field loader the full
-    // reindex path uses, so both paths produce byte-identical entries. The
-    // outer monitorFieldExpiration gate is already checked above; the
-    // HashFieldMinExpire gate avoids the per-field HashGet pass when no field
-    // on this hash has a TTL at all.
+    // Build the FieldExpiration array lock-free. Two reads happen outside
+    // the spec write lock here:
+    //   1. spec->fields / spec->numFields — only mutated by FT.CREATE,
+    //      FT.ALTER, and RDB load, all of which run on the main thread.
+    //      This keyspace-notification callback also runs on the main
+    //      thread, so the Redis event loop serializes them; the schema
+    //      cannot change between iterations here. (Same invariant as
+    //      specHasIndexMissing above.)
+    //   2. The Redis hash — owned by the main thread and not guarded by
+    //      the spec lock at all; the spec rwlock protects index state,
+    //      not the Redis keyspace.
     arrayof(FieldExpiration) sorted = NULL;
-    if (RedisModule_HashFieldMinExpire(k) != REDISMODULE_NO_EXPIRE) {
+    if (hashHasAnyFieldExpire) {
       for (size_t ii = 0; ii < spec->numFields; ++ii) {
         Document_LoadHashFieldExpiration(k, &spec->fields[ii], ii, &sorted);
       }
     }
-    DocTable_UpdateFieldExpiration(&spec->docs, (RSDocumentMetadata *)cdmd, sorted);
-    DMD_Return(cdmd);
+
+    RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, spec);
+    RedisSearchCtx_LockSpecWrite(&sctx);
+
+    const RSDocumentMetadata *cdmd = DocTable_BorrowByKeyR(&spec->docs, key);
+    if (cdmd) {
+      // Hands ownership of `sorted` to the doc table (or frees it if empty).
+      DocTable_UpdateFieldExpiration(&spec->docs, (RSDocumentMetadata *)cdmd, sorted);
+      sorted = NULL;
+      DMD_Return(cdmd);
+    }
 
     RedisSearchCtx_UnlockSpec(&sctx);
+
+    // Doc not in this index (filter failed or never indexed): free the array
+    // we built speculatively. `array_free` is NULL-safe.
+    array_free(sorted);
   }
 
   RedisModule_CloseKey(k);
