@@ -60,15 +60,16 @@ def test_small_window_size():
     conn = getConnectionByEnv(env)
 
     dim = 2
-    # Non-compressed SVS trains after DEFAULT_BLOCK_SIZE vectors, while LVQ8 uses
-    # a larger training threshold.
+    # The threshold is per shard in cluster mode, so add a small margin for
+    # non-compressed SVS to train on every shard.
+    no_compression_training_th = int(DEFAULT_BLOCK_SIZE * 1.1 * env.shardsCount)
     compression_training_th = DEFAULT_BLOCK_SIZE * 10
     keep_count = 10
     field_name = 'v_SVS_VAMANA'
     for data_type in VECSIM_SVS_DATA_TYPES:
         query_vec = create_random_np_array_typed(dim, data_type)
         for compression in [[], ["COMPRESSION", "LVQ8"]]:
-            num_vectors = compression_training_th if compression else DEFAULT_BLOCK_SIZE
+            num_vectors = compression_training_th if compression else no_compression_training_th
             params = ['TYPE', data_type, 'DIM', dim, 'DISTANCE_METRIC', 'L2',
                       "CONSTRUCTION_WINDOW_SIZE", 10, *compression]
             conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', field_name, 'VECTOR', 'SVS-VAMANA', len(params), *params)
