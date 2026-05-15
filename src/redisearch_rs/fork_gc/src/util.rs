@@ -10,7 +10,7 @@
 use redis_module::raw::RedisModule_ExitFromChild;
 use std::io;
 
-/// Log a write error and terminate the forked child.
+/// Log a write error and terminate the current process.
 pub(crate) fn exit_on_write_error(err: io::Error) -> ! {
     // Write the error message to the logging mechanism as well as directly to `stderr`
     // to make sure it ends up somewhere.
@@ -24,7 +24,7 @@ pub(crate) fn exit_on_write_error(err: io::Error) -> ! {
     let exit_from_child = unsafe { RedisModule_ExitFromChild }
         .expect("RedisModule_ExitFromChild must be initialized");
 
-    // SAFETY: terminates the child process; does not return.
+    // SAFETY: terminates the current process; does not return.
     unsafe {
         exit_from_child(1);
     }
