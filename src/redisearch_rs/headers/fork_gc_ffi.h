@@ -105,10 +105,9 @@ int FGC_recvFixed(ForkGC *fgc, void *buf, size_t len);
  *
  * On receipt of a `SIZE_MAX` length prefix, writes `SIZE_MAX` to
  * `*len` and the `RECV_BUFFER_EMPTY` sentinel pointer to `*buf`. On a
- * zero-length prefix, writes `0` and a null pointer. Otherwise
- * allocates `len + 1` bytes (NUL-terminated) via the module allocator,
- * reads the payload, and stores the pointer in `*buf`; the caller is
- * responsible for releasing it with `rm_free`.
+ * zero-length prefix, writes `0` and a null pointer. Otherwise leaks a
+ * boxed payload slice, writing its pointer and length to `*buf` / `*len`;
+ * the caller is responsible for releasing it with [`FGC_freeBuffer`].
  *
  * On read error (timeout, short stream, ...), returns `REDISMODULE_ERR`
  * and leaves `*buf` / `*len` unchanged.
@@ -137,6 +136,18 @@ int FGC_recvBuffer(ForkGC *fgc, void * *buf, size_t *len);
  * 3. `id` must point to a writable `uint64_t` location.
  */
 enum FGCError recvFieldHeader(ForkGC *fgc, char * *field_name, size_t *field_name_len, uint64_t *id);
+
+/**
+ * Free a buffer previously returned by [`FGC_recvBuffer`] or [`recvFieldHeader`].
+ *
+ * No-ops for the `RECV_BUFFER_EMPTY` sentinel and null pointers.
+ *
+ * # Safety
+ *
+ * 1. `buf` and `len` must be the pointer and length returned by a prior call to
+ *    [`FGC_recvBuffer`] or [`recvFieldHeader`], and must not have been freed before.
+ */
+void FGC_freeBuffer(void *buf, size_t len);
 
 #ifdef __cplusplus
 }  // extern "C"

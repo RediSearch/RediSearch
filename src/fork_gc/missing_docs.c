@@ -68,7 +68,7 @@ FGCError FGC_parentHandleMissingDocs(ForkGC *gc) {
   delta = InvertedIndex_GcDelta_Read(&rd);
 
   if (delta == NULL) {
-    rm_free(rawFieldName);
+    FGC_freeBuffer(rawFieldName, fieldNameLen);
     return FGC_CHILD_ERROR;
   }
 
@@ -108,7 +108,7 @@ cleanup:
     IndexSpecRef_Release(spec_ref);
   }
   HiddenString_Free(fieldName, false);
-  rm_free(rawFieldName);
+  FGC_freeBuffer(rawFieldName, fieldNameLen);
   InvertedIndex_GcDelta_Free(delta);
 
   return status;

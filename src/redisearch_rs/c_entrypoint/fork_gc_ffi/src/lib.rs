@@ -15,7 +15,10 @@
 //! delegates everything else — including Redis-specific failure
 //! handling — to the `fork_gc` crate.
 
-use std::ffi::{c_char, c_int, c_void};
+use std::{
+    ffi::{c_char, c_int, c_void},
+    slice,
+};
 
 use fork_gc::{ForkGC, io_result_ext::IoResultExt, reader::RecvFrame};
 
@@ -23,6 +26,13 @@ use tracing::Level;
 use tracing_log_error::log_error;
 
 mod util;
+
+// Sentinel pointer defined in `src/fork_gc/pipe.c`, compared by pointer
+// identity in C callers (e.g. `recvFieldHeader`) to detect end-of-stream
+// frames returned through `FGC_recvBuffer`'s `buf` out-parameter.
+unsafe extern "C" {
+    static RECV_BUFFER_EMPTY: *mut c_void;
+}
 
 /// Status code returned by Fork GC parent-side pipe-receive operations.
 #[cheadergen::config(export)]
@@ -150,10 +160,9 @@ pub unsafe extern "C" fn FGC_recvFixed(
 ///
 /// On receipt of a `SIZE_MAX` length prefix, writes `SIZE_MAX` to
 /// `*len` and the `RECV_BUFFER_EMPTY` sentinel pointer to `*buf`. On a
-/// zero-length prefix, writes `0` and a null pointer. Otherwise
-/// allocates `len + 1` bytes (NUL-terminated) via the module allocator,
-/// reads the payload, and stores the pointer in `*buf`; the caller is
-/// responsible for releasing it with `rm_free`.
+/// zero-length prefix, writes `0` and a null pointer. Otherwise leaks a
+/// boxed payload slice, writing its pointer and length to `*buf` / `*len`;
+/// the caller is responsible for releasing it with [`FGC_freeBuffer`].
 ///
 /// On read error (timeout, short stream, ...), returns `REDISMODULE_ERR`
 /// and leaves `*buf` / `*len` unchanged.
@@ -236,4 +245,22 @@ pub unsafe extern "C" fn recvFieldHeader(
     unsafe { *id = u64::from_ne_bytes(id_bytes) };
 
     FGCError::Collected
+}
+
+/// Free a buffer previously returned by [`FGC_recvBuffer`] or [`recvFieldHeader`].
+///
+/// No-ops for the `RECV_BUFFER_EMPTY` sentinel and null pointers.
+///
+/// # Safety
+///
+/// 1. `buf` and `len` must be the pointer and length returned by a prior call to
+///    [`FGC_recvBuffer`] or [`recvFieldHeader`], and must not have been freed before.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn FGC_freeBuffer(buf: *mut c_void, len: usize) {
+    // SAFETY: `RECV_BUFFER_EMPTY` is a static defined in `pipe.c`.
+    if buf.is_null() || buf == unsafe { RECV_BUFFER_EMPTY } {
+        return;
+    }
+    // SAFETY: caller guarantees (1).
+    drop(unsafe { Box::from_raw(slice::from_raw_parts_mut(buf.cast::<u8>(), len)) });
 }
