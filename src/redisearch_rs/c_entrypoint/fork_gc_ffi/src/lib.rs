@@ -105,7 +105,7 @@ pub unsafe extern "C" fn FGC_sendBuffer(fgc: *mut ffi::ForkGC, buff: *const c_vo
     };
 
     fgc.writer()
-        .write_frame(Frame::Data(slice))
+        .write_frame(Frame::data(slice))
         .unwrap_or_exit();
 }
 

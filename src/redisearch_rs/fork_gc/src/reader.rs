@@ -9,7 +9,7 @@
 
 use std::io::{self, Read};
 
-use crate::{EMPTY, Frame, TERMINATOR};
+use crate::frame::{EMPTY, Frame, FrameData, TERMINATOR};
 
 /// Reader over a Fork GC pipe endpoint.
 ///
@@ -54,7 +54,11 @@ impl<R: Read> Reader<R> {
 
         let mut data = vec![0u8; len].into_boxed_slice();
         self.read_exact(&mut data)?;
-        Ok(Frame::Data(data))
+
+        // SAFETY: len is neither TERMINATOR nor EMPTY.
+        let frame_data = unsafe { FrameData::new_unchecked(data) };
+
+        Ok(Frame::Data(frame_data))
     }
 }
 
