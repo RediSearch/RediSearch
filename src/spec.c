@@ -1765,6 +1765,18 @@ static void IndexSpec_PopulateVectorDiskParams(IndexSpec *sp) {
   }
 }
 
+// Initialize spec->tagOpts.tagIndex for every TAG field after the disk index
+// is opened.
+static void IndexSpec_PopulateTagDiskIndexes(IndexSpec *sp) {
+  if (!sp->diskSpec) return;
+
+  for (int i = 0; i < sp->numFields; i++) {
+    FieldSpec *fs = &sp->fields[i];
+    if (!FIELD_IS(fs, INDEXFLD_T_TAG)) continue;
+    TagIndex_Ensure(fs, sp->diskSpec);
+  }
+}
+
 void handleBadArguments(IndexSpec *spec, const char *badarg, QueryError *status, ACArgSpec *non_flex_argopts) {
   if (isSpecOnDiskForValidation(spec)) {
     bool isKnownArg = false;
@@ -3546,6 +3558,7 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryE
         goto cleanup;
       }
       IndexSpec_PopulateVectorDiskParams(sp);
+      IndexSpec_PopulateTagDiskIndexes(sp);
       SearchDisk_RegisterIndex(ctx, sp);
     }
   }
@@ -4569,6 +4582,7 @@ void Indexes_FinishSSTReplication(RedisModuleCtx *ctx) {
       continue;
     }
     IndexSpec_PopulateVectorDiskParams(sp);
+    IndexSpec_PopulateTagDiskIndexes(sp);
     SearchDisk_RegisterIndex(ctx, sp);
     // GC start was deferred by IndexSpec_StoreAfterRdbLoad for the SST path
     // (diskSpec was NULL there); start it now that the disk handle exists.
