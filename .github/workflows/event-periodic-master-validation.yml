@@ -172,7 +172,6 @@ jobs:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}
           SERVER_URL: ${{ github.server_url }}
           COVERED_PRS: ${{ needs.should-run.outputs.covered-prs }}
-          GH_HANDLE_TO_SLACK_JSON: ${{ secrets.GH_HANDLE_TO_SLACK_JSON }}
         run: |
           import json
           import os
@@ -190,15 +189,6 @@ jobs:
           def gh_api(path):
               return json.loads(subprocess.check_output(["gh", "api", path], text=True))
 
-          try:
-              raw_mapping = json.loads(os.environ.get("GH_HANDLE_TO_SLACK_JSON") or "{}")
-              slack_mapping = {str(k).lower(): str(v) for k, v in raw_mapping.items()}
-          except (json.JSONDecodeError, AttributeError):
-              slack_mapping = {}
-
-          def slack_id_for(login):
-              return slack_mapping.get(login.lower(), "") if login else ""
-
           repository = os.environ["REPOSITORY"]
           run_id = os.environ["RUN_ID"]
           jobs = gh_api(f"/repos/{repository}/actions/runs/{run_id}/jobs?per_page=100").get("jobs", [])
@@ -209,7 +199,7 @@ jobs:
 
           if failed_jobs:
               failed_jobs_text = "\n".join(
-                  f"<{job.get('html_url')}|{job.get('name')}> ({job.get('conclusion')})"
+                  f"- <{job.get('html_url')}|{job.get('name')}> ({job.get('conclusion')})"
                   for job in failed_jobs
               )
           else:
@@ -222,16 +212,8 @@ jobs:
               pr_links = []
               for pr_number in re.findall(r"#([0-9]+)", covered_prs):
                   pr_url = f"{os.environ['SERVER_URL']}/{repository}/pull/{pr_number}"
-                  try:
-                      pull_request = gh_api(f"/repos/{repository}/pulls/{pr_number}")
-                      author = (pull_request.get("user") or {}).get("login")
-                  except subprocess.CalledProcessError:
-                      author = None
-
-                  slack_id = slack_id_for(author)
-                  author_suffix = f" (<@{slack_id}>)" if slack_id else ""
-                  pr_links.append(f"<{pr_url}|#{pr_number}>{author_suffix}")
-              covered_prs_text = ", ".join(pr_links) if pr_links else covered_prs
+                  pr_links.append(f"- <{pr_url}|#{pr_number}>")
+              covered_prs_text = "\n".join(pr_links) if pr_links else covered_prs
 
           append_output("failed_jobs", failed_jobs_text)
           append_output("covered_prs", covered_prs_text)
