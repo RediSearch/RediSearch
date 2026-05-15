@@ -4362,10 +4362,20 @@ void Indexes_UpdateMatchingHashFieldExpiration(RedisModuleCtx *ctx, RedisModuleS
     return;
   }
   RS_ASSERT(type == DocumentType_Hash);
-  RedisModuleKey *k = RedisModule_OpenKey(ctx, key, DOCUMENT_OPEN_KEY_INDEXING_FLAGS);
-  RS_ASSERT(k);
 
   SpecOpIndexingCtx *specs = Indexes_FindMatchingSchemaRules(ctx, key, DocumentType_Hash, false, NULL);
+
+  // HEXPIRE/HPERSIST notifications fire for every hash in the keyspace. When
+  // no spec prefix matches we have nothing to update, so skip the OpenKey /
+  // HashFieldMinExpire read entirely — that overhead would otherwise be paid
+  // on every event on non-indexed hashes.
+  if (array_len(specs->specsOps) == 0) {
+    Indexes_SpecOpsIndexingCtxFree(specs);
+    return;
+  }
+
+  RedisModuleKey *k = RedisModule_OpenKey(ctx, key, DOCUMENT_OPEN_KEY_INDEXING_FLAGS);
+  RS_ASSERT(k);
 
   // Hash-level gate: if no field on this hash has a TTL, every per-spec
   // FieldExpiration array is empty, so we can skip the per-field HashGet
