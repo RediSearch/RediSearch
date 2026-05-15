@@ -32,7 +32,7 @@ jobs:
       ec2_instance_id: ${{ steps.start-ec2-runner.outputs.ec2-instance-id }}
     steps:
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@v6
         with:
           aws-access-key-id: ${{ secrets.PERFORMANCE_EC2_ACCESS_KEY }}
           aws-secret-access-key: ${{ secrets.PERFORMANCE_EC2_SECRET_KEY }}
@@ -169,7 +169,7 @@ jobs:
     if: ${{ always() }} # required to stop the runner even if the error happened in the previous jobs
     steps:
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@v6
         with:
           aws-access-key-id: ${{ secrets.PERFORMANCE_EC2_ACCESS_KEY }}
           aws-secret-access-key: ${{ secrets.PERFORMANCE_EC2_SECRET_KEY }}
