@@ -18,6 +18,7 @@
 #include "resp3.h"
 #include "coord/config.h"
 #include "rs_wall_clock.h"
+#include "debug_commands.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -302,17 +303,12 @@ static void fanoutCallback(redisAsyncContext *c, void *r, void *privdata) {
     ctx->replies[ctx->numReplied++] = r;
   }
 
-  // If we've received the last reply, the fanout/network phase is complete.
-  // Release the RQ slot here before unblocking or handing off to reduction.
+  // If we've received the last reply - unblock the client
   if (ctx->numReplied + ctx->numErrored == ctx->numExpected) {
+    IORuntimeCtx_RequestCompleted(ioRuntime);
     if (!timedOut && ctx->fn) {
       ctx->fn(ctx, ctx->numReplied, ctx->replies);
-      // `ctx->fn` may hand off to an async reducer that can unblock and free `ctx`
-      // before this libuv callback is scheduled again. Complete the RQ request via
-      // the saved ioRuntime instead of reading more state from `ctx` after the handoff.
-      IORuntimeCtx_RequestCompleted(ioRuntime);
     } else {
-      IORuntimeCtx_RequestCompleted(ioRuntime);
       if (!timedOut) {
         RedisModuleBlockedClient *bc = ctx->bc;
         RS_ASSERT(bc);
@@ -374,7 +370,10 @@ static void uvUpdateTopologyRequest(void *p) {
   IORuntimeCtx *ioRuntime = ctx->ioRuntime;
   MRClusterTopology *old_topo = ioRuntime->topo;
   ioRuntime->topo = ctx->new_topo;
-  IORuntimeCtx_UpdateNodesAndConnectAll(ioRuntime);
+  // Report the handshake signal back to topologyAsyncCB via a scratch flag
+  // on the uv runtime. The flag is preset to `true` before the task runs, so
+  // lowering it here is the only way to skip the validation handshake.
+  ioRuntime->uv_runtime.topology_needs_handshake = IORuntimeCtx_UpdateNodes(ioRuntime);
   rm_free(ctx);
   if (old_topo) {
     MRClusterTopology_Free(old_topo);
@@ -744,6 +743,15 @@ void iterStartCb(void *p) {
     if (!conn) {
       // At least one connection is not established - fail with a single error.
       // it->len/pending/inProcess remain at their initial value of 1.
+      // Run privateDataInit so ShardResponseBarrier (used by FT.AGGREGATE
+      // WITHCOUNT) accepts the synthetic error notification; otherwise its
+      // numShards stays 0, Notify's bounds check short-circuits, and the real
+      // error gets replaced by a misleading timeout message in
+      // shardResponseBarrier_HandleTimeout.
+      void *privateData = MRIteratorCallback_GetPrivateData(&it->cbxs[0]);
+      if (privateData && it->ctx.privateDataInit) {
+        it->ctx.privateDataInit(privateData, it);
+      }
       MRReply *err = MRReply_CreateError(CLUSTER_QUERY_ERROR, sizeof(CLUSTER_QUERY_ERROR) - 1);
       it->ctx.cb(&it->cbxs[0], err);
       rm_free(data);
@@ -791,6 +799,13 @@ void iterStartCb(void *p) {
       MRIteratorCallback_Done(&it->cbxs[i], 1);
     }
   }
+
+#ifdef ENABLE_ASSERT
+  // Sync point (debug): park the IO thread after every shard command has been
+  // dispatched so tests can deterministically fire the blocked-client timeout
+  // knowing the fan-out has happened but no reply has been consumed yet.
+  SyncPoint_Wait(SYNC_POINT_AFTER_ITERATOR_START);
+#endif
 
   rm_free(data);
 }
@@ -962,8 +977,13 @@ MRReply *MRIterator_Next(MRIterator *it) {
   return MRChannel_Pop(it->ctx.chan);
 }
 
-MRReply *MRIterator_NextWithTimeout(MRIterator *it, const struct timespec *abstime, bool *timedOut) {
-  return MRChannel_PopWithTimeout(it->ctx.chan, abstime, timedOut);
+MRReply *MRIterator_NextWithTimeout(MRIterator *it, const struct timespec *abstime,
+                                    atomic_bool *abortFlag, bool *timedOut) {
+  return MRChannel_PopWithTimeout(it->ctx.chan, abstime, abortFlag, timedOut);
+}
+
+struct MRChannel *MRIterator_GetChannel(MRIterator *it) {
+  return it->ctx.chan;
 }
 
 size_t MRIterator_GetChannelSize(const MRIterator *it) {

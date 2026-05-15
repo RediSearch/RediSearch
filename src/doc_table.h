@@ -11,13 +11,14 @@
 #include <stdlib.h>
 #include <string.h>
 #include "redismodule.h"
-#include "triemap.h"
 #include "redisearch.h"
 #include "sortable.h"
 #include "byte_offsets.h"
 #include "hiredis/sds.h"
 #include "rmutil/rm_assert.h"
 #include "ttl_table.h"
+
+typedef struct TrieMap TrieMap;
 
 #ifdef __cplusplus
 extern "C" {
@@ -75,6 +76,10 @@ typedef struct {
 
   DMDChain *buckets;
   DocIdMap dim;             // Mapping between document name to internal id
+  // Holds field-level expirations only; created lazily on the first HEXPIRE
+  // and destroyed when the last entry is removed. Iterators use a NULL check
+  // on this pointer as their HFE gate, so a NULL `ttl` means no doc in this
+  // index has ever had (or still has) a field-level expiration.
   TimeToLiveTable* ttl;
 } DocTable;
 
@@ -132,7 +137,7 @@ void DocTable_UpdateExpiration(DocTable *t, RSDocumentMetadata* dmd, t_expiratio
 bool DocTable_IsDocExpired(DocTable* t, const RSDocumentMetadata* dmd, struct timespec* expirationPoint);
 
 // Clear all expiration data from this doc table.
-// Clears Document_HasExpiration flags from all documents and destroys the TTL table.
+// Resets `expirationTimeNs` on every DMD and destroys the TTL table.
 // Must be called with the index write lock held.
 void DocTable_ClearExpirationData(DocTable *t);
 
@@ -152,6 +157,15 @@ static inline bool DocTable_CheckFieldMaskExpirationPredicate(const DocTable *t,
 static inline bool DocTable_CheckWideFieldMaskExpirationPredicate(const DocTable *t, t_docId docId, t_fieldMask fieldMask, enum FieldExpirationPredicate predicate, const struct timespec* expirationPoint, const t_fieldIndex* ftIdToFieldIndex) {
   if (!t->ttl) return true;
   return TimeToLiveTable_VerifyDocAndWideFieldMask(t->ttl, docId, fieldMask, predicate, expirationPoint, ftIdToFieldIndex);
+}
+
+// Borrowed read of the field-expiration array for `docId`. Returns NULL if
+// this index has never registered any field-level TTLs (`t->ttl == NULL`)
+// or if `docId` has no field-level entry. See
+// TimeToLiveTable_GetFieldExpirations for lifetime / aliasing rules.
+static inline const arrayof(FieldExpiration) DocTable_GetFieldExpirations(const DocTable *t, t_docId docId) {
+  if (!t->ttl) return NULL;
+  return TimeToLiveTable_GetFieldExpirations(t->ttl, docId);
 }
 
 
@@ -210,7 +224,10 @@ static inline void DMD_Return(const RSDocumentMetadata *cdmd) {
   }
 }
 
-void DocTable_LegacyRdbLoad(DocTable *t, RedisModuleIO *rdb, int encver);
+/* Load the doc table from RDB. This is used for legacy RDB load only.
+ * Returns REDISMODULE_OK on success, REDISMODULE_ERR on allocation failure.
+ */
+int DocTable_LegacyRdbLoad(DocTable *t, RedisModuleIO *rdb, int encver);
 
 t_docId DocTable_GetMaxDocId(const DocTable *t);
 

@@ -1,22 +1,54 @@
 name: Setup sccache
-description: Setup sccache with GitHub Actions cache backend
+description: |
+  Assume the sccache AWS role via OIDC, install the sccache binary, and export
+  sccache S3 env vars. Calling job MUST grant `id-token: write`.
+
+inputs:
+  aws-role:
+    description: 'AWS IAM role ARN for sccache S3 access (pass vars.SCCACHE_AWS_ROLE_TO_ASSUME)'
+    required: true
+  s3-bucket:
+    description: 'S3 bucket name for sccache (pass vars.SCCACHE_S3_BUCKET)'
+    required: true
+  s3-region:
+    description: 'AWS region of the sccache S3 bucket (pass vars.SCCACHE_S3_REGION)'
+    required: true
+  s3-key-prefix:
+    description: 'S3 key prefix for sccache objects (pass vars.SCCACHE_S3_KEY_PREFIX)'
+    required: true
 
 runs:
   using: composite
   steps:
-    - name: Setup sccache
-      uses: mozilla-actions/sccache-action@v0.0.9
+    - name: Configure AWS Credentials for sccache
+      uses: aws-actions/configure-aws-credentials@v6
+      with:
+        role-to-assume: ${{ inputs.aws-role }}
+        aws-region: ${{ inputs.s3-region }}
+
+    - name: Install sccache
+      uses: mozilla-actions/sccache-action@v0.0.10
       with:
         # Disable the post-run stats annotation as it runs outside the
         # container and reports nothing. We show stats ourselves.
         disable_annotations: true
+
     - name: Configure sccache environment
       # Use --noprofile --norc to avoid Alpine's /etc/profile resetting PATH,
       # which would hide the sccache binary installed by the previous step.
+      # Input values are passed via env (not interpolated into the script)
+      # to satisfy scanners that flag ${{ inputs.* }} inside `run:` blocks
+      # as script-injection sinks.
       shell: bash --noprofile --norc -eo pipefail {0}
+      env:
+        INPUT_S3_BUCKET: ${{ inputs.s3-bucket }}
+        INPUT_S3_REGION: ${{ inputs.s3-region }}
+        INPUT_S3_KEY_PREFIX: ${{ inputs.s3-key-prefix }}
       run: |
-        SCCACHE=$(command -v sccache)
-        echo "SCCACHE_GHA_ENABLED=true" >> "$GITHUB_ENV"
+        echo "SCCACHE_BUCKET=$INPUT_S3_BUCKET" >> "$GITHUB_ENV"
+        echo "SCCACHE_REGION=$INPUT_S3_REGION" >> "$GITHUB_ENV"
+        echo "SCCACHE_S3_KEY_PREFIX=$INPUT_S3_KEY_PREFIX" >> "$GITHUB_ENV"
+        echo "SCCACHE_S3_USE_SSL=true" >> "$GITHUB_ENV"
         # Disable idle timeout so the sccache server stays alive for the
         # entire job, otherwise stats are lost if it shuts down between steps.
         echo "SCCACHE_IDLE_TIMEOUT=0" >> "$GITHUB_ENV"

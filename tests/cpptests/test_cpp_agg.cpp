@@ -10,6 +10,7 @@
 
 #include "gtest/gtest.h"
 #include "aggregate/aggregate.h"
+#include "search_result_ffi.h"
 #include "redismock/redismock.h"
 #include "redismock/util.h"
 #include "redismock/internal.h"
@@ -57,7 +58,7 @@ TEST_F(AggTest, testBasic) {
 
   AREQ *rr = AREQ_New();
   RMCK::ArgvList aggArgs(ctx, "*");
-  rv = AREQ_Compile(rr, aggArgs, aggArgs.size(), false, &qerr);
+  rv = AREQ_Compile(rr, ctx, aggArgs, aggArgs.size(), false, &qerr);
   ASSERT_EQ(REDISMODULE_OK, rv) << QueryError_GetUserError(&qerr);
   ASSERT_FALSE(QueryError_HasError(&qerr));
   RedisSearchCtx *sctx = NewSearchCtxC(ctx, spec->specName, true);
@@ -305,7 +306,7 @@ TEST_F(AggTest, AvoidingCompleteResultStructOpt) {
     AREQ *rr = AREQ_New();
     AREQ_AddRequestFlags(rr, flags);
     RMCK::ArgvList aggArgs(ctx, "*", args...);
-    int rv = AREQ_Compile(rr, aggArgs, aggArgs.size(), false, &qerr);
+    int rv = AREQ_Compile(rr, ctx, aggArgs, aggArgs.size(), false, &qerr);
     EXPECT_EQ(REDISMODULE_OK, rv) << QueryError_GetUserError(&qerr);
     bool res = rr->searchopts.flags & Search_CanSkipRichResults;
     QueryError_ClearError(&qerr);

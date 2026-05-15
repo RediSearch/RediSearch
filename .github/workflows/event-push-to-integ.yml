@@ -15,6 +15,9 @@ jobs:
   benchmark:
     needs: check-what-changed
     if: ${{ needs.check-what-changed.outputs.BENCHMARK_CHANGED == 'true' }}
+    permissions:
+      contents: read
+      id-token: write # OIDC role assumption for sccache S3 (used inside flow-build-benchmark-binary.yml)
     uses: ./.github/workflows/benchmark-runner.yml
     secrets: inherit
     with:
@@ -23,5 +26,8 @@ jobs:
   micro-benchmarks:
     needs: check-what-changed
     if: ${{ needs.check-what-changed.outputs.BENCHMARK_CHANGED == 'true' }}
+    permissions:
+      contents: read
+      id-token: write # OIDC role assumption for sccache S3 (used inside flow-micro-benchmarks-runner.yml)
     uses: ./.github/workflows/flow-micro-benchmarks.yml
     secrets: inherit

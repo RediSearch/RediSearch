@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "spec.h"
+#include "triemap_ffi.h"
 #include "field_spec.h"
 #include "document.h"
 #include "rmutil/rm_assert.h"
@@ -420,7 +421,7 @@ QueryNode* RediSearch_CreateNumericNode(RefManager* rm, const char* field, doubl
   QueryNode* ret = NewQueryNode(QN_NUMERIC);
   const size_t len = strlen(field);
   const FieldSpec *fs = IndexSpec_GetFieldWithLength(__RefManager_Get_Object(rm), field, len);
-  ret->nn.nf = NewNumericFilter(min, max, includeMin, includeMax, true, fs);
+  ret->nn.nf = NewNumericFilter(min, max, includeMin, includeMax, true, fs, NULL);
   ret->opts.fieldMask = IndexSpec_GetFieldBit(__RefManager_Get_Object(rm), field, len);
   return ret;
 }
@@ -617,10 +618,6 @@ static RS_ApiIter* handleIterCommon(IndexSpec* sp, QueryInput* input, char** err
   /* We might have multiple readers that reads from the index,
    * Avoid rehashing the terms dictionary */
   dictPauseRehashing(sp->keysDict);
-  /* Also pause rehashing on the TTL table if it exists */
-  if (sp->docs.ttl) {
-    dictPauseRehashing(sp->docs.ttl);
-  }
 
   RSSearchOptions options = {0};
   QueryError status = QueryError_Default();
@@ -672,9 +669,6 @@ end:
      * If iter->sp is set, RediSearch_ResultsIteratorFree will handle cleanup. */
     if (!it->sp) {
       dictResumeRehashing(sp->keysDict);
-      if (sp->docs.ttl) {
-        dictResumeRehashing(sp->docs.ttl);
-      }
       pthread_rwlock_unlock(&sp->rwlock);
     }
     RediSearch_ResultsIteratorFree(it);
@@ -754,9 +748,6 @@ void RediSearch_ResultsIteratorFree(RS_ApiIter* iter) {
   if (iter->sp) {
     if (iter->sp->keysDict) {
       dictResumeRehashing(iter->sp->keysDict);
-    }
-    if (iter->sp->docs.ttl) {
-      dictResumeRehashing(iter->sp->docs.ttl);
     }
     pthread_rwlock_unlock(&iter->sp->rwlock);
   }
@@ -912,10 +903,6 @@ int RediSearch_IndexInfo(RSIndex* rm, RSIdxInfo *info) {
   /* We might have multiple readers that reads from the index,
    * Avoid rehashing the terms dictionary */
   dictPauseRehashing(sp->keysDict);
-  /* Also pause rehashing on the TTL table if it exists */
-  if (sp->docs.ttl) {
-    dictPauseRehashing(sp->docs.ttl);
-  }
 
   // Report fork when any GC is present
   info->gcPolicy = sp->gc ? GC_POLICY_FORK : GC_POLICY_NONE;
@@ -959,10 +946,6 @@ int RediSearch_IndexInfo(RSIndex* rm, RSIdxInfo *info) {
   }
 
   dictResumeRehashing(sp->keysDict);
-  /* Also resume rehashing on the TTL table if it exists */
-  if (sp->docs.ttl) {
-    dictResumeRehashing(sp->docs.ttl);
-  }
   /* Release spec read lock */
   pthread_rwlock_unlock(&sp->rwlock);
   RWLOCK_RELEASE();

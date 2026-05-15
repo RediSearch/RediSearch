@@ -51,6 +51,7 @@ def testOverrides(env):
 def testCompression(env):
     accuracy = 0.000001
     repeat = int(math.sqrt(1 / accuracy))
+    eps = accuracy / 2
 
     conn = getConnectionByEnv(env)
     pl = conn.pipeline()
@@ -64,7 +65,11 @@ def testCompression(env):
 
     for i in range(repeat):
         value = accuracy * i
-        env.expect('ft.search', 'idx', (f'@n:[{value} {value}]')).equal([1, str(i), ['n', str(value)]])
+        lo = value - eps
+        hi = value + eps
+        result = env.cmd('ft.search', 'idx', f'@n:[{lo} {hi}]')
+        env.assertEqual(result[0], 1)
+        env.assertEqual(result[1], str(i))
 
 @skip(cluster=True)
 def testSanity(env):
@@ -130,6 +135,10 @@ def testRangeParentsConfig(env):
 @skip(cluster=True)
 def testEmptyNumericLeakIncrease(env):
     # test numeric field which updates with increasing value
+
+    # Make sure GC is not triggered sporadically (only manually)
+    env.expect(config_cmd(), 'SET', 'FORK_GC_RUN_INTERVAL', 3600).equal('OK')
+    env.expect(config_cmd(), 'SET', 'FORK_GC_CLEAN_THRESHOLD', 0).equal('OK')
 
     conn = getConnectionByEnv(env)
     conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC')

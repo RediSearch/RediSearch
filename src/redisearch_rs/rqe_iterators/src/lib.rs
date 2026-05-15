@@ -7,8 +7,10 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use ffi::t_docId;
 use std::sync::OnceLock;
+
+use ffi::t_docId;
+use index_spec::IndexSpecReadGuard;
 use thiserror::Error;
 
 use ::inverted_index::{RSIndexResult, t_fieldMask};
@@ -33,7 +35,9 @@ pub mod profile;
 pub mod union;
 mod union_flat;
 mod union_heap;
+pub mod union_opaque;
 pub mod union_reducer;
+mod union_trimmed;
 pub mod utils;
 pub mod wildcard;
 
@@ -41,15 +45,20 @@ pub use empty::Empty;
 pub use expiration_checker::{ExpirationChecker, FieldExpirationChecker, NoOpChecker};
 pub use id_list::IdList;
 pub use intersection::{Intersection, NewIntersectionIterator, new_intersection_iterator};
-pub use inverted_index::{Missing, Numeric, Tag, Term};
-pub use metric::Metric;
+pub use inverted_index::{
+    GeoRangeError, InvalidGeoInput, Missing, Numeric, NumericIteratorVariant, Tag, Term,
+    build_geo_numeric_filters, extract_geo_unit_factor, new_geo_range_iterator,
+    open_numeric_or_geo_index,
+};
 pub use not::NotIterator;
 pub use optional::OptionalIterator;
 pub use rqe_iterator_type::IteratorType;
 pub use union::{
     Union, UnionFlat, UnionFullFlat, UnionFullHeap, UnionHeap, UnionQuickFlat, UnionQuickHeap,
+    UnionTrimmed,
 };
-pub use wildcard::{Wildcard, WildcardIterator};
+pub use union_opaque::{UnionOpaque, UnionVariant};
+pub use wildcard::{NewWildcardIterator, Wildcard, WildcardIterator};
 
 #[derive(Debug, PartialEq)]
 /// The outcome of [`RQEIterator::skip_to`].
@@ -126,8 +135,17 @@ pub trait RQEIterator<'index> {
 
     /// Called when the iterator is being revalidated after a concurrent index change.
     ///
-    /// The iterator should check if it is still valid.
-    fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError>;
+    /// The iterator should check if it is still valid by comparing its stored state
+    /// against the current index state.
+    ///
+    /// # Locking
+    ///
+    /// The caller must hold the spec read lock, represented by [`IndexSpecReadGuard`].
+    /// The lock ensures the spec remains valid and unchanged during this call.
+    fn revalidate(
+        &mut self,
+        spec: &IndexSpecReadGuard,
+    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError>;
 
     /// Rewind the iterator to the beginning and reset its properties.
     fn rewind(&mut self);
@@ -187,8 +205,11 @@ impl<'index, I: RQEIterator<'index> + 'index> RQEIterator<'index> for Box<I> {
         (**self).skip_to(doc_id)
     }
 
-    fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        (**self).revalidate()
+    fn revalidate(
+        &mut self,
+        spec: &IndexSpecReadGuard,
+    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
+        (**self).revalidate(spec)
     }
 
     fn rewind(&mut self) {
@@ -241,8 +262,11 @@ impl<'index> RQEIterator<'index> for Box<dyn RQEIterator<'index> + 'index> {
         (**self).skip_to(doc_id)
     }
 
-    fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        (**self).revalidate()
+    fn revalidate(
+        &mut self,
+        spec: &IndexSpecReadGuard,
+    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
+        (**self).revalidate(spec)
     }
 
     fn rewind(&mut self) {
@@ -287,16 +311,33 @@ pub trait SearchEnterpriseIterators: Send + Sync {
     /// given weight.
     fn new_wildcard_on_disk<'index>(
         &self,
-        index: &'index ffi::RedisSearchDiskIndexSpec,
+        index: &'index mut ffi::RedisSearchDiskIndexSpec,
         weight: f64,
     ) -> Result<Box<dyn RQEIterator<'index> + 'index>, Box<dyn std::error::Error>>;
 
-    /// Iterate over all the terms in the index. Each document in the iterator will have the term
-    /// inside the given query_term and will have the given weight. The iterator will also filter
-    /// the results according to the given field mask.
-    fn new_term_on_disk<'index>(
+    /// Iterate over all the terms in the index, loading offset data for each document.
+    ///
+    /// Each document in the iterator will have the term inside the given `query_term` and will
+    /// have the given weight. The iterator will also filter the results according to the given
+    /// field mask. Use this variant for phrase queries, slop constraints, or any query that needs
+    /// term positions.
+    fn new_term_on_disk_with_offsets<'index>(
         &self,
-        index: &'index ffi::RedisSearchDiskIndexSpec,
+        index: &'index mut ffi::RedisSearchDiskIndexSpec,
+        query_term: Box<RSQueryTerm>,
+        field_mask: t_fieldMask,
+        weight: f64,
+    ) -> Result<Box<dyn RQEIterator<'index> + 'index>, Box<dyn std::error::Error>>;
+
+    /// Iterate over all the terms in the index, skipping offset data for efficiency.
+    ///
+    /// Each document in the iterator will have the term inside the given `query_term` and will
+    /// have the given weight. The iterator will also filter the results according to the given
+    /// field mask. Use this variant for BM25_STD queries or any query that doesn't need term
+    /// positions.
+    fn new_term_on_disk_without_offsets<'index>(
+        &self,
+        index: &'index mut ffi::RedisSearchDiskIndexSpec,
         query_term: Box<RSQueryTerm>,
         field_mask: t_fieldMask,
         weight: f64,
@@ -306,7 +347,7 @@ pub trait SearchEnterpriseIterators: Send + Sync {
     /// then iterator will have the given weight.
     fn new_tag_on_disk<'index>(
         &self,
-        index: &'index ffi::RedisSearchDiskIndexSpec,
+        index: &'index mut ffi::RedisSearchDiskIndexSpec,
         token: &ffi::RSToken,
         field_index: ffi::t_fieldIndex,
         weight: f64,

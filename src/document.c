@@ -7,14 +7,17 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include <string.h>
+#include "triemap_ffi.h"
+#include "value_ffi.h"
 #include <inttypes.h>
 
 #include "document.h"
 #include "rlookup_load_document.h"
 #include "forward_index.h"
 #include "numeric_filter.h"
-#include "numeric_index.h"
-#include "redisearch_rs/headers/numeric_range_tree.h"
+#include "numeric_range_tree.h"
+#include "numeric_range_tree_ffi.h"
+#include "sorting_vector_ffi.h"
 #include "rmutil/strings.h"
 #include "rmutil/util.h"
 #include "util/mempool.h"
@@ -32,8 +35,8 @@
 #include "obfuscation/obfuscation_api.h"
 #include "search_disk.h"
 #include "info/global_stats.h"
-#include "sorting_vector.h"
 #include "doc_id_meta.h"
+#include "iterators_ffi.h"
 
 // Memory pool for RSAddDocumentContext contexts
 static mempool_t *actxPool_g = NULL;
@@ -581,7 +584,9 @@ FIELD_BULK_INDEXER(geometryIndexer) {
   return 0;
 }
 
-
+// Passes RSGlobalConfig.numericTreeMaxDepthRange automatically
+#define NumericRangeTree_Add(t, docId, value, isMulti) \
+  _NumericRangeTree_Add((t), (docId), (value), (isMulti), RSGlobalConfig.numericTreeMaxDepthRange)
 
 FIELD_BULK_INDEXER(numericIndexer) {
 
@@ -646,7 +651,6 @@ FIELD_BULK_INDEXER(vectorIndexer) {
     VecSimIndex_AddVector(vecsim, curr_vec, aCtx->doc->docId);
     curr_vec += fdata->vecLen;
   }
-  sp->stats.numRecords += fdata->numVec;
   return 0;
 }
 

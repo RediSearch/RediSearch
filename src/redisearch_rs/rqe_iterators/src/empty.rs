@@ -10,6 +10,7 @@
 //! Supporting types for [`Empty`].
 
 use ffi::t_docId;
+use index_spec::IndexSpecReadGuard;
 use inverted_index::RSIndexResult;
 
 use crate::{IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
@@ -58,7 +59,10 @@ impl<'index> RQEIterator<'index> for Empty {
     }
 
     #[inline(always)]
-    fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
+    fn revalidate(
+        &mut self,
+        _spec: &IndexSpecReadGuard,
+    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         Ok(RQEValidateStatus::Ok)
     }
 

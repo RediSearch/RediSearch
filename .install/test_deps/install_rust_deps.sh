@@ -15,11 +15,14 @@ NIGHTLY_VERSION=$(cat "$(dirname "${BASH_SOURCE[0]}")/../../.rust-nightly")
 #   Required to run `cargo miri test` for UB detection
 # rust-src:
 #   Required to build RedisJSON with address sanitizer
+# rust-docs-json:
+#   Required by `cheadergen` to generate C headers
 rustup toolchain install $NIGHTLY_VERSION \
     --allow-downgrade \
     --component llvm-tools-preview \
     --component miri \
-    --component rust-src
+    --component rust-src \
+    --component rust-docs-json
 
 # Install a pinned version of `cargo-binstall`,
 # to fetch prebuilt release artefacts for the tools we use
@@ -92,6 +95,8 @@ binstall --no-host-prebuilt cargo-nextest@0.9.130
 # thus improving the cacheability of our builds
 # See https://docs.rs/cargo-hakari/latest/cargo_hakari/about/
 binstall cargo-hakari@0.9.37
+# A CLI to generate C headers from Rust code
+binstall cheadergen_cli@0.2.0
 # Make sure `miri` is fully operational before running tests with it.
 # See https://github.com/rust-lang/miri/blob/master/README.md#running-miri-on-ci
 # for more details.

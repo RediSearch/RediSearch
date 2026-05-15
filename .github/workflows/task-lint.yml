@@ -4,6 +4,15 @@ name: Lint for warnings, missing license headers and check that code is well-for
 
 on:
   workflow_call:
+    inputs:
+      compare-advisories-to-base:
+        description: 'Only fail cargo-deny advisories when findings are new compared to advisories-base-ref.'
+        type: boolean
+        default: false
+      advisories-base-ref:
+        description: 'Git ref or SHA to compare advisory findings against when compare-advisories-to-base is true.'
+        type: string
+        default: ''
 
 jobs:
   build-image:
@@ -18,16 +27,22 @@ jobs:
     needs: build-image
     if: ${{ !cancelled() }}
     runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
+    permissions:
+      contents: read  # actions/checkout
+      id-token: write # OIDC role assumption for sccache S3
+      packages: read  # pull container image from GHCR
+      actions: write  # Swatinem/rust-cache read/write of GH cache
+    defaults:
+      run:
+        shell: bash -l -eo pipefail {0}
     container: ${{
       needs.build-image.outputs.succeeded == 'true'
         && fromJSON(format('{{"image":"{0}","options":"--user root"}}', needs.build-image.outputs.image))
       || null }}
-    defaults:
-      run:
-        shell: bash -l -eo pipefail {0}
+
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           submodules: recursive
       - name: Fix HOME Directory
@@ -56,10 +71,24 @@ jobs:
           fi
       - name: Setup sccache
         uses: ./.github/actions/setup-sccache
+        with:
+          aws-role: ${{ vars.SCCACHE_AWS_ROLE_TO_ASSUME }}
+          s3-bucket: ${{ vars.SCCACHE_S3_BUCKET }}
+          s3-region: ${{ vars.SCCACHE_S3_REGION }}
+          s3-key-prefix: ${{ vars.SCCACHE_S3_KEY_PREFIX }}
       - name: Setup
         if: needs.build-image.outputs.succeeded != 'true'
         working-directory: .install
         run: ./install_script.sh ${{ steps.mode.outputs.mode }}
+      - name: Setup Rust test dependencies
+        # Required so the cached-container fallback path also has the pinned
+        # nightly + `rust-docs-json` component + cheadergen binary that the
+        # `Stale headers check` step below needs. The cached container image
+        # already runs this script in its Dockerfile.
+        if: needs.build-image.outputs.succeeded != 'true'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: .install/test_deps/install_rust_deps.sh ${{ steps.mode.outputs.mode }}
       # Cache Rust packages and binaries
       - uses: Swatinem/rust-cache@v2
         with:
@@ -72,6 +101,8 @@ jobs:
           workspaces: "src/redisearch_rs -> ../../bin/redisearch_rs"
       - name: Hakari
         run: cargo install cargo-hakari --locked
+      - name: Cargo deny
+        run: cargo install cargo-deny --locked
       - name: Lint
         id: lint
         continue-on-error: true
@@ -82,7 +113,7 @@ jobs:
         continue-on-error: true
         run: |
           if ! git diff --exit-code; then
-            echo "Uncommitted changes found. This is likely because of automatically generated code which has not been committed."
+            echo "Uncommitted changes found. Likely causes: stale Rust → C FFI headers under src/redisearch_rs/headers/ (run 'make generate-rust-headers' and commit) or other auto-generated artifacts produced by 'make lint'."
             exit 1
           fi
       - name: License header
@@ -93,13 +124,21 @@ jobs:
         id: fmt
         continue-on-error: true
         run: make fmt CHECK=1
-      - uses: EmbarkStudios/cargo-deny-action@v2
+      - name: Security advisories
         id: advisories
         continue-on-error: true
-        with:
-          command: check advisories
-          arguments: --all-features
-          manifest-path: src/redisearch_rs/Cargo.toml
+        env:
+          COMPARE_ADVISORIES_TO_BASE: ${{ inputs.compare-advisories-to-base }}
+          ADVISORIES_BASE_REF: ${{ inputs.advisories-base-ref }}
+          MANIFEST_PATH: src/redisearch_rs/Cargo.toml
+        run: |
+          ARGS=()
+          if [[ "$COMPARE_ADVISORIES_TO_BASE" == "true" ]]; then
+            ARGS+=(--compare-to-base --base-ref "$ADVISORIES_BASE_REF")
+          fi
+          python3 scripts/cargo_deny_advisory_gate.py \
+            --manifest-path "$MANIFEST_PATH" \
+            "${ARGS[@]}"
       - uses: EmbarkStudios/cargo-deny-action@v2
         id: dep-licenses
         continue-on-error: true
@@ -130,11 +169,11 @@ jobs:
           steps.dep-licenses.outcome == 'failure' ||
           steps.workspace_hack.outcome == 'failure'
         run: |
-          echo "Linting: ${{ steps.lint.outcome }}"
-          echo "License header: ${{ steps.license-header.outcome }}"
+          echo "Lint: ${{ steps.lint.outcome }}"
           echo "Generated files: ${{ steps.git-diff.outcome }}"
-          echo "Formatting: ${{ steps.fmt.outcome }}"
+          echo "License header: ${{ steps.license-header.outcome }}"
+          echo "Format check: ${{ steps.fmt.outcome }}"
           echo "Security advisories: ${{ steps.advisories.outcome }}"
           echo "Dependency licenses: ${{ steps.dep-licenses.outcome }}"
-          echo "Workspace hack: ${{ steps.workspace_hack.outcome }}"
+          echo "Workspace hack check: ${{ steps.workspace_hack.outcome }}"
           exit 1

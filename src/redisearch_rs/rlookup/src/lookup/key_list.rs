@@ -8,7 +8,7 @@
 */
 
 use crate::{RLookupKey, RLookupKeyFlags};
-use std::{ffi::CStr, pin::Pin, ptr::NonNull};
+use std::{ffi::CStr, iter::FusedIterator, marker::PhantomData, pin::Pin, ptr::NonNull};
 
 #[cfg(any(debug_assertions, test))]
 use std::ptr;
@@ -28,14 +28,33 @@ pub struct KeyList<'a> {
 
 /// A cursor over an [`RLookup`][crate::RLookup]'s key list.
 pub struct Cursor<'list, 'a> {
-    _rlookup: &'list KeyList<'a>,
+    _list: PhantomData<&'list KeyList<'a>>,
     current: Option<NonNull<RLookupKey<'a>>>,
 }
 
 /// A cursor over an [`RLookup`][crate::RLookup]'s key list with editing operations.
 pub struct CursorMut<'list, 'a> {
-    _rlookup: &'list mut KeyList<'a>,
+    list: &'list mut KeyList<'a>,
     current: Option<NonNull<RLookupKey<'a>>>,
+}
+
+/// Internal iterator yielding raw pointers to keys.
+struct IterRaw<'a> {
+    current: Option<NonNull<RLookupKey<'a>>>,
+}
+
+/// Iterator over an [`RLookup`][crate::RLookup]'s key list, yielding immutable references to keys.
+pub struct Iter<'list, 'a> {
+    _list: PhantomData<&'list KeyList<'a>>,
+    raw: IterRaw<'a>,
+}
+
+/// Iterator over an [`RLookup`][crate::RLookup]'s key list, yielding pinned mutable references to keys.
+///
+/// Use [`CursorMut`] to override a key during traversal.
+pub struct IterMut<'list, 'a> {
+    _list: PhantomData<&'list mut KeyList<'a>>,
+    raw: IterRaw<'a>,
 }
 
 // ===== impl KeyList =====
@@ -102,19 +121,19 @@ impl<'a> KeyList<'a> {
         unsafe { Pin::new_unchecked(key) }
     }
 
-    /// Return a cursor over an [`super::RLookup`]'s key list.
+    /// Return a cursor over an [`crate::RLookup`]'s key list.
     #[cfg_attr(not(debug_assertions), expect(clippy::missing_const_for_fn))]
     pub fn cursor_front(&self) -> Cursor<'_, 'a> {
         #[cfg(debug_assertions)]
         self.assert_valid("KeyList::cursor_front");
 
         Cursor {
-            _rlookup: self,
             current: self.head,
+            _list: PhantomData,
         }
     }
 
-    /// Return a cursor over an [`super::RLookup`]'s key list with editing operations.
+    /// Return a cursor over an [`crate::RLookup`]'s key list with editing operations.
     #[cfg_attr(not(debug_assertions), expect(clippy::missing_const_for_fn))]
     pub fn cursor_front_mut(&mut self) -> CursorMut<'_, 'a> {
         #[cfg(debug_assertions)]
@@ -122,7 +141,31 @@ impl<'a> KeyList<'a> {
 
         CursorMut {
             current: self.head,
-            _rlookup: self,
+            list: self,
+        }
+    }
+
+    /// Returns an iterator over immutable references to keys.
+    #[cfg_attr(not(debug_assertions), expect(clippy::missing_const_for_fn))]
+    pub fn iter(&self) -> Iter<'_, 'a> {
+        #[cfg(debug_assertions)]
+        self.assert_valid("KeyList::iter");
+
+        Iter {
+            raw: IterRaw { current: self.head },
+            _list: PhantomData,
+        }
+    }
+
+    /// Returns an iterator over pinned mutable references to keys.
+    #[cfg_attr(not(debug_assertions), expect(clippy::missing_const_for_fn))]
+    pub fn iter_mut(&mut self) -> IterMut<'_, 'a> {
+        #[cfg(debug_assertions)]
+        self.assert_valid("KeyList::iter_mut");
+
+        IterMut {
+            raw: IterRaw { current: self.head },
+            _list: PhantomData,
         }
     }
 
@@ -362,14 +405,64 @@ impl<'list, 'a> CursorMut<'list, 'a> {
         new.as_mut().set_next(old.next());
         old.set_next(Some(new_ptr));
 
-        // If the old key was the tail, set the new key as the tail
-        if self._rlookup.tail == self.current {
-            self._rlookup.tail = Some(new_ptr);
+        if self.list.tail == self.current {
+            self.list.tail = Some(new_ptr);
         }
 
         Some(new)
     }
 }
+
+impl<'a> Iterator for IterRaw<'a> {
+    type Item = NonNull<RLookupKey<'a>>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let mut curr = self.current.take()?;
+        loop {
+            // Safety: The `KeyList` ensures the linked list pointers are valid for as long as the
+            // wrapping iterator's borrow lives.
+            let curr_ref = unsafe { curr.as_ref() };
+            if !curr_ref.is_tombstone() {
+                self.current = curr_ref.next();
+                return Some(curr);
+            }
+            curr = curr_ref.next()?;
+        }
+    }
+}
+
+impl<'list, 'a> Iterator for Iter<'list, 'a> {
+    type Item = &'list RLookupKey<'a>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let next = self.raw.next()?;
+
+        // Safety: we immutably borrow (through a PhantomData but nonetheless) the `KeyList` ensuring
+        // it cannot be dropped or mutated while we hold the iterator. The returned reference cannot outlive the list.
+        Some(unsafe { next.as_ref() })
+    }
+}
+
+impl<'list, 'a> Iterator for IterMut<'list, 'a> {
+    type Item = Pin<&'list mut RLookupKey<'a>>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let mut next = self.raw.next()?;
+
+        // Safety: we mutably borrow (through a PhantomData but nonetheless) the `KeyList` ensuring
+        // it cannot be dropped or mutated while we hold the iterator. The returned reference cannot outlive the list.
+        let next = unsafe { next.as_mut() };
+
+        // Safety: all keys are treated as pinned by the crate
+        Some(unsafe { Pin::new_unchecked(next) })
+    }
+}
+
+// Once `IterRaw::next` returns `None`, `self.current` is `None` and stays that way, so all three
+// iterators are naturally fused.
+impl FusedIterator for IterRaw<'_> {}
+impl FusedIterator for Iter<'_, '_> {}
+impl FusedIterator for IterMut<'_, '_> {}
 
 #[cfg(test)]
 mod tests {
@@ -550,6 +643,152 @@ mod tests {
         // and the next item to be the new key
         c.move_next();
         assert_eq!(c.current().unwrap().name().as_ref(), c"foo");
+    }
+
+    // Assert that Iter skips tombstones (hidden/overridden keys)
+    #[test]
+    fn iter_skips_tombstones() {
+        let mut keylist = KeyList::new();
+
+        keylist.push(RLookupKey::new(c"foo", RLookupKeyFlags::empty()));
+        keylist.push(RLookupKey::new(c"bar", RLookupKeyFlags::empty()));
+        keylist.push(RLookupKey::new(c"baz", RLookupKeyFlags::empty()));
+
+        // Override "foo" to create a tombstone
+        keylist
+            .cursor_front_mut()
+            .override_current(RLookupKeyFlags::empty());
+
+        let names: Vec<_> = keylist
+            .iter()
+            .map(|k| k.name().as_ref().to_owned())
+            .collect();
+
+        // The tombstone for old "foo" should be skipped; new "foo" replacement + bar + baz remain
+        assert_eq!(
+            names,
+            vec![c"foo".to_owned(), c"bar".to_owned(), c"baz".to_owned()]
+        );
+    }
+
+    // Assert that Iter yields nothing for an empty list
+    #[test]
+    fn iter_empty_list() {
+        let keylist = KeyList::new();
+        assert_eq!(keylist.iter().count(), 0);
+    }
+
+    // Assert that Iter yields all elements when there are no tombstones
+    #[test]
+    fn iter_no_tombstones() {
+        let mut keylist = KeyList::new();
+
+        keylist.push(RLookupKey::new(c"a", RLookupKeyFlags::empty()));
+        keylist.push(RLookupKey::new(c"b", RLookupKeyFlags::empty()));
+        keylist.push(RLookupKey::new(c"c", RLookupKeyFlags::empty()));
+
+        let names: Vec<_> = keylist
+            .iter()
+            .map(|k| k.name().as_ref().to_owned())
+            .collect();
+        assert_eq!(
+            names,
+            vec![c"a".to_owned(), c"b".to_owned(), c"c".to_owned()]
+        );
+    }
+
+    // Assert that IterMut skips tombstones
+    #[test]
+    fn iter_mut_skips_tombstones() {
+        let mut keylist = KeyList::new();
+
+        keylist.push(RLookupKey::new(c"foo", RLookupKeyFlags::empty()));
+        keylist.push(RLookupKey::new(c"bar", RLookupKeyFlags::empty()));
+        keylist.push(RLookupKey::new(c"baz", RLookupKeyFlags::empty()));
+
+        // Override "bar" (middle element) to create a tombstone
+        let mut cursor = keylist.cursor_front_mut();
+        cursor.move_next(); // move to "bar"
+        cursor.override_current(RLookupKeyFlags::empty());
+
+        let names: Vec<_> = keylist
+            .iter_mut()
+            .map(|k| k.name().as_ref().to_owned())
+            .collect();
+        assert_eq!(
+            names,
+            vec![c"foo".to_owned(), c"bar".to_owned(), c"baz".to_owned()]
+        );
+    }
+
+    // Assert that IterMut yields nothing for an empty list
+    #[test]
+    fn iter_mut_empty_list() {
+        let mut keylist = KeyList::new();
+        assert_eq!(keylist.iter_mut().count(), 0);
+    }
+
+    // Assert that Iter skips multiple consecutive tombstones
+    #[test]
+    fn iter_skips_consecutive_tombstones() {
+        let mut keylist = KeyList::new();
+
+        keylist.push(RLookupKey::new(c"foo", RLookupKeyFlags::empty()));
+        keylist.push(RLookupKey::new(c"bar", RLookupKeyFlags::empty()));
+
+        // Override both keys to create consecutive tombstones with their replacements
+        keylist
+            .cursor_front_mut()
+            .override_current(RLookupKeyFlags::empty());
+
+        let mut cursor = keylist.cursor_front_mut(); // at foo tombstone
+        cursor.move_next(); // at foo
+        cursor.move_next(); // at bar
+        cursor.override_current(RLookupKeyFlags::empty());
+
+        // All tombstones should be skipped, only replacement keys should be yielded
+        let names: Vec<_> = keylist
+            .iter()
+            .map(|k| k.name().as_ref().to_owned())
+            .collect();
+        assert_eq!(names, vec![c"foo".to_owned(), c"bar".to_owned()]);
+    }
+
+    // Assert that mutations performed through IterMut are observable on a subsequent iter() pass.
+    #[test]
+    fn iter_mut_mutation_visible() {
+        let mut keylist = KeyList::new();
+
+        keylist.push(RLookupKey::new(c"a", RLookupKeyFlags::empty()));
+        keylist.push(RLookupKey::new(c"b", RLookupKeyFlags::empty()));
+
+        for key in keylist.iter_mut() {
+            key.project().header.flags |= RLookupKeyFlag::ExplicitReturn;
+        }
+
+        for key in keylist.iter() {
+            assert!(key.flags.contains(RLookupKeyFlag::ExplicitReturn));
+        }
+    }
+
+    // Assert that Iter handles a tombstone at the tail with no successor (returns None instead of dereferencing past the end).
+    #[test]
+    fn iter_skips_tail_tombstone() {
+        let mut keylist = KeyList::new();
+
+        keylist.push(RLookupKey::new(c"foo", RLookupKeyFlags::empty()));
+        keylist.push(RLookupKey::new(c"bar", RLookupKeyFlags::empty()));
+
+        // Tombstone the tail without inserting a replacement.
+        let mut cursor = keylist.cursor_front_mut();
+        cursor.move_next(); // now at "bar"
+        cursor.current().unwrap().make_tombstone();
+
+        let names: Vec<_> = keylist
+            .iter()
+            .map(|k| k.name().as_ref().to_owned())
+            .collect();
+        assert_eq!(names, vec![c"foo".to_owned()]);
     }
 
     #[test]

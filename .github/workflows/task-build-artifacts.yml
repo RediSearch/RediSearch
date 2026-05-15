@@ -128,12 +128,17 @@ jobs:
         run: ${{ needs.get-config.outputs.post_setup_script }}
 
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           submodules: recursive
           ref: ${{ env.REF }}
       - name: Setup sccache
         uses: ./.github/actions/setup-sccache
+        with:
+          aws-role: ${{ vars.SCCACHE_AWS_ROLE_TO_ASSUME }}
+          s3-bucket: ${{ vars.SCCACHE_S3_BUCKET }}
+          s3-region: ${{ vars.SCCACHE_S3_REGION }}
+          s3-key-prefix: ${{ vars.SCCACHE_S3_KEY_PREFIX }}
       - name: Setup
         if: needs.build-image.outputs.succeeded != 'true'
         uses: ./.github/actions/retry-command
@@ -154,15 +159,12 @@ jobs:
         with:
           command: uv pip install -q -r .install/build_package_requirements.txt
 
-      # Get Redis
-      - name: Get Redis
-        uses: ./.github/actions/get-redis
+      - name: Build Redis (cached)
+        uses: ./.github/actions/build-redis
         with:
           ref: ${{ inputs.redis-ref }}
-
-      - name: Build Redis
-        working-directory: redis
-        run: ${{ needs.get-config.outputs.install_mode }} make install
+          build_tls: 'false'
+          cache_platform_id: ${{ needs.get-config.outputs.container || needs.get-config.outputs.env }}
 
       # Build & Pack
       - name: Build and Pack RediSearch OSS

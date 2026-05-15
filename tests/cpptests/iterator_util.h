@@ -10,6 +10,8 @@
 #pragma once
 
 #include "iterators/iterator_api.h"
+#include "inverted_index.h"
+#include "types_ffi.h"
 
 #include <stdint.h>
 #include <vector>
@@ -24,7 +26,7 @@ extern "C" {
     size_t MockIterator_NumEstimated(const QueryIterator *base);
     void MockIterator_Rewind(QueryIterator *base);
     void MockIterator_Free(QueryIterator *base);
-    ValidateStatus MockIterator_Revalidate(QueryIterator *base);
+    ValidateStatus MockIterator_Revalidate(QueryIterator *base, IndexSpec *);
 }
 
 class MockIterator {

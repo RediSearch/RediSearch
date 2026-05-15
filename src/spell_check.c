@@ -7,10 +7,12 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "spell_check.h"
+#include "types_ffi.h"
 #include "util/arr.h"
 #include "dictionary.h"
 #include "reply.h"
 #include "inverted_index.h"
+#include "inverted_index_ffi.h"
 #include <stdbool.h>
 
 /** Forward declaration **/
@@ -59,6 +61,7 @@ void RS_SuggestionsAdd(RS_Suggestions *s, char *term, size_t len, double score, 
 
   if (!incr) {
     if (!isExists) {
+      // Payload is NULL so TRIE_ERR_PAYLOAD_OVERFLOW cannot occur.
       Trie_InsertStringBuffer(s->suggestionsTrie, term, len, score, incr, NULL, 0);
     }
     return;
@@ -72,6 +75,7 @@ void RS_SuggestionsAdd(RS_Suggestions *s, char *term, size_t len, double score, 
     incr = 0;
   }
 
+  // Payload is NULL so TRIE_ERR_PAYLOAD_OVERFLOW cannot occur.
   Trie_InsertStringBuffer(s->suggestionsTrie, term, len, score, incr, NULL, 0);
 }
 
@@ -87,9 +91,9 @@ void RS_SuggestionsFree(RS_Suggestions *s) {
  */
 static double SpellCheck_GetScore(SpellCheckCtx *scCtx, char *suggestion, size_t len,
                                   t_fieldMask fieldMask) {
-  InvertedIndex *invidx = Redis_OpenInvertedIndex(scCtx->sctx, suggestion, len, 0, NULL);
+  InvertedIndex *invidx = Redis_OpenInvertedIndex(scCtx->sctx->spec, suggestion, len, 0, NULL);
   double retVal = 0;
-  IndexDecoderCtx ctx = {.field_mask_tag = IndexDecoderCtx_FieldMask, .field_mask = fieldMask};
+  IndexDecoderCtx ctx = {.fieldmask_tag = IndexDecoderCtx_FieldMask, .fieldmask = fieldMask};
   IndexReader *reader = NULL;
   RSIndexResult *res = NULL;
 
@@ -160,7 +164,7 @@ static void SpellCheck_FindSuggestions(SpellCheckCtx *scCtx, Trie *t, const char
 
 RS_Suggestion **spellCheck_GetSuggestions(RS_Suggestions *s) {
   TrieIterator *iter = Trie_Iterate(s->suggestionsTrie, "", 0, 0, 1);
-  RS_Suggestion **ret = array_new(RS_Suggestion *, s->suggestionsTrie->size);
+  RS_Suggestion **ret = array_new(RS_Suggestion *, Trie_Size(s->suggestionsTrie));
   rune *rstr = NULL;
   t_len slen = 0;
   float score = 0;

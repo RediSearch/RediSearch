@@ -18,13 +18,16 @@
 static REDIS_MODULE_ALLOCATOR: redis_module::alloc::RedisAlloc = redis_module::alloc::RedisAlloc;
 
 pub use fnv_ffi as fnv;
+pub use fork_gc_ffi as fork_gc;
 pub use idf_ffi as idf;
 pub use inverted_index_ffi as inverted_index;
 pub use iterators_ffi as iterators;
+pub use metrics_ffi as metrics;
 pub use module_init_ffi as tracing_redismodule;
 pub use numeric_range_tree_ffi as numeric_range_tree;
 pub use query_error_ffi as query_error;
 pub use query_term_ffi as query_term;
+pub use reducers_ffi as reducers;
 pub use result_processor_ffi as result_processor;
 pub use rlookup_ffi as rlookup;
 pub use search_result_ffi as search_result;

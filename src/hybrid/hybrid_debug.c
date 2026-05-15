@@ -8,6 +8,8 @@
  */
 
 #include "hybrid_debug.h"
+#include "debug_commands.h"
+#include "config.h"
 #include "hybrid_exec.h"
 #include "hybrid_request.h"
 #include "parse_hybrid.h"
@@ -16,47 +18,18 @@
 #include "rmalloc.h"
 #include "search_disk_utils.h"
 
-// Debug parameters structure for hybrid queries
-typedef struct {
-  RedisModuleString **debug_argv;
-  unsigned long long debug_params_count;
-
-  // Component-specific timeouts only
-  unsigned long long search_timeout_count;
-  unsigned long long vsim_timeout_count;
-  unsigned long long tail_timeout_count;
-  int search_timeout_set;
-  int vsim_timeout_set;
-  int tail_timeout_set;
-} HybridDebugParams;
-
 // Wrapper structure for hybrid request with debug capabilities
 typedef struct {
   HybridRequest *hreq;                     // Base hybrid request
   HybridDebugParams debug_params;          // Debug parameters
 } HybridRequest_Debug;
 
-static HybridDebugParams parseHybridDebugParamsCount(RedisModuleString **argv, int argc, QueryError *status) {
+HybridDebugParams parseHybridDebugParamsCount(RedisModuleString **argv, int argc, QueryError *status) {
   HybridDebugParams debug_params = {0};
 
-  // Verify DEBUG_PARAMS_COUNT exists in its expected position (second to last argument)
-  if (argc < 2) {
-    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "DEBUG_PARAMS_COUNT arg is missing");
-    return debug_params;
-  }
-
-  size_t n;
-  const char *arg = RedisModule_StringPtrLen(argv[argc - 2], &n);
-  if (!(strncasecmp(arg, "DEBUG_PARAMS_COUNT", n) == 0)) {
-    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "DEBUG_PARAMS_COUNT arg is missing or not in the expected position");
-    return debug_params;
-  }
-
-  unsigned long long debug_params_count;
-  // The count of debug params is the last argument in argv
-  if (RedisModule_StringToULongLong(argv[argc - 1], &debug_params_count) != REDISMODULE_OK) {
-    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Invalid DEBUG_PARAMS_COUNT count");
-    return debug_params;
+  unsigned long long debug_params_count = 0;
+  if (parseDebugParamsCount(argv, argc, status, &debug_params_count) != 0) {
+      return debug_params;
   }
 
   debug_params.debug_params_count = debug_params_count;
@@ -66,8 +39,7 @@ static HybridDebugParams parseHybridDebugParamsCount(RedisModuleString **argv, i
   return debug_params;
 }
 
-static int parseHybridDebugParams(HybridRequest_Debug *debug_req, QueryError *status) {
-  HybridDebugParams *params = &debug_req->debug_params;
+int parseHybridDebugParams(HybridDebugParams *params, QueryError *status) {
   RedisModuleString **debug_argv = params->debug_argv;
   unsigned long long debug_params_count = params->debug_params_count;
 
@@ -146,10 +118,16 @@ static int parseHybridDebugParams(HybridRequest_Debug *debug_req, QueryError *st
     return REDISMODULE_ERR;
   }
 
+  if (RSGlobalConfig.requestConfigParams.timeoutPolicy == TimeoutPolicy_ReturnStrict) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS,
+                        "FT.HYBRID debug timeout is not supported with ON_TIMEOUT RETURN-STRICT");
+    return REDISMODULE_ERR;
+  }
+
   return REDISMODULE_OK;
 }
 
-static int applyHybridTimeout(HybridRequest *hreq, const HybridDebugParams *params) {
+int applyHybridDebugTimeout(HybridRequest *hreq, const HybridDebugParams *params) {
   // Apply component-specific timeouts to search, vector, and tail pipelines
   // A timeout value of 0 means no timeout for that component
 
@@ -176,8 +154,7 @@ static int applyHybridTimeout(HybridRequest *hreq, const HybridDebugParams *para
 }
 
 static int applyHybridDebugToBuiltPipelines(HybridRequest_Debug *debug_req, QueryError *status) {
-  // Apply component-specific timeouts
-  if (applyHybridTimeout(debug_req->hreq, &debug_req->debug_params) != REDISMODULE_OK) {
+  if (applyHybridDebugTimeout(debug_req->hreq, &debug_req->debug_params) != REDISMODULE_OK) {
     QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Failed to apply timeout to built hybrid pipelines");
     return REDISMODULE_ERR;
   }
@@ -283,7 +260,7 @@ int DEBUG_hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, in
   }
 
   // Parse debug parameters
-  if (parseHybridDebugParams(debug_req, &status) != REDISMODULE_OK) {
+  if (parseHybridDebugParams(&debug_req->debug_params, &status) != REDISMODULE_OK) {
     HybridRequest_Debug_Free(debug_req);
     return QueryError_ReplyAndClear(ctx, &status);
   }

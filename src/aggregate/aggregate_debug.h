@@ -8,8 +8,9 @@
 */
 #pragma once
 
-#include "query_error.h"
 #include "aggregate.h"
+
+typedef struct QueryError QueryError;
 
 /*
  * Debugging Mechanism for Query Execution
@@ -267,7 +268,7 @@ typedef struct {
 // Will hold AREQ by value, so we can use AREQ_Debug->r in all functions
 // expecting AREQ, including AREQ_Free
 AREQ_Debug *AREQ_Debug_New(RedisModuleString **argv, int argc, QueryError *status);
-AREQ_Debug_params parseDebugParamsCount(RedisModuleString **argv, int argc, QueryError *status);
+AREQ_Debug_params parseAggregateDebugParamsCount(RedisModuleString **argv, int argc, QueryError *status);
 int parseAndCompileDebug(AREQ_Debug *debug_req, QueryError *status);
 
 // Debug command to wrap single shard FT.AGGREGATE

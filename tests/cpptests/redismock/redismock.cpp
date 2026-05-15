@@ -755,6 +755,20 @@ int RMCK_IsIOError(RedisModuleIO *io) {
   return result;
 }
 
+void RMCK_LogIOError(RedisModuleIO *io, const char *levelstr, const char *fmt, ...) {
+  (void)io;
+  int ilevel = loglevelFromString(levelstr);
+  if (ilevel < RMCK_LogLevel) {
+    return;
+  }
+  va_list ap;
+  va_start(ap, fmt);
+  fprintf(stderr, "[%s] ", levelstr);
+  vfprintf(stderr, fmt, ap);
+  fprintf(stderr, "\n");
+  va_end(ap);
+}
+
 void *RMCK_LoadDataTypeFromStringEncver(const RedisModuleString *str,
                                         const RedisModuleType *mt,
                                         int encver) {
@@ -1658,6 +1672,7 @@ static void registerApis() {
   REGISTER_API(LoadString);
   REGISTER_API(LoadStringBuffer);
   REGISTER_API(IsIOError);
+  REGISTER_API(LogIOError);
   REGISTER_API(GetContextFromIO);
   // Serialization
   REGISTER_API(LoadDataTypeFromStringEncver);
@@ -1693,7 +1708,7 @@ void RMCK_Bootstrap(RMCKModuleLoadFunction fn, const char **s, size_t n) {
   // Create the context:
   RedisModuleCtx ctxTmp;
   RMCK::ArgvList args(&ctxTmp, s, n);
-  fn(&ctxTmp, &args[0], args.size());
+  fn(&ctxTmp, args.data(), args.size());
 }
 
 void RMCK_Shutdown(void) {

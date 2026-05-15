@@ -18,6 +18,7 @@ use crate::{
     RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome, interop::RQEIteratorWrapper,
     intersection::Intersection,
 };
+use index_spec::IndexSpecReadGuard;
 use inverted_index::RSIndexResult;
 use std::{
     mem::ManuallyDrop,
@@ -259,14 +260,18 @@ impl<'index> RQEIterator<'index> for CRQEIterator {
         unsafe { callback(self.header.as_ptr()) };
     }
 
-    fn revalidate(&mut self) -> Result<crate::RQEValidateStatus<'_, 'index>, RQEIteratorError> {
+    fn revalidate(
+        &mut self,
+        spec: &IndexSpecReadGuard,
+    ) -> Result<crate::RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         // SAFETY: Safe thanks to invariant 3. of [`CRQEIterator::header`].
         let callback = unsafe { self.Revalidate.unwrap_unchecked() };
         // SAFETY:
         // - We have a unique handle over this iterator.
         // - The C code must guarantee, by constructor, that callbacks
         //   can be called on types that implement its C iterator API.
-        let status = unsafe { callback(self.header.as_ptr()) };
+        // - spec.as_mut_ptr() is valid for the duration of this call.
+        let status = unsafe { callback(self.header.as_ptr(), spec.as_mut_ptr()) };
         #[expect(non_upper_case_globals)]
         let status = match status {
             ValidateStatus_VALIDATE_ABORTED => RQEValidateStatus::Aborted,
@@ -341,9 +346,21 @@ impl<'index> RQEIterator<'index> for CRQEIterator {
             }
             IteratorType::Union if prioritize_union_children => {
                 let ptr = std::ptr::from_ref(self.as_ref());
-                // SAFETY: `type_` guarantees `ptr` points to a `UnionIterator` whose first field
-                // is the `QueryIterator` base — the cast is valid by C struct layout.
-                let n = unsafe { (*ptr.cast::<ffi::UnionIterator>()).num as usize };
+                // SAFETY:
+                // - `type_ == Union` guarantees `ptr` was produced by
+                //   `RQEIteratorWrapper::boxed_new_inner` with
+                //   `UnionOpaque<CRQEIterator>` as the inner type
+                //   (`NewUnionIterator` is the sole constructor of a C wrapped union).
+                // - `ref_from_header_ptr` uses the compiler-computed field offset for `inner`
+                //   rather than manual `size_of` arithmetic, making it immune to alignment
+                //   padding between `header` and `inner` in `RQEIteratorWrapper`.
+                let n = unsafe {
+                    RQEIteratorWrapper::<super::UnionOpaque<'_, CRQEIterator>>::ref_from_header_ptr(
+                        ptr,
+                    )
+                    .inner
+                    .num_children_active()
+                };
                 n.max(1) as f64
             }
             IteratorType::InvIdxNumeric => 1.0,
@@ -365,6 +382,7 @@ impl<'index> RQEIterator<'index> for CRQEIterator {
             IteratorType::MetricSortedByScore => 1.0,
             IteratorType::Profile => 1.0,
             IteratorType::Optimus => 1.0,
+            IteratorType::GeoShape => 1.0,
             IteratorType::Mock => 1.0,
             IteratorType::Max => 1.0,
         }

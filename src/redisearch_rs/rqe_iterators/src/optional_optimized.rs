@@ -10,7 +10,7 @@
 //! Supporting types for [`OptionalOptimized`].
 //!
 //! This is the optimized variant of the optional iterator. Instead of scanning
-//! all doc IDs from 1 to `maxDocId`, it uses a [`WildcardIterator`] over
+//! all doc IDs from 1 to `maxDocId`, it uses a [wildcard iterator](crate::wildcard) over
 //! `spec.existingDocs` to visit only real document IDs, yielding real or virtual
 //! results accordingly.
 
@@ -22,8 +22,9 @@ use crate::{
     optional::OptionalIterator, wildcard::WildcardIterator,
 };
 
+use index_spec::IndexSpecReadGuard;
 /// An iterator that emits results for all document IDs present in the index,
-/// driven by a [`WildcardIterator`] over the existing-documents inverted index.
+/// driven by a [wildcard iterator](crate::wildcard) over the existing-documents inverted index.
 ///
 /// For each doc ID that `wcii` yields:
 /// - If the query child also has a hit at that doc ID, a **real** result is
@@ -243,7 +244,10 @@ where
         }
     }
 
-    fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
+    fn revalidate(
+        &mut self,
+        spec: &IndexSpecReadGuard,
+    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         // Simple enum to avoid holding a borrow through the match.
         enum ValidateOutcome {
             Ok,
@@ -251,7 +255,7 @@ where
         }
 
         // Step 1: Revalidate wcii. If it aborts or is at EOF, we can return immediately.
-        let wcii_outcome = match self.wcii.revalidate()? {
+        let wcii_outcome = match self.wcii.revalidate(spec)? {
             RQEValidateStatus::Ok => ValidateOutcome::Ok,
             RQEValidateStatus::Moved { current: Some(_) } => ValidateOutcome::Moved,
             RQEValidateStatus::Moved { current: None } => {
@@ -269,7 +273,7 @@ where
 
         // Step 2: Revalidate child. If it aborts, replace with an empty iterator.
         // Abort is treated as Moved: child's state changed, so we must re-evaluate.
-        let child_outcome = match self.child.revalidate()? {
+        let child_outcome = match self.child.revalidate(spec)? {
             RQEValidateStatus::Ok => ValidateOutcome::Ok,
             RQEValidateStatus::Moved { .. } => ValidateOutcome::Moved,
             RQEValidateStatus::Aborted => {
@@ -363,12 +367,8 @@ where
     }
 }
 
-impl<'index> crate::interop::ProfileChildren<'index>
-    for OptionalOptimized<
-        'index,
-        Box<dyn WildcardIterator<'index> + 'index>,
-        crate::c2rust::CRQEIterator,
-    >
+impl<'index, W: WildcardIterator<'index> + 'index> crate::interop::ProfileChildren<'index>
+    for OptionalOptimized<'index, W, crate::c2rust::CRQEIterator>
 {
     fn profile_children(self) -> Self {
         OptionalOptimized {

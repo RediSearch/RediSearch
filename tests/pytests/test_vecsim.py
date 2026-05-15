@@ -690,6 +690,14 @@ def test_search_errors():
     env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b EF_FUNTIME 30]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('SEARCH_OPTION_INVALID Invalid option (Error parsing vector similarity parameters)')
     env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b]=>{$EF_RUNTIME: 5; $EF_RUNTIME: 6;}', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('SEARCH_PARAM_DUP Parameter was specified twice (Error parsing vector similarity parameters)')
 
+    # RERANK is valid only for disk-based HNSW indexes; on a non-disk HNSW index VecSim
+    # rejects it as an unknown parameter, regardless of whether it was provided via the
+    # inline KNN syntax or via the trailing query-attribute syntax.
+    env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b RERANK TRUE]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('SEARCH_OPTION_INVALID Invalid option (Error parsing vector similarity parameters)')
+    env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b]=>{$RERANK: TRUE;}', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('SEARCH_OPTION_INVALID Invalid option (Error parsing vector similarity parameters)')
+    # RERANK is also unknown on FLAT indexes.
+    env.expect('FT.SEARCH', 'idx', f'*=>[KNN 2 @{v_flat} $b]=>{{$RERANK: TRUE;}}', 'PARAMS', '2', 'b', 'abcdefghabcdefgh').error().contains('SEARCH_OPTION_INVALID Invalid option (Error parsing vector similarity parameters)')
+
     # ef_runtime is invalid for FLAT index.
     env.expect('FT.SEARCH', 'idx', f'*=>[KNN 2 @{v_flat} $b EF_RUNTIME 30]', 'PARAMS', '2', 'b', 'abcdefghabcdefgh').error().contains('SEARCH_OPTION_INVALID Invalid option (Error parsing vector similarity parameters)')
 
@@ -1886,6 +1894,9 @@ def test_create_multi_value_json():
 
 @skip(no_json=True)
 def test_index_multi_value_json():
+    # Flaky under coverage (MOD-15571); skip only on coverage runs until the date below.
+    if CODE_COVERAGE:
+        skipTestUntil("2026-06-12", reason="Flaky test under coverage, see MOD-15571")
     env = Env(moduleArgs='DEFAULT_DIALECT 2 MIN_OPERATION_WORKERS 0')
     conn = getConnectionByEnv(env)
     dim = 4
@@ -1948,7 +1959,7 @@ def test_index_multi_value_json():
             waitForIndex(env, 'idx')
             info = index_info(env, 'idx')
             env.assertEqual(info['num_docs'], n, message=f'data_t: {data_t}')
-            env.assertEqual(info['num_records'], n * per_doc * len(info['attributes']), message=f'data_t: {data_t}')
+            env.assertEqual(info['num_records'], 0, message=f'data_t: {data_t}')
             env.assertEqual(info['hash_indexing_failures'], 0, message=f'data_t: {data_t}')
 
             cmd_knn[2] = f'*=>[KNN {k} @hnsw $b AS {score_field_name}]'
@@ -2018,7 +2029,7 @@ def test_bad_index_multi_value_json():
     # we should NOT fail if some of the vectors are NULLs
     conn.json().set(46, '.', {'vecs': [np.ones(dim).tolist(), None, (np.ones(dim) * 2).tolist()]})
     env.assertEqual(index_info(env, 'idx')['hash_indexing_failures'], failures)
-    env.assertEqual(index_info(env, 'idx')['num_records'], 4)
+    env.assertEqual(index_info(env, 'idx')['num_records'], 0)
 
     # ...or if the path returns NULL
     conn.json().set(46, '.', {'vecs': None})

@@ -114,12 +114,8 @@ mod optional_reducer_tests {
             ii.add_record(&record).expect("failed to add record");
         }
 
-        // `MockContext` provides the `RedisSearchCtx` required by `InvIdxWildcard::new`.
-        let mock_ctx = MockContext::new(MAX_DOC_ID, 0);
         let reader = ii.reader();
-        // SAFETY: `mock_ctx` provides a valid `RedisSearchCtx` with a valid `spec`
-        // that outlives the iterator.
-        let mut child = unsafe { InvIdxWildcard::new(reader, mock_ctx.sctx(), INITIAL_WEIGHT) };
+        let mut child = InvIdxWildcard::new(reader, INITIAL_WEIGHT);
         assert_eq!(child.type_(), IteratorType::InvIdxWildcard);
 
         // Advance so `current()` is Some — the factory will apply `NEW_WEIGHT` to it.
@@ -197,9 +193,8 @@ mod optional_reducer_tests {
         // Point `spec.diskSpec` at a local storage cell — its value is ignored
         // by the mock; all that matters is that the pointer is non-null.
         let mut disk_spec_storage: ffi::RedisSearchDiskIndexSpec = std::ptr::null();
-        // SAFETY: no iterator from `ctx` is alive at this point, and
         // `disk_spec_storage` outlives all iterators created below.
-        unsafe { ctx.set_disk_spec(&mut disk_spec_storage) };
+        ctx.spec_write().set_disk_spec(&mut disk_spec_storage);
 
         let child = Mock::new(DOCS);
 
@@ -233,7 +228,7 @@ mod optional_reducer_tests {
 
         let ctx = MockContext::new(MAX_DOC_ID, 0);
         // SAFETY: no iterator from `ctx` is alive at this point.
-        unsafe { ctx.set_index_all(true) };
+        ctx.spec_write().rule_mut().set_index_all(true);
 
         let child = Mock::new(DOCS);
 

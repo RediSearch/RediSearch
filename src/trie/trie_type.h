@@ -11,6 +11,7 @@
 
 #include "redismodule.h"
 
+#include "rmutil/rm_assert.h"
 #include "trie.h"
 #include "levenshtein.h"
 
@@ -24,12 +25,7 @@ extern RedisModuleType *TrieType;
 #define TRIE_ENCVER_NUMDOCS 2
 #define TRIE_ENCVER_PAYLOADS 1
 
-typedef struct {
-  TrieNode *root;
-  size_t size;
-  TrieFreeCallback freecb;
-  TrieSortMode sortMode;
-} Trie;
+typedef struct Trie Trie;
 
 typedef struct {
   char *str;
@@ -53,14 +49,55 @@ int Trie_InsertStringBuffer(Trie *t, const char *s, size_t len, double score, in
 int Trie_InsertRune(Trie *t, const rune *s, size_t len, double score, int incr,
                     RSPayload *payload, size_t numDocs);
 
-/* Get the payload from the node. if `exact` is 0, the payload is return even if local offset!=len
-   Use for debug only! */
-void *Trie_GetValueStringBuffer(Trie *t, const char *s, size_t len, bool exact);
-void *Trie_GetValueRune(Trie *t, const rune *runes, size_t len, bool exact);
+/* Insert a rune-keyed entry without updating the trie's size counter. Behaves
+ * exactly like calling TrieNode_Add(&t->root, ...) directly: no length guard,
+ * no size bookkeeping.
+ *
+ * Intended only for the suffix-trie full-word insert in addSuffixTrie(), which
+ * historically called TrieNode_Add directly to bypass both the size update
+ * (suffix tries never read ->size) and Trie_InsertRune's length guard (the
+ * suffix trie's full-word entries are not subject to that guard).
+ *
+ * Do not use for new call sites - prefer Trie_InsertRune so size stays in sync
+ * with TrieNode_Add's return value. */
+int Trie_InsertRuneNoSize(Trie *t, const rune *s, size_t len, double score, int incr,
+                          RSPayload *payload, size_t numDocs);
 
 /* Delete the string from the trie. Return 1 if the node was found and deleted, 0 otherwise */
 int Trie_Delete(Trie *t, const char *s, size_t len);
 int Trie_DeleteRunes(Trie *t, const rune *runes, size_t len);
+
+/* Look up a node by rune key. Wraps TrieNode_Get on the trie's root so callers do not
+ * need to reach into Trie internals. See TrieNode_Get for parameter semantics. */
+TrieNode *Trie_GetNode(Trie *t, const rune *str, t_len len, bool exact, int *offsetOut);
+
+/* Iterate all nodes within a lexicographic range. Wraps TrieNode_IterateRange on the
+ * trie's root. See TrieNode_IterateRange for parameter semantics. */
+void Trie_IterateRange(Trie *t, const rune *min, int minlen, bool includeMin,
+                       const rune *max, int maxlen, bool includeMax,
+                       TrieRangeCallback callback, void *ctx);
+
+/* Iterate all nodes that contain (or begin/end with) the given pattern. Wraps
+ * TrieNode_IterateContains on the trie's root. See TrieNode_IterateContains for
+ * parameter semantics. */
+void Trie_IterateContains(Trie *t, const rune *str, int nstr, bool prefix, bool suffix,
+                          TrieRangeCallback callback, void *ctx, struct timespec *timeout,
+                          bool skipTimeoutChecks);
+
+/* Iterate all nodes matching a wildcard pattern. Wraps TrieNode_IterateWildcard on the
+ * trie's root. See TrieNode_IterateWildcard for parameter semantics. */
+void Trie_IterateWildcard(Trie *t, const rune *str, int nstr,
+                          TrieRangeCallback callback, void *ctx, struct timespec *timeout,
+                          bool skipTimeoutChecks);
+
+/* Number of terminal entries in the trie. Wraps the internal size counter. */
+size_t Trie_Size(const Trie *t);
+
+/* Iterate every node in the trie with no filter or distance constraint. Wraps
+ * TrieNode_Iterate on the trie's root with no filter. Used by debug paths that
+ * want raw traversal; production code should prefer Trie_Iterate with a
+ * prefix/maxDist. */
+TrieIterator *Trie_IterateAll(Trie *t);
 
 /* Result codes for Trie_DecrementNumDocs */
 typedef enum {

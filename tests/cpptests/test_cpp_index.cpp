@@ -17,14 +17,14 @@ extern "C" {
 #include "query_parser/tokenizer.h"
 #include "spec.h"
 #include "tokenize.h"
-#include "varint.h"
+#include "varint_ffi.h"
 #include "iterators/hybrid_reader.h"
-#include "iterators_rs.h"
-#include "iterators/union_iterator.h"
-#include "redisearch_rs/headers/iterators_rs.h"
+#include "iterators_ffi.h"
+#include "metrics_ffi.h"
+#include "query_term_ffi.h"
 #include "util/arr.h"
 #include "util/references.h"
-#include "types_rs.h"
+#include "types_ffi.h"
 
 #include "rmutil/alloc.h"
 
@@ -144,7 +144,7 @@ TEST_P(IndexFlagsTest, testRWFlags) {
   ASSERT_EQ(200, InvertedIndex_LastId(idx));
 
   for (int xx = 0; xx < 1; xx++) {
-    IndexDecoderCtx decoderCtx = {.field_mask_tag = IndexDecoderCtx_FieldMask, .field_mask = RS_FIELDMASK_ALL};
+    IndexDecoderCtx decoderCtx = {.fieldmask_tag = IndexDecoderCtx_FieldMask, .fieldmask = RS_FIELDMASK_ALL};
     IndexReader *reader = NewIndexReader(idx, decoderCtx);
     RSIndexResult *res = NewTokenRecord(NULL, 1);
     res->freq = 1;
@@ -706,7 +706,7 @@ TEST_F(IndexTest, testHybridVector) {
     ASSERT_EQ(hybridIt->lastDocId, expected_id);
   }
   ASSERT_EQ(hybridIt->lastDocId, max_id - step*((k/2)-1));
-  ASSERT_EQ(hybridIt->Revalidate(hybridIt), VALIDATE_OK);
+  ASSERT_EQ(hybridIt->Revalidate(hybridIt, mockQctx.sctx.spec), VALIDATE_OK);
 
   // Rerun in AD_HOC BF mode.
   hybridIt->Rewind(hybridIt);
@@ -839,7 +839,7 @@ TEST_F(IndexTest, testMetric_VectorRange) {
     ASSERT_EQ(h->docId, lowest_id + count);
     double exp_dist = VecSimIndex_GetDistanceFrom_Unsafe(index, h->docId, query);
     ASSERT_EQ(IndexResult_NumValue(h), exp_dist);
-    ASSERT_EQ(RSValue_Number_Get(h->metrics[0].value), exp_dist);
+    ASSERT_EQ(MetricsVec_AsSlice(&h->metrics).data[0].value, exp_dist);
     count++;
   }
   ASSERT_EQ(count, n_expected_res);
@@ -858,13 +858,13 @@ TEST_F(IndexTest, testMetric_VectorRange) {
   ASSERT_EQ(vecIt->lastDocId, lowest_id + 10);
   double exp_dist = VecSimIndex_GetDistanceFrom_Unsafe(index, vecIt->lastDocId, query);
   ASSERT_EQ(IndexResult_NumValue(vecIt->current), exp_dist);
-  ASSERT_EQ(RSValue_Number_Get(vecIt->current->metrics[0].value), exp_dist);
+  ASSERT_EQ(MetricsVec_AsSlice(&vecIt->current->metrics).data[0].value, exp_dist);
 
   ASSERT_EQ(vecIt->SkipTo(vecIt, n-1), ITERATOR_OK);
   ASSERT_EQ(vecIt->lastDocId, n-1);
   exp_dist = VecSimIndex_GetDistanceFrom_Unsafe(index, vecIt->lastDocId, query);
   ASSERT_EQ(IndexResult_NumValue(vecIt->current), exp_dist);
-  ASSERT_EQ(RSValue_Number_Get(vecIt->current->metrics[0].value), exp_dist);
+  ASSERT_EQ(MetricsVec_AsSlice(&vecIt->current->metrics).data[0].value, exp_dist);
 
   // Invalid SkipTo
   ASSERT_EQ(vecIt->SkipTo(vecIt, n+1), ITERATOR_EOF);
@@ -1244,7 +1244,7 @@ TEST_F(IndexTest, testDocTable) {
   ASSERT_EQ(N + 1, dt.size);
   ASSERT_EQ(N, dt.maxDocId);
 #ifdef __x86_64__
-  ASSERT_EQ(9380 + doc_table_size, (int)dt.memsize);
+  ASSERT_EQ(10180 + doc_table_size, (int)dt.memsize);
 #endif
   for (int i = 0; i < N; i++) {
     snprintf(buf, sizeof(buf), "doc_%d", i);
@@ -1281,7 +1281,7 @@ TEST_F(IndexTest, testDocTable) {
   RSDocumentMetadata *dmd = DocTable_Put(&dt, "Hello", 5, 1.0, Document_DefaultFlags, NULL, 0, DocumentType_Hash);
   t_docId strDocId = dmd->id;
   ASSERT_TRUE(0 != strDocId);
-  ASSERT_EQ(63 + doc_table_size, (int)dt.memsize);
+  ASSERT_EQ(71 + doc_table_size, (int)dt.memsize);
 
   // Test that binary keys also work here
   static const char binBuf[] = {"Hello\x00World"};
@@ -1290,7 +1290,7 @@ TEST_F(IndexTest, testDocTable) {
   DMD_Return(dmd);
   dmd = DocTable_Put(&dt, binBuf, binBufLen, 1.0, Document_DefaultFlags, NULL, 0, DocumentType_Hash);
   ASSERT_TRUE(dmd);
-  ASSERT_EQ(132 + doc_table_size, (int)dt.memsize);
+  ASSERT_EQ(148 + doc_table_size, (int)dt.memsize);
   ASSERT_NE(dmd->id, strDocId);
   ASSERT_EQ(dmd->id, DocIdMap_Get(&dt.dim, binBuf, binBufLen));
   ASSERT_EQ(strDocId, DocIdMap_Get(&dt.dim, "Hello", 5));
@@ -1338,7 +1338,7 @@ TEST_F(IndexTest, testDeltaSplits) {
   InvertedIndex_WriteForwardIndexEntry(idx, &ent);
   ASSERT_EQ(InvertedIndex_NumBlocks(idx), 2);
 
-  IndexDecoderCtx decoderCtx = {.field_mask_tag = IndexDecoderCtx_FieldMask, .field_mask = RS_FIELDMASK_ALL};
+  IndexDecoderCtx decoderCtx = {.fieldmask_tag = IndexDecoderCtx_FieldMask, .fieldmask = RS_FIELDMASK_ALL};
   IndexReader *reader = NewIndexReader(idx, decoderCtx);
   RSIndexResult *res = NewTokenRecord(NULL, 1);
   res->freq = 1;

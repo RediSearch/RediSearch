@@ -10,13 +10,15 @@
 use libc::size_t;
 use redis_mock::mock_or_stub_missing_redis_c_symbols;
 use std::ffi::{CString, c_char};
-use value::{RsString, RsValue, SharedRsValue};
+use value::{SharedValue, String, Value};
+use value_ffi::RSValue;
 use value_ffi::constructors::{
     RSValue_NewBorrowedString, RSValue_NewCopiedString, RSValue_NewNull, RSValue_NewNumber,
     RSValue_NewString, RSValue_NewTrio,
 };
 use value_ffi::getters::{RSValue_String_Get, RSValue_StringPtrLen};
 use value_ffi::setters::{RSValue_SetConstString, RSValue_SetString};
+use value_ffi::util::{into_rs_value, into_shared_value};
 
 mock_or_stub_missing_redis_c_symbols!();
 
@@ -39,13 +41,13 @@ fn rm_alloc_cstring(s: &str) -> (*mut c_char, u32) {
     (ptr, len as u32)
 }
 
-/// Reclaim ownership of a raw [`RsValue`] pointer and drop it.
+/// Reclaim ownership of a raw [`RSValue`] pointer and drop it.
 ///
 /// # Safety
 ///
 /// `ptr` must be a valid owned pointer obtained from an `RSValue_*` constructor.
-unsafe fn drop_value(ptr: *mut RsValue) {
-    drop(unsafe { SharedRsValue::from_raw(ptr) });
+unsafe fn drop_value(ptr: *mut RSValue) {
+    drop(unsafe { into_shared_value(ptr) });
 }
 
 #[test]
@@ -128,9 +130,9 @@ fn string_ptr_len_with_string_value() {
 #[test]
 fn string_ptr_len_dereferences_ref_to_string() {
     // No FFI constructor for Ref, so build one directly from Rust types.
-    let inner = SharedRsValue::new(RsValue::String(RsString::from_vec(b"referenced".to_vec())));
-    let ref_value = SharedRsValue::new(RsValue::Ref(inner));
-    let ptr = ref_value.into_raw() as *mut RsValue;
+    let inner = SharedValue::new(Value::String(String::from_vec(b"referenced".to_vec())));
+    let ref_value = SharedValue::new(Value::Ref(inner));
+    let ptr = into_rs_value(ref_value);
 
     let mut out_len: size_t = 0;
     let str_ptr = unsafe { RSValue_StringPtrLen(ptr, &mut out_len) };

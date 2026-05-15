@@ -8,6 +8,7 @@
  */
 
 #include "index_result_async_read.h"
+#include "types_ffi.h"
 #include "search_disk.h"
 #include "rmalloc.h"
 #include "util/dllist.h"

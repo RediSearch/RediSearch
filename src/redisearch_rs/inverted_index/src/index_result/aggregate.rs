@@ -18,7 +18,7 @@ use super::kind::RSResultKindMask;
 /// using Rust since the internals cannot be constructed directly in C. The reason is because of
 /// the `ThinVec` which needs to exist in Rust's memory space to ensure its memory is
 /// managed correctly.
-/// cbindgen:prefix-with-name=true
+#[cheadergen::config(prefix_with_name)]
 #[repr(u8)]
 #[derive(Debug, PartialEq)]
 pub enum RSAggregateResult<'index> {
@@ -170,7 +170,7 @@ impl<'index> RSAggregateResult<'index> {
     /// # Safety
     /// The given `child` has to stay valid for the lifetime of this aggregate result. Else reading
     /// the child with [`Self::get()`] will cause undefined behavior.
-    pub fn push_borrowed(&mut self, child: &'index RSIndexResult) {
+    pub fn push_borrowed(&mut self, child: &'index RSIndexResult<'index>) {
         match self {
             RSAggregateResult::Borrowed {
                 records, kind_mask, ..

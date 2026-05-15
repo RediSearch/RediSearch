@@ -21,7 +21,7 @@ on:
 
 jobs:
   prepare_runner_configurations:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-slim
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
     steps:
@@ -65,6 +65,9 @@ jobs:
   run_micro_benchmarks:
     name: Run ${{ matrix.architecture }} micro-benchmarks
     needs: prepare_runner_configurations
+    permissions:
+      contents: read
+      id-token: write # OIDC role assumption for sccache S3 (used inside flow-micro-benchmarks-runner.yml)
     uses: ./.github/workflows/flow-micro-benchmarks-runner.yml
     secrets: inherit
     strategy:
@@ -84,7 +87,7 @@ jobs:
       PERFORMANCE_WH_TOKEN: ${{ secrets.PERFORMANCE_WH_TOKEN }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
       - name: Install benchmark dependencies
         run: |
           # Then install Python dependencies

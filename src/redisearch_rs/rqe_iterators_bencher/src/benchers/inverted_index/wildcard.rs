@@ -64,9 +64,7 @@ impl WildcardBencher {
         group.bench_function("Rust", |b| {
             let ii = DocIdsOnly::from_opaque(context.wildcard_inverted_index());
             b.iter(|| {
-                // SAFETY: `context` provides a valid `RedisSearchCtx` with a valid
-                // `spec` that outlives the iterator.
-                let mut it = unsafe { Wildcard::new(ii.reader(), context.sctx, 1.0) };
+                let mut it = Wildcard::new(ii.reader(), 1.0);
                 while let Ok(Some(current)) = it.read() {
                     black_box(current);
                 }
@@ -82,9 +80,7 @@ impl WildcardBencher {
         group.bench_function("Rust", |b| {
             let ii = DocIdsOnly::from_opaque(context.wildcard_inverted_index());
             b.iter(|| {
-                // SAFETY: `context` provides a valid `RedisSearchCtx` with a valid
-                // `spec` that outlives the iterator.
-                let mut it = unsafe { Wildcard::new(ii.reader(), context.sctx, 1.0) };
+                let mut it = Wildcard::new(ii.reader(), 1.0);
                 while let Ok(Some(outcome)) = it.skip_to(it.last_doc_id() + SKIP_TO_STEP) {
                     match outcome {
                         SkipToOutcome::Found(current) | SkipToOutcome::NotFound(current) => {

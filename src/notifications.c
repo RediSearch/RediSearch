@@ -21,7 +21,7 @@
 #include "cursor.h"
 #include "search_disk.h"
 #include "doc_id_meta.h"
-#include "iterators_rs.h"
+#include "iterators_ffi.h"
 
 #define JSON_LEN 5 // length of string "json."
 RedisModuleString *global_RenameFromKey = NULL;
@@ -126,14 +126,36 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
     case hincrby_cmd:
     case hincrbyfloat_cmd:
     case hdel_cmd:
-    case hexpired_cmd:
       if (!IS_SST_RDB_IN_PROCESS(ctx)) {
         Indexes_UpdateMatchingWithSchemaRules(ctx, key, DocumentType_Hash, hashFields);
+      }
+      break;
+    case hexpired_cmd:
+      if (!SearchDisk_IsEnabled()) {
+        Indexes_UpdateMatchingWithSchemaRules(ctx, key, DocumentType_Hash, hashFields);
+      } else {
+        static bool hexpired_warned = false;
+        if (!hexpired_warned && Indexes_Count() > 0) {
+          RedisModule_Log(ctx, "warning", "HEXPIRED event is not supported on Search when Flex is enabled. Ignoring HEXPIRED on Search");
+          hexpired_warned = true;
+        }
       }
       break;
 
     case expire_cmd:
     case persist_cmd:
+      // EXPIRE/PERSIST only change the key's TTL; the document content,
+      // schema-rule filters and inverted indexes are all unaffected. In the
+      // in-memory flow we only need to refresh the doc-level expiration on
+      // the matching DMDs. Disk-backed indexes still take the full reindex
+      // path until they grow an equivalent fast path.
+      if (SearchDisk_IsEnabled()) {
+        Indexes_UpdateMatchingWithSchemaRules(ctx, key, getDocTypeFromString(key), hashFields);
+      } else {
+        Indexes_UpdateMatchingDocExpiration(ctx, key, getDocTypeFromString(key));
+      }
+      break;
+
     case restore_cmd:
     case copy_to_cmd:
       Indexes_UpdateMatchingWithSchemaRules(ctx, key, getDocTypeFromString(key), hashFields);
@@ -167,6 +189,12 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
       // We do not support field-TTL metadata changes in the disk flow.
       if (!SearchDisk_IsEnabled()) {
         Indexes_UpdateMatchingWithSchemaRules(ctx, key, getDocTypeFromString(key), hashFields);
+      } else {
+        static bool hpexpire_warned = false;
+        if (!hpexpire_warned && Indexes_Count() > 0) {
+          RedisModule_Log(ctx, "warning", "Field-level expiration is not supported on Search when Flex is enabled. Ignoring HPEXPIRE/HPERSIST on Search");
+          hpexpire_warned = true;
+        }
       }
       break;
 
@@ -523,15 +551,12 @@ void ShutdownDiskClose(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subev
 #define BIGREDIS_MAX_RAM "bigredis-max-ram"
 
 bool getHideUserDataFromLogs() {
-  char *value = getRedisConfigValue(RSDummyContext, HIDE_USER_DATA_FROM_LOGS);
-  RedisModule_Assert(value);
-  const bool hideUserData = !strcasecmp(value, "yes");
-  rm_free(value);
-  return hideUserData;
+  return getRedisConfigBool(RSDummyContext, HIDE_USER_DATA_FROM_LOGS, false);
 }
 
 void onUpdatedHideUserDataFromLogs(RedisModuleCtx *ctx) {
   RSGlobalConfig.hideUserDataFromLog = getHideUserDataFromLogs();
+  SearchDisk_UpdateLogObfuscation();
   if (RSGlobalConfig.hideUserDataFromLog) {
     RedisModule_Log(ctx, "notice", "Hide user data from search logs is now enabled, "
                    "search entity names (such as indexes and fields) in the logs will now be obfuscated");

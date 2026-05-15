@@ -14,13 +14,14 @@ use crate::{
     utils::OwnedSlice,
 };
 use ffi::{RLookupKey, RLookupKeyHandle, t_docId};
+use index_spec::IndexSpecReadGuard;
 use inverted_index::RSIndexResult;
 
 /// The different types of metrics.
 /// At the moment, only vector distance is supported.
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-/// cbindgen:rename-all=ScreamingSnakeCase
+#[cheadergen::config(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum MetricType {
     VectorDistance,
 }
@@ -66,14 +67,18 @@ fn set_result_metrics(result: &mut RSIndexResult, val: f64, key: *mut RLookupKey
     if let Some(num) = result.as_numeric_mut() {
         *num = val;
     } else {
-        // Safety: we created a metric result, which is numeric, in the constructor
         panic!("Result is not numeric");
     }
 
-    // SAFETY: `result` is a valid, mutable reference to an `RSIndexResult`
-    // and `key` is either null or a valid pointer to an `RLookupKey`
-    // (both upheld by the callers in `read` and `skip_to`).
-    unsafe { ffi::ResetAndPushMetricData(result as *mut _ as *mut ffi::RSIndexResult, val, key) };
+    let metrics = result.metrics_mut();
+    metrics.reset();
+    if key.is_null() {
+        metrics.push_without_key(val);
+    } else {
+        // SAFETY: `key` is non-null per the check above, and a valid `RLookupKey`
+        // pointer that outlives this result (upheld by callers in `read` and `skip_to`).
+        metrics.push_with_key(unsafe { &*key }, val);
+    };
 }
 
 impl<'index, const SORTED_BY_ID: bool> Metric<'index, SORTED_BY_ID> {
@@ -181,8 +186,11 @@ impl<'index, const SORTED_BY_ID: bool> RQEIterator<'index> for Metric<'index, SO
     }
 
     #[inline(always)]
-    fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        self.base.revalidate()
+    fn revalidate(
+        &mut self,
+        spec: &IndexSpecReadGuard,
+    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
+        self.base.revalidate(spec)
     }
 
     #[inline(always)]

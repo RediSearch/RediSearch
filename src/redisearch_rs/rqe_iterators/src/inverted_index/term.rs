@@ -10,6 +10,7 @@
 use std::ptr::NonNull;
 
 use ffi::{RS_FIELDMASK_ALL, RedisSearchCtx, t_docId};
+use index_spec::IndexSpecReadGuard;
 use inverted_index::{RSIndexResult, RSOffsetSlice, TermReader};
 use query_term::RSQueryTerm;
 
@@ -31,7 +32,6 @@ use super::core::InvIndIterator;
 /// * `E` - The expiration checker type used to check for expired documents.
 pub struct Term<'index, R, E = crate::expiration_checker::NoOpChecker> {
     it: InvIndIterator<'index, R, E>,
-    context: NonNull<RedisSearchCtx>,
 }
 
 impl<'index, R, E> Term<'index, R, E>
@@ -57,7 +57,6 @@ where
     ///
     /// 1. `context` must point to a valid [`RedisSearchCtx`].
     /// 2. `context.spec` must be a non-null pointer to a valid [`IndexSpec`](ffi::IndexSpec).
-    /// 3. Both 1 and 2 must remain valid for the lifetime of the iterator.
     pub unsafe fn new(
         reader: R,
         context: NonNull<RedisSearchCtx>,
@@ -82,7 +81,6 @@ where
             .build();
         Self {
             it: InvIndIterator::new(reader, result, expiration_checker),
-            context,
         }
     }
 
@@ -94,18 +92,18 @@ where
     /// Check if the iterator should abort revalidation.
     ///
     /// The term's inverted index may have been garbage-collected and
-    /// replaced with a new allocation. If the index pointer returned by
-    /// [`ffi::Redis_OpenInvertedIndex`] no longer matches the reader's
-    /// stored index, the iterator must [abort](RQEValidateStatus::Aborted).
-    fn should_abort(&self) -> bool {
-        // SAFETY: 1. and 3. guarantee `context` is valid for the iterator's lifetime.
-        let sctx_ref = unsafe { self.context.as_ref() };
-        // SAFETY: 2. and 3. guarantee `spec` is a valid, non-null pointer for the iterator's lifetime.
-        let spec = unsafe { &*sctx_ref.spec };
-
+    /// replaced with a new allocation. If the index pointer looked up via
+    /// `spec.keysDict` no longer matches the reader's stored index, the
+    /// iterator must [abort](RQEValidateStatus::Aborted).
+    ///
+    /// # Safety
+    ///
+    /// The raw pointers inside `spec` (e.g. `keysDict`) must be valid and
+    /// dereferenceable for the duration of the call.
+    fn should_abort(&self, spec: &IndexSpecReadGuard) -> bool {
         // Redis_OpenInvertedIndex() relies on keysDict to open the II.
         // It should always be set in production flows but some tests do not set up a full spec.
-        if spec.keysDict.is_null() {
+        if !spec.has_keys_dict() {
             return false;
         }
 
@@ -121,11 +119,12 @@ where
             .as_bytes()
             .map_or(std::ptr::null(), |b| b.as_ptr().cast());
 
-        // SAFETY: `context` is a valid `RedisSearchCtx` (1.) and `str_ptr`
-        // is a valid byte slice of `term.len()` bytes.
+        // SAFETY: spec.as_mut_ptr() points to a valid IndexSpec for the duration
+        // of this call, guaranteed by the caller holding the spec read lock.
+        // `str_ptr` is a valid byte slice of `term.len()` bytes.
         let idx = unsafe {
             ffi::Redis_OpenInvertedIndex(
-                self.context.as_ptr(),
+                spec.as_mut_ptr(),
                 str_ptr,
                 term.len(),
                 false,
@@ -133,7 +132,7 @@ where
             )
         };
 
-        let Some(idx) = NonNull::new(idx) else {
+        let Some(idx) = NonNull::new(idx as *mut _) else {
             // The inverted index was collected entirely by GC.
             return true;
         };
@@ -202,12 +201,15 @@ where
     }
 
     #[inline(always)]
-    fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        if self.should_abort() {
+    fn revalidate(
+        &mut self,
+        spec: &IndexSpecReadGuard,
+    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
+        if self.should_abort(spec) {
             return Ok(RQEValidateStatus::Aborted);
         }
 
-        self.it.revalidate()
+        self.it.revalidate(spec)
     }
 
     #[inline(always)]

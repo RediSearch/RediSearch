@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "query_param.h"
-#include "query_error.h"
+#include "query_error_ffi.h"
 #include "geo_index.h"
 #include "numeric_filter.h"
 #include "query_internal.h"
@@ -40,7 +40,7 @@ QueryParam *NewGeoFilterQueryParam_WithParams(struct QueryParseCtx *q, QueryToke
 
 QueryParam *NewNumericFilterQueryParam_WithParams(struct QueryParseCtx *q, QueryToken *min, QueryToken *max, int inclusiveMin, int inclusiveMax) {
   QueryParam *ret = NewQueryParam(QP_NUMERIC_FILTER);
-  NumericFilter *nf = NewNumericFilter(0, 0, inclusiveMin, inclusiveMax, true, NULL);
+  NumericFilter *nf = NewNumericFilter(0, 0, inclusiveMin, inclusiveMax, true, NULL, NULL);
   ret->nf = nf;
   QueryParam_InitParams(ret, 2);
   if(min != NULL) {

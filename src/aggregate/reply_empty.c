@@ -135,7 +135,7 @@ int common_hybrid_query_reply_empty(RedisModuleCtx *ctx, QueryErrorCode errCode,
             RedisModule_Reply_SimpleString(coordInfoReply, QueryWarning_Strwarning(QUERY_WARNING_CODE_TIMED_OUT));
         } else if (QueryError_HasQueryOOMWarning(&status)) {
             QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_OUT_OF_MEMORY_SHARD, 1, SHARD_ERR_WARN);
-            RedisModule_Reply_SimpleString(coordInfoReply, QueryError_Strerror(QUERY_ERROR_CODE_OUT_OF_MEMORY));
+            RedisModule_Reply_SimpleString(coordInfoReply, QueryWarning_Strwarning(QUERY_WARNING_CODE_OUT_OF_MEMORY_SHARD));
         }
         RedisModule_Reply_ArrayEnd(coordInfoReply); // ~warnings
 
@@ -205,6 +205,21 @@ int single_shard_common_query_reply_empty(RedisModuleCtx *ctx, RedisModuleString
     if (errCode == QUERY_ERROR_CODE_OUT_OF_MEMORY) {
         QueryError_SetQueryOOMWarning(&status);
     }
+
+    int ret = empty_sendChunk_common(ctx, req);
+    QueryError_ClearError(&status);
+    return ret;
+}
+
+int coord_cursor_read_empty_reply_timeout(RedisModuleCtx *ctx, long long cid) {
+    AREQ *req = AREQ_New();
+    QueryError status = QueryError_Default();
+    AREQ_QueryProcessingCtx(req)->err = &status;
+
+    QueryError_SetError(&status, QUERY_ERROR_CODE_TIMED_OUT, NULL);
+    QueryError_SetCode(&status, QUERY_ERROR_CODE_TIMED_OUT);
+    AREQ_AddRequestFlags(req, QEXEC_F_IS_CURSOR);
+    req->cursor_id = (uint64_t)cid;
 
     int ret = empty_sendChunk_common(ctx, req);
     QueryError_ClearError(&status);

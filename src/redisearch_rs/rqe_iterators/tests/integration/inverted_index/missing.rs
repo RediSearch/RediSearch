@@ -150,17 +150,16 @@ mod not_miri {
     fn missing_revalidate_after_index_disappears() {
         let test = MissingRevalidateTest::new(10);
         let mut it = test.create_iterator();
-
         // Verify the iterator works normally and read at least one document
-        assert_eq!(
-            it.revalidate().expect("revalidate failed"),
-            RQEValidateStatus::Ok
-        );
+        let status = it
+            .revalidate(&*test.test.context.spec_read())
+            .expect("revalidate failed");
+        assert_eq!(status, RQEValidateStatus::Ok);
         assert!(it.read().expect("failed to read").is_some());
-        assert_eq!(
-            it.revalidate().expect("revalidate failed"),
-            RQEValidateStatus::Ok
-        );
+        let status = it
+            .revalidate(&*test.test.context.spec_read())
+            .expect("revalidate failed");
+        assert_eq!(status, RQEValidateStatus::Ok);
 
         // Simulate the missing-field inverted index being garbage collected and
         // recreated by replacing the dict entry with a new inverted index.
@@ -177,8 +176,8 @@ mod not_miri {
         // Note: the iterator's reader holds a (now-dangling) pointer to the
         // original II, but `should_abort` only compares pointers via
         // `is_index` without dereferencing it, so this is safe.
+        let dict = test.test.context.spec_read().missing_field_dict();
         unsafe {
-            let dict = (*test.test.context.spec.as_ptr()).missingFieldDict;
             ffi::RS_dictDelete(dict, field_name as *mut _);
             let rc = ffi::RS_dictAdd(dict, field_name as *mut _, new_ii as *mut _);
             assert_eq!(rc, 0, "dictAdd failed");
@@ -186,10 +185,10 @@ mod not_miri {
 
         // Revalidate should return Aborted because the missing II no longer
         // points to the same index the reader was created from.
-        assert_eq!(
-            it.revalidate().expect("revalidate failed"),
-            RQEValidateStatus::Aborted
-        );
+        let status = it
+            .revalidate(&*test.test.context.spec_read())
+            .expect("revalidate failed");
+        assert_eq!(status, RQEValidateStatus::Aborted);
 
         // No restore needed: the new II will be freed by `dictRelease` during
         // `IndexSpec_RemoveFromGlobals` in `TestContext::drop`.
@@ -214,25 +213,25 @@ mod not_miri {
 
         // Read at least one document so the iterator has a position.
         assert!(it.read().expect("failed to read").is_some());
-        assert_eq!(
-            it.revalidate().expect("revalidate failed"),
-            RQEValidateStatus::Ok
-        );
+        let status = it
+            .revalidate(&*test.test.context.spec_read())
+            .expect("revalidate failed");
+        assert_eq!(status, RQEValidateStatus::Ok);
 
         // Simulate the garbage collector removing the missing-field index
         // by deleting the dict entry. `dictDelete` calls the value destructor
         // which frees the inverted index.
         let field_name = test.test.context.field_spec().fieldName;
+        let dict = test.test.context.spec_read().missing_field_dict();
         unsafe {
-            let dict = (*test.test.context.spec.as_ptr()).missingFieldDict;
             ffi::RS_dictDelete(dict, field_name as *mut _);
         }
 
         // `should_abort` sees NULL from `dictFetchValue` and returns true.
-        assert_eq!(
-            it.revalidate().expect("revalidate failed"),
-            RQEValidateStatus::Aborted
-        );
+        let status = it
+            .revalidate(&*test.test.context.spec_read())
+            .expect("revalidate failed");
+        assert_eq!(status, RQEValidateStatus::Aborted);
 
         // No restore needed: the entry was properly freed by `dictDelete`.
         // `TestContext::drop` calls `dictRelease` which is fine with a

@@ -10,11 +10,12 @@
 #define __REDIS_INDEX__
 
 #include "document.h"
-#include "inverted_index.h"
 #include "search_ctx.h"
 #include "concurrent_ctx.h"
 #include "spec.h"
 #include "iterators/iterator_api.h"
+
+typedef struct InvertedIndex InvertedIndex;
 
 #ifdef __cplusplus
 extern "C" {
@@ -26,7 +27,7 @@ extern "C" {
 QueryIterator *Redis_OpenReader(const RedisSearchCtx *ctx, RSToken *tok, int tok_id, DocTable *dt,
                                  t_fieldMask fieldMask, double weight);
 
-InvertedIndex *Redis_OpenInvertedIndex(const RedisSearchCtx *ctx, const char *term, size_t len,
+InvertedIndex *Redis_OpenInvertedIndex(IndexSpec *spec, const char *term, size_t len,
                                         bool write, bool *outIsNew);
 
 #define DONT_CREATE_INDEX false

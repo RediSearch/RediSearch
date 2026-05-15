@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "reducer.h"
+#include "aggregate/aggregate.h"
 #include "util/misc.h"
 
 typedef struct {
@@ -81,6 +82,10 @@ int ReducerOpts_EnsureArgsConsumed(const ReducerOptions *options) {
     return 0;
   }
   return 1;
+}
+
+bool ReducerOpts_IsInternal(const ReducerOptions *options) {
+  return (options->reqflags & QEXEC_F_INTERNAL) != 0;
 }
 
 void *Reducer_BlkAlloc(Reducer *r, size_t elemsz, size_t blksz) {

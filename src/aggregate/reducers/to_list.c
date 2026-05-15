@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include <aggregate/reducer.h>
+#include "value_ffi.h"
 
 static uint64_t hashFunction_RSValue(const void *key) {
   return RSValue_Hash(key, 0);

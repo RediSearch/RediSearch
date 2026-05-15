@@ -14,6 +14,7 @@ use inverted_index::RSIndexResult;
 use std::cmp;
 
 use crate::{IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
+use index_spec::IndexSpecReadGuard;
 
 /// Trait implemented by all optional iterator variants.
 ///
@@ -191,9 +192,8 @@ where
         Ok(Some(&mut self.result))
     }
 
-    // C-Code: SkipTo for OPTIONAL iterator - Non-optimized version.
-    // Skip to a specific docId. If the child has a hit on this docId, return it.
-    // Otherwise, return a virtual hit.
+    /// Skip to a specific docId. If the child has a hit on this docId, return it.
+    /// Otherwise, return a virtual hit.
     fn skip_to(
         &mut self,
         doc_id: t_docId,
@@ -226,14 +226,17 @@ where
         Ok(Some(SkipToOutcome::Found(&mut self.result)))
     }
 
-    fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
+    fn revalidate(
+        &mut self,
+        spec: &IndexSpecReadGuard,
+    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         let Some(ref mut child) = self.child else {
             return Ok(RQEValidateStatus::Ok);
         };
         let last_child_doc_id = child.last_doc_id();
 
         // Revalidate the child iterator
-        match child.revalidate()? {
+        match child.revalidate(spec)? {
             // Abort: Handle child validation results (but continue processing)
             status @ (RQEValidateStatus::Aborted | RQEValidateStatus::Moved { .. }) => {
                 if matches!(status, RQEValidateStatus::Aborted) {

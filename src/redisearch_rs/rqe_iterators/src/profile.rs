@@ -17,11 +17,13 @@ use std::time::{Duration, Instant};
 
 use crate::{IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
 use ffi::t_docId;
+use index_spec::IndexSpecReadGuard;
 use inverted_index::RSIndexResult;
 
 /// Profile counters collected during query execution.
 ///
 /// This struct is `#[repr(C)]` so that C code can access its fields directly.
+#[cheadergen::config(export)]
 #[derive(Debug, Default, Clone)]
 #[repr(C)]
 pub struct ProfileCounters {
@@ -132,8 +134,11 @@ impl<'index, I: RQEIterator<'index>> RQEIterator<'index> for Profile<'index, I> 
         self.child.at_eof()
     }
 
-    fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        self.child.revalidate()
+    fn revalidate(
+        &mut self,
+        spec: &IndexSpecReadGuard,
+    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
+        self.child.revalidate(spec)
     }
 
     #[inline(always)]

@@ -10,10 +10,12 @@
 
 #include "redismodule.h"
 #include "hiredis/sds.h"
-#include "query_error.h"
+#include "rmutil/args.h"
 #include "reply.h"
 #include "util/config_macros.h"
 #include "ext/default.h"
+
+typedef struct QueryError QueryError;
 
 typedef enum {
   TimeoutPolicy_Return,       // Return what we have on timeout
@@ -216,6 +218,8 @@ typedef struct {
   bool monitorExpiration;
   // Percentage of available memory to use for disk write buffer (0-100).
   uint8_t diskBufferPercentage;
+  // If true, fallback to main thread when BlockClient is unavailable.
+  bool fallbackToMainThreadWhenBlockClientUnavailable;
 } RSConfig;
 
 typedef enum {
@@ -298,7 +302,24 @@ sds RSConfig_GetInfoString(const RSConfig *config);
 
 void UpgradeDeprecatedMTConfigs();
 
-char *getRedisConfigValue(RedisModuleCtx *ctx, const char* confName);
+/*
+ * Get the value of a Redis config as a `RedisModuleString`. Returns NULL if the
+ * config does not exist. The caller is responsible for freeing the returned
+ * string using `RedisModule_FreeString`.
+ */
+RedisModuleString *getRedisConfigValue(RedisModuleCtx *ctx, const char *confName);
+
+/*
+ * Get the boolean value of a Redis config. Returns `defaultValue` if the
+ * config does not exist or isn't a boolean config.
+ */
+bool getRedisConfigBool(RedisModuleCtx *ctx, const char *confName, bool defaultValue);
+
+/*
+ * Get the numeric value of a Redis config. Returns `defaultValue` if the
+ * config does not exist or isn't a numeric config.
+ */
+long long getRedisConfigNumeric(RedisModuleCtx *ctx, const char *confName, long long defaultValue);
 
 // We limit the number of worker threads to limit the amount of memory used by the thread pool
 // and to prevent the system from running out of resources.
@@ -353,6 +374,7 @@ char *getRedisConfigValue(RedisModuleCtx *ctx, const char* confName);
 #define DEFAULT_MAX_TRIM_DELAY 5000  // 5 seconds in milliseconds
 #define DEFAULT_TRIMMING_STATE_CHECK_DELAY 100 // 0.1 seconds in milliseconds (We check the trimming state every 0.1 seconds, between MIN_TRIM_DELAY and MAX_TRIM_DELAY)
 #define DEFAULT_DISK_BUFFER_PERCENTAGE 20  // 20% of available memory for disk write buffer
+#define DEFAULT_MAX_INDEXES 200000
 
 // default configuration
 #define RS_DEFAULT_CONFIG {                                                    \
@@ -411,6 +433,7 @@ char *getRedisConfigValue(RedisModuleCtx *ctx, const char* confName);
     .simulateInFlex = false,                                                   \
     .monitorExpiration = true,                                                 \
     .diskBufferPercentage = DEFAULT_DISK_BUFFER_PERCENTAGE,                    \
+    .fallbackToMainThreadWhenBlockClientUnavailable = true,                    \
   }
 
 #define REDIS_ARRAY_LIMIT 7

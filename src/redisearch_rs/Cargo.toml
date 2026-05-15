@@ -7,7 +7,9 @@ members = [
     "ffi",
     "field",
     "fnv",
+    "fork_gc",
     "generational_slab",
+    "geo",
     "hyperloglog",
     "inverted_index",
     "inverted_index_bencher",
@@ -23,6 +25,7 @@ members = [
     "result_processor",
     "rlookup",
     "query_node_type",
+    "reducers",
     "rqe_iterator_type",
     "rqe_iterators",
     "rqe_iterators_bencher",
@@ -33,9 +36,12 @@ members = [
     "tools/license_header_linter",
     "tools/ffi_geiger",
     "tools/safety_report",
+    "tracing_assert",
     "tracing_redismodule",
     "trie_bencher",
+    "top_k",
     "trie_rs",
+    "ttl_table",
     "value",
     "varint",
     "varint_bencher",
@@ -96,7 +102,9 @@ ffi = { path = "./ffi", default-features = false }
 field = { path = "./field" }
 field_spec = { path = "./c_wrappers/field_spec" }
 fnv = { path = "./fnv" }
+fork_gc = { path = "./fork_gc" }
 generational_slab = { path = "./generational_slab" }
+geo = { path = "./geo" }
 hidden_string = { path = "./c_wrappers/hidden_string" }
 hyperloglog = { path = "./hyperloglog" }
 idf = { path = "./idf" }
@@ -112,6 +120,7 @@ query_term = { path = "./query_term" }
 redis_json_api = { path = "./redis_json_api" }
 redis_mock = { path = "./redis_mock" }
 redisearch_rs = { path = "./c_entrypoint/redisearch_rs" }
+reducers = { path = "./reducers" }
 result_processor = { path = "./result_processor" }
 rlookup = { path = "./rlookup" }
 rm_array = { path = "./c_wrappers/rm_array" }
@@ -124,29 +133,34 @@ search_result = { path = "./search_result" }
 slots_tracker = { path = "./slots_tracker" }
 sorting_vector = { path = "./sorting_vector" }
 thin_vec = { path = "./thin_vec" }
+top_k = { path = "./top_k" }
+tracing_assert = { path = "./tracing_assert" }
 tracing_redismodule = { path = "./tracing_redismodule" }
 trie_rs = { path = "./trie_rs" }
+ttl_table = { path = "./ttl_table" }
 value = { path = "./value" }
 varint = { path = "./varint" }
 wildcard = { path = "./wildcard" }
 workspace_hack = { path = "./workspace_hack" }
 
 ahash = "0.8"
+bumpalo = "3"
 anstyle-query = "1.1.5"
 anyhow = "1"
 approx = "0.6.0-rc2"
 bindgen = { version = "0.72", default-features = false }
 cargo_metadata = "0.19"
 bytecount = "0.6.9"
-cbindgen = "0.29"
 cc = "1.2.53"
+cheadergen = { version = "0.2.0" }
 crc32fast = "1.5.0"
 criterion = { version = "0.8.1", features = ["html_reports"] }
 csv = "1.4.0"
+decorum = "0.4"
 enumflags2 = "0.7.12"
 fs-err = "3.2.2"
 hash32 = "1"
-icu_casemap = "2.1.1"
+icu_casemap = "2.2.0"
 insta = "1.46.1"
 itertools = "0.14.0"
 lending-iterator = "0.1.7"
@@ -174,7 +188,12 @@ triomphe = "0.1.2"
 toml = "0.9"
 tracing = "0.1.44"
 tracing-core = "0.1"
-tracing-subscriber = { version = "0.3.22", default-features = false, features = ["std", "fmt", "ansi", "env-filter"] }
+tracing-subscriber = { version = "0.3.22", default-features = false, features = [
+    "std",
+    "fmt",
+    "ansi",
+    "env-filter",
+] }
 unsafe-tools = "0.1.2"
 ureq = "3.1"
 walkdir = "2"
@@ -184,7 +203,7 @@ xxhash-rust = "0.8"
 
 [workspace.dependencies.redis-module]
 git = "https://github.com/RedisLabsModules/redismodule-rs.git"
-rev = "3a0257d2c34856bab38fe673f65ad8719695619d"
+rev = "ce7e83074376494c20e2fbdb5059384db6c1ca26"
 default-features = false
 
 [profile.release]

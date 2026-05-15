@@ -11,12 +11,10 @@
 
 #include "redisearch.h"
 #include "sortable.h"
-#include "value.h"
 #include "concurrent_ctx.h"
 #include "search_ctx.h"
 #include "iterators/iterator_api.h"
 #include "search_options.h"
-#include "rlookup.h"
 #include "extension.h"
 #include "score_explain.h"
 #include "rs_wall_clock.h"
@@ -24,9 +22,11 @@
 #include "hybrid/hybrid_scoring.h"
 #include "hybrid/hybrid_lookup_context.h"
 #include "vector_normalization.h"
-#include "result_processor_rs.h"
+#include "result_processor_ffi.h"
 #include "search_result.h"
 #include "slot_ranges.h"
+
+typedef struct RLookupKey RLookupKey;
 
 #ifdef __cplusplus
 extern "C" {
@@ -84,42 +84,8 @@ typedef enum {
 struct ResultProcessor;
 struct RLookup;
 
-// Define our own structures to avoid conflicts with the iterator_api.h QueryIterator
-/// <div rustbindgen hide></div>
-typedef struct QueryProcessingCtx {
-  // First processor
-  struct ResultProcessor *rootProc;
-
-  // Last processor
-  struct ResultProcessor *endProc;
-
-  rs_wall_clock initTime; //used with clock_gettime(CLOCK_MONOTONIC, ...)
-  rs_wall_clock_ns_t queryGILTime;  //Time accumulated in nanoseconds
-
-  // the minimal score applicable for a result. It can be used to optimize the
-  // scorers
-  double minScore;
-
-  // the total results found in the query, incremented by the root processors
-  // and decremented by others who might disqualify results
-  uint32_t totalResults;
-
-  // the number of results we requested to return at the current chunk.
-  // This value is meant to be used by the RP to limit the number of results
-  // returned by its upstream RP ONLY.
-  // It should be restored after using it for local aggregation etc., as done in
-  // the Safe-Loader, Sorter, and Pager.
-  uint32_t resultLimit;
-
-  // Object which contains the error
-  QueryError *err;
-
-  // Background indexing OOM warning
-  bool bgScanOOM;
-
-  bool isProfile;
-  RSTimeoutPolicy timeoutPolicy;
-} QueryProcessingCtx;
+// QueryProcessingCtx is defined in Rust (ffi crate) and generated via cbindgen
+// into result_processor_rs.h which is included above.
 
 QueryIterator *QITR_GetRootFilter(QueryProcessingCtx *it);
 void QITR_PushRP(QueryProcessingCtx *it, struct ResultProcessor *rp);

@@ -9,14 +9,12 @@
 
 use ffi::{IndexFlags_Index_DocIdsOnly, t_docId};
 use inverted_index::{InvertedIndex, RSIndexResult, doc_ids_only::DocIdsOnly};
-use rqe_iterators_test_utils::MockContext;
 
-/// Holds an [`InvertedIndex`] and a [`MockContext`] so a
+/// Holds an [`InvertedIndex`] so a
 /// [`Wildcard`](rqe_iterators::inverted_index::Wildcard) iterator can be
-/// created from them.
+/// created from it.
 pub(crate) struct WildcardHelper {
     ii: InvertedIndex<DocIdsOnly>,
-    mock_ctx: MockContext,
 }
 
 impl WildcardHelper {
@@ -27,8 +25,7 @@ impl WildcardHelper {
             let record = RSIndexResult::build_virt().doc_id(doc_id).build();
             ii.add_record(&record).expect("failed to add record");
         }
-        let mock_ctx = MockContext::new(0, 0);
-        Self { ii, mock_ctx }
+        Self { ii }
     }
 
     /// Create a [`Wildcard`](rqe_iterators::inverted_index::Wildcard)
@@ -36,9 +33,6 @@ impl WildcardHelper {
     pub(crate) fn create_wildcard(
         &self,
     ) -> rqe_iterators::inverted_index::Wildcard<'_, DocIdsOnly> {
-        let reader = self.ii.reader();
-        // SAFETY: `mock_ctx` provides a valid `RedisSearchCtx` with a valid
-        // `spec` that outlives the returned iterator.
-        unsafe { rqe_iterators::inverted_index::Wildcard::new(reader, self.mock_ctx.sctx(), 1.0) }
+        rqe_iterators::inverted_index::Wildcard::new(self.ii.reader(), 1.0)
     }
 }

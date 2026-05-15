@@ -8,7 +8,7 @@
 */
 #ifndef AGGREGATE_PLAN_H_
 #define AGGREGATE_PLAN_H_
-#include <value.h>
+#include <value_ffi.h>
 #include <rlookup.h>
 #include <search_options.h>
 #include <aggregate/expr/expression.h>
@@ -132,7 +132,9 @@ typedef struct {
   struct PLN_Reducer {
     const char *name;  // Name of function
     char *alias;       // Output key
+    char *inputAlias;  // Optional input key
     bool isHidden;     // If the output key is hidden. Used by the coordinator
+    bool isLocal;      // Whether this reducer runs locally (on the coordinator side)
     ArgsCursor args;
   } * reducers;
   int idx;

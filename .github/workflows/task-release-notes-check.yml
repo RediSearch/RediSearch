@@ -6,7 +6,7 @@ on:
 
 jobs:
   check-release-notes:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-slim
     steps:
       - name: Check release notes checkbox
         env:
@@ -47,4 +47,3 @@ jobs:
           else:
               print('✅ Release notes not required - checkbox is checked.')
           EOF
-

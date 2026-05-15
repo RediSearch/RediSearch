@@ -40,7 +40,7 @@ where
     I: RQEIterator<'index> + 'index,
 {
     /// Heap-allocate a wrapper with the given `ProfileChildren` callback.
-    fn boxed_new_inner(
+    pub fn boxed_new_inner(
         inner: I,
         profile_children: Option<unsafe extern "C" fn(*mut QueryIterator) -> *mut QueryIterator>,
     ) -> *mut QueryIterator {
@@ -162,6 +162,19 @@ impl<'index, I> RQEIteratorWrapper<I>
 where
     I: RQEIterator<'index> + 'index,
 {
+    /// Re-synchronize the C header's `current` pointer from the inner
+    /// iterator's [`RQEIterator::current`].
+    ///
+    /// Call this after any operation that may invalidate the previously stored
+    /// `header.current` (e.g. replacing the inner variant in-place).
+    pub fn sync_current(&mut self) {
+        self.header.current = self
+            .inner
+            .current()
+            .map(|c| c as *mut RSIndexResult as *mut ffi::RSIndexResult)
+            .unwrap_or(std::ptr::null_mut());
+    }
+
     /// Convert a type-erased iterator "header" into a wrapper around a specific Rust iterator type.
     ///
     /// # Safety
@@ -266,12 +279,25 @@ extern "C" fn skip_to<'index, I: RQEIterator<'index> + 'index>(
 
 extern "C" fn revalidate<'index, I: RQEIterator<'index> + 'index>(
     base: *mut QueryIterator,
+    spec: *mut ffi::IndexSpec,
 ) -> ValidateStatus {
     debug_assert!(!base.is_null());
     debug_assert!(base.is_aligned());
+    debug_assert!(!spec.is_null());
+
     // SAFETY: Guaranteed by invariant 1. in [`RQEIteratorWrapper`].
     let wrapper = unsafe { RQEIteratorWrapper::<I>::mut_ref_from_header_ptr(base) };
-    match wrapper.inner.revalidate() {
+
+    // SAFETY: spec is a valid pointer (guaranteed by C caller)
+    let spec_ref = unsafe { &*spec };
+
+    // SAFETY:
+    // - C has already acquired the read lock (see handleSpecLockAndRevalidate in result_processor.c)
+    // - from_locked() returns ManuallyDrop to prevent lock release on drop
+    //   (C is responsible for lock lifecycle via RedisSearchCtx_UnlockSpec)
+    let guard = unsafe { index_spec::IndexSpecReadGuard::from_locked(spec_ref) };
+
+    match wrapper.inner.revalidate(&guard) {
         Ok(RQEValidateStatus::Ok) => ValidateStatus_VALIDATE_OK,
         Ok(RQEValidateStatus::Moved { current }) => {
             if let Some(result) = current {

@@ -12,16 +12,15 @@ test = false
 bench = false
 
 [dependencies]
+cheadergen.workspace = true
 ffi.workspace = true
 libc.workspace = true
 sorting_vector.workspace = true
 thin_vec.workspace = true
 value.workspace = true
+value_ffi = { path = "../value_ffi" }
 workspace_hack.workspace = true
 
-[build-dependencies]
-cbindgen.workspace = true
-build_utils = { path = "../../build_utils" }
 
 [lints]
 workspace = true

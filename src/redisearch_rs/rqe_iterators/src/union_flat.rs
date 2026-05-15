@@ -13,6 +13,7 @@ use ffi::t_docId;
 use inverted_index::RSIndexResult;
 
 use crate::{IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
+use index_spec::IndexSpecReadGuard;
 
 /// A child iterator paired with its original insertion index.
 ///
@@ -110,6 +111,16 @@ where
         }
     }
 
+    /// Returns the total number of children (including exhausted ones).
+    pub const fn num_children_total(&self) -> usize {
+        self.children.len()
+    }
+
+    /// Returns the number of currently active (non-exhausted) children.
+    pub const fn num_children_active(&self) -> usize {
+        self.num_active
+    }
+
     /// Returns a shared reference to the child originally at insertion index `idx`.
     ///
     /// Returns `None` if the child was permanently removed (e.g. aborted during
@@ -123,6 +134,22 @@ where
             .map(|c| &c.inner)
     }
 
+    /// Returns a mutable iterator over all children (including exhausted ones).
+    pub fn children_mut(&mut self) -> impl Iterator<Item = &mut I> {
+        self.children.iter_mut().map(|c| &mut c.inner)
+    }
+
+    /// Consumes the iterator and returns its children.
+    pub fn into_children(self) -> Vec<I> {
+        self.children.into_iter().map(|c| c.inner).collect()
+    }
+
+    /// Consumes the iterator and returns a [`super::UnionTrimmed`] over the same children,
+    /// or [`None`] if there are fewer than 3 children.
+    pub fn into_trimmed(self, limit: usize, asc: bool) -> Option<super::UnionTrimmed<'index, I>> {
+        let children: Vec<I> = self.children.into_iter().map(|c| c.inner).collect();
+        (children.len() >= 3).then(|| super::UnionTrimmed::new(children, limit, asc))
+    }
     /// Advances all active children whose `last_doc_id` equals `current_id` and finds the
     /// minimum doc_id in a single pass.
     ///
@@ -179,14 +206,14 @@ where
             if child.last_doc_id() == min_id
                 && let Some(child_result) = child.current()
             {
+                let drained_metrics = std::mem::take(&mut child_result.metrics);
                 let child_ptr: *const RSIndexResult<'index> = child_result;
                 // SAFETY: We need a raw pointer to decouple the borrow of the child's
                 // result from `&mut self.result`. This is sound because:
                 // 1. `self.children[i]` and `self.result` are disjoint fields — no aliasing.
-                // 2. `push_borrowed` takes a shared reference, so no mutation through child_ref.
-                // 3. The child is owned by `self`, so the 'index data remains valid.
+                // 2. The child is owned by `self`, so the 'index data remains valid.
                 let child_ref = unsafe { &*child_ptr };
-                self.result.push_borrowed(child_ref);
+                self.result.push_borrowed(child_ref, drained_metrics);
             }
         }
     }
@@ -400,14 +427,14 @@ where
     fn add_child_to_result(&mut self, child_idx: usize) {
         let child = &mut self.children[child_idx];
         if let Some(child_result) = child.current() {
+            let drained_metrics = std::mem::take(&mut child_result.metrics);
             let child_ptr: *const RSIndexResult<'index> = child_result;
             // SAFETY: We need a raw pointer to decouple the borrow of the child's
             // result from `&mut self.result`. This is sound because:
             // 1. `self.children[i]` and `self.result` are disjoint fields — no aliasing.
-            // 2. `push_borrowed` takes a shared reference, so no mutation through child_ref.
-            // 3. The child is owned by `self`, so the 'index data remains valid.
+            // 2. The child is owned by `self`, so the 'index data remains valid.
             let child_ref = unsafe { &*child_ptr };
-            self.result.push_borrowed(child_ref);
+            self.result.push_borrowed(child_ref, drained_metrics);
         }
     }
 }
@@ -479,7 +506,10 @@ where
         self.is_eof
     }
 
-    fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
+    fn revalidate(
+        &mut self,
+        spec: &IndexSpecReadGuard,
+    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         // Already at EOF - nothing to do
         if self.is_eof {
             return Ok(RQEValidateStatus::Ok);
@@ -493,7 +523,7 @@ where
         // We use index-based iteration because we need to remove elements while iterating.
         let mut i = 0;
         while i < self.children.len() {
-            match self.children[i].revalidate()? {
+            match self.children[i].revalidate(spec)? {
                 RQEValidateStatus::Aborted => {
                     // Remove aborted child using swap_remove for O(1) removal.
                     // Order doesn't matter for union iteration.
