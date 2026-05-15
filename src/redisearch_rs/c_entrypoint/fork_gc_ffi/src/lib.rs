@@ -15,10 +15,7 @@
 //! delegates everything else — including Redis-specific failure
 //! handling — to the `fork_gc` crate.
 
-use std::{
-    ffi::{c_char, c_int, c_void},
-    slice,
-};
+use std::ffi::{c_char, c_int, c_void};
 
 use fork_gc::{ForkGC, io_result_ext::IoResultExt, reader::RecvFrame};
 
@@ -209,21 +206,20 @@ pub unsafe extern "C" fn FGC_recvBuffer(
 ///    readable file descriptor.
 /// 2. `field_name` and `field_name_len` must point to writable `char*` and
 ///    `size_t` locations respectively.
-/// 3. `id` must point to a writable `uint64_t` location.
+/// 3. `id_ptr` must point to a writable `uint64_t` location.
 #[unsafe(no_mangle)]
 #[must_use]
 pub unsafe extern "C" fn recvFieldHeader(
     fgc: *mut ffi::ForkGC,
     field_name: *mut *mut c_char,
     field_name_len: *mut usize,
-    id: *mut u64,
+    id_ptr: *mut u64,
 ) -> FGCError {
     // SAFETY: caller guarantees (1).
     let fgc = unsafe { ForkGC::from_ptr_mut(fgc) };
-    let mut reader = fgc.reader();
 
-    let frame = match reader.recv_buffer() {
-        Ok(frame) => frame,
+    let (frame, id) = match fgc.reader().recv_buffer_and_id() {
+        Ok((frame, id)) => (frame, id),
         Err(_) => return FGCError::ParentError,
     };
 
@@ -231,18 +227,14 @@ pub unsafe extern "C" fn recvFieldHeader(
         return FGCError::Done;
     }
 
-    let mut id_bytes = [0u8; size_of::<u64>()];
-    if reader.recv_fixed(&mut id_bytes).is_err() {
-        return FGCError::ParentError;
-    }
-
     let (name_ptr, name_len) = util::frame_into_c_buffer(frame);
+
     // SAFETY: caller guarantees (2).
     unsafe { *field_name = name_ptr.cast() };
     // SAFETY: caller guarantees (2).
     unsafe { *field_name_len = name_len };
     // SAFETY: caller guarantees (3).
-    unsafe { *id = u64::from_ne_bytes(id_bytes) };
+    unsafe { *id_ptr = id };
 
     FGCError::Collected
 }
@@ -261,6 +253,8 @@ pub unsafe extern "C" fn FGC_freeBuffer(buf: *mut c_void, len: usize) {
     if buf.is_null() || buf == unsafe { RECV_BUFFER_EMPTY } {
         return;
     }
+
+    let ptr = std::ptr::slice_from_raw_parts_mut(buf.cast::<u8>(), len);
     // SAFETY: caller guarantees (1).
-    drop(unsafe { Box::from_raw(slice::from_raw_parts_mut(buf.cast::<u8>(), len)) });
+    drop(unsafe { Box::from_raw(ptr) });
 }

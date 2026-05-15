@@ -133,9 +133,9 @@ int FGC_recvBuffer(ForkGC *fgc, void * *buf, size_t *len);
  *    readable file descriptor.
  * 2. `field_name` and `field_name_len` must point to writable `char*` and
  *    `size_t` locations respectively.
- * 3. `id` must point to a writable `uint64_t` location.
+ * 3. `id_ptr` must point to a writable `uint64_t` location.
  */
-enum FGCError recvFieldHeader(ForkGC *fgc, char * *field_name, size_t *field_name_len, uint64_t *id);
+enum FGCError recvFieldHeader(ForkGC *fgc, char * *field_name, size_t *field_name_len, uint64_t *id_ptr);
 
 /**
  * Free a buffer previously returned by [`FGC_recvBuffer`] or [`recvFieldHeader`].

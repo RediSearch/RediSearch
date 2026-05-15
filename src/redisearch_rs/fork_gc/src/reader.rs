@@ -60,6 +60,25 @@ impl<R: Read> Reader<R> {
         self.recv_fixed(&mut data)?;
         Ok(RecvFrame::Data(data))
     }
+
+    /// Read a length-prefixed buffer frame followed by a native-endian `u64` field id.
+    ///
+    /// Extends [`recv_buffer`](Self::recv_buffer) with a trailing id read.
+    /// On [`RecvFrame::Terminator`] the id is not present on the wire; `0` is
+    /// returned as a placeholder and the caller should discard it.
+    pub fn recv_buffer_and_id(&mut self) -> io::Result<(RecvFrame, u64)> {
+        let frame = self.recv_buffer()?;
+
+        if matches!(frame, RecvFrame::Terminator) {
+            return Ok((frame, 0));
+        }
+
+        let mut id_bytes = [0u8; size_of::<u64>()];
+        self.recv_fixed(&mut id_bytes)?;
+        let id = u64::from_ne_bytes(id_bytes);
+
+        Ok((frame, id))
+    }
 }
 
 /// A frame decoded by [`Reader::recv_buffer`].
