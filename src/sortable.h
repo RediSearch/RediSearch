@@ -8,8 +8,8 @@
 */
 #pragma once
 
-#include "value_ffi.h"
-#include "sorting_vector_ffi.h"
+#include "redismodule.h"
+#include "sorting_vector.h"
 
 #ifdef __cplusplus
 extern "C" {

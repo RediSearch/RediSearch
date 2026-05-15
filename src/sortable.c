@@ -15,6 +15,7 @@
 #include "rmalloc.h"
 #include "buffer.h"
 #include "sortable.h"
+#include "value_ffi.h"
 #include "sorting_vector_ffi.h"
 
 /* Load a sorting vector from RDB */

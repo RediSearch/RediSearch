@@ -13,6 +13,7 @@
 #include "iterators_ffi.h"
 #include "metrics_ffi.h"
 #include "rqe_iterator_type.h"
+#include "types_ffi.h"
 #include "query.h"
 
 #define VECTOR_SCORE(p) (p->data.tag == RSResultData_Metric ? IndexResult_NumValue(p) : IndexResult_NumValue(AggregateResult_GetUnchecked(IndexResult_AggregateRefUnchecked(p), 0)))

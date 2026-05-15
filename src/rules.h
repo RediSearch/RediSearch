@@ -9,8 +9,6 @@
 
 #pragma once
 
-#include "query_error_ffi.h"
-#include "triemap_ffi.h"
 #include "stemmer.h"
 #include "util/arr.h"
 #include "json.h"
@@ -18,6 +16,10 @@
 #include "util/references.h"
 #include "obfuscation/hidden_unicode.h"
 #include "rmutil/args.h"
+
+typedef struct TrieMap TrieMap;
+
+typedef struct QueryError QueryError;
 
 #ifdef __cplusplus
 extern "C" {

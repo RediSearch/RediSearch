@@ -29,6 +29,9 @@ cpp_compat = true
 [header.field]
 includes = ["redisearch_types.h"]
 
+[header.fork_gc_ffi]
+includes = ["fork_gc.h"]
+
 [header.inverted_index]
 includes = ["redisearch_types.h"]
 after_includes = """

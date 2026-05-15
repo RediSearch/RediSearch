@@ -9,8 +9,11 @@
 #ifndef RS_MISC_H
 #define RS_MISC_H
 
+#include <stdbool.h>
+
 #include "redismodule.h"
-#include "query_error_ffi.h"
+
+typedef struct QueryError QueryError;
 
 /**
  * This handler crashes

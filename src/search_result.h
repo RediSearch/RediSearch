@@ -11,11 +11,9 @@
 
 #include "score_explain.h"
 #include "redisearch.h"
-#include "types_ffi.h"
 #include "rlookup.h"
 #include "index_result.h"
 #include "search_result_rs.h"
-#include "search_result_ffi.h"
 
 #ifdef __cplusplus
 extern "C" {

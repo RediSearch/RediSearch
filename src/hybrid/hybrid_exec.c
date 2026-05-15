@@ -8,6 +8,7 @@
  */
 
 #include "hybrid_exec.h"
+#include "search_result_ffi.h"
 #include "parse_hybrid.h"
 #include "hybrid_request.h"
 #include "aggregate/aggregate_exec_common.h"

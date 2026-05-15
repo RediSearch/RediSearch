@@ -14,10 +14,11 @@
 #include "index_result.h"
 #include "iterators/iterator_api.h"
 #include "search_ctx.h"
-#include "query_error_ffi.h"
 #include "rs_geo.h"
 #include "query_node.h"
 #include "obfuscation/hidden.h"
+
+typedef struct QueryError QueryError;
 
 typedef enum {  // Placeholder for bad/invalid unit
   GEO_DISTANCE_INVALID = -1,

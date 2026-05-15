@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
  */
  #include "aggregate_exec_common.h"
+ #include "search_result_ffi.h"
  #include "util/timeout.h"
  #include "info/global_stats.h"
  #include "rmalloc.h"

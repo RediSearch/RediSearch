@@ -20,7 +20,6 @@
 #include "stopwords.h"
 #include "gc.h"
 #include "synonym_map.h"
-#include "query_error_ffi.h"
 #include "field_spec.h"
 #include "util/dict.h"
 #include "util/references.h"
@@ -31,6 +30,8 @@
 #include "obfuscation/hidden.h"
 #include "search_disk_api.h"
 #include "rs_wall_clock.h"
+
+typedef struct QueryError QueryError;
 
 #ifdef __cplusplus
 extern "C" {

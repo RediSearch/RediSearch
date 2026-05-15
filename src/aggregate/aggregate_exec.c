@@ -7,6 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "redismodule.h"
+#include "value_ffi.h"
+#include "search_result_ffi.h"
 #include "redisearch.h"
 #include "search_ctx.h"
 #include "aggregate.h"
