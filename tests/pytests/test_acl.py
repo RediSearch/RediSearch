@@ -225,6 +225,7 @@ def test_acl_key_permissions_validation(env):
         ['FT.SPELLCHECK', no_perm_index, 'name'],
         ['FT.ALIASADD', 'myAlias', no_perm_index],
         ['FT.ALIASUPDATE', 'myAlias', no_perm_index],
+        ['FT.ALIASLIST', no_perm_index],
         ['FT.ALTER', no_perm_index, 'SCHEMA', 'ADD', 'n2', 'NUMERIC', 'SORTABLE'],
         ['FT.EXPLAIN', no_perm_index, '*'],
         ['FT.EXPLAINCLI', no_perm_index, '*'],

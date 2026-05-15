@@ -1174,6 +1174,10 @@ int AliasListCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return RedisModule_ReplyWithErrorFormat(ctx, "%s: %s", QueryError_Strerror(QUERY_ERROR_CODE_NO_INDEX), idx);
   }
 
+  if (!checkEnterpriseACL(ctx, sp)) {
+    return RedisModule_ReplyWithError(ctx, NOPERM_ERR);
+  }
+
   CurrentThread_SetIndexSpec(sp->own_ref);
 
   size_t count = array_len(sp->aliases);
