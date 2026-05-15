@@ -176,7 +176,7 @@ def test_collect_sortby_over_max_keys_errors():
     n = COLLECT_MAX_SORT_KEYS + 1
     sort_tokens = []
     for i in range(n):
-        sort_tokens.extend([f'@s{i}', 'ASC'])
+        sort_tokens.extend([f'@s{i}'])
 
     reduce_argc = 5 + len(sort_tokens)  # FIELDS 1 @x SORTBY <n> <tokens>
     env.expect(

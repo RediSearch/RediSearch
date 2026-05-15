@@ -1309,6 +1309,34 @@ def test_collect_sortby_limit_merges_global_topk_across_shards():
 
 
 # ---------------------------------------------------------------------------
+# Heap path (SORTBY without LIMIT) default-caps at 10 by design.
+# ---------------------------------------------------------------------------
+def test_collect_sortby_without_limit_caps_at_default_10():
+    """COLLECT + SORTBY without an explicit LIMIT runs the heap path with its
+    default capacity of 10, even when the group has more matching docs."""
+    env = Env(protocol=3)
+    enable_unstable_features(env)
+    _setup_priced_hash(env)
+
+    # PRICED has 12 docs in the 'red' group; ASC top-10 by price drops the
+    # two highest-priced names (charlie=15, dave=15).
+    res = env.cmd(
+        'FT.AGGREGATE', 'idx', '*',
+        'GROUPBY', '1', '@color',
+        'REDUCE', 'COLLECT', '7',
+            'FIELDS', '1', '@name',
+            'SORTBY', '2', '@price', 'ASC',
+        'AS', 'names')
+
+    entries = res['results'][0]['extra_attributes']['names']
+    env.assertEqual(len(entries), 10)
+    names = {e['name'] for e in entries}
+    # The two highest-priced docs must be the ones dropped.
+    env.assertNotContains('charlie', names)
+    env.assertNotContains('dave', names)
+
+
+# ---------------------------------------------------------------------------
 # Array path (no SORTBY, no LIMIT) capped by MAXAGGREGATERESULTS
 # ---------------------------------------------------------------------------
 @skip(no_json=True)
