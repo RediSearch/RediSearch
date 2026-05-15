@@ -3519,7 +3519,7 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryE
   // Open the index on disk only if we are on Flex, and this is not a duplicate.
   if (isSpecOnDisk(sp) && !sp->isDuplicate) {
     RS_ASSERT(disk_db);
-    RS_LOG_ASSERT((sp->pendingDiskRdbState != NULL) == IS_SST_RDB_IN_PROCESS(ctx),
+    RS_LOG_ASSERT((sp->pendingDiskRdbState != NULL) == useSst,
                   "pendingDiskRdbState / SST_RDB context flag out of sync");
 
     if (!sp->pendingDiskRdbState) {
