@@ -212,7 +212,14 @@ jobs:
               pr_links = []
               for pr_number in re.findall(r"#([0-9]+)", covered_prs):
                   pr_url = f"{os.environ['SERVER_URL']}/{repository}/pull/{pr_number}"
-                  pr_links.append(f"<{pr_url}|#{pr_number}>")
+                  try:
+                      pull_request = gh_api(f"/repos/{repository}/pulls/{pr_number}")
+                      author = (pull_request.get("user") or {}).get("login")
+                  except subprocess.CalledProcessError:
+                      author = None
+
+                  author_suffix = f" (@{author})" if author else ""
+                  pr_links.append(f"<{pr_url}|#{pr_number}>{author_suffix}")
               covered_prs_text = ", ".join(pr_links) if pr_links else covered_prs
 
           append_output("failed_jobs", failed_jobs_text)
