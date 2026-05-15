@@ -172,6 +172,7 @@ jobs:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}
           SERVER_URL: ${{ github.server_url }}
           COVERED_PRS: ${{ needs.should-run.outputs.covered-prs }}
+          GH_HANDLE_TO_SLACK_JSON: ${{ secrets.GH_HANDLE_TO_SLACK_JSON }}
         run: |
           import json
           import os
@@ -188,6 +189,15 @@ jobs:
 
           def gh_api(path):
               return json.loads(subprocess.check_output(["gh", "api", path], text=True))
+
+          try:
+              raw_mapping = json.loads(os.environ.get("GH_HANDLE_TO_SLACK_JSON") or "{}")
+              slack_mapping = {str(k).lower(): str(v) for k, v in raw_mapping.items()}
+          except (json.JSONDecodeError, AttributeError):
+              slack_mapping = {}
+
+          def slack_id_for(login):
+              return slack_mapping.get(login.lower(), "") if login else ""
 
           repository = os.environ["REPOSITORY"]
           run_id = os.environ["RUN_ID"]
@@ -218,7 +228,8 @@ jobs:
                   except subprocess.CalledProcessError:
                       author = None
 
-                  author_suffix = f" (@{author})" if author else ""
+                  slack_id = slack_id_for(author)
+                  author_suffix = f" (<@{slack_id}>)" if slack_id else ""
                   pr_links.append(f"<{pr_url}|#{pr_number}>{author_suffix}")
               covered_prs_text = ", ".join(pr_links) if pr_links else covered_prs
 
