@@ -147,6 +147,9 @@ static bool periodicCb(void *privdata, bool force) {
   }
 
   TimeSampler_Start(&ts);
+
+  // inner start
+
   int pipefd[2];
   int rc = pipe(pipefd);  // create the pipe
   if (rc == -1) {
@@ -249,6 +252,9 @@ static bool periodicCb(void *privdata, bool force) {
   }
 
   IndexsGlobalStats_DecreaseLogicallyDeleted(num_docs_to_clean);
+
+  // inner end
+
   gc->execState = FGC_STATE_IDLE;
   TimeSampler_End(&ts);
   long long msRun = TimeSampler_DurationMS(&ts);

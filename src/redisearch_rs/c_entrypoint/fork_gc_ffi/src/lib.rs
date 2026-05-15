@@ -21,6 +21,7 @@ use std::{
 };
 
 use fork_gc::{ForkGC, Frame, io_result_ext::IoResultExt};
+use index_spec::IndexSpecWeakRefMut;
 
 use tracing::Level;
 use tracing_log_error::log_error;
@@ -278,4 +279,33 @@ pub unsafe extern "C" fn FGC_freeBuffer(buf: *mut c_void, len: usize) {
     let ptr = std::ptr::slice_from_raw_parts_mut(buf.cast::<u8>(), len);
     // SAFETY: caller guarantees (1).
     drop(unsafe { Box::from_raw(ptr) });
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn ForkGCPeriodicCb(privdata: *mut c_void, force: bool) -> bool {
+    let fgc = unsafe { ForkGC::from_ptr_mut(privdata.cast::<ffi::ForkGC>()) };
+    let index_spec = unsafe { IndexSpecWeakRefMut::from_raw(fgc.index_spec_ffi()) };
+
+    let _rmctx = fgc.redis_module_ctx();
+
+    let Some(_index_spec) = index_spec.promote() else {
+        return false;
+    };
+
+    let fork_gc_clean_threshold = unsafe { ffi::RSGlobalConfig }
+        .gcConfigParams
+        .gcSettings
+        .forkGcCleanThreshold;
+
+    if !force && fgc.deleted_or_updated_docs_from_last_run() < fork_gc_clean_threshold {
+        return true;
+    }
+
+    let start = std::time::Instant::now();
+
+    todo!();
+
+    let _run_ms = start.elapsed().as_millis() as u64;
+
+    todo!()
 }

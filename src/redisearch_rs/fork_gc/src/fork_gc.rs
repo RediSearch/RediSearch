@@ -106,6 +106,10 @@ impl ForkGC {
         unsafe { IndexSpecWeakRefMut::from_raw(self.0.index) }
     }
 
+    pub fn index_spec_ffi(&self) -> ffi::WeakRef {
+        self.0.index
+    }
+
     /// Update the GC-level statistics after applying a garbage collection delta.
     ///
     /// This is the GC-side half of `FGC_updateStats`.
@@ -118,6 +122,14 @@ impl ForkGC {
         self.0.stats.totalCollected += bytes_collected as isize;
         self.0.stats.totalCollected -= bytes_allocated as isize;
         self.0.stats.gcBlocksDenied += ignored_last_block as u64;
+    }
+
+    pub fn redis_module_ctx(&mut self) -> &mut ffi::RedisModuleCtx {
+        unsafe { &mut *self.0.ctx }
+    }
+
+    pub fn deleted_or_updated_docs_from_last_run(&self) -> usize {
+        self.0.deletedOrUpdatedDocsFromLastRun
     }
 }
 
