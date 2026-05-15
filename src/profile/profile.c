@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "profile.h"
+#include "types_ffi.h"
 #include "iterators/iterator_api.h"
 #include "iterators/hybrid_reader.h"
 #include "iterators/optimizer_reader.h"

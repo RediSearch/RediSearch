@@ -7,6 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include <string.h>
+#include "triemap_ffi.h"
+#include "value_ffi.h"
 #include <inttypes.h>
 
 #include "document.h"

@@ -8,6 +8,7 @@
 */
 
 #include "commands.h"
+#include "types_ffi.h"
 #include "debug_commands.h"
 #include "coord/debug_command_names.h"
 #include "VecSim/vec_sim_debug.h"

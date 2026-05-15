@@ -10,7 +10,6 @@
 #define SRC_FIELD_SPEC_H_
 
 #include "redisearch.h"
-#include "value_ffi.h"
 #include "query_error_ffi.h"
 #include "VecSim/vec_sim.h"
 #include "geometry/geometry_types.h"

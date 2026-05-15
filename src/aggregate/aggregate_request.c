@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "aggregate.h"
+#include "search_result_ffi.h"
 #include "reducer.h"
 
 #include <cursor.h>

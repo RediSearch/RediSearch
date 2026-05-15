@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "aggregate/reducer.h"
+#include "value_ffi.h"
 #include "util/block_alloc.h"
 #include "util/khash.h"
 #include "util/fnv.h"

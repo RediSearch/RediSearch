@@ -8,6 +8,7 @@
 */
 
 #include "result_processor.h"
+#include "search_result_ffi.h"
 #include "hybrid_search_result.h"
 #include "rmutil/alloc.h"
 #include "query_error_ffi.h"

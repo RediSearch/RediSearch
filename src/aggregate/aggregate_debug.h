@@ -8,8 +8,9 @@
 */
 #pragma once
 
-#include "query_error_ffi.h"
 #include "aggregate.h"
+
+typedef struct QueryError QueryError;
 
 /*
  * Debugging Mechanism for Query Execution

@@ -13,8 +13,9 @@
 #include "query_node_type.h"
 #include "redisearch.h"
 #include "hiredis/sds.h"
-#include "query_error_ffi.h"
 #include "param.h"
+
+typedef struct QueryError QueryError;
 
 struct FieldSpec; // forward declaration
 

@@ -18,8 +18,11 @@
 #include "document_rs.h"
 #include "util/dllist.h"
 #include "stemmer.h"
-#include "types_ffi.h"
-#include "query_term.h"
+
+typedef struct RSQueryTerm RSQueryTerm;
+typedef struct RSIndexResult RSIndexResult;
+typedef struct RSOffsetVector RSOffsetVector;
+typedef uint32_t RSTokenFlags;
 
 typedef uint64_t t_offset;
 // used to represent the id of a single field.
@@ -37,7 +40,7 @@ typedef uint64_t t_uniqueId;
 
 #define DOCID_MAX UINT64_MAX
 
-#include "sorting_vector_ffi.h"
+#include "sorting_vector.h"
 
 #define REDISEARCH_ERR 1
 #define REDISEARCH_OK 0

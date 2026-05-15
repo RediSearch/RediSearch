@@ -11,6 +11,7 @@
 #include "result_processor.h"
 #include "query.h"
 #include "gtest/gtest.h"
+#include "search_result_ffi.h"
 #include "config.h"
 #include "hybrid/hybrid_scoring.h"
 #include "hybrid/hybrid_lookup_context.h"  // For HybridLookupContext

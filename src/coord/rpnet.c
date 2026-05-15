@@ -8,6 +8,7 @@
 */
 
 #include <stdatomic.h>
+#include "value_ffi.h"
 #include "rpnet.h"
 #include "rmr/reply.h"
 #include "rmr/rmr.h"

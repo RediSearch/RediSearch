@@ -12,7 +12,6 @@
 #include "redismodule.h"
 #include "doc_table.h"
 #include "document.h"
-#include "value_ffi.h"
 #include "geo_index.h"
 #include "vector_index.h"
 #include "indexer.h"

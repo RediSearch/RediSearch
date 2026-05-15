@@ -13,8 +13,9 @@ extern "C" {
 #endif
 
 #include "trie/trie_type.h"
-#include "triemap_ffi.h"
 #include "util/arr.h"
+
+typedef struct TrieMap TrieMap;
 
 #define MIN_SUFFIX 2
 

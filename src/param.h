@@ -9,10 +9,11 @@
 
 #pragma once
 
-#include "query_error_ffi.h"
 #include "util/dict.h"
 
 #include <stddef.h>
+
+typedef struct QueryError QueryError;
 
 #ifdef __cplusplus
 extern "C" {

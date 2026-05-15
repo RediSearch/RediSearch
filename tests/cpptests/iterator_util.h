@@ -10,6 +10,8 @@
 #pragma once
 
 #include "iterators/iterator_api.h"
+#include "inverted_index.h"
+#include "types_ffi.h"
 
 #include <stdint.h>
 #include <vector>

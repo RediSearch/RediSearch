@@ -13,7 +13,6 @@
 #include "stemmer.h"
 #include "stopwords.h"
 #include "redisearch.h"
-#include "varint_ffi.h"
 #include <ctype.h>
 #include <stdlib.h>
 #include <strings.h>

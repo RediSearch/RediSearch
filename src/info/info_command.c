@@ -9,6 +9,7 @@
 #include <math.h>
 #include <limits.h>
 
+#include "triemap_ffi.h"
 #include "spec.h"
 #include "inverted_index_ffi.h"
 #include "vector_index.h"

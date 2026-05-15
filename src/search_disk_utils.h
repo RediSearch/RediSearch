@@ -12,8 +12,9 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include "field_spec.h"
-#include "query_error_ffi.h"
 #include "redismodule.h"
+
+typedef struct QueryError QueryError;
 
 #define FLEX_MAX_INDEX_COUNT 10
 

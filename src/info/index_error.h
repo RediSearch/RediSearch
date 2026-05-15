@@ -10,8 +10,8 @@
 #include <stddef.h>
 #include "redismodule.h"
 #include "reply.h"
-#include <time.h>
 #include "query_error_ffi.h"
+#include <time.h>
 
 #define WITH_INDEX_ERROR_TIME "_WITH_INDEX_ERROR_TIME"
 

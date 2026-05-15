@@ -14,7 +14,8 @@
 #include <stdatomic.h>
 #include <pthread.h>
 #include "cursor.h"
-#include "query_error_ffi.h"
+
+typedef struct QueryError QueryError;
 
 #ifdef __cplusplus
 extern "C" {
