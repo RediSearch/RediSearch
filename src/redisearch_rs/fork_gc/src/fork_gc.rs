@@ -61,7 +61,7 @@ impl ForkGC {
 
     /// Return a readable handle to the GC pipe.
     ///
-    /// Each call to [`Reader::recv_fixed`] delegates to
+    /// Each call to [`Reader::read_exact`] delegates to
     /// [`read_with_timeout`] with `POLL_TIMEOUT` and retries on
     /// `EINTR`. On timeout or pipe error the error is surfaced.
     ///

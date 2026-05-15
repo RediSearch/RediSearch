@@ -7,7 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use fork_gc::reader::{Reader, RecvFrame};
+use fork_gc::Frame;
+use fork_gc::reader::Reader;
 use fork_gc::writer::Writer;
 use std::io::Cursor;
 
@@ -16,11 +17,11 @@ fn send_buffer_roundtrips_to_recv_buffer_data_frame() {
     let mut sink: Vec<u8> = Vec::new();
     {
         let mut pw = Writer::from_writer(&mut sink);
-        pw.send_buffer(b"round trip").unwrap();
+        pw.write_frame(Frame::Data(b"round trip")).unwrap();
     }
     let mut pr = Reader::from_reader(Cursor::new(sink));
-    match pr.recv_buffer().unwrap() {
-        RecvFrame::Data(d) => assert_eq!(&*d, b"round trip"),
+    match pr.read_frame().unwrap() {
+        Frame::Data(d) => assert_eq!(&*d, b"round trip"),
         other => panic!("expected Data, got {other:?}"),
     }
 }
@@ -30,11 +31,11 @@ fn send_terminator_roundtrips_to_recv_buffer_terminator_frame() {
     let mut sink: Vec<u8> = Vec::new();
     {
         let mut pw = Writer::from_writer(&mut sink);
-        pw.send_terminator().unwrap();
+        pw.write_frame(Frame::Terminator).unwrap();
     }
     let mut pr = Reader::from_reader(Cursor::new(sink));
-    let frame = pr.recv_buffer().unwrap();
-    assert!(matches!(frame, RecvFrame::Terminator));
+    let frame = pr.read_frame().unwrap();
+    assert!(matches!(frame, Frame::Terminator));
 }
 
 #[test]
@@ -42,9 +43,9 @@ fn send_buffer_empty_roundtrips_to_recv_buffer_empty_frame() {
     let mut sink: Vec<u8> = Vec::new();
     {
         let mut pw = Writer::from_writer(&mut sink);
-        pw.send_buffer(&[]).unwrap();
+        pw.write_frame(Frame::Empty).unwrap();
     }
     let mut pr = Reader::from_reader(Cursor::new(sink));
-    let frame = pr.recv_buffer().unwrap();
-    assert!(matches!(frame, RecvFrame::Empty));
+    let frame = pr.read_frame().unwrap();
+    assert!(matches!(frame, Frame::Empty));
 }

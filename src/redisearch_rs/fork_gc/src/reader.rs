@@ -9,12 +9,16 @@
 
 use std::io::{self, Read};
 
+use crate::{EMPTY, Frame, TERMINATOR};
+
 /// Reader over a Fork GC pipe endpoint.
 ///
 /// Constructed via [`ForkGC::reader`](crate::ForkGC::reader) in
 /// production, or directly via [`from_reader`](Self::from_reader) in
-/// tests. Exposes [`recv_fixed`](Self::recv_fixed) as an inherent method;
-/// callers go through that rather than through [`Read`] directly.
+/// tests. Implements [`Read`] by delegating to the inner `R`, and exposes
+/// the higher-level protocol methods
+/// [`read_frame`](Self::read_frame) and
+/// [`read_frame_and_id`](Self::read_frame_and_id).
 ///
 /// Any borrow-lifetime relationship with the owning `ForkGC` is encoded
 /// in the inner Reader `R`, not in `Reader` itself.
@@ -28,53 +32,34 @@ impl<R: Read> Reader<R> {
         Self { reader }
     }
 
-    /// Read exactly `buf.len()` bytes from the reader into `buf`.
-    pub fn recv_fixed(&mut self, buf: &mut [u8]) -> io::Result<()> {
-        self.reader.read_exact(buf)
-    }
-
     /// Read a length-prefixed buffer frame.
     ///
-    /// Counterpart of [`Writer::send_buffer`](crate::writer::Writer::send_buffer) and
-    /// [`Writer::send_terminator`](crate::writer::Writer::send_terminator). Reads a native-endian `size_t`
-    /// prefix, then:
+    /// Counterpart of [`Writer::write_frame`](crate::writer::Writer::write_frame).
+    /// Reads a native-endian `size_t` prefix, then:
     ///
-    /// - `usize::MAX` → [`RecvFrame::Terminator`] (end-of-stream
-    ///   sentinel; no payload follows).
-    /// - `0` → [`RecvFrame::Empty`] (no payload).
-    /// - otherwise → [`RecvFrame::Data`] containing exactly that many
-    ///   payload bytes.
-    pub fn recv_buffer(&mut self) -> io::Result<RecvFrame> {
+    /// - `usize::MAX` → [`Frame::Terminator`] (end-of-stream sentinel; no payload follows).
+    /// - `0` → [`Frame::Empty`] (no payload).
+    /// - otherwise → [`Frame::Data`] containing exactly that many payload bytes.
+    pub fn read_frame(&mut self) -> io::Result<Frame<Box<[u8]>>> {
         let mut len_bytes = [0u8; size_of::<usize>()];
-        self.recv_fixed(&mut len_bytes)?;
+        self.read_exact(&mut len_bytes)?;
         let len = usize::from_ne_bytes(len_bytes);
 
-        if len == usize::MAX {
-            return Ok(RecvFrame::Terminator);
+        if len == TERMINATOR {
+            return Ok(Frame::Terminator);
         }
-        if len == 0 {
-            return Ok(RecvFrame::Empty);
+        if len == EMPTY {
+            return Ok(Frame::Empty);
         }
 
         let mut data = vec![0u8; len].into_boxed_slice();
-        self.recv_fixed(&mut data)?;
-        Ok(RecvFrame::Data(data))
+        self.read_exact(&mut data)?;
+        Ok(Frame::Data(data))
     }
 }
 
-/// A frame decoded by [`Reader::recv_buffer`].
-///
-/// The three variants correspond to the three possible length prefixes
-/// of the Fork GC buffer protocol: `usize::MAX` (end of stream), `0`
-/// (empty), or a positive payload length.
-#[derive(Debug)]
-pub enum RecvFrame {
-    /// End-of-stream sentinel — the writer called
-    /// [`Writer::send_terminator`](crate::writer::Writer::send_terminator).
-    Terminator,
-    /// Zero-length frame — the writer called
-    /// [`Writer::send_buffer`](crate::writer::Writer::send_buffer) with an empty slice.
-    Empty,
-    /// A frame carrying `data.len()` payload bytes.
-    Data(Box<[u8]>),
+impl<R: Read> Read for Reader<R> {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        self.reader.read(buf)
+    }
 }
