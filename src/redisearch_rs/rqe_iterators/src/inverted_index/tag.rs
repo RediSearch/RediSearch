@@ -10,6 +10,7 @@
 use std::ptr::NonNull;
 
 use ffi::{RS_FIELDMASK_ALL, RedisSearchCtx, TagIndex, t_docId};
+use index_spec::IndexSpecReadGuard;
 use inverted_index::{
     DecodedBy, DocIdsDecoder, IndexReader, IndexReaderCore, RSIndexResult, RSOffsetSlice,
     opaque::OpaqueEncoding,
@@ -218,12 +219,15 @@ where
     }
 
     #[inline(always)]
-    fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
+    fn revalidate(
+        &mut self,
+        spec: &IndexSpecReadGuard,
+    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         if self.should_abort() {
             return Ok(RQEValidateStatus::Aborted);
         }
 
-        self.it.revalidate()
+        self.it.revalidate(spec)
     }
 
     #[inline(always)]

@@ -14,10 +14,12 @@ unittest = []
 build_utils = { path = "../build_utils" }
 
 [dependencies]
+cheadergen.workspace = true
 ffi.workspace = true
 rqe_iterator_type.workspace = true
 field.workspace = true
 idf.workspace = true
+index_spec.workspace = true
 inverted_index.workspace = true
 libc.workspace = true
 numeric_range_tree.workspace = true

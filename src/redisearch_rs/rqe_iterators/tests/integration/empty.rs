@@ -65,9 +65,10 @@ fn type_() {
 
 #[test]
 fn revalidate() {
+    let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
     let mut it = Empty::default();
-    assert_eq!(
-        it.revalidate().expect("revalidate failed"),
-        RQEValidateStatus::Ok
-    );
+    let status = it
+        .revalidate(&*mock_ctx.spec_read())
+        .expect("revalidate failed");
+    assert_eq!(status, RQEValidateStatus::Ok);
 }

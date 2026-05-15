@@ -11,7 +11,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "redismodule.h"
-#include "triemap.h"
+#include "triemap_ffi.h"
 #include "redisearch.h"
 #include "sortable.h"
 #include "byte_offsets.h"
@@ -166,6 +166,15 @@ static inline bool DocTable_CheckWideFieldMaskExpirationPredicate(const DocTable
   return TimeToLiveTable_VerifyDocAndWideFieldMask(t->ttl, docId, fieldMask, predicate, expirationPoint, ftIdToFieldIndex);
 }
 
+// Borrowed read of the field-expiration array for `docId`. Returns NULL if
+// this index has never registered any field-level TTLs (`t->ttl == NULL`)
+// or if `docId` has no field-level entry. See
+// TimeToLiveTable_GetFieldExpirations for lifetime / aliasing rules.
+static inline const arrayof(FieldExpiration) DocTable_GetFieldExpirations(const DocTable *t, t_docId docId) {
+  if (!t->ttl) return NULL;
+  return TimeToLiveTable_GetFieldExpirations(t->ttl, docId);
+}
+
 
 /** Get the docId of a key if it exists in the table, or 0 if it doesn't */
 t_docId DocTable_GetId(const DocTable *dt, const char *s, size_t n);
@@ -222,7 +231,10 @@ static inline void DMD_Return(const RSDocumentMetadata *cdmd) {
   }
 }
 
-void DocTable_LegacyRdbLoad(DocTable *t, RedisModuleIO *rdb, int encver);
+/* Load the doc table from RDB. This is used for legacy RDB load only.
+ * Returns REDISMODULE_OK on success, REDISMODULE_ERR on allocation failure.
+ */
+int DocTable_LegacyRdbLoad(DocTable *t, RedisModuleIO *rdb, int encver);
 
 t_docId DocTable_GetMaxDocId(const DocTable *t);
 

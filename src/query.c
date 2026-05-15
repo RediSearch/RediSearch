@@ -16,11 +16,11 @@
 #include "query.h"
 #include "config.h"
 #include "iterators/iterator_api.h"
-#include "query_error.h"
+#include "query_error_ffi.h"
 #include "redis_index.h"
-#include "iterators_rs.h"
+#include "iterators_ffi.h"
 #include "tokenize.h"
-#include "triemap.h"
+#include "triemap_ffi.h"
 #include "util/logging.h"
 #include "extension.h"
 #include "ext/default.h"
@@ -38,12 +38,11 @@
 #include "suffix.h"
 #include "wildcard.h"
 #include "geometry/geometry_api.h"
-#include "iterators_rs.h"
 #include "iterators/hybrid_reader.h"
 #include "iterators/optimizer_reader.h"
 #include "search_disk.h"
 #include "shard_window_ratio.h"
-#include "idf.h"
+#include "idf_ffi.h"
 #include "doc_id_meta.h"
 #define EFFECTIVE_FIELDMASK(q_, qn_) ((qn_)->opts.fieldMask & (q)->opts->fieldmask)
 
@@ -566,7 +565,7 @@ QueryIterator *Query_EvalTokenNode(QueryEvalCtx *q, QueryNode *qn) {
     size_t rlen = 0;
     runeBuf buf;
     rune *runes = runeBufFill(qn->tn.str, qn->tn.len, &buf, &rlen);
-    TrieNode *trienode = TrieNode_Get(q->sctx->spec->terms->root, runes, rlen, true, NULL);
+    TrieNode *trienode = Trie_GetNode(q->sctx->spec->terms, runes, rlen, true, NULL);
     runeBufFree(&buf);
     size_t numDocsInTerm = trienode ? trienode->numDocs : 0;
     double idf = CalculateIDF(q->sctx->spec->stats.scoring.numDocuments, numDocsInTerm);
@@ -648,7 +647,7 @@ static QueryIterator *iterateExpandedTerms(QueryEvalCtx *q, Trie *terms, const c
     size_t rlen = 0;
     runeBuf buf;
     rune *runes = runeBufFill("", 1, &buf, &rlen);
-    TrieNode *emptyNode = TrieNode_Get(terms->root, runes, rlen, true, NULL);
+    TrieNode *emptyNode = Trie_GetNode(terms, runes, rlen, true, NULL);
     runeBufFree(&buf);
     size_t numDocsInEmpty = emptyNode ? emptyNode->numDocs : 0;
     addTerm("", 0, numDocsInEmpty, q, opts, &its, &itsSz, &itsCap);
@@ -720,7 +719,7 @@ static QueryIterator *Query_EvalPrefixNode(QueryEvalCtx *q, QueryNode *qn) {
     if (qn->opts.fieldMask == RS_FIELDMASK_ALL ||
        (spec->suffixMask & qn->opts.fieldMask) == qn->opts.fieldMask) {
       SuffixCtx sufCtx = {
-        .root = spec->suffix->root,
+        .trie = spec->suffix,
         .rune = str,
         .runelen = nstr,
         .type = qn->pfx.prefix ? SUFFIX_TYPE_CONTAINS : SUFFIX_TYPE_SUFFIX,
@@ -733,9 +732,9 @@ static QueryIterator *Query_EvalPrefixNode(QueryEvalCtx *q, QueryNode *qn) {
       QueryError_SetError(q->status, QUERY_ERROR_CODE_GENERIC, "Contains query on fields without WITHSUFFIXTRIE support");
     }
   } else {
-    TrieNode_IterateContains(t->root, str, nstr, qn->pfx.prefix, qn->pfx.suffix,
-                           runeIterCb, &ctx, &q->sctx->time.timeout,
-                           q->sctx->time.skipTimeoutChecks);
+    Trie_IterateContains(t, str, nstr, qn->pfx.prefix, qn->pfx.suffix,
+                         runeIterCb, &ctx, &q->sctx->time.timeout,
+                         q->sctx->time.skipTimeoutChecks);
   }
 
   rm_free(str);
@@ -777,7 +776,7 @@ static QueryIterator *Query_EvalWildcardQueryNode(QueryEvalCtx *q, QueryNode *qn
     if (qn->opts.fieldMask == RS_FIELDMASK_ALL ||
        (spec->suffixMask & qn->opts.fieldMask) == qn->opts.fieldMask) {
       SuffixCtx sufCtx = {
-        .root = spec->suffix->root,
+        .trie = spec->suffix,
         .rune = str,
         .runelen = nstr,
         .cstr = token->str,
@@ -798,8 +797,8 @@ static QueryIterator *Query_EvalWildcardQueryNode(QueryEvalCtx *q, QueryNode *qn
   }
 
   if (!spec->suffix || fallbackBruteForce) {
-    TrieNode_IterateWildcard(t->root, str, nstr, runeIterCb, &ctx, &q->sctx->time.timeout,
-                             q->sctx->time.skipTimeoutChecks);
+    Trie_IterateWildcard(t, str, nstr, runeIterCb, &ctx, &q->sctx->time.timeout,
+                         q->sctx->time.skipTimeoutChecks);
   }
 
   rm_free(str);
@@ -869,7 +868,7 @@ static int charIterCb(const char *s, size_t n, void *p, void *payload) {
     size_t rlen = 0;
     runeBuf buf;
     rune *runes = runeBufFill(tok.str, tok.len, &buf, &rlen);
-    TrieNode *trienode = TrieNode_Get(q->sctx->spec->terms->root, runes, rlen, true, NULL);
+    TrieNode *trienode = Trie_GetNode(q->sctx->spec->terms, runes, rlen, true, NULL);
     runeBufFree(&buf);
     size_t numDocsInTerm = trienode ? trienode->numDocs : 0;
     double idf = CalculateIDF(q->sctx->spec->stats.scoring.numDocuments, numDocsInTerm);
@@ -910,8 +909,8 @@ static QueryIterator *Query_EvalLexRangeNode(QueryEvalCtx *q, QueryNode *lx) {
     end = strToLowerRunes(lx->lxrng.end, strlen(lx->lxrng.end), &nend);
   }
 
-  TrieNode_IterateRange(t->root, begin, begin ? nbegin : -1, lx->lxrng.includeBegin, end,
-                        end ? nend : -1, lx->lxrng.includeEnd, runeIterCb, &ctx);
+  Trie_IterateRange(t, begin, begin ? nbegin : -1, lx->lxrng.includeBegin, end,
+                    end ? nend : -1, lx->lxrng.includeEnd, runeIterCb, &ctx);
   rm_free(begin);
   rm_free(end);
 
@@ -1081,9 +1080,8 @@ static QueryIterator *Query_EvalVectorNode(QueryEvalCtx *q, QueryNode *qn) {
     handle->is_valid = true;
 
     if (it->type == HYBRID_ITERATOR) {
-      HybridIterator *hybridIt = (HybridIterator *)it;
-      handle->key_ptr = &hybridIt->ownKey;
-      hybridIt->keyHandle = handle; // Set up back-reference
+      handle->key_ptr = HybridIterator_GetOwnKeyRef(it);
+      HybridIterator_SetKeyHandle(it, handle); // Set up back-reference
     } else { // Must be METRIC_ITERATOR due to the condition above
       handle->key_ptr = GetMetricOwnKeyRef(it);
       SetMetricRLookupHandle(it, handle); // Set up back-reference
@@ -2242,7 +2240,8 @@ static int QueryVectorNode_ApplyAttribute(VectorQuery *vq, QueryAttribute *attr,
   } else if (STR_EQCASE(attr->name, attr->namelen, VECSIM_EFRUNTIME) ||
              STR_EQCASE(attr->name, attr->namelen, VECSIM_EPSILON) ||
              STR_EQCASE(attr->name, attr->namelen, VECSIM_HYBRID_POLICY) ||
-             STR_EQCASE(attr->name, attr->namelen, VECSIM_BATCH_SIZE)) {
+             STR_EQCASE(attr->name, attr->namelen, VECSIM_BATCH_SIZE) ||
+             STR_EQCASE(attr->name, attr->namelen, VECSIM_RERANK)) {
     // Move ownership on the value string, so it won't get freed when releasing the QueryAttribute.
     // The name string was not copied by the parser (unlike the value) - so we copy and save it.
     VecSimRawParam param = (VecSimRawParam){ .name = rm_strndup(attr->name, attr->namelen),

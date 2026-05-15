@@ -10,6 +10,8 @@
 #include "search_disk.h"
 #include "config.h"
 #include "spec.h"
+#include "query_term_ffi.h"
+#include "sorting_vector_ffi.h"
 #include "redismodule.h"
 
 RedisSearchDiskAPI *disk = NULL;
@@ -405,6 +407,11 @@ uint64_t SearchDisk_GetInvertedIndexTotalMemory(RedisSearchDiskIndexSpec* index)
 uint64_t SearchDisk_GetVectorIndexTotalMemory(RedisSearchDiskIndexSpec* index) {
   RS_ASSERT(disk && disk_db && index);
   return disk->metrics.getVectorIndexTotalMemory(disk_db, index);
+}
+
+uint64_t SearchDisk_GetNumRecords(RedisSearchDiskIndexSpec* index) {
+  RS_ASSERT(disk && index);
+  return disk->metrics.getNumRecords(index);
 }
 
 void SearchDisk_OutputInfoMetrics(RedisModuleInfoCtx* ctx) {

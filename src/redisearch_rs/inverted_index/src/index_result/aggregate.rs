@@ -18,7 +18,7 @@ use super::kind::RSResultKindMask;
 /// using Rust since the internals cannot be constructed directly in C. The reason is because of
 /// the `ThinVec` which needs to exist in Rust's memory space to ensure its memory is
 /// managed correctly.
-/// cbindgen:prefix-with-name=true
+#[cheadergen::config(prefix_with_name)]
 #[repr(u8)]
 #[derive(Debug, PartialEq)]
 pub enum RSAggregateResult<'index> {

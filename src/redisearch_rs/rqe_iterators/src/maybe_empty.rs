@@ -10,6 +10,7 @@
 //! Helper wrapping either [`Empty`] or the provided [`RQEIterator`].
 
 use ffi::t_docId;
+use index_spec::IndexSpecReadGuard;
 use inverted_index::RSIndexResult;
 
 use crate::{
@@ -117,10 +118,13 @@ where
     }
 
     #[inline(always)]
-    fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
+    fn revalidate(
+        &mut self,
+        spec: &IndexSpecReadGuard,
+    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         match &mut self.0 {
-            MaybeEmptyOption::None(empty) => empty.revalidate(),
-            MaybeEmptyOption::Some(it) => it.revalidate(),
+            MaybeEmptyOption::None(empty) => empty.revalidate(spec),
+            MaybeEmptyOption::Some(it) => it.revalidate(spec),
         }
     }
 

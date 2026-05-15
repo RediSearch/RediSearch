@@ -45,7 +45,7 @@ on:
 
 jobs:
   get-config:
-    runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
+    runs-on: ubuntu-slim
     outputs:
       env: ${{ steps.get-config.outputs.env }}
       container: ${{ steps.get-config.outputs.container }}
@@ -98,6 +98,11 @@ jobs:
           # Platform configurations
           platform_configs = {
               "macos-14": {
+                  "x86_64": {
+                      'env': 'macos-14-large',
+                      'name': 'macOS 14 x86_64',
+                      'enable_lto': '0' # Currently not possible on macOS.
+                  },
                   "aarch64": {
                       'env': 'macos-14',
                       # Apple's ld (through Xcode 16.2) has an ARM64 linker bug that misaligns

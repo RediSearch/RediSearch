@@ -13,7 +13,7 @@
 #pragma once
 
 #include "redismodule.h"
-#include "query_error.h"
+#include "query_error_ffi.h"
 
 // Coordinator empty reply for FT.SEARCH commands.
 // Handles both RESP2 and RESP3 with proper search result formatting.
@@ -33,3 +33,9 @@ int common_hybrid_query_reply_empty(RedisModuleCtx *ctx, QueryErrorCode errCode,
 // Handles both RESP2 and RESP3 with command-appropriate formatting.
 // Works for both SEARCH and AGGREGATE by compiling query for format detection.
 int single_shard_common_query_reply_empty(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, int execOptions, QueryErrorCode errCode);
+
+// Coordinator empty cursor-shaped reply for FT.CURSOR READ on the RETURN_STRICT
+// timeout fast-path (timer fires before BG took the cursor). Preserves `cid`
+// so the client can retry, and bumps the timeout warning stats counter for
+// parity with `AREQ_ReplyWithStoredResults`.
+int coord_cursor_read_empty_reply_timeout(RedisModuleCtx *ctx, long long cid);

@@ -14,13 +14,17 @@
 #include "hybrid_request.h"
 #include "search_ctx.h"
 #include "aggregate/aggregate.h"
-#include "query_error.h"
+#include "query_error_ffi.h"
 #include "cursor.h"
 #include "profile/options.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+#define SEARCH_SUFFIX "(SEARCH)"
+#define VSIM_SUFFIX "(VSIM)"
+#define POST_PROCESSING_SUFFIX "(POST PROCESSING)"
 
 /**
  * Main command handler for FT.HYBRID command.

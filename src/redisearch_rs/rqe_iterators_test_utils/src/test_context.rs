@@ -89,7 +89,7 @@ impl Drop for ModuleCtx {
 pub struct TestContext {
     _ctx: ModuleCtx,
     pub sctx: ptr::NonNull<ffi::RedisSearchCtx>,
-    pub spec: ptr::NonNull<ffi::IndexSpec>,
+    pub spec: *mut ffi::IndexSpec,
 
     inner: TestContextInner,
 }
@@ -122,10 +122,7 @@ fn create_spec_sctx(
     ctx: &ModuleCtx,
     schema: &str,
     index_name: &str,
-) -> (
-    ptr::NonNull<ffi::IndexSpec>,
-    ptr::NonNull<ffi::RedisSearchCtx>,
-) {
+) -> (*mut ffi::IndexSpec, ptr::NonNull<ffi::RedisSearchCtx>) {
     let args = schema
         .split(" ")
         .map(|s| CString::new(s).expect("Failed to create CString"))
@@ -158,10 +155,43 @@ fn create_spec_sctx(
     let sctx = unsafe { ffi::NewSearchCtxC(ctx.as_ptr(), index_name.as_ptr(), false) };
     let sctx = ptr::NonNull::new(sctx).expect("RedisSearchCtx should not be null");
 
-    (spec, sctx)
+    (spec.as_ptr(), sctx)
 }
 
 impl TestContext {
+    /// Returns a read guard for the spec.
+    ///
+    /// Returns `ManuallyDrop<IndexSpecReadGuard>` since tests don't use real locks
+    /// and don't need/want the drop behavior.
+    ///
+    /// This is for test-only use. Tests don't use real locks, so this creates
+    /// a guard without actually acquiring a lock. All safety requirements are
+    /// upheld internally - the spec is valid and accessible without a lock in
+    /// test contexts.
+    pub fn spec_read(&self) -> std::mem::ManuallyDrop<index_spec::IndexSpecReadGuard<'_>> {
+        // SAFETY: The underlying spec exists and is valid. In test contexts,
+        // no lock is needed for safe access.
+        unsafe { index_spec::IndexSpecReadGuard::from_locked(&*self.spec) }
+    }
+
+    /// Returns a write guard for the spec.
+    ///
+    /// Returns `ManuallyDrop<IndexSpecWriteGuard>` since tests don't use real locks
+    /// and don't need/want the drop behavior.
+    ///
+    /// This is for test-only use for simulating spec mutations (e.g., garbage
+    /// collection). Tests don't use real locks, so this creates a guard without
+    /// actually acquiring a lock. All safety requirements are upheld internally.
+    ///
+    /// **Note:** While this provides mutable access to the spec, it's the test's
+    /// responsibility to ensure this is used appropriately (e.g., not while other
+    /// references are actively being used).
+    pub fn spec_write(&self) -> std::mem::ManuallyDrop<index_spec::IndexSpecWriteGuard<'_>> {
+        // SAFETY: The underlying spec exists and is valid. In test contexts,
+        // no lock is needed. Caller guarantees exclusive access.
+        unsafe { index_spec::IndexSpecWriteGuard::from_locked_mut(&mut *self.spec) }
+    }
+
     /// Create a new [`TestContext`] with a numeric inverted index having the given records.
     ///
     /// # Arguments
@@ -177,14 +207,14 @@ impl TestContext {
         let ctx = ModuleCtx::new();
         // Create IndexSpec for NUMERIC field with unique name to avoid parallel test conflicts
         let index_name = unique_index_name("numeric_idx");
-        let (mut spec, sctx) = create_spec_sctx(&ctx, "SCHEMA num_field NUMERIC", &index_name);
+        let (spec, sctx) = create_spec_sctx(&ctx, "SCHEMA num_field NUMERIC", &index_name);
 
         // We need to properly set up the numeric range tree
         // so that NumericCheckAbort can find it and check revision IDs
         let field_name = CString::new("num_field").unwrap();
         let fs = unsafe {
             ffi::IndexSpec_GetFieldWithLength(
-                spec.as_ptr(),
+                spec,
                 field_name.as_ptr(),
                 field_name.as_bytes().len(),
             )
@@ -193,7 +223,7 @@ impl TestContext {
 
         // Create the numeric range tree through the proper API
         let numeric_range_tree = unsafe {
-            rqe_iterators::open_numeric_or_geo_index(spec.as_mut(), fs.as_mut(), true, true)
+            rqe_iterators::open_numeric_or_geo_index(&mut *spec, fs.as_mut(), true, true)
         }
         .expect("NumericRangeTree should not be None");
 
@@ -248,7 +278,7 @@ impl TestContext {
         let field_name = CString::new("text_field").unwrap();
         let fs = unsafe {
             ffi::IndexSpec_GetFieldWithLength(
-                spec.as_ptr(),
+                spec,
                 field_name.as_ptr(),
                 field_name.as_bytes().len(),
             )
@@ -261,7 +291,7 @@ impl TestContext {
         let mut is_new = false;
         let inverted_index = unsafe {
             ffi::Redis_OpenInvertedIndex(
-                sctx.as_ptr(),
+                spec,
                 term.as_ptr(),
                 term.as_bytes().len(),
                 true, // write mode
@@ -304,7 +334,7 @@ impl TestContext {
         let ctx = ModuleCtx::new();
         // Create IndexSpec with unique name to avoid parallel test conflicts
         let index_name = unique_index_name("wildcard_idx");
-        let (mut spec, sctx) = create_spec_sctx(&ctx, "SCHEMA text_field TEXT", &index_name);
+        let (spec, sctx) = create_spec_sctx(&ctx, "SCHEMA text_field TEXT", &index_name);
 
         let mut memsize = 0;
         let ii_ptr = inverted_index_ffi::NewInvertedIndex_Ex(
@@ -330,7 +360,7 @@ impl TestContext {
         // Set spec.existingDocs so Wildcard::should_abort() can find the index
         // during revalidation (it compares spec.existingDocs with the reader's index).
         unsafe {
-            spec.as_mut().existingDocs = ii_ptr.cast();
+            (&mut *spec).existingDocs = ii_ptr.cast();
         }
 
         Self {
@@ -361,7 +391,7 @@ impl TestContext {
         let field_name = std::ffi::CString::new("text_field").unwrap();
         let fs = unsafe {
             ffi::IndexSpec_GetFieldWithLength(
-                spec.as_ptr(),
+                spec,
                 field_name.as_ptr(),
                 field_name.as_bytes().len(),
             )
@@ -396,7 +426,7 @@ impl TestContext {
         unsafe {
             let field_name_key = (*field_spec.as_ptr()).fieldName;
             let rc = ffi::RS_dictAdd(
-                (*spec.as_ptr()).missingFieldDict,
+                (&*spec).missingFieldDict,
                 field_name_key as *mut _,
                 ii_ptr as *mut _,
             );
@@ -437,7 +467,7 @@ impl TestContext {
         let field_name = CString::new("tag_field").unwrap();
         let fs = unsafe {
             ffi::IndexSpec_GetFieldWithLength(
-                spec.as_ptr(),
+                spec,
                 field_name.as_ptr(),
                 field_name.as_bytes().len(),
             )
@@ -709,30 +739,17 @@ impl TestContext {
         tree.node_mut(index).range_mut().unwrap().entries_mut()
     }
 
-    /// Set [`SchemaRule::index_all`](ffi::SchemaRule::index_all).
-    ///
-    /// # Safety
-    ///
-    /// Must not be called while any iterator created from this context is
-    /// still alive, as it mutates the spec's rule through a raw pointer.
-    pub unsafe fn set_index_all(&self, value: bool) {
-        // SAFETY: Caller guarantees no iterators from this context are alive,
-        // so the write does not race. The spec and rule pointers are valid
-        // because they were created during TestContext construction.
-        unsafe {
-            (*(*self.spec.as_ptr()).rule).index_all = value;
-        }
-    }
-
     /// Initialize the TTL table if not already initialized.
     fn verify_ttl_init(&mut self) {
-        // SAFETY: self.spec is a valid pointer created via IndexSpec_ParseC.
+        let mut guard = self.spec_write();
+        guard.set_monitor_document_expiration(true);
+        guard.set_monitor_field_expiration(true);
+
+        let mut doc_table = guard.doc_table();
+
+        // SAFETY: doc_table is a valid pointer to the spec's document table, and maxSize is properly initialized.
         unsafe {
-            let spec = self.spec.as_mut();
-            // Enable expiration monitoring (required for expiration checks to work)
-            spec.monitorDocumentExpiration = true;
-            spec.monitorFieldExpiration = true;
-            ffi::TimeToLiveTable_VerifyInit(&mut spec.docs.ttl, spec.docs.maxSize as usize);
+            ffi::TimeToLiveTable_VerifyInit(&mut doc_table.ttl, doc_table.maxSize as usize);
         }
     }
 
@@ -789,8 +806,9 @@ impl TestContext {
         };
 
         // SAFETY: self.spec is valid, TTL table is initialized, fe is a valid array
+        let guard = self.spec_read();
         unsafe {
-            ffi::TimeToLiveTable_Add(self.spec.as_ref().docs.ttl, doc_id, fe as _);
+            ffi::TimeToLiveTable_Add(guard.doc_table().ttl, doc_id, fe as _);
         }
     }
 
@@ -839,8 +857,9 @@ impl Drop for TestContext {
         }
 
         // Remove spec from globals (this may free associated indices)
+        let guard = self.spec_read();
         unsafe {
-            ffi::IndexSpec_RemoveFromGlobals(self.spec.as_ref().own_ref, false);
+            ffi::IndexSpec_RemoveFromGlobals(guard.own_ref(), false);
         }
     }
 }

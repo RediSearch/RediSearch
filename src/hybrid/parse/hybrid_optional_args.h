@@ -9,7 +9,7 @@
 #pragma once
 
 #include "aggregate/aggregate_plan.h"
-#include "query_error.h"
+#include "query_error_ffi.h"
 #include "hybrid//hybrid_scoring.h"
 #include "util/arg_parser.h"
 #include "aggregate/aggregate.h"

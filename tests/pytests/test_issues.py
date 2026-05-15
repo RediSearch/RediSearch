@@ -144,6 +144,18 @@ def test_MOD_865(env):
   env.expect(*args_list).error().contains('Duplicate field in schema - txt')
   env.expect('FT.DROPINDEX', 'idx')
 
+def test_MOD_6411(env):
+  # FT.CREATE used to crash on a stack overflow when the argument list was
+  # large enough (the parser allocated a VLA of `const char *` on the stack).
+  # The parser now consumes RedisModuleString ** directly through ArgsCursor,
+  # so an oversized field list is rejected with the standard schema-limit
+  # error instead of crashing the server.
+  args_list = ['FT.CREATE', 'idx', 'SCHEMA']
+  for i in range(100000):
+    args_list.extend([f'field{i}', 'NUMERIC', 'SORTABLE'])
+  env.expect(*args_list).error().contains('Schema is limited to 1024 fields')
+  env.expect('FT.DROPINDEX', 'idx')
+
 def test_issue1826(env):
   # Stopword query is case sensitive.
   conn = getConnectionByEnv(env)

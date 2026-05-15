@@ -6,8 +6,11 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
+#include <math.h>
+#include <limits.h>
+
 #include "spec.h"
-#include "inverted_index.h"
+#include "inverted_index_ffi.h"
 #include "vector_index.h"
 #include "cursor.h"
 #include "resp3.h"
@@ -21,7 +24,7 @@
 #include "field_spec_info.h"
 #include "info/info_redis/threads/current_thread.h"
 #include "obfuscation/obfuscation_api.h"
-#include "query_error.h"
+#include "query_error_ffi.h"
 #include "search_disk.h"
 
 static void renderIndexOptions(RedisModule_Reply *reply, const IndexSpec *sp) {
@@ -257,21 +260,23 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
   REPLY_KVINT("max_doc_id", maxDocId);
   REPLY_KVINT("num_terms", sp->stats.scoring.numTerms);
 
-  const bool isDisk = SearchDisk_IsEnabledForValidation();
-  size_t num_records = isDisk ? 0 : sp->stats.numRecords;
-  size_t inverted_size = isDisk ? 0 : sp->stats.invertedSize;
+  const bool isDisk = sp->diskSpec != NULL;
+  size_t num_records = isDisk ? SearchDisk_GetNumRecords(sp->diskSpec) : sp->stats.numRecords;
   // Vector indexes (e.g. HNSW) remain in memory even when the rest of the
   // index is stored on disk, so their memory must always be reported.
   size_t vector_indexes_size = IndexSpec_VectorIndexesSize(specForOpeningIndexes);
   size_t total_ii_blocks = isDisk ? 0 : TotalIIBlocks();
   size_t offset_vecs_size = isDisk ? 0 : sp->stats.offsetVecsSize;
-  size_t doc_table_size = isDisk ? 0 : sp->docs.memsize;
   size_t sortables_size = isDisk ? 0 : sp->docs.sortablesSize;
   size_t dt_tm_size = isDisk ? 0 : TrieMap_MemUsage(sp->docs.dim.tm);
   size_t tags_overhead = isDisk ? 0 : IndexSpec_collect_tags_overhead(sp);
   size_t text_overhead = IndexSpec_collect_text_overhead(sp);
-  size_t total_memory = IndexSpec_TotalMemUsage(specForOpeningIndexes, dt_tm_size,
-    tags_overhead, text_overhead, vector_indexes_size);
+  size_t total_memory = IndexSpec_TotalMemUsage(specForOpeningIndexes, dt_tm_size, tags_overhead,
+    text_overhead, vector_indexes_size);
+  size_t inverted_size = isDisk ? SearchDisk_GetInvertedIndexTotalMemory(sp->diskSpec) :
+    sp->stats.invertedSize;
+  size_t doc_table_size = isDisk ? SearchDisk_GetDocTableTotalMemory(sp->diskSpec) :
+    sp->docs.memsize;
   size_t geoshapes_size = isDisk ? 0 : geom_idx_sz;
   size_t offset_vec_records = isDisk ? 0 : sp->stats.offsetVecRecords;
 
@@ -289,12 +294,18 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
   REPLY_KVNUM("geoshapes_sz_mb", geoshapes_size / (float)0x100000);
   REPLY_KVNUM("records_per_doc_avg",
               (float)num_records / (float)sp->stats.scoring.numDocuments);
+  double bytes_per_record_avg = num_records ?
+    (float)inverted_size / (float)num_records : NAN;
   REPLY_KVNUM("bytes_per_record_avg",
-              (float)inverted_size / (float)num_records);
-  REPLY_KVNUM("offsets_per_term_avg",
-              (float)offset_vec_records / (float)num_records);
-  REPLY_KVNUM("offset_bits_per_record_avg",
-              8.0F * (float)offset_vecs_size / (float)offset_vec_records);
+              bytes_per_record_avg);
+  // Disk indexes don't track offset record counts; report NaN rather than 0
+  // (which would falsely imply the metric is meaningful).
+  double offsets_per_term_avg = (isDisk || !num_records) ? NAN :
+    (float)offset_vec_records / (float)num_records;
+  REPLY_KVNUM("offsets_per_term_avg", offsets_per_term_avg);
+  double offset_bits_per_record_avg = (isDisk || !offset_vec_records) ? NAN :
+    (float)CHAR_BIT * (float)offset_vecs_size / (float)offset_vec_records;
+  REPLY_KVNUM("offset_bits_per_record_avg", offset_bits_per_record_avg);
   // TODO: remove this once "hash_indexing_failures" is deprecated
   // Legacy for not breaking changes
   REPLY_KVINT("hash_indexing_failures", sp->stats.indexError.error_count);

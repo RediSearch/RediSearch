@@ -18,6 +18,7 @@ use value::SharedValue;
 use value_ffi::RSValue;
 use value_ffi::util::into_shared_value;
 
+#[cheadergen::config(export)]
 pub const RS_SORTABLES_MAX: usize = 1024;
 
 // Verify that the ThinVec<SharedValue, u32> heap header has no padding before data,

@@ -8,6 +8,7 @@
 */
 
 use ffi::t_docId;
+use index_spec::IndexSpecReadGuard;
 use inverted_index::{IndexReader, RSIndexResult};
 
 use crate::{
@@ -286,7 +287,10 @@ where
         self.at_eos
     }
 
-    fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
+    fn revalidate(
+        &mut self,
+        _spec: &IndexSpecReadGuard,
+    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         if !self.reader.needs_revalidation() {
             return Ok(RQEValidateStatus::Ok);
         }

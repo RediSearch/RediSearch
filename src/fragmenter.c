@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "fragmenter.h"
+#include "query_term_ffi.h"
 #include "toksep.h"
 #include "tokenize.h"
 #include "util/minmax.h"

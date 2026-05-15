@@ -9,6 +9,8 @@
 #include "indexer.h"
 #include "forward_index.h"
 #include "inverted_index.h"
+#include "inverted_index_ffi.h"
+#include "sorting_vector_ffi.h"
 #include "geo_index.h"
 #include "vector_index.h"
 #include "redis_index.h"
@@ -23,6 +25,7 @@
 #include "info/global_stats.h"
 #include "gc.h"
 #include "doc_id_meta.h"
+#include "metrics_ffi.h"
 
 extern RedisModuleCtx *RSDummyContext;
 
@@ -115,7 +118,7 @@ static void writeCurEntries(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
       }
     } else {
       bool isNew;
-      InvertedIndex *invidx = Redis_OpenInvertedIndex(ctx, entry->term, entry->len, 1, &isNew);
+      InvertedIndex *invidx = Redis_OpenInvertedIndex(ctx->spec, entry->term, entry->len, 1, &isNew);
       if (isNew && strlen(entry->term) != 0) {
         IndexSpec_AddTerm(spec, entry->term, entry->len);
       }
@@ -286,6 +289,8 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
         // so it can read `expirationTimeNs` directly without going through
         // a flag-gated branch.
         DocTable_UpdateExpiration(&ctx->spec->docs, md, doc->docExpirationTime, doc->fieldExpirations);
+
+        doc->fieldExpirations = NULL; // Moved to DocTable (TTL table actually)
       }
       DMD_Return(md);
     }
@@ -384,7 +389,8 @@ static void writeMissingFieldDocs(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx, 
     }
     // Add docId to inverted index
     t_docId docId = aCtx->doc->docId;
-    RSIndexResult rec = {.data.tag = RSResultData_Virtual, .docId = docId, .freq = 0};
+    RSIndexResult rec = {.data.tag = RSResultData_Virtual, .docId = docId, .freq = 0,
+                         .metrics = MetricsVec_New()};
     aCtx->spec->stats.invertedSize +=InvertedIndex_WriteEntryGeneric(iiMissingDocs, &rec);
   }
   dictReleaseIterator(iter);
@@ -404,7 +410,8 @@ static void writeExistingDocs(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
   }
 
   t_docId docId = aCtx->doc->docId;
-  RSIndexResult rec = {.data.tag = RSResultData_Virtual, .docId = docId, .freq = 0};
+  RSIndexResult rec = {.data.tag = RSResultData_Virtual, .docId = docId, .freq = 0,
+                       .metrics = MetricsVec_New()};
   aCtx->spec->stats.invertedSize += InvertedIndex_WriteEntryGeneric(sctx->spec->existingDocs, &rec);
 }
 
@@ -453,8 +460,17 @@ static void Indexer_Process(RSAddDocumentCtx *aCtx) {
   // Index the document in the `existing docs` inverted index
   writeExistingDocs(aCtx, &ctx);
 
-  // Handle missing values indexing
-  writeMissingFieldDocs(aCtx, &ctx, doc->fieldExpirations);
+  // On the non-disk path, `doc->fieldExpirations` ownership has already been
+  // moved into the TTL table by `doAssignIds` on success. On failure (e.g.
+  // `makeDocumentId` returned NULL), the array stays attached to `doc` so
+  // `Document_Free` can release it.
+  arrayof(FieldExpiration) fes;
+  if (SearchDisk_IsEnabled()) {
+    fes = doc->fieldExpirations;
+  } else {
+    fes = (arrayof(FieldExpiration))DocTable_GetFieldExpirations(&ctx.spec->docs, doc->docId);
+  }
+  writeMissingFieldDocs(aCtx, &ctx, fes);
 
   // Handle FULLTEXT indexes
   if ((aCtx->fwIdx && (aCtx->stateFlags & ACTX_F_ERRORED) == 0)) {

@@ -23,6 +23,9 @@ jobs:
     # so we run the build natively on the matching-arch runner instead of
     # cross-compiling.
     runs-on: ${{ inputs.arch == 'aarch64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
+    permissions:
+      contents: read  # actions/checkout
+      id-token: write # OIDC role assumption for sccache S3
     defaults:
       run:
         shell: bash -l -eo pipefail {0}
@@ -32,7 +35,7 @@ jobs:
       BUILD_DIR: ${{ format('bin/linux-{0}-release/search-community', inputs.arch == 'aarch64' && 'aarch64' || 'x64') }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           submodules: recursive
       - name: Setup specific
@@ -45,6 +48,11 @@ jobs:
         run: ./install_boost.sh
       - name: Setup sccache
         uses: ./.github/actions/setup-sccache
+        with:
+          aws-role: ${{ vars.SCCACHE_AWS_ROLE_TO_ASSUME }}
+          s3-bucket: ${{ vars.SCCACHE_S3_BUCKET }}
+          s3-region: ${{ vars.SCCACHE_S3_REGION }}
+          s3-key-prefix: ${{ vars.SCCACHE_S3_KEY_PREFIX }}
       - name: Build RediSearch
         run: make build LTO=1
       - name: Show sccache stats

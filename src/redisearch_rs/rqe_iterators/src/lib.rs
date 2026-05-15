@@ -7,8 +7,10 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use ffi::t_docId;
 use std::sync::OnceLock;
+
+use ffi::t_docId;
+use index_spec::IndexSpecReadGuard;
 use thiserror::Error;
 
 use ::inverted_index::{RSIndexResult, t_fieldMask};
@@ -133,8 +135,17 @@ pub trait RQEIterator<'index> {
 
     /// Called when the iterator is being revalidated after a concurrent index change.
     ///
-    /// The iterator should check if it is still valid.
-    fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError>;
+    /// The iterator should check if it is still valid by comparing its stored state
+    /// against the current index state.
+    ///
+    /// # Locking
+    ///
+    /// The caller must hold the spec read lock, represented by [`IndexSpecReadGuard`].
+    /// The lock ensures the spec remains valid and unchanged during this call.
+    fn revalidate(
+        &mut self,
+        spec: &IndexSpecReadGuard,
+    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError>;
 
     /// Rewind the iterator to the beginning and reset its properties.
     fn rewind(&mut self);
@@ -194,8 +205,11 @@ impl<'index, I: RQEIterator<'index> + 'index> RQEIterator<'index> for Box<I> {
         (**self).skip_to(doc_id)
     }
 
-    fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        (**self).revalidate()
+    fn revalidate(
+        &mut self,
+        spec: &IndexSpecReadGuard,
+    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
+        (**self).revalidate(spec)
     }
 
     fn rewind(&mut self) {
@@ -248,8 +262,11 @@ impl<'index> RQEIterator<'index> for Box<dyn RQEIterator<'index> + 'index> {
         (**self).skip_to(doc_id)
     }
 
-    fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        (**self).revalidate()
+    fn revalidate(
+        &mut self,
+        spec: &IndexSpecReadGuard,
+    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
+        (**self).revalidate(spec)
     }
 
     fn rewind(&mut self) {

@@ -169,8 +169,9 @@ impl QueryIterator {
     }
 
     #[inline(always)]
-    pub fn revalidate(&self) -> ValidateStatus {
-        unsafe { (*self.0).Revalidate.unwrap()(self.0) }
+    pub unsafe fn revalidate(&self, spec: *mut ffi::IndexSpec) -> ValidateStatus {
+        // SAFETY: Caller must ensure spec is a valid pointer
+        unsafe { (*self.0).Revalidate.unwrap()(self.0, spec) }
     }
 
     #[inline(always)]

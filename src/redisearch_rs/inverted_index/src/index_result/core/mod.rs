@@ -282,9 +282,9 @@ impl<'index> RSTermResultBuilder<'index> {
 }
 
 /// The result of an inverted index
-/// cbindgen:rename-all=CamelCase
 #[repr(C)]
 #[derive(Debug, PartialEq)]
+#[cheadergen::config(export, rename_all = "camelCase")]
 pub struct RSIndexResult<'index> {
     /// The document ID of the result
     pub doc_id: t_docId,

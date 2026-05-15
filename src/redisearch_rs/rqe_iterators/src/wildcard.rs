@@ -12,6 +12,7 @@
 use std::ptr::NonNull;
 
 use ffi::{RS_FIELDMASK_ALL, t_docId};
+use index_spec::IndexSpecReadGuard;
 use inverted_index::codec::{doc_ids_only::DocIdsOnly, raw_doc_ids_only::RawDocIdsOnly};
 use inverted_index::{DocIdsDecoder, RSIndexResult, opaque};
 
@@ -95,7 +96,10 @@ impl<'index> RQEIterator<'index> for Wildcard<'index> {
         self.result.doc_id >= self.top_id
     }
 
-    fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
+    fn revalidate(
+        &mut self,
+        _spec: &IndexSpecReadGuard,
+    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         Ok(RQEValidateStatus::Ok)
     }
 
@@ -153,8 +157,11 @@ impl<'index> RQEIterator<'index> for Box<dyn WildcardIterator<'index> + 'index> 
         (**self).skip_to(doc_id)
     }
 
-    fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        (**self).revalidate()
+    fn revalidate(
+        &mut self,
+        spec: &IndexSpecReadGuard,
+    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
+        (**self).revalidate(spec)
     }
 
     fn rewind(&mut self) {
@@ -256,8 +263,11 @@ impl<'index> RQEIterator<'index> for OptimizedWildcard<'index> {
         delegate_rqe_iterator!(self, at_eof)
     }
 
-    fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        delegate_rqe_iterator!(self, revalidate)
+    fn revalidate(
+        &mut self,
+        spec: &IndexSpecReadGuard,
+    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
+        delegate_rqe_iterator!(self, revalidate, spec)
     }
 
     #[inline(always)]
@@ -317,8 +327,11 @@ impl<'index> RQEIterator<'index> for NewWildcardIterator<'index> {
         delegate_wildcard_iterator!(self, at_eof)
     }
 
-    fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        delegate_wildcard_iterator!(self, revalidate)
+    fn revalidate(
+        &mut self,
+        spec: &IndexSpecReadGuard,
+    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
+        delegate_wildcard_iterator!(self, revalidate, spec)
     }
 
     #[inline(always)]
@@ -376,20 +389,12 @@ pub unsafe fn new_wildcard_iterator_optimized<'index>(
             // encoding (4).
             let ii_ref = unsafe { ii.as_ref() };
             let optimized = match ii_ref {
-                opaque::InvertedIndex::DocIdsOnly(ii) => {
-                    // SAFETY: All preconditions of `Wildcard::new` are
-                    // satisfied: `sctx` is valid (1), `sctx.spec` is valid (2),
-                    // both remain valid for `'index`, and the encoding matches.
-                    OptimizedWildcard::DocIdsOnly(unsafe {
-                        crate::inverted_index::Wildcard::new(ii.reader(), sctx, weight)
-                    })
-                }
-                opaque::InvertedIndex::RawDocIdsOnly(ii) => {
-                    // SAFETY: Same as the `DocIdsOnly` arm above.
-                    OptimizedWildcard::RawDocIdsOnly(unsafe {
-                        crate::inverted_index::Wildcard::new(ii.reader(), sctx, weight)
-                    })
-                }
+                opaque::InvertedIndex::DocIdsOnly(ii) => OptimizedWildcard::DocIdsOnly(
+                    crate::inverted_index::Wildcard::new(ii.reader(), weight),
+                ),
+                opaque::InvertedIndex::RawDocIdsOnly(ii) => OptimizedWildcard::RawDocIdsOnly(
+                    crate::inverted_index::Wildcard::new(ii.reader(), weight),
+                ),
                 _ => panic!("spec.existingDocs has the wrong inverted index type: {ii_ref:?}"),
             };
             NewWildcardIterator::Optimized(optimized)
@@ -532,8 +537,11 @@ impl<'index> RQEIterator<'index> for DiskWildcardIterator<'index> {
         self.0.skip_to(doc_id)
     }
 
-    fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        self.0.revalidate()
+    fn revalidate(
+        &mut self,
+        spec: &IndexSpecReadGuard,
+    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
+        self.0.revalidate(spec)
     }
 
     fn rewind(&mut self) {

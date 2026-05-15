@@ -108,7 +108,7 @@ def test_valid_flex_arguments(env):
                'SCORE', '0.5',
                'SCORE_FIELD', 'score',
                'STOPWORDS', '2', 'the', 'and',
-               'SCHEMA', 'title', 'TEXT', 'body', 'TEXT').ok()
+               'SCHEMA', 'title', 'TEXT', 'body', 'TEXT', 'INDEXEMPTY').ok()
 
     # Verify the index was created successfully
     info_result = env.cmd('FT.INFO', 'flex_args_idx')
@@ -159,9 +159,6 @@ def test_unsupported_schema_options(env):
     env.expect('FT.CREATE', 'idx3', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA', 'field', 'TEXT', 'INDEXMISSING') \
         .error().contains('Disk index does not support INDEXMISSING fields')
 
-    # Test INDEXEMPTY is not supported
-    env.expect('FT.CREATE', 'idx4', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA', 'field', 'TEXT', 'INDEXEMPTY') \
-        .error().contains('Disk index does not support INDEXEMPTY fields')
 
 
 @skip(cluster=True)
@@ -464,10 +461,6 @@ def test_disk_vector_query_validation(env: Env):
 
     query_blob = create_np_array_typed([1.0, 1.0], 'FLOAT32').tobytes()
 
-    env.expect('FT.SEARCH', 'idx', '@v:[VECTOR_RANGE 10 $b]', 'NOCONTENT',
-                'PARAMS', '2', 'b', query_blob).error().contains(
-                    'vector range queries are currently not supported in Redis Flex')
-
     env.expect('FT.SEARCH', 'idx', '@t:hello=>[KNN 2 @v $b]', 'NOCONTENT',
                 'PARAMS', '2', 'b', query_blob).error().contains(
                     'Redis Flex pre-filtered vector queries currently require explicit HYBRID_POLICY')
@@ -483,6 +476,31 @@ def test_disk_vector_query_validation(env: Env):
         res = env.cmd('FT.SEARCH', 'idx', query, 'NOCONTENT', 'PARAMS', '2', 'b', query_blob)
         env.assertEqual(res[0], 2, message=f'Expected 2 results for query "{query}"')
         env.assertEqual(set(res[1:]), {'doc:1', 'doc:2'}, message=f'Expected results doc:1 and doc:2 for query "{query}"')
+
+    # Vector range queries are supported on Flex disk indexes. With L2 (squared)
+    # distance and a query vector of [1.0, 1.0]: doc:1 -> 0, doc:2 -> 2,
+    # doc:3 -> 4802. Radius 10 returns doc:1 and doc:2; radius 0 returns doc:1
+    # only; a very large radius returns all docs.
+    range_cases = [
+        ('@v:[VECTOR_RANGE 10 $b]', {'doc:1', 'doc:2'}),
+        ('@v:[VECTOR_RANGE 0 $b]', {'doc:1'}),
+        ('@v:[VECTOR_RANGE 100000 $b]', {'doc:1', 'doc:2', 'doc:3'}),
+        # Hybrid range with text prefilter exercises the BY_ID intersection path.
+        ('@t:hello @v:[VECTOR_RANGE 10 $b]', {'doc:1', 'doc:2'}),
+        ('@t:goodbye @v:[VECTOR_RANGE 100000 $b]', {'doc:3'}),
+    ]
+
+    for query, expected in range_cases:
+        res = env.cmd('FT.SEARCH', 'idx', query, 'NOCONTENT',
+                      'PARAMS', '2', 'b', query_blob)
+        env.assertEqual(res[0], len(expected),
+                        message=f'Expected {len(expected)} results for query "{query}"')
+        env.assertEqual(set(res[1:]), expected,
+                        message=f'Unexpected results for query "{query}"')
+
+    # Negative radius is still rejected by the vector index validation path.
+    env.expect('FT.SEARCH', 'idx', '@v:[VECTOR_RANGE -1 $b]', 'NOCONTENT',
+               'PARAMS', '2', 'b', query_blob).error()
 
 
 @skip(cluster=True)

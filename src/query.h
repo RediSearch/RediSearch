@@ -20,7 +20,7 @@
 #include "hiredis/sds.h"
 #include "concurrent_ctx.h"
 #include "search_options.h"
-#include "query_error.h"
+#include "query_error_ffi.h"
 #include "query_internal.h"
 
 #ifdef __cplusplus

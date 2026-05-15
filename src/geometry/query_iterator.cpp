@@ -11,6 +11,7 @@
 #include "search_ctx.h"
 #include "spec.h"
 #include "util/timeout.h"
+#include "rqe_iterator_type.h"
 
 #include <iterator>   // ranges::distance
 
@@ -119,7 +120,7 @@ std::size_t QIter_NumEstimated(const QueryIterator *ctx) {
 void QIter_Rewind(QueryIterator *ctx) {
   reinterpret_cast<CPPQueryIterator *>(ctx)->rewind();
 }
-ValidateStatus QIter_Revalidate(QueryIterator *ctx) {
+ValidateStatus QIter_Revalidate(QueryIterator *ctx, IndexSpec *) {
   auto *qi = reinterpret_cast<CPPQueryIterator *>(ctx);
   qi->check_field_expiration_ =
       CPPQueryIterator::should_check_field_expiration(qi->sctx_, &qi->filterCtx_);

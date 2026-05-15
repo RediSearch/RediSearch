@@ -12,13 +12,15 @@
 #include "extension.h"
 #include <util/minmax_heap.h>
 #include "ext/default.h"
-#include "result_processor_rs.h"
+#include "result_processor_ffi.h"
+#include "sorting_vector_ffi.h"
 #include "rlookup.h"
 #include "rlookup_load_document.h"
 #include "rmutil/rm_assert.h"
 #include "util/timeout.h"
 #include "util/arr.h"
-#include "iterators_rs.h"
+#include "iterators_ffi.h"
+#include "metrics_ffi.h"
 #include "rs_wall_clock.h"
 #include <stdatomic.h>
 #include <pthread.h>
@@ -233,7 +235,7 @@ static bool handleSpecLockAndRevalidate(RPQueryIterator *self) {
 
   RedisSearchCtx_LockSpecRead(sctx);
 
-  ValidateStatus rc = it->Revalidate(it);
+  ValidateStatus rc = it->Revalidate(it, sctx->spec);
 
   if (rc == VALIDATE_ABORTED) {
     self->iterator->Free(self->iterator);
@@ -549,7 +551,7 @@ static int rpMetricsNext(ResultProcessor *base, SearchResult *res) {
     return rc;
   }
 
-  RSYieldableMetricSlice slice = MetricsVec_AsSlice(&SearchResult_GetIndexResult(res)->metrics);
+  MetricsSlice slice = MetricsVec_AsSlice(&SearchResult_GetIndexResult(res)->metrics);
   for (size_t i = 0; i < slice.len; i++) {
     RLookup_WriteOwnKey(slice.data[i].key, SearchResult_GetRowDataMut(res), RSValue_NewNumber(slice.data[i].value));
   }
@@ -657,10 +659,23 @@ static int rpsortNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
   if (rc == RS_RESULT_EOF) {
     rp->Next = rpsortNext_Yield;
     return rpsortNext_Yield(rp, r);
-  } else if (rc == RS_RESULT_TIMEDOUT && (rp->parent->timeoutPolicy == TimeoutPolicy_Return)) {
-    self->timedOut = true;
+  } else if (rc == RS_RESULT_TIMEDOUT) {
+    RSTimeoutPolicy policy = rp->parent->timeoutPolicy;
+
+    if (policy == TimeoutPolicy_Fail) {
+      return rc;
+    }
+    // Both Return and ReturnStrict switch to Yield mode (so subsequent Next
+    // calls pop the buffered, sorted prefix from the heap). They differ in
+    // who drives that draining: Return surfaces a row inline now, while
+    // ReturnStrict returns TIMEDOUT immediately so the BG unwinds promptly,
+    // and the main-thread drain pops the heap.
     rp->Next = rpsortNext_Yield;
-    return rpsortNext_Yield(rp, r);
+    if (policy == TimeoutPolicy_Return) {
+      self->timedOut = true;
+      return rpsortNext_Yield(rp, r);
+    }
+    return rc;
   } else if (rc != RS_RESULT_OK) {
     // whoops!
     return rc;

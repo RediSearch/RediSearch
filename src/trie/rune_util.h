@@ -15,13 +15,10 @@
 extern "C" {
 #endif
 
-/* Internally, the trie works with 16/32 bit "Runes", i.e. fixed width unicode
- * characters. 16 bit should be fine for most use cases */
-#ifdef TRIE_32BIT_RUNES
-typedef uint32_t rune;
-#else  // default - 16 bit runes
+/* Internally, the trie works with 16-bit "Runes", i.e. fixed-width Unicode
+ * characters limited to the Basic Multilingual Plane (U+0000..U+FFFF).
+ * Codepoints above U+FFFF are truncated on conversion. */
 typedef uint16_t rune;
-#endif
 
 #define RUNE_STATIC_ALLOC_SIZE 127
 typedef struct {
@@ -43,9 +40,6 @@ typedef rune (*runeTransform)(rune r);
 
 /* fold rune: assumes rune is of the correct size */
 rune runeFold(rune r);
-
-/* Convert rune to lowercase */
-rune runeLower(rune r);
 
 /* Convert a rune string to utf-8 characters */
 char *runesToStr(const rune *in, size_t len, size_t *utflen);
@@ -73,9 +67,6 @@ rune *strToRunes(const char *str, size_t *len);
 
 /* Decode a string to a rune in-place */
 size_t strToRunesN(const char *s, size_t slen, rune *outbuf);
-
-/* similar to strchr */
-const rune *runenchr(const rune *r, size_t len, rune c);
 
 static inline rune *runeBufFill(const char *s, size_t n, runeBuf *buf, size_t *len) {
   /**

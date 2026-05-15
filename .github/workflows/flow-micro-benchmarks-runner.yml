@@ -37,12 +37,21 @@ jobs:
           aws-access-key-id: ${{ secrets.PERFORMANCE_EC2_ACCESS_KEY }}
           aws-secret-access-key: ${{ secrets.PERFORMANCE_EC2_SECRET_KEY }}
           aws-region: ${{ secrets.PERFORMANCE_EC2_AWS_REGION }}
+      - name: Generate GitHub App token
+        id: generate-app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ vars.GH_PR_APP_ID }}
+          private-key: ${{ secrets.GH_PR_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-administration: write
       - name: Start EC2 runner
         id: start-ec2-runner
         uses: machulav/ec2-github-runner@v2.4.2
         with:
           mode: start
-          github-token: ${{ secrets.CI_GH_P_TOKEN }}
+          github-token: ${{ steps.generate-app-token.outputs.token }}
           ec2-image-id: ${{ inputs.ami-id }}
           ec2-instance-type: ${{ inputs.instance-type }}
           subnet-id: ${{ secrets.AWS_EC2_SUBNET_ID_BENCHMARK }}
@@ -53,11 +62,14 @@ jobs:
     name: Run micro-benchmarks on runner
     needs: start-runner
     runs-on: ${{ needs.start-runner.outputs.runner_label }}
+    permissions:
+      contents: read  # actions/checkout
+      id-token: write # OIDC role assumption for sccache S3
     steps:
       - name: Pre checkout deps
         run:  sudo apt-get update && sudo apt-get -y --no-install-recommends install git
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           submodules: recursive
       - name: Print runner info
@@ -68,11 +80,16 @@ jobs:
           printf "Runner uname:\n$(uname -a)\n"
           printf "Runner arch:\n$(arch)\n"
       - name: Install python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v6
         with:
           python-version: 3.11
       - name: Setup sccache
         uses: ./.github/actions/setup-sccache
+        with:
+          aws-role: ${{ vars.SCCACHE_AWS_ROLE_TO_ASSUME }}
+          s3-bucket: ${{ vars.SCCACHE_S3_BUCKET }}
+          s3-region: ${{ vars.SCCACHE_S3_REGION }}
+          s3-key-prefix: ${{ vars.SCCACHE_S3_KEY_PREFIX }}
       - name: Install benchmark dependencies
         run: |
           export HOME=/home/ubuntu
@@ -172,10 +189,19 @@ jobs:
           aws-access-key-id: ${{ secrets.PERFORMANCE_EC2_ACCESS_KEY }}
           aws-secret-access-key: ${{ secrets.PERFORMANCE_EC2_SECRET_KEY }}
           aws-region: ${{ secrets.PERFORMANCE_EC2_AWS_REGION }}
+      - name: Generate GitHub App token
+        id: generate-app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ vars.GH_PR_APP_ID }}
+          private-key: ${{ secrets.GH_PR_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-administration: write
       - name: Stop EC2 runner
         uses: machulav/ec2-github-runner@v2.4.2
         with:
           mode: stop
-          github-token: ${{ secrets.CI_GH_P_TOKEN }}
+          github-token: ${{ steps.generate-app-token.outputs.token }}
           label: ${{ needs.start-runner.outputs.runner_label }}
           ec2-instance-id: ${{ needs.start-runner.outputs.ec2_instance_id }}

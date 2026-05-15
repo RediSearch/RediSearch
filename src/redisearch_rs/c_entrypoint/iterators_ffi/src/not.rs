@@ -82,10 +82,11 @@ impl<'index> RQEIterator<'index> for NotIteratorEnum<'index> {
     #[inline(always)]
     fn revalidate(
         &mut self,
+        spec: &index_spec::IndexSpecReadGuard,
     ) -> Result<rqe_iterators::RQEValidateStatus<'_, 'index>, rqe_iterators::RQEIteratorError> {
         match self {
-            Self::Not(it) => it.revalidate(),
-            Self::NotOptimized(it) => it.revalidate(),
+            Self::Not(it) => it.revalidate(spec),
+            Self::NotOptimized(it) => it.revalidate(spec),
         }
     }
 

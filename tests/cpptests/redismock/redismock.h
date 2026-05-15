@@ -70,6 +70,7 @@ void RMCK_SaveStringBuffer(RedisModuleIO *io, const char *str, size_t len);
 RedisModuleString *RMCK_LoadString(RedisModuleIO *io);
 char *RMCK_LoadStringBuffer(RedisModuleIO *io, size_t *lenptr);
 int RMCK_IsIOError(RedisModuleIO *io);
+void RMCK_LogIOError(RedisModuleIO *io, const char *levelstr, const char *fmt, ...);
 RedisModuleCtx *RMCK_GetContextFromIO(RedisModuleIO *io);
 int RMCK_StringToULongLong(const RedisModuleString *str, unsigned long long *ull);
 

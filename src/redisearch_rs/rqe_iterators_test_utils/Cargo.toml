@@ -15,6 +15,7 @@ workspace = true
 [dependencies]
 ffi.workspace = true
 field.workspace = true
+index_spec.workspace = true
 inverted_index = { workspace = true, features = ["test_utils"] }
 inverted_index_ffi = { path = "../c_entrypoint/inverted_index_ffi", features = [
     "test_utils",

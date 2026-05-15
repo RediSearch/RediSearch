@@ -60,6 +60,13 @@ if [[ -f /etc/os-release ]]; then
 fi
 
 echo "Building RedisJSON module for branch $JSON_BRANCH..."
-run_command make SAN=$SAN BINROOT=${JSON_BIN_DIR}
+# RedisJSON's Makefile expects cargo to write to `$(BINDIR)/target/release/`
+# (no target-triple subdirectory). But build.sh exports
+# `CARGO_BUILD_TARGET=<host triple>` when SAN=address (so sanitizer rustflags
+# don't reach build scripts), which makes cargo write to
+# `$(BINDIR)/target/<triple>/release/` instead and the Makefile's subsequent
+# `cp` fails with "No such file or directory". Scrub CARGO_BUILD_TARGET for
+# this invocation; RedisJSON manages its own toolchain/target.
+run_command env -u CARGO_BUILD_TARGET make SAN=$SAN BINROOT=${JSON_BIN_DIR}
 echo "RedisJSON module built and is available at ${JSON_BIN_PATH}"
 cd $CURR_DIR

@@ -63,6 +63,19 @@ extern "C" {
 
 QueryIterator *NewHybridVectorIterator(HybridIteratorParams hParams, QueryError *status);
 
+RLookupKey    **HybridIterator_GetOwnKeyRef(QueryIterator *it);
+void            HybridIterator_SetKeyHandle(QueryIterator *it, struct RLookupKeyHandle *h);
+
+// Accessors for profile printing.
+const QueryIterator *HybridIterator_GetChild(const QueryIterator *it);
+const char *HybridIterator_GetSearchModeString(const QueryIterator *it);
+bool HybridIterator_IsBatchMode(const QueryIterator *it);
+size_t HybridIterator_GetNumIterations(const QueryIterator *it);
+size_t HybridIterator_GetMaxBatchSize(const QueryIterator *it);
+size_t HybridIterator_GetMaxBatchIteration(const QueryIterator *it);
+
+
+
 #ifdef __cplusplus
 }
 #endif

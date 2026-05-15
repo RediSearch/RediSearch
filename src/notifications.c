@@ -21,7 +21,7 @@
 #include "cursor.h"
 #include "search_disk.h"
 #include "doc_id_meta.h"
-#include "iterators_rs.h"
+#include "iterators_ffi.h"
 
 #define JSON_LEN 5 // length of string "json."
 RedisModuleString *global_RenameFromKey = NULL;
@@ -144,6 +144,18 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
 
     case expire_cmd:
     case persist_cmd:
+      // EXPIRE/PERSIST only change the key's TTL; the document content,
+      // schema-rule filters and inverted indexes are all unaffected. In the
+      // in-memory flow we only need to refresh the doc-level expiration on
+      // the matching DMDs. Disk-backed indexes still take the full reindex
+      // path until they grow an equivalent fast path.
+      if (SearchDisk_IsEnabled()) {
+        Indexes_UpdateMatchingWithSchemaRules(ctx, key, getDocTypeFromString(key), hashFields);
+      } else {
+        Indexes_UpdateMatchingDocExpiration(ctx, key, getDocTypeFromString(key));
+      }
+      break;
+
     case restore_cmd:
     case copy_to_cmd:
       Indexes_UpdateMatchingWithSchemaRules(ctx, key, getDocTypeFromString(key), hashFields);

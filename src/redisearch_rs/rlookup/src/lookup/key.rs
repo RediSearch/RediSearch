@@ -22,58 +22,71 @@ use pin_project::pin_project;
 
 use crate::bindings::{FieldSpecOption, FieldSpecOptions, FieldSpecType, FieldSpecTypes};
 
+#[cheadergen::config(export, rename = "RLookup_F")]
 #[bitflags]
 #[repr(u32)]
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum RLookupKeyFlag {
     /// This field is (or assumed to be) part of the document itself.
     /// This is a basic flag for a loaded key.
+    #[cheadergen(rename = "RLOOKUP_F_DOCSRC")]
     DocSrc = 0x01,
 
     /// This field is part of the index schema.
+    #[cheadergen(rename = "RLOOKUP_F_SCHEMASRC")]
     SchemaSrc = 0x02,
 
     /// Check the sorting table, if necessary, for the index of the key.
+    #[cheadergen(rename = "RLOOKUP_F_SVSRC")]
     SvSrc = 0x04,
 
     /// This key was created by the query itself (not in the document)
+    #[cheadergen(rename = "RLOOKUP_F_QUERYSRC")]
     QuerySrc = 0x08,
 
     /// Copy the key string via strdup. `name` may be freed
+    #[cheadergen(rename = "RLOOKUP_F_NAMEALLOC")]
     NameAlloc = 0x10,
 
     /// If the key is already present, then overwrite it (relevant only for LOAD or WRITE modes)
+    #[cheadergen(rename = "RLOOKUP_F_OVERRIDE")]
     Override = 0x20,
 
     /// Request that the key is returned for loading even if it is already loaded.
+    #[cheadergen(rename = "RLOOKUP_F_FORCELOAD")]
     ForceLoad = 0x40,
 
     /// This key is unresolved. Its source needs to be derived from elsewhere
+    #[cheadergen(rename = "RLOOKUP_F_UNRESOLVED")]
     Unresolved = 0x80,
 
     /// This field is hidden within the document and is only used as a transient
     /// field for another consumer. Don't output this field.
+    #[cheadergen(rename = "RLOOKUP_F_HIDDEN")]
     Hidden = 0x100,
 
     /// The opposite of [`RLookupKeyFlag::Hidden`]. This field is specified as an explicit return in
     /// the RETURN list, so ensure that this gets emitted. Only set if
     /// explicitReturn is true in the aggregation request.
+    #[cheadergen(rename = "RLOOKUP_F_EXPLICITRETURN")]
     ExplicitReturn = 0x200,
 
     /// This key's value is already available in the RLookup table,
     /// if it was opened for read but the field is sortable and not normalized,
     /// so the data should be exactly the same as in the doc.
+    #[cheadergen(rename = "RLOOKUP_F_VALAVAILABLE")]
     ValAvailable = 0x400,
 
     /// This key's value was loaded (by a loader) from the document itself.
+    #[cheadergen(rename = "RLOOKUP_F_ISLOADED")]
     IsLoaded = 0x800,
 
     /// This key type is numeric
+    #[cheadergen(rename = "RLOOKUP_F_NUMERIC")]
     Numeric = 0x1000,
 }
 
 /// Helper type to represent a set of [`RLookupKeyFlag`]s.
-/// cbindgen:ignore
 pub type RLookupKeyFlags = BitFlags<RLookupKeyFlag>;
 
 // Flags that are allowed to be passed to [`RLookup::get_key_read`], [`RLookup::get_key_write`], or [`RLookup::get_key_load`].
@@ -124,7 +137,7 @@ pub const TRANSIENT_FLAGS: RLookupKeyFlags =
 /// the sorting vector.
 /// ```
 ///
-/// cbindgen:no-export
+#[cheadergen::config(skip)]
 #[pin_project(!Unpin)]
 #[derive(Debug)]
 #[repr(C)]
@@ -143,6 +156,7 @@ pub struct RLookupKey<'a> {
     _path: Option<Cow<'a, CStr>>,
 }
 
+#[cheadergen::config(export, rename = "RLookupKey")]
 #[derive(Debug)]
 #[repr(C)]
 pub struct RLookupKeyHeader<'a> {
@@ -348,14 +362,7 @@ impl<'a> RLookupKey<'a> {
         // step stores a key pointer, then an APPLY with the same name overrides/tombstones it).
         // Those callers still need a valid path string to continue working (e.g. to load the
         // field value from the document before the APPLY overwrites it).
-        //
-        // The backing memory for `header.path` transfers to the new key's `_name` or `_path`
-        // via `override_current`, and both the tombstone and the new key share the same
-        // `RLookup` lifetime, so the pointer remains valid.
-        //
-        // This mirrors the original C behaviour: `overrideKey` never cleared `_path`.
-
-        let path = mem::take(me._path.deref_mut());
+        let path = me._path.clone();
 
         // this will exclude it from iteration
         me.header.flags |= RLookupKeyFlag::Hidden;

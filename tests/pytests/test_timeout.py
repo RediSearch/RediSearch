@@ -52,3 +52,25 @@ def TestLimitWithCursor():
         total_res += len(res["results"])
     # before the bug fix we got total_res = limit - cursor_reads
     env.assertEqual(total_res, num_docs, message="unexpected results count")
+
+
+def test_search_debug_zero_params_count():
+    """Test that DEBUG_PARAMS_COUNT 0 returns an error for FT.SEARCH.
+    Include a dummy debug param so we pass the arity check (argc >= 7).
+    """
+    env = Env(enableDebugCommand=True)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC').ok()
+    env.expect(debug_cmd(), 'FT.SEARCH', 'idx', '*',
+               'TIMEOUT_AFTER_N', '100',
+               'DEBUG_PARAMS_COUNT', '0').error().contains('Invalid DEBUG_PARAMS_COUNT count')
+
+
+def test_aggregate_debug_zero_params_count():
+    """Test that DEBUG_PARAMS_COUNT 0 returns an error for FT.AGGREGATE.
+    Include a dummy debug param so we pass the arity check (argc >= 7).
+    """
+    env = Env(enableDebugCommand=True)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC').ok()
+    env.expect(debug_cmd(), 'FT.AGGREGATE', 'idx', '*',
+               'TIMEOUT_AFTER_N', '100',
+               'DEBUG_PARAMS_COUNT', '0').error().contains('Invalid DEBUG_PARAMS_COUNT count')

@@ -71,7 +71,8 @@ macro_rules! ii_dispatch {
 
 /// The mask of flags that determine the index storage type. This includes all flags that affect
 /// the storage format of the index.
-const INDEX_STORAGE_MASK: IndexFlags = IndexFlags_Index_StoreFreqs
+#[cheadergen::config(export)]
+pub const INDEX_STORAGE_MASK: IndexFlags = IndexFlags_Index_StoreFreqs
     | IndexFlags_Index_StoreFieldFlags
     | IndexFlags_Index_StoreTermOffsets
     | IndexFlags_Index_StoreNumeric

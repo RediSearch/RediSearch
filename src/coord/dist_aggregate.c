@@ -100,6 +100,10 @@ static int rpnetNext_Start(ResultProcessor *rp, SearchResult *r) {
   // this reader if it blocks in MRIterator_NextWithTimeout after AREQ timed out.
   // Paired with RequestSyncCtx_UnregisterAbortWakeChannel in rpnetFree.
   RequestSyncCtx_RegisterAbortWakeChannel(&nc->areq->syncCtx, MRIterator_GetChannel(it));
+#ifdef ENABLE_ASSERT
+  // Expose the iterator to FT.DEBUG BG_PENDING_REPLIES; cleared in rpnetFree.
+  DebugBgIterator_Set(it);
+#endif
   nc->base.Next = rpnetNext;
   return rpnetNext(rp, r);
 }
@@ -240,21 +244,24 @@ static void buildMRCommand(RedisModuleString **argv, int argc, ProfileOptions pr
   array_free(tmparr);
 }
 
-// True iff the coordinator pipeline is shaped such that any prefix of its
-// output is a valid partial answer, allowing the RETURN-STRICT main-thread
-// timeout callback to drain queued shard replies after the background
-// pipeline aborts.
+// True iff draining endProc->Next after a RETURN-STRICT timeout produces a
+// valid (possibly empty) partial answer.
 //
-// A pipeline qualifies when it carries no buffering or reordering state
-// between RPNet and the end processor. Two shapes are supported:
+// Accepted shapes (top = end of pipeline):
+//   1. RPNet                                  -- bare network root.
+//   2. RPPager_Limiter -> RPNet               -- pager directly above RPNet.
+//   3. [RPPager_Limiter ->] RPSorter -> ...   -- end is RPSorter (optionally
+//                                                under a pager); anything
+//                                                between the sorter and RPNet
+//                                                is allowed.
 //
-//   1. `RPNet -> end`              -- end IS the RPNet itself
-//   2. `RPNet -> RPPager_Limiter`  -- end is a pager directly above RPNet
+// Shape (3) is safe because rpsortNext_Yield (the state RPSorter enters on
+// TIMEDOUT) only pops from the sorter's heap, and drain only invokes
+// endProc->Next -- intermediate RPs are never re-entered after returning
+// TIMEDOUT.
 //
-// Profile wraps every RP and is not yet supported under RETURN-STRICT drain,
-// so profile queries are excluded.
-//
-// To extend support to additional pipeline shapes, add a new case below.
+// Profile is excluded: it wraps every RP and is not yet supported under
+// RETURN-STRICT drain.
 static bool pipelineCanYieldPartialResults(AREQ *r) {
   if (IsProfile(r)) {
     return false;
@@ -268,21 +275,21 @@ static bool pipelineCanYieldPartialResults(AREQ *r) {
     return false;
   }
 
-  // root is always RPNet on the coordinator pipeline.
+  // Coordinator pipelines are always rooted at RPNet.
   RS_ASSERT(root->type == RP_NETWORK);
 
-  // Shape 1: end IS the RPNet (no tail pipeline was attached).
-  if (end == root && end->type == RP_NETWORK) {
-    return true;
+  // RPPager_Limiter is transparent here: peel it and look at what's beneath.
+  // The pager is never the network root, so it always has an upstream.
+  ResultProcessor *rp = end;
+  if (rp->type == RP_PAGER_LIMITER) {
+    rp = rp->upstream;
+    RS_ASSERT(rp);
   }
 
-  // Shape 2: end is RPPager_Limiter sitting directly above RPNet.
-  if (end->type == RP_PAGER_LIMITER &&
-      end->upstream == root && end->upstream->type == RP_NETWORK) {
-    return true;
-  }
-
-  return false;
+  // Accept if what's below the (optional) pager is the RPNet root (shapes 1
+  // and 2) or an RPSorter somewhere above it (shape 3 -- drain pops from the
+  // sorter's heap, so what sits between RPSorter and RPNet doesn't matter).
+  return rp == root || rp->type == RP_SORTER;
 }
 
 static void buildDistRPChain(AREQ *r, MRCommand *xcmd, AREQDIST_UpstreamInfo *us, int (*nextFunc)(ResultProcessor *, SearchResult *)) {
@@ -619,11 +626,11 @@ int DistAggregateTimeoutFailClient(RedisModuleCtx *ctx, RedisModuleString **argv
   return REDISMODULE_OK;
 }
 
-// Drain any queued shard replies into `storedReplyState.results` on the main
+// Drain any queued partial results into `storedReplyState.results` on the main
 // thread after the background pipeline has aborted. Only safe for pipelines
-// classified as yielding partial results: they carry no buffering or
-// reordering state, so resuming endProc->Next simply yields the rows that the
-// I/O threads had already pushed to the channel before the timeout fired.
+// classified as yielding partial results (see pipelineCanYieldPartialResults):
+// endProc->Next either pulls from RPNet in drainOnly mode (shapes 1-2) or pops
+// from the sorter's heap (shape 3).
 //
 // Caller must have already flipped syncCtx.timedOut and waited for BG to exit
 // the pipeline via AREQ_WaitForAggregateResultsComplete. The pager's internal
@@ -698,10 +705,9 @@ int DistAggregateTimeoutReturnStrictClient(RedisModuleCtx *ctx, RedisModuleStrin
   // No-op for already-complete runs.
   drainPartialResultsAfterTimeout(req);
 
-  // Pipelines that don't yield partial results (SORTBY/GROUPBY/depleter)
-  // discard their buffer on TIMEDOUT, but RPNet may have already accumulated
-  // `total_results` from admitted shard replies. Zero it so `total_results`
-  // stays consistent with empty results.
+  // Rejected pipelines discard their buffer on TIMEDOUT, but RPNet may have
+  // already accumulated `total_results` from admitted shard replies. Zero it
+  // for consistency with the empty results.
   ChunkReplyState *stored = &req->storedReplyState;
   if (!AREQ_QueryProcessingCtx(req)->canYieldPartialResults &&
       array_len(stored->results) == 0) {
@@ -758,6 +764,62 @@ int DistAggregateReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, in
   return REDISMODULE_OK;
 }
 
+// Coordinator FT.CURSOR READ timeout callback for the RETURN_STRICT policy.
+// Runs on the main thread when the BC times out. Unlike the FT.AGGREGATE
+// RETURN_STRICT path, no TryClaim here: BG's existing `(!TryClaim || TimedOut)`
+// check at startPipelineCommon handles pipeline-side bails, and pre-pipeline
+// bails are signaled via AREQ_ReplyOrStoreError. The timer waits and branches
+// on `hasStoredResults`.
+int DistCursorReadTimeoutReturnStrictClient(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  CoordRequestCtx *reqCtx = RedisModule_GetBlockedClientPrivateData(ctx);
+  if (!reqCtx) {
+    return RedisModule_ReplyWithError(ctx, "Internal error: timeout with no context");
+  }
+  RS_ASSERT(reqCtx->type == COMMAND_AGGREGATE);
+
+  // Read `req` under the same lock that gates BG's TakeForExecution +
+  // SetRequest, so `req == NULL` reliably proxies "BG has not yet taken
+  // the cursor".
+  CoordRequestCtx_LockSetRequest(reqCtx);
+  CoordRequestCtx_SetTimedOut(reqCtx);
+  AREQ *req = (AREQ *)CoordRequestCtx_GetRequest(reqCtx);
+  CoordRequestCtx_UnlockSetRequest(reqCtx);
+
+  if (!req) {
+    // BG never took the cursor (or hit the early TimedOut check and bailed
+    // before taking). No condvar signal will arrive; reply directly with
+    // cursor-shaped empty + cid. Cid was validated by CursorCommand on the
+    // main thread before BC arming, so argv[3] is trusted.
+    long long cid;
+    int rc = RedisModule_StringToLongLong(argv[3], &cid);
+    RS_ASSERT(rc == REDISMODULE_OK);
+    return coord_cursor_read_empty_reply_timeout(ctx, cid);
+  }
+
+  // BG has taken the cursor. Wake the abort channel — unblocks BG from
+  // MRIterator_NextWithTimeout if it's mid-pipeline; no-op otherwise.
+  RequestSyncCtx_WakeAbortChannel(&req->syncCtx);
+
+  // Sync with BG.
+  AREQ_WaitForAggregateResultsComplete(req);
+
+  if (req->storedReplyState.hasStoredResults) {
+    // Drain anything queued before the deadline, then serialize and dispose
+    // the stashed cursor (Pause if more rows remain, Free on EOF) inside
+    // AREQ_ReplyWithStoredResults.
+    drainPartialResultsAfterTimeout(req);
+    AREQ_ReplyWithStoredResults(ctx, req);
+  } else {
+    // Pre-pipeline bail through AREQ_ReplyOrStoreError. Currently unreachable
+    // on coord+RETURN_STRICT (coordinator cursors have a NULL spec_ref so the
+    // only such bail in cursorRead can't fire); kept for forward-compat.
+    QueryError *err = &req->storedReplyState.err;
+    RS_ASSERT(QueryError_HasError(err));
+    QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(err), 1, COORD_ERR_WARN);
+    QueryError_ReplyAndClear(ctx, err);
+  }
+  return REDISMODULE_OK;
+}
 
 /* ======================= DEBUG ONLY ======================= */
 void DEBUG_RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,

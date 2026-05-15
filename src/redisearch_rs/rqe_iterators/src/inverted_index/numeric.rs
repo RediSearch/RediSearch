@@ -15,6 +15,7 @@ use crate::{
     expiration_checker::{ExpirationChecker, NoOpChecker},
 };
 use ffi::{FieldType_INDEXFLD_T_GEO, FieldType_INDEXFLD_T_NUMERIC, IndexFlags, t_docId};
+use index_spec::IndexSpecReadGuard;
 use inverted_index::{
     FilterGeoReader, FilterNumericReader, IndexReader, NumericFilter, NumericReader, RSIndexResult,
 };
@@ -181,12 +182,15 @@ where
     }
 
     #[inline(always)]
-    fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
+    fn revalidate(
+        &mut self,
+        spec: &IndexSpecReadGuard,
+    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         if self.should_abort() {
             return Ok(RQEValidateStatus::Aborted);
         }
 
-        self.it.revalidate()
+        self.it.revalidate(spec)
     }
 
     #[inline(always)]
@@ -503,11 +507,14 @@ impl<'index> RQEIterator<'index> for NumericIteratorVariant<'index> {
     }
 
     #[inline(always)]
-    fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
+    fn revalidate(
+        &mut self,
+        spec: &IndexSpecReadGuard,
+    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         match self {
-            Self::Unfiltered(iter) => iter.revalidate(),
-            Self::Filtered(iter) => iter.revalidate(),
-            Self::Geo(iter) => iter.revalidate(),
+            Self::Unfiltered(iter) => iter.revalidate(spec),
+            Self::Filtered(iter) => iter.revalidate(spec),
+            Self::Geo(iter) => iter.revalidate(spec),
         }
     }
 

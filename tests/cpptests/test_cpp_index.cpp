@@ -17,13 +17,14 @@ extern "C" {
 #include "query_parser/tokenizer.h"
 #include "spec.h"
 #include "tokenize.h"
-#include "varint.h"
+#include "varint_ffi.h"
 #include "iterators/hybrid_reader.h"
-#include "iterators_rs.h"
-#include "redisearch_rs/headers/iterators_rs.h"
+#include "iterators_ffi.h"
+#include "metrics_ffi.h"
+#include "query_term_ffi.h"
 #include "util/arr.h"
 #include "util/references.h"
-#include "types_rs.h"
+#include "types_ffi.h"
 
 #include "rmutil/alloc.h"
 
@@ -143,7 +144,7 @@ TEST_P(IndexFlagsTest, testRWFlags) {
   ASSERT_EQ(200, InvertedIndex_LastId(idx));
 
   for (int xx = 0; xx < 1; xx++) {
-    IndexDecoderCtx decoderCtx = {.field_mask_tag = IndexDecoderCtx_FieldMask, .field_mask = RS_FIELDMASK_ALL};
+    IndexDecoderCtx decoderCtx = {.fieldmask_tag = IndexDecoderCtx_FieldMask, .fieldmask = RS_FIELDMASK_ALL};
     IndexReader *reader = NewIndexReader(idx, decoderCtx);
     RSIndexResult *res = NewTokenRecord(NULL, 1);
     res->freq = 1;
@@ -705,7 +706,7 @@ TEST_F(IndexTest, testHybridVector) {
     ASSERT_EQ(hybridIt->lastDocId, expected_id);
   }
   ASSERT_EQ(hybridIt->lastDocId, max_id - step*((k/2)-1));
-  ASSERT_EQ(hybridIt->Revalidate(hybridIt), VALIDATE_OK);
+  ASSERT_EQ(hybridIt->Revalidate(hybridIt, mockQctx.sctx.spec), VALIDATE_OK);
 
   // Rerun in AD_HOC BF mode.
   hybridIt->Rewind(hybridIt);
@@ -1337,7 +1338,7 @@ TEST_F(IndexTest, testDeltaSplits) {
   InvertedIndex_WriteForwardIndexEntry(idx, &ent);
   ASSERT_EQ(InvertedIndex_NumBlocks(idx), 2);
 
-  IndexDecoderCtx decoderCtx = {.field_mask_tag = IndexDecoderCtx_FieldMask, .field_mask = RS_FIELDMASK_ALL};
+  IndexDecoderCtx decoderCtx = {.fieldmask_tag = IndexDecoderCtx_FieldMask, .fieldmask = RS_FIELDMASK_ALL};
   IndexReader *reader = NewIndexReader(idx, decoderCtx);
   RSIndexResult *res = NewTokenRecord(NULL, 1);
   res->freq = 1;
