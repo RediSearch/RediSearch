@@ -269,8 +269,11 @@ jobs:
       test_regex: ${{ inputs.test_regex }}
 
   benchmark-search-oss-cluster-04-primaries-threads-6:
-    # TODO: Temporarily disabled - Redis becomes unavailable after ~3 hours of data loading.
-    if: false # if: ${{ inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-cluster-04-primaries-threads-6' }}
+    # Re-enabled for targeted HFE write/read concurrent runs — the
+    # "~3h data loading" issue only manifests on full-suite runs that
+    # accumulate state across many specs; a single-spec dispatch with
+    # `test_regex` finishes in well under that window.
+    if: ${{ (inputs.benchmark_groups == '' || contains(format(',{0},', inputs.benchmark_groups), ',search,')) && (inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-cluster-04-primaries-threads-6') }}
     needs: build-redisearch
     strategy:
       fail-fast: false
