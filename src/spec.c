@@ -4342,8 +4342,10 @@ void Indexes_DeleteMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStrin
 }
 
 // True iff the spec has any field with INDEXMISSING. Linear scan over the
-// schema's fields[] array; called from the HEXPIRE fast path (main thread)
-// without the spec lock — same locking discipline as hashFieldChanged.
+// schema's fields[] array; called from the HEXPIRE fast path on the main
+// thread without the spec lock, which is safe because the schema descriptors
+// read here are only mutated by FT.CREATE / FT.ALTER / RDB load on the same
+// thread.
 static bool specHasIndexMissing(const IndexSpec *spec) {
   for (size_t i = 0; i < spec->numFields; ++i) {
     if (FieldSpec_IndexesMissing(&spec->fields[i])) {
@@ -4354,7 +4356,7 @@ static bool specHasIndexMissing(const IndexSpec *spec) {
 }
 
 void Indexes_UpdateMatchingHashFieldExpiration(RedisModuleCtx *ctx, RedisModuleString *key,
-                                               RedisModuleString **hashFields, DocumentType type) {
+                                               DocumentType type) {
 
   if (type == DocumentType_Unsupported) {
     return;
@@ -4377,19 +4379,6 @@ void Indexes_UpdateMatchingHashFieldExpiration(RedisModuleCtx *ctx, RedisModuleS
     // serializes them. The spec write lock guards index data against
     // background workers, not main-thread config flags.
     if (!spec->monitorFieldExpiration) {
-      continue;
-    }
-
-    // Skip specs whose indexed fields were untouched by this notification.
-    //
-    // Called without the spec lock: hashFieldChanged only reads schema-shape
-    // state (numFields, fields[].fieldName, rule->{lang,score,payload}_field)
-    // which is mutated exclusively by FT.CREATE / FT.ALTER / RDB load on the
-    // main thread. This keyspace-notification callback also runs on the main
-    // thread, so the Redis event loop serializes them and no torn read is
-    // possible. The spec write lock guards index data against background
-    // workers, not the immutable schema descriptors compared here.
-    if (!hashFieldChanged(spec, hashFields)) {
       continue;
     }
 

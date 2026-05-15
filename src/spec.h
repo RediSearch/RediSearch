@@ -746,7 +746,7 @@ void Indexes_UpdateMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStrin
 // rebuilding inverted indexes. In-memory flow only; callers must use
 // Indexes_UpdateMatchingWithSchemaRules for disk-backed indexes.
 void Indexes_UpdateMatchingHashFieldExpiration(RedisModuleCtx *ctx, RedisModuleString *key,
-                                               RedisModuleString **hashFields, DocumentType type);
+                                               DocumentType type);
 // Fast path for keyspace events that only change the document-level TTL
 // (EXPIRE/PERSIST): re-reads the key's absolute expiration and writes it
 // directly onto the matching DMDs, without re-running schema-rule filters or

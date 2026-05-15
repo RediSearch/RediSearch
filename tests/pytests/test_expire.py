@@ -783,8 +783,9 @@ def testHashFieldExpirationWithNonMatchingIndexes(env):
     #   - idx_other_prefix: PREFIX excludes the doc key entirely, so the spec
     #                       is not even returned by FindMatchingSchemaRules.
     #   - idx_other_field:  PREFIX matches but the schema does not reference
-    #                       the expiring field, so hashFieldChanged() is false
-    #                       and the spec is skipped on the fast path.
+    #                       the expiring field, so the per-field rebuild walks
+    #                       only schema fields with no new TTL and produces an
+    #                       unchanged view.
     #   - idx_filter_skip:  PREFIX matches but the FILTER excludes the doc, so
     #                       FindMatchingSchemaRules tags the op as SpecOp_Del.
     # Only idx_match should reflect the field expiration; the others must keep
@@ -827,8 +828,8 @@ def testHashFieldExpirationWithNonMatchingIndexes(env):
     env.expect('FT.SEARCH', 'idx_match', '@y:world', 'NOCONTENT') \
         .apply(sort_document_names).equal([2, 'doc:1', 'doc:2'])
 
-    # idx_other_field: schema only references 'y', so hashFieldChanged() must
-    # short-circuit and leave doc:1 searchable on this index.
+    # idx_other_field: schema only references 'y', which has no TTL, so the
+    # per-field rebuild yields an unchanged view and doc:1 stays searchable.
     env.expect('FT.SEARCH', 'idx_other_field', '@y:world', 'NOCONTENT') \
         .apply(sort_document_names).equal([2, 'doc:1', 'doc:2'])
 

@@ -190,7 +190,7 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
       // matching specs' TTL tables without re-indexing the document. Disk-
       // backed indexes do not support field-TTL metadata and are skipped.
       if (!SearchDisk_IsEnabled()) {
-        Indexes_UpdateMatchingHashFieldExpiration(ctx, key, hashFields, getDocTypeFromString(key));
+        Indexes_UpdateMatchingHashFieldExpiration(ctx, key, getDocTypeFromString(key));
       } else {
         static bool hpexpire_warned = false;
         if (!hpexpire_warned && Indexes_Count() > 0) {
@@ -288,6 +288,13 @@ void CommandFilterCallback(RedisModuleCommandFilterCtx *filter) {
   } else if (!strcasecmp("HDEL", cmdStr)) {
     // Nothing to do
   } else {
+    // TODO: HEXPIRE/HPEXPIRE/HEXPIREAT/HPEXPIREAT/HPERSIST also carry an
+    // explicit `FIELDS numfields field [field ...]` list. Capturing it here
+    // (scan argv for the FIELDS keyword, parse numfields, retain each field)
+    // would let Indexes_UpdateMatchingHashFieldExpiration in src/spec.c skip
+    // specs whose schema does not reference any of the affected fields,
+    // saving a HashFieldMinExpire + per-indexed-field HashGet pass on wide
+    // schemas where HEXPIRE only touches unindexed fields.
     return;
   }
 
