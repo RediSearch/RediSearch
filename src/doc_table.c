@@ -237,13 +237,17 @@ static inline int64_t expirationTimePointToNs(t_expirationTimePoint t) {
   return (int64_t)t.tv_sec * 1000000000LL + (int64_t)t.tv_nsec;
 }
 
+void DocTable_SetDocExpiration(RSDocumentMetadata *dmd, t_expirationTimePoint ttl) {
+  __atomic_store_n(&dmd->expirationTimeNs, expirationTimePointToNs(ttl), __ATOMIC_RELAXED);
+}
+
 // Sets the doc-level TTL on the DMD and delegates the per-field entry to
 // DocTable_UpdateFieldExpiration. The doc-level TTL is inlined on the DMD so
 // the result-processor can skip the TTL-table lookup; the table itself stays
 // strictly an HFE store, which lets iterators use `t->ttl == NULL` as their
 // per-spec gate. Takes ownership of `sortedFieldWithExpiration`.
 void DocTable_UpdateExpiration(DocTable *t, RSDocumentMetadata* dmd, t_expirationTimePoint ttl, arrayof(FieldExpiration) sortedFieldWithExpiration) {
-  __atomic_store_n(&dmd->expirationTimeNs, expirationTimePointToNs(ttl), __ATOMIC_RELAXED);
+  DocTable_SetDocExpiration(dmd, ttl);
   DocTable_UpdateFieldExpiration(t, dmd, sortedFieldWithExpiration);
 }
 

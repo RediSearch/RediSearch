@@ -133,6 +133,14 @@ void DocTable_SetByteOffsets(RSDocumentMetadata *dmd, RSByteOffsets *offsets);
 
 void DocTable_UpdateExpiration(DocTable *t, RSDocumentMetadata* dmd, t_expirationTimePoint ttl, arrayof(FieldExpiration) allFieldSorted);
 
+// Sets only the doc-level TTL on `dmd` (relaxed atomic store on
+// `expirationTimeNs`) without touching the per-field TTL table. Safe to call
+// under the spec read lock: the only mutation is the atomic store, paired
+// with the relaxed atomic load in DocTable_IsDocExpired. Used by the
+// EXPIRE/PERSIST keyspace-notification fast path, which must leave HFE
+// state intact.
+void DocTable_SetDocExpiration(RSDocumentMetadata *dmd, t_expirationTimePoint ttl);
+
 // Replaces the per-field expiration entry for `dmd` without touching
 // `dmd->expirationTimeNs`. Takes ownership of `sortedFieldWithExpiration`:
 // a NULL or empty array clears the entry and destroys the TTL table when

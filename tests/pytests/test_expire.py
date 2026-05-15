@@ -67,6 +67,54 @@ def test_MOD_14800_persist_clears_expiration_metadata(env: Env):
     env.expect('HGET', 'doc:1', 't').equal('hello')
     env.expect('FT.SEARCH', 'idx', 'hello').equal([1, 'doc:1', ['t', 'hello']])
 
+@skip(cluster=True, redis_less_than='8.0')
+def test_doc_expiration_preserves_field_expiration(env: Env):
+    # Regression: PEXPIRE/PERSIST on an indexed hash that also has HEXPIRE-
+    # managed field TTLs must leave the per-field TTL state intact.
+    #
+    # The keyspace-notification fast path Indexes_UpdateMatchingDocExpiration
+    # only needs to refresh dmd->expirationTimeNs. A previous implementation
+    # delegated through DocTable_UpdateExpiration -> DocTable_UpdateFieldExpiration
+    # with a NULL field array, which silently cleared the spec's TTL-table
+    # entry for the doc and "resurrected" fields that should remain expired.
+    conn = getConnectionByEnv(env)
+    # Pin the field's apparent expiration to the HFE table only; without this
+    # Redis would also remove the field server-side, masking the bug.
+    conn.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '0')
+
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH',
+               'PREFIX', '1', 'doc:',
+               'SCHEMA', 'x', 'TEXT', 'y', 'TEXT').ok()
+    # Both flags must be on: 'documents' so the EXPIRE/PERSIST path enters the
+    # spec at all, 'fields' so the HPEXPIRE below populates the TTL table.
+    env.cmd(debug_cmd(), 'SET_MONITOR_EXPIRATION', 'idx', 'documents', 'fields')
+
+    conn.execute_command('HSET', 'doc:1', 'x', 'hello', 'y', 'world')
+    conn.execute_command('HSET', 'doc:2', 'x', 'hello', 'y', 'world')
+
+    # Mark doc:1.x as expired via the HFE table. Active expiration is off, so
+    # the field value stays in the hash; only the spec's TTL table filters it.
+    conn.execute_command('HPEXPIRE', 'doc:1', '1', 'FIELDS', '1', 'x')
+    time.sleep(0.05)
+
+    # Sanity baseline: doc:1 is filtered out of @x queries, @y still hits both.
+    env.expect('FT.SEARCH', 'idx', '@x:hello', 'NOCONTENT').equal([1, 'doc:2'])
+    env.expect('FT.SEARCH', 'idx', '@y:world', 'NOCONTENT') \
+        .apply(sort_document_names).equal([2, 'doc:1', 'doc:2'])
+
+    # Drive Indexes_UpdateMatchingDocExpiration with a non-zero TTL. With the
+    # bug, this removes doc:1's HFE entry and @x:hello starts matching doc:1.
+    conn.execute_command('PEXPIRE', 'doc:1', '60000')
+    env.expect('FT.SEARCH', 'idx', '@x:hello', 'NOCONTENT').equal([1, 'doc:2'])
+
+    # Same fast path, now with ttl == 0. Must also leave HFE state untouched.
+    conn.execute_command('PERSIST', 'doc:1')
+    env.expect('FT.SEARCH', 'idx', '@x:hello', 'NOCONTENT').equal([1, 'doc:2'])
+
+    # And the unrelated field is unaffected throughout.
+    env.expect('FT.SEARCH', 'idx', '@y:world', 'NOCONTENT') \
+        .apply(sort_document_names).equal([2, 'doc:1', 'doc:2'])
+
 res_score_and_explanation = ['1', ['Final TFIDF : words TFIDF 1.00 * document score 1.00 / norm 1 / slop 1',
                                     ['(TFIDF 1.00 = Weight 1.00 * Frequency 1)']]]
 both_docs_no_sortby = "both_docs_no_sortby"

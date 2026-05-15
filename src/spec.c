@@ -4302,7 +4302,7 @@ void Indexes_UpdateMatchingDocExpiration(RedisModuleCtx *ctx, RedisModuleString 
     }
     RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, spec);
     // Read lock is sufficient: the only mutation is the relaxed atomic store on
-    // `dmd->expirationTimeNs` inside DocTable_UpdateExpiration (paired with a
+    // `dmd->expirationTimeNs` inside DocTable_SetDocExpiration (paired with a
     // relaxed atomic load in DocTable_IsDocExpired). The DMD chain traversal
     // and refcount manipulation in DocTable_BorrowByKeyR / DMD_Return are
     // explicitly documented as safe under either lock mode (doc_table.c, near
@@ -4313,12 +4313,11 @@ void Indexes_UpdateMatchingDocExpiration(RedisModuleCtx *ctx, RedisModuleString 
     RedisSearchCtx_LockSpecRead(&sctx);
     const RSDocumentMetadata *cdmd = DocTable_BorrowByKeyR(&spec->docs, key);
     if (cdmd) {
-      // Reuse the canonical setter so the doc-level write goes through the
-      // same path as Indexer_Add (indexer.c) and the timespec->ns conversion
-      // assertion in expirationTimePointToNs runs. Pass NULL for the field
-      // expirations: EXPIRE/PERSIST do not affect HEXPIRE state, so the
-      // existing per-spec TTL table entries must be preserved untouched.
-      DocTable_UpdateExpiration(&spec->docs, (RSDocumentMetadata *)cdmd, ttl, NULL);
+      // Only the doc-level TTL changes here. EXPIRE/PERSIST do not affect
+      // HEXPIRE state, and the per-field TTL table must be left untouched —
+      // mutating it would also require the spec write lock, which we do not
+      // hold on this fast path.
+      DocTable_SetDocExpiration((RSDocumentMetadata *)cdmd, ttl);
       DMD_Return(cdmd);
     }
     RedisSearchCtx_UnlockSpec(&sctx);
