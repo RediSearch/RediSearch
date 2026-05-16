@@ -29,7 +29,7 @@ runs:
     # Role-based auth with node20
     - name: Configure AWS Credentials Using Role (node20)
       if: ${{ inputs.use_role == 'true' && inputs.node20_supported == 'true' }}
-      uses: aws-actions/configure-aws-credentials@v4
+      uses: aws-actions/configure-aws-credentials@v6
       with:
         role-to-assume: ${{ inputs.role_to_assume }}
         aws-region: ${{ inputs.aws_region }}
@@ -94,7 +94,7 @@ runs:
     # Key-based auth with node20
     - name: Configure AWS Credentials Using Keys (node20)
       if: ${{ inputs.use_role != 'true' && inputs.node20_supported == 'true' }}
-      uses: aws-actions/configure-aws-credentials@v4
+      uses: aws-actions/configure-aws-credentials@v6
       with:
         aws-access-key-id: ${{ inputs.aws_access_key_id }}
         aws-secret-access-key: ${{ inputs.aws_secret_access_key }}
