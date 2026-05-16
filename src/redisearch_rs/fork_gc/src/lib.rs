@@ -16,6 +16,8 @@
 //! one.
 
 pub mod fork_gc;
-pub mod pipe;
+pub mod io_result_ext;
+pub mod util;
+pub mod writer;
 
 pub use fork_gc::ForkGC;
