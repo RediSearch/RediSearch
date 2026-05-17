@@ -9,7 +9,7 @@
 #include "forward_index.h"
 #include "inverted_index_ffi.h"
 #include "tokenize.h"
-#include "util/fnv.h"
+#include "fnv_ffi.h"
 #include "util/logging.h"
 #include <stdio.h>
 #include <sys/param.h>

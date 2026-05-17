@@ -11,7 +11,7 @@
 #include <string.h>
 #include <stdio.h>
 #include "redismodule.h"
-#include "util/fnv.h"
+#include "fnv_ffi.h"
 #include "triemap_ffi.h"
 #include "sortable.h"
 #include "sorting_vector_ffi.h"
