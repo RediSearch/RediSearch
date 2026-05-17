@@ -1633,41 +1633,30 @@ int SetFtAggregateInfo(RedisModuleCommand *cmd) {
                     .type = REDISMODULE_ARG_TYPE_INTEGER,
                   },
                   {
-                    .name = "fields",
-                    .type = REDISMODULE_ARG_TYPE_BLOCK,
+                    .name = "fields_clause",
+                    .type = REDISMODULE_ARG_TYPE_ONEOF,
                     .subargs = (RedisModuleCommandArg[]){
                       {
-                        .name = "fields_token",
-                        .token = "FIELDS",
-                        .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
-                      },
-                      {
-                        .name = "fields_spec",
-                        .type = REDISMODULE_ARG_TYPE_ONEOF,
+                        .name = "fields",
+                        .type = REDISMODULE_ARG_TYPE_BLOCK,
                         .subargs = (RedisModuleCommandArg[]){
                           {
-                            .name = "all",
-                            .token = "*",
-                            .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
+                            .name = "num_fields",
+                            .token = "FIELDS",
+                            .type = REDISMODULE_ARG_TYPE_INTEGER,
                           },
                           {
-                            .name = "explicit",
-                            .type = REDISMODULE_ARG_TYPE_BLOCK,
-                            .subargs = (RedisModuleCommandArg[]){
-                              {
-                                .name = "num_fields",
-                                .type = REDISMODULE_ARG_TYPE_INTEGER,
-                              },
-                              {
-                                .name = "field",
-                                .type = REDISMODULE_ARG_TYPE_STRING,
-                                .flags = REDISMODULE_CMD_ARG_MULTIPLE,
-                              },
-                              {0}
-                            },
+                            .name = "field",
+                            .type = REDISMODULE_ARG_TYPE_STRING,
+                            .flags = REDISMODULE_CMD_ARG_MULTIPLE,
                           },
                           {0}
                         },
+                      },
+                      {
+                        .name = "fieldsall",
+                        .token = "FIELDS *",
+                        .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
                       },
                       {0}
                     },
@@ -2927,41 +2916,30 @@ int SetFtHybridInfo(RedisModuleCommand *cmd) {
                     .type = REDISMODULE_ARG_TYPE_INTEGER,
                   },
                   {
-                    .name = "fields",
-                    .type = REDISMODULE_ARG_TYPE_BLOCK,
+                    .name = "fields_clause",
+                    .type = REDISMODULE_ARG_TYPE_ONEOF,
                     .subargs = (RedisModuleCommandArg[]){
                       {
-                        .name = "fields_token",
-                        .token = "FIELDS",
-                        .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
-                      },
-                      {
-                        .name = "fields_spec",
-                        .type = REDISMODULE_ARG_TYPE_ONEOF,
+                        .name = "fields",
+                        .type = REDISMODULE_ARG_TYPE_BLOCK,
                         .subargs = (RedisModuleCommandArg[]){
                           {
-                            .name = "all",
-                            .token = "*",
-                            .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
+                            .name = "num_fields",
+                            .token = "FIELDS",
+                            .type = REDISMODULE_ARG_TYPE_INTEGER,
                           },
                           {
-                            .name = "explicit",
-                            .type = REDISMODULE_ARG_TYPE_BLOCK,
-                            .subargs = (RedisModuleCommandArg[]){
-                              {
-                                .name = "num_fields",
-                                .type = REDISMODULE_ARG_TYPE_INTEGER,
-                              },
-                              {
-                                .name = "field",
-                                .type = REDISMODULE_ARG_TYPE_STRING,
-                                .flags = REDISMODULE_CMD_ARG_MULTIPLE,
-                              },
-                              {0}
-                            },
+                            .name = "field",
+                            .type = REDISMODULE_ARG_TYPE_STRING,
+                            .flags = REDISMODULE_CMD_ARG_MULTIPLE,
                           },
                           {0}
                         },
+                      },
+                      {
+                        .name = "fieldsall",
+                        .token = "FIELDS *",
+                        .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
                       },
                       {0}
                     },

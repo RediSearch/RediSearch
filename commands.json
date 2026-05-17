@@ -1440,39 +1440,29 @@
                     "type": "integer"
                   },
                   {
-                    "name": "fields",
-                    "type": "block",
+                    "name": "fields_clause",
+                    "type": "oneof",
                     "arguments": [
                       {
-                        "name": "fields_token",
-                        "type": "pure-token",
-                        "token": "FIELDS"
-                      },
-                      {
-                        "name": "fields_spec",
-                        "type": "oneof",
+                        "name": "fields",
+                        "type": "block",
                         "arguments": [
                           {
-                            "name": "all",
-                            "type": "pure-token",
-                            "token": "*"
+                            "name": "num_fields",
+                            "type": "integer",
+                            "token": "FIELDS"
                           },
                           {
-                            "name": "explicit",
-                            "type": "block",
-                            "arguments": [
-                              {
-                                "name": "num_fields",
-                                "type": "integer"
-                              },
-                              {
-                                "name": "field",
-                                "type": "string",
-                                "multiple": true
-                              }
-                            ]
+                            "name": "field",
+                            "type": "string",
+                            "multiple": true
                           }
                         ]
+                      },
+                      {
+                        "name": "fieldsall",
+                        "type": "pure-token",
+                        "token": "FIELDS *"
                       }
                     ]
                   },
@@ -2649,39 +2639,29 @@
                     "type": "integer"
                   },
                   {
-                    "name": "fields",
-                    "type": "block",
+                    "name": "fields_clause",
+                    "type": "oneof",
                     "arguments": [
                       {
-                        "name": "fields_token",
-                        "type": "pure-token",
-                        "token": "FIELDS"
-                      },
-                      {
-                        "name": "fields_spec",
-                        "type": "oneof",
+                        "name": "fields",
+                        "type": "block",
                         "arguments": [
                           {
-                            "name": "all",
-                            "type": "pure-token",
-                            "token": "*"
+                            "name": "num_fields",
+                            "type": "integer",
+                            "token": "FIELDS"
                           },
                           {
-                            "name": "explicit",
-                            "type": "block",
-                            "arguments": [
-                              {
-                                "name": "num_fields",
-                                "type": "integer"
-                              },
-                              {
-                                "name": "field",
-                                "type": "string",
-                                "multiple": true
-                              }
-                            ]
+                            "name": "field",
+                            "type": "string",
+                            "multiple": true
                           }
                         ]
+                      },
+                      {
+                        "name": "fieldsall",
+                        "type": "pure-token",
+                        "token": "FIELDS *"
                       }
                     ]
                   },
