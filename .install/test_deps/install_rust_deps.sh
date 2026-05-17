@@ -96,7 +96,7 @@ binstall --no-host-prebuilt cargo-nextest@0.9.130
 # See https://docs.rs/cargo-hakari/latest/cargo_hakari/about/
 binstall cargo-hakari@0.9.37
 # A CLI to generate C headers from Rust code
-binstall cheadergen_cli@0.2.0
+binstall cheadergen_cli@0.2.1
 # Make sure `miri` is fully operational before running tests with it.
 # See https://github.com/rust-lang/miri/blob/master/README.md#running-miri-on-ci
 # for more details.

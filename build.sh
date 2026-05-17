@@ -28,6 +28,9 @@ BUILD_INTEL_SVS_OPT=${BUILD_INTEL_SVS_OPT:-0} # Use SVS pre-compiled library
 # Clang needs to have the same version as the LLVM version used by Rust.
 # Check using `clang --version` and `rustc --version --verbose`.
 LTO=0
+# If set to `1`, C headers for Rust modules are (re)generated from the Rust source.
+# If set to `0`, (re)generation is skipped and the committed C headers are used.
+REDISEARCH_GENERATE_HEADERS=${REDISEARCH_GENERATE_HEADERS:-1}
 # Inline LSE atomics on Linux AArch64 (Armv8.1-a+). Set to 0 on pre-Armv8.1-a
 # cores (Cortex-A72, AWS Graviton1, Raspberry Pi 4) to avoid SIGILL on load.
 INLINE_LSE_ATOMICS=${INLINE_LSE_ATOMICS:-1}
@@ -115,6 +118,9 @@ parse_arguments() {
         ;;
       TEST=*)
         TEST_FILTER="${arg#*=}"
+        ;;
+      REDISEARCH_GENERATE_HEADERS=*)
+        REDISEARCH_GENERATE_HEADERS="${arg#*=}"
         ;;
       RUST_PROFILE=*)
         RUST_PROFILE="${arg#*=}"
@@ -534,6 +540,12 @@ prepare_cmake_arguments() {
 
   if [[ "$BUILD_TESTS" == "1" ]]; then
     CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DBUILD_SEARCH_UNIT_TESTS=ON"
+  fi
+
+  if [[ "$REDISEARCH_GENERATE_HEADERS" == "1" ]]; then
+    CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DREDISEARCH_GENERATE_HEADERS=ON"
+  else
+    CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DREDISEARCH_GENERATE_HEADERS=OFF"
   fi
 
   if [[ -n "$SAN" ]]; then
