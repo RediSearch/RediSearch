@@ -22,7 +22,7 @@ extern "C" {
  * Populated by `CollectArgs_Parse`. Names in `field_names` and `sort_names`
  * are stripped of their leading `@`. All strings are borrowed from the
  * caller's `ArgsCursor` argv and live exactly as long as it does. No
- * `RLookupKey` resolution happens here; that's the caller's job after parsing.
+ * `RLookupKey` resolution happens here.
  *
  * `field_names` is non-NULL only when the user spelled out `<n> @field ...`.
  * `load_all` is mutually exclusive with `field_names`: when `*` is used,

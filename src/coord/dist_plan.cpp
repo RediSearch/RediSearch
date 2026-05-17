@@ -455,7 +455,7 @@ static int distributeCollect(ReducerDistCtx *rdctx, QueryError *status) {
     CollectArgs_Free(&args);
     return REDISMODULE_ERR;
   }
-
+  RS_ASSERT(alias)
   // ---- Local argv: same shape as remote, but with the original LIMIT preserved
   //     and an `AS <user_alias>` suffix.
   std::vector<const char *> localTokens = fieldsTokens;
