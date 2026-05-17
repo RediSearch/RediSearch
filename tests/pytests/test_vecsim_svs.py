@@ -277,7 +277,12 @@ for workers in [0, 4]:
             metrics = VECSIM_DISTANCE_METRICS if EXTENDED_PYTESTS else ['IP']
             for metric in metrics:
                 test_name = f"test_queries_sanity_{compression_type}_{data_type}_{metric}" + name_suffix
-                globals()[test_name] = func_gen(test_name, compression_type, data_type, metric, workers)
+                test_func = func_gen(test_name, compression_type, data_type, metric, workers)
+                # The broad SVS compression/datatype/metric matrix is covered in standalone.
+                # In cluster mode, the same training work is multiplied across shards and can
+                # exceed the coverage job budget without adding meaningful distributed coverage.
+                test_func = skip(cluster=True)(test_func)
+                globals()[test_name] = test_func
 
 '''
 This test validates SVS-VAMANA tiered indexing across all datatype, metric, and compression combinations.
