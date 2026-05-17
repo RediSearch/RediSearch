@@ -307,39 +307,34 @@ static bool resolveKeyByName(const ReducerOptions *options, const char *context,
   return true;
 }
 
-// Resolves stripped names into `RLookupKey *` arrays for the remote reducer.
-// On failure, frees the partially-built arrays and returns false.
-static bool resolveCollectKeys(const ReducerOptions *options, const CollectArgs *args,
-                               arrayof(const RLookupKey *) *out_field_keys,
-                               arrayof(const RLookupKey *) *out_sort_keys) {
-  *out_field_keys = NULL;
-  *out_sort_keys = NULL;
-
-  if (!args->load_all && array_len(args->field_names) > 0) {
-    *out_field_keys = array_new(const RLookupKey *, array_len(args->field_names));
-    for (size_t i = 0; i < array_len(args->field_names); i++) {
-      const RLookupKey *key = NULL;
-      if (!resolveKeyByName(options, "FIELDS", args->field_names[i], &key)) {
-        array_free(*out_field_keys); *out_field_keys = NULL;
-        return false;
-      }
-      array_append(*out_field_keys, key);
+// Resolves stripped names into a freshly-allocated `arrayof(const RLookupKey *)`.
+// Caller owns the result and must `array_free` it.
+// On failure, frees the partial array and returns false.
+static bool resolveKeyNames(const ReducerOptions *options, const char *context,
+                            arrayof(const char *) names,
+                            arrayof(const RLookupKey *) *out_keys) {
+  const size_t n = array_len(names);
+  *out_keys = array_new(const RLookupKey *, n);
+  for (size_t i = 0; i < n; i++) {
+    const RLookupKey *key = NULL;
+    if (!resolveKeyByName(options, context, names[i], &key)) {
+      array_free(*out_keys);
+      *out_keys = NULL;
+      return false;
     }
-  }
-
-  if (array_len(args->sort_names) > 0) {
-    *out_sort_keys = array_new(const RLookupKey *, array_len(args->sort_names));
-    for (size_t i = 0; i < array_len(args->sort_names); i++) {
-      const RLookupKey *key = NULL;
-      if (!resolveKeyByName(options, "SORTBY", args->sort_names[i], &key)) {
-        array_free(*out_field_keys); *out_field_keys = NULL;
-        array_free(*out_sort_keys); *out_sort_keys = NULL;
-        return false;
-      }
-      array_append(*out_sort_keys, key);
-    }
+    array_append(*out_keys, key);
   }
   return true;
+}
+
+static bool resolveFieldKeys(const ReducerOptions *options, const CollectArgs *args,
+                             arrayof(const RLookupKey *) *out_keys) {
+  return resolveKeyNames(options, "FIELDS", args->field_names, out_keys);
+}
+
+static bool resolveSortKeys(const ReducerOptions *options, const CollectArgs *args,
+                            arrayof(const RLookupKey *) *out_keys) {
+  return resolveKeyNames(options, "SORTBY", args->sort_names, out_keys);
 }
 
 // ===== Factory =====
@@ -375,10 +370,23 @@ Reducer *RDCRCollect_New(const ReducerOptions *options) {
   } else {
     arrayof(const RLookupKey *) field_keys = NULL;
     arrayof(const RLookupKey *) sort_keys = NULL;
-    if (!resolveCollectKeys(options, &args, &field_keys, &sort_keys)) {
-      CollectArgs_Free(&args);
-      return NULL;
+
+    if (!args.load_all) {
+      RS_ASSERT(array_len(args.field_names) > 0);
+      if (!resolveFieldKeys(options, &args, &field_keys)) {
+        CollectArgs_Free(&args);
+        return NULL;
+      }
     }
+
+    if (array_len(args.sort_names) > 0) {
+      if (!resolveSortKeys(options, &args, &sort_keys)) {
+        array_free(field_keys);
+        CollectArgs_Free(&args);
+        return NULL;
+      }
+    }
+
     rbase = CollectReducer_CreateRemote(
       field_keys,
       field_keys ? array_len(field_keys) : 0,
