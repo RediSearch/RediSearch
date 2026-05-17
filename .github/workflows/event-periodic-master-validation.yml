@@ -23,6 +23,9 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Decide whether this workflow should run the selected-platform validation now.
+  # Skipped validation runs still finish successfully, so this job finds the last
+  # successful run that actually completed validation and batches PRs from there.
   should-run:
     runs-on: ubuntu-slim
     outputs:
