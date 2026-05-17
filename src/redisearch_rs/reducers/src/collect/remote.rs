@@ -133,6 +133,11 @@ impl<'a> RemoteCollectReducer<'a> {
         limit: Option<(u64, u64)>,
         is_internal: bool,
     ) -> Self {
+        // `distributeCollect` rewrites the shard wire's LIMIT to
+        // `(0, offset+count)`, so an internal shard never sees a non-zero
+        // offset.
+        debug_assert!(!(is_internal && limit.is_some_and(|(offset, _)| offset != 0)));
+
         let fields = match srclookup {
             Some(src_lookup) => Fields::All {
                 src_lookup,
@@ -257,10 +262,6 @@ impl RemoteCollectCtx {
     /// [`LocalCollectCtx::finalize`][crate::collect::local::LocalCollectCtx::finalize]
     /// reconstructs the client-facing result from the emitted payload.
     pub fn finalize(&mut self, r: &RemoteCollectReducer<'_>) -> SharedValue {
-        // `distributeCollect` rewrites the shard wire's LIMIT to
-        // `(0, offset+count)`, so an internal shard's stored offset is
-        // always 0 and offset semantics are owned exclusively by the
-        // coordinator-local reducer.
         let rows = self.storage.drain();
         let template = r.fields.build_template(r.is_internal);
         SharedValue::new_array(rows.map(|row| {
