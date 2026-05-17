@@ -12,7 +12,7 @@
 #include "common.h"
 #include "redismock/redismock.h"
 #include "synonym_map.h"
-#include "trie/trie_type.h"
+#include "trie/trie.h"
 #include <cstdint>  // For SIZE_MAX, UINT32_MAX
 
 extern "C" {
