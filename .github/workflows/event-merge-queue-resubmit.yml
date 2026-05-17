@@ -124,20 +124,17 @@ jobs:
                   if attempt < attempts:
                       time.sleep(2 * attempt)
 
-              return None
+              raise RuntimeError(f"{description} failed after {attempts} attempts")
 
 
           def load_gh_api_json(args, description, attempts=3):
               output = run_gh_api(args, description, attempts)
-              if output is None:
-                  return None
-
               try:
                   return json.loads(output)
               except json.JSONDecodeError as error:
                   print(f"{description} returned invalid JSON: {error}")
                   print(output)
-                  return None
+                  raise
 
 
           def query_pull_request(owner, repo, number):
@@ -155,9 +152,6 @@ jobs:
                   ],
                   f"Query PR #{number} merge queue timeline",
               )
-              if data is None:
-                  return None
-
               return data["data"]["repository"]["pullRequest"]
 
 
@@ -171,8 +165,6 @@ jobs:
                       ],
                       "Query merge queue workflow runs",
                   )
-                  if data is None:
-                      return None, None
 
                   candidates = []
                   for run in data["workflow_runs"]:
@@ -223,9 +215,6 @@ jobs:
           print(f"Checking whether PR #{pr_number} was resubmitted without new commits")
 
           pull_request = query_pull_request(owner, repo_name, pr_number)
-          if pull_request is None:
-              finish_without_alert("Could not query pull request data from GitHub")
-
           events = pull_request["timelineItems"]["nodes"]
           latest_add = latest(events, "AddedToMergeQueueEvent")
           latest_removal = latest(events, "RemovedFromMergeQueueEvent")
