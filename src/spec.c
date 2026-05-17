@@ -4402,8 +4402,19 @@ void Indexes_UpdateMatchingHashFieldExpiration(RedisModuleCtx *ctx, RedisModuleS
     // INDEXMISSING relies on reindexing: the missing-docs iterator walks
     // an inverted index that requires monotonically increasing docIds, so
     // we cannot patch it from the fast path. Fall back to full reindex.
+    //
+    // Indexes_FindMatchingSchemaRules was called with runFilters=false, so
+    // the schema FILTER was not evaluated. Re-evaluate it here via
+    // SchemaRule_ShouldIndex so an HEXPIRE on a hash whose PREFIX matches
+    // but whose FILTER rejects it does not incorrectly add the doc to the
+    // index. Matches the SpecOp_Add / SpecOp_Del split the slow path
+    // produces in Indexes_UpdateMatchingWithSchemaRules.
     if (specHasIndexMissing(spec)) {
-      IndexSpec_UpdateDoc(spec, ctx, key, type);
+      if (SchemaRule_ShouldIndex(spec, key, type)) {
+        IndexSpec_UpdateDoc(spec, ctx, key, type);
+      } else {
+        IndexSpec_DeleteDoc(spec, ctx, key);
+      }
       continue;
     }
 
