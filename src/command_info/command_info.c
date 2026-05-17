@@ -1615,7 +1615,6 @@ int SetFtAggregateInfo(RedisModuleCommand *cmd) {
               },
               {
                 .name = "collect_reduce",
-                .summary = "Collects values from grouped documents into a structured list. Requires `search-enable-unstable-features` to be enabled.",
                 .since = "8.8.0",
                 .type = REDISMODULE_ARG_TYPE_BLOCK,
                 .subargs = (RedisModuleCommandArg[]){
@@ -2910,7 +2909,6 @@ int SetFtHybridInfo(RedisModuleCommand *cmd) {
               },
               {
                 .name = "collect_reduce",
-                .summary = "Collects values from grouped documents into a structured list. Requires `search-enable-unstable-features` to be enabled.",
                 .since = "8.8.0",
                 .type = REDISMODULE_ARG_TYPE_BLOCK,
                 .subargs = (RedisModuleCommandArg[]){
