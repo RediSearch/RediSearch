@@ -25,8 +25,9 @@ use trie_rs::iter::filter::VisitAll;
 
 /// Iterator over all entries of a [`TrieLex`] in lex order.
 ///
-/// The lifetime ties the iterator to the trie it was created from. cbindgen
-/// renders it as an opaque struct via `cbindgen.toml`.
+/// The lifetime ties the iterator to the trie it was created from. cheadergen
+/// renders it as a bare `typedef struct TrieLexIterator TrieLexIterator;`
+/// because the non-`repr(C)` fields are private to the crate.
 pub struct TrieLexIterator<'tm> {
     iter: LendingIter<'tm, TrieLexEntry, VisitAll>,
     /// Scratch buffer that holds the current key as decoded runes, refreshed

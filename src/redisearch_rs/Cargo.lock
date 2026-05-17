@@ -2763,8 +2763,7 @@ dependencies = [
 name = "trie_lex_ffi"
 version = "0.0.1"
 dependencies = [
- "build_utils",
- "cbindgen",
+ "cheadergen",
  "lending-iterator",
  "libc",
  "redis-module",

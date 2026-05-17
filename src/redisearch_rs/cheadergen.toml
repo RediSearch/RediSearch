@@ -238,15 +238,9 @@ typedef struct timespec timespec;
 
 [package.trie_lex_ffi]
 # Keep the historical `trie_lex.h` header name (cbindgen output) rather than
-# the auto-derived `trie_lex_ffi.h`.
+# the auto-derived `trie_lex_ffi.h`. `RedisModuleIO` is auto-typedef'd by
+# cheadergen, so no explicit forward declaration is needed.
 header_name = "trie_lex"
-
-[header.trie_lex]
-after_includes = """
-// RedisModuleIO is provided by redismodule.h. We forward-declare it so callers
-// can include trie_lex.h without pulling in the full module header.
-struct RedisModuleIO;
-"""
 
 [header.types_ffi]
 includes = ["redisearch_types.h"]
