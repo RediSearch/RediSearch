@@ -1,0 +1,97 @@
+#!/usr/bin/env python3
+#-*- coding: UTF-8
+
+import sys
+import time
+
+from coldata import *
+
+
+def tab(s, tabs=1):
+	return '\t' * tabs + s
+
+
+def gen_header(tag, codepoints):
+	print('''/* Automatically generated file (codepoints-totests), %d
+*
+* Tag        : %s
+* Codepoints : %d
+*/''' % (time.time(), tag, len(codepoints)))
+	print()
+
+
+def gen_includes():
+	print('#include <assert.h>')
+	print('#include <stddef.h>')
+	print('#include <stdint.h>')
+	print()
+	print('#include "switch_test_base.h"')
+	print()
+
+
+def gen_globals(tag):
+	print('extern int32_t %s_weight(uint32_t u, int32_t *w, void *context);' % (tag))
+	print()
+	print('static const nu_codepoint_weight_t weight = %s_weight;' % (tag))
+	print()
+
+
+def gen_run_suite():
+	'''produce code for running test suite'''
+	print(tab('size_t i = 0; for (; i < contractions_num; ++i) {'))
+	print(tab('int32_t w = _nu_test_contraction_weight(weight, contractions[i].seq, contractions[i].len, 0);', 2))
+	print(tab('assert(w == contractions[i].weight);', 2))
+	print(tab('/* ignore rollback value */', 2))
+	print(tab('}'))
+
+
+def gen_weights_test(tag, codepoints):
+	'''produce test that encoded codepoints return expected weights'''
+	def expand_codepoint(codepoint, weight):
+		'''produce single record for test'''
+		assert(len(codepoint) == 1)
+		# each codepoint is followed by U+0000 and tested as contraction
+		# otherwise state machine would stay in undecided state
+		print(tab('{ 0x%06X, 0, 2, (uint32_t[2]){ 0x%06X, 0 },  },' % (weight,
+																	int(codepoint[0], base=16)), 2))
+
+	print('/* test that all codepoints and their weights are')
+	print(' * correctly encoded into nunicode */')
+	print('void test_%s_weights() {' % (tag))
+	print(tab('const _nu_contraction_test_t contractions[] = {'))
+
+	for codepoint, weight in codepoints:
+		expand_codepoint(codepoint, weight)
+
+	print(tab('};'))
+	print(tab('const size_t contractions_num = sizeof(contractions) / sizeof(*contractions);'))
+	print()
+
+	gen_run_suite()
+
+	print('}')
+	print()
+
+
+def usage():
+	print('usage: ' + sys.argv[0] + ' [CODEPOINTS] [CONTRACTIONS] [TAG]')
+	print()
+	print('  [CODEPOINTS]   - filename with list of codepoints')
+	print('  [CONTRACTIONS] - filename with list of contractions from the same collation')
+	print('  [TAG]          - prefix to weighting switch')
+
+
+if __name__ == '__main__':
+	if len(sys.argv) < 4:
+		usage()
+		sys.exit(1)
+
+	codepoints_file, contractions_file = sys.argv[1], sys.argv[2]
+	tag = sys.argv[3]
+
+	codepoints, _ = collect_contractions(codepoints_file, contractions_file)
+
+	gen_header(tag, codepoints)
+	gen_includes()
+	gen_globals(tag)
+	gen_weights_test(tag, codepoints)
