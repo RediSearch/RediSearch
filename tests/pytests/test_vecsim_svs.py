@@ -57,45 +57,33 @@ def test_small_window_size():
     conn = getConnectionByEnv(env)
 
     dim = 2
-    # The vectors will be moved from the flat buffer to svs after 1024 * 10 vectors.
-    svs_transfer_th = 1024 * 10
+    # The threshold is per shard in cluster mode, so add a small margin for
+    # non-compressed SVS to train on every shard.
+    no_compression_training_th = int(DEFAULT_BLOCK_SIZE * 1.1 * env.shardsCount)
+    compression_training_th = DEFAULT_BLOCK_SIZE * 10
     keep_count = 10
-    num_vectors = svs_transfer_th
     field_name = 'v_SVS_VAMANA'
     for data_type in VECSIM_SVS_DATA_TYPES:
         query_vec = create_random_np_array_typed(dim, data_type)
         for compression in [[], ["COMPRESSION", "LVQ8"]]:
+            num_vectors = compression_training_th if compression else no_compression_training_th
             params = ['TYPE', data_type, 'DIM', dim, 'DISTANCE_METRIC', 'L2', "CONSTRUCTION_WINDOW_SIZE", 10, *compression]
             conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', field_name, 'VECTOR', 'SVS-VAMANA', len(params), *params)
 
             # Add enough vector to trigger transfer to svs
-            vectors = []
             for i in range(num_vectors):
                 vector = create_random_np_array_typed(dim, data_type)
-                vectors.append(vector)
                 conn.execute_command('HSET', f'doc_{i}', field_name, vector.tobytes())
 
-            # Create unique filename for this iteration
-            compression_str = "no_compression" if not compression else "_".join(compression)
-            filename = f"vectors_{data_type}_{compression_str}.txt"
-            with open(filename, 'w') as f:
-                f.write(f"Data Type: {data_type}, Compression: {compression}, Dim: {dim}, Count: {num_vectors}\n")
-                f.write(str([vector.tolist() for vector in vectors]))
-            # try:
-            #     conn.execute_command('FT.SEARCH', 'idx', f'*=>[KNN {keep_count} @{field_name} $vec_param]', 'PARAMS', 2, 'vec_param', query_vec.tobytes(), 'RETURN', 1, f'__{field_name}_score')
-            # except Exception as e:
-            #     env.assertTrue(False, message=f"compression: {compression} data_type: {data_type}. Search failed with exception: {e}")
             # delete most
             for i in range(num_vectors - keep_count):
                 conn.execute_command('DEL', f'doc_{i}')
 
             # run topk for remaining
             # Before fixing MOD-10771, search crashed
-            try:
-                conn.execute_command('FT.SEARCH', 'idx', f'*=>[KNN {keep_count} @{field_name} $vec_param]', 'PARAMS', 2, 'vec_param', query_vec.tobytes(), 'RETURN', 1, f'__{field_name}_score')
-            except Exception as e:
-                env.assertTrue(False, message=f"compression: {compression} data_type: {data_type}. Search failed with exception: {e}")
-                return
+            env.expect('FT.SEARCH', 'idx', f'*=>[KNN {keep_count} @{field_name} $vec_param]',
+                       'PARAMS', 2, 'vec_param', query_vec.tobytes(), 'RETURN', 1,
+                       f'__{field_name}_score').noError()
             conn.execute_command('FLUSHALL')
 
 def test_rdb_load_trained_svs_vamana():
