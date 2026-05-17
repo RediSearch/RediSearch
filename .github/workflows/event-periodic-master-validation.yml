@@ -201,7 +201,7 @@ jobs:
 
           if failed_jobs:
               failed_jobs_text = "\n".join(
-                  f"- <{job.get('html_url')}|{job.get('name')}> ({job.get('conclusion')})"
+                  f"{job.get('name')} ({job.get('conclusion')})\n{job.get('html_url')}"
                   for job in failed_jobs
               )
           else:
@@ -211,11 +211,11 @@ jobs:
           if not covered_prs or covered_prs == "none":
               covered_prs_text = "none"
           else:
-              pr_links = []
+              pr_urls = []
               for pr_number in re.findall(r"#([0-9]+)", covered_prs):
                   pr_url = f"{os.environ['SERVER_URL']}/{repository}/pull/{pr_number}"
-                  pr_links.append(f"- <{pr_url}|#{pr_number}>")
-              covered_prs_text = "\n".join(pr_links) if pr_links else covered_prs
+                  pr_urls.append(pr_url)
+              covered_prs_text = "\n".join(pr_urls) if pr_urls else covered_prs
 
           append_output("failed_jobs", failed_jobs_text)
           append_output("covered_prs", covered_prs_text)
