@@ -361,6 +361,7 @@ static int distributeAvg(ReducerDistCtx *rdctx, QueryError *status) {
  */
 static int distributeCollect(ReducerDistCtx *rdctx, QueryError *status) {
   const PLN_Reducer *src = rdctx->srcReducer;
+  RS_ASSERT(src->alias);
 
   // Parse the original COLLECT args into a pure data struct. No keys are
   // opened; the parse cursor uses a synthesized lookup-less `ReducerOptions`.
