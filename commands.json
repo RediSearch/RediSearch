@@ -1423,7 +1423,7 @@
               {
                 "name": "collect_reduce",
                 "type": "block",
-                "since": "8.8.0",
+                "since": "8.6.0",
                 "arguments": [
                   {
                     "name": "reduce",
@@ -2632,7 +2632,7 @@
               {
                 "name": "collect_reduce",
                 "type": "block",
-                "since": "8.8.0",
+                "since": "8.6.0",
                 "arguments": [
                   {
                     "name": "reduce",

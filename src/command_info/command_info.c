@@ -1615,7 +1615,7 @@ int SetFtAggregateInfo(RedisModuleCommand *cmd) {
               },
               {
                 .name = "collect_reduce",
-                .since = "8.8.0",
+                .since = "8.6.0",
                 .type = REDISMODULE_ARG_TYPE_BLOCK,
                 .subargs = (RedisModuleCommandArg[]){
                   {
@@ -2909,7 +2909,7 @@ int SetFtHybridInfo(RedisModuleCommand *cmd) {
               },
               {
                 .name = "collect_reduce",
-                .since = "8.8.0",
+                .since = "8.6.0",
                 .type = REDISMODULE_ARG_TYPE_BLOCK,
                 .subargs = (RedisModuleCommandArg[]){
                   {
