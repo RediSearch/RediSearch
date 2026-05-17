@@ -842,6 +842,46 @@ def testHashFieldExpirationWithNonMatchingIndexes(env):
     env.expect('FT.SEARCH', 'idx_filter_skip', '*', 'NOCONTENT').equal([0])
 
 
+@skip(cluster=True, redis_less_than='8.0')
+def testHashFieldExpirationFilterSkipWithIndexMissing(env):
+    # Regression for the HPEXPIRE fast path in Indexes_UpdateMatchingHashFieldExpiration:
+    # when a spec has any INDEXMISSING field, the fast path falls back to
+    # IndexSpec_UpdateDoc(). FindMatchingSchemaRules is invoked with
+    # runFilters=false, so the FILTER must still be honored on the fallback —
+    # otherwise an HPEXPIRE on a hash whose PREFIX matches but whose FILTER
+    # rejects it could incorrectly add the doc to the index.
+    conn = getConnectionByEnv(env)
+    conn.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '0')
+
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH',
+               'PREFIX', '1', 'doc:',
+               'FILTER', '@n == 100',
+               'SCHEMA', 'x', 'TEXT', 'INDEXMISSING', 'n', 'NUMERIC').ok()
+    env.cmd(debug_cmd(), 'SET_MONITOR_EXPIRATION', 'idx', 'fields')
+
+    # n=1 fails the FILTER, so doc:1 is never indexed. The PREFIX still
+    # selects it for the keyspace-notification fast path.
+    conn.execute_command('HSET', 'doc:1', 'x', 'hello', 'n', '1')
+    env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT').equal([0])
+    env.expect('FT.SEARCH', 'idx', 'ismissing(@x)', 'NOCONTENT', 'DIALECT', '3').equal([0])
+
+    # HPEXPIRE on the FILTER-rejected doc must not add it to the index, even
+    # though the spec has an INDEXMISSING field that routes through the
+    # IndexSpec_UpdateDoc fallback.
+    conn.execute_command('HPEXPIRE', 'doc:1', '60000', 'FIELDS', '1', 'x')
+
+    env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT').equal([0])
+    env.expect('FT.SEARCH', 'idx', 'ismissing(@x)', 'NOCONTENT', 'DIALECT', '3').equal([0])
+
+    # Sanity check: a hash that passes the FILTER is indexed normally, and an
+    # HPEXPIRE on its INDEXMISSING field flips it into the ismissing posting.
+    conn.execute_command('HSET', 'doc:2', 'x', 'hello', 'n', '100')
+    env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT').equal([1, 'doc:2'])
+    conn.execute_command('HPEXPIRE', 'doc:2', '1', 'FIELDS', '1', 'x')
+    time.sleep(0.015)
+    env.expect('FT.SEARCH', 'idx', 'ismissing(@x)', 'NOCONTENT', 'DIALECT', '3').equal([1, 'doc:2'])
+
+
 @skip(redis_less_than='7.3')
 def testLastFieldNoExpiration(env):
     conn = getConnectionByEnv(env)
