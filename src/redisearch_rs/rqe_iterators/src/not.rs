@@ -12,7 +12,8 @@
 use std::time::Duration;
 
 use ffi::{RS_FIELDMASK_ALL, t_docId};
-use index_result::RSIndexResult;
+use index_result::{RSIndexResult, RawIndexResult};
+use ref_mode::{Active, Ref};
 
 use crate::{
     IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
@@ -22,9 +23,13 @@ use crate::{
 use index_spec::IndexSpecReadGuard;
 /// An iterator that negates the results of its child iterator.
 ///
+/// Parameterised over a [`Ref`] mode — see [`Not`] for the [`Active`]
+/// instantiation that implements [`RQEIterator`].
+///
 /// Yields all document IDs from 1 to `max_doc_id` (inclusive) that are **not**
 /// present in the child iterator.
-pub struct Not<'index, I> {
+#[repr(C)]
+pub struct RawNot<Rf: Ref, I> {
     /// The child iterator whose results are negated.
     child: MaybeEmpty<I>,
     /// The maximum document ID to iterate up to (inclusive).
@@ -34,13 +39,17 @@ pub struct Not<'index, I> {
     /// and reset to `false` at [`RQEIterator::rewind`].
     forced_eof: bool,
     /// A reusable result object to avoid allocations on each [`read`](RQEIterator::read) call.
-    result: RSIndexResult<'index>,
+    result: RawIndexResult<Rf>,
     /// Tracks the execution deadline for this iterator.
     ///
     /// Uses an amortized check to minimize overhead in hot paths. The timeout
     /// is absolute for the iterator's lifetime and does not reset upon rewinding.
     timeout_ctx: Option<TimeoutContext>,
 }
+
+/// Alias for an [`Active`] [`RawNot`] — the only instantiation with an
+/// [`RQEIterator`] impl today.
+pub type Not<'index, I> = RawNot<Active<'index>, I>;
 
 impl<'index, I> Not<'index, I>
 where

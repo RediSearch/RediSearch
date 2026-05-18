@@ -12,7 +12,8 @@
 use std::time::Duration;
 
 use ffi::{RS_FIELDMASK_ALL, t_docId};
-use index_result::RSIndexResult;
+use index_result::{RSIndexResult, RawIndexResult};
+use ref_mode::{Active, Ref};
 
 use crate::{
     IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
@@ -24,6 +25,9 @@ use index_spec::IndexSpecReadGuard;
 const TIMEOUT_CHECK_GRANULARITY: u32 = 5_000;
 
 /// An optimized NOT iterator that uses a wildcard inverted index iterator.
+///
+/// Parameterised over a [`Ref`] mode — see [`NotOptimized`] for the [`Active`]
+/// instantiation that implements [`RQEIterator`].
 ///
 /// Unlike [`Not`](super::not::Not) which iterates sequentially from 1 to
 /// `max_doc_id`, this variant uses a
@@ -37,10 +41,11 @@ const TIMEOUT_CHECK_GRANULARITY: u32 = 5_000;
 ///
 /// # Type Parameters
 ///
-/// * `'index` - The lifetime of the index being iterated over.
+/// * `Rf` - The [`Ref`] mode.
 /// * `W` - The wildcard iterator type, must implement [`WildcardIterator`].
 /// * `I` - The child iterator type whose results are negated.
-pub struct NotOptimized<'index, W, I> {
+#[repr(C)]
+pub struct RawNotOptimized<Rf: Ref, W, I> {
     /// The wildcard iterator over all existing documents.
     wcii: W,
     /// The child iterator whose results are negated.
@@ -50,10 +55,14 @@ pub struct NotOptimized<'index, W, I> {
     /// Sticky EOF flag, set when iteration completes.
     forced_eof: bool,
     /// A reusable result object to avoid allocations on each [`read`](RQEIterator::read) call.
-    result: RSIndexResult<'index>,
+    result: RawIndexResult<Rf>,
     /// Tracks the execution deadline for this iterator.
     timeout_ctx: Option<TimeoutContext>,
 }
+
+/// Alias for an [`Active`] [`RawNotOptimized`] — the only instantiation
+/// with an [`RQEIterator`] impl today.
+pub type NotOptimized<'index, W, I> = RawNotOptimized<Active<'index>, W, I>;
 
 impl<'index, W, I> NotOptimized<'index, W, I>
 where
