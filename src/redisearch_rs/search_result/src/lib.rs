@@ -18,7 +18,7 @@ use document_metadata::DocumentMetadata;
 #[repr(u8)]
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum SearchResultFlag {
-    ExpiredDoc = 1,
+    ExpiredDoc = 1 << 0,
     /// `_index_result` owns its `RSIndexResult` allocation (created via
     /// `IndexResult_DeepCopy` or equivalent). When set, `clear()` reconstitutes
     /// the `Box` and drops it. When unset, `_index_result` is a borrow into an
@@ -106,12 +106,9 @@ impl<'index> SearchResult<'index> {
         if self._flags.contains(SearchResultFlag::OwnsIndexResult)
             && let Some(ir) = self._index_result.take()
         {
-            // SAFETY: `OwnsIndexResult` is set iff `_index_result` was
-            // populated from a `Box<RSIndexResult>` (via
-            // `IndexResult_DeepCopy` or equivalent). Reconstituting and
-            // dropping the box reverses that allocation. The reference
-            // is unaliased because the SearchResult is the unique holder
-            // while the flag is set.
+            // SAFETY: `OwnsIndexResult` is set iff `_index_result` was populated from a `Box<RSIndexResult>`.
+            // Reconstituting and dropping the box reverses that allocation.
+            // The reference is unaliased because the SearchResult is the unique holder while the flag is set.
             drop(unsafe { Box::from_raw(std::ptr::from_ref(ir).cast_mut()) });
         }
         self._index_result = None;
