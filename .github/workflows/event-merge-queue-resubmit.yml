@@ -318,7 +318,7 @@ jobs:
           append_output("removed_by", actor.get("login"))
           append_output("enqueued_by", enqueuer_display)
           append_output("enqueued_by_mention", enqueuer_mention)
-          append_output("missing_slack_mappings", ", ".join(missing_slack_mappings) or "None")
+          append_output("missing_slack_mappings", ", ".join(missing_slack_mappings))
           append_output("removed_at", format_timestamp(latest_removal["createdAt"]))
           append_output("resubmitted_at", format_timestamp(latest_add["createdAt"]))
           append_output("head_commit", current_head)
