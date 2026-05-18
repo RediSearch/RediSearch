@@ -13,12 +13,16 @@
 //! See `rune_trie_snapshots/tests/integration/splits.rs` for the C oracle
 //! that owns the shared `.snap` file.
 //!
-//! Assumed `RuneTrieMap` API (mirrors the C oracle's per-entry payload by
-//! storing score + numDocs in the generic `V`; reductions/replace semantics
-//! must be handled by the impl):
+//! The C trie's `ADD_REPLACE` path on an existing terminal *replaces* score
+//! but *accumulates* numDocs (`trie_node.c:318-325`). The Rust trie is
+//! value-agnostic — that merge belongs to the caller. This test mirrors it
+//! at the call site via `get` + `insert`, which works against the existing
+//! `RuneTrieMap` API without requiring an `insert_with`/`entry` extension.
+//!
+//! Assumed `RuneTrieMap` API:
 //!   - `RuneTrieMap::<V>::new() -> Self`
-//!   - `insert(&mut self, key: &[Rune], value: V)` — on duplicate key, must
-//!     match the C `ADD_REPLACE` path: replace score, accumulate num_docs.
+//!   - `get(&mut self, key: &[Rune]) -> Option<&V>`
+//!   - `insert(&mut self, key: &[Rune], value: V)` — replace semantics
 //!   - `len(&self) -> usize`
 //!   - `iter(&self) -> impl Iterator<Item = (Vec<Rune>, &V)>` in lex order
 
@@ -68,11 +72,16 @@ fn lex_insert_sequence_splits() {
 
     let mut out = String::new();
     for (label, term, score, num_docs) in steps {
+        let key = term_runes(term);
+        // Mirror the C trie's existing-terminal merge: score is replaced,
+        // numDocs accumulates. `.map(|e| e.num_docs)` drops the borrow on
+        // `trie` before the subsequent `insert` call.
+        let merged_num_docs = trie.get(&key).map(|e| e.num_docs).unwrap_or(0) + *num_docs;
         trie.insert(
-            &term_runes(term),
+            &key,
             TermEntry {
                 score: *score,
-                num_docs: *num_docs,
+                num_docs: merged_num_docs,
             },
         );
         writeln!(
