@@ -8,6 +8,7 @@
 */
 
 mod iter;
+mod rune_delete_and_decrement;
 mod rune_insert_iterate;
 mod rune_splits;
 mod rune_unicode;
