@@ -13,9 +13,11 @@ use ffi::{RedisSearchCtx, TagIndex};
 use index_result::{RSIndexResult, RSOffsetSlice};
 use index_spec::IndexSpecReadGuard;
 use inverted_index::{
-    DecodedBy, DocIdsDecoder, IndexReader, IndexReaderCore, opaque::OpaqueEncoding,
+    DecodedBy, DocIdsDecoder, IndexReader, IndexReaderCore, RawIndexReaderCore,
+    opaque::OpaqueEncoding,
 };
 use query_term::RSQueryTerm;
+use ref_mode::{Active, Ref};
 use rqe_core::{DocId, RS_FIELDMASK_ALL};
 
 use crate::{
@@ -24,9 +26,11 @@ use crate::{
     profile_print::{ProfilePrint, ProfilePrintCtx},
 };
 
-use super::InvIndIterator;
+use super::{InvIndIterator, core::RawInvIndIterator};
 
-/// An iterator over documents matching a specific tag value.
+/// An iterator over documents matching a specific tag value, parameterised
+/// over a [`Ref`] mode. See [`Tag`] for the [`Active`] instantiation that
+/// implements [`RQEIterator`].
 ///
 /// Used for tag queries where the goal is to match every document that has
 /// a specific tag value indexed.
@@ -37,13 +41,18 @@ use super::InvIndIterator;
 ///
 /// # Type Parameters
 ///
-/// * `'index` - The lifetime of the index being iterated over.
+/// * `Rf` - The [`Ref`] mode (see [`RawInvIndIterator`] for details).
 /// * `E` - The encoding type for the inverted index. Its decoder must implement [`DocIdsDecoder`].
 /// * `C` - The expiration checker type.
-pub struct Tag<'index, E, C = crate::expiration_checker::NoOpChecker> {
-    it: InvIndIterator<'index, IndexReaderCore<'index, E>, C>,
+#[repr(C)]
+pub struct RawTag<Rf: Ref, E, C = crate::expiration_checker::NoOpChecker> {
+    it: RawInvIndIterator<Rf, RawIndexReaderCore<Rf, E>, C>,
     tag_index: NonNull<TagIndex>,
 }
+
+/// Alias for an [`Active`] [`RawTag`] — the only instantiation with an
+/// [`RQEIterator`] impl today.
+pub type Tag<'index, E, C = crate::expiration_checker::NoOpChecker> = RawTag<Active<'index>, E, C>;
 
 impl<'index, E, C> Tag<'index, E, C>
 where
