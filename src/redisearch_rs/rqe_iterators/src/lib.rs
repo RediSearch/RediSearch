@@ -11,10 +11,11 @@ use std::sync::OnceLock;
 
 use ffi::t_docId;
 use index_spec::IndexSpecReadGuard;
+use ref_mode::{Active, Ref};
 use thiserror::Error;
 
 use ::inverted_index::t_fieldMask;
-use index_result::RSIndexResult;
+use index_result::{RSIndexResult, RawIndexResult};
 use query_term::RSQueryTerm;
 
 pub mod c2rust;
@@ -61,15 +62,39 @@ pub use union::{
 pub use union_opaque::{UnionOpaque, UnionVariant};
 pub use wildcard::{NewWildcardIterator, Wildcard, WildcardIterator};
 
-#[derive(Debug, PartialEq)]
-/// The outcome of [`RQEIterator::skip_to`].
-pub enum SkipToOutcome<'iterator, 'index> {
+#[derive(Debug)]
+/// The outcome of [`RQEIterator::skip_to`], generic over the [`Ref`] mode.
+pub enum SkipToOutcomeRaw<'iterator, Rf: Ref> {
     /// The iterator has a valid entry for the requested `doc_id`.
-    Found(&'iterator mut RSIndexResult<'index>),
+    Found(&'iterator mut RawIndexResult<Rf>),
 
     /// The iterator doesn't have an entry for the requested `doc_id`, but there are entries with an id greater than the requested one.
-    NotFound(&'iterator mut RSIndexResult<'index>),
+    NotFound(&'iterator mut RawIndexResult<Rf>),
 }
+
+/// Manual `PartialEq` impl with a transitive bound on
+/// `RawIndexResult<Rf>: PartialEq` — only [`Active`] satisfies this
+/// (see [`ref_mode`]).
+impl<'iterator, Rf: Ref> PartialEq for SkipToOutcomeRaw<'iterator, Rf>
+where
+    RawIndexResult<Rf>: PartialEq,
+{
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Found(a), Self::Found(b)) => a == b,
+            (Self::NotFound(a), Self::NotFound(b)) => a == b,
+            _ => false,
+        }
+    }
+}
+
+/// The outcome of [`RQEIterator::skip_to`] when the iterator holds [`Active`]
+/// references into the index. This is the only instantiation that's
+/// constructible from trait-impl code today; the more general
+/// [`SkipToOutcomeRaw`] exists so the iterator structs can store function
+/// pointers whose signatures are uniform across `Active`/`Suspended`
+/// instantiations.
+pub type SkipToOutcome<'iterator, 'index> = SkipToOutcomeRaw<'iterator, Active<'index>>;
 
 #[derive(Debug, Error)]
 /// An iterator failure indications

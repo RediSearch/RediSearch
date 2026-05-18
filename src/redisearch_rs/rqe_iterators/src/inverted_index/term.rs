@@ -14,26 +14,33 @@ use index_result::{RSIndexResult, RSOffsetSlice};
 use index_spec::IndexSpecReadGuard;
 use inverted_index::TermReader;
 use query_term::RSQueryTerm;
+use ref_mode::{Active, Ref};
 
 use crate::{
     IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
     expiration_checker::ExpirationChecker,
 };
 
-use super::core::InvIndIterator;
+use super::core::{InvIndIterator, RawInvIndIterator};
 
-/// An iterator over term inverted index entries.
-///
-/// This iterator can be used to query a term inverted index.
+/// An iterator over term inverted index entries, parameterised over a
+/// [`Ref`] mode. See [`Term`] for the [`Active`] instantiation that
+/// implements [`RQEIterator`].
 ///
 /// # Type Parameters
 ///
-/// * `'index` - The lifetime of the index being iterated over.
+/// * `Rf` - The [`Ref`] mode (see [`RawInvIndIterator`] for details).
 /// * `R` - The reader type used to read the inverted index.
 /// * `E` - The expiration checker type used to check for expired documents.
-pub struct Term<'index, R, E = crate::expiration_checker::NoOpChecker> {
-    it: InvIndIterator<'index, R, E>,
+#[repr(C)]
+pub struct RawTerm<Rf: Ref, R, E = crate::expiration_checker::NoOpChecker> {
+    it: RawInvIndIterator<Rf, R, E>,
 }
+
+/// Alias for an [`Active`] [`RawTerm`] — the only instantiation with an
+/// [`RQEIterator`] impl today.
+pub type Term<'index, R, E = crate::expiration_checker::NoOpChecker> =
+    RawTerm<Active<'index>, R, E>;
 
 impl<'index, R, E> Term<'index, R, E>
 where
