@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include <util/minmax.h>
+#include "value_ffi.h"
 #include <util/array.h>
 #include <util/block_alloc.h>
 #include <aggregate/expr/expression.h>

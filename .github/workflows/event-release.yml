@@ -150,9 +150,20 @@ jobs:
             --reviewer "$REVIEWERS" \
             --draft
 
+      - name: Generate GitHub App token
+        id: generate-app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ vars.GH_PR_APP_ID }}
+          private-key: ${{ secrets.GH_PR_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+          permission-pull-requests: write
+
       - name: Trigger CI
         env:
-          GH_TOKEN: ${{ secrets.CI_GH_P_TOKEN }}
+          GH_TOKEN: ${{ steps.generate-app-token.outputs.token }}
         run: |
           gh pr ready "$BRANCH" -R "$GITHUB_REPOSITORY"
           gh pr merge "$BRANCH" -R "$GITHUB_REPOSITORY" --auto
@@ -169,13 +180,13 @@ jobs:
     steps:
       - name: Configure AWS Credentials Using Role
         if: vars.USE_AWS_ROLE == 'true'
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@v6
         with:
           role-to-assume: ${{ vars.ARTIFACT_UPLOAD_AWS_ROLE_TO_ASSUME }}
           aws-region: ${{ vars.ARTIFACT_UPLOAD_AWS_REGION }}
       - name: Configure AWS Credentials Using Keys
         if: vars.USE_AWS_ROLE == 'false'
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@v6
         with:
           aws-access-key-id: ${{ secrets.ARTIFACT_UPLOAD_AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.ARTIFACT_UPLOAD_AWS_SECRET_ACCESS_KEY }}

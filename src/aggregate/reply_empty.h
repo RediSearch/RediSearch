@@ -12,6 +12,8 @@
 
 #pragma once
 
+#include <stdbool.h>
+
 #include "redismodule.h"
 #include "query_error.h"
 

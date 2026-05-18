@@ -84,6 +84,7 @@ jobs:
             }
           }
           """
+          SLACK_MAPPING_FALLBACK_USER_ID = "U01UN6JM38B"
 
 
           def append_output(name, value):
@@ -106,11 +107,40 @@ jobs:
               )
 
 
+          def run_gh_api(args, description, attempts=3):
+              command = ["gh", "api", *args]
+              for attempt in range(1, attempts + 1):
+                  result = subprocess.run(command, capture_output=True, text=True)
+                  if result.returncode == 0:
+                      return result.stdout
+
+                  print(f"{description} failed on attempt {attempt}/{attempts}")
+                  if result.stderr.strip():
+                      print("gh stderr:")
+                      print(result.stderr.strip())
+                  if result.stdout.strip():
+                      print("gh stdout:")
+                      print(result.stdout.strip())
+
+                  if attempt < attempts:
+                      time.sleep(2 * attempt)
+
+              raise RuntimeError(f"{description} failed after {attempts} attempts")
+
+
+          def load_gh_api_json(args, description, attempts=3):
+              output = run_gh_api(args, description, attempts)
+              try:
+                  return json.loads(output)
+              except json.JSONDecodeError as error:
+                  print(f"{description} returned invalid JSON: {error}")
+                  print(output)
+                  raise
+
+
           def query_pull_request(owner, repo, number):
-              result = subprocess.run(
+              data = load_gh_api_json(
                   [
-                      "gh",
-                      "api",
                       "graphql",
                       "-f",
                       f"owner={owner}",
@@ -121,30 +151,24 @@ jobs:
                       "-f",
                       f"query={QUERY}",
                   ],
-                  check=True,
-                  capture_output=True,
-                  text=True,
+                  f"Query PR #{number} merge queue timeline",
               )
-              return json.loads(result.stdout)["data"]["repository"]["pullRequest"]
+              return data["data"]["repository"]["pullRequest"]
 
 
           def query_merge_queue_workflow_runs(repo, pr_number, queue_branch):
               pr_ref_pattern = re.compile(rf"(^|/)pr-{pr_number}-")
               candidates = []
               for attempt in range(5):
-                  result = subprocess.run(
+                  data = load_gh_api_json(
                       [
-                          "gh",
-                          "api",
                           f"/repos/{repo}/actions/runs?event=merge_group&per_page=100",
                       ],
-                      check=True,
-                      capture_output=True,
-                      text=True,
+                      "Query merge queue workflow runs",
                   )
 
                   candidates = []
-                  for run in json.loads(result.stdout)["workflow_runs"]:
+                  for run in data["workflow_runs"]:
                       if run.get("path") != ".github/workflows/event-merge-to-queue.yml":
                           continue
 
@@ -220,7 +244,7 @@ jobs:
           reason = latest_removal.get("reason") or "No reason provided"
           actor = latest_removal.get("actor") or {}
           enqueuer = latest_add.get("enqueuer") or latest_removal.get("enqueuer") or {}
-          enqueuer_login = enqueuer.get("login") or ""
+          enqueuer_login = enqueuer.get("login") or "unknown-enqueuer"
           detector_workflow_url = f"{os.environ['SERVER_URL']}/{repo}/actions/runs/{os.environ['CURRENT_RUN_ID']}"
           current_merge_queue_run, previous_merge_queue_run = query_merge_queue_workflow_runs(
               repo, pr_number, queue_branch
@@ -246,13 +270,27 @@ jobs:
               raw_mapping = json.loads(os.environ.get("GH_HANDLE_TO_SLACK_JSON") or "{}")
               slack_mapping = {str(k).lower(): str(v) for k, v in raw_mapping.items()}
           except (json.JSONDecodeError, AttributeError):
+              print("::warning::Could not parse GH_HANDLE_TO_SLACK_JSON; using Slack fallback user")
               slack_mapping = {}
 
-          def slack_id_for(login):
-              return slack_mapping.get(login.lower(), login) if login else ""
+          missing_slack_mappings = []
+
+          def slack_fields_for(login, label):
+              slack_id = slack_mapping.get(login.lower())
+              if slack_id:
+                  return login, slack_id
+
+              missing_slack_mappings.append(f"{label}: {login}")
+              print(
+                  "::warning::Missing Slack mapping for "
+                  f"{label} GitHub login '{login}'; using fallback Slack user"
+              )
+              return f"{login} (missing Slack mapping)", SLACK_MAPPING_FALLBACK_USER_ID
 
 
-          author_login = (pull_request.get("author") or {}).get("login") or ""
+          author_login = (pull_request.get("author") or {}).get("login") or "deleted-github-user"
+          author_display, author_mention = slack_fields_for(author_login, "author")
+          enqueuer_display, enqueuer_mention = slack_fields_for(enqueuer_login, "enqueuer")
 
           print("PR was resubmitted after removal without new commits")
           print(f"Removal reason: {reason}")
@@ -262,12 +300,13 @@ jobs:
           append_output("resubmit", "true")
           append_output("pr_title", pull_request["title"])
           append_output("pr_url", pull_request["url"])
-          append_output("pr_author", author_login)
-          append_output("author_mention", slack_id_for(author_login))
+          append_output("pr_author", author_display)
+          append_output("author_mention", author_mention)
           append_output("reason", reason)
           append_output("removed_by", actor.get("login"))
-          append_output("enqueued_by", enqueuer_login)
-          append_output("enqueued_by_mention", slack_id_for(enqueuer_login))
+          append_output("enqueued_by", enqueuer_display)
+          append_output("enqueued_by_mention", enqueuer_mention)
+          append_output("missing_slack_mappings", ", ".join(missing_slack_mappings))
           append_output("removed_at", format_timestamp(latest_removal["createdAt"]))
           append_output("resubmitted_at", format_timestamp(latest_add["createdAt"]))
           append_output("head_commit", current_head)
@@ -296,6 +335,7 @@ jobs:
               "Removed_By": ${{ toJson(steps.check.outputs.removed_by) }},
               "Enqueued_By": ${{ toJson(steps.check.outputs.enqueued_by) }},
               "Enqueued_By_Mention": ${{ toJson(steps.check.outputs.enqueued_by_mention) }},
+              "Missing_Slack_Mappings": ${{ toJson(steps.check.outputs.missing_slack_mappings) }},
               "Head_Commit": ${{ toJson(steps.check.outputs.head_commit_url) }},
               "Head_Commit_SHA": ${{ toJson(steps.check.outputs.head_commit) }},
               "Head_Committed_At": ${{ toJson(steps.check.outputs.head_committed_at) }},

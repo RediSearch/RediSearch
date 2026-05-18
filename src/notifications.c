@@ -21,7 +21,7 @@
 #include "cursor.h"
 #include "search_disk.h"
 #include "doc_id_meta.h"
-#include "iterators_rs.h"
+#include "iterators_ffi.h"
 
 #define JSON_LEN 5 // length of string "json."
 RedisModuleString *global_RenameFromKey = NULL;
@@ -144,6 +144,18 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
 
     case expire_cmd:
     case persist_cmd:
+      // EXPIRE/PERSIST only change the key's TTL; the document content,
+      // schema-rule filters and inverted indexes are all unaffected. In the
+      // in-memory flow we only need to refresh the doc-level expiration on
+      // the matching DMDs. Disk-backed indexes still take the full reindex
+      // path until they grow an equivalent fast path.
+      if (SearchDisk_IsEnabled()) {
+        Indexes_UpdateMatchingWithSchemaRules(ctx, key, getDocTypeFromString(key), hashFields);
+      } else {
+        Indexes_UpdateMatchingDocExpiration(ctx, key, getDocTypeFromString(key));
+      }
+      break;
+
     case restore_cmd:
     case copy_to_cmd:
       Indexes_UpdateMatchingWithSchemaRules(ctx, key, getDocTypeFromString(key), hashFields);
@@ -591,8 +603,8 @@ void Initialize_KeyspaceNotifications() {
 }
 
 // Iterate every live IndexSpec with a disk-backed companion and invoke `fn`
-// against the IndexSpec.
-static void ForEachDiskIndex(void (*fn)(IndexSpec *)) {
+// against the IndexSpec. This must be called from the main thread
+static void ForEachIndex(void (*fn)(IndexSpec *)) {
   if (!specDict_g) {
     return;
   }
@@ -609,6 +621,7 @@ static void ForEachDiskIndex(void (*fn)(IndexSpec *)) {
   dictReleaseIterator(iter);
 }
 
+//Keeps track to know if SST replication holds the lock avoiding background vector index building jobs from running
 static bool vecsimdisk_sst_consistency_lock_held = false;
 
 // SST replication event handler.
@@ -629,34 +642,34 @@ static void SSTReplicationEvent(RedisModuleCtx *ctx, RedisModuleEvent eid,
   switch (subevent) {
     case REDISMODULE_SUBEVENT_SST_REPL_PRE_CHECKPOINT:
       RedisModule_Log(ctx, "notice", "SST replication: PRE_CHECKPOINT");
-      ForEachDiskIndex(SearchDisk_PreCheckpoint);
+      ForEachIndex(SearchDisk_PreCheckpoint);
       break;
     case REDISMODULE_SUBEVENT_SST_REPL_POST_CHECKPOINT:
       RedisModule_Log(ctx, "notice", "SST replication: POST_CHECKPOINT");
-      ForEachDiskIndex(SearchDisk_PostCheckpoint);
       break;
     case REDISMODULE_SUBEVENT_SST_REPL_PRE_FORK:
       RedisModule_Log(ctx, "notice", "SST replication: PRE_FORK");
       VecSimDisk_AcquireConsistencyLock();
       vecsimdisk_sst_consistency_lock_held = true;
-      ForEachDiskIndex(SearchDisk_PreFork);
+      ForEachIndex(SearchDisk_PreFork);
       break;
     case REDISMODULE_SUBEVENT_SST_REPL_POST_FORK:
       RedisModule_Log(ctx, "notice", "SST replication: POST_FORK");
-      ForEachDiskIndex(SearchDisk_PostFork);
+      ForEachIndex(SearchDisk_PostFork);
       RS_ASSERT(vecsimdisk_sst_consistency_lock_held);
       VecSimDisk_ReleaseConsistencyLock();
       vecsimdisk_sst_consistency_lock_held = false;
       break;
     case REDISMODULE_SUBEVENT_SST_REPL_ABORT:
       RedisModule_Log(ctx, "notice", "SST replication: ABORT");
-      ForEachDiskIndex(SearchDisk_ReplicationAbort);
+      ForEachIndex(SearchDisk_ReplicationAbort);
       if (vecsimdisk_sst_consistency_lock_held) {
         VecSimDisk_ReleaseConsistencyLock();
         vecsimdisk_sst_consistency_lock_held = false;
       }
       break;
     default:
+      RS_LOG_ASSERT_FMT(false, "Received unknown sub-event %llu for SST replication", (unsigned long long)subevent);
       RedisModule_Log(ctx, "warning",
                       "SST replication: unknown sub-event %llu",
                       (unsigned long long)subevent);

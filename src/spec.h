@@ -15,12 +15,11 @@
 #include "redismodule.h"
 #include "config.h"
 #include "doc_table.h"
-#include "trie/trie_type.h"
+#include "trie/trie.h"
 #include "sortable.h"
 #include "stopwords.h"
 #include "gc.h"
 #include "synonym_map.h"
-#include "query_error.h"
 #include "field_spec.h"
 #include "util/dict.h"
 #include "util/references.h"
@@ -31,6 +30,8 @@
 #include "obfuscation/hidden.h"
 #include "search_disk_api.h"
 #include "rs_wall_clock.h"
+
+typedef struct QueryError QueryError;
 
 #ifdef __cplusplus
 extern "C" {
@@ -117,7 +118,6 @@ struct IndexesScanner;
 
 #define SPEC_MAX_FIELDS 1024
 #define SPEC_MAX_FIELD_ID (sizeof(t_fieldMask) * 8)
-#define MAX_SCHEMA_PREFIXES 1000000
 #define MAX_SYNONYM_TERMS 1000000     // reasonable limit for synonym map terms
 #define MAX_SYNONYM_GROUP_IDS 4096    // reasonable limit for group IDs per term
 
@@ -201,6 +201,13 @@ typedef enum {
   Index_HasNonEmpty = 0x80000,  // Index has at least one field that does not indexes empty values
 } IndexFlags;
 
+// SST replication lock state held by an IndexSpec. PRE_FORK sets
+// DISK_FORK_PROTECTED; POST_FORK and the replication abort handler clear it.
+typedef enum {
+  REPL_LOCK_NONE                = 0x00,
+  REPL_LOCK_DISK_FORK_PROTECTED = 0x01,
+} ReplicationLockFlags;
+
 // redis version (its here because most file include it with no problem,
 // we should introduce proper common.h file)
 
@@ -227,10 +234,6 @@ typedef uint16_t FieldSpecDedupeArray[SPEC_MAX_FIELDS];
 
 #define INDEX_DEFAULT_FLAGS \
   Index_StoreFreqs | Index_StoreTermOffsets | Index_StoreFieldFlags | Index_StoreByteOffsets
-
-#define INDEX_STORAGE_MASK                                                                  \
-  (Index_StoreFreqs | Index_StoreFieldFlags | Index_StoreTermOffsets | Index_StoreNumeric | \
-   Index_WideSchema)
 
 #define INDEX_CURRENT_VERSION 26
 #define INDEX_DISK_VERSION 26
@@ -374,13 +377,13 @@ typedef struct IndexSpec {
   RedisSearchDiskIndexSpec *diskSpec;
 
   pthread_rwlock_t disk_fork_rwlock;
-  bool repl_read_lock_held;
-  bool repl_disk_fork_protected;
+  // Flags indicating state of the replication process. Needed to abort replication process
+  ReplicationLockFlags repl_flags;
   // Disk RDB state (NULL for memory-only indexes), pending to be applied at replication ending
   RedisSearchDiskRdbState *pendingDiskRdbState;
   bool diskRegistered;
-} IndexSpec;
 
+} IndexSpec;
 typedef enum SpecOp { SpecOp_Add, SpecOp_Del } SpecOp;
 typedef enum TimerOp { TimerOp_Add, TimerOp_Del } TimerOp;
 
@@ -752,6 +755,12 @@ size_t Indexes_Count();
 void Indexes_Propagate(RedisModuleCtx *ctx);
 void Indexes_UpdateMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key, DocumentType type,
                                            RedisModuleString **hashFields);
+// Fast path for keyspace events that only change the document-level TTL
+// (EXPIRE/PERSIST): re-reads the key's absolute expiration and writes it
+// directly onto the matching DMDs, without re-running schema-rule filters or
+// re-indexing the document. In-memory flow only; callers must fall back to
+// Indexes_UpdateMatchingWithSchemaRules for disk-backed indexes.
+void Indexes_UpdateMatchingDocExpiration(RedisModuleCtx *ctx, RedisModuleString *key, DocumentType type);
 void Indexes_DeleteMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key,
                                            DocumentType type,
                                            RedisModuleString **hashFields);
@@ -817,22 +826,6 @@ void IndexSpec_AcquireWriteLock(IndexSpec* sp);
  * @param sp Pointer to the IndexSpec
  */
 void IndexSpec_ReleaseWriteLock(IndexSpec* sp);
-
-/**
- * @brief Acquire the IndexSpec read lock (shared with other readers, blocks writers).
- *
- * Used during the SST replication PRE_CHECKPOINT / PRE_FORK window so that
- * queries can continue but document writes (which take the wrlock) are paused.
- *
- * @param sp Pointer to the IndexSpec
- */
-void IndexSpec_AcquireReadLock(IndexSpec *sp);
-
-/**
- * @brief Release the IndexSpec read lock.
- * @param sp Pointer to the IndexSpec
- */
-void IndexSpec_ReleaseReadLock(IndexSpec *sp);
 
 /**
  * @brief Block the SST replication snapshot fork from starting.

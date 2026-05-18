@@ -12,6 +12,7 @@
 
 typedef struct GeometryIndex GeometryIndex;
 typedef struct GeometryApi GeometryApi;
+typedef struct FieldFilterContext FieldFilterContext;
 
 typedef enum {
   GEOMETRY_LIB_TYPE_NONE = 0,

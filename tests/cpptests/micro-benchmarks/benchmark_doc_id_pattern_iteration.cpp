@@ -14,7 +14,7 @@
 #include "redisearch.h"
 #include "iterators/iterator_api.h"
 #include "redisearch_rs/headers/iterators_rs.h"
-#include "iterators_rs.h"
+#include "iterators_ffi.h"
 
 #include <random>
 #include <vector>

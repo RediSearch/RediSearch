@@ -12,7 +12,7 @@
 
 #include <stdio.h>
 
-#include "util/fnv.h"
+#include "fnv_ffi.h"
 #include "hll.h"
 
 #include "rmalloc.h"

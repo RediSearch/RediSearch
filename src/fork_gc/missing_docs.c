@@ -8,6 +8,7 @@
 */
 
 #include "pipe.h"
+#include "inverted_index_ffi.h"
 #include "rmutil/rm_assert.h"
 #include "obfuscation/hidden.h"
 

@@ -7,20 +7,22 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "spec.h"
+#include "inverted_index_ffi.h"
+#include "numeric_range_tree_ffi.h"
 #include "rlookup_load_document.h"
 
 #include <math.h>
 #include <ctype.h>
 #include <limits.h>
 
-#include "triemap.h"
+#include "triemap_ffi.h"
 #include "util/logging.h"
 #include "util/likely.h"
 #include "util/misc.h"
 #include "rmutil/vector.h"
 #include "rmutil/util.h"
 #include "rmutil/rm_assert.h"
-#include "trie/trie_type.h"
+#include "trie/trie.h"
 #include "rmalloc.h"
 #include "config.h"
 #include "cursor.h"
@@ -51,7 +53,7 @@
 #include "util/redis_mem_info.h"
 #include "search_disk.h"
 #include "search_disk_utils.h"
-#include "iterators_rs.h"
+#include "iterators_ffi.h"
 
 #define INITIAL_DOC_TABLE_SIZE 1000
 
@@ -1870,13 +1872,6 @@ static StrongRef IndexSpec_ParseFromArgCursor(RedisModuleCtx *ctx, const HiddenS
   spec->timeout = timeout * 1000;  // convert to ms
 
   if (rule_prefixes.argc > 0) {
-    if (rule_prefixes.argc > MAX_SCHEMA_PREFIXES) {
-      QueryError_SetWithoutUserDataFmt(
-          status, QUERY_ERROR_CODE_LIMIT,
-          "Number of prefixes (%zu) exceeds maximum allowed (%d)",
-          rule_prefixes.argc, MAX_SCHEMA_PREFIXES);
-      goto failure;
-    }
     spec->rule = SchemaRule_CreateWithPrefixesAC(&rule_args, &rule_prefixes, spec_ref, status);
   } else {
     rule_args.nprefixes = 1;
@@ -2385,8 +2380,7 @@ static void IndexSpec_InitLock(IndexSpec *sp) {
   pthread_rwlock_init(&sp->rwlock, &attr);
   pthread_rwlock_init(&sp->disk_fork_rwlock, &attr);
 
-  sp->repl_read_lock_held = false;
-  sp->repl_disk_fork_protected = false;
+  sp->repl_flags = REPL_LOCK_NONE;
 }
 
 // Helper function for initializing a field spec
@@ -2446,8 +2440,7 @@ static void initializeIndexSpec(IndexSpec *sp, const HiddenString *name, IndexFl
 IndexSpec *NewIndexSpec(const HiddenString *name) {
   IndexSpec *sp = rm_calloc(1, sizeof(IndexSpec));
   // Explicit init for SST replication state on top of rm_calloc's zero-init.
-  sp->repl_read_lock_held = false;
-  sp->repl_disk_fork_protected = false;
+  sp->repl_flags = REPL_LOCK_NONE;
   initializeIndexSpec(sp, name, INDEX_DEFAULT_FLAGS, 0);
   sp->stopwords = DefaultStopWordList();
   return sp;
@@ -3437,8 +3430,7 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryE
   // Explicit init for SST replication state: defense-in-depth on top of
   // rm_calloc's zero-init, since the abort handler may run before
   // initializeIndexSpec / IndexSpec_InitLock if an RDB read fails below.
-  sp->repl_read_lock_held = false;
-  sp->repl_disk_fork_protected = false;
+  sp->repl_flags = REPL_LOCK_NONE;
   spec_ref = StrongRef_New(sp, (RefManager_Free)IndexSpec_Free);
   sp->own_ref = spec_ref;
 
@@ -3641,8 +3633,7 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
   IndexSpec *sp = rm_calloc(1, sizeof(IndexSpec));
   // Explicit init for SST replication state on top of rm_calloc's zero-init.
-  sp->repl_read_lock_held = false;
-  sp->repl_disk_fork_protected = false;
+  sp->repl_flags = REPL_LOCK_NONE;
   IndexSpec_InitLock(sp);
   StrongRef spec_ref = StrongRef_New(sp, (RefManager_Free)IndexSpec_Free);
   sp->own_ref = spec_ref;
@@ -4300,6 +4291,77 @@ void Indexes_UpdateMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStrin
   Indexes_SpecOpsIndexingCtxFree(specs);
 }
 
+void Indexes_UpdateMatchingDocExpiration(RedisModuleCtx *ctx, RedisModuleString *key, DocumentType type) {
+  if (type == DocumentType_Unsupported || !RSGlobalConfig.monitorExpiration) {
+    return;
+  }
+
+  // Find all indexes that match the key's name prefix. runFilters=false:
+  // EXPIRE/PERSIST do not change field values, so a doc's schema-rule FILTER
+  // outcome cannot have flipped since the last write. The DocTable lookup
+  // below (DocTable_BorrowByKeyR) is the only discriminator we need — it
+  // returns the existing DMD when the doc is currently indexed, and NULL
+  // otherwise. Re-evaluating the filter here would re-read hash/JSON fields
+  // on the main thread for a result the loop would ignore.
+  SpecOpIndexingCtx *specs = Indexes_FindMatchingSchemaRules(ctx, key, type, false, NULL);
+
+  // EXPIRE/PERSIST notifications fire for every key in the keyspace. When no
+  // spec prefix matches we have nothing to update, so skip the OpenKey/TTL
+  // read entirely — that overhead would otherwise be paid on every event.
+  if (array_len(specs->specsOps) == 0) {
+    Indexes_SpecOpsIndexingCtxFree(specs);
+    return;
+  }
+
+  RedisModuleKey *kp = RedisModule_OpenKey(ctx, key, DOCUMENT_OPEN_KEY_INDEXING_FLAGS);
+  RS_ASSERT(kp);
+  t_expirationTimePoint ttl = GetKeyExpirationTime(kp);
+  RedisModule_CloseKey(kp);
+
+  for (size_t i = 0; i < array_len(specs->specsOps); ++i) {
+    SpecOpCtx *specOp = &specs->specsOps[i];
+    IndexSpec *spec = specOp->spec;
+    // Skip TTL update for specs that opted out of doc-level TTL tracking,
+    // matching the gate in Document_LoadSchemaFieldHash/Json. Otherwise
+    // DocTable_IsDocExpired could drop rows for an index that doesn't
+    // monitor TTLs.
+    //
+    // No spec lock needed: monitorDocumentExpiration is only written from
+    // main-thread callbacks (spec init, FT.CONFIG SET, FT.DEBUG
+    // MONITOR_EXPIRATION), and this keyspace-notification callback also
+    // runs on the main thread, so the Redis event loop serializes them.
+    // The spec write lock guards index data against background workers,
+    // not main-thread config flags (same pattern as the load path).
+    if (!spec->monitorDocumentExpiration) {
+      continue;
+    }
+    RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, spec);
+    // Read lock is sufficient: the only mutation is the relaxed atomic store on
+    // `dmd->expirationTimeNs` inside DocTable_UpdateExpiration (paired with a
+    // relaxed atomic load in DocTable_IsDocExpired). The DMD chain traversal
+    // and refcount manipulation in DocTable_BorrowByKeyR / DMD_Return are
+    // explicitly documented as safe under either lock mode (doc_table.c, near
+    // DocTable_GetOwn). Concurrent writers cannot race here because keyspace
+    // notifications all dispatch on the Redis main thread, so this callback is
+    // serialized against itself and against other notification-driven writers
+    // by the event loop, not by the spec lock.
+    RedisSearchCtx_LockSpecRead(&sctx);
+    const RSDocumentMetadata *cdmd = DocTable_BorrowByKeyR(&spec->docs, key);
+    if (cdmd) {
+      // Reuse the canonical setter so the doc-level write goes through the
+      // same path as Indexer_Add (indexer.c) and the timespec->ns conversion
+      // assertion in expirationTimePointToNs runs. Pass NULL for the field
+      // expirations: EXPIRE/PERSIST do not affect HEXPIRE state, so the
+      // existing per-spec TTL table entries must be preserved untouched.
+      DocTable_UpdateExpiration(&spec->docs, (RSDocumentMetadata *)cdmd, ttl, NULL);
+      DMD_Return(cdmd);
+    }
+    RedisSearchCtx_UnlockSpec(&sctx);
+  }
+
+  Indexes_SpecOpsIndexingCtxFree(specs);
+}
+
 void Indexes_DeleteMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key,
                                            DocumentType type,
                                            RedisModuleString **hashFields) {
@@ -4658,16 +4720,6 @@ void IndexSpec_ReleaseWriteLock(IndexSpec* sp) {
   pthread_rwlock_unlock(&sp->rwlock);
 }
 
-// Acquire IndexSpec read lock
-void IndexSpec_AcquireReadLock(IndexSpec *sp) {
-  pthread_rwlock_rdlock(&sp->rwlock);
-}
-
-// Release IndexSpec read lock
-void IndexSpec_ReleaseReadLock(IndexSpec *sp) {
-  pthread_rwlock_unlock(&sp->rwlock);
-}
-
 // Block the snapshot fork from starting (shared/read side of the fork rwlock).
 void IndexSpec_BlockDiskFork(IndexSpec *sp) {
   pthread_rwlock_rdlock(&sp->disk_fork_rwlock);
@@ -4682,12 +4734,16 @@ void IndexSpec_EnableDiskForkIfPossible(IndexSpec *sp) {
 // Enter the exclusive fork window (write side of the fork rwlock). Blocks
 // until every IndexSpec_BlockDiskFork blocker has released.
 void IndexSpec_ProtectDiskFork(IndexSpec *sp) {
+  RS_ASSERT(!(sp->repl_flags & REPL_LOCK_DISK_FORK_PROTECTED));
   pthread_rwlock_wrlock(&sp->disk_fork_rwlock);
+  sp->repl_flags |= REPL_LOCK_DISK_FORK_PROTECTED;
 }
 
 // Leave the exclusive fork window.
 void IndexSpec_UnProtectDiskFork(IndexSpec *sp) {
+  RS_ASSERT(sp->repl_flags & REPL_LOCK_DISK_FORK_PROTECTED);
   pthread_rwlock_unlock(&sp->disk_fork_rwlock);
+  sp->repl_flags &= ~REPL_LOCK_DISK_FORK_PROTECTED;
 }
 
 // Update a term's document count in the Serving Trie

@@ -13,7 +13,7 @@
 #include "util/strconv.h"
 #include "rmutil/rm_assert.h"
 #include "obfuscation/obfuscation_api.h"
-#include "query_error.h"
+#include "query_error_ffi.h"
 
 extern RedisModuleCtx *RSDummyContext;
 

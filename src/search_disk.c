@@ -10,6 +10,8 @@
 #include "search_disk.h"
 #include "config.h"
 #include "spec.h"
+#include "query_term_ffi.h"
+#include "sorting_vector_ffi.h"
 #include "redismodule.h"
 
 RedisSearchDiskAPI *disk = NULL;
@@ -449,19 +451,9 @@ void SearchDisk_Flush(RedisSearchDiskIndexSpec* index) {
 
 void SearchDisk_PreCheckpoint(IndexSpec *sp) {
   RS_ASSERT(disk && sp && sp->diskSpec);
-  // Block new writes while keeping queries served.
-  IndexSpec_AcquireReadLock(sp);
-  sp->repl_read_lock_held = true;
+  // No read/write lock taken from spec. Disabling compaction and calling SearchDisk_PreCheckpoint from main thread
+  // ensures no writes while checkpoint taken.
   disk->index.preCheckpoint(sp->diskSpec);
-}
-
-void SearchDisk_PostCheckpoint(IndexSpec *sp) {
-  RS_ASSERT(sp);
-  // POST_CHECKPOINT must always pair with a prior PRE_CHECKPOINT.
-  RS_ASSERT(sp->repl_read_lock_held);
-  // Release the rdlock taken in PreCheckpoint. No disk dispatch.
-  sp->repl_read_lock_held = false;
-  IndexSpec_ReleaseReadLock(sp);
 }
 
 void SearchDisk_PreFork(IndexSpec *sp) {
@@ -470,32 +462,20 @@ void SearchDisk_PreFork(IndexSpec *sp) {
   // ordering for any critical section that gates the fork to avoid deadlock
   // with this handler.
   IndexSpec_ProtectDiskFork(sp);
-  sp->repl_disk_fork_protected = true;
-  IndexSpec_AcquireReadLock(sp);
-  sp->repl_read_lock_held = true;
   disk->index.preFork(sp->diskSpec);
 }
 
 void SearchDisk_PostFork(IndexSpec *sp) {
   RS_ASSERT(disk && sp && sp->diskSpec);
-  RS_ASSERT(sp->repl_read_lock_held);
-  RS_ASSERT(sp->repl_disk_fork_protected);
+  RS_ASSERT(sp->repl_flags & REPL_LOCK_DISK_FORK_PROTECTED);
   disk->index.postFork(sp->diskSpec);
-  IndexSpec_ReleaseReadLock(sp);
   IndexSpec_UnProtectDiskFork(sp);
-  sp->repl_read_lock_held = false;
-  sp->repl_disk_fork_protected = false;
 }
 
 void SearchDisk_ReplicationAbort(IndexSpec *sp) {
   RS_ASSERT(disk && sp && sp->diskSpec);
   disk->index.replicationAbort(sp->diskSpec);
-  if (sp->repl_read_lock_held) {
-    sp->repl_read_lock_held = false;
-    IndexSpec_ReleaseReadLock(sp);
-  }
-  if (sp->repl_disk_fork_protected) {
-    sp->repl_disk_fork_protected = false;
+  if (sp->repl_flags & REPL_LOCK_DISK_FORK_PROTECTED) {
     IndexSpec_UnProtectDiskFork(sp);
   }
 }
