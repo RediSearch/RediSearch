@@ -166,7 +166,7 @@ static TrieNode *__trie_AddChildIdx(TrieNode *n, const rune *str, t_len offset, 
 static TrieNode *__trie_SplitNode(TrieNode *n, t_len offset) {
   // Copy the current node's data and children to a new child node
   TrieNode *newChild = __newTrieNode(n->str, offset, n->len, NULL, 0, n->numChildren, n->score,
-                                     __trieNode_isTerminal(n), n->sortMode, n->numDocs);
+                                     TrieNode_IsTerminal(n), n->sortMode, n->numDocs);
   newChild->maxChildScore = n->maxChildScore;
   newChild->flags = n->flags;
   newChild->payload = n->payload;
@@ -196,7 +196,7 @@ static TrieNode *__trie_SplitNode(TrieNode *n, t_len offset) {
  * the node and returns a newly allocated node */
 static TrieNode *__trieNode_MergeWithSingleChild(TrieNode *n, TrieFreeCallback freecb) {
 
-  if (__trieNode_isTerminal(n) || n->numChildren != 1) {
+  if (TrieNode_IsTerminal(n) || n->numChildren != 1) {
     return n;
   }
   TrieNode *ch = *TrieNode_Children(n);
@@ -207,7 +207,7 @@ static TrieNode *__trieNode_MergeWithSingleChild(TrieNode *n, TrieFreeCallback f
   memcpy(&nstr[n->len], ch->str, sizeof(rune) * ch->len);
   TrieNode *merged = __newTrieNode(
       nstr, 0, n->len + ch->len, NULL, 0, ch->numChildren,
-      ch->score, __trieNode_isTerminal(ch), n->sortMode, ch->numDocs);
+      ch->score, TrieNode_IsTerminal(ch), n->sortMode, ch->numDocs);
   merged->maxChildScore = ch->maxChildScore;
   merged->numChildren = ch->numChildren;
   merged->payload = ch->payload;
@@ -280,7 +280,7 @@ static int __trieNode_Add(TrieNode **np, const rune *str, t_len len, RSPayload *
 
   // we're inserting in an existing node - just replace the value
   if (offset == len) {
-    int term = __trieNode_isTerminal(n);
+    int term = TrieNode_IsTerminal(n);
     int deleted = __trieNode_isDeleted(n);
     switch (op) {
       // in increment mode, just add the score to the node's score
@@ -481,7 +481,7 @@ int TrieNode_Delete(TrieNode *n, const rune *str, t_len len, TrieFreeCallback fr
       // we're at the end of both strings!
       // this means we've found what we're looking for
       if (localOffset == n->len) {
-        if (!__trieNode_isDeleted(n) && __trieNode_isTerminal(n)) {
+        if (!__trieNode_isDeleted(n) && TrieNode_IsTerminal(n)) {
 
           n->flags |= TRIENODE_DELETED;
           n->flags &= ~TRIENODE_TERMINAL;
@@ -659,7 +659,7 @@ inline int __ti_step(TrieIterator *it, void *matchCtx) {
         // node
         if (!it->filter) {
           if (current->n->len > 0 && current->stringOffset == current->n->len &&
-              __trieNode_isTerminal(current->n) && !__trieNode_isDeleted(current->n)) {
+              TrieNode_IsTerminal(current->n) && !__trieNode_isDeleted(current->n)) {
             matched = 1;
           }
         }
@@ -717,7 +717,7 @@ int TrieIterator_Next(TrieIterator *it, rune **ptr, t_len *len, RSPayload *paylo
     if (rc == __STEP_MATCH) {
       stackNode *sn = __ti_current(it);
 
-      if (__trieNode_isTerminal(sn->n) && sn->n->len == sn->stringOffset &&
+      if (TrieNode_IsTerminal(sn->n) && sn->n->len == sn->stringOffset &&
           !__trieNode_isDeleted(sn->n)) {
         *ptr = it->buf;
         *len = it->bufOffset;
@@ -755,7 +755,7 @@ TrieNode *TrieNode_RandomWalk(TrieNode *n, int minSteps, rune **str, t_len *len)
 
   int steps = 0;
 
-  while (steps < minSteps || !__trieNode_isTerminal(stack[stackSz - 1])) {
+  while (steps < minSteps || !TrieNode_IsTerminal(stack[stackSz - 1])) {
 
     n = stack[stackSz - 1];
 
@@ -841,7 +841,7 @@ static int rangeIterateSubTree(TrieNode *n, RangeCtx *r) {
 
   // Push string to stack
   r->buf = array_ensure_append(r->buf, n->str, n->len, rune);
-  if (__trieNode_isTerminal(n)) {
+  if (TrieNode_IsTerminal(n)) {
     if (r->callback(r->buf, array_len(r->buf), r->cbctx, n->payload, n->numDocs) != REDISEARCH_OK) {
       r->stop = 1;
       return REDISEARCH_ERR;
@@ -869,7 +869,7 @@ static void rangeIterate(TrieNode *n, const rune *min, int nmin, const rune *max
   // Push string to stack
   r->buf = array_ensure_append(r->buf, n->str, n->len, rune);
 
-  if (__trieNode_isTerminal(n)) {
+  if (TrieNode_IsTerminal(n)) {
     // current node is a termina.
     // if nmin or nmax is zero, it means that we find an exact match
     // we should fire the callback only if exact match requested
@@ -1121,7 +1121,7 @@ static void containsIterate(TrieNode *n, t_len localOffset, t_len globalOffset, 
         return;
       } else { // suffix mode
         // it is suffix match if node is terminal and have no extra characters.
-        if (__trieNode_isTerminal(n) && localOffset + 1 == n->len) {
+        if (TrieNode_IsTerminal(n) && localOffset + 1 == n->len) {
           if (r->callback(r->buf, array_len(r->buf), r->cbctx, NULL, n->numDocs) == REDISMODULE_ERR) {
             r->stop = 1;
           }
@@ -1167,7 +1167,7 @@ static void wildcardIterate(TrieNode *n, RangeCtx *r) {
         return; // we trimmed buffer earlier
       } else {
         // if node is terminal we add the result.
-        if (__trieNode_isTerminal(n)) {
+        if (TrieNode_IsTerminal(n)) {
           r->callback(r->buf, array_len(r->buf), r->cbctx, n->payload, n->numDocs);
         }
         // fall through - continue to look for matches on children similar to PARTIAL_MATCH

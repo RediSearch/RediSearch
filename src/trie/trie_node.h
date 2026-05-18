@@ -90,12 +90,14 @@ TrieNode *__newTrieNode(const rune *str, t_len offset, t_len len, const char *pa
                         t_len numChildren, float score, int terminal, TrieSortMode sortMode,
                         size_t numDocs);
 
-#define __trieNode_isTerminal(n) (n->flags & TRIENODE_TERMINAL)
-
 /* Opaque accessors over TrieNode struct internals. Prefer these over direct
  * field/macro access so callers stay decoupled from layout changes. */
 static inline t_len TrieNode_NumChildren(const TrieNode *n) {
   return n->numChildren;
+}
+
+static inline bool TrieNode_IsTerminal(const TrieNode *n) {
+  return (n->flags & TRIENODE_TERMINAL) != 0;
 }
 
 /* Get a pointer to the children array of a node. The children are not an
