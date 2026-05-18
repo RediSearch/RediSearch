@@ -106,11 +106,40 @@ jobs:
               )
 
 
+          def run_gh_api(args, description, attempts=3):
+              command = ["gh", "api", *args]
+              for attempt in range(1, attempts + 1):
+                  result = subprocess.run(command, capture_output=True, text=True)
+                  if result.returncode == 0:
+                      return result.stdout
+
+                  print(f"{description} failed on attempt {attempt}/{attempts}")
+                  if result.stderr.strip():
+                      print("gh stderr:")
+                      print(result.stderr.strip())
+                  if result.stdout.strip():
+                      print("gh stdout:")
+                      print(result.stdout.strip())
+
+                  if attempt < attempts:
+                      time.sleep(2 * attempt)
+
+              raise RuntimeError(f"{description} failed after {attempts} attempts")
+
+
+          def load_gh_api_json(args, description, attempts=3):
+              output = run_gh_api(args, description, attempts)
+              try:
+                  return json.loads(output)
+              except json.JSONDecodeError as error:
+                  print(f"{description} returned invalid JSON: {error}")
+                  print(output)
+                  raise
+
+
           def query_pull_request(owner, repo, number):
-              result = subprocess.run(
+              data = load_gh_api_json(
                   [
-                      "gh",
-                      "api",
                       "graphql",
                       "-f",
                       f"owner={owner}",
@@ -121,30 +150,24 @@ jobs:
                       "-f",
                       f"query={QUERY}",
                   ],
-                  check=True,
-                  capture_output=True,
-                  text=True,
+                  f"Query PR #{number} merge queue timeline",
               )
-              return json.loads(result.stdout)["data"]["repository"]["pullRequest"]
+              return data["data"]["repository"]["pullRequest"]
 
 
           def query_merge_queue_workflow_runs(repo, pr_number, queue_branch):
               pr_ref_pattern = re.compile(rf"(^|/)pr-{pr_number}-")
               candidates = []
               for attempt in range(5):
-                  result = subprocess.run(
+                  data = load_gh_api_json(
                       [
-                          "gh",
-                          "api",
                           f"/repos/{repo}/actions/runs?event=merge_group&per_page=100",
                       ],
-                      check=True,
-                      capture_output=True,
-                      text=True,
+                      "Query merge queue workflow runs",
                   )
 
                   candidates = []
-                  for run in json.loads(result.stdout)["workflow_runs"]:
+                  for run in data["workflow_runs"]:
                       if run.get("path") != ".github/workflows/event-merge-to-queue.yml":
                           continue
 
