@@ -14,6 +14,7 @@
 #include "util/misc.h"
 #include "rune_util.h"
 #include "trie.h"
+#include "trie_node_internal.h"
 #include "rmalloc.h"
 #include "rdb.h"
 

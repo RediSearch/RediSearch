@@ -8,6 +8,7 @@
 */
 
 #include "trie/trie_node.h"
+#include "trie/trie_node_internal.h"
 #include "trie/trie.h"
 #include "trie/levenshtein.h"
 #include "trie/rune_util.h"
