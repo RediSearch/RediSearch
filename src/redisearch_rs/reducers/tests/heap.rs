@@ -183,62 +183,39 @@ fn cand(owned: &[Option<SharedValue>]) -> Vec<Option<&SharedValue>> {
     owned.iter().map(|v| v.as_ref()).collect()
 }
 
+// The cases below pin properties unique to `cmp_candidate`. ASC/DESC,
+// missing-worst, and multi-key semantics are owned by `cmp_fields` and
+// covered by the `ord_*` tests above; we do not re-test those here.
+
 #[test]
 fn cmp_candidate_under_asc_returns_greater_when_candidate_is_smaller() {
-    // ASC + cand < worst → cand "wins" → Greater under best=max.
+    // Orientation contract: cand wins → Greater under "best = max".
     let worst = key(&[5.0], asc(0));
     let cand_vals = vals(&[1.0]);
     assert_eq!(worst.cmp_candidate(cand(&cand_vals)), Ordering::Greater);
 }
 
 #[test]
-fn cmp_candidate_under_asc_returns_less_when_candidate_is_larger() {
-    // ASC + cand > worst → worst still wins → Less.
-    let worst = key(&[1.0], asc(0));
-    let cand_vals = vals(&[5.0]);
-    assert_eq!(worst.cmp_candidate(cand(&cand_vals)), Ordering::Less);
-}
-
-#[test]
-fn cmp_candidate_returns_equal_for_identical_values() {
-    let worst = key(&[3.0], asc(0));
-    let cand_vals = vals(&[3.0]);
-    assert_eq!(worst.cmp_candidate(cand(&cand_vals)), Ordering::Equal);
-}
-
-#[test]
 fn cmp_candidate_under_desc_returns_greater_when_candidate_is_larger() {
-    // DESC + cand > worst → cand wins → Greater.
+    // Orientation must be invariant under direction flip.
     let worst = key(&[1.0], 0);
     let cand_vals = vals(&[5.0]);
     assert_eq!(worst.cmp_candidate(cand(&cand_vals)), Ordering::Greater);
 }
 
 #[test]
-fn cmp_candidate_under_desc_returns_less_when_candidate_is_smaller() {
-    let worst = key(&[5.0], 0);
-    let cand_vals = vals(&[1.0]);
-    assert_eq!(worst.cmp_candidate(cand(&cand_vals)), Ordering::Less);
-}
-
-#[test]
-fn cmp_candidate_missing_candidate_value_ranks_as_worst_under_asc() {
-    // Missing-worst is direction-agnostic: candidate has None → cand is worst.
+fn cmp_candidate_missing_candidate_value_ranks_as_worst() {
+    // Pins that `None` items survive the borrowed-view shim so the
+    // missing-worst branch in `cmp_fields` is reached. Direction-agnostic.
     let worst = key(&[3.0], asc(0));
     let cand_vals = vals(&[f64::NAN]);
     assert_eq!(worst.cmp_candidate(cand(&cand_vals)), Ordering::Less);
 }
 
 #[test]
-fn cmp_candidate_missing_candidate_value_ranks_as_worst_under_desc() {
-    let worst = key(&[3.0], 0);
-    let cand_vals = vals(&[f64::NAN]);
-    assert_eq!(worst.cmp_candidate(cand(&cand_vals)), Ordering::Less);
-}
-
-#[test]
 fn cmp_candidate_breaks_tie_using_secondary_key_under_mixed_directions() {
-    // key0 ASC (bit 0 set), key1 DESC (bit 1 clear). Tie on key0, cand wins on key1.
+    // Pins iterator-zip alignment across keys: key0 ASC (bit 0 set), key1
+    // DESC (bit 1 clear). Tie on key0, cand wins on key1.
     let worst = key(&[5.0, 1.0], asc(0));
     let cand_vals = vals(&[5.0, 9.0]);
     assert_eq!(worst.cmp_candidate(cand(&cand_vals)), Ordering::Greater);
