@@ -441,18 +441,18 @@ void SearchDisk_Flush(RedisSearchDiskIndexSpec* index) {
 
 void SearchDisk_PreCheckpoint(IndexSpec *sp) {
   RS_ASSERT(disk && sp && sp->diskSpec);
-  // Block new writes while keeping queries served.
+  // Block new writes from GC while keeping queries served.
   IndexSpec_AcquireReadLock(sp);
-  sp->repl_read_lock_held = true;
+  sp->repl_flags |= REPL_LOCK_READ_LOCK_HELD;
   disk->index.preCheckpoint(sp->diskSpec);
 }
 
 void SearchDisk_PostCheckpoint(IndexSpec *sp) {
   RS_ASSERT(sp);
   // POST_CHECKPOINT must always pair with a prior PRE_CHECKPOINT.
-  RS_ASSERT(sp->repl_read_lock_held);
+  RS_ASSERT(sp->repl_flags & REPL_LOCK_READ_LOCK_HELD);
   // Release the rdlock taken in PreCheckpoint. No disk dispatch.
-  sp->repl_read_lock_held = false;
+  sp->repl_flags &= ~REPL_LOCK_READ_LOCK_HELD;
   IndexSpec_ReleaseReadLock(sp);
 }
 
@@ -462,32 +462,31 @@ void SearchDisk_PreFork(IndexSpec *sp) {
   // ordering for any critical section that gates the fork to avoid deadlock
   // with this handler.
   IndexSpec_ProtectDiskFork(sp);
-  sp->repl_disk_fork_protected = true;
+  sp->repl_flags |= REPL_LOCK_DISK_FORK_PROTECTED;
   IndexSpec_AcquireReadLock(sp);
-  sp->repl_read_lock_held = true;
+  sp->repl_flags |= REPL_LOCK_READ_LOCK_HELD;
   disk->index.preFork(sp->diskSpec);
 }
 
 void SearchDisk_PostFork(IndexSpec *sp) {
   RS_ASSERT(disk && sp && sp->diskSpec);
-  RS_ASSERT(sp->repl_read_lock_held);
-  RS_ASSERT(sp->repl_disk_fork_protected);
+  RS_ASSERT(sp->repl_flags & REPL_LOCK_READ_LOCK_HELD);
+  RS_ASSERT(sp->repl_flags & REPL_LOCK_DISK_FORK_PROTECTED);
   disk->index.postFork(sp->diskSpec);
   IndexSpec_ReleaseReadLock(sp);
   IndexSpec_UnProtectDiskFork(sp);
-  sp->repl_read_lock_held = false;
-  sp->repl_disk_fork_protected = false;
+  sp->repl_flags &= ~(REPL_LOCK_READ_LOCK_HELD | REPL_LOCK_DISK_FORK_PROTECTED);
 }
 
 void SearchDisk_ReplicationAbort(IndexSpec *sp) {
   RS_ASSERT(disk && sp && sp->diskSpec);
   disk->index.replicationAbort(sp->diskSpec);
-  if (sp->repl_read_lock_held) {
-    sp->repl_read_lock_held = false;
+  if (sp->repl_flags & REPL_LOCK_READ_LOCK_HELD) {
+    sp->repl_flags &= ~REPL_LOCK_READ_LOCK_HELD;
     IndexSpec_ReleaseReadLock(sp);
   }
-  if (sp->repl_disk_fork_protected) {
-    sp->repl_disk_fork_protected = false;
+  if (sp->repl_flags & REPL_LOCK_DISK_FORK_PROTECTED) {
+    sp->repl_flags &= ~REPL_LOCK_DISK_FORK_PROTECTED;
     IndexSpec_UnProtectDiskFork(sp);
   }
 }

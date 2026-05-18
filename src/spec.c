@@ -2369,8 +2369,7 @@ static void IndexSpec_InitLock(IndexSpec *sp) {
   pthread_rwlock_init(&sp->rwlock, &attr);
   pthread_rwlock_init(&sp->disk_fork_rwlock, &attr);
 
-  sp->repl_read_lock_held = false;
-  sp->repl_disk_fork_protected = false;
+  sp->repl_flags = REPL_LOCK_NONE;
 }
 
 // Helper function for initializing a field spec
@@ -2427,8 +2426,7 @@ static void initializeIndexSpec(IndexSpec *sp, const HiddenString *name, IndexFl
 IndexSpec *NewIndexSpec(const HiddenString *name) {
   IndexSpec *sp = rm_calloc(1, sizeof(IndexSpec));
   // Explicit init for SST replication state on top of rm_calloc's zero-init.
-  sp->repl_read_lock_held = false;
-  sp->repl_disk_fork_protected = false;
+  sp->repl_flags = REPL_LOCK_NONE;
   initializeIndexSpec(sp, name, INDEX_DEFAULT_FLAGS, 0);
   sp->stopwords = DefaultStopWordList();
   return sp;
@@ -3420,8 +3418,7 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryE
   // Explicit init for SST replication state: defense-in-depth on top of
   // rm_calloc's zero-init, since the abort handler may run before
   // initializeIndexSpec / IndexSpec_InitLock if an RDB read fails below.
-  sp->repl_read_lock_held = false;
-  sp->repl_disk_fork_protected = false;
+  sp->repl_flags = REPL_LOCK_NONE;
   spec_ref = StrongRef_New(sp, (RefManager_Free)IndexSpec_Free);
   sp->own_ref = spec_ref;
 
@@ -3620,8 +3617,7 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
   IndexSpec *sp = rm_calloc(1, sizeof(IndexSpec));
   // Explicit init for SST replication state on top of rm_calloc's zero-init.
-  sp->repl_read_lock_held = false;
-  sp->repl_disk_fork_protected = false;
+  sp->repl_flags = REPL_LOCK_NONE;
   IndexSpec_InitLock(sp);
   StrongRef spec_ref = StrongRef_New(sp, (RefManager_Free)IndexSpec_Free);
   sp->own_ref = spec_ref;
