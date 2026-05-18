@@ -35,7 +35,7 @@ extern "C" {
 static inline
 uint32_t nu_udb_lookup_value(uint32_t codepoint,
 	const int16_t *G, size_t G_SIZE,
-	const uint32_t *VALUES_C, const uint16_t *VALUES_I) {
+	const nu_mph_codepoints_t *VALUES_C, const uint16_t *VALUES_I) {
 
 	uint32_t hash = nu_mph_hash(G, G_SIZE, codepoint);
 	uint32_t value = nu_mph_lookup(VALUES_C, VALUES_I, codepoint, hash);
@@ -60,7 +60,7 @@ uint32_t nu_udb_lookup_value(uint32_t codepoint,
 static inline
 const char* nu_udb_lookup(uint32_t codepoint,
 	const int16_t *G, size_t G_SIZE,
-	const uint32_t *VALUES_C, const uint16_t *VALUES_I, const uint8_t *COMBINED) {
+	const nu_mph_codepoints_t *VALUES_C, const uint16_t *VALUES_I, const uint8_t *COMBINED) {
 
 	uint32_t combined_offset = nu_udb_lookup_value(codepoint,
 		G, G_SIZE, VALUES_C, VALUES_I);
