@@ -53,8 +53,8 @@ impl<Data> RuneTrieMap<Data> {
         self.inner.insert_with(&split_key(key), f);
     }
 
-    pub fn remove(&mut self, key: &[Rune]) {
-        self.inner.remove(&split_key(key));
+    pub fn remove(&mut self, key: &[Rune]) -> Option<Data> {
+        self.inner.remove(&split_key(key))
     }
 
     pub fn get(&mut self, key: &[Rune]) -> Option<&Data> {
