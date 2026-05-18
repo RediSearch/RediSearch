@@ -19,6 +19,9 @@ use std::ffi::{c_int, c_void};
 
 use fork_gc::{ForkGC, io_result_ext::IoResultExt};
 
+use tracing::Level;
+use tracing_log_error::log_error;
+
 /// Write exactly `len` bytes from `buff` to the FGC pipe.
 ///
 /// On error, logs the failure and terminates the child process via
@@ -112,8 +115,8 @@ pub unsafe extern "C" fn FGC_recvFixed(
 
     match fgc.reader().recv_fixed(slice) {
         Ok(()) => ffi::REDISMODULE_OK as c_int,
-        Err(err) => {
-            tracing::warn!("ForkGC pipe read error: {err}");
+        Err(e) => {
+            log_error!(e, level: Level::WARN, "ForkGC pipe read error");
             ffi::REDISMODULE_ERR as c_int
         }
     }

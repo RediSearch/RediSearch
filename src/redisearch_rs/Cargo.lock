@@ -710,6 +710,7 @@ dependencies = [
  "ffi",
  "fork_gc",
  "tracing",
+ "tracing_log_error",
  "workspace_hack",
 ]
 
