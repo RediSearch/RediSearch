@@ -44,7 +44,12 @@
 
 use std::fmt::Write as _;
 
-use trie_rs::rune::{DecrResult, Rune, RuneTrieMap, TermEntry};
+use trie_rs::rune::{DecrResult, Rune, RuneTrieMap};
+
+struct TermEntry {
+    score: f32,
+    num_docs: usize,
+}
 
 fn term_runes(s: &str) -> Vec<Rune> {
     s.encode_utf16().collect()
