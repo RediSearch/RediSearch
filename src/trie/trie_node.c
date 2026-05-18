@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include <sys/param.h>
-#include "trie_node.h"
+#include "trie_node_internal.h"
 #include "util/bsearch.h"
 #include "sparse_vector.h"
 #include "redisearch.h"
@@ -113,6 +113,38 @@ static void triePayload_Free(TriePayload *payload, TrieFreeCallback freecb) {
     freecb(payload->data);
   }
   rm_free(payload);
+}
+
+/* Opaque accessors. Definitions for the declarations in trie_node.h. With LTO
+ * these are inlined back at external call sites; without LTO they stay as
+ * regular function calls. */
+t_len TrieNode_NumChildren(const TrieNode *n) {
+  return n->numChildren;
+}
+
+bool TrieNode_IsTerminal(const TrieNode *n) {
+  return (n->flags & TRIENODE_TERMINAL) != 0;
+}
+
+size_t TrieNode_NumDocs(const TrieNode *n) {
+  return n->numDocs;
+}
+
+TrieNode **TrieNode_Children(const TrieNode *n) {
+  return (TrieNode **)((char *)n + sizeof(TrieNode) +
+                       ((n->len + 1) + n->numChildren) * sizeof(rune));
+}
+
+TrieNode *TrieNode_ChildAt(const TrieNode *n, t_len i) {
+  return TrieNode_Children(n)[i];
+}
+
+char *TrieNode_GetPayloadData(const TrieNode *n) {
+  return (n && n->payload) ? n->payload->data : NULL;
+}
+
+char *TriePayload_Data(TriePayload *p) {
+  return p ? p->data : NULL;
 }
 
 TrieNode *__newTrieNode(const rune *str, t_len offset, t_len len, const char *payload, size_t plen,
