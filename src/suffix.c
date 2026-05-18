@@ -17,10 +17,7 @@
 #include <strings.h>
 
 static inline suffixData *Suffix_GetData(const TrieNode *node) {
-  char *data;
-  uint32_t len;
-  if (!TrieNode_GetPayload(node, &data, &len)) return NULL;
-  return (suffixData *)data;
+  return (suffixData *)TrieNode_GetPayloadData(node);
 }
 
 

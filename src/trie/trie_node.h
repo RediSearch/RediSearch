@@ -111,13 +111,10 @@ static inline TrieNode *TrieNode_ChildAt(const TrieNode *n, t_len i) {
   return children[i];
 }
 
-/* If the node has a payload, write its data pointer and length to *data and
- * *len and return true. Otherwise (or if n is NULL) return false. */
-static inline bool TrieNode_GetPayload(const TrieNode *n, char **data, uint32_t *len) {
-  if (!n || !n->payload) return false;
-  *data = n->payload->data;
-  *len = n->payload->len;
-  return true;
+/* Return the node's payload data pointer, or NULL if the node has no payload
+ * (or n is NULL). */
+static inline char *TrieNode_GetPayloadData(const TrieNode *n) {
+  return (n && n->payload) ? n->payload->data : NULL;
 }
 
 typedef enum {
