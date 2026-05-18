@@ -29,6 +29,32 @@ set -euo pipefail
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
+REPO_ROOT="$(cd -- "$SCRIPT_DIR/../.." && pwd)"
+
+# Verify that `cheadergen` is installed and matches the version pinned in
+# .cheadergen-version (the same file `.install/test_deps/install_rust_deps.sh`
+# uses when installing the tool). Running with a different version would
+# silently produce headers that disagree with what CI generates.
+EXPECTED_CHEADERGEN_VERSION=$(cat "$REPO_ROOT/.cheadergen-version")
+if ! command -v cheadergen >/dev/null 2>&1; then
+    echo "error: cheadergen is not installed or not on PATH." >&2
+    echo "       Install the pinned version with:" >&2
+    echo "         cargo install --locked cheadergen_cli@${EXPECTED_CHEADERGEN_VERSION}" >&2
+    echo "       or re-run .install/test_deps/install_rust_deps.sh." >&2
+    exit 1
+fi
+# `cheadergen --version` prints `cheadergen_cli <version>`; grab the last field.
+ACTUAL_CHEADERGEN_VERSION=$(cheadergen --version | awk '{print $NF}')
+if [[ "$ACTUAL_CHEADERGEN_VERSION" != "$EXPECTED_CHEADERGEN_VERSION" ]]; then
+    echo "error: cheadergen version mismatch." >&2
+    echo "       expected: ${EXPECTED_CHEADERGEN_VERSION} (from .cheadergen-version)" >&2
+    echo "       found:    ${ACTUAL_CHEADERGEN_VERSION}" >&2
+    echo "       Install the pinned version with:" >&2
+    echo "         cargo install --locked cheadergen_cli@${EXPECTED_CHEADERGEN_VERSION}" >&2
+    echo "       or re-run .install/test_deps/install_rust_deps.sh." >&2
+    exit 1
+fi
+
 rustflags=
 if [[ "${RUST_DYN_CRT:-}" == "1" ]]; then
     rustflags="-C target-feature=-crt-static"
