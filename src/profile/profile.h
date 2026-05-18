@@ -10,7 +10,7 @@
 
 #include <assert.h>
 
-#include "value.h"
+#include "value_ffi.h"
 #include "reply.h"
 #include "rs_wall_clock.h"
 #include "rmutil/rm_assert.h"

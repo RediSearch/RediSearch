@@ -14,9 +14,10 @@
 #include "hybrid_request.h"
 #include "search_ctx.h"
 #include "aggregate/aggregate.h"
-#include "query_error.h"
 #include "cursor.h"
 #include "profile/options.h"
+
+typedef struct QueryError QueryError;
 
 #ifdef __cplusplus
 extern "C" {

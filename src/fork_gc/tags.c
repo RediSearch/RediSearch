@@ -8,6 +8,8 @@
 */
 
 #include "pipe.h"
+#include "triemap_ffi.h"
+#include "inverted_index_ffi.h"
 #include "redis_index.h"
 #include "tag_index.h"
 #include "suffix.h"

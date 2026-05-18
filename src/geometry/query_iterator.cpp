@@ -11,6 +11,8 @@
 #include "search_ctx.h"
 #include "spec.h"
 #include "util/timeout.h"
+#include "rqe_iterator_type.h"
+#include "types_ffi.h"
 
 #include <iterator>   // ranges::distance
 

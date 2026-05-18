@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include <stdatomic.h>
+#include "search_result_ffi.h"
 #include "result_processor.h"
 #include "rmr/rmr.h"
 #include "rmutil/util.h"

@@ -10,8 +10,8 @@
 #include <stddef.h>
 #include "redismodule.h"
 #include "reply.h"
+#include "query_error_ffi.h"
 #include <time.h>
-#include "query_error.h"
 
 #define WITH_INDEX_ERROR_TIME "_WITH_INDEX_ERROR_TIME"
 
@@ -39,7 +39,7 @@ extern char* const IndexError_ObjectName;
 
 /***************************************************************
  *  This API is NOT THREAD SAFE as it utilizes RedisModuleString objects
- * which are not thread safe. 
+ * which are not thread safe.
 ***************************************************************/
 
 // Initializes an IndexError. The error_count is set to 0 and the last_error is set to NA.

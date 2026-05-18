@@ -9,242 +9,138 @@
 #ifndef __TRIE_H__
 #define __TRIE_H__
 
-#include <stdlib.h>
-#include <string.h>
-#include <stdio.h>
-#include <stdbool.h>
-#include "rune_util.h"
-#include "redisearch.h"
+#include "redismodule.h"
+
+#include "rmutil/rm_assert.h"
+#include "trie_node.h"
+#include "levenshtein.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-typedef uint16_t t_len;
+extern RedisModuleType *TrieType;
 
-#define TRIE_INITIAL_STRING_LEN 256
-#define TRIE_MAX_PREFIX 100
-#define TRIENODE_TERMINAL 0x1
-#define TRIENODE_DELETED 0x2
+#define TRIE_ENCVER_CURRENT 2
+#define TRIE_ENCVER_NUMDOCS 2
+#define TRIE_ENCVER_PAYLOADS 1
 
-/* TrieNode_Add return codes */
-#define TRIE_OK_NEW                1   /* Successfully added a new entry */
-#define TRIE_OK_UPDATED            0   /* Entry already existed, score/payload updated */
-#define TRIE_ERR_PAYLOAD_OVERFLOW -1   /* Payload too large or allocation overflow */
+typedef struct Trie Trie;
 
-typedef enum {
-  Trie_Sort_Lex = 0,
-  Trie_Sort_Score = 1,
-} TrieSortMode;
-
-typedef void (*TrieFreeCallback)(void *node);
-struct timespec;
-
-#pragma pack(1)
 typedef struct {
-  uint32_t len;  // 4G payload is more than enough!!!!
-  char data[];   // this means the data will not take an extra pointer.
-} TriePayload;
-#pragma pack()
-
-#pragma pack(1)
-/* TrieNode represents a single node in a trie. The actual size of it is bigger,
- * as the children are
- * allocated after str[].
- * Non terminal nodes always have a score of 0, meaning you can't insert nodes
- * with score 0 to the
- * trie.
- */
-typedef struct {
-  // the string length of this node. can be 0
-  t_len len;
-  // the number of child nodes
-  t_len numChildren;
-
-  uint8_t flags : 2;
-  TrieSortMode sortMode : 1;
-
-  // the node's score. Non termn
+  char *str;
+  size_t len;
   float score;
+  char *payload;
+  size_t plen;
+} TrieSearchResult;
 
-  // the maximal score of any descendant of this node, used to optimize
-  // traversal
-  float maxChildScore;
+#define SCORE_TRIM_FACTOR 10.0
 
-  // the number of documents containing this key
-  size_t numDocs;
+/* Creates a new Trie.
+ * Trie can be sorted by lexicographic order using `Trie_Sort_Lex` or by
+ * score using `Trie_Sort_Score.                            */
+Trie *NewTrie(TrieFreeCallback freecb, TrieSortMode sortMode);
 
-  // the payload of terminal node. could be NULL if it's not terminal
-  TriePayload *payload;
+int Trie_Insert(Trie *t, RedisModuleString *s, double score, int incr, RSPayload *payload,
+                size_t numDocs);
+int Trie_InsertStringBuffer(Trie *t, const char *s, size_t len, double score, int incr,
+                            RSPayload *payload, size_t numDocs);
+int Trie_InsertRune(Trie *t, const rune *s, size_t len, double score, int incr,
+                    RSPayload *payload, size_t numDocs);
 
-  // the string of the current node
-  rune str[];
-  // ... here come the first letters of each child childRunes[]
-  // ... now come the children, to be accessed with __trieNode_children
-} TrieNode;
-#pragma pack()
+/* Insert a rune-keyed entry without updating the trie's size counter. Behaves
+ * exactly like calling TrieNode_Add(&t->root, ...) directly: no length guard,
+ * no size bookkeeping.
+ *
+ * Intended only for the suffix-trie full-word insert in addSuffixTrie(), which
+ * historically called TrieNode_Add directly to bypass both the size update
+ * (suffix tries never read ->size) and Trie_InsertRune's length guard (the
+ * suffix trie's full-word entries are not subject to that guard).
+ *
+ * Do not use for new call sites - prefer Trie_InsertRune so size stays in sync
+ * with TrieNode_Add's return value. */
+int Trie_InsertRuneNoSize(Trie *t, const rune *s, size_t len, double score, int incr,
+                          RSPayload *payload, size_t numDocs);
 
-/* Create a new trie node. str is a string to be copied into the node, starting
- * from offset up until
- * len. numChildren is the initial number of allocated child nodes */
-TrieNode *__newTrieNode(const rune *str, t_len offset, t_len len, const char *payload, size_t plen,
-                        t_len numChildren, float score, int terminal, TrieSortMode sortMode,
-                        size_t numDocs);
+/* Delete the string from the trie. Return 1 if the node was found and deleted, 0 otherwise */
+int Trie_Delete(Trie *t, const char *s, size_t len);
+int Trie_DeleteRunes(Trie *t, const rune *runes, size_t len);
 
-/* Get a pointer to the children array of a node. This is not an actual member
- * of the node for memory saving reasons */
-#define __trieNode_children(n) \
-  ((TrieNode **)((void *)n + sizeof(TrieNode) + ((n->len + 1) + (n->numChildren)) * sizeof(rune)))
+/* Look up a node by rune key. Wraps TrieNode_Get on the trie's root so callers do not
+ * need to reach into Trie internals. See TrieNode_Get for parameter semantics. */
+TrieNode *Trie_GetNode(Trie *t, const rune *str, t_len len, bool exact, int *offsetOut);
 
-#define __trieNode_isTerminal(n) (n->flags & TRIENODE_TERMINAL)
+/* Iterate all nodes within a lexicographic range. Wraps TrieNode_IterateRange on the
+ * trie's root. See TrieNode_IterateRange for parameter semantics. */
+void Trie_IterateRange(Trie *t, const rune *min, int minlen, bool includeMin,
+                       const rune *max, int maxlen, bool includeMax,
+                       TrieRangeCallback callback, void *ctx);
 
+/* Iterate all nodes that contain (or begin/end with) the given pattern. Wraps
+ * TrieNode_IterateContains on the trie's root. See TrieNode_IterateContains for
+ * parameter semantics. */
+void Trie_IterateContains(Trie *t, const rune *str, int nstr, bool prefix, bool suffix,
+                          TrieRangeCallback callback, void *ctx, struct timespec *timeout,
+                          bool skipTimeoutChecks);
+
+/* Iterate all nodes matching a wildcard pattern. Wraps TrieNode_IterateWildcard on the
+ * trie's root. See TrieNode_IterateWildcard for parameter semantics. */
+void Trie_IterateWildcard(Trie *t, const rune *str, int nstr,
+                          TrieRangeCallback callback, void *ctx, struct timespec *timeout,
+                          bool skipTimeoutChecks);
+
+/* Number of terminal entries in the trie. Wraps the internal size counter. */
+size_t Trie_Size(const Trie *t);
+
+/* Iterate every node in the trie with no filter or distance constraint. Wraps
+ * TrieNode_Iterate on the trie's root with no filter. Used by debug paths that
+ * want raw traversal; production code should prefer Trie_Iterate with a
+ * prefix/maxDist. */
+TrieIterator *Trie_IterateAll(Trie *t);
+
+/* Result codes for Trie_DecrementNumDocs */
 typedef enum {
-  ADD_REPLACE,
-  ADD_INCR,
-} TrieAddOp;
-/* Add a new string to a trie. We pass a pointer to the node because it may
- * actually change when splitting.
- * numDocs: the value to add to the existing numDocs
- *
+  TRIE_DECR_NOT_FOUND = 0,   /* Term not found in trie */
+  TRIE_DECR_UPDATED = 1,     /* numDocs decremented, still > 0 */
+  TRIE_DECR_DELETED = 2,     /* numDocs reached 0, node deleted */
+} TrieDecrResult;
+
+/* Decrement the numDocs count for a term in the trie.
+ * If numDocs reaches 0, the node is marked as deleted.
+ * Parameters:
+ *   t     - the trie
+ *   s     - UTF-8 encoded term string
+ *   len   - length of the string in bytes
+ *   delta - amount to decrement numDocs by
  * Returns:
- *   TRIE_OK_NEW (1)                - String was added (new entry)
- *   TRIE_OK_UPDATED (0)            - String already existed, score/payload updated
- *   TRIE_ERR_PAYLOAD_OVERFLOW (-1) - Payload too large or allocation overflow
- *
- * Note: The return value is used by Trie_InsertRune to update the Trie size
- * member (incremented only when TRIE_OK_NEW is returned).
+ *   TRIE_DECR_NOT_FOUND - term not found
+ *   TRIE_DECR_UPDATED   - numDocs decremented but still > 0
+ *   TRIE_DECR_DELETED   - numDocs reached 0, node deleted
  */
-int TrieNode_Add(TrieNode **n, const rune *str, t_len len, RSPayload *payload,
-                 float score, TrieAddOp op, TrieFreeCallback freecb,
-                 size_t numDocs);
+TrieDecrResult Trie_DecrementNumDocs(Trie *t, const char *s, size_t len, size_t delta);
 
-/* Find the entry with a given string and length, and return it. */
-TrieNode *TrieNode_Get(TrieNode *n, const rune *str, t_len len, bool exact, int *offsetOut);
+void TrieSearchResult_Free(TrieSearchResult *e);
+Vector *Trie_Search(Trie *tree, const char *s, size_t len, size_t num, int maxDist, int prefixMode,
+                    int trim, int optimize);
 
-/* Mark a node as deleted. For simplicity for now we don't actually delete
- * anything,
- * but the node will not be persisted to disk, thus deleted after reload.
- * Returns 1 if the node was indeed deleted, 0 otherwise */
-int TrieNode_Delete(TrieNode *n, const rune *str, t_len len, TrieFreeCallback freecb);
+/* Iterate  the trie, using maxDist edit distance, returning a trie iterator that the
+ * caller needs to free. If prefixmode is 1 we treat the string as only a prefix to iterate.
+ * Otherwise we return an iterator to all strings within maxDist Levenshtein distance */
+TrieIterator *Trie_Iterate(Trie *t, const char *prefix, size_t len, int maxDist, int prefixMode);
 
-/* Free the trie's root and all its children recursively */
-void TrieNode_Free(TrieNode *n, TrieFreeCallback freecb);
+/* Get a random key from the trie, and put the node's score in the score pointer. Returns 0 if the
+ * trie is empty and we cannot do that */
+int Trie_RandomKey(Trie *t, char **str, t_len *len, double *score);
 
-/* trie iterator stack node. for internal use only */
-typedef struct {
-  int state;
-  TrieNode *n;
-  t_len stringOffset;
-  t_len childOffset;
-  int isSkipped;
-} stackNode;
-
-typedef enum { F_CONTINUE = 0, F_STOP = 1 } FilterCode;
-
-// A callback for an automaton that receives the current state, evaluates the
-// next byte,
-// and returns the next state of the automaton. If we should not continue down,
-// return F_STOP
-typedef FilterCode (*StepFilter)(rune b, void *ctx, int *match, void *matchCtx);
-
-typedef void (*StackPopCallback)(void *ctx, int num);
-
-#define ITERSTATE_SELF 0
-#define ITERSTATE_CHILDREN 1
-#define ITERSTATE_MATCH 2
-
-/* Opaque trie iterator type */
-// typedef struct TrieIterator TrieIterator;
-typedef struct TrieIterator {
-  rune buf[TRIE_INITIAL_STRING_LEN + 1];
-  t_len bufOffset;
-
-  stackNode stack[TRIE_INITIAL_STRING_LEN + 1];
-  t_len stackOffset;
-  StepFilter filter;
-  float minScore;
-  int nodesConsumed;
-  int nodesSkipped;
-  StackPopCallback popCallback;
-  void *ctx;
-} TrieIterator;
-
-/* push a new trie iterator stack node  */
-void __ti_Push(TrieIterator *it, TrieNode *node, int skipped);
-
-/* the current top of the iterator stack */
-#define __ti_current(it) &it->stack[it->stackOffset - 1]
-
-/* pop a node from the iterator's stcak */
-void __ti_Pop(TrieIterator *it);
-
-/* Step itearator return codes below: */
-
-/* Stop the iteration */
-#define __STEP_STOP 0
-/* Continue to next node  */
-#define __STEP_CONT 1
-/* We found a match, return the state to the user but continue afterwards */
-#define __STEP_MATCH 3
-
-/* Single step iteration, feeding the given filter/automaton with the next
- * character */
-int __ti_step(TrieIterator *it, void *matchCtx);
-
-/* Iterate the tree with a step filter, which tells the iterator whether to
- * continue down the trie
- * or not. This can be a levenshtein automaton, a regex automaton, etc. A NULL
- * filter means just
- * continue iterating the entire trie. ctx is the filter's context */
-TrieIterator *TrieNode_Iterate(TrieNode *n, StepFilter f, StackPopCallback pf, void *ctx);
-
-/* Free a trie iterator */
-void TrieIterator_Free(TrieIterator *it);
-
-/* Iterate to the next matching entry in the trie. Returns 1 if we can continue,
- * or 0 if we're done
- * and should exit */
-int TrieIterator_Next(TrieIterator *it, rune **ptr, t_len *len, RSPayload *payload, float *score,
-                      size_t *numDocs, void *matchCtx);
-
-TrieNode *TrieNode_RandomWalk(TrieNode *n, int minSteps, rune **str, t_len *len);
-
-typedef int(TrieRangeCallback)(const rune *, size_t, void *, void *, size_t);
-typedef int(TrieSuffixCallback)(const char *, size_t, void *, void *);
-
-/**
- * Iterate all nodes within range.
- * @param n the node to iterateo
- * @param min the minimum lexical string to check from
- * @param minlen the length of min
- * @param includeMin is min included
- * @param max the maximum lexical string to check until
- * @param maxlen the maximum length of the max
- * @param includeMax is max included
- * @param callback the callback to invoke
- * @param ctx data to be passed to the callback
- */
-
-void TrieNode_IterateRange(TrieNode *n, const rune *min, int minlen, bool includeMin,
-                           const rune *max, int maxlen, bool includeMax, TrieRangeCallback callback,
-                           void *ctx);
-
-/**
- * Iterate all nodes within range.
- * @param n the node to iterateo
- * @param str the string to check
- * @param nstr the length of str
- * @param prefix is the string prefix
- * @param suffix is the string suffix
- * @param callback the callback to invoke
- * @param ctx data to be passed to the callback
- */
-void TrieNode_IterateContains(TrieNode *n, const rune *str, int nstr, bool prefix, bool suffix,
-                              TrieRangeCallback callback, void *ctx, struct timespec *timeout,
-                              bool skipTimeoutChecks);
-
-void TrieNode_IterateWildcard(TrieNode *n, const rune *str, int nstr,
-                              TrieRangeCallback callback, void *ctx, struct timespec *timeout,
-                              bool skipTimeoutChecks);
+/* Commands related to the redis TrieType registration */
+int TrieType_Register(RedisModuleCtx *ctx);
+void *TrieType_GenericLoad(RedisModuleIO *rdb, bool loadPayloads, bool loadNumDocs);
+void TrieType_GenericSave(RedisModuleIO *rdb, Trie *t, bool savePayloads, bool saveNumDocs);
+void *TrieType_RdbLoad(RedisModuleIO *rdb, int encver);
+void TrieType_RdbSave(RedisModuleIO *rdb, void *value);
+size_t TrieType_MemUsage(const void *value);
+void TrieType_Free(void *value);
 
 #ifdef __cplusplus
 }

@@ -9,8 +9,6 @@
 
 #pragma once
 
-#include "query_error.h"
-#include "triemap.h"
 #include "stemmer.h"
 #include "util/arr.h"
 #include "json.h"
@@ -18,6 +16,10 @@
 #include "util/references.h"
 #include "obfuscation/hidden_unicode.h"
 #include "rmutil/args.h"
+
+typedef struct TrieMap TrieMap;
+
+typedef struct QueryError QueryError;
 
 #ifdef __cplusplus
 extern "C" {
@@ -27,6 +29,8 @@ extern "C" {
 
 #define RULE_TYPE_HASH "HASH"
 #define RULE_TYPE_JSON "JSON"
+
+#define MAX_SCHEMA_PREFIXES 1000000
 
 struct RSExpr;
 struct IndexSpec;

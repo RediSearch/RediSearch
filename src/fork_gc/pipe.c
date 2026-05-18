@@ -29,33 +29,6 @@ void FGC_updateStats(ForkGC *gc, RedisSearchCtx *sctx,
   gc->stats.gcBlocksDenied += ignoredLastBlock ? 1 : 0;
 }
 
-// Buff shouldn't be NULL.
-void FGC_sendFixed(ForkGC *fgc, const void *buff, size_t len) {
-  RS_LOG_ASSERT(len > 0, "buffer length cannot be 0");
-  ssize_t size = write(fgc->pipe_write_fd, buff, len);
-  if (size != len) {
-    perror("broken pipe, exiting GC fork: write() failed");
-    // just exit, do not abort(), which will trigger a watchdog on RLEC, causing adverse effects
-    RedisModule_Log(fgc->ctx, "warning", "GC fork: broken pipe, exiting");
-    RedisModule_ExitFromChild(1);
-  }
-}
-
-void FGC_sendBuffer(ForkGC *fgc, const void *buff, size_t len) {
-  FGC_SEND_VAR(fgc, len);
-  if (len > 0) {
-    FGC_sendFixed(fgc, buff, len);
-  }
-}
-
-/**
- * Send instead of a string to indicate that no more buffers are to be received
- */
-void FGC_sendTerminator(ForkGC *fgc) {
-  size_t smax = SIZE_MAX;
-  FGC_SEND_VAR(fgc, smax);
-}
-
 int __attribute__((warn_unused_result)) FGC_recvFixed(ForkGC *fgc, void *buf, size_t len) {
   // poll the pipe, so that we don't block while read, with timeout of 3 minutes
   int poll_rc;

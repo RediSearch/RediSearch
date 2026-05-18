@@ -13,11 +13,11 @@
 #include "util/workers.h"
 #include "cursor.h"
 #include "info/info_redis/block_client.h"
-#include "query_error.h"
+#include "query_error_ffi.h"
 #include "spec.h"
 #include "module.h"
 #include "profile/profile.h"
-#include "iterators_rs.h"
+#include "iterators_ffi.h"
 
 #ifdef __cplusplus
 extern "C" {

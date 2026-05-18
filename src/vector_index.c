@@ -9,7 +9,7 @@
 #include "vector_index.h"
 #include "VecSim/query_results.h"
 #include "iterators/hybrid_reader.h"
-#include "iterators_rs.h"
+#include "iterators_ffi.h"
 #include "query_param.h"
 #include "rdb.h"
 #include "util/workers_pool.h"

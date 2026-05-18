@@ -13,10 +13,11 @@
 #include "vector_index.h"
 #include "geometry/geometry_api.h"
 #include "tag_index.h"
+#include "numeric_range_tree.h"
+#include "numeric_range_tree_ffi.h"
 #include "info/global_stats.h"
 #include "obfuscation/obfuscation_api.h"
 #include "search_disk.h"
-#include "redisearch_rs/headers/numeric_range_tree.h"
 
 void FieldSpec_Cleanup(FieldSpec* fs) {
   // if `AS` was not used, name and path are pointing at the same string

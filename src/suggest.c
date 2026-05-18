@@ -10,8 +10,8 @@
 #include "module.h"
 #include "rmutil/util.h"
 #include "rmutil/args.h"
-#include "trie/trie_type.h"
-#include "query_error.h"
+#include "trie/trie.h"
+#include "query_error_ffi.h"
 #include "util/likely.h"
 
 extern bool isCrdt;

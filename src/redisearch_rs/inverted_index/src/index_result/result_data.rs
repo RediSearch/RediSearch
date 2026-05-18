@@ -19,7 +19,7 @@ use super::term_record::RSTermRecord;
 /// The `'index` lifetime is linked to the [`crate::IndexBlock`] when decoding borrows from the block.
 #[repr(u8)]
 #[derive(Debug, PartialEq)]
-/// cbindgen:prefix-with-name=true
+#[cheadergen::config(prefix_with_name)]
 pub enum RSResultData<'index> {
     Union(RSAggregateResult<'index>) = 1,
     Intersection(RSAggregateResult<'index>) = 2,
