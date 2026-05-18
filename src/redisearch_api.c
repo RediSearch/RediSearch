@@ -200,7 +200,17 @@ void RediSearch_IndexExisting(RefManager* rm, SchemaRuleArgs* args) {
   RWLOCK_ACQUIRE_WRITE();
   IndexSpec *sp = __RefManager_Get_Object(rm);
   if (!sp->rule) {
-    sp->rule = SchemaRule_Create(args, IndexSpec_GetStrongRefUnsafe(sp), NULL);
+    QueryError status = QueryError_Default();
+    sp->rule = SchemaRule_Create(args, IndexSpec_GetStrongRefUnsafe(sp), &status);
+    if (!sp->rule) {
+      RedisModule_Log(RSDummyContext, "warning",
+                      "RediSearch_IndexExisting: failed to create schema rule: %s",
+                      QueryError_GetUserError(&status));
+      QueryError_ClearError(&status);
+      RWLOCK_RELEASE();
+      return;
+    }
+    QueryError_ClearError(&status);
   }
   sp->rule->index_all = true;
   RWLOCK_RELEASE();
