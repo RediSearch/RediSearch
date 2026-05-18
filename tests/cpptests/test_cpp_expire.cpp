@@ -93,12 +93,12 @@ TEST_F(ExpireTest, testSkipTo) {
   RedisModule_FreeThreadSafeContext(ctx);
 }
 
-// Helper: build a one-entry FieldExpiration array on field index 0. Ownership
-// transfers to the table on TimeToLiveTable_Add.
-static arrayof(FieldExpiration) makeFE(t_expirationTimePoint p) {
-  arrayof(FieldExpiration) fe = array_new(FieldExpiration, 1);
+// Helper: build a one-entry FieldExpiration ThinVec on field index 0.
+// Ownership transfers to the table on TimeToLiveTable_Add.
+static FieldExpirations makeFE(t_expirationTimePoint p) {
+  FieldExpirations fe = FieldExpirations_WithCapacity(1);
   FieldExpiration entry = {0, p};
-  array_append(fe, entry);
+  FieldExpirations_Push(&fe, entry);
   return fe;
 }
 
@@ -223,7 +223,7 @@ TEST_F(ExpireTest, testTTLLazyGrowth) {
   TimeToLiveTable *ttl = nullptr;
   TimeToLiveTable_VerifyInit(&ttl, MAX);
   // Init alone must not allocate any buckets.
-  ASSERT_EQ(TimeToLiveTable_DebugAllocatedBuckets(ttl), 0u);
+  ASSERT_EQ(TimeToLiveTable_NAllocatedBuckets(ttl), 0u);
 
   struct timespec past = {1, 0};
   struct timespec now = {2, 0};
@@ -236,7 +236,7 @@ TEST_F(ExpireTest, testTTLLazyGrowth) {
   for (t_docId d : small_ids) {
     TimeToLiveTable_Add(ttl, d, makeFE(past));
   }
-  const size_t cap_after_small = TimeToLiveTable_DebugAllocatedBuckets(ttl);
+  const size_t cap_after_small = TimeToLiveTable_NAllocatedBuckets(ttl);
   ASSERT_GE(cap_after_small, 101u);   // must cover slot 100
   ASSERT_LT(cap_after_small, MAX / 10);  // must be far below maxSize
 
@@ -244,7 +244,7 @@ TEST_F(ExpireTest, testTTLLazyGrowth) {
   ASSERT_FALSE(fieldExpired(ttl, 999999, &now));
   // Writes must still work for those, and bump cap to cover them.
   TimeToLiveTable_Add(ttl, 999999, makeFE(past));
-  ASSERT_GE(TimeToLiveTable_DebugAllocatedBuckets(ttl), 999999u + 1);
+  ASSERT_GE(TimeToLiveTable_NAllocatedBuckets(ttl), 999999u + 1);
   ASSERT_TRUE(fieldExpired(ttl, 999999, &now));
 
   // Previously-inserted entries must not have moved during the grow.
@@ -254,9 +254,9 @@ TEST_F(ExpireTest, testTTLLazyGrowth) {
 
   // A wrap-around docId (>= maxSize) routes via modulo into an already-
   // allocated slot, so it works without further growth.
-  const size_t cap_before_wrap = TimeToLiveTable_DebugAllocatedBuckets(ttl);
+  const size_t cap_before_wrap = TimeToLiveTable_NAllocatedBuckets(ttl);
   TimeToLiveTable_Add(ttl, MAX + 5, makeFE(past));  // slot = 5, already in range
-  ASSERT_EQ(TimeToLiveTable_DebugAllocatedBuckets(ttl), cap_before_wrap);
+  ASSERT_EQ(TimeToLiveTable_NAllocatedBuckets(ttl), cap_before_wrap);
   ASSERT_TRUE(fieldExpired(ttl, MAX + 5, &now));
   // The original docId=5 entry must still be distinct from the wrapped one.
   ASSERT_TRUE(fieldExpired(ttl, 5, &now));
@@ -272,32 +272,38 @@ TEST_F(ExpireTest, testTTLGetFieldExpirations) {
   TimeToLiveTable *ttl = nullptr;
   TimeToLiveTable_VerifyInit(&ttl, 32);
 
-  // Empty table: any docId returns NULL.
-  ASSERT_EQ(TimeToLiveTable_GetFieldExpirations(ttl, 1), nullptr);
-  ASSERT_EQ(TimeToLiveTable_GetFieldExpirations(ttl, 999999), nullptr);
+  // Empty table: any docId returns the empty slice (ptr=NULL, len=0).
+  FieldExpirationSlice slice = TimeToLiveTable_GetFieldExpirations(ttl, 1);
+  ASSERT_EQ(slice.ptr, nullptr);
+  ASSERT_EQ(slice.len, 0u);
+  slice = TimeToLiveTable_GetFieldExpirations(ttl, 999999);
+  ASSERT_EQ(slice.ptr, nullptr);
+  ASSERT_EQ(slice.len, 0u);
 
-  // Add an entry and confirm Get returns the same pointer that was inserted,
-  // with the expected length and content. (Add takes ownership; Get returns
-  // a borrowed alias to that same storage.)
+  // Add an entry and confirm Get returns a non-null borrowed pointer with
+  // the expected length and content. (Add takes ownership; Get returns a
+  // borrowed alias to the same storage.)
   struct timespec p = {123, 456};
-  arrayof(FieldExpiration) inserted = makeFE(p);
-  const FieldExpiration *insertedPtr = inserted;  // capture before Add transfers
-  TimeToLiveTable_Add(ttl, 7, inserted);
+  TimeToLiveTable_Add(ttl, 7, makeFE(p));
 
-  const arrayof(FieldExpiration) got = TimeToLiveTable_GetFieldExpirations(ttl, 7);
-  ASSERT_EQ(got, insertedPtr);
-  // array_len takes void*; the const-qualified return needs the cast.
-  ASSERT_EQ(array_len((arrayof(FieldExpiration))got), 1u);
-  ASSERT_EQ(got[0].index, 0);
-  ASSERT_EQ(got[0].point.tv_sec, p.tv_sec);
-  ASSERT_EQ(got[0].point.tv_nsec, p.tv_nsec);
+  slice = TimeToLiveTable_GetFieldExpirations(ttl, 7);
+  ASSERT_NE(slice.ptr, nullptr);
+  ASSERT_EQ(slice.len, 1u);
+  ASSERT_EQ(slice.ptr[0].index, 0);
+  ASSERT_EQ(slice.ptr[0].point.tv_sec, p.tv_sec);
+  ASSERT_EQ(slice.ptr[0].point.tv_nsec, p.tv_nsec);
 
-  // A docId that was never added must report NULL even when other entries exist.
-  ASSERT_EQ(TimeToLiveTable_GetFieldExpirations(ttl, 8), nullptr);
+  // A docId that was never added must report the empty slice even when
+  // other entries exist.
+  slice = TimeToLiveTable_GetFieldExpirations(ttl, 8);
+  ASSERT_EQ(slice.ptr, nullptr);
+  ASSERT_EQ(slice.len, 0u);
 
-  // After Remove, Get for that docId returns NULL.
+  // After Remove, Get for that docId returns the empty slice.
   TimeToLiveTable_Remove(ttl, 7);
-  ASSERT_EQ(TimeToLiveTable_GetFieldExpirations(ttl, 7), nullptr);
+  slice = TimeToLiveTable_GetFieldExpirations(ttl, 7);
+  ASSERT_EQ(slice.ptr, nullptr);
+  ASSERT_EQ(slice.len, 0u);
 
   TimeToLiveTable_Destroy(&ttl);
 }

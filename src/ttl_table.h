@@ -7,4 +7,10 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #pragma once
-#include "ttl_table/ttl_table.h"
+
+// Public header for the `TimeToLiveTable`. The implementation lives in the
+// Rust crate `ttl_table_ffi`; this file owns the `FieldExpiration` type
+// definition (consumed by C/C++ callers and by bindgen for `ffi::FieldExpiration`)
+// and then re-exports the cbindgen-generated function prototypes.
+
+#include "redisearch_rs/headers/ttl_table.h"

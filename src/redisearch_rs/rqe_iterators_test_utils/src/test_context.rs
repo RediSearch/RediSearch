@@ -901,7 +901,6 @@ impl TestContext {
                 let count = mask.count_ones();
                 let mut fe = FieldExpirations::with_capacity(count as usize);
 
-                // Add a FieldExpiration for each bit set in the mask
                 let mut value = mask;
                 while value != 0 {
                     let index = value.trailing_zeros();

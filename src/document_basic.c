@@ -26,6 +26,7 @@ void Document_Init(Document *doc, RedisModuleString *docKey, double score, RSLan
   doc->payload = NULL;
   doc->payloadSize = 0;
   doc->type = type;
+  doc->fieldExpirations = FieldExpirations_Empty();
 }
 
 // Nor related to AS attribute. Used by LLAPI.
@@ -129,7 +130,7 @@ t_expirationTimePoint GetKeyExpirationTime(RedisModuleKey *openedKey) {
 }
 
 void Document_LoadHashFieldExpiration(RedisModuleKey *k, const FieldSpec *field,
-                                      size_t ii, arrayof(FieldExpiration) *out) {
+                                      size_t ii, FieldExpirations *out) {
   mstime_t expireAt = REDISMODULE_NO_EXPIRE;
   RedisModule_HashGet(k, REDISMODULE_HASH_CFIELDS | REDISMODULE_HASH_EXPIRE_TIME,
                       HiddenString_GetUnsafe(field->fieldPath, NULL), &expireAt, NULL);
@@ -137,7 +138,14 @@ void Document_LoadHashFieldExpiration(RedisModuleKey *k, const FieldSpec *field,
     return;
   }
   FieldExpiration fx = {.index = (t_fieldIndex)ii, .point = timespecFromMilliseconds(expireAt)};
-  array_ensure_append_1(*out, fx);
+  // `out` may be the C-zero sentinel (e.g. a freshly calloc'd Document, ptr ==
+  // NULL); FieldExpirations_Push requires a real ThinVec, so promote it to an
+  // empty one first. Fields are visited in ascending order, so a plain push
+  // (no insertion search) keeps the list sorted by index.
+  if (!out->ptr) {
+    *out = FieldExpirations_Empty();
+  }
+  FieldExpirations_Push(out, fx);
 }
 
 int Document_LoadSchemaFieldHash(Document *doc, RedisSearchCtx *sctx, QueryError *status) {
@@ -466,8 +474,7 @@ void Document_Clear(Document *d) {
 
 void Document_Free(Document *doc) {
   Document_Clear(doc);
-  array_free(doc->fieldExpirations);
-  doc->fieldExpirations = NULL;
+  FieldExpirations_Free(&doc->fieldExpirations);
   if (doc->flags & (DOCUMENT_F_OWNREFS | DOCUMENT_F_OWNSTRINGS)) {
     RedisModule_FreeString(RSDummyContext, doc->docKey);
   }
