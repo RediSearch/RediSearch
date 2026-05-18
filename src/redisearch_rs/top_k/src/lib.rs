@@ -7,8 +7,31 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! A fixed-capacity heap that retains the top-k scored documents.
+//! Generic top-k iterator shared by the vector (hybrid) and numeric (optimizer)
+//! query iterators.
+//!
+//! # Architecture
+//!
+//! The core abstraction is [`TopKIterator<S>`], a state machine that drives
+//! top-k collection in three modes:
+//!
+//! - **Unfiltered** — no child filter; stream results directly from the source's batch.
+//!
+//! The score-producing logic is abstracted behind the [`ScoreSource`] / [`ScoreBatch`]
+//! traits.
 
 pub mod heap;
+pub mod iterator;
+pub mod traits;
+
+#[cfg(test)]
+extern crate redisearch_rs;
+#[cfg(test)]
+redis_mock::mock_or_stub_missing_redis_c_symbols!();
+
+#[cfg(feature = "test-utils")]
+pub mod mock;
 
 pub use heap::{ScoredResult, TopKHeap};
+pub use iterator::{TopKIterator, TopKMode};
+pub use traits::{ScoreBatch, ScoreSource};
