@@ -1,24 +1,48 @@
 name: temporary testing
 
-# This file is useful for triggering actions when you implement them.
-# When the `branches-ignore` line is commented out, this workflow will run on every push.
-# It is better to use this file for testing your new flows than creating a new one, to avoid cluttering the repo
-# action tab with unused workflows.
-# Don't worry about conflicts with other PRs - there is no "right" content of this file.
-# Make sure the `branches-ignore` line is not commented out when you merge your PR.
-
 on:
-  push:
-    branches-ignore: ['**'] # ignore all branches. Comment this line to run your workflow below on every push.
+  workflow_dispatch:
 
 jobs:
-
-  alpine-test:
-    permissions:
-      contents: read
-      packages: write
-    uses: ./.github/workflows/flow-test.yml
-    secrets: inherit
-    with:
-      platform: alpine:3.23
-      redis-ref: unstable
+  slack-payload-test:
+    name: Slack payload test (${{ matrix.case }})
+    runs-on: ubuntu-slim
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - case: valid-user-id
+            author-mention-json: '"U02M4V63048"'
+          - case: plain-string
+            author-mention-json: '"redisearch-backport-pull-request"'
+          - case: empty-string
+            author-mention-json: '""'
+          - case: null-value
+            author-mention-json: 'null'
+    steps:
+      - name: Send Slack payload variant
+        uses: slackapi/slack-github-action@v3
+        with:
+          errors: true
+          webhook: ${{ secrets.SLACK_WEBHOOK_URL_RQE_CI_ISSUES }}
+          webhook-type: webhook-trigger
+          payload: |
+            {
+              "repository": "${{ github.repository }}",
+              "PR": "https://github.com/RediSearch/RediSearch/pull/9682",
+              "Title": "[temp] Slack payload mention test - ${{ matrix.case }}",
+              "Author": "redisearch-backport-pull-request",
+              "Author_Mention": ${{ matrix.author-mention-json }},
+              "Reason": "payload_test",
+              "Removed_At": "2026-05-18 00:00:00 UTC",
+              "Resubmitted_At": "2026-05-18 00:01:00 UTC",
+              "Removed_By": "github-merge-queue",
+              "Enqueued_By": "GuyAv46",
+              "Enqueued_By_Mention": "U02M4V63048",
+              "Head_Commit": "https://github.com/RediSearch/RediSearch/commit/9ab417f79798ba1d86917b1aef1ef682845e9fca",
+              "Head_Commit_SHA": "9ab417f79798ba1d86917b1aef1ef682845e9fca",
+              "Head_Committed_At": "2026-05-17 14:58:46 UTC",
+              "Workflow": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}",
+              "Previous_Merge_Queue_Run": "https://github.com/RediSearch/RediSearch/actions/runs/25998716798",
+              "Detector_Workflow": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            }
