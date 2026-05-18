@@ -25,6 +25,6 @@ RUN bash retry.sh bash -l -eo pipefail install_script.sh
 WORKDIR /project
 RUN bash .install/retry.sh bash -l -eo pipefail .install/test_deps/install_rust_deps.sh
 # Expose newly-installed Rust and Python tools via PATH
-ENV PATH="/root/.cargo/bin:/root/.local/bin:${PATH}"
+ENV PATH="/usr/local/llvm/bin:/root/.cargo/bin:/root/.local/bin:${PATH}"
 
 WORKDIR /project
