@@ -1010,7 +1010,7 @@ TEST_F(IndexTest, testIndexSpec) {
   const FieldSpec *f = IndexSpec_GetFieldWithLength(s, body, strlen(body));
   ASSERT_TRUE(f != NULL);
   ASSERT_TRUE(FIELD_IS(f, INDEXFLD_T_FULLTEXT));
-  ASSERT_STREQ(RediSearch_HiddenStringGet(f->fieldName), body);
+  ASSERT_STREQ(HiddenString_GetUnsafe(f->fieldName, NULL), body);
   ASSERT_EQ(f->ftWeight, 2.0);
   ASSERT_EQ(FIELD_BIT(f), 2);
   ASSERT_EQ(f->options, 0);
@@ -1019,7 +1019,7 @@ TEST_F(IndexTest, testIndexSpec) {
   f = IndexSpec_GetFieldWithLength(s, title, strlen(title));
   ASSERT_TRUE(f != NULL);
   ASSERT_TRUE(FIELD_IS(f, INDEXFLD_T_FULLTEXT));
-  ASSERT_STREQ(RediSearch_HiddenStringGet(f->fieldName), title);
+  ASSERT_STREQ(HiddenString_GetUnsafe(f->fieldName, NULL), title);
   ASSERT_TRUE(f->ftWeight == 0.1);
   ASSERT_TRUE(FIELD_BIT(f) == 1);
   ASSERT_TRUE(f->options == 0);
@@ -1028,7 +1028,7 @@ TEST_F(IndexTest, testIndexSpec) {
   f = IndexSpec_GetFieldWithLength(s, foo, strlen(foo));
   ASSERT_TRUE(f != NULL);
   ASSERT_TRUE(FIELD_IS(f, INDEXFLD_T_FULLTEXT));
-  ASSERT_STREQ(RediSearch_HiddenStringGet(f->fieldName), foo);
+  ASSERT_STREQ(HiddenString_GetUnsafe(f->fieldName, NULL), foo);
   ASSERT_TRUE(f->ftWeight == 1);
   ASSERT_TRUE(FIELD_BIT(f) == 4);
   ASSERT_TRUE(f->options == FieldSpec_Sortable);
@@ -1038,7 +1038,7 @@ TEST_F(IndexTest, testIndexSpec) {
   ASSERT_TRUE(f != NULL);
   ASSERT_TRUE(FIELD_IS(f, INDEXFLD_T_NUMERIC));
 
-  ASSERT_STREQ(RediSearch_HiddenStringGet(f->fieldName), bar);
+  ASSERT_STREQ(HiddenString_GetUnsafe(f->fieldName, NULL), bar);
   ASSERT_EQ(f->options, FieldSpec_Sortable | FieldSpec_UNF); // UNF is set implicitly for sortable numerics
   ASSERT_TRUE(f->sortIdx == 1);
   ASSERT_TRUE(IndexSpec_GetFieldWithLength(s, "fooz", 4) == NULL);
@@ -1046,7 +1046,7 @@ TEST_F(IndexTest, testIndexSpec) {
   f = IndexSpec_GetFieldWithLength(s, name, strlen(name));
   ASSERT_TRUE(f != NULL);
   ASSERT_TRUE(FIELD_IS(f, INDEXFLD_T_FULLTEXT));
-  ASSERT_STREQ(RediSearch_HiddenStringGet(f->fieldName), name);
+  ASSERT_STREQ(HiddenString_GetUnsafe(f->fieldName, NULL), name);
   ASSERT_TRUE(f->ftWeight == 1);
   ASSERT_TRUE(FIELD_BIT(f) == 8);
   ASSERT_TRUE(f->options == FieldSpec_NoStemming);

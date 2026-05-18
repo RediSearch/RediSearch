@@ -13,6 +13,7 @@
 #include "redismock/util.h"
 #include "spec.h"
 #include "document.h"
+#include "llapi_test_helpers.h"  // RSIndex typedef + post-llAPI helpers
 
 #ifdef __cplusplus
 #include <chrono>
@@ -64,8 +65,6 @@ bool addDocument(RedisModuleCtx *ctx, RSIndex *index, const char *docid, Ts... a
   return rv == REDISMODULE_OK;
 }
 
-bool deleteDocument(RedisModuleCtx *ctx, RSIndex *index, const char *docid);
-
 template <typename... Ts>
 IndexSpec *createIndex(RedisModuleCtx *ctx, const char *name, Ts... args) {
   RMCK::ArgvList argv("FT.CREATE", name, args...);
@@ -76,9 +75,6 @@ IndexSpec *createIndex(RedisModuleCtx *ctx, const char *name, Ts... args) {
   }
   return sp;
 }
-
-std::vector<std::string> search(RSIndex *index, RSQueryNode *qn);
-std::vector<std::string> search(RSIndex *index, const char *s);
 
 /**
  * @brief Wait for a condition to become true with a timeout.

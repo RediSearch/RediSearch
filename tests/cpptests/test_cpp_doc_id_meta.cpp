@@ -78,9 +78,7 @@ protected:
 
   // Helper: creates a spec in specDict_g with the given name and specId.
   void addTestSpec(const char *name, uint64_t specId) {
-    RSIndexOptions opts = {0};
-    opts.gcPolicy = GC_POLICY_FORK;
-    auto ism = RediSearch_CreateIndex(name, &opts);
+    auto ism = createEmptySpec(name);
     ASSERT_NE(ism, nullptr);
 
     IndexSpec *spec = get_spec(ism);

@@ -11,7 +11,6 @@
 #include "common.h"
 #include "index_utils.h"
 #include "rules.h"
-#include "redisearch_api.h"
 #include "obfuscation/hidden_unicode.h"
 #include "rmutil/args.h"
 #include "util/arr.h"
@@ -21,7 +20,7 @@ class SchemaRuleTest : public ::testing::Test {};
 // SchemaRule_CreateWithPrefixesAC reads prefixes from an ArgsCursor and consumes
 // it fully, producing a rule whose prefix list matches the cursor contents.
 TEST_F(SchemaRuleTest, testCreateFromACPrefixes) {
-  auto ism = RediSearch_CreateIndex("idx_rule_ac", NULL);
+  auto ism = createEmptySpec("idx_rule_ac");
   ASSERT_NE(ism, nullptr);
 
   const char *prefix_strs[] = {"users:", "products:", "orders:"};
@@ -58,7 +57,7 @@ TEST_F(SchemaRuleTest, testCreateFromACEquivalentToCArray) {
   const char *prefix_strs[] = {"a:", "b:"};
   const int nprefixes = sizeof(prefix_strs) / sizeof(prefix_strs[0]);
 
-  auto ism_arr = RediSearch_CreateIndex("idx_rule_arr", NULL);
+  auto ism_arr = createEmptySpec("idx_rule_arr");
   ASSERT_NE(ism_arr, nullptr);
   SchemaRuleArgs args_arr = {0};
   args_arr.type = "HASH";
@@ -68,7 +67,7 @@ TEST_F(SchemaRuleTest, testCreateFromACEquivalentToCArray) {
   SchemaRule *rule_arr = SchemaRule_Create(&args_arr, {ism_arr}, &s_arr);
   ASSERT_NE(rule_arr, nullptr) << QueryError_GetUserError(&s_arr);
 
-  auto ism_ac = RediSearch_CreateIndex("idx_rule_ac2", NULL);
+  auto ism_ac = createEmptySpec("idx_rule_ac2");
   ASSERT_NE(ism_ac, nullptr);
   ArgsCursor ac;
   ArgsCursor_InitCString(&ac, prefix_strs, nprefixes);
@@ -94,7 +93,7 @@ TEST_F(SchemaRuleTest, testCreateFromACEquivalentToCArray) {
 
 // An AC with no remaining args produces a rule with an empty prefix list.
 TEST_F(SchemaRuleTest, testCreateFromACEmpty) {
-  auto ism = RediSearch_CreateIndex("idx_rule_ac_empty", NULL);
+  auto ism = createEmptySpec("idx_rule_ac_empty");
   ASSERT_NE(ism, nullptr);
 
   ArgsCursor ac;
@@ -116,7 +115,7 @@ TEST_F(SchemaRuleTest, testCreateFromACEmpty) {
 // Exceeding MAX_SCHEMA_PREFIXES via the AC path must return NULL with an error
 // without touching the (potentially fake) prefix pointers.
 TEST_F(SchemaRuleTest, testCreateFromACTooManyPrefixes) {
-  auto ism = RediSearch_CreateIndex("idx_rule_ac_overlimit", NULL);
+  auto ism = createEmptySpec("idx_rule_ac_overlimit");
   ASSERT_NE(ism, nullptr);
 
   ArgsCursor ac = {};
@@ -138,7 +137,7 @@ TEST_F(SchemaRuleTest, testCreateFromACTooManyPrefixes) {
 // Exceeding MAX_SCHEMA_PREFIXES via the C-array path must return NULL with an
 // error without dereferencing the (NULL) prefix array.
 TEST_F(SchemaRuleTest, testCreateFromCArrayTooManyPrefixes) {
-  auto ism = RediSearch_CreateIndex("idx_rule_arr_overlimit", NULL);
+  auto ism = createEmptySpec("idx_rule_arr_overlimit");
   ASSERT_NE(ism, nullptr);
 
   SchemaRuleArgs args = {0};
@@ -159,7 +158,7 @@ TEST_F(SchemaRuleTest, testCreateFromCArrayTooManyPrefixes) {
 // Bad args (invalid document type) must surface as an error and return NULL,
 // regardless of which constructor variant is used.
 TEST_F(SchemaRuleTest, testCreateFromACInvalidType) {
-  auto ism = RediSearch_CreateIndex("idx_rule_ac_bad", NULL);
+  auto ism = createEmptySpec("idx_rule_ac_bad");
   ASSERT_NE(ism, nullptr);
 
   const char *prefix_strs[] = {"x:"};

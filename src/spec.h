@@ -23,7 +23,6 @@
 #include "field_spec.h"
 #include "util/dict.h"
 #include "util/references.h"
-#include "redisearch_api.h"
 #include "rules.h"
 #include <pthread.h>
 #include "info/index_error.h"
@@ -189,7 +188,6 @@ typedef enum {
   Index_HasPhonetic = 0x400,
   Index_Async = 0x800,
   Index_SkipInitialScan = 0x1000,
-  Index_FromLLAPI = 0x2000,
   Index_HasFieldAlias = 0x4000,
   Index_HasVecSim = 0x8000,
   Index_HasSuffixTrie = 0x10000,
@@ -341,10 +339,6 @@ typedef struct IndexSpec {
 
   // bitarray of dialects used by this index
   uint_least8_t used_dialects;
-
-  // For criteria tester
-  RSGetValueCallback getValue;
-  void *getValueCtx;
 
   // Count the number of times the index was used
   long long counter;

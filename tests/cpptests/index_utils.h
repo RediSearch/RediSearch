@@ -13,6 +13,7 @@
 #include "inverted_index.h"
 #include "inverted_index_ffi.h"
 #include "ttl_table.h"
+#include "common.h"  // for RSIndex typedef
 #include <string>
 #include <vector>
 #include <algorithm>

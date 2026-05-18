@@ -40,7 +40,6 @@
 #include "query_param.h"
 #include "dictionary.h"
 #include "suggest.h"
-#include "redisearch_api.h"
 #include "alias.h"
 #include "module.h"
 #include "rwlock.h"
@@ -1754,7 +1753,7 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx) {
     }
   }
 
-  if (RediSearch_Init(ctx, REDISEARCH_INIT_MODULE) != REDISMODULE_OK) {
+  if (RediSearch_Init(ctx) != REDISMODULE_OK) {
     return REDISMODULE_ERR;
   }
 

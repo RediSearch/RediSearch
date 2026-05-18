@@ -10,7 +10,6 @@
 #include "gtest/gtest.h"
 #include "spec.h"
 #include "common.h"
-#include "redisearch_api.h"
 #include "fork_gc.h"
 #include "tag_index.h"
 #include "rules.h"
@@ -135,7 +134,7 @@ protected:
 
   void SetUp() override {
     FGCTest::SetUp();
-    RediSearch_CreateTagField(ism, "f1");
+    addTagField(ism, "f1");
   }
 };
 
@@ -145,7 +144,7 @@ protected:
 
   void SetUp() override {
     FGCTest::SetUp();
-    RediSearch_CreateNumericField(this->ism, numeric_field_name);
+    addNumericField(this->ism, numeric_field_name);
   }
 };
 
