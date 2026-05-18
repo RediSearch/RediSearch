@@ -4586,16 +4586,6 @@ void IndexSpec_ReleaseWriteLock(IndexSpec* sp) {
   pthread_rwlock_unlock(&sp->rwlock);
 }
 
-// Acquire IndexSpec read lock
-void IndexSpec_AcquireReadLock(IndexSpec *sp) {
-  pthread_rwlock_rdlock(&sp->rwlock);
-}
-
-// Release IndexSpec read lock
-void IndexSpec_ReleaseReadLock(IndexSpec *sp) {
-  pthread_rwlock_unlock(&sp->rwlock);
-}
-
 // Block the snapshot fork from starting (shared/read side of the fork rwlock).
 void IndexSpec_BlockDiskFork(IndexSpec *sp) {
   pthread_rwlock_rdlock(&sp->disk_fork_rwlock);

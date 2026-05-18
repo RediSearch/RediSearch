@@ -810,22 +810,6 @@ void IndexSpec_AcquireWriteLock(IndexSpec* sp);
 void IndexSpec_ReleaseWriteLock(IndexSpec* sp);
 
 /**
- * @brief Acquire the IndexSpec read lock (shared with other readers, blocks writers).
- *
- * Used during the SST replication PRE_CHECKPOINT / PRE_FORK window so that
- * queries can continue but document writes (which take the wrlock) are paused.
- *
- * @param sp Pointer to the IndexSpec
- */
-void IndexSpec_AcquireReadLock(IndexSpec *sp);
-
-/**
- * @brief Release the IndexSpec read lock.
- * @param sp Pointer to the IndexSpec
- */
-void IndexSpec_ReleaseReadLock(IndexSpec *sp);
-
-/**
  * @brief Block the SST replication snapshot fork from starting.
  *
  * Takes a shared (read) lock on the per-spec fork rwlock. Multiple callers
