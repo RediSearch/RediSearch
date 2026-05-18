@@ -7,11 +7,14 @@ dependencies = [
     "packaging<=24.2",
     "deepdiff==8.6.2",
     "redis>=5.2.1,<7.0.0", # Pin to avoid redis-py 7.x incompatibility (todo: update once fixed)
-    "RLTest==0.7.25",
+    "rltest==0.7.25",
     "numpy<=2.2.4",
     "scipy<=1.15.2",
     "faker<=37.1.0",
     "distro<=1.9.0",
     "orderly-set<=5.4.1", # Update pin once Python 3.8 is not used in CI
-    "ml_dtypes <= 0.5.3"
+    "ml_dtypes <= 0.5.3",
 ]
+
+[tool.uv.sources]
+rltest = { path = "../../../RLTest", editable = true }
