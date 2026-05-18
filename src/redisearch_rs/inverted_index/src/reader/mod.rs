@@ -62,18 +62,17 @@ pub trait IndexReader<'index> {
 
 /// Type-level mapping from an Active reader to its Suspended counterpart.
 ///
-/// Each reader type that contains `Active<'a>` somewhere in its type
+/// Each reader type that contains [`ref_mode::Active`] somewhere in its type
 /// parameters declares its matching `Suspended` shape via this trait. The
-/// suspended/resume work in `rqe_iterators` uses it to express the
-/// `Suspended` associated type of an iterator generically, e.g.
+/// suspend/resume work in `rqe_iterators` uses it to express the `Suspended`
+/// associated type of an iterator generically, e.g.
 /// `InvIndIterator<Active<'a>, R, E>` has
 /// `Suspended = InvIndIterator<Suspended, R::Suspended, E>` for any
 /// `R: SuspendableReader`.
 ///
-/// This is purely a type-level helper — there is no runtime method. The
-/// trait is intentionally not bound by `IndexReader<'_>` so it can also be
-/// implemented for the `Suspended` instantiations themselves if needed by
-/// future work; for now only the `Active<'_>`-side impls are useful.
+/// The actual transmute between the two layouts happens at the iterator
+/// level via the `Suspendable` trait (in the `rqe_iterators` crate) — this
+/// trait is purely a type-level helper with no runtime method.
 pub trait SuspendableReader {
     /// The matching reader type carrying [`ref_mode::Suspended`] instead of
     /// [`ref_mode::Active`].

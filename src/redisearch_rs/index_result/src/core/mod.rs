@@ -13,7 +13,7 @@ use std::ptr;
 
 use ffi::RSDocumentMetadata;
 use query_term::RSQueryTerm;
-use ref_mode::{Active, Ref, SharedPtr};
+use ref_mode::{Active, Ref, SharedPtr, Suspended};
 use rqe_core::{DocId, FieldMask, RS_FIELDMASK_ALL};
 
 use super::aggregate::RawAggregateResult;
@@ -359,6 +359,55 @@ impl<'a> PartialEq for RSIndexResult<'a> {
 impl<'a> Default for RSIndexResult<'a> {
     fn default() -> Self {
         Self::build_virt().build()
+    }
+}
+
+impl<'a> RSIndexResult<'a> {
+    /// Convert this active result into its [`Suspended`] counterpart.
+    ///
+    /// `RawIndexResult<Rf>` is layout-compatible across `Rf` instantiations
+    /// because every `Rf`-dependent field threads through [`SharedPtr<Rf,
+    /// T>`](ref_mode::SharedPtr), which is `#[repr(transparent)]` over
+    /// `NonNull<T>`. Going from `Active<'a>` to [`Suspended`] is a widening
+    /// transition (it loosens validity invariants — `'a`-bound references
+    /// become inert raw pointers), so this method is safe.
+    pub const fn into_suspended(self) -> RawIndexResult<Suspended> {
+        let md = std::mem::ManuallyDrop::new(self);
+        // SAFETY: layout-compatible via SharedPtr transparency; widening
+        // transition is sound. `ManuallyDrop` prevents the active
+        // destructor from running on bytes that have been logically moved.
+        unsafe { std::mem::transmute_copy(&md) }
+    }
+}
+
+impl RawIndexResult<Suspended> {
+    /// Convert this suspended result back to an [`Active`] counterpart
+    /// covering lifetime `'a`.
+    ///
+    /// Layout-compatibility is the same as for [`RSIndexResult::into_suspended`];
+    /// this is the inverse direction. Promoting `Suspended` to `Active<'a>`
+    /// narrows validity (asserting that every pointer inside this result is
+    /// dereferenceable for `'a`), so the call is `unsafe`.
+    ///
+    /// # Safety
+    ///
+    /// For the entire chosen lifetime `'a`, every pointer carried inside
+    /// this result (the inverted-index pointers behind any
+    /// [`SharedPtr`] fields, plus the document-metadata pointer in
+    /// [`Self::dmd`]) must be:
+    ///
+    /// - valid for reads of the type it would point to in active mode, and
+    /// - unaliased by any concurrent writer.
+    ///
+    /// How those invariants are upheld is the caller's concern — typically
+    /// by holding an appropriate read lock on the owning data structure, but
+    /// this method makes no specific lock assumption.
+    pub const unsafe fn into_active<'a>(self) -> RSIndexResult<'a> {
+        let md = std::mem::ManuallyDrop::new(self);
+        // SAFETY: layout-compatible — see `RSIndexResult::into_suspended`.
+        // Narrowing the validity from raw-pointer to `&'a`-style references
+        // is sound under the caller's contract documented on this method.
+        unsafe { std::mem::transmute_copy(&md) }
     }
 }
 
