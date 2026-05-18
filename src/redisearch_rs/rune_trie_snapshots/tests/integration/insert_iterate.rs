@@ -120,5 +120,12 @@ fn lex_basic_insert_iterate_all() {
     // SAFETY: `trie` was created by `NewTrie` above.
     unsafe { TrieType_Free(trie as *mut c_void) };
 
-    insta::assert_snapshot!(dump);
+    // Explicit snapshot name + `prepend_module_to_snapshot => false` so the
+    // resulting file (`lex_basic_insert_iterate_all.snap`) carries no crate-
+    // or module-derived prefix, letting `trie_rs`' integration tests assert
+    // against the same file via `with_settings!({ snapshot_path => ... })`.
+    insta::with_settings!(
+        { prepend_module_to_snapshot => false },
+        { insta::assert_snapshot!("lex_basic_insert_iterate_all", dump); }
+    );
 }
