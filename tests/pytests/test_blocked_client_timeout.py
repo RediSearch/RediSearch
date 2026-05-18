@@ -2672,18 +2672,13 @@ class TestCoordinatorTimeout:
         env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy)
 
     # ------------------------------------------------------------------
-    # Shard-level RETURN_STRICT timeout (QueryTimeoutReturnStrictCallback)
+    # Shard-level RETURN_STRICT timeout: a single shard's blocked-client
+    # timer (CLIENT UNBLOCK ... TIMEOUT) fires while the user query
+    # carries TIMEOUT 0, so the coord deadline never arms.
     # ------------------------------------------------------------------
-    # The tests below differ from the rest of TestCoordinatorTimeout in
-    # who fires the deadline: here it is the *shard's* blocked-client
-    # timer (driven by `CLIENT UNBLOCK ... TIMEOUT` against the parked
-    # `_FT.AGGREGATE`), not the coordinator's. The user query carries
-    # `TIMEOUT 0` so neither the coord nor the dispatched `_FT.AGGREGATE`
-    # arms its automatic deadline; only the manual unblock fires the
-    # shard's `QueryTimeoutReturnStrictCallback`.
     def _cleanup_strict_pause_state(self, all_shard_conns, prev_on_timeout_policy):
-        """Best-effort cleanup: clear AggregateResults pause state on every
-        shard and restore the global on-timeout policy."""
+        """Clear AggregateResults pause state on every shard and restore the
+        global on-timeout policy."""
         for c in all_shard_conns:
             resetAggregateResultsDebug(c)
         try:
@@ -2695,55 +2690,29 @@ class TestCoordinatorTimeout:
     def _assert_unsorted_partial_reply(self, env, result, expected_rows,
                                        pause_after_n, other_docs):
         env.assertEqual(result['total_results'], expected_rows,
-                        message=f"Expected {expected_rows} merged rows "
-                                f"(target partial={pause_after_n}, "
-                                f"others full={other_docs}), "
-                                f"got {result['total_results']}")
+                        message="merged row count")
         env.assertEqual(len(result.get('results', [])), expected_rows,
-                        message=f"Expected {expected_rows} rows in reply, "
-                                f"got {len(result.get('results', []))}")
+                        message="rows in reply")
 
     def _run_one_shard_timesout(self, *, coord_cmd, shard_cmd, query_args,
                                 assert_reply, coord_cmd_prefix=None,
                                 expected_warning=None):
         """Drive a one-shard-timesout query under RETURN_STRICT.
 
-        ``coord_cmd`` is the user-facing command (e.g. ``FT.AGGREGATE``,
-        ``FT.SEARCH``); ``shard_cmd`` is the corresponding internal
-        command name dispatched to shards (``_FT.AGGREGATE`` /
-        ``_FT.SEARCH`` / ``_FT.PROFILE``) -- all flow through
-        ``AggregateResults`` on the shard so the same pause hook works.
+        Parks one non-coord shard at ``AggregateResults`` result
+        #pause_after_n, then unblocks it via ``CLIENT UNBLOCK ... TIMEOUT``.
+        The query carries ``TIMEOUT 0`` so only the manual unblock can fire.
 
-        ``query_args`` is the argument list following the prefix (must
-        size any LIMIT to ``self.n_docs`` so the shard pipelines do not
-        truncate before the pause). The helper appends ``TIMEOUT 0`` to
-        the dispatched command so the only deadline that can fire on any
-        shard is the manual ``CLIENT UNBLOCK ... TIMEOUT`` issued below.
+        ``coord_cmd`` / ``shard_cmd`` are the user-facing and internal
+        command names (e.g. ``FT.AGGREGATE`` / ``_FT.AGGREGATE``).
+        ``coord_cmd_prefix`` overrides the default ``[coord_cmd, 'idx', '*']``
+        for shapes like ``FT.PROFILE idx AGGREGATE QUERY *``.
+        ``expected_warning`` defaults to ``[TIMEOUT_WARNING]``; pass ``[]``
+        when the warning is nested inside a wrapper (e.g. ``FT.PROFILE``).
 
-        ``coord_cmd_prefix`` overrides the default prefix
-        ``[coord_cmd, 'idx', '*']`` and is required for variants like
-        ``FT.PROFILE idx AGGREGATE QUERY *`` whose prefix doesn't fit
-        the simple shape.
-
-        ``expected_warning`` defaults to ``[TIMEOUT_WARNING]`` and is
-        what the helper asserts against ``result.get('warning', [])``.
-        Pass ``[]`` for reply wrappers (e.g. ``FT.PROFILE``) that move
-        the warning into a nested object so the outer dict has no
-        top-level ``warning`` key.
-
-        ``assert_reply(env, result, expected_rows, pause_after_n,
-        other_docs)`` validates the coordinator-level reply shape; the
-        helper itself only asserts the warning and metric invariants
-        common to every one-shard-timesout test driven through it.
-
-        Sequence:
-          - Pin one non-coordinator shard at AggregateResults result #2 via
-            SET_PAUSE_AFTER_AGGREGATE_RESULT.
-          - CLIENT UNBLOCK ... TIMEOUT on the parked shard command so its
-            QueryTimeoutReturnStrictCallback fires.
-          - The pause loop self-releases on AREQ_TimedOut; AggregateResults
-            stops on the next iteration with rc=TIMEDOUT, ships partial
-            results + warning to the coord, which merges and forwards.
+        ``assert_reply(env, result, expected_rows, pause_after_n, other_docs)``
+        validates the coord reply; this helper only asserts the warning and
+        the coord warning metric.
         """
         env = self.env
 
@@ -2784,24 +2753,17 @@ class TestCoordinatorTimeout:
             target_conn.execute_command('CLIENT', 'UNBLOCK',
                                         blocked_client_id, 'TIMEOUT')
 
-            # Wait until the timeout callback has actually run on the
-            # target shard (it sets AREQ_TimedOut, which is what the
-            # AggregateResults pause loop polls to self-release). Disarming
-            # the pause counter before the callback fires would let BG
-            # resume and finish the pipeline with rc=EOF, bypassing the
-            # TIMEDOUT path we want to exercise.
+            # Wait for the timeout callback to actually run (it sets
+            # AREQ_TimedOut, which the pause loop polls) before disarming
+            # the pause counter, else BG could resume on rc=EOF.
             wait_for_client_unblocked(target_conn, blocked_client_id)
 
-            # Disarm so any subsequent shard-side query on the target shard
-            # (in this or a later test on the shared env) doesn't park.
             resetAggregateResultsDebug(target_conn)
 
             t_query.join(timeout=10)
-            env.assertFalse(t_query.is_alive(),
-                            message="Query thread should have finished")
+            env.assertFalse(t_query.is_alive(), message="query thread alive")
 
-            env.assertEqual(len(query_result), 1,
-                            message="Expected 1 result from query thread")
+            env.assertEqual(len(query_result), 1, message="query result count")
             result = query_result[0]
 
             assert_reply(env, result, expected_rows, pause_after_n, other_docs)
@@ -2810,45 +2772,22 @@ class TestCoordinatorTimeout:
                              if expected_warning is None
                              else expected_warning)
             env.assertEqual(result.get('warning', []), warn_expected,
-                            message=f"Expected warning {warn_expected}, "
-                                    f"got {result.get('warning', [])}")
+                            message="reply warning")
 
-            # Coordinator surfaced the timeout to the user, so its
-            # external-warning metric must increment by exactly 1.
             after_info = info_modules_to_dict(env)
             env.assertEqual(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_METRIC],
                             str(base_warn_coord + 1),
-                            message="Coordinator timeout warning should be +1")
+                            message="coord timeout-warning metric +1")
             _verify_metrics_not_changed(env, env, before_info,
                                         [TIMEOUT_WARNING_COORD_METRIC])
         finally:
             self._cleanup_strict_pause_state(all_shard_conns, prev_on_timeout_policy)
 
     def test_return_strict_one_shard_timesout_flat_aggregate(self):
-        """One shard's blocked-client timeout fires mid-pipeline; the other
-        shards complete normally. The merged reply carries the partial rows
-        from the timed-out shard plus the full rows from the others, with a
-        single coord-level TIMEOUT warning.
+        """Flat aggregate, one shard times out mid-pipeline.
 
-        Mid-iteration pause is the only shard-side state that yields
-        rc=TIMEDOUT (and thus the warning): an after-store pause has
-        rc=EOF stored, so the strict callback would just reply with the
-        complete row set and no warning (see
-        test_return_strict_timeout_after_store_aggregate).
-
-        The pause is set on a non-coord shard's process, so the user-facing
-        FT.AGGREGATE on the coord, and the coord's own backend
-        _FT.AGGREGATE, are unaffected. Sequence on the target shard:
-          - BG appends N rows to state.results, then parks in
-            debugCheckAndPauseAfterAggregateResult.
-          - CLIENT UNBLOCK ... TIMEOUT fires QueryTimeoutReturnStrictCallback:
-            sets timedOut, loses TryClaim, blocks on
-            AREQ_WaitForAggregateResultsComplete.
-          - Pause loop self-releases on AREQ_TimedOut; rp->Next short-
-            circuits to RS_RESULT_TIMEDOUT; AREQ_StoreResults stores N rows
-            + rc=TIMEDOUT; BG signals completion.
-          - Callback wakes, AREQ_ReplyWithStoredResults emits N rows plus
-            the TIMEOUT warning to the coord, which merges and forwards.
+        Expect ``pause_after_n + other_docs`` rows: the timed-out shard
+        ships its buffered prefix; the rest reply in full.
         """
         skipIfNoEnableAssert(self.env)
         self._run_one_shard_timesout(
@@ -2858,41 +2797,24 @@ class TestCoordinatorTimeout:
             assert_reply=self._assert_unsorted_partial_reply)
 
     def test_return_strict_one_shard_timesout_sortby_aggregate(self):
-        """SORTBY variant of test_return_strict_one_shard_timesout_flat_aggregate.
+        """SORTBY one-shard timeout.
 
-        On the target shard the pipeline ends in RPSorter (followed by an
-        RPPager and the store stage). RPSorter is a buffering processor:
-        it consumes its entire upstream into the heap before yielding the
-        first sorted row. By the time AggregateResults pauses after the
-        2nd yielded result, the heap already contains every doc the shard
-        owns, so the shard-side strict drain (RPSorter switched to
-        ``rpsortNext_Yield`` plus ``AREQ_DrainStoredResultsAfterTimeout``)
-        pops the full heap and the shard's reply contains all of its rows
-        plus a TIMEDOUT warning. The coordinator merges those with the
-        responsive shards' replies, runs its own SORTBY, and the
-        user-visible result is the complete (globally sorted) set with a
-        single TIMEOUT warning attached. The 'partial' guarantee for this
-        shape is therefore expressed as 'no rows are dropped under
-        return-strict'; a true row-loss case requires a pipeline whose
-        shard-side end is not RP_SORTER (covered separately).
+        Expect ``self.n_docs`` rows globally sorted: the shard-side
+        RPSorter is a buffering stage, so its heap already holds the full
+        per-shard set when the pause fires and the strict drain pops all
+        of it.
         """
         skipIfNoEnableAssert(self.env)
 
         def assert_sorted_reply(env, result, expected_rows, pause_after_n, other_docs):
-            # The shard's heap holds the full per-shard sorted set, so the
-            # strict drain returns every row this shard owns. The coord
-            # merges with the responsive shards and surfaces all n_docs rows.
             full_rows = self.n_docs
             env.assertEqual(result['total_results'], full_rows,
-                            message=f"Expected {full_rows} merged rows "
-                                    f"(SORTBY heap drain returns full per-shard set), "
-                                    f"got {result['total_results']}")
+                            message="merged row count")
             env.assertEqual(len(result.get('results', [])), full_rows,
-                            message=f"Expected {full_rows} rows in reply, "
-                                    f"got {len(result.get('results', []))}")
+                            message="rows in reply")
             values = [row['extra_attributes']['name'] for row in result['results']]
             env.assertEqual(values, sorted(values),
-                            message=f"Rows must be globally sorted by @name, got {values}")
+                            message="global sort order")
 
         self._run_one_shard_timesout(
             coord_cmd='FT.AGGREGATE', shard_cmd='_FT.AGGREGATE',
@@ -2902,52 +2824,19 @@ class TestCoordinatorTimeout:
             assert_reply=assert_sorted_reply)
 
     def test_return_strict_one_shard_timesout_groupby_aggregate(self):
-        """GROUPBY variant of test_return_strict_one_shard_timesout_flat_aggregate.
+        """GROUPBY one-shard timeout.
 
-        Both the shard- and coord-side pipelines end in RPGrouper, which
-        is a buffering merge stage: it must consume its entire upstream
-        before emitting any group. ``pipelineCanYieldPartialResults``
-        therefore returns false on both ends (end is neither root nor
-        RPSorter).
-
-        On the target shard, BG appends 2 group rows to ``state.results``
-        before parking, then exits with rc=TIMEDOUT after the pause loop
-        self-releases. Those 2 rows are moved to ``storedReplyState`` by
-        ``AREQ_StoreResults`` and ship to the coord with the TIMEDOUT
-        warning attached.
-
-        At the coord, ``processWarningsAndCleanup`` (``src/coord/rpnet.c``)
-        records the warning on ``QEXEC_S_SHARD_TIMED_OUT_WARNING`` and,
-        because the policy is RETURN_STRICT, keeps draining the remaining
-        shards instead of bailing (legacy RETURN/FAIL still bail at the
-        same site; the coord has its own deadline check anyway). The
-        coord-side RPGrouper therefore consumes every shard's reply to
-        completion: target's 2 partial group rows plus the responsive
-        shards' full per-shard groups. Because the doc names are unique
-        (``hello{i}``), every shard-side group key is also unique
-        across shards, so re-grouping at the coord neither merges nor
-        drops any group: the merged group count equals
-        ``pause_after_n + other_docs``. The TIMEOUT warning is surfaced
-        by the reply emitters via the new flag.
+        Expect ``pause_after_n + other_docs`` groups: doc names are
+        unique, so re-grouping at the coord neither merges nor drops
+        any group key.
         """
         skipIfNoEnableAssert(self.env)
 
         def assert_groupby_reply(env, result, expected_rows, pause_after_n, other_docs):
-            # Coord drains every shard; each shard ships distinct
-            # group keys (names are unique), so the merged count
-            # equals expected_rows.
             env.assertEqual(result['total_results'], expected_rows,
-                            message=f"Expected {expected_rows} merged "
-                                    f"groups (target partial="
-                                    f"{pause_after_n}, others full="
-                                    f"{other_docs}; names are unique "
-                                    f"so groups don't merge across "
-                                    f"shards), got "
-                                    f"{result['total_results']}")
+                            message="merged group count")
             env.assertEqual(len(result.get('results', [])), expected_rows,
-                            message=f"Expected {expected_rows} rows in "
-                                    f"reply, got "
-                                    f"{len(result.get('results', []))}")
+                            message="rows in reply")
 
         self._run_one_shard_timesout(
             coord_cmd='FT.AGGREGATE', shard_cmd='_FT.AGGREGATE',
@@ -2957,62 +2846,22 @@ class TestCoordinatorTimeout:
             assert_reply=assert_groupby_reply)
 
     def test_return_strict_one_shard_timesout_search(self):
-        """FT.SEARCH variant of test_return_strict_one_shard_timesout_flat_aggregate.
+        """FT.SEARCH (with content) one-shard timeout.
 
-        FT.SEARCH on the coord uses a different reduce path than
-        FT.AGGREGATE (``DistSearchCommand`` / ``searchReducerCtx``: a
-        top-K min-heap sorted by score), but the shard-side ``_FT.SEARCH``
-        still flows through ``RSExecuteAggregateOrSearch`` ->
-        ``AggregateResults``, so the same per-shard pause hook applies.
-
-        Unlike the AGGREGATE pipelines, the SEARCH shard pipeline ends
-        in ``RP_LOADER`` (and optionally ``RP_HIGHLIGHTER``) which is
-        appended *after* ``RPPager`` to materialise the returned
-        document fields. ``pipelineCanYieldPartialResults`` only
-        accepts ``RP_PAGER_LIMITER -> RP_SORTER`` for ``RP_INDEX`` roots,
-        so it returns false here and ``AREQ_DrainStoredResultsAfterTimeout``
-        is a no-op. The shard's reply therefore contains only the rows
-        that ``AggregateResults`` had appended to ``state.results``
-        before parking (``pause_after_n``) plus the TIMEDOUT warning.
-        ``AREQ_NormalizeTotalResultsAfterDrain`` then forces
-        ``totalResults = array_len(stored->results)`` precisely because
-        ``canYieldPartialResults`` is false, so the shard's wire
-        ``total_results`` matches the rows it actually ships
-        (``pause_after_n``) instead of the upstream RPIndex counter
-        (which would have counted every matching doc the shard owns,
-        because the buffering RPSorter drained RPIndex to fill its
-        heap before the loader emitted the first row). The coord
-        merges target's ``pause_after_n`` rows with the responsive
-        shards' full sets and surfaces a single TIMEOUT warning, and
-        the merged ``total_results`` matches the merged row count.
+        Expect ``pause_after_n + other_docs`` rows. The shard pipeline
+        ends in RPLoader (after RPPager), which is rejected by
+        ``pipelineCanYieldPartialResults``, so
+        ``AREQ_NormalizeTotalResultsAfterDrain`` caps the target shard's
+        ``total_results`` to the rows it actually ships.
         """
         skipIfNoEnableAssert(self.env)
 
         def assert_search_partial_reply(env, result, expected_rows,
                                         pause_after_n, other_docs):
-            # Under RETURN_STRICT, the FT.SEARCH-with-content shard
-            # pipeline (RPIndex -> RPSorter -> RPPager -> RPLoader)
-            # is rejected by `pipelineCanYieldPartialResults`, so
-            # `AREQ_NormalizeTotalResultsAfterDrain` truncates the
-            # target shard's `total_results` to the buffered row
-            # count. The coord-merged `total_results` therefore
-            # equals `pause_after_n + other_docs`, which is the
-            # row count we ship -- no more "X of N matched" with
-            # N > X.
             env.assertEqual(result['total_results'], expected_rows,
-                            message=f"Expected total_results=={expected_rows} "
-                                    f"to match the row count "
-                                    f"(target partial={pause_after_n}, "
-                                    f"others full={other_docs}); the "
-                                    f"strict-bail normalize step caps "
-                                    f"the target shard's per-shard "
-                                    f"total to its buffered row count, "
-                                    f"got {result['total_results']}")
+                            message="merged total_results (normalized)")
             env.assertEqual(len(result.get('results', [])), expected_rows,
-                            message=f"Expected {expected_rows} rows in reply "
-                                    f"(target partial={pause_after_n}, "
-                                    f"others full={other_docs}), "
-                                    f"got {len(result.get('results', []))}")
+                            message="rows in reply")
 
         self._run_one_shard_timesout(
             coord_cmd='FT.SEARCH', shard_cmd='_FT.SEARCH',
@@ -3020,38 +2869,21 @@ class TestCoordinatorTimeout:
             assert_reply=assert_search_partial_reply)
 
     def test_return_strict_one_shard_timesout_search_nocontent(self):
-        """``FT.SEARCH ... NOCONTENT`` variant of
-        test_return_strict_one_shard_timesout_search.
+        """FT.SEARCH NOCONTENT one-shard timeout.
 
-        ``NOCONTENT`` sets ``QEXEC_F_SEND_NOFIELDS``, which causes
-        ``Pipeline_BuildAggregationPart`` to skip ``buildOutputPipeline``
-        entirely -- no ``RPLoader``, no ``RPHighlighter``. The shard
-        pipeline therefore ends in ``RPPager -> RPSorter`` (under an
-        ``RP_INDEX`` root), the exact shape that
-        ``pipelineCanYieldPartialResults`` accepts, so the strict
-        timeout callback runs ``AREQ_DrainStoredResultsAfterTimeout``
-        and pops the entire RPSorter heap into
-        ``storedReplyState.results``.
-        With ``LIMIT 0 n_docs`` the heap holds the shard's complete
-        per-shard set, so the target ships every matching doc id it
-        owns plus a TIMEDOUT warning. The coord merges target's full
-        set with the responsive shards' full sets; ``total_results``
-        and ``len(results)`` are both ``n_docs`` and a single TIMEOUT
-        warning is surfaced.
+        Expect ``self.n_docs`` rows. NOCONTENT skips RPLoader, so the
+        shard pipeline ends in ``RPPager -> RPSorter`` -- the shape
+        ``pipelineCanYieldPartialResults`` accepts -- and the strict
+        drain pops the full per-shard heap.
         """
         skipIfNoEnableAssert(self.env)
 
         def assert_search_full_reply(env, result, expected_rows,
                                      pause_after_n, other_docs):
             env.assertEqual(result['total_results'], self.n_docs,
-                            message=f"Expected {self.n_docs} matches "
-                                    f"in total_results, "
-                                    f"got {result['total_results']}")
+                            message="merged total_results")
             env.assertEqual(len(result.get('results', [])), self.n_docs,
-                            message=f"Expected {self.n_docs} rows in reply "
-                                    f"(NOCONTENT skips loader, strict drain "
-                                    f"pops the full per-shard heap), "
-                                    f"got {len(result.get('results', []))}")
+                            message="rows in reply")
 
         self._run_one_shard_timesout(
             coord_cmd='FT.SEARCH', shard_cmd='_FT.SEARCH',
@@ -3059,55 +2891,25 @@ class TestCoordinatorTimeout:
             assert_reply=assert_search_full_reply)
 
     def test_return_strict_one_shard_timesout_profile_aggregate(self):
-        """FT.PROFILE AGGREGATE wrapper around
-        test_return_strict_one_shard_timesout_flat_aggregate.
+        """FT.PROFILE AGGREGATE wrapper around the flat one-shard case.
 
-        The user issues ``FT.PROFILE idx AGGREGATE QUERY * ...``; the
-        coord dispatches ``_FT.PROFILE idx AGGREGATE QUERY *`` to each
-        shard. Profiling adds an outer wrapper to both shard and coord
-        replies (``Results`` + ``Profile`` keys) but does not change the
-        shard pipeline shape -- ``AggregateResults`` is still the loop
-        that ships rows back, so the shard pause hook still fires and
-        the same QueryTimeoutReturnStrictCallback path runs on the
-        target shard.
-
-        Two things this test pins down beyond the non-profile flat
-        aggregate case:
-        1. The inner ``Results`` block matches the non-profile shape
-           1-for-1: identical ``total_results``, ``results``, and
-           ``warning`` ([TIMEOUT_WARNING]) as
-           test_return_strict_one_shard_timesout_flat_aggregate.
-        2. ``Profile`` is present alongside ``Results`` -- the timeout
-           fast path must not strip the profiling envelope.
+        Same inner ``Results`` shape as the flat aggregate test, plus
+        the ``Profile`` envelope must survive the timeout fast path.
+        Profiling moves the warning under ``result['Results']``, so the
+        outer dict has no top-level ``warning`` key.
         """
         skipIfNoEnableAssert(self.env)
 
-        # Reuse the shared partial-reply asserter on the inner Results
-        # block (same shape as the non-profile flat case), then
-        # additionally assert the Profile wrapper survived.
         def assert_profile_partial_reply(env, result, expected_rows,
                                          pause_after_n, other_docs):
-            env.assertContains('Results', result,
-                               message="Expected 'Results' key in "
-                                       "FT.PROFILE output, got "
-                                       f"keys={list(result.keys())}")
-            env.assertContains('Profile', result,
-                               message="Expected 'Profile' key in "
-                                       "FT.PROFILE output (timeout "
-                                       "fast path must not strip "
-                                       "profiling envelope), got "
-                                       f"keys={list(result.keys())}")
+            env.assertContains('Results', result, message="Results key")
+            env.assertContains('Profile', result, message="Profile key")
             inner = result['Results']
             self._assert_unsorted_partial_reply(env, inner, expected_rows,
                                                 pause_after_n, other_docs)
             env.assertEqual(inner.get('warning', []), [TIMEOUT_WARNING],
-                            message=f"Expected single TIMEOUT warning "
-                                    f"on inner Results, got "
-                                    f"{inner.get('warning', [])}")
+                            message="inner Results warning")
 
-        # FT.PROFILE wraps the reply, so the outer dict has no top-level
-        # 'warning' key -- the warning lives on result['Results']. Pass
-        # expected_warning=[] to skip the helper's outer-warning check.
         self._run_one_shard_timesout(
             coord_cmd='FT.PROFILE', shard_cmd='_FT.PROFILE',
             coord_cmd_prefix=['FT.PROFILE', 'idx', 'AGGREGATE',
@@ -3118,39 +2920,20 @@ class TestCoordinatorTimeout:
             expected_warning=[])
 
     # ------------------------------------------------------------------
-    # Every shard times out
+    # Every shard times out: same RETURN_STRICT plumbing, but every
+    # shard is parked and individually unblocked. With no coord deadline
+    # armed, RPNet drains every shard's buffered prefix.
     # ------------------------------------------------------------------
-    # Same RETURN_STRICT plumbing as the one-shard-timesout tests above,
-    # but with every shard's `_FT.AGGREGATE`/`_FT.SEARCH` parked in the
-    # AggregateResults loop and individually unblocked with
-    # `CLIENT UNBLOCK ... TIMEOUT`. The coord therefore receives a
-    # TIMEDOUT reply (with whatever rows were already buffered) from
-    # every shard. `processWarningsAndCleanup` (`src/coord/rpnet.c`)
-    # records each shard's TIMEDOUT warning on the
-    # `QEXEC_S_SHARD_TIMED_OUT_WARNING` flag and -- because the policy
-    # is RETURN_STRICT -- keeps draining instead of bailing on the
-    # warning (legacy RETURN/FAIL still bail at the same site). With
-    # no coord-side deadline armed, RPNet exhausts every shard's
-    # buffered prefix, so `total_results` and `len(results)` reflect
-    # every shard's contribution subject to whatever transformations
-    # the coord pipeline shape applies (sort, group, depleter, ...).
     def _run_all_shards_timesout(self, *, coord_cmd, shard_cmd, query_args,
                                  assert_reply, pause_after_n=2,
                                  pause_per_shard=None):
         """Drive an all-shards-timeout query under RETURN_STRICT.
 
-        Pauses every shard (including the coord-local one) at
-        AggregateResults result #pause_after_n, then issues
-        `CLIENT UNBLOCK ... TIMEOUT` against each shard's parked client.
-        ``assert_reply(env, result, pauses, shards_count)`` validates
-        the coord-level reply; ``pauses`` is the per-shard pause-count
-        list. The helper itself only asserts the warning shape, the
-        coord metric, and the per-shard metric.
-
-        If ``pause_per_shard`` is provided it must be a list of length
-        ``env.shardsCount`` -- the i-th entry sets the pause counter on
-        shard i+1. Otherwise every shard uses the scalar
-        ``pause_after_n``.
+        Pauses every shard at ``AggregateResults`` result
+        #pause_after_n (or per-shard via ``pause_per_shard``), then
+        unblocks each parked client. ``assert_reply(env, result, pauses,
+        shards_count)`` validates the coord reply; this helper only
+        asserts the warning, the coord metric, and the per-shard metrics.
         """
         env = self.env
 
@@ -3191,47 +2974,38 @@ class TestCoordinatorTimeout:
             )
             t_query.start()
 
-            # Wait for every shard to park with a blocked client; capture
-            # the per-shard ids so we can target each individually.
             blocked_ids = [
                 (c, _wait_shard_paused_after_aggregate_result(c, shard_cmd))
                 for c in shard_conns
             ]
 
-            # Trigger every shard's QueryTimeoutReturnStrictCallback. Order
-            # doesn't matter -- the coord blocks until all replies arrive.
             for c, cid in blocked_ids:
                 c.execute_command('CLIENT', 'UNBLOCK', cid, 'TIMEOUT')
 
-            # Wait for each shard's pause loop to actually self-release on
-            # AREQ_TimedOut (mirrors the one-shard helper). Disarming the
-            # pause counter before the callback fires would let BG resume
-            # to rc=EOF, bypassing the TIMEDOUT path under test.
+            # Wait for each shard's pause loop to self-release on
+            # AREQ_TimedOut before disarming the counter, else BG could
+            # resume on rc=EOF and bypass the TIMEDOUT path.
             for c, cid in blocked_ids:
                 wait_for_client_unblocked(c, cid)
                 resetAggregateResultsDebug(c)
 
             t_query.join(timeout=10)
-            env.assertFalse(t_query.is_alive(),
-                            message="Query thread should have finished")
-            env.assertEqual(len(query_result), 1,
-                            message="Expected 1 result from query thread")
+            env.assertFalse(t_query.is_alive(), message="query thread alive")
+            env.assertEqual(len(query_result), 1, message="query result count")
             result = query_result[0]
 
             assert_reply(env, result, pauses, env.shardsCount)
 
             env.assertEqual(result.get('warning', []), [TIMEOUT_WARNING],
-                            message=f"Expected single TIMEOUT warning, "
-                                    f"got {result.get('warning', [])}")
+                            message="reply warning")
 
             after_coord_info = info_modules_to_dict(env)
             env.assertEqual(after_coord_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_METRIC],
                             str(base_warn_coord + 1),
-                            message="Coordinator timeout warning should be +1")
+                            message="coord timeout-warning metric +1")
             # The coord's local shard also replied with TIMEDOUT, so its
-            # shard-level warning metric increments alongside the coord
-            # metric on the same connection -- ignore it here and verify
-            # the per-shard counts explicitly below.
+            # shard metric increments on the same connection; verify
+            # per-shard counts explicitly below instead.
             _verify_metrics_not_changed(env, env, before_coord_info,
                                         [TIMEOUT_WARNING_COORD_METRIC,
                                          TIMEOUT_WARNING_SHARD_METRIC])
@@ -3240,46 +3014,24 @@ class TestCoordinatorTimeout:
                 after = info_modules_to_dict(c)
                 env.assertEqual(after[WARN_ERR_SECTION][TIMEOUT_WARNING_SHARD_METRIC],
                                 str(before_shard_warns[i] + 1),
-                                message=f"Shard {i + 1} timeout warning "
-                                        f"should be +1")
+                                message=f"shard {i + 1} timeout-warning metric +1")
         finally:
             self._cleanup_strict_pause_state(shard_conns, prev_on_timeout_policy)
 
     def test_return_strict_all_shards_timesout_flat_aggregate(self):
-        """Flat aggregate where every shard times out mid-pipeline (no WITHCOUNT).
+        """Flat aggregate, every shard times out.
 
-        Each shard parks at AggregateResults result #pause_after_n, then
-        is individually unblocked via ``CLIENT UNBLOCK ... TIMEOUT``. The
-        coord pipeline is the trivial yield-able shape ``RPNet -> RPPager``
-        (``pipelineCanYieldPartialResults`` returns true), so admitted
-        shard rows survive the strict drain.
-
-        ``processWarningsAndCleanup`` (``src/coord/rpnet.c``) records
-        each shard's TIMEDOUT warning on
-        ``QEXEC_S_SHARD_TIMED_OUT_WARNING`` and, under RETURN_STRICT,
-        keeps draining instead of returning ``RS_RESULT_TIMEDOUT`` to
-        RPNet's caller (legacy RETURN/FAIL still bail at the same site).
-        With no coord-side deadline armed (the user's ``TIMEOUT 0`` and
-        the manual unblock are the only timeout sources, both shard-local),
-        RPNet exhausts every shard's reply before reaching EOF and the
-        coord pager forwards the full merged buffer. The result is
-        deterministic: ``len(results) == total_results == sum(pauses)
-        == pause_after_n * shards_count``. The single TIMEOUT warning
-        on the reply is surfaced via the new flag.
+        Expect ``sum(pauses)`` rows: the coord pipeline ``RPNet -> RPPager``
+        is yield-able, so every admitted shard row survives the drain.
         """
         skipIfNoEnableAssert(self.env)
 
         def assert_flat_reply(env, result, pauses, shards_count):
             expected = sum(pauses)
             env.assertEqual(result['total_results'], expected,
-                            message=f"Expected total_results=={expected} "
-                                    f"(sum of per-shard pauses; coord "
-                                    f"drains every shard before bailing), "
-                                    f"got {result['total_results']}")
+                            message="merged row count")
             env.assertEqual(len(result.get('results', [])), expected,
-                            message=f"Expected {expected} rows in reply "
-                                    f"(pauses={pauses}), got "
-                                    f"{len(result.get('results', []))}")
+                            message="rows in reply")
 
         self._run_all_shards_timesout(
             coord_cmd='FT.AGGREGATE', shard_cmd='_FT.AGGREGATE',
@@ -3288,105 +3040,46 @@ class TestCoordinatorTimeout:
             assert_reply=assert_flat_reply)
 
     def test_return_strict_all_shards_timesout_withcount_aggregate(self):
-        """WITHCOUNT all-shards-timeout: barrier completes, RPDepleter yields.
+        """WITHCOUNT all-shards-timeout (barrier + RPDepleter).
 
-        Mirrors
-        ``test_return_strict_timeout_withcount_one_shard_paused_aggregate``
-        but with every shard replying (with TIMEDOUT + ``pause_after_n``
-        rows each) instead of one shard wedged. WITHCOUNT installs the
-        ``shardResponseBarrier`` and the ``RPDepleter``:
-
-        1. Barrier (rpnet.c): every shard responds, so
-           ``shardResponseBarrier_HandleTimeout`` returns false and
-           ``shardResponseBarrier_UpdateTotalResults`` accumulates
-           ``pause_after_n * shardsCount`` into ``parent->totalResults``.
-
-        2. ``processWarningsAndCleanup`` (``src/coord/rpnet.c``) records
-           each shard's TIMEDOUT warning on
-           ``QEXEC_S_SHARD_TIMED_OUT_WARNING`` and, under RETURN_STRICT,
-           keeps draining instead of returning ``RS_RESULT_TIMEDOUT`` to
-           RPNet's caller (legacy RETURN/FAIL still bail at the same
-           site). With no coord-side deadline armed, RPNet exhausts
-           every shard reply and signals EOF to
-           ``RPDepleter_Next_Accumulate``.
-
-        3. ``RPDepleter_Next_Accumulate`` (``result_processor.c``) sees
-           ``last_rc == RS_RESULT_EOF`` (not TIMEDOUT), so the
-           "discard buffer on strict timeout" fast path is skipped and
-           the depleter switches to ``RPDepleter_Next_Yield``, returning
-           every buffered row. The full ``pause_after_n * shardsCount``
-           rows therefore survive the pipeline.
-
-        Net reply: ``len(results) == total_results == sum(pauses)``,
-        single TIMEOUT warning surfaced via the
-        ``QEXEC_S_SHARD_TIMED_OUT_WARNING`` flag in the reply emitters.
-        The per-shard timeout metric still increments on every shard,
-        which proves the barrier received a reply from each one.
+        Expect ``sum(pauses)`` rows: every shard replies, so the
+        shardResponseBarrier completes and RPDepleter switches to its
+        yield path (last_rc == EOF, not TIMEDOUT, so the strict-discard
+        fast path is skipped).
         """
         skipIfNoEnableAssert(self.env)
 
         def assert_withcount_reply(env, result, pauses, shards_count):
             expected = sum(pauses)
             env.assertEqual(result['total_results'], expected,
-                            message=f"Expected total_results=={expected} "
-                                    f"(barrier accumulator + RPDepleter "
-                                    f"yield: coord drains every shard's "
-                                    f"buffered prefix), got "
-                                    f"{result['total_results']}")
+                            message="merged row count")
             env.assertEqual(len(result.get('results', [])), expected,
-                            message=f"Expected {expected} rows in reply "
-                                    f"(pauses={pauses}), got "
-                                    f"{len(result.get('results', []))}")
+                            message="rows in reply")
 
-        # WITHCOUNT must precede pipeline steps (LOAD/GROUPBY/...) --
-        # parseQueryArgs hands off to ParseAggPlanContext on the first
-        # pipeline keyword and never re-enters the WITHCOUNT branch.
+        # WITHCOUNT must precede pipeline steps (LOAD/GROUPBY/...).
         self._run_all_shards_timesout(
             coord_cmd='FT.AGGREGATE', shard_cmd='_FT.AGGREGATE',
             query_args=['WITHCOUNT', 'LOAD', '1', '@name'],
             assert_reply=assert_withcount_reply)
 
     def test_return_strict_all_shards_timesout_sortby_aggregate(self):
-        """SORTBY all-shards-timeout: every shard's heap drain makes it through.
+        """SORTBY all-shards-timeout.
 
-        Each shard's RPSorter buffers the full per-shard set into its
-        heap before AggregateResults pauses, so the shard-side strict
-        drain ships every doc the shard owns plus a TIMEDOUT warning.
-        The coordinator pipeline is ``RPNet -> RPSorter -> RPPager``
-        (yield-able shape).
-
-        ``processWarningsAndCleanup`` (``src/coord/rpnet.c``) records
-        each shard's TIMEDOUT warning on
-        ``QEXEC_S_SHARD_TIMED_OUT_WARNING`` and, under RETURN_STRICT,
-        keeps draining (legacy RETURN/FAIL still bail at the same
-        site); with no coord-side deadline armed, RPNet exhausts every
-        shard's reply before reaching EOF. The coord's RPSorter
-        therefore consumes every shard's full per-shard set into its
-        heap and pops them in globally-sorted order through the pager.
-
-        Net reply: the complete cluster-wide document set
-        (``self.n_docs`` rows), globally sorted by @name, with a
-        single TIMEOUT warning surfaced via the new flag.
+        Expect ``self.n_docs`` rows globally sorted: every shard's
+        RPSorter heap holds its full per-shard set, and the coord's
+        RPSorter merges them all into one globally-sorted stream.
         """
         skipIfNoEnableAssert(self.env)
 
         def assert_sortby_all_timesout_reply(env, result, pauses, shards_count):
             n_rows = len(result.get('results', []))
             env.assertEqual(result['total_results'], n_rows,
-                            message=f"Expected total_results == "
-                                    f"len(results), got "
-                                    f"{result['total_results']} vs "
-                                    f"{n_rows}")
-            env.assertEqual(n_rows, self.n_docs,
-                            message=f"Expected the full cluster-wide set "
-                                    f"({self.n_docs} rows; coord drains "
-                                    f"every shard's heap into its own "
-                                    f"sorter), got {n_rows}")
+                            message="total_results vs len(results)")
+            env.assertEqual(n_rows, self.n_docs, message="merged row count")
             values = [row['extra_attributes']['name']
                       for row in result['results']]
             env.assertEqual(values, sorted(values),
-                            message=f"Rows must be globally sorted by "
-                                    f"@name, got {values}")
+                            message="global sort order")
 
         self._run_all_shards_timesout(
             coord_cmd='FT.AGGREGATE', shard_cmd='_FT.AGGREGATE',
@@ -3396,23 +3089,15 @@ class TestCoordinatorTimeout:
             assert_reply=assert_sortby_all_timesout_reply)
 
     def test_return_strict_all_shards_timesout_partial_each_aggregate(self):
-        """Asymmetric per-shard pause counts under RETURN_STRICT.
+        """All-shards-timeout with distinct per-shard pause counts.
 
-        Same scenario as
-        ``test_return_strict_all_shards_timesout_flat_aggregate``, but
-        with a different pause counter on every shard. Catches
-        regressions where the coord drain accidentally locks in a
-        single per-shard count or where one shard's TIMEDOUT
-        prematurely truncates the others' admitted rows. The pause
-        counts are chosen distinct so a wrong drain path producing
-        ``min * shards_count`` or ``max * shards_count`` is rejected by
-        the exact-equality assertion (the coord drains every shard, so
-        the merged total is deterministically ``sum(pauses)``).
+        Expect ``sum(pauses)`` rows. The distinct pause values reject
+        regressions where the drain locks in one per-shard count
+        (``min * shards`` or ``max * shards``).
         """
         skipIfNoEnableAssert(self.env)
 
-        # One distinct pause count per shard. shardsCount is 3 in the
-        # cluster harness; pad/truncate to fit.
+        # One distinct pause count per shard; pad/truncate to shardsCount.
         base_pauses = [1, 3, 5]
         n_shards = self.env.shardsCount
         if n_shards <= len(base_pauses):
@@ -3423,14 +3108,9 @@ class TestCoordinatorTimeout:
         def assert_partial_each_reply(env, result, pauses, shards_count):
             expected = sum(pauses)
             env.assertEqual(result['total_results'], expected,
-                            message=f"Expected total_results=={expected} "
-                                    f"(pauses={pauses}; coord drains "
-                                    f"every shard's buffered prefix), "
-                                    f"got {result['total_results']}")
-            n_rows = len(result.get('results', []))
-            env.assertEqual(n_rows, expected,
-                            message=f"Expected {expected} rows in reply "
-                                    f"(pauses={pauses}), got {n_rows}")
+                            message="merged row count")
+            env.assertEqual(len(result.get('results', [])), expected,
+                            message="rows in reply")
 
         self._run_all_shards_timesout(
             coord_cmd='FT.AGGREGATE', shard_cmd='_FT.AGGREGATE',
@@ -3441,41 +3121,18 @@ class TestCoordinatorTimeout:
 
 
 class TestCoordinatorTimeoutReturnStrictResp2:
-    """RESP2 counterpart of
-    ``TestCoordinatorTimeout.test_return_strict_one_shard_timesout_flat_aggregate``
-    (lives in a separate class because its env runs RESP3 and cannot
-    share fixtures with this RESP2 env).
+    """RESP2 counterpart of the one-shard-timesout flat aggregate test.
 
-    Same shard-side pause + ``CLIENT UNBLOCK ... TIMEOUT`` choreography
-    as the RESP3 one-shard-timesout flat aggregate test, but the
-    user-facing connection is RESP2. RESP2 has no warnings slot in the
-    shard reply, so the per-shard TIMEDOUT warning is not propagated to
-    the coordinator: ``processWarningsAndCleanup``
-    (``src/coord/rpnet.c``) gates the entire warning-extraction path
-    behind ``if (is_resp3)``. As a result, the coord cannot detect
-    that one shard returned partial rows and cannot increment its
-    ``total_query_warnings_timeout`` metric. The merged reply still
-    completes successfully and is a flat list whose head element is
-    ``total_results`` and whose tail elements are the merged shard rows.
+    RESP2 has no warnings slot in the shard reply, so the per-shard
+    TIMEDOUT warning is not propagated to the coord and the coord
+    warning metric stays unchanged. The merged reply is still well
+    formed: a flat list whose head is ``total_results`` and whose tail
+    is the merged shard rows.
 
-    The test pins down three RESP2-specific invariants on the new
-    shard-side RETURN_STRICT path:
-
-    1. ``result[0]`` (the ``total_results`` head) equals
-       ``pause_after_n + other_docs`` -- the target shard's strict-bail
-       path runs ``AREQ_NormalizeTotalResultsAfterDrain``, which caps
-       its per-shard ``total_results`` to the buffered row count
-       (the flat-aggregate-with-LOAD pipeline cannot yield partial
-       results), so the coord-merged head matches the visible row
-       count even without a wire warning.
-    2. ``len(result) - 1`` (trailing rows) equals
-       ``pause_after_n + other_docs`` -- the shard-side strict bail in
-       ``serializeAndReplyResults_Resp2`` truncates the target's row
-       payload to the buffered prefix; the coord drains every shard
-       (the RESP3-only warning path is gated off so RPNet never sees
-       a TIMEDOUT signal anyway) and merges them into a flat list.
-    3. The coord's ``total_query_warnings_timeout`` metric stays
-       unchanged (no cross-protocol warning leakage on the coord).
+    Expect ``pause_after_n + other_docs`` for both the head count and
+    the trailing row count: the target shard's
+    ``AREQ_NormalizeTotalResultsAfterDrain`` caps its per-shard
+    ``total_results`` to the buffered row count.
     """
 
     def __init__(self):
@@ -3518,12 +3175,6 @@ class TestCoordinatorTimeoutReturnStrictResp2:
         try:
             setPauseAfterAggregateResult(target_conn, pause_after_n)
 
-            # Sanity check: confirm the policy actually landed on the
-            # target shard. RESP2 returns CONFIG GET as a list pair.
-            policy_on_target = target_conn.execute_command(
-                'CONFIG', 'GET', ON_TIMEOUT_CONFIG)
-            print(f"[DEBUG] target {ON_TIMEOUT_CONFIG} = {policy_on_target}")
-
             full_cmd = ['FT.AGGREGATE', 'idx', '*',
                         'LOAD', '1', '@name',
                         'LIMIT', '0', str(self.n_docs),
@@ -3538,84 +3189,31 @@ class TestCoordinatorTimeoutReturnStrictResp2:
 
             blocked_client_id = _wait_shard_paused_after_aggregate_result(
                 target_conn, '_FT.AGGREGATE')
-            count_at_pause = getAggregateResultsCount(target_conn)
-            print(f"[DEBUG] target paused, client_id={blocked_client_id}, "
-                  f"count_at_pause={count_at_pause}, "
-                  f"target_pid={pid_cmd(target_conn)}, coord_pid="
-                  f"{pid_cmd(env.con)}")
-            unblock_rc = target_conn.execute_command('CLIENT', 'UNBLOCK',
-                                                     blocked_client_id, 'TIMEOUT')
-            print(f"[DEBUG] CLIENT UNBLOCK returned {unblock_rc}")
+            target_conn.execute_command('CLIENT', 'UNBLOCK',
+                                        blocked_client_id, 'TIMEOUT')
             wait_for_client_unblocked(target_conn, blocked_client_id)
-            count_after_unblock = getAggregateResultsCount(target_conn)
-            print(f"[DEBUG] count_after_unblock={count_after_unblock}")
             resetAggregateResultsDebug(target_conn)
 
             t_query.join(timeout=10)
-            env.assertFalse(t_query.is_alive(),
-                            message="Query thread should have finished")
-            env.assertEqual(len(query_result), 1,
-                            message="Expected 1 result from query thread")
+            env.assertFalse(t_query.is_alive(), message="query thread alive")
+            env.assertEqual(len(query_result), 1, message="query result count")
             result = query_result[0]
 
-            # RESP2 FT.AGGREGATE: [total_results, doc1_fields, doc2_fields, ...].
-            #
-            # In RESP2 the per-shard TIMEDOUT warning is not transmitted
-            # to the coord (see processWarningsAndCleanup, gated on
-            # is_resp3 in src/coord/rpnet.c), so the coord cannot
-            # detect the target shard's partial state and does not
-            # bail the merge early. The protection lives one level
-            # down: the target shard's strict-bail path runs
-            # ``AREQ_NormalizeTotalResultsAfterDrain``, which caps
-            # the shard's per-shard ``total_results`` to the buffered
-            # row count whenever ``canYieldPartialResults`` is false.
-            # The flat-aggregate-with-LOAD pipeline ends in RPLoader
-            # (after the pager strip), so it is rejected by the
-            # classifier and the cap kicks in.
-            #
-            # The reply head (total_results) is the per-shard match
-            # count summed across shards. With the target shard
-            # capped to ``pause_after_n`` and the responsive shards
-            # contributing ``other_docs`` between them, the merged
-            # head matches the visible row count
-            # (``pause_after_n + other_docs``). No more "X of N
-            # matched" with N > X, even without the wire warning.
+            # RESP2 FT.AGGREGATE: [total_results, doc1_fields, ...].
             env.assertTrue(isinstance(result, list),
-                           message=f"Expected RESP2 list reply, got "
-                                   f"{type(result).__name__}: {result!r}")
+                           message=f"RESP2 reply type ({type(result).__name__})")
             env.assertEqual(result[0], expected_rows,
-                            message=f"Expected total_results == "
-                                    f"{expected_rows} "
-                                    f"(target partial={pause_after_n} "
-                                    f"+ others full={other_docs}; the "
-                                    f"shard-side strict bail caps the "
-                                    f"target's per-shard count to its "
-                                    f"buffered rows because the "
-                                    f"flat-aggregate-with-LOAD pipeline "
-                                    f"cannot yield partial results), "
-                                    f"got {result[0]} in reply head")
+                            message="reply head (total_results)")
             row_count = len(result) - 1
             env.assertEqual(row_count, expected_rows,
-                            message=f"Expected {expected_rows} row "
-                                    f"entries after the count head "
-                                    f"(target partial={pause_after_n} "
-                                    f"+ others full={other_docs}; the "
-                                    f"shard-side strict bail is "
-                                    f"protocol-agnostic), got "
-                                    f"{row_count}")
+                            message="trailing row count")
 
-            # The coord's timeout-warning metric must NOT increment
-            # in RESP2: trackWarnings_Resp2 is only fed rc=TIMEDOUT
-            # when a per-shard warning is observed, and RESP2 has no
-            # warnings slot in the shard reply. This invariant pins
-            # the absence of cross-protocol warning leakage.
+            # RESP2 has no warnings slot, so the coord warning metric
+            # must NOT increment despite the shard timing out.
             after_info = info_modules_to_dict(env)
             env.assertEqual(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_METRIC],
                             str(base_warn_coord),
-                            message="Coordinator timeout warning "
-                                    "metric must stay unchanged in "
-                                    "RESP2: the per-shard warning is "
-                                    "not propagated over the wire")
+                            message="coord warning metric unchanged (RESP2)")
             _verify_metrics_not_changed(env, env, before_info,
                                         [TIMEOUT_WARNING_COORD_METRIC])
         finally:
@@ -3627,7 +3225,6 @@ class TestCoordinatorTimeoutReturnStrictResp2:
                                           prev_on_timeout_policy)
             except Exception:
                 pass
-
 
 class TestCoordinatorReducePause:
     """Tests for timeout during coordinator reduction using the PAUSE_BEFORE_REDUCE mechanism.
