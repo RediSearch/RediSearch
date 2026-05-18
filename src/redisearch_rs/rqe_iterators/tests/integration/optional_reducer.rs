@@ -9,7 +9,7 @@
 
 use std::ptr::NonNull;
 
-use inverted_index::RSResultKind;
+use index_result::RSResultKind;
 use rqe_iterators::{
     RQEIterator,
     empty::Empty,
@@ -100,7 +100,8 @@ mod optional_reducer_tests {
     #[test]
     fn shortcircuit_2_inverted_index_wildcard_child_returned_as_passthrough() {
         use ffi::IndexFlags_Index_DocIdsOnly;
-        use inverted_index::{InvertedIndex, RSIndexResult, doc_ids_only::DocIdsOnly};
+        use index_result::RSIndexResult;
+        use inverted_index::{InvertedIndex, doc_ids_only::DocIdsOnly};
         use rqe_iterators::{IteratorType, inverted_index::Wildcard as InvIdxWildcard};
 
         const MAX_DOC_ID: ffi::t_docId = 1000;

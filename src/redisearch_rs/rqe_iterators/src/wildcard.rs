@@ -12,9 +12,10 @@
 use std::ptr::NonNull;
 
 use ffi::{RS_FIELDMASK_ALL, t_docId};
+use index_result::RSIndexResult;
 use index_spec::IndexSpecReadGuard;
 use inverted_index::codec::{doc_ids_only::DocIdsOnly, raw_doc_ids_only::RawDocIdsOnly};
-use inverted_index::{DocIdsDecoder, RSIndexResult, opaque};
+use inverted_index::{DocIdsDecoder, opaque};
 
 use crate::IteratorType;
 use crate::{

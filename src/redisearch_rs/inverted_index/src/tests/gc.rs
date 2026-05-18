@@ -14,9 +14,10 @@ use std::{
 
 use crate::{
     Decoder, Encoder, EntriesTrackingIndex, GcApplyInfo, GcScanDelta, IdDelta, IndexBlock,
-    InvertedIndex, RSIndexResult, gc::BlockGcScanResult, gc::RepairType,
+    InvertedIndex, gc::BlockGcScanResult, gc::RepairType,
 };
 use ffi::{IndexFlags_Index_DocIdsOnly, t_docId};
+use index_result::RSIndexResult;
 use pretty_assertions::assert_eq;
 use smallvec::smallvec;
 use thin_vec::medium_thin_vec;

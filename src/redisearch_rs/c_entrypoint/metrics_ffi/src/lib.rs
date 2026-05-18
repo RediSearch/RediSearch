@@ -13,7 +13,7 @@
 //! `headers/metrics_ffi.h`.
 
 use ffi::RLookupKey;
-use inverted_index::{MetricsSlice, MetricsVec, RSIndexResult};
+use index_result::{MetricsSlice, MetricsVec, RSIndexResult};
 
 /// Creates an empty metrics collection. Does not allocate.
 ///

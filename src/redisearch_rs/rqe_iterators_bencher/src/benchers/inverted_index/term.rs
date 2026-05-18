@@ -10,9 +10,9 @@
 use std::{hint::black_box, marker::PhantomData};
 
 use criterion::{BenchmarkGroup, Criterion, measurement::Measurement};
+use index_result::{RSIndexResult, RSOffsetSlice};
 use inverted_index::{
-    DecodedBy, Encoder, HasInnerIndex, InvertedIndex, RSIndexResult, RSOffsetSlice, TermDecoder,
-    opaque::OpaqueEncoding,
+    DecodedBy, Encoder, HasInnerIndex, InvertedIndex, TermDecoder, opaque::OpaqueEncoding,
 };
 use query_term::RSQueryTerm;
 use rqe_iterators::{NoOpChecker, RQEIterator, SkipToOutcome, inverted_index::Term};

@@ -10,8 +10,9 @@
 use std::io::Cursor;
 
 use ffi::t_fieldMask;
+use index_result::RSIndexResult;
 use inverted_index::{
-    Decoder, Encoder, RSIndexResult,
+    Decoder, Encoder,
     freqs_fields::{FreqsFields, FreqsFieldsWide},
 };
 

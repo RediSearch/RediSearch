@@ -13,8 +13,9 @@
 //! compressed and uncompressed numeric storage in inverted indexes.
 
 use ffi::IndexFlags_Index_StoreNumeric;
+use index_result::RSIndexResult;
 use inverted_index::{
-    EntriesTrackingIndex, IndexBlock, IndexReader, IndexReaderCore, NumericReader, RSIndexResult,
+    EntriesTrackingIndex, IndexBlock, IndexReader, IndexReaderCore, NumericReader,
     debug::Summary,
     numeric::{Numeric, NumericFloatCompression},
 };

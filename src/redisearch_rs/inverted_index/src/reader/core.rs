@@ -11,10 +11,11 @@ use std::{io::Cursor, sync::atomic};
 
 use super::{IndexReader, NumericReader, TermReader};
 use crate::{
-    DecodedBy, Decoder, Encoder, HasInnerIndex, InvertedIndex, NumericDecoder, RSIndexResult,
-    TermDecoder, index::unique_id::IndexUniqueId, opaque::OpaqueEncoding,
+    DecodedBy, Decoder, Encoder, HasInnerIndex, InvertedIndex, NumericDecoder, TermDecoder,
+    index::unique_id::IndexUniqueId, opaque::OpaqueEncoding,
 };
 use ffi::{IndexFlags, IndexFlags_Index_HasMultiValue, t_docId};
+use index_result::RSIndexResult;
 
 /// Reader that is able to read the records from an [`InvertedIndex`]
 pub struct IndexReaderCore<'index, E> {
