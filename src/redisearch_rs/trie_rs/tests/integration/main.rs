@@ -9,4 +9,6 @@
 
 mod iter;
 mod rune_insert_iterate;
+mod rune_splits;
+mod rune_unicode;
 mod trie;
