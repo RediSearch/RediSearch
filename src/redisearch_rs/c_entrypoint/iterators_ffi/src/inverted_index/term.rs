@@ -110,6 +110,23 @@ impl<'index> IndexReader<'index> for TermIndexReader<'index> {
     fn refresh_buffer_pointers(&mut self) {
         term_ir_dispatch!(self, refresh_buffer_pointers)
     }
+
+    #[inline(always)]
+    fn current_block_max_score(
+        &self,
+        scorer: &inverted_index::block_max_score::BlockScorer,
+    ) -> f64 {
+        term_ir_dispatch!(self, current_block_max_score, scorer)
+    }
+
+    #[inline(always)]
+    fn advance_to_next_promising_block(
+        &mut self,
+        min_score: f64,
+        scorer: &inverted_index::block_max_score::BlockScorer,
+    ) -> bool {
+        term_ir_dispatch!(self, advance_to_next_promising_block, min_score, scorer)
+    }
 }
 
 impl<'index> TermReader<'index> for TermIndexReader<'index> {
