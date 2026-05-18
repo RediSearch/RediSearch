@@ -44,7 +44,7 @@
 
 use std::fmt::Write as _;
 
-use trie_rs::rune::{DecrResult, Rune, RuneTrieMap};
+use trie_rs::rune::{Rune, RuneTrieMap};
 
 struct TermEntry {
     score: f32,
@@ -245,7 +245,7 @@ fn lex_decrement_numdocs_return_codes() {
     ];
 
     for (label, term, delta, note) in steps {
-        let r = trie.decrement_num_docs(&term_runes(term), *delta);
+        let r = decrement_num_docs(&mut trie, &term_runes(term), *delta);
         writeln!(&mut out, "\n--- {label} ---").unwrap();
         writeln!(
             &mut out,
@@ -263,4 +263,23 @@ fn lex_decrement_numdocs_return_codes() {
         },
         { insta::assert_snapshot!("lex_decrement_numdocs_return_codes", out); }
     );
+}
+
+fn decrement_num_docs(trie: &mut RuneTrieMap<TermEntry>, key: &[u16], delta: usize) -> DecrResult {
+    // TODO: Add find_mut().
+    match trie.remove(key) {
+        Some(mut data) if delta < data.num_docs => {
+            data.num_docs -= delta;
+            trie.insert(key, data);
+            DecrResult::Updated
+        }
+        Some(_) => DecrResult::Deleted,
+        None => DecrResult::NotFound,
+    }
+}
+
+enum DecrResult {
+    NotFound,
+    Updated,
+    Deleted,
 }
