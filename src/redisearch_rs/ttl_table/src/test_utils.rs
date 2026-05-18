@@ -9,11 +9,8 @@
 
 use std::num::NonZeroUsize;
 
-use ffi::t_docId;
-use libc::timespec;
+use ffi::{FieldExpiration, t_docId, t_expirationTimePoint as timespec};
 use thin_vec::ThinVec;
-
-use crate::FieldExpiration;
 
 pub const fn ts(sec: i64, nsec: i64) -> timespec {
     // `libc::time_t` is deprecated on musl (musl 1.2 changed it to 64-bit,
@@ -62,4 +59,8 @@ pub fn mask_bit(indexes: &[u16]) -> u32 {
 
 pub fn mask_bit_u128(indexes: &[u16]) -> u128 {
     indexes.iter().map(|index| 1 << index).sum()
+}
+
+pub fn mask_bit_u64(indexes: &[u16]) -> u64 {
+    indexes.iter().map(|index| 1u64 << index).sum()
 }

@@ -31,8 +31,9 @@ pub mod test_utils;
 
 use std::{iter::Chain, num::NonZeroUsize};
 
+pub use ffi::FieldExpiration;
+use ffi::{FieldMask, t_expirationTimePoint as timespec};
 pub use field::FieldExpirationPredicate;
-use libc::timespec;
 use thin_vec::ThinVec;
 
 use ffi::t_docId;
@@ -49,15 +50,6 @@ const TTL_BUCKET_INITIAL_CAP: usize = 64;
 /// Very large tables don't take a single
 /// multi-MiB realloc hit and so the two allocators scale in lockstep.
 const TTL_BUCKET_MAX_GROW_STEP: usize = 1 << 20;
-
-/// The expiration time recorded for a single field of a document.
-#[derive(Debug, Clone, Copy)]
-pub struct FieldExpiration {
-    /// The field index this expiration applies to.
-    pub index: u16,
-    /// The point in time at which the field expires.
-    pub point: timespec,
-}
 
 /// A document's record in a [`TimeToLiveTable`] bucket's collision chain.
 #[derive(Debug)]
@@ -274,8 +266,14 @@ impl TimeToLiveTable {
         )
     }
 
-    /// Checks the expiration state of a set of fields described by a
-    /// 128-bit `field_mask` (the wide-schema variant).
+    /// Checks the expiration state of a set of fields described by a wide
+    /// [`FieldMask`] (the wide-schema variant).
+    ///
+    /// `FieldMask` is a compile-time alias chosen by the C build: it can be
+    /// either a 64-bit or a 128-bit unsigned integer. This function
+    /// dispatches to the matching bit-walk at compile time, based on the
+    /// target pointer width.
+    ///
     /// See also [`TimeToLiveTable::verify_doc_and_field_mask`].
     ///
     /// # Panics
@@ -284,18 +282,31 @@ impl TimeToLiveTable {
     pub fn verify_doc_and_wide_field_mask(
         &self,
         doc_id: t_docId,
-        field_mask: u128,
+        field_mask: FieldMask,
         predicate: FieldExpirationPredicate,
         expiration_point: &timespec,
         ft_id_to_field_index: &[u16],
     ) -> bool {
-        verify_mask::<u128>(
-            self.find_entry(doc_id),
-            field_mask,
-            predicate,
-            expiration_point,
-            ft_id_to_field_index,
-        )
+        #[cfg(target_pointer_width = "64")]
+        {
+            verify_mask::<u128>(
+                self.find_entry(doc_id),
+                field_mask,
+                predicate,
+                expiration_point,
+                ft_id_to_field_index,
+            )
+        }
+        #[cfg(target_pointer_width = "32")]
+        {
+            verify_mask::<u64>(
+                self.find_entry(doc_id),
+                field_mask,
+                predicate,
+                expiration_point,
+                ft_id_to_field_index,
+            )
+        }
     }
 
     /// Direct-modulo slot formula
@@ -370,6 +381,22 @@ impl BitMask for u32 {
 
     fn count_ones(self) -> usize {
         u32::count_ones(self) as usize
+    }
+
+    fn higher_bit_position(self) -> usize {
+        (Self::BITS - self.leading_zeros()) as usize
+    }
+}
+
+impl BitMask for u64 {
+    type Iter = BitU64Iter;
+
+    fn iter(self) -> Self::Iter {
+        BitU64Iter::new(self)
+    }
+
+    fn count_ones(self) -> usize {
+        u64::count_ones(self) as usize
     }
 
     fn higher_bit_position(self) -> usize {
@@ -804,5 +831,53 @@ mod tests {
                 &NOW,
             ));
         }
+    }
+
+    #[test]
+    fn verify_mask_u64_walks_bits_above_31() {
+        // High-bit field (bit 40) is the only one tracked, and it is
+        // expired. Under Default this must report `false` (no valid
+        // field); under Missing it must report `true`.
+        const HIGH_BIT: u16 = 40;
+        let entry = TimeToLiveEntry {
+            doc_id: DOC_ID_1,
+            field_expirations: thin_vec![fe(HIGH_BIT, PAST)],
+        };
+        let map = identity_ft_id();
+        let mask = mask_bit_u64(&[HIGH_BIT]);
+
+        assert!(!verify_mask::<u64>(
+            Some(&entry),
+            mask,
+            FieldExpirationPredicate::Default,
+            &NOW,
+            &map,
+        ));
+        assert!(verify_mask::<u64>(
+            Some(&entry),
+            mask,
+            FieldExpirationPredicate::Missing,
+            &NOW,
+            &map,
+        ));
+    }
+
+    #[test]
+    fn verify_mask_u64_default_returns_true_when_any_selected_field_is_valid() {
+        // Bit 2 → PAST, bit 35 → FUTURE. Default must return `true`.
+        let entry = TimeToLiveEntry {
+            doc_id: DOC_ID_1,
+            field_expirations: thin_vec![fe(2, PAST), fe(35, FUTURE)],
+        };
+        let map = identity_ft_id();
+        let mask = mask_bit_u64(&[2, 35]);
+
+        assert!(verify_mask::<u64>(
+            Some(&entry),
+            mask,
+            FieldExpirationPredicate::Default,
+            &NOW,
+            &map,
+        ));
     }
 }
