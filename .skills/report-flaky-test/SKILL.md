@@ -34,6 +34,7 @@ From the provided input, gather the best available facts:
 - GitHub Actions run, attempt, job URL, PR, branch, and HEAD SHA
 - Platform, architecture, Redis ref, standalone/coordinator mode, and special config
 - Relevant failure excerpt, stack trace, Redis log excerpt, Rust panic/backtrace, or C backtrace
+- Likely test owner, with confidence and evidence
 
 For GitHub Actions failures, prefer `gh`:
 
@@ -52,7 +53,22 @@ artifact tree for:
 
 If artifact download is unavailable, use the CI job log and include links to the run/job.
 
-### 2. Find Existing Jira Ticket
+### 2. Identify The Likely Test Owner
+
+Try to identify a likely owner to mention in the Jira ticket or PR:
+- First check `CODEOWNERS` if the repo has one.
+- If no ownership file exists, inspect test history with:
+  ```bash
+  git log --follow --format='%h %an <%ae> %ad %s' -- <test_file>
+  git blame -L <start>,<end> -- <test_file>
+  ```
+- Prefer the person who most recently changed the failing test or the helper/assertion involved in
+  the failure, not merely the oldest author of the file.
+- If several candidates are plausible, list them as candidates instead of pretending certainty.
+- Mention an owner only when you can map them to a GitHub or Jira identity confidently. Otherwise
+  include the owner evidence in plain text and say that the owner should be confirmed manually.
+
+### 3. Find Existing Jira Ticket
 
 Search Jira before creating anything. Match by normalized test id first:
 
@@ -67,7 +83,7 @@ Treat same test with a different platform, config, or failure signature as the s
 Mention the difference in the comment. Do not create a duplicate unless the existing issue is clearly
 about an unrelated failure mode and the user confirms.
 
-### 3. Prepare The Jira Update
+### 4. Prepare The Jira Update
 
 If an existing issue is found, prepare a comment:
 
@@ -81,6 +97,7 @@ If an existing issue is found, prepare a comment:
 * Mode/config: `<standalone-or-coordinator>`, `<config>`, Redis `<redis-ref>`
 * Failure category: `<category>`
 * Failure reason: `<short reason>`
+* Likely owner: `<@owner or candidate names with evidence>`
 
 ```text
 <short relevant excerpt>
@@ -132,6 +149,9 @@ HEAD: `<sha>`
 **Special test configuration:**
 `<standalone-or-coordinator>`, `<config>`
 
+**Likely owner:**
+`<@owner or candidate names with evidence>`
+
 **Artifacts/logs:**
 <artifact link or local downloaded path>
 
@@ -142,7 +162,7 @@ HEAD: `<sha>`
 Always show the exact new issue payload or comment body and ask the user before creating/commenting
 in Jira. Do not mutate Jira without confirmation.
 
-### 4. Attach Or Link Logs
+### 5. Attach Or Link Logs
 
 If a Jira attachment tool is available, attach the relevant downloaded log archive or smallest useful
 log files. If no attachment capability is available, state that directly and include:
@@ -150,7 +170,7 @@ log files. If no attachment capability is available, state that directly and inc
 - Artifact names
 - Local downloaded artifact path under `/tmp/redisearch-flaky-<run_id>/`
 
-### 5. Quick Triage Recommendation
+### 6. Quick Triage Recommendation
 
 Do a short read-only scan of the failing test and nearby helpers before finalizing the report.
 
@@ -181,5 +201,6 @@ implementation.
 End with:
 - Existing Jira issue selected, or new Jira payload prepared
 - Whether Jira was updated or is waiting for confirmation
+- Likely owner and confidence, or why no confident owner was identified
 - Artifact/log status
 - Immediate triage recommendation, if any
