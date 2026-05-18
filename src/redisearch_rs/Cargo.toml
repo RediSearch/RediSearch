@@ -26,6 +26,7 @@ members = [
     "rlookup",
     "query_node_type",
     "reducers",
+    "ref_mode",
     "rqe_iterator_type",
     "rqe_iterators",
     "rqe_iterators_bencher",
@@ -121,6 +122,7 @@ redis_json_api = { path = "./redis_json_api" }
 redis_mock = { path = "./redis_mock" }
 redisearch_rs = { path = "./c_entrypoint/redisearch_rs" }
 reducers = { path = "./reducers" }
+ref_mode = { path = "./ref_mode" }
 result_processor = { path = "./result_processor" }
 rlookup = { path = "./rlookup" }
 rm_array = { path = "./c_wrappers/rm_array" }
