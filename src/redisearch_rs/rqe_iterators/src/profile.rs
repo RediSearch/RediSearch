@@ -19,6 +19,7 @@ use crate::{IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, Skip
 use ffi::t_docId;
 use index_result::RSIndexResult;
 use index_spec::IndexSpecReadGuard;
+use ref_mode::{Active, Ref};
 
 /// Profile counters collected during query execution.
 ///
@@ -37,6 +38,9 @@ pub struct ProfileCounters {
 
 /// A wrapper iterator that collects profiling metrics from a child iterator.
 ///
+/// Parameterised over a [`Ref`] mode — see [`Profile`] for the [`Active`]
+/// instantiation that implements [`RQEIterator`].
+///
 /// This iterator delegates all operations to its inner child iterator while:
 /// - Tracking the number of [`read()`](RQEIterator::read) and [`skip_to()`](RQEIterator::skip_to) calls
 /// - Measuring wall-clock time spent in these operations
@@ -44,13 +48,18 @@ pub struct ProfileCounters {
 ///
 /// The collected metrics can be accessed via [`Profile::counters()`] and
 /// [`Profile::wall_time_ns()`].
-pub struct Profile<'index, I: RQEIterator<'index>> {
+#[repr(C)]
+pub struct RawProfile<Rf: Ref, I> {
     child: I,
     counters: ProfileCounters,
     /// Time spent in child iterator operations.
     wall_time: Duration,
-    _marker: std::marker::PhantomData<&'index ()>,
+    _marker: std::marker::PhantomData<Rf>,
 }
+
+/// Alias for an [`Active`] [`RawProfile`] — the only instantiation with an
+/// [`RQEIterator`] impl today.
+pub type Profile<'index, I> = RawProfile<Active<'index>, I>;
 
 impl<'index, I: RQEIterator<'index>> Profile<'index, I> {
     /// Creates a new Profile iterator wrapping the given child iterator.

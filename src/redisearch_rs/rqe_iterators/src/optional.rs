@@ -10,7 +10,8 @@
 //! Supporting types for [`Optional`].
 
 use ffi::{RS_FIELDMASK_ALL, t_docId};
-use index_result::RSIndexResult;
+use index_result::{RSIndexResult, RawIndexResult};
+use ref_mode::{Active, Ref};
 use std::cmp;
 
 use crate::{IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
@@ -62,7 +63,11 @@ impl<'index> OptionalIterator<'index> for Optional<'index, Box<dyn RQEIterator<'
 /// An iterator that emits a sequence of results with no gaps, up to a given document id.
 /// Results are pulled from an underlying [`RQEIterator`] instance. If there is no entry
 /// for a given document id, a virtual result is yielded in its place.
-pub struct Optional<'index, I> {
+///
+/// Parameterised over a [`Ref`] mode — see [`Optional`] for the [`Active`]
+/// instantiation that implements [`RQEIterator`].
+#[repr(C)]
+pub struct RawOptional<Rf: Ref, I> {
     /// Inclusive upper bound on document identifiers to iterate over.
     /// Reads from the [`Optional::child`] beyond this bound are ignored.
     /// If the [`Optional::child`] ends before this bound, this [`Optional`] iterator yields virtual
@@ -78,7 +83,7 @@ pub struct Optional<'index, I> {
     ///
     /// Only for actual virtual results do we return a reference to it in
     /// functions such as Read/SkipTo.
-    result: RSIndexResult<'index>,
+    result: RawIndexResult<Rf>,
 
     /// The child [`RQEIterator`] provided at construction time.
     /// It is used while it can still produce results. Once exhausted,
@@ -90,6 +95,10 @@ pub struct Optional<'index, I> {
     /// will be virtual until `max_doc_id` is reached.
     child: Option<I>,
 }
+
+/// Alias for an [`Active`] [`RawOptional`] — the only instantiation with an
+/// [`RQEIterator`] impl today.
+pub type Optional<'index, I> = RawOptional<Active<'index>, I>;
 
 impl<'index, I> Optional<'index, I>
 where
