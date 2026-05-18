@@ -22,46 +22,46 @@
 
 use itertools::Itertools;
 
-use crate::TrieMap;
+use crate::{
+    TrieMap,
+    iter::{self, filter},
+};
 
 pub type Rune = u16;
 
 type Byte = u8;
 
 pub struct RuneTrieMap<Data> {
-    byte_trie_map: TrieMap<Data>,
+    inner: TrieMap<Data>,
 }
 
 impl<Data> RuneTrieMap<Data> {
     pub fn new() -> Self {
         Self {
-            byte_trie_map: TrieMap::new(),
+            inner: TrieMap::new(),
         }
     }
 
     pub fn insert(&mut self, key: &[Rune], data: Data) {
-        self.byte_trie_map.insert(&split_key(key), data);
+        self.inner.insert(&split_key(key), data);
     }
 
     pub fn remove(&mut self, key: &[Rune]) {
-        self.byte_trie_map.remove(&split_key(key));
+        self.inner.remove(&split_key(key));
     }
 
     pub fn get(&mut self, key: &[Rune]) -> Option<&Data> {
-        self.byte_trie_map.find(&split_key(key))
+        self.inner.find(&split_key(key))
     }
 
     pub fn len(&self) -> usize {
-        0
+        self.inner.iter().count()
     }
 
     pub fn iter(&self) -> RuneTrieMapIter<'_, Data> {
-        RuneTrieMapIter(self.byte_trie_map.iter())
+        RuneTrieMapIter(self.inner.iter())
     }
 }
-
-use crate::iter;
-use crate::iter::filter;
 
 pub struct RuneTrieMapIter<'a, Data>(iter::Iter<'a, Data, filter::VisitAll>);
 
@@ -78,8 +78,9 @@ fn split_key(key: &[Rune]) -> Vec<Byte> {
 }
 
 fn join_key(key: &[Byte]) -> Vec<Rune> {
-    key.into_iter()
-        .tuple_windows()
-        .map(|(&x, &y)| Rune::from_le_bytes([x, y]))
+    key.as_chunks()
+        .0
+        .iter()
+        .map(|&[x, y]| Rune::from_le_bytes([x, y]))
         .collect_vec()
 }
