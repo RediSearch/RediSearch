@@ -9,6 +9,7 @@
 
 //! Integration tests that snapshot the C rune-trie's behavior.
 
+mod delete_and_decrement;
 mod insert_iterate;
 mod splits;
 mod unicode;
