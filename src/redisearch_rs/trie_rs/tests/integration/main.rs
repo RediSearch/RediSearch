@@ -8,4 +8,5 @@
 */
 
 mod iter;
+mod rune_insert_iterate;
 mod trie;
