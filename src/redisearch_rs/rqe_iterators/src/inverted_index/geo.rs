@@ -9,43 +9,45 @@
 
 use std::ptr::NonNull;
 
-use ffi::{
-    GEO_LAT_MAX, GEO_LAT_MIN, GEO_LONG_MAX, GEO_LONG_MIN, GEO_RANGE_COUNT, GeoDistance, GeoFilter,
-    GeoHashRange, calcRanges,
-};
+use ffi::{GeoDistance, GeoFilter};
 use field::FieldFilterContext;
+use geo::{GEO_RANGE_COUNT, hash::InvalidWGS84Coordinates};
 use inverted_index::NumericFilter;
 
 use crate::{NumericIteratorVariant, open_numeric_or_geo_index};
 
-/// Error returned by [`build_geo_numeric_filters`] when the caller supplies out-of-range
-/// coordinates or a non-positive radius.
-#[derive(Debug)]
-pub struct InvalidGeoInput;
-
-/// Errors returned by [`new_geo_range_iterator`].
-#[derive(Debug)]
-pub enum GeoRangeError {
-    /// The caller supplied out-of-range coordinates or a non-positive radius.
-    InvalidInput,
-    /// The geo field index has not been created yet.
-    IndexNotFound,
-    /// The query matched no entries in the index.
-    NoMatchingEntries,
+/// Error returned by [`build_geo_numeric_filters`] when the caller supplies
+/// invalid geo parameters.
+#[derive(Debug, thiserror::Error)]
+pub enum InvalidGeoInput {
+    /// The radius is non-positive.
+    #[error("non-positive geo radius: {0}")]
+    InvalidRadius(f64),
+    /// The coordinates are outside WGS-84 bounds.
+    #[error(transparent)]
+    InvalidCoordinates(#[from] InvalidWGS84Coordinates),
 }
 
-impl From<InvalidGeoInput> for GeoRangeError {
-    fn from(_: InvalidGeoInput) -> Self {
-        GeoRangeError::InvalidInput
-    }
+/// Errors returned by [`new_geo_range_iterator`].
+#[derive(Debug, thiserror::Error)]
+pub enum GeoRangeError {
+    /// The caller supplied out-of-range coordinates or a non-positive radius.
+    #[error(transparent)]
+    InvalidInput(#[from] InvalidGeoInput),
+    /// The geo field index has not been created yet.
+    #[error("geo field index not found")]
+    IndexNotFound,
+    /// The query matched no entries in the index.
+    #[error("no matching entries in geo index")]
+    NoMatchingEntries,
 }
 
 /// Validates `gf`'s parameters, computes the geohash ranges covering the requested circle,
 /// allocates a per-range [`NumericFilter`] for each non-trivial range, stores all of them in
 /// `gf.numericFilters`, and returns references to the non-trivial filters.
 ///
-/// Returns [`Err(InvalidGeoInput)`](InvalidGeoInput) if `gf`'s parameters are invalid (bad
-/// radius, lat, or lon).
+/// Returns `Err(`[`InvalidGeoInput`]`)` if `gf`'s parameters are invalid (non-positive
+/// radius or out-of-bounds coordinates).
 ///
 /// The returned references are valid for `'index` because the filters are owned by
 /// `gf.numericFilters`, which lives as long as `gf`.
@@ -58,24 +60,18 @@ impl From<InvalidGeoInput> for GeoRangeError {
 pub unsafe fn build_geo_numeric_filters<'index>(
     gf: &'index mut GeoFilter,
 ) -> Result<Vec<&'index NumericFilter>, InvalidGeoInput> {
-    if gf.radius <= 0.0
-        || gf.lon > GEO_LONG_MAX
-        || gf.lon < GEO_LONG_MIN
-        || gf.lat > GEO_LAT_MAX
-        || gf.lat < GEO_LAT_MIN
-    {
-        return Err(InvalidGeoInput);
+    if gf.radius <= 0.0 {
+        return Err(InvalidGeoInput::InvalidRadius(gf.radius));
     }
 
     let radius_meters = gf.radius * extract_geo_unit_factor(gf.unitType);
-    let mut ranges = [GeoHashRange { min: 0.0, max: 0.0 }; GEO_RANGE_COUNT as usize];
-    // SAFETY: ranges is a stack array of exactly GEO_RANGE_COUNT elements.
-    unsafe { calcRanges(gf.lon, gf.lat, radius_meters, ranges.as_mut_ptr()) };
+    let center = geo::hash::WGS84Coordinates::from_f64(gf.lon, gf.lat)?;
+    let ranges = geo::calc_ranges(center, radius_meters);
 
     // Allocate the numericFilters array and hand ownership to *gf so that
     // GeoFilter_Free → NumericFilter_Free → rm_free can clean up each entry.
     let numeric_filters = Box::into_raw(Box::new(
-        [std::ptr::null_mut::<NumericFilter>(); GEO_RANGE_COUNT as usize],
+        [std::ptr::null_mut::<NumericFilter>(); GEO_RANGE_COUNT],
     ));
     // SAFETY: 2. guarantees gf.numericFilters is NULL and writable.
     gf.numericFilters = numeric_filters.cast();
@@ -88,8 +84,8 @@ pub unsafe fn build_geo_numeric_filters<'index>(
         // SAFETY: gf.fieldSpec is valid per the caller's safety contract.
         let filt_ptr = unsafe {
             ffi::NewNumericFilter(
-                range.min,
-                range.max,
+                range.min as f64,
+                range.max as f64,
                 true, // inclusiveMin
                 true, // inclusiveMax
                 true, // ascending

@@ -26,6 +26,9 @@ header_name = "search_result_rs"
 [c]
 cpp_compat = true
 
+[header.geo_ffi]
+includes = ["geohash/geohash_helper.h"]
+
 [header.field]
 includes = ["redisearch_types.h"]
 

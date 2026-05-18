@@ -737,6 +737,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "geo_ffi"
+version = "0.0.1"
+dependencies = [
+ "cheadergen",
+ "decorum",
+ "ffi",
+ "geo",
+ "query_error",
+ "tracing",
+ "tracing_log_error",
+ "workspace_hack",
+]
+
+[[package]]
 name = "getrandom"
 version = "0.2.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1845,6 +1859,7 @@ dependencies = [
  "build_utils",
  "fnv_ffi",
  "fork_gc_ffi",
+ "geo_ffi",
  "idf_ffi",
  "inverted_index_ffi",
  "iterators_ffi",
@@ -2072,6 +2087,7 @@ dependencies = [
  "cheadergen",
  "ffi",
  "field",
+ "geo",
  "idf",
  "index_spec",
  "inverted_index",
@@ -2727,6 +2743,15 @@ version = "0.0.1"
 dependencies = [
  "tracing",
  "workspace_hack",
+]
+
+[[package]]
+name = "tracing_log_error"
+version = "0.1.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "acc88373b516b143fd79ef5109b9c077ade5bfcbdc566d63e2d827fb951b6849"
+dependencies = [
+ "tracing",
 ]
 
 [[package]]

@@ -564,6 +564,26 @@ impl QueryError {
         self.private_message = message;
     }
 
+    /// Sets the error code and message, automatically prefixing the
+    /// private message with the error code's prefix string.
+    ///
+    /// The `message` is used as the public message verbatim. The private
+    /// message is formed by prepending [`QueryErrorCode::prefix_c_str`]
+    /// to `message`.
+    pub fn set_error(&mut self, code: QueryErrorCode, message: &str) {
+        if !self.is_ok() {
+            return;
+        }
+
+        let public_message = CString::new(message.to_owned());
+        let prefix = code.prefix_c_str().to_str().unwrap_or("");
+        let private_message = CString::new(format!("{prefix}{message}"));
+
+        self.code = code;
+        self.public_message = public_message.ok();
+        self.private_message = private_message.ok().or(self.public_message.clone());
+    }
+
     /// Sets code, public message, and private message independently.
     /// The public message is for obfuscated display; the private message
     /// (typically prefix + detail) is what gets sent to the client and
