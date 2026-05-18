@@ -77,6 +77,8 @@ impl FromStr for Coordinates {
     /// Parse a string representing a `"lon,lat"` or `"lon lat"` pair.
     ///
     /// The separator can be either a comma (`,`) or a space (` `).
+    /// Leading and trailing whitespace around each coordinate value is
+    /// trimmed, so `"10.0, 20.0"` and `"10.0,  20.0"` are accepted.
     ///
     /// # Errors
     ///

@@ -150,7 +150,8 @@ unsafe fn set_parse_error(status: *mut OpaqueQueryError, err: ParseGeoError) {
 }
 
 /// Parse a `"lon,lat"` or `"lon lat"` string into separate longitude and
-/// latitude values.
+/// latitude values. Leading and trailing whitespace around each coordinate
+/// value is trimmed.
 ///
 /// Returns `REDISMODULE_OK` on success, `REDISMODULE_ERR` on failure (with
 /// the error details written to `status`).
