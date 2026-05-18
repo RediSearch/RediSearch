@@ -22,6 +22,10 @@
 #include <sstream>
 #include <algorithm>
 
+// Minimum block size for the reducer-rewriter scratch allocator
+// (`ReducerDistCtx::alloc`).
+#define DIST_REDUCER_BLOCK_SIZE ((size_t)128)
+
 static char *getLastAlias(const PLN_GroupStep *gstp) {
   return gstp->reducers[array_len(gstp->reducers) - 1].alias;
 }
@@ -54,7 +58,7 @@ struct ReducerDistCtx {
   ArgsCursor *copyArgs(ArgsCursor *args) {
     // Because args are only in temporary storage
     size_t allocsz = sizeof(void *) * args->argc;
-    void **arr = (void **)BlkAlloc_Alloc(alloc, allocsz, std::max(allocsz, size_t(32)));
+    void **arr = (void **)BlkAlloc_Alloc(alloc, allocsz, std::max(allocsz, DIST_REDUCER_BLOCK_SIZE));
     memcpy(arr, args->objs, args->argc * sizeof(*args->objs));
     args->objs = arr;
     return args;
@@ -378,7 +382,7 @@ static int distributeCollect(ReducerDistCtx *rdctx, QueryError *status) {
 
   auto dupCStr = [&](const char *s) -> const char * {
     size_t n = strlen(s) + 1;
-    char *p = (char *)BlkAlloc_Alloc(rdctx->alloc, n, std::max(n, size_t(32)));
+    char *p = (char *)BlkAlloc_Alloc(rdctx->alloc, n, std::max(n, DIST_REDUCER_BLOCK_SIZE));
     memcpy(p, s, n);
     return p;
   };
@@ -386,13 +390,13 @@ static int distributeCollect(ReducerDistCtx *rdctx, QueryError *status) {
     char buf[32];
     int n = snprintf(buf, sizeof(buf), "%llu", (unsigned long long)v);
     char *p = (char *)BlkAlloc_Alloc(rdctx->alloc, (size_t)n + 1,
-                                     std::max(size_t(n + 1), size_t(32)));
+                                     std::max(size_t(n + 1), DIST_REDUCER_BLOCK_SIZE));
     memcpy(p, buf, (size_t)n + 1);
     return p;
   };
   auto allocAtName = [&](const char *stripped) -> const char * {
     size_t n = strlen(stripped);
-    char *p = (char *)BlkAlloc_Alloc(rdctx->alloc, n + 2, std::max(n + 2, size_t(32)));
+    char *p = (char *)BlkAlloc_Alloc(rdctx->alloc, n + 2, std::max(n + 2, DIST_REDUCER_BLOCK_SIZE));
     p[0] = '@';
     memcpy(p + 1, stripped, n + 1);
     return p;
@@ -438,7 +442,7 @@ static int distributeCollect(ReducerDistCtx *rdctx, QueryError *status) {
     size_t total = n + 1 + trailing.size();
     const char **objs = (const char **)BlkAlloc_Alloc(
         rdctx->alloc, sizeof(const char *) * total,
-        std::max(sizeof(const char *) * total, size_t(32)));
+        std::max(sizeof(const char *) * total, DIST_REDUCER_BLOCK_SIZE));
     objs[0] = allocU64Str(n);  // leading <nargs>
     for (size_t i = 0; i < n; i++) {
       objs[i + 1] = tokens[i];
