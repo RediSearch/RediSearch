@@ -4610,12 +4610,16 @@ void IndexSpec_EnableDiskForkIfPossible(IndexSpec *sp) {
 // Enter the exclusive fork window (write side of the fork rwlock). Blocks
 // until every IndexSpec_BlockDiskFork blocker has released.
 void IndexSpec_ProtectDiskFork(IndexSpec *sp) {
+  RS_ASSERT(!(sp->repl_flags & REPL_LOCK_DISK_FORK_PROTECTED));
   pthread_rwlock_wrlock(&sp->disk_fork_rwlock);
+  sp->repl_flags |= REPL_LOCK_DISK_FORK_PROTECTED;
 }
 
 // Leave the exclusive fork window.
 void IndexSpec_UnProtectDiskFork(IndexSpec *sp) {
+  RS_ASSERT(sp->repl_flags & REPL_LOCK_DISK_FORK_PROTECTED);
   pthread_rwlock_unlock(&sp->disk_fork_rwlock);
+  sp->repl_flags &= ~REPL_LOCK_DISK_FORK_PROTECTED;
 }
 
 // Update a term's document count in the Serving Trie

@@ -201,14 +201,11 @@ typedef enum {
   Index_HasNonEmpty = 0x80000,  // Index has at least one field that does not indexes empty values
 } IndexFlags;
 
-// SST replication lock state held by an IndexSpec. The flags are independent
-// and may be combined: PRE_CHECKPOINT sets READ_LOCK_HELD alone; PRE_FORK sets
-// both DISK_FORK_PROTECTED and READ_LOCK_HELD. The replication abort handler
-// clears whichever flags are set.
+// SST replication lock state held by an IndexSpec. PRE_FORK sets
+// DISK_FORK_PROTECTED; POST_FORK and the replication abort handler clear it.
 typedef enum {
   REPL_LOCK_NONE                = 0x00,
-  REPL_LOCK_READ_LOCK_HELD      = 0x01,
-  REPL_LOCK_DISK_FORK_PROTECTED = 0x02,
+  REPL_LOCK_DISK_FORK_PROTECTED = 0x01,
 } ReplicationLockFlags;
 
 // redis version (its here because most file include it with no problem,

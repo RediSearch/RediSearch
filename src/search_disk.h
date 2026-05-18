@@ -149,7 +149,7 @@ RedisSearchDiskRdbState* SearchDisk_LoadRdbToTempObject(RedisModuleIO *rdb);
  * @return Pointer to the created IndexSpec, or NULL on error
  */
 RedisSearchDiskIndexSpec* SearchDisk_OpenIndexWithRdbState(RedisModuleCtx *ctx,
-                                                            const HiddenString *indexName,  
+                                                            const HiddenString *indexName,
                                                             const char *obfuscatedName,
                                                             DocumentType type,
                                                             RedisSearchDiskRdbState *rdbState);
@@ -564,16 +564,6 @@ void SearchDisk_Flush(RedisSearchDiskIndexSpec* index);
  * @param sp Pointer to the IndexSpec (must have a non-NULL diskSpec)
  */
 void SearchDisk_PreCheckpoint(IndexSpec *sp);
-
-/**
- * @brief Master-side SST replication POST_CHECKPOINT hook for a single index.
- *
- * Releases the IndexSpec read lock acquired in SearchDisk_PreCheckpoint.
- * No disk-side hook is invoked.
- *
- * @param sp Pointer to the IndexSpec
- */
-void SearchDisk_PostCheckpoint(IndexSpec *sp);
 
 /**
  * @brief Master-side SST replication PRE_FORK hook for a single index.
