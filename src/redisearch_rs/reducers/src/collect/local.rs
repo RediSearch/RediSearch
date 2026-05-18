@@ -65,6 +65,17 @@ fn prepare_row(
     dst
 }
 
+/// Snapshot sort-key values for heap comparison, preserving absent keys as
+/// `None` so [`cmp_fields`][value::comparison::cmp_fields] can apply its
+/// missing-worst policy.
+fn snapshot_sort_keys(sort_key_names: &[CString], item: &Value) -> Box<[Option<SharedValue>]> {
+    debug_assert!(matches!(item, Value::Map(_) | Value::Array(_)));
+    sort_key_names
+        .iter()
+        .map(|name| get_field(item, name.to_bytes()).cloned())
+        .collect()
+}
+
 /// Counterpart of [`write_item_to_row`] for explicit-list mode.
 fn write_requested_fields(
     dst: &mut RLookupRow<'static>,
@@ -159,7 +170,7 @@ const _: () = assert!(
 /// [`SharedValue`] refcounts.
 pub struct LocalCollectCtx {
     lookup: RLookup<'static>,
-    storage: Storage<RLookupRow<'static>>,
+    storage: Storage,
 }
 
 impl<'a> LocalCollectReducer<'a> {
@@ -201,7 +212,7 @@ impl LocalCollectCtx {
     pub fn new(r: &LocalCollectReducer) -> Self {
         Self {
             lookup: RLookup::new(),
-            storage: Storage::new(!r.sort_key_names.is_empty(), r.limit),
+            storage: Storage::new(!r.sort_key_names.is_empty(), r.limit, r.common.sort_asc_map),
         }
     }
 
@@ -227,8 +238,10 @@ impl LocalCollectCtx {
                 );
                 continue;
             }
-            self.storage
-                .insert_entry(|| prepare_row(&mut self.lookup, r.requested.as_deref(), item));
+            self.storage.insert_entry(
+                || snapshot_sort_keys(&r.sort_key_names, item),
+                || prepare_row(&mut self.lookup, r.requested.as_deref(), item),
+            );
         }
     }
 

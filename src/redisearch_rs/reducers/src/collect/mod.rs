@@ -21,6 +21,7 @@
 //! [`remote`] for per-variant details.
 
 pub(crate) mod common;
+pub mod heap;
 pub mod local;
 pub mod remote;
 pub mod storage;

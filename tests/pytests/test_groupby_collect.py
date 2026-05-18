@@ -1185,8 +1185,8 @@ def test_collect_cluster_load_all_merges_per_row_keys_across_shards():
 
 
 # ---------------------------------------------------------------------------
-# LIMIT dataset: 12 items, all color=red. Shared with the SORTBY tests that
-# will land in a follow-up PR.
+# LIMIT dataset: 12 items, all color=red. Shared by the COLLECT LIMIT and
+# SORTBY+LIMIT tests.
 # ---------------------------------------------------------------------------
 PRICED = [
     {'name': 'alice',   'color': 'red', 'price': 10},
@@ -1213,6 +1213,21 @@ def _setup_priced_json(env):
     conn = getConnectionByEnv(env)
     for i, item in enumerate(PRICED):
         conn.execute_command('JSON.SET', f'doc:{i}', '$', json.dumps(item))
+
+
+def _setup_priced_hash(env, key_for_idx=None):
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH',
+               'SCHEMA',
+               'name',  'TEXT',    'SORTABLE',
+               'color', 'TAG',     'SORTABLE',
+               'price', 'NUMERIC', 'SORTABLE').ok()
+    conn = getConnectionByEnv(env)
+    for i, item in enumerate(PRICED):
+        key = key_for_idx(i) if key_for_idx else f'doc:{i}'
+        conn.execute_command('HSET', key,
+                             'name', item['name'],
+                             'color', item['color'],
+                             'price', str(item['price']))
 
 
 def _names(entries):
@@ -1243,6 +1258,54 @@ def test_collect_limit_without_sortby():
     known = {item['name'] for item in PRICED}
     for e in entries:
         env.assertContains(e['name'], known)
+
+
+# ---------------------------------------------------------------------------
+# LIMIT with SORTBY (heap path): sort first, then apply LIMIT.
+# ---------------------------------------------------------------------------
+@skip(no_json=True)
+def test_collect_sortby_limit_applies_offset_after_sort():
+    env = Env(protocol=3)
+    enable_unstable_features(env)
+    _setup_priced_json(env)
+
+    res = env.cmd(
+        'FT.AGGREGATE', 'idx', '*',
+        'GROUPBY', '1', '@color',
+        'REDUCE', 'COLLECT', '12',
+            'FIELDS', '1', '@name',
+            'SORTBY', '4', '@price', 'DESC', '@name', 'ASC',
+            'LIMIT', '1', '4',
+        'AS', 'names')
+
+    entries = res['results'][0]['extra_attributes']['names']
+    # price DESC, name ASC gives:
+    # charlie(15), dave(15), alice(10), bob(10), eve(8), ...
+    env.assertEqual(_names(entries), ['dave', 'alice', 'bob', 'eve'])
+    for entry in entries:
+        env.assertEqual(set(entry.keys()), {'name'})
+
+
+@skip(cluster=False)
+def test_collect_sortby_limit_merges_global_topk_across_shards():
+    env = Env(shardsCount=3, protocol=3)
+    enable_unstable_features(env)
+    _setup_priced_hash(env, key_for_idx=lambda i: f'doc:{i}{{slot:{i % 3}}}')
+
+    res = env.cmd(
+        'FT.AGGREGATE', 'idx', '*',
+        'GROUPBY', '1', '@color',
+        'REDUCE', 'COLLECT', '10',
+            'FIELDS', '1', '@name',
+            'SORTBY', '2', '@price', 'ASC',
+            'LIMIT', '2', '4',
+        'AS', 'names')
+
+    entries = res['results'][0]['extra_attributes']['names']
+    # Global price ASC is liam(1), kate(2), jack(3), iris(4), henry(5), grace(6).
+    env.assertEqual(_names(entries), ['jack', 'iris', 'henry', 'grace'])
+    for entry in entries:
+        env.assertEqual(set(entry.keys()), {'name'})
 
 
 # ---------------------------------------------------------------------------
