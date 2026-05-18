@@ -42,8 +42,8 @@ impl<Data> RuneTrieMap<Data> {
         }
     }
 
-    pub fn insert(&mut self, key: &[Rune], data: Data) {
-        self.inner.insert(&split_key(key), data);
+    pub fn insert(&mut self, key: &[Rune], data: Data) -> Option<Data> {
+        self.inner.insert(&split_key(key), data)
     }
 
     pub fn insert_with<F>(&mut self, key: &[Rune], f: F)
