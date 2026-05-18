@@ -25,23 +25,33 @@ use std::ffi::c_char;
 
 use ffi::QueryNodeType;
 use index_result::RSIndexResult;
+use ref_mode::{Active, Ref};
 use rqe_core::DocId;
 
 use crate::{
     IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome, UnionFullFlat,
-    UnionFullHeap, UnionQuickFlat, UnionQuickHeap, UnionTrimmed,
     profile_print::{ProfilePrint, ProfilePrintCtx},
+    union_flat::RawUnionFlat,
+    union_heap::RawUnionHeap,
+    union_trimmed::RawUnionTrimmed,
 };
 
 use index_spec::IndexSpecReadGuard;
-/// Enum holding all possible union iterator variants.
-pub enum UnionVariant<'index, I> {
-    FlatFull(UnionFullFlat<'index, I>),
-    FlatQuick(UnionQuickFlat<'index, I>),
-    HeapFull(UnionFullHeap<'index, I>),
-    HeapQuick(UnionQuickHeap<'index, I>),
-    Trimmed(UnionTrimmed<'index, I>),
+
+/// Enum holding all possible union iterator variants, parameterised over a
+/// [`Ref`] mode. See [`UnionVariant`] for the [`Active`] instantiation.
+#[repr(C)]
+pub enum RawUnionVariant<Rf: Ref, I> {
+    FlatFull(RawUnionFlat<Rf, I, false>),
+    FlatQuick(RawUnionFlat<Rf, I, true>),
+    HeapFull(RawUnionHeap<Rf, I, false>),
+    HeapQuick(RawUnionHeap<Rf, I, true>),
+    Trimmed(RawUnionTrimmed<Rf, I>),
 }
+
+/// Alias for an [`Active`] [`RawUnionVariant`] — the only instantiation
+/// with a callable surface today.
+pub type UnionVariant<'index, I> = RawUnionVariant<Active<'index>, I>;
 
 impl<'index, I: RQEIterator<'index>> UnionVariant<'index, I> {
     /// Converts this variant in place to [`UnionVariant::Trimmed`], switching
@@ -99,8 +109,12 @@ macro_rules! delegate_variant_ref_mut {
 
 /// FFI-facing union iterator holding the Rust variant and C-visible metadata
 /// (query node type, query string) used by profile printing.
-pub struct UnionOpaque<'index, I> {
-    pub variant: UnionVariant<'index, I>,
+///
+/// Parameterised over a [`Ref`] mode — see [`UnionOpaque`] for the
+/// [`Active`] instantiation that implements [`RQEIterator`].
+#[repr(C)]
+pub struct RawUnionOpaque<Rf: Ref, I> {
+    pub variant: RawUnionVariant<Rf, I>,
     pub query_node_type: QueryNodeType,
     /// Non-owning pointer to a C string describing the query (e.g. the search
     /// term). May be null.
@@ -111,6 +125,10 @@ pub struct UnionOpaque<'index, I> {
     /// pointer remains valid for the lifetime of this struct.
     pub query_string: *const c_char,
 }
+
+/// Alias for an [`Active`] [`RawUnionOpaque`] — the only instantiation
+/// with an [`RQEIterator`] impl today.
+pub type UnionOpaque<'index, I> = RawUnionOpaque<Active<'index>, I>;
 
 impl<'index, I: RQEIterator<'index>> UnionOpaque<'index, I> {
     /// Set the weight on the union's aggregate result.
