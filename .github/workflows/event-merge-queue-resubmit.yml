@@ -276,31 +276,19 @@ jobs:
           missing_slack_mappings = []
 
           def slack_fields_for(login, label):
-              display_login = login or "unknown"
-              if login:
-                  slack_id = slack_mapping.get(login.lower())
-                  if slack_id and re.fullmatch(r"U[A-Z0-9]+", slack_id):
-                      return display_login, slack_id
-                  if slack_id:
-                      missing_slack_mappings.append(f"{label}: {display_login} has invalid Slack ID")
-                      print(
-                          "::warning::Invalid Slack mapping for "
-                          f"{label} GitHub login '{display_login}'; using fallback Slack user"
-                      )
-                      return (
-                          f"{display_login} (invalid Slack mapping)",
-                          SLACK_MAPPING_FALLBACK_USER_ID,
-                      )
+              slack_id = slack_mapping.get(login.lower())
+              if slack_id:
+                  return login, slack_id
 
-              missing_slack_mappings.append(f"{label}: {display_login}")
+              missing_slack_mappings.append(f"{label}: {login}")
               print(
                   "::warning::Missing Slack mapping for "
-                  f"{label} GitHub login '{display_login}'; using fallback Slack user"
+                  f"{label} GitHub login '{login}'; using fallback Slack user"
               )
-              return f"{display_login} (missing Slack mapping)", SLACK_MAPPING_FALLBACK_USER_ID
+              return f"{login} (missing Slack mapping)", SLACK_MAPPING_FALLBACK_USER_ID
 
 
-          author_login = (pull_request.get("author") or {}).get("login") or ""
+          author_login = pull_request["author"]["login"]
           author_display, author_mention = slack_fields_for(author_login, "author")
           enqueuer_display, enqueuer_mention = slack_fields_for(enqueuer_login, "enqueuer")
 
