@@ -14,7 +14,7 @@ from redis.client import NEVER_DECODE
 from redis import exceptions as redis_exceptions
 import RLTest
 from typing import Any, Callable, List, Dict
-from RLTest import Env
+from RLTest import Env, env_spec
 from RLTest.env import Query
 import numpy as np
 from scipy import spatial
@@ -499,6 +499,10 @@ def skipTestUntil(date_str, reason=None):
 
 def skip(cluster=None, macos=False, asan=False, msan=False, redis_less_than=None, redis_greater_equal=None, min_shards=None, arch=None, gc_no_fork=None, no_json=False):
     def decorate(f):
+        # functools.wraps propagates the wrapped function's __dict__ onto the
+        # wrapper. That's how @env_spec metadata survives the @skip wrap when
+        # the two decorators are stacked.
+        @wraps(f)
         def wrapper():
             if not ((cluster is not None) or macos or asan or msan or redis_less_than or redis_greater_equal or min_shards or no_json):
                 raise SkipTest()
@@ -523,7 +527,10 @@ def skip(cluster=None, macos=False, asan=False, msan=False, redis_less_than=None
             if no_json and not REJSON:
                 raise SkipTest()
             if len(inspect.signature(f).parameters) > 0:
-                env = Env()
+                # Honor a declared @env_spec when constructing the env so the
+                # spec stays load-bearing even when @skip is stacked on top.
+                spec = getattr(f, '_rltest_env_spec', None) or {}
+                env = Env(**spec)
                 return f(env)
             else:
                 return f()
