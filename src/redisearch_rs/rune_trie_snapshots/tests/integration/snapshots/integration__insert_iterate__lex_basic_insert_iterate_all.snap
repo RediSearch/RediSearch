@@ -1,0 +1,13 @@
+---
+source: rune_trie_snapshots/tests/integration/insert_iterate.rs
+expression: dump
+---
+size: 7
+entries:
+  apple       score=1  numDocs=3
+  apricot     score=1.5  numDocs=1
+  banana      score=2  numDocs=5
+  band        score=2.5  numDocs=2
+  bandana     score=1  numDocs=1
+  cherry      score=3  numDocs=4
+  date        score=1  numDocs=1
