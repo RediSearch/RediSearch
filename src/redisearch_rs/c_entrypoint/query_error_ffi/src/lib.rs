@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::ffi::{CStr, CString, c_char};
+use std::ffi::{CStr, c_char};
 
 use query_error::{QueryError, opaque::OpaqueQueryError};
 
@@ -178,15 +178,8 @@ pub unsafe extern "C" fn QueryError_SetError(
     } else {
         // Safety: see safety requirement above.
         let msg = unsafe { CStr::from_ptr(message) };
-        let public_message = msg.to_owned();
-
-        // Prepend the error prefix to form the private message.
-        let prefix = code.prefix_c_str().to_str().unwrap_or("");
         let msg_str = msg.to_str().unwrap_or("");
-        let prefixed = format!("{prefix}{msg_str}");
-        let private_message = CString::new(prefixed).unwrap_or_else(|_| public_message.clone());
-
-        query_error.set_code_and_messages(code, Some(public_message), Some(private_message));
+        query_error.set_error(code, msg_str);
     };
 }
 

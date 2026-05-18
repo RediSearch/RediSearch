@@ -13,6 +13,7 @@ use ffi::t_docId;
 use inverted_index::RSIndexResult;
 
 use crate::{IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
+use index_spec::IndexSpecReadGuard;
 
 /// A child iterator paired with its original insertion index.
 ///
@@ -505,9 +506,9 @@ where
         self.is_eof
     }
 
-    unsafe fn revalidate(
+    fn revalidate(
         &mut self,
-        spec: std::ptr::NonNull<ffi::IndexSpec>,
+        spec: &IndexSpecReadGuard,
     ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         // Already at EOF - nothing to do
         if self.is_eof {
@@ -522,8 +523,7 @@ where
         // We use index-based iteration because we need to remove elements while iterating.
         let mut i = 0;
         while i < self.children.len() {
-            // SAFETY: Delegating to child with the same `spec` passed by our caller.
-            match unsafe { self.children[i].revalidate(spec) }? {
+            match self.children[i].revalidate(spec)? {
                 RQEValidateStatus::Aborted => {
                     // Remove aborted child using swap_remove for O(1) removal.
                     // Order doesn't matter for union iteration.

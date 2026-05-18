@@ -9,6 +9,7 @@
 #define REDISMODULE_MAIN
 
 #include <assert.h>
+#include "triemap_ffi.h"
 #include <stdio.h>
 #include <string.h>
 #include <sys/param.h>
@@ -48,7 +49,7 @@
 #include "geometry/geometry_api.h"
 #include "reply.h"
 #include "resp3.h"
-#include "query_error.h"
+#include "query_error_ffi.h"
 #include "coord/rmr/rmr.h"
 #include "shard_window_ratio.h"
 
@@ -81,7 +82,7 @@
 #include "util/redis_mem_info.h"
 #include "notifications.h"
 #include "aggregate/reply_empty.h"
-#include "module_init.h"
+#include "module_init_ffi.h"
 #include "asm_state_machine.h"
 #include "config.h"
 #ifdef ENABLE_ASSERT
@@ -1142,7 +1143,7 @@ static int AliasUpdateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int
   }
   int rc = 0;
   if (aliasAddCommon(ctx, argv, argc, &status, false) != REDISMODULE_OK) {
-    // Add back the previous index. this shouldn't fail
+    // Add back the previous index. This shouldn't fail
     if (spOrig) {
       QueryError e2 = QueryError_Default();
       IndexAlias_Add(alias, Orig_ref, 0, &e2);
@@ -1155,6 +1156,41 @@ static int AliasUpdateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int
   }
   HiddenString_Free(alias, false);
   return rc;
+}
+
+// FT.ALIASLIST <index>
+// Returns all aliases for the given index.
+// Only accepts index names, not aliases (INDEXSPEC_LOAD_NOALIAS).
+int AliasListCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  if (argc != 2) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  IndexLoadOptions lOpts = {.nameR = argv[1],
+                            .flags = INDEXSPEC_LOAD_NOALIAS | INDEXSPEC_LOAD_KEY_RSTRING};
+  StrongRef ref = IndexSpec_LoadUnsafeEx(&lOpts);
+  IndexSpec *sp = StrongRef_Get(ref);
+  if (!sp) {
+    const char *idx = RedisModule_StringPtrLen(argv[1], NULL);
+    return RedisModule_ReplyWithErrorFormat(ctx, "%s: %s", QueryError_Strerror(QUERY_ERROR_CODE_NO_INDEX), idx);
+  }
+
+  if (!ACLUserMayAccessIndex(ctx, sp)) {
+    return RedisModule_ReplyWithError(ctx, NOPERM_ERR);
+  }
+
+  CurrentThread_SetIndexSpec(sp->own_ref);
+
+  size_t count = array_len(sp->aliases);
+  RedisModule_ReplyWithSet(ctx, count);
+  for (size_t i = 0; i < count; i++) {
+    size_t len;
+    const char *alias = HiddenString_GetUnsafe(sp->aliases[i], &len);
+    RedisModule_ReplyWithStringBuffer(ctx, alias, len);
+  }
+
+  CurrentThread_ClearIndexSpec();
+  return REDISMODULE_OK;
 }
 
 int ConfigCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
@@ -1775,6 +1811,7 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx) {
     DEFINE_COMMAND(CMD_FOR_ENV(RS_ALIASUPDATE),        AliasUpdateCommand,            "write deny-oom",   SetFtAliasupdateInfo,         SET_COMMAND_INFO,       "",  true, indexOnlyCmdArgs, !enterprise),
     DEFINE_COMMAND(CMD_FOR_ENV(RS_ALIASDEL),           AliasDelCommand,               "write",            SetFtAliasdelInfo,            SET_COMMAND_INFO,       "",  true, indexOnlyCmdArgs, !enterprise),
     DEFINE_COMMAND(CMD_FOR_ENV(RS_ALIASDEL_IF_X),      AliasDelIfExCommand,           "write",            SetFtAliasdelInfo,            SET_COMMAND_INFO,       "",  true, indexOnlyCmdArgs, !enterprise),
+    DEFINE_COMMAND(RS_ALIASLIST_CMD,                   AliasListCommand,              "readonly",         SetFtAliaslistInfo,           SET_COMMAND_INFO,       "",  true, indexOnlyCmdArgs, false),
 
     // Suggestion commands key specs should be 1, 1, 1
     DEFINE_COMMAND(RS_SUGADD_CMD,     DiskDisabledCmd(RSSuggestAddCommand), "write deny-oom", SetFtSugaddInfo, SET_COMMAND_INFO, "write", true, indexSugCmdArgs, false),
@@ -3644,6 +3681,7 @@ int RSAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 int DistAggregateReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 int DistAggregateTimeoutFailClient(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 int DistAggregateTimeoutReturnStrictClient(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
+int DistCursorReadTimeoutReturnStrictClient(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
 // Free privdata callback for distributed aggregate and hybrid query
 static void DistCoordReqFreePrivData(RedisModuleCtx *ctx, void *privdata) {
@@ -3902,19 +3940,20 @@ static inline int CursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, i
   handlerCtx.spec_ref = (WeakRef){0};
 
   // On coord+READ, peek the cursor's cached timeout config so coord and shard
-  // stay aligned across changes to the `search-on-timeout` config. A valid-format
-  // CID with no registered cursor returns defaults (timeoutMS=0, policy=Return)
-  // and is reported by RSCursorReadCommand on the worker.
+  // stay aligned across changes to the `search-on-timeout` config. Reject
+  // malformed/unknown CIDs on the main thread so the RETURN_STRICT timer can
+  // later trust argv[3] without re-peeking.
   if (sub == CURSOR_SUBCMD_READ) {
     long long cid;
     if (RedisModule_StringToLongLong(argv[3], &cid) != REDISMODULE_OK) {
-      // Reject malformed CID on the main thread so the worker never hits
-      // "Bad cursor ID" with a reply_callback armed.
       return RedisModule_ReplyWithError(ctx, "Bad cursor ID");
     }
     CursorTimeoutInfo info =
         Cursors_PeekTimeoutInfo(GetGlobalCursor((uint64_t)cid), (uint64_t)cid);
-    if (info.queryTimeoutPolicy == TimeoutPolicy_Fail) {
+    if (!info.found) {
+      return RedisModule_ReplyWithErrorFormat(ctx, "Cursor not found, id: %lld", cid);
+    }
+    if (info.queryTimeoutPolicy != TimeoutPolicy_Return) {
 #ifdef ENABLE_ASSERT
       // _FT.HYBRID WITHCURSOR is read via _FT.CURSOR READ, bypassing CursorCommand.
       RS_ASSERT(!info.isHybrid);
@@ -3923,9 +3962,14 @@ static inline int CursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, i
       handlerCtx.bcCtx.privdata = reqCtx;
       handlerCtx.bcCtx.free_privdata = DistCoordReqFreePrivData;
       handlerCtx.bcCtx.reply_callback = DistAggregateReplyCallback;
-      handlerCtx.bcCtx.timeout_callback = DistAggregateTimeoutFailClient;
       handlerCtx.bcCtx.timeoutMS = info.queryTimeoutMS;
       CoordRequestCtx_SetUseReplyCallback(reqCtx, true);
+      if (info.queryTimeoutPolicy == TimeoutPolicy_Fail) {
+        handlerCtx.bcCtx.timeout_callback = DistAggregateTimeoutFailClient;
+      } else {
+        handlerCtx.bcCtx.timeout_callback = DistCursorReadTimeoutReturnStrictClient;
+        CoordRequestCtx_SetCursorReadReturnStrict(reqCtx, true);
+      }
     }
   }
 
@@ -3990,7 +4034,6 @@ int TagValsCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
   if (argc < 3) {
     return RedisModule_WrongArity(ctx);
   } else if (!SearchCluster_Ready()) {
-    // Check that the cluster state is valid
     return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
   }
   RS_AutoMemory(ctx);
@@ -4005,12 +4048,12 @@ int TagValsCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
 
   MRCommand cmd = MR_NewCommandFromRedisStrings(argc, argv);
   MRCommand_SetProtocol(&cmd, ctx);
-  /* Replace our own FT command with _FT. command */
   MRCommand_SetPrefix(&cmd, "_FT");
 
   MR_Fanout(MR_CreateCtx(ctx, 0, NULL, NumShards), uniqueStringsReducer, cmd, true);
   return REDISMODULE_OK;
 }
+
 
 int InfoCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (argc != 2) {

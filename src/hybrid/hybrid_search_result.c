@@ -8,9 +8,10 @@
 */
 
 #include "result_processor.h"
+#include "search_result_ffi.h"
 #include "hybrid_search_result.h"
 #include "rmutil/alloc.h"
-#include "query_error.h"
+#include "query_error_ffi.h"
 #include "score_explain.h"
 #include "hybrid_scoring.h"
 #include <string.h>

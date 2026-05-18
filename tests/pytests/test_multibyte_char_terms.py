@@ -1594,33 +1594,59 @@ def test_utf8_lowercase_longer_than_uppercase_texts(env):
             'FT.SEARCH', 'idx', f'@t:({t1_lower})', 'NOCONTENT', 'DIALECT', dialect)
         env.assertEqual(res, expected_2, message=f'Dialect: {dialect}')
 
-# The following code points are not supported by Unicode 9.0.0
-# Reference https://www.unicode.org/Public/9.0.0/ucd/UnicodeData.txt
-UNSUPPORTED_UNICODE_9_0_0_CODEPOINTS = set(range(0x1C90, 0x1D00))
-UNSUPPORTED_UNICODE_9_0_0_CODEPOINTS.add(0x1C89)  # Cyrillic Capital Letter TJE (post-9.0)
-UNSUPPORTED_UNICODE_9_0_0_CODEPOINTS.add(0x2C2F)
-UNSUPPORTED_UNICODE_9_0_0_CODEPOINTS.update(range(0xA7B8, 0xA7F7))
+# Codepoints where libnu (currently 1.11, Unicode 12.0 baseline plus
+# partial Unicode 13.0 additions; see NU_UNICODE_VERSION in
+# deps/libnu/defines.h) returns no casemap, for any of the following
+# reasons:
+#   - structurally invalid: surrogates (U+D800..U+DFFF) and noncharacters
+#     (U+FDD0..U+FDEF, U+xFFFE, U+xFFFF in every plane)
+#   - unassigned in libnu's Unicode tables: positions not yet allocated
+#     at Unicode 12, plus most Unicode 13 additions and everything from
+#     Unicode 14 onwards (libnu 1.11 is the latest upstream tag and has
+#     not been refreshed since 2020)
+#   - assigned but caseless: scripts without case distinction
+# This set is the test's allow-list of "no-fold expected"; every other
+# codepoint must round-trip through nu_tofold/nu_tolower.
+# Reference https://www.unicode.org/Public/12.0.0/ucd/UnicodeData.txt
+LIBNU_FOLD_GAPS = {0x1CBB, 0x1CBC}  # Mtavruli gaps (unassigned)
+LIBNU_FOLD_GAPS.add(0x1C89)  # Cyrillic Capital Letter TJE (post-9.0)
+LIBNU_FOLD_GAPS.add(0x2C2F)
+LIBNU_FOLD_GAPS.update(range(0xA7B9, 0xA7F7))
+# Latin Extended-D pairs that libnu does fold (and so must be removed
+# from the gap set), tracked by the libnu version that added them:
+#   libnu 1.10 (Unicode 12.0 baseline): Glottal A/I/U pairs (A7BA-A7BF),
+#   Anglicana W pair (A7C2/A7C3), and three more capitals whose lowercase
+#   live elsewhere (A7C4/A7C5/A7C6).
+#   libnu 1.11 (still Unicode 12.0 baseline, plus partial Unicode 13.0
+#   additions): adds A7C7, A7C9, A7F5.
+# A7C0/A7C1 are Unicode 14.0+ and remain in the gap set.
+LIBNU_FOLD_GAPS.difference_update(
+    {0xA7BA, 0xA7BB, 0xA7BC, 0xA7BD, 0xA7BE, 0xA7BF,
+     0xA7C2, 0xA7C3, 0xA7C4, 0xA7C5, 0xA7C6,
+     0xA7C7, 0xA7C9, 0xA7F5})
 # Surrogate pairs (always invalid in Unicode)
-UNSUPPORTED_UNICODE_9_0_0_CODEPOINTS.update(range(0xD800, 0xE000))
+LIBNU_FOLD_GAPS.update(range(0xD800, 0xE000))
 
 # Noncharacters in BMP
-UNSUPPORTED_UNICODE_9_0_0_CODEPOINTS.update(range(0xFDD0, 0xFDF0))
-UNSUPPORTED_UNICODE_9_0_0_CODEPOINTS.add(0xFFFE)
-UNSUPPORTED_UNICODE_9_0_0_CODEPOINTS.add(0xFFFF)
+LIBNU_FOLD_GAPS.update(range(0xFDD0, 0xFDF0))
+LIBNU_FOLD_GAPS.add(0xFFFE)
+LIBNU_FOLD_GAPS.add(0xFFFF)
 
-UNSUPPORTED_UNICODE_9_0_0_CODEPOINTS.update(range(0x10570, 0x10600))
-UNSUPPORTED_UNICODE_9_0_0_CODEPOINTS.update(range(0x10D40, 0x10D90))  # Garay script (Unicode 16.0)
-UNSUPPORTED_UNICODE_9_0_0_CODEPOINTS.update(range(0x16B90, 0x16F00))
+LIBNU_FOLD_GAPS.update(range(0x10570, 0x10600))
+LIBNU_FOLD_GAPS.update(range(0x10D40, 0x10D90))  # Garay script (Unicode 16.0)
+# Tangut Components, Khitan Small, etc. minus Medefaidrin upper (0x16E40..0x16E5F, Unicode 11.0)
+LIBNU_FOLD_GAPS.update(range(0x16B90, 0x16E40))
+LIBNU_FOLD_GAPS.update(range(0x16E60, 0x16F00))
 
 # Noncharacters in each plane
 for plane in range(0x10000, 0x110000, 0x10000):
-    UNSUPPORTED_UNICODE_9_0_0_CODEPOINTS.add(plane + 0xFFFE)
-    UNSUPPORTED_UNICODE_9_0_0_CODEPOINTS.add(plane + 0xFFFF)
+    LIBNU_FOLD_GAPS.add(plane + 0xFFFE)
+    LIBNU_FOLD_GAPS.add(plane + 0xFFFF)
 
-# Unassigned supplementary planes (as of Unicode 9.0.0)
-UNSUPPORTED_UNICODE_9_0_0_CODEPOINTS.update(range(0x2FA1E, 0xE0000))
-UNSUPPORTED_UNICODE_9_0_0_CODEPOINTS.update(range(0xE0080, 0xE0100))
-UNSUPPORTED_UNICODE_9_0_0_CODEPOINTS.update(range(0xE01F0, 0x10FFFE))
+# Unassigned supplementary planes (as of Unicode 13.0)
+LIBNU_FOLD_GAPS.update(range(0x2FA1E, 0xE0000))
+LIBNU_FOLD_GAPS.update(range(0xE0080, 0xE0100))
+LIBNU_FOLD_GAPS.update(range(0xE01F0, 0x10FFFE))
 
 
 @skip(cluster=True)
@@ -1662,7 +1688,7 @@ def testToLowerConversionExactMatch(env):
                 query_u = f'@t:{{{upper_term}}}'
                 query_l = f'@t:{{{lower_term}}}'
 
-            if codepoint in UNSUPPORTED_UNICODE_9_0_0_CODEPOINTS:
+            if codepoint in LIBNU_FOLD_GAPS:
                 # For unsupported codepoints, different terms are created
                 # for upper and lower case, so the search will return
                 # a single result for each case.
@@ -1684,7 +1710,7 @@ def testToLowerConversionExactMatch(env):
 def testTagToLowerConversionSimilarMatch(env):
     '''Test that tolower conversion works correctly for all unicode characters
     when using TAG fields and running a query with a prefix, infix or suffix.
-    This test skips characters not supported by Unicode 9.0.0.
+    This test skips characters that libnu does not fold (see LIBNU_FOLD_GAPS).
     It also skips lowercase characters, because the tolower conversion
     is not expected to change them.
     The test creates a document with a term that contains a single unicode
@@ -1698,7 +1724,7 @@ def testTagToLowerConversionSimilarMatch(env):
     idx = 'idx_tag'
     error = False
     for codepoint in range(0x110000):  # Unicode range from U+0000 to U+10FFFF
-        if codepoint in UNSUPPORTED_UNICODE_9_0_0_CODEPOINTS:
+        if codepoint in LIBNU_FOLD_GAPS:
             # Skip unsupported codepoints:
             continue
 
@@ -1739,7 +1765,7 @@ def testTagToLowerConversionSimilarMatch(env):
 def testTextToLowerConversionSimilarMatch(env):
     '''Test that tolower conversion works correctly for all unicode characters
     when using TEXT fields and running a query with a prefix, infix or suffix.
-    This test skips characters not supported by Unicode 9.0.0..
+    This test skips characters that libnu does not fold (see LIBNU_FOLD_GAPS).
     It also skips lowercase characters, because the tolower conversion
     is not expected to change them.
     The test creates a document with a term that contains a single unicode
@@ -1752,7 +1778,7 @@ def testTextToLowerConversionSimilarMatch(env):
     idx = 'idx_txt'
     for codepoint in range(0x110000):  # Unicode range from U+0000 to U+10FFFF
         # Skip unsupported codepoints:
-        if codepoint in UNSUPPORTED_UNICODE_9_0_0_CODEPOINTS:
+        if codepoint in LIBNU_FOLD_GAPS:
             continue
 
         char = chr(codepoint)

@@ -8,21 +8,25 @@
 */
 
 #include "commands.h"
+#include "types_ffi.h"
 #include "debug_commands.h"
 #include "coord/debug_command_names.h"
 #include "VecSim/vec_sim_debug.h"
 #include "inverted_index.h"
 #include "redis_index.h"
-#include "redisearch_rs/headers/numeric_range_tree.h"
+#include "numeric_range_tree.h"
+#include "inverted_index_ffi.h"
 #include "tag_index.h"
-#include "redisearch_rs/headers/iterators_rs.h"
+#include "iterators_ffi.h"
+#include "numeric_range_tree_ffi.h"
+#include "sorting_vector_ffi.h"
 #include "geometry/geometry_api.h"
 #include "geometry_index.h"
 #include "phonetic_manager.h"
 #include "gc.h"
 #include "module.h"
 #include "suffix.h"
-#include "triemap.h"
+#include "triemap_ffi.h"
 #include "util/workers.h"
 #include "cursor.h"
 #include "module.h"
@@ -36,7 +40,7 @@
 #include "info/info_command.h"
 #include "search_disk.h"
 #include "ext/debug_scorers.h"
-#include "query_error.h"
+#include "query_error_ffi.h"
 #include "doc_id_meta.h"
 #include "coord/rmr/rmr.h"
 
@@ -344,6 +348,16 @@ bool HybridStoreCursorsDebugCtx_IsPaused(void) {
 void HybridStoreCursorsDebugCtx_SetPause(bool pause) {
   atomic_store(&globalHybridStoreCursorsDebugCtx.pause, pause);
 }
+
+static atomic_uint_fast64_t g_coordReqCtxFreeCount = 0;
+
+void CoordReqCtxFreeDebug_Increment(void) {
+  atomic_fetch_add_explicit(&g_coordReqCtxFreeCount, 1, memory_order_relaxed);
+}
+
+uint64_t CoordReqCtxFreeDebug_GetCount(void) {
+  return atomic_load_explicit(&g_coordReqCtxFreeCount, memory_order_relaxed);
+}
 #endif
 
 void validateDebugMode(DebugCTX *debugCtx) {
@@ -545,7 +559,7 @@ DEBUG_COMMAND(DumpInvertedIndex) {
     RedisModule_ReplyWithError(sctx->redisCtx, "Can not find the inverted index");
     goto end;
   }
-  decoderCtx = (IndexDecoderCtx){.field_mask_tag = IndexDecoderCtx_FieldMask, .field_mask = RS_FIELDMASK_ALL};
+  decoderCtx = (IndexDecoderCtx){.fieldmask_tag = IndexDecoderCtx_FieldMask, .fieldmask = RS_FIELDMASK_ALL};
   reader = NewIndexReader(invidx, decoderCtx);
   res = NewTokenRecord(NULL, 1);
   res->freq = 1;
@@ -744,7 +758,7 @@ DEBUG_COMMAND(DumpTagIndex) {
   while (TrieMapIterator_Next(iter, &tag, &len, (void **)&iv)) {
     RedisModule_ReplyWithArray(sctx->redisCtx, 2);
     RedisModule_ReplyWithStringBuffer(sctx->redisCtx, tag, len);
-    IndexDecoderCtx decoderCtx = {.field_mask_tag = IndexDecoderCtx_FieldMask, .field_mask = RS_FIELDMASK_ALL};
+    IndexDecoderCtx decoderCtx = {.fieldmask_tag = IndexDecoderCtx_FieldMask, .fieldmask = RS_FIELDMASK_ALL};
     IndexReader *reader = NewIndexReader(iv, decoderCtx);
     RSIndexResult *res = NewTokenRecord(NULL, 1);
     res->freq = 1;
@@ -1235,6 +1249,11 @@ DEBUG_COMMAND(setMonitorExpiration) {
     return RedisModule_ReplyWithError(ctx, "Can't set both fields and not-fields");
   }
 
+  // Note: enabling these per-spec flags only takes effect when
+  // RSGlobalConfig.monitorExpiration is also true. The keyspace-notification
+  // fast path (Indexes_UpdateMatchingDocExpiration) early-returns on the
+  // global flag, so a spec-level override to "on" is a no-op while the
+  // global config is "off".
   if (options.docs || options.notDocs) {
     sp->monitorDocumentExpiration = options.docs && !options.notDocs;
   }
@@ -1384,7 +1403,7 @@ DEBUG_COMMAND(InfoTagIndex) {
 
     if (options.dumpIdEntries) {
       RedisModule_ReplyWithLiteral(ctx, "entries");
-      IndexDecoderCtx decoderCtx = {.field_mask_tag = IndexDecoderCtx_FieldMask, .field_mask = RS_FIELDMASK_ALL};
+      IndexDecoderCtx decoderCtx = {.fieldmask_tag = IndexDecoderCtx_FieldMask, .fieldmask = RS_FIELDMASK_ALL};
       IndexReader *reader = NewIndexReader(iv, decoderCtx);
       RSIndexResult *res = NewTokenRecord(NULL, 1);
       res->freq = 1;
@@ -1596,6 +1615,20 @@ DEBUG_COMMAND(DeleteCursors) {
   RedisModule_Log(ctx, "warning", "Deleting local cursors!");
   CursorList_Empty(&g_CursorsList);
   RedisModule_Log(ctx, "warning", "Done deleting local cursors.");
+  return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
+
+DEBUG_COMMAND(DeleteCoordCursors) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc != 2) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  RedisModule_Log(ctx, "warning", "Deleting local coord cursors!");
+  CursorList_Empty(&g_CursorsListCoord);
+  RedisModule_Log(ctx, "warning", "Done deleting local coord cursors.");
   return RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
 
@@ -2414,6 +2447,20 @@ DEBUG_COMMAND(getCoordReduceCount) {
 }
 
 /**
+ * FT.DEBUG QUERY_CONTROLLER GET_COORD_REQ_CTX_FREE_COUNT
+ */
+DEBUG_COMMAND(getCoordReqCtxFreeCount) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc != 2) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  return RedisModule_ReplyWithLongLong(ctx, (long long)CoordReqCtxFreeDebug_GetCount());
+}
+
+/**
  * FT.DEBUG QUERY_CONTROLLER SET_PAUSE_AFTER_AGGREGATE_RESULT <N>
  * AGGREGATE_RESULTS_NO_PAUSE (0): no pause
  * N>0: pause after the Nth result is extracted from the AggregateResults loop
@@ -2852,6 +2899,9 @@ DEBUG_COMMAND(queryController) {
   if (!strcmp("GET_COORD_REDUCE_COUNT", op)) {
     return getCoordReduceCount(ctx, argv + 1, argc - 1);
   }
+  if (!strcmp("GET_COORD_REQ_CTX_FREE_COUNT", op)) {
+    return getCoordReqCtxFreeCount(ctx, argv + 1, argc - 1);
+  }
   // AggregateResults loop pause commands
   if (!strcmp("SET_PAUSE_AFTER_AGGREGATE_RESULT", op)) {
     return setPauseAfterAggregateResult(ctx, argv + 1, argc - 1);
@@ -3157,6 +3207,7 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {"TTL_EXPIRE", ttlExpire},
                                {"VECSIM_INFO", VecsimInfo},
                                {"DELETE_LOCAL_CURSORS", DeleteCursors},
+                               {"DELETE_LOCAL_COORD_CURSORS", DeleteCoordCursors},
                                {"DUMP_HNSW", dumpHNSWData},
                                {"SET_MONITOR_EXPIRATION", setMonitorExpiration},
                                {"WORKERS", WorkerThreadsSwitch},

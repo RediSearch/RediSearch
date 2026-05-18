@@ -7,9 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::ptr::NonNull;
-
 use ffi::t_docId;
+use index_spec::IndexSpecReadGuard;
 use inverted_index::{
     DecodedBy, DocIdsDecoder, IndexReaderCore, RSIndexResult, opaque::OpaqueEncoding,
 };
@@ -75,18 +74,18 @@ where
     /// 1. `spec.existingDocs`, when non-null, must point to an opaque
     ///    [`InvertedIndex`](inverted_index::InvertedIndex) whose encoding
     ///    variant matches `E`.
-    unsafe fn should_abort(&self, spec: &ffi::IndexSpec) -> bool {
+    fn should_abort(&self, spec: &IndexSpecReadGuard) -> bool {
         let existing_docs = spec
-            .existingDocs
+            .existing_docs()
             .cast::<inverted_index::opaque::InvertedIndex>();
         if existing_docs.is_null() {
             // the garbage collector may set existing_docs to NULL after garbage collecting all documents
             return true;
         }
 
-        // SAFETY: 1. guarantees `existingDocs` is valid when non-null, and we just checked it's not null.
+        // SAFETY: spec.existing_docs() returns a valid pointer when non-null, and we just checked it's not null.
         let existing_docs = unsafe { &*existing_docs };
-        // SAFETY: 1. guarantees the encoding variant matches E.
+        // SAFETY: The encoding variant matches E (structural invariant).
         let ii = E::from_opaque(existing_docs);
 
         !self.it.reader.points_to_ii(ii)
@@ -142,22 +141,17 @@ where
     }
 
     #[inline(always)]
-    unsafe fn revalidate(
+    fn revalidate(
         &mut self,
-        spec: NonNull<ffi::IndexSpec>,
+        spec: &IndexSpecReadGuard,
     ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        // SAFETY: The caller guarantees `spec` points to a valid `IndexSpec`
-        // while the spec read lock is held.
-        let spec_ref = unsafe { spec.as_ref() };
-        // SAFETY: `spec_ref` satisfies `should_abort`'s safety requirements.
         // The existingDocs encoding match is a structural invariant: the
         // encoding is determined at index creation and cannot change.
-        if unsafe { self.should_abort(spec_ref) } {
+        if self.should_abort(spec) {
             return Ok(RQEValidateStatus::Aborted);
         }
 
-        // SAFETY: Delegating to inner iterator with the same `spec` passed by our caller.
-        unsafe { self.it.revalidate(spec) }
+        self.it.revalidate(spec)
     }
 
     #[inline(always)]

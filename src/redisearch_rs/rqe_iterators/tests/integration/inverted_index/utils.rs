@@ -496,17 +496,15 @@ impl RevalidateTest {
     where
         I: for<'iterator> RQEIterator<'index>,
     {
-        // SAFETY: test-only call with valid context
-        assert_eq!(
-            unsafe { it.revalidate(self.context.spec) }.expect("revalidate failed"),
-            RQEValidateStatus::Ok
-        );
+        let status = it
+            .revalidate(&*self.context.spec_read())
+            .expect("revalidate failed");
+        assert_eq!(status, RQEValidateStatus::Ok);
         assert!(matches!(it.read(), Ok(Some(_))));
-        // SAFETY: test-only call with valid context
-        assert_eq!(
-            unsafe { it.revalidate(self.context.spec) }.expect("revalidate failed"),
-            RQEValidateStatus::Ok
-        );
+        let status = it
+            .revalidate(&*self.context.spec_read())
+            .expect("revalidate failed");
+        assert_eq!(status, RQEValidateStatus::Ok);
     }
 
     /// test revalidation functionality when iterator is at EOF
@@ -517,11 +515,10 @@ impl RevalidateTest {
         // Read all documents to reach EOF
         while let Some(_record) = it.read().expect("failed to read") {}
         assert!(it.at_eof());
-        // SAFETY: test-only call with valid context
-        assert_eq!(
-            unsafe { it.revalidate(self.context.spec) }.expect("revalidate failed"),
-            RQEValidateStatus::Ok
-        );
+        let status = it
+            .revalidate(&*self.context.spec_read())
+            .expect("revalidate failed");
+        assert_eq!(status, RQEValidateStatus::Ok);
     }
 
     /// Remove the document with the given id from the inverted index.
@@ -575,11 +572,10 @@ impl RevalidateTest {
     ) where
         I: for<'iterator> RQEIterator<'index>,
     {
-        // SAFETY: test-only call with valid context
-        assert_eq!(
-            unsafe { it.revalidate(self.context.spec) }.expect("revalidate failed"),
-            RQEValidateStatus::Ok
-        );
+        let status = it
+            .revalidate(&*self.context.spec_read())
+            .expect("revalidate failed");
+        assert_eq!(status, RQEValidateStatus::Ok);
 
         // First, read a few documents to establish a position
         let doc = it
@@ -604,37 +600,35 @@ impl RevalidateTest {
         assert_eq!(it.current().unwrap().doc_id, self.doc_ids[2]);
 
         // Nothing changed in the index so revalidate does nothing
-        // SAFETY: test-only call with valid context
-        assert_eq!(
-            unsafe { it.revalidate(self.context.spec) }.expect("revalidate failed"),
-            RQEValidateStatus::Ok
-        );
+        let status = it
+            .revalidate(&*self.context.spec_read())
+            .expect("revalidate failed");
+        assert_eq!(status, RQEValidateStatus::Ok);
 
         // Remove an element before the current iteration position.
         self.remove_document(ii, self.doc_ids[0]);
-        // SAFETY: test-only call with valid context
-        assert_eq!(
-            unsafe { it.revalidate(self.context.spec) }.expect("revalidate failed"),
-            RQEValidateStatus::Ok
-        );
+        let status = it
+            .revalidate(&*self.context.spec_read())
+            .expect("revalidate failed");
+        assert_eq!(status, RQEValidateStatus::Ok);
         assert_eq!(it.last_doc_id(), self.doc_ids[2]);
         assert_eq!(it.current().unwrap().doc_id, self.doc_ids[2]);
 
         // Remove an element after the current iteration position.
         self.remove_document(ii, self.doc_ids[4]);
-        // SAFETY: test-only call with valid context
-        assert_eq!(
-            unsafe { it.revalidate(self.context.spec) }.expect("revalidate failed"),
-            RQEValidateStatus::Ok
-        );
+        let status = it
+            .revalidate(&*self.context.spec_read())
+            .expect("revalidate failed");
+        assert_eq!(status, RQEValidateStatus::Ok);
         assert_eq!(it.last_doc_id(), self.doc_ids[2]);
         assert_eq!(it.current().unwrap().doc_id, self.doc_ids[2]);
 
         // Remove the element at the current position of the iterator.
         // When validating we won't be able to skip to this element, so we should get RQEValidateStatus::Moved.
         self.remove_document(ii, self.doc_ids[2]);
-        // SAFETY: test-only call with valid context
-        let res = unsafe { it.revalidate(self.context.spec) }.expect("revalidate failed");
+        let res = it
+            .revalidate(&*self.context.spec_read())
+            .expect("revalidate failed");
         let current_doc = match res {
             RQEValidateStatus::Moved {
                 current: Some(current),
@@ -668,8 +662,9 @@ impl RevalidateTest {
 
         self.remove_document(ii, last_doc_id);
         // revalidate should return Moved without current doc and be at EOF.
-        // SAFETY: test-only call with valid context
-        let res = unsafe { it.revalidate(self.context.spec) }.expect("revalidate failed");
+        let res = it
+            .revalidate(&*self.context.spec_read())
+            .expect("revalidate failed");
         assert!(matches!(res, RQEValidateStatus::Moved { current: None }));
         assert!(it.at_eof());
     }

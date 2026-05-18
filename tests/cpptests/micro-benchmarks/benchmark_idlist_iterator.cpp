@@ -14,7 +14,7 @@
 #include <vector>
 
 #include "iterators/iterator_api.h"
-#include "iterators_rs.h"
+#include "iterators_ffi.h"
 
 class BM_IdListIterator : public benchmark::Fixture {
 public:

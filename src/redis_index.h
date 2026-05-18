@@ -10,11 +10,12 @@
 #define __REDIS_INDEX__
 
 #include "document.h"
-#include "inverted_index.h"
 #include "search_ctx.h"
 #include "concurrent_ctx.h"
 #include "spec.h"
 #include "iterators/iterator_api.h"
+
+typedef struct InvertedIndex InvertedIndex;
 
 #ifdef __cplusplus
 extern "C" {

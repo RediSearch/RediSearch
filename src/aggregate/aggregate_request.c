@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "aggregate.h"
+#include "search_result_ffi.h"
 #include "reducer.h"
 
 #include <cursor.h>
@@ -25,10 +26,11 @@
 #include "obfuscation/hidden.h"
 #include "hybrid/vector_query_utils.h"
 #include "vector_index.h"
-#include "slots_tracker.h"
+#include "slots_tracker_ffi.h"
 #include "asm_state_machine.h"
 #include "coord/rmr/command.h"
 #include "coord/rmr/chan.h"
+#include "coord/rpnet.h"
 #include "search_disk.h"
 #include "search_disk_utils.h"
 #include "doc_id_meta.h"
@@ -1134,11 +1136,16 @@ void AREQ_WaitForAggregateResultsComplete(AREQ *req) {
   pthread_mutex_unlock(&req->syncCtx.aggregateResultsLock);
 }
 
-void AREQ_ResetAggregateResultsClaim(AREQ *req) {
+void AREQ_ResetForCursorReadReturnStrict(AREQ *req) {
   atomic_store_explicit(&req->syncCtx.aggregatingResults, false, memory_order_release);
   pthread_mutex_lock(&req->syncCtx.aggregateResultsLock);
   req->syncCtx.aggregateResultsDone = false;
   pthread_mutex_unlock(&req->syncCtx.aggregateResultsLock);
+  atomic_store_explicit(&req->syncCtx.timedOut, false, memory_order_release);
+  ResultProcessor *root = AREQ_QueryProcessingCtx(req)->rootProc;
+  if (root && root->type == RP_NETWORK) {
+    ((RPNet *)root)->drainOnly = false;
+  }
 }
 
 void RequestSyncCtx_RegisterAbortWakeChannel(RequestSyncCtx *ctx, struct MRChannel *chan) {
@@ -1750,7 +1757,7 @@ int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
     };
     req->rootiter = NULL; // Ownership of the root iterator is now with the params.
     req->querySlots = NULL; // Ownership of the slot ranges is now with the params.
-    Pipeline_BuildQueryPart(&req->pipeline, &params);
+    Pipeline_BuildQueryPart(&req->pipeline, &params, status);
     if (QueryError_HasError(status)) {
       return REDISMODULE_ERR;
     }
@@ -1767,7 +1774,7 @@ int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
     .maxResultsLimit = IsSearch(req) ? req->maxSearchResults : req->maxAggregateResults,
     .language = req->searchopts.language,
   };
-  int rc = Pipeline_BuildAggregationPart(&req->pipeline, &params, &req->stateflags);
+  int rc = Pipeline_BuildAggregationPart(&req->pipeline, &params, &req->stateflags, status);
   if (rc == REDISMODULE_OK) {
     AREQ_SetCanYieldPartialResults(req);
   }

@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "exprast.h"
+#include "value_ffi.h"
 #include <ctype.h>
 #include "obfuscation/obfuscation_api.h"
 

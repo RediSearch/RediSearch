@@ -59,6 +59,93 @@ def assert_timeout_warning(env, res, message=''):
     env.assertTrue(warnings, message=message + " expected timeout warning")
     env.assertContains('Timeout', warnings[0], message=message + " expected timeout warning")
 
+def _setup_return_strict_cursor_state(env, chunk_size=10, agg_steps=None):
+    """Switch shards to RETURN_STRICT, create a WITHCURSOR aggregate, and return
+    ``(prev_policy, cursor_id, baseline_cursor_total, before_info, base_warn_coord)``.
+
+    `agg_steps` is an optional list of pipeline tokens inserted between the query
+    string and ``WITHCURSOR`` (e.g. ``['SORTBY', '1', '@name']``).
+    """
+    # CONFIG GET returns a dict under RESP3 and a flat [key, value] list under RESP2.
+    prev_cfg = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)
+    prev_on_timeout_policy = (prev_cfg[ON_TIMEOUT_CONFIG] if isinstance(prev_cfg, dict)
+                              else prev_cfg[1])
+    run_command_on_all_shards(env, 'CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'return-strict')
+    before_info = info_modules_to_dict(env)
+    base_warn_coord = int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_METRIC])
+    cmd = ['FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@name']
+    if agg_steps:
+        cmd += list(agg_steps)
+    cmd += ['WITHCURSOR', 'COUNT', str(chunk_size)]
+    res, cursor_id = env.cmd(*cmd)
+    env.assertNotEqual(cursor_id, 0, message="Expected non-zero cursor ID")
+    baseline_cursor_total = _coord_cursor_total(env)
+    return prev_on_timeout_policy, cursor_id, baseline_cursor_total, before_info, base_warn_coord, res
+
+def _get_coord_req_ctx_free_count(env):
+    """Read the coordinator CoordRequestCtx_Free invocation counter (debug builds)."""
+    return int(env.cmd(debug_cmd(), 'QUERY_CONTROLLER', 'GET_COORD_REQ_CTX_FREE_COUNT'))
+
+def _assert_return_strict_cursor_timeout_reply(env, res_pair, expected_cid,
+                                               expected_results,
+                                               message_prefix=""):
+    """Assert RESP3 cursor-shaped timeout reply: ``({...}, cid)`` with a TIMEOUT
+    warning and a preserved cursor id.
+    """
+
+    res, cid = res_pair
+    env.assertEqual(cid, expected_cid,
+                    message=f"{message_prefix}: cursor id should be preserved on timeout")
+    env.assertEqual(len(res['results']), expected_results,
+                        message=f"{message_prefix}: got {res}")
+    env.assertEqual(res.get('warning', []), [TIMEOUT_WARNING],
+                    message=f"{message_prefix}: expected [TIMEOUT_WARNING], got {res.get('warning')}")
+
+def _assert_cursor_read_happy_path(env, cursor_id, chunk_size=10, message_prefix=""):
+    """Assert happy-path FT.CURSOR READ: non-empty results and no warnings."""
+    prev_info = info_modules_to_dict(env)
+    read_res, read_cid = env.cmd('FT.CURSOR', 'READ', 'idx', str(cursor_id))
+    env.assertEqual(read_cid, cursor_id,
+                        message=f"{message_prefix}: Cursor should still be open after one follow-up read")
+    rows = read_res.get('results', [])
+    env.assertEqual(len(rows), chunk_size,
+                    message=f"{message_prefix}: Expected exactly {chunk_size} rows on follow-up read, "
+                            f"got {rows}")
+    env.assertEqual(read_res.get('warning', []), [],
+                    message=f"{message_prefix}: Expected no warnings on follow-up read, got {read_res.get('warning')}")
+    _verify_metrics_not_changed(env, env, prev_info, [TIMEOUT_WARNING_COORD_METRIC])
+
+
+def _start_collecting_cursor_read(env, cursor_id, out_list, blocked_msg='Client for FT.CURSOR|READ not found'):
+    """Run ``FT.CURSOR READ`` in a thread, collecting the reply tuple in `out_list`,
+    and return ``(thread, blocked_client_id)`` once the BC is parked."""
+    t_query = threading.Thread(
+        target=call_and_store,
+        args=(env.cmd, ['FT.CURSOR', 'READ', 'idx', str(cursor_id)], out_list),
+        daemon=True
+    )
+    t_query.start()
+    blocked_client_id = wait_for_blocked_query_client(env, 'FT.CURSOR|READ', blocked_msg)
+    return t_query, blocked_client_id
+
+def _drain_cursor(env, cursor_id, idx='idx'):
+    """Drain a paused cursor to completion, returning the total number of rows seen.
+
+    Handles both the RESP3 dict-shaped reply (``res['results']``) and the RESP2
+    array-shaped reply where ``res[0]`` is total_results and the row entries
+    follow.
+    """
+    total_rows = 0
+    cid = cursor_id
+    while cid != 0:
+        res, cid = env.cmd('FT.CURSOR', 'READ', idx, cid)
+        if isinstance(res, dict):
+            total_rows += len(res.get('results', []))
+        else:
+            # RESP2: [total_results, row0, row1, ...]
+            total_rows += max(0, len(res) - 1)
+    return total_rows
+
 def debug_print_hybrid_clients(env, label=""):
     """Debug helper: Print clients with HYBRID commands from coordinator and all shards.
 
@@ -2138,10 +2225,10 @@ class TestCoordinatorTimeout:
         Configures ``return-strict``, pauses every shard's worker pool,
         starts ``FT.AGGREGATE idx * <agg_steps>`` on a thread, then
         resumes responsive shards one at a time while parking BG at the
-        ``RpnetReplyAdmitted`` sync point between admissions so each
-        reply is fully admitted into the coord pipeline before the next
-        one is in flight. Once every responsive reply has been admitted,
-        fires ``CLIENT UNBLOCK ... TIMEOUT`` and joins the query thread.
+        ``RpnetWaitingForReply`` sync point between iterations so each
+        reply is fully drained into the sorter before the next one is in
+        flight. Once every responsive reply has been drained, fires
+        ``CLIENT UNBLOCK ... TIMEOUT`` and joins the query thread.
 
         ``assert_reply(result, responsive_count)`` is invoked inside the
         try block after the reply has been parsed; it must assert the
@@ -2173,7 +2260,12 @@ class TestCoordinatorTimeout:
         # Pause workers on every shard so no `_FT.AGGREGATE` job can run.
         verify_command_OK_on_all_shards(env, debug_cmd(), 'WORKERS', 'pause')
 
-        sync_point = 'RpnetReplyAdmitted'
+        # `RpnetWaitingForReply` parks BG in `getNextReply` immediately
+        # before the channel pop, i.e. AFTER any previously admitted reply
+        # has been fully drained downstream. That gives an exact post-drain
+        # checkpoint, unlike `RpnetReplyAdmitted` which parks BG mid-batch
+        # before its rows are yielded.
+        sync_point = 'RpnetWaitingForReply'
         env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
         env.cmd(debug_cmd(), 'SYNC_POINT', 'ARM', sync_point)
 
@@ -2189,15 +2281,32 @@ class TestCoordinatorTimeout:
 
         blocked_client_id = wait_for_blocked_query_client(env, 'FT.AGGREGATE')
 
+        # BG enters `getNextReply` for the very first time and parks at the
+        # sync point with no previous batch to drain.
+        wait_for_condition(
+            lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', sync_point) == 1, {}),
+            f'Timeout waiting for BG to park at {sync_point} initially'
+        )
+
         try:
             for c in responsive_conns:
                 base_jobs = getWorkersThpoolStatsFromShard(c)['totalJobsDone']
-                c.execute_command(debug_cmd(), 'WORKERS', 'resume')
 
-                # Wait for the shard to run its `_FT.AGGREGATE` job (so
-                # the reply has been sent), then for BG to park at the
-                # sync point (so the reply has been admitted on the
-                # coord and merged into upstream-RP state).
+                # Release BG into the channel pop, then re-arm BEFORE
+                # resuming the worker so BG re-parks after fully draining
+                # this shard's reply (rather than racing past the disarmed
+                # sync point into the next pop).
+                env.cmd(debug_cmd(), 'SYNC_POINT', 'SIGNAL', sync_point)
+                wait_for_condition(
+                    lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', sync_point) == 0, {}),
+                    f'Timeout waiting for BG to exit {sync_point}'
+                )
+                env.cmd(debug_cmd(), 'SYNC_POINT', 'ARM', sync_point)
+
+                # Resume the worker. BG: pops the reply, drains every row
+                # into the sorter via repeated `rpnetNext` calls, re-enters
+                # `getNextReply`, parks at the sync point.
+                c.execute_command(debug_cmd(), 'WORKERS', 'resume')
                 wait_for_condition(
                     lambda c=c, base_jobs=base_jobs: (
                         getWorkersThpoolStatsFromShard(c)['totalJobsDone'] > base_jobs,
@@ -2207,23 +2316,13 @@ class TestCoordinatorTimeout:
                 )
                 wait_for_condition(
                     lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', sync_point) == 1, {}),
-                    f'Timeout waiting for BG to park at {sync_point} after resuming a shard'
+                    f'Timeout waiting for BG to re-park at {sync_point} after draining'
                 )
 
-                # Release BG, then wait for it to fully exit the
-                # sync-point spin loop before re-arming. Once IS_WAITING
-                # is 0, BG is back in MRIterator_PopWithTimeout with an
-                # empty channel (the next responsive shard's workers are
-                # still paused), so the next ARM cannot race with an
-                # in-flight reply.
-                env.cmd(debug_cmd(), 'SYNC_POINT', 'SIGNAL', sync_point)
-                wait_for_condition(
-                    lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', sync_point) == 0, {}),
-                    f'Timeout waiting for BG to exit {sync_point}'
-                )
-                env.cmd(debug_cmd(), 'SYNC_POINT', 'ARM', sync_point)
-
-            # All responsive replies are admitted. Fire the timeout.
+            # All responsive replies are fully drained into the heap and BG
+            # is parked at the sync point. Fire the timeout: BG breaks out
+            # of the spin loop via `areq_timed_out` and the channel pop
+            # returns NULL because `syncCtx.timedOut` was set first.
             env.cmd('CLIENT', 'UNBLOCK', blocked_client_id, 'TIMEOUT')
             wait_for_client_unblocked(env, blocked_client_id)
 
@@ -2235,7 +2334,11 @@ class TestCoordinatorTimeout:
 
             assert_reply(result, responsive_count)
 
-            env.assertEqual(result.get('warning', []), [TIMEOUT_WARNING])
+            # WITHCURSOR replies are shaped ``(dict, cid)``; bare aggregate
+            # replies are the dict itself. Unwrap so the shared warning check
+            # works for both shapes.
+            reply_dict = result[0] if isinstance(result, (list, tuple)) else result
+            env.assertEqual(reply_dict.get('warning', []), [TIMEOUT_WARNING])
 
             after_info = info_modules_to_dict(env)
             env.assertEqual(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_METRIC],
@@ -2301,9 +2404,10 @@ class TestCoordinatorTimeout:
         AggregateResults pops the buffered prefix and stores it for the
         main-thread reply.
 
-        Uses the RpnetReplyAdmitted sync point to park BG after each
-        responsive shard's reply is admitted into the pipeline (and thus
-        merged into the sorter's heap), so the partial-row count is exact.
+        Uses the RpnetWaitingForReply sync point to park BG after each
+        responsive shard's reply is fully drained into the pipeline (and
+        thus merged into the sorter's heap), so the partial-row count is
+        exact.
         """
         self._run_return_strict_timeout_sortby_one_shard_paused_aggregate(
             agg_steps=['SORTBY', '1', '@name', 'LIMIT', '0', str(self.n_docs)],
@@ -2331,6 +2435,67 @@ class TestCoordinatorTimeout:
                        'SORTBY', '1', '@uname',
                        'LIMIT', '0', str(self.n_docs)],
             sort_field='uname')
+
+    def test_return_strict_timeout_sortby_with_cursor_one_shard_paused_aggregate(self):
+        """RETURN_STRICT timeout on the initial FT.AGGREGATE SORTBY ... WITHCURSOR
+        with one shard's reply gated off; subsequent FT.CURSOR READs drain
+        the buffered snapshot.
+
+        Coord pipeline: RPNet -> RPSorter -> RPPager_Limiter. RPSorter is in
+        Accum mode while admitting shard replies; the timeout fires before
+        the paused shard's reply can land, so RPNet returns TIMEDOUT, the
+        sorter latches into Yield with only the responsive shards' rows in
+        its heap, and ``drainPartialResultsAfterTimeout`` pops up to
+        ``chunk_size`` of them into the timed-out reply. Because the heap
+        still has rows, ``finishSendChunk`` does not set ``QEXEC_S_ITERDONE``
+        and ``AREQ_ReplyWithStoredResults`` parks the cursor instead of
+        freeing it.
+
+        Follow-up cursor reads run RPSorter in Yield (heap pop only — never
+        re-enters RPNet, per the Yield-latching invariant) so they drain
+        the rest of the buffered snapshot. The total rows recovered across
+        the timed-out reply and all drain reads must equal exactly the
+        number of docs on the responsive shards (the size of the latched
+        heap), and must be strictly less than ``self.n_docs`` because the
+        paused shard's docs never made it into the heap.
+        """
+        env = self.env
+        chunk_size = 5
+
+        def assert_reply(reply, responsive_count):
+            env.assertLess(responsive_count, self.n_docs,
+                           message="responsive shards must hold fewer than n_docs "
+                                   "(paused shard contributes none)")
+            env.assertGreater(responsive_count, chunk_size,
+                              message="responsive_count must exceed chunk_size so the "
+                                      "cursor stays paused after the timed-out reply")
+
+            res, cursor_id = reply
+            env.assertNotEqual(cursor_id, 0,
+                               message=f"cursor must be preserved when the latched heap "
+                                       f"still has rows after the harvest; reply={reply!r}")
+
+            timeout_reply_rows = len(res.get('results', []))
+            env.assertEqual(timeout_reply_rows, chunk_size,
+                            message=f"reply={reply!r}")
+
+            sort_values = [row['extra_attributes']['name'] for row in res['results']]
+            env.assertEqual(sort_values, sorted(sort_values),
+                            message=f"harvest rows must be sorted by @name; reply={reply!r}")
+
+            drain_rows = _drain_cursor(env, cursor_id)
+            total = timeout_reply_rows + drain_rows
+            env.assertEqual(total, responsive_count,
+                            message=f"timeout_reply_rows={timeout_reply_rows} "
+                                    f"drain_rows={drain_rows} reply={reply!r}")
+
+            env.expect('FT.CURSOR', 'READ', 'idx', str(cursor_id)).error().contains('Cursor not found')
+
+        self._drive_one_shard_paused_aggregate_return_strict(
+            agg_steps=['SORTBY', '1', '@name',
+                       'LIMIT', '0', str(self.n_docs),
+                       'WITHCURSOR', 'COUNT', str(chunk_size)],
+            assert_reply=assert_reply)
 
     def _run_return_strict_timeout_no_partial_rows_one_shard_paused_aggregate(
             self, agg_steps, expected_total_is_responsive_count=False):
@@ -2670,6 +2835,570 @@ class TestCoordinatorTimeout:
 
         resetStoreResultsDebug(env)
         env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy)
+
+    # ----- RETURN_STRICT FT.CURSOR READ timeout tests -----
+
+    def _assert_warn_metric_bumped(self, before_info, base_warn_coord, context):
+        env = self.env
+        after_info = info_modules_to_dict(env)
+        env.assertEqual(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_METRIC],
+                        str(base_warn_coord + 1),
+                        message=f"Coordinator timeout warning metric should be +1 after {context}")
+        _verify_metrics_not_changed(env, env, before_info, [TIMEOUT_WARNING_COORD_METRIC])
+
+    def _drain_paused_cursor_after_timeout(self, cursor_id, baseline_cursor_total, context):
+        """After a RETURN_STRICT timeout reply, drain the cursor to EOF and assert it
+        was reclaimed cleanly. Returns total rows seen across drain reads."""
+        env = self.env
+        rows = _drain_cursor(env, cursor_id)
+        _wait_for_cursor_cleanup(env, baseline_cursor_total, context)
+        env.expect('FT.CURSOR', 'READ', 'idx', str(cursor_id)).error().contains('Cursor not found')
+        return rows
+
+    def test_return_strict_timeout_before_coord_pickup_cursor_read(self):
+        """Scenario 1: RETURN_STRICT timeout fires before the coord threadpool
+        dequeues the FT.CURSOR READ job.
+
+        The coord threadpool is paused so the worker never enters
+        ``coordCursorReadReturnStrict`` before the deadline. The timer callback
+        observes ``req == NULL`` (BG hasn't called ``SetRequest``), and replies
+        directly via ``coord_cursor_read_empty_reply_timeout`` with the cursor
+        shape ``({empty results, TIMEOUT warning}, cid)``. The cursor stays
+        paused and is reusable on the next FT.CURSOR READ.
+        """
+        env = self.env
+        skipIfNoEnableAssert(env)
+
+        prev_policy, cursor_id, baseline, before_info, base_warn, _ = \
+            _setup_return_strict_cursor_state(env)
+
+        env.expect(debug_cmd(), 'COORD_THREADS', 'PAUSE').ok()
+        wait_for_condition(
+            lambda: (env.cmd(debug_cmd(), 'COORD_THREADS', 'is_paused') == 1, {}),
+            'Timeout while waiting for coordinator threads to pause', timeout=30)
+
+        result = []
+        try:
+            t_query, blocked_client_id = _start_collecting_cursor_read(env, cursor_id, result)
+            env.expect('CLIENT', 'UNBLOCK', blocked_client_id, 'TIMEOUT').equal(1)
+            wait_for_client_unblocked(env, blocked_client_id)
+        finally:
+            env.expect(debug_cmd(), 'COORD_THREADS', 'RESUME').ok()
+            wait_for_condition(
+                lambda: (env.cmd(debug_cmd(), 'COORD_THREADS', 'is_paused') == 0, {}),
+                'Timeout while waiting for coordinator threads to resume', timeout=30)
+
+        t_query.join(timeout=10)
+        env.assertFalse(t_query.is_alive(), message="Cursor read thread should have finished")
+        _assert_return_strict_cursor_timeout_reply(
+            env, result[0], cursor_id, expected_results=0,
+            message_prefix='RETURN_STRICT pre-pickup cursor-read timeout')
+        self._assert_warn_metric_bumped(before_info, base_warn,
+                                        'RETURN_STRICT pre-pickup cursor-read timeout')
+
+        # Follow-up read after timeout: cursor must be reusable and return
+        # exactly one chunk. BG never ran on the timed-out read, so the cursor's
+        # remaining capacity is unchanged from right after the initial AGGREGATE.
+        _assert_cursor_read_happy_path(
+            env, cursor_id, message_prefix='RETURN_STRICT pre-pickup cursor-read followup')
+
+        run_command_on_all_shards(env, 'CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_policy)
+
+    def test_return_strict_timeout_after_set_request_cursor_read(self):
+        """Scenario 2: RETURN_STRICT timeout fires after the BG worker has taken
+        the cursor and published the AREQ via ``SetRequest`` but before the
+        pipeline has started.
+
+        The BG worker is pinned at ``BeforeCursorReadSendChunk`` (in ``runCursor``
+        after ``Cursors_TakeForExecution`` + ``CoordRequestCtx_SetRequest``,
+        before ``sendChunk``). The timer callback observes ``req != NULL``,
+        sets the ``TimedOut`` atomic, wakes the abort channel and waits on the
+        aggregate-results condition. BG early bails on the
+        ``TimedOut`` leg before entring the pipeline, stores empty results with ``rc=RS_RESULT_TIMEDOUT``
+        and signals completion. The timer wakes, drains the (possibly empty)
+        channel and replies cursor-shaped + TIMEOUT warning + cid preserved.
+        """
+        env = self.env
+        skipIfNoEnableAssert(env)
+
+        prev_policy, cursor_id, baseline, before_info, base_warn, _ = \
+            _setup_return_strict_cursor_state(env)
+
+        sync_point = 'BeforeCursorReadSendChunk'
+        self._arm_cursor_read_sync_point(sync_point)
+
+        result = []
+        try:
+            t_query, blocked_client_id = _start_collecting_cursor_read(env, cursor_id, result)
+            self._wait_worker_pinned_at_sync_point(sync_point)
+            env.expect('CLIENT', 'UNBLOCK', blocked_client_id, 'TIMEOUT').equal(1)
+            wait_for_client_unblocked(env, blocked_client_id)
+        finally:
+            # Best-effort signal in case BG didn't auto-release through areq_timed_out.
+            env.cmd(debug_cmd(), 'SYNC_POINT', 'SIGNAL', sync_point)
+
+        t_query.join(timeout=10)
+        env.assertFalse(t_query.is_alive(), message="Cursor read thread should have finished")
+        chunk_size = 10  # matches _setup_return_strict_cursor_state default
+        _assert_return_strict_cursor_timeout_reply(
+            env, result[0], cursor_id, expected_results=chunk_size,
+            message_prefix='RETURN_STRICT pre-pipeline cursor-read timeout')
+        self._assert_warn_metric_bumped(before_info, base_warn,
+                                        'RETURN_STRICT pre-pipeline cursor-read timeout')
+
+        # Follow-up read after timeout: cursor must be reusable and return
+        # exactly one chunk.
+        _assert_cursor_read_happy_path(
+            env, cursor_id, message_prefix='RETURN_STRICT pre-pipeline cursor-read followup')
+
+        run_command_on_all_shards(env, 'CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_policy)
+
+    def test_return_strict_timeout_in_pipeline_cursor_read_observed(self):
+        """Scenario 3 (observed via the ``rpnetNext`` short-circuit):
+        RETURN_STRICT timeout fires while BG is parked at ``BeforeRPNetNext``
+        - i.e. at the very top of ``rpnetNext`` before timeout check and return RS_RESULT_TIMEDOUT;
+       BG signals completion with ``rc=TIMEDOUT``. The timer wakes, drains the channel and
+        replies cursor-shaped + TIMEOUT warning + preserved cid; the cursor
+        stays paused so a follow-up drain must succeed.
+        """
+        env = self.env
+        skipIfNoEnableAssert(env)
+
+        prev_policy, cursor_id, baseline, before_info, base_warn, _ = \
+            _setup_return_strict_cursor_state(env)
+
+        sync_point = 'BeforeRPNetNext'
+        self._arm_cursor_read_sync_point(sync_point)
+
+        result = []
+        try:
+            t_query, blocked_client_id = _start_collecting_cursor_read(env, cursor_id, result)
+            self._wait_worker_pinned_at_sync_point(sync_point)
+            env.expect('CLIENT', 'UNBLOCK', blocked_client_id, 'TIMEOUT').equal(1)
+            wait_for_client_unblocked(env, blocked_client_id)
+        finally:
+            env.cmd(debug_cmd(), 'SYNC_POINT', 'SIGNAL', sync_point)
+
+        t_query.join(timeout=10)
+        env.assertFalse(t_query.is_alive(), message="Cursor read thread should have finished")
+        chunk_size = 10  # matches _setup_return_strict_cursor_state default
+        _assert_return_strict_cursor_timeout_reply(
+            env, result[0], cursor_id, expected_results=chunk_size,
+            message_prefix='RETURN_STRICT observed in-pipeline cursor-read timeout')
+        self._assert_warn_metric_bumped(
+            before_info, base_warn,
+            'RETURN_STRICT observed in-pipeline cursor-read timeout')
+
+        # Follow-up read after timeout: cursor must be reusable and return
+        # exactly one chunk.
+        _assert_cursor_read_happy_path(
+            env, cursor_id, message_prefix='RETURN_STRICT pre-pipeline cursor-read followup')
+        run_command_on_all_shards(env, 'CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_policy)
+
+    def test_return_strict_timeout_in_pipeline_sortby_drain_cursor_read(self):
+        """Scenario 2 + drain with SORTBY: after a RETURN_STRICT timeout on a
+        SORTBY cursor read where BG was parked before ``sendChunk``, the
+        timer's drain pulls remaining rows out of the coordinator-side sorter
+        heap (shape 3 in ``pipelineCanYieldPartialResults``) and the cursor
+        closes after the buffered snapshot is exhausted.
+
+        SORTBY's per-cursor-read pipeline is ``rpsortNext_Yield`` — a heap pop
+        that never re-enters RPNet — so a ``BeforeRPNetNext`` pin would never
+        fire here. ``BeforeCursorReadSendChunk`` reliably parks BG just before
+        ``sendChunk`` whether the next call is going to enter ``rpnet`` or not.
+        The total recovered across all reads cannot exceed the buffered
+        snapshot, which is bounded by ``n_docs``.
+        """
+        env = self.env
+        skipIfNoEnableAssert(env)
+
+        chunk_size = 5
+        # LIMIT 0 n_docs sizes the sorter heap so all n_docs rows are buffered
+        # by the initial FT.AGGREGATE; without an explicit LIMIT, AGGREGATE
+        # caps the heap at DEFAULT_LIMIT (10), and the snapshot-pop drain
+        # would terminate after only 10 total rows.
+        prev_policy, cursor_id, baseline, before_info, base_warn, first_res = \
+            _setup_return_strict_cursor_state(
+                env, chunk_size=chunk_size,
+                agg_steps=['SORTBY', '1', '@name',
+                           'LIMIT', '0', str(self.n_docs)])
+        first_chunk_rows = len(first_res.get('results', []))
+
+        sync_point = 'BeforeCursorReadSendChunk'
+        self._arm_cursor_read_sync_point(sync_point)
+
+        result = []
+        try:
+            t_query, blocked_client_id = _start_collecting_cursor_read(env, cursor_id, result)
+            self._wait_worker_pinned_at_sync_point(sync_point)
+            env.expect('CLIENT', 'UNBLOCK', blocked_client_id, 'TIMEOUT').equal(1)
+            wait_for_client_unblocked(env, blocked_client_id)
+        finally:
+            env.cmd(debug_cmd(), 'SYNC_POINT', 'SIGNAL', sync_point)
+
+        t_query.join(timeout=10)
+        env.assertFalse(t_query.is_alive(), message="Cursor read thread should have finished")
+        _assert_return_strict_cursor_timeout_reply(
+            env, result[0], cursor_id, expected_results=chunk_size,
+            message_prefix='RETURN_STRICT in-pipeline sortby drain')
+        self._assert_warn_metric_bumped(before_info, base_warn,
+                                        'RETURN_STRICT in-pipeline sortby drain')
+
+        timeout_reply_rows = len(result[0][0].get('results', []))
+        drain_rows = self._drain_paused_cursor_after_timeout(
+            cursor_id, baseline, 'RETURN_STRICT in-pipeline sortby drain')
+        total = first_chunk_rows + timeout_reply_rows + drain_rows
+        # The initial FT.AGGREGATE completed before the timeout, so RPSorter
+        # had already accumulated all n_docs rows into its heap and latched
+        # into Yield mode. Subsequent cursor reads (including the timed-out
+        # one + drain) only pop from that full heap, so the total recovered
+        # across all reads must equal n_docs exactly.
+        env.assertEqual(total, self.n_docs,
+                        message=f"Expected exactly {self.n_docs} rows across reads "
+                                f"after sortby drain timeout, got first_chunk={first_chunk_rows} "
+                                f"timeout_reply={timeout_reply_rows} drain={drain_rows} total={total}")
+
+        run_command_on_all_shards(env, 'CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_policy)
+
+    def test_return_strict_cursor_read_no_stale_free_after_followup(self):
+        """Cross-read non-tear-down: after a RETURN_STRICT cursor-read timeout,
+        the BC's ``free_privdata`` (``CoordRequestCtx_Free``) eventually fires
+        for the timed-out read; verify it does NOT destroy the still-paused
+        cursor that subsequent reads on the same cid depend on.
+
+        Without the RETURN_STRICT guard in ``CoordRequestCtx_Free``, the
+        delayed free for read N would call ``AREQ_CleanUpStoredCursor`` and
+        wipe the cursor that's parked for read N+1, leading to "Cursor not
+        found" or use-after-free. With the guard, follow-up reads succeed.
+
+        Polled with the ``GET_COORD_REQ_CTX_FREE_COUNT`` debug counter to
+        deterministically witness the free callback running before issuing
+        the follow-up, without blocking the main-thread dispatcher.
+        """
+        env = self.env
+        skipIfNoEnableAssert(env)
+
+        prev_policy, cursor_id, baseline, before_info, base_warn, _ = \
+            _setup_return_strict_cursor_state(env)
+
+        free_count_before = _get_coord_req_ctx_free_count(env)
+
+        # Trigger the simplest timeout scenario (pre-pickup) for read 1.
+        env.expect(debug_cmd(), 'COORD_THREADS', 'PAUSE').ok()
+        wait_for_condition(
+            lambda: (env.cmd(debug_cmd(), 'COORD_THREADS', 'is_paused') == 1, {}),
+            'Timeout while waiting for coordinator threads to pause', timeout=30)
+
+        result = []
+        try:
+            t_query, blocked_client_id = _start_collecting_cursor_read(env, cursor_id, result)
+            env.expect('CLIENT', 'UNBLOCK', blocked_client_id, 'TIMEOUT').equal(1)
+            wait_for_client_unblocked(env, blocked_client_id)
+        finally:
+            env.expect(debug_cmd(), 'COORD_THREADS', 'RESUME').ok()
+            wait_for_condition(
+                lambda: (env.cmd(debug_cmd(), 'COORD_THREADS', 'is_paused') == 0, {}),
+                'Timeout while waiting for coordinator threads to resume', timeout=30)
+
+        t_query.join(timeout=10)
+        env.assertFalse(t_query.is_alive(), message="Read 1 thread should have finished")
+        _assert_return_strict_cursor_timeout_reply(
+            env, result[0], cursor_id, expected_results=0,
+            message_prefix='RETURN_STRICT no-stale-free read 1 timeout')
+
+        # Wait until CoordRequestCtx_Free has fired for read 1's BC privdata.
+        # The counter is bumped by the BC tear-down on the main thread after
+        # the worker job completes; polling avoids a deadlock that a sync-point
+        # in CoordRequestCtx_Free would cause.
+        wait_for_condition(
+            lambda: (_get_coord_req_ctx_free_count(env) > free_count_before,
+                     {'before': free_count_before,
+                      'now': _get_coord_req_ctx_free_count(env)}),
+            'Timeout waiting for CoordRequestCtx_Free counter to bump after read 1',
+            timeout=10,
+        )
+
+        # Read 2 must succeed on the same cursor: rows expected, no error.
+        res2, cid2 = env.cmd('FT.CURSOR', 'READ', 'idx', cursor_id)
+        env.assertGreater(len(res2.get('results', [])), 0,
+                          message=f"Expected non-empty results from read 2, got {res2}")
+        # Drain any remaining; cursor must close cleanly.
+        if cid2 != 0:
+            self._drain_paused_cursor_after_timeout(
+                cid2, baseline, 'RETURN_STRICT no-stale-free drain')
+        else:
+            _wait_for_cursor_cleanup(env, baseline, 'RETURN_STRICT no-stale-free drain')
+            env.expect('FT.CURSOR', 'READ', 'idx', str(cursor_id)).error().contains('Cursor not found')
+
+        self._assert_warn_metric_bumped(before_info, base_warn,
+                                        'RETURN_STRICT no-stale-free cursor-read sequence')
+
+        run_command_on_all_shards(env, 'CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_policy)
+
+    def test_return_strict_cursor_read_deleted_before_pickup(self):
+        """RETURN_STRICT cursor read after the coord-side cursor is purged
+        while the BG worker is still queued (no timeout).
+
+        The cursor exists when ``CursorCommand`` validates ``cid`` on the main
+        thread and arms the BC; the coord threadpool is paused so the BG
+        worker is queued. ``FT.DEBUG DELETE_LOCAL_COORD_CURSORS`` is fanned
+        out per-shard to empty ``g_CursorsListCoord`` synchronously on each
+        shard's main thread (it does not use ``DIST_THREADPOOL``), purging
+        the still-idle coord cursor (odd cid -> ``g_CursorsListCoord``).
+        When the coord threadpool resumes, ``coordCursorReadReturnStrict``
+        enters under ``LockSetRequest``, observes ``!TimedOut``, then
+        ``Cursors_TakeForExecution`` returns ``NULL`` and the worker bails
+        through ``CoordRequestCtx_ReplyOrStoreError`` with
+        ``"Cursor not found, id: <cid>"``. The reply callback flushes that
+        stored error on unblock, so the client sees the standard cursor-gone
+        error rather than a cursor-shaped reply.
+        """
+        env = self.env
+
+        prev_policy, cursor_id, baseline, before_info, base_warn, _ = \
+            _setup_return_strict_cursor_state(env)
+
+        env.expect(debug_cmd(), 'COORD_THREADS', 'PAUSE').ok()
+        wait_for_condition(
+            lambda: (env.cmd(debug_cmd(), 'COORD_THREADS', 'is_paused') == 1, {}),
+            'Timeout while waiting for coordinator threads to pause', timeout=30)
+
+        expected_err = f'Cursor not found, id: {cursor_id}'
+        try:
+            # Use `env.expect(...).error().contains(...)` directly in the
+            # thread (rather than `_start_collecting_cursor_read` /
+            # `call_and_store`) so the error reply is asserted in-thread:
+            # `call_and_store` does not catch exceptions, and the BG worker's
+            # "Cursor not found" reply surfaces as a `ResponseError` raised
+            # by `env.cmd`, which would leave the result list empty.
+            t_query = threading.Thread(
+                target=lambda: env.expect(
+                    'FT.CURSOR', 'READ', 'idx', str(cursor_id)
+                ).error().contains(expected_err),
+                daemon=True,
+            )
+            t_query.start()
+            wait_for_blocked_query_client(
+                env, 'FT.CURSOR|READ', 'Client for FT.CURSOR|READ not found')
+            # Cursor is still idle on the coord (BG hasn't taken it). Purge
+            # it via the wholesale debug command rather than `FT.CURSOR DEL
+            # idx <cid>`: DEL routes through the same paused DIST_THREADPOOL
+            # via `ConcurrentSearch_HandleRedisCommandEx` in `CursorCommand`,
+            # so the DEL would itself block forever waiting for the pool.
+            # `DELETE_LOCAL_COORD_CURSORS` calls `CursorList_Empty` on
+            # `g_CursorsListCoord` synchronously on the Redis main thread,
+            # bypassing the pool. Fanned out per-shard since the coord-side
+            # cursor lives on whichever shard handled the AGGREGATE.
+            run_command_on_all_shards(env, debug_cmd(), 'DELETE_LOCAL_COORD_CURSORS')
+        finally:
+            env.expect(debug_cmd(), 'COORD_THREADS', 'RESUME').ok()
+            wait_for_condition(
+                lambda: (env.cmd(debug_cmd(), 'COORD_THREADS', 'is_paused') == 0, {}),
+                'Timeout while waiting for coordinator threads to resume', timeout=30)
+
+        t_query.join(timeout=10)
+        env.assertFalse(t_query.is_alive(), message="Cursor read thread should have finished")
+
+        # No timeout fired: coord-side timeout warning metric must be unchanged.
+        _verify_metrics_not_changed(env, env, before_info, [])
+        # Cursor is gone: a follow-up read confirms the main-thread validation
+        # also reports the now-missing cid.
+        env.expect('FT.CURSOR', 'READ', 'idx', str(cursor_id)).error().contains('Cursor not found')
+        _wait_for_cursor_cleanup(
+            env, baseline, 'RETURN_STRICT cursor-deleted-before-pickup')
+
+        run_command_on_all_shards(env, 'CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_policy)
+
+    def test_return_strict_cursor_read_deleted_then_timeout_before_pickup(self):
+        """RETURN_STRICT cursor read where the cursor is purged *and* the BC
+        timeout fires before the BG worker dequeues. The timer does NOT
+        detect that the cursor is gone — by design.
+
+        Sequence:
+          1. Coord threadpool is paused; BG worker is queued.
+          2. ``FT.DEBUG DELETE_LOCAL_COORD_CURSORS`` is fanned out per-shard
+             and synchronously empties ``g_CursorsListCoord``, freeing the
+             still-idle coord cursor without touching ``DIST_THREADPOOL``.
+          3. ``CLIENT UNBLOCK ... TIMEOUT`` fires the BC timeout callback.
+             The timer holds ``LockSetRequest``, observes ``req == NULL``
+             (BG never called ``SetRequest``) and replies via
+             ``coord_cursor_read_empty_reply_timeout`` with the *original*
+             cid — which now points at a freed cursor. The cid is taken
+             verbatim from ``argv[3]`` and is not re-validated against the
+             cursor table; this is the documented contract.
+          4. Coord threadpool is resumed. The BG worker runs, takes
+             ``LockSetRequest``, sees ``TimedOut`` and returns without
+             touching the (already-gone) cursor or the reply.
+
+        The client therefore sees a normal RETURN_STRICT timeout reply
+        ``({empty results, TIMEOUT warning}, original_cid)``, and a
+        follow-up ``FT.CURSOR READ`` on that cid surfaces the staleness
+        as ``"Cursor not found"`` from the main-thread validation in
+        ``CursorCommand``.
+        """
+        env = self.env
+        skipIfNoEnableAssert(env)
+
+        prev_policy, cursor_id, baseline, before_info, base_warn, _ = \
+            _setup_return_strict_cursor_state(env)
+
+        env.expect(debug_cmd(), 'COORD_THREADS', 'PAUSE').ok()
+        wait_for_condition(
+            lambda: (env.cmd(debug_cmd(), 'COORD_THREADS', 'is_paused') == 1, {}),
+            'Timeout while waiting for coordinator threads to pause', timeout=30)
+
+        result = []
+        try:
+            t_query, blocked_client_id = _start_collecting_cursor_read(env, cursor_id, result)
+            # Purge the cursor while it is still idle on the coord and the BG
+            # worker is queued. Wholesale `DELETE_LOCAL_COORD_CURSORS` rather
+            # than `FT.CURSOR DEL idx <cid>` because DEL also routes through
+            # the paused DIST_THREADPOOL (`ConcurrentSearch_HandleRedisCommandEx`
+            # in `CursorCommand`) and would block forever; the debug command
+            # runs synchronously on the main thread.
+            run_command_on_all_shards(env, debug_cmd(), 'DELETE_LOCAL_COORD_CURSORS')
+            # Fire the BC timeout *before* resuming coord threads so the
+            # timer (main thread) wins the race against the BG worker.
+            env.expect('CLIENT', 'UNBLOCK', blocked_client_id, 'TIMEOUT').equal(1)
+            wait_for_client_unblocked(env, blocked_client_id)
+        finally:
+            env.expect(debug_cmd(), 'COORD_THREADS', 'RESUME').ok()
+            wait_for_condition(
+                lambda: (env.cmd(debug_cmd(), 'COORD_THREADS', 'is_paused') == 0, {}),
+                'Timeout while waiting for coordinator threads to resume', timeout=30)
+
+        t_query.join(timeout=10)
+        env.assertFalse(t_query.is_alive(), message="Cursor read thread should have finished")
+        # Timer replied with the original cid even though the cursor was
+        # already freed by the concurrent DEL — this is the documented
+        # behavior of ``DistCursorReadTimeoutReturnStrictClient``.
+        _assert_return_strict_cursor_timeout_reply(
+            env, result[0], cursor_id, expected_results=0,
+            message_prefix='RETURN_STRICT cursor-deleted+timeout pre-pickup')
+        self._assert_warn_metric_bumped(
+            before_info, base_warn,
+            'RETURN_STRICT cursor-deleted+timeout pre-pickup')
+
+        # Follow-up read on the (stale) cid: main-thread validation in
+        # CursorCommand surfaces the staleness as a plain "Cursor not found".
+        env.expect('FT.CURSOR', 'READ', 'idx', str(cursor_id)).error().contains('Cursor not found')
+        _wait_for_cursor_cleanup(
+            env, baseline, 'RETURN_STRICT cursor-deleted+timeout pre-pickup')
+
+        run_command_on_all_shards(env, 'CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_policy)
+
+    def test_return_strict_cursor_read_drain_happy_path(self):
+        """Sanity: under RETURN_STRICT with no induced timeout, an FT.AGGREGATE
+        WITHCURSOR can be drained to completion exactly like under any other
+        policy and recovers all ``n_docs`` rows."""
+        env = self.env
+
+        prev_policy, cursor_id, baseline, _, _, first_res = \
+            _setup_return_strict_cursor_state(env)
+
+        first_chunk_rows = len(first_res.get('results', []))
+        drained_rows = _drain_cursor(env, cursor_id)
+        env.assertEqual(first_chunk_rows + drained_rows, self.n_docs,
+                        message=f"Expected {self.n_docs} rows in happy-path drain, "
+                                f"got first_chunk={first_chunk_rows} drained={drained_rows}")
+        _wait_for_cursor_cleanup(env, baseline, 'RETURN_STRICT happy-path drain')
+        env.expect('FT.CURSOR', 'READ', 'idx', str(cursor_id)).error().contains('Cursor not found')
+
+        run_command_on_all_shards(env, 'CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_policy)
+
+
+class TestCoordinatorTimeoutCursorReadResp2:
+    """RESP2 coverage for RETURN_STRICT FT.CURSOR READ timeout reply shape.
+
+    Mirrors ``test_return_strict_timeout_in_pipeline_cursor_read_observed`` on
+    a RESP2 connection: the cursor-read timeout reply is an outer two-element
+    array ``[results_array, cid]`` where ``results_array[0]`` is the
+    total_results long, followed by the drained per-doc payloads. RESP2 has
+    no per-reply warnings array — timeout is tracked only in the global
+    warning metric.
+    """
+
+    def __init__(self):
+        skipTest(cluster=False)
+        self.env = Env(moduleArgs='WORKERS 1', protocol=2)
+        self.n_docs = 100
+        for i in range(1, self.env.shardsCount + 1):
+            verify_shard_init(self.env.getConnection(i))
+        conn = getConnectionByEnv(self.env)
+        self.env.expect('FT.CREATE', 'idx', 'PREFIX', '1', 'doc',
+                        'SCHEMA', 'name', 'TEXT').ok()
+        for i in range(self.n_docs):
+            conn.execute_command('HSET', f'doc{i}', 'name', f'hello{i}')
+        self.env.expect('FT.SEARCH', 'idx', '*').noError()
+
+    def test_return_strict_cursor_read_resp2_timeout(self):
+        """RESP2 mirror of the *observed* in-pipeline cursor-read timeout
+        via the ``rpnetNext`` short-circuit. BG parks at ``BeforeRPNetNext``;
+        timer fires; on resume the short-circuit returns ``RS_RESULT_TIMEDOUT``
+        before any rows are emitted, so the RESP2 reply carries
+        ``total_results == 0`` with a preserved cursor id.
+        """
+        env = self.env
+        skipIfNoEnableAssert(env)
+
+        prev_policy, cursor_id, baseline, _, base_warn, _ = \
+            _setup_return_strict_cursor_state(env)
+
+        sync_point = 'BeforeRPNetNext'
+        env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
+        env.cmd(debug_cmd(), 'SYNC_POINT', 'ARM', sync_point)
+
+        replies = []
+        try:
+            t_query = threading.Thread(
+                target=call_and_store,
+                args=(env.cmd, ['FT.CURSOR', 'READ', 'idx', str(cursor_id)], replies),
+                daemon=True
+            )
+            t_query.start()
+            blocked_client_id = wait_for_blocked_query_client(
+                env, 'FT.CURSOR|READ', 'Client for FT.CURSOR|READ not found')
+            wait_for_condition(
+                lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', sync_point) == 1, {}),
+                f'worker never reached {sync_point}'
+            )
+            env.expect('CLIENT', 'UNBLOCK', blocked_client_id, 'TIMEOUT').equal(1)
+            wait_for_client_unblocked(env, blocked_client_id)
+        finally:
+            env.cmd(debug_cmd(), 'SYNC_POINT', 'SIGNAL', sync_point)
+
+        t_query.join(timeout=10)
+        env.assertFalse(t_query.is_alive(), message="Cursor read thread should have finished")
+        env.assertEqual(len(replies), 1, message="Expected one reply collected")
+        reply = replies[0]
+
+        # RESP2 cursor reply: [results_array, cid];
+        env.assertEqual(len(reply), 2,
+                        message=f"reply={reply!r}")
+        env.debugPrint(f"{replies[0]}", force=True)
+        results_array, cid = reply[0], reply[1]
+        env.assertEqual(cid, cursor_id,
+                        message=f"reply={reply!r}")
+        # BG parked at BeforeRPNetNext returns TIMEDOUT before emitting rows
+        # itself, but ``drainPartialResultsAfterTimeout`` then pops up to
+        # ``chunk_size`` rows out of the channel/sorter buffer into the
+        # timed-out reply. RESP2 envelope is [total_results, *doc_payloads]
+        # so the total length is 1 + chunk_size.
+        chunk_size = 10  # matches _setup_return_strict_cursor_state default
+        env.assertEqual(len(results_array), 1 + chunk_size,
+                        message=f"reply={reply!r}")
+
+        # Coord-side warning metric still bumps under RESP2.
+        after_info = info_modules_to_dict(env)
+        env.assertEqual(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_METRIC],
+                        str(base_warn + 1),
+                        message="Coordinator timeout warning metric should be +1 (RESP2)")
+
+        # Cursor must remain reusable on RESP2 too.
+        _drain_cursor(env, cursor_id)
+        _wait_for_cursor_cleanup(env, baseline, 'RETURN_STRICT RESP2 cursor-read drain')
+        env.expect('FT.CURSOR', 'READ', 'idx', str(cursor_id)).error().contains('Cursor not found')
+        run_command_on_all_shards(env, 'CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_policy)
 
     # ------------------------------------------------------------------
     # Shard-level RETURN_STRICT timeout: a single shard's blocked-client

@@ -8,6 +8,8 @@
 */
 
 #include "pipe.h"
+#include "inverted_index_ffi.h"
+#include "numeric_range_tree_ffi.h"
 
 void FGC_childCollectExistingDocs(ForkGC *gc, RedisSearchCtx *sctx) {
   IndexSpec *spec = sctx->spec;

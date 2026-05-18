@@ -8,6 +8,7 @@
  */
 
 #include "hybrid_exec.h"
+#include "search_result_ffi.h"
 #include "parse_hybrid.h"
 #include "hybrid_request.h"
 #include "aggregate/aggregate_exec_common.h"
@@ -17,7 +18,7 @@
 #include "redisearch.h"
 #include "search_ctx.h"
 #include "aggregate/aggregate.h"
-#include "query_error.h"
+#include "query_error_ffi.h"
 #include "spec.h"
 #include "rmalloc.h"
 #include "cursor.h"
@@ -30,7 +31,7 @@
 #include "info/info_redis/types/blocked_queries.h"
 #include "pipeline/pipeline.h"
 #include "util/units.h"
-#include "value.h"
+#include "value_ffi.h"
 #include "module.h"
 #include "aggregate/reply_empty.h"
 #include "profile/profile.h"
@@ -788,7 +789,7 @@ static int buildPipelineAndExecute(StrongRef hybrid_ref, HybridPipelineParams *h
     if (HybridRequest_BuildDepletionPipeline(hreq, hybridParams, depleteInBackground) != REDISMODULE_OK) {
       return REDISMODULE_ERR;
     }
-  } else if (HybridRequest_BuildPipeline(hreq, hybridParams, depleteInBackground) != REDISMODULE_OK) {
+  } else if (HybridRequest_BuildPipeline(hreq, hybridParams, depleteInBackground, &hreq->tailPipelineError) != REDISMODULE_OK) {
     return REDISMODULE_ERR;
   }
 

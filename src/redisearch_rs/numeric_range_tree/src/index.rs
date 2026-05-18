@@ -20,6 +20,7 @@ use inverted_index::{
 };
 
 /// Enum to hold either compressed or uncompressed numeric index.
+#[cheadergen::config(rename = "InvertedIndexNumeric")]
 #[derive(Debug)]
 pub enum NumericIndex {
     /// Uncompressed: stores f64 values at full precision (8 bytes).

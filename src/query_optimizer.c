@@ -10,7 +10,7 @@
 #include "query_optimizer.h"
 #include "iterators/optimizer_reader.h"
 #include "ext/default.h"
-#include "iterators_rs.h"
+#include "iterators_ffi.h"
 
 QOptimizer *QOptimizer_New() {
   return rm_calloc(1, sizeof(QOptimizer));

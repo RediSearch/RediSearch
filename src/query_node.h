@@ -10,10 +10,12 @@
 #pragma once
 
 #include <stdlib.h>
-#include "redisearch_rs/headers/query_node_type.h"
+#include "query_node_type.h"
 #include "redisearch.h"
-#include "query_error.h"
+#include "hiredis/sds.h"
 #include "param.h"
+
+typedef struct QueryError QueryError;
 
 struct FieldSpec; // forward declaration
 

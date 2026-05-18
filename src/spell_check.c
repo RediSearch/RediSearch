@@ -7,10 +7,12 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "spell_check.h"
+#include "types_ffi.h"
 #include "util/arr.h"
 #include "dictionary.h"
 #include "reply.h"
 #include "inverted_index.h"
+#include "inverted_index_ffi.h"
 #include <stdbool.h>
 
 /** Forward declaration **/
@@ -91,7 +93,7 @@ static double SpellCheck_GetScore(SpellCheckCtx *scCtx, char *suggestion, size_t
                                   t_fieldMask fieldMask) {
   InvertedIndex *invidx = Redis_OpenInvertedIndex(scCtx->sctx->spec, suggestion, len, 0, NULL);
   double retVal = 0;
-  IndexDecoderCtx ctx = {.field_mask_tag = IndexDecoderCtx_FieldMask, .field_mask = fieldMask};
+  IndexDecoderCtx ctx = {.fieldmask_tag = IndexDecoderCtx_FieldMask, .fieldmask = fieldMask};
   IndexReader *reader = NULL;
   RSIndexResult *res = NULL;
 

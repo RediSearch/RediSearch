@@ -9,8 +9,9 @@
 
 #pragma once
 #include "redismodule.h"
-#include "query_error.h"
 #include "result_processor.h"
+
+typedef struct QueryError QueryError;
 
 struct AREQ;
 

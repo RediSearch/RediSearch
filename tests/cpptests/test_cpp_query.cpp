@@ -20,7 +20,7 @@ extern "C" {
 #endif
 #include "common.h"
 #include "query_test_utils.h"
-#include "iterators_rs.h"
+#include "iterators_ffi.h"
 
 #include "gtest/gtest.h"
 

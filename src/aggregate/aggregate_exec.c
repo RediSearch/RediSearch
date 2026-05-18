@@ -7,6 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "redismodule.h"
+#include "value_ffi.h"
+#include "search_result_ffi.h"
 #include "redisearch.h"
 #include "search_ctx.h"
 #include "aggregate.h"
@@ -19,7 +21,7 @@
 #include "profile/profile.h"
 #include "query_optimizer.h"
 #include "resp3.h"
-#include "query_error.h"
+#include "query_error_ffi.h"
 #include "info/global_stats.h"
 #include "aggregate_debug.h"
 #include "debug_commands.h"
@@ -35,7 +37,7 @@
 #include "reply_empty.h"
 #include "search_disk.h"
 #include "search_disk_utils.h"
-#include "iterators_rs.h"
+#include "iterators_ffi.h"
 
 #include "coord/coord_request_ctx.h"
 
@@ -694,7 +696,7 @@ done_2:
 
     state->cursor_done = (rc != RS_RESULT_OK
                           && !(rc == RS_RESULT_TIMEDOUT
-                               && req->reqConfig.timeoutPolicy == TimeoutPolicy_Return));
+                               && req->reqConfig.timeoutPolicy != TimeoutPolicy_Fail));
 
     trackWarnings_Resp2(req, qctx, rc);
     finishSendChunkReply_Resp2(req, reply, state->cursor_done);
@@ -909,7 +911,7 @@ static int serializeAndReplyResults_Resp3(AREQ *req, RedisModule_Reply *reply, R
 done_3:
     state->cursor_done = (rc != RS_RESULT_OK
                           && !(rc == RS_RESULT_TIMEDOUT
-                               && req->reqConfig.timeoutPolicy == TimeoutPolicy_Return));
+                               && req->reqConfig.timeoutPolicy != TimeoutPolicy_Fail));
 
     finishSendChunkReply_Resp3(req, reply, qctx, rc, state->cursor_done);
 
@@ -1069,7 +1071,7 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
     RedisModule_Reply_MapEnd(reply);
 
     if (AREQ_RequestFlags(req) & QEXEC_F_IS_CURSOR) {
-      RedisModule_Reply_LongLong(reply, 0);
+      RedisModule_Reply_LongLong(reply, req->cursor_id);
       RedisModule_Reply_ArrayEnd(reply);
     }
   } else {
@@ -1113,8 +1115,7 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
     }
 
     if (AREQ_RequestFlags(req) & QEXEC_F_IS_CURSOR) {
-      // Cursor done
-      RedisModule_Reply_LongLong(reply, 0);
+      RedisModule_Reply_LongLong(reply, req->cursor_id);
       if (IsProfile(req)) {
         req->profile(reply, req);
       }
@@ -1187,6 +1188,12 @@ void AREQ_ReplyOrStoreError(AREQ *req, RedisModuleCtx *ctx, QueryError *status) 
     QueryError_CloneFrom(status, &req->storedReplyState.err);
     // Clear the original to avoid leaking heap-allocated strings.
     QueryError_ClearError(status);
+    // Defensive: wake any RETURN_STRICT timer waiting on aggregateResultsDone.
+    // No current coord caller reaches here while a timer is waiting; kept as a
+    // forward-compat invariant for future error paths. No-op for FAIL callers.
+    if (AREQ_RequiresThreadsSyncResults(req)) {
+      AREQ_SignalAggregateResultsComplete(req);
+    }
   } else {
     QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(status), 1, !IsInternal(req));
     QueryError_ReplyAndClear(ctx, status);
@@ -1946,14 +1953,17 @@ static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num) {
   }
 #endif
 
+  if (req->useReplyCallback) {
+    // Stash the cursor BEFORE sendChunk: sendChunk's signal can wake the
+    // timeout_callback, which reads storedReplyState.cursor to pause/free it.
+    req->storedReplyState.cursor = cursor;
+  }
+
   sendChunk(req, reply, num);
   RedisSearchCtx_UnlockSpec(AREQ_SearchCtx(req)); // Verify that we release the spec lock
 
   if (req->useReplyCallback) {
-    // In reply_callback path, sendChunk returns early after storing results.
-    // QEXEC_S_ITERDONE is not set yet (it's set by finishSendChunk in the reply_callback).
-    // Store the cursor handle so the reply_callback can pause/free it after finishSendChunk.
-    req->storedReplyState.cursor = cursor;
+    // Disposal of the stashed cursor is owned by AREQ_ReplyWithStoredResults.
     return;
   }
 
@@ -2007,11 +2017,11 @@ static void cursorRead(RedisModuleCtx *ctx, Cursor *cursor, size_t count, bool b
   if (has_spec) {
     execution_ref = IndexSpecRef_Promote(cursor->spec_ref);
     if (!StrongRef_Get(execution_ref)) {
-      // Index dropped while idle. Emit the error *before* Cursor_Free: on
-      // non-coord+FAIL paths the cursor holds the only AREQ ref, so freeing
-      // first would UAF the req->useReplyCallback read inside AREQ_ReplyOrStoreError.
       QueryError_SetWithoutUserDataFmt(&status, QUERY_ERROR_CODE_DROPPED_BACKGROUND,
                                        "The index was dropped while the cursor was idle");
+      // Reply before Free: on non-reqCtx paths the cursor holds the
+      // only AREQ ref, so freeing first would UAF the req->useReplyCallback
+      // read inside AREQ_ReplyOrStoreError.
       AREQ_ReplyOrStoreError(req, ctx, &status);
       Cursor_Free(cursor);
       return;
@@ -2041,15 +2051,6 @@ static void cursorRead(RedisModuleCtx *ctx, Cursor *cursor, size_t count, bool b
     // useReplyCallback is authoritative from the caller: RSCursorReadCommand either
     // attaches a CoordRequestCtx (coord + FAIL path) which propagates the flag,
     // or clears it before invoking cursorRead.
-
-    // Reset the claim so the next startPipeline can re-enter AggregateResults.
-    // Safe to reset unconditionally: the claim protocol isn't wired into cursor
-    // chunks yet, so no other thread is racing on this AREQ's sync state here.
-    // This assertion will catch any attempt to wire RETURN_STRICT into cursor reads.
-    RS_ASSERT(req->reqConfig.timeoutPolicy != TimeoutPolicy_ReturnStrict);
-    // TODO: remove once cursor reads are wired for RETURN_STRICT and verify that
-    // the reset is still safe.
-    AREQ_ResetAggregateResultsClaim(req);
     RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
     runCursor(reply, cursor, count);
     RedisModule_EndReply(reply);
@@ -2084,6 +2085,35 @@ static void cursorRead_ctx(CursorReadCtx *cr_ctx) {
   void *privdata = RedisModule_BlockClientGetPrivateData(cr_ctx->bc);
   RedisModule_UnblockClient(cr_ctx->bc, privdata);
   rm_free(cr_ctx);
+}
+
+// Coord+RETURN_STRICT cursor read: take + reset + publish AREQ under a
+// single setRequestLock window so the timer can't observe a half-installed
+// state. Lock-ordering rule: reqCtx -> cursor table; no other path takes
+// the cursor table while holding reqCtx.
+static inline int coordCursorReadReturnStrict(RedisModuleCtx *ctx, CoordRequestCtx *reqCtx,
+                                              long long cid, long long count) {
+  CoordRequestCtx_LockSetRequest(reqCtx);
+  if (CoordRequestCtx_TimedOut(reqCtx)) {
+    // Timer already fired and replied.
+    CoordRequestCtx_UnlockSetRequest(reqCtx);
+    return REDISMODULE_OK;
+  }
+  Cursor *cursor = Cursors_TakeForExecution(GetGlobalCursor(cid), cid);
+  if (!cursor) {
+    // Cursor was destroyed between CursorCommand's peek and our take
+    CoordRequestCtx_UnlockSetRequest(reqCtx);
+    QueryError err = QueryError_Default();
+    QueryError_SetWithoutUserDataFmt(&err, QUERY_ERROR_CODE_GENERIC,
+                                     "Cursor not found, id: %lld", cid);
+    CoordRequestCtx_ReplyOrStoreError(reqCtx, ctx, &err);
+    return REDISMODULE_OK;
+  }
+  AREQ_ResetForCursorReadReturnStrict(cursor->execState);
+  CoordRequestCtx_SetRequest(reqCtx, cursor->execState);
+  CoordRequestCtx_UnlockSetRequest(reqCtx);
+  cursorRead(ctx, cursor, count, false);
+  return REDISMODULE_OK;
 }
 
 /**
@@ -2142,6 +2172,10 @@ int RSCursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
       }
       return RedisModule_ReplyWithErrorFormat(ctx, "Bad value for COUNT: `%s`", bad);
     }
+  }
+
+  if (reqCtx && CoordRequestCtx_IsCursorReadReturnStrict(reqCtx)) {
+    return coordCursorReadReturnStrict(ctx, reqCtx, cid, count);
   }
 
   Cursor *cursor = Cursors_TakeForExecution(GetGlobalCursor(cid), cid);
@@ -2251,6 +2285,8 @@ int RSCursorProfileCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
   } else {
     QueryError status = QueryError_Default();
     AREQ_QueryProcessingCtx(req)->err = &status;
+    // Cursor is freed below; signal cursor exhaustion to the client.
+    req->cursor_id = 0;
     sendChunk_ReplyOnly_EmptyResults(ctx, req);
     IndexSpecRef_Release(execution_ref);
   }

@@ -210,3 +210,18 @@ int single_shard_common_query_reply_empty(RedisModuleCtx *ctx, RedisModuleString
     QueryError_ClearError(&status);
     return ret;
 }
+
+int coord_cursor_read_empty_reply_timeout(RedisModuleCtx *ctx, long long cid) {
+    AREQ *req = AREQ_New();
+    QueryError status = QueryError_Default();
+    AREQ_QueryProcessingCtx(req)->err = &status;
+
+    QueryError_SetError(&status, QUERY_ERROR_CODE_TIMED_OUT, NULL);
+    QueryError_SetCode(&status, QUERY_ERROR_CODE_TIMED_OUT);
+    AREQ_AddRequestFlags(req, QEXEC_F_IS_CURSOR);
+    req->cursor_id = (uint64_t)cid;
+
+    int ret = empty_sendChunk_common(ctx, req);
+    QueryError_ClearError(&status);
+    return ret;
+}

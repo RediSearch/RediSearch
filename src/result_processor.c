@@ -7,18 +7,22 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "aggregate/aggregate.h"
+#include "types_ffi.h"
+#include "value_ffi.h"
 #include "result_processor.h"
 #include "query.h"
 #include "extension.h"
 #include <util/minmax_heap.h>
 #include "ext/default.h"
-#include "result_processor_rs.h"
+#include "result_processor_ffi.h"
+#include "sorting_vector_ffi.h"
 #include "rlookup.h"
 #include "rlookup_load_document.h"
 #include "rmutil/rm_assert.h"
 #include "util/timeout.h"
 #include "util/arr.h"
-#include "iterators_rs.h"
+#include "iterators_ffi.h"
+#include "metrics_ffi.h"
 #include "rs_wall_clock.h"
 #include <stdatomic.h>
 #include <pthread.h>
@@ -32,6 +36,7 @@
 #include "search_disk.h"
 #include "debug_commands.h"
 #include "search_result.h"
+#include "search_result_ffi.h"
 #include "redisearch.h"
 #include "asm_state_machine.h"
 #include "index_result.h"
@@ -557,7 +562,7 @@ static int rpMetricsNext(ResultProcessor *base, SearchResult *res) {
     return rc;
   }
 
-  RSYieldableMetricSlice slice = MetricsVec_AsSlice(&SearchResult_GetIndexResult(res)->metrics);
+  MetricsSlice slice = MetricsVec_AsSlice(&SearchResult_GetIndexResult(res)->metrics);
   for (size_t i = 0; i < slice.len; i++) {
     RLookup_WriteOwnKey(slice.data[i].key, SearchResult_GetRowDataMut(res), RSValue_NewNumber(slice.data[i].value));
   }
