@@ -51,9 +51,9 @@ RefManager* RediSearch_CreateIndex(const char* name, const RSIndexOptions* optio
   //TODO: Should not be supported for SearchDisk, but no way to return error in programmatic API
   spec->flags = (IndexFlags)(spec->flags | Index_Temporary);  // temporary is so that we will not use threads!!
 
-  if (options->score || options->lang) {
-    spec->rule = (SchemaRule *)rm_calloc(1, sizeof *spec->rule);
-    spec->rule->score_default = options->score ? options->score : DEFAULT_SCORE;
+  spec->rule = (SchemaRule *)rm_calloc(1, sizeof *spec->rule);
+  spec->rule->score_default = options->score ? options->score : DEFAULT_SCORE;
+  if (options->lang) {
     spec->rule->lang_default = RSLanguage_Find(options->lang, 0);
   }
 
