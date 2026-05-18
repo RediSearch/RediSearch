@@ -21,22 +21,24 @@ use inverted_index::{
     FilterGeoReader, FilterNumericReader, IndexReader, NumericFilter, NumericReader,
 };
 use numeric_range_tree::{NumericIndexReader, NumericRangeTree};
+use ref_mode::{Active, Ref};
 
-use super::core::InvIndIterator;
+use super::core::{InvIndIterator, RawInvIndIterator};
 
-/// An iterator over numeric inverted index entries.
-///
-/// This iterator can be used to query a numeric inverted index.
+/// An iterator over numeric inverted index entries, parameterised over a
+/// [`Ref`] mode. See [`Numeric`] for the [`Active`] instantiation that
+/// implements [`RQEIterator`].
 ///
 /// The [`inverted_index::IndexReader`] API can be used to fully scan an inverted index.
 ///
 /// # Type Parameters
 ///
-/// * `'index` - The lifetime of the index being iterated over.
+/// * `Rf` - The [`Ref`] mode (see [`RawInvIndIterator`] for details).
 /// * `R` - The type of the numeric reader.
 /// * `E` - The expiration checker type used to check for expired documents.
-pub struct Numeric<'index, R, E = NoOpChecker> {
-    it: InvIndIterator<'index, R, E>,
+#[repr(C)]
+pub struct RawNumeric<Rf: Ref, R, E = NoOpChecker> {
+    it: RawInvIndIterator<Rf, R, E>,
     /// The numeric range tree and its revision ID, used to detect changes during revalidation.
     range_tree_info: Option<RangeTreeInfo>,
     /// Minimum numeric range, only used in debug print.
@@ -44,6 +46,10 @@ pub struct Numeric<'index, R, E = NoOpChecker> {
     /// Maximum numeric range, only used in debug print.
     range_max: f64,
 }
+
+/// Alias for an [`Active`] [`RawNumeric`] — the only instantiation with an
+/// [`RQEIterator`] impl today.
+pub type Numeric<'index, R, E = NoOpChecker> = RawNumeric<Active<'index>, R, E>;
 
 /// Information about the numeric range tree backing a [`Numeric`] iterator.
 struct RangeTreeInfo {

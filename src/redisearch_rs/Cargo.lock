@@ -2246,6 +2246,7 @@ dependencies = [
  "query_term_ffi",
  "redis_mock",
  "redisearch_rs",
+ "ref_mode",
  "rqe_iterator_type",
  "rqe_iterators",
  "rqe_iterators_test_utils",
