@@ -18,7 +18,6 @@
 #include "inverted_index.h"
 #include "numeric_range_tree.h"
 #include "numeric_range_tree_ffi.h"
-#include "rwlock.h"
 #include "info/global_stats.h"
 #include "redis_index.h"
 #include "index_utils.h"

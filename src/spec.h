@@ -320,7 +320,7 @@ typedef struct IndexSpec {
   SynonymMap *smap;               // List of synonym
   HiddenString **aliases;         // Aliases to self-remove when the index is deleted
 
-  struct SchemaRule *rule;        // Contains schema rules for follow-the-hash/JSON
+  struct SchemaRule *rule;        // Contains schema rules for follow-the-hash/JSON. It must always be set
   struct IndexesScanner *scanner; // Scans new hash/JSON documents or rescan
   // can be true even if scanner == NULL, in case of a scan being cancelled
   // in favor on a newer, pending scan
@@ -527,7 +527,6 @@ int IndexSpec_Deserialize(const RedisModuleString *serialized, int encver);
 
 /* Start the garbage collection loop on the index spec */
 void IndexSpec_StartGC(StrongRef spec_ref, IndexSpec *sp, GCPolicy gcPolicy);
-void IndexSpec_StartGCFromSpec(StrongRef spec_ref, IndexSpec *sp, uint32_t gcPolicy);
 
 /* Same as IndexSpec_Parse, but takes a NUL-terminated C-string name and wraps it in a HiddenString
  * internally. Intended for unit tests only.

@@ -13,6 +13,7 @@
 // `IndexSpec::getValue`/`getValueCtx` callback fields dropped.
 
 #include "llapi_test_helpers.h"
+#include "common.h"
 
 #include "spec.h"
 #include "field_spec.h"
@@ -36,7 +37,6 @@
 #include <float.h>
 
 extern "C" {
-#include "rwlock.h"
 #include "search_disk.h"
 }
 
@@ -61,7 +61,8 @@ RefManager* RediSearch_CreateIndex(const char* name, const RSIndexOptions* optio
     spec->docs.maxSize = DOCID_MAX;
   }
   if (options->gcPolicy != GC_POLICY_NONE) {
-    IndexSpec_StartGCFromSpec(spec->own_ref, spec, options->gcPolicy);
+    spec->gc = GCContext_CreateGC(spec->own_ref, options->gcPolicy);
+    GCContext_Start(spec->gc);
   }
   if (options->stopwordsLen != -1) {
     // replace default list which is a global so no need to free anything.
@@ -74,8 +75,7 @@ RefManager* RediSearch_CreateIndex(const char* name, const RSIndexOptions* optio
 RSFieldID RediSearch_CreateField(RefManager* rm, const char* name, unsigned types,
                                  unsigned options) {
   RS_LOG_ASSERT(types, "types should not be RSFLDTYPE_DEFAULT");
-  RWLOCK_ACQUIRE_WRITE();
-  IndexSpec *sp = (IndexSpec *)__RefManager_Get_Object(rm);
+  IndexSpec *sp = get_spec(rm);
 
   // TODO: add a function which can take both path and name
   FieldSpec* fs = IndexSpec_CreateField(sp, name, NULL);
@@ -86,7 +86,6 @@ RSFieldID RediSearch_CreateField(RefManager* rm, const char* name, unsigned type
     numTypes++;
     int txtId = IndexSpec_CreateTextId(sp, fs->index);
     if (txtId < 0) {
-      RWLOCK_RELEASE();
       return RSFIELD_INVALID;
     }
     fs->ftId = txtId;
@@ -139,14 +138,12 @@ RSFieldID RediSearch_CreateField(RefManager* rm, const char* name, unsigned type
     }
   }
 
-  RWLOCK_RELEASE();
   return fs->index;
 }
 
 int RediSearch_DeleteDocument(RefManager* rm, const void* docKey, size_t len) {
   RS_ASSERT(!SearchDisk_IsEnabled());
-  RWLOCK_ACQUIRE_WRITE();
-  IndexSpec* sp = (IndexSpec *)__RefManager_Get_Object(rm);
+  IndexSpec* sp = get_spec(rm);
   int rc = REDISMODULE_OK;
   t_docId id = DocTable_GetId(&sp->docs, (const char *)docKey, len);
   if (id == 0) {
@@ -169,7 +166,6 @@ int RediSearch_DeleteDocument(RefManager* rm, const void* docKey, size_t len) {
     }
   }
 
-  RWLOCK_RELEASE();
   return rc;
 }
 
@@ -202,12 +198,8 @@ typedef struct {
 } QueryInput;
 
 static RS_ApiIter* handleIterCommon(IndexSpec* sp, QueryInput* input, char** error) {
-  /* Two-level locking scheme:
-   * 1. RWLOCK (global) - protects access to all indexes, prevents index destruction
-   * 2. sp->rwlock (per-spec) - protects this index's data structures (e.g., TTL table)
-   * Both locks are acquired here and released in RediSearch_ResultsIteratorFree.
+  /* The per-spec rwlock is acquired here and released in RediSearch_ResultsIteratorFree.
    * On error, cleanup is done here if iter->sp wasn't set, otherwise in Free. */
-  RWLOCK_ACQUIRE_READ();
   pthread_rwlock_rdlock(&sp->rwlock);
   /* We might have multiple readers that reads from the index,
    * Avoid rehashing the terms dictionary */
@@ -277,16 +269,16 @@ end:
 
 RS_ApiIter* RediSearch_IterateQuery(RefManager* rm, const char* s, size_t n, char** error) {
   QueryInput input = {QUERY_INPUT_STRING, {.s = {s, n, 1}}};
-  return handleIterCommon((IndexSpec *)__RefManager_Get_Object(rm), &input, error);
+  return handleIterCommon(get_spec(rm), &input, error);
 }
 
 RS_ApiIter* RediSearch_GetResultsIterator(QueryNode* qn, RefManager* rm) {
   QueryInput input = {QUERY_INPUT_NODE, {.qn = qn}};
-  return handleIterCommon((IndexSpec *)__RefManager_Get_Object(rm), &input, NULL);
+  return handleIterCommon(get_spec(rm), &input, NULL);
 }
 
 const void* RediSearch_ResultsIteratorNext(RS_ApiIter* iter, RefManager* rm, size_t* len) {
-  IndexSpec *sp = (IndexSpec *)__RefManager_Get_Object(rm);
+  IndexSpec *sp = get_spec(rm);
   while (iter->internal->Read(iter->internal) == ITERATOR_OK) {
     iter->res = iter->internal->current;
     const RSDocumentMetadata* md = DocTable_Borrow(&sp->docs, iter->res->docId);
@@ -312,9 +304,8 @@ void RediSearch_ResultsIteratorFree(RS_ApiIter* iter) {
   }
   QAST_Destroy(&iter->qast);
   DMD_Return(iter->lastmd);
-  /* Release locks only if iter->sp is set. On error paths in handleIterCommon,
-   * if iter->sp is NULL, locks were already released there before calling this.
-   * Lock release order: spec lock first, then global lock (reverse of acquisition). */
+  /* Release the per-spec lock only if iter->sp is set. On error paths in
+   * handleIterCommon, if iter->sp is NULL, the lock was already released there. */
   if (iter->sp) {
     if (iter->sp->keysDict) {
       dictResumeRehashing(iter->sp->keysDict);
@@ -322,7 +313,6 @@ void RediSearch_ResultsIteratorFree(RS_ApiIter* iter) {
     pthread_rwlock_unlock(&iter->sp->rwlock);
   }
   rm_free(iter);
-  RWLOCK_RELEASE();
 }
 
 const char *RediSearch_HiddenStringGet(const HiddenString* value) {

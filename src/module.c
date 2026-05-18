@@ -42,7 +42,6 @@
 #include "suggest.h"
 #include "alias.h"
 #include "module.h"
-#include "rwlock.h"
 #include "info/info_command.h"
 #include "rejson_api.h"
 #include "geometry/geometry_api.h"
@@ -1906,7 +1905,6 @@ void RediSearch_CleanupModule(RedisModuleCtx *ctx) {
   // GeometryApi_Free();
 
   Dictionary_Free();
-  RediSearch_LockDestory();
 
   IndexError_GlobalCleanup();
 }

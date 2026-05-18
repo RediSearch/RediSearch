@@ -2503,12 +2503,6 @@ void IndexSpec_MakeKeyless(IndexSpec *sp) {
   sp->missingFieldDict = dictCreate(&missingFieldDictType, NULL);
 }
 
-// Only used on new specs so it's thread safe
-void IndexSpec_StartGCFromSpec(StrongRef global, IndexSpec *sp, uint32_t gcPolicy) {
-  sp->gc = GCContext_CreateGC(global, gcPolicy);
-  GCContext_Start(sp->gc);
-}
-
 /* Start the garbage collection loop on the index spec. The GC removes garbage data left on the
  * index after removing documents */
 // Only used on new specs so it's thread safe
