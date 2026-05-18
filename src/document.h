@@ -17,6 +17,7 @@
 #include "byte_offsets.h"
 #include "rmutil/args.h"
 #include "json.h"
+#include "ttl_table.h"
 
 typedef struct QueryError QueryError;
 
@@ -94,7 +95,7 @@ typedef struct Document {
   float score;
   t_docId docId;
   t_expirationTimePoint docExpirationTime;
-  FieldExpiration* fieldExpirations;
+  FieldExpirations fieldExpirations;
   const char *payload;
   size_t payloadSize;
   uint32_t flags;

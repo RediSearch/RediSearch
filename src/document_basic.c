@@ -177,7 +177,10 @@ int Document_LoadSchemaFieldHash(Document *doc, RedisSearchCtx *sctx, QueryError
       RedisModule_HashGet(k, REDISMODULE_HASH_CFIELDS | REDISMODULE_HASH_EXPIRE_TIME, HiddenString_GetUnsafe(field->fieldPath, NULL), &expireAt, NULL);
       if (expireAt != REDISMODULE_NO_EXPIRE) {
         FieldExpiration fieldExpiration = { .index = ii, .point = timespecFromMilliseconds(expireAt)};
-        array_ensure_append_1(doc->fieldExpirations, fieldExpiration);
+        if (!doc->fieldExpirations.ptr) {
+          doc->fieldExpirations = FieldExpirations_WithCapacity(spec->numFields);
+        }
+        FieldExpirations_Push(&doc->fieldExpirations, fieldExpiration);
       }
     }
 
@@ -459,8 +462,7 @@ void Document_Clear(Document *d) {
 
 void Document_Free(Document *doc) {
   Document_Clear(doc);
-  array_free(doc->fieldExpirations);
-  doc->fieldExpirations = NULL;
+  FieldExpirations_Free(&doc->fieldExpirations);
   if (doc->flags & (DOCUMENT_F_OWNREFS | DOCUMENT_F_OWNSTRINGS)) {
     RedisModule_FreeString(RSDummyContext, doc->docKey);
   }

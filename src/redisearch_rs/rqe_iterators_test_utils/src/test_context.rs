@@ -766,40 +766,34 @@ impl TestContext {
 
         let fe = match field {
             FieldMaskOrIndex::Index(index) => {
-                // Single field by index
-                let fe = unsafe {
-                    ffi::array_new_sz(std::mem::size_of::<FieldExpiration>() as u16, 0, 1)
-                };
-                let fe = fe.cast::<FieldExpiration>();
+                let mut fe = unsafe { ffi::FieldExpirations_WithCapacity(1) };
                 unsafe {
-                    *fe = FieldExpiration {
-                        index,
-                        point: expiration,
-                    };
+                    ffi::FieldExpirations_Push(
+                        &mut fe,
+                        FieldExpiration {
+                            index,
+                            point: expiration,
+                        },
+                    );
                 }
                 fe
             }
             FieldMaskOrIndex::Mask(mask) => {
-                // Multiple fields by mask - count bits to determine array size
-                let count = mask.count_ones();
-                let fe = unsafe {
-                    ffi::array_new_sz(std::mem::size_of::<FieldExpiration>() as u16, 0, count)
-                };
-                let fe = fe.cast::<FieldExpiration>();
-
-                // Add a FieldExpiration for each bit set in the mask
+                let count = mask.count_ones() as usize;
+                let mut fe = unsafe { ffi::FieldExpirations_WithCapacity(count) };
                 let mut value = mask;
-                let mut i = 0isize;
                 while value != 0 {
                     let index = value.trailing_zeros();
                     unsafe {
-                        *fe.offset(i) = FieldExpiration {
-                            index: index as u16,
-                            point: expiration,
-                        };
+                        ffi::FieldExpirations_Push(
+                            &mut fe,
+                            FieldExpiration {
+                                index: index as u16,
+                                point: expiration,
+                            },
+                        );
                     }
                     value &= value - 1;
-                    i += 1;
                 }
                 fe
             }
@@ -807,6 +801,9 @@ impl TestContext {
 
         // SAFETY: self.spec is valid, TTL table is initialized, fe is a valid array
         let guard = self.spec_read();
+
+        // SAFETY: self.spec is valid, TTL table is initialized, `fe` is a
+        // freshly-built ThinVec whose ownership transfers to the table.
         unsafe {
             ffi::TimeToLiveTable_Add(guard.doc_table().ttl, doc_id, fe as _);
         }

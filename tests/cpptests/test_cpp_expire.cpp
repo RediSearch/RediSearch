@@ -92,12 +92,12 @@ TEST_F(ExpireTest, testSkipTo) {
   RedisModule_FreeThreadSafeContext(ctx);
 }
 
-// Helper: build a one-entry FieldExpiration array on field index 0. Ownership
-// transfers to the table on TimeToLiveTable_Add.
-static arrayof(FieldExpiration) makeFE(t_expirationTimePoint p) {
-  arrayof(FieldExpiration) fe = array_new(FieldExpiration, 1);
+// Helper: build a one-entry FieldExpiration ThinVec on field index 0.
+// Ownership transfers to the table on TimeToLiveTable_Add.
+static FieldExpirations makeFE(t_expirationTimePoint p) {
+  FieldExpirations fe = FieldExpirations_WithCapacity(1);
   FieldExpiration entry = {0, p};
-  array_append(fe, entry);
+  FieldExpirations_Push(&fe, entry);
   return fe;
 }
 
@@ -271,32 +271,38 @@ TEST_F(ExpireTest, testTTLGetFieldExpirations) {
   TimeToLiveTable *ttl = nullptr;
   TimeToLiveTable_VerifyInit(&ttl, 32);
 
-  // Empty table: any docId returns NULL.
-  ASSERT_EQ(TimeToLiveTable_GetFieldExpirations(ttl, 1), nullptr);
-  ASSERT_EQ(TimeToLiveTable_GetFieldExpirations(ttl, 999999), nullptr);
+  // Empty table: any docId returns the empty slice (ptr=NULL, len=0).
+  FieldExpirationSlice slice = TimeToLiveTable_GetFieldExpirations(ttl, 1);
+  ASSERT_EQ(slice.ptr, nullptr);
+  ASSERT_EQ(slice.len, 0u);
+  slice = TimeToLiveTable_GetFieldExpirations(ttl, 999999);
+  ASSERT_EQ(slice.ptr, nullptr);
+  ASSERT_EQ(slice.len, 0u);
 
-  // Add an entry and confirm Get returns the same pointer that was inserted,
-  // with the expected length and content. (Add takes ownership; Get returns
-  // a borrowed alias to that same storage.)
+  // Add an entry and confirm Get returns a non-null borrowed pointer with
+  // the expected length and content. (Add takes ownership; Get returns a
+  // borrowed alias to the same storage.)
   struct timespec p = {123, 456};
-  arrayof(FieldExpiration) inserted = makeFE(p);
-  const FieldExpiration *insertedPtr = inserted;  // capture before Add transfers
-  TimeToLiveTable_Add(ttl, 7, inserted);
+  TimeToLiveTable_Add(ttl, 7, makeFE(p));
 
-  const arrayof(FieldExpiration) got = TimeToLiveTable_GetFieldExpirations(ttl, 7);
-  ASSERT_EQ(got, insertedPtr);
-  // array_len takes void*; the const-qualified return needs the cast.
-  ASSERT_EQ(array_len((arrayof(FieldExpiration))got), 1u);
-  ASSERT_EQ(got[0].index, 0);
-  ASSERT_EQ(got[0].point.tv_sec, p.tv_sec);
-  ASSERT_EQ(got[0].point.tv_nsec, p.tv_nsec);
+  slice = TimeToLiveTable_GetFieldExpirations(ttl, 7);
+  ASSERT_NE(slice.ptr, nullptr);
+  ASSERT_EQ(slice.len, 1u);
+  ASSERT_EQ(slice.ptr[0].index, 0);
+  ASSERT_EQ(slice.ptr[0].point.tv_sec, p.tv_sec);
+  ASSERT_EQ(slice.ptr[0].point.tv_nsec, p.tv_nsec);
 
-  // A docId that was never added must report NULL even when other entries exist.
-  ASSERT_EQ(TimeToLiveTable_GetFieldExpirations(ttl, 8), nullptr);
+  // A docId that was never added must report the empty slice even when
+  // other entries exist.
+  slice = TimeToLiveTable_GetFieldExpirations(ttl, 8);
+  ASSERT_EQ(slice.ptr, nullptr);
+  ASSERT_EQ(slice.len, 0u);
 
-  // After Remove, Get for that docId returns NULL.
+  // After Remove, Get for that docId returns the empty slice.
   TimeToLiveTable_Remove(ttl, 7);
-  ASSERT_EQ(TimeToLiveTable_GetFieldExpirations(ttl, 7), nullptr);
+  slice = TimeToLiveTable_GetFieldExpirations(ttl, 7);
+  ASSERT_EQ(slice.ptr, nullptr);
+  ASSERT_EQ(slice.len, 0u);
 
   TimeToLiveTable_Destroy(&ttl);
 }

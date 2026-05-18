@@ -27,6 +27,13 @@ header_name = "index_result_rs"
 # Avoid a name conflict with the pre-existing `search_result.h` header file.
 header_name = "search_result_rs"
 
+[package.ttl_table]
+types = "skip"
+
+[package.ttl_table_ffi]
+# Match the historical header name consumed by C callers.
+header_name = "ttl_table"
+
 [c]
 cpp_compat = true
 
@@ -308,3 +315,26 @@ includes = ["redismodule.h", "hiredis/sds.h"]
 
 [header.varint_ffi]
 includes = ["buffer.h", "redisearch.h"]
+
+[header.ttl_table]
+# `redisearch_types.h` provides `t_docId`, `t_fieldMask` and friends.
+includes = ["redisearch_types.h"]
+after_includes = """
+// `FieldExpiration` is defined by the existing C header `src/ttl_table/ttl_table.h`
+// (and read into Rust via bindgen). Forward-declare here so signatures using
+// `*const FieldExpiration` / `FieldExpirations` parse without pulling in the
+// full C header (which would cause a circular include).
+struct FieldExpiration;
+
+// `TimeToLiveTable` is opaque on the C side — only passed by pointer.
+typedef struct TimeToLiveTable TimeToLiveTable;
+
+// `FieldExpirations` is `#[repr(transparent)]` over `ThinVec<FieldExpiration, u64>`,
+// which is itself a single non-null pointer to a heap-side `Header<u64>`.
+// Passing it by value across the FFI therefore moves exactly one pointer.
+// We declare it as a one-field struct here so cheadergen-emitted FFI
+// signatures that take it by value compile under `[package.ttl_table] types = "skip"`.
+typedef struct FieldExpirations {
+    void *ptr;
+} FieldExpirations;
+"""

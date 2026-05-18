@@ -94,18 +94,18 @@ public:
 
   void TTL_Add(t_docId docId, t_fieldIndex field, t_expirationTimePoint expiration = {LONG_MAX, LONG_MAX}) {
     VerifyTTLInit();
-    arrayof(FieldExpiration) fe = array_new(FieldExpiration, 1);
+    FieldExpirations fe = FieldExpirations_WithCapacity(1);
     FieldExpiration fe_entry = {field, expiration};
-    array_append(fe, fe_entry);
+    FieldExpirations_Push(&fe, fe_entry);
     TimeToLiveTable_Add(spec.docs.ttl, docId, fe);
   }
   void TTL_Add(t_docId docId, t_fieldMask fieldMask, t_expirationTimePoint expiration = {LONG_MAX, LONG_MAX}) {
     VerifyTTLInit();
-    arrayof(FieldExpiration) fe = array_new(FieldExpiration, __builtin_popcountll(fieldMask));
+    FieldExpirations fe = FieldExpirations_WithCapacity(__builtin_popcountll(fieldMask));
     for (t_fieldIndex i = 0; i < sizeof(fieldMask) * 8; ++i) {
       if (fieldMask & (1ULL << i)) {
         FieldExpiration fe_entry = {i, expiration};
-        array_append(fe, fe_entry);
+        FieldExpirations_Push(&fe, fe_entry);
       }
     }
     TimeToLiveTable_Add(spec.docs.ttl, docId, fe);

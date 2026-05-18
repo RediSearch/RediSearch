@@ -282,15 +282,14 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
         cur->byteOffsets = NULL;
       }
       Document* doc = cur->doc;
-      const bool hasExpiration = doc->docExpirationTime.tv_sec || doc->docExpirationTime.tv_nsec || doc->fieldExpirations;
+      const size_t fieldExpLen = FieldExpirations_Len(&doc->fieldExpirations);
+      const bool hasExpiration = doc->docExpirationTime.tv_sec || doc->docExpirationTime.tv_nsec || fieldExpLen > 0;
       if (hasExpiration) {
-        // No need to mark the DMD with Document_HasExpiration: the result
-        // processor already fetches the DMD from the doc table on every hit,
-        // so it can read `expirationTimeNs` directly without going through
-        // a flag-gated branch.
         DocTable_UpdateExpiration(&ctx->spec->docs, md, doc->docExpirationTime, doc->fieldExpirations);
 
-        doc->fieldExpirations = NULL; // Moved to DocTable (TTL table actually)
+        // Ownership of the ThinVec was passed by value; reset our slot to the
+        // NULL sentinel so `Document_Free` doesn't double-drop it.
+        doc->fieldExpirations = FieldExpirations_Empty();
       }
       DMD_Return(md);
     }
@@ -341,7 +340,8 @@ static void reopenCb(void *arg) {}
 // Index missing field docs.
 // Add field names to missingFieldDict if it is missing in the document
 // and add the doc to its corresponding inverted index
-static void writeMissingFieldDocs(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx, arrayof(FieldExpiration) sortedFieldWithExpiration) {
+static void writeMissingFieldDocs(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx,
+                                  struct FieldExpirationSlice sortedFieldWithExpiration) {
   Document *doc = aCtx->doc;
   IndexSpec *spec = sctx->spec;
   // We use a dictionary as a set, to keep all the fields that we've seen so far (optimization)
@@ -367,8 +367,8 @@ static void writeMissingFieldDocs(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx, 
   }
 
   // add indexmissing fields that are in the document but are marked to be expired at some point
-  for (uint32_t sortedIndex = 0; sortedIndex < array_len(sortedFieldWithExpiration); sortedIndex++) {
-    FieldExpiration* fe = &sortedFieldWithExpiration[sortedIndex];
+  for (size_t sortedIndex = 0; sortedIndex < sortedFieldWithExpiration.len; sortedIndex++) {
+    const FieldExpiration* fe = &sortedFieldWithExpiration.ptr[sortedIndex];
     FieldSpec* fs = spec->fields + fe->index;
     if (!FieldSpec_IndexesMissing(fs)) {
       continue;
@@ -464,11 +464,11 @@ static void Indexer_Process(RSAddDocumentCtx *aCtx) {
   // moved into the TTL table by `doAssignIds` on success. On failure (e.g.
   // `makeDocumentId` returned NULL), the array stays attached to `doc` so
   // `Document_Free` can release it.
-  arrayof(FieldExpiration) fes;
+  struct FieldExpirationSlice fes;
   if (SearchDisk_IsEnabled()) {
-    fes = doc->fieldExpirations;
+    fes = FieldExpirations_AsSlice(&doc->fieldExpirations);
   } else {
-    fes = (arrayof(FieldExpiration))DocTable_GetFieldExpirations(&ctx.spec->docs, doc->docId);
+    fes = DocTable_GetFieldExpirations(&ctx.spec->docs, doc->docId);
   }
   writeMissingFieldDocs(aCtx, &ctx, fes);
 
