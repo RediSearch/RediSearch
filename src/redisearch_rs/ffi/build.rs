@@ -28,6 +28,14 @@ struct HeaderAllowlist {
 /// Bindgen inputs. Each entry both feeds clang and constrains which symbols
 /// bindgen emits. Sorted alphabetically by `path` for easy scanning.
 const HEADERS: &[HeaderAllowlist] = &[
+    // RSE: `ThrottleCB` and `VecSimParamsDisk` are consumed by the disk
+    // vector-index API exposed through `src/search_disk_api.h`.
+    HeaderAllowlist {
+        path: "deps/VectorSimilarity/src/VecSim/vec_sim_common.h",
+        fns: &[],
+        types: &["ThrottleCB", "VecSimParamsDisk"],
+        vars: &[],
+    },
     HeaderAllowlist {
         path: "deps/geohash/geohash.h",
         fns: &[],
@@ -132,7 +140,9 @@ const HEADERS: &[HeaderAllowlist] = &[
     HeaderAllowlist {
         path: "src/redismodule.h",
         fns: &[],
-        types: &["RedisModuleString"],
+        // RSE: `RedisModuleIO` is referenced by the RDB save/load entry points
+        // in `src/search_disk_api.h`.
+        types: &["RedisModuleIO", "RedisModuleString"],
         vars: &[
             "REDISMODULE_ERR",
             "REDISMODULE_OK",
@@ -145,7 +155,14 @@ const HEADERS: &[HeaderAllowlist] = &[
             "RedisModule_GetDetachedThreadSafeContext",
             "RedisModule_GetThreadSafeContext",
             "RedisModule_InfoAddFieldCString",
+            // RSE: u64 field writer used by `redisearch_disk`'s
+            // `RedisModuleInfoCtx`-backed INFO sink.
+            "RedisModule_InfoAddFieldULongLong",
             "RedisModule_InfoAddSection",
+            // RSE: open/close pair for nested dict fields, used by the same
+            // INFO sink in `redisearch_disk`.
+            "RedisModule_InfoBeginDictField",
+            "RedisModule_InfoEndDictField",
             "RedisModule_Log",
             "RedisModule_ReplySetArrayLength",
             "RedisModule_ReplySetMapLength",
@@ -187,6 +204,30 @@ const HEADERS: &[HeaderAllowlist] = &[
         path: "src/search_ctx.h",
         fns: &["NewSearchCtxC", "SearchCtx_Free"],
         types: &[],
+        vars: &[],
+    },
+    // RSE: the entire disk API struct family lives in this header and is
+    // consumed by `redisearch_disk` to bridge from C into the Rust storage
+    // layer. None of these symbols are referenced by RediSearch itself.
+    HeaderAllowlist {
+        path: "src/search_disk_api.h",
+        fns: &[],
+        types: &[
+            "AllocateDMDCallback",
+            "AllocateKeyCallback",
+            "AsyncPollResult",
+            "AsyncReadResult",
+            "BasicDiskAPI",
+            "DocTableDiskAPI",
+            "IndexDiskAPI",
+            "MetricsDiskAPI",
+            "RedisSearchDisk",
+            "RedisSearchDiskAPI",
+            "RedisSearchDiskAsyncReadPool",
+            "RedisSearchDiskRdbState",
+            "SearchDiskCompactionCallbacks",
+            "VectorDiskAPI",
+        ],
         vars: &[],
     },
     HeaderAllowlist {
