@@ -8,7 +8,7 @@
 */
 #pragma once
 
-#include "slots_tracker.h"
+#include "slots_tracker_ffi.h"
 #include "util/khash.h"
 #include "rmutil/rm_assert.h"
 #include "rmalloc.h"

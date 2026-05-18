@@ -125,13 +125,10 @@ arrayof(char*) HybridRequest_BuildDistributedPipeline(HybridRequest *hreq,
     }
 
     RLookup_EnableOptions(tailLookup, RLOOKUP_OPT_ALLOWUNRESOLVED);
-    rc = HybridRequest_BuildMergePipeline(hreq, scoreKey, hybridParams);
+    rc = HybridRequest_BuildMergePipeline(hreq, scoreKey, hybridParams, status);
     RLookup_DisableOptions(tailLookup, RLOOKUP_OPT_ALLOWUNRESOLVED);
 
     if (rc != REDISMODULE_OK) {
-      // The error is set at the tail, copy it into status
-      QueryError_CloneFrom(&hreq->tailPipelineError, status);
-      QueryError_ClearError(&hreq->tailPipelineError);
       return NULL;
     }
 

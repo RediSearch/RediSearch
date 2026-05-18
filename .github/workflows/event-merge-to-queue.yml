@@ -16,7 +16,7 @@ concurrency:
 jobs:
   get-latest-redis-tag:
     # TODO: Revert to using the latest stable ref in redis
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-slim
     outputs:
       tag: 3cd464263b03b425ffae2e23db24df3dc9346871
     steps:
@@ -29,25 +29,46 @@ jobs:
     permissions:
       contents: read
       packages: write
+      id-token: write # OIDC role assumption for sccache S3 (used inside task-lint.yml)
+      actions: write  # Swatinem/rust-cache read/write of GH cache (used inside task-lint.yml)
     uses: ./.github/workflows/task-lint.yml
     secrets: inherit
     with:
       compare-advisories-to-base: true
       advisories-base-ref: ${{ github.event.merge_group.base_sha }}
 
-  test-matrix:
-    needs: [get-latest-redis-tag, lint]
+  build-unique-oses:
+    needs: get-latest-redis-tag
     permissions:
       contents: read
       packages: write
+      id-token: write # OIDC role assumption for sccache S3 (used inside task-test.yml)
+      actions: write  # Swatinem/rust-cache read/write of GH cache (used inside task-test.yml)
     uses: ./.github/workflows/flow-test.yml
     secrets: inherit
     with:
-      platform: 'ubuntu:noble,macos-26,alpine:3.23,intel'  # on feature branches this should be 'all'
+      platform: 'macos-26,alpine:3.23,intel'
       architecture: all
       redis-ref: ${{ needs.get-latest-redis-tag.outputs.tag }}
-      job-test-config: '{"test": "", "coverage": "", "sanitize": ""}'
-      options: ${{ vars.ENABLE_CODE_COVERAGE != 'false' && 'unit-tests,coordinator,standalone,rejson,fail-fast,coverage,sanitize' || 'unit-tests,coordinator,standalone,rejson,fail-fast,sanitize' }}
+      options: skip-tests,fail-fast
+      rejson-branch: master
+
+  test-ubuntu:
+    # Always run tests for merge queue submissions, including text-only PRs.
+    needs: get-latest-redis-tag
+    permissions:
+      contents: read
+      packages: write
+      id-token: write # OIDC role assumption for sccache S3 (used inside task-test.yml)
+      actions: write  # Swatinem/rust-cache read/write of GH cache (used inside task-test.yml)
+    uses: ./.github/workflows/flow-test.yml
+    secrets: inherit
+    with:
+      platform: ubuntu:noble
+      architecture: x86_64
+      redis-ref: ${{ needs.get-latest-redis-tag.outputs.tag }}
+      job-test-config: '{"test": "QUICK=1", "coverage": "QUICK=1", "sanitize": "QUICK=1"}'
+      options: unit-tests,coordinator,standalone,rejson,fail-fast
       separate-coordinator-job: true
       rejson-branch: master
 
@@ -55,8 +76,9 @@ jobs:
     needs:
       - get-latest-redis-tag
       - lint
-      - test-matrix
-    runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
+      - build-unique-oses
+      - test-ubuntu
+    runs-on: ubuntu-slim
     if: ${{ !cancelled() }}
     steps:
       - if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')

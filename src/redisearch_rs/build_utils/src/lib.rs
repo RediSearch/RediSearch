@@ -54,50 +54,6 @@ pub fn rerun_if_c_changes(dir: &Path) -> std::io::Result<()> {
     rerun_if_changes(dir, &["c", "h"])
 }
 
-/// Walk the specified directory and emit granular `rerun-if-changed` statements,
-/// scoped to `*.rs` files.
-/// It'd be nice if `cargo` supported globbing syntax natively, but that's not the
-/// case today.
-fn rerun_if_rust_changes(dir: &Path) -> std::io::Result<()> {
-    rerun_if_changes(dir, &["rs"])
-}
-
-/// Generate a C header file via `cbindgen` for the calling crate.
-/// It'll read `cbindgen` configuration from the `cbindgen.toml` file at the crate root
-/// and output the header file to `header_path`.
-pub fn run_cbindgen(header_path: impl AsRef<Path>) -> Result<(), Box<dyn std::error::Error>> {
-    let config =
-        cbindgen::Config::from_file("cbindgen.toml").expect("Failed to find cbindgen config");
-    println!("cargo::rerun-if-changed=cbindgen.toml");
-
-    // emit `rerun-if-changed` for all the headers files referenced by the config as well
-    if let Some(include) = &config.parse.include {
-        for included_crate in include.iter() {
-            let path = repository_root()?
-                .join("src")
-                .join("redisearch_rs")
-                .join(included_crate);
-            if path.exists() {
-                let _ = rerun_if_rust_changes(&path);
-            }
-        }
-    }
-    // We should also regenerate the header files if the source of the current
-    // crate changes. The current crate isn't usually included in `cbindgen`'s
-    // config file under `parse.include`.
-    let _ = rerun_if_rust_changes(&PathBuf::from("src"));
-
-    let crate_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
-
-    cbindgen::Builder::new()
-        .with_crate(crate_dir)
-        .with_config(config)
-        .generate()?
-        .write_to_file(header_path);
-
-    Ok(())
-}
-
 /// Link all the relevant C dependencies to allow Rust (testing and benchmarking) code to invoke
 /// RediSearch C symbols.
 ///

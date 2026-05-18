@@ -42,12 +42,18 @@ jobs:
   # Build RediSearch ONCE per-arch. Every benchmark job below downloads the
   # resulting redisearch.so as an artifact instead of rebuilding it.
   build-redisearch:
+    permissions:
+      contents: read
+      id-token: write # OIDC role assumption for sccache S3 (used inside flow-build-benchmark-binary.yml)
     uses: ./.github/workflows/flow-build-benchmark-binary.yml
     with:
       arch: x86_64
       artifact_name: redisearch-bin-${{ github.run_id }}-${{ github.run_attempt }}
 
   build-redisearch-aarch64:
+    permissions:
+      contents: read
+      id-token: write # OIDC role assumption for sccache S3 (used inside flow-build-benchmark-binary.yml)
     uses: ./.github/workflows/flow-build-benchmark-binary.yml
     with:
       arch: aarch64
@@ -325,7 +331,7 @@ jobs:
       - benchmark-msmarco-oss-cluster-08-primaries-250gb-threads-8
       - benchmark-hybrid-oss-standalone
     if: ${{ always() && contains(needs.*.result, 'failure') && inputs.notify_failure }}
-    runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
+    runs-on: ubuntu-slim
     steps:
       - name: Notify Failure
         uses: slackapi/slack-github-action@v1
@@ -341,7 +347,7 @@ jobs:
     needs:
       - benchmark-msmarco-oss-cluster-08-primaries-250gb-threads-8
     if: ${{ always() && needs.benchmark-msmarco-oss-cluster-08-primaries-250gb-threads-8.result == 'failure' && inputs.notify_failure }}
-    runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
+    runs-on: ubuntu-slim
     steps:
       - name: Notify MSMARCO Benchmark Failure
         uses: slackapi/slack-github-action@v1

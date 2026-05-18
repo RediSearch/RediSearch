@@ -8,6 +8,7 @@
 */
 
 #include "function.h"
+#include "value_ffi.h"
 #include "aggregate/expr/expression.h"
 #include "rs_geo.h"
 

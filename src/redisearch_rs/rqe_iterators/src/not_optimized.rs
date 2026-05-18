@@ -18,6 +18,7 @@ use crate::{
     IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
     WildcardIterator, maybe_empty::MaybeEmpty, not::NotIterator, utils::TimeoutContext,
 };
+use index_spec::IndexSpecReadGuard;
 
 /// Check the clock every this many loop iterations to amortize syscall cost.
 const TIMEOUT_CHECK_GRANULARITY: u32 = 5_000;
@@ -266,23 +267,18 @@ where
     }
 
     #[inline(always)]
-    unsafe fn revalidate(
+    fn revalidate(
         &mut self,
-        spec: std::ptr::NonNull<ffi::IndexSpec>,
+        spec: &IndexSpecReadGuard,
     ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         // 1. Revalidate the wildcard iterator first.
-        // SAFETY: Delegating to children with the same `spec` passed by our caller.
-        let wcii_status = unsafe { self.wcii.revalidate(spec) }?;
+        let wcii_status = self.wcii.revalidate(spec)?;
         if matches!(wcii_status, RQEValidateStatus::Aborted) {
             return Ok(RQEValidateStatus::Aborted);
         }
 
         // 2. Revalidate the child iterator.
-        let child_aborted = matches!(
-            // SAFETY: Delegating to child with the same `spec` passed by our caller.
-            unsafe { self.child.revalidate(spec) }?,
-            RQEValidateStatus::Aborted
-        );
+        let child_aborted = matches!(self.child.revalidate(spec)?, RQEValidateStatus::Aborted);
         if child_aborted {
             // When child is aborted, NOT becomes "NOT nothing" = everything
             // from the wildcard iterator.

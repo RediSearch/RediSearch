@@ -10,6 +10,7 @@
 
 #include "gtest/gtest.h"
 #include "aggregate/aggregate.h"
+#include "search_result_ffi.h"
 #include "redismock/redismock.h"
 #include "redismock/util.h"
 #include "redismock/internal.h"

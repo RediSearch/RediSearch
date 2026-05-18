@@ -14,7 +14,7 @@ use query_term::RSQueryTerm;
 use super::offsets::{RSOffsetSlice, RSOffsetVector};
 
 /// Represents a single record of a document inside a term in the inverted index
-/// cbindgen:prefix-with-name=true
+#[cheadergen::config(prefix_with_name)]
 #[repr(u8)]
 pub enum RSTermRecord<'index> {
     Borrowed {

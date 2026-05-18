@@ -15,6 +15,7 @@ use crate::{
     expiration_checker::{ExpirationChecker, NoOpChecker},
 };
 use ffi::{FieldType_INDEXFLD_T_GEO, FieldType_INDEXFLD_T_NUMERIC, IndexFlags, t_docId};
+use index_spec::IndexSpecReadGuard;
 use inverted_index::{
     FilterGeoReader, FilterNumericReader, IndexReader, NumericFilter, NumericReader, RSIndexResult,
 };
@@ -181,16 +182,15 @@ where
     }
 
     #[inline(always)]
-    unsafe fn revalidate(
+    fn revalidate(
         &mut self,
-        spec: NonNull<ffi::IndexSpec>,
+        spec: &IndexSpecReadGuard,
     ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         if self.should_abort() {
             return Ok(RQEValidateStatus::Aborted);
         }
 
-        // SAFETY: Delegating to inner iterator with the same `spec` passed by our caller.
-        unsafe { self.it.revalidate(spec) }
+        self.it.revalidate(spec)
     }
 
     #[inline(always)]
@@ -507,17 +507,14 @@ impl<'index> RQEIterator<'index> for NumericIteratorVariant<'index> {
     }
 
     #[inline(always)]
-    unsafe fn revalidate(
+    fn revalidate(
         &mut self,
-        spec: NonNull<ffi::IndexSpec>,
+        spec: &IndexSpecReadGuard,
     ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         match self {
-            // SAFETY: Delegating to variant with the same `spec` passed by our caller.
-            Self::Unfiltered(iter) => unsafe { iter.revalidate(spec) },
-            // SAFETY: Delegating to variant with the same `spec` passed by our caller.
-            Self::Filtered(iter) => unsafe { iter.revalidate(spec) },
-            // SAFETY: Delegating to variant with the same `spec` passed by our caller.
-            Self::Geo(iter) => unsafe { iter.revalidate(spec) },
+            Self::Unfiltered(iter) => iter.revalidate(spec),
+            Self::Filtered(iter) => iter.revalidate(spec),
+            Self::Geo(iter) => iter.revalidate(spec),
         }
     }
 

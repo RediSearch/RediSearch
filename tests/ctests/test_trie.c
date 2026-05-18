@@ -7,8 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+#include "trie/trie_node.h"
 #include "trie/trie.h"
-#include "trie/trie_type.h"
 #include "trie/levenshtein.h"
 #include "trie/rune_util.h"
 #include "libnu/libnu.h"
@@ -17,11 +17,15 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <stdint.h>
 #include <assert.h>
 #include <unistd.h>
 #include <sys/time.h>
 #include <sys/param.h>
 #include <time.h>
+
+// Forward declaration of internal helper from trie.c, exposed here for testing only.
+size_t __trieNode_Sizeof(t_len numChildren, t_len slen);
 
 int count = 0;
 
@@ -1061,6 +1065,34 @@ int testDecrementNumDocsNonTerminal() {
   return 0;
 }
 
+int testTrieNodeSizeof() {
+  // Test __trieNode_Sizeof size calculation
+  //
+  // Note: Overflow is not possible with t_len (uint16_t) inputs since
+  // max possible size is: 65535 * 12 + 65536 * 4 ≈ 1MB, far below SIZE_MAX.
+
+  // Maximum uint16_t values should work (no overflow possible)
+  size_t result = __trieNode_Sizeof(UINT16_MAX, UINT16_MAX);
+  ASSERT(result > 0);
+
+  // Verify the size calculation matches expected formula
+  size_t expected = sizeof(TrieNode) +
+                    (size_t)UINT16_MAX * (sizeof(rune) + sizeof(TrieNode *)) +
+                    ((size_t)UINT16_MAX + 1) * sizeof(rune);
+  ASSERT_EQUAL(result, expected);
+
+  // Normal values
+  result = __trieNode_Sizeof(10, 100);
+  ASSERT(result > 0);
+
+  // Edge case: zero children and zero length
+  result = __trieNode_Sizeof(0, 0);
+  // Should be sizeof(TrieNode) + sizeof(rune) for the null terminator
+  ASSERT_EQUAL(result, sizeof(TrieNode) + sizeof(rune));
+
+  return 0;
+}
+
 TEST_MAIN({
   RMUTil_InitAlloc();
   TESTFUNC(testRuneUtil);
@@ -1072,4 +1104,5 @@ TEST_MAIN({
   TESTFUNC(testDecrementNumDocs);
   TESTFUNC(testDecrementNumDocsComplex);
   TESTFUNC(testDecrementNumDocsNonTerminal);
+  TESTFUNC(testTrieNodeSizeof);
 });

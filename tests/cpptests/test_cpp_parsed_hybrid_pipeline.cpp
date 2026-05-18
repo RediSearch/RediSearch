@@ -168,7 +168,7 @@ HybridRequest* ParseAndBuildHybridRequest(RedisModuleCtx *ctx, const char* index
   }
 
   // Build the pipeline using the parsed hybrid parameters
-  rc = HybridRequest_BuildPipeline(hybridReq, cmd.hybridParams, true);
+  rc = HybridRequest_BuildPipeline(hybridReq, cmd.hybridParams, true, status);
   if (rc != REDISMODULE_OK) {
     HybridRequest_DecrRef(hybridReq);
     return nullptr;

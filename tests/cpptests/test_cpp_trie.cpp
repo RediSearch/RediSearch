@@ -9,8 +9,8 @@
 
 
 #include "gtest/gtest.h"
+#include "trie/trie_node.h"
 #include "trie/trie.h"
-#include "trie/trie_type.h"
 #include "redismock/redismock.h"
 
 #include <set>
@@ -38,7 +38,7 @@ static void *triePayload(Trie *t, const char *s, size_t len, bool exact) {
   }
   runeBuf buf;
   rune *runes = runeBufFill(s, len, &buf, &len);
-  TrieNode *node = TrieNode_Get(t->root, runes, len, exact, NULL);
+  TrieNode *node = Trie_GetNode(t, runes, len, exact, NULL);
   runeBufFree(&buf);
   return (node && node->payload) ? node->payload->data : nullptr;
 }

@@ -10,7 +10,8 @@
 #pragma once
 
 #include "redismodule.h"
-#include "query_error.h"
+
+typedef struct QueryError QueryError;
 
 #ifdef __cplusplus
 extern "C" {

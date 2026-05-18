@@ -7,9 +7,11 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include <math.h>
+#include <limits.h>
 
+#include "triemap_ffi.h"
 #include "spec.h"
-#include "inverted_index.h"
+#include "inverted_index_ffi.h"
 #include "vector_index.h"
 #include "cursor.h"
 #include "resp3.h"
@@ -23,7 +25,7 @@
 #include "field_spec_info.h"
 #include "info/info_redis/threads/current_thread.h"
 #include "obfuscation/obfuscation_api.h"
-#include "query_error.h"
+#include "query_error_ffi.h"
 #include "search_disk.h"
 
 static void renderIndexOptions(RedisModule_Reply *reply, const IndexSpec *sp) {
@@ -260,7 +262,7 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
   REPLY_KVINT("num_terms", sp->stats.scoring.numTerms);
 
   const bool isDisk = sp->diskSpec != NULL;
-  size_t num_records = isDisk ? 0 : sp->stats.numRecords;
+  size_t num_records = isDisk ? SearchDisk_GetNumRecords(sp->diskSpec) : sp->stats.numRecords;
   // Vector indexes (e.g. HNSW) remain in memory even when the rest of the
   // index is stored on disk, so their memory must always be reported.
   size_t vector_indexes_size = IndexSpec_VectorIndexesSize(specForOpeningIndexes);
@@ -293,16 +295,18 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
   REPLY_KVNUM("geoshapes_sz_mb", geoshapes_size / (float)0x100000);
   REPLY_KVNUM("records_per_doc_avg",
               (float)num_records / (float)sp->stats.scoring.numDocuments);
-  // Disk metrics expose inverted size but not posting record count yet; keep NaN
-  // when denominator is unavailable to avoid returning +/-inf.
   double bytes_per_record_avg = num_records ?
     (float)inverted_size / (float)num_records : NAN;
   REPLY_KVNUM("bytes_per_record_avg",
               bytes_per_record_avg);
-  REPLY_KVNUM("offsets_per_term_avg",
-              (float)offset_vec_records / (float)num_records);
-  REPLY_KVNUM("offset_bits_per_record_avg",
-              8.0F * (float)offset_vecs_size / (float)offset_vec_records);
+  // Disk indexes don't track offset record counts; report NaN rather than 0
+  // (which would falsely imply the metric is meaningful).
+  double offsets_per_term_avg = (isDisk || !num_records) ? NAN :
+    (float)offset_vec_records / (float)num_records;
+  REPLY_KVNUM("offsets_per_term_avg", offsets_per_term_avg);
+  double offset_bits_per_record_avg = (isDisk || !offset_vec_records) ? NAN :
+    (float)CHAR_BIT * (float)offset_vecs_size / (float)offset_vec_records;
+  REPLY_KVNUM("offset_bits_per_record_avg", offset_bits_per_record_avg);
   // TODO: remove this once "hash_indexing_failures" is deprecated
   // Legacy for not breaking changes
   REPLY_KVINT("hash_indexing_failures", sp->stats.indexError.error_count);

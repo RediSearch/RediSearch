@@ -10,10 +10,12 @@
 
 #include "redismodule.h"
 #include "hiredis/sds.h"
-#include "query_error.h"
+#include "rmutil/args.h"
 #include "reply.h"
 #include "util/config_macros.h"
 #include "ext/default.h"
+
+typedef struct QueryError QueryError;
 
 typedef enum {
   TimeoutPolicy_Return,       // Return what we have on timeout
@@ -372,6 +374,7 @@ long long getRedisConfigNumeric(RedisModuleCtx *ctx, const char *confName, long 
 #define DEFAULT_MAX_TRIM_DELAY 5000  // 5 seconds in milliseconds
 #define DEFAULT_TRIMMING_STATE_CHECK_DELAY 100 // 0.1 seconds in milliseconds (We check the trimming state every 0.1 seconds, between MIN_TRIM_DELAY and MAX_TRIM_DELAY)
 #define DEFAULT_DISK_BUFFER_PERCENTAGE 20  // 20% of available memory for disk write buffer
+#define DEFAULT_MAX_INDEXES 200000
 
 // default configuration
 #define RS_DEFAULT_CONFIG {                                                    \
