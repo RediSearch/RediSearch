@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use super::{IndexReader, IndexReaderCore, NumericFilter, NumericReader};
+use super::{IndexReader, IndexReaderCore, NumericFilter, NumericReader, SuspendableReader};
 use crate::{DecodedBy, Decoder, InvertedIndex};
 use ffi::{GeoFilter, IndexFlags, t_docId};
 use index_result::RSIndexResult;
@@ -67,6 +67,14 @@ impl<'filter, 'index, IR: NumericReader<'index>> FilterGeoReader<'filter, IR> {
             inner,
         }
     }
+}
+
+/// `FilterGeoReader<'filter, IR>` suspends to
+/// `FilterGeoReader<'filter, IR::Suspended>` — the borrowed filter
+/// references live for `'filter` (independent of the index lifetime), so
+/// they don't switch modes when the inner reader does.
+impl<'filter, IR: SuspendableReader> SuspendableReader for FilterGeoReader<'filter, IR> {
+    type Suspended = FilterGeoReader<'filter, IR::Suspended>;
 }
 
 impl<'filter, 'index, E> FilterGeoReader<'filter, IndexReaderCore<'index, E>> {

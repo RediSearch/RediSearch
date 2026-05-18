@@ -27,7 +27,8 @@ pub use gc::{GcApplyInfo, GcScanDelta};
 
 // Re-export reader types.
 pub use reader::{
-    IndexReader, IndexReaderCore, NumericFilter, NumericReader, RawIndexReaderCore, TermReader,
+    IndexReader, IndexReaderCore, NumericFilter, NumericReader, RawIndexReaderCore,
+    ResumableReader, SuspendableReader, TermReader,
 };
 
 // Re-export filter types.

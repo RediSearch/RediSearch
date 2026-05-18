@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use super::{IndexReader, IndexReaderCore, TermReader};
+use super::{IndexReader, IndexReaderCore, ResumableReader, SuspendableReader, TermReader};
 use crate::{
     DecodedBy, Decoder, HasInnerIndex, InvertedIndex, TermDecoder, opaque::OpaqueEncoding,
 };
@@ -35,6 +35,21 @@ impl<'index, IR: IndexReader<'index>> FilterMaskReader<IR> {
     pub const fn new(mask: t_fieldMask, inner: IR) -> Self {
         Self { mask, inner }
     }
+}
+
+/// `FilterMaskReader<IR>` suspends to `FilterMaskReader<IR::Suspended>`.
+impl<IR: SuspendableReader> SuspendableReader for FilterMaskReader<IR> {
+    type Suspended = FilterMaskReader<IR::Suspended>;
+}
+
+/// Inverse of the above: `FilterMaskReader<RS>` resumes to
+/// `FilterMaskReader<RS::Resumed<'a>>` for any `RS: ResumableReader`.
+impl<RS: ResumableReader> ResumableReader for FilterMaskReader<RS>
+where
+    for<'a> Self: 'static,
+    for<'a> FilterMaskReader<RS::Resumed<'a>>: IndexReader<'a>,
+{
+    type Resumed<'a> = FilterMaskReader<RS::Resumed<'a>>;
 }
 
 impl<'index, IR: IndexReader<'index>> IndexReader<'index> for FilterMaskReader<IR> {
