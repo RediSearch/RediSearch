@@ -61,7 +61,18 @@ void addSuffixTrie(Trie *trie, const char *str, uint32_t len) {
   if (!data) {
     suffixData newdata = createSuffixNode(copyStr, 1);
     RSPayload payload = { .data = (char*)&newdata, .len = sizeof(newdata) };
-    TrieNode_Add(&trie->root, runes, rlen, &payload, 1, ADD_REPLACE, trie->freecb, 0);
+    int rc = TrieNode_Add(&trie->root, runes, rlen, &payload, 1, ADD_REPLACE, trie->freecb, 0);
+    RS_LOG_ASSERT(rc != TRIE_ERR_PAYLOAD_OVERFLOW,
+                  "TrieNode_Add failed due to payload overflow");
+    if (rc == TRIE_ERR_PAYLOAD_OVERFLOW) {
+      RedisModule_Log(
+          RSDummyContext, "warning",
+          "Suffix trie: TrieNode_Add() failed due to payload overflow, suffix trie entry was not added");
+      array_free(newdata.array);
+      rm_free(copyStr);
+      runeBufFree(&buf);
+      return;
+    }
   } else {
     RS_LOG_ASSERT(!data->term, "can't reach here");
     data->term = copyStr;
@@ -77,7 +88,18 @@ void addSuffixTrie(Trie *trie, const char *str, uint32_t len) {
     if (!trienode || !trienode->payload) {
       suffixData newdata = createSuffixNode(copyStr, 0);
       RSPayload payload = { .data = (char*)&newdata, .len = sizeof(newdata) };
-      Trie_InsertRune(trie, runes + j, rlen - j, 1, ADD_REPLACE, &payload, 0);
+      int rc = Trie_InsertRune(trie, runes + j, rlen - j, 1, ADD_REPLACE, &payload, 0);
+      RS_LOG_ASSERT(rc != TRIE_ERR_PAYLOAD_OVERFLOW,
+                  "TrieNode_Add failed due to payload overflow");
+      if (rc == TRIE_ERR_PAYLOAD_OVERFLOW) {
+        RedisModule_Log(
+            RSDummyContext, "warning",
+            "Suffix trie: Trie_InsertRune() failed due to payload overflow, suffix trie entry was not added");
+        array_free(newdata.array);
+        runeBufFree(&buf);
+        return;
+      }
+
     } else {
       data->array = array_ensure_append_1(data->array, copyStr);
     }
