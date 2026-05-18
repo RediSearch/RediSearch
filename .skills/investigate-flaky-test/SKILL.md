@@ -71,7 +71,9 @@ conflict, or environment failure.
 
 ### 4. Propose A Real Fix Or Say Evidence Is Insufficient
 
-Propose a fix only when the cause is supported well enough to justify a code or test change.
+Propose a root-cause fix only when the cause is supported well enough to justify a code or test
+change. If the logs, source path, and failure signature do not support a specific cause, do not
+claim one.
 
 A good fix proposal includes:
 - Root cause, with evidence
@@ -88,6 +90,13 @@ If the cause is unclear, say so plainly. Do not suggest workaround-only fixes, q
 - Reproduction command and seed/config
 - Server log around the assertion or crash
 - A second occurrence to compare signatures
+
+When the current evidence is not enough but the next failure could be made more informative,
+recommend a diagnostic PR instead of a workaround. A valid recommendation is to add focused debug
+logs, counters, state dumps, or richer test assertion messages, merge or run that instrumentation in
+CI for a few days, and use the next flaky occurrence to identify the root cause. Do not present this
+as "add logs and rerun once to find the root cause right away"; a focused local rerun can help, but
+the main goal is better evidence when the intermittent failure happens again.
 
 ### 5. Verification Plan
 

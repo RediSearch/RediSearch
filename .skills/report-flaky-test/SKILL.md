@@ -21,6 +21,7 @@ Defaults:
 - Project: `MOD`
 - Parent epic: `MOD-9672` (`[RQE] CI Stability - MAG`)
 - Issue type: `Bug`
+- Components: `RediSearch`, `RedisAI`
 
 ## Instructions
 
@@ -94,7 +95,7 @@ Notes:
 
 If no existing issue is found, prepare a new Jira `Bug` under `MOD-9672`:
 - Summary: `Flaky test: <test_file>:<test_name> <short symptom/context>`
-- Components: `RediSearch` when accepted by Jira metadata
+- Components: `RediSearch`, `RedisAI`
 - Description:
 
 ~~~markdown
