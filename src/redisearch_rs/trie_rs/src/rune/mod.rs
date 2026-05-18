@@ -25,13 +25,14 @@ use itertools::Itertools;
 use crate::TrieMap;
 
 pub type Rune = u16;
-type Data = u8;
 
-pub struct RuneTrieMap {
+type Byte = u8;
+
+pub struct RuneTrieMap<Data> {
     byte_trie_map: TrieMap<Data>,
 }
 
-impl RuneTrieMap {
+impl<Data> RuneTrieMap<Data> {
     pub fn new() -> Self {
         Self {
             byte_trie_map: TrieMap::new(),
@@ -39,23 +40,46 @@ impl RuneTrieMap {
     }
 
     pub fn insert(&mut self, key: &[Rune], data: Data) {
-        self.byte_trie_map.insert(&convert_key(key), data);
+        self.byte_trie_map.insert(&split_key(key), data);
     }
 
     pub fn remove(&mut self, key: &[Rune]) {
-        self.byte_trie_map.remove(&convert_key(key));
+        self.byte_trie_map.remove(&split_key(key));
     }
 
     pub fn get(&mut self, key: &[Rune]) -> Option<&Data> {
-        self.byte_trie_map.find(&convert_key(key))
+        self.byte_trie_map.find(&split_key(key))
+    }
+
+    pub fn len(&self) -> usize {
+        0
+    }
+
+    pub fn iter(&self) -> RuneTrieMapIter<'_, Data> {
+        RuneTrieMapIter(self.byte_trie_map.iter())
     }
 }
 
-fn convert_key(key: &[u16]) -> Vec<u8> {
-    // Consider: Endianess
-    // Consider: let bytes: &[u8] = bytemuck::cast_slice(my_u16_slice);
+use crate::iter;
+use crate::iter::filter;
+
+pub struct RuneTrieMapIter<'a, Data>(iter::Iter<'a, Data, filter::VisitAll>);
+
+impl<'a, Data> Iterator for RuneTrieMapIter<'a, Data> {
+    type Item = (Vec<Rune>, &'a Data);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.0.next().map(|(k, v)| (join_key(&k), v))
+    }
+}
+
+fn split_key(key: &[Rune]) -> Vec<Byte> {
+    key.into_iter().flat_map(|x| x.to_le_bytes()).collect_vec()
+}
+
+fn join_key(key: &[Byte]) -> Vec<Rune> {
     key.into_iter()
-        .map(|x| x.to_be_bytes())
-        .flatten()
+        .tuple_windows()
+        .map(|(&x, &y)| Rune::from_le_bytes([x, y]))
         .collect_vec()
 }
