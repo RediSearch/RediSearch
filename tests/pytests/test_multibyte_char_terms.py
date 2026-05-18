@@ -1594,27 +1594,31 @@ def test_utf8_lowercase_longer_than_uppercase_texts(env):
             'FT.SEARCH', 'idx', f'@t:({t1_lower})', 'NOCONTENT', 'DIALECT', dialect)
         env.assertEqual(res, expected_2, message=f'Dialect: {dialect}')
 
-# Codepoints where libnu (currently 1.11, Unicode 13.0) returns no
-# casemap, for any of the following reasons:
+# Codepoints where libnu (currently 1.11, Unicode 12.0 baseline plus
+# partial Unicode 13.0 additions; see NU_UNICODE_VERSION in
+# deps/libnu/defines.h) returns no casemap, for any of the following
+# reasons:
 #   - structurally invalid: surrogates (U+D800..U+DFFF) and noncharacters
 #     (U+FDD0..U+FDEF, U+xFFFE, U+xFFFF in every plane)
 #   - unassigned in libnu's Unicode tables: positions not yet allocated
-#     at Unicode 13, plus all post-Unicode-13 additions (libnu 1.11 is
-#     the latest upstream tag and has not been refreshed since 2020)
+#     at Unicode 12, plus most Unicode 13 additions and everything from
+#     Unicode 14 onwards (libnu 1.11 is the latest upstream tag and has
+#     not been refreshed since 2020)
 #   - assigned but caseless: scripts without case distinction
 # This set is the test's allow-list of "no-fold expected"; every other
 # codepoint must round-trip through nu_tofold/nu_tolower.
-# Reference https://www.unicode.org/Public/13.0.0/ucd/UnicodeData.txt
+# Reference https://www.unicode.org/Public/12.0.0/ucd/UnicodeData.txt
 LIBNU_FOLD_GAPS = {0x1CBB, 0x1CBC}  # Mtavruli gaps (unassigned)
 LIBNU_FOLD_GAPS.add(0x1C89)  # Cyrillic Capital Letter TJE (post-9.0)
 LIBNU_FOLD_GAPS.add(0x2C2F)
 LIBNU_FOLD_GAPS.update(range(0xA7B9, 0xA7F7))
 # Latin Extended-D pairs that libnu does fold (and so must be removed
 # from the gap set), tracked by the libnu version that added them:
-#   libnu 1.10 (Unicode 12.0): Glottal A/I/U pairs (A7BA-A7BF), Anglicana W
-#   pair (A7C2/A7C3), and three more capitals whose lowercase live elsewhere
-#   (A7C4/A7C5/A7C6).
-#   libnu 1.11 (Unicode 13.0): adds A7C7, A7C9, A7F5.
+#   libnu 1.10 (Unicode 12.0 baseline): Glottal A/I/U pairs (A7BA-A7BF),
+#   Anglicana W pair (A7C2/A7C3), and three more capitals whose lowercase
+#   live elsewhere (A7C4/A7C5/A7C6).
+#   libnu 1.11 (still Unicode 12.0 baseline, plus partial Unicode 13.0
+#   additions): adds A7C7, A7C9, A7F5.
 # A7C0/A7C1 are Unicode 14.0+ and remain in the gap set.
 LIBNU_FOLD_GAPS.difference_update(
     {0xA7BA, 0xA7BB, 0xA7BC, 0xA7BD, 0xA7BE, 0xA7BF,
