@@ -7,6 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "redismodule.h"
+#include "value_ffi.h"
+#include "search_result_ffi.h"
 #include "redisearch.h"
 #include "search_ctx.h"
 #include "aggregate.h"
@@ -19,7 +21,7 @@
 #include "profile/profile.h"
 #include "query_optimizer.h"
 #include "resp3.h"
-#include "query_error.h"
+#include "query_error_ffi.h"
 #include "info/global_stats.h"
 #include "aggregate_debug.h"
 #include "debug_commands.h"
@@ -35,7 +37,7 @@
 #include "reply_empty.h"
 #include "search_disk.h"
 #include "search_disk_utils.h"
-#include "iterators_rs.h"
+#include "iterators_ffi.h"
 
 #include "coord/coord_request_ctx.h"
 

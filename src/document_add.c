@@ -12,7 +12,7 @@
 #include "module.h"
 #include "rmutil/rm_assert.h"
 #include "info/info_redis/threads/current_thread.h"
-#include "query_error.h"
+#include "query_error_ffi.h"
 
 // Forward declaration.
 bool ACLUserMayAccessIndex(RedisModuleCtx *ctx, IndexSpec *sp);

@@ -10,11 +10,13 @@
 #pragma once
 
 #include "redisearch.h"
+#include "inverted_index.h"
 #include "search_ctx.h"
 #include "rmutil/args.h"
-#include "query_error.h"
 #include "query_node.h"
 #include "obfuscation/hidden.h"
+
+typedef struct QueryError QueryError;
 
 #ifdef __cplusplus
 extern "C" {

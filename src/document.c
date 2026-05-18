@@ -7,13 +7,17 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include <string.h>
+#include "triemap_ffi.h"
+#include "value_ffi.h"
 #include <inttypes.h>
 
 #include "document.h"
 #include "rlookup_load_document.h"
 #include "forward_index.h"
 #include "numeric_filter.h"
-#include "redisearch_rs/headers/numeric_range_tree.h"
+#include "numeric_range_tree.h"
+#include "numeric_range_tree_ffi.h"
+#include "sorting_vector_ffi.h"
 #include "rmutil/strings.h"
 #include "rmutil/util.h"
 #include "util/mempool.h"
@@ -31,9 +35,8 @@
 #include "obfuscation/obfuscation_api.h"
 #include "search_disk.h"
 #include "info/global_stats.h"
-#include "sorting_vector.h"
 #include "doc_id_meta.h"
-#include "iterators_rs.h"
+#include "iterators_ffi.h"
 
 // Memory pool for RSAddDocumentContext contexts
 static mempool_t *actxPool_g = NULL;
@@ -660,7 +663,7 @@ FIELD_PREPROCESSOR(geoPreprocessor) {
   switch (field->unionType) {
     case FLD_VAR_T_GEO:
       fdata->isMulti = 0;
-      geohash = calcGeoHash(field->lon, field->lat);
+      geohash = encodeGeo(field->lon, field->lat);
       if (geohash == INVALID_GEOHASH) {
         QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_GEO_COORDINATES_INVALID, "Invalid geo coordinates", ": %f, %f",
                                field->lon, field->lat);
@@ -691,10 +694,10 @@ FIELD_PREPROCESSOR(geoPreprocessor) {
   fdata->isMulti = 0;
   if (str_count == 1) {
     str = DocumentField_GetValueCStr(field, &len);
-    if (parseGeo(str, len, &lon, &lat, status) != REDISMODULE_OK) {
+    if (parseGeo((const uint8_t *)str, len, &lon, &lat, status) != REDISMODULE_OK) {
       return REDISMODULE_ERR;
     }
-    geohash = calcGeoHash(lon, lat);
+    geohash = encodeGeo(lon, lat);
     if (geohash == INVALID_GEOHASH) {
       QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_GEO_COORDINATES_INVALID, "Invalid geo coordinates", ": %f, %f",
                         lon, lat);
@@ -706,12 +709,12 @@ FIELD_PREPROCESSOR(geoPreprocessor) {
     arrayof(double) arr = array_new(double, str_count);
     for (size_t i = 0; i < str_count; ++i) {
       const char *cur_str = DocumentField_GetArrayValueCStr(field, &len, i);
-      if (parseGeo(cur_str, len, &lon, &lat, status) != REDISMODULE_OK) {
+      if (parseGeo((const uint8_t *)cur_str, len, &lon, &lat, status) != REDISMODULE_OK) {
         array_free(arr);
         fdata->arrNumeric = NULL;
         return REDISMODULE_ERR;
       }
-      geohash = calcGeoHash(lon, lat);
+      geohash = encodeGeo(lon, lat);
       if (geohash == INVALID_GEOHASH) {
         QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_GEO_COORDINATES_INVALID, "Invalid geo coordinates", ": %f, %f",
                         lon, lat);

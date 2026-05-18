@@ -7,8 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+#include "trie/trie_node.h"
 #include "trie/trie.h"
-#include "trie/trie_type.h"
 #include "trie/levenshtein.h"
 #include "trie/rune_util.h"
 #include "libnu/libnu.h"

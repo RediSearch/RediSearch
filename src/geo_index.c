@@ -13,7 +13,7 @@
 #include "rmalloc.h"
 #include "rmutil/rm_assert.h"
 #include "query_param.h"
-#include "iterators_rs.h"
+#include "iterators_ffi.h"
 
 static double extractUnitFactor(GeoDistance unit);
 
@@ -170,17 +170,6 @@ int GeoFilter_Validate(const GeoFilter *gf, QueryError *status) {
   return 1;
 }
 
-/**
- * Generates a geo hash from a given latitude and longtitude
- */
-double calcGeoHash(double lon, double lat) {
-  double res;
-  int rv = encodeGeo(lon, lat, &res);
-  if (rv == 0) {
-    return INVALID_GEOHASH;
-  }
-  return res;
-}
 
 /**
  * Convert different units to meters

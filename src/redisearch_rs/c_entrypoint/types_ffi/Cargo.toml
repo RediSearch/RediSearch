@@ -14,11 +14,9 @@ bench = false
 [lints]
 workspace = true
 
-[build-dependencies]
-cbindgen.workspace = true
-build_utils = { path = "../../build_utils" }
 
 [dependencies]
 field.workspace = true
+index_result.workspace = true
 inverted_index.workspace = true
 workspace_hack.workspace = true

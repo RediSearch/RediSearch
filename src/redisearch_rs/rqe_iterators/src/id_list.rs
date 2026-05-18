@@ -10,8 +10,8 @@
 //! Supporting types for [`IdList`].
 
 use ffi::t_docId;
+use index_result::RSIndexResult;
 use index_spec::IndexSpecReadGuard;
-use inverted_index::RSIndexResult;
 use std::cmp::Ordering;
 
 use crate::{

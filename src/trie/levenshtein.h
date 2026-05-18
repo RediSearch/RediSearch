@@ -13,7 +13,7 @@
 
 #include "sparse_vector.h"
 #include "rmutil/vector.h"
-#include "trie.h"
+#include "trie_node.h"
 
 /*
 * SparseAutomaton is a C implementation of a levenshtein automaton using

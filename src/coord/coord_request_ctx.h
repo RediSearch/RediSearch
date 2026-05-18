@@ -13,8 +13,9 @@
 #include "hybrid/hybrid_request.h"
 #include <stdatomic.h>
 #include <pthread.h>
-#include "query_error.h"
 #include "cursor.h"
+
+typedef struct QueryError QueryError;
 
 #ifdef __cplusplus
 extern "C" {

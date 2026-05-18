@@ -20,8 +20,9 @@
 #include "hiredis/sds.h"
 #include "concurrent_ctx.h"
 #include "search_options.h"
-#include "query_error.h"
 #include "query_internal.h"
+
+typedef struct QueryError QueryError;
 
 #ifdef __cplusplus
 extern "C" {

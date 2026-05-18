@@ -9,8 +9,9 @@
 
 use std::ptr;
 
-use crate::{FilterGeoReader, IndexReader, NumericFilter, RSIndexResult};
+use crate::{FilterGeoReader, IndexReader, NumericFilter};
 use ffi::{GeoDistance_GEO_DISTANCE_M, GeoFilter};
+use index_result::RSIndexResult;
 use pretty_assertions::assert_eq;
 
 #[test]

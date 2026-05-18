@@ -10,13 +10,14 @@
 use std::ffi::c_void;
 
 use super::{IndexReader, IndexReaderCore, NumericReader};
-use crate::{DecodedBy, Decoder, InvertedIndex, RSIndexResult};
+use crate::{DecodedBy, Decoder, InvertedIndex};
 use ffi::{FieldSpec, IndexFlags, t_docId};
+use index_result::RSIndexResult;
 
 /// Filter details to apply to numeric values
-/// cbindgen:rename-all=CamelCase
 #[derive(Debug)]
 #[repr(C)]
+#[cheadergen::config(export, rename_all = "camelCase")]
 pub struct NumericFilter {
     /// The field specification which this filter is acting on
     pub field_spec: *const FieldSpec,

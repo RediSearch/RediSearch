@@ -11,7 +11,7 @@
 #include "gtest/gtest.h"
 #include "src/iterators/optimizer_reader.h"
 #include "src/query_optimizer.h"
-#include "iterators_rs.h"
+#include "iterators_ffi.h"
 
 class OptimizerIteratorTest : public ::testing::Test {
 protected:

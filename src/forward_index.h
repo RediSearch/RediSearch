@@ -12,11 +12,11 @@
 #include "util/block_alloc.h"
 #include "util/khtable.h"
 #include "util/mempool.h"
-#include "triemap.h"
-#include "varint.h"
+#include "varint_ffi.h"
 #include "tokenize.h"
 #include "document.h"
-#include "inverted_index.h"
+
+typedef struct InvertedIndex InvertedIndex;
 
 #ifdef __cplusplus
 extern "C" {

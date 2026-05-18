@@ -12,8 +12,8 @@ mod field_mask;
 mod geo;
 mod numeric;
 
-use crate::RSIndexResult;
 use ffi::{IndexFlags, t_docId, t_fieldMask};
+use index_result::RSIndexResult;
 
 pub use self::core::*;
 pub use field_mask::FilterMaskReader;
@@ -71,7 +71,7 @@ pub trait TermReader<'index>: IndexReader<'index> {
 
 /// Filter to apply when reading from an index. Entries which don't match the filter will not be
 /// returned by the reader.
-/// cbindgen:prefix-with-name=true
+#[cheadergen::config(prefix_with_name, rename = "IndexDecoderCtx")]
 #[repr(u8)]
 #[derive(Debug)]
 pub enum ReadFilter<'numeric_filter> {

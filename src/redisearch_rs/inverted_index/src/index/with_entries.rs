@@ -8,11 +8,12 @@
 */
 
 use crate::{
-    DecodedBy, Encoder, GcApplyInfo, GcScanDelta, IndexBlock, InvertedIndex, RSIndexResult,
+    DecodedBy, Encoder, GcApplyInfo, GcScanDelta, IndexBlock, InvertedIndex,
     debug::{BlockSummary, Summary},
     reader::IndexReaderCore,
 };
 use ffi::{IndexFlags, t_docId};
+use index_result::RSIndexResult;
 
 /// A wrapper around the inverted index to track the total number of entries in the index.
 /// Unlike [`InvertedIndex::unique_docs()`], this counts all entries, including duplicates.

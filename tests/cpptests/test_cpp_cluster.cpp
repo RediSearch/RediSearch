@@ -11,7 +11,7 @@
 #include "common.h"
 #include "redismock/redismock.h"
 
-#include "trie/trie_type.h"
+#include "trie/trie.h"
 extern "C" {
 #include "dictionary.h"
 }

@@ -10,10 +10,12 @@
 
 #include "redismodule.h"
 #include "hiredis/sds.h"
-#include "query_error.h"
+#include "rmutil/args.h"
 #include "reply.h"
 #include "util/config_macros.h"
 #include "ext/default.h"
+
+typedef struct QueryError QueryError;
 
 typedef enum {
   TimeoutPolicy_Return,       // Return what we have on timeout

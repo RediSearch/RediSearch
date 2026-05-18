@@ -19,8 +19,8 @@
 #include "iterators/hybrid_reader.h"
 #include "redisearch.h"
 #include "util/timeout.h"
-#include "types_rs.h"
-#include "rlookup_rs.h"
+#include "types_ffi.h"
+#include "rlookup_ffi.h"
 
 #include <cmath>
 #include <limits>

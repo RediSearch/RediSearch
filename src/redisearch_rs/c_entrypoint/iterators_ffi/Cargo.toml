@@ -23,6 +23,7 @@ bench = false
 ffi.workspace = true
 libc.workspace = true
 field.workspace = true
+index_result.workspace = true
 index_spec.workspace = true
 inverted_index.workspace = true
 inverted_index_ffi = { path = "../inverted_index_ffi" }
@@ -33,6 +34,3 @@ rqe_iterator_type.workspace = true
 rqe_iterators.workspace = true
 workspace_hack.workspace = true
 
-[build-dependencies]
-cbindgen.workspace = true
-build_utils = { path = "../../build_utils" }

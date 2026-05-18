@@ -12,7 +12,6 @@ pub mod controlled_cursor;
 pub mod debug;
 pub(crate) mod gc;
 mod index;
-mod index_result;
 pub mod reader;
 #[doc(hidden)]
 pub mod test_utils;
@@ -25,13 +24,6 @@ pub use index::*;
 
 // Re-export GC types.
 pub use gc::{GcApplyInfo, GcScanDelta};
-
-// Re-export result types.
-pub use index_result::{
-    MetricEntry, MetricsSlice, MetricsVec, RSAggregateResult, RSAggregateResultIter, RSIndexResult,
-    RSOffsetSlice, RSOffsetVector, RSQueryTerm, RSResultData, RSResultKind, RSResultKindMask,
-    RSTermRecord,
-};
 
 // Re-export reader types.
 pub use reader::{IndexReader, IndexReaderCore, NumericFilter, NumericReader, TermReader};

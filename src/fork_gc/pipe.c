@@ -29,55 +29,6 @@ void FGC_updateStats(ForkGC *gc, RedisSearchCtx *sctx,
   gc->stats.gcBlocksDenied += ignoredLastBlock ? 1 : 0;
 }
 
-// Buff shouldn't be NULL.
-void FGC_sendFixed(ForkGC *fgc, const void *buff, size_t len) {
-  RS_LOG_ASSERT(len > 0, "buffer length cannot be 0");
-  ssize_t size = write(fgc->pipe_write_fd, buff, len);
-  if (size != len) {
-    perror("broken pipe, exiting GC fork: write() failed");
-    // just exit, do not abort(), which will trigger a watchdog on RLEC, causing adverse effects
-    RedisModule_Log(fgc->ctx, "warning", "GC fork: broken pipe, exiting");
-    RedisModule_ExitFromChild(1);
-  }
-}
-
-void FGC_sendBuffer(ForkGC *fgc, const void *buff, size_t len) {
-  FGC_SEND_VAR(fgc, len);
-  if (len > 0) {
-    FGC_sendFixed(fgc, buff, len);
-  }
-}
-
-/**
- * Send instead of a string to indicate that no more buffers are to be received
- */
-void FGC_sendTerminator(ForkGC *fgc) {
-  size_t smax = SIZE_MAX;
-  FGC_SEND_VAR(fgc, smax);
-}
-
-int __attribute__((warn_unused_result)) FGC_recvFixed(ForkGC *fgc, void *buf, size_t len) {
-  // poll the pipe, so that we don't block while read, with timeout of 3 minutes
-  int poll_rc;
-  while ((poll_rc = poll(fgc->pollfd_read, 1, 180000)) == 1) {
-    ssize_t nrecvd = read(fgc->pipe_read_fd, buf, len);
-    if (nrecvd > 0) {
-      buf += nrecvd;
-      len -= nrecvd;
-    } else if (nrecvd <= 0 && errno != EINTR) {
-      break;
-    }
-    if (len == 0) {
-      return REDISMODULE_OK;
-    }
-  }
-  short revents = fgc->pollfd_read[0].revents;
-  const char *what = (poll_rc == 0) ? "timeout" : "error";
-  RedisModule_Log(fgc->ctx, "warning", "ForkGC - got %s while reading from pipe. errno: %s, revents: 0x%x (POLLIN=%x POLLERR=%x POLLHUP=%x POLLNVAL=%x)",
-                  what, strerror(errno), revents, (revents & POLLIN), (revents & POLLERR), (revents & POLLHUP), (revents & POLLNVAL));
-  return REDISMODULE_ERR;
-}
-
 int __attribute__((warn_unused_result))
 FGC_recvBuffer(ForkGC *fgc, void **buf, size_t *len) {
   size_t temp_len;

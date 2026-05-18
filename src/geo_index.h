@@ -14,10 +14,11 @@
 #include "index_result.h"
 #include "iterators/iterator_api.h"
 #include "search_ctx.h"
-#include "query_error.h"
-#include "rs_geo.h"
+#include "geo_ffi.h"
 #include "query_node.h"
 #include "obfuscation/hidden.h"
+
+typedef struct QueryError QueryError;
 
 typedef enum {  // Placeholder for bad/invalid unit
   GEO_DISTANCE_INVALID = -1,
@@ -75,5 +76,4 @@ void LegacyGeoFilter_Free(LegacyGeoFilter *gf);
 /*****************************************************************************/
 
 #define INVALID_GEOHASH -1.0
-double calcGeoHash(double lon, double lat);
 int isWithinRadius(const GeoFilter *gf, double d, double *distance);

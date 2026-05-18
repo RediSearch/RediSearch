@@ -21,11 +21,12 @@ use ffi::{
 };
 
 use fork_gc::{InvertedIndexGCCallback, InvertedIndexGCReader, InvertedIndexGCWriter};
+use index_result::RSIndexResult;
 pub use inverted_index::opaque::InvertedIndex;
 use inverted_index::{
     EntriesTrackingIndex, FieldMaskTrackingIndex, FilterGeoReader, FilterMaskReader,
     FilterNumericReader, GcApplyInfo, GcScanDelta, IndexBlock, IndexReader as _, NumericFilter,
-    RSIndexResult, ReadFilter,
+    ReadFilter,
     debug::{BlockSummary, Summary},
     doc_ids_only::DocIdsOnly,
     fields_offsets::{FieldsOffsets, FieldsOffsetsWide},
@@ -71,7 +72,8 @@ macro_rules! ii_dispatch {
 
 /// The mask of flags that determine the index storage type. This includes all flags that affect
 /// the storage format of the index.
-const INDEX_STORAGE_MASK: IndexFlags = IndexFlags_Index_StoreFreqs
+#[cheadergen::config(export)]
+pub const INDEX_STORAGE_MASK: IndexFlags = IndexFlags_Index_StoreFreqs
     | IndexFlags_Index_StoreFieldFlags
     | IndexFlags_Index_StoreTermOffsets
     | IndexFlags_Index_StoreNumeric

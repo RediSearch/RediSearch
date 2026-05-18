@@ -8,9 +8,8 @@
 */
 
 use ffi::{IndexFlags_Index_DocIdsOnly, t_docId};
-use inverted_index::{
-    IndexBlock, IndexReader, InvertedIndex, RSIndexResult, doc_ids_only::DocIdsOnly,
-};
+use index_result::RSIndexResult;
+use inverted_index::{IndexBlock, IndexReader, InvertedIndex, doc_ids_only::DocIdsOnly};
 
 #[test]
 #[cfg_attr(miri, ignore = "Too slow to be run under miri.")]
