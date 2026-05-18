@@ -10,16 +10,21 @@
 use ffi::t_docId;
 use index_result::RSIndexResult;
 use index_spec::IndexSpecReadGuard;
-use inverted_index::{DecodedBy, DocIdsDecoder, IndexReaderCore, opaque::OpaqueEncoding};
+use inverted_index::{
+    DecodedBy, DocIdsDecoder, IndexReaderCore, RawIndexReaderCore, opaque::OpaqueEncoding,
+};
+use ref_mode::{Active, Ref};
 
 use crate::{
     IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
     expiration_checker::NoOpChecker,
 };
 
-use super::core::InvIndIterator;
+use super::core::{InvIndIterator, RawInvIndIterator};
 
-/// An iterator over all existing documents in an index.
+/// An iterator over all existing documents in an index, parameterised over
+/// a [`Ref`] mode. See [`Wildcard`] for the [`Active`] instantiation that
+/// implements [`RQEIterator`].
 ///
 /// Used for wildcard queries (`*`), where the goal is to match every document
 /// rather than filtering by a specific term or numeric range. The set of
@@ -31,11 +36,16 @@ use super::core::InvIndIterator;
 ///
 /// # Type Parameters
 ///
-/// * `'index` - The lifetime of the index being iterated over.
+/// * `Rf` - The [`Ref`] mode (see [`RawInvIndIterator`] for details).
 /// * `E` - The encoding type for the inverted index. Its decoder must implement [`DocIdsDecoder`].
-pub struct Wildcard<'index, E: DecodedBy> {
-    it: InvIndIterator<'index, IndexReaderCore<'index, E>>,
+#[repr(C)]
+pub struct RawWildcard<Rf: Ref, E: DecodedBy> {
+    it: RawInvIndIterator<Rf, RawIndexReaderCore<Rf, E>>,
 }
+
+/// Alias for an [`Active`] [`RawWildcard`] — the only instantiation with an
+/// [`RQEIterator`] impl today.
+pub type Wildcard<'index, E> = RawWildcard<Active<'index>, E>;
 
 impl<'index, E> Wildcard<'index, E>
 where

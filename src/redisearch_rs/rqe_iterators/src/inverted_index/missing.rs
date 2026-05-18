@@ -15,16 +15,21 @@ use std::{
 use ffi::{RedisSearchCtx, t_docId, t_fieldIndex};
 use index_result::RSIndexResult;
 use index_spec::IndexSpecReadGuard;
-use inverted_index::{DecodedBy, DocIdsDecoder, IndexReaderCore, opaque::OpaqueEncoding};
+use inverted_index::{
+    DecodedBy, DocIdsDecoder, IndexReaderCore, RawIndexReaderCore, opaque::OpaqueEncoding,
+};
+use ref_mode::{Active, Ref};
 
 use crate::{
     ExpirationChecker, IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus,
     SkipToOutcome,
 };
 
-use super::InvIndIterator;
+use super::{InvIndIterator, core::RawInvIndIterator};
 
-/// An iterator over documents that are missing a specific field.
+/// An iterator over documents that are missing a specific field, parameterised
+/// over a [`Ref`] mode. See [`Missing`] for the [`Active`] instantiation that
+/// implements [`RQEIterator`].
 ///
 /// Used for `ismissing(@field)` queries, where the goal is to match every
 /// document that does not have the specified field indexed. The set of such
@@ -36,11 +41,12 @@ use super::InvIndIterator;
 ///
 /// # Type Parameters
 ///
-/// * `'index` - The lifetime of the index being iterated over.
+/// * `Rf` - The [`Ref`] mode (see [`RawInvIndIterator`] for details).
 /// * `E` - The encoding type for the inverted index. Its decoder must implement [`DocIdsDecoder`].
 /// * `C` - The expiration checker type.
-pub struct Missing<'index, E: DecodedBy, C = crate::expiration_checker::NoOpChecker> {
-    it: InvIndIterator<'index, IndexReaderCore<'index, E>, C>,
+#[repr(C)]
+pub struct RawMissing<Rf: Ref, E: DecodedBy, C = crate::expiration_checker::NoOpChecker> {
+    it: RawInvIndIterator<Rf, RawIndexReaderCore<Rf, E>, C>,
     field_index: t_fieldIndex,
     /// Owned copy of the field name, extracted from the spec at construction
     /// time. Owning the string means the iterator no longer borrows from
@@ -48,6 +54,11 @@ pub struct Missing<'index, E: DecodedBy, C = crate::expiration_checker::NoOpChec
     /// construction time (not for the iterator's entire lifetime).
     field_name: CString,
 }
+
+/// Alias for an [`Active`] [`RawMissing`] — the only instantiation with an
+/// [`RQEIterator`] impl today.
+pub type Missing<'index, E, C = crate::expiration_checker::NoOpChecker> =
+    RawMissing<Active<'index>, E, C>;
 
 impl<'index, E, C> Missing<'index, E, C>
 where
