@@ -257,8 +257,8 @@ impl TimeToLiveTable {
         }
     }
 
-    /// Return the number of buckets currently allocated
-    #[cfg(feature = "test-utils")]
+    /// Return the number of buckets currently allocated. Exposed to C as
+    /// `TimeToLiveTable_DebugAllocatedBuckets` for the lazy-growth tests.
     pub const fn n_allocated_buckets(&self) -> usize {
         self.buckets.len()
     }

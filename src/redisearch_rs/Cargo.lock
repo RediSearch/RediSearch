@@ -2858,6 +2858,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "ttl_table_ffi"
+version = "0.0.1"
+dependencies = [
+ "cheadergen",
+ "ffi",
+ "field",
+ "libc",
+ "redis-module",
+ "redis_mock",
+ "thin_vec",
+ "ttl_table",
+ "workspace_hack",
+]
+
+[[package]]
 name = "types_ffi"
 version = "0.0.1"
 dependencies = [
