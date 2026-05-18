@@ -34,6 +34,11 @@ if [[ "${RUST_DYN_CRT:-}" == "1" ]]; then
     rustflags="-C target-feature=-crt-static"
 fi
 
+# List the target for C header generations:
+# - All crates in the c_entrypoint/ folder (with a few excludes)
+# - All crates that use explicit `#[cheadergen::config(export, ..)] annotations
+#   to export types that aren't otherwise reachable from the FFI functions
+#   we expose.
 exec env -u CARGO_BUILD_TARGET RUSTFLAGS="${rustflags}" cheadergen generate \
     --lang c \
     --prune-orphans \
@@ -42,6 +47,7 @@ exec env -u CARGO_BUILD_TARGET RUSTFLAGS="${rustflags}" cheadergen generate \
     --exclude=c_ffi_utils \
     --package=document \
     --package=field \
+    --package=index_result \
     --package=query_term \
     --package=inverted_index \
     --package=rlookup \

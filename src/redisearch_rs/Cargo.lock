@@ -1000,6 +1000,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "index_result"
+version = "0.0.1"
+dependencies = [
+ "cheadergen",
+ "enumflags2",
+ "ffi",
+ "query_term",
+ "thin_vec",
+ "varint",
+ "workspace_hack",
+]
+
+[[package]]
 name = "index_spec"
 version = "0.0.1"
 dependencies = [
@@ -1055,6 +1068,7 @@ dependencies = [
  "enumflags2",
  "ffi",
  "field",
+ "index_result",
  "pretty_assertions",
  "proptest",
  "qint",

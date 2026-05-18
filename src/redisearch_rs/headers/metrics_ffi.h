@@ -7,7 +7,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdlib.h>
-#include "inverted_index.h"
+#include "index_result_rs.h"
 
 typedef struct RLookupKey RLookupKey;
 
