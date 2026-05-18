@@ -1109,6 +1109,7 @@ dependencies = [
  "qint",
  "query_term",
  "redis_reply",
+ "ref_mode",
  "rqe_core",
  "serde",
  "smallvec",
