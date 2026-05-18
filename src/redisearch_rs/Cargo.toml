@@ -32,6 +32,7 @@ members = [
     "rqe_iterators",
     "rqe_iterators_bencher",
     "rqe_iterators_test_utils",
+    "rune_trie_snapshots",
     "search_result",
     "slots_tracker",
     "sorting_vector",

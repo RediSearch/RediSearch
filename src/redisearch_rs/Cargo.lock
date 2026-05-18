@@ -2253,6 +2253,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "rune_trie_snapshots"
+version = "0.0.1"
+dependencies = [
+ "build_utils",
+ "ffi",
+ "insta",
+ "libc",
+ "redis_mock",
+ "redisearch_rs",
+ "rune_trie_snapshots",
+ "workspace_hack",
+]
+
+[[package]]
 name = "rustc-demangle"
 version = "0.1.27"
 source = "registry+https://github.com/rust-lang/crates.io-index"
