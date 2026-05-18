@@ -26,7 +26,7 @@ type NotOptimizedFfi<'index> = NotOptimized<'index, NewWildcardIterator<'index>,
 /// Enum holding both NOT iterator variants with concrete [`CRQEIterator`] child.
 ///
 /// The `NotOptimized` variant is intentionally large because it inlines a
-/// [`WildcardIterator`] to avoid heap allocation. Both variants are
+/// `WildcardIterator` to avoid heap allocation. Both variants are
 /// long-lived (query lifetime), and the size difference is acceptable.
 #[expect(
     clippy::large_enum_variant,
@@ -256,8 +256,8 @@ pub unsafe extern "C" fn NewNotIterator(
 /// # Safety
 ///
 /// 1. `it` must be a valid non-null pointer to a non-reduced NOT iterator
-///    created via [`NewNotIterator`]. Must not be called on a reduced
-///    (wildcard/empty) iterator returned by [`NewNotIterator`].
+///    created via [`NewNotIterator()`]. Must not be called on a reduced
+///    (wildcard/empty) iterator returned by [`NewNotIterator()`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn GetNotIteratorChild(it: *const QueryIterator) -> *const QueryIterator {
     debug_assert!(!it.is_null());
