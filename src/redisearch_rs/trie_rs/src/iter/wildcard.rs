@@ -41,6 +41,22 @@ impl<'a, Data> WildcardIter<'a, Data> {
         .traversal_filter(WildcardFilter(pattern));
         Self(iter)
     }
+
+    /// Advance to the next matching entry; returns a reference to its data.
+    ///
+    /// Mirrors [`super::automaton::AutomatonIter::advance`] so that the
+    /// auto-dispatching
+    /// [`super::automaton::WildcardSpecializedIter`] can plug a filter-based
+    /// fallback into its `advance` / `key` interface without special-casing.
+    pub(crate) fn advance(&mut self) -> Option<&'a Data> {
+        self.0.advance()
+    }
+
+    /// The current key — the concatenation of labels from the trie root to
+    /// the node yielded by the most recent [`Self::advance`] call.
+    pub(crate) fn key(&self) -> &[u8] {
+        self.0.key()
+    }
 }
 
 impl<'a, Data> Iterator for WildcardIter<'a, Data> {
