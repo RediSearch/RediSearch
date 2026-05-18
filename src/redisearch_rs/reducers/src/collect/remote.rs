@@ -226,20 +226,10 @@ impl RemoteCollectCtx {
         }
     }
 
-    /// Project the source row's field values into a stored [`RLookupRow`]
-    /// and snapshot the sort-key values for the heap comparator.
-    ///
-    /// The array path ignores the snapshot closure entirely. The heap path
-    /// uses the snapshot to drive comparisons, dropping doomed candidates
-    /// without paying the row-projection cost.
+    /// Project the source row and forward it to [`Storage::insert_entry`]
+    /// with a borrow-only sort-key view.
     pub fn add(&mut self, r: &RemoteCollectReducer<'_>, row: &RLookupRow<'_>) {
-        let sort_vals = || -> Box<[Option<SharedValue>]> {
-            r.fields
-                .sort_keys()
-                .iter()
-                .map(|key| row.get(key).cloned())
-                .collect()
-        };
+        let sort_view = || r.fields.sort_keys().iter().map(|key| row.get(key));
         let project = || {
             let mut dst = RLookupRow::new();
             for key in r.fields.get_keys_add() {
@@ -249,7 +239,7 @@ impl RemoteCollectCtx {
             }
             dst
         };
-        self.storage.insert_entry(sort_vals, project);
+        self.storage.insert_entry(sort_view, project);
     }
 
     /// Serialize the buffered rows into an array of maps. Keys absent from a

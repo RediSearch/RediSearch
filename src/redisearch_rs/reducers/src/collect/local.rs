@@ -109,17 +109,6 @@ impl Fields {
     }
 }
 
-/// Snapshot sort-key values for heap comparison, preserving absent keys as
-/// `None` so [`cmp_fields`][value::comparison::cmp_fields] can apply its
-/// missing-worst policy.
-fn snapshot_sort_keys(sort_key_names: &[CString], item: &Value) -> Box<[Option<SharedValue>]> {
-    debug_assert!(matches!(item, Value::Map(_) | Value::Array(_)));
-    sort_key_names
-        .iter()
-        .map(|name| get_field(item, name.to_bytes()).cloned())
-        .collect()
-}
-
 /// Materialize `(k, v)` as a typed [`RLookupRow`] entry.
 ///
 /// Terminates the wire-side `BString → CString` check; a non-string or
@@ -229,8 +218,9 @@ impl LocalCollectCtx {
         }
     }
 
-    /// Deserialize the shard payload carried by `row` into [`RLookupRow`]s,
-    /// honouring `LIMIT` via [`Storage::insert_entry`].
+    /// Deserialize each item from the shard payload carried by `row` and
+    /// forward it to [`Storage::insert_entry`] with a borrow-only
+    /// sort-key view.
     pub fn add(&mut self, r: &LocalCollectReducer, row: &RLookupRow) {
         let Some(Value::Array(items)) = row.get(r.input_key).map(|p| &**p) else {
             tracing_assert::debug_assert_warn!(
@@ -248,10 +238,14 @@ impl LocalCollectCtx {
                 );
                 continue;
             }
-            self.storage.insert_entry(
-                || snapshot_sort_keys(r.fields.sort_key_names(), item),
-                || r.fields.prepare_row(item, &mut self.lookup),
-            );
+            let sort_view = || {
+                r.fields
+                    .sort_key_names()
+                    .iter()
+                    .map(|name| get_field(item, name.to_bytes()))
+            };
+            let project = || r.fields.prepare_row(item, &mut self.lookup);
+            self.storage.insert_entry(sort_view, project);
         }
     }
 
