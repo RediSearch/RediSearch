@@ -18,6 +18,7 @@
 
 struct TagIndex;
 struct NumericRangeTree;
+struct SparseVectorIndex;
 
 #ifdef __cplusplus
 #define RS_ENUM_BITWISE_HELPER(T)   \
@@ -36,19 +37,21 @@ typedef enum {
   INDEXFLD_T_TAG = 0x08,
   INDEXFLD_T_VECTOR = 0x10,
   INDEXFLD_T_GEOMETRY = 0x20,
+  INDEXFLD_T_SPARSE_VECTOR = 0x40,
 } FieldType;
 
-#define INDEXFLD_NUM_TYPES 6
+#define INDEXFLD_NUM_TYPES 7
 
 // clang-format off
 // otherwise, it looks h o r r i b l e
-#define INDEXTYPE_TO_POS(T)         \
-  (T == INDEXFLD_T_FULLTEXT   ? 0 : \
-  (T == INDEXFLD_T_NUMERIC    ? 1 : \
-  (T == INDEXFLD_T_GEO        ? 2 : \
-  (T == INDEXFLD_T_TAG        ? 3 : \
-  (T == INDEXFLD_T_VECTOR     ? 4 : \
-  (T == INDEXFLD_T_GEOMETRY   ? 5 : -1))))))
+#define INDEXTYPE_TO_POS(T)              \
+  (T == INDEXFLD_T_FULLTEXT       ? 0 :  \
+  (T == INDEXFLD_T_NUMERIC        ? 1 :  \
+  (T == INDEXFLD_T_GEO            ? 2 :  \
+  (T == INDEXFLD_T_TAG            ? 3 :  \
+  (T == INDEXFLD_T_VECTOR         ? 4 :  \
+  (T == INDEXFLD_T_GEOMETRY       ? 5 :  \
+  (T == INDEXFLD_T_SPARSE_VECTOR  ? 6 : -1)))))))
 
 #define INDEXTYPE_FROM_POS(P) (1<<(P))
 // clang-format on
@@ -59,6 +62,7 @@ typedef enum {
 #define IXFLDPOS_TAG INDEXTYPE_TO_POS(INDEXFLD_T_TAG)
 #define IXFLDPOS_VECTOR INDEXTYPE_TO_POS(INDEXFLD_T_VECTOR)
 #define IXFLDPOS_GEOMETRY INDEXTYPE_TO_POS(INDEXFLD_T_GEOMETRY)
+#define IXFLDPOS_SPARSE_VECTOR INDEXTYPE_TO_POS(INDEXFLD_T_SPARSE_VECTOR)
 
 RS_ENUM_BITWISE_HELPER(FieldType)
 
@@ -127,6 +131,13 @@ typedef struct FieldSpec {
       GEOMETRY_COORDS geometryCoords;
       GeometryIndex *geometryIndex;
     } geometryOpts;
+    struct {
+      // Sparse vector index (Rust-based, opaque pointer).
+      // The index is metric-agnostic; similarity metrics (dot product, cosine)
+      // are applied at query time. For cosine similarity, document norms should
+      // be stored in DocumentMetadata.
+      struct SparseVectorIndex *sparseVecIndex;
+    } sparseVecOpts;
   };
 
   // TODO: Move into union above when we stop supporting multi-type fields
