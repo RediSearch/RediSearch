@@ -262,8 +262,8 @@ impl TimeToLiveTable {
         }
     }
 
-    /// Return the number of buckets currently allocated
-    #[cfg(feature = "test-utils")]
+    /// Return the number of buckets currently allocated. Exposed to C as
+    /// `TimeToLiveTable_DebugAllocatedBuckets` for the lazy-growth tests.
     pub const fn n_allocated_buckets(&self) -> usize {
         self.buckets.len()
     }
@@ -274,8 +274,7 @@ impl TimeToLiveTable {
     /// The slice aliases storage owned by the table and is invalidated by any
     /// subsequent [`add`](Self::add) / [`remove`](Self::remove) on this table.
     pub fn field_expirations(&self, doc_id: t_docId) -> Option<&FieldExpirations> {
-        self.find_entry(doc_id)
-            .map(|e| &e.field_expirations)
+        self.find_entry(doc_id).map(|e| &e.field_expirations)
     }
 
     /// Checks the expiration state of a single field of a document under

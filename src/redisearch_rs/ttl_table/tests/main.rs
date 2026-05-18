@@ -381,7 +381,7 @@ fn verify_mask_with_sparse_monotonic_translation_table() {
             fes([
                 fe(FIELD_INDEX_1, FUTURE),
                 fe(FIELD_INDEX_2, PAST),
-                fe(FIELD_INDEX_3, FUTURE)
+                fe(FIELD_INDEX_3, FUTURE),
             ]),
         );
     }
@@ -694,10 +694,7 @@ fn remove_same_doc_twice_is_idempotent() {
 fn verify_field_walks_multi_field_entry() {
     let mut t = TimeToLiveTable::new(TEST_MAX_SIZE);
     unsafe {
-        t.add(
-            DOC_ID_1,
-            fes([fe(1, FUTURE), fe(3, PAST), fe(5, FUTURE)]),
-        );
+        t.add(DOC_ID_1, fes([fe(1, FUTURE), fe(3, PAST), fe(5, FUTURE)]));
     }
     // Field 1: FUTURE.
     assert!(t.verify_doc_and_field(DOC_ID_1, 1, FieldExpirationPredicate::Default, &NOW));

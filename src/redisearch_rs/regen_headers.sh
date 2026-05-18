@@ -45,6 +45,7 @@ exec env -u CARGO_BUILD_TARGET RUSTFLAGS="${rustflags}" cheadergen generate \
     --skip-empty \
     --exclude=redisearch_rs \
     --exclude=c_ffi_utils \
+    --exclude=ttl_table_ffi \
     --package=document \
     --package=field \
     --package=index_result \
