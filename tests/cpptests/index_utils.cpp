@@ -62,7 +62,9 @@ InvertedIndex *createPopulateTermsInvIndex(int size, int idStep, int start_with)
 }
 
 RefManager *createSpec(RedisModuleCtx *ctx, const std::vector<const char*>& prefixes) {
-    RefManager *ism = createEmptySpec("idx");
+    RSIndexOptions opts = {0};
+    opts.gcPolicy = GC_POLICY_FORK;
+    auto ism = RediSearch_CreateIndex("idx", &opts);
     if (!ism) return ism;
 
     SchemaRuleArgs args = {0};

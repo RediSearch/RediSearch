@@ -44,6 +44,44 @@ class MyEnvironment : public ::testing::Environment {
   }
 };
 
+bool RS::deleteDocument(RedisModuleCtx *ctx, RSIndex *index, const char *docid) {
+  return RediSearch_DeleteDocument(index, docid, strlen(docid)) == REDISMODULE_OK;
+}
+
+static std::vector<std::string> getResultsCommon(RSIndex *index, RSResultsIterator *it) {
+  std::vector<std::string> ret;
+  EXPECT_FALSE(it == NULL);
+
+  if (!it) {
+    goto done;
+  }
+
+  while (true) {
+    size_t n = 0;
+    auto cur = RediSearch_ResultsIteratorNext(it, index, &n);
+    if (cur == NULL) {
+      break;
+    }
+    ret.push_back(std::string((const char *)cur, n));
+  }
+
+done:
+  if (it) {
+    RediSearch_ResultsIteratorFree(it);
+  }
+  return ret;
+}
+
+std::vector<std::string> RS::search(RSIndex *index, RSQueryNode *qn) {
+  auto it = RediSearch_GetResultsIterator(qn, index);
+  return getResultsCommon(index, it);
+}
+
+std::vector<std::string> RS::search(RSIndex *index, const char *s) {
+  auto it = RediSearch_IterateQuery(index, s, strlen(s), NULL);
+  return getResultsCommon(index, it);
+}
+
 int main(int argc, char **argv) {
   RS::InstallSegvStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);

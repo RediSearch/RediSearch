@@ -5,41 +5,95 @@
  * Licensed under your choice of the Redis Source Available License 2.0
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
- */
+*/
 
-// Test helpers that replace what the llAPI (`src/redisearch_api.{h,c}`) used
-// to provide for C++ tests. These wrap the same internal functions the llAPI
-// implementation called, but live in the test tree so the module no longer
-// has to export them.
-
-#pragma once
+// Subset of the former low-level C API (`src/redisearch_api.{h,c}`) that the
+// C++ test suite still relies on, kept here so the module no longer has to
+// export these symbols. Names and signatures match what `redisearch_api.h`
+// used to declare, so the test sources can stay almost untouched.
+#ifndef TESTS_CPPTESTS_LLAPI_TEST_HELPERS_H_
+#define TESTS_CPPTESTS_LLAPI_TEST_HELPERS_H_
 
 #include "redismodule.h"
-#include "util/references.h"
+#include "obfuscation/hidden.h"
+#include <limits.h>
+#include <stddef.h>
 
-#include <string>
-#include <vector>
+#ifdef __cplusplus
+extern "C" {
+#endif
 
-// Alias retained because several tests still pass spec references as
-// `RSIndex *` (formerly a typedef in redisearch_api.h).
-typedef RefManager RSIndex;
+typedef struct RefManager RSIndex;
+typedef size_t RSFieldID;
+#define RSFIELD_INVALID SIZE_MAX
 
-namespace RS {
+typedef struct Document RSDoc;
+typedef struct RSQueryNode RSQNode;
+typedef struct RS_ApiIter RSResultsIterator;
+typedef struct RSIdxOptions RSIndexOptions;
 
-/** Delete a document from the test index. Returns true if the document existed. */
-bool deleteDocument(RedisModuleCtx *ctx, RSIndex *index, const char *docid);
+#define RSFLDTYPE_DEFAULT 0x00
+#define RSFLDTYPE_FULLTEXT 0x01
+#define RSFLDTYPE_NUMERIC 0x02
+#define RSFLDTYPE_GEO 0x04
+#define RSFLDTYPE_TAG 0x08
+#define RSFLDTYPE_VECTOR 0x10
 
-/** Run a query string against the index and return the matching document keys. */
-std::vector<std::string> search(RSIndex *index, const char *s);
+#define RSFLDOPT_NONE 0x00
+#define RSFLDOPT_SORTABLE 0x01
+#define RSFLDOPT_NOINDEX 0x02
+#define RSFLDOPT_TXTNOSTEM 0x04
+#define RSFLDOPT_TXTPHONETIC 0x08
+#define RSFLDOPT_WITHSUFFIXTRIE 0x10
 
-}  // namespace RS
+#define RSIDXOPT_DOCTBLSIZE_UNLIMITED 0x01
 
-/** Allocate a bare-bones index with FORK GC enabled but no SchemaRule. The
- *  caller is responsible for attaching a rule before doing anything that
- *  requires one (e.g. adding fields). */
-RefManager *createEmptySpec(const char *name);
+#define GC_POLICY_NONE -1
+#define GC_POLICY_FORK 0
 
-/** Add a TAG/NUMERIC field to a test spec directly, bypassing FT.CREATE /
- *  FT.ALTER. The spec must already have a SchemaRule. */
-void addTagField(RefManager *ism, const char *name);
-void addNumericField(RefManager *ism, const char *name);
+typedef int (*RSGetValueCallback)(void* ctx, const char* fieldName, const void* id, char** strVal,
+                                  double* doubleVal);
+
+struct RSIdxOptions {
+  RSGetValueCallback gvcb;
+  void* gvcbData;
+  uint32_t flags;
+  int gcPolicy;
+  char **stopwords;
+  int stopwordsLen;
+  double score;
+  const char *lang;
+};
+
+RSIndex* RediSearch_CreateIndex(const char *name, const RSIndexOptions* options);
+
+RSFieldID RediSearch_CreateField(RSIndex* idx, const char* name, unsigned ftype, unsigned fopt);
+
+#define RediSearch_CreateNumericField(idx, name) \
+  RediSearch_CreateField(idx, name, RSFLDTYPE_NUMERIC, RSFLDOPT_NONE)
+#define RediSearch_CreateTextField(idx, name) \
+  RediSearch_CreateField(idx, name, RSFLDTYPE_FULLTEXT, RSFLDOPT_NONE)
+#define RediSearch_CreateTagField(idx, name) \
+  RediSearch_CreateField(idx, name, RSFLDTYPE_TAG, RSFLDOPT_NONE)
+#define RediSearch_CreateGeoField(idx, name) \
+  RediSearch_CreateField(idx, name, RSFLDTYPE_GEO, RSFLDOPT_NONE)
+#define RediSearch_CreateVectorField(idx, name) \
+  RediSearch_CreateField(idx, name, RSFLDTYPE_VECTOR, RSFLDOPT_NONE)
+
+int RediSearch_DeleteDocument(RSIndex* sp, const void* docKey, size_t len);
+
+RSResultsIterator* RediSearch_GetResultsIterator(RSQNode* qn, RSIndex* sp);
+
+RSResultsIterator* RediSearch_IterateQuery(RSIndex* sp, const char* s, size_t n, char** err);
+
+const void* RediSearch_ResultsIteratorNext(RSResultsIterator* iter, RSIndex* sp, size_t* len);
+
+void RediSearch_ResultsIteratorFree(RSResultsIterator* iter);
+
+const char* RediSearch_HiddenStringGet(const HiddenString* hs);
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif /* TESTS_CPPTESTS_LLAPI_TEST_HELPERS_H_ */
