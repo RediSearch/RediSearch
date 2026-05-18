@@ -14,6 +14,7 @@
 pub mod iter;
 mod node;
 pub mod opaque;
+pub mod rune;
 mod trie;
 mod trie_count;
 mod utils;
