@@ -27,6 +27,11 @@ unsafe extern "C" {
 /// specified geo filter to be returned.
 ///
 /// This should only be wrapped around readers that return numeric records.
+///
+/// `#[repr(C)]` so that, once `IR` is layout-compatible across `Active`/`Suspended`
+/// instantiations of its inner [`RawIndexReaderCore`](crate::RawIndexReaderCore),
+/// the whole `FilterGeoReader` is too.
+#[repr(C)]
 pub struct FilterGeoReader<'filter, IR> {
     /// Numeric filter with a geo filter set to which a record needs to match to be valid.
     /// This is only needed because the reader needs to be able to return the original numeric

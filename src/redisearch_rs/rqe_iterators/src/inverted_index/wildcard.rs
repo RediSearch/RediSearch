@@ -39,7 +39,7 @@ pub struct Wildcard<'index, E: DecodedBy> {
 
 impl<'index, E> Wildcard<'index, E>
 where
-    E: DecodedBy + OpaqueEncoding<Storage = inverted_index::InvertedIndex<E>>,
+    E: DecodedBy + OpaqueEncoding<Storage = inverted_index::InvertedIndex<E>> + 'index,
     <E as DecodedBy>::Decoder: DocIdsDecoder,
 {
     /// Create an iterator returning all documents from the `existingDocs`
@@ -98,7 +98,7 @@ where
 
 impl<'index, E> RQEIterator<'index> for Wildcard<'index, E>
 where
-    E: DecodedBy + OpaqueEncoding<Storage = inverted_index::InvertedIndex<E>>,
+    E: DecodedBy + OpaqueEncoding<Storage = inverted_index::InvertedIndex<E>> + 'index,
     <E as DecodedBy>::Decoder: DocIdsDecoder,
 {
     #[inline(always)]
